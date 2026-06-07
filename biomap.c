@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include "minmea.h"
 
 #define ADS1115_ADDR (0x48 << 1)
 #define ADS1115_CONV_REG 0x00
@@ -20,8 +21,8 @@ const float ZOOM_MAX = 4.0f;
 // Event Types for the FURI Message Queue
 typedef enum {
     EventTypeTick,
-    EventTypeKey,
-    EventTypeUart
+    EventTypeKey
+    // Note: UART ISR communicates via the nmea_ready flag, not the queue
 } EventType;
 
 typedef struct {
@@ -35,18 +36,19 @@ typedef struct {
     int16_t raw_diff;
     float smoothed_value;
     float rate_of_change;
-    float elevation;      // zoom-scaled value used only for display
-    float elevation_base; // zoom-independent value accumulated for GPX average
-    float elevation_sum;  // FIX #6: accumulate actual per-tick elevations for correct 1-sec average
-    bool smoothed_primed; // FIX: false until EMA is seeded from a real reading (prevents cold-start spike)
+    float elevation_base; // zoom-independent elevation, accumulated for GPX 1-sec average
+    float elevation_sum;  // sum of per-tick elevation_base values; divided at write time
+    bool smoothed_primed; // false until EMA is seeded from a real reading (prevents cold-start spike)
     bool gsr_available;
 
-    // GPS Data
-    char gps_lat[16];
-    char gps_lon[16];
-    char gps_time[16];
+    // GPS Data — stored as parsed types from minmea
+    float gps_lat;              // decimal degrees, NaN when no fix
+    float gps_lon;              // decimal degrees, NaN when no fix
+    struct minmea_time gps_time; // hours/minutes/seconds from GGA or RMC
+    struct minmea_date gps_date; // day/month/year from RMC (GGA has no date)
+    bool gps_fix_valid;          // true once RMC reports valid fix ('A')
 
-    // NMEA double-buffer (FIX #1: ISR-safe staging buffer eliminates race condition)
+    // NMEA double-buffer (ISR-safe staging buffer eliminates race condition)
     // The ISR writes ONLY to nmea_staging[]. It publishes a complete sentence to
     // nmea_buffer[] atomically at sentence boundaries — never mid-sentence.
     char nmea_staging[128];   // Written only by ISR, never read by main loop
@@ -56,10 +58,9 @@ typedef struct {
 
     // System
     int tick_counter;
-    int32_t raw_sum; // FIX #4: was int16_t — overflows when summing 10 x int16_t samples
-    int raw_count;
+    int raw_count; // number of ticks accumulated in current 1-second window
     File* gpx_file;
-    Storage* storage; // FIX #2: kept open for entire app lifetime, not just recording start
+    Storage* storage; // kept open for entire app lifetime, not just recording start
     FuriMessageQueue* event_queue;
     FuriMutex* mutex;
 
@@ -94,7 +95,7 @@ static void render_callback(Canvas* canvas, void* ctx) {
     }
     canvas_draw_str(canvas, 5, 25, gsr_str);
 
-    // Elevation / rate of change — apply zoom here for display only (FIX: zoom not stored in elevation)
+    // Elevation — apply zoom here for display only (zoom not stored in elevation_base)
     snprintf(gsr_str, sizeof(gsr_str), "Elevation: %.2f", (double)(app->elevation_base * app->zoom_level));
     canvas_draw_str(canvas, 5, 35, gsr_str);
 
@@ -102,12 +103,21 @@ static void render_callback(Canvas* canvas, void* ctx) {
     snprintf(gsr_str, sizeof(gsr_str), "Zoom: %.2f", (double)app->zoom_level);
     canvas_draw_str(canvas, 5, 45, gsr_str);
 
-    // GPS coordinates
+    // GPS coordinates — formatted from parsed float values
     char gps_str[64];
-    snprintf(gps_str, sizeof(gps_str), "Lat: %s", app->gps_lat[0] != '\0' ? app->gps_lat : "Waiting...");
+    if(app->gps_fix_valid && !isnan(app->gps_lat)) {
+        snprintf(gps_str, sizeof(gps_str), "Lat: %.5f", (double)app->gps_lat);
+    } else {
+        snprintf(gps_str, sizeof(gps_str), "Lat: Waiting...");
+    }
     canvas_draw_str(canvas, 5, 56, gps_str);
-    snprintf(gps_str, sizeof(gps_str), "Lon: %s", app->gps_lon[0] != '\0' ? app->gps_lon : "Waiting...");
-    canvas_draw_str(canvas, 5, 63, gps_str); // FIX #9: was 64, which is off-screen (display rows: 0–63)
+
+    if(app->gps_fix_valid && !isnan(app->gps_lon)) {
+        snprintf(gps_str, sizeof(gps_str), "Lon: %.5f", (double)app->gps_lon);
+    } else {
+        snprintf(gps_str, sizeof(gps_str), "Lon: Waiting...");
+    }
+    canvas_draw_str(canvas, 5, 63, gps_str); // Y=63 is the last visible row (display: 0-63)
 
     furi_mutex_release(app->mutex);
 }
@@ -120,10 +130,9 @@ static void input_callback(InputEvent* input_event, void* ctx) {
 }
 
 // --- 3. UART GPS INTERRUPT CALLBACK ---
-// This triggers the millisecond a character arrives from the L76K module.
 // ISR-safe: characters are buffered into nmea_staging[]. The published
 // nmea_buffer[] is only overwritten at sentence boundaries, so the main
-// loop always reads a complete, consistent sentence. (FIX #1)
+// loop always reads a complete, consistent sentence.
 static void uart_callback(UartIrqEvent ev, uint8_t data, void* context) {
     if(ev == UartIrqEventRXNE) {
         BioMapApp* app = context;
@@ -141,36 +150,58 @@ static void uart_callback(UartIrqEvent ev, uint8_t data, void* context) {
 }
 
 // --- 3b. NMEA SENTENCE PARSER (runs in main loop, not ISR) ---
+// Uses minmea for robust, checksummed parsing.
+// Handles both GGA (lat/lon/time) and RMC (lat/lon/time/date/validity).
+// RMC is preferred because it includes the date and a validity flag.
+//
+// minmea_sentence_id() validates the checksum internally and returns
+// MINMEA_INVALID for any sentence that fails — no separate minmea_check
+// call needed. strict=false accepts sentences without a trailing checksum
+// (some low-cost modules omit it).
 static void parse_nmea(BioMapApp* app) {
-    // Only parse $GPGGA or $GNGGA sentences
-    if(strncmp(app->nmea_buffer, "$GPGGA", 6) != 0 && strncmp(app->nmea_buffer, "$GNGGA", 6) != 0) {
-        return;
-    }
+    switch(minmea_sentence_id(app->nmea_buffer, false)) {
+        case MINMEA_INVALID:
+            return; // bad checksum, malformed, or empty — discard silently
+        case MINMEA_SENTENCE_RMC: {
+            // RMC provides: time, validity, lat, lon, speed, course, date.
+            // This is the primary source — it's the only standard sentence with a date.
+            struct minmea_sentence_rmc frame;
+            if(minmea_parse_rmc(&frame, app->nmea_buffer)) {
+                app->gps_fix_valid = frame.valid;
+                if(frame.valid) {
+                    app->gps_lat  = minmea_tocoord(&frame.latitude);
+                    app->gps_lon  = minmea_tocoord(&frame.longitude);
+                    app->gps_time = frame.time;
+                    app->gps_date = frame.date;
+                }
+            }
+        } break;
 
-    // Make a local copy so strtok doesn't corrupt the shared buffer
-    char copy[128];
-    strncpy(copy, app->nmea_buffer, 127);
-    copy[127] = '\0';
+        case MINMEA_SENTENCE_GGA: {
+            // GGA provides: time, lat, lon, fix_quality, satellites, altitude.
+            // Used as a supplementary source for coordinates when RMC hasn't arrived.
+            // fix_quality > 0 means a fix is active; we don't override gps_fix_valid
+            // here because GGA has no validity flag in the same strict sense as RMC.
+            struct minmea_sentence_gga frame;
+            if(minmea_parse_gga(&frame, app->nmea_buffer)) {
+                if(frame.fix_quality > 0) {
+                    float lat = minmea_tocoord(&frame.latitude);
+                    float lon = minmea_tocoord(&frame.longitude);
+                    // Only update if we don't already have a valid RMC fix,
+                    // or if the values are not NaN (valid parse)
+                    if(!app->gps_fix_valid && !isnan(lat) && !isnan(lon)) {
+                        app->gps_lat  = lat;
+                        app->gps_lon  = lon;
+                        app->gps_time = frame.time;
+                        // GGA has no date — leave gps_date as-is
+                    }
+                }
+            }
+        } break;
 
-    int commas = 0;
-    char* token = strtok(copy, ",");
-    while(token != NULL) {
-        switch(commas) {
-        case 1: // UTC Time (HHMMSS.SS)
-            strncpy(app->gps_time, token, 15);
-            app->gps_time[15] = '\0'; // FIX #8: strncpy does not null-terminate if src >= n chars
+        default:
+            // Ignore all other sentence types (GSA, GSV, VTG, etc.)
             break;
-        case 2: // Latitude
-            strncpy(app->gps_lat, token, 15);
-            app->gps_lat[15] = '\0'; // FIX #8
-            break;
-        case 4: // Longitude
-            strncpy(app->gps_lon, token, 15);
-            app->gps_lon[15] = '\0'; // FIX #8
-            break;
-        }
-        token = strtok(NULL, ",");
-        commas++;
     }
 }
 
@@ -187,14 +218,13 @@ int32_t biomap_app(void* p) {
 
     // Allocate Memory & Initialize App State
     BioMapApp* app = malloc(sizeof(BioMapApp));
-    furi_assert(app); // FIX #5: assert rather than silently dereference a NULL pointer
+    furi_assert(app); // assert rather than silently dereference a NULL pointer
 
     app->event_queue = furi_message_queue_alloc(8, sizeof(PluginEvent));
     app->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     app->smoothed_value = 0.0f;
     app->smoothed_primed = false;
     app->tick_counter = 0;
-    app->raw_sum = 0;
     app->raw_count = 0;
     app->elevation_sum = 0.0f;
     app->nmea_staging_index = 0;
@@ -202,15 +232,19 @@ int32_t biomap_app(void* p) {
     app->gsr_available = true;
     app->recording = false;
     app->zoom_level = 1.0f;
-    memset(app->gps_lat, 0, 16);
-    memset(app->gps_lon, 0, 16);
-    memset(app->gps_time, 0, 16);
+
+    // Initialise GPS state — NaN signals "no fix yet" throughout the code
+    app->gps_lat = NAN;
+    app->gps_lon = NAN;
+    app->gps_fix_valid = false;
+    memset(&app->gps_time, -1, sizeof(app->gps_time)); // minmea uses -1 for "unknown"
+    memset(&app->gps_date, -1, sizeof(app->gps_date));
+
     memset(app->nmea_staging, 0, 128);
     memset(app->nmea_buffer, 0, 128);
     app->gpx_file = NULL;
 
-    // FIX #2: Open Storage once at startup and keep it open for the app's lifetime.
-    // Calling furi_record_close(RECORD_STORAGE) while gpx_file is still in use was UB.
+    // Open Storage once at startup and keep it open for the app's lifetime.
     app->storage = furi_record_open(RECORD_STORAGE);
 
     // Setup GUI ViewPort
@@ -223,7 +257,7 @@ int32_t biomap_app(void* p) {
     // Hardware Setup: Reroute GPS Controls
     furi_hal_gpio_init(&gpio_ext_pc3, GpioModeOutputPushPull, GpioPullNo, GpioSpeedLow); // RESET
     furi_hal_gpio_init(&gpio_ext_pb2, GpioModeOutputPushPull, GpioPullNo, GpioSpeedLow); // STANDBY
-    // FIX #12: Drive GPS control pins to their active-high idle state.
+    // Drive GPS control pins to their active-high idle state.
     // Without this, RESET and STANDBY float and the L76K may not initialise correctly.
     furi_hal_gpio_write(&gpio_ext_pc3, true); // RESET high = module running normally
     furi_hal_gpio_write(&gpio_ext_pb2, true); // STANDBY high = module fully active
@@ -235,8 +269,7 @@ int32_t biomap_app(void* p) {
     // Setup ADS1115 via I2C: Continuous conversion, ±2.048V, 8 SPS
     // Config = 0x8400: OS=1, MUX=000(AIN0-AIN1), PGA=010(±2.048V),
     //                  MODE=0(continuous), DR=000(8 SPS), COMP_QUE=11(disabled)
-    // FIX: was 1600 SPS (0x83) — at 10 Hz polling, 159/160 conversions were discarded.
-    // At 8 SPS the ADS1115 decimation filter averages the full bitstream for true
+    // 8 SPS: the ADS1115 decimation filter averages the full bitstream for true
     // 16-bit resolution. At 1600 SPS the effective noise floor is ~3 bits worse.
     uint8_t config[2] = {0x84, 0x00};
     if(!furi_hal_i2c_write_mem(&furi_hal_i2c_handle_external, ADS1115_ADDR, ADS1115_CONFIG_REG, config, 2, 100)) {
@@ -263,8 +296,6 @@ int32_t biomap_app(void* p) {
                 case InputKeyOk:
                     app->recording = !app->recording; // Toggle recording
                     if(app->recording) {
-                        // FIX #2: Use app->storage (already open); no furi_record_close here
-                        // FIX #3: Handle storage_file_open failure — free handle and abort
                         app->gpx_file = storage_file_alloc(app->storage);
                         if(storage_file_open(app->gpx_file, EXT_PATH("biomap_walk.gpx"),
                                              FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
@@ -276,8 +307,7 @@ int32_t biomap_app(void* p) {
                                 "    <trkseg>\n";
                             storage_file_write(app->gpx_file, hdr, strlen(hdr));
                         } else {
-                            // FIX #3: File open failed — free the allocated handle and
-                            // roll back the recording toggle to avoid writing to a bad handle
+                            // File open failed — free the allocated handle and abort
                             storage_file_free(app->gpx_file);
                             app->gpx_file = NULL;
                             app->recording = false;
@@ -310,7 +340,7 @@ int32_t biomap_app(void* p) {
             if(event.type == EventTypeTick) {
                 furi_mutex_acquire(app->mutex, FuriWaitForever);
 
-                // FIX #1: Clear nmea_ready BEFORE reading the buffer to minimise the
+                // Clear nmea_ready BEFORE reading the buffer to minimise the
                 // window in which the ISR could publish a new sentence mid-parse.
                 if(app->nmea_ready) {
                     app->nmea_ready = false;
@@ -321,7 +351,7 @@ int32_t biomap_app(void* p) {
                 if(app->gsr_available) {
                     uint8_t data[2];
                     if(furi_hal_i2c_read_mem(&furi_hal_i2c_handle_external, ADS1115_ADDR,
-                                             ADS1115_CONV_REG, data, 2, 50)) { // FIX: 10ms → 50ms timeout
+                                             ADS1115_CONV_REG, data, 2, 50)) { // 50ms timeout
                         app->raw_diff = (data[0] << 8) | data[1];
                     } else {
                         app->raw_diff = 0; // I2C glitch — use zero
@@ -330,7 +360,7 @@ int32_t biomap_app(void* p) {
                     app->raw_diff = 0; // No sensor — always zero
                 }
 
-                // FIX: Prime the EMA from the first real reading to prevent the cold-start
+                // Prime the EMA from the first real reading to prevent the cold-start
                 // transient. Without this, smoothed_value starts at 0 and ramps to the
                 // user's real baseline over ~3s, producing a large artificial spike at start.
                 if(!app->smoothed_primed) {
@@ -344,23 +374,19 @@ int32_t biomap_app(void* p) {
                 app->rate_of_change = current_smoothed - app->smoothed_value;
                 app->smoothed_value = current_smoothed;
 
-                // FIX: Store elevation WITHOUT zoom so the 1-second accumulator is
+                // Store elevation WITHOUT zoom so the 1-second accumulator is
                 // consistent even if the user presses Up/Down mid-second. Zoom is
                 // applied separately at display time (render_callback) and GPX write time.
                 app->elevation_base = -(app->rate_of_change) * ELEVATION_SCALE;
-                app->elevation = app->elevation_base * app->zoom_level; // display-only copy
 
-                // Accumulate raw readings and per-tick elevations for 1-second average
-                app->raw_sum += app->raw_diff;            // FIX #4: raw_sum is now int32_t
+                // Accumulate per-tick elevations for 1-second average
                 app->raw_count++;
-                app->elevation_sum += app->elevation_base; // FIX #6: accumulate zoom-free elevations
+                app->elevation_sum += app->elevation_base; // accumulate zoom-free elevations
                 app->tick_counter++;
 
                 // --- 1-Second Buffer: average 10 readings, write to SD ---
                 if(app->tick_counter >= 10) {
-                    // FIX #6: Average the 10 actual computed elevations rather than
-                    // recomputing a hypothetical one-step EMA from raw_sum (which was
-                    // disconnected from the live smoothed_value stream shown on screen).
+                    // Average the 10 actual computed elevations.
                     // Apply the current zoom to the averaged base elevation at write time.
                     // Because elevation_sum is zoom-free, changing zoom mid-second no longer
                     // corrupts the average — zoom is always applied to the final number.
@@ -368,35 +394,48 @@ int32_t biomap_app(void* p) {
                         ? (app->elevation_sum / (float)app->raw_count) * app->zoom_level
                         : 0.0f;
 
-                    if(app->recording && app->gpx_file && app->gps_lat[0] != '\0') {
-                        // Build a time string from NMEA time if available.
-                        // Note: GPGGA only provides time, not date. Date defaults to epoch.
-                        // For a full timestamp, also parse GPRMC or GPZDA sentences.
+                    // Only write a trackpoint if we have a valid GPS fix
+                    if(app->recording && app->gpx_file && app->gps_fix_valid) {
+                        // Build a full ISO8601 timestamp from minmea parsed fields.
+                        // RMC provides both date and time; fall back to epoch if missing.
                         char time_str[32] = "1970-01-01T00:00:00Z";
-                        if(app->gps_time[0] != '\0' && strlen(app->gps_time) >= 6) {
-                            // NMEA time is HHMMSS.SS → ISO8601 time-of-day
-                            char h[3] = {app->gps_time[0], app->gps_time[1], '\0'};
-                            char m[3] = {app->gps_time[2], app->gps_time[3], '\0'};
-                            char s[3] = {app->gps_time[4], app->gps_time[5], '\0'};
-                            // FIX #7: %02s is undefined behaviour in C. h/m/s are already
-                            // exactly 2-character strings, so plain %s is sufficient.
+                        if(app->gps_time.hours != -1 && app->gps_date.year != -1) {
+                            // minmea stores 2-digit years; add 2000 for 21st century
+                            int full_year = (app->gps_date.year < 80)
+                                ? 2000 + app->gps_date.year
+                                : 1900 + app->gps_date.year;
                             snprintf(time_str, sizeof(time_str),
-                                     "1970-01-01T%s:%s:%sZ", h, m, s);
+                                     "%04d-%02d-%02dT%02d:%02d:%02dZ",
+                                     full_year,
+                                     app->gps_date.month,
+                                     app->gps_date.day,
+                                     app->gps_time.hours,
+                                     app->gps_time.minutes,
+                                     app->gps_time.seconds);
+                        } else if(app->gps_time.hours != -1) {
+                            // Time available but no date (GGA-only)
+                            snprintf(time_str, sizeof(time_str),
+                                     "1970-01-01T%02d:%02d:%02dZ",
+                                     app->gps_time.hours,
+                                     app->gps_time.minutes,
+                                     app->gps_time.seconds);
                         }
 
+                        // Write trackpoint using decimal-degree coordinates from minmea
                         char gpx_string[256];
                         snprintf(gpx_string, sizeof(gpx_string),
-                            "      <trkpt lat=\"%s\" lon=\"%s\">\n"
+                            "      <trkpt lat=\"%.6f\" lon=\"%.6f\">\n"
                             "        <ele>%.2f</ele>\n"
                             "        <time>%s</time>\n"
                             "      </trkpt>\n",
-                            app->gps_lat, app->gps_lon,
-                            (double)avg_elevation, time_str);
+                            (double)app->gps_lat,
+                            (double)app->gps_lon,
+                            (double)avg_elevation,
+                            time_str);
                         storage_file_write(app->gpx_file, gpx_string, strlen(gpx_string));
                     }
                     // Reset 1-second buffer
                     app->tick_counter = 0;
-                    app->raw_sum = 0;
                     app->raw_count = 0;
                     app->elevation_sum = 0.0f;
                 }
@@ -411,7 +450,7 @@ int32_t biomap_app(void* p) {
     furi_timer_stop(timer);
     furi_timer_free(timer);
     furi_hal_uart_set_irq_cb(FuriHalUartIdUSART1, NULL, NULL); // Disable GPS UART IRQ
-    furi_hal_uart_deinit(FuriHalUartIdUSART1); // FIX #11: deinitialise peripheral; was left active
+    furi_hal_uart_deinit(FuriHalUartIdUSART1); // deinitialise peripheral
 
     // Close GPX if still open (user pressed Back while recording)
     if(app->gpx_file) {
@@ -421,7 +460,7 @@ int32_t biomap_app(void* p) {
         storage_file_free(app->gpx_file);
     }
 
-    // FIX #2: Close Storage once here, after all file I/O is complete
+    // Close Storage once here, after all file I/O is complete
     furi_record_close(RECORD_STORAGE);
 
     gui_remove_view_port(gui, view_port);
