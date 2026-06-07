@@ -35,7 +35,7 @@ typedef struct {
     // GSR Data
     int16_t raw_diff;
     float smoothed_value;
-    float rate_of_change;
+    // rate_of_change is not a stored field — it is computed and consumed
     float elevation_base; // zoom-independent elevation, accumulated for GPX 1-sec average
     float elevation_sum;  // sum of per-tick elevation_base values; divided at write time
     bool smoothed_primed; // false until EMA is seeded from a real reading (prevents cold-start spike)
@@ -312,7 +312,8 @@ int32_t biomap_app(void* p) {
                             app->gpx_file = NULL;
                             app->recording = false;
                         }
-                        app->tick_counter = 0; // Reset buffer on new recording
+                        app->tick_counter = 0; // Reset 1-sec buffer on new recording start
+                        app->raw_count = 0;
                         app->elevation_sum = 0.0f;
                     } else {
                         // Close GPX file on stop
@@ -368,16 +369,18 @@ int32_t biomap_app(void* p) {
                     app->smoothed_primed = true;
                 }
 
-                // Signal Processing: EMA Smoothing + Derivative
+                // Signal Processing: EMA Smoothing + Derivative.
+                // rate_of_change is a local — it is computed and consumed in the same
+                // tick; there is no need to persist it across ticks in the struct.
                 float current_smoothed = (EMA_ALPHA * (float)app->raw_diff) +
                                          ((1.0f - EMA_ALPHA) * app->smoothed_value);
-                app->rate_of_change = current_smoothed - app->smoothed_value;
+                float rate_of_change = current_smoothed - app->smoothed_value;
                 app->smoothed_value = current_smoothed;
 
                 // Store elevation WITHOUT zoom so the 1-second accumulator is
                 // consistent even if the user presses Up/Down mid-second. Zoom is
                 // applied separately at display time (render_callback) and GPX write time.
-                app->elevation_base = -(app->rate_of_change) * ELEVATION_SCALE;
+                app->elevation_base = -(rate_of_change) * ELEVATION_SCALE;
 
                 // Accumulate per-tick elevations for 1-second average
                 app->raw_count++;
