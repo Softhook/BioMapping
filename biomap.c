@@ -31,6 +31,16 @@ typedef struct {
     InputEvent input;
 } PluginEvent;
 
+typedef struct {
+    float lat;
+    float lon;
+    struct minmea_time time;
+    struct minmea_date date;
+    bool fix_valid;
+    int sats;
+    int quality;
+} GpsData;
+
 // Global Application State
 typedef struct {
     // GSR Data
@@ -42,20 +52,13 @@ typedef struct {
     bool smoothed_primed; // false until EMA is seeded from a real reading (prevents cold-start spike)
     bool gsr_available;
 
-    // GPS Data — stored as parsed types from minmea
-    float gps_lat;              // decimal degrees, NaN when no fix
-    float gps_lon;              // decimal degrees, NaN when no fix
-    struct minmea_time gps_time; // hours/minutes/seconds from GGA or RMC
-    struct minmea_date gps_date; // day/month/year from RMC (GGA has no date)
-    bool gps_fix_valid;          // true once RMC reports valid fix ('A')
-
-    // NMEA double-buffer (ISR-safe staging buffer eliminates race condition)
-    // The ISR writes ONLY to nmea_staging[]. It publishes a complete sentence to
-    // nmea_buffer[] atomically at sentence boundaries — never mid-sentence.
-    char nmea_staging[128];   // Written only by ISR, never read by main loop
+    // NMEA ISR staging buffer
+    char nmea_staging[128];
     uint8_t nmea_staging_index;
-    char nmea_buffer[128];    // Written by ISR on completion; read by main loop
-    bool nmea_ready;
+
+    // Double-buffered GPS Data (Lock-free ISR-to-main communication)
+    volatile uint8_t gps_data_idx;
+    GpsData gps_data[2];
 
     // System
     int tick_counter;
@@ -105,12 +108,29 @@ static void render_callback(Canvas* canvas, void* ctx) {
     snprintf(gsr_str, sizeof(gsr_str), "Zoom: %.2f", (double)app->zoom_level);
     canvas_draw_str(canvas, 5, 45, gsr_str);
 
+    // Fetch the active GPS data block atomically
+    GpsData gps = app->gps_data[app->gps_data_idx];
+
+    // GPS status on the right side of the screen
+    if(app->serial_handle != NULL) {
+        char sat_str[32];
+        snprintf(sat_str, sizeof(sat_str), "Sats: %d", gps.sats);
+        canvas_draw_str(canvas, 80, 45, sat_str);
+
+        char fix_str[32];
+        const char* fix_type = "None";
+        if(gps.quality == 1) fix_type = "GPS";
+        else if(gps.quality == 2) fix_type = "DGPS";
+        snprintf(fix_str, sizeof(fix_str), "Fix: %s", fix_type);
+        canvas_draw_str(canvas, 80, 35, fix_str);
+    }
+
     // GPS coordinates — formatted from parsed float values
     char gps_str[64];
     if(app->serial_handle == NULL) {
         snprintf(gps_str, sizeof(gps_str), "Lat: UART Locked!");
-    } else if(app->gps_fix_valid && !isnan(app->gps_lat)) {
-        snprintf(gps_str, sizeof(gps_str), "Lat: %.5f", (double)app->gps_lat);
+    } else if(gps.fix_valid && !isnan(gps.lat)) {
+        snprintf(gps_str, sizeof(gps_str), "Lat: %.5f", (double)gps.lat);
     } else {
         snprintf(gps_str, sizeof(gps_str), "Lat: Waiting...");
     }
@@ -118,8 +138,8 @@ static void render_callback(Canvas* canvas, void* ctx) {
 
     if(app->serial_handle == NULL) {
         snprintf(gps_str, sizeof(gps_str), "Lon: Check System Debug");
-    } else if(app->gps_fix_valid && !isnan(app->gps_lon)) {
-        snprintf(gps_str, sizeof(gps_str), "Lon: %.5f", (double)app->gps_lon);
+    } else if(gps.fix_valid && !isnan(gps.lon)) {
+        snprintf(gps_str, sizeof(gps_str), "Lon: %.5f", (double)gps.lon);
     } else {
         snprintf(gps_str, sizeof(gps_str), "Lon: Waiting...");
     }
@@ -136,90 +156,72 @@ static void input_callback(InputEvent* input_event, void* ctx) {
 }
 
 // --- 3. UART GPS INTERRUPT CALLBACK ---
-// ISR-safe: characters are buffered into nmea_staging[]. The published
-// nmea_buffer[] is only overwritten at sentence boundaries, so the main
-// loop always reads a complete, consistent sentence.
-//
+// ISR-safe: parses NMEA sentences directly on completion, updating the
+// double-buffered lock-free state.
+static void parse_nmea_isr(BioMapApp* app, const char* line) {
+    int sentence = minmea_sentence_id(line, false);
+    if(sentence == MINMEA_INVALID) return;
+    if(sentence != MINMEA_SENTENCE_RMC && sentence != MINMEA_SENTENCE_GGA) return;
+
+    uint8_t next_idx = 1 - app->gps_data_idx;
+    
+    // Copy the current active state to the staging slot
+    memcpy(&app->gps_data[next_idx], &app->gps_data[app->gps_data_idx], sizeof(GpsData));
+
+    bool updated = false;
+
+    if(sentence == MINMEA_SENTENCE_RMC) {
+        struct minmea_sentence_rmc frame;
+        if(minmea_parse_rmc(&frame, line)) {
+            app->gps_data[next_idx].fix_valid = frame.valid;
+            if(frame.valid) {
+                app->gps_data[next_idx].lat = minmea_tocoord(&frame.latitude);
+                app->gps_data[next_idx].lon = minmea_tocoord(&frame.longitude);
+                app->gps_data[next_idx].time = frame.time;
+                app->gps_data[next_idx].date = frame.date;
+            }
+            updated = true;
+        }
+    } else if(sentence == MINMEA_SENTENCE_GGA) {
+        struct minmea_sentence_gga frame;
+        if(minmea_parse_gga(&frame, line)) {
+            app->gps_data[next_idx].sats = frame.satellites_tracked;
+            app->gps_data[next_idx].quality = frame.fix_quality;
+            if(frame.fix_quality > 0) {
+                float lat = minmea_tocoord(&frame.latitude);
+                float lon = minmea_tocoord(&frame.longitude);
+                if(!app->gps_data[next_idx].fix_valid && !isnan(lat) && !isnan(lon)) {
+                    app->gps_data[next_idx].lat = lat;
+                    app->gps_data[next_idx].lon = lon;
+                    app->gps_data[next_idx].time = frame.time;
+                }
+            }
+            updated = true;
+        }
+    }
+
+    if(updated) {
+        app->gps_data_idx = next_idx;
+    }
+}
+
 // New SDK (>= 0.19) serial API: callback receives (handle, event, context).
-// Data bytes arrive as FuriHalSerialRxEventData events; fetch with
-// furi_hal_serial_async_rx(). All other events (idle, errors) are ignored.
 static void uart_callback(
     FuriHalSerialHandle* handle,
     FuriHalSerialRxEvent event,
     void* context) {
     if(event == FuriHalSerialRxEventData) {
         BioMapApp* app = context;
-        // Drain all available bytes in this interrupt — furi_hal_serial_async_rx_available
-        // ensures we don't miss back-to-back bytes delivered in one IRQ.
         while(furi_hal_serial_async_rx_available(handle)) {
             uint8_t data = furi_hal_serial_async_rx(handle);
             if(data == '\n' || app->nmea_staging_index >= 127) {
-                // Sentence complete — publish atomically to the stable read buffer
                 app->nmea_staging[app->nmea_staging_index] = '\0';
-                memcpy(app->nmea_buffer, app->nmea_staging, app->nmea_staging_index + 1);
-                app->nmea_buffer[127] = '\0'; // Belt-and-suspenders termination
-                app->nmea_ready = true;
+                parse_nmea_isr(app, app->nmea_staging);
                 app->nmea_staging_index = 0;
             } else {
                 app->nmea_staging[app->nmea_staging_index++] = data;
             }
         }
-    }
-}
-
-// --- 3b. NMEA SENTENCE PARSER (runs in main loop, not ISR) ---
-// Uses minmea for robust, checksummed parsing.
-// Handles both GGA (lat/lon/time) and RMC (lat/lon/time/date/validity).
-// RMC is preferred because it includes the date and a validity flag.
-//
-// minmea_sentence_id() validates the checksum internally and returns
-// MINMEA_INVALID for any sentence that fails — no separate minmea_check
-// call needed. strict=false accepts sentences without a trailing checksum
-// (some low-cost modules omit it).
-static void parse_nmea(BioMapApp* app) {
-    switch(minmea_sentence_id(app->nmea_buffer, false)) {
-        case MINMEA_INVALID:
-            return; // bad checksum, malformed, or empty — discard silently
-        case MINMEA_SENTENCE_RMC: {
-            // RMC provides: time, validity, lat, lon, speed, course, date.
-            // This is the primary source — it's the only standard sentence with a date.
-            struct minmea_sentence_rmc frame;
-            if(minmea_parse_rmc(&frame, app->nmea_buffer)) {
-                app->gps_fix_valid = frame.valid;
-                if(frame.valid) {
-                    app->gps_lat  = minmea_tocoord(&frame.latitude);
-                    app->gps_lon  = minmea_tocoord(&frame.longitude);
-                    app->gps_time = frame.time;
-                    app->gps_date = frame.date;
-                }
-            }
-        } break;
-
-        case MINMEA_SENTENCE_GGA: {
-            // GGA provides: time, lat, lon, fix_quality, satellites, altitude.
-            // Used as a supplementary source for coordinates when RMC hasn't arrived.
-            // fix_quality > 0 means a fix is active; we don't override gps_fix_valid
-            // here because GGA has no validity flag in the same strict sense as RMC.
-            struct minmea_sentence_gga frame;
-            if(minmea_parse_gga(&frame, app->nmea_buffer)) {
-                if(frame.fix_quality > 0) {
-                    float lat = minmea_tocoord(&frame.latitude);
-                    float lon = minmea_tocoord(&frame.longitude);
-                    // Only update if we don't already have a valid RMC fix,
-                    // or if the values are not NaN (valid parse)
-                    if(!app->gps_fix_valid && !isnan(lat) && !isnan(lon)) {
-                        app->gps_lat  = lat;
-                        app->gps_lon  = lon;
-                        app->gps_time = frame.time;
-                        // GGA has no date — leave gps_date as-is
-                    }
-                }
-            }
-        } break;
-
-        default:
-            // Ignore all other sentence types (GSA, GSV, VTG, etc.)
-            break;
     }
 }
 
@@ -246,20 +248,23 @@ int32_t biomap_app(void* p) {
     app->raw_count = 0;
     app->elevation_sum = 0.0f;
     app->nmea_staging_index = 0;
-    app->nmea_ready = false;
     app->gsr_available = true;
     app->recording = false;
     app->zoom_level = 1.0f;
 
-    // Initialise GPS state — NaN signals "no fix yet" throughout the code
-    app->gps_lat = NAN;
-    app->gps_lon = NAN;
-    app->gps_fix_valid = false;
-    memset(&app->gps_time, -1, sizeof(app->gps_time)); // minmea uses -1 for "unknown"
-    memset(&app->gps_date, -1, sizeof(app->gps_date));
+    // Initialise double-buffered GPS state — NaN signals "no fix yet" throughout the code
+    app->gps_data_idx = 0;
+    for(int i = 0; i < 2; i++) {
+        app->gps_data[i].lat = NAN;
+        app->gps_data[i].lon = NAN;
+        app->gps_data[i].fix_valid = false;
+        app->gps_data[i].sats = 0;
+        app->gps_data[i].quality = 0;
+        memset(&app->gps_data[i].time, -1, sizeof(struct minmea_time));
+        memset(&app->gps_data[i].date, -1, sizeof(struct minmea_date));
+    }
 
     memset(app->nmea_staging, 0, 128);
-    memset(app->nmea_buffer, 0, 128);
     app->gpx_file = NULL;
 
     // Disable expansion modules to prevent interference with the serial port
@@ -282,13 +287,17 @@ int32_t biomap_app(void* p) {
     Gui* gui = furi_record_open(RECORD_GUI);
     gui_add_view_port(gui, view_port, GuiLayerFullscreen);
 
-    // Hardware Setup: Reroute GPS Controls
-    furi_hal_gpio_init(&gpio_ext_pc3, GpioModeOutputPushPull, GpioPullNo, GpioSpeedLow); // RESET
-    furi_hal_gpio_init(&gpio_ext_pb2, GpioModeOutputPushPull, GpioPullNo, GpioSpeedLow); // STANDBY
-    // Drive GPS control pins to their active-high idle state.
-    // Without this, RESET and STANDBY float and the L76K may not initialise correctly.
-    furi_hal_gpio_write(&gpio_ext_pc3, true); // RESET high = module running normally
-    furi_hal_gpio_write(&gpio_ext_pb2, true); // STANDBY high = module fully active
+    // Hardware Setup: Default GPS Controls (Pins 15 & 16 / PC1 & PC0)
+    // Because traces are not cut, SCL (Pin 15 / PC1) and SDA (Pin 16 / PC0) are still
+    // wired to RESET and STANDBY. We drive them statically HIGH to keep the module active.
+    furi_hal_gpio_init(&gpio_ext_pc1, GpioModeOutputPushPull, GpioPullNo, GpioSpeedLow);
+    furi_hal_gpio_init(&gpio_ext_pc0, GpioModeOutputPushPull, GpioPullNo, GpioSpeedLow);
+    // Standby HIGH (exits standby mode)
+    furi_hal_gpio_write(&gpio_ext_pc0, true);
+    // Perform a hardware reset pulse (active-low RESET driven low for 100ms, then high)
+    furi_hal_gpio_write(&gpio_ext_pc1, false);
+    furi_delay_ms(100);
+    furi_hal_gpio_write(&gpio_ext_pc1, true);
 
     // Setup GPS Serial (L76K on USART1, 9600 8N1)
     // Acquire the handle first — this takes ownership of the peripheral and its GPIO
@@ -296,22 +305,13 @@ int32_t biomap_app(void* p) {
     app->serial_handle = furi_hal_serial_control_acquire(FuriHalSerialIdUsart);
     if(app->serial_handle) {
         furi_hal_serial_init(app->serial_handle, 9600);
-        // Enable internal pull-up on RX pin (gpio_ext_pb7 / Pin 14) to prevent floating noise interrupts when the GPS board is disconnected
-        furi_hal_gpio_init(&gpio_ext_pb7, GpioModeAltFnPushPull, GpioPullUp, GpioSpeedLow);
+        // Enable internal pull-up on RX pin (gpio_ext_pa7 / Pin 14) to prevent floating noise interrupts when the GPS board is disconnected
+        furi_hal_gpio_init_ex(&gpio_ext_pa7, GpioModeAltFunctionPushPull, GpioPullUp, GpioSpeedLow, GpioAltFn7USART1);
         furi_hal_serial_async_rx_start(app->serial_handle, uart_callback, app, false);
     }
 
-    // Setup ADS1115 via I2C: Continuous conversion, ±2.048V, 8 SPS
-    // Config = 0x8400: OS=1, MUX=000(AIN0-AIN1), PGA=010(±2.048V),
-    //                  MODE=0(continuous), DR=000(8 SPS), COMP_QUE=11(disabled)
-    // 8 SPS: the ADS1115 decimation filter averages the full bitstream for true
-    // 16-bit resolution. At 1600 SPS the effective noise floor is ~3 bits worse.
-    uint8_t config[2] = {0x84, 0x00};
-    furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
-    if(!furi_hal_i2c_write_mem(&furi_hal_i2c_handle_external, ADS1115_ADDR, ADS1115_CONFIG_REG, config, 2, 100)) {
-        app->gsr_available = false; // ADS1115 not found — fall back to zeros
-    }
-    furi_hal_i2c_release(&furi_hal_i2c_handle_external);
+    // Disable I2C communication entirely so SCL & SDA (Pins 15/16) stay statically high
+    app->gsr_available = false;
 
     // Start 10Hz Timer
     FuriTimer* timer = furi_timer_alloc(timer_callback, FuriTimerTypePeriodic, app->event_queue);
@@ -378,12 +378,8 @@ int32_t biomap_app(void* p) {
             if(event.type == EventTypeTick) {
                 furi_mutex_acquire(app->mutex, FuriWaitForever);
 
-                // Clear nmea_ready BEFORE reading the buffer to minimise the
-                // window in which the ISR could publish a new sentence mid-parse.
-                if(app->nmea_ready) {
-                    app->nmea_ready = false;
-                    parse_nmea(app);
-                }
+                // Fetch the active GPS data block atomically
+                GpsData gps = app->gps_data[app->gps_data_idx];
 
                 // --- Read ADS1115 (fall back to 0 if unavailable) ---
                 if(app->gsr_available) {
@@ -437,30 +433,30 @@ int32_t biomap_app(void* p) {
                         : 0.0f;
 
                     // Only write a trackpoint if we have a valid GPS fix
-                    if(app->recording && app->gpx_file && app->gps_fix_valid) {
+                    if(app->recording && app->gpx_file && gps.fix_valid) {
                         // Build a full ISO8601 timestamp from minmea parsed fields.
                         // RMC provides both date and time; fall back to epoch if missing.
                         char time_str[32] = "1970-01-01T00:00:00Z";
-                        if(app->gps_time.hours != -1 && app->gps_date.year != -1) {
+                        if(gps.time.hours != -1 && gps.date.year != -1) {
                             // minmea stores 2-digit years; add 2000 for 21st century
-                            int full_year = (app->gps_date.year < 80)
-                                ? 2000 + app->gps_date.year
-                                : 1900 + app->gps_date.year;
+                            int full_year = (gps.date.year < 80)
+                                ? 2000 + gps.date.year
+                                : 1900 + gps.date.year;
                             snprintf(time_str, sizeof(time_str),
                                      "%04d-%02d-%02dT%02d:%02d:%02dZ",
                                      full_year,
-                                     app->gps_date.month,
-                                     app->gps_date.day,
-                                     app->gps_time.hours,
-                                     app->gps_time.minutes,
-                                     app->gps_time.seconds);
-                        } else if(app->gps_time.hours != -1) {
+                                     gps.date.month,
+                                     gps.date.day,
+                                     gps.time.hours,
+                                     gps.time.minutes,
+                                     gps.time.seconds);
+                        } else if(gps.time.hours != -1) {
                             // Time available but no date (GGA-only)
                             snprintf(time_str, sizeof(time_str),
                                      "1970-01-01T%02d:%02d:%02dZ",
-                                     app->gps_time.hours,
-                                     app->gps_time.minutes,
-                                     app->gps_time.seconds);
+                                     gps.time.hours,
+                                     gps.time.minutes,
+                                     gps.time.seconds);
                         }
 
                         // Write trackpoint using decimal-degree coordinates from minmea
@@ -470,8 +466,8 @@ int32_t biomap_app(void* p) {
                             "        <ele>%.2f</ele>\n"
                             "        <time>%s</time>\n"
                             "      </trkpt>\n",
-                            (double)app->gps_lat,
-                            (double)app->gps_lon,
+                            (double)gps.lat,
+                            (double)gps.lon,
                             (double)avg_elevation,
                             time_str);
                         storage_file_write(app->gpx_file, gpx_string, strlen(gpx_string));
@@ -505,6 +501,10 @@ int32_t biomap_app(void* p) {
         expansion_enable(expansion);
         furi_record_close(RECORD_EXPANSION);
     }
+
+    // Reset Pins 15 & 16 to default analog/floating state
+    furi_hal_gpio_init(&gpio_ext_pc1, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
+    furi_hal_gpio_init(&gpio_ext_pc0, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
 
     // Close GPX if still open (user pressed Back while recording)
     if(app->gpx_file) {
