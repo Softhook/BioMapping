@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <expansion/expansion.h>
 #include "minmea.h"
 
 #define ADS1115_ADDR (0x48 << 1)
@@ -61,6 +62,7 @@ typedef struct {
     int raw_count; // number of ticks accumulated in current 1-second window
     File* gpx_file;
     Storage* storage; // kept open for entire app lifetime, not just recording start
+    FuriHalSerialHandle* serial_handle; // acquired on init, released on shutdown
     FuriMessageQueue* event_queue;
     FuriMutex* mutex;
 
@@ -105,14 +107,18 @@ static void render_callback(Canvas* canvas, void* ctx) {
 
     // GPS coordinates — formatted from parsed float values
     char gps_str[64];
-    if(app->gps_fix_valid && !isnan(app->gps_lat)) {
+    if(app->serial_handle == NULL) {
+        snprintf(gps_str, sizeof(gps_str), "Lat: UART Locked!");
+    } else if(app->gps_fix_valid && !isnan(app->gps_lat)) {
         snprintf(gps_str, sizeof(gps_str), "Lat: %.5f", (double)app->gps_lat);
     } else {
         snprintf(gps_str, sizeof(gps_str), "Lat: Waiting...");
     }
     canvas_draw_str(canvas, 5, 56, gps_str);
 
-    if(app->gps_fix_valid && !isnan(app->gps_lon)) {
+    if(app->serial_handle == NULL) {
+        snprintf(gps_str, sizeof(gps_str), "Lon: Check System Debug");
+    } else if(app->gps_fix_valid && !isnan(app->gps_lon)) {
         snprintf(gps_str, sizeof(gps_str), "Lon: %.5f", (double)app->gps_lon);
     } else {
         snprintf(gps_str, sizeof(gps_str), "Lon: Waiting...");
@@ -133,18 +139,30 @@ static void input_callback(InputEvent* input_event, void* ctx) {
 // ISR-safe: characters are buffered into nmea_staging[]. The published
 // nmea_buffer[] is only overwritten at sentence boundaries, so the main
 // loop always reads a complete, consistent sentence.
-static void uart_callback(UartIrqEvent ev, uint8_t data, void* context) {
-    if(ev == UartIrqEventRXNE) {
+//
+// New SDK (>= 0.19) serial API: callback receives (handle, event, context).
+// Data bytes arrive as FuriHalSerialRxEventData events; fetch with
+// furi_hal_serial_async_rx(). All other events (idle, errors) are ignored.
+static void uart_callback(
+    FuriHalSerialHandle* handle,
+    FuriHalSerialRxEvent event,
+    void* context) {
+    if(event == FuriHalSerialRxEventData) {
         BioMapApp* app = context;
-        if(data == '\n' || app->nmea_staging_index >= 127) {
-            // Sentence complete — publish atomically to the stable read buffer
-            app->nmea_staging[app->nmea_staging_index] = '\0';
-            memcpy(app->nmea_buffer, app->nmea_staging, app->nmea_staging_index + 1);
-            app->nmea_buffer[127] = '\0'; // Belt-and-suspenders termination
-            app->nmea_ready = true;
-            app->nmea_staging_index = 0;
-        } else {
-            app->nmea_staging[app->nmea_staging_index++] = data;
+        // Drain all available bytes in this interrupt — furi_hal_serial_async_rx_available
+        // ensures we don't miss back-to-back bytes delivered in one IRQ.
+        while(furi_hal_serial_async_rx_available(handle)) {
+            uint8_t data = furi_hal_serial_async_rx(handle);
+            if(data == '\n' || app->nmea_staging_index >= 127) {
+                // Sentence complete — publish atomically to the stable read buffer
+                app->nmea_staging[app->nmea_staging_index] = '\0';
+                memcpy(app->nmea_buffer, app->nmea_staging, app->nmea_staging_index + 1);
+                app->nmea_buffer[127] = '\0'; // Belt-and-suspenders termination
+                app->nmea_ready = true;
+                app->nmea_staging_index = 0;
+            } else {
+                app->nmea_staging[app->nmea_staging_index++] = data;
+            }
         }
     }
 }
@@ -244,6 +262,16 @@ int32_t biomap_app(void* p) {
     memset(app->nmea_buffer, 0, 128);
     app->gpx_file = NULL;
 
+    // Disable expansion modules to prevent interference with the serial port
+    // Wrap with furi_record_exists check to avoid crashing on firmwares without it
+    Expansion* expansion = NULL;
+    if(furi_record_exists(RECORD_EXPANSION)) {
+        expansion = furi_record_open(RECORD_EXPANSION);
+        if(expansion) {
+            expansion_disable(expansion);
+        }
+    }
+
     // Open Storage once at startup and keep it open for the app's lifetime.
     app->storage = furi_record_open(RECORD_STORAGE);
 
@@ -262,9 +290,16 @@ int32_t biomap_app(void* p) {
     furi_hal_gpio_write(&gpio_ext_pc3, true); // RESET high = module running normally
     furi_hal_gpio_write(&gpio_ext_pb2, true); // STANDBY high = module fully active
 
-    // Setup UART (GPS Module on TX:13, RX:14)
-    furi_hal_uart_init(FuriHalUartIdUSART1, 9600);
-    furi_hal_uart_set_irq_cb(FuriHalUartIdUSART1, uart_callback, app);
+    // Setup GPS Serial (L76K on USART1, 9600 8N1)
+    // Acquire the handle first — this takes ownership of the peripheral and its GPIO
+    // pins, preventing conflicts with the system logger or other apps.
+    app->serial_handle = furi_hal_serial_control_acquire(FuriHalSerialIdUsart);
+    if(app->serial_handle) {
+        furi_hal_serial_init(app->serial_handle, 9600);
+        // Enable internal pull-up on RX pin (gpio_ext_pb7 / Pin 14) to prevent floating noise interrupts when the GPS board is disconnected
+        furi_hal_gpio_init(&gpio_ext_pb7, GpioModeAltFnPushPull, GpioPullUp, GpioSpeedLow);
+        furi_hal_serial_async_rx_start(app->serial_handle, uart_callback, app, false);
+    }
 
     // Setup ADS1115 via I2C: Continuous conversion, ±2.048V, 8 SPS
     // Config = 0x8400: OS=1, MUX=000(AIN0-AIN1), PGA=010(±2.048V),
@@ -272,9 +307,11 @@ int32_t biomap_app(void* p) {
     // 8 SPS: the ADS1115 decimation filter averages the full bitstream for true
     // 16-bit resolution. At 1600 SPS the effective noise floor is ~3 bits worse.
     uint8_t config[2] = {0x84, 0x00};
+    furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
     if(!furi_hal_i2c_write_mem(&furi_hal_i2c_handle_external, ADS1115_ADDR, ADS1115_CONFIG_REG, config, 2, 100)) {
         app->gsr_available = false; // ADS1115 not found — fall back to zeros
     }
+    furi_hal_i2c_release(&furi_hal_i2c_handle_external);
 
     // Start 10Hz Timer
     FuriTimer* timer = furi_timer_alloc(timer_callback, FuriTimerTypePeriodic, app->event_queue);
@@ -351,12 +388,14 @@ int32_t biomap_app(void* p) {
                 // --- Read ADS1115 (fall back to 0 if unavailable) ---
                 if(app->gsr_available) {
                     uint8_t data[2];
+                    furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
                     if(furi_hal_i2c_read_mem(&furi_hal_i2c_handle_external, ADS1115_ADDR,
                                              ADS1115_CONV_REG, data, 2, 50)) { // 50ms timeout
                         app->raw_diff = (data[0] << 8) | data[1];
                     } else {
                         app->raw_diff = 0; // I2C glitch — use zero
                     }
+                    furi_hal_i2c_release(&furi_hal_i2c_handle_external);
                 } else {
                     app->raw_diff = 0; // No sensor — always zero
                 }
@@ -452,8 +491,20 @@ int32_t biomap_app(void* p) {
     // --- GRACEFUL SHUTDOWN (Runs when user presses 'Back') ---
     furi_timer_stop(timer);
     furi_timer_free(timer);
-    furi_hal_uart_set_irq_cb(FuriHalUartIdUSART1, NULL, NULL); // Disable GPS UART IRQ
-    furi_hal_uart_deinit(FuriHalUartIdUSART1); // deinitialise peripheral
+    // Shut down GPS serial — stop RX first, then deinit, then release the handle.
+    // Order matters: async_rx_stop disables the IRQ before deinit touches the hardware.
+    if(app->serial_handle) {
+        furi_hal_serial_async_rx_stop(app->serial_handle);
+        furi_hal_serial_deinit(app->serial_handle);
+        furi_hal_serial_control_release(app->serial_handle);
+        app->serial_handle = NULL;
+    }
+
+    // Re-enable expansion modules
+    if(expansion) {
+        expansion_enable(expansion);
+        furi_record_close(RECORD_EXPANSION);
+    }
 
     // Close GPX if still open (user pressed Back while recording)
     if(app->gpx_file) {

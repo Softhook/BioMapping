@@ -640,6 +640,14 @@ bool minmea_parse_zda(struct minmea_sentence_zda *frame, const char *sentence)
   return true;
 }
 
+/* timegm() compatibility shim — arm-none-eabi newlib-nano does not provide
+ * timegm(). On bare-metal Flipper (no timezone), mktime() == timegm().
+ * Declared static to avoid clashing with any system symbol. Only used by
+ * minmea_gettime(), which is not called from application code here. */
+static time_t timegm(struct tm *tm) {
+    return mktime(tm);
+}
+
 int minmea_getdatetime(struct tm *tm, const struct minmea_date *date, const struct minmea_time *time_)
 {
     if (date->year == -1 || time_->hours == -1)
