@@ -9,7 +9,7 @@ It allows you to walk through a city or landscape and record your body's physiol
 
 It translates your Galvanic Skin Response (GSR) fluctuations into **topographical elevation** within a GPX file. When you import your walk into Google Earth , your route will look flat while you were at your baseline, but "mountains" will appear where you experienced stress or arousal, and "valleys" or craters will map your deep relaxation.
 
-This version of the guide utilises a dedicated 16-bit **ADS1115** Analog-to-Digital Converter combined with a **Wheatstone Bridge** circuit and an active hardware noise filter.
+This version of the guide utilises a dedicated 16-bit **ADS1115** Analog-to-Digital Converter combined with a **Wheatstone Bridge** circuit and an active hardware 5Hz noise filter to remove muscle noise and mains 50Hz hum.
 
 ---
 
@@ -19,7 +19,7 @@ To build this, you need the following physical components:
 * **L76K GNSS Prototyping Shield:** Gives you a pre-wired GPS module alongside a blank 126-hole grid to build your custom circuit.
 * **ADS1115 Breakout Board:** A high-precision 16-bit I2C ADC chip.
 * **3x 100kΩ Precision Resistors (1% or 0.1% tolerance metal film):** Used to create a highly stable Wheatstone Bridge.
-* **1x 1µF Ceramic Capacitor:** Used to create the anti-aliasing hardware filter.
+* **1x 0.33 µF (or 330 nF) Metallized Polypropylene Film Capacitor:** Used to create the anti-aliasing hardware filter.
 * **GSR Finger Electrodes:** You can buy standard biometric finger clips or use simple velcro strips with conductive fabric/copper tape.
 * **Jumper wires, a hobby knife (X-Acto), and solder.**
 
