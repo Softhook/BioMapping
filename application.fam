@@ -3,7 +3,7 @@ App(
     name="BioMapping 3.0",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="biomap_app",
-    requires=["gui", "storage", "notification"],
+    requires=["gui", "storage", "notification", "expansion"],
     stack_size=4 * 1024,
     order=10,
     fap_icon="biomap_icon.png",

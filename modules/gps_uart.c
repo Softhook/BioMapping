@@ -11,6 +11,7 @@
 #include <furi.h>
 #include <furi_hal.h>
 #include <notification/notification_messages.h>
+#include <expansion/expansion.h>
 #include <math.h>
 #include <string.h>
 
@@ -147,10 +148,16 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
     // Stream buffer for byte-level RX
     gps_uart->rx_stream = furi_stream_buffer_alloc(GPS_RX_BUF_SIZE, 1);
 
-    // NOTE: Do NOT call expansion_disable() — the GNSS shield is an expansion
-    // module and disabling it kills GPS power/data. Do NOT touch GPIO pins
-    // 15/16 (STANDBY/RESET) — the GPS wakes on its own when OTG power is
-    // supplied, just like the proven ezod/flipperzero-gps app.
+    // Disable the Flipper's Expansion Service before acquiring the serial port.
+    // The Expansion Service monitors USART1 to detect official Flipper modules
+    // (e.g. the Video Game Module). While it is running it holds the USART1
+    // lock, which causes furi_hal_serial_control_acquire() to return NULL and
+    // produces the "GPS: UART locked" screen message. Disabling it only stops
+    // the software monitor — it does NOT affect the GPS shield's 5V OTG power.
+    // We re-enable the service in gps_uart_free() so other apps are not affected.
+    Expansion* expansion = furi_record_open(RECORD_EXPANSION);
+    expansion_disable(expansion);
+    furi_record_close(RECORD_EXPANSION);
 
     // Acquire and initialise the serial peripheral
     gps_uart->serial_handle = furi_hal_serial_control_acquire(GPS_UART_CH);
@@ -181,7 +188,11 @@ void gps_uart_free(GpsUart* gps_uart) {
         gps_uart->serial_handle = NULL;
     }
 
-    // NOTE: No GPIO or expansion cleanup needed — we never touched them.
+    // Re-enable the Expansion Service now that we have released the serial port.
+    // This restores normal Flipper behaviour for other apps after we exit.
+    Expansion* expansion = furi_record_open(RECORD_EXPANSION);
+    expansion_enable(expansion);
+    furi_record_close(RECORD_EXPANSION);
 
     // Fix #10: we don't own RECORD_NOTIFICATION — do NOT close it here.
     // The caller (biomap.c) opened it and will close it at shutdown.

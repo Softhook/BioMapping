@@ -5,6 +5,9 @@
 // Handles: serial acquire/init, NMEA line parsing (RMC/GGA/GLL),
 //          OTG 5V power, GPIO standby/reset for L76K on the GNSS shield.
 //
+// The Expansion Service is disabled at alloc() and re-enabled at free() so
+// that USART1 is available for us to acquire. This does NOT affect GPS power.
+//
 // GPS Controls use ORIGINAL pin assignment (no trace cuts):
 //   STANDBY → gpio_ext_pc0 (Pin 16)
 //   RESET   → gpio_ext_pc1 (Pin 15)
