@@ -1,27 +1,38 @@
 # BioMapping 2.0 
 # Christian Nold 2026
 
-The Complete Build & Software Guide (ADS1115 Wheatstone Edition)
+The Complete Build & Software Guide (ADS1115 Transimpedance Amplifier Edition)
 
 ## 1. Introduction: What is BioMapping 2.0?
 BioMapping 2.0 is a new version of Christian Nold's Bio Mapping project for the **Flipper Zero**. 
 It allows you to walk through a city or landscape and record your body's physiological arousal responses mapped precisely to geographical coordinates. 
 
-It translates your Galvanic Skin Response (GSR) fluctuations into **topographical elevation** within a GPX file. When you import your walk into Google Earth , your route will look flat while you were at your baseline, but "mountains" will appear where you experienced stress or arousal, and "valleys" or craters will map your deep relaxation.
+It translates your Galvanic Skin Response (GSR) fluctuations into **topographical elevation** within a GPX file. When you import your walk into Google Earth, your route will look flat while you were at your baseline, but "mountains" will appear where you experienced stress or arousal, and "valleys" or craters will map your deep relaxation.
 
-This version of the guide utilises a dedicated 16-bit **ADS1115** Analog-to-Digital Converter combined with a **Wheatstone Bridge** circuit and an active hardware 5Hz noise filter to remove muscle noise and mains 50Hz hum.
+This version of the device uses a dedicated 16-bit **ADS1115** Analog-to-Digital Converter combined with a robust, highly stable **Transimpedance Amplifier (TIA)** circuit. By utilizing a dual op-amp for active voltage buffering and hardware low-pass filtering, we achieve a highly precise, noise-resistant way to measure the tiny changes in human sweat gland activity.
 
 ---
 
 ## 2. Hardware Requirements
 To build this, you need the following physical components:
+
+**Core Boards:**
 * **Flipper Zero**
 * **L76K GNSS Prototyping Shield:** Gives you a pre-wired GPS module alongside a blank 126-hole grid to build your custom circuit.
 * **ADS1115 Breakout Board:** A high-precision 16-bit I2C ADC chip.
-* **3x 100kΩ Precision Resistors (1% or 0.1% tolerance metal film):** Used to create a highly stable Wheatstone Bridge.
-* **1x 0.33 µF (or 330 nF) Metallized Polypropylene Film Capacitor:** Used to create the anti-aliasing hardware filter.
-* **GSR Finger Electrodes:** You can buy standard biometric finger clips or use simple velcro strips with conductive fabric/copper tape.
-* **Jumper wires, a hobby knife (X-Acto), and solder.**
+
+**Active Components:**
+* **1x MCP6002** (or equivalent 3.3V rail-to-rail Dual Op-Amp)
+
+**Passive Components (1% tolerance metal film recommended):**
+* **1x 56kΩ Resistor** (For the voltage divider)
+* **1x 10kΩ Resistor** (For the voltage divider)
+* **1x 47kΩ Resistor** (For the TIA gain/feedback)
+* **2x 100kΩ Resistors** (For safety inline with the electrodes)
+* **2x 100nF (0.1µF) Ceramic Capacitors** (One for power bypass, one for the feedback filter)
+
+**Biometric Interface:**
+* **GSR Finger Electrodes:** Standard biometric finger clips or simple velcro strips with aluminum foil/copper tape.
 
 ---
 
@@ -40,34 +51,48 @@ Because the Flipper's native hardware I2C pins (15 & 16) are hijacked by the L76
 3. Solder a tiny jumper wire from the **RESET pad** to **Pin 7 (PC3)**.
 
 ### Phase 3: Installing the Biometric Sensor Circuit
-Mount the ADS1115 onto the prototyping grid and wire it as follows:
+Mount the ADS1115 and the MCP6002 onto the prototyping grid and wire them. We will use both channels (A and B) of the MCP6002.
 
-* **Power & I2C:**
+*(MCP6002 Reference: Pin 1=Out A, 2=In- A, 3=In+ A, 4=GND, 8=3.3V, 7=Out B, 6=In- B, 5=In+ B)*
+
+* **Power & I2C (ADS1115):**
   * `VDD` on ADS1115 -> **Pin 9 (3.3V)**
   * `GND` on ADS1115 -> **Pin 8 (GND)**
-  * `ADDR` on ADS1115 -> **Pin 8 (GND)** *(Hardcodes the I2C address to `0x48`)*
+  * `ADDR` on ADS1115 -> **Pin 8 (GND)** *(Hardcodes the I2C address to 0x48)*
   * `SCL` on ADS1115 -> **Pin 15 (PC1)**
   * `SDA` on ADS1115 -> **Pin 16 (PC0)**
 
-* **The Wheatstone Bridge (GSR Circuit):**
-  * **Leg 1 (The Reference):**
-    * Solder **R1 (100kΩ)** from **Pin 9 (3.3V)** to a blank row.
-    * Solder **R2 (100kΩ)** from that same row to **Pin 8 (GND)**.
-    * Wire the junction between R1 and R2 to the **A1** pin on your ADS1115.
-  * **Leg 2 (The Sensor):**
-    * Solder **R3 (100kΩ)** from **Pin 9 (3.3V)** to a different blank row.
-    * Connect **Electrode 1** to that same blank row.
-    * Connect **Electrode 2** to **Pin 8 (GND)**.
-    * Wire the junction between R3 and Electrode 1 to the **A0** pin on your ADS1115.
+* **Power & Bypass (MCP6002):**
+  * Pin 8 -> **Pin 9 (3.3V)**
+  * Pin 4 -> **Pin 8 (GND)**
+  * **Mandatory:** Solder one **100nF capacitor** directly across Pin 8 and Pin 4 to filter digital power spikes from the Flipper.
 
-* **The Hardware Low-Pass Filter (Anti-Aliasing):**
-  * Solder your **1µF Ceramic Capacitor** directly between the **A0** pin and the **A1** pin on the ADS1115. This physically destroys 50/60Hz electromagnetic noise from city power lines before the ADC digitizes the signal.
+* **Generate the 0.5V Bias (V_ref) using Op-Amp A:**
+  * Solder the **56kΩ Resistor** from 3.3V to MCP6002 Pin 3 (In+ A).
+  * Solder the **10kΩ Resistor** from MCP6002 Pin 3 (In+ A) to GND.
+  * Tie MCP6002 Pin 1 (Out A) directly to Pin 2 (In- A).
+  * *Result: Pin 1 is now a rock-solid, buffered 0.5V Reference.*
+
+* **Build the Transimpedance Amplifier (TIA) using Op-Amp B:**
+  * Connect your V_ref (Pin 1) to MCP6002 Pin 5 (In+ B).
+  * Tie the **47kΩ Resistor** and the second **100nF Capacitor** in parallel between Pin 7 (Out B) and Pin 6 (In- B). This acts as both the amplifier gain and a hardware low-pass filter to destroy 50/60Hz mains hum.
+
+* **Connect Electrodes & Safety Resistors:**
+  * Electrode 1 (GND): GND -> **100kΩ Resistor** -> Wire -> Foil/Finger 1.
+  * Electrode 2 (SIGNAL): Foil/Finger 2 -> Wire -> **100kΩ Resistor** -> MCP6002 Pin 6 (In- B).
+  * *These resistors ensure maximum skin current is capped at a completely safe 33 µA.*
+
+* **Differential Connection to ADS1115:**
+  * Connect **ADS1115 AIN0** to MCP6002 Pin 7 (Out B) (The amplified GSR signal).
+  * Connect **ADS1115 AIN1** to MCP6002 Pin 1 (Out A) (The clean 0.5V V_ref).
+
+By routing the signals this way, the ADS1115 subtracts the 0.5V virtual ground offset perfectly, isolating the amplified skin current data while completely rejecting external system noise!
 
 ---
 
 ## 4. Software Architecture
 
-Writing this app in C is now streamlined thanks to the dedicated ADS1115 chip. By utilizing a Wheatstone Bridge, we will configure the ADS1115 to perform a **differential read** (measuring the difference between A0 and A1) rather than an absolute voltage read. 
+Writing this app in C is highly efficient with the ADS1115 in differential mode. We configure the ADS1115 to measure the exact difference between A0 and A1.
 
 ### Reading the ADS1115 via Hardware I2C
 Your C code will use the Flipper's native I2C API to communicate with the ADS1115. Here is the core logic for your 10 Hz measurement loop:
@@ -83,6 +108,7 @@ uint8_t reg_read[2];
 
 // Ask the ADS1115 for the latest DIFFERENTIAL voltage between A0 and A1
 // Ensure your config register is set to MUX = 000 (AINP = AIN0 and AINN = AIN1)
+// Set the PGA (Programmable Gain Amplifier) to +/- 2.048V for maximum GSR resolution
 furi_hal_i2c_read_mem(&furi_hal_i2c_handle_external, address, CONVERSION_REGISTER, reg_read, 2, 100);
 
 // Combine the two bytes into a pristine 16-bit biometric number
@@ -99,7 +125,7 @@ Your hardware timing code will run **10 times every second**. It will store thos
 
 ## 5. Signal Processing: Finding Mountains and Valleys
 
-Raw differential voltage numbers aren't very useful because everyone's baseline skin resistance is different depending on how much they sweat. We only care about **sudden changes** (spikes in arousal or drops into relaxation). 
+Raw differential voltage numbers reflect your baseline sweat levels. We only care about **sudden changes** (spikes in arousal or drops into relaxation). 
 
 To find this, we use two math concepts operating on the 10 Hz data stream:
 
@@ -108,9 +134,9 @@ To find this, we use two math concepts operating on the 10 Hz data stream:
 2. **Derivative (Rate of Change):** We subtract the previous smoothed value from the current smoothed value.
    `Rate_of_Change = Smoothed_Value - Previous_Smoothed_Value`
 
-Because our hardware uses a signed differential read, the math is perfectly symmetrical:
-* **Stress Response (Resistance Drops):** `Rate_of_Change` goes negative. We multiply this by a negative scaling factor to invert it into a **positive elevation** (Mountain).
-* **Relaxation (Resistance Climbs):** `Rate_of_Change` goes positive. We scale this appropriately to represent **negative elevation** (Valley).
+In our TIA setup:
+* **Stress Response (Resistance Drops):** Skin conductance increases, pushing more current through the feedback resistor. `V_out` rises, making the differential read increase. `Rate_of_Change` goes heavily positive. We scale this into a **positive elevation** (Mountain).
+* **Relaxation (Resistance Climbs):** Current drops, `V_out` falls closer to `V_ref`. `Rate_of_Change` goes negative. We scale this to represent **negative elevation** (Valley).
 
 ---
 
