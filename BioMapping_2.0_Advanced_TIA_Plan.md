@@ -24,11 +24,11 @@ To build this, you need the following physical components:
 **Active Components:**
 * **1x MCP6002** (or equivalent 3.3V rail-to-rail Dual Op-Amp)
 
-**Passive Components (1% tolerance metal film recommended):**
-* **1x 56kΩ Resistor** (For the voltage divider)
-* **1x 10kΩ Resistor** (For the voltage divider)
-* **1x 47kΩ Resistor** (For the TIA gain/feedback)
-* **2x 100kΩ Resistors** (For safety inline with the electrodes)
+**Passive Components:**
+* **1x 56kΩ Resistor** (For the voltage divider 0.1% tolerance metal film recommended)
+* **1x 10kΩ Resistor** (For the voltage divider 0.1% tolerance metal film recommended)
+* **1x 47kΩ Resistor** (For the TIA gain/feedback 1% tolerance metal film recommended)
+* **2x 100kΩ Resistors** (For safety inline with the electrodes 1% tolerance metal film recommended)
 * **2x 100nF (0.1µF) Ceramic Capacitors** (One for power bypass, one for the feedback filter)
 
 **Biometric Interface:**
