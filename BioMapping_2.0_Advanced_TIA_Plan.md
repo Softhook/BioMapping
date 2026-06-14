@@ -187,3 +187,16 @@ The Flipper's 128x64 black-and-white screen will be heavily utilized to give the
   * `OK (Center Button)`: Starts and stops the GPX recording.
   * `Up/Down`: Zooms in and out on the graph so the user can scale the sensitivity of the spikes.
   * `Back`: Safely closes the `.gpx` file so it doesn't corrupt, and exits the app.
+
+##   8. Future Upgrades: Dual-Gain HDR Architecture (Optional)
+The current firmware handles the dynamic range of human skin resistance using a single, wide-angle gain setting (+/- 2.048V) and relying on the Derivative (Rate of Change). This makes the code simple and immune to slow baseline drift. However, in future use a Dual-Gain (High Dynamic Range) architecture using the two unused pins on the ADS1115.
+
+The Implementation:
+
+The Hardware Split: Add two jumper wires. Wire the Op-Amp GSR Output to both AIN0 and AIN2. Wire the 0.5V Reference to both AIN1 and AIN3. The Software Configuration: Use the ADS1115's Programmable Gain Amplifier (PGA) to configure the two channel pairs with completely different sensitivities:
+
+Channel 1 (AIN0-AIN1): High Sensitivity Mode. Set the PGA to +/- 0.256V. This acts as a microscope, perfectly capturing subtle micro-relaxations (but will clip during high stress). Channel 2 (AIN2-AIN3): Wide Dynamic Mode. Set the PGA to +/- 2.048V or +/- 4.096V. This channel acts as the macro lens, capturing massive stress spikes without ever hitting the ceiling.
+
+The Handoff Logic: In your C code's 10 Hz measurement loop, always read Channel 1 first. If it returns a valid number, use it. If it returns the maximum 16-bit integer (e.g., 32767, meaning it has clipped), instantly discard it and seamlessly stitch in the data from Channel 2 instead.
+
+By combining them, you achieve an essentially infinite dynamic range, capturing both the tiniest whispers of relaxation and the loudest shouts without the data-loss "blind spots" associated with auto-ranging code.
