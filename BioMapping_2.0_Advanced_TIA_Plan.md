@@ -44,8 +44,6 @@ The two copper traces connecting **Pin 15 (PC1)** and **Pin 16 (PC0)** to the L7
 * Pin 15 (PC1) — **no longer connected to GPS** → used for I2C **SCL**
 * Pin 16 (PC0) — **no longer connected to GPS** → used for I2C **SDA**
 
-Verify with a multimeter in continuity mode: there should be no electrical connection between Pin 15/16 and the GPS module.
-
 ### Phase 2: GPS Hardware Reroute — Not Required ✅
 No additional wiring is needed. The L76K cannot be put to sleep via software, so no STANDBY or RESET wires need to be soldered. The GPS runs continuously. Software reset commands are available over UART for error recovery — see **Section 4a**.
 
@@ -120,9 +118,7 @@ Your hardware timing code will run **10 times every second**. It will store thos
 
 ## 4a. GPS Error Recovery via PCAS Commands
 
-The L76K GPS runs continuously — it cannot be put to sleep via software. The only software control available is sending reset commands over UART to recover from a GPS hang or force a fresh satellite lock.
-
-The L76K uses Quectel's **PCAS** protocol (not PMTK — PMTK commands are for older modules and will be silently ignored).
+The L76K GPS runs continuously — it cannot be put to sleep via software. The L76K uses Quectel's **PCAS** protocol. The only software control available is sending reset commands over UART to recover from a GPS hang or force a fresh satellite lock.
 
 ```c
 // Helper — send a PCAS command over the GPS UART
