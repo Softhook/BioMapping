@@ -28,8 +28,8 @@ int gpx_converter_scan(GpxConverter* c) {
     c->file_count = 0;
 
     File* dir = storage_file_alloc(c->storage);
-    if(!storage_dir_open(dir, "/ext")) {
-        FURI_LOG_E(TAG, "Cannot open /ext/");
+    if(!storage_dir_open(dir, "/ext/biomapping")) {
+        FURI_LOG_E(TAG, "Cannot open /ext/biomapping");
         storage_file_free(dir);
         return 0;
     }
@@ -83,7 +83,7 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename) {
     furi_assert(csv_filename);
 
     char csv_path[128];
-    snprintf(csv_path, sizeof(csv_path), EXT_PATH("%s"), csv_filename);
+    snprintf(csv_path, sizeof(csv_path), EXT_PATH("biomapping/%s"), csv_filename);
 
     // Derive GPX path by swapping .csv → .gpx
     char gpx_path[128];
@@ -92,7 +92,7 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename) {
     size_t plen = strlen(gpx_path);
     if(plen < 4 || strcmp(gpx_path + plen - 4, ".csv") != 0) {
         FURI_LOG_E(TAG, "Not a .csv: %s", csv_filename);
-        return false;
+        return 0;
     }
     gpx_path[plen - 3] = 'g'; gpx_path[plen - 2] = 'p'; gpx_path[plen - 1] = 'x';
     FURI_LOG_I(TAG, "%s → %s", csv_path, gpx_path);
@@ -101,7 +101,7 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename) {
     if(!storage_file_open(csv_file, csv_path, FSAM_READ, FSOM_OPEN_EXISTING)) {
         FURI_LOG_E(TAG, "Cannot open %s", csv_path);
         storage_file_free(csv_file);
-        return false;
+        return 0;
     }
 
     File* gpx_file = storage_file_alloc(c->storage);
@@ -110,7 +110,7 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename) {
         storage_file_close(csv_file);
         storage_file_free(csv_file);
         storage_file_free(gpx_file);
-        return false;
+        return 0;
     }
 
     int points = 0;
@@ -131,9 +131,11 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename) {
 
     float smoothed = 0.0f;
     bool  primed   = false;
+    int   lines_read = 0, lines_skipped = 0;
 
     while(read_csv_line(csv_file, line, sizeof(line))) {
         if(!line[0]) continue;
+        lines_read++;
 
         char  ts[32] = "";
         float lat = 0, lon = 0, alt = 0;
@@ -142,7 +144,8 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename) {
 
         if(sscanf(line, "%31[^,],%f,%f,%f,%d,%d,%hd",
                ts, &lat, &lon, &alt, &sats, &fix, &raw) < 7) {
-            FURI_LOG_W(TAG, "Skipping malformed line");
+            FURI_LOG_W(TAG, "Skip line #%d: '%.40s'", lines_read, line);
+            lines_skipped++;
             continue;
         }
 
@@ -171,7 +174,7 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename) {
         "  </trk>\n"
         "</gpx>\n");
 
-    FURI_LOG_I(TAG, "%d trackpoints written", points);
+    FURI_LOG_I(TAG, "%d pts, %d lines read, %d skipped", points, lines_read, lines_skipped);
 
 done:
     storage_file_close(csv_file);

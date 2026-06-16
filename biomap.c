@@ -1,73 +1,7 @@
-// Bio Mapping — GSR + GPS data logger for Flipper Zero.
-// Launch menu: GPS+GSR | GPS Only | GSR Only | Convert CSV→GPX | Hot Start GPS
+// Bio Mapping — core: recording session, GPS hot start, main entry.
+#include "biomap.h"
 
-#include <furi.h>
-#include <furi_hal.h>
-#include <furi_hal_power.h>
-#include <furi_hal_rtc.h>
-#include <gui/gui.h>
-#include <gui/view_port.h>
-#include <notification/notification_messages.h>
-#include <storage/storage.h>
-#include <string.h>
-#include <stdio.h>
-#include <math.h>
-
-#include "biomap_config.h"
-#include "biomap_events.h"
-#include "modules/gps_uart.h"
-#include "modules/gsr_sensor.h"
-#include "modules/sd_logger.h"
-#include "modules/gpx_converter.h"
-
-#define TICK_HZ          10
-#define ZOOM_STEP        0.25f
-#define ZOOM_MIN         0.25f
-#define ZOOM_MAX         4.0f
-#define DISPLAY_EMA_A    0.2f
-
-// Graph layout per mode
-#define GX_GPSGSR  65
-#define GY_GPSGSR  20
-#define GW_GPSGSR  61
-#define GH_GPSGSR  40
-#define GX_GSR     2
-#define GY_GSR     20
-#define GW_GSR     124
-#define GH_GSR     40
-#define GRAPH_N    (GW_GSR - 2)
-
-typedef struct {
-    BioMapMode         mode;
-    GpsUart*           gps;
-    GsrSensor*         gsr;
-    SdLogger*          logger;
-    FuriMessageQueue*  event_queue;
-    FuriMutex*         mutex;
-    Storage*            storage;
-    NotificationApp*   notifications;
-
-    int32_t  gsr_raw_sum;
-    int      raw_count;
-    int      tick_counter;
-
-    float    display_smoothed;
-    bool     display_primed;
-    float    graph_buf[GRAPH_N];
-    int      graph_head;
-
-    float    zoom_level;
-    bool     running;
-    bool     recording_active;
-    char     recording_filename[64];
-    bool     otg_was_enabled;
-    volatile int32_t menu_selection;
-} BioMapApp;
-
-static inline bool has_gps(BioMapMode m) { return m == BioMapModeGpsGsr || m == BioMapModeGpsOnly; }
-static inline bool has_gsr(BioMapMode m) { return m == BioMapModeGpsGsr || m == BioMapModeGsrOnly; }
-
-static void format_timestamp(BioMapApp* app, char* buf, size_t sz) {
+void format_timestamp(BioMapApp* app, char* buf, size_t sz) {
     if(app->gps) {
         GpsStatus g = gps_uart_get_status(app->gps);
         if(g.date.year) {
@@ -85,259 +19,7 @@ static void format_timestamp(BioMapApp* app, char* buf, size_t sz) {
         (int)dt.hour, (int)dt.minute, (int)dt.second);
 }
 
-// Draw scrolling waveform graph
-static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) {
-    int n  = gw - 2;
-    int cy = gy + gh / 2;
-    const float sc = (float)(gh / 2 - 2) / 100.0f;
-
-    canvas_draw_frame(c, gx, gy, gw, gh);
-    canvas_draw_line(c, gx, cy, gx + gw - 1, cy);
-
-    for(int i = 0; i < n - 1; i++) {
-        int si = (a->graph_head + i)     % GRAPH_N;
-        int sj = (a->graph_head + i + 1) % GRAPH_N;
-        float v0 = a->graph_buf[si] * a->zoom_level;
-        float v1 = a->graph_buf[sj] * a->zoom_level;
-
-        int y0 = cy - (int)(v0 * sc);
-        int y1 = cy - (int)(v1 * sc);
-        if(y0 < gy + 1) y0 = gy + 1;
-        if(y0 > gy + gh - 2) y0 = gy + gh - 2;
-        if(y1 < gy + 1) y1 = gy + 1;
-        if(y1 > gy + gh - 2) y1 = gy + gh - 2;
-
-        canvas_draw_line(c, gx + 1 + i, y0, gx + 1 + i + 1, y1);
-    }
-}
-
-static void render_callback(Canvas* c, void* ctx) {
-    BioMapApp* a = (BioMapApp*)ctx;
-    furi_mutex_acquire(a->mutex, FuriWaitForever);
-    canvas_clear(c);
-    char buf[48];
-
-    canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, "Bio Mapping");
-    canvas_set_font(c, FontSecondary);
-
-    if(a->recording_active) {
-        canvas_draw_box(c, 118, 1, 8, 8);
-        const char* fn = a->recording_filename;
-        canvas_draw_str(c, 0, 20, (strlen(fn) > 7) ? fn + 7 : fn);
-    }
-
-    if(has_gps(a->mode)) {
-        GpsStatus g = gps_uart_get_status(a->gps);
-        if(!gps_uart_is_ready(a->gps)) {
-            canvas_draw_str(c, 0, 30, "GPS: UART locked");
-        } else if(g.fix_valid || g.fix_quality > 0) {
-            snprintf(buf, sizeof(buf), "%.5f", (double)g.latitude);
-            canvas_draw_str(c, 0, 30, buf);
-            snprintf(buf, sizeof(buf), "%.5f", (double)g.longitude);
-            canvas_draw_str(c, 0, 40, buf);
-        } else {
-            canvas_draw_str(c, 0, 30, "Waiting for fix...");
-        }
-        snprintf(buf, sizeof(buf), "Sats:%d Q:%d", g.satellites_tracked, g.fix_quality);
-        canvas_draw_str(c, 0, 50, buf);
-    }
-
-    if(has_gsr(a->mode)) {
-        snprintf(buf, sizeof(buf), "Z:%.2f", (double)a->zoom_level);
-        canvas_draw_str(c, 0, 63, buf);
-        if(a->gsr && gsr_sensor_available(a->gsr)) {
-            snprintf(buf, sizeof(buf), "GSR:%d", (int)gsr_sensor_get_raw(a->gsr));
-        } else {
-            snprintf(buf, sizeof(buf), "GSR:off");
-        }
-        canvas_draw_str(c, 35, 63, buf);
-
-        bool full = (a->mode == BioMapModeGsrOnly);
-        draw_graph(c, a,
-            full ? GX_GSR : GX_GPSGSR, full ? GY_GSR : GY_GPSGSR,
-            full ? GW_GSR : GW_GPSGSR, full ? GH_GSR : GH_GPSGSR);
-    }
-
-    furi_mutex_release(a->mutex);
-}
-
-static void input_callback(InputEvent* e, void* ctx) {
-    PluginEvent ev = {.type = EventTypeKey, .input = *e};
-    furi_message_queue_put((FuriMessageQueue*)ctx, &ev, FuriWaitForever);
-}
-
-static void timer_callback(void* ctx) {
-    PluginEvent ev = {.type = EventTypeTick};
-    furi_message_queue_put((FuriMessageQueue*)ctx, &ev, 0);
-}
-
-// Conversion result state for on-screen display
-static bool  conv_result_ok;
-static char  conv_result_name[32];
-static int   conv_result_points;
-
-static void conv_status_render(Canvas* c, void* ctx) {
-    UNUSED(ctx);
-    canvas_clear(c);
-    canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, conv_result_ok ? "Conversion OK" : "Conversion FAILED");
-    canvas_set_font(c, FontSecondary);
-    char buf[64];
-    // Show GPX output name (swap .csv → .gpx)
-    char gpx_name[32];
-    strncpy(gpx_name, conv_result_name, sizeof(gpx_name) - 1);
-    size_t len = strlen(gpx_name);
-    if(len > 4 && strcmp(gpx_name + len - 4, ".csv") == 0) {
-        gpx_name[len - 3] = 'g'; gpx_name[len - 2] = 'p'; gpx_name[len - 1] = 'x';
-    }
-    snprintf(buf, sizeof(buf), "Source: %s", conv_result_name);
-    canvas_draw_str(c, 0, 24, buf);
-    snprintf(buf, sizeof(buf), "Output: %s", gpx_name);
-    canvas_draw_str(c, 0, 34, buf);
-    snprintf(buf, sizeof(buf), "Points: %d", conv_result_points);
-    canvas_draw_str(c, 0, 44, buf);
-    canvas_draw_str(c, 0, 58, "Press Back");
-}
-
-static void show_status_screen(BioMapApp* app) {
-    ViewPort* vp = view_port_alloc();
-    view_port_draw_callback_set(vp, conv_status_render, NULL);
-    view_port_input_callback_set(vp, input_callback, app->event_queue);
-    Gui* gui = furi_record_open(RECORD_GUI);
-    gui_add_view_port(gui, vp, GuiLayerFullscreen);
-
-    PluginEvent ev;
-    while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
-        if(ev.type == EventTypeKey && ev.input.type == InputTypeShort
-            && ev.input.key == InputKeyBack) break;
-    }
-
-    gui_remove_view_port(gui, vp);
-    view_port_free(vp);
-    furi_record_close(RECORD_GUI);
-}
-
-static void do_convert(GpxConverter* c, const char* name, BioMapApp* app) {
-    FURI_LOG_I("BioMap", "Converting %s", name);
-    strncpy(conv_result_name, name, sizeof(conv_result_name) - 1);
-
-    int points = gpx_converter_run(c, name);
-    conv_result_ok = (points > 0);
-    conv_result_points = points;
-
-    notification_message(app->notifications,
-        conv_result_ok ? &sequence_blink_green_100 : &sequence_blink_red_100);
-    show_status_screen(app);
-}
-
-// ---------------------------------------------------------------------------
-// Canvas-based menu — avoids ViewDispatcher input issues
-// ---------------------------------------------------------------------------
-#define MENU_ITEMS 5
-static const char* menu_labels[MENU_ITEMS] = {
-    "GPS + GSR",
-    "GPS Only",
-    "GSR Only",
-    "Convert CSV to GPX",
-    "Hot Start GPS",
-};
-
-static void menu_render(Canvas* c, void* ctx) {
-    BioMapApp* a = (BioMapApp*)ctx;
-    furi_mutex_acquire(a->mutex, FuriWaitForever);
-    canvas_clear(c);
-    canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, "Bio Mapping");
-    canvas_set_font(c, FontSecondary);
-    int sel = (int)a->menu_selection;
-    for(int i = 0; i < MENU_ITEMS; i++) {
-        int y = 22 + i * 10;
-        if(i == sel) {
-            canvas_draw_box(c, 0, y - 7, 128, 10);   // black selection bar
-            canvas_invert_color(c);
-            canvas_draw_str(c, 0, y, ">");
-            canvas_draw_str(c, 8, y, menu_labels[i]);
-            canvas_invert_color(c);
-        } else {
-            canvas_draw_str(c, 8, y, menu_labels[i]);
-        }
-    }
-    furi_mutex_release(a->mutex);
-}
-
-static void menu_input(InputEvent* e, void* ctx) {
-    PluginEvent ev = {.type = EventTypeKey, .input = *e};
-    furi_message_queue_put((FuriMessageQueue*)ctx, &ev, FuriWaitForever);
-}
-
-static int32_t show_menu(BioMapApp* app) {
-    app->menu_selection = 0;
-
-    ViewPort* vp = view_port_alloc();
-    view_port_draw_callback_set(vp, menu_render, app);
-    view_port_input_callback_set(vp, menu_input, app->event_queue);
-    Gui* gui = furi_record_open(RECORD_GUI);
-    gui_add_view_port(gui, vp, GuiLayerFullscreen);
-
-    PluginEvent ev;
-    int32_t result = -1;
-    bool running = true;
-    while(running) {
-        if(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) != FuriStatusOk)
-            continue;
-        if(ev.type != EventTypeKey || ev.input.type != InputTypeShort) continue;
-
-        switch(ev.input.key) {
-        case InputKeyUp:
-            furi_mutex_acquire(app->mutex, FuriWaitForever);
-            if(app->menu_selection > 0) app->menu_selection--;
-            furi_mutex_release(app->mutex);
-            view_port_update(vp);
-            break;
-        case InputKeyDown:
-            furi_mutex_acquire(app->mutex, FuriWaitForever);
-            if(app->menu_selection < MENU_ITEMS - 1) app->menu_selection++;
-            furi_mutex_release(app->mutex);
-            view_port_update(vp);
-            break;
-        case InputKeyOk:
-            result = (int32_t)app->menu_selection;
-            running = false;
-            break;
-        case InputKeyBack:
-            result = -1;
-            running = false;
-            break;
-        default: break;
-        }
-    }
-
-    gui_remove_view_port(gui, vp);
-    view_port_free(vp);
-    furi_record_close(RECORD_GUI);
-    return result;
-}
-
-static void run_converter(BioMapApp* app) {
-    GpxConverter* c = gpx_converter_alloc(app->storage);
-    int n = gpx_converter_scan(c);
-
-    if(n == 0) {
-        conv_result_ok = false;
-        conv_result_points = 0;
-        strncpy(conv_result_name, "(none)", sizeof(conv_result_name) - 1);
-        notification_message(app->notifications, &sequence_blink_red_100);
-        show_status_screen(app);
-        gpx_converter_free(c);
-        return;
-    }
-
-    do_convert(c, gpx_converter_get_name(c, 0), app);
-    gpx_converter_free(c);
-}
-
-static void run_gps_hot_start(BioMapApp* app) {
+void run_gps_hot_start(BioMapApp* app) {
     GpsUart* g = gps_uart_alloc(app->event_queue, app->notifications);
     bool ok = g && gps_uart_is_ready(g);
     if(ok) { gps_uart_send_hot_start(g); furi_delay_ms(300); }
@@ -346,7 +28,7 @@ static void run_gps_hot_start(BioMapApp* app) {
     if(g) gps_uart_free(g);
 }
 
-static void run_recording_session(BioMapApp* app, BioMapMode mode) {
+void run_recording_session(BioMapApp* app, BioMapMode mode) {
     app->mode = mode;
     app->gsr_raw_sum = app->raw_count = app->tick_counter = app->graph_head = 0;
     app->display_smoothed = 0.0f;
@@ -367,12 +49,12 @@ static void run_recording_session(BioMapApp* app, BioMapMode mode) {
     app->logger = sd_logger_alloc(app->storage);
 
     ViewPort* vp = view_port_alloc();
-    view_port_draw_callback_set(vp, render_callback, app);
-    view_port_input_callback_set(vp, input_callback, app->event_queue);
+    view_port_draw_callback_set(vp, biomap_render_callback, app);
+    view_port_input_callback_set(vp, biomap_input_callback, app->event_queue);
     Gui* gui = furi_record_open(RECORD_GUI);
     gui_add_view_port(gui, vp, GuiLayerFullscreen);
 
-    FuriTimer* timer = furi_timer_alloc(timer_callback, FuriTimerTypePeriodic, app->event_queue);
+    FuriTimer* timer = furi_timer_alloc(biomap_timer_callback, FuriTimerTypePeriodic, app->event_queue);
     furi_timer_start(timer, furi_kernel_get_tick_frequency() / TICK_HZ);
 
     PluginEvent ev;
@@ -516,11 +198,12 @@ int32_t biomap_app(void* p) {
     app->mutex         = furi_mutex_alloc(FuriMutexTypeNormal);
     app->notifications = furi_record_open(RECORD_NOTIFICATION);
     app->storage       = furi_record_open(RECORD_STORAGE);
+    storage_common_mkdir(app->storage, "/ext/biomapping");
     notification_message_block(app->notifications, &sequence_display_backlight_enforce_auto);
 
     bool running = true;
     while(running) {
-        int32_t sel = show_menu(app);
+        int32_t sel = biomap_gui_show_menu(app);
 
         switch(sel) {
         case 0: run_recording_session(app, BioMapModeGpsGsr);  break;

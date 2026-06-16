@@ -10,6 +10,7 @@ App(
     fap_category="GPIO",
     sources=[
         "biomap.c",
+        "biomap_gui.c",
         "minmea.c",
         "modules/gps_uart.c",
         "modules/gsr_sensor.c",

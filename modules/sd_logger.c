@@ -5,7 +5,8 @@
 #include <string.h>
 #include <stdio.h>
 
-#define LOGGER_BASENAME  "biomap_"
+#define LOGGER_DIR      "biomapping/"
+#define LOGGER_BASENAME "biomap_"
 #define LOGGER_EXT       ".csv"
 #define LOGGER_MAX_INDEX 999
 
@@ -35,7 +36,7 @@ void sd_logger_free(SdLogger* l) {
 static int find_next_index(SdLogger* l) {
     char path[64];
     for(int i = 1; i <= LOGGER_MAX_INDEX; i++) {
-        snprintf(path, sizeof(path), EXT_PATH(LOGGER_BASENAME "%03d" LOGGER_EXT), i);
+        snprintf(path, sizeof(path), EXT_PATH(LOGGER_DIR LOGGER_BASENAME "%03d" LOGGER_EXT), i);
         if(!storage_file_exists(l->storage, path)) {
             l->last_index = i;
             return i;
@@ -52,9 +53,8 @@ bool sd_logger_start(SdLogger* l) {
 
     int idx = find_next_index(l);
     snprintf(l->filename, sizeof(l->filename), LOGGER_BASENAME "%03d" LOGGER_EXT, idx);
-
-    char full_path[80];
-    snprintf(full_path, sizeof(full_path), EXT_PATH("%s"), l->filename);
+    char full_path[96];
+    snprintf(full_path, sizeof(full_path), EXT_PATH(LOGGER_DIR "%s"), l->filename);
 
     l->file = storage_file_alloc(l->storage);
     if(!l->file || !storage_file_open(l->file, full_path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
