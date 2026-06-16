@@ -58,7 +58,6 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             g->status.course     = minmea_tofloat(&frame.course);
             g->status.time       = frame.time;
             g->status.date       = frame.date;
-            notification_message(g->notifications, &sequence_blink_green_10);
         }
     } break;
 
@@ -71,7 +70,6 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             g->status.satellites_tracked = frame.satellites_tracked;
             g->status.fix_quality        = frame.fix_quality;
             g->status.time               = frame.time;
-            notification_message(g->notifications, &sequence_blink_magenta_10);
         }
     } break;
 
@@ -81,7 +79,6 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             g->status.latitude  = minmea_tocoord(&frame.latitude);
             g->status.longitude = minmea_tocoord(&frame.longitude);
             g->status.time      = frame.time;
-            notification_message(g->notifications, &sequence_blink_red_10);
         }
     } break;
 

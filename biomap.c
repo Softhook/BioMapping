@@ -84,7 +84,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                             sizeof(app->recording_filename) - 1);
                         app->tick_counter = app->raw_count = app->gsr_raw_sum = 0;
                         furi_mutex_release(app->mutex);
-                        notification_message(app->notifications, &sequence_blink_blue_10);
+                        notification_message(app->notifications, &sequence_set_only_red_255);
                     }
                 } else {
                     sd_logger_stop(app->logger);
@@ -92,7 +92,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                     app->recording_active = false;
                     app->recording_filename[0] = '\0';
                     furi_mutex_release(app->mutex);
-                    notification_message(app->notifications, &sequence_blink_blue_100);
+                    notification_message(app->notifications, &sequence_reset_rgb);
                 }
                 view_port_update(vp);
                 break;
@@ -154,8 +154,10 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                 char ts[32];
                 format_timestamp(app, ts, sizeof(ts));
 
-                if(app->recording_active)
+                if(app->recording_active) {
                     sd_logger_write_row(app->logger, ts, lat, lon, alt, sats, fix, avg);
+                    notification_message(app->notifications, &sequence_blink_red_100);
+                }
 
                 app->tick_counter = app->raw_count = app->gsr_raw_sum = 0;
             }

@@ -1,7 +1,34 @@
 // Bio Mapping — GUI: menus, recording view, conversion status.
 #include "biomap.h"
 
-// -- recording view --------------------------------------------------------
+// ==========================================================================
+// Recording view — live display during data logging
+// ==========================================================================
+//
+//  GPS+GSR mode:                          GPS-only mode:
+//  ┌───────────────────────┐        ┌───────────────────────┐
+//  │ Bio Mapping            │        │ Bio Mapping        [■]│
+//  │ ┌───────────────────┐ │        │ biomap_001.csv        │
+//  │ │      ~~~          │ │        │ 13:42:59 UTC          │
+//  │ │  ~~/   \──        │ │        │ 2026-06-16            │
+//  │ │ /         \──     │ │        │ 51.55636              │
+//  │ │/              \──  │ │        │ -0.07136              │
+//  │ └───────────────────┘ │        │ Sats:6  Q:1           │
+//  └───────────────────────┘        └───────────────────────┘
+//
+//  GSR-only mode:
+//  ┌───────────────────────┐
+//  │ Bio Mapping            │
+//  │ GSR: 4523              │
+//  │ ┌───────────────────┐ │
+//  │ │      ~~~          │ │
+//  │ │  ~~/   \──        │ │
+//  │ │ /         \──     │ │
+//  │ │/              \──  │ │
+//  │ └───────────────────┘ │
+//  └───────────────────────┘
+//
+//  Graph: full width (0,16,128,48). Text only on non-graph screen areas.
 
 static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) {
     int n  = gw - 2;
@@ -32,54 +59,75 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     BioMapApp* a = (BioMapApp*)ctx;
     furi_mutex_acquire(a->mutex, FuriWaitForever);
     canvas_clear(c);
-    char buf[48];
 
+    bool has_graph = has_gsr(a->mode);
+
+    // Full-width graph (behind text, when GSR active)
+    if(has_graph) {
+        draw_graph(c, a, 0, 16, 128, 48);
+    }
+
+    // Title + recording indicator
     canvas_set_font(c, FontPrimary);
     canvas_draw_str(c, 0, 10, "Bio Mapping");
     canvas_set_font(c, FontSecondary);
 
     if(a->recording_active) {
         canvas_draw_box(c, 118, 1, 8, 8);
-        const char* fn = a->recording_filename;
-        canvas_draw_str(c, 0, 20, (strlen(fn) > 7) ? fn + 7 : fn);
     }
 
-    if(has_gps(a->mode)) {
+    if(has_graph) {
+        // GPS+GSR or GSR-only: minimal overlay — just GSR number on GSR-only
+        if(a->mode == BioMapModeGsrOnly && a->gsr && gsr_sensor_available(a->gsr)) {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "GSR: %d", (int)gsr_sensor_get_raw(a->gsr));
+            canvas_draw_str(c, 0, 20, buf);
+        }
+    } else {
+        // GPS-only: full detail view
         GpsStatus g = gps_uart_get_status(a->gps);
-        if(!gps_uart_is_ready(a->gps)) {
-            canvas_draw_str(c, 0, 30, "GPS: UART locked");
-        } else if(g.fix_valid || g.fix_quality > 0) {
-            snprintf(buf, sizeof(buf), "%.5f", (double)g.latitude);
-            canvas_draw_str(c, 0, 30, buf);
-            snprintf(buf, sizeof(buf), "%.5f", (double)g.longitude);
-            canvas_draw_str(c, 0, 40, buf);
-        } else {
-            canvas_draw_str(c, 0, 30, "Waiting for fix...");
-        }
-        snprintf(buf, sizeof(buf), "Sats:%d Q:%d", g.satellites_tracked, g.fix_quality);
-        canvas_draw_str(c, 0, 50, buf);
-    }
+        int y = 20;
 
-    if(has_gsr(a->mode)) {
-        snprintf(buf, sizeof(buf), "Z:%.2f", (double)a->zoom_level);
-        canvas_draw_str(c, 0, 63, buf);
-        if(a->gsr && gsr_sensor_available(a->gsr)) {
-            snprintf(buf, sizeof(buf), "GSR:%d", (int)gsr_sensor_get_raw(a->gsr));
-        } else {
-            snprintf(buf, sizeof(buf), "GSR:off");
+        if(a->recording_active) {
+            const char* fn = a->recording_filename;
+            canvas_draw_str(c, 0, y, (strlen(fn) > 7) ? fn + 7 : fn);
+            y += 10;
         }
-        canvas_draw_str(c, 35, 63, buf);
 
-        bool full = (a->mode == BioMapModeGsrOnly);
-        draw_graph(c, a,
-            full ? GX_GSR : GX_GPSGSR, full ? GY_GSR : GY_GPSGSR,
-            full ? GW_GSR : GW_GPSGSR, full ? GH_GSR : GH_GPSGSR);
+        if(gps_uart_is_ready(a->gps) && g.date.year) {
+            char buf[48];
+            int yr = g.date.year + (g.date.year < 80 ? 2000 : 1900);
+            snprintf(buf, sizeof(buf), "%02d:%02d:%02d UTC %04d-%02d-%02d",
+                g.time.hours, g.time.minutes, g.time.seconds,
+                yr, g.date.month, g.date.day);
+            canvas_draw_str(c, 0, y, buf);
+            y += 10;
+
+            if(g.fix_valid || g.fix_quality > 0) {
+                snprintf(buf, sizeof(buf), "%.5f", (double)g.latitude);
+                canvas_draw_str(c, 0, y, buf);
+                y += 10;
+                snprintf(buf, sizeof(buf), "%.5f", (double)g.longitude);
+                canvas_draw_str(c, 0, y, buf);
+                y += 10;
+            } else {
+                canvas_draw_str(c, 0, y, "Waiting for fix...");
+                y += 10;
+            }
+
+            snprintf(buf, sizeof(buf), "Sats:%d  Q:%d", g.satellites_tracked, g.fix_quality);
+            canvas_draw_str(c, 0, y, buf);
+        } else {
+            canvas_draw_str(c, 0, y, "GPS: no signal");
+        }
     }
 
     furi_mutex_release(a->mutex);
 }
 
-// -- callbacks -------------------------------------------------------------
+// ==========================================================================
+// Input & timer callbacks — forward events to the app's message queue
+// ==========================================================================
 
 void biomap_input_callback(InputEvent* e, void* ctx) {
     PluginEvent ev = {.type = EventTypeKey, .input = *e};
@@ -91,7 +139,17 @@ void biomap_timer_callback(void* ctx) {
     furi_message_queue_put((FuriMessageQueue*)ctx, &ev, 0);
 }
 
-// -- conversion status screen ----------------------------------------------
+// ==========================================================================
+// Conversion status — shown after "Convert CSV to GPX" runs
+// ==========================================================================
+//
+//  ┌─────────────────────────────┐
+//  │  Conversion OK              │   ← FontPrimary (green LED flash)
+//  │  CSV : biomap_003.csv       │
+//  │  GPX : biomap_003.gpx       │
+//  │  Points : 29                │
+//  │  Press Back                 │   ← or "No GPS fix rows found"
+//  └─────────────────────────────┘
 
 static bool  conv_ok;
 static char  conv_name[32];
@@ -126,9 +184,8 @@ static void show_status_screen(BioMapApp* app) {
     gui_add_view_port(gui, vp, GuiLayerFullscreen);
     view_port_update(vp);
 
-    // Drain stale events, then wait for Back
     PluginEvent ev;
-    while(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk);
+    while(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk); // drain stale
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort
             && ev.input.key == InputKeyBack) break;
@@ -149,7 +206,21 @@ static void do_convert(GpxConverter* c, const char* name, BioMapApp* app) {
     show_status_screen(app);
 }
 
-// -- main menu -------------------------------------------------------------
+// ==========================================================================
+// Launch menu — main navigation
+// ==========================================================================
+//
+//  ┌─────────────────────────────┐
+//  │  Bio Mapping                │
+//  │  ▓ GPS + GSR           ▓   │   ← selected item (inverse bar)
+//  │    GPS Only                 │
+//  │    GSR Only                 │
+//  │    Convert CSV to GPX       │
+//  │    Reset GPS                │
+//  │                             │
+//  └─────────────────────────────┘
+//
+//  Controls:  Up/Down → navigate     OK → select     Back → exit app
 
 #define MENU_COUNT 5
 static const char* menu_labels[MENU_COUNT] = {
@@ -226,7 +297,9 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
     return result;
 }
 
-// -- converter flow --------------------------------------------------------
+// ==========================================================================
+// Converter flow — scan CSVs, convert latest, show result
+// ==========================================================================
 
 void run_converter(BioMapApp* app) {
     GpxConverter* c = gpx_converter_alloc(app->storage);
@@ -242,7 +315,7 @@ void run_converter(BioMapApp* app) {
         return;
     }
 
-    // Convert the latest file found
     do_convert(c, gpx_converter_get_name(c, n - 1), app);
     gpx_converter_free(c);
 }
+

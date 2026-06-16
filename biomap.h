@@ -26,15 +26,7 @@
 #define ZOOM_MAX         4.0f
 #define DISPLAY_EMA_A    0.2f
 
-#define GX_GPSGSR  65
-#define GY_GPSGSR  20
-#define GW_GPSGSR  61
-#define GH_GPSGSR  40
-#define GX_GSR     2
-#define GY_GSR     20
-#define GW_GSR     124
-#define GH_GSR     40
-#define GRAPH_N    (GW_GSR - 2)
+#define GRAPH_N    126
 
 typedef struct BioMapApp {
     BioMapMode         mode;
