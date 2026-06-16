@@ -38,17 +38,16 @@ To build this, you need the following physical components:
 
 ## 3. The Wiring Guide & Hardware Surgery (Step-by-Step)
 
-Because the Flipper's native hardware I2C pins (15 & 16) are hijacked by the L76K GPS board for Standby/Reset functions, we must perform minor "hardware surgery" to reclaim them for our ADS1115 sensor, and reroute the GPS controls to free pins.
+### Phase 1: Freeing the I2C Bus (Trace Cuts) ✅ COMPLETE
+The two copper traces connecting **Pin 15 (PC1)** and **Pin 16 (PC0)** to the L76K GPS module have been physically cut. These pins are now free for exclusive use by the ADS1115 I2C bus.
 
-### Phase 1: Freeing the I2C Bus (Trace Cuts)
-1. **Locate the target:** Look at the PCB right next to **Pin 15 (PC1)** and **Pin 16 (PC0)**. Find the two small copper traces running from those pins toward the silver L76K module.
-2. **Make the cut:** Use a sharp hobby knife to cut deeply across those traces, completely severing the copper connection. 
-3. **Verify:** Use a multimeter in continuity mode. Pin 15 and Pin 16 should no longer have an electrical connection to the GPS module.
+* Pin 15 (PC1) — **no longer connected to GPS** → used for I2C **SCL**
+* Pin 16 (PC0) — **no longer connected to GPS** → used for I2C **SDA**
 
-### Phase 2: Rerouting the GPS Controls
-1. Locate the exposed **RESET** and **STANDBY** pads on the edges of the silver L76K module.
-2. Solder a tiny jumper wire from the **STANDBY pad** to **Pin 6 (PB2)**.
-3. Solder a tiny jumper wire from the **RESET pad** to **Pin 7 (PC3)**.
+Verify with a multimeter in continuity mode: there should be no electrical connection between Pin 15/16 and the GPS module.
+
+### Phase 2: GPS Hardware Reroute — Not Required ✅
+No additional wiring is needed. The L76K cannot be put to sleep via software, so no STANDBY or RESET wires need to be soldered. The GPS runs continuously. Software reset commands are available over UART for error recovery — see **Section 4a**.
 
 ### Phase 3: Installing the Biometric Sensor Circuit
 Mount the ADS1115 and the MCP6002 onto the prototyping grid and wire them. We will use both channels (A and B) of the MCP6002.
@@ -98,11 +97,7 @@ Writing this app in C is highly efficient with the ADS1115 in differential mode.
 Your C code will use the Flipper's native I2C API to communicate with the ADS1115. Here is the core logic for your 10 Hz measurement loop:
 
 ```c
-// 1. Tell the Flipper where the GPS controls moved to
-furi_hal_gpio_init(&gpio_ext_pc3, GpioModeOutputPushPull, GpioPullNo, GpioSpeedLow); // RESET on Pin 7
-furi_hal_gpio_init(&gpio_ext_pb2, GpioModeOutputPushPull, GpioPullNo, GpioSpeedLow); // STANDBY on Pin 6
-
-// 2. Read the ADS1115 via Hardware I2C (Runs 10x per second)
+// Read the ADS1115 via Hardware I2C (Runs 10x per second)
 uint8_t address = 0x48 << 1; // Flipper shifts I2C addresses by 1 bit
 uint8_t reg_read[2];
 
@@ -120,6 +115,36 @@ Writing data to the Flipper's SD card takes a few milliseconds. If we write our 
 
 **The Solution:** The 1-Second Buffer.
 Your hardware timing code will run **10 times every second**. It will store those 10 readings in a temporary memory variable. Once a full second has passed, the app grabs the most recent GPS coordinate, averages the 10 GSR readings, and writes *one* single string to the SD card.
+
+---
+
+## 4a. GPS Error Recovery via PCAS Commands
+
+The L76K GPS runs continuously — it cannot be put to sleep via software. The only software control available is sending reset commands over UART to recover from a GPS hang or force a fresh satellite lock.
+
+The L76K uses Quectel's **PCAS** protocol (not PMTK — PMTK commands are for older modules and will be silently ignored).
+
+```c
+// Helper — send a PCAS command over the GPS UART
+static void gps_send_pcas(const char* cmd) {
+    furi_hal_uart_tx(FuriHalUartIdLPUART1, (uint8_t*)cmd, strlen(cmd));
+}
+```
+
+### Reset Commands
+
+| Action | Command | When to use |
+|---|---|---|
+| **Hot Start** | `$PCAS10,0*1C\r\n` | GPS is outputting stale/frozen data — restarts quickly using cached satellite info |
+| **Factory Reset** | `$PCAS10,3*1F\r\n` | GPS is completely hung or unresponsive — clears everything and starts fresh |
+
+```c
+// GPS outputting stale data — hot restart, keeps satellite cache for fast re-lock:
+gps_send_pcas("$PCAS10,0*1C\r\n");
+
+// GPS completely hung — factory reset, clears all data:
+gps_send_pcas("$PCAS10,3*1F\r\n");
+```
 
 ---
 
