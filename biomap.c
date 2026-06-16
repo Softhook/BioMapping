@@ -38,11 +38,6 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     app->running = true;
     memset(app->graph_buf, 0, sizeof(app->graph_buf));
 
-    app->otg_was_enabled = furi_hal_power_is_otg_enabled();
-    if(has_gps(mode)) {
-        for(int i = 5; i > 0 && !furi_hal_power_enable_otg(); i--);
-    }
-
     app->gps = has_gps(mode) ? gps_uart_alloc(app->event_queue, app->notifications) : NULL;
     app->gsr = has_gsr(mode) ? gsr_sensor_alloc() : NULL;
     app->logger = sd_logger_alloc(app->storage);
@@ -177,9 +172,6 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     sd_logger_free(app->logger); app->logger = NULL;
     if(app->gsr) { gsr_sensor_free(app->gsr); app->gsr = NULL; }
     if(app->gps) { gps_uart_free(app->gps); app->gps = NULL; }
-
-    if(has_gps(mode) && furi_hal_power_is_otg_enabled() && !app->otg_was_enabled)
-        furi_hal_power_disable_otg();
 
     gui_remove_view_port(gui, vp);
     view_port_free(vp);

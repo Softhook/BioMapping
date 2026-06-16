@@ -4,7 +4,6 @@
 
 #include <furi.h>
 #include <furi_hal.h>
-#include <furi_hal_power.h>
 #include <furi_hal_rtc.h>
 #include <gui/gui.h>
 #include <gui/view_port.h>
@@ -60,7 +59,6 @@ typedef struct BioMapApp {
     bool     running;
     bool     recording_active;
     char     recording_filename[64];
-    bool     otg_was_enabled;
     volatile int32_t menu_selection;
 } BioMapApp;
 

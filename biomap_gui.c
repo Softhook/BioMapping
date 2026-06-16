@@ -153,7 +153,7 @@ static void do_convert(GpxConverter* c, const char* name, BioMapApp* app) {
 
 #define MENU_COUNT 5
 static const char* menu_labels[MENU_COUNT] = {
-    "GPS + GSR", "GPS Only", "GSR Only", "Convert CSV to GPX", "Hot Start GPS",
+    "GPS + GSR", "GPS Only", "GSR Only", "Convert CSV to GPX", "Reset GPS",
 };
 
 static void menu_render(Canvas* c, void* ctx) {
@@ -167,7 +167,7 @@ static void menu_render(Canvas* c, void* ctx) {
     for(int i = 0; i < MENU_COUNT; i++) {
         int y = 22 + i * 10;
         if(i == sel) {
-            canvas_draw_box(c, 0, y - 7, 128, 10);
+            canvas_draw_box(c, 0, y - 8, 128, 9);
             canvas_invert_color(c);
             canvas_draw_str(c, 0, y, ">");
             canvas_draw_str(c, 8, y, menu_labels[i]);
