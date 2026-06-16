@@ -5,6 +5,7 @@
 #include <storage/storage.h>
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 
 #define TAG "GpxConverter"
 
@@ -57,6 +58,26 @@ int gpx_converter_scan(GpxConverter* c) {
 const char* gpx_converter_get_name(const GpxConverter* c, int index) {
     furi_assert(c);
     return (index >= 0 && index < c->file_count) ? c->filenames[index] : NULL;
+}
+
+// Simple string-to-float (avoids atof which is disabled in Flipper API)
+static float str_to_float(const char* s) {
+    float r = 0, sign = 1, frac = 0, div = 1;
+    if(*s == '-') { sign = -1; s++; }
+    while(*s >= '0' && *s <= '9') { r = r * 10 + (*s++ - '0'); }
+    if(*s == '.') {
+        s++;
+        while(*s >= '0' && *s <= '9') { frac = frac * 10 + (*s++ - '0'); div *= 10; }
+    }
+    return sign * (r + frac / div);
+}
+
+// Simple string-to-int
+static int str_to_int(const char* s) {
+    int r = 0, sign = 1;
+    if(*s == '-') { sign = -1; s++; }
+    while(*s >= '0' && *s <= '9') { r = r * 10 + (*s++ - '0'); }
+    return sign * r;
 }
 
 // Read one line, stripping \r, stopping at \n or EOF
@@ -138,16 +159,26 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename) {
         lines_read++;
 
         char  ts[32] = "";
-        float lat = 0, lon = 0, alt = 0;
-        int   sats = 0, fix = 0;
-        short raw = 0;
+        float lat = 0, lon = 0;
+        int   fix = 0, raw = 0;
 
-        if(sscanf(line, "%31[^,],%f,%f,%f,%d,%d,%hd",
-               ts, &lat, &lon, &alt, &sats, &fix, &raw) < 7) {
-            FURI_LOG_W(TAG, "Skip line #%d: '%.40s'", lines_read, line);
+        // Manual comma-split parse — avoids sscanf field-alignment issues
+        char* tok[7];
+        int nt = 0;
+        tok[nt++] = line;
+        for(char* p = line; *p && nt < 7; p++) {
+            if(*p == ',') { *p = '\0'; tok[nt++] = p + 1; }
+        }
+        if(nt < 7) {
+            FURI_LOG_W(TAG, "Skip line #%d: only %d fields", lines_read, nt);
             lines_skipped++;
             continue;
         }
+        strncpy(ts, tok[0], sizeof(ts) - 1);
+        lat  = str_to_float(tok[1]);
+        lon  = str_to_float(tok[2]);
+        fix  = str_to_int(tok[5]);
+        raw  = str_to_int(tok[6]);
 
         float raw_f = (float)raw;
         if(!primed) { smoothed = raw_f; primed = true; }
@@ -156,7 +187,7 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename) {
         smoothed           = new_smoothed;
         float elevation    = -(rate) * GPX_ELEVATION_SCALE;
 
-        if(fix > 0 && lat != 0.0f && lon != 0.0f) {
+        if(fix > 0 && fabsf(lat) > 0.0001f && fabsf(lon) > 0.0001f) {
             char pt[256];
             snprintf(pt, sizeof(pt),
                 "      <trkpt lat=\"%.6f\" lon=\"%.6f\">\n"
@@ -166,6 +197,8 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename) {
                 (double)lat, (double)lon, (double)elevation, ts);
             file_write_str(gpx_file, pt);
             points++;
+        } else {
+            FURI_LOG_W(TAG, "Filtered: fix=%d lat=%.6f lon=%.6f", fix, (double)lat, (double)lon);
         }
     }
 

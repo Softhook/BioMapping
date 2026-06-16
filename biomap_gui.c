@@ -103,19 +103,31 @@ static void conv_status_render(Canvas* c, void* ctx) {
     canvas_set_font(c, FontPrimary);
     canvas_draw_str(c, 0, 10, conv_ok ? "Conversion OK" : "Conversion FAILED");
     canvas_set_font(c, FontSecondary);
-    char buf[64], gpx[32];
+
+    char buf[64];
+    snprintf(buf, sizeof(buf), "CSV : %s", conv_name);
+    canvas_draw_str(c, 0, 24, buf);
+
+    // Proper .csv → .gpx extension swap for display
+    char gpx[32];
     strncpy(gpx, conv_name, sizeof(gpx) - 1);
+    gpx[sizeof(gpx) - 1] = '\0';
     size_t len = strlen(gpx);
     if(len > 4 && strcmp(gpx + len - 4, ".csv") == 0) {
         gpx[len - 3] = 'g'; gpx[len - 2] = 'p'; gpx[len - 1] = 'x';
     }
-    snprintf(buf, sizeof(buf), "Source: %s", conv_name);
-    canvas_draw_str(c, 0, 24, buf);
-    snprintf(buf, sizeof(buf), "Output: %s", gpx);
+    snprintf(buf, sizeof(buf), "GPX : %s", gpx);
     canvas_draw_str(c, 0, 34, buf);
-    snprintf(buf, sizeof(buf), "Points: %d", conv_points);
-    canvas_draw_str(c, 0, 44, buf);
-    canvas_draw_str(c, 0, 58, "Press Back");
+
+    snprintf(buf, sizeof(buf), "Points : %d", conv_points);
+    canvas_draw_str(c, 0, 46, buf);
+
+    // Show why conversion failed (visible even without logs)
+    if(!conv_ok && conv_points == 0) {
+        canvas_draw_str(c, 0, 58, "No GPS fix rows found");
+    } else {
+        canvas_draw_str(c, 0, 58, "Press Back");
+    }
 }
 
 static void show_status_screen(BioMapApp* app) {
@@ -124,8 +136,11 @@ static void show_status_screen(BioMapApp* app) {
     view_port_input_callback_set(vp, biomap_input_callback, app->event_queue);
     Gui* gui = furi_record_open(RECORD_GUI);
     gui_add_view_port(gui, vp, GuiLayerFullscreen);
+    view_port_update(vp);
 
+    // Drain stale events then wait for Back
     PluginEvent ev;
+    while(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk);
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort
             && ev.input.key == InputKeyBack) break;
