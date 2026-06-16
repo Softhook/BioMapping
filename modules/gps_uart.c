@@ -1,10 +1,8 @@
-// GPS UART Module for BioMapping 3.0
-// Derived from ezod/flipperzero-gps — single-byte-per-IRQ UART pattern.
-// Handles UART NMEA parsing only; GPS power-management uses PCAS serial
-// commands (no hardware control pins).
+// GPS UART — NMEA parser for Bio Mapping.
+// Single-byte-per-IRQ RX pattern, adapted from ezod/flipperzero-gps.
 
 #include "gps_uart.h"
-#include "../biomap_events.h" // ← Fix #1: use shared PluginEvent for queue posts
+#include "../biomap_events.h"
 
 #include <furi.h>
 #include <furi_hal.h>
@@ -13,100 +11,77 @@
 #include <math.h>
 #include <string.h>
 
-#include "../minmea.h"
-
-// ---------------------------------------------------------------------------
-// Internal structure (opaque to callers via forward-decl in header)
-// ---------------------------------------------------------------------------
+#define RX_LINE_BUF  1024      // max NMEA line length (~80 in practice)
 
 struct GpsUart {
-    GpsStatus status;
-
-    // UART RX pipeline
+    GpsStatus            status;
     FuriHalSerialHandle* serial_handle;
     FuriStreamBuffer*    rx_stream;
-    uint8_t              rx_buf[1024];
+    uint8_t              rx_buf[RX_LINE_BUF];
     size_t               rx_offset;
-
-    // Back-reference to the main event queue
-    FuriMessageQueue* event_queue;
-
-    // Caller-owned notification handle (LED blinks on NMEA parse).
-    // Not opened or closed here — lifetime belongs to the caller.
-    NotificationApp* notifications;
-
-    // Hardware/resource handles we take ownership of
-    bool       ready; // true if serial_handle acquired OK
-    volatile bool rx_pending;
+    FuriMessageQueue*    event_queue;
+    NotificationApp*     notifications;   // caller-owned
+    bool                 ready;
+    volatile bool        rx_pending;
 };
 
-// ---------------------------------------------------------------------------
-// UART IRQ callback — fires for every received byte (ISR context).
-// Fix #1: post a real PluginEvent so the queue item size always matches
-//         what biomap.c allocated (sizeof(PluginEvent)).
-// ---------------------------------------------------------------------------
+// UART IRQ — fires per received byte (ISR context).
+// Posts a single EventTypeUart to the main queue; subsequent bytes are
+// drained in gps_uart_process_rx() so the queue doesn't overflow.
 static void gps_uart_irq_cb(
     FuriHalSerialHandle* handle,
     FuriHalSerialRxEvent event,
     void* context) {
     UNUSED(handle);
-    GpsUart* gps_uart = (GpsUart*)context;
+    GpsUart* g = (GpsUart*)context;
     if(event == FuriHalSerialRxEventData) {
         uint8_t data = furi_hal_serial_async_rx(handle);
-        furi_stream_buffer_send(gps_uart->rx_stream, &data, 1, 0);
-
-        if(!gps_uart->rx_pending) {
-            gps_uart->rx_pending = true;
-            // Post a correctly-sized PluginEvent. The main loop checks only the
-            // `type` field for UART events, so `input` can be zeroed.
-            PluginEvent ev;
-            memset(&ev, 0, sizeof(ev));
-            ev.type = EventTypeUart;
-            furi_message_queue_put(gps_uart->event_queue, &ev, 0);
+        furi_stream_buffer_send(g->rx_stream, &data, 1, 0);
+        if(!g->rx_pending) {
+            g->rx_pending = true;
+            PluginEvent ev = {.type = EventTypeUart};
+            furi_message_queue_put(g->event_queue, &ev, 0);
         }
     }
 }
 
-// ---------------------------------------------------------------------------
-// NMEA sentence parser
-// ---------------------------------------------------------------------------
-static void gps_uart_parse_line(GpsUart* gps_uart, char* line) {
+// NMEA sentence dispatcher
+static void gps_uart_parse_line(GpsUart* g, char* line) {
     switch(minmea_sentence_id(line, false)) {
     case MINMEA_SENTENCE_RMC: {
         struct minmea_sentence_rmc frame;
         if(minmea_parse_rmc(&frame, line)) {
-            gps_uart->status.fix_valid  = frame.valid;
-            gps_uart->status.latitude   = minmea_tocoord(&frame.latitude);
-            gps_uart->status.longitude  = minmea_tocoord(&frame.longitude);
-            gps_uart->status.speed      = minmea_tofloat(&frame.speed);
-            gps_uart->status.course     = minmea_tofloat(&frame.course);
-            gps_uart->status.time       = frame.time;
-            gps_uart->status.date       = frame.date;
-            notification_message(gps_uart->notifications, &sequence_blink_green_10);
+            g->status.fix_valid  = frame.valid;
+            g->status.latitude   = minmea_tocoord(&frame.latitude);
+            g->status.longitude  = minmea_tocoord(&frame.longitude);
+            g->status.speed      = minmea_tofloat(&frame.speed);
+            g->status.course     = minmea_tofloat(&frame.course);
+            g->status.time       = frame.time;
+            g->status.date       = frame.date;
+            notification_message(g->notifications, &sequence_blink_green_10);
         }
     } break;
 
     case MINMEA_SENTENCE_GGA: {
         struct minmea_sentence_gga frame;
         if(minmea_parse_gga(&frame, line)) {
-            gps_uart->status.latitude           = minmea_tocoord(&frame.latitude);
-            gps_uart->status.longitude          = minmea_tocoord(&frame.longitude);
-            gps_uart->status.altitude           = minmea_tofloat(&frame.altitude);
-            gps_uart->status.altitude_units     = frame.altitude_units;
-            gps_uart->status.satellites_tracked = frame.satellites_tracked;
-            gps_uart->status.fix_quality        = frame.fix_quality;
-            gps_uart->status.time               = frame.time;
-            notification_message(gps_uart->notifications, &sequence_blink_magenta_10);
+            g->status.latitude           = minmea_tocoord(&frame.latitude);
+            g->status.longitude          = minmea_tocoord(&frame.longitude);
+            g->status.altitude           = minmea_tofloat(&frame.altitude);
+            g->status.satellites_tracked = frame.satellites_tracked;
+            g->status.fix_quality        = frame.fix_quality;
+            g->status.time               = frame.time;
+            notification_message(g->notifications, &sequence_blink_magenta_10);
         }
     } break;
 
     case MINMEA_SENTENCE_GLL: {
         struct minmea_sentence_gll frame;
         if(minmea_parse_gll(&frame, line)) {
-            gps_uart->status.latitude  = minmea_tocoord(&frame.latitude);
-            gps_uart->status.longitude = minmea_tocoord(&frame.longitude);
-            gps_uart->status.time      = frame.time;
-            notification_message(gps_uart->notifications, &sequence_blink_red_10);
+            g->status.latitude  = minmea_tocoord(&frame.latitude);
+            g->status.longitude = minmea_tocoord(&frame.longitude);
+            g->status.time      = frame.time;
+            notification_message(g->notifications, &sequence_blink_red_10);
         }
     } break;
 
@@ -116,191 +91,154 @@ static void gps_uart_parse_line(GpsUart* gps_uart, char* line) {
 }
 
 // ---------------------------------------------------------------------------
-// Public API — alloc
-// Fix #10: accept caller-owned NotificationApp* instead of opening our own.
-// Fix #13: removed unused FuriMutex* parameter.
+// Alloc — acquire USART1, init serial, configure GPS
 // ---------------------------------------------------------------------------
 GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications) {
-    GpsUart* gps_uart = malloc(sizeof(GpsUart));
-    furi_assert(gps_uart);
+    GpsUart* g = malloc(sizeof(GpsUart));
+    furi_assert(g);
 
-    gps_uart->event_queue   = event_queue;
-    gps_uart->notifications = notifications; // caller retains ownership
-    gps_uart->rx_offset     = 0;
-    gps_uart->ready         = false;
-    gps_uart->rx_pending    = false;
+    g->event_queue   = event_queue;
+    g->notifications = notifications;
+    g->rx_offset     = 0;
+    g->ready         = false;
+    g->rx_pending    = false;
 
-    // Initialise status — NaN flags "no fix yet"
-    gps_uart->status.latitude           = NAN;
-    gps_uart->status.longitude          = NAN;
-    gps_uart->status.altitude           = 0.0f;
-    gps_uart->status.altitude_units     = ' ';
-    gps_uart->status.speed              = 0.0f;
-    gps_uart->status.course             = 0.0f;
-    gps_uart->status.fix_quality        = 0;
-    gps_uart->status.satellites_tracked = 0;
-    gps_uart->status.fix_valid          = false;
-    memset(&gps_uart->status.time, 0, sizeof(struct minmea_time));
-    memset(&gps_uart->status.date, 0, sizeof(struct minmea_date));
+    g->status = (GpsStatus){
+        .latitude           = NAN,
+        .longitude          = NAN,
+        .altitude           = 0.0f,
+        .speed              = 0.0f,
+        .course             = 0.0f,
+        .fix_quality        = 0,
+        .satellites_tracked = 0,
+        .fix_valid          = false,
+    };
+    memset(&g->status.time, 0, sizeof(struct minmea_time));
+    memset(&g->status.date, 0, sizeof(struct minmea_date));
 
-    // Stream buffer for byte-level RX
-    gps_uart->rx_stream = furi_stream_buffer_alloc(GPS_RX_BUF_SIZE, 1);
+    g->rx_stream = furi_stream_buffer_alloc(GPS_RX_BUF_SIZE, 1);
 
-    // Disable the Flipper's Expansion Service before acquiring the serial port.
-    // The Expansion Service monitors USART1 to detect official Flipper modules
-    // (e.g. the Video Game Module). While it is running it holds the USART1
-    // lock, which causes furi_hal_serial_control_acquire() to return NULL and
-    // produces the "GPS: UART locked" screen message. Disabling it only stops
-    // the software monitor — it does NOT affect the GPS shield's 5V OTG power.
-    // We re-enable the service in gps_uart_free() so other apps are not affected.
+    // Disable Expansion Service to free USART1 (re-enabled in free)
     Expansion* expansion = furi_record_open(RECORD_EXPANSION);
     expansion_disable(expansion);
     furi_record_close(RECORD_EXPANSION);
 
-    // Acquire and initialise the serial peripheral
-    gps_uart->serial_handle = furi_hal_serial_control_acquire(GPS_UART_CH);
-    if(gps_uart->serial_handle) {
-        furi_hal_serial_init(gps_uart->serial_handle, GPS_BAUD_RATE);
-        furi_hal_serial_async_rx_start(
-            gps_uart->serial_handle, gps_uart_irq_cb, gps_uart, false);
-        gps_uart->ready = true;
-        gps_uart_configure(gps_uart);
+    g->serial_handle = furi_hal_serial_control_acquire(GPS_UART_CH);
+    if(g->serial_handle) {
+        furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE);
+        furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
+        g->ready = true;
+        gps_uart_configure(g);
     } else {
-        FURI_LOG_E("GpsUart", "Failed to acquire USART1 — another app may have it open");
+        FURI_LOG_E("GpsUart", "Failed to acquire USART1");
     }
 
-    return gps_uart;
+    return g;
 }
 
 // ---------------------------------------------------------------------------
-// Public API — free
+// Free — release serial, re-enable Expansion Service
 // ---------------------------------------------------------------------------
-void gps_uart_free(GpsUart* gps_uart) {
-    furi_assert(gps_uart);
-
-    // Shut down serial — stop IRQ before deinit, then release peripheral.
-    // Order matters: async_rx_stop disables the IRQ before deinit touches hardware.
-    if(gps_uart->serial_handle) {
-        furi_hal_serial_async_rx_stop(gps_uart->serial_handle);
-        furi_hal_serial_deinit(gps_uart->serial_handle);
-        furi_hal_serial_control_release(gps_uart->serial_handle);
-        gps_uart->serial_handle = NULL;
+void gps_uart_free(GpsUart* g) {
+    furi_assert(g);
+    if(g->serial_handle) {
+        furi_hal_serial_async_rx_stop(g->serial_handle);
+        furi_hal_serial_deinit(g->serial_handle);
+        furi_hal_serial_control_release(g->serial_handle);
     }
-
-    // Re-enable the Expansion Service now that we have released the serial port.
-    // This restores normal Flipper behaviour for other apps after we exit.
     Expansion* expansion = furi_record_open(RECORD_EXPANSION);
     expansion_enable(expansion);
     furi_record_close(RECORD_EXPANSION);
-
-    // Fix #10: we don't own RECORD_NOTIFICATION — do NOT close it here.
-    // The caller (biomap.c) opened it and will close it at shutdown.
-
-    furi_stream_buffer_free(gps_uart->rx_stream);
-    free(gps_uart);
+    furi_stream_buffer_free(g->rx_stream);
+    free(g);
 }
 
 // ---------------------------------------------------------------------------
-// Public API — status snapshot (call while holding app mutex)
+// Status accessors
 // ---------------------------------------------------------------------------
-GpsStatus gps_uart_get_status(GpsUart* gps_uart) {
-    furi_assert(gps_uart);
-    return gps_uart->status;
+GpsStatus gps_uart_get_status(GpsUart* g) {
+    furi_assert(g);
+    return g->status;
 }
 
-bool gps_uart_is_ready(GpsUart* gps_uart) {
-    furi_assert(gps_uart);
-    return gps_uart->ready;
+bool gps_uart_is_ready(GpsUart* g) {
+    furi_assert(g);
+    return g->ready;
 }
 
 // ---------------------------------------------------------------------------
-// Public API — drain RX stream and parse NMEA lines.
-// Call from the main event loop on EventTypeUart, while holding the mutex.
-//
-// Fix #3: if the line buffer fills with no newline (GPS sends garbage /
-// baud mismatch), reset rx_offset so the module can resume receiving.
-// Without this the buffer stays permanently full and GPS silently stops.
+// Helper — send a PCAS command over the GPS UART
 // ---------------------------------------------------------------------------
-void gps_uart_process_rx(GpsUart* gps_uart) {
-    furi_assert(gps_uart);
-    gps_uart->rx_pending = false;
+static void pcas_tx(GpsUart* g, const char* cmd) {
+    furi_hal_serial_tx(g->serial_handle, (const uint8_t*)cmd, strlen(cmd));
+    furi_delay_ms(100);
+}
 
-    size_t len = 0;
+// ---------------------------------------------------------------------------
+// Drain RX stream, parse complete NMEA lines
+// ---------------------------------------------------------------------------
+void gps_uart_process_rx(GpsUart* g) {
+    furi_assert(g);
+    g->rx_pending = false;
+
+    size_t len;
     do {
-        // Fix #3: guard against a full buffer with no newline.
-        if(sizeof(gps_uart->rx_buf) - 1 - gps_uart->rx_offset == 0) {
-            FURI_LOG_W("GpsUart", "RX buffer full with no newline — discarding and hot restarting");
-            gps_uart->rx_offset = 0;
-            gps_uart_send_hot_start(gps_uart);
+        if(sizeof(g->rx_buf) - 1 - g->rx_offset == 0) {
+            FURI_LOG_W("GpsUart", "RX buffer full — resetting");
+            g->rx_offset = 0;
+            gps_uart_send_hot_start(g);
         }
 
         len = furi_stream_buffer_receive(
-            gps_uart->rx_stream,
-            gps_uart->rx_buf + gps_uart->rx_offset,
-            sizeof(gps_uart->rx_buf) - 1 - gps_uart->rx_offset,
+            g->rx_stream,
+            g->rx_buf + g->rx_offset,
+            sizeof(g->rx_buf) - 1 - g->rx_offset,
             0);
 
         if(len > 0) {
-            gps_uart->rx_offset += len;
+            g->rx_offset += len;
+            char* line = (char*)g->rx_buf;
+            char* end  = (char*)g->rx_buf + g->rx_offset;
 
-            char* line = (char*)gps_uart->rx_buf;
-            char* end = (char*)gps_uart->rx_buf + gps_uart->rx_offset;
             while(line < end) {
-                char* newline = memchr(line, '\n', end - line);
-                if(newline) {
-                    *newline = '\0';
-                    gps_uart_parse_line(gps_uart, line);
-                    line = newline + 1;
+                char* nl = memchr(line, '\n', end - line);
+                if(nl) {
+                    *nl = '\0';
+                    gps_uart_parse_line(g, line);
+                    line = nl + 1;
                 } else {
                     break;
                 }
             }
 
-            // Shift remaining bytes to the beginning of the buffer
-            if(line > (char*)gps_uart->rx_buf) {
+            if(line > (char*)g->rx_buf) {
                 size_t remaining = end - line;
-                memmove(gps_uart->rx_buf, line, remaining);
-                gps_uart->rx_offset = remaining;
+                memmove(g->rx_buf, line, remaining);
+                g->rx_offset = remaining;
             }
         }
     } while(len > 0);
 }
 
 // ---------------------------------------------------------------------------
-// Public API — send PCAS configuration commands
+// Send init sequence: constellations, NMEA filter, 1 Hz rate
 // ---------------------------------------------------------------------------
-void gps_uart_configure(GpsUart* gps_uart) {
-    furi_assert(gps_uart);
-    if(gps_uart->ready && gps_uart->serial_handle) {
-        FURI_LOG_I("GpsUart", "Configuring GPS constellations, sentence filters and rate");
-        
-        // 1. Enable GPS + BeiDou + GLONASS constellations (recommended for urban canyons)
-        const char* cmd_const = "$PCAS04,7*1E\r\n";
-        furi_hal_serial_tx(gps_uart->serial_handle, (const uint8_t*)cmd_const, strlen(cmd_const));
-        furi_delay_ms(100);
-        
-        // 2. Output only GGA + RMC sentences (reduce parser overhead and line size)
-        const char* cmd_filt = "$PCAS03,1,0,0,0,1,0,0,0,0,0,,,0,0*02\r\n";
-        furi_hal_serial_tx(gps_uart->serial_handle, (const uint8_t*)cmd_filt, strlen(cmd_filt));
-        furi_delay_ms(100);
-        
-        // 3. Set update rate to 1 Hz (adequate for walking pace)
-        const char* cmd_rate = "$PCAS02,1000*2E\r\n";
-        furi_hal_serial_tx(gps_uart->serial_handle, (const uint8_t*)cmd_rate, strlen(cmd_rate));
-        furi_delay_ms(100);
-    }
+void gps_uart_configure(GpsUart* g) {
+    furi_assert(g);
+    if(!g->ready || !g->serial_handle) return;
+    FURI_LOG_I("GpsUart", "Configuring GPS");
+    pcas_tx(g, "$PCAS04,7*1E\r\n");                      // GPS+BeiDou+GLONASS
+    pcas_tx(g, "$PCAS03,1,0,0,0,1,0,0,0,0,0,,,0,0*02\r\n"); // GGA+RMC only
+    pcas_tx(g, "$PCAS02,1000*2E\r\n");                    // 1 Hz update rate
 }
 
 // ---------------------------------------------------------------------------
-// Public API — send PCAS Hot Start reset
+// Hot Start reset
 // ---------------------------------------------------------------------------
-void gps_uart_send_hot_start(GpsUart* gps_uart) {
-    furi_assert(gps_uart);
-    if(gps_uart->ready && gps_uart->serial_handle) {
-        FURI_LOG_I("GpsUart", "Sending Hot Start reset ($PCAS10,0)");
-        const char* cmd = "$PCAS10,0*1C\r\n";
-        furi_hal_serial_tx(gps_uart->serial_handle, (const uint8_t*)cmd, strlen(cmd));
-        furi_delay_ms(100); // let UART TX complete
-    }
+void gps_uart_send_hot_start(GpsUart* g) {
+    furi_assert(g);
+    if(!g->ready || !g->serial_handle) return;
+    FURI_LOG_I("GpsUart", "Hot Start reset");
+    pcas_tx(g, "$PCAS10,0*1C\r\n");
 }
 

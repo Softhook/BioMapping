@@ -1,11 +1,8 @@
 #pragma once
 
-// GSR Sensor Module for BioMapping 3.0
-// ADS1115 I2C differential reader (A0 – A1) via Wheatstone Bridge.
-//
-// The ADS1115 is always probed on the external I2C bus at alloc() time.
-// Call gsr_sensor_available() to check whether the device was found.
-// If the probe fails, all readings return 0 and tick() is a no-op.
+// GSR Sensor — ADS1115 I2C differential reader (AIN0–AIN1, TIA circuit).
+// Always probed at alloc(); gsr_sensor_available() reports success.
+// Readings return 0 and tick() is a no-op if the probe fails.
 
 #include <furi.h>
 #include <furi_hal.h>

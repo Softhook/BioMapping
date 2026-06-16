@@ -1,6 +1,6 @@
 #pragma once
 
-// biomap_events.h — Shared event types for BioMapping 3.0
+// biomap_events.h — Shared event types for Bio Mapping
 //
 // Both biomap.c and modules/gps_uart.c post to the same FuriMessageQueue.
 // The queue is allocated with sizeof(PluginEvent) as the item size, so EVERY

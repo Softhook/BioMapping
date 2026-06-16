@@ -1,6 +1,6 @@
 App(
     appid="biomap",
-    name="BioMapping 3.0",
+    name="Bio Mapping",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="biomap_app",
     requires=["gui", "storage", "notification", "expansion"],

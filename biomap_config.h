@@ -1,4 +1,4 @@
-// biomap_config.h — BioMapping 3.0 Runtime Configuration
+// biomap_config.h — Bio Mapping Runtime Configuration
 //
 // Central header for mode selection and shared constants.
 // Mode is selected at runtime via the launch menu — no compile-time flags.

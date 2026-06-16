@@ -1,0 +1,10 @@
+{
+    "configurations": [
+        {
+            "name": "Flipper Zero",
+            "compileCommands": "${workspaceFolder}/.vscode/compile_commands.json",
+            "intelliSenseMode": "gcc-arm"
+        }
+    ],
+    "version": 4
+}
