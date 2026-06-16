@@ -144,16 +144,42 @@ void biomap_timer_callback(void* ctx) {
 // ==========================================================================
 //
 //  ┌─────────────────────────────┐
-//  │  Conversion OK              │   ← FontPrimary (green LED flash)
+//  │  Converting...              │   ← shown during conversion
+//  │  biomap_003.csv             │
+//  └─────────────────────────────┘
+//
+//  ┌─────────────────────────────┐
+//  │  Conversion OK              │   ← shown after conversion
 //  │  CSV : biomap_003.csv       │
 //  │  GPX : biomap_003.gpx       │
 //  │  Points : 29                │
-//  │  Press Back                 │   ← or "No GPS fix rows found"
+//  │  Press Back                 │
 //  └─────────────────────────────┘
 
 static bool  conv_ok;
 static char  conv_name[32];
 static int   conv_points;
+
+// Simple "Converting..." screen with a spinner that advances each time
+// the converter yields (every 64 rows).  The static counter makes the
+// spinner cycle through frames even though the main thread is blocked.
+static void conv_progress_render(Canvas* c, void* ctx) {
+    UNUSED(ctx);
+    static int frame = 0;
+    static const char spinner[] = {'|', '/', '-', '\\'};
+
+    canvas_clear(c);
+    canvas_set_font(c, FontPrimary);
+    canvas_draw_str(c, 0, 10, "Converting...");
+    canvas_set_font(c, FontSecondary);
+    canvas_draw_str(c, 0, 26, conv_name);
+
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%c Please wait", spinner[frame & 3]);
+    canvas_draw_str(c, 0, 40, buf);
+
+    frame++;
+}
 
 static void conv_status_render(Canvas* c, void* ctx) {
     UNUSED(ctx);
@@ -180,8 +206,9 @@ static void show_status_screen(BioMapApp* app) {
     ViewPort* vp = view_port_alloc();
     view_port_draw_callback_set(vp, conv_status_render, NULL);
     view_port_input_callback_set(vp, biomap_input_callback, app->event_queue);
-    Gui* gui = furi_record_open(RECORD_GUI);
-    gui_add_view_port(gui, vp, GuiLayerFullscreen);
+
+    // Menu VP is already in the stack (disabled) — no flash when we add on top
+    gui_add_view_port(app->gui, vp, GuiLayerFullscreen);
     view_port_update(vp);
 
     PluginEvent ev;
@@ -191,19 +218,9 @@ static void show_status_screen(BioMapApp* app) {
             && ev.input.key == InputKeyBack) break;
     }
 
-    gui_remove_view_port(gui, vp);
+    // Remove status VP — menu VP is still underneath, no flash
+    gui_remove_view_port(app->gui, vp);
     view_port_free(vp);
-    furi_record_close(RECORD_GUI);
-}
-
-static void do_convert(GpxConverter* c, const char* name, BioMapApp* app) {
-    FURI_LOG_I("BioMap", "Converting %s", name);
-    strncpy(conv_name, name, sizeof(conv_name) - 1);
-    conv_points = gpx_converter_run(c, name);
-    conv_ok = (conv_points > 0);
-    notification_message(app->notifications,
-        conv_ok ? &sequence_blink_green_100 : &sequence_blink_red_100);
-    show_status_screen(app);
 }
 
 // ==========================================================================
@@ -227,7 +244,7 @@ static const char* menu_labels[MENU_COUNT] = {
     "GPS + GSR", "GPS Only", "GSR Only", "Convert CSV to GPX", "Reset GPS",
 };
 
-static void menu_render(Canvas* c, void* ctx) {
+void menu_render(Canvas* c, void* ctx) {
     BioMapApp* a = (BioMapApp*)ctx;
     furi_mutex_acquire(a->mutex, FuriWaitForever);
     canvas_clear(c);
@@ -252,11 +269,10 @@ static void menu_render(Canvas* c, void* ctx) {
 
 int32_t biomap_gui_show_menu(BioMapApp* app) {
     app->menu_selection = 0;
-    ViewPort* vp = view_port_alloc();
-    view_port_draw_callback_set(vp, menu_render, app);
-    view_port_input_callback_set(vp, biomap_input_callback, app->event_queue);
-    Gui* gui = furi_record_open(RECORD_GUI);
-    gui_add_view_port(gui, vp, GuiLayerFullscreen);
+
+    // Enable menu VP so it receives input and renders
+    view_port_enabled_set(app->menu_vp, true);
+    view_port_update(app->menu_vp);
 
     PluginEvent ev;
     int32_t result = -1;
@@ -271,13 +287,13 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
             if(app->menu_selection > 0) app->menu_selection--;
             furi_mutex_release(app->mutex);
-            view_port_update(vp);
+            view_port_update(app->menu_vp);
             break;
         case InputKeyDown:
             furi_mutex_acquire(app->mutex, FuriWaitForever);
             if(app->menu_selection < MENU_COUNT - 1) app->menu_selection++;
             furi_mutex_release(app->mutex);
-            view_port_update(vp);
+            view_port_update(app->menu_vp);
             break;
         case InputKeyOk:
             result = (int32_t)app->menu_selection;
@@ -291,9 +307,10 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
         }
     }
 
-    gui_remove_view_port(gui, vp);
-    view_port_free(vp);
-    furi_record_close(RECORD_GUI);
+    // Disable menu VP so it stops receiving input while sub-screen runs.
+    // The VP stays in the GUI stack (no flash of desktop) but passes
+    // input through to any VP layered on top.
+    view_port_enabled_set(app->menu_vp, false);
     return result;
 }
 
@@ -315,7 +332,27 @@ void run_converter(BioMapApp* app) {
         return;
     }
 
-    do_convert(c, gpx_converter_get_name(c, n - 1), app);
+    const char* name = gpx_converter_get_name(c, n - 1);
+    strncpy(conv_name, name, sizeof(conv_name) - 1);
+
+    // Show "Converting..." while the two-pass conversion runs.
+    // This prevents a blank screen during what could be seconds of I/O.
+    ViewPort* prog_vp = view_port_alloc();
+    view_port_draw_callback_set(prog_vp, conv_progress_render, NULL);
+    gui_add_view_port(app->gui, prog_vp, GuiLayerFullscreen);
+    view_port_update(prog_vp);
+
+    FURI_LOG_I("BioMap", "Converting %s", name);
+    conv_points = gpx_converter_run(c, name, prog_vp);
+    conv_ok = (conv_points > 0);
+    notification_message(app->notifications,
+        conv_ok ? &sequence_blink_green_100 : &sequence_blink_red_100);
+
+    // Remove progress VP, show result
+    gui_remove_view_port(app->gui, prog_vp);
+    view_port_free(prog_vp);
+
+    show_status_screen(app);
     gpx_converter_free(c);
 }
 

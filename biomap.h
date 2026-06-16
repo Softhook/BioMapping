@@ -37,6 +37,8 @@ typedef struct BioMapApp {
     FuriMutex*         mutex;
     Storage*           storage;
     NotificationApp*   notifications;
+    Gui*               gui;
+    ViewPort*          menu_vp;
 
     int32_t  gsr_raw_sum;
     int      raw_count;
@@ -65,4 +67,5 @@ void run_converter(BioMapApp* app);
 void biomap_input_callback(InputEvent* e, void* ctx);
 void biomap_timer_callback(void* ctx);
 void biomap_render_callback(Canvas* c, void* ctx);
+void menu_render(Canvas* c, void* ctx);
 int32_t biomap_gui_show_menu(BioMapApp* app);

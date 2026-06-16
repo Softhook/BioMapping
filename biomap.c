@@ -45,8 +45,10 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     ViewPort* vp = view_port_alloc();
     view_port_draw_callback_set(vp, biomap_render_callback, app);
     view_port_input_callback_set(vp, biomap_input_callback, app->event_queue);
-    Gui* gui = furi_record_open(RECORD_GUI);
-    gui_add_view_port(gui, vp, GuiLayerFullscreen);
+
+    // Menu VP is already in the stack (disabled) — add recording VP on top
+    gui_add_view_port(app->gui, vp, GuiLayerFullscreen);
+    view_port_update(vp);
 
     FuriTimer* timer = furi_timer_alloc(biomap_timer_callback, FuriTimerTypePeriodic, app->event_queue);
     furi_timer_start(timer, furi_kernel_get_tick_frequency() / TICK_HZ);
@@ -175,9 +177,9 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     if(app->gsr) { gsr_sensor_free(app->gsr); app->gsr = NULL; }
     if(app->gps) { gps_uart_free(app->gps); app->gps = NULL; }
 
-    gui_remove_view_port(gui, vp);
+    // Remove recording VP — menu VP is still underneath (disabled), no flash
+    gui_remove_view_port(app->gui, vp);
     view_port_free(vp);
-    furi_record_close(RECORD_GUI);
 }
 
 int32_t biomap_app(void* p) {
@@ -190,8 +192,18 @@ int32_t biomap_app(void* p) {
     app->mutex         = furi_mutex_alloc(FuriMutexTypeNormal);
     app->notifications = furi_record_open(RECORD_NOTIFICATION);
     app->storage       = furi_record_open(RECORD_STORAGE);
+    app->gui           = furi_record_open(RECORD_GUI);
     storage_common_mkdir(app->storage, "/ext/biomapping");
     notification_message_block(app->notifications, &sequence_display_backlight_enforce_auto);
+
+    // Create persistent menu ViewPort — stays in GUI stack for app lifetime.
+    // Enabled/disabled when entering/leaving sub-screens so it never needs
+    // to be removed, preventing desktop flashes between screen transitions.
+    app->menu_vp = view_port_alloc();
+    view_port_draw_callback_set(app->menu_vp, menu_render, app);
+    view_port_input_callback_set(app->menu_vp, biomap_input_callback, app->event_queue);
+    view_port_enabled_set(app->menu_vp, false);
+    gui_add_view_port(app->gui, app->menu_vp, GuiLayerFullscreen);
 
     bool running = true;
     while(running) {
@@ -208,6 +220,10 @@ int32_t biomap_app(void* p) {
     }
 
     notification_message_block(app->notifications, &sequence_display_backlight_enforce_auto);
+
+    gui_remove_view_port(app->gui, app->menu_vp);
+    view_port_free(app->menu_vp);
+    furi_record_close(RECORD_GUI);
     furi_record_close(RECORD_NOTIFICATION);
     furi_record_close(RECORD_STORAGE);
     furi_message_queue_free(app->event_queue);
