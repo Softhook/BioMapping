@@ -38,7 +38,6 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     app->running = true;
     memset(app->graph_buf, 0, sizeof(app->graph_buf));
 
-    // OTG power for GPS
     app->otg_was_enabled = furi_hal_power_is_otg_enabled();
     if(has_gps(mode)) {
         for(int i = 5; i > 0 && !furi_hal_power_enable_otg(); i--);
@@ -171,7 +170,6 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         }
     }
 
-    // Shutdown
     furi_timer_stop(timer);
     furi_timer_free(timer);
     if(app->recording_active) sd_logger_stop(app->logger);

@@ -21,14 +21,12 @@
 #include "modules/sd_logger.h"
 #include "modules/gpx_converter.h"
 
-// ---- constants -----------------------------------------------------------
 #define TICK_HZ          10
 #define ZOOM_STEP        0.25f
 #define ZOOM_MIN         0.25f
 #define ZOOM_MAX         4.0f
 #define DISPLAY_EMA_A    0.2f
 
-// Graph layout per mode
 #define GX_GPSGSR  65
 #define GY_GPSGSR  20
 #define GW_GPSGSR  61
@@ -39,7 +37,6 @@
 #define GH_GSR     40
 #define GRAPH_N    (GW_GSR - 2)
 
-// ---- app state -----------------------------------------------------------
 typedef struct BioMapApp {
     BioMapMode         mode;
     GpsUart*           gps;
@@ -67,18 +64,14 @@ typedef struct BioMapApp {
     volatile int32_t menu_selection;
 } BioMapApp;
 
-// ---- shared helpers ------------------------------------------------------
 static inline bool has_gps(BioMapMode m) { return m == BioMapModeGpsGsr || m == BioMapModeGpsOnly; }
 static inline bool has_gsr(BioMapMode m) { return m == BioMapModeGpsGsr || m == BioMapModeGsrOnly; }
 
 void format_timestamp(BioMapApp* app, char* buf, size_t sz);
-
-// ---- top-level flows -----------------------------------------------------
 void run_recording_session(BioMapApp* app, BioMapMode mode);
 void run_gps_hot_start(BioMapApp* app);
 void run_converter(BioMapApp* app);
 
-// ---- GUI callbacks (defined in biomap_gui.c) -----------------------------
 void biomap_input_callback(InputEvent* e, void* ctx);
 void biomap_timer_callback(void* ctx);
 void biomap_render_callback(Canvas* c, void* ctx);

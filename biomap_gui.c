@@ -1,7 +1,7 @@
 // Bio Mapping — GUI: menus, recording view, conversion status.
 #include "biomap.h"
 
-// ====== recording view =====================================================
+// -- recording view --------------------------------------------------------
 
 static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) {
     int n  = gw - 2;
@@ -79,7 +79,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     furi_mutex_release(a->mutex);
 }
 
-// ====== generic callbacks ==================================================
+// -- callbacks -------------------------------------------------------------
 
 void biomap_input_callback(InputEvent* e, void* ctx) {
     PluginEvent ev = {.type = EventTypeKey, .input = *e};
@@ -91,7 +91,7 @@ void biomap_timer_callback(void* ctx) {
     furi_message_queue_put((FuriMessageQueue*)ctx, &ev, 0);
 }
 
-// ====== conversion status screen ===========================================
+// -- conversion status screen ----------------------------------------------
 
 static bool  conv_ok;
 static char  conv_name[32];
@@ -103,31 +103,19 @@ static void conv_status_render(Canvas* c, void* ctx) {
     canvas_set_font(c, FontPrimary);
     canvas_draw_str(c, 0, 10, conv_ok ? "Conversion OK" : "Conversion FAILED");
     canvas_set_font(c, FontSecondary);
-
-    char buf[64];
+    char buf[64], gpx[32];
     snprintf(buf, sizeof(buf), "CSV : %s", conv_name);
     canvas_draw_str(c, 0, 24, buf);
-
-    // Proper .csv → .gpx extension swap for display
-    char gpx[32];
     strncpy(gpx, conv_name, sizeof(gpx) - 1);
     gpx[sizeof(gpx) - 1] = '\0';
     size_t len = strlen(gpx);
-    if(len > 4 && strcmp(gpx + len - 4, ".csv") == 0) {
-        gpx[len - 3] = 'g'; gpx[len - 2] = 'p'; gpx[len - 1] = 'x';
-    }
+    if(len > 4 && strcmp(gpx + len - 4, ".csv") == 0)
+        { gpx[len-3]='g'; gpx[len-2]='p'; gpx[len-1]='x'; }
     snprintf(buf, sizeof(buf), "GPX : %s", gpx);
     canvas_draw_str(c, 0, 34, buf);
-
     snprintf(buf, sizeof(buf), "Points : %d", conv_points);
     canvas_draw_str(c, 0, 46, buf);
-
-    // Show why conversion failed (visible even without logs)
-    if(!conv_ok && conv_points == 0) {
-        canvas_draw_str(c, 0, 58, "No GPS fix rows found");
-    } else {
-        canvas_draw_str(c, 0, 58, "Press Back");
-    }
+    canvas_draw_str(c, 0, 58, (!conv_ok && conv_points == 0) ? "No GPS fix rows found" : "Press Back");
 }
 
 static void show_status_screen(BioMapApp* app) {
@@ -138,7 +126,7 @@ static void show_status_screen(BioMapApp* app) {
     gui_add_view_port(gui, vp, GuiLayerFullscreen);
     view_port_update(vp);
 
-    // Drain stale events then wait for Back
+    // Drain stale events, then wait for Back
     PluginEvent ev;
     while(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk);
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
@@ -161,7 +149,7 @@ static void do_convert(GpxConverter* c, const char* name, BioMapApp* app) {
     show_status_screen(app);
 }
 
-// ====== main menu ==========================================================
+// -- main menu -------------------------------------------------------------
 
 #define MENU_COUNT 5
 static const char* menu_labels[MENU_COUNT] = {
@@ -191,16 +179,11 @@ static void menu_render(Canvas* c, void* ctx) {
     furi_mutex_release(a->mutex);
 }
 
-static void menu_input(InputEvent* e, void* ctx) {
-    PluginEvent ev = {.type = EventTypeKey, .input = *e};
-    furi_message_queue_put((FuriMessageQueue*)ctx, &ev, FuriWaitForever);
-}
-
 int32_t biomap_gui_show_menu(BioMapApp* app) {
     app->menu_selection = 0;
     ViewPort* vp = view_port_alloc();
     view_port_draw_callback_set(vp, menu_render, app);
-    view_port_input_callback_set(vp, menu_input, app->event_queue);
+    view_port_input_callback_set(vp, biomap_input_callback, app->event_queue);
     Gui* gui = furi_record_open(RECORD_GUI);
     gui_add_view_port(gui, vp, GuiLayerFullscreen);
 
@@ -243,7 +226,7 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
     return result;
 }
 
-// ====== converter flow =====================================================
+// -- converter flow --------------------------------------------------------
 
 void run_converter(BioMapApp* app) {
     GpxConverter* c = gpx_converter_alloc(app->storage);
@@ -259,7 +242,7 @@ void run_converter(BioMapApp* app) {
         return;
     }
 
-    // Convert the latest file found (n-1 is the most recent)
+    // Convert the latest file found
     do_convert(c, gpx_converter_get_name(c, n - 1), app);
     gpx_converter_free(c);
 }

@@ -1,5 +1,4 @@
-// GPX Converter — CSV → GPX with GSR elevation.
-
+// GPX Converter — reads biomap_*.csv, writes biomap_*.gpx with GSR elevation.
 #include "gpx_converter.h"
 #include <furi.h>
 #include <storage/storage.h>
@@ -60,15 +59,12 @@ const char* gpx_converter_get_name(const GpxConverter* c, int index) {
     return (index >= 0 && index < c->file_count) ? c->filenames[index] : NULL;
 }
 
-// Simple string-to-float (avoids atof which is disabled in Flipper API)
+// Simple string-to-float (avoids atof, disabled in Flipper API)
 static float str_to_float(const char* s) {
     float r = 0, sign = 1, frac = 0, div = 1;
     if(*s == '-') { sign = -1; s++; }
     while(*s >= '0' && *s <= '9') { r = r * 10 + (*s++ - '0'); }
-    if(*s == '.') {
-        s++;
-        while(*s >= '0' && *s <= '9') { frac = frac * 10 + (*s++ - '0'); div *= 10; }
-    }
+    if(*s == '.') { s++; while(*s >= '0' && *s <= '9') { frac = frac * 10 + (*s++ - '0'); div *= 10; } }
     return sign * (r + frac / div);
 }
 
@@ -116,7 +112,7 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename) {
         return 0;
     }
     gpx_path[plen - 3] = 'g'; gpx_path[plen - 2] = 'p'; gpx_path[plen - 1] = 'x';
-    FURI_LOG_I(TAG, "%s → %s", csv_path, gpx_path);
+    FURI_LOG_I(TAG, "%s -> %s", csv_path, gpx_path);
 
     File* csv_file = storage_file_alloc(c->storage);
     if(!storage_file_open(csv_file, csv_path, FSAM_READ, FSOM_OPEN_EXISTING)) {
@@ -152,40 +148,31 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename) {
 
     float smoothed = 0.0f;
     bool  primed   = false;
-    int   lines_read = 0, lines_skipped = 0;
 
     while(read_csv_line(csv_file, line, sizeof(line))) {
         if(!line[0]) continue;
-        lines_read++;
 
-        char  ts[32] = "";
-        float lat = 0, lon = 0;
-        int   fix = 0, raw = 0;
-
-        // Manual comma-split parse — avoids sscanf field-alignment issues
+        // Split into 7 tokens: ts, lat, lon, alt, sats, fix, raw
         char* tok[7];
         int nt = 0;
         tok[nt++] = line;
-        for(char* p = line; *p && nt < 7; p++) {
+        for(char* p = line; *p && nt < 7; p++)
             if(*p == ',') { *p = '\0'; tok[nt++] = p + 1; }
-        }
-        if(nt < 7) {
-            FURI_LOG_W(TAG, "Skip line #%d: only %d fields", lines_read, nt);
-            lines_skipped++;
-            continue;
-        }
-        strncpy(ts, tok[0], sizeof(ts) - 1);
-        lat  = str_to_float(tok[1]);
-        lon  = str_to_float(tok[2]);
-        fix  = str_to_int(tok[5]);
-        raw  = str_to_int(tok[6]);
+        if(nt < 7) continue;
 
-        float raw_f = (float)raw;
-        if(!primed) { smoothed = raw_f; primed = true; }
-        float new_smoothed = GPX_EMA_ALPHA * raw_f + (1.0f - GPX_EMA_ALPHA) * smoothed;
-        float rate         = new_smoothed - smoothed;
-        smoothed           = new_smoothed;
-        float elevation    = -(rate) * GPX_ELEVATION_SCALE;
+        char  ts[32];
+        strncpy(ts, tok[0], sizeof(ts) - 1);
+        ts[sizeof(ts) - 1] = '\0';
+        float lat = str_to_float(tok[1]);
+        float lon = str_to_float(tok[2]);
+        int   fix = str_to_int(tok[5]);
+        int   raw = str_to_int(tok[6]);
+
+        if(!primed) { smoothed = (float)raw; primed = true; }
+        float ns        = GPX_EMA_ALPHA * (float)raw + (1.0f - GPX_EMA_ALPHA) * smoothed;
+        float rate      = ns - smoothed;
+        smoothed        = ns;
+        float elevation = -(rate) * GPX_ELEVATION_SCALE;
 
         if(fix > 0 && fabsf(lat) > 0.0001f && fabsf(lon) > 0.0001f) {
             char pt[256];
@@ -197,8 +184,6 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename) {
                 (double)lat, (double)lon, (double)elevation, ts);
             file_write_str(gpx_file, pt);
             points++;
-        } else {
-            FURI_LOG_W(TAG, "Filtered: fix=%d lat=%.6f lon=%.6f", fix, (double)lat, (double)lon);
         }
     }
 
@@ -207,7 +192,7 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename) {
         "  </trk>\n"
         "</gpx>\n");
 
-    FURI_LOG_I(TAG, "%d pts, %d lines read, %d skipped", points, lines_read, lines_skipped);
+    FURI_LOG_I(TAG, "%d trackpoints written", points);
 
 done:
     storage_file_close(csv_file);
