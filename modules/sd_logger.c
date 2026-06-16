@@ -1,28 +1,26 @@
 // SD Logger Module for BioMapping 3.0
-// Auto-incrementing GPX tracklog writer.
+// Auto-incrementing CSV data writer.
 //
-// Files created at: /ext/biomap_001.gpx, biomap_002.gpx, … biomap_999.gpx
-// Scans for the next unused index at start time so existing walks are never
+// Files created at: /ext/biomap_001.csv, biomap_002.csv, … biomap_999.csv
+// Scans for the next unused index at start time so existing logs are never
 // overwritten.
 
 #include "sd_logger.h"
-#include "gps_uart.h"
 
 #include <storage/storage.h>
 #include <string.h>
 #include <stdio.h>
-#include <math.h>
 
 #define LOGGER_DIR         ""         // store directly in /ext/
 #define LOGGER_BASENAME    "biomap_"
-#define LOGGER_EXT         ".gpx"
+#define LOGGER_EXT         ".csv"
 #define LOGGER_MAX_INDEX   999
 
 struct SdLogger {
     Storage* storage;
     File*    file;
     bool     active;
-    char     filename[64]; // e.g. "biomap_042.gpx"
+    char     filename[64]; // e.g. "biomap_042.csv"
     int      last_index;   // Cached last used index, 0 if not scanned yet
 };
 
@@ -115,14 +113,17 @@ bool sd_logger_start(SdLogger* logger) {
         return false;
     }
 
-    // GPX file header
-    const char* header =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        "<gpx version=\"1.1\" creator=\"FlipperZero BioMapping\">\n"
-        "  <trk>\n"
-        "    <name>BioMapping Walk</name>\n"
-        "    <trkseg>\n";
-    storage_file_write(logger->file, header, strlen(header));
+    // CSV header
+    const char* header = "timestamp,lat,lon,alt,sats,fix,gsr_raw\n";
+    uint16_t hdr_written = storage_file_write(logger->file, header, strlen(header));
+    if(hdr_written != strlen(header)) {
+        FURI_LOG_E("SdLogger", "Failed to write CSV header (%d/%d bytes)", hdr_written, (int)strlen(header));
+        storage_file_close(logger->file);
+        storage_file_free(logger->file);
+        logger->file = NULL;
+        logger->filename[0] = '\0';
+        return false;
+    }
 
     logger->active = true;
     FURI_LOG_I("SdLogger", "Recording to %s", full_path);
@@ -136,11 +137,6 @@ void sd_logger_stop(SdLogger* logger) {
     furi_assert(logger);
     if(!logger->file) return;
 
-    const char* footer =
-        "    </trkseg>\n"
-        "  </trk>\n"
-        "</gpx>\n";
-    storage_file_write(logger->file, footer, strlen(footer));
     storage_file_close(logger->file);
     storage_file_free(logger->file);
     logger->file   = NULL;
@@ -160,61 +156,35 @@ const char* sd_logger_get_filename(const SdLogger* logger) {
 }
 
 // ---------------------------------------------------------------------------
-// Write one trackpoint (call once per second)
+// Write one CSV row (call once per second)
 // ---------------------------------------------------------------------------
-void sd_logger_write_point(
-    SdLogger*        logger,
-    const GpsStatus* gps,
-    float            elevation_zoomed) {
+void sd_logger_write_row(
+    SdLogger*   logger,
+    const char* timestamp,
+    float       lat,
+    float       lon,
+    float       alt,
+    int         sats,
+    int         fix,
+    int16_t     gsr_raw) {
     furi_assert(logger);
-    furi_assert(gps);
 
     if(!logger->active || !logger->file) return;
 
-    // Require a valid fix before writing
-    bool has_fix = gps->fix_valid || (gps->fix_quality > 0);
-    if(!has_fix) return;
-
-    // Guard against NaN coordinates
-    if(isnan(gps->latitude) || isnan(gps->longitude)) return;
-
-    // Build ISO 8601 timestamp from minmea date + time fields
-    char time_str[32];
-    if(gps->date.year != 0) {
-        // minmea stores 2-digit years; values < 80 are 21st century
-        int full_year = (gps->date.year < 80)
-            ? 2000 + gps->date.year
-            : 1900 + gps->date.year;
-        snprintf(
-            time_str, sizeof(time_str),
-            "%04d-%02d-%02dT%02d:%02d:%02dZ",
-            full_year,
-            gps->date.month,
-            gps->date.day,
-            gps->time.hours,
-            gps->time.minutes,
-            gps->time.seconds);
-    } else {
-        // RMC date not yet received — use epoch date with real time
-        snprintf(
-            time_str, sizeof(time_str),
-            "1970-01-01T%02d:%02d:%02dZ",
-            gps->time.hours,
-            gps->time.minutes,
-            gps->time.seconds);
-    }
-
-    char point[256];
+    char row[256];
     snprintf(
-        point, sizeof(point),
-        "      <trkpt lat=\"%.6f\" lon=\"%.6f\">\n"
-        "        <ele>%.2f</ele>\n"
-        "        <time>%s</time>\n"
-        "      </trkpt>\n",
-        (double)gps->latitude,
-        (double)gps->longitude,
-        (double)elevation_zoomed,
-        time_str);
+        row, sizeof(row),
+        "%s,%.6f,%.6f,%.1f,%d,%d,%d\n",
+        timestamp ? timestamp : "",
+        (double)lat,
+        (double)lon,
+        (double)alt,
+        sats,
+        fix,
+        (int)gsr_raw);
 
-    storage_file_write(logger->file, point, strlen(point));
+    uint16_t written = storage_file_write(logger->file, row, strlen(row));
+    if(written != strlen(row)) {
+        FURI_LOG_E("SdLogger", "Write error: %d/%d bytes", written, (int)strlen(row));
+    }
 }

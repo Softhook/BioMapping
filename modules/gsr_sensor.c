@@ -1,19 +1,15 @@
 // GSR Sensor Module for BioMapping 3.0
-// ADS1115 I2C differential reader stub.
+// ADS1115 I2C differential reader — raw value only.
 //
-// *** CURRENTLY DISABLED (GSR_ENABLED = 0) ***
-// When GSR_ENABLED == 0 all readings return 0 / false without touching I2C.
-// No bus conflicts with the GPS module in this mode.
+// Probes the ADS1115 at alloc() time. If found, tick() reads the raw
+// 16-bit differential ADC value. Signal processing (EMA, derivative,
+// elevation mapping) is deferred to the GPX converter.
 
 #include "gsr_sensor.h"
 #include <stdlib.h>
-#include <math.h>
 
 struct GsrSensor {
     int16_t raw;
-    float   smoothed_value;
-    float   elevation_base;
-    bool    smoothed_primed;
     bool    available;
 };
 
@@ -24,12 +20,8 @@ GsrSensor* gsr_sensor_alloc(void) {
     GsrSensor* gsr = malloc(sizeof(GsrSensor));
     furi_assert(gsr);
 
-    gsr->raw             = 0;
-    gsr->smoothed_value  = 0.0f;
-    gsr->elevation_base  = 0.0f;
-    gsr->smoothed_primed = false;
+    gsr->raw       = 0;
 
-#if GSR_ENABLED
     // Probe for ADS1115 on I2C external bus
     furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
     uint8_t probe = 0;
@@ -40,13 +32,28 @@ GsrSensor* gsr_sensor_alloc(void) {
         &probe,
         1,
         20); // 20 ms timeout
+    if(found) {
+        // Explicitly write the configuration to register 0x01:
+        // OS=1, MUX=000 (differential AIN0-AIN1), PGA=010 (+-2.048V), MODE=0 (continuous mode), DR=100 (128 SPS)
+        // High byte: 0x84, Low byte: 0x83.
+        uint8_t config_val[2] = {0x84, 0x83};
+        bool config_ok = furi_hal_i2c_write_mem(
+            &furi_hal_i2c_handle_external,
+            ADS1115_I2C_ADDR,
+            0x01, // Config register
+            config_val,
+            2,
+            50); // 50 ms timeout
+        if(config_ok) {
+            FURI_LOG_I("GsrSensor", "ADS1115 configuration write successful");
+        } else {
+            FURI_LOG_E("GsrSensor", "ADS1115 configuration write failed");
+            found = false; // treat as unavailable if we can't write config
+        }
+    }
     furi_hal_i2c_release(&furi_hal_i2c_handle_external);
     gsr->available = found;
     FURI_LOG_I("GsrSensor", "ADS1115 probe %s", found ? "OK" : "not found");
-#else
-    gsr->available = false;
-    FURI_LOG_I("GsrSensor", "GSR disabled at compile time (GSR_ENABLED=0)");
-#endif
 
     return gsr;
 }
@@ -67,65 +74,29 @@ int16_t gsr_sensor_get_raw(const GsrSensor* gsr) {
     return gsr->raw;
 }
 
-float gsr_sensor_get_elevation_base(const GsrSensor* gsr) {
-    return gsr->elevation_base;
-}
-
-void gsr_sensor_reset_primer(GsrSensor* gsr) {
-    gsr->smoothed_primed = false;
-}
-
 // ---------------------------------------------------------------------------
-// 10 Hz tick — read sensor, update EMA, compute derivative
+// 10 Hz tick — read sensor, store raw value
 // ---------------------------------------------------------------------------
 void gsr_sensor_tick(GsrSensor* gsr) {
     furi_assert(gsr);
 
     if(!gsr->available) {
-        gsr->elevation_base = 0.0f;
         return;
     }
 
-#if GSR_ENABLED
-    if(gsr->available) {
-        uint8_t data[2];
-        furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
-        bool ok = furi_hal_i2c_read_mem(
-            &furi_hal_i2c_handle_external,
-            ADS1115_I2C_ADDR,
-            ADS1115_CONV_REG,
-            data,
-            2,
-            50); // 50 ms timeout
-        furi_hal_i2c_release(&furi_hal_i2c_handle_external);
+    uint8_t data[2];
+    furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
+    bool ok = furi_hal_i2c_read_mem(
+        &furi_hal_i2c_handle_external,
+        ADS1115_I2C_ADDR,
+        ADS1115_CONV_REG,
+        data,
+        2,
+        50); // 50 ms timeout
+    furi_hal_i2c_release(&furi_hal_i2c_handle_external);
 
-        if(ok) {
-            gsr->raw = (int16_t)((data[0] << 8) | data[1]);
-        } else {
-            // I2C glitch — treat as no change (zero elevation rate) to avoid extreme spike
-            gsr->elevation_base = 0.0f;
-            return;
-        }
-    } else {
-        gsr->raw = 0;
+    if(ok) {
+        gsr->raw = (int16_t)((data[0] << 8) | data[1]);
     }
-#else
-    gsr->raw = 0;
-#endif
-
-    // Seed EMA from first real reading to avoid cold-start spike
-    if(!gsr->smoothed_primed) {
-        gsr->smoothed_value  = (float)gsr->raw;
-        gsr->smoothed_primed = true;
-    }
-
-    // EMA smoothing + derivative → elevation
-    float current_smoothed =
-        (GSR_EMA_ALPHA * (float)gsr->raw) +
-        ((1.0f - GSR_EMA_ALPHA) * gsr->smoothed_value);
-    float rate_of_change   = current_smoothed - gsr->smoothed_value;
-    gsr->smoothed_value    = current_smoothed;
-
-    // Negate: stress = resistance drop → negative rate → positive elevation
-    gsr->elevation_base = -(rate_of_change) * GSR_ELEVATION_SCALE;
+    // On I2C failure, keep the previous raw value to avoid spikes
 }

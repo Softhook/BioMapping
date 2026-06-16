@@ -14,5 +14,6 @@ App(
         "modules/gps_uart.c",
         "modules/gsr_sensor.c",
         "modules/sd_logger.c",
+        "modules/gpx_converter.c",
     ],
 )

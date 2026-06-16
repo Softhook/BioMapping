@@ -1,9 +1,7 @@
 // GPS UART Module for BioMapping 3.0
 // Derived from ezod/flipperzero-gps — single-byte-per-IRQ UART pattern.
-//
-// GPS Controls — ORIGINAL L76K GNSS Shield pin assignment (no trace cuts):
-//   STANDBY → gpio_ext_pc0 (Pin 16)
-//   RESET   → gpio_ext_pc1 (Pin 15)
+// Handles UART NMEA parsing only; GPS power-management uses PCAS serial
+// commands (no hardware control pins).
 
 #include "gps_uart.h"
 #include "../biomap_events.h" // ← Fix #1: use shared PluginEvent for queue posts
@@ -166,6 +164,7 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
         furi_hal_serial_async_rx_start(
             gps_uart->serial_handle, gps_uart_irq_cb, gps_uart, false);
         gps_uart->ready = true;
+        gps_uart_configure(gps_uart);
     } else {
         FURI_LOG_E("GpsUart", "Failed to acquire USART1 — another app may have it open");
     }
@@ -230,8 +229,9 @@ void gps_uart_process_rx(GpsUart* gps_uart) {
     do {
         // Fix #3: guard against a full buffer with no newline.
         if(sizeof(gps_uart->rx_buf) - 1 - gps_uart->rx_offset == 0) {
-            FURI_LOG_W("GpsUart", "RX buffer full with no newline — discarding");
+            FURI_LOG_W("GpsUart", "RX buffer full with no newline — discarding and hot restarting");
             gps_uart->rx_offset = 0;
+            gps_uart_send_hot_start(gps_uart);
         }
 
         len = furi_stream_buffer_receive(
@@ -265,3 +265,42 @@ void gps_uart_process_rx(GpsUart* gps_uart) {
         }
     } while(len > 0);
 }
+
+// ---------------------------------------------------------------------------
+// Public API — send PCAS configuration commands
+// ---------------------------------------------------------------------------
+void gps_uart_configure(GpsUart* gps_uart) {
+    furi_assert(gps_uart);
+    if(gps_uart->ready && gps_uart->serial_handle) {
+        FURI_LOG_I("GpsUart", "Configuring GPS constellations, sentence filters and rate");
+        
+        // 1. Enable GPS + BeiDou + GLONASS constellations (recommended for urban canyons)
+        const char* cmd_const = "$PCAS04,7*1E\r\n";
+        furi_hal_serial_tx(gps_uart->serial_handle, (const uint8_t*)cmd_const, strlen(cmd_const));
+        furi_delay_ms(100);
+        
+        // 2. Output only GGA + RMC sentences (reduce parser overhead and line size)
+        const char* cmd_filt = "$PCAS03,1,0,0,0,1,0,0,0,0,0,,,0,0*02\r\n";
+        furi_hal_serial_tx(gps_uart->serial_handle, (const uint8_t*)cmd_filt, strlen(cmd_filt));
+        furi_delay_ms(100);
+        
+        // 3. Set update rate to 1 Hz (adequate for walking pace)
+        const char* cmd_rate = "$PCAS02,1000*2E\r\n";
+        furi_hal_serial_tx(gps_uart->serial_handle, (const uint8_t*)cmd_rate, strlen(cmd_rate));
+        furi_delay_ms(100);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Public API — send PCAS Hot Start reset
+// ---------------------------------------------------------------------------
+void gps_uart_send_hot_start(GpsUart* gps_uart) {
+    furi_assert(gps_uart);
+    if(gps_uart->ready && gps_uart->serial_handle) {
+        FURI_LOG_I("GpsUart", "Sending Hot Start reset ($PCAS10,0)");
+        const char* cmd = "$PCAS10,0*1C\r\n";
+        furi_hal_serial_tx(gps_uart->serial_handle, (const uint8_t*)cmd, strlen(cmd));
+        furi_delay_ms(100); // let UART TX complete
+    }
+}
+

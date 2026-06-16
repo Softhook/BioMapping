@@ -3,14 +3,13 @@
 // GPS UART Module for BioMapping 3.0
 // Derived from ezod/flipperzero-gps — single-byte-per-IRQ UART RX pattern.
 // Handles: serial acquire/init, NMEA line parsing (RMC/GGA/GLL),
-//          OTG 5V power, GPIO standby/reset for L76K on the GNSS shield.
+//          and OTG 5V power for the L76K GNSS shield.
 //
 // The Expansion Service is disabled at alloc() and re-enabled at free() so
 // that USART1 is available for us to acquire. This does NOT affect GPS power.
 //
-// GPS Controls use ORIGINAL pin assignment (no trace cuts):
-//   STANDBY → gpio_ext_pc0 (Pin 16)
-//   RESET   → gpio_ext_pc1 (Pin 15)
+// GPS power-management is done via PCAS serial commands — no hardware
+// control pins (STANDBY/RESET) are needed.
 //
 // Locking contract:
 //   The caller (biomap.c) owns the mutex and must hold it when calling
@@ -64,3 +63,9 @@ bool gps_uart_is_ready(GpsUart* gps_uart);
 // Call from the main event loop when EventTypeUart arrives.
 // Caller must hold the app mutex when calling this.
 void gps_uart_process_rx(GpsUart* gps_uart);
+
+// Configure the GPS module (baud, update rate, constellations, NMEA filters)
+void gps_uart_configure(GpsUart* gps_uart);
+
+// Send a Hot Start command ($PCAS10,0*1C\r\n) to reset the GPS module
+void gps_uart_send_hot_start(GpsUart* gps_uart);
