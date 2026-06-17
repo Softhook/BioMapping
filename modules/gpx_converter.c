@@ -212,23 +212,47 @@ GpxConverter* gpx_converter_alloc(Storage* storage) {
 
 void gpx_converter_free(GpxConverter* c) { furi_assert(c); free(c); }
 
-// Insertion sort — no stdlib dependency, O(n²) is fine for ≤32 files
-static void sort_filenames(char names[][32], int count) {
+// Parse the file index from biomap_xxx.csv (returns -1 if invalid/non-numeric)
+static int parse_file_index(const char* name) {
+    size_t len = strlen(name);
+    if(len < 12) return -1;
+    if(strncmp(name, "biomap_", 7) != 0) return -1;
+    if(strcmp(name + len - 4, ".csv") != 0) return -1;
+
+    int idx = 0;
+    const char* p = name + 7;
+    while(p < name + len - 4) {
+        if(*p < '0' || *p > '9') return -1;
+        if(idx > 99999) return -1; // overflow protection
+        idx = idx * 10 + (*p - '0');
+        p++;
+    }
+    return idx;
+}
+
+// Insertion sort by index — no stdlib dependency, O(n²) is fine for ≤32 files
+static void sort_filenames_by_index(char names[][32], int* indices, int count) {
     for(int i = 1; i < count; i++) {
-        char tmp[32];
-        memcpy(tmp, names[i], 32);
+        char tmp_name[32];
+        memcpy(tmp_name, names[i], 32);
+        int tmp_idx = indices[i];
         int j = i - 1;
-        while(j >= 0 && strcmp(names[j], tmp) > 0) {
+        while(j >= 0 && indices[j] > tmp_idx) {
             memcpy(names[j + 1], names[j], 32);
+            indices[j + 1] = indices[j];
             j--;
         }
-        memcpy(names[j + 1], tmp, 32);
+        memcpy(names[j + 1], tmp_name, 32);
+        indices[j + 1] = tmp_idx;
     }
 }
 
 int gpx_converter_scan(GpxConverter* c) {
     furi_assert(c);
     c->file_count = 0;
+
+    int indices[GPX_MAX_CSV_FILES];
+    memset(indices, 0, sizeof(indices));
 
     File* dir = storage_file_alloc(c->storage);
     if(!storage_dir_open(dir, "/ext/biomapping")) {
@@ -245,17 +269,38 @@ int gpx_converter_scan(GpxConverter* c) {
         if(len < 12) continue;
         if(strncmp(name, "biomap_", 7) != 0) continue;
         if(strcmp(name + len - 4, ".csv") != 0) continue;
+
+        int idx = parse_file_index(name);
+        if(idx < 0) idx = 0; // fallback for malformed names
+
         if(c->file_count < GPX_MAX_CSV_FILES) {
             strncpy(c->filenames[c->file_count], name, 31);
             c->filenames[c->file_count][31] = '\0';
+            indices[c->file_count] = idx;
             c->file_count++;
+        } else {
+            // Find the element with the minimum index to evict
+            int min_pos = 0;
+            int min_idx = indices[0];
+            for(int i = 1; i < GPX_MAX_CSV_FILES; i++) {
+                if(indices[i] < min_idx) {
+                    min_idx = indices[i];
+                    min_pos = i;
+                }
+            }
+            // If the new file has a larger index, replace the minimum element
+            if(idx > min_idx) {
+                strncpy(c->filenames[min_pos], name, 31);
+                c->filenames[min_pos][31] = '\0';
+                indices[min_pos] = idx;
+            }
         }
     }
     storage_dir_close(dir);
     storage_file_free(dir);
 
     if(c->file_count > 1) {
-        sort_filenames(c->filenames, c->file_count);
+        sort_filenames_by_index(c->filenames, indices, c->file_count);
     }
 
     FURI_LOG_I(TAG, "%d CSV file(s) found", c->file_count);
