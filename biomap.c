@@ -157,8 +157,14 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                 format_timestamp(app, ts, sizeof(ts));
 
                 if(app->recording_active) {
-                    sd_logger_write_row(app->logger, ts, lat, lon, alt, sats, fix, avg);
-                    notification_message(app->notifications, &sequence_blink_red_100);
+                    if(sd_logger_write_row(app->logger, ts, lat, lon, alt, sats, fix, avg)) {
+                        notification_message(app->notifications, &sequence_blink_red_100);
+                    } else {
+                        if(app->logger) sd_logger_stop(app->logger);
+                        app->recording_active = false;
+                        app->recording_filename[0] = '\0';
+                        notification_message(app->notifications, &sequence_set_only_red_255);
+                    }
                 }
 
                 app->tick_counter = app->raw_count = app->gsr_raw_sum = 0;

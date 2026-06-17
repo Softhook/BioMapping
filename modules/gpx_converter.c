@@ -77,6 +77,7 @@
 #include <storage/storage.h>
 #include <string.h>
 #include <stdio.h>
+
 #include <math.h>
 
 #define TAG             "GpxConverter"
@@ -193,6 +194,7 @@ static int csv_split(char* line, char** tok, int max_tok) {
     return n;
 }
 
+
 /* ── GPX converter object ───────────────────────────────────────────── */
 
 struct GpxConverter {
@@ -209,6 +211,20 @@ GpxConverter* gpx_converter_alloc(Storage* storage) {
 }
 
 void gpx_converter_free(GpxConverter* c) { furi_assert(c); free(c); }
+
+// Insertion sort — no stdlib dependency, O(n²) is fine for ≤32 files
+static void sort_filenames(char names[][32], int count) {
+    for(int i = 1; i < count; i++) {
+        char tmp[32];
+        memcpy(tmp, names[i], 32);
+        int j = i - 1;
+        while(j >= 0 && strcmp(names[j], tmp) > 0) {
+            memcpy(names[j + 1], names[j], 32);
+            j--;
+        }
+        memcpy(names[j + 1], tmp, 32);
+    }
+}
 
 int gpx_converter_scan(GpxConverter* c) {
     furi_assert(c);
@@ -237,6 +253,11 @@ int gpx_converter_scan(GpxConverter* c) {
     }
     storage_dir_close(dir);
     storage_file_free(dir);
+
+    if(c->file_count > 1) {
+        sort_filenames(c->filenames, c->file_count);
+    }
+
     FURI_LOG_I(TAG, "%d CSV file(s) found", c->file_count);
     return c->file_count;
 }
@@ -479,7 +500,11 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
                 "      </trkpt>\n",
                 (double)lat, (double)lon, (unsigned)ele, ts);
             if(n > 0 && n < (int)sizeof(pt)) {
-                wb_str(&wb, pt);
+                if(!wb_str(&wb, pt)) {
+                    FURI_LOG_E(TAG, "GPX trackpoint write failed, aborting");
+                    points = 0;
+                    goto done;
+                }
                 points++;
             }
         } else {
@@ -493,18 +518,21 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
         }
     }
 
-    wb_str(&wb,
+    if(!wb_str(&wb,
         "    </trkseg>\n"
         "  </trk>\n"
-        "</gpx>\n");
-    wb_flush(&wb);
+        "</gpx>\n") || !wb_flush(&wb)) {
+        FURI_LOG_E(TAG, "GPX footer write failed");
+        points = 0;
+    }
 
     if(points == 0) {
-        FURI_LOG_W(TAG, "No GPS fix rows — GSR‑only recording? (%d rows skipped)",
+        FURI_LOG_W(TAG, "No GPS fix rows or write failed — GSR‑only recording? (%d rows skipped)",
                    rows_no_fix);
+    } else {
+        FURI_LOG_I(TAG, "%d trackpoints written (%d rows, %d no-fix)",
+                   points, rows_done, rows_no_fix);
     }
-    FURI_LOG_I(TAG, "%d trackpoints written (%d rows, %d no-fix)",
-               points, rows_done, rows_no_fix);
 
 done:
     storage_file_close(csv2);

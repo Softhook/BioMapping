@@ -34,17 +34,42 @@ void sd_logger_free(SdLogger* l) {
 
 // Single-pass scan for the next unused index
 static int find_next_index(SdLogger* l) {
-    char path[64];
-    for(int i = 1; i <= LOGGER_MAX_INDEX; i++) {
-        snprintf(path, sizeof(path), EXT_PATH(LOGGER_DIR LOGGER_BASENAME "%03d" LOGGER_EXT), i);
-        if(!storage_file_exists(l->storage, path)) {
-            l->last_index = i;
-            return i;
+    File* dir = storage_file_alloc(l->storage);
+    if(!storage_dir_open(dir, EXT_PATH(LOGGER_DIR))) {
+        storage_file_free(dir);
+        l->last_index = 1;
+        return 1;
+    }
+
+    int max_idx = 0;
+    FileInfo info;
+    char name[64];
+    while(storage_dir_read(dir, &info, name, sizeof(name))) {
+        if(info.flags & FSF_DIRECTORY) continue;
+        size_t len = strlen(name);
+        if(len < 12) continue; // "biomap_001.csv" is 14 chars
+        if(strncmp(name, LOGGER_BASENAME, 7) == 0 && strcmp(name + len - 4, LOGGER_EXT) == 0) {
+            int idx = 0;
+            const char* p = name + 7;
+            while(p < name + len - 4 && *p >= '0' && *p <= '9') {
+                idx = idx * 10 + (*p - '0');
+                p++;
+            }
+            if(idx > max_idx && idx <= LOGGER_MAX_INDEX) {
+                max_idx = idx;
+            }
         }
     }
-    FURI_LOG_W("SdLogger", "All %d slots used — wrapping to 001", LOGGER_MAX_INDEX);
-    l->last_index = 1;
-    return 1;
+    storage_dir_close(dir);
+    storage_file_free(dir);
+
+    int next_idx = max_idx + 1;
+    if(next_idx > LOGGER_MAX_INDEX) {
+        FURI_LOG_W("SdLogger", "All %d slots used — wrapping to 001", LOGGER_MAX_INDEX);
+        next_idx = 1;
+    }
+    l->last_index = next_idx;
+    return next_idx;
 }
 
 bool sd_logger_start(SdLogger* l) {
@@ -93,14 +118,14 @@ void sd_logger_stop(SdLogger* l) {
 bool        sd_logger_is_active(const SdLogger* l)   { return l->active; }
 const char* sd_logger_get_filename(const SdLogger* l) { return l->filename; }
 
-void sd_logger_write_row(
+bool sd_logger_write_row(
     SdLogger*   l,
     const char* timestamp,
     float       lat, float lon, float alt,
     int         sats, int fix,
     int16_t     gsr_raw) {
     furi_assert(l);
-    if(!l->active || !l->file) return;
+    if(!l->active || !l->file) return false;
 
     char row[256];
     int len = snprintf(
@@ -113,5 +138,7 @@ void sd_logger_write_row(
     uint16_t written = storage_file_write(l->file, row, (size_t)len);
     if(written != (uint16_t)len) {
         FURI_LOG_E("SdLogger", "Write error: %d/%d", written, len);
+        return false;
     }
+    return true;
 }

@@ -18,7 +18,7 @@ void        sd_logger_stop(SdLogger* logger);
 bool        sd_logger_is_active(const SdLogger* logger);
 const char* sd_logger_get_filename(const SdLogger* logger);
 
-void sd_logger_write_row(
+bool sd_logger_write_row(
     SdLogger*   logger,
     const char* timestamp,
     float       lat, float lon, float alt,
