@@ -22,7 +22,7 @@ To build this, you need the following physical components:
 * **ADS1115 Breakout Board:** A high-precision 16-bit I2C ADC chip.
 
 **Active Components:**
-* **1x MCP6002** (or equivalent 3.3V rail-to-rail Dual Op-Amp)
+* **1x MCP6042** (or equivalent 3.3V rail-to-rail Dual Op-Amp)
 
 **Passive Components:**
 * **1x 56kΩ Resistor** (For the voltage divider 0.1% tolerance metal film recommended)
