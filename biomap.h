@@ -23,7 +23,7 @@
 #define TICK_HZ          10
 #define ZOOM_STEP        0.25f
 #define ZOOM_MIN         0.25f
-#define ZOOM_MAX         4.0f
+#define ZOOM_MAX         16.0f
 #define DISPLAY_EMA_A    0.2f
 
 #define GRAPH_N    126
@@ -50,6 +50,9 @@ typedef struct BioMapApp {
     int      graph_head;
 
     float    zoom_level;
+    int      scroll_divider;
+    int      graph_tick_counter;
+    float    graph_last_smoothed;
     bool     running;
     bool     recording_active;
     char     recording_filename[64];

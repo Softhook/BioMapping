@@ -81,7 +81,8 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         if(a->mode == BioMapModeGsrOnly && a->gsr && gsr_sensor_available(a->gsr)) {
             char buf[32];
             snprintf(buf, sizeof(buf), "GSR: %d", (int)gsr_sensor_get_raw(a->gsr));
-            canvas_draw_str(c, 0, 20, buf);
+            int x = 128 - canvas_string_width(c, buf) - (a->recording_active ? 12 : 2);
+            canvas_draw_str(c, x, 10, buf);
         }
     } else {
         // GPS-only: full detail view

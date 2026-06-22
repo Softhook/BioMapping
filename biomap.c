@@ -33,6 +33,9 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     app->gsr_raw_sum = app->raw_count = app->tick_counter = app->graph_head = 0;
     app->display_smoothed = 0.0f;
     app->display_primed   = false;
+    app->scroll_divider = 1;
+    app->graph_tick_counter = 0;
+    app->graph_last_smoothed = 0.0f;
     app->recording_active = false;
     app->recording_filename[0] = '\0';
     app->running = true;
@@ -115,6 +118,30 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                     view_port_update(vp);
                 }
                 break;
+            case InputKeyLeft:
+                if(has_gsr(mode)) {
+                    furi_mutex_acquire(app->mutex, FuriWaitForever);
+                    if(app->scroll_divider < 16) {
+                        app->scroll_divider *= 2;
+                        app->graph_tick_counter = 0;
+                        app->graph_last_smoothed = app->display_smoothed;
+                    }
+                    furi_mutex_release(app->mutex);
+                    view_port_update(vp);
+                }
+                break;
+            case InputKeyRight:
+                if(has_gsr(mode)) {
+                    furi_mutex_acquire(app->mutex, FuriWaitForever);
+                    if(app->scroll_divider > 1) {
+                        app->scroll_divider /= 2;
+                        app->graph_tick_counter = 0;
+                        app->graph_last_smoothed = app->display_smoothed;
+                    }
+                    furi_mutex_release(app->mutex);
+                    view_port_update(vp);
+                }
+                break;
             default: break;
             }
             continue;
@@ -129,12 +156,23 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                 raw = gsr_sensor_get_raw(app->gsr);
 
                 float rf = (float)raw;
-                if(!app->display_primed) { app->display_smoothed = rf; app->display_primed = true; }
+                if(!app->display_primed) {
+                    app->display_smoothed = rf;
+                    app->graph_last_smoothed = rf;
+                    app->display_primed = true;
+                }
                 float ns = DISPLAY_EMA_A * rf + (1.0f - DISPLAY_EMA_A) * app->display_smoothed;
-                float rate = ns - app->display_smoothed;
                 app->display_smoothed = ns;
-                app->graph_buf[app->graph_head] = -(rate) * 0.5f;
-                app->graph_head = (app->graph_head + 1) % GRAPH_N;
+
+                app->graph_tick_counter++;
+                if(app->graph_tick_counter >= app->scroll_divider) {
+                    float rate = app->display_smoothed - app->graph_last_smoothed;
+                    app->graph_buf[app->graph_head] = -(rate) * 0.5f;
+                    app->graph_head = (app->graph_head + 1) % GRAPH_N;
+                    app->graph_last_smoothed = app->display_smoothed;
+                    app->graph_tick_counter = 0;
+                }
+
                 app->gsr_raw_sum += raw;
                 app->raw_count++;
             }
