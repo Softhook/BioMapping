@@ -38,6 +38,16 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
     canvas_draw_frame(c, gx, gy, gw, gh);
     canvas_draw_line(c, gx, cy, gx + gw - 1, cy);
 
+    // Time notches at the top — every 2 seconds, counting from the right
+    float sec_per_px = (float)a->scroll_divider / TICK_HZ;
+    int right_edge = gx + gw - 2;
+    for(float t = 2.0f; t < n * sec_per_px; t += 2.0f) {
+        int x = right_edge - (int)(t / sec_per_px);
+        if(x >= gx + 1 && x < right_edge) {
+            canvas_draw_line(c, x, gy + 1, x, gy + 4);
+        }
+    }
+
     for(int i = 0; i < n - 1; i++) {
         int si = (a->graph_head + i)     % GRAPH_N;
         int sj = (a->graph_head + i + 1) % GRAPH_N;
@@ -65,6 +75,13 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     // Full-width graph (behind text, when GSR active)
     if(has_graph) {
         draw_graph(c, a, 0, 16, 128, 48);
+
+        // Zoom level in bottom-right corner of the graph
+        char zoom_buf[16];
+        snprintf(zoom_buf, sizeof(zoom_buf), "%.1fx", (double)a->zoom_level);
+        canvas_set_font(c, FontSecondary);
+        int zw = canvas_string_width(c, zoom_buf);
+        canvas_draw_str(c, 128 - zw - 2, 62, zoom_buf);
     }
 
     // Title + recording indicator
