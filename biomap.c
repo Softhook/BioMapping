@@ -230,10 +230,17 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                 if(!app->display_primed) {
                     app->display_smoothed = rf;
                     app->graph_last_smoothed = rf;
+                    app->last_displayed_gsr = raw;
                     app->display_primed = true;
                 }
                 float ns = DISPLAY_EMA_A * rf + DISPLAY_EMA_B * app->display_smoothed;
                 app->display_smoothed = ns;
+
+                app->text_refresh_counter++;
+                if(app->text_refresh_counter >= 5) {
+                    app->last_displayed_gsr = raw;
+                    app->text_refresh_counter = 0;
+                }
 
                 // Auto-zoom peak: decay every tick (wall-clock time) so the
                 // envelope releases at the same rate regardless of scroll_divider.

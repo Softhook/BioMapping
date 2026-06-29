@@ -61,6 +61,8 @@ typedef struct BioMapApp {
     bool     running;
     bool     recording_active;
     char     recording_filename[64];
+    int32_t  last_displayed_gsr;
+    int      text_refresh_counter;
     volatile int32_t menu_selection;
 } BioMapApp;
 
