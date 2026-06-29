@@ -41,7 +41,6 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
     const float combined_scale = a->zoom_level * ((float)(gh / 2 - 2) / 100.0f);
 
     canvas_draw_frame(c, gx, gy, gw, gh);
-    canvas_draw_line(c, gx, cy, gx + gw - 1, cy);
 
     // 10-second notches above the graph — integer arithmetic only.
     // px_per_notch: how many pixels represent 10 seconds at current speed.

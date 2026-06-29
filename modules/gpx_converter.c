@@ -409,6 +409,15 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
     // Skip CSV header
     lr_read_line(&lr1, line, sizeof(line));
 
+    // Detect GSR-only CSV (2 columns: timestamp,gsr_raw) — these have no
+    // GPS coordinates and cannot produce a meaningful GPX track.
+    if(strstr(line, "timestamp,gsr_raw") && !strstr(line, "lat,lon")) {
+        FURI_LOG_E(TAG, "GSR-only CSV (no GPS data) — cannot convert to GPX");
+        storage_file_close(csv1);
+        storage_file_free(csv1);
+        return 0;
+    }
+
     while(lr_read_line(&lr1, line, sizeof(line))) {
         if(!line[0]) continue;
 

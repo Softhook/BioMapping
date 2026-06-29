@@ -115,6 +115,79 @@ void sd_logger_stop(SdLogger* l) {
     FURI_LOG_I("SdLogger", "Stopped %s", l->filename);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GSR-only logging — 2-column CSV: timestamp,gsr_raw (no GPS fields).
+// Called at 10 Hz; rows are ~30 bytes.  A 1-hour session is ~1 MB.
+// ─────────────────────────────────────────────────────────────────────────────
+bool sd_logger_start_gsr(SdLogger* l) {
+    furi_assert(l);
+    furi_assert(!l->active);
+
+    int idx = find_next_index(l);
+    snprintf(l->filename, sizeof(l->filename), LOGGER_BASENAME "%03d" LOGGER_EXT, idx);
+    char full_path[96];
+    snprintf(full_path, sizeof(full_path), EXT_PATH(LOGGER_DIR "/%s"), l->filename);
+
+    l->file = storage_file_alloc(l->storage);
+    if(!l->file || !storage_file_open(l->file, full_path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+        FURI_LOG_E("SdLogger", "Failed to open %s", full_path);
+        if(l->file) { storage_file_free(l->file); l->file = NULL; }
+        l->filename[0] = '\0';
+        return false;
+    }
+
+    const char* header = "timestamp,gsr_raw\n";
+    uint16_t written = storage_file_write(l->file, header, strlen(header));
+    if(written != strlen(header)) {
+        FURI_LOG_E("SdLogger", "GSR header write failed (%d/%d)", written, (int)strlen(header));
+        storage_file_close(l->file);
+        storage_file_free(l->file);
+        l->file = NULL;
+        l->filename[0] = '\0';
+        return false;
+    }
+
+    l->active = true;
+    FURI_LOG_I("SdLogger", "GSR-only recording to %s", full_path);
+    return true;
+}
+
+bool sd_logger_write_row_gsr(SdLogger* l, const char* timestamp, int32_t gsr_raw) {
+    furi_assert(l);
+    if(!l->active || !l->file) return false;
+
+    char row[64];
+    int len = snprintf(row, sizeof(row), "%s,%ld\n",
+        timestamp ? timestamp : "", (long)gsr_raw);
+
+    if(len <= 0 || len >= (int)sizeof(row)) {
+        FURI_LOG_E("SdLogger", "GSR row format overflow (%d) — row skipped", len);
+        return true;
+    }
+
+    uint16_t written = storage_file_write(l->file, row, (size_t)len);
+    if(written != (uint16_t)len) {
+        FURI_LOG_E("SdLogger", "GSR write error: %d/%d", written, len);
+        return false;
+    }
+    return true;
+}
+
+// Flush a pre-built buffer of GSR rows in one storage_file_write.
+// The caller accumulates formatted "ts,gsr_raw\n" lines each tick
+// and flushes at the 1‑second boundary to avoid 10 Hz SD writes.
+bool sd_logger_flush_gsr(SdLogger* l, const char* data, size_t len) {
+    furi_assert(l);
+    if(!l->active || !l->file || len == 0) return true;
+
+    uint16_t written = storage_file_write(l->file, data, len);
+    if(written != (uint16_t)len) {
+        FURI_LOG_E("SdLogger", "GSR flush error: %d/%d", written, (int)len);
+        return false;
+    }
+    return true;
+}
+
 bool        sd_logger_is_active(const SdLogger* l)   { return l->active; }
 const char* sd_logger_get_filename(const SdLogger* l) { return l->filename; }
 

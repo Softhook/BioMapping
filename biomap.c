@@ -91,6 +91,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     app->graph_last_smoothed = 0.0f;
     app->recording_active = false;
     app->recording_filename[0] = '\0';
+    app->gsr_batch_len = 0;
     app->running = true;
     app->zoom_level = 1.0f;
     app->auto_zoom_peak = 1.0f;
@@ -134,6 +135,13 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             switch(ev.input.key) {
             case InputKeyBack:
                 furi_mutex_acquire(app->mutex, FuriWaitForever);
+                // Flush any pending GSR batch before exiting the session.
+                // Without this, up to 0.9 s of data is lost on clean exit.
+                if(mode == BioMapModeGsrOnly && app->recording_active && app->gsr_batch_len > 0) {
+                    sd_logger_flush_gsr(app->logger, app->gsr_batch,
+                                        (size_t)app->gsr_batch_len);
+                    app->gsr_batch_len = 0;
+                }
                 app->running = false;
                 furi_mutex_release(app->mutex);
                 break;
@@ -144,22 +152,32 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                 furi_mutex_release(app->mutex);
 
                 if(start) {
-                    if(sd_logger_start(app->logger)) {
+                    bool ok = (mode == BioMapModeGsrOnly)
+                        ? sd_logger_start_gsr(app->logger)
+                        : sd_logger_start(app->logger);
+                    if(ok) {
                         furi_mutex_acquire(app->mutex, FuriWaitForever);
                         app->recording_active = true;
                         strncpy(app->recording_filename,
                             sd_logger_get_filename(app->logger),
                             sizeof(app->recording_filename) - 1);
                         app->tick_counter = app->raw_count = app->gsr_raw_sum = 0;
+                        app->gsr_batch_len = 0;
                         furi_mutex_release(app->mutex);
                         notification_message(app->notifications, &sequence_set_only_red_255);
                     }
                 } else {
-                    sd_logger_stop(app->logger);
+                    // Flush pending GSR batch before closing the file.
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
                     app->recording_active = false;
+                    if(mode == BioMapModeGsrOnly && app->gsr_batch_len > 0) {
+                        sd_logger_flush_gsr(app->logger, app->gsr_batch,
+                                            (size_t)app->gsr_batch_len);
+                        app->gsr_batch_len = 0;
+                    }
                     app->recording_filename[0] = '\0';
                     furi_mutex_release(app->mutex);
+                    sd_logger_stop(app->logger);
                     notification_message(app->notifications, &sequence_reset_rgb);
                 }
                 view_port_update(vp);
@@ -270,8 +288,12 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                     }
                 }
 
-                app->gsr_raw_sum += raw;
-                app->raw_count++;
+                // 1-second GSR accumulator — only needed for GPS modes;
+                // GSR-only mode logs the point value at 10 Hz via the batch.
+                if(mode != BioMapModeGsrOnly) {
+                    app->gsr_raw_sum += raw;
+                    app->raw_count++;
+                }
 
                 // Smooth zoom_level towards target every tick for fluid animation.
                 // Lerp rate 0.02 → time constant ~5 s, 95 % convergence in ~15 s.
@@ -280,35 +302,73 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                     target = fmaxf(ZOOM_MIN, fminf(ZOOM_MAX, target));
                     app->zoom_level += (target - app->zoom_level) * 0.02f;
                 }
+
+                // GSR-only: accumulate formatted row into batch buffer each tick.
+                // Flushed to SD in one write at the 1‑second boundary — avoids
+                // 10 Hz SD card writes (latency spikes, write amplification).
+                if(mode == BioMapModeGsrOnly && app->recording_active) {
+                    char ts[32];
+                    format_timestamp(app, ts, sizeof(ts));
+                    int remain = (int)sizeof(app->gsr_batch) - app->gsr_batch_len;
+                    int n = snprintf(app->gsr_batch + app->gsr_batch_len,
+                                     remain > 0 ? remain : 0,
+                                     "%s,%ld\n", ts, (long)raw);
+                    if(n > 0 && n < remain) {
+                        app->gsr_batch_len += n;
+                    } else if(app->gsr_batch_len > 0) {
+                        // Buffer full — should not happen with 512 B / 10 ticks,
+                        // but log it so a silent data-loss path is debuggable.
+                        FURI_LOG_W("BioMap", "GSR batch overflow at len=%d remain=%d",
+                                   app->gsr_batch_len, remain);
+                    }
+                }
             }
 
             if(++app->tick_counter >= TICK_HZ) {
-                float lat = 0, lon = 0, alt = 0;
-                int   sats = 0, fix = 0;
-                if(app->gps) {
-                    GpsStatus gs = gps_uart_get_status(app->gps);
-                    if((gs.fix_valid || gs.fix_quality > 0)
-                        && !isnan(gs.latitude) && !isnan(gs.longitude)) {
-                        lat = gs.latitude; lon = gs.longitude; alt = gs.altitude;
+                if(mode == BioMapModeGsrOnly) {
+                    // Flush accumulated GSR rows (up to 10) in one SD write.
+                    if(app->recording_active && app->gsr_batch_len > 0) {
+                        if(sd_logger_flush_gsr(app->logger, app->gsr_batch,
+                                               (size_t)app->gsr_batch_len)) {
+                            notification_message(app->notifications, &sequence_blink_green_100);
+                        } else {
+                            FURI_LOG_E("BioMap", "GSR batch flush failed");
+                            if(app->logger) sd_logger_stop(app->logger);
+                            app->recording_active = false;
+                            app->recording_filename[0] = '\0';
+                            notification_message(app->notifications, &sequence_set_only_red_255);
+                        }
+                        app->gsr_batch_len = 0;
                     }
-                    sats = gs.satellites_tracked;
-                    fix  = gs.fix_quality;
-                }
+                } else {
+                    // GPS modes: accumulate and write full 7-column row once per second.
+                    float lat = 0, lon = 0, alt = 0;
+                    int   sats = 0, fix = 0;
+                    if(app->gps) {
+                        GpsStatus gs = gps_uart_get_status(app->gps);
+                        if((gs.fix_valid || gs.fix_quality > 0)
+                            && !isnan(gs.latitude) && !isnan(gs.longitude)) {
+                            lat = gs.latitude; lon = gs.longitude; alt = gs.altitude;
+                        }
+                        sats = gs.satellites_tracked;
+                        fix  = gs.fix_quality;
+                    }
 
-                int32_t avg = app->raw_count ? (app->gsr_raw_sum / app->raw_count) : 0;
-                char ts[32];
-                format_timestamp(app, ts, sizeof(ts));
+                    int32_t avg = app->raw_count ? (app->gsr_raw_sum / app->raw_count) : 0;
+                    char ts[32];
+                    format_timestamp(app, ts, sizeof(ts));
 
-                if(app->recording_active) {
-                    if(sd_logger_write_row(app->logger, ts, lat, lon, alt, sats, fix, avg)) {
-                        // Green heartbeat on every successful write
-                        notification_message(app->notifications, &sequence_blink_green_100);
-                    } else {
-                        // Write failed — stop recording and hold red
-                        if(app->logger) sd_logger_stop(app->logger);
-                        app->recording_active = false;
-                        app->recording_filename[0] = '\0';
-                        notification_message(app->notifications, &sequence_set_only_red_255);
+                    if(app->recording_active) {
+                        if(sd_logger_write_row(app->logger, ts, lat, lon, alt, sats, fix, avg)) {
+                            // Green heartbeat on every successful write
+                            notification_message(app->notifications, &sequence_blink_green_100);
+                        } else {
+                            // Write failed — stop recording and hold red
+                            if(app->logger) sd_logger_stop(app->logger);
+                            app->recording_active = false;
+                            app->recording_filename[0] = '\0';
+                            notification_message(app->notifications, &sequence_set_only_red_255);
+                        }
                     }
                 }
 
