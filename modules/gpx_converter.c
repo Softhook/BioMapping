@@ -336,6 +336,18 @@ static void sma_init(SmaState* s) {
 //   row  8    → first full‑window SMA, stored as baseline, return 0.0
 //   row  9    → second full‑window SMA, rate = SMA₂ − SMA₁  ← first real rate
 static float sma_feed(SmaState* s, int32_t raw) {
+    if(s->count == 0) {
+        // Pre-warm the buffer with the first sample to eliminate startup latency
+        for(int i = 0; i < GPX_RATE_WINDOW; i++) {
+            s->buf[i] = raw;
+        }
+        s->sum = (float)raw * GPX_RATE_WINDOW;
+        s->count = GPX_RATE_WINDOW;
+        s->prev_sma = (float)raw;
+        s->rate_ready = true;
+        return 0.0f;
+    }
+
     // Maintain circular buffer and running sum (O(1) per step)
     if(s->count == GPX_RATE_WINDOW) {
         s->sum -= s->buf[s->head];          // evict oldest
