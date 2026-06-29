@@ -316,7 +316,7 @@ const char* gpx_converter_get_name(const GpxConverter* c, int index) {
 
 // Self-contained state so pass 1 and pass 2 produce identical results.
 typedef struct {
-    int16_t buf[GPX_RATE_WINDOW];   // circular buffer of raw GSR values
+    int32_t buf[GPX_RATE_WINDOW];   // circular buffer of raw GSR values
     int     head;                    // next write slot
     int     count;                   // values stored so far (0 … WINDOW)
     float   sum;                     // running sum (maintained incrementally)
@@ -335,7 +335,7 @@ static void sma_init(SmaState* s) {
 //   rows 1‑7  → filling, no SMA, return 0.0
 //   row  8    → first full‑window SMA, stored as baseline, return 0.0
 //   row  9    → second full‑window SMA, rate = SMA₂ − SMA₁  ← first real rate
-static float sma_feed(SmaState* s, int16_t raw) {
+static float sma_feed(SmaState* s, int32_t raw) {
     // Maintain circular buffer and running sum (O(1) per step)
     if(s->count == GPX_RATE_WINDOW) {
         s->sum -= s->buf[s->head];          // evict oldest
@@ -417,7 +417,7 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
         int nt = csv_split(line, tok, 7);
         if(nt < 7) { rows_skipped++; continue; }
 
-        int16_t raw = (int16_t)str_to_int(tok[6]);
+        int32_t raw = str_to_int(tok[6]);
         int     fix = str_to_int(tok[5]);
         float   lat = str_to_float(tok[1]);
         float   lon = str_to_float(tok[2]);
@@ -526,7 +526,7 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
         int   fix = str_to_int(tok[5]);
         int   raw = str_to_int(tok[6]);
 
-        float rate = sma_feed(&sma2, (int16_t)raw);
+        float rate = sma_feed(&sma2, raw);
 
         // Skip rows before the SMA window has produced real rates
         if(!sma2.rate_ready) { rows_done++; continue; }

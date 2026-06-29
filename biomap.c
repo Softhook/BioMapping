@@ -168,7 +168,10 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             case InputKeyUp:
                 if(has_gsr(mode)) {
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    app->zoom_level = fminf(app->zoom_level + ZOOM_STEP, ZOOM_MAX);
+                    // Disable auto-zoom so the manual adjustment isn't
+                    // immediately counteracted by the lerp in the tick handler.
+                    app->auto_zoom_enabled = false;
+                    app->zoom_level = fminf(app->zoom_level * ZOOM_FACTOR, ZOOM_MAX);
                     furi_mutex_release(app->mutex);
                     view_port_update(vp);
                 }
@@ -176,7 +179,8 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             case InputKeyDown:
                 if(has_gsr(mode)) {
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    app->zoom_level = fmaxf(app->zoom_level - ZOOM_STEP, ZOOM_MIN);
+                    app->auto_zoom_enabled = false;
+                    app->zoom_level = fmaxf(app->zoom_level / ZOOM_FACTOR, ZOOM_MIN);
                     furi_mutex_release(app->mutex);
                     view_port_update(vp);
                 }
@@ -217,7 +221,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         if(ev.type == EventTypeTick) {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
 
-            int16_t raw = 0;
+            int32_t raw = 0;
             if(app->gsr) {
                 gsr_sensor_tick(app->gsr);
                 raw = gsr_sensor_get_raw(app->gsr);
@@ -231,28 +235,31 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                 float ns = DISPLAY_EMA_A * rf + DISPLAY_EMA_B * app->display_smoothed;
                 app->display_smoothed = ns;
 
+                // Auto-zoom peak: decay every tick (wall-clock time) so the
+                // envelope releases at the same rate regardless of scroll_divider.
+                if(app->auto_zoom_enabled) {
+                    app->auto_zoom_peak *= 0.997f;
+                }
+
                 app->graph_tick_counter++;
                 if(app->graph_tick_counter >= app->scroll_divider) {
                     float rate = app->display_smoothed - app->graph_last_smoothed;
                     // Normalise by scroll_divider so each sample stores rate-per-tick
                     // rather than total change over the window.  Without this, the
                     // amplitude would grow ×16 from the fastest to slowest time scale.
-                    app->graph_buf[app->graph_head] = -(rate / (float)app->scroll_divider) * 0.5f;
+                    app->graph_buf[app->graph_head] = -(rate / (float)app->scroll_divider) * 0.2f; // scale for nanosiemens rate of change
                     if(++app->graph_head >= GRAPH_N) app->graph_head = 0;
                     app->graph_last_smoothed = app->display_smoothed;
                     app->graph_tick_counter = 0;
 
-                    // Auto-zoom peak: update only when a new sample was written.
-                    // The peak decays via slow release each write; the newest
-                    // sample is the only one we need to check (incremental).
+                    // Auto-zoom peak: capture newest sample (decay already applied above).
                     if(app->auto_zoom_enabled) {
-                        app->auto_zoom_peak *= 0.997f;
                         // graph_head now points to next slot; one behind is what we just wrote.
                         int just_written = app->graph_head - 1;
                         if(just_written < 0) just_written = GRAPH_N - 1;
                         float newest = fabsf(app->graph_buf[just_written]);
                         if(newest > app->auto_zoom_peak) app->auto_zoom_peak = newest;
-                        if(app->auto_zoom_peak < 0.1f) app->auto_zoom_peak = 0.1f;
+                        if(app->auto_zoom_peak < 0.5f) app->auto_zoom_peak = 0.5f;
                     }
                 }
 
@@ -260,10 +267,11 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                 app->raw_count++;
 
                 // Smooth zoom_level towards target every tick for fluid animation.
-                if(app->auto_zoom_enabled && app->auto_zoom_peak >= 0.1f) {
+                // Lerp rate 0.02 → time constant ~5 s, 95 % convergence in ~15 s.
+                if(app->auto_zoom_enabled && app->auto_zoom_peak >= 0.5f) {
                     float target = 80.0f / app->auto_zoom_peak;
                     target = fmaxf(ZOOM_MIN, fminf(ZOOM_MAX, target));
-                    app->zoom_level += (target - app->zoom_level) * 0.003f;
+                    app->zoom_level += (target - app->zoom_level) * 0.02f;
                 }
             }
 
@@ -280,7 +288,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                     fix  = gs.fix_quality;
                 }
 
-                int16_t avg = app->raw_count ? (int16_t)(app->gsr_raw_sum / app->raw_count) : 0;
+                int32_t avg = app->raw_count ? (app->gsr_raw_sum / app->raw_count) : 0;
                 char ts[32];
                 format_timestamp(app, ts, sizeof(ts));
 

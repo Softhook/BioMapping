@@ -123,17 +123,17 @@ bool sd_logger_write_row(
     const char* timestamp,
     float       lat, float lon, float alt,
     int         sats, int fix,
-    int16_t     gsr_raw) {
+    int32_t     gsr_raw) {
     furi_assert(l);
     if(!l->active || !l->file) return false;
 
     char row[256];
     int len = snprintf(
         row, sizeof(row),
-        "%s,%.6f,%.6f,%.1f,%d,%d,%d\n",
+        "%s,%.6f,%.6f,%.1f,%d,%d,%ld\n",
         timestamp ? timestamp : "",
         (double)lat, (double)lon, (double)alt,
-        sats, fix, (int)gsr_raw);
+        sats, fix, (long)gsr_raw);
 
     // snprintf returns the number of chars it *would* write; if >= sizeof(row)
     // the output was truncated.  Skip the row rather than writing garbage or

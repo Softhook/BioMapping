@@ -28,7 +28,7 @@ To build this, you need the following physical components:
 * **1x 56kΩ Resistor** (For the voltage divider 0.1% tolerance metal film recommended)
 * **1x 10kΩ Resistor** (For the voltage divider 0.1% tolerance metal film recommended)
 * **1x 47kΩ Resistor** (For the TIA gain/feedback 1% tolerance metal film recommended)
-* **2x 100kΩ Resistors** (For safety inline with the electrodes 1% tolerance metal film recommended)
+* **2x 4.7kΩ Resistors** (For safety inline with the electrodes 1% tolerance metal film recommended)
 * **2x 100nF (0.1µF) Ceramic Capacitors** (One for power bypass, one for the feedback filter)
 
 **Biometric Interface:**
@@ -75,9 +75,9 @@ Mount the ADS1115 and the MCP6002 onto the prototyping grid and wire them. We wi
   * Tie the **47kΩ Resistor** and the second **100nF Capacitor** in parallel between Pin 7 (Out B) and Pin 6 (In- B). This acts as both the amplifier gain and a hardware low-pass filter to destroy 50/60Hz mains hum.
 
 * **Connect Electrodes & Safety Resistors:**
-  * Electrode 1 (GND): GND -> **100kΩ Resistor** -> Wire -> Foil/Finger 1.
-  * Electrode 2 (SIGNAL): Foil/Finger 2 -> Wire -> **100kΩ Resistor** -> MCP6002 Pin 6 (In- B).
-  * *These resistors ensure maximum skin current is capped at a completely safe 33 µA.*
+  * Electrode 1 (GND): GND -> **4.7kΩ Resistor** -> Wire -> Foil/Finger 1.
+  * Electrode 2 (SIGNAL): Foil/Finger 2 -> Wire -> **4.7kΩ Resistor** -> MCP6002 Pin 6 (In- B).
+  * *These resistors (9.4 kΩ total) ensure maximum skin current is safe while keeping the TIA output within the ADC range for the full span of human skin resistance.*
 
 * **Differential Connection to ADS1115:**
   * Connect **ADS1115 AIN0** to MCP6002 Pin 7 (Out B) (The amplified GSR signal).

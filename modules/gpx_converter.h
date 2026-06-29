@@ -16,7 +16,7 @@
 /* ── Tunable constants (experiment with these!) ──────────────────────── */
 
 #define GPX_RATE_WINDOW     8     // SMA samples → bigger = smoother rate
-#define GPX_MAX_ABS_RATE    500.0f // cap |rate| — any larger = sensor glitch
+#define GPX_MAX_ABS_RATE    2000.0f // cap |rate| — limit to 2000 nS/sec for physiological scaling
 #define GPX_MAX_CSV_FILES   32
 
 typedef struct GpxConverter GpxConverter;

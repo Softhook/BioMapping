@@ -119,7 +119,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         // GPS+GSR or GSR-only: minimal overlay — just GSR number on GSR-only
         if(a->mode == BioMapModeGsrOnly && a->gsr && gsr_sensor_available(a->gsr)) {
             char buf[32];
-            snprintf(buf, sizeof(buf), "GSR: %d", (int)gsr_sensor_get_raw(a->gsr));
+            snprintf(buf, sizeof(buf), "GSR: %ld nS", (long)gsr_sensor_get_raw(a->gsr));
             int x = 128 - canvas_string_width(c, buf) - (a->recording_active ? 12 : 2);
             canvas_draw_str(c, x, 10, buf);
         }

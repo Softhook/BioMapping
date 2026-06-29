@@ -23,4 +23,4 @@ bool sd_logger_write_row(
     const char* timestamp,
     float       lat, float lon, float alt,
     int         sats, int fix,
-    int16_t     gsr_raw);
+    int32_t     gsr_raw);

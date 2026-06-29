@@ -22,6 +22,7 @@
 
 #define TICK_HZ          10
 #define ZOOM_STEP        0.25f
+#define ZOOM_FACTOR      1.5f    // multiplicative step for manual Up/Down zoom
 #define ZOOM_MIN         0.25f
 #define ZOOM_MAX         16.0f
 #define DISPLAY_EMA_A    0.2f

@@ -1,6 +1,13 @@
 #pragma once
 
-// GSR Sensor — ADS1115 I2C differential reader (AIN0–AIN1, TIA circuit).
+// GSR Sensor — ADS1115 I2C differential reader with PGA autoranging.
+//
+// Auto-ranging keeps the ADC reading in [12.5 %, 91.5 %] of full scale by
+// stepping the PGA gain in real time.  The tick() normalises the reading
+// through the TIA circuit equation and stores the result in nanosiemens.
+// gsr_sensor_get_raw() returns skin conductance in nS regardless of PGA.
+// Returns 0 when the sensor is unavailable.
+//
 // Always probed at alloc(); gsr_sensor_available() reports success.
 // Readings return 0 and tick() is a no-op if the probe fails.
 
@@ -22,8 +29,15 @@ void       gsr_sensor_free(GsrSensor* gsr);
 // Returns false when ADS1115 probe failed at init
 bool gsr_sensor_available(const GsrSensor* gsr);
 
-// Call at 10 Hz. Reads ADS1115 (if available) and stores the raw value.
+// Call at 10 Hz.  Reads ADS1115 (if available), applies autoranging,
+// converts to nanosiemens via the TIA circuit equation, and stores the result.
 void gsr_sensor_tick(GsrSensor* gsr);
 
-// Raw 16-bit differential ADC reading (0 when unavailable)
-int16_t gsr_sensor_get_raw(const GsrSensor* gsr);
+// Skin conductance in nanosiemens (nS), computed from the TIA circuit
+// equation each tick.  Returns 0 when sensor unavailable.
+int32_t gsr_sensor_get_raw(const GsrSensor* gsr);
+
+// Active PGA index: 0 = ±6.144V … 5 = ±0.256V.
+// For display/debug only — get_raw() is already in nS; callers do not
+// need to apply any further scaling.
+uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr);
