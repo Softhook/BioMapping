@@ -25,6 +25,7 @@
 #define ZOOM_MIN         0.25f
 #define ZOOM_MAX         16.0f
 #define DISPLAY_EMA_A    0.2f
+#define DISPLAY_EMA_B    0.8f   // (1.0f - DISPLAY_EMA_A), precomputed
 
 #define GRAPH_N    126
 

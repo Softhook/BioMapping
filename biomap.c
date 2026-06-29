@@ -28,6 +28,59 @@ void run_gps_hot_start(BioMapApp* app) {
     if(g) gps_uart_free(g);
 }
 
+// Rescale graph_buf when scroll_divider changes by a factor of 2.
+//
+// Each graph_buf sample = normalised EMA-derivative: total change over the
+// window divided by scroll_divider, i.e. rate-per-tick.  This keeps
+// amplitude consistent across all time scales.
+//
+// zoom_out=true  (Left key, divider ×2):
+//   Average adjacent pairs — both samples represent rate-per-tick, so the
+//   average is the best estimate of the rate over the merged window.
+//   63 averaged samples land at the newest (right) end; the older half
+//   stays zero (no data collected at this resolution yet).
+//
+// zoom_out=false (Right key, divider ÷2):
+//   Interpolate — each old sample is already rate-per-tick and does NOT
+//   need halving.  The even position keeps the original value; the odd
+//   position interpolates toward the next sample for a smooth curve.
+//
+// This is a one-time O(N) pass on keypress; performance is not a concern.
+static void rescale_graph_buf(BioMapApp* app, bool zoom_out) {
+    float temp[GRAPH_N];
+
+    // Linearise ring buffer: temp[0] = oldest sample, temp[N-1] = newest.
+    for(int i = 0; i < GRAPH_N; i++) {
+        temp[i] = app->graph_buf[(app->graph_head + i) % GRAPH_N];
+    }
+    memset(app->graph_buf, 0, sizeof(app->graph_buf));
+    app->graph_head = 0;
+
+    if(zoom_out) {
+        // Average adjacent pairs (both are rate-per-tick; average preserves that).
+        // 126 old samples → 63 averaged samples at positions [63..125].
+        // Positions [0..62] remain zero (no data at this resolution yet).
+        int half = GRAPH_N / 2; // 63
+        for(int i = 0; i < half; i++) {
+            app->graph_buf[half + i] = (temp[i * 2] + temp[i * 2 + 1]) * 0.5f;
+        }
+    } else {
+        // Zoom in (÷2): split newest 63 old samples using linear interpolation.
+        // Samples are already rate-per-tick — no amplitude scaling needed.
+        // Even positions: keep the original rate value.
+        // Odd positions: interpolate midpoint toward the next sample, avoiding
+        // the staircase a simple duplicate would produce.
+        int half = GRAPH_N / 2; // 63
+        for(int i = 0; i < half; i++) {
+            float curr = temp[half + i];
+            // For the last sample there is no following neighbour — hold value.
+            float next = (i + 1 < half) ? temp[half + i + 1] : curr;
+            app->graph_buf[i * 2]     = curr;
+            app->graph_buf[i * 2 + 1] = (curr + next) * 0.5f;
+        }
+    }
+}
+
 void run_recording_session(BioMapApp* app, BioMapMode mode) {
     app->mode = mode;
     app->gsr_raw_sum = app->raw_count = app->tick_counter = app->graph_head = 0;
@@ -135,6 +188,8 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                         app->scroll_divider *= 2;
                         app->graph_tick_counter = 0;
                         app->graph_last_smoothed = app->display_smoothed;
+                        // Rescale existing data to the new (slower) time base.
+                        rescale_graph_buf(app, true);
                     }
                     furi_mutex_release(app->mutex);
                     view_port_update(vp);
@@ -147,6 +202,8 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                         app->scroll_divider /= 2;
                         app->graph_tick_counter = 0;
                         app->graph_last_smoothed = app->display_smoothed;
+                        // Rescale existing data to the new (faster) time base.
+                        rescale_graph_buf(app, false);
                     }
                     furi_mutex_release(app->mutex);
                     view_port_update(vp);
@@ -171,34 +228,39 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                     app->graph_last_smoothed = rf;
                     app->display_primed = true;
                 }
-                float ns = DISPLAY_EMA_A * rf + (1.0f - DISPLAY_EMA_A) * app->display_smoothed;
+                float ns = DISPLAY_EMA_A * rf + DISPLAY_EMA_B * app->display_smoothed;
                 app->display_smoothed = ns;
 
                 app->graph_tick_counter++;
                 if(app->graph_tick_counter >= app->scroll_divider) {
                     float rate = app->display_smoothed - app->graph_last_smoothed;
-                    app->graph_buf[app->graph_head] = -(rate) * 0.5f;
-                    app->graph_head = (app->graph_head + 1) % GRAPH_N;
+                    // Normalise by scroll_divider so each sample stores rate-per-tick
+                    // rather than total change over the window.  Without this, the
+                    // amplitude would grow ×16 from the fastest to slowest time scale.
+                    app->graph_buf[app->graph_head] = -(rate / (float)app->scroll_divider) * 0.5f;
+                    if(++app->graph_head >= GRAPH_N) app->graph_head = 0;
                     app->graph_last_smoothed = app->display_smoothed;
                     app->graph_tick_counter = 0;
+
+                    // Auto-zoom peak: update only when a new sample was written.
+                    // The peak decays via slow release each write; the newest
+                    // sample is the only one we need to check (incremental).
+                    if(app->auto_zoom_enabled) {
+                        app->auto_zoom_peak *= 0.997f;
+                        // graph_head now points to next slot; one behind is what we just wrote.
+                        int just_written = app->graph_head - 1;
+                        if(just_written < 0) just_written = GRAPH_N - 1;
+                        float newest = fabsf(app->graph_buf[just_written]);
+                        if(newest > app->auto_zoom_peak) app->auto_zoom_peak = newest;
+                        if(app->auto_zoom_peak < 0.1f) app->auto_zoom_peak = 0.1f;
+                    }
                 }
 
                 app->gsr_raw_sum += raw;
                 app->raw_count++;
 
-                // Auto-zoom: track peak amplitude with slow decay
-                if(app->auto_zoom_enabled) {
-                    float cur_max = 0.0f;
-                    for(int i = 0; i < GRAPH_N; i++) {
-                        float v = fabsf(app->graph_buf[i]);
-                        if(v > cur_max) cur_max = v;
-                    }
-                    // Instant attack, slow release (0.997^10 ≈ 0.97/s → ~23s half-life)
-                    app->auto_zoom_peak *= 0.997f;
-                    if(cur_max > app->auto_zoom_peak) app->auto_zoom_peak = cur_max;
-                    if(app->auto_zoom_peak < 0.1f) app->auto_zoom_peak = 0.1f;
-
-                    // Target: map peak to ~80% of graph half-height
+                // Smooth zoom_level towards target every tick for fluid animation.
+                if(app->auto_zoom_enabled && app->auto_zoom_peak >= 0.1f) {
                     float target = 80.0f / app->auto_zoom_peak;
                     target = fmaxf(ZOOM_MIN, fminf(ZOOM_MAX, target));
                     app->zoom_level += (target - app->zoom_level) * 0.003f;

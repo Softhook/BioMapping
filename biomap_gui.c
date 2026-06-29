@@ -33,37 +33,49 @@
 static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) {
     int n  = gw - 2;
     int cy = gy + gh / 2;
-    const float sc = (float)(gh / 2 - 2) / 100.0f;
+    int ymin = gy + 1;
+    int ymax = gy + gh - 2;
+
+    // Fold zoom and scale into one constant so the inner loop only needs
+    // one multiply per sample instead of two.
+    const float combined_scale = a->zoom_level * ((float)(gh / 2 - 2) / 100.0f);
 
     canvas_draw_frame(c, gx, gy, gw, gh);
     canvas_draw_line(c, gx, cy, gx + gw - 1, cy);
 
-    // 10-second notches above the graph — counting from the right
-    float sec_per_px = (float)a->scroll_divider / TICK_HZ;
-    int right_edge = gx + gw - 2;
-    int last_x = 999;
-    for(float t = 10.0f; t < n * sec_per_px; t += 10.0f) {
-        int x = right_edge - (int)(t / sec_per_px);
-        if(x >= gx + 1 && x < right_edge && (last_x - x) > 2) {
+    // 10-second notches above the graph — integer arithmetic only.
+    // px_per_notch: how many pixels represent 10 seconds at current speed.
+    // scroll_divider ticks per pixel, TICK_HZ ticks per second.
+    // 10 s × TICK_HZ ticks/s ÷ scroll_divider ticks/px = px per notch.
+    int px_per_notch = (10 * TICK_HZ) / a->scroll_divider; // integer, always ≥1
+    if(px_per_notch > 2) {
+        int right_edge = gx + gw - 2;
+        for(int x = right_edge - px_per_notch; x > gx; x -= px_per_notch) {
             canvas_draw_line(c, x, gy - 3, x, gy);
-            last_x = x;
         }
     }
 
+    // Walk the ring buffer linearly — no modulo divisions per pixel.
+    // GRAPH_N (126) is not a power-of-two, so % GRAPH_N compiles to a
+    // software divide on Cortex-M4. Replace with a compare-and-wrap.
+    // Also cache y_prev: y1 of segment i becomes y0 of segment i+1.
+    int idx = a->graph_head;
+    float v0 = a->graph_buf[idx] * combined_scale;
+    int y_prev = cy - (int)v0;
+    if(y_prev < ymin) y_prev = ymin;
+    if(y_prev > ymax) y_prev = ymax;
+
     for(int i = 0; i < n - 1; i++) {
-        int si = (a->graph_head + i)     % GRAPH_N;
-        int sj = (a->graph_head + i + 1) % GRAPH_N;
-        float v0 = a->graph_buf[si] * a->zoom_level;
-        float v1 = a->graph_buf[sj] * a->zoom_level;
+        // Advance index with branchless wrap (compare cheaper than divide)
+        if(++idx >= GRAPH_N) idx = 0;
 
-        int y0 = cy - (int)(v0 * sc);
-        int y1 = cy - (int)(v1 * sc);
-        if(y0 < gy + 1) y0 = gy + 1;
-        if(y0 > gy + gh - 2) y0 = gy + gh - 2;
-        if(y1 < gy + 1) y1 = gy + 1;
-        if(y1 > gy + gh - 2) y1 = gy + gh - 2;
+        float v1 = a->graph_buf[idx] * combined_scale;
+        int y1 = cy - (int)v1;
+        if(y1 < ymin) y1 = ymin;
+        if(y1 > ymax) y1 = ymax;
 
-        canvas_draw_line(c, gx + 1 + i, y0, gx + 1 + i + 1, y1);
+        canvas_draw_line(c, gx + 1 + i, y_prev, gx + 1 + i + 1, y1);
+        y_prev = y1;
     }
 }
 
@@ -78,12 +90,19 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     if(has_graph) {
         draw_graph(c, a, 0, 16, 128, 48);
 
-        // Zoom level in bottom-right corner of the graph
-        char zoom_buf[16];
-        snprintf(zoom_buf, sizeof(zoom_buf), "%.1fx", (double)a->zoom_level);
+        // Zoom label — cached; only reformat when zoom_level changes visibly.
+        // Avoids snprintf + canvas_string_width on every render frame.
+        static char  zoom_buf[16] = "1.0x";
+        static float zoom_last    = -1.0f; // sentinel: force first format
+        static int   zoom_px_w    = 0;
+        if(a->zoom_level < zoom_last - 0.05f || a->zoom_level > zoom_last + 0.05f) {
+            snprintf(zoom_buf, sizeof(zoom_buf), "%.1fx", (double)a->zoom_level);
+            canvas_set_font(c, FontSecondary);
+            zoom_px_w = canvas_string_width(c, zoom_buf);
+            zoom_last = a->zoom_level;
+        }
         canvas_set_font(c, FontSecondary);
-        int zw = canvas_string_width(c, zoom_buf);
-        canvas_draw_str(c, 128 - zw - 2, 62, zoom_buf);
+        canvas_draw_str(c, 128 - zoom_px_w - 2, 62, zoom_buf);
     }
 
     // Title + recording indicator
