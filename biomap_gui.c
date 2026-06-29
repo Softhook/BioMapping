@@ -33,8 +33,6 @@
 static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) {
     int n  = gw - 2;
     int cy = gy + gh / 2;
-    int ymin = gy + 1;
-    int ymax = gy + gh - 2;
 
     // Fold zoom and scale into one constant so the inner loop only needs
     // one multiply per sample instead of two.
@@ -62,8 +60,6 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
     int idx = a->graph_head;
     float v0 = a->graph_buf[idx] * combined_scale;
     int y_prev = cy - (int)v0;
-    if(y_prev < ymin) y_prev = ymin;
-    if(y_prev > ymax) y_prev = ymax;
 
     for(int i = 0; i < n - 1; i++) {
         // Advance index with branchless wrap (compare cheaper than divide)
@@ -71,8 +67,6 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
 
         float v1 = a->graph_buf[idx] * combined_scale;
         int y1 = cy - (int)v1;
-        if(y1 < ymin) y1 = ymin;
-        if(y1 > ymax) y1 = ymax;
 
         canvas_draw_line(c, gx + 1 + i, y_prev, gx + 1 + i + 1, y1);
         y_prev = y1;
