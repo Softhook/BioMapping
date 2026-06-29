@@ -429,12 +429,29 @@ function drawSignalCurve(data, tMin, tMax, yMin, yMax, yTop, yBottom, lineColor,
   const startIdx = Math.max(0, findClosestIndex(tMin) - 1);
   const endIdx = Math.min(data.length - 1, findClosestIndex(tMax) + 1);
 
+  // First control point for p5 spline interpolation (duplicate first point in view)
+  if (startIdx <= endIdx) {
+    const dFirst = data[startIdx];
+    const xFirst = map(dFirst.time, tMin, tMax, margin.left, width - margin.right);
+    const yFirst = map(dFirst.val, yMin, yMax, yBottom, yTop);
+    curveVertex(xFirst, yFirst);
+  }
+
   for (let i = startIdx; i <= endIdx; i++) {
     const d = data[i];
     const x = map(d.time, tMin, tMax, margin.left, width - margin.right);
     const y = map(d.val, yMin, yMax, yBottom, yTop);
-    vertex(x, y);
+    curveVertex(x, y);
   }
+
+  // Last control point for p5 spline interpolation (duplicate last point in view)
+  if (startIdx <= endIdx) {
+    const dLast = data[endIdx];
+    const xLast = map(dLast.time, tMin, tMax, margin.left, width - margin.right);
+    const yLast = map(dLast.val, yMin, yMax, yBottom, yTop);
+    curveVertex(xLast, yLast);
+  }
+  
   endShape();
 }
 
@@ -450,19 +467,30 @@ function drawPhasicArea(data, tMin, tMax, yMin, yMax, yTop, yBottom) {
   fill(16, 185, 129, 25); // Emerald transparent fill
 
   beginShape();
-  // Anchor to bottom-left corner of the view
-  const xStart = map(data[startIdx].time, tMin, tMax, margin.left, width - margin.right);
+  
+  const dFirst = data[startIdx];
+  const xStart = map(dFirst.time, tMin, tMax, margin.left, width - margin.right);
+  
+  // Anchor to baseline start
   vertex(xStart, yBottom);
+  
+  // Spline control point
+  curveVertex(xStart, yBottom);
 
   for (let i = startIdx; i <= endIdx; i++) {
     const d = data[i];
     const x = map(d.time, tMin, tMax, margin.left, width - margin.right);
     const y = map(d.val, yMin, yMax, yBottom, yTop);
-    vertex(x, y);
+    curveVertex(x, y);
   }
   
-  // Anchor to bottom-right corner of the view
-  const xEnd = map(data[endIdx].time, tMin, tMax, margin.left, width - margin.right);
+  const dLast = data[endIdx];
+  const xEnd = map(dLast.time, tMin, tMax, margin.left, width - margin.right);
+  
+  // Spline control point
+  curveVertex(xEnd, yBottom);
+  
+  // Anchor to baseline end
   vertex(xEnd, yBottom);
   
   endShape();

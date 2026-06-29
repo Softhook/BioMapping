@@ -148,15 +148,27 @@ class GSRAnalyzer {
       this.sampleRate = 10.0; // fallback default
     }
 
-    // Auto-detect Resistance vs Conductance
+    // Auto-detect Units (nanosiemens vs. ohms vs. microsiemens)
     const avgVal = rawDataList.reduce((sum, d) => sum + d.val, 0) / rawDataList.length;
-    if (avgVal > 500) {
+    const gsrHeader = headers[gsrColIndex] || "";
+    const isResistanceHeader = gsrHeader.includes('resistance') || gsrHeader.includes('ohms');
+    
+    if (isResistanceHeader || avgVal > 50000) {
+      // 1. Raw Resistance in Ohms: convert to conductance in microSiemens
+      // C (uS) = 1,000,000 / R (Ohms)
       this.isResistance = true;
-      // Convert Resistance to Conductance: C (uS) = 1,000,000 / R (Ohms)
-      const scale = avgVal > 10000 ? 1000000.0 : 1000.0;
       rawDataList.forEach(d => {
-        d.val = d.val > 0 ? (scale / d.val) : 0;
+        d.val = d.val > 0 ? (1000000.0 / d.val) : 0;
       });
+    } else if (avgVal > 100 && avgVal <= 50000) {
+      // 2. Conductance in Nanosiemens (nS) from Flipper Zero:
+      // biomap.c stores gsr->raw in nS (1 uS = 1000 nS).
+      // We divide by 1000.0 to convert to microSiemens.
+      rawDataList.forEach(d => {
+        d.val = d.val / 1000.0;
+      });
+    } else {
+      // 3. Already in microSiemens (uS), do nothing.
     }
 
     this.raw = rawDataList;
@@ -196,6 +208,9 @@ class GSRAnalyzer {
     if (params.tonicMethod === 'median') {
       // Robust large-window median filter
       tonicVals = this.applyMedianFilter(afterLPF, tonicWinSize);
+    } else if (params.tonicMethod === 'percentile') {
+      // Trough tracker: 10th percentile filter to track bottom envelope
+      tonicVals = this.applyPercentileFilter(afterLPF, tonicWinSize, 0.10);
     } else {
       // Extremely low-pass filter (forward-backward EMA with very small alpha)
       // tonicWindow determines cutoff. Alpha corresponds to window size.
@@ -209,7 +224,7 @@ class GSRAnalyzer {
     // Phasic = Filtered - Tonic
     this.phasic = this.raw.map((d, i) => ({
       time: d.time,
-      val: Math.max(0, afterLPF[i] - tonicVals[i]) // conductance changes are positive
+      val: afterLPF[i] - tonicVals[i] // Allow natural decay and noise floor fluctuations
     }));
 
     // 5. Phasic Peak Detection
@@ -233,6 +248,28 @@ class GSRAnalyzer {
       }
       window.sort((a, b) => a - b);
       result[i] = window[Math.floor(window.length / 2)];
+    }
+    return result;
+  }
+
+  /**
+   * Apply a rolling percentile filter (e.g. 10th percentile for trough tracking).
+   */
+  applyPercentileFilter(arr, windowSize, percentile) {
+    const n = arr.length;
+    const result = new Array(n);
+    const half = Math.floor(windowSize / 2);
+
+    for (let i = 0; i < n; i++) {
+      let start = Math.max(0, i - half);
+      let end = Math.min(n - 1, i + half);
+      let window = [];
+      for (let j = start; j <= end; j++) {
+        window.push(arr[j]);
+      }
+      window.sort((a, b) => a - b);
+      const targetIdx = Math.floor(window.length * percentile);
+      result[i] = window[targetIdx];
     }
     return result;
   }
