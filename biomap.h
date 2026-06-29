@@ -50,6 +50,8 @@ typedef struct BioMapApp {
     int      graph_head;
 
     float    zoom_level;
+    float    auto_zoom_peak;
+    bool     auto_zoom_enabled;
     int      scroll_divider;
     int      graph_tick_counter;
     float    graph_last_smoothed;
@@ -66,6 +68,7 @@ void format_timestamp(BioMapApp* app, char* buf, size_t sz);
 void run_recording_session(BioMapApp* app, BioMapMode mode);
 void run_gps_hot_start(BioMapApp* app);
 void run_converter(BioMapApp* app);
+void run_options_screen(BioMapApp* app);
 
 void biomap_input_callback(InputEvent* e, void* ctx);
 void biomap_timer_callback(void* ctx);

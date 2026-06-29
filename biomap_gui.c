@@ -38,13 +38,15 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
     canvas_draw_frame(c, gx, gy, gw, gh);
     canvas_draw_line(c, gx, cy, gx + gw - 1, cy);
 
-    // Time notches at the top — every 2 seconds, counting from the right
+    // 10-second notches above the graph — counting from the right
     float sec_per_px = (float)a->scroll_divider / TICK_HZ;
     int right_edge = gx + gw - 2;
-    for(float t = 2.0f; t < n * sec_per_px; t += 2.0f) {
+    int last_x = 999;
+    for(float t = 10.0f; t < n * sec_per_px; t += 10.0f) {
         int x = right_edge - (int)(t / sec_per_px);
-        if(x >= gx + 1 && x < right_edge) {
-            canvas_draw_line(c, x, gy + 1, x, gy + 4);
+        if(x >= gx + 1 && x < right_edge && (last_x - x) > 2) {
+            canvas_draw_line(c, x, gy - 3, x, gy);
+            last_x = x;
         }
     }
 
@@ -101,7 +103,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
             int x = 128 - canvas_string_width(c, buf) - (a->recording_active ? 12 : 2);
             canvas_draw_str(c, x, 10, buf);
         }
-    } else {
+    } else if(a->gps) {
         // GPS-only: full detail view
         GpsStatus g = gps_uart_get_status(a->gps);
         int y = 20;
@@ -138,6 +140,9 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         } else {
             canvas_draw_str(c, 0, y, "GPS: no signal");
         }
+    } else {
+        int y = 20;
+        canvas_draw_str(c, 0, y, "GPS unavailable");
     }
 
     furi_mutex_release(a->mutex);
@@ -251,7 +256,7 @@ static void show_status_screen(BioMapApp* app) {
 //  │    GPS Only                 │
 //  │    GSR Only                 │
 //  │    Convert CSV to GPX       │
-//  │    Reset GPS                │
+//  │    Options                  │
 //  │                             │
 //  └─────────────────────────────┘
 //
@@ -259,7 +264,7 @@ static void show_status_screen(BioMapApp* app) {
 
 #define MENU_COUNT 5
 static const char* menu_labels[MENU_COUNT] = {
-    "GPS + GSR", "GPS Only", "GSR Only", "Convert CSV to GPX", "Reset GPS",
+    "GPS + GSR", "GPS Only", "GSR Only", "Convert CSV to GPX", "Options",
 };
 
 void menu_render(Canvas* c, void* ctx) {
@@ -330,6 +335,110 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
     // input through to any VP layered on top.
     view_port_enabled_set(app->menu_vp, false);
     return result;
+}
+
+// ==========================================================================
+// Options screen — Reset GPS, Auto-zoom toggle
+// ==========================================================================
+//
+//  ┌─────────────────────────────┐
+//  │  Options                    │
+//  │  ▓ Reset GPS           ▓   │   ← selected
+//  │    Auto-zoom GSR   ON      │
+//  │                             │
+//  │    Press Back to return     │
+//  └─────────────────────────────┘
+//
+//  Controls:  Up/Down → navigate     OK → select/toggle     Back → return
+
+#define OPTIONS_COUNT 2
+static const char* options_labels[OPTIONS_COUNT] = {
+    "Reset GPS",
+    "Auto-zoom GSR",
+};
+
+static void options_render(Canvas* c, void* ctx) {
+    BioMapApp* a = (BioMapApp*)ctx;
+    furi_mutex_acquire(a->mutex, FuriWaitForever);
+    canvas_clear(c);
+    canvas_set_font(c, FontPrimary);
+    canvas_draw_str(c, 0, 10, "Options");
+    canvas_set_font(c, FontSecondary);
+    int sel = (int)a->menu_selection;
+    for(int i = 0; i < OPTIONS_COUNT; i++) {
+        int y = 22 + i * 10;
+        if(i == sel) {
+            canvas_draw_box(c, 0, y - 8, 128, 9);
+            canvas_invert_color(c);
+            canvas_draw_str(c, 0, y, ">");
+            canvas_draw_str(c, 8, y, options_labels[i]);
+            canvas_invert_color(c);
+        } else {
+            canvas_draw_str(c, 8, y, options_labels[i]);
+        }
+        // Show toggle state for auto-zoom
+        if(i == 1) {
+            char state[4];
+            strcpy(state, a->auto_zoom_enabled ? "ON" : "OFF");
+            int sx = 128 - canvas_string_width(c, state) - 2;
+            if(i == sel) canvas_invert_color(c);
+            canvas_draw_str(c, sx, y, state);
+            if(i == sel) canvas_invert_color(c);
+        }
+    }
+    canvas_set_font(c, FontSecondary);
+    canvas_draw_str(c, 0, 60, "Press Back to return");
+    furi_mutex_release(a->mutex);
+}
+
+void run_options_screen(BioMapApp* app) {
+    app->menu_selection = 0;
+
+    ViewPort* vp = view_port_alloc();
+    view_port_draw_callback_set(vp, options_render, app);
+    view_port_input_callback_set(vp, biomap_input_callback, app->event_queue);
+    gui_add_view_port(app->gui, vp, GuiLayerFullscreen);
+    view_port_update(vp);
+
+    PluginEvent ev;
+    while(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk); // drain stale
+    while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
+        if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
+            if(ev.input.key == InputKeyBack) break;
+
+            switch(ev.input.key) {
+            case InputKeyUp:
+                furi_mutex_acquire(app->mutex, FuriWaitForever);
+                if(app->menu_selection > 0) app->menu_selection--;
+                furi_mutex_release(app->mutex);
+                break;
+            case InputKeyDown:
+                furi_mutex_acquire(app->mutex, FuriWaitForever);
+                if(app->menu_selection < OPTIONS_COUNT - 1) app->menu_selection++;
+                furi_mutex_release(app->mutex);
+                break;
+            case InputKeyOk:
+                if(app->menu_selection == 0) {
+                    // Reset GPS — VP stays visible, no need to re-create
+                    run_gps_hot_start(app);
+                    view_port_update(vp);
+                    continue;
+                } else if(app->menu_selection == 1) {
+                    // Toggle auto-zoom
+                    furi_mutex_acquire(app->mutex, FuriWaitForever);
+                    app->auto_zoom_enabled = !app->auto_zoom_enabled;
+                    if(app->auto_zoom_enabled) app->auto_zoom_peak = 1.0f;
+                    furi_mutex_release(app->mutex);
+                }
+                break;
+            default: break;
+            }
+            view_port_update(vp);
+        }
+    }
+
+    gui_remove_view_port(app->gui, vp);
+    view_port_free(vp);
 }
 
 // ==========================================================================

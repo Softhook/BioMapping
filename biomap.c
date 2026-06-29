@@ -39,6 +39,8 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     app->recording_active = false;
     app->recording_filename[0] = '\0';
     app->running = true;
+    app->zoom_level = 1.0f;
+    app->auto_zoom_peak = 1.0f;
     memset(app->graph_buf, 0, sizeof(app->graph_buf));
 
     app->gps = has_gps(mode) ? gps_uart_alloc(app->event_queue, app->notifications) : NULL;
@@ -72,7 +74,9 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
             switch(ev.input.key) {
             case InputKeyBack:
+                furi_mutex_acquire(app->mutex, FuriWaitForever);
                 app->running = false;
+                furi_mutex_release(app->mutex);
                 break;
             case InputKeyOk: {
                 bool start;
@@ -175,6 +179,24 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
 
                 app->gsr_raw_sum += raw;
                 app->raw_count++;
+
+                // Auto-zoom: track peak amplitude with slow decay
+                if(app->auto_zoom_enabled) {
+                    float cur_max = 0.0f;
+                    for(int i = 0; i < GRAPH_N; i++) {
+                        float v = fabsf(app->graph_buf[i]);
+                        if(v > cur_max) cur_max = v;
+                    }
+                    // Instant attack, slow release (0.997^10 ≈ 0.97/s → ~23s half-life)
+                    app->auto_zoom_peak *= 0.997f;
+                    if(cur_max > app->auto_zoom_peak) app->auto_zoom_peak = cur_max;
+                    if(app->auto_zoom_peak < 0.1f) app->auto_zoom_peak = 0.1f;
+
+                    // Target: map peak to ~80% of graph half-height
+                    float target = 80.0f / app->auto_zoom_peak;
+                    target = fmaxf(ZOOM_MIN, fminf(ZOOM_MAX, target));
+                    app->zoom_level += (target - app->zoom_level) * 0.003f;
+                }
             }
 
             if(++app->tick_counter >= TICK_HZ) {
@@ -230,7 +252,7 @@ int32_t biomap_app(void* p) {
     UNUSED(p);
     BioMapApp* app = malloc(sizeof(BioMapApp));
     furi_assert(app);
-    *app = (BioMapApp){.zoom_level = 1.0f};
+    *app = (BioMapApp){.zoom_level = 1.0f, .auto_zoom_enabled = true};
 
     app->event_queue   = furi_message_queue_alloc(16, sizeof(PluginEvent));
     app->mutex         = furi_mutex_alloc(FuriMutexTypeNormal);
@@ -258,7 +280,7 @@ int32_t biomap_app(void* p) {
         case 1: run_recording_session(app, BioMapModeGpsOnly); break;
         case 2: run_recording_session(app, BioMapModeGsrOnly); break;
         case 3: run_converter(app);                             break;
-        case 4: run_gps_hot_start(app);                         break;
+        case 4: run_options_screen(app);                        break;
         default: running = false;                               break;
         }
     }
