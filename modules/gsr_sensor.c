@@ -18,23 +18,24 @@ GsrSensor* gsr_sensor_alloc(void) {
 
     furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
     uint8_t probe = 0;
-    bool found = furi_hal_i2c_read_mem(
+    bool probed = furi_hal_i2c_read_mem(
         &furi_hal_i2c_handle_external,
         ADS1115_I2C_ADDR, ADS1115_CONV_REG,
         &probe, 1, 20);
 
-    if(found) {
+    if(probed) {
         // OS=1, MUX=000 (AIN0-AIN1), PGA=010 (±2.048V), MODE=continuous, DR=128 SPS
         uint8_t cfg[2] = {0x84, 0x83};
-        found = furi_hal_i2c_write_mem(
+        bool cfg_ok = furi_hal_i2c_write_mem(
             &furi_hal_i2c_handle_external,
             ADS1115_I2C_ADDR, ADS1115_CONFIG_REG,
             cfg, 2, 50);
-        if(!found) FURI_LOG_E("GsrSensor", "Config write failed");
+        // Sensor still usable in its default mode if config write fails
+        if(!cfg_ok) FURI_LOG_W("GsrSensor", "Config write failed — using defaults");
     }
     furi_hal_i2c_release(&furi_hal_i2c_handle_external);
-    gsr->available = found;
-    FURI_LOG_I("GsrSensor", "Probe %s", found ? "OK" : "not found");
+    gsr->available = probed;   // available = sensor present, independent of config result
+    FURI_LOG_I("GsrSensor", "Probe %s", probed ? "OK" : "not found");
     return gsr;
 }
 

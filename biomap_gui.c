@@ -50,8 +50,9 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
     int px_per_notch = (10 * TICK_HZ) / a->scroll_divider; // integer, always ≥1
     if(px_per_notch > 2) {
         int right_edge = gx + gw - 2;
+        int notch_top = gy > 3 ? gy - 3 : 0;   // guard against negative canvas y
         for(int x = right_edge - px_per_notch; x > gx; x -= px_per_notch) {
-            canvas_draw_line(c, x, gy - 3, x, gy);
+            canvas_draw_line(c, x, notch_top, x, gy);
         }
     }
 
@@ -448,7 +449,10 @@ void run_options_screen(BioMapApp* app) {
                     // Toggle auto-zoom
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
                     app->auto_zoom_enabled = !app->auto_zoom_enabled;
-                    if(app->auto_zoom_enabled) app->auto_zoom_peak = 1.0f;
+                    if(app->auto_zoom_enabled) {
+                        app->auto_zoom_peak = 1.0f;
+                        app->zoom_level     = 1.0f;  // reset stale manual zoom; lerp starts clean
+                    }
                     furi_mutex_release(app->mutex);
                 } else if(app->menu_selection == 2) {
                     // Toggle backlight

@@ -286,8 +286,10 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
 
                 if(app->recording_active) {
                     if(sd_logger_write_row(app->logger, ts, lat, lon, alt, sats, fix, avg)) {
-                        notification_message(app->notifications, &sequence_blink_red_100);
+                        // Green heartbeat on every successful write
+                        notification_message(app->notifications, &sequence_blink_green_100);
                     } else {
+                        // Write failed — stop recording and hold red
                         if(app->logger) sd_logger_stop(app->logger);
                         app->recording_active = false;
                         app->recording_filename[0] = '\0';

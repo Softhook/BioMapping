@@ -135,6 +135,14 @@ bool sd_logger_write_row(
         (double)lat, (double)lon, (double)alt,
         sats, fix, (int)gsr_raw);
 
+    // snprintf returns the number of chars it *would* write; if >= sizeof(row)
+    // the output was truncated.  Skip the row rather than writing garbage or
+    // falsely signalling a write error that would stop the recording session.
+    if(len <= 0 || len >= (int)sizeof(row)) {
+        FURI_LOG_E("SdLogger", "Row format overflow (%d) — row skipped", len);
+        return true;  // session continues
+    }
+
     uint16_t written = storage_file_write(l->file, row, (size_t)len);
     if(written != (uint16_t)len) {
         FURI_LOG_E("SdLogger", "Write error: %d/%d", written, len);
