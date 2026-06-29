@@ -52,6 +52,7 @@ typedef struct BioMapApp {
     float    zoom_level;
     float    auto_zoom_peak;
     bool     auto_zoom_enabled;
+    bool     backlight_on;
     int      scroll_divider;
     int      graph_tick_counter;
     float    graph_last_smoothed;

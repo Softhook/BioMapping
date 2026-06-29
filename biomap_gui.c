@@ -345,16 +345,18 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
 //  │  Options                    │
 //  │  ▓ Reset GPS           ▓   │   ← selected
 //  │    Auto-zoom GSR   ON      │
+//  │    Backlight           ON  │
 //  │                             │
 //  │    Press Back to return     │
 //  └─────────────────────────────┘
 //
 //  Controls:  Up/Down → navigate     OK → select/toggle     Back → return
 
-#define OPTIONS_COUNT 2
+#define OPTIONS_COUNT 3
 static const char* options_labels[OPTIONS_COUNT] = {
     "Reset GPS",
     "Auto-zoom GSR",
+    "Backlight",
 };
 
 static void options_render(Canvas* c, void* ctx) {
@@ -376,10 +378,10 @@ static void options_render(Canvas* c, void* ctx) {
         } else {
             canvas_draw_str(c, 8, y, options_labels[i]);
         }
-        // Show toggle state for auto-zoom
-        if(i == 1) {
-            char state[4];
-            strcpy(state, a->auto_zoom_enabled ? "ON" : "OFF");
+        // Show toggle state for auto-zoom (row 1) and backlight (row 2)
+        if(i == 1 || i == 2) {
+            bool on = (i == 1) ? a->auto_zoom_enabled : a->backlight_on;
+            const char* state = on ? "ON" : "OFF";
             int sx = 128 - canvas_string_width(c, state) - 2;
             if(i == sel) canvas_invert_color(c);
             canvas_draw_str(c, sx, y, state);
@@ -428,6 +430,11 @@ void run_options_screen(BioMapApp* app) {
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
                     app->auto_zoom_enabled = !app->auto_zoom_enabled;
                     if(app->auto_zoom_enabled) app->auto_zoom_peak = 1.0f;
+                    furi_mutex_release(app->mutex);
+                } else if(app->menu_selection == 2) {
+                    // Toggle backlight
+                    furi_mutex_acquire(app->mutex, FuriWaitForever);
+                    app->backlight_on = !app->backlight_on;
                     furi_mutex_release(app->mutex);
                 }
                 break;

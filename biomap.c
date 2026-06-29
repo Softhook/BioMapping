@@ -55,6 +55,12 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     gui_add_view_port(app->gui, vp, GuiLayerFullscreen);
     view_port_update(vp);
 
+    // Apply backlight preference
+    notification_message(app->notifications,
+        app->backlight_on
+            ? &sequence_display_backlight_enforce_on
+            : &sequence_display_backlight_enforce_auto);
+
     FuriTimer* timer = furi_timer_alloc(biomap_timer_callback, FuriTimerTypePeriodic, app->event_queue);
     furi_timer_start(timer, furi_kernel_get_tick_frequency() / TICK_HZ);
 
@@ -243,6 +249,9 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     if(app->gsr) { gsr_sensor_free(app->gsr); app->gsr = NULL; }
     if(app->gps) { gps_uart_free(app->gps); app->gps = NULL; }
 
+    // Restore auto backlight when leaving recording view
+    notification_message(app->notifications, &sequence_display_backlight_enforce_auto);
+
     // Remove recording VP — menu VP is still underneath (disabled), no flash
     gui_remove_view_port(app->gui, vp);
     view_port_free(vp);
@@ -252,7 +261,7 @@ int32_t biomap_app(void* p) {
     UNUSED(p);
     BioMapApp* app = malloc(sizeof(BioMapApp));
     furi_assert(app);
-    *app = (BioMapApp){.zoom_level = 1.0f, .auto_zoom_enabled = true};
+    *app = (BioMapApp){.zoom_level = 1.0f, .auto_zoom_enabled = true, .backlight_on = false};
 
     app->event_queue   = furi_message_queue_alloc(16, sizeof(PluginEvent));
     app->mutex         = furi_mutex_alloc(FuriMutexTypeNormal);
