@@ -120,10 +120,93 @@ int16_t hw_val = (int16_t)((data[0] << 8) | data[1]);
 ```
 
 ### Challenge: SD Card Lag
-Writing data to the Flipper's SD card takes a few milliseconds. If we write our GPS and GSR data to the card every single time we measure it, the app will freeze up.
+Writing data to the Flipper's SD card takes a few milliseconds. If we write every measurement to the card, the app will freeze up.
 
-**The Solution:** The 1-Second Buffer.
-Your hardware timing code will run **10 times every second**. It will store those 10 readings in a temporary memory variable. Once a full second has passed, the app grabs the most recent GPS coordinate, averages the 10 GSR readings, and writes *one* single string to the SD card.
+**The Solution:** The app uses different logging rates depending on mode:
+
+- **GPS+GSR / GPS-only mode:** GSR is accumulated over 10 ticks (1 second), averaged, and written to the SD card in a single 7-column CSV row alongside the latest GPS coordinate. GPS fixes arrive at 1 Hz, so there's no benefit to writing faster.
+
+- **GSR-only mode:** GSR values are formatted each tick (10 Hz) into an in-memory batch buffer, and the entire batch of ~10 rows is flushed to the SD card once per second in a single `storage_file_write()` call. This preserves 100 ms temporal resolution in the CSV while keeping SD card operations at 1 Hz.
+
+---
+
+## 4b. Dual-Rate Architecture: 10 Hz GSR, 1 Hz GPS
+
+The app operates two independent data pipelines because GSR and GPS have fundamentally different time characteristics:
+
+| Signal | Sample Rate | Why |
+|---|---|---|
+| **GSR** | 10 Hz (tick) | Skin conductance changes in 0.5–5 seconds — 10 Hz captures physiological events with headroom |
+| **GPS** | 1 Hz (NMEA) | The L76K GPS module outputs position fixes once per second over UART |
+
+### Timestamp Sources
+
+CSV timestamps are ISO 8601 UTC (`2026-06-29T13:42:59Z`) sourced from two places depending on mode:
+
+| Mode | Timestamp Source | Resolution |
+|---|---|---|
+| **GPS+GSR** / **GPS-only** (GPS active) | L76K GPS battery-backed RTC — available from the first valid RMC/GGA sentence, often before a full position fix | 1 second |
+| **GSR-only** (no GPS) | Flipper Zero internal RTC (`furi_hal_rtc_get_datetime`) | 1 second |
+
+In GPS+GSR mode, if the GPS module hasn't produced a valid date/time yet (cold start), the Flipper's internal RTC is used as a fallback until the GPS time becomes available. In GSR-only mode, the Flipper RTC is always used — ensure it is set to UTC before recording for consistent timestamps.
+
+### GSR Signal Chain
+
+```
+ADS1115 @ 860 SPS  ──►  Background worker thread
+                              │
+                     Ring buffer (128 samples)
+                              │
+                     gsr_sensor_tick() @ 10 Hz
+                              │
+                     ┌────────┴────────┐
+                     │                 │
+               Trimmed mean       PGA autoranging
+               (86→74 samples)    (hysteretic, 5-tick)
+                     │                 │
+                     └────────┬────────┘
+                              │
+                     TIA equation → nanosiemens (nS)
+                              │
+                     ┌────────┴────────┐
+                     │                 │
+               EMA α=0.2          Graph derivative
+               (display smooth)   (rate-of-change)
+                     │                 │
+                 1 Hz CSV            graph_buf[]
+                 (all modes)         (derivative display)
+```
+
+### GPS Signal Chain
+
+```
+L76K GPS @ 1 Hz  ──►  UART interrupt handler
+                              │
+                     NMEA sentence parser
+                              │
+                     GpsStatus struct (lat, lon, alt, sats, fix)
+                              │
+                     Read on 1-second boundary, write to CSV
+```
+
+### CSV Formats
+
+**GPS+GSR and GPS-only mode (7 columns, 1 Hz):**
+```
+timestamp,lat,lon,alt,sats,fix,gsr_raw
+2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,8,1,4523
+```
+The `gsr_raw` column stores the 1-second average of the trimmed-mean GSR value in nanosiemens.
+
+**GSR-only mode (2 columns, 10 Hz):**
+```
+timestamp,gsr_raw
+2026-06-29T13:42:59Z,4523
+2026-06-29T13:42:59Z,4528
+2026-06-29T13:42:59Z,4521
+...
+```
+Each row is a point reading of skin conductance in nanosiemens — no 1-second averaging baked in. The 10 Hz resolution allows offline re-analysis with different filter parameters.
 
 ---
 
@@ -166,6 +249,27 @@ To find this, we use two math concepts operating on the 10 Hz data stream:
 2. **Derivative (Rate of Change):** We subtract the previous smoothed value from the current smoothed value.
    `Rate_of_Change = Smoothed_Value - Previous_Smoothed_Value`
 
+### What the On-Screen Graph Shows
+
+The live graph on the Flipper's display shows the **derivative** (rate-of-change), not the absolute skin conductance. This is an intentional design choice for a tiny screen:
+
+```
+     ┌───────────────────────┐
+     │    ┌──┐               │   ← arousal onset: conductance rises
+     │    │  │               │       derivative spikes upward
+     │  ──┘  └────────── ── │   ← baseline: flat line at center
+     │          ┌──┐         │       (rate-of-change is zero)
+     │          │  │         │   ← relaxation: conductance drops
+     └──────────┘  └─────────┘       derivative dips below center
+        0          30      60 s
+```
+
+- **Line at center** = conductance is stable (no arousal, no relaxation)
+- **Line spikes up** = conductance rising (stress / arousal)
+- **Line dips below center** = conductance falling (relaxation / recovery)
+
+The absolute conductance value is displayed as a number at the top-right of the screen (e.g. `4523 nS`), giving you both views simultaneously. The CSV file records the absolute nS value — the derivative is only used for the live display.
+
 In our TIA setup:
 * **Stress Response (Resistance Drops):** Skin conductance increases, pushing more current through the feedback resistor. `V_out` rises, making the differential read increase. `Rate_of_Change` goes heavily positive. We scale this into a **positive elevation** (Mountain).
 * **Relaxation (Resistance Climbs):** Current drops, `V_out` falls closer to `V_ref`. `Rate_of_Change` goes negative. We scale this to represent **negative elevation** (Valley).
@@ -174,9 +278,38 @@ In our TIA setup:
 
 ## 6. The GPX File Export
 
-When the user presses "Record", the app creates a file named `biomap_walk.gpx` on the SD card.
+### Recording: CSV, not GPX
 
-Instead of traditional elevation, we inject our processed `Rate_of_Change` math into the XML elevation `<ele>` tag. We multiply it by a scaling factor so the topography looks impressive on a map.
+When the user presses "Record", the app writes to a **CSV file** (`/ext/biomapping/biomap_001.csv`), not a GPX file. This keeps the recording simple and preserves the raw GSR data for offline re-analysis. The GPX file is produced **post-recording** by the built-in converter.
+
+**GPS+GSR mode CSV (7 columns, 1 Hz):**
+```
+timestamp,lat,lon,alt,sats,fix,gsr_raw
+2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,8,1,4523
+```
+
+**GSR-only mode CSV (2 columns, 10 Hz):**
+```
+timestamp,gsr_raw
+2026-06-29T13:42:59Z,4523
+2026-06-29T13:42:59Z,4528
+```
+
+### Post-Processing: CSV → GPX Converter
+
+From the main menu, selecting "Convert CSV→GPX" runs a two-pass converter (`gpx_converter.c`):
+
+1. **Pass 1 (Scan):** Reads the CSV, applies SMA smoothing (configurable window `GPX_RATE_WINDOW`, default 80), tracks the global maximum rate-of-change across the entire walk.
+2. **Pass 2 (Write):** Re-reads the CSV, re-runs the identical SMA, normalises each |rate| to the range [0, 255] against the global maximum, and writes GPX trackpoints with the normalised rate as `<ele>`.
+
+The converter only outputs trackpoints for rows with a valid GPS fix (lat/lon non-zero, fix quality > 0). GSR-only CSVs are rejected with a clear error message — they contain no GPS coordinates.
+
+For GPS+GSR recordings, the GPX file encodes the GSR rate-of-change as elevation:
+
+* **0** = calm / steady GSR (no emotional event)
+* **255** = maximum GSR change (strongest emotional event)
+
+Both rapid rises AND rapid drops in GSR produce high elevation — only the magnitude of change matters, not the direction.
 
 **The resulting file structure looks like this:**
 ```xml
@@ -211,11 +344,186 @@ Instead of traditional elevation, we inject our processed `Rate_of_Change` math 
 
 ## 7. The User Interface
 
-The Flipper's 128x64 black-and-white screen will be heavily utilized to give the user live feedback while walking.
+The Flipper's 128x64 black-and-white screen shows different information depending on the active mode.
 
-* **Top Bar:** Shows the GPS lock status (a blinking satellite icon until the L76K module finds satellites) and the current speed.
-* **The Graph:** A live, left-scrolling line graph. A horizontal line runs through the middle of the screen representing zero change. As the user encounters stress, the line spikes upward. During deep relaxation, the line dips below the center.
-* **Controls:**
-  * `OK (Center Button)`: Starts and stops the GPX recording.
-  * `Up/Down`: Zooms in and out on the graph so the user can scale the sensitivity of the spikes.
-  * `Back`: Safely closes the `.gpx` file so it doesn't corrupt, and exits the app.
+### GPS+GSR Mode
+
+```
+┌───────────────────────┐
+│ Bio Mapping            │
+│ ┌───────────────────┐ │
+│ │      ~~~          │ │   ← GSR derivative graph (rate-of-change)
+│ │  ~~/   \──        │ │      Spikes up = arousal, dips = relaxation
+│ │ /         \──     │ │      Full width of screen
+│ │/              \──  │ │
+│ └───────────────────┘ │
+└───────────────────────┘
+```
+
+### GPS-Only Mode
+
+```
+┌───────────────────────┐
+│ Bio Mapping        [■]│   ← Recording indicator
+│ biomap_001.csv        │
+│ 13:42:59 UTC          │   ← GPS time and date
+│ 2026-06-16            │
+│ 51.55636              │   ← Latitude
+│ -0.07136              │   ← Longitude
+│ Sats:6  Q:1           │   ← Satellite count and fix quality
+└───────────────────────┘
+```
+
+### GSR-Only Mode
+
+```
+┌───────────────────────┐
+│ Bio Mapping            │
+│ GSR: 4523 nS           │   ← Absolute conductance (updated every 0.5 s)
+│ ┌───────────────────┐ │
+│ │      ~~~          │ │   ← GSR derivative graph (rate-of-change)
+│ │  ~~/   \──        │ │      Same derivative view as GPS+GSR mode
+│ │ /         \──     │ │
+│ │/              \──  │ │
+│ └───────────────────┘ │
+└───────────────────────┘
+```
+
+### Controls
+
+* `OK (Center Button)`: Starts and stops recording. In GPS+GSR mode writes 7-column CSV. In GSR-only mode writes 2-column CSV at 10 Hz.
+* `Left/Right`: Changes the time scale of the graph (scroll speed). Left zooms out (slower), Right zooms in (faster).
+* `Up/Down`: Zooms in and out on the vertical sensitivity of the graph.
+* `Back`: Safely closes the file and returns to the menu.
+
+---
+
+## 8. Menus and Options
+
+### Main Menu
+
+```
+┌─────────────────────────────┐
+│  Bio Mapping                │
+│  ▓ GPS + GSR           ▓   │   ← selected item (inverse bar)
+│    GPS Only                 │
+│    GSR Only                 │
+│    Convert CSV to GPX       │
+│    Options                  │
+│                             │
+└─────────────────────────────┘
+```
+
+| Menu Item | Action |
+|---|---|
+| **GPS + GSR** | Enters recording view with both GPS and GSR active. Writes 7-column CSV at 1 Hz. |
+| **GPS Only** | Enters recording view with GPS only — no GSR sensor initialised. Writes 7-column CSV with `gsr_raw` = 0. |
+| **GSR Only** | Enters recording view with GSR only — no GPS initialised. Writes 2-column CSV at 10 Hz. |
+| **Convert CSV to GPX** | Scans for `biomap_*.csv` files and converts selected file to GPX (see Section 6). |
+| **Options** | Opens the Options screen (see below). |
+
+### Options Screen
+
+```
+┌─────────────────────────────┐
+│  Options                    │
+│  ▓ Reset GPS           ▓   │   ← selected (inverse bar)
+│    Auto-zoom GSR   ON      │   ← toggleable
+│    Backlight           ON  │   ← toggleable
+│                             │
+│    Press Back to return     │
+└─────────────────────────────┘
+```
+
+| Option | OK Action |
+|---|---|
+| **Reset GPS** | Sends a PCAS10 hot-start command (`$PCAS10,0*1C\r\n`) to the L76K GPS module. Useful if GPS is outputting stale/frozen data. Leaves a green flash on success, red on failure. |
+| **Auto-zoom GSR** | Toggles auto-zoom ON/OFF. When enabled, the graph's vertical scale adjusts automatically to keep peaks visible. When disabled, manual Up/Down zoom controls the scale. Toggling back ON resets the zoom to 1.0× and re-seeds the auto-zoom peak tracker. |
+| **Backlight** | Toggles the Flipper's backlight between auto-dimming (OFF) and always-on (ON). Useful for walks in bright sunlight or dark environments. |
+
+### Full Control Reference
+
+#### Recording View
+
+| Button | Action |
+|---|---|
+| **OK** | Start/stop recording to CSV. Green LED flash on each successful write. |
+| **Up** | Increase vertical sensitivity (zoom in on GSR amplitude). Disables auto-zoom. |
+| **Down** | Decrease vertical sensitivity (zoom out). Disables auto-zoom. |
+| **Left** | Expand time scale (slower scroll). Doubles the window per pixel. |
+| **Right** | Contract time scale (faster scroll). Halves the window per pixel. |
+| **Back** | Stop recording (if active) and return to main menu. |
+
+#### Menu / Options View
+
+| Button | Action |
+|---|---|
+| **Up** | Move selection up. |
+| **Down** | Move selection down. |
+| **OK** | Select the highlighted item / toggle the highlighted option. |
+| **Back** | Return to previous screen. |
+
+---
+
+## 9. Notification LEDs
+
+The Flipper Zero's RGB LED provides status feedback throughout the session:
+
+| Event | LED | Meaning |
+|---|---|---|
+| Recording started | Solid red | SD file opened and header written |
+| CSV row written (GPS+GSR mode) | Green flash (100 ms) | Data saved to SD |
+| CSV batch flushed (GSR-only mode) | Green flash (100 ms) | 10 rows flushed to SD |
+| Write error | Solid red (until reset) | SD card full or filesystem error — recording stopped |
+| GPS hot start OK | Green flash (100 ms) | Reset command sent successfully |
+| GPS hot start failed | Red flash (100 ms) | GPS module not responding |
+| Session end (normal) | LED off | Backlight restored to auto |
+
+---
+
+## 10. File Storage
+
+All files are stored on the SD card under `/ext/biomapping/`:
+
+**CSV files:** `biomap_001.csv` through `biomap_999.csv` (auto-incrementing, wraps at 999).
+- 7-column format: `timestamp,lat,lon,alt,sats,fix,gsr_raw` (GPS+GSR and GPS-only modes)
+- 2-column format: `timestamp,gsr_raw` (GSR-only mode)
+- Row size: ~70 bytes (7-column) or ~30 bytes (2-column)
+- Expected file size for 1-hour walk: ~250 KB (GPS+GSR) or ~1 MB (GSR-only)
+
+**GPX files:** Generated by the converter, same index as the source CSV.
+
+---
+
+## 11. Converter Tuning
+
+The GPX converter has two tunable constants that control how GSR data is mapped to GPX elevation:
+
+```c
+#define GPX_RATE_WINDOW     80     // SMA samples — bigger = smoother rate
+#define GPX_MAX_ABS_RATE    2000.0f // cap |rate| in nS/sec — prevents sensor
+                                    // glitches from hijacking the elevation scale
+```
+
+These are defined in `modules/gpx_converter.h` and can be adjusted before building:
+
+- **GPX_RATE_WINDOW** (default 80): Simple Moving Average window size. At 1 Hz (GPS+GSR mode), a window of 80 samples means the first ~80 seconds of a walk are used to warm up the filter — no GPX trackpoints are emitted during this period. A larger window produces smoother elevation but responds slower to sudden changes. A smaller window reacts faster but may be noisier.
+
+- **GPX_MAX_ABS_RATE** (default 2000.0): The absolute rate-of-change in nS/sec beyond which any value is clamped. This prevents a single sensor glitch (e.g. static discharge from clothing) from setting the global maximum rate and compressing the rest of the walk into the bottom of the [0, 255] range. The default 2000 nS/sec is calibrated for the TIA circuit with 47 kΩ feedback and 9.4 kΩ safety resistors.
+
+---
+
+## 12. Application Metadata
+
+The app is packaged as a Flipper Zero `.fap` file:
+
+| Field | Value |
+|---|---|
+| App ID | `biomap` |
+| Name | Bio Mapping |
+| Type | External (FAP) |
+| Entry point | `biomap_app` |
+| Requires | `gui`, `storage`, `notification`, `expansion` |
+| Stack size | 4 KB |
+| Category | GPIO |
+| Sources | 7 source files across 2 directories |
