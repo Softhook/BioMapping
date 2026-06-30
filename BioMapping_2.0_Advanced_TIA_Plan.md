@@ -9,7 +9,7 @@ It allows you to walk through a city or landscape and record your body's physiol
 
 It translates your Galvanic Skin Response (GSR) fluctuations into **topographical elevation** within a GPX file. When you import your walk into Google Earth, your route will look flat while you were at your baseline, but "mountains" will appear where you experienced stress or arousal, and "valleys" or craters will map your deep relaxation.
 
-This version of the device uses a dedicated 16-bit **ADS1115** Analog-to-Digital Converter combined with a robust, highly stable **Transimpedance Amplifier (TIA)** circuit. By utilizing a dual op-amp for active voltage buffering and hardware low-pass filtering, we achieve a highly precise, noise-resistant way to measure the tiny changes in human sweat gland activity.
+This version of the device uses a dedicated 16-bit **ADS1115** Analog-to-Digital Converter combined with a robust, highly stable **Transimpedance Amplifier (TIA)** circuit. By utilizing a rail-to-rail dual op-amp (MCP602, MCP6002, or equivalent) for active voltage buffering and hardware low-pass filtering, we achieve a highly precise, noise-resistant way to measure the tiny changes in human sweat gland activity.
 
 ---
 
@@ -22,7 +22,7 @@ To build this, you need the following physical components:
 * **ADS1115 Breakout Board:** A high-precision 16-bit I2C ADC chip.
 
 **Active Components:**
-* **1x MCP6042** (or equivalent 3.3V rail-to-rail Dual Op-Amp)
+* **1x rail-to-rail dual op-amp** (MCP602, MCP6002, MCP6042, or equivalent 3.3V CMOS dual op-amp)
 
 **Passive Components:**
 * **1x 56kΩ Resistor** (For the voltage divider 0.1% tolerance metal film recommended)
@@ -48,9 +48,15 @@ The two copper traces connecting **Pin 15 (PC1)** and **Pin 16 (PC0)** to the L7
 No additional wiring is needed. The L76K cannot be put to sleep via software, so no STANDBY or RESET wires need to be soldered. The GPS runs continuously. Software reset commands are available over UART for error recovery — see **Section 4a**.
 
 ### Phase 3: Installing the Biometric Sensor Circuit
-Mount the ADS1115 and the MCP6002 onto the prototyping grid and wire them. We will use both channels (A and B) of the MCP6002.
+Mount the ADS1115 and the dual op-amp onto the prototyping grid. Both channels are used (one as a voltage follower for V_ref, one as the TIA).
 
-*(MCP6002 Reference: Pin 1=Out A, 2=In- A, 3=In+ A, 4=GND, 8=3.3V, 7=Out B, 6=In- B, 5=In+ B)*
+**Standard 8-pin dual op-amp pinout** (MCP602, MCP6002, MCP6042, and equivalents):
+```
+Pin 1 = Out A     Pin 8 = 3.3V
+Pin 2 = In- A     Pin 7 = Out B
+Pin 3 = In+ A     Pin 6 = In- B
+Pin 4 = GND       Pin 5 = In+ B
+```
 
 * **Power & I2C (ADS1115):**
   * `VDD` on ADS1115 -> **Pin 9 (3.3V)**
@@ -59,29 +65,29 @@ Mount the ADS1115 and the MCP6002 onto the prototyping grid and wire them. We wi
   * `SCL` on ADS1115 -> **Pin 15 (PC1)**
   * `SDA` on ADS1115 -> **Pin 16 (PC0)**
 
-* **Power & Bypass (MCP6002):**
+* **Power & Bypass (dual op-amp):**
   * Pin 8 -> **Pin 9 (3.3V)**
   * Pin 4 -> **Pin 8 (GND)**
   * **Mandatory:** Solder one **100nF capacitor** directly across Pin 8 and Pin 4 to filter digital power spikes from the Flipper.
 
 * **Generate the 0.5V Bias (V_ref) using Op-Amp B (Voltage Follower):**
-  * Solder the **56kΩ Resistor** from 3.3V to MCP6002 Pin 5 (In+ B).
-  * Solder the **10kΩ Resistor** from MCP6002 Pin 5 (In+ B) to GND.
-  * Tie MCP6002 Pin 7 (Out B) directly to Pin 6 (In- B).
+  * Solder the **56kΩ Resistor** from 3.3V to the op-amp's In+ B (pin 5).
+  * Solder the **10kΩ Resistor** from In+ B (pin 5) to GND.
+  * Tie Out B (pin 7) directly to In- B (pin 6).
   * *Result: Pin 7 is now a rock-solid, buffered 0.5V Reference (V_ref).*
 
 * **Build the Transimpedance Amplifier (TIA) using Op-Amp A:**
-  * Connect your V_ref (Pin 7) to MCP6002 Pin 3 (In+ A).
-  * Tie the **47kΩ Resistor** and the second **100nF Capacitor** in parallel between Pin 1 (Out A) and Pin 2 (In- A). This acts as both the amplifier gain and a hardware low-pass filter to destroy 50/60Hz mains hum.
+  * Connect V_ref (from Out B) to the op-amp's In+ A (pin 3).
+  * Tie the **47kΩ Resistor** and the second **100nF Capacitor** in parallel between Out A (pin 1) and In- A (pin 2). This acts as both the amplifier gain and a hardware low-pass filter to destroy 50/60Hz mains hum.
 
 * **Connect Electrodes & Safety Resistors:**
   * Electrode 1 (GND): GND -> **4.7kΩ Resistor** -> Wire -> Foil/Finger 1.
-  * Electrode 2 (SIGNAL): Foil/Finger 2 -> Wire -> **4.7kΩ Resistor** -> MCP6002 Pin 2 (In- A).
+  * Electrode 2 (SIGNAL): Foil/Finger 2 -> Wire -> **4.7kΩ Resistor** -> op-amp In- A (pin 2).
   * *These resistors (9.4 kΩ total) ensure maximum skin current is safe while keeping the TIA output within the ADC range for the full span of human skin resistance.*
 
 * **Differential Connection to ADS1115:**
-  * Connect **ADS1115 AIN0** to MCP6002 Pin 1 (Out A) (The amplified GSR signal).
-  * Connect **ADS1115 AIN1** to MCP6002 Pin 7 (Out B) (The clean 0.5V V_ref).
+  * Connect **ADS1115 AIN0** to op-amp Out A (pin 1) (The amplified GSR signal).
+  * Connect **ADS1115 AIN1** to op-amp Out B (pin 7) (The clean 0.5V V_ref).
 
 By routing the signals this way, the ADS1115 subtracts the 0.5V virtual ground offset perfectly, isolating the amplified skin current data while completely rejecting external system noise!
 
