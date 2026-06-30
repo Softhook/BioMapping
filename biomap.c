@@ -189,6 +189,21 @@ static bool handle_recording_key(PluginEvent* ev, BioMapApp* app,
     }
 }
 
+// ── Extract GPS position (lat, lon, alt, sats, fix) from app state ──────
+// Output params are only written when app->gps is valid; caller should
+// initialise to defaults before calling.
+static void get_gps_position(BioMapApp* app, float* lat, float* lon,
+                              float* alt, int* sats, int* fix) {
+    if(!app->gps) return;
+    GpsStatus gs = gps_uart_get_status(app->gps);
+    if((gs.fix_valid || gs.fix_quality > 0)
+        && !isnan(gs.latitude) && !isnan(gs.longitude)) {
+        *lat = gs.latitude; *lon = gs.longitude; *alt = gs.altitude;
+    }
+    *sats = gs.satellites_tracked;
+    *fix  = gs.fix_quality;
+}
+
 // ── Extract: handle one GSR tick (10 Hz) during a recording session ──────
 static void handle_recording_tick(BioMapApp* app, BioMapMode mode) {
     int32_t raw = 0;
@@ -261,15 +276,7 @@ static void handle_recording_tick(BioMapApp* app, BioMapMode mode) {
                 if(app->tick_counter == 0) {
                     float lat = 0, lon = 0, alt = 0;
                     int   sats = 0, fix = 0;
-                    if(app->gps) {
-                        GpsStatus gs = gps_uart_get_status(app->gps);
-                        if((gs.fix_valid || gs.fix_quality > 0)
-                            && !isnan(gs.latitude) && !isnan(gs.longitude)) {
-                            lat = gs.latitude; lon = gs.longitude; alt = gs.altitude;
-                        }
-                        sats = gs.satellites_tracked;
-                        fix  = gs.fix_quality;
-                    }
+                    get_gps_position(app, &lat, &lon, &alt, &sats, &fix);
                     n = snprintf(app->gsr_batch + app->gsr_batch_len,
                                  remain > 0 ? remain : 0,
                                  "%s,%.6f,%.6f,%.1f,%d,%d,%ld\n",
@@ -311,15 +318,7 @@ static void handle_second_boundary(BioMapApp* app, BioMapMode mode) {
     } else {
         float lat = 0, lon = 0, alt = 0;
         int   sats = 0, fix = 0;
-        if(app->gps) {
-            GpsStatus gs = gps_uart_get_status(app->gps);
-            if((gs.fix_valid || gs.fix_quality > 0)
-                && !isnan(gs.latitude) && !isnan(gs.longitude)) {
-                lat = gs.latitude; lon = gs.longitude; alt = gs.altitude;
-            }
-            sats = gs.satellites_tracked;
-            fix  = gs.fix_quality;
-        }
+        get_gps_position(app, &lat, &lon, &alt, &sats, &fix);
 
         int32_t avg = app->raw_count ? (app->gsr_raw_sum / app->raw_count) : 0;
         char ts[32];
