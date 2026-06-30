@@ -141,7 +141,7 @@ static GpsPosition get_gps_position(const Session* s) {
 
 // ── Post-decimation smoothing IIR ──────────────────────────────────────────
 // First-order IIR at fc ≈ 3 Hz (α = 1 - e^{-2π·3/10} ≈ 0.848).
-// Runs at 10 Hz AFTER the 86:1 boxcar decimation — aliasing at the
+// Runs at 10 Hz AFTER the 100:1 boxcar decimation — aliasing at the
 // 860→10 Hz downsampling step is a one-way door, so this filter
 // attenuates both real high-frequency GSR and any aliased noise that
 // already leaked into the 0–5 Hz band.  For a physiological signal

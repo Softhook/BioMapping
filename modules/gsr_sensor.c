@@ -266,36 +266,42 @@ float gsr_sensor_get_raw(const GsrSensor* gsr) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Oversampling & Filtering
 //
-// Each 100 ms (10 Hz) tick extracts the 86 most recent ADC samples and
-// averages them.  The simple mean is the minimum-variance unbiased
-// estimator for the Gaussian noise that dominates the ADC front-end
-// (ADS1115 thermal noise, TIA Johnson noise, op-amp input noise).
+// Each 100 ms (10 Hz) tick extracts the 100 most recent buffer entries
+// and averages them — spanning the full 100 ms decimation interval.
+// The background worker polls at ~1000 Hz (furi_delay_ms(1) synchronised
+// to the RTOS tick) while the ADS1115 converts at 860 SPS, so ~14 % of
+// buffer entries are duplicate reads of the same conversion.  Duplicates
+// do not bias the simple mean but also don't add independent noise
+// reduction — the effective unique-sample count remains ~86.
+//
 // Empirical testing (biomap_019.csv, 873 samples) confirmed zero I2C
 // glitches — all large tick-to-tick jumps were sustained physiological
 // SCR onsets, not single-sample spikes that trimming would catch.
 //
-// Simple mean noise reduction: √86 ≈ 9.27× (vs 8.60× for trimmed 74).
+// Simple mean noise reduction: √86 ≈ 9.27× (effective, vs 8.60× for trimmed 74).
+// 100 ms window = 5 cycles of 50 Hz = 6 cycles of 60 Hz → perfect mains hum
+// cancellation (integer-period boxcar averaging).
 // ─────────────────────────────────────────────────────────────────────────────
 
 void gsr_sensor_tick(GsrSensor* gsr) {
     furi_assert(gsr);
     if(!gsr->available) return;
 
-    // ── Step 1: sum the most recent 86 samples directly from the ring
+    // ── Step 1: sum the most recent 100 samples directly from the ring
     // buffer (100 ms window).  No intermediate array — the simple mean
     // doesn't need sorting, so one pass is enough. ─────────────────────
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     uint32_t r_idx = gsr->write_idx;
     int64_t sum = 0;
-    for(int i = 0; i < 86; i++) {
+    for(int i = 0; i < 100; i++) {
         r_idx = (r_idx - 1) & (SENSOR_BUFFER_SIZE - 1);
         sum += gsr->buffer[r_idx];
     }
     uint8_t old_pga = gsr->pga_index;
     furi_mutex_release(gsr->mutex);
 
-    // ── Step 2: simple mean. √86 ≈ 9.27× noise reduction ─────────────────
-    float avg_norm = (float)sum / 86.0f;
+    // ── Step 2: simple mean. Effective √86 ≈ 9.27× noise reduction ──────
+    float avg_norm = (float)sum / 100.0f;
 
     // ── Step 3: autoranging decision on filtered equivalent raw value ─────
     int32_t hw_equiv = (int32_t)(avg_norm / (float)NORM_FACTOR[old_pga]);
