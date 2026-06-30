@@ -16,13 +16,16 @@ void      sd_logger_free(SdLogger* logger);
 bool        sd_logger_start(SdLogger* logger);
 void        sd_logger_stop(SdLogger* logger);
 
-// GSR-only mode: 2-column CSV (timestamp,gsr_raw), no GPS fields.
-// Use sd_logger_start_gsr + sd_logger_write_row_gsr as a matched pair.
-// For batched writes, accumulate rows in memory and call sd_logger_flush_gsr
-// once per second instead of sd_logger_write_row_gsr every tick.
+// GSR batch write API — accumulate formatted rows in memory and flush
+// to SD in a single storage_file_write at the 1‑second boundary.
+// The internal buffer (512 bytes) holds ~10 rows at 10 Hz.
+//   sd_logger_batch_append  — append a pre-formatted row (returns false on overflow)
+//   sd_logger_batch_flush   — flush buffer to SD, returns >0 on success (bytes
+//                             written), 0 if buffer was empty, <0 on error.
 bool        sd_logger_start_gsr(SdLogger* logger);
 bool        sd_logger_write_row_gsr(SdLogger* logger, const char* timestamp, int32_t gsr_raw);
-bool        sd_logger_flush_gsr(SdLogger* logger, const char* data, size_t len);
+int         sd_logger_batch_flush(SdLogger* logger);
+bool        sd_logger_batch_append(SdLogger* logger, const char* data, size_t len);
 
 bool        sd_logger_is_active(const SdLogger* logger);
 const char* sd_logger_get_filename(const SdLogger* logger);

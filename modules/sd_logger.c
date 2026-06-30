@@ -1,6 +1,7 @@
 // SD Logger — auto-incrementing CSV writer.
 
 #include "sd_logger.h"
+#include "util.h"
 #include <storage/storage.h>
 #include <string.h>
 #include <stdio.h>
@@ -16,6 +17,12 @@ struct SdLogger {
     bool     active;
     char     filename[64];
     int      last_index;
+
+    // GSR batch buffer: accumulate formatted rows each tick,
+    // flush to SD in one storage_file_write at the 1‑second boundary.
+    // 10 rows × ~45 bytes + safety = 512 bytes.
+    char gsr_batch[512];
+    int  gsr_batch_len;
 };
 
 SdLogger* sd_logger_alloc(Storage* storage) {
@@ -49,12 +56,8 @@ static int find_next_index(SdLogger* l) {
         size_t len = strlen(name);
         if(len < 12) continue; // "biomap_001.csv" is 14 chars
         if(strncmp(name, LOGGER_BASENAME, 7) == 0 && strcmp(name + len - 4, LOGGER_EXT) == 0) {
-            int idx = 0;
-            const char* p = name + 7;
-            while(p < name + len - 4 && *p >= '0' && *p <= '9') {
-                idx = idx * 10 + (*p - '0');
-                p++;
-            }
+            int idx = biomap_parse_file_index(name);
+            if(idx < 0) idx = 0; // fallback for non-numeric names
             if(idx > max_idx && idx <= LOGGER_MAX_INDEX) {
                 max_idx = idx;
             }
@@ -173,18 +176,38 @@ bool sd_logger_write_row_gsr(SdLogger* l, const char* timestamp, int32_t gsr_raw
     return true;
 }
 
-// Flush a pre-built buffer of GSR rows in one storage_file_write.
-// The caller accumulates formatted "ts,gsr_raw\n" lines each tick
-// and flushes at the 1‑second boundary to avoid 10 Hz SD writes.
-bool sd_logger_flush_gsr(SdLogger* l, const char* data, size_t len) {
+// Flush the internal batch buffer to SD in one write.
+// Returns: >0 bytes flushed, 0 if buffer was empty, -1 on error.
+int sd_logger_batch_flush(SdLogger* l) {
     furi_assert(l);
-    if(!l->active || !l->file || len == 0) return true;
+    if(!l->active || !l->file) return 0;
+    if(l->gsr_batch_len == 0) return 0;
 
-    uint16_t written = storage_file_write(l->file, data, len);
-    if(written != (uint16_t)len) {
-        FURI_LOG_E("SdLogger", "GSR flush error: %d/%d", written, (int)len);
+    uint16_t written = storage_file_write(l->file, l->gsr_batch,
+                                          (size_t)l->gsr_batch_len);
+    int flushed = l->gsr_batch_len;
+    l->gsr_batch_len = 0;
+
+    if(written != (uint16_t)flushed) {
+        FURI_LOG_E("SdLogger", "Batch flush error: %d/%d",
+                   written, flushed);
+        return -1;
+    }
+    return flushed;
+}
+
+// Append a pre-formatted row to the internal batch buffer.
+// Returns false on overflow (data not appended, caller should log/drop).
+bool sd_logger_batch_append(SdLogger* l, const char* data, size_t len) {
+    furi_assert(l);
+    if(len == 0) return true;
+    if(l->gsr_batch_len + (int)len > (int)sizeof(l->gsr_batch)) {
+        FURI_LOG_W("SdLogger", "Batch overflow (%d + %d > %d)",
+                   l->gsr_batch_len, (int)len, (int)sizeof(l->gsr_batch));
         return false;
     }
+    memcpy(l->gsr_batch + l->gsr_batch_len, data, len);
+    l->gsr_batch_len += (int)len;
     return true;
 }
 

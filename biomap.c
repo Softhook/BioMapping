@@ -93,10 +93,8 @@ static bool handle_recording_key(PluginEvent* ev, BioMapApp* app,
     case InputKeyBack:
         furi_mutex_acquire(app->mutex, FuriWaitForever);
         if((mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr)
-            && app->recording_active && app->gsr_batch_len > 0) {
-            sd_logger_flush_gsr(app->logger, app->gsr_batch,
-                                (size_t)app->gsr_batch_len);
-            app->gsr_batch_len = 0;
+            && app->recording_active) {
+            sd_logger_batch_flush(app->logger);
         }
         app->running = false;
         furi_mutex_release(app->mutex);
@@ -119,18 +117,14 @@ static bool handle_recording_key(PluginEvent* ev, BioMapApp* app,
                     sd_logger_get_filename(app->logger),
                     sizeof(app->recording_filename) - 1);
                 app->tick_counter = app->raw_count = app->gsr_raw_sum = 0;
-                app->gsr_batch_len = 0;
                 furi_mutex_release(app->mutex);
                 notification_message(app->notifications, &sequence_set_only_red_255);
             }
         } else {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
             app->recording_active = false;
-            if((mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr)
-                && app->gsr_batch_len > 0) {
-                sd_logger_flush_gsr(app->logger, app->gsr_batch,
-                                    (size_t)app->gsr_batch_len);
-                app->gsr_batch_len = 0;
+            if(mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr) {
+                sd_logger_batch_flush(app->logger);
             }
             app->recording_filename[0] = '\0';
             furi_mutex_release(app->mutex);
@@ -265,35 +259,28 @@ static void handle_recording_tick(BioMapApp* app, BioMapMode mode) {
         if(mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr) {
             char ts[32];
             format_timestamp(app, ts, sizeof(ts));
-            int remain = (int)sizeof(app->gsr_batch) - app->gsr_batch_len;
+            char row[128];
             int n = 0;
 
             if(mode == BioMapModeGsrOnly) {
-                n = snprintf(app->gsr_batch + app->gsr_batch_len,
-                             remain > 0 ? remain : 0,
-                             "%s,%ld\n", ts, (long)raw);
+                n = snprintf(row, sizeof(row), "%s,%ld\n", ts, (long)raw);
             } else {
                 if(app->tick_counter == 0) {
                     float lat = 0, lon = 0, alt = 0;
                     int   sats = 0, fix = 0;
                     get_gps_position(app, &lat, &lon, &alt, &sats, &fix);
-                    n = snprintf(app->gsr_batch + app->gsr_batch_len,
-                                 remain > 0 ? remain : 0,
+                    n = snprintf(row, sizeof(row),
                                  "%s,%.6f,%.6f,%.1f,%d,%d,%ld\n",
                                  ts, (double)lat, (double)lon, (double)alt,
                                  sats, fix, (long)raw);
                 } else {
-                    n = snprintf(app->gsr_batch + app->gsr_batch_len,
-                                 remain > 0 ? remain : 0,
-                                 "%s,,,,,,%ld\n", ts, (long)raw);
+                    n = snprintf(row, sizeof(row), "%s,,,,,,%ld\n",
+                                 ts, (long)raw);
                 }
             }
 
-            if(n > 0 && n < remain) {
-                app->gsr_batch_len += n;
-            } else if(app->gsr_batch_len > 0) {
-                FURI_LOG_W("BioMap", "Batch overflow at len=%d remain=%d",
-                           app->gsr_batch_len, remain);
+            if(n > 0 && n < (int)sizeof(row)) {
+                sd_logger_batch_append(app->logger, row, (size_t)n);
             }
         }
     }
@@ -302,18 +289,17 @@ static void handle_recording_tick(BioMapApp* app, BioMapMode mode) {
 // ── 1-second boundary: flush batch or write GPS-only row ──────────────────
 static void handle_second_boundary(BioMapApp* app, BioMapMode mode) {
     if(mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr) {
-        if(app->recording_active && app->gsr_batch_len > 0) {
-            if(sd_logger_flush_gsr(app->logger, app->gsr_batch,
-                                   (size_t)app->gsr_batch_len)) {
+        if(app->recording_active) {
+            int flushed = sd_logger_batch_flush(app->logger);
+            if(flushed > 0) {
                 notification_message(app->notifications, &sequence_blink_green_100);
-            } else {
+            } else if(flushed < 0) {
                 FURI_LOG_E("BioMap", "Batch flush failed");
                 if(app->logger) sd_logger_stop(app->logger);
                 app->recording_active = false;
                 app->recording_filename[0] = '\0';
                 notification_message(app->notifications, &sequence_set_only_red_255);
             }
-            app->gsr_batch_len = 0;
         }
     } else {
         float lat = 0, lon = 0, alt = 0;
@@ -349,7 +335,6 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     app->graph_last_smoothed = 0.0f;
     app->recording_active = false;
     app->recording_filename[0] = '\0';
-    app->gsr_batch_len = 0;
     app->running = true;
     app->zoom_level = 1.0f;
     app->auto_zoom_peak = 1.0f;

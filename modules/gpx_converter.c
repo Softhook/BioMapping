@@ -72,6 +72,7 @@
 // =============================================================================
 
 #include "gpx_converter.h"
+#include "util.h"
 #include <furi.h>
 #include <gui/view_port.h>
 #include <storage/storage.h>
@@ -212,24 +213,6 @@ GpxConverter* gpx_converter_alloc(Storage* storage) {
 
 void gpx_converter_free(GpxConverter* c) { furi_assert(c); free(c); }
 
-// Parse the file index from biomap_xxx.csv (returns -1 if invalid/non-numeric)
-static int parse_file_index(const char* name) {
-    size_t len = strlen(name);
-    if(len < 12) return -1;
-    if(strncmp(name, "biomap_", 7) != 0) return -1;
-    if(strcmp(name + len - 4, ".csv") != 0) return -1;
-
-    int idx = 0;
-    const char* p = name + 7;
-    while(p < name + len - 4) {
-        if(*p < '0' || *p > '9') return -1;
-        if(idx > 99999) return -1; // overflow protection
-        idx = idx * 10 + (*p - '0');
-        p++;
-    }
-    return idx;
-}
-
 // Insertion sort by index — no stdlib dependency, O(n²) is fine for ≤32 files
 static void sort_filenames_by_index(char names[][32], int* indices, int count) {
     for(int i = 1; i < count; i++) {
@@ -270,7 +253,7 @@ int gpx_converter_scan(GpxConverter* c) {
         if(strncmp(name, "biomap_", 7) != 0) continue;
         if(strcmp(name + len - 4, ".csv") != 0) continue;
 
-        int idx = parse_file_index(name);
+        int idx = biomap_parse_file_index(name);
         if(idx < 0) idx = 0; // fallback for malformed names
 
         if(c->file_count < GPX_MAX_CSV_FILES) {

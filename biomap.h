@@ -64,12 +64,6 @@ typedef struct BioMapApp {
     int32_t  last_displayed_gsr;
     int      text_refresh_counter;
     volatile int32_t menu_selection;
-
-    // GSR-only batch write buffer: accumulate formatted rows each tick,
-    // flush to SD in one storage_file_write at the 1‑second boundary.
-    // 10 rows × ~35 bytes + safety = 512 bytes.
-    char gsr_batch[512];
-    int  gsr_batch_len;
 } BioMapApp;
 
 static inline bool has_gps(BioMapMode m) { return m == BioMapModeGpsGsr || m == BioMapModeGpsOnly; }

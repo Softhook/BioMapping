@@ -280,6 +280,25 @@ static const char* menu_labels[MENU_COUNT] = {
     "GPS + GSR", "GPS Only", "GSR Only", "Convert CSV to GPX", "Options",
 };
 
+// ── Shared: draw a vertical selection list with inverse bar ──────────────
+// sel = currently selected index, count = number of items,
+// labels = array of label strings, start_y = top Y position.
+static void draw_selection_list(Canvas* c, int sel, int count,
+                                 const char** labels, int start_y) {
+    for(int i = 0; i < count; i++) {
+        int y = start_y + i * 10;
+        if(i == sel) {
+            canvas_draw_box(c, 0, y - 8, 128, 9);
+            canvas_invert_color(c);
+            canvas_draw_str(c, 0, y, ">");
+            canvas_draw_str(c, 8, y, labels[i]);
+            canvas_invert_color(c);
+        } else {
+            canvas_draw_str(c, 8, y, labels[i]);
+        }
+    }
+}
+
 void menu_render(Canvas* c, void* ctx) {
     BioMapApp* a = (BioMapApp*)ctx;
     furi_mutex_acquire(a->mutex, FuriWaitForever);
@@ -287,19 +306,7 @@ void menu_render(Canvas* c, void* ctx) {
     canvas_set_font(c, FontPrimary);
     canvas_draw_str(c, 0, 10, "Bio Mapping");
     canvas_set_font(c, FontSecondary);
-    int sel = (int)a->menu_selection;
-    for(int i = 0; i < MENU_COUNT; i++) {
-        int y = 22 + i * 10;
-        if(i == sel) {
-            canvas_draw_box(c, 0, y - 8, 128, 9);
-            canvas_invert_color(c);
-            canvas_draw_str(c, 0, y, ">");
-            canvas_draw_str(c, 8, y, menu_labels[i]);
-            canvas_invert_color(c);
-        } else {
-            canvas_draw_str(c, 8, y, menu_labels[i]);
-        }
-    }
+    draw_selection_list(c, (int)a->menu_selection, MENU_COUNT, menu_labels, 22);
     furi_mutex_release(a->mutex);
 }
 
@@ -380,19 +387,12 @@ static void options_render(Canvas* c, void* ctx) {
     canvas_draw_str(c, 0, 10, "Options");
     canvas_set_font(c, FontSecondary);
     int sel = (int)a->menu_selection;
+    draw_selection_list(c, sel, OPTIONS_COUNT, options_labels, 22);
+
+    // Overlay toggle state on the last two rows (auto-zoom, backlight)
     for(int i = 0; i < OPTIONS_COUNT; i++) {
-        int y = 22 + i * 10;
-        if(i == sel) {
-            canvas_draw_box(c, 0, y - 8, 128, 9);
-            canvas_invert_color(c);
-            canvas_draw_str(c, 0, y, ">");
-            canvas_draw_str(c, 8, y, options_labels[i]);
-            canvas_invert_color(c);
-        } else {
-            canvas_draw_str(c, 8, y, options_labels[i]);
-        }
-        // Show toggle state for auto-zoom (row 1) and backlight (row 2)
         if(i == 1 || i == 2) {
+            int y = 22 + i * 10;
             bool on = (i == 1) ? a->auto_zoom_enabled : a->backlight_on;
             const char* state = on ? "ON" : "OFF";
             int sx = 128 - canvas_string_width(c, state) - 2;

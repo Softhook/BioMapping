@@ -176,6 +176,7 @@ static void pcas_tx(GpsUart* g, const char* cmd) {
 // ---------------------------------------------------------------------------
 void gps_uart_process_rx(GpsUart* g) {
     furi_assert(g);
+    if(!g->ready) return;
     // Clear rx_pending BEFORE draining so that any new byte arriving from the
     // ISR mid-drain sets it true again and posts a fresh UART event to the queue.
     // If cleared AFTER the drain, an ISR byte arriving mid-drain would see
