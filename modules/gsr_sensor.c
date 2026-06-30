@@ -191,16 +191,13 @@ GsrSensor* gsr_sensor_alloc(void) {
         furi_delay_ms(5);
         furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
         uint8_t data[2];
-        int16_t initial_hw = 0;
         bool ok = furi_hal_i2c_read_mem(
             &furi_hal_i2c_handle_external,
             ADS1115_I2C_ADDR, ADS1115_CONV_REG,
             data, 2, 50);
         furi_hal_i2c_release(&furi_hal_i2c_handle_external);
 
-        if(ok) {
-            initial_hw = (int16_t)((data[0] << 8) | data[1]);
-        }
+        int16_t initial_hw = ok ? (int16_t)((data[0] << 8) | data[1]) : 0;
         int32_t initial_norm = (int32_t)initial_hw * NORM_FACTOR[ADS_PGA_DEFAULT];
         for(int i = 0; i < SENSOR_BUFFER_SIZE; i++) {
             gsr->buffer[i] = initial_norm;
@@ -244,18 +241,18 @@ bool gsr_sensor_available(const GsrSensor* gsr) {
 int32_t gsr_sensor_get_raw(const GsrSensor* gsr) {
     furi_assert(gsr);
     if(!gsr->available) return 0;
-    furi_mutex_acquire((FuriMutex*)gsr->mutex, FuriWaitForever);
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     int32_t val = gsr->raw;
-    furi_mutex_release((FuriMutex*)gsr->mutex);
+    furi_mutex_release(gsr->mutex);
     return val;
 }
 
 uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr) {
     furi_assert(gsr);
     if(!gsr->available) return ADS_PGA_DEFAULT;
-    furi_mutex_acquire((FuriMutex*)gsr->mutex, FuriWaitForever);
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     uint8_t val = gsr->pga_index;
-    furi_mutex_release((FuriMutex*)gsr->mutex);
+    furi_mutex_release(gsr->mutex);
     return val;
 }
 
@@ -326,15 +323,13 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     }
 
     // ── Step 5: normalise filtered reading to physical skin conductance (nS)
-    int32_t norm = avg_norm;
-    
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-    if(norm <= 0) {
+    if(avg_norm <= 0) {
         gsr->raw = 0;
     } else {
-        if(norm > 319000) norm = 319000; // safety cap to prevent division by zero/negative
-        int64_t num = (int64_t)norm * 5000000LL;
-        int64_t den = 15040000LL - (int64_t)norm * 47LL;
+        if(avg_norm > 319000) avg_norm = 319000; // safety cap to prevent division by zero/negative
+        int64_t num = (int64_t)avg_norm * 5000000LL;
+        int64_t den = 15040000LL - (int64_t)avg_norm * 47LL;
         gsr->raw = (int32_t)(num / den);
     }
     furi_mutex_release(gsr->mutex);

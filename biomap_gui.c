@@ -292,7 +292,7 @@ static const char* menu_labels[MENU_COUNT] = {
 // sel = currently selected index, count = number of items,
 // labels = array of label strings, start_y = top Y position.
 static void draw_selection_list(Canvas* c, int sel, int count,
-                                 const char** labels, int start_y) {
+                                 const char* const* labels, int start_y) {
     for(int i = 0; i < count; i++) {
         int y = start_y + i * 10;
         if(i == sel) {
@@ -397,17 +397,15 @@ static void options_render(Canvas* c, void* ctx) {
     int sel = (int)a->menu_selection;
     draw_selection_list(c, sel, OPTIONS_COUNT, options_labels, 22);
 
-    // Overlay toggle state on the last two rows (auto-zoom, backlight)
-    for(int i = 0; i < OPTIONS_COUNT; i++) {
-        if(i == 1 || i == 2) {
-            int y = 22 + i * 10;
-            bool on = (i == 1) ? a->auto_zoom_enabled : a->backlight_on;
-            const char* state = on ? "ON" : "OFF";
-            int sx = 128 - canvas_string_width(c, state) - 2;
-            if(i == sel) canvas_invert_color(c);
-            canvas_draw_str(c, sx, y, state);
-            if(i == sel) canvas_invert_color(c);
-        }
+    // Overlay toggle state on items 1 (auto-zoom) and 2 (backlight)
+    for(int i = 1; i < OPTIONS_COUNT; i++) {
+        int y = 22 + i * 10;
+        bool on = (i == 1) ? a->auto_zoom_enabled : a->backlight_on;
+        const char* state = on ? "ON" : "OFF";
+        int sx = 128 - canvas_string_width(c, state) - 2;
+        if(i == sel) canvas_invert_color(c);
+        canvas_draw_str(c, sx, y, state);
+        if(i == sel) canvas_invert_color(c);
     }
     canvas_set_font(c, FontSecondary);
     canvas_draw_str(c, 0, 60, "Press Back to return");

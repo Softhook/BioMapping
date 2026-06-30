@@ -135,7 +135,12 @@ typedef struct {
     int     pos;
 } WriteBuf;
 
-static bool wb_flush(WriteBuf* wb);  // forward
+static bool wb_flush(WriteBuf* wb) {
+    if(wb->pos == 0) return true;
+    bool ok = storage_file_write(wb->file, wb->buf, (size_t)wb->pos) == (size_t)wb->pos;
+    wb->pos = 0;
+    return ok;
+}
 
 static void wb_init(WriteBuf* wb, File* f) {
     wb->file = f;
@@ -156,13 +161,6 @@ static bool wb_str(WriteBuf* wb, const char* s) {
     memcpy(wb->buf + wb->pos, s, len);
     wb->pos += (int)len;
     return true;
-}
-
-static bool wb_flush(WriteBuf* wb) {
-    if(wb->pos == 0) return true;
-    bool ok = storage_file_write(wb->file, wb->buf, (size_t)wb->pos) == (size_t)wb->pos;
-    wb->pos = 0;
-    return ok;
 }
 
 /* ── tiny parsers (no libc atof / atoi — Flipper API disables them) ── */
@@ -304,7 +302,6 @@ typedef struct {
     int     count;                   // values stored so far (0 … WINDOW)
     float   sum;                     // running sum (maintained incrementally)
     float   prev_sma;               // SMA from previous step
-    bool    rate_ready;              // true once we have a full-window baseline
 } SmaState;
 
 static void sma_init(SmaState* s) {
@@ -325,9 +322,8 @@ static float sma_feed(SmaState* s, int32_t raw) {
             s->buf[i] = raw;
         }
         s->sum = (float)raw * GPX_RATE_WINDOW;
-        s->count = GPX_RATE_WINDOW;
+        s->count    = GPX_RATE_WINDOW;
         s->prev_sma = (float)raw;
-        s->rate_ready = true;
         return 0.0f;
     }
 
@@ -343,15 +339,7 @@ static float sma_feed(SmaState* s, int32_t raw) {
     // No rates until the window is fully populated
     if(s->count < GPX_RATE_WINDOW) return 0.0f;
 
-    float sma = s->sum / (float)GPX_RATE_WINDOW;
-
-    if(!s->rate_ready) {
-        // First full‑window SMA — store as baseline
-        s->prev_sma   = sma;
-        s->rate_ready = true;
-        return 0.0f;
-    }
-
+    float sma   = s->sum / (float)GPX_RATE_WINDOW;
     float rate  = sma - s->prev_sma;
     s->prev_sma = sma;
     return rate;
@@ -430,9 +418,6 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
         if(fix > 0 && fabsf(lat) > 0.0001f && fabsf(lon) > 0.0001f) has_any_fix = true;
 
         float rate = sma_feed(&sma1, raw);
-
-        // sma_feed returns 0.0 until window is full + baseline stored
-        if(!sma1.rate_ready) continue;
 
         float abs_rate = fabsf(rate);
         // Clamp outliers (sensor glitch / static discharge)
@@ -531,9 +516,6 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
         int   raw = str_to_int(tok[6]);
 
         float rate = sma_feed(&sma2, raw);
-
-        // Skip rows before the SMA window has produced real rates
-        if(!sma2.rate_ready) { rows_done++; continue; }
 
         // Normalise absolute rate → [0, 255]  (calm=0, big change=255)
         float abs_rate = fabsf(rate);

@@ -134,26 +134,6 @@ bool sd_logger_start_gsr(SdLogger* l) {
     return open_log_file(l, "timestamp,gsr_raw\n");
 }
 
-bool sd_logger_write_row_gsr(SdLogger* l, const char* timestamp, int32_t gsr_raw) {
-    furi_assert(l);
-    if(!l->active || !l->file) return false;
-
-    char row[64];
-    int len = snprintf(row, sizeof(row), "%s,%ld\n",
-        timestamp ? timestamp : "", (long)gsr_raw);
-
-    if(len <= 0 || len >= (int)sizeof(row)) {
-        FURI_LOG_E("SdLogger", "GSR row format overflow (%d) — row skipped", len);
-        return true;
-    }
-
-    uint16_t written = storage_file_write(l->file, row, (size_t)len);
-    if(written != (uint16_t)len) {
-        FURI_LOG_E("SdLogger", "GSR write error: %d/%d", written, len);
-        return false;
-    }
-    return true;
-}
 
 // Flush the internal batch buffer to SD in one write.
 // Returns: >0 bytes flushed, 0 if buffer was empty, -1 on error.
@@ -190,7 +170,6 @@ bool sd_logger_batch_append(SdLogger* l, const char* data, size_t len) {
     return true;
 }
 
-bool        sd_logger_is_active(const SdLogger* l)   { return l->active; }
 const char* sd_logger_get_filename(const SdLogger* l) { return l->filename; }
 
 bool sd_logger_write_row(

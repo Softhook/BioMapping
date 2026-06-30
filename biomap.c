@@ -394,9 +394,16 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     furi_timer_free(timer);
     if(app->recording_active) sd_logger_stop(app->logger);
 
-    sd_logger_free(app->logger); app->logger = NULL;
-    if(app->gsr) { gsr_sensor_free(app->gsr); app->gsr = NULL; }
-    if(app->gps) { gps_uart_free(app->gps); app->gps = NULL; }
+    sd_logger_free(app->logger);
+    app->logger = NULL;
+    if(app->gsr) {
+        gsr_sensor_free(app->gsr);
+        app->gsr = NULL;
+    }
+    if(app->gps) {
+        gps_uart_free(app->gps);
+        app->gps = NULL;
+    }
 
     // Restore auto backlight when leaving recording view
     notification_message(app->notifications, &sequence_display_backlight_enforce_auto);

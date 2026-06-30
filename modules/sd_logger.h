@@ -23,11 +23,9 @@ void        sd_logger_stop(SdLogger* logger);
 //   sd_logger_batch_flush   — flush buffer to SD, returns >0 on success (bytes
 //                             written), 0 if buffer was empty, <0 on error.
 bool        sd_logger_start_gsr(SdLogger* logger);
-bool        sd_logger_write_row_gsr(SdLogger* logger, const char* timestamp, int32_t gsr_raw);
 int         sd_logger_batch_flush(SdLogger* logger);
 bool        sd_logger_batch_append(SdLogger* logger, const char* data, size_t len);
 
-bool        sd_logger_is_active(const SdLogger* logger);
 const char* sd_logger_get_filename(const SdLogger* logger);
 
 bool sd_logger_write_row(

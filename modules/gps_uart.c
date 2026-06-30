@@ -109,9 +109,9 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
         .fix_quality        = 0,
         .satellites_tracked = 0,
         .fix_valid          = false,
+        .time               = {0},
+        .date               = {0},
     };
-    memset(&g->status.time, 0, sizeof(struct minmea_time));
-    memset(&g->status.date, 0, sizeof(struct minmea_date));
 
     g->rx_stream = furi_stream_buffer_alloc(GPS_RX_BUF_SIZE, 1);
 
@@ -153,12 +153,12 @@ void gps_uart_free(GpsUart* g) {
 // ---------------------------------------------------------------------------
 // Status accessors
 // ---------------------------------------------------------------------------
-GpsStatus gps_uart_get_status(GpsUart* g) {
+GpsStatus gps_uart_get_status(const GpsUart* g) {
     furi_assert(g);
     return g->status;
 }
 
-bool gps_uart_is_ready(GpsUart* g) {
+bool gps_uart_is_ready(const GpsUart* g) {
     furi_assert(g);
     return g->ready;
 }
