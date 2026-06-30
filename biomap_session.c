@@ -1,5 +1,203 @@
-// Bio Mapping — recording session event loop.
+// Bio Mapping — recording session event loop and data-processing pipeline.
+//
+// All GSR/GPS data processing (EMA, graph buffer, batch CSV, graph
+// rescaling, GPS position extraction, second-boundary logging) lives
+// here as static functions — they exist only to serve the session.
 #include "biomap.h"
+
+// ==========================================================================
+// Data-processing pipeline (static — called only by the recording session)
+// ==========================================================================
+
+// ── Graph rescaling (time-axis zoom) ───────────────────────────────────────
+// Called on Left/Right key during GSR recording sessions.
+// zoom_out=true  → average adjacent pairs, halving resolution
+// zoom_out=false → interpolate, doubling resolution
+//
+// This is a one-time O(N) pass on keypress; performance is not a concern.
+static void rescale_graph_buf(BioMapApp* app, bool zoom_out) {
+    float temp[GRAPH_N];
+
+    // Linearise ring buffer: temp[0] = oldest sample, temp[N-1] = newest.
+    for(int i = 0; i < GRAPH_N; i++) {
+        temp[i] = app->graph.buf[(app->graph.head + i) % GRAPH_N];
+    }
+    memset(app->graph.buf, 0, sizeof(app->graph.buf));
+    app->graph.head = 0;
+
+    if(zoom_out) {
+        // Average adjacent pairs (both are rate-per-tick; average preserves that).
+        // 126 old samples → 63 averaged samples at positions [63..125].
+        // Positions [0..62] remain zero (no data at this resolution yet).
+        int half = GRAPH_N / 2; // 63
+        for(int i = 0; i < half; i++) {
+            app->graph.buf[half + i] = (temp[i * 2] + temp[i * 2 + 1]) * 0.5f;
+        }
+    } else {
+        // Zoom in (÷2): split newest 63 old samples using linear interpolation.
+        // Samples are already rate-per-tick — no amplitude scaling needed.
+        // Even positions: keep the original rate value.
+        // Odd positions: interpolate midpoint toward the next sample, avoiding
+        // the staircase a simple duplicate would produce.
+        int half = GRAPH_N / 2; // 63
+        for(int i = 0; i < half; i++) {
+            float curr = temp[half + i];
+            // For the last sample there is no following neighbour — hold value.
+            float next = (i + 1 < half) ? temp[half + i + 1] : curr;
+            app->graph.buf[i * 2]     = curr;
+            app->graph.buf[i * 2 + 1] = (curr + next) * 0.5f;
+        }
+    }
+}
+
+// ── GPS position extraction ────────────────────────────────────────────────
+// Output params are only written when GPS has a valid fix.
+static void get_gps_position(BioMapApp* app, float* lat, float* lon,
+                              float* alt, int* sats, int* fix) {
+    if(!app->gps) return;
+    GpsStatus gs = gps_uart_get_status(app->gps);
+    if((gs.fix_valid || gs.fix_quality > 0)
+        && !isnan(gs.latitude) && !isnan(gs.longitude)) {
+        *lat = gs.latitude; *lon = gs.longitude; *alt = gs.altitude;
+    }
+    *sats = gs.satellites_tracked;
+    *fix  = gs.fix_quality;
+}
+
+// ── Display pipeline ───────────────────────────────────────────────────────
+// EMA smoothing of raw GSR readings for on-screen display.
+static void update_display_pipeline(BioMapApp* app, int32_t raw) {
+    float rf = (float)raw;
+    if(!app->display.primed) {
+        app->display.smoothed = rf;
+        app->graph.last_smoothed = rf;
+        app->display.last_displayed = raw;
+        app->display.primed = true;
+    }
+    float ns = DISPLAY_EMA_A * rf + DISPLAY_EMA_B * app->display.smoothed;
+    app->display.smoothed = ns;
+
+    app->display.refresh_counter++;
+    if(app->display.refresh_counter >= 5) {
+        app->display.last_displayed = raw;
+        app->display.refresh_counter = 0;
+    }
+}
+
+// ── Graph pipeline ─────────────────────────────────────────────────────────
+// Build the graph ring buffer from smoothed GSR derivative rate.
+// Handles auto-zoom peak tracking and zoom-level lerp.
+static void update_graph_pipeline(BioMapApp* app) {
+    if(app->zoom.enabled) {
+        app->zoom.peak *= 0.997f;
+    }
+
+    app->graph.tick_counter++;
+    if(app->graph.tick_counter >= app->graph.scroll_divider) {
+        float rate = app->display.smoothed - app->graph.last_smoothed;
+        app->graph.buf[app->graph.head] = -(rate / (float)app->graph.scroll_divider) * 0.2f;
+        if(++app->graph.head >= GRAPH_N) app->graph.head = 0;
+        app->graph.last_smoothed = app->display.smoothed;
+        app->graph.tick_counter = 0;
+
+        if(app->zoom.enabled) {
+            int just_written = app->graph.head - 1;
+            if(just_written < 0) just_written = GRAPH_N - 1;
+            float newest = fabsf(app->graph.buf[just_written]);
+            if(newest > app->zoom.peak) app->zoom.peak = newest;
+            if(app->zoom.peak < 0.5f) app->zoom.peak = 0.5f;
+        }
+    }
+
+    if(app->zoom.enabled && app->zoom.peak >= 0.5f) {
+        float target = 80.0f / app->zoom.peak;
+        target = fmaxf(ZOOM_MIN, fminf(ZOOM_MAX, target));
+        app->zoom.level += (target - app->zoom.level) * 0.02f;
+    }
+}
+
+// ── Batch CSV row construction ─────────────────────────────────────────────
+// Accumulate a formatted CSV row into the SD logger's internal batch buffer.
+// Rows are flushed to SD at the 1‑second boundary by handle_second_boundary().
+static void batch_csv_row(BioMapApp* app, BioMapMode mode, int32_t raw) {
+    if(app->recording.active) {
+        if(has_gsr(mode)) {
+            char ts[32];
+            format_timestamp(app, ts, sizeof(ts));
+            char row[128];
+            int n = 0;
+
+            if(mode == BioMapModeGsrOnly) {
+                n = snprintf(row, sizeof(row), "%s,%d,%ld\n",
+                             ts, app->recording.tick_counter, (long)raw);
+            } else {
+                if(app->recording.tick_counter == 0) {
+                    float lat = 0, lon = 0, alt = 0;
+                    int   sats = 0, fix = 0;
+                    get_gps_position(app, &lat, &lon, &alt, &sats, &fix);
+                    n = snprintf(row, sizeof(row),
+                                 "%s,%.6f,%.6f,%.1f,%d,%d,%ld\n",
+                                 ts, (double)lat, (double)lon, (double)alt,
+                                 sats, fix, (long)raw);
+                } else {
+                    n = snprintf(row, sizeof(row), "%s,,,,,,%ld\n",
+                                 ts, (long)raw);
+                }
+            }
+
+            if(n > 0 && n < (int)sizeof(row)) {
+                sd_logger_batch_append(app->logger, row, (size_t)n);
+            }
+        }
+    }
+}
+
+// ── Write failure handler ──────────────────────────────────────────────────
+// Stop the logger, clear recording state, and signal with red LED.
+static void handle_write_failure(BioMapApp* app) {
+    if(app->logger) sd_logger_stop(app->logger);
+    app->recording.active = false;
+    app->recording.filename[0] = '\0';
+    notification_message(app->notifications, &sequence_set_only_red_255);
+}
+
+// ── 1‑second boundary ──────────────────────────────────────────────────────
+// Called once per second.  For GSR modes: flushes the batch buffer to SD.
+// For GPS-only mode: writes a single row directly to SD.
+static void handle_second_boundary(BioMapApp* app, BioMapMode mode) {
+    if(has_gsr(mode)) {
+        if(app->recording.active) {
+            int flushed = sd_logger_batch_flush(app->logger);
+            if(flushed > 0) {
+                notification_message(app->notifications, &sequence_blink_green_100);
+            } else if(flushed < 0) {
+                FURI_LOG_E("BioMap", "Batch flush failed");
+                handle_write_failure(app);
+            }
+        }
+    } else {
+        float lat = 0, lon = 0, alt = 0;
+        int   sats = 0, fix = 0;
+        get_gps_position(app, &lat, &lon, &alt, &sats, &fix);
+
+        char ts[32];
+        format_timestamp(app, ts, sizeof(ts));
+
+        if(app->recording.active) {
+            if(sd_logger_write_row(app->logger, ts, lat, lon, alt, sats, fix, 0)) {
+                notification_message(app->notifications, &sequence_blink_green_100);
+            } else {
+                handle_write_failure(app);
+            }
+        }
+    }
+
+    app->recording.tick_counter = 0;
+}
+
+// ==========================================================================
+// Recording session — key handling, tick processing, event loop
+// ==========================================================================
 
 // ── Handle one key press during a recording session ────────────────────────
 // Returns true if the event was consumed (the caller should continue its
@@ -117,6 +315,10 @@ static void handle_recording_tick(BioMapApp* app, BioMapMode mode) {
     batch_csv_row(app, mode, raw);
 }
 
+// ── Run a recording session for the given mode ─────────────────────────────
+// Blocks until the user presses Back or an unrecoverable error occurs.
+// Allocates GPS, GSR sensor, SD logger, ViewPort, and timer internally;
+// cleans them up on return.
 void run_recording_session(BioMapApp* app, BioMapMode mode) {
     app->mode = mode;
     app->display = (DisplayState){.smoothed = 0.0f, .primed = false, .last_displayed = 0, .refresh_counter = 0};

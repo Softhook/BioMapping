@@ -3,11 +3,11 @@
 
 // ── Label arrays for menu and options screens ──────────────────────────────
 
-const char* const menu_labels[MENU_COUNT] = {
+static const char* const menu_labels[MENU_COUNT] = {
     "GPS + GSR", "GPS Only", "GSR Only", "Convert CSV to GPX", "Options",
 };
 
-const char* const options_labels[OPTIONS_COUNT] = {
+static const char* const options_labels[OPTIONS_COUNT] = {
     "Reset GPS",
     "Auto-zoom GSR",
     "Backlight",
@@ -203,7 +203,7 @@ void conv_status_render(Canvas* c, void* ctx) {
 // Menu & options rendering
 // ==========================================================================
 
-void draw_selection_list(Canvas* c, int sel, int count,
+static void draw_selection_list(Canvas* c, int sel, int count,
                          const char* const* labels, int start_y) {
     for(int i = 0; i < count; i++) {
         int y = start_y + i * 10;

@@ -15,7 +15,32 @@
 
 #include "biomap_config.h"
 #include "biomap_events.h"
-#include "biomap_pipeline.h"
+
+// ── Forward declaration (full struct defined below) ────────────────────────
+typedef struct BioMapApp BioMapApp;
+
+// ── Menu & options — shared between biomap_gui.c and biomap_render.c ───────
+
+#define MENU_COUNT      5
+#define OPTIONS_COUNT   3
+
+typedef struct {
+    bool conv_ok;
+    char conv_name[32];
+    int  conv_points;
+    int  spinner_frame;   // spinner animation frame (0-3)
+} ConvResult;
+
+typedef struct {
+    BioMapApp* app;
+    int32_t    selection;
+} MenuContext;
+
+typedef struct {
+    BioMapApp* app;
+    int32_t    selection;
+} OptionsContext;
+
 #include "biomap_session.h"
 #include "biomap_render.h"
 #include "modules/gps_uart.h"
