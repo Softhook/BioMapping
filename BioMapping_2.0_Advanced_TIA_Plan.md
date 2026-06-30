@@ -130,7 +130,9 @@ Writing data to the Flipper's SD card takes a few milliseconds. If we write ever
 
 **The Solution:** The app uses different logging rates depending on mode:
 
-- **GPS+GSR / GPS-only mode:** GSR is accumulated over 10 ticks (1 second), averaged, and written to the SD card in a single 7-column CSV row alongside the latest GPS coordinate. GPS fixes arrive at 1 Hz, so there's no benefit to writing faster.
+- **GPS+GSR mode:** Each 10 Hz tick writes a CSV row. On the first tick of each second (when the GPS fix is freshest), a full 7-column row is written with lat/lon/alt/sats/fix. On the remaining 9 ticks, a partial row with only timestamp and gsr_raw is written (GPS columns are empty). This preserves full 100 ms GSR resolution while GPS data remains at its natural 1 Hz rate.
+
+- **GPS-only mode:** One 7-column CSV row is written each second alongside the latest GPS coordinate. The `gsr_raw` column is always 0.
 
 - **GSR-only mode:** GSR values are formatted each tick (10 Hz) into an in-memory batch buffer, and the entire batch of ~10 rows is flushed to the SD card once per second in a single `storage_file_write()` call. This preserves 100 ms temporal resolution in the CSV while keeping SD card operations at 1 Hz.
 
@@ -197,22 +199,24 @@ L76K GPS @ 1 Hz  ──►  UART interrupt handler
 
 ### CSV Formats
 
-**GPS+GSR and GPS-only mode (7 columns, 1 Hz):**
+**GPS+GSR mode (7 columns, 10 Hz mixed):**
 ```
 timestamp,lat,lon,alt,sats,fix,gsr_raw
-2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,8,1,4523
-```
-The `gsr_raw` column stores the 1-second average of the trimmed-mean GSR value in nanosiemens.
-
-**GSR-only mode (2 columns, 10 Hz):**
-```
-timestamp,gsr_raw
-2026-06-29T13:42:59Z,4523
-2026-06-29T13:42:59Z,4528
-2026-06-29T13:42:59Z,4521
+2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,8,1,4523   ← 1st tick of second: full GPS row
+2026-06-29T13:42:59Z,,,,,,4528                           ← ticks 2–10: GSR only, GPS columns empty
+2026-06-29T13:42:59Z,,,,,,4521
 ...
 ```
-Each row is a point reading of skin conductance in nanosiemens — no 1-second averaging baked in. The 10 Hz resolution allows offline re-analysis with different filter parameters.
+
+**GSR-only mode (3 columns, 10 Hz):**
+```
+timestamp,tick,gsr_raw
+2026-06-29T13:42:59Z,0,4523
+2026-06-29T13:42:59Z,1,4528
+2026-06-29T13:42:59Z,2,4521
+...
+```
+Each row is a point reading of skin conductance in nanosiemens with a sub-second tick counter (0–9 within each second). The 10 Hz resolution allows offline re-analysis with different filter parameters.
 
 ---
 
@@ -277,8 +281,33 @@ The live graph on the Flipper's display shows the **derivative** (rate-of-change
 The absolute conductance value is displayed as a number at the top-right of the screen (e.g. `4523 nS`), giving you both views simultaneously. The CSV file records the absolute nS value — the derivative is only used for the live display.
 
 In our TIA setup:
-* **Stress Response (Resistance Drops):** Skin conductance increases, pushing more current through the feedback resistor. `V_out` rises, making the differential read increase. `Rate_of_Change` goes heavily positive. We scale this into a **positive elevation** (Mountain).
-* **Relaxation (Resistance Climbs):** Current drops, `V_out` falls closer to `V_ref`. `Rate_of_Change` goes negative. We scale this to represent **negative elevation** (Valley).
+* **Stress Response (Resistance Drops):** Skin conductance increases, pushing more current through the feedback resistor. `V_out` rises, making the differential read increase. `Rate_of_Change` goes heavily positive.
+* **Relaxation (Resistance Climbs):** Current drops, `V_out` falls closer to `V_ref`. `Rate_of_Change` goes negative.
+
+On the live display graph, the derivative is shown with its natural sign — arousal spikes upward, relaxation dips below center. For the GPX export (Section 6), only the **magnitude** of change matters: both rapid rises and rapid drops produce high elevation values.
+
+### TIA Conductance Equation
+
+The filtered and normalised ADC reading (`N`, in counts at the ±0.256 V reference) is converted to skin conductance in nanosiemens (nS) using the circuit parameters:
+
+$$G_{nS} = \frac{N \times 5{,}000{,}000}{15{,}040{,}000 - N \times 47}$$
+
+**Derivation:**
+
+| Parameter | Value |
+|---|---|
+| V_ref (voltage divider) | 0.5 V = 3.3 V × 10 kΩ / (56 kΩ + 10 kΩ) |
+| R_f (TIA feedback) | 47 kΩ |
+| R_safety (two 4.7 kΩ in series) | 9.4 kΩ |
+| ADC LSB at ±0.256 V | 7.8125 µV = 1/128,000 V |
+
+1. TIA output: `V_diff = V_out − V_ref = I_skin × R_f = (V_ref / (R_skin + R_safety)) × R_f`
+2. In ADC counts: `N = V_diff / 7.8125×10⁻⁶`
+3. Solve for skin resistance: `R_skin = 3,008,000,000 / N − 9,400`
+4. Convert to nanosiemens: `G_nS = 10⁹ / R_skin`
+5. Simplifying: `G_nS = N × 5,000,000 / (15,040,000 − N × 47)`
+
+When `N` approaches zero (open circuit / disconnected electrodes), conductance is clamped to 0. When `N` exceeds 319,000 (near the denominator singularity at `N = 15,040,000 / 47 ≈ 320,000`), the value is clamped to prevent overflow.
 
 ---
 
@@ -288,17 +317,18 @@ In our TIA setup:
 
 When the user presses "Record", the app writes to a **CSV file** (`/ext/biomapping/biomap_001.csv`), not a GPX file. This keeps the recording simple and preserves the raw GSR data for offline re-analysis. The GPX file is produced **post-recording** by the built-in converter.
 
-**GPS+GSR mode CSV (7 columns, 1 Hz):**
+**GPS+GSR mode CSV (7 columns, 10 Hz mixed):**
 ```
 timestamp,lat,lon,alt,sats,fix,gsr_raw
-2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,8,1,4523
+2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,8,1,4523   ← full GPS row
+2026-06-29T13:42:59Z,,,,,,4528                           ← GSR-only row
 ```
 
-**GSR-only mode CSV (2 columns, 10 Hz):**
+**GSR-only mode CSV (3 columns, 10 Hz):**
 ```
-timestamp,gsr_raw
-2026-06-29T13:42:59Z,4523
-2026-06-29T13:42:59Z,4528
+timestamp,tick,gsr_raw
+2026-06-29T13:42:59Z,0,4523
+2026-06-29T13:42:59Z,1,4528
 ```
 
 ### Post-Processing: CSV → GPX Converter
@@ -315,30 +345,30 @@ For GPS+GSR recordings, the GPX file encodes the GSR rate-of-change as elevation
 * **0** = calm / steady GSR (no emotional event)
 * **255** = maximum GSR change (strongest emotional event)
 
-Both rapid rises AND rapid drops in GSR produce high elevation — only the magnitude of change matters, not the direction.
+Both rapid rises AND rapid drops in GSR produce high elevation — only the magnitude of change matters, not the direction. The elevation is an unsigned integer in the range [0, 255].
 
 **The resulting file structure looks like this:**
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="FlipperZero BioMapping">
+<gpx version="1.1" creator="Bio Mapping">
   <trk>
-    <name>Stress & Relaxation Walk</name>
+    <name>Bio Mapping Walk</name>
     <trkseg>
       <!-- This point is flat baseline (Neutral) -->
       <trkpt lat="51.507200" lon="-0.127600">
-        <ele>0.0</ele> 
+        <ele>0</ele> 
         <time>2026-06-05T13:33:12Z</time>
       </trkpt>
       
       <!-- This point shows a massive stress spike (Arousal = Mountain) -->
       <trkpt lat="51.507250" lon="-0.127650">
-        <ele>145.5</ele> 
+        <ele>145</ele> 
         <time>2026-06-05T13:33:13Z</time>
       </trkpt>
 
-      <!-- This point shows deep recovery (Relaxation = Valley) -->
+      <!-- This point shows a rapid relaxation drop (also a Mountain — magnitude matters) -->
       <trkpt lat="51.507300" lon="-0.127700">
-        <ele>-60.2</ele> 
+        <ele>96</ele> 
         <time>2026-06-05T13:33:14Z</time>
       </trkpt>
     </trkseg>
@@ -397,7 +427,7 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 
 ### Controls
 
-* `OK (Center Button)`: Starts and stops recording. In GPS+GSR mode writes 7-column CSV. In GSR-only mode writes 2-column CSV at 10 Hz.
+* `OK (Center Button)`: Starts and stops recording. In GPS+GSR mode writes 7-column CSV at 10 Hz (mixed full/partial rows). In GSR-only mode writes 3-column CSV at 10 Hz.
 * `Left/Right`: Changes the time scale of the graph (scroll speed). Left zooms out (slower), Right zooms in (faster).
 * `Up/Down`: Zooms in and out on the vertical sensitivity of the graph.
 * `Back`: Safely closes the file and returns to the menu.
@@ -424,7 +454,7 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 |---|---|
 | **GPS + GSR** | Enters recording view with both GPS and GSR active. Writes 7-column CSV at 1 Hz. |
 | **GPS Only** | Enters recording view with GPS only — no GSR sensor initialised. Writes 7-column CSV with `gsr_raw` = 0. |
-| **GSR Only** | Enters recording view with GSR only — no GPS initialised. Writes 2-column CSV at 10 Hz. |
+| **GSR Only** | Enters recording view with GSR only — no GPS initialised. Writes 3-column CSV at 10 Hz. |
 | **Convert CSV to GPX** | Scans for `biomap_*.csv` files and converts selected file to GPX (see Section 6). |
 | **Options** | Opens the Options screen (see below). |
 
@@ -493,9 +523,9 @@ All files are stored on the SD card under `/ext/biomapping/`:
 
 **CSV files:** `biomap_001.csv` through `biomap_999.csv` (auto-incrementing, wraps at 999).
 - 7-column format: `timestamp,lat,lon,alt,sats,fix,gsr_raw` (GPS+GSR and GPS-only modes)
-- 2-column format: `timestamp,gsr_raw` (GSR-only mode)
-- Row size: ~70 bytes (7-column) or ~30 bytes (2-column)
-- Expected file size for 1-hour walk: ~250 KB (GPS+GSR) or ~1 MB (GSR-only)
+- 3-column format: `timestamp,tick,gsr_raw` (GSR-only mode)
+- Row size: ~70 bytes (7-column) or ~35 bytes (3-column)
+- Expected file size for 1-hour walk: ~250 KB (GPS+GSR) or ~1.3 MB (GSR-only)
 
 **GPX files:** Generated by the converter, same index as the source CSV.
 
@@ -513,7 +543,7 @@ The GPX converter has two tunable constants that control how GSR data is mapped 
 
 These are defined in `modules/gpx_converter.h` and can be adjusted before building:
 
-- **GPX_RATE_WINDOW** (default 80): Simple Moving Average window size. At 1 Hz (GPS+GSR mode), a window of 80 samples means the first ~80 seconds of a walk are used to warm up the filter — no GPX trackpoints are emitted during this period. A larger window produces smoother elevation but responds slower to sudden changes. A smaller window reacts faster but may be noisier.
+- **GPX_RATE_WINDOW** (default 80): Simple Moving Average window size. The SMA buffer is pre-warmed with the first GSR sample so trackpoints begin immediately — there is no warm-up gap at the start of the recording. A larger window produces smoother elevation but responds slower to sudden changes. A smaller window reacts faster but may capture more noise.
 
 - **GPX_MAX_ABS_RATE** (default 2000.0): The absolute rate-of-change in nS/sec beyond which any value is clamped. This prevents a single sensor glitch (e.g. static discharge from clothing) from setting the global maximum rate and compressing the rest of the walk into the bottom of the [0, 255] range. The default 2000 nS/sec is calibrated for the TIA circuit with 47 kΩ feedback and 9.4 kΩ safety resistors.
 

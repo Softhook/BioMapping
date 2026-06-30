@@ -73,7 +73,7 @@ static const char* const PGA_LABEL[6] = {
 
 // Config register MSB for each pga_index.
 // Bit layout: OS=1 | MUX=000 (AIN0–AIN1 differential) | PGA[2:0] | MODE=0 (continuous)
-// = 0x80 | (pga_index << 1).  LSB stays 0x83: DR=128 SPS, comparator disabled.
+// = 0x80 | (pga_index << 1).  LSB stays 0xE3: DR=860 SPS, comparator disabled.
 static inline uint8_t pga_msb(uint8_t idx) {
     return (uint8_t)(0x80u | ((uint32_t)idx << 1u));
 }
@@ -327,9 +327,9 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     if(avg_norm <= 0) {
         gsr->raw = 0;
     } else {
-        if(avg_norm > 319000) avg_norm = 319000; // safety cap to prevent division by zero/negative
-        int64_t num = (int64_t)avg_norm * 5000000LL;
-        int64_t den = 15040000LL - (int64_t)avg_norm * 47LL;
+        int32_t clamped_avg = (avg_norm > 319000) ? 319000 : avg_norm;
+        int64_t num = (int64_t)clamped_avg * 5000000LL;
+        int64_t den = 15040000LL - (int64_t)clamped_avg * 47LL;
         gsr->raw = (int32_t)(num / den);
     }
     furi_mutex_release(gsr->mutex);

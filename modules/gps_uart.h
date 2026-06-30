@@ -38,3 +38,4 @@ bool      gps_uart_is_ready(const GpsUart* gps);
 void      gps_uart_process_rx(GpsUart* gps);   // hold app mutex
 void      gps_uart_configure(GpsUart* gps);
 void      gps_uart_send_hot_start(GpsUart* gps);
+void      gps_uart_send_factory_reset(GpsUart* gps);

@@ -13,7 +13,7 @@ typedef struct SdLogger SdLogger;
 SdLogger* sd_logger_alloc(Storage* storage);
 void      sd_logger_free(SdLogger* logger);
 
-bool        sd_logger_start(SdLogger* logger);
+bool        sd_logger_start(SdLogger* logger, const char* header);
 void        sd_logger_stop(SdLogger* logger);
 
 // GSR batch write API — accumulate formatted rows in memory and flush
@@ -22,7 +22,6 @@ void        sd_logger_stop(SdLogger* logger);
 //   sd_logger_batch_append  — append a pre-formatted row (returns false on overflow)
 //   sd_logger_batch_flush   — flush buffer to SD, returns >0 on success (bytes
 //                             written), 0 if buffer was empty, <0 on error.
-bool        sd_logger_start_gsr(SdLogger* logger);
 int         sd_logger_batch_flush(SdLogger* logger);
 bool        sd_logger_batch_append(SdLogger* logger, const char* data, size_t len);
 

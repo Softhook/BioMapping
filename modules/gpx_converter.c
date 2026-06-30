@@ -204,8 +204,8 @@ struct GpxConverter {
 
 GpxConverter* gpx_converter_alloc(Storage* storage) {
     GpxConverter* c = malloc(sizeof(GpxConverter));
-    memset(c, 0, sizeof(*c));
-    c->storage = storage;
+    furi_assert(c);
+    *c = (GpxConverter){.storage = storage};
     return c;
 }
 
@@ -214,16 +214,16 @@ void gpx_converter_free(GpxConverter* c) { furi_assert(c); free(c); }
 // Insertion sort by index — no stdlib dependency, O(n²) is fine for ≤32 files
 static void sort_filenames_by_index(char names[][32], int* indices, int count) {
     for(int i = 1; i < count; i++) {
-        char tmp_name[32];
-        memcpy(tmp_name, names[i], 32);
+        char tmp_name[sizeof(names[0])];
+        memcpy(tmp_name, names[i], sizeof(names[0]));
         int tmp_idx = indices[i];
         int j = i - 1;
         while(j >= 0 && indices[j] > tmp_idx) {
-            memcpy(names[j + 1], names[j], 32);
+            memcpy(names[j + 1], names[j], sizeof(names[0]));
             indices[j + 1] = indices[j];
             j--;
         }
-        memcpy(names[j + 1], tmp_name, 32);
+        memcpy(names[j + 1], tmp_name, sizeof(names[0]));
         indices[j + 1] = tmp_idx;
     }
 }
@@ -248,7 +248,7 @@ int gpx_converter_scan(GpxConverter* c) {
         if(info.flags & FSF_DIRECTORY) continue;
         size_t len = strlen(name);
         if(len < 12) continue;
-        if(strncmp(name, "biomap_", 7) != 0) continue;
+        if(strncmp(name, "biomap_", sizeof("biomap_") - 1) != 0) continue;
         if(strcmp(name + len - 4, ".csv") != 0) continue;
 
         int idx = biomap_parse_file_index(name);
@@ -392,9 +392,9 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
     // Skip CSV header
     lr_read_line(&lr1, line, sizeof(line));
 
-    // Detect GSR-only CSV (2 columns: timestamp,gsr_raw) — these have no
+    // Detect GSR-only CSV (3 columns: timestamp,tick,gsr_raw) — these have no
     // GPS coordinates and cannot produce a meaningful GPX track.
-    if(strstr(line, "timestamp,gsr_raw") && !strstr(line, "lat,lon")) {
+    if(strstr(line, "timestamp,tick,gsr_raw") && !strstr(line, "lat,lon")) {
         FURI_LOG_E(TAG, "GSR-only CSV (no GPS data) — cannot convert to GPX");
         storage_file_close(csv1);
         storage_file_free(csv1);

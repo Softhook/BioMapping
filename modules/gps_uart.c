@@ -245,3 +245,13 @@ void gps_uart_send_hot_start(GpsUart* g) {
     pcas_tx(g, "$PCAS10,0*1C\r\n");
 }
 
+// ---------------------------------------------------------------------------
+// Factory Reset — clears all cached satellite data for a fresh lock
+// ---------------------------------------------------------------------------
+void gps_uart_send_factory_reset(GpsUart* g) {
+    furi_assert(g);
+    if(!g->ready || !g->serial_handle) return;
+    FURI_LOG_I("GpsUart", "Factory reset");
+    pcas_tx(g, "$PCAS10,3*1F\r\n");
+}
+

@@ -36,7 +36,7 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
 
     // Fold zoom and scale into one constant so the inner loop only needs
     // one multiply per sample instead of two.
-    const float combined_scale = a->zoom_level * ((float)(gh / 2 - 2) / 100.0f);
+    const float combined_scale = a->zoom.level * ((float)(gh / 2 - 2) / 100.0f);
 
     canvas_draw_frame(c, gx, gy, gw, gh);
 
@@ -44,7 +44,7 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
     // px_per_notch: how many pixels represent 10 seconds at current speed.
     // scroll_divider ticks per pixel, TICK_HZ ticks per second.
     // 10 s × TICK_HZ ticks/s ÷ scroll_divider ticks/px = px per notch.
-    int px_per_notch = (10 * TICK_HZ) / a->scroll_divider; // integer, always ≥1
+    int px_per_notch = (10 * TICK_HZ) / a->graph.scroll_divider; // integer, always ≥1
     if(px_per_notch > 2) {
         int right_edge = gx + gw - 2;
         int notch_top = gy > 3 ? gy - 3 : 0;   // guard against negative canvas y
@@ -57,15 +57,15 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
     // GRAPH_N (126) is not a power-of-two, so % GRAPH_N compiles to a
     // software divide on Cortex-M4. Replace with a compare-and-wrap.
     // Also cache y_prev: y1 of segment i becomes y0 of segment i+1.
-    int idx = a->graph_head;
-    float v0 = a->graph_buf[idx] * combined_scale;
+    int idx = a->graph.head;
+    float v0 = a->graph.buf[idx] * combined_scale;
     int y_prev = cy - (int)v0;
 
     for(int i = 0; i < n - 1; i++) {
         // Advance index with branchless wrap (compare cheaper than divide)
         if(++idx >= GRAPH_N) idx = 0;
 
-        float v1 = a->graph_buf[idx] * combined_scale;
+        float v1 = a->graph.buf[idx] * combined_scale;
         int y1 = cy - (int)v1;
 
         canvas_draw_line(c, gx + 1 + i, y_prev, gx + 1 + i + 1, y1);
@@ -89,11 +89,11 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         static char  zoom_buf[16] = "1.0x";
         static float zoom_last    = -1.0f; // sentinel: force first format
         static int   zoom_px_w    = 0;
-        if(a->zoom_level < zoom_last - 0.05f || a->zoom_level > zoom_last + 0.05f) {
-            snprintf(zoom_buf, sizeof(zoom_buf), "%.1fx", (double)a->zoom_level);
+        if(a->zoom.level < zoom_last - 0.05f || a->zoom.level > zoom_last + 0.05f) {
+            snprintf(zoom_buf, sizeof(zoom_buf), "%.1fx", (double)a->zoom.level);
             canvas_set_font(c, FontSecondary);
             zoom_px_w = canvas_string_width(c, zoom_buf);
-            zoom_last = a->zoom_level;
+            zoom_last = a->zoom.level;
         }
         canvas_set_font(c, FontSecondary);
         canvas_draw_str(c, 128 - zoom_px_w - 2, 62, zoom_buf);
@@ -104,7 +104,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     canvas_draw_str(c, 0, 10, "Bio Mapping");
     canvas_set_font(c, FontSecondary);
 
-    if(a->recording_active) {
+    if(a->recording.active) {
         canvas_draw_box(c, 118, 1, 8, 8);
     }
 
@@ -112,8 +112,8 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         // GPS+GSR or GSR-only: minimal overlay — just GSR number on GSR-only
         if(a->mode == BioMapModeGsrOnly && a->gsr && gsr_sensor_available(a->gsr)) {
             char buf[32];
-            snprintf(buf, sizeof(buf), "%ld nS", (long)a->last_displayed_gsr);
-            int x = 128 - canvas_string_width(c, buf) - (a->recording_active ? 12 : 2);
+            snprintf(buf, sizeof(buf), "%ld nS", (long)a->display.last_displayed);
+            int x = 128 - canvas_string_width(c, buf) - (a->recording.active ? 12 : 2);
             canvas_draw_str(c, x, 10, buf);
         }
     } else if(a->gps) {
@@ -121,15 +121,15 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         GpsStatus g = gps_uart_get_status(a->gps);
         int y = 20;
 
-        if(a->recording_active) {
-            const char* fn = a->recording_filename;
+        if(a->recording.active) {
+            const char* fn = a->recording.filename;
             canvas_draw_str(c, 0, y, (strlen(fn) > 7) ? fn + 7 : fn);
             y += 10;
         }
 
         if(gps_uart_is_ready(a->gps) && g.date.year) {
             char buf[48];
-            int yr = g.date.year + (g.date.year < 80 ? 2000 : 1900);
+            int yr = gps_year_expand(g.date.year);
             snprintf(buf, sizeof(buf), "%02d:%02d:%02d UTC %04d-%02d-%02d",
                 g.time.hours, g.time.minutes, g.time.seconds,
                 yr, g.date.month, g.date.day);
@@ -307,19 +307,26 @@ static void draw_selection_list(Canvas* c, int sel, int count,
     }
 }
 
+typedef struct {
+    BioMapApp* app;
+    int32_t selection;
+} MenuContext;
+
 void menu_render(Canvas* c, void* ctx) {
-    BioMapApp* a = (BioMapApp*)ctx;
+    MenuContext* m_ctx = (MenuContext*)ctx;
+    BioMapApp* a = m_ctx->app;
     furi_mutex_acquire(a->mutex, FuriWaitForever);
     canvas_clear(c);
     canvas_set_font(c, FontPrimary);
     canvas_draw_str(c, 0, 10, "Bio Mapping");
     canvas_set_font(c, FontSecondary);
-    draw_selection_list(c, (int)a->menu_selection, MENU_COUNT, menu_labels, 22);
+    draw_selection_list(c, (int)m_ctx->selection, MENU_COUNT, menu_labels, 22);
     furi_mutex_release(a->mutex);
 }
 
 int32_t biomap_gui_show_menu(BioMapApp* app) {
-    app->menu_selection = 0;
+    MenuContext ctx = {.app = app, .selection = 0};
+    view_port_draw_callback_set(app->menu_vp, menu_render, &ctx);
 
     // Enable menu VP so it receives input and renders
     view_port_enabled_set(app->menu_vp, true);
@@ -336,18 +343,20 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
         switch(ev.input.key) {
         case InputKeyUp:
             furi_mutex_acquire(app->mutex, FuriWaitForever);
-            if(app->menu_selection > 0) app->menu_selection--;
+            if(ctx.selection > 0) ctx.selection--;
             furi_mutex_release(app->mutex);
             view_port_update(app->menu_vp);
             break;
         case InputKeyDown:
             furi_mutex_acquire(app->mutex, FuriWaitForever);
-            if(app->menu_selection < MENU_COUNT - 1) app->menu_selection++;
+            if(ctx.selection < MENU_COUNT - 1) ctx.selection++;
             furi_mutex_release(app->mutex);
             view_port_update(app->menu_vp);
             break;
         case InputKeyOk:
-            result = (int32_t)app->menu_selection;
+            furi_mutex_acquire(app->mutex, FuriWaitForever);
+            result = ctx.selection;
+            furi_mutex_release(app->mutex);
             running = false;
             break;
         case InputKeyBack:
@@ -362,6 +371,7 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
     // The VP stays in the GUI stack (no flash of desktop) but passes
     // input through to any VP layered on top.
     view_port_enabled_set(app->menu_vp, false);
+    view_port_draw_callback_set(app->menu_vp, NULL, NULL);
     return result;
 }
 
@@ -387,20 +397,26 @@ static const char* options_labels[OPTIONS_COUNT] = {
     "Backlight",
 };
 
+typedef struct {
+    BioMapApp* app;
+    int32_t selection;
+} OptionsContext;
+
 static void options_render(Canvas* c, void* ctx) {
-    BioMapApp* a = (BioMapApp*)ctx;
+    OptionsContext* o_ctx = (OptionsContext*)ctx;
+    BioMapApp* a = o_ctx->app;
     furi_mutex_acquire(a->mutex, FuriWaitForever);
     canvas_clear(c);
     canvas_set_font(c, FontPrimary);
     canvas_draw_str(c, 0, 10, "Options");
     canvas_set_font(c, FontSecondary);
-    int sel = (int)a->menu_selection;
+    int sel = (int)o_ctx->selection;
     draw_selection_list(c, sel, OPTIONS_COUNT, options_labels, 22);
 
     // Overlay toggle state on items 1 (auto-zoom) and 2 (backlight)
     for(int i = 1; i < OPTIONS_COUNT; i++) {
         int y = 22 + i * 10;
-        bool on = (i == 1) ? a->auto_zoom_enabled : a->backlight_on;
+        bool on = (i == 1) ? a->zoom.enabled : a->backlight_on;
         const char* state = on ? "ON" : "OFF";
         int sx = 128 - canvas_string_width(c, state) - 2;
         if(i == sel) canvas_invert_color(c);
@@ -413,10 +429,10 @@ static void options_render(Canvas* c, void* ctx) {
 }
 
 void run_options_screen(BioMapApp* app) {
-    app->menu_selection = 0;
+    OptionsContext ctx = {.app = app, .selection = 0};
 
     ViewPort* vp = view_port_alloc();
-    view_port_draw_callback_set(vp, options_render, app);
+    view_port_draw_callback_set(vp, options_render, &ctx);
     view_port_input_callback_set(vp, biomap_input_callback, app->event_queue);
     gui_add_view_port(app->gui, vp, GuiLayerFullscreen);
     view_port_update(vp);
@@ -430,34 +446,38 @@ void run_options_screen(BioMapApp* app) {
             switch(ev.input.key) {
             case InputKeyUp:
                 furi_mutex_acquire(app->mutex, FuriWaitForever);
-                if(app->menu_selection > 0) app->menu_selection--;
+                if(ctx.selection > 0) ctx.selection--;
                 furi_mutex_release(app->mutex);
                 break;
             case InputKeyDown:
                 furi_mutex_acquire(app->mutex, FuriWaitForever);
-                if(app->menu_selection < OPTIONS_COUNT - 1) app->menu_selection++;
+                if(ctx.selection < OPTIONS_COUNT - 1) ctx.selection++;
                 furi_mutex_release(app->mutex);
                 break;
             case InputKeyOk:
-                if(app->menu_selection == 0) {
+                switch(ctx.selection) {
+                case 0:
                     // Reset GPS — VP stays visible, no need to re-create
                     run_gps_hot_start(app);
                     view_port_update(vp);
                     continue;
-                } else if(app->menu_selection == 1) {
+                case 1:
                     // Toggle auto-zoom
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    app->auto_zoom_enabled = !app->auto_zoom_enabled;
-                    if(app->auto_zoom_enabled) {
-                        app->auto_zoom_peak = 1.0f;
-                        app->zoom_level     = 1.0f;  // reset stale manual zoom; lerp starts clean
+                    app->zoom.enabled = !app->zoom.enabled;
+                    if(app->zoom.enabled) {
+                        app->zoom.peak = 1.0f;
+                        app->zoom.level     = 1.0f;  // reset stale manual zoom; lerp starts clean
                     }
                     furi_mutex_release(app->mutex);
-                } else if(app->menu_selection == 2) {
+                    break;
+                case 2:
                     // Toggle backlight
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
                     app->backlight_on = !app->backlight_on;
                     furi_mutex_release(app->mutex);
+                    break;
+                default: break;
                 }
                 break;
             default: break;

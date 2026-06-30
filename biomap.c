@@ -5,7 +5,7 @@ void format_timestamp(BioMapApp* app, char* buf, size_t sz) {
     if(app->gps) {
         GpsStatus g = gps_uart_get_status(app->gps);
         if(g.date.year) {
-            int y = g.date.year + (g.date.year < 80 ? 2000 : 1900);
+            int y = gps_year_expand(g.date.year);
             snprintf(buf, sz, "%04d-%02d-%02dT%02d:%02d:%02dZ",
                 y, g.date.month, g.date.day,
                 g.time.hours, g.time.minutes, g.time.seconds);
@@ -51,10 +51,10 @@ static void rescale_graph_buf(BioMapApp* app, bool zoom_out) {
 
     // Linearise ring buffer: temp[0] = oldest sample, temp[N-1] = newest.
     for(int i = 0; i < GRAPH_N; i++) {
-        temp[i] = app->graph_buf[(app->graph_head + i) % GRAPH_N];
+        temp[i] = app->graph.buf[(app->graph.head + i) % GRAPH_N];
     }
-    memset(app->graph_buf, 0, sizeof(app->graph_buf));
-    app->graph_head = 0;
+    memset(app->graph.buf, 0, sizeof(app->graph.buf));
+    app->graph.head = 0;
 
     if(zoom_out) {
         // Average adjacent pairs (both are rate-per-tick; average preserves that).
@@ -62,7 +62,7 @@ static void rescale_graph_buf(BioMapApp* app, bool zoom_out) {
         // Positions [0..62] remain zero (no data at this resolution yet).
         int half = GRAPH_N / 2; // 63
         for(int i = 0; i < half; i++) {
-            app->graph_buf[half + i] = (temp[i * 2] + temp[i * 2 + 1]) * 0.5f;
+            app->graph.buf[half + i] = (temp[i * 2] + temp[i * 2 + 1]) * 0.5f;
         }
     } else {
         // Zoom in (÷2): split newest 63 old samples using linear interpolation.
@@ -75,8 +75,8 @@ static void rescale_graph_buf(BioMapApp* app, bool zoom_out) {
             float curr = temp[half + i];
             // For the last sample there is no following neighbour — hold value.
             float next = (i + 1 < half) ? temp[half + i + 1] : curr;
-            app->graph_buf[i * 2]     = curr;
-            app->graph_buf[i * 2 + 1] = (curr + next) * 0.5f;
+            app->graph.buf[i * 2]     = curr;
+            app->graph.buf[i * 2 + 1] = (curr + next) * 0.5f;
         }
     }
 }
@@ -92,7 +92,7 @@ static bool handle_recording_key(PluginEvent* ev, BioMapApp* app,
     switch(ev->input.key) {
     case InputKeyBack:
         furi_mutex_acquire(app->mutex, FuriWaitForever);
-        if(has_gsr(mode) && app->recording_active) {
+        if(has_gsr(mode) && app->recording.active) {
             sd_logger_batch_flush(app->logger);
         }
         app->running = false;
@@ -102,30 +102,32 @@ static bool handle_recording_key(PluginEvent* ev, BioMapApp* app,
     case InputKeyOk: {
         bool start;
         furi_mutex_acquire(app->mutex, FuriWaitForever);
-        start = !app->recording_active;
+        start = !app->recording.active;
         furi_mutex_release(app->mutex);
 
         if(start) {
-            bool ok = (mode == BioMapModeGsrOnly)
-                ? sd_logger_start_gsr(app->logger)
-                : sd_logger_start(app->logger);
+            bool ok = sd_logger_start(
+                app->logger,
+                (mode == BioMapModeGsrOnly)
+                    ? "timestamp,tick,gsr_raw\n"
+                    : "timestamp,lat,lon,alt,sats,fix,gsr_raw\n");
             if(ok) {
                 furi_mutex_acquire(app->mutex, FuriWaitForever);
-                app->recording_active = true;
-                strncpy(app->recording_filename,
+                app->recording.active = true;
+                strncpy(app->recording.filename,
                     sd_logger_get_filename(app->logger),
-                    sizeof(app->recording_filename) - 1);
-                app->tick_counter = app->raw_count = app->gsr_raw_sum = 0;
+                    sizeof(app->recording.filename) - 1);
+                app->recording.tick_counter = 0;
                 furi_mutex_release(app->mutex);
                 notification_message(app->notifications, &sequence_set_only_red_255);
             }
         } else {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
-            app->recording_active = false;
+            app->recording.active = false;
             if(has_gsr(mode)) {
                 sd_logger_batch_flush(app->logger);
             }
-            app->recording_filename[0] = '\0';
+            app->recording.filename[0] = '\0';
             furi_mutex_release(app->mutex);
             sd_logger_stop(app->logger);
             notification_message(app->notifications, &sequence_reset_rgb);
@@ -136,8 +138,8 @@ static bool handle_recording_key(PluginEvent* ev, BioMapApp* app,
     case InputKeyUp:
         if(has_gsr(mode)) {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
-            app->auto_zoom_enabled = false;
-            app->zoom_level = fminf(app->zoom_level * ZOOM_FACTOR, ZOOM_MAX);
+            app->zoom.enabled = false;
+            app->zoom.level = fminf(app->zoom.level * ZOOM_FACTOR, ZOOM_MAX);
             furi_mutex_release(app->mutex);
             view_port_update(vp);
         }
@@ -145,8 +147,8 @@ static bool handle_recording_key(PluginEvent* ev, BioMapApp* app,
     case InputKeyDown:
         if(has_gsr(mode)) {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
-            app->auto_zoom_enabled = false;
-            app->zoom_level = fmaxf(app->zoom_level / ZOOM_FACTOR, ZOOM_MIN);
+            app->zoom.enabled = false;
+            app->zoom.level = fmaxf(app->zoom.level / ZOOM_FACTOR, ZOOM_MIN);
             furi_mutex_release(app->mutex);
             view_port_update(vp);
         }
@@ -154,10 +156,10 @@ static bool handle_recording_key(PluginEvent* ev, BioMapApp* app,
     case InputKeyLeft:
         if(has_gsr(mode)) {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
-            if(app->scroll_divider < 16) {
-                app->scroll_divider *= 2;
-                app->graph_tick_counter = 0;
-                app->graph_last_smoothed = app->display_smoothed;
+            if(app->graph.scroll_divider < 16) {
+                app->graph.scroll_divider *= 2;
+                app->graph.tick_counter = 0;
+                app->graph.last_smoothed = app->display.smoothed;
                 rescale_graph_buf(app, true);
             }
             furi_mutex_release(app->mutex);
@@ -167,10 +169,10 @@ static bool handle_recording_key(PluginEvent* ev, BioMapApp* app,
     case InputKeyRight:
         if(has_gsr(mode)) {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
-            if(app->scroll_divider > 1) {
-                app->scroll_divider /= 2;
-                app->graph_tick_counter = 0;
-                app->graph_last_smoothed = app->display_smoothed;
+            if(app->graph.scroll_divider > 1) {
+                app->graph.scroll_divider /= 2;
+                app->graph.tick_counter = 0;
+                app->graph.last_smoothed = app->display.smoothed;
                 rescale_graph_buf(app, false);
             }
             furi_mutex_release(app->mutex);
@@ -197,64 +199,55 @@ static void get_gps_position(BioMapApp* app, float* lat, float* lon,
     *fix  = gs.fix_quality;
 }
 
-// ── Extract: handle one GSR tick (10 Hz) during a recording session ──────
-static void handle_recording_tick(BioMapApp* app, BioMapMode mode) {
-    int32_t raw = 0;
-    if(app->gsr) {
-        gsr_sensor_tick(app->gsr);
-        raw = gsr_sensor_get_raw(app->gsr);
+static void update_display_pipeline(BioMapApp* app, int32_t raw) {
+    float rf = (float)raw;
+    if(!app->display.primed) {
+        app->display.smoothed = rf;
+        app->graph.last_smoothed = rf;
+        app->display.last_displayed = raw;
+        app->display.primed = true;
+    }
+    float ns = DISPLAY_EMA_A * rf + DISPLAY_EMA_B * app->display.smoothed;
+    app->display.smoothed = ns;
 
-        float rf = (float)raw;
-        if(!app->display_primed) {
-            app->display_smoothed = rf;
-            app->graph_last_smoothed = rf;
-            app->last_displayed_gsr = raw;
-            app->display_primed = true;
-        }
-        float ns = DISPLAY_EMA_A * rf + DISPLAY_EMA_B * app->display_smoothed;
-        app->display_smoothed = ns;
+    app->display.refresh_counter++;
+    if(app->display.refresh_counter >= 5) {
+        app->display.last_displayed = raw;
+        app->display.refresh_counter = 0;
+    }
+}
 
-        app->text_refresh_counter++;
-        if(app->text_refresh_counter >= 5) {
-            app->last_displayed_gsr = raw;
-            app->text_refresh_counter = 0;
-        }
+static void update_graph_pipeline(BioMapApp* app) {
+    if(app->zoom.enabled) {
+        app->zoom.peak *= 0.997f;
+    }
 
-        if(app->auto_zoom_enabled) {
-            app->auto_zoom_peak *= 0.997f;
-        }
+    app->graph.tick_counter++;
+    if(app->graph.tick_counter >= app->graph.scroll_divider) {
+        float rate = app->display.smoothed - app->graph.last_smoothed;
+        app->graph.buf[app->graph.head] = -(rate / (float)app->graph.scroll_divider) * 0.2f;
+        if(++app->graph.head >= GRAPH_N) app->graph.head = 0;
+        app->graph.last_smoothed = app->display.smoothed;
+        app->graph.tick_counter = 0;
 
-        app->graph_tick_counter++;
-        if(app->graph_tick_counter >= app->scroll_divider) {
-            float rate = app->display_smoothed - app->graph_last_smoothed;
-            app->graph_buf[app->graph_head] = -(rate / (float)app->scroll_divider) * 0.2f;
-            if(++app->graph_head >= GRAPH_N) app->graph_head = 0;
-            app->graph_last_smoothed = app->display_smoothed;
-            app->graph_tick_counter = 0;
-
-            if(app->auto_zoom_enabled) {
-                int just_written = app->graph_head - 1;
-                if(just_written < 0) just_written = GRAPH_N - 1;
-                float newest = fabsf(app->graph_buf[just_written]);
-                if(newest > app->auto_zoom_peak) app->auto_zoom_peak = newest;
-                if(app->auto_zoom_peak < 0.5f) app->auto_zoom_peak = 0.5f;
-            }
-        }
-
-        if(mode == BioMapModeGpsOnly) {
-            app->gsr_raw_sum += raw;
-            app->raw_count++;
-        }
-
-        if(app->auto_zoom_enabled && app->auto_zoom_peak >= 0.5f) {
-            float target = 80.0f / app->auto_zoom_peak;
-            target = fmaxf(ZOOM_MIN, fminf(ZOOM_MAX, target));
-            app->zoom_level += (target - app->zoom_level) * 0.02f;
+        if(app->zoom.enabled) {
+            int just_written = app->graph.head - 1;
+            if(just_written < 0) just_written = GRAPH_N - 1;
+            float newest = fabsf(app->graph.buf[just_written]);
+            if(newest > app->zoom.peak) app->zoom.peak = newest;
+            if(app->zoom.peak < 0.5f) app->zoom.peak = 0.5f;
         }
     }
 
-    // ── Batch CSV row formatting (10 Hz modes) ──────────────────────
-    if(app->recording_active) {
+    if(app->zoom.enabled && app->zoom.peak >= 0.5f) {
+        float target = 80.0f / app->zoom.peak;
+        target = fmaxf(ZOOM_MIN, fminf(ZOOM_MAX, target));
+        app->zoom.level += (target - app->zoom.level) * 0.02f;
+    }
+}
+
+static void batch_csv_row(BioMapApp* app, BioMapMode mode, int32_t raw) {
+    if(app->recording.active) {
         if(has_gsr(mode)) {
             char ts[32];
             format_timestamp(app, ts, sizeof(ts));
@@ -262,9 +255,10 @@ static void handle_recording_tick(BioMapApp* app, BioMapMode mode) {
             int n = 0;
 
             if(mode == BioMapModeGsrOnly) {
-                n = snprintf(row, sizeof(row), "%s,%ld\n", ts, (long)raw);
+                n = snprintf(row, sizeof(row), "%s,%d,%ld\n",
+                             ts, app->recording.tick_counter, (long)raw);
             } else {
-                if(app->tick_counter == 0) {
+                if(app->recording.tick_counter == 0) {
                     float lat = 0, lon = 0, alt = 0;
                     int   sats = 0, fix = 0;
                     get_gps_position(app, &lat, &lon, &alt, &sats, &fix);
@@ -285,18 +279,31 @@ static void handle_recording_tick(BioMapApp* app, BioMapMode mode) {
     }
 }
 
+// ── Extract: handle one GSR tick (10 Hz) during a recording session ──────
+static void handle_recording_tick(BioMapApp* app, BioMapMode mode) {
+    int32_t raw = 0;
+    if(app->gsr) {
+        gsr_sensor_tick(app->gsr);
+        raw = gsr_sensor_get_raw(app->gsr);
+
+        update_display_pipeline(app, raw);
+        update_graph_pipeline(app);
+    }
+    batch_csv_row(app, mode, raw);
+}
+
 // ── Shared: stop logger and signal failure with red blink ─────────────────
 static void handle_write_failure(BioMapApp* app) {
     if(app->logger) sd_logger_stop(app->logger);
-    app->recording_active = false;
-    app->recording_filename[0] = '\0';
+    app->recording.active = false;
+    app->recording.filename[0] = '\0';
     notification_message(app->notifications, &sequence_set_only_red_255);
 }
 
 // ── 1-second boundary: flush batch or write GPS-only row ──────────────────
 static void handle_second_boundary(BioMapApp* app, BioMapMode mode) {
     if(has_gsr(mode)) {
-        if(app->recording_active) {
+        if(app->recording.active) {
             int flushed = sd_logger_batch_flush(app->logger);
             if(flushed > 0) {
                 notification_message(app->notifications, &sequence_blink_green_100);
@@ -310,12 +317,11 @@ static void handle_second_boundary(BioMapApp* app, BioMapMode mode) {
         int   sats = 0, fix = 0;
         get_gps_position(app, &lat, &lon, &alt, &sats, &fix);
 
-        int32_t avg = app->raw_count ? (app->gsr_raw_sum / app->raw_count) : 0;
         char ts[32];
         format_timestamp(app, ts, sizeof(ts));
 
-        if(app->recording_active) {
-            if(sd_logger_write_row(app->logger, ts, lat, lon, alt, sats, fix, avg)) {
+        if(app->recording.active) {
+            if(sd_logger_write_row(app->logger, ts, lat, lon, alt, sats, fix, 0)) {
                 notification_message(app->notifications, &sequence_blink_green_100);
             } else {
                 handle_write_failure(app);
@@ -323,23 +329,19 @@ static void handle_second_boundary(BioMapApp* app, BioMapMode mode) {
         }
     }
 
-    app->tick_counter = app->raw_count = app->gsr_raw_sum = 0;
+    app->recording.tick_counter = 0;
 }
 
 void run_recording_session(BioMapApp* app, BioMapMode mode) {
     app->mode = mode;
-    app->gsr_raw_sum = app->raw_count = app->tick_counter = app->graph_head = 0;
-    app->display_smoothed = 0.0f;
-    app->display_primed   = false;
-    app->scroll_divider = 1;
-    app->graph_tick_counter = 0;
-    app->graph_last_smoothed = 0.0f;
-    app->recording_active = false;
-    app->recording_filename[0] = '\0';
+    app->display = (DisplayState){.smoothed = 0.0f, .primed = false, .last_displayed = 0, .refresh_counter = 0};
+    app->graph = (GraphState){.head = 0, .tick_counter = 0, .last_smoothed = 0.0f, .scroll_divider = 1};
+    app->zoom.level = 1.0f;
+    app->zoom.peak = 1.0f;
+    app->recording = (RecordingState){.active = false, .tick_counter = 0};
+    app->recording.filename[0] = '\0';
     app->running = true;
-    app->zoom_level = 1.0f;
-    app->auto_zoom_peak = 1.0f;
-    memset(app->graph_buf, 0, sizeof(app->graph_buf));
+    memset(app->graph.buf, 0, sizeof(app->graph.buf));
 
     app->gps = has_gps(mode) ? gps_uart_alloc(app->event_queue, app->notifications) : NULL;
     app->gsr = has_gsr(mode) ? gsr_sensor_alloc() : NULL;
@@ -382,7 +384,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
             handle_recording_tick(app, mode);
 
-            if(++app->tick_counter >= TICK_HZ) {
+            if(++app->recording.tick_counter >= TICK_HZ) {
                 handle_second_boundary(app, mode);
             }
             furi_mutex_release(app->mutex);
@@ -392,7 +394,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
 
     furi_timer_stop(timer);
     furi_timer_free(timer);
-    if(app->recording_active) sd_logger_stop(app->logger);
+    if(app->recording.active) sd_logger_stop(app->logger);
 
     sd_logger_free(app->logger);
     app->logger = NULL;
@@ -417,7 +419,10 @@ int32_t biomap_app(void* p) {
     UNUSED(p);
     BioMapApp* app = malloc(sizeof(BioMapApp));
     furi_assert(app);
-    *app = (BioMapApp){.zoom_level = 1.0f, .auto_zoom_enabled = true, .backlight_on = false};
+    *app = (BioMapApp){
+        .zoom = {.level = 1.0f, .peak = 1.0f, .enabled = true},
+        .backlight_on = false
+    };
 
     app->event_queue   = furi_message_queue_alloc(16, sizeof(PluginEvent));
     app->mutex         = furi_mutex_alloc(FuriMutexTypeNormal);
@@ -431,7 +436,6 @@ int32_t biomap_app(void* p) {
     // Enabled/disabled when entering/leaving sub-screens so it never needs
     // to be removed, preventing desktop flashes between screen transitions.
     app->menu_vp = view_port_alloc();
-    view_port_draw_callback_set(app->menu_vp, menu_render, app);
     view_port_input_callback_set(app->menu_vp, biomap_input_callback, app->event_queue);
     view_port_enabled_set(app->menu_vp, false);
     gui_add_view_port(app->gui, app->menu_vp, GuiLayerFullscreen);

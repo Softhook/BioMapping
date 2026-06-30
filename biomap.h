@@ -30,6 +30,33 @@
 
 #define GRAPH_N    126
 
+typedef struct {
+    float    smoothed;
+    bool     primed;
+    int32_t  last_displayed;
+    int      refresh_counter;
+} DisplayState;
+
+typedef struct {
+    float    buf[GRAPH_N];
+    int      head;
+    int      tick_counter;
+    float    last_smoothed;
+    int      scroll_divider;
+} GraphState;
+
+typedef struct {
+    float    level;
+    float    peak;
+    bool     enabled;
+} ZoomState;
+
+typedef struct {
+    bool     active;
+    char     filename[64];
+    int      tick_counter;
+} RecordingState;
+
 typedef struct BioMapApp {
     BioMapMode         mode;
     GpsUart*           gps;
@@ -42,32 +69,20 @@ typedef struct BioMapApp {
     Gui*               gui;
     ViewPort*          menu_vp;
 
-    int32_t  gsr_raw_sum;
-    int      raw_count;
-    int      tick_counter;
+    DisplayState       display;
+    GraphState         graph;
+    ZoomState          zoom;
+    RecordingState     recording;
 
-    float    display_smoothed;
-    bool     display_primed;
-    float    graph_buf[GRAPH_N];
-    int      graph_head;
-
-    float    zoom_level;
-    float    auto_zoom_peak;
-    bool     auto_zoom_enabled;
-    bool     backlight_on;
-    int      scroll_divider;
-    int      graph_tick_counter;
-    float    graph_last_smoothed;
-    bool     running;
-    bool     recording_active;
-    char     recording_filename[64];
-    int32_t  last_displayed_gsr;
-    int      text_refresh_counter;
-    volatile int32_t menu_selection;
+    bool               running;
+    bool               backlight_on;
 } BioMapApp;
 
 static inline bool has_gps(BioMapMode m) { return m == BioMapModeGpsGsr || m == BioMapModeGpsOnly; }
 static inline bool has_gsr(BioMapMode m) { return m == BioMapModeGpsGsr || m == BioMapModeGsrOnly; }
+
+// Expand a 2-digit NMEA year to a 4-digit calendar year (Y2K pivot at 80).
+static inline int gps_year_expand(int y) { return y + (y < 80 ? 2000 : 1900); }
 
 void format_timestamp(BioMapApp* app, char* buf, size_t sz);
 void run_recording_session(BioMapApp* app, BioMapMode mode);

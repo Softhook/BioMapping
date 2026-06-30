@@ -55,7 +55,7 @@ static int find_next_index(SdLogger* l) {
         if(info.flags & FSF_DIRECTORY) continue;
         size_t len = strlen(name);
         if(len < 12) continue; // "biomap_001.csv" is 14 chars
-        if(strncmp(name, LOGGER_BASENAME, 7) == 0 && strcmp(name + len - 4, LOGGER_EXT) == 0) {
+        if(strncmp(name, LOGGER_BASENAME, sizeof(LOGGER_BASENAME) - 1) == 0 && strcmp(name + len - 4, LOGGER_EXT) == 0) {
             int idx = biomap_parse_file_index(name);
             if(idx < 0) idx = 0; // fallback for non-numeric names
             if(idx > max_idx && idx <= LOGGER_MAX_INDEX) {
@@ -108,10 +108,10 @@ static bool open_log_file(SdLogger* l, const char* header) {
     return true;
 }
 
-bool sd_logger_start(SdLogger* l) {
+bool sd_logger_start(SdLogger* l, const char* header) {
     furi_assert(l);
     furi_assert(!l->active);
-    return open_log_file(l, "timestamp,lat,lon,alt,sats,fix,gsr_raw\n");
+    return open_log_file(l, header);
 }
 
 void sd_logger_stop(SdLogger* l) {
@@ -122,16 +122,6 @@ void sd_logger_stop(SdLogger* l) {
     l->file   = NULL;
     l->active = false;
     FURI_LOG_I("SdLogger", "Stopped %s", l->filename);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GSR-only logging — 2-column CSV: timestamp,gsr_raw (no GPS fields).
-// Called at 10 Hz; rows are ~30 bytes.  A 1-hour session is ~1 MB.
-// ─────────────────────────────────────────────────────────────────────────────
-bool sd_logger_start_gsr(SdLogger* l) {
-    furi_assert(l);
-    furi_assert(!l->active);
-    return open_log_file(l, "timestamp,gsr_raw\n");
 }
 
 
