@@ -190,6 +190,76 @@ static void handle_second_boundary(BioMapApp* app, BioMapMode mode) {
 // Recording session — key handling, tick processing, event loop
 // ==========================================================================
 
+// ── Key-action helpers (extracted from handle_recording_key) ──────────────
+
+// Toggle recording on/off.  Returns true to request a view_port_update.
+static bool key_toggle_recording(BioMapApp* app, BioMapMode mode) {
+    bool start;
+    furi_mutex_acquire(app->mutex, FuriWaitForever);
+    start = !app->recording.active;
+    furi_mutex_release(app->mutex);
+
+    if(start) {
+        bool ok = sd_logger_start(
+            app->logger,
+            (mode == BioMapModeGsrOnly)
+                ? "timestamp,tick,gsr_raw\n"
+                : "timestamp,lat,lon,alt,sats,fix,gsr_raw\n");
+        if(ok) {
+            furi_mutex_acquire(app->mutex, FuriWaitForever);
+            app->recording.active = true;
+            strncpy(app->recording.filename,
+                sd_logger_get_filename(app->logger),
+                sizeof(app->recording.filename) - 1);
+            app->recording.tick_counter = 0;
+            furi_mutex_release(app->mutex);
+            notification_message(app->notifications, &sequence_set_only_red_255);
+        }
+    } else {
+        furi_mutex_acquire(app->mutex, FuriWaitForever);
+        app->recording.active = false;
+        if(has_gsr(mode)) {
+            sd_logger_batch_flush(app->logger);
+        }
+        app->recording.filename[0] = '\0';
+        furi_mutex_release(app->mutex);
+        sd_logger_stop(app->logger);
+        notification_message(app->notifications, &sequence_reset_rgb);
+    }
+    return true;  // caller should view_port_update
+}
+
+// Manual vertical zoom (Up=zoom in, Down=zoom out).  Disables auto-zoom.
+static void key_zoom_vertical(BioMapApp* app, bool zoom_in) {
+    furi_mutex_acquire(app->mutex, FuriWaitForever);
+    app->zoom.enabled = false;
+    app->zoom.level = zoom_in
+        ? fminf(app->zoom.level * ZOOM_FACTOR, ZOOM_MAX)
+        : fmaxf(app->zoom.level / ZOOM_FACTOR, ZOOM_MIN);
+    furi_mutex_release(app->mutex);
+}
+
+// Horizontal time-axis zoom (Left=zoom out, Right=zoom in).
+static void key_zoom_horizontal(BioMapApp* app, bool zoom_out) {
+    furi_mutex_acquire(app->mutex, FuriWaitForever);
+    if(zoom_out) {
+        if(app->graph.scroll_divider < 16) {
+            app->graph.scroll_divider *= 2;
+            app->graph.tick_counter = 0;
+            app->graph.last_smoothed = app->display.smoothed;
+            rescale_graph_buf(app, true);
+        }
+    } else {
+        if(app->graph.scroll_divider > 1) {
+            app->graph.scroll_divider /= 2;
+            app->graph.tick_counter = 0;
+            app->graph.last_smoothed = app->display.smoothed;
+            rescale_graph_buf(app, false);
+        }
+    }
+    furi_mutex_release(app->mutex);
+}
+
 // ── Handle one key press during a recording session ────────────────────────
 // Returns true if the event was consumed (the caller should continue its
 // event loop without further processing for this iteration).
@@ -208,86 +278,25 @@ static bool handle_recording_key(PluginEvent* ev, BioMapApp* app,
         furi_mutex_release(app->mutex);
         return true;
 
-    case InputKeyOk: {
-        bool start;
-        furi_mutex_acquire(app->mutex, FuriWaitForever);
-        start = !app->recording.active;
-        furi_mutex_release(app->mutex);
-
-        if(start) {
-            bool ok = sd_logger_start(
-                app->logger,
-                (mode == BioMapModeGsrOnly)
-                    ? "timestamp,tick,gsr_raw\n"
-                    : "timestamp,lat,lon,alt,sats,fix,gsr_raw\n");
-            if(ok) {
-                furi_mutex_acquire(app->mutex, FuriWaitForever);
-                app->recording.active = true;
-                strncpy(app->recording.filename,
-                    sd_logger_get_filename(app->logger),
-                    sizeof(app->recording.filename) - 1);
-                app->recording.tick_counter = 0;
-                furi_mutex_release(app->mutex);
-                notification_message(app->notifications, &sequence_set_only_red_255);
-            }
-        } else {
-            furi_mutex_acquire(app->mutex, FuriWaitForever);
-            app->recording.active = false;
-            if(has_gsr(mode)) {
-                sd_logger_batch_flush(app->logger);
-            }
-            app->recording.filename[0] = '\0';
-            furi_mutex_release(app->mutex);
-            sd_logger_stop(app->logger);
-            notification_message(app->notifications, &sequence_reset_rgb);
-        }
-        view_port_update(vp);
-        return true;
-    }
-    case InputKeyUp:
-        if(has_gsr(mode)) {
-            furi_mutex_acquire(app->mutex, FuriWaitForever);
-            app->zoom.enabled = false;
-            app->zoom.level = fminf(app->zoom.level * ZOOM_FACTOR, ZOOM_MAX);
-            furi_mutex_release(app->mutex);
+    case InputKeyOk:
+        if(key_toggle_recording(app, mode))
             view_port_update(vp);
-        }
+        return true;
+
+    case InputKeyUp:
+        if(has_gsr(mode)) { key_zoom_vertical(app, true);  view_port_update(vp); }
         return true;
     case InputKeyDown:
-        if(has_gsr(mode)) {
-            furi_mutex_acquire(app->mutex, FuriWaitForever);
-            app->zoom.enabled = false;
-            app->zoom.level = fmaxf(app->zoom.level / ZOOM_FACTOR, ZOOM_MIN);
-            furi_mutex_release(app->mutex);
-            view_port_update(vp);
-        }
+        if(has_gsr(mode)) { key_zoom_vertical(app, false); view_port_update(vp); }
         return true;
+
     case InputKeyLeft:
-        if(has_gsr(mode)) {
-            furi_mutex_acquire(app->mutex, FuriWaitForever);
-            if(app->graph.scroll_divider < 16) {
-                app->graph.scroll_divider *= 2;
-                app->graph.tick_counter = 0;
-                app->graph.last_smoothed = app->display.smoothed;
-                rescale_graph_buf(app, true);
-            }
-            furi_mutex_release(app->mutex);
-            view_port_update(vp);
-        }
+        if(has_gsr(mode)) { key_zoom_horizontal(app, true);  view_port_update(vp); }
         return true;
     case InputKeyRight:
-        if(has_gsr(mode)) {
-            furi_mutex_acquire(app->mutex, FuriWaitForever);
-            if(app->graph.scroll_divider > 1) {
-                app->graph.scroll_divider /= 2;
-                app->graph.tick_counter = 0;
-                app->graph.last_smoothed = app->display.smoothed;
-                rescale_graph_buf(app, false);
-            }
-            furi_mutex_release(app->mutex);
-            view_port_update(vp);
-        }
+        if(has_gsr(mode)) { key_zoom_horizontal(app, false); view_port_update(vp); }
         return true;
+
     default:
         return false;
     }

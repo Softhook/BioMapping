@@ -20,6 +20,10 @@
 #define ADS1115_I2C_ADDR    (0x48 << 1)
 #define ADS1115_CONV_REG    0x00
 
+// Ring buffer size for background sampling (MUST be a power of two —
+// the worker uses & (SENSOR_BUFFER_SIZE - 1) for fast wraparound).
+#define SENSOR_BUFFER_SIZE  128
+
 typedef struct GsrSensor GsrSensor;
 
 // Lifecycle

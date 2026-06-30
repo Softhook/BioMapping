@@ -81,7 +81,11 @@ static inline uint8_t pga_msb(uint8_t idx) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Struct & Constants
 // ─────────────────────────────────────────────────────────────────────────────
-#define SENSOR_BUFFER_SIZE 128
+
+// Compile-time guard: the ring buffer uses & (SENSOR_BUFFER_SIZE - 1) which
+// only works for powers of two.
+_Static_assert((SENSOR_BUFFER_SIZE & (SENSOR_BUFFER_SIZE - 1)) == 0,
+               "SENSOR_BUFFER_SIZE must be a power of two");
 
 struct GsrSensor {
     int32_t raw;        // skin conductance in nanosiemens (nS)

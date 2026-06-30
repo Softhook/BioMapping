@@ -27,4 +27,4 @@ void          gpx_converter_free(GpxConverter* conv);
 int         gpx_converter_scan(GpxConverter* conv);
 const char* gpx_converter_get_name(const GpxConverter* conv, int index);
 int         gpx_converter_run(GpxConverter* conv, const char* csv_filename,
-                               void* progress_vp);   // optional ViewPort* for spinner
+                               void* progress_vp, int* spinner_frame);

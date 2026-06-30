@@ -1,7 +1,18 @@
+// biomap.h — Bio Mapping app-level declarations and shared includes.
+//
+// Includes the full Flipper Zero SDK, all module headers, and defines
+// BioMapApp with fully typed pointers.  For files that only need sub-structs
+// and constants, include biomap_types.h directly.
+
 #pragma once
 
-// Bio Mapping — shared app state, constants, and includes.
+// ── Core types (DisplayState, GraphState, etc., constants, helpers) ────
+#include "biomap_types.h"
 
+// ── Event types shared between biomap.c and modules/gps_uart.c ─────────
+#include "biomap_events.h"
+
+// ── Flipper Zero SDK ───────────────────────────────────────────────────
 #include <furi.h>
 #include <furi_hal.h>
 #include <furi_hal_rtc.h>
@@ -13,34 +24,7 @@
 #include <stdio.h>
 #include <math.h>
 
-#include "biomap_config.h"
-#include "biomap_events.h"
-
-// ── Forward declaration (full struct defined below) ────────────────────────
-typedef struct BioMapApp BioMapApp;
-
-// ── Menu & options — shared between biomap_gui.c and biomap_render.c ───────
-
-#define MENU_COUNT      5
-#define OPTIONS_COUNT   3
-
-typedef struct {
-    bool conv_ok;
-    char conv_name[32];
-    int  conv_points;
-    int  spinner_frame;   // spinner animation frame (0-3)
-} ConvResult;
-
-typedef struct {
-    BioMapApp* app;
-    int32_t    selection;
-} MenuContext;
-
-typedef struct {
-    BioMapApp* app;
-    int32_t    selection;
-} OptionsContext;
-
+// ── Module headers ─────────────────────────────────────────────────────
 #include "biomap_session.h"
 #include "biomap_render.h"
 #include "modules/gps_uart.h"
@@ -48,41 +32,7 @@ typedef struct {
 #include "modules/sd_logger.h"
 #include "modules/gpx_converter.h"
 
-#define TICK_HZ          10
-#define ZOOM_FACTOR      1.5f    // multiplicative step for manual Up/Down zoom
-#define ZOOM_MIN         0.25f
-#define ZOOM_MAX         16.0f
-#define DISPLAY_EMA_A    0.2f
-#define DISPLAY_EMA_B    0.8f   // (1.0f - DISPLAY_EMA_A), precomputed
-
-#define GRAPH_N    126
-
-typedef struct {
-    float    smoothed;
-    bool     primed;
-    int32_t  last_displayed;
-    int      refresh_counter;
-} DisplayState;
-
-typedef struct {
-    float    buf[GRAPH_N];
-    int      head;
-    int      tick_counter;
-    float    last_smoothed;
-    int      scroll_divider;
-} GraphState;
-
-typedef struct {
-    float    level;
-    float    peak;
-    bool     enabled;
-} ZoomState;
-
-typedef struct {
-    bool     active;
-    char     filename[64];
-    int      tick_counter;
-} RecordingState;
+// ── BioMapApp — shared application state (fully typed) ─────────────────
 
 typedef struct BioMapApp {
     BioMapMode         mode;
@@ -101,15 +51,44 @@ typedef struct BioMapApp {
     ZoomState          zoom;
     RecordingState     recording;
 
+    // Render cache — avoids snprintf + canvas_string_width every frame
+    char               zoom_label[16];
+    float              zoom_label_last;
+    int                zoom_label_width;
+
     bool               running;
     bool               backlight_on;
 } BioMapApp;
 
-static inline bool has_gps(BioMapMode m) { return m == BioMapModeGpsGsr || m == BioMapModeGpsOnly; }
-static inline bool has_gsr(BioMapMode m) { return m == BioMapModeGpsGsr || m == BioMapModeGsrOnly; }
+// ── Menu & conversion UI types ─────────────────────────────────────────
 
-// Expand a 2-digit NMEA year to a 4-digit calendar year (Y2K pivot at 80).
-static inline int gps_year_expand(int y) { return y + (y < 80 ? 2000 : 1900); }
+#define MENU_COUNT      5
+#define OPTIONS_COUNT   3
+
+typedef struct {
+    bool conv_ok;
+    char conv_name[32];
+    int  conv_points;
+} ConvResult;
+
+// Progress screen context — bundles the immutable conversion result info
+// with a mutable spinner frame that the GPX converter advances.
+typedef struct {
+    ConvResult result;
+    int        spinner_frame;   // 0-3, advanced by gpx_converter_run, read by render
+} ConvProgressCtx;
+
+typedef struct {
+    BioMapApp* app;
+    int32_t    selection;
+} MenuContext;
+
+typedef struct {
+    BioMapApp* app;
+    int32_t    selection;
+} OptionsContext;
+
+// ── App-level function declarations ────────────────────────────────────
 
 void format_timestamp(BioMapApp* app, char* buf, size_t sz);
 void run_gps_hot_start(BioMapApp* app);

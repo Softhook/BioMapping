@@ -343,7 +343,7 @@ static float sma_feed(SmaState* s, int32_t raw) {
 /* ── two‑pass conversion ────────────────────────────────────────────── */
 
 int gpx_converter_run(GpxConverter* c, const char* csv_filename,
-                       void* progress_vp) {
+                       void* progress_vp, int* spinner_frame) {
     furi_assert(c);
     furi_assert(csv_filename);
 
@@ -421,6 +421,7 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
         rows_scanned++;
 
         if((rows_scanned & 63) == 0) {
+            if(spinner_frame) (*spinner_frame)++;
             if(progress_vp) view_port_update((ViewPort*)progress_vp);
             furi_delay_ms(1);  // pet watchdog
         }
@@ -539,6 +540,7 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
 
         rows_done++;
         if((rows_done & 63) == 0) {
+            if(spinner_frame) (*spinner_frame)++;
             if(progress_vp) view_port_update((ViewPort*)progress_vp);
             furi_delay_ms(1);  // pet watchdog
         }

@@ -20,6 +20,33 @@ void biomap_timer_callback(void* ctx) {
 }
 
 // ==========================================================================
+// ViewPort lifecycle helpers — reduce boilerplate for push/pop screens
+// ==========================================================================
+
+// Push a new fullscreen ViewPort onto the GUI stack and return it.
+// The caller owns the ViewPort until vp_pop().
+static ViewPort* vp_push(BioMapApp* app, ViewPortDrawCallback draw, void* ctx) {
+    ViewPort* vp = view_port_alloc();
+    view_port_draw_callback_set(vp, draw, ctx);
+    view_port_input_callback_set(vp, biomap_input_callback, app->event_queue);
+    gui_add_view_port(app->gui, vp, GuiLayerFullscreen);
+    view_port_update(vp);
+    return vp;
+}
+
+// Remove a ViewPort from the GUI stack and free it.
+static void vp_pop(BioMapApp* app, ViewPort* vp) {
+    gui_remove_view_port(app->gui, vp);
+    view_port_free(vp);
+}
+
+// Drain any stale events from the queue before starting a sub-screen loop.
+static void drain_stale_events(FuriMessageQueue* q) {
+    PluginEvent ev;
+    while(furi_message_queue_get(q, &ev, 0) == FuriStatusOk);
+}
+
+// ==========================================================================
 // Conversion status — shown after "Convert CSV to GPX" runs
 // ==========================================================================
 //
@@ -37,24 +64,16 @@ void biomap_timer_callback(void* ctx) {
 //  └─────────────────────────────┘
 
 static void show_status_screen(BioMapApp* app, ConvResult* r) {
-    ViewPort* vp = view_port_alloc();
-    view_port_draw_callback_set(vp, conv_status_render, r);
-    view_port_input_callback_set(vp, biomap_input_callback, app->event_queue);
+    ViewPort* vp = vp_push(app, conv_status_render, r);
 
-    // Menu VP is already in the stack (disabled) — no flash when we add on top
-    gui_add_view_port(app->gui, vp, GuiLayerFullscreen);
-    view_port_update(vp);
-
+    drain_stale_events(app->event_queue);
     PluginEvent ev;
-    while(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk); // drain stale
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort
             && ev.input.key == InputKeyBack) break;
     }
 
-    // Remove status VP — menu VP is still underneath, no flash
-    gui_remove_view_port(app->gui, vp);
-    view_port_free(vp);
+    vp_pop(app, vp);
 }
 
 // ==========================================================================
@@ -141,15 +160,10 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
 
 void run_options_screen(BioMapApp* app) {
     OptionsContext ctx = {.app = app, .selection = 0};
+    ViewPort* vp = vp_push(app, options_render, &ctx);
 
-    ViewPort* vp = view_port_alloc();
-    view_port_draw_callback_set(vp, options_render, &ctx);
-    view_port_input_callback_set(vp, biomap_input_callback, app->event_queue);
-    gui_add_view_port(app->gui, vp, GuiLayerFullscreen);
-    view_port_update(vp);
-
+    drain_stale_events(app->event_queue);
     PluginEvent ev;
-    while(furi_message_queue_get(app->event_queue, &ev, 0) == FuriStatusOk); // drain stale
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
             if(ev.input.key == InputKeyBack) break;
@@ -197,8 +211,7 @@ void run_options_screen(BioMapApp* app) {
         }
     }
 
-    gui_remove_view_port(app->gui, vp);
-    view_port_free(vp);
+    vp_pop(app, vp);
 }
 
 // ==========================================================================
@@ -209,37 +222,36 @@ void run_converter(BioMapApp* app) {
     GpxConverter* c = gpx_converter_alloc(app->storage);
     int n = gpx_converter_scan(c);
 
-    ConvResult r = {.conv_ok = false, .conv_points = 0};
+    ConvProgressCtx prog = {
+        .result = {.conv_ok = false, .conv_points = 0},
+        .spinner_frame = 0
+    };
 
     if(n == 0) {
-        strncpy(r.conv_name, "(none)", sizeof(r.conv_name) - 1);
+        strncpy(prog.result.conv_name, "(none)", sizeof(prog.result.conv_name) - 1);
         notification_message(app->notifications, &sequence_blink_red_100);
-        show_status_screen(app, &r);
+        show_status_screen(app, &prog.result);
         gpx_converter_free(c);
         return;
     }
 
     const char* name = gpx_converter_get_name(c, n - 1);
-    strncpy(r.conv_name, name, sizeof(r.conv_name) - 1);
+    strncpy(prog.result.conv_name, name, sizeof(prog.result.conv_name) - 1);
 
     // Show "Converting..." while the two-pass conversion runs.
     // This prevents a blank screen during what could be seconds of I/O.
-    ViewPort* prog_vp = view_port_alloc();
-    view_port_draw_callback_set(prog_vp, conv_progress_render, &r);
-    gui_add_view_port(app->gui, prog_vp, GuiLayerFullscreen);
-    view_port_update(prog_vp);
+    ViewPort* prog_vp = vp_push(app, conv_progress_render, &prog);
 
     FURI_LOG_I("BioMap", "Converting %s", name);
-    r.conv_points = gpx_converter_run(c, name, prog_vp);
-    r.conv_ok = (r.conv_points > 0);
+    prog.result.conv_points = gpx_converter_run(c, name, prog_vp, &prog.spinner_frame);
+    prog.result.conv_ok = (prog.result.conv_points > 0);
     notification_message(app->notifications,
-        r.conv_ok ? &sequence_blink_green_100 : &sequence_blink_red_100);
+        prog.result.conv_ok ? &sequence_blink_green_100 : &sequence_blink_red_100);
 
     // Remove progress VP, show result
-    gui_remove_view_port(app->gui, prog_vp);
-    view_port_free(prog_vp);
+    vp_pop(app, prog_vp);
 
-    show_status_screen(app, &r);
+    show_status_screen(app, &prog.result);
     gpx_converter_free(c);
 }
 
