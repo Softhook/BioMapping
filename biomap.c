@@ -92,8 +92,7 @@ static bool handle_recording_key(PluginEvent* ev, BioMapApp* app,
     switch(ev->input.key) {
     case InputKeyBack:
         furi_mutex_acquire(app->mutex, FuriWaitForever);
-        if((mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr)
-            && app->recording_active) {
+        if(has_gsr(mode) && app->recording_active) {
             sd_logger_batch_flush(app->logger);
         }
         app->running = false;
@@ -123,7 +122,7 @@ static bool handle_recording_key(PluginEvent* ev, BioMapApp* app,
         } else {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
             app->recording_active = false;
-            if(mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr) {
+            if(has_gsr(mode)) {
                 sd_logger_batch_flush(app->logger);
             }
             app->recording_filename[0] = '\0';
@@ -256,7 +255,7 @@ static void handle_recording_tick(BioMapApp* app, BioMapMode mode) {
 
     // ── Batch CSV row formatting (10 Hz modes) ──────────────────────
     if(app->recording_active) {
-        if(mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr) {
+        if(has_gsr(mode)) {
             char ts[32];
             format_timestamp(app, ts, sizeof(ts));
             char row[128];
@@ -286,19 +285,24 @@ static void handle_recording_tick(BioMapApp* app, BioMapMode mode) {
     }
 }
 
+// ── Shared: stop logger and signal failure with red blink ─────────────────
+static void handle_write_failure(BioMapApp* app) {
+    if(app->logger) sd_logger_stop(app->logger);
+    app->recording_active = false;
+    app->recording_filename[0] = '\0';
+    notification_message(app->notifications, &sequence_set_only_red_255);
+}
+
 // ── 1-second boundary: flush batch or write GPS-only row ──────────────────
 static void handle_second_boundary(BioMapApp* app, BioMapMode mode) {
-    if(mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr) {
+    if(has_gsr(mode)) {
         if(app->recording_active) {
             int flushed = sd_logger_batch_flush(app->logger);
             if(flushed > 0) {
                 notification_message(app->notifications, &sequence_blink_green_100);
             } else if(flushed < 0) {
                 FURI_LOG_E("BioMap", "Batch flush failed");
-                if(app->logger) sd_logger_stop(app->logger);
-                app->recording_active = false;
-                app->recording_filename[0] = '\0';
-                notification_message(app->notifications, &sequence_set_only_red_255);
+                handle_write_failure(app);
             }
         }
     } else {
@@ -314,10 +318,7 @@ static void handle_second_boundary(BioMapApp* app, BioMapMode mode) {
             if(sd_logger_write_row(app->logger, ts, lat, lon, alt, sats, fix, avg)) {
                 notification_message(app->notifications, &sequence_blink_green_100);
             } else {
-                if(app->logger) sd_logger_stop(app->logger);
-                app->recording_active = false;
-                app->recording_filename[0] = '\0';
-                notification_message(app->notifications, &sequence_set_only_red_255);
+                handle_write_failure(app);
             }
         }
     }

@@ -75,10 +75,10 @@ static int find_next_index(SdLogger* l) {
     return next_idx;
 }
 
-bool sd_logger_start(SdLogger* l) {
-    furi_assert(l);
-    furi_assert(!l->active);
-
+// Open (or create) the next auto-indexed CSV file and write a header row.
+// Returns true on success; on failure the logger is left inactive with no
+// open file handle.
+static bool open_log_file(SdLogger* l, const char* header) {
     int idx = find_next_index(l);
     snprintf(l->filename, sizeof(l->filename), LOGGER_BASENAME "%03d" LOGGER_EXT, idx);
     char full_path[96];
@@ -92,10 +92,10 @@ bool sd_logger_start(SdLogger* l) {
         return false;
     }
 
-    const char* header = "timestamp,lat,lon,alt,sats,fix,gsr_raw\n";
-    uint16_t written = storage_file_write(l->file, header, strlen(header));
-    if(written != strlen(header)) {
-        FURI_LOG_E("SdLogger", "Header write failed (%d/%d)", written, (int)strlen(header));
+    size_t hlen = strlen(header);
+    uint16_t written = storage_file_write(l->file, header, hlen);
+    if(written != hlen) {
+        FURI_LOG_E("SdLogger", "Header write failed (%d/%d)", written, (int)hlen);
         storage_file_close(l->file);
         storage_file_free(l->file);
         l->file = NULL;
@@ -106,6 +106,12 @@ bool sd_logger_start(SdLogger* l) {
     l->active = true;
     FURI_LOG_I("SdLogger", "Recording to %s", full_path);
     return true;
+}
+
+bool sd_logger_start(SdLogger* l) {
+    furi_assert(l);
+    furi_assert(!l->active);
+    return open_log_file(l, "timestamp,lat,lon,alt,sats,fix,gsr_raw\n");
 }
 
 void sd_logger_stop(SdLogger* l) {
@@ -125,34 +131,7 @@ void sd_logger_stop(SdLogger* l) {
 bool sd_logger_start_gsr(SdLogger* l) {
     furi_assert(l);
     furi_assert(!l->active);
-
-    int idx = find_next_index(l);
-    snprintf(l->filename, sizeof(l->filename), LOGGER_BASENAME "%03d" LOGGER_EXT, idx);
-    char full_path[96];
-    snprintf(full_path, sizeof(full_path), EXT_PATH(LOGGER_DIR "/%s"), l->filename);
-
-    l->file = storage_file_alloc(l->storage);
-    if(!l->file || !storage_file_open(l->file, full_path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
-        FURI_LOG_E("SdLogger", "Failed to open %s", full_path);
-        if(l->file) { storage_file_free(l->file); l->file = NULL; }
-        l->filename[0] = '\0';
-        return false;
-    }
-
-    const char* header = "timestamp,gsr_raw\n";
-    uint16_t written = storage_file_write(l->file, header, strlen(header));
-    if(written != strlen(header)) {
-        FURI_LOG_E("SdLogger", "GSR header write failed (%d/%d)", written, (int)strlen(header));
-        storage_file_close(l->file);
-        storage_file_free(l->file);
-        l->file = NULL;
-        l->filename[0] = '\0';
-        return false;
-    }
-
-    l->active = true;
-    FURI_LOG_I("SdLogger", "GSR-only recording to %s", full_path);
-    return true;
+    return open_log_file(l, "timestamp,gsr_raw\n");
 }
 
 bool sd_logger_write_row_gsr(SdLogger* l, const char* timestamp, int32_t gsr_raw) {

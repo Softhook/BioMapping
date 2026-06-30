@@ -192,15 +192,18 @@ void biomap_timer_callback(void* ctx) {
 //  │  Press Back                 │
 //  └─────────────────────────────┘
 
-static bool  conv_ok;
-static char  conv_name[32];
-static int   conv_points;
+// Result bundle passed through ViewPort context — no module-level globals needed.
+typedef struct {
+    bool conv_ok;
+    char conv_name[32];
+    int  conv_points;
+} ConvResult;
 
 // Simple "Converting..." screen with a spinner that advances each time
 // the converter yields (every 64 rows).  The static counter makes the
 // spinner cycle through frames even though the main thread is blocked.
 static void conv_progress_render(Canvas* c, void* ctx) {
-    UNUSED(ctx);
+    ConvResult* r = (ConvResult*)ctx;
     static int frame = 0;
     static const char spinner[] = {'|', '/', '-', '\\'};
 
@@ -208,7 +211,7 @@ static void conv_progress_render(Canvas* c, void* ctx) {
     canvas_set_font(c, FontPrimary);
     canvas_draw_str(c, 0, 10, "Converting...");
     canvas_set_font(c, FontSecondary);
-    canvas_draw_str(c, 0, 26, conv_name);
+    canvas_draw_str(c, 0, 26, r->conv_name);
 
     char buf[32];
     snprintf(buf, sizeof(buf), "%c Please wait", spinner[frame & 3]);
@@ -218,29 +221,34 @@ static void conv_progress_render(Canvas* c, void* ctx) {
 }
 
 static void conv_status_render(Canvas* c, void* ctx) {
-    UNUSED(ctx);
+    ConvResult* r = (ConvResult*)ctx;
     canvas_clear(c);
     canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, conv_ok ? "Conversion OK" : "Conversion FAILED");
+    canvas_draw_str(c, 0, 10, r->conv_ok ? "Conversion OK" : "Conversion FAILED");
     canvas_set_font(c, FontSecondary);
-    char buf[64], gpx[32];
-    snprintf(buf, sizeof(buf), "CSV : %s", conv_name);
+    char buf[64];
+    snprintf(buf, sizeof(buf), "CSV : %s", r->conv_name);
     canvas_draw_str(c, 0, 24, buf);
-    strncpy(gpx, conv_name, sizeof(gpx) - 1);
+
+    // Derive GPX name: copy conv_name and replace the last 3 chars (.csv → .gpx)
+    char gpx[32];
+    strncpy(gpx, r->conv_name, sizeof(gpx) - 1);
     gpx[sizeof(gpx) - 1] = '\0';
     size_t len = strlen(gpx);
-    if(len > 4 && strcmp(gpx + len - 4, ".csv") == 0)
-        { gpx[len-3]='g'; gpx[len-2]='p'; gpx[len-1]='x'; }
+    if(len >= 4 && strcmp(gpx + len - 4, ".csv") == 0) {
+        gpx[len - 3] = 'g'; gpx[len - 2] = 'p'; gpx[len - 1] = 'x';
+    }
     snprintf(buf, sizeof(buf), "GPX : %s", gpx);
     canvas_draw_str(c, 0, 34, buf);
-    snprintf(buf, sizeof(buf), "Points : %d", conv_points);
+    snprintf(buf, sizeof(buf), "Points : %d", r->conv_points);
     canvas_draw_str(c, 0, 46, buf);
-    canvas_draw_str(c, 0, 58, (!conv_ok && conv_points == 0) ? "No GPS fix rows found" : "Press Back");
+    canvas_draw_str(c, 0, 58,
+        (!r->conv_ok && r->conv_points == 0) ? "No GPS fix rows found" : "Press Back");
 }
 
-static void show_status_screen(BioMapApp* app) {
+static void show_status_screen(BioMapApp* app, ConvResult* r) {
     ViewPort* vp = view_port_alloc();
-    view_port_draw_callback_set(vp, conv_status_render, NULL);
+    view_port_draw_callback_set(vp, conv_status_render, r);
     view_port_input_callback_set(vp, biomap_input_callback, app->event_queue);
 
     // Menu VP is already in the stack (disabled) — no flash when we add on top
@@ -472,37 +480,37 @@ void run_converter(BioMapApp* app) {
     GpxConverter* c = gpx_converter_alloc(app->storage);
     int n = gpx_converter_scan(c);
 
+    ConvResult r = {.conv_ok = false, .conv_points = 0};
+
     if(n == 0) {
-        conv_ok = false;
-        conv_points = 0;
-        strncpy(conv_name, "(none)", sizeof(conv_name) - 1);
+        strncpy(r.conv_name, "(none)", sizeof(r.conv_name) - 1);
         notification_message(app->notifications, &sequence_blink_red_100);
-        show_status_screen(app);
+        show_status_screen(app, &r);
         gpx_converter_free(c);
         return;
     }
 
     const char* name = gpx_converter_get_name(c, n - 1);
-    strncpy(conv_name, name, sizeof(conv_name) - 1);
+    strncpy(r.conv_name, name, sizeof(r.conv_name) - 1);
 
     // Show "Converting..." while the two-pass conversion runs.
     // This prevents a blank screen during what could be seconds of I/O.
     ViewPort* prog_vp = view_port_alloc();
-    view_port_draw_callback_set(prog_vp, conv_progress_render, NULL);
+    view_port_draw_callback_set(prog_vp, conv_progress_render, &r);
     gui_add_view_port(app->gui, prog_vp, GuiLayerFullscreen);
     view_port_update(prog_vp);
 
     FURI_LOG_I("BioMap", "Converting %s", name);
-    conv_points = gpx_converter_run(c, name, prog_vp);
-    conv_ok = (conv_points > 0);
+    r.conv_points = gpx_converter_run(c, name, prog_vp);
+    r.conv_ok = (r.conv_points > 0);
     notification_message(app->notifications,
-        conv_ok ? &sequence_blink_green_100 : &sequence_blink_red_100);
+        r.conv_ok ? &sequence_blink_green_100 : &sequence_blink_red_100);
 
     // Remove progress VP, show result
     gui_remove_view_port(app->gui, prog_vp);
     view_port_free(prog_vp);
 
-    show_status_screen(app);
+    show_status_screen(app, &r);
     gpx_converter_free(c);
 }
 
