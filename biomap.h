@@ -15,6 +15,9 @@
 
 #include "biomap_config.h"
 #include "biomap_events.h"
+#include "biomap_pipeline.h"
+#include "biomap_session.h"
+#include "biomap_render.h"
 #include "modules/gps_uart.h"
 #include "modules/gsr_sensor.h"
 #include "modules/sd_logger.h"
@@ -84,13 +87,10 @@ static inline bool has_gsr(BioMapMode m) { return m == BioMapModeGpsGsr || m == 
 static inline int gps_year_expand(int y) { return y + (y < 80 ? 2000 : 1900); }
 
 void format_timestamp(BioMapApp* app, char* buf, size_t sz);
-void run_recording_session(BioMapApp* app, BioMapMode mode);
 void run_gps_hot_start(BioMapApp* app);
 void run_converter(BioMapApp* app);
 void run_options_screen(BioMapApp* app);
 
 void biomap_input_callback(InputEvent* e, void* ctx);
 void biomap_timer_callback(void* ctx);
-void biomap_render_callback(Canvas* c, void* ctx);
-void menu_render(Canvas* c, void* ctx);
 int32_t biomap_gui_show_menu(BioMapApp* app);

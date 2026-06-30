@@ -11,6 +11,9 @@ App(
     sources=[
         "biomap.c",
         "biomap_gui.c",
+        "biomap_pipeline.c",
+        "biomap_session.c",
+        "biomap_render.c",
         "minmea.c",
         "modules/gps_uart.c",
         "modules/gsr_sensor.c",
