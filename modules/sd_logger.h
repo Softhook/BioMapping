@@ -30,10 +30,3 @@ bool        sd_logger_batch_append(SdLogger* logger, const char* data, size_t le
 int         sd_logger_batch_printf(SdLogger* logger, const char* fmt, ...);
 
 const char* sd_logger_get_filename(const SdLogger* logger);
-
-bool sd_logger_write_row(
-    SdLogger*   logger,
-    const char* timestamp,
-    float       lat, float lon, float alt,
-    int         sats, int fix,
-    int32_t     gsr_raw);

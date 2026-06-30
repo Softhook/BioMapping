@@ -31,6 +31,7 @@
 #define ZOOM_PEAK_FLOOR   0.5f    // minimum peak floor for auto-zoom
 #define GRAPH_RATE_SCALE  0.2f    // rate → graph-buffer scaling factor
 #define REFRESH_EVERY     5       // display-refresh counter threshold
+#define MANUAL_ZOOM_TIMEOUT 30    // ticks before auto-zoom re-engages after manual zoom (3 s)
 
 // ── Sub-structs (owned by BioMapApp) ───────────────────────────────────
 
@@ -53,11 +54,11 @@ typedef struct {
     float    level;
     float    peak;
     bool     enabled;
+    int      manual_timeout;   // ticks remaining before auto-zoom re-engages
 } ZoomState;
 
 typedef struct {
     bool     active;
-    char     filename[64];
     int      tick_counter;
 } RecordingState;
 

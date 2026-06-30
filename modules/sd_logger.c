@@ -192,36 +192,3 @@ int sd_logger_batch_printf(SdLogger* l, const char* fmt, ...) {
 }
 
 const char* sd_logger_get_filename(const SdLogger* l) { return l->filename; }
-
-bool sd_logger_write_row(
-    SdLogger*   l,
-    const char* timestamp,
-    float       lat, float lon, float alt,
-    int         sats, int fix,
-    int32_t     gsr_raw) {
-    furi_assert(l);
-    if(!l->active || !l->file) return false;
-
-    char row[256];
-    int len = snprintf(
-        row, sizeof(row),
-        "%s,%.6f,%.6f,%.1f,%d,%d,%ld\n",
-        timestamp ? timestamp : "",
-        (double)lat, (double)lon, (double)alt,
-        sats, fix, (long)gsr_raw);
-
-    // snprintf returns the number of chars it *would* write; if >= sizeof(row)
-    // the output was truncated.  Skip the row rather than writing garbage or
-    // falsely signalling a write error that would stop the recording session.
-    if(len <= 0 || len >= (int)sizeof(row)) {
-        FURI_LOG_E("SdLogger", "Row format overflow (%d) — row skipped", len);
-        return true;  // session continues
-    }
-
-    uint16_t written = storage_file_write(l->file, row, (size_t)len);
-    if(written != (uint16_t)len) {
-        FURI_LOG_E("SdLogger", "Write error: %d/%d", written, len);
-        return false;
-    }
-    return true;
-}

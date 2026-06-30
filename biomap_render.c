@@ -23,7 +23,7 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
 
     // Fold zoom and scale into one constant so the inner loop only needs
     // one multiply per sample instead of two.
-    const float combined_scale = a->zoom.level * ((float)(gh / 2 - 2) / 100.0f);
+    const float combined_scale = a->session.zoom.level * ((float)(gh / 2 - 2) / 100.0f);
 
     canvas_draw_frame(c, gx, gy, gw, gh);
 
@@ -31,7 +31,7 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
     // px_per_notch: how many pixels represent 10 seconds at current speed.
     // scroll_divider ticks per pixel, TICK_HZ ticks per second.
     // 10 s × TICK_HZ ticks/s ÷ scroll_divider ticks/px = px per notch.
-    int px_per_notch = (10 * TICK_HZ) / a->graph.scroll_divider; // integer, always ≥1
+    int px_per_notch = (10 * TICK_HZ) / a->session.graph.scroll_divider; // integer, always ≥1
     if(px_per_notch > 2) {
         int right_edge = gx + gw - 2;
         int notch_top = gy > 3 ? gy - 3 : 0;   // guard against negative canvas y
@@ -44,15 +44,15 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
     // GRAPH_N (126) is not a power-of-two, so % GRAPH_N compiles to a
     // software divide on Cortex-M4. Replace with a compare-and-wrap.
     // Also cache y_prev: y1 of segment i becomes y0 of segment i+1.
-    int idx = a->graph.head;
-    float v0 = a->graph.buf[idx] * combined_scale;
+    int idx = a->session.graph.head;
+    float v0 = a->session.graph.buf[idx] * combined_scale;
     int y_prev = cy - (int)v0;
 
     for(int i = 0; i < n - 1; i++) {
         // Advance index with branchless wrap (compare cheaper than divide)
         if(++idx >= GRAPH_N) idx = 0;
 
-        float v1 = a->graph.buf[idx] * combined_scale;
+        float v1 = a->session.graph.buf[idx] * combined_scale;
         int y1 = cy - (int)v1;
 
         canvas_draw_line(c, gx + 1 + i, y_prev, gx + 1 + i + 1, y1);
@@ -67,16 +67,16 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
 // Render GPS detail lines for GPS-only mode (no GSR graph).
 // Mutex must already be held by caller.
 static void render_gps_detail(Canvas* c, BioMapApp* a) {
-    GpsStatus g = gps_uart_get_status(a->gps);
+    GpsStatus g = gps_uart_get_status(a->session.gps);
     int y = 20;
 
-    if(a->recording.active) {
-        const char* fn = a->recording.filename;
+    if(a->session.recording.active) {
+        const char* fn = sd_logger_get_filename(a->session.logger);
         canvas_draw_str(c, 0, y, (strlen(fn) > 7) ? fn + 7 : fn);
         y += 10;
     }
 
-    if(gps_uart_is_ready(a->gps) && g.date.year) {
+    if(gps_uart_is_ready(a->session.gps) && g.date.year) {
         char buf[48];
         int yr = gps_year_expand(g.date.year);
         snprintf(buf, sizeof(buf), "%02d:%02d:%02d UTC %04d-%02d-%02d",
@@ -107,16 +107,16 @@ static void render_gps_detail(Canvas* c, BioMapApp* a) {
 // Render the zoom label (bottom-right corner), caching format/width to
 // avoid snprintf + canvas_string_width on every frame.  Mutex held by caller.
 static void render_zoom_label(Canvas* c, BioMapApp* a) {
-    if(a->zoom.level < a->zoom_label_last - 0.05f ||
-       a->zoom.level > a->zoom_label_last + 0.05f) {
-        snprintf(a->zoom_label, sizeof(a->zoom_label), "%.1fx",
-                 (double)a->zoom.level);
+    if(a->session.zoom.level < a->session.zoom_label_last - 0.05f ||
+       a->session.zoom.level > a->session.zoom_label_last + 0.05f) {
+        snprintf(a->session.zoom_label, sizeof(a->session.zoom_label), "%.1fx",
+                 (double)a->session.zoom.level);
         canvas_set_font(c, FontSecondary);
-        a->zoom_label_width = canvas_string_width(c, a->zoom_label);
-        a->zoom_label_last = a->zoom.level;
+        a->session.zoom_label_width = canvas_string_width(c, a->session.zoom_label);
+        a->session.zoom_label_last = a->session.zoom.level;
     }
     canvas_set_font(c, FontSecondary);
-    canvas_draw_str(c, 128 - a->zoom_label_width - 2, 62, a->zoom_label);
+    canvas_draw_str(c, 128 - a->session.zoom_label_width - 2, 62, a->session.zoom_label);
 }
 
 void biomap_render_callback(Canvas* c, void* ctx) {
@@ -124,7 +124,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     furi_mutex_acquire(a->mutex, FuriWaitForever);
     canvas_clear(c);
 
-    bool has_graph = has_gsr(a->mode);
+    bool has_graph = has_gsr(a->session.mode);
 
     // Graph + zoom label (GSR modes)
     if(has_graph) {
@@ -136,19 +136,19 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     canvas_set_font(c, FontPrimary);
     canvas_draw_str(c, 0, 10, "Bio Mapping");
     canvas_set_font(c, FontSecondary);
-    if(a->recording.active) {
+    if(a->session.recording.active) {
         canvas_draw_box(c, 118, 1, 8, 8);
     }
 
     // Mode-specific overlay
     if(has_graph) {
-        if(a->mode == BioMapModeGsrOnly && a->gsr && gsr_sensor_available(a->gsr)) {
+        if(a->session.mode == BioMapModeGsrOnly && a->session.gsr && gsr_sensor_available(a->session.gsr)) {
             char buf[32];
-            snprintf(buf, sizeof(buf), "%ld nS", (long)a->display.last_displayed);
-            int x = 128 - canvas_string_width(c, buf) - (a->recording.active ? 12 : 2);
+            snprintf(buf, sizeof(buf), "%ld nS", (long)a->session.display.last_displayed);
+            int x = 128 - canvas_string_width(c, buf) - (a->session.recording.active ? 12 : 2);
             canvas_draw_str(c, x, 10, buf);
         }
-    } else if(a->gps) {
+    } else if(a->session.gps) {
         render_gps_detail(c, a);
     } else {
         canvas_draw_str(c, 0, 20, "GPS unavailable");
@@ -244,7 +244,7 @@ void options_render(Canvas* c, void* ctx) {
     // Overlay toggle state on items 1 (auto-zoom) and 2 (backlight)
     for(int i = 1; i < OPTIONS_COUNT; i++) {
         int y = 22 + i * 10;
-        bool on = (i == 1) ? a->zoom.enabled : a->backlight_on;
+        bool on = (i == 1) ? a->zoom_enabled : a->backlight_on;
         const char* state = on ? "ON" : "OFF";
         int sx = 128 - canvas_string_width(c, state) - 2;
         if(i == sel) canvas_invert_color(c);

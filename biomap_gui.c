@@ -187,13 +187,9 @@ void run_options_screen(BioMapApp* app) {
                     view_port_update(vp);
                     continue;
                 case 1:
-                    // Toggle auto-zoom
+                    // Toggle auto-zoom (session_init handles level/peak reset)
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    app->zoom.enabled = !app->zoom.enabled;
-                    if(app->zoom.enabled) {
-                        app->zoom.peak = 1.0f;
-                        app->zoom.level     = 1.0f;  // reset stale manual zoom; lerp starts clean
-                    }
+                    app->zoom_enabled = !app->zoom_enabled;
                     furi_mutex_release(app->mutex);
                     break;
                 case 2:

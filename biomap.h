@@ -33,13 +33,40 @@
 #include "modules/gpx_converter.h"
 #include "modules/util.h"
 
+// ── Session — per-recording-session state ──────────────────────────────
+//
+// Owns all module pointers (GPS, GSR, logger), pipeline state, ViewPort,
+// timer, and render cache.  Initialised by session_init() and torn down
+// by session_deinit() — these are the ONLY places fields are reset.
+// Lives inside BioMapApp; valid only while a recording session is active.
+
+typedef struct Session {
+    BioMapMode     mode;
+    GpsUart*       gps;
+    GsrSensor*     gsr;
+    SdLogger*      logger;
+    ViewPort*      vp;
+    FuriTimer*     timer;
+
+    DisplayState   display;
+    GraphState     graph;
+    ZoomState      zoom;          // .level + .peak reset per session; .enabled from app
+    RecordingState recording;
+
+    bool           running;
+
+    // Render cache — avoids snprintf + canvas_string_width every frame
+    char           zoom_label[16];
+    float          zoom_label_last;
+    int            zoom_label_width;
+} Session;
+
 // ── BioMapApp — shared application state (fully typed) ─────────────────
 
 typedef struct BioMapApp {
-    BioMapMode         mode;
-    GpsUart*           gps;
-    GsrSensor*         gsr;
-    SdLogger*          logger;
+    Session            session;        // per-session state (init/deinit managed)
+    bool               zoom_enabled;   // survives session boundaries (toggled in Options)
+
     FuriMessageQueue*  event_queue;
     FuriMutex*         mutex;
     Storage*           storage;
@@ -47,17 +74,6 @@ typedef struct BioMapApp {
     Gui*               gui;
     ViewPort*          menu_vp;
 
-    DisplayState       display;
-    GraphState         graph;
-    ZoomState          zoom;
-    RecordingState     recording;
-
-    // Render cache — avoids snprintf + canvas_string_width every frame
-    char               zoom_label[16];
-    float              zoom_label_last;
-    int                zoom_label_width;
-
-    bool               running;
     bool               backlight_on;
 } BioMapApp;
 
@@ -91,7 +107,6 @@ typedef struct {
 
 // ── App-level function declarations ────────────────────────────────────
 
-void format_timestamp(BioMapApp* app, char* buf, size_t sz);
 void run_gps_hot_start(BioMapApp* app);
 void run_converter(BioMapApp* app);
 void run_options_screen(BioMapApp* app);

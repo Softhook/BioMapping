@@ -1,24 +1,6 @@
 // Bio Mapping — app entry, GPS hot-start, and timestamp formatting.
 #include "biomap.h"
 
-void format_timestamp(BioMapApp* app, char* buf, size_t sz) {
-    if(app->gps) {
-        GpsStatus g = gps_uart_get_status(app->gps);
-        if(g.date.year) {
-            int y = gps_year_expand(g.date.year);
-            snprintf(buf, sz, "%04d-%02d-%02dT%02d:%02d:%02dZ",
-                y, g.date.month, g.date.day,
-                g.time.hours, g.time.minutes, g.time.seconds);
-            return;
-        }
-    }
-    DateTime dt;
-    furi_hal_rtc_get_datetime(&dt);
-    snprintf(buf, sz, "%04d-%02d-%02dT%02d:%02d:%02dZ",
-        (int)dt.year, (int)dt.month, (int)dt.day,
-        (int)dt.hour, (int)dt.minute, (int)dt.second);
-}
-
 void run_gps_hot_start(BioMapApp* app) {
     GpsUart* g = gps_uart_alloc(app->event_queue, app->notifications);
     bool ok = g && gps_uart_is_ready(g);
@@ -33,7 +15,7 @@ int32_t biomap_app(void* p) {
     BioMapApp* app = malloc(sizeof(BioMapApp));
     furi_assert(app);
     *app = (BioMapApp){
-        .zoom = {.level = 1.0f, .peak = 1.0f, .enabled = true},
+        .zoom_enabled = true,
         .backlight_on = false
     };
 
