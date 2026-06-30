@@ -38,7 +38,7 @@
 typedef struct {
     float    smoothed;
     bool     primed;
-    int32_t  last_displayed;
+    float    last_displayed;
     int      refresh_counter;
 } DisplayState;
 

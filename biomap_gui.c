@@ -16,7 +16,10 @@ void biomap_input_callback(InputEvent* e, void* ctx) {
 
 void biomap_timer_callback(void* ctx) {
     PluginEvent ev = {.type = EventTypeTick};
-    furi_message_queue_put((FuriMessageQueue*)ctx, &ev, 0);
+    // Use FuriWaitForever so ticks are never silently dropped when the
+    // queue is temporarily full (e.g. during a burst of GPS UART events).
+    // The timer service runs in its own task — blocking here is safe.
+    furi_message_queue_put((FuriMessageQueue*)ctx, &ev, FuriWaitForever);
 }
 
 // ==========================================================================

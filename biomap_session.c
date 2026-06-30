@@ -140,15 +140,14 @@ static GpsPosition get_gps_position(const Session* s) {
 
 // ── Display pipeline ───────────────────────────────────────────────────────
 // EMA smoothing of raw GSR readings for on-screen display.
-static void update_display_pipeline(Session* s, int32_t raw) {
-    float rf = (float)raw;
+static void update_display_pipeline(Session* s, float raw) {
     if(!s->display.primed) {
-        s->display.smoothed = rf;
-        s->graph.last_smoothed = rf;
+        s->display.smoothed = raw;
+        s->graph.last_smoothed = raw;
         s->display.last_displayed = raw;
         s->display.primed = true;
     }
-    float ns = DISPLAY_EMA_A * rf + DISPLAY_EMA_B * s->display.smoothed;
+    float ns = DISPLAY_EMA_A * raw + DISPLAY_EMA_B * s->display.smoothed;
     s->display.smoothed = ns;
 
     s->display.refresh_counter++;
@@ -208,24 +207,24 @@ static void update_graph_pipeline(Session* s) {
 // Formats each CSV row directly into the SD logger's internal batch buffer,
 // avoiding an intermediate stack buffer and a memcpy per tick.
 // Rows are flushed to SD at the 1‑second boundary by handle_second_boundary().
-static void batch_csv_row(Session* s, int32_t raw) {
+static void batch_csv_row(Session* s, float raw) {
     if(!s->recording.active || !has_gsr(s->mode)) return;
 
     char ts[32];
     session_format_timestamp(s, ts, sizeof(ts));
 
     if(s->mode == BioMapModeGsrOnly) {
-        sd_logger_batch_printf(s->logger, "%s,%d,%ld\n",
-                               ts, s->recording.tick_counter, (long)raw);
+        sd_logger_batch_printf(s->logger, "%s,%d,%.1f\n",
+                               ts, s->recording.tick_counter, (double)raw);
     } else if(s->recording.tick_counter == 0) {
         GpsPosition pos = get_gps_position(s);
         sd_logger_batch_printf(s->logger,
-                               "%s,%.6f,%.6f,%.1f,%d,%d,%ld\n",
+                               "%s,%.6f,%.6f,%.1f,%d,%d,%.1f\n",
                                ts, (double)pos.lat, (double)pos.lon, (double)pos.alt,
-                               pos.sats, pos.fix, (long)raw);
+                               pos.sats, pos.fix, (double)raw);
     } else {
-        sd_logger_batch_printf(s->logger, "%s,,,,,,%ld\n",
-                               ts, (long)raw);
+        sd_logger_batch_printf(s->logger, "%s,,,,,,%.1f\n",
+                               ts, (double)raw);
     }
 }
 
@@ -387,7 +386,7 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
 
 // ── Handle one GSR tick (10 Hz) during a recording session ────────────────
 static void handle_recording_tick(Session* s) {
-    int32_t raw = 0;
+    float raw = 0.0f;
     if(s->gsr) {
         gsr_sensor_tick(s->gsr);
         raw = gsr_sensor_get_raw(s->gsr);
@@ -431,11 +430,16 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         if(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) != FuriStatusOk)
             continue;
 
+        // UART events: drain GPS data without holding the app mutex for
+        // the entire parse.  We parse with a dedicated GPS mutex so the
+        // GUI render thread is never blocked by NMEA parsing.
         if(ev.type == EventTypeUart && s->gps) {
-            furi_mutex_acquire(app->mutex, FuriWaitForever);
             gps_uart_process_rx(s->gps);
-            furi_mutex_release(app->mutex);
-            view_port_update(s->vp);
+            // In GSR modes the graph buffer hasn't changed — skip the
+            // redraw to avoid unnecessary GUI work.  GPS-only mode still
+            // needs the update because the screen shows live GPS details.
+            if(!has_gsr(s->mode))
+                view_port_update(s->vp);
             continue;
         }
 

@@ -15,6 +15,7 @@
 
 struct GpsUart {
     GpsStatus            status;
+    FuriMutex*           status_mutex;  // protects status field
     FuriHalSerialHandle* serial_handle;
     FuriStreamBuffer*    rx_stream;
     uint8_t              rx_buf[RX_LINE_BUF];
@@ -100,6 +101,8 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
     g->rx_offset     = 0;
     g->ready         = false;
     g->rx_pending    = false;
+    g->status_mutex  = furi_mutex_alloc(FuriMutexTypeNormal);
+    furi_assert(g->status_mutex);
 
     g->status = (GpsStatus){
         .latitude           = NAN,
@@ -148,6 +151,7 @@ void gps_uart_free(GpsUart* g) {
     expansion_enable(expansion);
     furi_record_close(RECORD_EXPANSION);
     furi_stream_buffer_free(g->rx_stream);
+    furi_mutex_free(g->status_mutex);
     free(g);
 }
 
@@ -156,7 +160,10 @@ void gps_uart_free(GpsUart* g) {
 // ---------------------------------------------------------------------------
 GpsStatus gps_uart_get_status(const GpsUart* g) {
     furi_assert(g);
-    return g->status;
+    furi_mutex_acquire(g->status_mutex, FuriWaitForever);
+    GpsStatus s = g->status;
+    furi_mutex_release(g->status_mutex);
+    return s;
 }
 
 bool gps_uart_is_ready(const GpsUart* g) {
@@ -204,6 +211,9 @@ void gps_uart_process_rx(GpsUart* g) {
             char* line = (char*)g->rx_buf;
             char* end  = (char*)g->rx_buf + g->rx_offset;
 
+            // Parse each complete line, holding status_mutex only for the
+            // brief status update — not for the entire drain.
+            furi_mutex_acquire(g->status_mutex, FuriWaitForever);
             while(line < end) {
                 char* nl = memchr(line, '\n', end - line);
                 if(nl) {
@@ -214,6 +224,7 @@ void gps_uart_process_rx(GpsUart* g) {
                     break;
                 }
             }
+            furi_mutex_release(g->status_mutex);
 
             if(line > (char*)g->rx_buf) {
                 size_t remaining = end - line;

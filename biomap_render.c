@@ -144,7 +144,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     if(has_graph) {
         if(a->session.mode == BioMapModeGsrOnly && a->session.gsr && gsr_sensor_available(a->session.gsr)) {
             char buf[32];
-            snprintf(buf, sizeof(buf), "%ld nS", (long)a->session.display.last_displayed);
+            snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.display.last_displayed);
             int x = 128 - canvas_string_width(c, buf) - (a->session.recording.active ? 12 : 2);
             canvas_draw_str(c, x, 10, buf);
         }

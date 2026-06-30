@@ -88,7 +88,7 @@ _Static_assert((SENSOR_BUFFER_SIZE & (SENSOR_BUFFER_SIZE - 1)) == 0,
                "SENSOR_BUFFER_SIZE must be a power of two");
 
 struct GsrSensor {
-    int32_t raw;        // skin conductance in nanosiemens (nS)
+    float   raw;        // skin conductance in nanosiemens (nS)
     bool    available;
     uint8_t pga_index;  // active PGA setting (0 … ADS_PGA_MAX)
     uint8_t low_count;  // consecutive ticks below ADS_LOW_THRESH
@@ -166,7 +166,7 @@ static int32_t gsr_sensor_worker(void* context) {
 GsrSensor* gsr_sensor_alloc(void) {
     GsrSensor* gsr = malloc(sizeof(GsrSensor));
     furi_assert(gsr);
-    gsr->raw       = 0;
+    gsr->raw       = 0.0f;
     gsr->pga_index = ADS_PGA_DEFAULT;
     gsr->low_count = 0;
 
@@ -242,11 +242,11 @@ bool gsr_sensor_available(const GsrSensor* gsr) {
     return gsr->available;
 }
 
-int32_t gsr_sensor_get_raw(const GsrSensor* gsr) {
+float gsr_sensor_get_raw(const GsrSensor* gsr) {
     furi_assert(gsr);
-    if(!gsr->available) return 0;
+    if(!gsr->available) return 0.0f;
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-    int32_t val = gsr->raw;
+    float val = gsr->raw;
     furi_mutex_release(gsr->mutex);
     return val;
 }
@@ -308,24 +308,32 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         gsr->low_count = 0;
     }
 
+    bool pga_update = false;
     if(new_pga != old_pga) {
-        furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+        // Combined with Step 5 below (single mutex acquisition)
+        pga_update = true;
+    }
+
+    // ── Step 5: normalise filtered reading to physical skin conductance (nS)
+    // Write pga_index, pga_changed, and raw under a single mutex acquisition
+    // to minimise contention with the background worker thread.
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    if(pga_update) {
         FURI_LOG_I("GsrSensor", "PGA %u→%u (±%s)",
             (unsigned)old_pga, (unsigned)new_pga, PGA_LABEL[new_pga]);
         gsr->pga_index = new_pga;
         gsr->pga_changed = true;
-        furi_mutex_release(gsr->mutex);
     }
-
-    // ── Step 5: normalise filtered reading to physical skin conductance (nS)
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     if(avg_norm <= 0) {
-        gsr->raw = 0;
+        gsr->raw = 0.0f;
     } else {
-        int32_t clamped_avg = (avg_norm > 319000) ? 319000 : avg_norm;
-        int64_t num = (int64_t)clamped_avg * 5000000LL;
-        int64_t den = 15040000LL - (int64_t)clamped_avg * 47LL;
-        gsr->raw = (int32_t)(num / den);
+        // Use float arithmetic for the TIA equation to preserve fractional
+        // precision.  Integer truncation was producing visible quantization
+        // steps (±1 nS) when the signal changed slowly.
+        float clamped = (avg_norm > 319000) ? 319000.0f : (float)avg_norm;
+        float num = clamped * 5000000.0f;
+        float den = 15040000.0f - clamped * 47.0f;
+        gsr->raw = num / den;
     }
     furi_mutex_release(gsr->mutex);
 }

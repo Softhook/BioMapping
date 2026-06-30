@@ -38,5 +38,5 @@ bool gsr_sensor_available(const GsrSensor* gsr);
 void gsr_sensor_tick(GsrSensor* gsr);
 
 // Skin conductance in nanosiemens (nS), computed from the TIA circuit
-// equation each tick.  Returns 0 when sensor unavailable.
-int32_t gsr_sensor_get_raw(const GsrSensor* gsr);
+// equation each tick.  Returns 0.0f when sensor unavailable.
+float gsr_sensor_get_raw(const GsrSensor* gsr);

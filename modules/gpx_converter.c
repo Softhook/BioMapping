@@ -292,7 +292,7 @@ const char* gpx_converter_get_name(const GpxConverter* c, int index) {
 
 // Self-contained state so pass 1 and pass 2 produce identical results.
 typedef struct {
-    int32_t buf[GPX_RATE_WINDOW];   // circular buffer of raw GSR values
+    float   buf[GPX_RATE_WINDOW];   // circular buffer of raw GSR values
     int     head;                    // next write slot
     int     count;                   // values stored so far (0 … WINDOW)
     float   sum;                     // running sum (maintained incrementally)
@@ -310,15 +310,15 @@ static void sma_init(SmaState* s) {
 //   rows 1‑7  → filling, no SMA, return 0.0
 //   row  8    → first full‑window SMA, stored as baseline, return 0.0
 //   row  9    → second full‑window SMA, rate = SMA₂ − SMA₁  ← first real rate
-static float sma_feed(SmaState* s, int32_t raw) {
+static float sma_feed(SmaState* s, float raw) {
     if(s->count == 0) {
         // Pre-warm the buffer with the first sample to eliminate startup latency
         for(int i = 0; i < GPX_RATE_WINDOW; i++) {
             s->buf[i] = raw;
         }
-        s->sum = (float)raw * GPX_RATE_WINDOW;
+        s->sum = raw * GPX_RATE_WINDOW;
         s->count    = GPX_RATE_WINDOW;
-        s->prev_sma = (float)raw;
+        s->prev_sma = raw;
         return 0.0f;
     }
 
@@ -400,7 +400,7 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
         int nt = csv_split(line, tok, 7);
         if(nt < 7) { rows_skipped++; continue; }
 
-        int32_t raw = str_to_int(tok[6]);
+        float   raw = str_to_float(tok[6]);
         int     fix = str_to_int(tok[5]);
         float   lat = str_to_float(tok[1]);
         float   lon = str_to_float(tok[2]);
@@ -505,7 +505,7 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
         float lat = str_to_float(tok[1]);
         float lon = str_to_float(tok[2]);
         int   fix = str_to_int(tok[5]);
-        int   raw = str_to_int(tok[6]);
+        float raw = str_to_float(tok[6]);
 
         float rate = sma_feed(&sma2, raw);
 
