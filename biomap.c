@@ -37,7 +37,7 @@ int32_t biomap_app(void* p) {
         .backlight_on = false
     };
 
-    app->event_queue   = furi_message_queue_alloc(16, sizeof(PluginEvent));
+    app->event_queue   = furi_message_queue_alloc(EVENT_QUEUE_DEPTH, sizeof(PluginEvent));
     app->mutex         = furi_mutex_alloc(FuriMutexTypeNormal);
     app->notifications = furi_record_open(RECORD_NOTIFICATION);
     app->storage       = furi_record_open(RECORD_STORAGE);

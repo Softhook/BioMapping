@@ -31,6 +31,7 @@
 #include "modules/gsr_sensor.h"
 #include "modules/sd_logger.h"
 #include "modules/gpx_converter.h"
+#include "modules/util.h"
 
 // ── BioMapApp — shared application state (fully typed) ─────────────────
 

@@ -229,6 +229,7 @@ void run_converter(BioMapApp* app) {
 
     if(n == 0) {
         strncpy(prog.result.conv_name, "(none)", sizeof(prog.result.conv_name) - 1);
+        prog.result.conv_name[sizeof(prog.result.conv_name) - 1] = '\0';
         notification_message(app->notifications, &sequence_blink_red_100);
         show_status_screen(app, &prog.result);
         gpx_converter_free(c);
@@ -237,6 +238,7 @@ void run_converter(BioMapApp* app) {
 
     const char* name = gpx_converter_get_name(c, n - 1);
     strncpy(prog.result.conv_name, name, sizeof(prog.result.conv_name) - 1);
+    prog.result.conv_name[sizeof(prog.result.conv_name) - 1] = '\0';
 
     // Show "Converting..." while the two-pass conversion runs.
     // This prevents a blank screen during what could be seconds of I/O.

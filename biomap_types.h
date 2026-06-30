@@ -15,12 +15,22 @@
 // ── Constants ──────────────────────────────────────────────────────────
 
 #define GRAPH_N          126
+#define GRAPH_HALF       63    // GRAPH_N / 2, precomputed
 #define TICK_HZ          10
+#define EVENT_QUEUE_DEPTH 16   // FuriMessageQueue capacity
 #define ZOOM_FACTOR      1.5f    // multiplicative step for manual Up/Down zoom
 #define ZOOM_MIN         0.25f
 #define ZOOM_MAX         16.0f
 #define DISPLAY_EMA_A    0.2f
 #define DISPLAY_EMA_B    0.8f   // (1.0f - DISPLAY_EMA_A), precomputed
+
+// ── Auto-zoom tuning (update_graph_pipeline) ──────────────────────────
+#define ZOOM_PEAK_DECAY   0.997f  // multiplicative decay of peak per tick
+#define ZOOM_LERP_RATE    0.02f   // zoom level lerp toward target per tick
+#define ZOOM_TARGET_DIV   80.0f   // numerator: target zoom = ZOOM_TARGET_DIV / peak
+#define ZOOM_PEAK_FLOOR   0.5f    // minimum peak floor for auto-zoom
+#define GRAPH_RATE_SCALE  0.2f    // rate → graph-buffer scaling factor
+#define REFRESH_EVERY     5       // display-refresh counter threshold
 
 // ── Sub-structs (owned by BioMapApp) ───────────────────────────────────
 
@@ -50,6 +60,17 @@ typedef struct {
     char     filename[64];
     int      tick_counter;
 } RecordingState;
+
+// Extracted GPS position snapshot (returned by value from get_gps_position).
+// .valid is true only when GPS has a fix and lat/lon are set.
+typedef struct {
+    bool  valid;
+    float lat;
+    float lon;
+    float alt;
+    int   sats;
+    int   fix;
+} GpsPosition;
 
 // ── Inline helpers ─────────────────────────────────────────────────────
 

@@ -25,3 +25,18 @@ static inline int biomap_parse_file_index(const char* name) {
     }
     return idx;
 }
+
+// Derive a GPX filename from a CSV filename by replacing the ".csv" suffix
+// with ".gpx".  Writes to out (max out_sz bytes).  Returns false if the
+// input doesn't end with ".csv".
+static inline bool gpx_name_from_csv(const char* csv_name, char* out, size_t out_sz) {
+    size_t len = strlen(csv_name);
+    if(len < 4 || strcmp(csv_name + len - 4, ".csv") != 0) return false;
+    size_t copy = (len < out_sz - 1) ? len : out_sz - 1;
+    memcpy(out, csv_name, copy);
+    out[copy - 3] = 'g';
+    out[copy - 2] = 'p';
+    out[copy - 1] = 'x';
+    out[copy] = '\0';
+    return true;
+}

@@ -29,9 +29,8 @@ static void rescale_graph_buf(BioMapApp* app, bool zoom_out) {
         // Average adjacent pairs (both are rate-per-tick; average preserves that).
         // 126 old samples → 63 averaged samples at positions [63..125].
         // Positions [0..62] remain zero (no data at this resolution yet).
-        int half = GRAPH_N / 2; // 63
-        for(int i = 0; i < half; i++) {
-            app->graph.buf[half + i] = (temp[i * 2] + temp[i * 2 + 1]) * 0.5f;
+        for(int i = 0; i < GRAPH_HALF; i++) {
+            app->graph.buf[GRAPH_HALF + i] = (temp[i * 2] + temp[i * 2 + 1]) * 0.5f;
         }
     } else {
         // Zoom in (÷2): split newest 63 old samples using linear interpolation.
@@ -39,11 +38,10 @@ static void rescale_graph_buf(BioMapApp* app, bool zoom_out) {
         // Even positions: keep the original rate value.
         // Odd positions: interpolate midpoint toward the next sample, avoiding
         // the staircase a simple duplicate would produce.
-        int half = GRAPH_N / 2; // 63
-        for(int i = 0; i < half; i++) {
-            float curr = temp[half + i];
+        for(int i = 0; i < GRAPH_HALF; i++) {
+            float curr = temp[GRAPH_HALF + i];
             // For the last sample there is no following neighbour — hold value.
-            float next = (i + 1 < half) ? temp[half + i + 1] : curr;
+            float next = (i + 1 < GRAPH_HALF) ? temp[GRAPH_HALF + i + 1] : curr;
             app->graph.buf[i * 2]     = curr;
             app->graph.buf[i * 2 + 1] = (curr + next) * 0.5f;
         }
@@ -51,17 +49,21 @@ static void rescale_graph_buf(BioMapApp* app, bool zoom_out) {
 }
 
 // ── GPS position extraction ────────────────────────────────────────────────
-// Output params are only written when GPS has a valid fix.
-static void get_gps_position(BioMapApp* app, float* lat, float* lon,
-                              float* alt, int* sats, int* fix) {
-    if(!app->gps) return;
+// Returns a GpsPosition snapshot.  .valid is true only when GPS has a fix.
+static GpsPosition get_gps_position(BioMapApp* app) {
+    GpsPosition pos = {0};
+    if(!app->gps) return pos;
     GpsStatus gs = gps_uart_get_status(app->gps);
+    pos.sats = gs.satellites_tracked;
+    pos.fix  = gs.fix_quality;
     if((gs.fix_valid || gs.fix_quality > 0)
         && !isnan(gs.latitude) && !isnan(gs.longitude)) {
-        *lat = gs.latitude; *lon = gs.longitude; *alt = gs.altitude;
+        pos.valid = true;
+        pos.lat = gs.latitude;
+        pos.lon = gs.longitude;
+        pos.alt = gs.altitude;
     }
-    *sats = gs.satellites_tracked;
-    *fix  = gs.fix_quality;
+    return pos;
 }
 
 // ── Display pipeline ───────────────────────────────────────────────────────
@@ -78,7 +80,7 @@ static void update_display_pipeline(BioMapApp* app, int32_t raw) {
     app->display.smoothed = ns;
 
     app->display.refresh_counter++;
-    if(app->display.refresh_counter >= 5) {
+    if(app->display.refresh_counter >= REFRESH_EVERY) {
         app->display.last_displayed = raw;
         app->display.refresh_counter = 0;
     }
@@ -89,13 +91,13 @@ static void update_display_pipeline(BioMapApp* app, int32_t raw) {
 // Handles auto-zoom peak tracking and zoom-level lerp.
 static void update_graph_pipeline(BioMapApp* app) {
     if(app->zoom.enabled) {
-        app->zoom.peak *= 0.997f;
+        app->zoom.peak *= ZOOM_PEAK_DECAY;
     }
 
     app->graph.tick_counter++;
     if(app->graph.tick_counter >= app->graph.scroll_divider) {
         float rate = app->display.smoothed - app->graph.last_smoothed;
-        app->graph.buf[app->graph.head] = -(rate / (float)app->graph.scroll_divider) * 0.2f;
+        app->graph.buf[app->graph.head] = -(rate / (float)app->graph.scroll_divider) * GRAPH_RATE_SCALE;
         if(++app->graph.head >= GRAPH_N) app->graph.head = 0;
         app->graph.last_smoothed = app->display.smoothed;
         app->graph.tick_counter = 0;
@@ -105,14 +107,14 @@ static void update_graph_pipeline(BioMapApp* app) {
             if(just_written < 0) just_written = GRAPH_N - 1;
             float newest = fabsf(app->graph.buf[just_written]);
             if(newest > app->zoom.peak) app->zoom.peak = newest;
-            if(app->zoom.peak < 0.5f) app->zoom.peak = 0.5f;
+            if(app->zoom.peak < ZOOM_PEAK_FLOOR) app->zoom.peak = ZOOM_PEAK_FLOOR;
         }
     }
 
-    if(app->zoom.enabled && app->zoom.peak >= 0.5f) {
-        float target = 80.0f / app->zoom.peak;
+    if(app->zoom.enabled && app->zoom.peak >= ZOOM_PEAK_FLOOR) {
+        float target = ZOOM_TARGET_DIV / app->zoom.peak;
         target = fmaxf(ZOOM_MIN, fminf(ZOOM_MAX, target));
-        app->zoom.level += (target - app->zoom.level) * 0.02f;
+        app->zoom.level += (target - app->zoom.level) * ZOOM_LERP_RATE;
     }
 }
 
@@ -130,13 +132,11 @@ static void batch_csv_row(BioMapApp* app, BioMapMode mode, int32_t raw) {
         sd_logger_batch_printf(app->logger, "%s,%d,%ld\n",
                                ts, app->recording.tick_counter, (long)raw);
     } else if(app->recording.tick_counter == 0) {
-        float lat = 0, lon = 0, alt = 0;
-        int   sats = 0, fix = 0;
-        get_gps_position(app, &lat, &lon, &alt, &sats, &fix);
+        GpsPosition pos = get_gps_position(app);
         sd_logger_batch_printf(app->logger,
                                "%s,%.6f,%.6f,%.1f,%d,%d,%ld\n",
-                               ts, (double)lat, (double)lon, (double)alt,
-                               sats, fix, (long)raw);
+                               ts, (double)pos.lat, (double)pos.lon, (double)pos.alt,
+                               pos.sats, pos.fix, (long)raw);
     } else {
         sd_logger_batch_printf(app->logger, "%s,,,,,,%ld\n",
                                ts, (long)raw);
@@ -167,15 +167,13 @@ static void handle_second_boundary(BioMapApp* app, BioMapMode mode) {
             }
         }
     } else {
-        float lat = 0, lon = 0, alt = 0;
-        int   sats = 0, fix = 0;
-        get_gps_position(app, &lat, &lon, &alt, &sats, &fix);
+        GpsPosition pos = get_gps_position(app);
 
         char ts[32];
         format_timestamp(app, ts, sizeof(ts));
 
         if(app->recording.active) {
-            if(sd_logger_write_row(app->logger, ts, lat, lon, alt, sats, fix, 0)) {
+            if(sd_logger_write_row(app->logger, ts, pos.lat, pos.lon, pos.alt, pos.sats, pos.fix, 0)) {
                 notification_message(app->notifications, &sequence_blink_green_100);
             } else {
                 handle_write_failure(app);
@@ -211,6 +209,7 @@ static bool key_toggle_recording(BioMapApp* app, BioMapMode mode) {
             strncpy(app->recording.filename,
                 sd_logger_get_filename(app->logger),
                 sizeof(app->recording.filename) - 1);
+            app->recording.filename[sizeof(app->recording.filename) - 1] = '\0';
             app->recording.tick_counter = 0;
             furi_mutex_release(app->mutex);
             notification_message(app->notifications, &sequence_set_only_red_255);

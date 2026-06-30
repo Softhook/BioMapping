@@ -187,14 +187,9 @@ void conv_status_render(Canvas* c, void* ctx) {
     snprintf(buf, sizeof(buf), "CSV : %s", r->conv_name);
     canvas_draw_str(c, 0, 24, buf);
 
-    // Derive GPX name: copy conv_name and replace the last 3 chars (.csv → .gpx)
+    // Derive GPX name from CSV name (.csv → .gpx)
     char gpx[32];
-    strncpy(gpx, r->conv_name, sizeof(gpx) - 1);
-    gpx[sizeof(gpx) - 1] = '\0';
-    size_t len = strlen(gpx);
-    if(len >= 4 && strcmp(gpx + len - 4, ".csv") == 0) {
-        gpx[len - 3] = 'g'; gpx[len - 2] = 'p'; gpx[len - 1] = 'x';
-    }
+    gpx_name_from_csv(r->conv_name, gpx, sizeof(gpx));
     snprintf(buf, sizeof(buf), "GPX : %s", gpx);
     canvas_draw_str(c, 0, 34, buf);
     snprintf(buf, sizeof(buf), "Points : %d", r->conv_points);

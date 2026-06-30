@@ -352,14 +352,10 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
     snprintf(csv_path, sizeof(csv_path), EXT_PATH("biomapping/%s"), csv_filename);
 
     char gpx_path[128];
-    strncpy(gpx_path, csv_path, sizeof(gpx_path) - 1);
-    gpx_path[sizeof(gpx_path) - 1] = '\0';
-    size_t plen = strlen(gpx_path);
-    if(plen < 4 || strcmp(gpx_path + plen - 4, ".csv") != 0) {
+    if(!gpx_name_from_csv(csv_path, gpx_path, sizeof(gpx_path))) {
         FURI_LOG_E(TAG, "Not a .csv: %s", csv_filename);
         return 0;
     }
-    gpx_path[plen - 3] = 'g'; gpx_path[plen - 2] = 'p'; gpx_path[plen - 1] = 'x';
     FURI_LOG_I(TAG, "%s -> %s (window=%d)", csv_path, gpx_path, GPX_RATE_WINDOW);
 
     /* ==================================================================
