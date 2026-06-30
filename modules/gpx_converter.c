@@ -246,13 +246,8 @@ int gpx_converter_scan(GpxConverter* c) {
     char     name[64];
     while(storage_dir_read(dir, &info, name, sizeof(name))) {
         if(info.flags & FSF_DIRECTORY) continue;
-        size_t len = strlen(name);
-        if(len < 12) continue;
-        if(strncmp(name, "biomap_", sizeof("biomap_") - 1) != 0) continue;
-        if(strcmp(name + len - 4, ".csv") != 0) continue;
-
         int idx = biomap_parse_file_index(name);
-        if(idx < 0) idx = 0; // fallback for malformed names
+        if(idx < 0) continue;
 
         if(c->file_count < GPX_MAX_CSV_FILES) {
             strncpy(c->filenames[c->file_count], name, 31);

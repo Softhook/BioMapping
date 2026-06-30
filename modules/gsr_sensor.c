@@ -247,15 +247,6 @@ int32_t gsr_sensor_get_raw(const GsrSensor* gsr) {
     return val;
 }
 
-uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr) {
-    furi_assert(gsr);
-    if(!gsr->available) return ADS_PGA_DEFAULT;
-    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-    uint8_t val = gsr->pga_index;
-    furi_mutex_release(gsr->mutex);
-    return val;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Sorting & Filtering
 // ─────────────────────────────────────────────────────────────────────────────

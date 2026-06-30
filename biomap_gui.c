@@ -197,14 +197,14 @@ typedef struct {
     bool conv_ok;
     char conv_name[32];
     int  conv_points;
+    int  spinner_frame;   // spinner animation frame (0-3), lives in context
 } ConvResult;
 
 // Simple "Converting..." screen with a spinner that advances each time
-// the converter yields (every 64 rows).  The static counter makes the
-// spinner cycle through frames even though the main thread is blocked.
+// the converter yields (every 64 rows).  The spinner frame counter lives
+// in the ConvResult context so state resets cleanly with each conversion.
 static void conv_progress_render(Canvas* c, void* ctx) {
     ConvResult* r = (ConvResult*)ctx;
-    static int frame = 0;
     static const char spinner[] = {'|', '/', '-', '\\'};
 
     canvas_clear(c);
@@ -214,10 +214,10 @@ static void conv_progress_render(Canvas* c, void* ctx) {
     canvas_draw_str(c, 0, 26, r->conv_name);
 
     char buf[32];
-    snprintf(buf, sizeof(buf), "%c Please wait", spinner[frame & 3]);
+    snprintf(buf, sizeof(buf), "%c Please wait", spinner[r->spinner_frame & 3]);
     canvas_draw_str(c, 0, 40, buf);
 
-    frame++;
+    r->spinner_frame++;
 }
 
 static void conv_status_render(Canvas* c, void* ctx) {

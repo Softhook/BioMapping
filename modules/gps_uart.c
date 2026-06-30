@@ -90,6 +90,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
 // ---------------------------------------------------------------------------
 // Alloc — acquire USART1, init serial, configure GPS
 // ---------------------------------------------------------------------------
+static void gps_uart_configure(GpsUart* g);
 GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications) {
     GpsUart* g = malloc(sizeof(GpsUart));
     furi_assert(g);
@@ -226,7 +227,7 @@ void gps_uart_process_rx(GpsUart* g) {
 // ---------------------------------------------------------------------------
 // Send init sequence: constellations, NMEA filter, 1 Hz rate
 // ---------------------------------------------------------------------------
-void gps_uart_configure(GpsUart* g) {
+static void gps_uart_configure(GpsUart* g) {
     furi_assert(g);
     if(!g->ready || !g->serial_handle) return;
     FURI_LOG_I("GpsUart", "Configuring GPS");
@@ -243,15 +244,5 @@ void gps_uart_send_hot_start(GpsUart* g) {
     if(!g->ready || !g->serial_handle) return;
     FURI_LOG_I("GpsUart", "Hot Start reset");
     pcas_tx(g, "$PCAS10,0*1C\r\n");
-}
-
-// ---------------------------------------------------------------------------
-// Factory Reset — clears all cached satellite data for a fresh lock
-// ---------------------------------------------------------------------------
-void gps_uart_send_factory_reset(GpsUart* g) {
-    furi_assert(g);
-    if(!g->ready || !g->serial_handle) return;
-    FURI_LOG_I("GpsUart", "Factory reset");
-    pcas_tx(g, "$PCAS10,3*1F\r\n");
 }
 

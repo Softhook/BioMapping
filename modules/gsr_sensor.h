@@ -36,8 +36,3 @@ void gsr_sensor_tick(GsrSensor* gsr);
 // Skin conductance in nanosiemens (nS), computed from the TIA circuit
 // equation each tick.  Returns 0 when sensor unavailable.
 int32_t gsr_sensor_get_raw(const GsrSensor* gsr);
-
-// Active PGA index: 0 = ±6.144V … 5 = ±0.256V.
-// For display/debug only — get_raw() is already in nS; callers do not
-// need to apply any further scaling.
-uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr);
