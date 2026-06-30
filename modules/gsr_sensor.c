@@ -281,22 +281,20 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     furi_assert(gsr);
     if(!gsr->available) return;
 
-    // ── Step 1: extract the most recent 86 samples (100 ms window) ────────
-    int32_t window[86];
+    // ── Step 1: sum the most recent 86 samples directly from the ring
+    // buffer (100 ms window).  No intermediate array — the simple mean
+    // doesn't need sorting, so one pass is enough. ─────────────────────
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     uint32_t r_idx = gsr->write_idx;
+    int64_t sum = 0;
     for(int i = 0; i < 86; i++) {
         r_idx = (r_idx - 1) & (SENSOR_BUFFER_SIZE - 1);
-        window[i] = gsr->buffer[r_idx];
+        sum += gsr->buffer[r_idx];
     }
     uint8_t old_pga = gsr->pga_index;
     furi_mutex_release(gsr->mutex);
 
-    // ── Step 2: average all 86 samples (simple mean) ──────────────────────
-    int64_t sum = 0;
-    for(int i = 0; i < 86; i++) {
-        sum += window[i];
-    }
+    // ── Step 2: simple mean. √86 ≈ 9.27× noise reduction ─────────────────
     float avg_norm = (float)sum / 86.0f;
 
     // ── Step 3: autoranging decision on filtered equivalent raw value ─────
