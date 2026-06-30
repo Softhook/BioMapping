@@ -117,38 +117,29 @@ static void update_graph_pipeline(BioMapApp* app) {
 }
 
 // ── Batch CSV row construction ─────────────────────────────────────────────
-// Accumulate a formatted CSV row into the SD logger's internal batch buffer.
+// Formats each CSV row directly into the SD logger's internal batch buffer,
+// avoiding an intermediate stack buffer and a memcpy per tick.
 // Rows are flushed to SD at the 1‑second boundary by handle_second_boundary().
 static void batch_csv_row(BioMapApp* app, BioMapMode mode, int32_t raw) {
-    if(app->recording.active) {
-        if(has_gsr(mode)) {
-            char ts[32];
-            format_timestamp(app, ts, sizeof(ts));
-            char row[128];
-            int n = 0;
+    if(!app->recording.active || !has_gsr(mode)) return;
 
-            if(mode == BioMapModeGsrOnly) {
-                n = snprintf(row, sizeof(row), "%s,%d,%ld\n",
-                             ts, app->recording.tick_counter, (long)raw);
-            } else {
-                if(app->recording.tick_counter == 0) {
-                    float lat = 0, lon = 0, alt = 0;
-                    int   sats = 0, fix = 0;
-                    get_gps_position(app, &lat, &lon, &alt, &sats, &fix);
-                    n = snprintf(row, sizeof(row),
-                                 "%s,%.6f,%.6f,%.1f,%d,%d,%ld\n",
-                                 ts, (double)lat, (double)lon, (double)alt,
-                                 sats, fix, (long)raw);
-                } else {
-                    n = snprintf(row, sizeof(row), "%s,,,,,,%ld\n",
-                                 ts, (long)raw);
-                }
-            }
+    char ts[32];
+    format_timestamp(app, ts, sizeof(ts));
 
-            if(n > 0 && n < (int)sizeof(row)) {
-                sd_logger_batch_append(app->logger, row, (size_t)n);
-            }
-        }
+    if(mode == BioMapModeGsrOnly) {
+        sd_logger_batch_printf(app->logger, "%s,%d,%ld\n",
+                               ts, app->recording.tick_counter, (long)raw);
+    } else if(app->recording.tick_counter == 0) {
+        float lat = 0, lon = 0, alt = 0;
+        int   sats = 0, fix = 0;
+        get_gps_position(app, &lat, &lon, &alt, &sats, &fix);
+        sd_logger_batch_printf(app->logger,
+                               "%s,%.6f,%.6f,%.1f,%d,%d,%ld\n",
+                               ts, (double)lat, (double)lon, (double)alt,
+                               sats, fix, (long)raw);
+    } else {
+        sd_logger_batch_printf(app->logger, "%s,,,,,,%ld\n",
+                               ts, (long)raw);
     }
 }
 

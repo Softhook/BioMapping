@@ -5,6 +5,7 @@
 #include <storage/storage.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdarg.h>
 
 #define LOGGER_DIR      "biomapping"
 #define LOGGER_BASENAME "biomap_"
@@ -158,6 +159,36 @@ bool sd_logger_batch_append(SdLogger* l, const char* data, size_t len) {
     memcpy(l->gsr_batch + l->gsr_batch_len, data, len);
     l->gsr_batch_len += (int)len;
     return true;
+}
+
+// Format a row directly into the batch buffer, avoiding an intermediate
+// stack buffer and the memcpy that sd_logger_batch_append would require.
+// Returns bytes written to the buffer, or 0 on overflow/error.
+int sd_logger_batch_printf(SdLogger* l, const char* fmt, ...) {
+    furi_assert(l);
+    if(!l->active) return 0;
+
+    int remaining = (int)sizeof(l->gsr_batch) - l->gsr_batch_len;
+    if(remaining <= 0) {
+        FURI_LOG_W("SdLogger", "Batch printf overflow (buffer full)");
+        return 0;
+    }
+
+    va_list args;
+    va_start(args, fmt);
+    int n = vsnprintf(l->gsr_batch + l->gsr_batch_len,
+                      (size_t)remaining, fmt, args);
+    va_end(args);
+
+    if(n <= 0) return 0;
+    if(n >= remaining) {
+        FURI_LOG_W("SdLogger", "Batch printf truncated (%d >= %d)",
+                   n, remaining);
+        l->gsr_batch_len = (int)sizeof(l->gsr_batch);
+        return 0;
+    }
+    l->gsr_batch_len += n;
+    return n;
 }
 
 const char* sd_logger_get_filename(const SdLogger* l) { return l->filename; }

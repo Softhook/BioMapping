@@ -20,10 +20,14 @@ void        sd_logger_stop(SdLogger* logger);
 // to SD in a single storage_file_write at the 1‑second boundary.
 // The internal buffer (512 bytes) holds ~10 rows at 10 Hz.
 //   sd_logger_batch_append  — append a pre-formatted row (returns false on overflow)
+//   sd_logger_batch_printf  — format a row directly into the batch buffer (no
+//                             intermediate stack buffer).  Returns bytes written
+//                             or 0 on overflow (logged internally).
 //   sd_logger_batch_flush   — flush buffer to SD, returns >0 on success (bytes
 //                             written), 0 if buffer was empty, <0 on error.
 int         sd_logger_batch_flush(SdLogger* logger);
 bool        sd_logger_batch_append(SdLogger* logger, const char* data, size_t len);
+int         sd_logger_batch_printf(SdLogger* logger, const char* fmt, ...);
 
 const char* sd_logger_get_filename(const SdLogger* logger);
 
