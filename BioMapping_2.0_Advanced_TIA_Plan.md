@@ -64,24 +64,24 @@ Mount the ADS1115 and the MCP6002 onto the prototyping grid and wire them. We wi
   * Pin 4 -> **Pin 8 (GND)**
   * **Mandatory:** Solder one **100nF capacitor** directly across Pin 8 and Pin 4 to filter digital power spikes from the Flipper.
 
-* **Generate the 0.5V Bias (V_ref) using Op-Amp A:**
-  * Solder the **56kΩ Resistor** from 3.3V to MCP6002 Pin 3 (In+ A).
-  * Solder the **10kΩ Resistor** from MCP6002 Pin 3 (In+ A) to GND.
-  * Tie MCP6002 Pin 1 (Out A) directly to Pin 2 (In- A).
-  * *Result: Pin 1 is now a rock-solid, buffered 0.5V Reference.*
+* **Generate the 0.5V Bias (V_ref) using Op-Amp B (Voltage Follower):**
+  * Solder the **56kΩ Resistor** from 3.3V to MCP6002 Pin 5 (In+ B).
+  * Solder the **10kΩ Resistor** from MCP6002 Pin 5 (In+ B) to GND.
+  * Tie MCP6002 Pin 7 (Out B) directly to Pin 6 (In- B).
+  * *Result: Pin 7 is now a rock-solid, buffered 0.5V Reference (V_ref).*
 
-* **Build the Transimpedance Amplifier (TIA) using Op-Amp B:**
-  * Connect your V_ref (Pin 1) to MCP6002 Pin 5 (In+ B).
-  * Tie the **47kΩ Resistor** and the second **100nF Capacitor** in parallel between Pin 7 (Out B) and Pin 6 (In- B). This acts as both the amplifier gain and a hardware low-pass filter to destroy 50/60Hz mains hum.
+* **Build the Transimpedance Amplifier (TIA) using Op-Amp A:**
+  * Connect your V_ref (Pin 7) to MCP6002 Pin 3 (In+ A).
+  * Tie the **47kΩ Resistor** and the second **100nF Capacitor** in parallel between Pin 1 (Out A) and Pin 2 (In- A). This acts as both the amplifier gain and a hardware low-pass filter to destroy 50/60Hz mains hum.
 
 * **Connect Electrodes & Safety Resistors:**
   * Electrode 1 (GND): GND -> **4.7kΩ Resistor** -> Wire -> Foil/Finger 1.
-  * Electrode 2 (SIGNAL): Foil/Finger 2 -> Wire -> **4.7kΩ Resistor** -> MCP6002 Pin 6 (In- B).
+  * Electrode 2 (SIGNAL): Foil/Finger 2 -> Wire -> **4.7kΩ Resistor** -> MCP6002 Pin 2 (In- A).
   * *These resistors (9.4 kΩ total) ensure maximum skin current is safe while keeping the TIA output within the ADC range for the full span of human skin resistance.*
 
 * **Differential Connection to ADS1115:**
-  * Connect **ADS1115 AIN0** to MCP6002 Pin 7 (Out B) (The amplified GSR signal).
-  * Connect **ADS1115 AIN1** to MCP6002 Pin 1 (Out A) (The clean 0.5V V_ref).
+  * Connect **ADS1115 AIN0** to MCP6002 Pin 1 (Out A) (The amplified GSR signal).
+  * Connect **ADS1115 AIN1** to MCP6002 Pin 7 (Out B) (The clean 0.5V V_ref).
 
 By routing the signals this way, the ADS1115 subtracts the 0.5V virtual ground offset perfectly, isolating the amplified skin current data while completely rejecting external system noise!
 
@@ -91,21 +91,32 @@ By routing the signals this way, the ADS1115 subtracts the 0.5V virtual ground o
 
 Writing this app in C is highly efficient with the ADS1115 in differential mode. We configure the ADS1115 to measure the exact difference between A0 and A1.
 
-### Reading the ADS1115 via Hardware I2C
-Your C code will use the Flipper's native I2C API to communicate with the ADS1115. Here is the core logic for your 10 Hz measurement loop:
+### Reading the ADS1115 with Dynamic PGA Auto-Ranging
+To capture the full dynamic range of human skin resistance with maximum sensitivity and resolution, the software implements active **PGA (Programmable Gain Amplifier) Auto-Ranging** using the normal differential pins (AIN0 and AIN1) on the ADS1115.
+
+The core module `gsr_sensor.c` runs a background thread to read the ADS1115 at 860 SPS, applying the following logic:
+1. **Dynamic Gain Scaling:** 
+   - **Range Down (Avoid Clipping):** If the absolute differential voltage exceeds 30,000 counts (~91.5% of full scale), the PGA gain index is immediately decreased (e.g. from ±0.512V to ±1.024V) to widen the range.
+   - **Range Up (Increase Resolution):** If the absolute reading remains below 4,096 counts (~12.5% of full scale) for 5 consecutive ticks, the PGA gain index is increased (e.g. from ±2.048V to ±1.024V) to narrow the range.
+2. **Output Normalization:** To ensure downstream filters (EMA and Derivative) receive a consistent signal, all hardware readings are normalized back to a common baseline of the ±0.256V range (where 1 LSB = 7.8125 µV) regardless of the active hardware gain setting.
+3. **Trimmed-Mean Filtering:** Out of 86 fast samples (representing a 100 ms window), the highest 6 and lowest 6 are discarded, and the remaining 74 samples are averaged to eliminate transient spikes and 50/60Hz mains hum.
+4. **Conductance Conversion:** The filtered voltage is translated into physical skin conductance in nanosiemens (nS) using the TIA circuit equation.
+
+Here is the core logic for writing the dynamic PGA configuration and reading the raw ADC conversion registers:
 
 ```c
-// Read the ADS1115 via Hardware I2C (Runs 10x per second)
-uint8_t address = 0x48 << 1; // Flipper shifts I2C addresses by 1 bit
-uint8_t reg_read[2];
+// Configure the ADS1115 config register dynamically:
+// - MUX = 000 (AIN0-AIN1 differential mode)
+// - PGA = active PGA gain index (ranges from 0x80 to 0x8A dynamically)
+// - MODE = 0 (Continuous conversion mode)
+// - DR = 111 (860 samples per second)
+uint8_t cfg[2] = { 0x80u | (active_pga << 1), 0xE3 }; 
+furi_hal_i2c_write_mem(&furi_hal_i2c_handle_external, ADS1115_I2C_ADDR, ADS1115_CONFIG_REG, cfg, 2, 50);
 
-// Ask the ADS1115 for the latest DIFFERENTIAL voltage between A0 and A1
-// Ensure your config register is set to MUX = 000 (AINP = AIN0 and AINN = AIN1)
-// Set the PGA (Programmable Gain Amplifier) to +/- 2.048V for maximum GSR resolution
-furi_hal_i2c_read_mem(&furi_hal_i2c_handle_external, address, CONVERSION_REGISTER, reg_read, 2, 100);
-
-// Combine the two bytes into a pristine 16-bit biometric number
-int16_t differential_voltage = (reg_read[0] << 8) | reg_read[1];
+// Read the raw 16-bit differential conversion value
+uint8_t data[2];
+furi_hal_i2c_read_mem(&furi_hal_i2c_handle_external, ADS1115_I2C_ADDR, ADS1115_CONV_REG, data, 2, 50);
+int16_t hw_val = (int16_t)((data[0] << 8) | data[1]);
 ```
 
 ### Challenge: SD Card Lag
@@ -208,16 +219,3 @@ The Flipper's 128x64 black-and-white screen will be heavily utilized to give the
   * `OK (Center Button)`: Starts and stops the GPX recording.
   * `Up/Down`: Zooms in and out on the graph so the user can scale the sensitivity of the spikes.
   * `Back`: Safely closes the `.gpx` file so it doesn't corrupt, and exits the app.
-
-##   8. Future Upgrades: Dual-Gain HDR Architecture (Optional)
-The current firmware handles the dynamic range of human skin resistance using a single, wide-angle gain setting (+/- 2.048V) and relying on the Derivative (Rate of Change). This makes the code simple and immune to slow baseline drift. However, in future use a Dual-Gain (High Dynamic Range) architecture using the two unused pins on the ADS1115.
-
-The Implementation:
-
-The Hardware Split: Add two jumper wires. Wire the Op-Amp GSR Output to both AIN0 and AIN2. Wire the 0.5V Reference to both AIN1 and AIN3. The Software Configuration: Use the ADS1115's Programmable Gain Amplifier (PGA) to configure the two channel pairs with completely different sensitivities:
-
-Channel 1 (AIN0-AIN1): High Sensitivity Mode. Set the PGA to +/- 0.256V. This acts as a microscope, perfectly capturing subtle micro-relaxations (but will clip during high stress). Channel 2 (AIN2-AIN3): Wide Dynamic Mode. Set the PGA to +/- 2.048V or +/- 4.096V. This channel acts as the macro lens, capturing massive stress spikes without ever hitting the ceiling.
-
-The Handoff Logic: In your C code's 10 Hz measurement loop, always read Channel 1 first. If it returns a valid number, use it. If it returns the maximum 16-bit integer (e.g., 32767, meaning it has clipped), instantly discard it and seamlessly stitch in the data from Channel 2 instead.
-
-By combining them, you achieve an essentially infinite dynamic range, capturing both the tiniest whispers of relaxation and the loudest shouts without the data-loss "blind spots" associated with auto-ranging code.
