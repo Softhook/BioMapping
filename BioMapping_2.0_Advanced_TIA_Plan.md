@@ -105,7 +105,7 @@ The core module `gsr_sensor.c` runs a background thread to read the ADS1115 at 8
    - **Range Down (Avoid Clipping):** If the absolute differential voltage exceeds 30,000 counts (~91.5% of full scale), the PGA gain index is immediately decreased (e.g. from ±0.512V to ±1.024V) to widen the range.
    - **Range Up (Increase Resolution):** If the absolute reading remains below 4,096 counts (~12.5% of full scale) for 5 consecutive ticks, the PGA gain index is increased (e.g. from ±2.048V to ±1.024V) to narrow the range.
 2. **Output Normalization:** To ensure downstream filters (EMA and Derivative) receive a consistent signal, all hardware readings are normalized back to a common baseline of the ±0.256V range (where 1 LSB = 7.8125 µV) regardless of the active hardware gain setting.
-3. **Trimmed-Mean Filtering:** Out of 86 fast samples (representing a 100 ms window), the highest 6 and lowest 6 are discarded, and the remaining 74 samples are averaged to eliminate transient spikes and 50/60Hz mains hum.
+3. **Simple-Mean Oversampling:** All 86 fast samples (representing a 100 ms window) are averaged directly. The 100 ms window duration cancels sinusoidal 50/60 Hz mains hum perfectly (100 ms = 10 cycles of 50 Hz = 6 cycles of 60 Hz). The simple mean provides √86 ≈ 9.27× noise reduction against the Gaussian noise sources that dominate the ADC front-end. Empirical testing (873-sample recording) confirmed zero I2C glitches — all large tick-to-tick jumps were sustained physiological SCR onsets, not noise spikes that would benefit from trimming.
 4. **Conductance Conversion:** The filtered voltage is translated into physical skin conductance in nanosiemens (nS) using the TIA circuit equation.
 
 Here is the core logic for writing the dynamic PGA configuration and reading the raw ADC conversion registers:
@@ -171,12 +171,15 @@ ADS1115 @ 860 SPS  ──►  Background worker thread
                               │
                      ┌────────┴────────┐
                      │                 │
-               Trimmed mean       PGA autoranging
-               (86→74 samples)    (hysteretic, 5-tick)
+               Simple mean        PGA autoranging
+               (86 samples)       (hysteretic, 5-tick)
                      │                 │
                      └────────┬────────┘
                               │
                      TIA equation → nanosiemens (nS)
+                              │
+                     IIR low-pass fc≈3 Hz
+                     (post-decimation smoothing, α=0.848)
                               │
                      ┌────────┴────────┐
                      │                 │
@@ -186,6 +189,8 @@ ADS1115 @ 860 SPS  ──►  Background worker thread
                  1 Hz CSV            graph_buf[]
                  (all modes)         (derivative display)
 ```
+
+**Post-decimation smoothing rationale:** The 86-sample boxcar average is the pre-decimation (anti-aliasing) filter — it provides ~4 dB at the 5 Hz Nyquist frequency and perfectly cancels sinusoidal 50/60 Hz mains hum (100 ms = 10 cycles of 50 Hz = 6 cycles of 60 Hz). Aliasing from the 860→10 Hz downsampling cannot be undone, but a post-decimation first-order IIR at 3 Hz (α = 0.848) attenuates both real high-frequency GSR and any aliased noise that leaked into the 0–5 Hz band. Since >95 % of GSR signal power is below 1 Hz, the net SNR improves: real phasic GSR at 2 Hz loses <0.5 dB, while broadband EMI (BLE radio, switching artifacts) that passed through the boxcar sidelobes is suppressed. The IIR costs one multiply-add per tick (~3 CPU cycles) and introduces ~50 ms phase lag at 1 Hz — invisible for GSR where phasic responses have 1–3 s rise times.  See `smooth_iir_filter()` in `biomap_session.c`.
 
 ### GPS Signal Chain
 

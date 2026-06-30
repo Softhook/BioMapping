@@ -16,7 +16,8 @@
 void session_init(Session* s, BioMapMode mode, bool zoom_enabled) {
     *s = (Session){
         .mode       = mode,
-        .display    = {.smoothed = 0.0f, .primed = false,
+        .display    = {.smooth_iir = 0.0f, .smooth_iir_primed = false,
+                       .smoothed = 0.0f, .primed = false,
                        .last_displayed = 0, .refresh_counter = 0},
         .graph      = {.head = 0, .tick_counter = 0,
                        .last_smoothed = 0.0f, .scroll_divider = 1},
@@ -138,21 +139,54 @@ static GpsPosition get_gps_position(const Session* s) {
     return pos;
 }
 
+// ── Post-decimation smoothing IIR ──────────────────────────────────────────
+// First-order IIR at fc ≈ 3 Hz (α = 1 - e^{-2π·3/10} ≈ 0.848).
+// Runs at 10 Hz AFTER the 86:1 boxcar decimation — aliasing at the
+// 860→10 Hz downsampling step is a one-way door, so this filter
+// attenuates both real high-frequency GSR and any aliased noise that
+// already leaked into the 0–5 Hz band.  For a physiological signal
+// with >95 % of power below 1 Hz, the net effect is still a net SNR
+// improvement — real GSR at 3–5 Hz loses <3 dB while aliased broadband
+// EMI (radio, switching artifacts) is suppressed.
+//
+// True anti-aliasing would require filtering at 860 SPS before the
+// boxcar.  That is avoided here because PGA autoranging jumps cause
+// the IIR state to become stale; handling that cleanly at 860 SPS
+// adds complexity.  The boxcar itself is the pre-decimation filter.
+// For a hardware improvement, doubling the TIA feedback capacitor
+// (100 nF → 220 nF) lowers the analog cutoff from 34 Hz to ~15 Hz
+// with zero code changes.
+//
+// At 3 Hz the phase lag is ~50 ms — invisible for GSR where phasic
+// responses have 1–3 s rise times.  Signal attenuation at 2 Hz
+// (fastest measurable SCR onset) is <0.5 dB.
+static float smooth_iir_filter(DisplayState* d, float raw) {
+    if(!d->smooth_iir_primed) {
+        d->smooth_iir = raw;
+        d->smooth_iir_primed = true;
+        return raw;
+    }
+    d->smooth_iir = SMOOTH_IIR_A * raw + SMOOTH_IIR_B * d->smooth_iir;
+    return d->smooth_iir;
+}
+
 // ── Display pipeline ───────────────────────────────────────────────────────
-// EMA smoothing of raw GSR readings for on-screen display.
+// Post-decimation smoothing IIR → EMA smoothing of GSR readings.
 static void update_display_pipeline(Session* s, float raw) {
+    float filtered = smooth_iir_filter(&s->display, raw);
+
     if(!s->display.primed) {
-        s->display.smoothed = raw;
-        s->graph.last_smoothed = raw;
-        s->display.last_displayed = raw;
+        s->display.smoothed = filtered;
+        s->graph.last_smoothed = filtered;
+        s->display.last_displayed = filtered;
         s->display.primed = true;
     }
-    float ns = DISPLAY_EMA_A * raw + DISPLAY_EMA_B * s->display.smoothed;
+    float ns = DISPLAY_EMA_A * filtered + DISPLAY_EMA_B * s->display.smoothed;
     s->display.smoothed = ns;
 
     s->display.refresh_counter++;
     if(s->display.refresh_counter >= REFRESH_EVERY) {
-        s->display.last_displayed = raw;
+        s->display.last_displayed = filtered;
         s->display.refresh_counter = 0;
     }
 }

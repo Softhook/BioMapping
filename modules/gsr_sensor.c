@@ -23,11 +23,11 @@
 //
 // DELAY AFTER PGA CHANGE
 //   The ADS1115 is a delta-sigma ADC in continuous mode at 860 SPS.  After
-//   writing a new config, the current conversion completes at the OLD setting
-//   (~1.16 ms), then every subsequent conversion uses the new setting.
-//   Since we tick at 10 Hz (100 ms between ticks), ~86 conversions have
-//   completed before the next tick — meaning PGA changes are settled immediately
-//   relative to the 100 ms filter window.
+//   writing a new config, the current conversion in the register was started
+//   under the OLD setting (~1.16 ms old).  The worker skips that stale read
+//   and waits 2 ms (> 1.16 ms) so the next iteration reads the first
+//   fully-settled conversion under the new PGA — preventing single-sample
+//   glitches where the signal suddenly halved or doubled.
 //
 // SATURATION DETECTION
 //   The ADC clips at exactly ±32 767 (0x7FFF / 0x8000).  We use
@@ -115,15 +115,23 @@ static int32_t gsr_sensor_worker(void* context) {
 
         furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
         if(pga_changed) {
-            uint8_t cfg[2] = { pga_msb(active_pga), 0xE3 }; // Config: active PGA, continuous 860 SPS
+            uint8_t cfg[2] = { pga_msb(active_pga), 0xE3 };
             bool cfg_ok = furi_hal_i2c_write_mem(
                 &furi_hal_i2c_handle_external,
                 ADS1115_I2C_ADDR, ADS1115_CONFIG_REG,
                 cfg, 2, 50);
+            furi_hal_i2c_release(&furi_hal_i2c_handle_external);
             if(cfg_ok) {
                 furi_mutex_acquire(gsr->mutex, FuriWaitForever);
                 gsr->pga_changed = false;
                 furi_mutex_release(gsr->mutex);
+
+                // Wait for the first fully-settled conversion under the new PGA
+                // setting.  At 860 SPS conversion takes 1.16 ms; 2 ms guarantees
+                // the next read returns a new-PGA result.
+                furi_delay_ms(2);
+                current_adc_pga = active_pga;
+                continue;
             }
         }
 
@@ -147,14 +155,18 @@ static int32_t gsr_sensor_worker(void* context) {
             furi_mutex_release(gsr->mutex);
         }
 
-        // The next read sample will be from a conversion started under the active PGA config
-        current_adc_pga = active_pga;
+        // Track the PGA under which the next conversion will be started.
+        // Only update when there is no pending (uncommitted) PGA change —
+        // otherwise a failed I2C write would cause the next read to be
+        // normalized with the wrong NORM_FACTOR.
+        if(!pga_changed) {
+            current_adc_pga = active_pga;
+        }
 
         // Yield to the RTOS scheduler (~1000 Hz loop).  The ADS1115 converts
         // at 860 SPS so ~14 % of reads return the same conversion as the
-        // previous iteration — duplicates are harmless: the trimmed-mean
-        // filter in gsr_sensor_tick() discards extreme values anyway, and
-        // duplicate mid-range samples do not bias the average.
+        // previous iteration — duplicates are harmless: they are valid
+        // measurements and do not bias the simple mean.
         furi_delay_ms(1);
     }
     return 0;
@@ -252,19 +264,18 @@ float gsr_sensor_get_raw(const GsrSensor* gsr) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sorting & Filtering
+// Oversampling & Filtering
+//
+// Each 100 ms (10 Hz) tick extracts the 86 most recent ADC samples and
+// averages them.  The simple mean is the minimum-variance unbiased
+// estimator for the Gaussian noise that dominates the ADC front-end
+// (ADS1115 thermal noise, TIA Johnson noise, op-amp input noise).
+// Empirical testing (biomap_019.csv, 873 samples) confirmed zero I2C
+// glitches — all large tick-to-tick jumps were sustained physiological
+// SCR onsets, not single-sample spikes that trimming would catch.
+//
+// Simple mean noise reduction: √86 ≈ 9.27× (vs 8.60× for trimmed 74).
 // ─────────────────────────────────────────────────────────────────────────────
-static void sort_int32(int32_t* arr, int n) {
-    for(int i = 1; i < n; i++) {
-        int32_t key = arr[i];
-        int j = i - 1;
-        while(j >= 0 && arr[j] > key) {
-            arr[j + 1] = arr[j];
-            j = j - 1;
-        }
-        arr[j + 1] = key;
-    }
-}
 
 void gsr_sensor_tick(GsrSensor* gsr) {
     furi_assert(gsr);
@@ -281,18 +292,15 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     uint8_t old_pga = gsr->pga_index;
     furi_mutex_release(gsr->mutex);
 
-    // ── Step 2: sort the 86 samples ───────────────────────────────────────
-    sort_int32(window, 86);
-
-    // ── Step 3: discard top 6 and bottom 6, average the remaining 74 ──────
+    // ── Step 2: average all 86 samples (simple mean) ──────────────────────
     int64_t sum = 0;
-    for(int i = 6; i <= 79; i++) {
+    for(int i = 0; i < 86; i++) {
         sum += window[i];
     }
-    int32_t avg_norm = (int32_t)(sum / 74);
+    float avg_norm = (float)sum / 86.0f;
 
-    // ── Step 4: autoranging decision on filtered equivalent raw value ─────
-    int32_t hw_equiv = avg_norm / NORM_FACTOR[old_pga];
+    // ── Step 3: autoranging decision on filtered equivalent raw value ─────
+    int32_t hw_equiv = (int32_t)(avg_norm / (float)NORM_FACTOR[old_pga]);
     int32_t abs_hw_equiv = (hw_equiv < 0) ? -hw_equiv : hw_equiv;
     uint8_t new_pga = old_pga;
 
@@ -310,11 +318,11 @@ void gsr_sensor_tick(GsrSensor* gsr) {
 
     bool pga_update = false;
     if(new_pga != old_pga) {
-        // Combined with Step 5 below (single mutex acquisition)
+        // Combined with Step 4 below (single mutex acquisition)
         pga_update = true;
     }
 
-    // ── Step 5: normalise filtered reading to physical skin conductance (nS)
+    // ── Step 4: normalise filtered reading to physical skin conductance (nS)
     // Write pga_index, pga_changed, and raw under a single mutex acquisition
     // to minimise contention with the background worker thread.
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);

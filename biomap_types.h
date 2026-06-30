@@ -17,10 +17,12 @@
 #define GRAPH_N          126
 #define GRAPH_HALF       63    // GRAPH_N / 2, precomputed
 #define TICK_HZ          10
-#define EVENT_QUEUE_DEPTH 16   // FuriMessageQueue capacity
+#define EVENT_QUEUE_DEPTH 64   // FuriMessageQueue capacity
 #define ZOOM_FACTOR      1.5f    // multiplicative step for manual Up/Down zoom
 #define ZOOM_MIN         0.25f
 #define ZOOM_MAX         16.0f
+#define SMOOTH_IIR_A     0.848f  // α for 3 Hz post-decimation smoothing IIR at 10 Hz
+#define SMOOTH_IIR_B     0.152f  // 1 - α, precomputed
 #define DISPLAY_EMA_A    0.2f
 #define DISPLAY_EMA_B    0.8f   // (1.0f - DISPLAY_EMA_A), precomputed
 
@@ -36,7 +38,9 @@
 // ── Sub-structs (owned by BioMapApp) ───────────────────────────────────
 
 typedef struct {
-    float    smoothed;
+    float    smooth_iir;         // output of the 3 Hz post-decimation smoothing IIR
+    bool     smooth_iir_primed;
+    float    smoothed;           // output of the display EMA (fed by smooth_iir)
     bool     primed;
     float    last_displayed;
     int      refresh_counter;
