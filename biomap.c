@@ -81,6 +81,265 @@ static void rescale_graph_buf(BioMapApp* app, bool zoom_out) {
     }
 }
 
+// ── Extract: handle one key press during a recording session ──────────────
+// Returns true if the event was consumed (the caller should continue its
+// event loop without further processing for this iteration).
+static bool handle_recording_key(PluginEvent* ev, BioMapApp* app,
+                                  ViewPort* vp, BioMapMode mode) {
+    if(ev->type != EventTypeKey || ev->input.type != InputTypeShort)
+        return false;
+
+    switch(ev->input.key) {
+    case InputKeyBack:
+        furi_mutex_acquire(app->mutex, FuriWaitForever);
+        if((mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr)
+            && app->recording_active && app->gsr_batch_len > 0) {
+            sd_logger_flush_gsr(app->logger, app->gsr_batch,
+                                (size_t)app->gsr_batch_len);
+            app->gsr_batch_len = 0;
+        }
+        app->running = false;
+        furi_mutex_release(app->mutex);
+        return true;
+
+    case InputKeyOk: {
+        bool start;
+        furi_mutex_acquire(app->mutex, FuriWaitForever);
+        start = !app->recording_active;
+        furi_mutex_release(app->mutex);
+
+        if(start) {
+            bool ok = (mode == BioMapModeGsrOnly)
+                ? sd_logger_start_gsr(app->logger)
+                : sd_logger_start(app->logger);
+            if(ok) {
+                furi_mutex_acquire(app->mutex, FuriWaitForever);
+                app->recording_active = true;
+                strncpy(app->recording_filename,
+                    sd_logger_get_filename(app->logger),
+                    sizeof(app->recording_filename) - 1);
+                app->tick_counter = app->raw_count = app->gsr_raw_sum = 0;
+                app->gsr_batch_len = 0;
+                furi_mutex_release(app->mutex);
+                notification_message(app->notifications, &sequence_set_only_red_255);
+            }
+        } else {
+            furi_mutex_acquire(app->mutex, FuriWaitForever);
+            app->recording_active = false;
+            if((mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr)
+                && app->gsr_batch_len > 0) {
+                sd_logger_flush_gsr(app->logger, app->gsr_batch,
+                                    (size_t)app->gsr_batch_len);
+                app->gsr_batch_len = 0;
+            }
+            app->recording_filename[0] = '\0';
+            furi_mutex_release(app->mutex);
+            sd_logger_stop(app->logger);
+            notification_message(app->notifications, &sequence_reset_rgb);
+        }
+        view_port_update(vp);
+        return true;
+    }
+    case InputKeyUp:
+        if(has_gsr(mode)) {
+            furi_mutex_acquire(app->mutex, FuriWaitForever);
+            app->auto_zoom_enabled = false;
+            app->zoom_level = fminf(app->zoom_level * ZOOM_FACTOR, ZOOM_MAX);
+            furi_mutex_release(app->mutex);
+            view_port_update(vp);
+        }
+        return true;
+    case InputKeyDown:
+        if(has_gsr(mode)) {
+            furi_mutex_acquire(app->mutex, FuriWaitForever);
+            app->auto_zoom_enabled = false;
+            app->zoom_level = fmaxf(app->zoom_level / ZOOM_FACTOR, ZOOM_MIN);
+            furi_mutex_release(app->mutex);
+            view_port_update(vp);
+        }
+        return true;
+    case InputKeyLeft:
+        if(has_gsr(mode)) {
+            furi_mutex_acquire(app->mutex, FuriWaitForever);
+            if(app->scroll_divider < 16) {
+                app->scroll_divider *= 2;
+                app->graph_tick_counter = 0;
+                app->graph_last_smoothed = app->display_smoothed;
+                rescale_graph_buf(app, true);
+            }
+            furi_mutex_release(app->mutex);
+            view_port_update(vp);
+        }
+        return true;
+    case InputKeyRight:
+        if(has_gsr(mode)) {
+            furi_mutex_acquire(app->mutex, FuriWaitForever);
+            if(app->scroll_divider > 1) {
+                app->scroll_divider /= 2;
+                app->graph_tick_counter = 0;
+                app->graph_last_smoothed = app->display_smoothed;
+                rescale_graph_buf(app, false);
+            }
+            furi_mutex_release(app->mutex);
+            view_port_update(vp);
+        }
+        return true;
+    default:
+        return false;
+    }
+}
+
+// ── Extract: handle one GSR tick (10 Hz) during a recording session ──────
+static void handle_recording_tick(BioMapApp* app, BioMapMode mode) {
+    int32_t raw = 0;
+    if(app->gsr) {
+        gsr_sensor_tick(app->gsr);
+        raw = gsr_sensor_get_raw(app->gsr);
+
+        float rf = (float)raw;
+        if(!app->display_primed) {
+            app->display_smoothed = rf;
+            app->graph_last_smoothed = rf;
+            app->last_displayed_gsr = raw;
+            app->display_primed = true;
+        }
+        float ns = DISPLAY_EMA_A * rf + DISPLAY_EMA_B * app->display_smoothed;
+        app->display_smoothed = ns;
+
+        app->text_refresh_counter++;
+        if(app->text_refresh_counter >= 5) {
+            app->last_displayed_gsr = raw;
+            app->text_refresh_counter = 0;
+        }
+
+        if(app->auto_zoom_enabled) {
+            app->auto_zoom_peak *= 0.997f;
+        }
+
+        app->graph_tick_counter++;
+        if(app->graph_tick_counter >= app->scroll_divider) {
+            float rate = app->display_smoothed - app->graph_last_smoothed;
+            app->graph_buf[app->graph_head] = -(rate / (float)app->scroll_divider) * 0.2f;
+            if(++app->graph_head >= GRAPH_N) app->graph_head = 0;
+            app->graph_last_smoothed = app->display_smoothed;
+            app->graph_tick_counter = 0;
+
+            if(app->auto_zoom_enabled) {
+                int just_written = app->graph_head - 1;
+                if(just_written < 0) just_written = GRAPH_N - 1;
+                float newest = fabsf(app->graph_buf[just_written]);
+                if(newest > app->auto_zoom_peak) app->auto_zoom_peak = newest;
+                if(app->auto_zoom_peak < 0.5f) app->auto_zoom_peak = 0.5f;
+            }
+        }
+
+        if(mode == BioMapModeGpsOnly) {
+            app->gsr_raw_sum += raw;
+            app->raw_count++;
+        }
+
+        if(app->auto_zoom_enabled && app->auto_zoom_peak >= 0.5f) {
+            float target = 80.0f / app->auto_zoom_peak;
+            target = fmaxf(ZOOM_MIN, fminf(ZOOM_MAX, target));
+            app->zoom_level += (target - app->zoom_level) * 0.02f;
+        }
+    }
+
+    // ── Batch CSV row formatting (10 Hz modes) ──────────────────────
+    if(app->recording_active) {
+        if(mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr) {
+            char ts[32];
+            format_timestamp(app, ts, sizeof(ts));
+            int remain = (int)sizeof(app->gsr_batch) - app->gsr_batch_len;
+            int n = 0;
+
+            if(mode == BioMapModeGsrOnly) {
+                n = snprintf(app->gsr_batch + app->gsr_batch_len,
+                             remain > 0 ? remain : 0,
+                             "%s,%ld\n", ts, (long)raw);
+            } else {
+                if(app->tick_counter == 0) {
+                    float lat = 0, lon = 0, alt = 0;
+                    int   sats = 0, fix = 0;
+                    if(app->gps) {
+                        GpsStatus gs = gps_uart_get_status(app->gps);
+                        if((gs.fix_valid || gs.fix_quality > 0)
+                            && !isnan(gs.latitude) && !isnan(gs.longitude)) {
+                            lat = gs.latitude; lon = gs.longitude; alt = gs.altitude;
+                        }
+                        sats = gs.satellites_tracked;
+                        fix  = gs.fix_quality;
+                    }
+                    n = snprintf(app->gsr_batch + app->gsr_batch_len,
+                                 remain > 0 ? remain : 0,
+                                 "%s,%.6f,%.6f,%.1f,%d,%d,%ld\n",
+                                 ts, (double)lat, (double)lon, (double)alt,
+                                 sats, fix, (long)raw);
+                } else {
+                    n = snprintf(app->gsr_batch + app->gsr_batch_len,
+                                 remain > 0 ? remain : 0,
+                                 "%s,,,,,,%ld\n", ts, (long)raw);
+                }
+            }
+
+            if(n > 0 && n < remain) {
+                app->gsr_batch_len += n;
+            } else if(app->gsr_batch_len > 0) {
+                FURI_LOG_W("BioMap", "Batch overflow at len=%d remain=%d",
+                           app->gsr_batch_len, remain);
+            }
+        }
+    }
+}
+
+// ── 1-second boundary: flush batch or write GPS-only row ──────────────────
+static void handle_second_boundary(BioMapApp* app, BioMapMode mode) {
+    if(mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr) {
+        if(app->recording_active && app->gsr_batch_len > 0) {
+            if(sd_logger_flush_gsr(app->logger, app->gsr_batch,
+                                   (size_t)app->gsr_batch_len)) {
+                notification_message(app->notifications, &sequence_blink_green_100);
+            } else {
+                FURI_LOG_E("BioMap", "Batch flush failed");
+                if(app->logger) sd_logger_stop(app->logger);
+                app->recording_active = false;
+                app->recording_filename[0] = '\0';
+                notification_message(app->notifications, &sequence_set_only_red_255);
+            }
+            app->gsr_batch_len = 0;
+        }
+    } else {
+        float lat = 0, lon = 0, alt = 0;
+        int   sats = 0, fix = 0;
+        if(app->gps) {
+            GpsStatus gs = gps_uart_get_status(app->gps);
+            if((gs.fix_valid || gs.fix_quality > 0)
+                && !isnan(gs.latitude) && !isnan(gs.longitude)) {
+                lat = gs.latitude; lon = gs.longitude; alt = gs.altitude;
+            }
+            sats = gs.satellites_tracked;
+            fix  = gs.fix_quality;
+        }
+
+        int32_t avg = app->raw_count ? (app->gsr_raw_sum / app->raw_count) : 0;
+        char ts[32];
+        format_timestamp(app, ts, sizeof(ts));
+
+        if(app->recording_active) {
+            if(sd_logger_write_row(app->logger, ts, lat, lon, alt, sats, fix, avg)) {
+                notification_message(app->notifications, &sequence_blink_green_100);
+            } else {
+                if(app->logger) sd_logger_stop(app->logger);
+                app->recording_active = false;
+                app->recording_filename[0] = '\0';
+                notification_message(app->notifications, &sequence_set_only_red_255);
+            }
+        }
+    }
+
+    app->tick_counter = app->raw_count = app->gsr_raw_sum = 0;
+}
+
 void run_recording_session(BioMapApp* app, BioMapMode mode) {
     app->mode = mode;
     app->gsr_raw_sum = app->raw_count = app->tick_counter = app->graph_head = 0;
@@ -131,276 +390,16 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             continue;
         }
 
-        if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
-            switch(ev.input.key) {
-            case InputKeyBack:
-                furi_mutex_acquire(app->mutex, FuriWaitForever);
-                // Flush any pending GSR batch before exiting the session.
-                // Without this, up to 0.9 s of data is lost on clean exit.
-                if((mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr) && app->recording_active && app->gsr_batch_len > 0) {
-                    sd_logger_flush_gsr(app->logger, app->gsr_batch,
-                                        (size_t)app->gsr_batch_len);
-                    app->gsr_batch_len = 0;
-                }
-                app->running = false;
-                furi_mutex_release(app->mutex);
-                break;
-            case InputKeyOk: {
-                bool start;
-                furi_mutex_acquire(app->mutex, FuriWaitForever);
-                start = !app->recording_active;
-                furi_mutex_release(app->mutex);
-
-                if(start) {
-                    bool ok = (mode == BioMapModeGsrOnly)
-                        ? sd_logger_start_gsr(app->logger)
-                        : sd_logger_start(app->logger);
-                    if(ok) {
-                        furi_mutex_acquire(app->mutex, FuriWaitForever);
-                        app->recording_active = true;
-                        strncpy(app->recording_filename,
-                            sd_logger_get_filename(app->logger),
-                            sizeof(app->recording_filename) - 1);
-                        app->tick_counter = app->raw_count = app->gsr_raw_sum = 0;
-                        app->gsr_batch_len = 0;
-                        furi_mutex_release(app->mutex);
-                        notification_message(app->notifications, &sequence_set_only_red_255);
-                    }
-                } else {
-                    // Flush pending GSR batch before closing the file.
-                    furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    app->recording_active = false;
-                    if((mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr) && app->gsr_batch_len > 0) {
-                        sd_logger_flush_gsr(app->logger, app->gsr_batch,
-                                            (size_t)app->gsr_batch_len);
-                        app->gsr_batch_len = 0;
-                    }
-                    app->recording_filename[0] = '\0';
-                    furi_mutex_release(app->mutex);
-                    sd_logger_stop(app->logger);
-                    notification_message(app->notifications, &sequence_reset_rgb);
-                }
-                view_port_update(vp);
-                break;
-            }
-            case InputKeyUp:
-                if(has_gsr(mode)) {
-                    furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    // Disable auto-zoom so the manual adjustment isn't
-                    // immediately counteracted by the lerp in the tick handler.
-                    app->auto_zoom_enabled = false;
-                    app->zoom_level = fminf(app->zoom_level * ZOOM_FACTOR, ZOOM_MAX);
-                    furi_mutex_release(app->mutex);
-                    view_port_update(vp);
-                }
-                break;
-            case InputKeyDown:
-                if(has_gsr(mode)) {
-                    furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    app->auto_zoom_enabled = false;
-                    app->zoom_level = fmaxf(app->zoom_level / ZOOM_FACTOR, ZOOM_MIN);
-                    furi_mutex_release(app->mutex);
-                    view_port_update(vp);
-                }
-                break;
-            case InputKeyLeft:
-                if(has_gsr(mode)) {
-                    furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    if(app->scroll_divider < 16) {
-                        app->scroll_divider *= 2;
-                        app->graph_tick_counter = 0;
-                        app->graph_last_smoothed = app->display_smoothed;
-                        // Rescale existing data to the new (slower) time base.
-                        rescale_graph_buf(app, true);
-                    }
-                    furi_mutex_release(app->mutex);
-                    view_port_update(vp);
-                }
-                break;
-            case InputKeyRight:
-                if(has_gsr(mode)) {
-                    furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    if(app->scroll_divider > 1) {
-                        app->scroll_divider /= 2;
-                        app->graph_tick_counter = 0;
-                        app->graph_last_smoothed = app->display_smoothed;
-                        // Rescale existing data to the new (faster) time base.
-                        rescale_graph_buf(app, false);
-                    }
-                    furi_mutex_release(app->mutex);
-                    view_port_update(vp);
-                }
-                break;
-            default: break;
-            }
+        if(handle_recording_key(&ev, app, vp, mode))
             continue;
-        }
 
         if(ev.type == EventTypeTick) {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
-
-            int32_t raw = 0;
-            if(app->gsr) {
-                gsr_sensor_tick(app->gsr);
-                raw = gsr_sensor_get_raw(app->gsr);
-
-                float rf = (float)raw;
-                if(!app->display_primed) {
-                    app->display_smoothed = rf;
-                    app->graph_last_smoothed = rf;
-                    app->last_displayed_gsr = raw;
-                    app->display_primed = true;
-                }
-                float ns = DISPLAY_EMA_A * rf + DISPLAY_EMA_B * app->display_smoothed;
-                app->display_smoothed = ns;
-
-                app->text_refresh_counter++;
-                if(app->text_refresh_counter >= 5) {
-                    app->last_displayed_gsr = raw;
-                    app->text_refresh_counter = 0;
-                }
-
-                // Auto-zoom peak: decay every tick (wall-clock time) so the
-                // envelope releases at the same rate regardless of scroll_divider.
-                if(app->auto_zoom_enabled) {
-                    app->auto_zoom_peak *= 0.997f;
-                }
-
-                app->graph_tick_counter++;
-                if(app->graph_tick_counter >= app->scroll_divider) {
-                    float rate = app->display_smoothed - app->graph_last_smoothed;
-                    // Normalise by scroll_divider so each sample stores rate-per-tick
-                    // rather than total change over the window.  Without this, the
-                    // amplitude would grow ×16 from the fastest to slowest time scale.
-                    app->graph_buf[app->graph_head] = -(rate / (float)app->scroll_divider) * 0.2f; // scale for nanosiemens rate of change
-                    if(++app->graph_head >= GRAPH_N) app->graph_head = 0;
-                    app->graph_last_smoothed = app->display_smoothed;
-                    app->graph_tick_counter = 0;
-
-                    // Auto-zoom peak: capture newest sample (decay already applied above).
-                    if(app->auto_zoom_enabled) {
-                        // graph_head now points to next slot; one behind is what we just wrote.
-                        int just_written = app->graph_head - 1;
-                        if(just_written < 0) just_written = GRAPH_N - 1;
-                        float newest = fabsf(app->graph_buf[just_written]);
-                        if(newest > app->auto_zoom_peak) app->auto_zoom_peak = newest;
-                        if(app->auto_zoom_peak < 0.5f) app->auto_zoom_peak = 0.5f;
-                    }
-                }
-
-                // 1-second GSR accumulator — only needed for GPS Only mode;
-                // GSR-only and GPS+GSR modes log at 10 Hz via the batch buffer.
-                if(mode == BioMapModeGpsOnly) {
-                    app->gsr_raw_sum += raw;
-                    app->raw_count++;
-                }
-
-                // Smooth zoom_level towards target every tick for fluid animation.
-                // Lerp rate 0.02 → time constant ~5 s, 95 % convergence in ~15 s.
-                if(app->auto_zoom_enabled && app->auto_zoom_peak >= 0.5f) {
-                    float target = 80.0f / app->auto_zoom_peak;
-                    target = fmaxf(ZOOM_MIN, fminf(ZOOM_MAX, target));
-                    app->zoom_level += (target - app->zoom_level) * 0.02f;
-                }
-
-                // GSR-only and GPS+GSR modes: accumulate formatted row into batch buffer each tick.
-                if(app->recording_active) {
-                    if(mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr) {
-                        char ts[32];
-                        format_timestamp(app, ts, sizeof(ts));
-                        int remain = (int)sizeof(app->gsr_batch) - app->gsr_batch_len;
-                        int n = 0;
-
-                        if(mode == BioMapModeGsrOnly) {
-                            n = snprintf(app->gsr_batch + app->gsr_batch_len,
-                                         remain > 0 ? remain : 0,
-                                         "%s,%ld\n", ts, (long)raw);
-                        } else { // BioMapModeGpsGsr
-                            if(app->tick_counter == 0) {
-                                float lat = 0, lon = 0, alt = 0;
-                                int   sats = 0, fix = 0;
-                                if(app->gps) {
-                                    GpsStatus gs = gps_uart_get_status(app->gps);
-                                    if((gs.fix_valid || gs.fix_quality > 0)
-                                        && !isnan(gs.latitude) && !isnan(gs.longitude)) {
-                                        lat = gs.latitude; lon = gs.longitude; alt = gs.altitude;
-                                    }
-                                    sats = gs.satellites_tracked;
-                                    fix  = gs.fix_quality;
-                                }
-                                n = snprintf(app->gsr_batch + app->gsr_batch_len,
-                                             remain > 0 ? remain : 0,
-                                             "%s,%.6f,%.6f,%.1f,%d,%d,%ld\n",
-                                             ts, (double)lat, (double)lon, (double)alt,
-                                             sats, fix, (long)raw);
-                            } else {
-                                n = snprintf(app->gsr_batch + app->gsr_batch_len,
-                                             remain > 0 ? remain : 0,
-                                             "%s,,,,,,%ld\n", ts, (long)raw);
-                            }
-                        }
-
-                        if(n > 0 && n < remain) {
-                            app->gsr_batch_len += n;
-                        } else if(app->gsr_batch_len > 0) {
-                            FURI_LOG_W("BioMap", "Batch overflow at len=%d remain=%d",
-                                       app->gsr_batch_len, remain);
-                        }
-                    }
-                }
-            }
+            handle_recording_tick(app, mode);
 
             if(++app->tick_counter >= TICK_HZ) {
-                if(mode == BioMapModeGsrOnly || mode == BioMapModeGpsGsr) {
-                    // Flush accumulated rows in one SD write.
-                    if(app->recording_active && app->gsr_batch_len > 0) {
-                        if(sd_logger_flush_gsr(app->logger, app->gsr_batch,
-                                               (size_t)app->gsr_batch_len)) {
-                            notification_message(app->notifications, &sequence_blink_green_100);
-                        } else {
-                            FURI_LOG_E("BioMap", "Batch flush failed");
-                            if(app->logger) sd_logger_stop(app->logger);
-                            app->recording_active = false;
-                            app->recording_filename[0] = '\0';
-                            notification_message(app->notifications, &sequence_set_only_red_255);
-                        }
-                        app->gsr_batch_len = 0;
-                    }
-                } else {
-                    // GPS Only mode: write full 7-column row once per second.
-                    float lat = 0, lon = 0, alt = 0;
-                    int   sats = 0, fix = 0;
-                    if(app->gps) {
-                        GpsStatus gs = gps_uart_get_status(app->gps);
-                        if((gs.fix_valid || gs.fix_quality > 0)
-                            && !isnan(gs.latitude) && !isnan(gs.longitude)) {
-                            lat = gs.latitude; lon = gs.longitude; alt = gs.altitude;
-                        }
-                        sats = gs.satellites_tracked;
-                        fix  = gs.fix_quality;
-                    }
-
-                    int32_t avg = app->raw_count ? (app->gsr_raw_sum / app->raw_count) : 0;
-                    char ts[32];
-                    format_timestamp(app, ts, sizeof(ts));
-
-                    if(app->recording_active) {
-                        if(sd_logger_write_row(app->logger, ts, lat, lon, alt, sats, fix, avg)) {
-                            // Green heartbeat on every successful write
-                            notification_message(app->notifications, &sequence_blink_green_100);
-                        } else {
-                            // Write failed — stop recording and hold red
-                            if(app->logger) sd_logger_stop(app->logger);
-                            app->recording_active = false;
-                            app->recording_filename[0] = '\0';
-                            notification_message(app->notifications, &sequence_set_only_red_255);
-                        }
-                    }
-                }
-
-                app->tick_counter = app->raw_count = app->gsr_raw_sum = 0;
+                handle_second_boundary(app, mode);
             }
-
             furi_mutex_release(app->mutex);
             view_port_update(vp);
         }
