@@ -5,11 +5,11 @@ The Complete Build & Software Guide (ADS1115 Transimpedance Amplifier Edition)
 
 ## 1. Introduction: What is BioMapping 2.0?
 BioMapping 2.0 is a new version of Christian Nold's Bio Mapping project for the **Flipper Zero**. 
-It allows you to walk through a city or landscape and record your body's physiological arousal responses mapped precisely to geographical coordinates. 
+It allows you to walk through a city or landscape and record your body's physiological arousal mapped precisely to geographical coordinates. 
 
 It translates your Galvanic Skin Response (GSR) fluctuations into **topographical elevation** within a GPX file. When you import your walk into Google Earth, your route will look flat while you were at your baseline, but "mountains" will appear where you experienced stress or arousal, and "valleys" or craters will map your deep relaxation.
 
-This version of the device uses a dedicated 16-bit **ADS1115** Analog-to-Digital Converter combined with a robust, highly stable **Transimpedance Amplifier (TIA)** circuit. By utilizing a rail-to-rail dual op-amp (MCP602, MCP6002, or equivalent) for active voltage buffering and hardware low-pass filtering, we achieve a highly precise, noise-resistant way to measure the tiny changes in human sweat gland activity.
+This version of the device uses a dedicated 16-bit **ADS1115** Analog-to-Digital Converter combined with a robust and stable **Transimpedance Amplifier (TIA)** circuit. By utilising a rail-to-rail dual op-amp for active voltage buffering and hardware low-pass filtering, we achieve a precise, robust and noise-resistant way to measure the tiny changes in human sweat gland activity.
 
 ---
 
@@ -25,10 +25,10 @@ To build this, you need the following physical components:
 * **1x rail-to-rail dual op-amp** (MCP602, MCP6002, MCP6042, or equivalent 3.3V CMOS dual op-amp)
 
 **Passive Components:**
-* **1x 56kΩ Resistor** (For the voltage divider 0.1% tolerance metal film recommended)
-* **1x 10kΩ Resistor** (For the voltage divider 0.1% tolerance metal film recommended)
-* **1x 47kΩ Resistor** (For the TIA gain/feedback 1% tolerance metal film recommended)
-* **2x 4.7kΩ Resistors** (For safety inline with the electrodes 1% tolerance metal film recommended)
+* **1x 56kΩ Resistor** (For the voltage divider 0.1% tolerance metal film)
+* **1x 10kΩ Resistor** (For the voltage divider 0.1% tolerance metal film)
+* **1x 47kΩ Resistor** (For the TIA gain/feedback 1% tolerance metal film)
+* **2x 4.7kΩ Resistors** (For safety inline with the electrodes 1% tolerance metal film)
 * **2x 100nF (0.1µF) Ceramic Capacitors** (One for power bypass, one for the feedback filter)
 
 **Biometric Interface:**
@@ -38,13 +38,13 @@ To build this, you need the following physical components:
 
 ## 3. The Wiring Guide & Hardware Surgery (Step-by-Step)
 
-### Phase 1: Freeing the I2C Bus (Trace Cuts) ✅ COMPLETE
-The two copper traces connecting **Pin 15 (PC1)** and **Pin 16 (PC0)** to the L76K GPS module have been physically cut. These pins are now free for exclusive use by the ADS1115 I2C bus.
+### Phase 1: Freeing the I2C Bus (Trace Cuts)
+The two copper traces connecting **Pin 15 (PC1)** and **Pin 16 (PC0)** to the L76K GPS module have been physically cut. These pins are for exclusive use by the ADS1115 I2C bus.
 
 * Pin 15 (PC1) — **no longer connected to GPS** → used for I2C **SCL**
 * Pin 16 (PC0) — **no longer connected to GPS** → used for I2C **SDA**
 
-### Phase 2: GPS Hardware Reroute — Not Required ✅
+### Phase 2: GPS Hardware Reroute
 No additional wiring is needed. The L76K cannot be put to sleep via software, so no STANDBY or RESET wires need to be soldered. The GPS runs continuously. Software reset commands are available over UART for error recovery — see **Section 4a**.
 
 ### Phase 3: Installing the Biometric Sensor Circuit
@@ -74,7 +74,7 @@ Pin 4 = GND       Pin 5 = In+ B
   * Solder the **56kΩ Resistor** from 3.3V to the op-amp's In+ B (pin 5).
   * Solder the **10kΩ Resistor** from In+ B (pin 5) to GND.
   * Tie Out B (pin 7) directly to In- B (pin 6).
-  * *Result: Pin 7 is now a rock-solid, buffered 0.5V Reference (V_ref).*
+  * *Result: Pin 7 is now a buffered 0.5V Reference (V_ref).*
 
 * **Build the Transimpedance Amplifier (TIA) using Op-Amp A:**
   * Connect V_ref (from Out B) to the op-amp's In+ A (pin 3).
@@ -130,11 +130,13 @@ Writing data to the Flipper's SD card takes a few milliseconds. If we write ever
 
 **The Solution:** The app uses different logging rates depending on mode:
 
-- **GPS+GSR mode:** Each 10 Hz tick writes a CSV row. On the first tick of each second (when the GPS fix is freshest), a full 7-column row is written with lat/lon/alt/sats/fix. On the remaining 9 ticks, a partial row with only timestamp and gsr_raw is written (GPS columns are empty). This preserves full 100 ms GSR resolution while GPS data remains at its natural 1 Hz rate.
+All GSR modes (GPS+GSR and GSR-only) use an **in-memory batch buffer** to avoid per-tick SD writes:
 
-- **GPS-only mode:** One 7-column CSV row is written each second alongside the latest GPS coordinate. The `gsr_raw` column is always 0.
+- **GPS+GSR mode:** Each 10 Hz tick formats a CSV row into the in-memory batch buffer. On the first tick of each second (when the GPS fix is freshest), a full 7-column row with lat/lon/alt/sats/fix is formatted. On the remaining 9 ticks, a partial row with only timestamp and gsr_raw is formatted (GPS columns are empty). The entire batch of ~10 rows is flushed to the SD card once per second in a single `storage_file_write()` call, exactly like GSR-only mode.
 
-- **GSR-only mode:** GSR values are formatted each tick (10 Hz) into an in-memory batch buffer, and the entire batch of ~10 rows is flushed to the SD card once per second in a single `storage_file_write()` call. This preserves 100 ms temporal resolution in the CSV while keeping SD card operations at 1 Hz.
+- **GSR-only mode:** GSR values are formatted each tick (10 Hz) into the same in-memory batch buffer, and flushed to SD once per second.
+
+- **GPS-only mode:** One 7-column CSV row is written directly to the SD card each second (no batch buffer, since there's no high-frequency GSR data). The `gsr_raw` column is always 0.
 
 ---
 
