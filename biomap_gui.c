@@ -63,7 +63,7 @@ static void show_status_screen(BioMapApp* app, ConvResult* r) {
 //
 //  ┌─────────────────────────────┐
 //  │  Bio Mapping                │
-//  │  ▓ GPS + GSR           ▓   │   ← selected item (inverse bar)
+//  │  ▓ GPS + GSR           ▓    │   ← selected item (inverse bar)
 //  │    GPS Only                 │
 //  │    GSR Only                 │
 //  │    Convert CSV to GPX       │
