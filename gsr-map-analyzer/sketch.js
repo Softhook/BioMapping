@@ -26,6 +26,7 @@ const margin = {
 let showRaw = true;
 let showFiltered = true;
 let showTonic = true;
+let showPeaks = true;
 
 // Interaction
 let isDragging = false;
@@ -187,6 +188,7 @@ function setupEventListeners() {
       if (btnId === 'btnToggleRaw') showRaw = !showRaw;
       if (btnId === 'btnToggleFiltered') showFiltered = !showFiltered;
       if (btnId === 'btnToggleTonic') showTonic = !showTonic;
+      if (btnId === 'btnTogglePeaks') showPeaks = !showPeaks;
       redraw();
     });
   };
@@ -194,6 +196,7 @@ function setupEventListeners() {
   bindToggle('btnToggleRaw');
   bindToggle('btnToggleFiltered');
   bindToggle('btnToggleTonic');
+  bindToggle('btnTogglePeaks');
 
   // Exports
   document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
@@ -681,7 +684,7 @@ function drawPhasicArea(data, tMin, tMax, yMin, yMax, yTop, yBottom) {
  * Draw visual annotations for all detected peaks in range
  */
 function drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
-  if (!analyzer.peaks || analyzer.peaks.length === 0) return;
+  if (!showPeaks || !analyzer.peaks || analyzer.peaks.length === 0) return;
   for (let pIdx = 0; pIdx < analyzer.peaks.length; pIdx++) {
     const p = analyzer.peaks[pIdx];
     
