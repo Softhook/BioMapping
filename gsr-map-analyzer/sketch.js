@@ -11,6 +11,10 @@ function setup() {
   AppState.mapManager = new GSRMapManager('map');
 
   const container = document.getElementById('canvasContainer');
+  if (!container) {
+    console.error('GSR Map Analyzer: #canvasContainer not found — cannot initialise canvas.');
+    return;
+  }
   const w = container.clientWidth;
   const h = container.clientHeight || 450;
   AppState.myCanvas = createCanvas(w, h);
@@ -64,22 +68,45 @@ function draw() {
   const idxStart = Math.max(0, startIdx - 1);
   const idxEnd   = Math.min(AppState.analyzer.raw.length - 1, endIdx + 1);
 
-  // Y-scaling for Upper Graph
-  let yMinUpper = Infinity;
-  let yMaxUpper = -Infinity;
+  // ── Y-scaling — use global cache when view is wide to skip full scan ─────
+  const global = AppState.analyzer._globalRange;
+  const viewCoversMost = global && (idxEnd - idxStart) > AppState.analyzer.raw.length * 0.4;
 
-  for (let i = idxStart; i <= idxEnd; i++) {
-    if (AppState.showRaw && AppState.analyzer.raw[i]) {
-      yMinUpper = Math.min(yMinUpper, AppState.analyzer.raw[i].val);
-      yMaxUpper = Math.max(yMaxUpper, AppState.analyzer.raw[i].val);
+  let yMinUpper, yMaxUpper;
+
+  if (viewCoversMost) {
+    // Fast path: estimate from pre-computed global ranges
+    yMinUpper = Infinity;
+    yMaxUpper = -Infinity;
+    if (AppState.showRaw && global.raw) {
+      yMinUpper = Math.min(yMinUpper, global.raw.min);
+      yMaxUpper = Math.max(yMaxUpper, global.raw.max);
     }
-    if (AppState.showFiltered && AppState.analyzer.filtered[i]) {
-      yMinUpper = Math.min(yMinUpper, AppState.analyzer.filtered[i].val);
-      yMaxUpper = Math.max(yMaxUpper, AppState.analyzer.filtered[i].val);
+    if (AppState.showFiltered && global.filtered) {
+      yMinUpper = Math.min(yMinUpper, global.filtered.min);
+      yMaxUpper = Math.max(yMaxUpper, global.filtered.max);
     }
-    if (AppState.showTonic && AppState.analyzer.tonic[i]) {
-      yMinUpper = Math.min(yMinUpper, AppState.analyzer.tonic[i].val);
-      yMaxUpper = Math.max(yMaxUpper, AppState.analyzer.tonic[i].val);
+    if (AppState.showTonic && global.tonic) {
+      yMinUpper = Math.min(yMinUpper, global.tonic.min);
+      yMaxUpper = Math.max(yMaxUpper, global.tonic.max);
+    }
+  } else {
+    // Scan the visible window (fewer points when zoomed in)
+    yMinUpper = Infinity;
+    yMaxUpper = -Infinity;
+    for (let i = idxStart; i <= idxEnd; i++) {
+      if (AppState.showRaw && AppState.analyzer.raw[i]) {
+        yMinUpper = Math.min(yMinUpper, AppState.analyzer.raw[i].val);
+        yMaxUpper = Math.max(yMaxUpper, AppState.analyzer.raw[i].val);
+      }
+      if (AppState.showFiltered && AppState.analyzer.filtered[i]) {
+        yMinUpper = Math.min(yMinUpper, AppState.analyzer.filtered[i].val);
+        yMaxUpper = Math.max(yMaxUpper, AppState.analyzer.filtered[i].val);
+      }
+      if (AppState.showTonic && AppState.analyzer.tonic[i]) {
+        yMinUpper = Math.min(yMinUpper, AppState.analyzer.tonic[i].val);
+        yMaxUpper = Math.max(yMaxUpper, AppState.analyzer.tonic[i].val);
+      }
     }
   }
 
@@ -92,10 +119,15 @@ function draw() {
   yMaxUpper = yMaxUpper + paddingUpper;
 
   // Y-scaling for Lower Graph (Phasic)
-  let yMaxLower = -Infinity;
-  for (let i = idxStart; i <= idxEnd; i++) {
-    if (AppState.analyzer.phasic[i]) {
-      yMaxLower = Math.max(yMaxLower, AppState.analyzer.phasic[i].val);
+  let yMaxLower;
+  if (viewCoversMost && global && global.phasic) {
+    yMaxLower = global.phasic.max;
+  } else {
+    yMaxLower = -Infinity;
+    for (let i = idxStart; i <= idxEnd; i++) {
+      if (AppState.analyzer.phasic[i]) {
+        yMaxLower = Math.max(yMaxLower, AppState.analyzer.phasic[i].val);
+      }
     }
   }
   if (yMaxLower <= 0) yMaxLower = parseFloat(AppState.sliders.peakThreshold.value) * 2;
@@ -144,8 +176,8 @@ function draw() {
   // 5. Hover Scrubber
   handleScrubber(AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, yUpperBottom, yMinLower, yMaxLower, yLowerTop, yLowerBottom);
 
-  // 6. Timeline overview
-  if (AppState.analyzer.raw && AppState.analyzer.raw.length > 0) {
+  // 6. Timeline overview (cached points — pre-computed after analysis)
+  if (AppState.analyzer._timelinePoints && AppState.analyzer._timelinePoints.length > 0) {
     fill(15, 23, 42, 180);
     stroke(255, 255, 255, 15);
     strokeWeight(1);
@@ -171,23 +203,26 @@ function draw() {
 
     if (minRaw === maxRaw) maxRaw = minRaw + 0.5;
 
+    // Use pre-cached timeline points (~300 samples)
     beginShape();
-    const timelineStep = Math.max(1, Math.floor(AppState.analyzer.raw.length / 300));
-    for (let i = 0; i < AppState.analyzer.raw.length; i += timelineStep) {
-      const d = AppState.analyzer.raw[i];
+    const tPoints = AppState.analyzer._timelinePoints;
+    for (let i = 0; i < tPoints.length; i++) {
+      const d = tPoints[i];
       const xt = map(d.time, 0, AppState.totalDuration, M.left, width - M.right);
       const yt = map(d.val, minRaw, maxRaw, AppState.yTimelineBottom - 3, AppState.yTimelineTop + 3);
       vertex(xt, yt);
     }
     endShape();
 
-    if (AppState.showPeaks && AppState.analyzer.peaks) {
+    // Use pre-cached peak positions (fraction of total duration)
+    if (AppState.showPeaks && AppState.analyzer._timelinePeakPct) {
       fill(244, 63, 94, 180);
       noStroke();
-      AppState.analyzer.peaks.forEach(pk => {
-        const xp = map(pk.time, 0, AppState.totalDuration, M.left, width - M.right);
+      const pcts = AppState.analyzer._timelinePeakPct;
+      for (let j = 0; j < pcts.length; j++) {
+        const xp = M.left + pcts[j] * innerWidth;
         rect(xp - 0.5, AppState.yTimelineTop + 2, 1.5, timelineHeight - 4);
-      });
+      }
     }
 
     const xViewStart = map(AppState.viewStartTime, 0, AppState.totalDuration, M.left, width - M.right);

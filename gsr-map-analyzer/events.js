@@ -4,39 +4,59 @@
  */
 
 /**
+ * Safe DOM lookup — warns on missing elements without crashing.
+ */
+function _id(id) {
+  const el = document.getElementById(id);
+  if (!el) console.warn('GSR Map Analyzer: DOM element #' + id + ' not found.');
+  return el;
+}
+
+/**
  * Cache all frequently-accessed DOM elements into AppState.
  */
 function cacheDOMElements() {
-  AppState.fileInput    = document.getElementById('fileInput');
-  AppState.dropZone     = document.getElementById('dropZone');
+  AppState.fileInput    = _id('fileInput');
+  AppState.dropZone     = _id('dropZone');
   AppState.tableBody    = document.querySelector('#peaksTable tbody');
 
   // Sliders
-  AppState.sliders.medianSize    = document.getElementById('medianSize');
-  AppState.sliders.lpfWindow     = document.getElementById('lpfWindow');
-  AppState.sliders.tonicWindow   = document.getElementById('tonicWindow');
-  AppState.sliders.tonicMethod   = document.getElementById('tonicMethod');
-  AppState.sliders.peakThreshold = document.getElementById('peakThreshold');
+  AppState.sliders.medianSize    = _id('medianSize');
+  AppState.sliders.lpfWindow     = _id('lpfWindow');
+  AppState.sliders.tonicWindow   = _id('tonicWindow');
+  AppState.sliders.tonicMethod   = _id('tonicMethod');
+  AppState.sliders.peakThreshold = _id('peakThreshold');
 
   // Stats
-  AppState.statFields.duration   = document.getElementById('statDuration');
-  AppState.statFields.meanSCL    = document.getElementById('statMeanSCL');
-  AppState.statFields.peakCount  = document.getElementById('statPeakCount');
-  AppState.statFields.peakFreq   = document.getElementById('statPeakFreq');
+  AppState.statFields.duration   = _id('statDuration');
+  AppState.statFields.meanSCL    = _id('statMeanSCL');
+  AppState.statFields.peakCount  = _id('statPeakCount');
+  AppState.statFields.peakFreq   = _id('statPeakFreq');
 
   // GPS filter sliders
-  AppState.sliders.gpsMinSats      = document.getElementById('gpsMinSats');
-  AppState.sliders.gpsMaxSpeed     = document.getElementById('gpsMaxSpeed');
-  AppState.sliders.gpsHampelWindow = document.getElementById('gpsHampelWindow');
-  AppState.sliders.gpsHampelSigma  = document.getElementById('gpsHampelSigma');
-  AppState.sliders.gpsDBSCANRadius = document.getElementById('gpsDBSCANRadius');
-  AppState.sliders.gpsDBSCANMinPts = document.getElementById('gpsDBSCANMinPts');
-  AppState.sliders.gpsKalmanR      = document.getElementById('gpsKalmanR');
-  AppState.sliders.gpsKalmanQ      = document.getElementById('gpsKalmanQ');
-  AppState.sliders.gpsRDP          = document.getElementById('gpsRDP');
-  AppState.sliders.gpsMinDist      = document.getElementById('gpsMinDist');
-  AppState.sliders.gpsDownsample   = document.getElementById('gpsDownsample');
-  AppState.sliders.gpsTrackWeight  = document.getElementById('gpsTrackWeight');
+  AppState.sliders.gpsMinSats      = _id('gpsMinSats');
+  AppState.sliders.gpsMaxSpeed     = _id('gpsMaxSpeed');
+  AppState.sliders.gpsHampelWindow = _id('gpsHampelWindow');
+  AppState.sliders.gpsHampelSigma  = _id('gpsHampelSigma');
+  AppState.sliders.gpsDBSCANRadius = _id('gpsDBSCANRadius');
+  AppState.sliders.gpsDBSCANMinPts = _id('gpsDBSCANMinPts');
+  AppState.sliders.gpsKalmanR      = _id('gpsKalmanR');
+  AppState.sliders.gpsKalmanQ      = _id('gpsKalmanQ');
+  AppState.sliders.gpsRDP          = _id('gpsRDP');
+  AppState.sliders.gpsMinDist      = _id('gpsMinDist');
+  AppState.sliders.gpsDownsample   = _id('gpsDownsample');
+  AppState.sliders.gpsTrackWeight  = _id('gpsTrackWeight');
+
+  // Contour controls (used in collective map)
+  AppState.contourControls = {
+    gridResolution:    _id('gridResolution'),
+    contourCount:      _id('contourCount'),
+    isolationRadius:   _id('isolationRadius'),
+    idwExponent:       _id('idwExponent'),
+    topoSource:        _id('topoSource'),
+    showShadedSurface: _id('showShadedSurface'),
+    surfaceOpacity:    _id('surfaceOpacity')
+  };
 }
 
 /**
@@ -44,8 +64,8 @@ function cacheDOMElements() {
  * Replaces 7+ copy-pasted addEventListener blocks.
  */
 function bindCollapseButton(btnId, cardId) {
-  const btn = document.getElementById(btnId);
-  const card = document.getElementById(cardId);
+  const btn = _id(btnId);
+  const card = _id(cardId);
   if (!btn || !card) return;
   btn.addEventListener('click', () => card.classList.toggle('collapsed'));
 }

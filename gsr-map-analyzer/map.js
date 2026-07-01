@@ -220,17 +220,46 @@ class GSRMapManager {
       if (v < minVal) minVal = v;
       if (v > maxVal) maxVal = v;
     }
+    if (maxVal === minVal) maxVal = minVal + 1;
 
-    for (let i = 0; i < drawPoints.length - 1; i++) {
-      const pA = drawPoints[i], pB = drawPoints[i + 1];
-      const avgVal = (pA.val + pB.val) / 2.0;
-      const color = this.getColorForValue(avgVal, minVal, maxVal);
+    // ── Batch consecutive segments by quantized color bucket ────────────────
+    // Individual per-segment L.polylines create thousands of SVG <path>
+    // elements, crushing Leaflet pan/zoom performance.  Instead, quantise the
+    // [0,1] colour ratio into ~30 buckets and merge all consecutive segments
+    // that fall in the same bucket into a single L.polyline.
+    const range = maxVal - minVal;
+    const COLOR_BUCKETS = 30;
+    let batchStart = 0;
 
-      const segment = L.polyline([[pA.lat, pA.lon], [pB.lat, pB.lon]], {
-        color, weight: trackWeight, opacity: 0.95
-      }).addTo(this.map);
+    while (batchStart < drawPoints.length - 1) {
+      const startVal = (drawPoints[batchStart].val + drawPoints[batchStart + 1].val) / 2;
+      const startBucket = Math.floor(((startVal - minVal) / range) * COLOR_BUCKETS);
 
-      this.pathSegments.push(segment);
+      // Extend the batch while consecutive points stay in the same bucket
+      let batchEnd = batchStart + 1;
+      while (batchEnd < drawPoints.length - 1) {
+        const val = (drawPoints[batchEnd].val + drawPoints[batchEnd + 1].val) / 2;
+        const bucket = Math.floor(((val - minVal) / range) * COLOR_BUCKETS);
+        if (bucket !== startBucket) break;
+        batchEnd++;
+      }
+
+      // Build coordinate array for the batch (inclusive of both endpoints)
+      const latlngs = [];
+      for (let i = batchStart; i <= batchEnd; i++) {
+        latlngs.push([drawPoints[i].lat, drawPoints[i].lon]);
+      }
+
+      // Mid-batch value for the colour (smooth transition at bucket edges)
+      const midIdx = Math.floor((batchStart + batchEnd) / 2);
+      const midVal = (drawPoints[midIdx].val + drawPoints[midIdx + 1].val) / 2;
+      const color = this.getColorForValue(midVal, minVal, maxVal);
+
+      this.pathSegments.push(
+        L.polyline(latlngs, { color, weight: trackWeight, opacity: 0.95 }).addTo(this.map)
+      );
+
+      batchStart = batchEnd;
     }
   }
 

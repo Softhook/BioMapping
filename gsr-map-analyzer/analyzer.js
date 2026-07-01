@@ -297,6 +297,50 @@ class GSRAnalyzer {
 
     // 5. Phasic Peak Detection
     this.detectPeaks(params.peakThreshold);
+
+    // 6. Build display cache for fast rendering (Y-range pyramid, timeline)
+    this._buildDisplayCache();
+  }
+
+  /**
+   * Pre-compute global Y-ranges and timeline glyph data so draw() doesn't
+   * have to scan the full dataset every redraw.
+   */
+  _buildDisplayCache() {
+    // Global Y-range per curve — used when view covers >40 % of data
+    this._globalRange = {};
+    for (const key of ['raw', 'filtered', 'tonic', 'phasic']) {
+      const arr = this[key];
+      if (!arr || arr.length === 0) continue;
+      let mn = Infinity, mx = -Infinity;
+      for (let i = 0; i < arr.length; i++) {
+        const v = arr[i].val;
+        if (v < mn) mn = v;
+        if (v > mx) mx = v;
+      }
+      this._globalRange[key] = { min: mn, max: mx };
+    }
+
+    // Reset per-redraw cache (recomputed once by draw())
+    this.rawMinMaxCached = null;
+
+    // Timeline waveform: sub-sample to ~300 points
+    this._timelinePoints = [];
+    if (this.raw.length > 0) {
+      const step = Math.max(1, Math.floor(this.raw.length / 300));
+      for (let i = 0; i < this.raw.length; i += step) {
+        this._timelinePoints.push(this.raw[i]);
+      }
+    }
+
+    // Timeline peak positions as fraction of total duration
+    this._timelinePeakPct = [];
+    if (this.peaks.length > 0 && this.raw.length > 0) {
+      const totalDur = this.raw[this.raw.length - 1].time - this.raw[0].time;
+      if (totalDur > 0) {
+        this._timelinePeakPct = this.peaks.map(pk => pk.time / totalDur);
+      }
+    }
   }
 
   detectPeaks(threshold) {
@@ -316,7 +360,8 @@ class GSRAnalyzer {
         if (curr >= threshold) {
           let onsetIdx = i;
           while (onsetIdx > 0 && phasicVals[onsetIdx] > 0) {
-            if (onsetIdx < i - 1 && phasicVals[onsetIdx] < phasicVals[onsetIdx - 1]) {
+            // Walk backward: stop when phasic values start rising again (past the trough)
+            if (onsetIdx < i && phasicVals[onsetIdx] < phasicVals[onsetIdx - 1]) {
               break;
             }
             onsetIdx--;
@@ -408,11 +453,17 @@ class GSRAnalyzer {
     }
     csv += "\n";
 
+    // Build O(1) peak lookup map (avoid O(n²) .find() inside the loop)
+    const peakByIndex = new Map();
+    for (let pi = 0; pi < this.peaks.length; pi++) {
+      peakByIndex.set(this.peaks[pi].index, this.peaks[pi]);
+    }
+
     for (let i = 0; i < this.raw.length; i++) {
       let isPeak = 0;
       let peakAmp = "";
       
-      const peak = this.peaks.find(p => p.index === i);
+      const peak = peakByIndex.get(i);
       if (peak) {
         isPeak = 1;
         peakAmp = peak.amplitude.toFixed(4);

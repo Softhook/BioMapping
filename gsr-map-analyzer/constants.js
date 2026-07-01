@@ -24,10 +24,7 @@ const GSR_CONST = {
   SPLINE_THRESHOLD: 600,    // Below this count use spline, else linear
 
   // ── Contour / collective surface ─────────────────────────────────────────
-  CONTOUR_MAX_POINTS: 20000, // Target max points for IDW interpolation
-  CONTOUR_BOUNDARY_CHECK: 100, // Sample count for boundary mask check
-  CONTOUR_ISOLATION_PAD: 1.5, // Radius multiplier for IDW isolation
-  CONTOUR_IDW_EXACT: 1e-3,   // Distance threshold for exact grid match (deg)
+  CONTOUR_MAX_POINTS: 20000,   // Target max points for IDW interpolation
 
   // ── GPS filter defaults ──────────────────────────────────────────────────
   GPS_DEFAULT: {

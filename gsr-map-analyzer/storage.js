@@ -6,6 +6,7 @@
 /**
  * Read current GPS slider values into a clean param object.
  * Shared by tracks.js, simulator.js, and storage.js.
+ * This is the canonical source — always add new GPS sliders here first.
  */
 function readGpsSliderValues() {
   const S = AppState.sliders;
@@ -25,27 +26,51 @@ function readGpsSliderValues() {
   };
 }
 
+/**
+ * Build GPS filter params for the map renderer, post-processing raw slider values.
+ * Uses readGpsSliderValues() as the canonical source.
+ * Call this when passing params to GSRMapManager.renderData().
+ */
+function buildGpsParams() {
+  const raw = readGpsSliderValues();
+  return {
+    minSats:      raw.minSats,
+    maxSpeed:     raw.maxSpeed,
+    hampelWindow: raw.hampelWindow,
+    hampelSigma:  raw.hampelSigma,
+    dbscanRadius: raw.dbscanRadius,
+    dbscanMinPts: raw.dbscanMinPts,
+    kalmanR:      raw.kalmanR,
+    kalmanQ:      Math.pow(10, -raw.kalmanQ),
+    rdpTolerance: raw.rdpTolerance,
+    minDist:      raw.minDist,
+    downsample:   raw.downsample === 1,
+    trackWeight:  raw.trackWeight
+  };
+}
+
 function saveSettings() {
   const S = AppState.sliders;
   if (!S.medianSize) return;
+  const gps = readGpsSliderValues();
   const settings = {
     medianSize:    parseFloat(S.medianSize.value),
     lpfWindow:     parseFloat(S.lpfWindow.value),
     tonicMethod:   S.tonicMethod.value,
     tonicWindow:   parseInt(S.tonicWindow.value),
     peakThreshold: parseFloat(S.peakThreshold.value),
-    gpsMinSats:      parseInt(S.gpsMinSats.value),
-    gpsMaxSpeed:     parseFloat(S.gpsMaxSpeed.value),
-    gpsHampelWindow: parseInt(S.gpsHampelWindow.value),
-    gpsHampelSigma:  parseFloat(S.gpsHampelSigma.value),
-    gpsDBSCANRadius: parseFloat(S.gpsDBSCANRadius.value),
-    gpsDBSCANMinPts: parseInt(S.gpsDBSCANMinPts.value),
-    gpsKalmanR:      parseFloat(S.gpsKalmanR.value),
-    gpsKalmanQ:      parseInt(S.gpsKalmanQ.value),
-    gpsRDP:          parseFloat(S.gpsRDP.value),
-    gpsMinDist:      parseFloat(S.gpsMinDist.value),
-    gpsDownsample:   parseInt(S.gpsDownsample.value),
-    gpsTrackWeight:  parseInt(S.gpsTrackWeight.value)
+    gpsMinSats:      gps.minSats,
+    gpsMaxSpeed:     gps.maxSpeed,
+    gpsHampelWindow: gps.hampelWindow,
+    gpsHampelSigma:  gps.hampelSigma,
+    gpsDBSCANRadius: gps.dbscanRadius,
+    gpsDBSCANMinPts: gps.dbscanMinPts,
+    gpsKalmanR:      gps.kalmanR,
+    gpsKalmanQ:      gps.kalmanQ,
+    gpsRDP:          gps.rdpTolerance,
+    gpsMinDist:      gps.minDist,
+    gpsDownsample:   gps.downsample,
+    gpsTrackWeight:  gps.trackWeight
   };
   localStorage.setItem('bioMappingSettings', JSON.stringify(settings));
 }

@@ -78,27 +78,6 @@ function setupPanelFullscreen(btnId, panelId, onToggle) {
 }
 
 /**
- * Build the GPS filter parameter object from current slider values.
- */
-function getGpsParams() {
-  const S = AppState.sliders;
-  return {
-    minSats:      parseInt(S.gpsMinSats.value),
-    maxSpeed:     parseFloat(S.gpsMaxSpeed.value),
-    hampelWindow: parseInt(S.gpsHampelWindow.value),
-    hampelSigma:  parseFloat(S.gpsHampelSigma.value),
-    dbscanRadius: parseFloat(S.gpsDBSCANRadius.value),
-    dbscanMinPts: parseInt(S.gpsDBSCANMinPts.value),
-    kalmanR:      parseFloat(S.gpsKalmanR.value),
-    kalmanQ:      Math.pow(10, -parseFloat(S.gpsKalmanQ.value)),
-    rdpTolerance: parseFloat(S.gpsRDP.value),
-    minDist:      parseFloat(S.gpsMinDist.value),
-    downsample:   parseInt(S.gpsDownsample.value) === 1,
-    trackWeight:  parseInt(S.gpsTrackWeight.value)
-  };
-}
-
-/**
  * Re-render the Leaflet map with current GPS filter parameters.
  */
 function rerenderMap() {
@@ -108,7 +87,7 @@ function rerenderMap() {
   saveActiveGpsParams();
 
   if (AppState.viewMode === 'single') {
-    AppState.mapManager.renderData(AppState.analyzer, getGpsParams());
+    AppState.mapManager.renderData(AppState.analyzer, buildGpsParams());
   } else {
     updateCollectiveMap();
   }
@@ -153,7 +132,7 @@ function runAnalysis() {
 
     if (AppState.viewMode === 'single') {
       if (AppState.mapManager) {
-        AppState.mapManager.renderData(AppState.analyzer, getGpsParams());
+        AppState.mapManager.renderData(AppState.analyzer, buildGpsParams());
       }
     } else {
       updateCollectiveMap();
@@ -221,21 +200,23 @@ function updateCollectiveMap() {
 
   if (AppState.collectiveManager.getActiveTracks().length === 0) {
     AppState.mapManager.clearCollectiveLayers();
-    document.getElementById('statDuration').innerText = '--';
-    document.getElementById('statMeanSCL').innerText  = '--';
-    document.getElementById('statPeakCount').innerText = '--';
-    document.getElementById('statPeakFreq').innerText  = '--';
+    const F0 = AppState.statFields;
+    if (F0.duration)  F0.duration.innerText  = '--';
+    if (F0.meanSCL)   F0.meanSCL.innerText   = '--';
+    if (F0.peakCount) F0.peakCount.innerText = '--';
+    if (F0.peakFreq)  F0.peakFreq.innerText  = '--';
     return;
   }
 
+  const cc = AppState.contourControls;
   const contourParams = {
-    gridResolution:    parseInt(document.getElementById('gridResolution').value),
-    contourCount:      parseInt(document.getElementById('contourCount').value),
-    isolationRadius:   parseFloat(document.getElementById('isolationRadius').value),
-    idwExponent:       parseFloat(document.getElementById('idwExponent').value),
-    topographySource:  document.getElementById('topoSource').value,
-    showShadedSurface: document.getElementById('showShadedSurface') ? document.getElementById('showShadedSurface').checked : true,
-    surfaceOpacity:    document.getElementById('surfaceOpacity') ? parseFloat(document.getElementById('surfaceOpacity').value) : 0.40
+    gridResolution:    parseInt(cc.gridResolution ? cc.gridResolution.value : GSR_CONST.COLLECTIVE.gridResolution),
+    contourCount:      parseInt(cc.contourCount ? cc.contourCount.value : GSR_CONST.COLLECTIVE.contourCount),
+    isolationRadius:   parseFloat(cc.isolationRadius ? cc.isolationRadius.value : GSR_CONST.COLLECTIVE.isolationRadius),
+    idwExponent:       parseFloat(cc.idwExponent ? cc.idwExponent.value : GSR_CONST.COLLECTIVE.idwExponent),
+    topographySource:  cc.topoSource ? cc.topoSource.value : 'phasic',
+    showShadedSurface: cc.showShadedSurface ? cc.showShadedSurface.checked : true,
+    surfaceOpacity:    cc.surfaceOpacity ? parseFloat(cc.surfaceOpacity.value) : 0.40
   };
 
   AppState.mapManager.renderCollectiveData(AppState.collectiveManager, contourParams);
@@ -255,10 +236,11 @@ function updateCollectiveMap() {
   const meanSCL = sclCount > 0 ? (sumSCL / sclCount) : 0;
   const meanPeakFreq = (totalDur > 0) ? (totalPeaks / (totalDur / 60.0)) : 0;
 
-  document.getElementById('statDuration').innerText = (totalDur / 60.0).toFixed(1) + " min";
-  document.getElementById('statMeanSCL').innerText  = meanSCL.toFixed(3) + " \u03bcS";
-  document.getElementById('statPeakCount').innerText = totalPeaks;
-  document.getElementById('statPeakFreq').innerText  = meanPeakFreq.toFixed(2) + " / min";
+  const F = AppState.statFields;
+  if (F.duration) F.duration.innerText = (totalDur / 60.0).toFixed(1) + " min";
+  if (F.meanSCL)  F.meanSCL.innerText  = meanSCL.toFixed(3) + " \u03bcS";
+  if (F.peakCount) F.peakCount.innerText = totalPeaks;
+  if (F.peakFreq)  F.peakFreq.innerText  = meanPeakFreq.toFixed(2) + " / min";
 }
 
 /**
