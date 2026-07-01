@@ -3,7 +3,7 @@
  * All shared state is accessed through AppState.
  */
 
-var M = AppState.margin;  // shorthand for margin constants
+var M = GSR_CONST.MARGIN;  // from constants.js
 
 function setup() {
   AppState.collectiveManager = new GSRCollectiveManager();
@@ -43,11 +43,11 @@ function draw() {
   background(9, 13, 22);
 
   var innerWidth = width - M.left - M.right;
-  var timelineHeight = 22;
-  var timelineGap = 25;
+  var timelineHeight = GSR_CONST.TIMELINE_HEIGHT;
+  var timelineGap = GSR_CONST.TIMELINE_GAP;
   var totalHeight = height - M.top - M.bottom - M.gap - timelineHeight - timelineGap;
-  var hUpper = totalHeight * 0.62;
-  var hLower = totalHeight * 0.38;
+  var hUpper = totalHeight * GSR_CONST.GRAPH_UPPER_RATIO;
+  var hLower = totalHeight * GSR_CONST.GRAPH_LOWER_RATIO;
 
   var yUpperBottom = M.top + hUpper;
   var yLowerTop = yUpperBottom + M.gap;
@@ -55,6 +55,7 @@ function draw() {
 
   AppState.yTimelineTop = yLowerBottom + timelineGap;
   AppState.yTimelineBottom = AppState.yTimelineTop + timelineHeight;
+  AppState.yGraphBottom = yLowerBottom;
 
   var viewEndTime = AppState.viewStartTime + AppState.viewDuration;
 
@@ -242,7 +243,7 @@ function mousePressed() {
     redraw();
   }
   else if (mouseX >= M.left && mouseX <= width - M.right &&
-      mouseY >= M.top && mouseY <= AppState.yTimelineTop - 20) {
+      mouseY >= M.top && mouseY <= AppState.yGraphBottom) {
     AppState.isDragging = true;
     AppState.dragStartMouseX = mouseX;
     AppState.dragStartViewStart = AppState.viewStartTime;
@@ -273,7 +274,7 @@ function mouseReleased() {
 
 function mouseWheel(event) {
   if (mouseX >= M.left && mouseX <= width - M.right &&
-      mouseY >= M.top && mouseY <= AppState.yTimelineTop - 20) {
+      mouseY >= M.top && mouseY <= AppState.yGraphBottom) {
 
     if (AppState.analyzer.raw.length === 0) return false;
 

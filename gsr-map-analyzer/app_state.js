@@ -42,6 +42,7 @@ const AppState = {
   // ── Timeline / viewport ────────────────────────────────────────────────────
   yTimelineTop: 0,
   yTimelineBottom: 0,
+  yGraphBottom: 0,
   isDraggingTimeline: false,
 
   totalDuration: 120.0,
@@ -69,6 +70,7 @@ const AppState = {
 
   // ── Interaction state ──────────────────────────────────────────────────────
   isDragging: false,
+  isMapFullscreen: false,
   dragStartMouseX: 0,
   dragStartViewStart: 0,
   hoveredIndex: -1,

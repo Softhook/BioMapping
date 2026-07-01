@@ -536,10 +536,13 @@
     </div>
   </div>
 
-  <!-- Scripts — load order matters: AppState first, sketch.js last -->
+  <!-- Scripts — load order matters: AppState+constants first, sketch.js last -->
   <script src="app_state.js"></script>
+  <script src="constants.js"></script>
   <script src="analyzer.js"></script>
+  <script src="gsr_filter.js"></script>
   <script src="marching_squares.js"></script>
+  <script src="collective_manager.js"></script>
   <script src="gps_filter.js"></script>
   <script src="map.js"></script>
   <script src="storage.js"></script>

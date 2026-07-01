@@ -74,201 +74,188 @@ class GSRMapManager {
    * @param {GSRAnalyzer} analyzer
    * @param {object} [gpsParams] – GPS filter settings
    */
-  renderData(analyzer, gpsParams = {}) {
+  renderData(analyzer, gpsParams) {
+    if (!gpsParams) gpsParams = {};
     this.clearMap();
 
-    const {
-      minSats      = 0,
-      maxSpeed     = 5,
-      hampelWindow = 3,
-      hampelSigma  = 3.0,
-      dbscanRadius = 10,
-      dbscanMinPts = 4,
-      kalmanR      = 25,
-      kalmanQ      = 1e-4,
-      rdpTolerance = 5,
-      minDist      = 0,
-      trackWeight  = 5
-    } = gpsParams;
-
+    const p = gpsParams;
     const data = analyzer.raw;
     if (!data || data.length === 0) return;
 
-    // ── 1. Collect valid GPS points ───────────────────────────────────────────
-    let gpsPoints = [];
-    for (let i = 0; i < data.length; i++) {
-      if (data[i].hasGps && !isNaN(data[i].lat) && !isNaN(data[i].lon)) {
-        gpsPoints.push({
-          ...data[i],
-          origIdx: i
-        });
-      }
-    }
+    // 1-6: GPS filter pipeline
+    let gpsPoints = this._collectGpsPoints(data);
     if (gpsPoints.length === 0) return;
 
-    // ── 2. Satellite quality gate ─────────────────────────────────────────────
-    if (minSats > 0) {
-      const filtered = gpsPoints.filter(d => d.sats >= minSats);
-      if (filtered.length > 1) gpsPoints = filtered;
-    }
+    gpsPoints = this._applySatelliteGate(gpsPoints, p.minSats);
+    gpsPoints = this._applyAllFilters(gpsPoints, p, analyzer.sampleRate || 10.0);
 
-    // ── 3. Hampel outlier filter ──────────────────────────────────────────────
-    if (hampelWindow > 0 && hampelSigma > 0) {
-      const k = Math.round(hampelWindow * (analyzer.sampleRate || 10.0));
-      gpsPoints = GpsFilter.applyHampelFilter(gpsPoints, k, hampelSigma);
-    }
+    // Reconstruct full 10 Hz filtered GPS path for CSV export
+    this._reconstructFilteredGps(analyzer, data, gpsPoints);
 
-    // ── 4. Speed plausibility filter ──────────────────────────────────────────
-    if (maxSpeed > 0) {
-      gpsPoints = GpsFilter.applySpeedFilter(gpsPoints, maxSpeed);
-    }
-
-    // ── 5. DBSCAN stop collapse ───────────────────────────────────────────────
-    if (dbscanRadius > 0 && dbscanMinPts > 1) {
-      const minPts = Math.round(dbscanMinPts * (analyzer.sampleRate || 10.0));
-      gpsPoints = GpsFilter.applyDBSCAN(gpsPoints, dbscanRadius, minPts);
-    }
-
-    // ── 6. Kalman filter smoothing ────────────────────────────────────────────
-    if (kalmanR > 0 && kalmanQ > 0) {
-      gpsPoints = GpsFilter.applyKalman(gpsPoints, kalmanQ, kalmanR);
-    }
-
-    // Reconstruct full 10Hz filtered GPS path for CSV export
-    const filteredGps = new Array(data.length);
-    const filteredMap = new Map();
-    gpsPoints.forEach(p => {
-      filteredMap.set(p.origIdx, { lat: p.lat, lon: p.lon });
-    });
-
-    const validIndices = gpsPoints.map(p => p.origIdx).sort((a, b) => a - b);
-    if (validIndices.length > 0) {
-      const firstIdx = validIndices[0];
-      const firstCoord = filteredMap.get(firstIdx);
-      for (let i = 0; i < firstIdx; i++) {
-        filteredGps[i] = { lat: firstCoord.lat, lon: firstCoord.lon };
-      }
-      
-      for (let k = 0; k < validIndices.length - 1; k++) {
-        const idxA = validIndices[k];
-        const idxB = validIndices[k + 1];
-        const cA = filteredMap.get(idxA);
-        const cB = filteredMap.get(idxB);
-        
-        filteredGps[idxA] = { lat: cA.lat, lon: cA.lon };
-        
-        for (let i = idxA + 1; i < idxB; i++) {
-          const ratio = (i - idxA) / (idxB - idxA);
-          const lat = cA.lat + ratio * (cB.lat - cA.lat);
-          const lon = cA.lon + ratio * (cB.lon - cA.lon);
-          filteredGps[i] = { lat, lon };
-        }
-      }
-      
-      const lastIdx = validIndices[validIndices.length - 1];
-      const lastCoord = filteredMap.get(lastIdx);
-      for (let i = lastIdx; i < data.length; i++) {
-        filteredGps[i] = { lat: lastCoord.lat, lon: lastCoord.lon };
-      }
-    } else {
-      for (let i = 0; i < data.length; i++) {
-        filteredGps[i] = { lat: NaN, lon: NaN };
-      }
-    }
-    analyzer.filteredGps = filteredGps;
-
-    // ── 7. Downsample to ~1 Hz to prevent Leaflet performance lag ────────────
-    const step = (gpsParams.downsample !== false)
-      ? Math.max(1, Math.round(analyzer.sampleRate))
-      : 1;
-    let drawPoints = [];
-    for (let i = 0; i < gpsPoints.length; i += step) {
-      drawPoints.push({ ...gpsPoints[i] }); // shallow copy so we don't mutate original data
-    }
-    if (gpsPoints.length > 0 && (gpsPoints.length - 1) % step !== 0) {
-      drawPoints.push({ ...gpsPoints[gpsPoints.length - 1] });
-    }
-
-    // ── 8. Ramer-Douglas-Peucker simplification ──────────────────────────────
-    if (rdpTolerance > 0) {
-      drawPoints = GpsFilter.applyRDP(drawPoints, rdpTolerance);
-    }
-
-    // ── 9. Minimum inter-point distance filter ────────────────────────────────
-    if (minDist > 0 && drawPoints.length > 1) {
-      const kept = [drawPoints[0]];
-      for (let i = 1; i < drawPoints.length; i++) {
-        const prev = kept[kept.length - 1];
-        const d = GpsFilter.haversineDistance(prev.lat, prev.lon, drawPoints[i].lat, drawPoints[i].lon);
-        if (d >= minDist) kept.push(drawPoints[i]);
-      }
-      if (kept.length > 1) drawPoints = kept;
-    }
-
+    // 7-9: Downsample, simplify, and deduplicate for drawing
+    let drawPoints = this._downsampleForDisplay(gpsPoints, analyzer.sampleRate || 10.0, p.downsample !== false);
+    drawPoints = GpsFilter.applyRDP(drawPoints, p.rdpTolerance || 0);
+    drawPoints = this._minDistFilter(drawPoints, p.minDist || 0);
     if (drawPoints.length === 0) return;
 
-    // ── 10. Fit map bounds ─────────────────────────────────────────────────────
+    // 10-12: Render on Leaflet map
+    this._fitBounds(drawPoints);
+    this._renderPathSegments(drawPoints, data, p.trackWeight || 5);
+
+    // 13: Peak markers
+    this._renderPeakMarkers(analyzer, data);
+  }
+
+  // ── Pipeline helpers ──────────────────────────────────────────────────────
+
+  _collectGpsPoints(data) {
+    const pts = [];
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].hasGps && !isNaN(data[i].lat) && !isNaN(data[i].lon)) {
+        pts.push({ ...data[i], origIdx: i });
+      }
+    }
+    return pts;
+  }
+
+  _applySatelliteGate(pts, minSats) {
+    if (minSats > 0) {
+      const filtered = pts.filter(d => d.sats >= minSats);
+      if (filtered.length > 1) return filtered;
+    }
+    return pts;
+  }
+
+  _applyAllFilters(pts, p, sampleRate) {
+    // 3. Hampel outlier filter
+    if (p.hampelWindow > 0 && p.hampelSigma > 0) {
+      const k = Math.round(p.hampelWindow * sampleRate);
+      pts = GpsFilter.applyHampelFilter(pts, k, p.hampelSigma);
+    }
+    // 4. Speed plausibility filter
+    if (p.maxSpeed > 0) {
+      pts = GpsFilter.applySpeedFilter(pts, p.maxSpeed);
+    }
+    // 5. DBSCAN stop collapse
+    if (p.dbscanRadius > 0 && (p.dbscanMinPts || 0) > 1) {
+      const minPts = Math.round(p.dbscanMinPts * sampleRate);
+      pts = GpsFilter.applyDBSCAN(pts, p.dbscanRadius, minPts);
+    }
+    // 6. Kalman filter smoothing
+    if (p.kalmanR > 0 && p.kalmanQ > 0) {
+      pts = GpsFilter.applyKalman(pts, p.kalmanQ, p.kalmanR);
+    }
+    return pts;
+  }
+
+  _reconstructFilteredGps(analyzer, data, gpsPoints) {
+    const filteredGps = new Array(data.length);
+    const filteredMap = new Map();
+    gpsPoints.forEach(p => filteredMap.set(p.origIdx, { lat: p.lat, lon: p.lon }));
+
+    const validIndices = gpsPoints.map(p => p.origIdx).sort((a, b) => a - b);
+    if (validIndices.length === 0) {
+      for (let i = 0; i < data.length; i++) filteredGps[i] = { lat: NaN, lon: NaN };
+      analyzer.filteredGps = filteredGps;
+      return;
+    }
+
+    // Fill before first
+    const firstIdx = validIndices[0];
+    const firstCoord = filteredMap.get(firstIdx);
+    for (let i = 0; i < firstIdx; i++) filteredGps[i] = { lat: firstCoord.lat, lon: firstCoord.lon };
+
+    // Interpolate between valid points
+    for (let k = 0; k < validIndices.length - 1; k++) {
+      const idxA = validIndices[k], idxB = validIndices[k + 1];
+      const cA = filteredMap.get(idxA), cB = filteredMap.get(idxB);
+      filteredGps[idxA] = { lat: cA.lat, lon: cA.lon };
+      for (let i = idxA + 1; i < idxB; i++) {
+        const ratio = (i - idxA) / (idxB - idxA);
+        filteredGps[i] = { lat: cA.lat + ratio * (cB.lat - cA.lat), lon: cA.lon + ratio * (cB.lon - cA.lon) };
+      }
+    }
+
+    // Fill after last
+    const lastIdx = validIndices[validIndices.length - 1];
+    const lastCoord = filteredMap.get(lastIdx);
+    for (let i = lastIdx; i < data.length; i++) filteredGps[i] = { lat: lastCoord.lat, lon: lastCoord.lon };
+
+    analyzer.filteredGps = filteredGps;
+  }
+
+  _downsampleForDisplay(gpsPoints, sampleRate, doDownsample) {
+    const step = doDownsample ? Math.max(1, Math.round(sampleRate)) : 1;
+    const draw = [];
+    for (let i = 0; i < gpsPoints.length; i += step) {
+      draw.push({ ...gpsPoints[i] });
+    }
+    if (gpsPoints.length > 0 && (gpsPoints.length - 1) % step !== 0) {
+      draw.push({ ...gpsPoints[gpsPoints.length - 1] });
+    }
+    return draw;
+  }
+
+  _minDistFilter(drawPoints, minDist) {
+    if (minDist <= 0 || drawPoints.length < 2) return drawPoints;
+    const kept = [drawPoints[0]];
+    for (let i = 1; i < drawPoints.length; i++) {
+      const prev = kept[kept.length - 1];
+      const d = GpsFilter.haversineDistance(prev.lat, prev.lon, drawPoints[i].lat, drawPoints[i].lon);
+      if (d >= minDist) kept.push(drawPoints[i]);
+    }
+    return kept.length > 1 ? kept : drawPoints;
+  }
+
+  _fitBounds(drawPoints) {
     const bounds = drawPoints.map(p => [p.lat, p.lon]);
     this.map.fitBounds(bounds, { padding: [30, 30] });
+  }
 
-    // ── 11. Colour scale using all raw data values ─────────────────────────────
+  _renderPathSegments(drawPoints, data, trackWeight) {
     const vals = data.map(d => d.val);
     const minVal = Math.min(...vals);
     const maxVal = Math.max(...vals);
 
-    // ── 12. Draw polyline segments ─────────────────────────────────────────────
     for (let i = 0; i < drawPoints.length - 1; i++) {
-      const pA = drawPoints[i];
-      const pB = drawPoints[i + 1];
-
+      const pA = drawPoints[i], pB = drawPoints[i + 1];
       const avgVal = (pA.val + pB.val) / 2.0;
       const color = this.getColorForValue(avgVal, minVal, maxVal);
 
       const segment = L.polyline([[pA.lat, pA.lon], [pB.lat, pB.lon]], {
-        color: color,
-        weight: trackWeight,
-        opacity: 0.95
+        color, weight: trackWeight, opacity: 0.95
       }).addTo(this.map);
-
-      segment.on('mouseover', () => {
-        if (window.updateTimelineScrub) {
-          window.updateTimelineScrub(pA.time);
-        }
-      });
 
       this.pathSegments.push(segment);
     }
+  }
 
-    // ── 13. Render Stress Peaks as Glowing Markers ─────────────────────────────
+  _renderPeakMarkers(analyzer, data) {
     const peakIcon = L.divIcon({
       className: 'stress-peak-icon',
       html: '<div class="peak-glow-ring"></div><div class="peak-dot"></div>',
-      iconSize: [24, 24],
-      iconAnchor: [12, 12]
+      iconSize: [24, 24], iconAnchor: [12, 12]
     });
 
     analyzer.peaks.forEach((peak, index) => {
-      const matchingRow = data[peak.index];
-      if (matchingRow && matchingRow.hasGps && !isNaN(matchingRow.lat) && !isNaN(matchingRow.lon)) {
-        const marker = L.marker([matchingRow.lat, matchingRow.lon], { icon: peakIcon });
-        if (this.showPeaks) {
-          marker.addTo(this.map);
-        }
+      const row = data[peak.index];
+      if (!row || !row.hasGps || isNaN(row.lat) || isNaN(row.lon)) return;
 
-        const popupHtml = `
-          <div class="map-popup-card">
-            <h4><i class="fa-solid fa-triangle-exclamation"></i> Peak SCR Event #${index + 1}</h4>
-            <table class="popup-table">
-              <tr><td>Time:</td><td><b>${peak.time.toFixed(1)} s</b></td></tr>
-              <tr><td>Onset:</td><td>${peak.onsetTime.toFixed(1)} s</td></tr>
-              <tr><td>Amplitude:</td><td><b>${peak.amplitude.toFixed(3)} μS</b></td></tr>
-              <tr><td>Rise Time:</td><td>${(peak.time - peak.onsetTime).toFixed(1)} s</td></tr>
-            </table>
-          </div>
-        `;
-        marker.bindPopup(popupHtml);
-        this.peakMarkers.push(marker);
-      }
+      const marker = L.marker([row.lat, row.lon], { icon: peakIcon });
+      if (this.showPeaks) marker.addTo(this.map);
+
+      marker.bindPopup([
+        '<div class="map-popup-card">',
+        '<h4><i class="fa-solid fa-triangle-exclamation"></i> Peak SCR Event #', index + 1, '</h4>',
+        '<table class="popup-table">',
+        '<tr><td>Time:</td><td><b>', peak.time.toFixed(1), ' s</b></td></tr>',
+        '<tr><td>Onset:</td><td>', peak.onsetTime.toFixed(1), ' s</td></tr>',
+        '<tr><td>Amplitude:</td><td><b>', peak.amplitude.toFixed(3), ' μS</b></td></tr>',
+        '<tr><td>Rise Time:</td><td>', (peak.time - peak.onsetTime).toFixed(1), ' s</td></tr>',
+        '</table></div>'
+      ].join(''));
+
+      this.peakMarkers.push(marker);
     });
   }
 

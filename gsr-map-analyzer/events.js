@@ -253,6 +253,7 @@ function setupEventListeners() {
     setTimeout(() => windowResized(), 240);
   });
   setupPanelFullscreen('btnMapFullscreen', 'mapPanel', () => {
+    AppState.isMapFullscreen = !AppState.isMapFullscreen;
     if (AppState.mapManager && AppState.mapManager.map) {
       AppState.mapManager.map.invalidateSize();
       setTimeout(() => AppState.mapManager.map.invalidateSize(), 40);

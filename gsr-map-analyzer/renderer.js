@@ -3,7 +3,7 @@
  * All shared state accessed through AppState.
  */
 
-var M = AppState.margin;  // shorthand
+var M = GSR_CONST.MARGIN;  // from constants.js
 
 function drawPlaceholder() {
   background(9, 13, 22, 0);
@@ -280,7 +280,17 @@ function drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL
 }
 
 function handleScrubber(tMin, tMax, yMinU, yMaxU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
-  if (mouseX < M.left || mouseX > width - M.right || AppState.isDragging) {
+  // Don't scrub when the map panel is fullscreen (p5 canvas is hidden behind overlay)
+  if (AppState.isMapFullscreen) {
+    AppState.hoveredIndex = -1;
+    if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
+    return;
+  }
+
+  // Only show scrubber when the mouse is inside the graph area
+  if (mouseX < M.left || mouseX > width - M.right ||
+      mouseY < M.top || mouseY > yBottomL ||
+      AppState.isDragging) {
     AppState.hoveredIndex = -1;
     if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
     return;
