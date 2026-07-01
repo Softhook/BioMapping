@@ -278,9 +278,12 @@ float gsr_sensor_get_raw(const GsrSensor* gsr) {
 // glitches — all large tick-to-tick jumps were sustained physiological
 // SCR onsets, not single-sample spikes that trimming would catch.
 //
-// Simple mean noise reduction: √86 ≈ 9.27× (effective, vs 8.60× for trimmed 74).
-// 100 ms window = 5 cycles of 50 Hz = 6 cycles of 60 Hz → perfect mains hum
-// cancellation (integer-period boxcar averaging).
+// Simple mean noise reduction: ~8.7× effective (geometric model: ~86 unique
+// conversions but ~14 % are re-reads, reducing true attenuation from the
+// theoretical √86 ≈ 9.27× for fully independent samples).
+// 100 ms window nominally nulls 50/60 Hz mains hum (5 × 20 ms, 6 × 16.67 ms),
+// though non-uniform re-reads limit practical rejection to ~−22 dB combined
+// with the hardware TIA low-pass filter (47 kΩ × 100 nF, −3 dB at 33.9 Hz).
 // ─────────────────────────────────────────────────────────────────────────────
 
 void gsr_sensor_tick(GsrSensor* gsr) {
@@ -300,7 +303,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     uint8_t old_pga = gsr->pga_index;
     furi_mutex_release(gsr->mutex);
 
-    // ── Step 2: simple mean. Effective √86 ≈ 9.27× noise reduction ──────
+    // ── Step 2: simple mean. Effective ~8.7× noise reduction (see comment above) ──
     float avg_norm = (float)sum / 100.0f;
 
     // ── Step 3: autoranging decision on filtered equivalent raw value ─────
