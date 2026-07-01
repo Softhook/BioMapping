@@ -1058,4 +1058,12 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: none !important;
 }
 
+.control-card.collapsed .card-content {
+  display: none !important;
+}
 
+.control-card.collapsed h2 {
+  margin-bottom: 0 !important;
+  border-bottom: none !important;
+  padding-bottom: 0 !important;
+}

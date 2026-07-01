@@ -294,6 +294,32 @@ function setupEventListeners() {
     eventsPanel.classList.toggle('collapsed');
   });
 
+  // GSR and GPS filtering sidebar cards collapse
+  const gsrFilteringCard = document.getElementById('gsrFilteringCard');
+  const btnGsrFilteringCollapse = document.getElementById('btnGsrFilteringCollapse');
+  btnGsrFilteringCollapse.addEventListener('click', () => {
+    gsrFilteringCard.classList.toggle('collapsed');
+  });
+
+  const gpsFilteringCard = document.getElementById('gpsFilteringCard');
+  const btnGpsFilteringCollapse = document.getElementById('btnGpsFilteringCollapse');
+  btnGpsFilteringCollapse.addEventListener('click', () => {
+    gpsFilteringCard.classList.toggle('collapsed');
+  });
+
+  // Import and Export sidebar cards collapse
+  const importCard = document.getElementById('importCard');
+  const btnImportCollapse = document.getElementById('btnImportCollapse');
+  btnImportCollapse.addEventListener('click', () => {
+    importCard.classList.toggle('collapsed');
+  });
+
+  const exportCard = document.getElementById('exportCard');
+  const btnExportCollapse = document.getElementById('btnExportCollapse');
+  btnExportCollapse.addEventListener('click', () => {
+    exportCard.classList.toggle('collapsed');
+  });
+
   // ── GSR Panel Fullscreen ─────────────────────────────────────────────────
   setupPanelFullscreen(
     'btnGsrFullscreen',
