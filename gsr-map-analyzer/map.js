@@ -113,15 +113,15 @@ class GSRMapManager {
       if (filtered.length > 1) gpsPoints = filtered;
     }
 
-    // ── 3. Speed plausibility filter ──────────────────────────────────────────
-    if (maxSpeed > 0) {
-      gpsPoints = this.applySpeedFilter(gpsPoints, maxSpeed);
-    }
-
-    // ── 4. Hampel outlier filter ──────────────────────────────────────────────
+    // ── 3. Hampel outlier filter ──────────────────────────────────────────────
     if (hampelWindow > 0 && hampelSigma > 0) {
       const k = Math.round(hampelWindow * (analyzer.sampleRate || 10.0));
       gpsPoints = this.applyHampelFilter(gpsPoints, k, hampelSigma);
+    }
+
+    // ── 4. Speed plausibility filter ──────────────────────────────────────────
+    if (maxSpeed > 0) {
+      gpsPoints = this.applySpeedFilter(gpsPoints, maxSpeed);
     }
 
     // ── 5. DBSCAN stop collapse ───────────────────────────────────────────────
