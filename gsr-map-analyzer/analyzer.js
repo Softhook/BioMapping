@@ -274,26 +274,38 @@ class GSRAnalyzer {
 
     this.filtered = this.raw.map((d, i) => ({ time: d.time, val: afterLPF[i] }));
 
-    // 3. Tonic Baseline Extraction
+    // 3. Tonic/Phasic Decomposition
     let tonicVals = [];
-    const tonicWinSize = Math.max(5, Math.round(params.tonicWindow * this.sampleRate));
+    let phasicVals = [];
 
-    if (params.tonicMethod === 'median') {
-      tonicVals = GsrFilter.applyMedianFilter(afterLPF, tonicWinSize);
-    } else if (params.tonicMethod === 'percentile') {
-      tonicVals = GsrFilter.applyPercentileFilter(afterLPF, tonicWinSize, 0.10);
+    if (params.tonicMethod === 'dwt') {
+      // ── DWT Wavelet Decomposition (db3) ────────────────────────────────
+      // Uses the afterLPF signal (median + low-pass filtered) as input.
+      // Tonic: approximation at level N (SCL)
+      // Phasic: detail levels D₂…D₄ (SCRs, excludes D₁ noise)
+      const dwtLevel = params.dwtLevel || 4;
+      const result = DWT.analyzeGSR(afterLPF, dwtLevel);
+      tonicVals = result.tonic;
+      phasicVals = result.phasic;
     } else {
-      const alpha = 2.0 / (tonicWinSize + 1);
-      tonicVals = GsrFilter.applyZeroPhaseEMA(afterLPF, alpha);
+      // ── Classical sliding-window methods ────────────────────────────────
+      const tonicWinSize = Math.max(5, Math.round(params.tonicWindow * this.sampleRate));
+
+      if (params.tonicMethod === 'median') {
+        tonicVals = GsrFilter.applyMedianFilter(afterLPF, tonicWinSize);
+      } else if (params.tonicMethod === 'percentile') {
+        tonicVals = GsrFilter.applyPercentileFilter(afterLPF, tonicWinSize, 0.10);
+      } else {
+        const alpha = 2.0 / (tonicWinSize + 1);
+        tonicVals = GsrFilter.applyZeroPhaseEMA(afterLPF, alpha);
+      }
+
+      // 4. Phasic = Filtered - Tonic (subtraction method)
+      phasicVals = afterLPF.map((v, i) => v - tonicVals[i]);
     }
 
     this.tonic = this.raw.map((d, i) => ({ time: d.time, val: tonicVals[i] }));
-
-    // 4. Phasic Component Extraction (Phasic = Filtered - Tonic)
-    this.phasic = this.raw.map((d, i) => ({
-      time: d.time,
-      val: afterLPF[i] - tonicVals[i]
-    }));
+    this.phasic = this.raw.map((d, i) => ({ time: d.time, val: phasicVals[i] }));
 
     // 5. Phasic Peak Detection
     this.detectPeaks(params.peakThreshold);

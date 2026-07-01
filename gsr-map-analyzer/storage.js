@@ -59,6 +59,7 @@ function saveSettings() {
     tonicMethod:   S.tonicMethod.value,
     tonicWindow:   parseInt(S.tonicWindow.value),
     peakThreshold: parseFloat(S.peakThreshold.value),
+    dwtLevel:      parseInt(S.dwtLevel.value),
     gpsMinSats:      gps.minSats,
     gpsMaxSpeed:     gps.maxSpeed,
     gpsHampelWindow: gps.hampelWindow,
@@ -85,6 +86,7 @@ function loadSettings() {
     if (settings.lpfWindow     !== undefined && S.lpfWindow)     S.lpfWindow.value     = settings.lpfWindow;
     if (settings.tonicMethod   !== undefined && S.tonicMethod)   S.tonicMethod.value   = settings.tonicMethod;
     if (settings.tonicWindow   !== undefined && S.tonicWindow)   S.tonicWindow.value   = settings.tonicWindow;
+    if (settings.dwtLevel      !== undefined && S.dwtLevel)      S.dwtLevel.value      = settings.dwtLevel;
     if (settings.peakThreshold !== undefined && S.peakThreshold) S.peakThreshold.value = settings.peakThreshold;
     if (settings.gpsMinSats      !== undefined && S.gpsMinSats)      S.gpsMinSats.value      = settings.gpsMinSats;
     if (settings.gpsMaxSpeed     !== undefined && S.gpsMaxSpeed)     S.gpsMaxSpeed.value     = settings.gpsMaxSpeed;

@@ -125,6 +125,7 @@
                 <option value="percentile" selected>Trough Tracker (10th Percentile)</option>
                 <option value="median">Moving Median (Robust)</option>
                 <option value="lpf">Ultra Low-Pass (EMA)</option>
+                <option value="dwt">Wavelet db3 (DWT)</option>
               </select>
             </div>
 
@@ -135,6 +136,20 @@
               </div>
               <input type="range" id="tonicWindow" min="5" max="45" step="1" value="15">
               <p class="help-text">Wider windows isolate baseline from peaks.</p>
+            </div>
+
+            <div class="slider-group" id="dwtLevelGroup">
+              <div class="slider-label">
+                <span>DWT Decomposition Level</span>
+                <span class="slider-value" id="valDwtLevel">5</span>
+              </div>
+              <input type="range" id="dwtLevel" min="3" max="6" step="1" value="5">
+              <p class="help-text">
+                Higher level = slower tonic (purer SCL) but more signal goes into phasic.
+                Level 5 (0–0.16 Hz) is recommended for GSR — tonic captures SCL
+                without most SCRs. Level 4 (0–0.31 Hz) includes slow SCR components.
+                Level 6 (0–0.08 Hz) gives the purest tonic but requires longer recordings.
+              </p>
             </div>
 
             <div class="control-subgroup-title">Peak Detection (SCR)</div>
@@ -539,6 +554,7 @@
   <!-- Scripts — load order matters: AppState+constants first, sketch.js last -->
   <script src="app_state.js"></script>
   <script src="constants.js"></script>
+  <script src="dwt_filter.js"></script>
   <script src="analyzer.js"></script>
   <script src="gsr_filter.js"></script>
   <script src="marching_squares.js"></script>

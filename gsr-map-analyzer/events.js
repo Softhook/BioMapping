@@ -26,6 +26,7 @@ function cacheDOMElements() {
   AppState.sliders.tonicWindow   = _id('tonicWindow');
   AppState.sliders.tonicMethod   = _id('tonicMethod');
   AppState.sliders.peakThreshold = _id('peakThreshold');
+  AppState.sliders.dwtLevel      = _id('dwtLevel');
 
   // Stats
   AppState.statFields.duration   = _id('statDuration');
@@ -123,7 +124,22 @@ function setupEventListeners() {
   bindGsrSlider('tonicWindow',   'valTonicWindow',   ' s');
   bindGsrSlider('peakThreshold', 'valPeakThreshold', ' μS');
 
+  // DWT level — custom binding (integer display)
+  if (S.dwtLevel) {
+    S.dwtLevel.addEventListener('input', () => {
+      const level = parseInt(S.dwtLevel.value);
+      document.getElementById('valDwtLevel').innerText = level;
+      runAnalysis();
+      saveSettings();
+    });
+  }
+
   S.tonicMethod.addEventListener('change', () => {
+    // Show/hide DWT level slider based on selected method
+    const dwtGroup = document.getElementById('dwtLevelGroup');
+    if (dwtGroup) {
+      dwtGroup.style.display = S.tonicMethod.value === 'dwt' ? '' : 'none';
+    }
     runAnalysis();
     saveSettings();
   });
@@ -403,7 +419,15 @@ function initializeLabels() {
   updateLabel('medianSize',    'valMedianSize',    ' s');
   updateLabel('lpfWindow',     'valLpfWindow',     ' s');
   updateLabel('tonicWindow',   'valTonicWindow',   ' s');
+  updateLabel('dwtLevel',      'valDwtLevel',      '');
   updateLabel('peakThreshold', 'valPeakThreshold', ' μS');
+
+  // Initial DWT level group visibility
+  const tonicMethod = document.getElementById('tonicMethod');
+  const dwtGroup = document.getElementById('dwtLevelGroup');
+  if (dwtGroup && tonicMethod) {
+    dwtGroup.style.display = tonicMethod.value === 'dwt' ? '' : 'none';
+  }
 
   // GPS Labels
   const gpsFormatters = {

@@ -124,7 +124,8 @@ function runAnalysis() {
       lpfWindow:     parseFloat(S.lpfWindow.value),
       tonicMethod:   S.tonicMethod.value,
       tonicWindow:   parseInt(S.tonicWindow.value),
-      peakThreshold: parseFloat(S.peakThreshold.value)
+      peakThreshold: parseFloat(S.peakThreshold.value),
+      dwtLevel:      parseInt(S.dwtLevel ? S.dwtLevel.value : 4)
     };
 
     saveActiveTrackParams();
