@@ -894,7 +894,7 @@ function drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL
     // 1. Draw peak indicator in Phasic graph
     // Connect onset to peak with shaded highlight
     if (isActive || isHovered) {
-      fill(244, 63, 94, 40); // Highlight peak area
+      fill(244, 63, 94, 75); // Shaded fill under the curve (rose red at ~30% opacity)
       noStroke();
       beginShape();
       vertex(xOnset, yBottomL);
@@ -904,7 +904,7 @@ function drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL
         vertex(xVal, yVal);
       }
       vertex(xPeak, yBottomL);
-      endShape();
+      endShape(CLOSE);
     }
 
     // Peak Onset circle (Green)
