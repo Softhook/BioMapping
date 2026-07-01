@@ -1,381 +1,325 @@
 /**
- * Graphics Rendering & Drawing Utilities (p5.js Canvas View)
+ * Graphics Rendering & Drawing Utilities (p5.js Canvas View).
+ * All shared state accessed through AppState.
  */
+
+var M = AppState.margin;  // shorthand
 
 function drawPlaceholder() {
   background(9, 13, 22, 0);
 }
 
-/**
- * Draw vertical gridlines and time labels (shared by both graphs)
- */
 function drawGridX(tMin, tMax, yUpperBottom, yLowerBottom) {
-  const innerWidth = width - margin.left - margin.right;
-  
-  // Choose reasonable grid step in seconds based on duration
-  const span = tMax - tMin;
-  let step = 10;
+  var innerWidth = width - M.left - M.right;
+  var span = tMax - tMin;
+  var step = 10;
   if (span < 5) step = 0.5;
   else if (span < 15) step = 1;
   else if (span < 30) step = 5;
   else if (span < 120) step = 10;
   else if (span < 300) step = 30;
   else if (span < 900) step = 60;
-  else if (span < 1800) step = 300; // 5 min
-  else if (span < 3600) step = 600; // 10 min
-  else if (span < 7200) step = 1200; // 20 min
-  else step = 1800; // 30 min
+  else if (span < 1800) step = 300;
+  else if (span < 3600) step = 600;
+  else if (span < 7200) step = 1200;
+  else step = 1800;
 
-  // Align start to step boundary
-  const firstGridTime = Math.floor(tMin / step) * step;
+  var firstGridTime = Math.floor(tMin / step) * step;
 
   stroke(255, 255, 255, 12);
   strokeWeight(1);
   textAlign(CENTER, TOP);
   textSize(10);
-  
-  for (let t = firstGridTime; t <= tMax; t += step) {
-    if (t < tMin) continue;
 
-    const x = map(t, tMin, tMax, margin.left, width - margin.right);
-    
-    // Draw vertical gridline on Upper Graph
-    line(x, margin.top, x, yUpperBottom);
-    
-    // Draw vertical gridline on Lower Graph
-    line(x, yUpperBottom + margin.gap, x, yLowerBottom);
-    
-    // Time ticks at bottom of both
+  for (var t = firstGridTime; t <= tMax; t += step) {
+    if (t < tMin) continue;
+    var x = map(t, tMin, tMax, M.left, width - M.right);
+    line(x, M.top, x, yUpperBottom);
+    line(x, yUpperBottom + M.gap, x, yLowerBottom);
+
     fill(148, 163, 184);
     noStroke();
-    
-    // Format timestamp label
-    let label = t.toFixed(t % 1 !== 0 ? 1 : 0) + 's';
+
+    var label = t.toFixed(t % 1 !== 0 ? 1 : 0) + 's';
     if (t >= 3600) {
-      let h = Math.floor(t / 3600);
-      let m = Math.floor((t % 3600) / 60);
-      let s = Math.floor(t % 60);
-      label = `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+      var h = Math.floor(t / 3600);
+      var m = Math.floor((t % 3600) / 60);
+      var s = Math.floor(t % 60);
+      label = h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
     } else if (t >= 60) {
-      let m = Math.floor(t / 60);
-      let s = Math.floor(t % 60);
-      label = `${m}:${s < 10 ? '0' : ''}${s}`;
+      var m = Math.floor(t / 60);
+      var s = Math.floor(t % 60);
+      label = m + ':' + (s < 10 ? '0' : '') + s;
     }
     text(label, x, yLowerBottom + 6);
     stroke(255, 255, 255, 12);
   }
 
-  // Draw axis boundaries
   stroke(255, 255, 255, 25);
-  line(margin.left, margin.top, margin.left, yUpperBottom);
-  line(margin.left, yUpperBottom + margin.gap, margin.left, yLowerBottom);
-  line(margin.left, yUpperBottom, width - margin.right, yUpperBottom);
-  line(margin.left, yLowerBottom, width - margin.right, yLowerBottom);
+  line(M.left, M.top, M.left, yUpperBottom);
+  line(M.left, yUpperBottom + M.gap, M.left, yLowerBottom);
+  line(M.left, yUpperBottom, width - M.right, yUpperBottom);
+  line(M.left, yLowerBottom, width - M.right, yLowerBottom);
 }
 
-/**
- * Draw horizontal gridlines for Upper Graph (Conductance)
- */
 function drawGridYUpper(yMin, yMax, yBottom, heightVal) {
-  const span = yMax - yMin;
-  let step = 0.5;
+  var span = yMax - yMin;
+  var step = 0.5;
   if (span < 0.2) step = 0.02;
   else if (span < 1.0) step = 0.1;
   else if (span < 3.0) step = 0.5;
   else if (span < 10) step = 1.0;
   else step = 2.0;
 
-  const firstGridVal = Math.floor(yMin / step) * step;
+  var firstGridVal = Math.floor(yMin / step) * step;
 
   stroke(255, 255, 255, 12);
   textAlign(RIGHT, CENTER);
   textSize(10);
 
-  for (let val = firstGridVal; val <= yMax; val += step) {
+  for (var val = firstGridVal; val <= yMax; val += step) {
     if (val < yMin) continue;
-
-    const y = map(val, yMin, yMax, yBottom, margin.top);
-    line(margin.left, y, width - margin.right, y);
+    var y = map(val, yMin, yMax, yBottom, M.top);
+    line(M.left, y, width - M.right, y);
 
     noStroke();
     fill(148, 163, 184);
-    text(val.toFixed(2) + ' μS', margin.left - 8, y);
+    text(val.toFixed(2) + ' \u03bcS', M.left - 8, y);
     stroke(255, 255, 255, 12);
   }
 }
 
-/**
- * Draw horizontal gridlines for Lower Graph (Phasic)
- */
 function drawGridYLower(yMin, yMax, yBottom, heightVal) {
-  const span = yMax - yMin;
-  let step = 0.05;
+  var span = yMax - yMin;
+  var step = 0.05;
   if (span < 0.05) step = 0.005;
   else if (span < 0.15) step = 0.01;
   else if (span < 0.5) step = 0.05;
   else if (span < 1.5) step = 0.1;
   else step = 0.5;
 
-  const firstGridVal = Math.floor(yMin / step) * step;
+  var firstGridVal = Math.floor(yMin / step) * step;
 
   stroke(255, 255, 255, 12);
   textAlign(RIGHT, CENTER);
   textSize(10);
 
-  for (let val = firstGridVal; val <= yMax; val += step) {
+  for (var val = firstGridVal; val <= yMax; val += step) {
     if (val < yMin) continue;
-
-    const y = map(val, yMin, yMax, yBottom, yBottom - heightVal);
-    line(margin.left, y, width - margin.right, y);
+    var y = map(val, yMin, yMax, yBottom, yBottom - heightVal);
+    line(M.left, y, width - M.right, y);
 
     noStroke();
     fill(148, 163, 184);
-    text(val.toFixed(3) + ' μS', margin.left - 8, y);
+    text(val.toFixed(3) + ' \u03bcS', M.left - 8, y);
     stroke(255, 255, 255, 12);
   }
 }
 
-/**
- * Helper to draw a line plot for a given signal
- */
 function drawSignalCurve(data, tMin, tMax, yMin, yMax, yTop, yBottom, lineColor, lineWt) {
   if (!data || data.length === 0) return;
   noFill();
   stroke(lineColor);
   strokeWeight(lineWt);
-  
-  // Find start and end indices in viewport
-  const startIdx = Math.max(0, findClosestIndex(tMin) - 1);
-  const endIdx = Math.min(data.length - 1, findClosestIndex(tMax) + 1);
-  const count = endIdx - startIdx + 1;
 
+  var startIdx = Math.max(0, findClosestIndex(tMin) - 1);
+  var endIdx   = Math.min(data.length - 1, findClosestIndex(tMax) + 1);
+  var count = endIdx - startIdx + 1;
   if (count <= 0) return;
 
-  const maxVertices = 1500;
-  const step = Math.max(1, Math.ceil(count / maxVertices));
-  const useSpline = count < 600;
+  var maxVertices = 1500;
+  var step = Math.max(1, Math.ceil(count / maxVertices));
+  var useSpline = count < 600;
 
   beginShape();
-  
+
   if (useSpline) {
-    // First control point for p5 spline interpolation (duplicate first point in view)
-    const dFirst = data[startIdx];
-    const xFirst = map(dFirst.time, tMin, tMax, margin.left, width - margin.right);
-    const yFirst = map(dFirst.val, yMin, yMax, yBottom, yTop);
+    var dFirst = data[startIdx];
+    var xFirst = map(dFirst.time, tMin, tMax, M.left, width - M.right);
+    var yFirst = map(dFirst.val, yMin, yMax, yBottom, yTop);
     curveVertex(xFirst, yFirst);
 
-    for (let i = startIdx; i <= endIdx; i += step) {
-      const d = data[i];
-      const x = map(d.time, tMin, tMax, margin.left, width - margin.right);
-      const y = map(d.val, yMin, yMax, yBottom, yTop);
+    for (var i = startIdx; i <= endIdx; i += step) {
+      var d = data[i];
+      var x = map(d.time, tMin, tMax, M.left, width - M.right);
+      var y = map(d.val, yMin, yMax, yBottom, yTop);
       curveVertex(x, y);
     }
 
-    // Last control point for p5 spline interpolation (duplicate last point in view)
-    const dLast = data[endIdx];
-    const xLast = map(dLast.time, tMin, tMax, margin.left, width - margin.right);
-    const yLast = map(dLast.val, yMin, yMax, yBottom, yTop);
+    var dLast = data[endIdx];
+    var xLast = map(dLast.time, tMin, tMax, M.left, width - M.right);
+    var yLast = map(dLast.val, yMin, yMax, yBottom, yTop);
     curveVertex(xLast, yLast);
   } else {
-    for (let i = startIdx; i <= endIdx; i += step) {
-      const d = data[i];
-      const x = map(d.time, tMin, tMax, margin.left, width - margin.right);
-      const y = map(d.val, yMin, yMax, yBottom, yTop);
+    for (var i = startIdx; i <= endIdx; i += step) {
+      var d = data[i];
+      var x = map(d.time, tMin, tMax, M.left, width - M.right);
+      var y = map(d.val, yMin, yMax, yBottom, yTop);
       vertex(x, y);
     }
   }
-  
+
   endShape();
 }
 
-/**
- * Draw semi-transparent gradient/area fill under the Phasic signal curve
- */
 function drawPhasicArea(data, tMin, tMax, yMin, yMax, yTop, yBottom) {
   if (!data || data.length === 0) return;
-  const startIdx = Math.max(0, findClosestIndex(tMin) - 1);
-  const endIdx = Math.min(data.length - 1, findClosestIndex(tMax) + 1);
-  const count = endIdx - startIdx + 1;
-  
+  var startIdx = Math.max(0, findClosestIndex(tMin) - 1);
+  var endIdx   = Math.min(data.length - 1, findClosestIndex(tMax) + 1);
+  var count = endIdx - startIdx + 1;
   if (count <= 0) return;
 
   noStroke();
-  fill(16, 185, 129, 25); // Emerald transparent fill
+  fill(16, 185, 129, 25);
 
-  const maxVertices = 1500;
-  const step = Math.max(1, Math.ceil(count / maxVertices));
-  const useSpline = count < 600;
+  var maxVertices = 1500;
+  var step = Math.max(1, Math.ceil(count / maxVertices));
+  var useSpline = count < 600;
 
   beginShape();
-  
-  const dFirst = data[startIdx];
-  const xStart = map(dFirst.time, tMin, tMax, margin.left, width - margin.right);
-  
-  // Anchor to baseline start
+
+  var dFirst = data[startIdx];
+  var xStart = map(dFirst.time, tMin, tMax, M.left, width - M.right);
   vertex(xStart, yBottom);
-  
+
   if (useSpline) {
-    // Spline control point
     curveVertex(xStart, yBottom);
 
-    for (let i = startIdx; i <= endIdx; i += step) {
-      const d = data[i];
-      const x = map(d.time, tMin, tMax, margin.left, width - margin.right);
-      const y = map(d.val, yMin, yMax, yBottom, yTop);
+    for (var i = startIdx; i <= endIdx; i += step) {
+      var d = data[i];
+      var x = map(d.time, tMin, tMax, M.left, width - M.right);
+      var y = map(d.val, yMin, yMax, yBottom, yTop);
       curveVertex(x, y);
     }
 
-    const dLast = data[endIdx];
-    const xEnd = map(dLast.time, tMin, tMax, margin.left, width - margin.right);
-    // Spline control point
+    var dLast = data[endIdx];
+    var xEnd = map(dLast.time, tMin, tMax, M.left, width - M.right);
     curveVertex(xEnd, yBottom);
-    // Anchor to baseline end
     vertex(xEnd, yBottom);
   } else {
-    for (let i = startIdx; i <= endIdx; i += step) {
-      const d = data[i];
-      const x = map(d.time, tMin, tMax, margin.left, width - margin.right);
-      const y = map(d.val, yMin, yMax, yBottom, yTop);
+    for (var i = startIdx; i <= endIdx; i += step) {
+      var d = data[i];
+      var x = map(d.time, tMin, tMax, M.left, width - M.right);
+      var y = map(d.val, yMin, yMax, yBottom, yTop);
       vertex(x, y);
     }
-    const dLast = data[endIdx];
-    const xEnd = map(dLast.time, tMin, tMax, margin.left, width - margin.right);
+    var dLast = data[endIdx];
+    var xEnd = map(dLast.time, tMin, tMax, M.left, width - M.right);
     vertex(xEnd, yBottom);
   }
-  
+
   endShape();
 }
 
-/**
- * Draw visual annotations for all detected peaks in range
- */
 function drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
-  if (!showPeaks || !analyzer.peaks || analyzer.peaks.length === 0) return;
-  for (let pIdx = 0; pIdx < analyzer.peaks.length; pIdx++) {
-    const p = analyzer.peaks[pIdx];
-    
-    // Check if peak time or onset time is in viewport
-    if (p.time < tMin && p.onsetTime < tMin && 
-        (p.recoveryIndex === -1 || p.recoveryIndex === undefined || 
-         !analyzer.phasic || !analyzer.phasic[p.recoveryIndex] || 
-         analyzer.phasic[p.recoveryIndex].time < tMin)) {
+  if (!AppState.showPeaks || !AppState.analyzer.peaks || AppState.analyzer.peaks.length === 0) return;
+  for (var pIdx = 0; pIdx < AppState.analyzer.peaks.length; pIdx++) {
+    var p = AppState.analyzer.peaks[pIdx];
+
+    if (p.time < tMin && p.onsetTime < tMin &&
+        (p.recoveryIndex === -1 || p.recoveryIndex === undefined ||
+         !AppState.analyzer.phasic || !AppState.analyzer.phasic[p.recoveryIndex] ||
+         AppState.analyzer.phasic[p.recoveryIndex].time < tMin)) {
       continue;
     }
-    if (p.onsetTime > tMax) {
-      continue;
-    }
+    if (p.onsetTime > tMax) continue;
 
-    const xPeak = map(p.time, tMin, tMax, margin.left, width - margin.right);
-    const xOnset = map(p.onsetTime, tMin, tMax, margin.left, width - margin.right);
-    
-    const yFilteredPeak = map(analyzer.filtered[p.index].val, yMinU, yMaxU, yBottomU, yTopU);
-    const yPhasicPeak = map(p.value, yMinL, yMaxL, yBottomL, yTopL);
-    const yPhasicOnset = map(p.onsetValue, yMinL, yMaxL, yBottomL, yTopL);
+    var xPeak  = map(p.time, tMin, tMax, M.left, width - M.right);
+    var xOnset = map(p.onsetTime, tMin, tMax, M.left, width - M.right);
 
-    const isActive = (pIdx === activePeakIndex);
-    const isHovered = (hoveredIndex >= p.onsetIndex && hoveredIndex <= p.index);
+    var yFilteredPeak = map(AppState.analyzer.filtered[p.index].val, yMinU, yMaxU, yBottomU, yTopU);
+    var yPhasicPeak   = map(p.value, yMinL, yMaxL, yBottomL, yTopL);
+    var yPhasicOnset  = map(p.onsetValue, yMinL, yMaxL, yBottomL, yTopL);
 
-    // 1. Draw peak indicator in Phasic graph
-    // Connect onset to peak with shaded highlight
+    var isActive  = (pIdx === AppState.activePeakIndex);
+    var isHovered = (AppState.hoveredIndex >= p.onsetIndex && AppState.hoveredIndex <= p.index);
+
     if (isActive || isHovered) {
-      fill(244, 63, 94, 75); // Shaded fill under the curve (rose red at ~30% opacity)
+      fill(244, 63, 94, 75);
       noStroke();
       beginShape();
       vertex(xOnset, yBottomL);
-      for (let i = p.onsetIndex; i <= p.index; i++) {
-        const xVal = map(analyzer.phasic[i].time, tMin, tMax, margin.left, width - margin.right);
-        const yVal = map(analyzer.phasic[i].val, yMinL, yMaxL, yBottomL, yTopL);
+      for (var i = p.onsetIndex; i <= p.index; i++) {
+        var xVal = map(AppState.analyzer.phasic[i].time, tMin, tMax, M.left, width - M.right);
+        var yVal = map(AppState.analyzer.phasic[i].val, yMinL, yMaxL, yBottomL, yTopL);
         vertex(xVal, yVal);
       }
       vertex(xPeak, yBottomL);
       endShape(CLOSE);
     }
 
-    // Peak Onset circle (Green)
     stroke(16, 185, 129);
     strokeWeight(1.5);
     fill(9, 13, 22);
     circle(xOnset, yPhasicOnset, isActive ? 8 : 5);
 
-    // Vertical dashed lines connecting upper and lower graphs
     stroke(244, 63, 94, 60);
     strokeWeight(1);
     drawingContext.setLineDash([3, 3]);
     line(xPeak, yFilteredPeak, xPeak, yPhasicPeak);
     drawingContext.setLineDash([]);
 
-    // Peak circle (Rose red)
     stroke(244, 63, 94);
     strokeWeight(2);
     fill(isActive ? color(244, 63, 94) : color(9, 13, 22));
     circle(xPeak, yPhasicPeak, isActive ? 9 : 6);
     circle(xPeak, yFilteredPeak, isActive ? 9 : 6);
 
-    // Label peak number
-    if (xPeak >= margin.left && xPeak <= width - margin.right) {
-      if (viewDuration < 300 || isActive || isHovered) {
+    if (xPeak >= M.left && xPeak <= width - M.right) {
+      if (AppState.viewDuration < 300 || isActive || isHovered) {
         noStroke();
         fill(244, 63, 94);
         textSize(10);
         textStyle(BOLD);
         textAlign(CENTER, BOTTOM);
-        text(`#${pIdx + 1}`, xPeak, yFilteredPeak - 8);
+        text('#' + (pIdx + 1), xPeak, yFilteredPeak - 8);
         textStyle(NORMAL);
       }
     }
   }
 }
 
-/**
- * Handle hover scrubber line and details tooltip
- */
 function handleScrubber(tMin, tMax, yMinU, yMaxU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
-  // If mouse is outside graph bounds horizontally or dragging, don't draw scrubber
-  if (mouseX < margin.left || mouseX > width - margin.right || isDragging) {
-    hoveredIndex = -1;
-    if (mapManager) mapManager.setScrubPosition(NaN, NaN);
+  if (mouseX < M.left || mouseX > width - M.right || AppState.isDragging) {
+    AppState.hoveredIndex = -1;
+    if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
     return;
   }
 
-  if (!analyzer.raw || analyzer.raw.length === 0 || 
-      !analyzer.filtered || analyzer.filtered.length === 0 ||
-      !analyzer.tonic || analyzer.tonic.length === 0 ||
-      !analyzer.phasic || analyzer.phasic.length === 0) {
-    hoveredIndex = -1;
-    if (mapManager) mapManager.setScrubPosition(NaN, NaN);
+  if (!AppState.analyzer.raw || AppState.analyzer.raw.length === 0 ||
+      !AppState.analyzer.filtered || AppState.analyzer.filtered.length === 0 ||
+      !AppState.analyzer.tonic || AppState.analyzer.tonic.length === 0 ||
+      !AppState.analyzer.phasic || AppState.analyzer.phasic.length === 0) {
+    AppState.hoveredIndex = -1;
+    if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
     return;
   }
 
-  // Map mouse position to time coordinate
-  const hoverTime = map(mouseX, margin.left, width - margin.right, tMin, tMax);
-  hoveredIndex = findClosestIndex(hoverTime);
+  var hoverTime = map(mouseX, M.left, width - M.right, tMin, tMax);
+  AppState.hoveredIndex = findClosestIndex(hoverTime);
+  if (AppState.hoveredIndex === -1) return;
 
-  if (hoveredIndex === -1) return;
-
-  const dRaw = analyzer.raw[hoveredIndex];
+  var dRaw = AppState.analyzer.raw[AppState.hoveredIndex];
   if (!dRaw) return;
 
-  // Sync Leaflet map scrubber marker coordinate position
   if (dRaw.hasGps && !isNaN(dRaw.lat) && !isNaN(dRaw.lon)) {
-    if (mapManager) mapManager.setScrubPosition(dRaw.lat, dRaw.lon, true);
+    if (AppState.mapManager) AppState.mapManager.setScrubPosition(dRaw.lat, dRaw.lon, true);
   } else {
-    if (mapManager) mapManager.setScrubPosition(NaN, NaN);
+    if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
   }
 
-  const dFilt = analyzer.filtered[hoveredIndex];
-  const dTonic = analyzer.tonic[hoveredIndex];
-  const dPhasic = analyzer.phasic[hoveredIndex];
+  var dFilt   = AppState.analyzer.filtered[AppState.hoveredIndex];
+  var dTonic  = AppState.analyzer.tonic[AppState.hoveredIndex];
+  var dPhasic = AppState.analyzer.phasic[AppState.hoveredIndex];
 
-  const xScrub = map(dRaw.time, tMin, tMax, margin.left, width - margin.right);
+  var xScrub = map(dRaw.time, tMin, tMax, M.left, width - M.right);
 
-  // Draw vertical line across entire canvas
   stroke(255, 255, 255, 50);
   strokeWeight(1);
-  line(xScrub, margin.top, xScrub, yBottomL);
+  line(xScrub, M.top, xScrub, yBottomL);
 
-  // Draw intersection dots
-  const yU = map(dFilt.val, yMinU, yMaxU, yBottomU, margin.top);
-  const yL = map(dPhasic.val, yMinL, yMaxL, yBottomL, yTopL);
+  var yU = map(dFilt.val, yMinU, yMaxU, yBottomU, M.top);
+  var yL = map(dPhasic.val, yMinL, yMaxL, yBottomL, yTopL);
 
   stroke(14, 165, 233);
   fill(14, 165, 233);
@@ -385,70 +329,60 @@ function handleScrubber(tMin, tMax, yMinU, yMaxU, yBottomU, yMinL, yMaxL, yTopL,
   fill(16, 185, 129);
   circle(xScrub, yL, 6);
 
-  // Render Tooltip Card
   drawTooltip(dRaw.time, dRaw.val, dFilt.val, dTonic.val, dPhasic.val);
 }
 
 function drawTooltip(time, rawVal, filtVal, tonicVal, phasicVal) {
-  const pad = 12;
-  const boxW = 190;
-  const boxH = 120;
-  
-  // Decide tooltip placement: right of scrubber or left (if near right edge)
-  let boxX = mouseX + 15;
-  if (boxX + boxW > width - margin.right) {
+  var pad = 12;
+  var boxW = 190;
+  var boxH = 120;
+
+  var boxX = mouseX + 15;
+  if (boxX + boxW > width - M.right) {
     boxX = mouseX - boxW - 15;
   }
-  
-  let boxY = mouseY - 40;
-  boxY = constrain(boxY, margin.top, height - margin.bottom - boxH);
 
-  // Glass box background
+  var boxY = mouseY - 40;
+  boxY = constrain(boxY, M.top, height - M.bottom - boxH);
+
   fill(22, 33, 54, 235);
   stroke(255, 255, 255, 15);
   strokeWeight(1);
   rect(boxX, boxY, boxW, boxH, 8);
 
-  // Tooltip content
   noStroke();
   textAlign(LEFT, TOP);
-  
-  // Timestamp
+
   fill(255, 255, 255);
   textSize(10);
   textStyle(BOLD);
-  text(`TIME: ${time.toFixed(2)} s`, boxX + pad, boxY + pad);
+  text('TIME: ' + time.toFixed(2) + ' s', boxX + pad, boxY + pad);
   textStyle(NORMAL);
-  
-  // Values
-  textSize(9.5);
-  const startY = boxY + pad + 18;
-  const spacing = 18;
 
-  // Raw GSR
+  textSize(9.5);
+  var startY = boxY + pad + 18;
+  var spacing = 18;
+
   fill(148, 163, 184);
-  text(`Raw:`, boxX + pad, startY);
+  text('Raw:', boxX + pad, startY);
   textAlign(RIGHT, TOP);
-  text(`${rawVal.toFixed(4)} μS`, boxX + boxW - pad, startY);
-  
-  // Filtered GSR
+  text(rawVal.toFixed(4) + ' \u03bcS', boxX + boxW - pad, startY);
+
   textAlign(LEFT, TOP);
   fill(14, 165, 233);
-  text(`Filtered:`, boxX + pad, startY + spacing);
+  text('Filtered:', boxX + pad, startY + spacing);
   textAlign(RIGHT, TOP);
-  text(`${filtVal.toFixed(4)} μS`, boxX + boxW - pad, startY + spacing);
+  text(filtVal.toFixed(4) + ' \u03bcS', boxX + boxW - pad, startY + spacing);
 
-  // Tonic Baseline
   textAlign(LEFT, TOP);
   fill(217, 70, 239);
-  text(`Tonic (SCL):`, boxX + pad, startY + 2 * spacing);
+  text('Tonic (SCL):', boxX + pad, startY + 2 * spacing);
   textAlign(RIGHT, TOP);
-  text(`${tonicVal.toFixed(4)} μS`, boxX + boxW - pad, startY + 2 * spacing);
+  text(tonicVal.toFixed(4) + ' \u03bcS', boxX + boxW - pad, startY + 2 * spacing);
 
-  // Phasic Response
   textAlign(LEFT, TOP);
   fill(16, 185, 129);
-  text(`Phasic (SCR):`, boxX + pad, startY + 3 * spacing);
+  text('Phasic (SCR):', boxX + pad, startY + 3 * spacing);
   textAlign(RIGHT, TOP);
-  text(`${phasicVal.toFixed(4)} μS`, boxX + boxW - pad, startY + 3 * spacing);
+  text(phasicVal.toFixed(4) + ' \u03bcS', boxX + boxW - pad, startY + 3 * spacing);
 }

@@ -552,103 +552,6 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Marching Squares Algorithm for Isolines Extraction
-// ─────────────────────────────────────────────────────────────────────────────
-class MarchingSquares {
-  /**
-   * Run marching squares on a 2D grid.
-   * grid is a 2D array of size [rows][cols] containing values or null.
-   * bounds is { minLat, minLon, maxLat, maxLon }
-   * isolevel is the threshold value.
-   */
-  static getContourLines(grid, rows, cols, bounds, isolevel) {
-    const lines = [];
-    const minLat = bounds.minLat;
-    const maxLat = bounds.maxLat;
-    const minLon = bounds.minLon;
-    const maxLon = bounds.maxLon;
-
-    const getLatLng = (r, c) => {
-      const lat = minLat + (r / (rows - 1)) * (maxLat - minLat);
-      const lon = minLon + (c / (cols - 1)) * (maxLon - minLon);
-      return { lat, lon };
-    };
-
-    // Linear interpolation on cell edges for precision positioning
-    const interpolate = (r1, c1, r2, c2) => {
-      const v1 = grid[r1][c1];
-      const v2 = grid[r2][c2];
-      const p1 = getLatLng(r1, c1);
-      const p2 = getLatLng(r2, c2);
-
-      if (v1 === null || v2 === null || isNaN(v1) || isNaN(v2)) return p1;
-      if (Math.abs(v1 - v2) < 1e-9) return p1;
-
-      const t = (isolevel - v1) / (v2 - v1);
-      return {
-        lat: p1.lat + t * (p2.lat - p1.lat),
-        lon: p1.lon + t * (p2.lon - p1.lon)
-      };
-    };
-
-    for (let r = 0; r < rows - 1; r++) {
-      for (let c = 0; c < cols - 1; c++) {
-        // Corner values
-        const vNW = grid[r][c];         // Top-left (NW)
-        const vNE = grid[r][c + 1];     // Top-right (NE)
-        const vSE = grid[r + 1][c + 1]; // Bottom-right (SE)
-        const vSW = grid[r + 1][c];     // Bottom-left (SW)
-
-        // If any corner is null (outside boundary mask), skip cell
-        if (vNW === null || vNE === null || vSE === null || vSW === null ||
-            isNaN(vNW) || isNaN(vNE) || isNaN(vSE) || isNaN(vSW)) {
-          continue;
-        }
-
-        // 4-bit index: NW (bit 3), NE (bit 2), SE (bit 1), SW (bit 0)
-        let cellIndex = 0;
-        if (vNW >= isolevel) cellIndex |= 8;
-        if (vNE >= isolevel) cellIndex |= 4;
-        if (vSE >= isolevel) cellIndex |= 2;
-        if (vSW >= isolevel) cellIndex |= 1;
-
-        if (cellIndex === 0 || cellIndex === 15) continue;
-
-        let pT = null; // Top edge intersection
-        let pR = null; // Right edge intersection
-        let pB = null; // Bottom edge intersection
-        let pL = null; // Left edge intersection
-
-        // Lazy calculations
-        const getT = () => pT || (pT = interpolate(r, c, r, c + 1));
-        const getR = () => pR || (pR = interpolate(r, c + 1, r + 1, c + 1));
-        const getB = () => pB || (pB = interpolate(r + 1, c, r + 1, c + 1));
-        const getL = () => pL || (pL = interpolate(r, c, r + 1, c));
-
-        switch (cellIndex) {
-          case 1:  lines.push([getB(), getL()]); break;
-          case 2:  lines.push([getR(), getB()]); break;
-          case 3:  lines.push([getR(), getL()]); break;
-          case 4:  lines.push([getT(), getR()]); break;
-          case 5:  lines.push([getT(), getR()]); lines.push([getB(), getL()]); break;
-          case 6:  lines.push([getT(), getB()]); break;
-          case 7:  lines.push([getT(), getL()]); break;
-          case 8:  lines.push([getL(), getT()]); break;
-          case 9:  lines.push([getB(), getT()]); break;
-          case 10: lines.push([getL(), getB()]); lines.push([getT(), getR()]); break;
-          case 11: lines.push([getR(), getT()]); break;
-          case 12: lines.push([getL(), getR()]); break;
-          case 13: lines.push([getB(), getR()]); break;
-          case 14: lines.push([getL(), getB()]); break;
-        }
-      }
-    }
-
-    return lines;
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // GSR Collective Data Manager for Spatial Aggregation
 // ─────────────────────────────────────────────────────────────────────────────
 class GSRCollectiveManager {
@@ -936,6 +839,5 @@ class GSRCollectiveManager {
   }
 }
 
-window.MarchingSquares = MarchingSquares;
 window.GSRCollectiveManager = GSRCollectiveManager;
 

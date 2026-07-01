@@ -536,11 +536,16 @@
     </div>
   </div>
 
-  <!-- Scripts -->
+  <!-- Scripts — load order matters: AppState first, sketch.js last -->
+  <script src="app_state.js"></script>
   <script src="analyzer.js"></script>
+  <script src="marching_squares.js"></script>
+  <script src="gps_filter.js"></script>
   <script src="map.js"></script>
   <script src="storage.js"></script>
   <script src="simulator.js"></script>
+  <script src="events.js"></script>
+  <script src="tracks.js"></script>
   <script src="ui.js"></script>
   <script src="renderer.js"></script>
   <script src="sketch.js"></script>
