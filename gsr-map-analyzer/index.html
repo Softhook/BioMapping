@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GSR / EDA Bio-Signal Analyzer</title>
+  <title>Bio Mapping</title>
   
   <!-- Typography & Icons -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -27,9 +27,14 @@
     
     <!-- Top Navigation Header -->
     <header class="app-header">
-      <div class="header-logo">
-        <i class="fa-solid fa-wave-square wave-icon"></i>
-        <h1>BioMapping <span>GSR Analyzer</span></h1>
+      <div class="header-left">
+        <button class="sidebar-toggle-btn" id="sidebarToggleBtn" title="Toggle sidebar">
+          <i class="fa-solid fa-bars" id="sidebarToggleIcon"></i>
+        </button>
+        <div class="header-logo">
+          <i class="fa-solid fa-wave-square wave-icon"></i>
+          <h1>Bio Mapping 2 <span>Christian Nold</span></h1>
+        </div>
       </div>
       <div class="header-status" id="fileStatus">
         <span class="status-dot warning"></span>
@@ -181,7 +186,7 @@
         </section>
 
         <!-- p5.js Graphical Visualizer -->
-        <section class="visualization-panel">
+        <section class="visualization-panel" id="gsrPanel">
           <div class="panel-header">
             <h3><i class="fa-solid fa-chart-area"></i> Interactive Signal Decomposition</h3>
             <div class="canvas-controls">
@@ -192,6 +197,8 @@
               <button class="btn btn-outline active" id="btnToggleRaw">Raw</button>
               <button class="btn btn-outline active" id="btnToggleFiltered">Filtered</button>
               <button class="btn btn-outline active" id="btnToggleTonic">Tonic</button>
+              <span class="control-divider"></span>
+              <button class="icon-btn fullscreen-btn" id="btnGsrFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>
             </div>
           </div>
           
@@ -224,9 +231,12 @@
         </section>
 
         <!-- Leaflet Map Panel -->
-        <section class="map-panel">
+        <section class="map-panel" id="mapPanel">
           <div class="panel-header">
             <h3><i class="fa-solid fa-map-location-dot"></i> Autonomic Arousal Map Overlay</h3>
+            <div class="canvas-controls">
+              <button class="icon-btn fullscreen-btn" id="btnMapFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>
+            </div>
           </div>
           <div id="map"></div>
         </section>

@@ -179,6 +179,126 @@ function setupEventListeners() {
 
   // Demo loader buttons
   document.getElementById('loadDemoBtn').addEventListener('click', loadDemoData);
+
+  // ── Sidebar Collapse Toggle ──────────────────────────────────────────────
+  const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+  const mainLayout = document.querySelector('.main-layout');
+  let sidebarCollapsed = false;
+
+  sidebarToggleBtn.addEventListener('click', () => {
+    sidebarCollapsed = !sidebarCollapsed;
+    mainLayout.classList.toggle('sidebar-collapsed', sidebarCollapsed);
+    // Swap icon between bars (open) and bars-staggered (collapsed) for clear affordance
+    const icon = document.getElementById('sidebarToggleIcon');
+    if (sidebarCollapsed) {
+      icon.classList.replace('fa-bars', 'fa-bars-staggered');
+    } else {
+      icon.classList.replace('fa-bars-staggered', 'fa-bars');
+    }
+    // Allow the CSS transition to finish before recalculating canvas size
+    setTimeout(() => windowResized(), 320);
+  });
+
+  // ── GSR Panel Fullscreen ─────────────────────────────────────────────────
+  setupPanelFullscreen(
+    'btnGsrFullscreen',
+    'gsrPanel',
+    () => windowResized()   // callback on enter/exit so p5 resizes
+  );
+
+  // ── Map Panel Fullscreen ─────────────────────────────────────────────────
+  setupPanelFullscreen(
+    'btnMapFullscreen',
+    'mapPanel',
+    () => {
+      // Invalidate Leaflet map size after DOM resize
+      if (mapManager && mapManager.map) {
+        setTimeout(() => mapManager.map.invalidateSize(), 50);
+      }
+    }
+  );
+}
+
+/**
+ * Generic helper: makes a panel section go full-screen by inserting it into
+ * a fixed overlay div, then restores it when the button is clicked again or
+ * the user presses Escape.
+ *
+ * @param {string} btnId   – ID of the expand button
+ * @param {string} panelId – ID of the <section> to fullscreen
+ * @param {Function} [onToggle] – optional callback fired on enter and exit
+ */
+function setupPanelFullscreen(btnId, panelId, onToggle) {
+  const btn   = document.getElementById(btnId);
+  const panel = document.getElementById(panelId);
+  if (!btn || !panel) return;
+
+  let overlay      = null;
+  let placeholder  = null; // invisible element that keeps the layout slot
+  let escapeHint   = null;
+  let isFs         = false;
+
+  const enter = () => {
+    isFs = true;
+    btn.classList.add('is-fullscreen');
+    btn.querySelector('i').classList.replace('fa-expand', 'fa-compress');
+
+    // Create a placeholder so the layout doesn't jump
+    placeholder = document.createElement('div');
+    placeholder.style.cssText = `
+      width: ${panel.offsetWidth}px;
+      height: ${panel.offsetHeight}px;
+      visibility: hidden;
+    `;
+    panel.parentNode.insertBefore(placeholder, panel);
+
+    // Build the overlay wrapper
+    overlay = document.createElement('div');
+    overlay.className = 'panel-fullscreen-overlay';
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    // Escape hint
+    escapeHint = document.createElement('div');
+    escapeHint.className = 'fs-escape-hint';
+    escapeHint.innerHTML = '<i class="fa-solid fa-compress" style="margin-right:5px;"></i>Press Esc or click <strong>⊡</strong> to exit full screen';
+    document.body.appendChild(escapeHint);
+    // Remove after animation ends
+    setTimeout(() => { if (escapeHint) escapeHint.remove(); escapeHint = null; }, 3200);
+
+    if (onToggle) onToggle();
+  };
+
+  const exit = () => {
+    if (!isFs) return;
+    isFs = false;
+    btn.classList.remove('is-fullscreen');
+    btn.querySelector('i').classList.replace('fa-compress', 'fa-expand');
+
+    // Restore the panel to its original position
+    if (placeholder && placeholder.parentNode) {
+      placeholder.parentNode.insertBefore(panel, placeholder);
+      placeholder.remove();
+      placeholder = null;
+    }
+
+    // Remove overlay
+    if (overlay && overlay.parentNode) {
+      overlay.remove();
+      overlay = null;
+    }
+
+    // Remove hint if still present
+    if (escapeHint) { escapeHint.remove(); escapeHint = null; }
+
+    if (onToggle) onToggle();
+  };
+
+  btn.addEventListener('click', () => { isFs ? exit() : enter(); });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isFs) exit();
+  });
 }
 
 function windowResized() {

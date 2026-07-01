@@ -83,6 +83,34 @@ body {
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sidebar-toggle-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-glass);
+  color: var(--text-secondary);
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.sidebar-toggle-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--border-focus);
+}
+
 .header-logo {
   display: flex;
   align-items: center;
@@ -135,7 +163,12 @@ body {
   grid-template-columns: 320px 1fr;
   gap: 16px;
   flex-grow: 1;
-  min-height: 0; /* Important for scrollable items inside */
+  min-height: 0;
+  transition: grid-template-columns 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.main-layout.sidebar-collapsed {
+  grid-template-columns: 0px 1fr;
 }
 
 /* Sidebar */
@@ -144,7 +177,15 @@ body {
   flex-direction: column;
   gap: 16px;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 4px;
+  transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.main-layout.sidebar-collapsed .sidebar {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-12px);
 }
 
 .control-card {
@@ -515,6 +556,20 @@ input[type="range"]::-webkit-slider-thumb:hover {
   background: rgba(255, 255, 255, 0.08);
 }
 
+.fullscreen-btn {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.fullscreen-btn:hover {
+  color: var(--accent-primary) !important;
+  background: rgba(14, 165, 233, 0.1) !important;
+}
+
+.fullscreen-btn.is-fullscreen {
+  color: var(--accent-primary);
+}
+
 .control-divider {
   width: 1px;
   height: 16px;
@@ -849,3 +904,74 @@ input[type="range"]::-webkit-slider-thumb:hover {
   color: var(--text-primary);
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Fullscreen Panel Overlay
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.panel-fullscreen-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  padding: 12px;
+  animation: fs-enter 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes fs-enter {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Panel sections fill the overlay */
+.panel-fullscreen-overlay > section {
+  flex: 1;
+  min-height: 0;
+}
+
+/* GSR canvas fills remaining space */
+.panel-fullscreen-overlay .visualization-panel {
+  flex-grow: 1;
+  min-height: 0;
+}
+
+.panel-fullscreen-overlay .canvas-container {
+  min-height: 0;
+  flex-grow: 1;
+}
+
+/* Map fills all available space */
+.panel-fullscreen-overlay .map-panel {
+  flex-grow: 1;
+  min-height: 0;
+}
+
+.panel-fullscreen-overlay #map {
+  min-height: 0 !important;
+  height: 100% !important;
+}
+
+/* Escape hint shown briefly in fullscreen */
+.fs-escape-hint {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-glass);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  padding: 5px 14px;
+  border-radius: 20px;
+  z-index: 10001;
+  pointer-events: none;
+  animation: hint-fade 3s ease forwards;
+}
+
+@keyframes hint-fade {
+  0%   { opacity: 1; }
+  70%  { opacity: 1; }
+  100% { opacity: 0; }
+}
