@@ -20,6 +20,7 @@
   
   <!-- Libraries (p5.js for canvas rendering) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
 
@@ -70,7 +71,7 @@
 
         <!-- GSR Signal Filtering -->
         <section class="control-card">
-          <h2><i class="fa-solid fa-wave-square"></i> GSR Signal Filtering</h2>
+          <h2><i class="fa-solid fa-wave-square"></i> GSR Filtering</h2>
 
           <div class="control-subgroup-title">Noise Filtering</div>
           
@@ -128,7 +129,7 @@
 
         <!-- GPS Map Filtering -->
         <section class="control-card">
-          <h2><i class="fa-solid fa-satellite-dish"></i> GPS Map Filtering</h2>
+          <h2><i class="fa-solid fa-satellite-dish"></i> GPS Filtering</h2>
 
           <div class="control-subgroup-title">Outlier Rejection</div>
 
@@ -252,6 +253,9 @@
             </button>
             <button class="btn btn-secondary" id="exportImageBtn" disabled>
               <i class="fa-solid fa-image"></i> Save Canvas PNG
+            </button>
+            <button class="btn btn-secondary" id="exportMapBtn" disabled>
+              <i class="fa-solid fa-map"></i> Save Bio Map PNG
             </button>
           </div>
         </section>

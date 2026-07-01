@@ -26,7 +26,8 @@ class GSRMapManager {
     // Dark Map Style (OpenStreetMap base)
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       maxZoom: 19,
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>'
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
+      crossOrigin: true
     }).addTo(this.map);
 
     // Initialise scrubbing indicator marker (pulsing blue circle)
@@ -105,7 +106,15 @@ class GSRMapManager {
     if (!data || data.length === 0) return;
 
     // ── 1. Collect valid GPS points ───────────────────────────────────────────
-    let gpsPoints = data.filter(d => d.hasGps && !isNaN(d.lat) && !isNaN(d.lon));
+    let gpsPoints = [];
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].hasGps && !isNaN(data[i].lat) && !isNaN(data[i].lon)) {
+        gpsPoints.push({
+          ...data[i],
+          origIdx: i
+        });
+      }
+    }
     if (gpsPoints.length === 0) return;
 
     // ── 2. Satellite quality gate ─────────────────────────────────────────────
@@ -135,6 +144,49 @@ class GSRMapManager {
     if (kalmanR > 0 && kalmanQ > 0) {
       gpsPoints = this.applyKalman(gpsPoints, kalmanQ, kalmanR);
     }
+
+    // Reconstruct full 10Hz filtered GPS path for CSV export
+    const filteredGps = new Array(data.length);
+    const filteredMap = new Map();
+    gpsPoints.forEach(p => {
+      filteredMap.set(p.origIdx, { lat: p.lat, lon: p.lon });
+    });
+
+    const validIndices = gpsPoints.map(p => p.origIdx).sort((a, b) => a - b);
+    if (validIndices.length > 0) {
+      const firstIdx = validIndices[0];
+      const firstCoord = filteredMap.get(firstIdx);
+      for (let i = 0; i < firstIdx; i++) {
+        filteredGps[i] = { lat: firstCoord.lat, lon: firstCoord.lon };
+      }
+      
+      for (let k = 0; k < validIndices.length - 1; k++) {
+        const idxA = validIndices[k];
+        const idxB = validIndices[k + 1];
+        const cA = filteredMap.get(idxA);
+        const cB = filteredMap.get(idxB);
+        
+        filteredGps[idxA] = { lat: cA.lat, lon: cA.lon };
+        
+        for (let i = idxA + 1; i < idxB; i++) {
+          const ratio = (i - idxA) / (idxB - idxA);
+          const lat = cA.lat + ratio * (cB.lat - cA.lat);
+          const lon = cA.lon + ratio * (cB.lon - cA.lon);
+          filteredGps[i] = { lat, lon };
+        }
+      }
+      
+      const lastIdx = validIndices[validIndices.length - 1];
+      const lastCoord = filteredMap.get(lastIdx);
+      for (let i = lastIdx; i < data.length; i++) {
+        filteredGps[i] = { lat: lastCoord.lat, lon: lastCoord.lon };
+      }
+    } else {
+      for (let i = 0; i < data.length; i++) {
+        filteredGps[i] = { lat: NaN, lon: NaN };
+      }
+    }
+    analyzer.filteredGps = filteredGps;
 
     // ── 7. Downsample to ~1 Hz to prevent Leaflet performance lag ────────────
     const step = (gpsParams.downsample !== false)

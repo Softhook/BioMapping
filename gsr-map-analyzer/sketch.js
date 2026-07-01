@@ -201,6 +201,7 @@ function setupEventListeners() {
   // Exports
   document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
   document.getElementById('exportImageBtn').addEventListener('click', saveCanvasImage);
+  document.getElementById('exportMapBtn').addEventListener('click', saveMapImage);
 
   // Demo loader buttons
   document.getElementById('loadDemoBtn').addEventListener('click', loadDemoData);
@@ -1086,6 +1087,7 @@ function processFile(file) {
       // Enable export buttons
       document.getElementById('exportCsvBtn').removeAttribute('disabled');
       document.getElementById('exportImageBtn').removeAttribute('disabled');
+      document.getElementById('exportMapBtn').removeAttribute('disabled');
       
       // Remove canvas placeholder
       const placeholder = document.getElementById('canvasPlaceholder');
@@ -1123,6 +1125,7 @@ function clearFile() {
   // Disable export buttons
   document.getElementById('exportCsvBtn').setAttribute('disabled', 'true');
   document.getElementById('exportImageBtn').setAttribute('disabled', 'true');
+  document.getElementById('exportMapBtn').setAttribute('disabled', 'true');
 
   // Show placeholder
   const placeholder = document.getElementById('canvasPlaceholder');
@@ -1306,6 +1309,40 @@ function saveCanvasImage() {
   saveCanvas(myCanvas, `gsr_analysis_chart_${Date.now()}`, 'png');
 }
 
+function saveMapImage() {
+  if (analyzer.raw.length === 0) return;
+  
+  const mapElement = document.getElementById('map');
+  const btn = document.getElementById('exportMapBtn');
+  const originalText = btn.innerHTML;
+  
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...';
+  btn.setAttribute('disabled', 'true');
+
+  html2canvas(mapElement, {
+    useCORS: true,
+    allowTaint: false,
+    backgroundColor: null,
+    logging: false
+  }).then(canvas => {
+    const link = document.createElement("a");
+    link.download = `bio_map_${Date.now()}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    btn.innerHTML = originalText;
+    btn.removeAttribute('disabled');
+  }).catch(err => {
+    console.error("Error generating map PNG:", err);
+    alert("Could not export map. Some map resources may have failed to load securely (CORS).");
+    btn.innerHTML = originalText;
+    btn.removeAttribute('disabled');
+  });
+}
+
 /**
  * Generates highly realistic mock GSR data for demonstration
  */
@@ -1414,6 +1451,7 @@ function loadDemoData() {
     // Enable export buttons
     document.getElementById('exportCsvBtn').removeAttribute('disabled');
     document.getElementById('exportImageBtn').removeAttribute('disabled');
+    document.getElementById('exportMapBtn').removeAttribute('disabled');
 
     const placeholder = document.getElementById('canvasPlaceholder');
     if (placeholder) placeholder.style.display = 'none';

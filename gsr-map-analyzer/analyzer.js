@@ -491,7 +491,14 @@ class GSRAnalyzer {
   exportToCSV() {
     if (this.raw.length === 0) return "";
 
-    let csv = "Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,Latitude,Longitude\n";
+    const hasFilteredGps = this.filteredGps && this.filteredGps.length === this.raw.length;
+
+    let csv = "Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,Latitude,Longitude";
+    if (hasFilteredGps) {
+      csv += ",Raw Latitude,Raw Longitude";
+    }
+    csv += "\n";
+
     for (let i = 0; i < this.raw.length; i++) {
       let isPeak = 0;
       let peakAmp = "";
@@ -502,8 +509,22 @@ class GSRAnalyzer {
         peakAmp = peak.amplitude.toFixed(4);
       }
 
-      const latStr = this.raw[i].lat ? this.raw[i].lat.toFixed(6) : "";
-      const lonStr = this.raw[i].lon ? this.raw[i].lon.toFixed(6) : "";
+      let latVal = this.raw[i].lat;
+      let lonVal = this.raw[i].lon;
+      let rawLatVal = NaN;
+      let rawLonVal = NaN;
+
+      if (hasFilteredGps) {
+        rawLatVal = latVal;
+        rawLonVal = lonVal;
+        latVal = this.filteredGps[i].lat;
+        lonVal = this.filteredGps[i].lon;
+      }
+
+      const latStr = (latVal !== null && latVal !== undefined && !isNaN(latVal)) ? latVal.toFixed(6) : "";
+      const lonStr = (lonVal !== null && lonVal !== undefined && !isNaN(lonVal)) ? lonVal.toFixed(6) : "";
+      const rawLatStr = (rawLatVal !== null && rawLatVal !== undefined && !isNaN(rawLatVal)) ? rawLatVal.toFixed(6) : "";
+      const rawLonStr = (rawLonVal !== null && rawLonVal !== undefined && !isNaN(rawLonVal)) ? rawLonVal.toFixed(6) : "";
 
       csv += `${this.raw[i].time.toFixed(3)},` +
              `${this.raw[i].val.toFixed(4)},` +
@@ -513,7 +534,12 @@ class GSRAnalyzer {
              `${isPeak},` +
              `${peakAmp},` +
              `${latStr},` +
-             `${lonStr}\n`;
+             `${lonStr}`;
+
+      if (hasFilteredGps) {
+        csv += `,${rawLatStr},${rawLonStr}`;
+      }
+      csv += "\n";
     }
     return csv;
   }
