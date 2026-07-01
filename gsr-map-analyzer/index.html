@@ -68,9 +68,11 @@
           </div>
         </section>
 
-        <!-- Signal Preprocessing Parameters -->
+        <!-- GSR Signal Filtering -->
         <section class="control-card">
-          <h2><i class="fa-solid fa-sliders"></i> Noise Filtering</h2>
+          <h2><i class="fa-solid fa-wave-square"></i> GSR Signal Filtering</h2>
+
+          <div class="control-subgroup-title">Noise Filtering</div>
           
           <div class="slider-group">
             <div class="slider-label">
@@ -89,11 +91,8 @@
             <input type="range" id="lpfWindow" min="0" max="4" step="0.1" value="0.8">
             <p class="help-text">Filters high-frequency electrical fuzz.</p>
           </div>
-        </section>
 
-        <!-- Decomposition Parameters -->
-        <section class="control-card">
-          <h2><i class="fa-solid fa-scissors"></i> Tonic/Phasic Split</h2>
+          <div class="control-subgroup-title">Tonic/Phasic Split</div>
 
           <div class="slider-group">
             <div class="slider-label">
@@ -114,11 +113,8 @@
             <input type="range" id="tonicWindow" min="5" max="45" step="1" value="15">
             <p class="help-text">Wider windows isolate baseline from peaks.</p>
           </div>
-        </section>
 
-        <!-- Peak Detection Settings -->
-        <section class="control-card">
-          <h2><i class="fa-solid fa-bolt"></i> Peak Detection (SCR)</h2>
+          <div class="control-subgroup-title">Peak Detection (SCR)</div>
 
           <div class="slider-group">
             <div class="slider-label">
@@ -127,6 +123,123 @@
             </div>
             <input type="range" id="peakThreshold" min="0.005" max="0.100" step="0.005" value="0.020">
             <p class="help-text">Threshold for Skin Conductance Responses.</p>
+          </div>
+        </section>
+
+        <!-- GPS Map Filtering -->
+        <section class="control-card">
+          <h2><i class="fa-solid fa-satellite-dish"></i> GPS Map Filtering</h2>
+
+          <div class="control-subgroup-title">Outlier Rejection</div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Min. Satellites</span>
+              <span class="slider-value" id="valGpsMinSats">0</span>
+            </div>
+            <input type="range" id="gpsMinSats" min="0" max="12" step="1" value="0">
+            <p class="help-text">Hide points with fewer satellites (quality gate).</p>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Max Speed Filter</span>
+              <span class="slider-value" id="valGpsMaxSpeed">5 m/s</span>
+            </div>
+            <input type="range" id="gpsMaxSpeed" min="0" max="15" step="1" value="5">
+            <p class="help-text">Rejects points with physically impossible speeds (>5 m/s = walking limit).</p>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Hampel Window</span>
+              <span class="slider-value" id="valGpsHampelWindow">3 s</span>
+            </div>
+            <input type="range" id="gpsHampelWindow" min="0" max="10" step="1" value="3">
+            <p class="help-text">Sliding window half-size in seconds for spike detection.</p>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Hampel Sigma</span>
+              <span class="slider-value" id="valGpsHampelSigma">3.0</span>
+            </div>
+            <input type="range" id="gpsHampelSigma" min="1.5" max="5.0" step="0.5" value="3.0">
+            <p class="help-text">Sigma threshold for outlier classification (lower = stricter).</p>
+          </div>
+
+          <div class="control-subgroup-title">Smoothing & Clustering</div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>DBSCAN Stop Radius</span>
+              <span class="slider-value" id="valGpsDBSCANRadius">10 m</span>
+            </div>
+            <input type="range" id="gpsDBSCANRadius" min="0" max="30" step="2" value="10">
+            <p class="help-text">Radius to group stationary points and remove wander noise.</p>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>DBSCAN Min Duration</span>
+              <span class="slider-value" id="valGpsDBSCANMinPts">4 s</span>
+            </div>
+            <input type="range" id="gpsDBSCANMinPts" min="2" max="15" step="1" value="4">
+            <p class="help-text">Minimum duration in seconds to qualify as a stationary stop.</p>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Kalman Smoother R</span>
+              <span class="slider-value" id="valGpsKalmanR">25 m²</span>
+            </div>
+            <input type="range" id="gpsKalmanR" min="0" max="50" step="0.5" value="25">
+            <p class="help-text">Measurement noise covariance (larger = smoother path).</p>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Kalman Smoother Q</span>
+              <span class="slider-value" id="valGpsKalmanQ">1e-4</span>
+            </div>
+            <input type="range" id="gpsKalmanQ" min="2" max="6" step="1" value="4">
+            <p class="help-text">Process noise covariance 10^-Q (smaller = smoother, larger = responsive).</p>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>RDP Simplification</span>
+              <span class="slider-value" id="valGpsRDP">5 m</span>
+            </div>
+            <input type="range" id="gpsRDP" min="0" max="20" step="1" value="5">
+            <p class="help-text">Ramer-Douglas-Peucker tolerance (larger = fewer segments).</p>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Min. Move Distance</span>
+              <span class="slider-value" id="valGpsMinDist">0 m</span>
+            </div>
+            <input type="range" id="gpsMinDist" min="0" max="20" step="1" value="0">
+            <p class="help-text">Skip points closer than this to the previous one.</p>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Downsample Path</span>
+              <span class="slider-value" id="valGpsDownsample">1 Hz</span>
+            </div>
+            <input type="range" id="gpsDownsample" min="0" max="1" step="1" value="1">
+            <p class="help-text">Downsample path to 1 Hz to prevent browser lag (0 = off, 1 = 1 Hz).</p>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Track Width</span>
+              <span class="slider-value" id="valGpsTrackWeight">5 px</span>
+            </div>
+            <input type="range" id="gpsTrackWeight" min="1" max="14" step="1" value="5">
+            <p class="help-text">Thickness of the drawn GPS path on the map.</p>
           </div>
         </section>
 

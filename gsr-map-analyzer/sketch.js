@@ -60,6 +60,10 @@ function setup() {
   // Cache DOM elements
   cacheDOMElements();
 
+  // Load saved settings & update labels
+  loadSettings();
+  initializeLabels();
+
   // Setup UI Event Listeners
   setupEventListeners();
 
@@ -89,6 +93,20 @@ function cacheDOMElements() {
   statFields.meanSCL = document.getElementById('statMeanSCL');
   statFields.peakCount = document.getElementById('statPeakCount');
   statFields.peakFreq = document.getElementById('statPeakFreq');
+
+  // GPS filter sliders
+  sliders.gpsMinSats      = document.getElementById('gpsMinSats');
+  sliders.gpsMaxSpeed     = document.getElementById('gpsMaxSpeed');
+  sliders.gpsHampelWindow = document.getElementById('gpsHampelWindow');
+  sliders.gpsHampelSigma  = document.getElementById('gpsHampelSigma');
+  sliders.gpsDBSCANRadius = document.getElementById('gpsDBSCANRadius');
+  sliders.gpsDBSCANMinPts = document.getElementById('gpsDBSCANMinPts');
+  sliders.gpsKalmanR      = document.getElementById('gpsKalmanR');
+  sliders.gpsKalmanQ      = document.getElementById('gpsKalmanQ');
+  sliders.gpsRDP          = document.getElementById('gpsRDP');
+  sliders.gpsMinDist      = document.getElementById('gpsMinDist');
+  sliders.gpsDownsample   = document.getElementById('gpsDownsample');
+  sliders.gpsTrackWeight  = document.getElementById('gpsTrackWeight');
 }
 
 function setupEventListeners() {
@@ -99,6 +117,7 @@ function setupEventListeners() {
     slider.addEventListener('input', () => {
       label.innerText = parseFloat(slider.value).toFixed(suffix.includes('μS') ? 3 : 1) + suffix;
       runAnalysis();
+      saveSettings();
     });
   };
 
@@ -107,7 +126,10 @@ function setupEventListeners() {
   bindSlider('tonicWindow', 'valTonicWindow', ' s');
   bindSlider('peakThreshold', 'valPeakThreshold', ' μS');
 
-  sliders.tonicMethod.addEventListener('change', runAnalysis);
+  sliders.tonicMethod.addEventListener('change', () => {
+    runAnalysis();
+    saveSettings();
+  });
 
   // File Upload Handlers
   fileInput.addEventListener('change', handleFileSelect);
@@ -179,6 +201,29 @@ function setupEventListeners() {
 
   // Demo loader buttons
   document.getElementById('loadDemoBtn').addEventListener('click', loadDemoData);
+
+  const bindGpsSlider = (id, labelId, fmt) => {
+    const slider = document.getElementById(id);
+    const label  = document.getElementById(labelId);
+    slider.addEventListener('input', () => {
+      label.innerText = fmt(parseFloat(slider.value));
+      rerenderMap();
+      saveSettings();
+    });
+  };
+
+  bindGpsSlider('gpsMinSats',      'valGpsMinSats',      v => v === 0 ? 'off' : `≥ ${v}`);
+  bindGpsSlider('gpsMaxSpeed',     'valGpsMaxSpeed',     v => v === 0 ? 'off' : `${v} m/s`);
+  bindGpsSlider('gpsHampelWindow', 'valGpsHampelWindow', v => v === 0 ? 'off' : `${v} s`);
+  bindGpsSlider('gpsHampelSigma',  'valGpsHampelSigma',  v => v.toFixed(1));
+  bindGpsSlider('gpsDBSCANRadius', 'valGpsDBSCANRadius', v => v === 0 ? 'off' : `${v} m`);
+  bindGpsSlider('gpsDBSCANMinPts', 'valGpsDBSCANMinPts', v => `${v} s`);
+  bindGpsSlider('gpsKalmanR',      'valGpsKalmanR',      v => v === 0 ? 'off' : `${v} m²`);
+  bindGpsSlider('gpsKalmanQ',      'valGpsKalmanQ',      v => `1e-${v}`);
+  bindGpsSlider('gpsRDP',          'valGpsRDP',          v => v === 0 ? 'off' : `${v} m`);
+  bindGpsSlider('gpsMinDist',      'valGpsMinDist',      v => v === 0 ? 'off' : `${v} m`);
+  bindGpsSlider('gpsDownsample',   'valGpsDownsample',   v => v === 0 ? 'off' : '1 Hz');
+  bindGpsSlider('gpsTrackWeight',  'valGpsTrackWeight',  v => `${v} px`);
 
   // ── Sidebar Collapse Toggle ──────────────────────────────────────────────
   const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
@@ -1053,6 +1098,35 @@ function clearFile() {
 }
 
 /**
+ * Read GPS filter slider values into a params object.
+ */
+function getGpsParams() {
+  return {
+    minSats:      parseInt(sliders.gpsMinSats.value),
+    maxSpeed:     parseFloat(sliders.gpsMaxSpeed.value),
+    hampelWindow: parseInt(sliders.gpsHampelWindow.value),
+    hampelSigma:  parseFloat(sliders.gpsHampelSigma.value),
+    dbscanRadius: parseFloat(sliders.gpsDBSCANRadius.value),
+    dbscanMinPts: parseInt(sliders.gpsDBSCANMinPts.value),
+    kalmanR:      parseFloat(sliders.gpsKalmanR.value),
+    kalmanQ:      Math.pow(10, -parseFloat(sliders.gpsKalmanQ.value)),
+    rdpTolerance: parseFloat(sliders.gpsRDP.value),
+    minDist:      parseFloat(sliders.gpsMinDist.value),
+    downsample:   parseInt(sliders.gpsDownsample.value) === 1,
+    trackWeight:  parseInt(sliders.gpsTrackWeight.value)
+  };
+}
+
+/**
+ * Re-render only the map with current GPS filter settings, without
+ * re-running the full signal analysis pipeline. Called by GPS sliders.
+ */
+function rerenderMap() {
+  if (!mapManager || analyzer.raw.length === 0) return;
+  mapManager.renderData(analyzer, getGpsParams());
+}
+
+/**
  * Gather parameters from sliders and run analytical calculations
  */
 function runAnalysis() {
@@ -1070,9 +1144,9 @@ function runAnalysis() {
     // Run core mathematics
     analyzer.analyze(params);
 
-    // Update Geographical Map
+    // Update Geographical Map (with GPS filter params)
     if (mapManager) {
-      mapManager.renderData(analyzer);
+      mapManager.renderData(analyzer, getGpsParams());
     }
 
     // Update UI Panels
@@ -1309,4 +1383,110 @@ function randomGaussian(mean = 0, stdDev = 1) {
   
   let randStdNormal = Math.sqrt(-2.0 * Math.log(u1)) * Math.sin(2.0 * Math.PI * u2);
   return mean + stdDev * randStdNormal;
+}
+
+/**
+ * Save user filter settings to localStorage.
+ */
+function saveSettings() {
+  const settings = {
+    // GSR Settings
+    medianSize: parseFloat(sliders.medianSize.value),
+    lpfWindow: parseFloat(sliders.lpfWindow.value),
+    tonicMethod: sliders.tonicMethod.value,
+    tonicWindow: parseInt(sliders.tonicWindow.value),
+    peakThreshold: parseFloat(sliders.peakThreshold.value),
+
+    // GPS Settings
+    gpsMinSats: parseInt(sliders.gpsMinSats.value),
+    gpsMaxSpeed: parseFloat(sliders.gpsMaxSpeed.value),
+    gpsHampelWindow: parseInt(sliders.gpsHampelWindow.value),
+    gpsHampelSigma: parseFloat(sliders.gpsHampelSigma.value),
+    gpsDBSCANRadius: parseFloat(sliders.gpsDBSCANRadius.value),
+    gpsDBSCANMinPts: parseInt(sliders.gpsDBSCANMinPts.value),
+    gpsKalmanR: parseFloat(sliders.gpsKalmanR.value),
+    gpsKalmanQ: parseFloat(sliders.gpsKalmanQ.value),
+    gpsRDP: parseFloat(sliders.gpsRDP.value),
+    gpsMinDist: parseFloat(sliders.gpsMinDist.value),
+    gpsDownsample: parseInt(sliders.gpsDownsample.value),
+    gpsTrackWeight: parseInt(sliders.gpsTrackWeight.value)
+  };
+  localStorage.setItem('bioMappingSettings', JSON.stringify(settings));
+}
+
+/**
+ * Load user filter settings from localStorage.
+ */
+function loadSettings() {
+  const saved = localStorage.getItem('bioMappingSettings');
+  if (!saved) return;
+  try {
+    const settings = JSON.parse(saved);
+    
+    // GSR Settings
+    if (settings.medianSize !== undefined) sliders.medianSize.value = settings.medianSize;
+    if (settings.lpfWindow !== undefined) sliders.lpfWindow.value = settings.lpfWindow;
+    if (settings.tonicMethod !== undefined) sliders.tonicMethod.value = settings.tonicMethod;
+    if (settings.tonicWindow !== undefined) sliders.tonicWindow.value = settings.tonicWindow;
+    if (settings.peakThreshold !== undefined) sliders.peakThreshold.value = settings.peakThreshold;
+
+    // GPS Settings
+    if (settings.gpsMinSats !== undefined) sliders.gpsMinSats.value = settings.gpsMinSats;
+    if (settings.gpsMaxSpeed !== undefined) sliders.gpsMaxSpeed.value = settings.gpsMaxSpeed;
+    if (settings.gpsHampelWindow !== undefined) sliders.gpsHampelWindow.value = settings.gpsHampelWindow;
+    if (settings.gpsHampelSigma !== undefined) sliders.gpsHampelSigma.value = settings.gpsHampelSigma;
+    if (settings.gpsDBSCANRadius !== undefined) sliders.gpsDBSCANRadius.value = settings.gpsDBSCANRadius;
+    if (settings.gpsDBSCANMinPts !== undefined) sliders.gpsDBSCANMinPts.value = settings.gpsDBSCANMinPts;
+    if (settings.gpsKalmanR !== undefined) sliders.gpsKalmanR.value = settings.gpsKalmanR;
+    if (settings.gpsKalmanQ !== undefined) sliders.gpsKalmanQ.value = settings.gpsKalmanQ;
+    if (settings.gpsRDP !== undefined) sliders.gpsRDP.value = settings.gpsRDP;
+    if (settings.gpsMinDist !== undefined) sliders.gpsMinDist.value = settings.gpsMinDist;
+    if (settings.gpsDownsample !== undefined) sliders.gpsDownsample.value = settings.gpsDownsample;
+    if (settings.gpsTrackWeight !== undefined) sliders.gpsTrackWeight.value = settings.gpsTrackWeight;
+  } catch (err) {
+    console.error("Error loading settings from localStorage:", err);
+  }
+}
+
+/**
+ * Initialize control labels to match the current slider values.
+ */
+function initializeLabels() {
+  // GSR Labels
+  const updateGsrLabel = (id, labelId, suffix) => {
+    const slider = document.getElementById(id);
+    const label = document.getElementById(labelId);
+    if (slider && label) {
+      label.innerText = parseFloat(slider.value).toFixed(suffix.includes('μS') ? 3 : 1) + suffix;
+    }
+  };
+  updateGsrLabel('medianSize', 'valMedianSize', ' s');
+  updateGsrLabel('lpfWindow', 'valLpfWindow', ' s');
+  updateGsrLabel('tonicWindow', 'valTonicWindow', ' s');
+  updateGsrLabel('peakThreshold', 'valPeakThreshold', ' μS');
+
+  // GPS Labels
+  const gpsFormatters = {
+    gpsMinSats:      v => v === 0 ? 'off' : `≥ ${v}`,
+    gpsMaxSpeed:     v => v === 0 ? 'off' : `${v} m/s`,
+    gpsHampelWindow: v => v === 0 ? 'off' : `${v} s`,
+    gpsHampelSigma:  v => v.toFixed(1),
+    gpsDBSCANRadius: v => v === 0 ? 'off' : `${v} m`,
+    gpsDBSCANMinPts: v => `${v} s`,
+    gpsKalmanR:      v => v === 0 ? 'off' : `${v} m²`,
+    gpsKalmanQ:      v => `1e-${v}`,
+    gpsRDP:          v => v === 0 ? 'off' : `${v} m`,
+    gpsMinDist:      v => v === 0 ? 'off' : `${v} m`,
+    gpsDownsample:   v => v === 0 ? 'off' : '1 Hz',
+    gpsTrackWeight:  v => `${v} px`
+  };
+
+  for (const [id, fmt] of Object.entries(gpsFormatters)) {
+    const slider = document.getElementById(id);
+    const labelId = 'val' + id.charAt(0).toUpperCase() + id.slice(1);
+    const label = document.getElementById(labelId);
+    if (slider && label) {
+      label.innerText = fmt(parseFloat(slider.value));
+    }
+  }
 }

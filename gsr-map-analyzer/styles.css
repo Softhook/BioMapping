@@ -975,3 +975,17 @@ input[type="range"]::-webkit-slider-thumb:hover {
   70%  { opacity: 1; }
   100% { opacity: 0; }
 }
+
+.control-subgroup-title {
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--accent-primary);
+  margin-top: 20px;
+  margin-bottom: 12px;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
