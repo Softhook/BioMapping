@@ -236,8 +236,8 @@ function setupEventListeners() {
   bindCollapseButton('btnContourCollapse',       'contourSettingsCard');
 
   // GSR + Map panels need extra resize after collapse (single listener each)
-  setupCollapseWithResize('btnGsrCollapse', 'gsrPanel', function() { windowResized(); });
-  setupCollapseWithResize('btnMapCollapse', 'mapPanel', function() {
+  setupCollapseWithResize('btnGsrCollapse', 'gsrPanel', () => { windowResized(); });
+  setupCollapseWithResize('btnMapCollapse', 'mapPanel', () => {
     if (AppState.mapManager && AppState.mapManager.map) {
       AppState.mapManager.map.invalidateSize();
     }

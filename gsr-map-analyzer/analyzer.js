@@ -42,7 +42,7 @@ class GSRAnalyzer {
     let fixColIndex = -1;
 
     // Time column keyword search
-    const timeKeywords = ['time', 'sec', 't', 'timestamp', 'millis', 'ms'];
+    const timeKeywords = GSR_CONST.TIME_KEYWORDS;
     for (let i = 0; i < headers.length; i++) {
       if (timeKeywords.some(kw => headers[i].includes(kw))) {
         timeColIndex = i;
@@ -51,7 +51,7 @@ class GSRAnalyzer {
     }
 
     // GSR column keyword search
-    const gsrKeywords = ['gsr', 'eda', 'conductance', 'resistance', 'res', 'us', 'raw', 'micro', 'ohms', 'val'];
+    const gsrKeywords = GSR_CONST.GSR_KEYWORDS;
     for (let i = 0; i < headers.length; i++) {
       if (i === timeColIndex) continue;
       if (gsrKeywords.some(kw => headers[i].includes(kw))) {
@@ -177,12 +177,12 @@ class GSRAnalyzer {
     const gsrHeader = headers[gsrColIndex] || "";
     const isResistanceHeader = gsrHeader.includes('resistance') || gsrHeader.includes('ohms');
     
-    if (isResistanceHeader || avgVal > 50000) {
+    if (isResistanceHeader || avgVal > GSR_CONST.RESISTANCE_MIN_AVG) {
       this.isResistance = true;
       rawDataList.forEach(d => {
         d.val = d.val > 0 ? (1000000.0 / d.val) : 0;
       });
-    } else if (avgVal > 100 && avgVal <= 50000) {
+    } else if (avgVal > GSR_CONST.MICROSIEMENS_MIN_AVG && avgVal <= GSR_CONST.MICROSIEMENS_MAX_AVG) {
       rawDataList.forEach(d => {
         d.val = d.val / 1000.0;
       });
@@ -263,7 +263,6 @@ class GSRAnalyzer {
     if (this.raw.length === 0) return;
 
     const n = this.raw.length;
-    const dt = 1.0 / this.sampleRate;
 
     // 1. Noise Median Filtering
     const medWindowSize = Math.max(1, Math.round(params.medianSize * this.sampleRate));
@@ -325,7 +324,7 @@ class GSRAnalyzer {
 
           const amplitude = curr - phasicVals[onsetIdx];
           
-          if (amplitude >= threshold * 0.5) {
+          if (amplitude >= threshold * GSR_CONST.PEAK_AMPLITUDE_FACTOR) {
             let halfDecayVal = phasicVals[onsetIdx] + amplitude * 0.5;
             let recoveryIdx = -1;
             for (let j = i + 1; j < n; j++) {
@@ -333,7 +332,7 @@ class GSRAnalyzer {
                 recoveryIdx = j;
                 break;
               }
-              if (j < n - 1 && phasicVals[j] < phasicVals[j + 1] && phasicVals[j] > halfDecayVal + 0.1) {
+              if (j < n - 1 && phasicVals[j] < phasicVals[j + 1] && phasicVals[j] > halfDecayVal + GSR_CONST.PEAK_RECOVERY_BREAK) {
                 break;
               }
             }
@@ -355,7 +354,7 @@ class GSRAnalyzer {
               recoveryTime: recoveryTime
             });
 
-            i = Math.min(n - 2, i + Math.round(1.0 * this.sampleRate));
+            i = Math.min(n - 2, i + Math.round(GSR_CONST.PEAK_MIN_GAP * this.sampleRate));
           }
         }
       }
@@ -395,6 +394,11 @@ class GSRAnalyzer {
 
   exportToCSV() {
     if (this.raw.length === 0) return "";
+
+    // Guard: if analysis hasn't been run, filtered/tonic/phasic are empty
+    if (this.filtered.length === 0 || this.tonic.length === 0 || this.phasic.length === 0) {
+      return "";
+    }
 
     const hasFilteredGps = this.filteredGps && this.filteredGps.length === this.raw.length;
 

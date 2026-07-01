@@ -3,19 +3,19 @@
  * All shared state is accessed through AppState.
  */
 
-var M = GSR_CONST.MARGIN;  // from constants.js
+// M is a global shorthand declared in constants.js (GSR_CONST.MARGIN)
 
 function setup() {
   AppState.collectiveManager = new GSRCollectiveManager();
   AppState.analyzer = new GSRAnalyzer();
   AppState.mapManager = new GSRMapManager('map');
 
-  var container = document.getElementById('canvasContainer');
-  var w = container.clientWidth;
-  var h = container.clientHeight || 450;
+  const container = document.getElementById('canvasContainer');
+  const w = container.clientWidth;
+  const h = container.clientHeight || 450;
   AppState.myCanvas = createCanvas(w, h);
   AppState.myCanvas.parent('canvasContainer');
-  AppState.myCanvas.elt.oncontextmenu = function(e) { e.preventDefault(); };
+  AppState.myCanvas.elt.oncontextmenu = (e) => { e.preventDefault(); };
 
   cacheDOMElements();
   loadSettings();
@@ -27,9 +27,9 @@ function setup() {
 }
 
 function windowResized() {
-  var container = document.getElementById('canvasContainer');
-  var w = container.clientWidth;
-  var h = container.clientHeight || 450;
+  const container = document.getElementById('canvasContainer');
+  const w = container.clientWidth;
+  const h = container.clientHeight || 450;
   resizeCanvas(w, h);
   redraw();
 }
@@ -42,33 +42,33 @@ function draw() {
 
   background(9, 13, 22);
 
-  var innerWidth = width - M.left - M.right;
-  var timelineHeight = GSR_CONST.TIMELINE_HEIGHT;
-  var timelineGap = GSR_CONST.TIMELINE_GAP;
-  var totalHeight = height - M.top - M.bottom - M.gap - timelineHeight - timelineGap;
-  var hUpper = totalHeight * GSR_CONST.GRAPH_UPPER_RATIO;
-  var hLower = totalHeight * GSR_CONST.GRAPH_LOWER_RATIO;
+  const innerWidth = width - M.left - M.right;
+  const timelineHeight = GSR_CONST.TIMELINE_HEIGHT;
+  const timelineGap = GSR_CONST.TIMELINE_GAP;
+  const totalHeight = height - M.top - M.bottom - M.gap - timelineHeight - timelineGap;
+  const hUpper = totalHeight * GSR_CONST.GRAPH_UPPER_RATIO;
+  const hLower = totalHeight * GSR_CONST.GRAPH_LOWER_RATIO;
 
-  var yUpperBottom = M.top + hUpper;
-  var yLowerTop = yUpperBottom + M.gap;
-  var yLowerBottom = yLowerTop + hLower;
+  const yUpperBottom = M.top + hUpper;
+  const yLowerTop = yUpperBottom + M.gap;
+  const yLowerBottom = yLowerTop + hLower;
 
   AppState.yTimelineTop = yLowerBottom + timelineGap;
   AppState.yTimelineBottom = AppState.yTimelineTop + timelineHeight;
   AppState.yGraphBottom = yLowerBottom;
 
-  var viewEndTime = AppState.viewStartTime + AppState.viewDuration;
+  const viewEndTime = AppState.viewStartTime + AppState.viewDuration;
 
-  var startIdx = findClosestIndex(AppState.viewStartTime);
-  var endIdx   = findClosestIndex(viewEndTime);
-  var idxStart = Math.max(0, startIdx - 1);
-  var idxEnd   = Math.min(AppState.analyzer.raw.length - 1, endIdx + 1);
+  const startIdx = findClosestIndex(AppState.viewStartTime);
+  const endIdx   = findClosestIndex(viewEndTime);
+  const idxStart = Math.max(0, startIdx - 1);
+  const idxEnd   = Math.min(AppState.analyzer.raw.length - 1, endIdx + 1);
 
   // Y-scaling for Upper Graph
-  var yMinUpper = Infinity;
-  var yMaxUpper = -Infinity;
+  let yMinUpper = Infinity;
+  let yMaxUpper = -Infinity;
 
-  for (var i = idxStart; i <= idxEnd; i++) {
+  for (let i = idxStart; i <= idxEnd; i++) {
     if (AppState.showRaw && AppState.analyzer.raw[i]) {
       yMinUpper = Math.min(yMinUpper, AppState.analyzer.raw[i].val);
       yMaxUpper = Math.max(yMaxUpper, AppState.analyzer.raw[i].val);
@@ -86,22 +86,22 @@ function draw() {
   if (yMinUpper === Infinity) yMinUpper = 0;
   if (yMaxUpper === -Infinity) yMaxUpper = 10;
 
-  var paddingUpper = (yMaxUpper - yMinUpper) * 0.1;
+  let paddingUpper = (yMaxUpper - yMinUpper) * 0.1;
   if (paddingUpper === 0) paddingUpper = 0.5;
   yMinUpper = Math.max(0, yMinUpper - paddingUpper);
   yMaxUpper = yMaxUpper + paddingUpper;
 
   // Y-scaling for Lower Graph (Phasic)
-  var yMaxLower = -Infinity;
-  for (var i = idxStart; i <= idxEnd; i++) {
+  let yMaxLower = -Infinity;
+  for (let i = idxStart; i <= idxEnd; i++) {
     if (AppState.analyzer.phasic[i]) {
       yMaxLower = Math.max(yMaxLower, AppState.analyzer.phasic[i].val);
     }
   }
   if (yMaxLower <= 0) yMaxLower = parseFloat(AppState.sliders.peakThreshold.value) * 2;
-  var paddingLower = yMaxLower * 0.15;
+  const paddingLower = yMaxLower * 0.15;
   yMaxLower = yMaxLower + paddingLower;
-  var yMinLower = 0;
+  const yMinLower = 0;
 
   // 1. Grids and Axes
   drawGridX(AppState.viewStartTime, viewEndTime, yUpperBottom, yLowerBottom);
@@ -124,8 +124,8 @@ function draw() {
   drawSignalCurve(AppState.analyzer.phasic, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom, color(16, 185, 129), 2);
 
   // Threshold line on Phasic graph
-  var thresholdVal = parseFloat(AppState.sliders.peakThreshold.value);
-  var thresholdY = map(thresholdVal, yMinLower, yMaxLower, yLowerBottom, yLowerTop);
+  const thresholdVal = parseFloat(AppState.sliders.peakThreshold.value);
+  const thresholdY = map(thresholdVal, yMinLower, yMaxLower, yLowerBottom, yLowerTop);
   stroke(244, 63, 94, 120);
   strokeWeight(1);
   drawingContext.setLineDash([5, 5]);
@@ -155,11 +155,11 @@ function draw() {
     stroke(148, 163, 184, 45);
     strokeWeight(1.2);
 
-    var minRaw = Infinity;
-    var maxRaw = -Infinity;
+    let minRaw = Infinity;
+    let maxRaw = -Infinity;
     if (!AppState.analyzer.rawMinMaxCached) {
-      for (var i = 0; i < AppState.analyzer.raw.length; i++) {
-        var val = AppState.analyzer.raw[i].val;
+      for (let i = 0; i < AppState.analyzer.raw.length; i++) {
+        const val = AppState.analyzer.raw[i].val;
         if (val < minRaw) minRaw = val;
         if (val > maxRaw) maxRaw = val;
       }
@@ -172,11 +172,11 @@ function draw() {
     if (minRaw === maxRaw) maxRaw = minRaw + 0.5;
 
     beginShape();
-    var timelineStep = Math.max(1, Math.floor(AppState.analyzer.raw.length / 300));
-    for (var i = 0; i < AppState.analyzer.raw.length; i += timelineStep) {
-      var d = AppState.analyzer.raw[i];
-      var xt = map(d.time, 0, AppState.totalDuration, M.left, width - M.right);
-      var yt = map(d.val, minRaw, maxRaw, AppState.yTimelineBottom - 3, AppState.yTimelineTop + 3);
+    const timelineStep = Math.max(1, Math.floor(AppState.analyzer.raw.length / 300));
+    for (let i = 0; i < AppState.analyzer.raw.length; i += timelineStep) {
+      const d = AppState.analyzer.raw[i];
+      const xt = map(d.time, 0, AppState.totalDuration, M.left, width - M.right);
+      const yt = map(d.val, minRaw, maxRaw, AppState.yTimelineBottom - 3, AppState.yTimelineTop + 3);
       vertex(xt, yt);
     }
     endShape();
@@ -184,14 +184,14 @@ function draw() {
     if (AppState.showPeaks && AppState.analyzer.peaks) {
       fill(244, 63, 94, 180);
       noStroke();
-      AppState.analyzer.peaks.forEach(function(pk) {
-        var xp = map(pk.time, 0, AppState.totalDuration, M.left, width - M.right);
+      AppState.analyzer.peaks.forEach(pk => {
+        const xp = map(pk.time, 0, AppState.totalDuration, M.left, width - M.right);
         rect(xp - 0.5, AppState.yTimelineTop + 2, 1.5, timelineHeight - 4);
       });
     }
 
-    var xViewStart = map(AppState.viewStartTime, 0, AppState.totalDuration, M.left, width - M.right);
-    var xViewEnd   = map(AppState.viewStartTime + AppState.viewDuration, 0, AppState.totalDuration, M.left, width - M.right);
+    const xViewStart = map(AppState.viewStartTime, 0, AppState.totalDuration, M.left, width - M.right);
+    const xViewEnd   = map(AppState.viewStartTime + AppState.viewDuration, 0, AppState.totalDuration, M.left, width - M.right);
 
     fill(14, 165, 233, 25);
     stroke(14, 165, 233, 140);
@@ -202,16 +202,16 @@ function draw() {
 
 function findClosestIndex(targetTime) {
   if (!AppState.analyzer || !AppState.analyzer.raw || AppState.analyzer.raw.length === 0) return -1;
-  var data = AppState.analyzer.raw;
-  var low = 0;
-  var high = data.length - 1;
+  const data = AppState.analyzer.raw;
+  let low = 0;
+  let high = data.length - 1;
 
   if (targetTime <= data[low].time) return low;
   if (targetTime >= data[high].time) return high;
 
   while (low <= high) {
-    var mid = Math.floor((low + high) / 2);
-    var midTime = data[mid].time;
+    const mid = Math.floor((low + high) / 2);
+    const midTime = data[mid].time;
 
     if (midTime === targetTime) return mid;
 
@@ -236,9 +236,9 @@ function mousePressed() {
   if (mouseX >= M.left && mouseX <= width - M.right &&
       mouseY >= AppState.yTimelineTop && mouseY <= AppState.yTimelineBottom) {
     AppState.isDraggingTimeline = true;
-    var clickTime = map(mouseX, M.left, width - M.right, 0, AppState.totalDuration);
+    const clickTime = map(mouseX, M.left, width - M.right, 0, AppState.totalDuration);
     AppState.viewStartTime = constrain(clickTime - AppState.viewDuration / 2, 0, Math.max(0, AppState.totalDuration - AppState.viewDuration));
-    var select = document.getElementById('timeWindowSelect');
+    const select = document.getElementById('timeWindowSelect');
     if (select) select.value = 'custom';
     redraw();
   }
@@ -252,14 +252,14 @@ function mousePressed() {
 
 function mouseDragged() {
   if (AppState.isDraggingTimeline && AppState.analyzer.raw.length > 0) {
-    var dragTime = map(mouseX, M.left, width - M.right, 0, AppState.totalDuration);
+    const dragTime = map(mouseX, M.left, width - M.right, 0, AppState.totalDuration);
     AppState.viewStartTime = constrain(dragTime - AppState.viewDuration / 2, 0, Math.max(0, AppState.totalDuration - AppState.viewDuration));
     redraw();
   }
   else if (AppState.isDragging && AppState.analyzer.raw.length > 0) {
-    var mouseDx = mouseX - AppState.dragStartMouseX;
-    var timePerPixel = AppState.viewDuration / (width - M.left - M.right);
-    var timeShift = mouseDx * timePerPixel;
+    const mouseDx = mouseX - AppState.dragStartMouseX;
+    const timePerPixel = AppState.viewDuration / (width - M.left - M.right);
+    const timeShift = mouseDx * timePerPixel;
 
     AppState.viewStartTime = AppState.dragStartViewStart - timeShift;
     AppState.viewStartTime = constrain(AppState.viewStartTime, 0, Math.max(0, AppState.totalDuration - AppState.viewDuration));
@@ -278,8 +278,8 @@ function mouseWheel(event) {
 
     if (AppState.analyzer.raw.length === 0) return false;
 
-    var mouseTime = map(mouseX, M.left, width - M.right, AppState.viewStartTime, AppState.viewStartTime + AppState.viewDuration);
-    var zoomMultiplier = event.delta < 0 ? 0.85 : 1.15;
+    const mouseTime = map(mouseX, M.left, width - M.right, AppState.viewStartTime, AppState.viewStartTime + AppState.viewDuration);
+    const zoomMultiplier = event.delta < 0 ? 0.85 : 1.15;
 
     AppState.viewDuration = constrain(AppState.viewDuration * zoomMultiplier, 2.0, AppState.totalDuration);
     AppState.zoomFactor = AppState.totalDuration / AppState.viewDuration;
@@ -287,7 +287,7 @@ function mouseWheel(event) {
     AppState.viewStartTime = mouseTime - (mouseX - M.left) * (AppState.viewDuration / (width - M.left - M.right));
     AppState.viewStartTime = constrain(AppState.viewStartTime, 0, Math.max(0, AppState.totalDuration - AppState.viewDuration));
 
-    var select = document.getElementById('timeWindowSelect');
+    const select = document.getElementById('timeWindowSelect');
     if (select) select.value = 'custom';
 
     redraw();
@@ -298,7 +298,7 @@ function mouseWheel(event) {
 function zoomCanvas(multiplier) {
   if (AppState.analyzer.raw.length === 0) return;
 
-  var centerTime = AppState.viewStartTime + AppState.viewDuration / 2;
+  const centerTime = AppState.viewStartTime + AppState.viewDuration / 2;
 
   AppState.viewDuration = constrain(AppState.viewDuration / multiplier, 2.0, AppState.totalDuration);
   AppState.zoomFactor = AppState.totalDuration / AppState.viewDuration;
@@ -306,7 +306,7 @@ function zoomCanvas(multiplier) {
   AppState.viewStartTime = centerTime - AppState.viewDuration / 2;
   AppState.viewStartTime = constrain(AppState.viewStartTime, 0, Math.max(0, AppState.totalDuration - AppState.viewDuration));
 
-  var select = document.getElementById('timeWindowSelect');
+  const select = document.getElementById('timeWindowSelect');
   if (select) select.value = 'custom';
 
   redraw();
@@ -319,10 +319,10 @@ function resetView() {
   AppState.zoomFactor = 1.0;
   AppState.activePeakIndex = -1;
 
-  var select = document.getElementById('timeWindowSelect');
+  const select = document.getElementById('timeWindowSelect');
   if (select) select.value = 'fit';
 
-  document.querySelectorAll('#peaksTable tbody tr').forEach(function(r) { r.classList.remove('active-row'); });
+  document.querySelectorAll('#peaksTable tbody tr').forEach(r => { r.classList.remove('active-row'); });
 
   redraw();
 }

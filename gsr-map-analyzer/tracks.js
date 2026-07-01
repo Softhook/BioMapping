@@ -28,13 +28,16 @@ function loadFilesSequentially(files) {
         const trackId = 'track_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
         const trackColor = AppState.getNextTrackColor();
 
+        // Inherit current slider values so new track starts with the same active settings
+        const S = AppState.sliders;
         const filterParams = {
-          medianSize: 1.0,
-          lpfWindow: 0.8,
-          tonicMethod: 'percentile',
-          tonicWindow: 15,
-          peakThreshold: 0.020
+          medianSize:    parseFloat(S.medianSize.value),
+          lpfWindow:     parseFloat(S.lpfWindow.value),
+          tonicMethod:   S.tonicMethod.value,
+          tonicWindow:   parseInt(S.tonicWindow.value),
+          peakThreshold: parseFloat(S.peakThreshold.value)
         };
+        const gpsFilterParams = readGpsSliderValues();
 
         const newTrack = {
           id: trackId,
@@ -42,11 +45,11 @@ function loadFilesSequentially(files) {
           color: trackColor,
           enabled: true,
           analyzer: tempAnalyzer,
-          filterParams: filterParams
+          filterParams: filterParams,
+          gpsFilterParams: gpsFilterParams
         };
 
         AppState.collectiveManager.addTrack(newTrack);
-        tempAnalyzer.analyze(filterParams);
 
         if (!AppState.activeTrackId) {
           switchActiveTrack(trackId);
@@ -197,6 +200,8 @@ function switchActiveTrack(trackId) {
     : 0;
 
   loadActiveTrackParams(track);
+  loadActiveGpsParams(track);
+  initializeLabels();
   resetView();
   runAnalysis();
 
@@ -212,6 +217,9 @@ function switchActiveTrack(trackId) {
 }
 
 function deleteTrack(trackId) {
+  // Save current GPS params before switching away
+  saveActiveGpsParams();
+
   AppState.collectiveManager.removeTrack(trackId);
 
   if (AppState.activeTrackId === trackId) {
@@ -241,18 +249,11 @@ function loadActiveTrackParams(track) {
   const params = track.filterParams;
 
   AppState.sliders.medianSize.value = params.medianSize;
-  document.getElementById('valMedianSize').innerText = params.medianSize.toFixed(1) + ' s';
-
   AppState.sliders.lpfWindow.value = params.lpfWindow;
-  document.getElementById('valLpfWindow').innerText = params.lpfWindow.toFixed(1) + ' s';
-
   AppState.sliders.tonicWindow.value = params.tonicWindow;
-  document.getElementById('valTonicWindow').innerText = params.tonicWindow + ' s';
-
   AppState.sliders.tonicMethod.value = params.tonicMethod;
-
   AppState.sliders.peakThreshold.value = params.peakThreshold;
-  document.getElementById('valPeakThreshold').innerText = params.peakThreshold.toFixed(3) + ' μS';
+  // Labels are updated by initializeLabels() called from switchActiveTrack
 }
 
 function saveActiveTrackParams() {
@@ -260,13 +261,41 @@ function saveActiveTrackParams() {
   const track = AppState.collectiveManager.getTrack(AppState.activeTrackId);
   if (!track) return;
 
+  const S = AppState.sliders;
   track.filterParams = {
-    medianSize:    parseFloat(AppState.sliders.medianSize.value),
-    lpfWindow:     parseFloat(AppState.sliders.lpfWindow.value),
-    tonicMethod:   AppState.sliders.tonicMethod.value,
-    tonicWindow:   parseInt(AppState.sliders.tonicWindow.value),
-    peakThreshold: parseFloat(AppState.sliders.peakThreshold.value)
+    medianSize:    parseFloat(S.medianSize.value),
+    lpfWindow:     parseFloat(S.lpfWindow.value),
+    tonicMethod:   S.tonicMethod.value,
+    tonicWindow:   parseInt(S.tonicWindow.value),
+    peakThreshold: parseFloat(S.peakThreshold.value)
   };
+}
+
+function saveActiveGpsParams() {
+  if (!AppState.activeTrackId) return;
+  const track = AppState.collectiveManager.getTrack(AppState.activeTrackId);
+  if (!track) return;
+
+  track.gpsFilterParams = readGpsSliderValues();
+}
+
+function loadActiveGpsParams(track) {
+  if (!track || !track.gpsFilterParams) return;
+  const p = track.gpsFilterParams;
+  const S = AppState.sliders;
+
+  if (p.minSats !== undefined)      S.gpsMinSats.value      = p.minSats;
+  if (p.maxSpeed !== undefined)     S.gpsMaxSpeed.value     = p.maxSpeed;
+  if (p.hampelWindow !== undefined) S.gpsHampelWindow.value = p.hampelWindow;
+  if (p.hampelSigma !== undefined)  S.gpsHampelSigma.value  = p.hampelSigma;
+  if (p.dbscanRadius !== undefined) S.gpsDBSCANRadius.value = p.dbscanRadius;
+  if (p.dbscanMinPts !== undefined) S.gpsDBSCANMinPts.value = p.dbscanMinPts;
+  if (p.kalmanR !== undefined)      S.gpsKalmanR.value      = p.kalmanR;
+  if (p.kalmanQ !== undefined)      S.gpsKalmanQ.value      = p.kalmanQ;
+  if (p.rdpTolerance !== undefined) S.gpsRDP.value          = p.rdpTolerance;
+  if (p.minDist !== undefined)      S.gpsMinDist.value      = p.minDist;
+  if (p.downsample !== undefined)   S.gpsDownsample.value   = p.downsample;
+  if (p.trackWeight !== undefined)  S.gpsTrackWeight.value  = p.trackWeight;
 }
 
 function clearFile() {

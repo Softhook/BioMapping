@@ -64,11 +64,11 @@ class GSRCollectiveManager {
   generateContourSurface(contourParams) {
     if (!contourParams) contourParams = {};
     // Use explicit !== undefined checks so falsy values (0, false, '') are not silently overridden
-    var gridResolution  = contourParams.gridResolution  !== undefined ? contourParams.gridResolution  : 40;
-    var isolationRadius = contourParams.isolationRadius !== undefined ? contourParams.isolationRadius : 50;
-    var topographySource = contourParams.topographySource !== undefined ? contourParams.topographySource : 'phasic';
-    var contourCount    = contourParams.contourCount    !== undefined ? contourParams.contourCount    : 10;
-    var idwExponent     = contourParams.idwExponent     !== undefined ? contourParams.idwExponent     : 2;
+    const gridResolution  = contourParams.gridResolution  !== undefined ? contourParams.gridResolution  : GSR_CONST.COLLECTIVE.gridResolution;
+    const isolationRadius = contourParams.isolationRadius !== undefined ? contourParams.isolationRadius : GSR_CONST.COLLECTIVE.isolationRadius;
+    const topographySource = contourParams.topographySource !== undefined ? contourParams.topographySource : 'phasic';
+    const contourCount    = contourParams.contourCount    !== undefined ? contourParams.contourCount    : GSR_CONST.COLLECTIVE.contourCount;
+    const idwExponent     = contourParams.idwExponent     !== undefined ? contourParams.idwExponent     : GSR_CONST.COLLECTIVE.idwExponent;
 
     const bounds = this.getBounds();
     if (!bounds) return [];
@@ -146,9 +146,10 @@ class GSRCollectiveManager {
         const gridLon = bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon);
 
         // Boundary mask — check proximity to any walk track
+        // Sample at ~2x the stride of the contour grid to balance speed vs accuracy
         let isNearTrack = false;
         let minTrackDist = Infinity;
-        const checkStep = Math.max(1, Math.floor(points.length / 100));
+        const checkStep = Math.max(1, Math.floor(points.length / (rows * cols * 2)));
         for (let i = 0; i < points.length; i += checkStep) {
           const dist = getDistanceMeters(gridLat, gridLon, points[i].lat, points[i].lon);
           if (dist < minTrackDist) minTrackDist = dist;

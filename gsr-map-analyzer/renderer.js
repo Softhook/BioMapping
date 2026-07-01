@@ -3,16 +3,15 @@
  * All shared state accessed through AppState.
  */
 
-var M = GSR_CONST.MARGIN;  // from constants.js
+// M is a global shorthand declared in constants.js (GSR_CONST.MARGIN)
 
 function drawPlaceholder() {
   background(9, 13, 22);
 }
 
 function drawGridX(tMin, tMax, yUpperBottom, yLowerBottom) {
-  var innerWidth = width - M.left - M.right;
-  var span = tMax - tMin;
-  var step = 10;
+  const span = tMax - tMin;
+  let step = 10;
   if (span < 5) step = 0.5;
   else if (span < 15) step = 1;
   else if (span < 30) step = 5;
@@ -24,31 +23,31 @@ function drawGridX(tMin, tMax, yUpperBottom, yLowerBottom) {
   else if (span < 7200) step = 1200;
   else step = 1800;
 
-  var firstGridTime = Math.floor(tMin / step) * step;
+  const firstGridTime = Math.floor(tMin / step) * step;
 
   stroke(255, 255, 255, 12);
   strokeWeight(1);
   textAlign(CENTER, TOP);
   textSize(10);
 
-  for (var t = firstGridTime; t <= tMax; t += step) {
+  for (let t = firstGridTime; t <= tMax; t += step) {
     if (t < tMin) continue;
-    var x = map(t, tMin, tMax, M.left, width - M.right);
+    const x = map(t, tMin, tMax, M.left, width - M.right);
     line(x, M.top, x, yUpperBottom);
     line(x, yUpperBottom + M.gap, x, yLowerBottom);
 
     fill(148, 163, 184);
     noStroke();
 
-    var label = t.toFixed(t % 1 !== 0 ? 1 : 0) + 's';
+    let label = t.toFixed(t % 1 !== 0 ? 1 : 0) + 's';
     if (t >= 3600) {
-      var h = Math.floor(t / 3600);
-      var m = Math.floor((t % 3600) / 60);
-      var s = Math.floor(t % 60);
+      const h = Math.floor(t / 3600);
+      const m = Math.floor((t % 3600) / 60);
+      const s = Math.floor(t % 60);
       label = h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
     } else if (t >= 60) {
-      var m = Math.floor(t / 60);
-      var s = Math.floor(t % 60);
+      const m = Math.floor(t / 60);
+      const s = Math.floor(t % 60);
       label = m + ':' + (s < 10 ? '0' : '') + s;
     }
     text(label, x, yLowerBottom + 6);
@@ -63,23 +62,23 @@ function drawGridX(tMin, tMax, yUpperBottom, yLowerBottom) {
 }
 
 function drawGridYUpper(yMin, yMax, yBottom, heightVal) {
-  var span = yMax - yMin;
-  var step = 0.5;
+  const span = yMax - yMin;
+  let step = 0.5;
   if (span < 0.2) step = 0.02;
   else if (span < 1.0) step = 0.1;
   else if (span < 3.0) step = 0.5;
   else if (span < 10) step = 1.0;
   else step = 2.0;
 
-  var firstGridVal = Math.floor(yMin / step) * step;
+  const firstGridVal = Math.floor(yMin / step) * step;
 
   stroke(255, 255, 255, 12);
   textAlign(RIGHT, CENTER);
   textSize(10);
 
-  for (var val = firstGridVal; val <= yMax; val += step) {
+  for (let val = firstGridVal; val <= yMax; val += step) {
     if (val < yMin) continue;
-    var y = map(val, yMin, yMax, yBottom, M.top);
+    const y = map(val, yMin, yMax, yBottom, M.top);
     line(M.left, y, width - M.right, y);
 
     noStroke();
@@ -90,23 +89,23 @@ function drawGridYUpper(yMin, yMax, yBottom, heightVal) {
 }
 
 function drawGridYLower(yMin, yMax, yBottom, heightVal) {
-  var span = yMax - yMin;
-  var step = 0.05;
+  const span = yMax - yMin;
+  let step = 0.05;
   if (span < 0.05) step = 0.005;
   else if (span < 0.15) step = 0.01;
   else if (span < 0.5) step = 0.05;
   else if (span < 1.5) step = 0.1;
   else step = 0.5;
 
-  var firstGridVal = Math.floor(yMin / step) * step;
+  const firstGridVal = Math.floor(yMin / step) * step;
 
   stroke(255, 255, 255, 12);
   textAlign(RIGHT, CENTER);
   textSize(10);
 
-  for (var val = firstGridVal; val <= yMax; val += step) {
+  for (let val = firstGridVal; val <= yMax; val += step) {
     if (val < yMin) continue;
-    var y = map(val, yMin, yMax, yBottom, yBottom - heightVal);
+    const y = map(val, yMin, yMax, yBottom, yBottom - heightVal);
     line(M.left, y, width - M.right, y);
 
     noStroke();
@@ -122,39 +121,38 @@ function drawSignalCurve(data, tMin, tMax, yMin, yMax, yTop, yBottom, lineColor,
   stroke(lineColor);
   strokeWeight(lineWt);
 
-  var startIdx = Math.max(0, findClosestIndex(tMin) - 1);
-  var endIdx   = Math.min(data.length - 1, findClosestIndex(tMax) + 1);
-  var count = endIdx - startIdx + 1;
+  const startIdx = Math.max(0, findClosestIndex(tMin) - 1);
+  const endIdx   = Math.min(data.length - 1, findClosestIndex(tMax) + 1);
+  const count = endIdx - startIdx + 1;
   if (count <= 0) return;
 
-  var maxVertices = 1500;
-  var step = Math.max(1, Math.ceil(count / maxVertices));
-  var useSpline = count < 600;
+  const step = Math.max(1, Math.ceil(count / GSR_CONST.DRAW_MAX_VERTICES));
+  const useSpline = count < GSR_CONST.SPLINE_THRESHOLD;
 
   beginShape();
 
   if (useSpline) {
-    var dFirst = data[startIdx];
-    var xFirst = map(dFirst.time, tMin, tMax, M.left, width - M.right);
-    var yFirst = map(dFirst.val, yMin, yMax, yBottom, yTop);
+    const dFirst = data[startIdx];
+    const xFirst = map(dFirst.time, tMin, tMax, M.left, width - M.right);
+    const yFirst = map(dFirst.val, yMin, yMax, yBottom, yTop);
     curveVertex(xFirst, yFirst);
 
-    for (var i = startIdx; i <= endIdx; i += step) {
-      var d = data[i];
-      var x = map(d.time, tMin, tMax, M.left, width - M.right);
-      var y = map(d.val, yMin, yMax, yBottom, yTop);
+    for (let i = startIdx; i <= endIdx; i += step) {
+      const d = data[i];
+      const x = map(d.time, tMin, tMax, M.left, width - M.right);
+      const y = map(d.val, yMin, yMax, yBottom, yTop);
       curveVertex(x, y);
     }
 
-    var dLast = data[endIdx];
-    var xLast = map(dLast.time, tMin, tMax, M.left, width - M.right);
-    var yLast = map(dLast.val, yMin, yMax, yBottom, yTop);
+    const dLast = data[endIdx];
+    const xLast = map(dLast.time, tMin, tMax, M.left, width - M.right);
+    const yLast = map(dLast.val, yMin, yMax, yBottom, yTop);
     curveVertex(xLast, yLast);
   } else {
-    for (var i = startIdx; i <= endIdx; i += step) {
-      var d = data[i];
-      var x = map(d.time, tMin, tMax, M.left, width - M.right);
-      var y = map(d.val, yMin, yMax, yBottom, yTop);
+    for (let i = startIdx; i <= endIdx; i += step) {
+      const d = data[i];
+      const x = map(d.time, tMin, tMax, M.left, width - M.right);
+      const y = map(d.val, yMin, yMax, yBottom, yTop);
       vertex(x, y);
     }
   }
@@ -164,47 +162,46 @@ function drawSignalCurve(data, tMin, tMax, yMin, yMax, yTop, yBottom, lineColor,
 
 function drawPhasicArea(data, tMin, tMax, yMin, yMax, yTop, yBottom) {
   if (!data || data.length === 0) return;
-  var startIdx = Math.max(0, findClosestIndex(tMin) - 1);
-  var endIdx   = Math.min(data.length - 1, findClosestIndex(tMax) + 1);
-  var count = endIdx - startIdx + 1;
+  const startIdx = Math.max(0, findClosestIndex(tMin) - 1);
+  const endIdx   = Math.min(data.length - 1, findClosestIndex(tMax) + 1);
+  const count = endIdx - startIdx + 1;
   if (count <= 0) return;
 
   noStroke();
   fill(16, 185, 129, 25);
 
-  var maxVertices = 1500;
-  var step = Math.max(1, Math.ceil(count / maxVertices));
-  var useSpline = count < 600;
+  const step = Math.max(1, Math.ceil(count / GSR_CONST.DRAW_MAX_VERTICES));
+  const useSpline = count < GSR_CONST.SPLINE_THRESHOLD;
 
   beginShape();
 
-  var dFirst = data[startIdx];
-  var xStart = map(dFirst.time, tMin, tMax, M.left, width - M.right);
+  const dFirst = data[startIdx];
+  const xStart = map(dFirst.time, tMin, tMax, M.left, width - M.right);
   vertex(xStart, yBottom);
 
   if (useSpline) {
     curveVertex(xStart, yBottom);
 
-    for (var i = startIdx; i <= endIdx; i += step) {
-      var d = data[i];
-      var x = map(d.time, tMin, tMax, M.left, width - M.right);
-      var y = map(d.val, yMin, yMax, yBottom, yTop);
+    for (let i = startIdx; i <= endIdx; i += step) {
+      const d = data[i];
+      const x = map(d.time, tMin, tMax, M.left, width - M.right);
+      const y = map(d.val, yMin, yMax, yBottom, yTop);
       curveVertex(x, y);
     }
 
-    var dLast = data[endIdx];
-    var xEnd = map(dLast.time, tMin, tMax, M.left, width - M.right);
+    const dLast = data[endIdx];
+    const xEnd = map(dLast.time, tMin, tMax, M.left, width - M.right);
     curveVertex(xEnd, yBottom);
     vertex(xEnd, yBottom);
   } else {
-    for (var i = startIdx; i <= endIdx; i += step) {
-      var d = data[i];
-      var x = map(d.time, tMin, tMax, M.left, width - M.right);
-      var y = map(d.val, yMin, yMax, yBottom, yTop);
+    for (let i = startIdx; i <= endIdx; i += step) {
+      const d = data[i];
+      const x = map(d.time, tMin, tMax, M.left, width - M.right);
+      const y = map(d.val, yMin, yMax, yBottom, yTop);
       vertex(x, y);
     }
-    var dLast = data[endIdx];
-    var xEnd = map(dLast.time, tMin, tMax, M.left, width - M.right);
+    const dLast = data[endIdx];
+    const xEnd = map(dLast.time, tMin, tMax, M.left, width - M.right);
     vertex(xEnd, yBottom);
   }
 
@@ -213,8 +210,8 @@ function drawPhasicArea(data, tMin, tMax, yMin, yMax, yTop, yBottom) {
 
 function drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
   if (!AppState.showPeaks || !AppState.analyzer.peaks || AppState.analyzer.peaks.length === 0) return;
-  for (var pIdx = 0; pIdx < AppState.analyzer.peaks.length; pIdx++) {
-    var p = AppState.analyzer.peaks[pIdx];
+  for (let pIdx = 0; pIdx < AppState.analyzer.peaks.length; pIdx++) {
+    const p = AppState.analyzer.peaks[pIdx];
 
     if (p.time < tMin && p.onsetTime < tMin &&
         (p.recoveryIndex === -1 || p.recoveryIndex === undefined ||
@@ -224,24 +221,24 @@ function drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL
     }
     if (p.onsetTime > tMax) continue;
 
-    var xPeak  = map(p.time, tMin, tMax, M.left, width - M.right);
-    var xOnset = map(p.onsetTime, tMin, tMax, M.left, width - M.right);
+    const xPeak  = map(p.time, tMin, tMax, M.left, width - M.right);
+    const xOnset = map(p.onsetTime, tMin, tMax, M.left, width - M.right);
 
-    var yFilteredPeak = map(AppState.analyzer.filtered[p.index].val, yMinU, yMaxU, yBottomU, yTopU);
-    var yPhasicPeak   = map(p.value, yMinL, yMaxL, yBottomL, yTopL);
-    var yPhasicOnset  = map(p.onsetValue, yMinL, yMaxL, yBottomL, yTopL);
+    const yFilteredPeak = map(AppState.analyzer.filtered[p.index].val, yMinU, yMaxU, yBottomU, yTopU);
+    const yPhasicPeak   = map(p.value, yMinL, yMaxL, yBottomL, yTopL);
+    const yPhasicOnset  = map(p.onsetValue, yMinL, yMaxL, yBottomL, yTopL);
 
-    var isActive  = (pIdx === AppState.activePeakIndex);
-    var isHovered = (AppState.hoveredIndex >= p.onsetIndex && AppState.hoveredIndex <= p.index);
+    const isActive  = (pIdx === AppState.activePeakIndex);
+    const isHovered = (AppState.hoveredIndex >= p.onsetIndex && AppState.hoveredIndex <= p.index);
 
     if (isActive || isHovered) {
       fill(244, 63, 94, 75);
       noStroke();
       beginShape();
       vertex(xOnset, yBottomL);
-      for (var i = p.onsetIndex; i <= p.index; i++) {
-        var xVal = map(AppState.analyzer.phasic[i].time, tMin, tMax, M.left, width - M.right);
-        var yVal = map(AppState.analyzer.phasic[i].val, yMinL, yMaxL, yBottomL, yTopL);
+      for (let i = p.onsetIndex; i <= p.index; i++) {
+        const xVal = map(AppState.analyzer.phasic[i].time, tMin, tMax, M.left, width - M.right);
+        const yVal = map(AppState.analyzer.phasic[i].val, yMinL, yMaxL, yBottomL, yTopL);
         vertex(xVal, yVal);
       }
       vertex(xPeak, yBottomL);
@@ -305,11 +302,11 @@ function handleScrubber(tMin, tMax, yMinU, yMaxU, yBottomU, yMinL, yMaxL, yTopL,
     return;
   }
 
-  var hoverTime = map(mouseX, M.left, width - M.right, tMin, tMax);
+  const hoverTime = map(mouseX, M.left, width - M.right, tMin, tMax);
   AppState.hoveredIndex = findClosestIndex(hoverTime);
   if (AppState.hoveredIndex === -1) return;
 
-  var dRaw = AppState.analyzer.raw[AppState.hoveredIndex];
+  const dRaw = AppState.analyzer.raw[AppState.hoveredIndex];
   if (!dRaw) return;
 
   if (dRaw.hasGps && !isNaN(dRaw.lat) && !isNaN(dRaw.lon)) {
@@ -318,18 +315,18 @@ function handleScrubber(tMin, tMax, yMinU, yMaxU, yBottomU, yMinL, yMaxL, yTopL,
     if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
   }
 
-  var dFilt   = AppState.analyzer.filtered[AppState.hoveredIndex];
-  var dTonic  = AppState.analyzer.tonic[AppState.hoveredIndex];
-  var dPhasic = AppState.analyzer.phasic[AppState.hoveredIndex];
+  const dFilt   = AppState.analyzer.filtered[AppState.hoveredIndex];
+  const dTonic  = AppState.analyzer.tonic[AppState.hoveredIndex];
+  const dPhasic = AppState.analyzer.phasic[AppState.hoveredIndex];
 
-  var xScrub = map(dRaw.time, tMin, tMax, M.left, width - M.right);
+  const xScrub = map(dRaw.time, tMin, tMax, M.left, width - M.right);
 
   stroke(255, 255, 255, 50);
   strokeWeight(1);
   line(xScrub, M.top, xScrub, yBottomL);
 
-  var yU = map(dFilt.val, yMinU, yMaxU, yBottomU, M.top);
-  var yL = map(dPhasic.val, yMinL, yMaxL, yBottomL, yTopL);
+  const yU = map(dFilt.val, yMinU, yMaxU, yBottomU, M.top);
+  const yL = map(dPhasic.val, yMinL, yMaxL, yBottomL, yTopL);
 
   stroke(14, 165, 233);
   fill(14, 165, 233);
@@ -343,16 +340,16 @@ function handleScrubber(tMin, tMax, yMinU, yMaxU, yBottomU, yMinL, yMaxL, yTopL,
 }
 
 function drawTooltip(time, rawVal, filtVal, tonicVal, phasicVal) {
-  var pad = 12;
-  var boxW = 190;
-  var boxH = 120;
+  const pad = 12;
+  const boxW = 190;
+  const boxH = 120;
 
-  var boxX = mouseX + 15;
+  let boxX = mouseX + 15;
   if (boxX + boxW > width - M.right) {
     boxX = mouseX - boxW - 15;
   }
 
-  var boxY = mouseY - 40;
+  let boxY = mouseY - 40;
   boxY = constrain(boxY, M.top, height - M.bottom - boxH);
 
   fill(22, 33, 54, 235);
@@ -370,8 +367,8 @@ function drawTooltip(time, rawVal, filtVal, tonicVal, phasicVal) {
   textStyle(NORMAL);
 
   textSize(9.5);
-  var startY = boxY + pad + 18;
-  var spacing = 18;
+  const startY = boxY + pad + 18;
+  const spacing = 18;
 
   fill(148, 163, 184);
   text('Raw:', boxX + pad, startY);

@@ -3,10 +3,32 @@
  * Uses AppState.sliders instead of bare globals.
  */
 
+/**
+ * Read current GPS slider values into a clean param object.
+ * Shared by tracks.js, simulator.js, and storage.js.
+ */
+function readGpsSliderValues() {
+  const S = AppState.sliders;
+  return {
+    minSats:      parseInt(S.gpsMinSats.value),
+    maxSpeed:     parseFloat(S.gpsMaxSpeed.value),
+    hampelWindow: parseInt(S.gpsHampelWindow.value),
+    hampelSigma:  parseFloat(S.gpsHampelSigma.value),
+    dbscanRadius: parseFloat(S.gpsDBSCANRadius.value),
+    dbscanMinPts: parseInt(S.gpsDBSCANMinPts.value),
+    kalmanR:      parseFloat(S.gpsKalmanR.value),
+    kalmanQ:      parseInt(S.gpsKalmanQ.value),
+    rdpTolerance: parseFloat(S.gpsRDP.value),
+    minDist:      parseFloat(S.gpsMinDist.value),
+    downsample:   parseInt(S.gpsDownsample.value),
+    trackWeight:  parseInt(S.gpsTrackWeight.value)
+  };
+}
+
 function saveSettings() {
-  var S = AppState.sliders;
+  const S = AppState.sliders;
   if (!S.medianSize) return;
-  var settings = {
+  const settings = {
     medianSize:    parseFloat(S.medianSize.value),
     lpfWindow:     parseFloat(S.lpfWindow.value),
     tonicMethod:   S.tonicMethod.value,
@@ -19,7 +41,7 @@ function saveSettings() {
     gpsDBSCANRadius: parseFloat(S.gpsDBSCANRadius.value),
     gpsDBSCANMinPts: parseInt(S.gpsDBSCANMinPts.value),
     gpsKalmanR:      parseFloat(S.gpsKalmanR.value),
-    gpsKalmanQ:      parseFloat(S.gpsKalmanQ.value),
+    gpsKalmanQ:      parseInt(S.gpsKalmanQ.value),
     gpsRDP:          parseFloat(S.gpsRDP.value),
     gpsMinDist:      parseFloat(S.gpsMinDist.value),
     gpsDownsample:   parseInt(S.gpsDownsample.value),
@@ -29,11 +51,11 @@ function saveSettings() {
 }
 
 function loadSettings() {
-  var saved = localStorage.getItem('bioMappingSettings');
-  var S = AppState.sliders;
+  const saved = localStorage.getItem('bioMappingSettings');
+  const S = AppState.sliders;
   if (!saved || !S.medianSize) return;
   try {
-    var settings = JSON.parse(saved);
+    const settings = JSON.parse(saved);
     if (settings.medianSize    !== undefined && S.medianSize)    S.medianSize.value    = settings.medianSize;
     if (settings.lpfWindow     !== undefined && S.lpfWindow)     S.lpfWindow.value     = settings.lpfWindow;
     if (settings.tonicMethod   !== undefined && S.tonicMethod)   S.tonicMethod.value   = settings.tonicMethod;

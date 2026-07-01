@@ -214,9 +214,9 @@ class GSRMapManager {
 
   _renderPathSegments(drawPoints, data, trackWeight) {
     // Use reduce to avoid Math.min(...spread) stack overflow on large datasets
-    var minVal = Infinity, maxVal = -Infinity;
-    for (var i = 0; i < data.length; i++) {
-      var v = data[i].val;
+    let minVal = Infinity, maxVal = -Infinity;
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i].val;
       if (v < minVal) minVal = v;
       if (v > maxVal) maxVal = v;
     }
@@ -296,13 +296,13 @@ class GSRMapManager {
    */
   togglePeaks(visible) {
     this.showPeaks = visible;
-    var toggle = function(m) {
+    const toggle = (m) => {
       if (visible) {
         if (!this.map.hasLayer(m)) m.addTo(this.map);
       } else {
         if (this.map.hasLayer(m)) this.map.removeLayer(m);
       }
-    }.bind(this);
+    };
     this.peakMarkers.forEach(toggle);
     this.collectivePeakMarkers.forEach(toggle);
   }
@@ -373,6 +373,14 @@ class GSRMapManager {
     // 1. Draw dashed, semi-transparent paths for each track
     activeTracks.forEach(track => {
       const data = track.analyzer.raw;
+      // Ensure filteredGps is populated — if missing, run GPS filter now
+      const gpsParams = { downsample: true };
+      if (!track.analyzer.filteredGps || track.analyzer.filteredGps.length !== data.length) {
+        const gpsPoints = this._collectGpsPoints(data);
+        if (gpsPoints.length > 0) {
+          this._reconstructFilteredGps(track.analyzer, data, gpsPoints);
+        }
+      }
       const filteredGps = track.analyzer.filteredGps || [];
       const drawPoints = [];
 

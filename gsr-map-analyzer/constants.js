@@ -23,12 +23,6 @@ const GSR_CONST = {
   DRAW_MAX_VERTICES: 1500,  // Max vertices before sub-sampling curves
   SPLINE_THRESHOLD: 600,    // Below this count use spline, else linear
 
-  // ── Track colours ────────────────────────────────────────────────────────
-  TRACK_COLORS: [
-    '#0ea5e9', '#10b981', '#f43f5e', '#a855f7',
-    '#f59e0b', '#ec4899', '#14b8a6', '#f97316'
-  ],
-
   // ── Contour / collective surface ─────────────────────────────────────────
   CONTOUR_MAX_POINTS: 20000, // Target max points for IDW interpolation
   CONTOUR_BOUNDARY_CHECK: 100, // Sample count for boundary mask check
@@ -62,36 +56,6 @@ const GSR_CONST = {
   PEAK_MIN_GAP: 1.0,          // Minimum gap after peak (seconds)
   PEAK_RECOVERY_BREAK: 0.1,   // Break threshold for recovery search
 
-  // ── Grid step presets (renderer.js) ──────────────────────────────────────
-  GRID_TIME_STEPS: [
-    { max: 5,     step: 0.5 },
-    { max: 15,    step: 1 },
-    { max: 30,    step: 5 },
-    { max: 120,   step: 10 },
-    { max: 300,   step: 30 },
-    { max: 900,   step: 60 },
-    { max: 1800,  step: 300 },
-    { max: 3600,  step: 600 },
-    { max: 7200,  step: 1200 }
-  ],
-  GRID_TIME_STEP_DEFAULT: 1800,
-
-  GRID_UPPER_STEPS: [
-    { max: 0.2, step: 0.02 },
-    { max: 1.0, step: 0.1 },
-    { max: 3.0, step: 0.5 },
-    { max: 10,  step: 1.0 }
-  ],
-  GRID_UPPER_STEP_DEFAULT: 2.0,
-
-  GRID_LOWER_STEPS: [
-    { max: 0.05, step: 0.005 },
-    { max: 0.15, step: 0.01 },
-    { max: 0.5,  step: 0.05 },
-    { max: 1.5,  step: 0.1 }
-  ],
-  GRID_LOWER_STEP_DEFAULT: 0.5,
-
   // ── Collective surface defaults ─────────────────────────────────────────
   COLLECTIVE: {
     gridResolution: 40,
@@ -101,3 +65,6 @@ const GSR_CONST = {
     surfaceOpacity: 0.40
   }
 };
+
+// Global shorthand — used by renderer.js and sketch.js
+const M = GSR_CONST.MARGIN;

@@ -50,18 +50,6 @@ const AppState = {
   viewDuration: 120.0,
   zoomFactor: 1.0,
 
-  MIN_ZOOM: 1.0,
-  MAX_ZOOM: 50.0,
-
-  // ── Graph layout constants ──────────────────────────────────────────────────
-  margin: {
-    top: 30,
-    bottom: 16,
-    left: 70,
-    right: 35,
-    gap: 40   // gap between Upper and Lower graphs
-  },
-
   // ── Curve visibility toggles ────────────────────────────────────────────────
   showRaw: true,
   showFiltered: true,

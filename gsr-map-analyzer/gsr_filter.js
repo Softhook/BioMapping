@@ -53,36 +53,40 @@ const GsrFilter = {
 
   /**
    * Zero-phase moving average (forward + backward) — smooths without phase lag.
+   * Uses centered sliding window with correct edge handling.
    */
   applyZeroPhaseMovingAverage(arr, windowSize) {
     if (windowSize <= 1) return [...arr];
     const n = arr.length;
+    if (n === 0) return [];
 
     const singlePass = (data) => {
       const res = new Array(n);
+      const half = Math.floor(windowSize / 2);
       let sum = 0;
-      const w = Math.min(windowSize, n);
+      let count = 0;
 
-      for (let i = 0; i < w; i++) {
+      // Initialize: window centered at index 0 (clamped at left edge)
+      for (let i = 0; i <= Math.min(half, n - 1); i++) {
         sum += data[i];
+        count++;
       }
-      res[0] = sum / w;
+      res[0] = sum / count;
 
       for (let i = 1; i < n; i++) {
-        const outgoingIdx = i - Math.floor(w / 2) - 1;
-        const incomingIdx = i + Math.ceil(w / 2) - 1;
-
-        if (outgoingIdx >= 0) {
-          sum -= data[outgoingIdx];
-        } else {
-          sum -= data[0];
+        // Remove the element that leaves the window on the left
+        const leftOut = i - half - 1;
+        if (leftOut >= 0) {
+          sum -= data[leftOut];
+          count--;
         }
-        if (incomingIdx < n) {
-          sum += data[incomingIdx];
-        } else {
-          sum += data[n - 1];
+        // Add the element that enters the window on the right
+        const rightIn = i + half;
+        if (rightIn < n) {
+          sum += data[rightIn];
+          count++;
         }
-        res[i] = sum / w;
+        res[i] = sum / count;
       }
       return res;
     };

@@ -19,13 +19,12 @@ function setupPanelFullscreen(btnId, panelId, onToggle) {
   let placeholder  = null;
   let escapeHint   = null;
   let isFs         = false;
-  var self = this;
 
-  const onKeyDown = function(e) {
+  const onKeyDown = (e) => {
     if (e.key === 'Escape' && isFs) exit();
   };
 
-  const enter = function() {
+  const enter = () => {
     isFs = true;
     btn.classList.add('is-fullscreen');
     btn.querySelector('i').classList.replace('fa-expand', 'fa-compress');
@@ -43,12 +42,12 @@ function setupPanelFullscreen(btnId, panelId, onToggle) {
     escapeHint.className = 'fs-escape-hint';
     escapeHint.innerHTML = '<i class="fa-solid fa-compress" style="margin-right:5px;"></i>Press Esc or click <strong>\u2291</strong> to exit full screen';
     document.body.appendChild(escapeHint);
-    setTimeout(function() { if (escapeHint) escapeHint.remove(); escapeHint = null; }, 3200);
+    setTimeout(() => { if (escapeHint) escapeHint.remove(); escapeHint = null; }, 3200);
 
     if (onToggle) onToggle();
   };
 
-  const exit = function() {
+  const exit = () => {
     if (!isFs) return;
     isFs = false;
     btn.classList.remove('is-fullscreen');
@@ -70,7 +69,7 @@ function setupPanelFullscreen(btnId, panelId, onToggle) {
     if (onToggle) onToggle();
   };
 
-  btn.addEventListener('click', function() {
+  btn.addEventListener('click', () => {
     if (isFs) exit();
     else enter();
   });
@@ -82,7 +81,7 @@ function setupPanelFullscreen(btnId, panelId, onToggle) {
  * Build the GPS filter parameter object from current slider values.
  */
 function getGpsParams() {
-  var S = AppState.sliders;
+  const S = AppState.sliders;
   return {
     minSats:      parseInt(S.gpsMinSats.value),
     maxSpeed:     parseFloat(S.gpsMaxSpeed.value),
@@ -104,6 +103,10 @@ function getGpsParams() {
  */
 function rerenderMap() {
   if (!AppState.mapManager || !AppState.analyzer || AppState.analyzer.raw.length === 0) return;
+
+  // Save GPS params to the active track whenever GPS sliders change
+  saveActiveGpsParams();
+
   if (AppState.viewMode === 'single') {
     AppState.mapManager.renderData(AppState.analyzer, getGpsParams());
   } else {
@@ -116,15 +119,15 @@ function rerenderMap() {
  */
 function focusOnPeak(idx) {
   if (!AppState.analyzer || !AppState.analyzer.peaks || idx >= AppState.analyzer.peaks.length) return;
-  var peak = AppState.analyzer.peaks[idx];
+  const peak = AppState.analyzer.peaks[idx];
   AppState.activePeakIndex = idx;
   AppState.viewStartTime = Math.max(0, peak.onsetTime - 2);
   AppState.viewDuration = Math.min((peak.time - peak.onsetTime) + 5, AppState.totalDuration);
   AppState.zoomFactor = AppState.totalDuration / AppState.viewDuration;
-  var select = document.getElementById('timeWindowSelect');
+  const select = document.getElementById('timeWindowSelect');
   if (select) select.value = 'custom';
-  document.querySelectorAll('#peaksTable tbody tr').forEach(function(r) { r.classList.remove('active-row'); });
-  var row = document.getElementById('peakRow-' + idx);
+  document.querySelectorAll('#peaksTable tbody tr').forEach(r => r.classList.remove('active-row'));
+  const row = document.getElementById('peakRow-' + idx);
   if (row) row.classList.add('active-row');
   redraw();
 }
@@ -136,8 +139,8 @@ function runAnalysis() {
   if (!AppState.analyzer || AppState.analyzer.raw.length === 0) return;
 
   try {
-    var S = AppState.sliders;
-    var params = {
+    const S = AppState.sliders;
+    const params = {
       medianSize:    parseFloat(S.medianSize.value),
       lpfWindow:     parseFloat(S.lpfWindow.value),
       tonicMethod:   S.tonicMethod.value,
@@ -169,8 +172,8 @@ function runAnalysis() {
  * Update the four stat cards with current track metrics.
  */
 function updateStatsPanel() {
-  var stats = AppState.analyzer.getStats();
-  var F = AppState.statFields;
+  const stats = AppState.analyzer.getStats();
+  const F = AppState.statFields;
   F.duration.innerText  = stats.duration.toFixed(1) + " s";
   F.meanSCL.innerText   = stats.meanSCL.toFixed(3) + " \u03bcS";
   F.peakCount.innerText = stats.peakCount;
@@ -181,19 +184,19 @@ function updateStatsPanel() {
  * Populate the peak events table below the graph.
  */
 function updatePeaksTable() {
-  var peaks = AppState.analyzer.peaks;
-  var tb    = AppState.tableBody;
+  const peaks = AppState.analyzer.peaks;
+  const tb    = AppState.tableBody;
 
   if (peaks.length === 0) {
     tb.innerHTML = '<tr class="empty-row"><td colspan="8">No peaks detected. Try reducing the Peak Amplitude threshold.</td></tr>';
     return;
   }
 
-  var rowsHtml = "";
-  peaks.forEach(function(p, idx) {
-    var isAct = (idx === AppState.activePeakIndex) ? "class='active-row'" : "";
-    var riseTimeStr = (p.time - p.onsetTime).toFixed(2);
-    var recTimeStr = p.recoveryTime !== -1 ? p.recoveryTime.toFixed(2) : "N/A";
+  let rowsHtml = "";
+  peaks.forEach((p, idx) => {
+    const isAct = (idx === AppState.activePeakIndex) ? "class='active-row'" : "";
+    const riseTimeStr = (p.time - p.onsetTime).toFixed(2);
+    const recTimeStr = p.recoveryTime !== -1 ? p.recoveryTime.toFixed(2) : "N/A";
 
     rowsHtml += '<tr id="peakRow-' + idx + '" ' + isAct + ' onclick="focusOnPeak(' + idx + ')">' +
       '<td>' + (idx + 1) + '</td>' +
@@ -225,7 +228,7 @@ function updateCollectiveMap() {
     return;
   }
 
-  var contourParams = {
+  const contourParams = {
     gridResolution:    parseInt(document.getElementById('gridResolution').value),
     contourCount:      parseInt(document.getElementById('contourCount').value),
     isolationRadius:   parseFloat(document.getElementById('isolationRadius').value),
@@ -237,20 +240,20 @@ function updateCollectiveMap() {
 
   AppState.mapManager.renderCollectiveData(AppState.collectiveManager, contourParams);
 
-  var totalDur = 0, totalPeaks = 0, sumSCL = 0, sclCount = 0;
+  let totalDur = 0, totalPeaks = 0, sumSCL = 0, sclCount = 0;
 
-  AppState.collectiveManager.getActiveTracks().forEach(function(track) {
-    var stats = track.analyzer.getStats();
+  AppState.collectiveManager.getActiveTracks().forEach(track => {
+    const stats = track.analyzer.getStats();
     totalDur += stats.duration;
     totalPeaks += stats.peakCount;
-    track.analyzer.tonic.forEach(function(d) {
+    track.analyzer.tonic.forEach(d => {
       sumSCL += d.val;
       sclCount++;
     });
   });
 
-  var meanSCL = sclCount > 0 ? (sumSCL / sclCount) : 0;
-  var meanPeakFreq = (totalDur > 0) ? (totalPeaks / (totalDur / 60.0)) : 0;
+  const meanSCL = sclCount > 0 ? (sumSCL / sclCount) : 0;
+  const meanPeakFreq = (totalDur > 0) ? (totalPeaks / (totalDur / 60.0)) : 0;
 
   document.getElementById('statDuration').innerText = (totalDur / 60.0).toFixed(1) + " min";
   document.getElementById('statMeanSCL').innerText  = meanSCL.toFixed(3) + " \u03bcS";
@@ -263,11 +266,11 @@ function updateCollectiveMap() {
  */
 function exportCSV() {
   if (AppState.analyzer.raw.length === 0) return;
-  var csvContent = AppState.analyzer.exportToCSV();
+  const csvContent = AppState.analyzer.exportToCSV();
 
-  var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  var url  = URL.createObjectURL(blob);
-  var link = document.createElement("a");
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const link = document.createElement("a");
 
   link.setAttribute("href", url);
   link.setAttribute("download", 'processed_gsr_' + Date.now() + '.csv');
@@ -281,7 +284,7 @@ function exportCSV() {
  * Export p5.js canvas as PNG.
  */
 function saveCanvasImage() {
-  if (AppState.analyzer.raw.length === 0) return;
+  if (!AppState.myCanvas || AppState.analyzer.raw.length === 0) return;
   saveCanvas(AppState.myCanvas, 'gsr_analysis_chart_' + Date.now(), 'png');
 }
 
@@ -291,9 +294,9 @@ function saveCanvasImage() {
 function saveMapImage() {
   if (AppState.analyzer.raw.length === 0) return;
 
-  var mapElement = document.getElementById('map');
-  var btn        = document.getElementById('exportMapBtn');
-  var originalText = btn.innerHTML;
+  const mapElement = document.getElementById('map');
+  const btn        = document.getElementById('exportMapBtn');
+  const originalText = btn.innerHTML;
 
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...';
   btn.setAttribute('disabled', 'true');
@@ -303,8 +306,8 @@ function saveMapImage() {
     allowTaint: false,
     backgroundColor: null,
     logging: false
-  }).then(function(canvas) {
-    var link = document.createElement("a");
+  }).then(canvas => {
+    const link = document.createElement("a");
     link.download = 'bio_map_' + Date.now() + '.png';
     link.href = canvas.toDataURL("image/png");
     link.style.visibility = 'hidden';
@@ -314,7 +317,7 @@ function saveMapImage() {
 
     btn.innerHTML = originalText;
     btn.removeAttribute('disabled');
-  }).catch(function(err) {
+  }).catch(err => {
     console.error("Error generating map PNG:", err);
     alert("Could not export map. Some map resources may have failed to load securely (CORS).");
     btn.innerHTML = originalText;
