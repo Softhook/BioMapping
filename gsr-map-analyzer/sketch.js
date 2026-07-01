@@ -264,6 +264,35 @@ function setupEventListeners() {
     if (mapManager) mapManager.togglePeaks(isVisible);
   });
 
+  // ── Panel Collapse Toggles ───────────────────────────────────────────────
+  const gsrPanel = document.getElementById('gsrPanel');
+  const btnGsrCollapse = document.getElementById('btnGsrCollapse');
+  btnGsrCollapse.addEventListener('click', () => {
+    gsrPanel.classList.toggle('collapsed');
+    if (!gsrPanel.classList.contains('collapsed')) {
+      setTimeout(() => windowResized(), 20);
+    }
+  });
+
+  const mapPanel = document.getElementById('mapPanel');
+  const btnMapCollapse = document.getElementById('btnMapCollapse');
+  btnMapCollapse.addEventListener('click', () => {
+    mapPanel.classList.toggle('collapsed');
+    if (!mapPanel.classList.contains('collapsed')) {
+      setTimeout(() => {
+        if (mapManager && mapManager.map) {
+          mapManager.map.invalidateSize();
+        }
+      }, 50);
+    }
+  });
+
+  const eventsPanel = document.getElementById('eventsPanel');
+  const btnEventsCollapse = document.getElementById('btnEventsCollapse');
+  btnEventsCollapse.addEventListener('click', () => {
+    eventsPanel.classList.toggle('collapsed');
+  });
+
   // ── GSR Panel Fullscreen ─────────────────────────────────────────────────
   setupPanelFullscreen(
     'btnGsrFullscreen',
