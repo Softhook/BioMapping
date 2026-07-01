@@ -467,7 +467,11 @@ function setupEventListeners() {
   setupPanelFullscreen(
     'btnGsrFullscreen',
     'gsrPanel',
-    () => windowResized()   // callback on enter/exit so p5 resizes
+    () => {
+      windowResized(); // immediate
+      setTimeout(() => windowResized(), 40); // browser layout reflow
+      setTimeout(() => windowResized(), 240); // animation transition complete
+    }
   );
 
   // ── Map Panel Fullscreen ─────────────────────────────────────────────────
@@ -477,7 +481,9 @@ function setupEventListeners() {
     () => {
       // Invalidate Leaflet map size after DOM resize
       if (mapManager && mapManager.map) {
-        setTimeout(() => mapManager.map.invalidateSize(), 50);
+        mapManager.map.invalidateSize();
+        setTimeout(() => mapManager.map.invalidateSize(), 40);
+        setTimeout(() => mapManager.map.invalidateSize(), 240);
       }
     }
   );
