@@ -82,9 +82,5 @@ const AppState = {
   tableBody: null,
 
   fileInput: null,
-  dropZone: null,
-  fileInfoBox: null,
-  loadedFileName: null,
-  loadedFileMeta: null,
-  clearFileBtn: null
+  dropZone: null
 };

@@ -8,9 +8,10 @@ class GSRAnalyzer {
     this.tonic = [];        // Tonic component (SCL): { time, val }
     this.phasic = [];       // Phasic component (SCR): { time, val }
     this.peaks = [];        // Detected peaks: { time, index, amplitude, onsetIndex, onsetTime, halfRecoveryTime }
-    
+
     this.sampleRate = 10;   // In Hz, auto-detected
     this.isResistance = false; // Whether original CSV was resistance (Ohms)
+    this.filteredGps = [];
   }
 
   /**

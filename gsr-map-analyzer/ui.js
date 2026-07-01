@@ -19,8 +19,13 @@ function setupPanelFullscreen(btnId, panelId, onToggle) {
   let placeholder  = null;
   let escapeHint   = null;
   let isFs         = false;
+  var self = this;
 
-  const enter = () => {
+  const onKeyDown = function(e) {
+    if (e.key === 'Escape' && isFs) exit();
+  };
+
+  const enter = function() {
     isFs = true;
     btn.classList.add('is-fullscreen');
     btn.querySelector('i').classList.replace('fa-expand', 'fa-compress');
@@ -36,14 +41,14 @@ function setupPanelFullscreen(btnId, panelId, onToggle) {
 
     escapeHint = document.createElement('div');
     escapeHint.className = 'fs-escape-hint';
-    escapeHint.innerHTML = '<i class="fa-solid fa-compress" style="margin-right:5px;"></i>Press Esc or click <strong>⊡</strong> to exit full screen';
+    escapeHint.innerHTML = '<i class="fa-solid fa-compress" style="margin-right:5px;"></i>Press Esc or click <strong>\u2291</strong> to exit full screen';
     document.body.appendChild(escapeHint);
     setTimeout(function() { if (escapeHint) escapeHint.remove(); escapeHint = null; }, 3200);
 
     if (onToggle) onToggle();
   };
 
-  const exit = () => {
+  const exit = function() {
     if (!isFs) return;
     isFs = false;
     btn.classList.remove('is-fullscreen');
@@ -70,9 +75,7 @@ function setupPanelFullscreen(btnId, panelId, onToggle) {
     else enter();
   });
 
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape' && isFs) exit();
-  });
+  document.addEventListener('keydown', onKeyDown);
 }
 
 /**
@@ -106,6 +109,24 @@ function rerenderMap() {
   } else {
     updateCollectiveMap();
   }
+}
+
+/**
+ * Zoom and highlight a specific peak event when user clicks a row in the peaks table.
+ */
+function focusOnPeak(idx) {
+  if (!AppState.analyzer || !AppState.analyzer.peaks || idx >= AppState.analyzer.peaks.length) return;
+  var peak = AppState.analyzer.peaks[idx];
+  AppState.activePeakIndex = idx;
+  AppState.viewStartTime = Math.max(0, peak.onsetTime - 2);
+  AppState.viewDuration = Math.min((peak.time - peak.onsetTime) + 5, AppState.totalDuration);
+  AppState.zoomFactor = AppState.totalDuration / AppState.viewDuration;
+  var select = document.getElementById('timeWindowSelect');
+  if (select) select.value = 'custom';
+  document.querySelectorAll('#peaksTable tbody tr').forEach(function(r) { r.classList.remove('active-row'); });
+  var row = document.getElementById('peakRow-' + idx);
+  if (row) row.classList.add('active-row');
+  redraw();
 }
 
 /**

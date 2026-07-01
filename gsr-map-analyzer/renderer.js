@@ -6,7 +6,7 @@
 var M = GSR_CONST.MARGIN;  // from constants.js
 
 function drawPlaceholder() {
-  background(9, 13, 22, 0);
+  background(9, 13, 22);
 }
 
 function drawGridX(tMin, tMax, yUpperBottom, yLowerBottom) {

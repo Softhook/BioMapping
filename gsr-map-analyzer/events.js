@@ -9,10 +9,6 @@
 function cacheDOMElements() {
   AppState.fileInput    = document.getElementById('fileInput');
   AppState.dropZone     = document.getElementById('dropZone');
-  AppState.fileInfoBox  = document.getElementById('fileInfoBox');
-  AppState.loadedFileName = document.getElementById('loadedFileName');
-  AppState.loadedFileMeta = document.getElementById('loadedFileMeta');
-  AppState.clearFileBtn = document.getElementById('clearFileBtn');
   AppState.tableBody    = document.querySelector('#peaksTable tbody');
 
   // Sliders
@@ -52,6 +48,21 @@ function bindCollapseButton(btnId, cardId) {
   const card = document.getElementById(cardId);
   if (!btn || !card) return;
   btn.addEventListener('click', () => card.classList.toggle('collapsed'));
+}
+
+/**
+ * Like bindCollapseButton but also calls onExpand after the expand animation.
+ * Avoids the double-listener pattern that previously existed for GSR + Map panels.
+ */
+function setupCollapseWithResize(btnId, cardId, onExpand) {
+  const btn = document.getElementById(btnId);
+  const card = document.getElementById(cardId);
+  if (!btn || !card) return;
+  btn.addEventListener('click', () => {
+    const wasCollapsed = card.classList.contains('collapsed');
+    card.classList.toggle('collapsed');
+    if (wasCollapsed && onExpand) setTimeout(onExpand, 50);
+  });
 }
 
 /**
@@ -119,10 +130,6 @@ function setupEventListeners() {
       AppState.fileInput.click();
     }
   });
-
-  if (AppState.clearFileBtn) {
-    AppState.clearFileBtn.addEventListener('click', clearFile);
-  }
 
   // ── Leaflet-to-Timeline scrubbing callback ────────────────────────────────
   window.updateTimelineScrub = (time) => {
@@ -221,8 +228,6 @@ function setupEventListeners() {
   });
 
   // ── Panel Collapse Toggles (DRY via bindCollapseButton) ──────────────────
-  bindCollapseButton('btnGsrCollapse',           'gsrPanel');
-  bindCollapseButton('btnMapCollapse',           'mapPanel');
   bindCollapseButton('btnEventsCollapse',        'eventsPanel');
   bindCollapseButton('btnGsrFilteringCollapse',  'gsrFilteringCard');
   bindCollapseButton('btnGpsFilteringCollapse',  'gpsFilteringCard');
@@ -230,19 +235,11 @@ function setupEventListeners() {
   bindCollapseButton('btnExportCollapse',        'exportCard');
   bindCollapseButton('btnContourCollapse',       'contourSettingsCard');
 
-  // ── Panel resize after collapse animations ───────────────────────────────
-  document.getElementById('btnGsrCollapse').addEventListener('click', () => {
-    const panel = document.getElementById('gsrPanel');
-    if (!panel.classList.contains('collapsed')) setTimeout(() => windowResized(), 20);
-  });
-  document.getElementById('btnMapCollapse').addEventListener('click', () => {
-    const panel = document.getElementById('mapPanel');
-    if (!panel.classList.contains('collapsed')) {
-      setTimeout(() => {
-        if (AppState.mapManager && AppState.mapManager.map) {
-          AppState.mapManager.map.invalidateSize();
-        }
-      }, 50);
+  // GSR + Map panels need extra resize after collapse (single listener each)
+  setupCollapseWithResize('btnGsrCollapse', 'gsrPanel', function() { windowResized(); });
+  setupCollapseWithResize('btnMapCollapse', 'mapPanel', function() {
+    if (AppState.mapManager && AppState.mapManager.map) {
+      AppState.mapManager.map.invalidateSize();
     }
   });
 

@@ -120,8 +120,7 @@ class GSRMapManager {
 
   _applySatelliteGate(pts, minSats) {
     if (minSats > 0) {
-      const filtered = pts.filter(d => d.sats >= minSats);
-      if (filtered.length > 1) return filtered;
+      return pts.filter(d => d.sats >= minSats);
     }
     return pts;
   }

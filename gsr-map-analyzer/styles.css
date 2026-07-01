@@ -1308,4 +1308,9 @@ input[type="range"]::-webkit-slider-thumb:hover {
   color: var(--text-primary);
 }
 
+/* Collective Surface Overlay (heatmap raster) */
+.collective-surface-overlay {
+  pointer-events: none !important;
+  image-rendering: pixelated;
+}
 

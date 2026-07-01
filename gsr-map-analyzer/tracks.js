@@ -188,6 +188,7 @@ function switchActiveTrack(trackId) {
   if (!track) return;
 
   AppState.analyzer = track.analyzer;
+  AppState.analyzer.rawMinMaxCached = null; // invalidate timeline cache
   AppState.totalDuration = (AppState.analyzer.raw.length > 0 &&
     AppState.analyzer.raw[AppState.analyzer.raw.length - 1] &&
     AppState.analyzer.raw[0])
