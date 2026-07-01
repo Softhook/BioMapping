@@ -37,6 +37,14 @@
           <h1>Bio Mapping 2 <span>Christian Nold</span></h1>
         </div>
       </div>
+      <div class="view-switcher" id="viewSwitcher">
+        <button class="view-tab active" id="btnSingleView">
+          <i class="fa-solid fa-chart-line"></i> Single Track Analysis
+        </button>
+        <button class="view-tab" id="btnCollectiveView">
+          <i class="fa-solid fa-layer-group"></i> Collective Map Surface
+        </button>
+      </div>
       <div class="header-status" id="fileStatus">
         <span class="status-dot warning"></span>
         <span class="status-text">No File Loaded</span>
@@ -51,7 +59,7 @@
         <!-- File Import Card -->
         <section class="control-card upload-section" id="importCard">
           <h2>
-            <i class="fa-solid fa-file-import"></i> Data Import
+            <i class="fa-solid fa-file-import"></i> Track Library
             <button class="icon-btn collapse-btn" id="btnImportCollapse" title="Collapse" style="margin-left: auto;">
               <i class="fa-solid fa-chevron-down"></i>
             </button>
@@ -60,19 +68,19 @@
           <div class="card-content">
             <div class="drag-drop-zone" id="dropZone">
               <i class="fa-solid fa-cloud-arrow-up cloud-icon"></i>
-              <p class="drop-text">Drag & drop GSR CSV here</p>
+              <p class="drop-text">Drag & drop GSR CSVs here</p>
               <p class="separator">or</p>
               <label for="fileInput" class="btn btn-primary">
                 <i class="fa-solid fa-folder-open"></i> Browse Files
               </label>
-              <input type="file" id="fileInput" accept=".csv" style="display: none;">
+              <input type="file" id="fileInput" accept=".csv" multiple style="display: none;">
             </div>
-            <div class="file-info-box" id="fileInfoBox" style="display: none;">
-              <p class="file-name" id="loadedFileName">filename.csv</p>
-              <p class="file-meta" id="loadedFileMeta">1200 samples @ 10Hz</p>
-              <button class="btn btn-text-danger" id="clearFileBtn">
-                <i class="fa-solid fa-trash-can"></i> Remove File
-              </button>
+            
+            <div class="track-list-container" id="trackListContainer" style="display: none; margin-top: 12px;">
+              <div class="control-subgroup-title" style="margin-bottom: 8px;">Loaded Tracks</div>
+              <ul class="track-list" id="trackList" style="list-style: none; display: flex; flex-direction: column; gap: 8px;">
+                <!-- Dynamically populated track list items -->
+              </ul>
             </div>
           </div>
         </section>
@@ -262,6 +270,65 @@
               </div>
               <input type="range" id="gpsTrackWeight" min="1" max="14" step="1" value="5">
               <p class="help-text">Thickness of the drawn GPS path on the map.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Collective Contour Settings -->
+        <section class="control-card" id="contourSettingsCard" style="display: none;">
+          <h2>
+            <i class="fa-solid fa-mountain-sun"></i> Contour Surface
+            <button class="icon-btn collapse-btn" id="btnContourCollapse" title="Collapse" style="margin-left: auto;">
+              <i class="fa-solid fa-chevron-down"></i>
+            </button>
+          </h2>
+
+          <div class="card-content">
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Topography Source</span>
+              </div>
+              <select id="topoSource" class="select-control">
+                <option value="phasic" selected>Phasic Arousal (Transient)</option>
+                <option value="tonic">Tonic Baseline (SCL)</option>
+                <option value="peaks">Peak Stress Hotspots</option>
+              </select>
+            </div>
+
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Grid Resolution</span>
+                <span class="slider-value" id="valGridResolution">40 x 40</span>
+              </div>
+              <input type="range" id="gridResolution" min="20" max="80" step="5" value="40">
+              <p class="help-text">Higher values make contour lines smoother but require more calculation.</p>
+            </div>
+
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Contour Count</span>
+                <span class="slider-value" id="valContourCount">10 lines</span>
+              </div>
+              <input type="range" id="contourCount" min="3" max="25" step="1" value="10">
+              <p class="help-text">Number of division intervals / elevation isolines.</p>
+            </div>
+
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Isolation Cutoff</span>
+                <span class="slider-value" id="valIsolationRadius">50 m</span>
+              </div>
+              <input type="range" id="isolationRadius" min="15" max="150" step="5" value="50">
+              <p class="help-text">Max distance from paths to draw lines (prevents bleeding into blank space).</p>
+            </div>
+
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>IDW Exponent (p)</span>
+                <span class="slider-value" id="valIdwExponent">2.0</span>
+              </div>
+              <input type="range" id="idwExponent" min="1.0" max="4.0" step="0.2" value="2.0">
+              <p class="help-text">Spatial weight drop-off with distance (higher = more localized peaks).</p>
             </div>
           </div>
         </section>

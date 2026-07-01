@@ -1067,3 +1067,226 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border-bottom: none !important;
   padding-bottom: 0 !important;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Multi-Track Library & View Switcher Styles
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* View Switcher Tabs in Header */
+.view-switcher {
+  display: flex;
+  background: rgba(9, 13, 22, 0.5);
+  border: 1px solid var(--border-glass);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.view-tab {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 0.85rem;
+  padding: 6px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.view-tab:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.view-tab.active {
+  color: var(--text-primary);
+  background: var(--accent-primary);
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.25);
+}
+
+/* Track List Container & Items */
+.track-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-glass);
+  border-radius: 10px;
+  padding: 8px 12px;
+  transition: all 0.2s ease;
+}
+
+.track-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.track-item.active {
+  border-color: var(--accent-primary);
+  background: rgba(14, 165, 233, 0.07);
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.15);
+}
+
+.track-checkbox {
+  appearance: none;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1.5px solid var(--text-muted);
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.track-checkbox:checked {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.track-checkbox:checked::after {
+  content: "\f00c";
+  font-family: "Font Awesome 6 Free";
+  font-weight: 900;
+  color: var(--text-primary);
+  font-size: 0.65rem;
+}
+
+.track-color-badge {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.track-details {
+  flex-grow: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  cursor: pointer;
+}
+
+.track-name {
+  font-weight: 500;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-meta {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.track-actions {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.track-action-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  font-size: 0.75rem;
+}
+
+.track-action-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.track-action-btn.edit-btn:hover {
+  color: var(--accent-primary);
+}
+
+.track-action-btn.delete-btn:hover {
+  color: var(--danger);
+}
+
+/* Leaflet Collective Map Markers */
+.collective-peak-icon {
+  background: transparent;
+  border: none;
+}
+
+.collective-peak-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid #ffffff;
+  transition: transform 0.2s ease;
+}
+
+.collective-peak-dot:hover {
+  transform: scale(1.3);
+}
+
+/* Contour Lines Tooltips */
+.contour-tooltip-label {
+  background: rgba(9, 13, 22, 0.9) !important;
+  border: 1px solid var(--border-glass) !important;
+  color: var(--text-primary) !important;
+  font-family: var(--font-display) !important;
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+  border-radius: 6px !important;
+  padding: 3px 7px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* View Mode Toggles (Layout switches) */
+.main-layout.collective-mode #gsrPanel,
+.main-layout.collective-mode #eventsPanel {
+  display: none !important;
+}
+
+.main-layout.collective-mode .map-panel:not(.collapsed) {
+  flex-grow: 1 !important;
+  height: 100% !important;
+}
+
+/* Compact drag drop zone when tracks are loaded */
+.drag-drop-zone.compact {
+  padding: 8px 12px !important;
+  flex-direction: row !important;
+  justify-content: center !important;
+  gap: 10px !important;
+}
+
+.drag-drop-zone.compact .cloud-icon {
+  font-size: 1.2rem !important;
+  margin-bottom: 0 !important;
+}
+
+.drag-drop-zone.compact .drop-text,
+.drag-drop-zone.compact .separator {
+  display: none !important;
+}
+
+.drag-drop-zone.compact label.btn {
+  padding: 4px 10px !important;
+  font-size: 0.75rem !important;
+}
+
+

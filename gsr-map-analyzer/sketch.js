@@ -3,6 +3,25 @@
  */
 
 let analyzer;
+let collectiveManager;
+let activeTrackId = null;
+let viewMode = 'single'; // 'single' or 'collective'
+const TRACK_COLORS = [
+  '#0ea5e9', // sky blue
+  '#a855f7', // purple
+  '#f43f5e', // rose red
+  '#10b981', // green
+  '#eab308', // yellow
+  '#f97316', // orange
+  '#06b6d4', // cyan
+  '#ec4899'  // pink
+];
+let trackColorIndex = 0;
+function getNextTrackColor() {
+  const color = TRACK_COLORS[trackColorIndex % TRACK_COLORS.length];
+  trackColorIndex++;
+  return color;
+}
 let myCanvas;
 
 // Viewport variables (zoom and pan)
@@ -42,7 +61,8 @@ let tableBody;
 let mapManager; // Leaflet Map controller
 
 function setup() {
-  // Initialize Analyzer
+  // Initialize Collective Manager and Analyzer
+  collectiveManager = new GSRCollectiveManager();
   analyzer = new GSRAnalyzer();
 
   // Initialize Map Manager
@@ -148,7 +168,8 @@ function setupEventListeners() {
     e.preventDefault();
     dropZone.classList.remove('dragover');
     if (e.dataTransfer.files.length > 0) {
-      processFile(e.dataTransfer.files[0]);
+      const files = Array.from(e.dataTransfer.files);
+      loadFilesSequentially(files);
     }
   });
 
@@ -160,7 +181,9 @@ function setupEventListeners() {
     }
   });
 
-  clearFileBtn.addEventListener('click', clearFile);
+  if (clearFileBtn) {
+    clearFileBtn.addEventListener('click', clearFile);
+  }
 
   // Window-level callback for Leaflet-to-Timeline scrubbing
   window.updateTimelineScrub = (time) => {
@@ -228,6 +251,84 @@ function setupEventListeners() {
   bindGpsSlider('gpsMinDist',      'valGpsMinDist',      v => v === 0 ? 'off' : `${v} m`);
   bindGpsSlider('gpsDownsample',   'valGpsDownsample',   v => v === 0 ? 'off' : '1 Hz');
   bindGpsSlider('gpsTrackWeight',  'valGpsTrackWeight',  v => `${v} px`);
+
+  // ── View Switcher Event Listeners ─────────────────────────────────────────
+  const btnSingleView = document.getElementById('btnSingleView');
+  const btnCollectiveView = document.getElementById('btnCollectiveView');
+  const appMainLayout = document.querySelector('.main-layout');
+  const contourSettingsCard = document.getElementById('contourSettingsCard');
+
+  btnSingleView.addEventListener('click', () => {
+    if (viewMode === 'single') return;
+    viewMode = 'single';
+    btnSingleView.classList.add('active');
+    btnCollectiveView.classList.remove('active');
+    appMainLayout.classList.remove('collective-mode');
+    contourSettingsCard.style.display = 'none';
+
+    // Clear collective layers from map
+    if (mapManager) {
+      mapManager.clearCollectiveLayers();
+    }
+
+    // Show single-track panels
+    document.getElementById('gsrPanel').style.display = 'block';
+    document.getElementById('eventsPanel').style.display = 'block';
+
+    if (analyzer && analyzer.raw.length > 0) {
+      loop();
+      runAnalysis();
+    } else {
+      noLoop();
+      drawPlaceholder();
+      if (mapManager) mapManager.clearMap();
+    }
+    if (mapManager && mapManager.map) {
+      setTimeout(() => mapManager.map.invalidateSize(), 80);
+    }
+  });
+
+  btnCollectiveView.addEventListener('click', () => {
+    if (viewMode === 'collective') return;
+    viewMode = 'collective';
+    btnCollectiveView.classList.add('active');
+    btnSingleView.classList.remove('active');
+    appMainLayout.classList.add('collective-mode');
+    contourSettingsCard.style.display = 'block';
+
+    // Hide single-track panels
+    document.getElementById('gsrPanel').style.display = 'none';
+    document.getElementById('eventsPanel').style.display = 'none';
+    noLoop(); // stop timeline loop
+
+    updateCollectiveMap();
+    if (mapManager && mapManager.map) {
+      setTimeout(() => mapManager.map.invalidateSize(), 80);
+    }
+  });
+
+  // ── Contour Settings Event Listeners ──────────────────────────────────────
+  const bindContourInput = (id, labelId, fmt) => {
+    const input = document.getElementById(id);
+    const label = document.getElementById(labelId);
+    input.addEventListener('input', () => {
+      if (label) label.innerText = fmt(parseFloat(input.value));
+      if (viewMode === 'collective') {
+        updateCollectiveMap();
+      }
+    });
+  };
+
+  bindContourInput('gridResolution', 'valGridResolution', v => `${v} x ${v}`);
+  bindContourInput('contourCount', 'valContourCount', v => `${v} lines`);
+  bindContourInput('isolationRadius', 'valIsolationRadius', v => `${v} m`);
+  bindContourInput('idwExponent', 'valIdwExponent', v => v.toFixed(1));
+  
+  document.getElementById('topoSource').addEventListener('change', () => {
+    if (viewMode === 'collective') {
+      updateCollectiveMap();
+    }
+  });
 
   // ── Sidebar Collapse Toggle ──────────────────────────────────────────────
   const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
@@ -319,6 +420,14 @@ function setupEventListeners() {
   btnExportCollapse.addEventListener('click', () => {
     exportCard.classList.toggle('collapsed');
   });
+
+  const contourSettingsCardElement = document.getElementById('contourSettingsCard');
+  const btnContourCollapse = document.getElementById('btnContourCollapse');
+  if (btnContourCollapse && contourSettingsCardElement) {
+    btnContourCollapse.addEventListener('click', () => {
+      contourSettingsCardElement.classList.toggle('collapsed');
+    });
+  }
 
   // ── GSR Panel Fullscreen ─────────────────────────────────────────────────
   setupPanelFullscreen(
@@ -434,7 +543,7 @@ function windowResized() {
  * Main draw loop (runs only when loop() is active, which is triggered after file load)
  */
 function draw() {
-  if (analyzer.raw.length === 0) {
+  if (!analyzer || !analyzer.raw || analyzer.raw.length === 0) {
     drawPlaceholder();
     return;
   }
@@ -1076,103 +1185,344 @@ function resetView() {
 /**
  * Handle CSV processing pipeline
  */
+/**
+ * Handle CSV processing pipeline supporting multiple files
+ */
 function handleFileSelect(e) {
   if (e.target.files.length > 0) {
-    processFile(e.target.files[0]);
+    const files = Array.from(e.target.files);
+    loadFilesSequentially(files);
   }
 }
 
-function processFile(file) {
-  const reader = new FileReader();
-  reader.onload = (event) => {
-    try {
-      const text = event.target.result;
-      
-      // Parse CSV Data
-      analyzer.parseCSV(text);
-      
-      // Update UI File Info
-      loadedFileName.innerText = file.name;
-      loadedFileMeta.innerText = `${analyzer.raw.length} samples @ ${analyzer.sampleRate.toFixed(1)}Hz`;
-      
-      fileInfoBox.style.display = 'block';
-      dropZone.style.display = 'none';
-      
-      const fileStatus = document.getElementById('fileStatus');
-      fileStatus.querySelector('.status-dot').className = 'status-dot success';
-      fileStatus.querySelector('.status-text').innerText = 'Data Loaded';
-
-      // Set view defaults
-      totalDuration = (analyzer.raw.length > 0 && analyzer.raw[analyzer.raw.length - 1] && analyzer.raw[0]) ? 
-        (analyzer.raw[analyzer.raw.length - 1].time - analyzer.raw[0].time) : 0;
-      resetView();
-      
-      // Run full signal analysis
-      runAnalysis();
-
-      // Enable export buttons
-      document.getElementById('exportCsvBtn').removeAttribute('disabled');
-      document.getElementById('exportImageBtn').removeAttribute('disabled');
-      document.getElementById('exportMapBtn').removeAttribute('disabled');
-      
-      // Remove canvas placeholder
-      const placeholder = document.getElementById('canvasPlaceholder');
-      if (placeholder) placeholder.style.display = 'none';
-
-      // Start redrawing loop
-      loop();
-    } catch (err) {
-      alert("Error parsing CSV: " + err.message);
-      clearFile();
+function loadFilesSequentially(files) {
+  let index = 0;
+  const loadNext = () => {
+    if (index >= files.length) {
+      fileInput.value = ""; // Clear file input
+      return;
     }
+    const file = files[index];
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target.result;
+        
+        const tempAnalyzer = new GSRAnalyzer();
+        tempAnalyzer.parseCSV(text);
+
+        const trackId = 'track_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+        const trackColor = getNextTrackColor();
+
+        // Default filter parameters for new tracks
+        const filterParams = {
+          medianSize: 1.0,
+          lpfWindow: 0.8,
+          tonicMethod: 'percentile',
+          tonicWindow: 15,
+          peakThreshold: 0.020
+        };
+
+        const newTrack = {
+          id: trackId,
+          name: file.name,
+          color: trackColor,
+          enabled: true,
+          analyzer: tempAnalyzer,
+          filterParams: filterParams
+        };
+
+        collectiveManager.addTrack(newTrack);
+        tempAnalyzer.analyze(filterParams);
+
+        if (!activeTrackId) {
+          switchActiveTrack(trackId);
+        } else {
+          renderTrackList();
+        }
+
+        const fileStatus = document.getElementById('fileStatus');
+        fileStatus.querySelector('.status-dot').className = 'status-dot success';
+        fileStatus.querySelector('.status-text').innerText = `${collectiveManager.tracks.length} Tracks Loaded`;
+
+        if (viewMode === 'collective') {
+          updateCollectiveMap();
+        }
+
+        index++;
+        loadNext();
+      } catch (err) {
+        alert(`Error parsing "${file.name}": ` + err.message);
+        index++;
+        loadNext();
+      }
+    };
+    reader.readAsText(file);
   };
-  reader.readAsText(file);
+  loadNext();
+}
+
+function renderTrackList() {
+  const container = document.getElementById('trackListContainer');
+  const listElement = document.getElementById('trackList');
+  
+  if (collectiveManager.tracks.length === 0) {
+    container.style.display = 'none';
+    dropZone.style.display = 'flex';
+    dropZone.classList.remove('compact');
+    
+    analyzer = new GSRAnalyzer();
+    activeTrackId = null;
+    
+    // Disable export buttons
+    document.getElementById('exportCsvBtn').setAttribute('disabled', 'true');
+    document.getElementById('exportImageBtn').setAttribute('disabled', 'true');
+    document.getElementById('exportMapBtn').setAttribute('disabled', 'true');
+
+    if (mapManager) {
+      mapManager.clearMap();
+      mapManager.clearCollectiveLayers();
+    }
+    
+    const fileStatus = document.getElementById('fileStatus');
+    fileStatus.querySelector('.status-dot').className = 'status-dot warning';
+    fileStatus.querySelector('.status-text').innerText = 'No File Loaded';
+    
+    const placeholder = document.getElementById('canvasPlaceholder');
+    if (placeholder) placeholder.style.display = 'flex';
+    noLoop();
+    drawPlaceholder();
+    return;
+  }
+  
+  container.style.display = 'block';
+  dropZone.style.display = 'flex';
+  dropZone.classList.add('compact');
+  
+  listElement.innerHTML = '';
+  
+  collectiveManager.tracks.forEach(track => {
+    const isEditing = (track.id === activeTrackId);
+    
+    const li = document.createElement('li');
+    li.className = `track-item ${isEditing ? 'active' : ''}`;
+    
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'track-checkbox';
+    checkbox.checked = track.enabled;
+    checkbox.title = 'Include in Collective Surface';
+    checkbox.addEventListener('change', (e) => {
+      track.enabled = e.target.checked;
+      if (viewMode === 'collective') {
+        updateCollectiveMap();
+      }
+    });
+    
+    const badge = document.createElement('span');
+    badge.className = 'track-color-badge';
+    badge.style.backgroundColor = track.color;
+    
+    const details = document.createElement('div');
+    details.className = 'track-details';
+    details.title = 'Click to analyze and tweak';
+    details.addEventListener('click', () => {
+      switchActiveTrack(track.id);
+    });
+    
+    const name = document.createElement('span');
+    name.className = 'track-name';
+    name.innerText = track.name;
+    
+    const meta = document.createElement('span');
+    meta.className = 'track-meta';
+    meta.innerText = `${track.analyzer.raw.length} pts | ${track.analyzer.peaks.length} peaks`;
+    
+    details.appendChild(name);
+    details.appendChild(meta);
+    
+    const actions = document.createElement('div');
+    actions.className = 'track-actions';
+    
+    const editBtn = document.createElement('button');
+    editBtn.className = 'track-action-btn edit-btn';
+    editBtn.title = 'Analyze and tweak filters';
+    editBtn.innerHTML = '<i class="fa-solid fa-pencil"></i>';
+    editBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      switchActiveTrack(track.id);
+      if (viewMode === 'collective') {
+        document.getElementById('btnSingleView').click();
+      }
+    });
+    
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'track-action-btn delete-btn';
+    deleteBtn.title = 'Remove track';
+    deleteBtn.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteTrack(track.id);
+    });
+    
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
+    
+    li.appendChild(checkbox);
+    li.appendChild(badge);
+    li.appendChild(details);
+    li.appendChild(actions);
+    
+    listElement.appendChild(li);
+  });
+}
+
+function switchActiveTrack(trackId) {
+  activeTrackId = trackId;
+  const track = collectiveManager.getTrack(trackId);
+  if (!track) return;
+  
+  analyzer = track.analyzer;
+  totalDuration = (analyzer.raw.length > 0 && analyzer.raw[analyzer.raw.length - 1] && analyzer.raw[0]) ? 
+    (analyzer.raw[analyzer.raw.length - 1].time - analyzer.raw[0].time) : 0;
+  
+  loadActiveTrackParams(track);
+  resetView();
+  runAnalysis();
+
+  document.getElementById('exportCsvBtn').removeAttribute('disabled');
+  document.getElementById('exportImageBtn').removeAttribute('disabled');
+  document.getElementById('exportMapBtn').removeAttribute('disabled');
+
+  const placeholder = document.getElementById('canvasPlaceholder');
+  if (placeholder) placeholder.style.display = 'none';
+
+  renderTrackList();
+  loop();
+}
+
+function deleteTrack(trackId) {
+  collectiveManager.removeTrack(trackId);
+  
+  if (activeTrackId === trackId) {
+    if (collectiveManager.tracks.length > 0) {
+      switchActiveTrack(collectiveManager.tracks[0].id);
+    } else {
+      activeTrackId = null;
+      analyzer = new GSRAnalyzer();
+    }
+  }
+  
+  renderTrackList();
+  
+  const fileStatus = document.getElementById('fileStatus');
+  if (collectiveManager.tracks.length > 0) {
+    fileStatus.querySelector('.status-dot').className = 'status-dot success';
+    fileStatus.querySelector('.status-text').innerText = `${collectiveManager.tracks.length} Tracks Loaded`;
+  } else {
+    fileStatus.querySelector('.status-dot').className = 'status-dot warning';
+    fileStatus.querySelector('.status-text').innerText = 'No File Loaded';
+  }
+  
+  if (viewMode === 'collective') {
+    updateCollectiveMap();
+  }
+}
+
+function loadActiveTrackParams(track) {
+  if (!track || !track.filterParams) return;
+  const params = track.filterParams;
+  
+  sliders.medianSize.value = params.medianSize;
+  document.getElementById('valMedianSize').innerText = params.medianSize.toFixed(1) + ' s';
+  
+  sliders.lpfWindow.value = params.lpfWindow;
+  document.getElementById('valLpfWindow').innerText = params.lpfWindow.toFixed(1) + ' s';
+  
+  sliders.tonicWindow.value = params.tonicWindow;
+  document.getElementById('valTonicWindow').innerText = params.tonicWindow + ' s';
+  
+  sliders.tonicMethod.value = params.tonicMethod;
+  
+  sliders.peakThreshold.value = params.peakThreshold;
+  document.getElementById('valPeakThreshold').innerText = params.peakThreshold.toFixed(3) + ' μS';
+}
+
+function saveActiveTrackParams() {
+  if (!activeTrackId) return;
+  const track = collectiveManager.getTrack(activeTrackId);
+  if (!track) return;
+  
+  track.filterParams = {
+    medianSize: parseFloat(sliders.medianSize.value),
+    lpfWindow: parseFloat(sliders.lpfWindow.value),
+    tonicMethod: sliders.tonicMethod.value,
+    tonicWindow: parseInt(sliders.tonicWindow.value),
+    peakThreshold: parseFloat(sliders.peakThreshold.value)
+  };
+}
+
+function updateCollectiveMap() {
+  if (!mapManager) return;
+  
+  if (collectiveManager.getActiveTracks().length === 0) {
+    mapManager.clearCollectiveLayers();
+    document.getElementById('statDuration').innerText = '--';
+    document.getElementById('statMeanSCL').innerText = '--';
+    document.getElementById('statPeakCount').innerText = '--';
+    document.getElementById('statPeakFreq').innerText = '--';
+    return;
+  }
+  
+  const topoSource = document.getElementById('topoSource').value;
+  const gridResolution = parseInt(document.getElementById('gridResolution').value);
+  const contourCount = parseInt(document.getElementById('contourCount').value);
+  const isolationRadius = parseFloat(document.getElementById('isolationRadius').value);
+  const idwExponent = parseFloat(document.getElementById('idwExponent').value);
+
+  const contourParams = {
+    gridResolution,
+    contourCount,
+    isolationRadius,
+    idwExponent,
+    topographySource: topoSource
+  };
+
+  mapManager.renderCollectiveData(collectiveManager, contourParams);
+
+  // Compute collective stats
+  let totalDur = 0;
+  let totalPeaks = 0;
+  let sumSCL = 0;
+  let sclCount = 0;
+
+  collectiveManager.getActiveTracks().forEach(track => {
+    const stats = track.analyzer.getStats();
+    totalDur += stats.duration;
+    totalPeaks += stats.peakCount;
+    
+    track.analyzer.tonic.forEach(d => {
+      sumSCL += d.val;
+      sclCount++;
+    });
+  });
+
+  const meanSCL = sclCount > 0 ? (sumSCL / sclCount) : 0;
+  const meanPeakFreq = (totalDur > 0) ? (totalPeaks / (totalDur / 60.0)) : 0;
+
+  document.getElementById('statDuration').innerText = (totalDur / 60.0).toFixed(1) + " min";
+  document.getElementById('statMeanSCL').innerText = meanSCL.toFixed(3) + " μS";
+  document.getElementById('statPeakCount').innerText = totalPeaks;
+  document.getElementById('statPeakFreq').innerText = meanPeakFreq.toFixed(2) + " / min";
 }
 
 function clearFile() {
-  analyzer = new GSRAnalyzer();
-  if (mapManager) mapManager.clearMap();
-  viewStartTime = 0;
-  viewDuration = 120.0;
-  zoomFactor = 1.0;
-  activePeakIndex = -1;
-  hoveredIndex = -1;
-
-  loadedFileName.innerText = "";
-  loadedFileMeta.innerText = "";
-  fileInfoBox.style.display = 'none';
-  dropZone.style.display = 'flex';
-  fileInput.value = "";
-
-  const fileStatus = document.getElementById('fileStatus');
-  fileStatus.querySelector('.status-dot').className = 'status-dot warning';
-  fileStatus.querySelector('.status-text').innerText = 'No File Loaded';
-
-  // Disable export buttons
-  document.getElementById('exportCsvBtn').setAttribute('disabled', 'true');
-  document.getElementById('exportImageBtn').setAttribute('disabled', 'true');
-  document.getElementById('exportMapBtn').setAttribute('disabled', 'true');
-
-  // Show placeholder
-  const placeholder = document.getElementById('canvasPlaceholder');
-  if (placeholder) placeholder.style.display = 'flex';
-
-  // Reset stats
-  statFields.duration.innerText = "--";
-  statFields.meanSCL.innerText = "--";
-  statFields.peakCount.innerText = "--";
-  statFields.peakFreq.innerText = "--";
-
-  // Reset table
-  tableBody.innerHTML = `
-    <tr class="empty-row">
-      <td colspan="8">No data loaded yet. Upload a CSV file to view detected peaks.</td>
-    </tr>
-  `;
-
-  noLoop();
-  clear();
-  drawPlaceholder();
+  if (activeTrackId) {
+    deleteTrack(activeTrackId);
+  } else {
+    collectiveManager.tracks = [];
+    renderTrackList();
+  }
 }
 
 /**
@@ -1200,15 +1550,19 @@ function getGpsParams() {
  * re-running the full signal analysis pipeline. Called by GPS sliders.
  */
 function rerenderMap() {
-  if (!mapManager || analyzer.raw.length === 0) return;
-  mapManager.renderData(analyzer, getGpsParams());
+  if (!mapManager || !analyzer || analyzer.raw.length === 0) return;
+  if (viewMode === 'single') {
+    mapManager.renderData(analyzer, getGpsParams());
+  } else {
+    updateCollectiveMap();
+  }
 }
 
 /**
  * Gather parameters from sliders and run analytical calculations
  */
 function runAnalysis() {
-  if (analyzer.raw.length === 0) return;
+  if (!analyzer || analyzer.raw.length === 0) return;
 
   try {
     const params = {
@@ -1219,12 +1573,19 @@ function runAnalysis() {
       peakThreshold: parseFloat(sliders.peakThreshold.value)
     };
 
+    // Save parameters to current track state
+    saveActiveTrackParams();
+
     // Run core mathematics
     analyzer.analyze(params);
 
     // Update Geographical Map (with GPS filter params)
-    if (mapManager) {
-      mapManager.renderData(analyzer, getGpsParams());
+    if (viewMode === 'single') {
+      if (mapManager) {
+        mapManager.renderData(analyzer, getGpsParams());
+      }
+    } else {
+      updateCollectiveMap();
     }
 
     // Update UI Panels
@@ -1455,34 +1816,46 @@ function loadDemoData() {
 
   const csvText = csvRows.join("\n");
   
-  // Load mock file inside processFile pipeline
+  // Load mock file inside collective manager pipeline
   const file = { name: "demo_gsr_data.csv" };
   
   try {
-    analyzer.parseCSV(csvText);
-    loadedFileName.innerText = file.name;
-    loadedFileMeta.innerText = `${analyzer.raw.length} samples @ ${analyzer.sampleRate.toFixed(1)}Hz`;
-    
-    fileInfoBox.style.display = 'block';
-    dropZone.style.display = 'none';
-    
+    const tempAnalyzer = new GSRAnalyzer();
+    tempAnalyzer.parseCSV(csvText);
+
+    const trackId = 'track_demo_' + Date.now();
+    const trackColor = getNextTrackColor();
+
+    const filterParams = {
+      medianSize: 1.0,
+      lpfWindow: 0.8,
+      tonicMethod: 'percentile',
+      tonicWindow: 15,
+      peakThreshold: 0.020
+    };
+
+    const newTrack = {
+      id: trackId,
+      name: file.name,
+      color: trackColor,
+      enabled: true,
+      analyzer: tempAnalyzer,
+      filterParams: filterParams
+    };
+
+    collectiveManager.addTrack(newTrack);
+    tempAnalyzer.analyze(filterParams);
+
+    switchActiveTrack(trackId);
+    renderTrackList();
+
     const fileStatus = document.getElementById('fileStatus');
     fileStatus.querySelector('.status-dot').className = 'status-dot success';
-    fileStatus.querySelector('.status-text').innerText = 'Demo Data Loaded';
+    fileStatus.querySelector('.status-text').innerText = `${collectiveManager.tracks.length} Tracks Loaded`;
 
-    totalDuration = 120.0;
-    resetView();
-    runAnalysis();
-
-    // Enable export buttons
-    document.getElementById('exportCsvBtn').removeAttribute('disabled');
-    document.getElementById('exportImageBtn').removeAttribute('disabled');
-    document.getElementById('exportMapBtn').removeAttribute('disabled');
-
-    const placeholder = document.getElementById('canvasPlaceholder');
-    if (placeholder) placeholder.style.display = 'none';
-
-    loop();
+    if (viewMode === 'collective') {
+      updateCollectiveMap();
+    }
   } catch (err) {
     alert("Error loading demo: " + err.message);
   }

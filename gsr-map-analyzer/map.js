@@ -7,6 +7,9 @@ class GSRMapManager {
     this.map = null;
     this.pathSegments = [];
     this.peakMarkers = [];
+    this.collectivePathSegments = [];
+    this.collectivePeakMarkers = [];
+    this.contourLayers = [];
     this.scrubMarker = null;
     this.showPeaks = true;
     
@@ -598,6 +601,166 @@ class GSRMapManager {
     if (panTo) {
       this.map.panTo([lat, lon]);
     }
+  }
+
+  /**
+   * Remove all collective track paths and peak markers from the map.
+   */
+  clearCollectiveLayers() {
+    if (this.collectivePathSegments) {
+      this.collectivePathSegments.forEach(seg => this.map.removeLayer(seg));
+    }
+    this.collectivePathSegments = [];
+
+    if (this.collectivePeakMarkers) {
+      this.collectivePeakMarkers.forEach(m => this.map.removeLayer(m));
+    }
+    this.collectivePeakMarkers = [];
+
+    this.clearContours();
+  }
+
+  /**
+   * Remove only the topographic isolines layer from the map.
+   */
+  clearContours() {
+    if (this.contourLayers) {
+      this.contourLayers.forEach(layer => this.map.removeLayer(layer));
+    }
+    this.contourLayers = [];
+  }
+
+  /**
+   * Render all active tracks overlaid simultaneously, then draw contour lines.
+   */
+  renderCollectiveData(collectiveManager, contourParams = {}) {
+    this.clearMap(); // Clear single-track drawing
+    this.clearCollectiveLayers();
+
+    const activeTracks = collectiveManager.getActiveTracks();
+    if (activeTracks.length === 0) return;
+
+    // 1. Draw dashed, semi-transparent paths for each track
+    activeTracks.forEach(track => {
+      const data = track.analyzer.raw;
+      const filteredGps = track.analyzer.filteredGps || [];
+      const drawPoints = [];
+
+      const step = Math.max(1, Math.round(track.analyzer.sampleRate || 10.0));
+      for (let i = 0; i < data.length; i += step) {
+        let lat = NaN, lon = NaN;
+        if (filteredGps[i] && !isNaN(filteredGps[i].lat)) {
+          lat = filteredGps[i].lat;
+          lon = filteredGps[i].lon;
+        } else if (data[i] && !isNaN(data[i].lat)) {
+          lat = data[i].lat;
+          lon = data[i].lon;
+        }
+
+        if (!isNaN(lat) && !isNaN(lon)) {
+          drawPoints.push({ lat, lon });
+        }
+      }
+
+      if (drawPoints.length < 2) return;
+
+      const latlngs = drawPoints.map(p => [p.lat, p.lon]);
+      const trackColor = track.color || '#0ea5e9';
+
+      const poly = L.polyline(latlngs, {
+        color: trackColor,
+        weight: 3,
+        opacity: 0.35,
+        dashArray: '5, 8'
+      }).addTo(this.map);
+
+      this.collectivePathSegments.push(poly);
+
+      // 2. Draw small peak dot markers for this track
+      const peakIcon = L.divIcon({
+        className: 'collective-peak-icon',
+        html: `<div class="collective-peak-dot" style="background-color: ${trackColor}; box-shadow: 0 0 6px ${trackColor};"></div>`,
+        iconSize: [12, 12],
+        iconAnchor: [6, 6]
+      });
+
+      track.analyzer.peaks.forEach((peak, index) => {
+        const matchingRow = data[peak.index];
+        let lat = NaN, lon = NaN;
+        if (filteredGps[peak.index] && !isNaN(filteredGps[peak.index].lat)) {
+          lat = filteredGps[peak.index].lat;
+          lon = filteredGps[peak.index].lon;
+        } else if (matchingRow && !isNaN(matchingRow.lat)) {
+          lat = matchingRow.lat;
+          lon = matchingRow.lon;
+        }
+
+        if (!isNaN(lat) && !isNaN(lon) && this.showPeaks) {
+          const marker = L.marker([lat, lon], { icon: peakIcon });
+          const popupHtml = `
+            <div class="map-popup-card compact">
+              <h4>${track.name}</h4>
+              <p>Peak Event #${index + 1}</p>
+              <p>Amplitude: <b>${peak.amplitude.toFixed(3)} μS</b></p>
+            </div>
+          `;
+          marker.bindPopup(popupHtml);
+          marker.addTo(this.map);
+          this.collectivePeakMarkers.push(marker);
+        }
+      });
+    });
+
+    // 3. Zoom and Pan Map to fit collective bounding envelope
+    const bounds = collectiveManager.getBounds();
+    if (bounds) {
+      this.map.fitBounds([
+        [bounds.minLat, bounds.minLon],
+        [bounds.maxLat, bounds.maxLon]
+      ], { padding: [40, 40] });
+    }
+
+    // 4. Calculate and render topographic contour lines
+    this.renderContours(collectiveManager, contourParams);
+  }
+
+  /**
+   * Call contour generation math and draw vector polyline boundaries
+   */
+  renderContours(collectiveManager, contourParams) {
+    this.clearContours();
+
+    const contours = collectiveManager.generateContourSurface(contourParams);
+    if (!contours || contours.length === 0) return;
+
+    contours.forEach(c => {
+      // Map ratio to color (Green = 120 -> Yellow = 60 -> Red = 0)
+      const hue = (1.0 - c.ratio) * 120;
+      const color = `hsl(${hue}, 100%, 55%)`;
+
+      c.segments.forEach(seg => {
+        const poly = L.polyline([
+          [seg[0].lat, seg[0].lon],
+          [seg[1].lat, seg[1].lon]
+        ], {
+          color: color,
+          weight: 4.5,
+          opacity: 0.85,
+          lineCap: 'round',
+          lineJoin: 'round'
+        });
+
+        const formattedVal = c.level.toFixed(3);
+        const unit = (contourParams.topographySource === 'peaks') ? '' : ' μS';
+        poly.bindTooltip(`Level: ${formattedVal}${unit}`, {
+          sticky: true,
+          className: 'contour-tooltip-label'
+        });
+
+        poly.addTo(this.map);
+        this.contourLayers.push(poly);
+      });
+    });
   }
 }
 
