@@ -8,6 +8,7 @@ class GSRMapManager {
     this.pathSegments = [];
     this.peakMarkers = [];
     this.scrubMarker = null;
+    this.showPeaks = true;
     
     this.initMap();
   }
@@ -18,7 +19,7 @@ class GSRMapManager {
   initMap() {
     // Default view zoomed out
     this.map = L.map(this.containerId, {
-      zoomControl: true,
+      zoomControl: false,
       scrollWheelZoom: true
     }).setView([0, 0], 2);
 
@@ -208,8 +209,10 @@ class GSRMapManager {
     analyzer.peaks.forEach((peak, index) => {
       const matchingRow = data[peak.index];
       if (matchingRow && matchingRow.hasGps && !isNaN(matchingRow.lat) && !isNaN(matchingRow.lon)) {
-        const marker = L.marker([matchingRow.lat, matchingRow.lon], { icon: peakIcon })
-          .addTo(this.map);
+        const marker = L.marker([matchingRow.lat, matchingRow.lon], { icon: peakIcon });
+        if (this.showPeaks) {
+          marker.addTo(this.map);
+        }
 
         const popupHtml = `
           <div class="map-popup-card">
@@ -476,6 +479,52 @@ class GSRMapManager {
     };
 
     return rdpRecurse(points, 0, points.length - 1);
+  }
+
+  /**
+   * Zoom the map in by one level.
+   */
+  zoomIn() {
+    if (this.map) {
+      this.map.zoomIn();
+    }
+  }
+
+  /**
+   * Zoom the map out by one level.
+   */
+  zoomOut() {
+    if (this.map) {
+      this.map.zoomOut();
+    }
+  }
+
+  /**
+   * Zoom and pan the map to fit the current polyline track extent.
+   */
+  fitToTrack() {
+    if (this.map && this.pathSegments.length > 0) {
+      const group = new L.featureGroup(this.pathSegments);
+      this.map.fitBounds(group.getBounds(), { padding: [30, 30] });
+    }
+  }
+
+  /**
+   * Toggle the visibility of the stress peak markers on the map layer.
+   */
+  togglePeaks(visible) {
+    this.showPeaks = visible;
+    this.peakMarkers.forEach(m => {
+      if (visible) {
+        if (!this.map.hasLayer(m)) {
+          m.addTo(this.map);
+        }
+      } else {
+        if (this.map.hasLayer(m)) {
+          this.map.removeLayer(m);
+        }
+      }
+    });
   }
 
   /**

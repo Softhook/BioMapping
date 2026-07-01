@@ -247,6 +247,23 @@ function setupEventListeners() {
     setTimeout(() => windowResized(), 320);
   });
 
+  // ── Map Panel Controls ───────────────────────────────────────────────────
+  document.getElementById('btnMapZoomIn').addEventListener('click', () => {
+    if (mapManager) mapManager.zoomIn();
+  });
+  document.getElementById('btnMapZoomOut').addEventListener('click', () => {
+    if (mapManager) mapManager.zoomOut();
+  });
+  document.getElementById('btnMapZoomExtent').addEventListener('click', () => {
+    if (mapManager) mapManager.fitToTrack();
+  });
+  const btnToggleMapPeaks = document.getElementById('btnToggleMapPeaks');
+  btnToggleMapPeaks.addEventListener('click', () => {
+    btnToggleMapPeaks.classList.toggle('active');
+    const isVisible = btnToggleMapPeaks.classList.contains('active');
+    if (mapManager) mapManager.togglePeaks(isVisible);
+  });
+
   // ── GSR Panel Fullscreen ─────────────────────────────────────────────────
   setupPanelFullscreen(
     'btnGsrFullscreen',
