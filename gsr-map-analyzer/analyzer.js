@@ -926,7 +926,13 @@ class GSRCollectiveManager {
       }
     }
 
-    return contours;
+    return {
+      contours,
+      grid,
+      minVal,
+      maxVal,
+      bounds
+    };
   }
 }
 

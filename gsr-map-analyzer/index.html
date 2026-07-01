@@ -330,6 +330,23 @@
               <input type="range" id="idwExponent" min="1.0" max="4.0" step="0.2" value="2.0">
               <p class="help-text">Spatial weight drop-off with distance (higher = more localized peaks).</p>
             </div>
+
+            <div class="slider-group">
+              <div class="slider-label" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                <span>Show Shaded Surface</span>
+                <input type="checkbox" id="showShadedSurface" class="track-checkbox" checked>
+              </div>
+              <p class="help-text">Renders a continuous color-coded heatmap surface under the isolines.</p>
+            </div>
+
+            <div class="slider-group" id="surfaceOpacityGroup">
+              <div class="slider-label">
+                <span>Surface Opacity</span>
+                <span class="slider-value" id="valSurfaceOpacity">40%</span>
+              </div>
+              <input type="range" id="surfaceOpacity" min="0.05" max="1.0" step="0.05" value="0.40">
+              <p class="help-text">Controls transparency of the continuous surface layer.</p>
+            </div>
           </div>
         </section>
 
@@ -409,6 +426,15 @@
               <h3><i class="fa-solid fa-chart-area"></i> Interactive Signal Decomposition</h3>
             </div>
             <div class="canvas-controls">
+              <select id="timeWindowSelect" class="select-control compact" title="Time Window Preset">
+                <option value="fit" selected>Fit Track</option>
+                <option value="3600">1 Hour</option>
+                <option value="1800">30 Min</option>
+                <option value="600">10 Min</option>
+                <option value="120">2 Min</option>
+                <option value="custom" disabled hidden>Zoom: Custom</option>
+              </select>
+              <span class="control-divider"></span>
               <button class="icon-btn" id="btnZoomIn" title="Zoom In"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
               <button class="icon-btn" id="btnZoomOut" title="Zoom Out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
               <button class="icon-btn" id="btnResetView" title="Reset View"><i class="fa-solid fa-arrows-to-eye"></i></button>

@@ -628,6 +628,11 @@ class GSRMapManager {
       this.contourLayers.forEach(layer => this.map.removeLayer(layer));
     }
     this.contourLayers = [];
+
+    if (this.surfaceOverlay) {
+      this.map.removeLayer(this.surfaceOverlay);
+      this.surfaceOverlay = null;
+    }
   }
 
   /**
@@ -730,9 +735,61 @@ class GSRMapManager {
   renderContours(collectiveManager, contourParams) {
     this.clearContours();
 
-    const contours = collectiveManager.generateContourSurface(contourParams);
-    if (!contours || contours.length === 0) return;
+    const surfaceData = collectiveManager.generateContourSurface(contourParams);
+    if (!surfaceData || !surfaceData.contours) return;
 
+    const { contours, grid, minVal, maxVal, bounds } = surfaceData;
+    const { showShadedSurface = true, surfaceOpacity = 0.40 } = contourParams;
+
+    // 1. Draw shaded continuous surface overlay
+    if (showShadedSurface && grid && grid.length > 0 && bounds) {
+      const rows = grid.length;
+      const cols = grid[0].length;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = cols;
+      canvas.height = rows;
+      const ctx = canvas.getContext('2d');
+
+      const valRange = maxVal - minVal;
+      const rangeEpsilon = 1e-9;
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const val = grid[r][c];
+          if (val === null || isNaN(val)) {
+            continue;
+          }
+
+          let ratio = 0;
+          if (valRange > rangeEpsilon) {
+            ratio = (val - minVal) / valRange;
+          }
+
+          // Map ratio to color (Green = 120 -> Yellow = 60 -> Red = 0)
+          const hue = (1.0 - ratio) * 120;
+          ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+
+          // Flip row index vertically for canvas space
+          const x = c;
+          const y = rows - 1 - r;
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+
+      const imageBounds = [
+        [bounds.minLat, bounds.minLon],
+        [bounds.maxLat, bounds.maxLon]
+      ];
+
+      this.surfaceOverlay = L.imageOverlay(canvas.toDataURL(), imageBounds, {
+        opacity: surfaceOpacity,
+        interactive: false,
+        className: 'collective-surface-overlay'
+      }).addTo(this.map);
+    }
+
+    // 2. Draw vector isoline boundaries
     contours.forEach(c => {
       // Map ratio to color (Green = 120 -> Yellow = 60 -> Red = 0)
       const hue = (1.0 - c.ratio) * 120;

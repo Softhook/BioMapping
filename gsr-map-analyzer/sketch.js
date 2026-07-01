@@ -24,6 +24,11 @@ function getNextTrackColor() {
 }
 let myCanvas;
 
+// Timeline variables
+let yTimelineTop = 0;
+let yTimelineBottom = 0;
+let isDraggingTimeline = false;
+
 // Viewport variables (zoom and pan)
 let totalDuration = 120.0; // Default demo duration
 let viewStartTime = 0.0;
@@ -203,6 +208,22 @@ function setupEventListeners() {
   document.getElementById('btnZoomOut').addEventListener('click', () => zoomCanvas(0.67));
   document.getElementById('btnResetView').addEventListener('click', resetView);
 
+  const timeWindowSelect = document.getElementById('timeWindowSelect');
+  if (timeWindowSelect) {
+    timeWindowSelect.addEventListener('change', () => {
+      const val = timeWindowSelect.value;
+      if (val === 'fit') {
+        resetView();
+      } else if (val !== 'custom') {
+        const windowSec = parseFloat(val);
+        viewDuration = Math.min(windowSec, totalDuration);
+        viewStartTime = constrain(viewStartTime, 0, Math.max(0, totalDuration - viewDuration));
+        zoomFactor = totalDuration / viewDuration;
+        redraw();
+      }
+    });
+  }
+
   // Curve Toggles
   const bindToggle = (btnId, stateVarSetter, isStateVar) => {
     const btn = document.getElementById(btnId);
@@ -323,6 +344,19 @@ function setupEventListeners() {
   bindContourInput('contourCount', 'valContourCount', v => `${v} lines`);
   bindContourInput('isolationRadius', 'valIsolationRadius', v => `${v} m`);
   bindContourInput('idwExponent', 'valIdwExponent', v => v.toFixed(1));
+  bindContourInput('surfaceOpacity', 'valSurfaceOpacity', v => `${Math.round(v * 100)}%`);
+
+  const showShaded = document.getElementById('showShadedSurface');
+  const opacityGroup = document.getElementById('surfaceOpacityGroup');
+  if (showShaded && opacityGroup) {
+    opacityGroup.style.display = showShaded.checked ? 'block' : 'none';
+    showShaded.addEventListener('change', () => {
+      opacityGroup.style.display = showShaded.checked ? 'block' : 'none';
+      if (viewMode === 'collective') {
+        updateCollectiveMap();
+      }
+    });
+  }
   
   document.getElementById('topoSource').addEventListener('change', () => {
     if (viewMode === 'collective') {
@@ -552,7 +586,13 @@ function draw() {
 
   // Calculate panel split dimensions
   const innerWidth = width - margin.left - margin.right;
-  const totalHeight = height - margin.top - margin.bottom - margin.gap;
+  
+  // Timeline heights
+  const timelineHeight = 22;
+  const timelineGap = 25;
+
+  // Subtract timeline from total height budget
+  const totalHeight = height - margin.top - margin.bottom - margin.gap - timelineHeight - timelineGap;
   
   const hUpper = totalHeight * 0.62; // Upper graph gets 62%
   const hLower = totalHeight * 0.38; // Lower graph gets 38%
@@ -560,6 +600,10 @@ function draw() {
   const yUpperBottom = margin.top + hUpper;
   const yLowerTop = yUpperBottom + margin.gap;
   const yLowerBottom = yLowerTop + hLower;
+
+  // Save dynamic vertical bounds for timeline interaction
+  yTimelineTop = yLowerBottom + timelineGap;
+  yTimelineBottom = yTimelineTop + timelineHeight;
 
   // View bounds
   const viewEndTime = viewStartTime + viewDuration;
@@ -653,6 +697,66 @@ function draw() {
 
   // 5. Draw Interactive Hover Scrubber
   handleScrubber(viewStartTime, viewEndTime, yMinUpper, yMaxUpper, yUpperBottom, yMinLower, yMaxLower, yLowerTop, yLowerBottom);
+
+  // 6. Draw Timeline overview / Minimap
+  if (analyzer.raw && analyzer.raw.length > 0) {
+    // Timeline background
+    fill(15, 23, 42, 180);
+    stroke(255, 255, 255, 15);
+    strokeWeight(1);
+    rect(margin.left, yTimelineTop, innerWidth, timelineHeight, 6);
+
+    // Draw full raw GSR signal downsampled to fit timeline smoothly
+    noFill();
+    stroke(148, 163, 184, 45); // muted slate grey-blue
+    strokeWeight(1.2);
+    
+    // Find min and max of raw signal for full track (cached for performance)
+    let minRaw = Infinity;
+    let maxRaw = -Infinity;
+    if (!analyzer.rawMinMaxCached) {
+      for (let i = 0; i < analyzer.raw.length; i++) {
+        const val = analyzer.raw[i].val;
+        if (val < minRaw) minRaw = val;
+        if (val > maxRaw) maxRaw = val;
+      }
+      analyzer.rawMinMaxCached = { minVal: minRaw, maxVal: maxRaw };
+    } else {
+      minRaw = analyzer.rawMinMaxCached.minVal;
+      maxRaw = analyzer.rawMinMaxCached.maxVal;
+    }
+    
+    if (minRaw === maxRaw) maxRaw = minRaw + 0.5;
+
+    beginShape();
+    const timelineStep = Math.max(1, Math.floor(analyzer.raw.length / 300));
+    for (let i = 0; i < analyzer.raw.length; i += timelineStep) {
+      const d = analyzer.raw[i];
+      const xt = map(d.time, 0, totalDuration, margin.left, width - margin.right);
+      const yt = map(d.val, minRaw, maxRaw, yTimelineBottom - 3, yTimelineTop + 3);
+      vertex(xt, yt);
+    }
+    endShape();
+
+    // Draw stress peak indicators as small red vertical lines
+    if (showPeaks && analyzer.peaks) {
+      fill(244, 63, 94, 180); // rose-600 with opacity
+      noStroke();
+      analyzer.peaks.forEach(pk => {
+        const xp = map(pk.time, 0, totalDuration, margin.left, width - margin.right);
+        rect(xp - 0.5, yTimelineTop + 2, 1.5, timelineHeight - 4);
+      });
+    }
+
+    // Draw active viewport highlight rectangle (with nice glass effect)
+    const xViewStart = map(viewStartTime, 0, totalDuration, margin.left, width - margin.right);
+    const xViewEnd = map(viewStartTime + viewDuration, 0, totalDuration, margin.left, width - margin.right);
+    
+    fill(14, 165, 233, 25); // sky blue transparency
+    stroke(14, 165, 233, 140);
+    strokeWeight(1.5);
+    rect(xViewStart, yTimelineTop, xViewEnd - xViewStart, timelineHeight, 4);
+  }
 }
 
 function drawPlaceholder() {
@@ -789,33 +893,45 @@ function drawSignalCurve(data, tMin, tMax, yMin, yMax, yTop, yBottom, lineColor,
   stroke(lineColor);
   strokeWeight(lineWt);
   
-  beginShape();
-  
   // Find start and end indices in viewport
   const startIdx = Math.max(0, findClosestIndex(tMin) - 1);
   const endIdx = Math.min(data.length - 1, findClosestIndex(tMax) + 1);
+  const count = endIdx - startIdx + 1;
 
-  // First control point for p5 spline interpolation (duplicate first point in view)
-  if (startIdx <= endIdx) {
+  if (count <= 0) return;
+
+  const maxVertices = 1500;
+  const step = Math.max(1, Math.ceil(count / maxVertices));
+  const useSpline = count < 600;
+
+  beginShape();
+  
+  if (useSpline) {
+    // First control point for p5 spline interpolation (duplicate first point in view)
     const dFirst = data[startIdx];
     const xFirst = map(dFirst.time, tMin, tMax, margin.left, width - margin.right);
     const yFirst = map(dFirst.val, yMin, yMax, yBottom, yTop);
     curveVertex(xFirst, yFirst);
-  }
 
-  for (let i = startIdx; i <= endIdx; i++) {
-    const d = data[i];
-    const x = map(d.time, tMin, tMax, margin.left, width - margin.right);
-    const y = map(d.val, yMin, yMax, yBottom, yTop);
-    curveVertex(x, y);
-  }
+    for (let i = startIdx; i <= endIdx; i += step) {
+      const d = data[i];
+      const x = map(d.time, tMin, tMax, margin.left, width - margin.right);
+      const y = map(d.val, yMin, yMax, yBottom, yTop);
+      curveVertex(x, y);
+    }
 
-  // Last control point for p5 spline interpolation (duplicate last point in view)
-  if (startIdx <= endIdx) {
+    // Last control point for p5 spline interpolation (duplicate last point in view)
     const dLast = data[endIdx];
     const xLast = map(dLast.time, tMin, tMax, margin.left, width - margin.right);
     const yLast = map(dLast.val, yMin, yMax, yBottom, yTop);
     curveVertex(xLast, yLast);
+  } else {
+    for (let i = startIdx; i <= endIdx; i += step) {
+      const d = data[i];
+      const x = map(d.time, tMin, tMax, margin.left, width - margin.right);
+      const y = map(d.val, yMin, yMax, yBottom, yTop);
+      vertex(x, y);
+    }
   }
   
   endShape();
@@ -828,9 +944,16 @@ function drawPhasicArea(data, tMin, tMax, yMin, yMax, yTop, yBottom) {
   if (!data || data.length === 0) return;
   const startIdx = Math.max(0, findClosestIndex(tMin) - 1);
   const endIdx = Math.min(data.length - 1, findClosestIndex(tMax) + 1);
+  const count = endIdx - startIdx + 1;
   
+  if (count <= 0) return;
+
   noStroke();
   fill(16, 185, 129, 25); // Emerald transparent fill
+
+  const maxVertices = 1500;
+  const step = Math.max(1, Math.ceil(count / maxVertices));
+  const useSpline = count < 600;
 
   beginShape();
   
@@ -840,24 +963,34 @@ function drawPhasicArea(data, tMin, tMax, yMin, yMax, yTop, yBottom) {
   // Anchor to baseline start
   vertex(xStart, yBottom);
   
-  // Spline control point
-  curveVertex(xStart, yBottom);
+  if (useSpline) {
+    // Spline control point
+    curveVertex(xStart, yBottom);
 
-  for (let i = startIdx; i <= endIdx; i++) {
-    const d = data[i];
-    const x = map(d.time, tMin, tMax, margin.left, width - margin.right);
-    const y = map(d.val, yMin, yMax, yBottom, yTop);
-    curveVertex(x, y);
+    for (let i = startIdx; i <= endIdx; i += step) {
+      const d = data[i];
+      const x = map(d.time, tMin, tMax, margin.left, width - margin.right);
+      const y = map(d.val, yMin, yMax, yBottom, yTop);
+      curveVertex(x, y);
+    }
+
+    const dLast = data[endIdx];
+    const xEnd = map(dLast.time, tMin, tMax, margin.left, width - margin.right);
+    // Spline control point
+    curveVertex(xEnd, yBottom);
+    // Anchor to baseline end
+    vertex(xEnd, yBottom);
+  } else {
+    for (let i = startIdx; i <= endIdx; i += step) {
+      const d = data[i];
+      const x = map(d.time, tMin, tMax, margin.left, width - margin.right);
+      const y = map(d.val, yMin, yMax, yBottom, yTop);
+      vertex(x, y);
+    }
+    const dLast = data[endIdx];
+    const xEnd = map(dLast.time, tMin, tMax, margin.left, width - margin.right);
+    vertex(xEnd, yBottom);
   }
-  
-  const dLast = data[endIdx];
-  const xEnd = map(dLast.time, tMin, tMax, margin.left, width - margin.right);
-  
-  // Spline control point
-  curveVertex(xEnd, yBottom);
-  
-  // Anchor to baseline end
-  vertex(xEnd, yBottom);
   
   endShape();
 }
@@ -929,13 +1062,15 @@ function drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL
 
     // Label peak number
     if (xPeak >= margin.left && xPeak <= width - margin.right) {
-      noStroke();
-      fill(244, 63, 94);
-      textSize(10);
-      textStyle(BOLD);
-      textAlign(CENTER, BOTTOM);
-      text(`#${pIdx + 1}`, xPeak, yFilteredPeak - 8);
-      textStyle(NORMAL);
+      if (viewDuration < 300 || isActive || isHovered) {
+        noStroke();
+        fill(244, 63, 94);
+        textSize(10);
+        textStyle(BOLD);
+        textAlign(CENTER, BOTTOM);
+        text(`#${pIdx + 1}`, xPeak, yFilteredPeak - 8);
+        textStyle(NORMAL);
+      }
     }
   }
 }
@@ -1101,9 +1236,21 @@ function findClosestIndex(targetTime) {
  * Handle Zoom and Pan Mouse Gestures
  */
 function mousePressed() {
-  // Check if click was inside graph bounds
+  if (analyzer.raw.length === 0) return;
+  
+  // Check if click was inside timeline overview
   if (mouseX >= margin.left && mouseX <= width - margin.right &&
-      mouseY >= margin.top && mouseY <= height - margin.bottom) {
+      mouseY >= yTimelineTop && mouseY <= yTimelineBottom) {
+    isDraggingTimeline = true;
+    const clickTime = map(mouseX, margin.left, width - margin.right, 0, totalDuration);
+    viewStartTime = constrain(clickTime - viewDuration / 2, 0, Math.max(0, totalDuration - viewDuration));
+    const select = document.getElementById('timeWindowSelect');
+    if (select) select.value = 'custom';
+    redraw();
+  }
+  // Check if click was inside graph bounds (above the timeline gap)
+  else if (mouseX >= margin.left && mouseX <= width - margin.right &&
+      mouseY >= margin.top && mouseY <= yTimelineTop - 20) {
     isDragging = true;
     dragStartMouseX = mouseX;
     dragStartViewStart = viewStartTime;
@@ -1111,25 +1258,31 @@ function mousePressed() {
 }
 
 function mouseDragged() {
-  if (isDragging && analyzer.raw.length > 0) {
+  if (isDraggingTimeline && analyzer.raw.length > 0) {
+    const dragTime = map(mouseX, margin.left, width - margin.right, 0, totalDuration);
+    viewStartTime = constrain(dragTime - viewDuration / 2, 0, Math.max(0, totalDuration - viewDuration));
+    redraw();
+  }
+  else if (isDragging && analyzer.raw.length > 0) {
     const mouseDx = mouseX - dragStartMouseX;
     const timePerPixel = viewDuration / (width - margin.left - margin.right);
     const timeShift = mouseDx * timePerPixel;
     
     viewStartTime = dragStartViewStart - timeShift;
-    viewStartTime = constrain(viewStartTime, 0, totalDuration - viewDuration);
+    viewStartTime = constrain(viewStartTime, 0, Math.max(0, totalDuration - viewDuration));
     redraw();
   }
 }
 
 function mouseReleased() {
   isDragging = false;
+  isDraggingTimeline = false;
 }
 
 function mouseWheel(event) {
-  // Zoom only if hovered over the graph canvas area
+  // Zoom only if hovered over the graph canvas area (above the timeline)
   if (mouseX >= margin.left && mouseX <= width - margin.right &&
-      mouseY >= margin.top && mouseY <= height - margin.bottom) {
+      mouseY >= margin.top && mouseY <= yTimelineTop - 20) {
     
     if (analyzer.raw.length === 0) return false;
 
@@ -1137,14 +1290,17 @@ function mouseWheel(event) {
     const mouseTime = map(mouseX, margin.left, width - margin.right, viewStartTime, viewStartTime + viewDuration);
 
     // Zoom direction
-    const zoomMultiplier = event.delta < 0 ? 1.15 : 0.85;
+    const zoomMultiplier = event.delta < 0 ? 0.85 : 1.15;
     
-    zoomFactor = constrain(zoomFactor * zoomMultiplier, MIN_ZOOM, MAX_ZOOM);
-    viewDuration = totalDuration / zoomFactor;
+    viewDuration = constrain(viewDuration * zoomMultiplier, 2.0, totalDuration);
+    zoomFactor = totalDuration / viewDuration;
 
     // Center zoom on mouse time coordinate
     viewStartTime = mouseTime - (mouseX - margin.left) * (viewDuration / (width - margin.left - margin.right));
-    viewStartTime = constrain(viewStartTime, 0, totalDuration - viewDuration);
+    viewStartTime = constrain(viewStartTime, 0, Math.max(0, totalDuration - viewDuration));
+
+    const select = document.getElementById('timeWindowSelect');
+    if (select) select.value = 'custom';
 
     redraw();
     return false; // Prevent page scroll
@@ -1160,11 +1316,14 @@ function zoomCanvas(multiplier) {
   // Center Zoom on current view center
   const centerTime = viewStartTime + viewDuration / 2;
   
-  zoomFactor = constrain(zoomFactor * multiplier, MIN_ZOOM, MAX_ZOOM);
-  viewDuration = totalDuration / zoomFactor;
+  viewDuration = constrain(viewDuration / multiplier, 2.0, totalDuration);
+  zoomFactor = totalDuration / viewDuration;
   
   viewStartTime = centerTime - viewDuration / 2;
-  viewStartTime = constrain(viewStartTime, 0, totalDuration - viewDuration);
+  viewStartTime = constrain(viewStartTime, 0, Math.max(0, totalDuration - viewDuration));
+  
+  const select = document.getElementById('timeWindowSelect');
+  if (select) select.value = 'custom';
   
   redraw();
 }
@@ -1176,6 +1335,9 @@ function resetView() {
   zoomFactor = 1.0;
   activePeakIndex = -1;
   
+  const select = document.getElementById('timeWindowSelect');
+  if (select) select.value = 'fit';
+
   // De-select table rows
   document.querySelectorAll('#peaksTable tbody tr').forEach(r => r.classList.remove('active-row'));
   
@@ -1479,13 +1641,17 @@ function updateCollectiveMap() {
   const contourCount = parseInt(document.getElementById('contourCount').value);
   const isolationRadius = parseFloat(document.getElementById('isolationRadius').value);
   const idwExponent = parseFloat(document.getElementById('idwExponent').value);
+  const showShadedSurface = document.getElementById('showShadedSurface') ? document.getElementById('showShadedSurface').checked : true;
+  const surfaceOpacity = document.getElementById('surfaceOpacity') ? parseFloat(document.getElementById('surfaceOpacity').value) : 0.40;
 
   const contourParams = {
     gridResolution,
     contourCount,
     isolationRadius,
     idwExponent,
-    topographySource: topoSource
+    topographySource: topoSource,
+    showShadedSurface,
+    surfaceOpacity
   };
 
   mapManager.renderCollectiveData(collectiveManager, contourParams);
@@ -1661,7 +1827,10 @@ window.focusOnPeak = function(idx) {
   
   // Center around peak
   viewStartTime = p.time - viewDuration / 2;
-  viewStartTime = constrain(viewStartTime, 0, totalDuration - viewDuration);
+  viewStartTime = constrain(viewStartTime, 0, Math.max(0, totalDuration - viewDuration));
+
+  const select = document.getElementById('timeWindowSelect');
+  if (select) select.value = 'custom';
 
   // Update table row highlighting
   document.querySelectorAll('#peaksTable tbody tr').forEach(r => r.classList.remove('active-row'));

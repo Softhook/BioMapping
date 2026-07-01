@@ -1289,4 +1289,23 @@ input[type="range"]::-webkit-slider-thumb:hover {
   font-size: 0.75rem !important;
 }
 
+/* Compact Select Control for Graph Header */
+.select-control.compact {
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  border-radius: 6px;
+  height: 26px;
+  width: auto;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--border-glass);
+  color: var(--text-primary);
+  display: inline-block;
+  cursor: pointer;
+}
+
+.select-control.compact option {
+  background: #0f172a;
+  color: var(--text-primary);
+}
+
 
