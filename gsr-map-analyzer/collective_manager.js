@@ -63,11 +63,12 @@ class GSRCollectiveManager {
    */
   generateContourSurface(contourParams) {
     if (!contourParams) contourParams = {};
-    const gridResolution  = contourParams.gridResolution  || 40;
-    const isolationRadius = contourParams.isolationRadius || 50;
-    const topographySource = contourParams.topographySource || 'phasic';
-    const contourCount    = contourParams.contourCount    || 10;
-    const idwExponent     = contourParams.idwExponent     || 2;
+    // Use explicit !== undefined checks so falsy values (0, false, '') are not silently overridden
+    var gridResolution  = contourParams.gridResolution  !== undefined ? contourParams.gridResolution  : 40;
+    var isolationRadius = contourParams.isolationRadius !== undefined ? contourParams.isolationRadius : 50;
+    var topographySource = contourParams.topographySource !== undefined ? contourParams.topographySource : 'phasic';
+    var contourCount    = contourParams.contourCount    !== undefined ? contourParams.contourCount    : 10;
+    var idwExponent     = contourParams.idwExponent     !== undefined ? contourParams.idwExponent     : 2;
 
     const bounds = this.getBounds();
     if (!bounds) return [];

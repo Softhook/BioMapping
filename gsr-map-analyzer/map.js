@@ -47,6 +47,7 @@ class GSRMapManager {
    * Reset path and markers on map
    */
   clearMap() {
+    if (!this.map) return;
     this.pathSegments.forEach(seg => this.map.removeLayer(seg));
     this.pathSegments = [];
     
@@ -212,9 +213,13 @@ class GSRMapManager {
   }
 
   _renderPathSegments(drawPoints, data, trackWeight) {
-    const vals = data.map(d => d.val);
-    const minVal = Math.min(...vals);
-    const maxVal = Math.max(...vals);
+    // Use reduce to avoid Math.min(...spread) stack overflow on large datasets
+    var minVal = Infinity, maxVal = -Infinity;
+    for (var i = 0; i < data.length; i++) {
+      var v = data[i].val;
+      if (v < minVal) minVal = v;
+      if (v > maxVal) maxVal = v;
+    }
 
     for (let i = 0; i < drawPoints.length - 1; i++) {
       const pA = drawPoints[i], pB = drawPoints[i + 1];
@@ -291,17 +296,15 @@ class GSRMapManager {
    */
   togglePeaks(visible) {
     this.showPeaks = visible;
-    this.peakMarkers.forEach(m => {
+    var toggle = function(m) {
       if (visible) {
-        if (!this.map.hasLayer(m)) {
-          m.addTo(this.map);
-        }
+        if (!this.map.hasLayer(m)) m.addTo(this.map);
       } else {
-        if (this.map.hasLayer(m)) {
-          this.map.removeLayer(m);
-        }
+        if (this.map.hasLayer(m)) this.map.removeLayer(m);
       }
-    });
+    }.bind(this);
+    this.peakMarkers.forEach(toggle);
+    this.collectivePeakMarkers.forEach(toggle);
   }
 
   /**

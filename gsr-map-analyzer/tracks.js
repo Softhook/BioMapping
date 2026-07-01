@@ -79,6 +79,7 @@ function renderTrackList() {
   const dropZone    = AppState.dropZone;
 
   if (AppState.collectiveManager.tracks.length === 0) {
+    noLoop();
     container.style.display = 'none';
     dropZone.style.display = 'flex';
     dropZone.classList.remove('compact');

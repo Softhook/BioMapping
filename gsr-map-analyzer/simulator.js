@@ -95,7 +95,7 @@ function loadDemoData() {
     };
 
     AppState.collectiveManager.addTrack(newTrack);
-    tempAnalyzer.analyze(filterParams);
+    // No need to call analyze() here — switchActiveTrack() → runAnalysis() does it
 
     switchActiveTrack(trackId);
     renderTrackList();

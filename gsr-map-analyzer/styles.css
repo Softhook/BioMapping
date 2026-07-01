@@ -885,6 +885,18 @@ input[type="range"]::-webkit-slider-thumb:hover {
   gap: 6px;
 }
 
+/* Collective peak popups are smaller, no event-number heading */
+.map-popup-card.compact h4 {
+  font-size: 0.8rem;
+  margin-bottom: 4px;
+}
+.map-popup-card.compact p {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin: 2px 0;
+  line-height: 1.3;
+}
+
 .popup-table {
   width: 100%;
   font-size: 0.8rem;

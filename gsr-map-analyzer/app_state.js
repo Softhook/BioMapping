@@ -56,7 +56,7 @@ const AppState = {
   // ── Graph layout constants ──────────────────────────────────────────────────
   margin: {
     top: 30,
-    bottom: 50,
+    bottom: 16,
     left: 70,
     right: 35,
     gap: 40   // gap between Upper and Lower graphs
