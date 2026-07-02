@@ -27,7 +27,7 @@ function drawGridX(tMin, tMax, yUpperBottom, yLowerBottom) {
 
   stroke(255, 255, 255, 12);
   strokeWeight(1);
-  textAlign(CENTER, TOP);
+  textAlign(CENTER, CENTER);
   textSize(10);
 
   for (let t = firstGridTime; t <= tMax; t += step) {
@@ -36,6 +36,7 @@ function drawGridX(tMin, tMax, yUpperBottom, yLowerBottom) {
     line(x, M.top, x, yUpperBottom);
     line(x, yUpperBottom + M.gap, x, yLowerBottom);
 
+    // Time label in the gap between upper (tonic) and lower (phasic) graphs
     fill(148, 163, 184);
     noStroke();
 
@@ -50,7 +51,7 @@ function drawGridX(tMin, tMax, yUpperBottom, yLowerBottom) {
       const s = Math.floor(t % 60);
       label = m + ':' + (s < 10 ? '0' : '') + s;
     }
-    text(label, x, yLowerBottom + 6);
+    text(label, x, yUpperBottom + M.gap / 2);
     stroke(255, 255, 255, 12);
   }
 
@@ -324,6 +325,16 @@ function handleScrubber(tMin, tMax, yMinU, yMaxU, yBottomU, yMinL, yMaxL, yTopL,
   stroke(255, 255, 255, 50);
   strokeWeight(1);
   line(xScrub, M.top, xScrub, yBottomL);
+
+  // Time label on scrubber in the gap between upper and lower graphs
+  const gapCenter = (yBottomU + yTopL) / 2;
+  fill(14, 165, 233, 220);
+  noStroke();
+  textSize(10);
+  textStyle(BOLD);
+  textAlign(CENTER, CENTER);
+  text(dRaw.time.toFixed(1) + 's', xScrub, gapCenter);
+  textStyle(NORMAL);
 
   const yU = map(dFilt.val, yMinU, yMaxU, yBottomU, M.top);
   const yL = map(dPhasic.val, yMinL, yMaxL, yBottomL, yTopL);
