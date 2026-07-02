@@ -306,7 +306,10 @@ const DWT = (() => {
 
     const phasic = new Array(n);
     for (let i = 0; i < n; i++) {
-      phasic[i] = signal[i] - tonic[i];
+      // Phasic conductance cannot physically be negative — clamp to zero.
+      // DWT subtraction may occasionally dip below zero near sharp transients
+      // or at boundaries; this enforces the physiological constraint.
+      phasic[i] = Math.max(0, signal[i] - tonic[i]);
     }
 
     return { tonic, phasic };

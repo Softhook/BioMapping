@@ -297,10 +297,11 @@ class GSRAnalyzer {
       // signal.  Physiologically, SCRs are always positive-going, so the
       // tonic should track the LOWER envelope.  We reposition the tonic
       // using a local-floor approach: for each sample, find the minimum
-      // of (signal − tonic) in an 8 s window — this is how far the tonic
-      // needs to drop at that point to sit at the local floor.  Smooth
-      // the offsets to avoid jitter, then apply.
-      const floorHalf = Math.max(1, Math.round(4 * this.sampleRate)); // ±4 s
+      // of (signal − tonic) in a ±6 s window — this is how far the tonic
+      // needs to drop at that point to sit at the local floor.  Light
+      // 4 s smoothing on the offsets (reduced from 8 s) keeps the tonic
+      // responsive to rapid SCR onsets without introducing jitter.
+      const floorHalf = Math.max(1, Math.round(6 * this.sampleRate)); // ±6 s
       const localOffsets = new Array(n);
       for (let i = 0; i < n; i++) {
         const s = Math.max(0, i - floorHalf);
@@ -311,15 +312,15 @@ class GSRAnalyzer {
         }
         localOffsets[i] = mn;
       }
-      // Smooth the offset curve to eliminate jitter (8 s window)
+      // Light smoothing on offset curve (4 s window — tighter than before)
       const smoothOffsets = GsrFilter.applyZeroPhaseMovingAverage(
-        localOffsets, Math.round(8 * this.sampleRate)
+        localOffsets, Math.round(4 * this.sampleRate)
       );
       for (let i = 0; i < n; i++) {
         tonicVals[i] += smoothOffsets[i];  // offset is negative → moves tonic down
       }
-      // Recompute phasic from repositioned tonic
-      phasicVals = afterLPF.map((v, i) => v - tonicVals[i]);
+      // Recompute phasic from repositioned tonic, clamp to ≥0
+      phasicVals = afterLPF.map((v, i) => Math.max(0, v - tonicVals[i]));
     } else {
       // ── Classical sliding-window methods ────────────────────────────────
       const tonicWinSize = Math.max(5, Math.round(params.tonicWindow * this.sampleRate));
