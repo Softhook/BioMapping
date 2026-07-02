@@ -105,15 +105,22 @@ const GSRRenderer = {
     textAlign(RIGHT, CENTER);
     textSize(10);
 
+    const labelHeight = 14;
+    let lastLabelY = null;
+
     for (let val = firstGridVal; val <= yMax; val += step) {
       if (val < yMin) continue;
       const y = map(val, yMin, yMax, yBottom, GSR_CONST.MARGIN.top);
       line(GSR_CONST.MARGIN.left, y, width - GSR_CONST.MARGIN.right, y);
 
+      // Skip label if it would overlap with the previous one
+      if (lastLabelY !== null && Math.abs(y - lastLabelY) < labelHeight) continue;
+
       noStroke();
       fill(textColor);
       text(val.toFixed(2) + ' \u03bcS', GSR_CONST.MARGIN.left - 8, y);
       stroke(gridColor);
+      lastLabelY = y;
     }
   },
 
@@ -135,15 +142,22 @@ const GSRRenderer = {
     textAlign(RIGHT, CENTER);
     textSize(10);
 
+    const labelHeight = 14; // text size (10) + padding to prevent collision
+    let lastLabelY = null;
+
     for (let val = firstGridVal; val <= yMax; val += step) {
       if (val < yMin) continue;
       const y = map(val, yMin, yMax, yBottom, yBottom - heightVal);
       line(GSR_CONST.MARGIN.left, y, width - GSR_CONST.MARGIN.right, y);
 
+      // Skip label if it would overlap with the previous one
+      if (lastLabelY !== null && Math.abs(y - lastLabelY) < labelHeight) continue;
+
       noStroke();
       fill(textColor);
       text(val.toFixed(3) + ' \u03bcS', GSR_CONST.MARGIN.left - 8, y);
       stroke(gridColor);
+      lastLabelY = y;
     }
   },
 
