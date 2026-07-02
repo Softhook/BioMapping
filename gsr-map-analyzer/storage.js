@@ -22,7 +22,8 @@ function readGpsSliderValues() {
     rdpTolerance: parseFloat(S.gpsRDP.value),
     minDist:      parseFloat(S.gpsMinDist.value),
     downsample:   parseInt(S.gpsDownsample.value),
-    trackWeight:  parseInt(S.gpsTrackWeight.value)
+    trackWeight:  parseInt(S.gpsTrackWeight.value),
+    peakLatency:  parseFloat(S.gpsPeakLatency ? S.gpsPeakLatency.value : 0)
   };
 }
 
@@ -45,7 +46,8 @@ function buildGpsParams() {
     rdpTolerance: raw.rdpTolerance,
     minDist:      raw.minDist,
     downsample:   raw.downsample === 1,
-    trackWeight:  raw.trackWeight
+    trackWeight:  raw.trackWeight,
+    peakLatency:  raw.peakLatency
   };
 }
 
@@ -71,7 +73,8 @@ function saveSettings() {
     gpsRDP:          gps.rdpTolerance,
     gpsMinDist:      gps.minDist,
     gpsDownsample:   gps.downsample,
-    gpsTrackWeight:  gps.trackWeight
+    gpsTrackWeight:  gps.trackWeight,
+    gpsPeakLatency:  gps.peakLatency
   };
   localStorage.setItem('bioMappingSettings', JSON.stringify(settings));
 }
@@ -100,6 +103,7 @@ function loadSettings() {
     if (settings.gpsMinDist      !== undefined && S.gpsMinDist)      S.gpsMinDist.value      = settings.gpsMinDist;
     if (settings.gpsDownsample   !== undefined && S.gpsDownsample)   S.gpsDownsample.value   = settings.gpsDownsample;
     if (settings.gpsTrackWeight  !== undefined && S.gpsTrackWeight)  S.gpsTrackWeight.value  = settings.gpsTrackWeight;
+    if (settings.gpsPeakLatency  !== undefined && S.gpsPeakLatency)  S.gpsPeakLatency.value  = settings.gpsPeakLatency;
   } catch (err) {
     console.error('Error loading settings from localStorage:', err);
   }

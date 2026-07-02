@@ -286,6 +286,15 @@
               <input type="range" id="gpsTrackWeight" min="1" max="14" step="1" value="5">
               <p class="help-text">Thickness of the drawn GPS path on the map.</p>
             </div>
+
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Peak Latency Compensation</span>
+                <span class="slider-value" id="valGpsPeakLatency">0.0 s</span>
+              </div>
+              <input type="range" id="gpsPeakLatency" min="0" max="5" step="0.5" value="0">
+              <p class="help-text">Shift peak markers backward on the map by this many seconds to compensate for physiological SCR delay (0-5 s).</p>
+            </div>
           </div>
         </section>
 

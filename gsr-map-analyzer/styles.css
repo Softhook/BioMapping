@@ -289,6 +289,14 @@ body {
   opacity: 0.35;
 }
 
+/* Highlight when peak latency compensation is active */
+.slider-group.latency-active {
+  background: rgba(244, 63, 94, 0.06);
+  border-left: 2px solid var(--color-peak);
+  padding-left: 13px;
+  border-radius: 0 6px 6px 0;
+}
+
 .slider-label {
   display: flex;
   justify-content: space-between;

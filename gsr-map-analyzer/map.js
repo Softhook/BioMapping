@@ -103,8 +103,8 @@ class GSRMapManager {
     this._fitBounds(drawPoints);
     this._renderPathSegments(drawPoints, data, p.trackWeight || 5);
 
-    // 13: Peak markers
-    this._renderPeakMarkers(analyzer, data);
+    // 13: Peak markers (with latency compensation)
+    this._renderPeakMarkers(analyzer, data, p.peakLatency || 0);
   }
 
   // ── Pipeline helpers ──────────────────────────────────────────────────────
@@ -476,17 +476,59 @@ class GSRMapManager {
     });
   }
 
-  _renderPeakMarkers(analyzer, data) {
+  /**
+   * Binary search the raw data array for the index closest to a target time.
+   */
+  _binarySearchTime(data, target) {
+    if (!data || data.length === 0) return -1;
+    let lo = 0, hi = data.length - 1;
+    if (target <= data[lo].time) return lo;
+    if (target >= data[hi].time) return hi;
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const t = data[mid].time;
+      if (t === target) return mid;
+      if (t < target) {
+        if (mid < data.length - 1 && data[mid + 1].time > target) {
+          return (target - t < data[mid + 1].time - target) ? mid : mid + 1;
+        }
+        lo = mid + 1;
+      } else {
+        if (mid > 0 && data[mid - 1].time < target) {
+          return (target - data[mid - 1].time < t - target) ? mid - 1 : mid;
+        }
+        hi = mid - 1;
+      }
+    }
+    return -1;
+  }
+
+  _renderPeakMarkers(analyzer, data, peakLatency) {
     const map = this.map;
     const labelCandidates = [];
     const allPeaks = [];
 
     // First pass: collect pixel positions
     analyzer.peaks.forEach((peak, index) => {
-      const row = data[peak.index];
+      // Original (unshifted) position — used for connector line
+      const origRow = data[peak.index];
+      const origPt = origRow && origRow.hasGps && !isNaN(origRow.lat) && !isNaN(origRow.lon)
+        ? map.latLngToLayerPoint([origRow.lat, origRow.lon]) : null;
+
+      // Apply latency: find GPS position at (peak time - latency)
+      let row;
+      if (peakLatency > 0) {
+        const shiftedTime = Math.max(0, peak.time - peakLatency);
+        const si = this._binarySearchTime(data, shiftedTime);
+        if (si < 0) return;
+        row = data[si];
+      } else {
+        row = data[peak.index];
+      }
       if (!row || !row.hasGps || isNaN(row.lat) || isNaN(row.lon)) return;
       const pt = map.latLngToLayerPoint([row.lat, row.lon]);
-      allPeaks.push({ peak, index, row, px: pt.x, py: pt.y });
+      const origLatLon = origPt ? [origRow.lat, origRow.lon] : null;
+      allPeaks.push({ peak, index, row, px: pt.x, py: pt.y, origPt, origLatLon });
       if (peak.label && peak.label.trim()) {
         labelCandidates.push({ idx: index, px: pt.x, py: pt.y, text: peak.label });
       }
@@ -564,6 +606,21 @@ class GSRMapManager {
 
       this.peakMarkers.push(marker);
     });
+
+    // Draw connector lines from original (unshifted) to shifted position
+    if (peakLatency > 0) {
+      for (const ap of allPeaks) {
+        if (!ap.origLatLon) continue;
+        const shiftedLatLon = [ap.row.lat, ap.row.lon];
+        const conn = L.polyline([ap.origLatLon, shiftedLatLon], {
+          color: '#f43f5e',
+          weight: 1.5,
+          opacity: 0.35,
+          dashArray: '3, 5'
+        }).addTo(this.map);
+        this.peakMarkers.push(conn); // store so clearMap removes them
+      }
+    }
   }
 
   /**
@@ -666,7 +723,7 @@ class GSRMapManager {
   /**
    * Render all active tracks overlaid simultaneously, then draw contour lines.
    */
-  renderCollectiveData(collectiveManager, contourParams = {}) {
+  renderCollectiveData(collectiveManager, contourParams = {}, peakLatency) {
     this.clearMap(); // Clear single-track drawing
     this.clearCollectiveLayers();
 
@@ -723,20 +780,42 @@ class GSRMapManager {
       const collectiveLabelCandidates = [];
       const collectiveAllPeaks = [];
 
-      // First pass: collect pixel positions
+      // First pass: collect pixel positions (with latency compensation)
       track.analyzer.peaks.forEach((peak, index) => {
-        const matchingRow = data[peak.index];
-        let lat = NaN, lon = NaN;
+        // Original (unshifted) GPS position for connector line
+        const origRow = data[peak.index];
+        let origLat = NaN, origLon = NaN;
         if (filteredGps[peak.index] && !isNaN(filteredGps[peak.index].lat)) {
-          lat = filteredGps[peak.index].lat;
-          lon = filteredGps[peak.index].lon;
+          origLat = filteredGps[peak.index].lat;
+          origLon = filteredGps[peak.index].lon;
+        } else if (origRow && !isNaN(origRow.lat)) {
+          origLat = origRow.lat;
+          origLon = origRow.lon;
+        }
+        const hasOrig = !isNaN(origLat) && !isNaN(origLon);
+
+        // Shifted position (with latency)
+        let si = peak.index;
+        if (peakLatency > 0) {
+          const shiftedTime = Math.max(0, peak.time - peakLatency);
+          si = this._binarySearchTime(data, shiftedTime);
+          if (si < 0) si = peak.index;
+        }
+        const matchingRow = data[si];
+        let lat = NaN, lon = NaN;
+        if (filteredGps[si] && !isNaN(filteredGps[si].lat)) {
+          lat = filteredGps[si].lat;
+          lon = filteredGps[si].lon;
         } else if (matchingRow && !isNaN(matchingRow.lat)) {
           lat = matchingRow.lat;
           lon = matchingRow.lon;
         }
         if (!isNaN(lat) && !isNaN(lon)) {
           const pt = map.latLngToLayerPoint([lat, lon]);
-          collectiveAllPeaks.push({ peak, index, lat, lon, px: pt.x, py: pt.y });
+          collectiveAllPeaks.push({
+            peak, index, lat, lon, px: pt.x, py: pt.y,
+            origLatLon: hasOrig ? [origLat, origLon] : null
+          });
           if (peak.label && peak.label.trim()) {
             collectiveLabelCandidates.push({ idx: index, px: pt.x, py: pt.y, text: peak.label });
           }
@@ -826,6 +905,21 @@ class GSRMapManager {
         marker.addTo(this.map);
         this.collectivePeakMarkers.push(marker);
       });
+
+      // Draw connector lines from original to shifted position (collective)
+      if (peakLatency > 0) {
+        for (const ap of collectiveAllPeaks) {
+          if (!ap.origLatLon) continue;
+          const shiftedLatLon = [ap.lat, ap.lon];
+          const conn = L.polyline([ap.origLatLon, shiftedLatLon], {
+            color: trackColor,
+            weight: 1,
+            opacity: 0.25,
+            dashArray: '2, 4'
+          }).addTo(this.map);
+          this.collectivePeakMarkers.push(conn);
+        }
+      }
     });
 
     // 3. Zoom and Pan Map to fit collective bounding envelope

@@ -255,7 +255,8 @@ function updateCollectiveMap() {
     surfaceOpacity:    cc.surfaceOpacity ? parseFloat(cc.surfaceOpacity.value) : 0.40
   };
 
-  AppState.mapManager.renderCollectiveData(AppState.collectiveManager, contourParams);
+  const lat = parseFloat(AppState.sliders.gpsPeakLatency ? AppState.sliders.gpsPeakLatency.value : 0);
+  AppState.mapManager.renderCollectiveData(AppState.collectiveManager, contourParams, lat);
 
   let totalDur = 0, totalPeaks = 0, sumSCL = 0, sclCount = 0;
 

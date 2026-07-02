@@ -47,6 +47,7 @@ function cacheDOMElements() {
   AppState.sliders.gpsMinDist      = _id('gpsMinDist');
   AppState.sliders.gpsDownsample   = _id('gpsDownsample');
   AppState.sliders.gpsTrackWeight  = _id('gpsTrackWeight');
+  AppState.sliders.gpsPeakLatency  = _id('gpsPeakLatency');
 
   // Contour controls (used in collective map)
   AppState.contourControls = {
@@ -263,6 +264,24 @@ function setupEventListeners() {
   bindGpsSlider('gpsDownsample',   'valGpsDownsample',   v => v === 0 ? 'off' : '1 Hz');
   bindGpsSlider('gpsTrackWeight',  'valGpsTrackWeight',  v => `${v} px`);
 
+  // Peak latency — re-render map only (no analysis needed), highlight when active
+  {
+    const slider = document.getElementById('gpsPeakLatency');
+    const label  = document.getElementById('valGpsPeakLatency');
+    const group  = slider.closest('.slider-group');
+    const updateDim = () => {
+      updateFilterDim(slider);
+      if (group) group.classList.toggle('latency-active', parseFloat(slider.value) > 0);
+    };
+    updateDim();
+    slider.addEventListener('input', () => {
+      label.innerText = parseFloat(slider.value).toFixed(1) + ' s';
+      updateDim();
+      rerenderMap();
+      saveSettings();
+    });
+  }
+
   // ── View Switcher ────────────────────────────────────────────────────────
   bindViewSwitcher();
 
@@ -468,7 +487,8 @@ function initializeLabels() {
     gpsRDP:          v => v === 0 ? 'off' : `${v} m`,
     gpsMinDist:      v => v === 0 ? 'off' : `${v} m`,
     gpsDownsample:   v => v === 0 ? 'off' : '1 Hz',
-    gpsTrackWeight:  v => `${v} px`
+    gpsTrackWeight:  v => `${v} px`,
+    gpsPeakLatency:  v => `${v.toFixed(1)} s`
   };
 
   for (const [id, fmt] of Object.entries(gpsFormatters)) {
