@@ -90,6 +90,9 @@ function renderTrackList() {
     AppState.analyzer = new GSRAnalyzer();
     AppState.activeTrackId = null;
 
+    updatePeaksTable();
+    updateStatsPanel();
+
     document.getElementById('exportCsvBtn').setAttribute('disabled', 'true');
     document.getElementById('exportImageBtn').setAttribute('disabled', 'true');
     document.getElementById('exportMapBtn').setAttribute('disabled', 'true');
