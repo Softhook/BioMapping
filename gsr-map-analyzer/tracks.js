@@ -4,6 +4,13 @@
  */
 
 const GSRTrackManager = {
+  /**
+   * Get all enabled tracks — delegates to GSRCollectiveManager.
+   */
+  getActiveTracks() {
+    return AppState.collectiveManager.getActiveTracks();
+  },
+
   handleFileSelect(e) {
     if (e.target.files.length > 0) {
       GSRTrackManager.loadFilesSequentially(Array.from(e.target.files));

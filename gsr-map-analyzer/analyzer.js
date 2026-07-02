@@ -48,6 +48,22 @@ class GSRAnalyzer {
   }
 
   /**
+   * Helper: gets coordinates at a given index from filtered GPS data if valid,
+   * otherwise falls back to raw GPS data. Returns { lat, lon } or null.
+   */
+  getCoordinates(index) {
+    const raw = this.raw[index];
+    const filtered = this.filteredGps && this.filteredGps[index];
+    if (filtered && !isNaN(filtered.lat) && !isNaN(filtered.lon)) {
+      return { lat: filtered.lat, lon: filtered.lon };
+    }
+    if (raw && !isNaN(raw.lat) && !isNaN(raw.lon)) {
+      return { lat: raw.lat, lon: raw.lon };
+    }
+    return null;
+  }
+
+  /**
    * Parse CSV string into raw time/value objects with GPS columns.
    * Interpolates GPS coordinates to reconstruct a continuous 10 Hz path.
    */

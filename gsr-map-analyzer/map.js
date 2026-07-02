@@ -472,24 +472,21 @@ class GSRMapManager {
     // First pass: collect pixel positions
     analyzer.peaks.forEach((peak, index) => {
       // Original (unshifted) position — used for connector line
-      const origRow = data[peak.index];
-      const origPt = origRow && origRow.hasGps && !isNaN(origRow.lat) && !isNaN(origRow.lon)
-        ? map.latLngToLayerPoint([origRow.lat, origRow.lon]) : null;
+      const origCoords = analyzer.getCoordinates(peak.index);
+      const origPt = origCoords ? map.latLngToLayerPoint([origCoords.lat, origCoords.lon]) : null;
 
       // Apply latency: find GPS position at (peak time - latency)
-      let row;
+      let si = peak.index;
       if (peakLatency > 0) {
         const shiftedTime = Math.max(0, peak.time - peakLatency);
-        const si = analyzer.findClosestIndex(shiftedTime);
-        if (si < 0) return;
-        row = data[si];
-      } else {
-        row = data[peak.index];
+        si = analyzer.findClosestIndex(shiftedTime);
+        if (si < 0) si = peak.index;
       }
-      if (!row || !row.hasGps || isNaN(row.lat) || isNaN(row.lon)) return;
-      const pt = map.latLngToLayerPoint([row.lat, row.lon]);
-      const origLatLon = origPt ? [origRow.lat, origRow.lon] : null;
-      allPeaks.push({ peak, index, row, px: pt.x, py: pt.y, origPt, origLatLon });
+      const coords = analyzer.getCoordinates(si);
+      if (!coords) return;
+      const pt = map.latLngToLayerPoint([coords.lat, coords.lon]);
+      const origLatLon = origCoords ? [origCoords.lat, origCoords.lon] : null;
+      allPeaks.push({ peak, index, coords, px: pt.x, py: pt.y, origPt, origLatLon });
       if (peak.label && peak.label.trim()) {
         labelCandidates.push({ idx: index, px: pt.x, py: pt.y, text: peak.label });
       }
@@ -505,7 +502,7 @@ class GSRMapManager {
       iconSize: [24, 24], iconAnchor: [12, 12]
     });
 
-    allPeaks.forEach(({ peak, index, row, px, py }) => {
+    allPeaks.forEach(({ peak, index, coords, px, py }) => {
       const displayLabel = peak.label || '';
       const escapedLabel = displayLabel.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -514,17 +511,17 @@ class GSRMapManager {
       if (hasLabel) {
         const dirResult = labelPositions.get(index);
         if (dirResult) {
-          marker = L.marker([row.lat, row.lon], {
+          marker = L.marker([coords.lat, coords.lon], {
             icon: this._buildLabelledIcon(px, py, displayLabel, dirResult)
           });
           // Bump labeled markers above unlabeled markers and path layers
           marker.setZIndexOffset(1000);
         } else {
           // All 8 positions overlapped — fall back to dot-only
-          marker = L.marker([row.lat, row.lon], { icon: simpleIcon });
+          marker = L.marker([coords.lat, coords.lon], { icon: simpleIcon });
         }
       } else {
-        marker = L.marker([row.lat, row.lon], { icon: simpleIcon });
+        marker = L.marker([coords.lat, coords.lon], { icon: simpleIcon });
       }
 
       if (this.showPeaks) marker.addTo(this.map);
@@ -572,7 +569,7 @@ class GSRMapManager {
     if (peakLatency > 0) {
       for (const ap of allPeaks) {
         if (!ap.origLatLon) continue;
-        const shiftedLatLon = [ap.row.lat, ap.row.lon];
+        const shiftedLatLon = [ap.coords.lat, ap.coords.lon];
         const conn = L.polyline([ap.origLatLon, shiftedLatLon], {
           color: '#f43f5e',
           weight: 1.5,
@@ -694,30 +691,19 @@ class GSRMapManager {
     // 1. Draw dashed, semi-transparent paths for each track
     activeTracks.forEach(track => {
       const data = track.analyzer.raw;
-      // Ensure filteredGps is populated — if missing, run GPS filter now
-      const gpsParams = { downsample: true };
       if (!track.analyzer.filteredGps || track.analyzer.filteredGps.length !== data.length) {
         const gpsPoints = this._collectGpsPoints(data);
         if (gpsPoints.length > 0) {
           this._reconstructFilteredGps(track.analyzer, data, gpsPoints);
         }
       }
-      const filteredGps = track.analyzer.filteredGps || [];
       const drawPoints = [];
 
       const step = Math.max(1, Math.round(track.analyzer.sampleRate || 10.0));
       for (let i = 0; i < data.length; i += step) {
-        let lat = NaN, lon = NaN;
-        if (filteredGps[i] && !isNaN(filteredGps[i].lat)) {
-          lat = filteredGps[i].lat;
-          lon = filteredGps[i].lon;
-        } else if (data[i] && !isNaN(data[i].lat)) {
-          lat = data[i].lat;
-          lon = data[i].lon;
-        }
-
-        if (!isNaN(lat) && !isNaN(lon)) {
-          drawPoints.push({ lat, lon });
+        const coords = track.analyzer.getCoordinates(i);
+        if (coords) {
+          drawPoints.push({ lat: coords.lat, lon: coords.lon });
         }
       }
 
@@ -744,16 +730,7 @@ class GSRMapManager {
       // First pass: collect pixel positions (with latency compensation)
       track.analyzer.peaks.forEach((peak, index) => {
         // Original (unshifted) GPS position for connector line
-        const origRow = data[peak.index];
-        let origLat = NaN, origLon = NaN;
-        if (filteredGps[peak.index] && !isNaN(filteredGps[peak.index].lat)) {
-          origLat = filteredGps[peak.index].lat;
-          origLon = filteredGps[peak.index].lon;
-        } else if (origRow && !isNaN(origRow.lat)) {
-          origLat = origRow.lat;
-          origLon = origRow.lon;
-        }
-        const hasOrig = !isNaN(origLat) && !isNaN(origLon);
+        const origCoords = track.analyzer.getCoordinates(peak.index);
 
         // Shifted position (with latency)
         let si = peak.index;
@@ -762,20 +739,12 @@ class GSRMapManager {
           si = track.analyzer.findClosestIndex(shiftedTime);
           if (si < 0) si = peak.index;
         }
-        const matchingRow = data[si];
-        let lat = NaN, lon = NaN;
-        if (filteredGps[si] && !isNaN(filteredGps[si].lat)) {
-          lat = filteredGps[si].lat;
-          lon = filteredGps[si].lon;
-        } else if (matchingRow && !isNaN(matchingRow.lat)) {
-          lat = matchingRow.lat;
-          lon = matchingRow.lon;
-        }
-        if (!isNaN(lat) && !isNaN(lon)) {
-          const pt = map.latLngToLayerPoint([lat, lon]);
+        const coords = track.analyzer.getCoordinates(si);
+        if (coords) {
+          const pt = map.latLngToLayerPoint([coords.lat, coords.lon]);
           collectiveAllPeaks.push({
-            peak, index, lat, lon, px: pt.x, py: pt.y,
-            origLatLon: hasOrig ? [origLat, origLon] : null
+            peak, index, lat: coords.lat, lon: coords.lon, px: pt.x, py: pt.y,
+            origLatLon: origCoords ? [origCoords.lat, origCoords.lon] : null
           });
           if (peak.label && peak.label.trim()) {
             collectiveLabelCandidates.push({ idx: index, px: pt.x, py: pt.y, text: peak.label });
