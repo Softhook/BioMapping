@@ -270,7 +270,8 @@ function drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL
         textSize(10);
         textStyle(BOLD);
         textAlign(CENTER, BOTTOM);
-        text('#' + (pIdx + 1), xPeak, yFilteredPeak - 8);
+        const labelText = p.label || '#' + (pIdx + 1);
+        text(labelText, xPeak, yFilteredPeak - 8);
         textStyle(NORMAL);
       }
     }

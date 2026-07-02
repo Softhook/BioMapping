@@ -94,6 +94,33 @@ function rerenderMap() {
 }
 
 /**
+ * Update a peak's label from table or map popup input, then refresh the UI.
+ * If trackId is provided, the peak belongs to that track (collective mode).
+ */
+function updatePeakLabel(idx, label, trackId) {
+  let peaksArr;
+  if (trackId) {
+    const track = AppState.collectiveManager.getTrack(trackId);
+    if (!track || !track.analyzer || !track.analyzer.peaks || idx >= track.analyzer.peaks.length) return;
+    peaksArr = track.analyzer.peaks;
+  } else {
+    if (!AppState.analyzer || !AppState.analyzer.peaks || idx >= AppState.analyzer.peaks.length) return;
+    peaksArr = AppState.analyzer.peaks;
+  }
+  peaksArr[idx].label = label.trim();
+  // Refresh displays
+  if (AppState.viewMode === 'single') {
+    if (AppState.mapManager) {
+      AppState.mapManager.renderData(AppState.analyzer, buildGpsParams());
+    }
+    updatePeaksTable();
+    redraw();
+  } else {
+    updateCollectiveMap();
+  }
+}
+
+/**
  * Zoom and highlight a specific peak event when user clicks a row in the peaks table.
  */
 function focusOnPeak(idx) {
@@ -168,7 +195,7 @@ function updatePeaksTable() {
   const tb    = AppState.tableBody;
 
   if (peaks.length === 0) {
-    tb.innerHTML = '<tr class="empty-row"><td colspan="8">No peaks detected. Try reducing the Peak Amplitude threshold.</td></tr>';
+    tb.innerHTML = '<tr class="empty-row"><td colspan="9">No peaks detected. Try reducing the Peak Amplitude threshold.</td></tr>';
     return;
   }
 
@@ -177,9 +204,17 @@ function updatePeaksTable() {
     const isAct = (idx === AppState.activePeakIndex) ? "class='active-row'" : "";
     const riseTimeStr = (p.time - p.onsetTime).toFixed(2);
     const recTimeStr = p.recoveryTime !== -1 ? p.recoveryTime.toFixed(2) : "N/A";
+    const escapedLabel = (p.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
     rowsHtml += '<tr id="peakRow-' + idx + '" ' + isAct + ' onclick="focusOnPeak(' + idx + ')">' +
       '<td>' + (idx + 1) + '</td>' +
+      '<td class="label-cell">' +
+        '<input class="peak-label-input" type="text" value="' + escapedLabel + '" ' +
+          'placeholder="Add label…" data-peak-idx="' + idx + '" ' +
+          'onclick="event.stopPropagation();" ' +
+          'onchange="updatePeakLabel(' + idx + ', this.value)" ' +
+          'onkeydown="if(event.key===\'Enter\') { updatePeakLabel(' + idx + ', this.value); this.blur(); }">' +
+      '</td>' +
       '<td>' + p.onsetTime.toFixed(2) + '</td>' +
       '<td>' + p.time.toFixed(2) + '</td>' +
       '<td>' + p.value.toFixed(4) + '</td>' +

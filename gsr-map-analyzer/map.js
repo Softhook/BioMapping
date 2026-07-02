@@ -263,30 +263,202 @@ class GSRMapManager {
     }
   }
 
-  _renderPeakMarkers(analyzer, data) {
-    const peakIcon = L.divIcon({
-      className: 'stress-peak-icon',
-      html: '<div class="peak-glow-ring"></div><div class="peak-dot"></div>',
-      iconSize: [24, 24], iconAnchor: [12, 12]
+  /**
+   * Compute 360° label positions for labelled peak markers, avoiding overlaps.
+   *
+   * For each labelled peak, 8 candidate positions are generated (N, NE, E, SE,
+   * S, SW, W, NW) around the anchor dot. Candidates are scored by distance from
+   * the dot (closer = better). Labels are placed greedily in pixel-space order,
+   * each picking the closest non-overlapping candidate.
+   *
+   * Returns a Map<peakIndex, { box, dir }> where `box` is the pixel-space
+   * bounding box { left, top, right, bottom } of the label text, and `dir` is
+   * the cardinal direction name.
+   */
+  _computeLabelPositions(peaksWithCoords) {
+    const W = 120;               // label box width (px)
+    const H = 18;                // label box height (px)
+    const GAP = 5;               // gap between dot edge and label box
+
+    const overlap = (a, b) => a.left < b.right && a.right > b.left &&
+                              a.top < b.bottom && a.bottom > b.top;
+
+    // Build 8 candidates for each labelled peak
+    const items = peaksWithCoords.map(p => {
+      const { px, py } = p;
+      const raw = [
+        { left: px - W / 2,           top: py + GAP,            dir: 'S'  },
+        { left: px - W / 2,           top: py - H - GAP,        dir: 'N'  },
+        { left: px + GAP,             top: py - H / 2,          dir: 'E'  },
+        { left: px - W - GAP,         top: py - H / 2,          dir: 'W'  },
+        { left: px + GAP,             top: py + GAP,            dir: 'SE' },
+        { left: px - W - GAP,         top: py + GAP,            dir: 'SW' },
+        { left: px + GAP,             top: py - H - GAP,        dir: 'NE' },
+        { left: px - W - GAP,         top: py - H - GAP,        dir: 'NW' },
+      ];
+      const candidates = raw.map(c => {
+        const box = { left: c.left, top: c.top, right: c.left + W, bottom: c.top + H };
+        const bx = (box.left + box.right) / 2;
+        const by = (box.top + box.bottom) / 2;
+        return { dir: c.dir, box, score: Math.hypot(bx - px, by - py) };
+      }).sort((a, b) => a.score - b.score);
+      return { idx: p.idx, px, py, candidates };
     });
 
+    // Sort by pixel-y (north→south) for stable placement
+    items.sort((a, b) => a.py - b.py);
+
+    const placed = [];          // placed boxes
+    const results = new Map();  // idx → { box, dir }
+
+    for (const item of items) {
+      let chosen = null;
+      for (const cand of item.candidates) {
+        if (!placed.some(p => overlap(cand.box, p))) {
+          chosen = cand;
+          break;
+        }
+      }
+      if (chosen) {
+        placed.push(chosen.box);
+        results.set(item.idx, chosen);
+      }
+      // If all 8 candidates overlap → hide label (fall back to dot-only)
+    }
+    return results;
+  }
+
+  /**
+   * Build a Leaflet divIcon that renders both the peak dot and its label,
+   * positioned via 360° collision avoidance. The container div is sized to
+   * exactly enclose both the dot and the label box.
+   */
+  _buildLabelledIcon(px, py, labelText, dirResult) {
+    const W = 120;  // label width
+    const H = 18;   // label height
+    const box = dirResult.box;
+    const DS = 24;  // dot visual diameter
+
+    // Union bounding box of dot area and label box
+    const dotL = px - DS / 2, dotR = px + DS / 2;
+    const dotT = py - DS / 2, dotB = py + DS / 2;
+    const cLeft   = Math.min(dotL, box.left);
+    const cRight  = Math.max(dotR, box.right);
+    const cTop    = Math.min(dotT, box.top);
+    const cBottom = Math.max(dotB, box.bottom);
+    const cW = cRight - cLeft;
+    const cH = cBottom - cTop;
+
+    // Dot position within the container
+    const dotCx = px - cLeft;
+    const dotCy = py - cTop;
+    // Label position within the container
+    const labelL = box.left - cLeft;
+    const labelT = box.top - cTop;
+
+    const escapedLabel = labelText.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    const html = [
+      '<div class="stress-peak-icon-wrapper" style="position:relative;width:', cW, 'px;height:', cH, 'px;">',
+        '<div class="peak-glow-ring" style="position:absolute;top:', (dotCy - 12), 'px;left:', (dotCx - 12), 'px;"></div>',
+        '<div class="peak-dot" style="position:absolute;top:', (dotCy - 5), 'px;left:', (dotCx - 5), 'px;width:10px;height:10px;"></div>',
+        '<div class="peak-map-label" style="position:absolute;top:', labelT, 'px;left:', labelL, 'px;width:', W, 'px;text-align:center;font-size:10px;font-weight:600;">', escapedLabel, '</div>',
+      '</div>'
+    ].join('');
+
+    return L.divIcon({
+      className: '',
+      html,
+      iconSize: [cW, cH],
+      iconAnchor: [px - cLeft, py - cTop]
+    });
+  }
+
+  _renderPeakMarkers(analyzer, data) {
+    const map = this.map;
+    const labelCandidates = [];
+    const allPeaks = [];
+
+    // First pass: collect pixel positions
     analyzer.peaks.forEach((peak, index) => {
       const row = data[peak.index];
       if (!row || !row.hasGps || isNaN(row.lat) || isNaN(row.lon)) return;
+      const pt = map.latLngToLayerPoint([row.lat, row.lon]);
+      allPeaks.push({ peak, index, row, px: pt.x, py: pt.y });
+      if (peak.label && peak.label.trim()) {
+        labelCandidates.push({ idx: index, px: pt.x, py: pt.y });
+      }
+    });
 
-      const marker = L.marker([row.lat, row.lon], { icon: peakIcon });
+    // Compute 360° label positions
+    const labelPositions = this._computeLabelPositions(labelCandidates);
+
+    // Compact dot-only icon for peaks without labels
+    const simpleIcon = L.divIcon({
+      className: '',
+      html: '<div class="stress-peak-icon-wrapper" style="position:relative;width:24px;height:24px;"><div class="peak-glow-ring" style="position:absolute;top:0;left:0;"></div><div class="peak-dot" style="position:absolute;top:7px;left:7px;width:10px;height:10px;"></div></div>',
+      iconSize: [24, 24], iconAnchor: [12, 12]
+    });
+
+    allPeaks.forEach(({ peak, index, row, px, py }) => {
+      const displayLabel = peak.label || '';
+      const escapedLabel = displayLabel.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+      let marker;
+      const hasLabel = displayLabel && displayLabel.trim();
+      if (hasLabel) {
+        const dirResult = labelPositions.get(index);
+        if (dirResult) {
+          marker = L.marker([row.lat, row.lon], {
+            icon: this._buildLabelledIcon(px, py, displayLabel, dirResult)
+          });
+          // Bump labeled markers above unlabeled markers and path layers
+          marker.setZIndexOffset(1000);
+        } else {
+          // All 8 positions overlapped — fall back to dot-only
+          marker = L.marker([row.lat, row.lon], { icon: simpleIcon });
+        }
+      } else {
+        marker = L.marker([row.lat, row.lon], { icon: simpleIcon });
+      }
+
       if (this.showPeaks) marker.addTo(this.map);
 
-      marker.bindPopup([
-        '<div class="map-popup-card">',
-        '<h4><i class="fa-solid fa-triangle-exclamation"></i> Peak SCR Event #', index + 1, '</h4>',
-        '<table class="popup-table">',
-        '<tr><td>Time:</td><td><b>', peak.time.toFixed(1), ' s</b></td></tr>',
-        '<tr><td>Onset:</td><td>', peak.onsetTime.toFixed(1), ' s</td></tr>',
-        '<tr><td>Amplitude:</td><td><b>', peak.amplitude.toFixed(3), ' μS</b></td></tr>',
-        '<tr><td>Rise Time:</td><td>', (peak.time - peak.onsetTime).toFixed(1), ' s</td></tr>',
-        '</table></div>'
-      ].join(''));
+      marker.bindPopup(function() {
+        const container = L.DomUtil.create('div');
+        container.className = 'map-popup-card';
+        container.innerHTML = [
+          '<h4><i class="fa-solid fa-triangle-exclamation"></i> SCR Event <span class="peak-label-display">' +
+            (displayLabel ? escapedLabel : '#' + (index + 1)) +
+          '</span></h4>',
+          '<div class="popup-label-edit">',
+            '<label>Label:</label>',
+            '<input class="popup-label-input" type="text" value="' + escapedLabel + '" ' +
+              'placeholder="Enter label…" data-peak-idx="' + index + '">',
+          '</div>',
+          '<table class="popup-table">',
+          '<tr><td>Time:</td><td><b>', peak.time.toFixed(1), ' s</b></td></tr>',
+          '<tr><td>Onset:</td><td>', peak.onsetTime.toFixed(1), ' s</td></tr>',
+          '<tr><td>Amplitude:</td><td><b>', peak.amplitude.toFixed(3), ' μS</b></td></tr>',
+          '<tr><td>Rise Time:</td><td>', (peak.time - peak.onsetTime).toFixed(1), ' s</td></tr>',
+          '</table></div>'
+        ].join('');
+
+        const input = container.querySelector('.popup-label-input');
+        if (input) {
+          L.DomEvent.on(input, 'change', function() {
+            updatePeakLabel(index, input.value);
+          });
+          L.DomEvent.on(input, 'keydown', function(e) {
+            if (e.key === 'Enter') {
+              updatePeakLabel(index, input.value);
+              input.blur();
+            }
+          });
+          L.DomEvent.disableClickPropagation(input);
+        }
+        return container;
+      });
 
       this.peakMarkers.push(marker);
     });
@@ -443,14 +615,13 @@ class GSRMapManager {
 
       this.collectivePathSegments.push(poly);
 
-      // 2. Draw small peak dot markers for this track
-      const peakIcon = L.divIcon({
-        className: 'collective-peak-icon',
-        html: `<div class="collective-peak-dot" style="background-color: ${trackColor}; box-shadow: 0 0 6px ${trackColor};"></div>`,
-        iconSize: [12, 12],
-        iconAnchor: [6, 6]
-      });
+      // 2. Draw peak dot markers — 360° label placement with collision avoidance
+      const trackId = track.id;
+      const map = this.map;
+      const collectiveLabelCandidates = [];
+      const collectiveAllPeaks = [];
 
+      // First pass: collect pixel positions
       track.analyzer.peaks.forEach((peak, index) => {
         const matchingRow = data[peak.index];
         let lat = NaN, lon = NaN;
@@ -461,20 +632,96 @@ class GSRMapManager {
           lat = matchingRow.lat;
           lon = matchingRow.lon;
         }
-
-        if (!isNaN(lat) && !isNaN(lon) && this.showPeaks) {
-          const marker = L.marker([lat, lon], { icon: peakIcon });
-          const popupHtml = `
-            <div class="map-popup-card compact">
-              <h4>${track.name}</h4>
-              <p>Peak Event #${index + 1}</p>
-              <p>Amplitude: <b>${peak.amplitude.toFixed(3)} μS</b></p>
-            </div>
-          `;
-          marker.bindPopup(popupHtml);
-          marker.addTo(this.map);
-          this.collectivePeakMarkers.push(marker);
+        if (!isNaN(lat) && !isNaN(lon)) {
+          const pt = map.latLngToLayerPoint([lat, lon]);
+          collectiveAllPeaks.push({ peak, index, lat, lon, px: pt.x, py: pt.y });
+          if (peak.label && peak.label.trim()) {
+            collectiveLabelCandidates.push({ idx: index, px: pt.x, py: pt.y });
+          }
         }
+      });
+
+      // 360° collision avoidance for collective labels
+      const collectivePositions = this._computeLabelPositions(collectiveLabelCandidates);
+
+      // Compact dot-only icon for unlabeled peaks
+      const collectiveSimpleIcon = L.divIcon({
+        className: '',
+        html: `<div style="position:relative;width:12px;height:12px;"><div class="collective-peak-dot" style="width:10px;height:10px;border-radius:50%;background:${trackColor};box-shadow:0 0 6px ${trackColor};border:1.5px solid #fff;"></div></div>`,
+        iconSize: [12, 12],
+        iconAnchor: [6, 6]
+      });
+
+      collectiveAllPeaks.forEach(({ peak, index, lat, lon, px, py }) => {
+        const displayLabel = peak.label || '';
+        const escapedLabel = displayLabel.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+        let marker;
+        const hasLabel = displayLabel && displayLabel.trim();
+        if (hasLabel) {
+          const dirResult = collectivePositions.get(index);
+          if (dirResult) {
+            // Build container: union of dot area and label box
+            const W = 120, H = 18, DS = 12;
+            const box = dirResult.box;
+            const dotL = px - DS / 2, dotR = px + DS / 2;
+            const dotT = py - DS / 2, dotB = py + DS / 2;
+            const cLeft   = Math.min(dotL, box.left);
+            const cRight  = Math.max(dotR, box.right);
+            const cTop    = Math.min(dotT, box.top);
+            const cBottom = Math.max(dotB, box.bottom);
+            const cW = cRight - cLeft, cH = cBottom - cTop;
+            const dotCx = px - cLeft, dotCy = py - cTop;
+            const labelL = box.left - cLeft, labelT = box.top - cTop;
+
+            const html = [
+              '<div style="position:relative;width:', cW, 'px;height:', cH, 'px;">',
+                '<div class="collective-peak-dot" style="position:absolute;top:', (dotCy - 5), 'px;left:', (dotCx - 5), 'px;width:10px;height:10px;border-radius:50%;background:', trackColor, ';box-shadow:0 0 6px ', trackColor, ';border:1.5px solid #fff;"></div>',
+                '<div class="peak-map-label" style="position:absolute;top:', labelT, 'px;left:', labelL, 'px;width:', W, 'px;text-align:center;font-size:9px;font-weight:600;color:rgba(255,255,255,0.9);text-shadow:0 0 4px rgba(0,0,0,0.95),0 0 8px rgba(0,0,0,0.85),0 1px 3px rgba(0,0,0,0.8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;line-height:1.2;">', escapedLabel, '</div>',
+              '</div>'
+            ].join('');
+
+            marker = L.marker([lat, lon], {
+              icon: L.divIcon({ className: '', html, iconSize: [cW, cH], iconAnchor: [px - cLeft, py - cTop] })
+            });
+            // Bump labeled markers above everything else on the map
+            marker.setZIndexOffset(1000);
+          } else {
+            marker = L.marker([lat, lon], { icon: collectiveSimpleIcon });
+          }
+        } else {
+          marker = L.marker([lat, lon], { icon: collectiveSimpleIcon });
+        }
+
+        marker.bindPopup(function() {
+          const container = L.DomUtil.create('div');
+          container.className = 'map-popup-card compact';
+          container.innerHTML = `
+            <h4>${track.name}</h4>
+            <p><b>${displayLabel || ('Peak Event #' + (index + 1))}</b></p>
+            <div class="popup-label-edit">
+              <label>Label:</label>
+              <input class="popup-label-input" type="text" value="${escapedLabel}" placeholder="Enter label…">
+            </div>
+            <p>Amplitude: <b>${peak.amplitude.toFixed(3)} μS</b></p>
+          `;
+          const input = container.querySelector('.popup-label-input');
+          if (input) {
+            L.DomEvent.on(input, 'change', function() {
+              updatePeakLabel(index, input.value, trackId);
+            });
+            L.DomEvent.on(input, 'keydown', function(e) {
+              if (e.key === 'Enter') {
+                updatePeakLabel(index, input.value, trackId);
+                input.blur();
+              }
+            });
+            L.DomEvent.disableClickPropagation(input);
+          }
+          return container;
+        });
+        marker.addTo(this.map);
+        this.collectivePeakMarkers.push(marker);
       });
     });
 

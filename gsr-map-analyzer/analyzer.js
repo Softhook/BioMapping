@@ -7,7 +7,7 @@ class GSRAnalyzer {
     this.filtered = [];     // Cleaned signal: { time, val }
     this.tonic = [];        // Tonic component (SCL): { time, val }
     this.phasic = [];       // Phasic component (SCR): { time, val }
-    this.peaks = [];        // Detected peaks: { time, index, amplitude, onsetIndex, onsetTime, halfRecoveryTime }
+    this.peaks = [];        // Detected peaks: { time, index, amplitude, onsetIndex, onsetTime, halfRecoveryTime, label }
 
     this.sampleRate = 10;   // In Hz, auto-detected
     this.isResistance = false; // Whether original CSV was resistance (Ohms)
@@ -390,6 +390,11 @@ class GSRAnalyzer {
   }
 
   detectPeaks(threshold) {
+    // Preserve any user-set labels across re-analysis by matching on raw index
+    const oldLabels = new Map();
+    for (const pk of this.peaks) {
+      if (pk.label && pk.label.trim()) oldLabels.set(pk.index, pk.label);
+    }
     this.peaks = [];
     const n = this.phasic.length;
     if (n < 3) return;
@@ -442,7 +447,8 @@ class GSRAnalyzer {
               onsetTime: times[onsetIdx],
               onsetValue: phasicVals[onsetIdx],
               recoveryIndex: recoveryIdx,
-              recoveryTime: recoveryTime
+              recoveryTime: recoveryTime,
+              label: oldLabels.get(i) || ''
             });
 
             i = Math.min(n - 2, i + Math.round(GSR_CONST.PEAK_MIN_GAP * this.sampleRate));
@@ -493,7 +499,7 @@ class GSRAnalyzer {
 
     const hasFilteredGps = this.filteredGps && this.filteredGps.length === this.raw.length;
 
-    let csv = "Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,Latitude,Longitude";
+    let csv = "Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,PeakLabel,Latitude,Longitude";
     if (hasFilteredGps) {
       csv += ",Raw Latitude,Raw Longitude";
     }
@@ -508,11 +514,13 @@ class GSRAnalyzer {
     for (let i = 0; i < this.raw.length; i++) {
       let isPeak = 0;
       let peakAmp = "";
+      let peakLabel = "";
       
       const peak = peakByIndex.get(i);
       if (peak) {
         isPeak = 1;
         peakAmp = peak.amplitude.toFixed(4);
+        peakLabel = peak.label || "";
       }
 
       let latVal = this.raw[i].lat;
@@ -539,6 +547,7 @@ class GSRAnalyzer {
              `${this.phasic[i].val.toFixed(4)},` +
              `${isPeak},` +
              `${peakAmp},` +
+             `"${peakLabel}",` +
              `${latStr},` +
              `${lonStr}`;
 

@@ -771,6 +771,77 @@ input[type="range"]::-webkit-slider-thumb:hover {
   background: transparent;
 }
 
+/* Label column: editable text input for peak event labels */
+.label-cell {
+  padding: 2px 8px !important;
+  min-width: 110px;
+}
+
+.peak-label-input {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  width: 100%;
+  min-width: 90px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.peak-label-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.peak-label-input::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Map popup label edit section */
+.popup-label-edit {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.popup-label-edit label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.popup-label-input {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  width: 100%;
+  outline: none;
+}
+
+.popup-label-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.popup-label-input::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Label display in popup heading */
+.peak-label-display {
+  color: var(--accent-primary);
+}
+
 .btn-table-action {
   background: rgba(244, 63, 94, 0.1);
   color: var(--color-peak);
@@ -825,8 +896,10 @@ input[type="range"]::-webkit-slider-thumb:hover {
   z-index: 1;
 }
 
-/* Custom Marker Styling */
-.stress-peak-icon {
+/* Custom Marker Styling — all positioning done via inline styles.
+   These classes only provide visual properties (colours, animation, etc.). */
+
+.stress-peak-icon-wrapper {
   background: transparent;
   border: none;
 }
@@ -838,8 +911,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border: 2px solid white;
   border-radius: 50%;
   position: absolute;
-  top: 7px;
-  left: 7px;
   z-index: 10;
 }
 
@@ -849,9 +920,25 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border-radius: 50%;
   background: rgba(244, 63, 94, 0.4);
   position: absolute;
-  top: 0;
-  left: 0;
   animation: pulse-glow 2s infinite ease-in-out;
+}
+
+.peak-map-label {
+  position: absolute;
+  z-index: 20;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  text-shadow:
+    0 0 4px rgba(0, 0, 0, 0.95),
+    0 0 8px rgba(0, 0, 0, 0.85),
+    0 1px 3px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  line-height: 1.2;
 }
 
 @keyframes pulse-glow {
