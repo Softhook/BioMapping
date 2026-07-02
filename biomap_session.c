@@ -25,6 +25,8 @@ static const NotificationSequence sequence_blink_red_500 = {
     &message_red_0,
     NULL,
 };
+// (sequence_blink_blue_100 is a standard SDK sequence — no
+// need to redefine it.)
 
 // ==========================================================================
 // Session lifecycle
@@ -316,6 +318,16 @@ static void handle_second_boundary(Session* s, NotificationApp* notifications) {
             notification_message(notifications, &sequence_blink_red_500);
         } else {
             notification_message(notifications, &sequence_blink_green_500);
+        }
+        // Brief blue blip after the main blink when GPS has no fix.
+        // Queues after the 500 ms blink so the sequence is:
+        //   [green/red 500ms] [blue 100ms]  (if no fix)
+        // or just [green/red 500ms]          (if fix OK)
+        if(has_gps(s->mode) && s->gps) {
+            GpsPosition pos = get_gps_position(s);
+            if(!pos.valid) {
+                notification_message(notifications, &sequence_blink_blue_100);
+            }
         }
     } else if(flushed < 0) {
         FURI_LOG_E("BioMap", "Batch flush failed");
