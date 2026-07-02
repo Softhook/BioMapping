@@ -59,14 +59,19 @@ class GSRMapManager {
     }
   }
 
+  _getHslColor(ratio, saturation = 100, lightness = 50) {
+    const r = Math.max(0, Math.min(1, ratio));
+    const hue = (1.0 - r) * 120;
+    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+  }
+
   /**
    * Map value to HSL color (Green = 120 -> Yellow -> Red = 0)
    */
   getColorForValue(val, minVal, maxVal) {
-    if (maxVal === minVal) return 'hsl(120, 100%, 50%)'; // default green
-    const ratio = Math.max(0, Math.min(1, (val - minVal) / (maxVal - minVal)));
-    const hue = (1.0 - ratio) * 120; // 120 is green, 0 is red
-    return `hsl(${hue}, 90%, 50%)`;
+    if (maxVal === minVal) return 'hsl(120, 90%, 50%)'; // default green
+    const ratio = (val - minVal) / (maxVal - minVal);
+    return this._getHslColor(ratio, 90, 50);
   }
 
   /**
@@ -670,9 +675,7 @@ class GSRMapManager {
             ratio = (val - minVal) / valRange;
           }
 
-          // Map ratio to color (Green = 120 -> Yellow = 60 -> Red = 0)
-          const hue = (1.0 - ratio) * 120;
-          ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+          ctx.fillStyle = this._getHslColor(ratio, 100, 50);
 
           // Flip row index vertically for canvas space
           const x = c;
@@ -695,9 +698,7 @@ class GSRMapManager {
 
     // 2. Draw vector isoline boundaries
     contours.forEach(c => {
-      // Map ratio to color (Green = 120 -> Yellow = 60 -> Red = 0)
-      const hue = (1.0 - c.ratio) * 120;
-      const color = `hsl(${hue}, 100%, 55%)`;
+      const color = this._getHslColor(c.ratio, 100, 55);
 
       c.segments.forEach(seg => {
         const poly = L.polyline([

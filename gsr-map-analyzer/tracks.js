@@ -37,14 +37,7 @@ const GSRTrackManager = {
           const trackColor = AppState.getNextTrackColor();
 
           // Inherit current slider values so new track starts with the same active settings
-          const S = AppState.sliders;
-          const filterParams = {
-            medianSize:    parseFloat(S.medianSize.value),
-            lpfWindow:     parseFloat(S.lpfWindow.value),
-            tonicMethod:   S.tonicMethod.value,
-            tonicWindow:   parseInt(S.tonicWindow.value),
-            peakThreshold: parseFloat(S.peakThreshold.value)
-          };
+          const filterParams = GSRStorage.readGsrSliderValues();
           const gpsFilterParams = GSRStorage.readGpsSliderValues();
 
           const newTrack = {
@@ -273,14 +266,7 @@ const GSRTrackManager = {
     const track = AppState.collectiveManager.getTrack(AppState.activeTrackId);
     if (!track) return;
 
-    const S = AppState.sliders;
-    track.filterParams = {
-      medianSize:    parseFloat(S.medianSize.value),
-      lpfWindow:     parseFloat(S.lpfWindow.value),
-      tonicMethod:   S.tonicMethod.value,
-      tonicWindow:   parseInt(S.tonicWindow.value),
-      peakThreshold: parseFloat(S.peakThreshold.value)
-    };
+    track.filterParams = GSRStorage.readGsrSliderValues();
   },
 
   saveActiveGpsParams() {

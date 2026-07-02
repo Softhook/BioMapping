@@ -19,11 +19,7 @@ const GsrFilter = {
     for (let i = 0; i < n; i++) {
       const start = Math.max(0, i - half);
       const end = Math.min(n - 1, i + half);
-      const window = [];
-      for (let j = start; j <= end; j++) {
-        window.push(arr[j]);
-      }
-      window.sort((a, b) => a - b);
+      const window = arr.slice(start, end + 1).sort((a, b) => a - b);
       result[i] = window[Math.floor(window.length / 2)];
     }
     return result;
@@ -40,11 +36,7 @@ const GsrFilter = {
     for (let i = 0; i < n; i++) {
       const start = Math.max(0, i - half);
       const end = Math.min(n - 1, i + half);
-      const window = [];
-      for (let j = start; j <= end; j++) {
-        window.push(arr[j]);
-      }
-      window.sort((a, b) => a - b);
+      const window = arr.slice(start, end + 1).sort((a, b) => a - b);
       const targetIdx = Math.floor(window.length * percentile);
       result[i] = window[targetIdx];
     }

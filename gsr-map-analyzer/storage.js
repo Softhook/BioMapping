@@ -10,6 +10,24 @@
  */
 const GSRStorage = {
   /**
+   * Read current GSR slider values into a clean param object.
+   * Shared by tracks.js, simulator.js, storage.js, and ui.js.
+   * This is the canonical source — always add new GSR sliders here first.
+   */
+  readGsrSliderValues() {
+    const S = AppState.sliders;
+    if (!S || !S.medianSize) return null;
+    return {
+      medianSize:    parseFloat(S.medianSize.value),
+      lpfWindow:     parseFloat(S.lpfWindow.value),
+      tonicMethod:   S.tonicMethod.value,
+      tonicWindow:   parseInt(S.tonicWindow.value),
+      peakThreshold: parseFloat(S.peakThreshold.value),
+      dwtLevel:      parseInt(S.dwtLevel ? S.dwtLevel.value : 6)
+    };
+  },
+
+  /**
    * Read current GPS slider values into a clean param object.
    * Shared by tracks.js, simulator.js, and storage.js.
    * This is the canonical source — always add new GPS sliders here first.
@@ -58,14 +76,15 @@ const GSRStorage = {
   saveSettings() {
     const S = AppState.sliders;
     if (!S.medianSize) return;
+    const gsr = this.readGsrSliderValues();
     const gps = this.readGpsSliderValues();
     const settings = {
-      medianSize:    parseFloat(S.medianSize.value),
-      lpfWindow:     parseFloat(S.lpfWindow.value),
-      tonicMethod:   S.tonicMethod.value,
-      tonicWindow:   parseInt(S.tonicWindow.value),
-      peakThreshold: parseFloat(S.peakThreshold.value),
-      dwtLevel:      parseInt(S.dwtLevel.value),
+      medianSize:    gsr.medianSize,
+      lpfWindow:     gsr.lpfWindow,
+      tonicMethod:   gsr.tonicMethod,
+      tonicWindow:   gsr.tonicWindow,
+      peakThreshold: gsr.peakThreshold,
+      dwtLevel:      gsr.dwtLevel,
       gpsMinSats:      gps.minSats,
       gpsMaxSpeed:     gps.maxSpeed,
       gpsHampelWindow: gps.hampelWindow,

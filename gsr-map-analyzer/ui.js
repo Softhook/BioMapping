@@ -151,15 +151,7 @@ const GSRUI = {
     if (!AppState.analyzer || AppState.analyzer.raw.length === 0) return;
 
     try {
-      const S = AppState.sliders;
-      const params = {
-        medianSize:    parseFloat(S.medianSize.value),
-        lpfWindow:     parseFloat(S.lpfWindow.value),
-        tonicMethod:   S.tonicMethod.value,
-        tonicWindow:   parseInt(S.tonicWindow.value),
-        peakThreshold: parseFloat(S.peakThreshold.value),
-        dwtLevel:      parseInt(S.dwtLevel ? S.dwtLevel.value : 6)
-      };
+      const params = GSRStorage.readGsrSliderValues();
 
       GSRTrackManager.saveActiveTrackParams();
       AppState.analyzer.analyze(params);
