@@ -113,6 +113,9 @@ const GSRTrackManager = {
     dropZone.style.display = 'flex';
     dropZone.classList.add('compact');
 
+    // Track which track is currently being renamed (null if none)
+    AppState._renamingTrackId = null;
+
     listElement.innerHTML = '';
 
     AppState.collectiveManager.tracks.forEach(track => {
@@ -120,6 +123,7 @@ const GSRTrackManager = {
 
       const li = document.createElement('li');
       li.className = `track-item ${isEditing ? 'active' : ''}`;
+      li.dataset.trackId = track.id;
 
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
@@ -144,12 +148,29 @@ const GSRTrackManager = {
       name.className = 'track-name';
       name.innerText = track.name;
 
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.className = 'track-name-input';
+      nameInput.value = track.name;
+      nameInput.style.display = 'none';
+      nameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          GSRTrackManager.finishRenameTrack(track.id, nameInput.value.trim() || track.name);
+        } else if (e.key === 'Escape') {
+          GSRTrackManager.cancelRenameTrack();
+        }
+        e.stopPropagation();
+      });
+      nameInput.addEventListener('blur', () => {
+        GSRTrackManager.finishRenameTrack(track.id, nameInput.value.trim() || track.name);
+      });
+
       const meta = document.createElement('span');
-      name.className = 'track-name';
       meta.className = 'track-meta';
       meta.innerText = `${track.analyzer.raw.length} pts | ${track.analyzer.peaks.length} peaks`;
 
       details.appendChild(name);
+      details.appendChild(nameInput);
       details.appendChild(meta);
 
       const actions = document.createElement('div');
@@ -157,14 +178,11 @@ const GSRTrackManager = {
 
       const editBtn = document.createElement('button');
       editBtn.className = 'track-action-btn edit-btn';
-      editBtn.title = 'Analyze and tweak filters';
+      editBtn.title = 'Rename track';
       editBtn.innerHTML = '<i class="fa-solid fa-pencil"></i>';
       editBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        GSRTrackManager.switchActiveTrack(track.id);
-        if (AppState.viewMode === 'collective') {
-          document.getElementById('btnSingleView').click();
-        }
+        GSRTrackManager.startRenameTrack(track.id);
       });
 
       const deleteBtn = document.createElement('button');
@@ -310,5 +328,56 @@ const GSRTrackManager = {
     if (!el) return;
     el.querySelector('.status-dot').className = `status-dot ${type}`;
     el.querySelector('.status-text').innerText = text;
+  },
+
+  /**
+   * Start renaming a track — replace the name span with an input field.
+   */
+  startRenameTrack(trackId) {
+    // Cancel any existing rename first
+    if (AppState._renamingTrackId) {
+      GSRTrackManager.cancelRenameTrack();
+    }
+
+    const track = AppState.collectiveManager.getTrack(trackId);
+    if (!track) return;
+
+    AppState._renamingTrackId = trackId;
+
+    const item = document.querySelector(`li[data-track-id="${trackId}"]`);
+    if (!item) return;
+
+    const nameSpan = item.querySelector('.track-name');
+    const nameInput = item.querySelector('.track-name-input');
+    if (!nameSpan || !nameInput) return;
+
+    nameSpan.style.display = 'none';
+    nameInput.style.display = '';
+    nameInput.value = track.name;
+    nameInput.focus();
+    nameInput.select();
+  },
+
+  /**
+   * Finish renaming — save the new name and re-render the track list.
+   */
+  finishRenameTrack(trackId, newName) {
+    if (AppState._renamingTrackId !== trackId) return;
+    AppState._renamingTrackId = null;
+
+    const track = AppState.collectiveManager.getTrack(trackId);
+    if (!track) return;
+
+    track.name = newName;
+    GSRTrackManager.renderTrackList();
+  },
+
+  /**
+   * Cancel renaming — restore the name span without saving.
+   */
+  cancelRenameTrack() {
+    if (!AppState._renamingTrackId) return;
+    AppState._renamingTrackId = null;
+    GSRTrackManager.renderTrackList();
   }
 };

@@ -279,6 +279,18 @@ const GSRUI = {
   },
 
   /**
+   * Get a sanitized filename base from the active track name.
+   */
+  _exportFilenameBase() {
+    const track = AppState.activeTrackId
+      ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
+      : null;
+    const name = track ? track.name.replace(/\.[^/.]+$/, '') : 'gsr_analysis';
+    // Sanitize for filenames: replace non-alphanumeric chars (except . - _) with underscores
+    return name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  },
+
+  /**
    * Export processed GSR data as CSV.
    */
   exportCSV() {
@@ -289,8 +301,9 @@ const GSRUI = {
     const url  = URL.createObjectURL(blob);
     const link = document.createElement("a");
 
+    const baseName = GSRUI._exportFilenameBase();
     link.setAttribute("href", url);
-    link.setAttribute("download", 'processed_gsr_' + Date.now() + '.csv');
+    link.setAttribute("download", baseName + '_processed.csv');
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -302,7 +315,8 @@ const GSRUI = {
    */
   saveCanvasImage() {
     if (!AppState.myCanvas || AppState.analyzer.raw.length === 0) return;
-    saveCanvas(AppState.myCanvas, 'gsr_analysis_chart_' + Date.now(), 'png');
+    const baseName = GSRUI._exportFilenameBase();
+    saveCanvas(AppState.myCanvas, baseName + '_chart', 'png');
   },
 
   /**
@@ -318,6 +332,7 @@ const GSRUI = {
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...';
     btn.setAttribute('disabled', 'true');
 
+    const baseName = GSRUI._exportFilenameBase();
     html2canvas(mapElement, {
       useCORS: true,
       allowTaint: false,
@@ -325,7 +340,7 @@ const GSRUI = {
       logging: false
     }).then(canvas => {
       const link = document.createElement("a");
-      link.download = 'bio_map_' + Date.now() + '.png';
+      link.download = baseName + '_map.png';
       link.href = canvas.toDataURL("image/png");
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
