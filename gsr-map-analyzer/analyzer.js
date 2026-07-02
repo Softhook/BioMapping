@@ -295,22 +295,31 @@ class GSRAnalyzer {
 
       // DWT separates by frequency → tonic runs through the MIDDLE of the
       // signal.  Physiologically, SCRs are always positive-going, so the
-      // tonic should track the LOWER envelope.  Shift the tonic down by
-      // the 25th percentile of negative phasic values (p25 of the lower
-      // half ≈ p12.5 overall), putting ~85 % of samples above the tonic.
-      const negPhasic = [];
-      for (let i = 0; i < phasicVals.length; i++) {
-        if (phasicVals[i] < 0) negPhasic.push(phasicVals[i]);
-      }
-      if (negPhasic.length > 0) {
-        negPhasic.sort((a, b) => a - b);
-        const downwardShift = negPhasic[Math.floor(negPhasic.length * 0.25)];
-        for (let i = 0; i < tonicVals.length; i++) {
-          tonicVals[i] += downwardShift;  // downwardShift is negative
+      // tonic should track the LOWER envelope.  We reposition the tonic
+      // using a local-floor approach: for each sample, find the minimum
+      // of (signal − tonic) in an 8 s window — this is how far the tonic
+      // needs to drop at that point to sit at the local floor.  Smooth
+      // the offsets to avoid jitter, then apply.
+      const floorHalf = Math.max(1, Math.round(4 * this.sampleRate)); // ±4 s
+      const localOffsets = new Array(n);
+      for (let i = 0; i < n; i++) {
+        const s = Math.max(0, i - floorHalf);
+        const e = Math.min(n - 1, i + floorHalf);
+        let mn = Infinity;
+        for (let j = s; j <= e; j++) {
+          if (phasicVals[j] < mn) mn = phasicVals[j];
         }
-        // Recompute phasic from shifted tonic
-        phasicVals = afterLPF.map((v, i) => v - tonicVals[i]);
+        localOffsets[i] = mn;
       }
+      // Smooth the offset curve to eliminate jitter (8 s window)
+      const smoothOffsets = GsrFilter.applyZeroPhaseMovingAverage(
+        localOffsets, Math.round(8 * this.sampleRate)
+      );
+      for (let i = 0; i < n; i++) {
+        tonicVals[i] += smoothOffsets[i];  // offset is negative → moves tonic down
+      }
+      // Recompute phasic from repositioned tonic
+      phasicVals = afterLPF.map((v, i) => v - tonicVals[i]);
     } else {
       // ── Classical sliding-window methods ────────────────────────────────
       const tonicWinSize = Math.max(5, Math.round(params.tonicWindow * this.sampleRate));
