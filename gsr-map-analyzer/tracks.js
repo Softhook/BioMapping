@@ -52,11 +52,8 @@ const GSRTrackManager = {
 
           AppState.collectiveManager.addTrack(newTrack);
 
-          if (!AppState.activeTrackId) {
-            GSRTrackManager.switchActiveTrack(trackId);
-          } else {
-            GSRTrackManager.renderTrackList();
-          }
+          // Always switch to the newly loaded track so the user sees it immediately
+          GSRTrackManager.switchActiveTrack(trackId);
 
           GSRTrackManager.setFileStatus('success', `${AppState.collectiveManager.tracks.length} Tracks Loaded`);
 
