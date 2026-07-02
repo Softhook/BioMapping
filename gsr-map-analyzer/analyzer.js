@@ -15,6 +15,39 @@ class GSRAnalyzer {
   }
 
   /**
+   * Binary search the raw data array for the index closest to a target time.
+   */
+  findClosestIndex(targetTime) {
+    if (!this.raw || this.raw.length === 0) return -1;
+    const data = this.raw;
+    let low = 0;
+    let high = data.length - 1;
+
+    if (targetTime <= data[low].time) return low;
+    if (targetTime >= data[high].time) return high;
+
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const midTime = data[mid].time;
+
+      if (midTime === targetTime) return mid;
+
+      if (midTime < targetTime) {
+        if (mid < data.length - 1 && data[mid + 1].time > targetTime) {
+          return (targetTime - midTime < data[mid + 1].time - targetTime) ? mid : mid + 1;
+        }
+        low = mid + 1;
+      } else {
+        if (mid > 0 && data[mid - 1].time < targetTime) {
+          return (targetTime - data[mid - 1].time < midTime - targetTime) ? mid - 1 : mid;
+        }
+        high = mid - 1;
+      }
+    }
+    return -1;
+  }
+
+  /**
    * Parse CSV string into raw time/value objects with GPS columns.
    * Interpolates GPS coordinates to reconstruct a continuous 10 Hz path.
    */

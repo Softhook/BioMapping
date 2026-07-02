@@ -63,6 +63,3 @@ const GSR_CONST = {
     surfaceOpacity: 0.40
   }
 };
-
-// Global shorthand — used by renderer.js and sketch.js
-const M = GSR_CONST.MARGIN;

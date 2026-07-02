@@ -1,0 +1,7 @@
+Todo
+
+Fix the citcuit diagram the two op amps are shown in revese in the diagram
+check the conenction wires to the flipper they might be reversed
+
+sort out the finger cuff conenction
+layout componets on shield

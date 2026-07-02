@@ -464,33 +464,6 @@ class GSRMapManager {
     });
   }
 
-  /**
-   * Binary search the raw data array for the index closest to a target time.
-   */
-  _binarySearchTime(data, target) {
-    if (!data || data.length === 0) return -1;
-    let lo = 0, hi = data.length - 1;
-    if (target <= data[lo].time) return lo;
-    if (target >= data[hi].time) return hi;
-    while (lo <= hi) {
-      const mid = Math.floor((lo + hi) / 2);
-      const t = data[mid].time;
-      if (t === target) return mid;
-      if (t < target) {
-        if (mid < data.length - 1 && data[mid + 1].time > target) {
-          return (target - t < data[mid + 1].time - target) ? mid : mid + 1;
-        }
-        lo = mid + 1;
-      } else {
-        if (mid > 0 && data[mid - 1].time < target) {
-          return (target - data[mid - 1].time < t - target) ? mid - 1 : mid;
-        }
-        hi = mid - 1;
-      }
-    }
-    return -1;
-  }
-
   _renderPeakMarkers(analyzer, data, peakLatency) {
     const map = this.map;
     const labelCandidates = [];
@@ -507,7 +480,7 @@ class GSRMapManager {
       let row;
       if (peakLatency > 0) {
         const shiftedTime = Math.max(0, peak.time - peakLatency);
-        const si = this._binarySearchTime(data, shiftedTime);
+        const si = analyzer.findClosestIndex(shiftedTime);
         if (si < 0) return;
         row = data[si];
       } else {
@@ -579,11 +552,11 @@ class GSRMapManager {
         const input = container.querySelector('.popup-label-input');
         if (input) {
           L.DomEvent.on(input, 'change', function() {
-            updatePeakLabel(index, input.value);
+            GSRUI.updatePeakLabel(index, input.value);
           });
           L.DomEvent.on(input, 'keydown', function(e) {
             if (e.key === 'Enter') {
-              updatePeakLabel(index, input.value);
+              GSRUI.updatePeakLabel(index, input.value);
               input.blur();
             }
           });
@@ -786,7 +759,7 @@ class GSRMapManager {
         let si = peak.index;
         if (peakLatency > 0) {
           const shiftedTime = Math.max(0, peak.time - peakLatency);
-          si = this._binarySearchTime(data, shiftedTime);
+          si = track.analyzer.findClosestIndex(shiftedTime);
           if (si < 0) si = peak.index;
         }
         const matchingRow = data[si];
@@ -878,11 +851,11 @@ class GSRMapManager {
           const input = container.querySelector('.popup-label-input');
           if (input) {
             L.DomEvent.on(input, 'change', function() {
-              updatePeakLabel(index, input.value, trackId);
+              GSRUI.updatePeakLabel(index, input.value, trackId);
             });
             L.DomEvent.on(input, 'keydown', function(e) {
               if (e.key === 'Enter') {
-                updatePeakLabel(index, input.value, trackId);
+                GSRUI.updatePeakLabel(index, input.value, trackId);
                 input.blur();
               }
             });
