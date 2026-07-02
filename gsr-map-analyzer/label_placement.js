@@ -228,8 +228,8 @@ class GSRLabelManager {
 
     const html = [
       '<div style="position:relative;width:', cW, 'px;height:', cH, 'px;">',
-        '<div class="collective-peak-dot" style="position:absolute;top:', (dotCy - 5), 'px;left:', (dotCx - 5), 'px;width:10px;height:10px;border-radius:50%;background:', trackColor, ';box-shadow:0 0 6px ', trackColor, ';border:1.5px solid #fff;"></div>',
-        '<div class="peak-map-label" style="position:absolute;top:', labelT, 'px;left:', labelL, 'px;width:', W, 'px;text-align:center;font-size:9px;font-weight:600;color:rgba(255,255,255,0.9);text-shadow:0 0 4px rgba(0,0,0,0.95),0 0 8px rgba(0,0,0,0.85),0 1px 3px rgba(0,0,0,0.8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;line-height:1.2;">', escapedLabel, '</div>',
+        '<div class="collective-peak-dot" style="position:absolute;top:', (dotCy - 5), 'px;left:', (dotCx - 5), 'px;width:10px;height:10px;border-radius:50%;background:', trackColor, ';box-shadow:0 1px 3px rgba(0,0,0,0.15);border:1.5px solid #fff;"></div>',
+        '<div class="peak-map-label" style="position:absolute;top:', labelT, 'px;left:', labelL, 'px;width:', W, 'px;text-align:center;font-size:9px;font-weight:700;color:#111111;text-shadow:0 0 3px #ffffff,0 0 5px #ffffff,0 0 8px #ffffff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;line-height:1.2;">', escapedLabel, '</div>',
       '</div>'
     ].join('');
 

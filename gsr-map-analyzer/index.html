@@ -453,15 +453,6 @@
               <h3><i class="fa-solid fa-chart-area"></i> Interactive Signal Decomposition</h3>
             </div>
             <div class="canvas-controls">
-              <select id="timeWindowSelect" class="select-control compact" title="Time Window Preset">
-                <option value="fit" selected>Fit Track</option>
-                <option value="3600">1 Hour</option>
-                <option value="1800">30 Min</option>
-                <option value="600">10 Min</option>
-                <option value="120">2 Min</option>
-                <option value="custom" disabled hidden>Zoom: Custom</option>
-              </select>
-              <span class="control-divider"></span>
               <button class="icon-btn" id="btnZoomIn" title="Zoom In"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
               <button class="icon-btn" id="btnZoomOut" title="Zoom Out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
               <button class="icon-btn" id="btnResetView" title="Reset View"><i class="fa-solid fa-arrows-to-eye"></i></button>
@@ -484,21 +475,6 @@
               <button class="btn btn-primary" id="loadDemoBtn">
                 <i class="fa-solid fa-flask"></i> Load Demo Data
               </button>
-            </div>
-          </div>
-          
-          <div class="canvas-footer">
-            <div class="legend">
-              <span class="legend-item"><span class="color-dot raw"></span> Raw GSR</span>
-              <span class="legend-item"><span class="color-dot filtered"></span> Filtered GSR</span>
-              <span class="legend-item"><span class="color-dot tonic"></span> Tonic Baseline (SCL)</span>
-              <span class="legend-item"><span class="color-dot phasic"></span> Phasic Response (SCR)</span>
-              <span class="legend-item"><span class="color-dot peak"></span> Peak (SCR Event)</span>
-            </div>
-            <div class="navigation-hints">
-              <span><i class="fa-solid fa-mouse"></i> Drag to Pan</span>
-              <span><i class="fa-solid fa-computer-mouse"></i> Scroll to Zoom</span>
-              <span><i class="fa-solid fa-arrows-left-right"></i> Hover to Scrub</span>
             </div>
           </div>
         </section>

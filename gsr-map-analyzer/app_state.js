@@ -17,16 +17,16 @@ const AppState = {
   activeTrackId: null,
   viewMode: 'single',       // 'single' | 'collective'
 
-  // ── Track colour palette ───────────────────────────────────────────────────
+  // ── Track colour palette (Classic primary-inspired Swiss palette) ───────────
   trackColors: [
-    '#0ea5e9', // Sky blue
-    '#10b981', // Emerald green
-    '#f43f5e', // Rose red
-    '#a855f7', // Purple
-    '#f59e0b', // Amber yellow
-    '#ec4899', // Pink
-    '#14b8a6', // Teal
-    '#f97316'  // Orange
+    '#005bc4', // Classic blue
+    '#d10024', // Classic red
+    '#008f3c', // Rich green
+    '#7b00cc', // Deep purple
+    '#e59e00', // Amber yellow
+    '#cc0088', // Magenta pink
+    '#0099aa', // Teal
+    '#e56a00'  // Dark orange
   ],
   trackColorIndex: 0,
 

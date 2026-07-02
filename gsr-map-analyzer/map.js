@@ -26,8 +26,8 @@ class GSRMapManager {
       scrollWheelZoom: true
     }).setView([0, 0], 2);
 
-    // Dark Map Style (OpenStreetMap base)
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    // Light Map Style (OpenStreetMap base, CartoDB Positron)
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
       maxZoom: 19,
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
       crossOrigin: true
@@ -555,7 +555,7 @@ class GSRMapManager {
       // Compact dot-only icon for unlabeled peaks
       const collectiveSimpleIcon = L.divIcon({
         className: '',
-        html: `<div style="position:relative;width:12px;height:12px;"><div class="collective-peak-dot" style="width:10px;height:10px;border-radius:50%;background:${trackColor};box-shadow:0 0 6px ${trackColor};border:1.5px solid #fff;"></div></div>`,
+        html: `<div style="position:relative;width:12px;height:12px;"><div class="collective-peak-dot" style="width:10px;height:10px;border-radius:50%;background:${trackColor};box-shadow:0 1px 3px rgba(0,0,0,0.15);border:1.5px solid #fff;"></div></div>`,
         iconSize: [12, 12],
         iconAnchor: [6, 6]
       });

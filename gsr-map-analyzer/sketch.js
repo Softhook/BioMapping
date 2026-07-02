@@ -33,6 +33,7 @@ function setup() {
 }
 
 function windowResized() {
+  GSRRenderer.clearThemeCache();
   const container = document.getElementById('canvasContainer');
   const w = container.clientWidth;
   const h = container.clientHeight || 450;
@@ -46,7 +47,9 @@ function draw() {
     return;
   }
 
-  background(9, 13, 22);
+  GSRRenderer.clearThemeCache();
+  const canvasBg = GSRRenderer.getThemeColor('--canvas-bg', '#ffffff');
+  background(canvasBg);
 
   const innerWidth = width - GSR_CONST.MARGIN.left - GSR_CONST.MARGIN.right;
   const timelineHeight = GSR_CONST.TIMELINE_HEIGHT;
@@ -146,31 +149,37 @@ function draw() {
   GSRRenderer.drawGridYUpper(yMinUpper, yMaxUpper, yUpperBottom, hUpper);
   GSRRenderer.drawGridYLower(yMinLower, yMaxLower, yLowerBottom, hLower);
 
+  const colorRaw = GSRRenderer.getThemeColor('--color-raw', '#7c7c76');
+  const colorFiltered = GSRRenderer.getThemeColor('--color-filtered', '#005bc4');
+  const colorTonic = GSRRenderer.getThemeColor('--color-tonic', '#a30091');
+  const colorPhasic = GSRRenderer.getThemeColor('--color-phasic', '#008f3c');
+  const colorPeak = GSRRenderer.getThemeColor('--color-peak', '#d10024');
+
   // 2. Upper Graph Curves
   if (AppState.showRaw) {
-    GSRRenderer.drawSignalCurve(AppState.analyzer.raw, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, 'rgba(100, 116, 139, 0.55)', 1.5);
+    GSRRenderer.drawSignalCurve(AppState.analyzer.raw, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, color(colorRaw + '8c'), 1.5); // ~0.55 opacity
   }
   if (AppState.showFiltered) {
-    GSRRenderer.drawSignalCurve(AppState.analyzer.filtered, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, '#0ea5e9', 2.2);
+    GSRRenderer.drawSignalCurve(AppState.analyzer.filtered, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, colorFiltered, 2.2);
   }
   if (AppState.showTonic) {
-    GSRRenderer.drawSignalCurve(AppState.analyzer.tonic, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, '#d946ef', 2);
+    GSRRenderer.drawSignalCurve(AppState.analyzer.tonic, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, colorTonic, 2);
   }
 
   // 3. Lower Graph (Phasic)
   GSRRenderer.drawPhasicArea(AppState.analyzer.phasic, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom);
-  GSRRenderer.drawSignalCurve(AppState.analyzer.phasic, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom, '#10b981', 2);
+  GSRRenderer.drawSignalCurve(AppState.analyzer.phasic, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom, colorPhasic, 2);
 
   // Threshold line on Phasic graph
   const thresholdVal = parseFloat(AppState.sliders.peakThreshold.value);
   const thresholdY = map(thresholdVal, yMinLower, yMaxLower, yLowerBottom, yLowerTop);
-  stroke(244, 63, 94, 120);
+  stroke(color(colorPeak + '78')); // ~120 opacity -> hex 78
   strokeWeight(1);
   drawingContext.setLineDash([5, 5]);
   line(GSR_CONST.MARGIN.left, thresholdY, width - GSR_CONST.MARGIN.right, thresholdY);
   drawingContext.setLineDash([]);
 
-  fill(244, 63, 94, 150);
+  fill(color(colorPeak + '96')); // ~150 opacity -> hex 96
   noStroke();
   textSize(9);
   textAlign(RIGHT, CENTER);

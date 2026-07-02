@@ -4,8 +4,30 @@
  */
 
 const GSRRenderer = {
+  _styleCache: null,
+
+  /**
+   * Helper to retrieve CSS variable values from document stylesheet.
+   * Caches styles locally during a drawing pass to avoid heavy DOM reads.
+   */
+  getThemeColor(varName, defaultVal) {
+    if (!this._styleCache) {
+      this._styleCache = window.getComputedStyle(document.documentElement);
+    }
+    const val = this._styleCache.getPropertyValue(varName).trim();
+    return val || defaultVal;
+  },
+
+  /**
+   * Clear style cache to force DOM re-evaluation (e.g. on window resize).
+   */
+  clearThemeCache() {
+    this._styleCache = null;
+  },
+
   drawPlaceholder() {
-    background(9, 13, 22);
+    const bg = this.getThemeColor('--canvas-bg', '#ffffff');
+    background(bg);
   },
 
   drawGridX(tMin, tMax, yUpperBottom, yLowerBottom) {
@@ -24,7 +46,11 @@ const GSRRenderer = {
 
     const firstGridTime = Math.floor(tMin / step) * step;
 
-    stroke('rgba(255, 255, 255, 0.05)');
+    const gridColor = this.getThemeColor('--canvas-grid', 'rgba(17, 17, 17, 0.06)');
+    const textColor = this.getThemeColor('--canvas-text', '#444444');
+    const axisColor = this.getThemeColor('--canvas-axis', 'rgba(17, 17, 17, 0.15)');
+
+    stroke(gridColor);
     strokeWeight(1);
     textAlign(CENTER, CENTER);
     textSize(10);
@@ -36,7 +62,7 @@ const GSRRenderer = {
       line(x, yUpperBottom + GSR_CONST.MARGIN.gap, x, yLowerBottom);
 
       // Time label in the gap between upper (tonic) and lower (phasic) graphs
-      fill('#94a3b8');
+      fill(textColor);
       noStroke();
 
       let label = t.toFixed(t % 1 !== 0 ? 1 : 0) + 's';
@@ -51,10 +77,10 @@ const GSRRenderer = {
         label = m + ':' + (s < 10 ? '0' : '') + s;
       }
       text(label, x, yUpperBottom + GSR_CONST.MARGIN.gap / 2);
-      stroke('rgba(255, 255, 255, 0.05)');
+      stroke(gridColor);
     }
 
-    stroke('rgba(255, 255, 255, 0.1)');
+    stroke(axisColor);
     line(GSR_CONST.MARGIN.left, GSR_CONST.MARGIN.top, GSR_CONST.MARGIN.left, yUpperBottom);
     line(GSR_CONST.MARGIN.left, yUpperBottom + GSR_CONST.MARGIN.gap, GSR_CONST.MARGIN.left, yLowerBottom);
     line(GSR_CONST.MARGIN.left, yUpperBottom, width - GSR_CONST.MARGIN.right, yUpperBottom);
@@ -72,7 +98,10 @@ const GSRRenderer = {
 
     const firstGridVal = Math.floor(yMin / step) * step;
 
-    stroke('rgba(255, 255, 255, 0.05)');
+    const gridColor = this.getThemeColor('--canvas-grid', 'rgba(17, 17, 17, 0.06)');
+    const textColor = this.getThemeColor('--canvas-text', '#444444');
+
+    stroke(gridColor);
     textAlign(RIGHT, CENTER);
     textSize(10);
 
@@ -82,9 +111,9 @@ const GSRRenderer = {
       line(GSR_CONST.MARGIN.left, y, width - GSR_CONST.MARGIN.right, y);
 
       noStroke();
-      fill('#94a3b8');
+      fill(textColor);
       text(val.toFixed(2) + ' \u03bcS', GSR_CONST.MARGIN.left - 8, y);
-      stroke('rgba(255, 255, 255, 0.05)');
+      stroke(gridColor);
     }
   },
 
@@ -99,7 +128,10 @@ const GSRRenderer = {
 
     const firstGridVal = Math.floor(yMin / step) * step;
 
-    stroke('rgba(255, 255, 255, 0.05)');
+    const gridColor = this.getThemeColor('--canvas-grid', 'rgba(17, 17, 17, 0.06)');
+    const textColor = this.getThemeColor('--canvas-text', '#444444');
+
+    stroke(gridColor);
     textAlign(RIGHT, CENTER);
     textSize(10);
 
@@ -109,9 +141,9 @@ const GSRRenderer = {
       line(GSR_CONST.MARGIN.left, y, width - GSR_CONST.MARGIN.right, y);
 
       noStroke();
-      fill('#94a3b8');
+      fill(textColor);
       text(val.toFixed(3) + ' \u03bcS', GSR_CONST.MARGIN.left - 8, y);
-      stroke('rgba(255, 255, 255, 0.05)');
+      stroke(gridColor);
     }
   },
 
@@ -173,7 +205,8 @@ const GSRRenderer = {
     if (count <= 0) return;
 
     noStroke();
-    fill(16, 185, 129, 25);
+    const colorPhasic = this.getThemeColor('--color-phasic', '#008f3c');
+    fill(color(colorPhasic + '19')); // ~25 opacity (10% transparent)
 
     const step = Math.max(1, Math.ceil(count / GSR_CONST.DRAW_MAX_VERTICES));
     const useSpline = count < GSR_CONST.SPLINE_THRESHOLD;
@@ -249,8 +282,12 @@ const GSRRenderer = {
       const isActive  = (pIdx === AppState.activePeakIndex);
       const isHovered = (AppState.hoveredIndex >= p.onsetIndex && AppState.hoveredIndex <= p.index);
 
+      const colorPeak = this.getThemeColor('--color-peak', '#d10024');
+      const colorPhasic = this.getThemeColor('--color-phasic', '#008f3c');
+      const canvasBg = this.getThemeColor('--canvas-bg', '#ffffff');
+
       if (isActive || isHovered) {
-        fill(244, 63, 94, 75);
+        fill(color(colorPeak + '4b')); // ~75 opacity
         noStroke();
         beginShape();
         vertex(xOnset, yBottomL);
@@ -263,27 +300,27 @@ const GSRRenderer = {
         endShape(CLOSE);
       }
 
-      stroke(16, 185, 129);
+      stroke(colorPhasic);
       strokeWeight(1.5);
-      fill(9, 13, 22);
+      fill(canvasBg);
       circle(xOnset, yPhasicOnset, isActive ? 8 : 5);
 
-      stroke(244, 63, 94, 60);
+      stroke(color(colorPeak + '3c')); // ~60 opacity
       strokeWeight(1);
       drawingContext.setLineDash([3, 3]);
       line(xPeak, yFilteredPeak, xPeak, yPhasicPeak);
       drawingContext.setLineDash([]);
 
-      stroke(244, 63, 94);
+      stroke(colorPeak);
       strokeWeight(2);
-      fill(isActive ? color(244, 63, 94) : color(9, 13, 22));
+      fill(isActive ? color(colorPeak) : color(canvasBg));
       circle(xPeak, yPhasicPeak, isActive ? 9 : 6);
       circle(xPeak, yFilteredPeak, isActive ? 9 : 6);
 
       if (xPeak >= GSR_CONST.MARGIN.left && xPeak <= width - GSR_CONST.MARGIN.right) {
         if (AppState.viewDuration < 300 || isActive || isHovered) {
           noStroke();
-          fill(244, 63, 94);
+          fill(colorPeak);
           textSize(10);
           textStyle(BOLD);
           textAlign(CENTER, BOTTOM);
@@ -341,13 +378,17 @@ const GSRRenderer = {
 
     const xScrub = map(dRaw.time, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
 
-    stroke(255, 255, 255, 50);
+    const scrubberColor = this.getThemeColor('--canvas-scrubber', 'rgba(17, 17, 17, 0.25)');
+    const colorFiltered = this.getThemeColor('--color-filtered', '#005bc4');
+    const colorPhasic = this.getThemeColor('--color-phasic', '#008f3c');
+
+    stroke(scrubberColor);
     strokeWeight(1);
     line(xScrub, GSR_CONST.MARGIN.top, xScrub, yBottomL);
 
     // Time label on scrubber in the gap between upper and lower graphs
     const gapCenter = (yBottomU + yTopL) / 2;
-    fill(14, 165, 233, 220);
+    fill(color(colorFiltered));
     noStroke();
     textSize(10);
     textStyle(BOLD);
@@ -358,12 +399,12 @@ const GSRRenderer = {
     const yU = map(dFilt.val, yMinU, yMaxU, yBottomU, GSR_CONST.MARGIN.top);
     const yL = map(dPhasic.val, yMinL, yMaxL, yBottomL, yTopL);
 
-    stroke(14, 165, 233);
-    fill(14, 165, 233);
+    stroke(colorFiltered);
+    fill(colorFiltered);
     circle(xScrub, yU, 6);
 
-    stroke(16, 185, 129);
-    fill(16, 185, 129);
+    stroke(colorPhasic);
+    fill(colorPhasic);
     circle(xScrub, yL, 6);
 
     GSRRenderer.drawTooltip(dRaw.time, dRaw.val, dFilt.val, dTonic.val, dPhasic.val);
@@ -382,15 +423,23 @@ const GSRRenderer = {
     let boxY = mouseY - 40;
     boxY = constrain(boxY, GSR_CONST.MARGIN.top, height - GSR_CONST.MARGIN.bottom - boxH);
 
-    fill(22, 33, 54, 235);
-    stroke(255, 255, 255, 15);
+    const overlayBg = this.getThemeColor('--canvas-overlay-bg', 'rgba(255, 255, 255, 0.95)');
+    const axisColor = this.getThemeColor('--canvas-axis', 'rgba(17, 17, 17, 0.15)');
+    const textColor = this.getThemeColor('--text-primary', '#111111');
+    const textSec = this.getThemeColor('--text-secondary', '#444444');
+    const colorFiltered = this.getThemeColor('--color-filtered', '#005bc4');
+    const colorTonic = this.getThemeColor('--color-tonic', '#a30091');
+    const colorPhasic = this.getThemeColor('--color-phasic', '#008f3c');
+
+    fill(overlayBg);
+    stroke(axisColor);
     strokeWeight(1);
-    rect(boxX, boxY, boxW, boxH, 8);
+    rect(boxX, boxY, boxW, boxH, 4);
 
     noStroke();
     textAlign(LEFT, TOP);
 
-    fill(255, 255, 255);
+    fill(textColor);
     textSize(10);
     textStyle(BOLD);
     text('TIME: ' + time.toFixed(2) + ' s', boxX + pad, boxY + pad);
@@ -400,25 +449,25 @@ const GSRRenderer = {
     const startY = boxY + pad + 18;
     const spacing = 18;
 
-    fill(148, 163, 184);
+    fill(textSec);
     text('Raw:', boxX + pad, startY);
     textAlign(RIGHT, TOP);
     text(rawVal.toFixed(4) + ' \u03bcS', boxX + boxW - pad, startY);
 
     textAlign(LEFT, TOP);
-    fill(14, 165, 233);
+    fill(colorFiltered);
     text('Filtered:', boxX + pad, startY + spacing);
     textAlign(RIGHT, TOP);
     text(filtVal.toFixed(4) + ' \u03bcS', boxX + boxW - pad, startY + spacing);
 
     textAlign(LEFT, TOP);
-    fill(217, 70, 239);
+    fill(colorTonic);
     text('Tonic (SCL):', boxX + pad, startY + 2 * spacing);
     textAlign(RIGHT, TOP);
     text(tonicVal.toFixed(4) + ' \u03bcS', boxX + boxW - pad, startY + 2 * spacing);
 
     textAlign(LEFT, TOP);
-    fill(16, 185, 129);
+    fill(colorPhasic);
     text('Phasic (SCR):', boxX + pad, startY + 3 * spacing);
     textAlign(RIGHT, TOP);
     text(phasicVal.toFixed(4) + ' \u03bcS', boxX + boxW - pad, startY + 3 * spacing);
@@ -427,13 +476,19 @@ const GSRRenderer = {
   drawTimelineOverview(innerWidth, timelineHeight) {
     if (!AppState.analyzer._timelinePoints || AppState.analyzer._timelinePoints.length === 0) return;
 
-    fill(15, 23, 42, 180);
-    stroke(255, 255, 255, 15);
+    const sidebarBg = this.getThemeColor('--bg-sidebar', '#f5f4f0');
+    const axisColor = this.getThemeColor('--canvas-axis', 'rgba(17, 17, 17, 0.15)');
+    const textSec = this.getThemeColor('--text-secondary', '#444444');
+    const colorPeak = this.getThemeColor('--color-peak', '#d10024');
+    const colorFiltered = this.getThemeColor('--color-filtered', '#005bc4');
+
+    fill(sidebarBg);
+    stroke(axisColor);
     strokeWeight(1);
-    rect(GSR_CONST.MARGIN.left, AppState.yTimelineTop, innerWidth, timelineHeight, 6);
+    rect(GSR_CONST.MARGIN.left, AppState.yTimelineTop, innerWidth, timelineHeight, 4);
 
     noFill();
-    stroke(148, 163, 184, 45);
+    stroke(axisColor);
     strokeWeight(1.2);
 
     let minRaw = Infinity;
@@ -470,7 +525,7 @@ const GSRRenderer = {
 
     // Use pre-cached peak positions (fraction of total duration)
     if (AppState.showPeaks && AppState.analyzer._timelinePeakPct) {
-      fill('rgba(244, 63, 94, 0.7)');
+      fill(color(colorPeak + 'b4')); // ~0.7 opacity
       noStroke();
       const pcts = AppState.analyzer._timelinePeakPct;
       for (let j = 0; j < pcts.length; j++) {
@@ -482,9 +537,9 @@ const GSRRenderer = {
     const xViewStart = GSR_CONST.MARGIN.left + AppState.viewStartTime * xScale;
     const xViewEnd   = GSR_CONST.MARGIN.left + (AppState.viewStartTime + AppState.viewDuration) * xScale;
 
-    fill('rgba(14, 165, 233, 0.1)');
-    stroke('rgba(14, 165, 233, 0.55)');
+    fill(color(colorFiltered + '20')); // ~0.12 opacity
+    stroke(colorFiltered);
     strokeWeight(1.5);
-    rect(xViewStart, AppState.yTimelineTop, xViewEnd - xViewStart, timelineHeight, 4);
+    rect(xViewStart, AppState.yTimelineTop, xViewEnd - xViewStart, timelineHeight, 2);
   }
 };
