@@ -1043,6 +1043,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
   to   { opacity: 1; transform: scale(1); }
 }
 
+/* Hide collapse buttons in fullscreen */
+.panel-fullscreen-overlay .collapse-btn {
+  display: none;
+}
+
 /* Panel sections fill the overlay */
 .panel-fullscreen-overlay > section {
   flex: 1;
