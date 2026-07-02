@@ -285,12 +285,32 @@ class GSRAnalyzer {
       // Phasic: signal − tonic (subtraction avoids wavelet ringing)
       const dwtLevel = params.dwtLevel || 6;
       const result = DWT.analyzeGSR(afterLPF, dwtLevel);
-      // Gentle post-smoothing (3 s window) removes DWT reconstruction
-      // ripples without introducing phase lag or eating into phasic.
-      const smoothWin = Math.max(1, Math.round(3 * this.sampleRate));
+      // Gentle post-smoothing (5 s window) removes DWT reconstruction
+      // ripples without introducing phase lag.  Empirically, 5 s gives the
+      // best tonic RMSE and phasic/truth correlation across levels 4–7.
+      const smoothWin = Math.max(1, Math.round(5 * this.sampleRate));
       tonicVals = GsrFilter.applyZeroPhaseMovingAverage(result.tonic, smoothWin);
       // Re-derive phasic from smoothed tonic for consistency
       phasicVals = afterLPF.map((v, i) => v - tonicVals[i]);
+
+      // DWT separates by frequency → tonic runs through the MIDDLE of the
+      // signal.  Physiologically, SCRs are always positive-going, so the
+      // tonic should track the LOWER envelope.  Shift the tonic down by
+      // the 25th percentile of negative phasic values (p25 of the lower
+      // half ≈ p12.5 overall), putting ~85 % of samples above the tonic.
+      const negPhasic = [];
+      for (let i = 0; i < phasicVals.length; i++) {
+        if (phasicVals[i] < 0) negPhasic.push(phasicVals[i]);
+      }
+      if (negPhasic.length > 0) {
+        negPhasic.sort((a, b) => a - b);
+        const downwardShift = negPhasic[Math.floor(negPhasic.length * 0.25)];
+        for (let i = 0; i < tonicVals.length; i++) {
+          tonicVals[i] += downwardShift;  // downwardShift is negative
+        }
+        // Recompute phasic from shifted tonic
+        phasicVals = afterLPF.map((v, i) => v - tonicVals[i]);
+      }
     } else {
       // ── Classical sliding-window methods ────────────────────────────────
       const tonicWinSize = Math.max(5, Math.round(params.tonicWindow * this.sampleRate));
