@@ -96,27 +96,7 @@ body {
   gap: 12px;
 }
 
-.sidebar-toggle-btn {
-  background: #f5f4f0;
-  border: 1px solid var(--border-glass);
-  color: var(--text-secondary);
-  width: 32px;
-  height: 32px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 0.85rem;
-  flex-shrink: 0;
-}
 
-.sidebar-toggle-btn:hover {
-  color: var(--text-primary);
-  background: #eae9e4;
-  border-color: var(--border-focus);
-}
 
 .header-logo {
   display: flex;
@@ -1204,7 +1184,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .control-card.collapsed h2 {
   margin-bottom: 0 !important;
   border-bottom: none !important;
-  padding-bottom: 0 !important;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -1214,38 +1193,33 @@ input[type="range"]::-webkit-slider-thumb:hover {
 /* View Switcher Tabs in Header */
 .view-switcher {
   display: flex;
-  background: #eae9e4;
-  border: 1px solid var(--border-glass);
-  border-radius: 4px;
-  padding: 2px;
-  gap: 2px;
+  gap: 0;
 }
 
 .view-tab {
   background: transparent;
   border: none;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-family: var(--font-sans);
-  font-weight: 600;
-  font-size: 0.8rem;
-  padding: 4px 12px;
-  border-radius: 2px;
+  font-weight: 500;
+  font-size: 0.78rem;
+  padding: 4px 10px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
-  transition: all 0.15s ease;
+  gap: 5px;
+  transition: color 0.12s ease;
+  border-bottom: 2px solid transparent;
 }
 
 .view-tab:hover {
-  color: var(--text-primary);
-  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-secondary);
 }
 
 .view-tab.active {
-  color: #ffffff;
-  background: var(--text-primary);
-  box-shadow: none;
+  color: var(--text-primary);
+  font-weight: 600;
+  border-bottom-color: var(--text-primary);
 }
 
 /* Track List Container & Items */
@@ -1396,7 +1370,9 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 /* View Mode Toggles (Layout switches) */
 .main-layout.collective-mode #gsrPanel,
-.main-layout.collective-mode #eventsPanel {
+.main-layout.collective-mode #eventsPanel,
+.main-layout.collective-mode #gsrFilteringCard,
+.main-layout.collective-mode #gpsFilteringCard {
   display: none !important;
 }
 

@@ -305,9 +305,6 @@ const GSREvents = {
     // ── Contour Settings ─────────────────────────────────────────────────────
     GSREvents.bindContourInputs();
 
-    // ── Sidebar Collapse ─────────────────────────────────────────────────────
-    GSREvents.bindSidebarToggle();
-
     // ── Map Panel Controls ───────────────────────────────────────────────────
     document.getElementById('btnMapZoomIn').addEventListener('click', () => {
       if (AppState.mapManager) AppState.mapManager.zoomIn();
@@ -442,27 +439,6 @@ const GSREvents = {
 
     document.getElementById('topoSource').addEventListener('change', () => {
       if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
-    });
-  },
-
-  /**
-   * Sidebar collapse toggle.
-   */
-  bindSidebarToggle() {
-    const btn    = document.getElementById('sidebarToggleBtn');
-    const layout = document.querySelector('.main-layout');
-    let collapsed = false;
-
-    btn.addEventListener('click', () => {
-      collapsed = !collapsed;
-      layout.classList.toggle('sidebar-collapsed', collapsed);
-      const icon = document.getElementById('sidebarToggleIcon');
-      if (collapsed) {
-        icon.classList.replace('fa-bars', 'fa-bars-staggered');
-      } else {
-        icon.classList.replace('fa-bars-staggered', 'fa-bars');
-      }
-      setTimeout(() => windowResized(), 320);
     });
   },
 
