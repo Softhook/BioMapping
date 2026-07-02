@@ -5,13 +5,13 @@
 
 /**
  * Read current GPS slider values into a clean param object.
- * Shared by tracks.js, simulator.js, and storage.js.
+ * Shared by tracks.js and storage.js.
  * This is the canonical source — always add new GPS sliders here first.
  */
 const GSRStorage = {
   /**
    * Read current GSR slider values into a clean param object.
-   * Shared by tracks.js, simulator.js, storage.js, and ui.js.
+ * Shared by tracks.js, storage.js, and ui.js.
    * This is the canonical source — always add new GSR sliders here first.
    */
   readGsrSliderValues() {
@@ -29,7 +29,7 @@ const GSRStorage = {
 
   /**
    * Read current GPS slider values into a clean param object.
-   * Shared by tracks.js, simulator.js, and storage.js.
+   * Shared by tracks.js and storage.js.
    * This is the canonical source — always add new GPS sliders here first.
    */
   readGpsSliderValues() {

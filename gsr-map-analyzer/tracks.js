@@ -379,5 +379,54 @@ const GSRTrackManager = {
     if (!AppState._renamingTrackId) return;
     AppState._renamingTrackId = null;
     GSRTrackManager.renderTrackList();
+  },
+
+  /**
+   * Load the default demo track from default_processed.csv.
+   */
+  loadDefaultTrack() {
+    fetch('../default_processed.csv')
+      .then(response => {
+        if (!response.ok) throw new Error('HTTP ' + response.status + ' — could not load demo data');
+        return response.text();
+      })
+      .then(csvText => {
+        try {
+          const tempAnalyzer = new GSRAnalyzer();
+          tempAnalyzer.parseCSV(csvText);
+
+          const trackId = 'track_demo_' + Date.now();
+          const trackColor = AppState.getNextTrackColor();
+
+          const filterParams = GSRStorage.readGsrSliderValues();
+          const gpsFilterParams = GSRStorage.readGpsSliderValues();
+
+          const newTrack = {
+            id: trackId,
+            name: 'default_processed.csv',
+            color: trackColor,
+            enabled: true,
+            analyzer: tempAnalyzer,
+            filterParams: filterParams,
+            gpsFilterParams: gpsFilterParams
+          };
+
+          AppState.collectiveManager.addTrack(newTrack);
+
+          GSRTrackManager.switchActiveTrack(trackId);
+          GSRTrackManager.renderTrackList();
+
+          GSRTrackManager.setFileStatus('success', AppState.collectiveManager.tracks.length + ' Tracks Loaded');
+
+          if (AppState.viewMode === 'collective') {
+            GSRUI.updateCollectiveMap();
+          }
+        } catch (err) {
+          alert('Error parsing demo data: ' + err.message);
+        }
+      })
+      .catch(err => {
+        alert('Error loading demo data: ' + err.message);
+      });
   }
 };

@@ -266,7 +266,7 @@ const GSREvents = {
     document.getElementById('exportMapBtn').addEventListener('click',   GSRUI.saveMapImage);
 
     // ── Demo Loader ──────────────────────────────────────────────────────────
-    document.getElementById('loadDemoBtn').addEventListener('click', GSRSimulator.loadDemoData);
+    document.getElementById('loadDemoBtn').addEventListener('click', GSRTrackManager.loadDefaultTrack);
 
     // ── GPS slider bindings ──────────────────────────────────────────────────
     GSREvents.bindGpsSlider('gpsMinSats',      'valGpsMinSats',      v => v === 0 ? 'off' : `≥ ${v}`);
