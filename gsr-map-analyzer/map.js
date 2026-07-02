@@ -293,27 +293,45 @@ class GSRMapManager {
   _computeLabelPositions(peaksWithCoords) {
     if (peaksWithCoords.length === 0) return new Map();
 
-    const W = 120, H = 18;       // label box dimensions (px)
+    // Estimate pixel width of label text at font-size 10px (Inter proportionals)
+    function textWidth(t) {
+      let w = 0;
+      for (const ch of t) {
+        if (ch >= 'A' && ch <= 'Z') w += 7.5;
+        else if (ch >= 'a' && ch <= 'z') w += 5.5;
+        else if (ch >= '0' && ch <= '9') w += 5.5;
+        else if (ch === ' ' || ch === '.' || ch === ',') w += 3;
+        else if (ch === 'i' || ch === 'l' || ch === 'I') w += 4;
+        else if (ch === 'm' || ch === 'w' || ch === 'W' || ch === 'M') w += 8.5;
+        else w += 5;
+      }
+      return Math.ceil(Math.min(w + 8, 160)); // 8px padding, sane cap
+    }
+
+    const H = 18;       // label box height (px)
     const BASE = 3, STEP = 4, TIERS = 3;  // gaps: 3, 7, 11 px
-    const OVERLAP_PENALTY = 100;  // cost per pair of overlapping labels
-    const DIST_FACTOR = 1.0;      // how strongly distance penalises the score
+    const OVERLAP_PENALTY = 100;
+    const DIST_FACTOR = 1.0;
 
     const overlap = (a, b) => a.left < b.right && a.right > b.left &&
                               a.top < b.bottom && a.bottom > b.top;
 
-    // ── Build candidate sets ──────────────────────────────────────────────
-    const gens = [
-      ['S',  (px, py, g) => px - W / 2,     (px, py, g) => py + g      ],
-      ['N',  (px, py, g) => px - W / 2,     (px, py, g) => py - H - g  ],
-      ['E',  (px, py, g) => px + g,         (px, py, g) => py - H / 2  ],
-      ['W',  (px, py, g) => px - W - g,     (px, py, g) => py - H / 2  ],
-      ['SE', (px, py, g) => px + g,         (px, py, g) => py + g      ],
-      ['SW', (px, py, g) => px - W - g,     (px, py, g) => py + g      ],
-      ['NE', (px, py, g) => px + g,         (px, py, g) => py - H - g  ],
-      ['NW', (px, py, g) => px - W - g,     (px, py, g) => py - H - g  ],
-    ];
-
+    // ── Build candidate sets (per-label width) ────────────────────────────
     const items = peaksWithCoords.map(p => {
+      const W = p.text ? textWidth(p.text) : 120;
+      p.tw = W; // cache for later use
+      const halfW = W / 2;
+      const gens = [
+        ['S',  (px, py, g) => px - halfW,      (px, py, g) => py + g       ],
+        ['N',  (px, py, g) => px - halfW,      (px, py, g) => py - H - g   ],
+        ['E',  (px, py, g) => px + g,          (px, py, g) => py - H / 2   ],
+        ['W',  (px, py, g) => px - W - g,      (px, py, g) => py - H / 2   ],
+        ['SE', (px, py, g) => px + g,          (px, py, g) => py + g       ],
+        ['SW', (px, py, g) => px - W - g,      (px, py, g) => py + g       ],
+        ['NE', (px, py, g) => px + g,          (px, py, g) => py - H - g   ],
+        ['NW', (px, py, g) => px - W - g,      (px, py, g) => py - H - g   ],
+      ];
+
       const candidates = [];
       for (let tier = 0; tier < TIERS; tier++) {
         const gap = BASE + tier * STEP;
@@ -321,7 +339,7 @@ class GSRMapManager {
           const left = lf(p.px, p.py, gap);
           const top  = tf(p.px, p.py, gap);
           const box = { left, top, right: left + W, bottom: top + H };
-          const dist = Math.hypot((left + W / 2) - p.px, (top + H / 2) - p.py);
+          const dist = Math.hypot((left + halfW) - p.px, (top + H / 2) - p.py);
           candidates.push({ dir, box, dist });
         }
       }
@@ -395,17 +413,17 @@ class GSRMapManager {
       if (T < 0.01) T = 50; // reheat if stuck
     }
 
-    // ── Build result ──────────────────────────────────────────────────────
+    // ── Build result: greedy pack to keep max labels ──────────────────────
+    // Annealing may leave minor overlaps. Instead of dropping all overlapping
+    // labels, we sort by proximity to dot (closer = higher priority) and then
+    // greedily keep each label if it doesn't overlap with already-kept ones.
+    const resultBoxes = [];
     const results = new Map();
-    for (const st of state) {
-      // Only include if it doesn't overlap (annealing might not resolve all)
-      const myBox = st.cand.box;
-      let hasOverlap = false;
-      for (const other of state) {
-        if (other === st) continue;
-        if (overlap(myBox, other.cand.box)) { hasOverlap = true; break; }
-      }
-      if (!hasOverlap) {
+    const ranked = [...state].sort((a, b) => a.cand.dist - b.cand.dist);
+
+    for (const st of ranked) {
+      if (!resultBoxes.some(p => overlap(st.cand.box, p))) {
+        resultBoxes.push(st.cand.box);
         results.set(st.item.idx, st.cand);
       }
     }
@@ -418,9 +436,9 @@ class GSRMapManager {
    * exactly enclose both the dot and the label box.
    */
   _buildLabelledIcon(px, py, labelText, dirResult) {
-    const W = 120;  // label width
-    const H = 18;   // label height
+    const H = 18;   // label height (px)
     const box = dirResult.box;
+    const W = box.right - box.left; // actual label width from collision box
     const DS = 24;  // dot visual diameter
 
     // Union bounding box of dot area and label box
@@ -470,7 +488,7 @@ class GSRMapManager {
       const pt = map.latLngToLayerPoint([row.lat, row.lon]);
       allPeaks.push({ peak, index, row, px: pt.x, py: pt.y });
       if (peak.label && peak.label.trim()) {
-        labelCandidates.push({ idx: index, px: pt.x, py: pt.y });
+        labelCandidates.push({ idx: index, px: pt.x, py: pt.y, text: peak.label });
       }
     });
 
@@ -720,7 +738,7 @@ class GSRMapManager {
           const pt = map.latLngToLayerPoint([lat, lon]);
           collectiveAllPeaks.push({ peak, index, lat, lon, px: pt.x, py: pt.y });
           if (peak.label && peak.label.trim()) {
-            collectiveLabelCandidates.push({ idx: index, px: pt.x, py: pt.y });
+            collectiveLabelCandidates.push({ idx: index, px: pt.x, py: pt.y, text: peak.label });
           }
         }
       });
@@ -746,8 +764,9 @@ class GSRMapManager {
           const dirResult = collectivePositions.get(index);
           if (dirResult) {
             // Build container: union of dot area and label box
-            const W = 120, H = 18, DS = 12;
+            const H = 18, DS = 12;
             const box = dirResult.box;
+            const W = box.right - box.left; // actual label width from collision
             const dotL = px - DS / 2, dotR = px + DS / 2;
             const dotT = py - DS / 2, dotB = py + DS / 2;
             const cLeft   = Math.min(dotL, box.left);
