@@ -296,7 +296,6 @@ function loadActiveGpsParams(track) {
   if (p.kalmanR !== undefined)      S.gpsKalmanR.value      = p.kalmanR;
   if (p.kalmanQ !== undefined)      S.gpsKalmanQ.value      = p.kalmanQ;
   if (p.rdpTolerance !== undefined) S.gpsRDP.value          = p.rdpTolerance;
-  if (p.minDist !== undefined)      S.gpsMinDist.value      = p.minDist;
   if (p.downsample !== undefined)   S.gpsDownsample.value   = p.downsample;
   if (p.trackWeight !== undefined)  S.gpsTrackWeight.value  = p.trackWeight;
   if (p.peakLatency !== undefined)  S.gpsPeakLatency.value  = p.peakLatency;

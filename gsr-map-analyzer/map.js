@@ -93,13 +93,12 @@ class GSRMapManager {
     // Reconstruct full 10 Hz filtered GPS path for CSV export
     this._reconstructFilteredGps(analyzer, data, gpsPoints);
 
-    // 7-9: Downsample, simplify, and deduplicate for drawing
+    // 7-8: Downsample and simplify for drawing
     let drawPoints = this._downsampleForDisplay(gpsPoints, analyzer.sampleRate || 10.0, p.downsample !== false);
     drawPoints = GpsFilter.applyRDP(drawPoints, p.rdpTolerance || 0);
-    drawPoints = this._minDistFilter(drawPoints, p.minDist || 0);
     if (drawPoints.length === 0) return;
 
-    // 10-12: Render on Leaflet map
+    // 9-11: Render on Leaflet map
     this._fitBounds(drawPoints);
     this._renderPathSegments(drawPoints, data, p.trackWeight || 5);
 
@@ -194,17 +193,6 @@ class GSRMapManager {
       draw.push({ ...gpsPoints[gpsPoints.length - 1] });
     }
     return draw;
-  }
-
-  _minDistFilter(drawPoints, minDist) {
-    if (minDist <= 0 || drawPoints.length < 2) return drawPoints;
-    const kept = [drawPoints[0]];
-    for (let i = 1; i < drawPoints.length; i++) {
-      const prev = kept[kept.length - 1];
-      const d = GpsFilter.haversineDistance(prev.lat, prev.lon, drawPoints[i].lat, drawPoints[i].lon);
-      if (d >= minDist) kept.push(drawPoints[i]);
-    }
-    return kept.length > 1 ? kept : drawPoints;
   }
 
   _fitBounds(drawPoints) {

@@ -21,6 +21,10 @@ function setup() {
   AppState.myCanvas.parent('canvasContainer');
   AppState.myCanvas.elt.oncontextmenu = (e) => { e.preventDefault(); };
 
+  // Track whether mouse is actually over the canvas (stale coordinates otherwise)
+  AppState.myCanvas.elt.addEventListener('mouseenter', () => { AppState.mouseOverCanvas = true; });
+  AppState.myCanvas.elt.addEventListener('mouseleave', () => { AppState.mouseOverCanvas = false; });
+
   cacheDOMElements();
   loadSettings();
   initializeLabels();

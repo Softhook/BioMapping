@@ -201,7 +201,7 @@
                 <span class="slider-value" id="valGpsHampelWindow">3 s</span>
               </div>
               <input type="range" id="gpsHampelWindow" min="0" max="10" step="1" value="0">
-              <p class="help-text">Sliding window half-size in seconds for spike detection. Set > 0 to enable.</p>
+              <p class="help-text">Sliding window half-size in seconds for spike detection. Replaces outliers with local median. Note: may conflict with Kalman smoother — use one or the other for best results. Set > 0 to enable.</p>
             </div>
 
             <div class="slider-group">
@@ -221,7 +221,7 @@
                 <span class="slider-value" id="valGpsDBSCANRadius">10 m</span>
               </div>
               <input type="range" id="gpsDBSCANRadius" min="0" max="30" step="2" value="0">
-              <p class="help-text">Radius to group stationary points and remove wander noise. Set > 0 to enable.</p>
+              <p class="help-text">Radius to group stationary points and remove wander noise. Creates hard cluster edges — Kalman smoother may partially undo the centroiding. Set > 0 to enable.</p>
             </div>
 
             <div class="slider-group">
@@ -236,19 +236,19 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Kalman Smoother R</span>
-                <span class="slider-value" id="valGpsKalmanR">25 m²</span>
+                <span class="slider-value" id="valGpsKalmanR">0 m²</span>
               </div>
-              <input type="range" id="gpsKalmanR" min="0" max="50" step="0.5" value="0">
-              <p class="help-text">Measurement noise covariance (larger = smoother path). Set > 0 to enable.</p>
+              <input type="range" id="gpsKalmanR" min="0" max="25" step="0.5" value="0">
+              <p class="help-text">Measurement noise variance (m²). Higher = smoother, less responsive to GPS jitter. Typical consumer GPS: 5-15 m². Set > 0 to enable.</p>
             </div>
 
             <div class="slider-group">
               <div class="slider-label">
                 <span>Kalman Smoother Q</span>
-                <span class="slider-value" id="valGpsKalmanQ">1e-4</span>
+                <span class="slider-value" id="valGpsKalmanQ">0 m²</span>
               </div>
-              <input type="range" id="gpsKalmanQ" min="2" max="6" step="1" value="4">
-              <p class="help-text">Process noise covariance 10^-Q (smaller = smoother, larger = responsive).</p>
+              <input type="range" id="gpsKalmanQ" min="0" max="5" step="0.1" value="0">
+              <p class="help-text">Process noise variance (m²). Higher = more responsive to turns. Walking ~1.4 m/s: Q ≈ 2. Set > 0 to enable.</p>
             </div>
 
             <div class="slider-group">
@@ -257,16 +257,7 @@
                 <span class="slider-value" id="valGpsRDP">5 m</span>
               </div>
               <input type="range" id="gpsRDP" min="0" max="20" step="1" value="0">
-              <p class="help-text">Ramer-Douglas-Peucker tolerance (larger = fewer segments). Set > 0 to enable.</p>
-            </div>
-
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>Min. Move Distance</span>
-                <span class="slider-value" id="valGpsMinDist">0 m</span>
-              </div>
-              <input type="range" id="gpsMinDist" min="0" max="20" step="1" value="0">
-              <p class="help-text">Skip points closer than this to the previous one.</p>
+              <p class="help-text">Ramer-Douglas-Peucker tolerance (larger = fewer segments, replaces Min. Move Distance). Set > 0 to enable.</p>
             </div>
 
             <div class="slider-group">
@@ -275,9 +266,21 @@
                 <span class="slider-value" id="valGpsDownsample">1 Hz</span>
               </div>
               <input type="range" id="gpsDownsample" min="0" max="1" step="1" value="0">
-              <p class="help-text">Downsample path to 1 Hz to prevent browser lag (0 = off, 1 = 1 Hz).</p>
+              <p class="help-text">Downsample path to 1 Hz to prevent browser lag (0 = off, 1 = 1 Hz). Not needed if RDP is active.</p>
             </div>
+          </div>
+        </section>
 
+        <!-- Map Display Settings -->
+        <section class="control-card" id="mapDisplayCard">
+          <h2>
+            <i class="fa-solid fa-map"></i> Map Display
+            <button class="icon-btn collapse-btn" id="btnMapDisplayCollapse" title="Collapse" style="margin-left: auto;">
+              <i class="fa-solid fa-chevron-down"></i>
+            </button>
+          </h2>
+
+          <div class="card-content">
             <div class="slider-group">
               <div class="slider-label">
                 <span>Track Width</span>

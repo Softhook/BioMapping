@@ -286,8 +286,9 @@ function handleScrubber(tMin, tMax, yMinU, yMaxU, yBottomU, yMinL, yMaxL, yTopL,
     return;
   }
 
-  // Only show scrubber when the mouse is inside the graph area
-  if (mouseX < M.left || mouseX > width - M.right ||
+  // Only show scrubber when the mouse is actually over the canvas and inside the graph area
+  if (!AppState.mouseOverCanvas ||
+      mouseX < M.left || mouseX > width - M.right ||
       mouseY < M.top || mouseY > yBottomL ||
       AppState.isDragging) {
     AppState.hoveredIndex = -1;

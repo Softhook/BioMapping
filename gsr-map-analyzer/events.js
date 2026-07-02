@@ -44,7 +44,6 @@ function cacheDOMElements() {
   AppState.sliders.gpsKalmanR      = _id('gpsKalmanR');
   AppState.sliders.gpsKalmanQ      = _id('gpsKalmanQ');
   AppState.sliders.gpsRDP          = _id('gpsRDP');
-  AppState.sliders.gpsMinDist      = _id('gpsMinDist');
   AppState.sliders.gpsDownsample   = _id('gpsDownsample');
   AppState.sliders.gpsTrackWeight  = _id('gpsTrackWeight');
   AppState.sliders.gpsPeakLatency  = _id('gpsPeakLatency');
@@ -89,11 +88,19 @@ function setupCollapseWithResize(btnId, cardId, onExpand) {
 
 /**
  * Update the dimmed state of a slider-group based on whether value is 0 (off).
+ * If a parentId is provided, dims based on the parent slider's value instead.
  */
-function updateFilterDim(slider) {
+function updateFilterDim(slider, parentId) {
   const group = slider.closest('.slider-group');
   if (!group) return;
-  const val = parseFloat(slider.value);
+  let val;
+  if (parentId) {
+    const parent = document.getElementById(parentId);
+    if (!parent) return;
+    val = parseFloat(parent.value);
+  } else {
+    val = parseFloat(slider.value);
+  }
   group.classList.toggle('filter-off', val === 0);
 }
 
@@ -121,11 +128,12 @@ function bindGsrSlider(id, labelId, suffix) {
 /**
  * Bind a GPS slider: update label, re-render map, save settings.
  * Dims the slider group when value is 0 (off).
+ * If parentId is set, dims based on the parent slider's value instead.
  */
-function bindGpsSlider(id, labelId, fmt) {
+function bindGpsSlider(id, labelId, fmt, parentId) {
   const slider = document.getElementById(id);
   const label  = document.getElementById(labelId);
-  const updateDim = () => updateFilterDim(slider);
+  const updateDim = () => updateFilterDim(slider, parentId);
 
   // Initial dim state
   updateDim();
@@ -136,6 +144,12 @@ function bindGpsSlider(id, labelId, fmt) {
     rerenderMap();
     saveSettings();
   });
+
+  // Re-evaluate dim state when the parent slider changes
+  if (parentId) {
+    const parent = document.getElementById(parentId);
+    if (parent) parent.addEventListener('input', updateDim);
+  }
 }
 
 /**
@@ -254,13 +268,12 @@ function setupEventListeners() {
   bindGpsSlider('gpsMinSats',      'valGpsMinSats',      v => v === 0 ? 'off' : `≥ ${v}`);
   bindGpsSlider('gpsMaxSpeed',     'valGpsMaxSpeed',     v => v === 0 ? 'off' : `${v} m/s`);
   bindGpsSlider('gpsHampelWindow', 'valGpsHampelWindow', v => v === 0 ? 'off' : `${v} s`);
-  bindGpsSlider('gpsHampelSigma',  'valGpsHampelSigma',  v => v.toFixed(1));
+  bindGpsSlider('gpsHampelSigma',  'valGpsHampelSigma',  v => v.toFixed(1), 'gpsHampelWindow');
   bindGpsSlider('gpsDBSCANRadius', 'valGpsDBSCANRadius', v => v === 0 ? 'off' : `${v} m`);
-  bindGpsSlider('gpsDBSCANMinPts', 'valGpsDBSCANMinPts', v => `${v} s`);
+  bindGpsSlider('gpsDBSCANMinPts', 'valGpsDBSCANMinPts', v => `${v} s`, 'gpsDBSCANRadius');
   bindGpsSlider('gpsKalmanR',      'valGpsKalmanR',      v => v === 0 ? 'off' : `${v} m²`);
-  bindGpsSlider('gpsKalmanQ',      'valGpsKalmanQ',      v => `1e-${v}`);
+  bindGpsSlider('gpsKalmanQ',      'valGpsKalmanQ',      v => v === 0 ? 'off' : `${v} m²`, 'gpsKalmanR');
   bindGpsSlider('gpsRDP',          'valGpsRDP',          v => v === 0 ? 'off' : `${v} m`);
-  bindGpsSlider('gpsMinDist',      'valGpsMinDist',      v => v === 0 ? 'off' : `${v} m`);
   bindGpsSlider('gpsDownsample',   'valGpsDownsample',   v => v === 0 ? 'off' : '1 Hz');
   bindGpsSlider('gpsTrackWeight',  'valGpsTrackWeight',  v => `${v} px`);
 
@@ -311,6 +324,7 @@ function setupEventListeners() {
   bindCollapseButton('btnEventsCollapse',        'eventsPanel');
   bindCollapseButton('btnGsrFilteringCollapse',  'gsrFilteringCard');
   bindCollapseButton('btnGpsFilteringCollapse',  'gpsFilteringCard');
+  bindCollapseButton('btnMapDisplayCollapse',    'mapDisplayCard');
   bindCollapseButton('btnImportCollapse',        'importCard');
   bindCollapseButton('btnExportCollapse',        'exportCard');
   bindCollapseButton('btnContourCollapse',       'contourSettingsCard');
@@ -483,9 +497,8 @@ function initializeLabels() {
     gpsDBSCANRadius: v => v === 0 ? 'off' : `${v} m`,
     gpsDBSCANMinPts: v => `${v} s`,
     gpsKalmanR:      v => v === 0 ? 'off' : `${v} m²`,
-    gpsKalmanQ:      v => `1e-${v}`,
+    gpsKalmanQ:      v => v === 0 ? 'off' : `${v} m²`,
     gpsRDP:          v => v === 0 ? 'off' : `${v} m`,
-    gpsMinDist:      v => v === 0 ? 'off' : `${v} m`,
     gpsDownsample:   v => v === 0 ? 'off' : '1 Hz',
     gpsTrackWeight:  v => `${v} px`,
     gpsPeakLatency:  v => `${v.toFixed(1)} s`
@@ -502,6 +515,15 @@ function initializeLabels() {
 
   // Initial dim state for all GSR sliders (only those that can be 0)
   document.querySelectorAll('#gsrFilteringCard input[type="range"]').forEach(updateFilterDim);
-  // Initial dim state for all GPS sliders
-  document.querySelectorAll('#gpsFilteringCard input[type="range"]').forEach(updateFilterDim);
+  // Initial dim state for GPS sliders (dependent sliders check their parent)
+  const gpsParentMap = {
+    gpsHampelSigma:  'gpsHampelWindow',
+    gpsDBSCANMinPts: 'gpsDBSCANRadius',
+    gpsKalmanQ:      'gpsKalmanR'
+  };
+  document.querySelectorAll('#gpsFilteringCard input[type="range"]').forEach(slider => {
+    updateFilterDim(slider, gpsParentMap[slider.id]);
+  });
+  // Initial dim state for map display sliders
+  document.querySelectorAll('#mapDisplayCard input[type="range"]').forEach(updateFilterDim);
 }

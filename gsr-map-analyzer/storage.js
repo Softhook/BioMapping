@@ -18,9 +18,8 @@ function readGpsSliderValues() {
     dbscanRadius: parseFloat(S.gpsDBSCANRadius.value),
     dbscanMinPts: parseInt(S.gpsDBSCANMinPts.value),
     kalmanR:      parseFloat(S.gpsKalmanR.value),
-    kalmanQ:      parseInt(S.gpsKalmanQ.value),
+    kalmanQ:      parseFloat(S.gpsKalmanQ.value),
     rdpTolerance: parseFloat(S.gpsRDP.value),
-    minDist:      parseFloat(S.gpsMinDist.value),
     downsample:   parseInt(S.gpsDownsample.value),
     trackWeight:  parseInt(S.gpsTrackWeight.value),
     peakLatency:  parseFloat(S.gpsPeakLatency ? S.gpsPeakLatency.value : 0)
@@ -42,9 +41,8 @@ function buildGpsParams() {
     dbscanRadius: raw.dbscanRadius,
     dbscanMinPts: raw.dbscanMinPts,
     kalmanR:      raw.kalmanR,
-    kalmanQ:      Math.pow(10, -raw.kalmanQ),
+    kalmanQ:      raw.kalmanQ,
     rdpTolerance: raw.rdpTolerance,
-    minDist:      raw.minDist,
     downsample:   raw.downsample === 1,
     trackWeight:  raw.trackWeight,
     peakLatency:  raw.peakLatency
@@ -71,7 +69,6 @@ function saveSettings() {
     gpsKalmanR:      gps.kalmanR,
     gpsKalmanQ:      gps.kalmanQ,
     gpsRDP:          gps.rdpTolerance,
-    gpsMinDist:      gps.minDist,
     gpsDownsample:   gps.downsample,
     gpsTrackWeight:  gps.trackWeight,
     gpsPeakLatency:  gps.peakLatency
@@ -100,7 +97,6 @@ function loadSettings() {
     if (settings.gpsKalmanR      !== undefined && S.gpsKalmanR)      S.gpsKalmanR.value      = settings.gpsKalmanR;
     if (settings.gpsKalmanQ      !== undefined && S.gpsKalmanQ)      S.gpsKalmanQ.value      = settings.gpsKalmanQ;
     if (settings.gpsRDP          !== undefined && S.gpsRDP)          S.gpsRDP.value          = settings.gpsRDP;
-    if (settings.gpsMinDist      !== undefined && S.gpsMinDist)      S.gpsMinDist.value      = settings.gpsMinDist;
     if (settings.gpsDownsample   !== undefined && S.gpsDownsample)   S.gpsDownsample.value   = settings.gpsDownsample;
     if (settings.gpsTrackWeight  !== undefined && S.gpsTrackWeight)  S.gpsTrackWeight.value  = settings.gpsTrackWeight;
     if (settings.gpsPeakLatency  !== undefined && S.gpsPeakLatency)  S.gpsPeakLatency.value  = settings.gpsPeakLatency;

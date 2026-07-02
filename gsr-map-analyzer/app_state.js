@@ -63,6 +63,7 @@ const AppState = {
   dragStartViewStart: 0,
   hoveredIndex: -1,
   activePeakIndex: -1,
+  mouseOverCanvas: true,
 
   // ── DOM element cache (populated by cacheDOMElements) ──────────────────────
   sliders: {},
