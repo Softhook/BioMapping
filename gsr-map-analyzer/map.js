@@ -251,218 +251,7 @@ class GSRMapManager {
     }
   }
 
-  /**
-   * Compute 360° label positions for labelled peak markers, avoiding overlaps.
-   *
-   * For each labelled peak, 8 candidate positions are generated (N, NE, E, SE,
-   * S, SW, W, NW) around the anchor dot. Candidates are scored by distance from
-   * the dot (closer = better). Labels are placed greedily in pixel-space order,
-   * each picking the closest non-overlapping candidate.
-   *
-   * Returns a Map<peakIndex, { box, dir }> where `box` is the pixel-space
-   * bounding box { left, top, right, bottom } of the label text, and `dir` is
-   * the cardinal direction name.
-   */
-  /**
-   * Compute 360° label positions using simulated annealing — the standard
-   * cartographic approach for point-feature label placement.
-   *
-   * Each label has 24 candidate positions (8 directions × 3 distance tiers).
-   * The annealer explores configurations by randomly re-assigning labels to
-   * different candidates, accepting improvements greedily and occasionally
-   * accepting worse moves to escape local minima.
-   *
-   * Score = Σ(overlap_penalty) + Σ(distance from dot)² / smoothing
-   * This strongly penalises overlap while encouraging labels to stay close
-   * to their anchor dots.
-   *
-   * Returns a Map<peakIndex, { box, dir }>.
-   */
-  _computeLabelPositions(peaksWithCoords) {
-    if (peaksWithCoords.length === 0) return new Map();
-
-    // Estimate pixel width of label text at font-size 10px (Inter proportionals)
-    function textWidth(t) {
-      let w = 0;
-      for (const ch of t) {
-        if (ch >= 'A' && ch <= 'Z') w += 7.5;
-        else if (ch >= 'a' && ch <= 'z') w += 5.5;
-        else if (ch >= '0' && ch <= '9') w += 5.5;
-        else if (ch === ' ' || ch === '.' || ch === ',') w += 3;
-        else if (ch === 'i' || ch === 'l' || ch === 'I') w += 4;
-        else if (ch === 'm' || ch === 'w' || ch === 'W' || ch === 'M') w += 8.5;
-        else w += 5;
-      }
-      return Math.ceil(Math.min(w + 8, 160)); // 8px padding, sane cap
-    }
-
-    const H = 18;       // label box height (px)
-    const BASE = 3, STEP = 4, TIERS = 3;  // gaps: 3, 7, 11 px
-    const OVERLAP_PENALTY = 100;
-    const DIST_FACTOR = 1.0;
-
-    const overlap = (a, b) => a.left < b.right && a.right > b.left &&
-                              a.top < b.bottom && a.bottom > b.top;
-
-    // ── Build candidate sets (per-label width) ────────────────────────────
-    const items = peaksWithCoords.map(p => {
-      const W = p.text ? textWidth(p.text) : 120;
-      p.tw = W; // cache for later use
-      const halfW = W / 2;
-      const gens = [
-        ['S',  (px, py, g) => px - halfW,      (px, py, g) => py + g       ],
-        ['N',  (px, py, g) => px - halfW,      (px, py, g) => py - H - g   ],
-        ['E',  (px, py, g) => px + g,          (px, py, g) => py - H / 2   ],
-        ['W',  (px, py, g) => px - W - g,      (px, py, g) => py - H / 2   ],
-        ['SE', (px, py, g) => px + g,          (px, py, g) => py + g       ],
-        ['SW', (px, py, g) => px - W - g,      (px, py, g) => py + g       ],
-        ['NE', (px, py, g) => px + g,          (px, py, g) => py - H - g   ],
-        ['NW', (px, py, g) => px - W - g,      (px, py, g) => py - H - g   ],
-      ];
-
-      const candidates = [];
-      for (let tier = 0; tier < TIERS; tier++) {
-        const gap = BASE + tier * STEP;
-        for (const [dir, lf, tf] of gens) {
-          const left = lf(p.px, p.py, gap);
-          const top  = tf(p.px, p.py, gap);
-          const box = { left, top, right: left + W, bottom: top + H };
-          const dist = Math.hypot((left + halfW) - p.px, (top + H / 2) - p.py);
-          candidates.push({ dir, box, dist });
-        }
-      }
-      candidates.sort((a, b) => a.dist - b.dist);
-      return { idx: p.idx, px: p.px, py: p.py, candidates };
-    });
-
-    // ── Initialise via fast greedy pass ───────────────────────────────────
-    const state = [];          // [{ item, candIdx, cand }]
-    const placed = [];
-    const unplaced = new Set(items.map((_, i) => i));
-
-    while (unplaced.size > 0) {
-      let bestI = -1, bestC = null, bestD = Infinity;
-      for (const i of unplaced) {
-        for (const c of items[i].candidates) {
-          if (!placed.some(p => overlap(c.box, p))) {
-            if (c.dist < bestD) { bestD = c.dist; bestI = i; bestC = c; }
-            break;
-          }
-        }
-      }
-      if (bestI < 0) break;
-      const idx = items[bestI].candidates.indexOf(bestC);
-      state.push({ item: items[bestI], candIdx: idx, cand: bestC });
-      placed.push(bestC.box);
-      unplaced.delete(bestI);
-    }
-    // Any remaining items get their first candidate (will be penalised)
-    for (const i of unplaced) {
-      state.push({ item: items[i], candIdx: 0, cand: items[i].candidates[0] });
-    }
-
-    // ── Simulated annealing ───────────────────────────────────────────────
-    const N = state.length;
-    let boxes = state.map(s => s.cand.box);
-
-    const ITERS = Math.max(300, N * 30);
-    let T = 50;
-
-    for (let k = 0; k < ITERS; k++) {
-      const si = Math.floor(Math.random() * N);
-      const st = state[si];
-      const oldIdx = st.candIdx;
-      const old = st.cand;
-      const oldBox = boxes[si];
-      const oldScore = st.cand.dist * DIST_FACTOR +
-        state.filter((_, j) => j !== si && overlap(oldBox, boxes[j])).length * OVERLAP_PENALTY;
-
-      // Pick a random different candidate
-      const newIdx = (st.candIdx + 1 + Math.floor(Math.random() * (st.item.candidates.length - 1)))
-                     % st.item.candidates.length;
-      const cand = st.item.candidates[newIdx];
-      boxes[si] = cand.box;
-
-      const newScorePart = cand.dist * DIST_FACTOR +
-        state.filter((_, j) => j !== si && overlap(cand.box, boxes[j])).length * OVERLAP_PENALTY;
-
-      const delta = newScorePart - oldScore;
-
-      if (delta < 0 || Math.random() < Math.exp(-delta / T)) {
-        // Accept
-        st.candIdx = newIdx;
-        st.cand = cand;
-      } else {
-        // Reject
-        boxes[si] = oldBox;
-      }
-
-      T *= 0.995;
-      if (T < 0.01) T = 50; // reheat if stuck
-    }
-
-    // ── Build result: greedy pack to keep max labels ──────────────────────
-    // Annealing may leave minor overlaps. Instead of dropping all overlapping
-    // labels, we sort by proximity to dot (closer = higher priority) and then
-    // greedily keep each label if it doesn't overlap with already-kept ones.
-    const resultBoxes = [];
-    const results = new Map();
-    const ranked = [...state].sort((a, b) => a.cand.dist - b.cand.dist);
-
-    for (const st of ranked) {
-      if (!resultBoxes.some(p => overlap(st.cand.box, p))) {
-        resultBoxes.push(st.cand.box);
-        results.set(st.item.idx, st.cand);
-      }
-    }
-    return results;
-  }
-
-  /**
-   * Build a Leaflet divIcon that renders both the peak dot and its label,
-   * positioned via 360° collision avoidance. The container div is sized to
-   * exactly enclose both the dot and the label box.
-   */
-  _buildLabelledIcon(px, py, labelText, dirResult) {
-    const H = 18;   // label height (px)
-    const box = dirResult.box;
-    const W = box.right - box.left; // actual label width from collision box
-    const DS = 24;  // dot visual diameter
-
-    // Union bounding box of dot area and label box
-    const dotL = px - DS / 2, dotR = px + DS / 2;
-    const dotT = py - DS / 2, dotB = py + DS / 2;
-    const cLeft   = Math.min(dotL, box.left);
-    const cRight  = Math.max(dotR, box.right);
-    const cTop    = Math.min(dotT, box.top);
-    const cBottom = Math.max(dotB, box.bottom);
-    const cW = cRight - cLeft;
-    const cH = cBottom - cTop;
-
-    // Dot position within the container
-    const dotCx = px - cLeft;
-    const dotCy = py - cTop;
-    // Label position within the container
-    const labelL = box.left - cLeft;
-    const labelT = box.top - cTop;
-
-    const escapedLabel = labelText.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-    const html = [
-      '<div class="stress-peak-icon-wrapper" style="position:relative;width:', cW, 'px;height:', cH, 'px;">',
-        '<div class="peak-glow-ring" style="position:absolute;top:', (dotCy - 12), 'px;left:', (dotCx - 12), 'px;"></div>',
-        '<div class="peak-dot" style="position:absolute;top:', (dotCy - 5), 'px;left:', (dotCx - 5), 'px;width:10px;height:10px;"></div>',
-        '<div class="peak-map-label" style="position:absolute;top:', labelT, 'px;left:', labelL, 'px;width:', W, 'px;text-align:center;font-size:10px;font-weight:600;">', escapedLabel, '</div>',
-      '</div>'
-    ].join('');
-
-    return L.divIcon({
-      className: '',
-      html,
-      iconSize: [cW, cH],
-      iconAnchor: [px - cLeft, py - cTop]
-    });
-  }
+  // Note: Cartographic label placement algorithms and HTML builders moved to GSRLabelManager in label_placement.js
 
   _renderPeakMarkers(analyzer, data, peakLatency) {
     const map = this.map;
@@ -493,7 +282,7 @@ class GSRMapManager {
     });
 
     // Compute 360° label positions
-    const labelPositions = this._computeLabelPositions(labelCandidates);
+    const labelPositions = GSRLabelManager.computeLabelPositions(labelCandidates);
 
     // Compact dot-only icon for peaks without labels
     const simpleIcon = L.divIcon({
@@ -512,7 +301,7 @@ class GSRMapManager {
         const dirResult = labelPositions.get(index);
         if (dirResult) {
           marker = L.marker([coords.lat, coords.lon], {
-            icon: this._buildLabelledIcon(px, py, displayLabel, dirResult)
+            icon: GSRLabelManager.buildLabelledIcon(px, py, displayLabel, dirResult)
           });
           // Bump labeled markers above unlabeled markers and path layers
           marker.setZIndexOffset(1000);
@@ -753,7 +542,7 @@ class GSRMapManager {
       });
 
       // 360° collision avoidance for collective labels
-      const collectivePositions = this._computeLabelPositions(collectiveLabelCandidates);
+      const collectivePositions = GSRLabelManager.computeLabelPositions(collectiveLabelCandidates);
 
       // Compact dot-only icon for unlabeled peaks
       const collectiveSimpleIcon = L.divIcon({
@@ -772,29 +561,8 @@ class GSRMapManager {
         if (hasLabel) {
           const dirResult = collectivePositions.get(index);
           if (dirResult) {
-            // Build container: union of dot area and label box
-            const H = 18, DS = 12;
-            const box = dirResult.box;
-            const W = box.right - box.left; // actual label width from collision
-            const dotL = px - DS / 2, dotR = px + DS / 2;
-            const dotT = py - DS / 2, dotB = py + DS / 2;
-            const cLeft   = Math.min(dotL, box.left);
-            const cRight  = Math.max(dotR, box.right);
-            const cTop    = Math.min(dotT, box.top);
-            const cBottom = Math.max(dotB, box.bottom);
-            const cW = cRight - cLeft, cH = cBottom - cTop;
-            const dotCx = px - cLeft, dotCy = py - cTop;
-            const labelL = box.left - cLeft, labelT = box.top - cTop;
-
-            const html = [
-              '<div style="position:relative;width:', cW, 'px;height:', cH, 'px;">',
-                '<div class="collective-peak-dot" style="position:absolute;top:', (dotCy - 5), 'px;left:', (dotCx - 5), 'px;width:10px;height:10px;border-radius:50%;background:', trackColor, ';box-shadow:0 0 6px ', trackColor, ';border:1.5px solid #fff;"></div>',
-                '<div class="peak-map-label" style="position:absolute;top:', labelT, 'px;left:', labelL, 'px;width:', W, 'px;text-align:center;font-size:9px;font-weight:600;color:rgba(255,255,255,0.9);text-shadow:0 0 4px rgba(0,0,0,0.95),0 0 8px rgba(0,0,0,0.85),0 1px 3px rgba(0,0,0,0.8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;line-height:1.2;">', escapedLabel, '</div>',
-              '</div>'
-            ].join('');
-
             marker = L.marker([lat, lon], {
-              icon: L.divIcon({ className: '', html, iconSize: [cW, cH], iconAnchor: [px - cLeft, py - cTop] })
+              icon: GSRLabelManager.buildCollectiveLabelledIcon(px, py, displayLabel, dirResult, trackColor)
             });
             // Bump labeled markers above everything else on the map
             marker.setZIndexOffset(1000);

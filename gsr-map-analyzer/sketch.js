@@ -178,63 +178,8 @@ function draw() {
   // 5. Hover Scrubber
   GSRRenderer.handleScrubber(AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, yUpperBottom, yMinLower, yMaxLower, yLowerTop, yLowerBottom);
 
-  // 6. Timeline overview (cached points — pre-computed after analysis)
-  if (AppState.analyzer._timelinePoints && AppState.analyzer._timelinePoints.length > 0) {
-    fill(15, 23, 42, 180);
-    stroke(255, 255, 255, 15);
-    strokeWeight(1);
-    rect(GSR_CONST.MARGIN.left, AppState.yTimelineTop, innerWidth, timelineHeight, 6);
-
-    noFill();
-    stroke(148, 163, 184, 45);
-    strokeWeight(1.2);
-
-    let minRaw = Infinity;
-    let maxRaw = -Infinity;
-    if (!AppState.analyzer.rawMinMaxCached) {
-      for (let i = 0; i < AppState.analyzer.raw.length; i++) {
-        const val = AppState.analyzer.raw[i].val;
-        if (val < minRaw) minRaw = val;
-        if (val > maxRaw) maxRaw = val;
-      }
-      AppState.analyzer.rawMinMaxCached = { minVal: minRaw, maxVal: maxRaw };
-    } else {
-      minRaw = AppState.analyzer.rawMinMaxCached.minVal;
-      maxRaw = AppState.analyzer.rawMinMaxCached.maxVal;
-    }
-
-    if (minRaw === maxRaw) maxRaw = minRaw + 0.5;
-
-    // Use pre-cached timeline points (~300 samples)
-    beginShape();
-    const tPoints = AppState.analyzer._timelinePoints;
-    for (let i = 0; i < tPoints.length; i++) {
-      const d = tPoints[i];
-      const xt = map(d.time, 0, AppState.totalDuration, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
-      const yt = map(d.val, minRaw, maxRaw, AppState.yTimelineBottom - 3, AppState.yTimelineTop + 3);
-      vertex(xt, yt);
-    }
-    endShape();
-
-    // Use pre-cached peak positions (fraction of total duration)
-    if (AppState.showPeaks && AppState.analyzer._timelinePeakPct) {
-      fill(244, 63, 94, 180);
-      noStroke();
-      const pcts = AppState.analyzer._timelinePeakPct;
-      for (let j = 0; j < pcts.length; j++) {
-        const xp = GSR_CONST.MARGIN.left + pcts[j] * innerWidth;
-        rect(xp - 0.5, AppState.yTimelineTop + 2, 1.5, timelineHeight - 4);
-      }
-    }
-
-    const xViewStart = map(AppState.viewStartTime, 0, AppState.totalDuration, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
-    const xViewEnd   = map(AppState.viewStartTime + AppState.viewDuration, 0, AppState.totalDuration, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
-
-    fill(14, 165, 233, 25);
-    stroke(14, 165, 233, 140);
-    strokeWeight(1.5);
-    rect(xViewStart, AppState.yTimelineTop, xViewEnd - xViewStart, timelineHeight, 4);
-  }
+  // 6. Timeline overview
+  GSRRenderer.drawTimelineOverview(innerWidth, timelineHeight);
 }
 
 function mousePressed() {
