@@ -281,12 +281,16 @@ class GSRAnalyzer {
     if (params.tonicMethod === 'dwt') {
       // ── DWT Wavelet Decomposition (db3) ────────────────────────────────
       // Uses the afterLPF signal (median + low-pass filtered) as input.
-      // Tonic: approximation at level N (SCL)
-      // Phasic: detail levels D₂…D₄ (SCRs, excludes D₁ noise)
-      const dwtLevel = params.dwtLevel || 4;
+      // Tonic: approximation at level N (SCL), 0–Fs/2^(N+1) Hz
+      // Phasic: signal − tonic (subtraction avoids wavelet ringing)
+      const dwtLevel = params.dwtLevel || 6;
       const result = DWT.analyzeGSR(afterLPF, dwtLevel);
-      tonicVals = result.tonic;
-      phasicVals = result.phasic;
+      // Gentle post-smoothing (3 s window) removes DWT reconstruction
+      // ripples without introducing phase lag or eating into phasic.
+      const smoothWin = Math.max(1, Math.round(3 * this.sampleRate));
+      tonicVals = GsrFilter.applyZeroPhaseMovingAverage(result.tonic, smoothWin);
+      // Re-derive phasic from smoothed tonic for consistency
+      phasicVals = afterLPF.map((v, i) => v - tonicVals[i]);
     } else {
       // ── Classical sliding-window methods ────────────────────────────────
       const tonicWinSize = Math.max(5, Math.round(params.tonicWindow * this.sampleRate));

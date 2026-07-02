@@ -9,9 +9,9 @@
  *     Approximation A_k  =  0 … Fs/2^(k+1) Hz   (slow / tonic)
  *     Detail      D_k    =  Fs/2^(k+1) … Fs/2^k Hz  (fast / phasic)
  *
- *   For a 10 Hz GSR recording (default level 4):
- *     A₄ = 0–0.3125 Hz   →  Tonic SCL
- *     D₂+D₃+D₄ = 0.3125–2.5 Hz  →  Phasic SCRs  (D₁ noise excluded)
+ *   For a 10 Hz GSR recording (default level 6):
+ *     A₆ = 0–0.078 Hz   →  Tonic SCL
+ *     D₂+…+D₆ = 0.078–2.5 Hz  →  Phasic SCRs  (D₁ noise excluded)
  *
  * Strategy for clean GSR decomposition:
  *   The DWT is used ONLY for the tonic estimate (reconstructed from the
@@ -89,24 +89,85 @@ const DWT = (() => {
   }
 
   /**
+   * Reflect an arbitrary integer index into [0, n-1] using symmetric
+   * (whole-sample) reflection at both boundaries.
+   *
+   * Example for n=5: … 2 1 0|0 1 2 3 4|4 3 2 …
+   *   idx:  -3 -2 -1  0 1 2 3 4  5 6 7
+   *   out:   2  1  0  0 1 2 3 4  4 3 2
+   */
+  function _reflect(idx, n) {
+    if (n <= 1) return 0;
+    const period = 2 * n;
+    const r = ((idx % period) + period) % period;
+    return r < n ? r : period - 1 - r;
+  }
+
+  /**
    * Mirror-pad signal at both ends to absorb DWT boundary artifacts.
    * The padding is later trimmed after reconstruction.
    *
-   * Pad length = Nf × 2^(levels-1) samples per side — enough to contain
-   * the filter's boundary region at the deepest decomposition level.
+   * Two guarantees:
+   *   1. padLen ≥ Nf × 2^(levels-1) — enough to contain the filter's
+   *      boundary region at the deepest decomposition level.
+   *   2. Total padded length is a multiple of 2^levels — required for
+   *      periodization DWT (every intermediate cA must have even length).
+   *
+   * Uses symmetric (whole-sample) reflection so the padded signal is
+   * continuous at the boundaries.
    */
   function _mirrorPad(signal, levels) {
     const n = signal.length;
-    const padLen = Nf << (levels - 1);  // Nf * 2^(levels-1)
-    const result = new Array(n + 2 * padLen);
-    for (let i = 0; i < padLen; i++) {
-      result[i] = signal[padLen - 1 - i];            // left: mirror
-      result[n + padLen + i] = signal[n - 1 - i];    // right: mirror
+    const minPad = Nf << (levels - 1);      // Nf * 2^(levels-1)
+    const factor = 1 << levels;              // 2^levels
+
+    // Find the smallest padLen ≥ minPad such that n + 2·padLen is a
+    // multiple of 2^levels.  This guarantees every intermediate cA has
+    // even length (since repeatedly halving a multiple of 2^levels
+    // stays even until the last level).
+    //
+    // If n is odd, n + 2·padLen is always odd, which can never be a
+    // multiple of an even factor.  In that case we make the right
+    // padding one sample longer (asymmetric by one sample).
+    let padLeft = minPad, padRight = minPad;
+    let totalLen = n + padLeft + padRight;
+
+    if (n % 2 === 0) {
+      // n even → can use symmetric padding
+      while (totalLen % factor !== 0) {
+        padLeft++;
+        padRight++;
+        totalLen = n + padLeft + padRight;
+      }
+    } else {
+      // n odd → need asymmetric padding (one side gets an extra sample)
+      while (totalLen % factor !== 0) {
+        padRight++;
+        totalLen = n + padLeft + padRight;
+        if (totalLen % factor === 0) break;
+        padLeft++;
+        totalLen = n + padLeft + padRight;
+      }
     }
+
+    const result = new Array(totalLen);
+
+    // Left mirror pad (symmetric reflection)
+    for (let i = 0; i < padLeft; i++) {
+      result[i] = signal[_reflect(padLeft - 1 - i, n)];
+    }
+
+    // Original signal
     for (let i = 0; i < n; i++) {
-      result[padLen + i] = signal[i];                 // original
+      result[padLeft + i] = signal[i];
     }
-    return { data: result, padLen };
+
+    // Right mirror pad (symmetric reflection)
+    for (let i = 0; i < padRight; i++) {
+      result[padLeft + n + i] = signal[_reflect(n - 1 - i, n)];
+    }
+
+    return { data: result, padLen: padLeft, padRight };
   }
 
   /**
@@ -164,22 +225,21 @@ const DWT = (() => {
    * @returns {{
    *   approximation: number[],     // cA at deepest level
    *   details:       number[][],   // [cD₁, cD₂, …, cD_L]
-   *   originalLen:   number        // original signal length (before pad)
-   *   padLen:        number        // samples trimmed from each side
+   *   originalLen:   number,       // original signal length (before pad)
+   *   padLeft:       number,       // samples trimmed from left side
+   *   padRight:      number        // samples trimmed from right side
    * }}
    */
   function decompose(signal, levels) {
     const originalLen = signal.length;
 
     // Mirror-pad to absorb boundary artifacts
-    const { data: padded, padLen } = _mirrorPad(signal, levels);
+    const { data: padded, padLen: padLeft, padRight } = _mirrorPad(signal, levels);
 
-    // Ensure even length (required by periodization)
+    // Padded length is guaranteed to be a multiple of 2^levels,
+    // so every intermediate cA has even length — no per-level
+    // evenness check needed.
     let current = padded;
-    if (current.length % 2 !== 0) {
-      current = current.slice();
-      current.push(current[current.length - 1]);
-    }
 
     const details = [];
     for (let level = 0; level < levels; level++) {
@@ -188,7 +248,7 @@ const DWT = (() => {
       current = cA;
     }
 
-    return { approximation: current, details, originalLen, padLen };
+    return { approximation: current, details, originalLen, padLeft, padRight };
   }
 
   /**
@@ -208,8 +268,10 @@ const DWT = (() => {
       result = _inversePass(result, det, lenHere);
     }
 
-    // Trim mirror padding
-    return result.slice(coeffs.padLen, coeffs.padLen + coeffs.originalLen);
+    // Trim mirror padding (may be asymmetric when original n was odd)
+    const start = coeffs.padLeft;
+    const end = start + coeffs.originalLen;
+    return result.slice(start, end);
   }
 
   /**
@@ -228,7 +290,7 @@ const DWT = (() => {
    * @returns {{ tonic: number[], phasic: number[] }}
    */
   function analyzeGSR(signal, levels) {
-    if (!levels || levels < 1) levels = 4;
+    if (!levels || levels < 1) levels = 6;
 
     const minLen = 1 << levels;  // 2^levels
     if (!signal || signal.length < minLen) {

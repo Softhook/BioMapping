@@ -125,7 +125,7 @@ function runAnalysis() {
       tonicMethod:   S.tonicMethod.value,
       tonicWindow:   parseInt(S.tonicWindow.value),
       peakThreshold: parseFloat(S.peakThreshold.value),
-      dwtLevel:      parseInt(S.dwtLevel ? S.dwtLevel.value : 4)
+      dwtLevel:      parseInt(S.dwtLevel ? S.dwtLevel.value : 6)
     };
 
     saveActiveTrackParams();

@@ -141,14 +141,14 @@
             <div class="slider-group" id="dwtLevelGroup">
               <div class="slider-label">
                 <span>DWT Decomposition Level</span>
-                <span class="slider-value" id="valDwtLevel">5</span>
+                <span class="slider-value" id="valDwtLevel">6</span>
               </div>
-              <input type="range" id="dwtLevel" min="3" max="6" step="1" value="5">
+              <input type="range" id="dwtLevel" min="4" max="7" step="1" value="6">
               <p class="help-text">
                 Higher level = slower tonic (purer SCL) but more signal goes into phasic.
-                Level 5 (0–0.16 Hz) is recommended for GSR — tonic captures SCL
-                without most SCRs. Level 4 (0–0.31 Hz) includes slow SCR components.
-                Level 6 (0–0.08 Hz) gives the purest tonic but requires longer recordings.
+                Level 6 (0–0.08 Hz) is recommended — tonic captures true SCL drift
+                without tracking SCRs. Level 5 (0–0.16 Hz) may include slow SCR components.
+                Level 7 (0–0.04 Hz) gives the purest tonic but requires longer recordings.
               </p>
             </div>
 

@@ -37,7 +37,7 @@ const GSR_CONST = {
   GSR_DEFAULT: {
     medianSize: 1.0, lpfWindow: 0.8,
     tonicMethod: 'percentile', tonicWindow: 15, peakThreshold: 0.020,
-    dwtLevel: 5
+    dwtLevel: 6
   },
 
   // ── CSV parsing keywords ─────────────────────────────────────────────────
