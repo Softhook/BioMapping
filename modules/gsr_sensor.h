@@ -33,6 +33,14 @@ void       gsr_sensor_free(GsrSensor* gsr);
 // Returns false when ADS1115 probe failed at init
 bool gsr_sensor_available(const GsrSensor* gsr);
 
+// Returns false when the sensor has been returning invalid readings
+// (e.g. finger cuffs disconnected) for multiple consecutive ticks.
+// The sensor is considered disconnected when raw conductance is either
+// < 0.1 nS (open input) or > 50 000 nS (rail saturation, ~33 mS at
+// PGA 0 when inputs float to rail) for 20+ consecutive ticks (2+ s).
+// Automatically recovers when an in-range reading comes back.
+bool gsr_sensor_is_connected(const GsrSensor* gsr);
+
 // Call at 10 Hz.  Reads ADS1115 (if available), applies autoranging,
 // converts to nanosiemens via the TIA circuit equation, and stores the result.
 void gsr_sensor_tick(GsrSensor* gsr);

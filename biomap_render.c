@@ -142,11 +142,23 @@ void biomap_render_callback(Canvas* c, void* ctx) {
 
     // Mode-specific overlay
     if(has_graph) {
-        if(a->session.mode == BioMapModeGsrOnly && a->session.gsr && gsr_sensor_available(a->session.gsr)) {
-            char buf[32];
-            snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.display.last_displayed);
-            int x = 128 - canvas_string_width(c, buf) - (a->session.recording.active ? 12 : 2);
-            canvas_draw_str(c, x, 10, buf);
+        if(a->session.gsr && gsr_sensor_available(a->session.gsr)) {
+            if(gsr_sensor_is_connected(a->session.gsr)) {
+                if(a->session.mode == BioMapModeGsrOnly) {
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.display.last_displayed);
+                    int x = 128 - canvas_string_width(c, buf) - (a->session.recording.active ? 12 : 2);
+                    canvas_draw_str(c, x, 10, buf);
+                }
+            } else {
+                // Finger cuffs disconnected — show alert, keep recording.
+                // Shown in both GSR-only and GPS+GSR modes.
+                canvas_set_font(c, FontPrimary);
+                canvas_invert_color(c);
+                canvas_draw_str(c, 40, 10, "NO SIGNAL");
+                canvas_invert_color(c);
+                canvas_set_font(c, FontSecondary);
+            }
         }
     } else if(a->session.gps) {
         render_gps_detail(c, a);

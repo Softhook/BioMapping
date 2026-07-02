@@ -9,6 +9,23 @@
 // Only the event loop and key handlers touch FuriMutex*/NotificationApp*.
 #include "biomap.h"
 
+// ── Custom notification sequences ─────────────────────────────────────────
+
+// 500 ms blink — much more visible than the standard 100 ms flash.
+// Green for normal recording, red when cuffs are disconnected.
+static const NotificationSequence sequence_blink_green_500 = {
+    &message_green_255,
+    &message_delay_500,
+    &message_green_0,
+    NULL,
+};
+static const NotificationSequence sequence_blink_red_500 = {
+    &message_red_255,
+    &message_delay_500,
+    &message_red_0,
+    NULL,
+};
+
 // ==========================================================================
 // Session lifecycle
 // ==========================================================================
@@ -293,7 +310,13 @@ static void handle_second_boundary(Session* s, NotificationApp* notifications) {
 
     int flushed = sd_logger_batch_flush(s->logger);
     if(flushed > 0) {
-        notification_message(notifications, &sequence_blink_green_100);
+        // 500 ms blink — green when sensor OK, red when cuffs need
+        // attention.  The standard 100 ms flash was too fast to see.
+        if(has_gsr(s->mode) && s->gsr && !gsr_sensor_is_connected(s->gsr)) {
+            notification_message(notifications, &sequence_blink_red_500);
+        } else {
+            notification_message(notifications, &sequence_blink_green_500);
+        }
     } else if(flushed < 0) {
         FURI_LOG_E("BioMap", "Batch flush failed");
         handle_write_failure(s, notifications);
@@ -327,7 +350,10 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
             s->recording.active = true;
             s->recording.tick_counter = 0;
             furi_mutex_release(mutex);
-            notification_message(notifications, &sequence_set_only_red_255);
+            // Recording indicator: the green LED flash from
+            // handle_second_boundary is used instead of a solid red LED.
+            // This avoids a notification-layer conflict where the green
+            // blink sequence clears the red LED state.
         }
     } else {
         furi_mutex_acquire(mutex, FuriWaitForever);
@@ -337,7 +363,7 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         }
         furi_mutex_release(mutex);
         sd_logger_stop(s->logger);
-        notification_message(notifications, &sequence_reset_rgb);
+        notification_message(notifications, &sequence_blink_stop);
     }
     return true;  // caller should view_port_update
 }
@@ -425,8 +451,44 @@ static void handle_recording_tick(Session* s) {
         gsr_sensor_tick(s->gsr);
         raw = gsr_sensor_get_raw(s->gsr);
 
-        update_display_pipeline(s, raw);
-        update_graph_pipeline(s);
+        // ── Instantaneous per-tick validity check ────────────────────
+        // The connected flag uses a 20-tick (2 s) debounce to prevent
+        // CSV false positives, but that delay lets 2 seconds of insane
+        // values through to the display pipeline — corrupting the IIR
+        // state and auto-zoom.  Instead, we gate the display update on
+        // the instantaneous tick value: anything outside physiological
+        // range (< 0.1 nS open circuit, > 50 000 nS rail saturation)
+        // is rejected immediately.
+        //
+        // The smoothing IIR stays primed at its last valid state, the
+        // auto-zoom doesn't spike, and the graph keeps showing the
+        // last valid waveform.  The CSV still logs the exact value
+        // (0.0 or rail) on every tick so the record is complete.
+        bool valid = (raw >= 0.1f && raw <= 50000.0f);
+        if(valid) {
+            // ── Re-connect smoothing ────────────────────────────────
+            // When the sensor comes back after a disconnect, the graph
+            // pipeline computes rate = smoothed - last_smoothed where
+            // last_smoothed is stale (from before the gap).  The
+            // resulting spike floods the graph buffer and makes the
+            // display "catch up" at hyperspeed.  We detect a recovery
+            // by comparing raw to last_displayed: if the delta exceeds
+            // 500 nS/tick (far faster than real GSR), we run the
+            // display pipeline then sync graph.last_smoothed to the
+            // new smoothed value so the first rate is ~0.
+            float delta = (raw > s->display.last_displayed)
+                ? raw - s->display.last_displayed
+                : s->display.last_displayed - raw;
+            bool recovering = s->display.primed && (delta > 500.0f);
+
+            update_display_pipeline(s, raw);
+
+            if(recovering) {
+                s->graph.last_smoothed = s->display.smoothed;
+            }
+
+            update_graph_pipeline(s);
+        }
     }
     batch_csv_row(s, raw);
 }

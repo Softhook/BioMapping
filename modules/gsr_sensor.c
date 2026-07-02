@@ -90,8 +90,10 @@ _Static_assert((SENSOR_BUFFER_SIZE & (SENSOR_BUFFER_SIZE - 1)) == 0,
 struct GsrSensor {
     float   raw;        // skin conductance in nanosiemens (nS)
     bool    available;
+    bool    connected;  // false after 20+ ticks of zero readings (cuffs disconnected)
     uint8_t pga_index;  // active PGA setting (0 … ADS_PGA_MAX)
     uint8_t low_count;  // consecutive ticks below ADS_LOW_THRESH
+    uint8_t zero_count; // consecutive ticks with raw == 0.0f
 
     FuriThread* thread;
     FuriMutex*  mutex;
@@ -181,6 +183,8 @@ GsrSensor* gsr_sensor_alloc(void) {
     gsr->raw       = 0.0f;
     gsr->pga_index = ADS_PGA_DEFAULT;
     gsr->low_count = 0;
+    gsr->connected = true;
+    gsr->zero_count = 0;
 
     furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
     uint8_t probe = 0;
@@ -252,6 +256,15 @@ void gsr_sensor_free(GsrSensor* gsr) {
 // ─────────────────────────────────────────────────────────────────────────────
 bool gsr_sensor_available(const GsrSensor* gsr) {
     return gsr->available;
+}
+
+bool gsr_sensor_is_connected(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return false;
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    bool connected = gsr->connected;
+    furi_mutex_release(gsr->mutex);
+    return connected;
 }
 
 float gsr_sensor_get_raw(const GsrSensor* gsr) {
@@ -349,6 +362,31 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         float num = clamped * 5000000.0f;
         float den = 15040000.0f - clamped * 47.0f;
         gsr->raw = num / den;
+    }
+
+    // ── Finger-cuff disconnect detection ──────────────────────────────
+    // When the cuffs are disconnected the ADC reads either 0 (open
+    // input floats low) or near-rail saturation (stray coupling drives
+    // the input to the rail).  A rail reading at PGA 0 (±6.144V)
+    // normalises to ~786 408 counts, which the TIA clamps to 319 000,
+    // producing raw ≈ 33 936 170 nS — far beyond any physiological
+    // range (normal GSR is 500-25 000 nS).  We detect both extremes:
+    //
+    //   raw < 0.1 nS     → zero / open input
+    //   raw > 50 000 nS  → rail saturation (cuffs disconnected)
+    //
+    // After 20 consecutive invalid ticks (2 s) the sensor is marked
+    // disconnected.  A single in-range reading resets the counter and
+    // re-marks it as connected.  This keeps the display pipeline from
+    // going haywire while the CSV continues to log the raw values
+    // accurately.
+    if(gsr->raw < 0.1f || gsr->raw > 50000.0f) {
+        if(++gsr->zero_count >= 20) {
+            gsr->connected = false;
+        }
+    } else {
+        gsr->zero_count = 0;
+        gsr->connected = true;
     }
     furi_mutex_release(gsr->mutex);
 }
