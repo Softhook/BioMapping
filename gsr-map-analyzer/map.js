@@ -275,55 +275,139 @@ class GSRMapManager {
    * bounding box { left, top, right, bottom } of the label text, and `dir` is
    * the cardinal direction name.
    */
+  /**
+   * Compute 360° label positions using simulated annealing — the standard
+   * cartographic approach for point-feature label placement.
+   *
+   * Each label has 24 candidate positions (8 directions × 3 distance tiers).
+   * The annealer explores configurations by randomly re-assigning labels to
+   * different candidates, accepting improvements greedily and occasionally
+   * accepting worse moves to escape local minima.
+   *
+   * Score = Σ(overlap_penalty) + Σ(distance from dot)² / smoothing
+   * This strongly penalises overlap while encouraging labels to stay close
+   * to their anchor dots.
+   *
+   * Returns a Map<peakIndex, { box, dir }>.
+   */
   _computeLabelPositions(peaksWithCoords) {
-    const W = 120;               // label box width (px)
-    const H = 18;                // label box height (px)
-    const GAP = 5;               // gap between dot edge and label box
+    if (peaksWithCoords.length === 0) return new Map();
+
+    const W = 120, H = 18;       // label box dimensions (px)
+    const BASE = 3, STEP = 4, TIERS = 3;  // gaps: 3, 7, 11 px
+    const OVERLAP_PENALTY = 100;  // cost per pair of overlapping labels
+    const DIST_FACTOR = 1.0;      // how strongly distance penalises the score
 
     const overlap = (a, b) => a.left < b.right && a.right > b.left &&
                               a.top < b.bottom && a.bottom > b.top;
 
-    // Build 8 candidates for each labelled peak
+    // ── Build candidate sets ──────────────────────────────────────────────
+    const gens = [
+      ['S',  (px, py, g) => px - W / 2,     (px, py, g) => py + g      ],
+      ['N',  (px, py, g) => px - W / 2,     (px, py, g) => py - H - g  ],
+      ['E',  (px, py, g) => px + g,         (px, py, g) => py - H / 2  ],
+      ['W',  (px, py, g) => px - W - g,     (px, py, g) => py - H / 2  ],
+      ['SE', (px, py, g) => px + g,         (px, py, g) => py + g      ],
+      ['SW', (px, py, g) => px - W - g,     (px, py, g) => py + g      ],
+      ['NE', (px, py, g) => px + g,         (px, py, g) => py - H - g  ],
+      ['NW', (px, py, g) => px - W - g,     (px, py, g) => py - H - g  ],
+    ];
+
     const items = peaksWithCoords.map(p => {
-      const { px, py } = p;
-      const raw = [
-        { left: px - W / 2,           top: py + GAP,            dir: 'S'  },
-        { left: px - W / 2,           top: py - H - GAP,        dir: 'N'  },
-        { left: px + GAP,             top: py - H / 2,          dir: 'E'  },
-        { left: px - W - GAP,         top: py - H / 2,          dir: 'W'  },
-        { left: px + GAP,             top: py + GAP,            dir: 'SE' },
-        { left: px - W - GAP,         top: py + GAP,            dir: 'SW' },
-        { left: px + GAP,             top: py - H - GAP,        dir: 'NE' },
-        { left: px - W - GAP,         top: py - H - GAP,        dir: 'NW' },
-      ];
-      const candidates = raw.map(c => {
-        const box = { left: c.left, top: c.top, right: c.left + W, bottom: c.top + H };
-        const bx = (box.left + box.right) / 2;
-        const by = (box.top + box.bottom) / 2;
-        return { dir: c.dir, box, score: Math.hypot(bx - px, by - py) };
-      }).sort((a, b) => a.score - b.score);
-      return { idx: p.idx, px, py, candidates };
-    });
-
-    // Sort by pixel-y (north→south) for stable placement
-    items.sort((a, b) => a.py - b.py);
-
-    const placed = [];          // placed boxes
-    const results = new Map();  // idx → { box, dir }
-
-    for (const item of items) {
-      let chosen = null;
-      for (const cand of item.candidates) {
-        if (!placed.some(p => overlap(cand.box, p))) {
-          chosen = cand;
-          break;
+      const candidates = [];
+      for (let tier = 0; tier < TIERS; tier++) {
+        const gap = BASE + tier * STEP;
+        for (const [dir, lf, tf] of gens) {
+          const left = lf(p.px, p.py, gap);
+          const top  = tf(p.px, p.py, gap);
+          const box = { left, top, right: left + W, bottom: top + H };
+          const dist = Math.hypot((left + W / 2) - p.px, (top + H / 2) - p.py);
+          candidates.push({ dir, box, dist });
         }
       }
-      if (chosen) {
-        placed.push(chosen.box);
-        results.set(item.idx, chosen);
+      candidates.sort((a, b) => a.dist - b.dist);
+      return { idx: p.idx, px: p.px, py: p.py, candidates };
+    });
+
+    // ── Initialise via fast greedy pass ───────────────────────────────────
+    const state = [];          // [{ item, candIdx, cand }]
+    const placed = [];
+    const unplaced = new Set(items.map((_, i) => i));
+
+    while (unplaced.size > 0) {
+      let bestI = -1, bestC = null, bestD = Infinity;
+      for (const i of unplaced) {
+        for (const c of items[i].candidates) {
+          if (!placed.some(p => overlap(c.box, p))) {
+            if (c.dist < bestD) { bestD = c.dist; bestI = i; bestC = c; }
+            break;
+          }
+        }
       }
-      // If all 8 candidates overlap → hide label (fall back to dot-only)
+      if (bestI < 0) break;
+      const idx = items[bestI].candidates.indexOf(bestC);
+      state.push({ item: items[bestI], candIdx: idx, cand: bestC });
+      placed.push(bestC.box);
+      unplaced.delete(bestI);
+    }
+    // Any remaining items get their first candidate (will be penalised)
+    for (const i of unplaced) {
+      state.push({ item: items[i], candIdx: 0, cand: items[i].candidates[0] });
+    }
+
+    // ── Simulated annealing ───────────────────────────────────────────────
+    const N = state.length;
+    let boxes = state.map(s => s.cand.box);
+
+    const ITERS = Math.max(300, N * 30);
+    let T = 50;
+
+    for (let k = 0; k < ITERS; k++) {
+      const si = Math.floor(Math.random() * N);
+      const st = state[si];
+      const oldIdx = st.candIdx;
+      const old = st.cand;
+      const oldBox = boxes[si];
+      const oldScore = st.cand.dist * DIST_FACTOR +
+        state.filter((_, j) => j !== si && overlap(oldBox, boxes[j])).length * OVERLAP_PENALTY;
+
+      // Pick a random different candidate
+      const newIdx = (st.candIdx + 1 + Math.floor(Math.random() * (st.item.candidates.length - 1)))
+                     % st.item.candidates.length;
+      const cand = st.item.candidates[newIdx];
+      boxes[si] = cand.box;
+
+      const newScorePart = cand.dist * DIST_FACTOR +
+        state.filter((_, j) => j !== si && overlap(cand.box, boxes[j])).length * OVERLAP_PENALTY;
+
+      const delta = newScorePart - oldScore;
+
+      if (delta < 0 || Math.random() < Math.exp(-delta / T)) {
+        // Accept
+        st.candIdx = newIdx;
+        st.cand = cand;
+      } else {
+        // Reject
+        boxes[si] = oldBox;
+      }
+
+      T *= 0.995;
+      if (T < 0.01) T = 50; // reheat if stuck
+    }
+
+    // ── Build result ──────────────────────────────────────────────────────
+    const results = new Map();
+    for (const st of state) {
+      // Only include if it doesn't overlap (annealing might not resolve all)
+      const myBox = st.cand.box;
+      let hasOverlap = false;
+      for (const other of state) {
+        if (other === st) continue;
+        if (overlap(myBox, other.cand.box)) { hasOverlap = true; break; }
+      }
+      if (!hasOverlap) {
+        results.set(st.item.idx, st.cand);
+      }
     }
     return results;
   }

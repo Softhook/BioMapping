@@ -70,6 +70,15 @@ class GSRAnalyzer {
       else if (h.includes('fix')) fixColIndex = i;
     }
 
+    // Processed-CSV column detection (re-imported data)
+    let peakLabelColIndex = -1;
+    let isPeakColIndex = -1;
+    for (let i = 0; i < headers.length; i++) {
+      const h = headers[i];
+      if (h.includes('peaklabel') || h.includes('peak_label')) peakLabelColIndex = i;
+      if (h.includes('ispeak') || h.includes('is_peak')) isPeakColIndex = i;
+    }
+
     // Fallbacks for main biometric columns
     if (timeColIndex === -1) timeColIndex = 0;
     if (gsrColIndex === -1) gsrColIndex = headers.length > 1 ? 1 : 0;
@@ -107,6 +116,13 @@ class GSRAnalyzer {
       let satsVal = satsColIndex !== -1 && cols[satsColIndex] ? parseInt(cols[satsColIndex]) : 0;
       let fixVal = fixColIndex !== -1 && cols[fixColIndex] ? parseInt(cols[fixColIndex]) : 0;
 
+      // Read peak label from processed-CSV re-import
+      let importedPeakLabel = '';
+      if (peakLabelColIndex !== -1 && isPeakColIndex !== -1 &&
+          cols[isPeakColIndex] && parseInt(cols[isPeakColIndex]) === 1) {
+        importedPeakLabel = (cols[peakLabelColIndex] || '').replace(/^"|"$/g, '').trim();
+      }
+
       rawDataList.push({
         time: timeVal,
         val: gsrVal,
@@ -115,7 +131,8 @@ class GSRAnalyzer {
         alt: altVal,
         sats: satsVal,
         fix: fixVal,
-        hasGps: false
+        hasGps: false,
+        _importLabel: importedPeakLabel
       });
     }
 
@@ -157,6 +174,13 @@ class GSRAnalyzer {
       rawDataList.forEach(d => {
         d.time = d.time - startTime;
       });
+    }
+
+    // Build imported peak label lookup (time→label, after offset)
+    this._importedPeakLabels = new Map();
+    for (const d of rawDataList) {
+      if (d._importLabel) this._importedPeakLabels.set(d.time, d._importLabel);
+      delete d._importLabel; // clean up temp field
     }
 
     // Auto-detect sample rate
@@ -395,6 +419,15 @@ class GSRAnalyzer {
     for (const pk of this.peaks) {
       if (pk.label && pk.label.trim()) oldLabels.set(pk.index, pk.label);
     }
+    // Also merge labels imported from re-loaded processed CSV (matched by time)
+    if (this._importedPeakLabels && this._importedPeakLabels.size > 0) {
+      for (const pk of this.peaks) {
+        if (!pk.label || !pk.label.trim()) {
+          const imported = this._importedPeakLabels.get(pk.time);
+          if (imported) oldLabels.set(pk.index, imported);
+        }
+      }
+    }
     this.peaks = [];
     const n = this.phasic.length;
     if (n < 3) return;
@@ -448,7 +481,9 @@ class GSRAnalyzer {
               onsetValue: phasicVals[onsetIdx],
               recoveryIndex: recoveryIdx,
               recoveryTime: recoveryTime,
-              label: oldLabels.get(i) || ''
+              label: oldLabels.get(i) ||
+                     (this._importedPeakLabels ? this._importedPeakLabels.get(times[i]) : '') ||
+                     ''
             });
 
             i = Math.min(n - 2, i + Math.round(GSR_CONST.PEAK_MIN_GAP * this.sampleRate));
