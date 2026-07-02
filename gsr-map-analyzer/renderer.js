@@ -24,7 +24,7 @@ const GSRRenderer = {
 
     const firstGridTime = Math.floor(tMin / step) * step;
 
-    stroke(255, 255, 255, 12);
+    stroke('rgba(255, 255, 255, 0.05)');
     strokeWeight(1);
     textAlign(CENTER, CENTER);
     textSize(10);
@@ -36,7 +36,7 @@ const GSRRenderer = {
       line(x, yUpperBottom + GSR_CONST.MARGIN.gap, x, yLowerBottom);
 
       // Time label in the gap between upper (tonic) and lower (phasic) graphs
-      fill(148, 163, 184);
+      fill('#94a3b8');
       noStroke();
 
       let label = t.toFixed(t % 1 !== 0 ? 1 : 0) + 's';
@@ -51,10 +51,10 @@ const GSRRenderer = {
         label = m + ':' + (s < 10 ? '0' : '') + s;
       }
       text(label, x, yUpperBottom + GSR_CONST.MARGIN.gap / 2);
-      stroke(255, 255, 255, 12);
+      stroke('rgba(255, 255, 255, 0.05)');
     }
 
-    stroke(255, 255, 255, 25);
+    stroke('rgba(255, 255, 255, 0.1)');
     line(GSR_CONST.MARGIN.left, GSR_CONST.MARGIN.top, GSR_CONST.MARGIN.left, yUpperBottom);
     line(GSR_CONST.MARGIN.left, yUpperBottom + GSR_CONST.MARGIN.gap, GSR_CONST.MARGIN.left, yLowerBottom);
     line(GSR_CONST.MARGIN.left, yUpperBottom, width - GSR_CONST.MARGIN.right, yUpperBottom);
@@ -72,7 +72,7 @@ const GSRRenderer = {
 
     const firstGridVal = Math.floor(yMin / step) * step;
 
-    stroke(255, 255, 255, 12);
+    stroke('rgba(255, 255, 255, 0.05)');
     textAlign(RIGHT, CENTER);
     textSize(10);
 
@@ -82,9 +82,9 @@ const GSRRenderer = {
       line(GSR_CONST.MARGIN.left, y, width - GSR_CONST.MARGIN.right, y);
 
       noStroke();
-      fill(148, 163, 184);
+      fill('#94a3b8');
       text(val.toFixed(2) + ' \u03bcS', GSR_CONST.MARGIN.left - 8, y);
-      stroke(255, 255, 255, 12);
+      stroke('rgba(255, 255, 255, 0.05)');
     }
   },
 
@@ -99,7 +99,7 @@ const GSRRenderer = {
 
     const firstGridVal = Math.floor(yMin / step) * step;
 
-    stroke(255, 255, 255, 12);
+    stroke('rgba(255, 255, 255, 0.05)');
     textAlign(RIGHT, CENTER);
     textSize(10);
 
@@ -109,9 +109,9 @@ const GSRRenderer = {
       line(GSR_CONST.MARGIN.left, y, width - GSR_CONST.MARGIN.right, y);
 
       noStroke();
-      fill(148, 163, 184);
+      fill('#94a3b8');
       text(val.toFixed(3) + ' \u03bcS', GSR_CONST.MARGIN.left - 8, y);
-      stroke(255, 255, 255, 12);
+      stroke('rgba(255, 255, 255, 0.05)');
     }
   },
 
@@ -129,30 +129,35 @@ const GSRRenderer = {
     const step = Math.max(1, Math.ceil(count / GSR_CONST.DRAW_MAX_VERTICES));
     const useSpline = count < GSR_CONST.SPLINE_THRESHOLD;
 
+    const tSpan = tMax - tMin;
+    const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
+    const yScale = (yMax - yMin) > 0 ? ((yTop - yBottom) / (yMax - yMin)) : 0;
+    const xScale = tSpan > 0 ? (xSpan / tSpan) : 0;
+
     beginShape();
 
     if (useSpline) {
       const dFirst = data[startIdx];
-      const xFirst = map(dFirst.time, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
-      const yFirst = map(dFirst.val, yMin, yMax, yBottom, yTop);
+      const xFirst = GSR_CONST.MARGIN.left + (dFirst.time - tMin) * xScale;
+      const yFirst = yBottom + (dFirst.val - yMin) * yScale;
       curveVertex(xFirst, yFirst);
 
       for (let i = startIdx; i <= endIdx; i += step) {
         const d = data[i];
-        const x = map(d.time, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
-        const y = map(d.val, yMin, yMax, yBottom, yTop);
+        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * xScale;
+        const y = yBottom + (d.val - yMin) * yScale;
         curveVertex(x, y);
       }
 
       const dLast = data[endIdx];
-      const xLast = map(dLast.time, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
-      const yLast = map(dLast.val, yMin, yMax, yBottom, yTop);
+      const xLast = GSR_CONST.MARGIN.left + (dLast.time - tMin) * xScale;
+      const yLast = yBottom + (dLast.val - yMin) * yScale;
       curveVertex(xLast, yLast);
     } else {
       for (let i = startIdx; i <= endIdx; i += step) {
         const d = data[i];
-        const x = map(d.time, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
-        const y = map(d.val, yMin, yMax, yBottom, yTop);
+        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * xScale;
+        const y = yBottom + (d.val - yMin) * yScale;
         vertex(x, y);
       }
     }
@@ -173,10 +178,15 @@ const GSRRenderer = {
     const step = Math.max(1, Math.ceil(count / GSR_CONST.DRAW_MAX_VERTICES));
     const useSpline = count < GSR_CONST.SPLINE_THRESHOLD;
 
+    const tSpan = tMax - tMin;
+    const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
+    const yScale = (yMax - yMin) > 0 ? ((yTop - yBottom) / (yMax - yMin)) : 0;
+    const xScale = tSpan > 0 ? (xSpan / tSpan) : 0;
+
     beginShape();
 
     const dFirst = data[startIdx];
-    const xStart = map(dFirst.time, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
+    const xStart = GSR_CONST.MARGIN.left + (dFirst.time - tMin) * xScale;
     vertex(xStart, yBottom);
 
     if (useSpline) {
@@ -184,24 +194,24 @@ const GSRRenderer = {
 
       for (let i = startIdx; i <= endIdx; i += step) {
         const d = data[i];
-        const x = map(d.time, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
-        const y = map(d.val, yMin, yMax, yBottom, yTop);
+        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * xScale;
+        const y = yBottom + (d.val - yMin) * yScale;
         curveVertex(x, y);
       }
 
       const dLast = data[endIdx];
-      const xEnd = map(dLast.time, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
+      const xEnd = GSR_CONST.MARGIN.left + (dLast.time - tMin) * xScale;
       curveVertex(xEnd, yBottom);
       vertex(xEnd, yBottom);
     } else {
       for (let i = startIdx; i <= endIdx; i += step) {
         const d = data[i];
-        const x = map(d.time, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
-        const y = map(d.val, yMin, yMax, yBottom, yTop);
+        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * xScale;
+        const y = yBottom + (d.val - yMin) * yScale;
         vertex(x, y);
       }
       const dLast = data[endIdx];
-      const xEnd = map(dLast.time, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
+      const xEnd = GSR_CONST.MARGIN.left + (dLast.time - tMin) * xScale;
       vertex(xEnd, yBottom);
     }
 
@@ -210,6 +220,14 @@ const GSRRenderer = {
 
   drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
     if (!AppState.showPeaks || !AppState.analyzer.peaks || AppState.analyzer.peaks.length === 0) return;
+
+    const tSpan = tMax - tMin;
+    const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
+    const xScale = tSpan > 0 ? (xSpan / tSpan) : 0;
+
+    const yScaleU = (yMaxU - yMinU) > 0 ? ((yTopU - yBottomU) / (yMaxU - yMinU)) : 0;
+    const yScaleL = (yMaxL - yMinL) > 0 ? ((yTopL - yBottomL) / (yMaxL - yMinL)) : 0;
+
     for (let pIdx = 0; pIdx < AppState.analyzer.peaks.length; pIdx++) {
       const p = AppState.analyzer.peaks[pIdx];
 
@@ -221,12 +239,12 @@ const GSRRenderer = {
       }
       if (p.onsetTime > tMax) continue;
 
-      const xPeak  = map(p.time, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
-      const xOnset = map(p.onsetTime, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
+      const xPeak  = GSR_CONST.MARGIN.left + (p.time - tMin) * xScale;
+      const xOnset = GSR_CONST.MARGIN.left + (p.onsetTime - tMin) * xScale;
 
-      const yFilteredPeak = map(AppState.analyzer.filtered[p.index].val, yMinU, yMaxU, yBottomU, yTopU);
-      const yPhasicPeak   = map(p.value, yMinL, yMaxL, yBottomL, yTopL);
-      const yPhasicOnset  = map(p.onsetValue, yMinL, yMaxL, yBottomL, yTopL);
+      const yFilteredPeak = yBottomU + (AppState.analyzer.filtered[p.index].val - yMinU) * yScaleU;
+      const yPhasicPeak   = yBottomL + (p.value - yMinL) * yScaleL;
+      const yPhasicOnset  = yBottomL + (p.onsetValue - yMinL) * yScaleL;
 
       const isActive  = (pIdx === AppState.activePeakIndex);
       const isHovered = (AppState.hoveredIndex >= p.onsetIndex && AppState.hoveredIndex <= p.index);
@@ -237,8 +255,8 @@ const GSRRenderer = {
         beginShape();
         vertex(xOnset, yBottomL);
         for (let i = p.onsetIndex; i <= p.index; i++) {
-          const xVal = map(AppState.analyzer.phasic[i].time, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
-          const yVal = map(AppState.analyzer.phasic[i].val, yMinL, yMaxL, yBottomL, yTopL);
+          const xVal = GSR_CONST.MARGIN.left + (AppState.analyzer.phasic[i].time - tMin) * xScale;
+          const yVal = yBottomL + (AppState.analyzer.phasic[i].val - yMinL) * yScaleL;
           vertex(xVal, yVal);
         }
         vertex(xPeak, yBottomL);
@@ -434,20 +452,25 @@ const GSRRenderer = {
 
     if (minRaw === maxRaw) maxRaw = minRaw + 0.5;
 
+    const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
+    const xScale = AppState.totalDuration > 0 ? (xSpan / AppState.totalDuration) : 0;
+    const ySpan = (AppState.yTimelineTop + 3) - (AppState.yTimelineBottom - 3);
+    const yScale = (maxRaw - minRaw) > 0 ? (ySpan / (maxRaw - minRaw)) : 0;
+
     // Use pre-cached timeline points (~300 samples)
     beginShape();
     const tPoints = AppState.analyzer._timelinePoints;
     for (let i = 0; i < tPoints.length; i++) {
       const d = tPoints[i];
-      const xt = map(d.time, 0, AppState.totalDuration, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
-      const yt = map(d.val, minRaw, maxRaw, AppState.yTimelineBottom - 3, AppState.yTimelineTop + 3);
+      const xt = GSR_CONST.MARGIN.left + d.time * xScale;
+      const yt = (AppState.yTimelineBottom - 3) + (d.val - minRaw) * yScale;
       vertex(xt, yt);
     }
     endShape();
 
     // Use pre-cached peak positions (fraction of total duration)
     if (AppState.showPeaks && AppState.analyzer._timelinePeakPct) {
-      fill(244, 63, 94, 180);
+      fill('rgba(244, 63, 94, 0.7)');
       noStroke();
       const pcts = AppState.analyzer._timelinePeakPct;
       for (let j = 0; j < pcts.length; j++) {
@@ -456,11 +479,11 @@ const GSRRenderer = {
       }
     }
 
-    const xViewStart = map(AppState.viewStartTime, 0, AppState.totalDuration, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
-    const xViewEnd   = map(AppState.viewStartTime + AppState.viewDuration, 0, AppState.totalDuration, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
+    const xViewStart = GSR_CONST.MARGIN.left + AppState.viewStartTime * xScale;
+    const xViewEnd   = GSR_CONST.MARGIN.left + (AppState.viewStartTime + AppState.viewDuration) * xScale;
 
-    fill(14, 165, 233, 25);
-    stroke(14, 165, 233, 140);
+    fill('rgba(14, 165, 233, 0.1)');
+    stroke('rgba(14, 165, 233, 0.55)');
     strokeWeight(1.5);
     rect(xViewStart, AppState.yTimelineTop, xViewEnd - xViewStart, timelineHeight, 4);
   }

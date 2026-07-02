@@ -98,16 +98,19 @@ function draw() {
     yMaxUpper = -Infinity;
     for (let i = idxStart; i <= idxEnd; i++) {
       if (AppState.showRaw && AppState.analyzer.raw[i]) {
-        yMinUpper = Math.min(yMinUpper, AppState.analyzer.raw[i].val);
-        yMaxUpper = Math.max(yMaxUpper, AppState.analyzer.raw[i].val);
+        const val = AppState.analyzer.raw[i].val;
+        if (val < yMinUpper) yMinUpper = val;
+        if (val > yMaxUpper) yMaxUpper = val;
       }
       if (AppState.showFiltered && AppState.analyzer.filtered[i]) {
-        yMinUpper = Math.min(yMinUpper, AppState.analyzer.filtered[i].val);
-        yMaxUpper = Math.max(yMaxUpper, AppState.analyzer.filtered[i].val);
+        const val = AppState.analyzer.filtered[i].val;
+        if (val < yMinUpper) yMinUpper = val;
+        if (val > yMaxUpper) yMaxUpper = val;
       }
       if (AppState.showTonic && AppState.analyzer.tonic[i]) {
-        yMinUpper = Math.min(yMinUpper, AppState.analyzer.tonic[i].val);
-        yMaxUpper = Math.max(yMaxUpper, AppState.analyzer.tonic[i].val);
+        const val = AppState.analyzer.tonic[i].val;
+        if (val < yMinUpper) yMinUpper = val;
+        if (val > yMaxUpper) yMaxUpper = val;
       }
     }
   }
@@ -128,7 +131,8 @@ function draw() {
     yMaxLower = -Infinity;
     for (let i = idxStart; i <= idxEnd; i++) {
       if (AppState.analyzer.phasic[i]) {
-        yMaxLower = Math.max(yMaxLower, AppState.analyzer.phasic[i].val);
+        const val = AppState.analyzer.phasic[i].val;
+        if (val > yMaxLower) yMaxLower = val;
       }
     }
   }
@@ -144,18 +148,18 @@ function draw() {
 
   // 2. Upper Graph Curves
   if (AppState.showRaw) {
-    GSRRenderer.drawSignalCurve(AppState.analyzer.raw, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, color(100, 116, 139, 140), 1.5);
+    GSRRenderer.drawSignalCurve(AppState.analyzer.raw, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, 'rgba(100, 116, 139, 0.55)', 1.5);
   }
   if (AppState.showFiltered) {
-    GSRRenderer.drawSignalCurve(AppState.analyzer.filtered, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, color(14, 165, 233), 2.2);
+    GSRRenderer.drawSignalCurve(AppState.analyzer.filtered, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, '#0ea5e9', 2.2);
   }
   if (AppState.showTonic) {
-    GSRRenderer.drawSignalCurve(AppState.analyzer.tonic, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, color(217, 70, 239), 2);
+    GSRRenderer.drawSignalCurve(AppState.analyzer.tonic, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, '#d946ef', 2);
   }
 
   // 3. Lower Graph (Phasic)
   GSRRenderer.drawPhasicArea(AppState.analyzer.phasic, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom);
-  GSRRenderer.drawSignalCurve(AppState.analyzer.phasic, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom, color(16, 185, 129), 2);
+  GSRRenderer.drawSignalCurve(AppState.analyzer.phasic, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom, '#10b981', 2);
 
   // Threshold line on Phasic graph
   const thresholdVal = parseFloat(AppState.sliders.peakThreshold.value);

@@ -109,8 +109,13 @@ class GSRLabelManager {
       const oldIdx = st.candIdx;
       const old = st.cand;
       const oldBox = boxes[si];
-      const oldScore = st.cand.dist * DIST_FACTOR +
-        state.filter((_, j) => j !== si && overlap(oldBox, boxes[j])).length * OVERLAP_PENALTY;
+      let oldOverlapCount = 0;
+      for (let j = 0; j < N; j++) {
+        if (j !== si && overlap(oldBox, boxes[j])) {
+          oldOverlapCount++;
+        }
+      }
+      const oldScore = st.cand.dist * DIST_FACTOR + oldOverlapCount * OVERLAP_PENALTY;
 
       // Pick a random different candidate
       const newIdx = (st.candIdx + 1 + Math.floor(Math.random() * (st.item.candidates.length - 1)))
@@ -118,8 +123,13 @@ class GSRLabelManager {
       const cand = st.item.candidates[newIdx];
       boxes[si] = cand.box;
 
-      const newScorePart = cand.dist * DIST_FACTOR +
-        state.filter((_, j) => j !== si && overlap(cand.box, boxes[j])).length * OVERLAP_PENALTY;
+      let newOverlapCount = 0;
+      for (let j = 0; j < N; j++) {
+        if (j !== si && overlap(cand.box, boxes[j])) {
+          newOverlapCount++;
+        }
+      }
+      const newScorePart = cand.dist * DIST_FACTOR + newOverlapCount * OVERLAP_PENALTY;
 
       const delta = newScorePart - oldScore;
 

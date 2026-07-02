@@ -436,7 +436,10 @@ class GSRMapManager {
     }
 
     if (panTo) {
-      this.map.panTo([lat, lon]);
+      const pos = [lat, lon];
+      if (!this.map.getBounds().contains(pos)) {
+        this.map.panTo(pos);
+      }
     }
   }
 
