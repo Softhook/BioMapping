@@ -28,14 +28,14 @@ const GSR_CONST = {
 
   // ── GPS filter defaults ──────────────────────────────────────────────────
   GPS_DEFAULT: {
-    minSats: 0, maxSpeed: 5, hampelWindow: 3, hampelSigma: 3.0,
-    dbscanRadius: 10, dbscanMinPts: 4, kalmanR: 25, kalmanQ: 1e-4,
-    rdpTolerance: 5, minDist: 0, downsample: true, trackWeight: 5
+    minSats: 0, maxSpeed: 0, hampelWindow: 0, hampelSigma: 3.0,
+    dbscanRadius: 0, dbscanMinPts: 4, kalmanR: 0, kalmanQ: 1e-4,
+    rdpTolerance: 0, minDist: 0, downsample: false, trackWeight: 5
   },
 
   // ── GSR filter defaults ──────────────────────────────────────────────────
   GSR_DEFAULT: {
-    medianSize: 1.0, lpfWindow: 0.8,
+    medianSize: 0, lpfWindow: 0,
     tonicMethod: 'percentile', tonicWindow: 15, peakThreshold: 0.020,
     dwtLevel: 6
   },

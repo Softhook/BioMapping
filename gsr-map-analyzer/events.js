@@ -87,13 +87,31 @@ function setupCollapseWithResize(btnId, cardId, onExpand) {
 }
 
 /**
+ * Update the dimmed state of a slider-group based on whether value is 0 (off).
+ */
+function updateFilterDim(slider) {
+  const group = slider.closest('.slider-group');
+  if (!group) return;
+  const val = parseFloat(slider.value);
+  group.classList.toggle('filter-off', val === 0);
+}
+
+/**
  * Bind a GSR slider: update label immediately, re-run analysis, save settings.
+ * Shows "off" when value is 0 and dims the slider group.
  */
 function bindGsrSlider(id, labelId, suffix) {
   const slider = document.getElementById(id);
   const label  = document.getElementById(labelId);
+  const updateDim = () => updateFilterDim(slider);
+
+  // Initial dim state
+  updateDim();
+
   slider.addEventListener('input', () => {
-    label.innerText = parseFloat(slider.value).toFixed(suffix.includes('μS') ? 3 : 1) + suffix;
+    const val = parseFloat(slider.value);
+    label.innerText = val === 0 ? 'off' : val.toFixed(suffix.includes('μS') ? 3 : 1) + suffix;
+    updateDim();
     runAnalysis();
     saveSettings();
   });
@@ -101,12 +119,19 @@ function bindGsrSlider(id, labelId, suffix) {
 
 /**
  * Bind a GPS slider: update label, re-render map, save settings.
+ * Dims the slider group when value is 0 (off).
  */
 function bindGpsSlider(id, labelId, fmt) {
   const slider = document.getElementById(id);
   const label  = document.getElementById(labelId);
+  const updateDim = () => updateFilterDim(slider);
+
+  // Initial dim state
+  updateDim();
+
   slider.addEventListener('input', () => {
     label.innerText = fmt(parseFloat(slider.value));
+    updateDim();
     rerenderMap();
     saveSettings();
   });
@@ -408,12 +433,13 @@ function bindSidebarToggle() {
  * Initialize control labels to match current slider values.
  */
 function initializeLabels() {
-  // GSR Labels
+  // GSR Labels (show "off" when value is 0)
   const updateLabel = (id, labelId, suffix) => {
     const slider = document.getElementById(id);
     const label  = document.getElementById(labelId);
     if (slider && label) {
-      label.innerText = parseFloat(slider.value).toFixed(suffix.includes('μS') ? 3 : 1) + suffix;
+      const val = parseFloat(slider.value);
+      label.innerText = val === 0 ? 'off' : val.toFixed(suffix.includes('μS') ? 3 : 1) + suffix;
     }
   };
   updateLabel('medianSize',    'valMedianSize',    ' s');
@@ -453,4 +479,9 @@ function initializeLabels() {
       label.innerText = fmt(parseFloat(slider.value));
     }
   }
+
+  // Initial dim state for all GSR sliders (only those that can be 0)
+  document.querySelectorAll('#gsrFilteringCard input[type="range"]').forEach(updateFilterDim);
+  // Initial dim state for all GPS sliders
+  document.querySelectorAll('#gpsFilteringCard input[type="range"]').forEach(updateFilterDim);
 }

@@ -267,6 +267,28 @@ body {
   margin-bottom: 0;
 }
 
+/* Dimmed state when a filter slider is set to 0 (off) */
+.slider-group.filter-off .slider-label {
+  opacity: 0.45;
+}
+
+.slider-group.filter-off .slider-value {
+  color: var(--text-muted);
+}
+
+.slider-group.filter-off input[type="range"]::-webkit-slider-thumb {
+  background: var(--text-muted);
+  box-shadow: none;
+}
+
+.slider-group.filter-off input[type="range"] {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.slider-group.filter-off .help-text {
+  opacity: 0.35;
+}
+
 .slider-label {
   display: flex;
   justify-content: space-between;
