@@ -560,18 +560,20 @@ class GSRAnalyzer {
    * Uses ±1 s window, excludes the peak region.
    */
   _computeNoiseFloor(idx, halfWindow) {
-    const phasicVals = this.phasic.map(d => d.val);
+    // Use the filtered signal (median+LPF, pre-decomposition) instead of
+    // phasic, so that nearby SCRs don't inflate the noise estimate.
+    const vals = this.filtered.map(d => d.val);
     const start = Math.max(0, idx - halfWindow);
-    const end = Math.min(phasicVals.length - 1, idx + halfWindow);
+    const end = Math.min(vals.length - 1, idx + halfWindow);
     let sum = 0, count = 0;
     for (let j = start; j <= end; j++) {
-      sum += phasicVals[j];
+      sum += vals[j];
       count++;
     }
     const mean = sum / count;
     let sqSum = 0;
     for (let j = start; j <= end; j++) {
-      sqSum += (phasicVals[j] - mean) ** 2;
+      sqSum += (vals[j] - mean) ** 2;
     }
     return Math.sqrt(sqSum / count);
   }
@@ -685,12 +687,17 @@ class GSRAnalyzer {
       if (curr < threshold) continue;
 
       // ── 2. Find onset (trough before peak) ──────────────────────────────
+      // Limit backward search to MAX_RISE_TIME seconds to prevent walking
+      // backward through overlapping SCRs into an unrelated trough.
+      const maxOnsetSteps = Math.round(shape.MAX_RISE_TIME * this.sampleRate);
       let onsetIdx = i;
-      while (onsetIdx > 0 && phasicVals[onsetIdx] > 0) {
+      let onsetSteps = 0;
+      while (onsetIdx > 0 && phasicVals[onsetIdx] > 0 && onsetSteps < maxOnsetSteps) {
         if (onsetIdx < i && phasicVals[onsetIdx] < phasicVals[onsetIdx - 1]) {
           break;
         }
         onsetIdx--;
+        onsetSteps++;
       }
 
       const amplitude = curr - phasicVals[onsetIdx];
