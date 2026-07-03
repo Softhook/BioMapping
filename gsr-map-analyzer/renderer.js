@@ -300,8 +300,19 @@ const GSRRenderer = {
       const colorPhasic = this.getThemeColor('--color-phasic', '#008f3c');
       const canvasBg = this.getThemeColor('--canvas-bg', '#ffffff');
 
+      // Quality-based coloring: high=green, medium=amber, low=red
+      const qScore = p.qualityScore !== undefined ? p.qualityScore : 0.5;
+      let peakColor;
+      if (qScore >= 0.7) {
+        peakColor = '#008f3c'; // green — high confidence
+      } else if (qScore >= 0.4) {
+        peakColor = '#e59e00'; // amber — medium confidence
+      } else {
+        peakColor = '#d10024'; // red — low confidence (still valid)
+      }
+
       if (isActive || isHovered) {
-        fill(color(colorPeak + '4b')); // ~75 opacity
+        fill(color(peakColor + '4b'));
         noStroke();
         beginShape();
         vertex(xOnset, yBottomL);
@@ -319,22 +330,22 @@ const GSRRenderer = {
       fill(canvasBg);
       circle(xOnset, yPhasicOnset, isActive ? 8 : 5);
 
-      stroke(color(colorPeak + '3c')); // ~60 opacity
+      stroke(color(peakColor + '3c'));
       strokeWeight(1);
       drawingContext.setLineDash([3, 3]);
       line(xPeak, yFilteredPeak, xPeak, yPhasicPeak);
       drawingContext.setLineDash([]);
 
-      stroke(colorPeak);
+      stroke(peakColor);
       strokeWeight(2);
-      fill(isActive ? color(colorPeak) : color(canvasBg));
+      fill(isActive ? color(peakColor) : color(canvasBg));
       circle(xPeak, yPhasicPeak, isActive ? 9 : 6);
       circle(xPeak, yFilteredPeak, isActive ? 9 : 6);
 
       if (xPeak >= GSR_CONST.MARGIN.left && xPeak <= width - GSR_CONST.MARGIN.right) {
         if (AppState.viewDuration < 300 || isActive || isHovered) {
           noStroke();
-          fill(colorPeak);
+          fill(peakColor);
           textSize(10);
           textStyle(BOLD);
           textAlign(CENTER, BOTTOM);
@@ -425,21 +436,35 @@ const GSRRenderer = {
     fill(colorPhasic);
     circle(xScrub, yL, 6);
 
-    GSRRenderer.drawTooltip(dRaw.time, dRaw.val, dFilt.val, dTonic.val, dPhasic.val);
+    // Check if hovered index is near a detected peak — show quality info
+    let nearPeakInfo = null;
+    if (AppState.analyzer.peaks && AppState.analyzer.peaks.length > 0) {
+      const halfSec = Math.round(AppState.analyzer.sampleRate * 0.5);
+      for (const pk of AppState.analyzer.peaks) {
+        if (Math.abs(AppState.hoveredIndex - pk.index) <= halfSec) {
+          nearPeakInfo = pk;
+          break;
+        }
+      }
+    }
+
+    GSRRenderer.drawTooltip(dRaw.time, dRaw.val, dFilt.val, dTonic.val, dPhasic.val, nearPeakInfo);
   },
 
-  drawTooltip(time, rawVal, filtVal, tonicVal, phasicVal) {
+  drawTooltip(time, rawVal, filtVal, tonicVal, phasicVal, nearPeak) {
     const pad = 12;
-    const boxW = 190;
-    const boxH = 120;
+    const hasPeakInfo = nearPeak && nearPeak.qualityScore !== undefined;
+    // Extra width for peak quality details
+    const boxW = hasPeakInfo ? 230 : 200;
+    const boxH = hasPeakInfo ? 185 : 120;
 
     let boxX = mouseX + 15;
     if (boxX + boxW > width - GSR_CONST.MARGIN.right) {
       boxX = mouseX - boxW - 15;
     }
 
-    let boxY = mouseY - 40;
-    boxY = constrain(boxY, GSR_CONST.MARGIN.top, height - GSR_CONST.MARGIN.bottom - boxH);
+    let boxY = mouseY - 20;
+    boxY = constrain(boxY, GSR_CONST.MARGIN.top, Math.max(GSR_CONST.MARGIN.top, height - GSR_CONST.MARGIN.bottom - boxH));
 
     const overlayBg = this.getThemeColor('--canvas-overlay-bg', 'rgba(255, 255, 255, 0.95)');
     const axisColor = this.getThemeColor('--canvas-axis', 'rgba(17, 17, 17, 0.15)');
@@ -489,6 +514,56 @@ const GSRRenderer = {
     text('Phasic (SCR):', boxX + pad, startY + 3 * spacing);
     textAlign(RIGHT, TOP);
     text(phasicVal.toFixed(4) + ' \u03bcS', boxX + boxW - pad, startY + 3 * spacing);
+
+    // Peak shape quality info (when hovering near a detected peak)
+    if (hasPeakInfo) {
+      const qScore = nearPeak.qualityScore;
+      const qPct = Math.round(qScore * 100);
+      const qColor = qScore >= 0.7 ? '#008f3c' : (qScore >= 0.4 ? '#e59e00' : '#d10024');
+      const qLabel = qScore >= 0.7 ? 'High' : (qScore >= 0.4 ? 'Med' : 'Low');
+
+      const peakY = startY + 4 * spacing + 6;
+      stroke(axisColor);
+      strokeWeight(0.5);
+      line(boxX + pad, peakY - 3, boxX + boxW - pad, peakY - 3);
+      noStroke();
+
+      // Quality header + badge on same row
+      textSize(9.5);
+      fill(textColor);
+      textStyle(BOLD);
+      text('Peak Quality', boxX + pad, peakY);
+      fill(qColor);
+      textAlign(RIGHT, TOP);
+      text('\u25CF ' + qPct + '% ' + qLabel, boxX + boxW - pad, peakY);
+      textStyle(NORMAL);
+
+      // Details row 1: Skew + SNR
+      const detailY = peakY + 16;
+      textSize(8.5);
+      fill(textSec);
+      textAlign(LEFT, TOP);
+      text('Skew:', boxX + pad, detailY);
+      textAlign(RIGHT, TOP);
+      text((nearPeak.skewnessRatio || 0).toFixed(2), boxX + boxW * 0.5 - 4, detailY);
+
+      textAlign(LEFT, TOP);
+      text('SNR:', boxX + boxW * 0.5 + 4, detailY);
+      textAlign(RIGHT, TOP);
+      text((nearPeak.snr || 0).toFixed(1) + 'x', boxX + boxW - pad, detailY);
+
+      // Details row 2: Rise + Slope
+      const slopeY = detailY + 15;
+      textAlign(LEFT, TOP);
+      text('Rise:', boxX + pad, slopeY);
+      textAlign(RIGHT, TOP);
+      text((nearPeak.riseTime || 0).toFixed(2) + 's', boxX + boxW * 0.5 - 4, slopeY);
+
+      textAlign(LEFT, TOP);
+      text('Slope:', boxX + boxW * 0.5 + 4, slopeY);
+      textAlign(RIGHT, TOP);
+      text((nearPeak.onsetSlope || 0).toFixed(4), boxX + boxW - pad, slopeY);
+    }
   },
 
   drawTimelineOverview(innerWidth, timelineHeight) {

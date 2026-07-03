@@ -198,15 +198,34 @@ const GSRUI = {
     const tb    = AppState.tableBody;
 
     if (peaks.length === 0) {
-      tb.innerHTML = '<tr class="empty-row"><td colspan="9">No peaks detected. Try reducing the Peak Amplitude threshold.</td></tr>';
+      tb.innerHTML = '<tr class="empty-row"><td colspan="13">No peaks detected. Try reducing the Peak Amplitude threshold.</td></tr>';
       return;
     }
+
+    // Quality score thresholds for coloring
+    const qualityLow = '#d1002420';
+    const qualityMed = '#e59e0030';
+    const qualityHigh = '#008f3c20';
 
     let rowsHtml = "";
     peaks.forEach((p, idx) => {
       const isAct = (idx === AppState.activePeakIndex) ? "class='active-row'" : "";
-      const riseTimeStr = (p.time - p.onsetTime).toFixed(2);
-      const recTimeStr = p.recoveryTime !== -1 ? p.recoveryTime.toFixed(2) : "N/A";
+      const riseTimeStr = (p.riseTime || (p.time - p.onsetTime)).toFixed(2);
+      const recTimeStr = p.halfRecoveryTime !== undefined && p.halfRecoveryTime !== -1
+        ? p.halfRecoveryTime.toFixed(2) : "N/A";
+      const onsetSlopeStr = p.onsetSlope !== undefined
+        ? p.onsetSlope.toFixed(5) : (p.amplitude / Math.max(1, p.index - p.onsetIndex)).toFixed(5);
+      const decaySlopeStr = p.decaySlope !== undefined
+        ? p.decaySlope.toFixed(5) : "N/A";
+      const skewStr = p.skewnessRatio !== undefined
+        ? p.skewnessRatio.toFixed(3) : "N/A";
+      const snrStr = p.snr !== undefined
+        ? p.snr.toFixed(2) + "x" : "N/A";
+      const qScore = p.qualityScore !== undefined ? p.qualityScore : 0;
+      const qPct = Math.round(qScore * 100);
+      const qColor = qScore >= 0.7 ? qualityHigh : (qScore >= 0.4 ? qualityMed : qualityLow);
+      const qLabel = qScore >= 0.7 ? 'High' : (qScore >= 0.4 ? 'Med' : 'Low');
+
       const escapedLabel = (p.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
       rowsHtml += '<tr id="peakRow-' + idx + '" ' + isAct + ' onclick="GSRUI.focusOnPeak(' + idx + ')">' +
@@ -224,6 +243,11 @@ const GSRUI = {
         '<td>' + p.amplitude.toFixed(4) + '</td>' +
         '<td>' + riseTimeStr + '</td>' +
         '<td>' + recTimeStr + '</td>' +
+        '<td style="background:' + qColor + '; font-weight:' + (qScore >= 0.7 ? '600' : '400') + '">' +
+          qPct + '% ' + qLabel + '</td>' +
+        '<td>' + onsetSlopeStr + '</td>' +
+        '<td>' + skewStr + '</td>' +
+        '<td>' + snrStr + '</td>' +
         '<td><button class="btn-table-action" onclick="event.stopPropagation(); GSRUI.focusOnPeak(' + idx + ')">' +
         '<i class="fa-solid fa-arrows-to-eye"></i> View</button></td></tr>';
     });

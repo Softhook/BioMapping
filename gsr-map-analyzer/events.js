@@ -29,8 +29,14 @@ const GSREvents = {
     AppState.sliders.lpfWindow     = GSREvents._id('lpfWindow');
     AppState.sliders.tonicWindow   = GSREvents._id('tonicWindow');
     AppState.sliders.tonicMethod   = GSREvents._id('tonicMethod');
-    AppState.sliders.peakThreshold = GSREvents._id('peakThreshold');
-    AppState.sliders.dwtLevel      = GSREvents._id('dwtLevel');
+    AppState.sliders.peakThreshold     = GSREvents._id('peakThreshold');
+    AppState.sliders.dwtLevel          = GSREvents._id('dwtLevel');
+    AppState.sliders.shapeMinRiseTime  = GSREvents._id('shapeMinRiseTime');
+    AppState.sliders.shapeMaxRiseTime  = GSREvents._id('shapeMaxRiseTime');
+    AppState.sliders.shapeMinHalfRecovery = GSREvents._id('shapeMinHalfRecovery');
+    AppState.sliders.shapeMaxHalfRecovery = GSREvents._id('shapeMaxHalfRecovery');
+    AppState.sliders.shapeMinSnr       = GSREvents._id('shapeMinSnr');
+    AppState.sliders.shapeMaxSkewRatio = GSREvents._id('shapeMaxSkewRatio');
 
     // Stats
     AppState.statFields.date       = GSREvents._id('statDate');
@@ -168,7 +174,13 @@ const GSREvents = {
     GSREvents.bindGsrSlider('medianSize',    'valMedianSize',    ' s');
     GSREvents.bindGsrSlider('lpfWindow',     'valLpfWindow',     ' s');
     GSREvents.bindGsrSlider('tonicWindow',   'valTonicWindow',   ' s');
-    GSREvents.bindGsrSlider('peakThreshold', 'valPeakThreshold', ' μS');
+    GSREvents.bindGsrSlider('peakThreshold',     'valPeakThreshold',     ' μS');
+    GSREvents.bindGsrSlider('shapeMinRiseTime',  'valShapeMinRiseTime',  ' s');
+    GSREvents.bindGsrSlider('shapeMaxRiseTime',  'valShapeMaxRiseTime',  ' s');
+    GSREvents.bindGsrSlider('shapeMinHalfRecovery', 'valShapeMinHalfRecovery', ' s');
+    GSREvents.bindGsrSlider('shapeMaxHalfRecovery', 'valShapeMaxHalfRecovery', ' s');
+    GSREvents.bindGsrSlider('shapeMinSnr',       'valShapeMinSnr',       '×');
+    GSREvents.bindGsrSlider('shapeMaxSkewRatio', 'valShapeMaxSkewRatio', '');
 
     // DWT level — custom binding (integer display)
     if (S.dwtLevel) {
@@ -461,7 +473,18 @@ const GSREvents = {
     updateLabel('lpfWindow',     'valLpfWindow',     ' s');
     updateLabel('tonicWindow',   'valTonicWindow',   ' s');
     updateLabel('dwtLevel',      'valDwtLevel',      '');
-    updateLabel('peakThreshold', 'valPeakThreshold', ' μS');
+    updateLabel('peakThreshold',     'valPeakThreshold',     ' μS');
+    updateLabel('shapeMinRiseTime',  'valShapeMinRiseTime',  ' s');
+    updateLabel('shapeMaxRiseTime',  'valShapeMaxRiseTime',  ' s');
+    updateLabel('shapeMinHalfRecovery', 'valShapeMinHalfRecovery', ' s');
+    updateLabel('shapeMaxHalfRecovery', 'valShapeMaxHalfRecovery', ' s');
+    // SNR: custom formatting with × suffix
+    const snrSlider = document.getElementById('shapeMinSnr');
+    const snrLabel  = document.getElementById('valShapeMinSnr');
+    if (snrSlider && snrLabel) {
+      snrLabel.innerText = parseFloat(snrSlider.value).toFixed(1) + '\u00d7';
+    }
+    updateLabel('shapeMaxSkewRatio', 'valShapeMaxSkewRatio', '');
 
     // Initial DWT level group visibility
     const tonicMethod = document.getElementById('tonicMethod');

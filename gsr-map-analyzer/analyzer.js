@@ -7,7 +7,10 @@ class GSRAnalyzer {
     this.filtered = [];     // Cleaned signal: { time, val }
     this.tonic = [];        // Tonic component (SCL): { time, val }
     this.phasic = [];       // Phasic component (SCR): { time, val }
-    this.peaks = [];        // Detected peaks: { time, index, amplitude, onsetIndex, onsetTime, halfRecoveryTime, label }
+    this.peaks = [];        // Detected peaks with shape metrics:
+                            // { time, index, amplitude, onsetIndex, onsetTime, halfRecoveryTime,
+                            //   riseTime, onsetSlope, decaySlope, skewnessRatio, fwhm, snr,
+                            //   qualityScore, label }
 
     this.sampleRate = 10;   // In Hz, auto-detected
     this.isResistance = false; // Whether original CSV was resistance (Ohms)
@@ -504,8 +507,8 @@ class GSRAnalyzer {
     this.tonic = this.raw.map((d, i) => ({ time: d.time, val: tonicVals[i] }));
     this.phasic = this.raw.map((d, i) => ({ time: d.time, val: phasicVals[i] }));
 
-    // 5. Phasic Peak Detection
-    this.detectPeaks(params.peakThreshold);
+    // 5. Phasic Peak Detection (with shape criteria from sliders)
+    this.detectPeaks(params.peakThreshold, params);
 
     // 6. Build display cache for fast rendering (Y-range pyramid, timeline)
     this._buildDisplayCache();
@@ -552,7 +555,87 @@ class GSRAnalyzer {
     }
   }
 
-  detectPeaks(threshold) {
+  /**
+   * Compute the local noise floor around an index for SNR estimation.
+   * Uses ±1 s window, excludes the peak region.
+   */
+  _computeNoiseFloor(idx, halfWindow) {
+    const phasicVals = this.phasic.map(d => d.val);
+    const start = Math.max(0, idx - halfWindow);
+    const end = Math.min(phasicVals.length - 1, idx + halfWindow);
+    let sum = 0, count = 0;
+    for (let j = start; j <= end; j++) {
+      sum += phasicVals[j];
+      count++;
+    }
+    const mean = sum / count;
+    let sqSum = 0;
+    for (let j = start; j <= end; j++) {
+      sqSum += (phasicVals[j] - mean) ** 2;
+    }
+    return Math.sqrt(sqSum / count);
+  }
+
+  /**
+   * Compute a quality score (0–1) for a detected peak based on
+   * how well it matches the canonical SCR shape.
+   */
+  _computePeakQuality(peak) {
+    const W = GSR_CONST.PEAK_SHAPE.QUALITY_WEIGHTS;
+    let score = 0;
+
+    // Amplitude: higher is better, saturate at 0.5 µS
+    const ampScore = Math.min(1, peak.amplitude / 0.5);
+    score += ampScore * W.amplitude;
+
+    // Rise time: ideal is 0.5–3 s, penalize outside that
+    if (peak.riseTime >= 0.5 && peak.riseTime <= 3.0) {
+      score += W.riseTime;
+    } else if (peak.riseTime > 0 && peak.riseTime <= 5.0) {
+      score += W.riseTime * 0.5;
+    }
+
+    // Recovery time: ideal is 0.5–4 s
+    if (peak.halfRecoveryTime >= 0.5 && peak.halfRecoveryTime <= 4.0) {
+      score += W.recoveryTime;
+    } else if (peak.halfRecoveryTime > 0 && peak.halfRecoveryTime <= 8.0) {
+      score += W.recoveryTime * 0.5;
+    }
+
+    // Skewness: classic SCR has fast rise, slow recovery (ratio < 1)
+    if (peak.skewnessRatio > 0 && peak.skewnessRatio <= 1.0) {
+      score += W.skewness;
+    } else if (peak.skewnessRatio > 1.0 && peak.skewnessRatio <= 2.0) {
+      score += W.skewness * 0.6;
+    } else if (peak.skewnessRatio > 2.0 && peak.skewnessRatio <= 4.0) {
+      score += W.skewness * 0.3;
+    }
+
+    // Onset slope: steep but not too steep
+    if (peak.onsetSlope >= 0.001 && peak.onsetSlope <= 0.1) {
+      score += W.onsetSlope;
+    } else if (peak.onsetSlope > 0 && peak.onsetSlope <= 0.3) {
+      score += W.onsetSlope * 0.5;
+    }
+
+    // SNR
+    if (peak.snr >= 3.0) {
+      score += W.snr;
+    } else if (peak.snr >= 2.0) {
+      score += W.snr * 0.7;
+    } else if (peak.snr >= 1.5) {
+      score += W.snr * 0.4;
+    }
+
+    // Decay slope: recovery must exist
+    if (peak.decaySlope > 0.0001) {
+      score += W.decaySlope;
+    }
+
+    return Math.min(1, Math.max(0, score));
+  }
+
+  detectPeaks(threshold, params) {
     // Preserve any user-set labels across re-analysis by matching on raw index
     const oldLabels = new Map();
     for (const pk of this.peaks) {
@@ -573,62 +656,195 @@ class GSRAnalyzer {
 
     const phasicVals = this.phasic.map(d => d.val);
     const times = this.phasic.map(d => d.time);
+    const defaults = GSR_CONST.PEAK_SHAPE;
+
+    // Use dynamic slider values when available, fall back to defaults
+    const shape = {
+      MIN_RISE_TIME:     params && params.shapeMinRiseTime     != null ? params.shapeMinRiseTime     : defaults.MIN_RISE_TIME,
+      MAX_RISE_TIME:     params && params.shapeMaxRiseTime     != null ? params.shapeMaxRiseTime     : defaults.MAX_RISE_TIME,
+      MIN_HALF_RECOVERY: params && params.shapeMinHalfRecovery != null ? params.shapeMinHalfRecovery : defaults.MIN_HALF_RECOVERY,
+      MAX_HALF_RECOVERY: params && params.shapeMaxHalfRecovery != null ? params.shapeMaxHalfRecovery : defaults.MAX_HALF_RECOVERY,
+      MIN_ONSET_SLOPE:   defaults.MIN_ONSET_SLOPE,
+      MAX_ONSET_SLOPE:   defaults.MAX_ONSET_SLOPE,
+      MIN_DECAY_SLOPE:   defaults.MIN_DECAY_SLOPE,
+      MIN_ONSET_DURATION: defaults.MIN_ONSET_DURATION,
+      MAX_PEAK_WIDTH:    defaults.MAX_PEAK_WIDTH,
+      MIN_SNR:           params && params.shapeMinSnr          != null ? params.shapeMinSnr          : defaults.MIN_SNR,
+      SKEWNESS_RATIO_MIN: defaults.SKEWNESS_RATIO_MIN,
+      SKEWNESS_RATIO_MAX: params && params.shapeMaxSkewRatio   != null ? params.shapeMaxSkewRatio   : defaults.SKEWNESS_RATIO_MAX,
+      QUALITY_WEIGHTS:   defaults.QUALITY_WEIGHTS
+    };
 
     for (let i = 1; i < n - 1; i++) {
       const prev = phasicVals[i - 1];
       const curr = phasicVals[i];
       const next = phasicVals[i + 1];
 
-      if (curr > prev && curr >= next) {
-        if (curr >= threshold) {
-          let onsetIdx = i;
-          while (onsetIdx > 0 && phasicVals[onsetIdx] > 0) {
-            // Walk backward: stop when phasic values start rising again (past the trough)
-            if (onsetIdx < i && phasicVals[onsetIdx] < phasicVals[onsetIdx - 1]) {
-              break;
-            }
-            onsetIdx--;
-          }
+      // ── 1. Local maximum check ──────────────────────────────────────────
+      if (!(curr > prev && curr >= next)) continue;
+      if (curr < threshold) continue;
 
-          const amplitude = curr - phasicVals[onsetIdx];
-          
-          if (amplitude >= threshold * GSR_CONST.PEAK_AMPLITUDE_FACTOR) {
-            let halfDecayVal = phasicVals[onsetIdx] + amplitude * 0.5;
-            let recoveryIdx = -1;
-            for (let j = i + 1; j < n; j++) {
-              if (phasicVals[j] <= halfDecayVal) {
-                recoveryIdx = j;
-                break;
-              }
-              if (j < n - 1 && phasicVals[j] < phasicVals[j + 1] && phasicVals[j] > halfDecayVal + GSR_CONST.PEAK_RECOVERY_BREAK) {
-                break;
-              }
-            }
+      // ── 2. Find onset (trough before peak) ──────────────────────────────
+      let onsetIdx = i;
+      while (onsetIdx > 0 && phasicVals[onsetIdx] > 0) {
+        if (onsetIdx < i && phasicVals[onsetIdx] < phasicVals[onsetIdx - 1]) {
+          break;
+        }
+        onsetIdx--;
+      }
 
-            let recoveryTime = -1;
-            if (recoveryIdx !== -1) {
-              recoveryTime = times[recoveryIdx] - times[i];
-            }
+      const amplitude = curr - phasicVals[onsetIdx];
+      if (amplitude < threshold * GSR_CONST.PEAK_AMPLITUDE_FACTOR) continue;
 
-            this.peaks.push({
-              index: i,
-              time: times[i],
-              value: curr,
-              amplitude: amplitude,
-              onsetIndex: onsetIdx,
-              onsetTime: times[onsetIdx],
-              onsetValue: phasicVals[onsetIdx],
-              recoveryIndex: recoveryIdx,
-              recoveryTime: recoveryTime,
-              label: oldLabels.get(i) ||
-                     (this._importedPeakLabels ? this._importedPeakLabels.get(times[i]) : '') ||
-                     ''
-            });
+      // ── 3. Rise time (onset → peak duration) ────────────────────────────
+      const riseTime = times[i] - times[onsetIdx];
+      const onsetSamples = i - onsetIdx;
 
-            i = Math.min(n - 2, i + Math.round(GSR_CONST.PEAK_MIN_GAP * this.sampleRate));
-          }
+      // Width check: too few samples → spike artifact
+      if (onsetSamples < shape.MIN_ONSET_DURATION) {
+        i = Math.min(n - 2, i + 1);
+        continue;
+      }
+
+      // Rise time bounds (skip check when slider is 0 / off)
+      if (shape.MIN_RISE_TIME > 0 && riseTime < shape.MIN_RISE_TIME) {
+        i = Math.min(n - 2, i + 1);
+        continue;
+      }
+      if (shape.MAX_RISE_TIME > 0 && riseTime > shape.MAX_RISE_TIME) {
+        i = Math.min(n - 2, i + 1);
+        continue;
+      }
+
+      // ── 4. Onset slope (average derivative on rising edge) ──────────────
+      let onsetSlope = 0;
+      if (onsetSamples > 0) {
+        onsetSlope = (curr - phasicVals[onsetIdx]) / onsetSamples;
+      }
+
+      if (onsetSlope < shape.MIN_ONSET_SLOPE || onsetSlope > shape.MAX_ONSET_SLOPE) {
+        i = Math.min(n - 2, i + 1);
+        continue;
+      }
+
+      // ── 5. Half-recovery search ─────────────────────────────────────────
+      const halfDecayVal = phasicVals[onsetIdx] + amplitude * 0.5;
+      let recoveryIdx = -1;
+      for (let j = i + 1; j < n; j++) {
+        if (phasicVals[j] <= halfDecayVal) {
+          recoveryIdx = j;
+          break;
+        }
+        if (j < n - 1 &&
+            phasicVals[j] < phasicVals[j + 1] &&
+            phasicVals[j] > halfDecayVal + GSR_CONST.PEAK_RECOVERY_BREAK) {
+          break;
         }
       }
+
+      let halfRecoveryTime = -1;
+      if (recoveryIdx !== -1) {
+        halfRecoveryTime = times[recoveryIdx] - times[i];
+      }
+
+      // Recovery time bounds (skip individual check when slider is 0 / off)
+      if (halfRecoveryTime < 0) {
+        i = Math.min(n - 2, i + 1);
+        continue;
+      }
+      if (shape.MIN_HALF_RECOVERY > 0 && halfRecoveryTime < shape.MIN_HALF_RECOVERY) {
+        i = Math.min(n - 2, i + 1);
+        continue;
+      }
+      if (shape.MAX_HALF_RECOVERY > 0 && halfRecoveryTime > shape.MAX_HALF_RECOVERY) {
+        i = Math.min(n - 2, i + 1);
+        continue;
+      }
+
+      // ── 6. Decay / recovery slope ──────────────────────────────────────
+      const recoverySamples = recoveryIdx !== -1 ? recoveryIdx - i : 0;
+      const decaySlope = recoverySamples > 0
+        ? (phasicVals[i] - phasicVals[recoveryIdx]) / recoverySamples
+        : 0;
+
+      if (decaySlope < shape.MIN_DECAY_SLOPE) {
+        i = Math.min(n - 2, i + 1);
+        continue;
+      }
+
+      // ── 7. Skewness ratio (rise time / recovery time) ──────────────────
+      // Genuine SCRs have fast rise, slow recovery → ratio < 1
+      const skewnessRatio = halfRecoveryTime > 0
+        ? riseTime / halfRecoveryTime
+        : 0;
+
+      if (skewnessRatio < shape.SKEWNESS_RATIO_MIN) {
+        i = Math.min(n - 2, i + 1);
+        continue;
+      }
+      if (shape.SKEWNESS_RATIO_MAX > 0 && skewnessRatio > shape.SKEWNESS_RATIO_MAX) {
+        i = Math.min(n - 2, i + 1);
+        continue;
+      }
+
+      // ── 8. Full width at half maximum (FWHM) ───────────────────────────
+      // Find start of half-max on rising edge
+      let fwhmStart = onsetIdx;
+      for (let j = onsetIdx; j <= i; j++) {
+        if (phasicVals[j] >= halfDecayVal) {
+          fwhmStart = j;
+          break;
+        }
+      }
+      const fwhm = recoveryIdx !== -1
+        ? times[recoveryIdx] - times[fwhmStart]
+        : -1;
+
+      if (fwhm > 0 && fwhm > shape.MAX_PEAK_WIDTH) {
+        i = Math.min(n - 2, i + 1);
+        continue;
+      }
+
+      // ── 9. Signal-to-noise ratio ───────────────────────────────────────
+      const noiseHalfWin = Math.max(1, Math.round(this.sampleRate)); // ±1 s
+      const noiseFloor = this._computeNoiseFloor(onsetIdx, noiseHalfWin);
+      const snr = noiseFloor > 0 ? amplitude / noiseFloor : 0;
+
+      if (shape.MIN_SNR > 0 && snr < shape.MIN_SNR) {
+        i = Math.min(n - 2, i + 1);
+        continue;
+      }
+
+      // ── 10. Build peak object with full shape metrics ──────────────────
+      const peak = {
+        index: i,
+        time: times[i],
+        value: curr,
+        amplitude: amplitude,
+        onsetIndex: onsetIdx,
+        onsetTime: times[onsetIdx],
+        onsetValue: phasicVals[onsetIdx],
+        recoveryIndex: recoveryIdx,
+        halfRecoveryTime: halfRecoveryTime,
+        // New shape metrics
+        riseTime: riseTime,
+        onsetSlope: onsetSlope,
+        decaySlope: decaySlope,
+        skewnessRatio: skewnessRatio,
+        fwhm: fwhm,
+        snr: snr,
+        label: oldLabels.get(i) ||
+               (this._importedPeakLabels ? this._importedPeakLabels.get(times[i]) : '') ||
+               ''
+      };
+
+      // ── 11. Compute composite quality score ────────────────────────────
+      peak.qualityScore = this._computePeakQuality(peak);
+
+      this.peaks.push(peak);
+
+      // Skip ahead to enforce minimum gap between peaks
+      i = Math.min(n - 2, i + Math.round(GSR_CONST.PEAK_MIN_GAP * this.sampleRate));
     }
   }
 

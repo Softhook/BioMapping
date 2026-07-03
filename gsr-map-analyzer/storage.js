@@ -23,7 +23,14 @@ const GSRStorage = {
       tonicMethod:   S.tonicMethod.value,
       tonicWindow:   parseInt(S.tonicWindow.value),
       peakThreshold: parseFloat(S.peakThreshold.value),
-      dwtLevel:      parseInt(S.dwtLevel ? S.dwtLevel.value : 6)
+      dwtLevel:      parseInt(S.dwtLevel ? S.dwtLevel.value : 6),
+      // Peak shape criteria
+      shapeMinRiseTime:     parseFloat(S.shapeMinRiseTime ? S.shapeMinRiseTime.value : 0.2),
+      shapeMaxRiseTime:     parseFloat(S.shapeMaxRiseTime ? S.shapeMaxRiseTime.value : 5.0),
+      shapeMinHalfRecovery: parseFloat(S.shapeMinHalfRecovery ? S.shapeMinHalfRecovery.value : 0.1),
+      shapeMaxHalfRecovery: parseFloat(S.shapeMaxHalfRecovery ? S.shapeMaxHalfRecovery.value : 10.0),
+      shapeMinSnr:          parseFloat(S.shapeMinSnr ? S.shapeMinSnr.value : 1.5),
+      shapeMaxSkewRatio:    parseFloat(S.shapeMaxSkewRatio ? S.shapeMaxSkewRatio.value : 6.0)
     };
   },
 
@@ -83,8 +90,14 @@ const GSRStorage = {
       lpfWindow:     gsr.lpfWindow,
       tonicMethod:   gsr.tonicMethod,
       tonicWindow:   gsr.tonicWindow,
-      peakThreshold: gsr.peakThreshold,
-      dwtLevel:      gsr.dwtLevel,
+      peakThreshold:      gsr.peakThreshold,
+      dwtLevel:           gsr.dwtLevel,
+      shapeMinRiseTime:     gsr.shapeMinRiseTime,
+      shapeMaxRiseTime:     gsr.shapeMaxRiseTime,
+      shapeMinHalfRecovery: gsr.shapeMinHalfRecovery,
+      shapeMaxHalfRecovery: gsr.shapeMaxHalfRecovery,
+      shapeMinSnr:          gsr.shapeMinSnr,
+      shapeMaxSkewRatio:    gsr.shapeMaxSkewRatio,
       gpsMinSats:      gps.minSats,
       gpsMaxSpeed:     gps.maxSpeed,
       gpsHampelWindow: gps.hampelWindow,
@@ -112,8 +125,14 @@ const GSRStorage = {
       if (settings.tonicMethod   !== undefined && S.tonicMethod)   S.tonicMethod.value   = settings.tonicMethod;
       if (settings.tonicWindow   !== undefined && S.tonicWindow)   S.tonicWindow.value   = settings.tonicWindow;
       if (settings.dwtLevel      !== undefined && S.dwtLevel)      S.dwtLevel.value      = settings.dwtLevel;
-      if (settings.peakThreshold !== undefined && S.peakThreshold) S.peakThreshold.value = settings.peakThreshold;
-      if (settings.gpsMinSats      !== undefined && S.gpsMinSats)      S.gpsMinSats.value      = settings.gpsMinSats;
+      if (settings.peakThreshold      !== undefined && S.peakThreshold)      S.peakThreshold.value      = settings.peakThreshold;
+      if (settings.shapeMinRiseTime   !== undefined && S.shapeMinRiseTime)   S.shapeMinRiseTime.value   = settings.shapeMinRiseTime;
+      if (settings.shapeMaxRiseTime   !== undefined && S.shapeMaxRiseTime)   S.shapeMaxRiseTime.value   = settings.shapeMaxRiseTime;
+      if (settings.shapeMinHalfRecovery !== undefined && S.shapeMinHalfRecovery) S.shapeMinHalfRecovery.value = settings.shapeMinHalfRecovery;
+      if (settings.shapeMaxHalfRecovery !== undefined && S.shapeMaxHalfRecovery) S.shapeMaxHalfRecovery.value = settings.shapeMaxHalfRecovery;
+      if (settings.shapeMinSnr        !== undefined && S.shapeMinSnr)        S.shapeMinSnr.value        = settings.shapeMinSnr;
+      if (settings.shapeMaxSkewRatio  !== undefined && S.shapeMaxSkewRatio)  S.shapeMaxSkewRatio.value  = settings.shapeMaxSkewRatio;
+      if (settings.gpsMinSats         !== undefined && S.gpsMinSats)      S.gpsMinSats.value      = settings.gpsMinSats;
       if (settings.gpsMaxSpeed     !== undefined && S.gpsMaxSpeed)     S.gpsMaxSpeed.value     = settings.gpsMaxSpeed;
       if (settings.gpsHampelWindow !== undefined && S.gpsHampelWindow) S.gpsHampelWindow.value = settings.gpsHampelWindow;
       if (settings.gpsHampelSigma  !== undefined && S.gpsHampelSigma)  S.gpsHampelSigma.value  = settings.gpsHampelSigma;
