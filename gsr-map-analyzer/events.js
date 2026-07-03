@@ -24,53 +24,41 @@ const GSREvents = {
     AppState.dropZone     = GSREvents._id('dropZone');
     AppState.tableBody    = document.querySelector('#peaksTable tbody');
 
-    // Sliders
-    AppState.sliders.medianSize    = GSREvents._id('medianSize');
-    AppState.sliders.lpfWindow     = GSREvents._id('lpfWindow');
-    AppState.sliders.tonicWindow   = GSREvents._id('tonicWindow');
-    AppState.sliders.tonicMethod   = GSREvents._id('tonicMethod');
-    AppState.sliders.peakThreshold     = GSREvents._id('peakThreshold');
-    AppState.sliders.dwtLevel          = GSREvents._id('dwtLevel');
-    AppState.sliders.shapeMinRiseTime  = GSREvents._id('shapeMinRiseTime');
-    AppState.sliders.shapeMaxRiseTime  = GSREvents._id('shapeMaxRiseTime');
-    AppState.sliders.shapeMinHalfRecovery = GSREvents._id('shapeMinHalfRecovery');
-    AppState.sliders.shapeMaxHalfRecovery = GSREvents._id('shapeMaxHalfRecovery');
-    AppState.sliders.shapeMinSnr       = GSREvents._id('shapeMinSnr');
-    AppState.sliders.shapeMaxSkewRatio = GSREvents._id('shapeMaxSkewRatio');
+    // Sliders & Selection inputs
+    const sliderKeys = [
+      'medianSize', 'lpfWindow', 'tonicWindow', 'tonicMethod', 'peakThreshold', 'dwtLevel',
+      'shapeMinRiseTime', 'shapeMaxRiseTime', 'shapeMinHalfRecovery', 'shapeMaxHalfRecovery',
+      'shapeMinSnr', 'shapeMaxSkewRatio',
+      'gpsMinSats', 'gpsMaxSpeed', 'gpsHampelWindow', 'gpsHampelSigma', 'gpsDBSCANRadius',
+      'gpsDBSCANMinPts', 'gpsKalmanR', 'gpsKalmanQ', 'gpsRDP', 'gpsDownsample',
+      'gpsTrackWeight', 'gpsPeakLatency'
+    ];
+    for (const key of sliderKeys) {
+      AppState.sliders[key] = GSREvents._id(key);
+    }
 
-    // Stats
-    AppState.statFields.date       = GSREvents._id('statDate');
-    AppState.statFields.startTime  = GSREvents._id('statStartTime');
-    AppState.statFields.duration   = GSREvents._id('statDuration');
-    AppState.statFields.meanSCL    = GSREvents._id('statMeanSCL');
-    AppState.statFields.peakCount  = GSREvents._id('statPeakCount');
-    AppState.statFields.peakFreq   = GSREvents._id('statPeakFreq');
-
-    // GPS filter sliders
-    AppState.sliders.gpsMinSats      = GSREvents._id('gpsMinSats');
-    AppState.sliders.gpsMaxSpeed     = GSREvents._id('gpsMaxSpeed');
-    AppState.sliders.gpsHampelWindow = GSREvents._id('gpsHampelWindow');
-    AppState.sliders.gpsHampelSigma  = GSREvents._id('gpsHampelSigma');
-    AppState.sliders.gpsDBSCANRadius = GSREvents._id('gpsDBSCANRadius');
-    AppState.sliders.gpsDBSCANMinPts = GSREvents._id('gpsDBSCANMinPts');
-    AppState.sliders.gpsKalmanR      = GSREvents._id('gpsKalmanR');
-    AppState.sliders.gpsKalmanQ      = GSREvents._id('gpsKalmanQ');
-    AppState.sliders.gpsRDP          = GSREvents._id('gpsRDP');
-    AppState.sliders.gpsDownsample   = GSREvents._id('gpsDownsample');
-    AppState.sliders.gpsTrackWeight  = GSREvents._id('gpsTrackWeight');
-    AppState.sliders.gpsPeakLatency  = GSREvents._id('gpsPeakLatency');
+    // Stats display text elements
+    const statKeys = {
+      date: 'statDate',
+      startTime: 'statStartTime',
+      duration: 'statDuration',
+      meanSCL: 'statMeanSCL',
+      peakCount: 'statPeakCount',
+      peakFreq: 'statPeakFreq'
+    };
+    for (const [key, id] of Object.entries(statKeys)) {
+      AppState.statFields[key] = GSREvents._id(id);
+    }
 
     // Contour controls (used in collective map)
-    AppState.contourControls = {
-      gridResolution:    GSREvents._id('gridResolution'),
-      contourCount:      GSREvents._id('contourCount'),
-      isolationRadius:   GSREvents._id('isolationRadius'),
-      idwExponent:       GSREvents._id('idwExponent'),
-      topoSource:        GSREvents._id('topoSource'),
-      showShadedSurface: GSREvents._id('showShadedSurface'),
-      normalizeZScore:   GSREvents._id('normalizeZScore'),
-      surfaceOpacity:    GSREvents._id('surfaceOpacity')
-    };
+    const contourKeys = [
+      'gridResolution', 'contourCount', 'isolationRadius', 'idwExponent',
+      'topoSource', 'showShadedSurface', 'normalizeZScore', 'surfaceOpacity'
+    ];
+    AppState.contourControls = {};
+    for (const key of contourKeys) {
+      AppState.contourControls[key] = GSREvents._id(key);
+    }
   },
 
   /**
