@@ -36,9 +36,9 @@ const GSRTrackManager = {
           const trackId = 'track_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
           const trackColor = AppState.getNextTrackColor();
 
-          // Inherit current slider values so new track starts with the same active settings
-          const filterParams = GSRStorage.readGsrSliderValues();
-          const gpsFilterParams = GSRStorage.readGpsSliderValues();
+          // Inherit current slider values or use imported ones if parsing a processed CSV
+          const filterParams = tempAnalyzer.importedFilterParams || GSRStorage.readGsrSliderValues();
+          const gpsFilterParams = tempAnalyzer.importedGpsFilterParams || GSRStorage.readGpsSliderValues();
 
           const newTrack = {
             id: trackId,

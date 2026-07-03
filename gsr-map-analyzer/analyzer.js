@@ -153,15 +153,32 @@ class GSRAnalyzer {
       throw new Error("CSV file is empty or has too few lines.");
     }
 
-    // Restore recordingStartTime from metadata comment line if present
+    // Restore recordingStartTime and filter configurations from metadata comment lines
     this.recordingStartTime = 0;
+    this.importedFilterParams = null;
+    this.importedGpsFilterParams = null;
     let dataStartLine = 0;
-    if (lines[0].startsWith('# RecordingStartTime:')) {
-      const metaVal = parseFloat(lines[0].split(':')[1]);
-      if (!isNaN(metaVal)) {
-        this.recordingStartTime = metaVal;
+    while (dataStartLine < lines.length && lines[dataStartLine].startsWith('#')) {
+      const line = lines[dataStartLine].trim();
+      if (line.startsWith('# RecordingStartTime:')) {
+        const metaVal = parseFloat(line.split(':')[1]);
+        if (!isNaN(metaVal)) {
+          this.recordingStartTime = metaVal;
+        }
+      } else if (line.startsWith('# FilterParams:')) {
+        try {
+          this.importedFilterParams = JSON.parse(line.substring('# FilterParams:'.length).trim());
+        } catch (e) {
+          console.warn("Failed to parse FilterParams metadata:", e);
+        }
+      } else if (line.startsWith('# GpsFilterParams:')) {
+        try {
+          this.importedGpsFilterParams = JSON.parse(line.substring('# GpsFilterParams:'.length).trim());
+        } catch (e) {
+          console.warn("Failed to parse GpsFilterParams metadata:", e);
+        }
       }
-      dataStartLine = 1;
+      dataStartLine++;
     }
 
     // Read headers
@@ -869,7 +886,7 @@ class GSRAnalyzer {
     };
   }
 
-  exportToCSV() {
+  exportToCSV(params, gpsParams) {
     if (this.raw.length === 0) return "";
 
     // Guard: if analysis hasn't been run, filtered/tonic/phasic are empty
@@ -879,8 +896,14 @@ class GSRAnalyzer {
 
     const hasFilteredGps = this.filteredGps && this.filteredGps.length === this.raw.length;
 
-    // Preserve recording start time for clock-time display on re-import
+    // Preserve recording start time and configurations for re-import
     let csv = `# RecordingStartTime:${this.recordingStartTime}\n`;
+    if (params) {
+      csv += `# FilterParams:${JSON.stringify(params)}\n`;
+    }
+    if (gpsParams) {
+      csv += `# GpsFilterParams:${JSON.stringify(gpsParams)}\n`;
+    }
     csv += "Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,PeakLabel,Latitude,Longitude";
     if (hasFilteredGps) {
       csv += ",Raw Latitude,Raw Longitude";

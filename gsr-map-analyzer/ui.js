@@ -326,7 +326,9 @@ const GSRUI = {
    */
   exportCSV() {
     if (AppState.analyzer.raw.length === 0) return;
-    const csvContent = AppState.analyzer.exportToCSV();
+    const params = GSRStorage.readGsrSliderValues();
+    const gpsParams = GSRStorage.readGpsSliderValues();
+    const csvContent = AppState.analyzer.exportToCSV(params, gpsParams);
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url  = URL.createObjectURL(blob);

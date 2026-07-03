@@ -489,6 +489,7 @@ const GSREvents = {
       input.addEventListener('input', () => {
         if (label) label.innerText = fmt(parseFloat(input.value));
         if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
+        GSRStorage.saveSettings();
       });
     };
 
@@ -505,11 +506,13 @@ const GSREvents = {
       showShaded.addEventListener('change', () => {
         opacityGroup.style.display = showShaded.checked ? 'block' : 'none';
         if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
+        GSRStorage.saveSettings();
       });
     }
 
     document.getElementById('topoSource').addEventListener('change', () => {
       if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
+      GSRStorage.saveSettings();
     });
   },
 
@@ -571,6 +574,27 @@ const GSREvents = {
       const label = document.getElementById(labelId);
       if (slider && label) {
         label.innerText = fmt(parseFloat(slider.value));
+      }
+    }
+
+    // Contour Settings Labels & Visibility Setup
+    const C = AppState.contourControls;
+    if (C && C.gridResolution) {
+      const updateCLabel = (id, labelId, fmt) => {
+        const input = document.getElementById(id);
+        const label = document.getElementById(labelId);
+        if (input && label) label.innerText = fmt(parseFloat(input.value));
+      };
+      updateCLabel('gridResolution',  'valGridResolution',  v => `${v} x ${v}`);
+      updateCLabel('contourCount',    'valContourCount',    v => `${v} lines`);
+      updateCLabel('isolationRadius', 'valIsolationRadius', v => `${v} m`);
+      updateCLabel('idwExponent',     'valIdwExponent',     v => v.toFixed(1));
+      updateCLabel('surfaceOpacity',  'valSurfaceOpacity',  v => `${Math.round(v * 100)}%`);
+
+      const showShaded = document.getElementById('showShadedSurface');
+      const opacityGroup = document.getElementById('surfaceOpacityGroup');
+      if (showShaded && opacityGroup) {
+        opacityGroup.style.display = showShaded.checked ? 'block' : 'none';
       }
     }
 

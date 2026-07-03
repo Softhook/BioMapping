@@ -58,6 +58,23 @@ const GSRStorage = {
   },
 
   /**
+   * Read current Map Display & Contour settings into a param object.
+   */
+  readMapSettings() {
+    const C = AppState.contourControls;
+    if (!C || !C.gridResolution) return null;
+    return {
+      gridResolution:    parseInt(C.gridResolution.value),
+      contourCount:      parseInt(C.contourCount.value),
+      isolationRadius:   parseInt(C.isolationRadius.value),
+      idwExponent:       parseFloat(C.idwExponent.value),
+      topoSource:        C.topoSource.value,
+      showShadedSurface: C.showShadedSurface.checked,
+      surfaceOpacity:    parseFloat(C.surfaceOpacity.value)
+    };
+  },
+
+  /**
    * Build GPS filter params for the map renderer, post-processing raw slider values.
    * Uses readGpsSliderValues() as the canonical source.
    * Call this when passing params to GSRMapManager.renderData().
@@ -85,6 +102,7 @@ const GSRStorage = {
     if (!S.medianSize) return;
     const gsr = this.readGsrSliderValues();
     const gps = this.readGpsSliderValues();
+    const map = this.readMapSettings();
     const settings = {
       medianSize:    gsr.medianSize,
       lpfWindow:     gsr.lpfWindow,
@@ -111,6 +129,15 @@ const GSRStorage = {
       gpsTrackWeight:  gps.trackWeight,
       gpsPeakLatency:  gps.peakLatency
     };
+    if (map) {
+      settings.gridResolution = map.gridResolution;
+      settings.contourCount = map.contourCount;
+      settings.isolationRadius = map.isolationRadius;
+      settings.idwExponent = map.idwExponent;
+      settings.topoSource = map.topoSource;
+      settings.showShadedSurface = map.showShadedSurface;
+      settings.surfaceOpacity = map.surfaceOpacity;
+    }
     localStorage.setItem('bioMappingSettings', JSON.stringify(settings));
   },
 
@@ -144,6 +171,18 @@ const GSRStorage = {
       if (settings.gpsDownsample   !== undefined && S.gpsDownsample)   S.gpsDownsample.value   = settings.gpsDownsample;
       if (settings.gpsTrackWeight  !== undefined && S.gpsTrackWeight)  S.gpsTrackWeight.value  = settings.gpsTrackWeight;
       if (settings.gpsPeakLatency  !== undefined && S.gpsPeakLatency)  S.gpsPeakLatency.value  = settings.gpsPeakLatency;
+
+      // Contour Display Settings (Global Only)
+      const C = AppState.contourControls;
+      if (C && C.gridResolution) {
+        if (settings.gridResolution !== undefined && C.gridResolution) C.gridResolution.value = settings.gridResolution;
+        if (settings.contourCount !== undefined && C.contourCount) C.contourCount.value = settings.contourCount;
+        if (settings.isolationRadius !== undefined && C.isolationRadius) C.isolationRadius.value = settings.isolationRadius;
+        if (settings.idwExponent !== undefined && C.idwExponent) C.idwExponent.value = settings.idwExponent;
+        if (settings.topoSource !== undefined && C.topoSource) C.topoSource.value = settings.topoSource;
+        if (settings.showShadedSurface !== undefined && C.showShadedSurface) C.showShadedSurface.checked = settings.showShadedSurface;
+        if (settings.surfaceOpacity !== undefined && C.surfaceOpacity) C.surfaceOpacity.value = settings.surfaceOpacity;
+      }
     } catch (err) {
       console.error('Error loading settings from localStorage:', err);
     }
