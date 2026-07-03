@@ -338,7 +338,11 @@ const GSRRenderer = {
           textSize(10);
           textStyle(BOLD);
           textAlign(CENTER, BOTTOM);
-          const labelText = p.label || '#' + (pIdx + 1);
+          let labelText = p.label || '#' + (pIdx + 1);
+          // Truncate long labels to match map display (capped ~160px / ~25 chars)
+          if (labelText.length > 22) {
+            labelText = labelText.substring(0, 19) + '...';
+          }
           text(labelText, xPeak, yFilteredPeak - 8);
           textStyle(NORMAL);
         }
@@ -456,7 +460,7 @@ const GSRRenderer = {
     fill(textColor);
     textSize(10);
     textStyle(BOLD);
-    text('TIME: ' + time.toFixed(2) + ' s', boxX + pad, boxY + pad);
+    text('TIME: ' + AppState.analyzer.formatClockTime(time), boxX + pad, boxY + pad);
     textStyle(NORMAL);
 
     textSize(9.5);

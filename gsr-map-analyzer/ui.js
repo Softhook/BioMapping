@@ -178,7 +178,12 @@ const GSRUI = {
    */
   updateStatsPanel() {
     const stats = AppState.analyzer.getStats();
+    const a = AppState.analyzer;
     const F = AppState.statFields;
+
+    const hasClock = a.recordingStartTime && a.recordingStartTime >= 86400;
+    if (F.date)      F.date.innerText      = hasClock ? a.formatDateUK(0) : '--';
+    if (F.startTime) F.startTime.innerText  = hasClock ? a.formatTimeOnly(0) : '--';
     F.duration.innerText  = stats.duration.toFixed(1) + " s";
     F.meanSCL.innerText   = stats.meanSCL.toFixed(3) + " \u03bcS";
     F.peakCount.innerText = stats.peakCount;

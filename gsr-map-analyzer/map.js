@@ -324,18 +324,16 @@ class GSRMapManager {
         const container = L.DomUtil.create('div');
         container.className = 'map-popup-card';
         container.innerHTML = [
-          '<h4><i class="fa-solid fa-triangle-exclamation"></i> SCR Event <span class="peak-label-display">' +
-            (displayLabel ? escapedLabel : '#' + (index + 1)) +
-          '</span></h4>',
+          '<h4>' + (displayLabel ? escapedLabel : '#' + (index + 1)) + '</h4>',
           '<div class="popup-label-edit">',
             '<label>Label:</label>',
             '<input class="popup-label-input" type="text" value="' + escapedLabel + '" ' +
               'placeholder="Enter label…" data-peak-idx="' + index + '">',
           '</div>',
           '<table class="popup-table">',
-          '<tr><td>Time:</td><td><b>', peak.time.toFixed(1), ' s</b></td></tr>',
-          '<tr><td>Onset:</td><td>', peak.onsetTime.toFixed(1), ' s</td></tr>',
-          '<tr><td>Amplitude:</td><td><b>', peak.amplitude.toFixed(3), ' μS</b></td></tr>',
+          '<tr><td>Date:</td><td>', analyzer.formatDateUK(peak.time), '</td></tr>',
+          '<tr><td>Time:</td><td>', analyzer.formatTimeOnly(peak.time), '</td></tr>',
+          '<tr><td>Amplitude:</td><td>', peak.amplitude.toFixed(3), ' μS</td></tr>',
           '<tr><td>Rise Time:</td><td>', (peak.time - peak.onsetTime).toFixed(1), ' s</td></tr>',
           '</table></div>'
         ].join('');

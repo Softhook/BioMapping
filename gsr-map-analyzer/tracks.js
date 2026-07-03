@@ -167,7 +167,11 @@ const GSRTrackManager = {
 
       const meta = document.createElement('span');
       meta.className = 'track-meta';
-      meta.innerText = `${track.analyzer.raw.length} pts | ${track.analyzer.peaks.length} peaks`;
+      const a = track.analyzer;
+      const hasClock = a.recordingStartTime && a.recordingStartTime >= 86400;
+      meta.innerText = hasClock
+        ? a.formatDateUK(0) + ' ' + a.formatTimeOnly(0)
+        : '';
 
       details.appendChild(name);
       details.appendChild(nameInput);

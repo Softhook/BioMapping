@@ -473,7 +473,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 /* Stats Cards */
 .stats-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 1px;
   background: var(--border-glass);
   border: 1px solid var(--border-glass);
@@ -484,10 +484,10 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 .stat-card {
   background: var(--bg-card);
-  padding: 6px 12px;
+  padding: 4px 8px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .stat-card:hover {
@@ -821,7 +821,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
   font-family: var(--font-sans);
   font-size: 0.8rem;
   padding: 4px 8px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  word-break: break-word;
+  overflow-wrap: break-word;
   outline: none;
 }
 
@@ -990,6 +994,9 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: flex;
   align-items: center;
   gap: 6px;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  max-width: 260px;
 }
 
 /* Collective peak popups are smaller, no event-number heading */
@@ -1317,7 +1324,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .track-meta {
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
 }
 

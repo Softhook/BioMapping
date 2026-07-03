@@ -33,6 +33,8 @@ const GSREvents = {
     AppState.sliders.dwtLevel      = GSREvents._id('dwtLevel');
 
     // Stats
+    AppState.statFields.date       = GSREvents._id('statDate');
+    AppState.statFields.startTime  = GSREvents._id('statStartTime');
     AppState.statFields.duration   = GSREvents._id('statDuration');
     AppState.statFields.meanSCL    = GSREvents._id('statMeanSCL');
     AppState.statFields.peakCount  = GSREvents._id('statPeakCount');

@@ -64,6 +64,100 @@ class GSRAnalyzer {
   }
 
   /**
+   * Format a relative time (seconds from recording start) as a clock time string.
+   * If recordingStartTime is set (real timestamps were in the CSV), returns
+   * a formatted time like "14:32:05".
+   * Falls back to relative seconds display when no real clock time is available.
+   */
+  formatClockTime(relativeSeconds) {
+    const absSeconds = this.recordingStartTime + relativeSeconds;
+    const d = new Date(absSeconds * 1000);
+
+    // If recordingStartTime is 0 or not a real date, show relative time
+    if (!this.recordingStartTime || this.recordingStartTime < 86400) {
+      const totalSec = Math.round(relativeSeconds);
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const s = totalSec % 60;
+      return h > 0
+        ? h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0')
+        : m + ':' + String(s).padStart(2, '0');
+    }
+
+    const hours = d.getUTCHours();
+    const mins = d.getUTCMinutes();
+    const secs = d.getUTCSeconds();
+    return String(hours).padStart(2, '0') + ':' +
+           String(mins).padStart(2, '0') + ':' +
+           String(secs).padStart(2, '0');
+  }
+
+  /**
+   * Returns just the formatted clock time, e.g. "14:32:05".
+   * Falls back to relative seconds when no real clock time is available.
+   */
+  formatTimeOnly(relativeSeconds) {
+    const absSeconds = this.recordingStartTime + relativeSeconds;
+    const d = new Date(absSeconds * 1000);
+
+    if (!this.recordingStartTime || this.recordingStartTime < 86400) {
+      return this.formatClockTime(relativeSeconds);
+    }
+
+    return String(d.getUTCHours()).padStart(2, '0') + ':' +
+           String(d.getUTCMinutes()).padStart(2, '0') + ':' +
+           String(d.getUTCSeconds()).padStart(2, '0');
+  }
+
+  /**
+   * Returns a UK-formatted date string, e.g. "30th Dec 2026".
+   * Falls back to relative seconds display when no real clock time is available.
+   */
+  formatDateUK(relativeSeconds) {
+    const absSeconds = this.recordingStartTime + relativeSeconds;
+    const d = new Date(absSeconds * 1000);
+
+    if (!this.recordingStartTime || this.recordingStartTime < 86400) {
+      return this.formatClockTime(relativeSeconds);
+    }
+
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const day = d.getUTCDate();
+    const month = months[d.getUTCMonth()];
+    const year = d.getUTCFullYear();
+
+    // Ordinal suffix
+    let suffix = 'th';
+    if (day % 10 === 1 && day !== 11) suffix = 'st';
+    else if (day % 10 === 2 && day !== 12) suffix = 'nd';
+    else if (day % 10 === 3 && day !== 13) suffix = 'rd';
+
+    return day + suffix + ' ' + month + ' ' + year;
+  }
+
+  /**
+   * Same as formatClockTime but includes the date, e.g. "2024-03-15 14:32:05".
+   * Falls back to relative seconds display when no real clock time is available.
+   */
+  formatClockTimeWithDate(relativeSeconds) {
+    const absSeconds = this.recordingStartTime + relativeSeconds;
+    const d = new Date(absSeconds * 1000);
+
+    if (!this.recordingStartTime || this.recordingStartTime < 86400) {
+      return this.formatClockTime(relativeSeconds);
+    }
+
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    const hours = String(d.getUTCHours()).padStart(2, '0');
+    const mins = String(d.getUTCMinutes()).padStart(2, '0');
+    const secs = String(d.getUTCSeconds()).padStart(2, '0');
+    return year + '-' + month + '-' + day + ' ' + hours + ':' + mins + ':' + secs;
+  }
+
+  /**
    * Parse CSV string into raw time/value objects with GPS columns.
    * Interpolates GPS coordinates to reconstruct a continuous 10 Hz path.
    */
@@ -77,8 +171,19 @@ class GSRAnalyzer {
       throw new Error("CSV file is empty or has too few lines.");
     }
 
+    // Restore recordingStartTime from metadata comment line if present
+    this.recordingStartTime = 0;
+    let dataStartLine = 0;
+    if (lines[0].startsWith('# RecordingStartTime:')) {
+      const metaVal = parseFloat(lines[0].split(':')[1]);
+      if (!isNaN(metaVal)) {
+        this.recordingStartTime = metaVal;
+      }
+      dataStartLine = 1;
+    }
+
     // Read headers
-    const headerLine = lines[0];
+    const headerLine = lines[dataStartLine];
     const headers = headerLine.split(',').map(h => h.trim().toLowerCase());
 
     // Guess column indices
@@ -134,7 +239,7 @@ class GSRAnalyzer {
 
     // Parse data rows
     let rawDataList = [];
-    for (let i = 1; i < lines.length; i++) {
+    for (let i = dataStartLine + 1; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
 
@@ -215,6 +320,12 @@ class GSRAnalyzer {
           rawDataList[i].time = i * 0.1;
         }
       }
+    }
+
+    // Store the recording start clock time (Unix epoch seconds).
+    // If already restored from a metadata line (re-import), don't overwrite it.
+    if (this.recordingStartTime === 0) {
+      this.recordingStartTime = rawDataList.length > 0 ? rawDataList[0].time : 0;
     }
 
     // Offset timestamps relative to session start (0.0s)
@@ -583,7 +694,9 @@ class GSRAnalyzer {
 
     const hasFilteredGps = this.filteredGps && this.filteredGps.length === this.raw.length;
 
-    let csv = "Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,PeakLabel,Latitude,Longitude";
+    // Preserve recording start time for clock-time display on re-import
+    let csv = `# RecordingStartTime:${this.recordingStartTime}\n`;
+    csv += "Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,PeakLabel,Latitude,Longitude";
     if (hasFilteredGps) {
       csv += ",Raw Latitude,Raw Longitude";
     }
