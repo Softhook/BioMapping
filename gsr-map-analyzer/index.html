@@ -96,7 +96,8 @@
                 <span class="slider-value" id="valMedianSize">1.0 s</span>
               </div>
               <input type="range" id="medianSize" min="0" max="3" step="0.1" value="0">
-              <p class="help-text">Removes sudden spikes/motion artifacts. Set > 0 to enable.</p>
+              <div class="slider-rec" style="left:10%; width:23.3%"></div>
+              <p class="help-text">Removes sudden spikes/motion artifacts. <strong>Recommended:</strong> 0.3–1.0 s. Set to 0 = off.</p>
             </div>
 
             <div class="slider-group">
@@ -105,7 +106,8 @@
                 <span class="slider-value" id="valLpfWindow">0.8 s</span>
               </div>
               <input type="range" id="lpfWindow" min="0" max="4" step="0.1" value="0">
-              <p class="help-text">Filters high-frequency electrical fuzz. Set > 0 to enable.</p>
+              <div class="slider-rec" style="left:7.5%; width:17.5%"></div>
+              <p class="help-text">Filters high-frequency electrical fuzz. <strong>Recommended:</strong> 0.3–1.0 s. Set to 0 = off.</p>
             </div>
 
             <div class="control-subgroup-title">Tonic/Phasic Split</div>
@@ -128,7 +130,8 @@
                 <span class="slider-value" id="valTonicWindow">15 s</span>
               </div>
               <input type="range" id="tonicWindow" min="5" max="45" step="1" value="15">
-              <p class="help-text">Wider windows isolate baseline from peaks.</p>
+              <div class="slider-rec" style="left:12.5%; width:50%"></div>
+              <p class="help-text">Wider windows isolate baseline from peaks. <strong>Recommended:</strong> 10–30 s.</p>
             </div>
 
             <div class="slider-group" id="dwtLevelGroup">
@@ -137,11 +140,10 @@
                 <span class="slider-value" id="valDwtLevel">6</span>
               </div>
               <input type="range" id="dwtLevel" min="4" max="7" step="1" value="6">
+              <div class="slider-rec" style="left:33.3%; width:66.7%"></div>
               <p class="help-text">
                 Higher level = slower tonic (purer SCL) but more signal goes into phasic.
-                Level 6 (0–0.08 Hz) is recommended — tonic captures true SCL drift
-                without tracking SCRs. Level 5 (0–0.16 Hz) may include slow SCR components.
-                Level 7 (0–0.04 Hz) gives the purest tonic but requires longer recordings.
+                Level 5–7 all work. <strong>Recommended:</strong> Level 6 (0–0.08 Hz).
               </p>
             </div>
 
@@ -153,7 +155,8 @@
                 <span class="slider-value" id="valPeakThreshold">0.020 μS</span>
               </div>
               <input type="range" id="peakThreshold" min="0.005" max="2.000" step="0.005" value="0.020">
-              <p class="help-text">Threshold for Skin Conductance Responses.</p>
+              <div class="slider-rec" style="left:0.25%; width:24.6%"></div>
+              <p class="help-text">Threshold for Skin Conductance Responses. <strong>Recommended:</strong> 0.01–0.50 μS.</p>
             </div>
 
             <div class="control-subgroup-title" style="margin-top:12px;">Peak Shape &amp; Width Criteria</div>
