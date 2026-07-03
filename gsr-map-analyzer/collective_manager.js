@@ -101,6 +101,7 @@ class GSRCollectiveManager {
       const phasicStd = useNormalization ? (t.analyzer.phasicStd || 1) : 1;
 
       t.analyzer.peaks.forEach(pk => {
+        if (pk.excluded) return;
         const coords = t.analyzer.getCoordinates(pk.index);
         if (coords) {
           const amplitude = useNormalization ? (pk.amplitude / phasicStd) : pk.amplitude;

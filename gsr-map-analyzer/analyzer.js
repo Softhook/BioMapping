@@ -595,12 +595,14 @@ class GSRAnalyzer {
       }
     }
 
-    // Timeline peak positions as fraction of total duration
+    // Timeline peak positions as fraction of total duration (exclude excluded peaks)
     this._timelinePeakPct = [];
     if (this.peaks.length > 0 && this.raw.length > 0) {
       const totalDur = this.raw[this.raw.length - 1].time - this.raw[0].time;
       if (totalDur > 0) {
-        this._timelinePeakPct = this.peaks.map(pk => pk.time / totalDur);
+        this._timelinePeakPct = this.peaks
+          .filter(pk => !pk.excluded)
+          .map(pk => pk.time / totalDur);
       }
     }
   }
@@ -916,10 +918,11 @@ class GSRAnalyzer {
     const meanSCL = sumTonic / this.tonic.length;
 
     const durationMinutes = duration / 60.0;
-    const peakCount = this.peaks.length;
+    const activePeaks = this.peaks.filter(p => !p.excluded);
+    const peakCount = activePeaks.length;
     const peakFrequency = durationMinutes > 0 ? (peakCount / durationMinutes) : 0;
 
-    const sumAmp = this.peaks.reduce((sum, p) => sum + p.amplitude, 0);
+    const sumAmp = activePeaks.reduce((sum, p) => sum + p.amplitude, 0);
     const meanPeakAmplitude = peakCount > 0 ? (sumAmp / peakCount) : 0;
 
     return {
