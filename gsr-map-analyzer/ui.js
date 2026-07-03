@@ -214,7 +214,7 @@ const GSRUI = {
       const recTimeStr = p.halfRecoveryTime !== undefined && p.halfRecoveryTime !== -1
         ? p.halfRecoveryTime.toFixed(2) : "N/A";
       const onsetSlopeStr = p.onsetSlope !== undefined
-        ? p.onsetSlope.toFixed(5) : (p.amplitude / Math.max(1, p.index - p.onsetIndex)).toFixed(5);
+        ? p.onsetSlope.toFixed(5) : (p.amplitude / Math.max(0.1, p.time - p.onsetTime)).toFixed(5);
       const decaySlopeStr = p.decaySlope !== undefined
         ? p.decaySlope.toFixed(5) : "N/A";
       const skewStr = p.skewnessRatio !== undefined

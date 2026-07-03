@@ -613,10 +613,10 @@ class GSRAnalyzer {
       score += W.skewness * 0.3;
     }
 
-    // Onset slope: steep but not too steep
-    if (peak.onsetSlope >= 0.001 && peak.onsetSlope <= 0.1) {
+    // Onset slope: steep but not too steep (in µS/s)
+    if (peak.onsetSlope >= 0.01 && peak.onsetSlope <= 1.0) {
       score += W.onsetSlope;
-    } else if (peak.onsetSlope > 0 && peak.onsetSlope <= 0.3) {
+    } else if (peak.onsetSlope > 0 && peak.onsetSlope <= 3.0) {
       score += W.onsetSlope * 0.5;
     }
 
@@ -629,8 +629,8 @@ class GSRAnalyzer {
       score += W.snr * 0.4;
     }
 
-    // Decay slope: recovery must exist
-    if (peak.decaySlope > 0.0001) {
+    // Decay slope: recovery must exist (in µS/s)
+    if (peak.decaySlope > 0.001) {
       score += W.decaySlope;
     }
 
@@ -669,7 +669,6 @@ class GSRAnalyzer {
       MIN_ONSET_SLOPE:   defaults.MIN_ONSET_SLOPE,
       MAX_ONSET_SLOPE:   defaults.MAX_ONSET_SLOPE,
       MIN_DECAY_SLOPE:   defaults.MIN_DECAY_SLOPE,
-      MIN_ONSET_DURATION: defaults.MIN_ONSET_DURATION,
       MAX_PEAK_WIDTH:    defaults.MAX_PEAK_WIDTH,
       MIN_SNR:           params && params.shapeMinSnr          != null ? params.shapeMinSnr          : defaults.MIN_SNR,
       SKEWNESS_RATIO_MIN: defaults.SKEWNESS_RATIO_MIN,
@@ -684,7 +683,7 @@ class GSRAnalyzer {
 
       // ── 1. Local maximum check ──────────────────────────────────────────
       if (!(curr > prev && curr >= next)) continue;
-      if (curr < threshold) continue;
+      if (curr < 0.001) continue; // Noise floor check to skip flat/zero regions
 
       // ── 2. Find onset (trough before peak) ──────────────────────────────
       // Limit backward search to MAX_RISE_TIME seconds to prevent walking
@@ -701,17 +700,11 @@ class GSRAnalyzer {
       }
 
       const amplitude = curr - phasicVals[onsetIdx];
-      if (amplitude < threshold * GSR_CONST.PEAK_AMPLITUDE_FACTOR) continue;
+      // Under literature standards, threshold is strictly applied to response amplitude
+      if (amplitude < threshold) continue;
 
       // ── 3. Rise time (onset → peak duration) ────────────────────────────
       const riseTime = times[i] - times[onsetIdx];
-      const onsetSamples = i - onsetIdx;
-
-      // Width check: too few samples → spike artifact
-      if (onsetSamples < shape.MIN_ONSET_DURATION) {
-        i = Math.min(n - 2, i + 1);
-        continue;
-      }
 
       // Rise time bounds (skip check when slider is 0 / off)
       if (shape.MIN_RISE_TIME > 0 && riseTime < shape.MIN_RISE_TIME) {
@@ -723,11 +716,8 @@ class GSRAnalyzer {
         continue;
       }
 
-      // ── 4. Onset slope (average derivative on rising edge) ──────────────
-      let onsetSlope = 0;
-      if (onsetSamples > 0) {
-        onsetSlope = (curr - phasicVals[onsetIdx]) / onsetSamples;
-      }
+      // ── 4. Onset slope (average derivative on rising edge in µS/second) ──
+      const onsetSlope = riseTime > 0 ? amplitude / riseTime : 0;
 
       if (onsetSlope < shape.MIN_ONSET_SLOPE || onsetSlope > shape.MAX_ONSET_SLOPE) {
         i = Math.min(n - 2, i + 1);
@@ -768,10 +758,9 @@ class GSRAnalyzer {
         continue;
       }
 
-      // ── 6. Decay / recovery slope ──────────────────────────────────────
-      const recoverySamples = recoveryIdx !== -1 ? recoveryIdx - i : 0;
-      const decaySlope = recoverySamples > 0
-        ? (phasicVals[i] - phasicVals[recoveryIdx]) / recoverySamples
+      // ── 6. Decay / recovery slope (average derivative in µS/second) ─────
+      const decaySlope = halfRecoveryTime > 0
+        ? (phasicVals[i] - phasicVals[recoveryIdx]) / halfRecoveryTime
         : 0;
 
       if (decaySlope < shape.MIN_DECAY_SLOPE) {

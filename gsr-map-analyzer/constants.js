@@ -64,10 +64,9 @@ const GSR_CONST = {
     MAX_RISE_TIME: 5.0,          // Max onset→peak (s) — slower = tonic drift
     MIN_HALF_RECOVERY: 0.3,      // Min half-recovery (s) — per Van Halem 0.5 s min
     MAX_HALF_RECOVERY: 10.0,     // Max half-recovery (s) — too slow for SCR
-    MIN_ONSET_SLOPE: 0.001,      // Min slope (µS/sample) — raised per literature review
-    MAX_ONSET_SLOPE: 0.5,        // Max slope — catches spike artifacts
-    MIN_DECAY_SLOPE: 0.00001,    // Min decay (µS/sample) — recovery must exist
-    MIN_ONSET_DURATION: 5,       // Min samples from trough to peak (0.5 s @ 10 Hz)
+    MIN_ONSET_SLOPE: 0.01,       // Min slope (µS/s) — converted to physical units
+    MAX_ONSET_SLOPE: 5.0,        // Max slope (µS/s) — converted to physical units
+    MIN_DECAY_SLOPE: 0.0001,     // Min decay (µS/s) — converted to physical units
     MAX_PEAK_WIDTH: 8.0,        // Max total peak width (s)
     MIN_SNR: 2.0,               // Min signal-to-noise ratio — per NeuroKit standard
     SKEWNESS_RATIO_MIN: 0.2,    // Min rise/recovery ratio (asymmetric shape)

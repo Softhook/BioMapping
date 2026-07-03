@@ -124,14 +124,14 @@
               </select>
             </div>
 
-            <div class="slider-group">
+            <div class="slider-group" id="tonicWindowGroup">
               <div class="slider-label">
                 <span>Tonic Baseline Window</span>
                 <span class="slider-value" id="valTonicWindow">15 s</span>
               </div>
               <input type="range" id="tonicWindow" min="5" max="45" step="1" value="15">
-              <div class="slider-rec" style="left:12.5%; width:50%"></div>
-              <p class="help-text">Wider windows isolate baseline from peaks. <strong>Recommended:</strong> 10–30 s.</p>
+              <div class="slider-rec" id="tonicWindowRec" style="left:12.5%; width:50%"></div>
+              <p class="help-text" id="tonicWindowHelp">Wider windows isolate baseline from peaks. <strong>Recommended:</strong> 10–30 s.</p>
             </div>
 
             <div class="slider-group" id="dwtLevelGroup">
@@ -608,7 +608,7 @@
                   <th>Rise Time (s)</th>
                   <th>Half-Recovery (s)</th>
                   <th>Quality</th>
-                  <th>Slope (μS/samp)</th>
+                  <th>Slope (μS/s)</th>
                   <th>Skew Ratio</th>
                   <th>SNR</th>
                   <th>Actions</th>

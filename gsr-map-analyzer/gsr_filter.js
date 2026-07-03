@@ -13,6 +13,7 @@ const GsrFilter = {
    */
   applyMedianFilter(arr, windowSize) {
     const n = arr.length;
+    if (!windowSize || isNaN(windowSize) || windowSize <= 1 || n === 0) return [...arr];
     const result = new Array(n);
     const half = Math.floor(windowSize / 2);
 
@@ -30,6 +31,7 @@ const GsrFilter = {
    */
   applyPercentileFilter(arr, windowSize, percentile) {
     const n = arr.length;
+    if (!windowSize || isNaN(windowSize) || windowSize <= 1 || n === 0) return [...arr];
     const result = new Array(n);
     const half = Math.floor(windowSize / 2);
 
@@ -48,7 +50,7 @@ const GsrFilter = {
    * Uses centered sliding window with correct edge handling.
    */
   applyZeroPhaseMovingAverage(arr, windowSize) {
-    if (windowSize <= 1) return [...arr];
+    if (!windowSize || isNaN(windowSize) || windowSize <= 1) return [...arr];
     const n = arr.length;
     if (n === 0) return [];
 

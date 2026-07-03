@@ -131,9 +131,15 @@ class GSRMapManager {
   }
 
   _applyAllFilters(pts, p, sampleRate) {
+    // Calculate actual sample rate of GPS coordinates dynamically to avoid
+    // scaling windows/durations by the 10 Hz GSR sample rate.
+    const gpsSampleRate = pts.length > 1
+      ? (pts.length - 1) / (pts[pts.length - 1].time - pts[0].time)
+      : 1.0;
+
     // 3. Hampel outlier filter
     if (p.hampelWindow > 0 && p.hampelSigma > 0) {
-      const k = Math.round(p.hampelWindow * sampleRate);
+      const k = Math.round(p.hampelWindow * gpsSampleRate);
       pts = GpsFilter.applyHampelFilter(pts, k, p.hampelSigma);
     }
     // 4. Speed plausibility filter
@@ -142,7 +148,7 @@ class GSRMapManager {
     }
     // 5. DBSCAN stop collapse
     if (p.dbscanRadius > 0 && (p.dbscanMinPts || 0) > 1) {
-      const minPts = Math.round(p.dbscanMinPts * sampleRate);
+      const minPts = Math.round(p.dbscanMinPts * gpsSampleRate);
       pts = GpsFilter.applyDBSCAN(pts, p.dbscanRadius, minPts);
     }
     // 6. Kalman filter smoothing

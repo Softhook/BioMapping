@@ -27,20 +27,36 @@ const GpsFilter = {
    * Keeps points where dt is too small to compute speed reliably.
    */
   applySpeedFilter(points, maxSpeed) {
-    if (points.length < 2) return points;
+    if (!maxSpeed || isNaN(maxSpeed) || maxSpeed <= 0 || points.length < 2) return points;
     const kept = [points[0]];
+    let consecutiveRejections = 0;
+
     for (let i = 1; i < points.length; i++) {
       const prev = kept[kept.length - 1];
       const curr = points[i];
       const dist = GpsFilter.haversineDistance(prev.lat, prev.lon, curr.lat, curr.lon);
       const dt = curr.time - prev.time;
+      let accept = false;
+
       if (dt > 0.001) {
         const speed = dist / dt;
         if (speed <= maxSpeed) {
-          kept.push(curr);
+          accept = true;
         }
       } else {
+        accept = true;
+      }
+
+      if (accept) {
         kept.push(curr);
+        consecutiveRejections = 0;
+      } else {
+        consecutiveRejections++;
+        // Recovery mechanism: reset reference point if we reject 3 consecutive points
+        if (consecutiveRejections >= 3) {
+          kept.push(curr);
+          consecutiveRejections = 0;
+        }
       }
     }
     return kept;
@@ -55,7 +71,7 @@ const GpsFilter = {
    * @param {number} nSigma — sigma threshold for outlier classification
    */
   applyHampelFilter(points, k, nSigma) {
-    if (points.length < 2 * k + 1) return points;
+    if (!k || isNaN(k) || k <= 0 || !nSigma || isNaN(nSigma) || points.length < 2 * k + 1) return points;
     const n = points.length;
     const result = [];
 
@@ -159,7 +175,7 @@ const GpsFilter = {
    * @param {number} R_m2 — measurement noise variance (metres²)
    */
   applyKalman(points, Q_m2, R_m2) {
-    if (points.length < 2) return points;
+    if (!Q_m2 || !R_m2 || isNaN(Q_m2) || isNaN(R_m2) || Q_m2 <= 0 || R_m2 <= 0 || points.length < 2) return points;
     const n = points.length;
 
     // Convert R and Q from metres squared to degrees squared.
@@ -186,10 +202,14 @@ const GpsFilter = {
     let xLon = points[0].lon;
     let PLat = 1.0;
     let PLon = 1.0;
+    let lastTime = points[0].time;
 
     for (let i = 0; i < n; i++) {
-      const pPLat = PLat + Q_LAT;
-      const pPLon = PLon + Q_LON;
+      const dt = i === 0 ? 1.0 : Math.max(0.1, points[i].time - lastTime);
+      lastTime = points[i].time;
+
+      const pPLat = PLat + Q_LAT * dt;
+      const pPLon = PLon + Q_LON * dt;
 
       const kLat = pPLat / (pPLat + R_LAT);
       const kLon = pPLon / (pPLon + R_LON);
@@ -210,10 +230,14 @@ const GpsFilter = {
     let bxLon = forwardLons[n - 1];
     let bPLat = 1.0;
     let bPLon = 1.0;
+    let bLastTime = points[n - 1].time;
 
     for (let i = n - 1; i >= 0; i--) {
-      const pPLat = bPLat + Q_LAT;
-      const pPLon = bPLon + Q_LON;
+      const dt = i === n - 1 ? 1.0 : Math.max(0.1, bLastTime - points[i].time);
+      bLastTime = points[i].time;
+
+      const pPLat = bPLat + Q_LAT * dt;
+      const pPLon = bPLon + Q_LON * dt;
 
       const kLat = pPLat / (pPLat + R_LAT);
       const kLon = pPLon / (pPLon + R_LON);
@@ -239,7 +263,7 @@ const GpsFilter = {
    * Reduces point count while preserving the overall shape.
    */
   applyRDP(points, tolerance) {
-    if (tolerance <= 0.001 || points.length < 3) return points;
+    if (!tolerance || isNaN(tolerance) || tolerance <= 0.001 || points.length < 3) return points;
 
     const getPerpendicularDistance = (p, s, e) => {
       const latRad = s.lat * Math.PI / 180;

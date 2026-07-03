@@ -167,6 +167,64 @@ const GSREvents = {
   },
 
   /**
+   * Update the Tonic Baseline Window slider configuration and DWT visibility
+   * dynamically based on the selected baseline method.
+   */
+  updateTonicMethodLayout() {
+    const S = AppState.sliders;
+    if (!S || !S.tonicMethod) return;
+
+    const method = S.tonicMethod.value;
+    const dwtGroup = document.getElementById('dwtLevelGroup');
+    const twGroup = document.getElementById('tonicWindowGroup');
+    
+    if (dwtGroup) dwtGroup.style.display = method === 'dwt' ? '' : 'none';
+    if (twGroup) twGroup.style.display = method === 'dwt' ? 'none' : '';
+
+    if (method !== 'dwt') {
+      const slider = document.getElementById('tonicWindow');
+      const rec = document.getElementById('tonicWindowRec');
+      const help = document.getElementById('tonicWindowHelp');
+      const label = document.getElementById('valTonicWindow');
+
+      let min, max, defVal, recLeft, recWidth, helpText;
+
+      if (method === 'percentile') {
+        min = 5; max = 45; defVal = 15;
+        recLeft = '12.5%'; recWidth = '50%';
+        helpText = 'Wider windows isolate baseline from peaks. <strong>Recommended:</strong> 10–30 s.';
+      } else if (method === 'median') {
+        min = 10; max = 60; defVal = 30;
+        recLeft = '20%'; recWidth = '50%';
+        helpText = 'Robust median window to exclude peaks. <strong>Recommended:</strong> 20–45 s.';
+      } else if (method === 'lpf') {
+        min = 15; max = 90; defVal = 45;
+        recLeft = '20%'; recWidth = '40%';
+        helpText = 'Low-pass equivalent window for EMA smoothing. <strong>Recommended:</strong> 30–60 s.';
+      }
+
+      if (slider) {
+        slider.min = min;
+        slider.max = max;
+        const currVal = parseFloat(slider.value);
+        if (isNaN(currVal) || currVal < min || currVal > max) {
+          slider.value = defVal;
+        }
+        if (label) {
+          label.innerText = parseFloat(slider.value).toFixed(1) + ' s';
+        }
+      }
+      if (rec) {
+        rec.style.left = recLeft;
+        rec.style.width = recWidth;
+      }
+      if (help) {
+        help.innerHTML = helpText;
+      }
+    }
+  },
+
+  /**
    * Wire up all UI event listeners (sliders, file drop, buttons, toggles, panels).
    */
   setupEventListeners() {
@@ -195,11 +253,7 @@ const GSREvents = {
     }
 
     S.tonicMethod.addEventListener('change', () => {
-      // Show/hide DWT level slider based on selected method
-      const dwtGroup = document.getElementById('dwtLevelGroup');
-      if (dwtGroup) {
-        dwtGroup.style.display = S.tonicMethod.value === 'dwt' ? '' : 'none';
-      }
+      GSREvents.updateTonicMethodLayout();
       GSRUI.runAnalysis();
       GSRStorage.saveSettings();
     });
@@ -490,12 +544,8 @@ const GSREvents = {
     }
     updateLabel('shapeMaxSkewRatio', 'valShapeMaxSkewRatio', '');
 
-    // Initial DWT level group visibility
-    const tonicMethod = document.getElementById('tonicMethod');
-    const dwtGroup = document.getElementById('dwtLevelGroup');
-    if (dwtGroup && tonicMethod) {
-      dwtGroup.style.display = tonicMethod.value === 'dwt' ? '' : 'none';
-    }
+    // Initial tonic method layout and visibility setup
+    GSREvents.updateTonicMethodLayout();
 
     // GPS Labels
     const gpsFormatters = {
