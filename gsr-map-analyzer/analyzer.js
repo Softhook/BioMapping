@@ -9,6 +9,7 @@ class GSRAnalyzer {
     this.phasic = [];       // Phasic component (SCR): { time, val }
     this.tonicZ = [];       // Z-score Tonic component (SCL): { time, val }
     this.phasicZ = [];      // Z-score Phasic component (SCR): { time, val }
+    this.phasicStd = 1;     // Standard deviation of phasic component for Z-scaling peaks
     this.peaks = [];        // Detected peaks with shape metrics:
                             // { time, index, amplitude, onsetIndex, onsetTime, halfRecoveryTime,
                             //   riseTime, onsetSlope, decaySlope, skewnessRatio, fwhm, snr,
@@ -522,18 +523,10 @@ class GSRAnalyzer {
     this.tonic = this.raw.map((d, i) => ({ time: d.time, val: tonicVals[i] }));
     this.phasic = this.raw.map((d, i) => ({ time: d.time, val: phasicVals[i] }));
 
-    // Compute Z-Scores for tonic and phasic components
-    const tonicStats = GsrFilter.calculateStats(tonicVals);
-    const phasicStats = GsrFilter.calculateStats(phasicVals);
-
-    this.tonicZ = this.raw.map((d, i) => ({
-      time: d.time,
-      val: (tonicVals[i] - tonicStats.mean) / tonicStats.std
-    }));
-    this.phasicZ = this.raw.map((d, i) => ({
-      time: d.time,
-      val: (phasicVals[i] - phasicStats.mean) / phasicStats.std
-    }));
+    // Compute Z-Scores and cache standard deviation of phasic values for peak scaling
+    this.tonicZ = GsrFilter.standardizeSignal(this.tonic);
+    this.phasicZ = GsrFilter.standardizeSignal(this.phasic);
+    this.phasicStd = GsrFilter.calculateStats(phasicVals).std;
 
     // 5. Phasic Peak Detection (with shape criteria from sliders)
     this.detectPeaks(params.peakThreshold, params);

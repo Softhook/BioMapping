@@ -149,42 +149,31 @@ const GSRStorage = {
     if (!saved || !S.medianSize) return;
     try {
       const settings = JSON.parse(saved);
-      if (settings.medianSize    !== undefined && S.medianSize)    S.medianSize.value    = settings.medianSize;
-      if (settings.lpfWindow     !== undefined && S.lpfWindow)     S.lpfWindow.value     = settings.lpfWindow;
-      if (settings.tonicMethod   !== undefined && S.tonicMethod)   S.tonicMethod.value   = settings.tonicMethod;
-      if (settings.tonicWindow   !== undefined && S.tonicWindow)   S.tonicWindow.value   = settings.tonicWindow;
-      if (settings.dwtLevel      !== undefined && S.dwtLevel)      S.dwtLevel.value      = settings.dwtLevel;
-      if (settings.peakThreshold      !== undefined && S.peakThreshold)      S.peakThreshold.value      = settings.peakThreshold;
-      if (settings.shapeMinRiseTime   !== undefined && S.shapeMinRiseTime)   S.shapeMinRiseTime.value   = settings.shapeMinRiseTime;
-      if (settings.shapeMaxRiseTime   !== undefined && S.shapeMaxRiseTime)   S.shapeMaxRiseTime.value   = settings.shapeMaxRiseTime;
-      if (settings.shapeMinHalfRecovery !== undefined && S.shapeMinHalfRecovery) S.shapeMinHalfRecovery.value = settings.shapeMinHalfRecovery;
-      if (settings.shapeMaxHalfRecovery !== undefined && S.shapeMaxHalfRecovery) S.shapeMaxHalfRecovery.value = settings.shapeMaxHalfRecovery;
-      if (settings.shapeMinSnr        !== undefined && S.shapeMinSnr)        S.shapeMinSnr.value        = settings.shapeMinSnr;
-      if (settings.shapeMaxSkewRatio  !== undefined && S.shapeMaxSkewRatio)  S.shapeMaxSkewRatio.value  = settings.shapeMaxSkewRatio;
-      if (settings.gpsMinSats         !== undefined && S.gpsMinSats)      S.gpsMinSats.value      = settings.gpsMinSats;
-      if (settings.gpsMaxSpeed     !== undefined && S.gpsMaxSpeed)     S.gpsMaxSpeed.value     = settings.gpsMaxSpeed;
-      if (settings.gpsHampelWindow !== undefined && S.gpsHampelWindow) S.gpsHampelWindow.value = settings.gpsHampelWindow;
-      if (settings.gpsHampelSigma  !== undefined && S.gpsHampelSigma)  S.gpsHampelSigma.value  = settings.gpsHampelSigma;
-      if (settings.gpsDBSCANRadius !== undefined && S.gpsDBSCANRadius) S.gpsDBSCANRadius.value = settings.gpsDBSCANRadius;
-      if (settings.gpsDBSCANMinPts !== undefined && S.gpsDBSCANMinPts) S.gpsDBSCANMinPts.value = settings.gpsDBSCANMinPts;
-      if (settings.gpsKalmanR      !== undefined && S.gpsKalmanR)      S.gpsKalmanR.value      = settings.gpsKalmanR;
-      if (settings.gpsKalmanQ      !== undefined && S.gpsKalmanQ)      S.gpsKalmanQ.value      = settings.gpsKalmanQ;
-      if (settings.gpsRDP          !== undefined && S.gpsRDP)          S.gpsRDP.value          = settings.gpsRDP;
-      if (settings.gpsDownsample   !== undefined && S.gpsDownsample)   S.gpsDownsample.value   = settings.gpsDownsample;
-      if (settings.gpsTrackWeight  !== undefined && S.gpsTrackWeight)  S.gpsTrackWeight.value  = settings.gpsTrackWeight;
-      if (settings.gpsPeakLatency  !== undefined && S.gpsPeakLatency)  S.gpsPeakLatency.value  = settings.gpsPeakLatency;
+      
+      const restoreValue = (el, val) => {
+        if (!el || val === undefined) return;
+        if (el.type === 'checkbox') {
+          el.checked = !!val;
+        } else {
+          el.value = val;
+        }
+      };
 
-      // Contour Display Settings (Global Only)
+      // Restore S (sliders)
+      for (const [key, val] of Object.entries(settings)) {
+        if (S[key]) {
+          restoreValue(S[key], val);
+        }
+      }
+
+      // Restore C (contour controls)
       const C = AppState.contourControls;
-      if (C && C.gridResolution) {
-        if (settings.gridResolution !== undefined && C.gridResolution) C.gridResolution.value = settings.gridResolution;
-        if (settings.contourCount !== undefined && C.contourCount) C.contourCount.value = settings.contourCount;
-        if (settings.isolationRadius !== undefined && C.isolationRadius) C.isolationRadius.value = settings.isolationRadius;
-        if (settings.idwExponent !== undefined && C.idwExponent) C.idwExponent.value = settings.idwExponent;
-        if (settings.topoSource !== undefined && C.topoSource) C.topoSource.value = settings.topoSource;
-        if (settings.showShadedSurface !== undefined && C.showShadedSurface) C.showShadedSurface.checked = settings.showShadedSurface;
-        if (settings.normalizeZScore !== undefined && C.normalizeZScore) C.normalizeZScore.checked = settings.normalizeZScore;
-        if (settings.surfaceOpacity !== undefined && C.surfaceOpacity) C.surfaceOpacity.value = settings.surfaceOpacity;
+      if (C) {
+        for (const [key, val] of Object.entries(settings)) {
+          if (C[key]) {
+            restoreValue(C[key], val);
+          }
+        }
       }
     } catch (err) {
       console.error('Error loading settings from localStorage:', err);

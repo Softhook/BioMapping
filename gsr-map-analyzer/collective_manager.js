@@ -61,7 +61,7 @@ class GSRCollectiveManager {
     const topographySource = contourParams.topographySource !== undefined ? contourParams.topographySource : 'phasic';
     const contourCount    = contourParams.contourCount    !== undefined ? contourParams.contourCount    : GSR_CONST.COLLECTIVE.contourCount;
     const idwExponent     = contourParams.idwExponent     !== undefined ? contourParams.idwExponent     : GSR_CONST.COLLECTIVE.idwExponent;
-    const useNormalization = contourParams.normalize       !== undefined ? contourParams.normalize       : false;
+    const useNormalization = contourParams.normalizeZScore !== undefined ? contourParams.normalizeZScore : false;
 
     const bounds = this.getBounds();
     if (!bounds) return [];
@@ -96,14 +96,9 @@ class GSRCollectiveManager {
         }
       }
 
-      // If normalizing, scale peak amplitudes by the standard deviation of the participant's phasic values.
+      // If normalizing, scale peak amplitudes by the cached standard deviation of the participant's phasic values.
       // This is a standard psychophysiological normalization (SCR amplitude in units of background variance).
-      let phasicStd = 1;
-      if (useNormalization && t.analyzer.phasic && t.analyzer.phasic.length > 0) {
-        const phasicVals = t.analyzer.phasic.map(d => d.val);
-        const stats = GsrFilter.calculateStats(phasicVals);
-        phasicStd = stats.std;
-      }
+      const phasicStd = useNormalization ? (t.analyzer.phasicStd || 1) : 1;
 
       t.analyzer.peaks.forEach(pk => {
         const coords = t.analyzer.getCoordinates(pk.index);

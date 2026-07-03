@@ -490,13 +490,17 @@ const GSREvents = {
    * Contour settings sliders.
    */
   bindContourInputs() {
+    const triggerUpdate = () => {
+      if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
+      GSRStorage.saveSettings();
+    };
+
     const bindCi = (id, labelId, fmt) => {
       const input = document.getElementById(id);
       const label = document.getElementById(labelId);
       input.addEventListener('input', () => {
         if (label) label.innerText = fmt(parseFloat(input.value));
-        if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
-        GSRStorage.saveSettings();
+        triggerUpdate();
       });
     };
 
@@ -512,22 +516,15 @@ const GSREvents = {
       opacityGroup.style.display = showShaded.checked ? 'block' : 'none';
       showShaded.addEventListener('change', () => {
         opacityGroup.style.display = showShaded.checked ? 'block' : 'none';
-        if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
-        GSRStorage.saveSettings();
+        triggerUpdate();
       });
     }
 
-    document.getElementById('topoSource').addEventListener('change', () => {
-      if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
-      GSRStorage.saveSettings();
-    });
+    document.getElementById('topoSource').addEventListener('change', triggerUpdate);
 
     const normalizeZ = document.getElementById('normalizeZScore');
     if (normalizeZ) {
-      normalizeZ.addEventListener('change', () => {
-        if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
-        GSRStorage.saveSettings();
-      });
+      normalizeZ.addEventListener('change', triggerUpdate);
     }
   },
 

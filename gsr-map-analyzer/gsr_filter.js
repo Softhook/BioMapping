@@ -125,5 +125,17 @@ const GsrFilter = {
     const std = Math.sqrt(variance);
     
     return { mean, std: std === 0 ? 1 : std }; // Prevent division by zero
+  },
+
+  /**
+   * Standardizes a signal array of { time, val } objects using Z-score.
+   */
+  standardizeSignal(signal) {
+    const vals = signal.map(d => d.val);
+    const stats = this.calculateStats(vals);
+    return signal.map(d => ({
+      time: d.time,
+      val: (d.val - stats.mean) / stats.std
+    }));
   }
 };
