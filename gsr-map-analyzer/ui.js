@@ -298,7 +298,7 @@ const GSRUI = {
         '<td>' + p.amplitude.toFixed(4) + '</td>' +
         '<td>' + riseTimeStr + '</td>' +
         '<td>' + recTimeStr + '</td>' +
-        '<td style="background:' + qColor + '; font-weight:' + (qScore >= 0.7 ? '600' : '400') + '">' +
+        '<td style="background:' + qColor + '">' +
           qPct + '% ' + qLabel + '</td>' +
         '<td>' + onsetSlopeStr + '</td>' +
         '<td>' + skewStr + '</td>' +
