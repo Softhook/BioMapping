@@ -170,7 +170,7 @@ const GSREvents = {
    * Update the Tonic Baseline Window slider configuration and DWT visibility
    * dynamically based on the selected baseline method.
    */
-  updateTonicMethodLayout() {
+  updateTonicMethodLayout(isInitial = false) {
     const S = AppState.sliders;
     if (!S || !S.tonicMethod) return;
 
@@ -207,7 +207,7 @@ const GSREvents = {
         slider.min = min;
         slider.max = max;
         const currVal = parseFloat(slider.value);
-        if (isNaN(currVal) || currVal < min || currVal > max) {
+        if (!isInitial || isNaN(currVal) || currVal < min || currVal > max) {
           slider.value = defVal;
         }
         if (label) {
@@ -253,7 +253,7 @@ const GSREvents = {
     }
 
     S.tonicMethod.addEventListener('change', () => {
-      GSREvents.updateTonicMethodLayout();
+      GSREvents.updateTonicMethodLayout(false);
       GSRUI.runAnalysis();
       GSRStorage.saveSettings();
     });
@@ -394,6 +394,7 @@ const GSREvents = {
     // ── Panel Collapse Toggles (DRY via bindCollapseButton) ──────────────────
     GSREvents.bindCollapseButton('btnEventsCollapse',        'eventsPanel');
     GSREvents.bindCollapseButton('btnGsrFilteringCollapse',  'gsrFilteringCard');
+    GSREvents.bindCollapseButton('btnPeakDetectionCollapse', 'peakDetectionCard');
     GSREvents.bindCollapseButton('btnGpsFilteringCollapse',  'gpsFilteringCard');
     GSREvents.bindCollapseButton('btnMapDisplayCollapse',    'mapDisplayCard');
     GSREvents.bindCollapseButton('btnImportCollapse',        'importCard');
@@ -536,16 +537,17 @@ const GSREvents = {
     updateLabel('shapeMaxRiseTime',  'valShapeMaxRiseTime',  ' s');
     updateLabel('shapeMinHalfRecovery', 'valShapeMinHalfRecovery', ' s');
     updateLabel('shapeMaxHalfRecovery', 'valShapeMaxHalfRecovery', ' s');
-    // SNR: custom formatting with × suffix
+    // SNR: custom formatting with × suffix (show off when 0)
     const snrSlider = document.getElementById('shapeMinSnr');
     const snrLabel  = document.getElementById('valShapeMinSnr');
     if (snrSlider && snrLabel) {
-      snrLabel.innerText = parseFloat(snrSlider.value).toFixed(1) + '\u00d7';
+      const val = parseFloat(snrSlider.value);
+      snrLabel.innerText = val === 0 ? 'off' : val.toFixed(1) + '\u00d7';
     }
     updateLabel('shapeMaxSkewRatio', 'valShapeMaxSkewRatio', '');
 
-    // Initial tonic method layout and visibility setup
-    GSREvents.updateTonicMethodLayout();
+    // Initial tonic method layout and visibility setup (preserving saved settings value)
+    GSREvents.updateTonicMethodLayout(true);
 
     // GPS Labels
     const gpsFormatters = {

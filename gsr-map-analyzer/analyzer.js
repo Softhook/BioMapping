@@ -441,6 +441,7 @@ class GSRAnalyzer {
     this.filtered = this.raw.map((d, i) => ({ time: d.time, val: afterLPF[i] }));
 
     // 3. Tonic/Phasic Decomposition
+    // 3. Tonic/Phasic Decomposition (Initial Estimate)
     let tonicVals = [];
     let phasicVals = [];
 
@@ -448,7 +449,6 @@ class GSRAnalyzer {
       // ── DWT Wavelet Decomposition (db3) ────────────────────────────────
       // Uses the afterLPF signal (median + low-pass filtered) as input.
       // Tonic: approximation at level N (SCL), 0–Fs/2^(N+1) Hz
-      // Phasic: signal − tonic (subtraction avoids wavelet ringing)
       const dwtLevel = params.dwtLevel || 6;
       const result = DWT.analyzeGSR(afterLPF, dwtLevel);
       // Gentle post-smoothing (5 s window) removes DWT reconstruction
@@ -456,37 +456,6 @@ class GSRAnalyzer {
       // best tonic RMSE and phasic/truth correlation across levels 4–7.
       const smoothWin = Math.max(1, Math.round(5 * this.sampleRate));
       tonicVals = GsrFilter.applyZeroPhaseMovingAverage(result.tonic, smoothWin);
-      // Re-derive phasic from smoothed tonic for consistency
-      phasicVals = afterLPF.map((v, i) => v - tonicVals[i]);
-
-      // DWT separates by frequency → tonic runs through the MIDDLE of the
-      // signal.  Physiologically, SCRs are always positive-going, so the
-      // tonic should track the LOWER envelope.  We reposition the tonic
-      // using a local-floor approach: for each sample, find the minimum
-      // of (signal − tonic) in a ±6 s window — this is how far the tonic
-      // needs to drop at that point to sit at the local floor.  Light
-      // 4 s smoothing on the offsets (reduced from 8 s) keeps the tonic
-      // responsive to rapid SCR onsets without introducing jitter.
-      const floorHalf = Math.max(1, Math.round(6 * this.sampleRate)); // ±6 s
-      const localOffsets = new Array(n);
-      for (let i = 0; i < n; i++) {
-        const s = Math.max(0, i - floorHalf);
-        const e = Math.min(n - 1, i + floorHalf);
-        let mn = Infinity;
-        for (let j = s; j <= e; j++) {
-          if (phasicVals[j] < mn) mn = phasicVals[j];
-        }
-        localOffsets[i] = mn;
-      }
-      // Light smoothing on offset curve (4 s window — tighter than before)
-      const smoothOffsets = GsrFilter.applyZeroPhaseMovingAverage(
-        localOffsets, Math.round(4 * this.sampleRate)
-      );
-      for (let i = 0; i < n; i++) {
-        tonicVals[i] += smoothOffsets[i];  // offset is negative → moves tonic down
-      }
-      // Recompute phasic from repositioned tonic, clamp to ≥0
-      phasicVals = afterLPF.map((v, i) => Math.max(0, v - tonicVals[i]));
     } else {
       // ── Classical sliding-window methods ────────────────────────────────
       const tonicWinSize = Math.max(5, Math.round(params.tonicWindow * this.sampleRate));
@@ -499,10 +468,37 @@ class GSRAnalyzer {
         const alpha = 2.0 / (tonicWinSize + 1);
         tonicVals = GsrFilter.applyZeroPhaseEMA(afterLPF, alpha);
       }
-
-      // 4. Phasic = Filtered - Tonic (subtraction method)
-      phasicVals = afterLPF.map((v, i) => v - tonicVals[i]);
     }
+
+    // 4. Phasic = Filtered - Tonic (Initial Subtraction)
+    phasicVals = afterLPF.map((v, i) => v - tonicVals[i]);
+
+    // Reposition the tonic using a local-floor approach: for each sample, find
+    // the minimum of (signal - tonic) in a ±6 s window — this is how far the
+    // tonic needs to drop at that point to sit at the local floor (troughs).
+    // This correction is applied to all methods (dwt, median, percentile, lpf)
+    // to track the lower envelope and ensure the Phasic signal is non-negative.
+    const floorHalf = Math.max(1, Math.round(6 * this.sampleRate)); // ±6 s
+    const localOffsets = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const s = Math.max(0, i - floorHalf);
+      const e = Math.min(n - 1, i + floorHalf);
+      let mn = Infinity;
+      for (let j = s; j <= e; j++) {
+        if (phasicVals[j] < mn) mn = phasicVals[j];
+      }
+      localOffsets[i] = mn;
+    }
+    // Light smoothing on offset curve (4 s window) keeps the tonic responsive
+    // to rapid SCR onsets without introducing jitter.
+    const smoothOffsets = GsrFilter.applyZeroPhaseMovingAverage(
+      localOffsets, Math.round(4 * this.sampleRate)
+    );
+    for (let i = 0; i < n; i++) {
+      tonicVals[i] += smoothOffsets[i];  // offset is negative → moves tonic down
+    }
+    // Recompute phasic from repositioned tonic, clamp to ≥0
+    phasicVals = afterLPF.map((v, i) => Math.max(0, v - tonicVals[i]));
 
     this.tonic = this.raw.map((d, i) => ({ time: d.time, val: tonicVals[i] }));
     this.phasic = this.raw.map((d, i) => ({ time: d.time, val: phasicVals[i] }));
@@ -688,7 +684,9 @@ class GSRAnalyzer {
       // ── 2. Find onset (trough before peak) ──────────────────────────────
       // Limit backward search to MAX_RISE_TIME seconds to prevent walking
       // backward through overlapping SCRs into an unrelated trough.
-      const maxOnsetSteps = Math.round(shape.MAX_RISE_TIME * this.sampleRate);
+      // If the slider is set to 0 (off), fallback to standard default limit (5.0s).
+      const maxRiseLimit = shape.MAX_RISE_TIME > 0 ? shape.MAX_RISE_TIME : defaults.MAX_RISE_TIME;
+      const maxOnsetSteps = Math.round(maxRiseLimit * this.sampleRate);
       let onsetIdx = i;
       let onsetSteps = 0;
       while (onsetIdx > 0 && phasicVals[onsetIdx] > 0 && onsetSteps < maxOnsetSteps) {
@@ -744,43 +742,39 @@ class GSRAnalyzer {
         halfRecoveryTime = times[recoveryIdx] - times[i];
       }
 
-      // Recovery time bounds (skip individual check when slider is 0 / off)
-      if (halfRecoveryTime < 0) {
-        i = Math.min(n - 2, i + 1);
-        continue;
-      }
-      if (shape.MIN_HALF_RECOVERY > 0 && halfRecoveryTime < shape.MIN_HALF_RECOVERY) {
-        i = Math.min(n - 2, i + 1);
-        continue;
-      }
-      if (shape.MAX_HALF_RECOVERY > 0 && halfRecoveryTime > shape.MAX_HALF_RECOVERY) {
-        i = Math.min(n - 2, i + 1);
-        continue;
-      }
-
-      // ── 6. Decay / recovery slope (average derivative in µS/second) ─────
+      // ── 6. Decay / recovery metrics ─────────────────────────────────────
       const decaySlope = halfRecoveryTime > 0
         ? (phasicVals[i] - phasicVals[recoveryIdx]) / halfRecoveryTime
         : 0;
 
-      if (decaySlope < shape.MIN_DECAY_SLOPE) {
-        i = Math.min(n - 2, i + 1);
-        continue;
-      }
-
-      // ── 7. Skewness ratio (rise time / recovery time) ──────────────────
       // Genuine SCRs have fast rise, slow recovery → ratio < 1
       const skewnessRatio = halfRecoveryTime > 0
         ? riseTime / halfRecoveryTime
         : 0;
 
-      if (skewnessRatio < shape.SKEWNESS_RATIO_MIN) {
-        i = Math.min(n - 2, i + 1);
-        continue;
-      }
-      if (shape.SKEWNESS_RATIO_MAX > 0 && skewnessRatio > shape.SKEWNESS_RATIO_MAX) {
-        i = Math.min(n - 2, i + 1);
-        continue;
+      // Shape checks that require a valid half-recovery (skip if none found,
+      // e.g. for overlapping peaks or peaks near the end of the recording)
+      if (halfRecoveryTime >= 0) {
+        if (shape.MIN_HALF_RECOVERY > 0 && halfRecoveryTime < shape.MIN_HALF_RECOVERY) {
+          i = Math.min(n - 2, i + 1);
+          continue;
+        }
+        if (shape.MAX_HALF_RECOVERY > 0 && halfRecoveryTime > shape.MAX_HALF_RECOVERY) {
+          i = Math.min(n - 2, i + 1);
+          continue;
+        }
+        if (decaySlope < shape.MIN_DECAY_SLOPE) {
+          i = Math.min(n - 2, i + 1);
+          continue;
+        }
+        if (skewnessRatio < shape.SKEWNESS_RATIO_MIN) {
+          i = Math.min(n - 2, i + 1);
+          continue;
+        }
+        if (shape.SKEWNESS_RATIO_MAX > 0 && skewnessRatio > shape.SKEWNESS_RATIO_MAX) {
+          i = Math.min(n - 2, i + 1);
+          continue;
+        }
       }
 
       // ── 8. Full width at half maximum (FWHM) ───────────────────────────

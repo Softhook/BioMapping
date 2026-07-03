@@ -277,6 +277,15 @@ const GSRTrackManager = {
     AppState.sliders.tonicWindow.value = params.tonicWindow;
     AppState.sliders.tonicMethod.value = params.tonicMethod;
     AppState.sliders.peakThreshold.value = params.peakThreshold;
+
+    const S = AppState.sliders;
+    if (params.dwtLevel !== undefined && S.dwtLevel) S.dwtLevel.value = params.dwtLevel;
+    if (params.shapeMinRiseTime !== undefined && S.shapeMinRiseTime) S.shapeMinRiseTime.value = params.shapeMinRiseTime;
+    if (params.shapeMaxRiseTime !== undefined && S.shapeMaxRiseTime) S.shapeMaxRiseTime.value = params.shapeMaxRiseTime;
+    if (params.shapeMinHalfRecovery !== undefined && S.shapeMinHalfRecovery) S.shapeMinHalfRecovery.value = params.shapeMinHalfRecovery;
+    if (params.shapeMaxHalfRecovery !== undefined && S.shapeMaxHalfRecovery) S.shapeMaxHalfRecovery.value = params.shapeMaxHalfRecovery;
+    if (params.shapeMinSnr !== undefined && S.shapeMinSnr) S.shapeMinSnr.value = params.shapeMinSnr;
+    if (params.shapeMaxSkewRatio !== undefined && S.shapeMaxSkewRatio) S.shapeMaxSkewRatio.value = params.shapeMaxSkewRatio;
     // Labels are updated by GSREvents.initializeLabels() called from switchActiveTrack
   },
 

@@ -146,8 +146,20 @@
                 Level 5–7 all work. <strong>Recommended:</strong> Level 6 (0–0.08 Hz).
               </p>
             </div>
+          </div>
+        </section>
 
-            <div class="control-subgroup-title">Peak Detection (SCR)</div>
+        <!-- Peak Detection (SCR) Settings -->
+        <section class="control-card" id="peakDetectionCard">
+          <h2>
+            <i class="fa-solid fa-arrow-trend-up"></i> Peak Detection (SCR)
+            <button class="icon-btn collapse-btn" id="btnPeakDetectionCollapse" title="Collapse" style="margin-left: auto;">
+              <i class="fa-solid fa-chevron-down"></i>
+            </button>
+          </h2>
+
+          <div class="card-content">
+            <div class="control-subgroup-title">Thresholding</div>
 
             <div class="slider-group">
               <div class="slider-label">
@@ -164,9 +176,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Min Rise Time</span>
-                <span class="slider-value" id="valShapeMinRiseTime">0.5 s</span>
+                <span class="slider-value" id="valShapeMinRiseTime">off</span>
               </div>
-              <input type="range" id="shapeMinRiseTime" min="0" max="3.0" step="0.01" value="0.50">
+              <input type="range" id="shapeMinRiseTime" min="0" max="3.0" step="0.01" value="0">
               <div class="slider-rec" style="left:16.7%; width:16.7%"></div>
               <p class="help-text">Fastest plausible SCR rise. Set to 0 = off.</p>
             </div>
@@ -174,9 +186,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Max Rise Time</span>
-                <span class="slider-value" id="valShapeMaxRiseTime">5.0 s</span>
+                <span class="slider-value" id="valShapeMaxRiseTime">off</span>
               </div>
-              <input type="range" id="shapeMaxRiseTime" min="0" max="15.0" step="0.1" value="5.0">
+              <input type="range" id="shapeMaxRiseTime" min="0" max="15.0" step="0.1" value="0">
               <div class="slider-rec" style="left:20%; width:13.3%"></div>
               <p class="help-text">Slowest plausible SCR rise. Set to 0 = off.</p>
             </div>
@@ -184,9 +196,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Min Half-Recovery</span>
-                <span class="slider-value" id="valShapeMinHalfRecovery">0.3 s</span>
+                <span class="slider-value" id="valShapeMinHalfRecovery">off</span>
               </div>
-              <input type="range" id="shapeMinHalfRecovery" min="0" max="3.0" step="0.01" value="0.30">
+              <input type="range" id="shapeMinHalfRecovery" min="0" max="3.0" step="0.01" value="0">
               <div class="slider-rec" style="left:10%; width:23.3%"></div>
               <p class="help-text">Fastest plausible half-recovery. Set to 0 = off.</p>
             </div>
@@ -194,9 +206,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Max Half-Recovery</span>
-                <span class="slider-value" id="valShapeMaxHalfRecovery">10.0 s</span>
+                <span class="slider-value" id="valShapeMaxHalfRecovery">off</span>
               </div>
-              <input type="range" id="shapeMaxHalfRecovery" min="0" max="30.0" step="0.1" value="10.0">
+              <input type="range" id="shapeMaxHalfRecovery" min="0" max="30.0" step="0.1" value="0">
               <div class="slider-rec" style="left:16.7%; width:16.7%"></div>
               <p class="help-text">Slowest plausible half-recovery. Set to 0 = off.</p>
             </div>
@@ -204,9 +216,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Min SNR</span>
-                <span class="slider-value" id="valShapeMinSnr">2.0×</span>
+                <span class="slider-value" id="valShapeMinSnr">off</span>
               </div>
-              <input type="range" id="shapeMinSnr" min="0" max="5.0" step="0.1" value="2.0">
+              <input type="range" id="shapeMinSnr" min="0" max="5.0" step="0.1" value="0">
               <div class="slider-rec" style="left:40%; width:40%"></div>
               <p class="help-text">Min signal-to-noise ratio. Set to 0 = off.</p>
             </div>
@@ -214,9 +226,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Max Skew Ratio</span>
-                <span class="slider-value" id="valShapeMaxSkewRatio">6.0</span>
+                <span class="slider-value" id="valShapeMaxSkewRatio">off</span>
               </div>
-              <input type="range" id="shapeMaxSkewRatio" min="0" max="15.0" step="0.1" value="6.0">
+              <input type="range" id="shapeMaxSkewRatio" min="0" max="15.0" step="0.1" value="0">
               <div class="slider-rec" style="left:13.3%; width:26.7%"></div>
               <p class="help-text">Max rise/recovery ratio. Classical SCRs rise fast, decay slow. Set to 0 = off.</p>
             </div>

@@ -38,9 +38,9 @@ const GSR_CONST = {
     medianSize: 0, lpfWindow: 0,
     tonicMethod: 'percentile', tonicWindow: 15, peakThreshold: 0.020,
     dwtLevel: 6,
-    shapeMinRiseTime: 0.5, shapeMaxRiseTime: 5.0,
-    shapeMinHalfRecovery: 0.3, shapeMaxHalfRecovery: 10.0,
-    shapeMinSnr: 2.0, shapeMaxSkewRatio: 6.0
+    shapeMinRiseTime: 0, shapeMaxRiseTime: 0,
+    shapeMinHalfRecovery: 0, shapeMaxHalfRecovery: 0,
+    shapeMinSnr: 0, shapeMaxSkewRatio: 0
   },
 
   // ── CSV parsing keywords ─────────────────────────────────────────────────
