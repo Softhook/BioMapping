@@ -99,7 +99,7 @@ class GSRMapManager {
     this._reconstructFilteredGps(analyzer, data, gpsPoints);
 
     // 7-8: Downsample and simplify for drawing
-    let drawPoints = this._downsampleForDisplay(gpsPoints, analyzer.sampleRate || 10.0, p.downsample !== false);
+        let drawPoints = this._downsampleForDisplay(gpsPoints, analyzer.sampleRate || 10.0, p.downsample === 1);
     drawPoints = GpsFilter.applyRDP(drawPoints, p.rdpTolerance || 0);
     if (drawPoints.length === 0) return;
 

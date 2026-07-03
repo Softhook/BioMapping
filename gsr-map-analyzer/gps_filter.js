@@ -162,12 +162,21 @@ const GpsFilter = {
     if (points.length < 2) return points;
     const n = points.length;
 
-    // Convert R and Q from metres squared to degrees squared
-    const M_TO_DEG = 1.0 / 111320.0;
-    const M2_TO_DEG2 = M_TO_DEG * M_TO_DEG;
+    // Convert R and Q from metres squared to degrees squared.
+    // Latitude: 1° ≈ 111,320 m (constant).
+    // Longitude: 1° ≈ 111,320 × cos(lat) m — varies with latitude.
+    // Use the mean latitude of the track for a reasonable approximation.
+    const meanLat = points.reduce((s, p) => s + p.lat, 0) / points.length;
+    const cosLat = Math.cos(meanLat * Math.PI / 180);
+    const M_TO_DEG_LAT = 1.0 / 111320.0;
+    const M_TO_DEG_LON = 1.0 / (111320.0 * cosLat);
+    const M2_TO_DEG2_LAT = M_TO_DEG_LAT * M_TO_DEG_LAT;
+    const M2_TO_DEG2_LON = M_TO_DEG_LON * M_TO_DEG_LON;
 
-    const R = R_m2 * M2_TO_DEG2;
-    const Q = Q_m2 * M2_TO_DEG2;
+    const R_LAT = R_m2 * M2_TO_DEG2_LAT;
+    const R_LON = R_m2 * M2_TO_DEG2_LON;
+    const Q_LAT = Q_m2 * M2_TO_DEG2_LAT;
+    const Q_LON = Q_m2 * M2_TO_DEG2_LON;
 
     // Forward pass
     const forwardLats = new Array(n);
@@ -179,11 +188,11 @@ const GpsFilter = {
     let PLon = 1.0;
 
     for (let i = 0; i < n; i++) {
-      const pPLat = PLat + Q;
-      const pPLon = PLon + Q;
+      const pPLat = PLat + Q_LAT;
+      const pPLon = PLon + Q_LON;
 
-      const kLat = pPLat / (pPLat + R);
-      const kLon = pPLon / (pPLon + R);
+      const kLat = pPLat / (pPLat + R_LAT);
+      const kLon = pPLon / (pPLon + R_LON);
 
       xLat = xLat + kLat * (points[i].lat - xLat);
       xLon = xLon + kLon * (points[i].lon - xLon);
@@ -203,11 +212,11 @@ const GpsFilter = {
     let bPLon = 1.0;
 
     for (let i = n - 1; i >= 0; i--) {
-      const pPLat = bPLat + Q;
-      const pPLon = bPLon + Q;
+      const pPLat = bPLat + Q_LAT;
+      const pPLon = bPLon + Q_LON;
 
-      const kLat = pPLat / (pPLat + R);
-      const kLon = pPLon / (pPLon + R);
+      const kLat = pPLat / (pPLat + R_LAT);
+      const kLon = pPLon / (pPLon + R_LON);
 
       bxLat = bxLat + kLat * (forwardLats[i] - bxLat);
       bxLon = bxLon + kLon * (forwardLons[i] - bxLon);

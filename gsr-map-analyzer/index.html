@@ -241,7 +241,8 @@
                 <span class="slider-value" id="valGpsMinSats">0</span>
               </div>
               <input type="range" id="gpsMinSats" min="0" max="12" step="1" value="0">
-              <p class="help-text">Hide points with fewer satellites (quality gate).</p>
+              <div class="slider-rec" style="left:33.3%; width:33.3%"></div>
+              <p class="help-text">Hide points with fewer satellites. <strong>Recommended:</strong> 4–8. Set to 0 = off.</p>
             </div>
 
             <div class="slider-group">
@@ -249,8 +250,9 @@
                 <span>Max Speed Filter</span>
                 <span class="slider-value" id="valGpsMaxSpeed">5 m/s</span>
               </div>
-              <input type="range" id="gpsMaxSpeed" min="0" max="15" step="1" value="0">
-              <p class="help-text">Rejects points with physically impossible speeds. Set > 0 to enable.</p>
+              <input type="range" id="gpsMaxSpeed" min="0" max="15" step="0.5" value="0">
+              <div class="slider-rec" style="left:20%; width:26.7%"></div>
+              <p class="help-text">Rejects GPS jump outliers by speed. Walking ≈ 1.4 m/s. <strong>Recommended:</strong> 3–7 m/s. Set to 0 = off.</p>
             </div>
 
             <div class="slider-group">
@@ -258,8 +260,9 @@
                 <span>Hampel Window</span>
                 <span class="slider-value" id="valGpsHampelWindow">3 s</span>
               </div>
-              <input type="range" id="gpsHampelWindow" min="0" max="10" step="1" value="0">
-              <p class="help-text">Sliding window half-size in seconds for spike detection. Replaces outliers with local median. Note: may conflict with Kalman smoother — use one or the other for best results. Set > 0 to enable.</p>
+              <input type="range" id="gpsHampelWindow" min="0" max="10" step="0.1" value="0">
+              <div class="slider-rec" style="left:20%; width:30%"></div>
+              <p class="help-text">Spike removal via local median. <strong>Recommended:</strong> 2–5 s. May conflict with Kalman — use one or the other. Set to 0 = off.</p>
             </div>
 
             <div class="slider-group">
@@ -267,8 +270,9 @@
                 <span>Hampel Sigma</span>
                 <span class="slider-value" id="valGpsHampelSigma">3.0</span>
               </div>
-              <input type="range" id="gpsHampelSigma" min="1.5" max="5.0" step="0.5" value="3.0">
-              <p class="help-text">Sigma threshold for outlier classification (lower = stricter).</p>
+              <input type="range" id="gpsHampelSigma" min="1.5" max="5.0" step="0.1" value="3.0">
+              <div class="slider-rec" style="left:28.6%; width:42.9%"></div>
+              <p class="help-text">Outlier strictness. <strong>Recommended:</strong> 2.5–4.0 (3.0 = standard).</p>
             </div>
 
             <div class="control-subgroup-title">Smoothing & Clustering</div>
@@ -278,8 +282,9 @@
                 <span>DBSCAN Stop Radius</span>
                 <span class="slider-value" id="valGpsDBSCANRadius">10 m</span>
               </div>
-              <input type="range" id="gpsDBSCANRadius" min="0" max="30" step="2" value="0">
-              <p class="help-text">Radius to group stationary points and remove wander noise. Creates hard cluster edges — Kalman smoother may partially undo the centroiding. Set > 0 to enable.</p>
+              <input type="range" id="gpsDBSCANRadius" min="0" max="30" step="1" value="0">
+              <div class="slider-rec" style="left:10%; width:23.3%"></div>
+              <p class="help-text">Groups stationary GPS wander. <strong>Recommended:</strong> 3–10 m. Kalman may partially undo centroiding. Set to 0 = off.</p>
             </div>
 
             <div class="slider-group">
@@ -287,8 +292,9 @@
                 <span>DBSCAN Min Duration</span>
                 <span class="slider-value" id="valGpsDBSCANMinPts">4 s</span>
               </div>
-              <input type="range" id="gpsDBSCANMinPts" min="2" max="15" step="1" value="4">
-              <p class="help-text">Minimum duration in seconds to qualify as a stationary stop.</p>
+              <input type="range" id="gpsDBSCANMinPts" min="2" max="15" step="0.5" value="4">
+              <div class="slider-rec" style="left:7.7%; width:38.5%"></div>
+              <p class="help-text">Min duration for a stationary stop. <strong>Recommended:</strong> 3–8 s.</p>
             </div>
 
             <div class="slider-group">
@@ -296,8 +302,9 @@
                 <span>Kalman Smoother R</span>
                 <span class="slider-value" id="valGpsKalmanR">0 m²</span>
               </div>
-              <input type="range" id="gpsKalmanR" min="0" max="25" step="0.5" value="0">
-              <p class="help-text">Measurement noise variance (m²). Higher = smoother, less responsive to GPS jitter. Typical consumer GPS: 5-15 m². Set > 0 to enable.</p>
+              <input type="range" id="gpsKalmanR" min="0" max="25" step="0.1" value="0">
+              <div class="slider-rec" style="left:20%; width:40%"></div>
+              <p class="help-text">Measurement noise (m²). <strong>Recommended:</strong> 5–15 m² (consumer GPS). Set to 0 = off.</p>
             </div>
 
             <div class="slider-group">
@@ -305,8 +312,9 @@
                 <span>Kalman Smoother Q</span>
                 <span class="slider-value" id="valGpsKalmanQ">0 m²</span>
               </div>
-              <input type="range" id="gpsKalmanQ" min="0" max="5" step="0.1" value="0">
-              <p class="help-text">Process noise variance (m²). Higher = more responsive to turns. Walking ~1.4 m/s: Q ≈ 2. Set > 0 to enable.</p>
+              <input type="range" id="gpsKalmanQ" min="0" max="5" step="0.05" value="0">
+              <div class="slider-rec" style="left:20%; width:40%"></div>
+              <p class="help-text">Process noise (m²). <strong>Recommended:</strong> 1–3 m² (walking ~1.4 m/s). Set to 0 = off.</p>
             </div>
 
             <div class="slider-group">
@@ -314,8 +322,9 @@
                 <span>RDP Simplification</span>
                 <span class="slider-value" id="valGpsRDP">5 m</span>
               </div>
-              <input type="range" id="gpsRDP" min="0" max="20" step="1" value="0">
-              <p class="help-text">Ramer-Douglas-Peucker tolerance (larger = fewer segments, replaces Min. Move Distance). Set > 0 to enable.</p>
+              <input type="range" id="gpsRDP" min="0" max="20" step="0.5" value="0">
+              <div class="slider-rec" style="left:10%; width:15%"></div>
+              <p class="help-text">Path simplification tolerance. <strong>Recommended:</strong> 2–5 m (preserves walking path shape). Set to 0 = off.</p>
             </div>
 
             <div class="slider-group">
@@ -353,8 +362,9 @@
                 <span>Peak Latency Compensation</span>
                 <span class="slider-value" id="valGpsPeakLatency">0.0 s</span>
               </div>
-              <input type="range" id="gpsPeakLatency" min="0" max="5" step="0.5" value="0">
-              <p class="help-text">Shift peak markers backward on the map by this many seconds to compensate for physiological SCR delay (0-5 s).</p>
+              <input type="range" id="gpsPeakLatency" min="0" max="5" step="0.1" value="0">
+              <div class="slider-rec" style="left:20%; width:40%"></div>
+              <p class="help-text">Compensates for physiological SCR delay on map. <strong>Recommended:</strong> 1–3 s. Set to 0 = off.</p>
             </div>
           </div>
         </section>
