@@ -35,8 +35,9 @@ function setup() {
 function windowResized() {
   GSRRenderer.clearThemeCache();
   const container = document.getElementById('canvasContainer');
-  const w = container.clientWidth;
-  const h = container.clientHeight || 450;
+  const rect = container.getBoundingClientRect();
+  const w = rect.width;
+  const h = rect.height || 450;
   resizeCanvas(w, h);
   redraw();
 }

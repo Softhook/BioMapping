@@ -5,29 +5,27 @@
  * All shared state is accessed through AppState.
  */
 
-/**
- * Generic helper: makes a panel section go full-screen by inserting it into
- * a fixed overlay div, then restores it when the button is clicked again or
- * the user presses Escape.
- */
 const GSRUI = {
-  /**
-   * Generic helper: makes a panel section go full-screen by inserting it into
-   * a fixed overlay div, then restores it when the button is clicked again or
-   * the user presses Escape.
-   */
   setupPanelFullscreen(btnId, panelId, onToggle) {
     const btn   = document.getElementById(btnId);
     const panel = document.getElementById(panelId);
     if (!btn || !panel) return;
 
-    let overlay      = null;
-    let placeholder  = null;
-    let escapeHint   = null;
-    let isFs         = false;
+    let overlay = null;
+    let marker  = null;   // zero-space DOM marker — no fixed dimensions
+    let isFs    = false;
+
+    /** Returns the right parent for the overlay: the browser-FS element if active, else body. */
+    const getOverlayParent = () => {
+      const fsEl = document.querySelector('.app-container');
+      return (Fullscreen.active && fsEl) ? fsEl : document.body;
+    };
 
     const onKeyDown = (e) => {
-      if (e.key === 'Escape' && isFs) exit();
+      if (e.key === 'Escape' && isFs) {
+        e.preventDefault();
+        exit();
+      }
     };
 
     const enter = () => {
@@ -35,22 +33,30 @@ const GSRUI = {
       btn.classList.add('is-fullscreen');
       btn.querySelector('i').classList.replace('fa-expand', 'fa-compress');
 
-      placeholder = document.createElement('div');
-      placeholder.style.cssText = 'width: ' + panel.offsetWidth + 'px; height: ' + panel.offsetHeight + 'px; visibility: hidden;';
-      panel.parentNode.insertBefore(placeholder, panel);
+      // Un-collapse the panel so content is visible in fullscreen overlay
+      if (panel.classList.contains('collapsed')) {
+        panel.classList.remove('collapsed');
+      }
+
+      marker = document.createComment('panel-fs');
+      panel.parentNode.insertBefore(marker, panel);
 
       overlay = document.createElement('div');
       overlay.className = 'panel-fullscreen-overlay';
       overlay.appendChild(panel);
-      document.body.appendChild(overlay);
+      getOverlayParent().appendChild(overlay);
 
-      escapeHint = document.createElement('div');
-      escapeHint.className = 'fs-escape-hint';
-      escapeHint.innerHTML = '<i class="fa-solid fa-compress" style="margin-right:5px;"></i>Press Esc or click <strong>\u2291</strong> to exit full screen';
-      document.body.appendChild(escapeHint);
-      setTimeout(() => { if (escapeHint) escapeHint.remove(); escapeHint = null; }, 3200);
-
-      if (onToggle) onToggle();
+      // Defer resize until the browser has fully laid out the panel at its
+      // new size inside the overlay. Three frames handles the case where the
+      // panel was previously display:none (collective mode) and needs extra
+      // time for the flex layout to cascade.
+      if (onToggle) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => onToggle());
+          });
+        });
+      }
     };
 
     const exit = () => {
@@ -59,10 +65,10 @@ const GSRUI = {
       btn.classList.remove('is-fullscreen');
       btn.querySelector('i').classList.replace('fa-compress', 'fa-expand');
 
-      if (placeholder && placeholder.parentNode) {
-        placeholder.parentNode.insertBefore(panel, placeholder);
-        placeholder.remove();
-        placeholder = null;
+      if (marker && marker.parentNode) {
+        marker.parentNode.insertBefore(panel, marker);
+        marker.remove();
+        marker = null;
       }
 
       if (overlay && overlay.parentNode) {
@@ -70,9 +76,11 @@ const GSRUI = {
         overlay = null;
       }
 
-      if (escapeHint) { escapeHint.remove(); escapeHint = null; }
-
-      if (onToggle) onToggle();
+      if (onToggle) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => onToggle());
+        });
+      }
     };
 
     btn.addEventListener('click', () => {
@@ -81,6 +89,54 @@ const GSRUI = {
     });
 
     document.addEventListener('keydown', onKeyDown);
+  },
+
+  /**
+   * Toggle browser fullscreen for the entire app.
+   * Exits any active panel fullscreen overlays before entering.
+   */
+  toggleBrowserFullscreen(btnId) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+
+    const el = document.querySelector('.app-container');
+    if (!el) return;
+
+    /** Exit any active panel overlays by clicking their toggle buttons. */
+    const exitAllPanelFs = () => {
+      document.querySelectorAll('.fullscreen-btn.is-fullscreen').forEach((fsBtn) => {
+        if (fsBtn.id !== btnId) fsBtn.click();
+      });
+    };
+
+    const toggleIcon = (fs) => {
+      const ic = btn.querySelector('i');
+      if (ic) ic.className = fs ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
+      btn.classList.toggle('is-fullscreen', fs);
+      AppState.isBrowserFullscreen = fs;
+    };
+
+    const onChange = () => toggleIcon(Fullscreen.active);
+
+    btn.addEventListener('click', () => {
+      if (Fullscreen.active) {
+        Fullscreen.exit();
+      } else {
+        exitAllPanelFs();
+        Fullscreen.request(el);
+      }
+    });
+
+    Fullscreen.onChange(onChange);
+
+    // Keyboard shortcut: F key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'f' || e.key === 'F') {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        e.preventDefault();
+        btn.click();
+      }
+    });
   },
 
   /**

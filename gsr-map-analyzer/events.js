@@ -248,6 +248,10 @@ const GSREvents = {
     });
 
     // ── File Upload Handlers ──────────────────────────────────────────────────
+    // Save browser fullscreen state before the file dialog opens (browser exits fullscreen)
+    AppState.fileInput.addEventListener('click', () => {
+      GSRTrackManager._browserFsSave = AppState.isBrowserFullscreen;
+    });
     AppState.fileInput.addEventListener('change', GSRTrackManager.handleFileSelect);
 
     AppState.dropZone.addEventListener('dragover', (e) => {
@@ -260,12 +264,15 @@ const GSREvents = {
     AppState.dropZone.addEventListener('drop', (e) => {
       e.preventDefault();
       AppState.dropZone.classList.remove('dragover');
+      // Dragging doesn't exit fullscreen, no save needed
       if (e.dataTransfer.files.length > 0) {
         GSRTrackManager.loadFilesSequentially(Array.from(e.dataTransfer.files));
       }
     });
     AppState.dropZone.addEventListener('click', (e) => {
       if (!e.target.closest('label') && e.target !== AppState.fileInput) {
+        // Save browser fullscreen state before the file dialog opens
+        GSRTrackManager._browserFsSave = AppState.isBrowserFullscreen;
         AppState.fileInput.click();
       }
     });
@@ -390,7 +397,7 @@ const GSREvents = {
     GSREvents.bindCollapseButton('btnExportCollapse',        'exportCard');
     GSREvents.bindCollapseButton('btnContourCollapse',       'contourSettingsCard');
 
-    // GSR + Map panels need extra resize after collapse (single listener each)
+    // GSR + Map panels need extra resize after collapse
     GSREvents.setupCollapseWithResize('btnGsrCollapse', 'gsrPanel', () => { windowResized(); });
     GSREvents.setupCollapseWithResize('btnMapCollapse', 'mapPanel', () => {
       if (AppState.mapManager && AppState.mapManager.map) {
@@ -400,18 +407,30 @@ const GSREvents = {
 
     // ── Panel Fullscreen ─────────────────────────────────────────────────────
     GSRUI.setupPanelFullscreen('btnGsrFullscreen', 'gsrPanel', () => {
-      windowResized();
-      setTimeout(() => windowResized(), 40);
-      setTimeout(() => windowResized(), 240);
+      // Entering: overlay exists — compute canvas from its dimensions directly
+      // Exiting:  overlay is gone — fall back to windowResized()
+      const overlay = document.querySelector('.panel-fullscreen-overlay');
+      if (overlay) {
+        GSRRenderer.clearThemeCache();
+        const header = document.querySelector('#gsrPanel .panel-header');
+        const or = overlay.getBoundingClientRect();
+        const hh = header ? header.getBoundingClientRect().height : 0;
+        resizeCanvas(or.width - 24, or.height - 24 - hh);
+        redraw();
+      } else {
+        windowResized();
+      }
     });
     GSRUI.setupPanelFullscreen('btnMapFullscreen', 'mapPanel', () => {
       AppState.isMapFullscreen = !AppState.isMapFullscreen;
       if (AppState.mapManager && AppState.mapManager.map) {
         AppState.mapManager.map.invalidateSize();
-        setTimeout(() => AppState.mapManager.map.invalidateSize(), 40);
-        setTimeout(() => AppState.mapManager.map.invalidateSize(), 240);
       }
     });
+    GSRUI.setupPanelFullscreen('btnEventsFullscreen', 'eventsPanel');
+
+    // ── Browser Fullscreen ───────────────────────────────────────────────────
+    GSRUI.toggleBrowserFullscreen('btnFullscreen');
   },
 
   /**
@@ -440,6 +459,7 @@ const GSREvents = {
       document.getElementById('eventsPanel').style.display = 'block';
 
       if (AppState.analyzer && AppState.analyzer.raw.length > 0) {
+        windowResized();
         loop();
         GSRUI.runAnalysis();
       } else {

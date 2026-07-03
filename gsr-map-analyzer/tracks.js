@@ -11,9 +11,67 @@ const GSRTrackManager = {
     return AppState.collectiveManager.getActiveTracks();
   },
 
+  /** Saved before file dialog opens (browser exits fullscreen on dialog open). */
+  _browserFsSave: false,
+  /** Currently showing restore-fullscreen pill (avoid duplicates). */
+  _restorePillEl: null,
+
+  /** Show a floating pill that restores fullscreen on click (Chrome blocks programmatic FS after file dialog). */
+  _showRestoreFsPill() {
+    if (this._restorePillEl) return; // already showing
+
+    const pill = document.createElement('div');
+    pill.style.cssText = `
+      position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:10002;
+      background:rgba(0,0,0,0.82);color:#fff;font-family:Inter,sans-serif;font-size:0.82rem;
+      font-weight:600;padding:8px 18px;border-radius:22px;cursor:pointer;
+      display:flex;align-items:center;gap:8px;box-shadow:0 4px 24px rgba(0,0,0,0.2);
+      backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    `;
+    pill.innerHTML = '<i class="fa-solid fa-expand"></i> Restore Fullscreen <span style="opacity:0.55;font-weight:400;">(click here)</span>';
+
+    // Inject a <style> block for the fade-in animation
+    if (!document.getElementById('fs-restore-anim')) {
+      const s = document.createElement('style');
+      s.id = 'fs-restore-anim';
+      s.textContent = '@keyframes fs-pill-in{from{opacity:0;transform:translateX(-50%) translateY(-12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}';
+      document.head.appendChild(s);
+    }
+    pill.style.animation = 'fs-pill-in 0.35s ease';
+
+    pill.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pill.remove();
+      this._restorePillEl = null;
+      const el = document.querySelector('.app-container');
+      if (el) Fullscreen.request(el);
+    });
+
+    document.body.appendChild(pill);
+    this._restorePillEl = pill;
+
+    // Auto-dismiss after 8 s
+    setTimeout(() => {
+      if (this._restorePillEl === pill) {
+        pill.style.opacity = '0';
+        pill.style.transition = 'opacity 0.4s ease';
+        setTimeout(() => {
+          if (pill.parentNode) pill.remove();
+          if (this._restorePillEl === pill) this._restorePillEl = null;
+        }, 400);
+      }
+    }, 8000);
+  },
+
   handleFileSelect(e) {
     if (e.target.files.length > 0) {
+      const wasFs = this._browserFsSave;
+      this._browserFsSave = false;
       GSRTrackManager.loadFilesSequentially(Array.from(e.target.files));
+      if (wasFs) {
+        // Chrome blocks programmatic requestFullscreen from change events — show restore pill
+        this._showRestoreFsPill();
+      }
     }
   },
 
@@ -238,6 +296,7 @@ const GSRTrackManager = {
 
     GSRTrackManager.renderTrackList();
     loop();
+    requestAnimationFrame(() => windowResized());
   },
 
   deleteTrack(trackId) {

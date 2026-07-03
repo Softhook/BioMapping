@@ -70,6 +70,11 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(17, 17, 17, 0.35);
 }
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(17, 17, 17, 0.2) rgba(17, 17, 17, 0.04);
+}
 
 .app-container {
   display: flex;
@@ -94,6 +99,13 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
 
@@ -1066,12 +1078,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   flex-direction: column;
   background: var(--bg-app);
   padding: 12px;
-  animation: fs-enter 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-@keyframes fs-enter {
-  from { opacity: 0; transform: scale(0.97); }
-  to   { opacity: 1; transform: scale(1); }
 }
 
 /* Hide collapse buttons in fullscreen */
@@ -1107,29 +1113,17 @@ input[type="range"]::-webkit-slider-thumb:hover {
   height: 100% !important;
 }
 
-/* Escape hint shown briefly in fullscreen */
-.fs-escape-hint {
-  position: fixed;
-  top: 18px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(8px);
-  border: 1px solid var(--border-glass);
-  color: var(--text-secondary);
-  font-size: 0.78rem;
-  padding: 5px 14px;
-  border-radius: 20px;
-  z-index: 10001;
-  pointer-events: none;
-  animation: hint-fade 3s ease forwards;
+/* SCR Events table fills all available space */
+.panel-fullscreen-overlay .peaks-table-panel {
+  max-height: none;
+  flex-grow: 1;
+  min-height: 0;
+}
+.panel-fullscreen-overlay .table-container {
+  overflow-y: auto;
 }
 
-@keyframes hint-fade {
-  0%   { opacity: 1; }
-  70%  { opacity: 1; }
-  100% { opacity: 0; }
-}
+/* ─────────────────────────────────────────────────────────────────── */
 
 .control-subgroup-title {
   font-family: var(--font-display);
@@ -1475,5 +1469,41 @@ input[type="range"]::-webkit-slider-thumb:hover {
 /* Collective Surface Overlay (heatmap raster) */
 .collective-surface-overlay {
   pointer-events: none !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Browser Fullscreen API Styles
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+/* When the app is in browser fullscreen, give it a matching background */
+.app-container:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  background: var(--bg-app);
+  padding: 12px;
+}
+
+.app-container:-moz-full-screen {
+  width: 100vw;
+  height: 100vh;
+  background: var(--bg-app);
+  padding: 12px;
+}
+
+.app-container:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  background: var(--bg-app);
+  padding: 12px;
+}
+
+/* Highlight the fullscreen button when active */
+#btnFullscreen.is-fullscreen {
+  color: var(--accent-primary);
+  background: rgba(17, 17, 17, 0.08);
+}
+
+#btnFullscreen.is-fullscreen i {
+  color: var(--accent-primary);
 }
 
