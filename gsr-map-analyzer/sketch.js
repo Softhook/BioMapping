@@ -146,8 +146,10 @@ function draw() {
 
   // 1. Grids and Axes
   GSRRenderer.drawGridX(AppState.viewStartTime, viewEndTime, yUpperBottom, yLowerBottom);
-  GSRRenderer.drawGridYUpper(yMinUpper, yMaxUpper, yUpperBottom, hUpper);
-  GSRRenderer.drawGridYLower(yMinLower, yMaxLower, yLowerBottom, hLower);
+  GSRRenderer.drawGridY(yMinUpper, yMaxUpper, yUpperBottom, GSR_CONST.MARGIN.top,
+    [[0.2, 0.02], [1.0, 0.1], [3.0, 0.5], [10, 1.0]], 2.0, 2);
+  GSRRenderer.drawGridY(yMinLower, yMaxLower, yLowerBottom, yLowerBottom - hLower,
+    [[0.05, 0.005], [0.15, 0.01], [0.5, 0.05], [1.5, 0.1]], 0.5, 3);
 
   const colorRaw = GSRRenderer.getThemeColor('--color-raw', '#7c7c76');
   const colorFiltered = GSRRenderer.getThemeColor('--color-filtered', '#005bc4');

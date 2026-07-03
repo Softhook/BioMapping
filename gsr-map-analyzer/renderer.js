@@ -3,6 +3,25 @@
  * All shared state accessed through AppState.
  */
 
+/**
+ * Get peak quality color hex based on quality score.
+ * High (≥0.7) → green #008f3c, Medium (≥0.4) → amber #e59e00, Low → red #d10024.
+ * If alphaSuffix is provided (e.g. '20'), appends it for RGBA-style hex.
+ */
+function getQualityColor(score, alphaSuffix) {
+  const base = score >= 0.7 ? '#008f3c' : (score >= 0.4 ? '#e59e00' : '#d10024');
+  return alphaSuffix ? base + alphaSuffix : base;
+}
+
+/**
+ * Get peak quality label string ('High', 'Med', 'Low') and percent.
+ */
+function getQualityLabel(score) {
+  const pct = Math.round(score * 100);
+  const label = score >= 0.7 ? 'High' : (score >= 0.4 ? 'Med' : 'Low');
+  return { pct, label };
+}
+
 const GSRRenderer = {
   _styleCache: null,
 
@@ -87,14 +106,22 @@ const GSRRenderer = {
     line(GSR_CONST.MARGIN.left, yLowerBottom, width - GSR_CONST.MARGIN.right, yLowerBottom);
   },
 
-  drawGridYUpper(yMin, yMax, yBottom, heightVal) {
+  /**
+   * Draw horizontal grid lines with labels for a Y-axis region.
+   * @param {number} yMin - Data minimum
+   * @param {number} yMax - Data maximum
+   * @param {number} yBottom - Bottom pixel position of the drawing region
+   * @param {number} yTop - Top pixel position of the drawing region
+   * @param {Array<Array<number>>} stepRanges - [[spanThreshold, stepSize], ...] sorted ascending
+   * @param {number} defaultStep - Step to use when span exceeds all thresholds
+   * @param {number} decimals - Number of decimal places in value labels
+   */
+  drawGridY(yMin, yMax, yBottom, yTop, stepRanges, defaultStep, decimals) {
     const span = yMax - yMin;
-    let step = 0.5;
-    if (span < 0.2) step = 0.02;
-    else if (span < 1.0) step = 0.1;
-    else if (span < 3.0) step = 0.5;
-    else if (span < 10) step = 1.0;
-    else step = 2.0;
+    let step = defaultStep;
+    for (const [threshold, s] of stepRanges) {
+      if (span < threshold) { step = s; break; }
+    }
 
     const firstGridVal = Math.floor(yMin / step) * step;
 
@@ -110,159 +137,119 @@ const GSRRenderer = {
 
     for (let val = firstGridVal; val <= yMax; val += step) {
       if (val < yMin) continue;
-      const y = map(val, yMin, yMax, yBottom, GSR_CONST.MARGIN.top);
+      const y = map(val, yMin, yMax, yBottom, yTop);
       line(GSR_CONST.MARGIN.left, y, width - GSR_CONST.MARGIN.right, y);
 
-      // Skip label if it would overlap with the previous one
       if (lastLabelY !== null && Math.abs(y - lastLabelY) < labelHeight) continue;
 
       noStroke();
       fill(textColor);
-      text(val.toFixed(2) + ' \u03bcS', GSR_CONST.MARGIN.left - 8, y);
+      text(val.toFixed(decimals) + ' \u03bcS', GSR_CONST.MARGIN.left - 8, y);
       stroke(gridColor);
       lastLabelY = y;
     }
   },
 
-  drawGridYLower(yMin, yMax, yBottom, heightVal) {
-    const span = yMax - yMin;
-    let step = 0.05;
-    if (span < 0.05) step = 0.005;
-    else if (span < 0.15) step = 0.01;
-    else if (span < 0.5) step = 0.05;
-    else if (span < 1.5) step = 0.1;
-    else step = 0.5;
+  /**
+   * Compute common context for curve drawing: clamped indices, step, spline decision, and scale factors.
+   */
+  _buildCurveContext(data, tMin, tMax, yMin, yMax, yTop, yBottom) {
+    const startIdx = Math.max(0, AppState.analyzer.findClosestIndex(tMin) - 1);
+    const endIdx   = Math.min(data.length - 1, AppState.analyzer.findClosestIndex(tMax) + 1);
+    const count = endIdx - startIdx + 1;
+    if (count <= 0) return null;
 
-    const firstGridVal = Math.floor(yMin / step) * step;
+    const step = Math.max(1, Math.ceil(count / GSR_CONST.DRAW_MAX_VERTICES));
+    const useSpline = count < GSR_CONST.SPLINE_THRESHOLD;
 
-    const gridColor = this.getThemeColor('--canvas-grid', 'rgba(17, 17, 17, 0.06)');
-    const textColor = this.getThemeColor('--canvas-text', '#444444');
+    const tSpan = tMax - tMin;
+    const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
+    const yScale = (yMax - yMin) > 0 ? ((yTop - yBottom) / (yMax - yMin)) : 0;
+    const xScale = tSpan > 0 ? (xSpan / tSpan) : 0;
 
-    stroke(gridColor);
-    textAlign(RIGHT, CENTER);
-    textSize(10);
-
-    const labelHeight = 14; // text size (10) + padding to prevent collision
-    let lastLabelY = null;
-
-    for (let val = firstGridVal; val <= yMax; val += step) {
-      if (val < yMin) continue;
-      const y = map(val, yMin, yMax, yBottom, yBottom - heightVal);
-      line(GSR_CONST.MARGIN.left, y, width - GSR_CONST.MARGIN.right, y);
-
-      // Skip label if it would overlap with the previous one
-      if (lastLabelY !== null && Math.abs(y - lastLabelY) < labelHeight) continue;
-
-      noStroke();
-      fill(textColor);
-      text(val.toFixed(3) + ' \u03bcS', GSR_CONST.MARGIN.left - 8, y);
-      stroke(gridColor);
-      lastLabelY = y;
-    }
+    return { startIdx, endIdx, count, step, useSpline, xScale, yScale };
   },
 
+  /**
+   * Draw a line/curve from data points with optional spline smoothing.
+   */
   drawSignalCurve(data, tMin, tMax, yMin, yMax, yTop, yBottom, lineColor, lineWt) {
     if (!data || data.length === 0) return;
+    const ctx = this._buildCurveContext(data, tMin, tMax, yMin, yMax, yTop, yBottom);
+    if (!ctx) return;
+
     noFill();
     stroke(lineColor);
     strokeWeight(lineWt);
 
-    const startIdx = Math.max(0, AppState.analyzer.findClosestIndex(tMin) - 1);
-    const endIdx   = Math.min(data.length - 1, AppState.analyzer.findClosestIndex(tMax) + 1);
-    const count = endIdx - startIdx + 1;
-    if (count <= 0) return;
-
-    const step = Math.max(1, Math.ceil(count / GSR_CONST.DRAW_MAX_VERTICES));
-    const useSpline = count < GSR_CONST.SPLINE_THRESHOLD;
-
-    const tSpan = tMax - tMin;
-    const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
-    const yScale = (yMax - yMin) > 0 ? ((yTop - yBottom) / (yMax - yMin)) : 0;
-    const xScale = tSpan > 0 ? (xSpan / tSpan) : 0;
-
     beginShape();
-
-    if (useSpline) {
-      const dFirst = data[startIdx];
-      const xFirst = GSR_CONST.MARGIN.left + (dFirst.time - tMin) * xScale;
-      const yFirst = yBottom + (dFirst.val - yMin) * yScale;
+    if (ctx.useSpline) {
+      const dFirst = data[ctx.startIdx];
+      const xFirst = GSR_CONST.MARGIN.left + (dFirst.time - tMin) * ctx.xScale;
+      const yFirst = yBottom + (dFirst.val - yMin) * ctx.yScale;
       curveVertex(xFirst, yFirst);
-
-      for (let i = startIdx; i <= endIdx; i += step) {
+      for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
         const d = data[i];
-        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * xScale;
-        const y = yBottom + (d.val - yMin) * yScale;
+        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
+        const y = yBottom + (d.val - yMin) * ctx.yScale;
         curveVertex(x, y);
       }
-
-      const dLast = data[endIdx];
-      const xLast = GSR_CONST.MARGIN.left + (dLast.time - tMin) * xScale;
-      const yLast = yBottom + (dLast.val - yMin) * yScale;
+      const dLast = data[ctx.endIdx];
+      const xLast = GSR_CONST.MARGIN.left + (dLast.time - tMin) * ctx.xScale;
+      const yLast = yBottom + (dLast.val - yMin) * ctx.yScale;
       curveVertex(xLast, yLast);
     } else {
-      for (let i = startIdx; i <= endIdx; i += step) {
+      for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
         const d = data[i];
-        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * xScale;
-        const y = yBottom + (d.val - yMin) * yScale;
+        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
+        const y = yBottom + (d.val - yMin) * ctx.yScale;
         vertex(x, y);
       }
     }
-
     endShape();
   },
 
+  /**
+   * Draw a filled phasic area from data points, closed to the baseline (yBottom).
+   */
   drawPhasicArea(data, tMin, tMax, yMin, yMax, yTop, yBottom) {
     if (!data || data.length === 0) return;
-    const startIdx = Math.max(0, AppState.analyzer.findClosestIndex(tMin) - 1);
-    const endIdx   = Math.min(data.length - 1, AppState.analyzer.findClosestIndex(tMax) + 1);
-    const count = endIdx - startIdx + 1;
-    if (count <= 0) return;
+    const ctx = this._buildCurveContext(data, tMin, tMax, yMin, yMax, yTop, yBottom);
+    if (!ctx) return;
 
     noStroke();
     const colorPhasic = this.getThemeColor('--color-phasic', '#008f3c');
-    fill(color(colorPhasic + '19')); // ~25 opacity (10% transparent)
+    fill(color(colorPhasic + '19'));
 
-    const step = Math.max(1, Math.ceil(count / GSR_CONST.DRAW_MAX_VERTICES));
-    const useSpline = count < GSR_CONST.SPLINE_THRESHOLD;
-
-    const tSpan = tMax - tMin;
-    const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
-    const yScale = (yMax - yMin) > 0 ? ((yTop - yBottom) / (yMax - yMin)) : 0;
-    const xScale = tSpan > 0 ? (xSpan / tSpan) : 0;
+    const dFirst = data[ctx.startIdx];
+    const xStart = GSR_CONST.MARGIN.left + (dFirst.time - tMin) * ctx.xScale;
 
     beginShape();
-
-    const dFirst = data[startIdx];
-    const xStart = GSR_CONST.MARGIN.left + (dFirst.time - tMin) * xScale;
     vertex(xStart, yBottom);
 
-    if (useSpline) {
+    if (ctx.useSpline) {
       curveVertex(xStart, yBottom);
-
-      for (let i = startIdx; i <= endIdx; i += step) {
+      for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
         const d = data[i];
-        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * xScale;
-        const y = yBottom + (d.val - yMin) * yScale;
+        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
+        const y = yBottom + (d.val - yMin) * ctx.yScale;
         curveVertex(x, y);
       }
-
-      const dLast = data[endIdx];
-      const xEnd = GSR_CONST.MARGIN.left + (dLast.time - tMin) * xScale;
+      const xEnd = GSR_CONST.MARGIN.left + (data[ctx.endIdx].time - tMin) * ctx.xScale;
       curveVertex(xEnd, yBottom);
       vertex(xEnd, yBottom);
     } else {
-      for (let i = startIdx; i <= endIdx; i += step) {
+      for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
         const d = data[i];
-        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * xScale;
-        const y = yBottom + (d.val - yMin) * yScale;
+        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
+        const y = yBottom + (d.val - yMin) * ctx.yScale;
         vertex(x, y);
       }
-      const dLast = data[endIdx];
-      const xEnd = GSR_CONST.MARGIN.left + (dLast.time - tMin) * xScale;
+      const xEnd = GSR_CONST.MARGIN.left + (data[ctx.endIdx].time - tMin) * ctx.xScale;
       vertex(xEnd, yBottom);
     }
 
-    endShape();
+    endShape(CLOSE);
   },
 
   drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
@@ -300,16 +287,8 @@ const GSRRenderer = {
       const colorPhasic = this.getThemeColor('--color-phasic', '#008f3c');
       const canvasBg = this.getThemeColor('--canvas-bg', '#ffffff');
 
-      // Quality-based coloring: high=green, medium=amber, low=red
       const qScore = p.qualityScore !== undefined ? p.qualityScore : 0.5;
-      let peakColor;
-      if (qScore >= 0.7) {
-        peakColor = '#008f3c'; // green — high confidence
-      } else if (qScore >= 0.4) {
-        peakColor = '#e59e00'; // amber — medium confidence
-      } else {
-        peakColor = '#d10024'; // red — low confidence (still valid)
-      }
+      const peakColor = getQualityColor(qScore);
 
       if (isActive || isHovered) {
         fill(color(peakColor + '4b'));
@@ -451,6 +430,18 @@ const GSRRenderer = {
     GSRRenderer.drawTooltip(dRaw.time, dRaw.val, dFilt.val, dTonic.val, dPhasic.val, nearPeakInfo);
   },
 
+  /**
+   * Draw a labeled value row inside the tooltip: left-aligned label, right-aligned value.
+   */
+  _drawTooltipRow(label, color, valueStr, boxX, boxW, pad, startY, spacing, row) {
+    const y = startY + row * spacing;
+    textAlign(LEFT, TOP);
+    fill(color);
+    text(label, boxX + pad, y);
+    textAlign(RIGHT, TOP);
+    text(valueStr, boxX + boxW - pad, y);
+  },
+
   drawTooltip(time, rawVal, filtVal, tonicVal, phasicVal, nearPeak) {
     const pad = 12;
     const hasPeakInfo = nearPeak && nearPeak.qualityScore !== undefined;
@@ -492,35 +483,16 @@ const GSRRenderer = {
     const startY = boxY + pad + 18;
     const spacing = 18;
 
-    fill(textSec);
-    text('Raw:', boxX + pad, startY);
-    textAlign(RIGHT, TOP);
-    text(rawVal.toFixed(4) + ' \u03bcS', boxX + boxW - pad, startY);
-
-    textAlign(LEFT, TOP);
-    fill(colorFiltered);
-    text('Filtered:', boxX + pad, startY + spacing);
-    textAlign(RIGHT, TOP);
-    text(filtVal.toFixed(4) + ' \u03bcS', boxX + boxW - pad, startY + spacing);
-
-    textAlign(LEFT, TOP);
-    fill(colorTonic);
-    text('Tonic (SCL):', boxX + pad, startY + 2 * spacing);
-    textAlign(RIGHT, TOP);
-    text(tonicVal.toFixed(4) + ' \u03bcS', boxX + boxW - pad, startY + 2 * spacing);
-
-    textAlign(LEFT, TOP);
-    fill(colorPhasic);
-    text('Phasic (SCR):', boxX + pad, startY + 3 * spacing);
-    textAlign(RIGHT, TOP);
-    text(phasicVal.toFixed(4) + ' \u03bcS', boxX + boxW - pad, startY + 3 * spacing);
+    this._drawTooltipRow('Raw:', textSec, rawVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, 0);
+    this._drawTooltipRow('Filtered:', colorFiltered, filtVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, 1);
+    this._drawTooltipRow('Tonic (SCL):', colorTonic, tonicVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, 2);
+    this._drawTooltipRow('Phasic (SCR):', colorPhasic, phasicVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, 3);
 
     // Peak shape quality info (when hovering near a detected peak)
     if (hasPeakInfo) {
       const qScore = nearPeak.qualityScore;
-      const qPct = Math.round(qScore * 100);
-      const qColor = qScore >= 0.7 ? '#008f3c' : (qScore >= 0.4 ? '#e59e00' : '#d10024');
-      const qLabel = qScore >= 0.7 ? 'High' : (qScore >= 0.4 ? 'Med' : 'Low');
+      const qColor = getQualityColor(qScore);
+      const { pct: qPct, label: qLabel } = getQualityLabel(qScore);
 
       const peakY = startY + 4 * spacing + 6;
       stroke(axisColor);

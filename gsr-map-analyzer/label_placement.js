@@ -162,57 +162,38 @@ class GSRLabelManager {
 
   /**
    * Build a Leaflet divIcon that renders both the peak dot and its label,
-   * positioned via 360° collision avoidance. The container div is sized to
-   * exactly enclose both the dot and the label box.
+   * positioned via 360° collision avoidance.
+   * @param {number} px - Dot center X (pixel)
+   * @param {number} py - Dot center Y (pixel)
+   * @param {string} labelText - Label text
+   * @param {object} dirResult - Direction result with bounding box
+   * @param {object} [opts] - Optional styling overrides
+   * @param {number} [opts.dotSize=24] - Dot visual diameter
+   * @param {string} [opts.wrapperClass='stress-peak-icon-wrapper'] - Container CSS class
+   * @param {string} [opts.dotClass='peak-dot'] - Dot CSS class
+   * @param {string} [opts.dotExtraStyle=''] - Extra inline styles for the dot
+   * @param {boolean} [opts.showGlow=true] - Whether to show the glow ring
+   * @param {string} [opts.labelFontSize='10px'] - Label font size
+   * @param {string} [opts.labelFontWeight='600'] - Label font weight
+   * @param {string} [opts.labelExtraStyle=''] - Extra inline styles for the label
    */
-  static buildLabelledIcon(px, py, labelText, dirResult) {
-    const H = 18;   // label height (px)
+  static buildLabelledIcon(px, py, labelText, dirResult, opts = {}) {
+    const {
+      dotSize = 24,
+      wrapperClass = 'stress-peak-icon-wrapper',
+      dotClass = 'peak-dot',
+      dotExtraStyle = '',
+      showGlow = true,
+      labelFontSize = '10px',
+      labelFontWeight = '600',
+      labelExtraStyle = ''
+    } = opts;
+
+    const H = 18;
     const box = dirResult.box;
-    const W = box.right - box.left; // actual label width from collision box
-    const DS = 24;  // dot visual diameter
+    const W = box.right - box.left;
+    const DS = dotSize;
 
-    // Union bounding box of dot area and label box
-    const dotL = px - DS / 2, dotR = px + DS / 2;
-    const dotT = py - DS / 2, dotB = py + DS / 2;
-    const cLeft   = Math.min(dotL, box.left);
-    const cRight  = Math.max(dotR, box.right);
-    const cTop    = Math.min(dotT, box.top);
-    const cBottom = Math.max(dotB, box.bottom);
-    const cW = cRight - cLeft;
-    const cH = cBottom - cTop;
-
-    // Dot position within the container
-    const dotCx = px - cLeft;
-    const dotCy = py - cTop;
-    // Label position within the container
-    const labelL = box.left - cLeft;
-    const labelT = box.top - cTop;
-
-    const escapedLabel = labelText.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-    const html = [
-      '<div class="stress-peak-icon-wrapper" style="position:relative;width:', cW, 'px;height:', cH, 'px;">',
-        '<div class="peak-glow-ring" style="position:absolute;top:', (dotCy - 12), 'px;left:', (dotCx - 12), 'px;"></div>',
-        '<div class="peak-dot" style="position:absolute;top:', (dotCy - 5), 'px;left:', (dotCx - 5), 'px;width:10px;height:10px;"></div>',
-        '<div class="peak-map-label" style="position:absolute;top:', labelT, 'px;left:', labelL, 'px;width:', W, 'px;text-align:center;font-size:10px;font-weight:600;">', escapedLabel, '</div>',
-      '</div>'
-    ].join('');
-
-    return L.divIcon({
-      className: '',
-      html,
-      iconSize: [cW, cH],
-      iconAnchor: [px - cLeft, py - cTop]
-    });
-  }
-
-  /**
-   * Build a Leaflet divIcon that renders both the peak dot and its label for collective mode.
-   */
-  static buildCollectiveLabelledIcon(px, py, labelText, dirResult, trackColor) {
-    const H = 18, DS = 12;
-    const box = dirResult.box;
-    const W = box.right - box.left; // actual label width from collision
     const dotL = px - DS / 2, dotR = px + DS / 2;
     const dotT = py - DS / 2, dotB = py + DS / 2;
     const cLeft   = Math.min(dotL, box.left);
@@ -227,9 +208,10 @@ class GSRLabelManager {
     const escapedLabel = labelText.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
     const html = [
-      '<div style="position:relative;width:', cW, 'px;height:', cH, 'px;">',
-        '<div class="collective-peak-dot" style="position:absolute;top:', (dotCy - 5), 'px;left:', (dotCx - 5), 'px;width:10px;height:10px;border-radius:50%;background:', trackColor, ';box-shadow:0 1px 3px rgba(0,0,0,0.15);border:1.5px solid #fff;"></div>',
-        '<div class="peak-map-label" style="position:absolute;top:', labelT, 'px;left:', labelL, 'px;width:', W, 'px;text-align:center;font-size:9px;font-weight:700;color:#111111;text-shadow:0 0 3px #ffffff,0 0 5px #ffffff,0 0 8px #ffffff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;line-height:1.2;">', escapedLabel, '</div>',
+      '<div class="', wrapperClass, '" style="position:relative;width:', cW, 'px;height:', cH, 'px;">',
+        showGlow ? '<div class="peak-glow-ring" style="position:absolute;top:' + (dotCy - 12) + 'px;left:' + (dotCx - 12) + 'px;"></div>' : '',
+        '<div class="', dotClass, '" style="position:absolute;top:', (dotCy - 5), 'px;left:', (dotCx - 5), 'px;width:10px;height:10px;', dotExtraStyle, '"></div>',
+        '<div class="peak-map-label" style="position:absolute;top:', labelT, 'px;left:', labelL, 'px;width:', W, 'px;text-align:center;font-size:', labelFontSize, ';font-weight:', labelFontWeight, ';', labelExtraStyle, '">', escapedLabel, '</div>',
       '</div>'
     ].join('');
 
@@ -238,6 +220,22 @@ class GSRLabelManager {
       html,
       iconSize: [cW, cH],
       iconAnchor: [px - cLeft, py - cTop]
+    });
+  }
+
+  /**
+   * Build a Leaflet divIcon for collective (multi-track) mode with track-colored dots.
+   */
+  static buildCollectiveLabelledIcon(px, py, labelText, dirResult, trackColor) {
+    return GSRLabelManager.buildLabelledIcon(px, py, labelText, dirResult, {
+      dotSize: 12,
+      wrapperClass: '',
+      dotClass: 'collective-peak-dot',
+      showGlow: false,
+      dotExtraStyle: 'border-radius:50%;background:' + trackColor + ';box-shadow:0 1px 3px rgba(0,0,0,0.15);border:1.5px solid #fff;',
+      labelFontSize: '9px',
+      labelFontWeight: '700',
+      labelExtraStyle: 'color:#111111;text-shadow:0 0 3px #ffffff,0 0 5px #ffffff,0 0 8px #ffffff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;line-height:1.2;'
     });
   }
 }

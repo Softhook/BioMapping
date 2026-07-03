@@ -202,11 +202,6 @@ const GSRUI = {
       return;
     }
 
-    // Quality score thresholds for coloring
-    const qualityLow = '#d1002420';
-    const qualityMed = '#e59e0030';
-    const qualityHigh = '#008f3c20';
-
     let rowsHtml = "";
     peaks.forEach((p, idx) => {
       const isAct = (idx === AppState.activePeakIndex) ? "class='active-row'" : "";
@@ -222,9 +217,8 @@ const GSRUI = {
       const snrStr = p.snr !== undefined
         ? p.snr.toFixed(2) + "x" : "N/A";
       const qScore = p.qualityScore !== undefined ? p.qualityScore : 0;
-      const qPct = Math.round(qScore * 100);
-      const qColor = qScore >= 0.7 ? qualityHigh : (qScore >= 0.4 ? qualityMed : qualityLow);
-      const qLabel = qScore >= 0.7 ? 'High' : (qScore >= 0.4 ? 'Med' : 'Low');
+      const qColor = getQualityColor(qScore, '20');
+      const { pct: qPct, label: qLabel } = getQualityLabel(qScore);
 
       const escapedLabel = (p.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 

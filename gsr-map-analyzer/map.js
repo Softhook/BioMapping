@@ -44,15 +44,21 @@ class GSRMapManager {
   }
 
   /**
+   * Remove all layers in the array from the map and clear the array.
+   */
+  _clearLayerGroup(arr) {
+    if (!this.map) return;
+    if (arr) arr.forEach(item => this.map.removeLayer(item));
+    return [];
+  }
+
+  /**
    * Reset path and markers on map
    */
   clearMap() {
     if (!this.map) return;
-    this.pathSegments.forEach(seg => this.map.removeLayer(seg));
-    this.pathSegments = [];
-    
-    this.peakMarkers.forEach(m => this.map.removeLayer(m));
-    this.peakMarkers = [];
+    this.pathSegments = this._clearLayerGroup(this.pathSegments);
+    this.peakMarkers = this._clearLayerGroup(this.peakMarkers);
 
     if (this.map.hasLayer(this.scrubMarker)) {
       this.map.removeLayer(this.scrubMarker);
@@ -451,16 +457,8 @@ class GSRMapManager {
    * Remove all collective track paths and peak markers from the map.
    */
   clearCollectiveLayers() {
-    if (this.collectivePathSegments) {
-      this.collectivePathSegments.forEach(seg => this.map.removeLayer(seg));
-    }
-    this.collectivePathSegments = [];
-
-    if (this.collectivePeakMarkers) {
-      this.collectivePeakMarkers.forEach(m => this.map.removeLayer(m));
-    }
-    this.collectivePeakMarkers = [];
-
+    this.collectivePathSegments = this._clearLayerGroup(this.collectivePathSegments);
+    this.collectivePeakMarkers = this._clearLayerGroup(this.collectivePeakMarkers);
     this.clearContours();
   }
 
@@ -468,11 +466,7 @@ class GSRMapManager {
    * Remove only the topographic isolines layer from the map.
    */
   clearContours() {
-    if (this.contourLayers) {
-      this.contourLayers.forEach(layer => this.map.removeLayer(layer));
-    }
-    this.contourLayers = [];
-
+    this.contourLayers = this._clearLayerGroup(this.contourLayers);
     if (this.surfaceOverlay) {
       this.map.removeLayer(this.surfaceOverlay);
       this.surfaceOverlay = null;

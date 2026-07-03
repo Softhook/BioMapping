@@ -271,22 +271,19 @@ const GSRTrackManager = {
   loadActiveTrackParams(track) {
     if (!track || !track.filterParams) return;
     const params = track.filterParams;
-
-    AppState.sliders.medianSize.value = params.medianSize;
-    AppState.sliders.lpfWindow.value = params.lpfWindow;
-    AppState.sliders.tonicWindow.value = params.tonicWindow;
-    AppState.sliders.tonicMethod.value = params.tonicMethod;
-    AppState.sliders.peakThreshold.value = params.peakThreshold;
-
     const S = AppState.sliders;
-    if (params.dwtLevel !== undefined && S.dwtLevel) S.dwtLevel.value = params.dwtLevel;
-    if (params.shapeMinRiseTime !== undefined && S.shapeMinRiseTime) S.shapeMinRiseTime.value = params.shapeMinRiseTime;
-    if (params.shapeMaxRiseTime !== undefined && S.shapeMaxRiseTime) S.shapeMaxRiseTime.value = params.shapeMaxRiseTime;
-    if (params.shapeMinHalfRecovery !== undefined && S.shapeMinHalfRecovery) S.shapeMinHalfRecovery.value = params.shapeMinHalfRecovery;
-    if (params.shapeMaxHalfRecovery !== undefined && S.shapeMaxHalfRecovery) S.shapeMaxHalfRecovery.value = params.shapeMaxHalfRecovery;
-    if (params.shapeMinSnr !== undefined && S.shapeMinSnr) S.shapeMinSnr.value = params.shapeMinSnr;
-    if (params.shapeMaxSkewRatio !== undefined && S.shapeMaxSkewRatio) S.shapeMaxSkewRatio.value = params.shapeMaxSkewRatio;
-    // Labels are updated by GSREvents.initializeLabels() called from switchActiveTrack
+
+    const gsrKeys = [
+      'medianSize', 'lpfWindow', 'tonicWindow', 'tonicMethod', 'peakThreshold', 'dwtLevel',
+      'shapeMinRiseTime', 'shapeMaxRiseTime', 'shapeMinHalfRecovery', 'shapeMaxHalfRecovery',
+      'shapeMinSnr', 'shapeMaxSkewRatio'
+    ];
+
+    for (const key of gsrKeys) {
+      if (params[key] !== undefined && S[key]) {
+        S[key].value = params[key];
+      }
+    }
   },
 
   saveActiveTrackParams() {
@@ -310,18 +307,26 @@ const GSRTrackManager = {
     const p = track.gpsFilterParams;
     const S = AppState.sliders;
 
-    if (p.minSats !== undefined)      S.gpsMinSats.value      = p.minSats;
-    if (p.maxSpeed !== undefined)     S.gpsMaxSpeed.value     = p.maxSpeed;
-    if (p.hampelWindow !== undefined) S.gpsHampelWindow.value = p.hampelWindow;
-    if (p.hampelSigma !== undefined)  S.gpsHampelSigma.value  = p.hampelSigma;
-    if (p.dbscanRadius !== undefined) S.gpsDBSCANRadius.value = p.dbscanRadius;
-    if (p.dbscanMinPts !== undefined) S.gpsDBSCANMinPts.value = p.dbscanMinPts;
-    if (p.kalmanR !== undefined)      S.gpsKalmanR.value      = p.kalmanR;
-    if (p.kalmanQ !== undefined)      S.gpsKalmanQ.value      = p.kalmanQ;
-    if (p.rdpTolerance !== undefined) S.gpsRDP.value          = p.rdpTolerance;
-    if (p.downsample !== undefined)   S.gpsDownsample.value   = p.downsample;
-    if (p.trackWeight !== undefined)  S.gpsTrackWeight.value  = p.trackWeight;
-    if (p.peakLatency !== undefined)  S.gpsPeakLatency.value  = p.peakLatency;
+    const gpsMap = {
+      minSats: 'gpsMinSats',
+      maxSpeed: 'gpsMaxSpeed',
+      hampelWindow: 'gpsHampelWindow',
+      hampelSigma: 'gpsHampelSigma',
+      dbscanRadius: 'gpsDBSCANRadius',
+      dbscanMinPts: 'gpsDBSCANMinPts',
+      kalmanR: 'gpsKalmanR',
+      kalmanQ: 'gpsKalmanQ',
+      rdpTolerance: 'gpsRDP',
+      downsample: 'gpsDownsample',
+      trackWeight: 'gpsTrackWeight',
+      peakLatency: 'gpsPeakLatency'
+    };
+
+    for (const [paramKey, sliderKey] of Object.entries(gpsMap)) {
+      if (p[paramKey] !== undefined && S[sliderKey]) {
+        S[sliderKey].value = p[paramKey];
+      }
+    }
   },
 
   clearFile() {
