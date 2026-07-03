@@ -279,6 +279,7 @@ const GSRUI = {
       idwExponent:       parseFloat(cc.idwExponent ? cc.idwExponent.value : GSR_CONST.COLLECTIVE.idwExponent),
       topographySource:  cc.topoSource ? cc.topoSource.value : 'phasic',
       showShadedSurface: cc.showShadedSurface ? cc.showShadedSurface.checked : true,
+      normalize:         cc.normalizeZScore ? cc.normalizeZScore.checked : false,
       surfaceOpacity:    cc.surfaceOpacity ? parseFloat(cc.surfaceOpacity.value) : 0.40
     };
 

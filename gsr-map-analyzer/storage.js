@@ -70,6 +70,7 @@ const GSRStorage = {
       idwExponent:       parseFloat(C.idwExponent.value),
       topoSource:        C.topoSource.value,
       showShadedSurface: C.showShadedSurface.checked,
+      normalizeZScore:   C.normalizeZScore ? C.normalizeZScore.checked : false,
       surfaceOpacity:    parseFloat(C.surfaceOpacity.value)
     };
   },
@@ -136,6 +137,7 @@ const GSRStorage = {
       settings.idwExponent = map.idwExponent;
       settings.topoSource = map.topoSource;
       settings.showShadedSurface = map.showShadedSurface;
+      settings.normalizeZScore = map.normalizeZScore;
       settings.surfaceOpacity = map.surfaceOpacity;
     }
     localStorage.setItem('bioMappingSettings', JSON.stringify(settings));
@@ -181,6 +183,7 @@ const GSRStorage = {
         if (settings.idwExponent !== undefined && C.idwExponent) C.idwExponent.value = settings.idwExponent;
         if (settings.topoSource !== undefined && C.topoSource) C.topoSource.value = settings.topoSource;
         if (settings.showShadedSurface !== undefined && C.showShadedSurface) C.showShadedSurface.checked = settings.showShadedSurface;
+        if (settings.normalizeZScore !== undefined && C.normalizeZScore) C.normalizeZScore.checked = settings.normalizeZScore;
         if (settings.surfaceOpacity !== undefined && C.surfaceOpacity) C.surfaceOpacity.value = settings.surfaceOpacity;
       }
     } catch (err) {

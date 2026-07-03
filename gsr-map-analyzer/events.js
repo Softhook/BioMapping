@@ -68,6 +68,7 @@ const GSREvents = {
       idwExponent:       GSREvents._id('idwExponent'),
       topoSource:        GSREvents._id('topoSource'),
       showShadedSurface: GSREvents._id('showShadedSurface'),
+      normalizeZScore:   GSREvents._id('normalizeZScore'),
       surfaceOpacity:    GSREvents._id('surfaceOpacity')
     };
   },
@@ -442,6 +443,9 @@ const GSREvents = {
       appMainLayout.classList.remove('collective-mode');
       contourSettingsCard.style.display = 'none';
 
+      const peakCard = document.getElementById('peakDetectionCard');
+      if (peakCard) peakCard.style.display = 'block';
+
       if (AppState.mapManager) AppState.mapManager.clearCollectiveLayers();
 
       document.getElementById('gsrPanel').style.display = 'block';
@@ -467,6 +471,9 @@ const GSREvents = {
       btnSingleView.classList.remove('active');
       appMainLayout.classList.add('collective-mode');
       contourSettingsCard.style.display = 'block';
+
+      const peakCard = document.getElementById('peakDetectionCard');
+      if (peakCard) peakCard.style.display = 'none';
 
       document.getElementById('gsrPanel').style.display = 'none';
       document.getElementById('eventsPanel').style.display = 'none';
@@ -514,6 +521,14 @@ const GSREvents = {
       if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
       GSRStorage.saveSettings();
     });
+
+    const normalizeZ = document.getElementById('normalizeZScore');
+    if (normalizeZ) {
+      normalizeZ.addEventListener('change', () => {
+        if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
+        GSRStorage.saveSettings();
+      });
+    }
   },
 
   /**

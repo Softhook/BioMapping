@@ -111,5 +111,19 @@ const GsrFilter = {
     }
 
     return backward;
+  },
+
+  /**
+   * Calculates mean and standard deviation of an array of numeric values.
+   */
+  calculateStats(values) {
+    const n = values.length;
+    if (n === 0) return { mean: 0, std: 1 };
+    
+    const mean = values.reduce((sum, v) => sum + v, 0) / n;
+    const variance = values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / n;
+    const std = Math.sqrt(variance);
+    
+    return { mean, std: std === 0 ? 1 : std }; // Prevent division by zero
   }
 };

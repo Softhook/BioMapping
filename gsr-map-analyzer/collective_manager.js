@@ -61,6 +61,7 @@ class GSRCollectiveManager {
     const topographySource = contourParams.topographySource !== undefined ? contourParams.topographySource : 'phasic';
     const contourCount    = contourParams.contourCount    !== undefined ? contourParams.contourCount    : GSR_CONST.COLLECTIVE.contourCount;
     const idwExponent     = contourParams.idwExponent     !== undefined ? contourParams.idwExponent     : GSR_CONST.COLLECTIVE.idwExponent;
+    const useNormalization = contourParams.normalize       !== undefined ? contourParams.normalize       : false;
 
     const bounds = this.getBounds();
     if (!bounds) return [];
@@ -78,22 +79,37 @@ class GSRCollectiveManager {
 
     for (const t of active) {
       const rawData    = t.analyzer.raw;
-      const phasic     = t.analyzer.phasic || [];
-      const tonic      = t.analyzer.tonic  || [];
+      const phasic     = useNormalization ? (t.analyzer.phasicZ || []) : (t.analyzer.phasic || []);
+      const tonic      = useNormalization ? (t.analyzer.tonicZ  || []) : (t.analyzer.tonic  || []);
       const baseFsStep = Math.max(1, Math.round(t.analyzer.sampleRate || 10.0));
       const step       = baseFsStep * globalStride;
 
       for (let i = 0; i < rawData.length; i += step) {
         const coords = t.analyzer.getCoordinates(i);
         if (coords) {
-          points.push({ lat: coords.lat, lon: coords.lon, phasic: (phasic[i] ? phasic[i].val : 0), tonic: (tonic[i] ? tonic[i].val : 0) });
+          points.push({ 
+            lat: coords.lat, 
+            lon: coords.lon, 
+            phasic: (phasic[i] ? phasic[i].val : 0), 
+            tonic: (tonic[i] ? tonic[i].val : 0) 
+          });
         }
+      }
+
+      // If normalizing, scale peak amplitudes by the standard deviation of the participant's phasic values.
+      // This is a standard psychophysiological normalization (SCR amplitude in units of background variance).
+      let phasicStd = 1;
+      if (useNormalization && t.analyzer.phasic && t.analyzer.phasic.length > 0) {
+        const phasicVals = t.analyzer.phasic.map(d => d.val);
+        const stats = GsrFilter.calculateStats(phasicVals);
+        phasicStd = stats.std;
       }
 
       t.analyzer.peaks.forEach(pk => {
         const coords = t.analyzer.getCoordinates(pk.index);
         if (coords) {
-          peaks.push({ lat: coords.lat, lon: coords.lon, amplitude: pk.amplitude });
+          const amplitude = useNormalization ? (pk.amplitude / phasicStd) : pk.amplitude;
+          peaks.push({ lat: coords.lat, lon: coords.lon, amplitude });
         }
       });
     }
