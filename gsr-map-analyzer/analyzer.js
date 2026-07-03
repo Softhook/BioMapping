@@ -137,27 +137,6 @@ class GSRAnalyzer {
   }
 
   /**
-   * Same as formatClockTime but includes the date, e.g. "2024-03-15 14:32:05".
-   * Falls back to relative seconds display when no real clock time is available.
-   */
-  formatClockTimeWithDate(relativeSeconds) {
-    const absSeconds = this.recordingStartTime + relativeSeconds;
-    const d = new Date(absSeconds * 1000);
-
-    if (!this.recordingStartTime || this.recordingStartTime < 86400) {
-      return this.formatClockTime(relativeSeconds);
-    }
-
-    const year = d.getUTCFullYear();
-    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(d.getUTCDate()).padStart(2, '0');
-    const hours = String(d.getUTCHours()).padStart(2, '0');
-    const mins = String(d.getUTCMinutes()).padStart(2, '0');
-    const secs = String(d.getUTCSeconds()).padStart(2, '0');
-    return year + '-' + month + '-' + day + ' ' + hours + ':' + mins + ':' + secs;
-  }
-
-  /**
    * Parse CSV string into raw time/value objects with GPS columns.
    * Interpolates GPS coordinates to reconstruct a continuous 10 Hz path.
    */

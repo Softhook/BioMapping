@@ -277,6 +277,8 @@ const GSRUI = {
     const meanPeakFreq = (totalDur > 0) ? (totalPeaks / (totalDur / 60.0)) : 0;
 
     const F = AppState.statFields;
+    if (F.date)      F.date.innerText      = '--';
+    if (F.startTime) F.startTime.innerText  = '--';
     if (F.duration) F.duration.innerText = (totalDur / 60.0).toFixed(1) + " min";
     if (F.meanSCL)  F.meanSCL.innerText  = meanSCL.toFixed(3) + " \u03bcS";
     if (F.peakCount) F.peakCount.innerText = totalPeaks;
