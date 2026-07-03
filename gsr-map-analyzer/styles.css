@@ -55,17 +55,17 @@ body {
   height: 100vh;
 }
 
-/* Scrollbar customization */
+/* Scrollbar customization — fixed 10px, no size change on interaction */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
   background: rgba(17, 17, 17, 0.04);
 }
 ::-webkit-scrollbar-thumb {
   background: rgba(17, 17, 17, 0.2);
-  border-radius: 3px;
+  border-radius: 5px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(17, 17, 17, 0.35);
@@ -178,9 +178,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  overflow-y: auto;
+  overflow-y: scroll;
   overflow-x: hidden;
-  padding-right: 4px;
+  padding-right: 10px;
   transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -502,7 +502,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  overflow-y: auto;
+  overflow-y: scroll;
+  padding-right: 10px;
   min-height: 0;
 }
 
