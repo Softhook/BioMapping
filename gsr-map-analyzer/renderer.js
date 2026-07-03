@@ -446,8 +446,8 @@ const GSRRenderer = {
     const pad = 12;
     const hasPeakInfo = nearPeak && nearPeak.qualityScore !== undefined;
     // Extra width for peak quality details
-    const boxW = hasPeakInfo ? 230 : 200;
-    const boxH = hasPeakInfo ? 185 : 120;
+    const boxW = hasPeakInfo ? 240 : 200;
+    const boxH = hasPeakInfo ? 200 : 120;
 
     let boxX = mouseX + 15;
     if (boxX + boxW > width - GSR_CONST.MARGIN.right) {
@@ -504,6 +504,7 @@ const GSRRenderer = {
       textSize(9.5);
       fill(textColor);
       textStyle(BOLD);
+      textAlign(LEFT, TOP);
       text('Peak Quality', boxX + pad, peakY);
       fill(qColor);
       textAlign(RIGHT, TOP);

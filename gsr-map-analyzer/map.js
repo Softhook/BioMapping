@@ -23,7 +23,8 @@ class GSRMapManager {
     // Default view zoomed out
     this.map = L.map(this.containerId, {
       zoomControl: false,
-      scrollWheelZoom: true
+      scrollWheelZoom: true,
+      preferCanvas: true
     }).setView([0, 0], 2);
 
     // Light Map Style (OpenStreetMap base, CartoDB Positron)

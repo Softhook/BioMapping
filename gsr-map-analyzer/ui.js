@@ -365,6 +365,7 @@ const GSRUI = {
       useCORS: true,
       allowTaint: false,
       backgroundColor: null,
+      scale: window.devicePixelRatio || 1,
       logging: false
     }).then(canvas => {
       const link = document.createElement("a");
