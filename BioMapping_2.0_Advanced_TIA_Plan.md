@@ -41,8 +41,8 @@ To build this, you need the following physical components:
 ### Phase 1: Freeing the I2C Bus (Trace Cuts)
 The two copper traces connecting **Pin 15 (PC1)** and **Pin 16 (PC0)** to the L76K GPS module have been physically cut. These pins are for exclusive use by the ADS1115 I2C bus.
 
-* Pin 15 (PC1) — **no longer connected to GPS** → used for I2C **SCL**
-* Pin 16 (PC0) — **no longer connected to GPS** → used for I2C **SDA**
+* Pin 15 (PC1) — **no longer connected to GPS** → used for I2C **SDA**
+* Pin 16 (PC0) — **no longer connected to GPS** → used for I2C **SCL**
 
 ### Phase 2: GPS Hardware Reroute
 No additional wiring is needed. The L76K cannot be put to sleep via software, so no STANDBY or RESET wires need to be soldered. The GPS runs continuously. Software reset commands are available over UART for error recovery — see **Section 4a**.
@@ -62,8 +62,9 @@ Pin 4 = GND       Pin 5 = In+ B
   * `VDD` on ADS1115 -> **Pin 9 (3.3V)**
   * `GND` on ADS1115 -> **Pin 8 (GND)**
   * `ADDR` on ADS1115 -> **Pin 8 (GND)** *(Hardcodes the I2C address to 0x48)*
-  * `SCL` on ADS1115 -> **Pin 15 (PC1)**
-  * `SDA` on ADS1115 -> **Pin 16 (PC0)**
+  * `SDA` on ADS1115 -> **Pin 15 (PC1)**
+  * `SCL` on ADS1115 -> **Pin 16 (PC0)**
+ 
 
 * **Power & Bypass (dual op-amp):**
   * Pin 8 -> **Pin 9 (3.3V)**
