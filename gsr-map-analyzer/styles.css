@@ -258,6 +258,7 @@ body {
 /* Slider Controls */
 .slider-group {
   margin-bottom: 16px;
+  position: relative;
 }
 
 .slider-group:last-child {
@@ -282,7 +283,8 @@ body {
   background: rgba(17, 17, 17, 0.05);
 }
 
-.slider-group.filter-off .help-text {
+.slider-group.filter-off .help-text,
+.slider-group.filter-off .slider-rec {
   opacity: 0.35;
 }
 
@@ -306,6 +308,28 @@ body {
   font-weight: 600;
   color: var(--accent-primary);
   font-variant-numeric: tabular-nums;
+}
+
+/* Red recommended-value range on shape sliders */
+.slider-rec {
+  position: absolute;
+  top: 28px;               /* same vertical position as the slider track */
+  height: 6px;             /* same height as the slider track */
+  background: rgba(209, 0, 36, 0.15);
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 1;
+}
+.slider-rec::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #d10024;
+  border-radius: 1px;
+  opacity: 0.5;
 }
 
 input[type="range"] {

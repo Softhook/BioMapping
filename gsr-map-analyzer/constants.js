@@ -38,9 +38,9 @@ const GSR_CONST = {
     medianSize: 0, lpfWindow: 0,
     tonicMethod: 'percentile', tonicWindow: 15, peakThreshold: 0.020,
     dwtLevel: 6,
-    shapeMinRiseTime: 0.2, shapeMaxRiseTime: 5.0,
-    shapeMinHalfRecovery: 0.1, shapeMaxHalfRecovery: 10.0,
-    shapeMinSnr: 1.5, shapeMaxSkewRatio: 6.0
+    shapeMinRiseTime: 0.5, shapeMaxRiseTime: 5.0,
+    shapeMinHalfRecovery: 0.3, shapeMaxHalfRecovery: 10.0,
+    shapeMinSnr: 2.0, shapeMaxSkewRatio: 6.0
   },
 
   // ── CSV parsing keywords ─────────────────────────────────────────────────
@@ -60,16 +60,16 @@ const GSR_CONST = {
   // ── Enhanced peak shape & width criteria ──────────────────────────────
   // Based on established GSR literature (Boucsein, 2012; Benedek & Kaernbach, 2010)
   PEAK_SHAPE: {
-    MIN_RISE_TIME: 0.2,          // Min onset→peak (s) — faster = motion artifact
+    MIN_RISE_TIME: 0.5,          // Min onset→peak (s) — per Boucsein 0.5–5 s
     MAX_RISE_TIME: 5.0,          // Max onset→peak (s) — slower = tonic drift
-    MIN_HALF_RECOVERY: 0.1,      // Min half-recovery (s) — unrealistically fast
+    MIN_HALF_RECOVERY: 0.3,      // Min half-recovery (s) — per Van Halem 0.5 s min
     MAX_HALF_RECOVERY: 10.0,     // Max half-recovery (s) — too slow for SCR
-    MIN_ONSET_SLOPE: 0.0003,     // Min slope (µS/sample) on rising edge
+    MIN_ONSET_SLOPE: 0.001,      // Min slope (µS/sample) — raised per literature review
     MAX_ONSET_SLOPE: 0.5,        // Max slope — catches spike artifacts
     MIN_DECAY_SLOPE: 0.00001,    // Min decay (µS/sample) — recovery must exist
-    MIN_ONSET_DURATION: 3,       // Min samples from trough to peak
+    MIN_ONSET_DURATION: 5,       // Min samples from trough to peak (0.5 s @ 10 Hz)
     MAX_PEAK_WIDTH: 8.0,        // Max total peak width (s)
-    MIN_SNR: 1.5,               // Min signal-to-noise ratio  
+    MIN_SNR: 2.0,               // Min signal-to-noise ratio — per NeuroKit standard
     SKEWNESS_RATIO_MIN: 0.2,    // Min rise/recovery ratio (asymmetric shape)
     SKEWNESS_RATIO_MAX: 6.0,    // Max rise/recovery ratio
     QUALITY_WEIGHTS: {           // For composite quality score (0–1)

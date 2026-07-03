@@ -130,7 +130,9 @@ const GSREvents = {
 
     slider.addEventListener('input', () => {
       const val = parseFloat(slider.value);
-      label.innerText = val === 0 ? 'off' : val.toFixed(suffix.includes('μS') ? 3 : 1) + suffix;
+      const step = parseFloat(slider.step) || 0.1;
+      const decimals = step < 0.1 ? 2 : (suffix.includes('μS') ? 3 : 1);
+      label.innerText = val === 0 ? 'off' : val.toFixed(decimals) + suffix;
       updateDim();
       GSRUI.runAnalysis();
       GSRStorage.saveSettings();
@@ -466,7 +468,9 @@ const GSREvents = {
       const label  = document.getElementById(labelId);
       if (slider && label) {
         const val = parseFloat(slider.value);
-        label.innerText = val === 0 ? 'off' : val.toFixed(suffix.includes('μS') ? 3 : 1) + suffix;
+        const step = parseFloat(slider.step) || 0.1;
+        const decimals = step < 0.1 ? 2 : (suffix.includes('μS') ? 3 : 1);
+        label.innerText = val === 0 ? 'off' : val.toFixed(decimals) + suffix;
       }
     };
     updateLabel('medianSize',    'valMedianSize',    ' s');
