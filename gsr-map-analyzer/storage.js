@@ -100,46 +100,21 @@ const GSRStorage = {
 
   saveSettings() {
     const S = AppState.sliders;
-    if (!S.medianSize) return;
-    const gsr = this.readGsrSliderValues();
-    const gps = this.readGpsSliderValues();
-    const map = this.readMapSettings();
-    const settings = {
-      medianSize:    gsr.medianSize,
-      lpfWindow:     gsr.lpfWindow,
-      tonicMethod:   gsr.tonicMethod,
-      tonicWindow:   gsr.tonicWindow,
-      peakThreshold:      gsr.peakThreshold,
-      dwtLevel:           gsr.dwtLevel,
-      shapeMinRiseTime:     gsr.shapeMinRiseTime,
-      shapeMaxRiseTime:     gsr.shapeMaxRiseTime,
-      shapeMinHalfRecovery: gsr.shapeMinHalfRecovery,
-      shapeMaxHalfRecovery: gsr.shapeMaxHalfRecovery,
-      shapeMinSnr:          gsr.shapeMinSnr,
-      shapeMaxSkewRatio:    gsr.shapeMaxSkewRatio,
-      gpsMinSats:      gps.minSats,
-      gpsMaxSpeed:     gps.maxSpeed,
-      gpsHampelWindow: gps.hampelWindow,
-      gpsHampelSigma:  gps.hampelSigma,
-      gpsDBSCANRadius: gps.dbscanRadius,
-      gpsDBSCANMinPts: gps.dbscanMinPts,
-      gpsKalmanR:      gps.kalmanR,
-      gpsKalmanQ:      gps.kalmanQ,
-      gpsRDP:          gps.rdpTolerance,
-      gpsDownsample:   gps.downsample,
-      gpsTrackWeight:  gps.trackWeight,
-      gpsPeakLatency:  gps.peakLatency
+    if (!S || !S.medianSize) return;
+    
+    const settings = {};
+    const extractValues = (controls) => {
+      if (!controls) return;
+      for (const [key, el] of Object.entries(controls)) {
+        if (el) {
+          settings[key] = el.type === 'checkbox' ? el.checked : el.value;
+        }
+      }
     };
-    if (map) {
-      settings.gridResolution = map.gridResolution;
-      settings.contourCount = map.contourCount;
-      settings.isolationRadius = map.isolationRadius;
-      settings.idwExponent = map.idwExponent;
-      settings.topoSource = map.topoSource;
-      settings.showShadedSurface = map.showShadedSurface;
-      settings.normalizeZScore = map.normalizeZScore;
-      settings.surfaceOpacity = map.surfaceOpacity;
-    }
+
+    extractValues(S);
+    extractValues(AppState.contourControls);
+
     localStorage.setItem('bioMappingSettings', JSON.stringify(settings));
   },
 
