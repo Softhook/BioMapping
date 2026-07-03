@@ -201,6 +201,36 @@ const GSRUI = {
   },
 
   /**
+   * Resolve the correct peaks array for a given trackId (or active track).
+   */
+  _getPeaksArray(trackId) {
+    if (trackId) {
+      const track = AppState.collectiveManager.getTrack(trackId);
+      return (track && track.analyzer) ? track.analyzer.peaks : null;
+    }
+    return (AppState.analyzer) ? AppState.analyzer.peaks : null;
+  },
+
+  /**
+   * Toggle exclusion state for a peak event, then refresh all views.
+   */
+  togglePeakExclusion(idx, trackId) {
+    const peaks = GSRUI._getPeaksArray(trackId);
+    if (!peaks || idx >= peaks.length) return;
+    peaks[idx].excluded = !peaks[idx].excluded;
+    // Refresh displays
+    if (AppState.viewMode === 'single') {
+      GSRUI.updatePeaksTable();
+      redraw();
+      if (AppState.mapManager) {
+        AppState.mapManager.renderData(AppState.analyzer, GSRStorage.buildGpsParams());
+      }
+    } else {
+      GSRUI.updateCollectiveMap();
+    }
+  },
+
+  /**
    * Run the full analysis pipeline: GSR filtering + peak detection + map update.
    */
   runAnalysis() {
@@ -259,13 +289,16 @@ const GSRUI = {
     const tb    = AppState.tableBody;
 
     if (peaks.length === 0) {
-      tb.innerHTML = '<tr class="empty-row"><td colspan="13">No peaks detected. Try reducing the Peak Amplitude threshold.</td></tr>';
+      tb.innerHTML = '<tr class="empty-row"><td colspan="14">No peaks detected. Try reducing the Peak Amplitude threshold.</td></tr>';
       return;
     }
 
     let rowsHtml = "";
     peaks.forEach((p, idx) => {
-      const isAct = (idx === AppState.activePeakIndex) ? "class='active-row'" : "";
+      const rowClass = [];
+      if (idx === AppState.activePeakIndex) rowClass.push('active-row');
+      if (p.excluded) rowClass.push('excluded-row');
+      const rowAttr = rowClass.length > 0 ? "class='" + rowClass.join(' ') + "'" : "";
       const riseTimeStr = (p.riseTime || (p.time - p.onsetTime)).toFixed(2);
       const recTimeStr = p.halfRecoveryTime !== undefined && p.halfRecoveryTime !== -1
         ? p.halfRecoveryTime.toFixed(2) : "N/A";
@@ -283,7 +316,7 @@ const GSRUI = {
 
       const escapedLabel = (p.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-      rowsHtml += '<tr id="peakRow-' + idx + '" ' + isAct + ' onclick="GSRUI.focusOnPeak(' + idx + ')">' +
+      rowsHtml += '<tr id="peakRow-' + idx + '" ' + rowAttr + ' onclick="GSRUI.focusOnPeak(' + idx + ')">' +
         '<td>' + (idx + 1) + '</td>' +
         '<td class="label-cell">' +
           '<input class="peak-label-input" type="text" value="' + escapedLabel + '" ' +
@@ -303,6 +336,11 @@ const GSRUI = {
         '<td>' + onsetSlopeStr + '</td>' +
         '<td>' + skewStr + '</td>' +
         '<td>' + snrStr + '</td>' +
+        '<td class="exclude-cell"><button class="btn-exclude" ' +
+          'onclick="event.stopPropagation(); GSRUI.togglePeakExclusion(' + idx + ')" ' +
+          'title="' + (p.excluded ? 'Include peak' : 'Exclude peak') + '">' +
+          (p.excluded ? '<i class="fa-solid fa-plus"></i>' : '<i class="fa-solid fa-xmark"></i>') +
+          '</button></td>' +
         '<td><button class="btn-table-action" onclick="event.stopPropagation(); GSRUI.focusOnPeak(' + idx + ')">' +
         '<i class="fa-solid fa-arrows-to-eye"></i> View</button></td></tr>';
     });

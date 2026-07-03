@@ -248,10 +248,12 @@ class GSRAnalyzer {
     // Processed-CSV column detection (re-imported data)
     let peakLabelColIndex = -1;
     let isPeakColIndex = -1;
+    let peakExcludedColIndex = -1;
     for (let i = 0; i < headers.length; i++) {
       const h = headers[i];
       if (h.includes('peaklabel') || h.includes('peak_label')) peakLabelColIndex = i;
       if (h.includes('ispeak') || h.includes('is_peak')) isPeakColIndex = i;
+      if (h.includes('peakexcluded') || h.includes('peak_excluded')) peakExcludedColIndex = i;
     }
 
     // Fallbacks for main biometric columns
@@ -293,9 +295,13 @@ class GSRAnalyzer {
 
       // Read peak label from processed-CSV re-import
       let importedPeakLabel = '';
+      let importedPeakExcluded = false;
       if (peakLabelColIndex !== -1 && isPeakColIndex !== -1 &&
           cols[isPeakColIndex] && parseInt(cols[isPeakColIndex]) === 1) {
         importedPeakLabel = (cols[peakLabelColIndex] || '').replace(/^"|"$/g, '').trim();
+        if (peakExcludedColIndex !== -1 && cols[peakExcludedColIndex]) {
+          importedPeakExcluded = (cols[peakExcludedColIndex].trim() === '1');
+        }
       }
 
       rawDataList.push({
@@ -307,7 +313,8 @@ class GSRAnalyzer {
         sats: satsVal,
         fix: fixVal,
         hasGps: false,
-        _importLabel: importedPeakLabel
+        _importLabel: importedPeakLabel,
+        _importExcluded: importedPeakExcluded
       });
     }
 
@@ -357,11 +364,14 @@ class GSRAnalyzer {
       });
     }
 
-    // Build imported peak label lookup (time→label, after offset)
+    // Build imported peak label and exclusion lookup (time→label/excluded, after offset)
     this._importedPeakLabels = new Map();
+    this._importedPeakExcluded = new Map();
     for (const d of rawDataList) {
       if (d._importLabel) this._importedPeakLabels.set(d.time, d._importLabel);
-      delete d._importLabel; // clean up temp field
+      if (d._importExcluded) this._importedPeakExcluded.set(d.time, true);
+      delete d._importLabel;
+      delete d._importExcluded;
     }
 
     // Auto-detect sample rate
@@ -678,17 +688,23 @@ class GSRAnalyzer {
   }
 
   detectPeaks(threshold, params) {
-    // Preserve any user-set labels across re-analysis by matching on raw index
+    // Preserve any user-set labels and exclusion state across re-analysis by matching on raw index
     const oldLabels = new Map();
+    const oldExcluded = new Set();
     for (const pk of this.peaks) {
       if (pk.label && pk.label.trim()) oldLabels.set(pk.index, pk.label);
+      if (pk.excluded) oldExcluded.add(pk.index);
     }
-    // Also merge labels imported from re-loaded processed CSV (matched by time)
+    // Also merge labels and exclusion imported from re-loaded processed CSV (matched by time)
     if (this._importedPeakLabels && this._importedPeakLabels.size > 0) {
       for (const pk of this.peaks) {
         if (!pk.label || !pk.label.trim()) {
           const imported = this._importedPeakLabels.get(pk.time);
           if (imported) oldLabels.set(pk.index, imported);
+        }
+        if (!pk.excluded) {
+          const importedEx = this._importedPeakExcluded && this._importedPeakExcluded.get(pk.time);
+          if (importedEx) oldExcluded.add(pk.index);
         }
       }
     }
@@ -869,7 +885,9 @@ class GSRAnalyzer {
         snr: snr,
         label: oldLabels.get(i) ||
                (this._importedPeakLabels ? this._importedPeakLabels.get(times[i]) : '') ||
-               ''
+               '',
+        excluded: oldExcluded.has(i) ||
+                  (this._importedPeakExcluded ? this._importedPeakExcluded.has(times[i]) : false)
       };
 
       // ── 11. Compute composite quality score ────────────────────────────
@@ -931,7 +949,7 @@ class GSRAnalyzer {
     if (gpsParams) {
       csv += `# GpsFilterParams:${JSON.stringify(gpsParams)}\n`;
     }
-    csv += "Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,PeakLabel,Latitude,Longitude";
+    csv += "Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,PeakLabel,PeakExcluded,Latitude,Longitude";
     if (hasFilteredGps) {
       csv += ",Raw Latitude,Raw Longitude";
     }
@@ -947,12 +965,14 @@ class GSRAnalyzer {
       let isPeak = 0;
       let peakAmp = "";
       let peakLabel = "";
+      let peakExcluded = "";
       
       const peak = peakByIndex.get(i);
       if (peak) {
         isPeak = 1;
         peakAmp = peak.amplitude.toFixed(4);
         peakLabel = peak.label || "";
+        peakExcluded = peak.excluded ? "1" : "0";
       }
 
       let latVal = this.raw[i].lat;
@@ -980,6 +1000,7 @@ class GSRAnalyzer {
              `${isPeak},` +
              `${peakAmp},` +
              `"${peakLabel}",` +
+             `${peakExcluded},` +
              `${latStr},` +
              `${lonStr}`;
 

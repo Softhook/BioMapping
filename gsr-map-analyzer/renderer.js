@@ -22,6 +22,25 @@ function getQualityLabel(score) {
   return { pct, label };
 }
 
+// Excluded-peak visual style constants
+const EXCLUDED_STYLE = {
+  color:     '#9a9a9a',
+  lineColor: '#b0b0b0',
+  lineAlpha: '3c',
+  fillAlpha: '1a',
+  dash:      [2, 4],
+  weight:    1.2,
+  dotWeight: 1.5
+};
+
+const NORMAL_DASH = [3, 3];
+
+const EXCLUDE_BTN = {
+  r: 5,              // button radius
+  offsetY: -8,       // Y offset from yBottomU (bottom of upper graph)
+  symbol: '\u2715'   // ✕ character
+};
+
 const GSRRenderer = {
   _styleCache: null,
 
@@ -255,6 +274,9 @@ const GSRRenderer = {
   drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
     if (!AppState.showPeaks || !AppState.analyzer.peaks || AppState.analyzer.peaks.length === 0) return;
 
+    // Reset click-target list for on-canvas exclude buttons
+    AppState._peakExcludeButtons = [];
+
     const tSpan = tMax - tMin;
     const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
     const xScale = tSpan > 0 ? (xSpan / tSpan) : 0;
@@ -287,11 +309,16 @@ const GSRRenderer = {
       const colorPhasic = this.getThemeColor('--color-phasic', '#008f3c');
       const canvasBg = this.getThemeColor('--canvas-bg', '#ffffff');
 
+      const isExcluded = p.excluded === true;
       const qScore = p.qualityScore !== undefined ? p.qualityScore : 0.5;
-      const peakColor = getQualityColor(qScore);
+      const peakColor = isExcluded ? EXCLUDED_STYLE.color : getQualityColor(qScore);
+      const lineClr   = isExcluded ? EXCLUDED_STYLE.lineColor : peakColor;
+      const dashPat   = isExcluded ? EXCLUDED_STYLE.dash : NORMAL_DASH;
+      const dotWt      = isExcluded ? EXCLUDED_STYLE.dotWeight : 1.5;
+      const markerWt   = isExcluded ? EXCLUDED_STYLE.weight : 2;
 
       if (isActive || isHovered) {
-        fill(color(peakColor + '4b'));
+        fill(isExcluded ? color(lineClr + EXCLUDED_STYLE.fillAlpha) : color(peakColor + '4b'));
         noStroke();
         beginShape();
         vertex(xOnset, yBottomL);
@@ -304,32 +331,31 @@ const GSRRenderer = {
         endShape(CLOSE);
       }
 
-      stroke(colorPhasic);
-      strokeWeight(1.5);
+      stroke(isExcluded ? lineClr : colorPhasic);
+      strokeWeight(dotWt);
       fill(canvasBg);
       circle(xOnset, yPhasicOnset, isActive ? 8 : 5);
 
-      stroke(color(peakColor + '3c'));
+      stroke(isExcluded ? color(lineClr + EXCLUDED_STYLE.lineAlpha) : color(peakColor + '3c'));
       strokeWeight(1);
-      drawingContext.setLineDash([3, 3]);
+      drawingContext.setLineDash(dashPat);
       line(xPeak, yFilteredPeak, xPeak, yPhasicPeak);
       drawingContext.setLineDash([]);
 
-      stroke(peakColor);
-      strokeWeight(2);
-      fill(isActive ? color(peakColor) : color(canvasBg));
+      stroke(isExcluded ? color(lineClr) : peakColor);
+      strokeWeight(markerWt);
+      fill(isActive ? (isExcluded ? color(lineClr) : color(peakColor)) : color(canvasBg));
       circle(xPeak, yPhasicPeak, isActive ? 9 : 6);
       circle(xPeak, yFilteredPeak, isActive ? 9 : 6);
 
       if (xPeak >= GSR_CONST.MARGIN.left && xPeak <= width - GSR_CONST.MARGIN.right) {
         if (AppState.viewDuration < 300 || isActive || isHovered) {
           noStroke();
-          fill(peakColor);
+          fill(isExcluded ? color(EXCLUDED_STYLE.color) : peakColor);
           textSize(10);
           textStyle(BOLD);
           textAlign(CENTER, BOTTOM);
           let labelText = p.label || '#' + (pIdx + 1);
-          // Truncate long labels to match map display (capped ~160px / ~25 chars)
           if (labelText.length > 22) {
             labelText = labelText.substring(0, 19) + '...';
           }
@@ -337,7 +363,62 @@ const GSRRenderer = {
           textStyle(NORMAL);
         }
       }
+
+      // ── On-canvas exclude ✕ / ＋ button (only when scrubbing near) ──
+      if (isHovered && xPeak >= GSR_CONST.MARGIN.left && xPeak <= width - GSR_CONST.MARGIN.right) {
+        this._drawExcludeButton(xPeak, yBottomU, pIdx, isExcluded);
+      }
     }
+  },
+
+  /**
+   * Draw a small exclude ✕ or re-include ＋ circle on the canvas.
+   * Called per-peak from drawPeakMarkers when the scrub line is near.
+   */
+  _drawExcludeButton(xPeak, yBottomU, peakIdx, isExcluded) {
+    const btnX = xPeak;
+    const btnY = yBottomU + EXCLUDE_BTN.offsetY;
+    const btnR = EXCLUDE_BTN.r;
+    const btnColor = isExcluded ? '#008f3c' : '#d10024';
+
+    noStroke();
+    fill(color(btnColor + '1a'));
+    circle(btnX, btnY, btnR * 2 + 3);
+
+    stroke(btnColor);
+    strokeWeight(1);
+    noFill();
+    circle(btnX, btnY, btnR * 2 + 1);
+    noStroke();
+
+    fill(btnColor);
+    textSize(8);
+    textStyle(BOLD);
+    textAlign(CENTER, CENTER);
+    text(isExcluded ? '+' : EXCLUDE_BTN.symbol, btnX, btnY);
+    textStyle(NORMAL);
+
+    // Store for hit-testing in mousePressed
+    AppState._peakExcludeButtons.push({ idx: peakIdx, x: btnX, y: btnY, r: btnR + 2 });
+  },
+
+  /**
+   * Check if a canvas (mouseX, mouseY) click hits any exclude button.
+   * If so, toggle exclusion for that peak and return true.
+   * Called from sketch.js mousePressed before starting any drag.
+   */
+  checkExcludeHit(mx, my) {
+    const btns = AppState._peakExcludeButtons;
+    if (!btns || btns.length === 0) return false;
+    for (const btn of btns) {
+      const dx = mx - btn.x;
+      const dy = my - btn.y;
+      if (Math.sqrt(dx * dx + dy * dy) <= btn.r) {
+        GSRUI.togglePeakExclusion(btn.idx);
+        return true;
+      }
+    }
+    return false;
   },
 
   handleScrubber(tMin, tMax, yMinU, yMaxU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {

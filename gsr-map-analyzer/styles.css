@@ -831,6 +831,74 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border-color: var(--border-focus);
 }
 
+/* Exclude column & button */
+.exclude-cell {
+  padding: 2px 6px !important;
+  text-align: center;
+}
+
+.btn-exclude {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: #d10024;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 2px 6px;
+  line-height: 1;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.btn-exclude:hover {
+  background: rgba(209, 0, 36, 0.08);
+  border-color: rgba(209, 0, 36, 0.25);
+}
+
+/* Excluded row styling */
+.peaks-table tbody tr.excluded-row {
+  opacity: 0.45;
+}
+
+.peaks-table tbody tr.excluded-row td {
+  text-decoration: line-through;
+  text-decoration-color: rgba(17, 17, 17, 0.25);
+}
+
+.peaks-table tbody tr.excluded-row:hover {
+  opacity: 0.7;
+}
+
+/* Map popup exclude button */
+.btn-exclude-popup {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: #d10024;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 2px 5px;
+  line-height: 1;
+  margin-left: auto;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+
+.btn-exclude-popup:hover {
+  background: rgba(209, 0, 36, 0.08);
+}
+
+.popup-header-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.popup-header-row h4 {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 8px;
+}
+
 .peak-label-input::placeholder {
   color: var(--text-muted);
   font-style: italic;

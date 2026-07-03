@@ -201,6 +201,9 @@ function draw() {
 function mousePressed() {
   if (AppState.analyzer.raw.length === 0) return;
 
+  // Check for click on an on-canvas exclude ✕ / ＋ button — abort drag if hit
+  if (GSRRenderer.checkExcludeHit(mouseX, mouseY)) return;
+
   if (mouseX >= GSR_CONST.MARGIN.left && mouseX <= width - GSR_CONST.MARGIN.right &&
       mouseY >= AppState.yTimelineTop && mouseY <= AppState.yTimelineBottom) {
     AppState.isDraggingTimeline = true;

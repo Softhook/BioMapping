@@ -333,11 +333,22 @@ class GSRMapManager {
 
       if (this.showPeaks) marker.addTo(this.map);
 
+      // Dim excluded peak markers
+      if (peak.excluded) {
+        marker.setOpacity(0.35);
+      }
+
       marker.bindPopup(function() {
         const container = L.DomUtil.create('div');
         container.className = 'map-popup-card';
         container.innerHTML = [
-          '<h4>' + (displayLabel ? escapedLabel : '#' + (index + 1)) + '</h4>',
+          '<div class="popup-header-row">',
+            '<h4>' + (displayLabel ? escapedLabel : '#' + (index + 1)) + '</h4>',
+            '<button class="btn-exclude-popup" data-peak-idx="' + index + '" ' +
+              'title="' + (peak.excluded ? 'Include peak' : 'Exclude peak') + '">' +
+              (peak.excluded ? '<i class="fa-solid fa-plus"></i>' : '<i class="fa-solid fa-xmark"></i>') +
+            '</button>',
+          '</div>',
           '<div class="popup-label-edit">',
             '<label>Label:</label>',
             '<input class="popup-label-input" type="text" value="' + escapedLabel + '" ' +
@@ -363,6 +374,14 @@ class GSRMapManager {
             }
           });
           L.DomEvent.disableClickPropagation(input);
+        }
+        const excludeBtn = container.querySelector('.btn-exclude-popup');
+        if (excludeBtn) {
+          L.DomEvent.on(excludeBtn, 'click', function() {
+            GSRUI.togglePeakExclusion(index);
+            marker.closePopup();
+          });
+          L.DomEvent.disableClickPropagation(excludeBtn);
         }
         return container;
       });
@@ -584,7 +603,13 @@ class GSRMapManager {
           const container = L.DomUtil.create('div');
           container.className = 'map-popup-card compact';
           container.innerHTML = `
-            <h4>${track.name}</h4>
+            <div class="popup-header-row">
+              <h4>${track.name}</h4>
+              <button class="btn-exclude-popup" data-peak-idx="${index}" data-track-id="${trackId}"
+                title="${peak.excluded ? 'Include peak' : 'Exclude peak'}">
+                ${peak.excluded ? '<i class="fa-solid fa-plus"></i>' : '<i class="fa-solid fa-xmark"></i>'}
+              </button>
+            </div>
             <p><b>${displayLabel || ('Peak Event #' + (index + 1))}</b></p>
             <div class="popup-label-edit">
               <label>Label:</label>
@@ -605,9 +630,21 @@ class GSRMapManager {
             });
             L.DomEvent.disableClickPropagation(input);
           }
+          const excludeBtn = container.querySelector('.btn-exclude-popup');
+          if (excludeBtn) {
+            L.DomEvent.on(excludeBtn, 'click', function() {
+              GSRUI.togglePeakExclusion(index, trackId);
+              marker.closePopup();
+            });
+            L.DomEvent.disableClickPropagation(excludeBtn);
+          }
           return container;
         });
         marker.addTo(this.map);
+        // Dim excluded peak markers
+        if (peak.excluded) {
+          marker.setOpacity(0.35);
+        }
         this.collectivePeakMarkers.push(marker);
       });
 
