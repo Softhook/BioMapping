@@ -184,7 +184,12 @@ const GSRUI = {
     const hasClock = a.recordingStartTime && a.recordingStartTime >= 86400;
     if (F.date)      F.date.innerText      = hasClock ? a.formatDateUK(0) : '--';
     if (F.startTime) F.startTime.innerText  = hasClock ? a.formatTimeOnly(0) : '--';
-    F.duration.innerText  = stats.duration.toFixed(1) + " s";
+    const dur = stats.duration;
+    const durMins = Math.floor(dur / 60);
+    const durSecs = Math.floor(dur % 60);
+    F.duration.innerText  = durMins > 0
+      ? durMins + ' min ' + durSecs + ' sec'
+      : durSecs + ' sec';
     F.meanSCL.innerText   = stats.meanSCL.toFixed(3) + " \u03bcS";
     F.peakCount.innerText = stats.peakCount;
     F.peakFreq.innerText  = stats.peakFrequency.toFixed(2) + " / min";

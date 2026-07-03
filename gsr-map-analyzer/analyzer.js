@@ -143,6 +143,25 @@ class GSRAnalyzer {
   }
 
   /**
+   * Returns a short numeric date string, e.g. "30.12.2026".
+   * Falls back to relative seconds display when no real clock time is available.
+   */
+  formatDateShort(relativeSeconds) {
+    const absSeconds = this.recordingStartTime + relativeSeconds;
+    const d = new Date(absSeconds * 1000);
+
+    if (!this.recordingStartTime || this.recordingStartTime < 86400) {
+      return this.formatClockTime(relativeSeconds);
+    }
+
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const year = d.getUTCFullYear();
+
+    return day + '.' + month + '.' + year;
+  }
+
+  /**
    * Parse CSV string into raw time/value objects with GPS columns.
    * Interpolates GPS coordinates to reconstruct a continuous 10 Hz path.
    */

@@ -170,7 +170,7 @@ const GSRTrackManager = {
       const a = track.analyzer;
       const hasClock = a.recordingStartTime && a.recordingStartTime >= 86400;
       meta.innerText = hasClock
-        ? a.formatDateUK(0) + ' ' + a.formatTimeOnly(0)
+        ? a.formatDateShort(0) + ' ' + a.formatTimeOnly(0)
         : '';
 
       details.appendChild(name);
