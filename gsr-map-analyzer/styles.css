@@ -38,6 +38,11 @@
   --canvas-text: var(--text-secondary);
   --canvas-overlay-bg: rgba(255, 255, 255, 0.95);
   --canvas-scrubber: rgba(17, 17, 17, 0.25);
+
+  /* Standardized Transitions */
+  --transition-speed: 0.3s;
+  --transition-timing: cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-standard: var(--transition-speed) var(--transition-timing);
 }
 
 /* Base Reset & Styling */
@@ -166,7 +171,7 @@ body {
   gap: 12px;
   flex-grow: 1;
   min-height: 0;
-  transition: grid-template-columns 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: grid-template-columns var(--transition-standard);
 }
 
 .main-layout.sidebar-collapsed {
@@ -181,7 +186,7 @@ body {
   overflow-y: scroll;
   overflow-x: hidden;
   padding-right: 10px;
-  transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 0.25s ease, transform var(--transition-standard);
 }
 
 .main-layout.sidebar-collapsed .sidebar {
@@ -513,6 +518,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   overflow-y: scroll;
   padding-right: 10px;
   min-height: 0;
+  height: 100%;
 }
 
 /* Stats Cards */
@@ -573,6 +579,16 @@ input[type="range"]::-webkit-slider-thumb:hover {
   flex-direction: column;
   flex-grow: 1;
   min-height: 380px;
+  max-height: 1200px;
+  overflow: hidden;
+  transition: max-height var(--transition-standard), min-height var(--transition-standard);
+}
+
+.visualization-panel .canvas-container,
+.visualization-panel .canvas-footer {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.25s ease 0.1s, visibility 0s 0.1s;
 }
 
 .panel-header {
@@ -746,8 +762,31 @@ input[type="range"]::-webkit-slider-thumb:hover {
   flex-direction: column;
   flex-grow: 1;
   min-height: 180px;
-  max-height: calc(100vh - 230px);
+  max-height: 300px; /* Default when both panels are expanded */
   flex-shrink: 1;
+  transition: max-height var(--transition-standard), min-height var(--transition-standard);
+}
+
+.peaks-table-panel .table-container {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.25s ease 0.1s, visibility 0s 0.1s;
+}
+
+/* Dynamic max-height based on collapse state of preceding panels */
+/* 1. Only GSR Graph is collapsed (Map Overlay is expanded) */
+#gsrPanel.collapsed ~ #mapPanel:not(.collapsed) ~ #eventsPanel:not(.collapsed) {
+  max-height: calc(100vh - 630px);
+}
+
+/* 2. Only Map Overlay is collapsed (GSR Graph is expanded) */
+#gsrPanel:not(.collapsed) ~ #mapPanel.collapsed ~ #eventsPanel:not(.collapsed) {
+  max-height: calc(100vh - 610px);
+}
+
+/* 3. Both GSR Graph and Map Overlay are collapsed */
+#gsrPanel.collapsed ~ #mapPanel.collapsed ~ #eventsPanel:not(.collapsed) {
+  max-height: calc(100vh - 230px);
 }
 
 .table-container {
@@ -1002,9 +1041,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: flex;
   flex-direction: column;
   min-height: 400px;
+  max-height: 1200px;
   position: relative;
   flex-shrink: 0;
   overflow: hidden;
+  transition: max-height var(--transition-standard), min-height var(--transition-standard);
 }
 
 #map {
@@ -1014,6 +1055,9 @@ input[type="range"]::-webkit-slider-thumb:hover {
   background: rgba(0, 0, 0, 0.05);
   border-radius: 0 0 4px 4px;
   z-index: 1;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.25s ease 0.1s, visibility 0s 0.1s;
 }
 
 /* Custom Marker Styling — all positioning done via inline styles.
@@ -1248,44 +1292,52 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .visualization-panel.collapsed {
-  min-height: 0 !important;
+  min-height: 52px !important;
+  max-height: 52px !important;
   flex-grow: 0 !important;
   flex-shrink: 0 !important;
-  height: auto !important;
+  overflow: hidden !important;
 }
 .visualization-panel.collapsed .panel-header {
   border-bottom: none !important;
 }
 .visualization-panel.collapsed .canvas-container,
 .visualization-panel.collapsed .canvas-footer {
-  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  transition: opacity 0.15s ease, visibility 0s 0.15s !important;
 }
 
 .map-panel.collapsed {
-  min-height: 0 !important;
+  min-height: 52px !important;
+  max-height: 52px !important;
   flex-grow: 0 !important;
   flex-shrink: 0 !important;
-  height: auto !important;
+  overflow: hidden !important;
 }
 .map-panel.collapsed .panel-header {
   border-bottom: none !important;
 }
 .map-panel.collapsed #map {
-  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  transition: opacity 0.15s ease, visibility 0s 0.15s !important;
 }
 
 .peaks-table-panel.collapsed {
-  max-height: none !important;
-  min-height: 0 !important;
+  min-height: 52px !important;
+  max-height: 52px !important;
   flex-grow: 0 !important;
   flex-shrink: 0 !important;
-  height: auto !important;
+  overflow: hidden !important;
 }
 .peaks-table-panel.collapsed .panel-header {
   border-bottom: none !important;
 }
 .peaks-table-panel.collapsed .table-container {
-  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  transition: opacity 0.15s ease, visibility 0s 0.15s !important;
 }
 
 .control-card.collapsed .card-content {
