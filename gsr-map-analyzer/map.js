@@ -42,21 +42,6 @@ class GSRMapManager {
       iconAnchor: [8, 8]
     });
     this.scrubMarker = L.marker([0, 0], { icon: scrubIcon });
-
-    // Set up ResizeObserver to handle map resize dynamically and robustly
-    const mapElement = document.getElementById(this.containerId);
-    if (mapElement) {
-      const mapResizeObserver = new ResizeObserver((entries) => {
-        for (let entry of entries) {
-          const w = entry.contentRect.width;
-          const h = entry.contentRect.height;
-          if (w > 0 && h > 0) {
-            this.map.invalidateSize();
-          }
-        }
-      });
-      mapResizeObserver.observe(mapElement);
-    }
   }
 
   /**

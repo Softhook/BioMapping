@@ -6,31 +6,6 @@
  * All files access state through `AppState.xxx` instead of bare globals.
  */
 
-/**
- * Cross-browser Fullscreen API helpers.
- * Handles unprefixed, webkit (Safari <16), and moz (Firefox <64).
- */
-const Fullscreen = {
-  get active() {
-    return !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
-  },
-  request(el) {
-    const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen;
-    if (fn) return fn.call(el).catch(function () {});  // swallow permission denials
-    return null;
-  },
-  exit() {
-    const fn = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen;
-    if (fn) return fn.call(document).catch(function () {});
-    return null;
-  },
-  onChange(fn) {
-    document.addEventListener('fullscreenchange', fn);
-    document.addEventListener('webkitfullscreenchange', fn);
-    document.addEventListener('mozfullscreenchange', fn);
-  }
-};
-
 const AppState = {
 
   // ── Core engine instances ──────────────────────────────────────────────────

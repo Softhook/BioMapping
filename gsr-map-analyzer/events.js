@@ -72,20 +72,7 @@ const GSREvents = {
     btn.addEventListener('click', () => card.classList.toggle('collapsed'));
   },
 
-  /**
-   * Like bindCollapseButton but also calls onExpand after the expand animation.
-   * Avoids the double-listener pattern that previously existed for GSR + Map panels.
-   */
-  setupCollapseWithResize(btnId, cardId, onExpand) {
-    const btn = document.getElementById(btnId);
-    const card = document.getElementById(cardId);
-    if (!btn || !card) return;
-    btn.addEventListener('click', () => {
-      const wasCollapsed = card.classList.contains('collapsed');
-      card.classList.toggle('collapsed');
-      if (wasCollapsed && onExpand) setTimeout(onExpand, 50);
-    });
-  },
+
 
   /**
    * Update the dimmed state of a slider-group based on whether value is 0 (off).
@@ -396,41 +383,11 @@ const GSREvents = {
     GSREvents.bindCollapseButton('btnImportCollapse',        'importCard');
     GSREvents.bindCollapseButton('btnExportCollapse',        'exportCard');
     GSREvents.bindCollapseButton('btnContourCollapse',       'contourSettingsCard');
+    GSREvents.bindCollapseButton('btnGsrCollapse',           'gsrPanel');
+    GSREvents.bindCollapseButton('btnMapCollapse',           'mapPanel');
 
-    // GSR + Map panels need extra resize after collapse
-    GSREvents.setupCollapseWithResize('btnGsrCollapse', 'gsrPanel', () => { windowResized(); });
-    GSREvents.setupCollapseWithResize('btnMapCollapse', 'mapPanel', () => {
-      if (AppState.mapManager && AppState.mapManager.map) {
-        AppState.mapManager.map.invalidateSize();
-      }
-    });
-
-    // ── Panel Fullscreen ─────────────────────────────────────────────────────
-    GSRUI.setupPanelFullscreen('btnGsrFullscreen', 'gsrPanel', () => {
-      // Entering: overlay exists — compute canvas from its dimensions directly
-      // Exiting:  overlay is gone — fall back to windowResized()
-      const overlay = document.querySelector('.panel-fullscreen-overlay');
-      if (overlay) {
-        GSRRenderer.clearThemeCache();
-        const header = document.querySelector('#gsrPanel .panel-header');
-        const or = overlay.getBoundingClientRect();
-        const hh = header ? header.getBoundingClientRect().height : 0;
-        resizeCanvas(or.width - 24, or.height - 24 - hh);
-        redraw();
-      } else {
-        windowResized();
-      }
-    });
-    GSRUI.setupPanelFullscreen('btnMapFullscreen', 'mapPanel', () => {
-      AppState.isMapFullscreen = !AppState.isMapFullscreen;
-      if (AppState.mapManager && AppState.mapManager.map) {
-        AppState.mapManager.map.invalidateSize();
-      }
-    });
-    GSRUI.setupPanelFullscreen('btnEventsFullscreen', 'eventsPanel');
-
-    // ── Browser Fullscreen ───────────────────────────────────────────────────
-    GSRUI.toggleBrowserFullscreen('btnFullscreen');
+    // ── Centralised Layout & Fullscreen Management ───────────────────────────
+    GSRLayoutManager.init();
   },
 
   /**

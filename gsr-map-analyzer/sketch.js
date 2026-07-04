@@ -23,20 +23,6 @@ function setup() {
   AppState.myCanvas.elt.addEventListener('mouseenter', () => { AppState.mouseOverCanvas = true; });
   AppState.myCanvas.elt.addEventListener('mouseleave', () => { AppState.mouseOverCanvas = false; });
 
-  // Set up ResizeObserver to handle canvas resizing dynamically and robustly
-  const resizeObserver = new ResizeObserver((entries) => {
-    for (let entry of entries) {
-      const w = entry.contentRect.width;
-      const h = entry.contentRect.height;
-      if (w > 0 && h > 0) {
-        GSRRenderer.clearThemeCache();
-        resizeCanvas(w, h);
-        redraw();
-      }
-    }
-  });
-  resizeObserver.observe(container);
-
   GSREvents.cacheDOMElements();
   GSRStorage.loadSettings();
   GSREvents.initializeLabels();
@@ -47,15 +33,9 @@ function setup() {
 }
 
 function windowResized() {
-  GSRRenderer.clearThemeCache();
   const container = document.getElementById('canvasContainer');
-  if (!container) return;
-  const rect = container.getBoundingClientRect();
-  const w = rect.width;
-  const h = rect.height || 450;
-  if (w > 0 && h > 0) {
-    resizeCanvas(w, h);
-    redraw();
+  if (container) {
+    GSRLayoutManager.resizeCanvas(container.clientWidth, container.clientHeight);
   }
 }
 
