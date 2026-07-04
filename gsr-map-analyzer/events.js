@@ -451,12 +451,12 @@ const GSREvents = {
       contourSettingsCard.style.display = 'none';
 
       const peakCard = document.getElementById('peakDetectionCard');
-      if (peakCard) peakCard.style.display = 'block';
+      if (peakCard) peakCard.style.display = '';
 
       if (AppState.mapManager) AppState.mapManager.clearCollectiveLayers();
 
-      document.getElementById('gsrPanel').style.display = 'block';
-      document.getElementById('eventsPanel').style.display = 'block';
+      document.getElementById('gsrPanel').style.display = '';
+      document.getElementById('eventsPanel').style.display = '';
 
       if (AppState.analyzer && AppState.analyzer.raw.length > 0) {
         windowResized();
@@ -478,7 +478,7 @@ const GSREvents = {
       btnCollectiveView.classList.add('active');
       btnSingleView.classList.remove('active');
       appMainLayout.classList.add('collective-mode');
-      contourSettingsCard.style.display = 'block';
+      contourSettingsCard.style.display = '';
 
       const peakCard = document.getElementById('peakDetectionCard');
       if (peakCard) peakCard.style.display = 'none';
