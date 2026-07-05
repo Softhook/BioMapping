@@ -830,5 +830,62 @@
   <script src="ui.js"></script>
   <script src="renderer.js"></script>
   <script src="sketch.js"></script>
+
+  <!-- Street-Level Imagery Modal Overlay -->
+  <div class="streetview-modal-overlay" id="streetviewModal" style="display:none;" onclick="GSRUI.closeStreetViewModal(event)">
+    <div class="streetview-modal-content" onclick="event.stopPropagation()">
+      <div class="streetview-modal-header">
+        <h3><i class="fa-solid fa-street-view"></i> <span id="streetviewModalTitle">Street-Level View</span></h3>
+        <button class="icon-btn" onclick="GSRUI.closeStreetViewModal()" title="Close">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="streetview-modal-body">
+        <div class="streetview-tab-bar">
+          <button class="streetview-tab active" id="svTabGoogle" onclick="GSRUI.switchStreetViewTab('google')">
+            <i class="fa-brands fa-google"></i> Google Street View
+          </button>
+          <button class="streetview-tab" id="svTabMapillary" onclick="GSRUI.switchStreetViewTab('mapillary')">
+            <i class="fa-regular fa-map"></i> Mapillary
+          </button>
+        </div>
+        <div class="streetview-iframe-container" id="svIframeContainer">
+          <iframe id="svIframe" loading="lazy" allowfullscreen></iframe>
+        </div>
+        <div class="streetview-google-container" id="svGoogleContainer" style="display:none;">
+          <div class="streetview-iframe-container" id="svGoogleIframeContainer" style="display:none;">
+            <iframe id="svGoogleIframe" loading="lazy" allowfullscreen></iframe>
+          </div>
+          <div class="streetview-google-fallback" id="svGoogleFallback">
+            <p><i class="fa-solid fa-key"></i> Enter your Google Maps API key to embed Street View panoramas here.</p>
+            <p class="help-text">The <strong>Maps Embed API</strong> is free and unlimited. Get a key at
+              <a href="https://console.cloud.google.com/google/maps-apis/credentials" target="_blank" rel="noopener">Google Cloud Console</a>
+              and enable "Maps Embed API".</p>
+            <div class="api-key-input-row">
+              <input type="text" class="api-key-input" id="svApiKeyInput"
+                placeholder="Paste your Google Maps API key…" spellcheck="false">
+              <button class="btn btn-primary btn-sm" id="svApiKeySaveBtn" onclick="GSRUI.saveGoogleMapsKey()">
+                <i class="fa-solid fa-check"></i> Save
+              </button>
+            </div>
+            <p class="key-saved-msg" id="svKeySavedMsg" style="display:none; color: var(--success); font-size: 0.75rem;">
+              <i class="fa-solid fa-circle-check"></i> Key saved. Switch away and back to load Street View.
+            </p>
+            <hr style="margin:12px 0;border:none;border-top:1px solid var(--border-glass);">
+            <a class="btn-external-link streetview" id="svGoogleLink" target="_blank" rel="noopener">
+              <i class="fa-brands fa-google"></i> Open in Google Maps (new tab)
+            </a>
+          </div>
+        </div>
+      </div>
+      <div class="streetview-modal-footer">
+        <span class="streetview-coords" id="svModalCoords"></span>
+        <a class="btn-external-link mapillary" id="svMapillaryExtLink" target="_blank" rel="noopener">
+          <i class="fa-regular fa-map"></i> Open Mapillary in new tab
+        </a>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

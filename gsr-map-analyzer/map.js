@@ -683,7 +683,13 @@ class GSRMapManager {
           '<tr><td>Time:</td><td>', analyzer.formatTimeOnly(peak.time), '</td></tr>',
           '<tr><td>Amplitude:</td><td>', peak.amplitude.toFixed(3), ' μS</td></tr>',
           '<tr><td>Rise Time:</td><td>', (peak.time - peak.onsetTime).toFixed(1), ' s</td></tr>',
-          '</table></div>'
+          '<tr><td>Coords:</td><td>', coords.lat.toFixed(5), ', ', coords.lon.toFixed(5), '</td></tr>',
+          '</table>',
+          '<div class="popup-external-links">',
+            '<button class="btn-external-link streetview" onclick="GSRUI.openStreetView(' + coords.lat + ', ' + coords.lon + ", '" + (displayLabel || ('Peak #' + (index + 1))).replace(/'/g, "\\'") + "'); event.stopPropagation();\" title=\"View street-level imagery\">",
+              '<i class="fa-solid fa-street-view"></i> Street View',
+            '</button>',
+          '</div></div>'
         ].join('');
 
         const input = container.querySelector('.popup-label-input');
@@ -940,6 +946,14 @@ class GSRMapManager {
               <input class="popup-label-input" type="text" value="${escapedLabel}" placeholder="Enter label…">
             </div>
             <p>Amplitude: <b>${peak.amplitude.toFixed(3)} μS</b></p>
+            <p class="popup-coords">${lat.toFixed(5)}, ${lon.toFixed(5)}</p>
+            <div class="popup-external-links">
+              <button class="btn-external-link streetview"
+                 onclick="GSRUI.openStreetView(${lat}, ${lon}, '${(displayLabel || 'Peak #' + (index + 1)).replace(/'/g, "\\'")}'); event.stopPropagation();"
+                 title="View street-level imagery">
+                <i class="fa-solid fa-street-view"></i> Street View
+              </button>
+            </div>
           `;
           const input = container.querySelector('.popup-label-input');
           if (input) {

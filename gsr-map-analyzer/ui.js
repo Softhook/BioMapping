@@ -1089,5 +1089,121 @@ const GSRUI = {
     document.getElementById('valR2').innerText = r2.toFixed(3);
 
     GSRUI.drawRegressionScatter(canvas, xVals, yVals, m, c, r2, xLabels[scatterXMetric], yLabels[scatterYMetric]);
+  },
+
+  /**
+   * Open the street-level imagery modal overlay at the given coordinates.
+   * Shows Mapillary by default; Google Street View embed if API key is set.
+   */
+  openStreetView(lat, lon, label) {
+    const modal = document.getElementById('streetviewModal');
+    const mapillaryIframe = document.getElementById('svIframe');
+    const googleIframe = document.getElementById('svGoogleIframe');
+    const googleLink = document.getElementById('svGoogleLink');
+    const mapillaryExtLink = document.getElementById('svMapillaryExtLink');
+    const coordsEl = document.getElementById('svModalCoords');
+    const titleEl = document.getElementById('streetviewModalTitle');
+
+    if (!modal || !mapillaryIframe) return;
+
+    // Store coords for tab switching
+    this._svLat = lat;
+    this._svLon = lon;
+
+    titleEl.textContent = label ? 'Street-Level View — ' + label : 'Street-Level View';
+    coordsEl.textContent = lat.toFixed(5) + ', ' + lon.toFixed(5);
+
+    // Set Mapillary embed URL
+    mapillaryIframe.src = 'https://www.mapillary.com/embed?lat=' + lat + '&lng=' + lon + '&z=18';
+
+    // Set Google Maps external link (fallback)
+    googleLink.href = 'https://www.google.com/maps?layer=c&cbll=' + lat + ',' + lon;
+
+    // Set Mapillary external link
+    mapillaryExtLink.href = 'https://www.mapillary.com/app/?lat=' + lat + '&lng=' + lon + '&z=18';
+
+    // Reset Google iframe
+    if (googleIframe) googleIframe.src = '';
+
+    // Start on Google tab (left)
+    GSRUI.switchStreetViewTab('google');
+
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+
+    // Restore saved API key into input field
+    const keyInput = document.getElementById('svApiKeyInput');
+    const savedKey = localStorage.getItem('bioMappingGoogleMapsKey');
+    if (keyInput && savedKey) {
+      keyInput.value = savedKey;
+    }
+  },
+
+  /**
+   * Close the street-level imagery modal overlay.
+   * If event is provided (click on overlay background), only close if clicking the backdrop.
+   */
+  closeStreetViewModal(event) {
+    if (event && event.target !== document.getElementById('streetviewModal')) return;
+    const modal = document.getElementById('streetviewModal');
+    const mapillaryIframe = document.getElementById('svIframe');
+    const googleIframe = document.getElementById('svGoogleIframe');
+    if (modal) modal.style.display = 'none';
+    if (mapillaryIframe) mapillaryIframe.src = '';
+    if (googleIframe) googleIframe.src = '';
+    this._svLat = null;
+    this._svLon = null;
+    document.body.style.overflow = '';
+  },
+
+  /**
+   * Switch between Mapillary (embedded) and Google Street View tabs.
+   * If a Google Maps API key is saved, embeds Street View via the free Maps Embed API.
+   */
+  switchStreetViewTab(tab) {
+    const mapillaryTab = document.getElementById('svTabMapillary');
+    const googleTab = document.getElementById('svTabGoogle');
+    const iframeContainer = document.getElementById('svIframeContainer');
+    const googleContainer = document.getElementById('svGoogleContainer');
+    const googleIframeContainer = document.getElementById('svGoogleIframeContainer');
+    const googleIframe = document.getElementById('svGoogleIframe');
+    const googleFallback = document.getElementById('svGoogleFallback');
+
+    mapillaryTab.classList.toggle('active', tab === 'mapillary');
+    googleTab.classList.toggle('active', tab === 'google');
+    iframeContainer.style.display = tab === 'mapillary' ? '' : 'none';
+    googleContainer.style.display = tab === 'google' ? '' : 'none';
+
+    if (tab === 'google' && this._svLat != null && this._svLon != null) {
+      const apiKey = localStorage.getItem('bioMappingGoogleMapsKey');
+      if (apiKey) {
+        googleIframeContainer.style.display = '';
+        googleFallback.style.display = 'none';
+        const embedUrl = 'https://www.google.com/maps/embed/v1/streetview?key=' + encodeURIComponent(apiKey)
+          + '&location=' + this._svLat + ',' + this._svLon + '&heading=0&pitch=0&fov=90';
+        googleIframe.src = embedUrl;
+      } else {
+        googleIframeContainer.style.display = 'none';
+        googleFallback.style.display = '';
+        googleIframe.src = '';
+      }
+    }
+  },
+
+  /**
+   * Save the Google Maps API key from the input field to localStorage.
+   */
+  saveGoogleMapsKey() {
+    const input = document.getElementById('svApiKeyInput');
+    const msg = document.getElementById('svKeySavedMsg');
+    if (!input) return;
+    const key = input.value.trim();
+    if (key) {
+      localStorage.setItem('bioMappingGoogleMapsKey', key);
+      if (msg) {
+        msg.style.display = '';
+        setTimeout(function() { msg.style.display = 'none'; }, 3000);
+      }
+    }
   }
 };
