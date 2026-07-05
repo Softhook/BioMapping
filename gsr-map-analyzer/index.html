@@ -722,16 +722,18 @@
 
           <!-- Tab 1: Correlation Matrix -->
           <div class="env-tab-content active" id="envTabCorrelation" style="padding: 16px;">
-            <p class="help-text" style="margin-bottom: 12px; font-size: 0.85rem;">This matrix shows Pearson correlation coefficients (r) between environmental features and physiological arousal (Phasic SCR and Tonic SCL). Values range from -1.0 (strong restorative buffer) to +1.0 (strong stressor).</p>
+            <p class="help-text" style="margin-bottom: 12px; font-size: 0.85rem;">Pearson correlation (<em>r</em>) between environmental features and physiological arousal. Positive <em>r</em> = higher arousal, negative <em>r</em> = lower arousal. Stars indicate statistical significance (* p &lt; .05, ** p &lt; .01, *** p &lt; .001).</p>
             <div class="table-container">
               <table class="peaks-table" id="correlationTable">
                 <thead>
                   <tr>
                     <th>Environmental Feature</th>
-                    <th>Phasic</th>
-                    <th>Tonic</th>
-                    <th>Peaks</th>
-                    <th>Correlation Interpretation</th>
+                    <th>Phasic <em>r</em></th>
+                    <th>Tonic <em>r</em></th>
+                    <th>Peaks <em>r</em></th>
+                    <th>p (Phasic)</th>
+                    <th>p (Tonic)</th>
+                    <th>Interpretation</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -745,7 +747,7 @@
           <div class="env-tab-content" id="envTabScatter" style="display: none; padding: 16px;">
             <div style="display: flex; flex-direction: column; gap: 12px;">
               <div style="display: flex; gap: 12px; align-items: center;">
-                <label for="scatterEnvMetric" style="font-size: 0.85rem; font-weight: 500;">Select Environmental X-Axis:</label>
+                <label for="scatterEnvMetric" style="font-size: 0.85rem; font-weight: 500;">Environmental factor to explore:</label>
                 <select id="scatterEnvMetric" class="select-control" style="width: auto;">
                   <option value="osm_green_pct_50m">Green Space %</option>
                   <option value="osm_building_density_50m">Building Density</option>
@@ -756,17 +758,17 @@
                 </select>
               </div>
               <div style="display: flex; gap: 12px; align-items: center;">
-                <label for="scatterBioMetric" style="font-size: 0.85rem; font-weight: 500;">Select Physiological Y-Axis:</label>
+                <label for="scatterBioMetric" style="font-size: 0.85rem; font-weight: 500;">Arousal metric (Y-axis):</label>
                 <select id="scatterBioMetric" class="select-control" style="width: auto;">
-                  <option value="phasic">Phasic GSR (Arousal)</option>
-                  <option value="tonic">Tonic GSR (Baseline SCL)</option>
+                  <option value="phasic">Phasic SCR (momentary arousal)</option>
+                  <option value="tonic">Tonic SCL (baseline arousal)</option>
                 </select>
               </div>
               <div id="regressionFormula" style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 4px; font-size: 0.85rem; border-left: 3px solid #ff7b00; margin-top: 8px;">
-                <strong>Regression Formula:</strong> <span id="valFormula">y = mx + c</span><br>
-                <strong>Coefficient of Determination (R²):</strong> <span id="valR2">0.00</span>
+                <strong>Linear fit:</strong> <span id="valFormula">y = mx + c</span><br>
+                <strong>R² (goodness of fit):</strong> <span id="valR2">0.00</span>
               </div>
-              <p class="help-text">Visualizes linear trends. Each point represents a 1-second interval along the path.</p>
+              <p class="help-text">Each dot is one second of recording. The line shows the linear trend; R² indicates how much of the arousal variation the environmental factor explains.</p>
             </div>
             
             <div class="regression-chart-container" style="background: rgba(0,0,0,0.2); border-radius: 6px; padding: 16px; border: 1px solid rgba(255,255,255,0.1); position: relative; min-height: 240px; display: flex; flex-direction: column;">
@@ -777,16 +779,16 @@
           <!-- Tab 3: Roads Profile -->
           <div class="env-tab-content" id="envTabRoads" style="display: none; padding: 16px;">
             <div style="display: flex; flex-direction: column; gap: 12px; min-width: 0;">
-              <p class="help-text" style="margin-bottom: 12px;">Compares average physiological arousal (Phasic Conductance) across different OpenStreetMap street and pathway types encountered during the walk.</p>
+              <p class="help-text" style="margin-bottom: 12px;">Average arousal by street type, using OpenStreetMap road classification. Peak rate is normalized to spikes per minute.</p>
               <div class="table-container">
                 <table class="peaks-table" id="roadArousalTable">
                   <thead>
                     <tr>
-                      <th>Road Classification</th>
-                      <th>Time Spent (s)</th>
+                      <th>Road Type</th>
+                      <th>Time Spent</th>
                       <th>Mean Phasic (μS)</th>
                       <th>Mean Tonic (μS)</th>
-                      <th>Peak Rate (peaks/min)</th>
+                      <th>Peak Rate (per min)</th>
                     </tr>
                   </thead>
                   <tbody>

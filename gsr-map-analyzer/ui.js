@@ -517,7 +517,7 @@ const GSRUI = {
    */
   calculatePearsonCorrelation(x, y) {
     const n = x.length;
-    if (n === 0) return 0;
+    if (n === 0) return { r: 0, p: 1 };
     let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
     for (let i = 0; i < n; i++) {
       sumX += x[i];
@@ -528,7 +528,96 @@ const GSRUI = {
     }
     const num = n * sumXY - sumX * sumY;
     const den = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
-    return den === 0 ? 0 : num / den;
+    const r = den === 0 ? 0 : num / den;
+    // Two-tailed p-value from t-distribution: t = r * sqrt((n-2)/(1-r²))
+    let p = 1;
+    if (n > 2 && Math.abs(r) < 1) {
+      const t = r * Math.sqrt((n - 2) / (1 - r * r));
+      const df = n - 2;
+      p = GSRUI._tTestPValue(t, df);
+    }
+    return { r, p };
+  },
+
+  /**
+   * Compute two-tailed p-value from Student's t-distribution using
+   * the regularized incomplete beta function approximation.
+   */
+  _tTestPValue(t, df) {
+    const x = df / (df + t * t);
+    // Regularized incomplete beta: I_x(a,b) via continued fraction
+    const a = df / 2;
+    const b = 0.5;
+    // Use Abramowitz & Stegun 26.5.8 continued fraction approximation
+    let betaReg = this._regIncompleteBeta(x, a, b);
+    return betaReg;
+  },
+
+  _regIncompleteBeta(x, a, b) {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    // Lentz's continued fraction for regularized incomplete beta
+    const maxIter = 200;
+    const eps = 1e-12;
+    const front = Math.exp(
+      a * Math.log(x) + b * Math.log(1 - x) -
+      Math.log(a) - this._logBeta(a, b)
+    );
+    let f = 1;
+    let c = 1;
+    let d = 1 - (a + b) * x / (a + 1);
+    if (Math.abs(d) < eps) d = eps;
+    d = 1 / d;
+    f = d;
+    for (let m = 1; m <= maxIter; m++) {
+      const m2 = 2 * m;
+      // even term
+      let d1 = m * (b - m) * x / ((a + m2 - 1) * (a + m2));
+      d = 1 + d1 * d;
+      if (Math.abs(d) < eps) d = eps;
+      c = 1 + d1 / c;
+      if (Math.abs(c) < eps) c = eps;
+      d = 1 / d;
+      f *= d * c;
+      // odd term
+      d1 = -(a + m) * (a + b + m) * x / ((a + m2) * (a + m2 + 1));
+      d = 1 + d1 * d;
+      if (Math.abs(d) < eps) d = eps;
+      c = 1 + d1 / c;
+      if (Math.abs(c) < eps) c = eps;
+      d = 1 / d;
+      const del = d * c;
+      f *= del;
+      if (Math.abs(del - 1) < eps) break;
+    }
+    return front * f;
+  },
+
+  _logBeta(a, b) {
+    // Stirling approximation for log(Beta(a,b))
+    if (a < 1 || b < 1) {
+      return Math.log(Math.pow(a, a - 0.5) * Math.pow(b, b - 0.5) /
+             Math.pow(a + b, a + b - 0.5) * Math.sqrt(2 * Math.PI)) +
+             (1 / 12) * (1 / a + 1 / b - 1 / (a + b));
+    }
+    return this._logGamma(a) + this._logGamma(b) - this._logGamma(a + b);
+  },
+
+  _logGamma(z) {
+    // Stirling series for log(Gamma(z))
+    const x = z;
+    let sum = 1.000000000190015;
+    const coeffs = [
+      76.18009172947146, -86.50532032941677, 24.01409824083091,
+      -1.231739572450155, 1.208650973866179e-3, -5.395239384953e-6
+    ];
+    let y = x;
+    let tmp = x + 5.5;
+    tmp -= (x + 0.5) * Math.log(tmp);
+    for (let i = 0; i < 6; i++) {
+      sum += coeffs[i] / ++y;
+    }
+    return -tmp + Math.log(2.5066282746310005 * sum / x);
   },
 
   calculateLinearRegression(x, y) {
@@ -748,10 +837,16 @@ const GSRUI = {
       activeTracks.forEach(track => {
         const a = track.analyzer;
         const peaks = a.peaks.filter(p => !p.excluded);
+        // Bin peaks into non-overlapping 15-second windows to avoid double-counting
+        const peakBinMap = new Map();
+        peaks.forEach(p => {
+          const bin = Math.floor(p.time / 15);
+          peakBinMap.set(bin, (peakBinMap.get(bin) || 0) + 1);
+        });
         allData.forEach(d => {
           if (d.trackId === track.id) {
-            const count = peaks.filter(p => Math.abs(p.time - d.time) <= 15).length;
-            peakCounts.push(count);
+            const bin = Math.floor(d.time / 15);
+            peakCounts.push(peakBinMap.get(bin) || 0);
           }
         });
       });
@@ -773,10 +868,13 @@ const GSRUI = {
           }
         }
 
-        const rPhasic = GSRUI.calculatePearsonCorrelation(validX, validPhasic);
-        const rTonic = GSRUI.calculatePearsonCorrelation(validX, validTonic);
-        const rPeaks = GSRUI.calculatePearsonCorrelation(validX, validPeaks);
-        return { name: f.name, key: f.key, rPhasic, rTonic, rPeaks };
+        const rpPhasic = GSRUI.calculatePearsonCorrelation(validX, validPhasic);
+        const rpTonic = GSRUI.calculatePearsonCorrelation(validX, validTonic);
+        const rpPeaks = GSRUI.calculatePearsonCorrelation(validX, validPeaks);
+        const hasVariance = validX.length > 1 && new Set(validX).size > 1;
+        return { name: f.name, key: f.key, n: validX.length, hasVariance,
+                 rPhasic: rpPhasic.r, rTonic: rpTonic.r, rPeaks: rpPeaks.r,
+                 pPhasic: rpPhasic.p, pTonic: rpTonic.p, pPeaks: rpPeaks.p };
       });
 
       // Calculate Road profiles
@@ -857,22 +955,40 @@ const GSRUI = {
       return 'corr-weak';
     };
 
-    const getInterpretation = (rPh, rTo) => {
-      if (rPh > 0.25) return 'Correlates with physiological stress spikes (potential stressor)';
-      if (rPh < -0.25) return 'Correlates with immediate stress reduction (restorative)';
-      if (rTo < -0.25) return 'Associated with lower baseline tension (calming context)';
-      if (rTo > 0.25) return 'Associated with higher baseline stress level';
-      return 'Negligible direct impact on physiological arousal';
+    const formatP = (p) => {
+      if (p < 0.001) return '<0.001';
+      if (p < 0.01) return p.toFixed(4);
+      return p.toFixed(3);
+    };
+
+    const getSigStars = (p) => {
+      if (p < 0.001) return '***';
+      if (p < 0.01) return '**';
+      if (p < 0.05) return '*';
+      return '';
+    };
+
+    const getInterpretation = (row) => {
+      const rPh = row.rPhasic, rTo = row.rTonic, pPh = row.pPhasic, pTo = row.pTonic;
+      if (!row.hasVariance) return 'Not enough variation to measure — same value at every point on this route';
+      if (pPh >= 0.05 && pTo >= 0.05) return 'No detectable link to arousal — likely random variation';
+      if (rPh > 0.25 && pPh < 0.05) return 'Higher momentary arousal (potential stressor)';
+      if (rPh < -0.25 && pPh < 0.05) return 'Lower momentary arousal (potential restorative effect)';
+      if (rTo < -0.25 && pTo < 0.05) return 'Lower baseline arousal (calming context)';
+      if (rTo > 0.25 && pTo < 0.05) return 'Higher baseline arousal (activating context)';
+      return 'Weak but statistically reliable — too small to be practically meaningful';
     };
 
     matrix.forEach(row => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${row.name}</strong></td>
-        <td class="${getCorrClass(row.rPhasic)}">${row.rPhasic.toFixed(3)}</td>
-        <td class="${getCorrClass(row.rTonic)}">${row.rTonic.toFixed(3)}</td>
-        <td class="${getCorrClass(row.rPeaks)}">${row.rPeaks.toFixed(3)}</td>
-        <td>${getInterpretation(row.rPhasic, row.rTonic)}</td>
+        <td class="${getCorrClass(row.rPhasic)}">${row.rPhasic.toFixed(3)}${getSigStars(row.pPhasic)}</td>
+        <td class="${getCorrClass(row.rTonic)}">${row.rTonic.toFixed(3)}${getSigStars(row.pTonic)}</td>
+        <td class="${getCorrClass(row.rPeaks)}">${row.rPeaks.toFixed(3)}${getSigStars(row.pPeaks)}</td>
+        <td>${formatP(row.pPhasic)}</td>
+        <td>${formatP(row.pTonic)}</td>
+        <td>${getInterpretation(row)}</td>
       `;
       tbody.appendChild(tr);
     });
@@ -962,8 +1078,8 @@ const GSRUI = {
     };
     
     const yLabels = {
-      'phasic': 'Phasic GSR (uS)',
-      'tonic': 'Tonic SCL (uS)'
+      'phasic': 'Phasic (momentary arousal)',
+      'tonic': 'Tonic (baseline arousal)'
     };
 
     document.getElementById('valFormula').innerText = `y = ${m.toFixed(4)}x + ${c.toFixed(4)}`;

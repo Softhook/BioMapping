@@ -29,7 +29,8 @@ const OSMEnricher = {
    * to a line segment defined by A(lat1, lon1) and B(lat2, lon2).
    */
   distanceToSegment(lat, lon, lat1, lon1, lat2, lon2) {
-    const cosLat = Math.cos(lat1 * Math.PI / 180);
+    // Use average latitude of query point and segment endpoints for cosine scaling
+    const cosLat = Math.cos(((lat + lat1 + lat2) / 3) * Math.PI / 180);
     const x = lon * cosLat;
     const y = lat;
     const x1 = lon1 * cosLat;
