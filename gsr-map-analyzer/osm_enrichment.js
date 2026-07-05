@@ -4,58 +4,178 @@
  * geometry reconstruction, and coordinate-to-feature spatial math.
  */
 
+// -- Numerical constants ---------------------------------------------------
+const METERS_PER_DEG_LAT  = 111320;         // m per degree of latitude
+const METERS_PER_DEG_LAT_KM = 111.32;       // km per degree (area calcs)
+const EARTH_RADIUS_M      = 6371000;        // haversine
+const CELL_SIZE_DEG       = 0.001;          // spatial-hash cell (~111 m)
+const SENTINEL_DIST       = 999;            // sentinel for "no feature nearby"
+const DEFAULT_RADIUS_M    = 50;             // enrichment search radius
+const DEFAULT_BBOX_BUFFER_M = 100;          // bounding-box padding
+
+// -- Green-space sampling grid ---------------------------------------------
+const SAMPLING_RINGS      = 3;              // concentric rings
+const POINTS_PER_RING     = [1, 8, 16];     // centre, ring 1, ring 2
+
+// -- OSM tag sets ----------------------------------------------------------
+const MAJOR_ROAD_CLASSES = new Set([
+  'motorway', 'trunk', 'primary', 'secondary'
+]);
+const AMENITY_TYPES = new Set([
+  'cafe', 'restaurant', 'pub', 'fast_food', 'bar'
+]);
+
+const GREEN_LEISURE = new Set(['park', 'garden']);
+const GREEN_LANDUSE = new Set(['grass', 'forest', 'meadow', 'recreation_ground']);
+const GREEN_NATURAL = new Set(['wood', 'scrub', 'grassland']);
+
+const WATER_NATURAL  = new Set(['water']);
+const WATER_WATERWAY = new Set(['river', 'canal', 'stream', 'drain']);
+const WATER_LANDUSE  = new Set(['basin', 'reservoir']);
+
+// -- Module-level helpers --------------------------------------------------
+
+/** True when geom represents any kind of green/natural space. */
+function _isGreenSpace(geom) {
+  const t = geom.tags;
+  if (!t) return false;
+  return GREEN_LEISURE.has(t.leisure)  ||
+         GREEN_LANDUSE.has(t.landuse)  ||
+         GREEN_NATURAL.has(t.natural);
+}
+
+/** True when geom represents any kind of water body or waterway. */
+function _isWaterSpace(geom) {
+  const t = geom.tags;
+  if (!t) return false;
+  return WATER_NATURAL.has(t.natural)   ||
+         WATER_WATERWAY.has(t.waterway) ||
+         WATER_LANDUSE.has(t.landuse);
+}
+
+/** Extract highway classification from a way, or null. */
+function _classifyRoad(way) {
+  return (way.tags && way.tags.highway) ? way.tags.highway : null;
+}
+
+/** Compute lat/lon centroid of a coordinate array. */
+function _centroidOf(coords) {
+  let sumLat = 0, sumLon = 0;
+  for (let i = 0; i < coords.length; i++) {
+    sumLat += coords[i].lat;
+    sumLon += coords[i].lon;
+  }
+  return { lat: sumLat / coords.length, lon: sumLon / coords.length };
+}
+
+/** Shortest distance (m) from a point to any segment of a way. */
+function _minDistanceToWay(lat, lon, way, distFn) {
+  const coords = way.coordinates;
+  let best = Infinity;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const d = distFn(lat, lon,
+      coords[i].lat, coords[i].lon,
+      coords[i + 1].lat, coords[i + 1].lon);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+/**
+ * Point-in-polygon test that handles both way and relation (multipolygon)
+ * geometries.  Returns true if the point lies inside the green space.
+ */
+function _isPointInGreenSpace(geom, lat, lon, pipFn) {
+  if (geom.type === 'way' && geom.coordinates && geom.coordinates.length > 2) {
+    return pipFn(lat, lon, geom.coordinates);
+  }
+  if (geom.type === 'relation' && geom.outerWays) {
+    for (const way of geom.outerWays) {
+      if (pipFn(lat, lon, way.coordinates)) {
+        // verify not inside an inner island ring
+        if (geom.innerWays) {
+          let inIsland = false;
+          for (const iway of geom.innerWays) {
+            if (pipFn(lat, lon, iway.coordinates)) { inIsland = true; break; }
+          }
+          if (inIsland) continue;
+        }
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Build concentric-ring sampling points around (lat, lon).
+ * Returns an array of {lat, lon} (no .contained property).
+ */
+function _buildSamplingGrid(lat, lon, radiusMeters) {
+  const radLat = radiusMeters / METERS_PER_DEG_LAT;
+  const radLon = radiusMeters / (METERS_PER_DEG_LAT * Math.cos(lat * Math.PI / 180));
+  const points = [{ lat, lon }];  // centre
+  for (let r = 1; r <= SAMPLING_RINGS; r++) {
+    const frac = r / SAMPLING_RINGS;
+    const rLat = radLat * frac;
+    const rLon = radLon * frac;
+    const nPts = POINTS_PER_RING[r];
+    for (let p = 0; p < nPts; p++) {
+      const a = (p / nPts) * 2 * Math.PI;
+      points.push({
+        lat: lat + rLat * Math.sin(a),
+        lon: lon + rLon * Math.cos(a)
+      });
+    }
+  }
+  return points;
+}
+
+// -- Main OSMEnricher namespace ---------------------------------------------
+
 const OSMEnricher = {
   // Configurable settings
   overpassEndpoint: 'https://overpass-api.de/api/interpreter',
-  
-  // Math utilities
+
+  /* ======================================================================
+     Math utilities
+     ====================================================================== */
+
   haversine(lat1, lon1, lat2, lon2) {
-    const R = 6371000; // Earth's radius in meters
     const phi1 = lat1 * Math.PI / 180;
     const phi2 = lat2 * Math.PI / 180;
-    const deltaPhi = (lat2 - lat1) * Math.PI / 180;
-    const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+    const dPhi = (lat2 - lat1) * Math.PI / 180;
+    const dLambda = (lon2 - lon1) * Math.PI / 180;
 
-    const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
-              Math.cos(phi1) * Math.cos(phi2) *
-              Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-    return R * c; // in meters
+    const a = Math.sin(dPhi / 2) ** 2 +
+              Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLambda / 2) ** 2;
+    return EARTH_RADIUS_M * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   },
 
   /**
-   * Calculate the shortest distance (in meters) from point P(lat, lon)
-   * to a line segment defined by A(lat1, lon1) and B(lat2, lon2).
+   * Shortest distance (m) from point P(lat, lon) to line segment AB.
    */
   distanceToSegment(lat, lon, lat1, lon1, lat2, lon2) {
-    // Use average latitude of query point and segment endpoints for cosine scaling
     const cosLat = Math.cos(((lat + lat1 + lat2) / 3) * Math.PI / 180);
-    const x = lon * cosLat;
-    const y = lat;
-    const x1 = lon1 * cosLat;
-    const y1 = lat1;
-    const x2 = lon2 * cosLat;
-    const y2 = lat2;
+    const x = lon * cosLat,  y = lat;
+    const x1 = lon1 * cosLat, y1 = lat1;
+    const x2 = lon2 * cosLat, y2 = lat2;
 
-    const dx = x2 - x1;
-    const dy = y2 - y1;
+    const dx = x2 - x1, dy = y2 - y1;
     const l2 = dx * dx + dy * dy;
 
     let t = 0;
     if (l2 > 0) {
       t = ((x - x1) * dx + (y - y1) * dy) / l2;
-      t = Math.max(0, Math.min(1, t)); // Clamp projection to the segment
+      t = Math.max(0, Math.min(1, t));
     }
 
     const projX = x1 + t * dx;
     const projY = y1 + t * dy;
-
-    // Convert delta degrees to meters locally
     const distLat = projY - y;
     const distLon = (projX - x) / cosLat;
-    
-    return Math.sqrt(distLat * distLat + distLon * distLon) * 111320;
+
+    return Math.sqrt(distLat * distLat + distLon * distLon) * METERS_PER_DEG_LAT;
   },
 
   /**
@@ -66,62 +186,62 @@ const OSMEnricher = {
     let inside = false;
     const n = poly.length;
     for (let i = 0, j = n - 1; i < n; j = i++) {
-      const pi = poly[i];
-      const pj = poly[j];
-      
+      const pi = poly[i], pj = poly[j];
       const xi = Array.isArray(pi) ? pi[1] : pi.lon;
       const yi = Array.isArray(pi) ? pi[0] : pi.lat;
       const xj = Array.isArray(pj) ? pj[1] : pj.lon;
       const yj = Array.isArray(pj) ? pj[0] : pj.lat;
 
-      const intersect = ((yi > lat) !== (yj > lat))
-          && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
-      if (intersect) inside = !inside;
+      if ((yi > lat) !== (yj > lat) &&
+          lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) {
+        inside = !inside;
+      }
     }
     return inside;
   },
 
-  /**
-   * Calculates the bounding box of a track with an optional buffer in meters.
-   */
-  calculateBBox(rawPoints, bufferMeters = 100) {
+  /* ======================================================================
+     Bounding box & query building
+     ====================================================================== */
+
+  calculateBBox(rawPoints, bufferMeters = DEFAULT_BBOX_BUFFER_M) {
     let minLat = Infinity, maxLat = -Infinity;
     let minLon = Infinity, maxLon = -Infinity;
 
-    rawPoints.forEach(pt => {
-      if (pt.lat !== null && pt.lon !== null && !isNaN(pt.lat) && !isNaN(pt.lon)) {
+    for (const pt of rawPoints) {
+      if (pt.lat != null && pt.lon != null && !isNaN(pt.lat) && !isNaN(pt.lon)) {
         if (pt.lat < minLat) minLat = pt.lat;
         if (pt.lat > maxLat) maxLat = pt.lat;
         if (pt.lon < minLon) minLon = pt.lon;
         if (pt.lon > maxLon) maxLon = pt.lon;
       }
-    });
+    }
 
     if (minLat === Infinity) return null;
 
-    const latBuffer = bufferMeters / 111320;
-    const lonBuffer = bufferMeters / (111320 * Math.cos(((minLat + maxLat) / 2) * Math.PI / 180));
+    const latBuf = bufferMeters / METERS_PER_DEG_LAT;
+    const midLat = (minLat + maxLat) / 2;
+    const lonBuf = bufferMeters / (METERS_PER_DEG_LAT * Math.cos(midLat * Math.PI / 180));
 
     return {
-      minLat: minLat - latBuffer,
-      minLon: minLon - lonBuffer,
-      maxLat: maxLat + latBuffer,
-      maxLon: maxLon + lonBuffer
+      minLat: minLat - latBuf,
+      minLon: minLon - lonBuf,
+      maxLat: maxLat + latBuf,
+      maxLon: maxLon + lonBuf
     };
   },
 
-  /**
-   * Estimate area of bounding box in square kilometers.
-   */
   calculateBBoxAreaKm2(bbox) {
-    const height = (bbox.maxLat - bbox.minLat) * 111.32;
-    const width = (bbox.maxLon - bbox.minLon) * 111.32 * Math.cos(((bbox.minLat + bbox.maxLat) / 2) * Math.PI / 180);
-    return height * width;
+    const midLat = (bbox.minLat + bbox.maxLat) / 2;
+    const h = (bbox.maxLat - bbox.minLat) * METERS_PER_DEG_LAT_KM;
+    const w = (bbox.maxLon - bbox.minLon) * METERS_PER_DEG_LAT_KM * Math.cos(midLat * Math.PI / 180);
+    return h * w;
   },
 
-  /**
-   * Build the Overpass API query for the bounding box.
-   */
+  /* ======================================================================
+     Overpass API
+     ====================================================================== */
+
   buildQuery(bbox) {
     const b = `${bbox.minLat.toFixed(6)},${bbox.minLon.toFixed(6)},${bbox.maxLat.toFixed(6)},${bbox.maxLon.toFixed(6)}`;
     return `[out:json][timeout:90];
@@ -151,19 +271,14 @@ out body;
 out skel qt;`;
   },
 
-  /**
-   * Query the Overpass API for a bounding box.
-   */
   async fetchOSMData(bbox, onProgress) {
     if (onProgress) onProgress('Connecting to Overpass API...');
-    
+
     const query = this.buildQuery(bbox);
     const response = await fetch(this.overpassEndpoint, {
       method: 'POST',
       body: 'data=' + encodeURIComponent(query),
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      }
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     });
 
     if (!response.ok) {
@@ -171,511 +286,382 @@ out skel qt;`;
     }
 
     if (onProgress) onProgress('Parsing geographical payload...');
-    const data = await response.json();
-    return data;
+    return response.json();
   },
 
-  /**
-   * Reconstruct flat OSM JSON nodes/ways/relations into spatial feature models.
-   */
+  /* ======================================================================
+     Geometry reconstruction
+     ====================================================================== */
+
   reconstructGeometries(osmJson) {
     const nodeMap = new Map();
-    const ways = [];
-    const points = [];
+    const wayMap  = new Map();   // O(1) lookup for relation resolution
+    const ways    = [];
+    const points  = [];
     const relations = [];
 
-    // 1. Index all nodes
-    osmJson.elements.forEach(el => {
+    // 1. Index nodes
+    for (const el of osmJson.elements) {
       if (el.type === 'node') {
         nodeMap.set(el.id, { lat: el.lat, lon: el.lon });
-        if (el.tags) {
-          points.push(el); // tree, shop, or bus stop node
-        }
+        if (el.tags) points.push(el);
       }
-    });
+    }
 
-    // 2. Resolve ways
-    osmJson.elements.forEach(el => {
+    // 2. Resolve ways and index by ID
+    for (const el of osmJson.elements) {
       if (el.type === 'way') {
-        const coords = el.nodes.map(nid => nodeMap.get(nid)).filter(n => !!n);
+        const coords = [];
+        for (const nid of el.nodes) {
+          const n = nodeMap.get(nid);
+          if (n) coords.push(n);
+        }
         el.coordinates = coords;
         ways.push(el);
+        wayMap.set(el.id, el);
       }
-    });
+    }
 
-    // 3. Resolve relations (Multipolygons)
-    osmJson.elements.forEach(el => {
-      if (el.type === 'relation') {
-        const outerWays = [];
-        const innerWays = [];
-        if (el.members) {
-          el.members.forEach(mem => {
-            if (mem.type === 'way') {
-              const way = ways.find(w => w.id === mem.ref);
-              if (way && way.coordinates.length > 0) {
-                if (mem.role === 'inner') {
-                  innerWays.push(way);
-                } else {
-                  outerWays.push(way);
-                }
-              }
+    // 3. Resolve relations (multipolygons) — O(1) way lookup
+    for (const el of osmJson.elements) {
+      if (el.type === 'relation' && el.members) {
+        const outerWays = [], innerWays = [];
+        for (const mem of el.members) {
+          if (mem.type === 'way') {
+            const way = wayMap.get(mem.ref);
+            if (way && way.coordinates.length > 0) {
+              (mem.role === 'inner' ? innerWays : outerWays).push(way);
             }
-          });
+          }
         }
         el.outerWays = outerWays;
         el.innerWays = innerWays;
         relations.push(el);
       }
-    });
+    }
 
     return { nodeMap, ways, points, relations };
   },
 
-  /**
-   * Build a spatial grid partition (spatial hash) to optimize geometric indexing.
-   * Cell size is roughly 100m.
-   */
-  buildSpatialIndex(geoms, bbox) {
-    const index = {
-      grid: new Map(),
-      cellSize: 0.001, // ~111 meters
+  /* ======================================================================
+     Spatial index (grid hash)
+     ====================================================================== */
 
-      getCellKey(lat, lon) {
-        const cx = Math.floor(lon / this.cellSize);
-        const cy = Math.floor(lat / this.cellSize);
-        return `${cx}_${cy}`;
-      },
+  buildSpatialIndex(geoms) {
+    const grid = new Map();
+    const cellSize = CELL_SIZE_DEG;
 
-      add(key, item) {
-        if (!this.grid.has(key)) {
-          this.grid.set(key, []);
+    const add = (key, item) => {
+      const bucket = grid.get(key);
+      if (bucket) bucket.push(item);
+      else grid.set(key, [item]);
+    };
+
+    const insert = (geom) => {
+      let minLat = Infinity, maxLat = -Infinity;
+      let minLon = Infinity, maxLon = -Infinity;
+
+      const visit = (lat, lon) => {
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+        if (lon < minLon) minLon = lon;
+        if (lon > maxLon) maxLon = lon;
+      };
+
+      if (geom.type === 'node') {
+        visit(geom.lat, geom.lon);
+      } else if (geom.coordinates) {
+        for (const pt of geom.coordinates) visit(pt.lat, pt.lon);
+      } else if (geom.outerWays) {
+        for (const way of geom.outerWays) {
+          for (const pt of way.coordinates) visit(pt.lat, pt.lon);
         }
-        this.grid.get(key).push(item);
-      },
+      }
 
-      insertGeometry(geom) {
-        // Find bounds of the geometry
-        let minLat = Infinity, maxLat = -Infinity;
-        let minLon = Infinity, maxLon = -Infinity;
+      if (minLat === Infinity) return;
 
-        const examinePoint = (lat, lon) => {
-          if (lat < minLat) minLat = lat;
-          if (lat > maxLat) maxLat = lat;
-          if (lon < minLon) minLon = lon;
-          if (lon > maxLon) maxLon = lon;
-        };
+      const minCX = Math.floor(minLon / cellSize);
+      const maxCX = Math.floor(maxLon / cellSize);
+      const minCY = Math.floor(minLat / cellSize);
+      const maxCY = Math.floor(maxLat / cellSize);
 
-        if (geom.type === 'node') {
-          examinePoint(geom.lat, geom.lon);
-        } else if (geom.coordinates) {
-          geom.coordinates.forEach(pt => examinePoint(pt.lat, pt.lon));
-        } else if (geom.outerWays) {
-          geom.outerWays.forEach(way => {
-            way.coordinates.forEach(pt => examinePoint(pt.lat, pt.lon));
-          });
+      for (let cx = minCX - 1; cx <= maxCX + 1; cx++) {
+        for (let cy = minCY - 1; cy <= maxCY + 1; cy++) {
+          add(`${cx}_${cy}`, geom);
         }
+      }
+    };
 
-        if (minLat === Infinity) return;
+    for (const p of geoms.points)    insert(p);
+    for (const w of geoms.ways)     insert(w);
+    for (const r of geoms.relations) insert(r);
 
-        // Map geometry to all intersecting grid cells
-        const minCellX = Math.floor(minLon / this.cellSize);
-        const maxCellX = Math.floor(maxLon / this.cellSize);
-        const minCellY = Math.floor(minLat / this.cellSize);
-        const maxCellY = Math.floor(maxLat / this.cellSize);
+    return {
+      grid,
+      cellSize,
 
-        for (let cx = minCellX - 1; cx <= maxCellX + 1; cx++) {
-          for (let cy = minCellY - 1; cy <= maxCellY + 1; cy++) {
-            this.add(`${cx}_${cy}`, geom);
-          }
-        }
-      },
-
-      getNearbyGeometries(lat, lon) {
-        const cx = Math.floor(lon / this.cellSize);
-        const cy = Math.floor(lat / this.cellSize);
+      getNearby(lat, lon) {
+        const cx = Math.floor(lon / cellSize);
+        const cy = Math.floor(lat / cellSize);
         const result = [];
-        const checkedIds = new Set();
+        const seen = new Set();
 
-        // Check current cell + 8 surrounding cells
         for (let dx = -1; dx <= 1; dx++) {
           for (let dy = -1; dy <= 1; dy++) {
-            const key = `${cx + dx}_${cy + dy}`;
-            const items = this.grid.get(key);
-            if (items) {
-              items.forEach(item => {
-                const uniqId = `${item.type}_${item.id}`;
-                if (!checkedIds.has(uniqId)) {
-                  checkedIds.add(uniqId);
-                  result.push(item);
-                }
-              });
+            const bucket = grid.get(`${cx + dx}_${cy + dy}`);
+            if (!bucket) continue;
+            for (const item of bucket) {
+              const key = `${item.type}_${item.id}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                result.push(item);
+              }
             }
           }
         }
         return result;
       }
     };
+  },
 
-    // Populate index
-    geoms.points.forEach(p => index.insertGeometry(p));
-    geoms.ways.forEach(w => index.insertGeometry(w));
-    geoms.relations.forEach(r => index.insertGeometry(r));
+  /* ======================================================================
+     Enrichment pipeline
+     ====================================================================== */
 
-    return index;
+  /**
+   * Select evaluation points: GPS fixes at ≥1 s intervals.
+   * Always includes the last fix.
+   */
+  _selectEvaluationPoints(raw, gpsIndices) {
+    const points = [];
+    let lastT = -999;
+    for (const pt of gpsIndices) {
+      const t = raw[pt.idx].time;
+      if (t - lastT >= 1.0) {
+        points.push(pt);
+        lastT = t;
+      }
+    }
+    const last = gpsIndices[gpsIndices.length - 1];
+    if (points.length > 0 && points[points.length - 1].idx !== last.idx) {
+      points.push(last);
+    }
+    return points;
   },
 
   /**
-   * Enrich continuous track data series (runs spatial queries on 1 Hz coordinates
-   * and projects back to 10 Hz series).
+   * Evaluate all environmental metrics at a single (lat, lon) position.
+   * Returns a metrics object.
    */
-  enrichTrack(analyzer, osmJson, radiusMeters = 50, onProgress) {
+  _evaluatePosition(lat, lon, nearby, radiusMeters) {
+    const distFn = this.distanceToSegment.bind(this);
+    const havFn  = this.haversine.bind(this);
+    const pipFn  = this.pointInPolygon.bind(this);
+
+    let minRoadDist = Infinity, nearestRoadClass = 'none', minMajorRoadDist = Infinity;
+    let inPark = 0, minWaterDist = Infinity;
+    let buildingCount = 0, treeCount = 0, amenityCount = 0;
+
+    // Sampling grid for green-space coverage
+    const samplingPoints = _buildSamplingGrid(lat, lon, radiusMeters);
+    let greenHits = 0;
+
+    for (const geom of nearby) {
+      const tags = geom.tags;
+      if (!tags) continue;
+
+      // -- Roads --
+      if (geom.type === 'way' && tags.highway) {
+        const d = _minDistanceToWay(lat, lon, geom, distFn);
+        if (d < minRoadDist) {
+          minRoadDist = d;
+          nearestRoadClass = _classifyRoad(geom);
+        }
+        if (MAJOR_ROAD_CLASSES.has(tags.highway) && d < minMajorRoadDist) {
+          minMajorRoadDist = d;
+        }
+      }
+
+      // -- Buildings --
+      if (geom.type === 'way' && tags.building && geom.coordinates) {
+        const c = _centroidOf(geom.coordinates);
+        if (havFn(lat, lon, c.lat, c.lon) <= radiusMeters) {
+          buildingCount++;
+        }
+      }
+
+      // -- Water --
+      if (_isWaterSpace(geom)) {
+        let d = Infinity;
+        if (geom.type === 'way') {
+          d = _minDistanceToWay(lat, lon, geom, distFn);
+        } else if (geom.type === 'relation' && geom.outerWays) {
+          for (const way of geom.outerWays) {
+            d = Math.min(d, _minDistanceToWay(lat, lon, way, distFn));
+          }
+        }
+        if (d < minWaterDist) minWaterDist = d;
+      }
+
+      // -- Trees --
+      if (geom.type === 'node' && tags.natural === 'tree') {
+        if (havFn(lat, lon, geom.lat, geom.lon) <= radiusMeters) treeCount++;
+      }
+
+      // -- Amenities / shops / bus stops --
+      if (tags.shop || AMENITY_TYPES.has(tags.amenity) || tags.highway === 'bus_stop') {
+        let d = Infinity;
+        if (geom.type === 'node') {
+          d = havFn(lat, lon, geom.lat, geom.lon);
+        } else if (geom.coordinates && geom.coordinates.length > 0) {
+          const c = _centroidOf(geom.coordinates);
+          d = havFn(lat, lon, c.lat, c.lon);
+        }
+        if (d <= radiusMeters) amenityCount++;
+      }
+
+      // -- Green space (point-in-polygon) --
+      if (_isGreenSpace(geom)) {
+        // exact query point
+        if (_isPointInGreenSpace(geom, lat, lon, pipFn)) inPark = 1;
+
+        // sampling grid density
+        for (const sPt of samplingPoints) {
+          if (!sPt._hit && _isPointInGreenSpace(geom, sPt.lat, sPt.lon, pipFn)) {
+            sPt._hit = true;
+            greenHits++;
+          }
+        }
+      }
+    }
+
+    // Sanitize distances
+    if (minRoadDist === Infinity)      minRoadDist = SENTINEL_DIST;
+    if (minMajorRoadDist === Infinity) minMajorRoadDist = SENTINEL_DIST;
+    if (minWaterDist === Infinity)     minWaterDist = SENTINEL_DIST;
+
+    // Green-space percentage (float — rounding deferred to display layer)
+    const greenPct = (greenHits / samplingPoints.length) * 100;
+
+    return {
+      roadClass: nearestRoadClass,
+      distMajorRoad: minMajorRoadDist,
+      inPark,
+      greenSpacePct: greenPct,
+      buildingDensity: buildingCount,
+      distWater: minWaterDist,
+      treeDensity: treeCount,
+      amenityCount
+    };
+  },
+
+  /**
+   * Project sparse evaluation metrics onto the full 10 Hz raw timeline
+   * using linear interpolation for continuous variables and step
+   * interpolation for categorical variables.
+   */
+  _projectToTimeline(raw, computedMetrics) {
+    if (computedMetrics.length === 0) return;
+
+    // Single-evaluation edge case: broadcast to all samples
+    if (computedMetrics.length === 1) {
+      const m = computedMetrics[0].metrics;
+      for (let i = 0; i < raw.length; i++) {
+        raw[i].osm_road_class          = m.roadClass;
+        raw[i].osm_in_park             = m.inPark;
+        raw[i].osm_dist_major_road     = m.distMajorRoad;
+        raw[i].osm_green_pct_50m       = m.greenSpacePct;
+        raw[i].osm_building_density_50m = m.buildingDensity;
+        raw[i].osm_dist_water          = m.distWater;
+        raw[i].osm_tree_density_50m    = m.treeDensity;
+        raw[i].osm_amenity_count_50m   = m.amenityCount;
+      }
+      return;
+    }
+
+    let segIdx = 1;  // current segment: between [segIdx-1] and [segIdx]
+
+    for (let i = 0; i < raw.length; i++) {
+      // Advance segment when we cross the next evaluation index
+      while (segIdx < computedMetrics.length && i >= computedMetrics[segIdx].idx) {
+        segIdx++;
+      }
+
+      const prev = computedMetrics[segIdx - 1];
+      const next = computedMetrics[Math.min(segIdx, computedMetrics.length - 1)];
+
+      const span = next.idx - prev.idx;
+      const t = span > 0 ? (i - prev.idx) / span : 0;
+      const p = prev.metrics, n = next.metrics;
+
+      // Linear interpolation for continuous variables
+      const lerp = (a, b) => a + (b - a) * t;
+
+      raw[i].osm_road_class          = (t >= 0.5) ? n.roadClass      : p.roadClass;
+      raw[i].osm_in_park             = (t >= 0.5) ? n.inPark         : p.inPark;
+      raw[i].osm_dist_major_road     = lerp(p.distMajorRoad,  n.distMajorRoad);
+      raw[i].osm_green_pct_50m       = lerp(p.greenSpacePct,  n.greenSpacePct);
+      raw[i].osm_building_density_50m = lerp(p.buildingDensity, n.buildingDensity);
+      raw[i].osm_dist_water          = lerp(p.distWater,       n.distWater);
+      raw[i].osm_tree_density_50m    = lerp(p.treeDensity,     n.treeDensity);
+      raw[i].osm_amenity_count_50m   = lerp(p.amenityCount,    n.amenityCount);
+    }
+  },
+
+  /**
+   * Enrich continuous track data series: runs spatial queries on ~1 Hz
+   * GPS coordinates and projects results back to the full 10 Hz timeline.
+   *
+   * @param {Object} analyzer   - GSRAnalyzer instance (has .raw, .getCoordinates())
+   * @param {Object} osmJson    - parsed Overpass API JSON
+   * @param {number} radiusMeters - search radius (default 50)
+   * @param {Function} onProgress - optional progress callback(msg)
+   */
+  enrichTrack(analyzer, osmJson, radiusMeters = DEFAULT_RADIUS_M, onProgress) {
     const raw = analyzer.raw;
     if (!raw || raw.length === 0) return;
 
-    // 1. Reconstruct OSM geometries and build spatial grid index
+    // 1. Reconstruct geometries & build spatial index
     if (onProgress) onProgress('Assembling spatial index...');
     const geoms = this.reconstructGeometries(osmJson);
     const spatialIndex = this.buildSpatialIndex(geoms);
 
-    // 2. Identify unique GPS coordinates (effectively 1 Hz or actual updates)
+    // 2. Collect GPS positions from the track
     if (onProgress) onProgress('Analyzing GPS positions...');
     const gpsIndices = [];
     for (let i = 0; i < raw.length; i++) {
-      // Find filtered GPS coords (from calibration/interpolation) or fall back to raw
       const coords = analyzer.getCoordinates(i);
-      if (coords && coords.lat !== null && coords.lon !== null) {
+      if (coords && coords.lat != null && coords.lon != null) {
         gpsIndices.push({ idx: i, lat: coords.lat, lon: coords.lon });
       }
     }
-
     if (gpsIndices.length === 0) {
-      throw new Error("No valid GPS coordinates found in this track.");
+      throw new Error('No valid GPS coordinates found in this track.');
     }
 
-    // Downsample checking points: compute environment for points separated by at least 1.0s (or unique updates)
-    // to prevent slow calculations. We interpolate everything else.
-    const evaluationPoints = [];
-    let lastEvaluatedTime = -999;
-    gpsIndices.forEach(ptInfo => {
-      const t = raw[ptInfo.idx].time;
-      if (t - lastEvaluatedTime >= 1.0) {
-        evaluationPoints.push(ptInfo);
-        lastEvaluatedTime = t;
-      }
-    });
-    // Ensure last point is included
-    if (evaluationPoints.length > 0 && evaluationPoints[evaluationPoints.length - 1].idx !== gpsIndices[gpsIndices.length - 1].idx) {
-      evaluationPoints.push(gpsIndices[gpsIndices.length - 1]);
-    }
-
-    const totalSteps = evaluationPoints.length;
+    // 3. Downsample to ~1 Hz evaluation points
+    const evalPoints = this._selectEvaluationPoints(raw, gpsIndices);
     const computedMetrics = [];
 
-    // Helper functions for spatial metrics inside evaluation loop
-    const classifyRoad = (way) => {
-      if (!way.tags || !way.tags.highway) return null;
-      return way.tags.highway;
-    };
-
-    const isGreenSpace = (geom) => {
-      if (!geom.tags) return false;
-      const tags = geom.tags;
-      return tags.leisure === 'park' ||
-             tags.leisure === 'garden' ||
-             tags.landuse === 'grass' ||
-             tags.landuse === 'forest' ||
-             tags.landuse === 'meadow' ||
-             tags.landuse === 'recreation_ground' ||
-             tags.natural === 'wood' ||
-             tags.natural === 'scrub' ||
-             tags.natural === 'grassland';
-    };
-
-    const isWaterSpace = (geom) => {
-      if (!geom.tags) return false;
-      const tags = geom.tags;
-      return tags.natural === 'water' ||
-             tags.waterway === 'river' ||
-             tags.waterway === 'canal' ||
-             tags.waterway === 'stream' ||
-             tags.waterway === 'drain' ||
-             tags.landuse === 'basin' ||
-             tags.landuse === 'reservoir';
-    };
-
-    // 3. Perform local spatial calculations for each evaluation node
-    for (let s = 0; s < totalSteps; s++) {
+    for (let s = 0; s < evalPoints.length; s++) {
       if (s % 50 === 0 && onProgress) {
-        onProgress(`Computing spatial metrics: ${s}/${totalSteps} positions...`);
+        onProgress(`Computing spatial metrics: ${s}/${evalPoints.length} positions...`);
       }
-
-      const node = evaluationPoints[s];
-      const lat = node.lat;
-      const lon = node.lon;
-
-      // Fetch geometries inside spatial hashing bucket (+ neighbors)
-      const nearby = spatialIndex.getNearbyGeometries(lat, lon);
-
-      let minRoadDist = Infinity;
-      let nearestRoadClass = 'none';
-      let minMajorRoadDist = Infinity;
-      let inPark = 0;
-      let minWaterDist = Infinity;
-      let buildingDensityCount = 0;
-      let treeDensity = 0;
-      let amenityCount = 0;
-
-      // Concentric circular sampling grid for green space % (25 points inside radius)
-      let greenPointsContained = 0;
-      const samplingPoints = [];
-      const numRings = 3;
-      const pointsPerRing = [1, 8, 16]; // center, 10m ring, 25m ring, 40m ring
-      
-      // Build sampling points coords
-      // Radius conversion to lat/lon degree offsets
-      const radLat = radiusMeters / 111320;
-      const radLon = radiusMeters / (111320 * Math.cos(lat * Math.PI / 180));
-
-      // 1. Center
-      samplingPoints.push({ lat, lon });
-      // 2. Rings
-      for (let r = 1; r <= numRings; r++) {
-        const frac = r / numRings;
-        const ringRadLat = radLat * frac;
-        const ringRadLon = radLon * frac;
-        const ptsCount = pointsPerRing[r];
-        for (let pIdx = 0; pIdx < ptsCount; pIdx++) {
-          const angle = (pIdx / ptsCount) * 2 * Math.PI;
-          samplingPoints.push({
-            lat: lat + ringRadLat * Math.sin(angle),
-            lon: lon + ringRadLon * Math.cos(angle)
-          });
-        }
-      }
-
-      nearby.forEach(geom => {
-        // --- Roads Check ---
-        if (geom.type === 'way' && geom.tags && geom.tags.highway) {
-          const isMajor = ['motorway', 'trunk', 'primary', 'secondary'].includes(geom.tags.highway);
-          
-          // Calculate shortest distance to road segments
-          for (let i = 0; i < geom.coordinates.length - 1; i++) {
-            const segDist = this.distanceToSegment(
-              lat, lon, 
-              geom.coordinates[i].lat, geom.coordinates[i].lon,
-              geom.coordinates[i+1].lat, geom.coordinates[i+1].lon
-            );
-
-            if (segDist < minRoadDist) {
-              minRoadDist = segDist;
-              nearestRoadClass = classifyRoad(geom);
-            }
-            if (isMajor && segDist < minMajorRoadDist) {
-              minMajorRoadDist = segDist;
-            }
-          }
-        }
-
-        // --- Buildings check (density & footprint count) ---
-        if (geom.type === 'way' && geom.tags && geom.tags.building) {
-          // Centroid calculation
-          let sumLat = 0, sumLon = 0;
-          geom.coordinates.forEach(pt => { sumLat += pt.lat; sumLon += pt.lon; });
-          const cenLat = sumLat / geom.coordinates.length;
-          const cenLon = sumLon / geom.coordinates.length;
-          const distToCentroid = this.haversine(lat, lon, cenLat, cenLon);
-          if (distToCentroid <= radiusMeters) {
-            buildingDensityCount++;
-          }
-        }
-
-        // --- Water check ---
-        if (isWaterSpace(geom)) {
-          if (geom.type === 'way') {
-            for (let i = 0; i < geom.coordinates.length - 1; i++) {
-              const segDist = this.distanceToSegment(
-                lat, lon, 
-                geom.coordinates[i].lat, geom.coordinates[i].lon,
-                geom.coordinates[i+1].lat, geom.coordinates[i+1].lon
-              );
-              if (segDist < minWaterDist) minWaterDist = segDist;
-            }
-          } else if (geom.type === 'relation' && geom.outerWays) {
-            geom.outerWays.forEach(way => {
-              for (let i = 0; i < way.coordinates.length - 1; i++) {
-                const segDist = this.distanceToSegment(
-                  lat, lon, 
-                  way.coordinates[i].lat, way.coordinates[i].lon,
-                  way.coordinates[i+1].lat, way.coordinates[i+1].lon
-                );
-                if (segDist < minWaterDist) minWaterDist = segDist;
-              }
-            });
-          }
-        }
-
-        // --- Trees check ---
-        if (geom.type === 'node' && geom.tags && geom.tags.natural === 'tree') {
-          const dist = this.haversine(lat, lon, geom.lat, geom.lon);
-          if (dist <= radiusMeters) {
-            treeDensity++;
-          }
-        }
-
-        // --- Amenities / Shops check ---
-        if ((geom.tags && geom.tags.shop) || (geom.tags && ['cafe', 'restaurant', 'pub', 'fast_food', 'bar'].includes(geom.tags.amenity))) {
-          let dist = Infinity;
-          if (geom.type === 'node') {
-            dist = this.haversine(lat, lon, geom.lat, geom.lon);
-          } else if (geom.coordinates && geom.coordinates.length > 0) {
-            let sumLat = 0, sumLon = 0;
-            geom.coordinates.forEach(pt => { sumLat += pt.lat; sumLon += pt.lon; });
-            dist = this.haversine(lat, lon, sumLat / geom.coordinates.length, sumLon / geom.coordinates.length);
-          }
-          if (dist <= radiusMeters) {
-            amenityCount++;
-          }
-        }
-        
-        // --- Transport stop check ---
-        if (geom.type === 'node' && geom.tags && geom.tags.highway === 'bus_stop') {
-          const dist = this.haversine(lat, lon, geom.lat, geom.lon);
-          if (dist <= radiusMeters) {
-            amenityCount++; // treat bus stops as part of active amenity context
-          }
-        }
-
-        // --- Green space check & Raycasting point-in-polygon containment ---
-        if (isGreenSpace(geom)) {
-          // 1. Direct point-in-polygon test for exact coordinate
-          if (geom.type === 'way' && geom.coordinates.length > 2) {
-            if (this.pointInPolygon(lat, lon, geom.coordinates)) {
-              inPark = 1;
-            }
-          } else if (geom.type === 'relation' && geom.outerWays) {
-            geom.outerWays.forEach(way => {
-              if (this.pointInPolygon(lat, lon, way.coordinates)) {
-                // Verify not inside inner island ring
-                let inIsland = false;
-                if (geom.innerWays) {
-                  geom.innerWays.forEach(iway => {
-                    if (this.pointInPolygon(lat, lon, iway.coordinates)) inIsland = true;
-                  });
-                }
-                if (!inIsland) inPark = 1;
-              }
-            });
-          }
-
-          // 2. Sample containment checks for green percentage density
-          samplingPoints.forEach(sPt => {
-            if (geom.type === 'way' && geom.coordinates.length > 2) {
-              if (this.pointInPolygon(sPt.lat, sPt.lon, geom.coordinates)) {
-                sPt.contained = true;
-              }
-            } else if (geom.type === 'relation' && geom.outerWays) {
-              geom.outerWays.forEach(way => {
-                if (this.pointInPolygon(sPt.lat, sPt.lon, way.coordinates)) {
-                  let inIsland = false;
-                  if (geom.innerWays) {
-                    geom.innerWays.forEach(iway => {
-                      if (this.pointInPolygon(sPt.lat, sPt.lon, iway.coordinates)) inIsland = true;
-                    });
-                  }
-                  if (!inIsland) sPt.contained = true;
-                }
-              });
-            }
-          });
-        }
-      });
-
-      // Calculate sample green percentage
-      samplingPoints.forEach(sPt => {
-        if (sPt.contained) greenPointsContained++;
-      });
-      const greenSpacePct = Math.round((greenPointsContained / samplingPoints.length) * 100);
-
-      // Final sanitization of distance values
-      if (minRoadDist === Infinity) minRoadDist = 999;
-      if (minMajorRoadDist === Infinity) minMajorRoadDist = 999;
-      if (minWaterDist === Infinity) minWaterDist = 999;
+      const node = evalPoints[s];
+      const nearby = spatialIndex.getNearby(node.lat, node.lon);
+      const metrics = this._evaluatePosition(node.lat, node.lon, nearby, radiusMeters);
 
       computedMetrics.push({
         idx: node.idx,
         time: raw[node.idx].time,
-        metrics: {
-          roadClass: nearestRoadClass,
-          distMajorRoad: minMajorRoadDist,
-          inPark: inPark,
-          greenSpacePct: greenSpacePct,
-          buildingDensity: buildingDensityCount,
-          distWater: minWaterDist,
-          treeDensity: treeDensity,
-          amenityCount: amenityCount
-        }
+        metrics
       });
     }
 
-    // 4. Interpolate 1 Hz metrics up to match 10 Hz raw timeline
-    if (onProgress) onProgress('Projecting results to 10 Hz signal...');
-    
-    // Quick index lookup map
-    const evalIndexMap = new Map();
-    computedMetrics.forEach(cm => {
-      evalIndexMap.set(cm.idx, cm.metrics);
-    });
+    // 4. Project back to full timeline
+    if (onProgress) onProgress('Projecting results to full timeline...');
+    this._projectToTimeline(raw, computedMetrics);
 
-    let currentMetrics = computedMetrics[0].metrics;
-    let nextCMIdx = 1;
-
-    for (let i = 0; i < raw.length; i++) {
-      // If we crossed an evaluated index, update baseline
-      if (evalIndexMap.has(i)) {
-        currentMetrics = evalIndexMap.get(i);
-        // Find next metric coordinate boundary for linear interpolation
-        const nextCM = computedMetrics[nextCMIdx];
-        if (nextCM && i === nextCM.idx) {
-          nextCMIdx = Math.min(computedMetrics.length - 1, nextCMIdx + 1);
-        }
-      }
-
-      // Find current and next nodes for interpolation
-      const prevCM = computedMetrics[Math.max(0, nextCMIdx - 1)];
-      const nextCM = computedMetrics[Math.min(computedMetrics.length - 1, nextCMIdx)];
-
-      let interpFraction = 0;
-      if (nextCM.idx !== prevCM.idx) {
-        interpFraction = (i - prevCM.idx) / (nextCM.idx - prevCM.idx);
-      }
-
-      const p = prevCM.metrics;
-      const n = nextCM.metrics;
-
-      // Continuous variables -> linear interpolation
-      const distMajor = p.distMajorRoad + (n.distMajorRoad - p.distMajorRoad) * interpFraction;
-      const greenPct = p.greenSpacePct + (n.greenSpacePct - p.greenSpacePct) * interpFraction;
-      const bldDensity = p.buildingDensity + (n.buildingDensity - p.buildingDensity) * interpFraction;
-      const distWater = p.distWater + (n.distWater - p.distWater) * interpFraction;
-      const treeDens = p.treeDensity + (n.treeDensity - p.treeDensity) * interpFraction;
-      const amCount = p.amenityCount + (n.amenityCount - p.amenityCount) * interpFraction;
-
-      // Categorical/indicator variables -> step interpolation (from closest evaluated node)
-      const useNext = (interpFraction >= 0.5);
-      const activeNode = useNext ? n : p;
-
-      // Inject directly as custom attributes on raw timeline array
-      raw[i].osm_road_class = activeNode.roadClass;
-      raw[i].osm_in_park = activeNode.inPark;
-      raw[i].osm_dist_major_road = distMajor;
-      raw[i].osm_green_pct_50m = greenPct;
-      raw[i].osm_building_density_50m = bldDensity;
-      raw[i].osm_dist_water = distWater;
-      raw[i].osm_tree_density_50m = treeDens;
-      raw[i].osm_amenity_count_50m = amCount;
-    }
-
-    // Flag analyzer instance as fully enriched
     analyzer.isEnriched = true;
     analyzer.enrichmentRadius = radiusMeters;
     if (onProgress) onProgress('Enrichment complete!');
