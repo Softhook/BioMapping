@@ -735,10 +735,25 @@ const GSRUI = {
       });
 
       const correlationMatrix = features.map(f => {
-        const xVals = allData.map(d => d[f.key]);
-        const rPhasic = GSRUI.calculatePearsonCorrelation(xVals, phasicVals);
-        const rTonic = GSRUI.calculatePearsonCorrelation(xVals, tonicVals);
-        const rPeaks = GSRUI.calculatePearsonCorrelation(xVals, peakCounts);
+        const validX = [];
+        const validPhasic = [];
+        const validTonic = [];
+        const validPeaks = [];
+        
+        for (let i = 0; i < allData.length; i++) {
+          const x = allData[i][f.key];
+          // Exclude arbitrary 999.0 fallback indicator representing out-of-bounds / infinite distance
+          if (x !== null && x !== undefined && !isNaN(x) && x !== 999.0) {
+            validX.push(x);
+            validPhasic.push(allData[i].phasic);
+            validTonic.push(allData[i].tonic);
+            validPeaks.push(peakCounts[i] || 0);
+          }
+        }
+
+        const rPhasic = GSRUI.calculatePearsonCorrelation(validX, validPhasic);
+        const rTonic = GSRUI.calculatePearsonCorrelation(validX, validTonic);
+        const rPeaks = GSRUI.calculatePearsonCorrelation(validX, validPeaks);
         return { name: f.name, key: f.key, rPhasic, rTonic, rPeaks };
       });
 
@@ -906,7 +921,8 @@ const GSRUI = {
     dataSrc.forEach(d => {
       const x = d[scatterXMetric];
       const y = scatterYMetric === 'phasic' ? d.phasic : d.tonic;
-      if (x !== null && x !== undefined && !isNaN(x) && y !== null && y !== undefined && !isNaN(y)) {
+      // Exclude arbitrary 999.0 fallback indicator representing out-of-bounds / infinite distance
+      if (x !== null && x !== undefined && !isNaN(x) && x !== 999.0 && y !== null && y !== undefined && !isNaN(y)) {
         xVals.push(x);
         yVals.push(y);
       }
