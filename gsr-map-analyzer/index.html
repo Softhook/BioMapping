@@ -764,7 +764,16 @@
                   <option value="tonic">Tonic SCL (baseline arousal)</option>
                 </select>
               </div>
-              <p class="help-text">Each dot is one second of recording. The line shows the linear trend; R² is shown on the chart.</p>
+              <div class="r2-legend" style="font-size: 0.8rem; background: rgba(0,85,204,0.06); border-left: 3px solid #0055cc; padding: 10px 14px; border-radius: 3px; margin-top: 4px;">
+                <strong style="color:#0055cc;">R² (coefficient of determination)</strong>
+                <ul style="margin: 6px 0 0 16px; padding: 0; color: var(--text-secondary); line-height: 1.6;">
+                  <li><strong>0.00–0.04</strong> — No relationship. The factor doesn't predict arousal.</li>
+                  <li><strong>0.05–0.14</strong> — Weak. Small effect.</li>
+                  <li><strong>0.15–0.35</strong> — Moderate. Clear trend.</li>
+                  <li><strong>0.35+</strong> — Strong. The factor explains much of the variation.</li>
+                </ul>
+                <p style="margin: 4px 0 0 0; color: var(--text-muted); font-size: 0.75rem;">Each dot is one second of recording. The line shows the linear trend.</p>
+              </div>
             </div>
             
             <div class="regression-chart-container" style="background: #ffffff; border-radius: 6px; padding: 16px; border: 2px solid #000000; position: relative; min-height: 240px; display: flex; flex-direction: column;">
@@ -783,7 +792,10 @@
                       <th>Road Type</th>
                       <th>Time Spent</th>
                       <th>Mean Phasic (μS)</th>
+                      <th>±σ (μS)</th>
+                      <th>95% CI</th>
                       <th>Mean Tonic (μS)</th>
+                      <th>95% CI</th>
                       <th>Peak Rate (per min)</th>
                     </tr>
                   </thead>
@@ -791,6 +803,13 @@
                     <!-- Populated dynamically in JavaScript -->
                   </tbody>
                 </table>
+              </div>
+              <div class="r2-legend" style="font-size: 0.78rem; background: rgba(0,85,204,0.06); border-left: 3px solid #0055cc; padding: 10px 14px; border-radius: 3px;">
+                <strong style="color:#0055cc;">Confidence markers</strong>
+                <ul style="margin: 6px 0 0 16px; padding: 0; color: var(--text-secondary); line-height: 1.6;">
+                  <li><strong>±σ (Std Dev)</strong> — How spread out the individual readings are. A large σ relative to the mean means the road type has mixed character (some calm seconds, some reactive).</li>
+                  <li><strong>95% CI</strong> — The range you can be 95% confident the true mean falls within. Wider = less reliable. CI bars that don't overlap between two road types suggest a real physiological difference. Small sample sizes (&lt;60 s) produce very wide CIs.</li>
+                </ul>
               </div>
             </div>
             

@@ -743,6 +743,24 @@ const GSRUI = {
     ctx.textAlign = 'right';
     ctx.fillText(minY.toFixed(2), padL - 5, height - padB);
     ctx.fillText(maxY.toFixed(2), padL - 5, padT + 5);
+
+    // R² badge in top-right corner
+    ctx.fillStyle = '#0055cc';
+    ctx.font = 'bold 10px Inter, sans-serif';
+    ctx.textAlign = 'right';
+    const r2Text = 'R² = ' + r2.toFixed(3);
+    const r2Width = ctx.measureText(r2Text).width;
+    // Draw background box
+    ctx.fillStyle = 'rgba(0, 85, 204, 0.08)';
+    ctx.fillRect(width - padR - r2Width - 10, padT + 2, r2Width + 14, 18);
+    ctx.strokeStyle = 'rgba(0, 85, 204, 0.25)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(width - padR - r2Width - 10, padT + 2, r2Width + 14, 18);
+    // Draw text
+    ctx.fillStyle = '#0055cc';
+    ctx.font = 'bold 10px Inter, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(r2Text, width - padR - 3, padT + 15);
   },
 
   updateEnvironmentalDashboard() {
@@ -880,17 +898,16 @@ const GSRUI = {
                  pPhasic: rpPhasic.p, pTonic: rpTonic.p, pPeaks: rpPeaks.p };
       });
 
-      // Calculate Road profiles
+      // Calculate Road profiles (with std dev and 95% CI)
       const roadGroups = new Map();
       allData.forEach(d => {
         const cls = d.osm_road_class || 'none';
         if (!roadGroups.has(cls)) {
-          roadGroups.set(cls, { count: 0, sumPhasic: 0, sumTonic: 0, peaks: 0 });
+          roadGroups.set(cls, { phasicVals: [], tonicVals: [], peaks: 0 });
         }
         const g = roadGroups.get(cls);
-        g.count++;
-        g.sumPhasic += d.phasic;
-        g.sumTonic += d.tonic;
+        g.phasicVals.push(d.phasic);
+        g.tonicVals.push(d.tonic);
       });
 
       activeTracks.forEach(track => {
@@ -907,13 +924,24 @@ const GSRUI = {
 
       const roadProfile = [];
       roadGroups.forEach((val, key) => {
-        if (key === 'none' && val.count < 5) return;
+        if (key === 'none' && val.phasicVals.length < 5) return;
+        const n = val.phasicVals.length;
+        const meanPhasic = val.phasicVals.reduce((s, v) => s + v, 0) / n;
+        const meanTonic = val.tonicVals.reduce((s, v) => s + v, 0) / n;
+        const stdPhasic = Math.sqrt(val.phasicVals.reduce((s, v) => s + (v - meanPhasic) ** 2, 0) / n);
+        const stdTonic = Math.sqrt(val.tonicVals.reduce((s, v) => s + (v - meanTonic) ** 2, 0) / n);
+        const ciPhasic = n > 1 ? 1.96 * stdPhasic / Math.sqrt(n) : 0;
+        const ciTonic = n > 1 ? 1.96 * stdTonic / Math.sqrt(n) : 0;
         roadProfile.push({
           name: key,
-          timeSpent: val.count,
-          meanPhasic: val.sumPhasic / val.count,
-          meanTonic: val.sumTonic / val.count,
-          peakRate: (val.peaks / (val.count / 60))
+          timeSpent: n,
+          meanPhasic,
+          meanTonic,
+          stdPhasic,
+          stdTonic,
+          ciPhasic,
+          ciTonic,
+          peakRate: (val.peaks / (n / 60))
         });
       });
       roadProfile.sort((a, b) => b.meanPhasic - a.meanPhasic);
@@ -1011,12 +1039,16 @@ const GSRUI = {
     const maxPhasicVal = profile.length > 0 ? Math.max(...profile.map(p => p.meanPhasic)) : 1.0;
 
     profile.forEach(p => {
+      const fmt = (v) => v.toFixed(3);
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><span style="font-family: monospace; font-size: 0.8rem;">${p.name}</span></td>
         <td>${p.timeSpent} s</td>
-        <td>${p.meanPhasic.toFixed(3)} μS</td>
-        <td>${p.meanTonic.toFixed(3)} μS</td>
+        <td>${fmt(p.meanPhasic)} μS</td>
+        <td>${fmt(p.stdPhasic)} μS</td>
+        <td>± ${fmt(p.ciPhasic)} μS</td>
+        <td>${fmt(p.meanTonic)} μS</td>
+        <td>± ${fmt(p.ciTonic)} μS</td>
         <td>${p.peakRate.toFixed(2)}</td>
       `;
       roadBody.appendChild(tr);
@@ -1029,13 +1061,13 @@ const GSRUI = {
         <div class="road-bar-track">
           <div class="road-bar-fill" style="width: ${percent}%;"></div>
         </div>
-        <div class="road-bar-val">${p.meanPhasic.toFixed(3)} μS</div>
+        <div class="road-bar-val">${fmt(p.meanPhasic)} μS</div>
       `;
       roadChart.appendChild(barRow);
     });
     
     if (profile.length === 0) {
-      roadBody.innerHTML = '<tr><td colspan="5" class="empty-row">No road profile data found. Enriched track has missing classes.</td></tr>';
+      roadBody.innerHTML = '<tr><td colspan="8" class="empty-row">No road profile data found. Enriched track has missing classes.</td></tr>';
     }
   },
 
