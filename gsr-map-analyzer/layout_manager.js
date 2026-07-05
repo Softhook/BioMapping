@@ -75,14 +75,14 @@ const GSRLayoutManager = {
       this._mapObserver.observe(mapElement);
     }
 
-    const regressionWrapper = document.querySelector('.regression-chart-wrapper');
-    if (regressionWrapper) {
+    const regressionContainer = document.querySelector('.regression-chart-container');
+    if (regressionContainer) {
       this._regressionObserver = new ResizeObserver(() => {
-        if (typeof GSRUI !== 'undefined' && typeof GSRUI.updateEnvironmentalDashboard === 'function') {
-          GSRUI.updateEnvironmentalDashboard();
+        if (typeof GSRUI !== 'undefined' && typeof GSRUI.drawRegressionScatterPlot === 'function') {
+          GSRUI.drawRegressionScatterPlot();
         }
       });
-      this._regressionObserver.observe(regressionWrapper);
+      this._regressionObserver.observe(regressionContainer);
     }
   },
 

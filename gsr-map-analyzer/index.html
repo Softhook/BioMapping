@@ -377,11 +377,11 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Peak Latency Compensation</span>
-                <span class="slider-value" id="valGpsPeakLatency">0.0 s</span>
+                <span class="slider-value" id="valGpsPeakLatency">2.0 s</span>
               </div>
-              <input type="range" id="gpsPeakLatency" min="0" max="5" step="0.1" value="0">
+              <input type="range" id="gpsPeakLatency" min="0" max="5" step="0.1" value="2.0">
               <div class="slider-rec" style="left:20%; width:40%"></div>
-              <p class="help-text">Compensates for physiological SCR delay on map. <strong>Recommended:</strong> 1–3 s. Set to 0 = off.</p>
+              <p class="help-text">Compensates for physiological SCR delay on map and statistics. <strong>Recommended:</strong> 1–3 s. Set to 0 = off.</p>
             </div>
           </div>
         </section>
@@ -491,14 +491,6 @@
               <p class="help-text">Spatial buffer radius for local density and distance calculations.</p>
             </div>
 
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>Latency Shift (s)</span>
-                <span class="slider-value" id="valOsmLatency">2.0 s</span>
-              </div>
-              <input type="range" id="osmLatency" min="0.0" max="5.0" step="0.5" value="2.0">
-              <p class="help-text">Shifts GSR timeline back to align with physiological response latency.</p>
-            </div>
 
             <button class="btn btn-primary" id="btnEnrichTrack" style="width: 100%; margin-top: 8px;">
               <i class="fa-solid fa-wand-magic-sparkles"></i> Enrich Active Track
@@ -729,7 +721,7 @@
           </div>
 
           <!-- Tab 1: Correlation Matrix -->
-          <div class="env-tab-content" id="envTabCorrelation" style="padding: 16px;">
+          <div class="env-tab-content active" id="envTabCorrelation" style="padding: 16px;">
             <p class="help-text" style="margin-bottom: 12px; font-size: 0.85rem;">This matrix shows Pearson correlation coefficients (r) between environmental features and physiological arousal (Phasic SCR and Tonic SCL). Values range from -1.0 (strong restorative buffer) to +1.0 (strong stressor).</p>
             <div class="table-container">
               <table class="peaks-table" id="correlationTable">
@@ -750,8 +742,8 @@
           </div>
 
           <!-- Tab 2: Regression Plot -->
-          <div class="env-tab-content" id="envTabScatter" style="display: none; padding: 16px; display: flex; gap: 20px; flex-wrap: wrap;">
-            <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 12px;">
+          <div class="env-tab-content" id="envTabScatter" style="display: none; padding: 16px;">
+            <div style="display: flex; flex-direction: column; gap: 12px;">
               <div style="display: flex; gap: 12px; align-items: center;">
                 <label for="scatterEnvMetric" style="font-size: 0.85rem; font-weight: 500;">Select Environmental X-Axis:</label>
                 <select id="scatterEnvMetric" class="select-control" style="width: auto;">
@@ -777,14 +769,14 @@
               <p class="help-text">Visualizes linear trends. Each point represents a 1-second interval along the path.</p>
             </div>
             
-            <div class="regression-chart-container" style="flex: 2; min-width: 400px; background: rgba(0,0,0,0.2); border-radius: 6px; padding: 16px; border: 1px solid rgba(255,255,255,0.1); position: relative; min-height: 240px; display: flex; flex-direction: column;">
+            <div class="regression-chart-container" style="background: rgba(0,0,0,0.2); border-radius: 6px; padding: 16px; border: 1px solid rgba(255,255,255,0.1); position: relative; min-height: 240px; display: flex; flex-direction: column;">
               <canvas id="regressionCanvas" style="width: 100%; height: 100%; display: block;"></canvas>
             </div>
           </div>
 
           <!-- Tab 3: Roads Profile -->
-          <div class="env-tab-content" id="envTabRoads" style="display: none; padding: 16px; display: flex; gap: 20px; flex-wrap: wrap;">
-            <div style="flex: 1.2; min-width: 320px;">
+          <div class="env-tab-content" id="envTabRoads" style="display: none; padding: 16px;">
+            <div style="display: flex; flex-direction: column; gap: 12px; min-width: 0;">
               <p class="help-text" style="margin-bottom: 12px;">Compares average physiological arousal (Phasic Conductance) across different OpenStreetMap street and pathway types encountered during the walk.</p>
               <div class="table-container">
                 <table class="peaks-table" id="roadArousalTable">
@@ -804,7 +796,7 @@
               </div>
             </div>
             
-            <div class="road-chart-container" style="flex: 0.8; min-width: 280px; background: rgba(0,0,0,0.2); border-radius: 6px; padding: 16px; border: 1px solid rgba(255,255,255,0.1); min-height: 240px; display: flex; flex-direction: column; justify-content: center;">
+            <div class="road-chart-container" style="background: rgba(0,0,0,0.2); border-radius: 6px; padding: 16px; border: 1px solid rgba(255,255,255,0.1); min-height: 240px; display: flex; flex-direction: column; justify-content: center;">
               <div id="roadBarChartContainer" style="display: flex; flex-direction: column; gap: 10px; overflow-y: auto; height: 100%;">
                 <!-- Bar chart populated dynamically -->
               </div>

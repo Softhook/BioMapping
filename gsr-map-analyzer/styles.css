@@ -765,6 +765,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   max-height: 300px; /* Default when both panels are expanded */
   flex-shrink: 1;
   transition: max-height var(--transition-standard), min-height var(--transition-standard);
+  overflow: hidden; /* Clip out-of-bounds bleed and standardise card shape */
 }
 
 .peaks-table-panel .table-container {
@@ -792,6 +793,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .table-container {
   overflow: auto;
   flex-grow: 1;
+  min-height: 0;
+  min-width: 0;
 }
 
 .peaks-table {
@@ -1257,31 +1260,54 @@ input[type="range"]::-webkit-slider-thumb:hover {
   flex-direction: column !important;
 }
 
+/* Ensure only the active tab content is shown in fullscreen overlay */
 .panel-fullscreen-overlay #environmentalPanel .env-tab-content {
+  display: none !important;
+}
+
+.panel-fullscreen-overlay #environmentalPanel .env-tab-content.active {
+  display: flex !important;
   flex-grow: 1 !important;
   min-height: 0 !important;
-  overflow: auto !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
   padding: 16px !important;
 }
 
-/* Ensure tabs are flex-row and stretch to fill remaining height */
-.panel-fullscreen-overlay #environmentalPanel #envTabScatter,
-.panel-fullscreen-overlay #environmentalPanel #envTabRoads {
+/* Ensure active tabs are flex-row by default but wrap and scroll when screen space is tight */
+.panel-fullscreen-overlay #environmentalPanel #envTabScatter.active,
+.panel-fullscreen-overlay #environmentalPanel #envTabRoads.active {
   display: flex !important;
   flex-direction: row !important;
-  flex-wrap: nowrap !important;
+  flex-wrap: wrap !important; /* Allow wrapping to scroll when height is constrained */
   align-items: stretch !important;
-  height: 100% !important;
+  gap: 20px !important;
   min-height: 0 !important;
+  height: auto !important;
 }
 
-/* Make wrappers expand vertically to fill the panel height */
-.panel-fullscreen-overlay #environmentalPanel .regression-chart-container,
-.panel-fullscreen-overlay #environmentalPanel .road-chart-container {
-  height: 100% !important;
-  min-height: 0 !important;
+/* Make wrappers expand vertically to fill the panel height or maintain healthy min-height */
+.panel-fullscreen-overlay #environmentalPanel .regression-chart-container {
+  flex: 2 1 400px !important;
+  min-height: 280px !important;
   display: flex !important;
   flex-direction: column !important;
+}
+
+.panel-fullscreen-overlay #environmentalPanel .road-chart-container {
+  flex: 0.8 1 280px !important;
+  min-height: 280px !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+/* Specific side-by-side flex properties for controls vs charts in fullscreen */
+.panel-fullscreen-overlay #environmentalPanel #envTabScatter > div:first-child {
+  flex: 1 1 300px !important;
+}
+.panel-fullscreen-overlay #environmentalPanel #envTabRoads > div:first-child {
+  flex: 1.2 1 320px !important;
+  min-height: 0 !important;
 }
 
 .panel-fullscreen-overlay #environmentalPanel #roadBarChartContainer {
@@ -1688,6 +1714,9 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 .env-tab-content {
   animation: fadeIn 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 45px); /* Force height boundary to trigger scrollbars */
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
@@ -1746,7 +1775,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .corr-pos-mod { background-color: rgba(255, 123, 0, 0.12) !important; color: #ffbc7d !important; }
 .corr-neg-strong { background-color: rgba(0, 240, 255, 0.25) !important; color: #6bf1ff !important; }
 .corr-neg-mod { background-color: rgba(0, 240, 255, 0.12) !important; color: #bdf7ff !important; }
-.corr-weak { color: rgba(255,255,255,0.4) !important; }
+.corr-weak { color: var(--text-muted) !important; }
 
 /* Allow environmental panel to grow taller and fill space when available */
 #environmentalPanel {

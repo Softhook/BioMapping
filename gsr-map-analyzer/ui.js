@@ -454,7 +454,7 @@ const GSRUI = {
     const progressBar = document.getElementById('osmProgressBar');
     
     const radius = parseInt(document.getElementById('osmRadius').value) || 50;
-    const latency = parseFloat(document.getElementById('osmLatency').value) || 2.0;
+    const latency = parseFloat(document.getElementById('gpsPeakLatency').value) || 2.0;
 
     const originalText = btn.innerHTML;
     btn.setAttribute('disabled', 'true');
@@ -653,246 +653,284 @@ const GSRUI = {
     ctx.fillText(maxY.toFixed(2), padL - 5, padT + 5);
   },
 
-  /**
-   * Recomputes the correlation dashboard metrics and draws graphs.
-   */
   updateEnvironmentalDashboard() {
     if (!AppState.analyzer || !AppState.analyzer.isEnriched) return;
 
-    // 1. Gather points from enabled enriched tracks
+    // 1. Resolve tracks to aggregate
     const activeTracks = (AppState.viewMode === 'single') 
       ? [ { id: AppState.activeTrackId, analyzer: AppState.analyzer } ]
       : AppState.collectiveManager.getActiveTracks().filter(t => t.analyzer.isEnriched);
 
-    const latency = parseFloat(document.getElementById('osmLatency').value) || 2.0;
-    const allData = [];
+    const latency = parseFloat(document.getElementById('gpsPeakLatency').value) || 2.0;
+    const trackIdsStr = activeTracks.map(t => t.id).join(',');
 
-    activeTracks.forEach(track => {
-      const a = track.analyzer;
-      if (!a || !a.isEnriched || a.raw.length === 0) return;
-      
-      let lastTime = -999;
-      for (let i = 0; i < a.raw.length; i++) {
-        const pt = a.raw[i];
-        // Sample at 1 Hz intervals to maintain speed
-        if (pt.time - lastTime >= 1.0) {
-          const coords = a.getCoordinates(i);
-          if (coords) {
-            // Apply latency offset to locate coordinate context in the past
-            const envIdx = a.findClosestIndex(Math.max(0, pt.time - latency));
-            const envPt = (envIdx !== -1) ? a.raw[envIdx] : pt;
+    // Check if the statistics cache needs to be invalidated
+    const cache = AppState.analyzer.cachedEnvStats;
+    const needsRecalc = !cache || 
+                      cache.latency !== latency || 
+                      cache.trackCount !== activeTracks.length ||
+                      cache.trackIds !== trackIdsStr;
 
-            allData.push({
-              trackId: track.id,
-              time: pt.time,
-              val: pt.val,
-              phasic: (a.phasic && a.phasic[i]) ? a.phasic[i].val : 0,
-              tonic: (a.tonic && a.tonic[i]) ? a.tonic[i].val : 0,
-              osm_road_class: envPt.osm_road_class,
-              osm_dist_major_road: envPt.osm_dist_major_road,
-              osm_in_park: envPt.osm_in_park,
-              osm_green_pct_50m: envPt.osm_green_pct_50m,
-              osm_building_density_50m: envPt.osm_building_density_50m,
-              osm_dist_water: envPt.osm_dist_water,
-              osm_tree_density_50m: envPt.osm_tree_density_50m,
-              osm_amenity_count_50m: envPt.osm_amenity_count_50m
-            });
-            lastTime = pt.time;
+    if (needsRecalc) {
+      const allData = [];
+      activeTracks.forEach(track => {
+        const a = track.analyzer;
+        if (!a || !a.isEnriched || a.raw.length === 0) return;
+        
+        let lastTime = -999;
+        for (let i = 0; i < a.raw.length; i++) {
+          const pt = a.raw[i];
+          // Sample at 1 Hz intervals to avoid lag
+          if (pt.time - lastTime >= 1.0) {
+            const coords = a.getCoordinates(i);
+            if (coords) {
+              // Apply latency offset to find historical spatial context
+              const envIdx = a.findClosestIndex(Math.max(0, pt.time - latency));
+              const envPt = (envIdx !== -1) ? a.raw[envIdx] : pt;
+
+              allData.push({
+                trackId: track.id,
+                time: pt.time,
+                val: pt.val,
+                phasic: (a.phasic && a.phasic[i]) ? a.phasic[i].val : 0,
+                tonic: (a.tonic && a.tonic[i]) ? a.tonic[i].val : 0,
+                osm_road_class: envPt.osm_road_class,
+                osm_dist_major_road: envPt.osm_dist_major_road,
+                osm_in_park: envPt.osm_in_park,
+                osm_green_pct_50m: envPt.osm_green_pct_50m,
+                osm_building_density_50m: envPt.osm_building_density_50m,
+                osm_dist_water: envPt.osm_dist_water,
+                osm_tree_density_50m: envPt.osm_tree_density_50m,
+                osm_amenity_count_50m: envPt.osm_amenity_count_50m
+              });
+              lastTime = pt.time;
+            }
           }
         }
-      }
-    });
-
-    if (allData.length === 0) return;
-
-    // ── Tab 1: Correlation Matrix ───────────────────────────────────────────
-    const features = [
-      { name: 'Green Space %', key: 'osm_green_pct_50m' },
-      { name: 'Building Density', key: 'osm_building_density_50m' },
-      { name: 'Distance to Major Road', key: 'osm_dist_major_road' },
-      { name: 'Distance to Water', key: 'osm_dist_water' },
-      { name: 'Tree Density', key: 'osm_tree_density_50m' },
-      { name: 'Amenity Count', key: 'osm_amenity_count_50m' }
-    ];
-
-    const phasicVals = allData.map(d => d.phasic);
-    const tonicVals = allData.map(d => d.tonic);
-    
-    // Estimate peaks count near each node
-    // Peaks map: lookup counts of stress peaks within a 15-second window
-    const peakCounts = [];
-    activeTracks.forEach(track => {
-      const a = track.analyzer;
-      const peaks = a.peaks.filter(p => !p.excluded);
-      allData.forEach(d => {
-        if (d.trackId === track.id) {
-          const count = peaks.filter(p => Math.abs(p.time - d.time) <= 15).length;
-          peakCounts.push(count);
-        }
-      });
-    });
-
-    const tbody = document.querySelector('#correlationTable tbody');
-    if (tbody) {
-      tbody.innerHTML = '';
-      features.forEach(f => {
-        const xVals = allData.map(d => d[f.key]);
-        
-        const rPhasic = GSRUI.calculatePearsonCorrelation(xVals, phasicVals);
-        const rTonic = GSRUI.calculatePearsonCorrelation(xVals, tonicVals);
-        const rPeaks = GSRUI.calculatePearsonCorrelation(xVals, peakCounts);
-
-        const getCorrClass = (r) => {
-          if (r > 0.35) return 'corr-pos-strong';
-          if (r > 0.15) return 'corr-pos-mod';
-          if (r < -0.35) return 'corr-neg-strong';
-          if (r < -0.15) return 'corr-neg-mod';
-          return 'corr-weak';
-        };
-
-        const getInterpretation = (rPh, rTo) => {
-          if (rPh > 0.25) return 'Correlates with physiological stress spikes (potential stressor)';
-          if (rPh < -0.25) return 'Correlates with immediate stress reduction (restorative)';
-          if (rTo < -0.25) return 'Associated with lower baseline tension (calming context)';
-          if (rTo > 0.25) return 'Associated with higher baseline stress level';
-          return 'Negligible direct impact on physiological arousal';
-        };
-
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td><strong>${f.name}</strong></td>
-          <td class="${getCorrClass(rPhasic)}">${rPhasic.toFixed(3)}</td>
-          <td class="${getCorrClass(rTonic)}">${rTonic.toFixed(3)}</td>
-          <td class="${getCorrClass(rPeaks)}">${rPeaks.toFixed(3)}</td>
-          <td>${getInterpretation(rPhasic, rTonic)}</td>
-        `;
-        tbody.appendChild(tr);
-      });
-    }
-
-    // ── Tab 2: Regression Plot ──────────────────────────────────────────────
-    const scatterXMetric = document.getElementById('scatterEnvMetric').value;
-    const scatterYMetric = document.getElementById('scatterBioMetric').value;
-    const canvas = document.getElementById('regressionCanvas');
-    
-    if (canvas) {
-      if (canvas.clientWidth > 0 && canvas.clientHeight > 0) {
-        canvas.width = canvas.clientWidth;
-        canvas.height = canvas.clientHeight;
-      }
-      const xVals = [];
-      const yVals = [];
-      allData.forEach(d => {
-        const x = d[scatterXMetric];
-        const y = scatterYMetric === 'phasic' ? d.phasic : d.tonic;
-        if (x !== null && x !== undefined && !isNaN(x) && y !== null && y !== undefined && !isNaN(y)) {
-          xVals.push(x);
-          yVals.push(y);
-        }
       });
 
-      const { m, c, r2 } = GSRUI.calculateLinearRegression(xVals, yVals);
+      // Calculate Pearson correlation matrix rows
+      const features = [
+        { name: 'Green Space %', key: 'osm_green_pct_50m' },
+        { name: 'Building Density', key: 'osm_building_density_50m' },
+        { name: 'Distance to Major Road', key: 'osm_dist_major_road' },
+        { name: 'Distance to Water', key: 'osm_dist_water' },
+        { name: 'Tree Density', key: 'osm_tree_density_50m' },
+        { name: 'Amenity Count', key: 'osm_amenity_count_50m' }
+      ];
+
+      const phasicVals = allData.map(d => d.phasic);
+      const tonicVals = allData.map(d => d.tonic);
       
-      const xLabels = {
-        'osm_green_pct_50m': 'Green Space %',
-        'osm_building_density_50m': 'Building Density',
-        'osm_dist_major_road': 'Distance to Major Road (m)',
-        'osm_dist_water': 'Distance to Water (m)',
-        'osm_tree_density_50m': 'Tree Density',
-        'osm_amenity_count_50m': 'Amenity Count'
-      };
-      
-      const yLabels = {
-        'phasic': 'Phasic GSR (uS)',
-        'tonic': 'Tonic SCL (uS)'
-      };
-
-      document.getElementById('valFormula').innerText = `y = ${m.toFixed(4)}x + ${c.toFixed(4)}`;
-      document.getElementById('valR2').innerText = r2.toFixed(3);
-
-      GSRUI.drawRegressionScatter(canvas, xVals, yVals, m, c, r2, xLabels[scatterXMetric], yLabels[scatterYMetric]);
-    }
-
-    // ── Tab 3: Roads Profile ────────────────────────────────────────────────
-    // Group by roadClass
-    const roadGroups = new Map();
-    allData.forEach(d => {
-      const cls = d.osm_road_class || 'none';
-      if (!roadGroups.has(cls)) {
-        roadGroups.set(cls, { count: 0, sumPhasic: 0, sumTonic: 0, peaks: 0 });
-      }
-      const g = roadGroups.get(cls);
-      g.count++;
-      g.sumPhasic += d.phasic;
-      g.sumTonic += d.tonic;
-    });
-
-    // Match peak rates
-    activeTracks.forEach(track => {
-      const a = track.analyzer;
-      const peaks = a.peaks.filter(p => !p.excluded);
-      peaks.forEach(p => {
-        // Find road class at peak time (latency-adjusted)
-        const idx = a.findClosestIndex(Math.max(0, p.time - latency));
-        const rc = (idx !== -1 && a.raw[idx].osm_road_class) ? a.raw[idx].osm_road_class : 'none';
-        if (roadGroups.has(rc)) {
-          roadGroups.get(rc).peaks++;
-        }
-      });
-    });
-
-    const roadBody = document.querySelector('#roadArousalTable tbody');
-    const roadChart = document.getElementById('roadBarChartContainer');
-    
-    if (roadBody && roadChart) {
-      roadBody.innerHTML = '';
-      roadChart.innerHTML = '';
-
-      const profiles = [];
-      roadGroups.forEach((val, key) => {
-        if (key === 'none' && val.count < 5) return; // skip unclassified background data if small
-        profiles.push({
-          name: key,
-          timeSpent: val.count, // 1 Hz sample = 1 second
-          meanPhasic: val.sumPhasic / val.count,
-          meanTonic: val.sumTonic / val.count,
-          peakRate: (val.peaks / (val.count / 60)) // peaks per minute
+      const peakCounts = [];
+      activeTracks.forEach(track => {
+        const a = track.analyzer;
+        const peaks = a.peaks.filter(p => !p.excluded);
+        allData.forEach(d => {
+          if (d.trackId === track.id) {
+            const count = peaks.filter(p => Math.abs(p.time - d.time) <= 15).length;
+            peakCounts.push(count);
+          }
         });
       });
 
-      // Sort by mean Phasic stress levels descending
-      profiles.sort((a, b) => b.meanPhasic - a.meanPhasic);
-
-      const maxPhasicVal = profiles.length > 0 ? Math.max(...profiles.map(p => p.meanPhasic)) : 1.0;
-
-      profiles.forEach(p => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td><span style="font-family: monospace; font-size: 0.8rem;">${p.name}</span></td>
-          <td>${p.timeSpent} s</td>
-          <td>${p.meanPhasic.toFixed(3)} μS</td>
-          <td>${p.meanTonic.toFixed(3)} μS</td>
-          <td>${p.peakRate.toFixed(2)}</td>
-        `;
-        roadBody.appendChild(tr);
-
-        // Draw horizontal CSS bar in bar chart container
-        const barRow = document.createElement('div');
-        barRow.className = 'road-bar-row';
-        const percent = maxPhasicVal > 0 ? (p.meanPhasic / maxPhasicVal) * 100 : 0;
-        barRow.innerHTML = `
-          <div class="road-bar-label" title="${p.name}">${p.name}</div>
-          <div class="road-bar-track">
-            <div class="road-bar-fill" style="width: ${percent}%;"></div>
-          </div>
-          <div class="road-bar-val">${p.meanPhasic.toFixed(3)} μS</div>
-        `;
-        roadChart.appendChild(barRow);
+      const correlationMatrix = features.map(f => {
+        const xVals = allData.map(d => d[f.key]);
+        const rPhasic = GSRUI.calculatePearsonCorrelation(xVals, phasicVals);
+        const rTonic = GSRUI.calculatePearsonCorrelation(xVals, tonicVals);
+        const rPeaks = GSRUI.calculatePearsonCorrelation(xVals, peakCounts);
+        return { name: f.name, key: f.key, rPhasic, rTonic, rPeaks };
       });
-      
-      if (profiles.length === 0) {
-        roadBody.innerHTML = '<tr><td colspan="5" class="empty-row">No road profile data found. Enriched track has missing classes.</td></tr>';
-      }
+
+      // Calculate Road profiles
+      const roadGroups = new Map();
+      allData.forEach(d => {
+        const cls = d.osm_road_class || 'none';
+        if (!roadGroups.has(cls)) {
+          roadGroups.set(cls, { count: 0, sumPhasic: 0, sumTonic: 0, peaks: 0 });
+        }
+        const g = roadGroups.get(cls);
+        g.count++;
+        g.sumPhasic += d.phasic;
+        g.sumTonic += d.tonic;
+      });
+
+      activeTracks.forEach(track => {
+        const a = track.analyzer;
+        const peaks = a.peaks.filter(p => !p.excluded);
+        peaks.forEach(p => {
+          const idx = a.findClosestIndex(Math.max(0, p.time - latency));
+          const rc = (idx !== -1 && a.raw[idx].osm_road_class) ? a.raw[idx].osm_road_class : 'none';
+          if (roadGroups.has(rc)) {
+            roadGroups.get(rc).peaks++;
+          }
+        });
+      });
+
+      const roadProfile = [];
+      roadGroups.forEach((val, key) => {
+        if (key === 'none' && val.count < 5) return;
+        roadProfile.push({
+          name: key,
+          timeSpent: val.count,
+          meanPhasic: val.sumPhasic / val.count,
+          meanTonic: val.sumTonic / val.count,
+          peakRate: (val.peaks / (val.count / 60))
+        });
+      });
+      roadProfile.sort((a, b) => b.meanPhasic - a.meanPhasic);
+
+      // Save to client-side cache
+      AppState.analyzer.cachedEnvStats = {
+        latency,
+        trackCount: activeTracks.length,
+        trackIds: trackIdsStr,
+        allData,
+        correlationMatrix,
+        roadProfile
+      };
     }
+
+    // ── Render Components using Cached Data ─────────────────────────────────
+    const cachedStats = AppState.analyzer.cachedEnvStats;
+
+    // 1. Render Correlation Matrix
+    GSRUI.renderCorrelationTable(cachedStats.correlationMatrix);
+
+    // 2. Draw Regression Plot
+    GSRUI.drawRegressionScatterPlot(cachedStats.allData);
+
+    // 3. Render Roads Profile
+    GSRUI.renderRoadProfile(cachedStats.roadProfile);
+  },
+
+  /**
+   * Render cached Pearson correlation matrix to HTML.
+   */
+  renderCorrelationTable(matrix) {
+    const tbody = document.querySelector('#correlationTable tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    const getCorrClass = (r) => {
+      if (r > 0.35) return 'corr-pos-strong';
+      if (r > 0.15) return 'corr-pos-mod';
+      if (r < -0.35) return 'corr-neg-strong';
+      if (r < -0.15) return 'corr-neg-mod';
+      return 'corr-weak';
+    };
+
+    const getInterpretation = (rPh, rTo) => {
+      if (rPh > 0.25) return 'Correlates with physiological stress spikes (potential stressor)';
+      if (rPh < -0.25) return 'Correlates with immediate stress reduction (restorative)';
+      if (rTo < -0.25) return 'Associated with lower baseline tension (calming context)';
+      if (rTo > 0.25) return 'Associated with higher baseline stress level';
+      return 'Negligible direct impact on physiological arousal';
+    };
+
+    matrix.forEach(row => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${row.name}</strong></td>
+        <td class="${getCorrClass(row.rPhasic)}">${row.rPhasic.toFixed(3)}</td>
+        <td class="${getCorrClass(row.rTonic)}">${row.rTonic.toFixed(3)}</td>
+        <td class="${getCorrClass(row.rPeaks)}">${row.rPeaks.toFixed(3)}</td>
+        <td>${getInterpretation(row.rPhasic, row.rTonic)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  },
+
+  /**
+   * Render cached road profile stats to HTML.
+   */
+  renderRoadProfile(profile) {
+    const roadBody = document.querySelector('#roadArousalTable tbody');
+    const roadChart = document.getElementById('roadBarChartContainer');
+    if (!roadBody || !roadChart) return;
+
+    roadBody.innerHTML = '';
+    roadChart.innerHTML = '';
+
+    const maxPhasicVal = profile.length > 0 ? Math.max(...profile.map(p => p.meanPhasic)) : 1.0;
+
+    profile.forEach(p => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><span style="font-family: monospace; font-size: 0.8rem;">${p.name}</span></td>
+        <td>${p.timeSpent} s</td>
+        <td>${p.meanPhasic.toFixed(3)} μS</td>
+        <td>${p.meanTonic.toFixed(3)} μS</td>
+        <td>${p.peakRate.toFixed(2)}</td>
+      `;
+      roadBody.appendChild(tr);
+
+      const barRow = document.createElement('div');
+      barRow.className = 'road-bar-row';
+      const percent = maxPhasicVal > 0 ? (p.meanPhasic / maxPhasicVal) * 100 : 0;
+      barRow.innerHTML = `
+        <div class="road-bar-label" title="${p.name}">${p.name}</div>
+        <div class="road-bar-track">
+          <div class="road-bar-fill" style="width: ${percent}%;"></div>
+        </div>
+        <div class="road-bar-val">${p.meanPhasic.toFixed(3)} μS</div>
+      `;
+      roadChart.appendChild(barRow);
+    });
+    
+    if (profile.length === 0) {
+      roadBody.innerHTML = '<tr><td colspan="5" class="empty-row">No road profile data found. Enriched track has missing classes.</td></tr>';
+    }
+  },
+
+  /**
+   * Dynamically resizes the canvas drawing buffer and draws the regression scatter plot.
+   */
+  drawRegressionScatterPlot(allData) {
+    const canvas = document.getElementById('regressionCanvas');
+    if (!canvas) return;
+
+    // Rescale drawing buffer to match CSS size pixel-for-pixel
+    if (canvas.clientWidth > 0 && canvas.clientHeight > 0) {
+      canvas.width = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+    }
+
+    const scatterXMetric = document.getElementById('scatterEnvMetric').value;
+    const scatterYMetric = document.getElementById('scatterBioMetric').value;
+
+    const xVals = [];
+    const yVals = [];
+    
+    const dataSrc = allData || (AppState.analyzer && AppState.analyzer.cachedEnvStats ? AppState.analyzer.cachedEnvStats.allData : []);
+    dataSrc.forEach(d => {
+      const x = d[scatterXMetric];
+      const y = scatterYMetric === 'phasic' ? d.phasic : d.tonic;
+      if (x !== null && x !== undefined && !isNaN(x) && y !== null && y !== undefined && !isNaN(y)) {
+        xVals.push(x);
+        yVals.push(y);
+      }
+    });
+
+    const { m, c, r2 } = GSRUI.calculateLinearRegression(xVals, yVals);
+    
+    const xLabels = {
+      'osm_green_pct_50m': 'Green Space %',
+      'osm_building_density_50m': 'Building Density',
+      'osm_dist_major_road': 'Distance to Major Road (m)',
+      'osm_dist_water': 'Distance to Water (m)',
+      'osm_tree_density_50m': 'Tree Density',
+      'osm_amenity_count_50m': 'Amenity Count'
+    };
+    
+    const yLabels = {
+      'phasic': 'Phasic GSR (uS)',
+      'tonic': 'Tonic SCL (uS)'
+    };
+
+    document.getElementById('valFormula').innerText = `y = ${m.toFixed(4)}x + ${c.toFixed(4)}`;
+    document.getElementById('valR2').innerText = r2.toFixed(3);
+
+    GSRUI.drawRegressionScatter(canvas, xVals, yVals, m, c, r2, xLabels[scatterXMetric], yLabels[scatterYMetric]);
   }
 };

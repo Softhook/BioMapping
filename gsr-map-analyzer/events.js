@@ -348,6 +348,9 @@ const GSREvents = {
         label.innerText = parseFloat(slider.value).toFixed(1) + ' s';
         updateDim();
         GSRUI.rerenderMap();
+        if (typeof GSRUI !== 'undefined' && typeof GSRUI.updateEnvironmentalDashboard === 'function') {
+          GSRUI.updateEnvironmentalDashboard();
+        }
         GSRStorage.saveSettings();
       });
     }
@@ -395,13 +398,6 @@ const GSREvents = {
       radiusSlider.addEventListener('input', () => {
         radiusLabel.innerText = radiusSlider.value + ' m';
       });
-
-      const latencySlider = document.getElementById('osmLatency');
-      const latencyLabel = document.getElementById('valOsmLatency');
-      latencySlider.addEventListener('input', () => {
-        latencyLabel.innerText = parseFloat(latencySlider.value).toFixed(1) + ' s';
-        GSRUI.updateEnvironmentalDashboard();
-      });
     }
 
     document.getElementById('btnEnrichTrack').addEventListener('click', () => GSRUI.enrichTrack());
@@ -431,15 +427,15 @@ const GSREvents = {
       const btn = document.getElementById(btnId);
       btn.addEventListener('click', () => {
         document.querySelectorAll('#envTabSwitcher .view-tab').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.env-tab-content').forEach(p => p.style.display = 'none');
+        document.querySelectorAll('.env-tab-content').forEach(p => {
+          p.style.display = 'none';
+          p.classList.remove('active');
+        });
         btn.classList.add('active');
         const pEl = document.getElementById(panelId);
         if (pEl) {
-          if (panelId === 'envTabScatter' || panelId === 'envTabRoads') {
-            pEl.style.display = 'flex';
-          } else {
-            pEl.style.display = 'block';
-          }
+          pEl.style.display = 'flex';
+          pEl.classList.add('active');
         }
         GSRUI.updateEnvironmentalDashboard();
       });
