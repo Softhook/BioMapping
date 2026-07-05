@@ -395,7 +395,10 @@ const GSRUI = {
    * Helper to refresh UI elements based on track enrichment state.
    */
   refreshOsmControls() {
-    const isEnriched = (AppState.analyzer && AppState.analyzer.isEnriched);
+    const isSingleEnriched = AppState.analyzer && AppState.analyzer.isEnriched;
+    const anyCollectiveEnriched = (AppState.viewMode === 'collective')
+      && AppState.collectiveManager.getActiveTracks().some(t => t.analyzer && t.analyzer.isEnriched);
+    const isEnriched = isSingleEnriched || anyCollectiveEnriched;
     const select = document.getElementById('mapColoringMetric');
     const btnToggleOsmShapes = document.getElementById('btnToggleOsmShapes');
     const envPanel = document.getElementById('environmentalPanel');
@@ -764,18 +767,22 @@ const GSRUI = {
   },
 
   updateEnvironmentalDashboard() {
-    if (!AppState.analyzer || !AppState.analyzer.isEnriched) return;
-
-    // 1. Resolve tracks to aggregate
+    // Resolve tracks to aggregate
     const activeTracks = (AppState.viewMode === 'single') 
-      ? [ { id: AppState.activeTrackId, analyzer: AppState.analyzer } ]
-      : AppState.collectiveManager.getActiveTracks().filter(t => t.analyzer.isEnriched);
+      ? (AppState.analyzer && AppState.analyzer.isEnriched
+          ? [ { id: AppState.activeTrackId, analyzer: AppState.analyzer } ]
+          : [])
+      : AppState.collectiveManager.getActiveTracks().filter(t => t.analyzer && t.analyzer.isEnriched);
+
+    if (activeTracks.length === 0) return;
 
     const latency = parseFloat(document.getElementById('gpsPeakLatency').value) || 2.0;
     const trackIdsStr = activeTracks.map(t => t.id).join(',');
 
-    // Check if the statistics cache needs to be invalidated
-    const cache = AppState.analyzer.cachedEnvStats;
+    // Use a shared cache location: in single mode, store on the analyzer;
+    // in collective mode, store on the collective manager (avoids losing cache when switching active track)
+    const cacheTarget = (AppState.viewMode === 'single') ? AppState.analyzer : AppState.collectiveManager;
+    const cache = cacheTarget._cachedEnvStats;
     const needsRecalc = !cache || 
                       cache.latency !== latency || 
                       cache.trackCount !== activeTracks.length ||
@@ -947,7 +954,7 @@ const GSRUI = {
       roadProfile.sort((a, b) => b.meanPhasic - a.meanPhasic);
 
       // Save to client-side cache
-      AppState.analyzer.cachedEnvStats = {
+      cacheTarget._cachedEnvStats = {
         latency,
         trackCount: activeTracks.length,
         trackIds: trackIdsStr,
@@ -958,7 +965,7 @@ const GSRUI = {
     }
 
     // ── Render Components using Cached Data ─────────────────────────────────
-    const cachedStats = AppState.analyzer.cachedEnvStats;
+    const cachedStats = cacheTarget._cachedEnvStats;
 
     // 1. Render Correlation Matrix
     GSRUI.renderCorrelationTable(cachedStats.correlationMatrix);
@@ -1066,6 +1073,69 @@ const GSRUI = {
       roadChart.appendChild(barRow);
     });
     
+    // ── Dynamic interpretation of actual data ───────────────────────────
+    const interpretEl = document.getElementById('roadInterpretationText');
+    if (interpretEl && profile.length > 0) {
+      const sorted = [...profile].sort((a, b) => b.meanPhasic - a.meanPhasic);
+      const highest = sorted[0];
+      const lowest = sorted[sorted.length - 1];
+
+      // Identify small-sample roads (wide CI = unreliable)
+      const unreliable = profile.filter(p => p.ciPhasic > p.meanPhasic * 0.5);
+      const reliable = profile.filter(p => p.ciPhasic <= p.meanPhasic * 0.3);
+
+      // Check CI overlap between highest and lowest
+      const hiLowOverlap = (highest.meanPhasic - highest.ciPhasic) <= (lowest.meanPhasic + lowest.ciPhasic);
+
+      const lines = [];
+
+      // Main comparison
+      if (highest !== lowest) {
+        const diff = ((highest.meanPhasic - lowest.meanPhasic) / lowest.meanPhasic * 100);
+        lines.push(`Your strongest arousal was on <strong>${highest.name}</strong> roads (${highest.meanPhasic.toFixed(3)} μS), ` +
+          `which is <strong>${Math.abs(diff).toFixed(0)}% ${diff > 0 ? 'higher' : 'lower'}</strong> ` +
+          `than ${lowest.name} roads (${lowest.meanPhasic.toFixed(3)} μS).`);
+      }
+
+      // CI overlap assessment
+      if (hiLowOverlap) {
+        lines.push(`However, the confidence intervals <strong>overlap</strong> — this difference may not be statistically reliable.`);
+      } else {
+        lines.push(`The confidence intervals <strong>do not overlap</strong>, suggesting this is a genuine physiological difference.`);
+      }
+
+      // Reliability notes
+      if (unreliable.length > 0) {
+        lines.push(`⚠️ <strong>Low confidence:</strong> ${unreliable.map(p =>
+          `${p.name} (only ${p.timeSpent}s, CI ±${p.ciPhasic.toFixed(3)})`
+        ).join(', ')} — treat these numbers as rough estimates.`);
+      }
+      if (reliable.length > 0) {
+        const best = reliable.sort((a, b) => b.timeSpent - a.timeSpent)[0];
+        lines.push(`✅ <strong>Most reliable:</strong> ${best.name} roads (${best.timeSpent}s of data, CI ±${best.ciPhasic.toFixed(3)}) — the most trustworthy comparison point.`);
+      }
+
+      // Consistency notes
+      const highVar = profile.filter(p => p.stdPhasic > p.meanPhasic * 0.8);
+      const lowVar = profile.filter(p => p.stdPhasic < p.meanPhasic * 0.3 && p.timeSpent > 30);
+      if (highVar.length > 0) {
+        lines.push(`${highVar.map(p =>
+          `<strong>${p.name}</strong> has high variability (Std Dev ${p.stdPhasic.toFixed(3)} μS) — ` +
+          `some parts were very calm, others very reactive.`
+        ).join(' ')}`);
+      }
+      if (lowVar.length > 0) {
+        lines.push(`${lowVar.map(p =>
+          `<strong>${p.name}</strong> is very consistent (Std Dev ${p.stdPhasic.toFixed(3)} μS) — ` +
+          `your arousal stayed steady throughout.`
+        ).join(' ')}`);
+      }
+
+      interpretEl.innerHTML = lines.join('</p><p style="margin: 4px 0 0 0;">');
+    } else if (interpretEl) {
+      interpretEl.textContent = 'No road profile data to interpret.';
+    }
+
     if (profile.length === 0) {
       roadBody.innerHTML = '<tr><td colspan="8" class="empty-row">No road profile data found. Enriched track has missing classes.</td></tr>';
     }
@@ -1090,7 +1160,17 @@ const GSRUI = {
     const xVals = [];
     const yVals = [];
     
-    const dataSrc = allData || (AppState.analyzer && AppState.analyzer.cachedEnvStats ? AppState.analyzer.cachedEnvStats.allData : []);
+    // Resolve data source: direct arg, single-track cache, or collective cache
+    let dataSrc = allData;
+    if (!dataSrc) {
+      if (AppState.analyzer && AppState.analyzer._cachedEnvStats) {
+        dataSrc = AppState.analyzer._cachedEnvStats.allData;
+      } else if (AppState.collectiveManager && AppState.collectiveManager._cachedEnvStats) {
+        dataSrc = AppState.collectiveManager._cachedEnvStats.allData;
+      } else {
+        dataSrc = [];
+      }
+    }
     dataSrc.forEach(d => {
       const x = d[scatterXMetric];
       const y = scatterYMetric === 'phasic' ? d.phasic : d.tonic;

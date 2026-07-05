@@ -792,7 +792,7 @@
                       <th>Road Type</th>
                       <th>Time Spent</th>
                       <th>Mean Phasic (μS)</th>
-                      <th>±σ (μS)</th>
+                      <th>Std Dev (μS)</th>
                       <th>95% CI</th>
                       <th>Mean Tonic (μS)</th>
                       <th>95% CI</th>
@@ -804,12 +804,11 @@
                   </tbody>
                 </table>
               </div>
-              <div class="r2-legend" style="font-size: 0.78rem; background: rgba(0,85,204,0.06); border-left: 3px solid #0055cc; padding: 10px 14px; border-radius: 3px;">
-                <strong style="color:#0055cc;">Confidence markers</strong>
-                <ul style="margin: 6px 0 0 16px; padding: 0; color: var(--text-secondary); line-height: 1.6;">
-                  <li><strong>±σ (Std Dev)</strong> — How spread out the individual readings are. A large σ relative to the mean means the road type has mixed character (some calm seconds, some reactive).</li>
-                  <li><strong>95% CI</strong> — The range you can be 95% confident the true mean falls within. Wider = less reliable. CI bars that don't overlap between two road types suggest a real physiological difference. Small sample sizes (&lt;60 s) produce very wide CIs.</li>
-                </ul>
+              <div class="r2-legend" id="roadProfileInterpretation" style="font-size: 0.78rem; background: rgba(0,85,204,0.06); border-left: 3px solid #0055cc; padding: 10px 14px; border-radius: 3px;">
+                <strong style="color:#0055cc;">What this means for your walk</strong>
+                <div style="margin: 6px 0 0 0; color: var(--text-secondary); line-height: 1.6;">
+                  <p id="roadInterpretationText" style="margin: 0;">Loading interpretation…</p>
+                </div>
               </div>
             </div>
             
