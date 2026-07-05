@@ -657,10 +657,13 @@ const GSRUI = {
     const ctx = canvas.getContext('2d');
     const width = canvas.width;
     const height = canvas.height;
-    ctx.clearRect(0, 0, width, height);
+
+    // White background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
 
     if (xVals.length === 0) {
-      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fillStyle = '#888888';
       ctx.font = '12px Inter, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('No data available', width / 2, height / 2);
@@ -683,9 +686,9 @@ const GSRUI = {
     const rangeX = maxX - minX;
     const rangeY = maxY - minY;
 
-    // Draw grid bounds
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-    ctx.lineWidth = 1;
+    // Draw axis frame
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(padL, padT);
     ctx.lineTo(padL, height - padB);
@@ -696,7 +699,7 @@ const GSRUI = {
     const mapY = (y) => height - padB - ((y - minY) / rangeY) * (height - padB - padT);
 
     // Draw coordinates as orange dots
-    ctx.fillStyle = 'rgba(255, 123, 0, 0.4)';
+    ctx.fillStyle = 'rgba(255, 123, 0, 0.6)';
     for (let i = 0; i < xVals.length; i++) {
       const cx = mapX(xVals[i]);
       const cy = mapY(yVals[i]);
@@ -705,13 +708,13 @@ const GSRUI = {
       ctx.fill();
     }
 
-    // Draw Cyan trendline
+    // Draw trendline (dark blue for contrast on white)
     const x1 = minX;
     const y1 = m * x1 + c;
     const x2 = maxX;
     const y2 = m * x2 + c;
 
-    ctx.strokeStyle = '#00f0ff';
+    ctx.strokeStyle = '#0055cc';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(mapX(x1), mapY(y1));
@@ -719,7 +722,7 @@ const GSRUI = {
     ctx.stroke();
 
     // Text labels
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillStyle = '#333333';
     ctx.font = '9px Inter, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(xLabel, padL + (width - padL - padR)/2, height - 6);
@@ -730,7 +733,7 @@ const GSRUI = {
     ctx.fillText(yLabel, 0, 0);
     ctx.restore();
     
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.fillStyle = '#555555';
     ctx.font = '8px Inter, sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText(minX.toFixed(1), padL, height - padB + 10);
