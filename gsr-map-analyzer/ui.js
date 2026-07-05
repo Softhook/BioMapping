@@ -688,12 +688,34 @@ const GSRUI = {
               const envIdx = a.findClosestIndex(Math.max(0, pt.time - latency));
               const envPt = (envIdx !== -1) ? a.raw[envIdx] : pt;
 
+              // Aggregate GSR values over the 1-second window (10 samples at 10 Hz) to capture peak amplitudes correctly
+              const windowStartIdx = Math.max(0, i - 9);
+              let sumVal = 0;
+              let sumTonic = 0;
+              let maxPhasic = 0;
+              let count = 0;
+              for (let j = windowStartIdx; j <= i; j++) {
+                if (a.raw[j]) {
+                  sumVal += a.raw[j].val || 0;
+                  if (a.tonic && a.tonic[j]) {
+                    sumTonic += a.tonic[j].val || 0;
+                  }
+                  if (a.phasic && a.phasic[j]) {
+                    maxPhasic = Math.max(maxPhasic, a.phasic[j].val || 0);
+                  }
+                  count++;
+                }
+              }
+              const avgVal = count > 0 ? sumVal / count : pt.val;
+              const avgTonic = (count > 0 && a.tonic) ? sumTonic / count : 0;
+              const finalPhasic = a.phasic ? maxPhasic : 0;
+
               allData.push({
                 trackId: track.id,
                 time: pt.time,
-                val: pt.val,
-                phasic: (a.phasic && a.phasic[i]) ? a.phasic[i].val : 0,
-                tonic: (a.tonic && a.tonic[i]) ? a.tonic[i].val : 0,
+                val: avgVal,
+                phasic: finalPhasic,
+                tonic: avgTonic,
                 osm_road_class: envPt.osm_road_class,
                 osm_dist_major_road: envPt.osm_dist_major_road,
                 osm_in_park: envPt.osm_in_park,
