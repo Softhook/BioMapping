@@ -103,7 +103,10 @@ class GSRMapManager {
         'path':           '#80e500',
         'cycleway':       '#00ffd5',
         'living_street':  '#9b5de5',
-        'service':        '#b8c0ff'
+        'service':        '#b8c0ff',
+        'track':          '#a0522d',
+        'unclassified':   '#8899aa',
+        'steps':          '#cc9966'
       };
       let html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
       let count = 0;
@@ -377,18 +380,21 @@ class GSRMapManager {
     
     if (metric === 'roadClass') {
       const roadColors = {
-        'motorway': '#ff0055',
-        'trunk': '#ff4400',
-        'primary': '#ff6600',
-        'secondary': '#ffaa00',
-        'tertiary': '#ffd500',
-        'residential': '#0099ff',
-        'pedestrian': '#00ffc4',
-        'footway': '#00e575',
-        'path': '#80e500',
-        'cycleway': '#00ffd5',
-        'living_street': '#9b5de5',
-        'service': '#b8c0ff'
+        'motorway':       '#ff0055',
+        'trunk':          '#ff4400',
+        'primary':        '#ff6600',
+        'secondary':      '#ffaa00',
+        'tertiary':       '#ffd500',
+        'residential':    '#0099ff',
+        'pedestrian':     '#00ffc4',
+        'footway':        '#00e575',
+        'path':           '#80e500',
+        'cycleway':       '#00ffd5',
+        'living_street':  '#9b5de5',
+        'service':        '#b8c0ff',
+        'track':          '#a0522d',
+        'unclassified':   '#8899aa',
+        'steps':          '#cc9966'
       };
       return roadColors[val] || '#666666';
     }
@@ -443,19 +449,23 @@ class GSRMapManager {
     return '#666666';
   }
 
-  drawOsmShapes(osmJson) {
+  /**
+   * Draw OSM vector geometry overlays (parks, water, buildings) on the map.
+   * Accepts pre-built geoms (from analyzer.osmGeoms) to avoid redundant
+   * geometry reconstruction.
+   */
+  drawOsmShapes(geoms) {
     this.clearOsmShapes();
-    if (!osmJson || !this.map) return;
+    if (!geoms || !geoms.ways || !this.map) return;
     
     this.osmLayers = [];
-    const geoms = OSMEnricher.reconstructGeometries(osmJson);
 
     geoms.ways.concat(geoms.relations).forEach(geom => {
       const tags = geom.tags;
       if (!tags) return;
 
-      const isPark = tags.leisure === 'park' || tags.leisure === 'garden' || tags.landuse === 'grass' || tags.landuse === 'forest' || tags.natural === 'wood';
-      const isWater = tags.natural === 'water' || tags.waterway === 'river' || tags.waterway === 'canal' || tags.waterway === 'stream' || tags.landuse === 'reservoir';
+      const isPark = tags.leisure === 'park' || tags.leisure === 'garden' || tags.leisure === 'nature_reserve' || tags.leisure === 'playground' || tags.landuse === 'grass' || tags.landuse === 'forest' || tags.landuse === 'meadow' || tags.landuse === 'recreation_ground' || tags.landuse === 'village_green' || tags.natural === 'wood' || tags.natural === 'scrub' || tags.natural === 'grassland' || tags.natural === 'heath';
+      const isWater = tags.natural === 'water' || tags.natural === 'wetland' || tags.waterway === 'river' || tags.waterway === 'canal' || tags.waterway === 'stream' || tags.waterway === 'drain' || tags.waterway === 'ditch' || tags.landuse === 'basin' || tags.landuse === 'reservoir';
       const isBuilding = !!tags.building;
 
       let color = null;

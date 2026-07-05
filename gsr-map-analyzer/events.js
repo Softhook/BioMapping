@@ -415,7 +415,7 @@ const GSREvents = {
       const active = btnToggleOsmShapes.classList.contains('active');
       if (AppState.mapManager) {
         if (active) {
-          AppState.mapManager.drawOsmShapes(AppState.analyzer.osmJson);
+          AppState.mapManager.drawOsmShapes(AppState.analyzer.osmGeoms);
         } else {
           AppState.mapManager.clearOsmShapes();
         }

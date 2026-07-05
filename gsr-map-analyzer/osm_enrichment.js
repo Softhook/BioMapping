@@ -22,15 +22,18 @@ const MAJOR_ROAD_CLASSES = new Set([
   'motorway', 'trunk', 'primary', 'secondary'
 ]);
 const AMENITY_TYPES = new Set([
-  'cafe', 'restaurant', 'pub', 'fast_food', 'bar'
+  'cafe', 'restaurant', 'pub', 'fast_food', 'bar',
+  'school', 'university', 'hospital', 'clinic',
+  'library', 'place_of_worship',
+  'parking', 'fuel'
 ]);
 
-const GREEN_LEISURE = new Set(['park', 'garden']);
-const GREEN_LANDUSE = new Set(['grass', 'forest', 'meadow', 'recreation_ground']);
-const GREEN_NATURAL = new Set(['wood', 'scrub', 'grassland']);
+const GREEN_LEISURE = new Set(['park', 'garden', 'nature_reserve', 'playground']);
+const GREEN_LANDUSE = new Set(['grass', 'forest', 'meadow', 'recreation_ground', 'village_green', 'orchard']);
+const GREEN_NATURAL = new Set(['wood', 'scrub', 'grassland', 'heath']);
 
-const WATER_NATURAL  = new Set(['water']);
-const WATER_WATERWAY = new Set(['river', 'canal', 'stream', 'drain']);
+const WATER_NATURAL  = new Set(['water', 'wetland']);
+const WATER_WATERWAY = new Set(['river', 'canal', 'stream', 'drain', 'ditch']);
 const WATER_LANDUSE  = new Set(['basin', 'reservoir']);
 
 // -- Module-level helpers --------------------------------------------------
@@ -249,15 +252,15 @@ const OSMEnricher = {
   way["highway"](${b});
   way["building"](${b});
   relation["building"](${b});
-  way["leisure"="park"](${b});
-  way["landuse"~"grass|forest|meadow"](${b});
-  way["natural"="wood"](${b});
-  relation["leisure"="park"](${b});
-  relation["landuse"~"grass|forest|meadow"](${b});
-  relation["natural"="wood"](${b});
-  way["natural"="water"](${b});
+  way["leisure"~"park|garden|nature_reserve|playground"](${b});
+  way["landuse"~"grass|forest|meadow|recreation_ground|village_green|orchard"](${b});
+  way["natural"~"wood|scrub|grassland|heath"](${b});
+  relation["leisure"~"park|garden|nature_reserve|playground"](${b});
+  relation["landuse"~"grass|forest|meadow|recreation_ground|village_green|orchard"](${b});
+  relation["natural"~"wood|scrub|grassland|heath"](${b});
+  way["natural"~"water|wetland"](${b});
   way["waterway"](${b});
-  relation["natural"="water"](${b});
+  relation["natural"~"water|wetland"](${b});
   relation["waterway"](${b});
   node["amenity"](${b});
   way["amenity"](${b});
@@ -625,6 +628,9 @@ out skel qt;`;
     if (onProgress) onProgress('Assembling spatial index...');
     const geoms = this.reconstructGeometries(osmJson);
     const spatialIndex = this.buildSpatialIndex(geoms);
+
+    // Cache reconstructed geometries so drawOsmShapes doesn't rebuild them
+    analyzer.osmGeoms = geoms;
 
     // 2. Collect GPS positions from the track
     if (onProgress) onProgress('Analyzing GPS positions...');

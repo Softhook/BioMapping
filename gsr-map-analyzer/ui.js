@@ -404,8 +404,8 @@ const GSRUI = {
       // Enable OSM coloring options in map dropdown
       document.querySelectorAll('.osm-option').forEach(opt => opt.removeAttribute('disabled'));
       
-      // Show vector geometry toggle if data is available
-      if (AppState.analyzer.osmJson) {
+      // Show vector geometry toggle if cached geometries are available
+      if (AppState.analyzer.osmGeoms) {
         btnToggleOsmShapes.style.display = 'inline-block';
       } else {
         btnToggleOsmShapes.style.display = 'none';
