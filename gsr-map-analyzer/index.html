@@ -722,12 +722,12 @@
 
           <!-- Tab 1: Correlation Matrix -->
           <div class="env-tab-content active" id="envTabCorrelation" style="padding: 16px;">
-            <p class="help-text" style="margin-bottom: 12px; font-size: 0.85rem;">Pearson correlation (<em>r</em>) between environmental features and physiological arousal. Positive <em>r</em> = higher arousal, negative <em>r</em> = lower arousal. Stars indicate statistical significance (* p &lt; .05, ** p &lt; .01, *** p &lt; .001).</p>
+            <p class="help-text" style="margin-bottom: 12px; font-size: 0.85rem;">Pearson correlation (<em>r</em>) between environmental features and physiological arousal. Stars indicate statistical significance.</p>
             <div class="table-container">
               <table class="peaks-table" id="correlationTable">
                 <thead>
                   <tr>
-                    <th>Environmental Feature</th>
+                    <th>Feature</th>
                     <th>Phasic <em>r</em></th>
                     <th>Tonic <em>r</em></th>
                     <th>Peaks <em>r</em></th>
@@ -747,9 +747,9 @@
           <div class="env-tab-content" id="envTabScatter" style="display: none; padding: 16px;">
             <div style="display: flex; flex-direction: column; gap: 12px;">
               <div style="display: flex; gap: 12px; align-items: center;">
-                <label for="scatterEnvMetric" style="font-size: 0.85rem; font-weight: 500;">Environmental factor to explore:</label>
+                <label for="scatterEnvMetric" style="font-size: 0.85rem; font-weight: 500;">Environmental factor:</label>
                 <select id="scatterEnvMetric" class="select-control" style="width: auto;">
-                  <option value="osm_green_pct_50m">Green Space %</option>
+                  <option value="osm_green_pct_50m">Green Space</option>
                   <option value="osm_building_density_50m">Building Density</option>
                   <option value="osm_dist_major_road">Distance to Major Road (m)</option>
                   <option value="osm_dist_water">Distance to Water (m)</option>
@@ -764,11 +764,7 @@
                   <option value="tonic">Tonic SCL (baseline arousal)</option>
                 </select>
               </div>
-              <div id="regressionFormula" style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 4px; font-size: 0.85rem; border-left: 3px solid #ff7b00; margin-top: 8px;">
-                <strong>Linear fit:</strong> <span id="valFormula">y = mx + c</span><br>
-                <strong>R² (goodness of fit):</strong> <span id="valR2">0.00</span>
-              </div>
-              <p class="help-text">Each dot is one second of recording. The line shows the linear trend; R² indicates how much of the arousal variation the environmental factor explains.</p>
+              <p class="help-text">Each dot is one second of recording. The line shows the linear trend; R² is shown on the chart.</p>
             </div>
             
             <div class="regression-chart-container" style="background: #ffffff; border-radius: 6px; padding: 16px; border: 2px solid #000000; position: relative; min-height: 240px; display: flex; flex-direction: column;">

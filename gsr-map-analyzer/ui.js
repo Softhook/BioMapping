@@ -1085,9 +1085,6 @@ const GSRUI = {
       'tonic': 'Tonic (baseline arousal)'
     };
 
-    document.getElementById('valFormula').innerText = `y = ${m.toFixed(4)}x + ${c.toFixed(4)}`;
-    document.getElementById('valR2').innerText = r2.toFixed(3);
-
     GSRUI.drawRegressionScatter(canvas, xVals, yVals, m, c, r2, xLabels[scatterXMetric], yLabels[scatterYMetric]);
   },
 
