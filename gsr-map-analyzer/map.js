@@ -10,8 +10,10 @@ class GSRMapManager {
     this.collectivePathSegments = [];
     this.collectivePeakMarkers = [];
     this.contourLayers = [];
+    this.osmLayers = [];
     this.scrubMarker = null;
     this.showPeaks = true;
+    this.activeColoringMetric = 'gsr';
     
     this.initMap();
   }
@@ -60,6 +62,7 @@ class GSRMapManager {
     if (!this.map) return;
     this.pathSegments = this._clearLayerGroup(this.pathSegments);
     this.peakMarkers = this._clearLayerGroup(this.peakMarkers);
+    this.clearOsmShapes();
 
     if (this.map.hasLayer(this.scrubMarker)) {
       this.map.removeLayer(this.scrubMarker);
@@ -218,48 +221,210 @@ class GSRMapManager {
     this.map.fitBounds(bounds, { padding: [30, 30] });
   }
 
-  _renderPathSegments(drawPoints, data, trackWeight) {
-    // Use reduce to avoid Math.min(...spread) stack overflow on large datasets
-    let minVal = Infinity, maxVal = -Infinity;
-    for (let i = 0; i < data.length; i++) {
-      const v = data[i].val;
-      if (v < minVal) minVal = v;
-      if (v > maxVal) maxVal = v;
-    }
-    if (maxVal === minVal) maxVal = minVal + 1;
+  _getMetricKey(metric) {
+    const keys = {
+      'gsr': 'val',
+      'roadClass': 'osm_road_class',
+      'distMajorRoad': 'osm_dist_major_road',
+      'inPark': 'osm_in_park',
+      'greenPct': 'osm_green_pct_50m',
+      'buildingDensity': 'osm_building_density_50m',
+      'distWater': 'osm_dist_water',
+      'treeDensity': 'osm_tree_density_50m',
+      'amenityCount': 'osm_amenity_count_50m'
+    };
+    return keys[metric] || 'val';
+  }
 
-    // ── Batch consecutive segments by quantized color bucket ────────────────
-    // Individual per-segment L.polylines create thousands of SVG <path>
-    // elements, crushing Leaflet pan/zoom performance.  Instead, quantise the
-    // [0,1] colour ratio into ~30 buckets and merge all consecutive segments
-    // that fall in the same bucket into a single L.polyline.
+  getColorForMetric(metric, val, minVal, maxVal) {
+    if (metric === 'gsr') {
+      return this.getColorForValue(val, minVal, maxVal);
+    }
+    
+    if (metric === 'roadClass') {
+      const roadColors = {
+        'motorway': '#ff0055',
+        'trunk': '#ff4400',
+        'primary': '#ff6600',
+        'secondary': '#ffaa00',
+        'tertiary': '#ffd500',
+        'residential': '#0099ff',
+        'pedestrian': '#00ffc4',
+        'footway': '#00e575',
+        'path': '#80e500',
+        'cycleway': '#00ffd5',
+        'living_street': '#9b5de5',
+        'service': '#b8c0ff'
+      };
+      return roadColors[val] || '#666666';
+    }
+    
+    if (metric === 'inPark') {
+      return val === 1 ? '#00e575' : '#666666';
+    }
+    
+    let ratio = 0;
+    if (maxVal !== minVal) {
+      ratio = (val - minVal) / (maxVal - minVal);
+    }
+    ratio = Math.max(0, Math.min(1, ratio));
+
+    if (metric === 'greenPct') {
+      // Brown (0%) to Green (100%)
+      const hue = 30 + ratio * 100;
+      return `hsl(${hue}, 80%, 45%)`;
+    }
+    
+    if (metric === 'buildingDensity') {
+      // Green (low density) to Red (high density)
+      const hue = (1.0 - ratio) * 120;
+      return `hsl(${hue}, 85%, 50%)`;
+    }
+    
+    if (metric === 'distMajorRoad') {
+      // Close (Red) to Far (Green)
+      const hue = ratio * 120;
+      return `hsl(${hue}, 85%, 50%)`;
+    }
+    
+    if (metric === 'distWater') {
+      // Close (Cyan/Blue) to Far (Brown/Gray)
+      const hue = 200 - ratio * 170;
+      return `hsl(${hue}, 80%, 45%)`;
+    }
+    
+    if (metric === 'treeDensity') {
+      // None (Gray) to Many (Emerald Green)
+      const hue = 60 + ratio * 80;
+      const sat = 30 + ratio * 60;
+      return `hsl(${hue}, ${sat}%, 45%)`;
+    }
+    
+    if (metric === 'amenityCount') {
+      // None (Gray) to Many (Purple/Red)
+      const hue = 240 - ratio * 240;
+      return `hsl(${hue}, 85%, 55%)`;
+    }
+    
+    return '#666666';
+  }
+
+  drawOsmShapes(osmJson) {
+    this.clearOsmShapes();
+    if (!osmJson || !this.map) return;
+    
+    this.osmLayers = [];
+    const geoms = OSMEnricher.reconstructGeometries(osmJson);
+
+    geoms.ways.concat(geoms.relations).forEach(geom => {
+      const tags = geom.tags;
+      if (!tags) return;
+
+      const isPark = tags.leisure === 'park' || tags.leisure === 'garden' || tags.landuse === 'grass' || tags.landuse === 'forest' || tags.natural === 'wood';
+      const isWater = tags.natural === 'water' || tags.waterway === 'river' || tags.waterway === 'canal' || tags.waterway === 'stream' || tags.landuse === 'reservoir';
+      const isBuilding = !!tags.building;
+
+      let color = null;
+      let fillColor = null;
+      let fillOpacity = 0.15;
+
+      if (isPark) {
+        color = '#2d6a4f';
+        fillColor = '#52b788';
+      } else if (isWater) {
+        color = '#0077b6';
+        fillColor = '#90e0ef';
+        fillOpacity = 0.25;
+      } else if (isBuilding) {
+        color = '#4a4e69';
+        fillColor = '#9a8c98';
+        fillOpacity = 0.1;
+      }
+
+      if (color) {
+        if (geom.type === 'way' && geom.coordinates.length > 2) {
+          const latlngs = geom.coordinates.map(pt => [pt.lat, pt.lon]);
+          const poly = L.polygon(latlngs, { color, fillColor, fillOpacity, weight: 1 }).addTo(this.map);
+          this.osmLayers.push(poly);
+        } else if (geom.type === 'relation' && geom.outerWays) {
+          geom.outerWays.forEach(way => {
+            const latlngs = way.coordinates.map(pt => [pt.lat, pt.lon]);
+            const poly = L.polygon(latlngs, { color, fillColor, fillOpacity, weight: 1 }).addTo(this.map);
+            this.osmLayers.push(poly);
+          });
+        }
+      }
+    });
+  }
+
+  clearOsmShapes() {
+    if (this.osmLayers) {
+      this.osmLayers.forEach(layer => this.map.removeLayer(layer));
+    }
+    this.osmLayers = [];
+  }
+
+  _renderPathSegments(drawPoints, data, trackWeight) {
+    const metric = this.activeColoringMetric || 'gsr';
+    const key = this._getMetricKey(metric);
+    const isCategorical = (metric === 'roadClass');
+
+    let minVal = Infinity, maxVal = -Infinity;
+    if (!isCategorical) {
+      for (let i = 0; i < data.length; i++) {
+        const v = data[i][key];
+        if (v !== undefined && v !== null && !isNaN(v)) {
+          if (v < minVal) minVal = v;
+          if (v > maxVal) maxVal = v;
+        }
+      }
+      if (minVal === Infinity) {
+        minVal = 0;
+        maxVal = 1;
+      }
+      if (maxVal === minVal) maxVal = minVal + 1;
+    }
+
     const range = maxVal - minVal;
     const COLOR_BUCKETS = 30;
     let batchStart = 0;
 
     while (batchStart < drawPoints.length - 1) {
-      const startVal = (drawPoints[batchStart].val + drawPoints[batchStart + 1].val) / 2;
-      const startBucket = Math.floor(((startVal - minVal) / range) * COLOR_BUCKETS);
+      const startVal = drawPoints[batchStart][key];
+      
+      let startBucket = 0;
+      if (!isCategorical) {
+        const avgVal = (drawPoints[batchStart][key] + drawPoints[batchStart + 1][key]) / 2;
+        startBucket = Math.floor(((avgVal - minVal) / range) * COLOR_BUCKETS);
+      }
 
-      // Extend the batch while consecutive points stay in the same bucket
       let batchEnd = batchStart + 1;
       while (batchEnd < drawPoints.length - 1) {
-        const val = (drawPoints[batchEnd].val + drawPoints[batchEnd + 1].val) / 2;
-        const bucket = Math.floor(((val - minVal) / range) * COLOR_BUCKETS);
-        if (bucket !== startBucket) break;
+        if (isCategorical) {
+          const val = drawPoints[batchEnd][key];
+          if (val !== startVal) break;
+        } else {
+          const val = (drawPoints[batchEnd][key] + drawPoints[batchEnd + 1][key]) / 2;
+          const bucket = Math.floor(((val - minVal) / range) * COLOR_BUCKETS);
+          if (bucket !== startBucket) break;
+        }
         batchEnd++;
       }
 
-      // Build coordinate array for the batch (inclusive of both endpoints)
       const latlngs = [];
       for (let i = batchStart; i <= batchEnd; i++) {
         latlngs.push([drawPoints[i].lat, drawPoints[i].lon]);
       }
 
-      // Mid-batch value for the colour (smooth transition at bucket edges)
-      const midIdx = Math.floor((batchStart + batchEnd) / 2);
-      const midVal = (drawPoints[midIdx].val + drawPoints[midIdx + 1].val) / 2;
-      const color = this.getColorForValue(midVal, minVal, maxVal);
+      let colorVal;
+      if (isCategorical) {
+        colorVal = startVal;
+      } else {
+        const midIdx = Math.floor((batchStart + batchEnd) / 2);
+        colorVal = (drawPoints[midIdx][key] + drawPoints[midIdx + 1][key]) / 2;
+      }
+      
+      const color = this.getColorForMetric(metric, colorVal, minVal, maxVal);
 
       this.pathSegments.push(
         L.polyline(latlngs, { color, weight: trackWeight, opacity: 0.95 }).addTo(this.map)

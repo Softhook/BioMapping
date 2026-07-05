@@ -286,6 +286,7 @@ const GSRTrackManager = {
     GSREvents.initializeLabels();
     GSRUI.resetView();
     GSRUI.runAnalysis();
+    GSRUI.refreshOsmControls();
 
     document.getElementById('exportCsvBtn').removeAttribute('disabled');
     document.getElementById('exportImageBtn').removeAttribute('disabled');

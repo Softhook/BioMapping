@@ -1248,6 +1248,48 @@ input[type="range"]::-webkit-slider-thumb:hover {
   overflow: auto;
 }
 
+/* Environmental Panel Fullscreen Layout */
+.panel-fullscreen-overlay #environmentalPanel {
+  max-height: none !important;
+  flex-grow: 1 !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.panel-fullscreen-overlay #environmentalPanel .env-tab-content {
+  flex-grow: 1 !important;
+  min-height: 0 !important;
+  overflow: auto !important;
+  padding: 16px !important;
+}
+
+/* Ensure tabs are flex-row and stretch to fill remaining height */
+.panel-fullscreen-overlay #environmentalPanel #envTabScatter,
+.panel-fullscreen-overlay #environmentalPanel #envTabRoads {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: stretch !important;
+  height: 100% !important;
+  min-height: 0 !important;
+}
+
+/* Make wrappers expand vertically to fill the panel height */
+.panel-fullscreen-overlay #environmentalPanel .regression-chart-container,
+.panel-fullscreen-overlay #environmentalPanel .road-chart-container {
+  height: 100% !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.panel-fullscreen-overlay #environmentalPanel #roadBarChartContainer {
+  flex-grow: 1 !important;
+  overflow-y: auto !important;
+  max-height: none !important;
+}
+
 /* ─────────────────────────────────────────────────────────────────── */
 
 .control-subgroup-title {
@@ -1639,4 +1681,83 @@ input[type="range"]::-webkit-slider-thumb:hover {
 #btnFullscreen.is-fullscreen i {
   color: var(--accent-primary);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Environmental Analysis Dashboard Styles
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+.env-tab-content {
+  animation: fadeIn 0.3s ease;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  flex-grow: 1;
+  box-sizing: border-box;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.road-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.82rem;
+  margin-bottom: 8px;
+}
+
+.road-bar-label {
+  width: 100px;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.road-bar-track {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.08);
+  height: 14px;
+  border-radius: 7px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.road-bar-fill {
+  background: linear-gradient(90deg, #ff7b00, #ffb300);
+  height: 100%;
+  border-radius: 7px;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.road-bar-val {
+  width: 60px;
+  text-align: right;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Heatmap correlations cells background */
+.corr-pos-strong { background-color: rgba(255, 123, 0, 0.25) !important; color: #ff9d42 !important; }
+.corr-pos-mod { background-color: rgba(255, 123, 0, 0.12) !important; color: #ffbc7d !important; }
+.corr-neg-strong { background-color: rgba(0, 240, 255, 0.25) !important; color: #6bf1ff !important; }
+.corr-neg-mod { background-color: rgba(0, 240, 255, 0.12) !important; color: #bdf7ff !important; }
+.corr-weak { color: rgba(255,255,255,0.4) !important; }
+
+/* Allow environmental panel to grow taller and fill space when available */
+#environmentalPanel {
+  max-height: 500px;
+}
+
+/* Hide tab content completely when environmental panel is collapsed */
+.peaks-table-panel.collapsed .env-tab-content {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  display: none !important;
+}
+
 

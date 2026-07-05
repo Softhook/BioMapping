@@ -7,6 +7,7 @@ const GSRLayoutManager = {
   _activePanelExits: new Set(),
   _canvasObserver: null,
   _mapObserver: null,
+  _regressionObserver: null,
 
   /**
    * Cross-browser Fullscreen API helpers.
@@ -43,6 +44,7 @@ const GSRLayoutManager = {
       AppState.isMapFullscreen = isFs;
     });
     this.setupPanelFullscreen('btnEventsFullscreen', 'eventsPanel');
+    this.setupPanelFullscreen('btnEnvFullscreen', 'environmentalPanel');
   },
 
   /**
@@ -71,6 +73,16 @@ const GSRLayoutManager = {
         }
       });
       this._mapObserver.observe(mapElement);
+    }
+
+    const regressionWrapper = document.querySelector('.regression-chart-wrapper');
+    if (regressionWrapper) {
+      this._regressionObserver = new ResizeObserver(() => {
+        if (typeof GSRUI !== 'undefined' && typeof GSRUI.updateEnvironmentalDashboard === 'function') {
+          GSRUI.updateEnvironmentalDashboard();
+        }
+      });
+      this._regressionObserver.observe(regressionWrapper);
     }
   },
 

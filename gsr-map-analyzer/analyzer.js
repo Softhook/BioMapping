@@ -179,6 +179,7 @@ class GSRAnalyzer {
     this.recordingStartTime = 0;
     this.importedFilterParams = null;
     this.importedGpsFilterParams = null;
+    this.enrichmentRadius = null;
     let dataStartLine = 0;
     while (dataStartLine < lines.length && lines[dataStartLine].startsWith('#')) {
       const line = lines[dataStartLine].trim();
@@ -198,6 +199,11 @@ class GSRAnalyzer {
           this.importedGpsFilterParams = JSON.parse(line.substring('# GpsFilterParams:'.length).trim());
         } catch (e) {
           console.warn("Failed to parse GpsFilterParams metadata:", e);
+        }
+      } else if (line.startsWith('# EnrichmentRadius:')) {
+        const radVal = parseFloat(line.split(':')[1]);
+        if (!isNaN(radVal)) {
+          this.enrichmentRadius = radVal;
         }
       }
       dataStartLine++;
@@ -256,6 +262,16 @@ class GSRAnalyzer {
       if (h.includes('peakexcluded') || h.includes('peak_excluded')) peakExcludedColIndex = i;
     }
 
+    // OSM environmental column detection
+    let osmRoadClassColIdx = headers.indexOf('osm_road_class');
+    let osmDistMajorRoadColIdx = headers.indexOf('osm_dist_major_road');
+    let osmInParkColIdx = headers.indexOf('osm_in_park');
+    let osmGreenPctColIdx = headers.indexOf('osm_green_pct_50m');
+    let osmBldDensityColIdx = headers.indexOf('osm_building_density_50m');
+    let osmDistWaterColIdx = headers.indexOf('osm_dist_water');
+    let osmTreeDensityColIdx = headers.indexOf('osm_tree_density_50m');
+    let osmAmenityCountColIdx = headers.indexOf('osm_amenity_count_50m');
+
     // Fallbacks for main biometric columns
     if (timeColIndex === -1) timeColIndex = 0;
     if (gsrColIndex === -1) gsrColIndex = headers.length > 1 ? 1 : 0;
@@ -304,6 +320,16 @@ class GSRAnalyzer {
         }
       }
 
+      // Parse OSM fields
+      let osm_road_class = osmRoadClassColIdx !== -1 && cols[osmRoadClassColIdx] ? cols[osmRoadClassColIdx].trim().replace(/^"|"$/g, '') : null;
+      let osm_dist_major_road = osmDistMajorRoadColIdx !== -1 && cols[osmDistMajorRoadColIdx] ? parseFloat(cols[osmDistMajorRoadColIdx]) : NaN;
+      let osm_in_park = osmInParkColIdx !== -1 && cols[osmInParkColIdx] ? parseInt(cols[osmInParkColIdx]) : NaN;
+      let osm_green_pct_50m = osmGreenPctColIdx !== -1 && cols[osmGreenPctColIdx] ? parseFloat(cols[osmGreenPctColIdx]) : NaN;
+      let osm_building_density_50m = osmBldDensityColIdx !== -1 && cols[osmBldDensityColIdx] ? parseFloat(cols[osmBldDensityColIdx]) : NaN;
+      let osm_dist_water = osmDistWaterColIdx !== -1 && cols[osmDistWaterColIdx] ? parseFloat(cols[osmDistWaterColIdx]) : NaN;
+      let osm_tree_density_50m = osmTreeDensityColIdx !== -1 && cols[osmTreeDensityColIdx] ? parseFloat(cols[osmTreeDensityColIdx]) : NaN;
+      let osm_amenity_count_50m = osmAmenityCountColIdx !== -1 && cols[osmAmenityCountColIdx] ? parseFloat(cols[osmAmenityCountColIdx]) : NaN;
+
       rawDataList.push({
         time: timeVal,
         val: gsrVal,
@@ -314,7 +340,15 @@ class GSRAnalyzer {
         fix: fixVal,
         hasGps: false,
         _importLabel: importedPeakLabel,
-        _importExcluded: importedPeakExcluded
+        _importExcluded: importedPeakExcluded,
+        osm_road_class: osm_road_class,
+        osm_dist_major_road: osm_dist_major_road,
+        osm_in_park: osm_in_park,
+        osm_green_pct_50m: osm_green_pct_50m,
+        osm_building_density_50m: osm_building_density_50m,
+        osm_dist_water: osm_dist_water,
+        osm_tree_density_50m: osm_tree_density_50m,
+        osm_amenity_count_50m: osm_amenity_count_50m
       });
     }
 
@@ -468,6 +502,16 @@ class GSRAnalyzer {
     }
 
     this.raw = rawDataList;
+
+    // Check if imported CSV is already enriched
+    if (osmRoadClassColIdx !== -1 || osmGreenPctColIdx !== -1) {
+      this.isEnriched = true;
+      if (!this.enrichmentRadius) this.enrichmentRadius = 50; // fallback default
+    } else {
+      this.isEnriched = false;
+      this.enrichmentRadius = null;
+    }
+
     return this.raw;
   }
 
@@ -943,6 +987,7 @@ class GSRAnalyzer {
     }
 
     const hasFilteredGps = this.filteredGps && this.filteredGps.length === this.raw.length;
+    const isEnriched = this.isEnriched;
 
     // Preserve recording start time and configurations for re-import
     let csv = `# RecordingStartTime:${this.recordingStartTime}\n`;
@@ -952,9 +997,15 @@ class GSRAnalyzer {
     if (gpsParams) {
       csv += `# GpsFilterParams:${JSON.stringify(gpsParams)}\n`;
     }
+    if (isEnriched) {
+      csv += `# EnrichmentRadius:${this.enrichmentRadius}\n`;
+    }
     csv += "Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,PeakLabel,PeakExcluded,Latitude,Longitude";
     if (hasFilteredGps) {
       csv += ",Raw Latitude,Raw Longitude";
+    }
+    if (isEnriched) {
+      csv += ",osm_road_class,osm_dist_major_road,osm_in_park,osm_green_pct_50m,osm_building_density_50m,osm_dist_water,osm_tree_density_50m,osm_amenity_count_50m";
     }
     csv += "\n";
 
@@ -1009,6 +1060,19 @@ class GSRAnalyzer {
 
       if (hasFilteredGps) {
         csv += `,${rawLatStr},${rawLonStr}`;
+      }
+
+      if (isEnriched) {
+        const roadClassStr = this.raw[i].osm_road_class ? `"${this.raw[i].osm_road_class}"` : "";
+        const distMajorStr = (this.raw[i].osm_dist_major_road !== null && !isNaN(this.raw[i].osm_dist_major_road)) ? this.raw[i].osm_dist_major_road.toFixed(2) : "";
+        const inParkStr = (this.raw[i].osm_in_park !== null && !isNaN(this.raw[i].osm_in_park)) ? this.raw[i].osm_in_park.toString() : "";
+        const greenPctStr = (this.raw[i].osm_green_pct_50m !== null && !isNaN(this.raw[i].osm_green_pct_50m)) ? this.raw[i].osm_green_pct_50m.toFixed(1) : "";
+        const bldDensityStr = (this.raw[i].osm_building_density_50m !== null && !isNaN(this.raw[i].osm_building_density_50m)) ? this.raw[i].osm_building_density_50m.toFixed(1) : "";
+        const distWaterStr = (this.raw[i].osm_dist_water !== null && !isNaN(this.raw[i].osm_dist_water)) ? this.raw[i].osm_dist_water.toFixed(2) : "";
+        const treeDensStr = (this.raw[i].osm_tree_density_50m !== null && !isNaN(this.raw[i].osm_tree_density_50m)) ? this.raw[i].osm_tree_density_50m.toFixed(1) : "";
+        const amCountStr = (this.raw[i].osm_amenity_count_50m !== null && !isNaN(this.raw[i].osm_amenity_count_50m)) ? this.raw[i].osm_amenity_count_50m.toFixed(1) : "";
+
+        csv += `,${roadClassStr},${distMajorStr},${inParkStr},${greenPctStr},${bldDensityStr},${distWaterStr},${treeDensStr},${amCountStr}`;
       }
       csv += "\n";
     }

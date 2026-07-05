@@ -470,6 +470,50 @@
           </div>
         </section>
 
+        <!-- OSM Environmental Enrichment Card -->
+        <section class="control-card" id="osmEnrichmentCard">
+          <h2>
+            <i class="fa-solid fa-earth-americas"></i> Environmental Enrichment
+            <button class="icon-btn collapse-btn" id="btnOsmEnrichmentCollapse" title="Collapse" style="margin-left: auto;">
+              <i class="fa-solid fa-chevron-down"></i>
+            </button>
+          </h2>
+
+          <div class="card-content">
+            <p class="help-text" style="margin-bottom: 12px;">Enrich GPS points with environmental metadata (roads, parks, buildings, water) fetched from OpenStreetMap.</p>
+            
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Search Radius (m)</span>
+                <span class="slider-value" id="valOsmRadius">50 m</span>
+              </div>
+              <input type="range" id="osmRadius" min="25" max="200" step="5" value="50">
+              <p class="help-text">Spatial buffer radius for local density and distance calculations.</p>
+            </div>
+
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Latency Shift (s)</span>
+                <span class="slider-value" id="valOsmLatency">2.0 s</span>
+              </div>
+              <input type="range" id="osmLatency" min="0.0" max="5.0" step="0.5" value="2.0">
+              <p class="help-text">Shifts GSR timeline back to align with physiological response latency.</p>
+            </div>
+
+            <button class="btn btn-primary" id="btnEnrichTrack" style="width: 100%; margin-top: 8px;">
+              <i class="fa-solid fa-wand-magic-sparkles"></i> Enrich Active Track
+            </button>
+
+            <!-- Progress & status -->
+            <div id="osmStatusContainer" style="display: none; margin-top: 12px; font-size: 0.8rem; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 4px; border-left: 3px solid #ff7b00;">
+              <div id="osmStatusMessage" style="font-weight: 500; margin-bottom: 4px;">Connecting to Overpass...</div>
+              <div class="progress-bar-container" style="background: rgba(255,255,255,0.1); height: 6px; border-radius: 3px; overflow: hidden;">
+                <div id="osmProgressBar" style="background: #ff7b00; height: 100%; width: 0%; transition: width 0.2s;"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <!-- Export controls -->
         <section class="control-card export-section" id="exportCard">
           <h2>
@@ -600,7 +644,21 @@
             <div class="canvas-controls">
               <button class="icon-btn" id="btnMapZoomIn" title="Zoom In"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
               <button class="icon-btn" id="btnMapZoomOut" title="Zoom Out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
-              <button class="icon-btn" id="btnMapZoomExtent" title="Zoom to Extent"><i class="fa-solid fa-arrows-to-eye"></i></button>
+               <button class="icon-btn" id="btnMapZoomExtent" title="Zoom to Extent"><i class="fa-solid fa-arrows-to-eye"></i></button>
+              <span class="control-divider"></span>
+              <span style="font-size: 0.8rem; font-weight: 500; color: rgba(255,255,255,0.6);">Map Metric:</span>
+              <select id="mapColoringMetric" class="select-control" style="background: rgba(255,255,255,0.08); color: white; border: 1px solid rgba(255,255,255,0.15); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; height: auto; width: auto; max-width: 140px; margin: 0 4px;">
+                <option value="gsr" selected>GSR Arousal</option>
+                <option value="roadClass" disabled class="osm-option">OSM Road Class</option>
+                <option value="distMajorRoad" disabled class="osm-option">Dist Major Road</option>
+                <option value="inPark" disabled class="osm-option">In Park</option>
+                <option value="greenPct" disabled class="osm-option">Green Space %</option>
+                <option value="buildingDensity" disabled class="osm-option">Building Density</option>
+                <option value="distWater" disabled class="osm-option">Dist to Water</option>
+                <option value="treeDensity" disabled class="osm-option">Tree Density</option>
+                <option value="amenityCount" disabled class="osm-option">Amenity Count</option>
+              </select>
+              <button class="btn btn-outline" id="btnToggleOsmShapes" style="display: none; padding: 4px 8px; font-size: 0.8rem; margin: 0 4px;">OSM Layers</button>
               <span class="control-divider"></span>
               <button class="btn btn-outline active" id="btnToggleMapPeaks">Peaks</button>
               <span class="control-divider"></span>
@@ -651,6 +709,108 @@
             </table>
           </div>
         </section>
+        <!-- Environmental Analysis Dashboard -->
+        <section class="peaks-table-panel" id="environmentalPanel" style="display: none; margin-top: 20px;">
+          <div class="panel-header">
+            <div class="panel-title-group">
+              <button class="icon-btn collapse-btn" id="btnEnvCollapse" title="Collapse Panel">
+                <i class="fa-solid fa-chevron-down"></i>
+              </button>
+              <h3><i class="fa-solid fa-square-poll-vertical"></i> Environmental Stress Analysis</h3>
+            </div>
+            <div class="view-switcher" id="envTabSwitcher" style="margin-left: 20px;">
+              <button class="view-tab active" id="btnEnvTabCorrelation">Correlation Matrix</button>
+              <button class="view-tab" id="btnEnvTabScatter">Regression Plot</button>
+              <button class="view-tab" id="btnEnvTabRoads">Roads Profile</button>
+            </div>
+            <div class="canvas-controls" style="margin-left: auto;">
+              <button class="icon-btn fullscreen-btn" id="btnEnvFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>
+            </div>
+          </div>
+
+          <!-- Tab 1: Correlation Matrix -->
+          <div class="env-tab-content" id="envTabCorrelation" style="padding: 16px;">
+            <p class="help-text" style="margin-bottom: 12px; font-size: 0.85rem;">This matrix shows Pearson correlation coefficients (r) between environmental features and physiological arousal (Phasic SCR and Tonic SCL). Values range from -1.0 (strong restorative buffer) to +1.0 (strong stressor).</p>
+            <div class="table-container">
+              <table class="peaks-table" id="correlationTable">
+                <thead>
+                  <tr>
+                    <th>Environmental Feature</th>
+                    <th>Physiological Stress (Phasic Conductance)</th>
+                    <th>Baseline Arousal (Tonic Conductance)</th>
+                    <th>Stress Peak Frequency</th>
+                    <th>Correlation Interpretation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- Populated dynamically in JavaScript -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Tab 2: Regression Plot -->
+          <div class="env-tab-content" id="envTabScatter" style="display: none; padding: 16px; display: flex; gap: 20px; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="display: flex; gap: 12px; align-items: center;">
+                <label for="scatterEnvMetric" style="font-size: 0.85rem; font-weight: 500;">Select Environmental X-Axis:</label>
+                <select id="scatterEnvMetric" class="select-control" style="width: auto;">
+                  <option value="osm_green_pct_50m">Green Space %</option>
+                  <option value="osm_building_density_50m">Building Density</option>
+                  <option value="osm_dist_major_road">Distance to Major Road (m)</option>
+                  <option value="osm_dist_water">Distance to Water (m)</option>
+                  <option value="osm_tree_density_50m">Tree Density</option>
+                  <option value="osm_amenity_count_50m">Amenity Count</option>
+                </select>
+              </div>
+              <div style="display: flex; gap: 12px; align-items: center;">
+                <label for="scatterBioMetric" style="font-size: 0.85rem; font-weight: 500;">Select Physiological Y-Axis:</label>
+                <select id="scatterBioMetric" class="select-control" style="width: auto;">
+                  <option value="phasic">Phasic GSR (Arousal)</option>
+                  <option value="tonic">Tonic GSR (Baseline SCL)</option>
+                </select>
+              </div>
+              <div id="regressionFormula" style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 4px; font-size: 0.85rem; border-left: 3px solid #ff7b00; margin-top: 8px;">
+                <strong>Regression Formula:</strong> <span id="valFormula">y = mx + c</span><br>
+                <strong>Coefficient of Determination (R²):</strong> <span id="valR2">0.00</span>
+              </div>
+              <p class="help-text">Visualizes linear trends. Each point represents a 1-second interval along the path.</p>
+            </div>
+            
+            <div class="regression-chart-container" style="flex: 2; min-width: 400px; background: rgba(0,0,0,0.2); border-radius: 6px; padding: 16px; border: 1px solid rgba(255,255,255,0.1); position: relative; min-height: 240px; display: flex; flex-direction: column;">
+              <canvas id="regressionCanvas" style="width: 100%; height: 100%; display: block;"></canvas>
+            </div>
+          </div>
+
+          <!-- Tab 3: Roads Profile -->
+          <div class="env-tab-content" id="envTabRoads" style="display: none; padding: 16px; display: flex; gap: 20px; flex-wrap: wrap;">
+            <div style="flex: 1.2; min-width: 320px;">
+              <p class="help-text" style="margin-bottom: 12px;">Compares average physiological arousal (Phasic Conductance) across different OpenStreetMap street and pathway types encountered during the walk.</p>
+              <div class="table-container">
+                <table class="peaks-table" id="roadArousalTable">
+                  <thead>
+                    <tr>
+                      <th>Road Classification</th>
+                      <th>Time Spent (s)</th>
+                      <th>Mean Phasic (μS)</th>
+                      <th>Mean Tonic (μS)</th>
+                      <th>Peak Rate (peaks/min)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <!-- Populated dynamically in JavaScript -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            
+            <div class="road-chart-container" style="flex: 0.8; min-width: 280px; background: rgba(0,0,0,0.2); border-radius: 6px; padding: 16px; border: 1px solid rgba(255,255,255,0.1); min-height: 240px; display: flex; flex-direction: column; justify-content: center;">
+              <div id="roadBarChartContainer" style="display: flex; flex-direction: column; gap: 10px; overflow-y: auto; height: 100%;">
+                <!-- Bar chart populated dynamically -->
+              </div>
+            </div>
+          </div>
+        </section>
 
       </main>
 
@@ -663,6 +823,7 @@
   <script src="constants.js"></script>
   <script src="dwt_filter.js"></script>
   <script src="analyzer.js"></script>
+  <script src="osm_enrichment.js"></script>
   <script src="gsr_filter.js"></script>
   <script src="marching_squares.js"></script>
   <script src="collective_manager.js"></script>

@@ -385,6 +385,71 @@ const GSREvents = {
     GSREvents.bindCollapseButton('btnContourCollapse',       'contourSettingsCard');
     GSREvents.bindCollapseButton('btnGsrCollapse',           'gsrPanel');
     GSREvents.bindCollapseButton('btnMapCollapse',           'mapPanel');
+    GSREvents.bindCollapseButton('btnOsmEnrichmentCollapse', 'osmEnrichmentCard');
+    GSREvents.bindCollapseButton('btnEnvCollapse',           'environmentalPanel');
+
+    // ── OSM Enrichment Control Bindings ─────────────────────────────────────
+    {
+      const radiusSlider = document.getElementById('osmRadius');
+      const radiusLabel = document.getElementById('valOsmRadius');
+      radiusSlider.addEventListener('input', () => {
+        radiusLabel.innerText = radiusSlider.value + ' m';
+      });
+
+      const latencySlider = document.getElementById('osmLatency');
+      const latencyLabel = document.getElementById('valOsmLatency');
+      latencySlider.addEventListener('input', () => {
+        latencyLabel.innerText = parseFloat(latencySlider.value).toFixed(1) + ' s';
+        GSRUI.updateEnvironmentalDashboard();
+      });
+    }
+
+    document.getElementById('btnEnrichTrack').addEventListener('click', () => GSRUI.enrichTrack());
+
+    document.getElementById('mapColoringMetric').addEventListener('change', (e) => {
+      if (AppState.mapManager) {
+        AppState.mapManager.activeColoringMetric = e.target.value;
+        GSRUI.rerenderMap();
+      }
+    });
+
+    const btnToggleOsmShapes = document.getElementById('btnToggleOsmShapes');
+    btnToggleOsmShapes.addEventListener('click', () => {
+      btnToggleOsmShapes.classList.toggle('active');
+      const active = btnToggleOsmShapes.classList.contains('active');
+      if (AppState.mapManager) {
+        if (active) {
+          AppState.mapManager.drawOsmShapes(AppState.analyzer.osmJson);
+        } else {
+          AppState.mapManager.clearOsmShapes();
+        }
+      }
+    });
+
+    // Dashboard Tab Switcher
+    const bindEnvTab = (btnId, panelId) => {
+      const btn = document.getElementById(btnId);
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#envTabSwitcher .view-tab').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.env-tab-content').forEach(p => p.style.display = 'none');
+        btn.classList.add('active');
+        const pEl = document.getElementById(panelId);
+        if (pEl) {
+          if (panelId === 'envTabScatter' || panelId === 'envTabRoads') {
+            pEl.style.display = 'flex';
+          } else {
+            pEl.style.display = 'block';
+          }
+        }
+        GSRUI.updateEnvironmentalDashboard();
+      });
+    };
+    bindEnvTab('btnEnvTabCorrelation', 'envTabCorrelation');
+    bindEnvTab('btnEnvTabScatter',     'envTabScatter');
+    bindEnvTab('btnEnvTabRoads',       'envTabRoads');
+
+    document.getElementById('scatterEnvMetric').addEventListener('change', () => GSRUI.updateEnvironmentalDashboard());
+    document.getElementById('scatterBioMetric').addEventListener('change', () => GSRUI.updateEnvironmentalDashboard());
 
     // ── Centralised Layout & Fullscreen Management ───────────────────────────
     GSRLayoutManager.init();
