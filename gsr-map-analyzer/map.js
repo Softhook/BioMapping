@@ -14,8 +14,13 @@ class GSRMapManager {
     this.scrubMarker = null;
     this.showPeaks = true;
     this.activeColoringMetric = 'gsr';
+    this._legendControl = null;
+    this._legendMinVal = 0;
+    this._legendMaxVal = 0;
+    this._legendUniqueVals = null;
     
     this.initMap();
+    this._initLegend();
   }
 
   /**
@@ -47,6 +52,129 @@ class GSRMapManager {
   }
 
   /**
+   * Initialise the Leaflet legend control in the bottom-right corner.
+   */
+  _initLegend() {
+    const LegendControl = L.Control.extend({
+      onAdd: () => {
+        const div = L.DomUtil.create('div', 'map-legend');
+        div.innerHTML = '<div class="legend-title">GSR Arousal</div><div class="legend-scale"><div class="legend-gradient" style="background: linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%));"></div><div class="legend-labels"><span>Low</span><span>High</span></div></div>';
+        return div;
+      }
+    });
+    this._legendControl = new LegendControl({ position: 'bottomright' });
+    this._legendControl.addTo(this.map);
+  }
+
+  /**
+   * Update the legend to reflect the current coloring metric and data range.
+   */
+  updateLegend() {
+    if (!this._legendControl) return;
+    const el = this._legendControl.getContainer();
+    if (!el) return;
+
+    const metric = this.activeColoringMetric || 'gsr';
+
+    const metricNames = {
+      'gsr':              'GSR Arousal',
+      'roadClass':        'Road Class',
+      'distMajorRoad':    'Distance to Major Road',
+      'inPark':           'In Park / Green Space',
+      'greenPct':         'Green Space %',
+      'buildingDensity':  'Building Density',
+      'distWater':        'Distance to Water',
+      'treeDensity':      'Tree Density',
+      'amenityCount':     'Amenity Count'
+    };
+
+    const title = metricNames[metric] || metric;
+
+    if (metric === 'roadClass') {
+      const allRoadLabels = {
+        'motorway':       '#ff0055',
+        'trunk':          '#ff4400',
+        'primary':        '#ff6600',
+        'secondary':      '#ffaa00',
+        'tertiary':       '#ffd500',
+        'residential':    '#0099ff',
+        'pedestrian':     '#00ffc4',
+        'footway':        '#00e575',
+        'path':           '#80e500',
+        'cycleway':       '#00ffd5',
+        'living_street':  '#9b5de5',
+        'service':        '#b8c0ff'
+      };
+      let html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
+      let count = 0;
+      for (const [name, color] of Object.entries(allRoadLabels)) {
+        if (this._legendUniqueVals && !this._legendUniqueVals.has(name)) continue;
+        html += `<div class="legend-swatch-row"><span class="legend-swatch" style="background:${color}"></span>${name}</div>`;
+        count++;
+      }
+      if (count === 0) html += '<div class="legend-swatch-row" style="color:#999">No data</div>';
+      html += '</div>';
+      el.innerHTML = html;
+      return;
+    }
+
+    if (metric === 'inPark') {
+      const hasYes = this._legendUniqueVals && this._legendUniqueVals.has(1);
+      const hasNo  = this._legendUniqueVals && this._legendUniqueVals.has(0);
+      let html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
+      if (hasYes) html += '<div class="legend-swatch-row"><span class="legend-swatch" style="background:#00e575"></span>Yes</div>';
+      if (hasNo)  html += '<div class="legend-swatch-row"><span class="legend-swatch" style="background:#666666"></span>No</div>';
+      if (!hasYes && !hasNo) html += '<div class="legend-swatch-row" style="color:#999">No data</div>';
+      html += '</div>';
+      el.innerHTML = html;
+      return;
+    }
+
+    // Continuous metrics — build gradient bar
+    const minV = this._legendMinVal;
+    const maxV = this._legendMaxVal;
+
+    let gradient;
+    switch (metric) {
+      case 'greenPct':
+        gradient = 'linear-gradient(90deg, hsl(30,80%,45%), hsl(130,80%,45%))';
+        break;
+      case 'buildingDensity':
+        gradient = 'linear-gradient(90deg, hsl(120,85%,50%), hsl(60,85%,50%), hsl(0,85%,50%))';
+        break;
+      case 'distMajorRoad':
+        gradient = 'linear-gradient(90deg, hsl(0,85%,50%), hsl(60,85%,50%), hsl(120,85%,50%))';
+        break;
+      case 'distWater':
+        gradient = 'linear-gradient(90deg, hsl(200,80%,45%), hsl(100,80%,45%), hsl(30,80%,45%))';
+        break;
+      case 'treeDensity':
+        gradient = 'linear-gradient(90deg, hsl(60,30%,45%), hsl(140,90%,45%))';
+        break;
+      case 'amenityCount':
+        gradient = 'linear-gradient(90deg, hsl(240,85%,55%), hsl(120,85%,55%), hsl(0,85%,55%))';
+        break;
+      default: // gsr
+        gradient = 'linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%))';
+        break;
+    }
+
+    // Format min/max nicely
+    const fmt = (v) => {
+      if (v >= 100) return v.toFixed(0);
+      if (v >= 1) return v.toFixed(1);
+      return v.toFixed(3);
+    };
+
+    el.innerHTML = `
+      <div class="legend-title">${title}</div>
+      <div class="legend-scale">
+        <div class="legend-gradient" style="background:${gradient}"></div>
+        <div class="legend-labels"><span>${fmt(minV)}</span><span>${fmt(maxV)}</span></div>
+      </div>`;
+  }
+
+  /**
    * Remove all layers in the array from the map and clear the array.
    */
   _clearLayerGroup(arr) {
@@ -67,6 +195,12 @@ class GSRMapManager {
     if (this.map.hasLayer(this.scrubMarker)) {
       this.map.removeLayer(this.scrubMarker);
     }
+
+    // Reset legend
+    this._legendMinVal = 0;
+    this._legendMaxVal = 0;
+    this._legendUniqueVals = null;
+    this.updateLegend();
   }
 
   _getHslColor(ratio, saturation = 100, lightness = 50) {
@@ -368,22 +502,34 @@ class GSRMapManager {
     const metric = this.activeColoringMetric || 'gsr';
     const key = this._getMetricKey(metric);
     const isCategorical = (metric === 'roadClass');
+    const needsUnique = (isCategorical || metric === 'inPark');
 
+    // Single pass: compute min/max for continuous metrics AND
+    // collect unique values for categorical/binary metrics.
     let minVal = Infinity, maxVal = -Infinity;
+    const seen = needsUnique ? new Set() : null;
+
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i][key];
+      if (v === undefined || v === null) continue;
+
+      if (!isCategorical && !isNaN(v)) {
+        if (v < minVal) minVal = v;
+        if (v > maxVal) maxVal = v;
+      }
+
+      if (needsUnique) seen.add(v);
+    }
+
     if (!isCategorical) {
-      for (let i = 0; i < data.length; i++) {
-        const v = data[i][key];
-        if (v !== undefined && v !== null && !isNaN(v)) {
-          if (v < minVal) minVal = v;
-          if (v > maxVal) maxVal = v;
-        }
-      }
-      if (minVal === Infinity) {
-        minVal = 0;
-        maxVal = 1;
-      }
+      if (minVal === Infinity) { minVal = 0; maxVal = 1; }
       if (maxVal === minVal) maxVal = minVal + 1;
     }
+
+    // Store for legend
+    this._legendMinVal = minVal;
+    this._legendMaxVal = maxVal;
+    this._legendUniqueVals = needsUnique ? seen : null;
 
     const range = maxVal - minVal;
     const COLOR_BUCKETS = 30;
@@ -432,6 +578,9 @@ class GSRMapManager {
 
       batchStart = batchEnd;
     }
+
+    // Update legend with current metric and data range
+    this.updateLegend();
   }
 
   // Note: Cartographic label placement algorithms and HTML builders moved to GSRLabelManager in label_placement.js
