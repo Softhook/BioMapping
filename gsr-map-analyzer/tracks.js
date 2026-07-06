@@ -372,6 +372,8 @@ const GSRTrackManager = {
 
     const gpsMap = {
       minSats: 'gpsMinSats',
+      maxHdop: 'gpsMaxHdop',
+      minFixType: 'gpsFixType',
       maxSpeed: 'gpsMaxSpeed',
       hampelWindow: 'gpsHampelWindow',
       hampelSigma: 'gpsHampelSigma',

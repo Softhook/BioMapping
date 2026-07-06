@@ -144,10 +144,16 @@ static void rescale_graph_buf(Session* s, bool zoom_out) {
 // Returns a GpsPosition snapshot.  .valid is true only when GPS has a fix.
 static GpsPosition get_gps_position(const Session* s) {
     GpsPosition pos = {0};
+    pos.hdop     = 99.9f;   // sentinel: unknown until GGA/GSA arrives
+    pos.vdop     = 99.9f;
+    pos.fix_type = 1;       // 1=no fix
     if(!s->gps) return pos;
     GpsStatus gs = gps_uart_get_status(s->gps);
-    pos.sats = gs.satellites_tracked;
-    pos.fix  = gs.fix_quality;
+    pos.sats     = gs.satellites_tracked;
+    pos.fix      = gs.fix_quality;
+    pos.hdop     = gs.hdop;
+    pos.vdop     = gs.vdop;
+    pos.fix_type = gs.fix_type;
     if((gs.fix_valid || gs.fix_quality > 0)
         && !isnan(gs.latitude) && !isnan(gs.longitude)) {
         pos.valid = true;
@@ -272,11 +278,12 @@ static void batch_csv_row(Session* s, float raw) {
     } else if(s->recording.tick_counter == 0) {
         GpsPosition pos = get_gps_position(s);
         sd_logger_batch_printf(s->logger,
-                               "%s,%.6f,%.6f,%.1f,%d,%d,%.1f\n",
+                               "%s,%.6f,%.6f,%.1f,%.1f,%.1f,%d,%d,%d,%.1f\n",
                                ts, (double)pos.lat, (double)pos.lon, (double)pos.alt,
-                               pos.sats, pos.fix, (double)raw);
+                               (double)pos.hdop, (double)pos.vdop,
+                               pos.sats, pos.fix, pos.fix_type, (double)raw);
     } else {
-        sd_logger_batch_printf(s->logger, "%s,,,,,,%.1f\n",
+        sd_logger_batch_printf(s->logger, "%s,,,,,,,,,%.1f\n",
                                ts, (double)raw);
     }
 }
@@ -305,9 +312,10 @@ static void handle_second_boundary(Session* s, NotificationApp* notifications) {
         char ts[32];
         session_format_timestamp(s, ts, sizeof(ts));
         sd_logger_batch_printf(s->logger,
-            "%s,%.6f,%.6f,%.1f,%d,%d,%d\n",
+            "%s,%.6f,%.6f,%.1f,%.1f,%.1f,%d,%d,%d,%d\n",
             ts, (double)pos.lat, (double)pos.lon, (double)pos.alt,
-            pos.sats, pos.fix, 0);
+            (double)pos.hdop, (double)pos.vdop,
+            pos.sats, pos.fix, pos.fix_type, 0);
     }
 
     int flushed = sd_logger_batch_flush(s->logger);
@@ -356,7 +364,7 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
             s->logger,
             (s->mode == BioMapModeGsrOnly)
                 ? "timestamp,tick,gsr_raw\n"
-                : "timestamp,lat,lon,alt,sats,fix,gsr_raw\n");
+                : "timestamp,lat,lon,alt,hdop,vdop,sats,fix,fix_type,gsr_raw\n");
         if(ok) {
             furi_mutex_acquire(mutex, FuriWaitForever);
             s->recording.active = true;

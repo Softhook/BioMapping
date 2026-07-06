@@ -20,7 +20,10 @@ typedef struct GpsStatus {
     float altitude;
     float speed;                // knots (RMC)
     float course;               // degrees true
-    int   fix_quality;          // 0=none, 1=GPS, 2=DGPS
+    float hdop;                 // Horizontal Dilution of Precision (GGA/GSA)
+    float vdop;                 // Vertical Dilution of Precision (GSA)
+    int   fix_quality;          // 0=none, 1=GPS, 2=DGPS (GGA)
+    int   fix_type;             // 1=none, 2=2D, 3=3D (GSA)
     int   satellites_tracked;
     bool  fix_valid;            // from RMC
     struct minmea_time time;

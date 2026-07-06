@@ -78,6 +78,7 @@ class GSRMapManager {
 
     const metricNames = {
       'gsr':              'GSR Arousal',
+      'hdopQuality':      'GPS Accuracy (HDOP)',
       'roadClass':        'Road Class',
       'distMajorRoad':    'Distance to Major Road',
       'inPark':           'In Park / Green Space',
@@ -157,6 +158,10 @@ class GSRMapManager {
       case 'amenityCount':
         gradient = 'linear-gradient(90deg, hsl(240,85%,55%), hsl(120,85%,55%), hsl(0,85%,55%))';
         break;
+      case 'hdopQuality':
+        // Gradient left = best accuracy (green), right = worst (red)
+        gradient = 'linear-gradient(90deg, hsl(120,90%,45%), hsl(60,90%,45%), hsl(0,90%,45%))';
+        break;
       default: // gsr
         gradient = 'linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%))';
         break;
@@ -169,11 +174,14 @@ class GSRMapManager {
       return v.toFixed(3);
     };
 
+    const leftLabel  = metric === 'hdopQuality' ? `HDOP ${fmt(minV)} (best)` : fmt(minV);
+    const rightLabel = metric === 'hdopQuality' ? `HDOP ${fmt(maxV)} (worst)` : fmt(maxV);
+
     el.innerHTML = `
       <div class="legend-title">${title}</div>
       <div class="legend-scale">
         <div class="legend-gradient" style="background:${gradient}"></div>
-        <div class="legend-labels"><span>${fmt(minV)}</span><span>${fmt(maxV)}</span></div>
+        <div class="legend-labels"><span>${leftLabel}</span><span>${rightLabel}</span></div>
       </div>`;
   }
 
@@ -240,6 +248,8 @@ class GSRMapManager {
     if (gpsPoints.length === 0) return;
 
     gpsPoints = this._applySatelliteGate(gpsPoints, p.minSats);
+    gpsPoints = this._applyHdopGate(gpsPoints, p.maxHdop);
+    gpsPoints = this._applyFixTypeGate(gpsPoints, p.minFixType);
     gpsPoints = this._applyAllFilters(gpsPoints, p, analyzer.sampleRate || 10.0);
 
     // Reconstruct full 10 Hz filtered GPS path for CSV export
@@ -275,6 +285,34 @@ class GSRMapManager {
       return pts.filter(d => d.sats >= minSats);
     }
     return pts;
+  }
+
+  /**
+   * HDOP gate: discard GPS anchors whose HDOP exceeds maxHdop.
+   * Only applies when the CSV was recorded with firmware >= v2.1 (has hdop column).
+   * When hdop is NaN (old CSV), the point is always kept.
+   *
+   * @param {Array}  pts     – GPS anchor points
+   * @param {number} maxHdop – max allowed HDOP; 0 = disabled
+   */
+  _applyHdopGate(pts, maxHdop) {
+    if (!maxHdop || isNaN(maxHdop) || maxHdop <= 0) return pts;
+    return pts.filter(d => isNaN(d.hdop) || d.hdop <= maxHdop);
+  }
+
+  /**
+   * Fix-type gate: requires GPS fix to meet a minimum quality.
+   *   1 = no fix, 2 = 2D fix (altitude assumed), 3 = 3D fix (full solution).
+   *
+   * Old CSVs without the fix_type column have fixType=0 on every point and
+   * are always passed through so backward compatibility is preserved.
+   *
+   * @param {Array}  pts        - GPS anchor points
+   * @param {number} minFixType - minimum accepted fix_type; < 2 = disabled
+   */
+  _applyFixTypeGate(pts, minFixType) {
+    if (!minFixType || minFixType < 2) return pts;
+    return pts.filter(d => d.fixType === 0 || d.fixType >= minFixType);
   }
 
   _applyAllFilters(pts, p, sampleRate) {
@@ -322,14 +360,23 @@ class GSRMapManager {
     const firstCoord = filteredMap.get(firstIdx);
     for (let i = 0; i < firstIdx; i++) filteredGps[i] = { lat: firstCoord.lat, lon: firstCoord.lon };
 
-    // Interpolate between valid points
+    // Interpolate between valid points, but leave large gaps as NaN so the
+    // rendered path breaks instead of drawing a misleading straight line.
+    const GPS_INTERP_MAX_GAP_S = 30;
     for (let k = 0; k < validIndices.length - 1; k++) {
       const idxA = validIndices[k], idxB = validIndices[k + 1];
       const cA = filteredMap.get(idxA), cB = filteredMap.get(idxB);
       filteredGps[idxA] = { lat: cA.lat, lon: cA.lon };
-      for (let i = idxA + 1; i < idxB; i++) {
-        const ratio = (i - idxA) / (idxB - idxA);
-        filteredGps[i] = { lat: cA.lat + ratio * (cB.lat - cA.lat), lon: cA.lon + ratio * (cB.lon - cA.lon) };
+      const timeGap = data[idxB].time - data[idxA].time;
+      if (timeGap > GPS_INTERP_MAX_GAP_S) {
+        for (let i = idxA + 1; i < idxB; i++) {
+          filteredGps[i] = { lat: NaN, lon: NaN };
+        }
+      } else {
+        for (let i = idxA + 1; i < idxB; i++) {
+          const ratio = (i - idxA) / (idxB - idxA);
+          filteredGps[i] = { lat: cA.lat + ratio * (cB.lat - cA.lat), lon: cA.lon + ratio * (cB.lon - cA.lon) };
+        }
       }
     }
 
@@ -361,6 +408,7 @@ class GSRMapManager {
   _getMetricKey(metric) {
     const keys = {
       'gsr': 'val',
+      'hdopQuality': 'hdop',
       'roadClass': 'osm_road_class',
       'distMajorRoad': 'osm_dist_major_road',
       'inPark': 'osm_in_park',
@@ -402,7 +450,18 @@ class GSRMapManager {
     if (metric === 'inPark') {
       return val === 1 ? '#00e575' : '#666666';
     }
-    
+
+    if (metric === 'hdopQuality') {
+      // Low HDOP = good accuracy (green), high HDOP = poor accuracy (red).
+      // Sentinel 99.9 (no data) rendered gray.
+      if (isNaN(val) || val >= 50) return '#888888';
+      let ratio = 0;
+      if (maxVal !== minVal) ratio = (val - minVal) / (maxVal - minVal);
+      ratio = Math.max(0, Math.min(1, ratio));
+      const hue = Math.round((1.0 - ratio) * 120);
+      return `hsl(${hue}, 90%, 45%)`;
+    }
+
     let ratio = 0;
     if (maxVal !== minVal) {
       ratio = (val - minVal) / (maxVal - minVal);
@@ -543,50 +602,66 @@ class GSRMapManager {
 
     const range = maxVal - minVal;
     const COLOR_BUCKETS = 30;
-    let batchStart = 0;
 
-    while (batchStart < drawPoints.length - 1) {
-      const startVal = drawPoints[batchStart][key];
-      
-      let startBucket = 0;
-      if (!isCategorical) {
-        const avgVal = (drawPoints[batchStart][key] + drawPoints[batchStart + 1][key]) / 2;
-        startBucket = Math.floor(((avgVal - minVal) / range) * COLOR_BUCKETS);
+    // Split drawPoints into continuous path segments, breaking at GPS gaps > 30 s.
+    // This prevents a straight line being drawn across tunnels, buildings, or indoors sections.
+    const GPS_PATH_GAP_S = 30;
+    const segments = [[]];
+    for (let i = 0; i < drawPoints.length; i++) {
+      if (i > 0 && drawPoints[i].time - drawPoints[i - 1].time > GPS_PATH_GAP_S) {
+        segments.push([]);
       }
+      segments[segments.length - 1].push(drawPoints[i]);
+    }
 
-      let batchEnd = batchStart + 1;
-      while (batchEnd < drawPoints.length - 1) {
-        if (isCategorical) {
-          const val = drawPoints[batchEnd][key];
-          if (val !== startVal) break;
-        } else {
-          const val = (drawPoints[batchEnd][key] + drawPoints[batchEnd + 1][key]) / 2;
-          const bucket = Math.floor(((val - minVal) / range) * COLOR_BUCKETS);
-          if (bucket !== startBucket) break;
+    for (const seg of segments) {
+      if (seg.length < 2) continue;
+
+      let batchStart = 0;
+
+      while (batchStart < seg.length - 1) {
+        const startVal = seg[batchStart][key];
+
+        let startBucket = 0;
+        if (!isCategorical) {
+          const avgVal = (seg[batchStart][key] + seg[batchStart + 1][key]) / 2;
+          startBucket = Math.floor(((avgVal - minVal) / range) * COLOR_BUCKETS);
         }
-        batchEnd++;
+
+        let batchEnd = batchStart + 1;
+        while (batchEnd < seg.length - 1) {
+          if (isCategorical) {
+            const val = seg[batchEnd][key];
+            if (val !== startVal) break;
+          } else {
+            const val = (seg[batchEnd][key] + seg[batchEnd + 1][key]) / 2;
+            const bucket = Math.floor(((val - minVal) / range) * COLOR_BUCKETS);
+            if (bucket !== startBucket) break;
+          }
+          batchEnd++;
+        }
+
+        const latlngs = [];
+        for (let i = batchStart; i <= batchEnd; i++) {
+          latlngs.push([seg[i].lat, seg[i].lon]);
+        }
+
+        let colorVal;
+        if (isCategorical) {
+          colorVal = startVal;
+        } else {
+          const midIdx = Math.floor((batchStart + batchEnd) / 2);
+          colorVal = (seg[midIdx][key] + seg[midIdx + 1][key]) / 2;
+        }
+
+        const color = this.getColorForMetric(metric, colorVal, minVal, maxVal);
+
+        this.pathSegments.push(
+          L.polyline(latlngs, { color, weight: trackWeight, opacity: 0.95 }).addTo(this.map)
+        );
+
+        batchStart = batchEnd;
       }
-
-      const latlngs = [];
-      for (let i = batchStart; i <= batchEnd; i++) {
-        latlngs.push([drawPoints[i].lat, drawPoints[i].lon]);
-      }
-
-      let colorVal;
-      if (isCategorical) {
-        colorVal = startVal;
-      } else {
-        const midIdx = Math.floor((batchStart + batchEnd) / 2);
-        colorVal = (drawPoints[midIdx][key] + drawPoints[midIdx + 1][key]) / 2;
-      }
-      
-      const color = this.getColorForMetric(metric, colorVal, minVal, maxVal);
-
-      this.pathSegments.push(
-        L.polyline(latlngs, { color, weight: trackWeight, opacity: 0.95 }).addTo(this.map)
-      );
-
-      batchStart = batchEnd;
     }
 
     // Update legend with current metric and data range
@@ -931,6 +1006,8 @@ class GSRMapManager {
       if (gpsPoints.length === 0) return;
 
       gpsPoints = this._applySatelliteGate(gpsPoints, p.minSats);
+      gpsPoints = this._applyHdopGate(gpsPoints, p.maxHdop);
+      gpsPoints = this._applyFixTypeGate(gpsPoints, p.minFixType);
       gpsPoints = this._applyAllFilters(gpsPoints, p, track.analyzer.sampleRate || 10.0);
       if (gpsPoints.length === 0) return;
 

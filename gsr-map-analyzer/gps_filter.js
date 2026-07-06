@@ -25,6 +25,15 @@ const GpsFilter = {
   /**
    * Speed plausibility check: drops points that imply speed > maxSpeed (m/s).
    * Keeps points where dt is too small to compute speed reliably.
+   *
+   * Recovery behaviour: if consecutiveRejections reaches the threshold the
+   * filter was previously accepting the outlier position as a new anchor,
+   * which re-centred subsequent checks at a bad location.  Instead we now
+   * hold the last known-good coordinates but advance the timestamp.  This
+   * keeps the spatial reference correct while preventing an unbounded gap in
+   * the timeline.  A genuinely sustained fast-movement event (e.g. a vehicle)
+   * will clear naturally once the GPS returns to a plausible pedestrian speed
+   * relative to the frozen position.
    */
   applySpeedFilter(points, maxSpeed) {
     if (!maxSpeed || isNaN(maxSpeed) || maxSpeed <= 0 || points.length < 2) return points;
@@ -52,15 +61,18 @@ const GpsFilter = {
         consecutiveRejections = 0;
       } else {
         consecutiveRejections++;
-        // Recovery mechanism: reset reference point if we reject 3 consecutive points
-        if (consecutiveRejections >= 3) {
-          kept.push(curr);
+        if (consecutiveRejections >= 10) {
+          // Hold last-good spatial position; only freeze lat/lon/alt coordinates
+          // so that the next speed comparison remains anchored to a credible location,
+          // while preserving the current point's unique origIdx and other metadata.
+          kept.push({ ...curr, lat: prev.lat, lon: prev.lon, alt: prev.alt });
           consecutiveRejections = 0;
         }
       }
     }
     return kept;
   },
+
 
   /**
    * Hampel filter (MAD-based outlier detection) applied independently to Lat and Lon.

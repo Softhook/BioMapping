@@ -70,7 +70,20 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             g->status.altitude           = minmea_tofloat(&frame.altitude);
             g->status.satellites_tracked = frame.satellites_tracked;
             g->status.fix_quality        = frame.fix_quality;
+            g->status.hdop               = minmea_tofloat(&frame.hdop);
             g->status.time               = frame.time;
+        }
+    } break;
+
+    case MINMEA_SENTENCE_GSA: {
+        struct minmea_sentence_gsa frame;
+        if(minmea_parse_gsa(&frame, line)) {
+            // GSA gives the authoritative DOP values and distinguishes
+            // 2D (fix_type=2) from 3D (fix_type=3).  GGA HDOP is kept
+            // as primary when GSA hasn't arrived yet; GSA overwrites.
+            g->status.fix_type = frame.fix_type;
+            g->status.hdop     = minmea_tofloat(&frame.hdop);
+            g->status.vdop     = minmea_tofloat(&frame.vdop);
         }
     } break;
 
@@ -110,7 +123,10 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
         .altitude           = 0.0f,
         .speed              = 0.0f,
         .course             = 0.0f,
+        .hdop               = 99.9f,
+        .vdop               = 99.9f,
         .fix_quality        = 0,
+        .fix_type           = 1,   // 1=no fix, 2=2D, 3=3D
         .satellites_tracked = 0,
         .fix_valid          = false,
         .time               = {0},
@@ -242,9 +258,12 @@ static void gps_uart_configure(GpsUart* g) {
     furi_assert(g);
     if(!g->ready || !g->serial_handle) return;
     FURI_LOG_I("GpsUart", "Configuring GPS");
-    pcas_tx(g, "$PCAS04,7*1E\r\n");                      // GPS+BeiDou+GLONASS
-    pcas_tx(g, "$PCAS03,1,0,0,0,1,0,0,0,0,0,,,0,0*02\r\n"); // GGA+RMC only
-    pcas_tx(g, "$PCAS02,1000*2E\r\n");                    // 1 Hz update rate
+    pcas_tx(g, "$PCAS04,7*1E\r\n");                             // GPS+BeiDou+GLONASS
+    pcas_tx(g, "$PCAS03,1,0,1,0,1,0,0,0,0,0,,,0,0*03\r\n");   // GGA + GSA + RMC
+    pcas_tx(g, "$PCAS02,1000*2E\r\n");                          // 1 Hz update rate
+    // SBAS/EGNOS: the AT6558R chip (L76K) enables SBAS automatically when
+    // the signal is available.  No explicit PCAS command is needed and
+    // no reliably-documented one exists in the L76K protocol spec.
 }
 
 // ---------------------------------------------------------------------------

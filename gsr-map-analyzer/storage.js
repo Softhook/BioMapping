@@ -43,6 +43,8 @@ const GSRStorage = {
     const S = AppState.sliders;
     return {
       minSats:      parseInt(S.gpsMinSats.value),
+      maxHdop:      parseFloat(S.gpsMaxHdop ? S.gpsMaxHdop.value : 0),
+      minFixType:   parseInt(S.gpsFixType ? S.gpsFixType.value : 0),
       maxSpeed:     parseFloat(S.gpsMaxSpeed.value),
       hampelWindow: parseInt(S.gpsHampelWindow.value),
       hampelSigma:  parseFloat(S.gpsHampelSigma.value),
@@ -84,6 +86,8 @@ const GSRStorage = {
     const raw = this.readGpsSliderValues();
     return {
       minSats:      raw.minSats,
+      maxHdop:      raw.maxHdop,
+      minFixType:   raw.minFixType,
       maxSpeed:     raw.maxSpeed,
       hampelWindow: raw.hampelWindow,
       hampelSigma:  raw.hampelSigma,

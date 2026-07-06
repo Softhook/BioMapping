@@ -29,7 +29,7 @@ const GSREvents = {
       'medianSize', 'lpfWindow', 'tonicWindow', 'tonicMethod', 'peakThreshold', 'dwtLevel',
       'shapeMinRiseTime', 'shapeMaxRiseTime', 'shapeMinHalfRecovery', 'shapeMaxHalfRecovery',
       'shapeMinSnr', 'shapeMaxSkewRatio',
-      'gpsMinSats', 'gpsMaxSpeed', 'gpsHampelWindow', 'gpsHampelSigma', 'gpsDBSCANRadius',
+      'gpsMinSats', 'gpsMaxHdop', 'gpsFixType', 'gpsMaxSpeed', 'gpsHampelWindow', 'gpsHampelSigma', 'gpsDBSCANRadius',
       'gpsDBSCANMinPts', 'gpsKalmanR', 'gpsKalmanQ', 'gpsRDP', 'gpsDownsample',
       'gpsTrackWeight', 'gpsPeakLatency'
     ];
@@ -323,7 +323,9 @@ const GSREvents = {
 
     // ── GPS slider bindings ──────────────────────────────────────────────────
     GSREvents.bindGpsSlider('gpsMinSats',      'valGpsMinSats',      v => v === 0 ? 'off' : `≥ ${v}`);
-    GSREvents.bindGpsSlider('gpsMaxSpeed',     'valGpsMaxSpeed',     v => v === 0 ? 'off' : `${v} m/s`);
+    GSREvents.bindGpsSlider('gpsMaxHdop',      'valGpsMaxHdop',      v => v === 0 ? 'off' : `≤ ${v.toFixed(1)}`);
+    GSREvents.bindGpsSlider('gpsFixType',       'valGpsFixType',      v => v < 2 ? 'off' : v === 2 ? '≥2D' : '3D only');
+    GSREvents.bindGpsSlider('gpsMaxSpeed',      'valGpsMaxSpeed',     v => v === 0 ? 'off' : `${v} m/s`);
     GSREvents.bindGpsSlider('gpsHampelWindow', 'valGpsHampelWindow', v => v === 0 ? 'off' : `${v} s`);
     GSREvents.bindGpsSlider('gpsHampelSigma',  'valGpsHampelSigma',  v => v.toFixed(1), 'gpsHampelWindow');
     GSREvents.bindGpsSlider('gpsDBSCANRadius', 'valGpsDBSCANRadius', v => v === 0 ? 'off' : `${v} m`);
@@ -593,6 +595,8 @@ const GSREvents = {
     // GPS Labels
     const gpsFormatters = {
       gpsMinSats:      v => v === 0 ? 'off' : `≥ ${v}`,
+      gpsMaxHdop:      v => v === 0 ? 'off' : `≤ ${v.toFixed(1)}`,
+      gpsFixType:      v => v < 2 ? 'off' : v === 2 ? '≥2D' : '3D only',
       gpsMaxSpeed:     v => v === 0 ? 'off' : `${v} m/s`,
       gpsHampelWindow: v => v === 0 ? 'off' : `${v} s`,
       gpsHampelSigma:  v => v.toFixed(1),

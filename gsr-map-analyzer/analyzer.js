@@ -256,8 +256,11 @@ class GSRAnalyzer {
     let latColIndex = -1;
     let lonColIndex = -1;
     let altColIndex = -1;
+    let hdopColIndex = -1;
+    let vdopColIndex = -1;
     let satsColIndex = -1;
     let fixColIndex = -1;
+    let fixTypeColIndex = -1;
 
     // Time column keyword search
     const timeKeywords = GSR_CONST.TIME_KEYWORDS;
@@ -284,8 +287,11 @@ class GSRAnalyzer {
       if (h.includes('lat')) latColIndex = i;
       else if (h.includes('lon') || h.includes('lng')) lonColIndex = i;
       else if (h.includes('alt')) altColIndex = i;
+      else if (h === 'hdop') hdopColIndex = i;
+      else if (h === 'vdop') vdopColIndex = i;
+      else if (h === 'fix_type') fixTypeColIndex = i;
       else if (h.includes('sat')) satsColIndex = i;
-      else if (h.includes('fix')) fixColIndex = i;
+      else if (h === 'fix') fixColIndex = i;
     }
 
     // Processed-CSV column detection (re-imported data)
@@ -343,8 +349,11 @@ class GSRAnalyzer {
       let latVal = latColIndex !== -1 && cols[latColIndex] ? parseFloat(cols[latColIndex]) : NaN;
       let lonVal = lonColIndex !== -1 && cols[lonColIndex] ? parseFloat(cols[lonColIndex]) : NaN;
       let altVal = altColIndex !== -1 && cols[altColIndex] ? parseFloat(cols[altColIndex]) : NaN;
+      let hdopVal = hdopColIndex !== -1 && cols[hdopColIndex] ? parseFloat(cols[hdopColIndex]) : NaN;
+      let vdopVal = vdopColIndex !== -1 && cols[vdopColIndex] ? parseFloat(cols[vdopColIndex]) : NaN;
       let satsVal = satsColIndex !== -1 && cols[satsColIndex] ? parseInt(cols[satsColIndex]) : 0;
       let fixVal = fixColIndex !== -1 && cols[fixColIndex] ? parseInt(cols[fixColIndex]) : 0;
+      let fixTypeVal = fixTypeColIndex !== -1 && cols[fixTypeColIndex] ? parseInt(cols[fixTypeColIndex]) : 0;
 
       // Read peak label from processed-CSV re-import
       let importedPeakLabel = '';
@@ -373,8 +382,11 @@ class GSRAnalyzer {
         lat: latVal,
         lon: lonVal,
         alt: altVal,
+        hdop: hdopVal,
+        vdop: vdopVal,
         sats: satsVal,
         fix: fixVal,
+        fixType: fixTypeVal,
         hasGps: false,
         _importLabel: importedPeakLabel,
         _importExcluded: importedPeakExcluded,
@@ -500,6 +512,9 @@ class GSRAnalyzer {
         rawDataList[i].alt = firstGps.alt;
         rawDataList[i].sats = firstGps.sats;
         rawDataList[i].fix = firstGps.fix;
+        rawDataList[i].hdop = firstGps.hdop;
+        rawDataList[i].vdop = firstGps.vdop;
+        rawDataList[i].fixType = firstGps.fixType;
         rawDataList[i].hasGps = true;
       }
 
@@ -521,6 +536,11 @@ class GSRAnalyzer {
           d.alt = dA.alt + ratio * (dB.alt - dA.alt);
           d.sats = dB.sats;
           d.fix = dB.fix;
+          // Step-hold DOP and fix_type from the prior GPS anchor — DOP reflects
+          // satellite geometry at that moment, which changes slowly (~1 min).
+          d.hdop = dA.hdop;
+          d.vdop = dA.vdop;
+          d.fixType = dA.fixType;
           d.hasGps = true;
         }
       }
@@ -534,6 +554,9 @@ class GSRAnalyzer {
         rawDataList[i].alt = lastGps.alt;
         rawDataList[i].sats = lastGps.sats;
         rawDataList[i].fix = lastGps.fix;
+        rawDataList[i].hdop = lastGps.hdop;
+        rawDataList[i].vdop = lastGps.vdop;
+        rawDataList[i].fixType = lastGps.fixType;
         rawDataList[i].hasGps = true;
       }
     }

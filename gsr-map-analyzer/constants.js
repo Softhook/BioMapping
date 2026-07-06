@@ -28,7 +28,7 @@ const GSR_CONST = {
 
   // ── GPS filter defaults ──────────────────────────────────────────────────
   GPS_DEFAULT: {
-    minSats: 0, maxSpeed: 0, hampelWindow: 0, hampelSigma: 3.0,
+    minSats: 0, maxHdop: 0, minFixType: 0, maxSpeed: 0, hampelWindow: 0, hampelSigma: 3.0,
     dbscanRadius: 0, dbscanMinPts: 4, kalmanR: 0, kalmanQ: 0,
     rdpTolerance: 0, downsample: false, trackWeight: 5
   },
