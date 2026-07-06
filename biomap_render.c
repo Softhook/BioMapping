@@ -165,15 +165,20 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     // GPS quality badge — GPS+GSR mode only (top-right, before recording indicator).
     // Shows the HDOP value and a brief quality label so the user can judge
     // signal quality at a glance while the GSR graph is running.
-    if(a->session.mode == BioMapModeGpsGsr && a->session.gps) {
+    // Hidden when finger cuffs are disconnected to avoid overlapping "NO SIGNAL" alert.
+    bool cuffs_disconnected = a->session.gsr && gsr_sensor_available(a->session.gsr) &&
+                              !gsr_sensor_is_connected(a->session.gsr);
+    if(a->session.mode == BioMapModeGpsGsr && a->session.gps && !cuffs_disconnected) {
         GpsStatus g = gps_uart_get_status(a->session.gps);
         bool has_fix = g.fix_valid || g.fix_quality > 0;
         char badge[16];
         if(!has_fix) {
             snprintf(badge, sizeof(badge), "No fix");
-        } else if(g.hdop >= GPS_HDOP_GATE) {
+        } else if(isnan(g.hdop) || g.hdop >= GPS_HDOP_GATE) {
             // Fix acquired but accuracy is still below the quality gate.
-            if(g.hdop < 50.0f) {
+            if(isnan(g.hdop)) {
+                snprintf(badge, sizeof(badge), "Acquiring");
+            } else if(g.hdop < 50.0f) {
                 snprintf(badge, sizeof(badge), "H:%.1f !", (double)g.hdop);
             } else {
                 // 99.9 sentinel — GSA not yet received
