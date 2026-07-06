@@ -85,11 +85,23 @@ static void render_gps_detail(Canvas* c, BioMapApp* a) {
         canvas_draw_str(c, 0, y, buf);
         y += 10;
 
-        if(g.fix_valid || g.fix_quality > 0) {
+        bool has_fix = g.fix_valid || g.fix_quality > 0;
+        bool gps_ready = has_fix && g.hdop < GPS_HDOP_GATE;
+
+        if(gps_ready) {
             snprintf(buf, sizeof(buf), "%.5f", (double)g.latitude);
             canvas_draw_str(c, 0, y, buf);
             y += 10;
             snprintf(buf, sizeof(buf), "%.5f", (double)g.longitude);
+            canvas_draw_str(c, 0, y, buf);
+            y += 10;
+        } else if(has_fix) {
+            // Fix acquired but DOP still too high — tell user to wait
+            if(g.hdop < 50.0f) {
+                snprintf(buf, sizeof(buf), "Acquiring (HDOP:%.1f)", (double)g.hdop);
+            } else {
+                snprintf(buf, sizeof(buf), "Acquiring...");
+            }
             canvas_draw_str(c, 0, y, buf);
             y += 10;
         } else {
@@ -97,7 +109,17 @@ static void render_gps_detail(Canvas* c, BioMapApp* a) {
             y += 10;
         }
 
-        snprintf(buf, sizeof(buf), "Sats:%d  Q:%d", g.satellites_tracked, g.fix_quality);
+        // Quality line: show HDOP and 2D/3D fix type instead of the opaque
+        // GGA fix-quality integer.  HDOP < 3 = good, 3-5 = moderate, >5 = poor.
+        const char* fix_str = (g.fix_type == 3) ? "3D" :
+                              (g.fix_type == 2) ? "2D" : "--";
+        if(g.hdop < 50.0f) {
+            snprintf(buf, sizeof(buf), "S:%d  H:%.1f  %s",
+                     g.satellites_tracked, (double)g.hdop, fix_str);
+        } else {
+            snprintf(buf, sizeof(buf), "S:%d  H:--  %s",
+                     g.satellites_tracked, fix_str);
+        }
         canvas_draw_str(c, 0, y, buf);
     } else {
         canvas_draw_str(c, 0, y, "GPS: no signal");
@@ -138,6 +160,34 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     canvas_set_font(c, FontSecondary);
     if(a->session.recording.active) {
         canvas_draw_box(c, 118, 1, 8, 8);
+    }
+
+    // GPS quality badge — GPS+GSR mode only (top-right, before recording indicator).
+    // Shows the HDOP value and a brief quality label so the user can judge
+    // signal quality at a glance while the GSR graph is running.
+    if(a->session.mode == BioMapModeGpsGsr && a->session.gps) {
+        GpsStatus g = gps_uart_get_status(a->session.gps);
+        bool has_fix = g.fix_valid || g.fix_quality > 0;
+        char badge[16];
+        if(!has_fix) {
+            snprintf(badge, sizeof(badge), "No fix");
+        } else if(g.hdop >= GPS_HDOP_GATE) {
+            // Fix acquired but accuracy is still below the quality gate.
+            if(g.hdop < 50.0f) {
+                snprintf(badge, sizeof(badge), "H:%.1f !", (double)g.hdop);
+            } else {
+                // 99.9 sentinel — GSA not yet received
+                snprintf(badge, sizeof(badge), "Acquiring");
+            }
+        } else {
+            // Good quality — show HDOP and fix dimension
+            const char* fix_str = (g.fix_type == 3) ? "3D" :
+                                  (g.fix_type == 2) ? "2D" : "--";
+            snprintf(badge, sizeof(badge), "H:%.1f %s", (double)g.hdop, fix_str);
+        }
+        // Right-align: leave 3 px gap before recording-indicator box when active
+        int right_x = a->session.recording.active ? 115 : 126;
+        canvas_draw_str(c, right_x - canvas_string_width(c, badge), 10, badge);
     }
 
     // Mode-specific overlay

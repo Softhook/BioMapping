@@ -21,6 +21,13 @@
 #define ZOOM_FACTOR      1.5f    // multiplicative step for manual Up/Down zoom
 #define ZOOM_MIN         0.25f
 #define ZOOM_MAX         16.0f
+
+// GPS quality gate — positions with HDOP >= this value are treated as
+// too imprecise to log.  Empty GPS columns are written instead, which
+// the analyser treats as a gap rather than a noisy position.
+// Also used by the LED indicator: blue blinks until HDOP drops below this.
+// 3.0 = "good" in standard DOP terminology; raise to 5.0 in poor-sky areas.
+#define GPS_HDOP_GATE    3.0f
 #define SMOOTH_IIR_A     0.848f  // α for 3 Hz post-decimation smoothing IIR at 10 Hz
 #define SMOOTH_IIR_B     0.152f  // 1 - α, precomputed
 #define DISPLAY_EMA_A    0.2f

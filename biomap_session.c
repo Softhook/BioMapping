@@ -277,11 +277,21 @@ static void batch_csv_row(Session* s, float raw) {
                                ts, s->recording.tick_counter, (double)raw);
     } else if(s->recording.tick_counter == 0) {
         GpsPosition pos = get_gps_position(s);
-        sd_logger_batch_printf(s->logger,
-                               "%s,%.6f,%.6f,%.1f,%.1f,%.1f,%d,%d,%d,%.1f\n",
-                               ts, (double)pos.lat, (double)pos.lon, (double)pos.alt,
-                               (double)pos.hdop, (double)pos.vdop,
-                               pos.sats, pos.fix, pos.fix_type, (double)raw);
+        // Only log GPS coordinates when quality is acceptable.
+        // hdop >= GPS_HDOP_GATE (or 99.9 sentinel = no DOP data yet) means
+        // the fix is too imprecise; emit empty GPS columns so the analyser
+        // treats this second as a gap rather than recording a noisy position.
+        bool gps_ok = pos.valid && pos.hdop < GPS_HDOP_GATE;
+        if(gps_ok) {
+            sd_logger_batch_printf(s->logger,
+                                   "%s,%.6f,%.6f,%.1f,%.1f,%.1f,%d,%d,%d,%.1f\n",
+                                   ts, (double)pos.lat, (double)pos.lon, (double)pos.alt,
+                                   (double)pos.hdop, (double)pos.vdop,
+                                   pos.sats, pos.fix, pos.fix_type, (double)raw);
+        } else {
+            sd_logger_batch_printf(s->logger, "%s,,,,,,,,,%.1f\n",
+                                   ts, (double)raw);
+        }
     } else {
         sd_logger_batch_printf(s->logger, "%s,,,,,,,,,%.1f\n",
                                ts, (double)raw);
@@ -311,11 +321,16 @@ static void handle_second_boundary(Session* s, NotificationApp* notifications) {
         GpsPosition pos = get_gps_position(s);
         char ts[32];
         session_format_timestamp(s, ts, sizeof(ts));
-        sd_logger_batch_printf(s->logger,
-            "%s,%.6f,%.6f,%.1f,%.1f,%.1f,%d,%d,%d,%d\n",
-            ts, (double)pos.lat, (double)pos.lon, (double)pos.alt,
-            (double)pos.hdop, (double)pos.vdop,
-            pos.sats, pos.fix, pos.fix_type, 0);
+        bool gps_ok = pos.valid && pos.hdop < GPS_HDOP_GATE;
+        if(gps_ok) {
+            sd_logger_batch_printf(s->logger,
+                "%s,%.6f,%.6f,%.1f,%.1f,%.1f,%d,%d,%d,%d\n",
+                ts, (double)pos.lat, (double)pos.lon, (double)pos.alt,
+                (double)pos.hdop, (double)pos.vdop,
+                pos.sats, pos.fix, pos.fix_type, 0);
+        } else {
+            sd_logger_batch_printf(s->logger, "%s,,,,,,,,,0\n", ts);
+        }
     }
 
     int flushed = sd_logger_batch_flush(s->logger);
@@ -333,7 +348,13 @@ static void handle_second_boundary(Session* s, NotificationApp* notifications) {
         // or just [green/red 500ms]          (if fix OK)
         if(has_gps(s->mode) && s->gps) {
             GpsPosition pos = get_gps_position(s);
-            if(!pos.valid) {
+            // Blue blink means "GPS not ready for recording" — either no fix
+            // yet, or fix acquired but HDOP still above the quality gate.
+            // Mirrors the hardware PPS LED on the GPS board: that flashes at
+            // 1 Hz on fix, but the Flipper's blue only stops when the signal
+            // is also good enough to trust for data recording.
+            bool gps_ready = pos.valid && pos.hdop < GPS_HDOP_GATE;
+            if(!gps_ready) {
                 notification_message(notifications, &sequence_blink_blue_100);
             }
         }
