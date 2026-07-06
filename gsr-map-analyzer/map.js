@@ -595,6 +595,149 @@ class GSRMapManager {
 
   // Note: Cartographic label placement algorithms and HTML builders moved to GSRLabelManager in label_placement.js
 
+  _buildStreetViewButton(lat, lon, label) {
+    const btn = L.DomUtil.create('button', 'btn-external-link streetview');
+    btn.title = 'View street-level imagery';
+    btn.innerHTML = '<i class="fa-solid fa-street-view"></i> Street View';
+    L.DomEvent.on(btn, 'click', function(e) {
+      L.DomEvent.stopPropagation(e);
+      GSRUI.openStreetView(lat, lon, label);
+    });
+    L.DomEvent.disableClickPropagation(btn);
+    return btn;
+  }
+
+  _buildSinglePeakPopup(analyzer, peak, index, coords, marker) {
+    const displayLabel = peak.label || '';
+    const heading = displayLabel ? displayLabel : '#' + (index + 1);
+
+    const container = L.DomUtil.create('div');
+    container.className = 'map-popup-card';
+
+    const headerRow = L.DomUtil.create('div', 'popup-header-row', container);
+    const h4 = L.DomUtil.create('h4', '', headerRow);
+    h4.textContent = heading;
+
+    const excludeBtn = L.DomUtil.create('button', 'btn-exclude-popup', headerRow);
+    excludeBtn.title = peak.excluded ? 'Include peak' : 'Exclude peak';
+    excludeBtn.innerHTML = peak.excluded
+      ? '<i class="fa-solid fa-plus"></i>'
+      : '<i class="fa-solid fa-xmark"></i>';
+
+    const labelEdit = L.DomUtil.create('div', 'popup-label-edit', container);
+    const labelTag = L.DomUtil.create('label', '', labelEdit);
+    labelTag.textContent = 'Label:';
+    const input = L.DomUtil.create('input', 'popup-label-input', labelEdit);
+    input.type = 'text';
+    input.value = displayLabel;
+    input.placeholder = 'Enter label…';
+
+    const table = L.DomUtil.create('table', 'popup-table', container);
+    const rows = [
+      ['Date:', analyzer.formatDateUK(peak.time)],
+      ['Time:', analyzer.formatTimeOnly(peak.time)],
+      ['Amplitude:', peak.amplitude.toFixed(3) + ' μS'],
+      ['Rise Time:', (peak.time - peak.onsetTime).toFixed(1) + ' s'],
+      ['Coords:', coords.lat.toFixed(5) + ', ' + coords.lon.toFixed(5)]
+    ];
+    rows.forEach(function(r) {
+      const tr = L.DomUtil.create('tr', '', table);
+      const td1 = L.DomUtil.create('td', '', tr);
+      const td2 = L.DomUtil.create('td', '', tr);
+      td1.textContent = r[0];
+      td2.textContent = r[1];
+    });
+
+    const links = L.DomUtil.create('div', 'popup-external-links', container);
+    links.appendChild(this._buildStreetViewButton(
+      coords.lat,
+      coords.lon,
+      displayLabel || ('Peak #' + (index + 1))
+    ));
+
+    L.DomEvent.on(input, 'change', function() {
+      GSRUI.updatePeakLabel(index, input.value);
+    });
+    L.DomEvent.on(input, 'keydown', function(e) {
+      if (e.key === 'Enter') {
+        GSRUI.updatePeakLabel(index, input.value);
+        input.blur();
+      }
+    });
+    L.DomEvent.disableClickPropagation(input);
+
+    L.DomEvent.on(excludeBtn, 'click', function() {
+      GSRUI.togglePeakExclusion(index);
+      marker.closePopup();
+    });
+    L.DomEvent.disableClickPropagation(excludeBtn);
+
+    return container;
+  }
+
+  _buildCollectivePeakPopup(track, peak, index, lat, lon, marker) {
+    const displayLabel = peak.label || '';
+
+    const container = L.DomUtil.create('div');
+    container.className = 'map-popup-card compact';
+
+    const headerRow = L.DomUtil.create('div', 'popup-header-row', container);
+    const h4 = L.DomUtil.create('h4', '', headerRow);
+    h4.textContent = track.name;
+
+    const excludeBtn = L.DomUtil.create('button', 'btn-exclude-popup', headerRow);
+    excludeBtn.title = peak.excluded ? 'Include peak' : 'Exclude peak';
+    excludeBtn.innerHTML = peak.excluded
+      ? '<i class="fa-solid fa-plus"></i>'
+      : '<i class="fa-solid fa-xmark"></i>';
+
+    const titleP = L.DomUtil.create('p', '', container);
+    const titleBold = L.DomUtil.create('b', '', titleP);
+    titleBold.textContent = displayLabel || ('Peak Event #' + (index + 1));
+
+    const labelEdit = L.DomUtil.create('div', 'popup-label-edit', container);
+    const labelTag = L.DomUtil.create('label', '', labelEdit);
+    labelTag.textContent = 'Label:';
+    const input = L.DomUtil.create('input', 'popup-label-input', labelEdit);
+    input.type = 'text';
+    input.value = displayLabel;
+    input.placeholder = 'Enter label…';
+
+    const ampP = L.DomUtil.create('p', '', container);
+    ampP.textContent = 'Amplitude: ';
+    const ampBold = L.DomUtil.create('b', '', ampP);
+    ampBold.textContent = peak.amplitude.toFixed(3) + ' μS';
+
+    const coordP = L.DomUtil.create('p', 'popup-coords', container);
+    coordP.textContent = lat.toFixed(5) + ', ' + lon.toFixed(5);
+
+    const links = L.DomUtil.create('div', 'popup-external-links', container);
+    links.appendChild(this._buildStreetViewButton(
+      lat,
+      lon,
+      displayLabel || ('Peak #' + (index + 1))
+    ));
+
+    L.DomEvent.on(input, 'change', function() {
+      GSRUI.updatePeakLabel(index, input.value, track.id);
+    });
+    L.DomEvent.on(input, 'keydown', function(e) {
+      if (e.key === 'Enter') {
+        GSRUI.updatePeakLabel(index, input.value, track.id);
+        input.blur();
+      }
+    });
+    L.DomEvent.disableClickPropagation(input);
+
+    L.DomEvent.on(excludeBtn, 'click', function() {
+      GSRUI.togglePeakExclusion(index, track.id);
+      marker.closePopup();
+    });
+    L.DomEvent.disableClickPropagation(excludeBtn);
+
+    return container;
+  }
+
   _renderPeakMarkers(analyzer, data, peakLatency) {
     const map = this.map;
     const labelCandidates = [];
@@ -635,7 +778,6 @@ class GSRMapManager {
 
     allPeaks.forEach(({ peak, index, coords, px, py }) => {
       const displayLabel = peak.label || '';
-      const escapedLabel = displayLabel.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
       let marker;
       const hasLabel = displayLabel && displayLabel.trim();
@@ -662,59 +804,7 @@ class GSRMapManager {
         marker.setOpacity(0.35);
       }
 
-      marker.bindPopup(function() {
-        const container = L.DomUtil.create('div');
-        container.className = 'map-popup-card';
-        container.innerHTML = [
-          '<div class="popup-header-row">',
-            '<h4>' + (displayLabel ? escapedLabel : '#' + (index + 1)) + '</h4>',
-            '<button class="btn-exclude-popup" data-peak-idx="' + index + '" ' +
-              'title="' + (peak.excluded ? 'Include peak' : 'Exclude peak') + '">' +
-              (peak.excluded ? '<i class="fa-solid fa-plus"></i>' : '<i class="fa-solid fa-xmark"></i>') +
-            '</button>',
-          '</div>',
-          '<div class="popup-label-edit">',
-            '<label>Label:</label>',
-            '<input class="popup-label-input" type="text" value="' + escapedLabel + '" ' +
-              'placeholder="Enter label…" data-peak-idx="' + index + '">',
-          '</div>',
-          '<table class="popup-table">',
-          '<tr><td>Date:</td><td>', analyzer.formatDateUK(peak.time), '</td></tr>',
-          '<tr><td>Time:</td><td>', analyzer.formatTimeOnly(peak.time), '</td></tr>',
-          '<tr><td>Amplitude:</td><td>', peak.amplitude.toFixed(3), ' μS</td></tr>',
-          '<tr><td>Rise Time:</td><td>', (peak.time - peak.onsetTime).toFixed(1), ' s</td></tr>',
-          '<tr><td>Coords:</td><td>', coords.lat.toFixed(5), ', ', coords.lon.toFixed(5), '</td></tr>',
-          '</table>',
-          '<div class="popup-external-links">',
-            '<button class="btn-external-link streetview" onclick="GSRUI.openStreetView(' + coords.lat + ', ' + coords.lon + ", '" + (displayLabel || ('Peak #' + (index + 1))).replace(/'/g, "\\'") + "'); event.stopPropagation();\" title=\"View street-level imagery\">",
-              '<i class="fa-solid fa-street-view"></i> Street View',
-            '</button>',
-          '</div></div>'
-        ].join('');
-
-        const input = container.querySelector('.popup-label-input');
-        if (input) {
-          L.DomEvent.on(input, 'change', function() {
-            GSRUI.updatePeakLabel(index, input.value);
-          });
-          L.DomEvent.on(input, 'keydown', function(e) {
-            if (e.key === 'Enter') {
-              GSRUI.updatePeakLabel(index, input.value);
-              input.blur();
-            }
-          });
-          L.DomEvent.disableClickPropagation(input);
-        }
-        const excludeBtn = container.querySelector('.btn-exclude-popup');
-        if (excludeBtn) {
-          L.DomEvent.on(excludeBtn, 'click', function() {
-            GSRUI.togglePeakExclusion(index);
-            marker.closePopup();
-          });
-          L.DomEvent.disableClickPropagation(excludeBtn);
-        }
-        return container;
-      });
+      marker.bindPopup(() => this._buildSinglePeakPopup(analyzer, peak, index, coords, marker));
 
       this.peakMarkers.push(marker);
     });
@@ -836,21 +926,22 @@ class GSRMapManager {
     // 1. Draw dashed, semi-transparent paths for each track
     activeTracks.forEach(track => {
       const data = track.analyzer.raw;
-      if (!track.analyzer.filteredGps || track.analyzer.filteredGps.length !== data.length) {
-        const gpsPoints = this._collectGpsPoints(data);
-        if (gpsPoints.length > 0) {
-          this._reconstructFilteredGps(track.analyzer, data, gpsPoints);
-        }
-      }
-      const drawPoints = [];
+      const p = track.gpsFilterParams || {};
+      let gpsPoints = this._collectGpsPoints(data);
+      if (gpsPoints.length === 0) return;
 
-      const step = Math.max(1, Math.round(track.analyzer.sampleRate || 10.0));
-      for (let i = 0; i < data.length; i += step) {
-        const coords = track.analyzer.getCoordinates(i);
-        if (coords) {
-          drawPoints.push({ lat: coords.lat, lon: coords.lon });
-        }
-      }
+      gpsPoints = this._applySatelliteGate(gpsPoints, p.minSats);
+      gpsPoints = this._applyAllFilters(gpsPoints, p, track.analyzer.sampleRate || 10.0);
+      if (gpsPoints.length === 0) return;
+
+      this._reconstructFilteredGps(track.analyzer, data, gpsPoints);
+
+      let drawPoints = this._downsampleForDisplay(
+        gpsPoints,
+        track.analyzer.sampleRate || 10.0,
+        p.downsample === 1 || p.downsample === true
+      );
+      drawPoints = GpsFilter.applyRDP(drawPoints, p.rdpTolerance || 0);
 
       if (drawPoints.length < 2) return;
 
@@ -867,7 +958,6 @@ class GSRMapManager {
       this.collectivePathSegments.push(poly);
 
       // 2. Draw peak dot markers — 360° label placement with collision avoidance
-      const trackId = track.id;
       const map = this.map;
       const collectiveLabelCandidates = [];
       const collectiveAllPeaks = [];
@@ -910,7 +1000,6 @@ class GSRMapManager {
 
       collectiveAllPeaks.forEach(({ peak, index, lat, lon, px, py }) => {
         const displayLabel = peak.label || '';
-        const escapedLabel = displayLabel.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
         let marker;
         const hasLabel = displayLabel && displayLabel.trim();
@@ -929,55 +1018,7 @@ class GSRMapManager {
           marker = L.marker([lat, lon], { icon: collectiveSimpleIcon });
         }
 
-        marker.bindPopup(function() {
-          const container = L.DomUtil.create('div');
-          container.className = 'map-popup-card compact';
-          container.innerHTML = `
-            <div class="popup-header-row">
-              <h4>${track.name}</h4>
-              <button class="btn-exclude-popup" data-peak-idx="${index}" data-track-id="${trackId}"
-                title="${peak.excluded ? 'Include peak' : 'Exclude peak'}">
-                ${peak.excluded ? '<i class="fa-solid fa-plus"></i>' : '<i class="fa-solid fa-xmark"></i>'}
-              </button>
-            </div>
-            <p><b>${displayLabel || ('Peak Event #' + (index + 1))}</b></p>
-            <div class="popup-label-edit">
-              <label>Label:</label>
-              <input class="popup-label-input" type="text" value="${escapedLabel}" placeholder="Enter label…">
-            </div>
-            <p>Amplitude: <b>${peak.amplitude.toFixed(3)} μS</b></p>
-            <p class="popup-coords">${lat.toFixed(5)}, ${lon.toFixed(5)}</p>
-            <div class="popup-external-links">
-              <button class="btn-external-link streetview"
-                 onclick="GSRUI.openStreetView(${lat}, ${lon}, '${(displayLabel || 'Peak #' + (index + 1)).replace(/'/g, "\\'")}'); event.stopPropagation();"
-                 title="View street-level imagery">
-                <i class="fa-solid fa-street-view"></i> Street View
-              </button>
-            </div>
-          `;
-          const input = container.querySelector('.popup-label-input');
-          if (input) {
-            L.DomEvent.on(input, 'change', function() {
-              GSRUI.updatePeakLabel(index, input.value, trackId);
-            });
-            L.DomEvent.on(input, 'keydown', function(e) {
-              if (e.key === 'Enter') {
-                GSRUI.updatePeakLabel(index, input.value, trackId);
-                input.blur();
-              }
-            });
-            L.DomEvent.disableClickPropagation(input);
-          }
-          const excludeBtn = container.querySelector('.btn-exclude-popup');
-          if (excludeBtn) {
-            L.DomEvent.on(excludeBtn, 'click', function() {
-              GSRUI.togglePeakExclusion(index, trackId);
-              marker.closePopup();
-            });
-            L.DomEvent.disableClickPropagation(excludeBtn);
-          }
-          return container;
-        });
+        marker.bindPopup(() => this._buildCollectivePeakPopup(track, peak, index, lat, lon, marker));
         marker.addTo(this.map);
         // Dim excluded peak markers
         if (peak.excluded) {

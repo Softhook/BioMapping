@@ -8,6 +8,18 @@
 const GSRUI = {
 
   /**
+   * Invalidate cached environmental dashboard stats.
+   */
+  invalidateEnvironmentalCache() {
+    if (AppState.analyzer) {
+      AppState.analyzer._cachedEnvStats = null;
+    }
+    if (AppState.collectiveManager) {
+      AppState.collectiveManager._cachedEnvStats = null;
+    }
+  },
+
+  /**
    * Re-render the Leaflet map with current GPS filter parameters.
    */
   rerenderMap() {
@@ -38,6 +50,7 @@ const GSRUI = {
       peaksArr = AppState.analyzer.peaks;
     }
     peaksArr[idx].label = label.trim();
+    GSRUI.invalidateEnvironmentalCache();
     // Refresh displays
     if (AppState.viewMode === 'single') {
       if (AppState.mapManager) {
@@ -86,6 +99,7 @@ const GSRUI = {
     const peaks = GSRUI._getPeaksArray(trackId);
     if (!peaks || idx >= peaks.length) return;
     peaks[idx].excluded = !peaks[idx].excluded;
+    GSRUI.invalidateEnvironmentalCache();
     // Refresh displays
     if (AppState.viewMode === 'single') {
       GSRUI.updatePeaksTable();
@@ -109,6 +123,7 @@ const GSRUI = {
 
       GSRTrackManager.saveActiveTrackParams();
       AppState.analyzer.analyze(params);
+      GSRUI.invalidateEnvironmentalCache();
 
       if (AppState.viewMode === 'single') {
         if (AppState.mapManager) {
@@ -491,6 +506,7 @@ const GSRUI = {
       
       updateProgress('Processing spatial metrics...', 60);
       OSMEnricher.enrichTrack(AppState.analyzer, osmJson, radius, (msg) => updateProgress(msg));
+      GSRUI.invalidateEnvironmentalCache();
       
       updateProgress('Redrawing visualizer...', 90);
       

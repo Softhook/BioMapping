@@ -21,6 +21,43 @@ class GSRAnalyzer {
   }
 
   /**
+   * Parse one CSV line into fields, honoring quoted commas and escaped quotes.
+   */
+  _parseCsvLine(line) {
+    const fields = [];
+    let cur = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && i + 1 < line.length && line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (ch === ',' && !inQuotes) {
+        fields.push(cur);
+        cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    fields.push(cur);
+    return fields;
+  }
+
+  /**
+   * Escape a value for CSV output using RFC4180-style double-quote escaping.
+   */
+  _csvEscape(val) {
+    if (val === null || val === undefined) return '';
+    const str = String(val).replace(/"/g, '""');
+    return '"' + str + '"';
+  }
+
+  /**
    * Binary search the raw data array for the index closest to a target time.
    */
   findClosestIndex(targetTime) {
@@ -211,7 +248,7 @@ class GSRAnalyzer {
 
     // Read headers
     const headerLine = lines[dataStartLine];
-    const headers = headerLine.split(',').map(h => h.trim().toLowerCase());
+    const headers = this._parseCsvLine(headerLine).map(h => h.trim().toLowerCase());
 
     // Guess column indices
     let timeColIndex = -1;
@@ -279,10 +316,10 @@ class GSRAnalyzer {
     // Parse data rows
     let rawDataList = [];
     for (let i = dataStartLine + 1; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
+      const line = lines[i];
+      if (!line || !line.trim()) continue;
 
-      const cols = line.split(',');
+      const cols = this._parseCsvLine(line);
       if (cols.length <= Math.max(timeColIndex, gsrColIndex)) continue;
 
       let rawTimeStr = cols[timeColIndex].trim();
@@ -1053,7 +1090,7 @@ class GSRAnalyzer {
              `${this.phasic[i].val.toFixed(4)},` +
              `${isPeak},` +
              `${peakAmp},` +
-             `"${peakLabel}",` +
+             `${this._csvEscape(peakLabel)},` +
              `${peakExcluded},` +
              `${latStr},` +
              `${lonStr}`;
@@ -1063,7 +1100,7 @@ class GSRAnalyzer {
       }
 
       if (isEnriched) {
-        const roadClassStr = this.raw[i].osm_road_class ? `"${this.raw[i].osm_road_class}"` : "";
+        const roadClassStr = this.raw[i].osm_road_class ? this._csvEscape(this.raw[i].osm_road_class) : "";
         const distMajorStr = (this.raw[i].osm_dist_major_road !== null && !isNaN(this.raw[i].osm_dist_major_road)) ? this.raw[i].osm_dist_major_road.toFixed(2) : "";
         const inParkStr = (this.raw[i].osm_in_park !== null && !isNaN(this.raw[i].osm_in_park)) ? this.raw[i].osm_in_park.toString() : "";
         const greenPctStr = (this.raw[i].osm_green_pct_50m !== null && !isNaN(this.raw[i].osm_green_pct_50m)) ? this.raw[i].osm_green_pct_50m.toFixed(1) : "";

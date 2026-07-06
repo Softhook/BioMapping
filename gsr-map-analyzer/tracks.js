@@ -190,6 +190,9 @@ const GSRTrackManager = {
       checkbox.title = 'Include in Collective Surface';
       checkbox.addEventListener('change', (e) => {
         track.enabled = e.target.checked;
+        if (typeof GSRUI !== 'undefined' && typeof GSRUI.invalidateEnvironmentalCache === 'function') {
+          GSRUI.invalidateEnvironmentalCache();
+        }
         if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
       });
 
