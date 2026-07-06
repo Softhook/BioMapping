@@ -207,20 +207,38 @@ const OSMEnricher = {
      Bounding box & query building
      ====================================================================== */
 
+  /**
+   * Returns true if (lat, lon) is a valid, plausible GPS coordinate.
+   * Filters out NaN, null, (0,0) sentinel values, and obviously out-of-range readings
+   * that would inflate the Overpass bounding box and cause 504 timeouts.
+   */
+  _isValidCoord(lat, lon) {
+    if (lat == null || lon == null) return false;
+    if (isNaN(lat) || isNaN(lon)) return false;
+    // Reject (0,0) and near-zero — common GPS-startup sentinel
+    if (Math.abs(lat) < 0.001 && Math.abs(lon) < 0.001) return false;
+    // Valid lat/lon range
+    if (lat < -90 || lat > 90) return false;
+    if (lon < -180 || lon > 180) return false;
+    return true;
+  },
+
   calculateBBox(rawPoints, bufferMeters = DEFAULT_BBOX_BUFFER_M) {
     let minLat = Infinity, maxLat = -Infinity;
     let minLon = Infinity, maxLon = -Infinity;
+    let validCount = 0;
 
     for (const pt of rawPoints) {
-      if (pt.lat != null && pt.lon != null && !isNaN(pt.lat) && !isNaN(pt.lon)) {
+      if (this._isValidCoord(pt.lat, pt.lon)) {
         if (pt.lat < minLat) minLat = pt.lat;
         if (pt.lat > maxLat) maxLat = pt.lat;
         if (pt.lon < minLon) minLon = pt.lon;
         if (pt.lon > maxLon) maxLon = pt.lon;
+        validCount++;
       }
     }
 
-    if (minLat === Infinity) return null;
+    if (validCount === 0) return null;
 
     const latBuf = bufferMeters / METERS_PER_DEG_LAT;
     const midLat = (minLat + maxLat) / 2;
@@ -247,7 +265,7 @@ const OSMEnricher = {
 
   buildQuery(bbox) {
     const b = `${bbox.minLat.toFixed(6)},${bbox.minLon.toFixed(6)},${bbox.maxLat.toFixed(6)},${bbox.maxLon.toFixed(6)}`;
-    return `[out:json][timeout:90];
+    return `[out:json][timeout:180][maxsize:536870912];
 (
   way["highway"](${b});
   way["building"](${b});
@@ -274,22 +292,149 @@ out body;
 out skel qt;`;
   },
 
+  /* ======================================================================
+     Rate-limit tracker (module-level — persists across calls)
+     ====================================================================== */
+
+  /** @type {number|null} timestamp (ms) when we can next call the API */
+  _nextAllowedCallTime: null,
+
+  /**
+   * Wait until we're allowed to call the API (respects global rate-limit backoff).
+   * Returns the number of ms actually waited.
+   */
+  async _enforceRateLimit(onProgress) {
+    const now = Date.now();
+    if (this._nextAllowedCallTime && now < this._nextAllowedCallTime) {
+      const wait = this._nextAllowedCallTime - now;
+      if (onProgress) {
+        const sec = Math.ceil(wait / 1000);
+        onProgress(`Rate-limited. Waiting ${sec}s before next request…`);
+      }
+      await new Promise(r => setTimeout(r, wait));
+    }
+  },
+
+  /**
+   * Overpass API retry policy.  Returns a wait time in ms that doubles
+   * per attempt (exponential backoff) with ±25 % jitter.
+   */
+  _backoffMs(attempt, baseMs) {
+    const linear = baseMs * Math.pow(2, attempt);
+    const jitter = 1 + (Math.random() - 0.5) * 0.5; // 0.75 – 1.25
+    return Math.round(linear * jitter);
+  },
+
+  /**
+   * Read `Retry-After` header (seconds or HTTP-date), defaulting to `fallbackMs`.
+   */
+  _retryAfterMs(response, fallbackMs) {
+    const val = response.headers.get('Retry-After');
+    if (!val) return fallbackMs;
+    const sec = parseInt(val, 10);
+    if (!isNaN(sec) && sec > 0) return sec * 1000;
+    // Could be an HTTP-date — ignore for simplicity, use fallback
+    return fallbackMs;
+  },
+
   async fetchOSMData(bbox, onProgress) {
     if (onProgress) onProgress('Connecting to Overpass API...');
 
     const query = this.buildQuery(bbox);
-    const response = await fetch(this.overpassEndpoint, {
-      method: 'POST',
-      body: 'data=' + encodeURIComponent(query),
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-    });
 
-    if (!response.ok) {
-      throw new Error(`Overpass API responded with HTTP error: ${response.status}`);
+    // Honour global rate-limit cooldown before we even start
+    await this._enforceRateLimit(onProgress);
+
+    // ── Retry loop ──────────────────────────────────────────────────────
+    // 504 timeout:    3 attempts, backoff 5 s -> 10 s -> 20 s
+    // 429 / rate-limit: 3 attempts, backoff 30 s -> 60 s -> 120 s
+    const maxRetries = 3;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutMs = 200000;                       // 200 s network timeout
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+        const response = await fetch(this.overpassEndpoint, {
+          method: 'POST',
+          body: 'data=' + encodeURIComponent(query),
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          if (onProgress) onProgress('Parsing geographical payload...');
+          return response.json();
+        }
+
+        // ── Non-200 — classify & retry (or fail) ────────────────────────
+
+        if (response.status === 429 || response.status === 509) {
+          // Rate limited: long backoff, respect Retry-After
+          const retryAfterMs = this._retryAfterMs(response, 30000);
+          // Set global cooldown so subsequent calls wait too
+          this._nextAllowedCallTime = Date.now() + retryAfterMs;
+
+          if (attempt < maxRetries) {
+            const msg = `Overpass API rate-limited (HTTP ${response.status}). ` +
+              `Waiting ${Math.ceil(retryAfterMs / 1000)}s… (attempt ${attempt + 1}/${maxRetries})`;
+            if (onProgress) onProgress(msg);
+            await new Promise(r => setTimeout(r, retryAfterMs));
+            continue;
+          }
+
+          throw new Error(
+            `Overpass API rejected the request with HTTP ${response.status} (rate-limited). ` +
+            `Try again in a few minutes, or use a smaller search radius / shorter track ` +
+            `to reduce query size.`
+          );
+        }
+
+        if (response.status === 504 && attempt < maxRetries) {
+          // Gateway timeout — short backoff
+          const waitMs = this._backoffMs(attempt, 5000);
+          if (onProgress) {
+            onProgress(
+              `Overpass API timed out (504). Retrying in ${Math.ceil(waitMs / 1000)}s… ` +
+              `(attempt ${attempt + 1}/${maxRetries})`
+            );
+          }
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
+        }
+
+        // All other HTTP errors — fail immediately (no retry)
+        const hints = {
+          400: 'The Overpass query was malformed. This is a bug — please report it.',
+          403: 'Access denied by the Overpass API.',
+          413: 'Request entity too large. Try a shorter track or smaller radius.',
+          502: 'Overpass API gateway error. Try again later.',
+          503: 'Overpass API is temporarily unavailable (maintenance or overload). Try again later.',
+        };
+        const hint = hints[response.status] ||
+          `Unexpected HTTP ${response.status} from the Overpass API.`;
+        throw new Error(hint);
+
+      } catch (err) {
+        // Network / abort errors
+        if (err.name === 'AbortError' && attempt < maxRetries) {
+          const waitMs = this._backoffMs(attempt, 5000);
+          if (onProgress) {
+            onProgress(
+              `Request timed out. Retrying in ${Math.ceil(waitMs / 1000)}s… ` +
+              `(attempt ${attempt + 1}/${maxRetries})`
+            );
+          }
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
+        }
+        // Re-throw everything else (including final AbortError after retries exhausted)
+        throw err;
+      }
     }
-
-    if (onProgress) onProgress('Parsing geographical payload...');
-    return response.json();
   },
 
   /* ======================================================================

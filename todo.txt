@@ -1,7 +1,5 @@
 Todo
 
-Fix the citcuit diagram the two op amps are shown in revese in the diagram
-check the conenction wires to the flipper they might be reversed
+real time bluetooth data on the laptop
 
-sort out the finger cuff conenction
-layout componets on shield
+dowload track option the fliper to ake it easier to take data off
