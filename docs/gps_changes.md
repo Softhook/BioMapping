@@ -95,17 +95,17 @@ if (minmea_parse_gll(&gll_frame, line) &&
 
 #### E. Speed and course added to all three logging paths
 
-The CSV header changed from 10 columns to 12:
+The CSV header changed from 12 columns to 13:
 
 ```
-timestamp,lat,lon,alt,hdop,vdop,sats,fix,fix_type,speed_kts,course_deg,gsr_raw
+timestamp,lat,lon,alt,hdop,vdop,wdop,sats,fix,fix_type,speed_kts,course_deg,gsr_raw
 ```
 
 Three format strings were updated to match. Speed/course have a separate `has_vel` NaN guard because RMC may not have arrived yet at log time even when the position fix is valid (GGA and RMC arrive in the same burst but are processed sequentially).
 
-Empty rows (below gate) now emit 11 commas to maintain column count:
+Empty rows (below gate) now emit 12 commas to maintain column count:
 ```
-%s,,,,,,,,,,,%.1f\n
+%s,,,,,,,,,,,,%.1f\n
 ```
 
 ---
@@ -134,24 +134,26 @@ The GPS quality badge is now suppressed when the finger cuffs are disconnected, 
 
 ### 3.2 `gsr-map-analyzer/gps_filter.js` — Four New/Upgraded Algorithms
 
-#### I. HDOP-Adaptive Kalman Filter (upgrade to `applyKalman`)
+#### I. DOP-Adaptive Kalman Filter (upgrade to `applyKalman`)
 
-Measurement noise `R` is now scaled per-point by `HDOP²`:
+Measurement noise `R` is now scaled per-point by `DOP²` (preferring WDOP when available, falling back to HDOP):
 
 ```js
-const h = Math.max(0.5, Math.min(10, pt.hdop));   // clamped HDOP
+const dop = !isNaN(pt.wdop) && pt.wdop > 0 && pt.wdop < 50.0 ? pt.wdop :
+            (!isNaN(pt.hdop) && pt.hdop > 0 && pt.hdop < 50.0 ? pt.hdop : 1.0);
+const h = Math.max(0.5, Math.min(10, dop));   // clamped DOP
 const R_effective = R_BASE * h * h;
 ```
 
-| HDOP | R multiplier | Filter behaviour                       |
-|------|-------------|----------------------------------------|
+| DOP | R multiplier | Filter behaviour                       |
+|-----|-------------|----------------------------------------|
 | 0.5  | 0.25×       | Aggressively tracks GPS                |
 | 1.0  | 1.0×        | Baseline                               |
 | 2.0  | 4×          | Moderate GPS trust                     |
 | 5.0  | 25×         | Mostly coasts on momentum              |
 | 10.0 | 100×        | Almost ignores GPS fix                 |
 
-Applied to both the forward and backward Kalman passes. HDOP is clamped to `[0.5, 10]` to prevent degenerate values.
+Applied to both the forward and backward Kalman passes. DOP is clamped to `[0.5, 10]` to prevent degenerate values, and sentinels $\ge 50.0$ are ignored.
 
 **Expected gain:** 20–40% jitter reduction in mixed-signal conditions; filter self-tunes with signal quality.
 
@@ -159,15 +161,15 @@ Applied to both the forward and backward Kalman passes. HDOP is clamped to `[0.5
 
 #### J. Velocity-Aided Smoothing (new `applyVelocitySmoothing`)
 
-Dead-reckons a predicted position from the prior anchor using speed and course, then blends it with the GPS fix using an HDOP-adaptive weight:
+Dead-reckons a predicted position from the prior anchor using speed and course, then blends it with the GPS fix using a DOP-adaptive weight (preferring WDOP when available, falling back to HDOP):
 
 ```
 predicted_pos = prev_pos + speed_ms × dt × direction(course)
-effective_α   = clamp(α_base / HDOP, 0.1, 0.95)
+effective_α   = clamp(α_base / DOP, 0.1, 0.95)
 blended_pos   = effective_α × GPS_fix + (1 − effective_α) × predicted_pos
 ```
 
-At HDOP 1.0 (good signal), GPS dominates (60%). At HDOP 5.0, prediction dominates (12% GPS). Silently skips for old CSVs without velocity data.
+At DOP 1.0 (good signal), GPS dominates (60%). At DOP 5.0, prediction dominates (12% GPS). Silently skips for old CSVs without velocity data.
 
 **Expected gain:** 30–50% smoother paths; handles multipath spikes while moving in a consistent direction.
 
@@ -188,9 +190,9 @@ This catches **slow-but-wrong drift** — e.g. 5 m over 30 s while stationary �
 
 #### L. Stop Averaging (new `applyStopAveraging`)
 
-Collapses consecutive stationary clusters (`speedKts ≤ 0.5`) of ≥ 3 points into a single centroid. The centroid preserves the `origIdx` of the middle cluster point so the downstream `filteredGps` index reconstruction remains correct. Silently skips for old CSVs.
+Filters out stationary coordinates (`speedKts ≤ 0.5`) in clusters of ≥ 3 points and locks their values to the cluster centroid. This preserves the timeline index mapping (unlike point-collapsing, which leaves gaps that cause linear interpolation drift during pauses) and allows downstream simplifiers (RDP) to naturally reduce rendering vertices.
 
-**Rationale:** Single-frequency GPS chips wander a 3–10 m radius when stationary due to shifting multipath. Without averaging, stationary sections render as jitter blobs. After averaging, they are clean dots.
+**Rationale:** Single-frequency GPS chips wander a 3–10 m radius when stationary due to shifting multipath. Locking them to the centroid ensures a completely stationary representation during pauses.
 
 ---
 
@@ -198,12 +200,12 @@ Collapses consecutive stationary clusters (`speedKts ≤ 0.5`) of ≥ 3 points i
 
 ```
 raw GPS points
-  ↓ [2a] applyStopAveraging      (new — runs first, before any filter)
+  ↓ [2a] applyStopAveraging      (new — locks stationary clusters to centroid)
   ↓ [3]  applyHampelFilter       (unchanged)
   ↓ [4]  applySpeedFilter        (upgraded — chi-squared innovation gate added)
-  ↓ [4b] applyVelocitySmoothing  (new — after outliers removed)
+  ↓ [4b] applyVelocitySmoothing  (new — after outliers removed, uses smoothed course vectors)
   ↓ [5]  applyDBSCAN             (unchanged)
-  ↓ [6]  applyKalman             (upgraded — HDOP-adaptive R per point)
+  ↓ [6]  applyKalman             (upgraded — DOP-adaptive R per point)
   ↓ display / export
 ```
 
@@ -223,7 +225,8 @@ Help text updated to note that firmware ≥ v2.1 pre-filters at HDOP < 5.0 at re
 |----------|---------|-------|
 | < v2.1 | `timestamp,lat,lon,alt,sats,fix,gsr_raw` | No DOP data |
 | v2.1 | `timestamp,lat,lon,alt,hdop,vdop,sats,fix,fix_type,gsr_raw` | Added DOP + fix_type |
-| **v2.2** | `timestamp,lat,lon,alt,hdop,vdop,sats,fix,fix_type,speed_kts,course_deg,gsr_raw` | Added velocity |
+| v2.2 | `timestamp,lat,lon,alt,hdop,vdop,sats,fix,fix_type,speed_kts,course_deg,gsr_raw` | Added velocity |
+| **v2.3** | `timestamp,lat,lon,alt,hdop,vdop,wdop,sats,fix,fix_type,speed_kts,course_deg,gsr_raw` | Added WDOP (constellation-aware) + 2 Hz rate |
 
 The analyser auto-detects the format from column headers and degrades gracefully for older files.
 
@@ -235,7 +238,7 @@ The analyser auto-detects the format from column headers and degrades gracefully
 |---|---------|----------|
 | 1 | `velocitySmoothing` alpha (0.6) is hardcoded — no UI slider to tune it | Low |
 | 2 | `stopAveraging` thresholds are hardcoded (0.5 kts, min 3 pts) | Low |
-| 3 | GPS still at 1 Hz — up to 1 s misalignment with 10 Hz GSR samples | Medium |
+| 3 | GPS upgraded to 2 Hz — temporal alignment error with 10 Hz GSR halved to 500 ms | Low |
 | 4 | Course wrap-around at 0°/360° not handled in velocity prediction (< 0.01° error at walking speed — acceptable) | Low |
 
 ---
@@ -248,7 +251,7 @@ See `docs/gps_backlog.md` for full implementation detail on each item.
 |----|-------|--------|------------------------|
 | B4 | Force SBAS/EGNOS active | Implemented | **Done** (Sent `$PCAS06,1,1` + response logging active) |
 | B3 | 5 Hz GPS update rate (needs baud upgrade) | ⭐⭐ | Better temporal alignment with GSR |
-| B1 | GSV satellite elevation weighting | ⭐⭐⭐ | 15–25% better quality discrimination |
+| B1 | GSV satellite elevation weighting | Implemented | **Done** (Calculates constellation-aware WDOP, maps sat elevations collision-free, web analyzer prefers WDOP over HDOP) |
 | B2 | Full RTS smoother | ⭐⭐⭐ | 10–20% smoother vs current Kalman |
 | C1 | HMM-Viterbi map matching | ⭐⭐⭐⭐ | Track always on real road/path |
 | C2 | Dual-frequency hardware (ZED-F9P) | Hardware | Sub-metre accuracy |

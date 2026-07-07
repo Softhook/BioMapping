@@ -87,7 +87,7 @@ graph TD
    If Area $> 10 \text{ km}^2$, the app will warn the user and suggest using a path-buffered query (fetching features strictly within 100m of the line).
 
 ### B. Client-Side Spatial Math
-To prevent browser tab freezing, we downsample spatial calculations to the **unique 1 Hz GPS coordinates** of the track, then interpolate back to the 10 Hz GSR series.
+To prevent browser tab freezing, we downsample spatial calculations to unique ~1 Hz evaluation intervals (points spaced at least 1.0 second apart), then interpolate back to the 10 Hz GSR series.
 
 *   **Distance to Segment (Road Proximity)**:
     For a GPS coordinate $P$ and a road line segment defined by $AB$:
