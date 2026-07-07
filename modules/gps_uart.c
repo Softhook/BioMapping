@@ -52,13 +52,21 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
     case MINMEA_SENTENCE_RMC: {
         struct minmea_sentence_rmc frame;
         if(minmea_parse_rmc(&frame, line)) {
-            g->status.fix_valid  = frame.valid;
-            g->status.latitude   = minmea_tocoord(&frame.latitude);
-            g->status.longitude  = minmea_tocoord(&frame.longitude);
-            g->status.speed      = minmea_tofloat(&frame.speed);
-            g->status.course     = minmea_tofloat(&frame.course);
-            g->status.time       = frame.time;
-            g->status.date       = frame.date;
+            g->status.fix_valid = frame.valid;
+            // Only trust coordinates, speed, and course when the RMC
+            // validity flag is 'A'.  Void RMC sentences have empty
+            // fields that minmea_tofloat/mimmea_tocoord turn into NaN,
+            // which would overwrite good values from a prior GGA sentence.
+            // Time and date are still set — they're useful for timestamp
+            // fallback even on void frames.
+            if(frame.valid) {
+                g->status.latitude  = minmea_tocoord(&frame.latitude);
+                g->status.longitude = minmea_tocoord(&frame.longitude);
+                g->status.speed     = minmea_tofloat(&frame.speed);
+                g->status.course    = minmea_tofloat(&frame.course);
+            }
+            g->status.time = frame.time;
+            g->status.date = frame.date;
         }
     } break;
 
