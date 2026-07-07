@@ -29,7 +29,8 @@ const GSREvents = {
       'medianSize', 'lpfWindow', 'tonicWindow', 'tonicMethod', 'peakThreshold', 'minPeakQuality', 'dwtLevel',
       'shapeMinRiseTime', 'shapeMaxRiseTime', 'shapeMinHalfRecovery', 'shapeMaxHalfRecovery',
       'shapeMinSnr', 'shapeMaxSkewRatio',
-      'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsDownsample', 'gpsTrackWeight', 'gpsPeakLatency'
+      'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsDownsample', 'gpsTrackWeight', 'gpsPeakLatency',
+      'gpsSnapToRoads', 'gpsSnapRadius'
     ];
     for (const key of sliderKeys) {
       AppState.sliders[key] = GSREvents._id(key);
@@ -329,6 +330,48 @@ const GSREvents = {
     GSREvents.bindGpsSlider('gpsDownsample',  'valGpsDownsample',  v => v === 0 ? 'off' : '1 Hz');
     GSREvents.bindGpsSlider('gpsTrackWeight', 'valGpsTrackWeight', v => `${v} px`);
 
+    // ── Snap radius slider ───────────────────────────────────────────────────
+    // Re-evaluates road snapping locally from cached OSM data when released.
+    {
+      const slider = document.getElementById('gpsSnapRadius');
+      const label  = document.getElementById('valGpsSnapRadius');
+      if (slider && label) {
+        const updateDim = () => GSREvents.updateFilterDim(slider);
+        updateDim();
+        slider.addEventListener('input', () => {
+          label.innerText = `${parseInt(slider.value)} m`;
+          updateDim();
+        });
+        slider.addEventListener('change', () => {
+          GSRStorage.saveSettings();
+          if (AppState.analyzer && AppState.analyzer.osmJson) {
+            GSRUI.enrichTrack(false); // Recompute using local cache!
+          } else {
+            GSRUI.rerenderMap();
+          }
+        });
+      }
+    }
+
+    // ── Road snap toggle ─────────────────────────────────────────────────────
+    // Toggling re-runs enrichment (which includes snapping) if OSM data is
+    // already loaded; otherwise just saves the preference for next enrichment.
+    {
+      const snapToggle = document.getElementById('gpsSnapToRoads');
+      if (snapToggle) {
+        snapToggle.addEventListener('change', () => {
+          GSRStorage.saveSettings();
+          if (AppState.analyzer && AppState.analyzer.osmJson) {
+            // OSM data already loaded — re-run enrichment locally
+            GSRUI.enrichTrack(false);
+          } else {
+            // No OSM data yet — just re-render
+            GSRUI.rerenderMap();
+          }
+        });
+      }
+    }
+
     // Peak latency — re-render map only (no analysis needed), highlight when active
     {
       const slider = document.getElementById('gpsPeakLatency');
@@ -393,9 +436,15 @@ const GSREvents = {
       radiusSlider.addEventListener('input', () => {
         radiusLabel.innerText = radiusSlider.value + ' m';
       });
+      radiusSlider.addEventListener('change', () => {
+        GSRStorage.saveSettings();
+        if (AppState.analyzer && AppState.analyzer.osmJson) {
+          GSRUI.enrichTrack(false); // Re-run enrichment locally!
+        }
+      });
     }
 
-    document.getElementById('btnEnrichTrack').addEventListener('click', () => GSRUI.enrichTrack());
+    document.getElementById('btnEnrichTrack').addEventListener('click', () => GSRUI.enrichTrack(true));
 
     document.getElementById('mapColoringMetric').addEventListener('change', (e) => {
       if (AppState.mapManager) {
@@ -595,7 +644,8 @@ const GSREvents = {
       gpsRDP:         v => v === 0 ? 'off' : `${v} m`,
       gpsDownsample:  v => v === 0 ? 'off' : '1 Hz',
       gpsTrackWeight: v => `${v} px`,
-      gpsPeakLatency: v => `${v.toFixed(1)} s`
+      gpsPeakLatency: v => `${v.toFixed(1)} s`,
+      gpsSnapRadius:  v => `${v} m`
     };
 
     for (const [id, fmt] of Object.entries(gpsFormatters)) {

@@ -393,17 +393,25 @@ out skel qt;`;
           );
         }
 
-        if (response.status === 504 && attempt < maxRetries) {
-          // Gateway timeout — short backoff
-          const waitMs = this._backoffMs(attempt, 5000);
-          if (onProgress) {
-            onProgress(
-              `Overpass API timed out (504). Retrying in ${Math.ceil(waitMs / 1000)}s… ` +
-              `(attempt ${attempt + 1}/${maxRetries})`
-            );
+        if (response.status === 504) {
+          if (attempt < maxRetries) {
+            // Gateway timeout — short backoff
+            const waitMs = this._backoffMs(attempt, 5000);
+            if (onProgress) {
+              onProgress(
+                `Overpass API timed out (504). Retrying in ${Math.ceil(waitMs / 1000)}s… ` +
+                `(attempt ${attempt + 1}/${maxRetries})`
+              );
+            }
+            await new Promise(r => setTimeout(r, waitMs));
+            continue;
           }
-          await new Promise(r => setTimeout(r, waitMs));
-          continue;
+          // All retries exhausted — the query is too expensive for this area
+          throw new Error(
+            `Overpass API timed out after ${maxRetries + 1} attempts. ` +
+            `The track covers too large an area. Try a shorter track, or split ` +
+            `the session into smaller segments.`
+          );
         }
 
         // All other HTTP errors — fail immediately (no retry)
@@ -598,6 +606,30 @@ out skel qt;`;
   },
 
   /**
+   * Spatial thinning: keep only points that are at least `minDist` metres
+   * from the last kept point.  Always keeps the first and last point.
+   * Reduces evaluation-point density so the snap ramp spans a meaningful
+   * physical distance rather than completing in a few metres.
+   */
+  _thinPoints(points, minDist) {
+    if (points.length < 3) return points;
+    const kept = [points[0]];
+    for (let i = 1; i < points.length - 1; i++) {
+      const prev = kept[kept.length - 1];
+      const d = this.haversine(prev.lat, prev.lon, points[i].lat, points[i].lon);
+      if (d >= minDist) {
+        kept.push(points[i]);
+      }
+    }
+    // Always keep the last point
+    const last = points[points.length - 1];
+    if (kept[kept.length - 1].idx !== last.idx) {
+      kept.push(last);
+    }
+    return kept;
+  },
+
+  /**
    * Evaluate all environmental metrics at a single (lat, lon) position.
    * Returns a metrics object.
    */
@@ -760,14 +792,29 @@ out skel qt;`;
    * Enrich continuous track data series: runs spatial queries on ~1 Hz
    * GPS coordinates and projects results back to the full 10 Hz timeline.
    *
-   * @param {Object} analyzer   - GSRAnalyzer instance (has .raw, .getCoordinates())
-   * @param {Object} osmJson    - parsed Overpass API JSON
+   * When snapParams.enabled is true, road snapping runs in the same loop:
+   * each evaluation point is projected onto the nearest highway segment
+   * before enrichment metrics are computed, so enrichment sees the
+   * corrected (snapped) position — never misattributes a building because
+   * of GPS multipath drift.
+   *
+   * @param {Object} analyzer     - GSRAnalyzer instance (has .raw, .getCoordinates())
+   * @param {Object} osmJson      - parsed Overpass API JSON
    * @param {number} radiusMeters - search radius (default 50)
+   * @param {Object} [snapParams] - { enabled: bool, ... } road snapping config
    * @param {Function} onProgress - optional progress callback(msg)
    */
-  enrichTrack(analyzer, osmJson, radiusMeters = DEFAULT_RADIUS_M, onProgress) {
+  enrichTrack(analyzer, osmJson, radiusMeters = DEFAULT_RADIUS_M, snapParams, onProgress) {
     const raw = analyzer.raw;
     if (!raw || raw.length === 0) return;
+
+    const doSnap = snapParams && snapParams.enabled;
+
+    // Clear stale snapped positions when snapping is disabled so renderData
+    // doesn't substitute from a previous enrichment run.
+    if (!doSnap) {
+      analyzer.snappedGps = null;
+    }
 
     // 1. Reconstruct geometries & build spatial index
     if (onProgress) onProgress('Assembling spatial index...');
@@ -790,17 +837,69 @@ out skel qt;`;
       throw new Error('No valid GPS coordinates found in this track.');
     }
 
-    // 3. Downsample to ~1 Hz evaluation points
-    const evalPoints = this._selectEvaluationPoints(raw, gpsIndices);
+    // 3. Downsample to ~1 Hz evaluation points, then spatially thin
+    //    for snapping so the ramp spans a meaningful distance (~20 m
+    //    over 4 steps) instead of just 5.6 m at walking speed.
+    let evalPoints = this._selectEvaluationPoints(raw, gpsIndices);
+    if (doSnap) {
+      evalPoints = this._thinPoints(evalPoints, 3);  // min 3 m spacing
+    }
     const computedMetrics = [];
+
+    // ── Snapping state (carried across evaluation points) ────────────
+    const snapState = doSnap ? {
+      wayId: null,
+      wasSnapped: false,
+      rampStep: 0,
+      hystTimer: null
+    } : null;
+
+    // ── Snapped GPS output array (if snapping, for Kalman to consume) ─
+    if (doSnap) {
+      analyzer.snappedGps = new Array(raw.length);
+      for (let i = 0; i < raw.length; i++) {
+        analyzer.snappedGps[i] = { lat: NaN, lon: NaN };
+      }
+    }
 
     for (let s = 0; s < evalPoints.length; s++) {
       if (s % 50 === 0 && onProgress) {
-        onProgress(`Computing spatial metrics: ${s}/${evalPoints.length} positions...`);
+        const what = doSnap ? 'Snapping & enriching' : 'Computing spatial metrics';
+        onProgress(`${what}: ${s}/${evalPoints.length} positions...`);
       }
       const node = evalPoints[s];
       const nearby = spatialIndex.getNearby(node.lat, node.lon);
-      const metrics = this._evaluatePosition(node.lat, node.lon, nearby, radiusMeters);
+
+      // ── Road snapping (runs in same loop, same spatial-index query) ─
+      let evalLat = node.lat;
+      let evalLon = node.lon;
+
+      if (doSnap) {
+        const rawPt = raw[node.idx];
+        const speedMs = (!isNaN(rawPt.speedKts)) ? rawPt.speedKts * 0.514444 : NaN;
+        const course  = (!isNaN(rawPt.course)) ? rawPt.course : NaN;
+
+        const snapResult = RoadSnapper.snapOne(
+          node.lat, node.lon, speedMs, course, nearby, snapState, snapParams
+        );
+
+        evalLat = snapResult.snapLat;
+        evalLon = snapResult.snapLon;
+
+        // Store snapped coordinate for this sample
+        analyzer.snappedGps[node.idx] = {
+          lat: evalLat,
+          lon: evalLon,
+          roadLat: snapResult.roadLat,
+          roadLon: snapResult.roadLon,
+          alpha: snapResult.alpha,
+          wayId: snapResult.wayId,
+          dist: snapResult.dist
+        };
+      }
+
+      // ── Enrichment (uses snapped position when snapping is active) ──
+      const metrics = this._evaluatePosition(evalLat, evalLon, nearby, radiusMeters);
 
       computedMetrics.push({
         idx: node.idx,
@@ -813,9 +912,69 @@ out skel qt;`;
     if (onProgress) onProgress('Projecting results to full timeline...');
     this._projectToTimeline(raw, computedMetrics);
 
+    // ── Interpolate snappedGps to full timeline ──────────────────────
+    if (doSnap && analyzer.snappedGps) {
+      this._interpolateSnappedGps(analyzer, raw);
+    }
+
     analyzer.isEnriched = true;
     analyzer.enrichmentRadius = radiusMeters;
     if (onProgress) onProgress('Enrichment complete!');
+  },
+
+  /**
+   * Fill NaN gaps in analyzer.snappedGps by linear interpolation between
+   * evaluation points.  Leaves gaps > 30 s as NaN so the rendered path
+   * breaks instead of drawing a misleading straight line.
+   */
+  _interpolateSnappedGps(analyzer, raw) {
+    const sg = analyzer.snappedGps;
+    const GPS_MAX_GAP_S = 30;
+
+    // Collect valid indices
+    const valid = [];
+    for (let i = 0; i < sg.length; i++) {
+      if (!isNaN(sg[i].lat) && !isNaN(sg[i].lon)) {
+        valid.push(i);
+      }
+    }
+    if (valid.length === 0) return;
+
+    // Fill before first
+    const first = valid[0];
+    for (let i = 0; i < first; i++) {
+      sg[i] = { ...sg[first] };
+    }
+
+    // Interpolate between valid points
+    for (let k = 0; k < valid.length - 1; k++) {
+      const a = valid[k], b = valid[k + 1];
+      const timeGap = raw[b].time - raw[a].time;
+      if (timeGap > GPS_MAX_GAP_S) {
+        for (let i = a + 1; i < b; i++) {
+          sg[i] = { lat: NaN, lon: NaN };
+        }
+      } else {
+        for (let i = a + 1; i < b; i++) {
+          const t = (i - a) / (b - a);
+          sg[i] = {
+            lat: sg[a].lat + t * (sg[b].lat - sg[a].lat),
+            lon: sg[a].lon + t * (sg[b].lon - sg[a].lon),
+            roadLat: sg[a].roadLat + t * (sg[b].roadLat - sg[a].roadLat),
+            roadLon: sg[a].roadLon + t * (sg[b].roadLon - sg[a].roadLon),
+            alpha: sg[a].alpha + t * (sg[b].alpha - sg[a].alpha),
+            dist: sg[a].dist + t * (sg[b].dist - sg[a].dist),
+            wayId: t < 0.5 ? sg[a].wayId : sg[b].wayId
+          };
+        }
+      }
+    }
+
+    // Fill after last
+    const last = valid[valid.length - 1];
+    for (let i = last; i < sg.length; i++) {
+      sg[i] = { ...sg[last] };
+    }
   }
 };
 

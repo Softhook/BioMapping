@@ -90,5 +90,18 @@ const GSR_CONST = {
     contourCount: 10,
     idwExponent: 2,
     surfaceOpacity: 0.40
+  },
+
+  // ── Road snapping defaults ──────────────────────────────────────────────
+  SNAP: {
+    RADIUS_IN:    25,    // m — snap-in gate
+    RADIUS_OUT:   25,    // m — snap-out gate (same as in for now; asymmetric
+                         //      behaviour needs the track to first come within
+                         //      ~12 m, which systematic drift prevents)
+    HEADING_W:    0.3,   // heading penalty weight
+    HYST_MARGIN:  3,     // m — alternative must be this much closer
+    HYST_SEC:     5,     // s — consecutive seconds to switch way
+    SPEED_GATE:   0.3,   // m/s — freeze way-ID below this speed
+    GRID_CELL:    25,    // m — highway-only spatial-index cell size
   }
 };

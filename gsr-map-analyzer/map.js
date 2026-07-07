@@ -249,7 +249,23 @@ class GSRMapManager {
 
     gpsPoints = this._applyHdopGate(gpsPoints, p.maxHdop || 3.0);
     gpsPoints = this._applyFixTypeGate(gpsPoints);
-    gpsPoints = this._applyCoreFilters(gpsPoints, p.smoothing || 0.5, p.kalmanR || 10, p.maxSpeed || 3.0);
+
+    // Pre-Kalman filters (stop averaging, speed filter, velocity smoothing).
+    const smoothing = p.smoothing || 0.5;
+    const kalmanR   = p.kalmanR || 10;
+    gpsPoints = this._applyPreKalmanFilters(gpsPoints, smoothing, p.maxSpeed || 3.0);
+
+    // Kalman RTS — HDOP-adaptive smoothing on raw trajectory FIRST.
+    // Snapping applies AFTER Kalman so the smoother doesn't blend the few
+    // snapped points back into the surrounding raw GPS.
+    gpsPoints = GpsFilter.applyKalman(gpsPoints, smoothing, kalmanR);
+
+    // Apply road snapping correction as a post-Kalman blend: for points
+    // within snap range of a road, blend the Kalman-smoothed position
+    // toward the snapped road position.
+    if (analyzer.snappedGps) {
+      gpsPoints = this._applySnapCorrection(gpsPoints, analyzer.snappedGps);
+    }
 
     // Reconstruct full 10 Hz filtered GPS path for CSV export
     this._reconstructFilteredGps(analyzer, data, gpsPoints);
@@ -300,24 +316,48 @@ class GSRMapManager {
   }
 
   /**
-   * Core GPS filter pipeline.
+   * Pre-Kalman GPS filters (run before snap+enrich pass).
    *
    * 1. Stop averaging — collapses stationary jitter clusters
    * 2. Speed filter — rejects impossible jumps (Doppler speedKts, ≤3 m/s)
    * 3. Velocity-aided smoother — dead-reckons from Doppler, ZUPT at ≤0.5 kt
-   * 4. Kalman RTS — HDOP-adaptive, R=10 m², Q controlled by smoothing slider
+   *
+   * Kalman RTS runs separately AFTER road snapping (if enabled) so it
+   * smooths the bias-corrected trajectory rather than the raw drift.
    *
    * @param {Array}  pts       – GPS anchor points
-   * @param {number} smoothing – Kalman process noise Q (0.1–2.0, default 0.5)
-   * @param {number} kalmanR   – Kalman measurement noise R in m² (2–40, default 10)
+   * @param {number} smoothing – process noise Q (0.1–2.0, default 0.5)
    * @param {number} maxSpeed  – max plausible speed in m/s (default 3.0)
    */
-  _applyCoreFilters(pts, smoothing = 0.5, kalmanR = 10, maxSpeed = 3.0) {
+  _applyPreKalmanFilters(pts, smoothing = 0.5, maxSpeed = 3.0) {
     pts = GpsFilter.applyStopAveraging(pts);
     pts = GpsFilter.applySpeedFilter(pts, maxSpeed);
-    pts = GpsFilter.applyVelocitySmoothing(pts);
-    pts = GpsFilter.applyKalman(pts, smoothing, kalmanR);
+    pts = GpsFilter.applyVelocitySmoothing(pts, smoothing);
     return pts;
+  }
+
+  /**
+   * Post-Kalman snap correction: for each GPS point, blend the
+   * Kalman-smoothed position toward the snapped road position using the
+   * alpha computed during enrichment.  Points without snap data or with
+   * alpha=0 keep their Kalman-smoothed position unchanged.
+   */
+  _applySnapCorrection(gpsPoints, snappedGps) {
+    const result = [];
+    for (const pt of gpsPoints) {
+      const sg = snappedGps[pt.origIdx];
+      if (sg && !isNaN(sg.alpha) && sg.alpha > 0 && !isNaN(sg.roadLat) && !isNaN(sg.roadLon)) {
+        // Re-blend: Kalman-smoothed position → road position using alpha
+        result.push({
+          ...pt,
+          lat: sg.alpha * sg.roadLat + (1 - sg.alpha) * pt.lat,
+          lon: sg.alpha * sg.roadLon + (1 - sg.alpha) * pt.lon
+        });
+      } else {
+        result.push(pt);
+      }
+    }
+    return result;
   }
 
   _reconstructFilteredGps(analyzer, data, gpsPoints) {
@@ -984,7 +1024,13 @@ class GSRMapManager {
 
       gpsPoints = this._applyHdopGate(gpsPoints, (p.maxHdop || 3.0));
       gpsPoints = this._applyFixTypeGate(gpsPoints);
-      gpsPoints = this._applyCoreFilters(gpsPoints, (p.smoothing || 0.5), (p.kalmanR || 10), (p.maxSpeed || 3.0));
+      const s = p.smoothing || 0.5;
+      const r = p.kalmanR || 10;
+      gpsPoints = this._applyPreKalmanFilters(gpsPoints, s, p.maxSpeed || 3.0);
+      gpsPoints = GpsFilter.applyKalman(gpsPoints, s, r);
+      if (track.analyzer.snappedGps) {
+        gpsPoints = this._applySnapCorrection(gpsPoints, track.analyzer.snappedGps);
+      }
       if (gpsPoints.length === 0) return;
 
       this._reconstructFilteredGps(track.analyzer, data, gpsPoints);

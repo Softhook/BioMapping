@@ -323,6 +323,27 @@
               <input type="range" id="gpsDownsample" min="0" max="1" step="1" value="0">
               <p class="help-text">Downsample to 1 Hz for performance on large tracks. 0 = off, 1 = on.</p>
             </div>
+
+            <div class="control-subgroup-title">Correction</div>
+
+            <div class="toggle-group">
+              <label class="switch">
+                <input type="checkbox" id="gpsSnapToRoads" checked>
+                <span class="slider round"></span>
+              </label>
+              <span class="toggle-label">Snap to Roads &amp; Trails</span>
+            </div>
+
+            <div class="slider-group" id="snapRadiusGroup">
+              <div class="slider-label">
+                <span>Snap Radius</span>
+                <span class="slider-value" id="valGpsSnapRadius">25 m</span>
+              </div>
+              <input type="range" id="gpsSnapRadius" min="10" max="60" step="5" value="25">
+              <p class="help-text">Maximum distance to pull GPS points toward roads. <strong>10–15&thinsp;m</strong> = tight (only near curbs). <strong>25&thinsp;m</strong> = moderate (default). <strong>40–60&thinsp;m</strong> = aggressive (urban canyons).</p>
+            </div>
+
+            <p class="help-text" style="margin-top:6px;">Corrects GPS multipath drift by aligning coordinates with streets and park paths. Releases smoothly when walking off-road.</p>
           </div>
         </section>
 
@@ -804,6 +825,7 @@
   <script src="dwt_filter.js"></script>
   <script src="analyzer.js"></script>
   <script src="osm_enrichment.js"></script>
+  <script src="road_snap.js"></script>
   <script src="gsr_filter.js"></script>
   <script src="marching_squares.js"></script>
   <script src="collective_manager.js"></script>

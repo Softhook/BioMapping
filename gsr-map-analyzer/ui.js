@@ -460,19 +460,60 @@ const GSRUI = {
   /**
    * Orchestrates bounding box computation, Overpass fetching, and spatial enrichment.
    */
-  async enrichTrack() {
+  async enrichTrack(forceFetch = false) {
     if (!AppState.analyzer || AppState.analyzer.raw.length === 0) {
       alert("Please load a track file first.");
       return;
     }
+
+    const radius = parseInt(document.getElementById('osmRadius').value) || 50;
+    const snapRadius  = parseInt(document.getElementById('gpsSnapRadius')?.value) || 25;
+    const maxRadius   = Math.max(radius, snapRadius);
+    const bbox = OSMEnricher.calculateBBox(AppState.analyzer.raw, maxRadius + 50);
+    if (!bbox) {
+      throw new Error("Could not calculate bounding box. Track coordinates may be invalid.");
+    }
+
+    const area = OSMEnricher.calculateBBoxAreaKm2(bbox);
+    if (area > 10.0) {
+      throw new Error(`Track bounding box is too large (${area.toFixed(1)} km²). Maximum size is 10 km² to prevent API overload.`);
+    }
+
+    let osmJson = AppState.analyzer.osmJson;
+    const isLocal = !forceFetch && osmJson;
+
+    if (isLocal) {
+      // Silent instant local run — re-use cached OSM data, no fetch
+      try {
+        const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? true;
+        OSMEnricher.enrichTrack(AppState.analyzer, osmJson, radius,
+          { enabled: snapEnabled, radiusIn: snapRadius, radiusOut: snapRadius }
+        );
+        GSRUI.invalidateEnvironmentalCache();
+        GSRUI.refreshOsmControls();
+        GSRUI.rerenderMap();
+      } catch (err) {
+        console.error('Local enrichment failed:', err);
+        // If local run fails, fall through to full network fetch
+        AppState.analyzer.osmJson = null;
+      }
+      if (AppState.analyzer.osmJson) return;  // success — done
+      // Fall through to network fetch below
+    }
+
+    // Prevent re-entrant network calls
+    if (GSRUI._enriching) return;
+    GSRUI._enriching = true;
     
     const btn = document.getElementById('btnEnrichTrack');
     const statusContainer = document.getElementById('osmStatusContainer');
     const statusMsg = document.getElementById('osmStatusMessage');
     const progressBar = document.getElementById('osmProgressBar');
     
-    const radius = parseInt(document.getElementById('osmRadius').value) || 50;
-    const latency = parseFloat(document.getElementById('gpsPeakLatency').value) || 2.0;
+    if (!btn || !statusContainer || !statusMsg || !progressBar) {
+      GSRUI._enriching = false;
+      return;
+    }
 
     const originalText = btn.innerHTML;
     btn.setAttribute('disabled', 'true');
@@ -488,24 +529,15 @@ const GSRUI = {
     };
 
     try {
-      updateProgress('Calculating bounding box...', 10);
-      const bbox = OSMEnricher.calculateBBox(AppState.analyzer.raw, radius + 50);
-      if (!bbox) {
-        throw new Error("Could not calculate bounding box. Track coordinates may be invalid.");
-      }
-
-      const area = OSMEnricher.calculateBBoxAreaKm2(bbox);
-      if (area > 10.0) {
-        throw new Error(`Track bounding box is too large (${area.toFixed(1)} km²). Maximum size is 10 km² to prevent API overload.`);
-      }
-
       updateProgress('Fetching OpenStreetMap features...', 30);
-      const osmJson = await OSMEnricher.fetchOSMData(bbox, (msg) => updateProgress(msg));
-      
+      osmJson = await OSMEnricher.fetchOSMData(bbox, (msg) => updateProgress(msg));
       AppState.analyzer.osmJson = osmJson; // save vector geometries
       
       updateProgress('Processing spatial metrics...', 60);
-      OSMEnricher.enrichTrack(AppState.analyzer, osmJson, radius, (msg) => updateProgress(msg));
+      const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? true;
+      OSMEnricher.enrichTrack(AppState.analyzer, osmJson, radius,
+        { enabled: snapEnabled, radiusIn: snapRadius, radiusOut: snapRadius },
+        (msg) => updateProgress(msg));
       GSRUI.invalidateEnvironmentalCache();
       
       updateProgress('Redrawing visualizer...', 90);
@@ -528,6 +560,7 @@ const GSRUI = {
     } finally {
       btn.removeAttribute('disabled');
       btn.innerHTML = originalText;
+      GSRUI._enriching = false;
     }
   },
 
