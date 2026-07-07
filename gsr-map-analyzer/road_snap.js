@@ -7,19 +7,43 @@
  * Design:
  *   - Metre-equivalent projection via internal Cartesian math
  *   - Bearing-constrained candidate ranking (heading penalty)
- *   - Minimum run-length gate: requires 3+ consecutive points near same road
- *   - Ramped alpha: smooth 0→1 entry, hard 1.0 lock, smooth 1→0 exit
+ *   - Transition plausibility check (Newson & Krumm 2009):
+ *     rejects impossible road-to-road jumps
+ *   - Confidence gate: refuses to snap when two roads are equally plausible
+ *   - Minimum run-length gate: requires 3+ consecutive points within 12 m
+ *   - Ramped alpha: smooth 0→1 entry over 5 steps, hard 1.0 lock, smooth 1→0 exit
  *   - Sticky way-ID prevents oscillation between parallel roads
- *   - Speed gate freezes way-ID at < 0.3 m/s
+ *   - Bearing penalty suppressed at < 0.3 m/s; way-ID never frozen
  */
 
 const RoadSnapper = {
 
   /** Ramp over this many consecutive evaluation points at entry/exit. */
-  RAMP_STEPS: 3,
+  RAMP_STEPS: 5,
 
   /** Require this many consecutive points within snap-IN before engaging. */
-  MIN_RUN: 2,
+  MIN_RUN: 3,
+
+  /**
+   * Maximum allowed discrepancy (metres) between the haversine distance
+   * between two consecutive GPS points and the approximate route distance
+   * between their snapped positions on different ways (Newson & Krumm).
+   */
+  TRANSITION_DELTA: 30,
+
+  /**
+   * Confidence ratio.  The best candidate must be at least this much
+   * better (× effective distance) than the second-best, or the snap
+   * is refused entirely (ambiguous intersection).
+   */
+  CONFIDENCE_RATIO: 0.7,
+
+  /**
+   * Absolute confidence threshold (metres).  If the best candidate is
+   * within this distance the confidence ratio is waived — we're
+   * clearly close enough to that road.
+   */
+  CONFIDENCE_ABS: 5,
 
   /**
    * Snap a single GPS fix to the nearest highway segment.
@@ -30,7 +54,8 @@ const RoadSnapper = {
    * @param {number}  courseDeg  — GPS course over ground in degrees (NaN if unknown)
    * @param {Array}   nearby     — spatial-index query result
    * @param {object}  state      — mutable state carried across calls:
-   *   { wayId, wasSnapped, rampStep, hystTimer }
+   *   { wayId, prevWayId, prevGpsLat, prevGpsLon, prevSnapLat, prevSnapLon,
+   *     wasSnapped, rampStep, hystTimer }
    * @param {object}  [params]   — overrides for SNAP constants
    * @returns {{ snapLat, snapLon, roadLat, roadLon, wayId, alpha, dist }}
    */
@@ -51,11 +76,28 @@ const RoadSnapper = {
       return RoadSnapper._releaseSnap(lat, lon, state);
     }
 
+    // Bearing penalty: suppress at low speed (course is stale/repeated)
+    const effectiveHeadingW = moving ? HEAD_W : 0;
+    const effectiveCourse = moving ? courseDeg : NaN;
+
     const candidates = RoadSnapper._rankCandidates(
-      lat, lon, moving ? courseDeg : NaN, highwayWays, HEAD_W
+      lat, lon, effectiveCourse, highwayWays, effectiveHeadingW
     );
     if (candidates.length === 0) {
       return RoadSnapper._releaseSnap(lat, lon, state);
+    }
+
+    // ── Confidence gate: refuse snap if ambiguous ──────────────────────
+    let confident = true;  // single candidate or one clearly better
+    if (candidates.length >= 2) {
+      const bestD = candidates[0].effDist;
+      const secondD = candidates[1].effDist;
+      if (bestD >= RoadSnapper.CONFIDENCE_ABS &&
+          secondD > 0 && bestD / secondD > RoadSnapper.CONFIDENCE_RATIO) {
+        // Two roads similarly distant — ambiguous, don't snap
+        confident = false;
+        return RoadSnapper._releaseSnap(lat, lon, state);
+      }
     }
 
     // ── Hysteresis: prefer locked way ──────────────────────────────────
@@ -89,8 +131,50 @@ const RoadSnapper = {
       }
     }
 
-    // Update way-ID (only when moving)
-    if (state && moving) {
+    // ── Transition plausibility (Newson & Krumm 2009) ─────────────────
+    // When the chosen candidate is on a different way than the previous
+    // point, verify the jump is physically possible along the road network.
+    if (state && state.prevWayId != null && best.wayId !== state.prevWayId &&
+        state.prevGpsLat != null && state.prevSnapLat != null) {
+
+      // Build way lookup for the transition check
+      const wayMap = new Map();
+      for (const w of highwayWays) wayMap.set(w.id, w);
+
+      const prevWay = wayMap.get(state.prevWayId);
+      const currWay = wayMap.get(best.wayId);
+
+      if (prevWay && currWay) {
+        const implausible = RoadSnapper._transitionImplausible(
+          state.prevGpsLat, state.prevGpsLon, lat, lon,
+          state.prevSnapLat, state.prevSnapLon,
+          best.snapLat, best.snapLon,
+          prevWay, currWay
+        );
+
+        if (implausible) {
+          // Jump is physically impossible — force stay on locked way
+          const lockedInCandidates = candidates.find(c => c.wayId === state.prevWayId);
+          if (lockedInCandidates) {
+            best = lockedInCandidates;
+          } else {
+            // Locked way not even nearby — release snap entirely
+            return RoadSnapper._releaseSnap(lat, lon, state);
+          }
+        }
+      }
+    }
+
+    // Update way-ID — always, regardless of speed.
+    // The bearing penalty is already suppressed at low speed;
+    // freezing way-ID prevents legitimate transitions after stops.
+    if (state) {
+      // Save previous position for transition plausibility check
+      state.prevWayId   = state.wayId;
+      state.prevGpsLat  = lat;
+      state.prevGpsLon  = lon;
+      state.prevSnapLat = best.snapLat;
+      state.prevSnapLon = best.snapLon;
       state.wayId = best.wayId;
     }
 
@@ -127,18 +211,37 @@ const RoadSnapper = {
       }
     } else if (inRange) {
       // ── Not locked, but within snap-IN range — count consecutive hits ─
+      //     Seed rampStep from any prior soft-pull alpha so the transition
+      //     is continuous: soft pull → ramp entry with no jump.
+      if (state.rampStep === 0 && (state._lastSoftAlpha || 0) > 0) {
+        state.rampStep = Math.max(1, Math.round(state._lastSoftAlpha * RoadSnapper.RAMP_STEPS));
+      }
       state.rampStep = Math.min(state.rampStep + 1, RoadSnapper.RAMP_STEPS);
       if (state.rampStep >= RoadSnapper.MIN_RUN) {
-        // Sustained proximity — lock on and ramp up
+        // Sustained proximity — lock on and ramp up smoothly
         state.wasSnapped = true;
-        alpha = state.rampStep / RoadSnapper.RAMP_STEPS;
+        const rampSpan = RoadSnapper.RAMP_STEPS - RoadSnapper.MIN_RUN + 1;
+        alpha = (state.rampStep - RoadSnapper.MIN_RUN + 1) / rampSpan;
+      } else if (state._lastSoftAlpha > 0) {
+        // First ramp point coming from soft pull — carry the soft alpha
+        // forward so the transition is seamless
+        alpha = state._lastSoftAlpha;
+        state._lastSoftAlpha = 0;
       } else {
-        // Not enough consecutive hits yet — no snap
         alpha = 0;
       }
+    } else if (confident && best.dist < RAD_OUT) {
+      // ── Not locked, beyond snap-IN but within snap-OUT, and confident ─
+      //     about which road.  Apply cosine pull at 70 % strength —
+      //     enough to visibly nudge multipath-drifting points back toward
+      //     the road.  Saves alpha for ramp seeding when entering snap-in.
+      alpha = RoadSnapper._cosineRolloff(best.dist, RAD_OUT) * 0.7;
+      state._lastSoftAlpha = alpha;
+      state.rampStep = 0;
     } else {
       // ── Not locked, not in range ─────────────────────────────────────
       state.rampStep = 0;
+      state._lastSoftAlpha = 0;
       alpha = 0;
     }
 
@@ -150,9 +253,14 @@ const RoadSnapper = {
   /** Reset snap state and return a no-snap result. */
   _releaseSnap(lat, lon, state) {
     if (state) {
-      state.wasSnapped = false;
-      state.wayId = null;
-      state.rampStep = 0;
+      state.wasSnapped  = false;
+      state.wayId       = null;
+      state.prevWayId   = null;
+      state.prevGpsLat  = null;
+      state.prevGpsLon  = null;
+      state.prevSnapLat = null;
+      state.prevSnapLon = null;
+      state.rampStep    = 0;
     }
     return { snapLat: lat, snapLon: lon, roadLat: lat, roadLon: lon,
              wayId: null, alpha: 0, dist: Infinity };
@@ -297,5 +405,68 @@ const RoadSnapper = {
     let d = Math.abs(a - b);
     if (d > Math.PI) d = 2 * Math.PI - d;
     return d;
+  },
+
+  /**
+   * Check whether a transition from a snap on prevWay to a snap on
+   * currWay is physically implausible (Newson & Krumm 2009).
+   *
+   * A transition is implausible if the GPS points moved only a short
+   * distance but the road-network distance between the two snapped
+   * positions is much larger — i.e. you'd need to teleport.
+   */
+  _transitionImplausible(prevGpsLat, prevGpsLon, currGpsLat, currGpsLon,
+                          prevSnapLat, prevSnapLon, currSnapLat, currSnapLon,
+                          prevWay, currWay) {
+    // Same way — always plausible (walking along the same road)
+    if (prevWay.id === currWay.id) return false;
+
+    const gpsDist = RoadSnapper._haversineM(
+      prevGpsLat, prevGpsLon, currGpsLat, currGpsLon);
+
+    // If GPS moved far enough, the user could have physically reached
+    // a different road — transition is plausible
+    if (gpsDist >= RoadSnapper.TRANSITION_DELTA) return false;
+
+    // Short GPS movement to a different way:
+    // only plausible if the ways are connected (share a junction)
+    if (RoadSnapper._waysAreConnected(prevWay, currWay)) {
+      // Connected — check that route distance isn't wildly different
+      const snapDist = RoadSnapper._haversineM(
+        prevSnapLat, prevSnapLon, currSnapLat, currSnapLon);
+      return Math.abs(snapDist - gpsDist) > RoadSnapper.TRANSITION_DELTA;
+    }
+
+    // Short GPS movement to an unconnected way — implausible teleport
+    return true;
+  },
+
+  /**
+   * Check whether two OSM ways share an endpoint within 15 metres
+   * (heuristic for road-network junction).
+   */
+  _waysAreConnected(wayA, wayB) {
+    const cA = wayA.coordinates, cB = wayB.coordinates;
+    if (!cA || !cB || cA.length < 2 || cB.length < 2) return false;
+    const endsA = [cA[0], cA[cA.length - 1]];
+    const endsB = [cB[0], cB[cB.length - 1]];
+    for (const ea of endsA) {
+      for (const eb of endsB) {
+        if (RoadSnapper._haversineM(ea.lat, ea.lon, eb.lat, eb.lon) <= 15) return true;
+      }
+    }
+    return false;
+  },
+
+  /**
+   * Haversine distance in metres (lightweight).
+   */
+  _haversineM(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 };

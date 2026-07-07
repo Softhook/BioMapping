@@ -28,7 +28,7 @@ const GSR_CONST = {
 
   // ── GPS filter defaults ──────────────────────────────────────────────────
   GPS_DEFAULT: {
-    smoothing: 0.5, kalmanR: 10, maxHdop: 3.0, maxSpeed: 3.0, rdpTolerance: 0, downsample: false, trackWeight: 5
+    smoothing: 0.5, kalmanR: 10, maxHdop: 2.0, maxSpeed: 3.0, rdpTolerance: 0, downsample: false, trackWeight: 5
   },
 
   // ── GSR filter defaults ──────────────────────────────────────────────────
@@ -94,14 +94,12 @@ const GSR_CONST = {
 
   // ── Road snapping defaults ──────────────────────────────────────────────
   SNAP: {
-    RADIUS_IN:    25,    // m — snap-in gate
-    RADIUS_OUT:   25,    // m — snap-out gate (same as in for now; asymmetric
-                         //      behaviour needs the track to first come within
-                         //      ~12 m, which systematic drift prevents)
-    HEADING_W:    0.3,   // heading penalty weight
+    RADIUS_IN:    12,    // m — snap-in gate (fast commit when clearly on-road)
+    RADIUS_OUT:   25,    // m — snap-out gate (slow release to resist jitter)
+    HEADING_W:    0.3,   // heading penalty weight (suppressed when speed < SPEED_GATE)
     HYST_MARGIN:  3,     // m — alternative must be this much closer
     HYST_SEC:     5,     // s — consecutive seconds to switch way
-    SPEED_GATE:   0.3,   // m/s — freeze way-ID below this speed
+    SPEED_GATE:   0.3,   // m/s — suppress bearing penalty below this speed
     GRID_CELL:    25,    // m — highway-only spatial-index cell size
   }
 };

@@ -486,8 +486,9 @@ const GSRUI = {
       // Silent instant local run — re-use cached OSM data, no fetch
       try {
         const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? true;
+        const snapIn = Math.max(8, Math.round(snapRadius / 2));
         OSMEnricher.enrichTrack(AppState.analyzer, osmJson, radius,
-          { enabled: snapEnabled, radiusIn: snapRadius, radiusOut: snapRadius }
+          { enabled: snapEnabled, radiusIn: snapIn, radiusOut: snapRadius }
         );
         GSRUI.invalidateEnvironmentalCache();
         GSRUI.refreshOsmControls();
@@ -535,8 +536,9 @@ const GSRUI = {
       
       updateProgress('Processing spatial metrics...', 60);
       const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? true;
+      const snapIn = Math.max(8, Math.round(snapRadius / 2));
       OSMEnricher.enrichTrack(AppState.analyzer, osmJson, radius,
-        { enabled: snapEnabled, radiusIn: snapRadius, radiusOut: snapRadius },
+        { enabled: snapEnabled, radiusIn: snapIn, radiusOut: snapRadius },
         (msg) => updateProgress(msg));
       GSRUI.invalidateEnvironmentalCache();
       

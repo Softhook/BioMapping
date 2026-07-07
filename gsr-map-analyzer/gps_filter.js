@@ -223,17 +223,20 @@ const GpsFilter = {
     // 15–25% more discriminative than HDOP) when available; fall back to
     // HDOP for older CSVs without the wdop column.
     // Sentinel values >= 50.0 (e.g. 99.9 unknown) are treated as invalid,
-    // falling back to HDOP. Clamp DOP to [0.5, 10] to avoid degenerate R values.
+    // falling back to HDOP. Clamp DOP to [0.5, 3.0] — below 0.5 is
+    // unrealistically optimistic; above 3.0 the HDOP gate should already
+    // have filtered the point, and unlimited h² scaling causes the Kalman
+    // to ignore measurements during GPS warm-up (e.g. HDOP=2.5 → 6.25× R).
     const getRLat = (pt) => {
       const dop = !isNaN(pt.wdop) && pt.wdop > 0 && pt.wdop < 50.0 ? pt.wdop :
                   (!isNaN(pt.hdop) && pt.hdop > 0 && pt.hdop < 50.0 ? pt.hdop : 1.0);
-      const h = Math.max(0.5, Math.min(10, dop));
+      const h = Math.max(0.5, Math.min(3.0, dop));
       return R_LAT_BASE * h * h;
     };
     const getRLon = (pt) => {
       const dop = !isNaN(pt.wdop) && pt.wdop > 0 && pt.wdop < 50.0 ? pt.wdop :
                   (!isNaN(pt.hdop) && pt.hdop > 0 && pt.hdop < 50.0 ? pt.hdop : 1.0);
-      const h = Math.max(0.5, Math.min(10, dop));
+      const h = Math.max(0.5, Math.min(3.0, dop));
       return R_LON_BASE * h * h;
     };
 

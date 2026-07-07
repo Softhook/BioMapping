@@ -103,8 +103,8 @@ We use **two gate radii**:
 
 | Direction | Gate radius | Rationale |
 |-----------|-------------|-----------|
-| Snap-in (approaching road) | $d_{\text{in}} = 8$ m | Commit fast once within 8 m |
-| Snap-out (leaving road) | $d_{\text{out}} = 15$ m | Resist premature release |
+| Snap-in (approaching road) | $d_{\text{in}} = 12$ m | Commit once clearly on-road |
+| Snap-out (leaving road) | $d_{\text{out}} = 25$ m | Resist premature release |
 
 The blend weight $\alpha$ uses the standard $\mathcal{C}^1$-continuous cosine
 roll-off, with the radius chosen based on whether the *previous* point was
@@ -119,23 +119,23 @@ $$P_{\text{final}} = \alpha \cdot P_{\text{snap}} + (1 - \alpha) \cdot P_{\text{
 
 When $d >$ the active gate radius, $\alpha = 0$ and the raw fix is used unchanged.
 
-**Blend profile (snap-in, $d_{\text{in}} = 8$ m):**
+**Blend profile (snap-in, $d_{\text{in}} = 12$ m):**
 
 | Distance | $\alpha$ | Behaviour |
 |----------|----------|-----------|
-| 1 m | 0.96 | Nearly fully snapped |
-| 4 m | 0.50 | 50 % blend |
-| 7 m | 0.04 | Mostly raw GPS |
-| ≥ 8 m | 0.00 | Fully raw GPS |
+| 2 m | 0.93 | Nearly fully snapped |
+| 6 m | 0.50 | 50 % blend |
+| 11 m | 0.07 | Mostly raw GPS |
+| ≥ 12 m | 0.00 | Fully raw GPS |
 
-**Blend profile (snap-out, $d_{\text{out}} = 15$ m):**
+**Blend profile (snap-out, $d_{\text{out}} = 25$ m):**
 
 | Distance | $\alpha$ | Behaviour |
 |----------|----------|-----------|
-| 1 m | 0.99 | Nearly fully snapped |
-| 7.5 m | 0.50 | 50 % blend |
-| 14 m | 0.01 | Barely snapped |
-| ≥ 15 m | 0.00 | Fully raw GPS |
+| 2 m | 0.98 | Nearly fully snapped |
+| 12.5 m | 0.50 | 50 % blend |
+| 23 m | 0.02 | Barely snapped |
+| ≥ 25 m | 0.00 | Fully raw GPS |
 
 ### 2.4  Hysteresis: Sticky Way-ID Lock
 
@@ -150,22 +150,48 @@ seconds**.
 The way-ID lock is independent of the blend weight — even at $\alpha = 0.04$
 (near the gate boundary), the projection still targets the locked way.
 
-### 2.5  Speed Gate: Freeze Way-ID at Near-Zero Velocity
+### 2.5  Speed-Adaptive Bearing Penalty
 
-When the user stands still (speed < 0.3 m/s), the GPS course vector becomes
-random noise.  This ruins the bearing penalty and can cause the snap to jump
-to a cross-street.
+The Quectel L76K GPS chip reports `speed_kts = 0.00` for many points where
+coordinates are clearly changing, and holds the last-known course value
+constant at zero speed (not random noise as originally assumed).  Applying the
+bearing penalty with a stale course biases snapping toward a fixed heading.
 
-**Rule:** When Doppler-derived speed drops below **0.3 m/s** (~1 km/h — the
-threshold between shuffling and standing), **freeze the way-ID lock** to the
-current way.  Projection onto that way's segments continues (the user hasn't
-moved far), but way-ID transitions are forbidden until speed rises above
-0.3 m/s again.
+**Rule:** When Doppler-derived speed drops below **0.3 m/s**, the bearing
+penalty weight is set to **zero** ($w_\theta = 0$).  Distance-based ranking
+continues unimpeded — the way-ID is **never frozen** (see §10.2, Failure 1).
 
-> **Why 0.3 m/s, not 0.6 m/s?**  At 0.6 m/s the user is still clearly
-> walking (~2 km/h).  Freezing at that speed would disable way-ID transitions
-> during slow urban walking — exactly when accurate road discrimination is
-> most needed.
+This prevents stale-course bias without blocking legitimate road transitions
+during the 28 % of points that are below 0.3 m/s on a typical urban walk.
+
+### 2.6  Transition Plausibility (Newson & Krumm 2009)
+
+The per-point greedy approach cannot detect impossible road-to-road jumps.
+Two consecutive GPS fixes 3 m apart might snap to parallel carriageways 60 m
+apart along the road network — a teleport the user could not have made.
+
+We add a **transition plausibility check** between consecutive snapped
+positions, based on the Hidden Markov Model formulation from Newson & Krumm:
+
+$$\text{plausible} \iff |d_{\text{route}} - d_{\text{haversine}}| \leq \Delta_{\text{max}}$$
+
+where $d_{\text{route}}$ is the approximate road-network distance between
+the two snapped projections and $d_{\text{haversine}}$ is the great-circle
+distance between the two GPS fixes.
+
+**Implementation:** The state carries the previous GPS position and snapped
+projection.  When the current point's best candidate is on a different way:
+
+| Condition | Verdict |
+|-----------|---------|
+| Same OSM Way ID | Plausible — walking along one road |
+| Different way, GPS moved ≥ 30 m | Plausible — enough distance to reach a different road |
+| Different way, GPS moved < 30 m, ways share a junction within 15 m | Check $|d_{\text{snap}} - d_{\text{gps}}| \leq 30$ m |
+| Different way, GPS moved < 30 m, ways are **unconnected** | **Implausible — rejected** |
+
+When a transition is rejected, the system either stays locked to the previous
+way (if still in candidates) or releases the snap entirely.  This directly
+prevents the oscillation between parallel carriageways described in §10.
 
 ---
 
@@ -383,14 +409,21 @@ RoadSnapper (namespace)
 ```javascript
 // Added to GSR_CONST
 SNAP: {
-  RADIUS_IN:    12,    // m — snap-in gate (fast commit)
-  RADIUS_OUT:   25,    // m — snap-out gate (slow release)
-  HEADING_W:    0.3,   // heading penalty weight
+  RADIUS_IN:    12,    // m — snap-in gate (commit when clearly on-road)
+  RADIUS_OUT:   25,    // m — snap-out gate (slow release, resist jitter)
+  HEADING_W:    0.3,   // heading penalty weight (0 when speed < SPEED_GATE)
   HYST_MARGIN:  3,     // m — alternative must be this much closer
   HYST_SEC:     5,     // s — consecutive seconds to switch way
-  SPEED_GATE:   0.3,   // m/s — freeze way-ID below this speed
+  SPEED_GATE:   0.3,   // m/s — suppress bearing penalty below this speed
   GRID_CELL:    25,    // m — highway-only spatial-index cell size
 }
+
+// Added to RoadSnapper namespace
+TRANSITION_DELTA: 30,  // m — max allowed |d_route − d_gps| for way-switch
+CONFIDENCE_RATIO: 0.7, // refuse snap when best/second-best effDist > this
+CONFIDENCE_ABS:   5,   // m — waiver threshold for confidence ratio
+RAMP_STEPS:  5,        // evaluation points to complete snap-in ramp
+MIN_RUN:     3,        // consecutive in-range points before engaging
 ```
 
 ---
@@ -438,11 +471,13 @@ coordinates in the primary columns.
 |----------|-----------|
 | No OSM data loaded (enrichment skipped) | Snapping is skipped entirely; raw GPS used. |
 | GPS fix in a tunnel / under dense canopy (no nearby highway segments in index) | $\alpha = 0$ (gate miss), raw GPS used. |
-| Walking down the centre of a 20 m-wide boulevard (both carriageways equidistant) | Bearing penalty breaks the tie (snaps to the carriageway whose bearing matches GPS course). |
-| User walks off a trail into open grass | Cosine roll-off decays $\alpha$ to 0 over 15 m; no pop. |
+| Walking down the centre of a 20 m-wide boulevard (both carriageways equidistant) | Bearing penalty + confidence gate + transition check collectively prevent oscillation. |
+| User walks off a trail into open grass | Cosine roll-off decays $\alpha$ to 0 over 25 m; no pop. |
 | GPS fix jumps 30 m due to a new multipath reflection | Speed filter rejects the jump before snapping sees it. |
 | First fix of a session has no prior way-ID lock | Cold start: select the closest way (no hysteresis penalty). |
-| Track crosses a highway interchange with 5+ overlapping ways | Bearing penalty + way-ID hysteresis keep the snap on one consistent route. |
+| Track crosses a highway interchange with 5+ overlapping ways | Bearing penalty + way-ID hysteresis + transition plausibility keep the snap on one consistent route. |
+| GPS drifts 3 m toward a parallel road (different OSM way) | Transition check rejects the switch: GPS barely moved but ways are unconnected — teleport blocked. |
+| Frequent urban stops (speed < 0.3 m/s) | Bearing penalty suppressed but way-ID still updates — no freeze during stops. |
 
 ---
 
@@ -451,10 +486,253 @@ coordinates in the primary columns.
 | Decision | Rationale |
 |----------|-----------|
 | Metre-equivalent projection (not raw lat/lon) | Raw dot product is geometrically wrong; equirectangular is correct to < 0.5 % at city scales. |
-| Asymmetric roll-off (8 m in / 15 m out) | Fast commitment when clearly on-road; slow release to resist GPS jitter. |
+| Asymmetric roll-off (12 m in / 25 m out) | Fast commitment when clearly on-road; slow release to resist GPS jitter. |
 | Bearing-constrained matching | Prevents snapping to perpendicular cross-streets at intersections. |
+| Transition plausibility (Newson & Krumm 2009) | Rejects impossible road-to-road jumps; prevents oscillation between parallel carriageways. |
+| Confidence gate | Refuses to snap when two roads are equally plausible (ambiguous intersections). |
+| Speed-adaptive bearing penalty (not way-ID freeze) | Suppresses stale-course bias at low speed without blocking legitimate transitions after stops. |
 | 25 m spatial grid (or R-tree) | Keeps per-point candidate count ≤ 8; total cost ~15 ms. |
-| Speed gate at 0.3 m/s, freeze way-ID | Course is noise at near-zero speed; way-ID lock prevents wrong-way snaps. |
+| Ramped alpha (MIN_RUN=3, RAMP_STEPS=5) | Smooth 0→0.33→0.67→1.0 engagement over ~9 m; no jarring pop-in. |
 | Snap once, consume twice | Both renderer and enrichment read `snappedGps` — no data mismatch. |
 | Reuse existing OSM fetch + spatial index | Zero additional network I/O; snapping is pure CPU. |
 | Default-on toggle | Users benefit from correction automatically; can disable for raw-data analysis. |
+
+---
+
+## 10. Post-Mortem: Why Snapping Fails on Track 38
+
+### 10.1  Track 38 Data Profile
+
+`biomap_038.csv` — ~21 min session, ~12 700 GSR samples, 2 537 GPS fixes at ~2 Hz:
+
+| Metric | Value |
+|--------|-------|
+| Spatial extent | 364 m × 307 m (Hackney, London) |
+| HDOP | 0.7–3.0, mean 1.0 — **good accuracy** |
+| Speed (m/s) | 0–4.4, mean 0.95 |
+| **Points with speed < 0.3 m/s** | **712 / 2 537 (28.1 %)** |
+| Runs of ≥ 3 consecutive slow points | **29** |
+| Unique course values | 1 092 — course is well-sampled when moving |
+| First N stationary points | 12 (speed = 0.00 kts) |
+
+The track has frequent stops — typical of urban walking with crossings,
+pauses, and turns.  This is not an edge case; it is the normal usage pattern.
+
+---
+
+### 10.2  Assumption Failures
+
+#### Failure 1: Speed Gate Is Actively Harmful
+
+**The assumption** (plan §2.5): *"When the user stands still (speed < 0.3 m/s),
+the GPS course vector becomes random noise… freeze the way-ID lock."*
+
+**What actually happens on track 38:**
+
+With 29 stop events, the way-ID is frozen 28 % of the time.  Each stop
+prevents the system from switching to the correct road, even when the position
+has clearly moved.  Consider this sequence:
+
+```
+#12: speed=0.63 m/s, way-ID locked to "Road A" ✓
+#15: speed=0.00 m/s → way-ID FROZEN on "Road A"
+#16: speed=0.00 m/s → still frozen (coords move NE)
+#17: speed=0.00 m/s → still frozen (coords move further NE)
+#18: speed=0.80 m/s → UNFROZEN… but user is now on "Road B"
+```
+
+During the stop at #15–17, the coordinates drift 6 m northeast.  By #18 the
+user is closer to Road B than Road A, but the speed gate prevented
+re-evaluation during the transition.  The first "moving" point at #18 must now
+compete against a lock that is stale.  Hysteresis (3 m margin, 5 s)
+*eventually* catches up — but only after 5 seconds of sustained evidence.
+
+**The deeper problem:** The Quectel L76K reports `speed_kts = 0.00` for many
+points where the *coordinates are clearly changing*.  Points #15–17 all have
+speed 0.00 yet their lat/lon advances 5+ metres.  The Doppler-derived speed is
+simply wrong for slow walking.  The speed gate was designed assuming Doppler
+speed is accurate; it isn't.
+
+**Data evidence:** Among the 712 slow points, many are mid-walk deceleration
+between strides — the GPS chip reports 0.00 kts during the foot-strike phase,
+then 1.5 kts during the swing phase.  The speed gate toggles on/off 2× per
+second during normal walking.
+
+#### Failure 2: Symmetric Gates Defeat the Asymmetric Design
+
+**The assumption** (plan §2.3): In/out gates of 8 m / 15 m for "fast commit,
+slow release."
+
+**What the code actually does:**
+
+```javascript
+// constants.js — the actual deployed values
+SNAP: {
+  RADIUS_IN:    25,    // ← plan says 8–12 m
+  RADIUS_OUT:   25,    // ← plan says 15–25 m
+  …
+}
+```
+
+The comment in the code is revealing: *"same as in for now; asymmetric
+behaviour needs the track to first come within ~12 m, which systematic drift
+prevents."*
+
+This is a **circular trap**:
+1. We widened the gates to 25 m because multipath prevents getting within 12 m
+2. Wide gates cause the system to snap to *wrong* roads 20 m away
+3. Wrong-road snaps are *worse* than no snapping at all
+4. So we blame "multipath" when the real problem is the gates are too wide
+
+With 25 m symmetric gates, the snap is both too aggressive (snapping to
+distant roads) AND too sticky (can't release from wrong roads).  The
+asymmetric design was correct — we just never actually deployed it.
+
+#### Failure 3: Course Is Not Noise at Zero Speed
+
+**The assumption** (plan §2.5): *"the GPS course vector becomes random noise."*
+
+**What actually happens on track 38:**
+
+Points #0–11 all have `speed_kts = 0.00` AND `course_deg = 139.6` — the
+course is **constant**, not random.  The Quectel chip holds the last-known
+course value when speed drops to zero.  This means:
+
+- The bearing penalty IS applied to stationary points (course is not NaN)
+- Stationary points are biased toward roads bearing ~140° / ~320°
+- The speed gate was supposed to suppress this, but because way-ID is frozen
+  AND the bearing penalty is still active on the locked way, there's a
+  compounding error: the system stays locked to a road whose bearing happens
+  to match 139.6°, even when the user has moved to a different road.
+
+**Fix:** The bearing penalty should be suppressed when speed < 0.3 m/s (set
+`headingWeight = 0` for that point), rather than freezing the entire way-ID.
+
+#### Failure 4: MIN_RUN = 2 Is Too Short
+
+**The assumption:** 2 consecutive points within snap range are enough to
+commit.
+
+**The reality:** With 3 m spatial thinning and 2 Hz evaluation, MIN_RUN = 2
+engages snapping in ~1.5 seconds and ~3 metres. A single multipath spike that
+lands 20 m from the true position can trigger a snap-lock in under 2 seconds.
+
+Combined with RAMP_STEPS = 3, the blend goes 0 → 0 → 0.33 → 0.67 → 1.0 in
+just 4 evaluation points (~3 s, ~9 m).  That's a 67 % blend toward a road 25 m
+away — a ~17 m visual jump — after only 3 seconds of "evidence."
+
+#### Failure 5: No Topological Constraint
+
+**The assumption:** Distance + bearing is sufficient to pick the right road.
+
+**The reality of urban snapping:** Without topology, the system makes
+geometrically "correct" but semantically wrong choices:
+
+```
+True path: walk east on High Street → turn north on Church Lane
+
+Without topology:
+  Point at intersection:  8 m from High Street, 9 m from Church Lane
+  → snaps to High Street (closer by 1 m)
+  → next point: 2 m from High Street extension, 6 m from Church Lane
+  → stays on High Street (locked by hysteresis)
+  → user is now walking "through buildings" instead of on Church Lane
+```
+
+A proper map-matcher knows that High Street and Church Lane **intersect** — so
+at the crossing, either road is valid, and the bearing should break the tie.
+The current system has no concept of road connectivity.
+
+#### Failure 6: Enrichment Evaluated at Wrong Position
+
+When snapping locks onto the wrong road, `_evaluatePosition` runs at the
+snapped position.  This means:
+
+- `roadClass` is assigned from the wrong road
+- `buildingDensity` counts buildings near the wrong position
+- `distMajorRoad` measures distance from the snapped position, not the user's
+  true position
+
+The environmental metrics become unreliable — a compounding error that makes
+the entire enrichment pass questionable.
+
+---
+
+### 10.3  Root Cause Summary
+
+```mermaid
+graph TD
+    A[Speed gate freezes way-ID<br/>28% of points] --> B[Can't transition<br/>between roads during stops]
+    C[Symmetric 25m gates<br/>instead of 8m/15m] --> D[Snaps to wrong roads<br/>up to 25m away]
+    E[Course is constant at 0 speed<br/>not random noise] --> F[Bearing penalty biases<br/>toward stale heading]
+    B --> G[System stays locked<br/>on wrong road]
+    D --> G
+    F --> G
+    G --> H[Path jumps between<br/>wrong roads, looks worse<br/>than raw GPS]
+    H --> I[User sees no benefit<br/>from snapping]
+```
+
+The fundamental issue is that **three design-level assumptions are violated by
+the Quectel L76K's actual behaviour:**
+
+| Assumption | Reality |
+|-----------|---------|
+| Doppler speed accurately reflects movement | Chip reports 0.00 kts during mid-stride deceleration; many "moving" points have speed=0 |
+| Course is random noise at zero speed | Chip holds last-known course; stationary points all have identical bearing |
+| Systematic GPS drift keeps points within 8–12 m of roads | Multipath + the above two issues mean we can't get consistent 8 m proximity, so we widened gates |
+
+---
+
+### 10.4  Recommended Fixes (Priority Order)
+
+#### Fix 1: Decouple Speed Gate from Way-ID Lock (High Priority)
+
+The speed gate should **only suppress the bearing penalty**, not freeze the
+way-ID.  The distance to road segments is the primary signal and must always
+be evaluated, regardless of speed.
+
+```
+Current:  speed < 0.3 → freeze way-ID (no transitions allowed)
+Fixed:    speed < 0.3 → set headingWeight = 0 (distance-only ranking)
+                        way-ID transitions still allowed via hysteresis
+```
+
+This is a ~5-line change in `road_snap.js`.
+
+#### Fix 2: Deploy Asymmetric Gates (High Priority)
+
+Set the actual gates to what the plan specifies:
+
+```
+RADIUS_IN:  12,   // m — commit when clearly on-road
+RADIUS_OUT: 25,   // m — resist premature release
+```
+
+And increase RAMP_STEPS to 5 and MIN_RUN to 4 so the ramp spans ~12 m of
+physical movement (5 steps × 3 m thinning) before full lock.
+
+#### Fix 3: Suppress Bearing Penalty at Low Speed (Medium Priority)
+
+Instead of freezing way-ID, set `headingWeight = 0` when `speedMs < 0.3` or
+`courseDeg` is NaN.  This preserves distance-based ranking while eliminating
+the stale-course bias.
+
+#### Fix 4: Add Simple Topological Filter (Medium Priority)
+
+After ranking candidates by distance (+ bearing when available), filter out
+ways that have no topological connection to the previously locked way, unless
+the distance advantage is large (> 10 m).  Two ways are "connected" if they
+share a node or if their nearest endpoints are within 15 m.
+
+#### Fix 5: Only Snap When Confident (Lower Priority)
+
+Add a "confidence gate": only engage snapping when the nearest candidate is at
+least 2× closer than the second-nearest.  If two roads are within 5 m of each
+other in effective distance, don't snap — use raw GPS.  This prevents the
+"flip-flop" at intersections where both roads are equally plausible.
+
+#### Fix 6: Add a Road Snap Diagnostic Overlay (Lower Priority)
+
+Draw the snapped path in a different color (e.g. dashed blue) underneath the
+main colored path, so the user can visually compare raw vs. snapped.  Add
+diagnostic info to the hover tooltip: way name, distance, alpha.

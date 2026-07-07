@@ -849,6 +849,11 @@ out skel qt;`;
     // ── Snapping state (carried across evaluation points) ────────────
     const snapState = doSnap ? {
       wayId: null,
+      prevWayId: null,
+      prevGpsLat: null,
+      prevGpsLon: null,
+      prevSnapLat: null,
+      prevSnapLon: null,
       wasSnapped: false,
       rampStep: 0,
       hystTimer: null

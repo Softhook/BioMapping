@@ -247,7 +247,7 @@ class GSRMapManager {
     let gpsPoints = this._collectGpsPoints(data);
     if (gpsPoints.length === 0) return;
 
-    gpsPoints = this._applyHdopGate(gpsPoints, p.maxHdop || 3.0);
+    gpsPoints = this._applyHdopGate(gpsPoints, p.maxHdop || 2.0);
     gpsPoints = this._applyFixTypeGate(gpsPoints);
 
     // Pre-Kalman filters (stop averaging, speed filter, velocity smoothing).
@@ -255,17 +255,18 @@ class GSRMapManager {
     const kalmanR   = p.kalmanR || 10;
     gpsPoints = this._applyPreKalmanFilters(gpsPoints, smoothing, p.maxSpeed || 3.0);
 
-    // Kalman RTS — HDOP-adaptive smoothing on raw trajectory FIRST.
-    // Snapping applies AFTER Kalman so the smoother doesn't blend the few
-    // snapped points back into the surrounding raw GPS.
-    gpsPoints = GpsFilter.applyKalman(gpsPoints, smoothing, kalmanR);
-
-    // Apply road snapping correction as a post-Kalman blend: for points
-    // within snap range of a road, blend the Kalman-smoothed position
-    // toward the snapped road position.
+    // Apply road snapping correction BEFORE Kalman: pull multipath-drifting
+    // points toward roads so the Kalman smooths a corrected trajectory
+    // rather than locking onto the raw bias.
     if (analyzer.snappedGps) {
       gpsPoints = this._applySnapCorrection(gpsPoints, analyzer.snappedGps);
     }
+
+    // Kalman RTS — HDOP-adaptive smoothing on the (now snap-corrected)
+    // trajectory.  With the soft pull and transition checks, most points
+    // near roads get partial correction, so the Kalman sees a consistent
+    // road-aligned path rather than isolated snapped outliers.
+    gpsPoints = GpsFilter.applyKalman(gpsPoints, smoothing, kalmanR);
 
     // Reconstruct full 10 Hz filtered GPS path for CSV export
     this._reconstructFilteredGps(analyzer, data, gpsPoints);
