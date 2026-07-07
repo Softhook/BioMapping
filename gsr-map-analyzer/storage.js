@@ -24,6 +24,7 @@ const GSRStorage = {
       tonicWindow:   parseInt(S.tonicWindow.value),
       peakThreshold: parseFloat(S.peakThreshold.value),
       dwtLevel:      parseInt(S.dwtLevel ? S.dwtLevel.value : 6),
+      minPeakQuality: parseFloat(S.minPeakQuality ? S.minPeakQuality.value : 0.0),
       // Peak shape criteria
       shapeMinRiseTime:     parseFloat(S.shapeMinRiseTime ? S.shapeMinRiseTime.value : 0.5),
       shapeMaxRiseTime:     parseFloat(S.shapeMaxRiseTime ? S.shapeMaxRiseTime.value : 5.0),

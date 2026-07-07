@@ -338,6 +338,7 @@ const GSRTrackManager = {
 
     const gsrKeys = [
       'medianSize', 'lpfWindow', 'tonicWindow', 'tonicMethod', 'peakThreshold', 'dwtLevel',
+      'minPeakQuality',
       'shapeMinRiseTime', 'shapeMaxRiseTime', 'shapeMinHalfRecovery', 'shapeMaxHalfRecovery',
       'shapeMinSnr', 'shapeMaxSkewRatio'
     ];

@@ -38,7 +38,8 @@ const GSR_CONST = {
     dwtLevel: 6,
     shapeMinRiseTime: 0, shapeMaxRiseTime: 0,
     shapeMinHalfRecovery: 0, shapeMaxHalfRecovery: 0,
-    shapeMinSnr: 0, shapeMaxSkewRatio: 0
+    shapeMinSnr: 0, shapeMaxSkewRatio: 0,
+    minPeakQuality: 0.0
   },
 
   // ── CSV parsing keywords ─────────────────────────────────────────────────

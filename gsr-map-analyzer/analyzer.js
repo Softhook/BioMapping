@@ -1058,7 +1058,10 @@ class GSRAnalyzer {
       // ── 11. Compute composite quality score ────────────────────────────
       peak.qualityScore = this._computePeakQuality(peak);
 
-      this.peaks.push(peak);
+      const minQuality = params && params.minPeakQuality != null ? params.minPeakQuality : 0.0;
+      if (peak.qualityScore >= minQuality) {
+        this.peaks.push(peak);
+      }
 
       // Skip ahead to enforce minimum gap between peaks
       i = Math.min(n - 2, i + Math.round(GSR_CONST.PEAK_MIN_GAP * this.sampleRate));
