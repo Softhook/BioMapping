@@ -20,11 +20,12 @@ Spatial:    [Raw]  ====== Linear/Step Spatial Interpolation ======> [Raw]
 
 ## 2. Code Implementation Audit
 
-### A. Coordinate Reconstruction (10 Hz Path)
-Missing coordinates in the 10 Hz timeline are reconstructed in `analyzer.js`:
+### A. Coordinate and Velocity Reconstruction (10 Hz Path)
+Missing fields in the 10 Hz timeline are reconstructed in `analyzer.js`:
 *   *Code Implementation*:
-    *   During track loading, `analyzer.js` linearly interpolates latitude and longitude values across the empty intervals between the 1 Hz GPS coordinates.
-*   *Evaluation*: **Correct.** Reconstructs a smooth, continuous 10 Hz spatial path that matches the resolution of the biometric sensors, preventing "staircase" jumps on the leaflet map line coordinates.
+    *   During track loading, `analyzer.js` linearly interpolates latitude, longitude, and altitude values across the empty intervals between the 1 Hz GPS coordinates.
+    *   For **velocity fields** (`speed_kts` and `course_deg`), a **step-hold (nearest-neighbor)** interpolation is used. The last known value from the prior 1 Hz GPS anchor is copied forward until a new anchor arrives.
+*   *Evaluation*: **Correct.** Linear interpolation of spatial coordinates reconstructs a smooth, continuous 10 Hz path that matches the resolution of the biometric sensors, preventing "staircase" jumps. For velocity, step-hold is the mathematically sound choice: linear interpolation of speeds and headings across sharp turns produces artificial, intermediate velocities that degrade dead-reckoning and smoothing calculations. Step-holding velocity keeps the reference vectors physically consistent during the intervals between NMEA sentences.
 
 ### B. Overpass API & Spatial Grid Hashing (Performance Optimization)
 *   *Audit Finding*: Calculating spatial containment and segment projections on 10 Hz coordinates would require 10x the CPU cycles and degrade browser performance.

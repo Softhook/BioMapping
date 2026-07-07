@@ -131,13 +131,11 @@ Writing data to the Flipper's SD card takes a few milliseconds. If we write ever
 
 **The Solution:** The app uses different logging rates depending on mode:
 
-All GSR modes (GPS+GSR and GSR-only) use an **in-memory batch buffer** to avoid per-tick SD writes:
-
-- **GPS+GSR mode:** Each 10 Hz tick formats a CSV row into the in-memory batch buffer. On the first tick of each second (when the GPS fix is freshest), a full 7-column row with lat/lon/alt/sats/fix is formatted. On the remaining 9 ticks, a partial row with only timestamp and gsr_raw is formatted (GPS columns are empty). The entire batch of ~10 rows is flushed to the SD card once per second in a single `storage_file_write()` call, exactly like GSR-only mode.
+- **GPS+GSR mode:** Each 10 Hz tick formats a CSV row into the in-memory batch buffer. On the first tick of each second (when the GPS fix is freshest), a full 12-column row with lat, lon, alt, hdop, vdop, sats, fix, fix_type, speed_kts, and course_deg is formatted. On the remaining 9 ticks, a partial row with only timestamp and gsr_raw is formatted (GPS/velocity columns are empty). The entire batch of ~10 rows is flushed to the SD card once per second in a single `storage_file_write()` call, exactly like GSR-only mode.
 
 - **GSR-only mode:** GSR values are formatted each tick (10 Hz) into the same in-memory batch buffer, and flushed to SD once per second.
 
-- **GPS-only mode:** One 7-column CSV row is written directly to the SD card each second (no batch buffer, since there's no high-frequency GSR data). The `gsr_raw` column is always 0.
+- **GPS-only mode:** One 12-column CSV row is written directly to the SD card each second (no batch buffer, since there's no high-frequency GSR data). The `gsr_raw` column is always 0.
 
 ---
 
@@ -207,12 +205,12 @@ L76K GPS @ 1 Hz  ──►  UART interrupt handler
 
 ### CSV Formats
 
-**GPS+GSR mode (7 columns, 10 Hz mixed):**
+**GPS+GSR mode (12 columns, 10 Hz mixed):**
 ```
-timestamp,lat,lon,alt,sats,fix,gsr_raw
-2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,8,1,4523   ← 1st tick of second: full GPS row
-2026-06-29T13:42:59Z,,,,,,4528                           ← ticks 2–10: GSR only, GPS columns empty
-2026-06-29T13:42:59Z,,,,,,4521
+timestamp,lat,lon,alt,hdop,vdop,sats,fix,fix_type,speed_kts,course_deg,gsr_raw
+2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,1.2,1.5,8,1,3,2.40,185.0,4523   ← 1st tick of second: full GPS row
+2026-06-29T13:42:59Z,,,,,,,,,,,4528                                          ← ticks 2–10: GSR only, GPS columns empty
+2026-06-29T13:42:59Z,,,,,,,,,,,4521
 ...
 ```
 
@@ -325,11 +323,11 @@ When `N` approaches zero (open circuit / disconnected electrodes), conductance i
 
 When the user presses "Record", the app writes to a **CSV file** (`/ext/biomapping/biomap_001.csv`), not a GPX file. This keeps the recording simple and preserves the raw GSR data for offline re-analysis. The GPX file is produced **post-recording** by the built-in converter.
 
-**GPS+GSR mode CSV (7 columns, 10 Hz mixed):**
+**GPS+GSR mode CSV (12 columns, 10 Hz mixed):**
 ```
-timestamp,lat,lon,alt,sats,fix,gsr_raw
-2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,8,1,4523   ← full GPS row
-2026-06-29T13:42:59Z,,,,,,4528                           ← GSR-only row
+timestamp,lat,lon,alt,hdop,vdop,sats,fix,fix_type,speed_kts,course_deg,gsr_raw
+2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,1.2,1.5,8,1,3,2.40,185.0,4523   ← full GPS row
+2026-06-29T13:42:59Z,,,,,,,,,,,4528                                          ← GSR-only row
 ```
 
 **GSR-only mode CSV (3 columns, 10 Hz):**
@@ -435,7 +433,7 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 
 ### Controls
 
-* `OK (Center Button)`: Starts and stops recording. In GPS+GSR mode writes 7-column CSV at 10 Hz (mixed full/partial rows). In GSR-only mode writes 3-column CSV at 10 Hz.
+* `OK (Center Button)`: Starts and stops recording. In GPS+GSR mode writes 12-column CSV at 10 Hz (mixed full/partial rows). In GSR-only mode writes 3-column CSV at 10 Hz.
 * `Left/Right`: Changes the time scale of the graph (scroll speed). Left zooms out (slower), Right zooms in (faster).
 * `Up/Down`: Zooms in and out on the vertical sensitivity of the graph.
 * `Back`: Safely closes the file and returns to the menu.
@@ -460,8 +458,8 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 
 | Menu Item | Action |
 |---|---|
-| **GPS + GSR** | Enters recording view with both GPS and GSR active. Writes 7-column CSV at 1 Hz. |
-| **GPS Only** | Enters recording view with GPS only — no GSR sensor initialised. Writes 7-column CSV with `gsr_raw` = 0. |
+| **GPS + GSR** | Enters recording view with both GPS and GSR active. Writes 12-column CSV (mixed rate: 10 Hz GSR, 1 Hz GPS coordinates). |
+| **GPS Only** | Enters recording view with GPS only — no GSR sensor initialised. Writes 12-column CSV with `gsr_raw` = 0 at 1 Hz. |
 | **GSR Only** | Enters recording view with GSR only — no GPS initialised. Writes 3-column CSV at 10 Hz. |
 | **Convert CSV to GPX** | Scans for `biomap_*.csv` files and converts selected file to GPX (see Section 6). |
 | **Options** | Opens the Options screen (see below). |
