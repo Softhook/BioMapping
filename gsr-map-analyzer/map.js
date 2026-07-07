@@ -247,10 +247,9 @@ class GSRMapManager {
     let gpsPoints = this._collectGpsPoints(data);
     if (gpsPoints.length === 0) return;
 
-    gpsPoints = this._applySatelliteGate(gpsPoints, p.minSats);
-    gpsPoints = this._applyHdopGate(gpsPoints, p.maxHdop);
-    gpsPoints = this._applyFixTypeGate(gpsPoints, p.minFixType);
-    gpsPoints = this._applyAllFilters(gpsPoints, p, analyzer.sampleRate || 10.0);
+    gpsPoints = this._applyHdopGate(gpsPoints, p.maxHdop || 3.0);
+    gpsPoints = this._applyFixTypeGate(gpsPoints);
+    gpsPoints = this._applyCoreFilters(gpsPoints, p.smoothing || 0.5, p.kalmanR || 10, p.maxSpeed || 3.0);
 
     // Reconstruct full 10 Hz filtered GPS path for CSV export
     this._reconstructFilteredGps(analyzer, data, gpsPoints);
@@ -280,77 +279,44 @@ class GSRMapManager {
     return pts;
   }
 
-  _applySatelliteGate(pts, minSats) {
-    if (minSats > 0) {
-      return pts.filter(d => d.sats >= minSats);
-    }
-    return pts;
-  }
-
   /**
-   * HDOP gate: discard GPS anchors whose HDOP exceeds maxHdop.
-   * Only applies when the CSV was recorded with firmware >= v2.1 (has hdop column).
-   * When hdop is NaN (old CSV), the point is always kept.
-   *
-   * @param {Array}  pts     – GPS anchor points
-   * @param {number} maxHdop – max allowed HDOP; 0 = disabled
+   * HDOP gate: rejects GPS anchors with poor satellite geometry.
+   * Default threshold 3.0 — the firmware already pre-filters at 5.0;
+   * this provides a tighter second pass.  Points without HDOP data
+   * (NaN, old CSV) are always kept.
    */
-  _applyHdopGate(pts, maxHdop) {
-    if (!maxHdop || isNaN(maxHdop) || maxHdop <= 0) return pts;
+  _applyHdopGate(pts, maxHdop = 3.0) {
     return pts.filter(d => isNaN(d.hdop) || d.hdop <= maxHdop);
   }
 
   /**
-   * Fix-type gate: requires GPS fix to meet a minimum quality.
-   *   1 = no fix, 2 = 2D fix (altitude assumed), 3 = 3D fix (full solution).
-   *
-   * Old CSVs without the fix_type column have fixType=0 on every point and
-   * are always passed through so backward compatibility is preserved.
-   *
-   * @param {Array}  pts        - GPS anchor points
-   * @param {number} minFixType - minimum accepted fix_type; < 2 = disabled
+   * Fix-type gate: rejects "no fix" (type 1).  2D fixes are kept —
+   * they have excellent horizontal accuracy even without altitude.
+   * Points without fix_type (old CSV, value 0) are always kept.
    */
-  _applyFixTypeGate(pts, minFixType) {
-    if (!minFixType || minFixType < 2) return pts;
-    return pts.filter(d => d.fixType === 0 || d.fixType >= minFixType);
+  _applyFixTypeGate(pts, minFixType = 2) {
+    if (minFixType < 2) return pts;
+    return pts.filter(d => d.fixType == null || d.fixType === 0 || d.fixType >= minFixType);
   }
 
-  _applyAllFilters(pts, p, sampleRate) {
-    // Calculate actual sample rate of GPS coordinates dynamically to avoid
-    // scaling windows/durations by the 10 Hz GSR sample rate.
-    const gpsSampleRate = pts.length > 1
-      ? (pts.length - 1) / (pts[pts.length - 1].time - pts[0].time)
-      : 1.0;
-
-    // 2a. Stop averaging: collapse stationary jitter clusters into a centroid
-    //     before any other filter sees the data.  Requires speedKts field
-    //     (firmware >= v2.2); silently skips if speed data is absent.
+  /**
+   * Core GPS filter pipeline.
+   *
+   * 1. Stop averaging — collapses stationary jitter clusters
+   * 2. Speed filter — rejects impossible jumps (Doppler speedKts, ≤3 m/s)
+   * 3. Velocity-aided smoother — dead-reckons from Doppler, ZUPT at ≤0.5 kt
+   * 4. Kalman RTS — HDOP-adaptive, R=10 m², Q controlled by smoothing slider
+   *
+   * @param {Array}  pts       – GPS anchor points
+   * @param {number} smoothing – Kalman process noise Q (0.1–2.0, default 0.5)
+   * @param {number} kalmanR   – Kalman measurement noise R in m² (2–40, default 10)
+   * @param {number} maxSpeed  – max plausible speed in m/s (default 3.0)
+   */
+  _applyCoreFilters(pts, smoothing = 0.5, kalmanR = 10, maxSpeed = 3.0) {
     pts = GpsFilter.applyStopAveraging(pts);
-
-    // 3. Hampel outlier filter
-    if (p.hampelWindow > 0 && p.hampelSigma > 0) {
-      const k = Math.round(p.hampelWindow * gpsSampleRate);
-      pts = GpsFilter.applyHampelFilter(pts, k, p.hampelSigma);
-    }
-    // 4. Speed plausibility filter
-    if (p.maxSpeed > 0) {
-      pts = GpsFilter.applySpeedFilter(pts, p.maxSpeed);
-    }
-    // 4b. Velocity-aided smoothing: blend GPS fix with dead-reckoned prediction.
-    //     Runs after the speed filter (outliers removed) and before DBSCAN/Kalman
-    //     so downstream filters receive a smoother signal.
-    //     Silently skips if speed/course data is absent (old CSV).
+    pts = GpsFilter.applySpeedFilter(pts, maxSpeed);
     pts = GpsFilter.applyVelocitySmoothing(pts);
-
-    // 5. DBSCAN stop collapse
-    if (p.dbscanRadius > 0 && (p.dbscanMinPts || 0) > 1) {
-      const minPts = Math.round(p.dbscanMinPts * gpsSampleRate);
-      pts = GpsFilter.applyDBSCAN(pts, p.dbscanRadius, minPts);
-    }
-    // 6. Kalman filter smoothing (now HDOP-adaptive per-point)
-    if (p.kalmanR > 0 && p.kalmanQ > 0) {
-      pts = GpsFilter.applyKalman(pts, p.kalmanQ, p.kalmanR);
-    }
+    pts = GpsFilter.applyKalman(pts, smoothing, kalmanR);
     return pts;
   }
 
@@ -1016,10 +982,9 @@ class GSRMapManager {
       let gpsPoints = this._collectGpsPoints(data);
       if (gpsPoints.length === 0) return;
 
-      gpsPoints = this._applySatelliteGate(gpsPoints, p.minSats);
-      gpsPoints = this._applyHdopGate(gpsPoints, p.maxHdop);
-      gpsPoints = this._applyFixTypeGate(gpsPoints, p.minFixType);
-      gpsPoints = this._applyAllFilters(gpsPoints, p, track.analyzer.sampleRate || 10.0);
+      gpsPoints = this._applyHdopGate(gpsPoints, (p.maxHdop || 3.0));
+      gpsPoints = this._applyFixTypeGate(gpsPoints);
+      gpsPoints = this._applyCoreFilters(gpsPoints, (p.smoothing || 0.5), (p.kalmanR || 10), (p.maxSpeed || 3.0));
       if (gpsPoints.length === 0) return;
 
       this._reconstructFilteredGps(track.analyzer, data, gpsPoints);

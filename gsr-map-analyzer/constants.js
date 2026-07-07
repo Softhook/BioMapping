@@ -28,14 +28,7 @@ const GSR_CONST = {
 
   // ── GPS filter defaults ──────────────────────────────────────────────────
   GPS_DEFAULT: {
-    // HDOP gate: reject positions with poor satellite geometry (>3.0).
-    // fix_type gate: 2 = reject "no fix" only; 2D fixes are still useful
-    //   (3D would reject 2D fixes that may have excellent horizontal accuracy).
-    // Kalman: R=10m² (consumer GPS, HDOP-scaled), Q=0.5m²/s (pedestrian walk).
-    // Speed filter: 3.0 m/s ≈ 10.8 km/h — brisk walking pace; catches GPS jumps.
-    minSats: 0, maxHdop: 3.0, minFixType: 2, maxSpeed: 3.0, hampelWindow: 0, hampelSigma: 3.0,
-    dbscanRadius: 0, dbscanMinPts: 4, kalmanR: 10.0, kalmanQ: 0.5,
-    rdpTolerance: 0, downsample: false, trackWeight: 5
+    smoothing: 0.5, kalmanR: 10, maxHdop: 3.0, maxSpeed: 3.0, rdpTolerance: 0, downsample: false, trackWeight: 5
   },
 
   // ── GSR filter defaults ──────────────────────────────────────────────────

@@ -29,9 +29,7 @@ const GSREvents = {
       'medianSize', 'lpfWindow', 'tonicWindow', 'tonicMethod', 'peakThreshold', 'dwtLevel',
       'shapeMinRiseTime', 'shapeMaxRiseTime', 'shapeMinHalfRecovery', 'shapeMaxHalfRecovery',
       'shapeMinSnr', 'shapeMaxSkewRatio',
-      'gpsMinSats', 'gpsMaxHdop', 'gpsFixType', 'gpsMaxSpeed', 'gpsHampelWindow', 'gpsHampelSigma', 'gpsDBSCANRadius',
-      'gpsDBSCANMinPts', 'gpsKalmanR', 'gpsKalmanQ', 'gpsRDP', 'gpsDownsample',
-      'gpsTrackWeight', 'gpsPeakLatency'
+      'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsDownsample', 'gpsTrackWeight', 'gpsPeakLatency'
     ];
     for (const key of sliderKeys) {
       AppState.sliders[key] = GSREvents._id(key);
@@ -322,19 +320,13 @@ const GSREvents = {
     document.getElementById('loadDemoBtn').addEventListener('click', GSRTrackManager.loadDefaultTrack);
 
     // ── GPS slider bindings ──────────────────────────────────────────────────
-    GSREvents.bindGpsSlider('gpsMinSats',      'valGpsMinSats',      v => v === 0 ? 'off' : `≥ ${v}`);
-    GSREvents.bindGpsSlider('gpsMaxHdop',      'valGpsMaxHdop',      v => v === 0 ? 'off' : `≤ ${v.toFixed(1)}`);
-    GSREvents.bindGpsSlider('gpsFixType',       'valGpsFixType',      v => v < 2 ? 'off' : v === 2 ? '≥2D' : '3D only');
-    GSREvents.bindGpsSlider('gpsMaxSpeed',      'valGpsMaxSpeed',     v => v === 0 ? 'off' : `${v} m/s`);
-    GSREvents.bindGpsSlider('gpsHampelWindow', 'valGpsHampelWindow', v => v === 0 ? 'off' : `${v} s`);
-    GSREvents.bindGpsSlider('gpsHampelSigma',  'valGpsHampelSigma',  v => v.toFixed(1), 'gpsHampelWindow');
-    GSREvents.bindGpsSlider('gpsDBSCANRadius', 'valGpsDBSCANRadius', v => v === 0 ? 'off' : `${v} m`);
-    GSREvents.bindGpsSlider('gpsDBSCANMinPts', 'valGpsDBSCANMinPts', v => `${v} s`, 'gpsDBSCANRadius');
-    GSREvents.bindGpsSlider('gpsKalmanR',      'valGpsKalmanR',      v => v === 0 ? 'off' : `${v} m²`);
-    GSREvents.bindGpsSlider('gpsKalmanQ',      'valGpsKalmanQ',      v => v === 0 ? 'off' : `${v} m²`, 'gpsKalmanR');
-    GSREvents.bindGpsSlider('gpsRDP',          'valGpsRDP',          v => v === 0 ? 'off' : `${v} m`);
-    GSREvents.bindGpsSlider('gpsDownsample',   'valGpsDownsample',   v => v === 0 ? 'off' : '1 Hz');
-    GSREvents.bindGpsSlider('gpsTrackWeight',  'valGpsTrackWeight',  v => `${v} px`);
+    GSREvents.bindGpsSlider('gpsSmoothing',   'valGpsSmoothing',   v => v.toFixed(2));
+    GSREvents.bindGpsSlider('gpsKalmanR',     'valGpsKalmanR',     v => `${v} m²`);
+    GSREvents.bindGpsSlider('gpsMaxHdop',     'valGpsMaxHdop',     v => `≤ ${v.toFixed(1)}`);
+    GSREvents.bindGpsSlider('gpsMaxSpeed',    'valGpsMaxSpeed',    v => `${v.toFixed(1)} m/s`);
+    GSREvents.bindGpsSlider('gpsRDP',         'valGpsRDP',         v => v === 0 ? 'off' : `${v} m`);
+    GSREvents.bindGpsSlider('gpsDownsample',  'valGpsDownsample',  v => v === 0 ? 'off' : '1 Hz');
+    GSREvents.bindGpsSlider('gpsTrackWeight', 'valGpsTrackWeight', v => `${v} px`);
 
     // Peak latency — re-render map only (no analysis needed), highlight when active
     {
@@ -594,20 +586,14 @@ const GSREvents = {
 
     // GPS Labels
     const gpsFormatters = {
-      gpsMinSats:      v => v === 0 ? 'off' : `≥ ${v}`,
-      gpsMaxHdop:      v => v === 0 ? 'off' : `≤ ${v.toFixed(1)}`,
-      gpsFixType:      v => v < 2 ? 'off' : v === 2 ? '≥2D' : '3D only',
-      gpsMaxSpeed:     v => v === 0 ? 'off' : `${v} m/s`,
-      gpsHampelWindow: v => v === 0 ? 'off' : `${v} s`,
-      gpsHampelSigma:  v => v.toFixed(1),
-      gpsDBSCANRadius: v => v === 0 ? 'off' : `${v} m`,
-      gpsDBSCANMinPts: v => `${v} s`,
-      gpsKalmanR:      v => v === 0 ? 'off' : `${v} m²`,
-      gpsKalmanQ:      v => v === 0 ? 'off' : `${v} m²`,
-      gpsRDP:          v => v === 0 ? 'off' : `${v} m`,
-      gpsDownsample:   v => v === 0 ? 'off' : '1 Hz',
-      gpsTrackWeight:  v => `${v} px`,
-      gpsPeakLatency:  v => `${v.toFixed(1)} s`
+      gpsSmoothing:   v => v.toFixed(2),
+      gpsKalmanR:     v => `${v} m²`,
+      gpsMaxHdop:     v => `≤ ${v.toFixed(1)}`,
+      gpsMaxSpeed:    v => `${v.toFixed(1)} m/s`,
+      gpsRDP:         v => v === 0 ? 'off' : `${v} m`,
+      gpsDownsample:  v => v === 0 ? 'off' : '1 Hz',
+      gpsTrackWeight: v => `${v} px`,
+      gpsPeakLatency: v => `${v.toFixed(1)} s`
     };
 
     for (const [id, fmt] of Object.entries(gpsFormatters)) {
@@ -642,15 +628,8 @@ const GSREvents = {
 
     // Initial dim state for all GSR sliders (only those that can be 0)
     document.querySelectorAll('#gsrFilteringCard input[type="range"]').forEach(GSREvents.updateFilterDim);
-    // Initial dim state for GPS sliders (dependent sliders check their parent)
-    const gpsParentMap = {
-      gpsHampelSigma:  'gpsHampelWindow',
-      gpsDBSCANMinPts: 'gpsDBSCANRadius',
-      gpsKalmanQ:      'gpsKalmanR'
-    };
-    document.querySelectorAll('#gpsFilteringCard input[type="range"]').forEach(slider => {
-      GSREvents.updateFilterDim(slider, gpsParentMap[slider.id]);
-    });
+    // Initial dim state for GPS sliders
+    document.querySelectorAll('#gpsFilteringCard input[type="range"]').forEach(GSREvents.updateFilterDim);
     // Initial dim state for map display sliders
     document.querySelectorAll('#mapDisplayCard input[type="range"]').forEach(GSREvents.updateFilterDim);
   }

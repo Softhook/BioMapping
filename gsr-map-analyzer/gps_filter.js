@@ -234,11 +234,18 @@ const GpsFilter = {
       return R_LON_BASE * h * h;
     };
 
-    // Forward pass — standard Kalman filter.
+    // Forward pass — standard Kalman filter with chi-squared innovation gate.
     // Store filtered state AND covariance for the RTS backward pass.
+    //
+    // Innovation gate: when the measurement disagrees with the prediction by
+    // more than 3σ (χ² = 9.0 for 1 DOF), the measurement is treated as an
+    // outlier and rejected — the prediction alone is used.  This is standard
+    // practice in navigation filters and is critical for urban canyons where
+    // multipath creates non-Gaussian 10–50 m jumps that HDOP does not catch.
+    const CHI2_THRESH = 9.0;  // 3σ for 1 DOF (99.7 % confidence)
     const forwardLats = new Array(n);
     const forwardLons = new Array(n);
-    const fwdCovLat    = new Array(n);   // P_k|k  (filtered covariance)
+    const fwdCovLat    = new Array(n);
     const fwdCovLon    = new Array(n);
 
     let xLat = points[0].lat;
@@ -257,14 +264,38 @@ const GpsFilter = {
       const R_LAT = getRLat(points[i]);
       const R_LON = getRLon(points[i]);
 
-      const kLat = pPLat / (pPLat + R_LAT);
-      const kLon = pPLon / (pPLon + R_LON);
+      // Innovation (measurement − prediction) and its variance.
+      // Gate test uses BASE R (no HDOP scaling) — consistent sensitivity.
+      // Kalman gain uses HDOP-inflated R — deweights noisy measurements.
+      const innovLat = points[i].lat - xLat;
+      const innovLon = points[i].lon - xLon;
+      const gateVarLat = pPLat + R_LAT_BASE;
+      const gateVarLon = pPLon + R_LON_BASE;
+      const gainVarLat = pPLat + R_LAT;
+      const gainVarLon = pPLon + R_LON;
 
-      xLat = xLat + kLat * (points[i].lat - xLat);
-      xLon = xLon + kLon * (points[i].lon - xLon);
+      // Chi-squared test: reject if |innov| > 3σ
+      const chi2Lat = (innovLat * innovLat) / gateVarLat;
+      const chi2Lon = (innovLon * innovLon) / gateVarLon;
 
-      PLat = (1 - kLat) * pPLat;
-      PLon = (1 - kLon) * pPLon;
+      if (chi2Lat < CHI2_THRESH) {
+        const kLat = pPLat / gainVarLat;
+        xLat = xLat + kLat * innovLat;
+        PLat = (1 - kLat) * pPLat;
+      } else {
+        // Outlier: inflate covariance so the filter can recover.
+        // Without inflation, Q·dt (~0.5 m²/s) is too slow to grow P
+        // and the filter stays locked out permanently (cascade rejection).
+        PLat = pPLat * 5.0;
+      }
+
+      if (chi2Lon < CHI2_THRESH) {
+        const kLon = pPLon / gainVarLon;
+        xLon = xLon + kLon * innovLon;
+        PLon = (1 - kLon) * pPLon;
+      } else {
+        PLon = pPLon * 5.0;
+      }
 
       forwardLats[i] = xLat;
       forwardLons[i] = xLon;
@@ -416,19 +447,13 @@ const GpsFilter = {
       //
       // Zero-Velocity Update (ZUPT): when the GPS Doppler reports the
       // receiver is genuinely stationary (prev.speedKts ≤ 0.5 kt ≈ 0.26 m/s),
-      // position drift is unreliable — typical during cold-start warmup.
-      // We override α to near-zero so the output freezes at the prediction.
+      // position drift is unreliable (cold-start warmup).  We override α to
+      // near-zero so the output freezes at the prediction.
       //
       // Between 0.5–1.2 kts the receiver is moving slowly (corners,
       // crossings) but heading is too erratic for dead-reckoning — we
       // freeze the prediction but keep the normal HDOP-adaptive α so
-      // the GPS position is still trusted.  This prevents artificial
-      // stops during complex urban navigation while still suppressing
-      // true stationary drift.
-      // override α to near-zero so the output position is held at the
-      // frozen prediction instead of blending in the drifting GPS fix.
-      // This is standard practice in GPS/INS integration: Doppler
-      // velocity is ~10× more accurate than position differencing.
+      // the GPS position is still trusted.
       const alphaFinal = (!isNaN(prev.speedKts) && prev.speedKts <= 0.5)
         ? 0.05 : effectiveAlpha;
 

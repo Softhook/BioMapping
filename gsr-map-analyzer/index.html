@@ -250,127 +250,69 @@
           </h2>
 
           <div class="card-content">
-            <div class="control-subgroup-title">Outlier Rejection</div>
+            <p class="help-text" style="margin-bottom:12px;color:var(--text-muted);">
+              <strong>Automatic:</strong> Fix ≥ 2D → Stop averaging → Speed filter →
+              Velocity smoother (ZUPT).  Tuned for pedestrian GSR mapping.
+            </p>
 
             <div class="slider-group">
               <div class="slider-label">
-                <span>Min. Satellites</span>
-                <span class="slider-value" id="valGpsMinSats">0</span>
+                <span>Path Responsiveness</span>
+                <span class="slider-value" id="valGpsSmoothing">0.5</span>
               </div>
-              <input type="range" id="gpsMinSats" min="0" max="12" step="1" value="0">
-              <div class="slider-rec" style="left:33.3%; width:33.3%"></div>
-              <p class="help-text">Hide points with fewer satellites. <strong>Recommended:</strong> 4–8. Set to 0 = off.</p>
+              <input type="range" id="gpsSmoothing" min="0.1" max="2.0" step="0.05" value="0.5">
+              <div class="slider-rec" style="left:22%; width:45%"></div>
+              <p class="help-text">How quickly the path responds to GPS movement. <strong>0.1–0.3</strong> = heavy smoothing (straight, stable). <strong>0.5</strong> = balanced (default). <strong>1.0–2.0</strong> = responsive (follows every wiggle).</p>
+            </div>
+
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>GPS Precision</span>
+                <span class="slider-value" id="valGpsKalmanR">10 m²</span>
+              </div>
+              <input type="range" id="gpsKalmanR" min="2" max="40" step="1" value="10">
+              <div class="slider-rec" style="left:21%; width:26%"></div>
+              <p class="help-text">How much you trust each GPS reading (measurement noise R). <strong>5</strong> = survey-grade / open sky. <strong>10</strong> = consumer GPS (default). <strong>25–40</strong> = urban canyon / poor signal.</p>
             </div>
 
             <div class="slider-group">
               <div class="slider-label">
                 <span>Max HDOP</span>
-                <span class="slider-value" id="valGpsMaxHdop">off</span>
+                <span class="slider-value" id="valGpsMaxHdop">≤ 3.0</span>
               </div>
-              <input type="range" id="gpsMaxHdop" min="0" max="10" step="0.1" value="3.0">
-              <div class="slider-rec" style="left:30%; width:20%"></div>
-              <p class="help-text">Rejects GPS fixes with poor geometric accuracy. Lower = stricter. <strong>Default 3.0</strong> — the firmware already pre-filters at HDOP &lt; 5.0 at record time; this provides a tighter second pass. Set to 0 = off.</p>
+              <input type="range" id="gpsMaxHdop" min="1.0" max="5.0" step="0.5" value="3.0">
+              <div class="slider-rec" style="left:40%; width:40%"></div>
+              <p class="help-text">Rejects GPS fixes with poor satellite geometry. <strong>2.0</strong> = urban canyons, <strong>3.0</strong> = default, <strong>5.0</strong> = open sky (matches firmware pre-filter).</p>
             </div>
 
             <div class="slider-group">
               <div class="slider-label">
-                <span>Min Fix Type</span>
-                <span class="slider-value" id="valGpsFixType">off</span>
+                <span>Max Speed</span>
+                <span class="slider-value" id="valGpsMaxSpeed">3.0 m/s</span>
               </div>
-              <input type="range" id="gpsFixType" min="0" max="3" step="1" value="2">
-              <div class="slider-rec" style="left:75%; width:25%"></div>
-              <p class="help-text">Minimum fix quality. <strong>Default ≥2D</strong> — rejects "no fix" only. A 2D fix can have excellent horizontal accuracy even without altitude. Needs firmware ≥ v2.1. Set to 0 = off.</p>
+              <input type="range" id="gpsMaxSpeed" min="1.0" max="12.0" step="0.5" value="3.0">
+              <div class="slider-rec" style="left:17%; width:25%"></div>
+              <p class="help-text">Rejects GPS jumps that imply impossible speeds. <strong>3</strong> = walking, <strong>5</strong> = running, <strong>10</strong> = cycling.  Uses the GPS Doppler speed (accurate to ±0.05 m/s).</p>
             </div>
 
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>Max Speed Filter</span>
-                <span class="slider-value" id="valGpsMaxSpeed">5 m/s</span>
-              </div>
-              <input type="range" id="gpsMaxSpeed" min="0" max="7" step="0.5" value="3.0">
-              <div class="slider-rec" style="left:21.4%; width:35.7%"></div>
-              <p class="help-text">Rejects impossible GPS jumps. Brisk walk ≈ 2 m/s, jog ≈ 3.5 m/s. <strong>Recommended:</strong> 3–4 m/s for pedestrian use. Set to 0 = off.</p>
-            </div>
-
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>Hampel Window</span>
-                <span class="slider-value" id="valGpsHampelWindow">3 s</span>
-              </div>
-              <input type="range" id="gpsHampelWindow" min="0" max="10" step="0.1" value="0">
-              <div class="slider-rec" style="left:20%; width:30%"></div>
-              <p class="help-text">Spike removal via local median. <strong>Recommended:</strong> 2–5 s. May conflict with Kalman — use one or the other. Set to 0 = off.</p>
-            </div>
-
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>Hampel Sigma</span>
-                <span class="slider-value" id="valGpsHampelSigma">3.0</span>
-              </div>
-              <input type="range" id="gpsHampelSigma" min="1.5" max="5.0" step="0.1" value="3.0">
-              <div class="slider-rec" style="left:28.6%; width:42.9%"></div>
-              <p class="help-text">Outlier strictness. <strong>Recommended:</strong> 2.5–4.0 (3.0 = standard).</p>
-            </div>
-
-            <div class="control-subgroup-title">Smoothing & Clustering</div>
-
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>DBSCAN Stop Radius</span>
-                <span class="slider-value" id="valGpsDBSCANRadius">10 m</span>
-              </div>
-              <input type="range" id="gpsDBSCANRadius" min="0" max="30" step="1" value="0">
-              <div class="slider-rec" style="left:10%; width:23.3%"></div>
-              <p class="help-text">Groups stationary GPS wander. <strong>Recommended:</strong> 3–10 m. Kalman may partially undo centroiding. Set to 0 = off.</p>
-            </div>
-
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>DBSCAN Min Duration</span>
-                <span class="slider-value" id="valGpsDBSCANMinPts">4 s</span>
-              </div>
-              <input type="range" id="gpsDBSCANMinPts" min="2" max="15" step="0.5" value="4">
-              <div class="slider-rec" style="left:7.7%; width:38.5%"></div>
-              <p class="help-text">Min duration for a stationary stop. <strong>Recommended:</strong> 3–8 s.</p>
-            </div>
-
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>Kalman Smoother R</span>
-                <span class="slider-value" id="valGpsKalmanR">10 m²</span>
-              </div>
-              <input type="range" id="gpsKalmanR" min="0" max="25" step="0.1" value="10.0">
-              <div class="slider-rec" style="left:40%; width:30%"></div>
-              <p class="help-text">Measurement noise (m²) — how much you distrust the GPS. <strong>Default 10 m²</strong> (~3.2 m typical error). Uses a Rauch-Tung-Striebel (RTS) backward smoother — provably optimal for the whole track, no corner-overshoot issue. Set to 0 = off.</p>
-            </div>
-
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>Kalman Smoother Q</span>
-                <span class="slider-value" id="valGpsKalmanQ">0.5 m²</span>
-              </div>
-              <input type="range" id="gpsKalmanQ" min="0" max="5" step="0.05" value="0.5">
-              <div class="slider-rec" style="left:10%; width:20%"></div>
-              <p class="help-text">Process noise (m²/s) — how much you expect true position to change per second. <strong>Default 0.5</strong> for walking pace. Lower = heavier smoothing. The RTS backward pass ensures zero phase lag — no timing distortion. Set to 0 = off.</p>
-            </div>
+            <div class="control-subgroup-title">Display</div>
 
             <div class="slider-group">
               <div class="slider-label">
                 <span>RDP Simplification</span>
-                <span class="slider-value" id="valGpsRDP">5 m</span>
+                <span class="slider-value" id="valGpsRDP">off</span>
               </div>
               <input type="range" id="gpsRDP" min="0" max="20" step="0.5" value="0">
-              <div class="slider-rec" style="left:10%; width:15%"></div>
-              <p class="help-text">Path simplification tolerance. <strong>Recommended:</strong> 2–5 m (preserves walking path shape). Set to 0 = off.</p>
+              <p class="help-text">Path simplification (metres). 2–5 m preserves walking-path shape. 0 = off.</p>
             </div>
 
             <div class="slider-group">
               <div class="slider-label">
                 <span>Downsample Path</span>
-                <span class="slider-value" id="valGpsDownsample">1 Hz</span>
+                <span class="slider-value" id="valGpsDownsample">off</span>
               </div>
               <input type="range" id="gpsDownsample" min="0" max="1" step="1" value="0">
-              <p class="help-text">Downsample path to 1 Hz to prevent browser lag (0 = off, 1 = 1 Hz). Not needed if RDP is active.</p>
+              <p class="help-text">Downsample to 1 Hz for performance on large tracks. 0 = off, 1 = on.</p>
             </div>
           </div>
         </section>

@@ -42,19 +42,13 @@ const GSRStorage = {
   readGpsSliderValues() {
     const S = AppState.sliders;
     return {
-      minSats:      parseInt(S.gpsMinSats.value),
-      maxHdop:      parseFloat(S.gpsMaxHdop ? S.gpsMaxHdop.value : 0),
-      minFixType:   parseInt(S.gpsFixType ? S.gpsFixType.value : 0),
-      maxSpeed:     parseFloat(S.gpsMaxSpeed.value),
-      hampelWindow: parseInt(S.gpsHampelWindow.value),
-      hampelSigma:  parseFloat(S.gpsHampelSigma.value),
-      dbscanRadius: parseFloat(S.gpsDBSCANRadius.value),
-      dbscanMinPts: parseInt(S.gpsDBSCANMinPts.value),
-      kalmanR:      parseFloat(S.gpsKalmanR.value),
-      kalmanQ:      parseFloat(S.gpsKalmanQ.value),
-      rdpTolerance: parseFloat(S.gpsRDP.value),
-      downsample:   parseInt(S.gpsDownsample.value),
-      trackWeight:  parseInt(S.gpsTrackWeight.value),
+      smoothing:    parseFloat(S.gpsSmoothing ? S.gpsSmoothing.value : 0.5),
+      kalmanR:      parseFloat(S.gpsKalmanR ? S.gpsKalmanR.value : 10),
+      maxHdop:      parseFloat(S.gpsMaxHdop ? S.gpsMaxHdop.value : 3.0),
+      maxSpeed:     parseFloat(S.gpsMaxSpeed ? S.gpsMaxSpeed.value : 3.0),
+      rdpTolerance: parseFloat(S.gpsRDP ? S.gpsRDP.value : 0),
+      downsample:   parseInt(S.gpsDownsample ? S.gpsDownsample.value : 0),
+      trackWeight:  parseInt(S.gpsTrackWeight ? S.gpsTrackWeight.value : 5),
       peakLatency:  parseFloat(S.gpsPeakLatency ? S.gpsPeakLatency.value : 0)
     };
   },
@@ -85,16 +79,10 @@ const GSRStorage = {
   buildGpsParams() {
     const raw = this.readGpsSliderValues();
     return {
-      minSats:      raw.minSats,
-      maxHdop:      raw.maxHdop,
-      minFixType:   raw.minFixType,
-      maxSpeed:     raw.maxSpeed,
-      hampelWindow: raw.hampelWindow,
-      hampelSigma:  raw.hampelSigma,
-      dbscanRadius: raw.dbscanRadius,
-      dbscanMinPts: raw.dbscanMinPts,
+      smoothing:    raw.smoothing,
       kalmanR:      raw.kalmanR,
-      kalmanQ:      raw.kalmanQ,
+      maxHdop:      raw.maxHdop,
+      maxSpeed:     raw.maxSpeed,
       rdpTolerance: raw.rdpTolerance,
       downsample:   raw.downsample === 1,
       trackWeight:  raw.trackWeight,

@@ -371,16 +371,10 @@ const GSRTrackManager = {
     const S = AppState.sliders;
 
     const gpsMap = {
-      minSats: 'gpsMinSats',
-      maxHdop: 'gpsMaxHdop',
-      minFixType: 'gpsFixType',
-      maxSpeed: 'gpsMaxSpeed',
-      hampelWindow: 'gpsHampelWindow',
-      hampelSigma: 'gpsHampelSigma',
-      dbscanRadius: 'gpsDBSCANRadius',
-      dbscanMinPts: 'gpsDBSCANMinPts',
+      smoothing: 'gpsSmoothing',
       kalmanR: 'gpsKalmanR',
-      kalmanQ: 'gpsKalmanQ',
+      maxHdop: 'gpsMaxHdop',
+      maxSpeed: 'gpsMaxSpeed',
       rdpTolerance: 'gpsRDP',
       downsample: 'gpsDownsample',
       trackWeight: 'gpsTrackWeight',
