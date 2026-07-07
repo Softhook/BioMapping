@@ -146,6 +146,7 @@ static GpsPosition get_gps_position(const Session* s) {
     GpsPosition pos = {0};
     pos.hdop      = 99.9f;   // sentinel: unknown until GGA/GSA arrives
     pos.vdop      = 99.9f;
+    pos.wdop      = 99.9f;
     pos.fix_type  = 1;       // 1=no fix
     pos.speed_kts = NAN;
     pos.course_deg = NAN;

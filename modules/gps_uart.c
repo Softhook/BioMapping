@@ -50,19 +50,30 @@ static void gps_uart_irq_cb(
 
 // ── Constellation offset helper: maps a talker ID + raw PRN to the internal elevation array index ─────
 static int gps_get_constellation_offset(const char* talker_id, int prn) {
-    if(talker_id[0] == 'G') {
-        if(talker_id[1] == 'P') return 0;    // GPS / SBAS / QZSS
-        if(talker_id[1] == 'L') return 128;  // GLONASS
-        if(talker_id[1] == 'B' || talker_id[1] == 'D') return 64;   // BeiDou
-        if(talker_id[1] == 'A') return 192;  // Galileo
-        
-        if(talker_id[1] == 'N') { // Combined / Multi-constellation fallback
-            if(prn >= 1 && prn <= 32)   return 0;    // GPS
-            if(prn >= 65 && prn <= 96)  return 128;  // GLONASS
-            if(prn >= 120 && prn <= 158) return 0;   // SBAS
-            if(prn >= 141 && prn <= 177) return 64 - 141; // BeiDou NMEA 4.1 maps 141-177 to 64-100
-            if(prn >= 201 && prn <= 236) return 192 - 201; // Galileo NMEA 4.1 maps 201-236 to 192-227
-        }
+    // GPS / SBAS / QZSS: GP
+    if(talker_id[0] == 'G' && talker_id[1] == 'P') return 0;
+    
+    // GLONASS: GL
+    if(talker_id[0] == 'G' && talker_id[1] == 'L') return 300 - 65;
+    
+    // Galileo: GA
+    if(talker_id[0] == 'G' && talker_id[1] == 'A') return 250;
+    
+    // BeiDou: BD or GB
+    if((talker_id[0] == 'B' && talker_id[1] == 'D') ||
+       (talker_id[0] == 'G' && talker_id[1] == 'B')) {
+        return 210;
+    }
+    
+    // Combined / Multi-constellation fallback: GN
+    if(talker_id[0] == 'G' && talker_id[1] == 'N') {
+        if(prn >= 1 && prn <= 32)   return 0;    // GPS
+        if(prn >= 65 && prn <= 96)  return 300 - 65;  // GLONASS maps 65-96 to 300-331
+        if(prn >= 120 && prn <= 158) return 0;   // SBAS
+        if(prn >= 141 && prn <= 177) return 210 - 141 + 1; // BeiDou maps 141-177 to 211-247
+        if(prn >= 401 && prn <= 437) return 210 - 401 + 1; // BeiDou maps 401-437 to 211-247
+        if(prn >= 201 && prn <= 236) return 250 - 201 + 1; // Galileo maps 201-236 to 251-286
+        if(prn >= 301 && prn <= 336) return 250 - 301 + 1; // Galileo maps 301-336 to 251-286
     }
     return 0;
 }
@@ -82,7 +93,7 @@ static void gps_compute_wdop(GpsUart* g) {
         int prn = g->status.active_prns[i];
         int8_t elev = 0;
 
-        if(prn >= 0 && prn < 256) {
+        if(prn >= 0 && prn < 512) {
             elev = g->status.sat_elevation[prn];
         }
 
@@ -244,7 +255,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
                 if(prn > 0) {
                     int offset = gps_get_constellation_offset(talker_id, prn);
                     int idx = offset + prn;
-                    if(idx >= 0 && idx < 256) {
+                    if(idx >= 0 && idx < 512) {
                         g->status.sat_elevation[idx] =
                             (int8_t)frame.sats[i].elevation;
                     }

@@ -222,16 +222,17 @@ const GpsFilter = {
     // Helper: scale R by DOP².  Prefer WDOP (satellite-elevation-weighted,
     // 15–25% more discriminative than HDOP) when available; fall back to
     // HDOP for older CSVs without the wdop column.
-    // Clamp DOP to [0.5, 10] to avoid degenerate R values.
+    // Sentinel values >= 50.0 (e.g. 99.9 unknown) are treated as invalid,
+    // falling back to HDOP. Clamp DOP to [0.5, 10] to avoid degenerate R values.
     const getRLat = (pt) => {
-      const dop = !isNaN(pt.wdop) && pt.wdop > 0 ? pt.wdop :
-                  (!isNaN(pt.hdop) && pt.hdop > 0 ? pt.hdop : 1.0);
+      const dop = !isNaN(pt.wdop) && pt.wdop > 0 && pt.wdop < 50.0 ? pt.wdop :
+                  (!isNaN(pt.hdop) && pt.hdop > 0 && pt.hdop < 50.0 ? pt.hdop : 1.0);
       const h = Math.max(0.5, Math.min(10, dop));
       return R_LAT_BASE * h * h;
     };
     const getRLon = (pt) => {
-      const dop = !isNaN(pt.wdop) && pt.wdop > 0 ? pt.wdop :
-                  (!isNaN(pt.hdop) && pt.hdop > 0 ? pt.hdop : 1.0);
+      const dop = !isNaN(pt.wdop) && pt.wdop > 0 && pt.wdop < 50.0 ? pt.wdop :
+                  (!isNaN(pt.hdop) && pt.hdop > 0 && pt.hdop < 50.0 ? pt.hdop : 1.0);
       const h = Math.max(0.5, Math.min(10, dop));
       return R_LON_BASE * h * h;
     };
@@ -391,8 +392,9 @@ const GpsFilter = {
 
       // Compute effective alpha: scale down GPS trust proportionally to DOP.
       // Prefer WDOP when available; fall back to HDOP for older CSVs.
-      const dop = !isNaN(curr.wdop) && curr.wdop > 0 ? curr.wdop :
-                  (!isNaN(curr.hdop) && curr.hdop > 0 ? curr.hdop : 2.0);
+      // Sentinel values >= 50.0 (e.g. 99.9 unknown) are treated as invalid.
+      const dop = !isNaN(curr.wdop) && curr.wdop > 0 && curr.wdop < 50.0 ? curr.wdop :
+                  (!isNaN(curr.hdop) && curr.hdop > 0 && curr.hdop < 50.0 ? curr.hdop : 2.0);
       const h = Math.max(0.5, Math.min(10, dop));
       const effectiveAlpha = Math.max(0.1, Math.min(0.95, alpha / h));
 
