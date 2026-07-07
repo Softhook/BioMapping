@@ -25,6 +25,7 @@ struct GpsUart {
     bool                 ready;
     volatile bool        rx_pending;
     uint32_t             last_valid_nmea_tick;  // watchdog: last successful $Gx parse
+    struct minmea_time   last_epoch_time;
 };
 
 // UART IRQ — fires per received byte (ISR context).
@@ -47,30 +48,42 @@ static void gps_uart_irq_cb(
     }
 }
 
+// ── Constellation offset helper: maps a talker ID + raw PRN to the internal elevation array index ─────
+static int gps_get_constellation_offset(const char* talker_id, int prn) {
+    if(talker_id[0] == 'G') {
+        if(talker_id[1] == 'P') return 0;    // GPS / SBAS / QZSS
+        if(talker_id[1] == 'L') return 128;  // GLONASS
+        if(talker_id[1] == 'B' || talker_id[1] == 'D') return 64;   // BeiDou
+        if(talker_id[1] == 'A') return 192;  // Galileo
+        
+        if(talker_id[1] == 'N') { // Combined / Multi-constellation fallback
+            if(prn >= 1 && prn <= 32)   return 0;    // GPS
+            if(prn >= 65 && prn <= 96)  return 128;  // GLONASS
+            if(prn >= 120 && prn <= 158) return 0;   // SBAS
+            if(prn >= 141 && prn <= 177) return 64 - 141; // BeiDou NMEA 4.1 maps 141-177 to 64-100
+            if(prn >= 201 && prn <= 236) return 192 - 201; // Galileo NMEA 4.1 maps 201-236 to 192-227
+        }
+    }
+    return 0;
+}
+
 // ── WDOP helper: compute Weighted DOP from active PRN elevations. ────────
 // WDOP = sqrt(Σ 1/sin²(elevationᵢ)) for all active satellites.
 // Satellites near the horizon (low elevation) are up to 4× noisier than
 // overhead ones.  WDOP captures this; HDOP is blind to it.
 //
-// Tries each active PRN against three constellation offsets to handle the
-// case where GPS (offset 0), BeiDou (offset 64), and GLONASS (offset 128)
-// PRNs overlap in GNGSA.  Uses the first offset that has elevation data.
-// If no elevation data is available, WDOP stays at 99.9 (sentinel).
+// Since active_prns now stores constellation-offset PRNs directly,
+// we can do a direct single lookup in sat_elevation.
 static void gps_compute_wdop(GpsUart* g) {
     float sum_inv_sin2 = 0.0f;
     int   used = 0;
 
-    for(int i = 0; i < g->status.active_prn_count && i < 12; i++) {
+    for(int i = 0; i < g->status.active_prn_count && i < 32; i++) {
         int prn = g->status.active_prns[i];
         int8_t elev = 0;
 
-        // Try GPS offset (0), BeiDou offset (64), GLONASS offset (128)
-        if(prn < 64 && g->status.sat_elevation[prn]) {
+        if(prn >= 0 && prn < 256) {
             elev = g->status.sat_elevation[prn];
-        } else if(prn < 64 && g->status.sat_elevation[prn + 64]) {
-            elev = g->status.sat_elevation[prn + 64];
-        } else if(g->status.sat_elevation[prn + 128]) {
-            elev = g->status.sat_elevation[prn + 128];
         }
 
         if(elev > 0) {
@@ -112,6 +125,15 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             g->status.time = frame.time;
             g->status.date = frame.date;
             g->last_valid_nmea_tick = furi_get_tick();
+
+            // Clear active PRNs for the new epoch if time has changed
+            if(frame.time.hours != g->last_epoch_time.hours ||
+               frame.time.minutes != g->last_epoch_time.minutes ||
+               frame.time.seconds != g->last_epoch_time.seconds ||
+               frame.time.microseconds != g->last_epoch_time.microseconds) {
+                g->last_epoch_time = frame.time;
+                g->status.active_prn_count = 0;
+            }
         }
     } break;
 
@@ -130,6 +152,15 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             if(!isnan(gga_hdop)) g->status.hdop = gga_hdop;
             g->status.time               = frame.time;
             g->last_valid_nmea_tick = furi_get_tick();
+
+            // Clear active PRNs for the new epoch if time has changed
+            if(frame.time.hours != g->last_epoch_time.hours ||
+               frame.time.minutes != g->last_epoch_time.minutes ||
+               frame.time.seconds != g->last_epoch_time.seconds ||
+               frame.time.microseconds != g->last_epoch_time.microseconds) {
+                g->last_epoch_time = frame.time;
+                g->status.active_prn_count = 0;
+            }
         }
     } break;
 
@@ -167,13 +198,25 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             }
 
             // Store active PRNs for WDOP recomputation when the next GSV
-            // cycle completes.  PRNs can be up to 197 (QZSS) or 158 (SBAS)
-            // so use int, not int8_t.
-            int j = 0;
-            for(int i = 0; i < 12 && frame.sats[i] && j < 12; i++) {
-                g->status.active_prns[j++] = frame.sats[i];
+            // cycle completes. Map PRNs to their correct constellation-offset indices.
+            char talker_id[2] = {line[1], line[2]};
+            for(int i = 0; i < 12 && frame.sats[i]; i++) {
+                int raw_prn = frame.sats[i];
+                int offset = gps_get_constellation_offset(talker_id, raw_prn);
+                int prn_with_offset = raw_prn + offset;
+
+                // Add to active_prns list if not already present
+                bool found = false;
+                for(int k = 0; k < g->status.active_prn_count; k++) {
+                    if(g->status.active_prns[k] == prn_with_offset) {
+                        found = true;
+                        break;
+                    }
+                }
+                if(!found && g->status.active_prn_count < 32) {
+                    g->status.active_prns[g->status.active_prn_count++] = prn_with_offset;
+                }
             }
-            g->status.active_prn_count = j;
             gps_compute_wdop(g);
         }
     } break;
@@ -193,21 +236,13 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             }
             g->last_valid_nmea_tick = furi_get_tick();
 
-            // Determine constellation offset from talker prefix.
-            // $GPGSV → GPS (0), $BDGSV/$GBGSV → BeiDou (64),
-            // $GLGSV → GLONASS (128), $GAGSV → Galileo (192).
-            int offset = 0;
-            if(line[1] == 'G') {
-                if(line[2] == 'P')      offset = 0;    // GPS
-                else if(line[2] == 'L') offset = 128;  // GLONASS
-                else if(line[2] == 'B' || line[2] == 'D')
-                                        offset = 64;   // BeiDou
-                else if(line[2] == 'A') offset = 192;  // Galileo
-            }
+            // Determine constellation offset. Uses talker prefix and PRN range.
+            char talker_id[2] = {line[1], line[2]};
 
             for(int i = 0; i < 4; i++) {
                 int prn = frame.sats[i].nr;
                 if(prn > 0) {
+                    int offset = gps_get_constellation_offset(talker_id, prn);
                     int idx = offset + prn;
                     if(idx >= 0 && idx < 256) {
                         g->status.sat_elevation[idx] =

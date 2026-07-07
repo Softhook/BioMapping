@@ -31,7 +31,7 @@ typedef struct GpsStatus {
     float wdop;                 // Weighted DOP from GSV elevations; 99.9 = unknown
     int8_t sat_elevation[256];  // elevation per PRN (constellation-offset), 0 = no data
     bool  gsv_fresh;            // complete GSV cycle received since last GSA
-    int   active_prns[12];      // PRNs from most recent GSA (0-terminated)
+    int   active_prns[32];      // PRNs from current epoch's GSA sentences (constellation-offset)
     int   active_prn_count;     // number of active PRNs
     struct minmea_time time;
     struct minmea_date date;

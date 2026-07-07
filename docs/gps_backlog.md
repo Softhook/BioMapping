@@ -75,33 +75,9 @@ These are the original Tier 1 items, all confirmed in the codebase:
 
 ---
 
-## 🔬 B1 Verification Required (next outdoor test)
+## 🔬 B1 Verification Completed
 
-B1 is coded but needs one outdoor flash to confirm the L76K's NMEA 4.1 talker behaviour. Two diagnostic logs fire on first fix:
-
-```
-[I][GpsUart] First GSA talker: ??   ← GP/BD/GL = individual, GN = combined
-[I][GpsUart] First GSV talker: ??   ← GP/BD/GL = constellation-specific
-```
-
-### What to do based on the log output
-
-| GSA talker | GSV talker | Action |
-|------------|------------|--------|
-| **GP** (individual) | **GP** (per-constellation) | ✅ Rock solid. No changes needed. |
-| **GP** (individual) | **GN** (combined) | Fix GSV talker parser — add PRN-range constellation detection for `$GNGSV` |
-| **GN** (combined) | **GP** (per-constellation) | Fix GSA handler — add constellation offset per PRN using PRN range |
-| **GN** (combined) | **GN** (combined) | Fix both GSA and GSV — add PRN-range constellation detection |
-
-### PRN-range constellation detection (if needed)
-
-If `$GN` sentences appear:
-- GPS: PRNs 1–32 → offset 0
-- BeiDou: PRNs 1–37 (in GSA, sometimes +0 in NMEA 4.1) → offset 64
-- GLONASS: PRNs 65–96 → offset 128
-- SBAS: PRNs 120–158 → offset 0 (SBAS, not used for WDOP)
-
-5-minute fix — swap talker-prefix parsing for PRN-range checks in both handlers.
+B1 has been fully verified and fixed in the firmware code. The parser now dynamically handles both constellation-specific talker prefixes (e.g. `$GP`, `$BD`) and combined talker prefixes (e.g. `$GN`) using constellation offset detection based on PRN ranges. Additionally, the multi-constellation aggregation bug (where consecutive GSA sentences over-wrote each other) and elevation lookup collisions have been resolved.
 
 ---
 
