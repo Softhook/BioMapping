@@ -70,7 +70,11 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             g->status.altitude           = minmea_tofloat(&frame.altitude);
             g->status.satellites_tracked = frame.satellites_tracked;
             g->status.fix_quality        = frame.fix_quality;
-            g->status.hdop               = minmea_tofloat(&frame.hdop);
+            // Only overwrite HDOP when the field is present — minmea_tofloat
+            // returns NaN for empty fields, which would clobber a good reading
+            // from a prior GSA sentence.
+            float gga_hdop = minmea_tofloat(&frame.hdop);
+            if(!isnan(gga_hdop)) g->status.hdop = gga_hdop;
             g->status.time               = frame.time;
         }
     } break;
@@ -80,19 +84,25 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
         if(minmea_parse_gsa(&frame, line)) {
             // GSA gives the authoritative DOP values and distinguishes
             // 2D (fix_type=2) from 3D (fix_type=3).  GGA HDOP is kept
-            // as primary when GSA hasn't arrived yet; GSA overwrites.
+            // as primary when GSA hasn't arrived yet; GSA overwrites only
+            // when the field is present (non-NaN) to avoid clobbering a
+            // good reading from a previous sentence.
             g->status.fix_type = frame.fix_type;
-            g->status.hdop     = minmea_tofloat(&frame.hdop);
-            g->status.vdop     = minmea_tofloat(&frame.vdop);
+            float gsa_hdop = minmea_tofloat(&frame.hdop);
+            float gsa_vdop = minmea_tofloat(&frame.vdop);
+            if(!isnan(gsa_hdop)) g->status.hdop = gsa_hdop;
+            if(!isnan(gsa_vdop)) g->status.vdop = gsa_vdop;
         }
     } break;
 
     case MINMEA_SENTENCE_GLL: {
-        struct minmea_sentence_gll frame;
-        if(minmea_parse_gll(&frame, line)) {
-            g->status.latitude  = minmea_tocoord(&frame.latitude);
-            g->status.longitude = minmea_tocoord(&frame.longitude);
-            g->status.time      = frame.time;
+        // GLL is disabled in the current PCAS config, but guard the validity
+        // flag here so stale/void sentences never overwrite good coordinates.
+        struct minmea_sentence_gll gll_frame;
+        if(minmea_parse_gll(&gll_frame, line) && gll_frame.status == MINMEA_STATUS_A) {
+            g->status.latitude  = minmea_tocoord(&gll_frame.latitude);
+            g->status.longitude = minmea_tocoord(&gll_frame.longitude);
+            g->status.time      = gll_frame.time;
         }
     } break;
 

@@ -190,7 +190,9 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                                   (g.fix_type == 2) ? "2D" : "--";
             snprintf(badge, sizeof(badge), "H:%.1f %s", (double)g.hdop, fix_str);
         }
-        // Right-align: leave 3 px gap before recording-indicator box when active
+        // Right-align: leave 3 px gap before recording-indicator box when active.
+        // Set font explicitly here — rendering order must not be assumed.
+        canvas_set_font(c, FontSecondary);
         int right_x = a->session.recording.active ? 115 : 126;
         canvas_draw_str(c, right_x - canvas_string_width(c, badge), 10, badge);
     }

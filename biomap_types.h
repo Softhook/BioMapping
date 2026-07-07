@@ -26,8 +26,10 @@
 // too imprecise to log.  Empty GPS columns are written instead, which
 // the analyser treats as a gap rather than a noisy position.
 // Also used by the LED indicator: blue blinks until HDOP drops below this.
-// 3.0 = "good" in standard DOP terminology; raise to 5.0 in poor-sky areas.
-#define GPS_HDOP_GATE    3.0f
+// DOP terminology: < 2 = excellent, < 5 = good, < 10 = moderate, ≥ 10 = poor.
+// 5.0 is appropriate for urban use (canyons/trees regularly push HDOP to 3–5).
+// Lower to 3.0 for open-sky environments where higher precision is achievable.
+#define GPS_HDOP_GATE    5.0f
 #define SMOOTH_IIR_A     0.848f  // α for 3 Hz post-decimation smoothing IIR at 10 Hz
 #define SMOOTH_IIR_B     0.152f  // 1 - α, precomputed
 #define DISPLAY_EMA_A    0.2f

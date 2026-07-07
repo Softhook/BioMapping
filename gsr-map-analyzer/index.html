@@ -268,8 +268,8 @@
                 <span class="slider-value" id="valGpsMaxHdop">off</span>
               </div>
               <input type="range" id="gpsMaxHdop" min="0" max="10" step="0.1" value="0">
-              <div class="slider-rec" style="left:15%; width:35%"></div>
-              <p class="help-text">Rejects GPS fixes with poor geometric accuracy. Lower = stricter. <strong>Recommended:</strong> 1.5–3.5. Needs firmware ≥ v2.1. Set to 0 = off.</p>
+              <div class="slider-rec" style="left:30%; width:20%"></div>
+              <p class="help-text">Rejects GPS fixes with poor geometric accuracy. Lower = stricter. <strong>Recommended:</strong> 3.0–5.0. <strong>Note:</strong> firmware ≥ v2.1 already pre-filters at HDOP &lt; 5.0 at record time — use this slider for stricter post-processing or to clean up legacy CSVs. Set to 0 = off.</p>
             </div>
 
             <div class="slider-group">
