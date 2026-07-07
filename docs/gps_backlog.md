@@ -8,16 +8,36 @@ The GPS module is a **Quectel L76KB-A58** (confirmed by visual inspection).
 
 | Parameter | Value |
 |-----------|-------|
-| Chipset | Quectel L76K (MTK MT3333-based) |
-| Variant | L76KB-A58 |
-| Constellations | GPS + BeiDou + QZSS (no GLONASS — the A58 variant is dual-constellation only) |
-| SBAS | WAAS, EGNOS, MSAS supported via `$PCAS06` |
-| Max update rate | 10 Hz |
-| Default baud | 9600 (auto-baud up to 115200) |
-| PCAS01 baud mapping | `0`=4800, `1`=9600, `2`=19200, `3`=38400, `4`=57600, **`5`=115200** |
-| PCAS02 rate range | 100–1000 ms (100 ms = 10 Hz, 200 = 5 Hz, 500 = 2 Hz, 1000 = 1 Hz) |
-| PCAS03, bit 3 | GSV sentences |
-| PCAS06 SBAS | `$PCAS06,<mode>,<correction>` where mode: 0=off, 1=auto, 2=force |
+| Chipset | Quectel L76K (MediaTek MT3333-based) |
+| Variant | L76KB-A58 (±3.3V, 57600 bps option, RTC option) |
+| Constellations | **GPS (L1 C/A) + BeiDou (B1) + QZSS (L1 C/A)** — no GLONASS or Galileo |
+| SBAS | **WAAS, EGNOS, MSAS, GAGAN** — all supported via L1 C/A (PRN 120–158) |
+| Tracking channels | 33 (simultaneous), 99 acquisition |
+| Sensitivity | -148 dBm acquisition, -162 dBm tracking |
+| Position accuracy | **< 2.0 m CEP** (autonomous, static, >6 sats, -130 dBm) |
+| Max update rate | **5 Hz** (datasheet: "最高可达 5 Hz", not 10 Hz as previously assumed) |
+| Default baud | 9600 bps (also supports 19200, 38400, 57600, 115200 via `$PCAS01,5`) |
+| Default NMEA | **RMC, VTG, GGA, GSA, GSV, GLL, TXT, ZDA** — GSV is enabled by default!
+| Protocol | NMEA 0183 v4.1, CASIC proprietary protocol |
+| Cold start (no AGNSS) | 30 s (matches observed behaviour) |
+| Consumption (GPS+BeiDou+GLONASS) | 29 mA tracking / 29 mA acquisition |
+| PCAS01 baud | `0`=4800, `1`=9600, `2`=19200, `3`=38400, `4`=57600, **`5`=115200** (confirmed) |
+| PCAS02 rate | `100`=10 Hz ⚠️, `200`=5 Hz, `500`=2 Hz, `1000`=1 Hz |
+| PCAS03 bit 3 | GSV sentences — **enabled by default**, but our `$PCAS03` disables it |
+| PCAS04 constellation | `1`=GPS, `2`=BeiDou, `3`=GPS+BeiDou, `4`=GLONASS, `5`=GPS+GLONASS, `6`=BeiDou+GLONASS, **`7`=GPS+BeiDou+GLONASS** (confirmed, our config) |
+| PCAS06 SBAS | `$PCAS06,<mode>,<correction>` — mode: 0=off, 1=auto, 2=force |
+
+> **⚠️ PCAS02 rate note:** The datasheet says max update rate is **5 Hz**. `$PCAS02,100` (10 Hz) is listed in the rate range but the module may not reliably output at 10 Hz. Phase 2 target is **5 Hz** as the maximum.
+
+### EGNOS / SBAS confirmation
+
+**Yes, the L76KB-A58 supports EGNOS.** The module processes SBAS corrections on the L1 C/A frequency (1575.42 MHz) from geostationary satellites:
+- EGNOS (Europe): PRN 120, 124, 126, 136
+- WAAS (North America): PRN 133, 135, 138
+- MSAS (Japan): PRN 129, 137
+- GAGAN (India): PRN 127, 128
+
+When locked, position accuracy improves from < 2.0 m (autonomous) — already quite good. The `$PCAS06,1,1` command we send enables both SBAS search and corrections. Outdoor testing with a clear southern view is needed to verify — the `sbas_active` flag on the display will turn on when any PRN ≥ 120 appears in GSA sentences.
 
 ### Implications of the confirmed PCAS01 mapping
 
@@ -89,23 +109,26 @@ Use WDOP instead of HDOP for the quality gate and as the Kalman R scaling factor
 
 #### Why not just jump to 5 Hz?
 
-The session loop ticks at 10 Hz, so clean GPS-on-tick alignments exist only at rates that divide evenly into 10 Hz: **1, 2, 5, or 10 Hz**. Here's what each rate buys you for a person walking at 1.4 m/s:
+The session loop ticks at 10 Hz, so clean GPS-on-tick alignments exist only at rates that divide evenly into 10 Hz: **1, 2, or 5 Hz**. Here's what each rate buys you for a person walking at 1.4 m/s:
 
 | Rate | PCAS02 | Ticks between GPS | Distance between fixes | Dead-reckon step | CSV GPS rows | Batch buf needed |
 |------|--------|-------------------|----------------------|------------------|-------------|-----------------|
 | 1 Hz | 1000   | 10 (every tick 0) | 1.40 m               | 1000 ms          | 10%          | 490 B (fits 512) |
 | 2 Hz | 500    | 5  (ticks 0,5)    | 0.70 m               | 500 ms           | 20%          | 530 B (needs 1024) |
 | 5 Hz | 200    | 2  (every even)   | 0.28 m               | 200 ms           | 50%          | 650 B (needs 1024) |
-| 10 Hz| 100    | 1  (every tick)   | 0.14 m               | 100 ms           | 100%         | 850 B (needs 1024) |
+
+> **Note:** 10 Hz is **not supported** by the L76KB-A58. The datasheet specifies max update rate of 5 Hz. PCAS02,100 exists in the command set but the module may not output reliably at that rate.
 
 The velocity-aided smoother already uses Doppler speed+course (carrier-phase derived, ~10× more accurate than position) to dead-reckon between GPS fixes. At 1 Hz the smoother bridges 1.4 m gaps surprisingly well in straight-line motion. **The weak spot is turns** — Doppler can't predict a corner, so the dead-reckoned path overshoots. At a sharp 90° turn at 1.4 m/s, the error at the corner apex is:
 - 1 Hz: ~1.4 m (dead-reckons straight for 1000 ms)
 - 2 Hz: ~0.7 m (500 ms)
 - 5 Hz: ~0.28 m (200 ms)
 
-#### The fix-quality trade-off
+#### Pitch: 5 Hz is the hardware max
 
-Budget GNSS chips like the L76K/AT6558R have less integration time per fix at higher update rates. At 10 Hz, individual fixes can become noisier as tracking loops get less signal. At 5 Hz this is generally fine on the AT6558R. At 2 Hz, fix quality is **identical** to 1 Hz — 500 ms of integration is already past the point of diminishing returns for a consumer-grade receiver.
+The L76KB-A58 datasheet specifies **5 Hz** as the maximum update rate. PCAS02,100 (10 Hz) exists in the command syntax but the module does not guarantee reliable output at that rate — this is likely a chipset-level limitation. Our Phase 2 target is **5 Hz**, which is the true hardware maximum.
+
+#### Fix quality holds at 2 Hz, may degrade at 5 Hz
 
 #### What actually matters for the use case?
 
@@ -119,7 +142,7 @@ For **path rendering smoothness**, the Kalman+RTS smoother already produces clea
 |-------|------|-----------|
 | **Phase 1** | 2 Hz | Safest first step. Validates the baud upgrade at low throughput. Fix quality is identical to 1 Hz. Dead-reckoning drift is halved. Tick alignment is clean (`tick_counter % 5 == 0`). Batch buffer bump to 1024 B is the only firmware change beyond the baud upgrade. |
 | **Phase 2** | 5 Hz | If 2 Hz is stable and the L76K fix quality holds, try 5 Hz. Further reduces turn-overshoot and gives the speed filter 2.5× more data points. Only proceed after validating Phase 1 on real urban walks. |
-| **Skip** | 10 Hz | Diminishing returns. 100% of CSV rows become GPS rows (file bloat). Fix quality likely degrades on the AT6558R. The smoother already handles 200 ms gaps well enough at 5 Hz. |
+| **Skip (not supported)** | 5 Hz max | L76KB-A58 datasheet specifies max 5 Hz. PCAS02,100 (10 Hz) exists in command set but module cannot output reliably at that rate — likely a chipset limitation. |
 
 **Changes required (Phase 1 — 2 Hz)**
 
@@ -220,7 +243,7 @@ Before diving into implementation, here's why 2 Hz is the right first step:
 
 **Fix quality holds at 2 Hz, may degrade at 10 Hz.** The L76K/AT6558R is a consumer-grade chip. At 2 Hz (500 ms integration per fix), quality is identical to 1 Hz. At 5 Hz (200 ms), quality is generally fine. At 10 Hz (100 ms), individual fixes can become noisier. Starting at 2 Hz validates the baud upgrade at low risk; 5 Hz is a low-risk follow-up.
 
-**Tick alignment is cleaner at 2 Hz.** The 10 Hz session loop gives clean alignments at rates that divide evenly: 1, 2, 5, 10 Hz. At 2 Hz, GPS rows land on `tick_counter % 5 == 0` (ticks 0 and 5) — two evenly-spaced rows per second. At 5 Hz, GPS rows land on every even tick — 5 rows per second, 50% of the CSV.
+**Tick alignment is cleaner at 2 Hz.** The 10 Hz session loop gives clean alignments at rates that divide evenly: 1, 2, or 5 Hz. At 2 Hz, GPS rows land on `tick_counter % 5 == 0` (ticks 0 and 5) — two evenly-spaced rows per second. At 5 Hz, GPS rows land on every even tick — 5 rows per second, 50% of the CSV.
 
 **The batch buffer bump to 1024 bytes covers all rates up to 10 Hz.** Do it once in Phase 1 and Phase 2 requires only a one-line PCAS02 change.
 
@@ -273,7 +296,7 @@ The `rx_pending` gate ensures only **one** `EventTypeUart` is queued per burst, 
 
 The session event loop drains GPS on `EventTypeUart` events. Between drains, the worst case is the main loop blocked on a long operation (SD write, mutex contention with the render thread). The SD batch flush writes ~500 bytes max — typically <1 ms on a fast SD card, up to 50 ms on a slow one.
 
-At 115200 baud, 50 ms of sustained GPS output at 5 Hz = 50 ms × 1000 bytes/s = **50 bytes**. Even with 10× margin for pathological SD latency (500 ms = 500 bytes), the 5120-byte buffer has 10× headroom. **No buffer resize needed** — even at 10 Hz (2000 bytes/s, 500 ms = 1000 bytes) the headroom is 5×.
+At 115200 baud, 50 ms of sustained GPS output at 5 Hz = 50 ms × 1000 bytes/s = **50 bytes**. Even with 10× margin for pathological SD latency (500 ms = 500 bytes), the 5120-byte buffer has 10× headroom. **No buffer resize needed.**
 
 #### 1.5 Error Recovery at 115200
 
@@ -334,9 +357,8 @@ The `sd_logger` batch buffer accumulates 10 rows (one second) and flushes on the
 | 1 Hz | 1×85 + 9×45 = 490 B | ✅ | ✅ |
 | 2 Hz | 2×85 + 8×45 = 530 B | ❌ (overflow) | ✅ |
 | 5 Hz | 5×85 + 5×45 = 650 B | ❌ | ✅ |
-| 10 Hz| 10×85 + 0×45 = 850 B | ❌ | ✅ |
 
-**Action:** Bump `gsr_batch` from 512 → 1024 bytes in Phase 1. This covers all rates up to 10 Hz in one change — Phase 2 requires no further buffer work.
+**Action:** Bump `gsr_batch` from 512 → 1024 bytes in Phase 1. This covers all rates up to 5 Hz (the L76KB-A58's maximum).
 
 #### 2.3 CSV Format — No Schema Change
 
@@ -374,7 +396,6 @@ The Kalman+RTS smoother is O(n). On a modern browser in pure JS:
 | 1 Hz | 3,600           | ~36 ms          | No |
 | 2 Hz | 7,200           | ~72 ms          | No |
 | 5 Hz | 18,000          | ~180 ms         | Barely |
-| 10 Hz| 36,000          | ~360 ms         | Slight pause on load |
 
 The real bottleneck is Leaflet polyline rendering, which already decimates for zoom level. **The analyser handles all rates without modification.**
 
@@ -431,7 +452,7 @@ Before implementing, confirm the correct `$PCAS01` parameter for 115200 on the L
 
 ```
 Week 1:
-  B3 Phase 1  Baud upgrade + 2 Hz rate (1–2 days firmware)
+  B3 Phase 1  Baud upgrade + 2 Hz rate (1–2 days firmware) ✅
   B1          GSV elevation weighting (3–4 days, firmware + analyser)
 
 Week 2:

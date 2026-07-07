@@ -316,7 +316,7 @@ static void gps_uart_configure(GpsUart* g) {
     furi_assert(g);
     if(!g->ready || !g->serial_handle) return;
     FURI_LOG_I("GpsUart", "Configuring GPS at 9600 baud, 2 Hz");
-    pcas_tx(g, "$PCAS04,7*1E\r\n");                             // GPS+BeiDou+GLONASS
+    pcas_tx(g, "$PCAS04,7*1E\r\n");                             // GPS+BeiDou+GLONASS (L76KB-A58 supports all three)
     pcas_tx(g, "$PCAS03,1,0,1,0,1,0,0,0,0,0,,,0,0*03\r\n");   // GGA + GSA + RMC
     pcas_tx(g, "$PCAS02,500*1A\r\n");                           // 2 Hz update rate
     pcas_tx(g, "$PCAS06,1,1*07\r\n");                           // Force-enable SBAS corrections (WAAS/EGNOS)
