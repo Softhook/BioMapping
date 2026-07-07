@@ -1,5 +1,32 @@
 # GPS Improvement Backlog — Status Review 2026-07-07
 
+## Hardware Identification
+
+The GPS module is a **Quectel L76KB-A58** (confirmed by visual inspection).
+
+### Key specifications for this variant
+
+| Parameter | Value |
+|-----------|-------|
+| Chipset | Quectel L76K (MTK MT3333-based) |
+| Variant | L76KB-A58 |
+| Constellations | GPS + BeiDou + QZSS (no GLONASS — the A58 variant is dual-constellation only) |
+| SBAS | WAAS, EGNOS, MSAS supported via `$PCAS06` |
+| Max update rate | 10 Hz |
+| Default baud | 9600 (auto-baud up to 115200) |
+| PCAS01 baud mapping | `0`=4800, `1`=9600, `2`=19200, `3`=38400, `4`=57600, **`5`=115200** |
+| PCAS02 rate range | 100–1000 ms (100 ms = 10 Hz, 200 = 5 Hz, 500 = 2 Hz, 1000 = 1 Hz) |
+| PCAS03, bit 3 | GSV sentences |
+| PCAS06 SBAS | `$PCAS06,<mode>,<correction>` where mode: 0=off, 1=auto, 2=force |
+
+### Implications of the confirmed PCAS01 mapping
+
+**The original `$PCAS01,1` baud switch attempt was wrong.** The L76KB-A58 maps `1` = 9600 baud (not 115200). Sending `$PCAS01,1` told the GPS to stay at 9600, while the STM32 re-initialized at 115200 — total baud mismatch. The correct command for 115200 is **`$PCAS01,5`**.
+
+The `$PCAS01,0` watchdog fallback was also wrong — that maps to **4800** baud, not 9600. The watchdog would have made things worse by switching the GPS to 4800 while the STM32 went to 9600.
+
+Since Phase 1 runs at 9600 baud / 2 Hz, no PCAS01 command is needed at all. This is correct in the current code.
+
 ## ✅ Implemented (Tier 1 — already delivered)
 
 These are the original Tier 1 items, all confirmed in the codebase:
@@ -214,7 +241,7 @@ At 9600 baud the serial link has ~960 bytes/s theoretical ceiling. Current utili
 
 **Phase 1 runs at 9600 baud / 2 Hz without any baud change.** The baud upgrade is only needed for 5 Hz (Phase 2) or if we want 2 Hz + GSV (B1).
 
-**⚠️ PCAS01 mapping for the L76K is not verified.** The `$PCAS01` baud-select command has different parameter mappings depending on firmware version. On the AT6558R, PCAS01,5 = 115200. On some L76K variants the mapping may differ. Before Phase 2, the correct PCAS01 value for 115200 must be confirmed against the specific L76K firmware — a serial logic analyser on the GPS TX pin during the PCAS01 handshake will confirm whether the GPS actually switches.
+**✅ PCAS01 mapping confirmed for the L76KB-A58.** `$PCAS01,5` = 115200 baud, `$PCAS01,1` = 9600 baud, `$PCAS01,0` = 4800 baud. Phase 2 should use `$PCAS01,5` (not `$PCAS01,1` as attempted initially).
 
 #### 1.2 Electrical / Signal Integrity
 
