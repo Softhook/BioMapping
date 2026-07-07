@@ -47,6 +47,43 @@ static void gps_uart_irq_cb(
     }
 }
 
+// ── WDOP helper: compute Weighted DOP from active PRN elevations. ────────
+// WDOP = sqrt(Σ 1/sin²(elevationᵢ)) for all active satellites.
+// Satellites near the horizon (low elevation) are up to 4× noisier than
+// overhead ones.  WDOP captures this; HDOP is blind to it.
+//
+// Tries each active PRN against three constellation offsets to handle the
+// case where GPS (offset 0), BeiDou (offset 64), and GLONASS (offset 128)
+// PRNs overlap in GNGSA.  Uses the first offset that has elevation data.
+// If no elevation data is available, WDOP stays at 99.9 (sentinel).
+static void gps_compute_wdop(GpsUart* g) {
+    float sum_inv_sin2 = 0.0f;
+    int   used = 0;
+
+    for(int i = 0; i < g->status.active_prn_count && i < 12; i++) {
+        int prn = g->status.active_prns[i];
+        int8_t elev = 0;
+
+        // Try GPS offset (0), BeiDou offset (64), GLONASS offset (128)
+        if(prn < 64 && g->status.sat_elevation[prn]) {
+            elev = g->status.sat_elevation[prn];
+        } else if(prn < 64 && g->status.sat_elevation[prn + 64]) {
+            elev = g->status.sat_elevation[prn + 64];
+        } else if(g->status.sat_elevation[prn + 128]) {
+            elev = g->status.sat_elevation[prn + 128];
+        }
+
+        if(elev > 0) {
+            float sin_e = sinf((float)elev * (float)M_PI / 180.0f);
+            if(sin_e > 0.01f) {
+                sum_inv_sin2 += 1.0f / (sin_e * sin_e);
+                used++;
+            }
+        }
+    }
+    g->status.wdop = (used > 0) ? sqrtf(sum_inv_sin2) : 99.9f;
+}
+
 // NMEA sentence dispatcher
 static void gps_uart_parse_line(GpsUart* g, char* line) {
     // Log proprietary PCAS messages for configuration debugging (SBAS status, etc.)
@@ -99,6 +136,15 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
     case MINMEA_SENTENCE_GSA: {
         struct minmea_sentence_gsa frame;
         if(minmea_parse_gsa(&frame, line)) {
+            // Log GSA talker prefix on first sighting to confirm whether
+            // the L76K emits individual ($GPGSA/$BDGSA) or combined
+            // ($GNGSA).  Individual GSA eliminates PRN collision.
+            static bool gsa_talker_logged = false;
+            if(!gsa_talker_logged) {
+                gsa_talker_logged = true;
+                FURI_LOG_I("GpsUart", "First GSA talker: %c%c",
+                           line[1], line[2]);
+            }
             // GSA gives the authoritative DOP values and distinguishes
             // 2D (fix_type=2) from 3D (fix_type=3).  GGA HDOP is kept
             // as primary when GSA hasn't arrived yet; GSA overwrites only
@@ -112,14 +158,70 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             g->last_valid_nmea_tick = furi_get_tick();
 
             // Check if any tracked satellite is an SBAS bird (PRN >= 120).
-            // WAAS uses 120–138, EGNOS uses 120–158.  A single SBAS PRN
-            // in the fix means corrections are actively being applied.
             g->status.sbas_active = false;
             for(int i = 0; i < 12 && frame.sats[i]; i++) {
                 if(frame.sats[i] >= 120) {
                     g->status.sbas_active = true;
                     break;
                 }
+            }
+
+            // Store active PRNs for WDOP recomputation when the next GSV
+            // cycle completes.  PRNs can be up to 197 (QZSS) or 158 (SBAS)
+            // so use int, not int8_t.
+            int j = 0;
+            for(int i = 0; i < 12 && frame.sats[i] && j < 12; i++) {
+                g->status.active_prns[j++] = frame.sats[i];
+            }
+            g->status.active_prn_count = j;
+            gps_compute_wdop(g);
+        }
+    } break;
+
+    case MINMEA_SENTENCE_GSV: {
+        // ── Parse GSV for per-satellite elevation angles ──────────────
+        struct minmea_sentence_gsv frame;
+        if(minmea_parse_gsv(&frame, line)) {
+            // Log the GSV talker prefix on first sighting so we can
+            // confirm the L76K emits constellation-specific GSV
+            // ($GPGSV / $BDGSV / $GLGSV) rather than $GNGSV.
+            static bool gsv_talker_logged = false;
+            if(!gsv_talker_logged) {
+                gsv_talker_logged = true;
+                FURI_LOG_I("GpsUart", "First GSV talker: %c%c",
+                           line[1], line[2]);
+            }
+            g->last_valid_nmea_tick = furi_get_tick();
+
+            // Determine constellation offset from talker prefix.
+            // $GPGSV → GPS (0), $BDGSV/$GBGSV → BeiDou (64),
+            // $GLGSV → GLONASS (128), $GAGSV → Galileo (192).
+            int offset = 0;
+            if(line[1] == 'G') {
+                if(line[2] == 'P')      offset = 0;    // GPS
+                else if(line[2] == 'L') offset = 128;  // GLONASS
+                else if(line[2] == 'B' || line[2] == 'D')
+                                        offset = 64;   // BeiDou
+                else if(line[2] == 'A') offset = 192;  // Galileo
+            }
+
+            for(int i = 0; i < 4; i++) {
+                int prn = frame.sats[i].nr;
+                if(prn > 0) {
+                    int idx = offset + prn;
+                    if(idx >= 0 && idx < 256) {
+                        g->status.sat_elevation[idx] =
+                            (int8_t)frame.sats[i].elevation;
+                    }
+                }
+            }
+
+            // When the GSV cycle completes, recompute WDOP from the
+            // fresh elevations and the stored active PRN set.  This
+            // handles the race where GSA arrives between GSV messages.
+            if(frame.msg_nr == frame.total_msgs) {
+                g->status.gsv_fresh = true;
+                gps_compute_wdop(g);
             }
         }
     } break;
@@ -160,18 +262,23 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
         .latitude           = NAN,
         .longitude          = NAN,
         .altitude           = 0.0f,
-        .speed              = NAN,    // set on first RMC sentence
-        .course             = NAN,    // set on first RMC sentence
+        .speed              = NAN,
+        .course             = NAN,
         .hdop               = 99.9f,
         .vdop               = 99.9f,
         .fix_quality        = 0,
-        .fix_type           = 1,   // 1=no fix, 2=2D, 3=3D
+        .fix_type           = 1,
         .satellites_tracked = 0,
         .fix_valid          = false,
         .sbas_active        = false,
+        .wdop               = 99.9f,
+        .gsv_fresh          = false,
+        .active_prn_count   = 0,
         .time               = {0},
         .date               = {0},
     };
+    memset(g->status.sat_elevation, 0, sizeof(g->status.sat_elevation));
+    memset(g->status.active_prns, 0, sizeof(g->status.active_prns));
     g->last_valid_nmea_tick = 0;
 
     g->rx_stream = furi_stream_buffer_alloc(GPS_RX_BUF_SIZE, 1);
@@ -317,7 +424,7 @@ static void gps_uart_configure(GpsUart* g) {
     if(!g->ready || !g->serial_handle) return;
     FURI_LOG_I("GpsUart", "Configuring GPS at 9600 baud, 2 Hz");
     pcas_tx(g, "$PCAS04,7*1E\r\n");                             // GPS+BeiDou+GLONASS (L76KB-A58 supports all three)
-    pcas_tx(g, "$PCAS03,1,0,1,0,1,0,0,0,0,0,,,0,0*03\r\n");   // GGA + GSA + RMC
+    pcas_tx(g, "$PCAS03,1,0,1,0,1,1,0,0,0,0,,,0,0*02\r\n");   // GGA+GSA+RMC+GSV
     pcas_tx(g, "$PCAS02,500*1A\r\n");                           // 2 Hz update rate
     pcas_tx(g, "$PCAS06,1,1*07\r\n");                           // Force-enable SBAS corrections (WAAS/EGNOS)
 }

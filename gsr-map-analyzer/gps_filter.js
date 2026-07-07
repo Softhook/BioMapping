@@ -219,18 +219,20 @@ const GpsFilter = {
     const Q_LAT = Q_m2 * M2_TO_DEG2_LAT;
     const Q_LON = Q_m2 * M2_TO_DEG2_LON;
 
-    // Helper: scale R by HDOP² for this point.
-    // Clamp HDOP to [0.5, 10] to avoid degenerate R values.
+    // Helper: scale R by DOP².  Prefer WDOP (satellite-elevation-weighted,
+    // 15–25% more discriminative than HDOP) when available; fall back to
+    // HDOP for older CSVs without the wdop column.
+    // Clamp DOP to [0.5, 10] to avoid degenerate R values.
     const getRLat = (pt) => {
-      const hdop = pt.hdop;
-      if (isNaN(hdop) || hdop <= 0) return R_LAT_BASE;
-      const h = Math.max(0.5, Math.min(10, hdop));
+      const dop = !isNaN(pt.wdop) && pt.wdop > 0 ? pt.wdop :
+                  (!isNaN(pt.hdop) && pt.hdop > 0 ? pt.hdop : 1.0);
+      const h = Math.max(0.5, Math.min(10, dop));
       return R_LAT_BASE * h * h;
     };
     const getRLon = (pt) => {
-      const hdop = pt.hdop;
-      if (isNaN(hdop) || hdop <= 0) return R_LON_BASE;
-      const h = Math.max(0.5, Math.min(10, hdop));
+      const dop = !isNaN(pt.wdop) && pt.wdop > 0 ? pt.wdop :
+                  (!isNaN(pt.hdop) && pt.hdop > 0 ? pt.hdop : 1.0);
+      const h = Math.max(0.5, Math.min(10, dop));
       return R_LON_BASE * h * h;
     };
 
@@ -387,9 +389,12 @@ const GpsFilter = {
       const curr = points[i];
       const dt   = Math.max(0, curr.time - prev.time);
 
-      // Compute effective alpha: scale down GPS trust proportionally to HDOP
-      const hdop = isNaN(curr.hdop) || curr.hdop <= 0 ? 2.0 : Math.max(0.5, Math.min(10, curr.hdop));
-      const effectiveAlpha = Math.max(0.1, Math.min(0.95, alpha / hdop));
+      // Compute effective alpha: scale down GPS trust proportionally to DOP.
+      // Prefer WDOP when available; fall back to HDOP for older CSVs.
+      const dop = !isNaN(curr.wdop) && curr.wdop > 0 ? curr.wdop :
+                  (!isNaN(curr.hdop) && curr.hdop > 0 ? curr.hdop : 2.0);
+      const h = Math.max(0.5, Math.min(10, dop));
+      const effectiveAlpha = Math.max(0.1, Math.min(0.95, alpha / h));
 
       // Dead-reckon from prev position using prev point's speed+course
       let predLat = curr.lat;

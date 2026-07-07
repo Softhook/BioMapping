@@ -69,39 +69,43 @@ These are the original Tier 1 items, all confirmed in the codebase:
 
 | # | Item | Where |
 |---|------|-------|
-| B2 | **Proper RTS (Rauch-Tung-Striebel) Smoother** — forward pass stores P_fwd[i]; backward pass uses optimal gain A_i = P_fwd[i]/(P_fwd[i]+Q·dt). Per-point 4 m displacement cap. Verified: 55% reduction on synthetic 20 m multipath spike (23.5→10.4 m). | `gps_filter.js:applyKalman()` |
-| B4 | **Confirm and Force SBAS/EGNOS** — `$PCAS06,1,1` force-enables WAAS/EGNOS correction during GPS init. PCAS responses logged via `FURI_LOG_D`. | `modules/gps_uart.c:gps_uart_configure()` |
+| B1 | **GSV Satellite Elevation Weighting** — WDOP from per-satellite elevations, constellation-aware PRN storage, CSV `wdop` column, analyser prefers WDOP over HDOP for Kalman R. | 7 files: `gps_uart.h/.c`, `biomap_types.h`, `biomap_session.c`, `gps_filter.js`, `analyzer.js` |
+| B2 | **Proper RTS (Rauch-Tung-Striebel) Smoother** — forward pass stores P_fwd[i]; backward pass uses optimal gain. 4 m displacement cap. 55% reduction on synthetic 20 m multipath spike. | `gps_filter.js:applyKalman()` |
+| B4 | **Confirm and Force SBAS/EGNOS** — `$PCAS06,1,1` force-enables WAAS/EGNOS correction. Display shows SBAS indicator when PRN ≥120 in GSA. | `modules/gps_uart.c`, `biomap_render.c` |
+
+---
+
+## 🔬 B1 Verification Required (next outdoor test)
+
+B1 is coded but needs one outdoor flash to confirm the L76K's NMEA 4.1 talker behaviour. Two diagnostic logs fire on first fix:
+
+```
+[I][GpsUart] First GSA talker: ??   ← GP/BD/GL = individual, GN = combined
+[I][GpsUart] First GSV talker: ??   ← GP/BD/GL = constellation-specific
+```
+
+### What to do based on the log output
+
+| GSA talker | GSV talker | Action |
+|------------|------------|--------|
+| **GP** (individual) | **GP** (per-constellation) | ✅ Rock solid. No changes needed. |
+| **GP** (individual) | **GN** (combined) | Fix GSV talker parser — add PRN-range constellation detection for `$GNGSV` |
+| **GN** (combined) | **GP** (per-constellation) | Fix GSA handler — add constellation offset per PRN using PRN range |
+| **GN** (combined) | **GN** (combined) | Fix both GSA and GSV — add PRN-range constellation detection |
+
+### PRN-range constellation detection (if needed)
+
+If `$GN` sentences appear:
+- GPS: PRNs 1–32 → offset 0
+- BeiDou: PRNs 1–37 (in GSA, sometimes +0 in NMEA 4.1) → offset 64
+- GLONASS: PRNs 65–96 → offset 128
+- SBAS: PRNs 120–158 → offset 0 (SBAS, not used for WDOP)
+
+5-minute fix — swap talker-prefix parsing for PRN-range checks in both handlers.
 
 ---
 
 ## ❌ Not Yet Implemented
-
----
-
-### B1 · GSV Satellite Elevation Weighting
-
-**What it does**
-
-Satellites near the horizon are up to 4× noisier than overhead ones. The L76K outputs GSV sentences (Satellites in View) with per-satellite elevation angles and SNR. By enabling GSV and parsing it, we can compute a **Weighted DOP** (WDOP) that is more sensitive than raw HDOP — two identical HDOPs can have very different real-world accuracy depending on whether the satellites are high or low.
-
-```
-WDOP = sqrt( Σ (1 / sin²(elevationᵢ)) )  for all active satellites
-```
-
-Use WDOP instead of HDOP for the quality gate and as the Kalman R scaling factor.
-
-**Changes required**
-
-| File | Change |
-|------|--------|
-| `modules/gps_uart.c` | Enable GSV in `$PCAS03` config (bit 3 → 1). Add `MINMEA_SENTENCE_GSV` case to parse elevation + PRN per satellite. Store per-satellite data in `GpsStatus`. |
-| `modules/gps_uart.h` | Add `sat_elevations[12]` and `sat_prns[12]` arrays to `GpsStatus`. |
-| `biomap_session.c` | Compute WDOP from tracked sat elevations; use it as the gate threshold instead of raw `hdop`. |
-| `gsr-map-analyzer/gps_filter.js` | Use `wdop` field (once logged) as the R scaling factor in `applyKalman`. |
-
-> **Prerequisite:** Bandwidth check at current baud rate. GSV adds ~150 bytes/epoch. At 9600 baud this is ~78% utilisation; consider enabling `$PCAS01,1` (115200 baud) first.
-
-**Effort:** ⭐⭐⭐ | **Expected gain:** 15–25% better quality discrimination; fewer false-good positions in urban canyons
 
 ---
 
