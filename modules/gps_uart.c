@@ -99,7 +99,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
         // GLL is disabled in the current PCAS config, but guard the validity
         // flag here so stale/void sentences never overwrite good coordinates.
         struct minmea_sentence_gll gll_frame;
-        if(minmea_parse_gll(&gll_frame, line) && gll_frame.status == MINMEA_STATUS_A) {
+        if(minmea_parse_gll(&gll_frame, line) && gll_frame.status == MINMEA_GLL_STATUS_DATA_VALID) {
             g->status.latitude  = minmea_tocoord(&gll_frame.latitude);
             g->status.longitude = minmea_tocoord(&gll_frame.longitude);
             g->status.time      = gll_frame.time;
