@@ -58,26 +58,58 @@ Use WDOP instead of HDOP for the quality gate and as the Kalman R scaling factor
 
 ---
 
-### B3 · 5 Hz GPS Update Rate
+### B3 · GPS Update Rate — From 1 Hz to 2 Hz (phase 1), then 5 Hz (phase 2)
 
-**What it does**
+#### Why not just jump to 5 Hz?
 
-Currently `$PCAS02,1000*2E` sets 1 Hz. The L76K supports up to 10 Hz with GGA+RMC+GSA only (the current config). At 5 Hz:
+The session loop ticks at 10 Hz, so clean GPS-on-tick alignments exist only at rates that divide evenly into 10 Hz: **1, 2, 5, or 10 Hz**. Here's what each rate buys you for a person walking at 1.4 m/s:
 
-- GPS fixes align better with 10 Hz GSR samples (max misalignment shrinks from 1000 ms to 200 ms)
-- The velocity-aided smoother integrates with 5× smaller `dt` → half the dead-reckoning drift
-- The speed filter has 5× more data points to work with
+| Rate | PCAS02 | Ticks between GPS | Distance between fixes | Dead-reckon step | CSV GPS rows | Batch buf needed |
+|------|--------|-------------------|----------------------|------------------|-------------|-----------------|
+| 1 Hz | 1000   | 10 (every tick 0) | 1.40 m               | 1000 ms          | 10%          | 490 B (fits 512) |
+| 2 Hz | 500    | 5  (ticks 0,5)    | 0.70 m               | 500 ms           | 20%          | 530 B (needs 1024) |
+| 5 Hz | 200    | 2  (every even)   | 0.28 m               | 200 ms           | 50%          | 650 B (needs 1024) |
+| 10 Hz| 100    | 1  (every tick)   | 0.14 m               | 100 ms           | 100%         | 850 B (needs 1024) |
 
-**Changes required**
+The velocity-aided smoother already uses Doppler speed+course (carrier-phase derived, ~10× more accurate than position) to dead-reckon between GPS fixes. At 1 Hz the smoother bridges 1.4 m gaps surprisingly well in straight-line motion. **The weak spot is turns** — Doppler can't predict a corner, so the dead-reckoned path overshoots. At a sharp 90° turn at 1.4 m/s, the error at the corner apex is:
+- 1 Hz: ~1.4 m (dead-reckons straight for 1000 ms)
+- 2 Hz: ~0.7 m (500 ms)
+- 5 Hz: ~0.28 m (200 ms)
+
+#### The fix-quality trade-off
+
+Budget GNSS chips like the L76K/AT6558R have less integration time per fix at higher update rates. At 10 Hz, individual fixes can become noisier as tracking loops get less signal. At 5 Hz this is generally fine on the AT6558R. At 2 Hz, fix quality is **identical** to 1 Hz — 500 ms of integration is already past the point of diminishing returns for a consumer-grade receiver.
+
+#### What actually matters for the use case?
+
+The BioMapping use case is **environmental enrichment** — mapping GSR arousal onto OSM land-use polygons (parks, roads, buildings). The relevant spatial scale is ~5–10 m (road width, park boundary). GPS position accuracy in urban environments is already ~3–5 m. Going from 1.4 m between fixes (1 Hz) to 0.7 m (2 Hz) cuts the worst-case polygon misclassification in half. Going further to 0.28 m (5 Hz) helps, but the GPS position error itself is the limiting factor, not the sampling density.
+
+For **path rendering smoothness**, the Kalman+RTS smoother already produces clean trajectories at 1 Hz. The analyser's `GPS_INTERP_MAX_GAP_S = 30` s interpolation fills gaps up to 30 seconds — more GPS points mainly reduce how often interpolation is needed.
+
+#### Recommendation: phased approach
+
+| Phase | Rate | Rationale |
+|-------|------|-----------|
+| **Phase 1** | 2 Hz | Safest first step. Validates the baud upgrade at low throughput. Fix quality is identical to 1 Hz. Dead-reckoning drift is halved. Tick alignment is clean (`tick_counter % 5 == 0`). Batch buffer bump to 1024 B is the only firmware change beyond the baud upgrade. |
+| **Phase 2** | 5 Hz | If 2 Hz is stable and the L76K fix quality holds, try 5 Hz. Further reduces turn-overshoot and gives the speed filter 2.5× more data points. Only proceed after validating Phase 1 on real urban walks. |
+| **Skip** | 10 Hz | Diminishing returns. 100% of CSV rows become GPS rows (file bloat). Fix quality likely degrades on the AT6558R. The smoother already handles 200 ms gaps well enough at 5 Hz. |
+
+**Changes required (Phase 1 — 2 Hz)**
 
 | File | Change |
 |------|--------|
-| `modules/gps_uart.c` | Change `$PCAS02,1000` → `$PCAS02,200` (200 ms = 5 Hz). Recalculate NMEA checksum. Send `$PCAS01,1` for 115200 baud first. |
-| `biomap_session.c` | Update the 1 Hz GPS-only row write logic to 5 Hz, or update the GSR+GPS tick-0 logic if stride needs adjusting. |
+| `modules/gps_uart.c` | Send `$PCAS01,1` (115200 baud), then `$PCAS02,500` (2 Hz). Add baud ACK check + NMEA watchdog. |
+| `modules/sd_logger.c` | Bump `gsr_batch` from 512 → 1024 bytes. |
+| `biomap_session.c` | Change `tick_counter == 0` → `tick_counter % 5 == 0` for GPS row trigger in `batch_csv_row`. Same pattern for GPS-only mode in `handle_second_boundary`. |
 
-> **Baud rate prerequisite:** At 9600 baud, GGA+RMC+GSA ≈ 200 bytes/epoch × 5 Hz = 1000 bytes/s = ~104% utilisation — will overflow. Switch to `$PCAS01,1` (115200 baud) before enabling 5 Hz.
+**Changes required (Phase 2 — 5 Hz, incremental on Phase 1)**
 
-**Effort:** ⭐⭐ (plus baud rate change) | **Expected gain:** Better temporal alignment; smoother velocity-aided integration
+| File | Change |
+|------|--------|
+| `modules/gps_uart.c` | Change `$PCAS02,500` → `$PCAS02,200`. |
+| `biomap_session.c` | Change `tick_counter % 5 == 0` → `tick_counter % 2 == 0`. |
+
+**Effort:** ⭐⭐ (Phase 1) + ⭐ (Phase 2) | **Expected gain:** Halved dead-reckoning drift; better corner tracking; validated baud upgrade path
 
 ---
 
@@ -141,9 +173,29 @@ The rest of the firmware and analyser stack is unchanged; the ZED-F9P outputs st
 
 ---
 
-## Deep-Dive: Baud Rate + 5 Hz — System-Wide Implications
+## Deep-Dive: Baud Rate + GPS Update Rate — System-Wide Implications
 
-This section analyses what happens across the **entire** BioMapping stack when we move from 9600 baud / 1 Hz to 115200 baud / 5 Hz GPS. It is not just a firmware patch — it touches the UART IRQ path, SD card write pattern, session tick architecture, CSV format, analyser load, and error-recovery behaviour.
+This section analyses what happens across the **entire** BioMapping stack when we move from 9600 baud / 1 Hz to 115200 baud / 2 Hz (Phase 1) and eventually 5 Hz (Phase 2). It is not just a firmware patch — it touches the UART IRQ path, SD card write pattern, session tick architecture, CSV format, analyser load, and error-recovery behaviour.
+
+### 0. Rate Selection Rationale — Why 2 Hz First, Not 5 Hz
+
+Before diving into implementation, here's why 2 Hz is the right first step:
+
+**The velocity-aided smoother already bridges gaps.** Doppler velocity from GPS carrier-phase tracking is ~10× more accurate than code-pseudorange position. At 1 Hz, the smoother dead-reckons 1.4 m between fixes with <0.5 m drift in straight-line motion. The only weakness is **turns** — Doppler can't predict a corner. At a 90° turn at walking speed (1.4 m/s):
+
+| Rate | Dead-reckon gap | Max turn-overshoot |
+|------|----------------|-------------------|
+| 1 Hz | 1000 ms | ~1.4 m |
+| 2 Hz | 500 ms  | ~0.7 m |
+| 5 Hz | 200 ms  | ~0.28 m |
+
+**The use case doesn't demand sub-metre sampling.** BioMapping correlates GSR arousal with OSM land-use polygons at 5–10 m resolution. GPS position error in urban environments is already 3–5 m. Halving the dead-reckoning gap from 1.4 m to 0.7 m (2 Hz) eliminates the worst-case polygon misclassifications. Going further to 0.28 m (5 Hz) is nice but the GPS position error, not the sampling density, is the limiting factor.
+
+**Fix quality holds at 2 Hz, may degrade at 10 Hz.** The L76K/AT6558R is a consumer-grade chip. At 2 Hz (500 ms integration per fix), quality is identical to 1 Hz. At 5 Hz (200 ms), quality is generally fine. At 10 Hz (100 ms), individual fixes can become noisier. Starting at 2 Hz validates the baud upgrade at low risk; 5 Hz is a low-risk follow-up.
+
+**Tick alignment is cleaner at 2 Hz.** The 10 Hz session loop gives clean alignments at rates that divide evenly: 1, 2, 5, 10 Hz. At 2 Hz, GPS rows land on `tick_counter % 5 == 0` (ticks 0 and 5) — two evenly-spaced rows per second. At 5 Hz, GPS rows land on every even tick — 5 rows per second, 50% of the CSV.
+
+**The batch buffer bump to 1024 bytes covers all rates up to 10 Hz.** Do it once in Phase 1 and Phase 2 requires only a one-line PCAS02 change.
 
 ---
 
@@ -151,7 +203,7 @@ This section analyses what happens across the **entire** BioMapping stack when w
 
 #### 1.1 Why it's needed
 
-At 9600 baud the serial link is already at ~78% utilisation with the current GGA+RMC+GSA sentence set. Adding GSV (B1) pushes it past 90%. 5 Hz at 9600 baud is physically impossible — GGA+RMC+GSA ≈ 200 bytes/epoch × 5 Hz = 1000 bytes/s, exceeding the 960-byte/s theoretical ceiling. The baud upgrade is a **hard prerequisite** for both B1 and B3.
+At 9600 baud the serial link is already at ~78% utilisation with the current GGA+RMC+GSA sentence set. Adding GSV (B1) pushes it past 90%. Any rate above 1 Hz at 9600 baud is physically impossible — GGA+RMC+GSA ≈ 200 bytes/epoch × 2 Hz = 400 bytes/s is already pushing the 960-byte/s ceiling once you account for start/stop bits and inter-sentence gaps. The baud upgrade is a **hard prerequisite** for both B1 and any rate increase.
 
 #### 1.2 Electrical / Signal Integrity
 
@@ -181,9 +233,9 @@ The `rx_pending` gate ensures only **one** `EventTypeUart` is queued per burst, 
 
 `GPS_RX_BUF_SIZE = 5120` bytes. At 1 Hz, a single epoch burst is ~200 bytes — 25× headroom. At 5 Hz with 115200 baud, the worst-case inter-drain interval determines the buffer requirement.
 
-The session event loop drains GPS on `EventTypeUart` events. Between drains, the worst case is the main loop blocked on a long operation (SD write, mutex contention with the render thread). The SD batch flush writes ~500 bytes max (10 GSR rows) — typically <1 ms on a fast SD card, up to 50 ms on a slow one.
+The session event loop drains GPS on `EventTypeUart` events. Between drains, the worst case is the main loop blocked on a long operation (SD write, mutex contention with the render thread). The SD batch flush writes ~500 bytes max — typically <1 ms on a fast SD card, up to 50 ms on a slow one.
 
-At 115200 baud, 50 ms of sustained GPS output = 50 ms × 1000 bytes/s = **50 bytes**. Even with 10× margin for pathological SD latency (500 ms = 500 bytes), the 5120-byte buffer has 10× headroom. **No buffer resize needed.**
+At 115200 baud, 50 ms of sustained GPS output at 5 Hz = 50 ms × 1000 bytes/s = **50 bytes**. Even with 10× margin for pathological SD latency (500 ms = 500 bytes), the 5120-byte buffer has 10× headroom. **No buffer resize needed** — even at 10 Hz (2000 bytes/s, 500 ms = 1000 bytes) the headroom is 5×.
 
 #### 1.5 Error Recovery at 115200
 
@@ -199,7 +251,7 @@ These are small firmware additions (~30 lines) and should be implemented as part
 
 ---
 
-### 2. 5 Hz GPS Update Rate
+### 2. GPS Update Rate — 2 Hz (Phase 1) and 5 Hz (Phase 2)
 
 #### 2.1 Session Tick Architecture Change
 
@@ -221,33 +273,32 @@ if (s->recording.tick_counter == 0) {
 }
 ```
 
-At 5 Hz, the design decision is: **do we log GPS at 5 Hz (every 2nd tick) or keep GPS logging at 1 Hz but just update the internal position at 5 Hz?**
+At higher rates the GPS row trigger becomes a modulo check:
 
-**Option A: Log GPS at 5 Hz (every tick 0, 2, 4, 6, 8)**
+| Rate | Trigger | GPS rows/sec | GSR-only rows/sec | Total rows/sec |
+|------|---------|-------------|-------------------|----------------|
+| 1 Hz | `tick_counter == 0`          | 1 | 9 | 10 |
+| 2 Hz | `tick_counter % 5 == 0`      | 2 | 8 | 10 |
+| 5 Hz | `tick_counter % 2 == 0`      | 5 | 5 | 10 |
+| 10 Hz| always                       | 10 | 0 | 10 |
 
-- CSV grows 5× in row count for GPS+GSR mode
-- Every 2nd GSR row becomes a full 12-column row instead of every 10th
-- Analyser parsing time grows linearly with row count
-- The `sd_logger_batch` buffer (512 bytes) currently holds 10 GSR-only rows (~45 bytes each = 450 bytes). At 5 Hz GPS, 5 of those 10 rows become 12-column rows (~85 bytes each). Total: 5×85 + 5×45 = 650 bytes → **batch buffer overflow**.
+The total row count stays at 10 rows/s — only the mix of full vs GSR-only rows changes. The analyser's existing `NaN`-skip logic handles any mix transparently.
 
-**Option B: Log GPS at 1 Hz, sample position at 5 Hz**
+#### 2.2 Batch Buffer Sizing
 
-- Keep CSV format unchanged (GPS row on tick 0 only)
-- Use the 5 Hz positions internally: the `get_gps_position()` call becomes more accurate (position is only 200 ms old instead of 1000 ms), but the analyser sees the same data density
-- Minimal code change — just change `PCAS02,200` and leave the session loop alone
-- **Misses the whole point** of 5 Hz: the analyser has no extra data to work with
+The `sd_logger` batch buffer accumulates 10 rows (one second) and flushes on the second boundary. Row sizes:
 
-**Recommendation: Option A with a batch buffer increase.** The analyser already handles large CSVs (validated on hour-long sessions). The batch buffer needs to grow from 512 to 1024 bytes. This is the right trade-off — slightly larger firmware memory footprint for a 5× improvement in temporal resolution.
+- GSR-only row: ~45 bytes
+- Full GPS+GSR row: ~85 bytes
 
-#### 2.2 SD Card Write Pattern
+| Rate | Batch payload | Fits in 512 B? | Fits in 1024 B? |
+|------|--------------|----------------|-----------------|
+| 1 Hz | 1×85 + 9×45 = 490 B | ✅ | ✅ |
+| 2 Hz | 2×85 + 8×45 = 530 B | ❌ (overflow) | ✅ |
+| 5 Hz | 5×85 + 5×45 = 650 B | ❌ | ✅ |
+| 10 Hz| 10×85 + 0×45 = 850 B | ❌ | ✅ |
 
-Current: 1 flush per second, ~500 bytes per flush, ~10 write operations per minute session.
-
-At 5 Hz GPS (Option A): still 1 flush per second (the batch buffer still flushes on the second boundary). But each flush is larger: ~650 bytes instead of ~500. **The flush frequency does not change** — only the payload size grows by ~30%.
-
-SD card wear: negligible. A 60-minute session at 1 flush/sec = 3600 writes. Modern SD cards are rated for 100,000+ write cycles per block. Wear levelling in the FAT filesystem means these 3600 writes are distributed across the card.
-
-**No change needed to `sd_logger` flush logic.** Only the batch buffer size constant changes.
+**Action:** Bump `gsr_batch` from 512 → 1024 bytes in Phase 1. This covers all rates up to 10 Hz in one change — Phase 2 requires no further buffer work.
 
 #### 2.3 CSV Format — No Schema Change
 
@@ -256,48 +307,46 @@ The CSV header stays identical:
 timestamp,lat,lon,alt,hdop,vdop,sats,fix,fix_type,speed_kts,course_deg,gsr_raw
 ```
 
-The only difference is that 50% of rows now have filled GPS columns instead of 10%. The analyser's existing `hasVelData` detection and `NaN`-skip logic handles this transparently — old 1 Hz CSVs and new 5 Hz CSVs parse identically.
+The only difference is the fraction of rows with filled GPS columns (10% → 20% → 50%). The analyser's existing `hasVelData` detection and `NaN`-skip logic handles this transparently — old 1 Hz CSVs and new multi-rate CSVs parse identically.
 
-#### 2.4 Inter-Sentence Timing Within a 200 ms Epoch
+#### 2.4 Inter-Sentence Timing Within the Epoch Window
 
-At 1 Hz the L76K has a full second to output GGA, GSA, and RMC. At 5 Hz the epoch window shrinks to 200 ms. The L76K outputs NMEA sentences in a burst at the fix epoch boundary — typically GGA first, then GSA, then RMC — all within ~50 ms at 115200 baud (200 bytes ÷ 11520 bytes/s ≈ 17 ms).
+At 2 Hz the L76K has 500 ms to output GGA, GSA, and RMC. At 115200 baud the burst takes ~17 ms — the epoch window is 29× wider than the burst duration. This is so generous that the race between GGA and RMC arrival (discussed below) is even less of a concern than at 1 Hz/9600 baud.
 
-The concern: does the parser see all three sentences before the session reads `get_gps_position()`?
+At 5 Hz the window shrinks to 200 ms — but the burst still takes only ~17 ms (8.5% of the window). The existing NaN-guard for `has_vel` already handles the case where RMC hasn't arrived when `get_gps_position()` is called.
 
-The session reads GPS position at tick boundaries (every 100 ms at 10 Hz). The UART drain (`gps_uart_process_rx`) happens on `EventTypeUart` events, which fire as soon as the first byte of a burst arrives. At 115200 baud the entire burst is received within ~17 ms — well before the next 100 ms tick.
-
-But there's a race: `gps_uart_process_rx` parses complete lines from the RX buffer sequentially. If only GGA has arrived when `get_gps_position` is called (on tick 0), the position will use GGA coordinates but lack RMC speed/course. The next tick (100 ms later) will have all three.
-
-**This is already the case at 1 Hz** — the race between GGA and RMC arrival within a burst already exists. The solution (already implemented): `batch_csv_row` checks `has_vel` and emits empty speed/course fields when RMC hasn't arrived yet. At 5 Hz the window is just as wide (17 ms burst at 115200 vs 170 ms burst at 9600 — proportionally identical at ~8.5% of the epoch period).
-
-**No new race condition.** The existing NaN-guard handles it.
+**No new race condition at any rate ≤ 5 Hz.** At 10 Hz (100 ms window) the burst consumes 17% of the epoch — still safe but approaching the limit where NMEA output jitter could cause a missed sentence. This is another reason to stop at 5 Hz.
 
 #### 2.5 GSR Temporal Alignment
 
-At 1 Hz: GPS fix is up to 1000 ms old relative to the GSR sample it's paired with. At 5 Hz: max age shrinks to 200 ms.
+At 1 Hz: GPS fix is up to 1000 ms old relative to the GSR sample it's paired with. For environmental enrichment, a 1.4 m offset (at walking speed) can place the user in the wrong OSM polygon. At 2 Hz the max age drops to 500 ms (0.7 m offset) — halving the worst-case misclassification rate. At 5 Hz it drops to 200 ms (0.28 m).
 
-For a person walking at 1.4 m/s, the position error from temporal misalignment drops from ~1.4 m to ~0.28 m. This matters for environmental enrichment — a 1.4 m offset can place the user in the wrong OSM land-use polygon (e.g., "in park" vs "on road").
-
-The velocity-aided smoother also benefits: with dt ≤ 200 ms instead of ≤ 1000 ms, dead-reckoning drift per step is 5× smaller. This compounds with the HDOP-adaptive blending for a net improvement in the analyser's output path.
+The velocity-aided smoother also benefits: dead-reckoning drift per step scales linearly with dt. At 2 Hz, drift is halved; at 5 Hz, it's 5× smaller.
 
 #### 2.6 LED Indicator Behaviour
 
-The blue "GPS not ready" LED currently blinks at 1 Hz (100 ms every 1 second when HDOP > gate). At 5 Hz position updates, the `get_gps_position()` call in `handle_second_boundary` will see positions that are up to 200 ms old. The LED logic doesn't change — it still checks once per second on the second boundary. **No behavioural change.**
+The blue "GPS not ready" LED blinks on the second boundary based on `get_gps_position()`. The position read is ≤500 ms old at 2 Hz, ≤200 ms at 5 Hz — but the LED only updates once per second. **No behavioural change at any rate.**
 
 #### 2.7 Analyser Performance Impact
 
-5× more GPS rows means 5× more points entering the filter pipeline. The Kalman+RTS smoother is O(n) per pass — an hour-long session goes from ~3600 GPS points to ~18,000.
+The Kalman+RTS smoother is O(n). On a modern browser in pure JS:
 
-On a modern browser, the Kalman+RTS processes ~100,000 points/second in pure JS. 18,000 points ≈ 180 ms — imperceptible. The real bottleneck is Leaflet polyline rendering, which already decimates for zoom level.
+| Rate | GPS points/hour | Kalman+RTS time | Perceptible? |
+|------|----------------|-----------------|-------------|
+| 1 Hz | 3,600           | ~36 ms          | No |
+| 2 Hz | 7,200           | ~72 ms          | No |
+| 5 Hz | 18,000          | ~180 ms         | Barely |
+| 10 Hz| 36,000          | ~360 ms         | Slight pause on load |
 
-**The analyser handles 5 Hz data without modification.** The pipeline is already designed for variable-density input (the `GPS_INTERP_MAX_GAP_S = 30` interpolation logic handles gaps of any size).
+The real bottleneck is Leaflet polyline rendering, which already decimates for zoom level. **The analyser handles all rates without modification.**
 
 ---
 
-### 3. Implementation Plan for B3 (Baud + 5 Hz)
+### 3. Implementation Plan for B3
 
-#### Step 1: Baud rate upgrade (firmware)
+#### Phase 1: Baud rate upgrade + 2 Hz (1–2 days)
 
+**Step 1 — Baud rate upgrade:**
 ```
 gps_uart_configure():
   pcas_tx("$PCAS01,1*xx\r\n")   // switch to 115200 (checksum TBD)
@@ -306,37 +355,44 @@ gps_uart_configure():
   furi_hal_serial_init(..., 115200)  // re-init UART at new rate
   pcas_tx("$PCAS04,7*1E\r\n")   // re-send constellation config
   pcas_tx("$PCAS03,...")         // re-send NMEA filter
-  pcas_tx("$PCAS02,200*xx\r\n") // 5 Hz (new checksum)
+  pcas_tx("$PCAS02,500*xx\r\n") // 2 Hz (new checksum)
   pcas_tx("$PCAS06,1,1*07\r\n") // SBAS
 ```
 
-**Critical detail:** The baud change must happen BEFORE the rate change. If we send `$PCAS02,200` at 9600 baud and then switch to 115200, the GPS is already outputting at 5 Hz on the old baud — the UART peripheral sees framing errors for 200 ms until the re-init completes.
+**Critical:** Baud change must happen BEFORE rate change. If we send `$PCAS02,500` at 9600 baud and then switch to 115200, the GPS outputs at 2 Hz on the old baud — the UART sees framing errors until re-init completes.
 
-#### Step 2: Batch buffer resize (firmware)
-
+**Step 2 — Batch buffer resize:**
 ```c
-// sd_logger.h or sd_logger.c
+// sd_logger.c
 char gsr_batch[1024];  // was 512
 ```
 
-#### Step 3: Session tick logic (firmware)
-
-Change `batch_csv_row` to log GPS on every tick where `tick_counter % 2 == 0` (every 200 ms at 10 Hz tick rate) instead of only `tick_counter == 0`:
-
+**Step 3 — Session tick logic:**
 ```c
-// In batch_csv_row:
-if (s->recording.tick_counter % (TICK_HZ / 5) == 0) {  // every 2nd tick
-    // write full GPS+GSR row
-}
+// In batch_csv_row: change tick_counter == 0 → tick_counter % 5 == 0
+// In handle_second_boundary: same pattern for GPS-only mode
 ```
 
-#### Step 4: Baud error recovery (firmware)
+**Step 4 — Baud error recovery (~30 lines):**
+- PCAS config ACK check after `$PCAS01,1`: wait 200 ms, verify PCAS response echoes the command
+- 5-second NMEA watchdog: if no valid `$Gx` sentence parsed, attempt re-init at 9600, then re-attempt 115200
+- Blind fallback: `$PCAS01,0` (9600) can be sent blind at any time as a recovery command
 
-Add a 5-second NMEA watchdog in the session loop: if no valid `$Gx` sentence parsed, attempt re-init at 9600, then re-attempt 115200.
+**Step 5 — No analyser changes needed.**
 
-#### Step 5: No analyser changes needed
+#### Phase 2: 5 Hz (1 day, after Phase 1 validated on real walks)
 
-The analyser pipeline is already density-agnostic. The only optional improvement is a configurable decimation factor in the UI ("Show every Nth GPS point") for users who prefer sparser markers on the map, but this is cosmetic.
+```c
+// gps_uart_configure():
+pcas_tx("$PCAS02,200*xx\r\n") // was 500
+
+// biomap_session.c:
+// tick_counter % 5 == 0  →  tick_counter % 2 == 0
+```
+
+#### Skip: 10 Hz
+
+Not worth it — diminishing returns, fix quality risk, 100% GPS rows in CSV, and the smoother already handles 200 ms gaps well at 5 Hz.
 
 ---
 
@@ -344,12 +400,13 @@ The analyser pipeline is already density-agnostic. The only optional improvement
 
 | Risk | Probability | Impact | Mitigation |
 |------|------------|--------|------------|
-| Baud negotiation fails silently | Low | GPS data is garbage; session logs empty rows | NMEA watchdog + config ACK check |
-| Batch buffer overflow at 5 Hz | Medium | Truncated CSV rows; data loss | Increase buffer to 1024 bytes |
-| SD card write latency spike | Low | One-second boundary delayed; timer drift | Already handled — batch flush is non-blocking (FreeRTOS stream buffer) |
-| L76K fix quality degrades at 5 Hz | Low | Slightly noisier positions | L76K datasheet specifies 5 Hz as supported; AT6558R can do 10 Hz |
-| Analyser becomes slow with 5× data | Low | Perceived UI lag | Pipeline is O(n); JS handles 18k points in <200 ms |
-| IRQ storm at 115200 | Very low | CPU starvation | Only 1000 IRQs/s; STM32WB at 64 MHz has 64k cycles between them |
+| Baud negotiation fails silently | Low | GPS data is garbage; session logs empty rows | NMEA watchdog + config ACK check (Phase 1) |
+| Batch buffer overflow at >1 Hz | High (certain at 512 B) | Truncated CSV rows; data loss | Increase buffer to 1024 B (Phase 1, covers all rates) |
+| SD card write latency spike | Low | One-second boundary delayed; timer drift | Already handled — batch flush is non-blocking |
+| L76K fix quality degrades at 5 Hz | Low–Medium | Slightly noisier positions | Validate at 2 Hz first; only proceed to 5 Hz if 2 Hz is stable on real urban walks |
+| L76K fix quality degrades at 10 Hz | Medium | Noisier individual fixes | Skip 10 Hz entirely — not in the plan |
+| Analyser becomes slow with 5× data | Low | Perceived UI lag on load | Pipeline is O(n); JS handles 18k points in ~180 ms |
+| IRQ storm at 115200 | Very low | CPU starvation | Only 1000 IRQs/s at 5 Hz; STM32WB at 64 MHz has 64k cycles between them |
 
 ---
 
@@ -357,14 +414,17 @@ The analyser pipeline is already density-agnostic. The only optional improvement
 
 ```
 Week 1:
-  B3  5 Hz rate + baud upgrade (1–2 days firmware)
-  B1  GSV elevation weighting (3–4 days, firmware + analyser)
+  B3 Phase 1  Baud upgrade + 2 Hz rate (1–2 days firmware)
+  B1          GSV elevation weighting (3–4 days, firmware + analyser)
+
+Week 2:
+  B3 Phase 2  5 Hz rate — only after validating 2 Hz on real urban walks (1 day)
 
 Following sprint:
-  C1  HMM-Viterbi map matching (1–2 weeks, analyser-only)
+  C1          HMM-Viterbi map matching (1–2 weeks, analyser-only)
 
 When hardware budget allows:
-  C2 → C3  ZED-F9P + PPP-RTK
+  C2 → C3     ZED-F9P + PPP-RTK
 ```
 
 ---
