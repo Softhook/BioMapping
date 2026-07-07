@@ -411,32 +411,33 @@ const GpsFilter = {
         // Instead of averaging noisy degrees directly (which suffers from the
         // 360° boundary wrap-around bug), we convert the heading to a 2D vector,
         // blend it with the previous direction, and then project.
+        // NMEA course: 0° is North (lat direction), 90° is East (lon direction)
         const courseRad = prev.course * DEG_TO_RAD;
-        let dirX = Math.cos(courseRad);
-        let dirY = Math.sin(courseRad);
+        let headingY = Math.cos(courseRad); // North component (latitude direction)
+        let headingX = Math.sin(courseRad); // East component (longitude direction)
         
         // If we have a historical direction, apply an exponential moving average
         // (beta = 0.7) to smooth out sudden heading spikes.
-        if (i > 1 && !isNaN(result[i - 2]._smoothedDirX)) {
+        if (i > 1 && !isNaN(result[i - 2]._smoothedHeadingY)) {
           const beta = 0.7;
-          dirX = beta * result[i - 2]._smoothedDirX + (1 - beta) * dirX;
-          dirY = beta * result[i - 2]._smoothedDirY + (1 - beta) * dirY;
+          headingY = beta * result[i - 2]._smoothedHeadingY + (1 - beta) * headingY;
+          headingX = beta * result[i - 2]._smoothedHeadingX + (1 - beta) * headingX;
           // Re-normalize to unit length
-          const len = Math.sqrt(dirX * dirX + dirY * dirY);
+          const len = Math.sqrt(headingY * headingY + headingX * headingX);
           if (len > 0.001) {
-            dirX /= len;
-            dirY /= len;
+            headingY /= len;
+            headingX /= len;
           }
         }
         
         const cosLat    = Math.cos(prev.lat * DEG_TO_RAD);
         const M_TO_DEG_LON = cosLat > 0.001 ? M_TO_DEG_LAT / cosLat : M_TO_DEG_LAT;
         
-        predLat = prev.lat + speedMs * dirX * dt * M_TO_DEG_LAT;
-        predLon = prev.lon + speedMs * dirY * dt * M_TO_DEG_LON;
+        predLat = prev.lat + speedMs * headingY * dt * M_TO_DEG_LAT;
+        predLon = prev.lon + speedMs * headingX * dt * M_TO_DEG_LON;
         
-        curr._smoothedDirX = dirX;
-        curr._smoothedDirY = dirY;
+        curr._smoothedHeadingY = headingY;
+        curr._smoothedHeadingX = headingX;
       } else {
         // If stationary or speed is too low, project zero displacement.
         // This acts as a standard position filter and avoids pause wobbles.
@@ -445,8 +446,8 @@ const GpsFilter = {
         
         // Retain previous heading vector if it existed
         if (i > 1) {
-          curr._smoothedDirX = result[i - 2]._smoothedDirX;
-          curr._smoothedDirY = result[i - 2]._smoothedDirY;
+          curr._smoothedHeadingY = result[i - 2]._smoothedHeadingY;
+          curr._smoothedHeadingX = result[i - 2]._smoothedHeadingX;
         }
       }
 
@@ -507,13 +508,14 @@ const GpsFilter = {
         }
 
         if (cluster.length >= minClusterPoints) {
-          // Emit centroid — preserve origIdx of the middle point so
-          // downstream index mapping (filteredGps reconstruction) still works.
-          const midIdx  = Math.floor((i + j - 1) / 2);
-          const midPt   = points[Math.min(midIdx, points.length - 1)];
+          // Keep all points but lock their coordinates to the centroid.
+          // This preserves timeline spacing and prevents the gap reconstruction loop
+          // from interpolating a drift during stationary pauses.
           const centLat = cluster.reduce((s, pt) => s + pt.lat, 0) / cluster.length;
           const centLon = cluster.reduce((s, pt) => s + pt.lon, 0) / cluster.length;
-          result.push({ ...midPt, lat: centLat, lon: centLon });
+          cluster.forEach(pt => {
+            result.push({ ...pt, lat: centLat, lon: centLon });
+          });
         } else {
           // Cluster too small — keep individual points
           cluster.forEach(pt => result.push(pt));
