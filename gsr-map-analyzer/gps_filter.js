@@ -415,14 +415,21 @@ const GpsFilter = {
       // Blend: GPS fix × effectiveAlpha + dead-reckoned × (1 - effectiveAlpha)
       //
       // Zero-Velocity Update (ZUPT): when the GPS Doppler reports the
-      // receiver is stationary (prev.speedKts ≤ 1.2 kt ≈ 0.6 m/s), the
-      // position-derived displacement is unreliable — typical during
-      // cold-start warmup drift or multipath in urban canyons.  We
+      // receiver is genuinely stationary (prev.speedKts ≤ 0.5 kt ≈ 0.26 m/s),
+      // position drift is unreliable — typical during cold-start warmup.
+      // We override α to near-zero so the output freezes at the prediction.
+      //
+      // Between 0.5–1.2 kts the receiver is moving slowly (corners,
+      // crossings) but heading is too erratic for dead-reckoning — we
+      // freeze the prediction but keep the normal HDOP-adaptive α so
+      // the GPS position is still trusted.  This prevents artificial
+      // stops during complex urban navigation while still suppressing
+      // true stationary drift.
       // override α to near-zero so the output position is held at the
       // frozen prediction instead of blending in the drifting GPS fix.
       // This is standard practice in GPS/INS integration: Doppler
       // velocity is ~10× more accurate than position differencing.
-      const alphaFinal = (!isNaN(prev.speedKts) && prev.speedKts <= 1.2)
+      const alphaFinal = (!isNaN(prev.speedKts) && prev.speedKts <= 0.5)
         ? 0.05 : effectiveAlpha;
 
       result.push({
