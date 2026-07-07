@@ -182,9 +182,6 @@ static GpsPosition get_gps_position(const Session* s) {
 // boxcar.  That is avoided here because PGA autoranging jumps cause
 // the IIR state to become stale; handling that cleanly at 860 SPS
 // adds complexity.  The boxcar itself is the pre-decimation filter.
-// For a hardware improvement, doubling the TIA feedback capacitor
-// (100 nF → 220 nF) lowers the analog cutoff from 34 Hz to ~15 Hz
-// with zero code changes.
 //
 // At 3 Hz the phase lag is ~50 ms — invisible for GSR where phasic
 // responses have 1–3 s rise times.  Signal attenuation at 2 Hz

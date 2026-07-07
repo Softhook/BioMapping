@@ -413,6 +413,48 @@ class GSRAnalyzer {
       throw new Error("No valid numeric data found in CSV.");
     }
 
+    // ── Input validation ──────────────────────────────────────────────────
+    const warnings = [];
+
+    // Check timestamp monotonicity
+    let timeReversals = 0;
+    for (let i = 1; i < rawDataList.length; i++) {
+      if (rawDataList[i].time < rawDataList[i - 1].time) timeReversals++;
+    }
+    if (timeReversals > 0) {
+      warnings.push(`Timestamps are non-monotonic (${timeReversals} reversals). Data may be corrupted.`);
+    }
+
+    // Check GSR value range (physiological: 0.1–50 000 nS)
+    const gsrVals = rawDataList.map(d => d.val);
+    const gsrMin = Math.min(...gsrVals);
+    const gsrMax = Math.max(...gsrVals);
+    if (gsrMin < 0.1) {
+      warnings.push(`GSR contains near-zero values (min ${gsrMin.toFixed(1)} nS). Sensor may have been disconnected.`);
+    }
+    if (gsrMax > 50000) {
+      warnings.push(`GSR contains rail-saturation values (max ${gsrMax.toFixed(0)} nS). Sensor may have been disconnected.`);
+    }
+
+    // Check for (0, 0) GPS sentinel values
+    const zeroGps = rawDataList.filter(d => d.hasGps && d.lat === 0 && d.lon === 0).length;
+    if (zeroGps > 0) {
+      warnings.push(`${zeroGps} GPS points at (0, 0) — likely startup sentinel values.`);
+    }
+
+    // Check GSR coverage
+    const gsrPresent = rawDataList.filter(d => !isNaN(d.val)).length;
+    if (gsrPresent < rawDataList.length * 0.5) {
+      warnings.push(`Only ${gsrPresent}/${rawDataList.length} rows have GSR data. Check CSV format.`);
+    }
+
+    if (warnings.length > 0) {
+      console.warn('CSV validation warnings:', warnings);
+      this._csvWarnings = warnings;
+    } else {
+      this._csvWarnings = null;
+    }
+
     // Sort chronologically
     rawDataList.sort((a, b) => a.time - b.time);
 

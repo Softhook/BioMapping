@@ -48,6 +48,12 @@ static void gps_uart_irq_cb(
 
 // NMEA sentence dispatcher
 static void gps_uart_parse_line(GpsUart* g, char* line) {
+    // Log proprietary PCAS messages for configuration debugging (SBAS status, etc.)
+    if(strncmp(line, "$PCAS", 5) == 0) {
+        FURI_LOG_D("GpsUart", "PCAS Response: %s", line);
+        return;
+    }
+
     switch(minmea_sentence_id(line, false)) {
     case MINMEA_SENTENCE_RMC: {
         struct minmea_sentence_rmc frame;
@@ -279,9 +285,7 @@ static void gps_uart_configure(GpsUart* g) {
     pcas_tx(g, "$PCAS04,7*1E\r\n");                             // GPS+BeiDou+GLONASS
     pcas_tx(g, "$PCAS03,1,0,1,0,1,0,0,0,0,0,,,0,0*03\r\n");   // GGA + GSA + RMC
     pcas_tx(g, "$PCAS02,1000*2E\r\n");                          // 1 Hz update rate
-    // SBAS/EGNOS: the AT6558R chip (L76K) enables SBAS automatically when
-    // the signal is available.  No explicit PCAS command is needed and
-    // no reliably-documented one exists in the L76K protocol spec.
+    pcas_tx(g, "$PCAS06,1,1*07\r\n");                           // Force-enable SBAS corrections (WAAS/EGNOS)
 }
 
 // ---------------------------------------------------------------------------

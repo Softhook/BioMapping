@@ -193,6 +193,34 @@ static int csv_split(char* line, char** tok, int max_tok) {
     return n;
 }
 
+static void parse_csv_header(const char* header, int* lat_idx, int* lon_idx, int* fix_idx, int* raw_idx) {
+    // Default fallback to 12-column layout (v2.2)
+    *lat_idx = 1;
+    *lon_idx = 2;
+    *fix_idx = 7;
+    *raw_idx = 11;
+    
+    char h[256];
+    strncpy(h, header, sizeof(h) - 1);
+    h[sizeof(h) - 1] = '\0';
+    
+    char* tok[16];
+    int n = csv_split(h, tok, 16);
+    
+    int temp_lat = -1, temp_lon = -1, temp_fix = -1, temp_raw = -1;
+    for(int i = 0; i < n; i++) {
+        if(strcmp(tok[i], "lat") == 0) temp_lat = i;
+        else if(strcmp(tok[i], "lon") == 0) temp_lon = i;
+        else if(strcmp(tok[i], "fix") == 0) temp_fix = i;
+        else if(strcmp(tok[i], "gsr_raw") == 0) temp_raw = i;
+    }
+    
+    if(temp_lat != -1) *lat_idx = temp_lat;
+    if(temp_lon != -1) *lon_idx = temp_lon;
+    if(temp_fix != -1) *fix_idx = temp_fix;
+    if(temp_raw != -1) *raw_idx = temp_raw;
+}
+
 
 /* ── GPX converter object ───────────────────────────────────────────── */
 
@@ -380,8 +408,16 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
     bool     has_any_fix   = false;
     bool     has_any_gsr   = false;
 
-    // Skip CSV header
-    lr_read_line(&lr1, line, sizeof(line));
+    int lat_idx, lon_idx, fix_idx, raw_idx;
+
+    // Read and parse CSV header
+    if (!lr_read_line(&lr1, line, sizeof(line))) {
+        FURI_LOG_E(TAG, "Empty CSV file");
+        storage_file_close(csv1);
+        storage_file_free(csv1);
+        return 0;
+    }
+    parse_csv_header(line, &lat_idx, &lon_idx, &fix_idx, &raw_idx);
 
     // Detect GSR-only CSV (3 columns: timestamp,tick,gsr_raw) — these have no
     // GPS coordinates and cannot produce a meaningful GPX track.
@@ -396,14 +432,14 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
         if(!line[0]) continue;
 
         // Use full csv_split so row filtering matches pass 2 exactly
-        char* tok[7];
-        int nt = csv_split(line, tok, 7);
-        if(nt < 7) { rows_skipped++; continue; }
+        char* tok[16];
+        int nt = csv_split(line, tok, 16);
+        if(nt <= raw_idx || nt <= fix_idx || nt <= lat_idx || nt <= lon_idx) { rows_skipped++; continue; }
 
-        float   raw = str_to_float(tok[6]);
-        int     fix = str_to_int(tok[5]);
-        float   lat = str_to_float(tok[1]);
-        float   lon = str_to_float(tok[2]);
+        float   raw = str_to_float(tok[raw_idx]);
+        int     fix = str_to_int(tok[fix_idx]);
+        float   lat = str_to_float(tok[lat_idx]);
+        float   lon = str_to_float(tok[lon_idx]);
 
         if(raw != 0) has_any_gsr = true;
         if(fix > 0 && fabsf(lat) > 0.0001f && fabsf(lon) > 0.0001f) has_any_fix = true;
@@ -486,7 +522,10 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
     }
 
     // Skip CSV header
-    lr_read_line(&lr2, line, sizeof(line));
+    if (!lr_read_line(&lr2, line, sizeof(line))) {
+        FURI_LOG_E(TAG, "Empty CSV file in pass 2");
+        goto done;
+    }
 
     SmaState sma2;
     sma_init(&sma2);
@@ -494,18 +533,18 @@ int gpx_converter_run(GpxConverter* c, const char* csv_filename,
     while(lr_read_line(&lr2, line, sizeof(line))) {
         if(!line[0]) continue;
 
-        // Full 7‑token split — identical filtering to pass 1
-        char* tok[7];
-        int nt = csv_split(line, tok, 7);
-        if(nt < 7) continue;
+        // Full 16-token split — identical filtering to pass 1
+        char* tok[16];
+        int nt = csv_split(line, tok, 16);
+        if(nt <= raw_idx || nt <= fix_idx || nt <= lat_idx || nt <= lon_idx) continue;
 
         char  ts[32];
         strncpy(ts, tok[0], sizeof(ts) - 1);
         ts[sizeof(ts) - 1] = '\0';
-        float lat = str_to_float(tok[1]);
-        float lon = str_to_float(tok[2]);
-        int   fix = str_to_int(tok[5]);
-        float raw = str_to_float(tok[6]);
+        float lat = str_to_float(tok[lat_idx]);
+        float lon = str_to_float(tok[lon_idx]);
+        int   fix = str_to_int(tok[fix_idx]);
+        float raw = str_to_float(tok[raw_idx]);
 
         float rate = sma_feed(&sma2, raw);
 

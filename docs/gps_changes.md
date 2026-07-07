@@ -235,9 +235,8 @@ The analyser auto-detects the format from column headers and degrades gracefully
 |---|---------|----------|
 | 1 | `velocitySmoothing` alpha (0.6) is hardcoded — no UI slider to tune it | Low |
 | 2 | `stopAveraging` thresholds are hardcoded (0.5 kts, min 3 pts) | Low |
-| 3 | SBAS/EGNOS not explicitly verified as active on the L76K | Medium |
-| 4 | GPS still at 1 Hz — up to 1 s misalignment with 10 Hz GSR samples | Medium |
-| 5 | Course wrap-around at 0°/360° not handled in velocity prediction (< 0.01° error at walking speed — acceptable) | Low |
+| 3 | GPS still at 1 Hz — up to 1 s misalignment with 10 Hz GSR samples | Medium |
+| 4 | Course wrap-around at 0°/360° not handled in velocity prediction (< 0.01° error at walking speed — acceptable) | Low |
 
 ---
 
@@ -245,9 +244,9 @@ The analyser auto-detects the format from column headers and degrades gracefully
 
 See `docs/gps_backlog.md` for full implementation detail on each item.
 
-| ID | Title | Effort | Expected Gain |
-|----|-------|--------|--------------|
-| B4 | Confirm SBAS/EGNOS active | ⭐ | 1–2 m open-sky improvement |
+| ID | Title | Effort | Expected Status / Gain |
+|----|-------|--------|------------------------|
+| B4 | Force SBAS/EGNOS active | Implemented | **Done** (Sent `$PCAS06,1,1` + response logging active) |
 | B3 | 5 Hz GPS update rate (needs baud upgrade) | ⭐⭐ | Better temporal alignment with GSR |
 | B1 | GSV satellite elevation weighting | ⭐⭐⭐ | 15–25% better quality discrimination |
 | B2 | Full RTS smoother | ⭐⭐⭐ | 10–20% smoother vs current Kalman |

@@ -267,9 +267,9 @@
                 <span>Max HDOP</span>
                 <span class="slider-value" id="valGpsMaxHdop">off</span>
               </div>
-              <input type="range" id="gpsMaxHdop" min="0" max="10" step="0.1" value="0">
+              <input type="range" id="gpsMaxHdop" min="0" max="10" step="0.1" value="3.0">
               <div class="slider-rec" style="left:30%; width:20%"></div>
-              <p class="help-text">Rejects GPS fixes with poor geometric accuracy. Lower = stricter. <strong>Recommended:</strong> 3.0–5.0. <strong>Note:</strong> firmware ≥ v2.1 already pre-filters at HDOP &lt; 5.0 at record time — use this slider for stricter post-processing or to clean up legacy CSVs. Set to 0 = off.</p>
+              <p class="help-text">Rejects GPS fixes with poor geometric accuracy. Lower = stricter. <strong>Default 3.0</strong> — the firmware already pre-filters at HDOP &lt; 5.0 at record time; this provides a tighter second pass. Set to 0 = off.</p>
             </div>
 
             <div class="slider-group">
@@ -277,9 +277,9 @@
                 <span>Min Fix Type</span>
                 <span class="slider-value" id="valGpsFixType">off</span>
               </div>
-              <input type="range" id="gpsFixType" min="0" max="3" step="1" value="0">
+              <input type="range" id="gpsFixType" min="0" max="3" step="1" value="2">
               <div class="slider-rec" style="left:75%; width:25%"></div>
-              <p class="help-text">Requires a minimum fix quality. <strong>Recommended:</strong> 3D only — a 2D fix assumes altitude and is less horizontally reliable. Needs firmware ≥ v2.1. Set to 0 = off.</p>
+              <p class="help-text">Minimum fix quality. <strong>Default ≥2D</strong> — rejects "no fix" only. A 2D fix can have excellent horizontal accuracy even without altitude. Needs firmware ≥ v2.1. Set to 0 = off.</p>
             </div>
 
             <div class="slider-group">
@@ -287,7 +287,7 @@
                 <span>Max Speed Filter</span>
                 <span class="slider-value" id="valGpsMaxSpeed">5 m/s</span>
               </div>
-              <input type="range" id="gpsMaxSpeed" min="0" max="7" step="0.5" value="0">
+              <input type="range" id="gpsMaxSpeed" min="0" max="7" step="0.5" value="3.0">
               <div class="slider-rec" style="left:21.4%; width:35.7%"></div>
               <p class="help-text">Rejects impossible GPS jumps. Brisk walk ≈ 2 m/s, jog ≈ 3.5 m/s. <strong>Recommended:</strong> 3–4 m/s for pedestrian use. Set to 0 = off.</p>
             </div>
@@ -337,21 +337,21 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Kalman Smoother R</span>
-                <span class="slider-value" id="valGpsKalmanR">0 m²</span>
+                <span class="slider-value" id="valGpsKalmanR">10 m²</span>
               </div>
-              <input type="range" id="gpsKalmanR" min="0" max="25" step="0.1" value="0">
-              <div class="slider-rec" style="left:20%; width:40%"></div>
-              <p class="help-text">Measurement noise (m²) — how much you distrust the GPS. <strong>Caution:</strong> on complex looping paths the predictor overshoots corners; prefer Hampel + DBSCAN for pedestrian tracks. Set to 0 = off.</p>
+              <input type="range" id="gpsKalmanR" min="0" max="25" step="0.1" value="10.0">
+              <div class="slider-rec" style="left:40%; width:30%"></div>
+              <p class="help-text">Measurement noise (m²) — how much you distrust the GPS. <strong>Default 10 m²</strong> (~3.2 m typical error). Uses a Rauch-Tung-Striebel (RTS) backward smoother — provably optimal for the whole track, no corner-overshoot issue. Set to 0 = off.</p>
             </div>
 
             <div class="slider-group">
               <div class="slider-label">
                 <span>Kalman Smoother Q</span>
-                <span class="slider-value" id="valGpsKalmanQ">0 m²</span>
+                <span class="slider-value" id="valGpsKalmanQ">0.5 m²</span>
               </div>
-              <input type="range" id="gpsKalmanQ" min="0" max="5" step="0.05" value="0">
-              <div class="slider-rec" style="left:20%; width:40%"></div>
-              <p class="help-text">Process noise (m²) — how fast you expect the true position to change. Low values = heavier smoothing. Best for <em>straight or predictable</em> routes; may lag on sharp turns. Set to 0 = off.</p>
+              <input type="range" id="gpsKalmanQ" min="0" max="5" step="0.05" value="0.5">
+              <div class="slider-rec" style="left:10%; width:20%"></div>
+              <p class="help-text">Process noise (m²/s) — how much you expect true position to change per second. <strong>Default 0.5</strong> for walking pace. Lower = heavier smoothing. The RTS backward pass ensures zero phase lag — no timing distortion. Set to 0 = off.</p>
             </div>
 
             <div class="slider-group">

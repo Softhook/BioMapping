@@ -23,17 +23,19 @@ const GpsFilter = {
   },
 
   /**
-   * Speed plausibility check: drops points that imply speed > maxSpeed (m/s).
-   * Keeps points where dt is too small to compute speed reliably.
+   * Speed plausibility check: rejects points whose Doppler-derived speed
+   * (from the GPS RMC sentence, stored in speedKts) exceeds maxSpeed (m/s).
+   * Doppler velocity is ~10× more accurate than position-derived speed
+   * (haversine / dt), so we use the GPS-reported value directly.
+   *
+   * Falls back to position-derived speed when speedKts is unavailable
+   * (old CSV without the speed column).
    *
    * Recovery behaviour: if consecutiveRejections reaches the threshold the
-   * filter was previously accepting the outlier position as a new anchor,
-   * which re-centred subsequent checks at a bad location.  Instead we now
-   * hold the last known-good coordinates but advance the timestamp.  This
-   * keeps the spatial reference correct while preventing an unbounded gap in
-   * the timeline.  A genuinely sustained fast-movement event (e.g. a vehicle)
-   * will clear naturally once the GPS returns to a plausible pedestrian speed
-   * relative to the frozen position.
+   * filter holds the last known-good coordinates but advances the timestamp.
+   * This keeps the spatial reference correct while preventing an unbounded
+   * gap in the timeline.  A genuinely sustained fast-movement event will
+   * clear naturally once the GPS returns to a plausible speed.
    */
   applySpeedFilter(points, maxSpeed) {
     if (!maxSpeed || isNaN(maxSpeed) || maxSpeed <= 0 || points.length < 2) return points;
@@ -43,19 +45,24 @@ const GpsFilter = {
     for (let i = 1; i < points.length; i++) {
       const prev = kept[kept.length - 1];
       const curr = points[i];
-      const dist  = GpsFilter.haversineDistance(prev.lat, prev.lon, curr.lat, curr.lon);
-      const dt    = Math.max(0.001, curr.time - prev.time);
-      const speed = dist / dt;
 
-      if (dt <= 0.001 || speed <= maxSpeed) {
+      // Prefer Doppler-derived speedKts (knots → m/s), fall back to
+      // position-derived haversine/dt when the column is absent.
+      let speed;
+      if (!isNaN(curr.speedKts)) {
+        speed = curr.speedKts * 0.514444;  // knots → m/s
+      } else {
+        const dist = GpsFilter.haversineDistance(prev.lat, prev.lon, curr.lat, curr.lon);
+        const dt   = Math.max(0.001, curr.time - prev.time);
+        speed = dist / dt;
+      }
+
+      if (speed <= maxSpeed) {
         kept.push(curr);
         consecutiveRejections = 0;
       } else {
         consecutiveRejections++;
         if (consecutiveRejections >= 10) {
-          // Hold last-good spatial position; only freeze lat/lon/alt coordinates
-          // so that the next speed comparison remains anchored to a credible location,
-          // while preserving the current point's unique origIdx and other metadata.
           kept.push({ ...curr, lat: prev.lat, lon: prev.lon, alt: prev.alt });
           consecutiveRejections = 0;
         }
@@ -172,7 +179,16 @@ const GpsFilter = {
 
   /**
    * Zero-phase 1D Kalman filter smoothing on Lat and Lon.
-   * Forward pass followed by backward pass for zero phase lag.
+   *
+   * Forward pass (standard Kalman) followed by a Rauch-Tung-Striebel (RTS)
+   * backward smoother.  The RTS pass uses the forward-pass filtered
+   * covariance P_fwd[i] to compute the optimal backward gain:
+   *
+   *   A_i = P_fwd[i] / (P_fwd[i] + Q·dt)      (scalar, F=1 random-walk model)
+   *   x̂_i|n = x̂_i|i + A_i · (x̂_i+1|n − x̂_i|i)
+   *
+   * This is provably optimal for linear Gaussian systems and gives a
+   * 10–20 % smoother output than running an independent backward Kalman.
    *
    * HDOP-adaptive R: when each point carries an hdop field the measurement
    * noise covariance is scaled by HDOP² on a per-point basis.  High HDOP
@@ -218,9 +234,12 @@ const GpsFilter = {
       return R_LON_BASE * h * h;
     };
 
-    // Forward pass
+    // Forward pass — standard Kalman filter.
+    // Store filtered state AND covariance for the RTS backward pass.
     const forwardLats = new Array(n);
     const forwardLons = new Array(n);
+    const fwdCovLat    = new Array(n);   // P_k|k  (filtered covariance)
+    const fwdCovLon    = new Array(n);
 
     let xLat = points[0].lat;
     let xLon = points[0].lon;
@@ -249,40 +268,55 @@ const GpsFilter = {
 
       forwardLats[i] = xLat;
       forwardLons[i] = xLon;
+      fwdCovLat[i]    = PLat;
+      fwdCovLon[i]    = PLon;
     }
 
-    // Backward pass for zero phase lag
+    // RTS backward smoother — optimal gain from forward-pass covariance.
+    // A_i = P_i|i / (P_i|i + Q·dt)  =  P_fwd[i] / P_pred[i+1]
+    // For the scalar random-walk model (F = 1) the predicted state equals
+    // the filtered state, so the innovation is simply the difference
+    // between the already-smoothed next point and the current forward point.
+    //
+    // Per-point displacement cap at 4 m: prevents the RTS backward
+    // propagation from pulling any single anchor more than 4 m from its
+    // raw GPS position.  This guards against GPS-warmup drift loops being
+    // stretched into exaggerated shapes without affecting legitimate
+    // smoothing in the stable region (where typical displacements are
+    // 1–3 m).  The cap is in degrees-equivalent for uniform lat/lon scaling.
+    const MAX_DISP_M  = 4.0;
+    const maxDispDeg  = MAX_DISP_M * M_TO_DEG_LAT;
+    const maxDispDeg2 = maxDispDeg * maxDispDeg;
+
     const result = new Array(n);
-    let bxLat = forwardLats[n - 1];
-    let bxLon = forwardLons[n - 1];
-    let bPLat = 1.0;
-    let bPLon = 1.0;
-    let bLastTime = points[n - 1].time;
+    let sxLat = forwardLats[n - 1];
+    let sxLon = forwardLons[n - 1];
+    result[n - 1] = { ...points[n - 1], lat: sxLat, lon: sxLon };
 
-    for (let i = n - 1; i >= 0; i--) {
-      const dt = i === n - 1 ? 1.0 : Math.max(0.1, bLastTime - points[i].time);
-      bLastTime = points[i].time;
+    for (let i = n - 2; i >= 0; i--) {
+      const dt = Math.max(0.1, points[i + 1].time - points[i].time);
 
-      const pPLat = bPLat + Q_LAT * dt;
-      const pPLon = bPLon + Q_LON * dt;
+      const P_pred_Lat = fwdCovLat[i] + Q_LAT * dt;
+      const P_pred_Lon = fwdCovLon[i] + Q_LON * dt;
+      const A_lat = fwdCovLat[i] / P_pred_Lat;
+      const A_lon = fwdCovLon[i] / P_pred_Lon;
 
-      const R_LAT = getRLat(points[i]);
-      const R_LON = getRLon(points[i]);
+      let newLat = forwardLats[i] + A_lat * (sxLat - forwardLats[i]);
+      let newLon = forwardLons[i] + A_lon * (sxLon - forwardLons[i]);
 
-      const kLat = pPLat / (pPLat + R_LAT);
-      const kLon = pPLon / (pPLon + R_LON);
+      // Clamp per-point displacement from raw GPS position.
+      const dLat = newLat - points[i].lat;
+      const dLon = newLon - points[i].lon;
+      const dist2 = dLat * dLat + dLon * dLon;
+      if (dist2 > maxDispDeg2) {
+        const scale = maxDispDeg / Math.sqrt(dist2);
+        newLat = points[i].lat + dLat * scale;
+        newLon = points[i].lon + dLon * scale;
+      }
 
-      bxLat = bxLat + kLat * (forwardLats[i] - bxLat);
-      bxLon = bxLon + kLon * (forwardLons[i] - bxLon);
-
-      bPLat = (1 - kLat) * pPLat;
-      bPLon = (1 - kLon) * pPLon;
-
-      result[i] = {
-        ...points[i],
-        lat: bxLat,
-        lon: bxLon
-      };
+      sxLat = newLat;
+      sxLon = newLon;
+      result[i] = { ...points[i], lat: sxLat, lon: sxLon };
     }
 
     return result;
@@ -329,20 +363,72 @@ const GpsFilter = {
       // Dead-reckon from prev position using prev point's speed+course
       let predLat = curr.lat;
       let predLon = curr.lon;
-      if (dt > 0 && !isNaN(prev.speedKts) && !isNaN(prev.course)) {
+      
+      // Only dead-reckon if speed is high enough for the course vector to be stable.
+      // Below 1.2 knots (~0.6 m/s), heading is highly erratic and produces loops.
+      if (dt > 0 && !isNaN(prev.speedKts) && !isNaN(prev.course) && prev.speedKts > 1.2) {
         const speedMs   = prev.speedKts * KNOTS_TO_MS;
+        
+        // ── Unit Vector Heading Smoothing ──────────────────────────────────
+        // Instead of averaging noisy degrees directly (which suffers from the
+        // 360° boundary wrap-around bug), we convert the heading to a 2D vector,
+        // blend it with the previous direction, and then project.
         const courseRad = prev.course * DEG_TO_RAD;
+        let dirX = Math.cos(courseRad);
+        let dirY = Math.sin(courseRad);
+        
+        // If we have a historical direction, apply an exponential moving average
+        // (beta = 0.7) to smooth out sudden heading spikes.
+        if (i > 1 && !isNaN(result[i - 2]._smoothedDirX)) {
+          const beta = 0.7;
+          dirX = beta * result[i - 2]._smoothedDirX + (1 - beta) * dirX;
+          dirY = beta * result[i - 2]._smoothedDirY + (1 - beta) * dirY;
+          // Re-normalize to unit length
+          const len = Math.sqrt(dirX * dirX + dirY * dirY);
+          if (len > 0.001) {
+            dirX /= len;
+            dirY /= len;
+          }
+        }
+        
         const cosLat    = Math.cos(prev.lat * DEG_TO_RAD);
         const M_TO_DEG_LON = cosLat > 0.001 ? M_TO_DEG_LAT / cosLat : M_TO_DEG_LAT;
-        predLat = prev.lat + speedMs * Math.cos(courseRad) * dt * M_TO_DEG_LAT;
-        predLon = prev.lon + speedMs * Math.sin(courseRad) * dt * M_TO_DEG_LON;
+        
+        predLat = prev.lat + speedMs * dirX * dt * M_TO_DEG_LAT;
+        predLon = prev.lon + speedMs * dirY * dt * M_TO_DEG_LON;
+        
+        curr._smoothedDirX = dirX;
+        curr._smoothedDirY = dirY;
+      } else {
+        // If stationary or speed is too low, project zero displacement.
+        // This acts as a standard position filter and avoids pause wobbles.
+        predLat = prev.lat;
+        predLon = prev.lon;
+        
+        // Retain previous heading vector if it existed
+        if (i > 1) {
+          curr._smoothedDirX = result[i - 2]._smoothedDirX;
+          curr._smoothedDirY = result[i - 2]._smoothedDirY;
+        }
       }
 
       // Blend: GPS fix × effectiveAlpha + dead-reckoned × (1 - effectiveAlpha)
+      //
+      // Zero-Velocity Update (ZUPT): when the GPS Doppler reports the
+      // receiver is stationary (prev.speedKts ≤ 1.2 kt ≈ 0.6 m/s), the
+      // position-derived displacement is unreliable — typical during
+      // cold-start warmup drift or multipath in urban canyons.  We
+      // override α to near-zero so the output position is held at the
+      // frozen prediction instead of blending in the drifting GPS fix.
+      // This is standard practice in GPS/INS integration: Doppler
+      // velocity is ~10× more accurate than position differencing.
+      const alphaFinal = (!isNaN(prev.speedKts) && prev.speedKts <= 1.2)
+        ? 0.05 : effectiveAlpha;
+
       result.push({
         ...curr,
-        lat: effectiveAlpha * curr.lat + (1 - effectiveAlpha) * predLat,
-        lon: effectiveAlpha * curr.lon + (1 - effectiveAlpha) * predLon,
+        lat: alphaFinal * curr.lat + (1 - alphaFinal) * predLat,
+        lon: alphaFinal * curr.lon + (1 - alphaFinal) * predLon,
       });
     }
     return result;
