@@ -131,8 +131,8 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
         .latitude           = NAN,
         .longitude          = NAN,
         .altitude           = 0.0f,
-        .speed              = 0.0f,
-        .course             = 0.0f,
+        .speed              = NAN,    // set on first RMC sentence
+        .course             = NAN,    // set on first RMC sentence
         .hdop               = 99.9f,
         .vdop               = 99.9f,
         .fix_quality        = 0,

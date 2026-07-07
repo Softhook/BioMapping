@@ -82,11 +82,13 @@ typedef struct {
     float lat;
     float lon;
     float alt;
-    float hdop;     // Horizontal Dilution of Precision; 99.9 = unknown
-    float vdop;     // Vertical Dilution of Precision; 99.9 = unknown
+    float hdop;      // Horizontal Dilution of Precision; 99.9 = unknown
+    float vdop;      // Vertical Dilution of Precision; 99.9 = unknown
+    float speed_kts; // Speed over ground in knots (RMC); NaN = unknown
+    float course_deg;// Course over ground in degrees true (RMC); NaN = unknown
     int   sats;
-    int   fix;      // fix_quality from GGA: 0=none, 1=GPS, 2=DGPS
-    int   fix_type; // fix_type from GSA: 1=none, 2=2D, 3=3D
+    int   fix;       // fix_quality from GGA: 0=none, 1=GPS, 2=DGPS
+    int   fix_type;  // fix_type from GSA: 1=none, 2=2D, 3=3D
 } GpsPosition;
 
 // ── Inline helpers ─────────────────────────────────────────────────────

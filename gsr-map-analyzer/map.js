@@ -322,6 +322,11 @@ class GSRMapManager {
       ? (pts.length - 1) / (pts[pts.length - 1].time - pts[0].time)
       : 1.0;
 
+    // 2a. Stop averaging: collapse stationary jitter clusters into a centroid
+    //     before any other filter sees the data.  Requires speedKts field
+    //     (firmware >= v2.2); silently skips if speed data is absent.
+    pts = GpsFilter.applyStopAveraging(pts);
+
     // 3. Hampel outlier filter
     if (p.hampelWindow > 0 && p.hampelSigma > 0) {
       const k = Math.round(p.hampelWindow * gpsSampleRate);
@@ -331,12 +336,18 @@ class GSRMapManager {
     if (p.maxSpeed > 0) {
       pts = GpsFilter.applySpeedFilter(pts, p.maxSpeed);
     }
+    // 4b. Velocity-aided smoothing: blend GPS fix with dead-reckoned prediction.
+    //     Runs after the speed filter (outliers removed) and before DBSCAN/Kalman
+    //     so downstream filters receive a smoother signal.
+    //     Silently skips if speed/course data is absent (old CSV).
+    pts = GpsFilter.applyVelocitySmoothing(pts);
+
     // 5. DBSCAN stop collapse
     if (p.dbscanRadius > 0 && (p.dbscanMinPts || 0) > 1) {
       const minPts = Math.round(p.dbscanMinPts * gpsSampleRate);
       pts = GpsFilter.applyDBSCAN(pts, p.dbscanRadius, minPts);
     }
-    // 6. Kalman filter smoothing
+    // 6. Kalman filter smoothing (now HDOP-adaptive per-point)
     if (p.kalmanR > 0 && p.kalmanQ > 0) {
       pts = GpsFilter.applyKalman(pts, p.kalmanQ, p.kalmanR);
     }

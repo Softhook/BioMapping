@@ -43,20 +43,11 @@ const GpsFilter = {
     for (let i = 1; i < points.length; i++) {
       const prev = kept[kept.length - 1];
       const curr = points[i];
-      const dist = GpsFilter.haversineDistance(prev.lat, prev.lon, curr.lat, curr.lon);
-      const dt = curr.time - prev.time;
-      let accept = false;
+      const dist  = GpsFilter.haversineDistance(prev.lat, prev.lon, curr.lat, curr.lon);
+      const dt    = Math.max(0.001, curr.time - prev.time);
+      const speed = dist / dt;
 
-      if (dt > 0.001) {
-        const speed = dist / dt;
-        if (speed <= maxSpeed) {
-          accept = true;
-        }
-      } else {
-        accept = true;
-      }
-
-      if (accept) {
+      if (dt <= 0.001 || speed <= maxSpeed) {
         kept.push(curr);
         consecutiveRejections = 0;
       } else {
@@ -183,8 +174,14 @@ const GpsFilter = {
    * Zero-phase 1D Kalman filter smoothing on Lat and Lon.
    * Forward pass followed by backward pass for zero phase lag.
    *
+   * HDOP-adaptive R: when each point carries an hdop field the measurement
+   * noise covariance is scaled by HDOP² on a per-point basis.  High HDOP
+   * → larger R → filter trusts its own momentum more than the GPS fix.
+   * Low HDOP → smaller R → filter tracks the GPS position aggressively.
+   * Points without HDOP data (NaN) use the base R unchanged.
+   *
    * @param {number} Q_m2 — process noise variance (metres²)
-   * @param {number} R_m2 — measurement noise variance (metres²)
+   * @param {number} R_m2 — base measurement noise variance (metres²)
    */
   applyKalman(points, Q_m2, R_m2) {
     if (!Q_m2 || !R_m2 || isNaN(Q_m2) || isNaN(R_m2) || Q_m2 <= 0 || R_m2 <= 0 || points.length < 2) return points;
@@ -201,10 +198,25 @@ const GpsFilter = {
     const M2_TO_DEG2_LAT = M_TO_DEG_LAT * M_TO_DEG_LAT;
     const M2_TO_DEG2_LON = M_TO_DEG_LON * M_TO_DEG_LON;
 
-    const R_LAT = R_m2 * M2_TO_DEG2_LAT;
-    const R_LON = R_m2 * M2_TO_DEG2_LON;
+    const R_LAT_BASE = R_m2 * M2_TO_DEG2_LAT;
+    const R_LON_BASE = R_m2 * M2_TO_DEG2_LON;
     const Q_LAT = Q_m2 * M2_TO_DEG2_LAT;
     const Q_LON = Q_m2 * M2_TO_DEG2_LON;
+
+    // Helper: scale R by HDOP² for this point.
+    // Clamp HDOP to [0.5, 10] to avoid degenerate R values.
+    const getRLat = (pt) => {
+      const hdop = pt.hdop;
+      if (isNaN(hdop) || hdop <= 0) return R_LAT_BASE;
+      const h = Math.max(0.5, Math.min(10, hdop));
+      return R_LAT_BASE * h * h;
+    };
+    const getRLon = (pt) => {
+      const hdop = pt.hdop;
+      if (isNaN(hdop) || hdop <= 0) return R_LON_BASE;
+      const h = Math.max(0.5, Math.min(10, hdop));
+      return R_LON_BASE * h * h;
+    };
 
     // Forward pass
     const forwardLats = new Array(n);
@@ -222,6 +234,9 @@ const GpsFilter = {
 
       const pPLat = PLat + Q_LAT * dt;
       const pPLon = PLon + Q_LON * dt;
+
+      const R_LAT = getRLat(points[i]);
+      const R_LON = getRLon(points[i]);
 
       const kLat = pPLat / (pPLat + R_LAT);
       const kLon = pPLon / (pPLon + R_LON);
@@ -251,6 +266,9 @@ const GpsFilter = {
       const pPLat = bPLat + Q_LAT * dt;
       const pPLon = bPLon + Q_LON * dt;
 
+      const R_LAT = getRLat(points[i]);
+      const R_LON = getRLon(points[i]);
+
       const kLat = pPLat / (pPLat + R_LAT);
       const kLon = pPLon / (pPLon + R_LON);
 
@@ -267,6 +285,120 @@ const GpsFilter = {
       };
     }
 
+    return result;
+  },
+
+  /**
+   * Velocity-aided position smoothing.
+   *
+   * Uses the RMC speed-over-ground (knots) and course-over-ground (degrees)
+   * recorded in each point to dead-reckon a predicted position, then blends
+   * that prediction with the raw GPS fix.  The blend ratio α is itself
+   * HDOP-adaptive: when DOP is high the dead-reckoned prediction is trusted
+   * more; when DOP is low (good signal) the GPS fix dominates.
+   *
+   * α_base is the fraction of the GPS fix used when HDOP = 1.0 (best case).
+   * At HDOP = 5.0 the GPS fix weight drops to α_base / 5; above that the
+   * prediction dominates almost entirely.
+   *
+   * @param {Array}  points    — GPS anchor points with speedKts and course fields
+   * @param {number} alpha     — base GPS trust weight [0,1]; 0.5 is balanced
+   */
+  applyVelocitySmoothing(points, alpha = 0.6) {
+    if (!points || points.length < 2) return points;
+    // Check if any point has velocity data; skip entirely if not available
+    // (old CSV without speed/course columns).
+    const hasVelData = points.some(p => !isNaN(p.speedKts) && !isNaN(p.course));
+    if (!hasVelData) return points;
+
+    const KNOTS_TO_MS = 0.51444;
+    const DEG_TO_RAD  = Math.PI / 180;
+    const M_TO_DEG_LAT = 1.0 / 111320.0;
+
+    const result = [{ ...points[0] }];
+
+    for (let i = 1; i < points.length; i++) {
+      const prev = result[i - 1];
+      const curr = points[i];
+      const dt   = Math.max(0, curr.time - prev.time);
+
+      // Compute effective alpha: scale down GPS trust proportionally to HDOP
+      const hdop = isNaN(curr.hdop) || curr.hdop <= 0 ? 2.0 : Math.max(0.5, Math.min(10, curr.hdop));
+      const effectiveAlpha = Math.max(0.1, Math.min(0.95, alpha / hdop));
+
+      // Dead-reckon from prev position using prev point's speed+course
+      let predLat = curr.lat;
+      let predLon = curr.lon;
+      if (dt > 0 && !isNaN(prev.speedKts) && !isNaN(prev.course)) {
+        const speedMs   = prev.speedKts * KNOTS_TO_MS;
+        const courseRad = prev.course * DEG_TO_RAD;
+        const cosLat    = Math.cos(prev.lat * DEG_TO_RAD);
+        const M_TO_DEG_LON = cosLat > 0.001 ? M_TO_DEG_LAT / cosLat : M_TO_DEG_LAT;
+        predLat = prev.lat + speedMs * Math.cos(courseRad) * dt * M_TO_DEG_LAT;
+        predLon = prev.lon + speedMs * Math.sin(courseRad) * dt * M_TO_DEG_LON;
+      }
+
+      // Blend: GPS fix × effectiveAlpha + dead-reckoned × (1 - effectiveAlpha)
+      result.push({
+        ...curr,
+        lat: effectiveAlpha * curr.lat + (1 - effectiveAlpha) * predLat,
+        lon: effectiveAlpha * curr.lon + (1 - effectiveAlpha) * predLon,
+      });
+    }
+    return result;
+  },
+
+  /**
+   * Stop-averaging: collapses stationary clusters into a centroid.
+   *
+   * When the receiver reports speed below stationaryThreshold m/s,
+   * consecutive points within the cluster are averaged into a single
+   * representative point (the centroid of the cluster).
+   * This eliminates the jitter circle that cheap GPS chips draw
+   * when the user is standing still.
+   *
+   * @param {Array}  points              — GPS anchor points with speedKts field
+   * @param {number} stationaryKts       — speed threshold in knots (default 0.5 kt ≈ 0.26 m/s)
+   * @param {number} minClusterPoints    — minimum cluster size to collapse (default 3)
+   */
+  applyStopAveraging(points, stationaryKts = 0.5, minClusterPoints = 3) {
+    if (!points || points.length < 2) return points;
+    const hasVelData = points.some(p => !isNaN(p.speedKts));
+    if (!hasVelData) return points;
+
+    const result = [];
+    let i = 0;
+    while (i < points.length) {
+      const p = points[i];
+      const spd = isNaN(p.speedKts) ? Infinity : p.speedKts;
+
+      if (spd <= stationaryKts) {
+        // Collect the stationary cluster
+        const cluster = [p];
+        let j = i + 1;
+        while (j < points.length && (isNaN(points[j].speedKts) ? false : points[j].speedKts <= stationaryKts)) {
+          cluster.push(points[j]);
+          j++;
+        }
+
+        if (cluster.length >= minClusterPoints) {
+          // Emit centroid — preserve origIdx of the middle point so
+          // downstream index mapping (filteredGps reconstruction) still works.
+          const midIdx  = Math.floor((i + j - 1) / 2);
+          const midPt   = points[Math.min(midIdx, points.length - 1)];
+          const centLat = cluster.reduce((s, pt) => s + pt.lat, 0) / cluster.length;
+          const centLon = cluster.reduce((s, pt) => s + pt.lon, 0) / cluster.length;
+          result.push({ ...midPt, lat: centLat, lon: centLon });
+        } else {
+          // Cluster too small — keep individual points
+          cluster.forEach(pt => result.push(pt));
+        }
+        i = j;
+      } else {
+        result.push(p);
+        i++;
+      }
+    }
     return result;
   },
 
