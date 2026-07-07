@@ -276,7 +276,7 @@ static void batch_csv_row(Session* s, float raw) {
     if(s->mode == BioMapModeGsrOnly) {
         sd_logger_batch_printf(s->logger, "%s,%d,%.1f\n",
                                ts, s->recording.tick_counter, (double)raw);
-    } else if(s->recording.tick_counter == 0) {
+    } else if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
         GpsPosition pos = get_gps_position(s);
         // Only log GPS coordinates when quality is acceptable.
         // hdop >= GPS_HDOP_GATE (or 99.9 sentinel = no DOP data yet) means
@@ -320,40 +320,12 @@ static void handle_write_failure(Session* s, NotificationApp* notifications) {
 }
 
 // ── 1‑second boundary ──────────────────────────────────────────────────────
-// Called once per second.  All modes use the batch API for SD writes —
-// GSR modes accumulate rows each tick; GPS-only builds one row here.
-// Both flush through sd_logger_batch_flush with the same notification pattern.
+// Called once per second.  Flushes the SD batch buffer and blinks the LED.
+// GPS rows are written in handle_recording_tick; GSR rows in batch_csv_row.
 static void handle_second_boundary(Session* s, NotificationApp* notifications) {
     if(!s->recording.active) {
         s->recording.tick_counter = 0;
         return;
-    }
-
-    if(!has_gsr(s->mode)) {
-        // GPS-only: build one row per second via the batch API
-        GpsPosition pos = get_gps_position(s);
-        char ts[32];
-        session_format_timestamp(s, ts, sizeof(ts));
-        bool gps_ok = pos.valid && pos.hdop < GPS_HDOP_GATE;
-        if(gps_ok) {
-            bool has_vel = !isnan(pos.speed_kts) && !isnan(pos.course_deg);
-            if(has_vel) {
-                sd_logger_batch_printf(s->logger,
-                    "%s,%.6f,%.6f,%.1f,%.1f,%.1f,%d,%d,%d,%.2f,%.1f,%d\n",
-                    ts, (double)pos.lat, (double)pos.lon, (double)pos.alt,
-                    (double)pos.hdop, (double)pos.vdop,
-                    pos.sats, pos.fix, pos.fix_type,
-                    (double)pos.speed_kts, (double)pos.course_deg, 0);
-            } else {
-                sd_logger_batch_printf(s->logger,
-                    "%s,%.6f,%.6f,%.1f,%.1f,%.1f,%d,%d,%d,,,%d\n",
-                    ts, (double)pos.lat, (double)pos.lon, (double)pos.alt,
-                    (double)pos.hdop, (double)pos.vdop,
-                    pos.sats, pos.fix, pos.fix_type, 0);
-            }
-        } else {
-            sd_logger_batch_printf(s->logger, "%s,,,,,,,,,,,%d\n", ts, 0);
-        }
     }
 
     int flushed = sd_logger_batch_flush(s->logger);
@@ -510,6 +482,37 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
 
 // ── Handle one GSR tick (10 Hz) during a recording session ────────────────
 static void handle_recording_tick(Session* s) {
+    // ── GPS-only mode: write a row on the GPS tick boundary ────────────
+    if(!has_gsr(s->mode) && has_gps(s->mode) && s->recording.active) {
+        if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
+            GpsPosition pos = get_gps_position(s);
+            char ts[32];
+            session_format_timestamp(s, ts, sizeof(ts));
+            bool gps_ok = pos.valid && pos.hdop < GPS_HDOP_GATE;
+            if(gps_ok) {
+                bool has_vel = !isnan(pos.speed_kts) && !isnan(pos.course_deg);
+                if(has_vel) {
+                    sd_logger_batch_printf(s->logger,
+                        "%s,%.6f,%.6f,%.1f,%.1f,%.1f,%d,%d,%d,%.2f,%.1f,%d\n",
+                        ts, (double)pos.lat, (double)pos.lon, (double)pos.alt,
+                        (double)pos.hdop, (double)pos.vdop,
+                        pos.sats, pos.fix, pos.fix_type,
+                        (double)pos.speed_kts, (double)pos.course_deg, 0);
+                } else {
+                    sd_logger_batch_printf(s->logger,
+                        "%s,%.6f,%.6f,%.1f,%.1f,%.1f,%d,%d,%d,,,%d\n",
+                        ts, (double)pos.lat, (double)pos.lon, (double)pos.alt,
+                        (double)pos.hdop, (double)pos.vdop,
+                        pos.sats, pos.fix, pos.fix_type, 0);
+                }
+            } else {
+                sd_logger_batch_printf(s->logger, "%s,,,,,,,,,,,%d\n", ts, 0);
+            }
+        }
+        return;
+    }
+
+    // ── GSR modes (GsrOnly, GpsGsr) ────────────────────────────────────
     float raw = 0.0f;
     if(s->gsr) {
         gsr_sensor_tick(s->gsr);

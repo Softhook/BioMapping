@@ -12,6 +12,7 @@
 
 #define GPS_RX_BUF_SIZE   (1024 * 5)
 #define GPS_BAUD_RATE     9600
+#define GPS_BAUD_RATE_FAST 115200
 #define GPS_UART_CH       FuriHalSerialIdUsart
 
 typedef struct GpsStatus {
@@ -26,6 +27,7 @@ typedef struct GpsStatus {
     int   fix_type;             // 1=none, 2=2D, 3=3D (GSA)
     int   satellites_tracked;
     bool  fix_valid;            // from RMC
+    bool  sbas_active;          // true when any GSA PRN >= 120 (SBAS satellite in use)
     struct minmea_time time;
     struct minmea_date date;
 } GpsStatus;

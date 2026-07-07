@@ -109,16 +109,18 @@ static void render_gps_detail(Canvas* c, BioMapApp* a) {
             y += 10;
         }
 
-        // Quality line: show HDOP and 2D/3D fix type instead of the opaque
-        // GGA fix-quality integer.  HDOP < 3 = good, 3-5 = moderate, >5 = poor.
+        // Quality line: show HDOP, 2D/3D fix type, and SBAS indicator.
+        // HDOP < 3 = good, 3-5 = moderate, >5 = poor.
         const char* fix_str = (g.fix_type == 3) ? "3D" :
                               (g.fix_type == 2) ? "2D" : "--";
         if(g.hdop < 50.0f) {
-            snprintf(buf, sizeof(buf), "S:%d  H:%.1f  %s",
-                     g.satellites_tracked, (double)g.hdop, fix_str);
+            snprintf(buf, sizeof(buf), "S:%d  H:%.1f  %s%s",
+                     g.satellites_tracked, (double)g.hdop, fix_str,
+                     g.sbas_active ? " SBAS" : "");
         } else {
-            snprintf(buf, sizeof(buf), "S:%d  H:--  %s",
-                     g.satellites_tracked, fix_str);
+            snprintf(buf, sizeof(buf), "S:%d  H:--  %s%s",
+                     g.satellites_tracked, fix_str,
+                     g.sbas_active ? " SBAS" : "");
         }
         canvas_draw_str(c, 0, y, buf);
     } else {
@@ -185,10 +187,12 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                 snprintf(badge, sizeof(badge), "Acquiring");
             }
         } else {
-            // Good quality — show HDOP and fix dimension
+            // Good quality — show HDOP, fix type, and SBAS indicator
             const char* fix_str = (g.fix_type == 3) ? "3D" :
                                   (g.fix_type == 2) ? "2D" : "--";
-            snprintf(badge, sizeof(badge), "H:%.1f %s", (double)g.hdop, fix_str);
+            snprintf(badge, sizeof(badge), "H:%.1f %s%s",
+                     (double)g.hdop, fix_str,
+                     g.sbas_active ? " S" : "");
         }
         // Right-align: leave 3 px gap before recording-indicator box when active.
         // Set font explicitly here — rendering order must not be assumed.

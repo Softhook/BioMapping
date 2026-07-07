@@ -21,8 +21,8 @@ struct SdLogger {
 
     // GSR batch buffer: accumulate formatted rows each tick,
     // flush to SD in one storage_file_write at the 1‑second boundary.
-    // 10 rows × ~45 bytes + safety = 512 bytes.
-    char gsr_batch[512];
+    // 10 rows × ~85 bytes (max GPS+GSR row) + safety = 1024 bytes.
+    char gsr_batch[1024];
     int  gsr_batch_len;
 };
 

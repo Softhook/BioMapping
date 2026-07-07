@@ -201,9 +201,20 @@ Before diving into implementation, here's why 2 Hz is the right first step:
 
 ### 1. Baud Rate: 9600 → 115200
 
-#### 1.1 Why it's needed
+#### 1.1 Why it's needed (for Phase 2 / 5 Hz)
 
-At 9600 baud the serial link is already at ~78% utilisation with the current GGA+RMC+GSA sentence set. Adding GSV (B1) pushes it past 90%. Any rate above 1 Hz at 9600 baud is physically impossible — GGA+RMC+GSA ≈ 200 bytes/epoch × 2 Hz = 400 bytes/s is already pushing the 960-byte/s ceiling once you account for start/stop bits and inter-sentence gaps. The baud upgrade is a **hard prerequisite** for both B1 and any rate increase.
+At 9600 baud the serial link has ~960 bytes/s theoretical ceiling. Current utilisation at 1 Hz with GGA+RMC+GSA:
+
+| Rate | Bytes/s | Utilisation | Status |
+|------|---------|-------------|--------|
+| 1 Hz | ~200    | 21%         | ✅ Current |
+| 2 Hz | ~420    | 44%         | ✅ Phase 1 — safe at 9600 baud |
+| 5 Hz | ~1000   | 104%        | ❌ Overflows 9600 baud — needs 115200 |
+| 2 Hz + GSV | ~720 | 75%        | ✅ B1 would fit at 9600 baud @ 2 Hz |
+
+**Phase 1 runs at 9600 baud / 2 Hz without any baud change.** The baud upgrade is only needed for 5 Hz (Phase 2) or if we want 2 Hz + GSV (B1).
+
+**⚠️ PCAS01 mapping for the L76K is not verified.** The `$PCAS01` baud-select command has different parameter mappings depending on firmware version. On the AT6558R, PCAS01,5 = 115200. On some L76K variants the mapping may differ. Before Phase 2, the correct PCAS01 value for 115200 must be confirmed against the specific L76K firmware — a serial logic analyser on the GPS TX pin during the PCAS01 handshake will confirm whether the GPS actually switches.
 
 #### 1.2 Electrical / Signal Integrity
 
@@ -344,55 +355,36 @@ The real bottleneck is Leaflet polyline rendering, which already decimates for z
 
 ### 3. Implementation Plan for B3
 
-#### Phase 1: Baud rate upgrade + 2 Hz (1–2 days)
+#### Phase 1: 2 Hz at 9600 baud ✅ IMPLEMENTED 2026-07-07
 
-**Step 1 — Baud rate upgrade:**
-```
-gps_uart_configure():
-  pcas_tx("$PCAS01,1*xx\r\n")   // switch to 115200 (checksum TBD)
-  furi_delay_ms(200)             // let GPS switch
-  furi_hal_serial_deinit(...)
-  furi_hal_serial_init(..., 115200)  // re-init UART at new rate
-  pcas_tx("$PCAS04,7*1E\r\n")   // re-send constellation config
-  pcas_tx("$PCAS03,...")         // re-send NMEA filter
-  pcas_tx("$PCAS02,500*xx\r\n") // 2 Hz (new checksum)
-  pcas_tx("$PCAS06,1,1*07\r\n") // SBAS
-```
-
-**Critical:** Baud change must happen BEFORE rate change. If we send `$PCAS02,500` at 9600 baud and then switch to 115200, the GPS outputs at 2 Hz on the old baud — the UART sees framing errors until re-init completes.
-
-**Step 2 — Batch buffer resize:**
-```c
-// sd_logger.c
-char gsr_batch[1024];  // was 512
-```
-
-**Step 3 — Session tick logic:**
-```c
-// In batch_csv_row: change tick_counter == 0 → tick_counter % 5 == 0
-// In handle_second_boundary: same pattern for GPS-only mode
-```
-
-**Step 4 — Baud error recovery (~30 lines):**
-- PCAS config ACK check after `$PCAS01,1`: wait 200 ms, verify PCAS response echoes the command
-- 5-second NMEA watchdog: if no valid `$Gx` sentence parsed, attempt re-init at 9600, then re-attempt 115200
-- Blind fallback: `$PCAS01,0` (9600) can be sent blind at any time as a recovery command
-
-**Step 5 — No analyser changes needed.**
-
-#### Phase 2: 5 Hz (1 day, after Phase 1 validated on real walks)
-
+**Step 1 — PCAS02 rate change (1 line):**
 ```c
 // gps_uart_configure():
-pcas_tx("$PCAS02,200*xx\r\n") // was 500
-
-// biomap_session.c:
-// tick_counter % 5 == 0  →  tick_counter % 2 == 0
+pcas_tx(g, "$PCAS02,500*1A\r\n");  // was 1000*2E
 ```
 
-#### Skip: 10 Hz
+**Step 2 — Batch buffer resize (1 line):**
+```c
+// sd_logger.c: char gsr_batch[1024];  // was 512
+```
 
-Not worth it — diminishing returns, fix quality risk, 100% GPS rows in CSV, and the smoother already handles 200 ms gaps well at 5 Hz.
+**Step 3 — Session tick logic (1 line):**
+```c
+// biomap_session.c: tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0
+// GPS_CSV_HZ = 2 in biomap_types.h
+```
+
+**Step 4 — GPS-only mode moved to handle_recording_tick.**
+
+**Step 5 — NMEA watchdog (diagnostic only, hot-start reset on 5 s silence).**
+
+#### Phase 2: 115200 baud + 5 Hz (requires PCAS01 verification first)
+
+Before implementing, confirm the correct `$PCAS01` parameter for 115200 on the L76K:
+- Attach a USB-UART adapter or logic analyser to the GPS TX pin
+- Send `$PCAS01,5` (AT6558R default for 115200) and verify the GPS responds at 115200
+- If the GPS doesn't switch, try `$PCAS01,1` (alternative mapping)
+- Once confirmed, implement the 4-step baud switch from the original Phase 1 plan
 
 ---
 
@@ -400,13 +392,11 @@ Not worth it — diminishing returns, fix quality risk, 100% GPS rows in CSV, an
 
 | Risk | Probability | Impact | Mitigation |
 |------|------------|--------|------------|
-| Baud negotiation fails silently | Low | GPS data is garbage; session logs empty rows | NMEA watchdog + config ACK check (Phase 1) |
-| Batch buffer overflow at >1 Hz | High (certain at 512 B) | Truncated CSV rows; data loss | Increase buffer to 1024 B (Phase 1, covers all rates) |
-| SD card write latency spike | Low | One-second boundary delayed; timer drift | Already handled — batch flush is non-blocking |
-| L76K fix quality degrades at 5 Hz | Low–Medium | Slightly noisier positions | Validate at 2 Hz first; only proceed to 5 Hz if 2 Hz is stable on real urban walks |
-| L76K fix quality degrades at 10 Hz | Medium | Noisier individual fixes | Skip 10 Hz entirely — not in the plan |
-| Analyser becomes slow with 5× data | Low | Perceived UI lag on load | Pipeline is O(n); JS handles 18k points in ~180 ms |
-| IRQ storm at 115200 | Very low | CPU starvation | Only 1000 IRQs/s at 5 Hz; STM32WB at 64 MHz has 64k cycles between them |
+| Baud negotiation fails silently (Phase 2) | Medium | GPS at wrong baud; no data | **Verify PCAS01 mapping with logic analyser BEFORE implementing Phase 2** |
+| Batch buffer overflow at >1 Hz | High (certain at 512 B) | Truncated CSV rows; data loss | Increased buffer to 1024 B ✅ |
+| SD card write latency spike | Low | One-second boundary delayed | Already handled — batch flush is non-blocking |
+| L76K fix quality degrades at 5 Hz | Low–Medium | Slightly noisier positions | Validate at 2 Hz first; only proceed to 5 Hz if stable |
+| Analyser becomes slow with more data | Low | Perceived UI lag on load | Pipeline is O(n); JS handles 7k points (2 Hz) in ~72 ms |
 
 ---
 

@@ -24,6 +24,7 @@ struct GpsUart {
     NotificationApp*     notifications;   // caller-owned
     bool                 ready;
     volatile bool        rx_pending;
+    uint32_t             last_valid_nmea_tick;  // watchdog: last successful $Gx parse
 };
 
 // UART IRQ — fires per received byte (ISR context).
@@ -73,6 +74,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             }
             g->status.time = frame.time;
             g->status.date = frame.date;
+            g->last_valid_nmea_tick = furi_get_tick();
         }
     } break;
 
@@ -90,6 +92,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             float gga_hdop = minmea_tofloat(&frame.hdop);
             if(!isnan(gga_hdop)) g->status.hdop = gga_hdop;
             g->status.time               = frame.time;
+            g->last_valid_nmea_tick = furi_get_tick();
         }
     } break;
 
@@ -106,6 +109,18 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             float gsa_vdop = minmea_tofloat(&frame.vdop);
             if(!isnan(gsa_hdop)) g->status.hdop = gsa_hdop;
             if(!isnan(gsa_vdop)) g->status.vdop = gsa_vdop;
+            g->last_valid_nmea_tick = furi_get_tick();
+
+            // Check if any tracked satellite is an SBAS bird (PRN >= 120).
+            // WAAS uses 120–138, EGNOS uses 120–158.  A single SBAS PRN
+            // in the fix means corrections are actively being applied.
+            g->status.sbas_active = false;
+            for(int i = 0; i < 12 && frame.sats[i]; i++) {
+                if(frame.sats[i] >= 120) {
+                    g->status.sbas_active = true;
+                    break;
+                }
+            }
         }
     } break;
 
@@ -153,9 +168,11 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
         .fix_type           = 1,   // 1=no fix, 2=2D, 3=3D
         .satellites_tracked = 0,
         .fix_valid          = false,
+        .sbas_active        = false,
         .time               = {0},
         .date               = {0},
     };
+    g->last_valid_nmea_tick = 0;
 
     g->rx_stream = furi_stream_buffer_alloc(GPS_RX_BUF_SIZE, 1);
 
@@ -220,7 +237,7 @@ static void pcas_tx(GpsUart* g, const char* cmd) {
 }
 
 // ---------------------------------------------------------------------------
-// Drain RX stream, parse complete NMEA lines
+// Drain RX stream, parse complete NMEA lines; run NMEA watchdog
 // ---------------------------------------------------------------------------
 void gps_uart_process_rx(GpsUart* g) {
     furi_assert(g);
@@ -273,18 +290,35 @@ void gps_uart_process_rx(GpsUart* g) {
             }
         }
     } while(len > 0);
+
+    // ── NMEA watchdog: if no valid sentence parsed in 5 seconds, ──────
+    // the GPS module may be disconnected or malfunctioning.  Log a
+    // warning and attempt a hot-start reset.  Baud recovery is deferred
+    // to Phase 2 (when we actually switch to 115200 and know the correct
+    // PCAS01 mapping for the L76K).
+    if(g->last_valid_nmea_tick > 0) {
+        uint32_t elapsed = furi_get_tick() - g->last_valid_nmea_tick;
+        if(elapsed > furi_kernel_get_tick_frequency() * 5) {
+            FURI_LOG_W("GpsUart", "NMEA watchdog: no valid sentence in 5 s");
+            gps_uart_send_hot_start(g);
+            g->last_valid_nmea_tick = 0;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Send init sequence: constellations, NMEA filter, 1 Hz rate
+// Send init sequence: constellations, NMEA filter, 2 Hz rate (9600 baud).
+// Baud upgrade to 115200 is deferred to Phase 2 — 2 Hz at 9600 baud
+// is only 44 % utilisation (GGA+RMC+GSA ≈ 210 bytes/epoch, 2 Hz = 420 B/s,
+// 9600 baud ceiling ≈ 960 B/s).  Safe without the baud switch.
 // ---------------------------------------------------------------------------
 static void gps_uart_configure(GpsUart* g) {
     furi_assert(g);
     if(!g->ready || !g->serial_handle) return;
-    FURI_LOG_I("GpsUart", "Configuring GPS");
+    FURI_LOG_I("GpsUart", "Configuring GPS at 9600 baud, 2 Hz");
     pcas_tx(g, "$PCAS04,7*1E\r\n");                             // GPS+BeiDou+GLONASS
     pcas_tx(g, "$PCAS03,1,0,1,0,1,0,0,0,0,0,,,0,0*03\r\n");   // GGA + GSA + RMC
-    pcas_tx(g, "$PCAS02,1000*2E\r\n");                          // 1 Hz update rate
+    pcas_tx(g, "$PCAS02,500*1A\r\n");                           // 2 Hz update rate
     pcas_tx(g, "$PCAS06,1,1*07\r\n");                           // Force-enable SBAS corrections (WAAS/EGNOS)
 }
 
