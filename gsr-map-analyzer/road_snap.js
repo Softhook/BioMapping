@@ -235,7 +235,7 @@ const RoadSnapper = {
       //     about which road.  Apply cosine pull at 70 % strength —
       //     enough to visibly nudge multipath-drifting points back toward
       //     the road.  Saves alpha for ramp seeding when entering snap-in.
-      alpha = RoadSnapper._cosineRolloff(best.dist, RAD_OUT) * 0.7;
+      alpha = RoadSnapper._cosineRolloff(best.dist, RAD_OUT);
       state._lastSoftAlpha = alpha;
       state.rampStep = 0;
     } else {
@@ -292,9 +292,23 @@ const RoadSnapper = {
   },
 
   /**
+   * Road-class penalty (metres) for walking-speed users.  Positive values
+   * penalise roads the user is unlikely to be on; negative values boost
+   * pedestrian-friendly infrastructure.
+   */
+  _ROAD_CLASS_PENALTY: {
+    'motorway':      20,  'trunk':        15,  'primary':      10,
+    'secondary':      5,  'tertiary':      3,
+    'residential':    0,  'unclassified':  0,  'living_street': 0,
+    'service':        0,  'track':        -2,  'cycleway':     -3,
+    'pedestrian':    -5,  'steps':        -2,  'bridleway':    -2,
+    'footway':       -8,  'path':         -8
+  },
+
+  /**
    * Project the GPS fix onto every segment of every candidate way,
-   * apply the bearing penalty, and return candidates sorted by
-   * effective distance (best first).
+   * apply the bearing penalty and road-class preference, and return
+   * candidates sorted by effective distance (best first).
    */
   _rankCandidates(lat, lon, courseDeg, highwayWays, headingWeight) {
     const candidates = [];
@@ -303,12 +317,15 @@ const RoadSnapper = {
 
     for (const way of highwayWays) {
       const coords = way.coordinates;
+      const roadClass = (way.tags && way.tags.highway) ? way.tags.highway : null;
+      const classPenalty = RoadSnapper._ROAD_CLASS_PENALTY[roadClass] || 0;
+
       for (let i = 0; i < coords.length - 1; i++) {
         const a = coords[i], b = coords[i + 1];
         const proj = RoadSnapper._projectToSegment(lat, lon, a.lat, a.lon, b.lat, b.lon);
 
         // Bearing penalty (bidirectional/undirected comparison)
-        let effDist = proj.dist;
+        let effDist = proj.dist + classPenalty;
         if (hasCourse && headingWeight > 0) {
           const segBearing = RoadSnapper._segmentBearing(a.lat, a.lon, b.lat, b.lon);
           const delta = Math.min(
@@ -431,10 +448,11 @@ const RoadSnapper = {
     // Short GPS movement to a different way:
     // only plausible if the ways are connected (share a junction)
     if (RoadSnapper._waysAreConnected(prevWay, currWay)) {
-      // Connected — check that route distance isn't wildly different
-      const snapDist = RoadSnapper._haversineM(
-        prevSnapLat, prevSnapLon, currSnapLat, currSnapLon);
-      return Math.abs(snapDist - gpsDist) > RoadSnapper.TRANSITION_DELTA;
+      // Connected — but the route must go through the junction.
+      // Use the actual path: prevSnap → junction → currSnap.
+      const routeDist = RoadSnapper._routeDistViaJunction(
+        prevSnapLat, prevSnapLon, currSnapLat, currSnapLon, prevWay, currWay);
+      return Math.abs(routeDist - gpsDist) > RoadSnapper.TRANSITION_DELTA;
     }
 
     // Short GPS movement to an unconnected way — implausible teleport
@@ -456,6 +474,36 @@ const RoadSnapper = {
       }
     }
     return false;
+  },
+
+  /**
+   * Approximate route distance from a point on prevWay to a point on
+   * currWay, travelling through their nearest shared junction.
+   * Used by the transition plausibility check for connected ways.
+   */
+  _routeDistViaJunction(prevSnapLat, prevSnapLon, currSnapLat, currSnapLon,
+                         prevWay, currWay) {
+    const cA = prevWay.coordinates, cB = currWay.coordinates;
+    const endsA = [cA[0], cA[cA.length - 1]];
+    const endsB = [cB[0], cB[cB.length - 1]];
+
+    // Find the closest pair of endpoints (the junction)
+    let minD = Infinity, jnLat, jnLon;
+    for (const ea of endsA) {
+      for (const eb of endsB) {
+        const d = RoadSnapper._haversineM(ea.lat, ea.lon, eb.lat, eb.lon);
+        if (d < minD) {
+          minD = d;
+          jnLat = (ea.lat + eb.lat) / 2;
+          jnLon = (ea.lon + eb.lon) / 2;
+        }
+      }
+    }
+
+    // Route = prevSnap → junction + junction → currSnap
+    const d1 = RoadSnapper._haversineM(prevSnapLat, prevSnapLon, jnLat, jnLon);
+    const d2 = RoadSnapper._haversineM(currSnapLat, currSnapLon, jnLat, jnLon);
+    return d1 + d2;
   },
 
   /**

@@ -1,5 +1,5 @@
 Todo
 
-real time bluetooth data on the laptop
+Better GPS unit needed
 
-dowload track option the fliper to ake it easier to take data off
+real time bluetooth data on the laptop

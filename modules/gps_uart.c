@@ -110,7 +110,7 @@ static void gps_compute_wdop(GpsUart* g) {
 
 // NMEA sentence dispatcher
 static void gps_uart_parse_line(GpsUart* g, char* line) {
-    // Log proprietary PCAS messages for configuration debugging (SBAS status, etc.)
+    // Log proprietary PCAS messages for configuration debugging.
     if(strncmp(line, "$PCAS", 5) == 0) {
         FURI_LOG_D("GpsUart", "PCAS Response: %s", line);
         return;
@@ -460,19 +460,41 @@ void gps_uart_process_rx(GpsUart* g) {
 }
 
 // ---------------------------------------------------------------------------
-// Send init sequence: constellations, NMEA filter, 2 Hz rate (9600 baud).
-// Baud upgrade to 115200 is deferred to Phase 2 — 2 Hz at 9600 baud
-// is only 44 % utilisation (GGA+RMC+GSA ≈ 210 bytes/epoch, 2 Hz = 420 B/s,
-// 9600 baud ceiling ≈ 960 B/s).  Safe without the baud switch.
+// Send init sequence: hot start, constellations, NMEA filter at 9600,
+// then switch to 115200 baud and re-enable GSV.  5 Hz update rate.
+// All PCAS values verified against Quectel L76K&L26K GNSS Protocol Spec v1.2.
 // ---------------------------------------------------------------------------
 static void gps_uart_configure(GpsUart* g) {
     furi_assert(g);
     if(!g->ready || !g->serial_handle) return;
-    FURI_LOG_I("GpsUart", "Configuring GPS at 9600 baud, 2 Hz");
-    pcas_tx(g, "$PCAS04,7*1E\r\n");                             // GPS+BeiDou+GLONASS (L76KB-A58 supports all three)
-    pcas_tx(g, "$PCAS03,1,0,1,0,1,1,0,0,0,0,,,0,0*02\r\n");   // GGA+GSA+RMC+GSV
-    pcas_tx(g, "$PCAS02,500*1A\r\n");                           // 2 Hz update rate
-    pcas_tx(g, "$PCAS06,1,1*07\r\n");                           // Force-enable SBAS corrections (WAAS/EGNOS)
+    FURI_LOG_I("GpsUart", "Configuring GPS at 9600 baud, 5 Hz");
+
+    // Step 1 — configure at 9600 baud (protocol spec §2.3)
+    pcas_tx(g, "$PCAS10,0*1C\r\n");                             // Hot start (§2.3.5)
+    furi_delay_ms(200);
+    pcas_tx(g, "$PCAS04,7*1E\r\n");                             // GPS+BeiDou+GLONASS (§2.3.4)
+    pcas_tx(g, "$PCAS03,1,0,1,0,1,0,0,0,0,0,,,0,0*03\r\n");   // GGA+GSA+RMC (§2.3.3)
+    pcas_tx(g, "$PCAS02,200*1D\r\n");                           // 5 Hz (§2.3.2)
+
+    // Step 2 — switch module to 115200 baud (§2.3.1: PCAS01,5 = 115200)
+    FURI_LOG_I("GpsUart", "Switching GPS to 115200 baud");
+    furi_delay_ms(500);
+    pcas_tx(g, "$PCAS01,5*19\r\n");
+    furi_delay_ms(300);
+
+    // Step 3 — reconfigure host UART, reset RX buffer, restart async
+    furi_hal_serial_async_rx_stop(g->serial_handle);
+    furi_hal_serial_deinit(g->serial_handle);
+    furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE_FAST);
+    g->rx_offset = 0;
+    furi_stream_buffer_reset(g->rx_stream);
+    furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
+    furi_delay_ms(100);
+
+    // Step 4 — re-send NMEA filter at 115200: enable GSV, disable VTG/GLL/ZDA
+    // (§2.3.3: GGA=1 GLL=0 GSA=1 GSV=1 RMC=1 VTG=0 ZDA=0 ANT=0)
+    pcas_tx(g, "$PCAS03,1,0,1,1,1,0,0,0,0,0,,,0,0*02\r\n");
+    FURI_LOG_I("GpsUart", "GPS running at 115200 baud, 5 Hz, GSV enabled");
 }
 
 // ---------------------------------------------------------------------------

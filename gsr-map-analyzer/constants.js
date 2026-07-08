@@ -7,7 +7,7 @@ const GSR_CONST = {
 
   // ── Sampling ──────────────────────────────────────────────────────────────
   SAMPLE_RATE: 10,          // Default / expected GSR sample rate (Hz)
-  GPS_SAMPLE_RATE: 1,       // GPS sample rate (Hz)
+  GPS_SAMPLE_RATE: 5,       // GPS sample rate (Hz) — firmware configured for 5 Hz
 
   // ── Graph layout (p5.js canvas) ──────────────────────────────────────────
   MARGIN: { top: 30, bottom: 16, left: 70, right: 35, gap: 40 },
@@ -96,7 +96,7 @@ const GSR_CONST = {
   SNAP: {
     RADIUS_IN:    12,    // m — snap-in gate (fast commit when clearly on-road)
     RADIUS_OUT:   25,    // m — snap-out gate (slow release to resist jitter)
-    HEADING_W:    0.3,   // heading penalty weight (suppressed when speed < SPEED_GATE)
+    HEADING_W:    0.7,   // heading penalty weight (0 when speed < SPEED_GATE)
     HYST_MARGIN:  3,     // m — alternative must be this much closer
     HYST_SEC:     5,     // s — consecutive seconds to switch way
     SPEED_GATE:   0.3,   // m/s — suppress bearing penalty below this speed

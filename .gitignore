@@ -4,3 +4,4 @@
 .env
 .env.local
 config.local.js
+/tracks
