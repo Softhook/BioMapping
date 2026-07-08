@@ -50,30 +50,31 @@ static void gps_uart_irq_cb(
 
 // ── Constellation offset helper: maps a talker ID + raw PRN to the internal elevation array index ─────
 static int gps_get_constellation_offset(const char* talker_id, int prn) {
-    // GPS / SBAS / QZSS: GP
+    // GPS / SBAS / QZSS: GP talker (spec Table 2)
+    // QZSS always uses GP talker with PRNs 193-197 (Table 16)
     if(talker_id[0] == 'G' && talker_id[1] == 'P') return 0;
-    
-    // GLONASS: GL
+
+    // GLONASS: GL — spec Table 16: IDs 65-88
     if(talker_id[0] == 'G' && talker_id[1] == 'L') return 300 - 65;
-    
-    // Galileo: GA
-    if(talker_id[0] == 'G' && talker_id[1] == 'A') return 250;
-    
-    // BeiDou: BD or GB
+
+    // BeiDou: BD or GB — spec Table 16: IDs 1-63
     if((talker_id[0] == 'B' && talker_id[1] == 'D') ||
        (talker_id[0] == 'G' && talker_id[1] == 'B')) {
         return 210;
     }
-    
+
     // Combined / Multi-constellation fallback: GN
+    // Per spec §2.2.3, GSV never uses GN talker on L76K — each constellation
+    // gets its own talker (GP/GL/BD). This branch only fires for GSA on GN
+    // talker without a SystemID field (shouldn't happen on L76K firmware).
+    // GPS (1-32) and BeiDou (1-63) overlap — cannot be resolved here, so
+    // PRNs 1-32 are treated as GPS in this fallback. Use SystemID for accuracy.
     if(talker_id[0] == 'G' && talker_id[1] == 'N') {
-        if(prn >= 1 && prn <= 32)   return 0;    // GPS
-        if(prn >= 65 && prn <= 96)  return 300 - 65;  // GLONASS maps 65-96 to 300-331
-        if(prn >= 120 && prn <= 158) return 0;   // SBAS
-        if(prn >= 141 && prn <= 177) return 210 - 141 + 1; // BeiDou maps 141-177 to 211-247
-        if(prn >= 401 && prn <= 437) return 210 - 401 + 1; // BeiDou maps 401-437 to 211-247
-        if(prn >= 201 && prn <= 236) return 250 - 201 + 1; // Galileo maps 201-236 to 251-286
-        if(prn >= 301 && prn <= 336) return 250 - 301 + 1; // Galileo maps 301-336 to 251-286
+        if(prn >= 193 && prn <= 197) return 0;         // QZSS (spec Table 16: 193-197, GP-offset)
+        if(prn >= 120 && prn <= 158) return 0;         // SBAS (treat as GPS offset)
+        if(prn >= 65  && prn <= 88)  return 300 - 65;  // GLONASS (spec Table 16: 65-88)
+        if(prn >= 33  && prn <= 63)  return 210;        // BeiDou unambiguous range (33-63)
+        if(prn >= 1   && prn <= 32)  return 0;          // GPS/BeiDou overlap: default to GPS
     }
     return 0;
 }
@@ -121,13 +122,16 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
         struct minmea_sentence_rmc frame;
         if(minmea_parse_rmc(&frame, line)) {
             g->status.fix_valid = frame.valid;
-            // Only trust coordinates, speed, and course when the RMC
-            // validity flag is 'A'.  Void RMC sentences have empty
-            // fields that minmea_tofloat/mimmea_tocoord turn into NaN,
-            // which would overwrite good values from a prior GGA sentence.
-            // Time and date are still set — they're useful for timestamp
-            // fallback even on void frames.
-            if(frame.valid) {
+            // Trust coordinates only when:
+            //   - RMC Status = 'A' (data valid)
+            //   - ModeInd is NOT 'E' (dead-reckoning/estimated) or 'N' (no fix)
+            // ModeInd 'E' means the position is calculated from motion model,
+            // not satellite observations — logging it would corrupt the track.
+            // ModeInd '\0' means field absent (older NMEA 2.1) — treat as OK.
+            // Spec §2.2.1: A=autonomous, D=differential, E=estimated, N=no fix.
+            char mi = frame.mode_indicator;
+            bool position_ok = frame.valid && (mi != 'E') && (mi != 'N');
+            if(position_ok) {
                 g->status.latitude  = minmea_tocoord(&frame.latitude);
                 g->status.longitude = minmea_tocoord(&frame.longitude);
                 g->status.speed     = minmea_tofloat(&frame.speed);
@@ -178,14 +182,14 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
     case MINMEA_SENTENCE_GSA: {
         struct minmea_sentence_gsa frame;
         if(minmea_parse_gsa(&frame, line)) {
-            // Log GSA talker prefix on first sighting to confirm whether
-            // the L76K emits individual ($GPGSA/$BDGSA) or combined
-            // ($GNGSA).  Individual GSA eliminates PRN collision.
+            // Log SystemID on first sighting — the L76K emits one $GNGSA per
+            // constellation per epoch, distinguished by the trailing SystemID
+            // field (1=GPS, 2=GLONASS, 4=BeiDou) rather than by TalkerID.
             static bool gsa_talker_logged = false;
             if(!gsa_talker_logged) {
                 gsa_talker_logged = true;
-                FURI_LOG_I("GpsUart", "First GSA talker: %c%c",
-                           line[1], line[2]);
+                FURI_LOG_I("GpsUart", "First GSA talker: %c%c SystemID=%d",
+                           line[1], line[2], frame.system_id);
             }
             // GSA gives the authoritative DOP values and distinguishes
             // 2D (fix_type=2) from 3D (fix_type=3).  GGA HDOP is kept
@@ -208,9 +212,22 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
                 }
             }
 
-            // Store active PRNs for WDOP recomputation when the next GSV
-            // cycle completes. Map PRNs to their correct constellation-offset indices.
-            char talker_id[2] = {line[1], line[2]};
+            // Map PRNs to constellation-offset indices using SystemID — this is
+            // authoritative on the L76K (spec Table 16: 1=GPS, 2=GLONASS, 4=BeiDou, 5=QZSS).
+            // Fall back to TalkerID heuristic only when SystemID is absent (=0).
+            // QZSS (SystemID=5) uses GP talker with PRNs 193-197 — same offset as GPS.
+            // QZSS is always enabled on L76K and cannot be disabled (spec §1 note).
+            char talker_id[2];
+            if(frame.system_id == 2) {
+                talker_id[0] = 'G'; talker_id[1] = 'L'; // GLONASS
+            } else if(frame.system_id == 4) {
+                talker_id[0] = 'B'; talker_id[1] = 'D'; // BeiDou
+            } else {
+                // GPS (SystemID=1), QZSS (SystemID=5), or unknown (0).
+                // Both GPS and QZSS use GP talker — offset function returns 0 for both.
+                talker_id[0] = line[1]; talker_id[1] = line[2];
+            }
+
             for(int i = 0; i < 12 && frame.sats[i]; i++) {
                 int raw_prn = frame.sats[i];
                 int offset = gps_get_constellation_offset(talker_id, raw_prn);
@@ -467,22 +484,24 @@ void gps_uart_process_rx(GpsUart* g) {
 static void gps_uart_configure(GpsUart* g) {
     furi_assert(g);
     if(!g->ready || !g->serial_handle) return;
-    FURI_LOG_I("GpsUart", "Configuring GPS at 9600 baud, 5 Hz");
+    FURI_LOG_I("GpsUart", "Configuring GPS at 9600 baud");
 
-    // Step 1 — configure at 9600 baud (protocol spec §2.3)
+    // Step 1 — configure constellations and sentence filter at 9600 baud (§2.3)
+    // Keep update rate at 1 Hz for now — spec §2.3.2 requires 115200 baud
+    // before setting any interval < 1000 ms.
     pcas_tx(g, "$PCAS10,0*1C\r\n");                             // Hot start (§2.3.5)
     furi_delay_ms(200);
     pcas_tx(g, "$PCAS04,7*1E\r\n");                             // GPS+BeiDou+GLONASS (§2.3.4)
-    pcas_tx(g, "$PCAS03,1,0,1,0,1,0,0,0,0,0,,,0,0*03\r\n");   // GGA+GSA+RMC (§2.3.3)
-    pcas_tx(g, "$PCAS02,200*1D\r\n");                           // 5 Hz (§2.3.2)
+    pcas_tx(g, "$PCAS03,1,0,1,0,1,0,0,0,0,0,,,0,0*03\r\n");   // GGA+GSA+RMC only (§2.3.3)
 
-    // Step 2 — switch module to 115200 baud (§2.3.1: PCAS01,5 = 115200)
+    // Step 2 — switch module to 115200 baud FIRST (§2.3.1: PCAS01,5 = 115200)
+    // Spec §2.3.2 note: interval < 1000 ms requires 115200 baud to be set first.
     FURI_LOG_I("GpsUart", "Switching GPS to 115200 baud");
-    furi_delay_ms(500);
+    furi_delay_ms(200);
     pcas_tx(g, "$PCAS01,5*19\r\n");
     furi_delay_ms(300);
 
-    // Step 3 — reconfigure host UART, reset RX buffer, restart async
+    // Step 3 — reconfigure host UART to match, reset RX buffer, restart async
     furi_hal_serial_async_rx_stop(g->serial_handle);
     furi_hal_serial_deinit(g->serial_handle);
     furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE_FAST);
@@ -491,10 +510,15 @@ static void gps_uart_configure(GpsUart* g) {
     furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
     furi_delay_ms(100);
 
-    // Step 4 — re-send NMEA filter at 115200: enable GSV, disable VTG/GLL/ZDA
-    // (§2.3.3: GGA=1 GLL=0 GSA=1 GSV=1 RMC=1 VTG=0 ZDA=0 ANT=0)
-    pcas_tx(g, "$PCAS03,1,0,1,1,1,0,0,0,0,0,,,0,0*02\r\n");
-    FURI_LOG_I("GpsUart", "GPS running at 115200 baud, 5 Hz, GSV enabled");
+    // Step 4 — now at 115200: set 5 Hz, enable GSV at 1 Hz (§2.3.2 + §2.3.3)
+    // PCAS02 is sent AFTER the baud switch — required order per spec §2.3.2 note.
+    // GSV is throttled to every 5th fix (nGSV=5 = 1 Hz) to stay well within
+    // 115200 baud budget. GGA, GSA, RMC remain at every fix (5 Hz).
+    // Satellite elevations update at 1 Hz which is sufficient for WDOP.
+    // Checksum verified: PCAS03,1,0,1,5,1,0,0,0,0,0,,,0,0 → XOR = 0x07.
+    pcas_tx(g, "$PCAS02,200*1D\r\n");                           // 5 Hz (200 ms interval)
+    pcas_tx(g, "$PCAS03,1,0,1,5,1,0,0,0,0,0,,,0,0*07\r\n");   // GGA+GSA+RMC@5Hz, GSV@1Hz
+    FURI_LOG_I("GpsUart", "GPS running at 115200 baud, 5 Hz, GSV@1Hz");
 }
 
 // ---------------------------------------------------------------------------

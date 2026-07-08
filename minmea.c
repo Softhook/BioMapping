@@ -416,11 +416,15 @@ bool minmea_parse_gbs(struct minmea_sentence_gbs *frame, const char *sentence)
 bool minmea_parse_rmc(struct minmea_sentence_rmc *frame, const char *sentence)
 {
     // $GPRMC,081836,A,3751.65,S,14507.36,E,000.0,360.0,130998,011.3,E*62
+    // L76K adds ModeInd and NavStatus per spec §2.2.1:
+    // $GNRMC,...,MagVar,MagVarDir,ModeInd,NavStatus*CS
     char validity;
     int latitude_direction;
     int longitude_direction;
     int variation_direction;
-    if (!minmea_scan(sentence, "tTcfdfdffDfd",
+    char nav_status = '\0';
+    frame->mode_indicator = '\0';
+    if (!minmea_scan(sentence, "tTcfdfdffDfd;cc",
             &frame->type,
             &frame->time,
             &validity,
@@ -429,7 +433,9 @@ bool minmea_parse_rmc(struct minmea_sentence_rmc *frame, const char *sentence)
             &frame->speed,
             &frame->course,
             &frame->date,
-            &frame->variation, &variation_direction))
+            &frame->variation, &variation_direction,
+            &frame->mode_indicator,
+            &nav_status))
         return false;
     if (memcmp(frame->type.sentence_id, "RMC", sizeof(frame->type.sentence_id)))
         return false;
@@ -438,6 +444,8 @@ bool minmea_parse_rmc(struct minmea_sentence_rmc *frame, const char *sentence)
     frame->latitude.value *= latitude_direction;
     frame->longitude.value *= longitude_direction;
     frame->variation.value *= variation_direction;
+
+    (void)nav_status; // retained for future use
 
     return true;
 }
@@ -472,8 +480,10 @@ bool minmea_parse_gga(struct minmea_sentence_gga *frame, const char *sentence)
 bool minmea_parse_gsa(struct minmea_sentence_gsa *frame, const char *sentence)
 {
     // $GPGSA,A,3,04,05,,09,12,,,24,,,,,2.5,1.3,2.1*39
+    // $GNGSA,A,3,10,13,15,20,,,,,,,,,2.5,2.0,1.5,1*35  ← L76K appends SystemID
 
-    if (!minmea_scan(sentence, "tciiiiiiiiiiiiifff",
+    frame->system_id = 0; // default: unknown
+    if (!minmea_scan(sentence, "tciiiiiiiiiiiiifff;i",
             &frame->type,
             &frame->mode,
             &frame->fix_type,
@@ -491,7 +501,8 @@ bool minmea_parse_gsa(struct minmea_sentence_gsa *frame, const char *sentence)
             &frame->sats[11],
             &frame->pdop,
             &frame->hdop,
-            &frame->vdop))
+            &frame->vdop,
+            &frame->system_id))
         return false;
     if (memcmp(frame->type.sentence_id, "GSA", sizeof(frame->type.sentence_id)))
         return false;
@@ -550,8 +561,9 @@ bool minmea_parse_gsv(struct minmea_sentence_gsv *frame, const char *sentence)
     // $GPGSV,4,4,13,39,31,170,27*40
     // $GPGSV,4,4,13*7B
     // $GPGSV,3,1,11,09,57,333,29.0,07,54,227,,04,49,043,24.5,03,43,129,,1*67
+    // L76K appends a <SignalID> field before the checksum (always 0, per spec §2.2.3)
 
-    if (!minmea_scan(sentence, "tiii;iiifiiifiiifiiif",
+    if (!minmea_scan(sentence, "tiii;iiifiiifiiifiiif_",
             &frame->type,
             &frame->total_msgs,
             &frame->msg_nr,

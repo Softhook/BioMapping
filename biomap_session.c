@@ -382,7 +382,7 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
             s->logger,
             (s->mode == BioMapModeGsrOnly)
                 ? "timestamp,tick,gsr_raw\n"
-                : "timestamp,lat,lon,alt,hdop,vdop,wdop,sats,fix,fix_type,speed_kts,course_deg,gsr_raw\n");
+                : "timestamp,lat,lon,alt,hdop,vdop,wdop,sats,fix_quality,fix_type,speed_kts,course_deg,gsr_raw\n");
         if(ok) {
             furi_mutex_acquire(mutex, FuriWaitForever);
             s->recording.active = true;
