@@ -1,9 +1,10 @@
 #pragma once
 
-// GPS UART — NMEA parser for the L76K GNSS shield.
+// GPS UART — NMEA parser for Quectel L76K / u-blox SAM-M10Q GNSS modules.
 // Acquires USART1 at alloc (disables Expansion Service), re-enables at free.
-// Power management via PCAS serial commands — no hardware control pins needed.
-// Caller holds the app mutex for gps_uart_process_rx() and gps_uart_get_status().
+// Power management via serial commands (PCAS on L76K, UBX on M10Q).
+// Thread safety: gps_uart_process_rx() and gps_uart_get_status() use an
+// internal status_mutex — do NOT hold the app mutex when calling them.
 
 #include <furi.h>
 #include <furi_hal.h>

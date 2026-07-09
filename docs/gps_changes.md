@@ -226,7 +226,7 @@ Help text updated to note that firmware ≥ v2.1 pre-filters at HDOP < 5.0 at re
 | < v2.1 | `timestamp,lat,lon,alt,sats,fix,gsr_raw` | No DOP data |
 | v2.1 | `timestamp,lat,lon,alt,hdop,vdop,sats,fix,fix_type,gsr_raw` | Added DOP + fix_type |
 | v2.2 | `timestamp,lat,lon,alt,hdop,vdop,sats,fix,fix_type,speed_kts,course_deg,gsr_raw` | Added velocity |
-| **v2.3** | `timestamp,lat,lon,alt,hdop,vdop,wdop,sats,fix,fix_type,speed_kts,course_deg,gsr_raw` | Added WDOP (constellation-aware) + 2 Hz rate |
+| **v2.3** | `timestamp,lat,lon,alt,hdop,vdop,wdop,sats,fix,fix_type,speed_kts,course_deg,gsr_raw` | Added WDOP (constellation-aware) + 5 Hz GPS rate |
 
 The analyser auto-detects the format from column headers and degrades gracefully for older files.
 

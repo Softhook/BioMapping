@@ -63,10 +63,15 @@ static int gps_get_constellation_offset(const char* talker_id, int prn) {
         return 210;
     }
 
+    // Galileo: GA — spec Table 16: IDs 1-36
+    // Offset 350 places Galileo indices at 351-386, clear of all other bands.
+    if(talker_id[0] == 'G' && talker_id[1] == 'A') return 350;
+
     // Combined / Multi-constellation fallback: GN
     // Per spec §2.2.3, GSV never uses GN talker on L76K — each constellation
-    // gets its own talker (GP/GL/BD). This branch only fires for GSA on GN
-    // talker without a SystemID field (shouldn't happen on L76K firmware).
+    // gets its own talker (GP/GL/BD/GA). This branch only fires for GSA on GN
+    // talker without a SystemID field (shouldn't happen on L76K/M10Q firmware
+    // because we explicitly map SystemID to a talker before calling here).
     // GPS (1-32) and BeiDou (1-63) overlap — cannot be resolved here, so
     // PRNs 1-32 are treated as GPS in this fallback. Use SystemID for accuracy.
     if(talker_id[0] == 'G' && talker_id[1] == 'N') {
@@ -182,9 +187,10 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
     case MINMEA_SENTENCE_GSA: {
         struct minmea_sentence_gsa frame;
         if(minmea_parse_gsa(&frame, line)) {
-            // Log SystemID on first sighting — the L76K emits one $GNGSA per
-            // constellation per epoch, distinguished by the trailing SystemID
-            // field (1=GPS, 2=GLONASS, 4=BeiDou) rather than by TalkerID.
+            // Log SystemID on first sighting — both L76K and u-blox M10Q emit
+            // one $GNGSA per constellation per epoch, distinguished by the trailing
+            // SystemID field (1=GPS, 2=GLONASS, 3=Galileo, 4=BeiDou, 5=QZSS)
+            // rather than by TalkerID.
             static bool gsa_talker_logged = false;
             if(!gsa_talker_logged) {
                 gsa_talker_logged = true;
@@ -213,13 +219,18 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             }
 
             // Map PRNs to constellation-offset indices using SystemID — this is
-            // authoritative on the L76K (spec Table 16: 1=GPS, 2=GLONASS, 4=BeiDou, 5=QZSS).
+            // authoritative on both L76K and u-blox M10Q:
+            //   1=GPS, 2=GLONASS, 3=Galileo, 4=BeiDou, 5=QZSS.
             // Fall back to TalkerID heuristic only when SystemID is absent (=0).
             // QZSS (SystemID=5) uses GP talker with PRNs 193-197 — same offset as GPS.
-            // QZSS is always enabled on L76K and cannot be disabled (spec §1 note).
+            // IMPORTANT: Galileo PRNs (1-36) overlap GPS PRNs (1-32). Without the
+            // explicit system_id==3 branch, GN-talker fallback would map Galileo
+            // satellites to GPS offset 0, silently corrupting sat_elevation and WDOP.
             char talker_id[2];
             if(frame.system_id == 2) {
                 talker_id[0] = 'G'; talker_id[1] = 'L'; // GLONASS
+            } else if(frame.system_id == 3) {
+                talker_id[0] = 'G'; talker_id[1] = 'A'; // Galileo — offset 350
             } else if(frame.system_id == 4) {
                 talker_id[0] = 'B'; talker_id[1] = 'D'; // BeiDou
             } else {
@@ -463,9 +474,8 @@ void gps_uart_process_rx(GpsUart* g) {
 
     // ── NMEA watchdog: if no valid sentence parsed in 5 seconds, ──────
     // the GPS module may be disconnected or malfunctioning.  Log a
-    // warning and attempt a hot-start reset.  Baud recovery is deferred
-    // to Phase 2 (when we actually switch to 115200 and know the correct
-    // PCAS01 mapping for the L76K).
+    // warning and attempt a hot-start reset.  On M10Q, gps_uart_send_hot_start
+    // must be updated to send the UBX-CFG-RST binary packet instead of PCAS10.
     if(g->last_valid_nmea_tick > 0) {
         uint32_t elapsed = furi_get_tick() - g->last_valid_nmea_tick;
         if(elapsed > furi_kernel_get_tick_frequency() * 5) {

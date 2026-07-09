@@ -71,6 +71,7 @@ These are the original Tier 1 items, all confirmed in the codebase:
 |---|------|-------|
 | B1 | **GSV Satellite Elevation Weighting** — WDOP from per-satellite elevations, constellation-aware PRN storage, CSV `wdop` column, analyser prefers WDOP over HDOP for Kalman R. | 7 files: `gps_uart.h/.c`, `biomap_types.h`, `biomap_session.c`, `gps_filter.js`, `analyzer.js` |
 | B2 | **Proper RTS (Rauch-Tung-Striebel) Smoother** — forward pass stores P_fwd[i]; backward pass uses optimal gain. 4 m displacement cap. 55% reduction on synthetic 20 m multipath spike. | `gps_filter.js:applyKalman()` |
+| B3 | **GPS Update Rate — 5 Hz** — `$PCAS02,200` at 115200 baud; `GPS_CSV_HZ=5`; CSV trigger every 2nd tick (`tick_counter % 2 == 0`). Batch buffer bumped to 1024 B. Phase 2 target (5 Hz) delivered directly; phase 1 (2 Hz) skipped. | `modules/gps_uart.c`, `biomap_types.h`, `biomap_session.c`, `modules/sd_logger.c` |
 | B4 | **Confirm and Force SBAS/EGNOS** — `$PCAS06,1,1` force-enables WAAS/EGNOS correction. Display shows SBAS indicator when PRN ≥120 in GSA. | `modules/gps_uart.c`, `biomap_render.c` |
 
 ---

@@ -1,5 +1,5 @@
 // GSR/EDA Signal Analysis Engine with GPS coordinate parsing and interpolation
-// Handles variable-rate (10 Hz GSR, 1 Hz GPS) CSV files.
+// Handles variable-rate (10 Hz GSR, up to 5 Hz GPS) CSV files.
 
 class GSRAnalyzer {
   constructor() {
