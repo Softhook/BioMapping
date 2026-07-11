@@ -334,6 +334,15 @@
               <span class="toggle-label">Snap to Roads &amp; Trails</span>
             </div>
 
+            <div class="slider-group" id="snapModeGroup">
+              <div class="slider-label"><span>Matching Method</span></div>
+              <select id="gpsSnapMode" style="width:100%; margin-top:4px; padding:4px 6px; border-radius:4px; border:1px solid #555; background:#2a2a2a; color:#eee; font-size:13px;">
+                <option value="hmm" selected>HMM &ndash; Viterbi (global, recommended)</option>
+                <option value="greedy">Greedy (fast, legacy)</option>
+              </select>
+              <p class="help-text">HMM considers the entire track at once and eliminates the &ldquo;jumped to the parallel street&rdquo; artefact. Greedy snaps each point independently.</p>
+            </div>
+
             <div class="slider-group" id="snapRadiusGroup">
               <div class="slider-label">
                 <span>Snap Radius</span>
@@ -826,6 +835,7 @@
   <script src="analyzer.js"></script>
   <script src="osm_enrichment.js"></script>
   <script src="road_snap.js"></script>
+  <script src="map_match.js"></script>
   <script src="gsr_filter.js"></script>
   <script src="marching_squares.js"></script>
   <script src="collective_manager.js"></script>

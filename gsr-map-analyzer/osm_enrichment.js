@@ -808,7 +808,8 @@ out skel qt;`;
     const raw = analyzer.raw;
     if (!raw || raw.length === 0) return;
 
-    const doSnap = snapParams && snapParams.enabled;
+    const doSnap  = snapParams && snapParams.enabled;
+    const useHMM  = doSnap && snapParams.mode === 'hmm';
 
     // Clear stale snapped positions when snapping is disabled so renderData
     // doesn't substitute from a previous enrichment run.
@@ -837,27 +838,14 @@ out skel qt;`;
       throw new Error('No valid GPS coordinates found in this track.');
     }
 
-    // 3. Downsample to ~1 Hz evaluation points, then spatially thin
-    //    for snapping so the ramp spans a meaningful distance (~20 m
-    //    over 4 steps) instead of just 5.6 m at walking speed.
+    // 3. Downsample to ~1 Hz evaluation points.
     let evalPoints = this._selectEvaluationPoints(raw, gpsIndices);
     if (doSnap) {
+      // Spatially thin so the ramp spans a meaningful distance (~20 m
+      // over 4 steps) instead of just 5.6 m at walking speed.
       evalPoints = this._thinPoints(evalPoints, 3);  // min 3 m spacing
     }
     const computedMetrics = [];
-
-    // ── Snapping state (carried across evaluation points) ────────────
-    const snapState = doSnap ? {
-      wayId: null,
-      prevWayId: null,
-      prevGpsLat: null,
-      prevGpsLon: null,
-      prevSnapLat: null,
-      prevSnapLon: null,
-      wasSnapped: false,
-      rampStep: 0,
-      hystTimer: null
-    } : null;
 
     // ── Snapped GPS output array (if snapping, for Kalman to consume) ─
     if (doSnap) {
@@ -867,50 +855,99 @@ out skel qt;`;
       }
     }
 
-    for (let s = 0; s < evalPoints.length; s++) {
-      if (s % 50 === 0 && onProgress) {
-        const what = doSnap ? 'Snapping & enriching' : 'Computing spatial metrics';
-        onProgress(`${what}: ${s}/${evalPoints.length} positions...`);
-      }
-      const node = evalPoints[s];
-      const nearby = spatialIndex.getNearby(node.lat, node.lon);
+    // ════════════════════════════════════════════════════════════════
+    //  HMM-VITERBI PATH
+    //  Collect candidates for all eval points, run Viterbi globally,
+    //  then use the matched positions for enrichment.
+    // ════════════════════════════════════════════════════════════════
+    if (useHMM) {
+      if (onProgress) onProgress('HMM map-matching: collecting candidates...');
 
-      // ── Road snapping (runs in same loop, same spatial-index query) ─
-      let evalLat = node.lat;
-      let evalLon = node.lon;
+      // Attach the spatial-index nearby result to each eval point so
+      // MapMatcher._getCandidates can reuse it without a second query.
+      const matchRadius = snapParams.radiusOut || MapMatcher.MATCH_RADIUS;
+      const hmmPoints = evalPoints.map(node => ({
+        ...node,
+        nearby: spatialIndex.getNearby(node.lat, node.lon)
+      }));
 
-      if (doSnap) {
-        const rawPt = raw[node.idx];
-        const speedMs = (!isNaN(rawPt.speedKts)) ? rawPt.speedKts * 0.514444 : NaN;
-        const course  = (!isNaN(rawPt.course)) ? rawPt.course : NaN;
+      if (onProgress) onProgress('HMM map-matching: running Viterbi...');
+      const hmmResults = MapMatcher.match(hmmPoints, raw, matchRadius);
 
-        const snapResult = RoadSnapper.snapOne(
-          node.lat, node.lon, speedMs, course, nearby, snapState, snapParams
-        );
-
-        evalLat = snapResult.snapLat;
-        evalLon = snapResult.snapLon;
-
-        // Store snapped coordinate for this sample
-        analyzer.snappedGps[node.idx] = {
-          lat: evalLat,
-          lon: evalLon,
-          roadLat: snapResult.roadLat,
-          roadLon: snapResult.roadLon,
-          alpha: snapResult.alpha,
-          wayId: snapResult.wayId,
-          dist: snapResult.dist
-        };
+      // Store Viterbi-snapped positions.
+      for (const [idx, r] of hmmResults) {
+        analyzer.snappedGps[idx] = r;
       }
 
-      // ── Enrichment (uses snapped position when snapping is active) ──
-      const metrics = this._evaluatePosition(evalLat, evalLon, nearby, radiusMeters);
+      // Enrichment pass using the matched (snapped) positions.
+      if (onProgress) onProgress('HMM map-matching: computing spatial metrics...');
+      for (let s = 0; s < hmmPoints.length; s++) {
+        if (s % 50 === 0 && onProgress) {
+          onProgress(`Computing spatial metrics: ${s}/${hmmPoints.length} positions...`);
+        }
+        const node    = hmmPoints[s];
+        const matched = hmmResults.get(node.idx);
+        const evalLat = matched ? matched.lat : node.lat;
+        const evalLon = matched ? matched.lon : node.lon;
 
-      computedMetrics.push({
-        idx: node.idx,
-        time: raw[node.idx].time,
-        metrics
-      });
+        const metrics = this._evaluatePosition(evalLat, evalLon, node.nearby, radiusMeters);
+        computedMetrics.push({ idx: node.idx, time: raw[node.idx].time, metrics });
+      }
+
+    // ════════════════════════════════════════════════════════════════
+    //  GREEDY SNAP PATH  (original per-point RoadSnapper behaviour)
+    // ════════════════════════════════════════════════════════════════
+    } else {
+      // ── Greedy snapping state (carried across evaluation points) ──
+      const snapState = doSnap ? {
+        wayId: null,
+        prevWayId: null,
+        prevGpsLat: null,
+        prevGpsLon: null,
+        prevSnapLat: null,
+        prevSnapLon: null,
+        wasSnapped: false,
+        rampStep: 0,
+        hystTimer: null
+      } : null;
+
+      for (let s = 0; s < evalPoints.length; s++) {
+        if (s % 50 === 0 && onProgress) {
+          const what = doSnap ? 'Snapping & enriching' : 'Computing spatial metrics';
+          onProgress(`${what}: ${s}/${evalPoints.length} positions...`);
+        }
+        const node   = evalPoints[s];
+        const nearby = spatialIndex.getNearby(node.lat, node.lon);
+
+        let evalLat = node.lat;
+        let evalLon = node.lon;
+
+        if (doSnap) {
+          const rawPt   = raw[node.idx];
+          const speedMs = (!isNaN(rawPt.speedKts)) ? rawPt.speedKts * 0.514444 : NaN;
+          const course  = (!isNaN(rawPt.course))   ? rawPt.course               : NaN;
+
+          const snapResult = RoadSnapper.snapOne(
+            node.lat, node.lon, speedMs, course, nearby, snapState, snapParams
+          );
+
+          evalLat = snapResult.snapLat;
+          evalLon = snapResult.snapLon;
+
+          analyzer.snappedGps[node.idx] = {
+            lat:     evalLat,
+            lon:     evalLon,
+            roadLat: snapResult.roadLat,
+            roadLon: snapResult.roadLon,
+            alpha:   snapResult.alpha,
+            wayId:   snapResult.wayId,
+            dist:    snapResult.dist
+          };
+        }
+
+        const metrics = this._evaluatePosition(evalLat, evalLon, nearby, radiusMeters);
+        computedMetrics.push({ idx: node.idx, time: raw[node.idx].time, metrics });
+      }
     }
 
     // 4. Project back to full timeline

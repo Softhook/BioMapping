@@ -148,7 +148,7 @@ For **path rendering smoothness**, the Kalman+RTS smoother already produces clea
 
 ---
 
-### C1 · HMM-Viterbi Map Matching
+### C1 · HMM-Viterbi Map Matching ✅ IMPLEMENTED 2026-07-09
 
 **What it does**
 
@@ -165,10 +165,11 @@ This completely eliminates the "GPS jumped to the parallel street" artefact and 
 
 | File | Change |
 |------|--------|
-| `gsr-map-analyzer/map_match.js` | [NEW] `MapMatcher` class with `match(points, osmGraph)`. Uses spatial index (R-tree or quadtree) for candidate selection; simple Dijkstra/BFS for transition distances. |
-| `gsr-map-analyzer/map.js` | Optional post-processing step: call `MapMatcher.match()` on filtered GPS points before rendering. Gated behind a new "Map Match" toggle. |
-| `gsr-map-analyzer/index.html` | Add "Enable map matching" toggle to GPS filter panel. |
-| `gsr-map-analyzer/osm_enricher.js` | Reuse the existing OSM tile fetch to supply the road graph to `MapMatcher`. |
+| `gsr-map-analyzer/map_match.js` | [NEW] `MapMatcher` object with `match(evalPoints, raw, radius)`. Viterbi in log-space; haversine transition approximation; cosine α blending; 30 s gap detection breaks the chain. |
+| `gsr-map-analyzer/osm_enrichment.js` | `enrichTrack()` split into HMM path (two-pass: candidates → Viterbi → enrich) and greedy path. Gated on `snapParams.mode === 'hmm'`. |
+| `gsr-map-analyzer/index.html` | "Matching Method" select (HMM default / Greedy). `map_match.js` script tag added. |
+| `gsr-map-analyzer/ui.js` | `snapMode` read from select; passed to `enrichTrack()` in both local and network paths. |
+| `gsr-map-analyzer/events.js` | `gpsSnapMode` registered in DOM cache and change listener added. |
 
 > **Synergy:** The analyser already fetches OSM road data for environmental enrichment. The same graph feeds the map matcher, sharing the tile cache.
 
