@@ -809,7 +809,6 @@ out skel qt;`;
     if (!raw || raw.length === 0) return;
 
     const doSnap  = snapParams && snapParams.enabled;
-    const useHMM  = doSnap && snapParams.mode === 'hmm';
 
     // Clear stale snapped positions when snapping is disabled so renderData
     // doesn't substitute from a previous enrichment run.
@@ -860,7 +859,7 @@ out skel qt;`;
     //  Collect candidates for all eval points, run Viterbi globally,
     //  then use the matched positions for enrichment.
     // ════════════════════════════════════════════════════════════════
-    if (useHMM) {
+    if (doSnap) {
       if (onProgress) onProgress('HMM map-matching: collecting candidates...');
 
       // Attach the spatial-index nearby result to each eval point so
@@ -894,58 +893,16 @@ out skel qt;`;
         computedMetrics.push({ idx: node.idx, time: raw[node.idx].time, metrics });
       }
 
-    // ════════════════════════════════════════════════════════════════
-    //  GREEDY SNAP PATH  (original per-point RoadSnapper behaviour)
-    // ════════════════════════════════════════════════════════════════
     } else {
-      // ── Greedy snapping state (carried across evaluation points) ──
-      const snapState = doSnap ? {
-        wayId: null,
-        prevWayId: null,
-        prevGpsLat: null,
-        prevGpsLon: null,
-        prevSnapLat: null,
-        prevSnapLon: null,
-        wasSnapped: false,
-        rampStep: 0,
-        hystTimer: null
-      } : null;
-
+      // Non-snapped evaluation loop
       for (let s = 0; s < evalPoints.length; s++) {
         if (s % 50 === 0 && onProgress) {
-          const what = doSnap ? 'Snapping & enriching' : 'Computing spatial metrics';
-          onProgress(`${what}: ${s}/${evalPoints.length} positions...`);
+          onProgress(`Computing spatial metrics: ${s}/${evalPoints.length} positions...`);
         }
         const node   = evalPoints[s];
         const nearby = spatialIndex.getNearby(node.lat, node.lon);
 
-        let evalLat = node.lat;
-        let evalLon = node.lon;
-
-        if (doSnap) {
-          const rawPt   = raw[node.idx];
-          const speedMs = (!isNaN(rawPt.speedKts)) ? rawPt.speedKts * 0.514444 : NaN;
-          const course  = (!isNaN(rawPt.course))   ? rawPt.course               : NaN;
-
-          const snapResult = RoadSnapper.snapOne(
-            node.lat, node.lon, speedMs, course, nearby, snapState, snapParams
-          );
-
-          evalLat = snapResult.snapLat;
-          evalLon = snapResult.snapLon;
-
-          analyzer.snappedGps[node.idx] = {
-            lat:     evalLat,
-            lon:     evalLon,
-            roadLat: snapResult.roadLat,
-            roadLon: snapResult.roadLon,
-            alpha:   snapResult.alpha,
-            wayId:   snapResult.wayId,
-            dist:    snapResult.dist
-          };
-        }
-
-        const metrics = this._evaluatePosition(evalLat, evalLon, nearby, radiusMeters);
+        const metrics = this._evaluatePosition(node.lat, node.lon, nearby, radiusMeters);
         computedMetrics.push({ idx: node.idx, time: raw[node.idx].time, metrics });
       }
     }
@@ -968,10 +925,9 @@ out skel qt;`;
   },
 
   /**
-  /**
-   * Fill NaN gaps in analyzer.snappedGps by linear interpolation between
-   * evaluation points.  Leaves gaps > 30 s as NaN so the rendered path
-   * breaks instead of drawing a misleading straight line.
+   * Fill NaN gaps in analyzer.snappedGps by interpolating along the OSM road
+   * geometries when consecutive evaluation points match to the same or connected roads.
+   * Prevents straight-line paths cutting corners through buildings.
    */
   _interpolateSnappedGps(analyzer, raw) {
     const sg = analyzer.snappedGps;
@@ -985,6 +941,14 @@ out skel qt;`;
       }
     }
     if (valid.length === 0) return;
+
+    // Build way lookup map for geometry tracing
+    const wayMap = new Map();
+    if (analyzer.osmGeoms && analyzer.osmGeoms.ways) {
+      for (const geom of analyzer.osmGeoms.ways) {
+        wayMap.set(geom.id, geom.coordinates);
+      }
+    }
 
     // Fill before first
     const first = valid[0];
@@ -1001,17 +965,89 @@ out skel qt;`;
           sg[i] = { lat: NaN, lon: NaN };
         }
       } else {
+        const wayIdA = sg[a].wayId;
+        const wayIdB = sg[b].wayId;
+        const coordsA = wayIdA ? wayMap.get(wayIdA) : null;
+        const coordsB = wayIdB ? wayMap.get(wayIdB) : null;
+
         for (let i = a + 1; i < b; i++) {
           const t = (i - a) / (b - a);
-          sg[i] = {
-            lat: sg[a].lat + t * (sg[b].lat - sg[a].lat),
-            lon: sg[a].lon + t * (sg[b].lon - sg[a].lon),
-            roadLat: sg[a].roadLat + t * (sg[b].roadLat - sg[a].roadLat),
-            roadLon: sg[a].roadLon + t * (sg[b].roadLon - sg[a].roadLon),
-            alpha: sg[a].alpha + t * (sg[b].alpha - sg[a].alpha),
-            dist: sg[a].dist + t * (sg[b].dist - sg[a].dist),
-            wayId: t < 0.5 ? sg[a].wayId : sg[b].wayId
-          };
+          const rawPt = raw[i];
+          const rawLat = rawPt.lat;
+          const rawLon = rawPt.lon;
+          const hasGps = !isNaN(rawLat) && !isNaN(rawLon);
+
+          if (wayIdA && wayIdB && wayIdA !== wayIdB && coordsA && coordsB && hasGps) {
+            // Project onto both ways and interpolate the results to prevent sudden jumps
+            const projA = this._projectToWay(rawLat, rawLon, coordsA);
+            const projB = this._projectToWay(rawLat, rawLon, coordsB);
+
+            const snapLat = (1 - t) * projA.snapLat + t * projB.snapLat;
+            const snapLon = (1 - t) * projA.snapLon + t * projB.snapLon;
+            const dist = (1 - t) * projA.dist + t * projB.dist;
+
+            const alphaA = sg[a].alpha;
+            const alphaB = sg[b].alpha;
+            const alpha = alphaA + t * (alphaB - alphaA);
+
+            sg[i] = {
+              lat:     alpha * snapLat + (1 - alpha) * rawLat,
+              lon:     alpha * snapLon + (1 - alpha) * rawLon,
+              roadLat: snapLat,
+              roadLon: snapLon,
+              alpha,
+              dist,
+              wayId:   t < 0.5 ? wayIdA : wayIdB
+            };
+          } else {
+            // Single way projection or fallback
+            let chosenWayId = null;
+            let chosenCoords = null;
+
+            if (wayIdA && wayIdB) {
+              if (wayIdA === wayIdB) {
+                chosenWayId = wayIdA;
+                chosenCoords = coordsA;
+              } else {
+                chosenWayId = t < 0.5 ? wayIdA : wayIdB;
+                chosenCoords = t < 0.5 ? coordsA : coordsB;
+              }
+            } else if (wayIdA) {
+              chosenWayId = wayIdA;
+              chosenCoords = coordsA;
+            } else if (wayIdB) {
+              chosenWayId = wayIdB;
+              chosenCoords = coordsB;
+            }
+
+            if (chosenCoords && hasGps) {
+              const proj = this._projectToWay(rawLat, rawLon, chosenCoords);
+              const alphaA = sg[a].alpha;
+              const alphaB = sg[b].alpha;
+              const alpha = alphaA + t * (alphaB - alphaA);
+
+              sg[i] = {
+                lat:     alpha * proj.snapLat + (1 - alpha) * rawLat,
+                lon:     alpha * proj.snapLon + (1 - alpha) * rawLon,
+                roadLat: proj.snapLat,
+                roadLon: proj.snapLon,
+                alpha,
+                dist:    proj.dist,
+                wayId:   chosenWayId
+              };
+            } else {
+              // Fallback: simple linear interpolation of coordinates
+              sg[i] = {
+                lat:     sg[a].lat + t * (sg[b].lat - sg[a].lat),
+                lon:     sg[a].lon + t * (sg[b].lon - sg[a].lon),
+                roadLat: sg[a].roadLat + t * (sg[b].roadLat - sg[a].roadLat),
+                roadLon: sg[a].roadLon + t * (sg[b].roadLon - sg[a].roadLon),
+                alpha:   sg[a].alpha + t * (sg[b].alpha - sg[a].alpha),
+                dist:    sg[a].dist + t * (sg[b].dist - sg[a].dist),
+                wayId:   t < 0.5 ? wayIdA : wayIdB
+              };
+            }
+          }
         }
       }
     }
@@ -1021,6 +1057,51 @@ out skel qt;`;
     for (let i = last; i < sg.length; i++) {
       sg[i] = { ...sg[last] };
     }
+  },
+
+  /**
+   * Project a point onto an OSM way's coordinates and find the closest segment.
+   */
+  _projectToWay(lat, lon, coords) {
+    const cosLat = Math.cos(lat * Math.PI / 180);
+    const MDEG   = 111320;
+
+    let minDist = Infinity;
+    let bestSnapLat = lat;
+    let bestSnapLon = lon;
+
+    const qx = lon * cosLat;
+    const qy = lat;
+
+    for (let i = 0; i < coords.length - 1; i++) {
+      const a = coords[i], b = coords[i + 1];
+      const ax = a.lon * cosLat, ay = a.lat;
+      const bx = b.lon * cosLat, by = b.lat;
+
+      const dx = bx - ax, dy = by - ay;
+      const l2 = dx * dx + dy * dy;
+
+      let t = 0;
+      if (l2 > 1e-12) {
+        t = ((qx - ax) * dx + (qy - ay) * dy) / l2;
+        t = Math.max(0, Math.min(1, t));
+      }
+
+      const projX = ax + t * dx;
+      const projY = ay + t * dy;
+
+      const dLat = (projY - qy) * MDEG;
+      const dLon = (projX - qx) * MDEG;
+      const dist = Math.sqrt(dLat * dLat + dLon * dLon);
+
+      if (dist < minDist) {
+        minDist = dist;
+        bestSnapLat = projY;
+        bestSnapLon = projX / cosLat;
+      }
+    }
+
+    return { snapLat: bestSnapLat, snapLon: bestSnapLon, dist: minDist };
   },
 
   /**

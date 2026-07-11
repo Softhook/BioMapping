@@ -30,13 +30,16 @@
  *     emission probabilities shifts to the new road after the turn.
  *
  * Design notes (pedestrian use):
- *   • d_route is approximated by haversine (straight-line) distance between
- *     snap points, not full road-network routing.  This is tight for
- *     walking-scale gaps (≤ 5 m at 1 Hz) but under-penalises jumps between
- *     parallel roads that are close as the crow flies.
- *   • No explicit road-network connectivity check — the distance-discrepancy
- *     penalty and small β serve as a soft proxy.  Acceptable for pedestrian
- *     tracks where disconnected roads typically have large discrepancies.
+ *   • Same-way d_route uses polygon tracing (_wayDistance); cross-way
+ *     transit uses endpoint-junction routing (_routeDistViaJunction).
+ *   • Cross-way routing only considers way endpoints — mid-segment
+ *     T-junctions are not detected.  Ways that meet in the middle of
+ *     another way will be treated as disconnected (1000 m penalty).
+ *   • No explicit OSM-node connectivity check — endpoint proximity
+ *     (≤ 5 m) serves as a proxy for a shared junction.  This is
+ *     reliable for OSM data where junction nodes are snapped to the
+ *     same coordinate.  Acceptable for pedestrian tracks where
+ *     disconnected roads typically have large discrepancies.
  *   • MAX_GAP_S expects raw[i].time in seconds (not milliseconds or ISO
  *     strings).  If timestamps are in a different unit the chain-breaking
  *     threshold will be wrong.
@@ -50,6 +53,12 @@ const MapMatcher = {
    *  Larger β → more tolerant of route-vs-GPS distance mismatches.
    *  3–5 m works well for walking-speed tracks. */
   BETA_M: 3.0,
+
+  /** Route-distance penalty (metres) applied when two ways have no
+   *  shared junction (disconnected).  With β = 3.0 this adds ≈ −334
+   *  log-units, making cross-way transitions effectively impossible
+   *  without a valid junction. */
+  DISCONNECTED_PENALTY_M: 1000,
 
   /** Maximum candidate segments per GPS fix. */
   MAX_CANDS: 10,
@@ -80,7 +89,10 @@ const MapMatcher = {
     const allCands = new Array(n);
     for (let i = 0; i < n; i++) {
       const pt = evalPoints[i];
-      allCands[i] = this._getCandidates(pt.lat, pt.lon, pt.nearby, radius);
+      const rawPt = raw[pt.idx] || {};
+      const speedMs = (!isNaN(rawPt.speedKts)) ? rawPt.speedKts * 0.514444 : NaN;
+      const courseDeg = (!isNaN(rawPt.course)) ? rawPt.course : NaN;
+      allCands[i] = this._getCandidates(pt.lat, pt.lon, pt.nearby, radius, speedMs, courseDeg);
     }
 
     // ── 2. Viterbi forward pass (log-probabilities) ──────────────────────
@@ -94,7 +106,7 @@ const MapMatcher = {
       const c0 = allCands[0];
       V[0] = new Float64Array(c0.length);
       for (let j = 0; j < c0.length; j++) {
-        V[0][j] = this._logEmit(c0[j].dist);
+        V[0][j] = this._logEmit(c0[j].dist, c0[j].bearingDiffRad);
       }
       B[0] = null;
     }
@@ -123,7 +135,7 @@ const MapMatcher = {
       const bCurr = new Int32Array(currCands.length).fill(-1);
 
       for (let j = 0; j < currCands.length; j++) {
-        const logE = this._logEmit(currCands[j].dist);
+        const logE = this._logEmit(currCands[j].dist, currCands[j].bearingDiffRad);
 
         if (broken) {
           // No valid transition — initialise from emission alone.
@@ -138,8 +150,7 @@ const MapMatcher = {
         for (let i = 0; i < prevCands.length; i++) {
           if (!isFinite(vPrev[i])) continue;
           const logT = this._logTrans(
-            prevCands[i].snapLat, prevCands[i].snapLon,
-            currCands[j].snapLat, currCands[j].snapLon,
+            prevCands[i], currCands[j],
             gLat1, gLon1, gLat2, gLon2
           );
           const score = vPrev[i] + logT;
@@ -177,8 +188,8 @@ const MapMatcher = {
       const nextIdx = path[t + 1];
       const bArr    = B[t + 1];
 
-      // If the forward pass broke the chain at t+1, pick best for t independently.
-      if (nextIdx < 0 || bArr === null || bArr[nextIdx] < 0 || allCands[t + 1].length === 0) {
+      // Safeguard against indexing errors and check if chain is broken
+      if (nextIdx < 0 || bArr === null || nextIdx >= bArr.length || bArr[nextIdx] < 0 || allCands[t + 1].length === 0) {
         let best = -1, bestV = -Infinity;
         const vt = V[t];
         for (let j = 0; j < vt.length; j++) {
@@ -233,7 +244,7 @@ const MapMatcher = {
    * radiusM metres and returns up to MAX_CANDS, sorted by effective
    * distance (nearest road-class-adjusted segment first).
    */
-  _getCandidates(lat, lon, nearby, radiusM) {
+  _getCandidates(lat, lon, nearby, radiusM, speedMs, courseDeg) {
     const cosLat = Math.cos(lat * Math.PI / 180);
     const MDEG   = 111320;
 
@@ -243,7 +254,7 @@ const MapMatcher = {
       if (geom.type !== 'way' || !geom.tags || !geom.tags.highway) continue;
       if (!geom.coordinates || geom.coordinates.length < 2) continue;
 
-      const classPenalty = MapMatcher._ROAD_CLASS_PENALTY[geom.tags.highway] || 0;
+      const classPenalty = this._ROAD_CLASS_PENALTY[geom.tags.highway] || 0;
       const coords       = geom.coordinates;
 
       // Metre-equivalent Cartesian for the query point.
@@ -273,13 +284,31 @@ const MapMatcher = {
 
         if (dist > radiusM) continue;
 
+        let effDist = dist + classPenalty;
+        let bearingDiffRad = NaN;
+
+        // Apply bearing penalty if user is moving to rank candidates better
+        if (!isNaN(speedMs) && speedMs >= 0.3 && !isNaN(courseDeg)) {
+          const courseRad = courseDeg * Math.PI / 180;
+          const segBearing = this._segmentBearing(a.lat, a.lon, b.lat, b.lon);
+          bearingDiffRad = Math.min(
+            this._angularDiff(courseRad, segBearing),
+            this._angularDiff(courseRad, segBearing + Math.PI)
+          );
+          // Scale bearing penalty (0.7 weight * normalized difference * 25m radius)
+          effDist += 0.7 * (bearingDiffRad / Math.PI) * 25;
+        }
+
         candidates.push({
           wayId:    geom.id,
           segIdx:   i,
           snapLat:  projY,
           snapLon:  projX / cosLat,
           dist,
-          effDist:  dist + classPenalty
+          effDist,
+          endpoints: [coords[0], coords[coords.length - 1]],
+          coords:   coords,
+          bearingDiffRad
         });
       }
     }
@@ -289,31 +318,133 @@ const MapMatcher = {
   },
 
   /**
-   * Log emission probability for a candidate at perpendicular distance d.
-   *   log p(z | r) = −0.5·(d/σ)² − log(σ√2π)
+   * Log emission probability for a candidate.
+   * Gaussian centred on the perpendicular distance from the GPS fix to the
+   * road segment (Newson & Krumm 2009 §3.1).  Bearing is handled during
+   * candidate ranking (effDist) but deliberately excluded here to avoid
+   * double-counting.
    */
-  _logEmit(d) {
+  _logEmit(dist, _bearingDiffRad) {
     const s = this.SIGMA_M;
-    return -0.5 * (d / s) * (d / s) - Math.log(s * Math.sqrt(2 * Math.PI));
+    return -0.5 * (dist / s) * (dist / s) - Math.log(s * Math.sqrt(2 * Math.PI));
   },
 
   /**
    * Log transition probability (Newson & Krumm 2009).
-   * Exponential penalty on |d_GPS − d_route|, where d_route is
-   * approximated as the haversine distance between the two snap points.
-   *
-   * For walking-scale gaps (≤ 5 m between consecutive fixes at 1–5 Hz),
-   * this approximation is tight.  The key discriminator is that staying
-   * on the same road produces d_route ≈ d_GPS while jumping to a parallel
-   * street (which would require going around the block) produces a
-   * d_route significantly different from d_GPS.
+   * Calculates route distance using topological road-network distance.
    */
-  _logTrans(sLat1, sLon1, sLat2, sLon2, gLat1, gLon1, gLat2, gLon2) {
-    const dGPS   = this._haversineM(gLat1, gLon1, gLat2, gLon2);
-    const dRoute = this._haversineM(sLat1, sLon1, sLat2, sLon2);
-    const dt     = Math.abs(dGPS - dRoute);
-    const beta   = this.BETA_M;
+  _logTrans(c1, c2, gLat1, gLon1, gLat2, gLon2) {
+    const dGPS = this._haversineM(gLat1, gLon1, gLat2, gLon2);
+    
+    let dRoute;
+    if (c1.wayId === c2.wayId) {
+      dRoute = this._wayDistance(c1, c2);
+    } else {
+      dRoute = this._routeDistViaJunction(c1, c2);
+    }
+
+    let dt;
+    if (dRoute === Infinity) {
+      // Disconnected ways — apply a heavy topological penalty.
+      dt = this.DISCONNECTED_PENALTY_M;
+    } else {
+      dt = Math.abs(dGPS - dRoute);
+    }
+
+    const beta = this.BETA_M;
     return -(dt / beta) - Math.log(beta);
+  },
+
+  /**
+   * Trace exact path distance along a way's segments between two candidate snaps.
+   */
+  _wayDistance(c1, c2) {
+    if (c1.wayId !== c2.wayId) return Infinity;
+    const coords = c1.coords;
+    const i = c1.segIdx;
+    const j = c2.segIdx;
+
+    if (i === j) {
+      return this._haversineM(c1.snapLat, c1.snapLon, c2.snapLat, c2.snapLon);
+    }
+
+    let dist = 0;
+    if (i < j) {
+      dist += this._haversineM(c1.snapLat, c1.snapLon, coords[i + 1].lat, coords[i + 1].lon);
+      for (let k = i + 1; k < j; k++) {
+        dist += this._haversineM(coords[k].lat, coords[k].lon, coords[k + 1].lat, coords[k + 1].lon);
+      }
+      dist += this._haversineM(coords[j].lat, coords[j].lon, c2.snapLat, c2.snapLon);
+    } else {
+      dist += this._haversineM(c1.snapLat, c1.snapLon, coords[i].lat, coords[i].lon);
+      for (let k = i - 1; k > j; k--) {
+        dist += this._haversineM(coords[k + 1].lat, coords[k + 1].lon, coords[k].lat, coords[k].lon);
+      }
+      dist += this._haversineM(coords[j + 1].lat, coords[j + 1].lon, c2.snapLat, c2.snapLon);
+    }
+    return dist;
+  },
+
+  /**
+   * Approximate route distance from a point on c1 to a point on c2,
+   * travelling through their nearest shared junction.
+   *
+   * LIMITATION: Only considers way endpoints.  Mid-segment junctions
+   * (e.g. a T-junction where one way ends in the middle of another)
+   * are not detected and will return Infinity.
+   */
+  _routeDistViaJunction(c1, c2) {
+    const ends1 = c1.endpoints;
+    const ends2 = c2.endpoints;
+
+    let minD = Infinity;
+    let bestE1 = null;
+    let bestE2 = null;
+
+    for (const e1 of ends1) {
+      for (const e2 of ends2) {
+        const d = this._haversineM(e1.lat, e1.lon, e2.lat, e2.lon);
+        if (d < minD) {
+          minD = d;
+          bestE1 = e1;
+          bestE2 = e2;
+        }
+      }
+    }
+
+    // Ways are considered connected if their nearest endpoints are
+    // within 5 m — tight enough that only genuine OSM junction nodes
+    // (snapped to the same coordinate) pass.  Larger values risk
+    // false connections between nearby but unconnected parallel roads.
+    if (minD > 5) {
+      return Infinity;
+    }
+
+    // Determine which endpoint of each way is the junction and compute
+    // the distance from the candidate snap to that endpoint along the way.
+    // Use value equality (lat + lon) rather than reference equality so
+    // the comparison survives coordinate cloning.
+    const isStart1 = bestE1.lat === c1.coords[0].lat && bestE1.lon === c1.coords[0].lon;
+    const junctionCand1 = {
+      wayId: c1.wayId,
+      coords: c1.coords,
+      segIdx: isStart1 ? 0 : c1.coords.length - 2,
+      snapLat: bestE1.lat,
+      snapLon: bestE1.lon
+    };
+    const d1 = this._wayDistance(c1, junctionCand1);
+
+    const isStart2 = bestE2.lat === c2.coords[0].lat && bestE2.lon === c2.coords[0].lon;
+    const junctionCand2 = {
+      wayId: c2.wayId,
+      coords: c2.coords,
+      segIdx: isStart2 ? 0 : c2.coords.length - 2,
+      snapLat: bestE2.lat,
+      snapLon: bestE2.lon
+    };
+    const d2 = this._wayDistance(junctionCand2, c2);
+
+    return d1 + minD + d2;
   },
 
   /**
@@ -339,9 +470,26 @@ const MapMatcher = {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   },
 
+  _segmentBearing(lat1, lon1, lat2, lon2) {
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x = Math.cos(φ1) * Math.sin(φ2) -
+              Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+
+    return Math.atan2(y, x);
+  },
+
+  _angularDiff(a, b) {
+    let d = Math.abs(a - b);
+    if (d > Math.PI) d = 2 * Math.PI - d;
+    return d;
+  },
+
   /**
-   * Road-class score adjustment (metres) — same table as RoadSnapper so
-   * both methods treat walking-preference identically.
+   * Road-class score adjustment (metres).
    * Negative values boost pedestrian infrastructure; positive values
    * penalise high-speed roads that a pedestrian is unlikely to be on.
    */

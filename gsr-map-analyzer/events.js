@@ -30,7 +30,7 @@ const GSREvents = {
       'shapeMinRiseTime', 'shapeMaxRiseTime', 'shapeMinHalfRecovery', 'shapeMaxHalfRecovery',
       'shapeMinSnr', 'shapeMaxSkewRatio',
       'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsDownsample', 'gpsTrackWeight', 'gpsPeakLatency',
-      'gpsSnapToRoads', 'gpsSnapRadius', 'gpsSnapMode'
+      'gpsSnapToRoads', 'gpsSnapRadius'
     ];
     for (const key of sliderKeys) {
       AppState.sliders[key] = GSREvents._id(key);
@@ -372,19 +372,6 @@ const GSREvents = {
       }
     }
 
-    // ── Snap method selector ─────────────────────────────────────────────────
-    // Changing the method re-runs enrichment from cache if OSM data is loaded.
-    {
-      const snapMode = document.getElementById('gpsSnapMode');
-      if (snapMode) {
-        snapMode.addEventListener('change', () => {
-          GSRStorage.saveSettings();
-          if (AppState.analyzer && AppState.analyzer.osmJson) {
-            GSRUI.enrichTrack(false);
-          }
-        });
-      }
-    }
 
     // Peak latency — re-render map only (no analysis needed), highlight when active
     {
