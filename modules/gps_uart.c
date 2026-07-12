@@ -2,6 +2,7 @@
 // Single-byte-per-IRQ RX pattern, adapted from ezod/flipperzero-gps.
 
 #include "gps_uart.h"
+#include "../biomap_config.h"
 #include "../biomap_events.h"
 
 #include <furi.h>
@@ -160,9 +161,14 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
     case MINMEA_SENTENCE_GGA: {
         struct minmea_sentence_gga frame;
         if(minmea_parse_gga(&frame, line)) {
-            g->status.latitude           = minmea_tocoord(&frame.latitude);
-            g->status.longitude          = minmea_tocoord(&frame.longitude);
-            g->status.altitude           = minmea_tofloat(&frame.altitude);
+            // Only trust GGA position when we actually have a fix.
+            // Without this guard, a GGA arriving before RMC in a new
+            // epoch would overwrite good coordinates with 0.0.
+            if(frame.fix_quality > 0) {
+                g->status.latitude  = minmea_tocoord(&frame.latitude);
+                g->status.longitude = minmea_tocoord(&frame.longitude);
+                g->status.altitude  = minmea_tofloat(&frame.altitude);
+            }
             g->status.satellites_tracked = frame.satellites_tracked;
             g->status.fix_quality        = frame.fix_quality;
             // Only overwrite HDOP when the field is present — minmea_tofloat
@@ -418,6 +424,37 @@ static void pcas_tx(GpsUart* g, const char* cmd) {
 }
 
 // ---------------------------------------------------------------------------
+// Helper — send a binary UBX packet over the GPS UART
+// ---------------------------------------------------------------------------
+static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
+    furi_hal_serial_tx(g->serial_handle, data, len);
+    furi_delay_ms(100);
+}
+
+// ── Binary UBX configuration packets for M10Q ──────────────────────────────
+static const uint8_t ubx_cfg_rate_5hz[] = {
+    0xB5, 0x62, 0x06, 0x08, 0x06, 0x00, 0xC8, 0x00, 0x01, 0x00, 0x01, 0x00, 0xDE, 0x6A
+};
+static const uint8_t ubx_cfg_msg_gll_off[] = {
+    0xB5, 0x62, 0x06, 0x01, 0x03, 0x00, 0xF0, 0x03, 0x00, 0xFD, 0x15
+};
+static const uint8_t ubx_cfg_msg_vtg_off[] = {
+    0xB5, 0x62, 0x06, 0x01, 0x03, 0x00, 0xF0, 0x09, 0x00, 0x03, 0x21
+};
+static const uint8_t ubx_cfg_msg_gsv_1hz[] = {
+    0xB5, 0x62, 0x06, 0x01, 0x03, 0x00, 0xF0, 0x07, 0x05, 0x06, 0x22
+};
+static const uint8_t ubx_cfg_nav5_pedestrian[] = {
+    0xB5, 0x62, 0x06, 0x24, 0x28, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x56, 0x3E
+};
+static const uint8_t ubx_cfg_rst_hot[] = {
+    0xB5, 0x62, 0x06, 0x04, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0x10, 0x68
+};
+
+// ---------------------------------------------------------------------------
 // Drain RX stream, parse complete NMEA lines; run NMEA watchdog
 // ---------------------------------------------------------------------------
 void gps_uart_process_rx(GpsUart* g) {
@@ -433,9 +470,20 @@ void gps_uart_process_rx(GpsUart* g) {
     size_t len;
     do {
         if(sizeof(g->rx_buf) - 1 - g->rx_offset == 0) {
-            FURI_LOG_W("GpsUart", "RX buffer full — resetting");
+            FURI_LOG_W("GpsUart", "RX buffer full — reconfiguring");
             g->rx_offset = 0;
-            gps_uart_send_hot_start(g);
+            // Full reconfiguration (same as watchdog): switch host
+            // back to 9600, then re-run the module init sequence.
+            // A plain hot-start would leave the module at default
+            // baud rate (9600 on M10Q) while the host is at 115200.
+            furi_hal_serial_async_rx_stop(g->serial_handle);
+            furi_hal_serial_deinit(g->serial_handle);
+            furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE);
+            furi_stream_buffer_reset(g->rx_stream);
+            furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
+            furi_delay_ms(100);
+            gps_uart_configure(g);
+            g->last_valid_nmea_tick = 0;
         }
 
         len = furi_stream_buffer_receive(
@@ -473,45 +521,52 @@ void gps_uart_process_rx(GpsUart* g) {
     } while(len > 0);
 
     // ── NMEA watchdog: if no valid sentence parsed in 5 seconds, ──────
-    // the GPS module may be disconnected or malfunctioning.  Log a
-    // warning and attempt a hot-start reset.  On M10Q, gps_uart_send_hot_start
-    // must be updated to send the UBX-CFG-RST binary packet instead of PCAS10.
+    // the GPS module may be disconnected or malfunctioning.  A hot-start
+    // reset reverts the module to factory defaults (9600 baud on M10Q;
+    // L76K retains persisted baud).  Switch the host back to 9600 and
+    // re-run the full configure sequence to restore 115200 + settings.
     if(g->last_valid_nmea_tick > 0) {
         uint32_t elapsed = furi_get_tick() - g->last_valid_nmea_tick;
         if(elapsed > furi_kernel_get_tick_frequency() * 5) {
-            FURI_LOG_W("GpsUart", "NMEA watchdog: no valid sentence in 5 s");
-            gps_uart_send_hot_start(g);
+            FURI_LOG_W("GpsUart", "NMEA watchdog: no valid sentence in 5 s — reconfiguring");
+            // Switch host back to 9600 (module default after reset)
+            furi_hal_serial_async_rx_stop(g->serial_handle);
+            furi_hal_serial_deinit(g->serial_handle);
+            furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE);
+            g->rx_offset = 0;
+            furi_stream_buffer_reset(g->rx_stream);
+            furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
+            furi_delay_ms(100);
+            gps_uart_configure(g);
             g->last_valid_nmea_tick = 0;
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Send init sequence: hot start, constellations, NMEA filter at 9600,
-// then switch to 115200 baud and re-enable GSV.  5 Hz update rate.
-// All PCAS values verified against Quectel L76K&L26K GNSS Protocol Spec v1.2.
+// Send init sequence: switch to 115200 baud and apply module-specific config.
+// Module type is selected at compile-time via GPS_MODULE in biomap_config.h.
 // ---------------------------------------------------------------------------
 static void gps_uart_configure(GpsUart* g) {
     furi_assert(g);
     if(!g->ready || !g->serial_handle) return;
-    FURI_LOG_I("GpsUart", "Configuring GPS at 9600 baud");
 
-    // Step 1 — configure constellations and sentence filter at 9600 baud (§2.3)
-    // Keep update rate at 1 Hz for now — spec §2.3.2 requires 115200 baud
-    // before setting any interval < 1000 ms.
-    pcas_tx(g, "$PCAS10,0*1C\r\n");                             // Hot start (§2.3.5)
+#if GPS_MODULE == GPS_MODULE_L76K
+    // ── Quectel L76K ──────────────────────────────────────────────────
+    FURI_LOG_I("GpsUart", "Configuring Quectel L76K");
+
+    pcas_tx(g, "$PCAS10,0*1C\r\n");                             // Hot start
     furi_delay_ms(200);
-    pcas_tx(g, "$PCAS04,7*1E\r\n");                             // GPS+BeiDou+GLONASS (§2.3.4)
-    pcas_tx(g, "$PCAS03,1,0,1,0,1,0,0,0,0,0,,,0,0*03\r\n");   // GGA+GSA+RMC only (§2.3.3)
+    pcas_tx(g, "$PCAS04,7*1E\r\n");                             // GPS+BeiDou+GLONASS
+    pcas_tx(g, "$PCAS03,1,0,1,0,1,0,0,0,0,0,,,0,0*03\r\n");   // GGA+GSA+RMC only
 
-    // Step 2 — switch module to 115200 baud FIRST (§2.3.1: PCAS01,5 = 115200)
-    // Spec §2.3.2 note: interval < 1000 ms requires 115200 baud to be set first.
+    // Switch module to 115200 baud
     FURI_LOG_I("GpsUart", "Switching GPS to 115200 baud");
     furi_delay_ms(200);
     pcas_tx(g, "$PCAS01,5*19\r\n");
     furi_delay_ms(300);
 
-    // Step 3 — reconfigure host UART to match, reset RX buffer, restart async
+    // Switch host UART to match
     furi_hal_serial_async_rx_stop(g->serial_handle);
     furi_hal_serial_deinit(g->serial_handle);
     furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE_FAST);
@@ -520,24 +575,55 @@ static void gps_uart_configure(GpsUart* g) {
     furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
     furi_delay_ms(100);
 
-    // Step 4 — now at 115200: set 5 Hz, enable GSV at 1 Hz (§2.3.2 + §2.3.3)
-    // PCAS02 is sent AFTER the baud switch — required order per spec §2.3.2 note.
-    // GSV is throttled to every 5th fix (nGSV=5 = 1 Hz) to stay well within
-    // 115200 baud budget. GGA, GSA, RMC remain at every fix (5 Hz).
-    // Satellite elevations update at 1 Hz which is sufficient for WDOP.
-    // Checksum verified: PCAS03,1,0,1,5,1,0,0,0,0,0,,,0,0 → XOR = 0x07.
-    pcas_tx(g, "$PCAS02,200*1D\r\n");                           // 5 Hz (200 ms interval)
-    pcas_tx(g, "$PCAS03,1,0,1,5,1,0,0,0,0,0,,,0,0*07\r\n");   // GGA+GSA+RMC@5Hz, GSV@1Hz
-    FURI_LOG_I("GpsUart", "GPS running at 115200 baud, 5 Hz, GSV@1Hz");
+    pcas_tx(g, "$PCAS02,200*1D\r\n");                           // 5 Hz
+    pcas_tx(g, "$PCAS03,1,0,1,5,1,0,0,0,0,0,,,0,0*06\r\n");   // GGA+GSA+RMC@5Hz, GSV@1Hz
+    FURI_LOG_I("GpsUart", "L76K running at 115200 baud, 5 Hz, GSV@1Hz");
+
+#elif GPS_MODULE == GPS_MODULE_M10Q
+    // ── u-blox SAM-M10Q ───────────────────────────────────────────────
+    FURI_LOG_I("GpsUart", "Configuring u-blox SAM-M10Q");
+
+    // Switch module to 115200 baud (ASCII at 9600)
+    FURI_LOG_I("GpsUart", "Switching GPS to 115200 baud");
+    furi_hal_serial_tx(g->serial_handle,
+        (const uint8_t*)"$PUBX,41,1,0007,0001,115200,0*1A\r\n", 38);
+    furi_delay_ms(300);
+
+    // Switch host UART to match
+    furi_hal_serial_async_rx_stop(g->serial_handle);
+    furi_hal_serial_deinit(g->serial_handle);
+    furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE_FAST);
+    g->rx_offset = 0;
+    furi_stream_buffer_reset(g->rx_stream);
+    furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
+    furi_delay_ms(100);
+
+    // Send binary UBX configuration packets
+    ubx_tx(g, ubx_cfg_rate_5hz, sizeof(ubx_cfg_rate_5hz));
+    ubx_tx(g, ubx_cfg_msg_gll_off, sizeof(ubx_cfg_msg_gll_off));
+    ubx_tx(g, ubx_cfg_msg_vtg_off, sizeof(ubx_cfg_msg_vtg_off));
+    ubx_tx(g, ubx_cfg_msg_gsv_1hz, sizeof(ubx_cfg_msg_gsv_1hz));
+    ubx_tx(g, ubx_cfg_nav5_pedestrian, sizeof(ubx_cfg_nav5_pedestrian));
+
+    FURI_LOG_I("GpsUart", "M10Q running at 115200 baud, 5 Hz, GSV@1Hz");
+
+#else
+    #error "GPS_MODULE must be GPS_MODULE_L76K or GPS_MODULE_M10Q"
+#endif
 }
 
 // ---------------------------------------------------------------------------
-// Hot Start reset
+// Hot Start reset — module-specific via compile-time GPS_MODULE.
 // ---------------------------------------------------------------------------
 void gps_uart_send_hot_start(GpsUart* g) {
     furi_assert(g);
     if(!g->ready || !g->serial_handle) return;
     FURI_LOG_I("GpsUart", "Hot Start reset");
+#if GPS_MODULE == GPS_MODULE_L76K
     pcas_tx(g, "$PCAS10,0*1C\r\n");
+#elif GPS_MODULE == GPS_MODULE_M10Q
+    ubx_tx(g, ubx_cfg_rst_hot, sizeof(ubx_cfg_rst_hot));
+#endif
 }
+
 

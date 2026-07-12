@@ -102,19 +102,21 @@ Sets the measurement period to 200 ms:
 * **Hex**: `B5 62 06 08 06 00 C8 00 01 00 01 00 DE 6A`
 
 #### 2. Disable NMEA GLL (`UBX-CFG-MSG`)
-* **Hex**: `B5 62 06 01 03 00 F0 01 00 FB 11`
+NMEA message ID for GLL is `0x03` (not `0x01` = GBS, not `0x05` = GSA).
+* **Hex**: `B5 62 06 01 03 00 F0 03 00 FD 15`
 
 #### 3. Disable NMEA VTG (`UBX-CFG-MSG`)
-* **Hex**: `B5 62 06 01 03 00 F0 05 00 FF 19`
+NMEA message ID for VTG is `0x09` (not `0x05` = GSA).
+* **Hex**: `B5 62 06 01 03 00 F0 09 00 03 21`
 
 #### 4. Throttle NMEA GSV to 1 Hz (`UBX-CFG-MSG`)
-Outputs GSV once every 5th navigation epoch (200 ms × 5 = 1 Hz):
-* **Hex**: `B5 62 06 01 03 00 F0 03 05 02 1A`
+NMEA message ID for GSV is `0x07` (not `0x03` = GLL). Outputs GSV once every 5th navigation epoch (200 ms × 5 = 1 Hz):
+* **Hex**: `B5 62 06 01 03 00 F0 07 05 06 22`
 
 #### 5. Set Navigation Model to Pedestrian (`UBX-CFG-NAV5`)
-`mask=0x0001` (dynModel field only), `dynModel=0x03` (Pedestrian). All other fields zeroed (unchanged). For an arm-worn device, substitute `dynModel=0x08` (Wrist) — change byte at offset 6 and update checksums accordingly.
-* **Pedestrian**: `B5 62 06 24 24 00 01 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 52 4E`
-* **Wrist**:       `B5 62 06 24 24 00 01 00 08 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 57 F8`
+`mask=0x0001` (dynModel field only), `dynModel=0x03` (Pedestrian). All other fields zeroed (unchanged). M10Q protocol version 34+ requires the 40-byte payload (not 36-byte legacy). For an arm-worn device, substitute `dynModel=0x08` (Wrist) — change byte at offset 6 and update checksums accordingly.
+* **Pedestrian**: `B5 62 06 24 28 00 01 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 56 3E`
+* **Wrist**:       `B5 62 06 24 28 00 01 00 08 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 5B FC`
 
 #### 6. Hot Start Reset (`UBX-CFG-RST`)
 Controlled software reset (GNSS only) without resetting Flipper interface. Replaces the PCAS10 command used in `gps_uart_send_hot_start()` (see Section 6.3):
@@ -184,9 +186,25 @@ static const uint8_t ubx_cfg_rst_hot[] = {
 // call ubx_tx(g, ubx_cfg_rst_hot, sizeof(ubx_cfg_rst_hot));
 ```
 
-### 6.4 Module Detection (Optional — Dual Hardware Support)
+### 6.4 Module Selection — Compile-Time Define
 
-If the same firmware build must run on both L76K and M10Q hardware, detect the module on first boot by checking whether the first proprietary sentence starts with `$PCAS` (L76K response to hot start) or `$GNTXT` / `$GPTXT` (u-blox boot banner). Branch to the appropriate configure path.
+The L76K and M10Q use different physical hardware (U.FL external antenna vs integrated ceramic patch). Since the user controls which board is attached, runtime autodetection adds unnecessary complexity and risk (destructive probing, misdetection fallback, extra boot latency).
+
+A single `#define` in `biomap_config.h` selects the module at compile time:
+
+```c
+#define GPS_MODULE_L76K  1
+#define GPS_MODULE_M10Q  2
+#define GPS_MODULE       GPS_MODULE_M10Q  // ← change this when swapping hardware
+```
+
+`gps_uart_configure()` and `gps_uart_send_hot_start()` use `#if GPS_MODULE ==` preprocessor guards to compile only the relevant code path. A `#error` directive catches invalid values.
+
+**Benefits over autodetection:**
+- No destructive probing (`$PCAS10,0` hot start on L76K detection)
+- No risk of misdetection sending UBX binary packets to an L76K
+- ~1 s faster boot (no 4-phase probe state machine)
+- Smaller binary (~80 bytes saved from removed probe code)
 
 ---
 
