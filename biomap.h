@@ -30,7 +30,6 @@
 #include "modules/gps_uart.h"
 #include "modules/gsr_sensor.h"
 #include "modules/sd_logger.h"
-#include "modules/gpx_converter.h"
 #include "modules/util.h"
 
 // ── Session — per-recording-session state ──────────────────────────────
@@ -79,21 +78,8 @@ typedef struct BioMapApp {
 
 // ── Menu & conversion UI types ─────────────────────────────────────────
 
-#define MENU_COUNT      5
+#define MENU_COUNT      4
 #define OPTIONS_COUNT   3
-
-typedef struct {
-    bool conv_ok;
-    char conv_name[32];
-    int  conv_points;
-} ConvResult;
-
-// Progress screen context — bundles the immutable conversion result info
-// with a mutable spinner frame that the GPX converter advances.
-typedef struct {
-    ConvResult result;
-    int        spinner_frame;   // 0-3, advanced by gpx_converter_run, read by render
-} ConvProgressCtx;
 
 typedef struct {
     BioMapApp* app;
@@ -108,7 +94,6 @@ typedef struct {
 // ── App-level function declarations ────────────────────────────────────
 
 void run_gps_hot_start(BioMapApp* app);
-void run_converter(BioMapApp* app);
 void run_options_screen(BioMapApp* app);
 
 void biomap_input_callback(InputEvent* e, void* ctx);

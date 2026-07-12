@@ -4,7 +4,7 @@
 // ── Label arrays for menu and options screens ──────────────────────────────
 
 static const char* const menu_labels[MENU_COUNT] = {
-    "GPS + GSR", "GPS Only", "GSR Only", "Convert CSV to GPX", "Options",
+    "GPS + GSR", "GPS Only", "GSR Only", "Options",
 };
 
 static const char* const options_labels[OPTIONS_COUNT] = {
@@ -237,47 +237,6 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     }
 
     furi_mutex_release(a->mutex);
-}
-
-// ==========================================================================
-// Conversion status screens
-// ==========================================================================
-
-void conv_progress_render(Canvas* c, void* ctx) {
-    ConvProgressCtx* p = (ConvProgressCtx*)ctx;
-    ConvResult* r = &p->result;
-    static const char spinner[] = {'|', '/', '-', '\\'};
-
-    canvas_clear(c);
-    canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, "Converting...");
-    canvas_set_font(c, FontSecondary);
-    canvas_draw_str(c, 0, 26, r->conv_name);
-
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%c Please wait", spinner[p->spinner_frame & 3]);
-    canvas_draw_str(c, 0, 40, buf);
-}
-
-void conv_status_render(Canvas* c, void* ctx) {
-    ConvResult* r = (ConvResult*)ctx;
-    canvas_clear(c);
-    canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, r->conv_ok ? "Conversion OK" : "Conversion FAILED");
-    canvas_set_font(c, FontSecondary);
-    char buf[64];
-    snprintf(buf, sizeof(buf), "CSV : %s", r->conv_name);
-    canvas_draw_str(c, 0, 24, buf);
-
-    // Derive GPX name from CSV name (.csv → .gpx)
-    char gpx[32];
-    gpx_name_from_csv(r->conv_name, gpx, sizeof(gpx));
-    snprintf(buf, sizeof(buf), "GPX : %s", gpx);
-    canvas_draw_str(c, 0, 34, buf);
-    snprintf(buf, sizeof(buf), "Points : %d", r->conv_points);
-    canvas_draw_str(c, 0, 46, buf);
-    canvas_draw_str(c, 0, 58,
-        (!r->conv_ok && r->conv_points == 0) ? "No GPS fix rows found" : "Press Back");
 }
 
 // ==========================================================================

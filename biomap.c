@@ -43,8 +43,7 @@ int32_t biomap_app(void* p) {
         case 0: run_recording_session(app, BioMapModeGpsGsr);  break;
         case 1: run_recording_session(app, BioMapModeGpsOnly); break;
         case 2: run_recording_session(app, BioMapModeGsrOnly); break;
-        case 3: run_converter(app);                             break;
-        case 4: run_options_screen(app);                        break;
+        case 3: run_options_screen(app);                        break;
         default: running = false;                               break;
         }
     }

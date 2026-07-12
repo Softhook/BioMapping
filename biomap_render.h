@@ -12,13 +12,6 @@
 
 // Recording view — live display during data logging (GPS+GSR / GPS-only / GSR-only)
 void biomap_render_callback(Canvas* c, void* ctx);
-
-// "Converting..." spinner screen shown during GPX conversion
-void conv_progress_render(Canvas* c, void* ctx);
-
-// Conversion result screen (OK / FAILED with CSV, GPX, point count)
-void conv_status_render(Canvas* c, void* ctx);
-
 // Main launch menu renderer
 void menu_render(Canvas* c, void* ctx);
 

@@ -51,45 +51,13 @@ static void drain_stale_events(FuriMessageQueue* q) {
 }
 
 // ==========================================================================
-// Conversion status — shown after "Convert CSV to GPX" runs
-// ==========================================================================
-//
-//  ┌─────────────────────────────┐
-//  │  Converting...              │   ← shown during conversion
-//  │  biomap_003.csv             │
-//  └─────────────────────────────┘
-//
-//  ┌─────────────────────────────┐
-//  │  Conversion OK              │   ← shown after conversion
-//  │  CSV : biomap_003.csv       │
-//  │  GPX : biomap_003.gpx       │
-//  │  Points : 29                │
-//  │  Press Back                 │
-//  └─────────────────────────────┘
-
-static void show_status_screen(BioMapApp* app, ConvResult* r) {
-    ViewPort* vp = vp_push(app, conv_status_render, r);
-
-    drain_stale_events(app->event_queue);
-    PluginEvent ev;
-    while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
-        if(ev.type == EventTypeKey && ev.input.type == InputTypeShort
-            && ev.input.key == InputKeyBack) break;
-    }
-
-    vp_pop(app, vp);
-}
-
-// ==========================================================================
 // Launch menu — main navigation
 // ==========================================================================
-//
 //  ┌─────────────────────────────┐
 //  │  Bio Mapping                │
 //  │  ▓ GPS + GSR           ▓    │   ← selected item (inverse bar)
 //  │    GPS Only                 │
 //  │    GSR Only                 │
-//  │    Convert CSV to GPX       │
 //  │    Options                  │
 //  │                             │
 //  └─────────────────────────────┘
@@ -214,46 +182,5 @@ void run_options_screen(BioMapApp* app) {
     vp_pop(app, vp);
 }
 
-// ==========================================================================
-// Converter flow — scan CSVs, convert latest, show result
-// ==========================================================================
 
-void run_converter(BioMapApp* app) {
-    GpxConverter* c = gpx_converter_alloc(app->storage);
-    int n = gpx_converter_scan(c);
-
-    ConvProgressCtx prog = {
-        .result = {.conv_ok = false, .conv_points = 0},
-        .spinner_frame = 0
-    };
-
-    if(n == 0) {
-        strncpy(prog.result.conv_name, "(none)", sizeof(prog.result.conv_name) - 1);
-        prog.result.conv_name[sizeof(prog.result.conv_name) - 1] = '\0';
-        notification_message(app->notifications, &sequence_blink_red_100);
-        show_status_screen(app, &prog.result);
-        gpx_converter_free(c);
-        return;
-    }
-
-    const char* name = gpx_converter_get_name(c, n - 1);
-    strncpy(prog.result.conv_name, name, sizeof(prog.result.conv_name) - 1);
-    prog.result.conv_name[sizeof(prog.result.conv_name) - 1] = '\0';
-
-    // Show "Converting..." while the two-pass conversion runs.
-    // This prevents a blank screen during what could be seconds of I/O.
-    ViewPort* prog_vp = vp_push(app, conv_progress_render, &prog);
-
-    FURI_LOG_I("BioMap", "Converting %s", name);
-    prog.result.conv_points = gpx_converter_run(c, name, prog_vp, &prog.spinner_frame);
-    prog.result.conv_ok = (prog.result.conv_points > 0);
-    notification_message(app->notifications,
-        prog.result.conv_ok ? &sequence_blink_green_100 : &sequence_blink_red_100);
-
-    // Remove progress VP, show result
-    vp_pop(app, prog_vp);
-
-    show_status_screen(app, &prog.result);
-    gpx_converter_free(c);
-}
 
