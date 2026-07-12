@@ -3,7 +3,7 @@
 
 class GSRAnalyzer {
   constructor() {
-    this.raw = [];          // Raw signal: { time, val, lat, lon, alt, sats, fix, hasGps }
+    this.raw = [];          // Raw signal: { time, val, lat, lon, hdop, pdop, sats, fixType, speedKts, course, hasGps }
     this.filtered = [];     // Cleaned signal: { time, val }
     this.tonic = [];        // Tonic component (SCL): { time, val }
     this.phasic = [];       // Phasic component (SCR): { time, val }
@@ -356,13 +356,9 @@ class GSRAnalyzer {
       // Parse GPS fields (empty fields parse to NaN)
       let latVal = latColIndex !== -1 && cols[latColIndex] ? parseFloat(cols[latColIndex]) : NaN;
       let lonVal = lonColIndex !== -1 && cols[lonColIndex] ? parseFloat(cols[lonColIndex]) : NaN;
-      let altVal = altColIndex !== -1 && cols[altColIndex] ? parseFloat(cols[altColIndex]) : NaN;
       let hdopVal     = hdopColIndex  !== -1 && cols[hdopColIndex]  ? parseFloat(cols[hdopColIndex])  : NaN;
-      let vdopVal     = vdopColIndex  !== -1 && cols[vdopColIndex]  ? parseFloat(cols[vdopColIndex])  : NaN;
-      let wdopVal     = wdopColIndex  !== -1 && cols[wdopColIndex]  ? parseFloat(cols[wdopColIndex])  : NaN;
       let pdopVal     = pdopColIndex  !== -1 && cols[pdopColIndex]  ? parseFloat(cols[pdopColIndex])  : NaN;
       let satsVal     = satsColIndex  !== -1 && cols[satsColIndex]  ? parseInt(cols[satsColIndex])    : 0;
-      let fixVal      = fixColIndex   !== -1 && cols[fixColIndex]   ? parseInt(cols[fixColIndex])     : 0;
       let fixTypeVal  = fixTypeColIndex !== -1 && cols[fixTypeColIndex] ? parseInt(cols[fixTypeColIndex]) : 0;
       let speedKtsVal = speedKtsColIndex !== -1 && cols[speedKtsColIndex] ? parseFloat(cols[speedKtsColIndex]) : NaN;
       let courseVal   = courseColIndex   !== -1 && cols[courseColIndex]   ? parseFloat(cols[courseColIndex])   : NaN;
@@ -393,13 +389,9 @@ class GSRAnalyzer {
         val: gsrVal,
         lat: latVal,
         lon: lonVal,
-        alt: altVal,
         hdop: hdopVal,
-        vdop: vdopVal,
         pdop: pdopVal,
-        wdop: wdopVal,
         sats: satsVal,
-        fix: fixVal,
         fixType: fixTypeVal,
         speedKts: speedKtsVal,
         course: courseVal,
@@ -567,13 +559,9 @@ class GSRAnalyzer {
       for (let i = 0; i < firstGpsIdx; i++) {
         rawDataList[i].lat     = firstGps.lat;
         rawDataList[i].lon     = firstGps.lon;
-        rawDataList[i].alt     = firstGps.alt;
         rawDataList[i].sats    = firstGps.sats;
-        rawDataList[i].fix     = firstGps.fix;
         rawDataList[i].hdop    = firstGps.hdop;
-        rawDataList[i].vdop    = firstGps.vdop;
         rawDataList[i].pdop    = firstGps.pdop;
-        rawDataList[i].wdop    = firstGps.wdop;
         rawDataList[i].fixType = firstGps.fixType;
         rawDataList[i].speedKts = firstGps.speedKts;
         rawDataList[i].course  = firstGps.course;
@@ -595,18 +583,14 @@ class GSRAnalyzer {
           const ratio = (tI - tA) / (tB - tA);
           d.lat = dA.lat + ratio * (dB.lat - dA.lat);
           d.lon = dA.lon + ratio * (dB.lon - dA.lon);
-          d.alt     = dA.alt + ratio * (dB.alt - dA.alt);
           d.sats    = dB.sats;
-          d.fix     = dB.fix;
           // Step-hold DOP, fix_type, and velocity from the prior GPS anchor —
           // DOP reflects satellite geometry which changes slowly (~1 min).
           // Speed/course are held rather than interpolated since they can
           // jump discontinuously at corners; the velocity-aiding filter
           // uses the per-anchor values directly.
           d.hdop    = dA.hdop;
-          d.vdop    = dA.vdop;
           d.pdop    = dA.pdop;
-          d.wdop    = dA.wdop;
           d.fixType = dA.fixType;
           d.speedKts = dA.speedKts;
           d.course  = dA.course;
@@ -620,13 +604,9 @@ class GSRAnalyzer {
       for (let i = lastGpsIdx + 1; i < rawDataList.length; i++) {
         rawDataList[i].lat     = lastGps.lat;
         rawDataList[i].lon     = lastGps.lon;
-        rawDataList[i].alt     = lastGps.alt;
         rawDataList[i].sats    = lastGps.sats;
-        rawDataList[i].fix     = lastGps.fix;
         rawDataList[i].hdop    = lastGps.hdop;
-        rawDataList[i].vdop    = lastGps.vdop;
         rawDataList[i].pdop    = lastGps.pdop;
-        rawDataList[i].wdop    = lastGps.wdop;
         rawDataList[i].fixType = lastGps.fixType;
         rawDataList[i].speedKts = lastGps.speedKts;
         rawDataList[i].course  = lastGps.course;

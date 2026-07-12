@@ -63,7 +63,7 @@ const GpsFilter = {
       } else {
         consecutiveRejections++;
         if (consecutiveRejections >= 10) {
-          kept.push({ ...curr, lat: prev.lat, lon: prev.lon, alt: prev.alt });
+          kept.push({ ...curr, lat: prev.lat, lon: prev.lon });
           consecutiveRejections = 0;
         }
       }
