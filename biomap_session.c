@@ -42,7 +42,7 @@ void session_init(Session* s, BioMapMode mode, bool zoom_enabled) {
                        .last_smoothed = 0.0f, .scroll_divider = 1},
         .zoom       = {.level = 1.0f, .peak = 1.0f, .enabled = zoom_enabled,
                        .manual_timeout = 0},
-        .recording  = {.active = false, .tick_counter = 0},
+        .recording  = {.active = false, .tick_counter = 0, .flush_counter = 0},
         .running    = true,
     };
     memset(s->graph.buf, 0, sizeof(s->graph.buf));
@@ -55,6 +55,7 @@ void session_deinit(Session* s, BioMapApp* app) {
         s->timer = NULL;
     }
     if(s->recording.active && s->logger) {
+        sd_logger_batch_flush(s->logger);
         sd_logger_stop(s->logger);
     }
     if(s->logger) {
@@ -321,7 +322,8 @@ static void handle_write_failure(Session* s, NotificationApp* notifications) {
 }
 
 // ── 1‑second boundary ──────────────────────────────────────────────────────
-// Called once per second.  Flushes the SD batch buffer and blinks the LED.
+// Called once per second.  Blinks the recording LED at 1 Hz and flushes the
+// SD batch buffer every FLUSH_INTERVAL seconds (decoupled — LED always 1 Hz).
 // GPS rows are written in handle_recording_tick; GSR rows in batch_csv_row.
 static void handle_second_boundary(Session* s, NotificationApp* notifications) {
     if(!s->recording.active) {
@@ -329,34 +331,30 @@ static void handle_second_boundary(Session* s, NotificationApp* notifications) {
         return;
     }
 
-    int flushed = sd_logger_batch_flush(s->logger);
-    if(flushed > 0) {
-        // 500 ms blink — green when sensor OK, red when cuffs need
-        // attention.  The standard 100 ms flash was too fast to see.
-        if(has_gsr(s->mode) && s->gsr && !gsr_sensor_is_connected(s->gsr)) {
-            notification_message(notifications, &sequence_blink_red_500);
-        } else {
-            notification_message(notifications, &sequence_blink_green_500);
+    // ── LED blink (every second, independent of flush interval) ────────
+    // 500 ms blink — green when sensor OK, red when cuffs need attention.
+    if(has_gsr(s->mode) && s->gsr && !gsr_sensor_is_connected(s->gsr)) {
+        notification_message(notifications, &sequence_blink_red_500);
+    } else {
+        notification_message(notifications, &sequence_blink_green_500);
+    }
+    // Brief blue blip after the main blink when GPS has no fix.
+    if(has_gps(s->mode) && s->gps) {
+        GpsPosition pos = get_gps_position(s);
+        bool gps_ready = pos.valid && pos.hdop < GPS_HDOP_GATE;
+        if(!gps_ready) {
+            notification_message(notifications, &sequence_blink_blue_100);
         }
-        // Brief blue blip after the main blink when GPS has no fix.
-        // Queues after the 500 ms blink so the sequence is:
-        //   [green/red 500ms] [blue 100ms]  (if no fix)
-        // or just [green/red 500ms]          (if fix OK)
-        if(has_gps(s->mode) && s->gps) {
-            GpsPosition pos = get_gps_position(s);
-            // Blue blink means "GPS not ready for recording" — either no fix
-            // yet, or fix acquired but HDOP still above the quality gate.
-            // Mirrors the hardware PPS LED on the GPS board: that flashes at
-            // 1 Hz on fix, but the Flipper's blue only stops when the signal
-            // is also good enough to trust for data recording.
-            bool gps_ready = pos.valid && pos.hdop < GPS_HDOP_GATE;
-            if(!gps_ready) {
-                notification_message(notifications, &sequence_blink_blue_100);
-            }
+    }
+
+    // ── SD flush (every FLUSH_INTERVAL seconds) ────────────────────────
+    if(++s->recording.flush_counter >= FLUSH_INTERVAL) {
+        s->recording.flush_counter = 0;
+        int flushed = sd_logger_batch_flush(s->logger);
+        if(flushed < 0) {
+            FURI_LOG_E("BioMap", "Batch flush failed");
+            handle_write_failure(s, notifications);
         }
-    } else if(flushed < 0) {
-        FURI_LOG_E("BioMap", "Batch flush failed");
-        handle_write_failure(s, notifications);
     }
 
     s->recording.tick_counter = 0;
@@ -395,9 +393,7 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
     } else {
         furi_mutex_acquire(mutex, FuriWaitForever);
         s->recording.active = false;
-        if(has_gsr(s->mode)) {
-            sd_logger_batch_flush(s->logger);
-        }
+        sd_logger_batch_flush(s->logger);
         furi_mutex_release(mutex);
         sd_logger_stop(s->logger);
         notification_message(notifications, &sequence_blink_stop);
@@ -449,7 +445,7 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
     switch(ev->input.key) {
     case InputKeyBack:
         furi_mutex_acquire(mutex, FuriWaitForever);
-        if(has_gsr(s->mode) && s->recording.active) {
+        if(s->recording.active) {
             sd_logger_batch_flush(s->logger);
         }
         s->running = false;
