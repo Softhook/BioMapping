@@ -308,6 +308,9 @@ static void batch_csv_row(Session* s, float raw) {
                                    ts, (double)raw);
         }
     } else {
+        // GPS-skip tick: GPS_CSV_HZ < TICK_HZ, so this tick falls between
+        // GPS sample boundaries.  Preserve GSR data with empty GPS columns.
+        // Dead code when GPS_CSV_HZ == TICK_HZ (every tick is a GPS tick).
         sd_logger_batch_printf(s->logger, "%s,,,,,,,,,,,,%.1f\n",
                                ts, (double)raw);
     }

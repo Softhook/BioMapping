@@ -44,7 +44,7 @@ typedef struct GpsUart GpsUart;
 GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications);
 void     gps_uart_free(GpsUart* gps);
 
-GpsStatus gps_uart_get_status(const GpsUart* gps);   // hold app mutex
+GpsStatus gps_uart_get_status(const GpsUart* gps);
 bool      gps_uart_is_ready(const GpsUart* gps);
-void      gps_uart_process_rx(GpsUart* gps);   // hold app mutex
+void      gps_uart_process_rx(GpsUart* gps);
 void      gps_uart_send_hot_start(GpsUart* gps);

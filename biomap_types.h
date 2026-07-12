@@ -31,8 +31,10 @@
 // Lower to 3.0 for open-sky environments where higher precision is achievable.
 #define GPS_HDOP_GATE    5.0f
 // GPS logging rate — rows per second in the CSV.
-// 5 Hz = 200 ms between fixes; clean alignment with 10 Hz tick rate (every 2nd tick).
-#define GPS_CSV_HZ       5
+// 10 Hz = 100 ms between fixes; matches TICK_HZ so every tick logs GPS+GSR
+// (tick_counter % 1 == 0 always).  With M10Q at 10 Hz each row gets a fresh
+// fix.  With L76K at 5 Hz, odd ticks repeat the previous fix — harmless.
+#define GPS_CSV_HZ       10
 #define SMOOTH_IIR_A     0.848f  // α for 3 Hz post-decimation smoothing IIR at 10 Hz
 #define SMOOTH_IIR_B     0.152f  // 1 - α, precomputed
 #define DISPLAY_EMA_A    0.2f

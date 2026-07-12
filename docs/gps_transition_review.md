@@ -97,21 +97,21 @@ $PUBX,41,1,0007,0001,115200,0*1A\r\n   ← baud switch; inProt=NMEA+UBX, outProt
 
 All packets below include the full `B5 62` sync header and verified Fletcher-8 checksums. Send each via a `ubx_tx()` helper (see Section 6.2).
 
-#### 1. Set Update Rate to 5 Hz (`UBX-CFG-RATE`)
-Sets the measurement period to 200 ms:
-* **Hex**: `B5 62 06 08 06 00 C8 00 01 00 01 00 DE 6A`
+#### 1. Set Update Rate to 10 Hz (`UBX-CFG-RATE`)
+Sets the measurement period to 100 ms. SAM-M10Q datasheet Table 1 lists 10 Hz as the high-performance-mode maximum for the default 4-constellation config (GPS+GAL+BDS B1C+GLO). No separate HP-mode enable packet is needed — setting the rate via `UBX-CFG-RATE` is sufficient on M10 SPG 5.10 firmware. The module's power overhead at 10 Hz is negligible in the context of the Flipper Zero's overall ~200 mA system draw.
+* **Hex**: `B5 62 06 08 06 00 64 00 01 00 01 00 7A 12`
 
 #### 2. Disable NMEA GLL (`UBX-CFG-MSG`)
-NMEA message ID for GLL is `0x03` (not `0x01` = GBS, not `0x05` = GSA).
-* **Hex**: `B5 62 06 01 03 00 F0 03 00 FD 15`
+NMEA message ID for GLL is `0x01`. Verified against u-blox interface description (protocol class 0xF0): 0x00=GGA, **0x01=GLL**, 0x02=GSA, 0x03=GSV, 0x04=RMC, 0x05=VTG, 0x07=GST, 0x09=GBS.
+* **Hex**: `B5 62 06 01 03 00 F0 01 00 FB 11`
 
 #### 3. Disable NMEA VTG (`UBX-CFG-MSG`)
-NMEA message ID for VTG is `0x09` (not `0x05` = GSA).
-* **Hex**: `B5 62 06 01 03 00 F0 09 00 03 21`
+NMEA message ID for VTG is `0x05`.
+* **Hex**: `B5 62 06 01 03 00 F0 05 00 FF 19`
 
 #### 4. Throttle NMEA GSV to 1 Hz (`UBX-CFG-MSG`)
-NMEA message ID for GSV is `0x07` (not `0x03` = GLL). Outputs GSV once every 5th navigation epoch (200 ms × 5 = 1 Hz):
-* **Hex**: `B5 62 06 01 03 00 F0 07 05 06 22`
+NMEA message ID for GSV is `0x03`. Outputs GSV once every 10th navigation epoch (100 ms × 10 = 1 Hz at 10 Hz nav rate):
+* **Hex**: `B5 62 06 01 03 00 F0 03 0A 07 1F`
 
 #### 5. Set Navigation Model to Pedestrian (`UBX-CFG-NAV5`)
 `mask=0x0001` (dynModel field only), `dynModel=0x03` (Pedestrian). All other fields zeroed (unchanged). M10Q protocol version 34+ requires the 40-byte payload (not 36-byte legacy). For an arm-worn device, substitute `dynModel=0x08` (Wrist) — change byte at offset 6 and update checksums accordingly.
@@ -215,7 +215,7 @@ The table below confirms each layer of the stack is consistent after the M10Q tr
 | Layer | Current State (L76K) | M10Q Required Change |
 |-------|----------------------|----------------------|
 | **Hardware baud** | 115200 (`$PCAS01,5`) | 115200 (`$PUBX,41,1,0007,0001,...*1A`) — same rate, different command |
-| **Update rate** | 5 Hz (`$PCAS02,200`) | 5 Hz (`UBX-CFG-RATE` 200 ms) — no change to CSV rate or tick logic |
+| **Update rate** | 5 Hz (`$PCAS02,200`) | 10 Hz (`UBX-CFG-RATE` 100 ms) — HP-mode maximum per datasheet Table 1; no separate HP-enable packet required on SPG 5.10 |
 | **Constellations** | GPS+BeiDou+GLONASS (`$PCAS04,7`) | GPS+GLONASS+BeiDou+Galileo (M10Q default; verify with `UBX-CFG-GNSS` if needed) |
 | **Sentence filter** | `$PCAS03` (GGA+GSA+RMC+GSV@1Hz) | `UBX-CFG-MSG` — same set, same rates |
 | **Navigation model** | None (L76K Portable only) | Pedestrian or Wrist via `UBX-CFG-NAV5` at init |
