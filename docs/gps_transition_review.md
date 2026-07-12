@@ -30,12 +30,12 @@ This document provides a critical review of the transition plan from the Quectel
 * **Boot Default**: The SAM-M10Q boots at **9600 bps** by default.
 * **Upgrade command**: The u-blox NMEA proprietary command to switch the baud rate to 115200 is:
   ```
-  $PUBX,41,1,0007,0001,115200,0*1A\r\n
+  $PUBX,41,1,0007,0002,115200,0*19\r\n
   ```
-  Parameters: `portID=1` (UART1), `inProtMask=0007` (NMEA+UBX+RTCM input — UBX input must be enabled so binary UBX config packets work), `outProtMask=0001` (NMEA output **only** — the firmware's NMEA line parser does not handle UBX binary frames, so enabling UBX output (`0003`) would inject binary framing noise into the stream).
+  Parameters: `portID=1` (UART1), `inProtMask=0007` (NMEA+UBX+RTCM input — UBX input must be enabled so binary UBX config packets work), `outProtMask=0002` (NMEA output **only**).  The u-blox bitmask is: 0=no output, 1=UBX, 2=NMEA, 3=UBX+NMEA.  Setting `0001` would disable all NMEA output — the parser would receive zero valid sentences.
 * **Timing Sensitivity**: When switching the baud rate, the Flipper must wait long enough to ensure the command is fully transmitted over the TX line at 9600 bps before the Flipper changes its own USART1 baud rate to 115200. The existing 300 ms delay (`furi_delay_ms(300)`) is sufficient to prevent synchronization loss.
 
-> **⚠️ Checksum note**: The correct checksum for `$PUBX,41,1,0007,0001,115200,0` is `*1A`. Using `outProtMask=0003` (NMEA+UBX) produces `*18` — do not use this variant as it enables binary UBX output the parser cannot handle.
+> **⚠️ Checksum note**: The correct checksum for `$PUBX,41,1,0007,0002,115200,0` is `*19`. Using `outProtMask=0001` (UBX-only — disables NMEA) produces `*1A` — do not use this variant as it would disable all NMEA output the parser needs.
 
 ---
 

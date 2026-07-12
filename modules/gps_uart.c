@@ -359,7 +359,10 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
     };
     memset(g->status.sat_elevation, 0, sizeof(g->status.sat_elevation));
     memset(g->status.active_prns, 0, sizeof(g->status.active_prns));
-    g->last_valid_nmea_tick = 0;
+    // Arm watchdog at alloc so a botched initial baud-rate switch
+    // triggers a one-shot recovery after 5 s instead of silently
+    // leaving the host at 115200 while the module stays at 9600.
+    g->last_valid_nmea_tick = furi_get_tick();
 
     g->rx_stream = furi_stream_buffer_alloc(GPS_RX_BUF_SIZE, 1);
 
@@ -594,9 +597,10 @@ static void gps_uart_configure(GpsUart* g) {
     // ── u-blox SAM-M10Q ───────────────────────────────────────────────
     FURI_LOG_I("GpsUart", "Configuring u-blox SAM-M10Q");
 
-    // Switch module to 115200 baud (ASCII at 9600)
+    // Switch module to 115200 baud (ASCII at 9600).
+    // outProto=0002 → NMEA only (0001=UBX would disable ASCII output).
     FURI_LOG_I("GpsUart", "Switching GPS to 115200 baud");
-    const char* pubx_baud = "$PUBX,41,1,0007,0001,115200,0*1A\r\n";
+    const char* pubx_baud = "$PUBX,41,1,0007,0002,115200,0*19\r\n";
     furi_hal_serial_tx(g->serial_handle, (const uint8_t*)pubx_baud, strlen(pubx_baud));
     furi_delay_ms(300);
 
