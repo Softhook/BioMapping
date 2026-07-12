@@ -34,6 +34,7 @@ typedef struct GpsStatus {
     bool  gsv_fresh;            // complete GSV cycle received since last GSA
     int   active_prns[32];      // PRNs from current epoch's GSA sentences (constellation-offset)
     int   active_prn_count;     // number of active PRNs
+    int   gsv_total_sats;       // sum of GSV total_sats across all constellations (real sat count)
     struct minmea_time time;
     struct minmea_date date;
 } GpsStatus;

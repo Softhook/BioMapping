@@ -147,13 +147,16 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             g->status.date = frame.date;
             g->last_valid_nmea_tick = furi_get_tick();
 
-            // Clear active PRNs for the new epoch if time has changed
-            if(frame.time.hours != g->last_epoch_time.hours ||
+            // Clear per-epoch accumulators on whole-second boundary.
+            // Sub-second (microsecond) differences are ignored so that
+            // multi-constellation GSA sentences arriving within the same
+            // second all accumulate into the same active_prns set.
+            if(frame.time.hours   != g->last_epoch_time.hours ||
                frame.time.minutes != g->last_epoch_time.minutes ||
-               frame.time.seconds != g->last_epoch_time.seconds ||
-               frame.time.microseconds != g->last_epoch_time.microseconds) {
+               frame.time.seconds != g->last_epoch_time.seconds) {
                 g->last_epoch_time = frame.time;
                 g->status.active_prn_count = 0;
+                g->status.gsv_total_sats   = 0;
             }
         }
     } break;
@@ -179,14 +182,11 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             g->status.time               = frame.time;
             g->last_valid_nmea_tick = furi_get_tick();
 
-            // Clear active PRNs for the new epoch if time has changed
-            if(frame.time.hours != g->last_epoch_time.hours ||
-               frame.time.minutes != g->last_epoch_time.minutes ||
-               frame.time.seconds != g->last_epoch_time.seconds ||
-               frame.time.microseconds != g->last_epoch_time.microseconds) {
-                g->last_epoch_time = frame.time;
-                g->status.active_prn_count = 0;
-            }
+            // NOTE: active_prn_count is NOT reset here (unlike RMC).
+            // GGA arrives at 10 Hz with unique sub-second timestamps;
+            // resetting here would clear the multi-constellation PRN
+            // accumulation that GSA sentences build up between GGAs.
+            // RMC handles the epoch-boundary reset on whole seconds.
         }
     } break;
 
@@ -263,6 +263,15 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
                 }
             }
             gps_compute_wdop(g);
+            if(g->status.active_prn_count > g->status.satellites_tracked) {
+                g->status.satellites_tracked = g->status.active_prn_count;
+            }
+            // GSV total_sats is the definitive count when available.
+            // GGA caps at 12 on u-blox; GSV reports the true per-constellation
+            // total.  Falls back to active_prn_count if GSV hasn't arrived yet.
+            if(g->status.gsv_total_sats > g->status.satellites_tracked) {
+                g->status.satellites_tracked = g->status.gsv_total_sats;
+            }
         }
     } break;
 
@@ -283,6 +292,14 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
 
             // Determine constellation offset. Uses talker prefix and PRN range.
             char talker_id[2] = {line[1], line[2]};
+
+            // Accumulate per-constellation total_sats on the first message
+            // of each constellation's GSV cycle.  This gives the true
+            // satellite-in-view count across all enabled constellations
+            // (unlike GGA which caps at 12 on u-blox receivers).
+            if(frame.msg_nr == 1) {
+                g->status.gsv_total_sats += frame.total_sats;
+            }
 
             for(int i = 0; i < 4; i++) {
                 int prn = frame.sats[i].nr;
@@ -400,6 +417,7 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
         .wdop               = 99.9f,
         .gsv_fresh          = false,
         .active_prn_count   = 0,
+        .gsv_total_sats     = 0,
         .time               = {0},
         .date               = {0},
     };
