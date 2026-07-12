@@ -259,6 +259,7 @@ class GSRAnalyzer {
     let hdopColIndex = -1;
     let vdopColIndex = -1;
     let wdopColIndex = -1;
+    let pdopColIndex = -1;
     let satsColIndex = -1;
     let fixColIndex = -1;
     let fixTypeColIndex = -1;
@@ -292,6 +293,7 @@ class GSRAnalyzer {
       else if (h.includes('alt')) altColIndex = i;
       else if (h === 'hdop') hdopColIndex = i;
       else if (h === 'vdop') vdopColIndex = i;
+      else if (h === 'pdop') pdopColIndex = i;
       else if (h === 'wdop') wdopColIndex = i;
       else if (h === 'fix_type') fixTypeColIndex = i;
       else if (h.includes('sat')) satsColIndex = i;
@@ -358,6 +360,7 @@ class GSRAnalyzer {
       let hdopVal     = hdopColIndex  !== -1 && cols[hdopColIndex]  ? parseFloat(cols[hdopColIndex])  : NaN;
       let vdopVal     = vdopColIndex  !== -1 && cols[vdopColIndex]  ? parseFloat(cols[vdopColIndex])  : NaN;
       let wdopVal     = wdopColIndex  !== -1 && cols[wdopColIndex]  ? parseFloat(cols[wdopColIndex])  : NaN;
+      let pdopVal     = pdopColIndex  !== -1 && cols[pdopColIndex]  ? parseFloat(cols[pdopColIndex])  : NaN;
       let satsVal     = satsColIndex  !== -1 && cols[satsColIndex]  ? parseInt(cols[satsColIndex])    : 0;
       let fixVal      = fixColIndex   !== -1 && cols[fixColIndex]   ? parseInt(cols[fixColIndex])     : 0;
       let fixTypeVal  = fixTypeColIndex !== -1 && cols[fixTypeColIndex] ? parseInt(cols[fixTypeColIndex]) : 0;
@@ -393,6 +396,7 @@ class GSRAnalyzer {
         alt: altVal,
         hdop: hdopVal,
         vdop: vdopVal,
+        pdop: pdopVal,
         wdop: wdopVal,
         sats: satsVal,
         fix: fixVal,
@@ -568,6 +572,7 @@ class GSRAnalyzer {
         rawDataList[i].fix     = firstGps.fix;
         rawDataList[i].hdop    = firstGps.hdop;
         rawDataList[i].vdop    = firstGps.vdop;
+        rawDataList[i].pdop    = firstGps.pdop;
         rawDataList[i].wdop    = firstGps.wdop;
         rawDataList[i].fixType = firstGps.fixType;
         rawDataList[i].speedKts = firstGps.speedKts;
@@ -600,6 +605,7 @@ class GSRAnalyzer {
           // uses the per-anchor values directly.
           d.hdop    = dA.hdop;
           d.vdop    = dA.vdop;
+          d.pdop    = dA.pdop;
           d.wdop    = dA.wdop;
           d.fixType = dA.fixType;
           d.speedKts = dA.speedKts;
@@ -619,6 +625,7 @@ class GSRAnalyzer {
         rawDataList[i].fix     = lastGps.fix;
         rawDataList[i].hdop    = lastGps.hdop;
         rawDataList[i].vdop    = lastGps.vdop;
+        rawDataList[i].pdop    = lastGps.pdop;
         rawDataList[i].wdop    = lastGps.wdop;
         rawDataList[i].fixType = lastGps.fixType;
         rawDataList[i].speedKts = lastGps.speedKts;

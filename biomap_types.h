@@ -89,7 +89,7 @@ typedef struct {
     float alt;
     float hdop;      // Horizontal Dilution of Precision; 99.9 = unknown
     float vdop;      // Vertical Dilution of Precision; 99.9 = unknown
-    float wdop;      // Weighted DOP from GSV elevations; 99.9 = unknown
+    float pdop;      // Position DOP from GSA (chip-computed); 99.9 = unknown
     float speed_kts; // Speed over ground in knots (RMC); NaN = unknown
     float course_deg;// Course over ground in degrees true (RMC); NaN = unknown
     int   sats;

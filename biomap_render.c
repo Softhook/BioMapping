@@ -109,17 +109,26 @@ static void render_gps_detail(Canvas* c, BioMapApp* a) {
             y += 10;
         }
 
-        // Quality line: show HDOP, 2D/3D fix type, and SBAS indicator.
-        // HDOP < 3 = good, 3-5 = moderate, >5 = poor.
+        // Quality line: HDOP + PDOP + fix type (+ SBAS indicator).
+        // Both DOP values come from GSA — chip-computed from ALL constellations.
+        // HDOP < 1  = excellent    PDOP < 2   = excellent
+        // HDOP 1-2 = very good     PDOP 2-4   = very good
+        // HDOP 2-5 = good          PDOP 4-8   = good
         const char* fix_str = (g.fix_type == 3) ? "3D" :
                               (g.fix_type == 2) ? "2D" : "--";
         if(g.hdop < 50.0f) {
-            snprintf(buf, sizeof(buf), "S:%d  H:%.1f  %s%s",
-                     g.satellites_tracked, (double)g.hdop, fix_str,
+            char pbuf[8];
+            if(g.pdop < 99.0f) {
+                snprintf(pbuf, sizeof(pbuf), "%.1f", (double)g.pdop);
+            } else {
+                strcpy(pbuf, "--");
+            }
+            snprintf(buf, sizeof(buf), "H:%.1f  P:%s  %s%s",
+                     (double)g.hdop, pbuf, fix_str,
                      g.sbas_active ? " SBAS" : "");
         } else {
-            snprintf(buf, sizeof(buf), "S:%d  H:--  %s%s",
-                     g.satellites_tracked, fix_str,
+            snprintf(buf, sizeof(buf), "H:--  P:--  %s%s",
+                     fix_str,
                      g.sbas_active ? " SBAS" : "");
         }
         canvas_draw_str(c, 0, y, buf);

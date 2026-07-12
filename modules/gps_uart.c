@@ -85,34 +85,14 @@ static int gps_get_constellation_offset(const char* talker_id, int prn) {
     return 0;
 }
 
-// ── WDOP helper: compute Weighted DOP from active PRN elevations. ────────
-// WDOP = sqrt(Σ 1/sin²(elevationᵢ)) for all active satellites.
-// Satellites near the horizon (low elevation) are up to 4× noisier than
-// overhead ones.  WDOP captures this; HDOP is blind to it.
-//
-// Since active_prns now stores constellation-offset PRNs directly,
-// we can do a direct single lookup in sat_elevation.
-static void gps_compute_wdop(GpsUart* g) {
-    float sum_inv_sin2 = 0.0f;
-    int   used = 0;
-
-    for(int i = 0; i < g->status.active_prn_count && i < 32; i++) {
-        int prn = g->status.active_prns[i];
-        int8_t elev = 0;
-
-        if(prn >= 0 && prn < 512) {
-            elev = g->status.sat_elevation[prn];
-        }
-
-        if(elev > 0) {
-            float sin_e = sinf((float)elev * (float)M_PI / 180.0f);
-            if(sin_e > 0.01f) {
-                sum_inv_sin2 += 1.0f / (sin_e * sin_e);
-                used++;
-            }
-        }
+// ── PDOP helper: store GSA's chip-computed Position DOP. ───────────────
+// PDOP comes from the GSA sentence and is computed by the M10Q firmware
+// from ALL active satellites across ALL constellations — unlike our old
+// computed DOP which only had GPS elevation data from GSV.
+static void gps_store_pdop(GpsUart* g, float pdop) {
+    if(!isnan(pdop)) {
+        g->status.pdop = pdop;
     }
-    g->status.wdop = (used > 0) ? sqrtf(sum_inv_sin2) : 99.9f;
 }
 
 // NMEA sentence dispatcher
@@ -231,7 +211,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             // QZSS (SystemID=5) uses GP talker with PRNs 193-197 — same offset as GPS.
             // IMPORTANT: Galileo PRNs (1-36) overlap GPS PRNs (1-32). Without the
             // explicit system_id==3 branch, GN-talker fallback would map Galileo
-            // satellites to GPS offset 0, silently corrupting sat_elevation and WDOP.
+            // satellites to GPS offset 0, silently corrupting sat_elevation.
             char talker_id[2];
             if(frame.system_id == 2) {
                 talker_id[0] = 'G'; talker_id[1] = 'L'; // GLONASS
@@ -262,7 +242,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
                     g->status.active_prns[g->status.active_prn_count++] = prn_with_offset;
                 }
             }
-            gps_compute_wdop(g);
+            gps_store_pdop(g, minmea_tofloat(&frame.pdop));
             if(g->status.active_prn_count > g->status.satellites_tracked) {
                 g->status.satellites_tracked = g->status.active_prn_count;
             }
@@ -313,12 +293,10 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
                 }
             }
 
-            // When the GSV cycle completes, recompute WDOP from the
-            // fresh elevations and the stored active PRN set.  This
-            // handles the race where GSA arrives between GSV messages.
+            // When the GSV cycle completes, mark elevation data as fresh.
+            // PDOP now comes directly from GSA — no WDOP recompute needed.
             if(frame.msg_nr == frame.total_msgs) {
                 g->status.gsv_fresh = true;
-                gps_compute_wdop(g);
             }
         }
     } break;
@@ -414,7 +392,7 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
         .satellites_tracked = 0,
         .fix_valid          = false,
         .sbas_active        = false,
-        .wdop               = 99.9f,
+        .pdop               = 99.9f,
         .gsv_fresh          = false,
         .active_prn_count   = 0,
         .gsv_total_sats     = 0,

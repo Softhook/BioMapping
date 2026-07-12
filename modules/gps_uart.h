@@ -29,7 +29,7 @@ typedef struct GpsStatus {
     int   satellites_tracked;
     bool  fix_valid;            // from RMC
     bool  sbas_active;          // true when any GSA PRN >= 120 (SBAS satellite in use)
-    float wdop;                 // Weighted DOP from GSV elevations; 99.9 = unknown
+    float pdop;                 // Position Dilution of Precision from GSA (chip-computed, all constellations); 99.9 = unknown
     int8_t sat_elevation[512];  // elevation per PRN (constellation-offset), 0 = no data
     bool  gsv_fresh;            // complete GSV cycle received since last GSA
     int   active_prns[32];      // PRNs from current epoch's GSA sentences (constellation-offset)
