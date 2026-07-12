@@ -415,22 +415,27 @@ bool gps_uart_is_ready(const GpsUart* g) {
     return g->ready;
 }
 
+#if GPS_MODULE == GPS_MODULE_L76K
 // ---------------------------------------------------------------------------
-// Helper — send a PCAS command over the GPS UART
+// Helper — send a PCAS command over the GPS UART (L76K only)
 // ---------------------------------------------------------------------------
 static void pcas_tx(GpsUart* g, const char* cmd) {
     furi_hal_serial_tx(g->serial_handle, (const uint8_t*)cmd, strlen(cmd));
     furi_delay_ms(100);
 }
+#endif
 
+#if GPS_MODULE == GPS_MODULE_M10Q
 // ---------------------------------------------------------------------------
-// Helper — send a binary UBX packet over the GPS UART
+// Helper — send a binary UBX packet over the GPS UART (M10Q only)
 // ---------------------------------------------------------------------------
 static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
     furi_hal_serial_tx(g->serial_handle, data, len);
     furi_delay_ms(100);
 }
+#endif
 
+#if GPS_MODULE == GPS_MODULE_M10Q
 // ── Binary UBX configuration packets for M10Q ──────────────────────────────
 static const uint8_t ubx_cfg_rate_5hz[] = {
     0xB5, 0x62, 0x06, 0x08, 0x06, 0x00, 0xC8, 0x00, 0x01, 0x00, 0x01, 0x00, 0xDE, 0x6A
@@ -453,6 +458,7 @@ static const uint8_t ubx_cfg_nav5_pedestrian[] = {
 static const uint8_t ubx_cfg_rst_hot[] = {
     0xB5, 0x62, 0x06, 0x04, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0x10, 0x68
 };
+#endif
 
 // ---------------------------------------------------------------------------
 // Drain RX stream, parse complete NMEA lines; run NMEA watchdog
