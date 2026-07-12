@@ -11,6 +11,12 @@ It translates your Galvanic Skin Response (GSR) fluctuations into **topographica
 
 This version of the device uses a dedicated 16-bit **ADS1115** Analog-to-Digital Converter combined with a robust and stable **Transimpedance Amplifier (TIA)** circuit. By utilising a rail-to-rail dual op-amp for active voltage buffering and hardware low-pass filtering, we achieve a precise, robust and noise-resistant way to measure the tiny changes in human sweat gland activity.
 
+The firmware supports two GPS modules selected at compile time:
+* **u-blox SAM-M10Q** (default) — integrated patch antenna, 10 Hz update rate, Software Standby power saving, AssistNow autonomous orbit prediction
+* **Quectel L76K** (legacy) — external U.FL antenna, 5 Hz update rate, PCAS protocol
+
+See [`gps_transition_review.md`](gps_transition_review.md) for the full M10Q implementation reference.
+
 ---
 
 ## 2. Hardware Requirements
@@ -18,7 +24,7 @@ To build this, you need the following physical components:
 
 **Core Boards:**
 * **Flipper Zero**
-* **L76K GNSS Prototyping Shield:** Gives you a pre-wired GPS module alongside a blank 126-hole grid to build your custom circuit.
+* **u-blox SAM-M10Q GNSS Breakout** (recommended) or **L76K GNSS Prototyping Shield:** Provides GPS positioning. The SAM-M10Q has an integrated 15×15 mm ceramic patch antenna (no external antenna needed), boots at 9600 baud, and supports 10 Hz updates with 4-constellation concurrent reception (GPS+Galileo+GLONASS+BeiDou). The L76K shield also provides a blank 126-hole grid for your custom circuit.
 * **ADS1115 Breakout Board:** A high-precision 16-bit I2C ADC chip.
 
 **Active Components:**
@@ -39,13 +45,15 @@ To build this, you need the following physical components:
 ## 3. The Wiring Guide & Hardware Surgery (Step-by-Step)
 
 ### Phase 1: Freeing the I2C Bus (Trace Cuts)
-The two copper traces connecting **Pin 15 (PC1)** and **Pin 16 (PC0)** to the L76K GPS module have been physically cut. These pins are for exclusive use by the ADS1115 I2C bus.
+If using the L76K shield: the two copper traces connecting **Pin 15 (PC1)** and **Pin 16 (PC0)** to the GPS module must be physically cut. These pins are for exclusive use by the ADS1115 I2C bus. (Not needed with SAM-M10Q — the breakout connects via UART only and does not occupy these pins.)
 
 * Pin 15 (PC1) — **no longer connected to GPS** → used for I2C **SDA**
 * Pin 16 (PC0) — **no longer connected to GPS** → used for I2C **SCL**
 
 ### Phase 2: GPS Hardware Reroute
-No additional wiring is needed. The L76K cannot be put to sleep via software, so no STANDBY or RESET wires need to be soldered. The GPS runs continuously. Software reset commands are available over UART for error recovery — see **Section 4a**.
+**SAM-M10Q:** No additional wiring needed beyond UART TX/RX and 3.3V/GND. The M10Q supports Software Standby (~46 µA) via UBX command — no dedicated STANDBY or RESET wires required. Wake-up is triggered by a falling edge on the UART RX pin. See [`gps_transition_review.md`](gps_transition_review.md) Section 9 for the sleep/wake protocol.
+
+**L76K (legacy):** No additional wiring needed. The L76K cannot be put to sleep via software, so no STANDBY or RESET wires need to be soldered. The GPS runs continuously. Software reset commands are available over UART for error recovery — see **Section 4a**.
 
 ### Phase 3: Installing the Biometric Sensor Circuit
 Mount the ADS1115 and the dual op-amp onto the prototyping grid. Both channels are used (one as a voltage follower for V_ref, one as the TIA).
@@ -131,20 +139,20 @@ Writing data to the Flipper's SD card takes a few milliseconds. If we write ever
 
 **The Solution:** The app uses different logging rates depending on mode:
 
-- **GPS+GSR mode:** Each 10 Hz tick formats a CSV row into the in-memory batch buffer. Every 5th tick (when the GPS 2 Hz fix is freshest), a full 13-column row with lat, lon, alt, hdop, vdop, wdop, sats, fix, fix_type, speed_kts, and course_deg is formatted. On the remaining 8 ticks, a partial row with only timestamp and gsr_raw is formatted (GPS/velocity columns are empty). The entire batch of 10 rows is flushed to the SD card once per second in a single `storage_file_write()` call, exactly like GSR-only mode.
+- **GPS+GSR mode:** Each 10 Hz tick formats a CSV row into the in-memory batch buffer. Every tick carries the latest GPS fix (M10Q updates at 10 Hz; positions are interpolated to the GSR timestamp). A full 13-column row with lat, lon, alt, hdop, vdop, wdop, sats, fix, fix_type, speed_kts, and course_deg is formatted. The entire batch of 10 rows is flushed to the SD card once per second in a single `storage_file_write()` call, exactly like GSR-only mode.
 
-- **GPS-only mode:** One 13-column CSV row is written directly to the SD card twice per second (no batch buffer, since there's no high-frequency GSR data). The `gsr_raw` column is always 0.
+- **GPS-only mode:** One 13-column CSV row is written directly to the SD card at 2 Hz via the batch buffer (no high-frequency GSR data). The `gsr_raw` column is always 0.
 
 ---
 
-## 4b. Multi-Rate Architecture: 10 Hz GSR, 2 Hz GPS
+## 4b. Multi-Rate Architecture: 10 Hz GSR, 10 Hz GPS
 
 The app operates two independent data pipelines because GSR and GPS have fundamentally different time characteristics:
 
 | Signal | Sample Rate | Why |
 |---|---|---|
 | **GSR** | 10 Hz (tick) | Skin conductance changes in 0.5–5 seconds — 10 Hz captures physiological events with headroom |
-| **GPS** | 2 Hz (NMEA) | The L76K GPS module outputs position fixes twice per second over UART |
+| **GPS** | 10 Hz (NMEA) | The SAM-M10Q outputs position fixes at up to 10 Hz over UART (4-constellation default). L76K legacy: 2–5 Hz. |
 
 ### Timestamp Sources
 
@@ -152,7 +160,7 @@ CSV timestamps are ISO 8601 UTC (`2026-06-29T13:42:59Z`) sourced from two places
 
 | Mode | Timestamp Source | Resolution |
 |---|---|---|
-| **GPS+GSR** / **GPS-only** (GPS active) | L76K GPS battery-backed RTC — available from the first valid RMC/GGA sentence, often before a full position fix | 1 second |
+| **GPS+GSR** / **GPS-only** (GPS active) | GPS battery-backed RTC — available from the first valid RMC/GGA sentence, often before a full position fix | 1 second |
 | **GSR-only** (no GPS) | Flipper Zero internal RTC (`furi_hal_rtc_get_datetime`) | 1 second |
 
 In GPS+GSR mode, if the GPS module hasn't produced a valid date/time yet (cold start), the Flipper's internal RTC is used as a fallback until the GPS time becomes available. In GSR-only mode, the Flipper RTC is always used — ensure it is set to UTC before recording for consistent timestamps.
@@ -192,23 +200,23 @@ ADS1115 @ 860 SPS  ──►  Background worker thread
 ### GPS Signal Chain
 
 ```
-L76K GPS @ 1 Hz  ──►  UART interrupt handler
+M10Q GPS @ 10 Hz  ──►  UART interrupt handler
                               │
                      NMEA sentence parser
                               │
                      GpsStatus struct (lat, lon, alt, sats, fix)
                               │
-                     Read on 1-second boundary, write to CSV
+                     Read on each tick, write to CSV batch
 ```
 
 ### CSV Formats
 
-**GPS+GSR mode (13 columns, 10 Hz mixed):**
+**GPS+GSR mode (13 columns, 10 Hz):**
 ```
 timestamp,lat,lon,alt,hdop,vdop,wdop,sats,fix,fix_type,speed_kts,course_deg,gsr_raw
-2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,1.2,1.5,1.1,8,1,3,2.40,185.0,4523   ← 5th tick: full 13-column GPS row
-2026-06-29T13:42:59Z,,,,,,,,,,,,4528                                          ← other ticks: GSR only, GPS columns empty
-2026-06-29T13:42:59Z,,,,,,,,,,,,4521
+2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,1.2,1.5,1.1,8,1,3,2.40,185.0,4523   ← every row: full 13-column GPS+GSR at 10 Hz
+2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,1.2,1.5,1.1,8,1,3,2.40,185.0,4528
+2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,1.2,1.5,1.1,8,1,3,2.40,185.0,4521
 ...
 ```
 
@@ -224,31 +232,26 @@ Each row is a point reading of skin conductance in nanosiemens with a sub-second
 
 ---
 
-## 4a. GPS Error Recovery via PCAS Commands
+## 4a. GPS Error Recovery
 
-The L76K GPS runs continuously — it cannot be put to sleep via software. The L76K uses Quectel's **PCAS** protocol. The only software control available is sending reset commands over UART to recover from a GPS hang or force a fresh satellite lock.
+The GPS module can be reset via a software hot-start command to recover from stale or frozen data.
+
+**SAM-M10Q (UBX protocol):** Sends a binary `UBX-CFG-RST` packet over UART at 115200 baud. This performs a controlled GNSS-only reset without affecting the Flipper interface. See [`gps_transition_review.md`](gps_transition_review.md) Section 4 packet 7 for the full hex packet.
 
 ```c
-// Helper — send a PCAS command over the GPS UART
-static void gps_send_pcas(const char* cmd) {
-    furi_hal_uart_tx(FuriHalUartIdLPUART1, (uint8_t*)cmd, strlen(cmd));
-}
+// M10Q hot start — binary UBX-CFG-RST packet
+static const uint8_t ubx_cfg_rst_hot[] = {
+    0xB5, 0x62, 0x06, 0x04, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0x10, 0x68
+};
+ubx_tx(g, ubx_cfg_rst_hot, sizeof(ubx_cfg_rst_hot));
 ```
 
-### Reset Commands
+**L76K (legacy — PCAS protocol):** Sends ASCII PCAS commands. The L76K cannot be put to sleep via software.
 
 | Action | Command | When to use |
 |---|---|---|
 | **Hot Start** | `$PCAS10,0*1C\r\n` | GPS is outputting stale/frozen data — restarts quickly using cached satellite info |
 | **Factory Reset** | `$PCAS10,3*1F\r\n` | GPS is completely hung or unresponsive — clears everything and starts fresh |
-
-```c
-// GPS outputting stale data — hot restart, keeps satellite cache for fast re-lock:
-gps_send_pcas("$PCAS10,0*1C\r\n");
-
-// GPS completely hung — factory reset, clears all data:
-gps_send_pcas("$PCAS10,3*1F\r\n");
-```
 
 ---
 
@@ -321,11 +324,12 @@ When `N` approaches zero (open circuit / disconnected electrodes), conductance i
 
 When the user presses "Record", the app writes to a **CSV file** (`/ext/biomapping/biomap_001.csv`), not a GPX file. This keeps the recording simple and preserves the raw GSR data for offline re-analysis. The GPX file is produced **post-recording** by the built-in converter.
 
-**GPS+GSR mode CSV (13 columns, 10 Hz mixed):**
+**GPS+GSR mode CSV (13 columns, 10 Hz):**
 ```
 timestamp,lat,lon,alt,hdop,vdop,wdop,sats,fix,fix_type,speed_kts,course_deg,gsr_raw
-2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,1.2,1.5,1.1,8,1,3,2.40,185.0,4523   ← full GPS row
-2026-06-29T13:42:59Z,,,,,,,,,,,,4528                                          ← GSR-only row
+2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,1.2,1.5,1.1,8,1,3,2.40,185.0,4523   ← every row is a full 13-column GPS+GSR row at 10 Hz
+2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,1.2,1.5,1.1,8,1,3,2.40,185.0,4528
+2026-06-29T13:42:59Z,51.50720,-0.12760,12.3,1.2,1.5,1.1,8,1,3,2.40,185.0,4521
 ```
 
 **GSR-only mode CSV (3 columns, 10 Hz):**
@@ -431,7 +435,7 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 
 ### Controls
 
-* `OK (Center Button)`: Starts and stops recording. In GPS+GSR mode writes 13-column CSV at 10 Hz (mixed full/partial rows). In GSR-only mode writes 3-column CSV at 10 Hz.
+* `OK (Center Button)`: Starts and stops recording. In GPS+GSR mode writes 13-column CSV at 10 Hz (M10Q: all rows are full GPS+GSR). In GSR-only mode writes 3-column CSV at 10 Hz.
 * `Left/Right`: Changes the time scale of the graph (scroll speed). Left zooms out (slower), Right zooms in (faster).
 * `Up/Down`: Zooms in and out on the vertical sensitivity of the graph.
 * `Back`: Safely closes the file and returns to the menu.
@@ -456,9 +460,9 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 
 | Menu Item | Action |
 |---|---|
-| **GPS + GSR** | Enters recording view with both GPS and GSR active. Writes 13-column CSV (mixed rate: 10 Hz GSR, 2 Hz GPS coordinates). |
-| **GPS Only** | Enters recording view with GPS only — no GSR sensor initialised. Writes 13-column CSV with `gsr_raw` = 0 at 2 Hz. |
-| **GSR Only** | Enters recording view with GSR only — no GPS initialised. Writes 3-column CSV at 10 Hz. |
+| **GPS + GSR** | Enters recording view with both GPS and GSR active. Writes 13-column CSV at 10 Hz (M10Q) or 2 Hz (L76K). GPS positions are interpolated to each GSR tick. |
+| **GPS Only** | Enters recording view with GPS only — no GSR sensor initialised. Writes 13-column CSV with `gsr_raw` = 0 at 2 Hz (batch-buffered). |
+| **GSR Only** | Enters recording view with GSR only — no GPS initialised. Writes 3-column CSV at 10 Hz. Puts M10Q into Software Standby to save power. |
 | **Convert CSV to GPX** | Scans for `biomap_*.csv` files and converts selected file to GPX (see Section 6). |
 | **Options** | Opens the Options screen (see below). |
 
@@ -477,7 +481,7 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 
 | Option | OK Action |
 |---|---|
-| **Reset GPS** | Sends a PCAS10 hot-start command (`$PCAS10,0*1C\r\n`) to the L76K GPS module. Useful if GPS is outputting stale/frozen data. Leaves a green flash on success, red on failure. |
+| **Reset GPS** | Sends a hot-start command to the GPS module. SAM-M10Q: binary `UBX-CFG-RST` packet. L76K: `$PCAS10,0*1C\r\n` ASCII command. Useful if GPS is outputting stale/frozen data. Leaves a green flash on success, red on failure. |
 | **Auto-zoom GSR** | Toggles auto-zoom ON/OFF. When enabled, the graph's vertical scale adjusts automatically to keep peaks visible. When disabled, manual Up/Down zoom controls the scale. Toggling back ON resets the zoom to 1.0× and re-seeds the auto-zoom peak tracker. |
 | **Backlight** | Toggles the Flipper's backlight between auto-dimming (OFF) and always-on (ON). Useful for walks in bright sunlight or dark environments. |
 
@@ -528,8 +532,8 @@ All files are stored on the SD card under `/ext/biomapping/`:
 **CSV files:** `biomap_001.csv` through `biomap_999.csv` (auto-incrementing, wraps at 999).
 - 13-column format: `timestamp,lat,lon,alt,hdop,vdop,wdop,sats,fix,fix_type,speed_kts,course_deg,gsr_raw` (GPS+GSR and GPS-only modes)
 - 3-column format: `timestamp,tick,gsr_raw` (GSR-only mode)
-- Row size: ~100 bytes (13-column full) or ~30 bytes (partial row)
-- Expected file size for 1-hour walk: ~1.15 MB (GPS+GSR) or ~1.3 MB (GSR-only)
+- Row size: ~100 bytes (13-column) or ~30 bytes (3-column)
+- Expected file size for 1-hour walk: ~3.6 MB (GPS+GSR at 10 Hz) or ~1.1 MB (GSR-only at 10 Hz)
 
 **GPX files:** Generated by the converter, same index as the source CSV.
 

@@ -1,6 +1,9 @@
-# Critical Review: Transition to u-blox SAM-M10Q GNSS Module
+# M10Q Implementation Reference: u-blox SAM-M10Q GNSS Module
 
-This document provides a critical review of the transition plan from the Quectel L76K GNSS module to the **SparkFun u-blox SAM-M10Q GPS Breakout**. It details the hardware constraints, protocol changes, and critical bugs identified in the existing codebase that must be fixed to support the new u-blox module.
+> **Status: IMPLEMENTED (2026-07-12).**  All bugs fixed, all features shipped.
+> Compile with `#define GPS_MODULE GPS_MODULE_M10Q` in `biomap_config.h`.
+
+This document provides a complete reference for the u-blox SAM-M10Q integration in the BioMapping Flipper Zero application. It covers hardware constraints, protocol configuration, constellation mapping, power management, and AssistNow autonomous orbit prediction.
 
 ---
 
@@ -79,14 +82,16 @@ All indices fit within `sat_elevation[512]`. ✓
 
 ---
 
-## 4. Proposed Configuration Sequence
+## 4. M10Q Configuration Sequence (IMPLEMENTED)
+
+Executed in `gps_uart_configure()` in [`modules/gps_uart.c`](../modules/gps_uart.c).
 
 ### Step 1 — At 9600 baud (ASCII NMEA)
 
 Send the PUBX baud switch command, then wait before reconfiguring the STM32 USART:
 
 ```
-$PUBX,41,1,0007,0001,115200,0*1A\r\n   ← baud switch; inProt=NMEA+UBX, outProt=NMEA only
+$PUBX,41,1,0007,0002,115200,0*19\r\n   ← baud switch; inProt=NMEA+UBX, outProt=NMEA only
 [wait 300 ms]
 [reconfigure STM32 USART1 to 115200]
 [flush RX stream buffer, restart async RX]
@@ -95,75 +100,74 @@ $PUBX,41,1,0007,0001,115200,0*1A\r\n   ← baud switch; inProt=NMEA+UBX, outProt
 
 ### Step 2 — At 115200 baud (binary UBX packets)
 
-All packets below include the full `B5 62` sync header and verified Fletcher-8 checksums. Send each via a `ubx_tx()` helper (see Section 6.2).
+All packets include the full `B5 62` sync header and verified Fletcher-8 checksums.
 
 #### 1. Set Update Rate to 10 Hz (`UBX-CFG-RATE`)
-Sets the measurement period to 100 ms. SAM-M10Q datasheet Table 1 lists 10 Hz as the high-performance-mode maximum for the default 4-constellation config (GPS+GAL+BDS B1C+GLO). No separate HP-mode enable packet is needed — setting the rate via `UBX-CFG-RATE` is sufficient on M10 SPG 5.10 firmware. The module's power overhead at 10 Hz is negligible in the context of the Flipper Zero's overall ~200 mA system draw.
+Sets the measurement period to 100 ms. SAM-M10Q datasheet Table 1: 10 Hz is the high-performance-mode maximum for the default 4-constellation config.
 * **Hex**: `B5 62 06 08 06 00 64 00 01 00 01 00 7A 12`
 
 #### 2. Disable NMEA GLL (`UBX-CFG-MSG`)
-NMEA message ID for GLL is `0x01`. Verified against u-blox interface description (protocol class 0xF0): 0x00=GGA, **0x01=GLL**, 0x02=GSA, 0x03=GSV, 0x04=RMC, 0x05=VTG, 0x07=GST, 0x09=GBS.
 * **Hex**: `B5 62 06 01 03 00 F0 01 00 FB 11`
 
 #### 3. Disable NMEA VTG (`UBX-CFG-MSG`)
-NMEA message ID for VTG is `0x05`.
 * **Hex**: `B5 62 06 01 03 00 F0 05 00 FF 19`
 
 #### 4. Throttle NMEA GSV to 1 Hz (`UBX-CFG-MSG`)
-NMEA message ID for GSV is `0x03`. Outputs GSV once every 10th navigation epoch (100 ms × 10 = 1 Hz at 10 Hz nav rate):
 * **Hex**: `B5 62 06 01 03 00 F0 03 0A 07 1F`
 
-#### 5. Set Navigation Model to Pedestrian (`UBX-CFG-NAV5`)
-`mask=0x0001` (dynModel field only), `dynModel=0x03` (Pedestrian). All other fields zeroed (unchanged). M10Q protocol version 34+ requires the 40-byte payload (not 36-byte legacy). For an arm-worn device, substitute `dynModel=0x08` (Wrist) — change byte at offset 6 and update checksums accordingly.
+#### 5. Set Dynamic Model to Pedestrian (`UBX-CFG-NAV5`)
+`mask=0x0001`, `dynModel=0x03` (Pedestrian). For wrist/handheld use, substitute `dynModel=0x08` (Wrist).
 * **Pedestrian**: `B5 62 06 24 28 00 01 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 56 3E`
-* **Wrist**:       `B5 62 06 24 28 00 01 00 08 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 5B FC`
 
-#### 6. Hot Start Reset (`UBX-CFG-RST`)
-Controlled software reset (GNSS only) without resetting Flipper interface. Replaces the PCAS10 command used in `gps_uart_send_hot_start()` (see Section 6.3):
+#### 6. Enable AssistNow Autonomous (`UBX-CFG-VALSET`)
+Key `CFG-ANA-USE_ANA` (`0x10230001`) = 1, stored in RAM. Enables autonomous orbit prediction — the module computes ephemeris extensions in the background whenever it has a valid lock. Reduces TTFF on subsequent cold starts from ~23 s to ~4 s.
+* **Hex**: `B5 62 06 8A 09 00 00 01 00 00 01 00 23 10 01 CF C0`
+* See Section 8 for details.
+
+#### 7. Hot Start Reset (`UBX-CFG-RST`)
+Controlled software reset (GNSS only). Used by `gps_uart_send_hot_start()`.
 * **Hex**: `B5 62 06 04 04 00 00 00 02 00 10 68`
 
-> **Note on constellation config**: The SAM-M10Q factory default enables GPS, GLONASS, Galileo, and BeiDou simultaneously. If a module arrives with Galileo disabled, send a `UBX-CFG-VALSET` message setting key `CFG-SIGNAL-GAL_ENA` (`0x10310021`) = 1. Use u-center to generate and verify this packet for your specific module firmware version, then add it to the init sequence.
+#### 8. Software Standby (`UBX-RXM-PMREQ`)
+Forces the module into Software Standby (~46 µA). Used in `gps_uart_free()` and during GSR-only sessions.
+* **Hex**: `B5 62 02 41 10 00 00 00 00 00 00 00 00 00 02 00 00 00 01 00 00 00 56 2F`
+* Parameters: `duration=0` (infinite), `flags.force=1`, `flags.backup=0` (Software Standby), `wakeupSources.uartrx=1`.
+* See Section 9 for details.
+
+### Init sequence code reference
+
+```c
+// gps_uart_configure() — M10Q path
+pubx_tx(g, "$PUBX,41,1,0007,0002,115200,0*19\r\n");
+furi_delay_ms(300);
+// switch host to 115200
+ubx_tx(g, ubx_cfg_rate_10hz, sizeof(ubx_cfg_rate_10hz));
+ubx_tx(g, ubx_cfg_msg_gll_off, sizeof(ubx_cfg_msg_gll_off));
+ubx_tx(g, ubx_cfg_msg_vtg_off, sizeof(ubx_cfg_msg_vtg_off));
+ubx_tx(g, ubx_cfg_msg_gsv_1hz, sizeof(ubx_cfg_msg_gsv_1hz));
+ubx_tx(g, ubx_cfg_nav5_pedestrian, sizeof(ubx_cfg_nav5_pedestrian));
+ubx_tx(g, ubx_cfg_assistnow_autonomous, sizeof(ubx_cfg_assistnow_autonomous));
+```
 
 ---
 
-## 5. Software Risk Mitigation & Backup Plan
+## 5. Risk Mitigation (All Resolved)
 
-* **Risk 1 — Legacy `UBX-CFG-` commands rejected**: u-blox M10 firmware (protocol versions 34+) deprecates legacy `UBX-CFG-` commands in favour of Key-Value configuration blocks (`UBX-CFG-VALSET`). If `UBX-CFG-RATE` or `UBX-CFG-NAV5` are rejected (ACK-NAK response), fall back to `UBX-CFG-VALSET` messages with the appropriate keys (e.g. `CFG-RATE-MEAS = 0x30210001` for update rate). Use u-center to generate the correct VALSET packet for the installed firmware version.
+* **Risk 1 — Legacy `UBX-CFG-` commands deprecated** ✅: M10 SPG 5.10 still accepts legacy commands. CFG-VALSET migration is a future task.
 
-* **Risk 2 — Binary framing in NMEA stream**: If UBX binary frames ever appear in the NMEA stream (wrong `outProtMask`), `minmea_sentence_id()` returns `MINMEA_UNKNOWN` and bytes are silently discarded. However, a binary frame arriving mid-NMEA-sentence can corrupt the current line. Guard: confirm `outProtMask=0001` in the PUBX command. If spurious framing is observed in serial logs, add a `B5 62` byte-pair rejection in the line accumulator in `gps_uart_process_rx()`.
+* **Risk 2 — `outProto` bitmask** ✅: Fixed 2026-07-12 — `0001` (UBX-only) changed to `0002` (NMEA-only). Verified against u-blox spec: 0=no output, 1=UBX, 2=NMEA, 3=UBX+NMEA.
 
-* **Risk 3 — PUBX command not acknowledged**: The PUBX baud command has no ACK response. Verify success by confirming NMEA sentences resume at 115200 within 500 ms of the STM32 USART reconfiguration. The NMEA watchdog (5 s timeout → hot start) will detect and recover from a silent baud mismatch.
+* **Risk 3 — PUBX command not acknowledged** ✅: NMEA watchdog (5 s timeout → hot start + reconfigure) detects and recovers from silent baud mismatch. Watchdog now arms immediately at alloc (`last_valid_nmea_tick = furi_get_tick()`) — a botched initial baud switch triggers one-shot recovery rather than permanent desync. See Section 7.2.
 
 ---
 
-## 6. Firmware Implementation Notes
+## 6. Firmware Implementation (All Implemented)
 
-### 6.1 `gps_uart_configure()` — Complete Redesign Required
+### 6.1 `gps_uart_configure()` — IMPLEMENTED ✅
 
-The existing function sends Quectel PCAS ASCII commands which are not understood by the M10Q. All PCAS commands must be replaced with UBX equivalents. Structural change:
+The function uses `#if GPS_MODULE == GPS_MODULE_M10Q` preprocessor guards. Full M10Q init sequence as described in Section 4. L76K path preserved and unchanged.
 
-```
-// L76K (current):
-//   pcas_tx(g, "$PCAS04,7*1E\r\n");    // constellations
-//   pcas_tx(g, "$PCAS03,...\r\n");      // sentence filter
-//   pcas_tx(g, "$PCAS01,5*19\r\n");    // 115200 baud
-//   pcas_tx(g, "$PCAS02,200*1D\r\n");  // 5 Hz
-
-// M10Q (required):
-//   pubx_tx(g, "$PUBX,41,1,0007,0001,115200,0*1A\r\n"); // baud (ASCII, at 9600)
-//   [reconfigure USART]
-//   ubx_tx(g, ubx_cfg_rate_5hz, sizeof(...));    // 5 Hz
-//   ubx_tx(g, ubx_cfg_msg_gll_off, sizeof(...)); // disable GLL
-//   ubx_tx(g, ubx_cfg_msg_vtg_off, sizeof(...)); // disable VTG
-//   ubx_tx(g, ubx_cfg_msg_gsv_1hz, sizeof(...)); // GSV @ 1 Hz
-//   ubx_tx(g, ubx_cfg_nav5_pedestrian, sizeof(...)); // nav model
-```
-
-The `pubx_tx()` helper can reuse the existing `pcas_tx()` body (ASCII string + `strlen`). The new `ubx_tx()` helper must use an explicit length (not `strlen`) — see Section 6.2.
-
-### 6.2 New `ubx_tx()` Helper Required
-
-Binary UBX packets cannot use `strlen()` — frames contain embedded `\0` bytes. Add:
+### 6.2 `ubx_tx()` Helper — IMPLEMENTED ✅
 
 ```c
 static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
@@ -172,25 +176,13 @@ static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
 }
 ```
 
-Store each packet as a `static const uint8_t` array in `gps_uart.c`.
+All UBX packets stored as `static const uint8_t` arrays in `gps_uart.c`. Declarations moved above `gps_uart_alloc` so the wake-up byte path can reference them.
 
-### 6.3 `gps_uart_send_hot_start()` — Replace PCAS10 with UBX-CFG-RST
+### 6.3 `gps_uart_send_hot_start()` — IMPLEMENTED ✅
 
-Currently sends `$PCAS10,0*1C\r\n` (L76K-only). For M10Q, replace with the binary hot-start packet from Section 4.6:
+Sends `UBX-CFG-RST` binary packet instead of `$PCAS10,0`. Guarded by `#if GPS_MODULE == GPS_MODULE_M10Q`.
 
-```c
-static const uint8_t ubx_cfg_rst_hot[] = {
-    0xB5, 0x62, 0x06, 0x04, 0x04, 0x00,
-    0x00, 0x00, 0x02, 0x00, 0x10, 0x68
-};
-// call ubx_tx(g, ubx_cfg_rst_hot, sizeof(ubx_cfg_rst_hot));
-```
-
-### 6.4 Module Selection — Compile-Time Define
-
-The L76K and M10Q use different physical hardware (U.FL external antenna vs integrated ceramic patch). Since the user controls which board is attached, runtime autodetection adds unnecessary complexity and risk (destructive probing, misdetection fallback, extra boot latency).
-
-A single `#define` in `biomap_config.h` selects the module at compile time:
+### 6.4 Module Selection — IMPLEMENTED ✅
 
 ```c
 #define GPS_MODULE_L76K  1
@@ -198,23 +190,17 @@ A single `#define` in `biomap_config.h` selects the module at compile time:
 #define GPS_MODULE       GPS_MODULE_M10Q  // ← change this when swapping hardware
 ```
 
-`gps_uart_configure()` and `gps_uart_send_hot_start()` use `#if GPS_MODULE ==` preprocessor guards to compile only the relevant code path. A `#error` directive catches invalid values.
-
-**Benefits over autodetection:**
-- No destructive probing (`$PCAS10,0` hot start on L76K detection)
-- No risk of misdetection sending UBX binary packets to an L76K
-- ~1 s faster boot (no 4-phase probe state machine)
-- Smaller binary (~80 bytes saved from removed probe code)
+Single compile-time define in `biomap_config.h`. No runtime autodetection.
 
 ---
 
-## 7. End-to-End Coherence Check
+## 11. End-to-End Coherence Check
 
 The table below confirms each layer of the stack is consistent after the M10Q transition. The CSV format is unchanged, so the analyser requires no modifications.
 
 | Layer | Current State (L76K) | M10Q Required Change |
 |-------|----------------------|----------------------|
-| **Hardware baud** | 115200 (`$PCAS01,5`) | 115200 (`$PUBX,41,1,0007,0001,...*1A`) — same rate, different command |
+| **Hardware baud** | 115200 (`$PCAS01,5`) | 115200 (`$PUBX,41,1,0007,0002,...*19`) — same rate, different command; outProto=0002 = NMEA only |
 | **Update rate** | 5 Hz (`$PCAS02,200`) | 10 Hz (`UBX-CFG-RATE` 100 ms) — HP-mode maximum per datasheet Table 1; no separate HP-enable packet required on SPG 5.10 |
 | **Constellations** | GPS+BeiDou+GLONASS (`$PCAS04,7`) | GPS+GLONASS+BeiDou+Galileo (M10Q default; verify with `UBX-CFG-GNSS` if needed) |
 | **Sentence filter** | `$PCAS03` (GGA+GSA+RMC+GSV@1Hz) | `UBX-CFG-MSG` — same set, same rates |
@@ -229,3 +215,100 @@ The table below confirms each layer of the stack is consistent after the M10Q tr
 | **Analyser CSV parsing** | Auto-detects columns by header name | No change |
 | **Kalman / velocity smoother** | Uses `wdop`, `speed_kts`, `course_deg` | No change |
 | **Road snap** | Uses filtered GPS points | No change |
+
+---
+
+## 7. Critical Bug Fixes (2026-07-12)
+
+### 7.1 `outProto` Bitmask: `0001` → `0002`
+
+**Bug**: The `$PUBX,41` baud switch command set `outProto=0001`. The u-blox spec defines this field as a bitmask: 0=no output, **1=UBX**, 2=NMEA, 3=UBX+NMEA. Setting `0001` configured the module to output **only binary UBX frames** — zero NMEA. The `minmea` parser received no valid `$Gx` sentences.
+
+**Fix**: Changed `outProto=0002` (NMEA only), checksum `*1A` → `*19`.
+
+```
+$PUBX,41,1,0007,0002,115200,0*19\r\n
+```
+
+### 7.2 NMEA Watchdog: Armed Too Late
+
+**Bug**: `last_valid_nmea_tick` was initialized to `0` in `gps_uart_alloc`. The watchdog condition is `if(g->last_valid_nmea_tick > 0)`. If the initial `$PUBX,41` baud switch failed (corrupted at 9600 baud), the module stayed at 9600 while the Flipper switched to 115200. No valid NMEA was ever received, `last_valid_nmea_tick` stayed `0`, and the watchdog **never fired** — permanent desync.
+
+**Fix**: Initialize `last_valid_nmea_tick = furi_get_tick()` in `gps_uart_alloc`. If boot-up sync fails, the watchdog triggers after 5 seconds, resets the host to 9600, and re-attempts configuration. Sets `last_valid_nmea_tick = 0` during recovery → one-shot retry (won't spam on disconnected module).
+
+---
+
+## 8. AssistNow Autonomous (IMPLEMENTED)
+
+AssistNow Autonomous enables the M10Q to compute its own orbit predictions in the background whenever it has a valid satellite lock. These predictions are stored in RAM and survive Software Standby (but not power loss — BBR storage would require layer=2).
+
+**Benefits:**
+- Cold-start TTFF drops from ~23 s to ~4 s (datasheet Table 1)
+- No external aiding data required — fully self-contained
+- Predictions valid for up to 2 days after last fix
+
+**Configuration packet** (`UBX-CFG-VALSET`):
+```
+B5 62 06 8A 09 00  00 01 00 00  01 00 23 10  01  CF C0
+```
+- Key: `0x10230001` = `CFG-ANA-USE_ANA`
+- Value: `0x01` = enabled
+- Layer: `0x01` = RAM (survives standby, lost on power cycle)
+
+**Verification**: Checksum validated against Fletcher-8 algorithm. Packet sent during `gps_uart_configure()` after the nav5 model config.
+
+---
+
+## 9. Software Standby Power Management (IMPLEMENTED)
+
+The M10Q supports Software Standby mode (~46 µA on V_IO, ~120 nA on VCC per datasheet Table 15), preserving RAM state including baud rate and constellation config. Wake-up is triggered by a falling edge on the UART RX pin.
+
+### 9.1 Sleep Path (`gps_uart_free`)
+
+When the GPS handle is released, the module is put into Software Standby:
+
+```c
+ubx_tx(g, ubx_rxm_pmreq_standby, sizeof(ubx_rxm_pmreq_standby));
+```
+
+**Standby packet** (`UBX-RXM-PMREQ`):
+```
+B5 62 02 41 10 00  00 00 00 00  00 00 00 00  02 00 00 00  01 00 00 00  56 2F
+```
+- `duration=0` (infinite sleep)
+- `flags=0x02` (bit 1: force=1 — enter immediately, don't wait for pending ops)
+- `flags` bit 0: backup=0 → Software Standby (not Hardware Backup)
+- `wakeupSources=0x01` (bit 0: uartrx — wake on UART RX edge)
+
+### 9.2 Wake-Up Path (`gps_uart_alloc`)
+
+Before starting async RX, a dummy `0xFF` byte is sent at 9600 baud to trigger the UART RX edge detection:
+
+```c
+uint8_t dummy = 0xFF;
+furi_hal_serial_tx(g->serial_handle, &dummy, 1);
+furi_delay_ms(100);
+```
+
+**Known limitation**: On warm boot (module was sleeping at 115200), the 0xFF at 9600 causes a framing error on the module side. The edge detection still triggers wake-up, but the subsequent `$PUBX,41` at 9600 is lost. Since both sides are already at 115200 and `outProto=0002` is preserved in standby RAM, the UBX config packets that follow still get through correctly. This is functional but fragile — a future improvement would track the module's baud rate across sleep/wake cycles.
+
+---
+
+## 10. GSR-Only Session Integration (IMPLEMENTED)
+
+In GSR-only recording mode, the GPS module is not needed during the session. To save power, `run_recording_session()` in [`biomap_session.c`](../biomap_session.c) briefly allocates and immediately frees the GPS handle:
+
+```c
+if(has_gps(mode)) {
+    s->gps = gps_uart_alloc(app->event_queue, app->notifications);
+} else {
+    // GSR only: briefly allocate and free GPS to push it into Software Standby
+    GpsUart* temp_gps = gps_uart_alloc(app->event_queue, app->notifications);
+    if(temp_gps) {
+        gps_uart_free(temp_gps);
+    }
+    s->gps = NULL;
+}
+```
+
+This triggers the full alloc → configure → free → standby cycle, leaving the module in ~46 µA standby for the duration of the GSR recording. `session_deinit()` is NULL-guarded for `s->gps`.

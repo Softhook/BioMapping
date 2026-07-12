@@ -572,7 +572,16 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     Session* s = &app->session;
     session_init(s, mode, app->zoom_enabled);
 
-    s->gps    = has_gps(mode) ? gps_uart_alloc(app->event_queue, app->notifications) : NULL;
+    if(has_gps(mode)) {
+        s->gps = gps_uart_alloc(app->event_queue, app->notifications);
+    } else {
+        // GSR only mode: briefly allocate and free GPS to ensure it is put into software standby
+        GpsUart* temp_gps = gps_uart_alloc(app->event_queue, app->notifications);
+        if(temp_gps) {
+            gps_uart_free(temp_gps);
+        }
+        s->gps = NULL;
+    }
     s->gsr    = has_gsr(mode) ? gsr_sensor_alloc() : NULL;
     s->logger = sd_logger_alloc(app->storage);
 

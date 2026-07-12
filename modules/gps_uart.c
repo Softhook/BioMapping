@@ -325,6 +325,52 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
 // ---------------------------------------------------------------------------
 // Alloc — acquire USART1, init serial, configure GPS
 // ---------------------------------------------------------------------------
+#if GPS_MODULE == GPS_MODULE_M10Q
+// ---------------------------------------------------------------------------
+// Helper — send a binary UBX packet over the GPS UART (M10Q only)
+// ---------------------------------------------------------------------------
+static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
+    furi_hal_serial_tx(g->serial_handle, data, len);
+    furi_delay_ms(100);
+}
+
+// ── Binary UBX configuration packets for M10Q ──────────────────────────────
+static const uint8_t ubx_cfg_rate_10hz[] = {
+    // 100 ms measRate = 10 Hz.  SAM-M10Q datasheet Table 1: 10 Hz is the
+    // high-performance-mode maximum for the default 4-constellation config.
+    // No separate HP-mode enable packet is required — setting the rate is
+    // sufficient on M10 SPG 5.10 firmware.
+    0xB5, 0x62, 0x06, 0x08, 0x06, 0x00, 0x64, 0x00, 0x01, 0x00, 0x01, 0x00, 0x7A, 0x12
+};
+static const uint8_t ubx_cfg_msg_gll_off[] = {
+    0xB5, 0x62, 0x06, 0x01, 0x03, 0x00, 0xF0, 0x01, 0x00, 0xFB, 0x11
+};
+static const uint8_t ubx_cfg_msg_vtg_off[] = {
+    0xB5, 0x62, 0x06, 0x01, 0x03, 0x00, 0xF0, 0x05, 0x00, 0xFF, 0x19
+};
+static const uint8_t ubx_cfg_msg_gsv_1hz[] = {
+    // rate=10: every 10th epoch × 100 ms = 1 Hz
+    0xB5, 0x62, 0x06, 0x01, 0x03, 0x00, 0xF0, 0x03, 0x0A, 0x07, 0x1F
+};
+static const uint8_t ubx_cfg_nav5_pedestrian[] = {
+    0xB5, 0x62, 0x06, 0x24, 0x28, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x56, 0x3E
+};
+static const uint8_t ubx_cfg_assistnow_autonomous[] = {
+    // VALSET packet enabling CFG-ANA-USE_ANA = 1 (true) for offline orbit predictions
+    0xB5, 0x62, 0x06, 0x8A, 0x09, 0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x23, 0x10, 0x01, 0xCF, 0xC0
+};
+static const uint8_t ubx_rxm_pmreq_standby[] = {
+    // Software Standby sleep packet (force=1, backup=0, duration=0 (infinite), wakeup=UART RX)
+    0xB5, 0x62, 0x02, 0x41, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x56, 0x2F
+};
+static const uint8_t ubx_cfg_rst_hot[] = {
+    0xB5, 0x62, 0x06, 0x04, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0x10, 0x68
+};
+#endif
+
 static void gps_uart_configure(GpsUart* g);
 GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications) {
     GpsUart* g = malloc(sizeof(GpsUart));
@@ -374,6 +420,12 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
     g->serial_handle = furi_hal_serial_control_acquire(GPS_UART_CH);
     if(g->serial_handle) {
         furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE);
+#if GPS_MODULE == GPS_MODULE_M10Q
+        // Wake up module in case it was in Software Standby
+        uint8_t dummy = 0xFF;
+        furi_hal_serial_tx(g->serial_handle, &dummy, 1);
+        furi_delay_ms(100);
+#endif
         furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
         g->ready = true;
         gps_uart_configure(g);
@@ -390,6 +442,10 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
 void gps_uart_free(GpsUart* g) {
     furi_assert(g);
     if(g->serial_handle) {
+#if GPS_MODULE == GPS_MODULE_M10Q
+        // Put u-blox module into Software Standby sleep to save power
+        ubx_tx(g, ubx_rxm_pmreq_standby, sizeof(ubx_rxm_pmreq_standby));
+#endif
         furi_hal_serial_async_rx_stop(g->serial_handle);
         furi_hal_serial_deinit(g->serial_handle);
         furi_hal_serial_control_release(g->serial_handle);
@@ -428,45 +484,7 @@ static void pcas_tx(GpsUart* g, const char* cmd) {
 }
 #endif
 
-#if GPS_MODULE == GPS_MODULE_M10Q
-// ---------------------------------------------------------------------------
-// Helper — send a binary UBX packet over the GPS UART (M10Q only)
-// ---------------------------------------------------------------------------
-static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
-    furi_hal_serial_tx(g->serial_handle, data, len);
-    furi_delay_ms(100);
-}
-#endif
 
-#if GPS_MODULE == GPS_MODULE_M10Q
-// ── Binary UBX configuration packets for M10Q ──────────────────────────────
-static const uint8_t ubx_cfg_rate_10hz[] = {
-    // 100 ms measRate = 10 Hz.  SAM-M10Q datasheet Table 1: 10 Hz is the
-    // high-performance-mode maximum for the default 4-constellation config.
-    // No separate HP-mode enable packet is required — setting the rate is
-    // sufficient on M10 SPG 5.10 firmware.
-    0xB5, 0x62, 0x06, 0x08, 0x06, 0x00, 0x64, 0x00, 0x01, 0x00, 0x01, 0x00, 0x7A, 0x12
-};
-static const uint8_t ubx_cfg_msg_gll_off[] = {
-    0xB5, 0x62, 0x06, 0x01, 0x03, 0x00, 0xF0, 0x01, 0x00, 0xFB, 0x11
-};
-static const uint8_t ubx_cfg_msg_vtg_off[] = {
-    0xB5, 0x62, 0x06, 0x01, 0x03, 0x00, 0xF0, 0x05, 0x00, 0xFF, 0x19
-};
-static const uint8_t ubx_cfg_msg_gsv_1hz[] = {
-    // rate=10: every 10th epoch × 100 ms = 1 Hz
-    0xB5, 0x62, 0x06, 0x01, 0x03, 0x00, 0xF0, 0x03, 0x0A, 0x07, 0x1F
-};
-static const uint8_t ubx_cfg_nav5_pedestrian[] = {
-    0xB5, 0x62, 0x06, 0x24, 0x28, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x56, 0x3E
-};
-static const uint8_t ubx_cfg_rst_hot[] = {
-    0xB5, 0x62, 0x06, 0x04, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0x10, 0x68
-};
-#endif
 
 // ---------------------------------------------------------------------------
 // Drain RX stream, parse complete NMEA lines; run NMEA watchdog
@@ -619,6 +637,7 @@ static void gps_uart_configure(GpsUart* g) {
     ubx_tx(g, ubx_cfg_msg_vtg_off, sizeof(ubx_cfg_msg_vtg_off));
     ubx_tx(g, ubx_cfg_msg_gsv_1hz, sizeof(ubx_cfg_msg_gsv_1hz));
     ubx_tx(g, ubx_cfg_nav5_pedestrian, sizeof(ubx_cfg_nav5_pedestrian));
+    ubx_tx(g, ubx_cfg_assistnow_autonomous, sizeof(ubx_cfg_assistnow_autonomous));
 
     FURI_LOG_I("GpsUart", "M10Q running at 115200 baud, 10 Hz, GSV@1Hz");
 
