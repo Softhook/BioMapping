@@ -22,35 +22,49 @@ def load_gps_rows(path):
 
 def analyze_gps(gps_rows):
     """Print comprehensive GPS quality report."""
-    if not gps_rows:
+    if isinstance(gps_rows, tuple):
+        gps = gps_rows[0]
+        total_csv = len(gps_rows[1])
+    else:
+        gps = gps_rows
+        total_csv = 0
+
+    if not gps:
         print("No GPS data found.")
         return
 
-    total_csv = len(gps_rows[0]) if isinstance(gps_rows, tuple) else 0
-    hdops = [float(r.get('hdop', '0') or '0') for _, r in gps_rows[0] if float(r.get('hdop', '0') or '0') > 0] if isinstance(gps_rows, tuple) else [float(r.get('hdop', '0') or '0') for _, r in gps_rows if float(r.get('hdop', '0') or '0') > 0]
-    gps = gps_rows[0] if isinstance(gps_rows, tuple) else gps_rows
+    hdops = [float(r.get('hdop', '0') or '0') for _, r in gps if float(r.get('hdop', '0') or '0') > 0]
+    pdops = [float(r.get('pdop', '0') or '0') for _, r in gps if float(r.get('pdop', '0') or '0') > 0]
     spds = [float(r.get('speed_kts', '0') or '0') for _, r in gps]
     sats = [int(r.get('sats', '0') or '0') for _, r in gps if int(r.get('sats', '0') or '0') > 0]
     alts = [float(r.get('alt', '0') or '0') for _, r in gps if r.get('alt', '').strip()]
-    wdops = [float(r.get('wdop', '0') or '0') for _, r in gps]
+    wdops = [float(r.get('wdop', '0') or '0') for _, r in gps if float(r.get('wdop', '0') or '0') > 0]
     real_wdop = [w for w in wdops if w < 90]
 
     print(f"GPS fixes: {len(gps)}")
     if total_csv:
         print(f"CSV rows: {total_csv} ({len(gps)/total_csv*100:.1f}% GPS density)")
-    if gps:
-        print(f"Time: {gps[0][1]['timestamp']} -> {gps[-1][1]['timestamp']}")
+    print(f"Time: {gps[0][1]['timestamp']} -> {gps[-1][1]['timestamp']}")
 
-    print(f"\nHDOP:  min={min(hdops):.1f}  max={max(hdops):.1f}  mean={sum(hdops)/len(hdops):.2f}")
+    if hdops:
+        print(f"\nHDOP:  min={min(hdops):.1f}  max={max(hdops):.1f}  mean={sum(hdops)/len(hdops):.2f}")
+    else:
+        print("\nHDOP:  no HDOP data found")
+
+    if pdops:
+        print(f"PDOP:  min={min(pdops):.1f}  max={max(pdops):.1f}  mean={sum(pdops)/len(pdops):.2f}")
+
     if real_wdop:
         print(f"WDOP:  min={min(real_wdop):.1f}  max={max(real_wdop):.1f}  mean={sum(real_wdop)/len(real_wdop):.2f}")
         stuck = sum(1 for w in wdops if w >= 90)
         if stuck > 0:
             print(f"       {stuck}/{len(wdops)} sentinel (99.9) — GSV data missing")
-    else:
-        print(f"WDOP:  all sentinel (99.9) — GSV data not arriving")
 
-    print(f"Sats:  min={min(sats)}  max={max(sats)}  mean={sum(sats)/len(sats):.1f}")
+    if sats:
+        print(f"Sats:  min={min(sats)}  max={max(sats)}  mean={sum(sats)/len(sats):.1f}")
+    else:
+        print("Sats:  no satellite data found")
+
     print(f"Speed: min={min(spds):.1f}  max={max(spds):.1f}  mean={sum(spds)/len(spds):.1f} kts")
     slow = sum(1 for s in spds if s * 0.514444 < 0.3)
     print(f"       Slow (<0.3 m/s): {slow}/{len(spds)} ({100*slow/len(spds):.1f}%)")
@@ -67,15 +81,17 @@ def analyze_gps(gps_rows):
     print(f"Area:  {spread:.0f}m  ({dlat:.0f}m NS x {dlon:.0f}m EW)")
 
     # Fix types
-    ft = Counter(r.get('fix_type', '').strip() for _, r in gps)
-    print(f"Fix:   {dict(ft)}")
+    ft = Counter(r.get('fix_type', '').strip() for _, r in gps if r.get('fix_type', '').strip())
+    if ft:
+        print(f"Fix:   {dict(ft)}")
 
     # HDOP distribution
-    print("\nHDOP distribution:")
-    for lo, hi in [(0, 1.0), (1.0, 1.5), (1.5, 2.0), (2.0, 3.0), (3.0, 5.0), (5.0, 999)]:
-        c = sum(1 for h in hdops if lo < h <= hi)
-        label = f"{lo}-{hi}" if hi < 999 else f">{lo}"
-        print(f"  {label:>8}: {c:4d} ({100*c/len(hdops):5.1f}%)")
+    if hdops:
+        print("\nHDOP distribution:")
+        for lo, hi in [(0, 1.0), (1.0, 1.5), (1.5, 2.0), (2.0, 3.0), (3.0, 5.0), (5.0, 999)]:
+            c = sum(1 for h in hdops if lo < h <= hi)
+            label = f"{lo}-{hi}" if hi < 999 else f">{lo}"
+            print(f"  {label:>8}: {c:4d} ({100*c/len(hdops):5.1f}%)")
 
     # Time-based HDOP/sats
     print("\nQuality over time (200-pt windows):")
@@ -84,9 +100,10 @@ def analyze_gps(gps_rows):
         chunk = gps[w:w+window]
         hd = [float(r.get('hdop', '0') or '0') for _, r in chunk if float(r.get('hdop', '0') or '0') > 0]
         st = [int(r.get('sats', '0') or '0') for _, r in chunk if int(r.get('sats', '0') or '0') > 0]
-        if not hd: continue
         ts = chunk[0][1]['timestamp'][11:19]
-        print(f"  #{w:4d} {ts}  HDOP={min(hd):.1f}-{max(hd):.1f} avg={sum(hd)/len(hd):.1f}  sats={min(st)}-{max(st)} avg={sum(st)/len(st):.1f}")
+        hd_str = f"HDOP={min(hd):.1f}-{max(hd):.1f} avg={sum(hd)/len(hd):.1f}" if hd else "HDOP=N/A"
+        st_str = f"sats={min(st)}-{max(st)} avg={sum(st)/len(st):.1f}" if st else "sats=N/A"
+        print(f"  #{w:4d} {ts}  {hd_str}  {st_str}")
 
     return gps
 
