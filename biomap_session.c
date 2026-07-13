@@ -272,10 +272,41 @@ static void update_graph_pipeline(Session* s) {
     }
 }
 
+// ── Shared GPS CSV row formatter ───────────────────────────────────────────
+// Formats a 10-column GPS row into the SD batch buffer with an explicit GSR
+// value in the last column.  Used by both GPS+GSR mode (via batch_csv_row
+// with the live GSR reading) and GPS-only mode (via handle_recording_tick
+// with raw=0).  When the fix is absent or HDOP is too high, GPS columns are
+// left empty so the analyser treats the row as a gap rather than noise.
+static void format_gps_csv_row(Session* s, const GpsPosition* pos,
+                                double rel, float raw) {
+    bool gps_ok = pos->valid && pos->hdop < GPS_HDOP_GATE;
+    if(gps_ok) {
+        bool has_vel = !isnan(pos->speed_kts) && !isnan(pos->course_deg);
+        if(has_vel) {
+            sd_logger_batch_printf(s->logger,
+                "%.2f,%.6f,%.6f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f\n",
+                rel, (double)pos->lat, (double)pos->lon,
+                (double)pos->hdop, (double)pos->pdop,
+                pos->sats, pos->fix_type,
+                (double)pos->speed_kts, (double)pos->course_deg, (double)raw);
+        } else {
+            sd_logger_batch_printf(s->logger,
+                "%.2f,%.6f,%.6f,%.1f,%.1f,%d,%d,,,%.1f\n",
+                rel, (double)pos->lat, (double)pos->lon,
+                (double)pos->hdop, (double)pos->pdop,
+                pos->sats, pos->fix_type, (double)raw);
+        }
+    } else {
+        sd_logger_batch_printf(s->logger, "%.2f,,,,,,,,,%.1f\n",
+                               rel, (double)raw);
+    }
+}
+
 // ── Batch CSV row construction ─────────────────────────────────────────────
-// Formats each CSV row directly into the SD logger's internal batch buffer,
-// avoiding an intermediate stack buffer and a memcpy per tick.
-// Rows are flushed to SD at the 1‑second boundary by handle_second_boundary().
+// Dispatches to format_gps_csv_row for GPS+GSR mode; handles GSR-only
+// and GPS-skip ticks directly.  Rows are flushed at the 1‑second boundary
+// by handle_second_boundary().
 static void batch_csv_row(Session* s, float raw) {
     if(!s->recording.active || !has_gsr(s->mode)) return;
 
@@ -286,39 +317,11 @@ static void batch_csv_row(Session* s, float raw) {
                                rel, (double)raw);
     } else if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
         GpsPosition pos = get_gps_position(s);
-        // Only log GPS coordinates when quality is acceptable.
-        // hdop >= GPS_HDOP_GATE (or 99.9 sentinel = no DOP data yet) means
-        // the fix is too imprecise; emit empty GPS columns so the analyser
-        // treats this second as a gap rather than recording a noisy position.
-        bool gps_ok = pos.valid && pos.hdop < GPS_HDOP_GATE;
-        if(gps_ok) {
-            // Log speed/course as NaN-safe values: if the RMC sentence has
-            // not arrived yet they remain NaN and we write empty fields.
-            bool has_vel = !isnan(pos.speed_kts) && !isnan(pos.course_deg);
-            if(has_vel) {
-                sd_logger_batch_printf(s->logger,
-                    "%.2f,%.6f,%.6f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f\n",
-                    rel, (double)pos.lat, (double)pos.lon,
-                    (double)pos.hdop, (double)pos.pdop,
-                    pos.sats, pos.fix_type,
-                    (double)pos.speed_kts, (double)pos.course_deg, (double)raw);
-            } else {
-                sd_logger_batch_printf(s->logger,
-                    "%.2f,%.6f,%.6f,%.1f,%.1f,%d,%d,,,%.1f\n",
-                    rel, (double)pos.lat, (double)pos.lon,
-                    (double)pos.hdop, (double)pos.pdop,
-                    pos.sats, pos.fix_type, (double)raw);
-            }
-        } else {
-            sd_logger_batch_printf(s->logger, "%.2f,,,,,,,,,%.1f\n",
-                                   rel, (double)raw);
-        }
+        format_gps_csv_row(s, &pos, rel, raw);
     } else {
-        // GPS-skip tick: GPS_CSV_HZ < TICK_HZ, so this tick falls between
-        // GPS sample boundaries.  Preserve GSR data with empty GPS columns.
-        // Dead code when GPS_CSV_HZ == TICK_HZ (every tick is a GPS tick).
-        sd_logger_batch_printf(s->logger, "%.2f,,,,,,,,,%.1f\n",
-                               rel, (double)raw);
+        // GPS-skip tick: preserve GSR data with empty GPS columns.
+        GpsPosition empty = {0};
+        format_gps_csv_row(s, &empty, rel, raw);
     }
 }
 
@@ -503,27 +506,7 @@ static void handle_recording_tick(Session* s) {
     if(!has_gsr(s->mode) && has_gps(s->mode) && s->recording.active) {
         if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
             GpsPosition pos = get_gps_position(s);
-            double rel = session_rel_seconds(s);
-            bool gps_ok = pos.valid && pos.hdop < GPS_HDOP_GATE;
-            if(gps_ok) {
-                bool has_vel = !isnan(pos.speed_kts) && !isnan(pos.course_deg);
-                if(has_vel) {
-                    sd_logger_batch_printf(s->logger,
-                        "%.2f,%.6f,%.6f,%.1f,%.1f,%d,%d,%.2f,%.1f,%d\n",
-                        rel, (double)pos.lat, (double)pos.lon,
-                        (double)pos.hdop, (double)pos.pdop,
-                        pos.sats, pos.fix_type,
-                        (double)pos.speed_kts, (double)pos.course_deg, 0);
-                } else {
-                    sd_logger_batch_printf(s->logger,
-                        "%.2f,%.6f,%.6f,%.1f,%.1f,%d,%d,,,%d\n",
-                        rel, (double)pos.lat, (double)pos.lon,
-                        (double)pos.hdop, (double)pos.pdop,
-                        pos.sats, pos.fix_type, 0);
-                }
-            } else {
-                sd_logger_batch_printf(s->logger, "%.2f,,,,,,,,,%d\n", rel, 0);
-            }
+            format_gps_csv_row(s, &pos, session_rel_seconds(s), 0.0f);
         }
         return;
     }
@@ -586,11 +569,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     if(has_gps(mode)) {
         s->gps = gps_uart_alloc(app->event_queue, app->notifications);
     } else {
-        // GSR only mode: briefly allocate and free GPS to ensure it is put into software standby
-        GpsUart* temp_gps = gps_uart_alloc(app->event_queue, app->notifications);
-        if(temp_gps) {
-            gps_uart_free(temp_gps);
-        }
+        gps_uart_standby();
         s->gps = NULL;
     }
     s->gsr    = has_gsr(mode) ? gsr_sensor_alloc() : NULL;

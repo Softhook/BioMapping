@@ -13,6 +13,18 @@ static const char* const options_labels[OPTIONS_COUNT] = {
     "Backlight",
 };
 
+// ── GPS display helpers ────────────────────────────────────────────────────
+
+static const char* gps_fix_label(int fix_type) {
+    if(fix_type == 3) return "3D";
+    if(fix_type == 2) return "2D";
+    return "--";
+}
+
+static bool gps_has_fix(const GpsStatus* g) {
+    return g->fix_valid || g->fix_quality > 0;
+}
+
 // ==========================================================================
 // Graph rendering (GSR waveform)
 // ==========================================================================
@@ -85,7 +97,7 @@ static void render_gps_detail(Canvas* c, BioMapApp* a) {
         canvas_draw_str(c, 0, y, buf);
         y += 10;
 
-        bool has_fix = g.fix_valid || g.fix_quality > 0;
+        bool has_fix = gps_has_fix(&g);
         bool gps_ready = has_fix && g.hdop < GPS_HDOP_GATE;
 
         if(gps_ready) {
@@ -114,8 +126,7 @@ static void render_gps_detail(Canvas* c, BioMapApp* a) {
         // HDOP < 1  = excellent    PDOP < 2   = excellent
         // HDOP 1-2 = very good     PDOP 2-4   = very good
         // HDOP 2-5 = good          PDOP 4-8   = good
-        const char* fix_str = (g.fix_type == 3) ? "3D" :
-                              (g.fix_type == 2) ? "2D" : "--";
+        const char* fix_str = gps_fix_label(g.fix_type);
         if(g.hdop < 50.0f) {
             char pbuf[8];
             if(g.pdop < 99.0f) {
@@ -181,7 +192,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                               !gsr_sensor_is_connected(a->session.gsr);
     if(a->session.mode == BioMapModeGpsGsr && a->session.gps && !cuffs_disconnected) {
         GpsStatus g = gps_uart_get_status(a->session.gps);
-        bool has_fix = g.fix_valid || g.fix_quality > 0;
+        bool has_fix = gps_has_fix(&g);
         char badge[16];
         if(!has_fix) {
             snprintf(badge, sizeof(badge), "No fix");
@@ -197,8 +208,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
             }
         } else {
             // Good quality — show HDOP, fix type, and SBAS indicator
-            const char* fix_str = (g.fix_type == 3) ? "3D" :
-                                  (g.fix_type == 2) ? "2D" : "--";
+            const char* fix_str = gps_fix_label(g.fix_type);
             snprintf(badge, sizeof(badge), "H:%.1f %s%s",
                      (double)g.hdop, fix_str,
                      g.sbas_active ? " S" : "");

@@ -49,3 +49,8 @@ GpsStatus gps_uart_get_status(const GpsUart* gps);
 bool      gps_uart_is_ready(const GpsUart* gps);
 void      gps_uart_process_rx(GpsUart* gps);
 void      gps_uart_send_hot_start(GpsUart* gps);
+
+// Put the GPS module into its lowest-power standby/sleep state.
+// Acquires USART1 briefly — does NOT require a full GpsUart allocation.
+// Safe to call even when no module is connected (no-op on acquire failure).
+void      gps_uart_standby(void);

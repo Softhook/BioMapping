@@ -669,4 +669,41 @@ void gps_uart_send_hot_start(GpsUart* g) {
 #endif
 }
 
+// ---------------------------------------------------------------------------
+// Standalone standby — put GPS module into lowest-power sleep without a
+// full GpsUart allocation.  Acquires USART1 just long enough to send the
+// sleep command, then releases everything.  Used when entering GSR-only
+// mode so the GPS board isn't left idle at full power.
+// ---------------------------------------------------------------------------
+void gps_uart_standby(void) {
+    Expansion* expansion = furi_record_open(RECORD_EXPANSION);
+    expansion_disable(expansion);
+    furi_record_close(RECORD_EXPANSION);
+
+    FuriHalSerialHandle* handle = furi_hal_serial_control_acquire(GPS_UART_CH);
+    if(handle) {
+        furi_hal_serial_init(handle, GPS_BAUD_RATE);
+#if GPS_MODULE == GPS_MODULE_M10Q
+        // Wake from possible standby, then send Software Standby command
+        uint8_t dummy = 0xFF;
+        furi_hal_serial_tx(handle, &dummy, 1);
+        furi_delay_ms(100);
+        furi_hal_serial_tx(handle, ubx_rxm_pmreq_standby,
+                           sizeof(ubx_rxm_pmreq_standby));
+        furi_delay_ms(100);
+#elif GPS_MODULE == GPS_MODULE_L76K
+        // PCAS11,0 = stop mode (L76K&L26K Protocol Spec §2.3.11)
+        const char* stop_cmd = "$PCAS11,0*1C\r\n";
+        furi_hal_serial_tx(handle, (const uint8_t*)stop_cmd, strlen(stop_cmd));
+        furi_delay_ms(100);
+#endif
+        furi_hal_serial_deinit(handle);
+        furi_hal_serial_control_release(handle);
+    }
+
+    expansion = furi_record_open(RECORD_EXPANSION);
+    expansion_enable(expansion);
+    furi_record_close(RECORD_EXPANSION);
+}
+
 
