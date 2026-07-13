@@ -152,8 +152,13 @@ const GpsFilter = {
     let PLon = R_LON_BASE;
     let lastTime = points[0].time;
 
-    for (let i = 0; i < n; i++) {
-      const dt = i === 0 ? 1.0 : Math.max(0.1, points[i].time - lastTime);
+    forwardLats[0] = xLat;
+    forwardLons[0] = xLon;
+    fwdCovLat[0]    = PLat;
+    fwdCovLon[0]    = PLon;
+
+    for (let i = 1; i < n; i++) {
+      const dt = Math.max(0.1, points[i].time - lastTime);
       lastTime = points[i].time;
 
       const pPLat = PLat + Q_LAT * dt;
@@ -329,7 +334,7 @@ const GpsFilter = {
         // Apply an exponential moving average using the locally-tracked
         // previous heading (avoids the off-by-one result[i-2] bug that
         // skipped index 1 and never initialised result[0]._smoothedHeadingY).
-        if (prevHeadingY !== 0 && prevHeadingX !== 0) {
+        if (prevHeadingY !== 0 || prevHeadingX !== 0) {
           const safeAlpha = Math.max(0.01, alpha);
           const beta = Math.max(0.2, Math.min(0.95, 0.7 - Math.log(safeAlpha) * 0.15));
           headingY = beta * prevHeadingY + (1 - beta) * headingY;
@@ -490,3 +495,7 @@ const GpsFilter = {
     return rdpRecurse(points, 0, points.length - 1);
   }
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = GpsFilter;
+}

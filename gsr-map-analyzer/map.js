@@ -271,8 +271,22 @@ class GSRMapManager {
     // Reconstruct full 10 Hz filtered GPS path for CSV export
     this._reconstructFilteredGps(analyzer, data, gpsPoints);
 
+    // Build drawPoints from the 10 Hz reconstructed filtered GPS path
+    let drawPoints = [];
+    for (let i = 0; i < data.length; i++) {
+      const fg = analyzer.filteredGps[i];
+      if (fg && !isNaN(fg.lat) && !isNaN(fg.lon)) {
+        drawPoints.push({
+          ...data[i],
+          lat: fg.lat,
+          lon: fg.lon,
+          origIdx: i
+        });
+      }
+    }
+
     // 7-8: Downsample and simplify for drawing
-    let drawPoints = this._downsampleForDisplay(gpsPoints, analyzer.sampleRate || 10.0, p.downsample === true || p.downsample === 1);
+    drawPoints = this._downsampleForDisplay(drawPoints, analyzer.sampleRate || 10.0, p.downsample === true || p.downsample === 1);
     drawPoints = GpsFilter.applyRDP(drawPoints, p.rdpTolerance || 0);
     if (drawPoints.length === 0) return;
 
@@ -1043,8 +1057,22 @@ class GSRMapManager {
 
       this._reconstructFilteredGps(track.analyzer, data, gpsPoints);
 
-      let drawPoints = this._downsampleForDisplay(
-        gpsPoints,
+      // Build drawPoints from the 10 Hz reconstructed filtered GPS path
+      let drawPoints = [];
+      for (let i = 0; i < data.length; i++) {
+        const fg = track.analyzer.filteredGps[i];
+        if (fg && !isNaN(fg.lat) && !isNaN(fg.lon)) {
+          drawPoints.push({
+            ...data[i],
+            lat: fg.lat,
+            lon: fg.lon,
+            origIdx: i
+          });
+        }
+      }
+
+      drawPoints = this._downsampleForDisplay(
+        drawPoints,
         track.analyzer.sampleRate || 10.0,
         p.downsample === 1 || p.downsample === true
       );
