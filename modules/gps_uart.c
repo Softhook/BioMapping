@@ -581,12 +581,22 @@ static void gps_uart_configure(GpsUart* g) {
 
 #if GPS_MODULE == GPS_MODULE_L76K
     // ── Quectel L76K ──────────────────────────────────────────────────
+    // All PCAS commands verified against Quectel L76K&L26K GNSS Protocol
+    // Specification v1.2 (2021-12-16).  Checksums computed with NMEA XOR.
+    //
+    // NOTE: PCAS04 constellation setting is VOLATILE per Quectel HW manual
+    // §3.4.1 ("掉电不保存") — module always boots as GPS+BeiDou.  We re-send
+    // $PCAS04,7 on every configure() call.  PCAS01 baud rate IS persisted.
+    //
+    // NOTE: No PCAS06 (SBAS enable) command exists in the L76K protocol spec.
+    // SBAS satellites (PRN 120-158) are handled automatically by the module
+    // when visible; we detect them passively via GSA PRN ≥ 120.
     FURI_LOG_I("GpsUart", "Configuring Quectel L76K");
 
     pcas_tx(g, "$PCAS10,0*1C\r\n");                             // Hot start
     furi_delay_ms(200);
-    pcas_tx(g, "$PCAS04,7*1E\r\n");                             // GPS+BeiDou+GLONASS
-    pcas_tx(g, "$PCAS03,1,0,1,0,1,0,0,0,0,0,,,0,0*03\r\n");   // GGA+GSA+RMC only
+    pcas_tx(g, "$PCAS04,7*1E\r\n");                             // GPS+BeiDou+GLONASS (spec §2.3.4)
+    pcas_tx(g, "$PCAS03,1,0,1,0,1,0,0,0,0,0,,,0,0*03\r\n");   // GGA+GSA+RMC only (spec §2.3.3)
 
     // Switch module to 115200 baud
     FURI_LOG_I("GpsUart", "Switching GPS to 115200 baud");
@@ -603,8 +613,11 @@ static void gps_uart_configure(GpsUart* g) {
     furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
     furi_delay_ms(100);
 
-    pcas_tx(g, "$PCAS02,200*1D\r\n");                           // 5 Hz
-    pcas_tx(g, "$PCAS03,1,0,1,5,1,0,0,0,0,0,,,0,0*06\r\n");   // GGA+GSA+RMC@5Hz, GSV@1Hz
+    // Datasheet requirement (§2.3.2): Interval < 1000 ms → must use 115200
+    // baud + single-sentence output mode.  We intentionally output GGA+GSA+RMC
+    // (3 types per fix) for richer data; bandwidth at 115200 is ~11% utilised.
+    pcas_tx(g, "$PCAS02,200*1D\r\n");                           // 5 Hz (spec §2.3.2)
+    pcas_tx(g, "$PCAS03,1,0,1,5,1,0,0,0,0,0,,,0,0*06\r\n");   // GGA+GSA+RMC@5Hz, GSV@1Hz (spec §2.3.3)
     FURI_LOG_I("GpsUart", "L76K running at 115200 baud, 5 Hz, GSV@1Hz");
 
 #elif GPS_MODULE == GPS_MODULE_M10Q

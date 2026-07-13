@@ -249,7 +249,7 @@ See `docs/gps_backlog.md` for full implementation detail on each item.
 
 | ID | Title | Effort | Expected Status / Gain |
 |----|-------|--------|------------------------|
-| B4 | Force SBAS/EGNOS active | Implemented | **Done** (Sent `$PCAS06,1,1` + response logging active) |
+| B4 | SBAS/EGNOS passive detection | Implemented | **Done** (passive PRN≥120 detection; no PCAS06 exists on L76K per official spec v1.2) |
 | B3 | 5 Hz GPS update rate (needs baud upgrade) | ⭐⭐ | Better temporal alignment with GSR |
 | B1 | GSV satellite elevation weighting | Implemented | **Done** (Calculates constellation-aware WDOP, maps sat elevations collision-free, web analyzer prefers WDOP over HDOP) |
 | B2 | Full RTS smoother | ⭐⭐⭐ | 10–20% smoother vs current Kalman |

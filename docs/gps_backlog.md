@@ -10,8 +10,8 @@ The GPS module is a **Quectel L76KB-A58** (confirmed by visual inspection).
 |-----------|-------|
 | Chipset | Quectel L76K (MediaTek MT3333-based) |
 | Variant | L76KB-A58 (±3.3V, 57600 bps option, RTC option) |
-| Constellations | **GPS (L1 C/A) + BeiDou (B1) + QZSS (L1 C/A)** — no GLONASS or Galileo |
-| SBAS | **WAAS, EGNOS, MSAS, GAGAN** — all supported via L1 C/A (PRN 120–158) |
+| Constellations | **GPS (L1 C/A) + BeiDou (B1) + GLONASS (L1) + QZSS (L1 C/A)** — all four per official Quectel spec v1.2 §2.3.4; QZSS always enabled |
+| SBAS | **WAAS, EGNOS, MSAS, GAGAN** — supported via L1 C/A (PRN 120–158); no PCAS enable command exists — module handles SBAS automatically |
 | Tracking channels | 33 (simultaneous), 99 acquisition |
 | Sensitivity | -148 dBm acquisition, -162 dBm tracking |
 | Position accuracy | **< 2.0 m CEP** (autonomous, static, >6 sats, -130 dBm) |
@@ -25,7 +25,7 @@ The GPS module is a **Quectel L76KB-A58** (confirmed by visual inspection).
 | PCAS02 rate | `100`=10 Hz ⚠️, `200`=5 Hz, `500`=2 Hz, `1000`=1 Hz |
 | PCAS03 bit 3 | GSV sentences — **enabled by default**, but our `$PCAS03` disables it |
 | PCAS04 constellation | `1`=GPS, `2`=BeiDou, `3`=GPS+BeiDou, `4`=GLONASS, `5`=GPS+GLONASS, `6`=BeiDou+GLONASS, **`7`=GPS+BeiDou+GLONASS** (confirmed, our config) |
-| PCAS06 SBAS | `$PCAS06,<mode>,<correction>` — mode: 0=off, 1=auto, 2=force |
+| PCAS04 persistence | **Volatile** — Quectel HW manual §3.4.1: "掉电不保存" (not saved across power cycles). Module always boots as GPS+BeiDou. Our `$PCAS04,7` is re-sent on every `gps_uart_configure()`. |
 
 > **⚠️ PCAS02 rate note:** The datasheet says max update rate is **5 Hz**. `$PCAS02,100` (10 Hz) is listed in the rate range but the module may not reliably output at 10 Hz. Phase 2 target is **5 Hz** as the maximum.
 
@@ -37,7 +37,7 @@ The GPS module is a **Quectel L76KB-A58** (confirmed by visual inspection).
 - MSAS (Japan): PRN 129, 137
 - GAGAN (India): PRN 127, 128
 
-When locked, position accuracy improves from < 2.0 m (autonomous) — already quite good. The `$PCAS06,1,1` command we send enables both SBAS search and corrections. Outdoor testing with a clear southern view is needed to verify — the `sbas_active` flag on the display will turn on when any PRN ≥ 120 appears in GSA sentences.
+When locked, position accuracy improves from < 2.0 m (autonomous) — already quite good. **No PCAS06 command exists in the L76K protocol spec** (v1.2 §2.3 lists only PCAS01–PCAS04 and PCAS10). The module handles SBAS automatically when SBAS satellites are in view — the `sbas_active` flag on the display turns on when any PRN ≥ 120 appears in GSA sentences. Outdoor testing with a clear southern view is needed to verify.
 
 ### Implications of the confirmed PCAS01 mapping
 
@@ -72,7 +72,7 @@ These are the original Tier 1 items, all confirmed in the codebase:
 | B1 | **GSV Satellite Elevation Weighting** — WDOP from per-satellite elevations, constellation-aware PRN storage, CSV `wdop` column, analyser prefers WDOP over HDOP for Kalman R. | 7 files: `gps_uart.h/.c`, `biomap_types.h`, `biomap_session.c`, `gps_filter.js`, `analyzer.js` |
 | B2 | **Proper RTS (Rauch-Tung-Striebel) Smoother** — forward pass stores P_fwd[i]; backward pass uses optimal gain. 4 m displacement cap. 55% reduction on synthetic 20 m multipath spike. | `gps_filter.js:applyKalman()` |
 | B3 | **GPS Update Rate — 5 Hz** — `$PCAS02,200` at 115200 baud; `GPS_CSV_HZ=5`; CSV trigger every 2nd tick (`tick_counter % 2 == 0`). Batch buffer bumped to 1024 B. Phase 2 target (5 Hz) delivered directly; phase 1 (2 Hz) skipped. | `modules/gps_uart.c`, `biomap_types.h`, `biomap_session.c`, `modules/sd_logger.c` |
-| B4 | **Confirm and Force SBAS/EGNOS** — `$PCAS06,1,1` force-enables WAAS/EGNOS correction. Display shows SBAS indicator when PRN ≥120 in GSA. | `modules/gps_uart.c`, `biomap_render.c` |
+| B4 | **SBAS/EGNOS passive detection** — No PCAS06 command exists on L76K (spec v1.2). Module handles SBAS automatically. Display shows SBAS indicator when PRN ≥120 detected in GSA sentences (passive). | `modules/gps_uart.c`, `biomap_render.c` |
 
 ---
 
