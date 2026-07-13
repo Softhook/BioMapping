@@ -41,8 +41,9 @@ bool gsr_sensor_available(const GsrSensor* gsr);
 // Automatically recovers when an in-range reading comes back.
 bool gsr_sensor_is_connected(const GsrSensor* gsr);
 
-// Call at 10 Hz.  Reads ADS1115 (if available), applies autoranging,
-// converts to nanosiemens via the TIA circuit equation, and stores the result.
+// Call at 10 Hz.  No-op — all decimation, autoranging, and TIA computation
+// now runs in the background worker thread.  Kept for API compatibility;
+// call gsr_sensor_get_raw() to read the latest value (~100 ms updates).
 void gsr_sensor_tick(GsrSensor* gsr);
 
 // Skin conductance in nanosiemens (nS), computed from the TIA circuit
