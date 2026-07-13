@@ -80,6 +80,8 @@ typedef struct {
     bool     active;
     int      tick_counter;
     int      flush_counter;  // seconds since last SD flush; triggers at FLUSH_INTERVAL
+    uint32_t total_ticks;    // monotonic tick count since recording start; used for
+                             // relative centisecond timestamps (total_ticks * 0.1 s)
 } RecordingState;
 
 // Extracted GPS position snapshot (returned by value from get_gps_position).

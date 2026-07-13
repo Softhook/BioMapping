@@ -83,23 +83,33 @@ void session_deinit(Session* s, BioMapApp* app) {
 // Data-processing pipeline (static — operate on Session* only)
 // ==========================================================================
 
-// ── Timestamp formatting from session GPS or RTC fallback ──────────────────
-static void session_format_timestamp(const Session* s, char* buf, size_t sz) {
-    if(s->gps) {
-        GpsStatus g = gps_uart_get_status(s->gps);
-        if(g.date.year) {
-            int y = gps_year_expand(g.date.year);
-            snprintf(buf, sz, "%04d-%02d-%02dT%02d:%02d:%02dZ",
-                y, g.date.month, g.date.day,
-                g.time.hours, g.time.minutes, g.time.seconds);
-            return;
-        }
-    }
-    DateTime dt;
-    furi_hal_rtc_get_datetime(&dt);
-    snprintf(buf, sz, "%04d-%02d-%02dT%02d:%02d:%02dZ",
-        (int)dt.year, (int)dt.month, (int)dt.day,
-        (int)dt.hour, (int)dt.minute, (int)dt.second);
+// ── RTC → Unix epoch seconds (UTC) ────────────────────────────────────────
+// Converts a Flipper DateTime (local time) to seconds since 1970-01-01.
+// Assumes the RTC is set to UTC — the Flipper has no timezone concept.
+static double rtc_to_unix_epoch(const DateTime* dt) {
+    // Days before each month in a non-leap year
+    static const uint16_t days_before[12] = {
+        0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
+    };
+    uint16_t y = dt->year;
+    // Whole days from 1970 to start of year y
+    uint32_t days = (y - 1970) * 365U
+                  + (y - 1969) / 4U
+                  - (y - 1901) / 100U
+                  + (y - 1601) / 400U;
+    days += days_before[dt->month - 1];
+    if(dt->month > 2 &&
+       (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)))
+        days++;  // leap day
+    days += dt->day - 1;
+    return (double)(days * 86400UL + dt->hour * 3600U +
+                    dt->minute * 60U + dt->second);
+}
+
+// ── Relative timestamp (seconds since recording start) ────────────────────
+// Uses the monotonic total_ticks counter; each tick = 100 ms at TICK_HZ=10.
+static double session_rel_seconds(const Session* s) {
+    return (double)s->recording.total_ticks / 10;
 }
 
 // ── Graph rescaling (time-axis zoom) ───────────────────────────────────────
@@ -269,12 +279,11 @@ static void update_graph_pipeline(Session* s) {
 static void batch_csv_row(Session* s, float raw) {
     if(!s->recording.active || !has_gsr(s->mode)) return;
 
-    char ts[32];
-    session_format_timestamp(s, ts, sizeof(ts));
+    double rel = session_rel_seconds(s);
 
     if(s->mode == BioMapModeGsrOnly) {
-        sd_logger_batch_printf(s->logger, "%s,%.1f\n",
-                               ts, (double)raw);
+        sd_logger_batch_printf(s->logger, "%.2f,%.1f\n",
+                               rel, (double)raw);
     } else if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
         GpsPosition pos = get_gps_position(s);
         // Only log GPS coordinates when quality is acceptable.
@@ -288,28 +297,28 @@ static void batch_csv_row(Session* s, float raw) {
             bool has_vel = !isnan(pos.speed_kts) && !isnan(pos.course_deg);
             if(has_vel) {
                 sd_logger_batch_printf(s->logger,
-                    "%s,%.6f,%.6f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f\n",
-                    ts, (double)pos.lat, (double)pos.lon,
+                    "%.2f,%.6f,%.6f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f\n",
+                    rel, (double)pos.lat, (double)pos.lon,
                     (double)pos.hdop, (double)pos.pdop,
                     pos.sats, pos.fix_type,
                     (double)pos.speed_kts, (double)pos.course_deg, (double)raw);
             } else {
                 sd_logger_batch_printf(s->logger,
-                    "%s,%.6f,%.6f,%.1f,%.1f,%d,%d,,,%.1f\n",
-                    ts, (double)pos.lat, (double)pos.lon,
+                    "%.2f,%.6f,%.6f,%.1f,%.1f,%d,%d,,,%.1f\n",
+                    rel, (double)pos.lat, (double)pos.lon,
                     (double)pos.hdop, (double)pos.pdop,
                     pos.sats, pos.fix_type, (double)raw);
             }
         } else {
-            sd_logger_batch_printf(s->logger, "%s,,,,,,,,%.1f\n",
-                                   ts, (double)raw);
+            sd_logger_batch_printf(s->logger, "%.2f,,,,,,,,,%.1f\n",
+                                   rel, (double)raw);
         }
     } else {
         // GPS-skip tick: GPS_CSV_HZ < TICK_HZ, so this tick falls between
         // GPS sample boundaries.  Preserve GSR data with empty GPS columns.
         // Dead code when GPS_CSV_HZ == TICK_HZ (every tick is a GPS tick).
-        sd_logger_batch_printf(s->logger, "%s,,,,,,,,%.1f\n",
-                               ts, (double)raw);
+        sd_logger_batch_printf(s->logger, "%.2f,,,,,,,,,%.1f\n",
+                               rel, (double)raw);
     }
 }
 
@@ -375,15 +384,26 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
     furi_mutex_release(mutex);
 
     if(start) {
-        bool ok = sd_logger_start(
-            s->logger,
-            (s->mode == BioMapModeGsrOnly)
-                ? "timestamp,gsr_raw\n"
-                : "timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw\n");
+        // Build header: recording-start metadata line + column names.
+        DateTime dt;
+        furi_hal_rtc_get_datetime(&dt);
+        double epoch = rtc_to_unix_epoch(&dt);
+        const char* cols = (s->mode == BioMapModeGsrOnly)
+            ? "timestamp,gsr_raw\n"
+            : "timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw\n";
+        char header[256];
+        int n = snprintf(header, sizeof(header),
+                         "# RecordingStartTime:%.2f\n%s", epoch, cols);
+        if(n < 0 || (size_t)n >= sizeof(header)) {
+            FURI_LOG_E("BioMap", "Header too long");
+            return false;
+        }
+        bool ok = sd_logger_start(s->logger, header);
         if(ok) {
             furi_mutex_acquire(mutex, FuriWaitForever);
             s->recording.active = true;
             s->recording.tick_counter = 0;
+            s->recording.total_ticks  = 0;
             furi_mutex_release(mutex);
             // Recording indicator: the green LED flash from
             // handle_second_boundary is used instead of a solid red LED.
@@ -483,27 +503,26 @@ static void handle_recording_tick(Session* s) {
     if(!has_gsr(s->mode) && has_gps(s->mode) && s->recording.active) {
         if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
             GpsPosition pos = get_gps_position(s);
-            char ts[32];
-            session_format_timestamp(s, ts, sizeof(ts));
+            double rel = session_rel_seconds(s);
             bool gps_ok = pos.valid && pos.hdop < GPS_HDOP_GATE;
             if(gps_ok) {
                 bool has_vel = !isnan(pos.speed_kts) && !isnan(pos.course_deg);
                 if(has_vel) {
                     sd_logger_batch_printf(s->logger,
-                        "%s,%.6f,%.6f,%.1f,%.1f,%d,%d,%.2f,%.1f,%d\n",
-                        ts, (double)pos.lat, (double)pos.lon,
+                        "%.2f,%.6f,%.6f,%.1f,%.1f,%d,%d,%.2f,%.1f,%d\n",
+                        rel, (double)pos.lat, (double)pos.lon,
                         (double)pos.hdop, (double)pos.pdop,
                         pos.sats, pos.fix_type,
                         (double)pos.speed_kts, (double)pos.course_deg, 0);
                 } else {
                     sd_logger_batch_printf(s->logger,
-                        "%s,%.6f,%.6f,%.1f,%.1f,%d,%d,,,%d\n",
-                        ts, (double)pos.lat, (double)pos.lon,
+                        "%.2f,%.6f,%.6f,%.1f,%.1f,%d,%d,,,%d\n",
+                        rel, (double)pos.lat, (double)pos.lon,
                         (double)pos.hdop, (double)pos.pdop,
                         pos.sats, pos.fix_type, 0);
                 }
             } else {
-                sd_logger_batch_printf(s->logger, "%s,,,,,,,,%d\n", ts, 0);
+                sd_logger_batch_printf(s->logger, "%.2f,,,,,,,,,%d\n", rel, 0);
             }
         }
         return;
@@ -627,6 +646,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         if(ev.type == EventTypeTick) {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
             handle_recording_tick(s);
+            s->recording.total_ticks++;
 
             if(++s->recording.tick_counter >= TICK_HZ) {
                 handle_second_boundary(s, app->notifications);
