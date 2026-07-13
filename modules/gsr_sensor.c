@@ -62,7 +62,6 @@
 #define ADS_SATURATE_THRESH   30000  // 91.5 % of FS → range down immediately
 #define ADS_LOW_THRESH         4096  // 12.5 % of FS → range up candidate
 #define ADS_LOW_COUNT_TICKS       5  // consecutive low ticks before range up
-#define SNAPSHOT_INTERVAL       100  // worker iterations between snapshot computations (~100 ms)
 
 // Normalisation multiplier factors to pga_index=5 (±0.256 V) reference.
 static const int32_t NORM_FACTOR[6] = { 24, 16, 8, 4, 2, 1 };
@@ -95,7 +94,6 @@ struct GsrSensor {
     uint8_t pga_index;  // active PGA setting (0 … ADS_PGA_MAX)
     uint8_t low_count;  // consecutive ticks below ADS_LOW_THRESH
     uint8_t zero_count; // consecutive ticks with raw == 0.0f
-    uint32_t sample_count; // worker iteration counter; triggers snapshot at SNAPSHOT_INTERVAL
 
     FuriThread* thread;
     FuriMutex*  mutex;
@@ -106,9 +104,9 @@ struct GsrSensor {
     volatile uint32_t write_idx;
 };
 
-// Background worker thread for 860 SPS reading, decimation, autoranging,
-// TIA computation, and disconnect detection.  Publishes gsr->raw every
-// ~100 ms; the main thread reads it via gsr_sensor_get_raw().
+// Background worker thread for 860 SPS ADC reading.  Writes normalized
+// samples to the ring buffer; the main thread's gsr_sensor_tick() handles
+// decimation, autoranging, and TIA computation at exact 10 Hz boundaries.
 static int32_t gsr_sensor_worker(void* context) {
     GsrSensor* gsr = context;
     uint8_t current_adc_pga = ADS_PGA_DEFAULT;
@@ -182,78 +180,6 @@ static int32_t gsr_sensor_worker(void* context) {
             }
         }
 
-        // ── Snapshot pipeline: every ~100 ms, compute the decimated GSR ──
-        // value from the ring buffer.  This runs in the worker so the main
-        // thread only reads gsr->raw via gsr_sensor_get_raw().
-        // Skip when I2C is failing so we don't sum stale buffer data.
-        if(++gsr->sample_count >= SNAPSHOT_INTERVAL) {
-            gsr->sample_count = 0;
-
-            if(consecutive_failures < 50) {
-                // Step 1: sum the most recent 100 samples (100 ms window).
-                furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-                uint32_t r_idx = gsr->write_idx;
-                int64_t sum = 0;
-                for(int i = 0; i < 100; i++) {
-                    r_idx = (r_idx - 1) & (SENSOR_BUFFER_SIZE - 1);
-                    sum += gsr->buffer[r_idx];
-                }
-                uint8_t old_pga = gsr->pga_index;
-                furi_mutex_release(gsr->mutex);
-
-                // Step 2: simple mean (~8.7× noise reduction).
-                float avg_norm = (float)sum / 100.0f;
-
-                // Step 3: autoranging decision.
-                int32_t hw_equiv = (int32_t)(avg_norm / (float)NORM_FACTOR[old_pga]);
-                int32_t abs_hw_equiv = (hw_equiv < 0) ? -hw_equiv : hw_equiv;
-                uint8_t new_pga = old_pga;
-
-                if(abs_hw_equiv >= ADS_SATURATE_THRESH && new_pga > ADS_PGA_MIN) {
-                    new_pga--;
-                    gsr->low_count = 0;
-                } else if(abs_hw_equiv < ADS_LOW_THRESH && new_pga < ADS_PGA_MAX) {
-                    if(++gsr->low_count >= ADS_LOW_COUNT_TICKS) {
-                        new_pga++;
-                        gsr->low_count = 0;
-                    }
-                } else {
-                    gsr->low_count = 0;
-                }
-
-                // Step 4: write results under a single mutex acquisition.
-                furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-                bool pga_update = (new_pga != old_pga);
-                if(pga_update) {
-                    FURI_LOG_I("GsrSensor", "PGA %u→%u (±%s)",
-                        (unsigned)old_pga, (unsigned)new_pga, PGA_LABEL[new_pga]);
-                    gsr->pga_index = new_pga;
-                    gsr->pga_changed = true;
-                }
-
-                // TIA equation → skin conductance in nanosiemens.
-                if(avg_norm <= 0) {
-                    gsr->raw = 0.0f;
-                } else {
-                    float clamped = (avg_norm > 319000) ? 319000.0f : (float)avg_norm;
-                    float num = clamped * 5000000.0f;
-                    float den = 15040000.0f - clamped * 47.0f;
-                    gsr->raw = num / den;
-                }
-
-                // Finger-cuff disconnect detection (20-tick debounce).
-                if(gsr->raw < 0.1f || gsr->raw > 50000.0f) {
-                    if(++gsr->zero_count >= 20) {
-                        gsr->connected = false;
-                    }
-                } else {
-                    gsr->zero_count = 0;
-                    gsr->connected = true;
-                }
-                furi_mutex_release(gsr->mutex);
-            }
-        }
-
         // Track the PGA under which the next conversion will be started.
         // Only update when there is no pending (uncommitted) PGA change —
         // otherwise a failed I2C write would cause the next read to be
@@ -282,7 +208,6 @@ GsrSensor* gsr_sensor_alloc(void) {
     gsr->low_count = 0;
     gsr->connected = true;
     gsr->zero_count = 0;
-    gsr->sample_count = 0;
 
     furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
     uint8_t probe = 0;
@@ -375,11 +300,91 @@ float gsr_sensor_get_raw(const GsrSensor* gsr) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tick — no-op.  All decimation, autoranging, and TIA computation now runs
-// in the background worker thread.  Call gsr_sensor_get_raw() to read the
-// latest skin conductance value (updated every ~100 ms by the worker).
+// Oversampling & Filtering
+//
+// Each 100 ms (10 Hz) tick extracts the 100 most recent buffer entries
+// and averages them — spanning the full 100 ms decimation interval.
+// Called from the main thread at exact 10 Hz boundaries, guaranteeing
+// consistent sample timing for the derivative pipeline and hum notch.
+//
+// The background worker polls at ~1000 Hz (furi_delay_ms(1) synchronised
+// to the RTOS tick) while the ADS1115 converts at 860 SPS, so ~14 % of
+// buffer entries are duplicate reads of the same conversion.  Duplicates
+// do not bias the simple mean but reduce effective noise attenuation from
+// √100 = 10× to ~8.7×.
+//
+// 100 ms window nominally nulls 50/60 Hz mains hum (5 × 20 ms, 6 × 16.67 ms).
 // ─────────────────────────────────────────────────────────────────────────────
 
 void gsr_sensor_tick(GsrSensor* gsr) {
-    (void)gsr;
+    furi_assert(gsr);
+    if(!gsr->available) return;
+
+    // ── Step 1: sum the most recent 100 samples directly from the ring
+    // buffer (100 ms window).  No intermediate array — the simple mean
+    // doesn't need sorting, so one pass is enough.
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    uint32_t r_idx = gsr->write_idx;
+    int64_t sum = 0;
+    for(int i = 0; i < 100; i++) {
+        r_idx = (r_idx - 1) & (SENSOR_BUFFER_SIZE - 1);
+        sum += gsr->buffer[r_idx];
+    }
+    uint8_t old_pga = gsr->pga_index;
+    furi_mutex_release(gsr->mutex);
+
+    // ── Step 2: simple mean. Effective ~8.7× noise reduction.
+    float avg_norm = (float)sum / 100.0f;
+
+    // ── Step 3: autoranging decision on filtered equivalent raw value.
+    int32_t hw_equiv = (int32_t)(avg_norm / (float)NORM_FACTOR[old_pga]);
+    int32_t abs_hw_equiv = (hw_equiv < 0) ? -hw_equiv : hw_equiv;
+    uint8_t new_pga = old_pga;
+
+    if(abs_hw_equiv >= ADS_SATURATE_THRESH && new_pga > ADS_PGA_MIN) {
+        new_pga--;
+        gsr->low_count = 0;
+    } else if(abs_hw_equiv < ADS_LOW_THRESH && new_pga < ADS_PGA_MAX) {
+        if(++gsr->low_count >= ADS_LOW_COUNT_TICKS) {
+            new_pga++;
+            gsr->low_count = 0;
+        }
+    } else {
+        gsr->low_count = 0;
+    }
+
+    bool pga_update = false;
+    if(new_pga != old_pga) {
+        pga_update = true;
+    }
+
+    // ── Step 4: normalise filtered reading to physical skin conductance (nS).
+    // Write pga_index, pga_changed, and raw under a single mutex acquisition
+    // to minimise contention with the background worker thread.
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    if(pga_update) {
+        FURI_LOG_I("GsrSensor", "PGA %u→%u (±%s)",
+            (unsigned)old_pga, (unsigned)new_pga, PGA_LABEL[new_pga]);
+        gsr->pga_index = new_pga;
+        gsr->pga_changed = true;
+    }
+    if(avg_norm <= 0) {
+        gsr->raw = 0.0f;
+    } else {
+        float clamped = (avg_norm > 319000) ? 319000.0f : (float)avg_norm;
+        float num = clamped * 5000000.0f;
+        float den = 15040000.0f - clamped * 47.0f;
+        gsr->raw = num / den;
+    }
+
+    // ── Finger-cuff disconnect detection (20-tick debounce).
+    if(gsr->raw < 0.1f || gsr->raw > 50000.0f) {
+        if(++gsr->zero_count >= 20) {
+            gsr->connected = false;
+        }
+    } else {
+        gsr->zero_count = 0;
+        gsr->connected = true;
+    }
+    furi_mutex_release(gsr->mutex);
 }

@@ -514,6 +514,7 @@ static void handle_recording_tick(Session* s) {
     // ── GSR modes (GsrOnly, GpsGsr) ────────────────────────────────────
     float raw = 0.0f;
     if(s->gsr) {
+        gsr_sensor_tick(s->gsr);
         raw = gsr_sensor_get_raw(s->gsr);
 
         // ── Instantaneous per-tick validity check ────────────────────
