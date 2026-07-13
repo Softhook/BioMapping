@@ -91,6 +91,7 @@ struct GsrSensor {
     float   raw;        // skin conductance in nanosiemens (nS)
     bool    available;
     bool    connected;  // false after 20+ ticks of zero readings (cuffs disconnected)
+    bool    i2c_working; // false when consecutive I2C reads fail
     uint8_t pga_index;  // active PGA setting (0 … ADS_PGA_MAX)
     uint8_t low_count;  // consecutive ticks below ADS_LOW_THRESH
     uint8_t zero_count; // consecutive ticks with raw == 0.0f
@@ -158,6 +159,11 @@ static int32_t gsr_sensor_worker(void* context) {
 
         if(ok) {
             consecutive_failures = 0;
+            if(!gsr->i2c_working) {
+                furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+                gsr->i2c_working = true;
+                furi_mutex_release(gsr->mutex);
+            }
             int16_t hw = (int16_t)((data[0] << 8) | data[1]);
 
             // Normalize using current_adc_pga (the gain that was active
@@ -175,6 +181,7 @@ static int32_t gsr_sensor_worker(void* context) {
             if(consecutive_failures >= 50) {
                 furi_mutex_acquire(gsr->mutex, FuriWaitForever);
                 gsr->connected = false;
+                gsr->i2c_working = false;
                 gsr->raw = 0.0f;
                 furi_mutex_release(gsr->mutex);
             }
@@ -207,6 +214,7 @@ GsrSensor* gsr_sensor_alloc(void) {
     gsr->pga_index = ADS_PGA_DEFAULT;
     gsr->low_count = 0;
     gsr->connected = true;
+    gsr->i2c_working = true;
     gsr->zero_count = 0;
 
     furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
@@ -319,6 +327,12 @@ float gsr_sensor_get_raw(const GsrSensor* gsr) {
 void gsr_sensor_tick(GsrSensor* gsr) {
     furi_assert(gsr);
     if(!gsr->available) return;
+
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    bool i2c_ok = gsr->i2c_working;
+    furi_mutex_release(gsr->mutex);
+
+    if(!i2c_ok) return;
 
     // ── Step 1: sum the most recent 100 samples directly from the ring
     // buffer (100 ms window).  No intermediate array — the simple mean

@@ -184,7 +184,7 @@ int sd_logger_batch_printf(SdLogger* l, const char* fmt, ...) {
     if(n >= remaining) {
         FURI_LOG_W("SdLogger", "Batch printf truncated (%d >= %d)",
                    n, remaining);
-        l->gsr_batch_len = (int)sizeof(l->gsr_batch);
+        l->gsr_batch_len = (int)sizeof(l->gsr_batch) - 1;
         return 0;
     }
     l->gsr_batch_len += n;
