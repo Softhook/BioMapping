@@ -46,14 +46,17 @@ const GpsFilter = {
       const prev = kept[kept.length - 1];
       const curr = points[i];
 
-      // Prefer Doppler-derived speedKts (knots → m/s), fall back to
-      // position-derived haversine/dt when the column is absent.
+      // Prefer Doppler-derived speedKts (knots → m/s) on genuine GPS anchors
+      // (dt ≥ 0.15 s ≈ 5 Hz epoch).  For interpolated points (10 Hz grid,
+      // dt < 0.15 s) the speedKts field is step-held from the last anchor and
+      // would fail the gate repeatedly, triggering premature recovery latches.
+      // Fall back to position-derived haversine/dt for sub-epoch steps.
       let speed;
-      if (!isNaN(curr.speedKts)) {
+      const dt = Math.max(0.001, curr.time - prev.time);
+      if (!isNaN(curr.speedKts) && dt >= 0.15) {
         speed = curr.speedKts * 0.514444;  // knots → m/s
       } else {
         const dist = GpsFilter.haversineDistance(prev.lat, prev.lon, curr.lat, curr.lon);
-        const dt   = Math.max(0.001, curr.time - prev.time);
         speed = dist / dt;
       }
 
@@ -72,110 +75,6 @@ const GpsFilter = {
   },
 
 
-  /**
-   * Hampel filter (MAD-based outlier detection) applied independently to Lat and Lon.
-   * Replaces outliers with the local median rather than dropping them.
-   *
-   * @param {Array} points  — array of { lat, lon, ... }
-   * @param {number} k      — half-window size in sample count
-   * @param {number} nSigma — sigma threshold for outlier classification
-   */
-  applyHampelFilter(points, k, nSigma) {
-    if (!k || isNaN(k) || k <= 0 || !nSigma || isNaN(nSigma) || points.length < 2 * k + 1) return points;
-    const n = points.length;
-    const result = [];
-
-    const getMedianAndMAD = (arr) => {
-      const sorted = [...arr].sort((a, b) => a - b);
-      const median = sorted[Math.floor(sorted.length / 2)];
-      const absDevs = arr.map(x => Math.abs(x - median));
-      const sortedDevs = absDevs.sort((a, b) => a - b);
-      const mad = sortedDevs[Math.floor(sortedDevs.length / 2)];
-      return { median, mad };
-    };
-
-    for (let i = 0; i < n; i++) {
-      const start = Math.max(0, i - k);
-      const end = Math.min(n - 1, i + k);
-
-      const windowLats = [];
-      const windowLons = [];
-      for (let j = start; j <= end; j++) {
-        windowLats.push(points[j].lat);
-        windowLons.push(points[j].lon);
-      }
-
-      const latStats = getMedianAndMAD(windowLats);
-      const lonStats = getMedianAndMAD(windowLons);
-
-      const sigmaLat = 1.4826 * latStats.mad;
-      const sigmaLon = 1.4826 * lonStats.mad;
-
-      const diffLat = Math.abs(points[i].lat - latStats.median);
-      const diffLon = Math.abs(points[i].lon - lonStats.median);
-
-      const isLatOutlier = sigmaLat > 1e-9 && diffLat > nSigma * sigmaLat;
-      const isLonOutlier = sigmaLon > 1e-9 && diffLon > nSigma * sigmaLon;
-
-      if (isLatOutlier || isLonOutlier) {
-        result.push({
-          ...points[i],
-          lat: latStats.median,
-          lon: lonStats.median
-        });
-      } else {
-        result.push(points[i]);
-      }
-    }
-    return result;
-  },
-
-  /**
-   * DBSCAN-inspired sequential clustering of stationary periods.
-   * Collapses clusters of points within `epsilon` metres into their centroid.
-   */
-  applyDBSCAN(points, epsilon, minPts) {
-    if (points.length < minPts) return points;
-    const n = points.length;
-    const result = points.map(p => ({ ...p }));
-
-    let i = 0;
-    while (i < n) {
-      let j = i;
-      let sumLat = result[i].lat;
-      let sumLon = result[i].lon;
-      let count = 1;
-
-      while (j + 1 < n) {
-        const nextLat = result[j + 1].lat;
-        const nextLon = result[j + 1].lon;
-        const avgLat = sumLat / count;
-        const avgLon = sumLon / count;
-
-        const dist = GpsFilter.haversineDistance(avgLat, avgLon, nextLat, nextLon);
-        if (dist <= epsilon) {
-          j++;
-          sumLat += nextLat;
-          sumLon += nextLon;
-          count++;
-        } else {
-          break;
-        }
-      }
-
-      if (count >= minPts) {
-        const centroidLat = sumLat / count;
-        const centroidLon = sumLon / count;
-        for (let k = i; k <= j; k++) {
-          result[k].lat = centroidLat;
-          result[k].lon = centroidLon;
-        }
-      }
-
-      i = j + 1;
-    }
-    return result;
-  },
 
   /**
    * Forward-backward Kalman smoother on Lat and Lon (Rauch-Tung-Striebel).
@@ -215,8 +114,10 @@ const GpsFilter = {
     // constellations via GSA — most accurate) when available; fall back
     // to WDOP (GSV-based, GPS-only, from older tracks) then to HDOP.
     // Sentinel values >= 50.0 (e.g. 99.9 unknown) are treated as invalid.
-    // Clamp DOP to [0.5, 3.0] — below 0.5 is unrealistically optimistic;
-    // above 3.0 the HDOP gate should already have filtered the point.
+    // Clamp DOP to [0.5, 10.0] — below 0.5 is unrealistically optimistic;
+    // above 10.0 the HDOP gate has already filtered most points, but the
+    // velocity smoother also uses this range so both filters agree on how
+    // much to deweight a high-DOP fix.
     const getDop = (pt) => {
       if (!isNaN(pt.pdop) && pt.pdop > 0 && pt.pdop < 50.0) return pt.pdop;
       if (!isNaN(pt.wdop) && pt.wdop > 0 && pt.wdop < 50.0) return pt.wdop;
@@ -224,11 +125,11 @@ const GpsFilter = {
       return 1.0;
     };
     const getRLat = (pt) => {
-      const h = Math.max(0.5, Math.min(3.0, getDop(pt)));
+      const h = Math.max(0.5, Math.min(10.0, getDop(pt)));
       return R_LAT_BASE * h * h;
     };
     const getRLon = (pt) => {
-      const h = Math.max(0.5, Math.min(3.0, getDop(pt)));
+      const h = Math.max(0.5, Math.min(10.0, getDop(pt)));
       return R_LON_BASE * h * h;
     };
 
@@ -378,6 +279,14 @@ const GpsFilter = {
     const DEG_TO_RAD  = Math.PI / 180;
     const M_TO_DEG_LAT = 1.0 / 111320.0;
 
+    // Initialise dead-reckoning heading tracker from the first point's course.
+    // Using a local variable avoids both the off-by-one indexing bug
+    // (was result[i-2] instead of result[i-1]) and the mutation side
+    // effect of storing _smoothedHeadingY/X on the input points.
+    const firstCourseRad = !isNaN(points[0].course) ? points[0].course * DEG_TO_RAD : 0;
+    let prevHeadingY = firstCourseRad !== 0 ? Math.cos(firstCourseRad) : 0;
+    let prevHeadingX = firstCourseRad !== 0 ? Math.sin(firstCourseRad) : 0;
+
     const result = [{ ...points[0] }];
 
     for (let i = 1; i < points.length; i++) {
@@ -412,16 +321,14 @@ const GpsFilter = {
         let headingY = Math.cos(courseRad); // North component (latitude direction)
         let headingX = Math.sin(courseRad); // East component (lon direction)
         
-        // If we have a historical direction, apply an exponential moving average
-        // with an adaptive beta that responds to the base alpha:
-        //   alpha low  (smooth) → beta high (0.95) → heavy heading smoothing
-        //   alpha high (hyper)  → beta low  (0.46) → heading reacts instantly
-        // The old fixed beta of 0.7 now sits at alpha ≈ 1.0.
-        if (i > 1 && !isNaN(result[i - 2]._smoothedHeadingY)) {
+        // Apply an exponential moving average using the locally-tracked
+        // previous heading (avoids the off-by-one result[i-2] bug that
+        // skipped index 1 and never initialised result[0]._smoothedHeadingY).
+        if (prevHeadingY !== 0 && prevHeadingX !== 0) {
           const safeAlpha = Math.max(0.01, alpha);
           const beta = Math.max(0.2, Math.min(0.95, 0.7 - Math.log(safeAlpha) * 0.15));
-          headingY = beta * result[i - 2]._smoothedHeadingY + (1 - beta) * headingY;
-          headingX = beta * result[i - 2]._smoothedHeadingX + (1 - beta) * headingX;
+          headingY = beta * prevHeadingY + (1 - beta) * headingY;
+          headingX = beta * prevHeadingX + (1 - beta) * headingX;
           // Re-normalize to unit length
           const len = Math.sqrt(headingY * headingY + headingX * headingX);
           if (len > 0.001) {
@@ -430,39 +337,30 @@ const GpsFilter = {
           }
         }
         
+        prevHeadingY = headingY;
+        prevHeadingX = headingX;
+
         const cosLat    = Math.cos(prev.lat * DEG_TO_RAD);
         const M_TO_DEG_LON = cosLat > 0.001 ? M_TO_DEG_LAT / cosLat : M_TO_DEG_LAT;
         
         predLat = prev.lat + speedMs * headingY * dt * M_TO_DEG_LAT;
         predLon = prev.lon + speedMs * headingX * dt * M_TO_DEG_LON;
-        
-        curr._smoothedHeadingY = headingY;
-        curr._smoothedHeadingX = headingX;
       } else {
         // If stationary or speed is too low, project zero displacement.
         // This acts as a standard position filter and avoids pause wobbles.
         predLat = prev.lat;
         predLon = prev.lon;
-        
-        // Retain previous heading vector if it existed
-        if (i > 1) {
-          curr._smoothedHeadingY = result[i - 2]._smoothedHeadingY;
-          curr._smoothedHeadingX = result[i - 2]._smoothedHeadingX;
-        }
+        // Keep prevHeading unchanged so it can be used when speed picks up.
       }
 
       // Blend: GPS fix × effectiveAlpha + dead-reckoned × (1 - effectiveAlpha)
       //
-      // Zero-Velocity Update (ZUPT): when the GPS Doppler reports the
-      // receiver is genuinely stationary (prev.speedKts ≤ 0.5 kt ≈ 0.26 m/s),
-      // position drift is unreliable (cold-start warmup).  We override α to
-      // near-zero so the output freezes at the prediction.
-      //
-      // Between 0.5–1.2 kts the receiver is moving slowly (corners,
-      // crossings) but heading is too erratic for dead-reckoning — we
-      // freeze the prediction but keep the normal HDOP-adaptive α so
-      // the GPS position is still trusted.
-      const alphaFinal = (!isNaN(prev.speedKts) && prev.speedKts <= 0.5)
+      // Zero-Velocity Update (ZUPT): when the GPS Doppler reports speed
+      // ≤ 1.2 kt (matching the heading stability threshold), position drift
+      // is unreliable and heading is too erratic for dead-reckoning.
+      // We override α to near-zero so the output freezes at the prediction.
+      // Above 1.2 kt the full dead-reckon + blend is used.
+      const alphaFinal = (!isNaN(prev.speedKts) && prev.speedKts <= 1.2)
         ? 0.05 : effectiveAlpha;
 
       result.push({

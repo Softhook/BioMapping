@@ -1023,15 +1023,18 @@ class GSRMapManager {
       let gpsPoints = this._collectGpsPoints(data);
       if (gpsPoints.length === 0) return;
 
-      gpsPoints = this._applyHdopGate(gpsPoints, (p.maxHdop || 3.0));
+      gpsPoints = this._applyHdopGate(gpsPoints, (p.maxHdop || 2.0));
       gpsPoints = this._applyFixTypeGate(gpsPoints);
       const s = p.smoothing || 0.5;
       const r = p.kalmanR || 10;
       gpsPoints = this._applyPreKalmanFilters(gpsPoints, s, p.maxSpeed || 3.0);
-      gpsPoints = GpsFilter.applyKalman(gpsPoints, s, r);
+      // Apply road snapping correction BEFORE Kalman (same order as single-track
+      // renderData): pull multipath-drifting points toward roads so the Kalman
+      // smooths a corrected trajectory rather than locking onto the raw bias.
       if (track.analyzer.snappedGps) {
         gpsPoints = this._applySnapCorrection(gpsPoints, track.analyzer.snappedGps);
       }
+      gpsPoints = GpsFilter.applyKalman(gpsPoints, s, r);
       if (gpsPoints.length === 0) return;
 
       this._reconstructFilteredGps(track.analyzer, data, gpsPoints);

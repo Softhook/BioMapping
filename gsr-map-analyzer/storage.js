@@ -45,7 +45,7 @@ const GSRStorage = {
     return {
       smoothing:    parseFloat(S.gpsSmoothing ? S.gpsSmoothing.value : 0.5),
       kalmanR:      parseFloat(S.gpsKalmanR ? S.gpsKalmanR.value : 10),
-      maxHdop:      parseFloat(S.gpsMaxHdop ? S.gpsMaxHdop.value : 3.0),
+      maxHdop:      parseFloat(S.gpsMaxHdop ? S.gpsMaxHdop.value : 2.0),
       maxSpeed:     parseFloat(S.gpsMaxSpeed ? S.gpsMaxSpeed.value : 3.0),
       rdpTolerance: parseFloat(S.gpsRDP ? S.gpsRDP.value : 0),
       downsample:   parseInt(S.gpsDownsample ? S.gpsDownsample.value : 0),

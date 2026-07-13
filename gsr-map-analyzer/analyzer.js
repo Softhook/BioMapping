@@ -562,6 +562,7 @@ class GSRAnalyzer {
         rawDataList[i].sats    = firstGps.sats;
         rawDataList[i].hdop    = firstGps.hdop;
         rawDataList[i].pdop    = firstGps.pdop;
+        rawDataList[i].wdop    = firstGps.wdop;
         rawDataList[i].fixType = firstGps.fixType;
         rawDataList[i].speedKts = firstGps.speedKts;
         rawDataList[i].course  = firstGps.course;
@@ -591,6 +592,7 @@ class GSRAnalyzer {
           // uses the per-anchor values directly.
           d.hdop    = dA.hdop;
           d.pdop    = dA.pdop;
+          d.wdop    = dA.wdop;
           d.fixType = dA.fixType;
           d.speedKts = dA.speedKts;
           d.course  = dA.course;
@@ -607,6 +609,7 @@ class GSRAnalyzer {
         rawDataList[i].sats    = lastGps.sats;
         rawDataList[i].hdop    = lastGps.hdop;
         rawDataList[i].pdop    = lastGps.pdop;
+        rawDataList[i].wdop    = lastGps.wdop;
         rawDataList[i].fixType = lastGps.fixType;
         rawDataList[i].speedKts = lastGps.speedKts;
         rawDataList[i].course  = lastGps.course;
