@@ -28,7 +28,7 @@ const GSR_CONST = {
 
   // ── GPS filter defaults ──────────────────────────────────────────────────
   GPS_DEFAULT: {
-    smoothing: 0.5, kalmanR: 10, maxHdop: 2.0, maxSpeed: 3.0, rdpTolerance: 0, downsample: false, trackWeight: 5
+    smoothing: 0.5, kalmanR: 10, maxHdop: 2.0, maxSpeed: 3.0, rdpTolerance: 0, downsample: false, trackWeight: 5, peakLatency: 0
   },
 
   // ── GSR filter defaults ──────────────────────────────────────────────────

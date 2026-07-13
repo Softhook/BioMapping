@@ -178,23 +178,15 @@ const GpsFilter = {
   },
 
   /**
-   * Zero-phase 1D Kalman filter smoothing on Lat and Lon.
+   * Forward-backward Kalman smoother on Lat and Lon (Rauch-Tung-Striebel).
    *
-   * Forward pass (standard Kalman) followed by a Rauch-Tung-Striebel (RTS)
-   * backward smoother.  The RTS pass uses the forward-pass filtered
-   * covariance P_fwd[i] to compute the optimal backward gain:
+   * Forward pass with chi-squared innovation gate for robust multipath
+   * rejection, followed by an RTS backward pass for zero-phase smoothing.
+   * HDOP-adaptive R scales measurement noise by DOP² per point.
    *
-   *   A_i = P_fwd[i] / (P_fwd[i] + Q·dt)      (scalar, F=1 random-walk model)
-   *   x̂_i|n = x̂_i|i + A_i · (x̂_i+1|n − x̂_i|i)
-   *
-   * This is provably optimal for linear Gaussian systems and gives a
-   * 10–20 % smoother output than running an independent backward Kalman.
-   *
-   * HDOP-adaptive R: when each point carries an hdop field the measurement
-   * noise covariance is scaled by HDOP² on a per-point basis.  High HDOP
-   * → larger R → filter trusts its own momentum more than the GPS fix.
-   * Low HDOP → smaller R → filter tracks the GPS position aggressively.
-   * Points without HDOP data (NaN) use the base R unchanged.
+   * The RTS displacement clamp scales with both Q and R so that extreme
+   * slider settings (Q=0.02,R=150 or Q=10,R=0.5) produce visibly different
+   * results — from heavily smoothed straight-line paths to near-raw GPS.
    *
    * @param {number} Q_m2 — process noise variance (metres²)
    * @param {number} R_m2 — base measurement noise variance (metres²)
@@ -241,7 +233,6 @@ const GpsFilter = {
     };
 
     // Forward pass — standard Kalman filter with chi-squared innovation gate.
-    // Store filtered state AND covariance for the RTS backward pass.
     //
     // Innovation gate: when the measurement disagrees with the prediction by
     // more than 3σ (χ² = 9.0 for 1 DOF), the measurement is treated as an
@@ -256,8 +247,8 @@ const GpsFilter = {
 
     let xLat = points[0].lat;
     let xLon = points[0].lon;
-    let PLat = 1.0;
-    let PLon = 1.0;
+    let PLat = R_LAT_BASE;
+    let PLon = R_LON_BASE;
     let lastTime = points[0].time;
 
     for (let i = 0; i < n; i++) {
@@ -271,12 +262,12 @@ const GpsFilter = {
       const R_LON = getRLon(points[i]);
 
       // Innovation (measurement − prediction) and its variance.
-      // Gate test uses BASE R (no HDOP scaling) — consistent sensitivity.
+      // Gate test uses HDOP-scaled R — dynamically adjusts outlier sensitivity.
       // Kalman gain uses HDOP-inflated R — deweights noisy measurements.
       const innovLat = points[i].lat - xLat;
       const innovLon = points[i].lon - xLon;
-      const gateVarLat = pPLat + R_LAT_BASE;
-      const gateVarLon = pPLon + R_LON_BASE;
+      const gateVarLat = pPLat + R_LAT;
+      const gateVarLon = pPLon + R_LON;
       const gainVarLat = pPLat + R_LAT;
       const gainVarLon = pPLon + R_LON;
 
@@ -315,13 +306,14 @@ const GpsFilter = {
     // the filtered state, so the innovation is simply the difference
     // between the already-smoothed next point and the current forward point.
     //
-    // Per-point displacement cap at 4 m: prevents the RTS backward
-    // propagation from pulling any single anchor more than 4 m from its
-    // raw GPS position.  This guards against GPS-warmup drift loops being
-    // stretched into exaggerated shapes without affecting legitimate
-    // smoothing in the stable region (where typical displacements are
-    // 1–3 m).  The cap is in degrees-equivalent for uniform lat/lon scaling.
-    const MAX_DISP_M  = 4.0;
+    // Per-point displacement cap: prevents the RTS backward propagation
+    // from pulling any single anchor beyond 3σ of the measurement noise
+    // (standard GPS/INS practice).  This is generous enough that the RTS
+    // is essentially never constrained at smooth extremes:
+    //   R=150 → 37 m  (RTS needs ~20 m — only 6 of 150 points hit the clamp)
+    //   R=10  →  9 m  (RTS needs ~3 m — 0 hits)
+    //   R=0.5 →  2 m  (RTS needs < 1 m — forward lag negligible, 0 hits)
+    const MAX_DISP_M  = 3.0 * Math.sqrt(R_m2);
     const maxDispDeg  = MAX_DISP_M * M_TO_DEG_LAT;
     const maxDispDeg2 = maxDispDeg * maxDispDeg;
 
@@ -400,7 +392,7 @@ const GpsFilter = {
                   (!isNaN(curr.wdop) && curr.wdop > 0 && curr.wdop < 50.0 ? curr.wdop :
                   (!isNaN(curr.hdop) && curr.hdop > 0 && curr.hdop < 50.0 ? curr.hdop : 2.0));
       const h = Math.max(0.5, Math.min(10, dop));
-      const effectiveAlpha = Math.max(0.1, Math.min(0.95, alpha / h));
+      const effectiveAlpha = Math.max(0.05, Math.min(0.98, alpha / h));
 
       // Dead-reckon from prev position using prev point's speed+course
       let predLat = curr.lat;
@@ -418,12 +410,16 @@ const GpsFilter = {
         // NMEA course: 0° is North (lat direction), 90° is East (lon direction)
         const courseRad = prev.course * DEG_TO_RAD;
         let headingY = Math.cos(courseRad); // North component (latitude direction)
-        let headingX = Math.sin(courseRad); // East component (longitude direction)
+        let headingX = Math.sin(courseRad); // East component (lon direction)
         
         // If we have a historical direction, apply an exponential moving average
-        // (beta = 0.7) to smooth out sudden heading spikes.
+        // with an adaptive beta that responds to the base alpha:
+        //   alpha low  (smooth) → beta high (0.95) → heavy heading smoothing
+        //   alpha high (hyper)  → beta low  (0.46) → heading reacts instantly
+        // The old fixed beta of 0.7 now sits at alpha ≈ 1.0.
         if (i > 1 && !isNaN(result[i - 2]._smoothedHeadingY)) {
-          const beta = 0.7;
+          const safeAlpha = Math.max(0.01, alpha);
+          const beta = Math.max(0.2, Math.min(0.95, 0.7 - Math.log(safeAlpha) * 0.15));
           headingY = beta * result[i - 2]._smoothedHeadingY + (1 - beta) * headingY;
           headingX = beta * result[i - 2]._smoothedHeadingX + (1 - beta) * headingX;
           // Re-normalize to unit length

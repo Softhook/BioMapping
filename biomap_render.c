@@ -207,8 +207,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     }
 
     // GPS quality badge — GPS+GSR mode only (top-right, before recording indicator).
-    // Shows the HDOP value and a brief quality label so the user can judge
-    // signal quality at a glance while the GSR graph is running.
+    // Shows the HDOP and PDOP values so the user can judge signal quality at a glance.
     // Rendered even when finger cuffs are disconnected.
     if(a->session.mode == BioMapModeGpsGsr && a->session.gps) {
         GpsStatus g = gps_uart_get_status(a->session.gps);
@@ -227,11 +226,15 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                 snprintf(badge, sizeof(badge), "Acquiring");
             }
         } else {
-            // Good quality — show HDOP, fix type, and SBAS indicator
-            const char* fix_str = gps_fix_label(g.fix_type);
-            snprintf(badge, sizeof(badge), "H:%.1f %s%s",
-                     (double)g.hdop, fix_str,
-                     g.sbas_active ? " S" : "");
+            // Good quality — show HDOP and PDOP
+            char pbuf[8];
+            if(g.pdop < 99.0f) {
+                snprintf(pbuf, sizeof(pbuf), "%.1f", (double)g.pdop);
+            } else {
+                strcpy(pbuf, "--");
+            }
+            snprintf(badge, sizeof(badge), "H:%.1f P:%s",
+                     (double)g.hdop, pbuf);
         }
         // Right-align: leave 3 px gap before recording-indicator box when active.
         // Set font explicitly here — rendering order must not be assumed.
