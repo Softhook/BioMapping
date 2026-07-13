@@ -3,7 +3,8 @@ import csv, math
 def load_csv(path):
     data = []
     with open(path) as f:
-        reader = csv.DictReader(f)
+        lines = [line for line in f if not line.strip().startswith('#')]
+        reader = csv.DictReader(lines)
         for row in reader:
             gsr = float(row['gsr_raw'])
             ts = row.get('timestamp','')

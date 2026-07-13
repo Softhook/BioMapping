@@ -16,7 +16,8 @@ from datetime import datetime
 def load_gps_rows(path):
     """Return list of (csv_row_index, row_dict) for rows with GPS coordinates."""
     with open(path) as f:
-        rows = list(csv.DictReader(f))
+        lines = [line for line in f if not line.strip().startswith('#')]
+        rows = list(csv.DictReader(lines))
     return [(i, r) for i, r in enumerate(rows) if r.get('lat', '').strip()], rows
 
 

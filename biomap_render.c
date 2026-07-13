@@ -163,6 +163,28 @@ static void render_zoom_label(Canvas* c, BioMapApp* a) {
     canvas_draw_str(c, 128 - a->session.zoom_label_width - 2, 62, a->session.zoom_label);
 }
 
+static void draw_sensor_alert(Canvas* c, const char* text) {
+    canvas_set_font(c, FontPrimary);
+    int text_w = canvas_string_width(c, text);
+    int box_w = text_w + 12;
+    int box_h = 14;
+    int box_x = (128 - box_w) / 2;
+    int box_y = 16 + (48 - box_h) / 2; // Centered in 16..64 graph area
+
+    // Draw solid black background
+    canvas_draw_box(c, box_x, box_y, box_w, box_h);
+
+    // Draw white border inside the black box
+    canvas_invert_color(c);
+    canvas_draw_frame(c, box_x + 1, box_y + 1, box_w - 2, box_h - 2);
+
+    // Draw white text
+    canvas_draw_str(c, box_x + 6, box_y + box_h - 4, text);
+    canvas_invert_color(c);
+
+    canvas_set_font(c, FontSecondary);
+}
+
 void biomap_render_callback(Canvas* c, void* ctx) {
     BioMapApp* a = (BioMapApp*)ctx;
     furi_mutex_acquire(a->mutex, FuriWaitForever);
@@ -187,10 +209,8 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     // GPS quality badge — GPS+GSR mode only (top-right, before recording indicator).
     // Shows the HDOP value and a brief quality label so the user can judge
     // signal quality at a glance while the GSR graph is running.
-    // Hidden when finger cuffs are disconnected to avoid overlapping "NO SIGNAL" alert.
-    bool cuffs_disconnected = a->session.gsr && gsr_sensor_available(a->session.gsr) &&
-                              !gsr_sensor_is_connected(a->session.gsr);
-    if(a->session.mode == BioMapModeGpsGsr && a->session.gps && !cuffs_disconnected) {
+    // Rendered even when finger cuffs are disconnected.
+    if(a->session.mode == BioMapModeGpsGsr && a->session.gps) {
         GpsStatus g = gps_uart_get_status(a->session.gps);
         bool has_fix = gps_has_fix(&g);
         char badge[16];
@@ -222,22 +242,23 @@ void biomap_render_callback(Canvas* c, void* ctx) {
 
     // Mode-specific overlay
     if(has_graph) {
-        if(a->session.gsr && gsr_sensor_available(a->session.gsr)) {
-            if(gsr_sensor_is_connected(a->session.gsr)) {
-                if(a->session.mode == BioMapModeGsrOnly) {
-                    char buf[32];
-                    snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.display.last_displayed);
-                    int x = 128 - canvas_string_width(c, buf) - (a->session.recording.active ? 12 : 2);
-                    canvas_draw_str(c, x, 10, buf);
+        if(a->session.gsr) {
+            if(gsr_sensor_available(a->session.gsr)) {
+                if(gsr_sensor_is_connected(a->session.gsr)) {
+                    if(a->session.mode == BioMapModeGsrOnly) {
+                        char buf[32];
+                        snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.display.last_displayed);
+                        int x = 128 - canvas_string_width(c, buf) - (a->session.recording.active ? 12 : 2);
+                        canvas_draw_str(c, x, 10, buf);
+                    }
+                } else {
+                    // Finger cuffs disconnected — show alert, keep recording.
+                    // Shown in both GSR-only and GPS+GSR modes.
+                    draw_sensor_alert(c, "NO SIGNAL");
                 }
             } else {
-                // Finger cuffs disconnected — show alert, keep recording.
-                // Shown in both GSR-only and GPS+GSR modes.
-                canvas_set_font(c, FontPrimary);
-                canvas_invert_color(c);
-                canvas_draw_str(c, 40, 10, "NO SIGNAL");
-                canvas_invert_color(c);
-                canvas_set_font(c, FontSecondary);
+                // External GSR board itself is not plugged in/found
+                draw_sensor_alert(c, "NO SENSOR");
             }
         }
     } else if(a->session.gps) {

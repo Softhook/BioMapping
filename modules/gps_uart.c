@@ -26,6 +26,7 @@ struct GpsUart {
     bool                 ready;
     volatile bool        rx_pending;
     uint32_t             last_valid_nmea_tick;  // watchdog: last successful $Gx parse
+    uint32_t             last_gsv_reset_tick;   // tick of last GSV total_sats reset
     struct minmea_time   last_epoch_time;
 };
 
@@ -47,6 +48,23 @@ static void gps_uart_irq_cb(
             furi_message_queue_put(g->event_queue, &ev, 0);
         }
     }
+}
+
+// ── Double-precision coordinate converter ───────────────────────────────
+// minmea_tocoord() returns float, which loses ~0.4 m of precision at
+// 6-7 decimal places.  This double version preserves full NMEA precision
+// (~1 cm at the equator).  Formula: deg + min / (60 * scale).
+// Uses integer literals (not 60.0/100.0) to avoid -Wdouble-promotion
+// warnings when the toolchain uses -fsingle-precision-constant.
+// Integer→double promotion is not flagged; only float→double is.
+static inline double minmea_tocoord_double(const struct minmea_float* f) {
+    if(f->scale == 0) return (double)NAN;
+    if(f->scale > (INT_LEAST32_MAX / 100)) return (double)NAN;
+    if(f->scale < (INT_LEAST32_MIN / 100)) return (double)NAN;
+    int_least32_t scale100 = f->scale * 100;
+    int_least32_t deg = f->value / scale100;
+    int_least32_t min = f->value % scale100;
+    return (double)deg + (double)min / ((double)f->scale * 60);
 }
 
 // ── Constellation offset helper: maps a talker ID + raw PRN to the internal elevation array index ─────
@@ -118,8 +136,8 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             char mi = frame.mode_indicator;
             bool position_ok = frame.valid && (mi != 'E') && (mi != 'N');
             if(position_ok) {
-                g->status.latitude  = minmea_tocoord(&frame.latitude);
-                g->status.longitude = minmea_tocoord(&frame.longitude);
+                g->status.latitude  = minmea_tocoord_double(&frame.latitude);
+                g->status.longitude = minmea_tocoord_double(&frame.longitude);
                 g->status.speed     = minmea_tofloat(&frame.speed);
                 g->status.course    = minmea_tofloat(&frame.course);
             }
@@ -136,7 +154,10 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
                frame.time.seconds != g->last_epoch_time.seconds) {
                 g->last_epoch_time = frame.time;
                 g->status.active_prn_count = 0;
-                g->status.gsv_total_sats   = 0;
+                // NOTE: gsv_total_sats is NOT reset here — it is reset inside
+                // the GSV handler on a tick-based threshold (see GSV case).
+                // RMC-based reset failed at high update rates where sub-second
+                // messages have identical hh:mm:ss fields, or when RMC is lost.
             }
         }
     } break;
@@ -148,8 +169,8 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             // Without this guard, a GGA arriving before RMC in a new
             // epoch would overwrite good coordinates with 0.0.
             if(frame.fix_quality > 0) {
-                g->status.latitude  = minmea_tocoord(&frame.latitude);
-                g->status.longitude = minmea_tocoord(&frame.longitude);
+                g->status.latitude  = minmea_tocoord_double(&frame.latitude);
+                g->status.longitude = minmea_tocoord_double(&frame.longitude);
                 g->status.altitude  = minmea_tofloat(&frame.altitude);
             }
             g->status.satellites_tracked = frame.satellites_tracked;
@@ -277,7 +298,20 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             // of each constellation's GSV cycle.  This gives the true
             // satellite-in-view count across all enabled constellations
             // (unlike GGA which caps at 12 on u-blox receivers).
+            //
+            // Reset the accumulator at the start of each multi-constellation
+            // GSV cycle (~1 Hz).  A tick-based threshold is used instead of
+            // RMC time-field comparison because at high GPS rates (10 Hz)
+            // RMC hours:minutes:seconds may not change for sub-second messages,
+            // and a lost RMC packet would skip the reset entirely, inflating
+            // the count 2-4x over multiple cycles.
             if(frame.msg_nr == 1) {
+                uint32_t now = furi_get_tick();
+                if(now - g->last_gsv_reset_tick >
+                   furi_kernel_get_tick_frequency() * 4 / 5) {
+                    g->status.gsv_total_sats = 0;
+                    g->last_gsv_reset_tick = now;
+                }
                 g->status.gsv_total_sats += frame.total_sats;
             }
 
@@ -306,8 +340,8 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
         // flag here so stale/void sentences never overwrite good coordinates.
         struct minmea_sentence_gll gll_frame;
         if(minmea_parse_gll(&gll_frame, line) && gll_frame.status == MINMEA_GLL_STATUS_DATA_VALID) {
-            g->status.latitude  = minmea_tocoord(&gll_frame.latitude);
-            g->status.longitude = minmea_tocoord(&gll_frame.longitude);
+            g->status.latitude  = minmea_tocoord_double(&gll_frame.latitude);
+            g->status.longitude = minmea_tocoord_double(&gll_frame.longitude);
             g->status.time      = gll_frame.time;
         }
     } break;
@@ -322,11 +356,15 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
 // ---------------------------------------------------------------------------
 #if GPS_MODULE == GPS_MODULE_M10Q
 // ---------------------------------------------------------------------------
-// Helper — send a binary UBX packet over the GPS UART (M10Q only)
+// Helpers — send binary UBX packets over the GPS UART (M10Q only)
 // ---------------------------------------------------------------------------
 static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
     furi_hal_serial_tx(g->serial_handle, data, len);
     furi_delay_ms(100);
+}
+// Send without delay — for batching multiple packets before a single wait.
+static void ubx_tx_raw(GpsUart* g, const uint8_t* data, size_t len) {
+    furi_hal_serial_tx(g->serial_handle, data, len);
 }
 
 // ── Binary UBX configuration packets for M10Q ──────────────────────────────
@@ -404,7 +442,8 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
     // Arm watchdog at alloc so a botched initial baud-rate switch
     // triggers a one-shot recovery after 5 s instead of silently
     // leaving the host at 115200 while the module stays at 9600.
-    g->last_valid_nmea_tick = furi_get_tick();
+    g->last_valid_nmea_tick  = furi_get_tick();
+    g->last_gsv_reset_tick   = furi_get_tick();
 
     g->rx_stream = furi_stream_buffer_alloc(GPS_RX_BUF_SIZE, 1);
 
@@ -472,11 +511,15 @@ bool gps_uart_is_ready(const GpsUart* g) {
 
 #if GPS_MODULE == GPS_MODULE_L76K
 // ---------------------------------------------------------------------------
-// Helper — send a PCAS command over the GPS UART (L76K only)
+// Helpers — send PCAS commands over the GPS UART (L76K only)
 // ---------------------------------------------------------------------------
 static void pcas_tx(GpsUart* g, const char* cmd) {
     furi_hal_serial_tx(g->serial_handle, (const uint8_t*)cmd, strlen(cmd));
     furi_delay_ms(100);
+}
+// Send without delay — for batching multiple commands before a single wait.
+static void pcas_tx_raw(GpsUart* g, const char* cmd) {
+    furi_hal_serial_tx(g->serial_handle, (const uint8_t*)cmd, strlen(cmd));
 }
 #endif
 
@@ -591,18 +634,26 @@ static void gps_uart_configure(GpsUart* g) {
     // NOTE: No PCAS06 (SBAS enable) command exists in the L76K protocol spec.
     // SBAS satellites (PRN 120-158) are handled automatically by the module
     // when visible; we detect them passively via GSA PRN ≥ 120.
+    //
+    // Delays are minimised by batching: commands before the baud switch are
+    // sent back-to-back (pcas_tx_raw), followed by a single wait.  This
+    // reduces the configure time from ~1700 ms to ~600 ms on L76K, which
+    // avoids starving the 10 Hz GSR tick timer and UI event loop.
     FURI_LOG_I("GpsUart", "Configuring Quectel L76K");
 
-    pcas_tx(g, "$PCAS10,0*1C\r\n");                             // Hot start
-    furi_delay_ms(200);
-    pcas_tx(g, "$PCAS04,7*1E\r\n");                             // GPS+BeiDou+GLONASS (spec §2.3.4)
-    pcas_tx(g, "$PCAS03,1,0,1,0,1,0,0,0,0,0,,,0,0*03\r\n");   // GGA+GSA+RMC only (spec §2.3.3)
+    // Hot start
+    pcas_tx(g, "$PCAS10,0*1C\r\n");
+    furi_delay_ms(100);
+
+    // Batch initial config (constellation + sentence type) — no delay between them.
+    pcas_tx_raw(g, "$PCAS04,7*1E\r\n");                           // GPS+BeiDou+GLONASS (spec §2.3.4)
+    pcas_tx_raw(g, "$PCAS03,1,0,1,0,1,0,0,0,0,0,,,0,0*03\r\n"); // GGA+GSA+RMC only (spec §2.3.3)
+    furi_delay_ms(100);
 
     // Switch module to 115200 baud
     FURI_LOG_I("GpsUart", "Switching GPS to 115200 baud");
+    pcas_tx_raw(g, "$PCAS01,5*19\r\n");
     furi_delay_ms(200);
-    pcas_tx(g, "$PCAS01,5*19\r\n");
-    furi_delay_ms(300);
 
     // Switch host UART to match
     furi_hal_serial_async_rx_stop(g->serial_handle);
@@ -611,17 +662,22 @@ static void gps_uart_configure(GpsUart* g) {
     g->rx_offset = 0;
     furi_stream_buffer_reset(g->rx_stream);
     furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
-    furi_delay_ms(100);
+    furi_delay_ms(50);
 
     // Datasheet requirement (§2.3.2): Interval < 1000 ms → must use 115200
     // baud + single-sentence output mode.  We intentionally output GGA+GSA+RMC
     // (3 types per fix) for richer data; bandwidth at 115200 is ~11% utilised.
-    pcas_tx(g, "$PCAS02,200*1D\r\n");                           // 5 Hz (spec §2.3.2)
-    pcas_tx(g, "$PCAS03,1,0,1,5,1,0,0,0,0,0,,,0,0*06\r\n");   // GGA+GSA+RMC@5Hz, GSV@1Hz (spec §2.3.3)
+    // Batch post-baud commands — no delay between them.
+    pcas_tx_raw(g, "$PCAS02,200*1D\r\n");                         // 5 Hz (spec §2.3.2)
+    pcas_tx_raw(g, "$PCAS03,1,0,1,5,1,0,0,0,0,0,,,0,0*06\r\n"); // GGA+GSA+RMC@5Hz, GSV@1Hz
+    furi_delay_ms(100);
     FURI_LOG_I("GpsUart", "L76K running at 115200 baud, 5 Hz, GSV@1Hz");
 
 #elif GPS_MODULE == GPS_MODULE_M10Q
     // ── u-blox SAM-M10Q ───────────────────────────────────────────────
+    // Delays are minimised by sending all six UBX packets back-to-back
+    // (ubx_tx_raw) after the baud switch, with a single wait.  This reduces
+    // the configure time from ~1100 ms to ~500 ms on M10Q.
     FURI_LOG_I("GpsUart", "Configuring u-blox SAM-M10Q");
 
     // Switch module to 115200 baud (ASCII at 9600).
@@ -629,7 +685,7 @@ static void gps_uart_configure(GpsUart* g) {
     FURI_LOG_I("GpsUart", "Switching GPS to 115200 baud");
     const char* pubx_baud = "$PUBX,41,1,0007,0002,115200,0*19\r\n";
     furi_hal_serial_tx(g->serial_handle, (const uint8_t*)pubx_baud, strlen(pubx_baud));
-    furi_delay_ms(300);
+    furi_delay_ms(200);
 
     // Switch host UART to match
     furi_hal_serial_async_rx_stop(g->serial_handle);
@@ -638,15 +694,16 @@ static void gps_uart_configure(GpsUart* g) {
     g->rx_offset = 0;
     furi_stream_buffer_reset(g->rx_stream);
     furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
-    furi_delay_ms(100);
+    furi_delay_ms(50);
 
-    // Send binary UBX configuration packets
-    ubx_tx(g, ubx_cfg_rate_10hz, sizeof(ubx_cfg_rate_10hz));
-    ubx_tx(g, ubx_cfg_msg_gll_off, sizeof(ubx_cfg_msg_gll_off));
-    ubx_tx(g, ubx_cfg_msg_vtg_off, sizeof(ubx_cfg_msg_vtg_off));
-    ubx_tx(g, ubx_cfg_msg_gsv_1hz, sizeof(ubx_cfg_msg_gsv_1hz));
-    ubx_tx(g, ubx_cfg_nav5_pedestrian, sizeof(ubx_cfg_nav5_pedestrian));
-    ubx_tx(g, ubx_cfg_assistnow_autonomous, sizeof(ubx_cfg_assistnow_autonomous));
+    // Send all six binary UBX configuration packets back-to-back.
+    ubx_tx_raw(g, ubx_cfg_rate_10hz, sizeof(ubx_cfg_rate_10hz));
+    ubx_tx_raw(g, ubx_cfg_msg_gll_off, sizeof(ubx_cfg_msg_gll_off));
+    ubx_tx_raw(g, ubx_cfg_msg_vtg_off, sizeof(ubx_cfg_msg_vtg_off));
+    ubx_tx_raw(g, ubx_cfg_msg_gsv_1hz, sizeof(ubx_cfg_msg_gsv_1hz));
+    ubx_tx_raw(g, ubx_cfg_nav5_pedestrian, sizeof(ubx_cfg_nav5_pedestrian));
+    ubx_tx_raw(g, ubx_cfg_assistnow_autonomous, sizeof(ubx_cfg_assistnow_autonomous));
+    furi_delay_ms(100);
 
     FURI_LOG_I("GpsUart", "M10Q running at 115200 baud, 10 Hz, GSV@1Hz");
 

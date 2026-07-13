@@ -87,15 +87,15 @@ typedef struct {
 // Extracted GPS position snapshot (returned by value from get_gps_position).
 // .valid is true only when GPS has a fix and lat/lon are set.
 typedef struct {
-    bool  valid;
-    float lat;
-    float lon;
-    float hdop;      // Horizontal Dilution of Precision; 99.9 = unknown
-    float pdop;      // Position DOP from GSA (chip-computed); 99.9 = unknown
-    float speed_kts; // Speed over ground in knots (RMC); NaN = unknown
-    float course_deg;// Course over ground in degrees true (RMC); NaN = unknown
-    int   sats;       // satellites tracked — diagnostic aid for DOP interpretation
-    int   fix_type;  // fix_type from GSA: 1=none, 2=2D, 3=3D
+    bool   valid;
+    double lat;        // double for sub-metre precision (float loses ~0.4 m jitter)
+    double lon;
+    float  hdop;       // Horizontal Dilution of Precision; 99.9 = unknown
+    float  pdop;       // Position DOP from GSA (chip-computed); 99.9 = unknown
+    float  speed_kts;  // Speed over ground in knots (RMC); NaN = unknown
+    float  course_deg; // Course over ground in degrees true (RMC); NaN = unknown
+    int    sats;       // satellites tracked — diagnostic aid for DOP interpretation
+    int    fix_type;   // fix_type from GSA: 1=none, 2=2D, 3=3D
 } GpsPosition;
 
 // ── Inline helpers ─────────────────────────────────────────────────────

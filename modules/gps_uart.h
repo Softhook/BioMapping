@@ -17,8 +17,8 @@
 #define GPS_UART_CH       FuriHalSerialIdUsart
 
 typedef struct GpsStatus {
-    float latitude;             // NaN = no fix yet
-    float longitude;
+    double latitude;            // NaN = no fix yet (double for sub-metre precision)
+    double longitude;
     float altitude;
     float speed;                // knots (RMC)
     float course;               // degrees true

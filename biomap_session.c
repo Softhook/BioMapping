@@ -86,7 +86,7 @@ void session_deinit(Session* s, BioMapApp* app) {
 // ── RTC → Unix epoch seconds (UTC) ────────────────────────────────────────
 // Converts a Flipper DateTime (local time) to seconds since 1970-01-01.
 // Assumes the RTC is set to UTC — the Flipper has no timezone concept.
-static double rtc_to_unix_epoch(const DateTime* dt) {
+static uint32_t rtc_to_unix_epoch(const DateTime* dt) {
     // Days before each month in a non-leap year
     static const uint16_t days_before[12] = {
         0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
@@ -102,8 +102,8 @@ static double rtc_to_unix_epoch(const DateTime* dt) {
        (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)))
         days++;  // leap day
     days += dt->day - 1;
-    return (double)(days * 86400UL + dt->hour * 3600U +
-                    dt->minute * 60U + dt->second);
+    return (uint32_t)(days * 86400UL + dt->hour * 3600U +
+                      dt->minute * 60U + dt->second);
 }
 
 // ── Relative timestamp (seconds since recording start) ────────────────────
@@ -278,51 +278,57 @@ static void update_graph_pipeline(Session* s) {
 // with the live GSR reading) and GPS-only mode (via handle_recording_tick
 // with raw=0).  When the fix is absent or HDOP is too high, GPS columns are
 // left empty so the analyser treats the row as a gap rather than noise.
-static void format_gps_csv_row(Session* s, const GpsPosition* pos,
+// Returns true on success, false on buffer overflow.
+static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
                                 double rel, float raw) {
     bool gps_ok = pos->valid && pos->hdop < GPS_HDOP_GATE;
+    int ret;
     if(gps_ok) {
         bool has_vel = !isnan(pos->speed_kts) && !isnan(pos->course_deg);
         if(has_vel) {
-            sd_logger_batch_printf(s->logger,
-                "%.2f,%.6f,%.6f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f\n",
-                rel, (double)pos->lat, (double)pos->lon,
+            ret = sd_logger_batch_printf(s->logger,
+                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f\n",
+                rel, pos->lat, pos->lon,
                 (double)pos->hdop, (double)pos->pdop,
                 pos->sats, pos->fix_type,
                 (double)pos->speed_kts, (double)pos->course_deg, (double)raw);
         } else {
-            sd_logger_batch_printf(s->logger,
-                "%.2f,%.6f,%.6f,%.1f,%.1f,%d,%d,,,%.1f\n",
-                rel, (double)pos->lat, (double)pos->lon,
+            ret = sd_logger_batch_printf(s->logger,
+                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,,,%.1f\n",
+                rel, pos->lat, pos->lon,
                 (double)pos->hdop, (double)pos->pdop,
                 pos->sats, pos->fix_type, (double)raw);
         }
     } else {
-        sd_logger_batch_printf(s->logger, "%.2f,,,,,,,,,%.1f\n",
-                               rel, (double)raw);
+        ret = sd_logger_batch_printf(s->logger, "%.2f,,,,,,,,,%.1f\n",
+                                     rel, (double)raw);
     }
+    return ret > 0;
 }
 
 // ── Batch CSV row construction ─────────────────────────────────────────────
 // Dispatches to format_gps_csv_row for GPS+GSR mode; handles GSR-only
 // and GPS-skip ticks directly.  Rows are flushed at the 1‑second boundary
 // by handle_second_boundary().
-static void batch_csv_row(Session* s, float raw) {
-    if(!s->recording.active || !has_gsr(s->mode)) return;
+// Returns true on success, false on buffer overflow.
+static bool batch_csv_row(Session* s, float raw) {
+    if(!s->recording.active || !has_gsr(s->mode)) return true;
 
     double rel = session_rel_seconds(s);
+    int ret;
 
     if(s->mode == BioMapModeGsrOnly) {
-        sd_logger_batch_printf(s->logger, "%.2f,%.1f\n",
-                               rel, (double)raw);
+        ret = sd_logger_batch_printf(s->logger, "%.2f,%.1f\n",
+                                     rel, (double)raw);
     } else if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
         GpsPosition pos = get_gps_position(s);
-        format_gps_csv_row(s, &pos, rel, raw);
+        return format_gps_csv_row(s, &pos, rel, raw);
     } else {
         // GPS-skip tick: preserve GSR data with empty GPS columns.
         GpsPosition empty = {0};
-        format_gps_csv_row(s, &empty, rel, raw);
+        return format_gps_csv_row(s, &empty, rel, raw);
     }
+    return ret > 0;
 }
 
 // ── Write failure handler ──────────────────────────────────────────────────
@@ -390,13 +396,13 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         // Build header: recording-start metadata line + column names.
         DateTime dt;
         furi_hal_rtc_get_datetime(&dt);
-        double epoch = rtc_to_unix_epoch(&dt);
+        uint32_t epoch = rtc_to_unix_epoch(&dt);
         const char* cols = (s->mode == BioMapModeGsrOnly)
             ? "timestamp,gsr_raw\n"
             : "timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw\n";
         char header[256];
         int n = snprintf(header, sizeof(header),
-                         "# RecordingStartTime:%.2f\n%s", epoch, cols);
+                         "# RecordingStartTime:%lu\n%s", (unsigned long)epoch, cols);
         if(n < 0 || (size_t)n >= sizeof(header)) {
             FURI_LOG_E("BioMap", "Header too long");
             return false;
@@ -501,14 +507,16 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
 }
 
 // ── Handle one GSR tick (10 Hz) during a recording session ────────────────
-static void handle_recording_tick(Session* s) {
+// Returns true on success, false if a batch overflow occurred (caller should
+// flush and potentially stop recording).
+static bool handle_recording_tick(Session* s) {
     // ── GPS-only mode: write a row on the GPS tick boundary ────────────
     if(!has_gsr(s->mode) && has_gps(s->mode) && s->recording.active) {
         if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
             GpsPosition pos = get_gps_position(s);
-            format_gps_csv_row(s, &pos, session_rel_seconds(s), 0.0f);
+            return format_gps_csv_row(s, &pos, session_rel_seconds(s), 0.0f);
         }
-        return;
+        return true;
     }
 
     // ── GSR modes (GsrOnly, GpsGsr) ────────────────────────────────────
@@ -556,7 +564,7 @@ static void handle_recording_tick(Session* s) {
             update_graph_pipeline(s);
         }
     }
-    batch_csv_row(s, raw);
+    return batch_csv_row(s, raw);
 }
 
 // ── Run a recording session for the given mode ─────────────────────────────
@@ -624,11 +632,22 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
 
         if(ev.type == EventTypeTick) {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
-            handle_recording_tick(s);
+            bool batch_ok = handle_recording_tick(s);
             s->recording.total_ticks++;
 
             if(++s->recording.tick_counter >= TICK_HZ) {
                 handle_second_boundary(s, app->notifications);
+            }
+
+            // Batch overflow: try an emergency flush.  If even the flush
+            // fails, stop recording and notify the user via red LED.
+            if(!batch_ok) {
+                FURI_LOG_W("BioMap", "Batch overflow — emergency flush");
+                int flushed = sd_logger_batch_flush(s->logger);
+                if(flushed < 0) {
+                    FURI_LOG_E("BioMap", "Emergency flush failed — stopping recording");
+                    handle_write_failure(s, app->notifications);
+                }
             }
             furi_mutex_release(app->mutex);
             view_port_update(s->vp);
