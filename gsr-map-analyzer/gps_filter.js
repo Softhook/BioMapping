@@ -235,9 +235,14 @@ const GpsFilter = {
       let newLon = forwardLons[i] + A_lon * (sxLon - forwardLons[i]);
 
       // Clamp per-point displacement from raw GPS position.
+      // Longitude degrees must be scaled by cos(lat) to match the
+      // physical metre equivalence used by maxDispDeg (derived from
+      // M_TO_DEG_LAT).  Without this the clamp triggers ~36 % too
+      // early on east-west movements at mid-latitudes.
       const dLat = newLat - points[i].lat;
       const dLon = newLon - points[i].lon;
-      const dist2 = dLat * dLat + dLon * dLon;
+      const cosLatPt = Math.cos(points[i].lat * Math.PI / 180);
+      const dist2 = dLat * dLat + dLon * dLon * cosLatPt * cosLatPt;
       if (dist2 > maxDispDeg2) {
         const scale = maxDispDeg / Math.sqrt(dist2);
         newLat = points[i].lat + dLat * scale;

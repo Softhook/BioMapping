@@ -94,8 +94,11 @@ class GSRAnalyzer {
    * Helper: gets coordinates at a given index from filtered GPS data if valid,
    * otherwise falls back to raw GPS data. Returns { lat, lon } or null.
    */
-  getCoordinates(index) {
+  getCoordinates(index, preferRaw = false) {
     const raw = this.raw[index];
+    if (preferRaw && raw && !isNaN(raw.lat) && !isNaN(raw.lon)) {
+      return { lat: raw.lat, lon: raw.lon };
+    }
     const filtered = this.filteredGps && this.filteredGps[index];
     if (filtered && !isNaN(filtered.lat) && !isNaN(filtered.lon)) {
       return { lat: filtered.lat, lon: filtered.lon };
@@ -358,6 +361,8 @@ class GSRAnalyzer {
       let lonVal = lonColIndex !== -1 && cols[lonColIndex] ? parseFloat(cols[lonColIndex]) : NaN;
       let hdopVal     = hdopColIndex  !== -1 && cols[hdopColIndex]  ? parseFloat(cols[hdopColIndex])  : NaN;
       let pdopVal     = pdopColIndex  !== -1 && cols[pdopColIndex]  ? parseFloat(cols[pdopColIndex])  : NaN;
+      let wdopVal     = wdopColIndex  !== -1 && cols[wdopColIndex]  ? parseFloat(cols[wdopColIndex])  : NaN;
+      let vdopVal     = vdopColIndex  !== -1 && cols[vdopColIndex]  ? parseFloat(cols[vdopColIndex])  : NaN;
       let satsVal     = satsColIndex  !== -1 && cols[satsColIndex]  ? parseInt(cols[satsColIndex])    : 0;
       let fixTypeVal  = fixTypeColIndex !== -1 && cols[fixTypeColIndex] ? parseInt(cols[fixTypeColIndex]) : 0;
       let speedKtsVal = speedKtsColIndex !== -1 && cols[speedKtsColIndex] ? parseFloat(cols[speedKtsColIndex]) : NaN;
@@ -391,11 +396,14 @@ class GSRAnalyzer {
         lon: lonVal,
         hdop: hdopVal,
         pdop: pdopVal,
+        wdop: wdopVal,
+        vdop: vdopVal,
         sats: satsVal,
         fixType: fixTypeVal,
         speedKts: speedKtsVal,
         course: courseVal,
         hasGps: false,
+        _isGpsFix: !isNaN(latVal) && !isNaN(lonVal),
         _importLabel: importedPeakLabel,
         _importExcluded: importedPeakExcluded,
         osm_road_class: osm_road_class,

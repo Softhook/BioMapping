@@ -289,7 +289,11 @@ class GSRMapManager {
   _collectGpsPoints(data) {
     const pts = [];
     for (let i = 0; i < data.length; i++) {
-      if (data[i].hasGps && !isNaN(data[i].lat) && !isNaN(data[i].lon)) {
+      // Only collect actual GPS fixes (not interpolated points) so the
+      // Kalman filter processes the true measurement rate (1-2 Hz) rather
+      // than the 10 Hz interpolated grid, preventing artificial covariance
+      // deflation and sluggish corner tracking.
+      if (data[i]._isGpsFix && !isNaN(data[i].lat) && !isNaN(data[i].lon)) {
         pts.push({ ...data[i], origIdx: i });
       }
     }

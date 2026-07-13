@@ -828,7 +828,11 @@ out skel qt;`;
     if (onProgress) onProgress('Analyzing GPS positions...');
     const gpsIndices = [];
     for (let i = 0; i < raw.length; i++) {
-      const coords = analyzer.getCoordinates(i);
+      // Use raw GPS coordinates for enrichment to avoid feedback loop:
+      // if filteredGps is already populated (from a prior render), using
+      // it here would map-match a snap-biased path, progressively pulling
+      // coordinates toward wrong parallel roads on subsequent runs.
+      const coords = analyzer.getCoordinates(i, true);
       if (coords && coords.lat != null && coords.lon != null) {
         gpsIndices.push({ idx: i, lat: coords.lat, lon: coords.lon });
       }
