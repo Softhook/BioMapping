@@ -170,6 +170,10 @@ void run_options_screen(BioMapApp* app) {
                     app->backlight_on = !app->backlight_on;
                     furi_mutex_release(app->mutex);
                     break;
+                case 3:
+                    // GSR Calibration
+                    run_calibration_menu(app);
+                    break;
                 default: break;
                 }
                 break;
@@ -179,6 +183,146 @@ void run_options_screen(BioMapApp* app) {
         }
     }
 
+    vp_pop(app, vp);
+}
+
+void run_calibration_menu(BioMapApp* app) {
+    int selection = 0;
+    ViewPort* vp = vp_push(app, calibration_menu_render, &selection);
+    drain_stale_events(app->event_queue);
+    PluginEvent ev;
+    while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
+        if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
+            if(ev.input.key == InputKeyBack) break;
+            if(ev.input.key == InputKeyUp) {
+                if(selection > 0) selection--;
+            } else if(ev.input.key == InputKeyDown) {
+                if(selection < 1) selection++;
+            } else if(ev.input.key == InputKeyOk) {
+                if(selection == 0) {
+                    run_calibration_wizard(app);
+                    break;
+                } else {
+                    biomap_reset_calibration(app);
+                    break;
+                }
+            }
+            view_port_update(vp);
+        }
+    }
+    vp_pop(app, vp);
+}
+
+void run_calibration_wizard(BioMapApp* app) {
+    WizardState w = {.step = 0};
+    ViewPort* vp = vp_push(app, calibration_wizard_render, &w);
+    drain_stale_events(app->event_queue);
+    PluginEvent ev;
+    
+    GsrSensor* gsr = NULL;
+    
+    while(w.step != 6) { // step 6 is exit
+        if(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) != FuriStatusOk)
+            continue;
+            
+        if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
+            if(ev.input.key == InputKeyBack) {
+                if(w.step == 0 || w.step == 4 || w.step == 5) {
+                    break; // cancel / exit
+                }
+            }
+            
+            if(ev.input.key == InputKeyOk) {
+                if(w.step == 0 || w.step == 5) {
+                    w.step = 1;
+                    view_port_update(vp);
+                    
+                    gsr = gsr_sensor_alloc();
+                    if(!gsr || !gsr_sensor_available(gsr)) {
+                        if(gsr) gsr_sensor_free(gsr);
+                        w.step = 5; // failed
+                        view_port_update(vp);
+                        continue;
+                    }
+                    
+                    float sum_g = 0;
+                    int counts_g = 0;
+                    for(int i = 0; i < 15; i++) {
+                        furi_delay_ms(100);
+                        gsr_sensor_tick(gsr);
+                        float g = gsr_sensor_get_raw(gsr);
+                        if(g >= 500.0f && g <= 10000.0f) {
+                            sum_g += g;
+                            counts_g++;
+                        }
+                    }
+                    gsr_sensor_free(gsr);
+                    
+                    if(counts_g >= 10) {
+                        float avg_g = sum_g / (float)counts_g;
+                        w.measured_470k = (15040000.0f * avg_g) / (5000000.0f + 47.0f * avg_g);
+                        w.step = 2;
+                    } else {
+                        w.step = 5;
+                    }
+                } else if(w.step == 2) {
+                    w.step = 3;
+                    view_port_update(vp);
+                    
+                    gsr = gsr_sensor_alloc();
+                    if(!gsr || !gsr_sensor_available(gsr)) {
+                        if(gsr) gsr_sensor_free(gsr);
+                        w.step = 5; // failed
+                        view_port_update(vp);
+                        continue;
+                    }
+                    
+                    float sum_g = 0;
+                    int counts_g = 0;
+                    for(int i = 0; i < 15; i++) {
+                        furi_delay_ms(100);
+                        gsr_sensor_tick(gsr);
+                        float g = gsr_sensor_get_raw(gsr);
+                        if(g >= 10000.0f && g <= 40000.0f) {
+                            sum_g += g;
+                            counts_g++;
+                        }
+                    }
+                    gsr_sensor_free(gsr);
+                    
+                    if(counts_g >= 10) {
+                        float avg_g = sum_g / (float)counts_g;
+                        w.measured_47k = (15040000.0f * avg_g) / (5000000.0f + 47.0f * avg_g);
+                        
+                        float y1 = 6274.5f;   // target low
+                        float y2 = 53333.3f;  // target high
+                        float x1 = w.measured_470k;
+                        float x2 = w.measured_47k;
+                        
+                        if(x2 > x1 + 1000.0f) {
+                            w.gain = (y2 - y1) / (x2 - x1);
+                            w.offset = y1 - w.gain * x1;
+                            
+                            if(w.gain >= 0.5f && w.gain <= 2.0f &&
+                               w.offset >= -50000.0f && w.offset <= 50000.0f) {
+                                w.step = 4; // success
+                            } else {
+                                w.step = 5;
+                            }
+                        } else {
+                            w.step = 5;
+                        }
+                    } else {
+                        w.step = 5;
+                    }
+                } else if(w.step == 4) {
+                    biomap_save_calibration(app, w.gain, w.offset);
+                    break;
+                }
+                view_port_update(vp);
+            }
+        }
+    }
     vp_pop(app, vp);
 }
 

@@ -590,6 +590,14 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         s->gps = NULL;
     }
     s->gsr    = has_gsr(mode) ? gsr_sensor_alloc() : NULL;
+    if(s->gsr) {
+        furi_mutex_acquire(app->mutex, FuriWaitForever);
+        bool active = app->cal_active;
+        float gain = app->cal_gain;
+        float offset = app->cal_offset;
+        furi_mutex_release(app->mutex);
+        gsr_sensor_set_calibration(s->gsr, active, gain, offset);
+    }
     s->logger = sd_logger_alloc(app->storage);
 
     s->vp = view_port_alloc();

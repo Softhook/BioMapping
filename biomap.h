@@ -74,12 +74,15 @@ typedef struct BioMapApp {
     ViewPort*          menu_vp;
 
     bool               backlight_on;
+    bool               cal_active;
+    float              cal_gain;
+    float              cal_offset;
 } BioMapApp;
 
 // ── Menu & conversion UI types ─────────────────────────────────────────
 
 #define MENU_COUNT      4
-#define OPTIONS_COUNT   3
+#define OPTIONS_COUNT   4
 
 typedef struct {
     BioMapApp* app;
@@ -91,10 +94,33 @@ typedef struct {
     int32_t    selection;
 } OptionsContext;
 
+#define BIOMAP_CAL_MAGIC 0x424D4341
+#define BIOMAP_CAL_PATH  "/ext/biomapping/biomap.cal"
+
+typedef struct {
+    uint32_t magic;
+    float    gain;
+    float    offset;
+    uint32_t checksum;
+} BioMapCalibration;
+
+typedef struct {
+    int   step;
+    float measured_470k;
+    float measured_47k;
+    float gain;
+    float offset;
+} WizardState;
+
 // ── App-level function declarations ────────────────────────────────────
 
 void run_gps_hot_start(BioMapApp* app);
 void run_options_screen(BioMapApp* app);
+void run_calibration_menu(BioMapApp* app);
+void run_calibration_wizard(BioMapApp* app);
+bool biomap_load_calibration(BioMapApp* app);
+void biomap_save_calibration(BioMapApp* app, float gain, float offset);
+void biomap_reset_calibration(BioMapApp* app);
 
 void biomap_input_callback(InputEvent* e, void* ctx);
 void biomap_timer_callback(void* ctx);

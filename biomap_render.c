@@ -11,6 +11,7 @@ static const char* const options_labels[OPTIONS_COUNT] = {
     "Reset GPS",
     "Auto-zoom GSR",
     "Backlight",
+    "GSR Calibration",
 };
 
 // ── GPS display helpers ────────────────────────────────────────────────────
@@ -317,11 +318,17 @@ void options_render(Canvas* c, void* ctx) {
     int sel = (int)o_ctx->selection;
     draw_selection_list(c, sel, OPTIONS_COUNT, options_labels, 22);
 
-    // Overlay toggle state on items 1 (auto-zoom) and 2 (backlight)
+    // Overlay toggle state on items 1 (auto-zoom), 2 (backlight), and 3 (calibration)
     for(int i = 1; i < OPTIONS_COUNT; i++) {
         int y = 22 + i * 10;
-        bool on = (i == 1) ? a->zoom_enabled : a->backlight_on;
-        const char* state = on ? "ON" : "OFF";
+        const char* state;
+        if(i == 1) {
+            state = a->zoom_enabled ? "ON" : "OFF";
+        } else if(i == 2) {
+            state = a->backlight_on ? "ON" : "OFF";
+        } else {
+            state = a->cal_active ? "CAL" : "DEF";
+        }
         int sx = 128 - canvas_string_width(c, state) - 2;
         if(i == sel) canvas_invert_color(c);
         canvas_draw_str(c, sx, y, state);
@@ -330,4 +337,60 @@ void options_render(Canvas* c, void* ctx) {
     canvas_set_font(c, FontSecondary);
     canvas_draw_str(c, 0, 60, "Press Back to return");
     furi_mutex_release(a->mutex);
+}
+
+void calibration_menu_render(Canvas* c, void* ctx) {
+    int sel = *(int*)ctx;
+    canvas_clear(c);
+    canvas_set_font(c, FontPrimary);
+    canvas_draw_str(c, 0, 10, "GSR Calibration");
+    canvas_set_font(c, FontSecondary);
+    
+    const char* options[] = { "Start Wizard", "Reset to Default" };
+    for(int i = 0; i < 2; i++) {
+        int y = 25 + i * 12;
+        if(i == sel) {
+            canvas_draw_str(c, 0, y, "> ");
+            canvas_draw_str(c, 10, y, options[i]);
+        } else {
+            canvas_draw_str(c, 10, y, options[i]);
+        }
+    }
+    canvas_draw_str(c, 0, 60, "Press Back to return");
+}
+
+void calibration_wizard_render(Canvas* c, void* ctx) {
+    WizardState* w = (WizardState*)ctx;
+    canvas_clear(c);
+    canvas_set_font(c, FontPrimary);
+    canvas_draw_str(c, 0, 10, "GSR Calibration");
+    canvas_set_font(c, FontSecondary);
+    
+    char buf[64];
+    if(w->step == 0) {
+        canvas_draw_str(c, 0, 25, "Step 1/2: Low Point");
+        canvas_draw_str(c, 0, 37, "Connect 470k resistor");
+        canvas_draw_str(c, 0, 49, "[Press OK to measure]");
+    } else if(w->step == 1) {
+        canvas_draw_str(c, 0, 25, "Measuring 470k...");
+        canvas_draw_str(c, 0, 40, "Keep resistor connected");
+    } else if(w->step == 2) {
+        canvas_draw_str(c, 0, 25, "Step 2/2: High Point");
+        canvas_draw_str(c, 0, 37, "Connect 47k resistor");
+        canvas_draw_str(c, 0, 49, "[Press OK to measure]");
+    } else if(w->step == 3) {
+        canvas_draw_str(c, 0, 25, "Measuring 47k...");
+        canvas_draw_str(c, 0, 40, "Keep resistor connected");
+    } else if(w->step == 4) {
+        canvas_draw_str(c, 0, 23, "Calibration Success!");
+        snprintf(buf, sizeof(buf), "Gain: %.3fx", (double)w->gain);
+        canvas_draw_str(c, 0, 35, buf);
+        snprintf(buf, sizeof(buf), "Offset: %.0f counts", (double)w->offset);
+        canvas_draw_str(c, 0, 47, buf);
+        canvas_draw_str(c, 0, 60, "[OK to Save, Back to Cancel]");
+    } else if(w->step == 5) {
+        canvas_draw_str(c, 0, 25, "Calibration Failed!");
+        canvas_draw_str(c, 0, 38, "Check connections.");
+        canvas_draw_str(c, 0, 50, "[Press OK to Retry]");
+    }
 }
