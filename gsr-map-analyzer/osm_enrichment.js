@@ -7,7 +7,6 @@
 // -- Numerical constants ---------------------------------------------------
 const METERS_PER_DEG_LAT  = 111320;         // m per degree of latitude
 const METERS_PER_DEG_LAT_KM = 111.32;       // km per degree (area calcs)
-const EARTH_RADIUS_M      = 6371000;        // haversine
 const CELL_SIZE_DEG       = 0.001;          // spatial-hash cell (~111 m)
 const SENTINEL_DIST       = 999;            // sentinel for "no feature nearby"
 const DEFAULT_RADIUS_M    = 50;             // enrichment search radius
@@ -145,62 +144,15 @@ const OSMEnricher = {
      ====================================================================== */
 
   haversine(lat1, lon1, lat2, lon2) {
-    const phi1 = lat1 * Math.PI / 180;
-    const phi2 = lat2 * Math.PI / 180;
-    const dPhi = (lat2 - lat1) * Math.PI / 180;
-    const dLambda = (lon2 - lon1) * Math.PI / 180;
-
-    const a = Math.sin(dPhi / 2) ** 2 +
-              Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLambda / 2) ** 2;
-    return EARTH_RADIUS_M * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return GeoUtils.haversineMeters(lat1, lon1, lat2, lon2);
   },
 
-  /**
-   * Shortest distance (m) from point P(lat, lon) to line segment AB.
-   */
   distanceToSegment(lat, lon, lat1, lon1, lat2, lon2) {
-    const cosLat = Math.cos(((lat + lat1 + lat2) / 3) * Math.PI / 180);
-    const x = lon * cosLat,  y = lat;
-    const x1 = lon1 * cosLat, y1 = lat1;
-    const x2 = lon2 * cosLat, y2 = lat2;
-
-    const dx = x2 - x1, dy = y2 - y1;
-    const l2 = dx * dx + dy * dy;
-
-    let t = 0;
-    if (l2 > 0) {
-      t = ((x - x1) * dx + (y - y1) * dy) / l2;
-      t = Math.max(0, Math.min(1, t));
-    }
-
-    const projX = x1 + t * dx;
-    const projY = y1 + t * dy;
-    const distLat = projY - y;
-    const distLon = (projX - x) / cosLat;
-
-    return Math.sqrt(distLat * distLat + distLon * distLon) * METERS_PER_DEG_LAT;
+    return GeoUtils.distanceToSegmentMeters(lat, lon, lat1, lon1, lat2, lon2);
   },
 
-  /**
-   * Ray-casting point-in-polygon check.
-   * Coordinates should be array of {lat, lon} or [lat, lon].
-   */
   pointInPolygon(lat, lon, poly) {
-    let inside = false;
-    const n = poly.length;
-    for (let i = 0, j = n - 1; i < n; j = i++) {
-      const pi = poly[i], pj = poly[j];
-      const xi = Array.isArray(pi) ? pi[1] : pi.lon;
-      const yi = Array.isArray(pi) ? pi[0] : pi.lat;
-      const xj = Array.isArray(pj) ? pj[1] : pj.lon;
-      const yj = Array.isArray(pj) ? pj[0] : pj.lat;
-
-      if ((yi > lat) !== (yj > lat) &&
-          lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) {
-        inside = !inside;
-      }
-    }
-    return inside;
+    return GeoUtils.pointInPolygon(lat, lon, poly);
   },
 
   /* ======================================================================
@@ -263,186 +215,8 @@ const OSMEnricher = {
      Overpass API
      ====================================================================== */
 
-  buildQuery(bbox) {
-    const b = `${bbox.minLat.toFixed(6)},${bbox.minLon.toFixed(6)},${bbox.maxLat.toFixed(6)},${bbox.maxLon.toFixed(6)}`;
-    return `[out:json][timeout:180][maxsize:536870912];
-(
-  way["highway"](${b});
-  way["building"](${b});
-  relation["building"](${b});
-  way["leisure"~"park|garden|nature_reserve|playground"](${b});
-  way["landuse"~"grass|forest|meadow|recreation_ground|village_green|orchard"](${b});
-  way["natural"~"wood|scrub|grassland|heath"](${b});
-  relation["leisure"~"park|garden|nature_reserve|playground"](${b});
-  relation["landuse"~"grass|forest|meadow|recreation_ground|village_green|orchard"](${b});
-  relation["natural"~"wood|scrub|grassland|heath"](${b});
-  way["natural"~"water|wetland"](${b});
-  way["waterway"](${b});
-  relation["natural"~"water|wetland"](${b});
-  relation["waterway"](${b});
-  node["amenity"](${b});
-  way["amenity"](${b});
-  node["shop"](${b});
-  way["shop"](${b});
-  node["highway"="bus_stop"](${b});
-  node["natural"="tree"](${b});
-);
-out body;
->;
-out skel qt;`;
-  },
-
-  /* ======================================================================
-     Rate-limit tracker (module-level — persists across calls)
-     ====================================================================== */
-
-  /** @type {number|null} timestamp (ms) when we can next call the API */
-  _nextAllowedCallTime: null,
-
-  /**
-   * Wait until we're allowed to call the API (respects global rate-limit backoff).
-   * Returns the number of ms actually waited.
-   */
-  async _enforceRateLimit(onProgress) {
-    const now = Date.now();
-    if (this._nextAllowedCallTime && now < this._nextAllowedCallTime) {
-      const wait = this._nextAllowedCallTime - now;
-      if (onProgress) {
-        const sec = Math.ceil(wait / 1000);
-        onProgress(`Rate-limited. Waiting ${sec}s before next request…`);
-      }
-      await new Promise(r => setTimeout(r, wait));
-    }
-  },
-
-  /**
-   * Overpass API retry policy.  Returns a wait time in ms that doubles
-   * per attempt (exponential backoff) with ±25 % jitter.
-   */
-  _backoffMs(attempt, baseMs) {
-    const linear = baseMs * Math.pow(2, attempt);
-    const jitter = 1 + (Math.random() - 0.5) * 0.5; // 0.75 – 1.25
-    return Math.round(linear * jitter);
-  },
-
-  /**
-   * Read `Retry-After` header (seconds or HTTP-date), defaulting to `fallbackMs`.
-   */
-  _retryAfterMs(response, fallbackMs) {
-    const val = response.headers.get('Retry-After');
-    if (!val) return fallbackMs;
-    const sec = parseInt(val, 10);
-    if (!isNaN(sec) && sec > 0) return sec * 1000;
-    // Could be an HTTP-date — ignore for simplicity, use fallback
-    return fallbackMs;
-  },
-
   async fetchOSMData(bbox, onProgress) {
-    if (onProgress) onProgress('Connecting to Overpass API...');
-
-    const query = this.buildQuery(bbox);
-
-    // Honour global rate-limit cooldown before we even start
-    await this._enforceRateLimit(onProgress);
-
-    // ── Retry loop ──────────────────────────────────────────────────────
-    // 504 timeout:    3 attempts, backoff 5 s -> 10 s -> 20 s
-    // 429 / rate-limit: 3 attempts, backoff 30 s -> 60 s -> 120 s
-    const maxRetries = 3;
-
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        const controller = new AbortController();
-        const timeoutMs = 200000;                       // 200 s network timeout
-        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-        const response = await fetch(this.overpassEndpoint, {
-          method: 'POST',
-          body: 'data=' + encodeURIComponent(query),
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-
-        if (response.ok) {
-          if (onProgress) onProgress('Parsing geographical payload...');
-          return response.json();
-        }
-
-        // ── Non-200 — classify & retry (or fail) ────────────────────────
-
-        if (response.status === 429 || response.status === 509) {
-          // Rate limited: long backoff, respect Retry-After
-          const retryAfterMs = this._retryAfterMs(response, 30000);
-          // Set global cooldown so subsequent calls wait too
-          this._nextAllowedCallTime = Date.now() + retryAfterMs;
-
-          if (attempt < maxRetries) {
-            const msg = `Overpass API rate-limited (HTTP ${response.status}). ` +
-              `Waiting ${Math.ceil(retryAfterMs / 1000)}s… (attempt ${attempt + 1}/${maxRetries})`;
-            if (onProgress) onProgress(msg);
-            await new Promise(r => setTimeout(r, retryAfterMs));
-            continue;
-          }
-
-          throw new Error(
-            `Overpass API rejected the request with HTTP ${response.status} (rate-limited). ` +
-            `Try again in a few minutes, or use a smaller search radius / shorter track ` +
-            `to reduce query size.`
-          );
-        }
-
-        if (response.status === 504) {
-          if (attempt < maxRetries) {
-            // Gateway timeout — short backoff
-            const waitMs = this._backoffMs(attempt, 5000);
-            if (onProgress) {
-              onProgress(
-                `Overpass API timed out (504). Retrying in ${Math.ceil(waitMs / 1000)}s… ` +
-                `(attempt ${attempt + 1}/${maxRetries})`
-              );
-            }
-            await new Promise(r => setTimeout(r, waitMs));
-            continue;
-          }
-          // All retries exhausted — the query is too expensive for this area
-          throw new Error(
-            `Overpass API timed out after ${maxRetries + 1} attempts. ` +
-            `The track covers too large an area. Try a shorter track, or split ` +
-            `the session into smaller segments.`
-          );
-        }
-
-        // All other HTTP errors — fail immediately (no retry)
-        const hints = {
-          400: 'The Overpass query was malformed. This is a bug — please report it.',
-          403: 'Access denied by the Overpass API.',
-          413: 'Request entity too large. Try a shorter track or smaller radius.',
-          502: 'Overpass API gateway error. Try again later.',
-          503: 'Overpass API is temporarily unavailable (maintenance or overload). Try again later.',
-        };
-        const hint = hints[response.status] ||
-          `Unexpected HTTP ${response.status} from the Overpass API.`;
-        throw new Error(hint);
-
-      } catch (err) {
-        // Network / abort errors
-        if (err.name === 'AbortError' && attempt < maxRetries) {
-          const waitMs = this._backoffMs(attempt, 5000);
-          if (onProgress) {
-            onProgress(
-              `Request timed out. Retrying in ${Math.ceil(waitMs / 1000)}s… ` +
-              `(attempt ${attempt + 1}/${maxRetries})`
-            );
-          }
-          await new Promise(r => setTimeout(r, waitMs));
-          continue;
-        }
-        // Re-throw everything else (including final AbortError after retries exhausted)
-        throw err;
-      }
-    }
+    return OverpassClient.fetchOSMData(bbox, onProgress);
   },
 
   /* ======================================================================

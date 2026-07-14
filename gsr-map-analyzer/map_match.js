@@ -460,14 +460,7 @@ const MapMatcher = {
   },
 
   _haversineM(lat1, lon1, lat2, lon2) {
-    const R    = 6371000;
-    const phi1 = lat1 * Math.PI / 180;
-    const phi2 = lat2 * Math.PI / 180;
-    const dPhi = (lat2 - lat1) * Math.PI / 180;
-    const dLam = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dPhi / 2) ** 2
-            + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLam / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return GeoUtils.haversineMeters(lat1, lon1, lat2, lon2);
   },
 
   _segmentBearing(lat1, lon1, lat2, lon2) {

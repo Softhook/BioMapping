@@ -11,6 +11,7 @@ development.
 import csv, math, sys
 from collections import defaultdict, Counter
 from datetime import datetime
+import biomap_utils
 
 
 def load_gps_rows(path):
@@ -99,14 +100,7 @@ def analyze_gps(gps_rows):
 
 def analyze_gsr(rows):
     """Analyze GSR signal characteristics for noise assessment."""
-    vals = []
-    for r in rows:
-        try:
-            v = float(r.get('gsr_raw', '0') or '0')
-            if v > 0:
-                vals.append(v)
-        except (ValueError, TypeError):
-            pass
+    vals = biomap_utils.extract_valid_gsr(rows)
 
     if len(vals) < 2:
         print("No GSR data found.")
@@ -114,30 +108,17 @@ def analyze_gsr(rows):
 
     print(f"\nGSR samples: {len(vals)}")
     print(f"Range: {min(vals):.1f} – {max(vals):.1f}")
-    mean = sum(vals) / len(vals)
+    mean, std, cv_pct = biomap_utils.compute_basic_stats(vals)
     print(f"Mean: {mean:.1f}")
-
-    # Compute standard deviation
-    variance = sum((v - mean)**2 for v in vals) / len(vals)
-    std = math.sqrt(variance)
     print(f"StdDev: {std:.1f}")
-    print(f"Coefficient of variation: {std/mean*100:.1f}%")
+    print(f"Coefficient of variation: {cv_pct:.1f}%")
 
-    # High-frequency noise: compute first-difference RMS
-    diffs = [abs(vals[i] - vals[i-1]) for i in range(1, len(vals))]
-    diff_rms = math.sqrt(sum(d*d for d in diffs) / len(diffs))
-    diff_mean = sum(diffs) / len(diffs)
-    print(f"Point-to-point delta: mean={diff_mean:.1f}  RMS={diff_rms:.1f}")
+    # High-frequency noise
+    _, _, mean_abs_d, _, diff_rms = biomap_utils.compute_diff_stats(vals)
+    print(f"Point-to-point delta: mean={mean_abs_d:.1f}  RMS={diff_rms:.1f}")
 
-    # Detect outliers (>3 sigma from local median)
-    window = 50
-    outliers = 0
-    for i in range(window, len(vals) - window):
-        local = vals[i-window:i+window+1]
-        local.sort()
-        median = local[len(local)//2]
-        if abs(vals[i] - median) > 3 * std:
-            outliers += 1
+    # Detect outliers
+    outliers = biomap_utils.detect_outliers(vals, std)
     print(f"Outliers (>3σ from local median): {outliers}/{len(vals)} ({100*outliers/len(vals):.2f}%)")
 
     return vals
@@ -153,23 +134,16 @@ def compare_gsr_noise(path_a, label_a, path_b, label_b):
     for path, label in [(path_a, label_a), (path_b, label_b)]:
         with open(path) as f:
             rows = list(csv.DictReader(f))
-        vals = []
-        for r in rows:
-            try:
-                v = float(r.get('gsr_raw', '0') or '0')
-                if v > 0: vals.append(v)
-            except (ValueError, TypeError): pass
+        vals = biomap_utils.extract_valid_gsr(rows)
 
         if len(vals) < 2: continue
-        mean = sum(vals) / len(vals)
-        std = math.sqrt(sum((v-mean)**2 for v in vals) / len(vals))
-        diffs = [abs(vals[i]-vals[i-1]) for i in range(1, len(vals))]
-        diff_rms = math.sqrt(sum(d*d for d in diffs) / len(diffs))
+        mean, std, cv_pct = biomap_utils.compute_basic_stats(vals)
+        _, _, _, _, diff_rms = biomap_utils.compute_diff_stats(vals)
 
         results[label] = {
             'samples': len(vals),
             'mean': mean, 'std': std,
-            'cv_pct': std/mean*100,
+            'cv_pct': cv_pct,
             'diff_rms': diff_rms,
             'range': max(vals) - min(vals)
         }

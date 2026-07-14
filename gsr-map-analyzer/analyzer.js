@@ -253,56 +253,46 @@ class GSRAnalyzer {
     const headerLine = lines[dataStartLine];
     const headers = this._parseCsvLine(headerLine).map(h => h.trim().toLowerCase());
 
-    // Guess column indices
-    let timeColIndex = -1;
-    let gsrColIndex = -1;
-    let latColIndex = -1;
-    let lonColIndex = -1;
-    let altColIndex = -1;
-    let hdopColIndex = -1;
-    let vdopColIndex = -1;
-    let wdopColIndex = -1;
-    let pdopColIndex = -1;
-    let satsColIndex = -1;
-    let fixColIndex = -1;
-    let fixTypeColIndex = -1;
-    let speedKtsColIndex = -1;
-    let courseColIndex = -1;
-
-    // Time column keyword search
-    const timeKeywords = GSR_CONST.TIME_KEYWORDS;
-    for (let i = 0; i < headers.length; i++) {
-      if (timeKeywords.some(kw => headers[i].includes(kw))) {
-        timeColIndex = i;
-        break;
-      }
+    // Guess column indices from canonical CSV_COLUMNS
+    const csvCols = GSR_CONST.CSV_COLUMNS;
+    const colIndices = {};
+    for (const colName of csvCols) {
+      colIndices[colName] = -1;
     }
 
-    // GSR column keyword search
-    const gsrKeywords = GSR_CONST.GSR_KEYWORDS;
-    for (let i = 0; i < headers.length; i++) {
-      if (i === timeColIndex) continue;
-      if (gsrKeywords.some(kw => headers[i].includes(kw))) {
-        gsrColIndex = i;
-        break;
-      }
-    }
-
-    // GPS column keyword search
+    // Map headers to canonical names
     for (let i = 0; i < headers.length; i++) {
       const h = headers[i];
-      if (h.includes('lat')) latColIndex = i;
-      else if (h.includes('lon') || h.includes('lng')) lonColIndex = i;
-      else if (h.includes('alt')) altColIndex = i;
-      else if (h === 'hdop') hdopColIndex = i;
-      else if (h === 'vdop') vdopColIndex = i;
-      else if (h === 'pdop') pdopColIndex = i;
-      else if (h === 'wdop') wdopColIndex = i;
-      else if (h === 'fix_type') fixTypeColIndex = i;
-      else if (h.includes('sat')) satsColIndex = i;
-      else if (h === 'fix') fixColIndex = i;
-      else if (h === 'speed_kts') speedKtsColIndex = i;
-      else if (h === 'course_deg') courseColIndex = i;
+      // Time Column (timestamp, time, etc.)
+      if (GSR_CONST.TIME_KEYWORDS.some(kw => h.includes(kw))) {
+        if (colIndices['timestamp'] === -1) colIndices['timestamp'] = i;
+      }
+      // GSR Column (gsr_raw, gsr, etc.)
+      else if (GSR_CONST.GSR_KEYWORDS.some(kw => h.includes(kw)) && !GSR_CONST.TIME_KEYWORDS.some(kw => h.includes(kw))) {
+        if (colIndices['gsr_raw'] === -1) colIndices['gsr_raw'] = i;
+      }
+      // Lat / Lon — skip 'alt' (altitude) which includes 'lat' as a substring
+      else if (h === 'alt' || h === 'vdop' || h === 'wdop') {
+        // These are either firmware columns never written (vdop/wdop) or
+        // legacy columns no longer in the canonical schema (alt).  Explicitly
+        // skip so 'alt' doesn't false-match h.includes('lat') below.
+      }
+      else if (h.includes('lat')) {
+        colIndices['lat'] = i;
+      }
+      else if (h.includes('lon') || h.includes('lng')) {
+        colIndices['lon'] = i;
+      }
+      // The rest match exactly or via standard fallback
+      else if (h === 'hdop') colIndices['hdop'] = i;
+      else if (h === 'pdop') colIndices['pdop'] = i;
+      else if (h === 'fix_type') colIndices['fix_type'] = i;
+      else if (h === 'fix') {
+        if (colIndices['fix_type'] === -1) colIndices['fix_type'] = i; // fallback for older schema
+      }
+      else if (h.includes('sat')) colIndices['sats'] = i;
+      else if (h === 'speed_kts') colIndices['speed_kts'] = i;
+      else if (h === 'course_deg') colIndices['course_deg'] = i;
     }
 
     // Processed-CSV column detection (re-imported data)
@@ -327,8 +317,8 @@ class GSRAnalyzer {
     let osmAmenityCountColIdx = headers.indexOf('osm_amenity_count_50m');
 
     // Fallbacks for main biometric columns
-    if (timeColIndex === -1) timeColIndex = 0;
-    if (gsrColIndex === -1) gsrColIndex = headers.length > 1 ? 1 : 0;
+    if (colIndices['timestamp'] === -1) colIndices['timestamp'] = 0;
+    if (colIndices['gsr_raw'] === -1) colIndices['gsr_raw'] = headers.length > 1 ? 1 : 0;
 
     // Parse data rows
     let rawDataList = [];
@@ -337,9 +327,9 @@ class GSRAnalyzer {
       if (!line || !line.trim()) continue;
 
       const cols = this._parseCsvLine(line);
-      if (cols.length <= Math.max(timeColIndex, gsrColIndex)) continue;
+      if (cols.length <= Math.max(colIndices['timestamp'], colIndices['gsr_raw'])) continue;
 
-      let rawTimeStr = cols[timeColIndex].trim();
+      let rawTimeStr = cols[colIndices['timestamp']].trim();
       let timeVal = NaN;
 
       // Parse timestamp
@@ -353,20 +343,18 @@ class GSRAnalyzer {
         timeVal = parseFloat(rawTimeStr);
       }
 
-      let gsrVal = parseFloat(cols[gsrColIndex]);
+      let gsrVal = parseFloat(cols[colIndices['gsr_raw']]);
       if (isNaN(timeVal) || isNaN(gsrVal)) continue;
 
       // Parse GPS fields (empty fields parse to NaN)
-      let latVal = latColIndex !== -1 && cols[latColIndex] ? parseFloat(cols[latColIndex]) : NaN;
-      let lonVal = lonColIndex !== -1 && cols[lonColIndex] ? parseFloat(cols[lonColIndex]) : NaN;
-      let hdopVal     = hdopColIndex  !== -1 && cols[hdopColIndex]  ? parseFloat(cols[hdopColIndex])  : NaN;
-      let pdopVal     = pdopColIndex  !== -1 && cols[pdopColIndex]  ? parseFloat(cols[pdopColIndex])  : NaN;
-      let wdopVal     = wdopColIndex  !== -1 && cols[wdopColIndex]  ? parseFloat(cols[wdopColIndex])  : NaN;
-      let vdopVal     = vdopColIndex  !== -1 && cols[vdopColIndex]  ? parseFloat(cols[vdopColIndex])  : NaN;
-      let satsVal     = satsColIndex  !== -1 && cols[satsColIndex]  ? parseInt(cols[satsColIndex])    : 0;
-      let fixTypeVal  = fixTypeColIndex !== -1 && cols[fixTypeColIndex] ? parseInt(cols[fixTypeColIndex]) : 0;
-      let speedKtsVal = speedKtsColIndex !== -1 && cols[speedKtsColIndex] ? parseFloat(cols[speedKtsColIndex]) : NaN;
-      let courseVal   = courseColIndex   !== -1 && cols[courseColIndex]   ? parseFloat(cols[courseColIndex])   : NaN;
+      let latVal = colIndices['lat'] !== -1 && cols[colIndices['lat']] ? parseFloat(cols[colIndices['lat']]) : NaN;
+      let lonVal = colIndices['lon'] !== -1 && cols[colIndices['lon']] ? parseFloat(cols[colIndices['lon']]) : NaN;
+      let hdopVal     = colIndices['hdop']  !== -1 && cols[colIndices['hdop']]  ? parseFloat(cols[colIndices['hdop']])  : NaN;
+      let pdopVal     = colIndices['pdop']  !== -1 && cols[colIndices['pdop']]  ? parseFloat(cols[colIndices['pdop']])  : NaN;
+      let satsVal     = colIndices['sats']  !== -1 && cols[colIndices['sats']]  ? parseInt(cols[colIndices['sats']])    : 0;
+      let fixTypeVal  = colIndices['fix_type'] !== -1 && cols[colIndices['fix_type']] ? parseInt(cols[colIndices['fix_type']]) : 0;
+      let speedKtsVal = colIndices['speed_kts'] !== -1 && cols[colIndices['speed_kts']] ? parseFloat(cols[colIndices['speed_kts']]) : NaN;
+      let courseVal   = colIndices['course_deg']   !== -1 && cols[colIndices['course_deg']]   ? parseFloat(cols[colIndices['course_deg']])   : NaN;
 
       // Read peak label from processed-CSV re-import
       let importedPeakLabel = '';
@@ -396,8 +384,6 @@ class GSRAnalyzer {
         lon: lonVal,
         hdop: hdopVal,
         pdop: pdopVal,
-        wdop: wdopVal,
-        vdop: vdopVal,
         sats: satsVal,
         fixType: fixTypeVal,
         speedKts: speedKtsVal,
@@ -530,7 +516,7 @@ class GSRAnalyzer {
 
     // Auto-detect Units and convert to MicroSiemens (uS)
     const avgVal = rawDataList.reduce((sum, d) => sum + d.val, 0) / rawDataList.length;
-    const gsrHeader = headers[gsrColIndex] || "";
+    const gsrHeader = headers[colIndices['gsr_raw']] || "";
     const isResistanceHeader = gsrHeader.includes('resistance') || gsrHeader.includes('ohms');
     
     if (isResistanceHeader || avgVal > GSR_CONST.RESISTANCE_MIN_AVG) {
@@ -570,7 +556,6 @@ class GSRAnalyzer {
         rawDataList[i].sats    = firstGps.sats;
         rawDataList[i].hdop    = firstGps.hdop;
         rawDataList[i].pdop    = firstGps.pdop;
-        rawDataList[i].wdop    = firstGps.wdop;
         rawDataList[i].fixType = firstGps.fixType;
         rawDataList[i].speedKts = firstGps.speedKts;
         rawDataList[i].course  = firstGps.course;
@@ -600,7 +585,6 @@ class GSRAnalyzer {
           // uses the per-anchor values directly.
           d.hdop    = dA.hdop;
           d.pdop    = dA.pdop;
-          d.wdop    = dA.wdop;
           d.fixType = dA.fixType;
           d.speedKts = dA.speedKts;
           d.course  = dA.course;
@@ -617,7 +601,6 @@ class GSRAnalyzer {
         rawDataList[i].sats    = lastGps.sats;
         rawDataList[i].hdop    = lastGps.hdop;
         rawDataList[i].pdop    = lastGps.pdop;
-        rawDataList[i].wdop    = lastGps.wdop;
         rawDataList[i].fixType = lastGps.fixType;
         rawDataList[i].speedKts = lastGps.speedKts;
         rawDataList[i].course  = lastGps.course;

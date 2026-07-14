@@ -25,8 +25,6 @@ class GSRMapManager {
     // ── Render caches ──────────────────────────────────────────────────
     // GPS filter cache: trackId -> { paramsHash, snapFingerprint, gpsPoints, drawPoints }
     this._gpsCache = new Map();
-    // Color LUT cache: "metric|min|max" -> [30 HSL strings]
-    this._colorLutCache = new Map();
 
     this.initMap();
     this._initLegend();
@@ -224,20 +222,7 @@ class GSRMapManager {
     this.updateLegend();
   }
 
-  _getHslColor(ratio, saturation = 100, lightness = 50) {
-    const r = Math.max(0, Math.min(1, ratio));
-    const hue = (1.0 - r) * 120;
-    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-  }
 
-  /**
-   * Map value to HSL color (Green = 120 -> Yellow -> Red = 0)
-   */
-  getColorForValue(val, minVal, maxVal) {
-    if (maxVal === minVal) return 'hsl(120, 90%, 50%)'; // default green
-    const ratio = (val - minVal) / (maxVal - minVal);
-    return this._getHslColor(ratio, 90, 50);
-  }
 
   /**
    * Hash GPS filter params for cache key comparison.
@@ -294,21 +279,21 @@ class GSRMapManager {
       return { gpsPoints: [], drawPoints: [] };
     }
 
-    gpsPoints = this._applyHdopGate(gpsPoints, p.maxHdop || 2.0);
-    gpsPoints = this._applyFixTypeGate(gpsPoints);
+    gpsPoints = GpsPipeline.applyHdopGate(gpsPoints, p.maxHdop || 2.0);
+    gpsPoints = GpsPipeline.applyFixTypeGate(gpsPoints);
 
     const smoothing = p.smoothing || 0.5;
     const kalmanR   = p.kalmanR || 10;
-    gpsPoints = this._applyPreKalmanFilters(gpsPoints, smoothing, p.maxSpeed || 3.0);
+    gpsPoints = GpsPipeline.applyPreKalmanFilters(gpsPoints, smoothing, p.maxSpeed || 3.0);
 
     if (analyzer.snappedGps) {
-      gpsPoints = this._applySnapCorrection(gpsPoints, analyzer.snappedGps);
+      gpsPoints = GpsPipeline.applySnapCorrection(gpsPoints, analyzer.snappedGps);
     }
 
     gpsPoints = GpsFilter.applyKalman(gpsPoints, smoothing, kalmanR);
 
     // Reconstruct full 10 Hz filtered GPS path (cached on analyzer)
-    this._reconstructFilteredGpsCached(analyzer, data, gpsPoints);
+    GpsPipeline.reconstructFilteredGpsCached(analyzer, data, gpsPoints);
 
     // Build drawPoints from the 10 Hz reconstructed filtered GPS path
     const filteredGps = analyzer.filteredGps;
@@ -325,57 +310,11 @@ class GSRMapManager {
       }
     }
 
-    drawPoints = this._downsampleForDisplay(drawPoints, analyzer.sampleRate || 10.0, p.downsample === true || p.downsample === 1);
+    drawPoints = GpsPipeline.downsampleForDisplay(drawPoints, analyzer.sampleRate || 10.0, p.downsample === true || p.downsample === 1);
     drawPoints = GpsFilter.applyRDP(drawPoints, p.rdpTolerance || 0);
 
     this._gpsCache.set(cacheKey, { paramsHash, snapFingerprint: snapFp, gpsPoints, drawPoints });
     return { gpsPoints, drawPoints };
-  }
-
-  /**
-   * Cached version of _reconstructFilteredGps — avoids rebuilding the
-   * 10 Hz interpolated path when the GPS pipeline hasn't changed.
-   */
-  _reconstructFilteredGpsCached(analyzer, data, gpsPoints) {
-    // Use a lightweight hash of gpsPoints to detect actual changes
-    const n = gpsPoints.length;
-    if (n === 0) {
-      if (!analyzer._filteredGpsCacheKey) {
-        this._reconstructFilteredGps(analyzer, data, gpsPoints);
-        analyzer._filteredGpsCacheKey = 'empty';
-      }
-      return;
-    }
-    // Hash: first + last + count + mid-point (fast identity check)
-    const key = `${gpsPoints[0].origIdx}|${gpsPoints[n - 1].origIdx}|${n}|${gpsPoints[Math.floor(n / 2)].origIdx}`;
-    if (analyzer._filteredGpsCacheKey === key) return;
-
-    this._reconstructFilteredGps(analyzer, data, gpsPoints);
-    analyzer._filteredGpsCacheKey = key;
-  }
-
-  /**
-   * Build or retrieve a pre-computed color lookup table for a metric.
-   * Returns an array of 30 CSS color strings.
-   */
-  _getColorLut(metric, minVal, maxVal) {
-    const cacheKey = `${metric}|${minVal.toFixed(4)}|${maxVal.toFixed(4)}`;
-    let lut = this._colorLutCache.get(cacheKey);
-    if (lut) return lut;
-
-    lut = new Array(30);
-    const range = maxVal - minVal;
-    for (let b = 0; b < 30; b++) {
-      const ratio = range > 1e-9 ? (b + 0.5) / 30 : 0.5;
-      lut[b] = this.getColorForMetric(metric, minVal + ratio * range, minVal, maxVal);
-    }
-    this._colorLutCache.set(cacheKey, lut);
-    // Limit cache size
-    if (this._colorLutCache.size > 50) {
-      const firstKey = this._colorLutCache.keys().next().value;
-      this._colorLutCache.delete(firstKey);
-    }
-    return lut;
   }
 
   /**
@@ -431,127 +370,7 @@ class GSRMapManager {
     return pts;
   }
 
-  /**
-   * HDOP gate: rejects GPS anchors with poor satellite geometry.
-   * Default threshold 3.0 — the firmware already pre-filters at 5.0;
-   * this provides a tighter second pass.  Points without HDOP data
-   * (NaN, old CSV) are always kept.
-   */
-  _applyHdopGate(pts, maxHdop = 3.0) {
-    return pts.filter(d => isNaN(d.hdop) || d.hdop <= maxHdop);
-  }
 
-  /**
-   * Fix-type gate: rejects "no fix" (type 1).  2D fixes are kept —
-   * they have excellent horizontal accuracy even without altitude.
-   * Points without fix_type (old CSV, value 0) are always kept.
-   */
-  _applyFixTypeGate(pts, minFixType = 2) {
-    if (minFixType < 2) return pts;
-    return pts.filter(d => d.fixType == null || d.fixType === 0 || d.fixType >= minFixType);
-  }
-
-  /**
-   * Pre-Kalman GPS filters (run before snap+enrich pass).
-   *
-   * 1. Stop averaging — collapses stationary jitter clusters
-   * 2. Speed filter — rejects impossible jumps (Doppler speedKts, ≤3 m/s)
-   * 3. Velocity-aided smoother — dead-reckons from Doppler, ZUPT at ≤0.5 kt
-   *
-   * Kalman RTS runs separately AFTER road snapping (if enabled) so it
-   * smooths the bias-corrected trajectory rather than the raw drift.
-   *
-   * @param {Array}  pts       – GPS anchor points
-   * @param {number} smoothing – process noise Q (0.1–2.0, default 0.5)
-   * @param {number} maxSpeed  – max plausible speed in m/s (default 3.0)
-   */
-  _applyPreKalmanFilters(pts, smoothing = 0.5, maxSpeed = 3.0) {
-    pts = GpsFilter.applyStopAveraging(pts);
-    pts = GpsFilter.applySpeedFilter(pts, maxSpeed);
-    pts = GpsFilter.applyVelocitySmoothing(pts, smoothing);
-    return pts;
-  }
-
-  /**
-   * Post-Kalman snap correction: for each GPS point, blend the
-   * Kalman-smoothed position toward the snapped road position using the
-   * alpha computed during enrichment.  Points without snap data or with
-   * alpha=0 keep their Kalman-smoothed position unchanged.
-   */
-  _applySnapCorrection(gpsPoints, snappedGps) {
-    const result = [];
-    for (const pt of gpsPoints) {
-      const sg = snappedGps[pt.origIdx];
-      if (sg && !isNaN(sg.alpha) && sg.alpha > 0 && !isNaN(sg.roadLat) && !isNaN(sg.roadLon)) {
-        // Re-blend: Kalman-smoothed position → road position using alpha
-        result.push({
-          ...pt,
-          lat: sg.alpha * sg.roadLat + (1 - sg.alpha) * pt.lat,
-          lon: sg.alpha * sg.roadLon + (1 - sg.alpha) * pt.lon
-        });
-      } else {
-        result.push(pt);
-      }
-    }
-    return result;
-  }
-
-  _reconstructFilteredGps(analyzer, data, gpsPoints) {
-    const filteredGps = new Array(data.length);
-    const filteredMap = new Map();
-    gpsPoints.forEach(p => filteredMap.set(p.origIdx, { lat: p.lat, lon: p.lon }));
-
-    const validIndices = gpsPoints.map(p => p.origIdx).sort((a, b) => a - b);
-    if (validIndices.length === 0) {
-      for (let i = 0; i < data.length; i++) filteredGps[i] = { lat: NaN, lon: NaN };
-      analyzer.filteredGps = filteredGps;
-      return;
-    }
-
-    // Fill before first
-    const firstIdx = validIndices[0];
-    const firstCoord = filteredMap.get(firstIdx);
-    for (let i = 0; i < firstIdx; i++) filteredGps[i] = { lat: firstCoord.lat, lon: firstCoord.lon };
-
-    // Interpolate between valid points, but leave large gaps as NaN so the
-    // rendered path breaks instead of drawing a misleading straight line.
-    const GPS_INTERP_MAX_GAP_S = 30;
-    for (let k = 0; k < validIndices.length - 1; k++) {
-      const idxA = validIndices[k], idxB = validIndices[k + 1];
-      const cA = filteredMap.get(idxA), cB = filteredMap.get(idxB);
-      filteredGps[idxA] = { lat: cA.lat, lon: cA.lon };
-      const timeGap = data[idxB].time - data[idxA].time;
-      if (timeGap > GPS_INTERP_MAX_GAP_S) {
-        for (let i = idxA + 1; i < idxB; i++) {
-          filteredGps[i] = { lat: NaN, lon: NaN };
-        }
-      } else {
-        for (let i = idxA + 1; i < idxB; i++) {
-          const ratio = (i - idxA) / (idxB - idxA);
-          filteredGps[i] = { lat: cA.lat + ratio * (cB.lat - cA.lat), lon: cA.lon + ratio * (cB.lon - cA.lon) };
-        }
-      }
-    }
-
-    // Fill after last
-    const lastIdx = validIndices[validIndices.length - 1];
-    const lastCoord = filteredMap.get(lastIdx);
-    for (let i = lastIdx; i < data.length; i++) filteredGps[i] = { lat: lastCoord.lat, lon: lastCoord.lon };
-
-    analyzer.filteredGps = filteredGps;
-  }
-
-  _downsampleForDisplay(gpsPoints, sampleRate, doDownsample) {
-    const step = doDownsample ? Math.max(1, Math.round(sampleRate)) : 1;
-    const draw = [];
-    for (let i = 0; i < gpsPoints.length; i += step) {
-      draw.push({ ...gpsPoints[i] });
-    }
-    if (gpsPoints.length > 0 && (gpsPoints.length - 1) % step !== 0) {
-      draw.push({ ...gpsPoints[gpsPoints.length - 1] });
-    }
-    return draw;
-  }
 
   _fitBounds(drawPoints) {
     const bounds = drawPoints.map(p => [p.lat, p.lon]);
@@ -574,92 +393,7 @@ class GSRMapManager {
     return keys[metric] || 'val';
   }
 
-  getColorForMetric(metric, val, minVal, maxVal) {
-    if (metric === 'gsr') {
-      return this.getColorForValue(val, minVal, maxVal);
-    }
-    
-    if (metric === 'roadClass') {
-      const roadColors = {
-        'motorway':       '#ff0055',
-        'trunk':          '#ff4400',
-        'primary':        '#ff6600',
-        'secondary':      '#ffaa00',
-        'tertiary':       '#ffd500',
-        'residential':    '#0099ff',
-        'pedestrian':     '#00ffc4',
-        'footway':        '#00e575',
-        'path':           '#80e500',
-        'cycleway':       '#00ffd5',
-        'living_street':  '#9b5de5',
-        'service':        '#b8c0ff',
-        'track':          '#a0522d',
-        'unclassified':   '#8899aa',
-        'steps':          '#cc9966'
-      };
-      return roadColors[val] || '#666666';
-    }
-    
-    if (metric === 'inPark') {
-      return val === 1 ? '#00e575' : '#666666';
-    }
 
-    if (metric === 'hdopQuality') {
-      // Low HDOP = good accuracy (green), high HDOP = poor accuracy (red).
-      // Sentinel 99.9 (no data) rendered gray.
-      if (isNaN(val) || val >= 50) return '#888888';
-      let ratio = 0;
-      if (maxVal !== minVal) ratio = (val - minVal) / (maxVal - minVal);
-      ratio = Math.max(0, Math.min(1, ratio));
-      const hue = Math.round((1.0 - ratio) * 120);
-      return `hsl(${hue}, 90%, 45%)`;
-    }
-
-    let ratio = 0;
-    if (maxVal !== minVal) {
-      ratio = (val - minVal) / (maxVal - minVal);
-    }
-    ratio = Math.max(0, Math.min(1, ratio));
-
-    if (metric === 'greenPct') {
-      // Brown (0%) to Green (100%)
-      const hue = 30 + ratio * 100;
-      return `hsl(${hue}, 80%, 45%)`;
-    }
-    
-    if (metric === 'buildingDensity') {
-      // Green (low density) to Red (high density)
-      const hue = (1.0 - ratio) * 120;
-      return `hsl(${hue}, 85%, 50%)`;
-    }
-    
-    if (metric === 'distMajorRoad') {
-      // Close (Red) to Far (Green)
-      const hue = ratio * 120;
-      return `hsl(${hue}, 85%, 50%)`;
-    }
-    
-    if (metric === 'distWater') {
-      // Close (Cyan/Blue) to Far (Brown/Gray)
-      const hue = 200 - ratio * 170;
-      return `hsl(${hue}, 80%, 45%)`;
-    }
-    
-    if (metric === 'treeDensity') {
-      // None (Gray) to Many (Emerald Green)
-      const hue = 60 + ratio * 80;
-      const sat = 30 + ratio * 60;
-      return `hsl(${hue}, ${sat}%, 45%)`;
-    }
-    
-    if (metric === 'amenityCount') {
-      // None (Gray) to Many (Purple/Red)
-      const hue = 240 - ratio * 240;
-      return `hsl(${hue}, 85%, 55%)`;
-    }
-    
-    return '#666666';
-  }
 
   /**
    * Draw OSM vector geometry overlays (parks, water, buildings) on the map.
@@ -755,7 +489,7 @@ class GSRMapManager {
     // Pre-compute color LUT for continuous metrics
     const range = maxVal - minVal;
     const COLOR_BUCKETS = 30;
-    const colorLut = isCategorical ? null : this._getColorLut(metric, minVal, maxVal);
+    const colorLut = isCategorical ? null : MapColors.getColorLut(metric, minVal, maxVal);
 
     // Split drawPoints into continuous path segments, breaking at GPS gaps > 30 s.
     const GPS_PATH_GAP_S = 30;
@@ -806,7 +540,7 @@ class GSRMapManager {
 
         let color;
         if (isCategorical) {
-          color = this.getColorForMetric(metric, startVal, minVal, maxVal);
+          color = MapColors.getColorForMetric(metric, startVal, minVal, maxVal);
         } else {
           const midIdx = (batchStart + batchEnd) >> 1;
           const midBucket = ((seg[midIdx][key] + seg[midIdx + 1][key]) / 2 - minVal) * (COLOR_BUCKETS / range);
@@ -1439,7 +1173,7 @@ class GSRMapManager {
             ratio = (val - minVal) / valRange;
           }
 
-          ctx.fillStyle = this._getHslColor(ratio, 100, 50);
+          ctx.fillStyle = MapColors.getHslColor(ratio, 100, 50);
 
           // Flip row index vertically for canvas space
           const x = c;
@@ -1462,7 +1196,7 @@ class GSRMapManager {
 
     // 2. Draw vector isoline boundaries
     contours.forEach(c => {
-      const color = this._getHslColor(c.ratio, 100, 55);
+      const color = MapColors.getHslColor(c.ratio, 100, 55);
 
       c.segments.forEach(seg => {
         const poly = L.polyline([

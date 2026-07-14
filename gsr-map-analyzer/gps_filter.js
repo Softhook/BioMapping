@@ -10,16 +10,10 @@ const GpsFilter = {
 
   /**
    * Haversine distance between two lat/lon points in metres.
+   * Delegates to GeoUtils.haversineMeters (geo_utils.js).
    */
   haversineDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371000; // Earth radius in metres
-    const φ1 = lat1 * Math.PI / 180;
-    const φ2 = lat2 * Math.PI / 180;
-    const Δφ = (lat2 - lat1) * Math.PI / 180;
-    const Δλ = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(Δφ / 2) ** 2 +
-              Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return GeoUtils.haversineMeters(lat1, lon1, lat2, lon2);
   },
 
   /**
@@ -56,7 +50,7 @@ const GpsFilter = {
       if (!isNaN(curr.speedKts) && dt >= 0.15) {
         speed = curr.speedKts * 0.514444;  // knots → m/s
       } else {
-        const dist = GpsFilter.haversineDistance(prev.lat, prev.lon, curr.lat, curr.lon);
+        const dist = GeoUtils.haversineMeters(prev.lat, prev.lon, curr.lat, curr.lon);
         speed = dist / dt;
       }
 
@@ -111,8 +105,7 @@ const GpsFilter = {
     const Q_LON = Q_m2 * M2_TO_DEG2_LON;
 
     // Helper: scale R by DOP².  Prefer PDOP (chip-computed from all
-    // constellations via GSA — most accurate) when available; fall back
-    // to WDOP (GSV-based, GPS-only, from older tracks) then to HDOP.
+    // constellations via GSA — most accurate) when available; fall back to HDOP.
     // Sentinel values >= 50.0 (e.g. 99.9 unknown) are treated as invalid.
     // Clamp DOP to [0.5, 10.0] — below 0.5 is unrealistically optimistic;
     // above 10.0 the HDOP gate has already filtered most points, but the
@@ -120,7 +113,6 @@ const GpsFilter = {
     // much to deweight a high-DOP fix.
     const getDop = (pt) => {
       if (!isNaN(pt.pdop) && pt.pdop > 0 && pt.pdop < 50.0) return pt.pdop;
-      if (!isNaN(pt.wdop) && pt.wdop > 0 && pt.wdop < 50.0) return pt.wdop;
       if (!isNaN(pt.hdop) && pt.hdop > 0 && pt.hdop < 50.0) return pt.hdop;
       return 1.0;
     };
@@ -305,11 +297,10 @@ const GpsFilter = {
       const dt   = Math.max(0, curr.time - prev.time);
 
       // Compute effective alpha: scale down GPS trust proportionally to DOP.
-      // Prefer PDOP when available; fall back to WDOP then HDOP.
+      // Prefer PDOP when available; fall back to HDOP.
       // Sentinel values >= 50.0 (e.g. 99.9 unknown) are treated as invalid.
       const dop = !isNaN(curr.pdop) && curr.pdop > 0 && curr.pdop < 50.0 ? curr.pdop :
-                  (!isNaN(curr.wdop) && curr.wdop > 0 && curr.wdop < 50.0 ? curr.wdop :
-                  (!isNaN(curr.hdop) && curr.hdop > 0 && curr.hdop < 50.0 ? curr.hdop : 2.0));
+                  (!isNaN(curr.hdop) && curr.hdop > 0 && curr.hdop < 50.0 ? curr.hdop : 2.0);
       const h = Math.max(0.5, Math.min(10, dop));
       const effectiveAlpha = Math.max(0.05, Math.min(0.98, alpha / h));
 

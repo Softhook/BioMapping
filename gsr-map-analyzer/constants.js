@@ -52,6 +52,20 @@ const GSR_CONST = {
   TIME_KEYWORDS: ['time', 'sec', 'timestamp', 'millis', 'ms'],
   GSR_KEYWORDS: ['gsr', 'eda', 'conductance', 'resistance', 'res', 'us', 'raw', 'micro', 'ohms', 'val'],
 
+  // Canonical CSV columns mirroring docs/csv_schema.md
+  CSV_COLUMNS: [
+    'timestamp',
+    'lat',
+    'lon',
+    'hdop',
+    'pdop',
+    'sats',
+    'fix_type',
+    'speed_kts',
+    'course_deg',
+    'gsr_raw'
+  ],
+
   // ── Unit conversion thresholds ──────────────────────────────────────────
   RESISTANCE_MIN_AVG: 50000,  // Average above this → resistance (Ohms)
   MICROSIEMENS_MIN_AVG: 100,  // Average above this but ≤ threshold → µS/1000
