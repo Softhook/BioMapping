@@ -34,7 +34,7 @@
 // Typical resting range: 1–20 µS = 1 000–20 000 nS.
 // Literature: Boucsein 2012 reports SCL 1–50 µS as normal range.
 #define GSR_VALID_MIN_NS    0.1f      // nS — below this: open circuit
-#define GSR_VALID_MAX_NS    50000.0f  // nS — above this: rail saturation
+#define GSR_VALID_MAX_NS    75000.0f  // nS — above this: rail saturation
 
 typedef struct GsrSensor GsrSensor;
 

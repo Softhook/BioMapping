@@ -358,11 +358,10 @@ void gsr_sensor_tick(GsrSensor* gsr) {
 
     // ── Step 2: simple mean. Effective ~8.7× noise reduction.
     float avg_norm = (float)sum / 100.0f;
-    if(active) {
-        avg_norm = gain * avg_norm + offset;
-    }
 
-    // ── Step 3: autoranging decision on filtered equivalent raw value.
+    // ── Step 3: autoranging decision on the RAW (uncalibrated) value.
+    // Calibration is applied in the nS domain after TIA conversion —
+    // applying it here would skew the PGA switching thresholds.
     int32_t hw_equiv = (int32_t)(avg_norm / (float)NORM_FACTOR[old_pga]);
     int32_t abs_hw_equiv = (hw_equiv < 0) ? -hw_equiv : hw_equiv;
     uint8_t new_pga = old_pga;
@@ -384,9 +383,24 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         pga_update = true;
     }
 
-    // ── Step 4: normalise filtered reading to physical skin conductance (nS).
-    // Write pga_index, pga_changed, and raw under a single mutex acquisition
-    // to minimise contention with the background worker thread.
+    // ── Step 4: TIA conversion — raw normalized counts → nanosiemens.
+    // Calibration (if active) is applied AFTER the TIA, in the nS domain
+    // where gain and offset were computed.
+    float raw_ns;
+    if(avg_norm <= 0) {
+        raw_ns = 0.0f;
+    } else {
+        float clamped = (avg_norm > 319000) ? 319000.0f : avg_norm;
+        float num = clamped * 5000000.0f;
+        float den = 15040000.0f - clamped * 47.0f;
+        raw_ns = num / den;
+    }
+    if(active) {
+        raw_ns = gain * raw_ns + offset;
+    }
+
+    // ── Step 5: publish pga_index, pga_changed, and calibrated raw under
+    // a single mutex acquisition to minimise contention with the worker.
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     if(pga_update) {
         FURI_LOG_I("GsrSensor", "PGA %u→%u (±%s)",
@@ -394,14 +408,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         gsr->pga_index = new_pga;
         gsr->pga_changed = true;
     }
-    if(avg_norm <= 0) {
-        gsr->raw = 0.0f;
-    } else {
-        float clamped = (avg_norm > 319000) ? 319000.0f : (float)avg_norm;
-        float num = clamped * 5000000.0f;
-        float den = 15040000.0f - clamped * 47.0f;
-        gsr->raw = num / den;
-    }
+    gsr->raw = raw_ns;
 
     // ── Finger-cuff disconnect detection (20-tick debounce).
     if(gsr->raw < GSR_VALID_MIN_NS || gsr->raw > GSR_VALID_MAX_NS) {

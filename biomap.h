@@ -94,22 +94,47 @@ typedef struct {
     int32_t    selection;
 } OptionsContext;
 
-#define BIOMAP_CAL_MAGIC 0x424D4341
-#define BIOMAP_CAL_PATH  "/ext/biomapping/biomap.cal"
+#define BIOMAP_CAL_MAGIC   0x424D4341
+#define BIOMAP_CAL_VERSION 2
+#define BIOMAP_CAL_PATH    "/ext/biomapping/biomap.cal"
+#define CAL_POINTS         3
+
+// Calibration targets — true physical skin conductance (nanosiemens).
+// These are 1/R for each calibration resistor: 1e9 / R_ohms.
+// Derived from the TIA circuit equation (see gsr_sensor.c):
+//   nS = norm × 5 000 000 / (15 040 000 − 47 × norm)
+// where norm is the ideal normalised ADC count for resistor R.
+#define CAL_TARGET_470K  2127.66f   // 1e9 / 470000
+#define CAL_TARGET_100K  10000.0f   // 1e9 / 100000
+#define CAL_TARGET_47K   21276.6f   // 1e9 / 47000
+
+// Valid-range gates for each resistor during calibration (nS).
+// Brackets the expected true-nS reading with ±50 % margin for
+// device-to-device variation.
+#define CAL_LO_GATE        500.0f
+#define CAL_MID_GATE_LO   4000.0f
+#define CAL_MID_GATE_HI  18000.0f
+#define CAL_HI_GATE      40000.0f
 
 typedef struct {
     uint32_t magic;
+    uint32_t version;
     float    gain;
     float    offset;
     uint32_t checksum;
 } BioMapCalibration;
 
+// Calibration wizard state machine.  Steps:
+//   0 = prompt 470k    4 = prompt 47k      8 = success
+//   1 = measure 470k   5 = measure 47k     9 = fail / retry
+//   2 = prompt 100k    6 = compute fit
+//   3 = measure 100k   7 = (unused)
 typedef struct {
     int   step;
-    float measured_470k;
-    float measured_47k;
+    float measured[CAL_POINTS];  // [470k, 100k, 47k]
     float gain;
     float offset;
+    float r_squared;              // goodness-of-fit
 } WizardState;
 
 // ── App-level function declarations ────────────────────────────────────

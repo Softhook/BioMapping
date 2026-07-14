@@ -367,30 +367,48 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
     canvas_set_font(c, FontSecondary);
     
     char buf[64];
-    if(w->step == 0) {
-        canvas_draw_str(c, 0, 25, "Step 1/2: Low Point");
+    switch(w->step) {
+    case 0: // Prompt 470k
+        canvas_draw_str(c, 0, 25, "Step 1/3: Low (470k)");
         canvas_draw_str(c, 0, 37, "Connect 470k resistor");
         canvas_draw_str(c, 0, 49, "[Press OK to measure]");
-    } else if(w->step == 1) {
+        break;
+    case 1: // Measuring 470k
         canvas_draw_str(c, 0, 25, "Measuring 470k...");
         canvas_draw_str(c, 0, 40, "Keep resistor connected");
-    } else if(w->step == 2) {
-        canvas_draw_str(c, 0, 25, "Step 2/2: High Point");
+        break;
+    case 2: // Prompt 100k
+        canvas_draw_str(c, 0, 25, "Step 2/3: Mid (100k)");
+        canvas_draw_str(c, 0, 37, "Connect 100k resistor");
+        canvas_draw_str(c, 0, 49, "[Press OK to measure]");
+        break;
+    case 3: // Measuring 100k
+        canvas_draw_str(c, 0, 25, "Measuring 100k...");
+        canvas_draw_str(c, 0, 40, "Keep resistor connected");
+        break;
+    case 4: // Prompt 47k
+        canvas_draw_str(c, 0, 25, "Step 3/3: High (47k)");
         canvas_draw_str(c, 0, 37, "Connect 47k resistor");
         canvas_draw_str(c, 0, 49, "[Press OK to measure]");
-    } else if(w->step == 3) {
+        break;
+    case 5: // Measuring 47k
         canvas_draw_str(c, 0, 25, "Measuring 47k...");
         canvas_draw_str(c, 0, 40, "Keep resistor connected");
-    } else if(w->step == 4) {
+        break;
+    case 8: // Success
         canvas_draw_str(c, 0, 23, "Calibration Success!");
-        snprintf(buf, sizeof(buf), "Gain: %.3fx", (double)w->gain);
+        snprintf(buf, sizeof(buf), "Gain: %.3fx  R\xb2: %.4f", (double)w->gain, (double)w->r_squared);
         canvas_draw_str(c, 0, 35, buf);
-        snprintf(buf, sizeof(buf), "Offset: %.0f counts", (double)w->offset);
+        snprintf(buf, sizeof(buf), "Offset: %.0f nS", (double)w->offset);
         canvas_draw_str(c, 0, 47, buf);
         canvas_draw_str(c, 0, 60, "[OK to Save, Back to Cancel]");
-    } else if(w->step == 5) {
+        break;
+    case 9: // Failed
         canvas_draw_str(c, 0, 25, "Calibration Failed!");
         canvas_draw_str(c, 0, 38, "Check connections.");
         canvas_draw_str(c, 0, 50, "[Press OK to Retry]");
+        break;
+    default:
+        break;
     }
 }

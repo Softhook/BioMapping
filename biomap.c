@@ -65,6 +65,20 @@ int32_t biomap_app(void* p) {
     return 0;
 }
 
+// Polynomial-rolling checksum over the struct prefix (everything before
+// the checksum field).  This avoids strict-aliasing UB and is much more
+// collision-resistant than the old magic ^ *(uint32_t*)&gain ^ … XOR.
+static uint32_t cal_checksum(const BioMapCalibration* cal) {
+    uint32_t h = 0x811C9DC5u;
+    const uint8_t* p = (const uint8_t*)cal;
+    size_t n = offsetof(BioMapCalibration, checksum);
+    for(size_t i = 0; i < n; i++) {
+        h ^= p[i];
+        h *= 0x01000193u;  // FNV-1a prime
+    }
+    return h;
+}
+
 bool biomap_load_calibration(BioMapApp* app) {
     furi_assert(app);
     File* file = storage_file_alloc(app->storage);
@@ -76,22 +90,27 @@ bool biomap_load_calibration(BioMapApp* app) {
         uint16_t bytes_read = storage_file_read(file, &cal, sizeof(BioMapCalibration));
         if(bytes_read == sizeof(BioMapCalibration)) {
             if(cal.magic == BIOMAP_CAL_MAGIC) {
-                uint32_t expected_chk = cal.magic ^ *(uint32_t*)&cal.gain ^ *(uint32_t*)&cal.offset;
-                if(cal.checksum == expected_chk) {
-                    if(cal.gain >= 0.5f && cal.gain <= 2.0f &&
-                       cal.offset >= -50000.0f && cal.offset <= 50000.0f) {
-                        furi_mutex_acquire(app->mutex, FuriWaitForever);
-                        app->cal_active = true;
-                        app->cal_gain = cal.gain;
-                        app->cal_offset = cal.offset;
-                        furi_mutex_release(app->mutex);
-                        success = true;
-                        FURI_LOG_I("BioMap", "Loaded calibration: gain=%.4f offset=%.1f", (double)cal.gain, (double)cal.offset);
+                if(cal.version == BIOMAP_CAL_VERSION) {
+                    if(cal.checksum == cal_checksum(&cal)) {
+                        if(cal.gain >= 0.5f && cal.gain <= 2.0f &&
+                           cal.offset >= -10000.0f && cal.offset <= 10000.0f) {
+                            furi_mutex_acquire(app->mutex, FuriWaitForever);
+                            app->cal_active = true;
+                            app->cal_gain = cal.gain;
+                            app->cal_offset = cal.offset;
+                            furi_mutex_release(app->mutex);
+                            success = true;
+                            FURI_LOG_I("BioMap", "Loaded calibration v%lu: gain=%.4f offset=%.1f",
+                                       (unsigned long)cal.version, (double)cal.gain, (double)cal.offset);
+                        } else {
+                            FURI_LOG_W("BioMap", "Calibration values out of bounds!");
+                        }
                     } else {
-                        FURI_LOG_W("BioMap", "Calibration values out of bounds!");
+                        FURI_LOG_W("BioMap", "Calibration checksum mismatch!");
                     }
                 } else {
-                    FURI_LOG_W("BioMap", "Calibration checksum mismatch!");
+                    FURI_LOG_W("BioMap", "Calibration version mismatch (got %lu, want %d) — ignoring",
+                               (unsigned long)cal.version, BIOMAP_CAL_VERSION);
                 }
             } else {
                 FURI_LOG_W("BioMap", "Calibration file magic mismatch!");
@@ -117,14 +136,16 @@ void biomap_save_calibration(BioMapApp* app, float gain, float offset) {
 
     if(storage_file_open(file, BIOMAP_CAL_PATH, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
         BioMapCalibration cal;
-        cal.magic = BIOMAP_CAL_MAGIC;
-        cal.gain = gain;
-        cal.offset = offset;
-        cal.checksum = cal.magic ^ *(uint32_t*)&cal.gain ^ *(uint32_t*)&cal.offset;
+        cal.magic   = BIOMAP_CAL_MAGIC;
+        cal.version = BIOMAP_CAL_VERSION;
+        cal.gain    = gain;
+        cal.offset  = offset;
+        cal.checksum = cal_checksum(&cal);
         
         storage_file_write(file, &cal, sizeof(BioMapCalibration));
         storage_file_close(file);
-        FURI_LOG_I("BioMap", "Saved calibration file");
+        FURI_LOG_I("BioMap", "Saved calibration v%d: gain=%.4f offset=%.1f",
+                   BIOMAP_CAL_VERSION, (double)gain, (double)offset);
     }
     storage_file_free(file);
 }

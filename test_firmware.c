@@ -319,39 +319,56 @@ void test_conductance_conversion() {
 
 void test_calibration_calculations() {
     printf("Running test_calibration_calculations...\n");
-    // Simulated calibration run:
-    // Device is slightly off:
-    // Raw measured count for 470k resistor (expected 2128 nS -> 6274.5 nominal counts) is 6100.0 counts.
-    // Raw measured count for 47k resistor (expected 21277 nS -> 53333.3 nominal counts) is 52000.0 counts.
-    float x1 = 6100.0f;  // raw count low
-    float y1 = 6274.5f;  // target count low
-    float x2 = 52000.0f; // raw count high
-    float y2 = 53333.3f; // target count high
+    // Three-point least-squares calibration — pure nS domain.
+    // A device that reads ~4 % low across all three resistors.
+    // Targets are true physical conductance: 1e9 / R_ohms.
+    float measured[3]  = { 2050.0f, 9600.0f, 20500.0f };  // 470k, 100k, 47k
+    float targets[3]   = { 2127.66f, 10000.0f, 21276.6f };
 
-    // Compute slope (gain) and intercept (offset):
-    float m = (y2 - y1) / (x2 - x1);
-    float c = y1 - m * x1;
+    // Three-point least-squares:  y = gain * x + offset  (all in nS)
+    double sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for(int i = 0; i < 3; i++) {
+        double xi = (double)measured[i];
+        double yi = (double)targets[i];
+        sx  += xi;
+        sy  += yi;
+        sxx += xi * xi;
+        sxy += xi * yi;
+    }
+    double denom = 3.0 * sxx - sx * sx;
+    assert(denom > 1e-9);
+    float gain   = (float)((3.0 * sxy - sx * sy) / denom);
+    float offset = (float)((sy - (double)gain * sx) / 3.0);
 
-    // Verify gain and offset math
-    assert(fabs(m - 1.025246f) < 1e-4f);
-    assert(fabs(c - 20.5f) < 1.0f);
+    // Gain near 1.0, offset small (device is close to reference).
+    assert(gain >= 0.9f && gain <= 1.1f);
+    assert(fabs(offset) < 1000.0f);
 
-    // Apply linear calibration: y = m * x + c
-    float x1_cal = m * x1 + c;
-    float x2_cal = m * x2 + c;
+    // Apply calibration — all three points should land near targets.
+    for(int i = 0; i < 3; i++) {
+        float cal = gain * measured[i] + offset;
+        assert(fabs(cal - targets[i]) < 100.0f);
+    }
 
-    // Verify calibrated counts match targets exactly
-    assert(fabs(x1_cal - y1) < 0.1f);
-    assert(fabs(x2_cal - y2) < 0.1f);
+    // R² goodness-of-fit should be near 1.0 (linear device assumption holds).
+    double y_mean = sy / 3.0;
+    double ss_res = 0, ss_tot = 0;
+    for(int i = 0; i < 3; i++) {
+        double yi     = (double)targets[i];
+        double y_pred = (double)gain * (double)measured[i] + (double)offset;
+        double res    = yi - y_pred;
+        ss_res += res * res;
+        double dev    = yi - y_mean;
+        ss_tot += dev * dev;
+    }
+    float r2 = (float)(1.0 - ss_res / ss_tot);
+    assert(r2 > 0.999f);
 
-    // Convert calibrated counts to conductance
-    float g1 = convert_adc_to_conductance_ns(x1_cal);
-    float g2 = convert_adc_to_conductance_ns(x2_cal);
+    // Verify a mid-range reading: calibrated nS must be sane.
+    float mid_cal = gain * 9600.0f + offset;
+    assert(mid_cal > 9800.0f && mid_cal < 10200.0f);
 
-    // Calibrated conductance should match theoretical values: 2128 nS and 21277 nS
-    assert(fabs(g1 - 2128.0f) < 1.0f);
-    assert(fabs(g2 - 21277.0f) < 10.0f);
-    printf("  -> Pass\n");
+    printf("  gain=%.4f offset=%.1f R²=%.6f -> Pass\n", (double)gain, (double)offset, (double)r2);
 }
 
 void test_csv_formatting() {

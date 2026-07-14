@@ -219,110 +219,147 @@ void run_calibration_wizard(BioMapApp* app) {
     drain_stale_events(app->event_queue);
     PluginEvent ev;
     
-    GsrSensor* gsr = NULL;
+    // Allocate the GSR sensor once for all measurements.
+    GsrSensor* gsr = gsr_sensor_alloc();
+    bool sensor_ok = gsr && gsr_sensor_available(gsr);
+    if(!sensor_ok) {
+        if(gsr) gsr_sensor_free(gsr);
+        gsr = NULL;
+    }
     
-    while(w.step != 6) { // step 6 is exit
+    // Target nS values for the three calibration resistors.
+    const float targets[CAL_POINTS] = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
+    // Valid-range gates [lo, hi] for each resistor (nS).
+    const float gates[CAL_POINTS][2] = {
+        { CAL_LO_GATE,     CAL_MID_GATE_LO },
+        { CAL_MID_GATE_LO, CAL_MID_GATE_HI },
+        { CAL_MID_GATE_HI, CAL_HI_GATE     }
+    };
+    
+    while(true) {
         if(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) != FuriStatusOk)
             continue;
             
-        if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
-            if(ev.input.key == InputKeyBack) {
-                if(w.step == 0 || w.step == 4 || w.step == 5) {
-                    break; // cancel / exit
-                }
-            }
-            
-            if(ev.input.key == InputKeyOk) {
-                if(w.step == 0 || w.step == 5) {
-                    w.step = 1;
-                    view_port_update(vp);
-                    
-                    gsr = gsr_sensor_alloc();
-                    if(!gsr || !gsr_sensor_available(gsr)) {
-                        if(gsr) gsr_sensor_free(gsr);
-                        w.step = 5; // failed
-                        view_port_update(vp);
-                        continue;
-                    }
-                    
-                    float sum_g = 0;
-                    int counts_g = 0;
-                    for(int i = 0; i < 15; i++) {
-                        furi_delay_ms(100);
-                        gsr_sensor_tick(gsr);
-                        float g = gsr_sensor_get_raw(gsr);
-                        if(g >= 500.0f && g <= 10000.0f) {
-                            sum_g += g;
-                            counts_g++;
-                        }
-                    }
-                    gsr_sensor_free(gsr);
-                    
-                    if(counts_g >= 10) {
-                        float avg_g = sum_g / (float)counts_g;
-                        w.measured_470k = (15040000.0f * avg_g) / (5000000.0f + 47.0f * avg_g);
-                        w.step = 2;
-                    } else {
-                        w.step = 5;
-                    }
-                } else if(w.step == 2) {
-                    w.step = 3;
-                    view_port_update(vp);
-                    
-                    gsr = gsr_sensor_alloc();
-                    if(!gsr || !gsr_sensor_available(gsr)) {
-                        if(gsr) gsr_sensor_free(gsr);
-                        w.step = 5; // failed
-                        view_port_update(vp);
-                        continue;
-                    }
-                    
-                    float sum_g = 0;
-                    int counts_g = 0;
-                    for(int i = 0; i < 15; i++) {
-                        furi_delay_ms(100);
-                        gsr_sensor_tick(gsr);
-                        float g = gsr_sensor_get_raw(gsr);
-                        if(g >= 10000.0f && g <= 40000.0f) {
-                            sum_g += g;
-                            counts_g++;
-                        }
-                    }
-                    gsr_sensor_free(gsr);
-                    
-                    if(counts_g >= 10) {
-                        float avg_g = sum_g / (float)counts_g;
-                        w.measured_47k = (15040000.0f * avg_g) / (5000000.0f + 47.0f * avg_g);
-                        
-                        float y1 = 6274.5f;   // target low
-                        float y2 = 53333.3f;  // target high
-                        float x1 = w.measured_470k;
-                        float x2 = w.measured_47k;
-                        
-                        if(x2 > x1 + 1000.0f) {
-                            w.gain = (y2 - y1) / (x2 - x1);
-                            w.offset = y1 - w.gain * x1;
-                            
-                            if(w.gain >= 0.5f && w.gain <= 2.0f &&
-                               w.offset >= -50000.0f && w.offset <= 50000.0f) {
-                                w.step = 4; // success
-                            } else {
-                                w.step = 5;
-                            }
-                        } else {
-                            w.step = 5;
-                        }
-                    } else {
-                        w.step = 5;
-                    }
-                } else if(w.step == 4) {
-                    biomap_save_calibration(app, w.gain, w.offset);
-                    break;
-                }
+        if(ev.type != EventTypeKey || ev.input.type != InputTypeShort)
+            continue;
+
+        // ── Back handler ──────────────────────────────────────────
+        if(ev.input.key == InputKeyBack) {
+            // Allowed to cancel from any prompt, success, or fail screen.
+            if(w.step == 0 || w.step == 2 || w.step == 4 || w.step == 8 || w.step == 9)
+                break;
+            continue;
+        }
+
+        // ── OK handler ────────────────────────────────────────────
+        if(ev.input.key != InputKeyOk)
+            continue;
+
+        // step 0,2,4 = resistor prompts  → start measurement
+        // step 8     = success            → save & exit
+        // step 9     = fail/retry         → retry (go back to step 0)
+
+        if(w.step == 8) {
+            biomap_save_calibration(app, w.gain, w.offset);
+            break;
+        }
+
+        if(w.step == 9) {
+            w.step = 0;
+            view_port_update(vp);
+            continue;
+        }
+
+        // Determine which resistor to measure (0=470k, 1=100k, 2=47k).
+        int idx = -1;
+        if(w.step == 0)      idx = 0;
+        else if(w.step == 2) idx = 1;
+        else if(w.step == 4) idx = 2;
+
+        if(idx >= 0) {
+            // ── Measurement step ──────────────────────────────────
+            w.step = (int)(idx * 2 + 1);  // 0→1, 2→3, 4→5
+            view_port_update(vp);
+
+            if(!sensor_ok) {
+                w.step = 9;
                 view_port_update(vp);
+                continue;
             }
+
+            float sum_g = 0;
+            int   counts_g = 0;
+            for(int i = 0; i < 15; i++) {
+                furi_delay_ms(100);
+                gsr_sensor_tick(gsr);
+                float g = gsr_sensor_get_raw(gsr);
+                if(g >= gates[idx][0] && g <= gates[idx][1]) {
+                    sum_g += g;
+                    counts_g++;
+                }
+            }
+
+            if(counts_g >= 10) {
+                float avg_g = sum_g / (float)counts_g;
+                // Use raw nS directly — both the fit and runtime application
+                // operate in the nS domain, so no domain conversion is needed.
+                w.measured[idx] = avg_g;
+                w.step = (int)(idx * 2 + 2);  // 1→2, 3→4, 5→6
+            } else {
+                w.step = 9;
+            }
+
+            // After the last measurement, compute the least-squares fit.
+            if(w.step == 6) {
+                // Three-point linear least-squares:  y = gain * x + offset
+                // Σx, Σy, Σxx, Σxy  where x = measured, y = target
+                double sx = 0, sy = 0, sxx = 0, sxy = 0;
+                for(int i = 0; i < CAL_POINTS; i++) {
+                    double xi = (double)w.measured[i];
+                    double yi = (double)targets[i];
+                    sx  += xi;
+                    sy  += yi;
+                    sxx += xi * xi;
+                    sxy += xi * yi;
+                }
+                double n  = (double)CAL_POINTS;
+                double denom = n * sxx - sx * sx;
+                if(denom > 1e-9) {
+                    w.gain   = (float)((n * sxy - sx * sy) / denom);
+                    w.offset = (float)((sy - (double)w.gain * sx) / n);
+
+                    // R² goodness-of-fit
+                    double y_mean = sy / n;
+                    double ss_res = 0, ss_tot = 0;
+                    for(int i = 0; i < CAL_POINTS; i++) {
+                        double yi     = (double)targets[i];
+                        double y_pred = (double)w.gain * (double)w.measured[i] + (double)w.offset;
+                        double res    = yi - y_pred;
+                        ss_res += res * res;
+                        double dev    = yi - y_mean;
+                        ss_tot += dev * dev;
+                    }
+                    w.r_squared = (ss_tot > 1e-9) ? (float)(1.0 - ss_res / ss_tot) : 1.0f;
+
+                    // Validate bounds (nS domain) and linearity (R² ≥ 0.99).
+                    if(w.gain >= 0.5f && w.gain <= 2.0f &&
+                       w.offset >= -10000.0f && w.offset <= 10000.0f &&
+                       w.r_squared >= 0.99f) {
+                        w.step = 8;  // success
+                    } else {
+                        FURI_LOG_W("BioMap", "Calibration out of bounds: gain=%.4f off=%.1f R²=%.4f",
+                                   (double)w.gain, (double)w.offset, (double)w.r_squared);
+                        w.step = 9;
+                    }
+                } else {
+                    w.step = 9;
+                }
+            }
+            view_port_update(vp);
         }
     }
+
+    if(gsr) gsr_sensor_free(gsr);
     vp_pop(app, vp);
 }
 
