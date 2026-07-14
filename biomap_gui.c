@@ -348,33 +348,33 @@ void run_calibration_wizard(BioMapApp* app) {
             if(w.step == 6) {
                 // Three-point linear least-squares:  y = gain * x + offset
                 // Σx, Σy, Σxx, Σxy  where x = measured, y = target
-                double sx = 0, sy = 0, sxx = 0, sxy = 0;
+                float sx = 0, sy = 0, sxx = 0, sxy = 0;
                 for(int i = 0; i < CAL_POINTS; i++) {
-                    double xi = (double)w.measured[i];
-                    double yi = (double)targets[i];
+                    float xi = w.measured[i];
+                    float yi = targets[i];
                     sx  += xi;
                     sy  += yi;
                     sxx += xi * xi;
                     sxy += xi * yi;
                 }
-                double n  = (double)CAL_POINTS;
-                double denom = n * sxx - sx * sx;
-                if(denom > 1e-9) {
-                    w.gain   = (float)((n * sxy - sx * sy) / denom);
-                    w.offset = (float)((sy - (double)w.gain * sx) / n);
+                float n     = (float)CAL_POINTS;
+                float denom = n * sxx - sx * sx;
+                if(denom > 1e-9f) {
+                    w.gain   = (n * sxy - sx * sy) / denom;
+                    w.offset = (sy - w.gain * sx) / n;
 
                     // R² goodness-of-fit
-                    double y_mean = sy / n;
-                    double ss_res = 0, ss_tot = 0;
+                    float y_mean = sy / n;
+                    float ss_res = 0, ss_tot = 0;
                     for(int i = 0; i < CAL_POINTS; i++) {
-                        double yi     = (double)targets[i];
-                        double y_pred = (double)w.gain * (double)w.measured[i] + (double)w.offset;
-                        double res    = yi - y_pred;
+                        float yi     = targets[i];
+                        float y_pred = w.gain * w.measured[i] + w.offset;
+                        float res    = yi - y_pred;
                         ss_res += res * res;
-                        double dev    = yi - y_mean;
+                        float dev    = yi - y_mean;
                         ss_tot += dev * dev;
                     }
-                    w.r_squared = (ss_tot > 1e-9) ? (float)(1.0 - ss_res / ss_tot) : 1.0f;
+                    w.r_squared = (ss_tot > 1e-9f) ? (1.0f - ss_res / ss_tot) : 1.0f;
 
                     // Validate bounds (nS domain) and linearity (R² ≥ 0.99).
                     if(w.gain >= 0.5f && w.gain <= 2.0f &&

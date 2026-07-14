@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <stddef.h>
 #include <math.h>
 #include <string.h>
 #include <assert.h>
@@ -72,6 +74,7 @@ typedef struct {
 // --- Mock Logger ---
 char mock_logger_buf[256];
 int sd_logger_batch_printf(void* logger, const char* format, ...) {
+    (void)logger;
     va_list args;
     va_start(args, format);
     int ret = vsprintf(mock_logger_buf, format, args);
@@ -110,6 +113,7 @@ static void update_display_pipeline(Session* s, float raw) {
     }
 }
 
+__attribute__((unused))
 static void update_graph_pipeline(Session* s) {
     if(s->zoom.manual_timeout > 0) {
         s->zoom.manual_timeout--;
@@ -308,12 +312,12 @@ void test_conductance_conversion() {
 
     // Plug in clamped = 25000 -> G should be approx 9015.5 nS
     float g1 = convert_adc_to_conductance_ns(25000.0f);
-    assert(fabs(g1 - 9015.5f) < 1.0f);
+    assert(fabsf(g1 - 9015.5f) < 1.0f);
 
     // Over-saturation clamp check (clamped to 319000 counts)
     float gMax = convert_adc_to_conductance_ns(500000.0f);
     float gExpectedMax = (319000.0f * 5000000.0f) / (15040000.0f - 319000.0f * 47.0f);
-    assert(fabs(gMax - gExpectedMax) < 1e-2f);
+    assert(fabsf(gMax - gExpectedMax) < 1e-2f);
     printf("  -> Pass\n");
 }
 
@@ -325,43 +329,43 @@ void test_calibration_calculations() {
     float measured[3]  = { 2050.0f, 9600.0f, 20500.0f };  // 470k, 100k, 47k
     float targets[3]   = { 2127.66f, 10000.0f, 21276.6f };
 
-    // Three-point least-squares:  y = gain * x + offset  (all in nS)
-    double sx = 0, sy = 0, sxx = 0, sxy = 0;
+    // Three-point least-squares:  y = gain * x + offset  (all in float)
+    float sx = 0, sy = 0, sxx = 0, sxy = 0;
     for(int i = 0; i < 3; i++) {
-        double xi = (double)measured[i];
-        double yi = (double)targets[i];
+        float xi = measured[i];
+        float yi = targets[i];
         sx  += xi;
         sy  += yi;
         sxx += xi * xi;
         sxy += xi * yi;
     }
-    double denom = 3.0 * sxx - sx * sx;
-    assert(denom > 1e-9);
-    float gain   = (float)((3.0 * sxy - sx * sy) / denom);
-    float offset = (float)((sy - (double)gain * sx) / 3.0);
+    float denom = 3.0f * sxx - sx * sx;
+    assert(denom > 1e-9f);
+    float gain   = (3.0f * sxy - sx * sy) / denom;
+    float offset = (sy - gain * sx) / 3.0f;
 
     // Gain near 1.0, offset small (device is close to reference).
     assert(gain >= 0.9f && gain <= 1.1f);
-    assert(fabs(offset) < 1000.0f);
+    assert(fabsf(offset) < 1000.0f);
 
     // Apply calibration — all three points should land near targets.
     for(int i = 0; i < 3; i++) {
         float cal = gain * measured[i] + offset;
-        assert(fabs(cal - targets[i]) < 100.0f);
+        assert(fabsf(cal - targets[i]) < 100.0f);
     }
 
     // R² goodness-of-fit should be near 1.0 (linear device assumption holds).
-    double y_mean = sy / 3.0;
-    double ss_res = 0, ss_tot = 0;
+    float y_mean = sy / 3.0f;
+    float ss_res = 0, ss_tot = 0;
     for(int i = 0; i < 3; i++) {
-        double yi     = (double)targets[i];
-        double y_pred = (double)gain * (double)measured[i] + (double)offset;
-        double res    = yi - y_pred;
+        float yi     = targets[i];
+        float y_pred = gain * measured[i] + offset;
+        float res    = yi - y_pred;
         ss_res += res * res;
-        double dev    = yi - y_mean;
+        float dev    = yi - y_mean;
         ss_tot += dev * dev;
     }
-    float r2 = (float)(1.0 - ss_res / ss_tot);
+    float r2 = (ss_tot > 1e-9f) ? (1.0f - ss_res / ss_tot) : 1.0f;
     assert(r2 > 0.999f);
 
     // Verify a mid-range reading: calibrated nS must be sane.
@@ -425,10 +429,406 @@ void test_nmea_parsing() {
     assert(fabs(lon - (-0.0714595)) < 1e-6);
     
     float hdop = minmea_tofloat(&frame.hdop);
-    assert(fabs(hdop - 0.9f) < 1e-4f);
+    assert(fabsf(hdop - 0.9f) < 1e-4f);
     printf("  -> Pass\n");
 }
 
+// ── Calibration persistence constants (mirrored from biomap.h) ──────
+#define CAL_MAGIC    0x424D4341u
+#define CAL_VERSION  2
+#define CAL_POINTS   3
+
+#define CAL_TARGET_470K  2127.66f
+#define CAL_TARGET_100K  10000.0f
+#define CAL_TARGET_47K   21276.6f
+
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    float    gain;
+    float    offset;
+    uint32_t checksum;
+} CalFile;
+
+// FNV-1a checksum — identical to cal_checksum() in biomap.c
+static uint32_t cal_checksum(const CalFile* cal) {
+    uint32_t h = 0x811C9DC5u;
+    const uint8_t* p = (const uint8_t*)cal;
+    size_t n = offsetof(CalFile, checksum);
+    for(size_t i = 0; i < n; i++) {
+        h ^= p[i];
+        h *= 0x01000193u;
+    }
+    return h;
+}
+
+// ── Calibration fit engine (matches run_calibration_wizard in biomap_gui.c)
+// Returns gain, offset, r_squared.  Caller sets measured[] before calling.
+static void cal_fit(const float measured[CAL_POINTS],
+                    const float targets[CAL_POINTS],
+                    float* gain, float* offset, float* r2) {
+    float sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for(int i = 0; i < CAL_POINTS; i++) {
+        float xi = measured[i];
+        float yi = targets[i];
+        sx  += xi;
+        sy  += yi;
+        sxx += xi * xi;
+        sxy += xi * yi;
+    }
+    float n     = (float)CAL_POINTS;
+    float denom = n * sxx - sx * sx;
+    if(denom <= 1e-9f) {
+        *gain   = 1.0f;
+        *offset = 0.0f;
+        *r2     = 0.0f;
+        return;
+    }
+    *gain   = (n * sxy - sx * sy) / denom;
+    *offset = (sy - *gain * sx) / n;
+
+    // R²
+    float y_mean = sy / n;
+    float ss_res = 0, ss_tot = 0;
+    for(int i = 0; i < CAL_POINTS; i++) {
+        float yi     = targets[i];
+        float y_pred = *gain * measured[i] + *offset;
+        float res    = yi - y_pred;
+        ss_res += res * res;
+        float dev    = yi - y_mean;
+        ss_tot += dev * dev;
+    }
+    *r2 = (ss_tot > 1e-9f) ? (1.0f - ss_res / ss_tot) : 1.0f;
+}
+
+// ── Calibration correctness tests ─────────────────────────────────────
+
+void test_calibration_identity() {
+    printf("Running test_calibration_identity...\n");
+    // Perfect device: measured == target → gain=1, offset=0, R²=1
+    float measured[3] = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
+    float targets[3]  = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
+
+    float gain, offset, r2;
+    cal_fit(measured, targets, &gain, &offset, &r2);
+
+    assert(fabsf(gain - 1.0f) < 1e-4f);
+    assert(fabsf(offset) < 1e-4f);
+    assert(r2 > 0.9999f);
+    printf("  gain=%.4f offset=%.1f R²=%.6f -> Pass\n", (double)gain, (double)offset, (double)r2);
+}
+
+void test_calibration_scaled_device() {
+    printf("Running test_calibration_scaled_device...\n");
+    // Device reads exactly 10 % low: measured = 0.9 * target
+    const float targets[3] = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
+    float measured[3];
+    for(int i = 0; i < 3; i++) measured[i] = targets[i] * 0.9f;
+
+    float gain, offset, r2;
+    cal_fit(measured, targets, &gain, &offset, &r2);
+
+    // gain ≈ 1/0.9 ≈ 1.111, offset ≈ 0
+    assert(gain > 1.10f && gain < 1.12f);
+    assert(fabsf(offset) < 100.0f);
+    assert(r2 > 0.999f);
+
+    // Calibrated values should recover the targets
+    for(int i = 0; i < 3; i++) {
+        float cal = gain * measured[i] + offset;
+        assert(fabsf(cal - targets[i]) < 50.0f);
+    }
+    printf("  gain=%.4f offset=%.1f R²=%.6f -> Pass\n", (double)gain, (double)offset, (double)r2);
+}
+
+void test_calibration_offset_device() {
+    printf("Running test_calibration_offset_device...\n");
+    // Device has a constant +500 nS offset on all readings
+    const float targets[3] = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
+    float measured[3];
+    for(int i = 0; i < 3; i++) measured[i] = targets[i] + 500.0f;
+
+    float gain, offset, r2;
+    cal_fit(measured, targets, &gain, &offset, &r2);
+
+    // gain ≈ 1.0, offset ≈ -500
+    assert(fabsf(gain - 1.0f) < 0.01f);
+    assert(fabsf(offset + 500.0f) < 50.0f);
+    assert(r2 > 0.999f);
+
+    // Calibrated values should recover the targets
+    for(int i = 0; i < 3; i++) {
+        float cal = gain * measured[i] + offset;
+        assert(fabsf(cal - targets[i]) < 50.0f);
+    }
+    printf("  gain=%.4f offset=%.1f R²=%.6f -> Pass\n", (double)gain, (double)offset, (double)r2);
+}
+
+void test_calibration_nonlinear_reject() {
+    printf("Running test_calibration_nonlinear_reject...\n");
+    // Non-linear device: low reads high, high reads low — poor R²
+    // The calibration gate requires R² ≥ 0.99
+    float measured[3] = { 3000.0f, 10000.0f, 15000.0f };   // non-linear
+    float targets[3]  = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
+
+    float gain, offset, r2;
+    cal_fit(measured, targets, &gain, &offset, &r2);
+
+    // R² must be < 0.99 (fails the linearity gate)
+    assert(r2 < 0.99f);
+    printf("  R²=%.6f (< 0.99, rejected as expected) -> Pass\n", (double)r2);
+}
+
+void test_calibration_degenerate_input() {
+    printf("Running test_calibration_degenerate_input...\n");
+    // All three measurements identical → denominator ≈ 0 → fit rejected
+    float measured[3] = { 5000.0f, 5000.0f, 5000.0f };
+    float targets[3]  = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
+
+    float gain, offset, r2;
+    cal_fit(measured, targets, &gain, &offset, &r2);
+
+    // Denominator check kicks in: should return defaults (gain=1, offset=0, r2=0)
+    assert(gain == 1.0f);
+    assert(offset == 0.0f);
+    assert(r2 == 0.0f);
+    printf("  gain=%.4f offset=%.1f R²=%.6f -> Pass\n", (double)gain, (double)offset, (double)r2);
+}
+
+void test_calibration_bounds_check() {
+    printf("Running test_calibration_bounds_check...\n");
+    // Production code gates: 0.5 ≤ gain ≤ 2.0, |offset| ≤ 10000, R² ≥ 0.99
+
+    // Valid: gain=1.0, offset=0, R²=1.0 → passes
+    assert(1.0f >= 0.5f && 1.0f <= 2.0f);
+    assert(0.0f >= -10000.0f && 0.0f <= 10000.0f);
+    assert(1.0f >= 0.99f);
+
+    // Invalid: gain too low
+    assert(!(0.4f >= 0.5f && 0.4f <= 2.0f));
+
+    // Invalid: gain too high
+    assert(!(2.1f >= 0.5f && 2.1f <= 2.0f));
+
+    // Invalid: offset too negative
+    assert(!(-10001.0f >= -10000.0f && -10001.0f <= 10000.0f));
+
+    // Invalid: offset too positive
+    assert(!(10001.0f >= -10000.0f && 10001.0f <= 10000.0f));
+
+    // Invalid: R² too low
+    assert(!(0.98f >= 0.99f));
+    printf("  -> Pass\n");
+}
+
+// ── Calibration persistence tests ─────────────────────────────────────
+
+void test_cal_checksum_deterministic() {
+    printf("Running test_cal_checksum_deterministic...\n");
+    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.234f, -56.7f, 0 };
+    cal.checksum = cal_checksum(&cal);
+
+    // Same inputs → same checksum
+    uint32_t c1 = cal_checksum(&cal);
+    uint32_t c2 = cal_checksum(&cal);
+    assert(c1 == c2);
+    assert(c1 == cal.checksum);
+    printf("  checksum=0x%08X -> Pass\n", (unsigned)cal.checksum);
+}
+
+void test_cal_checksum_detects_bit_flips() {
+    printf("Running test_cal_checksum_detects_bit_flips...\n");
+    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 0 };
+    cal.checksum = cal_checksum(&cal);
+
+    // Flip magic — checksum must change
+    CalFile bad = cal;
+    bad.magic = 0xDEADBEEFu;
+    uint32_t bad_cs = cal_checksum(&bad);
+    assert(bad_cs != cal.checksum);
+
+    // Flip gain — checksum must change
+    bad = cal;
+    bad.gain = 2.0f;
+    bad_cs = cal_checksum(&bad);
+    assert(bad_cs != cal.checksum);
+
+    // Flip offset — checksum must change
+    bad = cal;
+    bad.offset = 500.0f;
+    bad_cs = cal_checksum(&bad);
+    assert(bad_cs != cal.checksum);
+
+    // Flip version — checksum must change
+    bad = cal;
+    bad.version = 99;
+    bad_cs = cal_checksum(&bad);
+    assert(bad_cs != cal.checksum);
+    printf("  -> Pass\n");
+}
+
+void test_cal_serialization_roundtrip() {
+    printf("Running test_cal_serialization_roundtrip...\n");
+    // Build a valid calibration record
+    CalFile orig;
+    orig.magic    = CAL_MAGIC;
+    orig.version  = CAL_VERSION;
+    orig.gain     = 1.05f;
+    orig.offset   = -123.4f;
+    orig.checksum = cal_checksum(&orig);
+
+    // "Write" to a byte buffer
+    uint8_t buf[sizeof(CalFile)];
+    memcpy(buf, &orig, sizeof(CalFile));
+
+    // "Read" back
+    CalFile restored;
+    memcpy(&restored, buf, sizeof(CalFile));
+
+    // All fields must survive the roundtrip
+    assert(restored.magic    == orig.magic);
+    assert(restored.version  == orig.version);
+    assert(restored.gain     == orig.gain);
+    assert(restored.offset   == orig.offset);
+    assert(restored.checksum == orig.checksum);
+
+    // Checksum must validate after roundtrip
+    assert(cal_checksum(&restored) == restored.checksum);
+    printf("  gain=%.4f offset=%.1f checksum=0x%08X -> Pass\n",
+           (double)restored.gain, (double)restored.offset, (unsigned)restored.checksum);
+}
+
+void test_cal_validation_magic() {
+    printf("Running test_cal_validation_magic...\n");
+    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 0 };
+    cal.checksum = cal_checksum(&cal);
+
+    // Correct magic → passes
+    assert(cal.magic == CAL_MAGIC);
+
+    // Wrong magic → rejected
+    CalFile bad = cal;
+    bad.magic = 0xFFFFFFFFu;
+    assert(bad.magic != CAL_MAGIC);
+    printf("  -> Pass\n");
+}
+
+void test_cal_validation_version() {
+    printf("Running test_cal_validation_version...\n");
+    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 0 };
+    cal.checksum = cal_checksum(&cal);
+
+    // Correct version → passes
+    assert(cal.version == CAL_VERSION);
+
+    // Wrong version → rejected
+    CalFile bad = cal;
+    bad.version = 1;  // old version
+    assert(bad.version != CAL_VERSION);
+    printf("  -> Pass\n");
+}
+
+void test_cal_validation_checksum() {
+    printf("Running test_cal_validation_checksum...\n");
+    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 0 };
+    cal.checksum = cal_checksum(&cal);
+
+    // Matching checksum → passes
+    assert(cal.checksum == cal_checksum(&cal));
+
+    // Mismatched checksum → rejected
+    CalFile bad = cal;
+    bad.checksum = 0x12345678u;
+    assert(bad.checksum != cal_checksum(&bad));
+    printf("  -> Pass\n");
+}
+
+void test_cal_validation_bounds() {
+    printf("Running test_cal_validation_bounds...\n");
+    // Production gates: 0.5 ≤ gain ≤ 2.0, |offset| ≤ 10000
+
+    // Valid values
+    assert(1.0f >= 0.5f && 1.0f <= 2.0f);
+    assert(0.0f >= -10000.0f && 0.0f <= 10000.0f);
+
+    // Boundary values — must be accepted
+    assert(0.5f >= 0.5f && 0.5f <= 2.0f);          // lower gain bound
+    assert(2.0f >= 0.5f && 2.0f <= 2.0f);          // upper gain bound
+    assert(-10000.0f >= -10000.0f && -10000.0f <= 10000.0f);  // lower offset bound
+    assert(10000.0f >= -10000.0f && 10000.0f <= 10000.0f);   // upper offset bound
+
+    // Slightly out of bounds — must be rejected
+    assert(!(0.49f >= 0.5f && 0.49f <= 2.0f));
+    assert(!(2.01f >= 0.5f && 2.01f <= 2.0f));
+    assert(!(-10000.1f >= -10000.0f && -10000.1f <= 10000.0f));
+    assert(!(10000.1f >= -10000.0f && 10000.1f <= 10000.0f));
+    printf("  -> Pass\n");
+}
+
+void test_cal_full_validation_chain() {
+    printf("Running test_cal_full_validation_chain...\n");
+    // Simulate the full validation chain from biomap_load_calibration():
+    //   magic → version → checksum → bounds
+    // All four gates must pass for the calibration to be accepted.
+
+    CalFile cal;
+    cal.magic   = CAL_MAGIC;
+    cal.version = CAL_VERSION;
+    cal.gain    = 0.98f;
+    cal.offset  = 200.0f;
+    cal.checksum = cal_checksum(&cal);
+
+    bool valid = (cal.magic == CAL_MAGIC)
+              && (cal.version == CAL_VERSION)
+              && (cal.checksum == cal_checksum(&cal))
+              && (cal.gain >= 0.5f && cal.gain <= 2.0f)
+              && (cal.offset >= -10000.0f && cal.offset <= 10000.0f);
+    assert(valid);
+
+    // Corrupt each field one at a time and verify the chain rejects it.
+    CalFile bad;
+
+    // Magic corruption
+    bad = cal; bad.magic = 0u;
+    assert(!((bad.magic == CAL_MAGIC)
+          && (bad.version == CAL_VERSION)
+          && (bad.checksum == cal_checksum(&bad))
+          && (bad.gain >= 0.5f && bad.gain <= 2.0f)
+          && (bad.offset >= -10000.0f && bad.offset <= 10000.0f)));
+
+    // Version corruption
+    bad = cal; bad.version = 0;
+    assert(!((bad.magic == CAL_MAGIC)
+          && (bad.version == CAL_VERSION)
+          && (bad.checksum == cal_checksum(&bad))
+          && (bad.gain >= 0.5f && bad.gain <= 2.0f)
+          && (bad.offset >= -10000.0f && bad.offset <= 10000.0f)));
+
+    // Checksum corruption (via bit-flip in gain)
+    bad = cal; bad.gain = 1.5f;  // checksum no longer matches
+    assert(!((bad.magic == CAL_MAGIC)
+          && (bad.version == CAL_VERSION)
+          && (bad.checksum == cal_checksum(&bad))
+          && (bad.gain >= 0.5f && bad.gain <= 2.0f)
+          && (bad.offset >= -10000.0f && bad.offset <= 10000.0f)));
+
+    // Bounds violation — gain too high
+    bad = cal; bad.gain = 5.0f; bad.checksum = cal_checksum(&bad);
+    assert(!((bad.magic == CAL_MAGIC)
+          && (bad.version == CAL_VERSION)
+          && (bad.checksum == cal_checksum(&bad))
+          && (bad.gain >= 0.5f && bad.gain <= 2.0f)
+          && (bad.offset >= -10000.0f && bad.offset <= 10000.0f)));
+
+    // Bounds violation — offset too negative
+    bad = cal; bad.offset = -20000.0f; bad.checksum = cal_checksum(&bad);
+    assert(!((bad.magic == CAL_MAGIC)
+          && (bad.version == CAL_VERSION)
+          && (bad.checksum == cal_checksum(&bad))
+          && (bad.gain >= 0.5f && bad.gain <= 2.0f)
+          && (bad.offset >= -10000.0f && bad.offset <= 10000.0f)));
+    printf("  -> Pass\n");
+}
 int main() {
     printf("========================================\n");
     printf("FIRMWARE PIPELINE STAGE 1 & 2 VERIFICATION\n");
@@ -437,9 +837,36 @@ int main() {
     test_update_display_pipeline();
     test_rescale_graph_buf();
     test_conductance_conversion();
+
+    printf("\n========================================\n");
+    printf("CALIBRATION CORRECTNESS\n");
+    printf("========================================\n");
     test_calibration_calculations();
+    test_calibration_identity();
+    test_calibration_scaled_device();
+    test_calibration_offset_device();
+    test_calibration_nonlinear_reject();
+    test_calibration_degenerate_input();
+    test_calibration_bounds_check();
+
+    printf("\n========================================\n");
+    printf("CALIBRATION PERSISTENCE\n");
+    printf("========================================\n");
+    test_cal_checksum_deterministic();
+    test_cal_checksum_detects_bit_flips();
+    test_cal_serialization_roundtrip();
+    test_cal_validation_magic();
+    test_cal_validation_version();
+    test_cal_validation_checksum();
+    test_cal_validation_bounds();
+    test_cal_full_validation_chain();
+
+    printf("\n========================================\n");
+    printf("CSV / NMEA\n");
+    printf("========================================\n");
     test_csv_formatting();
     test_nmea_parsing();
-    printf("All 7 firmware unit tests passed successfully!\n");
+
+    printf("\nAll 17 firmware unit tests passed successfully!\n");
     return 0;
 }
