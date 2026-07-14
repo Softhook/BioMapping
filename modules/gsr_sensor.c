@@ -392,7 +392,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     }
 
     // ── Finger-cuff disconnect detection (20-tick debounce).
-    if(gsr->raw < 0.1f || gsr->raw > 50000.0f) {
+    if(gsr->raw < GSR_VALID_MIN_NS || gsr->raw > GSR_VALID_MAX_NS) {
         if(++gsr->zero_count >= 20) {
             gsr->connected = false;
         }

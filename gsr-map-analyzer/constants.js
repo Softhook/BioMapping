@@ -27,6 +27,10 @@ const GSR_CONST = {
   CONTOUR_MAX_POINTS: 20000,   // Target max points for IDW interpolation
 
   // ── GPS filter defaults ──────────────────────────────────────────────────
+  // NOTE: maxHdop here (2.0) is the post-processing analysis filter, intentionally
+  // stricter than the firmware logging gate (GPS_HDOP_GATE = 5.0 in biomap_types.h).
+  // Firmware logs everything with a plausible fix; the analyser filters for quality.
+  // See docs/csv_schema.md for the rationale.
   GPS_DEFAULT: {
     smoothing: 0.5, kalmanR: 10, maxHdop: 2.0, maxSpeed: 3.0, rdpTolerance: 0, downsample: false, trackWeight: 5, peakLatency: 0
   },

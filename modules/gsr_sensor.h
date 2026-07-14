@@ -24,6 +24,18 @@
 // the worker uses & (SENSOR_BUFFER_SIZE - 1) for fast wraparound).
 #define SENSOR_BUFFER_SIZE  128
 
+// Physiological skin conductance validity range (nanosiemens).
+// Used by gsr_sensor.c (disconnect debounce) and biomap_session.c
+// (per-tick validity gate).  Define here so both users stay in sync.
+//
+//   Below GSR_VALID_MIN_NS → open circuit  (finger cuffs not attached)
+//   Above GSR_VALID_MAX_NS → rail saturation (hardware fault or short)
+//
+// Typical resting range: 1–20 µS = 1 000–20 000 nS.
+// Literature: Boucsein 2012 reports SCL 1–50 µS as normal range.
+#define GSR_VALID_MIN_NS    0.1f      // nS — below this: open circuit
+#define GSR_VALID_MAX_NS    50000.0f  // nS — above this: rail saturation
+
 typedef struct GsrSensor GsrSensor;
 
 // Lifecycle
@@ -35,10 +47,8 @@ bool gsr_sensor_available(const GsrSensor* gsr);
 
 // Returns false when the sensor has been returning invalid readings
 // (e.g. finger cuffs disconnected) for multiple consecutive ticks.
-// The sensor is considered disconnected when raw conductance is either
-// < 0.1 nS (open input) or > 50 000 nS (rail saturation, ~33 mS at
-// PGA 0 when inputs float to rail) for 20+ consecutive ticks (2+ s).
-// Automatically recovers when an in-range reading comes back.
+// Uses GSR_VALID_MIN_NS / GSR_VALID_MAX_NS thresholds for 20+ consecutive
+// ticks (2+ s).  Automatically recovers when an in-range reading comes back.
 bool gsr_sensor_is_connected(const GsrSensor* gsr);
 
 // Call at 10 Hz.  Reads the ring buffer, applies 100-sample decimation,

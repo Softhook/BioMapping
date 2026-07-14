@@ -91,6 +91,15 @@ static uint32_t rtc_to_unix_epoch(const DateTime* dt) {
     static const uint16_t days_before[12] = {
         0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
     };
+    // Guard against uninitialised RTC: month=0 would cause days_before[-1]
+    // (OOB read on the static array).  Year < 2020 catches a completely unset
+    // RTC which typically reads 2000-01-01.  Return 0 as a sentinel — callers
+    // write it into the CSV header and downstream tools treat 0 as "unknown".
+    if(dt->year < 2020 || dt->month < 1 || dt->month > 12 ||
+       dt->day   < 1   || dt->day   > 31) {
+        FURI_LOG_W("BioMap", "RTC not set — recording epoch will be 0 in CSV header");
+        return 0;
+    }
     uint16_t y = dt->year;
     // Whole days from 1970 to start of year y
     uint32_t days = (y - 1970) * 365U
@@ -538,7 +547,7 @@ static bool handle_recording_tick(Session* s) {
         // auto-zoom doesn't spike, and the graph keeps showing the
         // last valid waveform.  The CSV still logs the exact value
         // (0.0 or rail) on every tick so the record is complete.
-        bool valid = (raw >= 0.1f && raw <= 50000.0f);
+        bool valid = (raw >= GSR_VALID_MIN_NS && raw <= GSR_VALID_MAX_NS);
         if(valid) {
             // ── Re-connect smoothing ────────────────────────────────
             // When the sensor comes back after a disconnect, the graph

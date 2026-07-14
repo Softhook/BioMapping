@@ -1,8 +1,9 @@
 #pragma once
 
 // SD Logger — auto-incrementing CSV writer.
-// Files: /ext/biomap_001.csv … biomap_999.csv (wraps at 999).
-// Columns: timestamp,lat,lon,alt,sats,fix,gsr_raw
+// Files: /ext/biomapping/biomap_001.csv … biomap_999.csv (wraps at 999).
+// Columns (10): timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw
+// See docs/csv_schema.md for the authoritative field-by-field specification.
 
 #include <storage/storage.h>
 #include <stdbool.h>

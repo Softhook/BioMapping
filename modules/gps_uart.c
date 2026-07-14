@@ -28,6 +28,10 @@ struct GpsUart {
     uint32_t             last_valid_nmea_tick;  // watchdog: last successful $Gx parse
     uint32_t             last_gsv_reset_tick;   // tick of last GSV total_sats reset
     struct minmea_time   last_epoch_time;
+    // Per-session log-once flags. Kept in the struct (not as function-local
+    // statics) so they reset correctly on each gps_uart_alloc() call.
+    bool                 gsa_talker_logged;
+    bool                 gsv_talker_logged;
 };
 
 // UART IRQ — fires per received byte (ISR context).
@@ -198,9 +202,8 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             // one $GNGSA per constellation per epoch, distinguished by the trailing
             // SystemID field (1=GPS, 2=GLONASS, 3=Galileo, 4=BeiDou, 5=QZSS)
             // rather than by TalkerID.
-            static bool gsa_talker_logged = false;
-            if(!gsa_talker_logged) {
-                gsa_talker_logged = true;
+            if(!g->gsa_talker_logged) {
+                g->gsa_talker_logged = true;
                 FURI_LOG_I("GpsUart", "First GSA talker: %c%c SystemID=%d",
                            line[1], line[2], frame.system_id);
             }
@@ -283,9 +286,8 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             // Log the GSV talker prefix on first sighting so we can
             // confirm the L76K emits constellation-specific GSV
             // ($GPGSV / $BDGSV / $GLGSV) rather than $GNGSV.
-            static bool gsv_talker_logged = false;
-            if(!gsv_talker_logged) {
-                gsv_talker_logged = true;
+            if(!g->gsv_talker_logged) {
+                g->gsv_talker_logged = true;
                 FURI_LOG_I("GpsUart", "First GSV talker: %c%c",
                            line[1], line[2]);
             }
@@ -405,6 +407,22 @@ static const uint8_t ubx_cfg_rst_hot[] = {
 #endif
 
 static void gps_uart_configure(GpsUart* g);
+
+// ── Serial reinit helper — stop/deinit/reinit/restart in one call. ──────────
+// Used by both the RX-buffer-full handler and the NMEA watchdog so that any
+// future change to the reinit sequence only needs to be made in one place.
+static void gps_uart_reinit(GpsUart* g, uint32_t baud) {
+    furi_hal_serial_async_rx_stop(g->serial_handle);
+    furi_hal_serial_deinit(g->serial_handle);
+    furi_hal_serial_init(g->serial_handle, baud);
+    g->rx_offset = 0;
+    furi_stream_buffer_reset(g->rx_stream);
+    furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
+    furi_delay_ms(100);
+    gps_uart_configure(g);
+    g->last_valid_nmea_tick = 0;
+}
+
 GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications) {
     GpsUart* g = malloc(sizeof(GpsUart));
     furi_assert(g);
@@ -444,6 +462,8 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
     // leaving the host at 115200 while the module stays at 9600.
     g->last_valid_nmea_tick  = furi_get_tick();
     g->last_gsv_reset_tick   = furi_get_tick();
+    g->gsa_talker_logged     = false;
+    g->gsv_talker_logged     = false;
 
     g->rx_stream = furi_stream_buffer_alloc(GPS_RX_BUF_SIZE, 1);
 
@@ -542,19 +562,11 @@ void gps_uart_process_rx(GpsUart* g) {
     do {
         if(sizeof(g->rx_buf) - 1 - g->rx_offset == 0) {
             FURI_LOG_W("GpsUart", "RX buffer full — reconfiguring");
-            g->rx_offset = 0;
-            // Full reconfiguration (same as watchdog): switch host
-            // back to 9600, then re-run the module init sequence.
-            // A plain hot-start would leave the module at default
-            // baud rate (9600 on M10Q) while the host is at 115200.
-            furi_hal_serial_async_rx_stop(g->serial_handle);
-            furi_hal_serial_deinit(g->serial_handle);
-            furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE);
-            furi_stream_buffer_reset(g->rx_stream);
-            furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
-            furi_delay_ms(100);
-            gps_uart_configure(g);
-            g->last_valid_nmea_tick = 0;
+            // Full reconfiguration (same as watchdog): switch host back to
+            // 9600, then re-run the module init sequence.  A plain hot-start
+            // would leave the module at default baud while the host is at
+            // 115200.
+            gps_uart_reinit(g, GPS_BAUD_RATE);
         }
 
         len = furi_stream_buffer_receive(
@@ -600,16 +612,7 @@ void gps_uart_process_rx(GpsUart* g) {
         uint32_t elapsed = furi_get_tick() - g->last_valid_nmea_tick;
         if(elapsed > furi_kernel_get_tick_frequency() * 5) {
             FURI_LOG_W("GpsUart", "NMEA watchdog: no valid sentence in 5 s — reconfiguring");
-            // Switch host back to 9600 (module default after reset)
-            furi_hal_serial_async_rx_stop(g->serial_handle);
-            furi_hal_serial_deinit(g->serial_handle);
-            furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE);
-            g->rx_offset = 0;
-            furi_stream_buffer_reset(g->rx_stream);
-            furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
-            furi_delay_ms(100);
-            gps_uart_configure(g);
-            g->last_valid_nmea_tick = 0;
+            gps_uart_reinit(g, GPS_BAUD_RATE);
         }
     }
 }

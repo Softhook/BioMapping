@@ -4,10 +4,19 @@
  */
 
 /**
- * Read current GPS slider values into a clean param object.
- * Shared by tracks.js and storage.js.
- * This is the canonical source — always add new GPS sliders here first.
+ * Typed slider value reader with automatic fallback to GSR_CONST defaults.
+ * Prevents the null-guard pattern from being copy-pasted with different
+ * hardcoded defaults that drift out of sync with constants.js.
+ *
+ * @param {HTMLElement|null} el   - Slider or select element (may be null)
+ * @param {string}           key  - Key into GSR_CONST.GSR_DEFAULT for the fallback
+ * @param {Function}         [fn] - Parser: parseFloat (default) or parseInt
  */
+function sliderVal(el, key, fn) {
+  fn = fn || parseFloat;
+  return el ? fn(el.value) : fn(GSR_CONST.GSR_DEFAULT[key]);
+}
+
 const GSRStorage = {
   /**
    * Read current GSR slider values into a clean param object.
@@ -23,15 +32,14 @@ const GSRStorage = {
       tonicMethod:   S.tonicMethod.value,
       tonicWindow:   parseInt(S.tonicWindow.value),
       peakThreshold: parseFloat(S.peakThreshold.value),
-      dwtLevel:      parseInt(S.dwtLevel ? S.dwtLevel.value : 6),
-      minPeakQuality: parseFloat(S.minPeakQuality ? S.minPeakQuality.value : 0.0),
-      // Peak shape criteria
-      shapeMinRiseTime:     parseFloat(S.shapeMinRiseTime ? S.shapeMinRiseTime.value : 0.5),
-      shapeMaxRiseTime:     parseFloat(S.shapeMaxRiseTime ? S.shapeMaxRiseTime.value : 5.0),
-      shapeMinHalfRecovery: parseFloat(S.shapeMinHalfRecovery ? S.shapeMinHalfRecovery.value : 0.3),
-      shapeMaxHalfRecovery: parseFloat(S.shapeMaxHalfRecovery ? S.shapeMaxHalfRecovery.value : 10.0),
-      shapeMinSnr:          parseFloat(S.shapeMinSnr ? S.shapeMinSnr.value : 2.0),
-      shapeMaxSkewRatio:    parseFloat(S.shapeMaxSkewRatio ? S.shapeMaxSkewRatio.value : 6.0)
+      dwtLevel:              sliderVal(S.dwtLevel,              'dwtLevel',              parseInt),
+      minPeakQuality:        sliderVal(S.minPeakQuality,        'minPeakQuality'),
+      shapeMinRiseTime:      sliderVal(S.shapeMinRiseTime,      'shapeMinRiseTime'),
+      shapeMaxRiseTime:      sliderVal(S.shapeMaxRiseTime,      'shapeMaxRiseTime'),
+      shapeMinHalfRecovery:  sliderVal(S.shapeMinHalfRecovery,  'shapeMinHalfRecovery'),
+      shapeMaxHalfRecovery:  sliderVal(S.shapeMaxHalfRecovery,  'shapeMaxHalfRecovery'),
+      shapeMinSnr:           sliderVal(S.shapeMinSnr,           'shapeMinSnr'),
+      shapeMaxSkewRatio:     sliderVal(S.shapeMaxSkewRatio,     'shapeMaxSkewRatio')
     };
   },
 

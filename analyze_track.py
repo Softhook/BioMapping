@@ -117,7 +117,7 @@ def analyze_gsr(rows):
             v = float(r.get('gsr_raw', '0') or '0')
             if v > 0:
                 vals.append(v)
-        except:
+        except (ValueError, TypeError):
             pass
 
     if len(vals) < 2:
@@ -170,7 +170,7 @@ def compare_gsr_noise(path_a, label_a, path_b, label_b):
             try:
                 v = float(r.get('gsr_raw', '0') or '0')
                 if v > 0: vals.append(v)
-            except: pass
+            except (ValueError, TypeError): pass
 
         if len(vals) < 2: continue
         mean = sum(vals) / len(vals)
