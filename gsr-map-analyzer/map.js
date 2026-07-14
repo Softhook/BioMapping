@@ -21,7 +21,13 @@ class GSRMapManager {
     this._legendMinVal = 0;
     this._legendMaxVal = 0;
     this._legendUniqueVals = null;
-    
+
+    // ── Render caches ──────────────────────────────────────────────────
+    // GPS filter cache: trackId -> { paramsHash, snapFingerprint, gpsPoints, drawPoints }
+    this._gpsCache = new Map();
+    // Color LUT cache: "metric|min|max" -> [30 HSL strings]
+    this._colorLutCache = new Map();
+
     this.initMap();
     this._initLegend();
   }
@@ -234,6 +240,145 @@ class GSRMapManager {
   }
 
   /**
+   * Hash GPS filter params for cache key comparison.
+   * Only hashes params that affect the GPS pipeline output.
+   */
+  _hashGpsParams(p) {
+    return `${p.maxHdop || 2.0}|${p.smoothing || 0.5}|${p.kalmanR || 10}|${p.maxSpeed || 3.0}|${p.downsample ? 1 : 0}|${p.rdpTolerance || 0}`;
+  }
+
+  /**
+   * Lightweight fingerprint of road-snap data so the cache invalidates
+   * when OSM enrichment produces different snap results.
+   */
+  _snapFingerprint(snappedGps) {
+    if (!snappedGps) return 'nosnap';
+    const keys = Object.keys(snappedGps);
+    const n = keys.length;
+    if (n === 0) return 'nosnap';
+    // Hash: count + first + mid + last alpha values
+    const first = snappedGps[keys[0]];
+    const mid   = snappedGps[keys[Math.floor(n / 2)]];
+    const last  = snappedGps[keys[n - 1]];
+    const fa = first ? first.alpha.toFixed(3) : '?';
+    const ma = mid   ? mid.alpha.toFixed(3)   : '?';
+    const la = last  ? last.alpha.toFixed(3)  : '?';
+    return `${n}|${fa}|${ma}|${la}`;
+  }
+
+  /**
+   * Run the full GPS filter pipeline and cache the result.
+   * Returns { gpsPoints, drawPoints } — cached when params AND snap data
+   * haven't changed.  Callers MUST NOT mutate the returned arrays.
+   *
+   * @param {string} cacheKey  – unique key for this track+params combo
+   * @param {GSRAnalyzer} analyzer
+   * @param {object} p         – GPS filter params
+   * @returns {{ gpsPoints: Array, drawPoints: Array }}
+   */
+  _getOrBuildDrawPoints(cacheKey, analyzer, p) {
+    const paramsHash = this._hashGpsParams(p);
+    const snapFp    = this._snapFingerprint(analyzer.snappedGps);
+    const cached = this._gpsCache.get(cacheKey);
+
+    if (cached && cached.paramsHash === paramsHash && cached.snapFingerprint === snapFp) {
+      // Return cached references — callers MUST NOT mutate
+      return { gpsPoints: cached.gpsPoints, drawPoints: cached.drawPoints };
+    }
+
+    // ── Expensive GPS pipeline (only runs when params change) ──
+    const data = analyzer.raw;
+    let gpsPoints = this._collectGpsPoints(data);
+    if (gpsPoints.length === 0) {
+      this._gpsCache.set(cacheKey, { paramsHash, snapFingerprint: snapFp, gpsPoints: [], drawPoints: [] });
+      return { gpsPoints: [], drawPoints: [] };
+    }
+
+    gpsPoints = this._applyHdopGate(gpsPoints, p.maxHdop || 2.0);
+    gpsPoints = this._applyFixTypeGate(gpsPoints);
+
+    const smoothing = p.smoothing || 0.5;
+    const kalmanR   = p.kalmanR || 10;
+    gpsPoints = this._applyPreKalmanFilters(gpsPoints, smoothing, p.maxSpeed || 3.0);
+
+    if (analyzer.snappedGps) {
+      gpsPoints = this._applySnapCorrection(gpsPoints, analyzer.snappedGps);
+    }
+
+    gpsPoints = GpsFilter.applyKalman(gpsPoints, smoothing, kalmanR);
+
+    // Reconstruct full 10 Hz filtered GPS path (cached on analyzer)
+    this._reconstructFilteredGpsCached(analyzer, data, gpsPoints);
+
+    // Build drawPoints from the 10 Hz reconstructed filtered GPS path
+    const filteredGps = analyzer.filteredGps;
+    let drawPoints = [];
+    for (let i = 0; i < data.length; i++) {
+      const fg = filteredGps[i];
+      if (fg && !isNaN(fg.lat) && !isNaN(fg.lon)) {
+        drawPoints.push({
+          ...data[i],
+          lat: fg.lat,
+          lon: fg.lon,
+          origIdx: i
+        });
+      }
+    }
+
+    drawPoints = this._downsampleForDisplay(drawPoints, analyzer.sampleRate || 10.0, p.downsample === true || p.downsample === 1);
+    drawPoints = GpsFilter.applyRDP(drawPoints, p.rdpTolerance || 0);
+
+    this._gpsCache.set(cacheKey, { paramsHash, snapFingerprint: snapFp, gpsPoints, drawPoints });
+    return { gpsPoints, drawPoints };
+  }
+
+  /**
+   * Cached version of _reconstructFilteredGps — avoids rebuilding the
+   * 10 Hz interpolated path when the GPS pipeline hasn't changed.
+   */
+  _reconstructFilteredGpsCached(analyzer, data, gpsPoints) {
+    // Use a lightweight hash of gpsPoints to detect actual changes
+    const n = gpsPoints.length;
+    if (n === 0) {
+      if (!analyzer._filteredGpsCacheKey) {
+        this._reconstructFilteredGps(analyzer, data, gpsPoints);
+        analyzer._filteredGpsCacheKey = 'empty';
+      }
+      return;
+    }
+    // Hash: first + last + count + mid-point (fast identity check)
+    const key = `${gpsPoints[0].origIdx}|${gpsPoints[n - 1].origIdx}|${n}|${gpsPoints[Math.floor(n / 2)].origIdx}`;
+    if (analyzer._filteredGpsCacheKey === key) return;
+
+    this._reconstructFilteredGps(analyzer, data, gpsPoints);
+    analyzer._filteredGpsCacheKey = key;
+  }
+
+  /**
+   * Build or retrieve a pre-computed color lookup table for a metric.
+   * Returns an array of 30 CSS color strings.
+   */
+  _getColorLut(metric, minVal, maxVal) {
+    const cacheKey = `${metric}|${minVal.toFixed(4)}|${maxVal.toFixed(4)}`;
+    let lut = this._colorLutCache.get(cacheKey);
+    if (lut) return lut;
+
+    lut = new Array(30);
+    const range = maxVal - minVal;
+    for (let b = 0; b < 30; b++) {
+      const ratio = range > 1e-9 ? (b + 0.5) / 30 : 0.5;
+      lut[b] = this.getColorForMetric(metric, minVal + ratio * range, minVal, maxVal);
+    }
+    this._colorLutCache.set(cacheKey, lut);
+    // Limit cache size
+    if (this._colorLutCache.size > 50) {
+      const firstKey = this._colorLutCache.keys().next().value;
+      this._colorLutCache.delete(firstKey);
+    }
+    return lut;
+  }
+
+  /**
    * Render color-coded path segments and add stress peak markers.
    *
    * @param {GSRAnalyzer} analyzer
@@ -247,62 +392,27 @@ class GSRMapManager {
     const data = analyzer.raw;
     if (!data || data.length === 0) return;
 
-    // 1-6: GPS filter pipeline
-    let gpsPoints = this._collectGpsPoints(data);
-    if (gpsPoints.length === 0) return;
-
-    gpsPoints = this._applyHdopGate(gpsPoints, p.maxHdop || 2.0);
-    gpsPoints = this._applyFixTypeGate(gpsPoints);
-
-    // Pre-Kalman filters (stop averaging, speed filter, velocity smoothing).
-    const smoothing = p.smoothing || 0.5;
-    const kalmanR   = p.kalmanR || 10;
-    gpsPoints = this._applyPreKalmanFilters(gpsPoints, smoothing, p.maxSpeed || 3.0);
-
-    // Apply road snapping correction BEFORE Kalman: pull multipath-drifting
-    // points toward roads so the Kalman smooths a corrected trajectory
-    // rather than locking onto the raw bias.
-    if (analyzer.snappedGps) {
-      gpsPoints = this._applySnapCorrection(gpsPoints, analyzer.snappedGps);
-    }
-
-    // Kalman RTS — HDOP-adaptive smoothing on the (now snap-corrected)
-    // trajectory.  With the soft pull and transition checks, most points
-    // near roads get partial correction, so the Kalman sees a consistent
-    // road-aligned path rather than isolated snapped outliers.
-    gpsPoints = GpsFilter.applyKalman(gpsPoints, smoothing, kalmanR);
-
-    // Reconstruct full 10 Hz filtered GPS path for CSV export
-    this._reconstructFilteredGps(analyzer, data, gpsPoints);
-
-    // Build drawPoints from the 10 Hz reconstructed filtered GPS path
-    let drawPoints = [];
-    for (let i = 0; i < data.length; i++) {
-      const fg = analyzer.filteredGps[i];
-      if (fg && !isNaN(fg.lat) && !isNaN(fg.lon)) {
-        drawPoints.push({
-          ...data[i],
-          lat: fg.lat,
-          lon: fg.lon,
-          origIdx: i
-        });
-      }
-    }
-
-    // 7-8: Downsample and simplify for drawing
-    drawPoints = this._downsampleForDisplay(drawPoints, analyzer.sampleRate || 10.0, p.downsample === true || p.downsample === 1);
-    drawPoints = GpsFilter.applyRDP(drawPoints, p.rdpTolerance || 0);
+    // Use cached GPS pipeline result (cache keyed by active track id)
+    const cacheKey = AppState.activeTrackId || 'single';
+    const { drawPoints } = this._getOrBuildDrawPoints(cacheKey, analyzer, p);
     if (drawPoints.length === 0) return;
 
-    // 9-11: Render on Leaflet map
+    // Render on Leaflet map
     this._fitBounds(drawPoints);
-    this._renderPathSegments(drawPoints, data, p.trackWeight || 5);
+    this._renderPathSegments(drawPoints, p.trackWeight || 5);
 
-    // 13: Peak markers (with latency compensation)
+    // Peak markers (with latency compensation)
     this._renderPeakMarkers(analyzer, data, p.peakLatency || 0);
 
     // Apply the active peak/label toggle styles
     this.updateMarkerVisibility();
+  }
+
+  /**
+   * Invalidate GPS cache for a specific track (call when GPS params change).
+   */
+  invalidateGpsCache(trackId) {
+    this._gpsCache.delete(trackId || 'single');
   }
 
   // ── Pipeline helpers ──────────────────────────────────────────────────────
@@ -610,19 +720,18 @@ class GSRMapManager {
     this.osmLayers = [];
   }
 
-  _renderPathSegments(drawPoints, data, trackWeight) {
+  _renderPathSegments(drawPoints, trackWeight) {
     const metric = this.activeColoringMetric || 'gsr';
     const key = this._getMetricKey(metric);
     const isCategorical = (metric === 'roadClass');
     const needsUnique = (isCategorical || metric === 'inPark');
 
-    // Single pass: compute min/max for continuous metrics AND
-    // collect unique values for categorical/binary metrics.
+    // ── Single pass over drawPoints (already downsampled) for min/max ──
     let minVal = Infinity, maxVal = -Infinity;
     const seen = needsUnique ? new Set() : null;
 
-    for (let i = 0; i < data.length; i++) {
-      const v = data[i][key];
+    for (let i = 0; i < drawPoints.length; i++) {
+      const v = drawPoints[i][key];
       if (v === undefined || v === null) continue;
 
       if (!isCategorical && !isNaN(v)) {
@@ -643,11 +752,12 @@ class GSRMapManager {
     this._legendMaxVal = maxVal;
     this._legendUniqueVals = needsUnique ? seen : null;
 
+    // Pre-compute color LUT for continuous metrics
     const range = maxVal - minVal;
     const COLOR_BUCKETS = 30;
+    const colorLut = isCategorical ? null : this._getColorLut(metric, minVal, maxVal);
 
     // Split drawPoints into continuous path segments, breaking at GPS gaps > 30 s.
-    // This prevents a straight line being drawn across tunnels, buildings, or indoors sections.
     const GPS_PATH_GAP_S = 30;
     const segments = [[]];
     for (let i = 0; i < drawPoints.length; i++) {
@@ -656,6 +766,9 @@ class GSRMapManager {
       }
       segments[segments.length - 1].push(drawPoints[i]);
     }
+
+    // Reusable array for latlngs to reduce GC pressure
+    const latlngsBuf = [];
 
     for (const seg of segments) {
       if (seg.length < 2) continue;
@@ -668,39 +781,41 @@ class GSRMapManager {
         let startBucket = 0;
         if (!isCategorical) {
           const avgVal = (seg[batchStart][key] + seg[batchStart + 1][key]) / 2;
-          startBucket = Math.floor(((avgVal - minVal) / range) * COLOR_BUCKETS);
+          startBucket = (avgVal - minVal) * (COLOR_BUCKETS / range);
+          startBucket = startBucket < 0 ? 0 : (startBucket >= COLOR_BUCKETS ? COLOR_BUCKETS - 1 : startBucket | 0);
         }
 
         let batchEnd = batchStart + 1;
         while (batchEnd < seg.length - 1) {
           if (isCategorical) {
-            const val = seg[batchEnd][key];
-            if (val !== startVal) break;
+            if (seg[batchEnd][key] !== startVal) break;
           } else {
             const val = (seg[batchEnd][key] + seg[batchEnd + 1][key]) / 2;
-            const bucket = Math.floor(((val - minVal) / range) * COLOR_BUCKETS);
-            if (bucket !== startBucket) break;
+            const bucket = (val - minVal) * (COLOR_BUCKETS / range);
+            const b = bucket < 0 ? 0 : (bucket >= COLOR_BUCKETS ? COLOR_BUCKETS - 1 : bucket | 0);
+            if (b !== startBucket) break;
           }
           batchEnd++;
         }
 
-        const latlngs = [];
+        // Build latlngs directly into reusable buffer
+        latlngsBuf.length = 0;
         for (let i = batchStart; i <= batchEnd; i++) {
-          latlngs.push([seg[i].lat, seg[i].lon]);
+          latlngsBuf.push([seg[i].lat, seg[i].lon]);
         }
 
-        let colorVal;
+        let color;
         if (isCategorical) {
-          colorVal = startVal;
+          color = this.getColorForMetric(metric, startVal, minVal, maxVal);
         } else {
-          const midIdx = Math.floor((batchStart + batchEnd) / 2);
-          colorVal = (seg[midIdx][key] + seg[midIdx + 1][key]) / 2;
+          const midIdx = (batchStart + batchEnd) >> 1;
+          const midBucket = ((seg[midIdx][key] + seg[midIdx + 1][key]) / 2 - minVal) * (COLOR_BUCKETS / range);
+          const b = midBucket < 0 ? 0 : (midBucket >= COLOR_BUCKETS ? COLOR_BUCKETS - 1 : midBucket | 0);
+          color = colorLut[b];
         }
-
-        const color = this.getColorForMetric(metric, colorVal, minVal, maxVal);
 
         this.pathSegments.push(
-          L.polyline(latlngs, { color, weight: trackWeight, opacity: 0.95 }).addTo(this.map)
+          L.polyline(latlngsBuf.slice(), { color, weight: trackWeight, opacity: 0.95 }).addTo(this.map)
         );
 
         batchStart = batchEnd;
@@ -725,67 +840,82 @@ class GSRMapManager {
     return btn;
   }
 
-  _buildSinglePeakPopup(analyzer, peak, index, coords, marker) {
+  /**
+   * Shared popup builder used by both single-track and collective views.
+   * @param {Object} opts
+   * @param {string} opts.heading        - Popup header text
+   * @param {Object} opts.analyzerRef    - GSRAnalyzer instance (for date/time formatting)
+   * @param {Object} opts.peak           - Peak event object
+   * @param {number} opts.index          - Peak index
+   * @param {number} opts.lat            - Latitude
+   * @param {number} opts.lon            - Longitude
+   * @param {Object} opts.marker         - Leaflet marker (for closePopup)
+   * @param {string} [opts.trackId]      - Track ID (collective); omitted for single
+   * @param {string} [opts.extraClass]   - Extra CSS class, e.g. 'compact'
+   */
+  _buildPeakPopup(opts) {
+    const { heading, analyzerRef, peak, index, lat, lon, marker, trackId, extraClass } = opts;
     const displayLabel = peak.label || '';
-    const heading = displayLabel ? displayLabel : '#' + (index + 1);
+    const quality = getQualityLabel(peak.qualityScore);
 
     const container = L.DomUtil.create('div');
-    container.className = 'map-popup-card';
+    container.className = 'map-popup-card' + (extraClass ? ' ' + extraClass : '');
 
     const headerRow = L.DomUtil.create('div', 'popup-header-row', container);
     const h4 = L.DomUtil.create('h4', '', headerRow);
     h4.textContent = heading;
 
-    const excludeBtn = L.DomUtil.create('button', 'btn-exclude-popup', headerRow);
+    const table = L.DomUtil.create('table', 'popup-table', container);
+
+    // --- Label row (editable) ---
+    const trLabel = L.DomUtil.create('tr', '', table);
+    L.DomUtil.create('td', '', trLabel).textContent = 'Label:';
+    const tdLabel2 = L.DomUtil.create('td', '', trLabel);
+    const input = L.DomUtil.create('input', 'popup-label-input', tdLabel2);
+    input.type = 'text';
+    input.value = displayLabel;
+    input.placeholder = 'Enter label…';
+
+    // --- Date row ---
+    const trDate = L.DomUtil.create('tr', '', table);
+    L.DomUtil.create('td', '', trDate).textContent = 'Date:';
+    L.DomUtil.create('td', '', trDate).textContent = analyzerRef.formatDateUK(peak.time);
+
+    // --- Time row ---
+    const trTime = L.DomUtil.create('tr', '', table);
+    L.DomUtil.create('td', '', trTime).textContent = 'Time:';
+    L.DomUtil.create('td', '', trTime).textContent = analyzerRef.formatTimeOnly(peak.time);
+
+    // --- Quality row ---
+    const trQuality = L.DomUtil.create('tr', '', table);
+    L.DomUtil.create('td', '', trQuality).textContent = 'Quality:';
+    const tdQuality2 = L.DomUtil.create('td', '', trQuality);
+    tdQuality2.innerHTML = '<span style="color:' + getQualityColor(peak.qualityScore) +
+      ';font-weight:600;">' + quality.label + ' (' + quality.pct + '%)</span>';
+
+    // --- Bottom row: external links (left) + exclude button (right) ---
+    const bottomRow = L.DomUtil.create('div', 'popup-bottom-row', container);
+    const links = L.DomUtil.create('div', 'popup-external-links', bottomRow);
+    links.appendChild(this._buildStreetViewButton(
+      lat, lon,
+      displayLabel || ('Peak #' + (index + 1))
+    ));
+
+    const excludeBtn = L.DomUtil.create('button', 'btn-exclude-popup', bottomRow);
     excludeBtn.title = peak.excluded ? 'Include peak' : 'Exclude peak';
     excludeBtn.innerHTML = peak.excluded
       ? '<i class="fa-solid fa-plus"></i>'
       : '<i class="fa-solid fa-xmark"></i>';
 
-    const labelEdit = L.DomUtil.create('div', 'popup-label-edit', container);
-    const labelTag = L.DomUtil.create('label', '', labelEdit);
-    labelTag.textContent = 'Label:';
-    const input = L.DomUtil.create('input', 'popup-label-input', labelEdit);
-    input.type = 'text';
-    input.value = displayLabel;
-    input.placeholder = 'Enter label…';
-
-    const table = L.DomUtil.create('table', 'popup-table', container);
-    const rows = [
-      ['Date:', analyzer.formatDateUK(peak.time)],
-      ['Time:', analyzer.formatTimeOnly(peak.time)],
-      ['Amplitude:', peak.amplitude.toFixed(3) + ' μS'],
-      ['Rise Time:', (peak.time - peak.onsetTime).toFixed(1) + ' s'],
-      ['Coords:', coords.lat.toFixed(5) + ', ' + coords.lon.toFixed(5)]
-    ];
-    rows.forEach(function(r) {
-      const tr = L.DomUtil.create('tr', '', table);
-      const td1 = L.DomUtil.create('td', '', tr);
-      const td2 = L.DomUtil.create('td', '', tr);
-      td1.textContent = r[0];
-      td2.textContent = r[1];
-    });
-
-    const links = L.DomUtil.create('div', 'popup-external-links', container);
-    links.appendChild(this._buildStreetViewButton(
-      coords.lat,
-      coords.lon,
-      displayLabel || ('Peak #' + (index + 1))
-    ));
-
-    L.DomEvent.on(input, 'change', function() {
-      GSRUI.updatePeakLabel(index, input.value);
-    });
-    L.DomEvent.on(input, 'keydown', function(e) {
-      if (e.key === 'Enter') {
-        GSRUI.updatePeakLabel(index, input.value);
-        input.blur();
-      }
+    // --- Event handlers ---
+    L.DomEvent.on(input, 'change', () => GSRUI.updatePeakLabel(index, input.value, trackId));
+    L.DomEvent.on(input, 'keydown', (e) => {
+      if (e.key === 'Enter') { GSRUI.updatePeakLabel(index, input.value, trackId); input.blur(); }
     });
     L.DomEvent.disableClickPropagation(input);
 
-    L.DomEvent.on(excludeBtn, 'click', function() {
-      GSRUI.togglePeakExclusion(index);
+    L.DomEvent.on(excludeBtn, 'click', () => {
+      GSRUI.togglePeakExclusion(index, trackId);
       marker.closePopup();
     });
     L.DomEvent.disableClickPropagation(excludeBtn);
@@ -793,67 +923,30 @@ class GSRMapManager {
     return container;
   }
 
+  _buildSinglePeakPopup(analyzer, peak, index, coords, marker) {
+    return this._buildPeakPopup({
+      heading:     peak.label || ('#' + (index + 1)),
+      analyzerRef: analyzer,
+      peak:        peak,
+      index:       index,
+      lat:         coords.lat,
+      lon:         coords.lon,
+      marker:      marker
+    });
+  }
+
   _buildCollectivePeakPopup(track, peak, index, lat, lon, marker) {
-    const displayLabel = peak.label || '';
-
-    const container = L.DomUtil.create('div');
-    container.className = 'map-popup-card compact';
-
-    const headerRow = L.DomUtil.create('div', 'popup-header-row', container);
-    const h4 = L.DomUtil.create('h4', '', headerRow);
-    h4.textContent = track.name;
-
-    const excludeBtn = L.DomUtil.create('button', 'btn-exclude-popup', headerRow);
-    excludeBtn.title = peak.excluded ? 'Include peak' : 'Exclude peak';
-    excludeBtn.innerHTML = peak.excluded
-      ? '<i class="fa-solid fa-plus"></i>'
-      : '<i class="fa-solid fa-xmark"></i>';
-
-    const titleP = L.DomUtil.create('p', '', container);
-    const titleBold = L.DomUtil.create('b', '', titleP);
-    titleBold.textContent = displayLabel || ('Peak Event #' + (index + 1));
-
-    const labelEdit = L.DomUtil.create('div', 'popup-label-edit', container);
-    const labelTag = L.DomUtil.create('label', '', labelEdit);
-    labelTag.textContent = 'Label:';
-    const input = L.DomUtil.create('input', 'popup-label-input', labelEdit);
-    input.type = 'text';
-    input.value = displayLabel;
-    input.placeholder = 'Enter label…';
-
-    const ampP = L.DomUtil.create('p', '', container);
-    ampP.textContent = 'Amplitude: ';
-    const ampBold = L.DomUtil.create('b', '', ampP);
-    ampBold.textContent = peak.amplitude.toFixed(3) + ' μS';
-
-    const coordP = L.DomUtil.create('p', 'popup-coords', container);
-    coordP.textContent = lat.toFixed(5) + ', ' + lon.toFixed(5);
-
-    const links = L.DomUtil.create('div', 'popup-external-links', container);
-    links.appendChild(this._buildStreetViewButton(
-      lat,
-      lon,
-      displayLabel || ('Peak #' + (index + 1))
-    ));
-
-    L.DomEvent.on(input, 'change', function() {
-      GSRUI.updatePeakLabel(index, input.value, track.id);
+    return this._buildPeakPopup({
+      heading:     track.name,
+      analyzerRef: track.analyzer,
+      peak:        peak,
+      index:       index,
+      lat:         lat,
+      lon:         lon,
+      marker:      marker,
+      trackId:     track.id,
+      extraClass:  'compact'
     });
-    L.DomEvent.on(input, 'keydown', function(e) {
-      if (e.key === 'Enter') {
-        GSRUI.updatePeakLabel(index, input.value, track.id);
-        input.blur();
-      }
-    });
-    L.DomEvent.disableClickPropagation(input);
-
-    L.DomEvent.on(excludeBtn, 'click', function() {
-      GSRUI.togglePeakExclusion(index, track.id);
-      marker.closePopup();
-    });
-    L.DomEvent.disableClickPropagation(excludeBtn);
-
-    return container;
   }
 
   _renderPeakMarkers(analyzer, data, peakLatency) {
@@ -1153,49 +1246,12 @@ class GSRMapManager {
     activeTracks.forEach(track => {
       const data = track.analyzer.raw;
       const p = track.gpsFilterParams || {};
-      let gpsPoints = this._collectGpsPoints(data);
-      if (gpsPoints.length === 0) return;
 
-      gpsPoints = this._applyHdopGate(gpsPoints, (p.maxHdop || 2.0));
-      gpsPoints = this._applyFixTypeGate(gpsPoints);
-      const s = p.smoothing || 0.5;
-      const r = p.kalmanR || 10;
-      gpsPoints = this._applyPreKalmanFilters(gpsPoints, s, p.maxSpeed || 3.0);
-      // Apply road snapping correction BEFORE Kalman (same order as single-track
-      // renderData): pull multipath-drifting points toward roads so the Kalman
-      // smooths a corrected trajectory rather than locking onto the raw bias.
-      if (track.analyzer.snappedGps) {
-        gpsPoints = this._applySnapCorrection(gpsPoints, track.analyzer.snappedGps);
-      }
-      gpsPoints = GpsFilter.applyKalman(gpsPoints, s, r);
-      if (gpsPoints.length === 0) return;
-
-      this._reconstructFilteredGps(track.analyzer, data, gpsPoints);
-
-      // Build drawPoints from the 10 Hz reconstructed filtered GPS path
-      let drawPoints = [];
-      for (let i = 0; i < data.length; i++) {
-        const fg = track.analyzer.filteredGps[i];
-        if (fg && !isNaN(fg.lat) && !isNaN(fg.lon)) {
-          drawPoints.push({
-            ...data[i],
-            lat: fg.lat,
-            lon: fg.lon,
-            origIdx: i
-          });
-        }
-      }
-
-      drawPoints = this._downsampleForDisplay(
-        drawPoints,
-        track.analyzer.sampleRate || 10.0,
-        p.downsample === 1 || p.downsample === true
-      );
-      drawPoints = GpsFilter.applyRDP(drawPoints, p.rdpTolerance || 0);
-
+      // Use cached GPS pipeline (cache keyed by track id)
+      const { drawPoints } = this._getOrBuildDrawPoints(track.id, track.analyzer, p);
       if (drawPoints.length < 2) return;
 
-      const latlngs = drawPoints.map(p => [p.lat, p.lon]);
+      const latlngs = drawPoints.map(pt => [pt.lat, pt.lon]);
       const trackColor = track.color || '#0ea5e9';
 
       const poly = L.polyline(latlngs, {

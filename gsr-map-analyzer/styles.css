@@ -932,7 +932,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   font-size: 0.85rem;
   padding: 2px 5px;
   line-height: 1;
-  margin-left: auto;
   flex-shrink: 0;
   transition: background 0.15s ease;
 }
@@ -1221,16 +1220,16 @@ input[type="range"]::-webkit-slider-thumb:hover {
   max-width: 260px;
 }
 
-/* Collective peak popups are smaller, no event-number heading */
+/* Collective peak popups are smaller */
 .map-popup-card.compact h4 {
   font-size: 0.8rem;
   margin-bottom: 4px;
 }
-.map-popup-card.compact p {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-  margin: 2px 0;
-  line-height: 1.3;
+.map-popup-card.compact .popup-table {
+  font-size: 0.72rem;
+}
+.map-popup-card.compact .popup-table td {
+  padding: 2px 0;
 }
 
 .popup-table {
@@ -1258,7 +1257,25 @@ input[type="range"]::-webkit-slider-thumb:hover {
   margin: 2px 0 6px 0;
 }
 
-/* External links row (Street View / Mapillary) */
+/* External links row (Street View / Mapillary) — inside popup-bottom-row */
+.popup-bottom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-glass);
+}
+
+.popup-bottom-row .popup-external-links {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
 .popup-external-links {
   display: flex;
   gap: 6px;

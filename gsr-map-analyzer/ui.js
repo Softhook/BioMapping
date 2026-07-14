@@ -240,8 +240,22 @@ const GSRUI = {
 
   /**
    * Render all active tracks on the collective map with contour lines.
+   * Debounced at 150 ms to avoid redundant recalculation during slider drag.
    */
   updateCollectiveMap() {
+    if (!AppState.mapManager) return;
+
+    // Debounce: coalesce rapid calls (slider drag, multiple track toggles)
+    if (this._collectiveDebounceId) {
+      clearTimeout(this._collectiveDebounceId);
+    }
+    this._collectiveDebounceId = setTimeout(() => {
+      this._collectiveDebounceId = null;
+      this._updateCollectiveMapNow();
+    }, 150);
+  },
+
+  _updateCollectiveMapNow() {
     if (!AppState.mapManager) return;
 
     if (GSRTrackManager.getActiveTracks().length === 0) {
