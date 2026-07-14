@@ -155,18 +155,32 @@ class GSRMapExporter {
    */
   static _getContourSurfaceLayer(mapEl, mapRect) {
     const contourSurfaceLayer = [];
-    const canvas = mapEl.querySelector('.leaflet-overlay-pane canvas');
-    if (canvas) {
-      const rect = canvas.getBoundingClientRect();
+    
+    // In collective view, the surface is rendered as a Leaflet L.imageOverlay (an <img> tag with class 'collective-surface-overlay')
+    const img = mapEl.querySelector('.leaflet-overlay-pane img.collective-surface-overlay');
+    if (img) {
+      const rect = img.getBoundingClientRect();
       const x = rect.left - mapRect.left;
       const y = rect.top - mapRect.top;
-      try {
-        const dataUrl = canvas.toDataURL('image/png');
-        contourSurfaceLayer.push(
-          `<image href="${dataUrl}" x="${x}" y="${y}" width="${rect.width}" height="${rect.height}" />`
-        );
-      } catch (err) {
-        console.warn("Could not export shaded contour canvas due to CORS/security rules:", err);
+      const src = img.src; // This is already a base64 PNG data URL, so it is fully self-contained!
+      contourSurfaceLayer.push(
+        `<image href="${src}" x="${x}" y="${y}" width="${rect.width}" height="${rect.height}" />`
+      );
+    } else {
+      // Fallback for canvas overlays (single-track or other views)
+      const canvas = mapEl.querySelector('.leaflet-overlay-pane canvas');
+      if (canvas) {
+        const rect = canvas.getBoundingClientRect();
+        const x = rect.left - mapRect.left;
+        const y = rect.top - mapRect.top;
+        try {
+          const dataUrl = canvas.toDataURL('image/png');
+          contourSurfaceLayer.push(
+            `<image href="${dataUrl}" x="${x}" y="${y}" width="${rect.width}" height="${rect.height}" />`
+          );
+        } catch (err) {
+          console.warn("Could not export shaded contour canvas due to CORS/security rules:", err);
+        }
       }
     }
     return contourSurfaceLayer;
