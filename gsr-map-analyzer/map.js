@@ -954,8 +954,11 @@ class GSRMapManager {
       if (isNaN(boundaryRadius)) boundaryRadius = 18;
       const sigma = boundaryRadius * 0.83;
 
+      // Enforce mathematical rule: proximity must be at least 2.1 * boundaryRadius to guarantee overlapping shapes cohere
+      const effectiveProximity = Math.max(proximity, boundaryRadius * 2.1);
+
       // Group peaks within selected proximity limit
-      const clusters = GSRSpatialClustering.clusterPeaks(ptsForClustering, proximity);
+      const clusters = GSRSpatialClustering.clusterPeaks(ptsForClustering, effectiveProximity);
 
       clusters.forEach(cluster => {
         const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, boundaryRadius);
@@ -1253,7 +1256,10 @@ class GSRMapManager {
       if (isNaN(boundaryRadius)) boundaryRadius = 18;
       const sigma = boundaryRadius * 0.83;
 
-      const clusters = GSRSpatialClustering.clusterPeaks(allActivePeaksAcrossTracks, proximity);
+      // Enforce mathematical rule: proximity must be at least 2.1 * boundaryRadius to guarantee overlapping shapes cohere
+      const effectiveProximity = Math.max(proximity, boundaryRadius * 2.1);
+
+      const clusters = GSRSpatialClustering.clusterPeaks(allActivePeaksAcrossTracks, effectiveProximity);
       clusters.forEach(cluster => {
         const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, boundaryRadius);
         paths.forEach(path => {

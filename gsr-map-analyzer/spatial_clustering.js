@@ -114,33 +114,45 @@ class GSRSpatialClustering {
       maxLon: maxLon + padLon
     };
 
-    const getDistanceMeters = (lat1, lon1, lat2, lon2) => {
-      const dy = (parseFloat(lat1) - parseFloat(lat2)) * DEG_TO_M_LAT;
-      const dx = (parseFloat(lon1) - parseFloat(lon2)) * DEG_TO_M_LON;
-      return Math.sqrt(dx * dx + dy * dy);
-    };
-
     const rows = 35;
     const cols = 35;
     const grid = Array.from({ length: rows }, () => new Array(cols).fill(0));
 
+    // Precompute row latitudes and column longitudes to avoid arithmetic inside nested loops
+    const lats = [];
+    for (let r = 0; r < rows; r++) {
+      lats.push(bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat));
+    }
+    const lons = [];
+    for (let c = 0; c < cols; c++) {
+      lons.push(bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon));
+    }
+
+    const twoSigmaSq = 2 * s * s;
+    const m = cluster.length;
+
     // Calculate density at each grid cell
     for (let r = 0; r < rows; r++) {
+      const lat = lats[r];
       for (let c = 0; c < cols; c++) {
-        const lat = bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat);
-        const lon = bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon);
+        const lon = lons[c];
         
         let density = 0;
-        for (const pk of cluster) {
-          const d = getDistanceMeters(lat, lon, pk.lat, pk.lon);
-          density += Math.exp(-(d * d) / (2 * s * s));
+        for (let i = 0; i < m; i++) {
+          const pk = cluster[i];
+          // Optimization: Avoid expensive Math.sqrt calls by calculating distance squared directly,
+          // since the Gaussian kernel uses d^2.
+          const dy = (lat - pk.lat) * DEG_TO_M_LAT;
+          const dx = (lon - pk.lon) * DEG_TO_M_LON;
+          const dSq = dx * dx + dy * dy;
+          density += Math.exp(-dSq / twoSigmaSq);
         }
         grid[r][c] = density;
       }
     }
 
     // Solve for isolevel: where density = Math.exp(-rThreshold^2 / (2 * s * s))
-    const isolevel = Math.exp(-(rThreshold * rThreshold) / (2 * s * s));
+    const isolevel = Math.exp(-(rThreshold * rThreshold) / (twoSigmaSq));
 
     // Run marching squares to extract contour lines
     if (typeof MarchingSquares === 'undefined') {
