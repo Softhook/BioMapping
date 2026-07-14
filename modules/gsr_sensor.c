@@ -95,6 +95,9 @@ struct GsrSensor {
     uint8_t pga_index;  // active PGA setting (0 … ADS_PGA_MAX)
     uint8_t low_count;  // consecutive ticks below ADS_LOW_THRESH
     uint8_t zero_count; // consecutive ticks with raw == 0.0f
+    bool    cal_active; // true when custom calibration is active
+    float   cal_gain;   // linear calibration gain factor (default 1.0)
+    float   cal_offset; // linear calibration offset in counts (default 0.0)
 
     FuriThread* thread;
     FuriMutex*  mutex;
@@ -216,6 +219,9 @@ GsrSensor* gsr_sensor_alloc(void) {
     gsr->connected = true;
     gsr->i2c_working = true;
     gsr->zero_count = 0;
+    gsr->cal_active = false;
+    gsr->cal_gain = 1.0f;
+    gsr->cal_offset = 0.0f;
 
     furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
     uint8_t probe = 0;
@@ -345,10 +351,16 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         sum += gsr->buffer[r_idx];
     }
     uint8_t old_pga = gsr->pga_index;
+    bool active = gsr->cal_active;
+    float gain = gsr->cal_gain;
+    float offset = gsr->cal_offset;
     furi_mutex_release(gsr->mutex);
 
     // ── Step 2: simple mean. Effective ~8.7× noise reduction.
     float avg_norm = (float)sum / 100.0f;
+    if(active) {
+        avg_norm = gain * avg_norm + offset;
+    }
 
     // ── Step 3: autoranging decision on filtered equivalent raw value.
     int32_t hw_equiv = (int32_t)(avg_norm / (float)NORM_FACTOR[old_pga]);
@@ -400,5 +412,15 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         gsr->zero_count = 0;
         gsr->connected = true;
     }
+    furi_mutex_release(gsr->mutex);
+}
+
+void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float offset) {
+    furi_assert(gsr);
+    if(!gsr->available) return;
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr->cal_active = active;
+    gsr->cal_gain = gain;
+    gsr->cal_offset = offset;
     furi_mutex_release(gsr->mutex);
 }

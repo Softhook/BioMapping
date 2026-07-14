@@ -317,6 +317,43 @@ void test_conductance_conversion() {
     printf("  -> Pass\n");
 }
 
+void test_calibration_calculations() {
+    printf("Running test_calibration_calculations...\n");
+    // Simulated calibration run:
+    // Device is slightly off:
+    // Raw measured count for 470k resistor (expected 2128 nS -> 6274.5 nominal counts) is 6100.0 counts.
+    // Raw measured count for 47k resistor (expected 21277 nS -> 53333.3 nominal counts) is 52000.0 counts.
+    float x1 = 6100.0f;  // raw count low
+    float y1 = 6274.5f;  // target count low
+    float x2 = 52000.0f; // raw count high
+    float y2 = 53333.3f; // target count high
+
+    // Compute slope (gain) and intercept (offset):
+    float m = (y2 - y1) / (x2 - x1);
+    float c = y1 - m * x1;
+
+    // Verify gain and offset math
+    assert(fabs(m - 1.025246f) < 1e-4f);
+    assert(fabs(c - 20.5f) < 1.0f);
+
+    // Apply linear calibration: y = m * x + c
+    float x1_cal = m * x1 + c;
+    float x2_cal = m * x2 + c;
+
+    // Verify calibrated counts match targets exactly
+    assert(fabs(x1_cal - y1) < 0.1f);
+    assert(fabs(x2_cal - y2) < 0.1f);
+
+    // Convert calibrated counts to conductance
+    float g1 = convert_adc_to_conductance_ns(x1_cal);
+    float g2 = convert_adc_to_conductance_ns(x2_cal);
+
+    // Calibrated conductance should match theoretical values: 2128 nS and 21277 nS
+    assert(fabs(g1 - 2128.0f) < 1.0f);
+    assert(fabs(g2 - 21277.0f) < 10.0f);
+    printf("  -> Pass\n");
+}
+
 void test_csv_formatting() {
     printf("Running test_csv_formatting...\n");
     Session s = {0};
@@ -383,8 +420,9 @@ int main() {
     test_update_display_pipeline();
     test_rescale_graph_buf();
     test_conductance_conversion();
+    test_calibration_calculations();
     test_csv_formatting();
     test_nmea_parsing();
-    printf("All 6 firmware unit tests passed successfully!\n");
+    printf("All 7 firmware unit tests passed successfully!\n");
     return 0;
 }

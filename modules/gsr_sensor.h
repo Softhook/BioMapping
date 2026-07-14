@@ -59,3 +59,7 @@ void gsr_sensor_tick(GsrSensor* gsr);
 // Skin conductance in nanosiemens (nS), computed from the TIA circuit
 // equation each tick.  Returns 0.0f when sensor unavailable.
 float gsr_sensor_get_raw(const GsrSensor* gsr);
+
+// Update calibration parameters (thread-safe).  When active is true,
+// the raw counts are scaled by gain and offset-shifted before conductance conversion.
+void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float offset);
