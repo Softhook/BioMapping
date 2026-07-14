@@ -1,8 +1,8 @@
 # BioMapping — Codebase Refactoring Analysis
 
-> **Last updated:** 2026-07-14 (v3 — changes applied)
+> **Last updated:** 2026-07-14 (v4 — critical review & backlog)
 > **Scope:** Full codebase — firmware (C), modules, Python tooling, JS web analyzer
-> **Status:** Living document — ✅ = applied, ⏳ = deferred, 📋 = backlog
+> **Status:** Living document — ✅ = applied, ⏳ = deferred, 📋 = backlog, ❌ = disproven
 
 ---
 
@@ -169,7 +169,7 @@ static uint32_t rtc_to_unix_epoch(const DateTime* dt) {
 
 ---
 
-### 2.6 GPS Badge PDOP Formatting Duplicated
+### ✅ 2.6 GPS Badge PDOP Formatting Duplicated — APPLIED
 
 **File:** `biomap_render.c` (lines 131–136 in `render_gps_detail()` and lines 230–235 in `biomap_render_callback()`)
 
@@ -186,7 +186,7 @@ static void format_pdop_str(char* out, size_t outlen, float pdop) {
 
 ---
 
-### 2.7 Unit Tests Are Absent for the Core Pipeline
+### 📋 2.7 Unit Tests Are Absent for the Core Pipeline — BACKLOG
 
 **Files:** `biomap_session.c`, `gsr_sensor.c`
 
@@ -251,7 +251,7 @@ minPeakQuality: sliderVal(S.minPeakQuality, 'minPeakQuality'),
 
 ---
 
-### ✅ 3.3 All JS Lives in the Global Scope — Documented (comment cross-references added)
+### 📋 3.3 All JS Lives in the Global Scope — BACKLOG (cross-references documented)
 
 > **Note:** Full namespace isolation (IIFE or ES Modules) remains on the backlog. The immediate risk (the 5 existing globals colliding with external libraries) is low since the app has no external JS dependencies beyond Leaflet and p5.js, both of which are well-namespaced.
 
@@ -272,7 +272,7 @@ const BioMapping = (() => {
 
 ---
 
-### ✅ 3.4 AppState Has No Validation on Critical Fields — Documented (backlog)
+### ✅ 3.4 AppState Has No Validation on Critical Fields — APPLIED
 
 **File:** `gsr-map-analyzer/app_state.js`
 
@@ -292,7 +292,7 @@ Existing read access (`AppState.zoomFactor`) continues to work unchanged.
 
 ---
 
-### 3.5 Layout Constants Duplicated Between CSS and JS — 📋 BACKLOG
+### ❌ 3.5 Layout Constants Duplicated Between CSS and JS — DISPROVEN
 
 **Files:** `gsr-map-analyzer/constants.js` (lines 12–18), `gsr-map-analyzer/styles.css`, `gsr-map-analyzer/renderer.js`
 
@@ -309,7 +309,7 @@ CSS then uses `var(--timeline-height)` instead of hardcoded pixels.
 
 ---
 
-### 3.6 Test File in Production Source Directory — 📋 BACKLOG
+### ✅ 3.6 Test File in Production Source Directory — APPLIED
 
 **File:** `gsr-map-analyzer/test_dwt_clamp.js` — 7,641 bytes
 
@@ -346,7 +346,7 @@ except (ValueError, TypeError):
 
 ---
 
-### 4.2 Redundant GSR Statistics in Two Scripts — 📋 BACKLOG
+### 📋 4.2 Redundant GSR Statistics in Two Scripts — BACKLOG
 
 **Files:** `analyze_track.py`, `compare_noise.py`
 
@@ -378,7 +378,7 @@ def compute_gsr_stats(rows):
 
 ---
 
-### 4.3 No `argparse` in analyze_track.py — 📋 BACKLOG
+### ✅ 4.3 No `argparse` in analyze_track.py — APPLIED
 
 **File:** `analyze_track.py` (lines 226–243)
 
@@ -483,14 +483,14 @@ This is a blocker for any new contributor (including future-you returning after 
 | 5.2 | CSV schema canonical doc | `docs/csv_schema.md` | 🟡 High value | ✅ Applied |
 | 5.1 | Document HDOP gate discrepancy | `biomap_types.h`, `constants.js` | 🟡 High value | ✅ Applied |
 | 3.3 | Global namespace isolation | All JS | 🟢 When convenient | 📋 Backlog |
-| 3.4 | AppState setter validation | `app_state.js` | 🟢 When convenient | 📋 Backlog |
-| 3.5 | Layout constants CSS custom props | `styles.css`, `constants.js` | 🟢 When convenient | 📋 Backlog |
+| 3.4 | AppState setter validation | `app_state.js` | 🟢 When convenient | ✅ Applied |
+| 3.5 | Layout constants CSS custom props | `styles.css`, `constants.js` | 🟢 When convenient | ❌ Disproven — see §3.5 note |
 | 4.2 | Shared GSR stats in biomap_utils.py | Python scripts | 🟢 When convenient | 📋 Backlog |
-| 4.3 | argparse in analyze_track.py | `analyze_track.py` | 🟢 When convenient | 📋 Backlog |
-| 2.6 | GPS badge PDOP format_pdop_str | `biomap_render.c` | 🟢 When touching | 📋 Backlog |
+| 4.3 | argparse in analyze_track.py | `analyze_track.py` | 🟢 When convenient | ✅ Applied |
+| 2.6 | GPS badge PDOP format_pdop_str | `biomap_render.c` | 🟢 When touching | ✅ Applied |
 | 2.7 | Unit test harness | `tests/` | 🟢 Before major refactor | 📋 Backlog |
-| 3.6 | Move test file to tests/ | `test_dwt_clamp.js` | 🟢 Housekeeping | 📋 Backlog |
-| 3.8 | ES Module migration | All JS | 🟢 Long-term | 📋 Backlog |
+| 3.6 | Move test file to tests/ | `test_dwt_clamp.js` | 🟢 Housekeeping | ✅ Applied |
+| *(3.3)* | …ES Module migration (covered by §3.3 long-term fix) | All JS | 🟢 Long-term | 📋 Backlog |
 
 **Total: 20 actionable findings** (down from 29 after removing low-reward items)
 
@@ -498,7 +498,7 @@ This is a blocker for any new contributor (including future-you returning after 
 
 ## 7. Removed Items & Rationale
 
-These items appeared in the initial analysis but were removed after critical review.
+These items appeared in the initial (v1) analysis but were removed after critical review. **Section numbers below refer to the original v1 numbering** and do not correspond to current sections above.
 
 | Item | Reason Removed |
 |---|---|
@@ -519,4 +519,5 @@ These items appeared in the initial analysis but were removed after critical rev
 |---|---|
 | 2026-07-14 | Initial full codebase analysis — 29 findings |
 | 2026-07-14 | v2: Critical review — 8 items removed |
-| 2026-07-14 | v3: Applied all "Fix now" + "High value" items. 10 items marked ✅. ui.js decomposition deferred (internal coupling requires interface design first). `docs/csv_schema.md` and `README.md` created. |
+| 2026-07-14 | v3: Applied all "Fix now" + "High value" items. 10 items marked ✅. ui.js decomposition deferred. |
+| 2026-07-14 | v4: Critical review and backlog items. Applied `argparse` CLI, `format_pdop_str` C helper, test file cleanup, and `AppState` getter/setter validations. Disproved 3.5 layout constants duplication. |

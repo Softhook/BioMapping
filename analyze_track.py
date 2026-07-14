@@ -223,20 +223,33 @@ def compare_gsr_noise(path_a, label_a, path_b, label_b):
 
 
 # ── Main ──────────────────────────────────────────────────────────────
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("Usage: python3 analyze_track.py <biomap_XXX.csv> [compare_biomap_YYY.csv]")
-        print("  Single track: full GPS + GSR analysis")
-        print("  Two tracks:    compare GSR noise between them (e.g. baud rate test)")
-        sys.exit(1)
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="BioMapping GPS/GSR Track Analyzer",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Single track:
+  python3 analyze_track.py biomap_001.csv
+Two tracks (compares GSR noise):
+  python3 analyze_track.py biomap_001.csv --compare biomap_002.csv
+"""
+    )
+    parser.add_argument("track", help="Path to biomap_XXX.csv recording file")
+    parser.add_argument("-c", "--compare", help="Path to second biomap_YYY.csv for GSR noise comparison")
+    
+    args = parser.parse_args()
 
-    path = sys.argv[1]
-    gps_rows, all_rows = load_gps_rows(path)
+    gps_rows, all_rows = load_gps_rows(args.track)
     print(f"\n{'='*60}")
-    print(f"TRACK: {path}")
+    print(f"TRACK: {args.track}")
     print(f"{'='*60}")
     analyze_gps((gps_rows, all_rows))
     analyze_gsr(all_rows)
 
-    if len(sys.argv) >= 3:
-        compare_gsr_noise(path, f"{path} (9600 baud)", sys.argv[2], f"{sys.argv[2]} (115200 baud)")
+    if args.compare:
+        compare_gsr_noise(args.track, f"{args.track} (A)", args.compare, f"{args.compare} (B)")
+
+if __name__ == '__main__':
+    main()
+

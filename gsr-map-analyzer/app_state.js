@@ -46,9 +46,36 @@ const AppState = {
   isDraggingTimeline: false,
 
   totalDuration: 120.0,
-  viewStartTime: 0.0,
-  viewDuration: 120.0,
-  zoomFactor: 1.0,
+  
+  _viewStartTime: 0.0,
+  get viewStartTime() {
+    return this._viewStartTime;
+  },
+  set viewStartTime(t) {
+    if (typeof t !== 'number' || isNaN(t)) return;
+    this._viewStartTime = Math.max(0.0, Math.min(t, this.totalDuration));
+  },
+
+  _viewDuration: 120.0,
+  get viewDuration() {
+    return this._viewDuration;
+  },
+  set viewDuration(d) {
+    if (typeof d !== 'number' || isNaN(d)) return;
+    const minDur = window.GSR_CONST ? GSR_CONST.ZOOM_MIN_DURATION : 2.0;
+    this._viewDuration = Math.max(minDur, Math.min(d, this.totalDuration));
+  },
+
+  _zoomFactor: 1.0,
+  get zoomFactor() {
+    return this._zoomFactor;
+  },
+  set zoomFactor(z) {
+    if (typeof z !== 'number' || isNaN(z)) return;
+    const minZ = window.GSR_CONST ? GSR_CONST.ZOOM_MIN : 1.0;
+    const maxZ = window.GSR_CONST ? GSR_CONST.ZOOM_MAX : 50.0;
+    this._zoomFactor = Math.max(minZ, Math.min(maxZ, z));
+  },
 
   // ── Curve visibility toggles ────────────────────────────────────────────────
   showRaw: true,

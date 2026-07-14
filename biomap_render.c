@@ -25,6 +25,15 @@ static bool gps_has_fix(const GpsStatus* g) {
     return g->fix_valid || g->fix_quality > 0;
 }
 
+static void format_pdop_str(char* out, size_t outlen, float pdop) {
+    if(pdop < 99.0f) {
+        snprintf(out, outlen, "%.1f", (double)pdop);
+    } else {
+        strcpy(out, "--");
+    }
+}
+
+
 // ==========================================================================
 // Graph rendering (GSR waveform)
 // ==========================================================================
@@ -129,11 +138,7 @@ static void render_gps_detail(Canvas* c, BioMapApp* a) {
         const char* fix_str = gps_fix_label(g.fix_type);
         if(g.hdop < 50.0f) {
             char pbuf[8];
-            if(g.pdop < 99.0f) {
-                snprintf(pbuf, sizeof(pbuf), "%.1f", (double)g.pdop);
-            } else {
-                strcpy(pbuf, "--");
-            }
+            format_pdop_str(pbuf, sizeof(pbuf), g.pdop);
             snprintf(buf, sizeof(buf), "H:%.1f  P:%s  %s%s",
                      (double)g.hdop, pbuf, fix_str,
                      g.sbas_active ? " SBAS" : "");
@@ -228,11 +233,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         } else {
             // Good quality — show HDOP and PDOP
             char pbuf[8];
-            if(g.pdop < 99.0f) {
-                snprintf(pbuf, sizeof(pbuf), "%.1f", (double)g.pdop);
-            } else {
-                strcpy(pbuf, "--");
-            }
+            format_pdop_str(pbuf, sizeof(pbuf), g.pdop);
             snprintf(badge, sizeof(badge), "H:%.1f P:%s",
                      (double)g.hdop, pbuf);
         }

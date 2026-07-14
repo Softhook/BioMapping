@@ -4,44 +4,49 @@
  */
 
 /**
- * Typed slider value reader with automatic fallback to GSR_CONST defaults.
+ * Typed slider value reader with automatic fallback.
  * Prevents the null-guard pattern from being copy-pasted with different
  * hardcoded defaults that drift out of sync with constants.js.
  *
- * @param {HTMLElement|null} el   - Slider or select element (may be null)
- * @param {string}           key  - Key into GSR_CONST.GSR_DEFAULT for the fallback
- * @param {Function}         [fn] - Parser: parseFloat (default) or parseInt
+ * @param {HTMLElement|null} el       - Slider or select element (may be null)
+ * @param {*}                fallback - Default value when el is null/absent
+ * @param {Function}         [fn]     - Parser: parseFloat (default) or parseInt
  */
-function sliderVal(el, key, fn) {
+function sliderVal(el, fallback, fn) {
   fn = fn || parseFloat;
-  return el ? fn(el.value) : fn(GSR_CONST.GSR_DEFAULT[key]);
+  return el ? fn(el.value) : (typeof fallback === 'string' ? fn(fallback) : fallback);
 }
 
 const GSRStorage = {
   /**
    * Read current GSR slider values into a clean param object.
- * Shared by tracks.js, storage.js, and ui.js.
+   * Shared by tracks.js, storage.js, and ui.js.
    * This is the canonical source — always add new GSR sliders here first.
    */
   readGsrSliderValues() {
     const S = AppState.sliders;
     if (!S || !S.medianSize) return null;
+    const D  = GSR_CONST.GSR_DEFAULT;
+    const PS = GSR_CONST.PEAK_SHAPE;
     return {
       medianSize:    parseFloat(S.medianSize.value),
       lpfWindow:     parseFloat(S.lpfWindow.value),
       tonicMethod:   S.tonicMethod.value,
       tonicWindow:   parseInt(S.tonicWindow.value),
       peakThreshold: parseFloat(S.peakThreshold.value),
-      dwtLevel:              sliderVal(S.dwtLevel,              'dwtLevel',              parseInt),
-      minPeakQuality:        sliderVal(S.minPeakQuality,        'minPeakQuality'),
-      shapeMinRiseTime:      sliderVal(S.shapeMinRiseTime,      'shapeMinRiseTime'),
-      shapeMaxRiseTime:      sliderVal(S.shapeMaxRiseTime,      'shapeMaxRiseTime'),
-      shapeMinHalfRecovery:  sliderVal(S.shapeMinHalfRecovery,  'shapeMinHalfRecovery'),
-      shapeMaxHalfRecovery:  sliderVal(S.shapeMaxHalfRecovery,  'shapeMaxHalfRecovery'),
-      shapeMinSnr:           sliderVal(S.shapeMinSnr,           'shapeMinSnr'),
-      shapeMaxSkewRatio:     sliderVal(S.shapeMaxSkewRatio,     'shapeMaxSkewRatio')
+      // Optional sliders — fall back to GSR_DEFAULT (correct values for these keys)
+      dwtLevel:              sliderVal(S.dwtLevel,             D.dwtLevel,     parseInt),
+      minPeakQuality:        sliderVal(S.minPeakQuality,       D.minPeakQuality),
+      // Peak shape criteria — fall back to PEAK_SHAPE (literature-validated defaults)
+      shapeMinRiseTime:      sliderVal(S.shapeMinRiseTime,     PS.MIN_RISE_TIME),
+      shapeMaxRiseTime:      sliderVal(S.shapeMaxRiseTime,     PS.MAX_RISE_TIME),
+      shapeMinHalfRecovery:  sliderVal(S.shapeMinHalfRecovery, PS.MIN_HALF_RECOVERY),
+      shapeMaxHalfRecovery:  sliderVal(S.shapeMaxHalfRecovery, PS.MAX_HALF_RECOVERY),
+      shapeMinSnr:           sliderVal(S.shapeMinSnr,          PS.MIN_SNR),
+      shapeMaxSkewRatio:     sliderVal(S.shapeMaxSkewRatio,    PS.SKEWNESS_RATIO_MAX)
     };
   },
+
 
   /**
    * Read current GPS slider values into a clean param object.
