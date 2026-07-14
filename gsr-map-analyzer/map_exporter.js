@@ -430,10 +430,7 @@ class GSRMapExporter {
       if (label && window.getComputedStyle(label).display !== 'none') {
         const text = label.textContent.trim();
         const labelStyle = window.getComputedStyle(label);
-        const rawColor = labelStyle.color || '#ffffff';
-        // Collective labels use dark text (#111) with a white text-shadow halo on the
-        // map — the shadow doesn't carry into SVG, so force white for legibility.
-        const color = this._escapeAttr(this._isDarkForExport(rawColor) ? '#ffffff' : rawColor);
+        const color = '#000000';
         const fontSize = this._escapeAttr(labelStyle.fontSize || '10px');
         const fontWeight = this._escapeAttr(labelStyle.fontWeight || '600');
         const fontFamily = this._escapeAttr(labelStyle.fontFamily || 'sans-serif');
@@ -451,7 +448,7 @@ class GSRMapExporter {
           .replace(/"/g, '&quot;');
 
         labels.push(
-          `<text x="${lx}" y="${ly}" font-size="${fontSize}" font-weight="${fontWeight}" font-family="${fontFamily}" fill="${color}" stroke="#000000" stroke-width="2" paint-order="stroke fill" text-anchor="middle" opacity="${opacity}">${escapedText}</text>`
+          `<text x="${lx}" y="${ly}" font-size="${fontSize}" font-weight="${fontWeight}" font-family="${fontFamily}" fill="${color}" text-anchor="middle" opacity="${opacity}">${escapedText}</text>`
         );
       }
     });
