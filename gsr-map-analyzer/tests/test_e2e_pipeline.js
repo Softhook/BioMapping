@@ -52,7 +52,7 @@ function assertClose(a, b, tol, msg) { if (Math.abs(a-b) <= tol) passed++; else 
 // ────────────────────────────────────────────────────────────────────────────
 console.log('── Loading track ──');
 
-const csvPath = path.join(__dirname, '../../tracks/biomap_030.csv');
+const csvPath = path.join(__dirname, '../../tracks/biomap_048.csv');
 const csvText = fs.readFileSync(csvPath, 'utf8');
 
 const analyzer = new GSRAnalyzer();

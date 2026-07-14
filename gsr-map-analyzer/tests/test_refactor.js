@@ -477,6 +477,22 @@ console.log('\n── gps_filter.js ──');
   assertEq(r2.length, 1, 'Kalman single point → 1');
 }
 
+// 4q. applyKalman — RTS displacement clamp constraint
+{
+  const pts = [];
+  for (let i = 0; i < 30; i++) {
+    pts.push({ lat: i * 0.0001, lon: 0, time: i, hdop: 1 });
+  }
+  // Displace point 15 by a massive distance (~1.1 km)
+  pts[15].lat = 15 * 0.0001 + 0.01;
+  const Rm = 10;
+  const result = GpsFilter.applyKalman(pts, 0.5, Rm);
+  // The smoothed point 15 must be at most MAX_DISP_M = 30 meters away from raw pts[15]
+  const dist = GeoUtils.haversineMeters(result[15].lat, result[15].lon, pts[15].lat, pts[15].lon);
+  const maxDispAllowed = 3.0 * Rm;
+  assert(dist <= maxDispAllowed + 0.1, `Kalman RTS clamp limits deviation to 3σ: dist=${dist.toFixed(2)} m <= max=${maxDispAllowed} m`);
+}
+
 // 4l. applyVelocitySmoothing — no speed data → passthrough
 {
   const pts = [{ lat: 0, lon: 0, time: 0 }, { lat: 1, lon: 1, time: 1 }];

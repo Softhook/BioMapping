@@ -76,8 +76,8 @@ function assertClose(a, b, tol, msg) {
 }
 
 // ── Load Real CSV track ──
-console.log('Loading track biomap_030.csv...');
-const csvPath = path.join(__dirname, '../../tracks/biomap_030.csv');
+console.log('Loading track biomap_048.csv...');
+const csvPath = path.join(__dirname, '../../tracks/biomap_048.csv');
 const csvText = fs.readFileSync(csvPath, 'utf8');
 const analyzer = new GSRAnalyzer();
 analyzer.parseCSV(csvText);
