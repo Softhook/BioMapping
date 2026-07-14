@@ -2095,4 +2095,15 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: none !important;
 }
 
+/* Stress Peak and Label Toggling via Map Container Classes */
+#map.hide-map-peaks .peak-dot,
+#map.hide-map-peaks .peak-glow-ring,
+#map.hide-map-peaks .collective-peak-dot {
+  display: none !important;
+}
+
+#map.hide-map-labels .peak-map-label {
+  display: none !important;
+}
+
 

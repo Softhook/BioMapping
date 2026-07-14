@@ -4,6 +4,53 @@
  */
 class GSRSpatialClustering {
   /**
+   * Helper to compute conversion factors from degrees to meters at a given latitude.
+   *
+   * @param {number} lat - Latitude in degrees.
+   * @returns {{degToMeterLat: number, degToMeterLon: number}} Scaling factors.
+   * @private
+   */
+  static _getGeodesicScale(lat) {
+    const DEG_TO_M_LAT = 111320.0;
+    const degToMeterLon = DEG_TO_M_LAT * Math.cos(parseFloat(lat) * Math.PI / 180);
+    return { degToMeterLat: DEG_TO_M_LAT, degToMeterLon };
+  }
+
+  /**
+   * Helper to compute distance in meters between two lat/lon coordinates using precomputed scale factors.
+   *
+   * @param {number} lat1 - Point 1 latitude.
+   * @param {number} lon1 - Point 1 longitude.
+   * @param {number} lat2 - Point 2 latitude.
+   * @param {number} lon2 - Point 2 longitude.
+   * @param {{degToMeterLat: number, degToMeterLon: number}} scale - Scale factors.
+   * @returns {number} Geodesic distance in meters.
+   * @private
+   */
+  static _getDistanceMeters(lat1, lon1, lat2, lon2, scale) {
+    const dy = (parseFloat(lat1) - parseFloat(lat2)) * scale.degToMeterLat;
+    const dx = (parseFloat(lon1) - parseFloat(lon2)) * scale.degToMeterLon;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  /**
+   * Helper to compute squared geodesic distance in meters (saves Math.sqrt for performance).
+   *
+   * @param {number} lat1 - Point 1 latitude.
+   * @param {number} lon1 - Point 1 longitude.
+   * @param {number} lat2 - Point 2 latitude.
+   * @param {number} lon2 - Point 2 longitude.
+   * @param {{degToMeterLat: number, degToMeterLon: number}} scale - Scale factors.
+   * @returns {number} Squared geodesic distance in meters.
+   * @private
+   */
+  static _getDistanceMetersSq(lat1, lon1, lat2, lon2, scale) {
+    const dy = (parseFloat(lat1) - parseFloat(lat2)) * scale.degToMeterLat;
+    const dx = (parseFloat(lon1) - parseFloat(lon2)) * scale.degToMeterLon;
+    return dx * dx + dy * dy;
+  }
+
+  /**
    * Group peaks into clusters based on proximity.
    * Any two peaks within `maxDistanceMeters` of each other will be in the same cluster.
    *
@@ -20,21 +67,14 @@ class GSRSpatialClustering {
     const n = peaks.length;
     const adj = Array.from({ length: n }, () => []);
 
-    // Calculate a median or average latitude to scale longitude distance accurately
+    // Calculate an average latitude to scale longitude distance accurately
     const latMid = peaks.reduce((sum, p) => sum + parseFloat(p.lat), 0) / n;
-    const DEG_TO_M_LAT = 111320.0;
-    const DEG_TO_M_LON = 111320.0 * Math.cos(latMid * Math.PI / 180);
-
-    const getDistanceMeters = (lat1, lon1, lat2, lon2) => {
-      const dy = (parseFloat(lat1) - parseFloat(lat2)) * DEG_TO_M_LAT;
-      const dx = (parseFloat(lon1) - parseFloat(lon2)) * DEG_TO_M_LON;
-      return Math.sqrt(dx * dx + dy * dy);
-    };
+    const scale = GSRSpatialClustering._getGeodesicScale(latMid);
 
     // Build the adjacency graph
     for (let i = 0; i < n; i++) {
       for (let j = i + 1; j < n; j++) {
-        const dist = getDistanceMeters(peaks[i].lat, peaks[i].lon, peaks[j].lat, peaks[j].lon);
+        const dist = GSRSpatialClustering._getDistanceMeters(peaks[i].lat, peaks[i].lon, peaks[j].lat, peaks[j].lon, scale);
         if (dist <= limit) {
           adj[i].push(j);
           adj[j].push(i);
@@ -99,13 +139,12 @@ class GSRSpatialClustering {
     });
 
     const latMid = (minLat + maxLat) / 2;
-    const DEG_TO_M_LAT = 111320.0;
-    const DEG_TO_M_LON = 111320.0 * Math.cos(latMid * Math.PI / 180);
+    const scale = GSRSpatialClustering._getGeodesicScale(latMid);
     
     // Add padding to ensure the grid covers the entire field where density is non-trivial
     const paddingMeters = rThreshold * 2.2;
-    const padLat = paddingMeters / DEG_TO_M_LAT;
-    const padLon = paddingMeters / DEG_TO_M_LON;
+    const padLat = paddingMeters / scale.degToMeterLat;
+    const padLon = paddingMeters / scale.degToMeterLon;
     
     const bounds = {
       minLat: minLat - padLat,
@@ -140,11 +179,7 @@ class GSRSpatialClustering {
         let density = 0;
         for (let i = 0; i < m; i++) {
           const pk = cluster[i];
-          // Optimization: Avoid expensive Math.sqrt calls by calculating distance squared directly,
-          // since the Gaussian kernel uses d^2.
-          const dy = (lat - pk.lat) * DEG_TO_M_LAT;
-          const dx = (lon - pk.lon) * DEG_TO_M_LON;
-          const dSq = dx * dx + dy * dy;
+          const dSq = GSRSpatialClustering._getDistanceMetersSq(lat, lon, pk.lat, pk.lon, scale);
           density += Math.exp(-dSq / twoSigmaSq);
         }
         grid[r][c] = density;

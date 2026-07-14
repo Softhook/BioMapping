@@ -421,6 +421,12 @@ const GSREvents = {
       if (AppState.mapManager) AppState.mapManager.togglePeaks(btnToggleMapPeaks.classList.contains('active'));
     });
 
+    const btnToggleMapLabels = document.getElementById('btnToggleMapLabels');
+    btnToggleMapLabels.addEventListener('click', () => {
+      btnToggleMapLabels.classList.toggle('active');
+      if (AppState.mapManager) AppState.mapManager.toggleLabels(btnToggleMapLabels.classList.contains('active'));
+    });
+
     const btnToggleMapClusters = document.getElementById('btnToggleMapClusters');
     btnToggleMapClusters.addEventListener('click', () => {
       btnToggleMapClusters.classList.toggle('active');

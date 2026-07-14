@@ -13,6 +13,7 @@ class GSRMapManager {
     this.osmLayers = [];
     this.scrubMarker = null;
     this.showPeaks = true;
+    this.showLabels = true;
     this.showClusters = true;
     this.clusterLayers = [];
     this.activeColoringMetric = 'gsr';
@@ -299,6 +300,9 @@ class GSRMapManager {
 
     // 13: Peak markers (with latency compensation)
     this._renderPeakMarkers(analyzer, data, p.peakLatency || 0);
+
+    // Apply the active peak/label toggle styles
+    this.updateMarkerVisibility();
   }
 
   // ── Pipeline helpers ──────────────────────────────────────────────────────
@@ -903,15 +907,19 @@ class GSRMapManager {
           });
           // Bump labeled markers above unlabeled markers and path layers
           marker.setZIndexOffset(1000);
+          marker.hasLabel = true;
         } else {
           // All 8 positions overlapped — fall back to dot-only
           marker = L.marker([coords.lat, coords.lon], { icon: simpleIcon });
+          marker.hasLabel = false;
         }
       } else {
         marker = L.marker([coords.lat, coords.lon], { icon: simpleIcon });
+        marker.hasLabel = false;
       }
 
-      if (this.showPeaks) marker.addTo(this.map);
+      const shouldAdd = this.showPeaks || (this.showLabels && marker.hasLabel);
+      if (shouldAdd) marker.addTo(this.map);
 
       // Dim excluded peak markers
       if (peak.excluded) {
@@ -947,15 +955,8 @@ class GSRMapManager {
         amplitude: ap.peak.amplitude
       }));
 
-      // Read cluster parameters dynamically from UI sliders
-      let proximity = AppState.sliders.clusterProximity ? parseFloat(AppState.sliders.clusterProximity.value) : 35;
-      if (isNaN(proximity)) proximity = 35;
-      let boundaryRadius = AppState.sliders.clusterBoundaryRadius ? parseFloat(AppState.sliders.clusterBoundaryRadius.value) : 18;
-      if (isNaN(boundaryRadius)) boundaryRadius = 18;
-      const sigma = boundaryRadius * 0.83;
-
-      // Enforce mathematical rule: proximity must be at least 2.1 * boundaryRadius to guarantee overlapping shapes cohere
-      const effectiveProximity = Math.max(proximity, boundaryRadius * 2.1);
+      // Retrieve dynamic clustering parameters from UI sliders
+      const { boundaryRadius, sigma, effectiveProximity } = this._getClusteringParams();
 
       // Group peaks within selected proximity limit
       const clusters = GSRSpatialClustering.clusterPeaks(ptsForClustering, effectiveProximity);
@@ -978,6 +979,26 @@ class GSRMapManager {
         });
       });
     }
+  }
+
+  /**
+   * Helper to retrieve validated clustering configuration parameters from sliders.
+   * Ensures the proximity is mathematically constrained by the boundary radius to prevent visual overlaps.
+   *
+   * @private
+   */
+  _getClusteringParams() {
+    let proximity = AppState.sliders.clusterProximity ? parseFloat(AppState.sliders.clusterProximity.value) : 35;
+    if (isNaN(proximity)) proximity = 35;
+    let boundaryRadius = AppState.sliders.clusterBoundaryRadius ? parseFloat(AppState.sliders.clusterBoundaryRadius.value) : 18;
+    if (isNaN(boundaryRadius)) boundaryRadius = 18;
+
+    return {
+      proximity,
+      boundaryRadius,
+      sigma: boundaryRadius * 0.83,
+      effectiveProximity: Math.max(proximity, boundaryRadius * 2.1)
+    };
   }
 
   /**
@@ -1013,15 +1034,47 @@ class GSRMapManager {
    */
   togglePeaks(visible) {
     this.showPeaks = visible;
-    const toggle = (m) => {
-      if (visible) {
+    this.updateMarkerVisibility();
+  }
+
+  /**
+   * Toggle the visibility of the stress peak labels (text) on the map layer.
+   */
+  toggleLabels(visible) {
+    this.showLabels = visible;
+    this.updateMarkerVisibility();
+  }
+
+  /**
+   * Update Leaflet map layer inclusion and CSS class styles based on current peak/label toggles.
+   */
+  updateMarkerVisibility() {
+    if (!this.map) return;
+
+    const mapEl = document.getElementById(this.containerId);
+    if (mapEl) {
+      if (this.showPeaks) {
+        mapEl.classList.remove('hide-map-peaks');
+      } else {
+        mapEl.classList.add('hide-map-peaks');
+      }
+
+      if (this.showLabels) {
+        mapEl.classList.remove('hide-map-labels');
+      } else {
+        mapEl.classList.add('hide-map-labels');
+      }
+    }
+
+    const allMarkers = [...this.peakMarkers, ...this.collectivePeakMarkers];
+    allMarkers.forEach(m => {
+      const shouldShow = this.showPeaks || (this.showLabels && m.hasLabel);
+      if (shouldShow) {
         if (!this.map.hasLayer(m)) m.addTo(this.map);
       } else {
         if (this.map.hasLayer(m)) this.map.removeLayer(m);
       }
-    };
-    this.peakMarkers.forEach(toggle);
-    this.collectivePeakMarkers.forEach(toggle);
+    });
   }
 
   /**
@@ -1215,15 +1268,20 @@ class GSRMapManager {
             });
             // Bump labeled markers above everything else on the map
             marker.setZIndexOffset(1000);
+            marker.hasLabel = true;
           } else {
             marker = L.marker([lat, lon], { icon: collectiveSimpleIcon });
+            marker.hasLabel = false;
           }
         } else {
           marker = L.marker([lat, lon], { icon: collectiveSimpleIcon });
+          marker.hasLabel = false;
         }
 
         marker.bindPopup(() => this._buildCollectivePeakPopup(track, peak, index, lat, lon, marker));
-        marker.addTo(this.map);
+        
+        const shouldAdd = this.showPeaks || (this.showLabels && marker.hasLabel);
+        if (shouldAdd) marker.addTo(this.map);
         // Dim excluded peak markers
         if (peak.excluded) {
           marker.setOpacity(0.35);
@@ -1249,15 +1307,8 @@ class GSRMapManager {
 
     // Render collective global clusters across all active tracks
     if (allActivePeaksAcrossTracks.length > 0 && typeof GSRSpatialClustering !== 'undefined') {
-      // Read cluster parameters dynamically from UI sliders
-      let proximity = AppState.sliders.clusterProximity ? parseFloat(AppState.sliders.clusterProximity.value) : 35;
-      if (isNaN(proximity)) proximity = 35;
-      let boundaryRadius = AppState.sliders.clusterBoundaryRadius ? parseFloat(AppState.sliders.clusterBoundaryRadius.value) : 18;
-      if (isNaN(boundaryRadius)) boundaryRadius = 18;
-      const sigma = boundaryRadius * 0.83;
-
-      // Enforce mathematical rule: proximity must be at least 2.1 * boundaryRadius to guarantee overlapping shapes cohere
-      const effectiveProximity = Math.max(proximity, boundaryRadius * 2.1);
+      // Retrieve dynamic clustering parameters from UI sliders
+      const { boundaryRadius, sigma, effectiveProximity } = this._getClusteringParams();
 
       const clusters = GSRSpatialClustering.clusterPeaks(allActivePeaksAcrossTracks, effectiveProximity);
       clusters.forEach(cluster => {
@@ -1290,6 +1341,9 @@ class GSRMapManager {
 
     // 4. Calculate and render topographic contour lines
     this.renderContours(collectiveManager, contourParams);
+
+    // Apply the active peak/label toggle styles
+    this.updateMarkerVisibility();
   }
 
   /**
