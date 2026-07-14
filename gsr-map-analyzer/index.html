@@ -540,6 +540,9 @@
               <button class="btn btn-secondary" id="exportMapBtn" disabled>
                 <i class="fa-solid fa-map"></i> Save Bio Map PNG
               </button>
+              <button class="btn btn-secondary" id="exportSvgBtn" disabled>
+                <i class="fa-solid fa-file-image"></i> Export SVG Map (Vector)
+              </button>
             </div>
           </div>
         </section>
@@ -671,6 +674,7 @@
               <button class="btn btn-outline active" id="btnToggleMapLabels" style="margin: 0 4px;">Labels</button>
               <button class="btn btn-outline active" id="btnToggleMapClusters" style="margin: 0 4px;">Clusters</button>
               <span class="control-divider"></span>
+              <button class="icon-btn" id="btnExportSvg" title="Export Vector (SVG)" style="margin-right: 4px;"><i class="fa-solid fa-download"></i></button>
               <button class="icon-btn fullscreen-btn" id="btnMapFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>
             </div>
           </div>
@@ -856,6 +860,7 @@
   <script src="collective_manager.js"></script>
   <script src="gps_filter.js"></script>
   <script src="label_placement.js"></script>
+  <script src="map_exporter.js"></script>
   <script src="map.js"></script>
   <script src="storage.js"></script>
   <script src="events.js"></script>

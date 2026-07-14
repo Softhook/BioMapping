@@ -318,6 +318,9 @@ const GSREvents = {
     document.getElementById('exportCsvBtn').addEventListener('click',   GSRUI.exportCSV);
     document.getElementById('exportImageBtn').addEventListener('click', GSRUI.saveCanvasImage);
     document.getElementById('exportMapBtn').addEventListener('click',   GSRUI.saveMapImage);
+    document.getElementById('exportSvgBtn').addEventListener('click', () => {
+      if (AppState.mapManager) GSRMapExporter.exportToSvg(AppState.mapManager);
+    });
 
     // ── Demo Loader ──────────────────────────────────────────────────────────
     document.getElementById('loadDemoBtn').addEventListener('click', GSRTrackManager.loadDefaultTrack);
@@ -414,6 +417,10 @@ const GSREvents = {
     });
     document.getElementById('btnMapZoomExtent').addEventListener('click', () => {
       if (AppState.mapManager) AppState.mapManager.fitToTrack();
+    });
+
+    document.getElementById('btnExportSvg').addEventListener('click', () => {
+      if (AppState.mapManager) GSRMapExporter.exportToSvg(AppState.mapManager);
     });
     const btnToggleMapPeaks = document.getElementById('btnToggleMapPeaks');
     btnToggleMapPeaks.addEventListener('click', () => {

@@ -152,6 +152,7 @@ const GSRTrackManager = {
       document.getElementById('exportCsvBtn').setAttribute('disabled', 'true');
       document.getElementById('exportImageBtn').setAttribute('disabled', 'true');
       document.getElementById('exportMapBtn').setAttribute('disabled', 'true');
+      document.getElementById('exportSvgBtn').setAttribute('disabled', 'true');
 
       if (AppState.mapManager) {
         AppState.mapManager.clearMap();
@@ -294,6 +295,7 @@ const GSRTrackManager = {
     document.getElementById('exportCsvBtn').removeAttribute('disabled');
     document.getElementById('exportImageBtn').removeAttribute('disabled');
     document.getElementById('exportMapBtn').removeAttribute('disabled');
+    document.getElementById('exportSvgBtn').removeAttribute('disabled');
 
     const placeholder = document.getElementById('canvasPlaceholder');
     if (placeholder) placeholder.style.display = 'none';
