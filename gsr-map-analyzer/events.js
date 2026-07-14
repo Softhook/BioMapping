@@ -318,8 +318,8 @@ const GSREvents = {
     document.getElementById('exportCsvBtn').addEventListener('click',   GSRUI.exportCSV);
     document.getElementById('exportImageBtn').addEventListener('click', GSRUI.saveCanvasImage);
     document.getElementById('exportMapBtn').addEventListener('click',   GSRUI.saveMapImage);
-    document.getElementById('exportSvgBtn').addEventListener('click', () => {
-      if (AppState.mapManager) GSRMapExporter.exportToSvg(AppState.mapManager);
+    document.getElementById('exportSvgBtn').addEventListener('click', async () => {
+      if (AppState.mapManager) await GSRMapExporter.exportToSvg(AppState.mapManager);
     });
 
     // ── Demo Loader ──────────────────────────────────────────────────────────
