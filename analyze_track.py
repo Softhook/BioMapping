@@ -38,9 +38,6 @@ def analyze_gps(gps_rows):
     pdops = [float(r.get('pdop', '0') or '0') for _, r in gps if float(r.get('pdop', '0') or '0') > 0]
     spds = [float(r.get('speed_kts', '0') or '0') for _, r in gps]
     sats = [int(r.get('sats', '0') or '0') for _, r in gps if int(r.get('sats', '0') or '0') > 0]
-    alts = [float(r.get('alt', '0') or '0') for _, r in gps if r.get('alt', '').strip()]
-    wdops = [float(r.get('wdop', '0') or '0') for _, r in gps if float(r.get('wdop', '0') or '0') > 0]
-    real_wdop = [w for w in wdops if w < 90]
 
     print(f"GPS fixes: {len(gps)}")
     if total_csv:
@@ -55,12 +52,6 @@ def analyze_gps(gps_rows):
     if pdops:
         print(f"PDOP:  min={min(pdops):.1f}  max={max(pdops):.1f}  mean={sum(pdops)/len(pdops):.2f}")
 
-    if real_wdop:
-        print(f"WDOP:  min={min(real_wdop):.1f}  max={max(real_wdop):.1f}  mean={sum(real_wdop)/len(real_wdop):.2f}")
-        stuck = sum(1 for w in wdops if w >= 90)
-        if stuck > 0:
-            print(f"       {stuck}/{len(wdops)} sentinel (99.9) — GSV data missing")
-
     if sats:
         print(f"Sats:  min={min(sats)}  max={max(sats)}  mean={sum(sats)/len(sats):.1f}")
     else:
@@ -69,9 +60,6 @@ def analyze_gps(gps_rows):
     print(f"Speed: min={min(spds):.1f}  max={max(spds):.1f}  mean={sum(spds)/len(spds):.1f} kts")
     slow = sum(1 for s in spds if s * 0.514444 < 0.3)
     print(f"       Slow (<0.3 m/s): {slow}/{len(spds)} ({100*slow/len(spds):.1f}%)")
-
-    if alts:
-        print(f"Alt:   min={min(alts):.1f}  max={max(alts):.1f}  range={max(alts)-min(alts):.1f}m")
 
     # Spatial extent
     lats = [float(r['lat']) for _, r in gps]

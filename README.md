@@ -1,137 +1,558 @@
-# BioMapping
+# BioMapping 2.0 
+# Christian Nold 2026
 
-A Flipper Zero application for simultaneous GPS track recording and galvanic skin response (GSR/EDA) measurement. Logs geo-tagged physiological data to SD card, with a browser-based analyser for post-processing and visualisation.
+The Complete Build & Software Guide (ADS1115 Transimpedance Amplifier Edition)
+
+## 1. Introduction: What is BioMapping 2.0?
+BioMapping 2.0 is a new version of Christian Nold's Bio Mapping project for the **Flipper Zero**. 
+It allows you to walk through a city or landscape and record your body's physiological arousal mapped precisely to geographical coordinates. 
+
+The Flipper logs your Galvanic Skin Response (GSR) together with GPS coordinates to a CSV file on the SD card. You then load that CSV into the included browser-based analyser (`gsr-map-analyzer/index.html`), which decomposes the signal into tonic/phasic components, detects arousal peaks, and renders your route on a map **coloured by arousal**. In collective mode it builds an interpolated (IDW) contour surface across one or more walks, so calm stretches read as a flat "baseline" landscape while stress or arousal rises into "mountains" and deep relaxation drops into "valleys".
+
+This version of the device uses a dedicated 16-bit **ADS1115** Analog-to-Digital Converter combined with a robust and stable **Transimpedance Amplifier (TIA)** circuit. By utilising a rail-to-rail dual op-amp for active voltage buffering and hardware low-pass filtering, we achieve a precise, robust and noise-resistant way to measure the tiny changes in human sweat gland activity.
+
+The firmware supports two GPS modules, selected at compile time via `GPS_MODULE` in [`biomap_config.h`](../biomap_config.h):
+* **Quectel L76K** (`GPS_MODULE_L76K`, the current compile-time default) — external U.FL antenna, up to 5 Hz update rate, PCAS protocol
+* **u-blox SAM-M10Q** (`GPS_MODULE_M10Q`, recommended upgrade) — integrated patch antenna, up to 10 Hz update rate, Software Standby power saving, AssistNow autonomous orbit prediction
+
+See [`gps_transition_review.md`](gps_transition_review.md) for the full M10Q implementation reference.
 
 ---
 
-## Hardware
+## 2. Hardware Requirements
+To build this, you need the following physical components:
 
-| Component | Details |
-|---|---|
-| Flipper Zero | Any firmware version ≥ 0.87 |
-| GPS module | Quectel **L76K** (default) or u-blox **SAM-M10Q** |
-| GSR sensor | ADS1115-based TIA circuit on I2C (address 0x48) |
-| SD card | Any capacity; FAT32 formatted |
+**Core Boards:**
+* **Flipper Zero**
+* **u-blox SAM-M10Q GNSS Breakout** (recommended) or **L76K GNSS Prototyping Shield:** Provides GPS positioning. The SAM-M10Q has an integrated 15×15 mm ceramic patch antenna (no external antenna needed), boots at 9600 baud, and supports 10 Hz updates with 4-constellation concurrent reception (GPS+Galileo+GLONASS+BeiDou). The L76K shield also provides a blank 126-hole grid for your custom circuit.
+* **ADS1115 Breakout Board:** A high-precision 16-bit I2C ADC chip.
 
-The GPS module connects via the Flipper external GPIO header (USART1). The GSR sensor connects via I2C (pins 15/16 on the GPIO header). Both are powered from the 3.3 V rail.
+**Active Components:**
+* **1x rail-to-rail dual op-amp** (MCP602, MCP6002, MCP6042, or equivalent 3.3V CMOS dual op-amp)
+
+**Passive Components:**
+* **1x 56kΩ Resistor** (For the voltage divider 0.1% tolerance metal film)
+* **1x 10kΩ Resistor** (For the voltage divider 0.1% tolerance metal film)
+* **1x 47kΩ Resistor** (For the TIA gain/feedback 1% tolerance metal film)
+* **2x 4.7kΩ Resistors** (For safety inline with the electrodes 1% tolerance metal film)
+* **2x 100nF (0.1µF) Ceramic Capacitors** (One for power bypass, one for the feedback filter)
+
+**Biometric Interface:**
+* **GSR Finger Electrodes:** Standard biometric finger clips or simple velcro strips with aluminum foil/copper tape.
 
 ---
 
-## Firmware Build
+## 3. The Wiring Guide & Hardware Surgery (Step-by-Step)
 
-### 1. Select GPS module
+### Phase 1: Freeing the I2C Bus (Trace Cuts)
+If using the L76K shield: the two copper traces connecting **Pin 15 (PC1)** and **Pin 16 (PC0)** to the GPS module must be physically cut. These pins are for exclusive use by the ADS1115 I2C bus. (Not needed with SAM-M10Q — the breakout connects via UART only and does not occupy these pins.)
 
-Edit [`biomap_config.h`](biomap_config.h):
+* Pin 15 (PC1) — **no longer connected to GPS** → used for I2C **SDA**
+* Pin 16 (PC0) — **no longer connected to GPS** → used for I2C **SCL**
+
+### Phase 2: GPS Hardware Reroute
+**SAM-M10Q:** No additional wiring needed beyond UART TX/RX and 3.3V/GND. The M10Q supports Software Standby (~46 µA) via UBX command — no dedicated STANDBY or RESET wires required. Wake-up is triggered by a falling edge on the UART RX pin. See [`gps_transition_review.md`](gps_transition_review.md) Section 9 for the sleep/wake protocol.
+
+**L76K (legacy):** No additional wiring needed. The L76K cannot be put to sleep via software, so no STANDBY or RESET wires need to be soldered. The GPS runs continuously. Software reset commands are available over UART for error recovery — see **Section 4a**.
+
+### Phase 3: Installing the Biometric Sensor Circuit
+Mount the ADS1115 and the dual op-amp onto the prototyping grid. Both channels are used (one as a voltage follower for V_ref, one as the TIA).
+
+**Standard 8-pin dual op-amp pinout** (MCP602, MCP6002, MCP6042, and equivalents):
+```
+Pin 1 = Out A     Pin 8 = 3.3V
+Pin 2 = In- A     Pin 7 = Out B
+Pin 3 = In+ A     Pin 6 = In- B
+Pin 4 = GND       Pin 5 = In+ B
+```
+
+* **Power & I2C (ADS1115):**
+  * `VDD` on ADS1115 -> **Pin 9 (3.3V)**
+  * `GND` on ADS1115 -> **Pin 8 (GND)**
+  * `ADDR` on ADS1115 -> **Pin 8 (GND)** *(Hardcodes the I2C address to 0x48)*
+  * `SDA` on ADS1115 -> **Pin 15 (PC1)**
+  * `SCL` on ADS1115 -> **Pin 16 (PC0)**
+ 
+
+* **Power & Bypass (dual op-amp):**
+  * Pin 8 -> **Pin 9 (3.3V)**
+  * Pin 4 -> **Pin 8 (GND)**
+  * **Mandatory:** Solder one **100nF capacitor** directly across Pin 8 and Pin 4 to filter digital power spikes from the Flipper.
+
+* **Generate the 0.5V Bias (V_ref) using Op-Amp B (Voltage Follower):**
+  * Solder the **56kΩ Resistor** from 3.3V to the op-amp's In+ B (pin 5).
+  * Solder the **10kΩ Resistor** from In+ B (pin 5) to GND.
+  * Tie Out B (pin 7) directly to In- B (pin 6).
+  * *Result: Pin 7 is now a buffered 0.5V Reference (V_ref).*
+
+* **Build the Transimpedance Amplifier (TIA) using Op-Amp A:**
+  * Connect V_ref (from Out B) to the op-amp's In+ A (pin 3).
+  * Tie the **47kΩ Resistor** and the second **100nF Capacitor** in parallel between Out A (pin 1) and In- A (pin 2). This acts as both the amplifier gain and a hardware low-pass filter to destroy 50/60Hz mains hum.
+
+* **Connect Electrodes & Safety Resistors:**
+  * Electrode 1 (GND): GND -> **4.7kΩ Resistor** -> Wire -> Foil/Finger 1.
+  * Electrode 2 (SIGNAL): Foil/Finger 2 -> Wire -> **4.7kΩ Resistor** -> op-amp In- A (pin 2).
+  * *These resistors (9.4 kΩ total) ensure maximum skin current is safe while keeping the TIA output within the ADC range for the full span of human skin resistance.*
+
+* **Differential Connection to ADS1115:**
+  * Connect **ADS1115 AIN0** to op-amp Out A (pin 1) (The amplified GSR signal).
+  * Connect **ADS1115 AIN1** to op-amp Out B (pin 7) (The clean 0.5V V_ref).
+
+By routing the signals this way, the ADS1115 subtracts the 0.5V virtual ground offset perfectly, isolating the amplified skin current data while completely rejecting external system noise!
+
+---
+
+## 4. Software Architecture
+
+Writing this app in C is highly efficient with the ADS1115 in differential mode. We configure the ADS1115 to measure the exact difference between A0 and A1.
+
+### Reading the ADS1115 with Dynamic PGA Auto-Ranging
+To capture the full dynamic range of human skin resistance with maximum sensitivity and resolution, the software implements active **PGA (Programmable Gain Amplifier) Auto-Ranging** using the normal differential pins (AIN0 and AIN1) on the ADS1115.
+
+The core module `gsr_sensor.c` runs a background thread to read the ADS1115 at 860 SPS, applying the following logic:
+1. **Dynamic Gain Scaling:** 
+   - **Range Down (Avoid Clipping):** If the absolute differential voltage exceeds 30,000 counts (~91.5% of full scale), the PGA gain index is immediately decreased (e.g. from ±0.512V to ±1.024V) to widen the range.
+   - **Range Up (Increase Resolution):** If the absolute reading remains below 4,096 counts (~12.5% of full scale) for 5 consecutive ticks, the PGA gain index is increased (e.g. from ±2.048V to ±1.024V) to narrow the range.
+2. **Output Normalization:** To ensure downstream filters (EMA and Derivative) receive a consistent signal, all hardware readings are normalized back to a common baseline of the ±0.256V range (where 1 LSB = 7.8125 µV) regardless of the active hardware gain setting.
+3. **Simple-Mean Oversampling:** All 100 buffer entries (spanning the full 100 ms decimation interval) are averaged directly. The background worker polls at ~1000 Hz while the ADS1115 converts at 860 SPS, so ~14 % of entries are duplicate reads — these don't bias the mean but yield an effective unique-sample count of ~86. The 100 ms window duration cancels sinusoidal 50/60 Hz mains hum perfectly (100 ms = 5 cycles of 50 Hz = 6 cycles of 60 Hz). Because the 14 duplicate reads are double-weighted rather than independent, the effective noise reduction is **~8.7×** — below the √100 = 10× ideal, and also below a naive √86 ≈ 9.27× estimate — against the Gaussian noise sources that dominate the ADC front-end. Empirical testing (873-sample recording) confirmed zero I2C glitches — all large tick-to-tick jumps were sustained physiological SCR onsets, not noise spikes that would benefit from trimming.
+4. **Conductance Conversion:** The filtered voltage is translated into physical skin conductance in nanosiemens (nS) using the TIA circuit equation.
+
+Here is the core logic for writing the dynamic PGA configuration and reading the raw ADC conversion registers:
 
 ```c
-// Choose ONE:
-#define GPS_MODULE  GPS_MODULE_L76K   // Quectel L76K (default)
-#define GPS_MODULE  GPS_MODULE_M10Q   // u-blox SAM-M10Q / NEO-M10Q
+// Configure the ADS1115 config register dynamically:
+// - MUX = 000 (AIN0-AIN1 differential mode)
+// - PGA = active PGA gain index (ranges from 0x80 to 0x8A dynamically)
+// - MODE = 0 (Continuous conversion mode)
+// - DR = 111 (860 samples per second)
+uint8_t cfg[2] = { 0x80u | (active_pga << 1), 0xE3 }; 
+furi_hal_i2c_write_mem(&furi_hal_i2c_handle_external, ADS1115_I2C_ADDR, ADS1115_CONFIG_REG, cfg, 2, 50);
+
+// Read the raw 16-bit differential conversion value
+uint8_t data[2];
+furi_hal_i2c_read_mem(&furi_hal_i2c_handle_external, ADS1115_I2C_ADDR, ADS1115_CONV_REG, data, 2, 50);
+int16_t hw_val = (int16_t)((data[0] << 8) | data[1]);
 ```
 
-### 2. Build with ufbt
+### Challenge: SD Card Lag
+Writing data to the Flipper's SD card takes a few milliseconds. If we write every measurement to the card, the app will freeze up.
 
-```bash
-# Install ufbt if needed
-pip install ufbt
+**The Solution:** The app uses different logging rates depending on mode:
 
-# Build and deploy over USB
-ufbt launch
-```
+- **GPS+GSR mode:** Each 10 Hz tick formats a CSV row into the in-memory batch buffer. Every tick carries the **most recent** GPS fix — the latest parsed position is used as-is (carried forward), not interpolated to the GSR timestamp. A full 10-column row with lat, lon, hdop, pdop, sats, fix_type, speed_kts, and course_deg is formatted. The batch is flushed to the SD card every `FLUSH_INTERVAL` (= 5) seconds in a single `storage_file_write()` call (~50 rows per flush at 10 Hz), exactly like GSR-only mode. The recording LED blinks once per second, decoupled from the flush cadence.
 
-### 3. Manual SD copy (alternative)
-
-```bash
-ufbt build
-# Copy build/f7-firmware/biomap.fap to /ext/apps/GPIO/ on the SD card
-```
+- **GPS-only mode:** A 10-column CSV row is written to the batch buffer every tick (10 Hz, `GPS_CSV_HZ`); there is no high-frequency GSR data, so the `gsr_raw` column is always 0.
 
 ---
 
-## Recording
+## 4b. Multi-Rate Architecture: 10 Hz GSR, 10 Hz GPS
 
-1. Launch **Bio Mapping** from the GPIO apps menu.
-2. Select **GPS mode** or **GPS + GSR** from the menu.
-3. Press **OK** to start recording.
-4. Press **OK** again to stop. The file is flushed and closed automatically.
+The app operates two independent data pipelines because GSR and GPS have fundamentally different time characteristics:
 
-**SD card output:**
+| Signal | Sample Rate | Why |
+|---|---|---|
+| **GSR** | 10 Hz (tick) | Skin conductance changes in 0.5–5 seconds — 10 Hz captures physiological events with headroom |
+| **GPS (CSV rows)** | 10 Hz (`GPS_CSV_HZ`) | CSV rows are written at the 10 Hz tick rate in every GPS mode. |
+| **GPS (module fixes)** | up to 10 Hz | The module updates position over UART at up to 5 Hz (L76K, default) or up to 10 Hz (SAM-M10Q). When the module is slower than 10 Hz, consecutive CSV rows repeat the most recent fix. |
+
+### Timestamp Sources
+
+Each CSV row's first column (`timestamp`) is a **relative time in seconds since the start of the recording**, written as a float with 0.1 s resolution (`%.2f`, e.g. `12.30`) — it is *not* an ISO 8601 string. The **absolute** start time is written once, in the file's metadata header, as a Unix epoch:
 
 ```
-/ext/biomapping/biomap_001.csv
-/ext/biomapping/biomap_002.csv
+# BioMapping v1.0
+# RecordingStartTime:1751204579
+# GPS:L76K
+```
+
+| Field | Source | Notes |
+|---|---|---|
+| `RecordingStartTime` (header) | Flipper Zero internal RTC (`furi_hal_rtc_get_datetime`) at record start, converted to Unix epoch (UTC) | `0` if the Flipper RTC has never been set |
+| `timestamp` (per row) | Monotonic 10 Hz tick counter | Seconds since record start; add to `RecordingStartTime` for absolute UTC |
+
+Set the Flipper RTC to UTC before recording so that `RecordingStartTime` is meaningful. Absolute wall-clock time for any row is `RecordingStartTime + timestamp`.
+
+### GSR Signal Chain
+
+```
+ADS1115 @ 860 SPS  ──►  Background worker thread
+                              │
+                     Ring buffer (128 samples)
+                              │
+                     gsr_sensor_tick() @ 10 Hz
+                              │
+                     ┌────────┴────────┐
+                     │                 │
+               Simple mean        PGA autoranging
+               (100 samples)      (hysteretic, 5-tick)
+                     │                 │
+                     └────────┬────────┘
+                              │
+                     TIA equation → nanosiemens (nS)
+                              │
+                     IIR low-pass fc≈3 Hz
+                     (post-decimation smoothing, α=0.848)
+                              │
+                     ┌────────┴────────┐
+                     │                 │
+               EMA α=0.2          Graph derivative
+               (display smooth)   (rate-of-change)
+                     │                 │
+                 1 Hz CSV            graph_buf[]
+                 (all modes)         (derivative display)
+```
+
+**Post-decimation smoothing rationale:** The 100-sample boxcar average is the pre-decimation (anti-aliasing) filter — it provides ~4 dB at the 5 Hz Nyquist frequency and perfectly cancels sinusoidal 50/60 Hz mains hum (100 ms = 5 cycles of 50 Hz = 6 cycles of 60 Hz). Aliasing from the 860→10 Hz downsampling cannot be undone, but a post-decimation first-order IIR at 3 Hz (α = 0.848) attenuates both real high-frequency GSR and any aliased noise that leaked into the 0–5 Hz band. Since >95 % of GSR signal power is below 1 Hz, the net SNR improves: real phasic GSR at 2 Hz loses <0.5 dB, while broadband EMI (BLE radio, switching artifacts) that passed through the boxcar sidelobes is suppressed. The IIR costs one multiply-add per tick (~3 CPU cycles) and introduces ~50 ms phase lag at 1 Hz — invisible for GSR where phasic responses have 1–3 s rise times.  See `smooth_iir_filter()` in `biomap_session.c`.
+
+### GPS Signal Chain
+
+```
+M10Q GPS @ 10 Hz  ──►  UART interrupt handler
+                              │
+                     NMEA sentence parser
+                              │
+                     GpsStatus struct (lat, lon, alt, sats, fix)
+                              │
+                     Read on each tick, write to CSV batch
+```
+
+### CSV Formats
+
+**GPS+GSR mode (10 columns, 10 Hz):**
+```
+# BioMapping v1.0
+# RecordingStartTime:1751204579
+# GPS:L76K
+timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw
+0.00,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4523.0   ← every row: full 10-column GPS+GSR at 10 Hz
+0.10,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4528.0
+0.20,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4521.0
 ...
 ```
+When there is no valid fix this tick, the `lat`/`lon` columns are left empty (e.g. `0.30,,,99.9,99.9,0,1,,,4519.0`) so the analyser treats the row as a GPS gap rather than a `(0,0)` coordinate.
 
-Index auto-increments. See [`docs/csv_schema.md`](docs/csv_schema.md) for the full column specification.
+**GSR-only mode (2 columns, 10 Hz):**
+```
+# BioMapping v1.0
+# RecordingStartTime:1751204579
+timestamp,gsr_raw
+0.00,4523.0
+0.10,4528.0
+0.20,4521.0
+...
+```
+Each row is a point reading of skin conductance in nanosiemens at 10 Hz. This resolution allows offline re-analysis with different filter parameters.
 
 ---
 
-## Web Analyser
+## 4a. GPS Error Recovery
 
-Open [`gsr-map-analyzer/index.html`](gsr-map-analyzer/index.html) directly in a browser (no server required).
+The GPS module can be reset via a software hot-start command to recover from stale or frozen data.
 
-**Features:**
-- Drag-and-drop CSV loading (multi-track supported)
-- GSR filtering: median, LPF, tonic/phasic decomposition (DWT)
-- Peak detection with shape quality scoring
-- Leaflet map with GPS track coloured by arousal
-- Collective mode: overlay multiple tracks with IDW contour surface
-- OpenStreetMap enrichment: correlate arousal with road class, green space, buildings
-- Export: processed CSV, GeoJSON, map PNG
+**SAM-M10Q (UBX protocol):** Sends a binary `UBX-CFG-RST` packet over UART at 115200 baud. This performs a controlled GNSS-only reset without affecting the Flipper interface. See [`gps_transition_review.md`](gps_transition_review.md) Section 4 packet 7 for the full hex packet.
 
-**Quick start:**
-1. Open `index.html` in Chrome or Firefox
-2. Drop a `biomap_XXX.csv` file onto the drop zone
-3. Click **Analyse** — adjust sliders to taste
+```c
+// M10Q hot start — binary UBX-CFG-RST packet
+static const uint8_t ubx_cfg_rst_hot[] = {
+    0xB5, 0x62, 0x06, 0x04, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0x10, 0x68
+};
+ubx_tx(g, ubx_cfg_rst_hot, sizeof(ubx_cfg_rst_hot));
+```
+
+**L76K (legacy — PCAS protocol):** Sends ASCII PCAS commands. The L76K cannot be put to sleep via software.
+
+| Action | Command | When to use |
+|---|---|---|
+| **Hot Start** | `$PCAS10,0*1C\r\n` | GPS is outputting stale/frozen data — restarts quickly using cached satellite info |
+| **Factory Reset** | `$PCAS10,3*1F\r\n` | GPS is completely hung or unresponsive — clears everything and starts fresh |
 
 ---
 
-## Python Analysis Script
+## 5. Signal Processing: Finding Mountains and Valleys
 
-```bash
-# Single track: GPS quality report + GSR noise analysis
-python3 analyze_track.py biomap_001.csv
+Raw differential voltage numbers reflect your baseline sweat levels. We only care about **sudden changes** (spikes in arousal or drops into relaxation). 
 
-# Two tracks: compare GSR noise (e.g. different baud rates)
-python3 analyze_track.py biomap_001.csv biomap_002.csv
+To find this, we use two math concepts operating on the 10 Hz data stream:
+
+1. **Smoothing (Exponential Moving Average):** Raw electrical data is noisy. We smooth it out.
+   `Smoothed_Value = (0.2 * Raw_Value) + (0.8 * Previous_Smoothed_Value)`
+2. **Derivative (Rate of Change):** We subtract the previous smoothed value from the current smoothed value.
+   `Rate_of_Change = Smoothed_Value - Previous_Smoothed_Value`
+
+### What the On-Screen Graph Shows
+
+The live graph on the Flipper's display shows the **derivative** (rate-of-change), not the absolute skin conductance. This is an intentional design choice for a tiny screen:
+
+```
+     ┌───────────────────────┐
+     │    ┌──┐               │   ← arousal onset: conductance rises
+     │    │  │               │       derivative spikes upward
+     │  ──┘  └────────── ── │   ← baseline: flat line at center
+     │          ┌──┐         │       (rate-of-change is zero)
+     │          │  │         │   ← relaxation: conductance drops
+     └──────────┘  └─────────┘       derivative dips below center
+        0          30      60 s
 ```
 
-No dependencies beyond the Python standard library.
+- **Line at center** = conductance is stable (no arousal, no relaxation)
+- **Line spikes up** = conductance rising (stress / arousal)
+- **Line dips below center** = conductance falling (relaxation / recovery)
+
+The absolute conductance value is displayed as a number at the top-right of the screen (e.g. `4523 nS`), giving you both views simultaneously. The CSV file records the absolute nS value — the derivative is only used for the live display.
+
+In our TIA setup:
+* **Stress Response (Resistance Drops):** Skin conductance increases, pushing more current through the feedback resistor. `V_out` rises, making the differential read increase. `Rate_of_Change` goes heavily positive.
+* **Relaxation (Resistance Climbs):** Current drops, `V_out` falls closer to `V_ref`. `Rate_of_Change` goes negative.
+
+On the live display graph, the derivative is shown with its natural sign — arousal spikes upward, relaxation dips below center. For the arousal mapping in the analyser (Section 6), only the **magnitude** of change matters: both rapid rises and rapid drops read as high arousal.
+
+### TIA Conductance Equation
+
+The filtered and normalised ADC reading (`N`, in counts at the ±0.256 V reference) is converted to skin conductance in nanosiemens (nS) using the circuit parameters:
+
+$$G_{nS} = \frac{N \times 5{,}000{,}000}{15{,}040{,}000 - N \times 47}$$
+
+**Derivation:**
+
+| Parameter | Value |
+|---|---|
+| V_ref (voltage divider) | 0.5 V = 3.3 V × 10 kΩ / (56 kΩ + 10 kΩ) |
+| R_f (TIA feedback) | 47 kΩ |
+| R_safety (two 4.7 kΩ in series) | 9.4 kΩ |
+| ADC LSB at ±0.256 V | 7.8125 µV = 1/128,000 V |
+
+1. TIA output: `V_diff = V_out − V_ref = I_skin × R_f = (V_ref / (R_skin + R_safety)) × R_f`
+2. In ADC counts: `N = V_diff / 7.8125×10⁻⁶`
+3. Solve for skin resistance: `R_skin = 3,008,000,000 / N − 9,400`
+4. Convert to nanosiemens: `G_nS = 10⁹ / R_skin`
+5. Simplifying: `G_nS = N × 5,000,000 / (15,040,000 − N × 47)`
+
+When `N` approaches zero (open circuit / disconnected electrodes), conductance is clamped to 0. When `N` exceeds 319,000 (near the denominator singularity at `N = 15,040,000 / 47 ≈ 320,000`), the value is clamped to prevent overflow.
 
 ---
 
-## CSV Format
+## 6. Recording & Post-Processing
 
-See [`docs/csv_schema.md`](docs/csv_schema.md) for the authoritative field-by-field reference, including sentinel values, the HDOP gate design, and schema version history.
+### Recording: CSV on the SD Card
 
-**Quick summary (10 columns):**
+When the user presses "Record", the app writes a **CSV file** (`/ext/biomapping/biomap_001.csv`). This keeps the recording simple and preserves the raw GSR data for offline re-analysis. Visualisation is produced **post-recording** by the browser-based analyser (see below).
+
+**GPS+GSR mode CSV (10 columns, 10 Hz):**
 ```
-timestamp, lat, lon, hdop, pdop, sats, fix_type, speed_kts, course_deg, gsr_raw
+# BioMapping v1.0
+# RecordingStartTime:1751204579
+# GPS:L76K
+timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw
+0.00,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4523.0
+0.10,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4528.0
+0.20,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4521.0
 ```
+
+**GSR-only mode CSV (2 columns, 10 Hz):**
+```
+# BioMapping v1.0
+# RecordingStartTime:1751204579
+timestamp,gsr_raw
+0.00,4523.0
+0.10,4528.0
+```
+
+### Post-Processing: The Browser-Based Analyser
+
+Post-processing happens off-device in the included web analyser — there is **no** on-device CSV→GPX conversion and **no** "Convert CSV to GPX" menu item. Open [`gsr-map-analyzer/index.html`](../gsr-map-analyzer/index.html) directly in a browser (no server required) and drag-and-drop one or more `biomap_*.csv` files onto it.
+
+The analyser:
+
+1. **Loads** the CSV, honouring the `#`-prefixed metadata header and the relative-seconds `timestamp` column, and skipping rows with empty `lat`/`lon` (GPS gaps).
+2. **Filters** the GSR signal (median / low-pass) and decomposes it into tonic and phasic components (DWT).
+3. **Detects peaks** with shape-quality scoring to isolate genuine arousal events.
+4. **Maps** the track on a Leaflet base map, **coloured by arousal** — arousal is shown as colour, not encoded as GPX elevation.
+5. **Collective mode:** overlays multiple tracks, builds an inverse-distance-weighted (IDW) contour surface, and can enrich the data against OpenStreetMap features (road class, green space, buildings).
+
+Both rapid rises **and** rapid drops in GSR register as high arousal — only the magnitude of change matters, not the direction. See [`csv_schema.md`](csv_schema.md) for the canonical column definitions the analyser reads, and the [README](../README.md) for the full feature list.
 
 ---
 
-## Repository Structure
+## 7. The User Interface
+
+The Flipper's 128x64 black-and-white screen shows different information depending on the active mode.
+
+### GPS+GSR Mode
 
 ```
-BioMapping/
-├── biomap.c / .h          ← App entry, lifecycle
-├── biomap_session.c       ← Recording event loop + data pipeline
-├── biomap_render.c        ← Canvas rendering
-├── biomap_gui.c           ← Menu and options screens
-├── biomap_config.h        ← GPS module selection (edit this)
-├── biomap_types.h         ← Constants (HDOP gate, IIR coefficients, etc.)
-├── modules/
-│   ├── gps_uart.c/h       ← NMEA parser + serial management
-│   ├── gsr_sensor.c/h     ← ADS1115 driver + PGA autoranging
-│   ├── sd_logger.c/h      ← Batched CSV writer
-│   └── util.h             ← Shared utilities
-├── minmea.c/h             ← Third-party NMEA library
-├── analyze_track.py       ← CLI GPS/GSR quality analysis
-├── compare_noise.py       ← GSR noise comparison between tracks
-├── docs/
-│   ├── csv_schema.md      ← Authoritative CSV column spec
-│   └── refactoring_analysis.md
-└── gsr-map-analyzer/      ← Browser-based analyser (open index.html)
+┌───────────────────────┐
+│ Bio Mapping            │
+│ ┌───────────────────┐ │
+│ │      ~~~          │ │   ← GSR derivative graph (rate-of-change)
+│ │  ~~/   \──        │ │      Spikes up = arousal, dips = relaxation
+│ │ /         \──     │ │      Full width of screen
+│ │/              \──  │ │
+│ └───────────────────┘ │
+└───────────────────────┘
 ```
+
+### GPS-Only Mode
+
+```
+┌───────────────────────┐
+│ Bio Mapping        [■]│   ← Recording indicator
+│ biomap_001.csv        │
+│ 13:42:59 UTC          │   ← GPS time and date
+│ 2026-06-16            │
+│ 51.55636              │   ← Latitude
+│ -0.07136              │   ← Longitude
+│ Sats:6  Q:1           │   ← Satellite count and fix quality
+└───────────────────────┘
+```
+
+### GSR-Only Mode
+
+```
+┌───────────────────────┐
+│ Bio Mapping            │
+│ GSR: 4523 nS           │   ← Absolute conductance (updated every 0.5 s)
+│ ┌───────────────────┐ │
+│ │      ~~~          │ │   ← GSR derivative graph (rate-of-change)
+│ │  ~~/   \──        │ │      Same derivative view as GPS+GSR mode
+│ │ /         \──     │ │
+│ │/              \──  │ │
+│ └───────────────────┘ │
+└───────────────────────┘
+```
+
+### Controls
+
+* `OK (Center Button)`: Starts and stops recording. In GPS+GSR mode writes 10-column CSV at 10 Hz (every row is a full GPS+GSR row). In GSR-only mode writes 2-column CSV at 10 Hz.
+* `Left/Right`: Changes the time scale of the graph (scroll speed). Left zooms out (slower), Right zooms in (faster).
+* `Up/Down`: Zooms in and out on the vertical sensitivity of the graph.
+* `Back`: Safely closes the file and returns to the menu.
+
+---
+
+## 8. Menus and Options
+
+### Main Menu
+
+```
+┌─────────────────────────────┐
+│  Bio Mapping                │
+│  ▓ GPS + GSR           ▓   │   ← selected item (inverse bar)
+│    GPS Only                 │
+│    GSR Only                 │
+│    Options                  │
+│                             │
+└─────────────────────────────┘
+```
+
+| Menu Item | Action |
+|---|---|
+| **GPS + GSR** | Enters recording view with both GPS and GSR active. Writes a 10-column CSV at 10 Hz; each row carries the most recent GPS fix (carried forward, not interpolated). |
+| **GPS Only** | Enters recording view with GPS only — no GSR sensor initialised. Writes a 10-column CSV at 10 Hz with `gsr_raw` = 0 (batch-buffered). |
+| **GSR Only** | Enters recording view with GSR only — no GPS driver initialised. Writes a 2-column CSV at 10 Hz. The GPS module is placed into Software Standby (M10Q) to save power. |
+| **Options** | Opens the Options screen (see below). |
+
+### Options Screen
+
+```
+┌─────────────────────────────┐
+│  Options                    │
+│  ▓ Reset GPS           ▓   │   ← selected (inverse bar)
+│    Auto-zoom GSR   ON      │   ← toggleable
+│    Backlight           ON  │   ← toggleable
+│                             │
+│    Press Back to return     │
+└─────────────────────────────┘
+```
+
+| Option | OK Action |
+|---|---|
+| **Reset GPS** | Sends a hot-start command to the GPS module. SAM-M10Q: binary `UBX-CFG-RST` packet. L76K: `$PCAS10,0*1C\r\n` ASCII command. Useful if GPS is outputting stale/frozen data. Leaves a green flash on success, red on failure. |
+| **Auto-zoom GSR** | Toggles auto-zoom ON/OFF. When enabled, the graph's vertical scale adjusts automatically to keep peaks visible. When disabled, manual Up/Down zoom controls the scale. Toggling back ON resets the zoom to 1.0× and re-seeds the auto-zoom peak tracker. |
+| **Backlight** | Toggles the Flipper's backlight between auto-dimming (OFF) and always-on (ON). Useful for walks in bright sunlight or dark environments. |
+
+### Full Control Reference
+
+#### Recording View
+
+| Button | Action |
+|---|---|
+| **OK** | Start/stop recording to CSV. Green LED flash on each successful write. |
+| **Up** | Increase vertical sensitivity (zoom in on GSR amplitude). Disables auto-zoom. |
+| **Down** | Decrease vertical sensitivity (zoom out). Disables auto-zoom. |
+| **Left** | Expand time scale (slower scroll). Doubles the window per pixel. |
+| **Right** | Contract time scale (faster scroll). Halves the window per pixel. |
+| **Back** | Stop recording (if active) and return to main menu. |
+
+#### Menu / Options View
+
+| Button | Action |
+|---|---|
+| **Up** | Move selection up. |
+| **Down** | Move selection down. |
+| **OK** | Select the highlighted item / toggle the highlighted option. |
+| **Back** | Return to previous screen. |
+
+---
+
+## 9. Notification LEDs
+
+The Flipper Zero's RGB LED provides status feedback throughout the session:
+
+While recording, the LED blinks once per second (a "heartbeat"), independent of the SD flush interval:
+
+| Event | LED | Meaning |
+|---|---|---|
+| Recording, sensor OK | Green blink (500 ms), 1× per second | Normal recording heartbeat |
+| Recording, electrodes disconnected | Red blink (500 ms), 1× per second | GSR sensor reads open-circuit — check the finger electrodes |
+| Recording, GPS has no fix | Blue blip (100 ms) after the heartbeat | Waiting for a GPS fix (GPS modes only) |
+| Write error | Solid red (until reset) | SD card full or filesystem error — recording stopped |
+| Recording stopped | LED cleared | Blink sequence stopped; backlight restored to auto |
+| GPS hot start OK (Reset GPS) | Green blink (100 ms) | Reset command sent successfully |
+| GPS hot start failed (Reset GPS) | Red blink (100 ms) | GPS module not responding |
+
+---
+
+## 10. File Storage
+
+All files are stored on the SD card under `/ext/biomapping/`:
+
+**CSV files:** `biomap_001.csv` through `biomap_999.csv` (auto-incrementing, wraps at 999). Every file begins with `#`-prefixed metadata lines (`# BioMapping v1.0`, `# RecordingStartTime:<unix_epoch>`, and, in GPS modes, `# GPS:L76K`/`# GPS:M10Q`) followed by the column-name header.
+- 10-column format: `timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw` (GPS+GSR and GPS-only modes)
+- 2-column format: `timestamp,gsr_raw` (GSR-only mode)
+- Row size: ~60 bytes (10-column) or ~14 bytes (2-column)
+- Expected file size for a 1-hour walk: ~2.2 MB (GPS+GSR at 10 Hz) or ~0.5 MB (GSR-only at 10 Hz)
+
+See [`csv_schema.md`](csv_schema.md) for the canonical column definitions and sentinel values.
+
+---
+
+## 11. Tuning
+
+There is no on-device converter, so there are no `GPX_*` constants to set. Tuning lives in two places:
+
+**Firmware (compile-time).** The GPS logging quality gate is defined in `biomap_types.h`:
+
+```c
+#define GPS_HDOP_GATE   5.0f   // rows with HDOP above this log empty lat/lon
+```
+
+This is deliberately permissive: logging up to HDOP 5.0 preserves urban-canyon fixes that the analyser can optionally reject later. The signal-processing constants (`SMOOTH_IIR_A`/`_B`, `DISPLAY_EMA_A`/`_B`, PGA thresholds) are also defined in `biomap_types.h` / `modules/gsr_sensor.h`.
+
+**Analyser (post-processing).** Filtering, peak detection, and the GPS quality filter are adjustable in the web analyser's UI at runtime — no rebuild required. The analyser's default HDOP filter is stricter (2.0) than the firmware logging gate (5.0); see the HDOP-gate note in [`csv_schema.md`](csv_schema.md).
+
+---
+
+## 12. Application Metadata
+
+The app is packaged as a Flipper Zero `.fap` file:
+
+| Field | Value |
+|---|---|
+| App ID | `biomap` |
+| Name | Bio Mapping |
+| Type | External (FAP) |
+| Entry point | `biomap_app` |
+| Requires | `gui`, `storage`, `notification`, `expansion` |
+| Stack size | 4 KB |
+| Category | GPIO |
+| Sources | 8 source files across 2 directories (`biomap.c`, `biomap_gui.c`, `biomap_session.c`, `biomap_render.c`, `minmea.c`, `modules/gps_uart.c`, `modules/gsr_sensor.c`, `modules/sd_logger.c`) |
