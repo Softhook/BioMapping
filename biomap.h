@@ -97,6 +97,7 @@ typedef struct {
 #define BIOMAP_CAL_MAGIC   0x424D4341
 #define BIOMAP_CAL_VERSION 2
 #define BIOMAP_CAL_PATH    "/ext/biomapping/biomap.cal"
+#define BIOMAP_CAL_PATH_TMP "/ext/biomapping/biomap.cal.tmp"
 #define CAL_POINTS         3
 
 // Calibration targets — true physical skin conductance (nanosiemens).

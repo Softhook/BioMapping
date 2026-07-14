@@ -109,6 +109,11 @@ bool biomap_load_calibration(BioMapApp* app) {
                         FURI_LOG_W("BioMap", "Calibration checksum mismatch!");
                     }
                 } else {
+                    // Version mismatch: no migration path exists because
+                    // the struct is only gain/offset.  When the format
+                    // changes (new fields), add a migration block here
+                    // that reads the old struct and populates defaults
+                    // for any new fields before bumping BIOMAP_CAL_VERSION.
                     FURI_LOG_W("BioMap", "Calibration version mismatch (got %lu, want %d) — ignoring",
                                (unsigned long)cal.version, BIOMAP_CAL_VERSION);
                 }
@@ -134,7 +139,11 @@ void biomap_save_calibration(BioMapApp* app, float gain, float offset) {
     File* file = storage_file_alloc(app->storage);
     if(!file) return;
 
-    if(storage_file_open(file, BIOMAP_CAL_PATH, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+    // Write to a temp file first, then atomically rename over the real
+    // path.  This prevents corruption if power is lost or the SD card is
+    // removed mid-write — the real file is either the old valid one or
+    // the new complete one, never a partial write.
+    if(storage_file_open(file, BIOMAP_CAL_PATH_TMP, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
         BioMapCalibration cal;
         cal.magic   = BIOMAP_CAL_MAGIC;
         cal.version = BIOMAP_CAL_VERSION;
@@ -142,10 +151,23 @@ void biomap_save_calibration(BioMapApp* app, float gain, float offset) {
         cal.offset  = offset;
         cal.checksum = cal_checksum(&cal);
         
-        storage_file_write(file, &cal, sizeof(BioMapCalibration));
+        uint16_t written = storage_file_write(file, &cal, sizeof(BioMapCalibration));
         storage_file_close(file);
-        FURI_LOG_I("BioMap", "Saved calibration v%d: gain=%.4f offset=%.1f",
-                   BIOMAP_CAL_VERSION, (double)gain, (double)offset);
+
+        if(written == sizeof(BioMapCalibration)) {
+            // Replace the old file atomically.
+            FS_Error err = storage_common_rename(app->storage,
+                BIOMAP_CAL_PATH_TMP, BIOMAP_CAL_PATH);
+            if(err == FSE_OK) {
+                FURI_LOG_I("BioMap", "Saved calibration v%d: gain=%.4f offset=%.1f",
+                           BIOMAP_CAL_VERSION, (double)gain, (double)offset);
+            } else {
+                FURI_LOG_E("BioMap", "Rename failed (%d) — calibration saved to .tmp", (int)err);
+            }
+        } else {
+            FURI_LOG_E("BioMap", "Temp write truncated (%d/%d)",
+                       (int)written, (int)sizeof(BioMapCalibration));
+        }
     }
     storage_file_free(file);
 }
@@ -153,12 +175,21 @@ void biomap_save_calibration(BioMapApp* app, float gain, float offset) {
 void biomap_reset_calibration(BioMapApp* app) {
     furi_assert(app);
     
+    // Delete the file FIRST, then clear the in-memory state.  This order
+    // is important for crash resilience: if power is lost between the
+    // delete and the state update, the file is already gone and the next
+    // boot won't reload the old calibration.  The reverse order (clear
+    // state → delete file) risks the file surviving a crash and the
+    // calibration silently coming back on next boot.
+    storage_simply_remove(app->storage, BIOMAP_CAL_PATH);
+    // Also clean up any orphaned temp file from a crashed/aborted save.
+    storage_simply_remove(app->storage, BIOMAP_CAL_PATH_TMP);
+
     furi_mutex_acquire(app->mutex, FuriWaitForever);
     app->cal_active = false;
     app->cal_gain = 1.0f;
     app->cal_offset = 0.0f;
     furi_mutex_release(app->mutex);
 
-    storage_simply_remove(app->storage, BIOMAP_CAL_PATH);
     FURI_LOG_I("BioMap", "Deleted calibration file");
 }

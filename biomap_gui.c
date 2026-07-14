@@ -287,24 +287,59 @@ void run_calibration_wizard(BioMapApp* app) {
                 continue;
             }
 
-            float sum_g = 0;
-            int   counts_g = 0;
-            for(int i = 0; i < 15; i++) {
+            // Ensure calibration is disabled on this wizard-local sensor
+            // so measurements are always raw nS — the fresh alloc defaults
+            // to cal_active=false, but be explicit to avoid fragility.
+            gsr_sensor_set_calibration(gsr, false, 1.0f, 0.0f);
+
+            // ── Flush the ring buffer (1 s, 10 ticks) ───────────────
+            // gsr_sensor_tick() averages the 100 most recent ring-buffer
+            // entries (100 ms window).  When the user attaches a resistor
+            // and presses OK, the buffer still holds data from the previous
+            // state (open input or prior resistor).  Discarding 10 ticks
+            // guarantees the 100-sample window is fully populated with the
+            // new resistor's readings before the measurement loop starts.
+            for(int i = 0; i < 10; i++) {
+                furi_delay_ms(100);
+                gsr_sensor_tick(gsr);
+            }
+
+            // ── Collect 20 samples (2 s), discard min & max ─────────
+            // Outlier-resistant trimmed mean: the lowest and highest
+            // samples are discarded before averaging.  This prevents a
+            // single glitch (finger brush, PGA transition artifact) from
+            // skewing the fit.  20 samples / 12 minimum gives tolerance
+            // for up to 8 readings outside the gate range.
+#define CAL_SAMPLES      20
+#define CAL_MIN_VALID    12
+            float samples[CAL_SAMPLES];
+            int   total = 0;
+            for(int i = 0; i < CAL_SAMPLES; i++) {
                 furi_delay_ms(100);
                 gsr_sensor_tick(gsr);
                 float g = gsr_sensor_get_raw(gsr);
                 if(g >= gates[idx][0] && g <= gates[idx][1]) {
-                    sum_g += g;
-                    counts_g++;
+                    samples[total++] = g;
                 }
             }
 
-            if(counts_g >= 10) {
-                float avg_g = sum_g / (float)counts_g;
+            if(total >= CAL_MIN_VALID) {
+                // Single-pass min/max + sum for trimmed mean.
+                float s_min = samples[0], s_max = samples[0];
+                float sum_g = 0;
+                for(int i = 0; i < total; i++) {
+                    float s = samples[i];
+                    sum_g += s;
+                    if(s < s_min) s_min = s;
+                    if(s > s_max) s_max = s;
+                }
+                float avg_g = (sum_g - s_min - s_max) / (float)(total - 2);
                 // Use raw nS directly — both the fit and runtime application
                 // operate in the nS domain, so no domain conversion is needed.
                 w.measured[idx] = avg_g;
                 w.step = (int)(idx * 2 + 2);  // 1→2, 3→4, 5→6
+#undef CAL_SAMPLES
+#undef CAL_MIN_VALID
             } else {
                 w.step = 9;
             }

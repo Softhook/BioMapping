@@ -72,7 +72,7 @@ Two HDOP thresholds exist — **this is intentional:**
 |---|---|---|
 | Normal | 1 000 – 20 000 nS | Typical resting range (1–20 µS) |
 | Open circuit | < 0.1 nS | Electrodes not attached (`GSR_VALID_MIN_NS`) |
-| Rail saturation | > 50 000 nS | Hardware fault or shorts (`GSR_VALID_MAX_NS`) |
+| Rail saturation | > 75 000 nS | Hardware fault or shorts (`GSR_VALID_MAX_NS`)|
 
 Defined in `modules/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
 
