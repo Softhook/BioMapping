@@ -66,6 +66,18 @@ class GSRCollectiveManager {
     const bounds = this.getBounds();
     if (!bounds) return [];
 
+    // Expand bounds by the isolationRadius buffer (with a 20% margin) to ensure that the
+    // contour surface interpolator is not chopped off at the grid margins.
+    const tempLatMid = (bounds.minLat + bounds.maxLat) / 2;
+    const mToLat = 111320.0;
+    const mToLon = 111320.0 * Math.cos(tempLatMid * Math.PI / 180);
+    const latExpansion = (isolationRadius * 1.2) / mToLat;
+    const lonExpansion = (isolationRadius * 1.2) / mToLon;
+    bounds.minLat -= latExpansion;
+    bounds.maxLat += latExpansion;
+    bounds.minLon -= lonExpansion;
+    bounds.maxLon += lonExpansion;
+
     const active = this.getActiveTracks();
     if (active.length === 0) return [];
 
