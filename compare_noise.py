@@ -86,8 +86,8 @@ def analyze(label, data):
         'snr': signal_range / mean_abs_d if mean_abs_d > 0 else 0,
     }
 
-pre  = analyze("PRE  (biomap_019 - 86-sample window)", load_csv('biomap_019.csv'))
-post = analyze("POST (biomap_020 - 100-sample window)", load_csv('biomap_020.csv'))
+pre  = analyze("PRE  (biomap_030)", load_csv('tracks/biomap_030.csv'))
+post = analyze("POST (biomap_031)", load_csv('tracks/biomap_031.csv'))
 
 print("=" * 72)
 print("  SIDE-BY-SIDE: 86-sample vs 100-sample Oversampling")
