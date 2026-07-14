@@ -418,10 +418,6 @@ const GSREvents = {
     document.getElementById('btnMapZoomExtent').addEventListener('click', () => {
       if (AppState.mapManager) AppState.mapManager.fitToTrack();
     });
-
-    document.getElementById('btnExportSvg').addEventListener('click', () => {
-      if (AppState.mapManager) GSRMapExporter.exportToSvg(AppState.mapManager);
-    });
     const btnToggleMapPeaks = document.getElementById('btnToggleMapPeaks');
     btnToggleMapPeaks.addEventListener('click', () => {
       btnToggleMapPeaks.classList.toggle('active');
