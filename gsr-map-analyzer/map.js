@@ -13,6 +13,8 @@ class GSRMapManager {
     this.osmLayers = [];
     this.scrubMarker = null;
     this.showPeaks = true;
+    this.showClusters = true;
+    this.clusterLayers = [];
     this.activeColoringMetric = 'gsr';
     this._legendControl = null;
     this._legendMinVal = 0;
@@ -201,6 +203,7 @@ class GSRMapManager {
     if (!this.map) return;
     this.pathSegments = this._clearLayerGroup(this.pathSegments);
     this.peakMarkers = this._clearLayerGroup(this.peakMarkers);
+    this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
     this.clearOsmShapes();
 
     if (this.map.hasLayer(this.scrubMarker)) {
@@ -934,6 +937,44 @@ class GSRMapManager {
         this.peakMarkers.push(conn); // store so clearMap removes them
       }
     }
+
+    // Render cluster boundaries
+    const activePeaks = allPeaks.filter(ap => !ap.peak.excluded);
+    if (activePeaks.length > 0 && typeof GSRSpatialClustering !== 'undefined') {
+      const ptsForClustering = activePeaks.map(ap => ({
+        lat: ap.coords.lat,
+        lon: ap.coords.lon,
+        amplitude: ap.peak.amplitude
+      }));
+
+      // Read cluster parameters dynamically from UI sliders
+      let proximity = AppState.sliders.clusterProximity ? parseFloat(AppState.sliders.clusterProximity.value) : 35;
+      if (isNaN(proximity)) proximity = 35;
+      let boundaryRadius = AppState.sliders.clusterBoundaryRadius ? parseFloat(AppState.sliders.clusterBoundaryRadius.value) : 18;
+      if (isNaN(boundaryRadius)) boundaryRadius = 18;
+      const sigma = boundaryRadius * 0.83;
+
+      // Group peaks within selected proximity limit
+      const clusters = GSRSpatialClustering.clusterPeaks(ptsForClustering, proximity);
+
+      clusters.forEach(cluster => {
+        const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, boundaryRadius);
+        paths.forEach(path => {
+          const latlngs = path.map(p => [p.lat, p.lon]);
+          const poly = L.polygon(latlngs, {
+            color: '#f43f5e', // Use stress rose color for visual emphasis
+            weight: 2,
+            fillColor: '#f43f5e',
+            fillOpacity: 0.12,
+            dashArray: '4, 6',
+            lineCap: 'round',
+            lineJoin: 'round'
+          });
+          if (this.showClusters) poly.addTo(this.map);
+          this.clusterLayers.push(poly);
+        });
+      });
+    }
   }
 
   /**
@@ -981,6 +1022,21 @@ class GSRMapManager {
   }
 
   /**
+   * Toggle the visibility of the stress peak clusters on the map layer.
+   */
+  toggleClusters(visible) {
+    this.showClusters = visible;
+    const toggle = (m) => {
+      if (visible) {
+        if (!this.map.hasLayer(m)) m.addTo(this.map);
+      } else {
+        if (this.map.hasLayer(m)) this.map.removeLayer(m);
+      }
+    };
+    this.clusterLayers.forEach(toggle);
+  }
+
+  /**
    * Set scrubbing indicator dot position
    */
   setScrubPosition(lat, lon, panTo = false) {
@@ -1010,6 +1066,7 @@ class GSRMapManager {
   clearCollectiveLayers() {
     this.collectivePathSegments = this._clearLayerGroup(this.collectivePathSegments);
     this.collectivePeakMarkers = this._clearLayerGroup(this.collectivePeakMarkers);
+    this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
     this.clearContours();
   }
 
@@ -1033,6 +1090,8 @@ class GSRMapManager {
 
     const activeTracks = collectiveManager.getActiveTracks();
     if (activeTracks.length === 0) return;
+
+    const allActivePeaksAcrossTracks = [];
 
     // 1. Draw dashed, semi-transparent paths for each track
     activeTracks.forEach(track => {
@@ -1119,6 +1178,13 @@ class GSRMapManager {
           if (peak.label && peak.label.trim()) {
             collectiveLabelCandidates.push({ idx: index, px: pt.x, py: pt.y, text: peak.label });
           }
+          if (!peak.excluded) {
+            allActivePeaksAcrossTracks.push({
+              lat: coords.lat,
+              lon: coords.lon,
+              amplitude: peak.amplitude
+            });
+          }
         }
       });
 
@@ -1177,6 +1243,35 @@ class GSRMapManager {
         }
       }
     });
+
+    // Render collective global clusters across all active tracks
+    if (allActivePeaksAcrossTracks.length > 0 && typeof GSRSpatialClustering !== 'undefined') {
+      // Read cluster parameters dynamically from UI sliders
+      let proximity = AppState.sliders.clusterProximity ? parseFloat(AppState.sliders.clusterProximity.value) : 35;
+      if (isNaN(proximity)) proximity = 35;
+      let boundaryRadius = AppState.sliders.clusterBoundaryRadius ? parseFloat(AppState.sliders.clusterBoundaryRadius.value) : 18;
+      if (isNaN(boundaryRadius)) boundaryRadius = 18;
+      const sigma = boundaryRadius * 0.83;
+
+      const clusters = GSRSpatialClustering.clusterPeaks(allActivePeaksAcrossTracks, proximity);
+      clusters.forEach(cluster => {
+        const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, boundaryRadius);
+        paths.forEach(path => {
+          const latlngs = path.map(p => [p.lat, p.lon]);
+          const poly = L.polygon(latlngs, {
+            color: '#f43f5e', // Use stress rose color for visual emphasis across tracks
+            weight: 2,
+            fillColor: '#f43f5e',
+            fillOpacity: 0.12,
+            dashArray: '4, 6',
+            lineCap: 'round',
+            lineJoin: 'round'
+          });
+          if (this.showClusters) poly.addTo(this.map);
+          this.clusterLayers.push(poly);
+        });
+      });
+    }
 
     // 3. Zoom and Pan Map to fit collective bounding envelope
     const bounds = collectiveManager.getBounds();

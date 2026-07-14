@@ -121,15 +121,22 @@ const GSRUI = {
     try {
       const params = GSRStorage.readGsrSliderValues();
 
-      GSRTrackManager.saveActiveTrackParams();
-      AppState.analyzer.analyze(params);
-      GSRUI.invalidateEnvironmentalCache();
-
       if (AppState.viewMode === 'single') {
+        GSRTrackManager.saveActiveTrackParams();
+        AppState.analyzer.analyze(params);
+        GSRUI.invalidateEnvironmentalCache();
         if (AppState.mapManager) {
           AppState.mapManager.renderData(AppState.analyzer, GSRStorage.buildGpsParams());
         }
       } else {
+        if (AppState.collectiveManager) {
+          const activeTracks = AppState.collectiveManager.getActiveTracks();
+          activeTracks.forEach(track => {
+            track.analyzer.analyze(params);
+            track.filterParams = { ...params };
+          });
+        }
+        GSRUI.invalidateEnvironmentalCache();
         GSRUI.updateCollectiveMap();
       }
 

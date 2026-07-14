@@ -30,7 +30,8 @@ const GSREvents = {
       'shapeMinRiseTime', 'shapeMaxRiseTime', 'shapeMinHalfRecovery', 'shapeMaxHalfRecovery',
       'shapeMinSnr', 'shapeMaxSkewRatio',
       'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsDownsample', 'gpsTrackWeight', 'gpsPeakLatency',
-      'gpsSnapToRoads', 'gpsSnapRadius'
+      'gpsSnapToRoads', 'gpsSnapRadius',
+      'clusterProximity', 'clusterBoundaryRadius'
     ];
     for (const key of sliderKeys) {
       AppState.sliders[key] = GSREvents._id(key);
@@ -330,6 +331,10 @@ const GSREvents = {
     GSREvents.bindGpsSlider('gpsDownsample',  'valGpsDownsample',  v => v === 0 ? 'off' : '1 Hz');
     GSREvents.bindGpsSlider('gpsTrackWeight', 'valGpsTrackWeight', v => `${v} px`);
 
+    // ── Spatial Clustering slider bindings ──────────────────────────────────
+    GSREvents.bindGpsSlider('clusterProximity', 'valClusterProximity', v => `${v} m`);
+    GSREvents.bindGpsSlider('clusterBoundaryRadius', 'valClusterBoundaryRadius', v => `${v} m`);
+
     // ── Snap radius slider ───────────────────────────────────────────────────
     // Re-evaluates road snapping locally from cached OSM data when released.
     {
@@ -414,6 +419,12 @@ const GSREvents = {
     btnToggleMapPeaks.addEventListener('click', () => {
       btnToggleMapPeaks.classList.toggle('active');
       if (AppState.mapManager) AppState.mapManager.togglePeaks(btnToggleMapPeaks.classList.contains('active'));
+    });
+
+    const btnToggleMapClusters = document.getElementById('btnToggleMapClusters');
+    btnToggleMapClusters.addEventListener('click', () => {
+      btnToggleMapClusters.classList.toggle('active');
+      if (AppState.mapManager) AppState.mapManager.toggleClusters(btnToggleMapClusters.classList.contains('active'));
     });
 
     // ── Panel Collapse Toggles (DRY via bindCollapseButton) ──────────────────
@@ -544,7 +555,7 @@ const GSREvents = {
       contourSettingsCard.style.display = '';
 
       const peakCard = document.getElementById('peakDetectionCard');
-      if (peakCard) peakCard.style.display = 'none';
+      if (peakCard) peakCard.style.display = '';
 
       document.getElementById('gsrPanel').style.display = 'none';
       document.getElementById('eventsPanel').style.display = 'none';
@@ -646,7 +657,9 @@ const GSREvents = {
       gpsDownsample:  v => v === 0 ? 'off' : '1 Hz',
       gpsTrackWeight: v => `${v} px`,
       gpsPeakLatency: v => `${v.toFixed(1)} s`,
-      gpsSnapRadius:  v => `${v} m`
+      gpsSnapRadius:  v => `${v} m`,
+      clusterProximity: v => `${v} m`,
+      clusterBoundaryRadius: v => `${v} m`
     };
 
     for (const [id, fmt] of Object.entries(gpsFormatters)) {
