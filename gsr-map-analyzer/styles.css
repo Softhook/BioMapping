@@ -923,6 +923,15 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border-color: rgba(209, 0, 36, 0.25);
 }
 
+.peaks-table tbody tr.excluded-row .btn-exclude {
+  color: #008f3c;
+}
+
+.peaks-table tbody tr.excluded-row .btn-exclude:hover {
+  background: rgba(0, 143, 60, 0.08);
+  border-color: rgba(0, 143, 60, 0.25);
+}
+
 /* Excluded row styling */
 .peaks-table tbody tr.excluded-row {
   opacity: 0.45;
