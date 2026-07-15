@@ -85,8 +85,8 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  padding: 12px;
-  gap: 12px;
+  padding: 8px;
+  gap: 8px;
 }
 
 /* Header */
@@ -168,7 +168,7 @@ body {
 .main-layout {
   display: grid;
   grid-template-columns: 300px 1fr;
-  gap: 12px;
+  gap: 8px;
   flex-grow: 1;
   min-height: 0;
   transition: grid-template-columns var(--transition-standard);
@@ -182,7 +182,7 @@ body {
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   overflow-y: scroll;
   overflow-x: hidden;
   padding-right: 10px;
@@ -215,9 +215,12 @@ body {
   align-items: center;
   gap: 8px;
   border-bottom: 1px solid var(--border-glass);
-  padding: 8px 12px;
+  padding: 0 12px;
+  height: 36px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .control-card h2 i {
@@ -514,7 +517,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .main-content {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   overflow-y: scroll;
   padding-right: 10px;
   min-height: 0;
@@ -531,14 +534,17 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border-radius: 4px;
   overflow: hidden;
   flex-shrink: 0;
+  height: 38px;
+  box-sizing: border-box;
 }
 
 .stat-card {
   background: var(--bg-card);
-  padding: 4px 8px;
+  padding: 0 12px;
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  align-items: center;
+  height: 100%;
+  box-sizing: border-box;
 }
 
 .stat-card:hover {
@@ -551,7 +557,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 .stat-info {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
 }
 
 .stat-label {
@@ -560,14 +570,16 @@ input[type="range"]::-webkit-slider-thumb:hover {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .stat-value {
   font-family: var(--font-sans);
-  font-size: 1.15rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* Visualization Panel */
@@ -595,13 +607,16 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 20px;
+  padding: 0 12px;
+  height: 36px;
   border-bottom: 1px solid var(--border-glass);
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .panel-header h3 {
   font-family: var(--font-display);
-  font-size: 0.98rem;
+  font-size: 0.88rem;
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -777,17 +792,17 @@ input[type="range"]::-webkit-slider-thumb:hover {
 /* Dynamic max-height based on collapse state of preceding panels */
 /* 1. Only GSR Graph is collapsed (Map Overlay is expanded) */
 #gsrPanel.collapsed ~ #mapPanel:not(.collapsed) ~ #eventsPanel:not(.collapsed) {
-  max-height: calc(100vh - 630px);
+  max-height: calc(100vh - 600px);
 }
 
 /* 2. Only Map Overlay is collapsed (GSR Graph is expanded) */
 #gsrPanel:not(.collapsed) ~ #mapPanel.collapsed ~ #eventsPanel:not(.collapsed) {
-  max-height: calc(100vh - 610px);
+  max-height: calc(100vh - 580px);
 }
 
 /* 3. Both GSR Graph and Map Overlay are collapsed */
 #gsrPanel.collapsed ~ #mapPanel.collapsed ~ #eventsPanel:not(.collapsed) {
-  max-height: calc(100vh - 230px);
+  max-height: calc(100vh - 184px);
 }
 
 .table-container {
@@ -1477,14 +1492,14 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .visualization-panel.collapsed {
-  min-height: 52px !important;
-  max-height: 52px !important;
+  min-height: 38px !important;
+  max-height: 38px !important;
   flex-grow: 0 !important;
   flex-shrink: 0 !important;
   overflow: hidden !important;
 }
 .visualization-panel.collapsed .panel-header {
-  border-bottom: none !important;
+  border-bottom: 1px solid transparent !important;
 }
 .visualization-panel.collapsed .canvas-container,
 .visualization-panel.collapsed .canvas-footer {
@@ -1494,14 +1509,14 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .map-panel.collapsed {
-  min-height: 52px !important;
-  max-height: 52px !important;
+  min-height: 38px !important;
+  max-height: 38px !important;
   flex-grow: 0 !important;
   flex-shrink: 0 !important;
   overflow: hidden !important;
 }
 .map-panel.collapsed .panel-header {
-  border-bottom: none !important;
+  border-bottom: 1px solid transparent !important;
 }
 .map-panel.collapsed #map {
   opacity: 0 !important;
@@ -1510,14 +1525,14 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .peaks-table-panel.collapsed {
-  min-height: 52px !important;
-  max-height: 52px !important;
+  min-height: 38px !important;
+  max-height: 38px !important;
   flex-grow: 0 !important;
   flex-shrink: 0 !important;
   overflow: hidden !important;
 }
 .peaks-table-panel.collapsed .panel-header {
-  border-bottom: none !important;
+  border-bottom: 1px solid transparent !important;
 }
 .peaks-table-panel.collapsed .table-container {
   opacity: 0 !important;
@@ -1525,13 +1540,28 @@ input[type="range"]::-webkit-slider-thumb:hover {
   transition: opacity 0.15s ease, visibility 0s 0.15s !important;
 }
 
+.visualization-panel.collapsed .canvas-controls,
+.map-panel.collapsed .canvas-controls,
+.peaks-table-panel.collapsed .canvas-controls,
+.peaks-table-panel.collapsed .view-switcher {
+  display: none !important;
+}
+
+.control-card.collapsed {
+  height: 38px !important;
+  min-height: 38px !important;
+  max-height: 38px !important;
+  overflow: hidden !important;
+}
+
 .control-card.collapsed .card-content {
   display: none !important;
 }
 
 .control-card.collapsed h2 {
+  height: 100% !important;
+  border-bottom: 1px solid transparent !important;
   margin-bottom: 0 !important;
-  border-bottom: none !important;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
