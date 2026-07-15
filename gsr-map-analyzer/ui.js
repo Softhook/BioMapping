@@ -93,7 +93,7 @@ const GSRUI = {
   /**
    * Zoom and highlight a specific peak event when user clicks a row in the peaks table.
    */
-  focusOnPeak(idx) {
+  focusOnPeak(idx, source) {
     if (!AppState.analyzer || !AppState.analyzer.peaks || idx >= AppState.analyzer.peaks.length) return;
     const peak = AppState.analyzer.peaks[idx];
     AppState.activePeakIndex = idx;
@@ -107,17 +107,37 @@ const GSRUI = {
     if (row) row.classList.add('active-row');
     redraw();
 
-    // Open map marker popup and expand map panel if collapsed
-    if (AppState.mapManager && AppState.mapManager.peakMarkers && AppState.mapManager.peakMarkers[idx]) {
+    const hasGps = AppState.analyzer.raw && AppState.analyzer.raw.some(d => d.hasGps);
+
+    // 1. Expand relevant panels dynamically
+    if (source === 'map') {
+      const eventsPanel = document.getElementById('eventsPanel');
+      if (eventsPanel && eventsPanel.classList.contains('collapsed')) {
+        eventsPanel.classList.remove('collapsed');
+      }
+    } else if (hasGps) {
       const mapPanel = document.getElementById('mapPanel');
       if (mapPanel && mapPanel.classList.contains('collapsed')) {
         mapPanel.classList.remove('collapsed');
       }
+    }
+
+    // 2. Smoothly scroll table row into view if not clicked from table itself
+    if (source !== 'table' && row) {
       setTimeout(() => {
-        if (AppState.mapManager.peakMarkers[idx]) {
-          AppState.mapManager.peakMarkers[idx].openPopup();
-        }
-      }, 50);
+        row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, source === 'map' ? 100 : 0);
+    }
+
+    // 3. Open map marker popup if not clicked from map marker itself and track has GPS
+    if (source !== 'map' && hasGps) {
+      if (AppState.mapManager && AppState.mapManager.peakMarkers && AppState.mapManager.peakMarkers[idx]) {
+        setTimeout(() => {
+          if (AppState.mapManager.peakMarkers[idx]) {
+            AppState.mapManager.peakMarkers[idx].openPopup();
+          }
+        }, 100);
+      }
     }
   },
 
@@ -246,7 +266,7 @@ const GSRUI = {
 
       const escapedLabel = (p.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-      rowsHtml += '<tr id="peakRow-' + idx + '" ' + rowAttr + ' onclick="GSRUI.focusOnPeak(' + idx + ')">' +
+      rowsHtml += '<tr id="peakRow-' + idx + '" ' + rowAttr + ' onclick="GSRUI.focusOnPeak(' + idx + ', \'table\')">' +
         '<td>' + (idx + 1) + '</td>' +
         '<td class="label-cell">' +
           '<input class="peak-label-input" type="text" value="' + escapedLabel + '" ' +
@@ -272,7 +292,7 @@ const GSRUI = {
           'title="' + (p.excluded ? 'Include peak' : 'Exclude peak') + '">' +
           (p.excluded ? '<i class="fa-solid fa-plus"></i>' : '<i class="fa-solid fa-xmark"></i>') +
           '</button></td>' +
-        '<td><button class="btn-table-action" onclick="event.stopPropagation(); GSRUI.focusOnPeak(' + idx + ')">' +
+        '<td><button class="btn-table-action" onclick="event.stopPropagation(); GSRUI.focusOnPeak(' + idx + ', \'table\')">' +
         '<i class="fa-solid fa-arrows-to-eye"></i> View</button></td></tr>';
     });
 

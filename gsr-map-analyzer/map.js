@@ -757,22 +757,7 @@ class GSRMapManager {
       marker.bindPopup(() => this._buildSinglePeakPopup(analyzer, peak, index, coords, marker));
 
       marker.on('click', () => {
-        // Expand eventsPanel if collapsed
-        const panel = document.getElementById('eventsPanel');
-        if (panel && panel.classList.contains('collapsed')) {
-          panel.classList.remove('collapsed');
-        }
-
-        // Highlight and focus in GSRUI
-        GSRUI.focusOnPeak(index);
-
-        // Scroll to the corresponding row in the table
-        setTimeout(() => {
-          const row = document.getElementById('peakRow-' + index);
-          if (row) {
-            row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-          }
-        }, 100);
+        GSRUI.focusOnPeak(index, 'map');
       });
 
       this.peakMarkers.push(marker);

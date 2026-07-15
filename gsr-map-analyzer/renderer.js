@@ -452,7 +452,7 @@ const GSRRenderer = {
                          my <= Math.max(target.yFiltered, target.yPhasic) + 6;
 
       if (dist1 <= target.r || dist2 <= target.r || isNearLine) {
-        GSRUI.focusOnPeak(target.idx);
+        GSRUI.focusOnPeak(target.idx, 'graph');
         return true;
       }
     }
