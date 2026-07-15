@@ -1,5 +1,5 @@
 Todo
 
-Better GPS unit needed
-
 real time bluetooth data on the laptop
+
+physical form factor - external GPS antenna?
