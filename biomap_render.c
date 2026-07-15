@@ -166,7 +166,7 @@ static void render_zoom_label(Canvas* c, BioMapApp* a) {
         a->session.zoom_label_last = a->session.zoom.level;
     }
     canvas_set_font(c, FontSecondary);
-    canvas_draw_str(c, 128 - a->session.zoom_label_width - 2, 62, a->session.zoom_label);
+    canvas_draw_str(c, 2, 62, a->session.zoom_label);
 }
 
 static void draw_sensor_alert(Canvas* c, const char* text) {
@@ -240,27 +240,36 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         canvas_draw_str(c, right_x - canvas_string_width(c, badge), 10, badge);
     }
 
-    // ── Diagnostics mode: raw numbers, no graph ─────────────────────────
+    // ── Diagnostics: GSR only, 5 labeled lines ─────────────────────────
     if(is_diag) {
-        canvas_set_font(c, FontPrimary);
-        canvas_draw_str(c, 0, 12, "GSR Diagnostics");
         canvas_set_font(c, FontSecondary);
+
         if(a->session.gsr && gsr_sensor_available(a->session.gsr)) {
-            char buf[32];
             uint8_t pga = gsr_sensor_get_pga_index(a->session.gsr);
             int32_t mean_cnt = gsr_sensor_get_mean_count(a->session.gsr);
+            char buf[32];
+            int y = 8;
+
             snprintf(buf, sizeof(buf), "PGA:%u  Cal:%s",
                      (unsigned)pga, a->cal_active ? "on" : "off");
-            canvas_draw_str(c, 0, 26, buf);
-            snprintf(buf, sizeof(buf), "Raw:  %.0f nS", (double)a->session.display.raw_sample_ns);
-            canvas_draw_str(c, 0, 38, buf);
-            snprintf(buf, sizeof(buf), "Filt: %.0f nS", (double)a->session.display.filtered_ns);
-            canvas_draw_str(c, 0, 50, buf);
-            snprintf(buf, sizeof(buf), "Sngl:%ld  Mean:%ld",
-                     (long)a->session.display.raw_sample_count, (long)mean_cnt);
-            canvas_draw_str(c, 0, 62, buf);
+            canvas_draw_str(c, 0, y, buf);  y += 10;
+
+            snprintf(buf, sizeof(buf), "Raw:  %.0f nS",
+                     (double)a->session.display.raw_sample_ns);
+            canvas_draw_str(c, 0, y, buf);  y += 10;
+
+            snprintf(buf, sizeof(buf), "Filt: %.0f nS",
+                     (double)a->session.display.filtered_ns);
+            canvas_draw_str(c, 0, y, buf);  y += 10;
+
+            snprintf(buf, sizeof(buf), "Sngl: %ld",
+                     (long)a->session.display.raw_sample_count);
+            canvas_draw_str(c, 0, y, buf);  y += 10;
+
+            snprintf(buf, sizeof(buf), "Mean: %ld", (long)mean_cnt);
+            canvas_draw_str(c, 0, y, buf);
         } else {
-            draw_sensor_alert(c, "NO SENSOR");
+            canvas_draw_str(c, 0, 8, "GSR: --");
         }
     }
 
@@ -271,6 +280,15 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                 if(gsr_sensor_is_connected(a->session.gsr)) {
                     if(a->session.mode == BioMapModeGsrOnly) {
                         char buf[32];
+                        // Time span label — top-left
+                        int t_span = (GRAPH_N * a->session.graph.scroll_divider) / TICK_HZ;
+                        if(t_span >= 60) {
+                            snprintf(buf, sizeof(buf), "%dm%ds", t_span / 60, t_span % 60);
+                        } else {
+                            snprintf(buf, sizeof(buf), "%ds", t_span);
+                        }
+                        canvas_draw_str(c, 1, 10, buf);
+                        // nS value — top-right
                         snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.display.filtered_ns);
                         int x = 128 - canvas_string_width(c, buf) - (a->session.recording.active ? 12 : 2);
                         canvas_draw_str(c, x, 10, buf);
@@ -284,7 +302,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         }
     } else if(!is_diag && a->session.gps) {
         render_gps_detail(c, a);
-    } else {
+    } else if(!is_diag) {
         canvas_draw_str(c, 0, 20, "GPS unavailable");
     }
 
