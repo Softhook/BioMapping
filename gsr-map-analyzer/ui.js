@@ -540,45 +540,76 @@ const GSRUI = {
    * Orchestrates bounding box computation, Overpass fetching, and spatial enrichment.
    */
   async enrichTrack(forceFetch = false) {
-    if (!AppState.analyzer || AppState.analyzer.raw.length === 0) {
-      alert("Please load a track file first.");
+    const isCollective = (AppState.viewMode === 'collective');
+    
+    // Get tracks to enrich
+    let tracksToEnrich = [];
+    if (isCollective) {
+      if (!AppState.collectiveManager) return;
+      tracksToEnrich = AppState.collectiveManager.getActiveTracks();
+    } else {
+      if (AppState.analyzer && AppState.analyzer.raw.length > 0) {
+        tracksToEnrich = [{
+          id: AppState.activeTrackId,
+          analyzer: AppState.analyzer
+        }];
+      }
+    }
+
+    if (tracksToEnrich.length === 0) {
+      alert("Please load or select active track files first.");
       return;
     }
 
     const radius = parseInt(document.getElementById('osmRadius').value) || 50;
     const snapRadius  = parseInt(document.getElementById('gpsSnapRadius')?.value) || 25;
     const maxRadius   = Math.max(radius, snapRadius);
-    const bbox = OSMEnricher.calculateBBox(AppState.analyzer.raw, maxRadius + 50);
-    if (!bbox) {
+
+    // Calculate union bounding box for all tracks being enriched
+    let unionBBox = null;
+    for (const t of tracksToEnrich) {
+      const bbox = OSMEnricher.calculateBBox(t.analyzer.raw, maxRadius + 50);
+      if (!bbox) continue;
+      if (!unionBBox) {
+        unionBBox = { ...bbox };
+      } else {
+        unionBBox.minLat = Math.min(unionBBox.minLat, bbox.minLat);
+        unionBBox.maxLat = Math.max(unionBBox.maxLat, bbox.maxLat);
+        unionBBox.minLon = Math.min(unionBBox.minLon, bbox.minLon);
+        unionBBox.maxLon = Math.max(unionBBox.maxLon, bbox.maxLon);
+      }
+    }
+
+    if (!unionBBox) {
       throw new Error("Could not calculate bounding box. Track coordinates may be invalid.");
     }
 
-    const area = OSMEnricher.calculateBBoxAreaKm2(bbox);
-    if (area > 10.0) {
-      throw new Error(`Track bounding box is too large (${area.toFixed(1)} km²). Maximum size is 10 km² to prevent API overload.`);
+    const area = OSMEnricher.calculateBBoxAreaKm2(unionBBox);
+    if (area > 12.0) {
+      throw new Error(`The combined tracks' bounding box is too large (${area.toFixed(1)} km²). Maximum size is 12 km² to prevent API overload. Try selecting fewer active tracks.`);
     }
 
-    let osmJson = AppState.analyzer.osmJson;
-    const isLocal = !forceFetch && osmJson;
+    // Check if we can reuse cached OSM data
+    const allCached = !forceFetch && tracksToEnrich.every(t => t.analyzer.osmJson);
 
-    if (isLocal) {
-      // Silent instant local run — re-use cached OSM data, no fetch
+    if (allCached) {
+      // Silent instant local run — re-use cached OSM data for each track, no fetch
       try {
         const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? true;
         const snapIn = Math.max(8, Math.round(snapRadius / 2));
-        OSMEnricher.enrichTrack(AppState.analyzer, osmJson, radius,
-          { enabled: snapEnabled, radiusIn: snapIn, radiusOut: snapRadius }
-        );
+        tracksToEnrich.forEach(t => {
+          OSMEnricher.enrichTrack(t.analyzer, t.analyzer.osmJson, radius,
+            { enabled: snapEnabled, radiusIn: snapIn, radiusOut: snapRadius }
+          );
+        });
         GSRUI.invalidateEnvironmentalCache();
         GSRUI.refreshOsmControls();
         GSRUI.rerenderMap();
       } catch (err) {
         console.error('Local enrichment failed:', err);
-        // If local run fails, fall through to full network fetch
-        AppState.analyzer.osmJson = null;
+        tracksToEnrich.forEach(t => t.analyzer.osmJson = null);
       }
-      if (AppState.analyzer.osmJson) return;  // success — done
-      // Fall through to network fetch below
+      if (tracksToEnrich.every(t => t.analyzer.osmJson)) return;
     }
 
     // Prevent re-entrant network calls
@@ -609,16 +640,22 @@ const GSRUI = {
     };
 
     try {
-      updateProgress('Fetching OpenStreetMap features...', 30);
-      osmJson = await OSMEnricher.fetchOSMData(bbox, (msg) => updateProgress(msg));
-      AppState.analyzer.osmJson = osmJson; // save vector geometries
+      updateProgress('Fetching OpenStreetMap features for tracks...', 30);
+      const osmJson = await OSMEnricher.fetchOSMData(unionBBox, (msg) => updateProgress(msg));
       
       updateProgress('Processing spatial metrics...', 60);
       const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? true;
       const snapIn = Math.max(8, Math.round(snapRadius / 2));
-      OSMEnricher.enrichTrack(AppState.analyzer, osmJson, radius,
-        { enabled: snapEnabled, radiusIn: snapIn, radiusOut: snapRadius },
-        (msg) => updateProgress(msg));
+
+      // Enrich each track using the fetched OSM JSON
+      tracksToEnrich.forEach((t, i) => {
+        t.analyzer.osmJson = osmJson;
+        OSMEnricher.enrichTrack(t.analyzer, osmJson, radius,
+          { enabled: snapEnabled, radiusIn: snapIn, radiusOut: snapRadius },
+          (msg) => updateProgress(`[Track ${i+1}/${tracksToEnrich.length}] ${msg}`)
+        );
+      });
+
       GSRUI.invalidateEnvironmentalCache();
       
       updateProgress('Redrawing visualizer...', 90);

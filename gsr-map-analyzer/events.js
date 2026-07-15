@@ -536,6 +536,9 @@ const GSREvents = {
       const peakCard = document.getElementById('peakDetectionCard');
       if (peakCard) peakCard.style.display = '';
 
+      const btnEnrich = document.getElementById('btnEnrichTrack');
+      if (btnEnrich) btnEnrich.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Enrich Active Track';
+
       if (AppState.mapManager) AppState.mapManager.clearCollectiveLayers();
 
       document.getElementById('gsrPanel').style.display = '';
@@ -564,7 +567,10 @@ const GSREvents = {
       contourSettingsCard.style.display = '';
 
       const peakCard = document.getElementById('peakDetectionCard');
-      if (peakCard) peakCard.style.display = '';
+      if (peakCard) peakCard.style.display = 'none';
+
+      const btnEnrich = document.getElementById('btnEnrichTrack');
+      if (btnEnrich) btnEnrich.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Enrich tracks';
 
       document.getElementById('gsrPanel').style.display = 'none';
       document.getElementById('eventsPanel').style.display = 'none';
