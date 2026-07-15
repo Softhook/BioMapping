@@ -201,6 +201,12 @@ function mousePressed() {
   // Check for click on an on-canvas exclude ✕ / ＋ button — abort drag if hit
   if (GSRRenderer.checkExcludeHit(mouseX, mouseY)) return;
 
+  // Check for click on a peak marker or vertical line — select if hit and abort drag
+  if (GSRRenderer.checkPeakClick && GSRRenderer.checkPeakClick(mouseX, mouseY)) {
+    redraw();
+    return;
+  }
+
   if (mouseX >= GSR_CONST.MARGIN.left && mouseX <= width - GSR_CONST.MARGIN.right &&
       mouseY >= AppState.yTimelineTop && mouseY <= AppState.yTimelineBottom) {
     AppState.isDraggingTimeline = true;

@@ -605,7 +605,7 @@ class GSRMapManager {
     const trLabel = L.DomUtil.create('tr', '', table);
     L.DomUtil.create('td', '', trLabel).textContent = 'Label:';
     const tdLabel2 = L.DomUtil.create('td', '', trLabel);
-    const input = L.DomUtil.create('input', 'popup-label-input', tdLabel2);
+    const input = L.DomUtil.create('input', 'popup-label-input peak-popup-label-input', tdLabel2);
     input.type = 'text';
     input.value = displayLabel;
     input.placeholder = 'Enter label…';
@@ -642,6 +642,7 @@ class GSRMapManager {
       : '<i class="fa-solid fa-xmark"></i>';
 
     // --- Event handlers ---
+    L.DomEvent.on(input, 'input', () => GSRUI.handleLiveLabelInput(index, input.value, trackId));
     L.DomEvent.on(input, 'change', () => GSRUI.updatePeakLabel(index, input.value, trackId));
     L.DomEvent.on(input, 'keydown', (e) => {
       if (e.key === 'Enter') { GSRUI.updatePeakLabel(index, input.value, trackId); input.blur(); }
@@ -754,6 +755,25 @@ class GSRMapManager {
       }
 
       marker.bindPopup(() => this._buildSinglePeakPopup(analyzer, peak, index, coords, marker));
+
+      marker.on('click', () => {
+        // Expand eventsPanel if collapsed
+        const panel = document.getElementById('eventsPanel');
+        if (panel && panel.classList.contains('collapsed')) {
+          panel.classList.remove('collapsed');
+        }
+
+        // Highlight and focus in GSRUI
+        GSRUI.focusOnPeak(index);
+
+        // Scroll to the corresponding row in the table
+        setTimeout(() => {
+          const row = document.getElementById('peakRow-' + index);
+          if (row) {
+            row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }
+        }, 100);
+      });
 
       this.peakMarkers.push(marker);
     });

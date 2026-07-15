@@ -274,8 +274,9 @@ const GSRRenderer = {
   drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
     if (!AppState.showPeaks || !AppState.analyzer.peaks || AppState.analyzer.peaks.length === 0) return;
 
-    // Reset click-target list for on-canvas exclude buttons
+    // Reset click-target list for on-canvas exclude buttons and peaks
     AppState._peakExcludeButtons = [];
+    AppState._peakClickTargets = [];
 
     const tSpan = tMax - tMin;
     const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
@@ -349,6 +350,13 @@ const GSRRenderer = {
       circle(xPeak, yFilteredPeak, isActive ? 9 : 6);
 
       if (xPeak >= GSR_CONST.MARGIN.left && xPeak <= width - GSR_CONST.MARGIN.right) {
+        AppState._peakClickTargets.push({
+          idx: pIdx,
+          x: xPeak,
+          yPhasic: yPhasicPeak,
+          yFiltered: yFilteredPeak,
+          r: 10
+        });
         if (AppState.viewDuration < 300 || isActive || isHovered) {
           noStroke();
           fill(isExcluded ? color(EXCLUDED_STYLE.color) : peakColor);
@@ -415,6 +423,36 @@ const GSRRenderer = {
       const dy = my - btn.y;
       if (Math.sqrt(dx * dx + dy * dy) <= btn.r) {
         GSRUI.togglePeakExclusion(btn.idx);
+        return true;
+      }
+    }
+    return false;
+  },
+
+  /**
+   * Check if a canvas (mouseX, mouseY) click hits any peak dot or line on the graph.
+   * If so, focus/highlight the peak across all views and return true.
+   */
+  checkPeakClick(mx, my) {
+    const targets = AppState._peakClickTargets;
+    if (!targets || targets.length === 0) return false;
+    for (const target of targets) {
+      // Check hit for upper filtered circle
+      const dx1 = mx - target.x;
+      const dy1 = my - target.yFiltered;
+      const dist1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+
+      // Check hit for lower phasic circle
+      const dy2 = my - target.yPhasic;
+      const dist2 = Math.sqrt(dx1 * dx1 + dy2 * dy2);
+
+      // Check hit for vertical line (within 6px horizontally, and between the circles)
+      const isNearLine = Math.abs(mx - target.x) <= 6 &&
+                         my >= Math.min(target.yFiltered, target.yPhasic) - 6 &&
+                         my <= Math.max(target.yFiltered, target.yPhasic) + 6;
+
+      if (dist1 <= target.r || dist2 <= target.r || isNearLine) {
+        GSRUI.focusOnPeak(target.idx);
         return true;
       }
     }

@@ -64,6 +64,33 @@ const GSRUI = {
   },
 
   /**
+   * Handle real-time typing in label fields, updating the graph in real-time
+   * without destroying/recreating the active Leaflet map popups.
+   */
+  handleLiveLabelInput(idx, value, trackId) {
+    let peaksArr = GSRUI._getPeaksArray(trackId);
+    if (!peaksArr || idx >= peaksArr.length) return;
+    
+    // Update in-memory model (avoid trim during typing to allow trailing spaces)
+    peaksArr[idx].label = value;
+
+    // 1. Sync table input if it exists and is not the active typing element
+    const tableInput = document.querySelector(`.peak-label-input[data-peak-idx="${idx}"]`);
+    if (tableInput && tableInput.value !== value) {
+      tableInput.value = value;
+    }
+
+    // 2. Sync map popup input if it exists and is not the active typing element
+    const mapInput = document.querySelector('.peak-popup-label-input');
+    if (mapInput && mapInput.value !== value) {
+      mapInput.value = value;
+    }
+
+    // 3. Immediately redraw p5.js graph to show the label text updating
+    redraw();
+  },
+
+  /**
    * Zoom and highlight a specific peak event when user clicks a row in the peaks table.
    */
   focusOnPeak(idx) {
@@ -79,6 +106,19 @@ const GSRUI = {
     const row = document.getElementById('peakRow-' + idx);
     if (row) row.classList.add('active-row');
     redraw();
+
+    // Open map marker popup and expand map panel if collapsed
+    if (AppState.mapManager && AppState.mapManager.peakMarkers && AppState.mapManager.peakMarkers[idx]) {
+      const mapPanel = document.getElementById('mapPanel');
+      if (mapPanel && mapPanel.classList.contains('collapsed')) {
+        mapPanel.classList.remove('collapsed');
+      }
+      setTimeout(() => {
+        if (AppState.mapManager.peakMarkers[idx]) {
+          AppState.mapManager.peakMarkers[idx].openPopup();
+        }
+      }, 50);
+    }
   },
 
   /**
@@ -212,6 +252,7 @@ const GSRUI = {
           '<input class="peak-label-input" type="text" value="' + escapedLabel + '" ' +
             'placeholder="Add label…" data-peak-idx="' + idx + '" ' +
             'onclick="event.stopPropagation();" ' +
+            'oninput="GSRUI.handleLiveLabelInput(' + idx + ', this.value)" ' +
             'onchange="GSRUI.updatePeakLabel(' + idx + ', this.value)" ' +
             'onkeydown="if(event.key===\'Enter\') { GSRUI.updatePeakLabel(' + idx + ', this.value); this.blur(); }">' +
         '</td>' +
