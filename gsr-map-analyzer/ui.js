@@ -23,12 +23,11 @@ const GSRUI = {
    * Re-render the Leaflet map with current GPS filter parameters.
    */
   rerenderMap() {
-    if (!AppState.mapManager || !AppState.analyzer || AppState.analyzer.raw.length === 0) return;
-
-    // Save GPS params to the active track whenever GPS sliders change
-    GSRTrackManager.saveActiveGpsParams();
+    if (!AppState.mapManager) return;
 
     if (AppState.viewMode === 'single') {
+      if (!AppState.analyzer || AppState.analyzer.raw.length === 0) return;
+      GSRTrackManager.saveActiveGpsParams();
       AppState.mapManager.renderData(AppState.analyzer, GSRStorage.buildGpsParams());
     } else {
       GSRUI.updateCollectiveMap();
@@ -489,20 +488,21 @@ const GSRUI = {
    * Helper to refresh UI elements based on track enrichment state.
    */
   refreshOsmControls() {
-    const isSingleEnriched = AppState.analyzer && AppState.analyzer.isEnriched;
-    const anyCollectiveEnriched = (AppState.viewMode === 'collective')
-      && AppState.collectiveManager.getActiveTracks().some(t => t.analyzer && t.analyzer.isEnriched);
-    const isEnriched = isSingleEnriched || anyCollectiveEnriched;
+    const activeTracks = (AppState.viewMode === 'single')
+      ? (AppState.analyzer && AppState.analyzer.isEnriched ? [{ analyzer: AppState.analyzer }] : [])
+      : AppState.collectiveManager.getActiveTracks().filter(t => t.analyzer && t.analyzer.isEnriched);
+    const isEnriched = activeTracks.length > 0;
+
     const select = document.getElementById('mapColoringMetric');
     const btnToggleOsmShapes = document.getElementById('btnToggleOsmShapes');
     const envPanel = document.getElementById('environmentalPanel');
 
     if (isEnriched) {
-      // Enable OSM coloring options in map dropdown
       document.querySelectorAll('.osm-option').forEach(opt => opt.removeAttribute('disabled'));
       
-      // Show vector geometry toggle if cached geometries are available
-      if (AppState.analyzer.osmGeoms) {
+      const hasOsmGeoms = activeTracks.some(t => t.analyzer.osmGeoms);
+
+      if (hasOsmGeoms) {
         btnToggleOsmShapes.style.display = 'inline-block';
       } else {
         btnToggleOsmShapes.style.display = 'none';
@@ -510,18 +510,18 @@ const GSRUI = {
         if (AppState.mapManager) AppState.mapManager.clearOsmShapes();
       }
 
-      // Display Environmental analysis dashboard
       envPanel.style.display = 'block';
       
-      if (AppState.analyzer.enrichmentRadius) {
-        document.getElementById('osmRadius').value = AppState.analyzer.enrichmentRadius;
-        document.getElementById('valOsmRadius').innerText = AppState.analyzer.enrichmentRadius + ' m';
+      const firstEnriched = activeTracks.find(t => t.analyzer.enrichmentRadius);
+      const rad = firstEnriched ? firstEnriched.analyzer.enrichmentRadius : null;
+
+      if (rad) {
+        document.getElementById('osmRadius').value = rad;
+        document.getElementById('valOsmRadius').innerText = rad + ' m';
       }
 
-      // Update dashboard values
       GSRUI.updateEnvironmentalDashboard();
     } else {
-      // Reset map coloring dropdown to GSR Arousal and disable OSM ones
       document.querySelectorAll('.osm-option').forEach(opt => opt.setAttribute('disabled', 'true'));
       if (select) select.value = 'gsr';
       if (AppState.mapManager) {
@@ -530,8 +530,6 @@ const GSRUI = {
       }
       btnToggleOsmShapes.style.display = 'none';
       btnToggleOsmShapes.classList.remove('active');
-      
-      // Hide dashboard
       envPanel.style.display = 'none';
     }
   },
@@ -565,21 +563,13 @@ const GSRUI = {
     const snapRadius  = parseInt(document.getElementById('gpsSnapRadius')?.value) || 25;
     const maxRadius   = Math.max(radius, snapRadius);
 
-    // Calculate union bounding box for all tracks being enriched
-    let unionBBox = null;
+    // Calculate union bounding box by combining raw coords arrays
+    const combinedRaw = [];
     for (const t of tracksToEnrich) {
-      const bbox = OSMEnricher.calculateBBox(t.analyzer.raw, maxRadius + 50);
-      if (!bbox) continue;
-      if (!unionBBox) {
-        unionBBox = { ...bbox };
-      } else {
-        unionBBox.minLat = Math.min(unionBBox.minLat, bbox.minLat);
-        unionBBox.maxLat = Math.max(unionBBox.maxLat, bbox.maxLat);
-        unionBBox.minLon = Math.min(unionBBox.minLon, bbox.minLon);
-        unionBBox.maxLon = Math.max(unionBBox.maxLon, bbox.maxLon);
-      }
+      combinedRaw.push(...t.analyzer.raw);
     }
 
+    const unionBBox = OSMEnricher.calculateBBox(combinedRaw, maxRadius + 50);
     if (!unionBBox) {
       throw new Error("Could not calculate bounding box. Track coordinates may be invalid.");
     }
@@ -593,7 +583,6 @@ const GSRUI = {
     const allCached = !forceFetch && tracksToEnrich.every(t => t.analyzer.osmJson);
 
     if (allCached) {
-      // Silent instant local run — re-use cached OSM data for each track, no fetch
       try {
         const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? true;
         const snapIn = Math.max(8, Math.round(snapRadius / 2));
@@ -605,11 +594,11 @@ const GSRUI = {
         GSRUI.invalidateEnvironmentalCache();
         GSRUI.refreshOsmControls();
         GSRUI.rerenderMap();
+        return;
       } catch (err) {
         console.error('Local enrichment failed:', err);
         tracksToEnrich.forEach(t => t.analyzer.osmJson = null);
       }
-      if (tracksToEnrich.every(t => t.analyzer.osmJson)) return;
     }
 
     // Prevent re-entrant network calls

@@ -133,7 +133,7 @@ class GSRMapExporter {
   static _surface(ctx) {
     const { map, el, r, mgr } = ctx;
     const overlay = mgr.surfaceOverlay;
-    if (overlay && typeof overlay.getBounds === 'function') {
+    if (overlay) {
       try {
         const bounds = overlay.getBounds();
         const tl = map.latLngToContainerPoint(bounds.getNorthWest());
@@ -143,27 +143,22 @@ class GSRMapExporter {
         const w = br.x - tl.x;
         const h = br.y - tl.y;
 
-        const imgEl = el.querySelector('.leaflet-overlay-pane img.collective-surface-overlay');
-        if (imgEl) {
-          return [this._img(x, y, w, h, imgEl.src)];
+        const src = overlay._url || (overlay.getElement() ? overlay.getElement().src : null);
+        if (src) {
+          return [this._img(x, y, w, h, src)];
         }
       } catch (e) {
         console.warn("Mathematically aligned contour surface export failed, falling back to DOM bounds:", e);
       }
     }
 
-    const img = el.querySelector('.leaflet-overlay-pane img.collective-surface-overlay');
+    // Fallback: Query DOM directly using class selector
+    const img = el.querySelector('.collective-surface-overlay');
     if (img) {
       const b = img.getBoundingClientRect();
       return [this._img(b.left - r.left, b.top - r.top, b.width, b.height, img.src)];
     }
-    const canvas = el.querySelector('.leaflet-overlay-pane canvas');
-    if (canvas) {
-      try {
-        const b = canvas.getBoundingClientRect();
-        return [this._img(b.left - r.left, b.top - r.top, b.width, b.height, canvas.toDataURL('image/png'))];
-      } catch (e) { console.warn("Contour surface export failed:", e); }
-    }
+
     return [];
   }
 
