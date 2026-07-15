@@ -51,6 +51,27 @@ class GSRSpatialClustering {
   }
 
   /**
+   * Ray Casting Algorithm (Point-in-Polygon) to check if a lat/lon point lies inside a path boundary.
+   *
+   * @param {{lat: number, lon: number}} point - The point to test.
+   * @param {Array<{lat: number, lon: number}>} polygon - The polygon path vertices.
+   * @returns {boolean} True if the point is inside the polygon.
+   * @private
+   */
+  static _isPointInPolygon(point, polygon) {
+    const x = parseFloat(point.lon), y = parseFloat(point.lat);
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const xi = parseFloat(polygon[i].lon), yi = parseFloat(polygon[i].lat);
+      const xj = parseFloat(polygon[j].lon), yj = parseFloat(polygon[j].lat);
+      const intersect = ((yi > y) !== (yj > y)) &&
+        (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  /**
    * Group peaks into clusters based on proximity.
    * Any two peaks within `maxDistanceMeters` of each other will be in the same cluster.
    *
@@ -141,8 +162,9 @@ class GSRSpatialClustering {
     const latMid = (minLat + maxLat) / 2;
     const scale = GSRSpatialClustering._getGeodesicScale(latMid);
     
-    // Add padding to ensure the grid covers the entire field where density is non-trivial
-    const paddingMeters = rThreshold * 2.2;
+    // Calculate required padding dynamically to prevent superposition boundary clipping at grid edges
+    const peakCount = cluster.length;
+    const paddingMeters = Math.sqrt(rThreshold * rThreshold + 2 * s * s * Math.log(Math.max(1, peakCount))) + 15;
     const padLat = paddingMeters / scale.degToMeterLat;
     const padLon = paddingMeters / scale.degToMeterLon;
     
@@ -153,8 +175,8 @@ class GSRSpatialClustering {
       maxLon: maxLon + padLon
     };
 
-    const rows = 35;
-    const cols = 35;
+    const rows = 70;
+    const cols = 70;
     const grid = Array.from({ length: rows }, () => new Array(cols).fill(0));
 
     // Precompute row latitudes and column longitudes to avoid arithmetic inside nested loops
@@ -197,7 +219,13 @@ class GSRSpatialClustering {
     const segments = MarchingSquares.getContourLines(grid, rows, cols, bounds, isolevel);
     
     // Stitch segments into continuous paths
-    return GSRSpatialClustering.stitchSegments(segments);
+    const paths = GSRSpatialClustering.stitchSegments(segments);
+
+    // Filter out degenerate paths and empty islands (loops that contain no peak points)
+    return paths.filter(path => {
+      if (path.length < 3) return false;
+      return cluster.some(peak => GSRSpatialClustering._isPointInPolygon(peak, path));
+    });
   }
 
   /**

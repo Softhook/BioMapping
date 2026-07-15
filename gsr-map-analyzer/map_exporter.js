@@ -43,7 +43,7 @@ class GSRMapExporter {
     const { map, el, r, mgr } = ctx;
     return {
       tiles:          await this._tiles(el, r),
-      surface:        this._surface(el, r),
+      surface:        this._surface(ctx),
       osm:            this._vectors(map, mgr.osmLayers),
       tracks:         this._vectors(map, [...mgr.pathSegments, ...mgr.collectivePathSegments]),
       contours:       this._vectors(map, mgr.contourLayers),
@@ -130,7 +130,28 @@ class GSRMapExporter {
   //  Surface
   // ═══════════════════════════════════════════════════════════════════
 
-  static _surface(el, r) {
+  static _surface(ctx) {
+    const { map, el, r, mgr } = ctx;
+    const overlay = mgr.surfaceOverlay;
+    if (overlay && typeof overlay.getBounds === 'function') {
+      try {
+        const bounds = overlay.getBounds();
+        const tl = map.latLngToContainerPoint(bounds.getNorthWest());
+        const br = map.latLngToContainerPoint(bounds.getSouthEast());
+        const x = tl.x;
+        const y = tl.y;
+        const w = br.x - tl.x;
+        const h = br.y - tl.y;
+
+        const imgEl = el.querySelector('.leaflet-overlay-pane img.collective-surface-overlay');
+        if (imgEl) {
+          return [this._img(x, y, w, h, imgEl.src)];
+        }
+      } catch (e) {
+        console.warn("Mathematically aligned contour surface export failed, falling back to DOM bounds:", e);
+      }
+    }
+
     const img = el.querySelector('.leaflet-overlay-pane img.collective-surface-overlay');
     if (img) {
       const b = img.getBoundingClientRect();
