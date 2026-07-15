@@ -894,6 +894,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
   min-width: 90px;
   outline: none;
   transition: border-color 0.15s ease;
+  resize: none;
+  overflow-y: hidden;
+  box-sizing: border-box;
+  min-height: 26px;
+  line-height: 1.2;
 }
 
 .peak-label-input:focus {
@@ -1009,6 +1014,10 @@ input[type="range"]::-webkit-slider-thumb:hover {
   word-break: break-word;
   overflow-wrap: break-word;
   outline: none;
+  resize: none;
+  overflow-y: hidden;
+  min-height: 28px;
+  line-height: 1.3;
 }
 
 .popup-label-input:focus {

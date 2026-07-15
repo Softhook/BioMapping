@@ -78,12 +78,16 @@ const GSRUI = {
     const tableInput = document.querySelector(`.peak-label-input[data-peak-idx="${idx}"]`);
     if (tableInput && tableInput.value !== value) {
       tableInput.value = value;
+      tableInput.style.height = 'auto';
+      tableInput.style.height = tableInput.scrollHeight + 'px';
     }
 
     // 2. Sync map popup input if it exists and is not the active typing element
     const mapInput = document.querySelector('.peak-popup-label-input');
     if (mapInput && mapInput.value !== value) {
       mapInput.value = value;
+      mapInput.style.height = 'auto';
+      mapInput.style.height = mapInput.scrollHeight + 'px';
     }
 
     // 3. Immediately redraw p5.js graph to show the label text updating
@@ -269,12 +273,14 @@ const GSRUI = {
       rowsHtml += '<tr id="peakRow-' + idx + '" ' + rowAttr + ' onclick="GSRUI.focusOnPeak(' + idx + ', \'table\')">' +
         '<td>' + (idx + 1) + '</td>' +
         '<td class="label-cell">' +
-          '<input class="peak-label-input" type="text" value="' + escapedLabel + '" ' +
+          '<textarea class="peak-label-input" rows="1" ' +
             'placeholder="Add label…" data-peak-idx="' + idx + '" ' +
             'onclick="event.stopPropagation();" ' +
-            'oninput="GSRUI.handleLiveLabelInput(' + idx + ', this.value)" ' +
+            'oninput="GSRUI.handleLiveLabelInput(' + idx + ', this.value); this.style.height=\'auto\'; this.style.height=this.scrollHeight+\'px\';" ' +
             'onchange="GSRUI.updatePeakLabel(' + idx + ', this.value)" ' +
-            'onkeydown="if(event.key===\'Enter\') { GSRUI.updatePeakLabel(' + idx + ', this.value); this.blur(); }">' +
+            'onkeydown="if(event.key===\'Enter\') { event.preventDefault(); GSRUI.updatePeakLabel(' + idx + ', this.value); this.blur(); }">' +
+            escapedLabel +
+          '</textarea>' +
         '</td>' +
         '<td>' + p.onsetTime.toFixed(2) + '</td>' +
         '<td>' + p.time.toFixed(2) + '</td>' +
@@ -297,6 +303,14 @@ const GSRUI = {
     });
 
     tb.innerHTML = rowsHtml;
+
+    // Auto-size all rendered textareas
+    setTimeout(() => {
+      tb.querySelectorAll('.peak-label-input').forEach(ta => {
+        ta.style.height = 'auto';
+        ta.style.height = ta.scrollHeight + 'px';
+      });
+    }, 0);
   },
 
   /**

@@ -605,10 +605,16 @@ class GSRMapManager {
     const trLabel = L.DomUtil.create('tr', '', table);
     L.DomUtil.create('td', '', trLabel).textContent = 'Label:';
     const tdLabel2 = L.DomUtil.create('td', '', trLabel);
-    const input = L.DomUtil.create('input', 'popup-label-input peak-popup-label-input', tdLabel2);
-    input.type = 'text';
+    const input = L.DomUtil.create('textarea', 'popup-label-input peak-popup-label-input', tdLabel2);
+    input.rows = 1;
     input.value = displayLabel;
     input.placeholder = 'Enter label…';
+
+    // Auto-size on render
+    setTimeout(() => {
+      input.style.height = 'auto';
+      input.style.height = input.scrollHeight + 'px';
+    }, 0);
 
     // --- Date row ---
     const trDate = L.DomUtil.create('tr', '', table);
@@ -642,10 +648,18 @@ class GSRMapManager {
       : '<i class="fa-solid fa-xmark"></i>';
 
     // --- Event handlers ---
-    L.DomEvent.on(input, 'input', () => GSRUI.handleLiveLabelInput(index, input.value, trackId));
+    L.DomEvent.on(input, 'input', () => {
+      input.style.height = 'auto';
+      input.style.height = input.scrollHeight + 'px';
+      GSRUI.handleLiveLabelInput(index, input.value, trackId);
+    });
     L.DomEvent.on(input, 'change', () => GSRUI.updatePeakLabel(index, input.value, trackId));
     L.DomEvent.on(input, 'keydown', (e) => {
-      if (e.key === 'Enter') { GSRUI.updatePeakLabel(index, input.value, trackId); input.blur(); }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        GSRUI.updatePeakLabel(index, input.value, trackId);
+        input.blur();
+      }
     });
     L.DomEvent.disableClickPropagation(input);
 
