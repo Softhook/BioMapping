@@ -18,8 +18,8 @@ bool        sd_logger_start(SdLogger* logger, const char* header);
 void        sd_logger_stop(SdLogger* logger);
 
 // GSR batch write API — accumulate formatted rows in memory and flush
-// to SD in a single storage_file_write at the 1‑second boundary.
-// The internal buffer (1024 bytes) holds 10 rows at any GPS rate.
+// to SD in a single storage_file_write every FLUSH_INTERVAL seconds.
+// The internal buffer (4096 bytes) holds up to 50 rows at the 10 Hz rate.
 //   sd_logger_batch_append  — append a pre-formatted row (returns false on overflow)
 //   sd_logger_batch_printf  — format a row directly into the batch buffer (no
 //                             intermediate stack buffer).  Returns bytes written

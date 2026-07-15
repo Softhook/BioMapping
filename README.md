@@ -15,7 +15,7 @@ The firmware supports two GPS modules, selected at compile time via `GPS_MODULE`
 * **Quectel L76K** (`GPS_MODULE_L76K`, the current compile-time default) — external U.FL antenna, up to 5 Hz update rate, PCAS protocol
 * **u-blox SAM-M10Q** (`GPS_MODULE_M10Q`, recommended upgrade) — integrated patch antenna, up to 10 Hz update rate, Software Standby power saving, AssistNow autonomous orbit prediction
 
-See [`gps_transition_review.md`](gps_transition_review.md) for the full M10Q implementation reference.
+See [`m10q_capabilities.md`](docs/m10q_capabilities.md) for the full M10Q implementation reference.
 
 ---
 
@@ -51,7 +51,7 @@ If using the L76K shield: the two copper traces connecting **Pin 15 (PC1)** and 
 * Pin 16 (PC0) — **no longer connected to GPS** → used for I2C **SCL**
 
 ### Phase 2: GPS Hardware Reroute
-**SAM-M10Q:** No additional wiring needed beyond UART TX/RX and 3.3V/GND. The M10Q supports Software Standby (~46 µA) via UBX command — no dedicated STANDBY or RESET wires required. Wake-up is triggered by a falling edge on the UART RX pin. See [`gps_transition_review.md`](gps_transition_review.md) Section 9 for the sleep/wake protocol.
+**SAM-M10Q:** No additional wiring needed beyond UART TX/RX and 3.3V/GND. The M10Q supports Software Standby (~46 µA) via UBX command — no dedicated STANDBY or RESET wires required. Wake-up is triggered by a falling edge on the UART RX pin. See [`m10q_capabilities.md`](docs/m10q_capabilities.md#53-software-standby-power-management--wake-up) for the sleep/wake protocol.
 
 **L76K (legacy):** No additional wiring needed. The L76K cannot be put to sleep via software, so no STANDBY or RESET wires need to be soldered. The GPS runs continuously. Software reset commands are available over UART for error recovery — see **Section 4a**.
 
@@ -249,7 +249,7 @@ Each row is a point reading of skin conductance in nanosiemens at 10 Hz. This re
 
 The GPS module can be reset via a software hot-start command to recover from stale or frozen data.
 
-**SAM-M10Q (UBX protocol):** Sends a binary `UBX-CFG-RST` packet over UART at 115200 baud. This performs a controlled GNSS-only reset without affecting the Flipper interface. See [`gps_transition_review.md`](gps_transition_review.md) Section 4 packet 7 for the full hex packet.
+**SAM-M10Q (UBX protocol):** Sends a binary `UBX-CFG-RST` packet over UART at 115200 baud. This performs a controlled GNSS-only reset without affecting the Flipper interface. See [`m10q_capabilities.md`](docs/m10q_capabilities.md#52-binary-configuration-packets-ubx-protocol) item 7 for the full hex packet.
 
 ```c
 // M10Q hot start — binary UBX-CFG-RST packet

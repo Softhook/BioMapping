@@ -61,3 +61,53 @@ Since the SparkFun breakout does not have a USB-C port, you don't need a separat
 3. Select **USART1** (matching your pins 13/14) and set the baud rate to **9600** (or 115200 once configured).
 4. Plug the Flipper into your PC via a USB cable.
 5. Launch **u-center / u-center2** on your computer, select the Flipper's virtual COM port, and you will have full access to configure the M10's internal flash memory, save settings, and test firmware.
+
+---
+
+## 5. Technical Configuration & Standby Protocol (Firmware Integration Reference)
+
+This section documents the low-level serial configuration, binary UBX configuration packets, and sleep/wake power management protocols utilized by the Flipper firmware to communicate with the SAM-M10Q module.
+
+### 5.1 Serial Configuration & Baud Rate Switching
+The SAM-M10Q module boots at a default speed of **9600 bps**. To handle 10 Hz high-rate updates, the firmware switches both the module and the Flipper Zero's USART1 interface to **115200 bps** during initialization:
+1. The Flipper sends the u-blox NMEA proprietary baud-switch command at 9600 bps:
+   ```
+   $PUBX,41,1,0007,0002,115200,0*19\r\n
+   ```
+   *   `portID=1` (UART1)
+   *   `inProtMask=0007` (NMEA+UBX+RTCM input — allows subsequent binary UBX config packets)
+   *   `outProtMask=0002` (NMEA output only — **do not use `0001`** which would disable all NMEA output and prevent parsing)
+   *   Checksum: `*19`
+2. The Flipper waits for **300 ms** to ensure the command is fully transmitted over the serial line.
+3. The Flipper reconfigures its internal USART1 interface to 115200 bps, flushes the RX stream, and starts the asynchronous receiver.
+
+### 5.2 Binary Configuration Packets (UBX Protocol)
+Once communicating at 115200 bps, the firmware configures the module by sending the following binary packets. Each packet contains the `B5 62` sync header, Class/ID, Length, Payload, and Fletcher-8 checksum:
+
+1.  **Set Update Rate to 10 Hz (`UBX-CFG-RATE`)**: Sets measurement period to 100 ms.
+    *   *Hex*: `B5 62 06 08 06 00 64 00 01 00 01 00 7A 12`
+2.  **Disable NMEA GLL (`UBX-CFG-MSG`)**:
+    *   *Hex*: `B5 62 06 01 03 00 F0 01 00 FB 11`
+3.  **Disable NMEA VTG (`UBX-CFG-MSG`)**:
+    *   *Hex*: `B5 62 06 01 03 00 F0 05 00 FF 19`
+4.  **Throttle NMEA GSV to 1 Hz (`UBX-CFG-MSG`)**: Reduces overhead by only sending satellite detail once per second.
+    *   *Hex*: `B5 62 06 01 03 00 F0 03 0A 07 1F`
+5.  **Enable AssistNow Autonomous (`UBX-CFG-VALSET`)**: Activates self-contained background orbit prediction in the module's RAM, dropping cold-start TTFF to ~4 seconds on subsequent warm boots.
+    *   *Hex*: `B5 62 06 8A 09 00 00 01 00 00 01 00 23 10 01 CF C0`
+6.  **Set Platform Model to Pedestrian (`UBX-CFG-NAV5`)**: Optimizes the positioning engine for walking speeds.
+    *   *Hex*: `B5 62 06 24 28 00 01 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 56 3E`
+7.  **Hot Start Reset (`UBX-CFG-RST`)**: Controlled GNSS-only reset for error recovery.
+    *   *Hex*: `B5 62 06 04 04 00 00 00 02 00 10 68`
+8.  **Software Standby (`UBX-RXM-PMREQ`)**: Puts the module into low-power sleep (~46 µA) when inactive.
+    *   *Hex*: `B5 62 02 41 10 00 00 00 00 00 00 00 00 00 02 00 00 00 01 00 00 00 56 2F`
+
+### 5.3 Software Standby Power Management & Wake-up
+To conserve battery, the module is placed in Software Standby when location services are inactive (e.g. during a GSR-only session):
+*   **Sleep Path (`gps_uart_free`)**: The firmware transmits the `UBX-RXM-PMREQ` standby packet (detailed above), forcing immediate sleep.
+*   **Wake-Up Path (`gps_uart_alloc`)**: To wake the module, the Flipper transmits a dummy `0xFF` byte at 9600 bps. The falling edge on the module's UART RX pin triggers a hardware wake-up.
+*   **GSR-Only Mode**: The session manager allocations briefly initialize and immediately release the GPS handle, sending the module directly into standby for the session duration.
+
+### 5.4 Galileo Constellation Offset Mapping
+To prevent multi-constellation sat data collisions in the elevation tables:
+*   Galileo `system_id == 3` GSA frames are explicitly mapped to the `GA` talker ID.
+*   The `GA` talker is mapped to a PRN offset of `+350` in `gps_get_constellation_offset()`, storing Galileo PRNs 1–36 at array indices 351–386, clear of other bands.
