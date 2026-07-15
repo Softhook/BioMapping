@@ -212,9 +212,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         canvas_draw_box(c, 118, 1, 8, 8);
     }
 
-    // GPS quality badge — GPS+GSR mode only (top-right, before recording indicator).
-    // Shows the HDOP and PDOP values so the user can judge signal quality at a glance.
-    // Rendered even when finger cuffs are disconnected.
+    // GPS quality badge — GPS+GSR mode only, top-left
     if(a->session.mode == BioMapModeGpsGsr && a->session.gps) {
         GpsStatus g = gps_uart_get_status(a->session.gps);
         bool has_fix = gps_has_fix(&g);
@@ -236,8 +234,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                      (double)g.hdop, pbuf);
         }
         canvas_set_font(c, FontSecondary);
-        int right_x = a->session.recording.active ? 115 : 126;
-        canvas_draw_str(c, right_x - canvas_string_width(c, badge), 10, badge);
+        canvas_draw_str(c, 1, 10, badge);
     }
 
     // ── Diagnostics: GSR only, 5 labeled lines ─────────────────────────
@@ -289,6 +286,12 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                         }
                         canvas_draw_str(c, 1, 10, buf);
                         // nS value — top-right
+                        snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.display.filtered_ns);
+                        int x = 128 - canvas_string_width(c, buf) - (a->session.recording.active ? 12 : 2);
+                        canvas_draw_str(c, x, 10, buf);
+                    } else if(a->session.mode == BioMapModeGpsGsr) {
+                        // nS value — top-right (GPS badge already at top-left)
+                        char buf[16];
                         snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.display.filtered_ns);
                         int x = 128 - canvas_string_width(c, buf) - (a->session.recording.active ? 12 : 2);
                         canvas_draw_str(c, x, 10, buf);
