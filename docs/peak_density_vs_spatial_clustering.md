@@ -1,6 +1,6 @@
 # Literature-Backed Psychophysiological Metrics: Scientific Guide & Research Goals
 
-This document details the scientific rationale, mathematical definitions, core challenges solved, AI/ML enhancement models, and visualization integrations for advanced physiological analysis in the BioMapping system.
+This document details the scientific rationale, mathematical definitions, core challenges solved, AI/ML enhancement models, Flipper Zero hardware integrations, urban EMF precedents, and visualization blueprints for advanced physiological analysis in the BioMapping system.
 
 ---
 
@@ -104,7 +104,106 @@ To scale BioMapping from an exploratory visualization dashboard to a rigorous pr
 
 ---
 
-## 6. Integration Blueprint for Visualizer Features
+## 6. Flipper Zero Hardware Enhancements & Sensor Integration
+
+Because the BioMapping logging firmware runs natively as a Flipper Zero Application Package (FAP), we can leverage the Flipper's unique hardware transceiver capabilities to expand environmental data collection beyond basic GPS and skin conductance.
+
+```
+                  ┌──────────────────────────────────────┐
+                  │          Flipper Zero Core           │
+                  └──────┬────────────┬───────────┬──────┘
+                         │            │           │
+                 Sub-GHz │        NFC │      GPIO │
+              CC1101 RX  │     Reader │      Pins │
+     ┌───────────────────▼─┐  ┌───────▼───┐  ┌────▼──────────────┐
+     │  Smart City Meters  │  │ Checkpoint│  │ Decibel / PM2.5   │
+     │  & Ambient RF Pings │  │ NFC Tags  │  │ Air Quality Board │
+     └─────────────────────┘  └───────────┘  └───────────────────┘
+```
+
+### A. Ambient Electromagnetic Pollution Mapping (Sub-GHz CC1101)
+* **Hardware Integration:** Configure the Flipper's Sub-1 GHz transceiver (CC1101) to run in a low-power packet sniffer mode.
+* **Data Logged:** Count the density of sub-GHz transmissions (e.g., 433 MHz car keyfobs, 868/915 MHz smart utility meters, weather station pings, wireless doorbells) per second. Log this as a `subghz_rssi_density` column.
+* **Research Value:** Correlate ambient RF congestion and invisible electromagnetic activity with tonic arousal to study if high RF congestion acts as a subconscious stressor or indicates high-density human activity.
+* **Telemetry Option:** Use the CC1101 transceiver to transmit the participant's real-time GSR levels to a base station, enabling live tracking during outdoor training or wilderness search-and-rescue.
+
+### B. Physical Landmark Checkpoints (NFC / RFID Reader)
+* **Hardware Integration:** Keep the Flipper's NFC (13.56 MHz) or RFID (125 kHz) reader module listening in the background during a session.
+* **Data Logged:** Place NFC tags at major landmarks (e.g., entrance to a park, a specific street crossing). When the user taps the Flipper against the tag, log a `checkpoint_id` and timestamp in the CSV.
+* **Research Value:** Provides high-fidelity, user-initiated checkpoint annotations directly in the tracking log. This establishes clean ground-truth boundaries for pre/post-intervention stress analysis (e.g., comparing stress strictly *inside* the park boundaries vs. *outside*).
+
+### C. Public Infrastructure IR Sniffing (Infrared Receiver)
+* **Hardware Integration:** Bind the Flipper's front-facing Infrared (IR) photodiode receiver to monitor ambient IR traffic.
+* **Data Logged:** Log flashes or carrier frequencies from public pedestrian crossing lights, speed cameras, transit gates, or digital billboards as an `ir_signal_count` field.
+* **Research Value:** Maps active automated city infrastructure. Correlates human stress directly with regions of dense infrastructure monitoring and automated surveillance signals.
+
+### D. Multi-Sensor Environmental Expansion (GPIO Interface)
+* **Hardware Integration:** The Flipper's 18 GPIO pin headers interface via SPI, I2C, UART, or ADC.
+* **Data Logged:** Wire an external **PM2.5/PM10 particulate air sensor** (via UART) and an **analog decibel microphone module** (via ADC) to the Flipper GPIO ports alongside the GSR ADC pin and GPS UART pin.
+* **Research Value:** Logs a fully synchronized multi-parameter environmental file (Skin Conductance + GPS Coordinates + Decibel Noise levels + Air Quality). This allows the visualizer to plot decibels vs. GSR directly, isolating acoustic-induced arousal spikes from other stressors.
+
+### E. The Electromagnetic Fog Index (EMF-I)
+* **Hardware Sweep Mechanism:** Configure the CC1101 in the Flipper firmware to perform a fast, sequential sweep across the four primary sub-GHz ISM bands every 100 milliseconds (matching our 10 Hz recording rate):
+  1. **315 MHz** (garage doors, keyfobs, home security)
+  2. **433.92 MHz** (wireless weather sensors, doorbells)
+  3. **868.3 MHz** (European smart city meters, mesh lights)
+  4. **915 MHz** (US smart utility meters, RFID trackers)
+  
+  The sweep takes approximately 30 milliseconds (7.5 ms per band to allow PLL frequency lock and RSSI stabilization), leaving the remaining 70 ms of the cycle for writing the log to SD and updating the local LCD.
+* **Mathematical Calculation:** Convert the logarithmic RSSI readings (ranging from $-100\text{ dBm}$ [silence] to $-30\text{ dBm}$ [heavy saturation]) to a normalized scale from 0.0 to 1.0:
+  $$P_{\text{band}} = \text{clamp}\left( \frac{RSSI_{\text{band}} - (-100)}{-30 - (-100)}, \, 0.0, \, 1.0 \right)$$
+  Combine these normalized powers using a Root-Mean-Square (RMS) formula to emphasize localized saturation peaks in any single band, and scale to 100:
+  $$\text{EM-Fog}(t) = \sqrt{\frac{P_{315}^2 + P_{433}^2 + P_{868}^2 + P_{915}^2}{4}} \times 100$$
+* **Logged Fields (CSV Schema):**
+  * `subghz_em_fog`: Calculated composite EMF-I (0–100).
+  * `rssi_315`, `rssi_433`, `rssi_868`, `rssi_915`: Raw RSSI readings preserved in dBm for downstream analysis.
+* **Predictive Urban Signatures:**
+  * *Suburban/Residential:* Frequent ASK/OOK packet bursts with mid-range RSSI ($-70\text{ to } -80\text{ dBm}$) due to smart doorbells and weather sensors.
+  * *Commercial High Streets:* Sustained high RSSI ($-50\text{ to } -65\text{ dBm}$) on 915/868 MHz from mesh smart streetlights and RFID inventory systems.
+  * *Parks & Nature Trails (Radio Silence):* Drop to thermal noise floor ($-95\text{ to } -105\text{ dBm}$) with zero packet bursts, matching parasympathetic restoration.
+* **Visualization Integration:**
+  * *Map Overlay (Volumetric Glow):* Render the `em_fog` metric on the Leaflet map as a translucent, glowing purple/violet heatmap overlay, showing the physical boundaries of the "electromagnetic fog" shifting across the urban grid.
+  * *Waveform Scrubber:* Add the EM-Fog curve to the visualizer timeline, showing in real-time how the participant's tonic skin conductance reacted as they stepped into a saturated RF field.
+* **Research Goal:** Standardize ambient RF background noise into a single continuous metric (`em_fog`) logged directly in the CSV. Plot this curve in the visualizer and correlate it against physiological stress to analyze if "electromagnetic fog" acts as a subconscious stress trigger in urban areas.
+* **EM-Fog as a High-Fidelity Proxy for Built Density:** In urban planning studies, the EM-Fog Index serves as a reliable **surrogate marker for built density, commercial activity, and pedestrian/vehicle volumes.** Areas with high EM-Fog inherently overlap with regions of high acoustic decibels, low sky-view factors, and intense visual complexity. Thus, even when controlling for direct biophysical RF interactions, the index acts as a powerful composite indicator of environmental sensory overload.
+
+### F. Practical Firmware Implementation Details & SDK API Integration
+Integrating the Electromagnetic Fog Index into the current Flipper Zero C application is highly straightforward due to the clean abstraction of the Flipper's Hardware Abstraction Layer (`furi_hal_subghz` APIs).
+
+#### 1. Hardware Abstraction Layer Access
+The Flipper SDK provides direct, hardware-supported functions for manipulating the TI CC1101 transceiver:
+* `furi_hal_subghz_init()`: Configures the SPI interface and powers on the transceiver.
+* `furi_hal_subghz_sleep()`: Powers down the transceiver (putting CC1101 into low-power SPWD mode, drawing $<1\ \mu\text{A}$).
+* `furi_hal_subghz_tune(frequency)`: Sweeps the local frequency synthesizer.
+* `furi_hal_subghz_rx_enable()`: Enables the LNA and receiver.
+* `furi_hal_subghz_get_rssi()`: Direct read of the CC1101's internal RSSI status register (converts register value directly to signed dBm).
+
+#### 2. Loop Execution & Thread Scheduling
+The BioMapping session thread (`biomap_session.c`) runs a periodic loop triggered by a hardware-backed timer at 10 Hz (`TICK_HZ=10`). 
+* **Non-Blocking Sweep:** The 30 ms sweep does not freeze the Flipper. We execute `furi_delay_ms(5)` during frequency locks. Because the Flipper runs on **FreeRTOS**, calling `furi_delay_ms` yields execution, allowing the CPU to schedule other critical background tasks (such as GPS NMEA UART buffer flushing and GUI thread drawing) while the logging thread waits.
+* **Power Conservation Scheme:** Continuous radio listening draws $\approx 18\text{ mA}$. To prevent draining the Flipper's battery, we implement a duty-cycled power scheme:
+  * **0ms - 30ms:** Wake the radio, tune and sweep RSSI across the 4 bands.
+  * **30ms - 100ms:** Call `furi_hal_subghz_rx_disable()` and `furi_hal_subghz_sleep()`.
+  This duty cycle restricts active power consumption to only $30\%$ of the cycle, reducing the battery footprint of the Sub-GHz sniffer by **$70\%$** and preserving single-charge operation for full-day field walks.
+
+---
+
+## 7. Precedents in Urban EMF Mapping
+
+Mapping ambient electromagnetic fields in cities has emerged as an active area of research in environmental epidemiology and smart city cartography:
+
+* **Mobile Urban EMF Auditing (Basel, Ghent, Brussels):**
+  * *Urbinello et al. (2014) & Senn et al. (2015):* Researchers equipped participants with portable RF exposure meters (exposimeters) and GPS trackers to map radiofrequency radiation across different microenvironments. They walked and cycled standardized city routes, producing spatial exposure maps showing that **public transport vehicles and commercial pedestrian corridors** had the highest exposure levels, while municipal parks and suburban buffer zones had the lowest.
+* **Mobile Scanner Integration (Aerts et al., 2016):**
+  * Developed vehicular and bicycle-mounted RF logging systems, proving that high-frequency spatial variation in cities is extremely local (fluctuating sharply within 10–20 meters based on line-of-sight to local emitters). This reinforces the value of Flipper-scale localized micro-antenna logging over macro-scale regional simulation maps.
+* **WiFi and RF Art Collaborations (Digital Ethereal, 2014):**
+  * Creative cartography projects mapped the visual "ghosts" of public and private wireless networks in urban spaces using long-exposure photography and custom RF-intensity light sticks, demonstrating that mapping invisible wireless signals dramatically changes how citizens perceive and interact with public spaces.
+* **Autonomic Responses to Perceived Exposure:**
+  * *Rubin et al. (2005) & Andrianome et al. (2016):* Double-blind provocation tests on self-reported Electromagnetic Hypersensitivity (EHS) subjects showed that while individuals could not physically detect active RF fields, their **GSR and heart rate spiked significantly when they believed exposure was present** (the nocebo effect). This indicates that the cognitive perception of high-technology zones serves as a strong psychological driver of ANS arousal, making spatialized EMF maps a valuable tool for behavioral geography.
+
+---
+
+## 8. Integration Blueprint for Visualizer Features
 
 ### Feature A: Lower Graph Selector (Timeline Panel)
 * **Concept:** Expose a dropdown in the p5.js canvas header to switch the lower graph's rendering.

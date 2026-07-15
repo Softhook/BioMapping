@@ -1,5 +1,11 @@
 Todo
 
-real time bluetooth data on the laptop
+build next prototype with M10Q
+
+Add Electro Magnetic Fog data
+
+Consider other GSR imrpoovments
+
+Send real time data to mobile phone / laptop - upload to server
 
 physical form factor - external GPS antenna?
