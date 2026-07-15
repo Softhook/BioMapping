@@ -18,4 +18,5 @@ typedef enum {
     BioMapModeGpsGsr = 0,  // Both GPS and GSR enabled
     BioMapModeGpsOnly,     // GPS track recorder, no biometrics
     BioMapModeGsrOnly,     // GSR waveform viewer, no location
+    BioMapModeDiagnostics, // GSR diagnostics — raw counts, no graph
 } BioMapMode;

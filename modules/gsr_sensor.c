@@ -95,9 +95,13 @@ struct GsrSensor {
     uint8_t pga_index;  // active PGA setting (0 … ADS_PGA_MAX)
     uint8_t low_count;  // consecutive ticks below ADS_LOW_THRESH
     uint8_t zero_count; // consecutive ticks with raw == 0.0f
+    int8_t  pga_locked; // -1 = autoranging; 0–5 = fixed PGA (diagnostic lock)
     bool    cal_active; // true when custom calibration is active
     float   cal_gain;   // linear calibration gain factor (default 1.0)
     float   cal_offset; // linear calibration offset in counts (default 0.0)
+    int32_t tick_last_norm; // raw normalized count at tick's last-summed index
+                             // (snapshotted during tick, used by get_raw_sample_ns)
+    int32_t tick_mean_norm; // 100-sample mean normalized count (pre-TIA)
 
     FuriThread* thread;
     FuriMutex*  mutex;
@@ -219,6 +223,7 @@ GsrSensor* gsr_sensor_alloc(void) {
     gsr->connected = true;
     gsr->i2c_working = true;
     gsr->zero_count = 0;
+    gsr->pga_locked = -1;  // autoranging enabled by default
     gsr->cal_active = false;
     gsr->cal_gain = 1.0f;
     gsr->cal_offset = 0.0f;
@@ -313,6 +318,50 @@ float gsr_sensor_get_raw(const GsrSensor* gsr) {
     return val;
 }
 
+// ── Single-sample raw → nS (no decimation, no autoranging, no calibration) ──
+// Uses the normalized count snapshotted by tick() from the same buffer
+// position as the 100-sample window's most recent entry.  This guarantees
+// the raw sample and the filtered mean use the exact same underlying data.
+float gsr_sensor_get_raw_sample_ns(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return 0.0f;
+
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    int32_t norm = gsr->tick_last_norm;
+    furi_mutex_release(gsr->mutex);
+
+    if(norm <= 0) return 0.0f;
+    if(norm > 319000) norm = 319000;
+    float num = (float)norm * 5000000.0f;
+    float den = 15040000.0f - (float)norm * 47.0f;
+    return num / den;
+}
+
+int32_t gsr_sensor_get_raw_sample_count(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return 0;
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    int32_t val = gsr->tick_last_norm;
+    furi_mutex_release(gsr->mutex);
+    return val;
+}
+
+int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return 0;
+    // tick_mean_norm is written by tick() on the same thread — no mutex needed
+    return gsr->tick_mean_norm;
+}
+
+uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return ADS_PGA_DEFAULT;
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    uint8_t val = gsr->pga_index;
+    furi_mutex_release(gsr->mutex);
+    return val;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Oversampling & Filtering
 //
@@ -343,14 +392,18 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // ── Step 1: sum the most recent 100 samples directly from the ring
     // buffer (100 ms window).  No intermediate array — the simple mean
     // doesn't need sorting, so one pass is enough.
+    // Also snapshot the single most-recent count for get_raw_sample_ns().
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     uint32_t r_idx = gsr->write_idx;
     int64_t sum = 0;
     for(int i = 0; i < 100; i++) {
         r_idx = (r_idx - 1) & (SENSOR_BUFFER_SIZE - 1);
-        sum += gsr->buffer[r_idx];
+        int32_t v = gsr->buffer[r_idx];
+        sum += v;
+        if(i == 0) gsr->tick_last_norm = v;  // snapshot for raw-sample compare
     }
     uint8_t old_pga = gsr->pga_index;
+    int8_t  locked   = gsr->pga_locked;
     bool active = gsr->cal_active;
     float gain = gsr->cal_gain;
     float offset = gsr->cal_offset;
@@ -358,24 +411,30 @@ void gsr_sensor_tick(GsrSensor* gsr) {
 
     // ── Step 2: simple mean. Effective ~8.7× noise reduction.
     float avg_norm = (float)sum / 100.0f;
+    gsr->tick_mean_norm = (int32_t)avg_norm;  // snapshot for diagnostics
 
     // ── Step 3: autoranging decision on the RAW (uncalibrated) value.
     // Calibration is applied in the nS domain after TIA conversion —
     // applying it here would skew the PGA switching thresholds.
-    int32_t hw_equiv = (int32_t)(avg_norm / (float)NORM_FACTOR[old_pga]);
-    int32_t abs_hw_equiv = (hw_equiv < 0) ? -hw_equiv : hw_equiv;
+    // When pga_locked >= 0, autoranging is suppressed — PGA stays fixed.
     uint8_t new_pga = old_pga;
+    if(locked < 0) {
+        int32_t hw_equiv = (int32_t)(avg_norm / (float)NORM_FACTOR[old_pga]);
+        int32_t abs_hw_equiv = (hw_equiv < 0) ? -hw_equiv : hw_equiv;
 
-    if(abs_hw_equiv >= ADS_SATURATE_THRESH && new_pga > ADS_PGA_MIN) {
-        new_pga--;
-        gsr->low_count = 0;
-    } else if(abs_hw_equiv < ADS_LOW_THRESH && new_pga < ADS_PGA_MAX) {
-        if(++gsr->low_count >= ADS_LOW_COUNT_TICKS) {
-            new_pga++;
+        if(abs_hw_equiv >= ADS_SATURATE_THRESH && new_pga > ADS_PGA_MIN) {
+            new_pga--;
+            gsr->low_count = 0;
+        } else if(abs_hw_equiv < ADS_LOW_THRESH && new_pga < ADS_PGA_MAX) {
+            if(++gsr->low_count >= ADS_LOW_COUNT_TICKS) {
+                new_pga++;
+                gsr->low_count = 0;
+            }
+        } else {
             gsr->low_count = 0;
         }
-    } else {
-        gsr->low_count = 0;
+    } else if((uint8_t)locked != old_pga) {
+        new_pga = (uint8_t)locked;
     }
 
     bool pga_update = false;
@@ -429,5 +488,22 @@ void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float o
     gsr->cal_active = active;
     gsr->cal_gain = gain;
     gsr->cal_offset = offset;
+    furi_mutex_release(gsr->mutex);
+}
+
+void gsr_sensor_lock_pga(GsrSensor* gsr, int8_t index) {
+    furi_assert(gsr);
+    if(!gsr->available) return;
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    if(index < 0) {
+        gsr->pga_locked = -1;
+        FURI_LOG_I("GsrSensor", "PGA lock released — autoranging resumed");
+    } else {
+        if(index > ADS_PGA_MAX) index = ADS_PGA_MAX;
+        gsr->pga_locked = (int8_t)index;
+        gsr->pga_index = (uint8_t)index;
+        gsr->pga_changed = true;  // force worker to apply new PGA
+        FURI_LOG_I("GsrSensor", "PGA locked at %d (±%s)", (int)index, PGA_LABEL[index]);
+    }
     furi_mutex_release(gsr->mutex);
 }

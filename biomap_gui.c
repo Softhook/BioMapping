@@ -230,10 +230,14 @@ void run_calibration_wizard(BioMapApp* app) {
     // Target nS values for the three calibration resistors.
     const float targets[CAL_POINTS] = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
     // Valid-range gates [lo, hi] for each resistor (nS).
+    // Gates are independent — a 0.5× gain device must pass all three.
+    //   470k: [200,  3000]     target 2128  → 10× low / 1.4× high margin
+    //   100k: [3000, 25000]    target 10000 → 3.3× low / 2.5× high margin
+    //   47k:  [5000, 45000]    target 21277 → 4.3× low / 2.1× high margin
     const float gates[CAL_POINTS][2] = {
-        { CAL_LO_GATE,     CAL_MID_GATE_LO },
-        { CAL_MID_GATE_LO, CAL_MID_GATE_HI },
-        { CAL_MID_GATE_HI, CAL_HI_GATE     }
+        { CAL_LO_GATE,     CAL_MID_GATE_LO  },
+        { CAL_MID_GATE_LO, CAL_MID_GATE_HI  },
+        { CAL_LO_GATE_47K, CAL_HI_GATE      }
     };
     
     while(true) {
@@ -246,7 +250,7 @@ void run_calibration_wizard(BioMapApp* app) {
         // ── Back handler ──────────────────────────────────────────
         if(ev.input.key == InputKeyBack) {
             // Allowed to cancel from any prompt, success, or fail screen.
-            if(w.step == 0 || w.step == 2 || w.step == 4 || w.step == 8 || w.step == 9)
+            if(w.step == 0 || w.step == 2 || w.step == 4 || w.step == 8 || w.step == 9 || w.step == 10)
                 break;
             continue;
         }
@@ -257,14 +261,15 @@ void run_calibration_wizard(BioMapApp* app) {
 
         // step 0,2,4 = resistor prompts  → start measurement
         // step 8     = success            → save & exit
-        // step 9     = fail/retry         → retry (go back to step 0)
+        // step 9     = measurement fail   → retry (go back to step 0)
+        // step 10    = fit fail           → retry (go back to step 0)
 
         if(w.step == 8) {
             biomap_save_calibration(app, w.gain, w.offset);
             break;
         }
 
-        if(w.step == 9) {
+        if(w.step == 9 || w.step == 10) {
             w.step = 0;
             view_port_update(vp);
             continue;
@@ -314,12 +319,19 @@ void run_calibration_wizard(BioMapApp* app) {
 #define CAL_MIN_VALID    12
             float samples[CAL_SAMPLES];
             int   total = 0;
+            float first_raw = 0;
+            int   below = 0, above = 0;
             for(int i = 0; i < CAL_SAMPLES; i++) {
                 furi_delay_ms(100);
                 gsr_sensor_tick(gsr);
                 float g = gsr_sensor_get_raw(gsr);
+                if(i == 0) first_raw = g;
                 if(g >= gates[idx][0] && g <= gates[idx][1]) {
                     samples[total++] = g;
+                } else if(g < gates[idx][0]) {
+                    below++;
+                } else {
+                    above++;
                 }
             }
 
@@ -341,6 +353,9 @@ void run_calibration_wizard(BioMapApp* app) {
 #undef CAL_SAMPLES
 #undef CAL_MIN_VALID
             } else {
+                FURI_LOG_W("BioMap", "Cal measure %d failed: first_raw=%.1f in=%d below=%d above=%d gate=[%.0f, %.0f]",
+                           idx, (double)first_raw, total, below, above,
+                           (double)gates[idx][0], (double)gates[idx][1]);
                 w.step = 9;
             }
 
@@ -376,18 +391,21 @@ void run_calibration_wizard(BioMapApp* app) {
                     }
                     w.r_squared = (ss_tot > 1e-9f) ? (1.0f - ss_res / ss_tot) : 1.0f;
 
-                    // Validate bounds (nS domain) and linearity (R² ≥ 0.99).
-                    if(w.gain >= 0.5f && w.gain <= 2.0f &&
-                       w.offset >= -10000.0f && w.offset <= 10000.0f &&
-                       w.r_squared >= 0.99f) {
+                    // Validate bounds (nS domain) and linearity (R² ≥ 0.95).
+                    // Real devices can have gain up to ~2× and moderate non-linearity
+                    // from the TIA circuit at high conductance — 0.95 R² is still a
+                    // useful calibration.
+                    if(w.gain >= 0.2f && w.gain <= 5.0f &&
+                       w.offset >= -20000.0f && w.offset <= 20000.0f &&
+                       w.r_squared >= 0.95f) {
                         w.step = 8;  // success
                     } else {
                         FURI_LOG_W("BioMap", "Calibration out of bounds: gain=%.4f off=%.1f R²=%.4f",
                                    (double)w.gain, (double)w.offset, (double)w.r_squared);
-                        w.step = 9;
+                        w.step = 10;  // fit failure
                     }
                 } else {
-                    w.step = 9;
+                    w.step = 10;  // degenerate fit
                 }
             }
             view_port_update(vp);

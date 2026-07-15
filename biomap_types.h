@@ -63,7 +63,10 @@ typedef struct {
     bool     smooth_iir_primed;
     float    smoothed;           // output of the display EMA (fed by smooth_iir)
     bool     primed;
-    float    last_displayed;
+    float    last_displayed;     // IIR-filtered value (drives graph, auto-zoom)
+    float    raw_sample_ns;      // true raw single-sample nS (no filtering)
+    float    filtered_ns;        // 100-sample decimated nS (no IIR/EMA)
+    int32_t  raw_sample_count;   // raw normalized ADC count (pre-TIA, for diag)
     int      refresh_counter;
 } DisplayState;
 
@@ -111,7 +114,8 @@ static inline bool has_gps(int mode) {
 }
 
 static inline bool has_gsr(int mode) {
-    return mode == BioMapModeGpsGsr || mode == BioMapModeGsrOnly;
+    return mode == BioMapModeGpsGsr || mode == BioMapModeGsrOnly
+        || mode == BioMapModeDiagnostics;
 }
 
 // Expand a 2-digit NMEA year to a 4-digit calendar year (Y2K pivot at 80).

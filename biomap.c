@@ -44,11 +44,12 @@ int32_t biomap_app(void* p) {
         int32_t sel = biomap_gui_show_menu(app);
 
         switch(sel) {
-        case 0: run_recording_session(app, BioMapModeGpsGsr);  break;
-        case 1: run_recording_session(app, BioMapModeGpsOnly); break;
-        case 2: run_recording_session(app, BioMapModeGsrOnly); break;
-        case 3: run_options_screen(app);                        break;
-        default: running = false;                               break;
+        case 0: run_recording_session(app, BioMapModeGpsGsr);        break;
+        case 1: run_recording_session(app, BioMapModeGpsOnly);       break;
+        case 2: run_recording_session(app, BioMapModeGsrOnly);       break;
+        case 3: run_options_screen(app);                              break;
+        case 4: run_recording_session(app, BioMapModeDiagnostics);   break;
+        default: running = false;                                     break;
         }
     }
 
@@ -92,8 +93,8 @@ bool biomap_load_calibration(BioMapApp* app) {
             if(cal.magic == BIOMAP_CAL_MAGIC) {
                 if(cal.version == BIOMAP_CAL_VERSION) {
                     if(cal.checksum == cal_checksum(&cal)) {
-                        if(cal.gain >= 0.5f && cal.gain <= 2.0f &&
-                           cal.offset >= -10000.0f && cal.offset <= 10000.0f) {
+                        if(cal.gain >= 0.2f && cal.gain <= 5.0f &&
+                           cal.offset >= -20000.0f && cal.offset <= 20000.0f) {
                             furi_mutex_acquire(app->mutex, FuriWaitForever);
                             app->cal_active = true;
                             app->cal_gain = cal.gain;

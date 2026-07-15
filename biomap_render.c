@@ -4,7 +4,7 @@
 // ── Label arrays for menu and options screens ──────────────────────────────
 
 static const char* const menu_labels[MENU_COUNT] = {
-    "GPS + GSR", "GPS Only", "GSR Only", "Options",
+    "GPS + GSR", "GPS Only", "GSR Only", "Options", "Diagnostics",
 };
 
 static const char* const options_labels[OPTIONS_COUNT] = {
@@ -196,17 +196,17 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     furi_mutex_acquire(a->mutex, FuriWaitForever);
     canvas_clear(c);
 
-    bool has_graph = has_gsr(a->session.mode);
+    bool has_graph = has_gsr(a->session.mode)
+                  && a->session.mode != BioMapModeDiagnostics;
+    bool is_diag   = (a->session.mode == BioMapModeDiagnostics);
 
-    // Graph + zoom label (GSR modes)
+    // Graph + zoom label (GSR modes except diagnostics)
     if(has_graph) {
         draw_graph(c, a, 0, 16, 128, 48);
         render_zoom_label(c, a);
     }
 
-    // Title + recording indicator
-    canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, "Bio Mapping");
+    // Recording indicator only — no title to maximise data visibility
     canvas_set_font(c, FontSecondary);
     if(a->session.recording.active) {
         canvas_draw_box(c, 118, 1, 8, 8);
@@ -222,51 +222,67 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         if(!has_fix) {
             snprintf(badge, sizeof(badge), "No fix");
         } else if(isnan(g.hdop) || g.hdop >= GPS_HDOP_GATE) {
-            // Fix acquired but accuracy is still below the quality gate.
             if(isnan(g.hdop)) {
                 snprintf(badge, sizeof(badge), "Acquiring");
             } else if(g.hdop < 50.0f) {
                 snprintf(badge, sizeof(badge), "H:%.1f !", (double)g.hdop);
             } else {
-                // 99.9 sentinel — GSA not yet received
                 snprintf(badge, sizeof(badge), "Acquiring");
             }
         } else {
-            // Good quality — show HDOP and PDOP
             char pbuf[8];
             format_pdop_str(pbuf, sizeof(pbuf), g.pdop);
             snprintf(badge, sizeof(badge), "H:%.1f P:%s",
                      (double)g.hdop, pbuf);
         }
-        // Right-align: leave 3 px gap before recording-indicator box when active.
-        // Set font explicitly here — rendering order must not be assumed.
         canvas_set_font(c, FontSecondary);
         int right_x = a->session.recording.active ? 115 : 126;
         canvas_draw_str(c, right_x - canvas_string_width(c, badge), 10, badge);
     }
 
-    // Mode-specific overlay
+    // ── Diagnostics mode: raw numbers, no graph ─────────────────────────
+    if(is_diag) {
+        canvas_set_font(c, FontPrimary);
+        canvas_draw_str(c, 0, 12, "GSR Diagnostics");
+        canvas_set_font(c, FontSecondary);
+        if(a->session.gsr && gsr_sensor_available(a->session.gsr)) {
+            char buf[32];
+            uint8_t pga = gsr_sensor_get_pga_index(a->session.gsr);
+            int32_t mean_cnt = gsr_sensor_get_mean_count(a->session.gsr);
+            snprintf(buf, sizeof(buf), "PGA:%u  Cal:%s",
+                     (unsigned)pga, a->cal_active ? "on" : "off");
+            canvas_draw_str(c, 0, 26, buf);
+            snprintf(buf, sizeof(buf), "Raw:  %.0f nS", (double)a->session.display.raw_sample_ns);
+            canvas_draw_str(c, 0, 38, buf);
+            snprintf(buf, sizeof(buf), "Filt: %.0f nS", (double)a->session.display.filtered_ns);
+            canvas_draw_str(c, 0, 50, buf);
+            snprintf(buf, sizeof(buf), "Sngl:%ld  Mean:%ld",
+                     (long)a->session.display.raw_sample_count, (long)mean_cnt);
+            canvas_draw_str(c, 0, 62, buf);
+        } else {
+            draw_sensor_alert(c, "NO SENSOR");
+        }
+    }
+
+    // Mode-specific overlay (GSR modes with graph)
     if(has_graph) {
         if(a->session.gsr) {
             if(gsr_sensor_available(a->session.gsr)) {
                 if(gsr_sensor_is_connected(a->session.gsr)) {
                     if(a->session.mode == BioMapModeGsrOnly) {
                         char buf[32];
-                        snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.display.last_displayed);
+                        snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.display.filtered_ns);
                         int x = 128 - canvas_string_width(c, buf) - (a->session.recording.active ? 12 : 2);
                         canvas_draw_str(c, x, 10, buf);
                     }
                 } else {
-                    // Finger cuffs disconnected — show alert, keep recording.
-                    // Shown in both GSR-only and GPS+GSR modes.
                     draw_sensor_alert(c, "NO SIGNAL");
                 }
             } else {
-                // External GSR board itself is not plugged in/found
                 draw_sensor_alert(c, "NO SENSOR");
             }
         }
-    } else if(a->session.gps) {
+    } else if(!is_diag && a->session.gps) {
         render_gps_detail(c, a);
     } else {
         canvas_draw_str(c, 0, 20, "GPS unavailable");
@@ -403,10 +419,17 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
         canvas_draw_str(c, 0, 47, buf);
         canvas_draw_str(c, 0, 60, "[OK to Save, Back to Cancel]");
         break;
-    case 9: // Failed
+    case 9: // Measurement failed — not enough samples in gate
         canvas_draw_str(c, 0, 25, "Calibration Failed!");
         canvas_draw_str(c, 0, 38, "Check connections.");
         canvas_draw_str(c, 0, 50, "[Press OK to Retry]");
+        break;
+    case 10: // Fit failed — bounds or R²
+        canvas_draw_str(c, 0, 25, "Calibration Failed!");
+        canvas_draw_str(c, 0, 37, "Device out of range.");
+        snprintf(buf, sizeof(buf), "Gain: %.3fx  R\xb2: %.4f", (double)w->gain, (double)w->r_squared);
+        canvas_draw_str(c, 0, 49, buf);
+        canvas_draw_str(c, 0, 61, "[Press OK to Retry]");
         break;
     default:
         break;

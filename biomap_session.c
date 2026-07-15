@@ -37,7 +37,8 @@ void session_init(Session* s, BioMapMode mode, bool zoom_enabled) {
         .mode       = mode,
         .display    = {.smooth_iir = 0.0f, .smooth_iir_primed = false,
                        .smoothed = 0.0f, .primed = false,
-                       .last_displayed = 0, .refresh_counter = 0},
+                       .last_displayed = 0, .raw_sample_ns = 0.0f,
+                       .filtered_ns = 0.0f, .refresh_counter = 0},
         .graph      = {.head = 0, .tick_counter = 0,
                        .last_smoothed = 0.0f, .scroll_divider = 1},
         .zoom       = {.level = 1.0f, .peak = 1.0f, .enabled = zoom_enabled,
@@ -531,40 +532,26 @@ static bool handle_recording_tick(Session* s) {
     // ── GSR modes (GsrOnly, GpsGsr) ────────────────────────────────────
     float raw = 0.0f;
     if(s->gsr) {
-        gsr_sensor_tick(s->gsr);
-        raw = gsr_sensor_get_raw(s->gsr);
+        gsr_sensor_tick(s->gsr);                    // autoranging only
+        float raw_sample = gsr_sensor_get_raw_sample_ns(s->gsr);  // pure single-sample nS
+        raw = gsr_sensor_get_raw(s->gsr);           // filtered 100-sample nS (CSV)
+        s->display.raw_sample_ns = raw_sample;      // store BEFORE IIR touches it
+        s->display.filtered_ns   = raw;             // store BEFORE IIR touches it
+        s->display.raw_sample_count = gsr_sensor_get_raw_sample_count(s->gsr);
 
         // ── Instantaneous per-tick validity check ────────────────────
-        // The connected flag uses a 20-tick (2 s) debounce to prevent
-        // CSV false positives, but that delay lets 2 seconds of insane
-        // values through to the display pipeline — corrupting the IIR
-        // state and auto-zoom.  Instead, we gate the display update on
-        // the instantaneous tick value: anything outside physiological
-        // range (< 0.1 nS open circuit, > 50 000 nS rail saturation)
-        // is rejected immediately.
-        //
-        // The smoothing IIR stays primed at its last valid state, the
-        // auto-zoom doesn't spike, and the graph keeps showing the
-        // last valid waveform.  The CSV still logs the exact value
-        // (0.0 or rail) on every tick so the record is complete.
-        bool valid = (raw >= GSR_VALID_MIN_NS && raw <= GSR_VALID_MAX_NS);
+        // Use the raw single-sample value for the display so you see
+        // the unfiltered hardware reading.  The filtered value still
+        // goes to CSV for clean recordings.
+        bool valid = (raw_sample >= GSR_VALID_MIN_NS && raw_sample <= GSR_VALID_MAX_NS);
         if(valid) {
             // ── Re-connect smoothing ────────────────────────────────
-            // When the sensor comes back after a disconnect, the graph
-            // pipeline computes rate = smoothed - last_smoothed where
-            // last_smoothed is stale (from before the gap).  The
-            // resulting spike floods the graph buffer and makes the
-            // display "catch up" at hyperspeed.  We detect a recovery
-            // by comparing raw to last_displayed: if the delta exceeds
-            // 500 nS/tick (far faster than real GSR), we run the
-            // display pipeline then sync graph.last_smoothed to the
-            // new smoothed value so the first rate is ~0.
-            float delta = (raw > s->display.last_displayed)
-                ? raw - s->display.last_displayed
-                : s->display.last_displayed - raw;
+            float delta = (raw_sample > s->display.last_displayed)
+                ? raw_sample - s->display.last_displayed
+                : s->display.last_displayed - raw_sample;
             bool recovering = s->display.primed && (delta > 500.0f);
 
-            update_display_pipeline(s, raw);
+            update_display_pipeline(s, raw_sample);
 
             if(recovering) {
                 s->graph.last_smoothed = s->display.smoothed;

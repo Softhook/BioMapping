@@ -81,7 +81,7 @@ typedef struct BioMapApp {
 
 // ── Menu & conversion UI types ─────────────────────────────────────────
 
-#define MENU_COUNT      4
+#define MENU_COUNT      5
 #define OPTIONS_COUNT   4
 
 typedef struct {
@@ -110,12 +110,14 @@ typedef struct {
 #define CAL_TARGET_47K   21276.6f   // 1e9 / 47000
 
 // Valid-range gates for each resistor during calibration (nS).
-// Brackets the expected true-nS reading with ±50 % margin for
-// device-to-device variation.
-#define CAL_LO_GATE        500.0f
-#define CAL_MID_GATE_LO   4000.0f
-#define CAL_MID_GATE_HI  18000.0f
-#define CAL_HI_GATE      40000.0f
+// Each gate is independent — a device with gain as low as 0.5× (the
+// calibration minimum) must still pass.  Example for 47k at 0.5× gain:
+//   21276.6 × 0.5 ≈ 10638 nS  → lower gate must be ≤ 10638.
+#define CAL_LO_GATE        200.0f
+#define CAL_MID_GATE_LO   3000.0f
+#define CAL_MID_GATE_HI  25000.0f
+#define CAL_LO_GATE_47K   5000.0f
+#define CAL_HI_GATE      45000.0f
 
 typedef struct {
     uint32_t magic;
@@ -127,8 +129,8 @@ typedef struct {
 
 // Calibration wizard state machine.  Steps:
 //   0 = prompt 470k    4 = prompt 47k      8 = success
-//   1 = measure 470k   5 = measure 47k     9 = fail / retry
-//   2 = prompt 100k    6 = compute fit
+//   1 = measure 470k   5 = measure 47k     9 = measurement fail
+//   2 = prompt 100k    6 = compute fit     10 = fit fail (bounds / R²)
 //   3 = measure 100k   7 = (unused)
 typedef struct {
     int   step;

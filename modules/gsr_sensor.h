@@ -60,6 +60,30 @@ void gsr_sensor_tick(GsrSensor* gsr);
 // equation each tick.  Returns 0.0f when sensor unavailable.
 float gsr_sensor_get_raw(const GsrSensor* gsr);
 
+// Single raw ADC sample converted directly to nanosiemens via the TIA
+// equation — no decimation, no averaging, no autoranging, no calibration.
+// Reads the most recent ring-buffer entry (updated at ~860 Hz by the
+// background worker).  This is the "pure hardware" value: one ADS1115
+// conversion → normalised count → TIA → nS.
+// Returns 0.0f when sensor unavailable or buffer is empty.
+float gsr_sensor_get_raw_sample_ns(const GsrSensor* gsr);
+
+// Raw normalised ADC count (pre-TIA) snapshotted from the same buffer
+// position as get_raw_sample_ns.  For hardware diagnostics.
+int32_t gsr_sensor_get_raw_sample_count(const GsrSensor* gsr);
+
+// 100-sample mean normalised count (pre-TIA).  Compare with
+// get_raw_sample_count to see single-sample vs averaged difference.
+int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr);
+
+// Current PGA index (0–5).  For diagnostics.
+uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr);
+
 // Update calibration parameters (thread-safe).  When active is true,
 // the raw counts are scaled by gain and offset-shifted before conductance conversion.
 void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float offset);
+
+// Lock PGA at a fixed index (0–5) to disable autoranging.  Pass -1 to unlock
+// and resume normal autoranging.  When locked, tick() still runs the 100-sample
+// mean but skips the PGA-switching decision.  Useful for hardware diagnostics.
+void gsr_sensor_lock_pga(GsrSensor* gsr, int8_t index);
