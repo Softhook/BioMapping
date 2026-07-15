@@ -879,7 +879,9 @@ input[type="range"]::-webkit-slider-thumb:hover {
 /* Label column: editable text input for peak event labels */
 .label-cell {
   padding: 2px 8px !important;
-  min-width: 110px;
+  min-width: 250px;
+  width: 45%;
+  white-space: normal !important;
 }
 
 .peak-label-input {

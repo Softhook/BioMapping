@@ -243,7 +243,7 @@ const GSRUI = {
     const tb    = AppState.tableBody;
 
     if (peaks.length === 0) {
-      tb.innerHTML = '<tr class="empty-row"><td colspan="14">No peaks detected. Try reducing the Peak Amplitude threshold.</td></tr>';
+      tb.innerHTML = '<tr class="empty-row"><td colspan="7">No peaks detected. Try reducing the Peak Amplitude threshold.</td></tr>';
       return;
     }
 
@@ -254,16 +254,6 @@ const GSRUI = {
       if (p.excluded) rowClass.push('excluded-row');
       const rowAttr = rowClass.length > 0 ? "class='" + rowClass.join(' ') + "'" : "";
       const riseTimeStr = (p.riseTime || (p.time - p.onsetTime)).toFixed(2);
-      const recTimeStr = p.halfRecoveryTime !== undefined && p.halfRecoveryTime !== -1
-        ? p.halfRecoveryTime.toFixed(2) : "N/A";
-      const onsetSlopeStr = p.onsetSlope !== undefined
-        ? p.onsetSlope.toFixed(5) : (p.amplitude / Math.max(0.1, p.time - p.onsetTime)).toFixed(5);
-      const decaySlopeStr = p.decaySlope !== undefined
-        ? p.decaySlope.toFixed(5) : "N/A";
-      const skewStr = p.skewnessRatio !== undefined
-        ? p.skewnessRatio.toFixed(3) : "N/A";
-      const snrStr = p.snr !== undefined
-        ? p.snr.toFixed(2) + "x" : "N/A";
       const qScore = p.qualityScore !== undefined ? p.qualityScore : 0;
       const qColor = getQualityColor(qScore, '20');
       const { pct: qPct, label: qLabel } = getQualityLabel(qScore);
@@ -282,17 +272,10 @@ const GSRUI = {
             escapedLabel +
           '</textarea>' +
         '</td>' +
-        '<td>' + p.onsetTime.toFixed(2) + '</td>' +
-        '<td>' + p.time.toFixed(2) + '</td>' +
-        '<td>' + p.value.toFixed(4) + '</td>' +
         '<td>' + p.amplitude.toFixed(4) + '</td>' +
         '<td>' + riseTimeStr + '</td>' +
-        '<td>' + recTimeStr + '</td>' +
         '<td style="background:' + qColor + '">' +
           qPct + '% ' + qLabel + '</td>' +
-        '<td>' + onsetSlopeStr + '</td>' +
-        '<td>' + skewStr + '</td>' +
-        '<td>' + snrStr + '</td>' +
         '<td class="exclude-cell"><button class="btn-exclude" ' +
           'onclick="event.stopPropagation(); GSRUI.togglePeakExclusion(' + idx + ')" ' +
           'title="' + (p.excluded ? 'Include peak' : 'Exclude peak') + '">' +
