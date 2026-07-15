@@ -213,6 +213,110 @@ void run_calibration_menu(BioMapApp* app) {
     vp_pop(app, vp);
 }
 
+static bool calibration_wizard_measure(GsrSensor* gsr, int resistor_idx, const float gates[CAL_POINTS][2], float* out_avg_g) {
+    // Ensure calibration is disabled on this wizard-local sensor so measurements are raw nS
+    gsr_sensor_set_calibration(gsr, false, 1.0f, 0.0f);
+
+    // Flush the ring buffer (1 s, 10 ticks)
+    for(int i = 0; i < 10; i++) {
+        furi_delay_ms(100);
+        gsr_sensor_tick(gsr);
+    }
+
+    #define CAL_SAMPLES      20
+    #define CAL_MIN_VALID    12
+    float samples[CAL_SAMPLES];
+    int total = 0;
+    float first_raw = 0;
+    int below = 0, above = 0;
+
+    for(int i = 0; i < CAL_SAMPLES; i++) {
+        furi_delay_ms(100);
+        gsr_sensor_tick(gsr);
+        float g = gsr_sensor_get_raw(gsr);
+        if(i == 0) first_raw = g;
+        if(g >= gates[resistor_idx][0] && g <= gates[resistor_idx][1]) {
+            samples[total++] = g;
+        } else if(g < gates[resistor_idx][0]) {
+            below++;
+        } else {
+            above++;
+        }
+    }
+
+    if(total >= CAL_MIN_VALID) {
+        // Single-pass min/max + sum for trimmed mean
+        float s_min = samples[0], s_max = samples[0];
+        float sum_g = 0;
+        for(int i = 0; i < total; i++) {
+            float s = samples[i];
+            sum_g += s;
+            if(s < s_min) s_min = s;
+            if(s > s_max) s_max = s;
+        }
+        *out_avg_g = (sum_g - s_min - s_max) / (float)(total - 2);
+        #undef CAL_SAMPLES
+        #undef CAL_MIN_VALID
+        return true;
+    } else {
+        FURI_LOG_W("BioMap", "Cal measure %d failed: first_raw=%.1f in=%d below=%d above=%d gate=[%.0f, %.0f]",
+                   resistor_idx, (double)first_raw, total, below, above,
+                   (double)gates[resistor_idx][0], (double)gates[resistor_idx][1]);
+        #undef CAL_SAMPLES
+        #undef CAL_MIN_VALID
+        return false;
+    }
+}
+
+static bool calibration_wizard_compute_fit(const float measured[CAL_POINTS], const float targets[CAL_POINTS], float* out_gain, float* out_offset, float* out_r_squared) {
+    // Three-point linear least-squares:  y = gain * x + offset
+    // Σx, Σy, Σxx, Σxy  where x = measured, y = target
+    float sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for(int i = 0; i < CAL_POINTS; i++) {
+        float xi = measured[i];
+        float yi = targets[i];
+        sx  += xi;
+        sy  += yi;
+        sxx += xi * xi;
+        sxy += xi * yi;
+    }
+    float n     = (float)CAL_POINTS;
+    float denom = n * sxx - sx * sx;
+    if(denom <= 1e-9f) {
+        return false; // degenerate fit
+    }
+
+    float gain   = (n * sxy - sx * sy) / denom;
+    float offset = (sy - gain * sx) / n;
+
+    // R² goodness-of-fit
+    float y_mean = sy / n;
+    float ss_res = 0, ss_tot = 0;
+    for(int i = 0; i < CAL_POINTS; i++) {
+        float yi     = targets[i];
+        float y_pred = gain * measured[i] + offset;
+        float res    = yi - y_pred;
+        ss_res += res * res;
+        float dev    = yi - y_mean;
+        ss_tot += dev * dev;
+    }
+    float r_squared = (ss_tot > 1e-9f) ? (1.0f - ss_res / ss_tot) : 1.0f;
+
+    // Validate bounds (nS domain) and linearity (R² ≥ 0.95)
+    if(gain >= 0.2f && gain <= 5.0f &&
+       offset >= -20000.0f && offset <= 20000.0f &&
+       r_squared >= 0.95f) {
+        *out_gain = gain;
+        *out_offset = offset;
+        *out_r_squared = r_squared;
+        return true;
+    } else {
+        FURI_LOG_W("BioMap", "Calibration out of bounds: gain=%.4f off=%.1f R²=%.4f",
+                   (double)gain, (double)offset, (double)r_squared);
+        return false;
+    }
+}
+
 void run_calibration_wizard(BioMapApp* app) {
     WizardState w = {.step = 0};
     ViewPort* vp = vp_push(app, calibration_wizard_render, &w);
@@ -230,10 +334,6 @@ void run_calibration_wizard(BioMapApp* app) {
     // Target nS values for the three calibration resistors.
     const float targets[CAL_POINTS] = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
     // Valid-range gates [lo, hi] for each resistor (nS).
-    // Gates are independent — a 0.5× gain device must pass all three.
-    //   470k: [200,  3000]     target 2128  → 10× low / 1.4× high margin
-    //   100k: [3000, 25000]    target 10000 → 3.3× low / 2.5× high margin
-    //   47k:  [5000, 45000]    target 21277 → 4.3× low / 2.1× high margin
     const float gates[CAL_POINTS][2] = {
         { CAL_LO_GATE,     CAL_MID_GATE_LO  },
         { CAL_MID_GATE_LO, CAL_MID_GATE_HI  },
@@ -292,120 +392,20 @@ void run_calibration_wizard(BioMapApp* app) {
                 continue;
             }
 
-            // Ensure calibration is disabled on this wizard-local sensor
-            // so measurements are always raw nS — the fresh alloc defaults
-            // to cal_active=false, but be explicit to avoid fragility.
-            gsr_sensor_set_calibration(gsr, false, 1.0f, 0.0f);
-
-            // ── Flush the ring buffer (1 s, 10 ticks) ───────────────
-            // gsr_sensor_tick() averages the 100 most recent ring-buffer
-            // entries (100 ms window).  When the user attaches a resistor
-            // and presses OK, the buffer still holds data from the previous
-            // state (open input or prior resistor).  Discarding 10 ticks
-            // guarantees the 100-sample window is fully populated with the
-            // new resistor's readings before the measurement loop starts.
-            for(int i = 0; i < 10; i++) {
-                furi_delay_ms(100);
-                gsr_sensor_tick(gsr);
-            }
-
-            // ── Collect 20 samples (2 s), discard min & max ─────────
-            // Outlier-resistant trimmed mean: the lowest and highest
-            // samples are discarded before averaging.  This prevents a
-            // single glitch (finger brush, PGA transition artifact) from
-            // skewing the fit.  20 samples / 12 minimum gives tolerance
-            // for up to 8 readings outside the gate range.
-#define CAL_SAMPLES      20
-#define CAL_MIN_VALID    12
-            float samples[CAL_SAMPLES];
-            int   total = 0;
-            float first_raw = 0;
-            int   below = 0, above = 0;
-            for(int i = 0; i < CAL_SAMPLES; i++) {
-                furi_delay_ms(100);
-                gsr_sensor_tick(gsr);
-                float g = gsr_sensor_get_raw(gsr);
-                if(i == 0) first_raw = g;
-                if(g >= gates[idx][0] && g <= gates[idx][1]) {
-                    samples[total++] = g;
-                } else if(g < gates[idx][0]) {
-                    below++;
-                } else {
-                    above++;
-                }
-            }
-
-            if(total >= CAL_MIN_VALID) {
-                // Single-pass min/max + sum for trimmed mean.
-                float s_min = samples[0], s_max = samples[0];
-                float sum_g = 0;
-                for(int i = 0; i < total; i++) {
-                    float s = samples[i];
-                    sum_g += s;
-                    if(s < s_min) s_min = s;
-                    if(s > s_max) s_max = s;
-                }
-                float avg_g = (sum_g - s_min - s_max) / (float)(total - 2);
-                // Use raw nS directly — both the fit and runtime application
-                // operate in the nS domain, so no domain conversion is needed.
+            float avg_g = 0.0f;
+            if(calibration_wizard_measure(gsr, idx, gates, &avg_g)) {
                 w.measured[idx] = avg_g;
                 w.step = (int)(idx * 2 + 2);  // 1→2, 3→4, 5→6
-#undef CAL_SAMPLES
-#undef CAL_MIN_VALID
             } else {
-                FURI_LOG_W("BioMap", "Cal measure %d failed: first_raw=%.1f in=%d below=%d above=%d gate=[%.0f, %.0f]",
-                           idx, (double)first_raw, total, below, above,
-                           (double)gates[idx][0], (double)gates[idx][1]);
                 w.step = 9;
             }
 
             // After the last measurement, compute the least-squares fit.
             if(w.step == 6) {
-                // Three-point linear least-squares:  y = gain * x + offset
-                // Σx, Σy, Σxx, Σxy  where x = measured, y = target
-                float sx = 0, sy = 0, sxx = 0, sxy = 0;
-                for(int i = 0; i < CAL_POINTS; i++) {
-                    float xi = w.measured[i];
-                    float yi = targets[i];
-                    sx  += xi;
-                    sy  += yi;
-                    sxx += xi * xi;
-                    sxy += xi * yi;
-                }
-                float n     = (float)CAL_POINTS;
-                float denom = n * sxx - sx * sx;
-                if(denom > 1e-9f) {
-                    w.gain   = (n * sxy - sx * sy) / denom;
-                    w.offset = (sy - w.gain * sx) / n;
-
-                    // R² goodness-of-fit
-                    float y_mean = sy / n;
-                    float ss_res = 0, ss_tot = 0;
-                    for(int i = 0; i < CAL_POINTS; i++) {
-                        float yi     = targets[i];
-                        float y_pred = w.gain * w.measured[i] + w.offset;
-                        float res    = yi - y_pred;
-                        ss_res += res * res;
-                        float dev    = yi - y_mean;
-                        ss_tot += dev * dev;
-                    }
-                    w.r_squared = (ss_tot > 1e-9f) ? (1.0f - ss_res / ss_tot) : 1.0f;
-
-                    // Validate bounds (nS domain) and linearity (R² ≥ 0.95).
-                    // Real devices can have gain up to ~2× and moderate non-linearity
-                    // from the TIA circuit at high conductance — 0.95 R² is still a
-                    // useful calibration.
-                    if(w.gain >= 0.2f && w.gain <= 5.0f &&
-                       w.offset >= -20000.0f && w.offset <= 20000.0f &&
-                       w.r_squared >= 0.95f) {
-                        w.step = 8;  // success
-                    } else {
-                        FURI_LOG_W("BioMap", "Calibration out of bounds: gain=%.4f off=%.1f R²=%.4f",
-                                   (double)w.gain, (double)w.offset, (double)w.r_squared);
-                        w.step = 10;  // fit failure
-                    }
+                if(calibration_wizard_compute_fit(w.measured, targets, &w.gain, &w.offset, &w.r_squared)) {
+                    w.step = 8;  // success
                 } else {
-                    w.step = 10;  // degenerate fit
+                    w.step = 10; // fit failure
                 }
             }
             view_port_update(vp);
