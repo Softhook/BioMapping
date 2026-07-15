@@ -248,7 +248,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
             int y = 8;
 
             snprintf(buf, sizeof(buf), "PGA:%u  Cal:%s",
-                     (unsigned)pga, a->cal_active ? "on" : "off");
+                     (unsigned)pga, a->cal_active ? "yes" : "no");
             canvas_draw_str(c, 0, y, buf);  y += 10;
 
             snprintf(buf, sizeof(buf), "Raw:  %.0f nS",
@@ -364,7 +364,7 @@ void options_render(Canvas* c, void* ctx) {
         } else if(i == 2) {
             state = a->backlight_on ? "ON" : "OFF";
         } else {
-            state = a->cal_active ? "CAL" : "DEF";
+            state = a->cal_active ? "YES" : "NO";
         }
         int sx = 128 - canvas_string_width(c, state) - 2;
         if(i == sel) canvas_invert_color(c);

@@ -450,6 +450,7 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 | **GPS Only** | Enters recording view with GPS only — no GSR sensor initialised. Writes a 10-column CSV at 10 Hz with `gsr_raw` = 0 (batch-buffered). |
 | **GSR Only** | Enters recording view with GSR only — no GPS driver initialised. Writes a 2-column CSV at 10 Hz. The GPS module is placed into Software Standby (M10Q) to save power. |
 | **Options** | Opens the Options screen (see below). |
+| **Diagnostics** | Enters diagnostic mode to view live raw values and sensor health metrics directly (no recording or graphs). |
 
 ### Options Screen
 
@@ -459,6 +460,7 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 │  ▓ Reset GPS           ▓   │   ← selected (inverse bar)
 │    Auto-zoom GSR   ON      │   ← toggleable
 │    Backlight           ON  │   ← toggleable
+│    GSR Calibration    YES  │   ← YES = custom calibration loaded, NO = default
 │                             │
 │    Press Back to return     │
 └─────────────────────────────┘
@@ -469,8 +471,58 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 | **Reset GPS** | Sends a hot-start command to the GPS module. SAM-M10Q: binary `UBX-CFG-RST` packet. L76K: `$PCAS10,0*1C\r\n` ASCII command. Useful if GPS is outputting stale/frozen data. Leaves a green flash on success, red on failure. |
 | **Auto-zoom GSR** | Toggles auto-zoom ON/OFF. When enabled, the graph's vertical scale adjusts automatically to keep peaks visible. When disabled, manual Up/Down zoom controls the scale. Toggling back ON resets the zoom to 1.0× and re-seeds the auto-zoom peak tracker. |
 | **Backlight** | Toggles the Flipper's backlight between auto-dimming (OFF) and always-on (ON). Useful for walks in bright sunlight or dark environments. |
+| **GSR Calibration** | Displays the current calibration status (`YES` if custom calibration is active, or `NO` for default). Pressing OK opens the calibration submenu to start the wizard or reset. |
+
+### GSR Calibration Submenu
+
+Selecting **GSR Calibration** opens a submenu:
+* **Start Wizard:** Launches the 3-point calibration wizard.
+* **Reset to Default:** Deletes the custom calibration file and restores the default gain ($1.0$) and offset ($0.0$).
+
+#### GSR Calibration Wizard
+
+The Calibration Wizard walks you through connecting three precise reference resistors to the electrodes. The wizard uses these points to solve a linear least-squares fit ($y = \text{gain} \times x + \text{offset}$) in the conductance domain (nanosiemens).
+
+* **Calibration Points & Expected Values:**
+  * **Step 1/3 (Low):** Connect a **$470\text{ k}\Omega$** resistor. Target: $2127.66\text{ nS}$. Range gate: $[200, 3000]\text{ nS}$.
+  * **Step 2/3 (Mid):** Connect a **$100\text{ k}\Omega$** resistor. Target: $10000.0\text{ nS}$. Range gate: $[3000, 25000]\text{ nS}$.
+  * **Step 3/3 (High):** Connect a **$47\text{ k}\Omega$** resistor. Target: $21276.6\text{ nS}$. Range gate: $[5000, 45000]\text{ nS}$.
+
+* **Measurement Protocol:**
+  * When you press **OK** at each step, the wizard flushes the signal buffer for $1$ second ($10$ ticks) to clear old values.
+  * It then gathers $20$ samples over $2$ seconds.
+  * Outliers are trimmed by discarding the minimum and maximum samples before computing the average.
+  * If fewer than $12$ samples fall inside the gate range for a step, the measurement fails.
+
+* **Fit & Validation:**
+  * Once all three points are collected, the wizard calculates a least-squares linear regression.
+  * It validates the fit: **Gain** must be between $0.2\text{x}$ and $5.0\text{x}$, **Offset** must be between $-20000\text{ nS}$ and $+20000\text{ nS}$, and the goodness-of-fit coefficient **$R^2$** must be $\ge 0.95$ (ensuring high linearity).
+  * If validation succeeds, it displays the results screen showing:
+    * **Gain:** Scaling adjustment factor (ideal is $1.0\text{x}$).
+    * **$R^2$:** Linearity coefficient (ideal is $1.0000$).
+    * **Offset:** Baseline offset in nanosiemens (nS).
+  * Press **OK** to save the values to `/ext/biomapping/biomap.cal`, or **Back** to discard.
+
+### Diagnostics Screen
+
+The **Diagnostics** screen provides a real-time numerical view of the raw biometric sensor outputs and circuit status. It is highly useful for verifying hardware signal integrity and component behavior without generating CSV logs or graphs.
+
+It displays the following variables in real-time:
+* **PGA:** The active Programmable Gain Amplifier hardware range index of the ADS1115 ($0$ to $5$), which adjusts dynamically:
+  * `0`: $\pm6.144\text{ V}$
+  * `1`: $\pm4.096\text{ V}$
+  * `2`: $\pm2.048\text{ V}$ (default starting point)
+  * `3`: $\pm1.024\text{ V}$
+  * `4`: $\pm0.512\text{ V}$
+  * `5`: $\pm0.256\text{ V}$ (maximum sensitivity)
+* **Cal:** Shows whether custom calibration is active (`yes` or `no`).
+* **Raw:** Single-sample real-time skin conductance in nanosiemens (nS) computed using the TIA equation.
+* **Filt:** The $100$-sample boxcar-averaged (decimated) skin conductance in nanosiemens (nS) before post-decimation IIR/EMA filtering is applied.
+* **Sngl:** The raw single-sample normalized ADC count (pre-TIA conversion, normalized to the $\pm0.256\text{ V}$ range).
+* **Mean:** The $100$-sample mean normalized ADC count (pre-TIA conversion, snapshot of the oversampling window).
 
 ### Full Control Reference
+
 
 #### Recording View
 
