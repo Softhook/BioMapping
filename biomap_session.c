@@ -518,17 +518,26 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
 // Manual vertical zoom (Up=zoom in, Down=zoom out).  Sets a timeout after
 // which auto-zoom re-engages (if enabled in Options).  Each keypress resets
 // the timeout so continuous adjustment keeps auto-zoom paused.
-static void key_zoom_vertical(Session* s, FuriMutex* mutex, bool zoom_in) {
+// Returns whether a recording was active at the time of the change — reused
+// (not re-locked) by the caller to decide whether to play the zoom click:
+// per the "GSR + Sound" note on key_toggle_recording, any tone while
+// recording.active is a plausible (if likely small, given the click is only
+// 35 ms) source of electrical noise on the shared 3.3V rail, so clicks are
+// suppressed entirely during an active recording rather than risked.
+static bool key_zoom_vertical(Session* s, FuriMutex* mutex, bool zoom_in) {
     furi_mutex_acquire(mutex, FuriWaitForever);
     s->zoom.manual_timeout = MANUAL_ZOOM_TIMEOUT;
     s->zoom.level = zoom_in
         ? fminf(s->zoom.level * ZOOM_FACTOR, ZOOM_MAX)
         : fmaxf(s->zoom.level / ZOOM_FACTOR, ZOOM_MIN);
+    bool recording = s->recording.active;
     furi_mutex_release(mutex);
+    return recording;
 }
 
 // Horizontal time-axis zoom (Left=zoom out, Right=zoom in).
-static void key_zoom_horizontal(Session* s, FuriMutex* mutex, bool zoom_out) {
+// Returns whether a recording was active — see key_zoom_vertical's comment.
+static bool key_zoom_horizontal(Session* s, FuriMutex* mutex, bool zoom_out) {
     furi_mutex_acquire(mutex, FuriWaitForever);
     if(zoom_out) {
         if(s->graph.scroll_divider < 16) {
@@ -545,7 +554,9 @@ static void key_zoom_horizontal(Session* s, FuriMutex* mutex, bool zoom_out) {
             rescale_graph_buf(s, false);
         }
     }
+    bool recording = s->recording.active;
     furi_mutex_release(mutex);
+    return recording;
 }
 
 // ── Handle one key press during a recording session ────────────────────────
@@ -591,30 +602,29 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
 
     case InputKeyUp:
         if(has_gsr(s->mode)) {
-            key_zoom_vertical(s, mutex, true);
-            biomap_sound_click(sound_enabled);
+            // No click while actively recording — see key_zoom_vertical's
+            // comment. Zoom itself still works either way; only the tone
+            // is suppressed.
+            if(!key_zoom_vertical(s, mutex, true)) biomap_sound_click(sound_enabled);
             view_port_update(vp);
         }
         return true;
     case InputKeyDown:
         if(has_gsr(s->mode)) {
-            key_zoom_vertical(s, mutex, false);
-            biomap_sound_click(sound_enabled);
+            if(!key_zoom_vertical(s, mutex, false)) biomap_sound_click(sound_enabled);
             view_port_update(vp);
         }
         return true;
 
     case InputKeyLeft:
         if(has_gsr(s->mode)) {
-            key_zoom_horizontal(s, mutex, true);
-            biomap_sound_click(sound_enabled);
+            if(!key_zoom_horizontal(s, mutex, true)) biomap_sound_click(sound_enabled);
             view_port_update(vp);
         }
         return true;
     case InputKeyRight:
         if(has_gsr(s->mode)) {
-            key_zoom_horizontal(s, mutex, false);
-            biomap_sound_click(sound_enabled);
+            if(!key_zoom_horizontal(s, mutex, false)) biomap_sound_click(sound_enabled);
             view_port_update(vp);
         }
         return true;

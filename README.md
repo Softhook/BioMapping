@@ -570,7 +570,7 @@ The Flipper's piezo speaker gives short tones for key/state changes, so the impo
 
 | Event | Tone |
 |---|---|
-| Menu/list navigation (Up/Down), manual graph zoom (Up/Down/Left/Right while recording) | Short neutral click |
+| Menu/list navigation (Up/Down), manual graph zoom (Up/Down/Left/Right, only when **not** recording) | Short neutral click |
 | Back / cancel | Short click, lower-pitched than navigation (audibly distinct "direction") |
 | Select a menu item, enter a mode/submenu, confirm a calibration step, single calibration-resistor measurement passing its gate | Bright confirm click |
 | Auto-zoom / Backlight toggled | Two-pitch tone — higher for ON, lower for OFF |
@@ -582,6 +582,13 @@ The Flipper's piezo speaker gives short tones for key/state changes, so the impo
 | SD write failure (recording stops), GSR electrodes disconnect | Low double-beep warning — edge-triggered once per disconnect episode, not repeated every second, so a loose electrode doesn't nag for the rest of the walk |
 
 GPS fix/no-fix state deliberately has **no** audio cue — it changes too often in normal use (urban canyons, trees) for a tone to stay useful; the badge/LED already covers it.
+
+**GSR safety.** The piezo speaker shares the 3.3V rail with the ADS1115/TIA front-end, so on a breadboard build a tone is a plausible source of electrical noise on the GSR signal. Three things keep tones out of the recorded data:
+- **Zoom clicks are silent while recording** (audible only when adjusting zoom before/after a recording session) — see the table row above.
+- **Recording start** plays its chirp, then holds for a fixed settle period before `recording.active` goes true, so the first logged sample can't include audio-era ADC readings. The settle period is sized against the GSR ring buffer depth (`SENSOR_BUFFER_SIZE` in `modules/gsr_sensor.h`) with headroom for RTOS scheduling jitter — see `GSR_TONE_SETTLE_MS` in `biomap_session.c`.
+- **Recording stop** (OK, or Back while recording) fully closes the CSV file *before* the stop chirp plays, whichever path triggers it — never after.
+
+The GSR-disconnect warning tone is the one remaining exception: it fires while `recording.active` stays true (a disconnect doesn't stop the recording). This is treated as lower-risk since the readings during a disconnect are already outside the valid GSR range and expected to be excluded from analysis regardless of the tone.
 
 ---
 
