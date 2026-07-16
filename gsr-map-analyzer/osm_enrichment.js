@@ -889,6 +889,7 @@ const OSMEnricher = {
   _logSnapDiagnostics(analyzer, raw, evalCount) {
     const sg = analyzer.snappedGps;
     if (!sg) return;
+    const formatFixed = (value, digits) => Number.isFinite(value) ? value.toFixed(digits) : 'n/a';
 
     let pointsWithSnap = 0, pointsTotal = 0;
     let sumAlpha = 0, maxAlpha = 0;
@@ -900,27 +901,31 @@ const OSMEnricher = {
 
     for (let i = 0; i < sg.length; i++) {
       const s = sg[i];
-      if (isNaN(s.lat)) continue;
+      if (!s) continue;
+      const lat = Number(s.lat);
+      if (!Number.isFinite(lat)) continue;
+      const alpha = Number(s.alpha);
+      const dist = Number(s.dist);
       pointsTotal++;
-      if (!isNaN(s.alpha) && s.alpha > 0) {
+      if (Number.isFinite(alpha) && alpha > 0) {
         pointsWithSnap++;
-        sumAlpha += s.alpha;
-        if (s.alpha > maxAlpha) maxAlpha = s.alpha;
-        if (s.alpha <= 0.1) alphaBuckets[1]++;
-        else if (s.alpha <= 0.3) alphaBuckets[2]++;
-        else if (s.alpha <= 0.7) alphaBuckets[3]++;
+        sumAlpha += alpha;
+        if (alpha > maxAlpha) maxAlpha = alpha;
+        if (alpha <= 0.1) alphaBuckets[1]++;
+        else if (alpha <= 0.3) alphaBuckets[2]++;
+        else if (alpha <= 0.7) alphaBuckets[3]++;
         else alphaBuckets[4]++;
       } else {
         alphaBuckets[0]++;
       }
-      if (!isNaN(s.dist) && s.dist < Infinity) {
-        sumDist += s.dist;
+      if (Number.isFinite(dist)) {
+        sumDist += dist;
         distCount++;
-        if (s.dist < minDist) minDist = s.dist;
-        if (s.dist > maxDist) maxDist = s.dist;
+        if (dist < minDist) minDist = dist;
+        if (dist > maxDist) maxDist = dist;
       }
       if (s.wayId != null) wayIds.add(s.wayId);
-      if (s.alpha >= 1.0) lockedCount++;
+      if (alpha >= 1.0) lockedCount++;
     }
 
     const header = '━━ Road Snap Diagnostics ━━';
@@ -930,17 +935,17 @@ const OSMEnricher = {
     console.log('Snapped (>0):',     pointsWithSnap,
       pointsTotal > 0 ? `(${(100*pointsWithSnap/pointsTotal).toFixed(0)}%)` : '');
     console.log('Fully locked (α=1):', lockedCount);
-    console.log('Max α:', maxAlpha.toFixed(2), '  Mean α (snapped):',
-      pointsWithSnap > 0 ? (sumAlpha/pointsWithSnap).toFixed(2) : 'n/a');
+    console.log('Max α:', formatFixed(maxAlpha, 2), '  Mean α (snapped):',
+      pointsWithSnap > 0 ? formatFixed(sumAlpha / pointsWithSnap, 2) : 'n/a');
     console.log('α buckets:  zero:', alphaBuckets[0],
       ' 0-0.1:', alphaBuckets[1],
       ' 0.1-0.3:', alphaBuckets[2],
       ' 0.3-0.7:', alphaBuckets[3],
       ' 0.7-1.0:', alphaBuckets[4]);
     if (distCount > 0) {
-      console.log('Distance to road:  min:', minDist.toFixed(1)+'m',
-        ' max:', maxDist.toFixed(1)+'m',
-        ' mean:', (sumDist/distCount).toFixed(1)+'m');
+      console.log('Distance to road:  min:', formatFixed(minDist, 1)+'m',
+        ' max:', formatFixed(maxDist, 1)+'m',
+        ' mean:', formatFixed(sumDist / distCount, 1)+'m');
     }
     console.log('Unique ways snapped to:', wayIds.size);
     console.groupEnd();
