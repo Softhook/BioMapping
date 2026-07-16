@@ -410,6 +410,70 @@ void test_csv_formatting() {
     printf("  -> Pass\n");
 }
 
+// Mirrors the FIXED sd_logger_batch_printf() in modules/sd_logger.c: on a
+// truncated (buffer-would-overflow) row, it must roll back to the length
+// before the call rather than advancing gsr_batch_len into the truncated
+// bytes.  Before the fix, a truncated/corrupted partial row was left in
+// the buffer and got written to the SD card on the next batch flush.
+typedef struct {
+    char buf[32];   // deliberately tiny to make overflow easy to trigger
+    int  len;
+} MockSdBatch;
+
+static int sd_batch_printf_ref(MockSdBatch* l, const char* fmt, ...) {
+    int remaining = (int)sizeof(l->buf) - l->len;
+    if(remaining <= 0) return 0;
+
+    va_list args;
+    va_start(args, fmt);
+    int n = vsnprintf(l->buf + l->len, (size_t)remaining, fmt, args);
+    va_end(args);
+
+    if(n <= 0) return 0;
+    if(n >= remaining) {
+        // Fixed behaviour: discard the truncated row, do not advance len.
+        return 0;
+    }
+    l->len += n;
+    return n;
+}
+
+void test_batch_printf_rollback_on_truncation() {
+    printf("Running test_batch_printf_rollback_on_truncation...\n");
+    MockSdBatch l = {0};
+
+    // Two small rows fit comfortably.
+    int r1 = sd_batch_printf_ref(&l, "%.2f,%.1f\n", 0.10, 100.0);
+    assert(r1 > 0);
+    int len_after_first = l.len;
+
+    int r2 = sd_batch_printf_ref(&l, "%.2f,%.1f\n", 0.20, 200.0);
+    assert(r2 > 0);
+    int len_after_second = l.len;
+    assert(len_after_second > len_after_first);
+
+    // This row cannot fit in the remaining space (32-byte buffer) and must
+    // be fully rejected — length must roll back to len_after_second, NOT
+    // advance to sizeof(buf)-1 with a truncated/corrupt row appended.
+    int r3 = sd_batch_printf_ref(&l, "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f\n",
+                                  0.30, 51.5072000, -0.1276000, 1.2, 1.5, 8, 3,
+                                  2.40, 185.0, 4523.0);
+    assert(r3 == 0);
+    assert(l.len == len_after_second);  // rolled back — no corrupt row appended
+
+    // What would actually be flushed to SD is buf[0..len) — bounded by
+    // len, exactly like storage_file_write(l->file, l->gsr_batch,
+    // l->gsr_batch_len) in the real sd_logger_batch_flush(). It must be
+    // exactly the two complete rows, with none of the rejected third row's
+    // truncated bytes included in that flushed range (vsnprintf may still
+    // have scribbled truncated bytes further into the buffer past `len` —
+    // that's fine, since flush never reads past `len`).
+    const char* expected = "0.10,100.0\n0.20,200.0\n";
+    assert(l.len == (int)strlen(expected));
+    assert(memcmp(l.buf, expected, (size_t)l.len) == 0);
+    printf("  flushed bytes=%.*s  -> Pass\n", l.len, l.buf);
+}
+
 void test_nmea_parsing() {
     printf("Running test_nmea_parsing...\n");
     // $GNGGA sentence with valid coordinates:
@@ -501,6 +565,75 @@ static void cal_fit(const float measured[CAL_POINTS],
     *r2 = (ss_tot > 1e-9f) ? (1.0f - ss_res / ss_tot) : 1.0f;
 }
 
+// Mirrors the FIXED calibration_wizard_compute_fit() in biomap_gui.c: a
+// bool-returning variant that gates validity (bounds + R^2) but must ALWAYS
+// write *out_gain/*out_offset/*out_r_squared, even when it returns false.
+// The fit-fail screen (calibration_wizard_render, step 10) displays these
+// values so the user can see how far out of range their device is — prior
+// to the fix, the out-of-bounds branch left the outputs untouched, so the
+// screen always showed a stale "Gain: 0.000x R²: 0.0000" instead.
+static bool calibration_wizard_compute_fit_ref(const float measured[CAL_POINTS],
+                                                const float targets[CAL_POINTS],
+                                                float* out_gain, float* out_offset,
+                                                float* out_r_squared) {
+    float sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for(int i = 0; i < CAL_POINTS; i++) {
+        sx  += measured[i];
+        sy  += targets[i];
+        sxx += measured[i] * measured[i];
+        sxy += measured[i] * targets[i];
+    }
+    float n     = (float)CAL_POINTS;
+    float denom = n * sxx - sx * sx;
+    if(denom <= 1e-9f) {
+        *out_gain = 1.0f;
+        *out_offset = 0.0f;
+        *out_r_squared = 0.0f;
+        return false;
+    }
+    float gain   = (n * sxy - sx * sy) / denom;
+    float offset = (sy - gain * sx) / n;
+    float y_mean = sy / n;
+    float ss_res = 0, ss_tot = 0;
+    for(int i = 0; i < CAL_POINTS; i++) {
+        float y_pred = gain * measured[i] + offset;
+        float res    = targets[i] - y_pred;
+        ss_res += res * res;
+        float dev    = targets[i] - y_mean;
+        ss_tot += dev * dev;
+    }
+    float r_squared = (ss_tot > 1e-9f) ? (1.0f - ss_res / ss_tot) : 1.0f;
+    *out_gain = gain;
+    *out_offset = offset;
+    *out_r_squared = r_squared;
+    return gain >= 0.2f && gain <= 5.0f &&
+           offset >= -20000.0f && offset <= 20000.0f &&
+           r_squared >= 0.95f;
+}
+
+void test_calibration_fit_reports_values_on_bounds_failure() {
+    printf("Running test_calibration_fit_reports_values_on_bounds_failure...\n");
+    // Device reads ~6x high on every point -> gain far above the 5.0x
+    // ceiling -> compute_fit must return false, but must still report the
+    // actual (out-of-range) gain/offset/R^2 rather than leaving them unset.
+    float targets[3]  = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
+    float measured[3] = { targets[0] / 6.0f, targets[1] / 6.0f, targets[2] / 6.0f };
+
+    // Poison the outputs first, like uninitialised/stale WizardState fields.
+    float gain = -999.0f, offset = -999.0f, r2 = -999.0f;
+    bool ok = calibration_wizard_compute_fit_ref(measured, targets, &gain, &offset, &r2);
+
+    assert(ok == false);               // correctly rejected (gain ~6.0x > 5.0x)
+    assert(gain > 5.0f);               // real computed gain, not left at -999
+    assert(fabsf(offset) < 1000.0f);   // real computed offset, not left at -999
+    assert(r2 > 0.95f);                // fit is actually linear (R^2 near 1) —
+                                        // it's the gain bound that fails it, and
+                                        // that distinction is only visible if
+                                        // the outputs were actually populated.
+    printf("  gain=%.4f offset=%.1f R²=%.6f (rejected, values reported) -> Pass\n",
+           (double)gain, (double)offset, (double)r2);
+}
+
 // ── Calibration correctness tests ─────────────────────────────────────
 
 void test_calibration_identity() {
@@ -566,17 +699,21 @@ void test_calibration_offset_device() {
 
 void test_calibration_nonlinear_reject() {
     printf("Running test_calibration_nonlinear_reject...\n");
-    // Non-linear device: low reads high, high reads low — poor R²
-    // The calibration gate requires R² ≥ 0.99
-    float measured[3] = { 3000.0f, 10000.0f, 15000.0f };   // non-linear
+    // Non-monotonic device: the "high" (47k) resistor reads BELOW the
+    // "mid" (100k) resistor, which no linear device can reproduce — poor R².
+    // The production gate (calibration_wizard_compute_fit) requires R^2 >= 0.95.
+    // (A merely noisy-but-still-monotonic set like {3000,10000,15000} actually
+    // scores R^2 ~ 0.96, which would PASS the real 0.95 gate — not a useful
+    // rejection example — so this uses a genuinely non-monotonic set instead.)
+    float measured[3] = { 2000.0f, 10000.0f, 9000.0f };   // non-monotonic
     float targets[3]  = { CAL_TARGET_470K, CAL_TARGET_100K, CAL_TARGET_47K };
 
     float gain, offset, r2;
     cal_fit(measured, targets, &gain, &offset, &r2);
 
-    // R² must be < 0.99 (fails the linearity gate)
-    assert(r2 < 0.99f);
-    printf("  R²=%.6f (< 0.99, rejected as expected) -> Pass\n", (double)r2);
+    // R² must be < 0.95 (fails the production linearity gate)
+    assert(r2 < 0.95f);
+    printf("  R²=%.6f (< 0.95, rejected as expected) -> Pass\n", (double)r2);
 }
 
 void test_calibration_degenerate_input() {
@@ -597,27 +734,29 @@ void test_calibration_degenerate_input() {
 
 void test_calibration_bounds_check() {
     printf("Running test_calibration_bounds_check...\n");
-    // Production code gates: 0.5 ≤ gain ≤ 2.0, |offset| ≤ 10000, R² ≥ 0.99
+    // Production code gates (biomap_gui.c calibration_wizard_compute_fit,
+    // mirrored in biomap.h CAL_* constants): 0.2 <= gain <= 5.0,
+    // |offset| <= 20000, R^2 >= 0.95.
 
-    // Valid: gain=1.0, offset=0, R²=1.0 → passes
-    assert(1.0f >= 0.5f && 1.0f <= 2.0f);
-    assert(0.0f >= -10000.0f && 0.0f <= 10000.0f);
-    assert(1.0f >= 0.99f);
+    // Valid: gain=1.0, offset=0, R^2=1.0 -> passes
+    assert(1.0f >= 0.2f && 1.0f <= 5.0f);
+    assert(0.0f >= -20000.0f && 0.0f <= 20000.0f);
+    assert(1.0f >= 0.95f);
 
     // Invalid: gain too low
-    assert(!(0.4f >= 0.5f && 0.4f <= 2.0f));
+    assert(!(0.19f >= 0.2f && 0.19f <= 5.0f));
 
     // Invalid: gain too high
-    assert(!(2.1f >= 0.5f && 2.1f <= 2.0f));
+    assert(!(5.1f >= 0.2f && 5.1f <= 5.0f));
 
     // Invalid: offset too negative
-    assert(!(-10001.0f >= -10000.0f && -10001.0f <= 10000.0f));
+    assert(!(-20001.0f >= -20000.0f && -20001.0f <= 20000.0f));
 
     // Invalid: offset too positive
-    assert(!(10001.0f >= -10000.0f && 10001.0f <= 10000.0f));
+    assert(!(20001.0f >= -20000.0f && 20001.0f <= 20000.0f));
 
-    // Invalid: R² too low
-    assert(!(0.98f >= 0.99f));
+    // Invalid: R^2 too low
+    assert(!(0.94f >= 0.95f));
     printf("  -> Pass\n");
 }
 
@@ -745,23 +884,24 @@ void test_cal_validation_checksum() {
 
 void test_cal_validation_bounds() {
     printf("Running test_cal_validation_bounds...\n");
-    // Production gates: 0.5 ≤ gain ≤ 2.0, |offset| ≤ 10000
+    // Production gates (biomap.c biomap_load_calibration / biomap.h CAL_*):
+    // 0.2 <= gain <= 5.0, |offset| <= 20000.
 
     // Valid values
-    assert(1.0f >= 0.5f && 1.0f <= 2.0f);
-    assert(0.0f >= -10000.0f && 0.0f <= 10000.0f);
+    assert(1.0f >= 0.2f && 1.0f <= 5.0f);
+    assert(0.0f >= -20000.0f && 0.0f <= 20000.0f);
 
     // Boundary values — must be accepted
-    assert(0.5f >= 0.5f && 0.5f <= 2.0f);          // lower gain bound
-    assert(2.0f >= 0.5f && 2.0f <= 2.0f);          // upper gain bound
-    assert(-10000.0f >= -10000.0f && -10000.0f <= 10000.0f);  // lower offset bound
-    assert(10000.0f >= -10000.0f && 10000.0f <= 10000.0f);   // upper offset bound
+    assert(0.2f >= 0.2f && 0.2f <= 5.0f);          // lower gain bound
+    assert(5.0f >= 0.2f && 5.0f <= 5.0f);          // upper gain bound
+    assert(-20000.0f >= -20000.0f && -20000.0f <= 20000.0f);  // lower offset bound
+    assert(20000.0f >= -20000.0f && 20000.0f <= 20000.0f);   // upper offset bound
 
     // Slightly out of bounds — must be rejected
-    assert(!(0.49f >= 0.5f && 0.49f <= 2.0f));
-    assert(!(2.01f >= 0.5f && 2.01f <= 2.0f));
-    assert(!(-10000.1f >= -10000.0f && -10000.1f <= 10000.0f));
-    assert(!(10000.1f >= -10000.0f && 10000.1f <= 10000.0f));
+    assert(!(0.19f >= 0.2f && 0.19f <= 5.0f));
+    assert(!(5.01f >= 0.2f && 5.01f <= 5.0f));
+    assert(!(-20000.1f >= -20000.0f && -20000.1f <= 20000.0f));
+    assert(!(20000.1f >= -20000.0f && 20000.1f <= 20000.0f));
     printf("  -> Pass\n");
 }
 
@@ -781,8 +921,8 @@ void test_cal_full_validation_chain() {
     bool valid = (cal.magic == CAL_MAGIC)
               && (cal.version == CAL_VERSION)
               && (cal.checksum == cal_checksum(&cal))
-              && (cal.gain >= 0.5f && cal.gain <= 2.0f)
-              && (cal.offset >= -10000.0f && cal.offset <= 10000.0f);
+              && (cal.gain >= 0.2f && cal.gain <= 5.0f)
+              && (cal.offset >= -20000.0f && cal.offset <= 20000.0f);
     assert(valid);
 
     // Corrupt each field one at a time and verify the chain rejects it.
@@ -793,40 +933,40 @@ void test_cal_full_validation_chain() {
     assert(!((bad.magic == CAL_MAGIC)
           && (bad.version == CAL_VERSION)
           && (bad.checksum == cal_checksum(&bad))
-          && (bad.gain >= 0.5f && bad.gain <= 2.0f)
-          && (bad.offset >= -10000.0f && bad.offset <= 10000.0f)));
+          && (bad.gain >= 0.2f && bad.gain <= 5.0f)
+          && (bad.offset >= -20000.0f && bad.offset <= 20000.0f)));
 
     // Version corruption
     bad = cal; bad.version = 0;
     assert(!((bad.magic == CAL_MAGIC)
           && (bad.version == CAL_VERSION)
           && (bad.checksum == cal_checksum(&bad))
-          && (bad.gain >= 0.5f && bad.gain <= 2.0f)
-          && (bad.offset >= -10000.0f && bad.offset <= 10000.0f)));
+          && (bad.gain >= 0.2f && bad.gain <= 5.0f)
+          && (bad.offset >= -20000.0f && bad.offset <= 20000.0f)));
 
     // Checksum corruption (via bit-flip in gain)
     bad = cal; bad.gain = 1.5f;  // checksum no longer matches
     assert(!((bad.magic == CAL_MAGIC)
           && (bad.version == CAL_VERSION)
           && (bad.checksum == cal_checksum(&bad))
-          && (bad.gain >= 0.5f && bad.gain <= 2.0f)
-          && (bad.offset >= -10000.0f && bad.offset <= 10000.0f)));
+          && (bad.gain >= 0.2f && bad.gain <= 5.0f)
+          && (bad.offset >= -20000.0f && bad.offset <= 20000.0f)));
 
     // Bounds violation — gain too high
-    bad = cal; bad.gain = 5.0f; bad.checksum = cal_checksum(&bad);
+    bad = cal; bad.gain = 5.1f; bad.checksum = cal_checksum(&bad);
     assert(!((bad.magic == CAL_MAGIC)
           && (bad.version == CAL_VERSION)
           && (bad.checksum == cal_checksum(&bad))
-          && (bad.gain >= 0.5f && bad.gain <= 2.0f)
-          && (bad.offset >= -10000.0f && bad.offset <= 10000.0f)));
+          && (bad.gain >= 0.2f && bad.gain <= 5.0f)
+          && (bad.offset >= -20000.0f && bad.offset <= 20000.0f)));
 
     // Bounds violation — offset too negative
-    bad = cal; bad.offset = -20000.0f; bad.checksum = cal_checksum(&bad);
+    bad = cal; bad.offset = -25000.0f; bad.checksum = cal_checksum(&bad);
     assert(!((bad.magic == CAL_MAGIC)
           && (bad.version == CAL_VERSION)
           && (bad.checksum == cal_checksum(&bad))
-          && (bad.gain >= 0.5f && bad.gain <= 2.0f)
-          && (bad.offset >= -10000.0f && bad.offset <= 10000.0f)));
+          && (bad.gain >= 0.2f && bad.gain <= 5.0f)
+          && (bad.offset >= -20000.0f && bad.offset <= 20000.0f)));
     printf("  -> Pass\n");
 }
 int main() {
@@ -848,6 +988,7 @@ int main() {
     test_calibration_nonlinear_reject();
     test_calibration_degenerate_input();
     test_calibration_bounds_check();
+    test_calibration_fit_reports_values_on_bounds_failure();
 
     printf("\n========================================\n");
     printf("CALIBRATION PERSISTENCE\n");
@@ -865,8 +1006,9 @@ int main() {
     printf("CSV / NMEA\n");
     printf("========================================\n");
     test_csv_formatting();
+    test_batch_printf_rollback_on_truncation();
     test_nmea_parsing();
 
-    printf("\nAll 17 firmware unit tests passed successfully!\n");
+    printf("\nAll 19 firmware unit tests passed successfully!\n");
     return 0;
 }

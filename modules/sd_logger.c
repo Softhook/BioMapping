@@ -54,14 +54,13 @@ static int find_next_index(SdLogger* l) {
     char name[64];
     while(storage_dir_read(dir, &info, name, sizeof(name))) {
         if(info.flags & FSF_DIRECTORY) continue;
-        size_t len = strlen(name);
-        if(len < 12) continue; // "biomap_001.csv" is 14 chars
-        if(strncmp(name, LOGGER_BASENAME, sizeof(LOGGER_BASENAME) - 1) == 0 && strcmp(name + len - 4, LOGGER_EXT) == 0) {
-            int idx = biomap_parse_file_index(name);
-            if(idx < 0) idx = 0; // fallback for non-numeric names
-            if(idx > max_idx && idx <= LOGGER_MAX_INDEX) {
-                max_idx = idx;
-            }
+        // biomap_parse_file_index() already validates the "biomap_" prefix,
+        // ".csv" suffix, and numeric body in one place — no need to
+        // re-check the prefix/suffix here too (util.h is the single
+        // source of truth for the filename format).
+        int idx = biomap_parse_file_index(name);
+        if(idx > max_idx && idx <= LOGGER_MAX_INDEX) {
+            max_idx = idx;
         }
     }
     storage_dir_close(dir);
@@ -182,9 +181,15 @@ int sd_logger_batch_printf(SdLogger* l, const char* fmt, ...) {
 
     if(n <= 0) return 0;
     if(n >= remaining) {
-        FURI_LOG_W("SdLogger", "Batch printf truncated (%d >= %d)",
+        // vsnprintf truncated the row: it wrote only `remaining - 1` bytes
+        // of real content (plus a NUL) into the buffer. Do NOT advance
+        // gsr_batch_len past the last complete row — doing so would leave
+        // a truncated/corrupt partial row in the buffer that the next
+        // sd_logger_batch_flush() would write straight to the SD card,
+        // corrupting the CSV. Roll back and let the caller's overflow
+        // path (emergency flush) start the row fresh in a cleared buffer.
+        FURI_LOG_W("SdLogger", "Batch printf truncated (%d >= %d) — row discarded",
                    n, remaining);
-        l->gsr_batch_len = (int)sizeof(l->gsr_batch) - 1;
         return 0;
     }
     l->gsr_batch_len += n;

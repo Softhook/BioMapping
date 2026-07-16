@@ -268,6 +268,12 @@ static bool calibration_wizard_measure(GsrSensor* gsr, int resistor_idx, const f
     }
 }
 
+// Computes the fit and ALWAYS writes *out_gain / *out_offset / *out_r_squared,
+// even when validation fails — the fit-fail screen (calibration_wizard_render,
+// step 10) displays these values so the user can see how far out of range
+// their device is, rather than a fixed 0.000x placeholder. The return value
+// is the sole validity signal; callers must not treat a false return as
+// "outputs are undefined".
 static bool calibration_wizard_compute_fit(const float measured[CAL_POINTS], const float targets[CAL_POINTS], float* out_gain, float* out_offset, float* out_r_squared) {
     // Three-point linear least-squares:  y = gain * x + offset
     // Σx, Σy, Σxx, Σxy  where x = measured, y = target
@@ -283,7 +289,14 @@ static bool calibration_wizard_compute_fit(const float measured[CAL_POINTS], con
     float n     = (float)CAL_POINTS;
     float denom = n * sxx - sx * sx;
     if(denom <= 1e-9f) {
-        return false; // degenerate fit
+        // Degenerate fit (measurements collinear/identical) — no meaningful
+        // gain/offset/R² exist. Report neutral defaults rather than leaving
+        // the caller's variables untouched.
+        *out_gain = 1.0f;
+        *out_offset = 0.0f;
+        *out_r_squared = 0.0f;
+        FURI_LOG_W("BioMap", "Calibration fit degenerate (measurements not distinct)");
+        return false;
     }
 
     float gain   = (n * sxy - sx * sy) / denom;
@@ -302,19 +315,21 @@ static bool calibration_wizard_compute_fit(const float measured[CAL_POINTS], con
     }
     float r_squared = (ss_tot > 1e-9f) ? (1.0f - ss_res / ss_tot) : 1.0f;
 
+    // Always publish the computed fit so the caller (and the fit-fail
+    // screen) can show the user what was actually measured.
+    *out_gain = gain;
+    *out_offset = offset;
+    *out_r_squared = r_squared;
+
     // Validate bounds (nS domain) and linearity (R² ≥ 0.95)
-    if(gain >= 0.2f && gain <= 5.0f &&
-       offset >= -20000.0f && offset <= 20000.0f &&
-       r_squared >= 0.95f) {
-        *out_gain = gain;
-        *out_offset = offset;
-        *out_r_squared = r_squared;
-        return true;
-    } else {
+    bool ok = gain >= 0.2f && gain <= 5.0f &&
+              offset >= -20000.0f && offset <= 20000.0f &&
+              r_squared >= 0.95f;
+    if(!ok) {
         FURI_LOG_W("BioMap", "Calibration out of bounds: gain=%.4f off=%.1f R²=%.4f",
                    (double)gain, (double)offset, (double)r_squared);
-        return false;
     }
+    return ok;
 }
 
 void run_calibration_wizard(BioMapApp* app) {
