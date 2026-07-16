@@ -7,6 +7,11 @@ void run_gps_hot_start(BioMapApp* app) {
     if(ok) { gps_uart_send_hot_start(g); furi_delay_ms(300); }
     notification_message(app->notifications,
         ok ? &sequence_blink_green_100 : &sequence_blink_red_100);
+    if(ok) {
+        biomap_sound_success(app->sound_enabled);
+    } else {
+        biomap_sound_error(app->sound_enabled);
+    }
     if(g) gps_uart_free(g);
 }
 
@@ -17,6 +22,7 @@ int32_t biomap_app(void* p) {
     *app = (BioMapApp){
         .zoom_enabled = true,
         .backlight_on = false,
+        .sound_enabled = true,
         .cal_active = false,
         .cal_gain = 1.0f,
         .cal_offset = 0.0f

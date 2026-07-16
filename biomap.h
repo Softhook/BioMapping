@@ -30,6 +30,7 @@
 #include "modules/gps_uart.h"
 #include "modules/gsr_sensor.h"
 #include "modules/sd_logger.h"
+#include "modules/sound.h"
 #include "modules/util.h"
 
 // ── Session — per-recording-session state ──────────────────────────────
@@ -54,6 +55,14 @@ typedef struct Session {
 
     bool           running;
 
+    // Edge-trigger latch for the GSR-disconnect audio warning: true once
+    // biomap_sound_warning() has fired for the CURRENT disconnect episode,
+    // so the alert plays once per episode (not once per second alongside
+    // the LED blink). Reset to false as soon as the sensor reads connected
+    // again. Lives on Session (not DisplayState) because it's a one-shot
+    // UI-event latch, not a signal-processing value.
+    bool           gsr_alert_sounded;
+
     // Render cache — avoids snprintf + canvas_string_width every frame
     char           zoom_label[16];
     float          zoom_label_last;
@@ -74,6 +83,7 @@ typedef struct BioMapApp {
     ViewPort*          menu_vp;
 
     bool               backlight_on;
+    bool               sound_enabled;  // Options > Sound; survives session boundaries
     bool               cal_active;
     float              cal_gain;
     float              cal_offset;
@@ -82,7 +92,7 @@ typedef struct BioMapApp {
 // ── Menu & conversion UI types ─────────────────────────────────────────
 
 #define MENU_COUNT      5
-#define OPTIONS_COUNT   4
+#define OPTIONS_COUNT   5
 
 typedef struct {
     BioMapApp* app;

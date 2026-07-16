@@ -153,6 +153,18 @@ static void update_graph_pipeline(Session* s) {
     }
 }
 
+// Mirrors cycle_selection() in biomap_gui.c: moves a list selection by one
+// step with wraparound — Up on the first item jumps to the last, Down on
+// the last item jumps back to the first. Shared by the main menu, Options
+// screen, and GSR Calibration submenu.
+static int32_t cycle_selection(int32_t sel, int32_t count, bool down) {
+    if(down) {
+        return (sel + 1 >= count) ? 0 : sel + 1;
+    } else {
+        return (sel - 1 < 0) ? count - 1 : sel - 1;
+    }
+}
+
 static void rescale_graph_buf(Session* s, bool zoom_out) {
     float temp[GRAPH_N];
 
@@ -260,6 +272,35 @@ void test_update_display_pipeline() {
     update_display_pipeline(&s, 10.0f);
     update_display_pipeline(&s, 10.0f); // refresh_counter reaches 5
     assert(s.display.refresh_counter == 0);
+    printf("  -> Pass\n");
+}
+
+void test_cycle_selection_wraparound() {
+    printf("Running test_cycle_selection_wraparound...\n");
+
+    // Up from the first item wraps to the last item.
+    assert(cycle_selection(0, 5, false) == 4);
+    // Down from the last item wraps to the first item.
+    assert(cycle_selection(4, 5, true) == 0);
+
+    // Normal (non-wrapping) steps in the middle of the list still work.
+    assert(cycle_selection(2, 5, false) == 1);
+    assert(cycle_selection(2, 5, true) == 3);
+
+    // Single-item list: both directions stay put (wrap to itself).
+    assert(cycle_selection(0, 1, false) == 0);
+    assert(cycle_selection(0, 1, true) == 0);
+
+    // Two-item list (GSR Calibration submenu): Up/Down just flip-flop.
+    assert(cycle_selection(0, 2, false) == 1);
+    assert(cycle_selection(1, 2, true) == 0);
+
+    // Five-item list (main menu, MENU_COUNT=5): boundaries at both ends.
+    assert(cycle_selection(0, 5, false) == 4);
+    assert(cycle_selection(4, 5, true) == 0);
+    for(int i = 0; i < 4; i++) assert(cycle_selection(i, 5, true) == i + 1);
+    for(int i = 4; i > 0; i--) assert(cycle_selection(i, 5, false) == i - 1);
+
     printf("  -> Pass\n");
 }
 
@@ -975,6 +1016,7 @@ int main() {
     printf("========================================\n");
     test_smooth_iir_filter();
     test_update_display_pipeline();
+    test_cycle_selection_wraparound();
     test_rescale_graph_buf();
     test_conductance_conversion();
 
@@ -1009,6 +1051,6 @@ int main() {
     test_batch_printf_rollback_on_truncation();
     test_nmea_parsing();
 
-    printf("\nAll 19 firmware unit tests passed successfully!\n");
+    printf("\nAll 20 firmware unit tests passed successfully!\n");
     return 0;
 }

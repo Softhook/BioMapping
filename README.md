@@ -461,17 +461,17 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 │    Auto-zoom GSR   ON      │   ← toggleable
 │    Backlight           ON  │   ← toggleable
 │    GSR Calibration    YES  │   ← YES = custom calibration loaded, NO = default
-│                             │
-│    Press Back to return     │
+│    Sound                ON │   ← toggleable
 └─────────────────────────────┘
 ```
 
 | Option | OK Action |
 |---|---|
-| **Reset GPS** | Sends a hot-start command to the GPS module. SAM-M10Q: binary `UBX-CFG-RST` packet. L76K: `$PCAS10,0*1C\r\n` ASCII command. Useful if GPS is outputting stale/frozen data. Leaves a green flash on success, red on failure. |
+| **Reset GPS** | Sends a hot-start command to the GPS module. SAM-M10Q: binary `UBX-CFG-RST` packet. L76K: `$PCAS10,0*1C\r\n` ASCII command. Useful if GPS is outputting stale/frozen data. Leaves a green flash on success, red on failure — and plays a success/error tone (see [Audio Feedback](#audio-feedback) below). |
 | **Auto-zoom GSR** | Toggles auto-zoom ON/OFF. When enabled, the graph's vertical scale adjusts automatically to keep peaks visible. When disabled, manual Up/Down zoom controls the scale. Toggling back ON resets the zoom to 1.0× and re-seeds the auto-zoom peak tracker. |
 | **Backlight** | Toggles the Flipper's backlight between auto-dimming (OFF) and always-on (ON). Useful for walks in bright sunlight or dark environments. |
 | **GSR Calibration** | Displays the current calibration status (`YES` if custom calibration is active, or `NO` for default). Pressing OK opens the calibration submenu to start the wizard or reset. |
+| **Sound** | Toggles UI audio feedback ON/OFF (default ON). This toggle always plays its own confirmation click, even when switching sound OFF, so muting is itself audible. All other tones respect this setting. |
 
 ### GSR Calibration Submenu
 
@@ -561,6 +561,27 @@ While recording, the LED blinks once per second (a "heartbeat"), independent of 
 | Recording stopped | LED cleared | Blink sequence stopped; backlight restored to auto |
 | GPS hot start OK (Reset GPS) | Green blink (100 ms) | Reset command sent successfully |
 | GPS hot start failed (Reset GPS) | Red blink (100 ms) | GPS module not responding |
+
+---
+
+## 9a. Audio Feedback
+
+The Flipper's piezo speaker gives short tones for key/state changes, so the important ones — recording start/stop, mode changes, and mid-recording alerts — are audible without looking at the screen. Implemented in [`modules/sound.h`](../modules/sound.h) using the same `furi_hal_speaker_acquire/start/stop/release` pattern as other Flipper Zero FAP apps. Toggle in **Options > Sound** (default ON); every tone in the app respects this setting except the Sound toggle's own confirmation click, which always plays so muting is itself audible.
+
+| Event | Tone |
+|---|---|
+| Menu/list navigation (Up/Down), manual graph zoom (Up/Down/Left/Right while recording) | Short neutral click |
+| Back / cancel | Short click, lower-pitched than navigation (audibly distinct "direction") |
+| Select a menu item, enter a mode/submenu, confirm a calibration step, single calibration-resistor measurement passing its gate | Bright confirm click |
+| Auto-zoom / Backlight toggled | Two-pitch tone — higher for ON, lower for OFF |
+| GSR Calibration > Reset to Default | Three-note descending tone, distinct from a plain toggle |
+| **Recording started** | Rising two-note chirp (E5 → B5) |
+| **Recording stopped** (OK toggle, or Back while recording) | Falling two-note chirp (B5 → E5) — the mirror image of start |
+| GPS hot start (Reset GPS) succeeded, calibration fit succeeded | Three-note ascending success run |
+| GPS hot start failed, calibration measurement/fit failed, recording failed to start (header/SD error) | Two-note descending error tone |
+| SD write failure (recording stops), GSR electrodes disconnect | Low double-beep warning — edge-triggered once per disconnect episode, not repeated every second, so a loose electrode doesn't nag for the rest of the walk |
+
+GPS fix/no-fix state deliberately has **no** audio cue — it changes too often in normal use (urban canyons, trees) for a tone to stay useful; the badge/LED already covers it.
 
 ---
 

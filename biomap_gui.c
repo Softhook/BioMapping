@@ -50,6 +50,18 @@ static void drain_stale_events(FuriMessageQueue* q) {
     while(furi_message_queue_get(q, &ev, 0) == FuriStatusOk);
 }
 
+// Move a list selection by one step with wraparound: Up on the first item
+// jumps to the last, Down on the last item jumps back to the first — used
+// by the main menu, Options screen, and GSR Calibration submenu so all
+// three list screens navigate the same way.
+static int32_t cycle_selection(int32_t sel, int32_t count, bool down) {
+    if(down) {
+        return (sel + 1 >= count) ? 0 : sel + 1;
+    } else {
+        return (sel - 1 < 0) ? count - 1 : sel - 1;
+    }
+}
+
 // ==========================================================================
 // Launch menu — main navigation
 // ==========================================================================
@@ -83,24 +95,28 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
         switch(ev.input.key) {
         case InputKeyUp:
             furi_mutex_acquire(app->mutex, FuriWaitForever);
-            if(ctx.selection > 0) ctx.selection--;
+            ctx.selection = cycle_selection(ctx.selection, MENU_COUNT, false);
             furi_mutex_release(app->mutex);
+            biomap_sound_click(app->sound_enabled);
             view_port_update(app->menu_vp);
             break;
         case InputKeyDown:
             furi_mutex_acquire(app->mutex, FuriWaitForever);
-            if(ctx.selection < MENU_COUNT - 1) ctx.selection++;
+            ctx.selection = cycle_selection(ctx.selection, MENU_COUNT, true);
             furi_mutex_release(app->mutex);
+            biomap_sound_click(app->sound_enabled);
             view_port_update(app->menu_vp);
             break;
         case InputKeyOk:
             furi_mutex_acquire(app->mutex, FuriWaitForever);
             result = ctx.selection;
             furi_mutex_release(app->mutex);
+            biomap_sound_confirm(app->sound_enabled);
             running = false;
             break;
         case InputKeyBack:
             result = -1;
+            biomap_sound_back(app->sound_enabled);
             running = false;
             break;
         default: break;
@@ -138,23 +154,29 @@ void run_options_screen(BioMapApp* app) {
     PluginEvent ev;
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
-            if(ev.input.key == InputKeyBack) break;
+            if(ev.input.key == InputKeyBack) {
+                biomap_sound_back(app->sound_enabled);
+                break;
+            }
 
             switch(ev.input.key) {
             case InputKeyUp:
                 furi_mutex_acquire(app->mutex, FuriWaitForever);
-                if(ctx.selection > 0) ctx.selection--;
+                ctx.selection = cycle_selection(ctx.selection, OPTIONS_COUNT, false);
                 furi_mutex_release(app->mutex);
+                biomap_sound_click(app->sound_enabled);
                 break;
             case InputKeyDown:
                 furi_mutex_acquire(app->mutex, FuriWaitForever);
-                if(ctx.selection < OPTIONS_COUNT - 1) ctx.selection++;
+                ctx.selection = cycle_selection(ctx.selection, OPTIONS_COUNT, true);
                 furi_mutex_release(app->mutex);
+                biomap_sound_click(app->sound_enabled);
                 break;
             case InputKeyOk:
                 switch(ctx.selection) {
                 case 0:
-                    // Reset GPS — VP stays visible, no need to re-create
+                    // Reset GPS — VP stays visible, no need to re-create.
+                    // run_gps_hot_start() plays its own success/error tone.
                     run_gps_hot_start(app);
                     view_port_update(vp);
                     continue;
@@ -163,16 +185,29 @@ void run_options_screen(BioMapApp* app) {
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
                     app->zoom_enabled = !app->zoom_enabled;
                     furi_mutex_release(app->mutex);
+                    biomap_sound_toggle(app->sound_enabled, app->zoom_enabled);
                     break;
                 case 2:
                     // Toggle backlight
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
                     app->backlight_on = !app->backlight_on;
                     furi_mutex_release(app->mutex);
+                    biomap_sound_toggle(app->sound_enabled, app->backlight_on);
                     break;
                 case 3:
                     // GSR Calibration
+                    biomap_sound_confirm(app->sound_enabled);
                     run_calibration_menu(app);
+                    break;
+                case 4:
+                    // Toggle sound itself — always play the confirming click
+                    // (bypass the `enabled` gate) so muting/unmuting is
+                    // always audible right at the moment it changes, even
+                    // when turning sound OFF.
+                    furi_mutex_acquire(app->mutex, FuriWaitForever);
+                    app->sound_enabled = !app->sound_enabled;
+                    furi_mutex_release(app->mutex);
+                    biomap_sound_toggle(true, app->sound_enabled);
                     break;
                 default: break;
                 }
@@ -193,16 +228,23 @@ void run_calibration_menu(BioMapApp* app) {
     PluginEvent ev;
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
-            if(ev.input.key == InputKeyBack) break;
+            if(ev.input.key == InputKeyBack) {
+                biomap_sound_back(app->sound_enabled);
+                break;
+            }
             if(ev.input.key == InputKeyUp) {
-                if(selection > 0) selection--;
+                selection = cycle_selection(selection, 2, false); // 2 items: Start Wizard, Reset to Default
+                biomap_sound_click(app->sound_enabled);
             } else if(ev.input.key == InputKeyDown) {
-                if(selection < 1) selection++;
+                selection = cycle_selection(selection, 2, true);
+                biomap_sound_click(app->sound_enabled);
             } else if(ev.input.key == InputKeyOk) {
                 if(selection == 0) {
+                    biomap_sound_confirm(app->sound_enabled);
                     run_calibration_wizard(app);
                     break;
                 } else {
+                    biomap_sound_reset(app->sound_enabled);
                     biomap_reset_calibration(app);
                     break;
                 }
@@ -365,8 +407,10 @@ void run_calibration_wizard(BioMapApp* app) {
         // ── Back handler ──────────────────────────────────────────
         if(ev.input.key == InputKeyBack) {
             // Allowed to cancel from any prompt, success, or fail screen.
-            if(w.step == 0 || w.step == 2 || w.step == 4 || w.step == 8 || w.step == 9 || w.step == 10)
+            if(w.step == 0 || w.step == 2 || w.step == 4 || w.step == 8 || w.step == 9 || w.step == 10) {
+                biomap_sound_back(app->sound_enabled);
                 break;
+            }
             continue;
         }
 
@@ -380,11 +424,13 @@ void run_calibration_wizard(BioMapApp* app) {
         // step 10    = fit fail           → retry (go back to step 0)
 
         if(w.step == 8) {
+            biomap_sound_confirm(app->sound_enabled);
             biomap_save_calibration(app, w.gain, w.offset);
             break;
         }
 
         if(w.step == 9 || w.step == 10) {
+            biomap_sound_click(app->sound_enabled);
             w.step = 0;
             view_port_update(vp);
             continue;
@@ -398,11 +444,13 @@ void run_calibration_wizard(BioMapApp* app) {
 
         if(idx >= 0) {
             // ── Measurement step ──────────────────────────────────
+            biomap_sound_click(app->sound_enabled);
             w.step = (int)(idx * 2 + 1);  // 0→1, 2→3, 4→5
             view_port_update(vp);
 
             if(!sensor_ok) {
                 w.step = 9;
+                biomap_sound_error(app->sound_enabled);
                 view_port_update(vp);
                 continue;
             }
@@ -411,16 +459,20 @@ void run_calibration_wizard(BioMapApp* app) {
             if(calibration_wizard_measure(gsr, idx, gates, &avg_g)) {
                 w.measured[idx] = avg_g;
                 w.step = (int)(idx * 2 + 2);  // 1→2, 3→4, 5→6
+                biomap_sound_confirm(app->sound_enabled); // this resistor's reading passed its gate
             } else {
                 w.step = 9;
+                biomap_sound_error(app->sound_enabled);
             }
 
             // After the last measurement, compute the least-squares fit.
             if(w.step == 6) {
                 if(calibration_wizard_compute_fit(w.measured, targets, &w.gain, &w.offset, &w.r_squared)) {
                     w.step = 8;  // success
+                    biomap_sound_success(app->sound_enabled);
                 } else {
                     w.step = 10; // fit failure
+                    biomap_sound_error(app->sound_enabled);
                 }
             }
             view_port_update(vp);

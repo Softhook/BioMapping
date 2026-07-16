@@ -12,6 +12,7 @@ static const char* const options_labels[OPTIONS_COUNT] = {
     "Auto-zoom GSR",
     "Backlight",
     "GSR Calibration",
+    "Sound",
 };
 
 // ── GPS display helpers ────────────────────────────────────────────────────
@@ -355,7 +356,12 @@ void options_render(Canvas* c, void* ctx) {
     int sel = (int)o_ctx->selection;
     draw_selection_list(c, sel, OPTIONS_COUNT, options_labels, 22);
 
-    // Overlay toggle state on items 1 (auto-zoom), 2 (backlight), and 3 (calibration)
+    // Overlay toggle state on items 1 (auto-zoom), 2 (backlight), 3
+    // (calibration), and 4 (sound). Item 4 now reaches y=62, the bottom
+    // edge of the 64px display — with 5 rows there's no longer room for a
+    // "Press Back to return" footer below the list (as there was with the
+    // original 4 items), so it's been dropped; every other screen in this
+    // app relies on Back working without an on-screen reminder.
     for(int i = 1; i < OPTIONS_COUNT; i++) {
         int y = 22 + i * 10;
         const char* state;
@@ -363,8 +369,10 @@ void options_render(Canvas* c, void* ctx) {
             state = a->zoom_enabled ? "ON" : "OFF";
         } else if(i == 2) {
             state = a->backlight_on ? "ON" : "OFF";
-        } else {
+        } else if(i == 3) {
             state = a->cal_active ? "YES" : "NO";
+        } else {
+            state = a->sound_enabled ? "ON" : "OFF";
         }
         int sx = 128 - canvas_string_width(c, state) - 2;
         if(i == sel) canvas_invert_color(c);
@@ -372,7 +380,6 @@ void options_render(Canvas* c, void* ctx) {
         if(i == sel) canvas_invert_color(c);
     }
     canvas_set_font(c, FontSecondary);
-    canvas_draw_str(c, 0, 60, "Press Back to return");
     furi_mutex_release(a->mutex);
 }
 
