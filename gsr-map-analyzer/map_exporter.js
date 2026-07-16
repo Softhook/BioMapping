@@ -88,19 +88,22 @@ class GSRMapExporter {
   // ═══════════════════════════════════════════════════════════════════
 
   static async _tiles(el, r) {
-    const out = [];
-    const jobs = Array.from(el.querySelectorAll('.leaflet-tile-pane img'), tile => {
+    const tiles = Array.from(el.querySelectorAll('.leaflet-tile-pane img'));
+    const jobs = tiles.map(async tile => {
       const b = tile.getBoundingClientRect();
-      return this._inlineImg(tile).then(url => {
-        if (url) out.push(this._img(b.left - r.left, b.top - r.top, b.width, b.height, url));
-      });
+      const url = await this._inlineImg(tile);
+      return url ? this._img(b.left - r.left, b.top - r.top, b.width, b.height, url) : null;
     });
-    await Promise.all(jobs);
-    return out;
+    const results = await Promise.all(jobs);
+    return results.filter(Boolean);
   }
 
   /** canvas drawImage → fetch+blob → null */
   static async _inlineImg(img) {
+    const src = img.getAttribute('src') || img.src;
+    if (!src) return null;
+    if (src.startsWith('data:')) return src;
+
     try {
       const c = Object.assign(document.createElement('canvas'), {
         width: img.naturalWidth || img.width || 256,
@@ -111,8 +114,6 @@ class GSRMapExporter {
       if (u?.startsWith('data:')) return u;
     } catch (_) { /* tainted */ }
 
-    const src = img.getAttribute('src') || img.src;
-    if (!src) return null;
     try {
       const res = await fetch(src, { mode: 'cors' });
       if (!res.ok) return null;
@@ -179,15 +180,16 @@ class GSRMapExporter {
   static _pathEl(map, layer) {
     if (!layer || typeof layer.getLatLngs !== 'function') return null;
     const latlngs = layer.getLatLngs();
-    const isPoly  = layer instanceof L.Polygon;
+    const isPoly  = window.L && layer instanceof window.L.Polygon;
     const d = this._pathD(map, latlngs, isPoly);
     if (!d) return null;
 
     const o = layer.options || {};
     const esc = this._esc;
+    const strokeWidth = (o.weight !== undefined ? o.weight : 3) * 0.3;
     return `<path d="${d}"` +
       ` stroke="${esc(o.color || '#ff7b00')}"` +
-      ` stroke-width="${esc(o.weight || 3)}"` +
+      ` stroke-width="${esc(strokeWidth)}"` +
       ` stroke-opacity="${esc(o.opacity ?? 0.85)}"` +
       ` stroke-dasharray="${esc(o.dashArray || 'none')}"` +
       ` fill="${esc(isPoly ? (o.fillColor || o.color || '#ff7b00') : 'none')}"` +
@@ -237,10 +239,12 @@ class GSRMapExporter {
     const dot = el.querySelector('.peak-dot') || el.querySelector('.collective-peak-dot');
     if (!dot || window.getComputedStyle(dot).display === 'none') return null;
     const s = window.getComputedStyle(dot);
-    return `<circle cx="${cx}" cy="${cy}" r="5"` +
+    const strokeWidth = (parseFloat(s.borderWidth) || 1.5) * 0.5;
+    const r = (parseFloat(s.width) || 10) * 0.15;
+    return `<circle cx="${cx}" cy="${cy}" r="${r}"` +
       ` fill="${this._esc(s.backgroundColor || '#f43f5e')}"` +
       ` stroke="${this._esc(s.borderColor || '#ffffff')}"` +
-      ` stroke-width="${this._esc(parseFloat(s.borderWidth) || 1.5)}"` +
+      ` stroke-width="${this._esc(strokeWidth)}"` +
       ` opacity="${opacity}" />`;
   }
 
