@@ -216,6 +216,22 @@ if (clusters.length > 0) {
   }
 }
 
+// Performance Benchmark: 1,000 synthetic peaks
+console.log('\n── 3b. Clustering Performance Benchmark ──');
+const syntheticPeaks = [];
+for (let i = 0; i < 1000; i++) {
+  syntheticPeaks.push({
+    lat: 51.5 + (Math.random() - 0.5) * 0.05,
+    lon: -0.07 + (Math.random() - 0.5) * 0.05
+  });
+}
+const tStart = Date.now();
+const testClusters = GSRSpatialClustering.clusterPeaks(syntheticPeaks, 50, 18, 15);
+const tEnd = Date.now();
+const duration = tEnd - tStart;
+console.log(`  Clustered 1,000 peaks into ${testClusters.length} clusters in ${duration} ms`);
+assert(duration < 25, `Clustered 1,000 peaks in under 25ms (actual: ${duration}ms)`);
+
 // ════════════════════════════════════════════════════════════════════════════
 //  4. MARCHING SQUARES CONTOURING ALGORITHMS
 // ════════════════════════════════════════════════════════════════════════════

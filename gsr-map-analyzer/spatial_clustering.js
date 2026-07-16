@@ -79,55 +79,155 @@ class GSRSpatialClustering {
    * @param {number} maxDistanceMeters - Grouping threshold in meters.
    * @returns {Array<Array<object>>} Array of clusters, where each cluster is an array of peak objects.
    */
-  static clusterPeaks(peaks, maxDistanceMeters = 35) {
+  static clusterPeaks(peaks, maxDistanceMeters = 35, boundaryRadius = 18, sigma = 15) {
     if (!peaks || peaks.length === 0) return [];
 
-    let limit = parseFloat(maxDistanceMeters);
-    if (isNaN(limit)) limit = 35;
+    const limit = isNaN(parseFloat(maxDistanceMeters)) ? 35 : parseFloat(maxDistanceMeters);
+    const bRad = isNaN(parseFloat(boundaryRadius)) ? 18 : parseFloat(boundaryRadius);
+    const sig = isNaN(parseFloat(sigma)) ? 15 : parseFloat(sigma);
 
     const n = peaks.length;
-    const adj = Array.from({ length: n }, () => []);
+
+    // Parse lat/lon once to avoid millions of parseFloat calls in nested loops
+    const parsedPeaks = peaks.map(p => ({
+      lat: parseFloat(p.lat),
+      lon: parseFloat(p.lon),
+      orig: p
+    }));
 
     // Calculate an average latitude to scale longitude distance accurately
-    const latMid = peaks.reduce((sum, p) => sum + parseFloat(p.lat), 0) / n;
+    const latMid = parsedPeaks.reduce((sum, p) => sum + p.lat, 0) / n;
     const scale = GSRSpatialClustering._getGeodesicScale(latMid);
 
-    // Build the adjacency graph
+    // 1. Initialize clusters: each peak is initially in its own cluster
+    const clusters = parsedPeaks.map((p, idx) => ({
+      indices: [idx],
+      points: [p.orig]
+    }));
+
+    // 2. Precompute the distance matrix between all peaks in a single flat array
+    const peakDist = new Float64Array(n * n);
+    const scaleLat = scale.degToMeterLat;
+    const scaleLon = scale.degToMeterLon;
+
     for (let i = 0; i < n; i++) {
+      const pI = parsedPeaks[i];
+      const iOffset = i * n;
       for (let j = i + 1; j < n; j++) {
-        const dist = GSRSpatialClustering._getDistanceMeters(peaks[i].lat, peaks[i].lon, peaks[j].lat, peaks[j].lon, scale);
-        if (dist <= limit) {
-          adj[i].push(j);
-          adj[j].push(i);
-        }
+        const pJ = parsedPeaks[j];
+        const dy = (pI.lat - pJ.lat) * scaleLat;
+        const dx = (pI.lon - pJ.lon) * scaleLon;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        peakDist[iOffset + j] = d;
+        peakDist[j * n + i] = d;
       }
     }
 
-    // BFS to find connected components (clusters)
-    const visited = new Set();
-    const clusters = [];
+    // Function to calculate the merge condition threshold for a cluster
+    const getClusterRadius = (size) => {
+      if (size <= 1) return bRad * 1.05;
+      return Math.sqrt(bRad * bRad + 2 * sig * sig * Math.log(size)) * 1.05;
+    };
 
+    // Maintain a cluster-to-cluster distance matrix in a single flat array
+    const clusterDist = new Float64Array(n * n);
+    clusterDist.set(peakDist);
+
+    // Maintain bestCandidate array: for each cluster i, bestCandidate[i] stores the index of the cluster j
+    // that has the maximum merge violation score with i.
+    const bestCandidate = new Array(n);
+
+    const updateBestCandidate = (i, activeIndices) => {
+      let maxScore = -Infinity;
+      let target = -1;
+      const rI = getClusterRadius(clusters[i].points.length);
+      const rowOffset = i * n;
+      for (const j of activeIndices) {
+        if (j === i) continue;
+        const rJ = getClusterRadius(clusters[j].points.length);
+        const threshold = Math.max(limit, rI + rJ);
+        const score = threshold - clusterDist[rowOffset + j];
+        if (score > maxScore) {
+          maxScore = score;
+          target = j;
+        }
+      }
+      bestCandidate[i] = { target, score: maxScore };
+    };
+
+    // Active indices of clusters
+    const activeIndices = new Set(Array.from({ length: n }, (_, i) => i));
+
+    // Initially calculate best candidates for all clusters
     for (let i = 0; i < n; i++) {
-      if (!visited.has(i)) {
-        const cluster = [];
-        const queue = [i];
-        visited.add(i);
+      updateBestCandidate(i, activeIndices);
+    }
 
-        while (queue.length > 0) {
-          const u = queue.shift();
-          cluster.push(peaks[u]);
-          for (const v of adj[u]) {
-            if (!visited.has(v)) {
-              visited.add(v);
-              queue.push(v);
-            }
+    while (activeIndices.size > 1) {
+      let maxScore = -Infinity;
+      let mergeI = -1;
+
+      // Find the cluster with the highest merge violation score
+      for (const i of activeIndices) {
+        const candidate = bestCandidate[i];
+        if (candidate && candidate.score > maxScore) {
+          maxScore = candidate.score;
+          mergeI = i;
+        }
+      }
+
+      // If the maximum score is not positive, no more violations exist
+      if (maxScore <= 0 || mergeI === -1) {
+        break;
+      }
+
+      const mergeJ = bestCandidate[mergeI].target;
+
+      // Merge cluster mergeJ into mergeI
+      clusters[mergeI].points.push(...clusters[mergeJ].points);
+      clusters[mergeI].indices.push(...clusters[mergeJ].indices);
+
+      // Remove mergeJ from active indices
+      activeIndices.delete(mergeJ);
+
+      // Update the cluster-to-cluster distance matrix for mergeI
+      const rowI = mergeI * n;
+      const rowJ = mergeJ * n;
+      for (const k of activeIndices) {
+        if (k === mergeI) continue;
+        const d = Math.min(clusterDist[rowI + k], clusterDist[rowJ + k]);
+        clusterDist[rowI + k] = d;
+        clusterDist[k * n + mergeI] = d;
+      }
+
+      // Update bestCandidate for mergeI by scanning active clusters
+      updateBestCandidate(mergeI, activeIndices);
+
+      // Update other clusters k in O(1) time each
+      const rMergeI = getClusterRadius(clusters[mergeI].points.length);
+      for (const k of activeIndices) {
+        if (k === mergeI) continue;
+
+        const rK = getClusterRadius(clusters[k].points.length);
+        const threshold = Math.max(limit, rK + rMergeI);
+        const score = threshold - clusterDist[k * n + mergeI];
+
+        if (bestCandidate[k].target === mergeI || bestCandidate[k].target === mergeJ) {
+          bestCandidate[k] = { target: mergeI, score };
+        } else {
+          if (score > bestCandidate[k].score) {
+            bestCandidate[k] = { target: mergeI, score };
           }
         }
-        clusters.push(cluster);
       }
     }
 
-    return clusters;
+    // Return the points of active clusters
+    const result = [];
+    for (const idx of activeIndices) {
+      result.push(clusters[idx].points);
+    }
+    return result;
   }
 
   /**

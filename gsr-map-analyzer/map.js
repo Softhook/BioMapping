@@ -804,8 +804,8 @@ class GSRMapManager {
       // Retrieve dynamic clustering parameters from UI sliders
       const { boundaryRadius, sigma, effectiveProximity } = this._getClusteringParams();
 
-      // Group peaks within selected proximity limit
-      const clusters = GSRSpatialClustering.clusterPeaks(ptsForClustering, effectiveProximity);
+      // Group peaks within selected proximity limit and boundary constraints
+      const clusters = GSRSpatialClustering.clusterPeaks(ptsForClustering, effectiveProximity, boundaryRadius, sigma);
 
       clusters.forEach(cluster => {
         const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, boundaryRadius);
@@ -843,7 +843,7 @@ class GSRMapManager {
       proximity,
       boundaryRadius,
       sigma: boundaryRadius * 0.83,
-      effectiveProximity: Math.max(proximity, boundaryRadius * 2.1)
+      effectiveProximity: proximity
     };
   }
 
@@ -1119,7 +1119,7 @@ class GSRMapManager {
       // Retrieve dynamic clustering parameters from UI sliders
       const { boundaryRadius, sigma, effectiveProximity } = this._getClusteringParams();
 
-      const clusters = GSRSpatialClustering.clusterPeaks(allActivePeaksAcrossTracks, effectiveProximity);
+      const clusters = GSRSpatialClustering.clusterPeaks(allActivePeaksAcrossTracks, effectiveProximity, boundaryRadius, sigma);
       clusters.forEach(cluster => {
         const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, boundaryRadius);
         paths.forEach(path => {
