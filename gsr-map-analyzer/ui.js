@@ -226,12 +226,14 @@ const GSRUI = {
     const dur = stats.duration;
     const durMins = Math.floor(dur / 60);
     const durSecs = Math.floor(dur % 60);
-    F.duration.innerText  = durMins > 0
-      ? durMins + ' min ' + durSecs + ' sec'
-      : durSecs + ' sec';
-    F.meanSCL.innerText   = stats.meanSCL.toFixed(3) + " \u03bcS";
-    F.peakCount.innerText = stats.peakCount;
-    F.peakFreq.innerText  = stats.peakFrequency.toFixed(2) + " / min";
+    if (F.duration) {
+      F.duration.innerText  = durMins > 0
+        ? durMins + ' min ' + durSecs + ' sec'
+        : durSecs + ' sec';
+    }
+    if (F.meanSCL)   F.meanSCL.innerText   = stats.meanSCL.toFixed(3) + " \u03bcS";
+    if (F.peakCount) F.peakCount.innerText = stats.peakCount;
+    if (F.peakFreq)  F.peakFreq.innerText  = stats.peakFrequency.toFixed(2) + " / min";
   },
 
   /**

@@ -121,9 +121,11 @@ body {
   gap: 10px;
 }
 
-.header-logo .wave-icon {
-  font-size: 1.2rem;
-  color: var(--text-primary);
+.header-logo .logo-image {
+  height: 1.15rem;
+  width: 1.15rem;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
 .header-logo h1 {
@@ -527,7 +529,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 /* Stats Cards */
 .stats-row {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 1px;
   background: var(--border-glass);
   border: 1px solid var(--border-glass);
@@ -565,8 +567,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .stat-label {
-  font-size: 0.68rem;
-  font-weight: 700;
+  font-size: 0.8rem;
+  font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-muted);
@@ -576,7 +578,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .stat-value {
   font-family: var(--font-sans);
   font-size: 0.8rem;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
