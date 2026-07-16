@@ -925,7 +925,7 @@ const OSMEnricher = {
         if (dist > maxDist) maxDist = dist;
       }
       if (s.wayId != null) wayIds.add(s.wayId);
-      if (alpha >= 1.0) lockedCount++;
+      if (Number.isFinite(alpha) && alpha >= 1.0) lockedCount++;
     }
 
     const header = '━━ Road Snap Diagnostics ━━';

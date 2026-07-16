@@ -38,7 +38,7 @@ assertDoesNotThrow(() => {
       undefined,
       { lat: NaN, lon: NaN },
       { lat: 51.5, lon: -0.1, alpha: undefined, dist: undefined },
-      { lat: 51.5001, lon: -0.1001, alpha: '0.5', dist: '12.3', wayId: 42 },
+      { lat: '51.5001', lon: '-0.1001', alpha: '0.5', dist: '12.3', wayId: 42 },
       { lat: 51.5002, lon: -0.1002, alpha: 1, dist: 0, wayId: 42 }
     ]
   }, [], 2);
