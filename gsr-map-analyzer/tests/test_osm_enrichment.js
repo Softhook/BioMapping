@@ -2,6 +2,7 @@ const { OSMEnricher } = require('../osm_enrichment.js');
 
 let passed = 0;
 let failed = 0;
+const capturedLogs = [];
 
 function assert(condition, msg) {
   if (condition) {
@@ -29,7 +30,7 @@ const originalConsole = {
 };
 
 console.group = () => {};
-console.log = () => {};
+console.log = (...args) => { capturedLogs.push(args); };
 console.groupEnd = () => {};
 
 assertDoesNotThrow(() => {
@@ -49,6 +50,23 @@ assertDoesNotThrow(() => {
     snappedGps: new Array(4)
   }, [], 0);
 }, 'OSM diagnostics tolerate fully sparse snappedGps arrays');
+
+capturedLogs.length = 0;
+OSMEnricher._logSnapDiagnostics({
+  snappedGps: [
+    { lat: 51.5, lon: -0.1, alpha: 0.25, dist: 4.4, wayId: 7 },
+    { lat: 51.5001, lon: -0.1001, alpha: 1, dist: 10.2, wayId: 7 }
+  ]
+}, [], 2);
+
+assert(
+  capturedLogs.some(args => args[0] === 'Max α:' && args[1] === '1.00' && args[3] === '0.63'),
+  'OSM diagnostics log formatted alpha summary for valid snapped points'
+);
+assert(
+  capturedLogs.some(args => args[0] === 'Distance to road:  min:' && args[1] === '4.4m' && args[3] === '10.2m' && args[5] === '7.3m'),
+  'OSM diagnostics log formatted distance summary for valid snapped points'
+);
 
 console.group = originalConsole.group;
 console.log = originalConsole.log;
