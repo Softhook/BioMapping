@@ -245,9 +245,9 @@ class GSRMapManager {
     const first = snappedGps[keys[0]];
     const mid   = snappedGps[keys[Math.floor(n / 2)]];
     const last  = snappedGps[keys[n - 1]];
-    const fa = first ? first.alpha.toFixed(3) : '?';
-    const ma = mid   ? mid.alpha.toFixed(3)   : '?';
-    const la = last  ? last.alpha.toFixed(3)  : '?';
+    const fa = (first && typeof first.alpha === 'number') ? first.alpha.toFixed(3) : '?';
+    const ma = (mid   && typeof mid.alpha === 'number')   ? mid.alpha.toFixed(3)   : '?';
+    const la = (last  && typeof last.alpha === 'number')  ? last.alpha.toFixed(3)  : '?';
     return `${n}|${fa}|${ma}|${la}`;
   }
 
