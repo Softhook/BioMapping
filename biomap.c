@@ -37,13 +37,16 @@ int32_t biomap_app(void* p) {
     biomap_load_calibration(app);
     notification_message_block(app->notifications, &sequence_display_backlight_enforce_auto);
 
-    // Create persistent menu ViewPort — stays in GUI stack for app lifetime.
-    // Enabled/disabled when entering/leaving sub-screens so it never needs
-    // to be removed, preventing desktop flashes between screen transitions.
-    app->menu_vp = view_port_alloc();
-    view_port_input_callback_set(app->menu_vp, biomap_input_callback, app->event_queue);
-    view_port_enabled_set(app->menu_vp, false);
-    gui_add_view_port(app->gui, app->menu_vp, GuiLayerFullscreen);
+    // Create the single persistent ViewPort shared by every screen — stays
+    // in the GUI stack for the app's whole lifetime. Screens are switched by
+    // enabling/disabling it and swapping the draw callback (see vp_push/
+    // vp_pop and run_recording_session), so it's never removed from the GUI
+    // stack. That's what prevents the desktop/dolphin from flashing through
+    // between screen transitions.
+    app->screen_vp = view_port_alloc();
+    view_port_input_callback_set(app->screen_vp, biomap_input_callback, app->event_queue);
+    view_port_enabled_set(app->screen_vp, false);
+    gui_add_view_port(app->gui, app->screen_vp, GuiLayerFullscreen);
 
     bool running = true;
     while(running) {
@@ -61,8 +64,8 @@ int32_t biomap_app(void* p) {
 
     notification_message_block(app->notifications, &sequence_display_backlight_enforce_auto);
 
-    gui_remove_view_port(app->gui, app->menu_vp);
-    view_port_free(app->menu_vp);
+    gui_remove_view_port(app->gui, app->screen_vp);
+    view_port_free(app->screen_vp);
     furi_record_close(RECORD_GUI);
     furi_record_close(RECORD_NOTIFICATION);
     furi_record_close(RECORD_STORAGE);

@@ -75,8 +75,14 @@ void session_deinit(Session* s, BioMapApp* app) {
     // Restore auto backlight when leaving recording view
     notification_message(app->notifications, &sequence_display_backlight_enforce_auto);
     if(s->vp) {
-        gui_remove_view_port(app->gui, s->vp);
-        view_port_free(s->vp);
+        // s->vp is app->screen_vp — the single persistent fullscreen
+        // ViewPort shared by every screen. Disable it and clear its draw
+        // callback, but never remove/free it here: doing so (the old
+        // behavior) left a window with zero enabled fullscreen ViewPorts
+        // in the GUI stack, which let the desktop/dolphin flash through
+        // before the next screen re-enabled it.
+        view_port_enabled_set(s->vp, false);
+        view_port_draw_callback_set(s->vp, NULL, NULL);
         s->vp = NULL;
     }
 }
@@ -688,6 +694,28 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     Session* s = &app->session;
     session_init(s, mode, app->zoom_enabled);
 
+    // Reuse the single persistent screen ViewPort (already in the GUI
+    // stack, currently disabled) rather than allocating a new one, and do
+    // it BEFORE the module allocations below. gps_uart_alloc() blocks for
+    // several hundred ms (it does multiple furi_delay_ms(100) waits while
+    // bringing up the UART) — if the ViewPort were left disabled across
+    // that sleep, the app thread is guaranteed to yield for long enough
+    // that the GUI's redraw thread runs, finds no enabled fullscreen
+    // ViewPort, and paints the desktop/dolphin fallback. That's the flash
+    // seen specifically on "GPS Only" / "GPS + GSR" (both call
+    // gps_uart_alloc()) and not on Options/GSR-only, which don't have a
+    // comparable blocking wait before their screen was shown.
+    //
+    // session_init() already zeroed s->gps/s->gsr/s->logger to NULL and
+    // set s->mode, and biomap_render_callback() null-checks all three, so
+    // it's safe to start rendering the recording screen immediately —
+    // it'll just show "GPS unavailable"/no graph until the modules below
+    // finish initialising, instead of showing nothing (the desktop).
+    s->vp = app->screen_vp;
+    view_port_draw_callback_set(s->vp, biomap_render_callback, app);
+    view_port_enabled_set(s->vp, true);
+    view_port_update(s->vp);
+
     if(has_gps(mode)) {
         s->gps = gps_uart_alloc(app->event_queue, app->notifications);
     } else {
@@ -704,13 +732,6 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         gsr_sensor_set_calibration(s->gsr, active, gain, offset);
     }
     s->logger = sd_logger_alloc(app->storage);
-
-    s->vp = view_port_alloc();
-    view_port_draw_callback_set(s->vp, biomap_render_callback, app);
-    view_port_input_callback_set(s->vp, biomap_input_callback, app->event_queue);
-
-    // Menu VP is already in the stack (disabled) — add recording VP on top
-    gui_add_view_port(app->gui, s->vp, GuiLayerFullscreen);
     view_port_update(s->vp);
 
     // Apply backlight preference

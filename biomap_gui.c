@@ -26,22 +26,30 @@ void biomap_timer_callback(void* ctx) {
 // ==========================================================================
 // ViewPort lifecycle helpers — reduce boilerplate for push/pop screens
 // ==========================================================================
+//
+// These do NOT allocate a new ViewPort. They repoint app->screen_vp — the
+// single persistent fullscreen ViewPort that stays in the GUI stack for the
+// app's whole lifetime (see biomap_app() in biomap.c). Screen transitions
+// only swap the draw callback and toggle enabled/disabled, so there's never
+// a frame where zero fullscreen ViewPorts are enabled — that gap is what
+// let the desktop/dolphin background flash through during transitions.
 
-// Push a new fullscreen ViewPort onto the GUI stack and return it.
-// The caller owns the ViewPort until vp_pop().
+// "Push" a screen: point the shared ViewPort at a new draw callback and
+// enable it. Returns app->screen_vp for callers that pass it around.
 static ViewPort* vp_push(BioMapApp* app, ViewPortDrawCallback draw, void* ctx) {
-    ViewPort* vp = view_port_alloc();
+    ViewPort* vp = app->screen_vp;
     view_port_draw_callback_set(vp, draw, ctx);
-    view_port_input_callback_set(vp, biomap_input_callback, app->event_queue);
-    gui_add_view_port(app->gui, vp, GuiLayerFullscreen);
+    view_port_enabled_set(vp, true);
     view_port_update(vp);
     return vp;
 }
 
-// Remove a ViewPort from the GUI stack and free it.
+// "Pop" a screen: disable the shared ViewPort and clear its draw callback.
+// It stays in the GUI stack — never removed/freed here.
 static void vp_pop(BioMapApp* app, ViewPort* vp) {
-    gui_remove_view_port(app->gui, vp);
-    view_port_free(vp);
+    UNUSED(vp);
+    view_port_enabled_set(app->screen_vp, false);
+    view_port_draw_callback_set(app->screen_vp, NULL, NULL);
 }
 
 // Drain any stale events from the queue before starting a sub-screen loop.
@@ -78,11 +86,11 @@ static int32_t cycle_selection(int32_t sel, int32_t count, bool down) {
 
 int32_t biomap_gui_show_menu(BioMapApp* app) {
     MenuContext ctx = {.app = app, .selection = 0};
-    view_port_draw_callback_set(app->menu_vp, menu_render, &ctx);
+    view_port_draw_callback_set(app->screen_vp, menu_render, &ctx);
 
-    // Enable menu VP so it receives input and renders
-    view_port_enabled_set(app->menu_vp, true);
-    view_port_update(app->menu_vp);
+    // Enable the shared screen VP so it receives input and renders
+    view_port_enabled_set(app->screen_vp, true);
+    view_port_update(app->screen_vp);
 
     PluginEvent ev;
     int32_t result = -1;
@@ -98,14 +106,14 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
             ctx.selection = cycle_selection(ctx.selection, MENU_COUNT, false);
             furi_mutex_release(app->mutex);
             biomap_sound_click(app->sound_enabled);
-            view_port_update(app->menu_vp);
+            view_port_update(app->screen_vp);
             break;
         case InputKeyDown:
             furi_mutex_acquire(app->mutex, FuriWaitForever);
             ctx.selection = cycle_selection(ctx.selection, MENU_COUNT, true);
             furi_mutex_release(app->mutex);
             biomap_sound_click(app->sound_enabled);
-            view_port_update(app->menu_vp);
+            view_port_update(app->screen_vp);
             break;
         case InputKeyOk:
             furi_mutex_acquire(app->mutex, FuriWaitForever);
@@ -123,11 +131,11 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
         }
     }
 
-    // Disable menu VP so it stops receiving input while sub-screen runs.
-    // The VP stays in the GUI stack (no flash of desktop) but passes
-    // input through to any VP layered on top.
-    view_port_enabled_set(app->menu_vp, false);
-    view_port_draw_callback_set(app->menu_vp, NULL, NULL);
+    // Disable the shared screen VP so it stops receiving input/rendering
+    // while the caller sets up the next sub-screen (which re-enables the
+    // same ViewPort via vp_push — see biomap_gui.c comment above).
+    view_port_enabled_set(app->screen_vp, false);
+    view_port_draw_callback_set(app->screen_vp, NULL, NULL);
     return result;
 }
 
@@ -198,6 +206,14 @@ void run_options_screen(BioMapApp* app) {
                     // GSR Calibration
                     biomap_sound_confirm(app->sound_enabled);
                     run_calibration_menu(app);
+                    // run_calibration_menu() (and the wizard it can open)
+                    // pops the shared screen ViewPort on every exit path,
+                    // leaving it disabled with no draw callback. This loop
+                    // keeps running afterward, so re-arm it for the Options
+                    // screen — otherwise the display is left blank/frozen
+                    // (looks like a hang) until Back is pressed enough
+                    // times to escape all the way out to the main menu.
+                    vp_push(app, options_render, &ctx);
                     break;
                 case 4:
                     // Toggle sound itself — always play the confirming click

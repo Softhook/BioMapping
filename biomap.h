@@ -45,7 +45,7 @@ typedef struct Session {
     GpsUart*       gps;
     GsrSensor*     gsr;
     SdLogger*      logger;
-    ViewPort*      vp;
+    ViewPort*      vp;          // == app->screen_vp while a session is active; not owned/freed here
     FuriTimer*     timer;
 
     DisplayState   display;
@@ -80,7 +80,14 @@ typedef struct BioMapApp {
     Storage*           storage;
     NotificationApp*   notifications;
     Gui*               gui;
-    ViewPort*          menu_vp;
+    // Single persistent fullscreen ViewPort shared by EVERY screen (menu,
+    // options, calibration menu/wizard, recording session). It is added to
+    // the GUI stack once at startup and never removed until app exit —
+    // screen transitions only toggle enabled/disabled and swap the draw
+    // callback. This is required to avoid a frame where zero fullscreen
+    // ViewPorts are enabled, which lets the desktop/dolphin layer flash
+    // through underneath during the transition.
+    ViewPort*          screen_vp;
 
     bool               backlight_on;
     bool               sound_enabled;  // Options > Sound; survives session boundaries
