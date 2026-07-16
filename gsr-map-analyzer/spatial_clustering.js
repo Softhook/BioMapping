@@ -99,13 +99,13 @@ class GSRSpatialClustering {
     const latMid = parsedPeaks.reduce((sum, p) => sum + p.lat, 0) / n;
     const scale = GSRSpatialClustering._getGeodesicScale(latMid);
 
-    // 1. Initialize clusters: each peak is initially in its own cluster
+    // Initialize clusters: each peak is initially in its own cluster
     const clusters = parsedPeaks.map((p, idx) => ({
       indices: [idx],
       points: [p.orig]
     }));
 
-    // 2. Precompute the distance matrix between all peaks in a single flat array
+    // Precompute the distance matrix between all peaks in a single flat array
     const peakDist = new Float64Array(n * n);
     const scaleLat = scale.degToMeterLat;
     const scaleLon = scale.degToMeterLon;
@@ -129,22 +129,31 @@ class GSRSpatialClustering {
       return Math.sqrt(bRad * bRad + 2 * sig * sig * Math.log(size)) * 1.05;
     };
 
+    // Cache cluster radii to avoid Math.log / Math.sqrt in the hot loop
+    const radii = new Float64Array(n);
+    radii.fill(bRad * 1.05);
+
     // Maintain a cluster-to-cluster distance matrix in a single flat array
     const clusterDist = new Float64Array(n * n);
     clusterDist.set(peakDist);
 
-    // Maintain bestCandidate array: for each cluster i, bestCandidate[i] stores the index of the cluster j
-    // that has the maximum merge violation score with i.
+    // Maintain bestCandidate array: for each cluster i, bestCandidate[i] stores the target cluster j
+    // and its merge violation score.
     const bestCandidate = new Array(n);
 
-    const updateBestCandidate = (i, activeIndices) => {
+    // Active status tracker (replaces slow Set allocations)
+    const active = new Uint8Array(n);
+    active.fill(1);
+    let activeCount = n;
+
+    const updateBestCandidate = (i) => {
       let maxScore = -Infinity;
       let target = -1;
-      const rI = getClusterRadius(clusters[i].points.length);
+      const rI = radii[i];
       const rowOffset = i * n;
-      for (const j of activeIndices) {
-        if (j === i) continue;
-        const rJ = getClusterRadius(clusters[j].points.length);
+      for (let j = 0; j < n; j++) {
+        if (j === i || active[j] === 0) continue;
+        const rJ = radii[j];
         const threshold = Math.max(limit, rI + rJ);
         const score = threshold - clusterDist[rowOffset + j];
         if (score > maxScore) {
@@ -155,20 +164,18 @@ class GSRSpatialClustering {
       bestCandidate[i] = { target, score: maxScore };
     };
 
-    // Active indices of clusters
-    const activeIndices = new Set(Array.from({ length: n }, (_, i) => i));
-
     // Initially calculate best candidates for all clusters
     for (let i = 0; i < n; i++) {
-      updateBestCandidate(i, activeIndices);
+      updateBestCandidate(i);
     }
 
-    while (activeIndices.size > 1) {
+    while (activeCount > 1) {
       let maxScore = -Infinity;
       let mergeI = -1;
 
       // Find the cluster with the highest merge violation score
-      for (const i of activeIndices) {
+      for (let i = 0; i < n; i++) {
+        if (active[i] === 0) continue;
         const candidate = bestCandidate[i];
         if (candidate && candidate.score > maxScore) {
           maxScore = candidate.score;
@@ -187,28 +194,32 @@ class GSRSpatialClustering {
       clusters[mergeI].points.push(...clusters[mergeJ].points);
       clusters[mergeI].indices.push(...clusters[mergeJ].indices);
 
-      // Remove mergeJ from active indices
-      activeIndices.delete(mergeJ);
+      // Deactivate mergeJ
+      active[mergeJ] = 0;
+      activeCount--;
+
+      // Update cluster boundary radius for the expanded mergeI cluster
+      radii[mergeI] = getClusterRadius(clusters[mergeI].points.length);
 
       // Update the cluster-to-cluster distance matrix for mergeI
       const rowI = mergeI * n;
       const rowJ = mergeJ * n;
-      for (const k of activeIndices) {
-        if (k === mergeI) continue;
+      for (let k = 0; k < n; k++) {
+        if (active[k] === 0 || k === mergeI) continue;
         const d = Math.min(clusterDist[rowI + k], clusterDist[rowJ + k]);
         clusterDist[rowI + k] = d;
         clusterDist[k * n + mergeI] = d;
       }
 
-      // Update bestCandidate for mergeI by scanning active clusters
-      updateBestCandidate(mergeI, activeIndices);
+      // Update bestCandidate for mergeI
+      updateBestCandidate(mergeI);
 
-      // Update other clusters k in O(1) time each
-      const rMergeI = getClusterRadius(clusters[mergeI].points.length);
-      for (const k of activeIndices) {
-        if (k === mergeI) continue;
+      // Update other active clusters k in O(1) time each
+      const rMergeI = radii[mergeI];
+      for (let k = 0; k < n; k++) {
+        if (active[k] === 0 || k === mergeI) continue;
 
-        const rK = getClusterRadius(clusters[k].points.length);
+        const rK = radii[k];
         const threshold = Math.max(limit, rK + rMergeI);
         const score = threshold - clusterDist[k * n + mergeI];
 
@@ -224,8 +235,10 @@ class GSRSpatialClustering {
 
     // Return the points of active clusters
     const result = [];
-    for (const idx of activeIndices) {
-      result.push(clusters[idx].points);
+    for (let idx = 0; idx < n; idx++) {
+      if (active[idx] === 1) {
+        result.push(clusters[idx].points);
+      }
     }
     return result;
   }
