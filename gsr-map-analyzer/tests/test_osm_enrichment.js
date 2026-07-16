@@ -72,7 +72,11 @@ console.group = originalConsole.group;
 console.log = originalConsole.log;
 console.groupEnd = originalConsole.groupEnd;
 
-assert(failed === 0, 'No OSM enrichment diagnostic regressions');
+if (failed === 0) {
+  passed++;
+} else {
+  console.error('  FAIL: No OSM enrichment diagnostic regressions');
+}
 
 console.log(`OSM enrichment diagnostics: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
