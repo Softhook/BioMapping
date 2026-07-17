@@ -1,170 +1,168 @@
-# Environmental Enrichment & Analysis Implementation Plan
+# Environmental Enrichment & Analysis — Implementation Reference
 
-This document serves as the master implementation plan and conceptual reference for enriching GSR (Galvanic Skin Response) recordings with OpenStreetMap (OSM) and external vegetation datasets in the Bio Mapping 2.0 visualizer.
+This document describes the environmental-enrichment system as it is actually implemented in the Bio Mapping GSR map analyzer (`gsr-map-analyzer/`), and lists concrete suggestions for extending it. It replaces an earlier forward-looking plan; that plan's Phase 1 (native OSM integration) shipped, was extended with a GPS road-snapping system that was never in the original plan, and Phases 2–3 (satellite NDVI/LiDAR, automated Street View greenery index) were not built.
 
 ---
 
 ## 1. Conceptual Overview & Scientific Rationale
 
-Skin conductance (GSR/EDA) measures sympathetic nervous system activation, reflecting physiological arousal and stress. When people navigate urban spaces, their arousal levels fluctuate in response to environmental conditions. By pairing physiological data with spatial location, we can identify environmental drivers of stress and restoration.
+Skin conductance (GSR/EDA) measures sympathetic nervous system activation, reflecting physiological arousal and stress. When people navigate urban spaces, their arousal levels fluctuate in response to environmental conditions. Pairing physiological data with spatial location lets us identify environmental drivers of stress and restoration.
 
 ```
-[Urban Stressors]     --> [Sympathetic Spike]    --> GSR Peak / SCL Rise (after 1.5–3.0s latency)
+[Urban Stressors]     --> [Sympathetic Spike]    --> GSR Peak / SCL Rise (after ~1.5–3.0s latency)
 [Restorative Zones]   --> [Sympathetic Decay]    --> GSR Recovery / SCL Decline
 ```
 
-This implementation captures five primary environmental dimensions:
-1. **Traffic & Acoustic Stress**: High-traffic streets, multi-lane roads, and transit crossings are major noise and danger stressors.
-2. **Visual & Natural Restoration (Green Spaces)**: Tree canopy, grass, forests, and parks lower baseline physiological tension.
-3. **Blue Spaces (Water Bodies)**: Proximity to rivers, canals, lakes, and coasts has strong restorative qualities.
-4. **Built Complexity (Enclosure)**: Dense building canyons create sensory overload and feel claustrophobic, elevating baseline SCL.
-5. **Social & Pedestrian Activity**: High-density retail zones and transit hubs increase cognitive arousal.
+The implemented system captures five environmental dimensions, each backed by an OpenStreetMap tag set (see `gsr-map-analyzer/osm_enrichment.js`):
+
+1. **Traffic & Acoustic Stress** — road classification and distance to the nearest major road.
+2. **Visual & Natural Restoration (Green Spaces)** — park containment and green-space density from `leisure`, `landuse`, and `natural` tags.
+3. **Blue Spaces (Water Bodies)** — distance to the nearest water feature (`natural=water|wetland`, `waterway`, `landuse` water tags).
+4. **Built Complexity (Enclosure)** — building density from `building` ways/relations.
+5. **Social & Pedestrian Activity** — count of nearby amenities (cafes, shops, transit, schools, etc.) from `amenity`/`shop` tags.
 
 ---
 
-## 2. Phased Implementation Roadmap
+## 2. What's Implemented
 
-We will implement this analysis in three distinct phases to ensure reliability, offline utility, and technical feasibility.
+### A. OSM enrichment (shipped, matches the original Phase 1 goal)
 
-```mermaid
-graph TD
-    P1[Phase 1: Native OSM] --> P2[Phase 2: NDVI/Canopy Offline Preprocessing]
-    P2 --> P3[Phase 3: Street View GVI API]
-```
+Fetches structural environmental data from the public Overpass API entirely client-side — no API keys, no server, no preprocessing. Implemented in `osm_enrichment.js` (952 lines) with the network layer split out into `overpass_client.js`.
 
-### Phase 1: Native OSM Integration (Browser-Native)
-*   **Goal**: Fetch and process structural environmental data directly in the browser using the public Overpass API.
-*   **Attributes Captured**: Road classification, distance to major roads, presence in parks/green spaces, green space density, building density, proximity to water, and count of amenities/shops/bus stops.
-*   **Key Advantage**: Zero-configuration, free, client-side, and requires no API keys or preprocessing.
+Per-point outputs, appended as new columns on the analyzed track:
 
-### Phase 2: Satellite NDVI & LiDAR Canopy Support (Hybrid Offline/Online)
-*   **Goal**: Integrate high-resolution continuous vegetation indices (NDVI) and localized tree canopy layers.
-*   **Attributes Captured**: Continuous chlorophyll greenness score (NDVI, 10m resolution) and actual canopy heights.
-*   **Integration Method**: 
-    1. A Python preprocessing helper script (in the repository's `scratch/` folder) queries Google Earth Engine or Sentinel Hub using the track coordinates and outputs an enriched CSV.
-    2. The browser's CSV parser detects the new columns and loads them.
+| Column | Meaning |
+|---|---|
+| `osm_road_class` | Nearest road's `highway` tag (e.g. `residential`, `primary`) |
+| `osm_dist_major_road` | Distance in meters to the nearest major road |
+| `osm_in_park` | 1 if the point falls inside a park/green polygon, else 0 |
+| `osm_green_pct_50m` | Fraction of sampled points within the search radius that fall in green space |
+| `osm_building_density_50m` | Fraction of sampled points inside building footprints |
+| `osm_dist_water` | Distance in meters to the nearest water feature |
+| `osm_tree_density_50m` | Density of `natural=tree` nodes within radius |
+| `osm_amenity_count_50m` | Count of amenity/shop nodes within radius |
 
-### Phase 3: Street View Greenery Index (GVI)
-*   **Goal**: Assess visual greenery from a human eye-level rather than a satellite bird's-eye view.
-*   **Integration Method**: Optional API integration with Mapillary (open-source) or Google Street View. The app queries street-level panorama metadata at downsampled track nodes and segments images to calculate green pixel percentages.
+### B. GPS road-snapping / map-matching (shipped, not in the original plan)
+
+`osm_enrichment.js` and `map_match.js` together implement an HMM/Viterbi-style map matcher (`MapMatcher.match()`) that snaps noisy GPS points onto OSM road/path geometry before enrichment. This corrects multipath drift in urban canyons and under tree canopy — a real accuracy problem the original plan didn't anticipate. It scores emission probability (distance to candidate ways) and transition probability (route distance between candidate ways at consecutive fixes, with a junction-aware routing step), applies hysteresis so the matched way doesn't flicker, and blends the raw and snapped position with a distance-based alpha. Snap tuning lives in `constants.js` (`GSR_CONST.SNAP`: in/out radius, heading weight, hysteresis margin/duration, speed gate, spatial-index cell size) and is user-adjustable via the "Snap to Roads & Trails" toggle and radius slider in the sidebar.
+
+### C. Dashboard analysis (shipped, matches the original plan's UI/UX section)
+
+The "Environmental Analysis" panel (`index.html`, rendered by `ui.js`) has three tabs:
+- **Correlation Matrix** — Pearson `r` and p-value between each environmental feature and phasic/tonic/peak-rate arousal, with significance stars (`stats_math.js: calculatePearsonCorrelation`).
+- **Regression Plot** — scatter of a selected environmental factor vs. phasic or tonic arousal, with a fitted line and R² interpretation legend.
+- **Roads Profile** — mean phasic/tonic arousal (with std dev and 95% CI) and peak rate per road class, as both a table and a bar chart.
+
+The map panel's "Map Metric" dropdown recolors the track by any of the eight `osm_*` columns or by GSR/HDOP, and an "OSM Layers" toggle draws the retrieved park/water/building polygons under the track (`map.js: drawOsmShapes`).
 
 ---
 
-## 3. Technical Implementation Details (Phase 1 Focus)
+## 3. Technical Implementation Details
 
-### A. Data Retrieval Flow (Overpass API)
-1. **Bounding Box Calculation**:
-   Find the minimum and maximum latitudes and longitudes of the track. Add a `100-meter buffer` around the edges to account for spatial buffers (e.g. buildings within 50m of the track edge).
-2. **Overpass QL Query**:
-   Fetch roads, buildings, parks, water, amenities, and trees in a single POST request to the Overpass interpreter:
+### A. Data retrieval flow (`overpass_client.js`)
+
+1. **Bounding box**: computed from the track extent plus a 100m buffer (`OSMEnricher.calculateBBox`), widened further to cover the snap radius when road-snapping is enabled.
+2. **Overpass QL query** (`OverpassClient.buildQuery`):
    ```overpass
-   [out:json][timeout:90];
+   [out:json][timeout:180][maxsize:536870912];
    (
-     way["highway"]({{bbox}});
-     way["building"]({{bbox}});
-     relation["building"]({{bbox}});
-     way["leisure"="park"]({{bbox}});
-     way["landuse"~"grass|forest|meadow"]({{bbox}});
-     way["natural"="wood"]({{bbox}});
-     relation["leisure"="park"]({{bbox}});
-     relation["landuse"~"grass|forest|meadow"]({{bbox}});
-     relation["natural"="wood"]({{bbox}});
-     way["natural"="water"]({{bbox}});
-     way["waterway"]({{bbox}});
-     relation["natural"="water"]({{bbox}});
-     relation["waterway"]({{bbox}});
-     node["amenity"]({{bbox}});
-     way["amenity"]({{bbox}});
-     node["shop"]({{bbox}});
-     node["natural"="tree"]({{bbox}});
+     way["highway"](bbox);
+     way["building"](bbox);           relation["building"](bbox);
+     way["leisure"~"park|garden|nature_reserve|playground"](bbox);
+     way["landuse"~"grass|forest|meadow|recreation_ground|village_green|orchard"](bbox);
+     way["natural"~"wood|scrub|grassland|heath"](bbox);
+     relation["leisure"~"park|garden|nature_reserve|playground"](bbox);
+     relation["landuse"~"grass|forest|meadow|recreation_ground|village_green|orchard"](bbox);
+     relation["natural"~"wood|scrub|grassland|heath"](bbox);
+     way["natural"~"water|wetland"](bbox);     way["waterway"](bbox);
+     relation["natural"~"water|wetland"](bbox); relation["waterway"](bbox);
+     node["amenity"](bbox);  way["amenity"](bbox);
+     node["shop"](bbox);     way["shop"](bbox);
+     node["highway"="bus_stop"](bbox);
+     node["natural"="tree"](bbox);
    );
-   out body;
-   >;
-   out skel qt;
+   out body; >; out skel qt;
    ```
-3. **BBox Area Guard**:
-   $$\text{Area} = (\text{maxLat} - \text{minLat}) \times 111 \text{ km} \times (\text{maxLon} - \text{minLon}) \times 111 \cos(\text{avgLat}) \text{ km}$$
-   If Area $> 10 \text{ km}^2$, the app will warn the user and suggest using a path-buffered query (fetching features strictly within 100m of the line).
+   This is broader than the original plan's query — it adds `shop`, `bus_stop`, and several more `leisure`/`landuse`/`natural` subtypes, and drops the plan's single-value tag matches (e.g. `leisure="park"`) in favor of regex alternations that catch more park-like and green-like tags.
+3. **Reliability**: unlike the original plan (which didn't address network failure), the client handles Overpass rate limits (HTTP 429/509 with `Retry-After` honored), gateway timeouts (504, exponential backoff with jitter, up to 3 retries), and request aborts, with user-facing progress messages at each stage.
+4. **BBox area guard**: `OSMEnricher.calculateBBoxAreaKm2` warns when the query area is large, as planned.
 
-### B. Client-Side Spatial Math
-To prevent browser tab freezing, we downsample spatial calculations to unique ~1 Hz evaluation intervals (points spaced at least 1.0 second apart), then interpolate back to the 10 Hz GSR series.
+### B. Client-side spatial math (`geo_utils.js`, `osm_enrichment.js`)
 
-*   **Distance to Segment (Road Proximity)**:
-    For a GPS coordinate $P$ and a road line segment defined by $AB$:
-    1. Project $P$ onto the line segment $AB$ to find the closest point $C$.
-    2. If $C$ lies outside the segment, the distance is $\min(d(P, A), d(P, B))$.
-    3. Convert the Cartesian distance to meters using the Haversine formula at the local latitude.
-*   **Point in Polygon (Park Containment)**:
-    Ray-casting algorithm: Cast a horizontal ray to the right of the point. Count how many times the ray intersects the polygon boundaries. An odd count means the point is inside the polygon.
-*   **Concentric Circular Grid Sampling (Green Space %)**:
-    Instead of complex polygon area intersections, we sample 25 points inside a 50m radius of the GPS coordinate (concentric rings at 10m, 25m, 40m). We run point-in-polygon tests on these sample coordinates. The fraction of points inside green space polygons represents `osm_green_pct_50m`.
-*   **Spatial Hash Indexing**:
-    To avoid checking every GPS point against every OSM geometry, we place OSM features into a 2D spatial grid.
-    $$\text{CellX} = \lfloor \text{longitude} \times \text{scale} \rfloor, \quad \text{CellY} = \lfloor \text{latitude} \times \text{scale} \rfloor$$
-    We only check geometries inside the point's current grid cell and its 8 neighboring cells.
+- **Distance to segment / point-in-polygon**: implemented in a dedicated `GeoUtils` module (`haversineMeters`, `distanceToSegmentMeters`, `pointInPolygon`) rather than inline in the enrichment code — same algorithms the plan described (segment projection + haversine; ray-casting for polygons).
+- **Density sampling**: uses a **3-ring, 25-point** concentric sampling pattern (`SAMPLING_RINGS = 3`, `POINTS_PER_RING = [1, 8, 16]`), but the ring radii are fractions of the user-configurable search radius (`r/3, 2r/3, r`), not the fixed 10/25/40m the original plan specified. Since the default search radius is 50m, the default rings land at ~17m/33m/50m — close to, but not identical to, the plan's numbers, and they scale correctly when the user changes the radius slider (25–200m).
+- **Spatial hash indexing**: `OSMEnricher.buildSpatialIndex` grids OSM geometries at `CELL_SIZE_DEG = 0.001` (~111m at the equator) and `getNearby` checks the point's cell plus its 8 neighbors, as planned.
+- **Evaluation thinning**: points are evaluated at ≥1Hz spacing and interpolated back onto the full-rate timeline (`_selectEvaluationPoints`, `_projectToTimeline`), matching the plan's performance strategy. A separate, tighter distance-based thinning (`_thinPoints`) feeds the road-snapping step, which needs different density characteristics than the environmental sampling step.
+- **Coordinate validation**: `_isValidCoord` filters `NaN`, `null`, `(0,0)`, and out-of-range lat/lon before they reach the spatial math — not in the original plan, added to harden against corrupt GPS rows.
 
-### C. Temporal Latency Compensation
-Physiological sweat gland reactions lag 1.5 to 3 seconds behind environmental triggers.
-*   We will add a **Latency Shift Slider** (0 to 5 seconds, default 2.0s) in the Analysis Panel.
-*   When calculating correlations, the GSR timeline is shifted backward:
-    $$\text{Arousal}(t) \text{ is correlated with } \text{Environment}(t - \text{latency})$$
+### C. Temporal latency compensation — partially implemented, not enrichment-specific
+
+The plan proposed a "Latency Shift Slider" that would shift the GSR timeline against the *environmental* timeline before correlating. What actually shipped is a **Peak Latency Compensation** slider (0–5s, default 2.0s, `gpsPeakLatency` in `index.html`, `GSR_DEFAULT.peakLatency` in `constants.js`) that compensates SCR onset delay for map/statistics display generally — it isn't wired specifically into the correlation-matrix or scatter-plot calculations against OSM features. Aligning the correlation dashboard to this existing slider (or adding a dedicated one) is listed under Future Improvements below.
 
 ---
 
-## 4. UI/UX Changes
+## 4. UI/UX — as built
 
-### A. Sidebar: OSM Enrichment Panel
-*   Add a new control card **OSM Enrichment**:
-    *   `Search Radius` slider (25m - 200m, default 50m).
-    *   `Latency Shift` slider (0s - 5s, default 2.0s).
-    *   **Enrich Track** button.
-    *   Progress bar & entity count status.
+**Sidebar "Environmental Enrichment" card**: search-radius slider (25–200m, default 50m), an "Enrich Active Track" button, and a progress bar with live status messages (rate-limit waits, retry counts, parse progress). No latency slider here (see §3C).
 
-### B. Map Panel: Visual Overlay Selection
-*   Add a dropdown in the Map toolbar to change track path color-coding:
-    *   `GSR Arousal (Phasic)` [Default]
-    *   `Green Space %` (Green gradient)
-    *   `Building Density` (Orange/Red gradient)
-    *   `Water Proximity` (Blue gradient)
-    *   `Road Classification` (Discrete colors)
-*   Checkbox: **Show Environmental Polygons** (renders the retrieved park/water/building shapes under the track).
+**Sidebar "GPS Processing" card**: a "Snap to Roads & Trails" toggle and snap-radius slider (10–60m, default 25m) — this is the road-snapping feature from §2B, not in the original plan.
 
-### C. Dashboard: Environmental Analysis Panel
-*   Add a tabbed dashboard next to the SCR Peaks Table:
-    1.  **Correlation Matrix**: Interactive matrix of Pearson/Spearman coefficients ($r$ values) between GSR parameters (`Tonic SCL`, `Phasic SCR`, `Peak Count`) and environmental features.
-    2.  **Scatter Plot**: Plotting GSR vs. a selected spatial metric with a linear regression line ($y = mx+c$) and $R^2$ score.
-    3.  **Road Category Arousal**: Bar chart comparing mean GSR amplitude on primary vs. residential vs. park paths.
+**Map panel**: a "Map Metric" dropdown recolors the track by `osm_road_class`, `osm_dist_major_road`, `osm_in_park`, `osm_green_pct_50m`, `osm_building_density_50m`, `osm_dist_water`, `osm_tree_density_50m`, `osm_amenity_count_50m`, GSR arousal, or GPS HDOP quality (colors defined in `map_colors.js`). Options are disabled until a track has been enriched. An "OSM Layers" toggle overlays the fetched park/water/building polygons on the map (`map.js: drawOsmShapes` / `clearOsmShapes`).
+
+**Environmental Analysis dashboard**: the three-tab panel described in §2C, sitting alongside the SCR peaks table.
+
+**Street-level imagery modal** (not in the original plan): clicking a track point can open a modal showing Mapillary and/or Google Street View imagery for that coordinate (`ui.js: openStreetView`). This is a manual visual-inspection tool, not an automated greenery metric — see Phase 3 below.
 
 ---
 
-## 5. File Architecture
-
-The implementation modifies and adds the following files:
+## 5. File Architecture — as built
 
 ```
 gsr-map-analyzer/
-├── osm_enrichment.js     [NEW]  - Overpass fetch, spatial math, grid indexing.
-├── index.html            [MOD]  - Sidebar enrichment panel, stats tab UI.
-├── styles.css            [MOD]  - Layouts for stats charts, cards, map layers.
-├── map.js                [MOD]  - Track overlay rendering, custom colors.
-├── analyzer.js           [MOD]  - GSRAnalyzer state extension, CSV parser & exporter.
-├── ui.js                 [MOD]  - Event listeners, dashboard charts rendering.
-└── events.js             [MOD]  - Collapse toggles for new panels.
+├── osm_enrichment.js     - Overpass orchestration, evaluation-point selection,
+│                           per-point feature extraction, CSV column wiring.
+├── overpass_client.js    - Overpass HTTP client: query building, rate-limit
+│                           and retry/backoff handling.
+├── geo_utils.js          - haversine / distance-to-segment / point-in-polygon.
+├── map_match.js          - HMM/Viterbi GPS-to-road snapping (MapMatcher).
+├── map_colors.js         - Color scales / LUTs for all map metrics, incl. osm_*.
+├── constants.js          - GSR_CONST, including SAMPLING_RINGS/POINTS_PER_RING
+│                           and the SNAP tuning block.
+├── index.html            - Sidebar enrichment + GPS-snap cards, map metric
+│                           dropdown, Environmental Analysis dashboard markup.
+├── ui.js                 - enrichTrack() orchestration, dashboard rendering
+│                           (correlation table, scatter plot, road profile),
+│                           street-view modal.
+├── map.js                - OSM polygon overlay rendering (drawOsmShapes).
+└── analyzer.js            - osm_* column CSV parsing/export, isEnriched state.
 ```
+
+The original plan didn't list `overpass_client.js`, `geo_utils.js`, or `map_match.js` as separate files — the actual implementation split the network client and spatial-math primitives out of the main enrichment module, and added the map-matching module entirely.
 
 ---
 
-## 6. Verification Plan
+## 6. Verification — current state
 
-### Automated Testing (`scratch/test_spatial_math.js`)
-We will create a Node.js testing script to verify:
-1.  **Point-in-Polygon (PIP) correctness**: Verify standard rectangular and complex non-convex polygons.
-2.  **Distance calculations**: Verify Haversine implementation against known spherical test cases.
-3.  **Grid indexing speed**: Run a benchmark checking index retrieval time for 1,800 points against 5,000 geometries (target: $< 200\text{ms}$).
+There is no automated test coverage for the spatial math (`geo_utils.js`), the Overpass query builder, or the map matcher. The plan's proposed `scratch/test_spatial_math.js` was never written. The `gsr-map-analyzer/tests/` directory covers GSR filtering and the GPS/GSR processing pipeline (`test_all_pipelines.js`, `test_e2e_pipeline.js`, `test_refactor.js`, `test_dwt_clamp.js`) but nothing enrichment-related. This is the most significant gap between the plan and reality — the plan explicitly called for these tests and they don't exist. See Future Improvements below.
 
-### Manual Testing
-1.  Load track file `default_processed.csv`.
-2.  Click **Enrich Track** and check network panel for Overpass POST request.
-3.  Toggle Map coloring to **Green Space %** and confirm color switches on the map.
-4.  Examine the **Correlation Dashboard** and confirm scatter plot updates when dragging the **Latency Shift Slider**.
-5.  Export CSV and verify that the 8 environmental columns are populated, and re-importing this file skips the API query.
+Manual verification remains ad hoc: load a track, click Enrich, watch the network tab, toggle map coloring, and check the exported CSV for the eight `osm_*` columns.
+
+---
+
+## 7. Future Improvements
+
+1. **Add automated spatial-math tests.** Port the plan's original testing intent into `gsr-map-analyzer/tests/test_geo_utils.js`: known-answer tests for `haversineMeters` and `distanceToSegmentMeters` against hand-computed spherical cases, `pointInPolygon` against convex/non-convex/self-touching polygons, and a benchmark for `buildSpatialIndex`/`getNearby` at realistic track sizes (this is the single highest-value gap — the module has no regression protection today).
+
+2. **Add regression coverage for the map matcher.** `map_match.js` is the most algorithmically complex piece of the enrichment system (Viterbi decoding, junction routing, hysteresis) and has zero tests. A small synthetic road network with known ground-truth snapped paths would catch regressions in `_getCandidates`, `_wayDistance`, and the hysteresis logic.
+
+3. **Wire the correlation/scatter dashboard to a real latency shift.** Either reuse the existing Peak Latency Compensation slider or add a dedicated one, and apply it inside `renderCorrelationMatrix`/`drawRegressionScatterPlot` so `Environment(t)` is actually compared against `Arousal(t + latency)` rather than the current same-timestamp comparison. This was the plan's original Phase 1 headline feature and is the one clearly-scoped piece that didn't ship.
+
+4. **Cache Overpass responses across sessions.** `analyzer.osmJson` is cached in memory for the current track, but re-enriching after a page reload re-fetches from Overpass. Persisting the raw JSON (or the derived per-point features) to `localStorage`/IndexedDB keyed by bbox would reduce load on the public Overpass instance and speed up repeat analysis.
+
+5. **Extend `_evaluatePosition` with acoustic proxies.** The plan's "Traffic & Acoustic Stress" dimension is currently approximated only by `osm_road_class`/`osm_dist_major_road`. OSM has `maxspeed`, `lanes`, and `traffic_signals` tags already present in the fetched way data that aren't extracted — cheap additions that would sharpen the traffic-stress signal without a new data source.
+
+6. **Revisit Phase 2 (NDVI/canopy) as a real offline path.** Rather than the plan's original Google Earth Engine/Sentinel Hub script, consider a one-time bulk export (e.g. clipped Sentinel-2 NDVI tiles for the region) that a small Node script in `scratch/` samples at track coordinates and appends as CSV columns the existing `analyzer.js` column-detection logic (`headers.indexOf('osm_...')`) can already pick up with minimal changes — the CSV-column plumbing for "optional enrichment columns that light up the map dropdown when present" already exists and generalizes to any future column prefix.
+
+7. **Turn the Street View modal into an automated GVI metric.** The Mapillary/Google Street View viewer (`ui.js: openStreetView`) already fetches street-level imagery per coordinate for manual inspection. A batch mode that samples imagery at the same evaluation points used for OSM enrichment, runs a simple green-pixel-fraction classifier client-side (or via a small serverless function, since CORS/canvas tainting will block pure client-side pixel analysis of most embeds), and writes an `osm_gvi_50m`-style column would complete the plan's original Phase 3 without requiring a new UI surface.
+
+8. **Document the `osm_*` columns in `docs/csv_schema.md`.** The schema doc currently has no mention of the eight enrichment columns or the snapped-GPS fields; anyone reading it to understand the CSV format won't discover enrichment exists.
