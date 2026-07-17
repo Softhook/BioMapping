@@ -45,7 +45,8 @@ const GSREvents = {
       meanSCL: 'statMeanSCL',
       peakCount: 'statPeakCount',
       peakFreq: 'statPeakFreq',
-      spatialData: 'statSpatialData'
+      spatialData: 'statSpatialData',
+      spatialDataCard: 'statSpatialDataCard'
     };
     for (const [key, id] of Object.entries(statKeys)) {
       AppState.statFields[key] = GSREvents._id(id);

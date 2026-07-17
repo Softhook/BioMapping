@@ -265,11 +265,22 @@ const GSRUI = {
 
     el.innerText = '●'; // ● — a plain colored dot, no wording needed
     el.style.color = allEnriched ? 'var(--success)' : 'var(--text-muted)';
-    el.title = allEnriched
+
+    const tooltip = allEnriched
       ? 'Spatial data retrieved'
       : (AppState.viewMode === 'collective'
           ? 'Spatial data missing for one or more active tracks'
           : 'Spatial data not retrieved');
+
+    // Put the title on the whole card, not just the dot glyph — the dot
+    // is only a few pixels wide, so hovering it precisely enough to see
+    // the tooltip was fiddly. The card is a much larger, easier target.
+    const card = AppState.statFields.spatialDataCard;
+    if (card) {
+      card.title = tooltip;
+    } else {
+      el.title = tooltip; // fallback if the card element isn't wired up
+    }
   },
 
   /**

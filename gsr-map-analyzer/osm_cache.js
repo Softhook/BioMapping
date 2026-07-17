@@ -244,10 +244,39 @@ const OsmCache = {
           db.createObjectStore(this.DATA_STORE, { keyPath: 'id' });
         }
       };
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => {
+        const db = req.result;
+        // Fire-and-forget: reclaim entries left behind by an older
+        // QUERY_VERSION. _pickBestMatch/_findOverlapping already ignore
+        // these (both filter on queryVersion === this.QUERY_VERSION), so
+        // this is pure hygiene — without it, dead entries just sit in
+        // IndexedDB until LRU eviction eventually happens to reach them,
+        // wasting quota and slowing every _getAll() metadata scan in the
+        // meantime. Never blocks DB open on this — resolve either way.
+        this._cleanupStaleVersions(db).catch(() => {}).then(() => resolve(db));
+      };
       req.onerror = () => reject(req.error);
     });
     return this._dbPromise;
+  },
+
+  /**
+   * Delete every cached entry whose queryVersion doesn't match the
+   * current QUERY_VERSION. Called once per session, right after the DB
+   * is opened (see _openDb).
+   */
+  async _cleanupStaleVersions(db) {
+    try {
+      const metaList = await this._getAll(db, this.META_STORE);
+      const staleIds = metaList
+        .filter(e => e && e.queryVersion !== this.QUERY_VERSION)
+        .map(e => e.id);
+      if (staleIds.length > 0) {
+        await this._deleteEntries(db, staleIds);
+      }
+    } catch (err) {
+      console.warn('OsmCache: stale-version cleanup failed (non-fatal):', err);
+    }
   },
 
   _getAll(db, storeName) {
@@ -282,15 +311,30 @@ const OsmCache = {
    * transaction spanning both stores, so a failure partway through can
    * never leave metadata pointing at a missing blob (or a blob with no
    * metadata referencing it).
+   *
+   * @param {Array} [deleteIds] - ids of superseded entries to delete in
+   *   this SAME transaction. Merged in here (rather than left as a
+   *   separate follow-up call) so a sudden page reload/close can never
+   *   land between "new merged entry written" and "old overlapping
+   *   entries deleted" — the whole put+delete either commits together or
+   *   not at all, so the DB never briefly (or permanently, if the reload
+   *   happens right then) holds both the new entry and the stale ones it
+   *   was meant to replace.
    */
-  _putEntry(db, meta, data) {
+  _putEntry(db, meta, data, deleteIds = []) {
     return new Promise((resolve, reject) => {
       const tx = db.transaction([this.META_STORE, this.DATA_STORE], 'readwrite');
-      const metaReq = tx.objectStore(this.META_STORE).put(meta);
+      const metaStore = tx.objectStore(this.META_STORE);
+      const dataStore = tx.objectStore(this.DATA_STORE);
+      const metaReq = metaStore.put(meta);
       metaReq.onsuccess = () => {
         const id = (meta.id != null) ? meta.id : metaReq.result;
-        tx.objectStore(this.DATA_STORE).put({ id, data });
+        dataStore.put({ id, data });
       };
+      for (const delId of deleteIds) {
+        metaStore.delete(delId);
+        dataStore.delete(delId);
+      }
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -370,9 +414,10 @@ const OsmCache = {
    * breaks enrichment itself.
    *
    * @param {Array} [supersedes] - ids of cached entries this fetch
-   *   replaces (from planFetch's mergeIds) — deleted after the new entry
-   *   is safely stored, so a failure mid-write never leaves the cache
-   *   with neither the old nor the new data.
+   *   replaces (from planFetch's mergeIds) — deleted in the SAME
+   *   transaction as the new entry is written (see _putEntry), so a
+   *   sudden reload/close can never commit the new merged entry while
+   *   leaving the old overlapping ones behind (or vice versa).
    */
   async store(bbox, data, supersedes = []) {
     try {
@@ -383,11 +428,7 @@ const OsmCache = {
         fetchedAt: Date.now(),
         lastAccess: Date.now()
       };
-      await this._putEntry(db, meta, data);
-
-      if (supersedes.length > 0) {
-        await this._deleteEntries(db, supersedes);
-      }
+      await this._putEntry(db, meta, data, supersedes);
 
       // Eviction only needs metadata — the data blobs never get pulled
       // into memory just to decide who's least-recently-used.
