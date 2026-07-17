@@ -631,9 +631,39 @@ const GSRUI = {
     };
 
     try {
-      updateProgress('Fetching OpenStreetMap features for tracks...', 30);
-      const osmJson = await OSMEnricher.fetchOSMData(unionBBox, (msg) => updateProgress(msg));
-      
+      // Always check the persistent cache first, regardless of forceFetch.
+      // forceFetch only means "don't trust this session's in-memory
+      // analyzer.osmJson" (handled above via the allCached early-return) —
+      // it does not mean "must hit the network." The whole point of this
+      // cache is to cut Overpass API calls, and the "Enrich Active Track"
+      // button is the *only* path that ever reaches this code, so skipping
+      // the cache here for forceFetch would make it dead code in practice.
+      // If the user genuinely wants to force a fresh network fetch for an
+      // area, "Clear Cached Map Data" already exists for that.
+      updateProgress('Checking local cache...', 10);
+      let osmJson = await OsmCache.getForBBox(unionBBox);
+
+      if (osmJson) {
+        updateProgress('Using cached OpenStreetMap data...', 50);
+      } else {
+        // No single cached entry fully covers this area. Rather than
+        // fetching exactly unionBBox and stacking a redundant, partially-
+        // overlapping entry on top of any nearby cached ones, expand the
+        // fetch to cover their union so the result can replace them —
+        // cache coverage grows and coalesces instead of duplicating.
+        const plan = await OsmCache.planFetch(unionBBox);
+        if (plan.mergeIds.length > 0) {
+          updateProgress(`Expanding cached coverage (merging ${plan.mergeIds.length} nearby area${plan.mergeIds.length > 1 ? 's' : ''})...`, 20);
+        }
+
+        updateProgress('Fetching OpenStreetMap features for tracks...', 30);
+        osmJson = await OSMEnricher.fetchOSMData(plan.fetchBBox, (msg) => updateProgress(msg));
+        // Best-effort: a cache-store failure (e.g. private browsing) must
+        // never fail enrichment itself, so this isn't awaited into the
+        // critical path beyond letting store() catch its own errors.
+        OsmCache.store(plan.fetchBBox, osmJson, plan.mergeIds);
+      }
+
       updateProgress('Processing spatial metrics...', 60);
       const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? true;
       const snapIn = Math.max(8, Math.round(snapRadius / 2));

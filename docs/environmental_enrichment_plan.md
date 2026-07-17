@@ -55,6 +55,17 @@ The "Environmental Analysis" panel (`index.html`, rendered by `ui.js`) has three
 
 The map panel's "Map Metric" dropdown recolors the track by any of the eight `osm_*` columns or by GSR/HDOP, and an "OSM Layers" toggle draws the retrieved park/water/building polygons under the track (`map.js: drawOsmShapes`).
 
+### D. Local caching of Overpass responses (shipped, not in the original plan)
+
+`osm_cache.js` caches fetched Overpass JSON in the browser's IndexedDB, keyed by bounding box, so re-enriching tracks in the same or an overlapping area doesn't re-hit the public Overpass API. This wasn't part of the original plan (which didn't address repeat fetches at all) and was added after real usage showed the same neighbourhoods getting re-fetched across sessions.
+
+- **Containment reuse**: a request is served entirely from cache if any stored entry's bbox fully contains it (with a small tolerance for floating-point noise), preferring the tightest-fitting match.
+- **Merge-on-overlap**: on a miss, if the request only *partially* overlaps one or more cached entries (a second walk that covers mostly the same streets but extends further), the fetch is expanded to the union of the request and those entries, and the result replaces them as one merged entry — capped at 12 km² so an opportunistic merge can't balloon into an oversized request. Coverage actively grows and coalesces across tracks and sessions instead of accumulating duplicate overlapping blobs.
+- **Expiry & eviction**: entries expire after 30 days (`CACHE_TTL_MS`) since OSM data changes over time, and the cache is capped at 20 entries with least-recently-used eviction.
+- A "Clear Cached Map Data" button in the sidebar wipes the cache manually.
+
+See §3D for the storage architecture and §7 for known limitations of the rectangle-union approach.
+
 ---
 
 ## 3. Technical Implementation Details
@@ -99,11 +110,19 @@ The map panel's "Map Metric" dropdown recolors the track by any of the eight `os
 
 The plan proposed a "Latency Shift Slider" that would shift the GSR timeline against the *environmental* timeline before correlating. What actually shipped is a **Peak Latency Compensation** slider (0–5s, default 2.0s, `gpsPeakLatency` in `index.html`, `GSR_DEFAULT.peakLatency` in `constants.js`) that compensates SCR onset delay for map/statistics display generally — it isn't wired specifically into the correlation-matrix or scatter-plot calculations against OSM features. Aligning the correlation dashboard to this existing slider (or adding a dedicated one) is listed under Future Improvements below.
 
+### D. Cache architecture (`osm_cache.js`)
+
+The cache uses **two IndexedDB object stores**, not one: `bbox_meta` holds small records (`id`, `bbox`, `queryVersion`, `fetchedAt`, `lastAccess`) and `bbox_data` holds the corresponding — potentially several-MB — Overpass JSON payload, keyed by the same `id`. This split exists because every cache decision (does anything contain this bbox? does anything overlap it? which entry is least-recently-used?) only needs the metadata; keeping it separate from the data blobs means those decisions stay cheap to compute no matter how large the cached payloads get, instead of deserializing every cached payload on every enrich click. The actual data blob is fetched exactly once, by id, only after a specific entry has been chosen. Writes and deletes span both stores in single atomic transactions so metadata can never reference a missing blob or vice versa.
+
+`_planFetch(bbox)` is a pure function (no IndexedDB access) that decides, given the current metadata list, whether to fetch just the requested bbox or the union of it and any overlapping entries — this and the containment-matching logic (`_pickBestMatch`) and eviction selection (`_selectEvictions`) are all pure and unit-tested directly (see §6). The `_openDb`/`_getAll`/`_get`/`_putEntry`/`_deleteEntries` IndexedDB glue around them is thin, standard wrapper code, not independently tested (Node has no IndexedDB implementation — see §6 and §7).
+
+A schema note: the cache started as a single object store mixing metadata and data together, which was the direct cause of the "every check reads the full payload" inefficiency above — `DB_VERSION` was bumped to 2 to migrate to the split-store layout, dropping any old single-store cache on upgrade (safe, since this is a cache — losing old entries only costs a few extra network fetches, never real data).
+
 ---
 
 ## 4. UI/UX — as built
 
-**Sidebar "Environmental Enrichment" card**: search-radius slider (25–200m, default 50m), an "Enrich Active Track" button, and a progress bar with live status messages (rate-limit waits, retry counts, parse progress). No latency slider here (see §3C).
+**Sidebar "Environmental Enrichment" card**: search-radius slider (25–200m, default 50m), an "Enrich Active Track" button, and a progress bar with live status messages (checking the local cache, rate-limit waits, retry counts, parse progress, and — when a partial-overlap merge is happening — how many cached areas are being merged). A "Clear Cached Map Data" button wipes the IndexedDB cache described in §2D/§3D. No latency slider here (see §3C).
 
 **Sidebar "GPS Processing" card**: a "Snap to Roads & Trails" toggle and snap-radius slider (10–60m, default 25m) — this is the road-snapping feature from §2B, not in the original plan.
 
@@ -123,6 +142,8 @@ gsr-map-analyzer/
 │                           per-point feature extraction, CSV column wiring.
 ├── overpass_client.js    - Overpass HTTP client: query building, rate-limit
 │                           and retry/backoff handling.
+├── osm_cache.js          - IndexedDB cache for Overpass responses: containment
+│                           reuse, merge-on-overlap, TTL/LRU eviction.
 ├── geo_utils.js          - haversine / distance-to-segment / point-in-polygon.
 ├── map_match.js          - HMM/Viterbi GPS-to-road snapping (MapMatcher).
 ├── map_colors.js         - Color scales / LUTs for all map metrics, incl. osm_*.
@@ -130,39 +151,57 @@ gsr-map-analyzer/
 │                           and the SNAP tuning block.
 ├── index.html            - Sidebar enrichment + GPS-snap cards, map metric
 │                           dropdown, Environmental Analysis dashboard markup.
-├── ui.js                 - enrichTrack() orchestration, dashboard rendering
+├── ui.js                 - enrichTrack() orchestration (incl. cache lookup/
+│                           merge-plan/store wiring), dashboard rendering
 │                           (correlation table, scatter plot, road profile),
 │                           street-view modal.
 ├── map.js                - OSM polygon overlay rendering (drawOsmShapes).
-└── analyzer.js            - osm_* column CSV parsing/export, isEnriched state.
+├── analyzer.js            - osm_* column CSV parsing/export, isEnriched state.
+└── tests/
+    ├── test_osm_enrichment.js - OSMEnricher + MapMatcher regression suite.
+    └── test_osm_cache.js      - OsmCache pure-logic regression suite.
 ```
 
-The original plan didn't list `overpass_client.js`, `geo_utils.js`, or `map_match.js` as separate files — the actual implementation split the network client and spatial-math primitives out of the main enrichment module, and added the map-matching module entirely.
+The original plan didn't list `overpass_client.js`, `geo_utils.js`, `map_match.js`, or `osm_cache.js` as separate files — the actual implementation split the network client and spatial-math primitives out of the main enrichment module, added the map-matching module entirely, and later added the caching module in response to real repeat-fetch behaviour the plan never anticipated.
 
 ---
 
 ## 6. Verification — current state
 
-There is no automated test coverage for the spatial math (`geo_utils.js`), the Overpass query builder, or the map matcher. The plan's proposed `scratch/test_spatial_math.js` was never written. The `gsr-map-analyzer/tests/` directory covers GSR filtering and the GPS/GSR processing pipeline (`test_all_pipelines.js`, `test_e2e_pipeline.js`, `test_refactor.js`, `test_dwt_clamp.js`) but nothing enrichment-related. This is the most significant gap between the plan and reality — the plan explicitly called for these tests and they don't exist. See Future Improvements below.
+The enrichment and caching pipeline now has automated regression coverage, closing what used to be the largest gap between the plan and reality:
 
-Manual verification remains ad hoc: load a track, click Enrich, watch the network tab, toggle map coloring, and check the exported CSV for the eight `osm_*` columns.
+- **`tests/test_refactor.js`** — pre-existing coverage for `geo_utils.js` (`haversineMeters`, `distanceToSegmentMeters`, `pointInPolygon`, known-distance and antipodal cases).
+- **`tests/test_osm_enrichment.js`** (117 assertions) — `OSMEnricher`: bbox math and coordinate validation, geometry reconstruction (ways/relations/multipolygons), the spatial hash grid, evaluation-point selection and thinning, `_evaluatePosition`'s per-feature metrics (roads, parks, water, buildings, trees, amenities), timeline interpolation, and a full `enrichTrack()` integration run. `MapMatcher`: distance/bearing helpers, candidate generation and road-class ranking, and a full HMM-Viterbi snap on a synthetic road network.
+- **`tests/test_osm_cache.js`** (50 assertions) — `OsmCache`'s decision logic: containment matching and tightest-fit selection, merge-on-overlap (union math, multi-entry merges, the oversized-union fallback), query-version and TTL filtering, and LRU eviction selection.
+
+All of this is run via `node tests/<file>.js` — no browser or build step needed, following the existing project convention of loading the browser-global modules through `vm.runInThisContext`.
+
+What's still **not** covered: the plan's proposed `scratch/test_spatial_math.js` was never written as such (its intent is now met by `test_osm_enrichment.js` instead, in the project's existing test-file convention rather than a standalone `scratch/` script), and `osm_cache.js`'s actual IndexedDB glue (`_openDb`, `_putEntry`, `_deleteEntries`, the `DB_VERSION` migration) is untested — Node has no IndexedDB implementation, so only the pure decision functions that logic delegates to are exercised. See Future Improvements below.
+
+Manual verification remains necessary for: the real Overpass network path (rate-limit/retry behaviour), the IndexedDB glue itself, and end-to-end UI flows — load a track, click Enrich, watch the network tab (and confirm a *second* enrich of an overlapping area shows no network request, or a merged one for partial overlap), toggle map coloring, and check the exported CSV for the eight `osm_*` columns.
 
 ---
 
 ## 7. Future Improvements
 
-1. **Add automated spatial-math tests.** Port the plan's original testing intent into `gsr-map-analyzer/tests/test_geo_utils.js`: known-answer tests for `haversineMeters` and `distanceToSegmentMeters` against hand-computed spherical cases, `pointInPolygon` against convex/non-convex/self-touching polygons, and a benchmark for `buildSpatialIndex`/`getNearby` at realistic track sizes (this is the single highest-value gap — the module has no regression protection today).
+Items 1, 2, and 4 from the original version of this list (spatial-math tests, map-matcher tests, and Overpass response caching) have since shipped — see §2D/§3D and §6. What follows is the remaining open list, plus new items that came out of building and reviewing the cache.
 
-2. **Add regression coverage for the map matcher.** `map_match.js` is the most algorithmically complex piece of the enrichment system (Viterbi decoding, junction routing, hysteresis) and has zero tests. A small synthetic road network with known ground-truth snapped paths would catch regressions in `_getCandidates`, `_wayDistance`, and the hysteresis logic.
+1. **Wire the correlation/scatter dashboard to a real latency shift.** Either reuse the existing Peak Latency Compensation slider or add a dedicated one, and apply it inside `renderCorrelationMatrix`/`drawRegressionScatterPlot` so `Environment(t)` is actually compared against `Arousal(t + latency)` rather than the current same-timestamp comparison. This was the plan's original Phase 1 headline feature and is the one clearly-scoped piece that still hasn't shipped.
 
-3. **Wire the correlation/scatter dashboard to a real latency shift.** Either reuse the existing Peak Latency Compensation slider or add a dedicated one, and apply it inside `renderCorrelationMatrix`/`drawRegressionScatterPlot` so `Environment(t)` is actually compared against `Arousal(t + latency)` rather than the current same-timestamp comparison. This was the plan's original Phase 1 headline feature and is the one clearly-scoped piece that didn't ship.
+2. **Extend `_evaluatePosition` with acoustic proxies.** The plan's "Traffic & Acoustic Stress" dimension is currently approximated only by `osm_road_class`/`osm_dist_major_road`. OSM has `maxspeed`, `lanes`, and `traffic_signals` tags already present in the fetched way data that aren't extracted — cheap additions that would sharpen the traffic-stress signal without a new data source.
 
-4. **Cache Overpass responses across sessions.** `analyzer.osmJson` is cached in memory for the current track, but re-enriching after a page reload re-fetches from Overpass. Persisting the raw JSON (or the derived per-point features) to `localStorage`/IndexedDB keyed by bbox would reduce load on the public Overpass instance and speed up repeat analysis.
+3. **Revisit Phase 2 (NDVI/canopy) as a real offline path.** Rather than the plan's original Google Earth Engine/Sentinel Hub script, consider a one-time bulk export (e.g. clipped Sentinel-2 NDVI tiles for the region) that a small Node script in `scratch/` samples at track coordinates and appends as CSV columns the existing `analyzer.js` column-detection logic (`headers.indexOf('osm_...')`) can already pick up with minimal changes — the CSV-column plumbing for "optional enrichment columns that light up the map dropdown when present" already exists and generalizes to any future column prefix.
 
-5. **Extend `_evaluatePosition` with acoustic proxies.** The plan's "Traffic & Acoustic Stress" dimension is currently approximated only by `osm_road_class`/`osm_dist_major_road`. OSM has `maxspeed`, `lanes`, and `traffic_signals` tags already present in the fetched way data that aren't extracted — cheap additions that would sharpen the traffic-stress signal without a new data source.
+4. **Turn the Street View modal into an automated GVI metric.** The Mapillary/Google Street View viewer (`ui.js: openStreetView`) already fetches street-level imagery per coordinate for manual inspection. A batch mode that samples imagery at the same evaluation points used for OSM enrichment, runs a simple green-pixel-fraction classifier client-side (or via a small serverless function, since CORS/canvas tainting will block pure client-side pixel analysis of most embeds), and writes an `osm_gvi_50m`-style column would complete the plan's original Phase 3 without requiring a new UI surface.
 
-6. **Revisit Phase 2 (NDVI/canopy) as a real offline path.** Rather than the plan's original Google Earth Engine/Sentinel Hub script, consider a one-time bulk export (e.g. clipped Sentinel-2 NDVI tiles for the region) that a small Node script in `scratch/` samples at track coordinates and appends as CSV columns the existing `analyzer.js` column-detection logic (`headers.indexOf('osm_...')`) can already pick up with minimal changes — the CSV-column plumbing for "optional enrichment columns that light up the map dropdown when present" already exists and generalizes to any future column prefix.
+5. **Document the `osm_*` columns (and the cache) in `docs/csv_schema.md`.** The schema doc currently has no mention of the eight enrichment columns, the snapped-GPS fields, or the fact that enrichment results are cached locally; anyone reading it to understand the CSV format won't discover any of this.
 
-7. **Turn the Street View modal into an automated GVI metric.** The Mapillary/Google Street View viewer (`ui.js: openStreetView`) already fetches street-level imagery per coordinate for manual inspection. A batch mode that samples imagery at the same evaluation points used for OSM enrichment, runs a simple green-pixel-fraction classifier client-side (or via a small serverless function, since CORS/canvas tainting will block pure client-side pixel analysis of most embeds), and writes an `osm_gvi_50m`-style column would complete the plan's original Phase 3 without requiring a new UI surface.
+6. **Move the cache from rectangle-union to a true delta fetch, if rectangle bloat becomes a real problem.** Merge-on-overlap reasons about axis-aligned bounding boxes, not actual track shapes — two tracks whose real paths barely overlap (e.g. two long tracks crossing near their midpoints but heading in different directions) can still have bounding rectangles that overlap heavily, causing the merged fetch to cover a lot of area neither track ever visited. The 12 km² cap bounds the worst case, but doesn't eliminate the waste. A true fix means either rectangle-subtraction (fetch only the geometrically uncovered area, then merge OSM elements by their stable global IDs — deduping across fetches turns out to be straightforward since Overpass always returns a way's full geometry, not a bbox-clipped fragment) or a persistent tile-based element cache (grid the world into fixed tiles, track which are fetched, store individual OSM elements once regardless of which fetch brought them in). Both are meaningfully more complex than the current approach and are only worth it if real usage shows the rectangle-union approach fetching noticeably more than needed.
 
-8. **Document the `osm_*` columns in `docs/csv_schema.md`.** The schema doc currently has no mention of the eight enrichment columns or the snapped-GPS fields; anyone reading it to understand the CSV format won't discover enrichment exists.
+7. **The merge is single-pass, not transitive.** `planFetch` only checks what overlaps the *original* request bbox. If merging with one entry produces a union that now also overlaps a second entry that didn't overlap the original request, that second entry isn't folded in — it's picked up (if at all) by some later request. A fixed-point merge (keep re-checking for new overlaps until none remain) would converge to a cleaner cache state, at the cost of more DB round-trips per miss.
+
+8. **No cross-tab cache coordination.** The `_enriching` re-entrancy guard in `ui.js` is an in-memory flag scoped to one page. Two browser tabs enriching overlapping areas around the same time could each independently plan and store a merge, producing two overlapping "merged" entries instead of one. Low priority for a single-user local analysis tool, but worth knowing if the analyzer is ever used with multiple tabs open side by side.
+
+9. **Exercise `osm_cache.js`'s actual IndexedDB glue in tests.** Everything currently tested (`_bboxContains`, `_planFetch`, `_selectEvictions`, etc.) is pure logic with no IndexedDB dependency, by design — Node has none. Adding the `fake-indexeddb` npm package to the test setup would let `_openDb`, `_putEntry`, `_deleteEntries`, and the `DB_VERSION` 1→2 migration path get real regression coverage too, rather than relying on manual in-browser verification.
+
+10. **Surface cache stats in the UI.** The "Clear Cached Map Data" button currently has no visibility into what it's about to delete — showing the number of cached areas and approximate total size next to it (a quick `bbox_meta`/`bbox_data` count and size estimate) would make the cache's behaviour less opaque.

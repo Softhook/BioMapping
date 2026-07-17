@@ -467,6 +467,17 @@ const GSREvents = {
 
     document.getElementById('btnEnrichTrack').addEventListener('click', () => GSRUI.enrichTrack(true));
 
+    document.getElementById('btnClearOsmCache').addEventListener('click', async () => {
+      if (!confirm('Clear locally cached OpenStreetMap data? Future enrichment will re-fetch from the Overpass API.')) return;
+      try {
+        await OsmCache.clear();
+        alert('OSM cache cleared.');
+      } catch (err) {
+        console.error('OsmCache.clear failed:', err);
+        alert('Could not clear the OSM cache: ' + err.message);
+      }
+    });
+
     document.getElementById('mapColoringMetric').addEventListener('change', (e) => {
       if (AppState.mapManager) {
         AppState.mapManager.activeColoringMetric = e.target.value;

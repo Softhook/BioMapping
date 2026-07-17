@@ -517,6 +517,11 @@
                 <div id="osmProgressBar" style="background: #ff7b00; height: 100%; width: 0%; transition: width 0.2s;"></div>
               </div>
             </div>
+
+            <p class="help-text" style="margin-top: 12px; margin-bottom: 4px;">Fetched OpenStreetMap data is cached locally in the browser, so re-enriching tracks in the same area doesn't re-fetch from the network.</p>
+            <button class="btn btn-outline" id="btnClearOsmCache" style="width: 100%; font-size: 0.8rem;" title="Delete all locally cached OpenStreetMap data">
+              <i class="fa-solid fa-trash"></i> Clear Cached Map Data
+            </button>
           </div>
         </section>
 
@@ -838,6 +843,7 @@
   <script src="geo_utils.js"></script>
   <script src="stats_math.js"></script>
   <script src="overpass_client.js"></script>
+  <script src="osm_cache.js"></script>
   <script src="dwt_filter.js"></script>
   <script src="analyzer.js"></script>
   <script src="osm_enrichment.js"></script>
