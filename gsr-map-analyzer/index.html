@@ -452,9 +452,9 @@
             <div class="slider-group">
               <div class="slider-label" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
                 <span>Normalize Tracks (Z-Score)</span>
-                <input type="checkbox" id="normalizeZScore" class="track-checkbox">
+                <input type="checkbox" id="normalizeZScore" class="track-checkbox" checked>
               </div>
-              <p class="help-text">Standardizes arousal range per participant to allow fair comparison of relative stress.</p>
+              <p class="help-text">Standardizes arousal range per participant to allow fair comparison of relative stress. On by default so one participant's baseline doesn't outweigh another's genuine peak.</p>
             </div>
 
             <div class="slider-group">
@@ -678,6 +678,9 @@
               <button class="btn btn-outline active" id="btnToggleMapPeaks">Peaks</button>
               <button class="btn btn-outline active" id="btnToggleMapLabels" style="margin: 0 4px;">Labels</button>
               <button class="btn btn-outline active" id="btnToggleMapClusters" style="margin: 0 4px;">Clusters</button>
+              <button class="btn btn-outline active" id="btnToggleMapIsolines" style="margin: 0 4px;">Isolines</button>
+              <button class="btn btn-outline active" id="btnToggleMapSurface" style="margin: 0 4px;">Surface</button>
+              <button class="btn btn-outline active" id="btnToggleMapTracks" style="margin: 0 4px;">Tracks</button>
               <span class="control-divider"></span>
               <button class="icon-btn fullscreen-btn" id="btnMapFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>
             </div>

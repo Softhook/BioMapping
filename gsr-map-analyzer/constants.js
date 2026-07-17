@@ -107,7 +107,13 @@ const GSR_CONST = {
     isolationRadius: 50,
     contourCount: 10,
     idwExponent: 2,
-    surfaceOpacity: 0.40
+    surfaceOpacity: 0.40,
+    // Blend factor between the IDW weighted-mean and the local peak envelope (max value
+    // within the interpolation radius) for the phasic/tonic continuous surface. 0 = pure
+    // average (old behavior, smooths transient spikes away). 1 = pure "worst moment
+    // recorded nearby" (no smoothing at all). 0.5 keeps a smooth, readable surface while
+    // no longer averaging a lone spike down to near-baseline.
+    peakPreservation: 0.5
   },
 
   // ── Road snapping defaults ──────────────────────────────────────────────

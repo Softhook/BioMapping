@@ -2,6 +2,28 @@
  * Shared statistical mathematics helper routines for the Bio Mapping GSR analyser.
  */
 const StatsMath = {
+  /**
+   * Percentile rank of `value` within a pre-sorted (ascending) array, via binary search.
+   * Returns the fraction (0..1) of entries at or below `value`. Used to map a grid value to
+   * a color ratio based on where it sits in the *distribution* of the surface's values,
+   * rather than a linear (value - min) / (max - min) ratio which gets dominated by a long
+   * flat baseline whenever a small number of values spike far above the rest.
+   *
+   * @param {number} value - The value to rank.
+   * @param {number[]} sortedArr - Ascending-sorted array of reference values.
+   * @returns {number} Rank in [0, 1]. Returns 0.5 for empty/singleton arrays.
+   */
+  percentileRank(value, sortedArr) {
+    const n = sortedArr ? sortedArr.length : 0;
+    if (n <= 1) return 0.5;
+    let lo = 0, hi = n;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (sortedArr[mid] <= value) lo = mid + 1; else hi = mid;
+    }
+    return lo / n;
+  },
+
   calculatePearsonCorrelation(x, y) {
     const n = x.length;
     if (n === 0) return { r: 0, p: 1 };

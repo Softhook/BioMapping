@@ -15,6 +15,9 @@ class GSRMapManager {
     this.showPeaks = true;
     this.showLabels = true;
     this.showClusters = true;
+    this.showIsolines = true;
+    this.showSurface = true;
+    this.showTracks = true;
     this.clusterLayers = [];
     this.activeColoringMetric = 'gsr';
     this._legendControl = null;
@@ -804,27 +807,78 @@ class GSRMapManager {
       // Retrieve dynamic clustering parameters from UI sliders
       const { boundaryRadius, sigma, effectiveProximity } = this._getClusteringParams();
 
+      // Mean peak amplitude across this track's active peaks — the reference point that
+      // "severe" and "mild" are measured against, so blob size/color reflect intensity
+      // rather than every cluster looking identical regardless of how bad it was.
+      const refAmplitude = this._meanAmplitude(ptsForClustering);
+
       // Group peaks within selected proximity limit and boundary constraints
       const clusters = GSRSpatialClustering.clusterPeaks(ptsForClustering, effectiveProximity, boundaryRadius, sigma);
 
       clusters.forEach(cluster => {
-        const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, boundaryRadius);
+        const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, boundaryRadius, refAmplitude);
+        const style = this._severityStyleForCluster(cluster, refAmplitude);
         paths.forEach(path => {
           const latlngs = path.map(p => [p.lat, p.lon]);
           const poly = L.polygon(latlngs, {
-            color: '#f43f5e', // Use stress rose color for visual emphasis
-            weight: 2,
-            fillColor: '#f43f5e',
-            fillOpacity: 0.12,
+            color: style.color,
+            weight: style.weight,
+            fillColor: style.color,
+            fillOpacity: style.fillOpacity,
             dashArray: '4, 6',
             lineCap: 'round',
             lineJoin: 'round'
           });
+          poly.bindTooltip(style.tooltip, { sticky: true, className: 'contour-tooltip-label' });
           if (this.showClusters) poly.addTo(this.map);
           this.clusterLayers.push(poly);
         });
       });
     }
+  }
+
+  /**
+   * Mean amplitude across a set of {amplitude} peak objects. Used as the reference point
+   * for relative-severity scaling of cluster geometry and styling.
+   * @private
+   */
+  _meanAmplitude(pts) {
+    if (!pts || pts.length === 0) return 0;
+    let sum = 0;
+    for (const p of pts) sum += (p.amplitude || 0);
+    return sum / pts.length;
+  }
+
+  /**
+   * Derive a visual style for a cluster blob based on how severe its peaks are relative to
+   * the dataset's typical (mean) peak amplitude. Mild clusters render as small, faint amber
+   * outlines; severe clusters render as bold, saturated deep-red outlines — so a glance at
+   * the map distinguishes "notable" from "genuinely alarming" instead of every cluster
+   * looking the same regardless of intensity.
+   * @private
+   */
+  _severityStyleForCluster(cluster, refAmplitude) {
+    const amps = cluster.map(p => p.amplitude || 0);
+    const maxAmp = amps.length ? Math.max(...amps) : 0;
+    let relMax = null;
+    let ratio = 0.5; // fallback mid-intensity styling if no reference amplitude available
+    if (refAmplitude > 0) {
+      relMax = maxAmp / refAmplitude;
+      // Map relative severity (~0.3x-3x the dataset average peak) onto a 0..1 visual band.
+      ratio = Math.max(0, Math.min(1, (relMax - 0.3) / (3 - 0.3)));
+    }
+
+    const hue = 40 - ratio * 40;     // 40° amber  -> 0° red
+    const sat = 75 + ratio * 20;     // 75%        -> 95%
+    const light = 58 - ratio * 15;   // 58% (pale) -> 43% (deep)
+    const color = `hsl(${hue}, ${sat}%, ${light}%)`;
+    const fillOpacity = 0.08 + ratio * 0.42;
+    const weight = 1.5 + ratio * 2.5;
+    const peakWord = cluster.length === 1 ? 'peak' : 'peaks';
+    const severityLabel = relMax === null ? '' : ` · ${relMax.toFixed(2)}x avg severity`;
+    const tooltip = `${cluster.length} ${peakWord}${severityLabel}`;
+
+    return { color, fillOpacity, weight, tooltip, ratio };
   }
 
   /**
@@ -939,6 +993,49 @@ class GSRMapManager {
   }
 
   /**
+   * Toggle the visibility of the collective topographic isoline (contour line) layer.
+   */
+  toggleIsolines(visible) {
+    this.showIsolines = visible;
+    const toggle = (m) => {
+      if (visible) {
+        if (!this.map.hasLayer(m)) m.addTo(this.map);
+      } else {
+        if (this.map.hasLayer(m)) this.map.removeLayer(m);
+      }
+    };
+    this.contourLayers.forEach(toggle);
+  }
+
+  /**
+   * Toggle the visibility of the collective shaded surface overlay.
+   */
+  toggleSurface(visible) {
+    this.showSurface = visible;
+    if (!this.surfaceOverlay) return;
+    if (visible) {
+      if (!this.map.hasLayer(this.surfaceOverlay)) this.surfaceOverlay.addTo(this.map);
+    } else {
+      if (this.map.hasLayer(this.surfaceOverlay)) this.map.removeLayer(this.surfaceOverlay);
+    }
+  }
+
+  /**
+   * Toggle the visibility of the individual track polylines drawn in collective mode.
+   */
+  toggleTracks(visible) {
+    this.showTracks = visible;
+    const toggle = (m) => {
+      if (visible) {
+        if (!this.map.hasLayer(m)) m.addTo(this.map);
+      } else {
+        if (this.map.hasLayer(m)) this.map.removeLayer(m);
+      }
+    };
+    this.collectivePathSegments.forEach(toggle);
+  }
+
+  /**
    * Set scrubbing indicator dot position
    */
   setScrubPosition(lat, lon, panTo = false) {
@@ -1012,7 +1109,8 @@ class GSRMapManager {
         weight: 3,
         opacity: 0.35,
         dashArray: '5, 8'
-      }).addTo(this.map);
+      });
+      if (this.showTracks) poly.addTo(this.map);
 
       this.collectivePathSegments.push(poly);
 
@@ -1119,20 +1217,23 @@ class GSRMapManager {
       // Retrieve dynamic clustering parameters from UI sliders
       const { boundaryRadius, sigma, effectiveProximity } = this._getClusteringParams();
 
+      const refAmplitude = this._meanAmplitude(allActivePeaksAcrossTracks);
       const clusters = GSRSpatialClustering.clusterPeaks(allActivePeaksAcrossTracks, effectiveProximity, boundaryRadius, sigma);
       clusters.forEach(cluster => {
-        const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, boundaryRadius);
+        const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, boundaryRadius, refAmplitude);
+        const style = this._severityStyleForCluster(cluster, refAmplitude);
         paths.forEach(path => {
           const latlngs = path.map(p => [p.lat, p.lon]);
           const poly = L.polygon(latlngs, {
-            color: '#f43f5e', // Use stress rose color for visual emphasis across tracks
-            weight: 2,
-            fillColor: '#f43f5e',
-            fillOpacity: 0.12,
+            color: style.color,
+            weight: style.weight,
+            fillColor: style.color,
+            fillOpacity: style.fillOpacity,
             dashArray: '4, 6',
             lineCap: 'round',
             lineJoin: 'round'
           });
+          poly.bindTooltip(style.tooltip, { sticky: true, className: 'contour-tooltip-label' });
           if (this.showClusters) poly.addTo(this.map);
           this.clusterLayers.push(poly);
         });
@@ -1164,7 +1265,7 @@ class GSRMapManager {
     const surfaceData = collectiveManager.generateContourSurface(contourParams);
     if (!surfaceData || !surfaceData.contours) return;
 
-    const { contours, grid, minVal, maxVal, bounds } = surfaceData;
+    const { contours, grid, minVal, maxVal, bounds, sortedVals } = surfaceData;
     const { showShadedSurface = true, surfaceOpacity = 0.40 } = contourParams;
 
     // 1. Draw shaded continuous surface overlay
@@ -1179,6 +1280,7 @@ class GSRMapManager {
 
       const valRange = maxVal - minVal;
       const rangeEpsilon = 1e-9;
+      const useRankColor = sortedVals && sortedVals.length > 1;
 
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
@@ -1187,9 +1289,15 @@ class GSRMapManager {
             continue;
           }
 
-          let ratio = 0;
-          if (valRange > rangeEpsilon) {
-            ratio = (val - minVal) / valRange;
+          // Percentile-rank color ratio, consistent with the contour levels below: a cell's
+          // color reflects where it sits in the surface's actual value distribution rather
+          // than a linear min/max ratio, which gets swamped by the flat low-arousal majority
+          // whenever a small number of cells spike far above the rest.
+          let ratio;
+          if (useRankColor) {
+            ratio = StatsMath.percentileRank(val, sortedVals);
+          } else {
+            ratio = valRange > rangeEpsilon ? (val - minVal) / valRange : 0.5;
           }
 
           ctx.fillStyle = MapColors.getHslColor(ratio, 100, 50);
@@ -1210,7 +1318,8 @@ class GSRMapManager {
         opacity: surfaceOpacity,
         interactive: false,
         className: 'collective-surface-overlay'
-      }).addTo(this.map);
+      });
+      if (this.showSurface) this.surfaceOverlay.addTo(this.map);
     }
 
     // 2. Draw vector isoline boundaries
@@ -1236,7 +1345,7 @@ class GSRMapManager {
           className: 'contour-tooltip-label'
         });
 
-        poly.addTo(this.map);
+        if (this.showIsolines) poly.addTo(this.map);
         this.contourLayers.push(poly);
       });
     });

@@ -438,6 +438,24 @@ const GSREvents = {
       if (AppState.mapManager) AppState.mapManager.toggleClusters(btnToggleMapClusters.classList.contains('active'));
     });
 
+    const btnToggleMapIsolines = document.getElementById('btnToggleMapIsolines');
+    btnToggleMapIsolines.addEventListener('click', () => {
+      btnToggleMapIsolines.classList.toggle('active');
+      if (AppState.mapManager) AppState.mapManager.toggleIsolines(btnToggleMapIsolines.classList.contains('active'));
+    });
+
+    const btnToggleMapSurface = document.getElementById('btnToggleMapSurface');
+    btnToggleMapSurface.addEventListener('click', () => {
+      btnToggleMapSurface.classList.toggle('active');
+      if (AppState.mapManager) AppState.mapManager.toggleSurface(btnToggleMapSurface.classList.contains('active'));
+    });
+
+    const btnToggleMapTracks = document.getElementById('btnToggleMapTracks');
+    btnToggleMapTracks.addEventListener('click', () => {
+      btnToggleMapTracks.classList.toggle('active');
+      if (AppState.mapManager) AppState.mapManager.toggleTracks(btnToggleMapTracks.classList.contains('active'));
+    });
+
     // ── Panel Collapse Toggles (DRY via bindCollapseButton) ──────────────────
     GSREvents.bindCollapseButton('btnEventsCollapse',        'eventsPanel');
     GSREvents.bindCollapseButton('btnGsrFilteringCollapse',  'gsrFilteringCard');

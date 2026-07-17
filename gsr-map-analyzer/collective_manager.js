@@ -170,6 +170,7 @@ class GSRCollectiveManager {
           grid[r][c] = density;
         } else {
           let sumWeightedVal = 0, sumWeight = 0;
+          let localMax = -Infinity;
           let exactMatch = false;
           for (let i = 0; i < points.length; i++) {
             const p = points[i];
@@ -184,10 +185,21 @@ class GSRCollectiveManager {
               const w = 1.0 / Math.pow(d, idwExponent);
               sumWeightedVal += w * val;
               sumWeight += w;
+              if (val > localMax) localMax = val;
             }
           }
           if (!exactMatch) {
-            grid[r][c] = sumWeight > 0 ? (sumWeightedVal / sumWeight) : null;
+            if (sumWeight > 0) {
+              const weightedMean = sumWeightedVal / sumWeight;
+              // Blend the smooth IDW mean with the local peak envelope (the highest single
+              // value recorded nearby) so a lone transient spike survives the merge instead
+              // of being averaged down toward its calmer neighborhood — pure IDW mean was
+              // the main reason isolated peaks disappeared from the surface entirely.
+              const alpha = GSR_CONST.COLLECTIVE.peakPreservation !== undefined ? GSR_CONST.COLLECTIVE.peakPreservation : 0.5;
+              grid[r][c] = (1 - alpha) * weightedMean + alpha * localMax;
+            } else {
+              grid[r][c] = null;
+            }
           }
         }
 
@@ -202,16 +214,44 @@ class GSRCollectiveManager {
     if (minVal === Infinity || maxVal === -Infinity) return [];
     if (Math.abs(maxVal - minVal) < 1e-9) maxVal = minVal + 0.1;
 
+    // Collect every valid (non-masked) grid value to build percentile-based contour levels.
+    // Equal-interval levels (old behavior: minVal + k * (maxVal-minVal)/(n+1)) waste most of
+    // their resolution on the flat low-arousal majority whenever a handful of hotspots pull
+    // maxVal far above the rest of the surface — nine of ten lines end up bunched on top of
+    // each other describing baseline, and the actual peak area gets one or two lines total.
+    // Percentile levels instead guarantee the levels are spread across where the data's
+    // *distribution* actually varies, regardless of the raw magnitude spread.
+    const sortedVals = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const v = grid[r][c];
+        if (v !== null && !isNaN(v)) sortedVals.push(v);
+      }
+    }
+    sortedVals.sort((a, b) => a - b);
+
     const contours = [];
-    const levelStep = (maxVal - minVal) / (contourCount + 1);
+    const seenLevels = new Set();
     for (let k = 1; k <= contourCount; k++) {
-      const level = minVal + k * levelStep;
+      const percentile = k / (contourCount + 1);
+      const idx = Math.min(sortedVals.length - 1, Math.max(0, Math.round(percentile * (sortedVals.length - 1))));
+      const level = sortedVals.length > 0 ? sortedVals[idx] : minVal;
+
+      // Skip duplicate levels — common when a large flat region shares the same interpolated
+      // value, which would otherwise draw a redundant (or contour-less) line at that level.
+      const levelKey = level.toFixed(6);
+      if (seenLevels.has(levelKey)) continue;
+      seenLevels.add(levelKey);
+
       const segments = MarchingSquares.getContourLines(grid, rows, cols, bounds, level);
       if (segments.length > 0) {
-        contours.push({ level, ratio: (level - minVal) / (maxVal - minVal), segments });
+        // ratio = percentile rank (not magnitude ratio), so line color reflects "how high is
+        // this relative to the rest of the surface" rather than "how high on a scale that's
+        // mostly empty".
+        contours.push({ level, ratio: percentile, segments });
       }
     }
 
-    return { contours, grid, minVal, maxVal, bounds };
+    return { contours, grid, minVal, maxVal, bounds, sortedVals };
   }
 }

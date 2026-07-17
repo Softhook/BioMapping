@@ -250,10 +250,30 @@ class GSRSpatialClustering {
    * @param {Array<{lat: number, lon: number}>} cluster - List of peaks in this cluster.
    * @param {number} sigma - Gaussian kernel standard deviation in meters.
    * @param {number} thresholdRadius - Desired boundary radius in meters around a single peak.
+   * @param {number|null} [refAmplitude=null] - Reference (e.g. mean) peak amplitude across the
+   *   whole active dataset. When supplied, each peak's contribution to the density field is
+   *   scaled by its amplitude relative to this reference, so a cluster of severe reactions
+   *   grows a larger boundary than a cluster of equally-numerous mild ones. When omitted
+   *   (default), every peak contributes equally — this preserves the original unweighted
+   *   behavior for existing callers.
    * @returns {Array<Array<{lat: number, lon: number}>>} Array of paths (closed loops).
    */
-  static getConcaveBlob(cluster, sigma = 15, thresholdRadius = 18) {
+  static getConcaveBlob(cluster, sigma = 15, thresholdRadius = 18, refAmplitude = null) {
     if (!cluster || cluster.length === 0) return [];
+
+    // Determine per-peak relative-severity weighting. Clamped so a single extreme outlier
+    // can't blow the boundary out indefinitely, and so a below-average peak doesn't vanish
+    // from the density field entirely — it should shrink the blob, not erase it.
+    const useAmplitudeWeighting = typeof refAmplitude === 'number' && refAmplitude > 0 &&
+      cluster.every(p => typeof p.amplitude === 'number' && !isNaN(p.amplitude));
+    // Lower bound of 0.55 keeps this comfortably above the ~0.487 relative weight below which
+    // a lone peak's density would never reach the boundary isolevel at all (given the default
+    // sigma/thresholdRadius pairing) — a mild peak should still draw a small blob, not vanish.
+    const weightForPeak = (pk) => {
+      if (!useAmplitudeWeighting) return 1;
+      const rel = pk.amplitude / refAmplitude;
+      return Math.max(0.55, Math.min(3.0, rel));
+    };
     
     let s = parseFloat(sigma);
     if (isNaN(s) || s <= 0) s = 15;
@@ -315,7 +335,7 @@ class GSRSpatialClustering {
         for (let i = 0; i < m; i++) {
           const pk = cluster[i];
           const dSq = GSRSpatialClustering._getDistanceMetersSq(lat, lon, pk.lat, pk.lon, scale);
-          density += Math.exp(-dSq / twoSigmaSq);
+          density += weightForPeak(pk) * Math.exp(-dSq / twoSigmaSq);
         }
         grid[r][c] = density;
       }
