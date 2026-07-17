@@ -2,10 +2,12 @@ Todo
 
 build next prototype with M10Q
 
-Add Electro Magnetic Fog data
+Add Electro Magnetic Fog data - This is really at a high enough level to differentiate anything, the data ?
 
-Consider other GSR imrpoovments
+Think about the airport context. Would it make sense to put a microphone on there?
 
-Send real time data to mobile phone / laptop - upload to server
+Consider other GSR imrpoovments in code
 
-physical form factor - external GPS antenna?
+Send realtime data to mobile phone / laptop - upload to server
+
+physical form factor - external GPS antenna? 3d printed case
