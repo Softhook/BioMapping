@@ -271,11 +271,25 @@ void run_calibration_menu(BioMapApp* app) {
     vp_pop(app, vp);
 }
 
+// GSR + Sound safety invariant for the calibration wizard: this function
+// must never call into modules/sound.h, and the caller (run_calibration_
+// wizard) must never call it either during the 20-sample loop below. The
+// caller's one pre-measurement tone (a ~35 ms click, played right before
+// this function is entered) is made safe by the very next thing this
+// function does: a full 1 s / 10-tick buffer flush, whose discarded
+// readings absorb any tone-era ADC samples ~30x over (the GSR ring buffer
+// is only ~128 ms deep — see GSR_TONE_SETTLE_MS in biomap_session.c for
+// the equivalent, tighter-margin calculation used for recording start).
+// The caller's post-measurement tones (confirm/error/success) are safe by
+// construction: they only ever play after this function has already
+// returned with its result, i.e. after all 20 real samples were taken.
 static bool calibration_wizard_measure(GsrSensor* gsr, int resistor_idx, const float gates[CAL_POINTS][2], float* out_avg_g) {
     // Ensure calibration is disabled on this wizard-local sensor so measurements are raw nS
     gsr_sensor_set_calibration(gsr, false, 1.0f, 0.0f);
 
-    // Flush the ring buffer (1 s, 10 ticks)
+    // Flush the ring buffer (1 s, 10 ticks). Also the GSR+Sound settle
+    // window for the caller's pre-measurement click — see this function's
+    // header comment. Every reading here is intentionally discarded.
     for(int i = 0; i < 10; i++) {
         furi_delay_ms(100);
         gsr_sensor_tick(gsr);
@@ -460,6 +474,13 @@ void run_calibration_wizard(BioMapApp* app) {
 
         if(idx >= 0) {
             // ── Measurement step ──────────────────────────────────
+            // This click plays BEFORE calibration_wizard_measure() is
+            // called below — safe by a large margin because that function's
+            // own 1 s ring-buffer flush runs before it takes any real
+            // sample (see the GSR+Sound comment on calibration_wizard_
+            // measure). Do not move this click, or add any other sound
+            // call, to inside calibration_wizard_measure() or its 20-sample
+            // loop — that would remove the flush's settle margin.
             biomap_sound_click(app->sound_enabled);
             w.step = (int)(idx * 2 + 1);  // 0→1, 2→3, 4→5
             view_port_update(vp);
@@ -471,6 +492,9 @@ void run_calibration_wizard(BioMapApp* app) {
                 continue;
             }
 
+            // calibration_wizard_measure() has already returned — all 20
+            // real samples for this resistor were taken before this line
+            // runs, so the confirm/error tone below cannot affect them.
             float avg_g = 0.0f;
             if(calibration_wizard_measure(gsr, idx, gates, &avg_g)) {
                 w.measured[idx] = avg_g;
@@ -482,6 +506,9 @@ void run_calibration_wizard(BioMapApp* app) {
             }
 
             // After the last measurement, compute the least-squares fit.
+            // calibration_wizard_compute_fit() is pure arithmetic on the
+            // already-collected w.measured[] values — no GSR/ADC access —
+            // so the success/error tone below can never affect a reading.
             if(w.step == 6) {
                 if(calibration_wizard_compute_fit(w.measured, targets, &w.gain, &w.offset, &w.r_squared)) {
                     w.step = 8;  // success
