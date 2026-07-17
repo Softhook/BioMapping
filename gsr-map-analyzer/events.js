@@ -568,6 +568,7 @@ const GSREvents = {
         GSRRenderer.drawPlaceholder();
         if (AppState.mapManager) AppState.mapManager.clearMap();
       }
+      GSRUI.refreshOsmControls(); // resync OSM Layers button/indicator to the now-active single track
       if (AppState.mapManager && AppState.mapManager.map) {
         setTimeout(() => AppState.mapManager.map.invalidateSize(), 80);
       }
@@ -592,6 +593,7 @@ const GSREvents = {
       noLoop();
 
       GSRUI.updateCollectiveMap();
+      GSRUI.refreshOsmControls(); // reflects all/none/mixed enrichment across active tracks
       if (AppState.mapManager && AppState.mapManager.map) {
         setTimeout(() => AppState.mapManager.map.invalidateSize(), 80);
       }

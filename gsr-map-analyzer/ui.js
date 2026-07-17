@@ -239,18 +239,37 @@ const GSRUI = {
   },
 
   /**
-   * Reflects whether the active (single-mode) track has been enriched
-   * with spatial data (OSM retrieval) in the "Spatial Data" stat card.
+   * Reflects whether spatial data (OSM retrieval) is present in the
+   * "Spatial Data" stat card, as a green/grey dot rather than text:
+   *   - Single-track mode: green if the active track is enriched, grey
+   *     otherwise.
+   *   - Collective mode: green only if EVERY active track is enriched.
+   *     Grey if none are, or if it's a mix of enriched/not — a partial
+   *     state isn't "green" since not all shown structures/metrics would
+   *     actually have spatial data behind them.
    * Called after a fresh analysis run (updateStatsPanel) and immediately
    * after enrichment completes/changes (refreshOsmControls) so it never
-   * lags behind the actual analyzer.isEnriched state.
+   * lags behind the actual analyzer.isEnriched state(s).
    */
   updateSpatialDataIndicator() {
     const el = AppState.statFields.spatialData;
     if (!el) return;
-    const enriched = !!(AppState.analyzer && AppState.analyzer.isEnriched);
-    el.innerText = enriched ? 'Retrieved' : 'Not retrieved';
-    el.style.color = enriched ? 'var(--success)' : 'var(--text-muted)';
+
+    let allEnriched;
+    if (AppState.viewMode === 'collective') {
+      const tracks = AppState.collectiveManager ? AppState.collectiveManager.getActiveTracks() : [];
+      allEnriched = tracks.length > 0 && tracks.every(t => t.analyzer && t.analyzer.isEnriched);
+    } else {
+      allEnriched = !!(AppState.analyzer && AppState.analyzer.isEnriched);
+    }
+
+    el.innerText = '●'; // ● — a plain colored dot, no wording needed
+    el.style.color = allEnriched ? 'var(--success)' : 'var(--text-muted)';
+    el.title = allEnriched
+      ? 'Spatial data retrieved'
+      : (AppState.viewMode === 'collective'
+          ? 'Spatial data missing for one or more active tracks'
+          : 'Spatial data not retrieved');
   },
 
   /**

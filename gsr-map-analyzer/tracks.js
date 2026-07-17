@@ -194,7 +194,13 @@ const GSRTrackManager = {
         if (typeof GSRUI !== 'undefined' && typeof GSRUI.invalidateEnvironmentalCache === 'function') {
           GSRUI.invalidateEnvironmentalCache();
         }
-        if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
+        if (AppState.viewMode === 'collective') {
+          GSRUI.updateCollectiveMap();
+          // Which tracks are "active" just changed — refresh the OSM
+          // Layers toggle, environmental dashboard, and the Spatial Data
+          // indicator (all/none/mixed enrichment across active tracks).
+          GSRUI.refreshOsmControls();
+        }
       });
 
       const badge = document.createElement('span');

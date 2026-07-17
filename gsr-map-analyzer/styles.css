@@ -533,14 +533,17 @@ input[type="range"]::-webkit-slider-thumb:hover {
      cards are visible — display:none'd cards (e.g. Spatial Data, hidden
      in collective mode) don't consume a track, so this always fills the
      row edge-to-edge with equal-width cards regardless of count. */
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
   gap: 1px;
   background: var(--border-glass);
   border: 1px solid var(--border-glass);
   border-radius: 4px;
   overflow: hidden;
   flex-shrink: 0;
-  height: 38px;
+  /* min-height (not a fixed height) so that IF the row ever has to wrap
+     to a second line on a very narrow window, the extra cards grow the
+     row into view instead of being silently clipped off. */
+  min-height: 38px;
   box-sizing: border-box;
 }
 
@@ -550,6 +553,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: flex;
   align-items: center;
   height: 100%;
+  min-width: 0;   /* let contents shrink/truncate instead of overflowing into the next card */
+  overflow: hidden;
   box-sizing: border-box;
 }
 
@@ -565,9 +570,13 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: flex;
   flex-direction: row;
   align-items: center;
-  justify-content: space-between;
+  /* flex-start, not space-between — keep the label and value close
+     together instead of pushed to opposite edges of the card, which was
+     leaving a large empty gap in between on wider columns. */
+  justify-content: flex-start;
   width: 100%;
-  gap: 8px;
+  min-width: 0;
+  gap: 6px;
 }
 
 .stat-label {
@@ -577,6 +586,10 @@ input[type="range"]::-webkit-slider-thumb:hover {
   letter-spacing: 0.5px;
   color: var(--text-muted);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;   /* the label truncates first, before the value gets squeezed */
 }
 
 .stat-value {
@@ -586,6 +599,9 @@ input[type="range"]::-webkit-slider-thumb:hover {
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;   /* the actual data value stays intact as long as possible */
 }
 
 /* Visualization Panel */
@@ -1789,8 +1805,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .main-layout.collective-mode #gsrPanel,
 .main-layout.collective-mode #eventsPanel,
 .main-layout.collective-mode #gsrFilteringCard,
-.main-layout.collective-mode #gpsFilteringCard,
-.main-layout.collective-mode #statSpatialDataCard {
+.main-layout.collective-mode #gpsFilteringCard {
   display: none !important;
 }
 
