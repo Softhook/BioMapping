@@ -529,7 +529,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
 /* Stats Cards */
 .stats-row {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* auto-fit so the row re-flows cleanly whether 5 or 6 (or more) stat
+     cards are visible — display:none'd cards (e.g. Spatial Data, hidden
+     in collective mode) don't consume a track, so this always fills the
+     row edge-to-edge with equal-width cards regardless of count. */
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 1px;
   background: var(--border-glass);
   border: 1px solid var(--border-glass);
@@ -1785,7 +1789,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .main-layout.collective-mode #gsrPanel,
 .main-layout.collective-mode #eventsPanel,
 .main-layout.collective-mode #gsrFilteringCard,
-.main-layout.collective-mode #gpsFilteringCard {
+.main-layout.collective-mode #gpsFilteringCard,
+.main-layout.collective-mode #statSpatialDataCard {
   display: none !important;
 }
 

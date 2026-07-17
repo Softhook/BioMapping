@@ -234,6 +234,23 @@ const GSRUI = {
     if (F.meanSCL)   F.meanSCL.innerText   = stats.meanSCL.toFixed(3) + " \u03bcS";
     if (F.peakCount) F.peakCount.innerText = stats.peakCount;
     if (F.peakFreq)  F.peakFreq.innerText  = stats.peakFrequency.toFixed(2) + " / min";
+
+    GSRUI.updateSpatialDataIndicator();
+  },
+
+  /**
+   * Reflects whether the active (single-mode) track has been enriched
+   * with spatial data (OSM retrieval) in the "Spatial Data" stat card.
+   * Called after a fresh analysis run (updateStatsPanel) and immediately
+   * after enrichment completes/changes (refreshOsmControls) so it never
+   * lags behind the actual analyzer.isEnriched state.
+   */
+  updateSpatialDataIndicator() {
+    const el = AppState.statFields.spatialData;
+    if (!el) return;
+    const enriched = !!(AppState.analyzer && AppState.analyzer.isEnriched);
+    el.innerText = enriched ? 'Retrieved' : 'Not retrieved';
+    el.style.color = enriched ? 'var(--success)' : 'var(--text-muted)';
   },
 
   /**
@@ -487,6 +504,39 @@ const GSRUI = {
   },
 
   /**
+   * OSM ways/relations to draw as map overlays for whichever tracks are
+   * currently active: a single analyzer's osmGeoms in single-track mode,
+   * or the union — de-duplicated by OSM element id — of every active
+   * track's osmGeoms in collective mode. Two tracks enriched at
+   * different times can have their own osmGeoms with only partial or no
+   * overlap; without merging them, toggling "OSM Layers" in collective
+   * mode would only ever draw whichever single analyzer AppState.analyzer
+   * happened to reference, not the combined coverage the user actually
+   * retrieved. OSM element ids are globally stable, so de-duping by id
+   * across tracks is safe (same id always means the same geometry).
+   */
+  getCombinedOsmGeoms() {
+    if (AppState.viewMode !== 'collective') {
+      return (AppState.analyzer && AppState.analyzer.osmGeoms) ? AppState.analyzer.osmGeoms : null;
+    }
+
+    if (!AppState.collectiveManager) return null;
+    const tracks = AppState.collectiveManager.getActiveTracks()
+      .filter(t => t.analyzer && t.analyzer.osmGeoms);
+    if (tracks.length === 0) return null;
+    if (tracks.length === 1) return tracks[0].analyzer.osmGeoms;
+
+    const wayMap = new Map();
+    const relationMap = new Map();
+    for (const t of tracks) {
+      const g = t.analyzer.osmGeoms;
+      if (g.ways)      for (const w of g.ways)      wayMap.set(w.id, w);
+      if (g.relations) for (const r of g.relations) relationMap.set(r.id, r);
+    }
+    return { ways: Array.from(wayMap.values()), relations: Array.from(relationMap.values()) };
+  },
+
+  /**
    * Helper to refresh UI elements based on track enrichment state.
    */
   refreshOsmControls() {
@@ -494,6 +544,8 @@ const GSRUI = {
       ? (AppState.analyzer && AppState.analyzer.isEnriched ? [{ analyzer: AppState.analyzer }] : [])
       : AppState.collectiveManager.getActiveTracks().filter(t => t.analyzer && t.analyzer.isEnriched);
     const isEnriched = activeTracks.length > 0;
+
+    GSRUI.updateSpatialDataIndicator();
 
     const select = document.getElementById('mapColoringMetric');
     const btnToggleOsmShapes = document.getElementById('btnToggleOsmShapes');
@@ -506,6 +558,15 @@ const GSRUI = {
 
       if (hasOsmGeoms) {
         btnToggleOsmShapes.style.display = 'inline-block';
+        // If the layer toggle is already on (e.g. the user just enriched
+        // a second track while looking at the first one's shapes),
+        // redraw immediately with the newly-combined coverage instead of
+        // leaving stale/partial shapes on the map until a manual
+        // toggle-off/toggle-on.
+        if (btnToggleOsmShapes.classList.contains('active') && AppState.mapManager) {
+          const geoms = GSRUI.getCombinedOsmGeoms();
+          if (geoms) AppState.mapManager.drawOsmShapes(geoms);
+        }
       } else {
         btnToggleOsmShapes.style.display = 'none';
         btnToggleOsmShapes.classList.remove('active');
@@ -635,7 +696,7 @@ const GSRUI = {
       // forceFetch only means "don't trust this session's in-memory
       // analyzer.osmJson" (handled above via the allCached early-return) —
       // it does not mean "must hit the network." The whole point of this
-      // cache is to cut Overpass API calls, and the "Enrich Active Track"
+      // cache is to cut Overpass API calls, and the "Retrieve Spatial Data"
       // button is the *only* path that ever reaches this code, so skipping
       // the cache here for forceFetch would make it dead code in practice.
       // If the user genuinely wants to force a fresh network fetch for an

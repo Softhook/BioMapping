@@ -344,7 +344,48 @@
               <p class="help-text">Downsample to 1 Hz for performance on large tracks. 0 = off, 1 = on.</p>
             </div>
 
-            <div class="control-subgroup-title">Correction</div>
+          </div>
+        </section>
+
+        <!-- Spatial Data Card -->
+        <section class="control-card" id="osmEnrichmentCard">
+          <h2>
+            <i class="fa-solid fa-earth-americas"></i> Spatial Data
+            <button class="icon-btn collapse-btn" id="btnOsmEnrichmentCollapse" title="Collapse" style="margin-left: auto;">
+              <i class="fa-solid fa-chevron-down"></i>
+            </button>
+          </h2>
+
+          <div class="card-content">
+            <button class="btn btn-primary" id="btnEnrichTrack" style="width: 100%;">
+              <i class="fa-solid fa-wand-magic-sparkles"></i> Retrieve Spatial Data
+            </button>
+
+            <!-- Progress & status -->
+            <div id="osmStatusContainer" style="display: none; margin-top: 12px; font-size: 0.8rem; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 4px; border-left: 3px solid #ff7b00;">
+              <div id="osmStatusMessage" style="font-weight: 500; margin-bottom: 4px;">Connecting to Overpass...</div>
+              <div class="progress-bar-container" style="background: rgba(255,255,255,0.1); height: 6px; border-radius: 3px; overflow: hidden;">
+                <div id="osmProgressBar" style="background: #ff7b00; height: 100%; width: 0%; transition: width 0.2s;"></div>
+              </div>
+            </div>
+
+            <p class="help-text" style="margin-top: 12px; margin-bottom: 4px;">Fetched OpenStreetMap data is cached locally in the browser, so re-enriching tracks in the same area doesn't re-fetch from the network.</p>
+            <button class="btn btn-outline" id="btnClearOsmCache" style="width: 100%; font-size: 0.8rem;" title="Delete all locally cached OpenStreetMap data">
+              <i class="fa-solid fa-trash"></i> Clear Cached Map Data
+            </button>
+
+            <p class="help-text" style="margin-top: 16px; margin-bottom: 12px;">Enrich GPS points with environmental metadata (roads, parks, buildings, water) fetched from OpenStreetMap.</p>
+
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Search Radius (m)</span>
+                <span class="slider-value" id="valOsmRadius">50 m</span>
+              </div>
+              <input type="range" id="osmRadius" min="25" max="200" step="5" value="50">
+              <p class="help-text">Spatial buffer radius for local density and distance calculations.</p>
+            </div>
+
+            <div class="control-subgroup-title">GPS Correction</div>
 
             <div class="toggle-group">
               <label class="switch">
@@ -353,8 +394,6 @@
               </label>
               <span class="toggle-label">Snap to Roads &amp; Trails</span>
             </div>
-
-
 
             <div class="slider-group" id="snapRadiusGroup">
               <div class="slider-label">
@@ -484,47 +523,6 @@
           </div>
         </section>
 
-        <!-- OSM Environmental Enrichment Card -->
-        <section class="control-card" id="osmEnrichmentCard">
-          <h2>
-            <i class="fa-solid fa-earth-americas"></i> Environmental Enrichment
-            <button class="icon-btn collapse-btn" id="btnOsmEnrichmentCollapse" title="Collapse" style="margin-left: auto;">
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-          </h2>
-
-          <div class="card-content">
-            <p class="help-text" style="margin-bottom: 12px;">Enrich GPS points with environmental metadata (roads, parks, buildings, water) fetched from OpenStreetMap.</p>
-            
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>Search Radius (m)</span>
-                <span class="slider-value" id="valOsmRadius">50 m</span>
-              </div>
-              <input type="range" id="osmRadius" min="25" max="200" step="5" value="50">
-              <p class="help-text">Spatial buffer radius for local density and distance calculations.</p>
-            </div>
-
-
-            <button class="btn btn-primary" id="btnEnrichTrack" style="width: 100%; margin-top: 8px;">
-              <i class="fa-solid fa-wand-magic-sparkles"></i> Enrich Active Track
-            </button>
-
-            <!-- Progress & status -->
-            <div id="osmStatusContainer" style="display: none; margin-top: 12px; font-size: 0.8rem; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 4px; border-left: 3px solid #ff7b00;">
-              <div id="osmStatusMessage" style="font-weight: 500; margin-bottom: 4px;">Connecting to Overpass...</div>
-              <div class="progress-bar-container" style="background: rgba(255,255,255,0.1); height: 6px; border-radius: 3px; overflow: hidden;">
-                <div id="osmProgressBar" style="background: #ff7b00; height: 100%; width: 0%; transition: width 0.2s;"></div>
-              </div>
-            </div>
-
-            <p class="help-text" style="margin-top: 12px; margin-bottom: 4px;">Fetched OpenStreetMap data is cached locally in the browser, so re-enriching tracks in the same area doesn't re-fetch from the network.</p>
-            <button class="btn btn-outline" id="btnClearOsmCache" style="width: 100%; font-size: 0.8rem;" title="Delete all locally cached OpenStreetMap data">
-              <i class="fa-solid fa-trash"></i> Clear Cached Map Data
-            </button>
-          </div>
-        </section>
-
         <!-- Export controls -->
         <section class="control-card export-section" id="exportCard">
           <h2>
@@ -598,6 +596,15 @@
             <div class="stat-info">
               <span class="stat-label">Peak Frequency</span>
               <span class="stat-value" id="statPeakFreq">--</span>
+            </div>
+          </div>
+
+          <!-- Single-track-only indicator — hidden in collective mode via CSS -->
+          <div class="stat-card" id="statSpatialDataCard">
+            <div class="stat-icon"><i class="fa-solid fa-earth-americas"></i></div>
+            <div class="stat-info">
+              <span class="stat-label">Spatial Data</span>
+              <span class="stat-value" id="statSpatialData">--</span>
             </div>
           </div>
 

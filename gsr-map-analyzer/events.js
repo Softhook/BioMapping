@@ -44,7 +44,8 @@ const GSREvents = {
       duration: 'statDuration',
       meanSCL: 'statMeanSCL',
       peakCount: 'statPeakCount',
-      peakFreq: 'statPeakFreq'
+      peakFreq: 'statPeakFreq',
+      spatialData: 'statSpatialData'
     };
     for (const [key, id] of Object.entries(statKeys)) {
       AppState.statFields[key] = GSREvents._id(id);
@@ -491,7 +492,10 @@ const GSREvents = {
       const active = btnToggleOsmShapes.classList.contains('active');
       if (AppState.mapManager) {
         if (active) {
-          AppState.mapManager.drawOsmShapes(AppState.analyzer.osmGeoms);
+          // Combines every active track's OSM geometry in collective
+          // mode (not just AppState.analyzer's) — see getCombinedOsmGeoms.
+          const geoms = GSRUI.getCombinedOsmGeoms();
+          if (geoms) AppState.mapManager.drawOsmShapes(geoms);
         } else {
           AppState.mapManager.clearOsmShapes();
         }
@@ -548,7 +552,7 @@ const GSREvents = {
       if (peakCard) peakCard.style.display = '';
 
       const btnEnrich = document.getElementById('btnEnrichTrack');
-      if (btnEnrich) btnEnrich.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Enrich Active Track';
+      if (btnEnrich) btnEnrich.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Retrieve Spatial Data';
 
       if (AppState.mapManager) AppState.mapManager.clearCollectiveLayers();
 
@@ -581,7 +585,7 @@ const GSREvents = {
       if (peakCard) peakCard.style.display = 'none';
 
       const btnEnrich = document.getElementById('btnEnrichTrack');
-      if (btnEnrich) btnEnrich.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Enrich tracks';
+      if (btnEnrich) btnEnrich.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Retrieve Spatial Data';
 
       document.getElementById('gsrPanel').style.display = 'none';
       document.getElementById('eventsPanel').style.display = 'none';

@@ -122,9 +122,7 @@ A schema note: the cache started as a single object store mixing metadata and da
 
 ## 4. UI/UX — as built
 
-**Sidebar "Environmental Enrichment" card**: search-radius slider (25–200m, default 50m), an "Enrich Active Track" button, and a progress bar with live status messages (checking the local cache, rate-limit waits, retry counts, parse progress, and — when a partial-overlap merge is happening — how many cached areas are being merged). A "Clear Cached Map Data" button wipes the IndexedDB cache described in §2D/§3D. No latency slider here (see §3C).
-
-**Sidebar "GPS Processing" card**: a "Snap to Roads & Trails" toggle and snap-radius slider (10–60m, default 25m) — this is the road-snapping feature from §2B, not in the original plan.
+**Sidebar "Spatial Data" card** (renamed from "Environmental Enrichment"): search-radius slider (25–200m, default 50m), the "Snap to Roads & Trails" toggle and snap-radius slider (10–60m, default 25m — moved here from the GPS Filtering card, since it's part of preparing data for retrieval rather than a display filter), a "Retrieve Spatial Data" button (renamed from "Enrich Active Track"), and a progress bar with live status messages (checking the local cache, rate-limit waits, retry counts, parse progress, and — when a partial-overlap merge is happening — how many cached areas are being merged). A "Clear Cached Map Data" button wipes the IndexedDB cache described in §2D/§3D. No latency slider here (see §3C).
 
 **Map panel**: a "Map Metric" dropdown recolors the track by `osm_road_class`, `osm_dist_major_road`, `osm_in_park`, `osm_green_pct_50m`, `osm_building_density_50m`, `osm_dist_water`, `osm_tree_density_50m`, `osm_amenity_count_50m`, GSR arousal, or GPS HDOP quality (colors defined in `map_colors.js`). Options are disabled until a track has been enriched. An "OSM Layers" toggle overlays the fetched park/water/building polygons on the map (`map.js: drawOsmShapes` / `clearOsmShapes`).
 
