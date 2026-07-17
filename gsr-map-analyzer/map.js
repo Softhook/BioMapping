@@ -1322,24 +1322,42 @@ class GSRMapManager {
       if (this.showSurface) this.surfaceOverlay.addTo(this.map);
     }
 
-    // 2. Draw vector isoline boundaries
+    // 2. Draw isoline curves. Marching Squares returns raw, unordered 2-point segments —
+    // stitch them into continuous paths first (same stitching used for cluster blob
+    // boundaries), then apply a light Chaikin smoothing pass so the grid-aligned corners
+    // read as smooth curves rather than a jagged staircase. This also collapses what used
+    // to be hundreds of separate thick, disconnected strokes per level into a handful of
+    // thin, continuous lines.
     contours.forEach(c => {
       const color = MapColors.getHslColor(c.ratio, 100, 55);
+      const formattedVal = c.level.toFixed(3);
+      const unit = (contourParams.topographySource === 'peaks') ? '' : ' μS';
 
-      c.segments.forEach(seg => {
-        const poly = L.polyline([
-          [seg[0].lat, seg[0].lon],
-          [seg[1].lat, seg[1].lon]
-        ], {
+      const stitchedPaths = (typeof GSRSpatialClustering !== 'undefined')
+        ? GSRSpatialClustering.stitchSegments(c.segments)
+        : c.segments.map(seg => [seg[0], seg[1]]);
+
+      stitchedPaths.forEach(path => {
+        if (!path || path.length < 2) return;
+
+        const isClosed = path.length > 2 &&
+          Math.abs(path[0].lat - path[path.length - 1].lat) < 1e-9 &&
+          Math.abs(path[0].lon - path[path.length - 1].lon) < 1e-9;
+        const smoothed = GeoUtils.chaikinSmooth(path, 3, isClosed);
+
+        const poly = L.polyline(smoothed.map(p => [p.lat, p.lon]), {
           color: color,
-          weight: 4.5,
+          weight: 1.5,
           opacity: 0.85,
           lineCap: 'round',
-          lineJoin: 'round'
+          lineJoin: 'round',
+          // Leaflet simplifies polyline vertices for rendering performance by default
+          // (smoothFactor: 1.0). That simplification would strip out the extra points
+          // Chaikin smoothing just added, undoing the smoothing. Disable it so every
+          // smoothed vertex actually renders.
+          smoothFactor: 0
         });
 
-        const formattedVal = c.level.toFixed(3);
-        const unit = (contourParams.topographySource === 'peaks') ? '' : ' μS';
         poly.bindTooltip(`Level: ${formattedVal}${unit}`, {
           sticky: true,
           className: 'contour-tooltip-label'

@@ -46,6 +46,71 @@ const GeoUtils = {
   },
 
   /**
+   * Chaikin's corner-cutting algorithm — smooths a polyline into a rounded curve by
+   * repeatedly replacing each vertex with two points at 1/4 and 3/4 along its adjacent
+   * segments. Cheap, dependency-free way to turn a blocky, grid-aligned contour path
+   * (e.g. from Marching Squares) into a visually smooth continuous curve without pulling
+   * in a spline library.
+   *
+   * @param {Array<{lat:number, lon:number}>} points - Path vertices, in order.
+   * @param {number} [iterations=2] - Number of smoothing passes (higher = smoother/rounder).
+   * @param {boolean} [closed=false] - Whether the path is a closed loop (first === last).
+   * @returns {Array<{lat:number, lon:number}>} Smoothed path.
+   */
+  chaikinSmooth(points, iterations = 2, closed = false) {
+    if (!points || points.length < 3) return points || [];
+    const EPS = 1e-9;
+
+    // Collapse consecutive (near-)duplicate vertices first. Marching Squares emits
+    // zero-length or near-zero-length segments at ambiguous grid crossings (e.g. a grid
+    // value landing exactly on the contour level right at a cell corner), and stitching
+    // happily joins them since they share an endpoint. Left in, a run of overlapping
+    // vertices just perpetuates itself through every Chaikin pass — visually a stub/kink
+    // in the curve rather than a smooth pass-through, and it can occur anywhere along the
+    // path, not just at a ring's closing point.
+    let pts = [];
+    for (const p of points) {
+      const prev = pts[pts.length - 1];
+      if (!prev || Math.abs(prev.lat - p.lat) > EPS || Math.abs(prev.lon - p.lon) > EPS) {
+        pts.push(p);
+      }
+    }
+
+    // Stitched closed rings repeat their first point as the last point (that's how the
+    // path-stitcher detects the loop closed). Left in place, Chaikin treats that repeat as
+    // an extra near-zero-length segment right at the seam, which produces a visible kink/
+    // duplicate-vertex cluster exactly where the ring closes instead of a clean curve.
+    // Drop the duplicate before smoothing and treat the ring as a genuinely cyclic point set.
+    if (closed && pts.length > 1) {
+      const first = pts[0], last = pts[pts.length - 1];
+      if (Math.abs(first.lat - last.lat) < EPS && Math.abs(first.lon - last.lon) < EPS) {
+        pts = pts.slice(0, -1);
+      }
+    }
+    if (pts.length < 3) return points;
+
+    for (let iter = 0; iter < iterations; iter++) {
+      const n = pts.length;
+      const segCount = closed ? n : n - 1;
+      const next = [];
+      if (!closed) next.push(pts[0]); // keep the start endpoint anchored
+      for (let i = 0; i < segCount; i++) {
+        const p0 = pts[i];
+        const p1 = pts[(i + 1) % n];
+        next.push({ lat: 0.75 * p0.lat + 0.25 * p1.lat, lon: 0.75 * p0.lon + 0.25 * p1.lon });
+        next.push({ lat: 0.25 * p0.lat + 0.75 * p1.lat, lon: 0.25 * p0.lon + 0.75 * p1.lon });
+      }
+      if (!closed) next.push(pts[n - 1]); // keep the end endpoint anchored
+      pts = next;
+    }
+
+    // Re-close the ring explicitly (first point repeated at the end) so the rendered
+    // polyline has no visible gap or seam where it loops back on itself.
+    if (closed) pts = [...pts, pts[0]];
+    return pts;
+  },
+
+  /**
    * Ray-casting point-in-polygon check.
    * Coordinates should be array of {lat, lon} or [lat, lon].
    */
