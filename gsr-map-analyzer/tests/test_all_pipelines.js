@@ -199,18 +199,38 @@ assertEq(densityMismatch, 0, 'Two-pointer peakDensity matches brute-force count 
 const aucVals = analyzer.phasicAUC.map(d => d.val);
 assert(aucVals.every(v => v >= -1e-9), 'phasicAUC values are non-negative');
 
-// Manually verify computePhasicAUC's running-sum window against a direct trapezoid-free sum
-// at one interior index, using a short window for a cheap independent check.
+// Manually verify computePhasicAUC's centered-window running sum against a direct
+// trapezoid-free sum at a few interior indices, using a short window for a cheap
+// independent check. Centered = ±halfWin around each sample's own timestamp
+// (matches computeTemporalPeakDensity's convention — see analyzer.js docstrings).
 const shortWin = 5; // seconds
 const shortAuc = analyzer.computePhasicAUC(shortWin);
-const checkIdx = Math.min(analyzer.phasic.length - 1, Math.round(shortWin * analyzer.sampleRate) + 50);
-const winSamples = Math.max(1, Math.round(shortWin * analyzer.sampleRate));
-let directSum = 0;
-for (let j = checkIdx - winSamples + 1; j <= checkIdx; j++) {
-  if (j >= 0) directSum += Math.max(0, analyzer.phasic[j].val);
+const halfWinSamples = Math.round((shortWin / 2) * analyzer.sampleRate);
+const aucCheckIdxs = [halfWinSamples + 50, Math.floor(analyzer.phasic.length / 2), analyzer.phasic.length - 1 - halfWinSamples];
+let aucMismatch = 0;
+for (const idx of aucCheckIdxs) {
+  if (idx < 0 || idx >= analyzer.phasic.length) continue;
+  const t = analyzer.phasic[idx].time;
+  const halfWin = shortWin / 2;
+  let directSum = 0;
+  for (let j = 0; j < analyzer.phasic.length; j++) {
+    const jt = analyzer.phasic[j].time;
+    if (jt >= t - halfWin && jt <= t + halfWin) directSum += Math.max(0, analyzer.phasic[j].val);
+  }
+  const directAuc = directSum / analyzer.sampleRate;
+  if (Math.abs(shortAuc[idx].val - directAuc) > 1e-6) aucMismatch++;
 }
-const directAuc = directSum / analyzer.sampleRate;
-assertClose(shortAuc[checkIdx].val, directAuc, 1e-6, `computePhasicAUC(${shortWin}s) matches direct windowed sum at idx ${checkIdx}`);
+assertEq(aucMismatch, 0, `computePhasicAUC(${shortWin}s) centered window matches direct windowed sum at sampled indices`);
+
+// Peak Density and Phasic AUC should be time-aligned (both centered ±halfWin around
+// each sample), not offset from each other the way a centered-vs-trailing mismatch
+// would produce — spot check that a window covering the whole recording on both
+// series peaks/troughs at consistent relative positions isn't required, but at
+// minimum both should be defined (non-undefined) at every sample index.
+assert(
+  analyzer.peakDensity.every((d, i) => d.time === analyzer.phasicAUC[i].time),
+  'peakDensity and phasicAUC series share identical per-sample timestamps (same indexing)'
+);
 
 // Combined Arousal Index should be roughly zero-centered (weighted blend of two z-scored series)
 const arousalVals = analyzer.arousalIndex.map(d => d.val);

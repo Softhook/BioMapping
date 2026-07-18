@@ -1071,9 +1071,19 @@ class GSRAnalyzer {
 
   /**
    * Sliding-window temporal peak density (Non-Specific SCR Frequency), in
-   * peaks/minute. A continuous, per-sample companion to the single
-   * peakFrequency scalar in getStats() — suitable for plotting or feeding
-   * into the spatial IDW surface as a topography source.
+   * peaks/minute, using a *centered* window (±windowSizeSec/2) — same
+   * convention as computePhasicAUC, so the two continuous metrics stay
+   * time-aligned with each other.
+   *
+   * Classic EDA literature (Dawson, Schell & Filion, 2007; Boucsein, 2012)
+   * reports NS-SCR frequency as a single scalar over a fixed epoch (e.g. one
+   * number for a whole baseline/task period), not as a continuous series.
+   * The continuous sliding-window delivery here is an adaptation for spatial
+   * mapping — it IS an established convention in ambulatory/wearable EDA
+   * feature extraction specifically (60 s windows are documented in that
+   * literature), just not how classic lab-based EDA studies report the
+   * metric. peakFrequency in getStats() is the single-scalar, textbook form;
+   * this is the continuous, per-sample companion built for plotting/mapping.
    *
    * Two-pointer sliding window over the (time-sorted) active peak list, so
    * this runs in O(n + peakCount) rather than the O(n × peakCount) naive scan.
@@ -1110,12 +1120,23 @@ class GSRAnalyzer {
   }
 
   /**
-   * Sliding-window Phasic Area Under the Curve (Integrated Skin Conductance
-   * Response / ISCR), in µS·s. Unlike discrete peak counting, this is
-   * threshold-independent and continuous — it resolves the "superposition
-   * problem" (closely-spaced SCRs piling up and being undercounted) and the
-   * "thresholding dilemma" (a 0.021 µS response counts, a 0.019 µS response
-   * is discarded) described in docs/environmental_stress_literature_review.md §5B/§5D.
+   * Sliding-window Phasic Area Under the Curve, in µS·s — an ISCR-*inspired*
+   * continuous metric, not a reproduction of Benedek & Kaernbach's (2010)
+   * published Integrated Skin Conductance Response. Their ISCR integrates a
+   * deconvolved "phasic driver" signal (nonnegative deconvolution against a
+   * canonical bi-exponential SCR kernel), which is what properly separates
+   * overlapping/superposed SCRs. This integrates the simpler tonic-subtracted
+   * phasic signal produced by analyze() instead — no deconvolution — so it
+   * meaningfully softens (but doesn't fully solve, the way true deconvolution
+   * would) the "superposition problem" and the amplitude-threshold cliff-edge
+   * described in docs/environmental_stress_literature_review.md §5B/§5D.
+   *
+   * Uses a *centered* window (±windowSizeSec/2), matching
+   * computeTemporalPeakDensity's convention, so the two continuous metrics
+   * stay time-aligned with each other — a single spike is smeared
+   * symmetrically around its own timestamp in both series rather than
+   * appearing to "start" at the spike in one and being centered on it in
+   * the other.
    *
    * @param {number} windowSizeSec - Temporal window width in seconds (default: 30)
    */
@@ -1124,22 +1145,32 @@ class GSRAnalyzer {
     if (n === 0) return [];
 
     const auc = new Array(n);
-    const winSamples = Math.max(1, Math.round(windowSizeSec * this.sampleRate));
+    const halfWin = windowSizeSec / 2;
+
+    let lo = 0, hi = 0;
     let runningSum = 0;
 
     for (let i = 0; i < n; i++) {
-      // this.phasic is already clamped to ≥0 during decomposition (see
-      // analyze()), but re-clamp defensively for callers that pass in
-      // externally-supplied phasic data.
-      const val = Math.max(0, this.phasic[i].val);
-      runningSum += val;
+      const t = this.phasic[i].time;
+      const tStart = t - halfWin;
+      const tEnd = t + halfWin;
 
-      if (i >= winSamples) {
-        runningSum -= Math.max(0, this.phasic[i - winSamples].val);
+      // Advance the trailing edge to include samples entering the window.
+      // this.phasic is already clamped to ≥0 during decomposition (see
+      // analyze()), but re-clamp defensively in case this is called against
+      // externally-supplied phasic data.
+      while (hi < n && this.phasic[hi].time <= tEnd) {
+        runningSum += Math.max(0, this.phasic[hi].val);
+        hi++;
+      }
+      // Advance the leading edge to drop samples that have fallen out of the window.
+      while (lo < n && this.phasic[lo].time < tStart) {
+        runningSum -= Math.max(0, this.phasic[lo].val);
+        lo++;
       }
 
       auc[i] = {
-        time: this.phasic[i].time,
+        time: t,
         val: runningSum / this.sampleRate // Convert running sum to a time-integral (µS·s)
       };
     }
@@ -1147,11 +1178,22 @@ class GSRAnalyzer {
   }
 
   /**
-   * Standardized Combined Arousal Index — a weighted, per-participant
-   * z-scored blend of tonic baseline (SCL) and phasic AUC (ISCR). Phasic is
-   * weighted higher by default to prioritize immediate environmental
-   * triggers over baseline physiological tone (exertion, thermal load).
-   * See docs/environmental_stress_literature_review.md §5C.
+   * Combined Arousal Index — a weighted, per-participant z-scored blend of
+   * tonic baseline (SCL) and phasic AUC. Phasic is weighted higher by
+   * default to prioritize immediate environmental triggers over baseline
+   * physiological tone (exertion, thermal load) — a direction consistent
+   * with the general practice in spatial wearability studies (e.g. Shoval
+   * et al. 2018; Zhang et al. 2022) of treating phasic reactivity as the
+   * primary signal and tonic as a secondary baseline term.
+   *
+   * IMPORTANT: the specific 0.3/0.7 split is this project's own default, not
+   * a value taken from those papers — a search of their published methods
+   * did not turn up a specific numeric weighting to cite, and
+   * docs/environmental_stress_literature_review.md §5C itself frames the
+   * split as illustrative ("e.g."). Treat these defaults as a tunable
+   * starting point, not an empirically-validated constant; if this matters
+   * for your use case, consider validating a weighting against ground-truth
+   * data (e.g. self-reported arousal) rather than assuming these values.
    *
    * @param {number} wTonic - Weight for tonic SCL component (default: 0.3)
    * @param {number} wPhasic - Weight for phasic AUC component (default: 0.7)

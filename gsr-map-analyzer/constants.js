@@ -77,17 +77,21 @@ const GSR_CONST = {
   PEAK_RECOVERY_BREAK: 0.1,   // Break threshold for recovery search
 
   // ── Enhanced peak shape & width criteria ──────────────────────────────
-  // Based on established GSR literature (Boucsein, 2012; Benedek & Kaernbach, 2010)
+  // Rise-time/half-recovery-time *definitions* and the amplitude threshold
+  // range (0.01-0.05 µS) follow established GSR literature (Boucsein, 2012;
+  // Dawson, Schell & Filion, 2007; see also https://edaguidelines.github.io).
+  // The specific numeric bounds below are tuned/loosened beyond lab-reported
+  // ranges to tolerate ambulatory/field-recording noise — see per-field notes.
   PEAK_SHAPE: {
-    MIN_RISE_TIME: 0.5,          // Min onset→peak (s) — per Boucsein 0.5–5 s
+    MIN_RISE_TIME: 0.5,          // Min onset→peak (s) — lab convention is ~1 s min; loosened for ambulatory data
     MAX_RISE_TIME: 5.0,          // Max onset→peak (s) — slower = tonic drift
-    MIN_HALF_RECOVERY: 0.3,      // Min half-recovery (s) — per Van Halem 0.5 s min
+    MIN_HALF_RECOVERY: 0.3,      // Min half-recovery (s) — internal default; no single literature minimum is well established for this parameter
     MAX_HALF_RECOVERY: 10.0,     // Max half-recovery (s) — too slow for SCR
     MIN_ONSET_SLOPE: 0.01,       // Min slope (µS/s) — converted to physical units
     MAX_ONSET_SLOPE: 5.0,        // Max slope (µS/s) — converted to physical units
     MIN_DECAY_SLOPE: 0.0001,     // Min decay (µS/s) — converted to physical units
     MAX_PEAK_WIDTH: 8.0,        // Max total peak width (s)
-    MIN_SNR: 2.0,               // Min signal-to-noise ratio — per NeuroKit standard
+    MIN_SNR: 2.0,               // Min signal-to-noise ratio — internal heuristic threshold (NOT from NeuroKit2, which has no built-in EDA signal-quality/SNR criterion)
     SKEWNESS_RATIO_MIN: 0.2,    // Min rise/recovery ratio (asymmetric shape)
     SKEWNESS_RATIO_MAX: 6.0,    // Max rise/recovery ratio
     QUALITY_WEIGHTS: {           // For composite quality score (0–1)
