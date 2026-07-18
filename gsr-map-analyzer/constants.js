@@ -134,6 +134,21 @@ const GSR_CONST = {
     }
   },
 
+  // ── Spatial peak-density KDE ─────────────────────────────────────────────
+  // Canonical Gaussian-kernel settings for turning discrete peak *locations*
+  // into a spatial density field. Two call sites need this: the cluster-blob
+  // boundaries (spatial_clustering.js getConcaveBlob) and the "Peak Stress
+  // Hotspots" contour surface (collective_manager.js, topographySource ===
+  // 'peaks'). These had drifted apart — sigma 15 vs a hardcoded 20, and a
+  // clamped relative-to-mean amplitude weight vs raw/unclamped amplitude —
+  // so the two "actual peaks" map views could disagree on where/how intense
+  // the hot spots were for identical underlying data. Both now read from here.
+  PEAK_KDE: {
+    sigma: 15,          // default kernel width in meters; the blob UI's sigma (boundaryRadius * 0.83) overrides this per-render
+    ampWeightMin: 0.55,  // floor so a below-average peak still contributes, never vanishes
+    ampWeightMax: 3.0    // ceiling so one extreme outlier can't blow out the whole field
+  },
+
   // ── Collective surface defaults ─────────────────────────────────────────
   COLLECTIVE: {
     gridResolution: 40,

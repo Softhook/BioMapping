@@ -68,6 +68,10 @@ module.exports = {
     }
   },
 
+  PEAK_KDE: {
+    sigma: 15, ampWeightMin: 0.55, ampWeightMax: 3.0
+  },
+
   COLLECTIVE: {
     gridResolution: 40, isolationRadius: 50, contourCount: 10,
     idwExponent: 2, surfaceOpacity: 0.40

@@ -244,6 +244,33 @@ class GSRSpatialClustering {
   }
 
   /**
+   * Relative-severity weight for a single peak's contribution to a spatial density field,
+   * scaled against a reference (e.g. mean) amplitude across the active dataset. Clamped so a
+   * single extreme outlier can't blow the boundary out indefinitely, and so a below-average
+   * peak doesn't vanish from the density field entirely — it should shrink its footprint, not
+   * erase it.
+   *
+   * This is the single source of truth for "how much does one peak count" in a spatial KDE —
+   * shared by getConcaveBlob's per-cluster blob boundaries and
+   * collective_manager.js's global "Peak Stress Hotspots" contour surface, so both spatial
+   * views of "actual peaks" agree on the same peak's relative weight instead of each
+   * hardcoding their own (previously: clamped-relative here vs raw-unclamped there).
+   *
+   * @param {number} amplitude - The peak's own amplitude.
+   * @param {number|null} refAmplitude - Reference (e.g. mean) amplitude across the dataset.
+   *   When missing/non-positive, or when amplitude is invalid, every peak weighs 1 (unweighted).
+   * @returns {number} Clamped relative weight, in [GSR_CONST.PEAK_KDE.ampWeightMin, ampWeightMax].
+   */
+  static relativeAmplitudeWeight(amplitude, refAmplitude) {
+    const min = (typeof GSR_CONST !== 'undefined' && GSR_CONST.PEAK_KDE) ? GSR_CONST.PEAK_KDE.ampWeightMin : 0.55;
+    const max = (typeof GSR_CONST !== 'undefined' && GSR_CONST.PEAK_KDE) ? GSR_CONST.PEAK_KDE.ampWeightMax : 3.0;
+    if (typeof refAmplitude !== 'number' || refAmplitude <= 0) return 1;
+    if (typeof amplitude !== 'number' || isNaN(amplitude)) return 1;
+    const rel = amplitude / refAmplitude;
+    return Math.max(min, Math.min(max, rel));
+  }
+
+  /**
    * Generates rounded, concave boundary polygons for a cluster of peaks.
    * Uses a local density grid calculation and Marching Squares.
    *
@@ -261,19 +288,11 @@ class GSRSpatialClustering {
   static getConcaveBlob(cluster, sigma = 15, thresholdRadius = 18, refAmplitude = null) {
     if (!cluster || cluster.length === 0) return [];
 
-    // Determine per-peak relative-severity weighting. Clamped so a single extreme outlier
-    // can't blow the boundary out indefinitely, and so a below-average peak doesn't vanish
-    // from the density field entirely — it should shrink the blob, not erase it.
-    const useAmplitudeWeighting = typeof refAmplitude === 'number' && refAmplitude > 0 &&
-      cluster.every(p => typeof p.amplitude === 'number' && !isNaN(p.amplitude));
-    // Lower bound of 0.55 keeps this comfortably above the ~0.487 relative weight below which
-    // a lone peak's density would never reach the boundary isolevel at all (given the default
-    // sigma/thresholdRadius pairing) — a mild peak should still draw a small blob, not vanish.
-    const weightForPeak = (pk) => {
-      if (!useAmplitudeWeighting) return 1;
-      const rel = pk.amplitude / refAmplitude;
-      return Math.max(0.55, Math.min(3.0, rel));
-    };
+    // Per-peak relative-severity weighting — see relativeAmplitudeWeight() above for the
+    // shared clamp rationale. Note this preserves the isolevel-reachability guarantee that
+    // motivated the 0.55 floor (a lone peak's density should still reach the boundary
+    // isolevel given the default sigma/thresholdRadius pairing), just centralized.
+    const weightForPeak = (pk) => GSRSpatialClustering.relativeAmplitudeWeight(pk.amplitude, refAmplitude);
     
     let s = parseFloat(sigma);
     if (isNaN(s) || s <= 0) s = 15;

@@ -159,6 +159,18 @@ class GSRCollectiveManager {
       return Math.sqrt(dx * dx + dy * dy);
     };
 
+    // Reference (mean) amplitude across all active peaks, for the same clamped
+    // relative-severity weighting used by the cluster blobs (spatial_clustering.js
+    // GSRSpatialClustering.relativeAmplitudeWeight) — see PEAK_KDE in constants.js for why
+    // this needs to be shared rather than reimplemented here.
+    let peaksRefAmplitude = 0;
+    if (peaks.length > 0) {
+      let sum = 0;
+      for (const pk of peaks) sum += (pk.amplitude || 0);
+      peaksRefAmplitude = sum / peaks.length;
+    }
+    const peakSigma = (typeof GSR_CONST !== 'undefined' && GSR_CONST.PEAK_KDE) ? GSR_CONST.PEAK_KDE.sigma : 15.0;
+
     let minVal = Infinity, maxVal = -Infinity;
 
     for (let r = 0; r < rows; r++) {
@@ -183,10 +195,12 @@ class GSRCollectiveManager {
 
         if (topographySource === 'peaks') {
           let density = 0;
-          const sigma = 20.0;
           for (const pk of peaks) {
             const d = getDistanceMeters(gridLat, gridLon, pk.lat, pk.lon);
-            density += pk.amplitude * Math.exp(-(d * d) / (2 * sigma * sigma));
+            const weight = (typeof GSRSpatialClustering !== 'undefined')
+              ? GSRSpatialClustering.relativeAmplitudeWeight(pk.amplitude, peaksRefAmplitude)
+              : 1;
+            density += weight * Math.exp(-(d * d) / (2 * peakSigma * peakSigma));
           }
           grid[r][c] = density;
         } else {
