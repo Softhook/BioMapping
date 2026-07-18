@@ -26,6 +26,9 @@
   --color-tonic: #a30091; /* Tonic purple */
   --color-phasic: #008f3c; /* Phasic green */
   --color-peak: #d10024; /* Alert red */
+  --color-peak-density: #e59e00; /* Peak density (NS-SCR) amber */
+  --color-phasic-auc: #0099aa; /* Phasic AUC (ISCR) teal */
+  --color-arousal-index: #7b00cc; /* Combined arousal index deep purple */
   
   --success: #008f3c;
   --warning: #cf7900;

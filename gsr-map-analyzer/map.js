@@ -1,6 +1,20 @@
 // Leaflet.js Map Manager for GSR + GPS Visualisation
 // Handles path rendering, arousal color-coding, and peak marker overlays.
 
+// Map-coloring metrics backed by a per-sample analyzer array (analyzer.phasic[i],
+// analyzer.tonic[i], etc.) rather than a static field already present on the
+// drawPoint objects. Looked up live at render time via origIdx — see
+// _renderPathSegments — rather than baked into the GPS-cached drawPoints,
+// since those are cached across GSR re-analyses keyed only on GPS params and
+// would otherwise go stale the moment a GSR slider changes.
+const DERIVED_METRIC_SERIES = {
+  phasic: 'phasic',
+  tonic: 'tonic',
+  peakDensity: 'peakDensity',
+  phasicAUC: 'phasicAUC',
+  arousalIndex: 'arousalIndex'
+};
+
 class GSRMapManager {
   constructor(mapContainerId) {
     this.containerId = mapContainerId;
@@ -87,7 +101,12 @@ class GSRMapManager {
     const metric = this.activeColoringMetric || 'gsr';
 
     const metricNames = {
-      'gsr':              'GSR Arousal',
+      'gsr':              'GSR Arousal (Raw)',
+      'phasic':           'Phasic (SCR)',
+      'tonic':            'Tonic Baseline (SCL)',
+      'peakDensity':      'Peak Density (NS-SCR)',
+      'phasicAUC':        'Phasic AUC (ISCR)',
+      'arousalIndex':     'Combined Arousal Index',
       'hdopQuality':      'GPS Accuracy (HDOP)',
       'roadClass':        'Road Class',
       'distMajorRoad':    'Distance to Major Road',
@@ -341,7 +360,7 @@ class GSRMapManager {
 
     // Render on Leaflet map
     this._fitBounds(drawPoints);
-    this._renderPathSegments(drawPoints, p.trackWeight || 5);
+    this._renderPathSegments(drawPoints, p.trackWeight || 5, analyzer);
 
     // Peak markers (with latency compensation)
     this._renderPeakMarkers(analyzer, data, p.peakLatency || 0);
@@ -392,6 +411,13 @@ class GSRMapManager {
       'distWater': 'osm_dist_water',
       'treeDensity': 'osm_tree_density_50m',
       'amenityCount': 'osm_amenity_count_50m'
+      // Note: phasic/tonic/peakDensity/phasicAUC/arousalIndex are NOT looked
+      // up via this key — see DERIVED_METRIC_SERIES in _renderPathSegments.
+      // They live in per-sample analyzer arrays (analyzer.phasic[i], etc.),
+      // not on the drawPoint objects themselves, and drawPoints are cached
+      // across GSR re-analyses (keyed only on GPS params), so baking them in
+      // here would go stale the moment a GSR slider changes without a GPS
+      // param also changing.
     };
     return keys[metric] || 'val';
   }
@@ -457,18 +483,28 @@ class GSRMapManager {
     this.osmLayers = [];
   }
 
-  _renderPathSegments(drawPoints, trackWeight) {
+  _renderPathSegments(drawPoints, trackWeight, analyzer) {
     const metric = this.activeColoringMetric || 'gsr';
     const key = this._getMetricKey(metric);
     const isCategorical = (metric === 'roadClass');
     const needsUnique = (isCategorical || metric === 'inPark');
+
+    // Phasic/Tonic/Peak Density/Phasic AUC/Arousal Index live in per-sample
+    // analyzer arrays, not on the (cached) drawPoint objects — see
+    // DERIVED_METRIC_SERIES. Fall back to the static drawPoint[key] lookup
+    // for everything else (raw GSR, HDOP, OSM enrichment fields).
+    const derivedSeriesKey = DERIVED_METRIC_SERIES[metric];
+    const derivedSeries = derivedSeriesKey && analyzer ? analyzer[derivedSeriesKey] : null;
+    const getVal = derivedSeries
+      ? (p) => (derivedSeries[p.origIdx] ? derivedSeries[p.origIdx].val : 0)
+      : (p) => p[key];
 
     // ── Single pass over drawPoints (already downsampled) for min/max ──
     let minVal = Infinity, maxVal = -Infinity;
     const seen = needsUnique ? new Set() : null;
 
     for (let i = 0; i < drawPoints.length; i++) {
-      const v = drawPoints[i][key];
+      const v = getVal(drawPoints[i]);
       if (v === undefined || v === null) continue;
 
       if (!isCategorical && !isNaN(v)) {
@@ -513,11 +549,11 @@ class GSRMapManager {
       let batchStart = 0;
 
       while (batchStart < seg.length - 1) {
-        const startVal = seg[batchStart][key];
+        const startVal = getVal(seg[batchStart]);
 
         let startBucket = 0;
         if (!isCategorical) {
-          const avgVal = (seg[batchStart][key] + seg[batchStart + 1][key]) / 2;
+          const avgVal = (getVal(seg[batchStart]) + getVal(seg[batchStart + 1])) / 2;
           startBucket = (avgVal - minVal) * (COLOR_BUCKETS / range);
           startBucket = startBucket < 0 ? 0 : (startBucket >= COLOR_BUCKETS ? COLOR_BUCKETS - 1 : startBucket | 0);
         }
@@ -525,9 +561,9 @@ class GSRMapManager {
         let batchEnd = batchStart + 1;
         while (batchEnd < seg.length - 1) {
           if (isCategorical) {
-            if (seg[batchEnd][key] !== startVal) break;
+            if (getVal(seg[batchEnd]) !== startVal) break;
           } else {
-            const val = (seg[batchEnd][key] + seg[batchEnd + 1][key]) / 2;
+            const val = (getVal(seg[batchEnd]) + getVal(seg[batchEnd + 1])) / 2;
             const bucket = (val - minVal) * (COLOR_BUCKETS / range);
             const b = bucket < 0 ? 0 : (bucket >= COLOR_BUCKETS ? COLOR_BUCKETS - 1 : bucket | 0);
             if (b !== startBucket) break;
@@ -546,7 +582,7 @@ class GSRMapManager {
           color = MapColors.getColorForMetric(metric, startVal, minVal, maxVal);
         } else {
           const midIdx = (batchStart + batchEnd) >> 1;
-          const midBucket = ((seg[midIdx][key] + seg[midIdx + 1][key]) / 2 - minVal) * (COLOR_BUCKETS / range);
+          const midBucket = ((getVal(seg[midIdx]) + getVal(seg[midIdx + 1])) / 2 - minVal) * (COLOR_BUCKETS / range);
           const b = midBucket < 0 ? 0 : (midBucket >= COLOR_BUCKETS ? COLOR_BUCKETS - 1 : midBucket | 0);
           color = colorLut[b];
         }
@@ -1331,7 +1367,10 @@ class GSRMapManager {
     contours.forEach(c => {
       const color = MapColors.getHslColor(c.ratio, 100, 55);
       const formattedVal = c.level.toFixed(3);
-      const unit = (contourParams.topographySource === 'peaks') ? '' : ' μS';
+      const topoUnits = { peaks: '', auc: ' μS·s', arousal_index: ' z' };
+      const unit = topoUnits[contourParams.topographySource] !== undefined
+        ? topoUnits[contourParams.topographySource]
+        : ' μS';
 
       const stitchedPaths = (typeof GSRSpatialClustering !== 'undefined')
         ? GSRSpatialClustering.stitchSegments(c.segments)

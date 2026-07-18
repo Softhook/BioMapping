@@ -83,6 +83,11 @@ const AppState = {
   showTonic: true,
   showPeaks: true,
 
+  // ── Lower graph metric selector ─────────────────────────────────────────────
+  // 'phasic' | 'peakDensity' | 'phasicAUC' | 'arousalIndex' — see
+  // GSR_CONST.LOWER_GRAPH_MODES for display config of each option.
+  lowerGraphMode: 'phasic',
+
   // ── Interaction state ──────────────────────────────────────────────────────
   isDragging: false,
   isMapFullscreen: false,

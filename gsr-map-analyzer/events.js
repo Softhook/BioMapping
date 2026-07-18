@@ -31,7 +31,8 @@ const GSREvents = {
       'shapeMinSnr', 'shapeMaxSkewRatio',
       'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsDownsample', 'gpsTrackWeight', 'gpsPeakLatency',
       'gpsSnapToRoads', 'gpsSnapRadius',
-      'clusterProximity', 'clusterBoundaryRadius'
+      'clusterProximity', 'clusterBoundaryRadius',
+      'lowerGraphMode'
     ];
     for (const key of sliderKeys) {
       AppState.sliders[key] = GSREvents._id(key);
@@ -236,6 +237,18 @@ const GSREvents = {
       GSRUI.runAnalysis();
       GSRStorage.saveSettings();
     });
+
+    // ── Lower graph metric selector ──────────────────────────────────────────
+    // Rendering-only setting (no re-analysis needed) — sync AppState immediately
+    // so it reflects any value restored from localStorage by loadSettings().
+    if (S.lowerGraphMode) {
+      AppState.lowerGraphMode = S.lowerGraphMode.value;
+      S.lowerGraphMode.addEventListener('change', () => {
+        AppState.lowerGraphMode = S.lowerGraphMode.value;
+        redraw();
+        GSRStorage.saveSettings();
+      });
+    }
 
     // ── File Upload Handlers ──────────────────────────────────────────────────
     // Save browser fullscreen state before the file dialog opens (browser exits fullscreen)
@@ -559,6 +572,14 @@ const GSREvents = {
     const appMainLayout      = document.querySelector('.main-layout');
     const contourSettingsCard = document.getElementById('contourSettingsCard');
 
+    // Collective-only map toggle buttons (multi-track contour surface) —
+    // meaningless in single-track view, so hidden there. See index.html.
+    const collectiveOnlyMapBtns = [
+      document.getElementById('btnToggleMapIsolines'),
+      document.getElementById('btnToggleMapSurface'),
+      document.getElementById('btnToggleMapTracks')
+    ].filter(Boolean);
+
     btnSingleView.addEventListener('click', () => {
       if (AppState.viewMode === 'single') return;
       AppState.viewMode = 'single';
@@ -566,6 +587,7 @@ const GSREvents = {
       btnCollectiveView.classList.remove('active');
       appMainLayout.classList.remove('collective-mode');
       contourSettingsCard.style.display = 'none';
+      collectiveOnlyMapBtns.forEach(btn => btn.style.display = 'none');
 
       const peakCard = document.getElementById('peakDetectionCard');
       if (peakCard) peakCard.style.display = '';
@@ -600,6 +622,7 @@ const GSREvents = {
       btnSingleView.classList.remove('active');
       appMainLayout.classList.add('collective-mode');
       contourSettingsCard.style.display = '';
+      collectiveOnlyMapBtns.forEach(btn => btn.style.display = '');
 
       const peakCard = document.getElementById('peakDetectionCard');
       if (peakCard) peakCard.style.display = 'none';

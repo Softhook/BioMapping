@@ -124,36 +124,60 @@ function draw() {
   yMinUpper = Math.max(0, yMinUpper - paddingUpper);
   yMaxUpper = yMaxUpper + paddingUpper;
 
-  // Y-scaling for Lower Graph (Phasic)
+  // Y-scaling for Lower Graph \u2014 mode-selectable: phasic (default) / peakDensity /
+  // phasicAUC / arousalIndex. See GSR_CONST.LOWER_GRAPH_MODES.
+  const lowerMode = AppState.lowerGraphMode || 'phasic';
+  const lowerCfg = GSR_CONST.LOWER_GRAPH_MODES[lowerMode] || GSR_CONST.LOWER_GRAPH_MODES.phasic;
+  const lowerSeries = AppState.analyzer[lowerMode] || AppState.analyzer.phasic;
+
+  let yMinLower = lowerCfg.allowNegative ? Infinity : 0;
   let yMaxLower;
-  if (viewCoversMost && global && global.phasic) {
-    yMaxLower = global.phasic.max;
+  if (viewCoversMost && global && global[lowerMode]) {
+    yMaxLower = global[lowerMode].max;
+    if (lowerCfg.allowNegative) yMinLower = global[lowerMode].min;
   } else {
     yMaxLower = -Infinity;
     for (let i = idxStart; i <= idxEnd; i++) {
-      if (AppState.analyzer.phasic[i]) {
-        const val = AppState.analyzer.phasic[i].val;
+      if (lowerSeries[i]) {
+        const val = lowerSeries[i].val;
         if (val > yMaxLower) yMaxLower = val;
+        if (lowerCfg.allowNegative && val < yMinLower) yMinLower = val;
       }
     }
   }
-  if (yMaxLower <= 0) yMaxLower = parseFloat(AppState.sliders.peakThreshold.value) * 2;
-  const paddingLower = yMaxLower * 0.15;
+  if (lowerCfg.allowNegative) {
+    if (yMinLower === Infinity) yMinLower = -1;
+    if (yMaxLower === -Infinity) yMaxLower = 1;
+  } else {
+    if (yMaxLower === -Infinity || yMaxLower <= 0) {
+      yMaxLower = lowerMode === 'phasic' ? parseFloat(AppState.sliders.peakThreshold.value) * 2 : 1;
+    }
+  }
+  const lowerSpan = yMaxLower - yMinLower;
+  const paddingLower = (lowerSpan > 0 ? lowerSpan : Math.abs(yMaxLower) || 1) * 0.15;
   yMaxLower = yMaxLower + paddingLower;
-  const yMinLower = 0;
+  if (lowerCfg.allowNegative) yMinLower = yMinLower - paddingLower;
 
   // 1. Grids and Axes
   GSRRenderer.drawGridX(AppState.viewStartTime, viewEndTime, yUpperBottom, yLowerBottom);
   GSRRenderer.drawGridY(yMinUpper, yMaxUpper, yUpperBottom, GSR_CONST.MARGIN.top,
     [[0.2, 0.02], [1.0, 0.1], [3.0, 0.5], [10, 1.0]], 2.0, 2);
+
+  const lowerGridPresets = {
+    phasic:       { steps: [[0.05, 0.005], [0.15, 0.01], [0.5, 0.05], [1.5, 0.1]], defaultStep: 0.5, decimals: 3, unit: ' \u03bcS' },
+    peakDensity:  { steps: [[5, 1], [20, 2], [60, 5], [200, 20]],                  defaultStep: 10,  decimals: 0, unit: ' /min' },
+    phasicAUC:    { steps: [[0.5, 0.05], [2, 0.2], [5, 0.5], [20, 2]],             defaultStep: 5,   decimals: 2, unit: ' \u03bcS\u00b7s' },
+    arousalIndex: { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' }
+  };
+  const gridPreset = lowerGridPresets[lowerMode] || lowerGridPresets.phasic;
   GSRRenderer.drawGridY(yMinLower, yMaxLower, yLowerBottom, yLowerBottom - hLower,
-    [[0.05, 0.005], [0.15, 0.01], [0.5, 0.05], [1.5, 0.1]], 0.5, 3);
+    gridPreset.steps, gridPreset.defaultStep, gridPreset.decimals, gridPreset.unit);
 
   const colorRaw = GSRRenderer.getThemeColor('--color-raw', '#7c7c76');
   const colorFiltered = GSRRenderer.getThemeColor('--color-filtered', '#005bc4');
   const colorTonic = GSRRenderer.getThemeColor('--color-tonic', '#a30091');
-  const colorPhasic = GSRRenderer.getThemeColor('--color-phasic', '#008f3c');
   const colorPeak = GSRRenderer.getThemeColor('--color-peak', '#d10024');
+  const colorLower = GSRRenderer.getThemeColor(lowerCfg.colorVar, lowerCfg.colorDefault);
 
   // 2. Upper Graph Curves
   if (AppState.showRaw) {
@@ -166,27 +190,40 @@ function draw() {
     GSRRenderer.drawSignalCurve(AppState.analyzer.tonic, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, colorTonic, 2);
   }
 
-  // 3. Lower Graph (Phasic)
-  GSRRenderer.drawPhasicArea(AppState.analyzer.phasic, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom);
-  GSRRenderer.drawSignalCurve(AppState.analyzer.phasic, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom, colorPhasic, 2);
+  // 3. Lower Graph (mode-selectable \u2014 Phasic / Peak Density / Phasic AUC / Arousal Index)
+  GSRRenderer.drawPhasicArea(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom, colorLower);
+  GSRRenderer.drawSignalCurve(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom, colorLower, 2);
 
-  // Threshold line on Phasic graph
-  const thresholdVal = parseFloat(AppState.sliders.peakThreshold.value);
-  const thresholdY = map(thresholdVal, yMinLower, yMaxLower, yLowerBottom, yLowerTop);
-  stroke(color(colorPeak + '78')); // ~120 opacity -> hex 78
-  strokeWeight(1);
-  drawingContext.setLineDash([5, 5]);
-  line(GSR_CONST.MARGIN.left, thresholdY, width - GSR_CONST.MARGIN.right, thresholdY);
-  drawingContext.setLineDash([]);
+  if (lowerCfg.showPeakOverlay) {
+    // Threshold line on Phasic graph
+    const thresholdVal = parseFloat(AppState.sliders.peakThreshold.value);
+    const thresholdY = map(thresholdVal, yMinLower, yMaxLower, yLowerBottom, yLowerTop);
+    stroke(color(colorPeak + '78')); // ~120 opacity -> hex 78
+    strokeWeight(1);
+    drawingContext.setLineDash([5, 5]);
+    line(GSR_CONST.MARGIN.left, thresholdY, width - GSR_CONST.MARGIN.right, thresholdY);
+    drawingContext.setLineDash([]);
 
-  fill(color(colorPeak + '96')); // ~150 opacity -> hex 96
-  noStroke();
-  textSize(9);
-  textAlign(RIGHT, CENTER);
-  text('Threshold (' + thresholdVal.toFixed(3) + ' \u03bcS)', width - GSR_CONST.MARGIN.right - 5, thresholdY - 8);
+    fill(color(colorPeak + '96')); // ~150 opacity -> hex 96
+    noStroke();
+    textSize(9);
+    textAlign(RIGHT, CENTER);
+    text('Threshold (' + thresholdVal.toFixed(3) + ' \u03bcS)', width - GSR_CONST.MARGIN.right - 5, thresholdY - 8);
+  } else if (lowerCfg.allowNegative) {
+    // Zero-line reference for metrics that can go negative (Arousal Index)
+    const zeroY = map(0, yMinLower, yMaxLower, yLowerBottom, yLowerTop);
+    stroke(color(colorPeak + '50'));
+    strokeWeight(1);
+    drawingContext.setLineDash([2, 3]);
+    line(GSR_CONST.MARGIN.left, zeroY, width - GSR_CONST.MARGIN.right, zeroY);
+    drawingContext.setLineDash([]);
+  }
 
-  // 4. Peak Markers
-  GSRRenderer.drawPeakMarkers(AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, yMinLower, yMaxLower, yLowerTop, yLowerBottom);
+  // 4. Peak Markers \u2014 always shown on the upper (Filtered) curve. The extra
+  // phasic-scaled lower-graph half (shaded region, connecting line, onset
+  // dot) only draws when the lower panel is actually showing Phasic, since
+  // that's the only mode whose Y-axis matches those values.
+  GSRRenderer.drawPeakMarkers(AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, yMinLower, yMaxLower, yLowerTop, yLowerBottom, lowerCfg.showPeakOverlay);
 
   // 5. Hover Scrubber
   GSRRenderer.handleScrubber(AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, yUpperBottom, yMinLower, yMaxLower, yLowerTop, yLowerBottom);

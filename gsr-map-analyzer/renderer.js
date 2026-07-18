@@ -135,7 +135,8 @@ const GSRRenderer = {
    * @param {number} defaultStep - Step to use when span exceeds all thresholds
    * @param {number} decimals - Number of decimal places in value labels
    */
-  drawGridY(yMin, yMax, yBottom, yTop, stepRanges, defaultStep, decimals) {
+  drawGridY(yMin, yMax, yBottom, yTop, stepRanges, defaultStep, decimals, unitSuffix) {
+    const unit = unitSuffix !== undefined ? unitSuffix : ' \u03bcS';
     const span = yMax - yMin;
     let step = defaultStep;
     for (const [threshold, s] of stepRanges) {
@@ -163,7 +164,7 @@ const GSRRenderer = {
 
       noStroke();
       fill(textColor);
-      text(val.toFixed(decimals) + ' \u03bcS', GSR_CONST.MARGIN.left - 8, y);
+      text(val.toFixed(decimals) + unit, GSR_CONST.MARGIN.left - 8, y);
       stroke(gridColor);
       lastLabelY = y;
     }
@@ -229,16 +230,19 @@ const GSRRenderer = {
   },
 
   /**
-   * Draw a filled phasic area from data points, closed to the baseline (yBottom).
+   * Draw a filled area from data points, closed to the baseline (yBottom).
+   * `fillColorHex` defaults to the phasic theme color for backward compatibility
+   * with existing call sites; pass an explicit hex to draw other lower-graph
+   * metrics (peak density, phasic AUC, arousal index) in their own color.
    */
-  drawPhasicArea(data, tMin, tMax, yMin, yMax, yTop, yBottom) {
+  drawPhasicArea(data, tMin, tMax, yMin, yMax, yTop, yBottom, fillColorHex) {
     if (!data || data.length === 0) return;
     const ctx = this._buildCurveContext(data, tMin, tMax, yMin, yMax, yTop, yBottom);
     if (!ctx) return;
 
     noStroke();
-    const colorPhasic = this.getThemeColor('--color-phasic', '#008f3c');
-    fill(color(colorPhasic + '19'));
+    const fillHex = fillColorHex || this.getThemeColor('--color-phasic', '#008f3c');
+    fill(color(fillHex + '19'));
 
     const dFirst = data[ctx.startIdx];
     const xStart = GSR_CONST.MARGIN.left + (dFirst.time - tMin) * ctx.xScale;
@@ -271,7 +275,17 @@ const GSRRenderer = {
     endShape(CLOSE);
   },
 
-  drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
+  /**
+   * `showLowerMarker` (default true) controls whether the phasic-scaled
+   * lower-graph half of each peak marker (shaded region, onset/peak dots,
+   * connecting line) is drawn. Those elements are positioned using yMinL/yMaxL,
+   * which is only a phasic scale when the lower graph is actually showing
+   * Phasic — pass false when it's showing Peak Density / Phasic AUC / Arousal
+   * Index instead, so peaks keep appearing on the upper (Filtered) curve
+   * without being mis-plotted against the wrong axis below.
+   */
+  drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL, showLowerMarker) {
+    if (showLowerMarker === undefined) showLowerMarker = true;
     if (!AppState.showPeaks || !AppState.analyzer.peaks || AppState.analyzer.peaks.length === 0) return;
 
     // Reset click-target list for on-canvas exclude buttons and peaks
@@ -300,8 +314,8 @@ const GSRRenderer = {
       const xOnset = GSR_CONST.MARGIN.left + (p.onsetTime - tMin) * xScale;
 
       const yFilteredPeak = yBottomU + (AppState.analyzer.filtered[p.index].val - yMinU) * yScaleU;
-      const yPhasicPeak   = yBottomL + (p.value - yMinL) * yScaleL;
-      const yPhasicOnset  = yBottomL + (p.onsetValue - yMinL) * yScaleL;
+      const yPhasicPeak   = showLowerMarker ? yBottomL + (p.value - yMinL) * yScaleL : yFilteredPeak;
+      const yPhasicOnset  = showLowerMarker ? yBottomL + (p.onsetValue - yMinL) * yScaleL : yFilteredPeak;
 
       const isActive  = (pIdx === AppState.activePeakIndex);
       const isHovered = (AppState.hoveredIndex >= p.onsetIndex && AppState.hoveredIndex <= p.index);
@@ -318,7 +332,7 @@ const GSRRenderer = {
       const dotWt      = isExcluded ? EXCLUDED_STYLE.dotWeight : 1.5;
       const markerWt   = isExcluded ? EXCLUDED_STYLE.weight : 2;
 
-      if (isActive || isHovered) {
+      if (showLowerMarker && (isActive || isHovered)) {
         fill(isExcluded ? color(lineClr + EXCLUDED_STYLE.fillAlpha) : color(peakColor + '4b'));
         noStroke();
         beginShape();
@@ -332,21 +346,29 @@ const GSRRenderer = {
         endShape(CLOSE);
       }
 
-      stroke(isExcluded ? lineClr : colorPhasic);
-      strokeWeight(dotWt);
-      fill(canvasBg);
-      circle(xOnset, yPhasicOnset, isActive ? 8 : 5);
+      if (showLowerMarker) {
+        stroke(isExcluded ? lineClr : colorPhasic);
+        strokeWeight(dotWt);
+        fill(canvasBg);
+        circle(xOnset, yPhasicOnset, isActive ? 8 : 5);
 
-      stroke(isExcluded ? color(lineClr + EXCLUDED_STYLE.lineAlpha) : color(peakColor + '3c'));
-      strokeWeight(1);
-      drawingContext.setLineDash(dashPat);
-      line(xPeak, yFilteredPeak, xPeak, yPhasicPeak);
-      drawingContext.setLineDash([]);
+        stroke(isExcluded ? color(lineClr + EXCLUDED_STYLE.lineAlpha) : color(peakColor + '3c'));
+        strokeWeight(1);
+        drawingContext.setLineDash(dashPat);
+        line(xPeak, yFilteredPeak, xPeak, yPhasicPeak);
+        drawingContext.setLineDash([]);
 
+        stroke(isExcluded ? color(lineClr) : peakColor);
+        strokeWeight(markerWt);
+        fill(isActive ? (isExcluded ? color(lineClr) : color(peakColor)) : color(canvasBg));
+        circle(xPeak, yPhasicPeak, isActive ? 9 : 6);
+      }
+
+      // Upper-graph marker (on the Filtered curve) always draws, regardless of
+      // what the lower panel is showing.
       stroke(isExcluded ? color(lineClr) : peakColor);
       strokeWeight(markerWt);
       fill(isActive ? (isExcluded ? color(lineClr) : color(peakColor)) : color(canvasBg));
-      circle(xPeak, yPhasicPeak, isActive ? 9 : 6);
       circle(xPeak, yFilteredPeak, isActive ? 9 : 6);
 
       if (xPeak >= GSR_CONST.MARGIN.left && xPeak <= width - GSR_CONST.MARGIN.right) {
@@ -503,11 +525,20 @@ const GSRRenderer = {
     const dTonic  = AppState.analyzer.tonic[AppState.hoveredIndex];
     const dPhasic = AppState.analyzer.phasic[AppState.hoveredIndex];
 
+    // Lower graph may be showing phasic or one of the continuous alternatives
+    // (peak density / phasic AUC / arousal index) — track the scrubber dot
+    // and tooltip row against whichever series is actually plotted.
+    const lowerMode = (GSR_CONST.LOWER_GRAPH_MODES && AppState.lowerGraphMode) || 'phasic';
+    const lowerCfg = (GSR_CONST.LOWER_GRAPH_MODES && GSR_CONST.LOWER_GRAPH_MODES[lowerMode]) ||
+                     { label: 'Phasic (SCR)', unit: 'μS', decimals: 4, colorVar: '--color-phasic', colorDefault: '#008f3c' };
+    const lowerSeries = AppState.analyzer[lowerMode] || AppState.analyzer.phasic;
+    const dLower = lowerSeries[AppState.hoveredIndex] || dPhasic;
+
     const xScrub = map(dRaw.time, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
 
     const scrubberColor = this.getThemeColor('--canvas-scrubber', 'rgba(17, 17, 17, 0.25)');
     const colorFiltered = this.getThemeColor('--color-filtered', '#005bc4');
-    const colorPhasic = this.getThemeColor('--color-phasic', '#008f3c');
+    const colorLower = this.getThemeColor(lowerCfg.colorVar, lowerCfg.colorDefault);
 
     stroke(scrubberColor);
     strokeWeight(1);
@@ -524,14 +555,14 @@ const GSRRenderer = {
     textStyle(NORMAL);
 
     const yU = map(dFilt.val, yMinU, yMaxU, yBottomU, GSR_CONST.MARGIN.top);
-    const yL = map(dPhasic.val, yMinL, yMaxL, yBottomL, yTopL);
+    const yL = map(dLower.val, yMinL, yMaxL, yBottomL, yTopL);
 
     stroke(colorFiltered);
     fill(colorFiltered);
     circle(xScrub, yU, 6);
 
-    stroke(colorPhasic);
-    fill(colorPhasic);
+    stroke(colorLower);
+    fill(colorLower);
     circle(xScrub, yL, 6);
 
     // Check if hovered index is near a detected peak — show quality info
@@ -546,7 +577,15 @@ const GSRRenderer = {
       }
     }
 
-    GSRRenderer.drawTooltip(dRaw.time, dRaw.val, dFilt.val, dTonic.val, dPhasic.val, nearPeakInfo);
+    // Only attach an extra tooltip row when the lower graph isn't showing
+    // plain Phasic — the Phasic row already covers that case below.
+    const extraMetric = (lowerMode !== 'phasic') ? {
+      label: lowerCfg.label + ':',
+      color: colorLower,
+      valueStr: dLower.val.toFixed(lowerCfg.decimals) + ' ' + lowerCfg.unit
+    } : null;
+
+    GSRRenderer.drawTooltip(dRaw.time, dRaw.val, dFilt.val, dTonic.val, dPhasic.val, nearPeakInfo, extraMetric);
   },
 
   /**
@@ -561,12 +600,13 @@ const GSRRenderer = {
     text(valueStr, boxX + boxW - pad, y);
   },
 
-  drawTooltip(time, rawVal, filtVal, tonicVal, phasicVal, nearPeak) {
+  drawTooltip(time, rawVal, filtVal, tonicVal, phasicVal, nearPeak, extraMetric) {
     const pad = 12;
     const hasPeakInfo = nearPeak && nearPeak.qualityScore !== undefined;
+    const extraRows = extraMetric ? 1 : 0;
     // Extra width for peak quality details
     const boxW = hasPeakInfo ? 240 : 200;
-    const boxH = hasPeakInfo ? 200 : 120;
+    const boxH = (hasPeakInfo ? 200 : 120) + extraRows * 18;
 
     let boxX = mouseX + 15;
     if (boxX + boxW > width - GSR_CONST.MARGIN.right) {
@@ -607,13 +647,19 @@ const GSRRenderer = {
     this._drawTooltipRow('Tonic (SCL):', colorTonic, tonicVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, 2);
     this._drawTooltipRow('Phasic (SCR):', colorPhasic, phasicVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, 3);
 
+    // Extra row for the active lower-graph metric when it isn't plain Phasic
+    // (peak density / phasic AUC / arousal index).
+    if (extraMetric) {
+      this._drawTooltipRow(extraMetric.label, extraMetric.color, extraMetric.valueStr, boxX, boxW, pad, startY, spacing, 4);
+    }
+
     // Peak shape quality info (when hovering near a detected peak)
     if (hasPeakInfo) {
       const qScore = nearPeak.qualityScore;
       const qColor = getQualityColor(qScore);
       const { pct: qPct, label: qLabel } = getQualityLabel(qScore);
 
-      const peakY = startY + 4 * spacing + 6;
+      const peakY = startY + (4 + extraRows) * spacing + 6;
       stroke(axisColor);
       strokeWeight(0.5);
       line(boxX + pad, peakY - 3, boxX + boxW - pad, peakY - 3);

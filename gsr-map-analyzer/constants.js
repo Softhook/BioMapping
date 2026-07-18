@@ -101,6 +101,35 @@ const GSR_CONST = {
     }
   },
 
+  // ── Lower graph metric definitions ───────────────────────────────────────
+  // Selectable series for the lower graph panel. 'phasic' (SCR) is the
+  // discrete/thresholded default; the other three are continuous,
+  // threshold-independent alternatives that resolve the "thresholding
+  // dilemma" and "superposition problem" — see
+  // docs/environmental_stress_literature_review.md §5-6.
+  LOWER_GRAPH_MODES: {
+    phasic: {
+      label: 'Phasic (SCR)', unit: 'μS', decimals: 4,
+      colorVar: '--color-phasic', colorDefault: '#008f3c',
+      showPeakOverlay: true, allowNegative: false
+    },
+    peakDensity: {
+      label: 'Peak Density (NS-SCR)', unit: '/min', decimals: 1,
+      colorVar: '--color-peak-density', colorDefault: '#e59e00',
+      showPeakOverlay: false, allowNegative: false
+    },
+    phasicAUC: {
+      label: 'Phasic AUC (ISCR)', unit: 'μS·s', decimals: 3,
+      colorVar: '--color-phasic-auc', colorDefault: '#0099aa',
+      showPeakOverlay: false, allowNegative: false
+    },
+    arousalIndex: {
+      label: 'Combined Arousal Index', unit: 'z', decimals: 2,
+      colorVar: '--color-arousal-index', colorDefault: '#7b00cc',
+      showPeakOverlay: false, allowNegative: true
+    }
+  },
+
   // ── Collective surface defaults ─────────────────────────────────────────
   COLLECTIVE: {
     gridResolution: 40,

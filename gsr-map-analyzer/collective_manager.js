@@ -93,17 +93,38 @@ class GSRCollectiveManager {
       const rawData    = t.analyzer.raw;
       const phasic     = useNormalization ? (t.analyzer.phasicZ || []) : (t.analyzer.phasic || []);
       const tonic      = useNormalization ? (t.analyzer.tonicZ  || []) : (t.analyzer.tonic  || []);
+
+      // Phasic AUC (ISCR) — continuous, threshold-independent alternative to
+      // discrete peak counting (see docs/environmental_stress_literature_review.md
+      // §5B/§5D). Z-score it per-track when normalizing, same convention as
+      // phasic/tonic above, so cross-participant comparison stays fair.
+      const aucRaw = t.analyzer.phasicAUC || [];
+      let phasicAUC = aucRaw;
+      if (useNormalization && aucRaw.length > 0) {
+        const aucStats = GsrFilter.calculateStats(aucRaw.map(d => d.val));
+        phasicAUC = aucRaw.map(d => ({ time: d.time, val: (d.val - aucStats.mean) / aucStats.std }));
+      }
+
+      // Combined Arousal Index is already a per-participant z-scored blend of
+      // tonic + phasic AUC at computation time (computeCombinedArousalIndex in
+      // analyzer.js), so it's used as-is regardless of the normalizeZScore
+      // toggle — re-normalizing an already-standardized index would just
+      // rescale it, not change its cross-participant comparability.
+      const arousalIndex = t.analyzer.arousalIndex || [];
+
       const baseFsStep = Math.max(1, Math.round(t.analyzer.sampleRate || 10.0));
       const step       = baseFsStep * globalStride;
 
       for (let i = 0; i < rawData.length; i += step) {
         const coords = t.analyzer.getCoordinates(i);
         if (coords) {
-          points.push({ 
-            lat: coords.lat, 
-            lon: coords.lon, 
-            phasic: (phasic[i] ? phasic[i].val : 0), 
-            tonic: (tonic[i] ? tonic[i].val : 0) 
+          points.push({
+            lat: coords.lat,
+            lon: coords.lon,
+            phasic: (phasic[i] ? phasic[i].val : 0),
+            tonic: (tonic[i] ? tonic[i].val : 0),
+            phasicAUC: (phasicAUC[i] ? phasicAUC[i].val : 0),
+            arousalIndex: (arousalIndex[i] ? arousalIndex[i].val : 0)
           });
         }
       }
@@ -169,19 +190,25 @@ class GSRCollectiveManager {
           }
           grid[r][c] = density;
         } else {
+          // Continuous (non-peak) topography sources: raw phasic/tonic, or the
+          // threshold-independent Phasic AUC / Combined Arousal Index.
           let sumWeightedVal = 0, sumWeight = 0;
           let localMax = -Infinity;
           let exactMatch = false;
           for (let i = 0; i < points.length; i++) {
             const p = points[i];
             const d = getDistanceMeters(gridLat, gridLon, p.lat, p.lon);
+            const pointVal = topographySource === 'tonic' ? p.tonic :
+                              topographySource === 'auc' ? p.phasicAUC :
+                              topographySource === 'arousal_index' ? p.arousalIndex :
+                              p.phasic;
             if (d < 1e-3) {
-              grid[r][c] = (topographySource === 'tonic') ? p.tonic : p.phasic;
+              grid[r][c] = pointVal;
               exactMatch = true;
               break;
             }
             if (d <= isolationRadius * 1.5) {
-              const val = (topographySource === 'tonic') ? p.tonic : p.phasic;
+              const val = pointVal;
               const w = 1.0 / Math.pow(d, idwExponent);
               sumWeightedVal += w * val;
               sumWeight += w;

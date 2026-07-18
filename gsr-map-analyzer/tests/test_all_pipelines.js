@@ -37,10 +37,11 @@ loadModule(path.join(__dirname, '../dwt_filter.js'),         'DWT');
 loadModule(path.join(__dirname, '../gsr_filter.js'),         'GsrFilter');
 loadModule(path.join(__dirname, '../spatial_clustering.js'), 'GSRSpatialClustering');
 loadModule(path.join(__dirname, '../marching_squares.js'),   'MarchingSquares');
+loadModule(path.join(__dirname, '../collective_manager.js'), 'GSRCollectiveManager');
 
 const {
   GeoUtils, StatsMath, MapColors, GpsFilter, GpsPipeline,
-  DWT, GsrFilter, GSRSpatialClustering, MarchingSquares
+  DWT, GsrFilter, GSRSpatialClustering, MarchingSquares, GSRCollectiveManager
 } = global;
 
 // Load GSRAnalyzer
@@ -166,6 +167,67 @@ const outOfBoundsQuality = analyzer.peaks.filter(p => p.qualityScore < 0 || p.qu
 assertEq(outOfBoundsQuality.length, 0, 'All peak quality scores are between 0.0 and 1.0');
 
 // ════════════════════════════════════════════════════════════════════════════
+//  2b. CONTINUOUS AROUSAL METRICS (ISCR/AUC + COMBINED AROUSAL INDEX)
+// ════════════════════════════════════════════════════════════════════════════
+console.log('\n── 2b. Continuous Arousal Metrics (Peak Density / Phasic AUC / Arousal Index) ──');
+
+// analyze() should have already populated these caches
+assert(analyzer.peakDensity.length === gsrRaw.length, 'peakDensity series matches signal length');
+assert(analyzer.phasicAUC.length === gsrRaw.length, 'phasicAUC series matches signal length');
+assert(analyzer.arousalIndex.length === gsrRaw.length, 'arousalIndex series matches signal length');
+
+// Peak density should be non-negative and bounded by a sane peaks/min ceiling
+const peakDensityVals = analyzer.peakDensity.map(d => d.val);
+assert(peakDensityVals.every(v => v >= 0), 'peakDensity values are non-negative');
+assert(peakDensityVals.every(v => v <= 200), 'peakDensity values stay within a plausible peaks/min ceiling');
+
+// Cross-check peakDensity against a naive O(n·m) brute-force count at a few sample points
+const activePeakTimes = analyzer.peaks.filter(p => !p.excluded).map(p => p.time);
+const densityWindowSec = 60;
+const checkIdxs = [0, Math.floor(gsrRaw.length / 3), Math.floor(gsrRaw.length / 2), gsrRaw.length - 1];
+let densityMismatch = 0;
+for (const idx of checkIdxs) {
+  const t = analyzer.phasic[idx].time;
+  const half = densityWindowSec / 2;
+  const bruteCount = activePeakTimes.filter(pt => pt >= t - half && pt <= t + half).length;
+  const expected = bruteCount * (60 / densityWindowSec);
+  if (Math.abs(analyzer.peakDensity[idx].val - expected) > 1e-6) densityMismatch++;
+}
+assertEq(densityMismatch, 0, 'Two-pointer peakDensity matches brute-force count at sampled indices');
+
+// Phasic AUC should be non-negative (integral of a rectified, ≥0 signal)
+const aucVals = analyzer.phasicAUC.map(d => d.val);
+assert(aucVals.every(v => v >= -1e-9), 'phasicAUC values are non-negative');
+
+// Manually verify computePhasicAUC's running-sum window against a direct trapezoid-free sum
+// at one interior index, using a short window for a cheap independent check.
+const shortWin = 5; // seconds
+const shortAuc = analyzer.computePhasicAUC(shortWin);
+const checkIdx = Math.min(analyzer.phasic.length - 1, Math.round(shortWin * analyzer.sampleRate) + 50);
+const winSamples = Math.max(1, Math.round(shortWin * analyzer.sampleRate));
+let directSum = 0;
+for (let j = checkIdx - winSamples + 1; j <= checkIdx; j++) {
+  if (j >= 0) directSum += Math.max(0, analyzer.phasic[j].val);
+}
+const directAuc = directSum / analyzer.sampleRate;
+assertClose(shortAuc[checkIdx].val, directAuc, 1e-6, `computePhasicAUC(${shortWin}s) matches direct windowed sum at idx ${checkIdx}`);
+
+// Combined Arousal Index should be roughly zero-centered (weighted blend of two z-scored series)
+const arousalVals = analyzer.arousalIndex.map(d => d.val);
+const arousalMean = arousalVals.reduce((a, b) => a + b, 0) / arousalVals.length;
+assertClose(arousalMean, 0, 0.5, `arousalIndex is roughly zero-centered: mean = ${arousalMean.toFixed(3)}`);
+
+// Custom weights should shift the blend measurably vs. the default 0.3/0.7 split
+const tonicHeavyIndex = analyzer.computeCombinedArousalIndex(1.0, 0.0);
+const phasicHeavyIndex = analyzer.computeCombinedArousalIndex(0.0, 1.0);
+assert(
+  tonicHeavyIndex.some((d, i) => Math.abs(d.val - phasicHeavyIndex[i].val) > 1e-6),
+  'computeCombinedArousalIndex weighting actually changes the output (tonic-only vs phasic-only differ)'
+);
+
+console.log(`  meanPhasicAUC (getStats): ${analyzer.getStats().meanPhasicAUC.toFixed(4)} µS·s`);
+
+// ════════════════════════════════════════════════════════════════════════════
 //  3. SPATIAL CLUSTERING ALGORITHMS
 // ════════════════════════════════════════════════════════════════════════════
 console.log('\n── 3. Spatial Peak Clustering ──');
@@ -263,6 +325,55 @@ if (contourLines.length > 0) {
   assert(Array.isArray(firstSegment) && firstSegment.length >= 2, 'Contour line segment is a valid coordinate array');
   assert(typeof firstSegment[0].lat === 'number' && typeof firstSegment[0].lon === 'number', 'Segment contains valid lat/lon nodes');
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+//  5. COLLECTIVE MANAGER — TOPOGRAPHY SOURCE SELECTION (incl. AUC / Arousal Index)
+// ════════════════════════════════════════════════════════════════════════════
+console.log('\n── 5. Collective Manager Topography Sources ──');
+
+const collectiveManager = new GSRCollectiveManager();
+collectiveManager.addTrack({
+  id: 'track1', name: 'Test Track', color: '#005bc4', enabled: true,
+  analyzer: analyzer, filterParams: analyzeParams
+});
+
+const baseContourParams = {
+  gridResolution: 15, isolationRadius: 50, contourCount: 5, idwExponent: 2, normalizeZScore: false
+};
+
+const surfacesBySource = {};
+for (const src of ['phasic', 'tonic', 'peaks', 'auc', 'arousal_index']) {
+  const surface = collectiveManager.generateContourSurface({ ...baseContourParams, topographySource: src });
+  assert(surface && Array.isArray(surface.contours), `generateContourSurface('${src}') returns { contours, grid, ... }`);
+  surfacesBySource[src] = surface;
+}
+
+// AUC surface should differ from Phasic surface — proves 'auc' actually reads
+// phasicAUC rather than silently falling through to the phasic branch.
+assert(
+  surfacesBySource.auc.minVal !== surfacesBySource.phasic.minVal ||
+  surfacesBySource.auc.maxVal !== surfacesBySource.phasic.maxVal,
+  `'auc' topography value range differs from 'phasic' (auc: [${surfacesBySource.auc.minVal.toFixed(4)}, ${surfacesBySource.auc.maxVal.toFixed(4)}], phasic: [${surfacesBySource.phasic.minVal.toFixed(4)}, ${surfacesBySource.phasic.maxVal.toFixed(4)}])`
+);
+
+// Arousal Index surface should differ from Tonic surface likewise.
+assert(
+  surfacesBySource.arousal_index.minVal !== surfacesBySource.tonic.minVal ||
+  surfacesBySource.arousal_index.maxVal !== surfacesBySource.tonic.maxVal,
+  `'arousal_index' topography value range differs from 'tonic' (arousal_index: [${surfacesBySource.arousal_index.minVal.toFixed(4)}, ${surfacesBySource.arousal_index.maxVal.toFixed(4)}], tonic: [${surfacesBySource.tonic.minVal.toFixed(4)}, ${surfacesBySource.tonic.maxVal.toFixed(4)}])`
+);
+
+// Combined Arousal Index is allowed to go negative (z-scored blend); AUC and
+// peak density are not.
+assert(surfacesBySource.arousal_index.minVal < 0, 'arousal_index surface can go negative (z-scored blend)');
+assert(surfacesBySource.auc.minVal >= -1e-9, 'auc surface stays non-negative (integral of a rectified signal)');
+
+// Normalization toggle should run cleanly through the new z-scoring branch for 'auc'.
+const aucNormSurface = collectiveManager.generateContourSurface({ ...baseContourParams, topographySource: 'auc', normalizeZScore: true });
+assert(aucNormSurface && Array.isArray(aucNormSurface.contours), "generateContourSurface('auc', normalizeZScore: true) runs without error");
+
+console.log(`  auc range: [${surfacesBySource.auc.minVal.toFixed(4)}, ${surfacesBySource.auc.maxVal.toFixed(4)}] μS·s`);
+console.log(`  arousal_index range: [${surfacesBySource.arousal_index.minVal.toFixed(4)}, ${surfacesBySource.arousal_index.maxVal.toFixed(4)}]`);
 
 // ────────────────────────────────────────────────────────────────────────────
 console.log(`\n${'='.repeat(60)}`);

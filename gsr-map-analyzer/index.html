@@ -465,7 +465,10 @@
                 <option value="phasic" selected>Phasic Arousal (Transient)</option>
                 <option value="tonic">Tonic Baseline (SCL)</option>
                 <option value="peaks">Peak Stress Hotspots</option>
+                <option value="auc">Phasic AUC (ISCR)</option>
+                <option value="arousal_index">Combined Arousal Index</option>
               </select>
+              <p class="help-text">AUC and Arousal Index are continuous, threshold-independent surfaces — they don't rely on discrete peak detection, so overlapping/superposed responses are captured proportionally instead of being undercounted.</p>
             </div>
 
             <div class="slider-group">
@@ -629,6 +632,13 @@
               <button class="btn btn-outline active" id="btnToggleTonic">Tonic</button>
               <button class="btn btn-outline active" id="btnTogglePeaks">Peaks</button>
               <span class="control-divider"></span>
+              <select id="lowerGraphMode" class="select-control" style="width: auto; min-width: 150px;" title="Lower graph metric">
+                <option value="phasic" selected>Phasic (SCR)</option>
+                <option value="peakDensity">Peak Density (NS-SCR)</option>
+                <option value="phasicAUC">Phasic AUC (ISCR)</option>
+                <option value="arousalIndex">Combined Arousal Index</option>
+              </select>
+              <span class="control-divider"></span>
               <button class="icon-btn fullscreen-btn" id="btnGsrFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>
             </div>
           </div>
@@ -662,7 +672,12 @@
               <span class="control-divider"></span>
               <span style="font-size: 0.8rem; font-weight: 500; color: rgba(255,255,255,0.6);">Map Metric:</span>
               <select id="mapColoringMetric" class="select-control" style="background: rgba(0,0,0,0.35); color: #eee; border: 1px solid rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; height: auto; width: auto; max-width: 160px; margin: 0 4px;">
-                <option value="gsr" selected>GSR Arousal</option>
+                <option value="gsr" selected>GSR Arousal (Raw)</option>
+                <option value="phasic">Phasic (SCR)</option>
+                <option value="tonic">Tonic Baseline (SCL)</option>
+                <option value="peakDensity">Peak Density (NS-SCR)</option>
+                <option value="phasicAUC">Phasic AUC (ISCR)</option>
+                <option value="arousalIndex">Combined Arousal Index</option>
                 <option value="hdopQuality">GPS Accuracy (HDOP)</option>
                 <option value="roadClass" disabled class="osm-option">OSM Road Class</option>
                 <option value="distMajorRoad" disabled class="osm-option">Dist Major Road</option>
@@ -678,9 +693,13 @@
               <button class="btn btn-outline active" id="btnToggleMapPeaks">Peaks</button>
               <button class="btn btn-outline active" id="btnToggleMapLabels" style="margin: 0 4px;">Labels</button>
               <button class="btn btn-outline active" id="btnToggleMapClusters" style="margin: 0 4px;">Clusters</button>
-              <button class="btn btn-outline active" id="btnToggleMapIsolines" style="margin: 0 4px;">Isolines</button>
-              <button class="btn btn-outline active" id="btnToggleMapSurface" style="margin: 0 4px;">Surface</button>
-              <button class="btn btn-outline active" id="btnToggleMapTracks" style="margin: 0 4px;">Tracks</button>
+              <!-- Collective-only: these control the multi-track contour surface (topography
+                   IDW heatmap + isolines + per-track paths) and have no effect in single-track
+                   view, so they're hidden by default and only shown by bindViewSwitcher() when
+                   switching to Collective view. -->
+              <button class="btn btn-outline active" id="btnToggleMapIsolines" style="margin: 0 4px; display: none;">Isolines</button>
+              <button class="btn btn-outline active" id="btnToggleMapSurface" style="margin: 0 4px; display: none;">Surface</button>
+              <button class="btn btn-outline active" id="btnToggleMapTracks" style="margin: 0 4px; display: none;">Tracks</button>
               <span class="control-divider"></span>
               <button class="icon-btn fullscreen-btn" id="btnMapFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>
             </div>

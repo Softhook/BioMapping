@@ -20,7 +20,12 @@ const MapColors = {
   },
 
   getColorForMetric(metric, val, minVal, maxVal) {
-    if (metric === 'gsr') {
+    // Raw GSR and the four derived arousal metrics (Phasic, Tonic, Peak
+    // Density, Phasic AUC, Combined Arousal Index) all share the same
+    // low=green / high=red gradient — they're all "how aroused" on
+    // different scales, so a consistent gradient keeps them comparable.
+    if (metric === 'gsr' || metric === 'phasic' || metric === 'tonic' ||
+        metric === 'peakDensity' || metric === 'phasicAUC' || metric === 'arousalIndex') {
       return MapColors.getColorForValue(val, minVal, maxVal);
     }
     

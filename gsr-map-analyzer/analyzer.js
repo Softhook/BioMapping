@@ -15,6 +15,14 @@ class GSRAnalyzer {
                             //   riseTime, onsetSlope, decaySlope, skewnessRatio, fwhm, snr,
                             //   qualityScore, label }
 
+    // Continuous, threshold-independent arousal metrics (see
+    // docs/environmental_stress_literature_review.md §5-6). These resolve the
+    // "thresholding dilemma" and "superposition problem" inherent to discrete
+    // peak counting by integrating the phasic signal rather than gating it.
+    this.peakDensity = [];  // Sliding-window NS-SCR frequency: { time, val } — peaks/minute
+    this.phasicAUC = [];    // Sliding-window Phasic AUC (ISCR): { time, val } — µS·s
+    this.arousalIndex = []; // Combined tonic+phasic z-scored blend: { time, val }
+
     this.sampleRate = 10;   // In Hz, auto-detected
     this.isResistance = false; // Whether original CSV was resistance (Ohms)
     this.filteredGps = [];
@@ -711,7 +719,12 @@ class GSRAnalyzer {
     // 5. Phasic Peak Detection (with shape criteria from sliders)
     this.detectPeaks(params.peakThreshold, params);
 
-    // 6. Build display cache for fast rendering (Y-range pyramid, timeline)
+    // 6. Continuous, threshold-independent arousal metrics (ISCR/AUC + combined index)
+    this.peakDensity = this.computeTemporalPeakDensity();
+    this.phasicAUC = this.computePhasicAUC();
+    this.arousalIndex = this.computeCombinedArousalIndex();
+
+    // 7. Build display cache for fast rendering (Y-range pyramid, timeline)
     this._buildDisplayCache();
   }
 
@@ -722,7 +735,7 @@ class GSRAnalyzer {
   _buildDisplayCache() {
     // Global Y-range per curve — used when view covers >40 % of data
     this._globalRange = {};
-    for (const key of ['raw', 'filtered', 'tonic', 'phasic']) {
+    for (const key of ['raw', 'filtered', 'tonic', 'phasic', 'peakDensity', 'phasicAUC', 'arousalIndex']) {
       const arr = this[key];
       if (!arr || arr.length === 0) continue;
       let mn = Infinity, mx = -Infinity;
@@ -1056,6 +1069,117 @@ class GSRAnalyzer {
     }
   }
 
+  /**
+   * Sliding-window temporal peak density (Non-Specific SCR Frequency), in
+   * peaks/minute. A continuous, per-sample companion to the single
+   * peakFrequency scalar in getStats() — suitable for plotting or feeding
+   * into the spatial IDW surface as a topography source.
+   *
+   * Two-pointer sliding window over the (time-sorted) active peak list, so
+   * this runs in O(n + peakCount) rather than the O(n × peakCount) naive scan.
+   *
+   * @param {number} windowSizeSec - Temporal window width in seconds (default: 60)
+   */
+  computeTemporalPeakDensity(windowSizeSec = 60) {
+    const n = this.phasic.length;
+    if (n === 0) return [];
+
+    const density = new Array(n);
+    const halfWin = windowSizeSec / 2;
+
+    const activePeakTimes = this.peaks
+      .filter(p => !p.excluded)
+      .map(p => p.time);
+    const m = activePeakTimes.length;
+
+    let lo = 0, hi = 0;
+    for (let i = 0; i < n; i++) {
+      const t = this.phasic[i].time;
+      const tStart = t - halfWin;
+      const tEnd = t + halfWin;
+
+      while (lo < m && activePeakTimes[lo] < tStart) lo++;
+      while (hi < m && activePeakTimes[hi] <= tEnd) hi++;
+
+      density[i] = {
+        time: t,
+        val: (hi - lo) * (60 / windowSizeSec)
+      };
+    }
+    return density;
+  }
+
+  /**
+   * Sliding-window Phasic Area Under the Curve (Integrated Skin Conductance
+   * Response / ISCR), in µS·s. Unlike discrete peak counting, this is
+   * threshold-independent and continuous — it resolves the "superposition
+   * problem" (closely-spaced SCRs piling up and being undercounted) and the
+   * "thresholding dilemma" (a 0.021 µS response counts, a 0.019 µS response
+   * is discarded) described in docs/environmental_stress_literature_review.md §5B/§5D.
+   *
+   * @param {number} windowSizeSec - Temporal window width in seconds (default: 30)
+   */
+  computePhasicAUC(windowSizeSec = 30) {
+    const n = this.phasic.length;
+    if (n === 0) return [];
+
+    const auc = new Array(n);
+    const winSamples = Math.max(1, Math.round(windowSizeSec * this.sampleRate));
+    let runningSum = 0;
+
+    for (let i = 0; i < n; i++) {
+      // this.phasic is already clamped to ≥0 during decomposition (see
+      // analyze()), but re-clamp defensively for callers that pass in
+      // externally-supplied phasic data.
+      const val = Math.max(0, this.phasic[i].val);
+      runningSum += val;
+
+      if (i >= winSamples) {
+        runningSum -= Math.max(0, this.phasic[i - winSamples].val);
+      }
+
+      auc[i] = {
+        time: this.phasic[i].time,
+        val: runningSum / this.sampleRate // Convert running sum to a time-integral (µS·s)
+      };
+    }
+    return auc;
+  }
+
+  /**
+   * Standardized Combined Arousal Index — a weighted, per-participant
+   * z-scored blend of tonic baseline (SCL) and phasic AUC (ISCR). Phasic is
+   * weighted higher by default to prioritize immediate environmental
+   * triggers over baseline physiological tone (exertion, thermal load).
+   * See docs/environmental_stress_literature_review.md §5C.
+   *
+   * @param {number} wTonic - Weight for tonic SCL component (default: 0.3)
+   * @param {number} wPhasic - Weight for phasic AUC component (default: 0.7)
+   */
+  computeCombinedArousalIndex(wTonic = 0.3, wPhasic = 0.7) {
+    const n = this.phasic.length;
+    if (n === 0) return [];
+
+    const auc = this.computePhasicAUC(30);
+    const tonicVals = this.tonic.map(d => d.val);
+    const aucVals = auc.map(d => d.val);
+
+    const tonicStats = GsrFilter.calculateStats(tonicVals);
+    const aucStats = GsrFilter.calculateStats(aucVals);
+
+    const arousalIndex = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const tZ = (this.tonic[i].val - tonicStats.mean) / tonicStats.std;
+      const aZ = (aucVals[i] - aucStats.mean) / aucStats.std;
+
+      arousalIndex[i] = {
+        time: this.phasic[i].time,
+        val: (wTonic * tZ) + (wPhasic * aZ)
+      };
+    }
+    return arousalIndex;
+  }
+
   getStats() {
     if (this.raw.length === 0) {
       return {
@@ -1063,7 +1187,8 @@ class GSRAnalyzer {
         meanSCL: 0,
         peakCount: 0,
         peakFrequency: 0,
-        meanPeakAmplitude: 0
+        meanPeakAmplitude: 0,
+        meanPhasicAUC: 0
       };
     }
 
@@ -1079,12 +1204,19 @@ class GSRAnalyzer {
     const sumAmp = activePeaks.reduce((sum, p) => sum + p.amplitude, 0);
     const meanPeakAmplitude = peakCount > 0 ? (sumAmp / peakCount) : 0;
 
+    // Mean of the sliding-window Phasic AUC series — a threshold-independent
+    // companion to peakFrequency/meanPeakAmplitude (µS·s, 30s window).
+    const meanPhasicAUC = this.phasicAUC.length > 0
+      ? this.phasicAUC.reduce((sum, d) => sum + d.val, 0) / this.phasicAUC.length
+      : 0;
+
     return {
       duration: duration,
       meanSCL: meanSCL,
       peakCount: peakCount,
       peakFrequency: peakFrequency,
-      meanPeakAmplitude: meanPeakAmplitude
+      meanPeakAmplitude: meanPeakAmplitude,
+      meanPhasicAUC: meanPhasicAUC
     };
   }
 
