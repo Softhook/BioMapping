@@ -65,6 +65,15 @@ class GSRMapManager {
       crossOrigin: true
     }).addTo(this.map);
 
+    // Leaflet's default attribution prefix includes a 🇺🇦 flag alongside the
+    // "Leaflet" credit link (added in v1.8.0). Keep the credit link, drop the
+    // flag — same text Leaflet itself renders by default, minus the emoji.
+    if (this.map.attributionControl) {
+      this.map.attributionControl.setPrefix(
+        '<a href="https://leafletjs.com" title="A JS library for interactive maps">Leaflet</a>'
+      );
+    }
+
     // Initialise scrubbing indicator marker (pulsing blue circle)
     const scrubIcon = L.divIcon({
       className: 'scrub-marker-icon',
