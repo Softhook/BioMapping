@@ -4,7 +4,7 @@ build next prototype with M10Q
 
 Add Electro Magnetic Fog data - This is really at a high enough level to differentiate anything, the data ?
 
-Think about the airport context. Would it make sense to put a microphone on there?
+Think about the airport context. Would it make sense to put a microphone on there? [Yes, see acoustic_aircraft_detection_proposal.md](file:///Users/softhook/Documents/GitHub/BioMapping/docs/acoustic_aircraft_detection_proposal.md)
 
 Consider other GSR imrpoovments in code
 
