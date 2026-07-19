@@ -55,33 +55,16 @@ const GSRStorage = {
    */
   readGpsSliderValues() {
     const S = AppState.sliders;
+    const D = GSR_CONST.GPS_DEFAULT;
     return {
-      smoothing:    parseFloat(S.gpsSmoothing ? S.gpsSmoothing.value : 0.5),
-      kalmanR:      parseFloat(S.gpsKalmanR ? S.gpsKalmanR.value : 10),
-      maxHdop:      parseFloat(S.gpsMaxHdop ? S.gpsMaxHdop.value : 2.0),
-      maxSpeed:     parseFloat(S.gpsMaxSpeed ? S.gpsMaxSpeed.value : 3.0),
-      rdpTolerance: parseFloat(S.gpsRDP ? S.gpsRDP.value : 0),
-      downsample:   parseInt(S.gpsDownsample ? S.gpsDownsample.value : 0),
-      trackWeight:  parseInt(S.gpsTrackWeight ? S.gpsTrackWeight.value : 5),
-      peakLatency:  parseFloat(S.gpsPeakLatency ? S.gpsPeakLatency.value : 0)
-    };
-  },
-
-  /**
-   * Read current Map Display & Contour settings into a param object.
-   */
-  readMapSettings() {
-    const C = AppState.contourControls;
-    if (!C || !C.gridResolution) return null;
-    return {
-      gridResolution:    parseInt(C.gridResolution.value),
-      contourCount:      parseInt(C.contourCount.value),
-      isolationRadius:   parseInt(C.isolationRadius.value),
-      idwExponent:       parseFloat(C.idwExponent.value),
-      topoSource:        C.topoSource.value,
-      showShadedSurface: C.showShadedSurface.checked,
-      normalizeZScore:   C.normalizeZScore ? C.normalizeZScore.checked : false,
-      surfaceOpacity:    parseFloat(C.surfaceOpacity.value)
+      smoothing:    parseFloat(S.gpsSmoothing ? S.gpsSmoothing.value : D.smoothing),
+      kalmanR:      parseFloat(S.gpsKalmanR ? S.gpsKalmanR.value : D.kalmanR),
+      maxHdop:      parseFloat(S.gpsMaxHdop ? S.gpsMaxHdop.value : D.maxHdop),
+      maxSpeed:     parseFloat(S.gpsMaxSpeed ? S.gpsMaxSpeed.value : D.maxSpeed),
+      rdpTolerance: parseFloat(S.gpsRDP ? S.gpsRDP.value : D.rdpTolerance),
+      downsample:   parseInt(S.gpsDownsample ? S.gpsDownsample.value : (D.downsample ? 1 : 0)),
+      trackWeight:  parseInt(S.gpsTrackWeight ? S.gpsTrackWeight.value : D.trackWeight),
+      peakLatency:  parseFloat(S.gpsPeakLatency ? S.gpsPeakLatency.value : D.peakLatency)
     };
   },
 

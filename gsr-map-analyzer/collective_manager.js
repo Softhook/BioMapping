@@ -61,7 +61,10 @@ class GSRCollectiveManager {
     const topographySource = contourParams.topographySource !== undefined ? contourParams.topographySource : 'phasic';
     const contourCount    = contourParams.contourCount    !== undefined ? contourParams.contourCount    : GSR_CONST.COLLECTIVE.contourCount;
     const idwExponent     = contourParams.idwExponent     !== undefined ? contourParams.idwExponent     : GSR_CONST.COLLECTIVE.idwExponent;
-    const useNormalization = contourParams.normalizeZScore !== undefined ? contourParams.normalizeZScore : false;
+    // Defaults to true — the "Standardize arousal range" checkbox ships checked (see
+    // index.html), so a caller that omits this entirely should get the same on-by-default
+    // behavior as the UI, not silently fall back to unnormalized.
+    const useNormalization = contourParams.normalizeZScore !== undefined ? contourParams.normalizeZScore : true;
 
     const bounds = this.getBounds();
     if (!bounds) return [];

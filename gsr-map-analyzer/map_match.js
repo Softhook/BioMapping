@@ -287,16 +287,21 @@ const MapMatcher = {
         let effDist = dist + classPenalty;
         let bearingDiffRad = NaN;
 
-        // Apply bearing penalty if user is moving to rank candidates better
-        if (!isNaN(speedMs) && speedMs >= 0.3 && !isNaN(courseDeg)) {
+        // Apply bearing penalty if user is moving to rank candidates better.
+        // HEADING_W/SPEED_GATE come from GSR_CONST.SNAP (constants.js) — the single
+        // source of truth for these two tuning values, so they can't drift out of sync
+        // with each other the way they previously did as separately-hardcoded literals here.
+        const speedGate = (typeof GSR_CONST !== 'undefined' && GSR_CONST.SNAP) ? GSR_CONST.SNAP.SPEED_GATE : 0.3;
+        const headingW  = (typeof GSR_CONST !== 'undefined' && GSR_CONST.SNAP) ? GSR_CONST.SNAP.HEADING_W  : 0.7;
+        if (!isNaN(speedMs) && speedMs >= speedGate && !isNaN(courseDeg)) {
           const courseRad = courseDeg * Math.PI / 180;
           const segBearing = this._segmentBearing(a.lat, a.lon, b.lat, b.lon);
           bearingDiffRad = Math.min(
             this._angularDiff(courseRad, segBearing),
             this._angularDiff(courseRad, segBearing + Math.PI)
           );
-          // Scale bearing penalty (0.7 weight * normalized difference * 25m radius)
-          effDist += 0.7 * (bearingDiffRad / Math.PI) * 25;
+          // Scale bearing penalty (headingW weight * normalized difference * 25m radius)
+          effDist += headingW * (bearingDiffRad / Math.PI) * 25;
         }
 
         candidates.push({

@@ -17,23 +17,6 @@ class GSRSpatialClustering {
   }
 
   /**
-   * Helper to compute distance in meters between two lat/lon coordinates using precomputed scale factors.
-   *
-   * @param {number} lat1 - Point 1 latitude.
-   * @param {number} lon1 - Point 1 longitude.
-   * @param {number} lat2 - Point 2 latitude.
-   * @param {number} lon2 - Point 2 longitude.
-   * @param {{degToMeterLat: number, degToMeterLon: number}} scale - Scale factors.
-   * @returns {number} Geodesic distance in meters.
-   * @private
-   */
-  static _getDistanceMeters(lat1, lon1, lat2, lon2, scale) {
-    const dy = (parseFloat(lat1) - parseFloat(lat2)) * scale.degToMeterLat;
-    const dx = (parseFloat(lon1) - parseFloat(lon2)) * scale.degToMeterLon;
-    return Math.sqrt(dx * dx + dy * dy);
-  }
-
-  /**
    * Helper to compute squared geodesic distance in meters (saves Math.sqrt for performance).
    *
    * @param {number} lat1 - Point 1 latitude.

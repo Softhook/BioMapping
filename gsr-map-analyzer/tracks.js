@@ -397,15 +397,6 @@ const GSRTrackManager = {
     }
   },
 
-  clearFile() {
-    if (AppState.activeTrackId) {
-      GSRTrackManager.deleteTrack(AppState.activeTrackId);
-    } else {
-      AppState.collectiveManager.tracks = [];
-      GSRTrackManager.renderTrackList();
-    }
-  },
-
   /**
    * Update the file status indicator in the header.
    */

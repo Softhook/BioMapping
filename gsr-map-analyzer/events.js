@@ -585,6 +585,15 @@ const GSREvents = {
       AppState.viewMode = 'single';
       btnSingleView.classList.add('active');
       btnCollectiveView.classList.remove('active');
+
+      // Force the next renderData() to re-fit the viewport — otherwise the map keeps
+      // whatever framing the collective view left it at (e.g. fit to several tracks) since
+      // the active track's cacheKey hasn't itself changed. See GSRMapManager's
+      // _lastFitBoundsTrackId/_lastFitBoundsTrackSet in map.js.
+      if (AppState.mapManager) {
+        AppState.mapManager._lastFitBoundsTrackId = null;
+        AppState.mapManager._lastFitBoundsTrackSet = null;
+      }
       appMainLayout.classList.remove('collective-mode');
       contourSettingsCard.style.display = 'none';
       collectiveOnlyMapBtns.forEach(btn => btn.style.display = 'none');
@@ -620,6 +629,16 @@ const GSREvents = {
       AppState.viewMode = 'collective';
       btnCollectiveView.classList.add('active');
       btnSingleView.classList.remove('active');
+
+      // Force the next renderCollectiveData() to re-fit — otherwise if the same active
+      // track set was already fit once before (e.g. user bounced collective -> single ->
+      // collective without changing which tracks are active), the signature check would
+      // wrongly treat it as "unchanged" and leave the map framed to whatever single-track
+      // view was showing instead. See GSRMapManager's _lastFitBoundsTrackId/TrackSet in map.js.
+      if (AppState.mapManager) {
+        AppState.mapManager._lastFitBoundsTrackId = null;
+        AppState.mapManager._lastFitBoundsTrackSet = null;
+      }
       appMainLayout.classList.add('collective-mode');
       contourSettingsCard.style.display = '';
       collectiveOnlyMapBtns.forEach(btn => btn.style.display = '');

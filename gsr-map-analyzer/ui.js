@@ -382,11 +382,11 @@ const GSRUI = {
       idwExponent:       parseFloat(cc.idwExponent ? cc.idwExponent.value : GSR_CONST.COLLECTIVE.idwExponent),
       topographySource:  cc.topoSource ? cc.topoSource.value : 'phasic',
       showShadedSurface: cc.showShadedSurface ? cc.showShadedSurface.checked : true,
-      normalizeZScore:   cc.normalizeZScore ? cc.normalizeZScore.checked : false,
+      normalizeZScore:   cc.normalizeZScore ? cc.normalizeZScore.checked : true,
       surfaceOpacity:    cc.surfaceOpacity ? parseFloat(cc.surfaceOpacity.value) : 0.40
     };
 
-    const lat = parseFloat(AppState.sliders.gpsPeakLatency ? AppState.sliders.gpsPeakLatency.value : 0);
+    const lat = parseFloat(AppState.sliders.gpsPeakLatency ? AppState.sliders.gpsPeakLatency.value : GSR_CONST.GPS_DEFAULT.peakLatency);
     AppState.mapManager.renderCollectiveData(AppState.collectiveManager, contourParams, lat);
 
     let totalDur = 0, totalPeaks = 0, sumSCL = 0, sclCount = 0;
@@ -677,11 +677,10 @@ const GSRUI = {
 
     if (allCached) {
       try {
-        const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? true;
-        const snapIn = Math.max(8, Math.round(snapRadius / 2));
+        const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? false;
         tracksToEnrich.forEach(t => {
           OSMEnricher.enrichTrack(t.analyzer, t.analyzer.osmJson, radius,
-            { enabled: snapEnabled, radiusIn: snapIn, radiusOut: snapRadius }
+            { enabled: snapEnabled, radiusOut: snapRadius }
           );
         });
         GSRUI.invalidateEnvironmentalCache();
@@ -756,14 +755,13 @@ const GSRUI = {
       }
 
       updateProgress('Processing spatial metrics...', 60);
-      const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? true;
-      const snapIn = Math.max(8, Math.round(snapRadius / 2));
+      const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? false;
 
       // Enrich each track using the fetched OSM JSON
       tracksToEnrich.forEach((t, i) => {
         t.analyzer.osmJson = osmJson;
         OSMEnricher.enrichTrack(t.analyzer, osmJson, radius,
-          { enabled: snapEnabled, radiusIn: snapIn, radiusOut: snapRadius },
+          { enabled: snapEnabled, radiusOut: snapRadius },
           (msg) => updateProgress(`[Track ${i+1}/${tracksToEnrich.length}] ${msg}`)
         );
       });

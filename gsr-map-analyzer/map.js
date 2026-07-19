@@ -43,6 +43,13 @@ class GSRMapManager {
     // GPS filter cache: trackId -> { paramsHash, snapFingerprint, gpsPoints, drawPoints }
     this._gpsCache = new Map();
 
+    // Remember what the viewport was last auto-fit to, so renderData/renderCollectiveData
+    // can tell "a genuinely new track/track-set just became active" (re-fit is wanted) apart
+    // from "the same track is being redrawn because a filter slider moved" (re-fit would yank
+    // the user back out to full-extent zoom on every tweak — see _fitBounds callers below).
+    this._lastFitBoundsTrackId = null;
+    this._lastFitBoundsTrackSet = null;
+
     this.initMap();
     this._initLegend();
   }
@@ -353,9 +360,14 @@ class GSRMapManager {
    *
    * @param {GSRAnalyzer} analyzer
    * @param {object} [gpsParams] – GPS filter settings
+   * @param {object} [options] – { fitBounds: bool } force the auto-zoom-to-extent regardless
+   *   of the new-track heuristic below. Not currently passed by any caller (the "Zoom to
+   *   Extent" button calls fitToTrack() directly instead) — kept as an escape hatch for a
+   *   future caller that needs to force a re-fit without faking a track-id change.
    */
-  renderData(analyzer, gpsParams) {
+  renderData(analyzer, gpsParams, options) {
     if (!gpsParams) gpsParams = {};
+    options = options || {};
     this.clearMap();
 
     const p = gpsParams;
@@ -367,8 +379,15 @@ class GSRMapManager {
     const { drawPoints } = this._getOrBuildDrawPoints(cacheKey, analyzer, p);
     if (drawPoints.length === 0) return;
 
-    // Render on Leaflet map
-    this._fitBounds(drawPoints);
+    // Only auto-fit the viewport when a different track just became active (or the caller
+    // explicitly asks for it) — not on every re-render, otherwise nudging a GSR/GPS filter
+    // slider yanks the map back out to full-extent zoom and you lose whatever detail view
+    // you'd zoomed into to actually see the slider's effect.
+    const isNewTrack = cacheKey !== this._lastFitBoundsTrackId;
+    if (options.fitBounds || isNewTrack) {
+      this._fitBounds(drawPoints);
+      this._lastFitBoundsTrackId = cacheKey;
+    }
     this._renderPathSegments(drawPoints, p.trackWeight || 5, analyzer);
 
     // Peak markers (with latency compensation)
@@ -376,13 +395,6 @@ class GSRMapManager {
 
     // Apply the active peak/label toggle styles
     this.updateMarkerVisibility();
-  }
-
-  /**
-   * Invalidate GPS cache for a specific track (call when GPS params change).
-   */
-  invalidateGpsCache(trackId) {
-    this._gpsCache.delete(trackId || 'single');
   }
 
   // ── Pipeline helpers ──────────────────────────────────────────────────────
@@ -1133,7 +1145,18 @@ class GSRMapManager {
     this.clearCollectiveLayers();
 
     const activeTracks = collectiveManager.getActiveTracks();
-    if (activeTracks.length === 0) return;
+    if (activeTracks.length === 0) {
+      // Force a re-fit next time any track becomes active again — otherwise if the user
+      // pans/zooms elsewhere while the collective view is empty, then reactivates the exact
+      // same track set later, the stale signature below would wrongly look "unchanged" and
+      // skip re-framing them.
+      this._lastFitBoundsTrackSet = null;
+      return;
+    }
+
+    // Signature of which tracks are active — used below to only auto-fit the viewport when
+    // the active track set actually changed, not on every contour/cluster slider re-render.
+    const trackSetSignature = activeTracks.map(t => t.id).sort().join(',');
 
     const allActivePeaksAcrossTracks = [];
 
@@ -1285,13 +1308,18 @@ class GSRMapManager {
       });
     }
 
-    // 3. Zoom and Pan Map to fit collective bounding envelope
-    const bounds = collectiveManager.getBounds();
-    if (bounds) {
-      this.map.fitBounds([
-        [bounds.minLat, bounds.minLon],
-        [bounds.maxLat, bounds.maxLon]
-      ], { padding: [40, 40] });
+    // 3. Zoom and Pan Map to fit collective bounding envelope — but only when the active
+    // track set actually changed (tracks added/removed/toggled). Re-fitting on every contour
+    // slider tweak would reset the zoom the user had picked to inspect a specific area.
+    if (trackSetSignature !== this._lastFitBoundsTrackSet) {
+      const bounds = collectiveManager.getBounds();
+      if (bounds) {
+        this.map.fitBounds([
+          [bounds.minLat, bounds.minLon],
+          [bounds.maxLat, bounds.maxLon]
+        ], { padding: [40, 40] });
+      }
+      this._lastFitBoundsTrackSet = trackSetSignature;
     }
 
     // 4. Calculate and render topographic contour lines

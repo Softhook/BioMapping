@@ -389,7 +389,7 @@
 
             <div class="toggle-group">
               <label class="switch">
-                <input type="checkbox" id="gpsSnapToRoads" checked>
+                <input type="checkbox" id="gpsSnapToRoads">
                 <span class="slider round"></span>
               </label>
               <span class="toggle-label">Snap to Roads &amp; Trails</span>
@@ -401,7 +401,7 @@
                 <span class="slider-value" id="valGpsSnapRadius">25 m</span>
               </div>
               <input type="range" id="gpsSnapRadius" min="10" max="60" step="5" value="25">
-              <p class="help-text">Max distance to snap toward roads. Snap-in is half this value. <strong>10–15&thinsp;m</strong> = tight (only near curbs). <strong>25&thinsp;m</strong> = moderate (default). <strong>40–60&thinsp;m</strong> = aggressive (urban canyons).</p>
+              <p class="help-text">Max distance to snap toward roads (candidate search radius for the map-matcher). <strong>10–15&thinsp;m</strong> = tight (only near curbs). <strong>25&thinsp;m</strong> = moderate (default). <strong>40–60&thinsp;m</strong> = aggressive (urban canyons).</p>
             </div>
 
             <p class="help-text" style="margin-top:6px;">Corrects GPS multipath drift by aligning coordinates with streets and park paths. Releases smoothly when walking off-road.</p>

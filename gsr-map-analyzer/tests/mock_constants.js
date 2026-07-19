@@ -3,9 +3,6 @@
  * Mirrors the real constants.js values used by the tested modules.
  */
 module.exports = {
-  SAMPLE_RATE: 10,
-  GPS_SAMPLE_RATE: 5,
-
   MARGIN: { top: 30, bottom: 16, left: 70, right: 35, gap: 40 },
   GRAPH_UPPER_RATIO: 0.62,
   GRAPH_LOWER_RATIO: 0.38,
@@ -21,7 +18,7 @@ module.exports = {
 
   GPS_DEFAULT: {
     smoothing: 0.5, kalmanR: 10, maxHdop: 2.0, maxSpeed: 3.0,
-    rdpTolerance: 0, downsample: false, trackWeight: 5, peakLatency: 0
+    rdpTolerance: 0, downsample: false, trackWeight: 5, peakLatency: 2.0
   },
 
   GSR_DEFAULT: {
@@ -46,7 +43,6 @@ module.exports = {
   MICROSIEMENS_MIN_AVG: 100,
   MICROSIEMENS_MAX_AVG: 50000,
 
-  PEAK_AMPLITUDE_FACTOR: 0.5,
   PEAK_MIN_GAP: 1.0,
   PEAK_RECOVERY_BREAK: 0.1,
 
@@ -78,7 +74,6 @@ module.exports = {
   },
 
   SNAP: {
-    RADIUS_IN: 12, RADIUS_OUT: 25, HEADING_W: 0.7,
-    HYST_MARGIN: 3, HYST_SEC: 5, SPEED_GATE: 0.3
+    HEADING_W: 0.7, SPEED_GATE: 0.3
   }
 };

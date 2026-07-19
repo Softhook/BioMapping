@@ -5,10 +5,6 @@
 
 const GSR_CONST = {
 
-  // ── Sampling ──────────────────────────────────────────────────────────────
-  SAMPLE_RATE: 10,          // Default / expected GSR sample rate (Hz)
-  GPS_SAMPLE_RATE: 5,       // GPS sample rate (Hz) — firmware configured for 5 Hz
-
   // ── Graph layout (p5.js canvas) ──────────────────────────────────────────
   MARGIN: { top: 30, bottom: 16, left: 70, right: 35, gap: 40 },
 
@@ -31,8 +27,13 @@ const GSR_CONST = {
   // stricter than the firmware logging gate (GPS_HDOP_GATE = 5.0 in biomap_types.h).
   // Firmware logs everything with a plausible fix; the analyser filters for quality.
   // See docs/csv_schema.md for the rationale.
+  // NOTE: peakLatency default is 2.0s (not 0) — the "Peak Latency Compensation"
+  // slider ships with a physiologically-recommended SCR-onset-delay default
+  // (see docs/environmental_enrichment_plan.md §C and the slider's own
+  // "Recommended: 1-3s" help text in index.html). This used to say 0 here,
+  // silently disagreeing with the shipped UI default of 2.0.
   GPS_DEFAULT: {
-    smoothing: 0.5, kalmanR: 10, maxHdop: 2.0, maxSpeed: 3.0, rdpTolerance: 0, downsample: false, trackWeight: 5, peakLatency: 0
+    smoothing: 0.5, kalmanR: 10, maxHdop: 2.0, maxSpeed: 3.0, rdpTolerance: 0, downsample: false, trackWeight: 5, peakLatency: 2.0
   },
 
   // ── GSR filter defaults ──────────────────────────────────────────────────
@@ -72,7 +73,6 @@ const GSR_CONST = {
   MICROSIEMENS_MAX_AVG: 50000,
 
   // ── Peak detection ──────────────────────────────────────────────────────
-  PEAK_AMPLITUDE_FACTOR: 0.5, // Minimum peak amplitude as fraction of threshold
   PEAK_MIN_GAP: 1.0,          // Minimum gap after peak (seconds)
   PEAK_RECOVERY_BREAK: 0.1,   // Break threshold for recovery search
 
@@ -164,14 +164,21 @@ const GSR_CONST = {
     peakPreservation: 0.5
   },
 
-  // ── Road snapping defaults ──────────────────────────────────────────────
+  // ── Road snapping — map-matcher bearing tuning ───────────────────────────
+  // CORRECTION: an earlier cleanup pass deleted the whole former SNAP block as
+  // "dead" because nothing reads `GSR_CONST.SNAP.*` directly. That check was
+  // too shallow — map_match.js's `_getCandidates()` independently hardcodes
+  // the *same* two values (0.7 and 0.3) inline for its heading-penalty term
+  // and speed gate. Restored just those two, now actually wired (see
+  // map_match.js), and left the rest removed: RADIUS_IN/RADIUS_OUT and
+  // HYST_MARGIN/HYST_SEC described a dual-radius hysteresis state machine
+  // that the current HMM/Viterbi matcher doesn't use (Viterbi gets
+  // path-smoothness from global sequence optimization instead), and
+  // GRID_CELL (25 m) doesn't match the spatial index actually in use
+  // (osm_enrichment.js CELL_SIZE_DEG = 0.001° ≈ 111 m) — those three were
+  // genuinely never implemented, not just disconnected from this constant.
   SNAP: {
-    RADIUS_IN:    12,    // m — snap-in gate (fast commit when clearly on-road)
-    RADIUS_OUT:   25,    // m — snap-out gate (slow release to resist jitter)
-    HEADING_W:    0.7,   // heading penalty weight (0 when speed < SPEED_GATE)
-    HYST_MARGIN:  3,     // m — alternative must be this much closer
-    HYST_SEC:     5,     // s — consecutive seconds to switch way
-    SPEED_GATE:   0.3,   // m/s — suppress bearing penalty below this speed
-    GRID_CELL:    25,    // m — highway-only spatial-index cell size
+    HEADING_W:  0.7,   // heading penalty weight in map-matcher candidate ranking
+    SPEED_GATE: 0.3    // m/s — below this speed, course is unreliable so the heading penalty is skipped
   }
 };
