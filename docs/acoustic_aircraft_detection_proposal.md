@@ -1,23 +1,28 @@
-# Architectural Proposal & Feasibility Report: Acoustic Aircraft Detection on Flipper Zero
+# Architectural Proposal & Feasibility Report: Environmental Sound Level Logging for the Flipper Zero `biomap` Application
 
-This document details the hardware integration, low-level firmware configuration, signal processing math, and temporal logic required to add real-time, low-power acoustic aircraft detection to the Flipper Zero `biomap` application.
+This document details the hardware integration, firmware implementation, signal processing, and temporal gating required to add real-time environmental sound level logging to the BioMapping device. The onboard microphone records a continuous RMS sound level at 10 Hz. Elevated-sound events detected in the field are then cross-referenced against public ADS-B aircraft transponder data in the web analyser to identify genuine flyovers — combining a cheap, always-on hardware sensor with ground-truth aircraft position data available via free APIs.
 
 ---
 
 ## 1. Architectural Overview
 
-To detect aircraft flyovers without compromising skin conductance (GSR) or location (GPS) tracking, we implement the **SparkFun Analog MEMS Microphone Breakout (SPH8878LR5H-1)**. 
+The strategy separates what the hardware can do reliably (measure how loud the environment is) from what needs external data to classify (was that loud thing an aircraft?).
 
-The breakout features a **built-in op-amp amplifier (OPA344) providing a fixed gain**, boosting the raw audio signal to a level that can be read with high resolution. The recommended approach uses the Flipper's internal 12-bit ADC on Pin 6 (PA7), keeping the external ADS1115 100% dedicated to GSR with zero gaps or multiplexing.
+**On the Flipper (firmware):** A **SparkFun Analog MEMS Microphone Breakout (SPH8878LR5H-1)** connects to the Flipper's internal 12-bit ADC on Pin 6 (PA7). The main tick handler samples the ADC for 10 ms every 100 ms, computes the RMS sound level, and logs it to the CSV. A temporal gate detects sustained elevated-sound periods and flags them as `sound_event=1`.
+
+**In the web analyser (post-processing):** The analyser already has GPS coordinates and UTC timestamps for every row. It queries a free ADS-B historical data API (OpenSky Network, ADS-B Exchange) for the recording's time window and bounding box. Any `sound_event=1` segment that coincides with a known aircraft overflight is promoted to a *confirmed aircraft event*. Segments without ADS-B matches remain flagged as *unidentified elevated sound* — still useful for correlating GSR arousal with environmental noise, but not attributed to aircraft.
 
 ```mermaid
 graph TD
-    A[SparkFun SPH8878LR5H-1 Amplified MEMS Mic] -->|Analog Out| B(Flipper Internal ADC - Pin 6 PA7)
+    A[SPH8878LR5H-1 MEMS Mic] -->|Analog Out| B(Flipper Internal ADC - Pin 6 PA7)
     C[Main Tick Handler: 10 Hz] -->|Every 100 ms| D[Sample ADC for 10 ms]
-    D -->|10 samples @ 1 kHz| E[Calculate RMS Power]
-    E -->|Update display.acoustic_rms| F[Session DisplayState]
-    F -->|Batch CSV row| G[SD Card Logging]
-    E -->|Temporal Logic Gate| H[Confirmed Aircraft Flyover Event]
+    D -->|10 samples @ 1 kHz| E[Calculate RMS Sound Level]
+    E -->|Store in DisplayState| F[CSV: sound_rms column]
+    E -->|Temporal Gate| G[sound_event flag]
+    G -->|Logged to CSV| H[CSV: sound_event column]
+    H -->|Post-hoc in analyser| I[ADS-B API query]
+    I -->|Match?| J[Confirmed Aircraft Flyover]
+    I -->|No match| K[Unidentified Elevated Sound]
 ```
 
 ---
@@ -35,7 +40,7 @@ The ADS1115 on the BioMapping breakout has two unused single-ended inputs: **AIN
 
 However, the ADS1115 is configured in **continuous-conversion differential mode** across AIN0–AIN1 (GSR signal minus V_ref). To read AIN2, the MUX register must be switched to a single-ended channel, which halts differential GSR conversion for the duration of the microphone sample window. At 860 SPS, a 10 ms window costs ~8–9 lost GSR samples every 100 ms — a ~9% duty-cycle gap. Each MUX switch also requires an I2C register write (two per cycle: switch-in + switch-back), adding 20 I2C transactions per second to a bus that is already running at full throughput for GSR.
 
-More critically, the ADS1115's 16-bit resolution is wasted here: the amplified microphone signal already spans hundreds of millivolts peak-to-peak (see §5.3). The Flipper's internal 12-bit ADC at 3.3V reference (0.8 mV/LSB) provides ~160–500 counts of signal for a flyover — more than enough dynamic range for RMS power measurement. The 16-bit ADC would deliver ~16× finer quantization, but for a loudness detector (not a spectrum analyzer) the extra bits add no practical value while costing GSR sample gaps and I2C bus contention.
+More critically, the ADS1115's 16-bit resolution is wasted here: the microphone signal at typical outdoor sound levels spans only ~5–40 mV peak-to-peak at the breakout's AUD pin (see §5.2). On the Flipper's internal 12-bit ADC at 3.3V reference (0.8 mV/LSB), that's ~6–50 ADC counts — sufficient for RMS power measurement. The 16-bit ADC would deliver ~16× finer quantization, but for a loudness detector (not a spectrum analyzer) the extra bits add no practical value while costing GSR sample gaps and I2C bus contention.
 
 **Verdict:** The spare AIN pin is technically usable but introduces GSR gaps, I2C bus overhead, and firmware complexity for a resolution improvement that doesn't benefit the use case. The internal ADC path is strictly better.
 
@@ -47,7 +52,7 @@ This architecture achieves continuous 10 Hz acoustic logging with absolutely no 
 
 ### 3.1 Wiring (Minimal)
 
-The SparkFun SPH8878LR5H-1 breakout already includes the OPA344 op-amp with onboard power-supply decoupling and a fixed 65× gain stage. No external filter components are required for the BioMapping use case:
+The SparkFun SPH8878LR5H-1 breakout uses the OPA344 op-amp as a **unity-gain voltage follower** — the op-amp buffers the MEMS element's AC-coupled output at 1× gain, providing a low-impedance output but no voltage amplification. The SPH8878LR5H-1 MEMS capsule itself has a nominal sensitivity of **–38 dBV/Pa** (≈ 12.6 mV RMS at 94 dB SPL / 1 Pa). No external filter components are required for the BioMapping use case:
 
 * **Power decoupling:** The breakout has its own bypass capacitors — the OPA344 is internally compensated and stable without external compensation. The Flipper's 3.3V rail has acceptable ripple for an RMS power measurement where we subtract the DC midpoint.
 * **Signal anti-aliasing:** An RC low-pass filter would be mandatory for FFT-based spectral analysis (to satisfy Nyquist at 500 Hz), but we are measuring **RMS amplitude**, not frequency content. Aliasing folds total energy without distortion in the time domain — the RMS sum is mathematically conserved. The OPA344's natural 19.7 kHz bandwidth already rolls off RF carrier frequencies well above the audible band.
@@ -68,22 +73,22 @@ If RF interference from the Flipper's sub-GHz or BLE radios becomes a concern du
 
 ### 4.1 Compile-Time Feature Flag
 
-Acoustic detection is gated behind a single define in [`biomap_config.h`](../biomap_config.h):
+Sound level logging is gated behind a single define in [`biomap_config.h`](../biomap_config.h):
 
 ```c
-// Acoustic aircraft detection — SparkFun SPH8878LR5H-1 MEMS microphone
+// Environmental sound level logging — SparkFun SPH8878LR5H-1 MEMS microphone
 // on Pin 6 (PA7).  When 0, the firmware is byte-identical to a build
 // without the feature — no extra columns in the CSV, no ADC sampling.
 #define BIOMAP_FEATURE_ACOUSTIC  0  // 0 = disabled, 1 = enabled
 ```
 
-When `BIOMAP_FEATURE_ACOUSTIC` is 0, all acoustic code is stripped by the preprocessor. The CSV stays at the canonical 10 columns. When set to 1, two columns are appended (`acoustic_rms`, `aircraft_event`) and the tick handler runs the sampling routine below.
+When `BIOMAP_FEATURE_ACOUSTIC` is 0, all acoustic code is stripped by the preprocessor. The CSV stays at the canonical 10 columns. When set to 1, two columns are appended (`sound_rms`, `sound_event`) and the tick handler runs the sampling routine below.
 
 ### 4.2 Integration Into the Main Tick Handler
 
-Rather than a standalone thread (which would drift relative to the 10 Hz `FuriTimer`), acoustic sampling runs inline inside `handle_recording_tick()` in [`biomap_session.c`](../biomap_session.c). This guarantees that the acoustic RMS value written to each CSV row corresponds to the same 100 ms window as the GSR and GPS data in that row — no desynchronization, no extra mutex contention, no additional thread stack.
+Rather than a standalone thread (which would drift relative to the 10 Hz `FuriTimer`), acoustic sampling runs inline inside `handle_recording_tick()` in [`biomap_session.c`](../biomap_session.c). This guarantees that the sound RMS value written to each CSV row corresponds to the same 100 ms window as the GSR and GPS data in that row.
 
-The sampling window (10 ms of ADC reads) fits comfortably within the 100 ms tick budget. The GSR `gsr_sensor_tick()` call already blocks for ~1 ms; adding 10 ms of ADC sampling brings the tick handler to ~11 ms, leaving 89 ms of headroom per cycle on the Cortex-M4 @ 64 MHz.
+**Mutex consideration:** The tick handler holds `app->mutex` while `acoustic_tick()` runs. The 10 ms of `furi_delay_us(1000)` busy-wait blocks the GUI render callback (`biomap_render_callback`) for that window — roughly 10% of each 100 ms frame cycle. The STM32WB55 has no hardware FPU, so the soft-float `sqrt()` and double-precision accumulation add ~300 µs on top. The effective tick-handler duration is ~12 ms, leaving ~88 ms headroom. The brief render stall (1 in every ~10 frames) is unlikely to be visible on the Flipper's LCD.
 
 ```c
 #include <furi.h>
@@ -92,12 +97,15 @@ The sampling window (10 ms of ADC reads) fits comfortably within the 100 ms tick
 
 #if BIOMAP_FEATURE_ACOUSTIC
 
-#define ACOUSTIC_NUM_SAMPLES  10
-#define ACOUSTIC_ADC_MIDPOINT 2048.0f  // 12-bit ADC midpoint (VCC/2)
+#define ACOUSTIC_NUM_SAMPLES   10
+#define ACOUSTIC_BIAS_INIT      2048.0f   // 12-bit ADC midpoint (VCC/2)
+#define ACOUSTIC_BIAS_ALPHA     0.001f    // EMA time constant ≈ 100 s at 10 Hz
+#define ACOUSTIC_MIC_PRESENT_MIN 1900     // ADC counts — plausible bias floor
+#define ACOUSTIC_MIC_PRESENT_MAX 2200     // ADC counts — plausible bias ceiling
 
 // Called once per tick (10 Hz) from handle_recording_tick().
 // Samples the internal ADC for 10 ms, computes RMS, and stores the
-// result in s->display.acoustic_rms.  Must be called while app->mutex
+// result in s->display.sound_rms.  Must be called while app->mutex
 // is held (the tick handler already holds it).
 static void acoustic_tick(Session* s) {
     uint16_t samples[ACOUSTIC_NUM_SAMPLES];
@@ -111,13 +119,44 @@ static void acoustic_tick(Session* s) {
 
     furi_hal_bus_disable(FuriHalBusADC);
 
-    // RMS with DC-offset removal
+    // ── Microphone presence detection ──────────────────────────────
+    // A floating pin (mic disconnected or wire broken) drifts toward
+    // rail.  If the raw mean falls outside the plausible bias window,
+    // treat the mic as absent and skip RMS — prevents garbage data.
+    uint32_t raw_sum = 0;
+    for (uint8_t i = 0; i < ACOUSTIC_NUM_SAMPLES; i++) raw_sum += samples[i];
+    float raw_mean = (float)raw_sum / ACOUSTIC_NUM_SAMPLES;
+
+    bool mic_present = (raw_mean >= ACOUSTIC_MIC_PRESENT_MIN &&
+                        raw_mean <= ACOUSTIC_MIC_PRESENT_MAX);
+
+    if (!mic_present) {
+        s->display.sound_rms   = 0.0f;
+        s->display.mic_present = false;
+        return;
+    }
+    s->display.mic_present = true;
+
+    // ── Slow-tracking EMA bias (rejects signal, tracks rail drift) ─
+    // Initialised to 2048 on first tick; decays toward the raw mean
+    // with a ~100 s time constant.  Aircraft flyovers (tens of seconds)
+    // are too brief to pull the bias; rail voltage drift (minutes to
+    // hours) is tracked continuously.  No dedicated calibration phase.
+    if (!s->display.bias_primed) {
+        s->display.sound_bias = raw_mean;
+        s->display.bias_primed = true;
+    } else {
+        s->display.sound_bias += ACOUSTIC_BIAS_ALPHA *
+            (raw_mean - s->display.sound_bias);
+    }
+
+    // ── RMS with DC-offset removal ─────────────────────────────────
     double sum_squares = 0;
     for (uint8_t i = 0; i < ACOUSTIC_NUM_SAMPLES; i++) {
-        float val = (float)samples[i] - s->display.acoustic_bias;
+        float val = (float)samples[i] - s->display.sound_bias;
         sum_squares += (double)(val * val);
     }
-    s->display.acoustic_rms = (float)sqrt(sum_squares / ACOUSTIC_NUM_SAMPLES);
+    s->display.sound_rms = (float)sqrt(sum_squares / ACOUSTIC_NUM_SAMPLES);
 }
 
 #endif // BIOMAP_FEATURE_ACOUSTIC
@@ -129,64 +168,155 @@ static void acoustic_tick(Session* s) {
 
 ### 5.1 Frequency Response Limits & Aliasing
 * The breakout's OPA344 op-amp has a hardware-defined frequency response of **7.2 Hz to 19.7 kHz**.
+* The MEMS capsule's own response is specified from **100 Hz to 10 kHz** (±3 dB), rolling off below 100 Hz.
 * Because the Flipper samples the ADC at 1 kHz, the Nyquist frequency is **500 Hz**. Any sounds above 500 Hz will technically alias into the measurement band.
 * **Why this is safe:** Because we are measuring **RMS amplitude (total sound power)** rather than performing spectral analysis (FFT), aliasing does not distort our loudness reading. Total energy remains mathematically conserved in the time domain. 
 * To prevent very high frequency RF carrier signals (e.g. Flipper's radio transmissions) from corrupting the readings, the OPA344's natural 19.7 kHz bandwidth already attenuates RF. If needed, an optional single-pole RC low-pass (see §3.1) can be added.
 
-### 5.2 Dynamic DC Bias Auto-Calibration (Software)
-The OPA344 output floats at **1/2 VCC** (nominally 1.65V, or 2048 ADC counts) when all is quiet. However, resistor tolerances and Flipper power rail fluctuations (e.g. when the LCD backlight turns on) will shift the quiet bias slightly (e.g. 2030 or 2060 counts).
-* **Firmware Fix:** At the start of a recording session, the tick handler samples the ADC for 100 ms under quiet conditions to calculate a **dynamic DC offset bias**, stored in `s->display.acoustic_bias`. This replaces the hardcoded `2048.0f` constant, ensuring perfect symmetry in the AC calculations.
+### 5.2 Minimum and Maximum Detectable Sound Levels
 
-### 5.3 Quiet Noise Floor & Outdoor Saturation Thresholds (Acoustic Feasibility)
-* **The Noise Floor (Quiet Limits):** The SPH8878LR5H-1 has a self-noise floor of 29 dBA SPL. Quiet sounds below **45 dB SPL** (like whispering or light wind) produce voltages under 1.5 mV peak-to-peak (<2 ADC divisions). These merge into the Flipper's ADC noise floor and are ignored, which is appropriate for aircraft tracking.
-* **The Saturation Point (Loud Limits):** While the raw silicon capsule can handle **134 dB SPL** before distorting, the breakout's 65x gain op-amp operates on a 3.3V rail. The op-amp output will saturate (clip) when the signal exceeds **103 dB SPL** (3.3V peak-to-peak swing).
-* **Outdoor Feasibility:** An outdoor commercial jet flyover at 1,000–2,000 feet typically peaks at **70 dB to 85 dB SPL** at ground level. This produces a clean **130 mV to 400 mV peak-to-peak swing**, sitting comfortably within the op-amp's linear headroom without saturating or clipping. The sensor will only clip in extreme noise environments (>103 dB SPL, e.g. standing directly next to sirens, lawnmowers, or construction machinery).
+The SPH8878LR5H-1 MEMS capsule has a nominal sensitivity of **–38 dBV/Pa** and the OPA344 buffers it at **unity gain** (1×). The Flipper's 12-bit ADC has a 3.3V reference, giving 0.806 mV/LSB. The table below maps sound pressure levels to the resulting signal at the ADC input and the usable ADC counts above the DC bias:
+
+| Environment | SPL (dBA) | Pressure (Pa) | Mic output (mV RMS) | pk–pk at AUD pin (mV) | ADC counts pk–pk | Detectable? |
+|---|---|---|---|---|---|---|
+| Threshold of hearing | 0 | 0.00002 | 0.00025 | 0.0007 | <1 | ❌ Below self-noise |
+| Quiet library / light wind | 35 | 0.0011 | 0.014 | 0.04 | <1 | ❌ Below ADC noise floor |
+| Quiet countryside night | 45 | 0.0035 | 0.045 | 0.13 | <1 | ❌ Below ADC noise floor |
+| Normal conversation at 1 m | 60 | 0.02 | 0.25 | 0.71 | <1 | ❌ Below ADC noise floor |
+| **Busy street / background traffic** | **70** | **0.063** | **0.79** | **2.2** | **~3** | **⚠️ Marginal — near quantization limit** |
+| Vacuum cleaner at 1 m | 75 | 0.11 | 1.4 | 4.0 | ~5 | ✅ Faint but measurable |
+| **Jet flyover at 2 000 ft** | **80** | **0.20** | **2.5** | **7.1** | **~9** | **✅ Clearly detectable** |
+| Jet flyover at 1 000 ft | 90 | 0.63 | 7.9 | 22 | ~28 | ✅ Strong signal |
+| Jet flyover at 500 ft | 100 | 2.0 | 25 | 71 | ~88 | ✅ Very strong |
+| Rock concert / ambulance siren | 110 | 6.3 | 79 | 225 | ~279 | ✅ Strong — approaching clip |
+| **Op-amp saturation (3.3V rail)** | **~118** | **16** | **200** | **566 → clips** | **~702 → clips** | **⚠️ Clips at rail** |
+| Jet engine at 30 m / pain threshold | 130 | 63 | 794 | — | — | ❌ MEMS element distorts |
+
+**Key takeaways:**
+* **Minimum detectable:** ~70 dBA (busy street). Below this, the signal is lost in the ADC's quantization noise (1 LSB = 0.8 mV). This is the effective noise floor of the system, not the MEMS capsule itself.
+* **Sweet spot:** 80–100 dBA. Jet flyovers at typical overflight altitudes (1 000–2 000 ft) produce 9–88 ADC counts peak-to-peak — easily measurable.
+* **Maximum before clipping:** ~118 dBA. At this level the OPA344 output hits the 3.3V rail. This is extremely loud — standing next to an ambulance siren or directly under a very low helicopter — and unlikely during normal BioMapping walks.
+* **The system cannot measure ambient/quiet soundscapes.** A quiet park (~45 dBA), a residential street at night (~50 dBA), or normal conversation (~60 dBA) produce <1 ADC count of signal. The sensor only registers *elevated* sound events. This is appropriate for the use case (detecting loud vehicles and aircraft against a quiet baseline) but means the `sound_rms` column will read near-zero for most of a recording.
+
+### 5.3 Slow-Tracking EMA Bias (Software)
+The OPA344 output floats at **1/2 VCC** (nominally 1.65V, or 2048 ADC counts) when all is quiet. Resistor tolerances and Flipper power rail fluctuations (backlight, battery voltage droop) shift this bias over minutes to hours — from ~2030 to ~2060 counts across a recording session.
+
+A one-shot calibration at session start is fragile: if the user presses OK while standing next to a road, the bias captures traffic noise instead of silence. Instead, the firmware maintains a **slow-tracking exponential moving average** ($\alpha = 0.001$, time constant $\approx 100$ seconds at 10 Hz):
+
+$$bias_t = bias_{t-1} + 0.001 \times (raw\_mean_t - bias_{t-1})$$
+
+This continuously tracks rail voltage drift (slow, minutes-to-hours) while rejecting the aircraft signal itself (transient, tens of seconds). The bias is initialised to 2048 on the first tick and converges to the true quiet-state midpoint within the first ~2 minutes of recording. No dedicated calibration phase is needed.
 
 ---
 
-## 6. Rolling Temporal Gating Logic
+## 6. Elevated-Sound Event Detection (Temporal Gating)
 
-To filter out transient noise spikes (barking dogs, slamming doors), the rolling gate checks for a sustained elevated loudness threshold over **30 seconds** (6 consecutive elevated 5-second bins or a sliding window of 10 Hz frames).
+The microphone measures broadband RMS sound level — it cannot distinguish an aircraft from a truck, a motorcycle, or a construction site. The firmware's job is simply to detect *sustained elevated sound* and flag it. Source classification (was this an aircraft?) happens later in the web analyser via ADS-B data matching (see §7.3).
+
+### 6.1 Adaptive Threshold
+
+A fixed RMS threshold is brittle across recordings — different environments have different baseline noise floors. Instead, the threshold is derived from a long-running quiet-period baseline:
+
+$$threshold = baseline\_rms + margin$$
+
+Where `baseline_rms` is a slow EMA ($\alpha = 0.0005$, time constant $\approx 200$ s) of `sound_rms` values that fall below the current threshold (i.e., only quiet periods update the baseline — loud periods are excluded so they don't ratchet the threshold upward). The `margin` is a configurable offset (default: 3 ADC counts, corresponding to roughly a 5–6 dB increase above the local noise floor).
+
+This means the gate automatically adapts: a recording in a quiet park triggers on moderate sounds; a recording next to a busy road requires genuinely loud events to cross the threshold.
+
+### 6.2 State Machine (Symmetric Hysteresis)
+
+The gate uses symmetric arm/disarm timing to avoid the asymmetry problem where a 15-second flyover produces 45+ seconds of `sound_event=1`:
+
+| Parameter | Value | Rationale |
+|---|---|---|
+| Arm count | 30 frames (3 s) | `sound_rms > threshold` for 3 consecutive seconds before `sound_event` flips to 1. Filters door slams, dog barks, single car pass. |
+| Disarm count | 30 frames (3 s) | `sound_rms < threshold` for 3 consecutive seconds before `sound_event` flips back to 0. Prevents flickering during brief lulls within a sustained loud event. |
 
 ```
-   +--------------------+  RMS > Threshold  +----------------------+
-   |                    | ----------------> |                      |
-   |     Idle / Quiet   |                   |  Sustained Elevated  |
-   |                    | <---------------- |  (Count 1..5)        |
-   +--------------------+   RMS < Threshold +----------------------+
-            ^                                          |
-            |                                          | Count reaches 6
-            |                                          v
-            |       Acoustic Decays             +----------------------+
-            +---------------------------------- |                      |
-                     (6 consecutive quiet       |  Confirmed Flyover   |
-                      snapshots = 30s)          |  Event Active        |
-                                                +----------------------+
+                         sound_rms > threshold
+   +---------------+  (counter increments each tick)  +------------------+
+   |               | -------------------------------> |                  |
+   |   IDLE        |                                  |   ARMING         |
+   | sound_event=0 | <------------------------------- |   counter: 1..29  |
+   |               |  sound_rms < threshold           |                  |
+   +---------------+  (counter resets to 0)           +------------------+
+          ^                                                    |
+          |                                      counter reaches 30
+          |                                                    v
+          |                                           +------------------+
+          |                                           |                  |
+          |                                           |   ACTIVE         |
+          |                                           | sound_event=1    |
+          |                                           |                  |
+          |                                           +------------------+
+          |                                                    |
+          |                                      sound_rms < threshold
+          |                                      (counter increments)
+          |                                                    v
+          |                                           +------------------+
+          |                                           |                  |
+          +------------------------------------------ |   DISARMING      |
+                         counter reaches 30           |   counter: 1..29  |
+                         sound_event flips to 0       |                  |
+                                                      +------------------+
+                                                               |
+                                                               | sound_rms > threshold
+                                                               | (counter resets — stays ACTIVE)
+                                                               v
+                                                           [back to ACTIVE]
 ```
+
+With symmetric 3-second arm/disarm, a 15-second flyover produces approximately 15 seconds of `sound_event=1` (plus up to 3 seconds of tail if the sound fades gradually). Transient loud events shorter than 3 seconds are fully rejected.
 
 ---
 
 ## 7. Data Logging & Dashboard Analyzer Integration
-
-The session updates are logged synchronously to the SD card.
 
 ### 7.1 CSV Logging Format
 
 When `BIOMAP_FEATURE_ACOUSTIC` is enabled, two columns are appended to the canonical 10-column schema:
 
 ```csv
-timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,acoustic_rms,aircraft_event
-12.30,51.5074,-0.1278,1.2,1.5,12,3,4.50,182.3,12450.5,182.4,1
+timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,sound_rms,sound_event
+12.30,51.5074,-0.1278,1.2,1.5,12,3,4.50,182.3,12450.5,4.2,1
 ```
 
 | # | Column | Type | Unit | Notes |
 |---|---|---|---|---|
-| 11 | `acoustic_rms` | float | ADC counts | RMS amplitude above DC bias. `0.0` when feature disabled or mic absent. |
-| 12 | `aircraft_event` | int | boolean | `1` = confirmed flyover active this tick, `0` otherwise. |
+| 11 | `sound_rms` | float | ADC counts | RMS amplitude above EMA bias. Near-zero for quiet environments (<70 dBA). `0.0` when mic disconnected. |
+| 12 | `sound_event` | int | boolean | `1` = sustained elevated sound detected by temporal gate (≥3 s above adaptive threshold), `0` otherwise. Source classification is performed post-hoc in the analyser. |
 
 When `BIOMAP_FEATURE_ACOUSTIC` is 0, columns 11–12 are absent and the CSV is byte-identical to the canonical 10-column format defined in [`csv_schema.md`](csv_schema.md).
 
-### 7.2 Web Dashboard Analyzer
-In the browser analyzer:
-* **Correlation Index:** Automatically aligns the rolling `acoustic_rms` timeline against the user's skin conductance tonic/phasic levels.
-* **Latency Compensation:** Integrates a latency shift slider to shift the GSR timeline backwards (typically 1.5–3.0 seconds) relative to the aircraft noise onset to correlate sweat response peaks with flyovers.
+### 7.2 Web Dashboard Analyser — Sound Level Display
+
+In the browser analyser:
+* **Sound Level Timeline:** The `sound_rms` column is rendered as a second trace below the GSR tonic/phasic graph, sharing the same time axis.
+* **Event Marker Overlay:** `sound_event=1` segments are highlighted as coloured bands behind the GSR trace so elevated-sound periods are visually aligned with arousal data.
+* **Latency Compensation:** A shift slider offsets the sound timeline relative to GSR (default: 0 s; adjustable 0–6 s). Skin conductance responses to startling noises typically peak 1.5–3.0 seconds after stimulus onset.
+
+### 7.3 Post-Hoc Aircraft Identification via ADS-B Data
+
+The analyser imports public aircraft transponder data to determine which `sound_event=1` segments correspond to actual overflights:
+
+**Data sources (free, no API key required):**
+* **OpenSky Network** (`opensky-network.org`): Historical ADS-B tracks via REST API. Covers ~70% of commercial flights (Mode-S + ADS-B). Rate-limited to ~400 requests/day for anonymous users — sufficient for a few recording sessions.
+* **ADS-B Exchange** (`adsbexchange.com`): Community-fed global coverage, including many general-aviation and military aircraft that OpenSky filters. Higher completeness for non-commercial flights.
+
+**Matching algorithm (runs in-browser after CSV load):**
+1. Extract the recording's UTC time window and GPS bounding box from the CSV header and position data.
+2. Query the ADS-B API for all flights intersecting that bounding box during that time window.
+3. For each `sound_event=1` segment in the CSV, compute the minimum 3D distance between the user's GPS track and each candidate aircraft using timestamp-aligned interpolation of the aircraft's barometric altitude and lat/lon.
+4. If any aircraft passes within a configurable radius (default: 2 km horizontal, 3 000 ft vertical) during the segment, the segment is tagged as a **confirmed aircraft overflight**.
+5. Segments with no ADS-B match remain as **unidentified elevated sound** — still visible in the correlation analysis but not attributed to aircraft.
+
+**Why this is better than trying to classify aircraft from the microphone alone:**
+* Zero false positives from trucks, motorcycles, construction, or helicopters not in the ADS-B database.
+* The microphone provides the *timing* of the loud event (when did the user's body hear it?); ADS-B provides the *identity* (was that actually an aircraft, and how close was it?).
+* Both `sound_rms` and aircraft proximity can be plotted against GSR simultaneously — the analyser can show whether arousal correlates with raw loudness, confirmed overflights, or both.
+
+**Limitations:**
+* Light aircraft without ADS-B transponders (ultralights, some private planes) are invisible to the API.
+* Military jets with transponders disabled won't appear.
+* OpenSky's historical data has a ~2-hour ingestion delay; same-day analysis requires the live API.
+* The matching is only as good as the GPS fix — if the Flipper has poor satellite coverage, the user's position may be too imprecise to reliably compute aircraft proximity.
