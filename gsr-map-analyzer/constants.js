@@ -44,7 +44,44 @@ const GSR_CONST = {
     shapeMinRiseTime: 0, shapeMaxRiseTime: 0,
     shapeMinHalfRecovery: 0, shapeMaxHalfRecovery: 0,
     shapeMinSnr: 0, shapeMaxSkewRatio: 0,
-    minPeakQuality: 0.0
+    minPeakQuality: 0.0,
+    useDeconvolution: false
+  },
+
+  // ── SCR deconvolution (Benedek & Kaernbach, 2010) ────────────────────────
+  // Bi-exponential (Bateman) SCRF kernel parameters. When useDeconvolution is
+  // enabled, GSRAnalyzer._runDeconvolutionPipeline() runs ONE global
+  // nonnegative deconvolution of the whole phasic trace against this kernel,
+  // recovering a sparse driver signal. Each driver impulse becomes a peak
+  // directly (bypassing detectPeaks() entirely for that analysis run), with
+  // shape metrics (rise time, half-recovery, skew, FWHM) derived analytically
+  // from the kernel rather than measured per-event — this is intentional and
+  // matches the published method: fixing one canonical response shape per
+  // recording is what makes amplitude the only free parameter, which is what
+  // makes overlapping/superposed SCRs separable in the first place. The
+  // reconvolved, superposition-resolved signal (phasicClean) replaces
+  // this.phasic and feeds all downstream continuous metrics (AUC, temporal
+  // density, arousal index).
+  SCRF: {
+    tauSlow: 2.0,       // Decay (slow) time constant (s) — Benedek & Kaernbach Table 1
+    tauFast: 0.75,      // Rise (fast) time constant (s)
+    kernelSec: 5.0,     // Kernel duration (s) — <8 % residual at 5 s
+    // Max matching-pursuit iterations — this is a GLOBAL, whole-track budget
+    // (one deconvolve() pass per analyze() call, not per-peak), so it must
+    // scale with recording length/density. Measured on a 920s/9200-sample
+    // busy walking track: natural convergence (residual < convTol) occurred
+    // at 424 iterations, in ~3ms even with a 2000 cap — so 2000 is a
+    // generous ceiling that's expected to rarely bind, not a value tuned to
+    // this one recording. A value in the 30-50 range (left over from an
+    // earlier per-peak ±5s-window design) silently truncates long/busy
+    // tracks well before convergence, discarding genuine SCRs with no
+    // indication anything was cut short — always check `iterations` in the
+    // return value against maxIter if tuning this further.
+    maxIter: 2000,
+    lr: 1.0,            // Atom amplitude scale (1.0 = full subtraction)
+    convTol: 0.01,      // Stop when residual max < this (µS)
+    impulseThreshold: 0.005,  // Min driver amplitude for an impulse (µS)
+    minImpulseGapSec: 0.5     // Min gap between impulses (s)
   },
 
   // ── CSV parsing keywords ─────────────────────────────────────────────────

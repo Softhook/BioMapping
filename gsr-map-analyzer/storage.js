@@ -43,7 +43,8 @@ const GSRStorage = {
       shapeMinHalfRecovery:  sliderVal(S.shapeMinHalfRecovery, PS.MIN_HALF_RECOVERY),
       shapeMaxHalfRecovery:  sliderVal(S.shapeMaxHalfRecovery, PS.MAX_HALF_RECOVERY),
       shapeMinSnr:           sliderVal(S.shapeMinSnr,          PS.MIN_SNR),
-      shapeMaxSkewRatio:     sliderVal(S.shapeMaxSkewRatio,    PS.SKEWNESS_RATIO_MAX)
+      shapeMaxSkewRatio:     sliderVal(S.shapeMaxSkewRatio,    PS.SKEWNESS_RATIO_MAX),
+      useDeconvolution:       (S.useDeconvolution && S.useDeconvolution.checked) || false
     };
   },
 

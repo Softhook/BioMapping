@@ -28,7 +28,19 @@ module.exports = {
     shapeMinRiseTime: 0, shapeMaxRiseTime: 0,
     shapeMinHalfRecovery: 0, shapeMaxHalfRecovery: 0,
     shapeMinSnr: 0, shapeMaxSkewRatio: 0,
-    minPeakQuality: 0.0
+    minPeakQuality: 0.0,
+    useDeconvolution: false
+  },
+
+  SCRF: {
+    tauSlow: 2.0,
+    tauFast: 0.75,
+    kernelSec: 5.0,
+    maxIter: 2000,
+    lr: 1.0,
+    convTol: 0.01,
+    impulseThreshold: 0.005,
+    minImpulseGapSec: 0.5
   },
 
   TIME_KEYWORDS: ['time', 'sec', 'timestamp', 'millis', 'ms'],

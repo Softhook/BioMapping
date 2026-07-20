@@ -17,11 +17,58 @@ const GsrFilter = {
     const result = new Array(n);
     const half = Math.floor(windowSize / 2);
 
+    const sortedWindow = [];
+    for (let i = 0; i <= Math.min(half, n - 1); i++) {
+      sortedWindow.push(arr[i]);
+    }
+    sortedWindow.sort((a, b) => a - b);
+
+    function insertSorted(val) {
+      let low = 0;
+      let high = sortedWindow.length;
+      while (low < high) {
+        const mid = (low + high) >>> 1;
+        if (sortedWindow[mid] < val) {
+          low = mid + 1;
+        } else {
+          high = mid;
+        }
+      }
+      sortedWindow.splice(low, 0, val);
+    }
+
+    function removeSorted(val) {
+      let low = 0;
+      let high = sortedWindow.length - 1;
+      let foundIdx = -1;
+      while (low <= high) {
+        const mid = (low + high) >>> 1;
+        if (sortedWindow[mid] === val) {
+          foundIdx = mid;
+          break;
+        } else if (sortedWindow[mid] < val) {
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
+      }
+      if (foundIdx !== -1) {
+        sortedWindow.splice(foundIdx, 1);
+      }
+    }
+
     for (let i = 0; i < n; i++) {
-      const start = Math.max(0, i - half);
-      const end = Math.min(n - 1, i + half);
-      const window = arr.slice(start, end + 1).sort((a, b) => a - b);
-      result[i] = window[Math.floor(window.length / 2)];
+      if (i > 0) {
+        const leftOut = i - 1 - half;
+        if (leftOut >= 0) {
+          removeSorted(arr[leftOut]);
+        }
+        const rightIn = i + half;
+        if (rightIn < n) {
+          insertSorted(arr[rightIn]);
+        }
+      }
+      result[i] = sortedWindow[Math.floor(sortedWindow.length / 2)];
     }
     return result;
   },
@@ -35,12 +82,59 @@ const GsrFilter = {
     const result = new Array(n);
     const half = Math.floor(windowSize / 2);
 
+    const sortedWindow = [];
+    for (let i = 0; i <= Math.min(half, n - 1); i++) {
+      sortedWindow.push(arr[i]);
+    }
+    sortedWindow.sort((a, b) => a - b);
+
+    function insertSorted(val) {
+      let low = 0;
+      let high = sortedWindow.length;
+      while (low < high) {
+        const mid = (low + high) >>> 1;
+        if (sortedWindow[mid] < val) {
+          low = mid + 1;
+        } else {
+          high = mid;
+        }
+      }
+      sortedWindow.splice(low, 0, val);
+    }
+
+    function removeSorted(val) {
+      let low = 0;
+      let high = sortedWindow.length - 1;
+      let foundIdx = -1;
+      while (low <= high) {
+        const mid = (low + high) >>> 1;
+        if (sortedWindow[mid] === val) {
+          foundIdx = mid;
+          break;
+        } else if (sortedWindow[mid] < val) {
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
+      }
+      if (foundIdx !== -1) {
+        sortedWindow.splice(foundIdx, 1);
+      }
+    }
+
     for (let i = 0; i < n; i++) {
-      const start = Math.max(0, i - half);
-      const end = Math.min(n - 1, i + half);
-      const window = arr.slice(start, end + 1).sort((a, b) => a - b);
-      const targetIdx = Math.floor(window.length * percentile);
-      result[i] = window[targetIdx];
+      if (i > 0) {
+        const leftOut = i - 1 - half;
+        if (leftOut >= 0) {
+          removeSorted(arr[leftOut]);
+        }
+        const rightIn = i + half;
+        if (rightIn < n) {
+          insertSorted(arr[rightIn]);
+        }
+      }
+      const targetIdx = Math.floor(sortedWindow.length * percentile);
+      result[i] = sortedWindow[targetIdx];
     }
     return result;
   },

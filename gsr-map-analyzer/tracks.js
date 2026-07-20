@@ -353,6 +353,7 @@ const GSRTrackManager = {
 
     for (const key of gsrKeys) {
       if (params[key] !== undefined && S[key]) {
+        delete S[key].dataset.customValue;
         S[key].value = params[key];
       }
     }

@@ -23,6 +23,13 @@ class GSRAnalyzer {
     this.phasicAUC = [];    // Sliding-window Phasic AUC (ISCR): { time, val } — µS·s
     this.arousalIndex = []; // Combined tonic+phasic z-scored blend: { time, val }
 
+    // Deconvolution state (Benedek & Kaernbach, 2010).
+    this.phasicDriver = [];       // Raw driver signal: { time, val }
+    this.phasicClean = [];        // Reconstructed clean phasic
+    this.phasicDriverPeaks = [];  // Driver impulse list
+    this.phasicDeconvTruncated = false; // True if matching pursuit hit maxIter before converging
+    this._phasicOrig = null;      // Pre-deconvolution phasic backup (only set when deconvolution is on)
+
     this.sampleRate = 10;   // In Hz, auto-detected
     this.isResistance = false; // Whether original CSV was resistance (Ohms)
     this.filteredGps = [];
@@ -716,8 +723,25 @@ class GSRAnalyzer {
     this.phasicZ = GsrFilter.standardizeSignal(this.phasic);
     this.phasicStd = GsrFilter.calculateStats(phasicVals).std;
 
-    // 5. Phasic Peak Detection (with shape criteria from sliders)
-    this.detectPeaks(params.peakThreshold, params);
+    // 5. Phasic Peak Detection.
+    // Either trough-to-peak shape-criteria detection (default), or — when
+    // deconvolution is enabled — a single global SCR deconvolution pass that
+    // replaces this.phasic with a resolved, superposition-free reconstruction
+    // and builds peaks directly from its driver impulses. These are mutually
+    // exclusive: deconvolution supersedes detectPeaks() rather than refining
+    // its output, so there is exactly one pipeline building this.peaks per
+    // analyze() call, and no risk of the two pipelines double-counting the
+    // same SCR from overlapping local windows.
+    if (params.useDeconvolution) {
+      this._runDeconvolutionPipeline(phasicVals, params);
+    } else {
+      this.phasicDriver = [];
+      this.phasicClean = [];
+      this.phasicDriverPeaks = [];
+      this.phasicDeconvTruncated = false;
+      this._phasicOrig = null; // clear stale backup from a prior deconvolution run
+      this.detectPeaks(params.peakThreshold, params);
+    }
 
     // 6. Continuous, threshold-independent arousal metrics (ISCR/AUC + combined index)
     this.peakDensity = this.computeTemporalPeakDensity();
@@ -729,8 +753,304 @@ class GSRAnalyzer {
   }
 
   /**
-   * Pre-compute global Y-ranges and timeline glyph data so draw() doesn't
-   * have to scan the full dataset every redraw.
+   * Derive shape metrics (rise time, half-recovery time, skewness ratio,
+   * FWHM, peak onset slope) analytically from a canonical SCRF kernel.
+   * Per Benedek & Kaernbach (2010) and the equivalent Ledalab/cvxEDA
+   * deconvolution methods, the kernel's rise/decay time constants are
+   * treated as fixed across an entire recording — the whole point of
+   * deconvolving against ONE canonical response shape is that amplitude
+   * becomes the only free parameter per event, which is what makes
+   * superposed/overlapping SCRs separable in the first place. Individual
+   * empirically-measured shape metrics (as detectPeaks() computes) are not
+   * meaningful once a peak is defined by "how much of the canonical kernel
+   * fits here", so every deconvolution-derived peak legitimately shares
+   * these same values — this is expected behavior, not a loss of fidelity.
+   * @private
+   */
+  _kernelShapeMetrics(kernel, dt) {
+    const kLen = kernel.length;
+    let kPeakIdx = 0;
+    for (let i = 0; i < kLen; i++) {
+      if (kernel[i] > kernel[kPeakIdx]) kPeakIdx = i;
+    }
+    const riseTime = kPeakIdx * dt;
+    let kHalfIdx = kPeakIdx;
+    for (let i = kPeakIdx; i < kLen; i++) {
+      if (kernel[i] <= 0.5) { kHalfIdx = i; break; }
+    }
+    const halfRecoveryTime = (kHalfIdx - kPeakIdx) * dt;
+    let onsetSlopeUnit = 0;
+    for (let i = 1; i <= kPeakIdx; i++) {
+      const s = (kernel[i] - kernel[i - 1]) / dt;
+      if (s > onsetSlopeUnit) onsetSlopeUnit = s;
+    }
+    const skewnessRatio = halfRecoveryTime > 0 ? riseTime / halfRecoveryTime : 0;
+    let kFwhmStart = 0, kFwhmEnd = kLen - 1;
+    for (let i = 0; i <= kPeakIdx; i++) {
+      if (kernel[i] >= 0.5) { kFwhmStart = i; break; }
+    }
+    for (let i = kPeakIdx; i < kLen; i++) {
+      if (kernel[i] <= 0.5) { kFwhmEnd = i; break; }
+    }
+    const fwhm = (kFwhmEnd - kFwhmStart) * dt;
+    return { kPeakIdx, riseTime, halfRecoveryTime, onsetSlopeUnit, skewnessRatio, fwhm };
+  }
+
+  /**
+   * Decide whether two time-adjacent deconvolution-derived peaks are really
+   * riding on one continuous elevated region of the *original* phasic signal
+   * (and should be consolidated into one event) or are separated by a
+   * genuine return toward baseline (and should stay separate).
+   *
+   * Uses a scale-relative "half-max" criterion, deliberately not an absolute
+   * µS floor: an earlier version used GSR_CONST.PEAK_RECOVERY_BREAK (0.1µS,
+   * the fixed constant detectPeaks() uses for its own recovery-break check)
+   * directly, and it over-merged badly — confirmed on real data, it collapsed
+   * a 161-impulse track down to 2 "peaks". The problem is scale: this
+   * dataset's typical peak height is ~0.03-0.06µS, so a 0.1µS absolute floor
+   * can never be satisfied between two ordinary small peaks even when they
+   * ARE genuinely separate events, merging almost everything. Requiring the
+   * trough to drop below 50% of the smaller peak's own height instead scales
+   * correctly for both small and large peaks — the same "halfway back to
+   * baseline" convention detectPeaks() itself uses for its half-recovery
+   * search, just expressed relative to peak height rather than an absolute
+   * constant tuned for a different context.
+   * @private
+   */
+  _sameElevatedRun(peakA, peakB, phasicVals) {
+    let trough = Infinity;
+    for (let i = peakA.index; i <= peakB.index; i++) {
+      if (phasicVals[i] < trough) trough = phasicVals[i];
+    }
+    const smallerPeakVal = Math.min(peakA.value, peakB.value);
+    return trough > 0.5 * smallerPeakVal;
+  }
+
+  /**
+   * SCR Deconvolution Pipeline (Benedek & Kaernbach, 2010).
+   *
+   * Runs ONE global nonnegative deconvolution over the entire phasic trace
+   * (not a per-peak local window) against a canonical bi-exponential SCRF
+   * kernel, recovering a sparse "driver" signal whose impulses each
+   * correspond to one SCR — superposed/overlapping responses that a
+   * trough-to-peak detector undercounts become separable because each
+   * impulse only has to explain the residual left after every other impulse
+   * already placed has been subtracted out.
+   *
+   * A single global pass (rather than independently deconvolving a window
+   * around each already-detected peak) is deliberate: it's both what the
+   * published method actually does, and it avoids a real bug the previous
+   * per-peak-window version had — independently re-running deconvolution in
+   * overlapping ±5s windows around nearby peaks caused the same physical SCR
+   * to be explained twice from two different windows. A single pass and a
+   * single global minimum-gap pass over the driver structurally rules that
+   * out, matching the ~0.5s minimum-separation constraint documented in
+   * the sparse-EDA-deconvolution literature.
+   *
+   * Known limitation carried over from the base method (Benedek & Kaernbach
+   * 2010 themselves note this): nonnegative/matching-pursuit deconvolution
+   * can occasionally explain residual noise as a spurious small-amplitude
+   * SCR. This is mitigated here by (a) enforcing the same amplitude
+   * threshold used by the non-deconvolution path, and (b) requiring each
+   * impulse to correspond to a genuine local rise in the original phasic
+   * signal, not just a driver-domain artifact — but it is not eliminated
+   * the way a fully regularized convex solver (e.g. cvxEDA) would.
+   *
+   * @param {Array<number>} phasicVals - Tonic-subtracted phasic values (>= 0).
+   * @param {object} params - Analysis parameters (peakThreshold, minPeakQuality).
+   * @private
+   */
+  _runDeconvolutionPipeline(phasicVals, params) {
+    const n = phasicVals.length;
+    this.phasicDriver = [];
+    this.phasicClean = [];
+    this.phasicDriverPeaks = [];
+    if (n === 0) { this.peaks = []; return; }
+
+    // Preserve user-set labels/exclusions across re-analysis, same convention
+    // as detectPeaks().
+    const oldLabels = new Map();
+    const oldExcluded = new Set();
+    for (const pk of this.peaks) {
+      if (pk.label && pk.label.trim()) oldLabels.set(pk.index, pk.label);
+      if (pk.excluded) oldExcluded.add(pk.index);
+    }
+
+    const scf = GSR_CONST.SCRF;
+    const dt = 1.0 / this.sampleRate;
+    const times = this.phasic.map(d => d.time);
+    const phasicArr = new Float64Array(phasicVals);
+
+    const result = SCRDeconvolution.deconvolve(phasicArr, this.sampleRate, {
+      tauSlow: scf.tauSlow, tauFast: scf.tauFast,
+      maxIter: scf.maxIter, lr: scf.lr, convTol: scf.convTol
+    });
+
+    // Diagnostic: whether matching pursuit converged (residual < convTol)
+    // before exhausting its iteration budget, or was truncated by maxIter.
+    // A truncated run means real SCRs may have been left unmodeled with no
+    // visible sign in the results — check this if peak counts look low for
+    // a long/busy recording.
+    this.phasicDeconvTruncated = result.iterations >= scf.maxIter;
+
+    this.phasicDriver = new Array(n);
+    for (let i = 0; i < n; i++) {
+      this.phasicDriver[i] = { time: times[i], val: result.driver[i] };
+    }
+
+    // Global impulse detection: minImpulseGapSec is enforced exactly once,
+    // across the whole track, so no two accepted impulses can be closer than
+    // that regardless of how many original peaks would once have generated
+    // overlapping local windows around them.
+    const rawImpulses = SCRDeconvolution.detectImpulses(
+      result.driver, this.sampleRate, scf.impulseThreshold, scf.minImpulseGapSec
+    );
+
+    const { kPeakIdx, riseTime, halfRecoveryTime, onsetSlopeUnit, skewnessRatio, fwhm } =
+      this._kernelShapeMetrics(result.kernel, dt);
+
+    // IMPORTANT: imp.index from detectImpulses() is the driver-domain
+    // impulse/ONSET position, not the SCR's apex. deconvolve() places each
+    // impulse at maxIdx - kPeakIdx precisely so that convolving it with the
+    // kernel produces a bump whose OWN peak lands back at maxIdx — i.e. the
+    // true apex is offset from imp.index by +kPeakIdx samples (~riseTime
+    // seconds later), not the other way round. An earlier version of this
+    // method got this backwards (treated imp.index as the apex and
+    // subtracted riseTime to get the onset), which visibly misplaced peak
+    // markers and — more importantly — fed the wrong (near-baseline, onset)
+    // value into the run-consolidation check, making it too easy to satisfy
+    // and causing genuinely separate second peaks to be swallowed.
+    //
+    // Resolve the true apex by searching the *original* phasic signal near
+    // the kernel-predicted position, rather than trusting that position
+    // exactly — the canonical kernel's shape is only an approximation of any
+    // individual real SCR, so the actual local maximum can sit a little
+    // earlier or later than kPeakIdx samples after onset.
+    const apexSearchHalfWin = Math.max(1, Math.round(0.5 * this.sampleRate));
+    const resolveApex = (onsetIdx) => {
+      const predicted = Math.min(n - 1, onsetIdx + kPeakIdx);
+      const lo = Math.max(0, predicted - apexSearchHalfWin);
+      const hi = Math.min(n - 1, predicted + apexSearchHalfWin);
+      let bestIdx = predicted, bestVal = phasicVals[predicted] || 0;
+      for (let i = lo; i <= hi; i++) {
+        if (phasicVals[i] > bestVal) { bestVal = phasicVals[i]; bestIdx = i; }
+      }
+      return { apexIdx: bestIdx, apexVal: bestVal };
+    };
+
+    // Enforce the same amplitude threshold detectPeaks() applies, and ground
+    // each impulse against the original signal at its resolved APEX — not
+    // its onset, which is near-baseline by construction and would make this
+    // check nearly meaningless (mitigates "noise detected as SCR", a
+    // documented limitation of nonnegative SCR deconvolution).
+    const threshold = params.peakThreshold;
+    const impulses = rawImpulses
+      .map(imp => ({ imp, ...resolveApex(imp.index) }))
+      .filter(({ imp, apexVal }) => imp.amplitude >= threshold && apexVal >= 0.001);
+    this.phasicDriverPeaks = impulses.map(({ imp }) => imp);
+
+    const noiseHalfWin = Math.max(1, Math.round(this.sampleRate));
+    this.peaks = impulses.map(({ imp, apexIdx, apexVal }) => {
+      const noiseFloor = this._computeNoiseFloor(imp.index, noiseHalfWin);
+      const peak = {
+        index: apexIdx,
+        time: apexIdx / this.sampleRate,
+        value: apexVal,
+        amplitude: imp.amplitude,
+        onsetIndex: imp.index,
+        onsetTime: imp.time,
+        onsetValue: 0,
+        recoveryIndex: Math.min(n - 1, apexIdx + Math.round(halfRecoveryTime * this.sampleRate)),
+        halfRecoveryTime: halfRecoveryTime,
+        riseTime: riseTime,
+        onsetSlope: onsetSlopeUnit * imp.amplitude,
+        decaySlope: halfRecoveryTime > 0 ? imp.amplitude * 0.5 / halfRecoveryTime : 0,
+        skewnessRatio: skewnessRatio,
+        fwhm: fwhm,
+        snr: noiseFloor > 0 ? imp.amplitude / noiseFloor : 0,
+        label: oldLabels.get(apexIdx) || '',
+        excluded: oldExcluded.has(apexIdx)
+      };
+      peak.qualityScore = this._computePeakQuality(peak);
+      return peak;
+    });
+
+    // Same "0 = off" convention as detectPeaks() — no hardcoded floor here;
+    // a hardcoded minimum would silently override an explicit user choice.
+    const minQuality = params.minPeakQuality != null ? params.minPeakQuality : 0.0;
+    this.peaks = this.peaks.filter(pk => pk.qualityScore >= minQuality);
+
+    // ── Run-consolidation pass ──────────────────────────────────────────
+    // The SCRF kernel's width is fixed per recording (see class comment on
+    // SCRF in constants.js), so a single broad/slow-decaying response that's
+    // wider than the kernel gets "tiled" by matching pursuit into a train of
+    // several closely-spaced atoms rather than one — each new atom placed to
+    // explain the residual the previous atom's narrower kernel left behind.
+    // That's a real behavior of this implementation, not a hypothetical: on
+    // a 920s real recording it produced 64 clusters of >=3 peaks within 3s
+    // of each other, several sitting on top of one visually-single hump in
+    // the original phasic signal.
+    //
+    // Auto-calibrating the kernel width per recording (fitting tauSlow/
+    // tauFast from this recording's own data) was tried and rejected: the
+    // empirical median rise/half-recovery time across ALL detected peaks on
+    // real test data was dominated by fast, narrow motion-artifact blips
+    // (this hardware is known to pick up a gait-synchronized ~2Hz artifact —
+    // see the track 053 analysis earlier in this project), which calibrated
+    // the kernel to be narrower still — making tiling worse, not better.
+    // Restricting calibration to only large-amplitude peaks failed too: the
+    // trough-to-peak detector that would supply that calibration data is
+    // exactly the detector that mis-measures broad compound peaks in the
+    // first place, so there were too few usable samples to trust.
+    //
+    // Instead: consolidate runs of adjacent peaks where the *original*
+    // signal between them never genuinely dips back down — i.e. they're
+    // sitting on one continuous elevated region rather than being separated
+    // by a real return toward baseline — keeping only the largest-amplitude
+    // peak per run. This reuses the same "does the signal actually recover"
+    // criterion (GSR_CONST.PEAK_RECOVERY_BREAK) that detectPeaks() already
+    // uses for the equivalent decision on its own onset/recovery search, so
+    // "is this one event or several" is judged consistently the same way
+    // regardless of which detector produced the candidate peaks.
+    this.peaks.sort((a, b) => a.index - b.index);
+    const consolidated = [];
+    let runStart = 0;
+    for (let i = 1; i <= this.peaks.length; i++) {
+      const endOfRun = i === this.peaks.length ||
+        !this._sameElevatedRun(this.peaks[i - 1], this.peaks[i], phasicVals);
+      if (endOfRun) {
+        let best = this.peaks[runStart];
+        for (let j = runStart + 1; j < i; j++) {
+          if (this.peaks[j].amplitude > best.amplitude) best = this.peaks[j];
+        }
+        consolidated.push(best);
+        runStart = i;
+      }
+    }
+    this.peaks = consolidated;
+
+    // Reconstruct a clean, superposition-resolved phasic signal from the
+    // *kept* impulses only, and use it downstream (AUC, temporal density,
+    // arousal index, display) — consistent with how Ledalab's CDA/DDA use
+    // the deconvolution-derived signal as the canonical phasic estimate,
+    // not just an annotation layer on top of the original.
+    // reconstructPhasic()/deconvolve() both treat impulse "index" as the
+    // ONSET position (kernel is convolved starting there), not the apex —
+    // use onsetIndex here, not the peak's own (apex) index field.
+    const keptImpulses = this.peaks.map(pk => ({ index: pk.onsetIndex, amplitude: pk.amplitude }));
+    const cleanVals = SCRDeconvolution.reconstructPhasic(keptImpulses, n, result.kernel);
+    this.phasicClean = new Array(n);
+    for (let i = 0; i < n; i++) {
+      this.phasicClean[i] = { time: times[i], val: cleanVals[i] };
+    }
+    this._phasicOrig = this.phasic;
+    this.phasic = this.phasicClean;
+    this.phasicZ = GsrFilter.standardizeSignal(this.phasic);
+    this.phasicStd = GsrFilter.calculateStats(cleanVals).std;
+  }
+
+  /**
+   * Pre-compute global Y-ranges
    */
   _buildDisplayCache() {
     // Global Y-range per curve — used when view covers >40 % of data
@@ -930,6 +1250,8 @@ class GSRAnalyzer {
       // ── 3. Rise time (onset → peak duration) ────────────────────────────
       const riseTime = times[i] - times[onsetIdx];
 
+      const onsetSlope = riseTime > 0 ? amplitude / riseTime : 0;
+
       // Rise time bounds (skip check when slider is 0 / off)
       if (shape.MIN_RISE_TIME > 0 && riseTime < shape.MIN_RISE_TIME) {
         i = Math.min(n - 2, i + 1);
@@ -939,10 +1261,6 @@ class GSRAnalyzer {
         i = Math.min(n - 2, i + 1);
         continue;
       }
-
-      // ── 4. Onset slope (average derivative on rising edge in µS/second) ──
-      const onsetSlope = riseTime > 0 ? amplitude / riseTime : 0;
-
       if (onsetSlope < shape.MIN_ONSET_SLOPE || onsetSlope > shape.MAX_ONSET_SLOPE) {
         i = Math.min(n - 2, i + 1);
         continue;

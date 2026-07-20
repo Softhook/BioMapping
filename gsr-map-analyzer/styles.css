@@ -321,6 +321,17 @@ body {
   border-radius: 0 6px 6px 0;
 }
 
+/* Locked state when deconvolution overrides shape settings */
+.slider-group.deconv-locked {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.slider-group.deconv-locked .slider-value {
+  color: var(--accent-color, #005bc4);
+  font-weight: 600;
+}
+
 .slider-label {
   display: flex;
   justify-content: space-between;

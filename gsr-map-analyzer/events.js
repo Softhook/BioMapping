@@ -32,7 +32,7 @@ const GSREvents = {
       'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsDownsample', 'gpsTrackWeight', 'gpsPeakLatency',
       'gpsSnapToRoads', 'gpsSnapRadius',
       'clusterProximity', 'clusterBoundaryRadius',
-      'lowerGraphMode'
+      'lowerGraphMode', 'useDeconvolution'
     ];
     for (const key of sliderKeys) {
       AppState.sliders[key] = GSREvents._id(key);
@@ -237,6 +237,17 @@ const GSREvents = {
       GSRUI.runAnalysis();
       GSRStorage.saveSettings();
     });
+
+    // ── SCR Deconvolution toggle ──────────────────────────────────────────────
+    // Triggers full re-analysis because the phasic signal is replaced with the
+    // deconvolved/reconstructed version when enabled.
+    if (S.useDeconvolution) {
+      S.useDeconvolution.addEventListener('change', () => {
+        GSREvents.updateDeconvolutionUIState();
+        GSRUI.runAnalysis();
+        GSRStorage.saveSettings();
+      });
+    }
 
     // ── Lower graph metric selector ──────────────────────────────────────────
     // Rendering-only setting (no re-analysis needed) — sync AppState immediately
@@ -791,5 +802,77 @@ const GSREvents = {
     document.querySelectorAll('#gpsFilteringCard input[type="range"]').forEach(GSREvents.updateFilterDim);
     // Initial dim state for map display sliders
     document.querySelectorAll('#mapDisplayCard input[type="range"]').forEach(GSREvents.updateFilterDim);
+
+    GSREvents.updateDeconvolutionUIState();
+  },
+
+  /**
+   * Lock/unlock shape sliders depending on deconvolution state.
+   */
+  updateDeconvolutionUIState() {
+    const deconvCheckbox = document.getElementById('useDeconvolution');
+    const useDeconv = deconvCheckbox ? deconvCheckbox.checked : false;
+
+    // Derive canonical shape values analytically from the actual SCRF kernel so
+    // they stay in sync with GSR_CONST.SCRF if tauSlow/tauFast ever change,
+    // rather than being hand-typed numbers that can drift.
+    const scf = (typeof GSR_CONST !== 'undefined') ? GSR_CONST.SCRF : null;
+    let canonRise = 1.2, canonHalf = 2.2, canonSkew = 0.55;
+    if (scf && typeof SCRDeconvolution !== 'undefined') {
+      const sampleRate = 10; // Kernel metrics are rate-independent at this resolution
+      const k = SCRDeconvolution.buildSCRFKernel(sampleRate, scf.tauSlow, scf.tauFast);
+      const dt = 1.0 / sampleRate;
+      let kPeakIdx = 0;
+      for (let i = 1; i < k.length; i++) { if (k[i] > k[kPeakIdx]) kPeakIdx = i; }
+      let kHalfIdx = kPeakIdx;
+      for (let i = kPeakIdx; i < k.length; i++) { if (k[i] <= 0.5) { kHalfIdx = i; break; } }
+      canonRise = parseFloat((kPeakIdx * dt).toFixed(2));
+      canonHalf = parseFloat(((kHalfIdx - kPeakIdx) * dt).toFixed(2));
+      canonSkew = canonHalf > 0 ? parseFloat((canonRise / canonHalf).toFixed(2)) : 0;
+    }
+
+    const shapeSliders = [
+      { id: 'shapeMinRiseTime',      labelId: 'valShapeMinRiseTime',      canonical: `${canonRise} s (locked)`,  canonicalValue: canonRise, suffix: ' s' },
+      { id: 'shapeMaxRiseTime',      labelId: 'valShapeMaxRiseTime',      canonical: `${canonRise} s (locked)`,  canonicalValue: canonRise, suffix: ' s' },
+      { id: 'shapeMinHalfRecovery',  labelId: 'valShapeMinHalfRecovery',  canonical: `${canonHalf} s (locked)`,  canonicalValue: canonHalf, suffix: ' s' },
+      { id: 'shapeMaxHalfRecovery',  labelId: 'valShapeMaxHalfRecovery',  canonical: `${canonHalf} s (locked)`,  canonicalValue: canonHalf, suffix: ' s' },
+      { id: 'shapeMaxSkewRatio',     labelId: 'valShapeMaxSkewRatio',     canonical: `${canonSkew} (locked)`,    canonicalValue: canonSkew, suffix: '' }
+    ];
+
+    shapeSliders.forEach(s => {
+      const slider = document.getElementById(s.id);
+      const label = document.getElementById(s.labelId);
+      const group = slider ? slider.closest('.slider-group') : null;
+      
+      if (slider) {
+        slider.disabled = useDeconv;
+        if (useDeconv) {
+          // Cache custom user setting before overwriting
+          if (slider.dataset.customValue === undefined) {
+            slider.dataset.customValue = slider.value;
+          }
+          slider.value = s.canonicalValue;
+        } else {
+          // Restore custom user setting
+          if (slider.dataset.customValue !== undefined) {
+            slider.value = slider.dataset.customValue;
+            delete slider.dataset.customValue;
+          }
+        }
+      }
+      if (group) {
+        group.classList.toggle('deconv-locked', useDeconv);
+      }
+      if (label) {
+        if (useDeconv) {
+          label.innerText = s.canonical;
+        } else if (slider) {
+          const val = parseFloat(slider.value);
+          const step = parseFloat(slider.step) || 0.1;
+          const decimals = step < 0.1 ? 2 : 1;
+          label.innerText = val === 0 ? 'off' : val.toFixed(decimals) + (s.suffix || '');
+        }
+      }
+    });
   }
 };

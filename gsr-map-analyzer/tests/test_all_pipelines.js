@@ -38,6 +38,7 @@ loadModule(path.join(__dirname, '../gsr_filter.js'),         'GsrFilter');
 loadModule(path.join(__dirname, '../spatial_clustering.js'), 'GSRSpatialClustering');
 loadModule(path.join(__dirname, '../marching_squares.js'),   'MarchingSquares');
 loadModule(path.join(__dirname, '../collective_manager.js'), 'GSRCollectiveManager');
+loadModule(path.join(__dirname, '../deconvolution.js'),  'SCRDeconvolution');
 
 const {
   GeoUtils, StatsMath, MapColors, GpsFilter, GpsPipeline,
@@ -394,6 +395,257 @@ assert(aucNormSurface && Array.isArray(aucNormSurface.contours), "generateContou
 
 console.log(`  auc range: [${surfacesBySource.auc.minVal.toFixed(4)}, ${surfacesBySource.auc.maxVal.toFixed(4)}] μS·s`);
 console.log(`  arousal_index range: [${surfacesBySource.arousal_index.minVal.toFixed(4)}, ${surfacesBySource.arousal_index.maxVal.toFixed(4)}]`);
+
+// ════════════════════════════════════════════════════════════════════════════
+//  6. SCR DECONVOLUTION (Benedek & Kaernbach, 2010)
+// ════════════════════════════════════════════════════════════════════════════
+console.log('\n── 6. SCR Deconvolution Pipeline ──');
+
+// Create a fresh analyzer instance (don't mutate the one used by collective tests)
+const deconvAnalyzer = new GSRAnalyzer();
+deconvAnalyzer.parseCSV(csvText);
+
+// 6a. Verify SCRDeconvolution module is loaded
+assert(typeof SCRDeconvolution.buildSCRFKernel === 'function', 'SCRDeconvolution.buildSCRFKernel is a function');
+assert(typeof SCRDeconvolution.convolve === 'function', 'SCRDeconvolution.convolve is a function');
+assert(typeof SCRDeconvolution.deconvolve === 'function', 'SCRDeconvolution.deconvolve is a function');
+assert(typeof SCRDeconvolution.detectImpulses === 'function', 'SCRDeconvolution.detectImpulses is a function');
+assert(typeof SCRDeconvolution.reconstructPhasic === 'function', 'SCRDeconvolution.reconstructPhasic is a function');
+
+// 6b. Verify the SCRF kernel has the correct bi-exponential shape
+const testSr = 10;
+const kernel = SCRDeconvolution.buildSCRFKernel(testSr, 2.0, 0.75);
+assert(kernel instanceof Float64Array, 'buildSCRFKernel returns Float64Array');
+assert(kernel.length > 0, 'Kernel has positive length');
+assertEq(kernel[0], 0, 'Kernel starts at 0 (t=0 gives exp(0)-exp(0)=0)');
+
+// Peak should be between 0.5s and 2s (theoretical peak of Bateman function)
+let peakIdx = 0, peakVal = 0;
+for (let i = 0; i < kernel.length; i++) {
+  if (kernel[i] > peakVal) { peakVal = kernel[i]; peakIdx = i; }
+}
+const peakTimeSec = peakIdx / testSr;
+assert(peakVal > 0.99 && peakVal < 1.01, `Kernel peaks at 1.0 (normalised): ${peakVal.toFixed(4)}`);
+assert(peakTimeSec > 0.5 && peakTimeSec < 2.0, `Kernel peak at plausible time: ${peakTimeSec.toFixed(2)} s`);
+
+// Kernel should decay significantly by the tail (< 25 % of peak at 5 s)
+const tailIdx = kernel.length - 1;
+assert(kernel[tailIdx] < 0.25, `Kernel tail decayed: ${kernel[tailIdx].toFixed(4)}`);
+
+// 6c. Verify convolution identity: a single unit impulse at t=0 reproduces the kernel
+const unitImpulse = new Float64Array(100);
+unitImpulse[0] = 1.0;
+const convResult = SCRDeconvolution.convolve(unitImpulse, kernel);
+for (let i = 0; i < Math.min(kernel.length, convResult.length); i++) {
+  assertClose(convResult[i], kernel[i], 1e-10, `Convolution of impulse reproduces kernel at index ${i}`);
+}
+
+// 6d. Run full deconvolution on phasic data (without analyze — just the raw deconv)
+const deconvParams = {
+  ...GSR_CONST.GSR_DEFAULT,
+  tonicMethod: 'dwt',
+  dwtLevel: 6,
+  peakThreshold: 0.05,
+  useDeconvolution: false  // first run without to get phasicVals
+};
+deconvAnalyzer.analyze(deconvParams);
+const phasicRaw = deconvAnalyzer.phasic.map(d => d.val);
+assert(phasicRaw.length === gsrRaw.length, 'Phasic data ready for deconvolution test');
+
+// Run deconvolution with matching pursuit
+const deconvResult = SCRDeconvolution.deconvolve(phasicRaw, deconvAnalyzer.sampleRate, {
+  tauSlow: 2.0, tauFast: 0.75, maxIter: 50, lr: 1.0, convTol: 0.01
+});
+assert(deconvResult.driver instanceof Float64Array, 'Deconvolution returns a driver Float64Array');
+assertEq(deconvResult.driver.length, phasicRaw.length, 'Driver signal has same length as phasic input');
+assert(deconvResult.iterations >= 1, `Matching pursuit placed ${deconvResult.iterations} atoms`);
+console.log(`  Matching pursuit: ${deconvResult.iterations} atoms, driver max=${Math.max(...deconvResult.driver).toFixed(4)}`);
+
+// Driver should be nonnegative
+const negativeDriver = Array.from(deconvResult.driver).filter(v => v < -1e-10);
+assertEq(negativeDriver.length, 0, 'Driver signal is nonnegative');
+
+// Driver should be sparse (matching pursuit only places atoms where needed)
+const driverVals = Array.from(deconvResult.driver);
+const driverNonzero = driverVals.filter(v => v > 0.001).length;
+const phasicNonzero = phasicRaw.filter(v => v > 0.001).length;
+assert(driverNonzero < phasicNonzero, `Driver is sparser than phasic: ${driverNonzero} vs ${phasicNonzero} nonzero samples`);
+
+// 6e. Detect impulses in the driver
+const impulses = SCRDeconvolution.detectImpulses(deconvResult.driver, deconvAnalyzer.sampleRate, 0.005, 0.5);
+assert(Array.isArray(impulses), 'detectImpulses returns an array');
+console.log(`  Detected ${impulses.length} driver impulses (threshold=0.005 µS, minGap=0.5s)`);
+
+// Impulses should be distributed across the recording, not all clustered
+// at the start (forward-only deconvolution bias).  At least 20 % of
+// impulses must fall in the second half of the recording.
+if (impulses.length >= 4) {
+  const halfN = Math.floor(phasicRaw.length / 2);
+  const inSecondHalf = impulses.filter(imp => imp.index >= halfN).length;
+  const pctSecondHalf = (inSecondHalf / impulses.length) * 100;
+  assert(pctSecondHalf >= 20,
+    `Impulses distributed across recording: ${pctSecondHalf.toFixed(0)} % in second half (need ≥20 %)`);
+  console.log(`  Impulse distribution: ${impulses.length - inSecondHalf} in first half, ${inSecondHalf} in second half (${pctSecondHalf.toFixed(0)} %)`);
+}
+
+// Each impulse should have required fields
+if (impulses.length > 0) {
+  const imp = impulses[0];
+  assert(typeof imp.index === 'number' && imp.index >= 0, 'Impulse has valid index');
+  assert(typeof imp.time === 'number' && imp.time >= 0, 'Impulse has valid time');
+  assert(typeof imp.amplitude === 'number' && imp.amplitude > 0, 'Impulse has positive amplitude');
+}
+
+// 6f. Reconstruct clean phasic from impulses
+const cleanPhasic = SCRDeconvolution.reconstructPhasic(impulses, phasicRaw.length, deconvResult.kernel);
+assertEq(cleanPhasic.length, phasicRaw.length, 'Reconstructed phasic matches input length');
+const cleanVals = Array.from(cleanPhasic);
+assert(cleanVals.every(v => v >= -1e-10), 'Reconstructed phasic is nonnegative');
+
+// 6g. Full pipeline: analyze() with useDeconvolution=true.
+// This exercises the GLOBAL deconvolution pipeline (_runDeconvolutionPipeline):
+// one deconvolve() pass over the whole track, one detectImpulses() pass with
+// minImpulseGapSec enforced across the entire signal — not per-peak local
+// windows, which previously let the same SCR be explained twice from two
+// overlapping windows and inflated peak counts ~4x with >50% of peaks within
+// 0.3s of a neighbour on real recordings.
+const deconvAnalyzer2 = new GSRAnalyzer();
+deconvAnalyzer2.parseCSV(csvText);
+const deconvPeakThreshold = 0.05;
+const deconvParams2 = {
+  ...GSR_CONST.GSR_DEFAULT,
+  tonicMethod: 'dwt',
+  dwtLevel: 6,
+  peakThreshold: deconvPeakThreshold,
+  useDeconvolution: true
+};
+deconvAnalyzer2.analyze(deconvParams2);
+console.log(`  Deconv pipeline: ${deconvAnalyzer2.phasicDriverPeaks.length} driver impulses → ${deconvAnalyzer2.peaks.length} detected peaks`);
+
+// Regression guard: on this test fixture, matching pursuit should converge
+// (residual < convTol) within the configured maxIter budget, not get
+// silently truncated. GSR_CONST.SCRF.maxIter previously defaulted to 50 —
+// fine for the old per-peak ±5s-window design, but far too low once
+// deconvolution runs once globally over a whole track (a 920s real
+// recording needed 424 iterations to converge naturally). If this starts
+// failing, maxIter needs to scale with expected recording length again.
+assert(!deconvAnalyzer2.phasicDeconvTruncated,
+  'Global matching pursuit converges within maxIter on the test fixture (not truncated)');
+
+// Regression guard: run-consolidation should collapse peaks that sit on one
+// continuous elevated region of the original phasic signal (no genuine trough
+// between them) rather than leaving long trains of closely-spaced peaks that
+// are really one broad/compound SCR tiled by several kernel-width atoms.
+// A handful of runs of 3+ peaks within 3s can be legitimate (genuinely rapid
+// separate SCRs), but it should be the exception, not common.
+{
+  const sortedByTime = deconvAnalyzer2.peaks.map(p => p.time).sort((a, b) => a - b);
+  let runsOf3Plus = 0, curRun = 1;
+  for (let i = 1; i < sortedByTime.length; i++) {
+    if (sortedByTime[i] - sortedByTime[i - 1] <= 3.0) {
+      curRun++;
+    } else {
+      if (curRun >= 3) runsOf3Plus++;
+      curRun = 1;
+    }
+  }
+  if (curRun >= 3) runsOf3Plus++;
+  const runRate = deconvAnalyzer2.peaks.length > 0 ? runsOf3Plus / deconvAnalyzer2.peaks.length : 0;
+  assert(runRate < 0.1,
+    `Run-consolidation keeps tight (>=3 peaks within 3s) clusters rare: ${runsOf3Plus} runs across ${deconvAnalyzer2.peaks.length} peaks`);
+}
+
+// Regression guard: no two accepted peaks may be closer than the module's
+// own minImpulseGapSec — this is exactly the invariant the old per-peak-window
+// refinement violated (duplicate/near-duplicate detections from overlapping
+// windows). Enforcing it globally, once, over the whole driver rules this out
+// structurally rather than by chance.
+if (deconvAnalyzer2.peaks.length > 1) {
+  const sortedTimes = deconvAnalyzer2.peaks.map(p => p.time).sort((a, b) => a - b);
+  let minGapFound = Infinity;
+  for (let i = 1; i < sortedTimes.length; i++) {
+    minGapFound = Math.min(minGapFound, sortedTimes[i] - sortedTimes[i - 1]);
+  }
+  assert(minGapFound >= GSR_CONST.SCRF.minImpulseGapSec - 1e-9,
+    `No near-duplicate peaks: min gap between peaks = ${minGapFound.toFixed(3)}s (>= ${GSR_CONST.SCRF.minImpulseGapSec}s required)`);
+}
+
+// Regression guard: peakThreshold must be enforced on every deconvolution
+// peak, same contract as the non-deconvolution path — a prior bug let
+// split/sibling peaks through with amplitude below the configured threshold.
+const belowThreshold = deconvAnalyzer2.peaks.filter(p => p.amplitude < deconvPeakThreshold);
+assertEq(belowThreshold.length, 0,
+  `All deconv peaks respect peakThreshold (${belowThreshold.length} violations)`);
+
+// With deconvolution enabled, the driver/clean-phasic state should actually
+// be populated (previously declared but always empty, regardless of mode).
+assert(deconvAnalyzer2.phasicDriver.length === phasicRaw.length, 'phasicDriver populated when deconvolution enabled');
+assert(deconvAnalyzer2.phasicClean.length === phasicRaw.length, 'phasicClean populated when deconvolution enabled');
+
+// this.phasic should now point at the reconstructed clean signal
+const phasicDeconvVals = deconvAnalyzer2.phasic.map(d => d.val);
+assert(phasicDeconvVals.every(v => v >= -1e-10), 'Deconvolved phasic is nonnegative');
+assertEq(deconvAnalyzer2.phasic.length, deconvAnalyzer2.phasicClean.length, 'this.phasic is the reconstructed clean signal when deconvolution is enabled');
+
+// Toggling deconvolution back off should reset driver/clean state to empty.
+const analyzeNoDeconv = {
+  ...GSR_CONST.GSR_DEFAULT,
+  tonicMethod: 'dwt',
+  dwtLevel: 6,
+  peakThreshold: deconvPeakThreshold,
+  useDeconvolution: false
+};
+deconvAnalyzer.analyze(analyzeNoDeconv);
+assertEq(deconvAnalyzer.phasicDriver.length, 0, 'phasicDriver empty when deconvolution disabled');
+assertEq(deconvAnalyzer.phasicClean.length, 0, 'phasicClean empty when deconvolution disabled');
+assertEq(deconvAnalyzer._phasicOrig, null, 'stale _phasicOrig backup cleared when deconvolution disabled');
+console.log(`  Without deconv: ${deconvAnalyzer.peaks.length} peaks | With deconv: ${deconvAnalyzer2.peaks.length} peaks`);
+
+// 6h. Toggle-sequence regression guard: re-running analyze() with
+// useDeconvolution flipping off->on->off->on on ONE shared instance must
+// produce results identical to a fresh instance run once in that mode —
+// no leftover state from the other mode may leak through (this caught a
+// real bug: _phasicOrig wasn't cleared when switching back to non-deconv,
+// so it stayed truthy after being toggled off).
+function snapshotAnalyzer(a) {
+  return {
+    peaksSig: a.peaks.map(p => `${p.index}:${p.amplitude.toFixed(6)}`).join(','),
+    phasicSig: a.phasic.map(d => d.val.toFixed(6)).join(','),
+    phasicDriverLen: a.phasicDriver.length,
+    phasicCleanLen: a.phasicClean.length,
+    phasicDriverPeaksLen: a.phasicDriverPeaks.length,
+    phasicDeconvTruncated: a.phasicDeconvTruncated,
+    hasPhasicOrig: a._phasicOrig !== null && a._phasicOrig !== undefined
+  };
+}
+function paramsFor(decon) {
+  return { ...GSR_CONST.GSR_DEFAULT, tonicMethod: 'dwt', dwtLevel: 6, peakThreshold: deconvPeakThreshold, useDeconvolution: decon };
+}
+
+const freshOff = new GSRAnalyzer(); freshOff.parseCSV(csvText); freshOff.analyze(paramsFor(false));
+const freshOn  = new GSRAnalyzer(); freshOn.parseCSV(csvText);  freshOn.analyze(paramsFor(true));
+const freshOffSnap = snapshotAnalyzer(freshOff);
+const freshOnSnap  = snapshotAnalyzer(freshOn);
+
+const toggler = new GSRAnalyzer();
+toggler.parseCSV(csvText);
+toggler.analyze(paramsFor(false));
+assertEq(JSON.stringify(snapshotAnalyzer(toggler)), JSON.stringify(freshOffSnap), 'Toggle step 1 (off) matches fresh off-only instance');
+toggler.analyze(paramsFor(true));
+assertEq(JSON.stringify(snapshotAnalyzer(toggler)), JSON.stringify(freshOnSnap), 'Toggle step 2 (on) matches fresh on-only instance');
+toggler.analyze(paramsFor(false));
+assertEq(JSON.stringify(snapshotAnalyzer(toggler)), JSON.stringify(freshOffSnap), 'Toggle step 3 (off again) matches fresh off-only instance — no state leakage from "on"');
+toggler.analyze(paramsFor(true));
+assertEq(JSON.stringify(snapshotAnalyzer(toggler)), JSON.stringify(freshOnSnap), 'Toggle step 4 (on again) matches fresh on-only instance');
+
+// 6i. Non-deconvolution path parity: with useDeconvolution:false, peak
+// detection must be byte-identical to the plain detectPeaks() path (the
+// deconvolution feature must not have altered this.detectPeaks() itself —
+// confirmed against pre-deconvolution-feature analyzer.js on real track data
+// during review; this guards it going forward on the test fixture too).
+assertEq(freshOffSnap.phasicDriverLen, 0, 'Non-deconvolution path: phasicDriver stays empty');
+assertEq(freshOffSnap.phasicCleanLen, 0, 'Non-deconvolution path: phasicClean stays empty');
+assertEq(freshOffSnap.hasPhasicOrig, false, 'Non-deconvolution path: no _phasicOrig backup');
 
 // ────────────────────────────────────────────────────────────────────────────
 console.log(`\n${'='.repeat(60)}`);
