@@ -237,6 +237,21 @@ void run_options_screen(BioMapApp* app) {
     vp_pop(app, vp);
 }
 
+static void run_show_current_calibration(BioMapApp* app) {
+    ViewPort* vp = vp_push(app, show_current_calibration_render, app);
+    drain_stale_events(app->event_queue);
+    PluginEvent ev;
+    while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
+        if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
+            if(ev.input.key == InputKeyBack || ev.input.key == InputKeyOk) {
+                biomap_sound_back(app->sound_enabled);
+                break;
+            }
+        }
+    }
+    vp_pop(app, vp);
+}
+
 void run_calibration_menu(BioMapApp* app) {
     int selection = 0;
     ViewPort* vp = vp_push(app, calibration_menu_render, &selection);
@@ -249,20 +264,24 @@ void run_calibration_menu(BioMapApp* app) {
                 break;
             }
             if(ev.input.key == InputKeyUp) {
-                selection = cycle_selection(selection, 2, false); // 2 items: Start Wizard, Reset to Default
+                selection = cycle_selection(selection, 3, false); // 3 items
                 biomap_sound_click(app->sound_enabled);
             } else if(ev.input.key == InputKeyDown) {
-                selection = cycle_selection(selection, 2, true);
+                selection = cycle_selection(selection, 3, true);
                 biomap_sound_click(app->sound_enabled);
             } else if(ev.input.key == InputKeyOk) {
                 if(selection == 0) {
                     biomap_sound_confirm(app->sound_enabled);
                     run_calibration_wizard(app);
                     break;
-                } else {
+                } else if(selection == 1) {
                     biomap_sound_reset(app->sound_enabled);
                     biomap_reset_calibration(app);
                     break;
+                } else {
+                    biomap_sound_confirm(app->sound_enabled);
+                    run_show_current_calibration(app);
+                    vp_push(app, calibration_menu_render, &selection);
                 }
             }
             view_port_update(vp);

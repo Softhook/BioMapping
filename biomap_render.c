@@ -390,8 +390,8 @@ void calibration_menu_render(Canvas* c, void* ctx) {
     canvas_draw_str(c, 0, 10, "GSR Calibration");
     canvas_set_font(c, FontSecondary);
     
-    const char* options[] = { "Start Wizard", "Reset to Default" };
-    for(int i = 0; i < 2; i++) {
+    const char* options[] = { "Start Wizard", "Reset to Default", "Show Current" };
+    for(int i = 0; i < 3; i++) {
         int y = 25 + i * 12;
         if(i == sel) {
             canvas_draw_str(c, 0, y, "> ");
@@ -462,4 +462,31 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
     default:
         break;
     }
+}
+
+void show_current_calibration_render(Canvas* c, void* ctx) {
+    BioMapApp* app = (BioMapApp*)ctx;
+    canvas_clear(c);
+    canvas_set_font(c, FontPrimary);
+    canvas_draw_str(c, 0, 10, "GSR Calibration");
+    canvas_set_font(c, FontSecondary);
+
+    char buf[64];
+    furi_mutex_acquire(app->mutex, FuriWaitForever);
+    bool active = app->cal_active;
+    float gain = app->cal_gain;
+    float offset = app->cal_offset;
+    furi_mutex_release(app->mutex);
+
+    if(active) {
+        canvas_draw_str(c, 0, 23, "Active Custom Cal:");
+    } else {
+        canvas_draw_str(c, 0, 23, "Active Default Cal:");
+    }
+
+    snprintf(buf, sizeof(buf), "Gain: %.3fx", (double)gain);
+    canvas_draw_str(c, 0, 35, buf);
+    snprintf(buf, sizeof(buf), "Offset: %.0f nS", (double)offset);
+    canvas_draw_str(c, 0, 47, buf);
+    canvas_draw_str(c, 0, 60, "[Press OK or Back to return]");
 }
