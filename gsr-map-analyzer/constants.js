@@ -79,7 +79,18 @@ const GSR_CONST = {
     // return value against maxIter if tuning this further.
     maxIter: 2000,
     lr: 1.0,            // Atom amplitude scale (1.0 = full subtraction)
-    convTol: 0.01,      // Stop when residual max < this (µS)
+    // Stop when residual max < this (µS). MUST stay below impulseThreshold —
+    // matching pursuit quits as soon as the residual drops below convTol, so
+    // if convTol were >= impulseThreshold (as it briefly was: 0.01 vs 0.005)
+    // MP would terminate before ever producing driver energy in the
+    // [impulseThreshold, convTol) band, silently capping sensitivity below
+    // what impulseThreshold (and, transitively, the user's peakThreshold
+    // slider) implies is achievable — an unannounced, mode-dependent
+    // asymmetry versus detectPeaks(), where the same slider isn't limited
+    // this way. Set comfortably below impulseThreshold, not just under it,
+    // so genuine impulses right at the threshold aren't clipped by residual
+    // noise sitting near the boundary.
+    convTol: 0.002,
     impulseThreshold: 0.005,  // Min driver amplitude for an impulse (µS)
     minImpulseGapSec: 0.5     // Min gap between impulses (s)
   },

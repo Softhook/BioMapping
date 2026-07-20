@@ -138,10 +138,17 @@ const SCRDeconvolution = {
       const impIdx = maxIdx - kPeakIdx;
       const amplitude = maxVal * lr;  // kernel peak = 1.0, so A = residual peak
 
-      // Only store the impulse in the driver if it falls within the signal boundaries
-      if (impIdx >= 0) {
-        driver[impIdx] += amplitude;
-      }
+      // Clamp into the driver at index 0 rather than discarding when the true
+      // onset would fall before the recording started (impIdx < 0 — the
+      // apex sits within kPeakIdx samples of t=0). The residual contribution
+      // is always subtracted below regardless of clamping, so a dropped
+      // impulse here would silently erase a real SCR from the driver/peaks/
+      // reconstruction with no impulse ever created for it. Clamping to 0 is
+      // an approximation (the true rise started before the recording did,
+      // so the kernel's pre-t=0 portion doesn't really apply) but is
+      // preferable to losing the event outright.
+      const clampedImpIdx = Math.max(0, impIdx);
+      driver[clampedImpIdx] += amplitude;
 
       // Subtract kernel contribution from residual (handling negative impIdx correctly)
       const startJ = Math.max(0, impIdx);
@@ -169,42 +176,38 @@ const SCRDeconvolution = {
   detectImpulses(driver, sampleRate, threshold = 0.005, minGapSec = 0.5) {
     const n = driver.length;
     const minGapSamples = Math.max(1, Math.round(minGapSec * sampleRate));
-    const impulses = [];
 
-    let i = 0;
-    while (i < n) {
-      // Find local maximum
-      if (driver[i] <= threshold) { i++; continue; }
-
-      // Walk forward to find the peak of this impulse cluster
-      let peakIdx = i;
-      let peakVal = driver[i];
-      let j = i + 1;
-      while (j < n && driver[j] > threshold) {
-        if (driver[j] > peakVal) {
-          peakVal = driver[j];
-          peakIdx = j;
-        }
-        j++;
-      }
-
-      // A local maximum must be higher than its immediate neighbours
-      const isLocalMax = (peakIdx === 0 || driver[peakIdx] >= driver[peakIdx - 1]) &&
-                         (peakIdx === n - 1 || driver[peakIdx] >= driver[peakIdx + 1]);
-
-      if (isLocalMax && peakVal > threshold) {
-        impulses.push({
-          index: peakIdx,
-          time: peakIdx / sampleRate,
-          amplitude: peakVal
-        });
-      }
-
-      // Skip ahead by minGapSamples to avoid double-counting
-      i = Math.max(j, peakIdx + minGapSamples);
+    // Phase 1: collect every above-threshold local maximum, ignoring the
+    // gap constraint entirely — a simple left-to-right "skip ahead after
+    // each accepted candidate" scan (the previous approach) always keeps
+    // whichever candidate it reaches *first* within a cluster, not the
+    // largest, so a genuinely bigger SCR sitting just inside minGapSec of a
+    // smaller one that preceded it would get skipped over rather than
+    // replacing it. Collecting all candidates first and resolving the gap
+    // constraint by amplitude (phase 2) is proper non-max suppression.
+    const candidates = [];
+    for (let i = 0; i < n; i++) {
+      if (driver[i] <= threshold) continue;
+      const isLocalMax = (i === 0 || driver[i] >= driver[i - 1]) &&
+                          (i === n - 1 || driver[i] >= driver[i + 1]);
+      if (isLocalMax) candidates.push({ index: i, time: i / sampleRate, amplitude: driver[i] });
     }
 
-    return impulses;
+    // Phase 2: greedy NMS in descending amplitude order — the largest
+    // candidate always wins; anything within minGapSamples of an already-
+    // accepted impulse is suppressed regardless of scan order.
+    candidates.sort((a, b) => b.amplitude - a.amplitude);
+    const accepted = [];
+    for (const c of candidates) {
+      let tooClose = false;
+      for (const a of accepted) {
+        if (Math.abs(a.index - c.index) < minGapSamples) { tooClose = true; break; }
+      }
+      if (!tooClose) accepted.push(c);
+    }
+
+    accepted.sort((a, b) => a.index - b.index);
+    return accepted;
   },
 
   /**

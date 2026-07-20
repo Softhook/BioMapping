@@ -929,9 +929,15 @@ class GSRAnalyzer {
     const apexSearchHalfWin = Math.max(1, Math.round(0.5 * this.sampleRate));
     const resolveApex = (onsetIdx) => {
       const predicted = Math.min(n - 1, onsetIdx + kPeakIdx);
-      const lo = Math.max(0, predicted - apexSearchHalfWin);
+      // Clamp the search window's lower bound to onsetIdx itself, not just
+      // predicted-halfWin: near the end of a recording, `predicted` gets
+      // clamped down to n-1, which can pull predicted-halfWin below onsetIdx
+      // — without this, the search could return an apex earlier than its own
+      // onset, which is physically nonsensical and breaks anything iterating
+      // the [onsetIndex, index] range (e.g. renderer.js's shaded-region draw).
+      const lo = Math.max(0, onsetIdx, predicted - apexSearchHalfWin);
       const hi = Math.min(n - 1, predicted + apexSearchHalfWin);
-      let bestIdx = predicted, bestVal = phasicVals[predicted] || 0;
+      let bestIdx = Math.max(onsetIdx, predicted), bestVal = phasicVals[bestIdx] || 0;
       for (let i = lo; i <= hi; i++) {
         if (phasicVals[i] > bestVal) { bestVal = phasicVals[i]; bestIdx = i; }
       }
@@ -959,7 +965,13 @@ class GSRAnalyzer {
         amplitude: imp.amplitude,
         onsetIndex: imp.index,
         onsetTime: imp.time,
-        onsetValue: 0,
+        // renderer.js draws the onset-to-peak connector line using this
+        // value directly (yPhasicOnset). Hardcoding 0 here would be wrong
+        // for overlapping SCRs specifically — the case deconvolution exists
+        // for — since a response's true onset can sit on the still-elevated
+        // decay tail of a preceding one, not at true zero. Read the actual
+        // original signal value at the onset instead.
+        onsetValue: phasicVals[imp.index] || 0,
         recoveryIndex: Math.min(n - 1, apexIdx + Math.round(halfRecoveryTime * this.sampleRate)),
         halfRecoveryTime: halfRecoveryTime,
         riseTime: riseTime,
@@ -1007,12 +1019,21 @@ class GSRAnalyzer {
     // signal between them never genuinely dips back down — i.e. they're
     // sitting on one continuous elevated region rather than being separated
     // by a real return toward baseline — keeping only the largest-amplitude
-    // peak per run. This reuses the same "does the signal actually recover"
-    // criterion (GSR_CONST.PEAK_RECOVERY_BREAK) that detectPeaks() already
-    // uses for the equivalent decision on its own onset/recovery search, so
-    // "is this one event or several" is judged consistently the same way
-    // regardless of which detector produced the candidate peaks.
+    // peak per run for display/counting. See _sameElevatedRun()'s own
+    // docstring for the exact criterion (a scale-relative 50%-of-smaller-peak
+    // dip requirement, not GSR_CONST.PEAK_RECOVERY_BREAK — an absolute-µS
+    // version of this check was tried first and rejected for over-merging).
+    //
+    // Consolidating for display does NOT mean discarding the other atoms'
+    // modeled energy: reconstructPhasic() below is built from every
+    // quality-filtered impulse, not just the one survivor per run, so a
+    // broad/tiled response still reconstructs at its full modeled width —
+    // only the peak *count* shown to the user is reduced, not the signal.
     this.peaks.sort((a, b) => a.index - b.index);
+    // Keep the full, pre-consolidation, quality-filtered impulse list for
+    // reconstruction — see comment above. Only the *displayed* this.peaks
+    // gets thinned to one marker per run.
+    const allQualityFilteredImpulses = this.peaks.map(pk => ({ index: pk.onsetIndex, amplitude: pk.amplitude }));
     const consolidated = [];
     let runStart = 0;
     for (let i = 1; i <= this.peaks.length; i++) {
@@ -1029,16 +1050,21 @@ class GSRAnalyzer {
     }
     this.peaks = consolidated;
 
-    // Reconstruct a clean, superposition-resolved phasic signal from the
-    // *kept* impulses only, and use it downstream (AUC, temporal density,
-    // arousal index, display) — consistent with how Ledalab's CDA/DDA use
-    // the deconvolution-derived signal as the canonical phasic estimate,
-    // not just an annotation layer on top of the original.
+    // Reconstruct a clean, superposition-resolved phasic signal from ALL
+    // quality-filtered impulses (allQualityFilteredImpulses, captured before
+    // consolidation) — not just the one impulse per run that survives for
+    // display. This matters specifically for the broad/tiled-response case
+    // consolidation exists to handle: if reconstruction only summed the
+    // single largest atom per run, a broad response modeled by several
+    // smaller adjacent atoms would reconstruct as one narrow kernel-width
+    // bump instead of its true modeled extent, understating exactly the
+    // events (AUC, temporal density, arousal index) deconvolution mode is
+    // meant to represent best. Consolidation only reduces what's *counted
+    // and shown as separate peaks* — it must not reduce what's *reconstructed*.
     // reconstructPhasic()/deconvolve() both treat impulse "index" as the
     // ONSET position (kernel is convolved starting there), not the apex —
-    // use onsetIndex here, not the peak's own (apex) index field.
-    const keptImpulses = this.peaks.map(pk => ({ index: pk.onsetIndex, amplitude: pk.amplitude }));
-    const cleanVals = SCRDeconvolution.reconstructPhasic(keptImpulses, n, result.kernel);
+    // onsetIndex was used when building allQualityFilteredImpulses above.
+    const cleanVals = SCRDeconvolution.reconstructPhasic(allQualityFilteredImpulses, n, result.kernel);
     this.phasicClean = new Array(n);
     for (let i = 0; i < n; i++) {
       this.phasicClean[i] = { time: times[i], val: cleanVals[i] };

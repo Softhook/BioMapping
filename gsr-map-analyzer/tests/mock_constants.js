@@ -38,7 +38,7 @@ module.exports = {
     kernelSec: 5.0,
     maxIter: 2000,
     lr: 1.0,
-    convTol: 0.01,
+    convTol: 0.002,
     impulseThreshold: 0.005,
     minImpulseGapSec: 0.5
   },
