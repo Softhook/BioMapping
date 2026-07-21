@@ -280,7 +280,7 @@ const GSREvents = {
       AppState.dropZone.classList.remove('dragover');
       // Dragging doesn't exit fullscreen, no save needed
       if (e.dataTransfer.files.length > 0) {
-        GSRTrackManager.loadFilesSequentially(Array.from(e.dataTransfer.files));
+        GSRTrackManager.handleIncomingFiles(Array.from(e.dataTransfer.files));
       }
     });
     AppState.dropZone.addEventListener('click', (e) => {
@@ -347,6 +347,9 @@ const GSREvents = {
     document.getElementById('exportMapBtn').addEventListener('click',   GSRUI.saveMapImage);
     document.getElementById('exportSvgBtn').addEventListener('click', async () => {
       if (AppState.mapManager) await GSRMapExporter.exportToSvg(AppState.mapManager);
+    });
+    document.getElementById('exportProjectBtn').addEventListener('click', () => {
+      GSRCollectiveProject.exportProject();
     });
 
     // ── Demo Loader ──────────────────────────────────────────────────────────

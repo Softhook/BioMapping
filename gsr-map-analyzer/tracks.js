@@ -67,12 +67,38 @@ const GSRTrackManager = {
     if (e.target.files.length > 0) {
       const wasFs = this._browserFsSave;
       this._browserFsSave = false;
-      GSRTrackManager.loadFilesSequentially(Array.from(e.target.files));
+      GSRTrackManager.handleIncomingFiles(Array.from(e.target.files));
       if (wasFs) {
         // Chrome blocks programmatic requestFullscreen from change events — show restore pill
         this._showRestoreFsPill();
       }
     }
+  },
+
+  /**
+   * Single entry point for both the file-browser input and drag & drop —
+   * one selector handles everything, same as before the project-export
+   * feature existed. A .zip is treated as a previously-exported collective
+   * project (see collective_project.js) and replaces the whole track
+   * library; anything else is treated as one or more individual GSR CSVs
+   * and loaded exactly as always. Mixing a project zip with loose CSVs in
+   * one drop isn't a meaningful combination (importing a project already
+   * replaces the track list), so if a zip is present it wins and any other
+   * files dropped alongside it are ignored.
+   */
+  handleIncomingFiles(files) {
+    const zipFile = files.find(f => /\.zip$/i.test(f.name));
+    if (zipFile) {
+      if (files.length > 1) {
+        console.warn(`Project zip "${zipFile.name}" was selected alongside other files — importing only the project; ignoring the rest.`);
+      }
+      if (typeof GSRCollectiveProject !== 'undefined') {
+        GSRCollectiveProject.importProject(zipFile);
+      }
+      if (AppState.fileInput) AppState.fileInput.value = '';
+      return;
+    }
+    GSRTrackManager.loadFilesSequentially(files);
   },
 
   loadFilesSequentially(files) {
@@ -153,6 +179,7 @@ const GSRTrackManager = {
       document.getElementById('exportImageBtn').setAttribute('disabled', 'true');
       document.getElementById('exportMapBtn').setAttribute('disabled', 'true');
       document.getElementById('exportSvgBtn').setAttribute('disabled', 'true');
+      document.getElementById('exportProjectBtn').setAttribute('disabled', 'true');
 
       if (AppState.mapManager) {
         AppState.mapManager.clearMap();
@@ -302,6 +329,7 @@ const GSRTrackManager = {
     document.getElementById('exportImageBtn').removeAttribute('disabled');
     document.getElementById('exportMapBtn').removeAttribute('disabled');
     document.getElementById('exportSvgBtn').removeAttribute('disabled');
+    document.getElementById('exportProjectBtn').removeAttribute('disabled');
 
     const placeholder = document.getElementById('canvasPlaceholder');
     if (placeholder) placeholder.style.display = 'none';
@@ -309,6 +337,26 @@ const GSRTrackManager = {
     GSRTrackManager.renderTrackList();
     loop();
     requestAnimationFrame(() => windowResized());
+  },
+
+  /**
+   * Wipe the entire track library back to a fresh-session state — every track,
+   * the active-track pointer, and the map's rendered layers. Used by
+   * GSRCollectiveProject.importProject() to clear the deck before restoring
+   * tracks from a project zip; unlike deleteTrack() in a loop, this skips the
+   * per-track teardown work (switching active track, re-analyzing, etc.)
+   * since the caller is about to rebuild everything from scratch anyway.
+   */
+  clearAllTracks() {
+    AppState.collectiveManager.tracks = [];
+    AppState.activeTrackId = null;
+    AppState.analyzer = new GSRAnalyzer();
+    AppState.trackColorIndex = 0; // restart the color palette, matching a fresh page load
+
+    if (AppState.mapManager) {
+      AppState.mapManager.clearMap();
+      AppState.mapManager.clearCollectiveLayers();
+    }
   },
 
   deleteTrack(trackId) {

@@ -21,6 +21,7 @@
   <!-- Libraries (p5.js for canvas rendering) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
 
@@ -67,14 +68,14 @@
           <div class="card-content">
             <div class="drag-drop-zone" id="dropZone">
               <i class="fa-solid fa-cloud-arrow-up cloud-icon"></i>
-              <p class="drop-text">Drag & drop GSR CSVs here</p>
+              <p class="drop-text">Drag & drop GSR CSVs or a project .zip here</p>
               <p class="separator">or</p>
               <label for="fileInput" class="btn btn-primary">
                 <i class="fa-solid fa-folder-open"></i> Browse Files
               </label>
-              <input type="file" id="fileInput" accept=".csv" multiple style="display: none;">
+              <input type="file" id="fileInput" accept=".csv,.zip" multiple style="display: none;">
             </div>
-            
+
             <div class="track-list-container" id="trackListContainer" style="display: none; margin-top: 12px;">
               <ul class="track-list" id="trackList" style="list-style: none; display: flex; flex-direction: column; gap: 8px;">
                 <!-- Dynamically populated track list items -->
@@ -560,6 +561,9 @@
               <button class="btn btn-secondary" id="exportSvgBtn" disabled>
                 <i class="fa-solid fa-file-image"></i> Export SVG Map (Vector)
               </button>
+              <button class="btn btn-secondary" id="exportProjectBtn" disabled title="Bundles every loaded track's processed CSV plus collective view settings into one .zip you can re-import to keep working later">
+                <i class="fa-solid fa-file-zipper"></i> Export Collective Project (.zip)
+              </button>
             </div>
           </div>
         </section>
@@ -904,6 +908,7 @@
   <script src="storage.js"></script>
   <script src="events.js"></script>
   <script src="tracks.js"></script>
+  <script src="collective_project.js"></script>
   <script src="ui.js"></script>
   <script src="renderer.js"></script>
   <script src="sketch.js"></script>
