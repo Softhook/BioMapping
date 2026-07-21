@@ -1535,16 +1535,17 @@ class GSRAnalyzer {
    * standout moments can be picked out from the full census without
    * confusing "how many events happened" with "which ones were memorable."
    *
-   * Blends Amplitude (60%) and Steepest Rise / Onset Slope (40%).
-   * Amplitude measures total response magnitude (saturating at 0.5 µS).
-   * Onset slope (amplitude / riseTime) measures response suddenness / velocity
-   * (saturating at 0.5 µS/s).
+   * Blends Amplitude (50%), Steepest Rise / Onset Slope (30%), and Local Contrast / SNR (20%).
+   * - Amplitude measures total response magnitude (saturating at 0.5 µS).
+   * - Onset slope (amplitude / riseTime) measures response suddenness (saturating at 0.5 µS/s).
+   * - SNR (contrast against local background noise) suppresses duplicate follow-up peaks in a cluster (saturating at SNR = 3.0).
    */
   _computeSalienceScore(peak) {
     const ampScore = Math.min(1, Math.max(0, peak.amplitude / 0.5));
     const slope = peak.onsetSlope != null ? peak.onsetSlope : (peak.riseTime > 0 ? peak.amplitude / peak.riseTime : 0);
     const slopeScore = Math.min(1, Math.max(0, slope / 0.5));
-    return Math.min(1, Math.max(0, ampScore * 0.6 + slopeScore * 0.4));
+    const snrScore = peak.snr != null ? Math.min(1, Math.max(0, peak.snr / 3.0)) : 0.5;
+    return Math.min(1, Math.max(0, ampScore * 0.50 + slopeScore * 0.30 + snrScore * 0.20));
   }
 
   /**
