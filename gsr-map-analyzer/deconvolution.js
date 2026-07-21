@@ -93,20 +93,31 @@ const SCRDeconvolution = {
    * @param {object} [opts]                       - Optional overrides.
    * @param {number} [opts.tauSlow=2.0]           - SCRF decay constant (s).
    * @param {number} [opts.tauFast=0.75]          - SCRF rise constant (s).
+   * @param {number} [opts.kernelSec=5.0]         - Kernel duration (s) — see buildSCRFKernel().
    * @param {number} [opts.maxIter=100]           - Max matching-pursuit iterations.
    * @param {number} [opts.lr=1.0]                - Atom amplitude scale (1.0 = full subtraction).
    * @param {number} [opts.convTol=0.001]         - Stop when residual max < this (µS).
-   * @returns {{ driver: Float64Array, kernel: Float64Array, iterations: number }}
+   * @returns {{ driver: Float64Array, kernel: Float64Array, iterations: number, impulseLog: Array<{clampedIndex: number, trueIndex: number, amplitude: number}> }}
+   *   impulseLog records every accepted atom's TRUE (possibly negative)
+   *   index alongside the clamped one actually written into `driver` — see
+   *   the clampedImpIdx comment below for why driver itself can't represent
+   *   a negative onset. Callers that need to reconstruct what was actually
+   *   subtracted from the residual (e.g. GSRAnalyzer._runDeconvolutionPipeline's
+   *   reconstructPhasic() call) must use trueIndex, not driver's clamped
+   *   position, or a bump whose true onset predates t=0 gets rebuilt from
+   *   the kernel's own start instead of its correct (partial, tail-only)
+   *   visible portion — see reconstructPhasic()'s doc comment.
    */
   deconvolve(phasic, sampleRate, opts = {}) {
-    const tauSlow = opts.tauSlow ?? 2.0;
-    const tauFast = opts.tauFast ?? 0.75;
-    const maxIter = opts.maxIter ?? 100;
-    const lr      = opts.lr      ?? 1.0;   // atom scale (1.0 = subtract full atom)
-    const convTol = opts.convTol ?? 0.001; // residual threshold in µS
+    const tauSlow   = opts.tauSlow   ?? 2.0;
+    const tauFast   = opts.tauFast   ?? 0.75;
+    const kernelSec = opts.kernelSec ?? 5.0;
+    const maxIter   = opts.maxIter   ?? 100;
+    const lr        = opts.lr        ?? 1.0;   // atom scale (1.0 = subtract full atom)
+    const convTol   = opts.convTol   ?? 0.001; // residual threshold in µS
 
     const n = phasic.length;
-    const kernel = this.buildSCRFKernel(sampleRate, tauSlow, tauFast);
+    const kernel = this.buildSCRFKernel(sampleRate, tauSlow, tauFast, kernelSec);
     const kLen = kernel.length;
 
     // Find kernel peak index
@@ -120,6 +131,7 @@ const SCRDeconvolution = {
     for (let i = 0; i < n; i++) residual[i] = Math.max(0, phasic[i]);
 
     const driver = new Float64Array(n);
+    const impulseLog = [];
     let iterations = 0;
 
     for (let iter = 0; iter < maxIter; iter++) {
@@ -149,6 +161,7 @@ const SCRDeconvolution = {
       // preferable to losing the event outright.
       const clampedImpIdx = Math.max(0, impIdx);
       driver[clampedImpIdx] += amplitude;
+      impulseLog.push({ clampedIndex: clampedImpIdx, trueIndex: impIdx, amplitude });
 
       // Subtract kernel contribution from residual (handling negative impIdx correctly)
       const startJ = Math.max(0, impIdx);
@@ -160,7 +173,7 @@ const SCRDeconvolution = {
       }
     }
 
-    return { driver, kernel, iterations };
+    return { driver, kernel, iterations, impulseLog };
   },
 
   /**
@@ -216,7 +229,20 @@ const SCRDeconvolution = {
    * This produces non-overlapping SCR waveforms where each impulse generates
    * its own clean, isolated SCR shape — resolving the superposition problem.
    *
-   * @param {Array<{index: number, amplitude: number}>} impulses - Detected driver impulses.
+   * index may be NEGATIVE — pass each impulse's TRUE onset position (from
+   * deconvolve()'s impulseLog[].trueIndex), not the clamped position driver
+   * stores it at. A negative index means the SCR's modeled onset predates
+   * t=0 (deconvolve() clamps the driver array itself to 0 since it can't
+   * represent a negative sample position, but still subtracts the kernel's
+   * correctly-offset tail from the residual during fitting — see
+   * deconvolve()'s own clampedImpIdx comment). Reconstructing from the
+   * CLAMPED index instead would restart the kernel from its own t=0 at the
+   * clamped position, producing a bump that's both mistimed and reshaped
+   * relative to what was actually fit — verified empirically: a synthetic
+   * SCR with its true apex at sample 4 reconstructed with an apex at sample
+   * kPeakIdx (~12 at defaults) when built from the clamped index.
+   *
+   * @param {Array<{index: number, amplitude: number}>} impulses - Impulses at their TRUE (possibly negative) onset index.
    * @param {number} n             - Total signal length (samples).
    * @param {Float64Array} kernel  - Pre-built SCRF kernel.
    * @returns {Float64Array} Clean reconstructed phasic signal.
@@ -228,8 +254,13 @@ const SCRDeconvolution = {
     for (const imp of impulses) {
       const amp = imp.amplitude;
       const start = imp.index;
+      // Same clamping as deconvolve()'s residual-subtraction loop: only the
+      // visible (j >= 0) portion of a pre-t=0 kernel contributes, starting
+      // from the correctly-offset kernel sample (startK), not kernel[0].
+      const startJ = Math.max(0, start);
+      const startK = startJ - start;
       const end = Math.min(n, start + kLen);
-      for (let j = start, k = 0; j < end; j++, k++) {
+      for (let j = startJ, k = startK; j < end; j++, k++) {
         clean[j] += amp * kernel[k];
       }
     }

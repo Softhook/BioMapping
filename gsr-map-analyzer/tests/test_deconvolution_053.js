@@ -152,14 +152,23 @@ assert(minGap >= global.GSR_CONST.SCRF.minImpulseGapSec - 1e-9,
 // deconvolution should find a matching peak nearby most of the time. This is
 // the check that caught the real over-merging bug in the run-consolidation
 // pass (agreement was 62% before the gap-cap fix, 91% after, on this exact
-// track). Manually audited the remaining disagreement on 2026-07-21: all 4
-// mismatches at the time were small (~0.02-0.04µS, barely above threshold)
-// bumps in noisy/oscillating regions or a minor wobble on the decay tail of
-// a much larger neighboring peak — marginal/ambiguous cases, not clear
-// algorithmic errors. 85% is set as a floor with headroom below the
-// measured ~91%, not pinned exactly, so minor legitimate shifts from tuning
-// elsewhere don't cause spurious failures — but a regression back toward
-// the 62% pre-fix level will still be caught immediately.
+// track).
+//
+// Dropped from ~91% to ~84% when kernelSec was lengthened from 5s to 10s
+// (5*tauSlow, fixing a real truncation bug — see GSR_CONST.SCRF.kernelSec's
+// doc comment). Investigated on 2026-07-21: every one of the 7 new
+// disagreements is a small-amplitude peak (0.027-0.047µS, barely above the
+// 0.020 threshold) sitting 2-5s from a much larger neighboring peak whose
+// decay tail now extends twice as far — i.e. the longer, more physically
+// accurate kernel now resolves these as part of the larger neighbor's tail
+// rather than as their own separate local maximum. That's the expected
+// consequence of modeling superposition more accurately (the whole point of
+// deconvolution in the first place), not a new failure mode — none of the 7
+// are the "swallowed a genuinely large second peak" pattern the 62%-era bug
+// produced. 80% is set as a floor with headroom below the newly-measured
+// ~84%, not pinned exactly, so minor legitimate shifts from tuning elsewhere
+// don't cause spurious failures — but a regression back toward the 62%
+// pre-fix level will still be caught immediately.
 {
   const offTimes = off.peaks.map(p => p.time).sort((a, b) => a - b);
   const isolated = off.peaks.filter(p => {
@@ -177,7 +186,7 @@ assert(minGap >= global.GSR_CONST.SCRF.minImpulseGapSec - 1e-9,
   const rate = isolated.length > 0 ? matched / isolated.length : 1;
   console.log(`  Agreement on isolated (unambiguous) peaks: ${matched}/${isolated.length} (${(rate * 100).toFixed(1)}%)`);
   assert(isolated.length >= 20, `Enough isolated peaks on track 053 to make the agreement check meaningful (${isolated.length})`);
-  assert(rate >= 0.85, `Deconvolution agrees with detectPeaks() on >=85% of unambiguous isolated peaks (got ${(rate * 100).toFixed(1)}%)`);
+  assert(rate >= 0.80, `Deconvolution agrees with detectPeaks() on >=80% of unambiguous isolated peaks (got ${(rate * 100).toFixed(1)}%)`);
 }
 
 // Memorable-event ("hotspot") metric on real track data — a separate

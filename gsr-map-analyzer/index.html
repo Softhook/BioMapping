@@ -196,6 +196,9 @@
               <span class="toggle-label">SCR Deconvolution (Benedek &amp; Kaernbach, 2010)</span>
             </div>
             <p class="help-text" style="margin-top:4px;">Deconvolves the whole phasic signal against a bi-exponential SCRF kernel (Benedek &amp; Kaernbach, 2010) to recover the underlying sparse neural driver, then reconvolves each driver impulse into an isolated SCR waveform — resolving overlapping/superposed responses that trough-to-peak detection undercounts. Peak shape metrics (rise time, recovery, skew) come from the canonical kernel rather than being measured per event, since fixing one response shape per recording is what makes amplitude-only separation possible. <strong>Improves peak separation for closely-spaced or compound SCRs; can occasionally flag low-amplitude noise as a spurious response, a known limitation of this class of method.</strong> When off, the simpler shape-criteria trough-to-peak detector is used (faster, same as before).</p>
+            <div class="deconv-truncation-warning" id="deconvTruncationWarning" style="display:none; margin-top:6px; padding:7px 10px; border-radius:6px; background:rgba(229,158,0,0.15); border:1px solid rgba(229,158,0,0.4); color:#e59e00; font-size:0.78rem; line-height:1.4;">
+              <i class="fa-solid fa-triangle-exclamation"></i> Matching pursuit hit its iteration cap before fully converging on this track — some real SCRs may be left unmodeled. Results are still usable but may be undercounted; consider this track a candidate for a longer maxIter budget.
+            </div>
 
             <div class="control-subgroup-title" style="margin-top:12px;">Peak Shape &amp; Width Criteria</div>
 

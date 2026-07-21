@@ -181,6 +181,7 @@ const GSRTrackManager = {
 
       GSRUI.updatePeaksTable();
       GSRUI.updateStatsPanel();
+      GSRUI.updateDeconvTruncationWarning();
 
       GSRTrackManager.EXPORT_BUTTON_IDS.forEach(id => {
         const el = document.getElementById(id);
@@ -409,6 +410,21 @@ const GSRTrackManager = {
         delete S[key].dataset.customValue;
         S[key].value = params[key];
       }
+    }
+
+    // Checkbox, not a range slider — .checked, not .value. Was missing from
+    // gsrKeys entirely: switching from a deconvolution-on track to a
+    // deconvolution-off track (or vice versa) left the checkbox showing
+    // whichever state the PREVIOUS track happened to be in, so a subsequent
+    // Re-analyze would silently run in the wrong mode. Re-running
+    // updateDeconvolutionUIState() afterward also re-locks/unlocks the shape
+    // sliders to match, exactly as if the user had clicked the checkbox
+    // themselves.
+    if (S.useDeconvolution && params.useDeconvolution !== undefined) {
+      S.useDeconvolution.checked = !!params.useDeconvolution;
+    }
+    if (typeof GSREvents !== 'undefined' && typeof GSREvents.updateDeconvolutionUIState === 'function') {
+      GSREvents.updateDeconvolutionUIState();
     }
   },
 

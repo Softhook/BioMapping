@@ -246,7 +246,11 @@ class GSRMapExporter {
     if (!dot || window.getComputedStyle(dot).display === 'none') return null;
     const s = window.getComputedStyle(dot);
     const strokeWidth = (parseFloat(s.borderWidth) || 1.5) * 0.5;
-    const r = (parseFloat(s.width) || 10) * 0.15;
+    // Radius = half the CSS dot's own diameter, so the exported dot matches
+    // its in-app rendered size. Was width*0.15 (~30% of the correct radius)
+    // — a leftover fudge factor that made every exported dot render far
+    // smaller/fainter than what's shown live in the browser.
+    const r = (parseFloat(s.width) || 10) * 0.5;
     return `<circle cx="${cx}" cy="${cy}" r="${r}"` +
       ` fill="${this._esc(s.backgroundColor || '#f43f5e')}"` +
       ` stroke="${this._esc(s.borderColor || '#ffffff')}"` +

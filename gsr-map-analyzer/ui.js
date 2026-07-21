@@ -183,10 +183,14 @@ const GSRUI = {
 
     try {
       const params = GSRStorage.readGsrSliderValues();
+      // Hotspot spatial dedup (analyze()'s memorableEvents selection) needs
+      // this so it compares the same latency-shifted positions the map
+      // actually renders markers at, not raw ones.
+      const peakLatency = GSRStorage.readGpsSliderValues().peakLatency;
 
       if (AppState.viewMode === 'single') {
         GSRTrackManager.saveActiveTrackParams();
-        AppState.analyzer.analyze(params);
+        AppState.analyzer.analyze(params, peakLatency);
         GSRUI.invalidateEnvironmentalCache();
         if (AppState.mapManager) {
           AppState.mapManager.renderData(AppState.analyzer, GSRStorage.buildGpsParams());
@@ -195,7 +199,7 @@ const GSRUI = {
         if (AppState.collectiveManager) {
           const activeTracks = AppState.collectiveManager.getActiveTracks();
           activeTracks.forEach(track => {
-            track.analyzer.analyze(params);
+            track.analyzer.analyze(params, peakLatency);
             track.filterParams = { ...params };
           });
         }
@@ -205,11 +209,28 @@ const GSRUI = {
 
       GSRUI.updateStatsPanel();
       GSRUI.updatePeaksTable();
+      GSRUI.updateDeconvTruncationWarning();
       redraw();
     } catch (err) {
       console.error("Analysis error:", err);
       alert("Error running analysis: " + err.message);
     }
+  },
+
+  /**
+   * Show/hide the SCR-deconvolution truncation warning (index.html,
+   * #deconvTruncationWarning). phasicDeconvTruncated is set by
+   * _runDeconvolutionPipeline() (analyzer.js) whenever matching pursuit hits
+   * maxIter before the residual actually converges — a real, possible
+   * failure mode (some genuine SCRs left unmodeled with no other visible
+   * sign) that previously had no indication anywhere in the UI; the flag
+   * existed but only tests ever read it.
+   */
+  updateDeconvTruncationWarning() {
+    const el = document.getElementById('deconvTruncationWarning');
+    if (!el) return;
+    const truncated = !!(AppState.analyzer && AppState.analyzer.phasicDeconvTruncated);
+    el.style.display = truncated ? '' : 'none';
   },
 
   /**

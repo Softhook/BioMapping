@@ -35,7 +35,7 @@ module.exports = {
   SCRF: {
     tauSlow: 2.0,
     tauFast: 0.75,
-    kernelSec: 5.0,
+    kernelSec: 10.0,
     maxIter: 2000,
     lr: 1.0,
     convTol: 0.002,
@@ -87,5 +87,10 @@ module.exports = {
 
   SNAP: {
     HEADING_W: 0.7, SPEED_GATE: 0.3
+  },
+
+  MEMORABLE_EVENTS: {
+    HOTSPOT_PERCENTILE: 0.02,
+    DEDUP_RADIUS_M: 20
   }
 };

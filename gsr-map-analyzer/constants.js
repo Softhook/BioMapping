@@ -65,7 +65,13 @@ const GSR_CONST = {
   SCRF: {
     tauSlow: 2.0,       // Decay (slow) time constant (s) — Benedek & Kaernbach Table 1
     tauFast: 0.75,      // Rise (fast) time constant (s)
-    kernelSec: 5.0,     // Kernel duration (s) — <8 % residual at 5 s
+    // Kernel duration (s). Was 5.0 ("<8% residual at 5s" — that figure was
+    // wrong; verified analytically, the kernel is still at ~24% of its peak
+    // height and ~13% of its total mass is truncated at a 5s cutoff with
+    // tauSlow=2.0). 10.0 = 5*tauSlow, matching the paper's convention and
+    // bringing the truncated tail below ~1%. Must actually reach
+    // buildSCRFKernel() — see deconvolve()'s opts.kernelSec.
+    kernelSec: 10.0,
     // Max matching-pursuit iterations — this is a GLOBAL, whole-track budget
     // (one deconvolve() pass per analyze() call, not per-peak), so it must
     // scale with recording length/density. Measured on a 920s/9200-sample
@@ -210,6 +216,20 @@ const GSR_CONST = {
     // recorded nearby" (no smoothing at all). 0.5 keeps a smooth, readable surface while
     // no longer averaging a lone spike down to near-baseline.
     peakPreservation: 0.5
+  },
+
+  // ── Memorable-event ("hotspot") selection ────────────────────────────────
+  // See GSRAnalyzer.analyze()'s "Memorable-event view" section for the full
+  // rationale (was a fixed salienceScore threshold, moved to percentile-based
+  // selection — see that doc comment for the real-track yield numbers behind
+  // the 2% choice).
+  MEMORABLE_EVENTS: {
+    HOTSPOT_PERCENTILE: 0.02,  // Top X% of active (non-excluded) peaks by amplitude
+    // Peaks within this many meters of an already-selected hotspot are
+    // treated as the same physical spot and skipped in favor of the larger
+    // one already kept, so the curated set reads as distinct "places" rather
+    // than the same location claiming two of the (typically <40) slots.
+    DEDUP_RADIUS_M: 20
   },
 
   // ── Road snapping — map-matcher bearing tuning ───────────────────────────

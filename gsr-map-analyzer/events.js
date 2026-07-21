@@ -830,7 +830,7 @@ const GSREvents = {
     let canonRise = 1.2, canonHalf = 2.2, canonSkew = 0.55;
     if (scf && typeof SCRDeconvolution !== 'undefined') {
       const sampleRate = 10; // Kernel metrics are rate-independent at this resolution
-      const k = SCRDeconvolution.buildSCRFKernel(sampleRate, scf.tauSlow, scf.tauFast);
+      const k = SCRDeconvolution.buildSCRFKernel(sampleRate, scf.tauSlow, scf.tauFast, scf.kernelSec);
       const dt = 1.0 / sampleRate;
       let kPeakIdx = 0;
       for (let i = 1; i < k.length; i++) { if (k[i] > k[kPeakIdx]) kPeakIdx = i; }

@@ -244,7 +244,11 @@ class GSRAnalyzer {
     while (dataStartLine < lines.length && lines[dataStartLine].startsWith('#')) {
       const line = lines[dataStartLine].trim();
       if (line.startsWith('# RecordingStartTime:')) {
-        const metaVal = parseFloat(line.split(':')[1]);
+        // substring(prefix.length), not split(':')[1] — consistent with every
+        // other metadata field below, and doesn't silently truncate if a
+        // value ever contains its own colon (this field is currently always
+        // a plain number, but the parsing shouldn't rely on that).
+        const metaVal = parseFloat(line.substring('# RecordingStartTime:'.length));
         if (!isNaN(metaVal)) {
           this.recordingStartTime = metaVal;
         }
@@ -261,7 +265,7 @@ class GSRAnalyzer {
           console.warn("Failed to parse GpsFilterParams metadata:", e);
         }
       } else if (line.startsWith('# EnrichmentRadius:')) {
-        const radVal = parseFloat(line.split(':')[1]);
+        const radVal = parseFloat(line.substring('# EnrichmentRadius:'.length));
         if (!isNaN(radVal)) {
           this.enrichmentRadius = radVal;
         }
@@ -644,8 +648,18 @@ class GSRAnalyzer {
 
   /**
    * Run the analysis pipeline with current parameter adjustments.
+   *
+   * @param {object} params - GSR filter/detection params (see GSRStorage.readGsrSliderValues()).
+   * @param {number} [peakLatency=0] - GPS peak-latency compensation (seconds),
+   *   from GSRStorage.readGpsSliderValues(). Only used by the hotspot spatial
+   *   dedup below, so its selection compares the SAME latency-shifted
+   *   positions the map actually renders markers at (see
+   *   GSRMapManager._resolveLatencyIndex() in map.js) rather than raw,
+   *   unshifted ones. Defaults to 0 (no shift) so callers that don't care
+   *   about hotspot/GPS interaction — tests, the export-time backfill in
+   *   collective_project.js — don't need to plumb it through.
    */
-  analyze(params) {
+  analyze(params, peakLatency = 0) {
     if (this.raw.length === 0) return;
 
     const n = this.raw.length;
@@ -774,13 +788,51 @@ class GSRAnalyzer {
     // Excluded (user-hidden) peaks are left out, matching how
     // computeTemporalPeakDensity() already treats exclusion. Sorted by
     // descending amplitude so the single biggest event is first.
-    const HOTSPOT_PERCENTILE = 0.02;
+    //
+    // HOTSPOT_PERCENTILE/DEDUP_RADIUS_M live in GSR_CONST.MEMORABLE_EVENTS
+    // (constants.js), not inline here, so they're discoverable/tunable
+    // alongside every other threshold in this codebase.
+    //
+    // Spatial dedup: walk the amplitude-sorted list and skip any candidate
+    // within DEDUP_RADIUS_M meters of an already-selected hotspot, rather
+    // than just slicing the top N. Without this, two peaks at essentially
+    // the same physical spot (e.g. the participant stood in one place for
+    // two separate high-arousal moments) could both consume a slot in this
+    // small, curated set, reading as "two locations" when it's really one —
+    // the smaller of the pair is skipped in favor of the larger one already
+    // kept, and the walk continues past it to find a genuinely different
+    // location instead, so the set still fills up to the full target count.
+    //
+    // Peaks with no GPS fix (getCoordinates returns null) are skipped
+    // entirely, not auto-included: GSRMapManager._renderHotspotMarkers() /
+    // _renderCollectiveTrackHotspots() (map.js) both bail out with
+    // `if (!coords) return;`, so an unrenderable peak selected here would
+    // silently consume a slot and render nothing — shrinking the visible
+    // hotspot count below targetCount for no reason, when a lower-amplitude
+    // but actually renderable peak was available to take its place instead.
+    //
+    // Positions are resolved through _resolveHotspotIndex(), which applies
+    // the same peakLatency GPS shift the map renders markers with — using
+    // raw (unshifted) coordinates here would let this dedup pass/fail pairs
+    // the map itself would judge differently once shifted.
+    const ME = GSR_CONST.MEMORABLE_EVENTS;
     {
       const activeByAmplitude = this.peaks.filter(p => !p.excluded).sort((a, b) => b.amplitude - a.amplitude);
-      const hotspotCount = activeByAmplitude.length > 0
-        ? Math.max(1, Math.round(activeByAmplitude.length * HOTSPOT_PERCENTILE))
+      const targetCount = activeByAmplitude.length > 0
+        ? Math.max(1, Math.round(activeByAmplitude.length * ME.HOTSPOT_PERCENTILE))
         : 0;
-      this.memorableEvents = activeByAmplitude.slice(0, hotspotCount);
+
+      const selected = []; // { peak, lat, lon }
+      for (const p of activeByAmplitude) {
+        if (selected.length >= targetCount) break;
+        const coords = this.getCoordinates(this._resolveHotspotIndex(p, peakLatency));
+        if (!coords) continue;
+        const tooClose = selected.some(s => this._distanceMeters(coords.lat, coords.lon, s.lat, s.lon) < ME.DEDUP_RADIUS_M);
+        if (!tooClose) {
+          selected.push({ peak: p, lat: coords.lat, lon: coords.lon });
+        }
+      }
+      this.memorableEvents = selected.map(s => s.peak);
     }
 
     // 6. Continuous, threshold-independent arousal metrics (ISCR/AUC + combined index)
@@ -900,7 +952,7 @@ class GSRAnalyzer {
     const phasicArr = new Float64Array(phasicVals);
 
     const result = SCRDeconvolution.deconvolve(phasicArr, this.sampleRate, {
-      tauSlow: scf.tauSlow, tauFast: scf.tauFast,
+      tauSlow: scf.tauSlow, tauFast: scf.tauFast, kernelSec: scf.kernelSec,
       maxIter: scf.maxIter, lr: scf.lr, convTol: scf.convTol
     });
 
@@ -930,6 +982,34 @@ class GSRAnalyzer {
     // objects: _detectPeaksFromCurve() measures those directly off the
     // reconstructed curve instead (see its doc comment for why).
     const { kPeakIdx } = this._kernelShapeMetrics(result.kernel, dt);
+
+    // Map each clamped driver-array position back to the individual
+    // matching-pursuit atom(s) that were combined into it — usually exactly
+    // one, but multiple whenever two+ atoms independently clamp to the same
+    // position, which in practice only happens right at the recording
+    // boundary (see deconvolve()'s clampedImpIdx comment). rawImpulses
+    // below (from detectImpulses(), which only sees the already-collapsed
+    // `driver` array) only knows the CLAMPED position; resolving/
+    // reconstructing a boundary impulse from that clamped position instead
+    // of its true (possibly negative) one reproduces a mistimed, reshaped
+    // bump — verified empirically (see deconvolve()'s impulseLog doc
+    // comment: true apex at sample 4 reconstructed at sample ~kPeakIdx=12).
+    const logByClampedIndex = new Map();
+    for (const entry of result.impulseLog) {
+      if (!logByClampedIndex.has(entry.clampedIndex)) logByClampedIndex.set(entry.clampedIndex, []);
+      logByClampedIndex.get(entry.clampedIndex).push(entry);
+    }
+    // For the apex-prediction sanity check below, use the single largest
+    // contributor's true position when multiple atoms share a clamped slot
+    // — a coarse "is there really a rise near here" gate doesn't need every
+    // contributor, just the dominant one's true position.
+    const dominantTrueIndex = (clampedIndex) => {
+      const entries = logByClampedIndex.get(clampedIndex);
+      if (!entries || entries.length === 0) return clampedIndex; // shouldn't happen; safe fallback
+      let best = entries[0];
+      for (const e of entries) if (e.amplitude > best.amplitude) best = e;
+      return best.trueIndex;
+    };
 
     // IMPORTANT: imp.index from detectImpulses() is the driver-domain
     // impulse/ONSET position, not the SCR's apex. deconvolve() places each
@@ -992,17 +1072,37 @@ class GSRAnalyzer {
     // reconstructed curve — mirroring detectPeaks()'s own filter order
     // (amplitude gates candidacy, SNR/quality filter the resulting peak
     // objects at the end) rather than inventing a separate convention here.
+    // resolveApex() is predicted from the TRUE (possibly negative) onset via
+    // dominantTrueIndex(), not imp.index's clamped position — otherwise a
+    // boundary impulse's predicted apex is off by however far the clamp
+    // shifted it (up to kPeakIdx samples), which can push the actual apex
+    // outside the ±0.5s search window entirely (see this method's doc
+    // comment above for the measured window-size tradeoffs).
     const threshold = params.peakThreshold;
     const impulses = rawImpulses
-      .map(imp => ({ imp, ...resolveApex(imp.index) }))
+      .map(imp => ({ imp, ...resolveApex(dominantTrueIndex(imp.index)) }))
       .filter(({ imp, apexVal }) => imp.amplitude >= threshold && apexVal >= 0.001);
     this.phasicDriverPeaks = impulses.map(({ imp }) => imp);
 
     // Reconstruct the clean, superposition-resolved phasic signal from every
-    // impulse that passed the gate above. reconstructPhasic() treats impulse
-    // "index" as the ONSET position (the kernel is convolved starting
-    // there), not the apex.
-    const reconstructionImpulses = impulses.map(({ imp }) => ({ index: imp.index, amplitude: imp.amplitude }));
+    // impulse that passed the gate above, at each atom's TRUE (possibly
+    // negative) onset position — reconstructPhasic() treats impulse "index"
+    // as the ONSET position (the kernel is convolved starting there), not
+    // the apex, and needs the true position to correctly reproduce only the
+    // visible tail of a kernel whose modeled onset predates t=0 (see that
+    // function's doc comment). Falls back to the clamped position/amplitude
+    // if a gated impulse's clamped index has no logged entry (shouldn't
+    // happen — every driver-array impulse originates from an impulseLog
+    // entry — but degrades safely rather than dropping the impulse).
+    const reconstructionImpulses = [];
+    for (const { imp } of impulses) {
+      const entries = logByClampedIndex.get(imp.index);
+      if (entries && entries.length > 0) {
+        for (const e of entries) reconstructionImpulses.push({ index: e.trueIndex, amplitude: e.amplitude });
+      } else {
+        reconstructionImpulses.push({ index: imp.index, amplitude: imp.amplitude });
+      }
+    }
     const cleanVals = SCRDeconvolution.reconstructPhasic(reconstructionImpulses, n, result.kernel);
     this.phasicClean = new Array(n);
     for (let i = 0; i < n; i++) {
@@ -1400,6 +1500,40 @@ class GSRAnalyzer {
    */
   _computeSalienceScore(peak) {
     return Math.min(1, Math.max(0, peak.amplitude / 0.5));
+  }
+
+  /**
+   * Flat-earth approximate distance in meters between two lat/lon points —
+   * fine at the tens-of-meters scale this is used for (hotspot spatial
+   * dedup in analyze()). Same formula spatial_clustering.js and
+   * collective_manager.js already use elsewhere in this app; duplicated
+   * locally rather than reaching into GSRSpatialClustering's @private
+   * static helpers from a different module.
+   */
+  _distanceMeters(lat1, lon1, lat2, lon2) {
+    const degToMeterLat = 111320.0;
+    const midLat = (lat1 + lat2) / 2;
+    const degToMeterLon = degToMeterLat * Math.cos(midLat * Math.PI / 180);
+    const dy = (lat1 - lat2) * degToMeterLat;
+    const dx = (lon1 - lon2) * degToMeterLon;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  /**
+   * Resolve the raw-sample index a hotspot's position should be evaluated
+   * at, applying the same GPS-latency shift the map actually renders
+   * markers with (see GSRMapManager._resolveLatencyIndex() in map.js —
+   * duplicated here rather than reaching into a different module's instance
+   * method, same convention as _distanceMeters()). Without this, hotspot
+   * spatial dedup would compare raw (t=peak.time) positions while the map
+   * compares latency-shifted (t=peak.time-peakLatency) ones, so the two
+   * views could disagree about which peaks are "at the same spot".
+   */
+  _resolveHotspotIndex(peak, peakLatency) {
+    if (!(peakLatency > 0)) return peak.index;
+    const shiftedTime = Math.max(0, peak.time - peakLatency);
+    const si = this.findClosestIndex(shiftedTime);
+    return si >= 0 ? si : peak.index;
   }
 
   detectPeaks(threshold, params) {

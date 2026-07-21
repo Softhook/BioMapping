@@ -136,7 +136,8 @@ const GSRCollectiveProject = {
         // track round-trips regardless of which one happens to be active.
         if (!track.analyzer.filtered || track.analyzer.filtered.length === 0) {
           try {
-            track.analyzer.analyze(track.filterParams);
+            const pl = (track.gpsFilterParams && track.gpsFilterParams.peakLatency) || 0;
+            track.analyzer.analyze(track.filterParams, pl);
           } catch (e) {
             console.warn(`Could not analyze track "${track.name}" for export:`, e);
           }
@@ -229,7 +230,7 @@ const GSRCollectiveProject = {
 
           const filterParams = analyzer.importedFilterParams || GSRStorage.readGsrSliderValues();
           const gpsFilterParams = analyzer.importedGpsFilterParams || GSRStorage.readGpsSliderValues();
-          analyzer.analyze(filterParams); // repopulate filtered/tonic/phasic/peaks so the track is ready to render immediately
+          analyzer.analyze(filterParams, gpsFilterParams.peakLatency || 0); // repopulate filtered/tonic/phasic/peaks so the track is ready to render immediately
 
           const trackId = `track_${Date.now()}_${Math.floor(Math.random() * 1000)}_${i}`;
           const newTrack = {
