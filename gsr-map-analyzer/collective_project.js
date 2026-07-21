@@ -109,12 +109,6 @@ const GSRCollectiveProject = {
       return;
     }
 
-    // Flush the currently active track's live slider values into its track
-    // object first, so the export reflects any unsaved tweaks — mirrors what
-    // switchActiveTrack()/view-mode toggling already do before re-analyzing.
-    GSRTrackManager.saveActiveTrackParams();
-    GSRTrackManager.saveActiveGpsParams();
-
     const btn = document.getElementById('exportProjectBtn');
     const originalHtml = btn ? btn.innerHTML : null;
     if (btn) {
@@ -123,6 +117,14 @@ const GSRCollectiveProject = {
     }
 
     try {
+      // Flush the currently active track's live slider values into its track
+      // object first, so the export reflects any unsaved tweaks — mirrors
+      // what switchActiveTrack()/view-mode toggling already do before
+      // re-analyzing. Inside the try so a failure here still restores the
+      // button instead of leaving it stuck on "Zipping...".
+      GSRTrackManager.saveActiveTrackParams();
+      GSRTrackManager.saveActiveGpsParams();
+
       const zip = new JSZip();
       const manifestTracks = [];
 
@@ -190,6 +192,11 @@ const GSRCollectiveProject = {
       if (!ok) return;
     }
 
+    // Tracks whether clearAllTracks() has already run — once true, the catch
+    // block below must refresh the track-list UI no matter how import fails,
+    // since AppState no longer matches whatever the DOM was last showing.
+    let clearedExisting = false;
+
     try {
       const zip = await JSZip.loadAsync(file);
       const manifestEntry = zip.file('manifest.json');
@@ -200,41 +207,57 @@ const GSRCollectiveProject = {
         throw new Error("Not a valid project file — manifest has no tracks.");
       }
 
+      // Once we get past manifest validation we're committed to replacing the
+      // session — clearedExisting flags that for the catch block below, so a
+      // failure partway through still leaves the UI reflecting reality
+      // (whatever tracks did load, or a clean empty state) instead of the
+      // stale pre-import track list.
       GSRTrackManager.clearAllTracks();
+      clearedExisting = true;
 
       let newActiveId = null;
+      const failedTracks = [];
       for (let i = 0; i < manifest.tracks.length; i++) {
         const entry = manifest.tracks[i];
-        const csvEntry = entry.file ? zip.file(entry.file) : null;
-        if (!csvEntry) {
-          console.warn(`Project zip is missing the CSV for track "${entry.name}" (expected file "${entry.file}") — skipping.`);
-          continue;
+        try {
+          const csvEntry = entry.file ? zip.file(entry.file) : null;
+          if (!csvEntry) throw new Error(`missing CSV "${entry.file}" in zip`);
+          const csvText = await csvEntry.async('string');
+
+          const analyzer = new GSRAnalyzer();
+          analyzer.parseCSV(csvText); // restores filterParams/gpsFilterParams/labels/exclusions from the CSV's own embedded headers
+
+          const filterParams = analyzer.importedFilterParams || GSRStorage.readGsrSliderValues();
+          const gpsFilterParams = analyzer.importedGpsFilterParams || GSRStorage.readGpsSliderValues();
+          analyzer.analyze(filterParams); // repopulate filtered/tonic/phasic/peaks so the track is ready to render immediately
+
+          const trackId = `track_${Date.now()}_${Math.floor(Math.random() * 1000)}_${i}`;
+          const newTrack = {
+            id: trackId,
+            name: entry.name || entry.file,
+            color: entry.color || AppState.getNextTrackColor(),
+            enabled: entry.enabled !== false,
+            analyzer,
+            filterParams,
+            gpsFilterParams
+          };
+          AppState.collectiveManager.addTrack(newTrack);
+          if (i === manifest.activeTrackIndex) newActiveId = trackId;
+        } catch (trackErr) {
+          // One bad track (corrupt CSV, missing file) shouldn't sink the
+          // whole batch — skip it and keep going, same policy
+          // loadFilesSequentially() already uses for ordinary CSV drops.
+          console.warn(`Skipping track "${entry.name || entry.file}" — failed to load:`, trackErr);
+          failedTracks.push(entry.name || entry.file || `track #${i + 1}`);
         }
-        const csvText = await csvEntry.async('string');
-
-        const analyzer = new GSRAnalyzer();
-        analyzer.parseCSV(csvText); // restores filterParams/gpsFilterParams/labels/exclusions from the CSV's own embedded headers
-
-        const filterParams = analyzer.importedFilterParams || GSRStorage.readGsrSliderValues();
-        const gpsFilterParams = analyzer.importedGpsFilterParams || GSRStorage.readGpsSliderValues();
-        analyzer.analyze(filterParams); // repopulate filtered/tonic/phasic/peaks so the track is ready to render immediately
-
-        const trackId = `track_${Date.now()}_${Math.floor(Math.random() * 1000)}_${i}`;
-        const newTrack = {
-          id: trackId,
-          name: entry.name || entry.file,
-          color: entry.color || AppState.getNextTrackColor(),
-          enabled: entry.enabled !== false,
-          analyzer,
-          filterParams,
-          gpsFilterParams
-        };
-        AppState.collectiveManager.addTrack(newTrack);
-        if (i === manifest.activeTrackIndex) newActiveId = trackId;
       }
 
       if (AppState.collectiveManager.tracks.length === 0) {
         throw new Error('No tracks could be recovered from this project file.');
+      }
+
+      if (failedTracks.length > 0) {
+        alert(`Imported with ${failedTracks.length} track(s) skipped (could not be read):\n` + failedTracks.join('\n'));
       }
 
       // Make a track active first — this loads *that track's own* GSR/GPS
@@ -279,6 +302,17 @@ const GSRCollectiveProject = {
     } catch (err) {
       console.error('Project import failed:', err);
       alert('Error importing project: ' + err.message);
+
+      if (clearedExisting) {
+        // The old track list is already gone from AppState — make sure the
+        // DOM agrees, whether that means showing whatever partial set of
+        // tracks did load or falling back to the normal empty-library view.
+        GSRTrackManager.renderTrackList();
+        const remaining = AppState.collectiveManager.tracks.length;
+        GSRTrackManager.setFileStatus('warning',
+          remaining > 0 ? `${remaining} Tracks Loaded (partial project restore)` : 'No File Loaded'
+        );
+      }
     }
   }
 };

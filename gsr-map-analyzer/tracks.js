@@ -5,6 +5,13 @@
 
 const GSRTrackManager = {
   /**
+   * Buttons that only make sense once at least one track is loaded — kept in
+   * one place so renderTrackList()'s empty-state branch and
+   * switchActiveTrack() can't drift apart when a button gets added/removed.
+   */
+  EXPORT_BUTTON_IDS: ['exportCsvBtn', 'exportImageBtn', 'exportMapBtn', 'exportSvgBtn', 'exportProjectBtn'],
+
+  /**
    * Get all enabled tracks — delegates to GSRCollectiveManager.
    */
   getActiveTracks() {
@@ -175,11 +182,10 @@ const GSRTrackManager = {
       GSRUI.updatePeaksTable();
       GSRUI.updateStatsPanel();
 
-      document.getElementById('exportCsvBtn').setAttribute('disabled', 'true');
-      document.getElementById('exportImageBtn').setAttribute('disabled', 'true');
-      document.getElementById('exportMapBtn').setAttribute('disabled', 'true');
-      document.getElementById('exportSvgBtn').setAttribute('disabled', 'true');
-      document.getElementById('exportProjectBtn').setAttribute('disabled', 'true');
+      GSRTrackManager.EXPORT_BUTTON_IDS.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.setAttribute('disabled', 'true');
+      });
 
       if (AppState.mapManager) {
         AppState.mapManager.clearMap();
@@ -325,11 +331,10 @@ const GSRTrackManager = {
     GSRUI.runAnalysis();
     GSRUI.refreshOsmControls();
 
-    document.getElementById('exportCsvBtn').removeAttribute('disabled');
-    document.getElementById('exportImageBtn').removeAttribute('disabled');
-    document.getElementById('exportMapBtn').removeAttribute('disabled');
-    document.getElementById('exportSvgBtn').removeAttribute('disabled');
-    document.getElementById('exportProjectBtn').removeAttribute('disabled');
+    GSRTrackManager.EXPORT_BUTTON_IDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.removeAttribute('disabled');
+    });
 
     const placeholder = document.getElementById('canvasPlaceholder');
     if (placeholder) placeholder.style.display = 'none';
