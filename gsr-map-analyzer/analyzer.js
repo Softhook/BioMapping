@@ -872,10 +872,11 @@ class GSRAnalyzer {
    * the way a fully regularized convex solver (e.g. cvxEDA) would.
    *
    * @param {Array<number>} phasicVals - Tonic-subtracted phasic values (>= 0).
-   * @param {object} params - Analysis parameters (peakThreshold, minPeakQuality).
+   * @param {object} params - Analysis parameters (peakThreshold, minPeakQuality, shapeMinSnr).
    * @private
    */
   _runDeconvolutionPipeline(phasicVals, params) {
+    const defaults = GSR_CONST.PEAK_SHAPE;
     const n = phasicVals.length;
     this.phasicDriver = [];
     this.phasicClean = [];
@@ -1013,6 +1014,18 @@ class GSRAnalyzer {
       peak.qualityScore = this._computePeakQuality(peak);
       return peak;
     });
+
+    // Enforce the same hard SNR cutoff detectPeaks() applies (shape.MIN_SNR,
+    // "0 = off"). shapeMinSnr is deliberately left live/editable in the UI
+    // when deconvolution is on — unlike rise time/half-recovery/skew, SNR
+    // isn't a property fixed by the kernel shape, it depends on each peak's
+    // local noise floor regardless of detection mode — so it must actually
+    // filter here too, not just feed the quality-score's SNR bucket (which
+    // uses its own fixed internal breakpoints, independent of this slider).
+    const minSnr = params && params.shapeMinSnr != null ? params.shapeMinSnr : defaults.MIN_SNR;
+    if (minSnr > 0) {
+      this.peaks = this.peaks.filter(pk => pk.snr >= minSnr);
+    }
 
     // Same "0 = off" convention as detectPeaks() — no hardcoded floor here;
     // a hardcoded minimum would silently override an explicit user choice.
