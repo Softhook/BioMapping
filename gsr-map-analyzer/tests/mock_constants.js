@@ -40,7 +40,8 @@ module.exports = {
     lr: 1.0,
     convTol: 0.002,
     impulseThreshold: 0.005,
-    minImpulseGapSec: 0.5
+    minImpulseGapSec: 0.5,
+    minApexVal: 0.001
   },
 
   TIME_KEYWORDS: ['time', 'sec', 'timestamp', 'millis', 'ms'],

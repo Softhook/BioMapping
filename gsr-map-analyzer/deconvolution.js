@@ -18,8 +18,18 @@
  * Algorithm: Matching Pursuit — greedy iterative atom selection against the
  * SCRF kernel dictionary.  At each iteration the global maximum of the
  * residual signal is found, an impulse is placed to explain it, and the
- * kernel contribution is subtracted.  This avoids the degenerate solutions
- * that gradient-descent NNLS falls into when the kernel tail is long.
+ * kernel contribution is subtracted.  Benedek & Kaernbach's own method
+ * solves this via NNLS (a convex, globally-optimal fit); MP is used here
+ * instead because it's simpler to implement and reason about, not because
+ * it avoids some NNLS failure mode — no such failure mode exists for this
+ * problem. The tradeoff is real, not free: because the SCRF kernel's
+ * shifted copies are highly self-correlated, MP's per-atom amplitude
+ * (residual peak height, not a least-squares projection) systematically
+ * overestimates total energy when responses overlap — measured at +60–68%
+ * AUC inflation (sum of phasicClean vs. sum of phasicVals) on real tracks.
+ * See _runDeconvolutionPipeline()'s doc comment in analyzer.js for the
+ * downstream implication (phasicAUC/arousalIndex run on this inflated
+ * signal in deconvolution mode).
  */
 
 const SCRDeconvolution = {

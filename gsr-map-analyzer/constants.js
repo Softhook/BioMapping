@@ -98,7 +98,13 @@ const GSR_CONST = {
     // noise sitting near the boundary.
     convTol: 0.002,
     impulseThreshold: 0.005,  // Min driver amplitude for an impulse (µS)
-    minImpulseGapSec: 0.5     // Min gap between impulses (s)
+    minImpulseGapSec: 0.5,    // Min gap between impulses (s)
+    // Minimum resolved-apex value (µS) for a gated impulse to be treated as
+    // a genuine local rise in the original phasic signal, not just a
+    // driver-domain artifact — see _runDeconvolutionPipeline()'s gating
+    // comment in analyzer.js. Deliberately far below impulseThreshold; this
+    // only rejects near-zero apexes, not small-but-real ones.
+    minApexVal: 0.001
   },
 
   // ── CSV parsing keywords ─────────────────────────────────────────────────

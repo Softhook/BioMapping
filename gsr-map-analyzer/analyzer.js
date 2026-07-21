@@ -926,6 +926,20 @@ class GSRAnalyzer {
    * signal, not just a driver-domain artifact — but it is not eliminated
    * the way a fully regularized convex solver (e.g. cvxEDA) would.
    *
+   * Known limitation, NOT mitigated: each atom's amplitude is set to the
+   * residual's raw peak value rather than a true least-squares projection
+   * (which is what NNLS-based methods, including Benedek & Kaernbach's own,
+   * actually solve for — see deconvolution.js's header comment). Because
+   * shifted copies of the SCRF kernel are highly self-correlated, this
+   * systematically OVERESTIMATES total energy whenever responses overlap —
+   * measured at +37% on a synthetic 3-impulse overlap case and +60–68% on
+   * real tracks (sum of phasicClean vs. sum of phasicVals). this.phasic is
+   * reassigned to phasicClean below, so phasicAUC/arousalIndex/CSV export
+   * all run on this inflated signal whenever deconvolution mode is on —
+   * treat those metrics as relative/comparative within a recording, not as
+   * an absolute physiological energy measure, until this is fixed with a
+   * proper per-atom projection step.
+   *
    * @param {Array<number>} phasicVals - Tonic-subtracted phasic values (>= 0).
    * @param {object} params - Analysis parameters (peakThreshold, minPeakQuality, shapeMinSnr).
    * @private
@@ -1079,9 +1093,10 @@ class GSRAnalyzer {
     // outside the ±0.5s search window entirely (see this method's doc
     // comment above for the measured window-size tradeoffs).
     const threshold = params.peakThreshold;
+    const minApexVal = scf.minApexVal ?? 0.001;
     const impulses = rawImpulses
       .map(imp => ({ imp, ...resolveApex(dominantTrueIndex(imp.index)) }))
-      .filter(({ imp, apexVal }) => imp.amplitude >= threshold && apexVal >= 0.001);
+      .filter(({ imp, apexVal }) => imp.amplitude >= threshold && apexVal >= minApexVal);
     this.phasicDriverPeaks = impulses.map(({ imp }) => imp);
 
     // Reconstruct the clean, superposition-resolved phasic signal from every
