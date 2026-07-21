@@ -26,7 +26,7 @@
   --color-tonic: #a30091; /* Tonic purple */
   --color-phasic: #008f3c; /* Phasic green */
   --color-peak: #d10024; /* Alert red */
-  --color-hotspot: #ff8800; /* Hotspot / memorable-event amber-orange */
+  --color-hotspot: #ff1744; /* Hotspot / memorable-event red — distinct from --color-peak (#d10024, the "Low quality" shade peaks use) */
   --color-peak-density: #e59e00; /* Peak density (NS-SCR) amber */
   --color-phasic-auc: #0099aa; /* Phasic AUC (ISCR) teal */
   --color-arousal-index: #7b00cc; /* Combined arousal index deep purple */
@@ -1227,9 +1227,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 /* Hotspot (memorable-event) map markers — visually distinct from the minor
-   peak dots, using the amber-orange hotspot color and a larger, fully-opaque
-   dot (bold but static, matching the graph's un-animated hotspot styling) so
-   the small set of high-amplitude standout events read clearly at a glance. */
+   peak dots, using the hotspot red and a larger, fully-opaque dot, plus the
+   expanding pulse-glow ring peak markers originally had (see .peak-glow-ring
+   below, now unused there — see drawPeakMarkers()'s doc comment in
+   renderer.js for why peaks themselves stay static) so the small, curated
+   set of high-amplitude standout events reads clearly at a glance. */
 .hotspot-dot {
   width: 12px;
   height: 12px;
@@ -1244,7 +1246,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: rgba(255, 136, 0, 0.4);
+  background: rgba(255, 23, 68, 0.4); /* matches --color-hotspot (#ff1744) */
   position: absolute;
   animation: pulse-glow 2s infinite ease-in-out;
 }
@@ -1815,24 +1817,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   color: var(--danger);
 }
 
-/* Leaflet Collective Map Markers */
-.collective-peak-icon {
-  background: transparent;
-  border: none;
-}
-
-.collective-peak-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 1.5px solid #ffffff;
-  transition: transform 0.2s ease;
-}
-
-.collective-peak-dot:hover {
-  transform: scale(1.3);
-}
-
 /* Contour Lines Tooltips */
 .contour-tooltip-label {
   background: rgba(9, 13, 22, 0.9) !important;
@@ -2231,8 +2215,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 /* Stress Peak and Label Toggling via Map Container Classes */
 #map.hide-map-peaks .peak-dot,
-#map.hide-map-peaks .peak-glow-ring,
-#map.hide-map-peaks .collective-peak-dot {
+#map.hide-map-peaks .peak-glow-ring {
   display: none !important;
 }
 

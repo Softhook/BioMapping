@@ -347,6 +347,56 @@ const GSRRenderer = {
   },
 
   /**
+   * Pixel-per-unit scale factors shared by drawPeakMarkers()/drawHotspotMarkers()
+   * (and their _computePeakScreenPos() calls) — pulled out since both methods
+   * computed byte-identical xScale/yScaleU/yScaleL formulas independently
+   * before, with no structural guarantee they'd stay in sync if one changed.
+   * @private
+   */
+  _computeGraphScales(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
+    const tSpan = tMax - tMin;
+    const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
+    return {
+      xScale:  tSpan > 0 ? (xSpan / tSpan) : 0,
+      yScaleU: (yMaxU - yMinU) > 0 ? ((yTopU - yBottomU) / (yMaxU - yMinU)) : 0,
+      yScaleL: (yMaxL - yMinL) > 0 ? ((yTopL - yBottomL) / (yMaxL - yMinL)) : 0
+    };
+  },
+
+  /**
+   * True when a peak's onset-through-recovery span falls entirely outside
+   * [tMin, tMax] and can be skipped without drawing. Shared visibility check
+   * for drawPeakMarkers()/drawHotspotMarkers().
+   * @private
+   */
+  _peakOutOfView(p, tMin, tMax) {
+    if (p.onsetTime > tMax) return true;
+    if (p.time < tMin && p.onsetTime < tMin &&
+        (p.recoveryIndex === -1 || p.recoveryIndex === undefined ||
+         !AppState.analyzer.phasic || !AppState.analyzer.phasic[p.recoveryIndex] ||
+         AppState.analyzer.phasic[p.recoveryIndex].time < tMin)) {
+      return true;
+    }
+    return false;
+  },
+
+  /**
+   * Screen-space position of a peak's apex/onset on both panels. Shared by
+   * drawPeakMarkers()/drawHotspotMarkers() — both plot the same underlying
+   * peak object (a hotspot IS a peak, see drawHotspotMarkers()'s doc comment)
+   * at the same coordinates, just with different styling on top.
+   * @private
+   */
+  _computePeakScreenPos(p, tMin, scales, yMinU, yBottomU, yMinL, yBottomL, showLowerMarker) {
+    const xPeak  = GSR_CONST.MARGIN.left + (p.time - tMin) * scales.xScale;
+    const xOnset = GSR_CONST.MARGIN.left + (p.onsetTime - tMin) * scales.xScale;
+    const yFilteredPeak = yBottomU + (AppState.analyzer.filtered[p.index].val - yMinU) * scales.yScaleU;
+    const yPhasicPeak   = showLowerMarker ? yBottomL + (p.value - yMinL) * scales.yScaleL : yFilteredPeak;
+    const yPhasicOnset  = showLowerMarker ? yBottomL + (p.onsetValue - yMinL) * scales.yScaleL : yFilteredPeak;
+    return { xPeak, xOnset, yFilteredPeak, yPhasicPeak, yPhasicOnset };
+  },
+
+  /**
    * `showLowerMarker` (default true) controls whether the phasic-scaled
    * lower-graph half of each peak marker (shaded region, onset/peak dots,
    * connecting line) is drawn. Those elements are positioned using yMinL/yMaxL,
@@ -376,30 +426,15 @@ const GSRRenderer = {
     AppState._peakExcludeButtons = [];
     AppState._peakClickTargets = [];
 
-    const tSpan = tMax - tMin;
-    const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
-    const xScale = tSpan > 0 ? (xSpan / tSpan) : 0;
-
-    const yScaleU = (yMaxU - yMinU) > 0 ? ((yTopU - yBottomU) / (yMaxU - yMinU)) : 0;
-    const yScaleL = (yMaxL - yMinL) > 0 ? ((yTopL - yBottomL) / (yMaxL - yMinL)) : 0;
+    const scales = this._computeGraphScales(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL);
 
     for (let pIdx = 0; pIdx < AppState.analyzer.peaks.length; pIdx++) {
       const p = AppState.analyzer.peaks[pIdx];
 
-      if (p.time < tMin && p.onsetTime < tMin &&
-          (p.recoveryIndex === -1 || p.recoveryIndex === undefined ||
-           !AppState.analyzer.phasic || !AppState.analyzer.phasic[p.recoveryIndex] ||
-           AppState.analyzer.phasic[p.recoveryIndex].time < tMin)) {
-        continue;
-      }
-      if (p.onsetTime > tMax) continue;
+      if (this._peakOutOfView(p, tMin, tMax)) continue;
 
-      const xPeak  = GSR_CONST.MARGIN.left + (p.time - tMin) * xScale;
-      const xOnset = GSR_CONST.MARGIN.left + (p.onsetTime - tMin) * xScale;
-
-      const yFilteredPeak = yBottomU + (AppState.analyzer.filtered[p.index].val - yMinU) * yScaleU;
-      const yPhasicPeak   = showLowerMarker ? yBottomL + (p.value - yMinL) * yScaleL : yFilteredPeak;
-      const yPhasicOnset  = showLowerMarker ? yBottomL + (p.onsetValue - yMinL) * yScaleL : yFilteredPeak;
+      const { xPeak, xOnset, yFilteredPeak, yPhasicPeak, yPhasicOnset } =
+        this._computePeakScreenPos(p, tMin, scales, yMinU, yBottomU, yMinL, yBottomL, showLowerMarker);
 
       const isActive  = (pIdx === AppState.activePeakIndex);
       const isHovered = (AppState.hoveredIndex >= p.onsetIndex && AppState.hoveredIndex <= p.index);
@@ -432,8 +467,8 @@ const GSRRenderer = {
         beginShape();
         vertex(xOnset, yBottomL);
         for (let i = p.onsetIndex; i <= p.index; i++) {
-          const xVal = GSR_CONST.MARGIN.left + (AppState.analyzer.phasic[i].time - tMin) * xScale;
-          const yVal = yBottomL + (AppState.analyzer.phasic[i].val - yMinL) * yScaleL;
+          const xVal = GSR_CONST.MARGIN.left + (AppState.analyzer.phasic[i].time - tMin) * scales.xScale;
+          const yVal = yBottomL + (AppState.analyzer.phasic[i].val - yMinL) * scales.yScaleL;
           vertex(xVal, yVal);
         }
         vertex(xPeak, yBottomL);
@@ -500,6 +535,29 @@ const GSRRenderer = {
   },
 
   /**
+   * Draw the expanding, fading pulse ring behind a hotspot dot — restores the
+   * animation peak markers originally had before they were deliberately made
+   * static/minor (see drawPeakMarkers()'s doc comment), applied instead to
+   * the much smaller, curated hotspot set. Mirrors styles.css's
+   * @keyframes pulse-glow (used by the map's .hotspot-glow-ring) frame for
+   * frame — scale 0.6→1.2 and opacity 0.9→0 over the first 70% of a 2s cycle,
+   * then invisible for the remaining 30% until it repeats — so the canvas
+   * graph and the Leaflet map pulse in the same visual rhythm rather than
+   * each inventing its own animation curve.
+   * @private
+   */
+  _drawHotspotPulseRing(x, y, baseD, hotspotColor, phase) {
+    if (phase > 0.7) return; // matches the CSS keyframe's invisible 70-100% gap
+    const local = phase / 0.7;
+    const scale = 0.6 + local * 0.6;       // 0.6 -> 1.2, same range as the CSS keyframe
+    const alpha = 0.9 * (1 - local);        // 0.9 -> 0
+    const d = baseD * 2.33 * scale;         // ring's natural size ~2.33x the dot, same ratio as the map's 28px ring around a 12px dot
+    noStroke();
+    fill(color(hotspotColor + Math.round(alpha * 255).toString(16).padStart(2, '0')));
+    circle(x, y, d);
+  },
+
+  /**
    * Draw "Hotspots" — analyzer.memorableEvents, the curated subset of peaks
    * likely to actually be noticed/remembered (fast, high-amplitude; see
    * _computeSalienceScore()'s doc comment in analyzer.js). Deliberately
@@ -519,32 +577,22 @@ const GSRRenderer = {
     if (showLowerMarker === undefined) showLowerMarker = true;
     if (!AppState.showHotspots || !AppState.analyzer.memorableEvents || AppState.analyzer.memorableEvents.length === 0) return;
 
-    const tSpan = tMax - tMin;
-    const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
-    const xScale = tSpan > 0 ? (xSpan / tSpan) : 0;
+    const scales = this._computeGraphScales(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL);
 
-    const yScaleU = (yMaxU - yMinU) > 0 ? ((yTopU - yBottomU) / (yMaxU - yMinU)) : 0;
-    const yScaleL = (yMaxL - yMinL) > 0 ? ((yTopL - yBottomL) / (yMaxL - yMinL)) : 0;
-
-    const hotspotColor = this.getThemeColor('--color-hotspot', '#ff8800');
+    const hotspotColor = this.getThemeColor('--color-hotspot', '#ff1744');
     const colorPhasic = this.getThemeColor('--color-phasic', '#008f3c');
     const canvasBg = this.getThemeColor('--canvas-bg', '#ffffff');
 
+    // Shared animation phase for every hotspot this frame, so all of them pulse
+    // in lockstep (same convention as the map's CSS @keyframes pulse-glow —
+    // see _drawHotspotPulseRing()'s doc comment).
+    const pulsePhase = (millis() % 2000) / 2000;
+
     for (const p of AppState.analyzer.memorableEvents) {
-      if (p.time < tMin && p.onsetTime < tMin &&
-          (p.recoveryIndex === -1 || p.recoveryIndex === undefined ||
-           !AppState.analyzer.phasic || !AppState.analyzer.phasic[p.recoveryIndex] ||
-           AppState.analyzer.phasic[p.recoveryIndex].time < tMin)) {
-        continue;
-      }
-      if (p.onsetTime > tMax) continue;
+      if (this._peakOutOfView(p, tMin, tMax)) continue;
 
-      const xPeak  = GSR_CONST.MARGIN.left + (p.time - tMin) * xScale;
-      const xOnset = GSR_CONST.MARGIN.left + (p.onsetTime - tMin) * xScale;
-
-      const yFilteredPeak = yBottomU + (AppState.analyzer.filtered[p.index].val - yMinU) * yScaleU;
-      const yPhasicPeak   = showLowerMarker ? yBottomL + (p.value - yMinL) * yScaleL : yFilteredPeak;
-      const yPhasicOnset  = showLowerMarker ? yBottomL + (p.onsetValue - yMinL) * yScaleL : yFilteredPeak;
+      const { xPeak, xOnset, yFilteredPeak, yPhasicPeak, yPhasicOnset } =
+        this._computePeakScreenPos(p, tMin, scales, yMinU, yBottomU, yMinL, yBottomL, showLowerMarker);
 
       const realIdx = AppState.analyzer.peaks.indexOf(p);
       const isActive = (realIdx !== -1 && realIdx === AppState.activePeakIndex);
@@ -555,8 +603,8 @@ const GSRRenderer = {
         beginShape();
         vertex(xOnset, yBottomL);
         for (let i = p.onsetIndex; i <= p.index; i++) {
-          const xVal = GSR_CONST.MARGIN.left + (AppState.analyzer.phasic[i].time - tMin) * xScale;
-          const yVal = yBottomL + (AppState.analyzer.phasic[i].val - yMinL) * yScaleL;
+          const xVal = GSR_CONST.MARGIN.left + (AppState.analyzer.phasic[i].time - tMin) * scales.xScale;
+          const yVal = yBottomL + (AppState.analyzer.phasic[i].val - yMinL) * scales.yScaleL;
           vertex(xVal, yVal);
         }
         vertex(xPeak, yBottomL);
@@ -573,12 +621,14 @@ const GSRRenderer = {
         line(xPeak, yFilteredPeak, xPeak, yPhasicPeak);
         drawingContext.setLineDash([]);
 
+        this._drawHotspotPulseRing(xPeak, yPhasicPeak, isActive ? 9 : 6, hotspotColor, pulsePhase);
         stroke(hotspotColor);
         strokeWeight(2);
         fill(isActive ? color(hotspotColor) : color(canvasBg));
         circle(xPeak, yPhasicPeak, isActive ? 9 : 6);
       }
 
+      this._drawHotspotPulseRing(xPeak, yFilteredPeak, isActive ? 9 : 6, hotspotColor, pulsePhase);
       stroke(hotspotColor);
       strokeWeight(2);
       fill(isActive ? color(hotspotColor) : color(canvasBg));

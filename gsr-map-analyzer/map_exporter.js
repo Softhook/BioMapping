@@ -48,7 +48,12 @@ class GSRMapExporter {
       tracks:         this._vectors(map, [...mgr.pathSegments, ...mgr.collectivePathSegments]),
       contours:       this._vectors(map, mgr.contourLayers),
       clusters:       this._vectors(map, mgr.clusterLayers),
-      dotsAndLabels:  this._markers(map, [...mgr.peakMarkers, ...mgr.collectivePeakMarkers])
+      dotsAndLabels:  this._markers(map, [...mgr.peakMarkers, ...mgr.collectivePeakMarkers]),
+      // Hotspots (mgr.hotspotMarkers / collectiveHotspotMarkers) are a separate
+      // marker set from regular peaks — gathered and rendered as their own SVG
+      // layer (Hotspot_Dots) rather than folded into dotsAndLabels, so they stay
+      // isolatable/toggleable in the exported file the same way they are in-app.
+      hotspots:       this._markers(map, [...(mgr.hotspotMarkers || []), ...(mgr.collectiveHotspotMarkers || [])])
     };
   }
 
@@ -72,6 +77,7 @@ class GSRMapExporter {
       ['Contour_Lines',      'Contour Lines',               L.contours],
       ['Cluster_Metaballs',  'Cluster Metaballs',           L.clusters],
       ['Stress_Peak_Dots',   'Stress Peak Dots',            L.dotsAndLabels.dots],
+      ['Hotspot_Dots',       'Hotspot Dots',                L.hotspots.dots],
       ['Stress_Peak_Labels', 'Stress Peak Labels',          L.dotsAndLabels.labels]
     ];
 
@@ -236,7 +242,7 @@ class GSRMapExporter {
   }
 
   static _dotSvg(el, cx, cy, opacity) {
-    const dot = el.querySelector('.peak-dot') || el.querySelector('.collective-peak-dot');
+    const dot = el.querySelector('.peak-dot') || el.querySelector('.hotspot-dot');
     if (!dot || window.getComputedStyle(dot).display === 'none') return null;
     const s = window.getComputedStyle(dot);
     const strokeWidth = (parseFloat(s.borderWidth) || 1.5) * 0.5;

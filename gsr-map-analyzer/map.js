@@ -24,6 +24,7 @@ class GSRMapManager {
     this.hotspotMarkers = [];
     this.collectivePathSegments = [];
     this.collectivePeakMarkers = [];
+    this.collectiveHotspotMarkers = [];
     this.contourLayers = [];
     this.osmLayers = [];
     this.scrubMarker = null;
@@ -777,12 +778,7 @@ class GSRMapManager {
       const origPt = origCoords ? map.latLngToLayerPoint([origCoords.lat, origCoords.lon]) : null;
 
       // Apply latency: find GPS position at (peak time - latency)
-      let si = peak.index;
-      if (peakLatency > 0) {
-        const shiftedTime = Math.max(0, peak.time - peakLatency);
-        si = analyzer.findClosestIndex(shiftedTime);
-        if (si < 0) si = peak.index;
-      }
+      const si = this._resolveLatencyIndex(analyzer, peak, peakLatency);
       const coords = analyzer.getCoordinates(si);
       if (!coords) return;
       const pt = map.latLngToLayerPoint([coords.lat, coords.lon]);
@@ -801,11 +797,7 @@ class GSRMapManager {
     // full peak census can run into the hundreds/thousands, so a subdued
     // marker keeps hotspots (see _renderHotspotMarkers) as the visually
     // dominant layer, mirroring the graph's peaks-vs-hotspots hierarchy.
-    const simpleIcon = L.divIcon({
-      className: '',
-      html: '<div class="stress-peak-icon-wrapper" style="position:relative;width:24px;height:24px;"><div class="peak-dot" style="position:absolute;top:9px;left:9px;width:6px;height:6px;"></div></div>',
-      iconSize: [24, 24], iconAnchor: [12, 12]
-    });
+    const simpleIcon = GSRMapManager._buildPeakIcon();
 
     allPeaks.forEach(({ peak, index, coords, px, py }) => {
       const displayLabel = peak.label || '';
@@ -906,43 +898,71 @@ class GSRMapManager {
   }
 
   /**
+   * Build the shared Leaflet divIcon used for every hotspot marker on the
+   * map — single-track (_renderHotspotMarkers) and collective/multi-track
+   * (renderCollectiveData) both call this, so the two views can never drift
+   * apart visually. Includes the expanding pulse-glow ring (.hotspot-glow-ring,
+   * styles.css) that peak markers originally had — peaks themselves stay
+   * static now (see drawPeakMarkers()'s doc comment in renderer.js for why),
+   * but restoring it here for the much smaller, curated hotspot set is exactly
+   * the "draw the eye to what matters" role that animation used to serve.
+   * @private
+   */
+  static _buildHotspotIcon() {
+    return L.divIcon({
+      className: '',
+      html: '<div class="stress-peak-icon-wrapper" style="position:relative;width:28px;height:28px;">' +
+        '<div class="hotspot-glow-ring" style="position:absolute;top:0;left:0;"></div>' +
+        '<div class="hotspot-dot" style="position:absolute;top:8px;left:8px;width:12px;height:12px;"></div>' +
+        '</div>',
+      iconSize: [28, 28], iconAnchor: [14, 14]
+    });
+  }
+
+  /**
+   * Build the shared Leaflet divIcon used for every unlabeled, non-hotspot
+   * peak marker — single-track (_renderPeakMarkers) and collective/multi-track
+   * (renderCollectiveData) both call this, so a peak looks identical on both
+   * views: small, quality-neutral --color-peak red dot, no track color, no
+   * animation. Track color used to distinguish which track a collective-view
+   * peak belonged to; that's dropped here in favor of matching the
+   * single-track view exactly, per an explicit request to make the two
+   * consistent — clicking a marker (its popup shows the track name) is now
+   * how you tell tracks apart in collective view, not dot color.
+   * @private
+   */
+  static _buildPeakIcon() {
+    return L.divIcon({
+      className: '',
+      html: '<div class="stress-peak-icon-wrapper" style="position:relative;width:24px;height:24px;"><div class="peak-dot" style="position:absolute;top:9px;left:9px;width:6px;height:6px;"></div></div>',
+      iconSize: [24, 24], iconAnchor: [12, 12]
+    });
+  }
+
+  /**
    * Render the "hotspot" (memorable-event) marker layer on the map — the small,
    * amplitude-selected subset of peaks in analyzer.memorableEvents (see
    * analyzer.js's analyze() "Memorable-event view" section and the graph-panel
    * equivalent, GSRRenderer.drawHotspotMarkers()).
    *
    * Deliberately simpler than _renderPeakMarkers: no text labels, no spatial
-   * clustering, no latency connector lines — just a distinct amber-orange dot
+   * clustering, no latency connector lines — just a distinct hotspot-red dot
    * per hotspot, click-to-focus, and the same popup used for regular peak
    * markers (since a hotspot IS a peak — analyzer.peaks.indexOf(peak) recovers
    * its real index for label-editing/exclusion/focus wiring).
    * @private
    */
   _renderHotspotMarkers(analyzer, peakLatency) {
-    const map = this.map;
     const events = analyzer.memorableEvents;
     if (!events || events.length === 0) return;
 
-    // No pulse animation, matching the graph's hotspot styling (bold/larger
-    // than peaks, but static) — the amber-orange dot's size and full opacity
-    // already carry the "this one matters" signal on their own.
-    const hotspotIcon = L.divIcon({
-      className: '',
-      html: '<div class="stress-peak-icon-wrapper" style="position:relative;width:28px;height:28px;"><div class="hotspot-dot" style="position:absolute;top:8px;left:8px;width:12px;height:12px;"></div></div>',
-      iconSize: [28, 28], iconAnchor: [14, 14]
-    });
+    const hotspotIcon = GSRMapManager._buildHotspotIcon();
 
     events.forEach(peak => {
       const index = analyzer.peaks.indexOf(peak);
       if (index < 0) return;
 
-      let si = peak.index;
-      if (peakLatency > 0) {
-        const shiftedTime = Math.max(0, peak.time - peakLatency);
-        const found = analyzer.findClosestIndex(shiftedTime);
-        if (found >= 0) si = found;
-      }
-      const coords = analyzer.getCoordinates(si);
+      const coords = this._hotspotMarkerCoords(analyzer, peak, peakLatency);
       if (!coords) return;
 
       const marker = L.marker([coords.lat, coords.lon], { icon: hotspotIcon });
@@ -956,6 +976,66 @@ class GSRMapManager {
 
       this.hotspotMarkers.push(marker);
     });
+  }
+
+  /**
+   * Collective/multi-track counterpart to _renderHotspotMarkers() — same
+   * shared icon (GSRMapManager._buildHotspotIcon()) and position math
+   * (_hotspotMarkerCoords()), so the two views can't visually drift apart.
+   * Popup/interaction wiring follows the existing collective peak-marker
+   * convention instead of the single-track one: bindPopup only, no
+   * click-to-focus — collective view has no single "active track" for a
+   * focus action to target (see the regular per-track peak markers built
+   * just above this method's call site in renderCollectiveData()).
+   * @private
+   */
+  _renderCollectiveTrackHotspots(track, peakLatency) {
+    const analyzer = track.analyzer;
+    const events = analyzer.memorableEvents;
+    if (!events || events.length === 0) return;
+
+    const hotspotIcon = GSRMapManager._buildHotspotIcon();
+
+    events.forEach(peak => {
+      const index = analyzer.peaks.indexOf(peak);
+      if (index < 0) return;
+
+      const coords = this._hotspotMarkerCoords(analyzer, peak, peakLatency);
+      if (!coords) return;
+
+      const marker = L.marker([coords.lat, coords.lon], { icon: hotspotIcon });
+      marker.setZIndexOffset(1500);
+      if (this.showHotspots) marker.addTo(this.map);
+
+      marker.bindPopup(() => this._buildCollectivePeakPopup(track, peak, index, coords.lat, coords.lon, marker));
+
+      this.collectiveHotspotMarkers.push(marker);
+    });
+  }
+
+  /**
+   * Resolve the raw-sample index a marker should be positioned at, applying
+   * the optional GPS-latency shift (find the GPS fix at peak.time -
+   * peakLatency instead of peak.time itself, falling back to peak.index if
+   * nothing is found there). Shared by _renderPeakMarkers(),
+   * _renderHotspotMarkers(), and _renderCollectiveTrackHotspots() — all
+   * three used to each carry their own copy of this exact logic.
+   * @private
+   */
+  _resolveLatencyIndex(analyzer, peak, peakLatency) {
+    if (!(peakLatency > 0)) return peak.index;
+    const shiftedTime = Math.max(0, peak.time - peakLatency);
+    const si = analyzer.findClosestIndex(shiftedTime);
+    return si >= 0 ? si : peak.index;
+  }
+
+  /**
+   * Resolve the {lat, lon} position for a hotspot marker. Shared by both
+   * _renderHotspotMarkers() and _renderCollectiveTrackHotspots().
+   * @private
+   */
+  _hotspotMarkerCoords(analyzer, peak, peakLatency) {
+    return analyzer.getCoordinates(this._resolveLatencyIndex(analyzer, peak, peakLatency));
   }
 
   /**
@@ -1111,7 +1191,8 @@ class GSRMapManager {
       }
     });
 
-    this.hotspotMarkers.forEach(m => {
+    const allHotspotMarkers = [...this.hotspotMarkers, ...this.collectiveHotspotMarkers];
+    allHotspotMarkers.forEach(m => {
       if (this.showHotspots) {
         if (!this.map.hasLayer(m)) m.addTo(this.map);
       } else {
@@ -1208,6 +1289,7 @@ class GSRMapManager {
   clearCollectiveLayers() {
     this.collectivePathSegments = this._clearLayerGroup(this.collectivePathSegments);
     this.collectivePeakMarkers = this._clearLayerGroup(this.collectivePeakMarkers);
+    this.collectiveHotspotMarkers = this._clearLayerGroup(this.collectiveHotspotMarkers);
     this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
     this.clearContours();
   }
@@ -1279,12 +1361,7 @@ class GSRMapManager {
         const origCoords = track.analyzer.getCoordinates(peak.index);
 
         // Shifted position (with latency)
-        let si = peak.index;
-        if (peakLatency > 0) {
-          const shiftedTime = Math.max(0, peak.time - peakLatency);
-          si = track.analyzer.findClosestIndex(shiftedTime);
-          if (si < 0) si = peak.index;
-        }
+        const si = this._resolveLatencyIndex(track.analyzer, peak, peakLatency);
         const coords = track.analyzer.getCoordinates(si);
         if (coords) {
           const pt = map.latLngToLayerPoint([coords.lat, coords.lon]);
@@ -1308,13 +1385,12 @@ class GSRMapManager {
       // 360° collision avoidance for collective labels
       const collectivePositions = GSRLabelManager.computeLabelPositions(collectiveLabelCandidates);
 
-      // Compact dot-only icon for unlabeled peaks
-      const collectiveSimpleIcon = L.divIcon({
-        className: '',
-        html: `<div style="position:relative;width:12px;height:12px;"><div class="collective-peak-dot" style="width:10px;height:10px;border-radius:50%;background:${trackColor};box-shadow:0 1px 3px rgba(0,0,0,0.15);border:1.5px solid #fff;"></div></div>`,
-        iconSize: [12, 12],
-        iconAnchor: [6, 6]
-      });
+      // Compact dot-only icon for unlabeled peaks — same shared icon
+      // single-track peaks use (GSRMapManager._buildPeakIcon()), not
+      // track-colored, so a peak looks identical regardless of which view
+      // it's shown in (see that method's doc comment for why track color
+      // was dropped here).
+      const collectiveSimpleIcon = GSRMapManager._buildPeakIcon();
 
       collectiveAllPeaks.forEach(({ peak, index, lat, lon, px, py }) => {
         const displayLabel = peak.label || '';
@@ -1325,7 +1401,7 @@ class GSRMapManager {
           const dirResult = collectivePositions.get(index);
           if (dirResult) {
             marker = L.marker([lat, lon], {
-              icon: GSRLabelManager.buildCollectiveLabelledIcon(px, py, displayLabel, dirResult, trackColor)
+              icon: GSRLabelManager.buildLabelledIcon(px, py, displayLabel, dirResult, { showGlow: false, dotPx: 6 })
             });
             // Bump labeled markers above everything else on the map
             marker.setZIndexOffset(1000);
@@ -1364,6 +1440,14 @@ class GSRMapManager {
           this.collectivePeakMarkers.push(conn);
         }
       }
+
+      // Hotspot markers for this track — same shared icon/styling as the
+      // single-track view (_renderHotspotMarkers), deliberately NOT
+      // track-colored like the regular collective peak dots above: a
+      // hotspot's whole point is to stand out as "one of the biggest events,
+      // in any track," so it keeps the fixed hotspot-red across every track
+      // rather than blending into that track's own color scheme.
+      this._renderCollectiveTrackHotspots(track, peakLatency);
     });
 
     // Render collective global clusters across all active tracks

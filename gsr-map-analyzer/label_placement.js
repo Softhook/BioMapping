@@ -225,19 +225,4 @@ class GSRLabelManager {
     });
   }
 
-  /**
-   * Build a Leaflet divIcon for collective (multi-track) mode with track-colored dots.
-   */
-  static buildCollectiveLabelledIcon(px, py, labelText, dirResult, trackColor) {
-    return GSRLabelManager.buildLabelledIcon(px, py, labelText, dirResult, {
-      dotSize: 12,
-      wrapperClass: '',
-      dotClass: 'collective-peak-dot',
-      showGlow: false,
-      dotExtraStyle: 'border-radius:50%;background:' + trackColor + ';box-shadow:0 1px 3px rgba(0,0,0,0.15);border:1.5px solid #fff;',
-      labelFontSize: '9px',
-      labelFontWeight: '700',
-      labelExtraStyle: 'color:#111111;text-shadow:0 0 3px #ffffff,0 0 5px #ffffff,0 0 8px #ffffff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;line-height:1.2;'
-    });
-  }
 }
