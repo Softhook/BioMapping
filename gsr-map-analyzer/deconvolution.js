@@ -22,14 +22,16 @@
  * solves this via NNLS (a convex, globally-optimal fit); MP is used here
  * instead because it's simpler to implement and reason about, not because
  * it avoids some NNLS failure mode — no such failure mode exists for this
- * problem. The tradeoff is real, not free: because the SCRF kernel's
- * shifted copies are highly self-correlated, MP's per-atom amplitude
- * (residual peak height, not a least-squares projection) systematically
- * overestimates total energy when responses overlap — measured at +60–68%
- * AUC inflation (sum of phasicClean vs. sum of phasicVals) on real tracks.
- * See _runDeconvolutionPipeline()'s doc comment in analyzer.js for the
- * downstream implication (phasicAUC/arousalIndex run on this inflated
- * signal in deconvolution mode).
+ * problem. The tradeoff is real, not free: NNLS minimises a global
+ * residual jointly over all atom positions and amplitudes; MP's greedy
+ * position selection is suboptimal, and the per-atom amplitude (set to
+ * the residual peak value at each step) overestimates energy when
+ * adjacent kernel copies overlap.  The overestimation is corrected via a
+ * post-hoc global rescaling of the reconstructed driver amplitudes
+ * inside _runDeconvolutionPipeline() — see the rescaleAmplitudes step
+ * there.  The upstream MP positions remain greedy and suboptimal, but
+ * the downstream amplitude and AUC metrics are brought to the correct
+ * aggregate scale.
  */
 
 const SCRDeconvolution = {
@@ -158,7 +160,13 @@ const SCRDeconvolution = {
       // kernel peak is at index kPeakIdx relative to impulse start, so
       // impulse index = maxIdx - kPeakIdx.
       const impIdx = maxIdx - kPeakIdx;
-      const amplitude = maxVal * lr;  // kernel peak = 1.0, so A = residual peak
+      // Amplitude = residual peak value.  Because kernel[kPeakIdx] == 1.0
+      // (normalised), this exactly explains the residual at maxIdx and
+      // keeps the per-atom subtraction numerically clean.  The systematic
+      // overestimation that results when adjacent kernel copies overlap is
+      // corrected by the post-hoc rescaling step in
+      // _runDeconvolutionPipeline() rather than here.
+      const amplitude = maxVal * lr;
 
       // Clamp into the driver at index 0 rather than discarding when the true
       // onset would fall before the recording started (impIdx < 0 — the
@@ -176,7 +184,7 @@ const SCRDeconvolution = {
       // Subtract kernel contribution from residual (handling negative impIdx correctly)
       const startJ = Math.max(0, impIdx);
       const startK = startJ - impIdx;
-      const endJ = Math.min(n, impIdx + kLen);
+      const endJ   = Math.min(n, impIdx + kLen);
       for (let j = startJ, k = startK; j < endJ; j++, k++) {
         residual[j] -= amplitude * kernel[k];
         if (residual[j] < 0) residual[j] = 0;
