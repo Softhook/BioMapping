@@ -29,6 +29,7 @@ module.exports = {
     shapeMinHalfRecovery: 0, shapeMaxHalfRecovery: 0,
     shapeMinSnr: 0, shapeMaxSkewRatio: 0,
     minPeakQuality: 0.0,
+    hotspotPercentile: 0.02,
     useDeconvolution: false
   },
 
@@ -91,7 +92,6 @@ module.exports = {
   },
 
   MEMORABLE_EVENTS: {
-    HOTSPOT_PERCENTILE: 0.02,
-    DEDUP_RADIUS_M: 20
+    HOTSPOT_PERCENTILE: 0.02
   }
 };

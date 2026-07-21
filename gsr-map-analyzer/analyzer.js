@@ -651,13 +651,8 @@ class GSRAnalyzer {
    *
    * @param {object} params - GSR filter/detection params (see GSRStorage.readGsrSliderValues()).
    * @param {number} [peakLatency=0] - GPS peak-latency compensation (seconds),
-   *   from GSRStorage.readGpsSliderValues(). Only used by the hotspot spatial
-   *   dedup below, so its selection compares the SAME latency-shifted
-   *   positions the map actually renders markers at (see
-   *   GSRMapManager._resolveLatencyIndex() in map.js) rather than raw,
-   *   unshifted ones. Defaults to 0 (no shift) so callers that don't care
-   *   about hotspot/GPS interaction — tests, the export-time backfill in
-   *   collective_project.js — don't need to plumb it through.
+   *   from GSRStorage.readGpsSliderValues(). Used when resolving coordinates
+   *   for hotspot selection (memorableEvents). Defaults to 0 (no shift).
    */
   analyze(params, peakLatency = 0) {
     if (this.raw.length === 0) return;
@@ -789,19 +784,8 @@ class GSRAnalyzer {
     // computeTemporalPeakDensity() already treats exclusion. Sorted by
     // descending amplitude so the single biggest event is first.
     //
-    // HOTSPOT_PERCENTILE/DEDUP_RADIUS_M live in GSR_CONST.MEMORABLE_EVENTS
-    // (constants.js), not inline here, so they're discoverable/tunable
-    // alongside every other threshold in this codebase.
-    //
-    // Spatial dedup: walk the amplitude-sorted list and skip any candidate
-    // within DEDUP_RADIUS_M meters of an already-selected hotspot, rather
-    // than just slicing the top N. Without this, two peaks at essentially
-    // the same physical spot (e.g. the participant stood in one place for
-    // two separate high-arousal moments) could both consume a slot in this
-    // small, curated set, reading as "two locations" when it's really one —
-    // the smaller of the pair is skipped in favor of the larger one already
-    // kept, and the walk continues past it to find a genuinely different
-    // location instead, so the set still fills up to the full target count.
+    // HOTSPOT_PERCENTILE lives in GSR_CONST.MEMORABLE_EVENTS (constants.js),
+    // discoverable/tunable alongside every other threshold in this codebase.
     //
     // Peaks with no GPS fix (getCoordinates returns null) are skipped
     // entirely, not auto-included: GSRMapManager._renderHotspotMarkers() /
@@ -810,29 +794,24 @@ class GSRAnalyzer {
     // silently consume a slot and render nothing — shrinking the visible
     // hotspot count below targetCount for no reason, when a lower-amplitude
     // but actually renderable peak was available to take its place instead.
-    //
-    // Positions are resolved through _resolveHotspotIndex(), which applies
-    // the same peakLatency GPS shift the map renders markers with — using
-    // raw (unshifted) coordinates here would let this dedup pass/fail pairs
-    // the map itself would judge differently once shifted.
     const ME = GSR_CONST.MEMORABLE_EVENTS;
     {
       const activeByAmplitude = this.peaks.filter(p => !p.excluded).sort((a, b) => b.amplitude - a.amplitude);
+      const percentile = (params && params.hotspotPercentile != null)
+        ? params.hotspotPercentile
+        : ME.HOTSPOT_PERCENTILE;
       const targetCount = activeByAmplitude.length > 0
-        ? Math.max(1, Math.round(activeByAmplitude.length * ME.HOTSPOT_PERCENTILE))
+        ? Math.max(1, Math.round(activeByAmplitude.length * percentile))
         : 0;
 
-      const selected = []; // { peak, lat, lon }
+      const selected = [];
       for (const p of activeByAmplitude) {
         if (selected.length >= targetCount) break;
         const coords = this.getCoordinates(this._resolveHotspotIndex(p, peakLatency));
         if (!coords) continue;
-        const tooClose = selected.some(s => this._distanceMeters(coords.lat, coords.lon, s.lat, s.lon) < ME.DEDUP_RADIUS_M);
-        if (!tooClose) {
-          selected.push({ peak: p, lat: coords.lat, lon: coords.lon });
-        }
+        selected.push(p);
       }
-      this.memorableEvents = selected.map(s => s.peak);
+      this.memorableEvents = selected;
     }
 
     // 6. Continuous, threshold-independent arousal metrics (ISCR/AUC + combined index)
@@ -1575,31 +1554,9 @@ class GSRAnalyzer {
   }
 
   /**
-   * Flat-earth approximate distance in meters between two lat/lon points —
-   * fine at the tens-of-meters scale this is used for (hotspot spatial
-   * dedup in analyze()). Same formula spatial_clustering.js and
-   * collective_manager.js already use elsewhere in this app; duplicated
-   * locally rather than reaching into GSRSpatialClustering's @private
-   * static helpers from a different module.
-   */
-  _distanceMeters(lat1, lon1, lat2, lon2) {
-    const degToMeterLat = 111320.0;
-    const midLat = (lat1 + lat2) / 2;
-    const degToMeterLon = degToMeterLat * Math.cos(midLat * Math.PI / 180);
-    const dy = (lat1 - lat2) * degToMeterLat;
-    const dx = (lon1 - lon2) * degToMeterLon;
-    return Math.sqrt(dx * dx + dy * dy);
-  }
-
-  /**
    * Resolve the raw-sample index a hotspot's position should be evaluated
    * at, applying the same GPS-latency shift the map actually renders
-   * markers with (see GSRMapManager._resolveLatencyIndex() in map.js —
-   * duplicated here rather than reaching into a different module's instance
-   * method, same convention as _distanceMeters()). Without this, hotspot
-   * spatial dedup would compare raw (t=peak.time) positions while the map
-   * compares latency-shifted (t=peak.time-peakLatency) ones, so the two
-   * views could disagree about which peaks are "at the same spot".
+   * markers with (see GSRMapManager._resolveLatencyIndex() in map.js).
    */
   _resolveHotspotIndex(peak, peakLatency) {
     if (!(peakLatency > 0)) return peak.index;

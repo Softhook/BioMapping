@@ -45,6 +45,7 @@ const GSR_CONST = {
     shapeMinHalfRecovery: 0, shapeMaxHalfRecovery: 0,
     shapeMinSnr: 0, shapeMaxSkewRatio: 0,
     minPeakQuality: 0.0,
+    hotspotPercentile: 0.02,
     useDeconvolution: false
   },
 
@@ -230,12 +231,7 @@ const GSR_CONST = {
   // selection — see that doc comment for the real-track yield numbers behind
   // the 2% choice).
   MEMORABLE_EVENTS: {
-    HOTSPOT_PERCENTILE: 0.02,  // Top X% of active (non-excluded) peaks by amplitude
-    // Peaks within this many meters of an already-selected hotspot are
-    // treated as the same physical spot and skipped in favor of the larger
-    // one already kept, so the curated set reads as distinct "places" rather
-    // than the same location claiming two of the (typically <40) slots.
-    DEDUP_RADIUS_M: 20
+    HOTSPOT_PERCENTILE: 0.02  // Top X% of active (non-excluded) peaks by amplitude
   },
 
   // ── Road snapping — map-matcher bearing tuning ───────────────────────────

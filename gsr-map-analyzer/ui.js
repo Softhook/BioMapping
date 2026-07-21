@@ -183,9 +183,9 @@ const GSRUI = {
 
     try {
       const params = GSRStorage.readGsrSliderValues();
-      // Hotspot spatial dedup (analyze()'s memorableEvents selection) needs
-      // this so it compares the same latency-shifted positions the map
-      // actually renders markers at, not raw ones.
+      // Hotspot selection (analyze()'s memorableEvents) resolves GPS
+      // positions using peakLatency so candidate positions match the latency-shifted
+      // locations rendered on the map.
       const peakLatency = GSRStorage.readGpsSliderValues().peakLatency;
 
       if (AppState.viewMode === 'single') {
