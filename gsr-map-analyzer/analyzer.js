@@ -1011,7 +1011,10 @@ class GSRAnalyzer {
         label: oldLabels.get(apexIdx) || '',
         excluded: oldExcluded.has(apexIdx)
       };
-      peak.qualityScore = this._computePeakQuality(peak);
+      // Uses the deconvolution-specific quality formula, not
+      // _computePeakQuality() — see _computeDeconPeakQuality()'s doc
+      // comment for why the shape-based formula doesn't apply here.
+      peak.qualityScore = this._computeDeconPeakQuality(peak);
       return peak;
     });
 
@@ -1247,6 +1250,69 @@ class GSRAnalyzer {
       score += W.decaySlope;
     }
 
+    return Math.min(1, Math.max(0, score));
+  }
+
+  /**
+   * Quality score (0–1) for a deconvolution-mode peak.
+   *
+   * NOTE: this is deliberately a *different* formula from _computePeakQuality(),
+   * not a shared call with different inputs — reusing the shape-based formula
+   * unchanged for deconvolution peaks was tried first and found to be wrong.
+   *
+   * Under the fixed-kernel SCRF model (Benedek & Kaernbach, 2010 — see the
+   * SCRF class comment in constants.js), every deconvolution peak shares the
+   * exact same riseTime, halfRecoveryTime, skewnessRatio and fwhm by
+   * construction: they're derived once from the kernel, not measured per
+   * peak. Verified empirically on track 053: all 205 peaks have exactly one
+   * distinct riseTime/halfRecoveryTime/skewnessRatio value between them,
+   * vs. 17/30/many distinct values for the same fields in shape-based mode.
+   * Likewise onsetSlope (= onsetSlopeUnit × amplitude) and decaySlope
+   * (= amplitude × 0.5 / halfRecoveryTime) are pure linear rescalings of
+   * amplitude in this mode, since onsetSlopeUnit and halfRecoveryTime are
+   * themselves kernel constants — they carry no information beyond amplitude
+   * itself here, unlike in shape-based mode where they're independently
+   * measured from the noisy raw signal.
+   *
+   * Feeding _computePeakQuality()'s weights unchanged into that reality gave
+   * every peak an automatic ~45% of the total score (riseTime + recoveryTime
+   * + skewness weights) regardless of size or genuineness, plus decaySlope's
+   * near-zero pass bar (>0.001 µS/s) cleared by almost anything real — around
+   * 55% of the composite score effectively free. Measured effect on track
+   * 053: quality scores clustered at 0.66–0.98 (median 0.83) vs. shape mode's
+   * 0.18–0.91 (median 0.56), and a peak sitting right at the amplitude
+   * threshold (0.021 µS) still scored 0.808 — barely below a peak 56x larger
+   * (0.950). minPeakQuality was consequently a no-op below ~0.6 in decon mode.
+   *
+   * This formula instead scores only the two quantities that are genuinely
+   * independent per deconvolution peak: amplitude and SNR (local noise floor
+   * varies per peak regardless of kernel shape). This also brings the scoring
+   * closer to actual literature practice, not further from it — Ledalab's CDA
+   * analysis (the standard implementation of this same fixed-kernel approach)
+   * filters individual deconvolved SCRs by a minimum reconvolved amplitude
+   * threshold alone (commonly 0.01–0.02 µS), not by re-scoring each impulse's
+   * morphology, precisely because morphology isn't free to vary once the
+   * kernel is fixed. Amplitude/SNR weights are rescaled from the shape-based
+   * formula's own W.amplitude/W.snr ratio (not arbitrary new values) so the
+   * two modes stay comparably calibrated where they overlap conceptually.
+   */
+  _computeDeconPeakQuality(peak) {
+    const W = GSR_CONST.PEAK_SHAPE.QUALITY_WEIGHTS;
+    const totalW = W.amplitude + W.snr;
+    const ampWeight = totalW > 0 ? W.amplitude / totalW : 0.5;
+    const snrWeight = totalW > 0 ? W.snr / totalW : 0.5;
+
+    // Amplitude: higher is better, saturate at 0.5 µS (same convention as
+    // the shape-based formula).
+    const ampScore = Math.min(1, peak.amplitude / 0.5);
+
+    // SNR: same graduated breakpoints as the shape-based formula's SNR bucket.
+    let snrScore = 0;
+    if (peak.snr >= 3.0) snrScore = 1.0;
+    else if (peak.snr >= 2.0) snrScore = 0.7;
+    else if (peak.snr >= 1.5) snrScore = 0.4;
+
+    const score = ampScore * ampWeight + snrScore * snrWeight;
     return Math.min(1, Math.max(0, score));
   }
 
