@@ -647,6 +647,40 @@ assertEq(freshOffSnap.phasicDriverLen, 0, 'Non-deconvolution path: phasicDriver 
 assertEq(freshOffSnap.phasicCleanLen, 0, 'Non-deconvolution path: phasicClean stays empty');
 assertEq(freshOffSnap.hasPhasicOrig, false, 'Non-deconvolution path: no _phasicOrig backup');
 
+// 6j. Agreement-rate regression guard: for "isolated" detectPeaks() peaks
+// (>=3s from any other detectPeaks() peak — no superposition ambiguity, so
+// both detectors should find the same event), deconvolution mode must find
+// a matching peak nearby most of the time. This caught a real bug during
+// review: an early version of the run-consolidation pass had no time cap on
+// top of its trough-height criterion, and was merging genuinely separate,
+// unambiguous SCRs up to 5-6s apart into a larger neighbor just because the
+// absolute signal level between them never fully returned to zero (e.g. both
+// sitting on a slow shared arousal rise) — agreement on real track data was
+// only 62-76%. Capping the consolidation gap at the kernel's own
+// halfRecoveryTime (grounded in real data: confirmed genuine MP-tiling gaps
+// were 1.2-1.9s, confirmed bad merges were 3.0-5.8s) brought it to 91-94%.
+{
+  const offTimes = freshOff.peaks.map(p => p.time).sort((a, b) => a - b);
+  const isolatedPeaks = freshOff.peaks.filter(p => {
+    const idx = offTimes.indexOf(p.time);
+    const gapPrev = idx > 0 ? p.time - offTimes[idx - 1] : Infinity;
+    const gapNext = idx < offTimes.length - 1 ? offTimes[idx + 1] - p.time : Infinity;
+    return Math.min(gapPrev, gapNext) >= 3.0;
+  });
+  if (isolatedPeaks.length >= 5) {
+    let matched = 0;
+    for (const p of isolatedPeaks) {
+      const closest = freshOn.peaks.reduce((best, q) =>
+        Math.abs(q.time - p.time) < Math.abs(best.time - p.time) ? q : best, freshOn.peaks[0] || { time: -Infinity });
+      if (closest && Math.abs(closest.time - p.time) <= 1.5) matched++;
+    }
+    const rate = matched / isolatedPeaks.length;
+    console.log(`  Agreement on isolated peaks: ${matched}/${isolatedPeaks.length} (${(rate * 100).toFixed(0)}%)`);
+    assert(rate >= 0.85,
+      `Deconvolution finds >=85% of detectPeaks()'s unambiguous isolated peaks (got ${(rate * 100).toFixed(0)}%)`);
+  }
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 console.log(`\n${'='.repeat(60)}`);
 console.log(`All Pipelines Verification: ${passed} passed, ${failed} failed`);

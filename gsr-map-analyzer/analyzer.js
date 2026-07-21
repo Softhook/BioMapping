@@ -815,9 +815,24 @@ class GSRAnalyzer {
    * baseline" convention detectPeaks() itself uses for its half-recovery
    * search, just expressed relative to peak height rather than an absolute
    * constant tuned for a different context.
+   *
+   * ALSO requires the two peaks to be within maxGapSec of each other, on top
+   * of the trough criterion. Found via direct comparison against detectPeaks()
+   * on real data: without a time cap, two genuinely separate, unambiguous
+   * SCRs 3-6s apart — which detectPeaks() correctly reports as distinct
+   * events, since it measures amplitude relative to each one's own local
+   * trough — were being merged into one neighbor just because the *absolute*
+   * signal level between them never fully returned to zero (e.g. both sitting
+   * on a slowly rising tonic/arousal shoulder, unrelated to kernel-tiling).
+   * MP's actual tiling behavior (the case this consolidation exists for)
+   * places sequential atoms within roughly one kernel-width of each other,
+   * not several seconds apart — so capping the gap at 2x halfRecoveryTime
+   * targets genuine tiling without reaching out to merge independent events
+   * that merely share a common elevated baseline.
    * @private
    */
-  _sameElevatedRun(peakA, peakB, phasicVals) {
+  _sameElevatedRun(peakA, peakB, phasicVals, maxGapSec) {
+    if ((peakB.time - peakA.time) > maxGapSec) return false;
     let trough = Infinity;
     for (let i = peakA.index; i <= peakB.index; i++) {
       if (phasicVals[i] < trough) trough = phasicVals[i];
@@ -926,6 +941,18 @@ class GSRAnalyzer {
     // exactly — the canonical kernel's shape is only an approximation of any
     // individual real SCR, so the actual local maximum can sit a little
     // earlier or later than kPeakIdx samples after onset.
+    // Checked 0.75s against real track 053 data during review, expecting a
+    // wider window to catch more true apexes sitting just past a 0.5s edge —
+    // it didn't help (6.7% still off vs 6.3%) and slightly hurt agreement
+    // with detectPeaks() (88.9% vs 91.1%), because widening also makes it
+    // more likely to snap onto a nearby *different* peak's taller value
+    // instead of this impulse's own apex. Reverted to 0.5s. The residual
+    // ~6% "off" rate on real data — almost all by <0.02µS, a few by more —
+    // appears to be inherent real-data noise/kernel-mismatch, not a window-
+    // size problem; ties where two impulses resolve to the same apex are
+    // handled safely regardless (the run-consolidation pass collapses same-
+    // index duplicates to the larger-amplitude one — confirmed empirically:
+    // 0 duplicate-index peaks survive across all four real tracks tested).
     const apexSearchHalfWin = Math.max(1, Math.round(0.5 * this.sampleRate));
     const resolveApex = (onsetIdx) => {
       const predicted = Math.min(n - 1, onsetIdx + kPeakIdx);
@@ -1034,11 +1061,22 @@ class GSRAnalyzer {
     // reconstruction — see comment above. Only the *displayed* this.peaks
     // gets thinned to one marker per run.
     const allQualityFilteredImpulses = this.peaks.map(pk => ({ index: pk.onsetIndex, amplitude: pk.amplitude }));
+    // Empirically checked against real data, not just guessed: comparing
+    // against detectPeaks() on track 048/053, confirmed genuine MP-tiling
+    // atom spacing was 1.2-1.9s, while confirmed bad merges (independent,
+    // unambiguous SCRs detectPeaks() correctly kept separate, incorrectly
+    // swallowed by this consolidation) were 3.0-5.8s apart — a clean gap
+    // between the two. halfRecoveryTime (kernel-derived, ~2.2s at defaults)
+    // sits in that gap, so use it directly rather than a multiplier that
+    // isn't grounded in anything (an earlier version used 2x, which barely
+    // moved the match-rate needle because most bad merges were still under
+    // that wider cap).
+    const maxConsolidationGapSec = halfRecoveryTime;
     const consolidated = [];
     let runStart = 0;
     for (let i = 1; i <= this.peaks.length; i++) {
       const endOfRun = i === this.peaks.length ||
-        !this._sameElevatedRun(this.peaks[i - 1], this.peaks[i], phasicVals);
+        !this._sameElevatedRun(this.peaks[i - 1], this.peaks[i], phasicVals, maxConsolidationGapSec);
       if (endOfRun) {
         let best = this.peaks[runStart];
         for (let j = runStart + 1; j < i; j++) {

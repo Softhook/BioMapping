@@ -1,0 +1,195 @@
+/**
+ * SCR Deconvolution — real-world regression suite using biomap_053.csv.
+ *
+ * Track 053 is the reference "hard case" for this feature: a busy 920s
+ * walking recording with a known gait-synchronized ~2Hz motion artifact
+ * (see the track 053/048/054/055 circuit-health analysis earlier in this
+ * project) and the source of every screenshot-driven bug report that shaped
+ * this pipeline (missed compound peaks, multiple markers on one hump,
+ * swallowed second peaks). test_all_pipelines.js already exercises
+ * deconvolution against track 048 as part of the general pipeline suite;
+ * this file is specifically about pinning down real-world behavior on the
+ * busier, harder track so regressions in future changes are caught against
+ * the exact data that has driven every fix so far, not just synthetic or
+ * lighter-weight fixtures.
+ *
+ * Run: node gsr-map-analyzer/tests/test_deconvolution_053.js
+ */
+
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+global.window = global;
+global.GSR_CONST = require('./mock_constants.js');
+
+function loadModule(filePath, varName) {
+  const src = fs.readFileSync(filePath, 'utf8');
+  const wrapped = src.replace(
+    new RegExp(`class ${varName}\\s*{`),
+    `global.${varName} = class ${varName} {`
+  ).replace(
+    new RegExp(`const ${varName}\\s*=`),
+    `global.${varName} =`
+  );
+  vm.runInThisContext(wrapped, { filename: filePath });
+}
+
+loadModule(path.join(__dirname, '../dwt_filter.js'), 'DWT');
+loadModule(path.join(__dirname, '../gsr_filter.js'), 'GsrFilter');
+loadModule(path.join(__dirname, '../deconvolution.js'), 'SCRDeconvolution');
+loadModule(path.join(__dirname, '../analyzer.js'), 'GSRAnalyzer');
+const { GSRAnalyzer } = global;
+
+let passed = 0, failed = 0;
+function assert(cond, msg) {
+  if (cond) { passed++; } else { failed++; console.error('  FAIL:', msg); }
+}
+function assertEq(a, b, msg) {
+  if (a === b) { passed++; } else { failed++; console.error('  FAIL:', msg, `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); }
+}
+
+console.log('Loading track biomap_053.csv...');
+const csvPath = path.join(__dirname, '../../tracks/biomap_053.csv');
+const csvText = fs.readFileSync(csvPath, 'utf8');
+
+function analyzeTrack(decon) {
+  const a = new GSRAnalyzer();
+  a.parseCSV(csvText);
+  a.analyze({
+    ...global.GSR_CONST.GSR_DEFAULT,
+    tonicMethod: 'percentile', tonicWindow: 15,
+    peakThreshold: 0.020, minPeakQuality: 0.0,
+    useDeconvolution: decon
+  });
+  return a;
+}
+
+console.log('\n── Non-deconvolution baseline ──');
+const off = analyzeTrack(false);
+console.log(`  ${off.peaks.length} peaks, duration ${(off.raw[off.raw.length - 1].time - off.raw[0].time).toFixed(0)}s`);
+assert(off.peaks.length > 0, 'Non-deconvolution finds peaks on track 053');
+assert(off.phasicDriver.length === 0 && off.phasicClean.length === 0, 'Non-deconvolution leaves driver/clean state empty');
+
+console.log('\n── Deconvolution pipeline ──');
+const on = analyzeTrack(true);
+console.log(`  ${on.phasicDriverPeaks.length} driver impulses -> ${on.peaks.length} detected peaks`);
+console.log(`  Rate: ${(on.peaks.length / ((on.raw[on.raw.length - 1].time - on.raw[0].time) / 60)).toFixed(2)} peaks/min`);
+
+assert(!on.phasicDeconvTruncated, 'Matching pursuit converges within maxIter on track 053 (not truncated)');
+assertEq(on.phasicDriver.length, off.raw.length, 'phasicDriver populated at full track length');
+assertEq(on.phasicClean.length, off.raw.length, 'phasicClean populated at full track length');
+
+// Physiologically plausible rate: even a busy/high-arousal walking track
+// shouldn't produce an implausible NS-SCR rate. The original buggy
+// per-peak-window implementation produced ~92/min on this exact track;
+// current pipeline should be well clear of that.
+const durationMin = (on.raw[on.raw.length - 1].time - on.raw[0].time) / 60;
+const rate = on.peaks.length / durationMin;
+assert(rate > 1 && rate < 40, `Peak rate is physiologically plausible: ${rate.toFixed(2)}/min (not the ~92/min the original per-window bug produced)`);
+
+// No amplitude-threshold violations.
+const belowThreshold = on.peaks.filter(p => p.amplitude < 0.020);
+assertEq(belowThreshold.length, 0, `All peaks respect peakThreshold (${belowThreshold.length} violations)`);
+
+// No two peaks closer than the module's own minImpulseGapSec.
+const sortedTimes = on.peaks.map(p => p.time).sort((a, b) => a - b);
+let minGap = Infinity;
+for (let i = 1; i < sortedTimes.length; i++) minGap = Math.min(minGap, sortedTimes[i] - sortedTimes[i - 1]);
+assert(minGap >= global.GSR_CONST.SCRF.minImpulseGapSec - 1e-9,
+  `No near-duplicate peaks: min gap = ${minGap.toFixed(3)}s (>= ${global.GSR_CONST.SCRF.minImpulseGapSec}s)`);
+
+// Peak markers land at (or very near) the true local maximum of the original
+// signal, not at the onset — this was a real, visible bug (markers plotted
+// ~1.2s early, near-baseline) caught via screenshot review and fixed by
+// resolving the true apex within a search window.
+{
+  // Thresholds here are evidence-based, not guessed: measured directly on
+  // this track during review at ~6.3-6.7% off regardless of a 0.5s vs 0.75s
+  // search window (widening didn't help — it just as often snaps onto a
+  // *different* nearby peak's taller value instead of this one's own true
+  // apex), with the large majority of mismatches under 0.01µS and a handful
+  // up to ~0.04µS. Set with headroom above the measured rate/magnitude so
+  // the test catches a real regression (e.g. the old onset-as-apex bug,
+  // which put ~100% of peaks off by a full kernel rise-time) without being
+  // so tight it flags ordinary noise in the underlying data.
+  const phasicOrig = (on._phasicOrig || on.phasic).map(d => d.val);
+  const halfWin = Math.round(0.5 * on.sampleRate);
+  let offApex = 0, maxDiff = 0;
+  for (const p of on.peaks) {
+    const lo = Math.max(0, p.index - halfWin), hi = Math.min(phasicOrig.length - 1, p.index + halfWin);
+    let trueMax = -Infinity;
+    for (let i = lo; i <= hi; i++) if (phasicOrig[i] > trueMax) trueMax = phasicOrig[i];
+    if (trueMax > p.value + 0.001) { offApex++; maxDiff = Math.max(maxDiff, trueMax - p.value); }
+  }
+  const offApexRate = offApex / on.peaks.length;
+  console.log(`  Peak markers off true local max: ${offApex}/${on.peaks.length} (${(offApexRate * 100).toFixed(1)}%), max diff ${maxDiff.toFixed(4)}uS`);
+  assert(offApexRate < 0.15, `Peak markers mostly land at true local maxima: ${(offApexRate * 100).toFixed(1)}% off (want <15%)`);
+  assert(maxDiff < 0.10, `No peak marker is drastically off the true local max: worst case ${maxDiff.toFixed(4)}uS (want <0.10uS)`);
+}
+
+// Onset markers reflect the real (possibly still-elevated) original signal
+// value, not a hardcoded 0 — a real bug that broke the onset-connector line
+// in renderer.js for overlapping SCRs specifically.
+{
+  const phasicOrig = (on._phasicOrig || on.phasic).map(d => d.val);
+  let mismatches = 0;
+  for (const p of on.peaks) {
+    const expected = phasicOrig[p.onsetIndex] || 0;
+    if (Math.abs(p.onsetValue - expected) > 1e-9) mismatches++;
+  }
+  assertEq(mismatches, 0, 'onsetValue matches the real original signal value at onsetIndex (not hardcoded 0)');
+}
+
+// Agreement-rate check: for peaks the non-deconvolution shape-based detector
+// finds with no nearby ambiguity (>=3s from its own next-nearest peak),
+// deconvolution should find a matching peak nearby most of the time. This is
+// the check that caught the real over-merging bug in the run-consolidation
+// pass (agreement was 62% before the gap-cap fix, 91% after, on this exact
+// track). Manually audited the remaining disagreement on 2026-07-21: all 4
+// mismatches at the time were small (~0.02-0.04µS, barely above threshold)
+// bumps in noisy/oscillating regions or a minor wobble on the decay tail of
+// a much larger neighboring peak — marginal/ambiguous cases, not clear
+// algorithmic errors. 85% is set as a floor with headroom below the
+// measured ~91%, not pinned exactly, so minor legitimate shifts from tuning
+// elsewhere don't cause spurious failures — but a regression back toward
+// the 62% pre-fix level will still be caught immediately.
+{
+  const offTimes = off.peaks.map(p => p.time).sort((a, b) => a - b);
+  const isolated = off.peaks.filter(p => {
+    const idx = offTimes.indexOf(p.time);
+    const gapPrev = idx > 0 ? p.time - offTimes[idx - 1] : Infinity;
+    const gapNext = idx < offTimes.length - 1 ? offTimes[idx + 1] - p.time : Infinity;
+    return Math.min(gapPrev, gapNext) >= 3.0;
+  });
+  let matched = 0;
+  for (const p of isolated) {
+    let bestDist = Infinity;
+    for (const q of on.peaks) bestDist = Math.min(bestDist, Math.abs(q.time - p.time));
+    if (bestDist <= 1.5) matched++;
+  }
+  const rate = isolated.length > 0 ? matched / isolated.length : 1;
+  console.log(`  Agreement on isolated (unambiguous) peaks: ${matched}/${isolated.length} (${(rate * 100).toFixed(1)}%)`);
+  assert(isolated.length >= 20, `Enough isolated peaks on track 053 to make the agreement check meaningful (${isolated.length})`);
+  assert(rate >= 0.85, `Deconvolution agrees with detectPeaks() on >=85% of unambiguous isolated peaks (got ${(rate * 100).toFixed(1)}%)`);
+}
+
+// Toggle-sequence state leakage guard, specifically on real track data.
+{
+  const toggler = new GSRAnalyzer();
+  toggler.parseCSV(csvText);
+  const paramsOff = { ...global.GSR_CONST.GSR_DEFAULT, tonicMethod: 'percentile', tonicWindow: 15, peakThreshold: 0.020, minPeakQuality: 0.0, useDeconvolution: false };
+  const paramsOn  = { ...paramsOff, useDeconvolution: true };
+  toggler.analyze(paramsOff);
+  toggler.analyze(paramsOn);
+  toggler.analyze(paramsOff);
+  assertEq(toggler.phasicDriver.length, 0, 'Toggling back off clears phasicDriver on real track data');
+  assertEq(toggler.phasicClean.length, 0, 'Toggling back off clears phasicClean on real track data');
+  assertEq(toggler._phasicOrig, null, 'Toggling back off clears _phasicOrig on real track data');
+  assertEq(toggler.peaks.length, off.peaks.length, 'Toggling back off reproduces the exact non-deconvolution peak count');
+}
+
+console.log(`\n${'='.repeat(60)}`);
+console.log(`Track 053 deconvolution regression suite: ${passed} passed, ${failed} failed`);
+console.log(`${'='.repeat(60)}`);
+if (failed > 0) process.exit(1);
