@@ -213,9 +213,9 @@ assert(minGap >= global.GSR_CONST.SCRF.minImpulseGapSec - 1e-9,
   assert(allValid, 'Every memorableEvents entry is a real, non-excluded peak');
   let sortedDescending = true;
   for (let i = 1; i < on.memorableEvents.length; i++) {
-    if (on.memorableEvents[i].amplitude > on.memorableEvents[i - 1].amplitude) { sortedDescending = false; break; }
+    if (on.memorableEvents[i].salienceScore > on.memorableEvents[i - 1].salienceScore) { sortedDescending = false; break; }
   }
-  assert(sortedDescending, 'memorableEvents is sorted by descending amplitude');
+  assert(sortedDescending, 'memorableEvents is sorted by descending salienceScore');
   console.log(`  Memorable events: ${on.memorableEvents.length}/${on.peaks.length}`);
 }
 

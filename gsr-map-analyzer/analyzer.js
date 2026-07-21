@@ -796,16 +796,21 @@ class GSRAnalyzer {
     // but actually renderable peak was available to take its place instead.
     const ME = GSR_CONST.MEMORABLE_EVENTS;
     {
-      const activeByAmplitude = this.peaks.filter(p => !p.excluded).sort((a, b) => b.amplitude - a.amplitude);
+      const activeSorted = this.peaks.filter(p => !p.excluded).sort((a, b) => {
+        const scoreA = a.salienceScore != null ? a.salienceScore : a.amplitude;
+        const scoreB = b.salienceScore != null ? b.salienceScore : b.amplitude;
+        const diff = scoreB - scoreA;
+        return Math.abs(diff) > 1e-6 ? diff : b.amplitude - a.amplitude;
+      });
       const percentile = (params && params.hotspotPercentile != null)
         ? params.hotspotPercentile
         : ME.HOTSPOT_PERCENTILE;
-      const targetCount = activeByAmplitude.length > 0
-        ? Math.max(1, Math.round(activeByAmplitude.length * percentile))
+      const targetCount = activeSorted.length > 0
+        ? Math.max(1, Math.round(activeSorted.length * percentile))
         : 0;
 
       const selected = [];
-      for (const p of activeByAmplitude) {
+      for (const p of activeSorted) {
         if (selected.length >= targetCount) break;
         const coords = this.getCoordinates(this._resolveHotspotIndex(p, peakLatency));
         if (!coords) continue;
@@ -1530,27 +1535,16 @@ class GSRAnalyzer {
    * standout moments can be picked out from the full census without
    * confusing "how many events happened" with "which ones were memorable."
    *
-   * Scored on amplitude alone. An earlier version blended in onset slope
-   * (steepness) at equal weight, on the reasoning that "fast" is half of
-   * "fast, high-amplitude" — reverted after real usage on the actual graph
-   * showed the blend selected far too many peaks as memorable (e.g. 27% of
-   * the full census on track 059) to read as a curated "these are the
-   * standout moments" set; onsetSlope also turned out to add little
-   * independent signal in practice, since it's driven substantially by
-   * amplitude itself (onsetSlope = amplitude / riseTime). Amplitude alone,
-   * combined with the percentile-based selection in analyze() (see the
-   * memorableEvents comment there) rather than a fixed absolute score
-   * threshold, is what actually keeps the hotspot count small and
-   * proportionate to each recording's own length/richness.
-   *
-   * Saturation point (0.5µS) is on an absolute physiological scale, matching
-   * the convention _computePeakQuality() and _computeDeconPeakQuality()
-   * already use for their own amplitude components — not empirically
-   * re-derived here, and not validated against actual self-reported "what
-   * did you remember" data. Treat as tunable.
+   * Blends Amplitude (60%) and Steepest Rise / Onset Slope (40%).
+   * Amplitude measures total response magnitude (saturating at 0.5 µS).
+   * Onset slope (amplitude / riseTime) measures response suddenness / velocity
+   * (saturating at 0.5 µS/s).
    */
   _computeSalienceScore(peak) {
-    return Math.min(1, Math.max(0, peak.amplitude / 0.5));
+    const ampScore = Math.min(1, Math.max(0, peak.amplitude / 0.5));
+    const slope = peak.onsetSlope != null ? peak.onsetSlope : (peak.riseTime > 0 ? peak.amplitude / peak.riseTime : 0);
+    const slopeScore = Math.min(1, Math.max(0, slope / 0.5));
+    return Math.min(1, Math.max(0, ampScore * 0.6 + slopeScore * 0.4));
   }
 
   /**

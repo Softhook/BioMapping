@@ -609,9 +609,9 @@ assert(deconvAnalyzer2.phasicClean.length === phasicRaw.length, 'phasicClean pop
 
   let sortedDescending = true;
   for (let i = 1; i < deconvAnalyzer2.memorableEvents.length; i++) {
-    if (deconvAnalyzer2.memorableEvents[i].amplitude > deconvAnalyzer2.memorableEvents[i - 1].amplitude) { sortedDescending = false; break; }
+    if (deconvAnalyzer2.memorableEvents[i].salienceScore > deconvAnalyzer2.memorableEvents[i - 1].salienceScore) { sortedDescending = false; break; }
   }
-  assert(sortedDescending, 'memorableEvents is sorted by descending amplitude');
+  assert(sortedDescending, 'memorableEvents is sorted by descending salienceScore (composite amplitude + steepness)');
 
   // The whole point of switching to a percentile: this must stay a small
   // fraction of the census regardless of how many peaks exist, not scale up

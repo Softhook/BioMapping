@@ -263,12 +263,11 @@ assertEq(on.phasicClean.length, off.raw.length,
     'Track 059 produces at least one memorable event');
   const allValid = on.memorableEvents.every(p => on.peaks.includes(p) && !p.excluded);
   assert(allValid, 'All memorableEvents are real, non-excluded peaks');
-  // Sorted descending by amplitude
   let sortedOk = true;
   for (let i = 1; i < on.memorableEvents.length; i++) {
-    if (on.memorableEvents[i].amplitude > on.memorableEvents[i - 1].amplitude) { sortedOk = false; break; }
+    if (on.memorableEvents[i].salienceScore > on.memorableEvents[i - 1].salienceScore) { sortedOk = false; break; }
   }
-  assert(sortedOk, 'memorableEvents is sorted by descending amplitude');
+  assert(sortedOk, 'memorableEvents is sorted by descending salienceScore');
   console.log(`\n  Memorable events: ${on.memorableEvents.length}/${on.peaks.length}`);
 }
 
