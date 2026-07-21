@@ -339,6 +339,7 @@ const GSREvents = {
     bindToggle('btnToggleFiltered', 'showFiltered');
     bindToggle('btnToggleTonic',    'showTonic');
     bindToggle('btnTogglePeaks',    'showPeaks');
+    bindToggle('btnToggleHotspots', 'showHotspots');
 
     // ── Export Buttons ────────────────────────────────────────────────────────
     document.getElementById('exportCsvBtn').addEventListener('click',   GSRUI.exportCSV);
@@ -448,6 +449,12 @@ const GSREvents = {
     btnToggleMapPeaks.addEventListener('click', () => {
       btnToggleMapPeaks.classList.toggle('active');
       if (AppState.mapManager) AppState.mapManager.togglePeaks(btnToggleMapPeaks.classList.contains('active'));
+    });
+
+    const btnToggleMapHotspots = document.getElementById('btnToggleMapHotspots');
+    btnToggleMapHotspots.addEventListener('click', () => {
+      btnToggleMapHotspots.classList.toggle('active');
+      if (AppState.mapManager) AppState.mapManager.toggleHotspots(btnToggleMapHotspots.classList.contains('active'));
     });
 
     const btnToggleMapLabels = document.getElementById('btnToggleMapLabels');
@@ -853,10 +860,26 @@ const GSREvents = {
           }
           slider.value = s.canonicalValue;
         } else {
-          // Restore custom user setting
+          // Restore the cached pre-lock value, or — if there isn't one —
+          // fall back to the slider's own declared default (its HTML
+          // value="0"/off attribute). Without this fallback, unchecking
+          // deconvolution when no genuine "before" state was ever cached
+          // (e.g. the checkbox was already checked on page load via browser
+          // form-state restoration, or loadActiveTrackParams() just cleared
+          // the cache when switching tracks) silently leaves the slider at
+          // whatever locked canonical number it was showing. That's a real
+          // problem specifically for the min/max pairs (rise time, half-
+          // recovery): both ends of the pair get locked to the SAME
+          // canonical value, so a stuck slider means min === max — a
+          // razor-thin range that rejects almost every peak — not a merely
+          // suboptimal one. Falling back to the shipped default (0 = off,
+          // matching GSR_DEFAULT) guarantees the slider always lands back in
+          // a sane, usable state rather than an accidental leftover lock.
           if (slider.dataset.customValue !== undefined) {
             slider.value = slider.dataset.customValue;
             delete slider.dataset.customValue;
+          } else {
+            slider.value = slider.defaultValue;
           }
         }
       }

@@ -172,8 +172,19 @@ const GSRRenderer = {
 
   /**
    * Compute common context for curve drawing: clamped indices, step, spline decision, and scale factors.
+   *
+   * @param {Array<number>} [forceIndices] - Indices that must always be drawn
+   *   as their own vertex, regardless of the uniform decimation stride. Used
+   *   so peak markers never sit above/beside a decimated straight-line
+   *   segment that "cuts the corner" past their true value — confirmed this
+   *   was happening in practice once deconvolution mode started reporting
+   *   many more, closer-together peaks (see _detectPeaksFromCurve() in
+   *   analyzer.js): at a typical full-track zoom, the curve draws roughly
+   *   one vertex every 2.5s while peaks can legitimately be 1s apart, so
+   *   ~96% of peak markers landed between drawn vertices even though every
+   *   one of them is an exact local maximum of the underlying data.
    */
-  _buildCurveContext(data, tMin, tMax, yMin, yMax, yTop, yBottom) {
+  _buildCurveContext(data, tMin, tMax, yMin, yMax, yTop, yBottom, forceIndices) {
     const startIdx = Math.max(0, AppState.analyzer.findClosestIndex(tMin) - 1);
     const endIdx   = Math.min(data.length - 1, AppState.analyzer.findClosestIndex(tMax) + 1);
     const count = endIdx - startIdx + 1;
@@ -187,16 +198,38 @@ const GSRRenderer = {
     const yScale = (yMax - yMin) > 0 ? ((yTop - yBottom) / (yMax - yMin)) : 0;
     const xScale = tSpan > 0 ? (xSpan / tSpan) : 0;
 
-    return { startIdx, endIdx, count, step, useSpline, xScale, yScale };
+    // Build the actual index sequence to draw: the uniform stride, plus any
+    // forced indices merged in and de-duplicated, kept in ascending order.
+    // Skipped entirely (falls back to the plain stride below) when no forced
+    // indices are given or none fall in the visible range, so curves drawn
+    // without peaks (raw/tonic/etc.) do exactly the same work as before.
+    let indices = null;
+    if (forceIndices && forceIndices.length > 0) {
+      const forced = [];
+      for (const idx of forceIndices) {
+        if (idx >= startIdx && idx <= endIdx) forced.push(idx);
+      }
+      if (forced.length > 0) {
+        const merged = new Set();
+        for (let i = startIdx; i <= endIdx; i += step) merged.add(i);
+        merged.add(endIdx);
+        for (const idx of forced) merged.add(idx);
+        indices = Array.from(merged).sort((a, b) => a - b);
+      }
+    }
+
+    return { startIdx, endIdx, count, step, useSpline, xScale, yScale, indices };
   },
 
   /**
    * Draw a line/curve from data points with optional spline smoothing.
+   * @param {Array<number>} [forceIndices] - See _buildCurveContext().
    */
-  drawSignalCurve(data, tMin, tMax, yMin, yMax, yTop, yBottom, lineColor, lineWt) {
+  drawSignalCurve(data, tMin, tMax, yMin, yMax, yTop, yBottom, lineColor, lineWt, forceIndices) {
     if (!data || data.length === 0) return;
-    const ctx = this._buildCurveContext(data, tMin, tMax, yMin, yMax, yTop, yBottom);
+    const ctx = this._buildCurveContext(data, tMin, tMax, yMin, yMax, yTop, yBottom, forceIndices);
     if (!ctx) return;
+    const drawIndices = ctx.indices || null;
 
     noFill();
     stroke(lineColor);
@@ -208,16 +241,32 @@ const GSRRenderer = {
       const xFirst = GSR_CONST.MARGIN.left + (dFirst.time - tMin) * ctx.xScale;
       const yFirst = yBottom + (dFirst.val - yMin) * ctx.yScale;
       curveVertex(xFirst, yFirst);
-      for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
-        const d = data[i];
-        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
-        const y = yBottom + (d.val - yMin) * ctx.yScale;
-        curveVertex(x, y);
+      if (drawIndices) {
+        for (const i of drawIndices) {
+          const d = data[i];
+          const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
+          const y = yBottom + (d.val - yMin) * ctx.yScale;
+          curveVertex(x, y);
+        }
+      } else {
+        for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
+          const d = data[i];
+          const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
+          const y = yBottom + (d.val - yMin) * ctx.yScale;
+          curveVertex(x, y);
+        }
       }
       const dLast = data[ctx.endIdx];
       const xLast = GSR_CONST.MARGIN.left + (dLast.time - tMin) * ctx.xScale;
       const yLast = yBottom + (dLast.val - yMin) * ctx.yScale;
       curveVertex(xLast, yLast);
+    } else if (drawIndices) {
+      for (const i of drawIndices) {
+        const d = data[i];
+        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
+        const y = yBottom + (d.val - yMin) * ctx.yScale;
+        vertex(x, y);
+      }
     } else {
       for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
         const d = data[i];
@@ -235,10 +284,14 @@ const GSRRenderer = {
    * with existing call sites; pass an explicit hex to draw other lower-graph
    * metrics (peak density, phasic AUC, arousal index) in their own color.
    */
-  drawPhasicArea(data, tMin, tMax, yMin, yMax, yTop, yBottom, fillColorHex) {
+  /**
+   * @param {Array<number>} [forceIndices] - See _buildCurveContext().
+   */
+  drawPhasicArea(data, tMin, tMax, yMin, yMax, yTop, yBottom, fillColorHex, forceIndices) {
     if (!data || data.length === 0) return;
-    const ctx = this._buildCurveContext(data, tMin, tMax, yMin, yMax, yTop, yBottom);
+    const ctx = this._buildCurveContext(data, tMin, tMax, yMin, yMax, yTop, yBottom, forceIndices);
     if (!ctx) return;
+    const drawIndices = ctx.indices || null;
 
     noStroke();
     const fillHex = fillColorHex || this.getThemeColor('--color-phasic', '#008f3c');
@@ -252,14 +305,32 @@ const GSRRenderer = {
 
     if (ctx.useSpline) {
       curveVertex(xStart, yBottom);
-      for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
-        const d = data[i];
-        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
-        const y = yBottom + (d.val - yMin) * ctx.yScale;
-        curveVertex(x, y);
+      if (drawIndices) {
+        for (const i of drawIndices) {
+          const d = data[i];
+          const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
+          const y = yBottom + (d.val - yMin) * ctx.yScale;
+          curveVertex(x, y);
+        }
+      } else {
+        for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
+          const d = data[i];
+          const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
+          const y = yBottom + (d.val - yMin) * ctx.yScale;
+          curveVertex(x, y);
+        }
       }
       const xEnd = GSR_CONST.MARGIN.left + (data[ctx.endIdx].time - tMin) * ctx.xScale;
       curveVertex(xEnd, yBottom);
+      vertex(xEnd, yBottom);
+    } else if (drawIndices) {
+      for (const i of drawIndices) {
+        const d = data[i];
+        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
+        const y = yBottom + (d.val - yMin) * ctx.yScale;
+        vertex(x, y);
+      }
+      const xEnd = GSR_CONST.MARGIN.left + (data[ctx.endIdx].time - tMin) * ctx.xScale;
       vertex(xEnd, yBottom);
     } else {
       for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
@@ -283,6 +354,19 @@ const GSRRenderer = {
    * Phasic — pass false when it's showing Peak Density / Phasic AUC / Arousal
    * Index instead, so peaks keep appearing on the upper (Filtered) curve
    * without being mis-plotted against the wrong axis below.
+   *
+   * Deliberately minor/understated in its resting state — small, visibly
+   * quality-colored dots (filled, not invisible) but with no onset marker or
+   * connector line until hovered or active. This is the full NS-SCR census
+   * (every detected peak, now genuinely one-per-distinguishable-event since
+   * the chain-merge consolidation bug was fixed), which on a busy real
+   * recording can mean hundreds to low thousands of markers — full-strength
+   * styling (shaded region + connector + large solid dot) at that density
+   * reads as noise, not signal, so only the dot itself stays always-visible.
+   * drawHotspotMarkers() carries the bold, high-contrast styling this method
+   * used to have, applied instead to the much smaller, curated
+   * memorableEvents subset, so visual "loudness" on the graph now tracks
+   * salience rather than raw detection count.
    */
   drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL, showLowerMarker) {
     if (showLowerMarker === undefined) showLowerMarker = true;
@@ -319,9 +403,8 @@ const GSRRenderer = {
 
       const isActive  = (pIdx === AppState.activePeakIndex);
       const isHovered = (AppState.hoveredIndex >= p.onsetIndex && AppState.hoveredIndex <= p.index);
+      const isEmphasized = isActive || isHovered;
 
-      const colorPeak = this.getThemeColor('--color-peak', '#d10024');
-      const colorPhasic = this.getThemeColor('--color-phasic', '#008f3c');
       const canvasBg = this.getThemeColor('--canvas-bg', '#ffffff');
 
       const isExcluded = p.excluded === true;
@@ -329,10 +412,21 @@ const GSRRenderer = {
       const peakColor = isExcluded ? EXCLUDED_STYLE.color : getQualityColor(qScore);
       const lineClr   = isExcluded ? EXCLUDED_STYLE.lineColor : peakColor;
       const dashPat   = isExcluded ? EXCLUDED_STYLE.dash : NORMAL_DASH;
-      const dotWt      = isExcluded ? EXCLUDED_STYLE.dotWeight : 1.5;
-      const markerWt   = isExcluded ? EXCLUDED_STYLE.weight : 2;
+      const dotWt      = isExcluded ? EXCLUDED_STYLE.dotWeight : 1.2;
+      const markerWt   = isExcluded ? EXCLUDED_STYLE.weight : (isEmphasized ? 1.5 : 1);
 
-      if (showLowerMarker && (isActive || isHovered)) {
+      // Resting-state dot fill/stroke: a visibly-colored (not fully
+      // transparent) small dot so the full peak census reads as present at a
+      // glance, while staying clearly lighter-weight than a hotspot (which
+      // is solid-filled, larger, and carries a shaded region + connector).
+      const restStroke = isExcluded ? color(lineClr) : color(peakColor + 'd0');
+      const restFill    = isExcluded ? color(canvasBg) : color(peakColor + '70');
+
+      // Shaded elevated region, onset dot, and connector line: only when
+      // hovered/active, same as before — but now the onset dot and line are
+      // ALSO skipped entirely in the resting state (previously always drawn)
+      // to keep hundreds of resting markers from reading as visual noise.
+      if (showLowerMarker && isEmphasized) {
         fill(isExcluded ? color(lineClr + EXCLUDED_STYLE.fillAlpha) : color(peakColor + '4b'));
         noStroke();
         beginShape();
@@ -344,32 +438,36 @@ const GSRRenderer = {
         }
         vertex(xPeak, yBottomL);
         endShape(CLOSE);
-      }
 
-      if (showLowerMarker) {
-        stroke(isExcluded ? lineClr : colorPhasic);
+        stroke(isExcluded ? lineClr : this.getThemeColor('--color-phasic', '#008f3c'));
         strokeWeight(dotWt);
         fill(canvasBg);
-        circle(xOnset, yPhasicOnset, isActive ? 8 : 5);
+        circle(xOnset, yPhasicOnset, 6);
 
         stroke(isExcluded ? color(lineClr + EXCLUDED_STYLE.lineAlpha) : color(peakColor + '3c'));
         strokeWeight(1);
         drawingContext.setLineDash(dashPat);
         line(xPeak, yFilteredPeak, xPeak, yPhasicPeak);
         drawingContext.setLineDash([]);
+      }
 
-        stroke(isExcluded ? color(lineClr) : peakColor);
+      if (showLowerMarker) {
+        // Minor resting dot: small, visibly-colored fill; solid + larger
+        // only when hovered/active (exclusion state stays legible via its
+        // own gray hollow treatment even at rest).
+        stroke(isEmphasized ? (isExcluded ? color(lineClr) : color(peakColor)) : restStroke);
         strokeWeight(markerWt);
-        fill(isActive ? (isExcluded ? color(lineClr) : color(peakColor)) : color(canvasBg));
-        circle(xPeak, yPhasicPeak, isActive ? 9 : 6);
+        fill(isActive ? (isExcluded ? color(lineClr) : color(peakColor)) : restFill);
+        circle(xPeak, yPhasicPeak, isEmphasized ? 7 : 4);
       }
 
       // Upper-graph marker (on the Filtered curve) always draws, regardless of
-      // what the lower panel is showing.
-      stroke(isExcluded ? color(lineClr) : peakColor);
+      // what the lower panel is showing. Same minor-resting-state treatment
+      // as the lower marker above.
+      stroke(isEmphasized ? (isExcluded ? color(lineClr) : color(peakColor)) : restStroke);
       strokeWeight(markerWt);
-      fill(isActive ? (isExcluded ? color(lineClr) : color(peakColor)) : color(canvasBg));
-      circle(xPeak, yFilteredPeak, isActive ? 9 : 6);
+      fill(isActive ? (isExcluded ? color(lineClr) : color(peakColor)) : restFill);
+      circle(xPeak, yFilteredPeak, isEmphasized ? 7 : 4);
 
       if (xPeak >= GSR_CONST.MARGIN.left && xPeak <= width - GSR_CONST.MARGIN.right) {
         AppState._peakClickTargets.push({
@@ -397,6 +495,120 @@ const GSRRenderer = {
       // ── On-canvas exclude ✕ / ＋ button (only when scrubbing near) ──
       if (isHovered && xPeak >= GSR_CONST.MARGIN.left && xPeak <= width - GSR_CONST.MARGIN.right) {
         this._drawExcludeButton(xPeak, yBottomU, pIdx, isExcluded);
+      }
+    }
+  },
+
+  /**
+   * Draw "Hotspots" — analyzer.memorableEvents, the curated subset of peaks
+   * likely to actually be noticed/remembered (fast, high-amplitude; see
+   * _computeSalienceScore()'s doc comment in analyzer.js). Deliberately
+   * carries the bold, high-contrast styling drawPeakMarkers() used to apply
+   * to every single peak: shaded elevated region, open onset dot, dashed
+   * connector line, larger solid dots on both panels. That styling reads
+   * fine at hotspot density (a handful to a few dozen per recording) in a
+   * way it stopped being appropriate for the full peak census once that
+   * census could run into the thousands.
+   *
+   * memorableEvents entries are the *same objects* as their corresponding
+   * entries in analyzer.peaks (a filtered view, not a copy), so clicking a
+   * hotspot reuses the normal peak focus/selection machinery by looking up
+   * that real index — no separate selection state needed.
+   */
+  drawHotspotMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL, showLowerMarker) {
+    if (showLowerMarker === undefined) showLowerMarker = true;
+    if (!AppState.showHotspots || !AppState.analyzer.memorableEvents || AppState.analyzer.memorableEvents.length === 0) return;
+
+    const tSpan = tMax - tMin;
+    const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
+    const xScale = tSpan > 0 ? (xSpan / tSpan) : 0;
+
+    const yScaleU = (yMaxU - yMinU) > 0 ? ((yTopU - yBottomU) / (yMaxU - yMinU)) : 0;
+    const yScaleL = (yMaxL - yMinL) > 0 ? ((yTopL - yBottomL) / (yMaxL - yMinL)) : 0;
+
+    const hotspotColor = this.getThemeColor('--color-hotspot', '#ff8800');
+    const colorPhasic = this.getThemeColor('--color-phasic', '#008f3c');
+    const canvasBg = this.getThemeColor('--canvas-bg', '#ffffff');
+
+    for (const p of AppState.analyzer.memorableEvents) {
+      if (p.time < tMin && p.onsetTime < tMin &&
+          (p.recoveryIndex === -1 || p.recoveryIndex === undefined ||
+           !AppState.analyzer.phasic || !AppState.analyzer.phasic[p.recoveryIndex] ||
+           AppState.analyzer.phasic[p.recoveryIndex].time < tMin)) {
+        continue;
+      }
+      if (p.onsetTime > tMax) continue;
+
+      const xPeak  = GSR_CONST.MARGIN.left + (p.time - tMin) * xScale;
+      const xOnset = GSR_CONST.MARGIN.left + (p.onsetTime - tMin) * xScale;
+
+      const yFilteredPeak = yBottomU + (AppState.analyzer.filtered[p.index].val - yMinU) * yScaleU;
+      const yPhasicPeak   = showLowerMarker ? yBottomL + (p.value - yMinL) * yScaleL : yFilteredPeak;
+      const yPhasicOnset  = showLowerMarker ? yBottomL + (p.onsetValue - yMinL) * yScaleL : yFilteredPeak;
+
+      const realIdx = AppState.analyzer.peaks.indexOf(p);
+      const isActive = (realIdx !== -1 && realIdx === AppState.activePeakIndex);
+
+      if (showLowerMarker) {
+        fill(color(hotspotColor + '4b'));
+        noStroke();
+        beginShape();
+        vertex(xOnset, yBottomL);
+        for (let i = p.onsetIndex; i <= p.index; i++) {
+          const xVal = GSR_CONST.MARGIN.left + (AppState.analyzer.phasic[i].time - tMin) * xScale;
+          const yVal = yBottomL + (AppState.analyzer.phasic[i].val - yMinL) * yScaleL;
+          vertex(xVal, yVal);
+        }
+        vertex(xPeak, yBottomL);
+        endShape(CLOSE);
+
+        stroke(colorPhasic);
+        strokeWeight(1.5);
+        fill(canvasBg);
+        circle(xOnset, yPhasicOnset, isActive ? 8 : 5);
+
+        stroke(color(hotspotColor + '78'));
+        strokeWeight(1);
+        drawingContext.setLineDash(NORMAL_DASH);
+        line(xPeak, yFilteredPeak, xPeak, yPhasicPeak);
+        drawingContext.setLineDash([]);
+
+        stroke(hotspotColor);
+        strokeWeight(2);
+        fill(isActive ? color(hotspotColor) : color(canvasBg));
+        circle(xPeak, yPhasicPeak, isActive ? 9 : 6);
+      }
+
+      stroke(hotspotColor);
+      strokeWeight(2);
+      fill(isActive ? color(hotspotColor) : color(canvasBg));
+      circle(xPeak, yFilteredPeak, isActive ? 9 : 6);
+
+      if (xPeak >= GSR_CONST.MARGIN.left && xPeak <= width - GSR_CONST.MARGIN.right && realIdx !== -1) {
+        AppState._peakClickTargets.push({
+          idx: realIdx,
+          x: xPeak,
+          yPhasic: yPhasicPeak,
+          yFiltered: yFilteredPeak,
+          r: 10
+        });
+        noStroke();
+        fill(hotspotColor);
+        textSize(9);
+        textStyle(BOLD);
+        textAlign(CENTER, BOTTOM);
+        // Every hotspot is, by construction, also a plain peak (memorableEvents
+        // is a subset of analyzer.peaks — see this method's doc comment), and
+        // drawPeakMarkers() always draws that peak's "#N" number at this same
+        // (xPeak, yFilteredPeak - 8) position whenever viewDuration < 300s (the
+        // common case at any zoom level tight enough to matter here). Offset
+        // further up so the star doesn't land exactly on top of — and get lost
+        // in — that number; -20 clears a 10px BOLD label with a few px to
+        // spare. Previously both drew at -8, so the star and the peak number
+        // stacked into the same few pixels — a hotspot could look completely
+        // unlabeled, or an unreadable smudge, even though it was being drawn.
+        text('★', xPeak, yFilteredPeak - 20); // small star marks it as a hotspot, not a plain peak
+        textStyle(NORMAL);
       }
     }
   },

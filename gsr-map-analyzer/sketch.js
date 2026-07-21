@@ -183,16 +183,27 @@ function draw() {
   if (AppState.showRaw) {
     GSRRenderer.drawSignalCurve(AppState.analyzer.raw, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, color(colorRaw + '8c'), 1.5); // ~0.55 opacity
   }
+  // Peak sample indices, forced into curve decimation below so drawn lines
+  // actually reach every marker instead of a stride segment cutting the
+  // corner past it (see _buildCurveContext()'s doc comment in renderer.js).
+  // Only meaningful against the curves peaks are actually plotted on:
+  // Filtered (upper, always) via onsetIndex+index for the shaded region's
+  // edges too, and Phasic (lower, when that's the selected mode) via index.
+  const activePeaks = AppState.analyzer.peaks.filter(p => !p.excluded);
+  const filteredForceIndices = [];
+  for (const p of activePeaks) { filteredForceIndices.push(p.onsetIndex, p.index); }
+  const phasicForceIndices = lowerMode === 'phasic' ? activePeaks.map(p => p.index) : null;
+
   if (AppState.showFiltered) {
-    GSRRenderer.drawSignalCurve(AppState.analyzer.filtered, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, colorFiltered, 2.2);
+    GSRRenderer.drawSignalCurve(AppState.analyzer.filtered, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, colorFiltered, 2.2, filteredForceIndices);
   }
   if (AppState.showTonic) {
     GSRRenderer.drawSignalCurve(AppState.analyzer.tonic, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, colorTonic, 2);
   }
 
   // 3. Lower Graph (mode-selectable \u2014 Phasic / Peak Density / Phasic AUC / Arousal Index)
-  GSRRenderer.drawPhasicArea(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom, colorLower);
-  GSRRenderer.drawSignalCurve(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom, colorLower, 2);
+  GSRRenderer.drawPhasicArea(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom, colorLower, phasicForceIndices);
+  GSRRenderer.drawSignalCurve(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom, colorLower, 2, phasicForceIndices);
 
   if (lowerCfg.showPeakOverlay) {
     // Threshold line on Phasic graph
@@ -224,6 +235,13 @@ function draw() {
   // dot) only draws when the lower panel is actually showing Phasic, since
   // that's the only mode whose Y-axis matches those values.
   GSRRenderer.drawPeakMarkers(AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, yMinLower, yMaxLower, yLowerTop, yLowerBottom, lowerCfg.showPeakOverlay);
+
+  // 4b. Hotspots \u2014 the curated "memorable events" subset, drawn with the
+  // bolder styling peaks used to have (see drawHotspotMarkers()'s doc
+  // comment). Must run after drawPeakMarkers(), which resets and seeds
+  // AppState._peakClickTargets \u2014 this appends to that same list rather than
+  // resetting it again, so both peak and hotspot markers stay clickable.
+  GSRRenderer.drawHotspotMarkers(AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, yMinLower, yMaxLower, yLowerTop, yLowerBottom, lowerCfg.showPeakOverlay);
 
   // 5. Hover Scrubber
   GSRRenderer.handleScrubber(AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, yUpperBottom, yMinLower, yMaxLower, yLowerTop, yLowerBottom);

@@ -82,6 +82,7 @@ const AppState = {
   showFiltered: true,
   showTonic: true,
   showPeaks: true,
+  showHotspots: true, // "Hotspots" = analyzer.memorableEvents, drawn via drawHotspotMarkers()
 
   // ── Lower graph metric selector ─────────────────────────────────────────────
   // 'phasic' | 'peakDensity' | 'phasicAUC' | 'arousalIndex' — see

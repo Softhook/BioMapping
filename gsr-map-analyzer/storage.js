@@ -17,6 +17,25 @@ function sliderVal(el, fallback, fn) {
   return el ? fn(el.value) : (typeof fallback === 'string' ? fn(fallback) : fallback);
 }
 
+/**
+ * Like sliderVal(), but for the shape sliders updateDeconvolutionUIState()
+ * (events.js) locks to a kernel-canonical value while deconvolution is
+ * enabled. In that state, el.value holds the temporary locked display
+ * number, not the user's real underlying preference — reading it directly
+ * would persist that decoy into track.filterParams / exported CSVs, and
+ * later restoring it (e.g. via loadActiveTrackParams()) leaves the slider
+ * permanently stuck at the locked value even after deconvolution is turned
+ * back off, since there'd be nothing left to distinguish it from a genuine
+ * custom setting. Prefer the cached pre-lock value (dataset.customValue)
+ * whenever it's present, so persisted state always reflects what the user
+ * actually chose.
+ */
+function shapeSliderVal(el, fallback) {
+  if (!el) return fallback;
+  if (el.dataset.customValue !== undefined) return parseFloat(el.dataset.customValue);
+  return sliderVal(el, fallback);
+}
+
 const GSRStorage = {
   /**
    * Read current GSR slider values into a clean param object.
@@ -37,13 +56,16 @@ const GSRStorage = {
       // Optional sliders — fall back to GSR_DEFAULT (correct values for these keys)
       dwtLevel:              sliderVal(S.dwtLevel,             D.dwtLevel,     parseInt),
       minPeakQuality:        sliderVal(S.minPeakQuality,       D.minPeakQuality),
-      // Peak shape criteria — fall back to PEAK_SHAPE (literature-validated defaults)
-      shapeMinRiseTime:      sliderVal(S.shapeMinRiseTime,     PS.MIN_RISE_TIME),
-      shapeMaxRiseTime:      sliderVal(S.shapeMaxRiseTime,     PS.MAX_RISE_TIME),
-      shapeMinHalfRecovery:  sliderVal(S.shapeMinHalfRecovery, PS.MIN_HALF_RECOVERY),
-      shapeMaxHalfRecovery:  sliderVal(S.shapeMaxHalfRecovery, PS.MAX_HALF_RECOVERY),
+      // Peak shape criteria — fall back to PEAK_SHAPE (literature-validated defaults).
+      // Four of these five (all but shapeMinSnr) get locked to a kernel-canonical
+      // value while deconvolution is on — read via shapeSliderVal() so a locked
+      // display number never gets persisted as if it were the user's real setting.
+      shapeMinRiseTime:      shapeSliderVal(S.shapeMinRiseTime,     PS.MIN_RISE_TIME),
+      shapeMaxRiseTime:      shapeSliderVal(S.shapeMaxRiseTime,     PS.MAX_RISE_TIME),
+      shapeMinHalfRecovery:  shapeSliderVal(S.shapeMinHalfRecovery, PS.MIN_HALF_RECOVERY),
+      shapeMaxHalfRecovery:  shapeSliderVal(S.shapeMaxHalfRecovery, PS.MAX_HALF_RECOVERY),
       shapeMinSnr:           sliderVal(S.shapeMinSnr,          PS.MIN_SNR),
-      shapeMaxSkewRatio:     sliderVal(S.shapeMaxSkewRatio,    PS.SKEWNESS_RATIO_MAX),
+      shapeMaxSkewRatio:     shapeSliderVal(S.shapeMaxSkewRatio,    PS.SKEWNESS_RATIO_MAX),
       useDeconvolution:       (S.useDeconvolution && S.useDeconvolution.checked) || false
     };
   },
@@ -97,7 +119,16 @@ const GSRStorage = {
       if (!controls) return;
       for (const [key, el] of Object.entries(controls)) {
         if (el) {
-          settings[key] = el.type === 'checkbox' ? el.checked : el.value;
+          // Shape sliders locked by updateDeconvolutionUIState() (events.js)
+          // stash the user's real pre-lock value in dataset.customValue while
+          // .value temporarily shows the kernel-canonical display number.
+          // Persisting .value directly here would save that locked decoy to
+          // localStorage; on the next page load it'd come back as the user's
+          // "custom" setting with no cache to distinguish it from a genuine
+          // one, so unchecking deconvolution later would have nothing real
+          // to restore (see updateDeconvolutionUIState()'s own doc comment).
+          settings[key] = el.type === 'checkbox' ? el.checked
+            : (el.dataset && el.dataset.customValue !== undefined ? el.dataset.customValue : el.value);
         }
       }
     };

@@ -168,11 +168,12 @@ class GSRLabelManager {
    * @param {string} labelText - Label text
    * @param {object} dirResult - Direction result with bounding box
    * @param {object} [opts] - Optional styling overrides
-   * @param {number} [opts.dotSize=24] - Dot visual diameter
+   * @param {number} [opts.dotSize=24] - Icon-box sizing/positioning reference (not the visible dot diameter — see dotPx)
    * @param {string} [opts.wrapperClass='stress-peak-icon-wrapper'] - Container CSS class
    * @param {string} [opts.dotClass='peak-dot'] - Dot CSS class
    * @param {string} [opts.dotExtraStyle=''] - Extra inline styles for the dot
-   * @param {boolean} [opts.showGlow=true] - Whether to show the glow ring
+   * @param {boolean} [opts.showGlow=true] - Whether to show the animated glow ring
+   * @param {number} [opts.dotPx=10] - Actual rendered dot diameter in pixels
    * @param {string} [opts.labelFontSize='10px'] - Label font size
    * @param {string} [opts.labelFontWeight='600'] - Label font weight
    * @param {string} [opts.labelExtraStyle=''] - Extra inline styles for the label
@@ -184,6 +185,7 @@ class GSRLabelManager {
       dotClass = 'peak-dot',
       dotExtraStyle = '',
       showGlow = true,
+      dotPx = 10,
       labelFontSize = '10px',
       labelFontWeight = '600',
       labelExtraStyle = ''
@@ -210,7 +212,7 @@ class GSRLabelManager {
     const html = [
       '<div class="', wrapperClass, '" style="position:relative;width:', cW, 'px;height:', cH, 'px;">',
         showGlow ? '<div class="peak-glow-ring" style="position:absolute;top:' + (dotCy - 12) + 'px;left:' + (dotCx - 12) + 'px;"></div>' : '',
-        '<div class="', dotClass, '" style="position:absolute;top:', (dotCy - 5), 'px;left:', (dotCx - 5), 'px;width:10px;height:10px;', dotExtraStyle, '"></div>',
+        '<div class="', dotClass, '" style="position:absolute;top:', (dotCy - dotPx / 2), 'px;left:', (dotCx - dotPx / 2), 'px;width:', dotPx, 'px;height:', dotPx, 'px;', dotExtraStyle, '"></div>',
         '<div class="peak-map-label" style="position:absolute;top:', labelT, 'px;left:', labelL, 'px;width:', W, 'px;text-align:center;font-size:', labelFontSize, ';font-weight:', labelFontWeight, ';', labelExtraStyle, '">', escapedLabel, '</div>',
       '</div>'
     ].join('');

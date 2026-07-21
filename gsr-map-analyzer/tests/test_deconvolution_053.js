@@ -128,17 +128,23 @@ assert(minGap >= global.GSR_CONST.SCRF.minImpulseGapSec - 1e-9,
   assert(maxDiff < 0.10, `No peak marker is drastically off the true local max: worst case ${maxDiff.toFixed(4)}uS (want <0.10uS)`);
 }
 
-// Onset markers reflect the real (possibly still-elevated) original signal
-// value, not a hardcoded 0 — a real bug that broke the onset-connector line
-// in renderer.js for overlapping SCRs specifically.
+// Onset markers reflect the real (possibly still-elevated) signal value,
+// not a hardcoded 0 — a real bug that broke the onset-connector line in
+// renderer.js for overlapping SCRs specifically. Peaks are now built by
+// _detectPeaksFromCurve() scanning the reconstructed phasicClean curve
+// directly (on.phasic, after the deconvolution pipeline runs), so onsetValue
+// should match THAT curve at onsetIndex — the same curve index/time/value
+// all come from — not the pre-deconvolution original (_phasicOrig), which
+// was the right reference back when onset/apex were resolved against the
+// raw noisy signal instead.
 {
-  const phasicOrig = (on._phasicOrig || on.phasic).map(d => d.val);
+  const cleanVals = on.phasic.map(d => d.val);
   let mismatches = 0;
   for (const p of on.peaks) {
-    const expected = phasicOrig[p.onsetIndex] || 0;
+    const expected = cleanVals[p.onsetIndex] || 0;
     if (Math.abs(p.onsetValue - expected) > 1e-9) mismatches++;
   }
-  assertEq(mismatches, 0, 'onsetValue matches the real original signal value at onsetIndex (not hardcoded 0)');
+  assertEq(mismatches, 0, 'onsetValue matches the reconstructed curve value at onsetIndex (not hardcoded 0)');
 }
 
 // Agreement-rate check: for peaks the non-deconvolution shape-based detector
@@ -172,6 +178,26 @@ assert(minGap >= global.GSR_CONST.SCRF.minImpulseGapSec - 1e-9,
   console.log(`  Agreement on isolated (unambiguous) peaks: ${matched}/${isolated.length} (${(rate * 100).toFixed(1)}%)`);
   assert(isolated.length >= 20, `Enough isolated peaks on track 053 to make the agreement check meaningful (${isolated.length})`);
   assert(rate >= 0.85, `Deconvolution agrees with detectPeaks() on >=85% of unambiguous isolated peaks (got ${(rate * 100).toFixed(1)}%)`);
+}
+
+// Memorable-event ("hotspot") metric on real track data — a separate
+// question from qualityScore, see _computeSalienceScore()'s doc comment.
+// Percentile-based selection (top 2% by amplitude, see the memorableEvents
+// comment in analyze()), not a fixed score threshold.
+{
+  const badField = on.peaks.some(p => p.salienceScore === undefined || !isFinite(p.salienceScore) || p.salienceScore < 0 || p.salienceScore > 1);
+  assertEq(badField, false, 'Every peak on track 053 has a valid salienceScore in [0,1]');
+  assert(on.memorableEvents.length > 0, 'Track 053 (a busy, eventful real recording) has at least one memorable event');
+  const expectedCount = Math.max(1, Math.round(on.peaks.length * 0.02));
+  assertEq(on.memorableEvents.length, expectedCount, `memorableEvents is the top 2% of peaks by amplitude (expected ${expectedCount})`);
+  const allValid = on.memorableEvents.every(p => on.peaks.includes(p) && !p.excluded);
+  assert(allValid, 'Every memorableEvents entry is a real, non-excluded peak');
+  let sortedDescending = true;
+  for (let i = 1; i < on.memorableEvents.length; i++) {
+    if (on.memorableEvents[i].amplitude > on.memorableEvents[i - 1].amplitude) { sortedDescending = false; break; }
+  }
+  assert(sortedDescending, 'memorableEvents is sorted by descending amplitude');
+  console.log(`  Memorable events: ${on.memorableEvents.length}/${on.peaks.length}`);
 }
 
 // Toggle-sequence state leakage guard, specifically on real track data.

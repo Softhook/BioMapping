@@ -26,6 +26,7 @@
   --color-tonic: #a30091; /* Tonic purple */
   --color-phasic: #008f3c; /* Phasic green */
   --color-peak: #d10024; /* Alert red */
+  --color-hotspot: #ff8800; /* Hotspot / memorable-event amber-orange */
   --color-peak-density: #e59e00; /* Peak density (NS-SCR) amber */
   --color-phasic-auc: #0099aa; /* Phasic AUC (ISCR) teal */
   --color-arousal-index: #7b00cc; /* Combined arousal index deep purple */
@@ -1199,12 +1200,19 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border: none;
 }
 
+/* Minor/subdued styling to match the graph's resting-state peak dots — small,
+   semi-transparent, no animation. See _renderHotspotMarkers()/hotspot-dot
+   below for the bold counterpart used for the curated hotspot subset. The
+   .peak-glow-ring / .hotspot-glow-ring pulse-animation classes below are kept
+   only for reference/reuse (e.g. via buildLabelledIcon's showGlow option);
+   no current marker markup invokes them. */
 .peak-dot {
-  width: 10px;
-  height: 10px;
+  width: 6px;
+  height: 6px;
   background-color: var(--color-peak);
-  border: 2px solid white;
+  border: 1px solid white;
   border-radius: 50%;
+  opacity: 0.75;
   position: absolute;
   z-index: 10;
 }
@@ -1214,6 +1222,29 @@ input[type="range"]::-webkit-slider-thumb:hover {
   height: 24px;
   border-radius: 50%;
   background: rgba(244, 63, 94, 0.4);
+  position: absolute;
+  animation: pulse-glow 2s infinite ease-in-out;
+}
+
+/* Hotspot (memorable-event) map markers — visually distinct from the minor
+   peak dots, using the amber-orange hotspot color and a larger, fully-opaque
+   dot (bold but static, matching the graph's un-animated hotspot styling) so
+   the small set of high-amplitude standout events read clearly at a glance. */
+.hotspot-dot {
+  width: 12px;
+  height: 12px;
+  background-color: var(--color-hotspot);
+  border: 2px solid white;
+  border-radius: 50%;
+  position: absolute;
+  z-index: 11;
+}
+
+.hotspot-glow-ring {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 136, 0, 0.4);
   position: absolute;
   animation: pulse-glow 2s infinite ease-in-out;
 }
@@ -2206,6 +2237,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 #map.hide-map-labels .peak-map-label {
+  display: none !important;
+}
+
+#map.hide-map-hotspots .hotspot-dot,
+#map.hide-map-hotspots .hotspot-glow-ring {
   display: none !important;
 }
 

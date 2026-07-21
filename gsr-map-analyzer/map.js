@@ -21,12 +21,14 @@ class GSRMapManager {
     this.map = null;
     this.pathSegments = [];
     this.peakMarkers = [];
+    this.hotspotMarkers = [];
     this.collectivePathSegments = [];
     this.collectivePeakMarkers = [];
     this.contourLayers = [];
     this.osmLayers = [];
     this.scrubMarker = null;
     this.showPeaks = true;
+    this.showHotspots = true;
     this.showLabels = true;
     this.showClusters = true;
     this.showIsolines = true;
@@ -246,6 +248,7 @@ class GSRMapManager {
     if (!this.map) return;
     this.pathSegments = this._clearLayerGroup(this.pathSegments);
     this.peakMarkers = this._clearLayerGroup(this.peakMarkers);
+    this.hotspotMarkers = this._clearLayerGroup(this.hotspotMarkers);
     this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
     this.clearOsmShapes();
 
@@ -393,7 +396,11 @@ class GSRMapManager {
     // Peak markers (with latency compensation)
     this._renderPeakMarkers(analyzer, data, p.peakLatency || 0);
 
-    // Apply the active peak/label toggle styles
+    // Hotspot markers — the small top-2%-by-amplitude "memorable event" subset,
+    // rendered as a separate, visually distinct layer (see _renderHotspotMarkers).
+    this._renderHotspotMarkers(analyzer, p.peakLatency || 0);
+
+    // Apply the active peak/label/hotspot toggle styles
     this.updateMarkerVisibility();
   }
 
@@ -789,10 +796,14 @@ class GSRMapManager {
     // Compute 360° label positions
     const labelPositions = GSRLabelManager.computeLabelPositions(labelCandidates);
 
-    // Compact dot-only icon for peaks without labels
+    // Compact dot-only icon for peaks without labels. Minor styling to match
+    // the graph's resting-state peak dots: small, no pulse animation — the
+    // full peak census can run into the hundreds/thousands, so a subdued
+    // marker keeps hotspots (see _renderHotspotMarkers) as the visually
+    // dominant layer, mirroring the graph's peaks-vs-hotspots hierarchy.
     const simpleIcon = L.divIcon({
       className: '',
-      html: '<div class="stress-peak-icon-wrapper" style="position:relative;width:24px;height:24px;"><div class="peak-glow-ring" style="position:absolute;top:0;left:0;"></div><div class="peak-dot" style="position:absolute;top:7px;left:7px;width:10px;height:10px;"></div></div>',
+      html: '<div class="stress-peak-icon-wrapper" style="position:relative;width:24px;height:24px;"><div class="peak-dot" style="position:absolute;top:9px;left:9px;width:6px;height:6px;"></div></div>',
       iconSize: [24, 24], iconAnchor: [12, 12]
     });
 
@@ -805,7 +816,7 @@ class GSRMapManager {
         const dirResult = labelPositions.get(index);
         if (dirResult) {
           marker = L.marker([coords.lat, coords.lon], {
-            icon: GSRLabelManager.buildLabelledIcon(px, py, displayLabel, dirResult)
+            icon: GSRLabelManager.buildLabelledIcon(px, py, displayLabel, dirResult, { showGlow: false, dotPx: 6 })
           });
           // Bump labeled markers above unlabeled markers and path layers
           marker.setZIndexOffset(1000);
@@ -892,6 +903,59 @@ class GSRMapManager {
         });
       });
     }
+  }
+
+  /**
+   * Render the "hotspot" (memorable-event) marker layer on the map — the small,
+   * amplitude-selected subset of peaks in analyzer.memorableEvents (see
+   * analyzer.js's analyze() "Memorable-event view" section and the graph-panel
+   * equivalent, GSRRenderer.drawHotspotMarkers()).
+   *
+   * Deliberately simpler than _renderPeakMarkers: no text labels, no spatial
+   * clustering, no latency connector lines — just a distinct amber-orange dot
+   * per hotspot, click-to-focus, and the same popup used for regular peak
+   * markers (since a hotspot IS a peak — analyzer.peaks.indexOf(peak) recovers
+   * its real index for label-editing/exclusion/focus wiring).
+   * @private
+   */
+  _renderHotspotMarkers(analyzer, peakLatency) {
+    const map = this.map;
+    const events = analyzer.memorableEvents;
+    if (!events || events.length === 0) return;
+
+    // No pulse animation, matching the graph's hotspot styling (bold/larger
+    // than peaks, but static) — the amber-orange dot's size and full opacity
+    // already carry the "this one matters" signal on their own.
+    const hotspotIcon = L.divIcon({
+      className: '',
+      html: '<div class="stress-peak-icon-wrapper" style="position:relative;width:28px;height:28px;"><div class="hotspot-dot" style="position:absolute;top:8px;left:8px;width:12px;height:12px;"></div></div>',
+      iconSize: [28, 28], iconAnchor: [14, 14]
+    });
+
+    events.forEach(peak => {
+      const index = analyzer.peaks.indexOf(peak);
+      if (index < 0) return;
+
+      let si = peak.index;
+      if (peakLatency > 0) {
+        const shiftedTime = Math.max(0, peak.time - peakLatency);
+        const found = analyzer.findClosestIndex(shiftedTime);
+        if (found >= 0) si = found;
+      }
+      const coords = analyzer.getCoordinates(si);
+      if (!coords) return;
+
+      const marker = L.marker([coords.lat, coords.lon], { icon: hotspotIcon });
+      marker.setZIndexOffset(1500); // Above both regular peak dots and labels
+      if (this.showHotspots) marker.addTo(this.map);
+
+      marker.bindPopup(() => this._buildSinglePeakPopup(analyzer, peak, index, coords, marker));
+      marker.on('click', () => {
+        GSRUI.focusOnPeak(index, 'map');
+      });
+
+      this.hotspotMarkers.push(marker);
+    });
   }
 
   /**
@@ -1003,6 +1067,14 @@ class GSRMapManager {
   }
 
   /**
+   * Toggle the visibility of the hotspot (memorable-event) markers on the map layer.
+   */
+  toggleHotspots(visible) {
+    this.showHotspots = visible;
+    this.updateMarkerVisibility();
+  }
+
+  /**
    * Update Leaflet map layer inclusion and CSS class styles based on current peak/label toggles.
    */
   updateMarkerVisibility() {
@@ -1021,12 +1093,26 @@ class GSRMapManager {
       } else {
         mapEl.classList.add('hide-map-labels');
       }
+
+      if (this.showHotspots) {
+        mapEl.classList.remove('hide-map-hotspots');
+      } else {
+        mapEl.classList.add('hide-map-hotspots');
+      }
     }
 
     const allMarkers = [...this.peakMarkers, ...this.collectivePeakMarkers];
     allMarkers.forEach(m => {
       const shouldShow = this.showPeaks || (this.showLabels && m.hasLabel);
       if (shouldShow) {
+        if (!this.map.hasLayer(m)) m.addTo(this.map);
+      } else {
+        if (this.map.hasLayer(m)) this.map.removeLayer(m);
+      }
+    });
+
+    this.hotspotMarkers.forEach(m => {
+      if (this.showHotspots) {
         if (!this.map.hasLayer(m)) m.addTo(this.map);
       } else {
         if (this.map.hasLayer(m)) this.map.removeLayer(m);
