@@ -293,18 +293,11 @@ class GSRMapExporter {
               Math.abs((rawPath[0].lat ?? rawPath[0][0]) - (rawPath[rawPath.length - 1].lat ?? rawPath[rawPath.length - 1][0])) < 1e-9 &&
               Math.abs((rawPath[0].lon ?? rawPath[0][1]) - (rawPath[rawPath.length - 1].lon ?? rawPath[rawPath.length - 1][1])) < 1e-9;
 
-            let d;
-            if (isClosed) {
-              // Closed interior peak rings: smooth filled vector polygons
-              const smoothed = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
-                ? GeoUtils.chaikinSmooth(rawPath, 2, true)
-                : rawPath;
-              d = this._pathD(ctx, smoothed, true, true);
-            } else {
-              // Open boundary isolines: smooth inner curve extending naturally + tight local boundary closure
-              d = this._boundaryPathD(ctx, rawPath, bounds);
-            }
+            const smoothed = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
+              ? GeoUtils.chaikinSmooth(rawPath, 2, isClosed)
+              : rawPath;
 
+            const d = this._pathD(ctx, smoothed, true, true);
             if (!d) return;
 
             res.isobands.push(
@@ -406,138 +399,7 @@ class GSRMapExporter {
     return finalPoly.length >= 3 ? finalPoly : null;
   }
 
-  static _closeBoundaryPath(path, bounds) {
-    if (!path || path.length < 2 || !bounds) return path;
 
-    const p0 = path[0];
-    const pk = path[path.length - 1];
-
-    const lat0 = typeof p0.lat === 'number' ? p0.lat : p0[0];
-    const lon0 = typeof p0.lon === 'number' ? p0.lon : (typeof p0.lng === 'number' ? p0.lng : p0[1]);
-    const latK = typeof pk.lat === 'number' ? pk.lat : pk[0];
-    const lonK = typeof pk.lon === 'number' ? pk.lon : (typeof pk.lng === 'number' ? pk.lng : pk[1]);
-
-    if (Math.abs(lat0 - latK) < 1e-9 && Math.abs(lon0 - lonK) < 1e-9) {
-      return path; // Already a closed loop
-    }
-
-    const { minLat, maxLat, minLon, maxLon } = bounds;
-    const latSpan = maxLat - minLat || 1e-6;
-    const lonSpan = maxLon - minLon || 1e-6;
-
-    const corners = [
-      { lat: maxLat, lon: minLon, lng: minLon }, // 0: Top-Left
-      { lat: maxLat, lon: maxLon, lng: maxLon }, // 1: Top-Right
-      { lat: minLat, lon: maxLon, lng: maxLon }, // 2: Bottom-Right
-      { lat: minLat, lon: minLon, lng: minLon }  // 3: Bottom-Left
-    ];
-
-    const getT = (lat, lon) => {
-      const dTop    = Math.abs(lat - maxLat);
-      const dRight  = Math.abs(lon - maxLon);
-      const dBottom = Math.abs(lat - minLat);
-      const dLeft   = Math.abs(lon - minLon);
-      const m = Math.min(dTop, dRight, dBottom, dLeft);
-
-      if (m === dTop)    return (lon - minLon) / lonSpan;
-      if (m === dRight)  return 1 + (maxLat - lat) / latSpan;
-      if (m === dBottom) return 2 + (maxLon - lon) / lonSpan;
-      return 3 + (lat - minLat) / latSpan;
-    };
-
-    const t0 = getT(lat0, lon0);
-    const tK = getT(latK, lonK);
-
-    const dCW  = (t0 - tK + 4) % 4;
-    const dCCW = (tK - t0 + 4) % 4;
-    const goClockwise = dCW <= dCCW;
-
-    const closed = [...path];
-    if (goClockwise) {
-      let currCorner = (Math.floor(tK) + 1) % 4;
-      let guard = 0;
-      while (guard < 4) {
-        const cT = currCorner === 0 ? 0 : currCorner;
-        let inArc = (tK < t0) ? (cT > tK && cT < t0) : (cT > tK || cT < t0);
-        if (inArc) {
-          closed.push(corners[currCorner]);
-        } else {
-          break;
-        }
-        currCorner = (currCorner + 1) % 4;
-        guard++;
-      }
-    } else {
-      let currCorner = Math.floor(tK);
-      let guard = 0;
-      while (guard < 4) {
-        const cT = currCorner;
-        let inArc = (t0 < tK) ? (cT < tK && cT > t0) : (cT < tK || cT > t0);
-        if (inArc) {
-          closed.push(corners[currCorner]);
-        } else {
-          break;
-        }
-        currCorner = (currCorner + 3) % 4;
-        guard++;
-      }
-    }
-
-    closed.push({ lat: lat0, lon: lon0, lng: lon0 });
-    return closed;
-  }
-
-  static _boundaryPathD(ctx, rawInnerPath, bounds) {
-    if (!rawInnerPath || rawInnerPath.length < 2) return '';
-    const project = (typeof ctx === 'function')
-      ? ctx
-      : (ctx?.project
-        ? ctx.project
-        : (ll => (ctx?.map?.latLngToContainerPoint ? ctx.map.latLngToContainerPoint(ll) : { x: 0, y: 0 })));
-
-    // 1. Smooth inner isoline curve
-    const inner = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
-      ? GeoUtils.chaikinSmooth(rawInnerPath, 2, false)
-      : rawInnerPath;
-
-    // 2. Project inner points to SVG coordinates
-    const innerPts = inner.map(ll => project(ll)).filter(p => p && typeof p.x === 'number' && !isNaN(p.x));
-    if (innerPts.length < 2) return '';
-
-    // 3. Build smooth Catmull-Rom cubic Bézier curve for inner isoline segment
-    let d = `M${innerPts[0].x.toFixed(3)} ${innerPts[0].y.toFixed(3)}`;
-    const n = innerPts.length;
-
-    if (n === 2) {
-      d += ` L${innerPts[1].x.toFixed(3)} ${innerPts[1].y.toFixed(3)}`;
-    } else {
-      for (let i = 0; i < n - 1; i++) {
-        const pPrev = innerPts[Math.max(0, i - 1)];
-        const pCurr = innerPts[i];
-        const pNext = innerPts[i + 1];
-        const pFut  = innerPts[Math.min(n - 1, i + 2)];
-
-        const c1x = pCurr.x + (pNext.x - pPrev.x) / 6;
-        const c1y = pCurr.y + (pNext.y - pPrev.y) / 6;
-        const c2x = pNext.x - (pFut.x - pCurr.x) / 6;
-        const c2y = pNext.y - (pFut.y - pCurr.y) / 6;
-
-        d += ` C${c1x.toFixed(3)} ${c1y.toFixed(3)}, ${c2x.toFixed(3)} ${c2y.toFixed(3)}, ${pNext.x.toFixed(3)} ${pNext.y.toFixed(3)}`;
-      }
-    }
-
-    // 4. Close along boundary using straight lines (L) to prevent Bézier control point overshoot
-    const fullClosedPath = this._closeBoundaryPath(rawInnerPath, bounds);
-    const boundaryPoints = fullClosedPath.slice(rawInnerPath.length);
-
-    for (const p of boundaryPoints) {
-      const proj = project(p);
-      d += ` L${proj.x.toFixed(3)} ${proj.y.toFixed(3)}`;
-    }
-
-    d += ' Z';
-    return d;
-  }
 
   // ═══════════════════════════════════════════════════════════════════
   //  Vector layers
