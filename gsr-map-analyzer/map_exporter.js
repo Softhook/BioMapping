@@ -274,11 +274,71 @@ class GSRMapExporter {
         }
       }
 
-      // ── B. Vector Isoband Polygons & Iso-lines ──────────────────────
+      // ── B. Vector Isoband Fills (per-cell clip) & Isoline Outlines ──
+      //
+      // Previously the fill for each isoband came from the marching-squares isoline
+      // itself: paths were stitched from raw segments, and only stitched paths whose
+      // start/end points happened to coincide (isClosed) were filled — anything the
+      // grid boundary cut off partway through (i.e. any region touching the edge of
+      // the map extent) came back as an open path and was rendered as an unfilled
+      // stroke instead, which is why isobands at the edge of the map never showed
+      // their green fill.
+      //
+      // Fix: derive the fill independently, per grid cell, via Sutherland-Hodgman
+      // clipping (_clipCellIsoband) against "value >= level". A boundary cell's own
+      // corners already sit exactly on the map extent, so its clipped polygon is
+      // closed by construction — there is no separate "closing" step that can go
+      // wrong, and the fill runs flush to the edge instead of stopping short of it.
+      // The marching-squares isoline is kept only as a thin decorative outline
+      // (fill:none), where being open at the edge is harmless.
       if (contours && Array.isArray(contours)) {
+        const getLatLng = (r, c) => ({
+          lat: bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat),
+          lon: bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon)
+        });
+
         contours.forEach(c => {
           const fillColor = this._ratioToHex(c.ratio);
+          const level = c.level;
 
+          // B1. Filled isoband polygons, tiled from clipped grid cells.
+          for (let row = 0; row < rows - 1; row++) {
+            for (let col = 0; col < cols - 1; col++) {
+              const vNW = grid[row][col];
+              const vNE = grid[row][col + 1];
+              const vSE = grid[row + 1][col + 1];
+              const vSW = grid[row + 1][col];
+              if (vNW === null || vNE === null || vSE === null || vSW === null ||
+                  isNaN(vNW) || isNaN(vNE) || isNaN(vSE) || isNaN(vSW)) continue;
+              // Cell has no overlap with this band at all — skip early.
+              if (vNW < level && vNE < level && vSE < level && vSW < level) continue;
+
+              const corners = [
+                { ...getLatLng(row, col),         val: vNW },
+                { ...getLatLng(row, col + 1),     val: vNE },
+                { ...getLatLng(row + 1, col + 1), val: vSE },
+                { ...getLatLng(row + 1, col),     val: vSW }
+              ];
+
+              // vb = Infinity: this band is "everything at or above `level`" — matches
+              // the old closed-ring semantics of "the area enclosed by this isoline",
+              // just clipped per-cell instead of traced as one big loop.
+              const poly = this._clipCellIsoband(corners, level, Infinity);
+              if (!poly) continue;
+
+              const pts = poly.map(p => project(p)).filter(p => p && typeof p.x === 'number' && !isNaN(p.x));
+              if (pts.length < 3) continue;
+
+              const d = `M${pts.map(p => `${p.x.toFixed(3)} ${p.y.toFixed(3)}`).join(' L')} Z`;
+              res.isobands.push(
+                `<path d="${d}" fill="${this._esc(fillColor)}" fill-opacity="0.45" stroke="none" />`
+              );
+            }
+          }
+
+          // B2. Thin decorative outline traced from the raw marching-squares isoline.
+          // Purely cosmetic (fill="none"), so unlike the fill above it never needs to
+          // be a closed loop — a stroke that runs off the edge of the map is fine.
           const stitchedPaths = (typeof GSRSpatialClustering !== 'undefined' && typeof GSRSpatialClustering.stitchSegments === 'function')
             ? GSRSpatialClustering.stitchSegments(c.segments)
             : (c.segments || []).map(seg => [seg[0], seg[1]]);
@@ -290,30 +350,15 @@ class GSRMapExporter {
               Math.abs((rawPath[0].lat ?? rawPath[0][0]) - (rawPath[rawPath.length - 1].lat ?? rawPath[rawPath.length - 1][0])) < 1e-9 &&
               Math.abs((rawPath[0].lon ?? rawPath[0][1]) - (rawPath[rawPath.length - 1].lon ?? rawPath[rawPath.length - 1][1])) < 1e-9;
 
-            if (isClosed) {
-              // Closed interior peak rings: smooth filled vector polygons
-              const smoothed = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
-                ? GeoUtils.chaikinSmooth(rawPath, 2, true)
-                : rawPath;
-              const d = this._pathD(ctx, smoothed, true, true);
-              if (!d) return;
+            const smoothed = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
+              ? GeoUtils.chaikinSmooth(rawPath, 2, isClosed)
+              : rawPath;
+            const d = this._pathD(ctx, smoothed, isClosed, true);
+            if (!d) return;
 
-              res.isobands.push(
-                `<path d="${d}" fill="${this._esc(fillColor)}" fill-opacity="0.45" stroke="${this._esc(fillColor)}" stroke-width="0.8" stroke-opacity="0.7" stroke-linejoin="round" stroke-linecap="round" />`
-              );
-            } else {
-              // Open boundary isolines: smooth curved line strokes (fill="none")
-              // Eliminates straight chord lines (Z) cutting across shapes and creating jagged edges
-              const smoothed = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
-                ? GeoUtils.chaikinSmooth(rawPath, 2, false)
-                : rawPath;
-              const d = this._pathD(ctx, smoothed, false, true);
-              if (!d) return;
-
-              res.isobands.push(
-                `<path d="${d}" fill="none" stroke="${this._esc(fillColor)}" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" stroke-linecap="round" />`
-              );
-            }
+            res.isobands.push(
+              `<path d="${d}" fill="none" stroke="${this._esc(fillColor)}" stroke-width="1.2" stroke-opacity="0.8" stroke-linejoin="round" stroke-linecap="round" />`
+            );
           });
         });
       }
