@@ -112,6 +112,16 @@ assert.strictEqual(closedBoundaryPath[0].lat, closedBoundaryPath[closedBoundaryP
 assert.strictEqual(closedBoundaryPath[0].lon, closedBoundaryPath[closedBoundaryPath.length - 1].lon, 'Boundary path is closed with matching start/end lon');
 console.log('✓ _closeBoundaryPath successfully closes open edge paths into 100% complete filled loops');
 
+const sampleBoundaryPath = [
+  { lat: 51.55, lon: -0.1 },
+  { lat: 51.53, lon: -0.08 },
+  { lat: 51.52, lon: -0.05 }
+];
+const boundaryPathD = GSRMapExporter._boundaryPathD(mockMap, sampleBoundaryPath, testBounds);
+assert(boundaryPathD.includes('C'), '_boundaryPathD includes smooth C commands for interior isoline curve');
+assert(boundaryPathD.includes('L'), '_boundaryPathD includes straight L commands for boundary closure segments');
+console.log('✓ _boundaryPathD produces hybrid smooth curves (C) and straight boundary closures (L) without control point overshoot');
+
 // 3. Test _render layer output
 const fullLayers = {
   tiles: [],

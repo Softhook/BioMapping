@@ -127,9 +127,9 @@ class GSRMapExporter {
 
     const specs = [
       ['Base_Map_Tiles',          'Base Map Tiles',              L.tiles],
-      ['Vector_Surface_Mesh',     'Vector Surface Mesh',         surfObj.mesh,        'opacity="0.4"'],
-      ['Vector_Surface_Isobands', 'Vector Surface Isobands',     surfObj.isobands,    'opacity="0.5"'],
-      ['Raster_Surface_Fallback', 'Raster Surface Fallback',     surfObj.raster,      'opacity="0.4"'],
+      ['Vector_Surface_Mesh',     'Vector Surface Mesh',         surfObj.mesh,        'opacity="0.4" clip-path="url(#surface-clip)"'],
+      ['Vector_Surface_Isobands', 'Vector Surface Isobands',     surfObj.isobands,    'opacity="0.5" clip-path="url(#surface-clip)"'],
+      ['Raster_Surface_Fallback', 'Raster Surface Fallback',     surfObj.raster,      'opacity="0.4" clip-path="url(#surface-clip)"'],
       ['OSM_Shapes',              'OSM Shapes',                  L.osm],
       ['GPS_Track_Paths',         'GPS Track Paths',             L.tracks],
       ['Contour_Lines',           'Contour Lines',               L.contours],
@@ -141,6 +141,9 @@ class GSRMapExporter {
 
     return [
       `<svg xmlns="${SVG_NS}" xmlns:xlink="${XLINK_NS}" xmlns:i="${AI_NS}" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`,
+      `  <defs>`,
+      `    <clipPath id="surface-clip"><rect x="0" y="0" width="${w}" height="${h}" /></clipPath>`,
+      `  </defs>`,
       `  <rect x="0" y="0" width="${w}" height="${h}" fill="${BG}" />`,
       ...specs.map(s => g(...s)),
       '</svg>'
@@ -276,17 +279,6 @@ class GSRMapExporter {
 
       // ── B. Vector Isoband Polygons & Iso-lines ──────────────────────
       if (contours && Array.isArray(contours)) {
-        // Base envelope polygon at dataset edge (ratio 0.0 = Green #00e575)
-        const baseColor = this._ratioToHex(0.0);
-        const pNW = project([bounds.maxLat, bounds.minLon]);
-        const pNE = project([bounds.maxLat, bounds.maxLon]);
-        const pSE = project([bounds.minLat, bounds.maxLon]);
-        const pSW = project([bounds.minLat, bounds.minLon]);
-        const basePtsStr = `${pNW.x.toFixed(3)},${pNW.y.toFixed(3)} ${pNE.x.toFixed(3)},${pNE.y.toFixed(3)} ${pSE.x.toFixed(3)},${pSE.y.toFixed(3)} ${pSW.x.toFixed(3)},${pSW.y.toFixed(3)}`;
-        res.isobands.push(
-          `<polygon points="${basePtsStr}" fill="${this._esc(baseColor)}" fill-opacity="0.45" stroke="${this._esc(baseColor)}" stroke-width="0.5" stroke-linejoin="round" />`
-        );
-
         contours.forEach(c => {
           const fillColor = this._ratioToHex(c.ratio);
 
@@ -301,20 +293,18 @@ class GSRMapExporter {
               Math.abs((rawPath[0].lat ?? rawPath[0][0]) - (rawPath[rawPath.length - 1].lat ?? rawPath[rawPath.length - 1][0])) < 1e-9 &&
               Math.abs((rawPath[0].lon ?? rawPath[0][1]) - (rawPath[rawPath.length - 1].lon ?? rawPath[rawPath.length - 1][1])) < 1e-9;
 
-            let path;
+            let d;
             if (isClosed) {
-              path = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
+              // Closed interior peak rings: smooth filled vector polygons
+              const smoothed = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
                 ? GeoUtils.chaikinSmooth(rawPath, 2, true)
                 : rawPath;
+              d = this._pathD(ctx, smoothed, true, true);
             } else {
-              // Smooth open isoline curve first, then close along shortest boundary perimeter arc
-              const smoothedInner = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
-                ? GeoUtils.chaikinSmooth(rawPath, 2, false)
-                : rawPath;
-              path = this._closeBoundaryPath(smoothedInner, bounds);
+              // Open boundary isolines: smooth inner curve extending naturally + tight local boundary closure
+              d = this._boundaryPathD(ctx, rawPath, bounds);
             }
 
-            const d = this._pathD(ctx, path, true, true);
             if (!d) return;
 
             res.isobands.push(
@@ -495,6 +485,58 @@ class GSRMapExporter {
 
     closed.push({ lat: lat0, lon: lon0, lng: lon0 });
     return closed;
+  }
+
+  static _boundaryPathD(ctx, rawInnerPath, bounds) {
+    if (!rawInnerPath || rawInnerPath.length < 2) return '';
+    const project = (typeof ctx === 'function')
+      ? ctx
+      : (ctx?.project
+        ? ctx.project
+        : (ll => (ctx?.map?.latLngToContainerPoint ? ctx.map.latLngToContainerPoint(ll) : { x: 0, y: 0 })));
+
+    // 1. Smooth inner isoline curve
+    const inner = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
+      ? GeoUtils.chaikinSmooth(rawInnerPath, 2, false)
+      : rawInnerPath;
+
+    // 2. Project inner points to SVG coordinates
+    const innerPts = inner.map(ll => project(ll)).filter(p => p && typeof p.x === 'number' && !isNaN(p.x));
+    if (innerPts.length < 2) return '';
+
+    // 3. Build smooth Catmull-Rom cubic Bézier curve for inner isoline segment
+    let d = `M${innerPts[0].x.toFixed(3)} ${innerPts[0].y.toFixed(3)}`;
+    const n = innerPts.length;
+
+    if (n === 2) {
+      d += ` L${innerPts[1].x.toFixed(3)} ${innerPts[1].y.toFixed(3)}`;
+    } else {
+      for (let i = 0; i < n - 1; i++) {
+        const pPrev = innerPts[Math.max(0, i - 1)];
+        const pCurr = innerPts[i];
+        const pNext = innerPts[i + 1];
+        const pFut  = innerPts[Math.min(n - 1, i + 2)];
+
+        const c1x = pCurr.x + (pNext.x - pPrev.x) / 6;
+        const c1y = pCurr.y + (pNext.y - pPrev.y) / 6;
+        const c2x = pNext.x - (pFut.x - pCurr.x) / 6;
+        const c2y = pNext.y - (pFut.y - pCurr.y) / 6;
+
+        d += ` C${c1x.toFixed(3)} ${c1y.toFixed(3)}, ${c2x.toFixed(3)} ${c2y.toFixed(3)}, ${pNext.x.toFixed(3)} ${pNext.y.toFixed(3)}`;
+      }
+    }
+
+    // 4. Close along boundary using straight lines (L) to prevent Bézier control point overshoot
+    const fullClosedPath = this._closeBoundaryPath(rawInnerPath, bounds);
+    const boundaryPoints = fullClosedPath.slice(rawInnerPath.length);
+
+    for (const p of boundaryPoints) {
+      const proj = project(p);
+      d += ` L${proj.x.toFixed(3)} ${proj.y.toFixed(3)}`;
+    }
+
+    d += ' Z';
+    return d;
   }
 
   // ═══════════════════════════════════════════════════════════════════
