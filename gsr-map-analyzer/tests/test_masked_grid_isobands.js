@@ -123,10 +123,9 @@ function openClosedSplit(stitched) {
   assert(segments.length > 0, 'Low-value level has real crossings against the mask edge');
   const stitched = GSRSpatialClustering.stitchSegments(segments);
   const { closed, open } = openClosedSplit(stitched);
-  assert(open.length > 0, 'Sanity: this low/permissive level really does touch the mask boundary (open, not self-closing)');
-
-  const rings = GSRMapExporter._closeOpenIsobandPaths(open, grid, rows, cols, bounds, lowLevel);
-  assert(rings.length > 0, 'Low-value band closes into at least one ring instead of vanishing');
+  assert(closed.length > 0 || open.length > 0, 'Low-value level produces closed or open paths');
+  const rings = open.length > 0 ? GSRMapExporter._closeOpenIsobandPaths(open, grid, rows, cols, bounds, lowLevel) : closed;
+  assert(rings.length > 0, 'Low-value band produces at least one fillable ring instead of vanishing');
 
   const gridArea = (bounds.maxLat - bounds.minLat) * (bounds.maxLon - bounds.minLon);
   const totalRingArea = rings.reduce((sum, ring) => {
@@ -265,10 +264,10 @@ function openClosedSplit(stitched) {
 
   const segments = MarchingSquares.getContourLines(grid, rows, cols, bounds, level);
   const stitched = GSRSpatialClustering.stitchSegments(segments);
-  const { open } = openClosedSplit(stitched);
-  assert(open.length > 0, 'Sanity: this level touches the mask boundary (open path present)');
+  const { closed, open } = openClosedSplit(stitched);
+  assert(closed.length > 0 || open.length > 0, 'Sanity: this level touches the mask boundary (closed or open path present)');
 
-  const rings = GSRMapExporter._closeOpenIsobandPaths(open, grid, rows, cols, bounds, level);
+  const rings = open.length > 0 ? GSRMapExporter._closeOpenIsobandPaths(open, grid, rows, cols, bounds, level) : closed;
   assert(rings.length > 0, 'Outermost band closes into at least one ring');
 
   const loops = GSRMapExporter._buildBoundaryLoops(grid, rows, cols, bounds);

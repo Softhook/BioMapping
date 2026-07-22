@@ -1,7 +1,7 @@
 /**
  * GSR Map SVG Exporter Utility.
- * Compiles Leaflet raster and vector panes into a single
- * Illustrator-compatible layered SVG with zero external references.
+ * Compiles Leaflet map vector features, contours, track paths, and markers into a single
+ * Illustrator-compatible, resolution-independent layered SVG with zero external references.
  */
 const SVG_NS   = 'http://www.w3.org/2000/svg';
 const XLINK_NS = 'http://www.w3.org/1999/xlink';
@@ -9,10 +9,13 @@ const AI_NS    = 'http://ns.adobe.com/AdobeIllustrator/10.0/';
 const BG       = '#0b0d16';
 const LABEL    = '#000000';
 
+/** Square of 1.5px pixel-space threshold for culling consecutive micro-jitter track points */
+const MICRO_JITTER_THRESHOLD_SQ = 2.25;
+
 class GSRMapExporter {
 
   // ═══════════════════════════════════════════════════════════════════
-  //  Public
+  //  Public API
   // ═══════════════════════════════════════════════════════════════════
 
   static async exportToSvg(mgr) {
@@ -22,8 +25,8 @@ class GSRMapExporter {
     // Isobands at the map edge are drawn extending past the original frame
     // (see _closeOpenIsobandPaths / _tangentExtrapolate) rather than being
     // squared off against it. Growing the canvas here — instead of drawing
-    // that extension and then clipping it away — means everything in the
-    // export is actually visible; there's no invisible geometry to keep in
+    // that extension and clipping it away — means everything in the
+    // export is genuinely visible; there's no invisible geometry to keep in
     // sync with a clip region.
     ctx = this._expandCanvasForIsobands(ctx);
 
@@ -32,7 +35,7 @@ class GSRMapExporter {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  //  Validation
+  //  Validation & Mercator Projection Setup
   // ═══════════════════════════════════════════════════════════════════
 
   static _validate(mgr) {
@@ -42,6 +45,18 @@ class GSRMapExporter {
     const r = el.getBoundingClientRect();
     const proj = this._getProjection(mgr, el);
     return { map: mgr.map, el, r, w: proj.w, h: proj.h, project: proj.project, mgr };
+  }
+
+  /**
+   * Standardizes coordinate extraction from [lat, lon], {lat, lon}, or {lat, lng} objects.
+   */
+  static _toLatLon(ll) {
+    if (!ll) return { lat: 0, lon: 0 };
+    if (Array.isArray(ll)) return { lat: ll[0], lon: ll[1] };
+    return {
+      lat: ll.lat !== undefined ? ll.lat : 0,
+      lon: ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : 0)
+    };
   }
 
   static _getProjection(mgr, el) {
@@ -67,14 +82,7 @@ class GSRMapExporter {
       const targetH = Math.max(800, Math.min(4000, Math.round(targetW * (ySpan / (xSpan || 1)))));
 
       const project = (ll) => {
-        if (!ll) return { x: 0, y: 0 };
-        let lat, lon;
-        if (Array.isArray(ll)) {
-          lat = ll[0]; lon = ll[1];
-        } else {
-          lat = ll.lat !== undefined ? ll.lat : 0;
-          lon = ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : 0);
-        }
+        const { lat, lon } = this._toLatLon(ll);
         const x = ((lon - minLon) / (xSpan || 1)) * targetW;
         const y = (1 - (mercY(lat) - minY) / (ySpan || 1)) * targetH;
         return { x, y };
@@ -86,18 +94,15 @@ class GSRMapExporter {
     const w = el.clientWidth || 800;
     const h = el.clientHeight || 600;
     const project = (ll) => {
-      if (!ll) return { x: 0, y: 0 };
-      let lat, lon;
-      if (Array.isArray(ll)) {
-        lat = ll[0]; lon = ll[1];
-      } else {
-        lat = ll.lat !== undefined ? ll.lat : 0;
-        lon = ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : 0);
-      }
+      const { lat, lon } = this._toLatLon(ll);
       return mgr.map.latLngToContainerPoint([lat, lon]);
     };
     return { w, h, project };
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  Canvas & Bounding Box Helpers
+  // ═══════════════════════════════════════════════════════════════════
 
   /**
    * Bounding box (in the SVG's own coordinate space) of a path `d` string built
@@ -207,7 +212,7 @@ class GSRMapExporter {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  //  Data gathering
+  //  Data Gathering
   // ═══════════════════════════════════════════════════════════════════
 
   static async _gather(ctx) {
@@ -225,7 +230,7 @@ class GSRMapExporter {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  //  SVG rendering
+  //  SVG Layer Assembly & XML Rendering
   // ═══════════════════════════════════════════════════════════════════
 
   static _render(ctx, L) {
@@ -268,207 +273,146 @@ class GSRMapExporter {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  //  Tiles
-  // ═══════════════════════════════════════════════════════════════════
-
-  static async _tiles(el, r) {
-    const tiles = Array.from(el.querySelectorAll('.leaflet-tile-pane img'));
-    const jobs = tiles.map(async tile => {
-      const b = tile.getBoundingClientRect();
-      const url = await this._inlineImg(tile);
-      return url ? this._img(b.left - r.left, b.top - r.top, b.width, b.height, url) : null;
-    });
-    const results = await Promise.all(jobs);
-    return results.filter(Boolean);
-  }
-
-  /** canvas drawImage → fetch+blob → null */
-  static async _inlineImg(img) {
-    const src = img.getAttribute('src') || img.src;
-    if (!src) return null;
-    if (src.startsWith('data:')) return src;
-
-    try {
-      const c = Object.assign(document.createElement('canvas'), {
-        width: img.naturalWidth || img.width || 256,
-        height: img.naturalHeight || img.height || 256
-      });
-      c.getContext('2d').drawImage(img, 0, 0);
-      const u = c.toDataURL('image/png');
-      if (u?.startsWith('data:')) return u;
-    } catch (_) { /* tainted */ }
-
-    try {
-      const res = await fetch(src, { mode: 'cors' });
-      if (!res.ok) return null;
-      const blob = await res.blob();
-      return await new Promise((resolve, reject) => {
-        const fr = new FileReader();
-        fr.onloadend = () => resolve(fr.result);
-        fr.onerror = reject;
-        fr.readAsDataURL(blob);
-      });
-    } catch (_) { return null; }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  //  Surface & Projection Helpers
-  // ═══════════════════════════════════════════════════════════════════
-
-  static _hslToHex(h, s = 100, l = 50) {
-    s /= 100;
-    l /= 100;
-    const a = s * Math.min(l, 1 - l);
-    const f = n => {
-      const k = (n + h / 30) % 12;
-      const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
-      return Math.round(255 * color).toString(16).padStart(2, '0');
-    };
-    return `#${f(0)}${f(8)}${f(4)}`;
-  }
-
-  static _ratioToHex(ratio) {
-    const r = Math.max(0, Math.min(1, ratio));
-    const hue = (1.0 - r) * 120; // 120 = Green, 60 = Yellow, 0 = Red
-    return this._hslToHex(hue, 100, 50);
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  //  Surface
+  //  Vector Surface & Isoband Builders
   // ═══════════════════════════════════════════════════════════════════
 
   static _surface(ctx) {
-    const { map, el, r, mgr } = ctx;
-    const project = ctx.project || (ll => map.latLngToContainerPoint(ll));
-    const res = {
-      mesh: [],
-      isobands: []
+    const surfaceData = ctx.mgr?.surfaceData;
+    if (!surfaceData || !surfaceData.grid || !surfaceData.bounds) {
+      return { mesh: [], isobands: [] };
+    }
+    return {
+      mesh: this._buildVectorMesh(ctx, surfaceData),
+      isobands: this._buildVectorIsobands(ctx, surfaceData)
     };
+  }
 
-    // 1. If mgr.surfaceData exists, generate vector mesh and vector isobands
-    const surfaceData = mgr?.surfaceData;
-    if (surfaceData && surfaceData.grid && surfaceData.bounds) {
-      const { grid, minVal, maxVal, bounds, sortedVals, contours } = surfaceData;
-      const rows = grid.length;
-      const cols = grid[0].length;
-      const valRange = maxVal - minVal;
-      const rangeEpsilon = 1e-9;
-      const useRankColor = sortedVals && sortedVals.length > 1;
+  /**
+   * Generates cell-by-cell vector mesh polygons, each colored by its exact percentile rank.
+   */
+  static _buildVectorMesh(ctx, surfaceData) {
+    const { grid, minVal, maxVal, bounds, sortedVals } = surfaceData;
+    const rows = grid.length;
+    const cols = grid[0].length;
+    const valRange = maxVal - minVal;
+    const rangeEpsilon = 1e-9;
+    const useRankColor = sortedVals && sortedVals.length > 1;
+    const project = ctx.project || (ll => ctx.map.latLngToContainerPoint(ll));
 
-      // ── A. Vector Mesh Cell Polygons ───────────────────────────────
-      for (let row = 0; row < rows; row++) {
-        for (let col = 0; col < cols; col++) {
-          const val = grid[row][col];
-          if (val === null || isNaN(val)) continue;
+    // Pre-calculate latitude and longitude step spans once outside grid loop
+    const dLat = (rows > 1) ? 0.5 * (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
+    const dLon = (cols > 1) ? 0.5 * (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
+    const latSpan = bounds.maxLat - bounds.minLat;
+    const lonSpan = bounds.maxLon - bounds.minLon;
 
-          let ratio;
-          if (useRankColor && typeof StatsMath !== 'undefined' && typeof StatsMath.percentileRank === 'function') {
-            ratio = StatsMath.percentileRank(val, sortedVals);
-          } else {
-            ratio = valRange > rangeEpsilon ? (val - minVal) / valRange : 0.5;
-          }
-
-          const fillColor = this._ratioToHex(ratio);
-
-          const dLat = (rows > 1) ? 0.5 * (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
-          const dLon = (cols > 1) ? 0.5 * (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
-          const gridLat = (rows > 1) ? bounds.minLat + (row / (rows - 1)) * (bounds.maxLat - bounds.minLat) : bounds.minLat;
-          const gridLon = (cols > 1) ? bounds.minLon + (col / (cols - 1)) * (bounds.maxLon - bounds.minLon) : bounds.minLon;
-
-          const latSouth = gridLat - dLat;
-          const latNorth = gridLat + dLat;
-          const lonWest  = gridLon - dLon;
-          const lonEast  = gridLon + dLon;
-
-          const pNW = project([latNorth, lonWest]);
-          const pNE = project([latNorth, lonEast]);
-          const pSE = project([latSouth, lonEast]);
-          const pSW = project([latSouth, lonWest]);
-
-          const pointsStr = `${pNW.x.toFixed(3)},${pNW.y.toFixed(3)} ${pNE.x.toFixed(3)},${pNE.y.toFixed(3)} ${pSE.x.toFixed(3)},${pSE.y.toFixed(3)} ${pSW.x.toFixed(3)},${pSW.y.toFixed(3)}`;
-          
-          res.mesh.push(
-            `<polygon points="${pointsStr}" fill="${this._esc(fillColor)}" stroke="${this._esc(fillColor)}" stroke-width="0.5" stroke-linejoin="round" />`
-          );
-        }
-      }
-
-      // ── B. Vector Isoband Fills (smooth, boundary-closed) & Isoline Outlines ──
-      //
-      // Interior isoband rings (fully enclosed within the grid) are already closed
-      // by marching squares + stitching, so they're smoothed and filled directly —
-      // same as they always were. Rings that get cut off by the edge of the grid/map
-      // extent trace out as an OPEN path instead, because marching squares only
-      // follows the contour where it crosses a cell edge and simply stops once it
-      // runs off the grid.
-      //
-      // Those open paths are closed here (_closeOpenIsobandPaths) by walking the
-      // actual boundary rectangle between pairs of open ends, using the grid's own
-      // boundary values to work out which side of the rectangle is really "inside"
-      // the band — between any two adjacent boundary crossings the value can't cross
-      // the isolevel again, so sampling the midpoint settles it unambiguously. That
-      // replaces an earlier version of this code which instead guessed "whichever
-      // way around the rectangle is numerically shorter", which isn't the same thing
-      // and produced a straight chord cutting across the shape whenever it guessed
-      // wrong — and a later version which gave up on closing the smooth curve
-      // altogether and filled a blocky per-grid-cell tiling instead. Neither is
-      // needed: closing the same smooth curve correctly gives a fill that simply
-      // continues along the map edge, with no seam and no blockiness.
-      if (contours && Array.isArray(contours)) {
-        contours.forEach(c => {
-          const fillColor = this._ratioToHex(c.ratio);
-          const level = c.level;
-
-          const stitchedPaths = (typeof GSRSpatialClustering !== 'undefined' && typeof GSRSpatialClustering.stitchSegments === 'function')
-            ? GSRSpatialClustering.stitchSegments(c.segments)
-            : (c.segments || []).map(seg => [seg[0], seg[1]]);
-
-          const isClosedPath = (rawPath) => rawPath.length >= 3 &&
-            Math.abs((rawPath[0].lat ?? rawPath[0][0]) - (rawPath[rawPath.length - 1].lat ?? rawPath[rawPath.length - 1][0])) < 1e-9 &&
-            Math.abs((rawPath[0].lon ?? rawPath[0][1]) - (rawPath[rawPath.length - 1].lon ?? rawPath[rawPath.length - 1][1])) < 1e-9;
-
-          const closedPaths = [];
-          const openPaths = [];
-          stitchedPaths.forEach(rawPath => {
-            if (!rawPath || rawPath.length < 2) return;
-            (isClosedPath(rawPath) ? closedPaths : openPaths).push(rawPath);
-          });
-
-          const smoothRing = (ring) => (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
-            ? GeoUtils.chaikinSmooth(ring, 2, true)
-            : ring;
-
-          const fillRing = (ring) => {
-            const d = this._pathD(ctx, smoothRing(ring), true, true);
-            if (!d) return;
-            res.isobands.push(
-              `<path d="${d}" fill="${this._esc(fillColor)}" stroke="none" />`
-            );
-          };
-          // B1a. Interior rings — already closed, smooth + fill as-is.
-          closedPaths.forEach(fillRing);
-
-          // B1b. Edge-touching rings — closed against the real grid boundary by
-          // extrapolating each open end past the edge (_tangentExtrapolate),
-          // and — where the correct side to close on isn't the immediately-
-          // adjacent one — walking the real per-node boundary data
-          // (_closeOpenIsobandPaths' boundaryWalk) instead of a literal
-          // rectangle. Rendered exactly like an interior ring (fillRing) —
-          // nothing here needs special treatment anymore, since the export
-          // canvas is sized upfront (_expandCanvasForIsobands) to fit whatever
-          // this produces.
-          //
-          // No separate outline stroke layer here by design — just the filled
-          // isoband shapes, stacked low-ratio (largest) to high-ratio
-          // (smallest), so each band's own visible area is exactly the ring
-          // between it and the next level drawn on top of it.
-          const closedFromOpen = this._closeOpenIsobandPaths(openPaths, grid, rows, cols, bounds, level);
-          closedFromOpen.forEach(fillRing);
-        });
-      }
+    const gridLats = new Float64Array(rows);
+    for (let r = 0; r < rows; r++) {
+      gridLats[r] = (rows > 1) ? bounds.minLat + (r / (rows - 1)) * latSpan : bounds.minLat;
     }
 
-    return res;
+    const gridLons = new Float64Array(cols);
+    for (let c = 0; c < cols; c++) {
+      gridLons[c] = (cols > 1) ? bounds.minLon + (c / (cols - 1)) * lonSpan : bounds.minLon;
+    }
+
+    const mesh = [];
+
+    for (let row = 0; row < rows; row++) {
+      const gridLat = gridLats[row];
+      const latSouth = gridLat - dLat;
+      const latNorth = gridLat + dLat;
+
+      for (let col = 0; col < cols; col++) {
+        const val = grid[row][col];
+        if (val === null || isNaN(val)) continue;
+
+        let ratio;
+        if (useRankColor && typeof StatsMath !== 'undefined' && typeof StatsMath.percentileRank === 'function') {
+          ratio = StatsMath.percentileRank(val, sortedVals);
+        } else {
+          ratio = valRange > rangeEpsilon ? (val - minVal) / valRange : 0.5;
+        }
+
+        const fillColor = this._ratioToHex(ratio);
+        const gridLon = gridLons[col];
+        const lonWest  = gridLon - dLon;
+        const lonEast  = gridLon + dLon;
+
+        const pNW = project([latNorth, lonWest]);
+        const pNE = project([latNorth, lonEast]);
+        const pSE = project([latSouth, lonEast]);
+        const pSW = project([latSouth, lonWest]);
+
+        const pointsStr = `${pNW.x.toFixed(3)},${pNW.y.toFixed(3)} ${pNE.x.toFixed(3)},${pNE.y.toFixed(3)} ${pSE.x.toFixed(3)},${pSE.y.toFixed(3)} ${pSW.x.toFixed(3)},${pSW.y.toFixed(3)}`;
+        
+        mesh.push(
+          `<polygon points="${pointsStr}" fill="${this._esc(fillColor)}" stroke="${this._esc(fillColor)}" stroke-width="0.5" stroke-linejoin="round" />`
+        );
+      }
+    }
+    return mesh;
+  }
+
+  /**
+   * Generates smooth, boundary-closed vector Isoband fills.
+   *
+   * Interior isoband rings (fully enclosed within the grid) are already closed
+   * by marching squares + stitching, so they're smoothed and filled directly.
+   * Rings that get cut off by the edge of the grid/map extent trace out as an
+   * OPEN path instead.
+   *
+   * Those open paths are closed here (_closeOpenIsobandPaths) by walking the
+   * boundary between open ends, using boundary values to determine which side
+   * is inside the band.
+   */
+  static _buildVectorIsobands(ctx, surfaceData) {
+    const { grid, bounds, contours } = surfaceData;
+    if (!contours || !Array.isArray(contours)) return [];
+
+    const rows = grid.length;
+    const cols = grid[0].length;
+    const isobands = [];
+
+    contours.forEach(c => {
+      const fillColor = this._ratioToHex(c.ratio);
+      const level = c.level;
+
+      const stitchedPaths = (typeof GSRSpatialClustering !== 'undefined' && typeof GSRSpatialClustering.stitchSegments === 'function')
+        ? GSRSpatialClustering.stitchSegments(c.segments)
+        : (c.segments || []).map(seg => [seg[0], seg[1]]);
+
+      const isClosedPath = (rawPath) => rawPath.length >= 3 &&
+        Math.abs((rawPath[0].lat ?? rawPath[0][0]) - (rawPath[rawPath.length - 1].lat ?? rawPath[rawPath.length - 1][0])) < 1e-9 &&
+        Math.abs((rawPath[0].lon ?? rawPath[0][1]) - (rawPath[rawPath.length - 1].lon ?? rawPath[rawPath.length - 1][1])) < 1e-9;
+
+      const closedPaths = [];
+      const openPaths = [];
+      stitchedPaths.forEach(rawPath => {
+        if (!rawPath || rawPath.length < 2) return;
+        (isClosedPath(rawPath) ? closedPaths : openPaths).push(rawPath);
+      });
+
+      const smoothRing = (ring) => (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
+        ? GeoUtils.chaikinSmooth(ring, 2, true)
+        : ring;
+
+      const fillRing = (ring) => {
+        const d = this._pathD(ctx, smoothRing(ring), true, true);
+        if (!d) return;
+        isobands.push(
+          `<path d="${d}" fill="${this._esc(fillColor)}" stroke="none" />`
+        );
+      };
+
+      // Interior rings — already closed, smooth + fill as-is.
+      closedPaths.forEach(fillRing);
+
+      // Edge-touching rings — closed against real grid boundary loops.
+      const closedFromOpen = this._closeOpenIsobandPaths(openPaths, grid, rows, cols, bounds, level);
+      closedFromOpen.forEach(fillRing);
+    });
+
+    return isobands;
   }
 
   static _clipCellIsoband(corners, va, vb) {
@@ -538,23 +482,6 @@ class GSRMapExporter {
   }
 
   /**
-   * Extend an open path a bit past each of its two ends, continuing in whatever
-   * direction it was already heading (its local tangent) when it hit the edge of
-   * the grid — rather than squaring it off against the boundary rectangle. Used
-   * so an isoline reads as if it kept going into an unbounded field instead of
-   * stopping dead or being closed off with a straight line.
-   *
-   * A small outward bias is blended in on top of the pure tangent so a path that
-   * happens to run almost exactly parallel to the edge still moves clearly away
-   * from the real bounds (rather than grazing along just inside/along it).
-   *
-   * Returns a NEW array: [2 prepended points, ...original points, 2 appended
-   * points]. These extra points are meant to be fully visible in the final
-   * export — see _closeOpenIsobandPaths for how consecutive paths' extrapolated
-   * ends are smoothed directly into one another to close the shape, and
-   * _expandCanvasForIsobands for how the export canvas grows to fit all of it.
-   */
-  /**
    * Extend one or both ends of an open curve past the real boundary along its
    * own tangent, so it reads as continuing naturally into an unbounded field
    * instead of stopping dead at the edge.
@@ -581,12 +508,7 @@ class GSRMapExporter {
 
     // `normalWeight` grows from near to far, so the two extrapolated points
     // aren't collinear with the path's local tangent — the continuation curves
-    // gently outward rather than shooting away as a dead-straight line, which
-    // reads as an obvious ruler-straight spike for any open fragment whose
-    // local tangent happens to be poorly determined (e.g. a very short raw
-    // isoline fragment). If the caller doesn't know a real local outward
-    // direction, this degrades gracefully to a pure-tangent continuation
-    // (zero normal bias) rather than needing rectangle geometry to guess one.
+    // gently outward rather than shooting away as a dead-straight line.
     const blendedDir = (from, to, normal, normalWeight) => {
       const tangent = unit({ lat: to.lat - from.lat, lon: to.lon - from.lon });
       const n = normal || { lat: 0, lon: 0 };
@@ -596,14 +518,8 @@ class GSRMapExporter {
     const n = pts.length;
     // How far the visible continuation reaches past the real edge before
     // curving into the closure — a fraction of the *relevant* boundary's own
-    // diagonal (the literal map rectangle, or a masked-data island's own
-    // bounding box — whichever loop this path's ends actually belong to), so
-    // it scales sensibly with that boundary's size rather than, say, pushing
-    // a small interior data island's edge out by a fraction of the whole
-    // padded map's diagonal (which reads as a wildly oversized, seemingly
-    // unrelated blob compared to the map's other isoband levels).
+    // diagonal.
     const L1 = 0.12 * diag, L2 = 0.28 * diag;
-
     const extend = (from, dir, dist) => ({ lat: from.lat + dir.lat * dist, lon: from.lon + dir.lon * dist });
 
     const head = [];
@@ -628,15 +544,7 @@ class GSRMapExporter {
    * points[0], increasing around the loop), and the loop remembers its total
    * length (arc back from the last point to the first, closing it), plus its
    * own bounding-box diagonal (`diag`) — used to scale how far a boundary
-   * walk or tangent-extrapolated tip pushes outward. That scale has to come
-   * from *this specific loop*, not the overall padded map bounds: a masked
-   * data island (e.g. a GPS track's isolationRadius corridor) can be far
-   * smaller than the map it sits inside, and pushing its edge outward by a
-   * fraction of the *map's* diagonal reads as a wildly oversized blob that
-   * looks unrelated to the map's other, correctly-scaled isoband levels.
-   * Every other loop-aware helper below (_closeOpenIsobandPaths) treats `t` as
-   * living in [0, length) with wraparound, regardless of whether the loop
-   * came from the literal bounding rectangle or a masked-data boundary.
+   * walk or tangent-extrapolated tip pushes outward.
    */
   static _toLoop(rawPoints) {
     if (!rawPoints || rawPoints.length === 0) return { points: [], length: 0, diag: 0 };
@@ -662,8 +570,7 @@ class GSRMapExporter {
   /**
    * The literal bounding rectangle as a loop, at grid resolution — this is the
    * only "boundary" that exists for a fully-populated grid (no masked cells),
-   * and it's always included even when a data mask is also present, since a
-   * masked region's corridor can (rarely) still reach the literal map edge.
+   * and it's always included even when a data mask is also present.
    */
   static _buildRectangleLoop(grid, rows, cols, bounds) {
     const latSpan = bounds.maxLat - bounds.minLat, lonSpan = bounds.maxLon - bounds.minLon;
@@ -679,25 +586,11 @@ class GSRMapExporter {
    * Traces the "coastline" between valid (real number) and masked (null)
    * grid cells — e.g. the edge of a GPS track's isolationRadius corridor in
    * collective_manager.js's generateContourSurface, where most of the grid
-   * outside the walked path is deliberately left null. An isoline that goes
-   * "open" here isn't cut off by the literal map edge at all — it's cut off
-   * because marching squares refuses to trace through any cell touching a
-   * null corner (see MarchingSquares.getContourLines) — so closing it against
-   * the literal rectangle (as if the data extended all the way to the padded
-   * map bounds) is simply the wrong boundary to close against, and produces
-   * badly wrong results: sampling "which side is inside" against mostly-null
-   * rectangle-edge values reads as "outside" almost everywhere, so the
-   * boundary walk that's supposed to sweep the majority of a low/permissive
-   * threshold's area either closes on a tiny wrong sliver or fails to close
-   * at all — which is exactly why low-value ("green") bands were vanishing
-   * while small interior hotspot rings kept working fine.
+   * outside the walked path is deliberately left null.
    *
-   * This mirrors MarchingSquares' own cell-marching loop, but on a binary
-   * valid/invalid field, and tags each traced point with the real DATA value
-   * of whichever corner is valid (so the same "sample the data along this
-   * stretch" technique used for the rectangle case works here too) and the
-   * true local outward direction — from the valid corner toward the invalid
-   * one — instead of guessing it from rectangle geometry.
+   * Mirrors MarchingSquares' own cell-marching loop on a binary valid/invalid
+   * field, tagging each traced point with the real DATA value of whichever
+   * corner is valid and the true local outward direction.
    */
   static _traceMaskBoundary(grid, rows, cols, bounds) {
     const isValid = (r, c) => grid[r][c] !== null && grid[r][c] !== undefined && !isNaN(grid[r][c]);
@@ -761,14 +654,7 @@ class GSRMapExporter {
    * Corner-cuts a closed sequence of {lat, lon, val, normal} points the same
    * way GeoUtils.chaikinSmooth does, but also blends `val` and `normal` along
    * with position (chaikinSmooth only knows about lat/lon and would silently
-   * drop them). This matters specifically for a mask boundary loop: tracing
-   * validity transitions cell-by-cell (_traceMaskBoundary) is a binary/raster
-   * operation, so the raw result is a staircase at grid resolution — feeding
-   * that directly into the ring's Catmull-Rom smoothing pass doesn't average
-   * the staircase away, it interpolates an exact curve *through* every jagged
-   * step, which reads as a sawtooth. Smoothing the loop's own geometry first
-   * (before it's ever used for sampling or the boundary walk) fixes that at
-   * the source.
+   * drop them). This prevents staircase raster artifacts on mask boundaries.
    */
   static _smoothLoopPoints(points, iterations = 2) {
     if (!points || points.length < 3) return points || [];
@@ -800,15 +686,7 @@ class GSRMapExporter {
   /**
    * Replaces each point's outward normal with one derived from the *smoothed
    * loop's own local tangent* (perpendicular to it), rather than the raw
-   * per-cell valid→null direction _traceMaskBoundary computed. That raw
-   * direction is accurate but very locally noisy — on a narrow, curving
-   * corridor it can point a meaningfully different way from one boundary
-   * cell to the next even after smoothing the *positions*, and boundaryWalk
-   * pushes each point along its own normal, so noisy normals alone are enough
-   * to turn an otherwise-smooth curve into a sawtooth. The original per-cell
-   * normal is still used to pick *which* of the two perpendiculars is
-   * actually outward (vs. inward) at each point — only the noisy magnitude
-   * of the direction is replaced, not which side it's on.
+   * per-cell valid→null direction _traceMaskBoundary computed.
    */
   static _recomputeSmoothNormals(points) {
     const n = points.length;
@@ -828,9 +706,7 @@ class GSRMapExporter {
   /**
    * All the closed boundary loops an open isoline path could plausibly need
    * to close against: the literal bounding rectangle, always, plus one loop
-   * per disconnected masked-data "island" if the grid has any null cells
-   * (e.g. the walked-path corridor in a real GSR export, as opposed to the
-   * fully-populated synthetic grids used in most of the isoband tests here).
+   * per disconnected masked-data "island" if the grid has any null cells.
    */
   static _buildBoundaryLoops(grid, rows, cols, bounds) {
     const loops = [this._buildRectangleLoop(grid, rows, cols, bounds)];
@@ -849,10 +725,6 @@ class GSRMapExporter {
       if (!path || path.length < 3) return;
       const first = path[0], last = path[path.length - 1];
       const closed = Math.hypot(first.lat - last.lat, first.lon - last.lon) < 1e-9;
-      // A mask boundary fragment that *doesn't* close on itself means the
-      // valid-data corridor reaches all the way to the literal map edge right
-      // there — already covered by the rectangle loop above, so this
-      // fragment is simply skipped rather than guessed at.
       if (!closed) return;
       const smoothed = this._recomputeSmoothNormals(this._smoothLoopPoints(path.slice(0, -1), 3));
       loops.push(this._toLoop(smoothed));
@@ -864,61 +736,16 @@ class GSRMapExporter {
   /**
    * Close the open isoline paths that get cut off at the edge of the grid/map
    * extent. Each open end is extended past the edge along its own tangent
-   * (_tangentExtrapolate). Where two ends need to be joined and the correct
-   * side is the immediately-adjacent one, that's all there is to it — their
-   * extrapolated tips sit right next to each other and the normal Catmull-Rom
-   * smoothing pass (applied to the whole ring at once, same as an ordinary
-   * closed interior ring) bridges them with a smooth, rounded curve.
+   * (_tangentExtrapolate).
    *
-   * But sometimes the correct side is *not* the nearby one — most of the
-   * boundary can legitimately be "inside" the band with only a small notch of
-   * open path breaking it up (e.g. a big hot region that touches three sides
-   * of the map with one small cool dip cut into an edge). In that case the
-   * fill has to actually continue along the rest of the boundary to enclose
-   * the right area — but tracing the literal bounding rectangle would draw the
-   * exact hard straight edges this feature exists to avoid. Instead, the real
-   * grid values already sampled all along that boundary stretch (`profile`,
-   * built below) are reused as a chain of real data points, each nudged
-   * outward past the edge by an amount that grows with how far above the
-   * isolevel that particular point on the boundary is — so a strongly "hot"
-   * stretch of edge bulges out further than a stretch that's only barely
-   * above level, tapering down to the same small nudge the path's own
-   * tangent-extrapolated tip gets right at the point where the data actually
-   * crosses the isolevel. It's still built from the real field, so it reads
-   * as organic continuation rather than a drafted boundary, and it's never
-   * perfectly straight unless the underlying data along that stretch truly is
-   * uniform (in which case a straight line is simply the honest answer).
+   * Where two ends need to be joined and the correct side is not the nearby one,
+   * the real grid values sampled along that boundary stretch are reused as a chain
+   * of data points nudged outward.
    *
-   * Which pair of open ends belong together, and which way to walk, comes from
-   * the real grid data, not a guess: every open endpoint sits exactly on one of
-   * the boundary loops from _buildBoundaryLoops — either the literal bounding
-   * rectangle (that's *why* the path is open in the unmasked case — marching
-   * squares only traces where the contour crosses a cell edge, and stops the
-   * moment it runs off the grid) or the edge of a masked no-data region (same
-   * reasoning: marching squares also stops the moment it hits a null-valued
-   * cell corner). Between any two boundary-adjacent open endpoints *on the same
-   * loop* the boundary value can't cross the isolevel again — otherwise there'd
-   * be another open endpoint in between — so sampling the midpoint of that
-   * stretch tells us, from the actual data, whether that side is inside the
-   * band. That's what decides which endpoints pair up and which direction to
-   * walk (an earlier, buggier version of this guessed based on arc length
-   * instead, which picks the wrong side whenever the correct arc isn't also the
-   * shorter one; a later version handled the rectangle correctly but assumed
-   * *every* open endpoint sits on it, which silently failed — no ring produced,
-   * or the wrong small one — for real masked-grid exports like a GPS track's
-   * isolationRadius corridor, where most open endpoints actually sit on the
-   * mask edge instead).
-   *
-   * Returns an array of closed point rings, ready to be smoothed and filled
-   * exactly like an ordinary interior ring.
+   * Returns an array of closed point rings ready to be smoothed and filled.
    */
   static _closeOpenIsobandPaths(openPaths, grid, rows, cols, bounds, level) {
     if (!openPaths || openPaths.length === 0) return [];
-
-    const getLL = (p) => ({
-      lat: p.lat !== undefined ? p.lat : p[0],
-      lon: p.lon !== undefined ? p.lon : (p.lng !== undefined ? p.lng : p[1])
-    });
 
     const loops = this._buildBoundaryLoops(grid, rows, cols, bounds);
     if (loops.length === 0) return [];
@@ -932,16 +759,10 @@ class GSRMapExporter {
       return best;
     };
 
-    // Two endpoints per open path, each assigned to whichever single boundary
-    // loop best explains *both* of that path's ends together — an open path's
-    // two ends should always terminate on the same loop (it's one continuous
-    // isoline run cut off at two points along one boundary), so scoring by the
-    // combined distance rather than each end independently avoids ever
-    // splitting one path's endpoints across two different loops.
     const endpoints = [];
     openPaths.forEach((path, idx) => {
-      const first = getLL(path[0]);
-      const last = getLL(path[path.length - 1]);
+      const first = this._toLatLon(path[0]);
+      const last  = this._toLatLon(path[path.length - 1]);
       let bestLoopIdx = 0, bestScore = Infinity, bestFirst = null, bestLast = null;
       loops.forEach((loop, li) => {
         if (loop.points.length === 0) return;
@@ -956,10 +777,6 @@ class GSRMapExporter {
     });
     if (endpoints.length === 0) return [];
 
-    // Endpoints on different loops never need to pair up — a ring only ever
-    // closes within one loop's own cycle — so each loop's endpoints are sorted
-    // and walked entirely independently, and rings from every loop are just
-    // pooled together at the end.
     const rings = [];
     const byLoop = new Map();
     endpoints.forEach(e => {
@@ -973,28 +790,12 @@ class GSRMapExporter {
       const n = sorted.length;
       if (n === 0) return;
       const L = loop.length || 1e-9;
-      // Scaled to *this loop's own* extent (its bounding-box diagonal), not the
-      // overall padded map bounds — see _toLoop's docstring for why: a masked
-      // data island can be much smaller than the map around it, and using the
-      // map's diagonal here would push its edge out by a wildly disproportionate
-      // amount relative to the rest of the isoband levels.
       const L2 = 0.28 * (loop.diag || 1e-9);
-      // _buildBoundaryLoops always pushes the literal rectangle first (index 0)
-      // before any mask-coastline loops, so this is a reliable way to tell them
-      // apart here.
       const isMaskLoop = loopIdx !== 0;
 
       const endpointIndex = new Map();
       sorted.forEach((e, i) => endpointIndex.set(`${e.pathIdx}:${e.which}`, i));
 
-      // Arc length (`t`) is a cumulative sum of point-to-point distances, so it
-      // can drift by a tiny floating-point epsilon even where a query lands
-      // conceptually exactly on a loop point. Snapping to that point's own
-      // value first (rather than falling through to interpolation, which
-      // would start a hair's breadth into the *next* segment) avoids the
-      // query landing just past a node whose value happens to equal `level`
-      // exactly and reading the wrong side of the threshold purely from
-      // rounding noise.
       const T_EPS = 1e-7;
       const sampleLoopVal = (tRaw) => {
         const t = ((tRaw % L) + L) % L;
@@ -1014,38 +815,6 @@ class GSRMapExporter {
         return pts.length ? pts[0].val : null;
       };
 
-      // Real boundary-node points, nudged outward, whose position lies
-      // strictly between tFrom and tTo, walking forward (increasing t,
-      // wrapping past the loop's own length) — i.e. the actual data-driven
-      // stand-in for "walk the boundary" when the correct side to close a
-      // ring on isn't the immediately-adjacent one.
-      //
-      // The outward nudge for each node combines two things:
-      //  - A smooth positional envelope (sin, 0 at both ends of this specific
-      //    arc, peaking in the middle) — this alone guarantees the whole
-      //    stretch is curved, never a straight run, regardless of what the
-      //    data does. It also reaches exactly 0 at both ends, matching the
-      //    real curve endpoints there continuously.
-      //  - How far above `level` each node is, normalized against the highest
-      //    value seen *on this specific arc* — not the whole loop. Using a
-      //    single global peak to normalize would crush the nudge to ~0 for
-      //    any arc that happens to run far from wherever the field peaks —
-      //    producing a flat, literally-straight stretch exactly where
-      //    "no straight lines" matters most.
-      //
-      // That's the right treatment for the literal bounding RECTANGLE, whose
-      // edges are artificially straight and need *some* organic perturbation
-      // to avoid reading as a drafted line. A mask coastline isn't straight
-      // to begin with — it's the real, already-organic edge of the valid-data
-      // region (cell-boundary tracing + Chaikin smoothing) — so it gets no
-      // nudge at all. This matters most exactly when the correct side to
-      // close a ring on is "most of the coastline" (e.g. the outermost,
-      // lowest-ratio band, which legitimately covers nearly the whole valid
-      // region): the envelope above reaches full strength across nearly the
-      // entire walked arc in that case, so nudging it outward at rectangle-
-      // scale distances there doesn't add a subtle wobble, it balloons the
-      // whole coastline into a giant, disconnected-looking blob relative to
-      // every other level — which is exactly the reported bug.
       const boundaryWalk = (tFrom, tTo) => {
         let span = tTo - tFrom;
         while (span <= 1e-9) span += L;
@@ -1070,18 +839,11 @@ class GSRMapExporter {
           const envelope = Math.sin(Math.PI * relPos);
           const excess = (node.val === null || isNaN(node.val)) ? 0 : Math.max(0, node.val - level);
           const dataFrac = localMax > 1e-9 ? excess / localMax : 0;
-          // 0.3 floor keeps a real bulge present even where the data along this
-          // arc is essentially uniform (dataFrac ~ 0 everywhere); the remaining
-          // 0.7 lets genuinely "more inside" stretches bulge out further than
-          // barely-inside ones.
           const dist = L2 * envelope * (0.3 + 0.7 * dataFrac);
           return { lat: node.lat + node.normal.lat * dist, lon: node.lon + node.normal.lon * dist };
         });
       };
 
-      // Whether the forward arc (i -> i+1, increasing t) is inside the band.
-      // Between any two adjacent endpoints the boundary value can't cross
-      // `level` again, so a single midpoint sample classifies the whole arc.
       const arcInsideForward = new Array(n);
       for (let i = 0; i < n; i++) {
         const tA = sorted[i].t;
@@ -1096,11 +858,6 @@ class GSRMapExporter {
       for (let s = 0; s < n; s++) {
         if (usedEndpoint[s]) continue;
 
-        // First pass: walk the endpoint graph and collect each path segment
-        // together with whatever boundary-walk stretch (if any) follows it,
-        // without deciding yet how each segment's own ends should be
-        // extrapolated — that depends on what's on *both* sides of it, which
-        // isn't known until the whole ring closes.
         const segments = [];
         let curIdx = s;
         let closedOk = false;
@@ -1114,23 +871,15 @@ class GSRMapExporter {
           const path = openPaths[ep.pathIdx];
           let curvePts, otherIdx;
           if (ep.which === 'start') {
-            curvePts = path.map(getLL);
+            curvePts = path.map(p => this._toLatLon(p));
             otherIdx = endpointIndex.get(`${ep.pathIdx}:end`);
           } else {
-            curvePts = path.slice().reverse().map(getLL);
+            curvePts = path.slice().reverse().map(p => this._toLatLon(p));
             otherIdx = endpointIndex.get(`${ep.pathIdx}:start`);
           }
-          // Defensive: both ends of a path are always assigned to the same
-          // loop above, so this should always resolve — bail safely if not.
           if (otherIdx === undefined) { closedOk = false; break; }
           usedEndpoint[otherIdx] = true;
 
-          // From `otherIdx`, exactly one of the two neighbouring arcs reads as
-          // "inside" the band (they strictly alternate all the way around the
-          // loop) — that tells us which open end comes next in the ring, and
-          // (via boundaryWalk) which real boundary-data stretch has to be
-          // nudged outward and inserted to actually enclose that side when it
-          // isn't the immediately-adjacent one.
           const prevIdx = (otherIdx - 1 + n) % n;
           const forward = arcInsideForward[otherIdx];
           const backward = arcInsideForward[prevIdx];
@@ -1142,10 +891,10 @@ class GSRMapExporter {
           } else if (backward && !forward) {
             nextIdx = prevIdx;
             boundaryPts = boundaryWalk(sorted[nextIdx].t, sorted[otherIdx].t).reverse();
-          } else if (forward) { // degenerate tie — pick a side rather than stall
+          } else if (forward) {
             nextIdx = (otherIdx + 1) % n;
             boundaryPts = boundaryWalk(sorted[otherIdx].t, sorted[nextIdx].t);
-          } else { closedOk = false; break; } // neither side reads inside — bail out safely
+          } else { closedOk = false; break; }
 
           segments.push({ curvePts, boundaryPtsAfter: boundaryPts, startNormal: ep.normal, endNormal: sorted[otherIdx].normal });
 
@@ -1158,17 +907,7 @@ class GSRMapExporter {
           // Second pass: now that every segment's neighbours are known,
           // extend each path's own ends past the boundary along its tangent
           // *only* where it joins directly to another path's tip (no
-          // boundary-walk stretch in between) — that's the case a synthetic
-          // tip is needed to read as "continuing into the field". Where a
-          // boundary-walk stretch already runs up to this segment, it already
-          // tapers its own outward nudge down to exactly 0 right at the join,
-          // so it's already smooth and continuous with the real curve there;
-          // adding a second, independently-placed tip on top of that would
-          // create a needless (and visually spiky) second bulge stacked on
-          // the first. Each end's real local outward direction (rectangle
-          // side, or mask valid→null direction) comes along with it, so the
-          // extrapolation curves the right way even when it isn't the
-          // literal map edge.
+          // boundary-walk stretch in between).
           const m = segments.length;
           for (let i = 0; i < m; i++) {
             const prevBoundary = segments[(i - 1 + m) % m].boundaryPtsAfter;
@@ -1190,8 +929,47 @@ class GSRMapExporter {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  //  Vector layers
+  //  Tile & Vector Element Processors
   // ═══════════════════════════════════════════════════════════════════
+
+  static async _tiles(el, r) {
+    const tiles = Array.from(el.querySelectorAll('.leaflet-tile-pane img'));
+    const jobs = tiles.map(async tile => {
+      const b = tile.getBoundingClientRect();
+      const url = await this._inlineImg(tile);
+      return url ? this._img(b.left - r.left, b.top - r.top, b.width, b.height, url) : null;
+    });
+    const results = await Promise.all(jobs);
+    return results.filter(Boolean);
+  }
+
+  static async _inlineImg(img) {
+    const src = img.getAttribute('src') || img.src;
+    if (!src) return null;
+    if (src.startsWith('data:')) return src;
+
+    try {
+      const c = Object.assign(document.createElement('canvas'), {
+        width: img.naturalWidth || img.width || 256,
+        height: img.naturalHeight || img.height || 256
+      });
+      c.getContext('2d').drawImage(img, 0, 0);
+      const u = c.toDataURL('image/png');
+      if (u?.startsWith('data:')) return u;
+    } catch (_) { /* tainted */ }
+
+    try {
+      const res = await fetch(src, { mode: 'cors' });
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      return await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onloadend = () => resolve(fr.result);
+        fr.onerror = reject;
+        fr.readAsDataURL(blob);
+      });
+    } catch (_) { return null; }
+  }
 
   static _vectors(ctx, layers, opts) {
     const out = [];
@@ -1227,11 +1005,12 @@ class GSRMapExporter {
 
     const o = layer.options || {};
     const esc = this._esc;
-    // Reduced, elegant stroke size: 1.2px thin stroke for exported track vectors.
+    // Reduced stroke size: 1.2px thin stroke for exported track vectors.
     // Exact/OSM shapes keep their authored weight untouched — no cosmetic thinning.
     const strokeWidth = exact
       ? (o.weight !== undefined ? o.weight : 1)
       : (o.weight !== undefined ? Math.min(1.5, o.weight * 0.4) : 1.2);
+
     return `<path d="${d}"` +
       ` stroke="${esc(o.color || '#ff7b00')}"` +
       ` stroke-width="${esc(strokeWidth)}"` +
@@ -1274,7 +1053,7 @@ class GSRMapExporter {
         const curr = rawPts[i];
         if (!curr || !prev) continue;
         const distSq = (curr.x - prev.x) ** 2 + (curr.y - prev.y) ** 2;
-        if (i === rawPts.length - 1 || distSq >= 2.25) {
+        if (i === rawPts.length - 1 || distSq >= MICRO_JITTER_THRESHOLD_SQ) {
           pts.push(curr);
         }
       }
@@ -1309,7 +1088,7 @@ class GSRMapExporter {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  //  Markers
+  //  Marker Processors
   // ═══════════════════════════════════════════════════════════════════
 
   static _markers(ctx, markers) {
@@ -1343,9 +1122,7 @@ class GSRMapExporter {
     const s = window.getComputedStyle(dot);
     const strokeWidth = (parseFloat(s.borderWidth) || 1.5) * 0.5;
     // Radius = half the CSS dot's own diameter, so the exported dot matches
-    // its in-app rendered size. Was width*0.15 (~30% of the correct radius)
-    // — a leftover fudge factor that made every exported dot render far
-    // smaller/fainter than what's shown live in the browser.
+    // its in-app rendered size.
     const r = (parseFloat(s.width) || 10) * 0.5;
     return `<circle cx="${cx}" cy="${cy}" r="${r}"` +
       ` fill="${this._esc(s.backgroundColor || '#f43f5e')}"` +
@@ -1385,8 +1162,26 @@ class GSRMapExporter {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  //  Shared
+  //  Color, String & Download Utilities
   // ═══════════════════════════════════════════════════════════════════
+
+  static _hslToHex(h, s = 100, l = 50) {
+    s /= 100;
+    l /= 100;
+    const a = s * Math.min(l, 1 - l);
+    const f = n => {
+      const k = (n + h / 30) % 12;
+      const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+      return Math.round(255 * color).toString(16).padStart(2, '0');
+    };
+    return `#${f(0)}${f(8)}${f(4)}`;
+  }
+
+  static _ratioToHex(ratio) {
+    const r = Math.max(0, Math.min(1, ratio));
+    const hue = (1.0 - r) * 120; // 120 = Green, 60 = Yellow, 0 = Red
+    return this._hslToHex(hue, 100, 50);
+  }
 
   static _img(x, y, w, h, url) {
     const u = this._esc(url);
