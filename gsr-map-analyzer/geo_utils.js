@@ -61,26 +61,23 @@ const GeoUtils = {
     if (!points || points.length < 3) return points || [];
     const EPS = 1e-9;
 
-    // Collapse consecutive (near-)duplicate vertices first. Marching Squares emits
-    // zero-length or near-zero-length segments at ambiguous grid crossings (e.g. a grid
-    // value landing exactly on the contour level right at a cell corner), and stitching
-    // happily joins them since they share an endpoint. Left in, a run of overlapping
-    // vertices just perpetuates itself through every Chaikin pass — visually a stub/kink
-    // in the curve rather than a smooth pass-through, and it can occur anywhere along the
-    // path, not just at a ring's closing point.
+    const toPt = (p) => {
+      if (!p) return { lat: 0, lon: 0, lng: 0 };
+      if (Array.isArray(p)) return { lat: p[0], lon: p[1], lng: p[1] };
+      const lat = typeof p.lat === 'number' ? p.lat : (typeof p.lat === 'function' ? p.lat() : 0);
+      const lon = typeof p.lon === 'number' ? p.lon : (typeof p.lng === 'number' ? p.lng : (typeof p.lng === 'function' ? p.lng() : (typeof p.lon === 'function' ? p.lon() : 0)));
+      return { lat, lon, lng: lon };
+    };
+
     let pts = [];
-    for (const p of points) {
+    for (const rawP of points) {
+      const p = toPt(rawP);
       const prev = pts[pts.length - 1];
       if (!prev || Math.abs(prev.lat - p.lat) > EPS || Math.abs(prev.lon - p.lon) > EPS) {
         pts.push(p);
       }
     }
 
-    // Stitched closed rings repeat their first point as the last point (that's how the
-    // path-stitcher detects the loop closed). Left in place, Chaikin treats that repeat as
-    // an extra near-zero-length segment right at the seam, which produces a visible kink/
-    // duplicate-vertex cluster exactly where the ring closes instead of a clean curve.
-    // Drop the duplicate before smoothing and treat the ring as a genuinely cyclic point set.
     if (closed && pts.length > 1) {
       const first = pts[0], last = pts[pts.length - 1];
       if (Math.abs(first.lat - last.lat) < EPS && Math.abs(first.lon - last.lon) < EPS) {
@@ -97,15 +94,17 @@ const GeoUtils = {
       for (let i = 0; i < segCount; i++) {
         const p0 = pts[i];
         const p1 = pts[(i + 1) % n];
-        next.push({ lat: 0.75 * p0.lat + 0.25 * p1.lat, lon: 0.75 * p0.lon + 0.25 * p1.lon });
-        next.push({ lat: 0.25 * p0.lat + 0.75 * p1.lat, lon: 0.25 * p0.lon + 0.75 * p1.lon });
+        const latA = 0.75 * p0.lat + 0.25 * p1.lat;
+        const lonA = 0.75 * p0.lon + 0.25 * p1.lon;
+        const latB = 0.25 * p0.lat + 0.75 * p1.lat;
+        const lonB = 0.25 * p0.lon + 0.75 * p1.lon;
+        next.push({ lat: latA, lon: lonA, lng: lonA });
+        next.push({ lat: latB, lon: lonB, lng: lonB });
       }
       if (!closed) next.push(pts[n - 1]); // keep the end endpoint anchored
       pts = next;
     }
 
-    // Re-close the ring explicitly (first point repeated at the end) so the rendered
-    // polyline has no visible gap or seam where it loops back on itself.
     if (closed) pts = [...pts, pts[0]];
     return pts;
   },
@@ -132,3 +131,5 @@ const GeoUtils = {
     return inside;
   }
 };
+
+if (typeof window !== 'undefined') window.GeoUtils = GeoUtils;

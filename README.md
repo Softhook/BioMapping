@@ -359,14 +359,14 @@ timestamp,gsr_raw
 
 ### Post-Processing: The Browser-Based Analyser
 
-Post-processing happens off-device in the included web analyser — there is **no** on-device CSV→GPX conversion and **no** "Convert CSV to GPX" menu item. Open [`gsr-map-analyzer/index.html`](../gsr-map-analyzer/index.html) directly in a browser (no server required) and drag-and-drop one or more `biomap_*.csv` files onto it.
+Post-processing happens off-device in the included web analyser. Open [`gsr-map-analyzer/index.html`](../gsr-map-analyzer/index.html) directly in a browser (no server required) and drag-and-drop one or more `biomap_*.csv` files onto it.
 
 The analyser:
 
 1. **Loads** the CSV, honouring the `#`-prefixed metadata header and the relative-seconds `timestamp` column, and skipping rows with empty `lat`/`lon` (GPS gaps).
 2. **Filters** the GSR signal (median / low-pass) and decomposes it into tonic and phasic components (DWT).
 3. **Detects peaks** with shape-quality scoring to isolate genuine arousal events.
-4. **Maps** the track on a Leaflet base map, **coloured by arousal** — arousal is shown as colour, not encoded as GPX elevation.
+4. **Maps** the track on a Leaflet base map, **coloured by arousal** — arousal is shown as colour.
 5. **Collective mode:** overlays multiple tracks, builds an inverse-distance-weighted (IDW) contour surface, and can enrich the data against OpenStreetMap features (road class, green space, buildings).
 
 Both rapid rises **and** rapid drops in GSR register as high arousal — only the magnitude of change matters, not the direction. See [`csv_schema.md`](csv_schema.md) for the canonical column definitions the analyser reads, and the [README](../README.md) for the full feature list.
@@ -608,7 +608,7 @@ See [`csv_schema.md`](csv_schema.md) for the canonical column definitions and se
 
 ## 11. Tuning
 
-There is no on-device converter, so there are no `GPX_*` constants to set. Tuning lives in two places:
+Tuning lives in two places:
 
 **Firmware (compile-time).** The GPS logging quality gate is defined in `biomap_types.h`:
 

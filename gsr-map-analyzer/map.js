@@ -1507,6 +1507,7 @@ class GSRMapManager {
 
     const surfaceData = collectiveManager.generateContourSurface(contourParams);
     if (!surfaceData || !surfaceData.contours) return;
+    this.surfaceData = surfaceData;
 
     const { contours, grid, minVal, maxVal, bounds, sortedVals } = surfaceData;
     const { showShadedSurface = true, surfaceOpacity = 0.40 } = contourParams;

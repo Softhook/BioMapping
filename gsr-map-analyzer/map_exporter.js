@@ -32,7 +32,63 @@ class GSRMapExporter {
     const el = document.getElementById(mgr.containerId);
     if (!el)     { alert("Map container not found."); return null; }
     const r = el.getBoundingClientRect();
-    return { map: mgr.map, el, r, w: el.clientWidth || 800, h: el.clientHeight || 600, mgr };
+    const proj = this._getProjection(mgr, el);
+    return { map: mgr.map, el, r, w: proj.w, h: proj.h, project: proj.project, mgr };
+  }
+
+  static _getProjection(mgr, el) {
+    const bounds = mgr?.getBounds ? mgr.getBounds() : null;
+    if (bounds && typeof bounds.minLat === 'number' && !isNaN(bounds.minLat) && (bounds.maxLat - bounds.minLat) > 0) {
+      const latSpan = bounds.maxLat - bounds.minLat;
+      const lonSpan = bounds.maxLon - bounds.minLon;
+      const padLat = latSpan > 0 ? latSpan * 0.05 : 0.005;
+      const padLon = lonSpan > 0 ? lonSpan * 0.05 : 0.005;
+
+      const minLat = bounds.minLat - padLat;
+      const maxLat = bounds.maxLat + padLat;
+      const minLon = bounds.minLon - padLon;
+      const maxLon = bounds.maxLon + padLon;
+
+      const mercY = lat => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+      const minY = mercY(minLat);
+      const maxY = mercY(maxLat);
+      const ySpan = maxY - minY;
+      const xSpan = maxLon - minLon;
+
+      const targetW = 2000;
+      const targetH = Math.max(800, Math.min(4000, Math.round(targetW * (ySpan / (xSpan || 1)))));
+
+      const project = (ll) => {
+        if (!ll) return { x: 0, y: 0 };
+        let lat, lon;
+        if (Array.isArray(ll)) {
+          lat = ll[0]; lon = ll[1];
+        } else {
+          lat = ll.lat !== undefined ? ll.lat : 0;
+          lon = ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : 0);
+        }
+        const x = ((lon - minLon) / (xSpan || 1)) * targetW;
+        const y = (1 - (mercY(lat) - minY) / (ySpan || 1)) * targetH;
+        return { x, y };
+      };
+
+      return { w: targetW, h: targetH, project };
+    }
+
+    const w = el.clientWidth || 800;
+    const h = el.clientHeight || 600;
+    const project = (ll) => {
+      if (!ll) return { x: 0, y: 0 };
+      let lat, lon;
+      if (Array.isArray(ll)) {
+        lat = ll[0]; lon = ll[1];
+      } else {
+        lat = ll.lat !== undefined ? ll.lat : 0;
+        lon = ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : 0);
+      }
+      return mgr.map.latLngToContainerPoint([lat, lon]);
+    };
+    return { w, h, project };
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -44,16 +100,12 @@ class GSRMapExporter {
     return {
       tiles:          await this._tiles(el, r),
       surface:        this._surface(ctx),
-      osm:            this._vectors(map, mgr.osmLayers),
-      tracks:         this._vectors(map, [...mgr.pathSegments, ...mgr.collectivePathSegments]),
-      contours:       this._vectors(map, mgr.contourLayers),
-      clusters:       this._vectors(map, mgr.clusterLayers),
-      dotsAndLabels:  this._markers(map, [...mgr.peakMarkers, ...mgr.collectivePeakMarkers]),
-      // Hotspots (mgr.hotspotMarkers / collectiveHotspotMarkers) are a separate
-      // marker set from regular peaks — gathered and rendered as their own SVG
-      // layer (Hotspot_Dots) rather than folded into dotsAndLabels, so they stay
-      // isolatable/toggleable in the exported file the same way they are in-app.
-      hotspots:       this._markers(map, [...(mgr.hotspotMarkers || []), ...(mgr.collectiveHotspotMarkers || [])])
+      osm:            this._vectors(ctx, mgr.osmLayers),
+      tracks:         this._vectors(ctx, [...mgr.pathSegments, ...mgr.collectivePathSegments]),
+      contours:       this._vectors(ctx, mgr.contourLayers),
+      clusters:       this._vectors(ctx, mgr.clusterLayers),
+      dotsAndLabels:  this._markers(ctx, [...mgr.peakMarkers, ...mgr.collectivePeakMarkers]),
+      hotspots:       this._markers(ctx, [...(mgr.hotspotMarkers || []), ...(mgr.collectiveHotspotMarkers || [])])
     };
   }
 
@@ -66,19 +118,25 @@ class GSRMapExporter {
 
     const g = (id, name, items, extra = '') =>
       `  <g i:layer="yes" id="${id}" data-name="${name}"${extra ? ' ' + extra : ''}>` +
-      (items.length ? '\n' + items.map(e => '    ' + e).join('\n') + '\n  ' : '') +
+      (items && items.length ? '\n' + items.map(e => '    ' + e).join('\n') + '\n  ' : '') +
       `</g>`;
 
+    const surfObj = Array.isArray(L.surface)
+      ? { mesh: [], isobands: [], raster: L.surface }
+      : (L.surface || { mesh: [], isobands: [], raster: [] });
+
     const specs = [
-      ['Base_Map_Tiles',     'Base Map Tiles',              L.tiles],
-      ['Shaded_Contours',    'Shaded Contours',             L.surface,      'opacity="0.4"'],
-      ['OSM_Shapes',         'OSM Shapes',                  L.osm],
-      ['GPS_Track_Paths',    'GPS Track Paths',             L.tracks],
-      ['Contour_Lines',      'Contour Lines',               L.contours],
-      ['Cluster_Metaballs',  'Cluster Metaballs',           L.clusters],
-      ['Stress_Peak_Dots',   'Stress Peak Dots',            L.dotsAndLabels.dots],
-      ['Hotspot_Dots',       'Hotspot Dots',                L.hotspots.dots],
-      ['Stress_Peak_Labels', 'Stress Peak Labels',          L.dotsAndLabels.labels]
+      ['Base_Map_Tiles',          'Base Map Tiles',              L.tiles],
+      ['Vector_Surface_Mesh',     'Vector Surface Mesh',         surfObj.mesh,        'opacity="0.4"'],
+      ['Vector_Surface_Isobands', 'Vector Surface Isobands',     surfObj.isobands,    'opacity="0.5"'],
+      ['Raster_Surface_Fallback', 'Raster Surface Fallback',     surfObj.raster,      'opacity="0.4"'],
+      ['OSM_Shapes',              'OSM Shapes',                  L.osm],
+      ['GPS_Track_Paths',         'GPS Track Paths',             L.tracks],
+      ['Contour_Lines',           'Contour Lines',               L.contours],
+      ['Cluster_Metaballs',       'Cluster Metaballs',           L.clusters],
+      ['Stress_Peak_Dots',        'Stress Peak Dots',            L.dotsAndLabels.dots],
+      ['Hotspot_Dots',            'Hotspot Dots',                L.hotspots.dots],
+      ['Stress_Peak_Labels',      'Stress Peak Labels',          L.dotsAndLabels.labels]
     ];
 
     return [
@@ -134,65 +192,257 @@ class GSRMapExporter {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  //  Surface & Projection Helpers
+  // ═══════════════════════════════════════════════════════════════════
+
+  static _hslToHex(h, s = 100, l = 50) {
+    s /= 100;
+    l /= 100;
+    const a = s * Math.min(l, 1 - l);
+    const f = n => {
+      const k = (n + h / 30) % 12;
+      const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+      return Math.round(255 * color).toString(16).padStart(2, '0');
+    };
+    return `#${f(0)}${f(8)}${f(4)}`;
+  }
+
+  static _ratioToHex(ratio) {
+    const r = Math.max(0, Math.min(1, ratio));
+    const hue = (1.0 - r) * 120; // 120 = Green, 60 = Yellow, 0 = Red
+    return this._hslToHex(hue, 100, 50);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   //  Surface
   // ═══════════════════════════════════════════════════════════════════
 
   static _surface(ctx) {
     const { map, el, r, mgr } = ctx;
-    const overlay = mgr.surfaceOverlay;
-    if (overlay) {
-      try {
-        const bounds = overlay.getBounds();
-        const tl = map.latLngToContainerPoint(bounds.getNorthWest());
-        const br = map.latLngToContainerPoint(bounds.getSouthEast());
-        const x = tl.x;
-        const y = tl.y;
-        const w = br.x - tl.x;
-        const h = br.y - tl.y;
+    const project = ctx.project || (ll => map.latLngToContainerPoint(ll));
+    const res = {
+      mesh: [],
+      isobands: [],
+      raster: []
+    };
 
-        const src = overlay._url || (overlay.getElement() ? overlay.getElement().src : null);
-        if (src) {
-          return [this._img(x, y, w, h, src)];
+    // 1. If mgr.surfaceData exists, generate vector mesh and vector isobands
+    const surfaceData = mgr?.surfaceData;
+    if (surfaceData && surfaceData.grid && surfaceData.bounds) {
+      const { grid, minVal, maxVal, bounds, sortedVals, contours } = surfaceData;
+      const rows = grid.length;
+      const cols = grid[0].length;
+      const valRange = maxVal - minVal;
+      const rangeEpsilon = 1e-9;
+      const useRankColor = sortedVals && sortedVals.length > 1;
+
+      // ── A. Vector Mesh Cell Polygons ───────────────────────────────
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const val = grid[row][col];
+          if (val === null || isNaN(val)) continue;
+
+          let ratio;
+          if (useRankColor && typeof StatsMath !== 'undefined' && typeof StatsMath.percentileRank === 'function') {
+            ratio = StatsMath.percentileRank(val, sortedVals);
+          } else {
+            ratio = valRange > rangeEpsilon ? (val - minVal) / valRange : 0.5;
+          }
+
+          const fillColor = this._ratioToHex(ratio);
+
+          const dLat = (rows > 1) ? 0.5 * (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
+          const dLon = (cols > 1) ? 0.5 * (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
+          const gridLat = (rows > 1) ? bounds.minLat + (row / (rows - 1)) * (bounds.maxLat - bounds.minLat) : bounds.minLat;
+          const gridLon = (cols > 1) ? bounds.minLon + (col / (cols - 1)) * (bounds.maxLon - bounds.minLon) : bounds.minLon;
+
+          const latSouth = gridLat - dLat;
+          const latNorth = gridLat + dLat;
+          const lonWest  = gridLon - dLon;
+          const lonEast  = gridLon + dLon;
+
+          const pNW = project([latNorth, lonWest]);
+          const pNE = project([latNorth, lonEast]);
+          const pSE = project([latSouth, lonEast]);
+          const pSW = project([latSouth, lonWest]);
+
+          const pointsStr = `${pNW.x.toFixed(3)},${pNW.y.toFixed(3)} ${pNE.x.toFixed(3)},${pNE.y.toFixed(3)} ${pSE.x.toFixed(3)},${pSE.y.toFixed(3)} ${pSW.x.toFixed(3)},${pSW.y.toFixed(3)}`;
+          
+          res.mesh.push(
+            `<polygon points="${pointsStr}" fill="${this._esc(fillColor)}" stroke="${this._esc(fillColor)}" stroke-width="0.5" stroke-linejoin="round" />`
+          );
         }
-      } catch (e) {
-        console.warn("Mathematically aligned contour surface export failed, falling back to DOM bounds:", e);
+      }
+
+      // ── B. Vector Isoband Polygons & Iso-lines ──────────────────────
+      if (contours && Array.isArray(contours)) {
+        contours.forEach(c => {
+          const fillColor = this._ratioToHex(c.ratio);
+
+          const stitchedPaths = (typeof GSRSpatialClustering !== 'undefined' && typeof GSRSpatialClustering.stitchSegments === 'function')
+            ? GSRSpatialClustering.stitchSegments(c.segments)
+            : (c.segments || []).map(seg => [seg[0], seg[1]]);
+
+          stitchedPaths.forEach(rawPath => {
+            if (!rawPath || rawPath.length < 2) return;
+
+            const isClosed = rawPath.length >= 3 &&
+              Math.abs((rawPath[0].lat ?? rawPath[0][0]) - (rawPath[rawPath.length - 1].lat ?? rawPath[rawPath.length - 1][0])) < 1e-9 &&
+              Math.abs((rawPath[0].lon ?? rawPath[0][1]) - (rawPath[rawPath.length - 1].lon ?? rawPath[rawPath.length - 1][1])) < 1e-9;
+
+            let path;
+            if (isClosed) {
+              path = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
+                ? GeoUtils.chaikinSmooth(rawPath, 2, true)
+                : rawPath;
+            } else {
+              // Smooth inner isoline curve first, then close along grid boundary perimeter so corners stay crisp 90-degree right angles
+              const smoothedInner = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
+                ? GeoUtils.chaikinSmooth(rawPath, 2, false)
+                : rawPath;
+              path = this._closeBoundaryPath(smoothedInner, bounds);
+            }
+
+            const d = this._pathD(ctx, path, true, true);
+            if (!d) return;
+
+            res.isobands.push(
+              `<path d="${d}" fill="${this._esc(fillColor)}" fill-opacity="0.45" stroke="${this._esc(fillColor)}" stroke-width="0.8" stroke-opacity="0.7" stroke-linejoin="round" stroke-linecap="round" />`
+            );
+          });
+        });
       }
     }
 
-    // Fallback: Query DOM directly using class selector
-    const img = el.querySelector('.collective-surface-overlay');
-    if (img) {
-      const b = img.getBoundingClientRect();
-      return [this._img(b.left - r.left, b.top - r.top, b.width, b.height, img.src)];
+    // ── C. Raster Surface Fallback ──────────────────────────────────
+    const overlay = mgr?.surfaceOverlay;
+    if (overlay) {
+      try {
+        const bounds = overlay.getBounds();
+        const tl = project(bounds.getNorthWest());
+        const br = project(bounds.getSouthEast());
+        const x = tl.x, y = tl.y, w = br.x - tl.x, h = br.y - tl.y;
+        const src = overlay._url || (overlay.getElement() ? overlay.getElement().src : null);
+        if (src) res.raster.push(this._img(x, y, w, h, src));
+      } catch (e) {
+        console.warn("Raster surface overlay bounds export failed:", e);
+      }
+    }
+    if (res.raster.length === 0) {
+      const img = el.querySelector('.collective-surface-overlay');
+      if (img) {
+        const b = img.getBoundingClientRect();
+        res.raster.push(this._img(b.left - r.left, b.top - r.top, b.width, b.height, img.src));
+      }
     }
 
-    return [];
+    return res;
+  }
+
+  static _closeBoundaryPath(path, bounds) {
+    if (!path || path.length < 2 || !bounds) return path;
+
+    const p0 = path[0];
+    const pk = path[path.length - 1];
+
+    const lat0 = typeof p0.lat === 'number' ? p0.lat : p0[0];
+    const lon0 = typeof p0.lon === 'number' ? p0.lon : (typeof p0.lng === 'number' ? p0.lng : p0[1]);
+    const latK = typeof pk.lat === 'number' ? pk.lat : pk[0];
+    const lonK = typeof pk.lon === 'number' ? pk.lon : (typeof pk.lng === 'number' ? pk.lng : pk[1]);
+
+    if (Math.abs(lat0 - latK) < 1e-9 && Math.abs(lon0 - lonK) < 1e-9) {
+      return path; // Already a closed loop
+    }
+
+    const { minLat, maxLat, minLon, maxLon } = bounds;
+    const latSpan = maxLat - minLat || 1e-6;
+    const lonSpan = maxLon - minLon || 1e-6;
+
+    const corners = [
+      { lat: maxLat, lon: minLon, lng: minLon }, // 0: Top-Left
+      { lat: maxLat, lon: maxLon, lng: maxLon }, // 1: Top-Right
+      { lat: minLat, lon: maxLon, lng: maxLon }, // 2: Bottom-Right
+      { lat: minLat, lon: minLon, lng: minLon }  // 3: Bottom-Left
+    ];
+
+    const getT = (lat, lon) => {
+      const dTop    = Math.abs(lat - maxLat);
+      const dRight  = Math.abs(lon - maxLon);
+      const dBottom = Math.abs(lat - minLat);
+      const dLeft   = Math.abs(lon - minLon);
+      const m = Math.min(dTop, dRight, dBottom, dLeft);
+
+      if (m === dTop)    return (lon - minLon) / lonSpan;
+      if (m === dRight)  return 1 + (maxLat - lat) / latSpan;
+      if (m === dBottom) return 2 + (maxLon - lon) / lonSpan;
+      return 3 + (lat - minLat) / latSpan;
+    };
+
+    const t0 = getT(lat0, lon0);
+    const tK = getT(latK, lonK);
+
+    const closed = [...path];
+    let currCorner = (Math.floor(tK) + 1) % 4;
+    let guard = 0;
+
+    while (guard < 4) {
+      const cT = currCorner === 0 ? 0 : currCorner;
+      let inArc = false;
+      if (tK < t0) {
+        inArc = (cT > tK && cT < t0);
+      } else if (tK > t0) {
+        inArc = (cT > tK || cT < t0);
+      }
+
+      if (inArc) {
+        closed.push(corners[currCorner]);
+      } else {
+        break;
+      }
+      currCorner = (currCorner + 1) % 4;
+      guard++;
+    }
+
+    closed.push({ lat: lat0, lon: lon0, lng: lon0 });
+    return closed;
   }
 
   // ═══════════════════════════════════════════════════════════════════
   //  Vector layers
   // ═══════════════════════════════════════════════════════════════════
 
-  static _vectors(map, layers) {
+  static _vectors(ctx, layers) {
     const out = [];
     if (!layers) return out;
     for (const l of layers) {
-      const svg = this._pathEl(map, l);
+      const svg = this._pathEl(ctx, l);
       if (svg) out.push(svg);
     }
     return out;
   }
 
-  static _pathEl(map, layer) {
+  static _pathEl(ctx, layer) {
     if (!layer || typeof layer.getLatLngs !== 'function') return null;
-    const latlngs = layer.getLatLngs();
+    let latlngs = layer.getLatLngs();
     const isPoly  = window.L && layer instanceof window.L.Polygon;
-    const d = this._pathD(map, latlngs, isPoly);
+
+    // Apply Chaikin pre-smoothing to track paths to filter micro-jitter before screen projection
+    if (!isPoly && Array.isArray(latlngs) && latlngs.length >= 3 && typeof GeoUtils !== 'undefined') {
+      try {
+        const flat = Array.isArray(latlngs[0]) ? latlngs.flat() : latlngs;
+        if (flat.length >= 3 && flat[0] && (typeof flat[0].lat === 'number' || Array.isArray(flat[0]))) {
+          latlngs = GeoUtils.chaikinSmooth(flat, 2, false);
+        }
+      } catch (_) {}
+    }
+
+    const d = this._pathD(ctx, latlngs, isPoly, true);
     if (!d) return null;
 
     const o = layer.options || {};
     const esc = this._esc;
-    const strokeWidth = (o.weight !== undefined ? o.weight : 3) * 0.3;
+    // Reduced, elegant stroke size: 1.2px thin stroke for exported track vectors
+    const strokeWidth = (o.weight !== undefined ? Math.min(1.5, o.weight * 0.4) : 1.2);
     return `<path d="${d}"` +
       ` stroke="${esc(o.color || '#ff7b00')}"` +
       ` stroke-width="${esc(strokeWidth)}"` +
@@ -203,35 +453,81 @@ class GSRMapExporter {
       ` stroke-linecap="round" stroke-linejoin="round" />`;
   }
 
-  static _pathD(map, latlngs, close) {
+  static _pathD(ctx, latlngs, close, smooth = true) {
     if (!latlngs?.length) return '';
-    if (Array.isArray(latlngs[0]))
-      return latlngs.map(s => this._pathD(map, s, close)).filter(Boolean).join(' ');
+    const project = (typeof ctx === 'function')
+      ? ctx
+      : (ctx?.project
+        ? ctx.project
+        : (ll => (ctx?.map?.latLngToContainerPoint ? ctx.map.latLngToContainerPoint(ll) : (ctx?.latLngToContainerPoint ? ctx.latLngToContainerPoint(ll) : { x: 0, y: 0 }))));
 
-    let d = '';
-    latlngs.forEach((ll, i) => {
-      const p = map.latLngToContainerPoint(ll);
-      d += (i ? 'L' : 'M') + `${p.x.toFixed(1)} ${p.y.toFixed(1)}`;
-    });
-    return close ? d + 'Z' : d;
+    if (Array.isArray(latlngs[0]))
+      return latlngs.map(s => this._pathD(ctx, s, close, smooth)).filter(Boolean).join(' ');
+
+    const rawPts = latlngs.map(ll => project(ll)).filter(p => p && typeof p.x === 'number' && !isNaN(p.x));
+    if (rawPts.length === 0) return '';
+    if (rawPts.length === 1) return `M${rawPts[0].x.toFixed(3)} ${rawPts[0].y.toFixed(3)}`;
+
+    // Filter consecutive micro-jitter points in pixel space (< 1.5px apart)
+    const pts = [rawPts[0]];
+    for (let i = 1; i < rawPts.length; i++) {
+      const prev = pts[pts.length - 1];
+      const curr = rawPts[i];
+      if (!curr || !prev) continue;
+      const distSq = (curr.x - prev.x) ** 2 + (curr.y - prev.y) ** 2;
+      if (i === rawPts.length - 1 || distSq >= 2.25) {
+        pts.push(curr);
+      }
+    }
+
+    if (pts.length < 2) return `M${rawPts[0].x.toFixed(3)} ${rawPts[0].y.toFixed(3)}`;
+    if (pts.length === 2 || !smooth) {
+      let d = `M${pts[0].x.toFixed(3)} ${pts[0].y.toFixed(3)}`;
+      for (let i = 1; i < pts.length; i++) {
+        d += ` L${pts[i].x.toFixed(3)} ${pts[i].y.toFixed(3)}`;
+      }
+      return close ? d + ' Z' : d;
+    }
+
+    // Catmull-Rom to Cubic Bézier spline smoothing for continuous, smooth strokes
+    let d = `M${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+    const n = pts.length;
+    for (let i = 0; i < n - 1; i++) {
+      const pPrev = pts[Math.max(0, i - 1)];
+      const pCurr = pts[i];
+      const pNext = pts[i + 1];
+      const pFut  = pts[Math.min(n - 1, i + 2)];
+
+      const c1x = pCurr.x + (pNext.x - pPrev.x) / 6;
+      const c1y = pCurr.y + (pNext.y - pPrev.y) / 6;
+      const c2x = pNext.x - (pFut.x - pCurr.x) / 6;
+      const c2y = pNext.y - (pFut.y - pCurr.y) / 6;
+
+      d += ` C${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${pNext.x.toFixed(1)} ${pNext.y.toFixed(1)}`;
+    }
+    return close ? d + ' Z' : d;
   }
 
   // ═══════════════════════════════════════════════════════════════════
   //  Markers
   // ═══════════════════════════════════════════════════════════════════
 
-  static _markers(map, markers) {
+  static _markers(ctx, markers) {
     const dots = [], labels = [];
     if (!markers) return { dots, labels };
+    const leafletMap = ctx?.map || (ctx?.hasLayer ? ctx : null);
+    const project = ctx?.project || (ll => (leafletMap?.latLngToContainerPoint ? leafletMap.latLngToContainerPoint(ll) : { x: 0, y: 0 }));
 
     for (const m of markers) {
-      if (!map.hasLayer(m)) continue;
-      const el = m.getElement();
+      if (!m) continue;
+      if (leafletMap && typeof leafletMap.hasLayer === 'function' && !leafletMap.hasLayer(m)) continue;
+      const el = typeof m.getElement === 'function' ? m.getElement() : null;
       if (!el) continue;
 
-      const p   = map.latLngToContainerPoint(m.getLatLng());
-      const cx  = p.x, cy = p.y;
-      const op  = this._esc(parseFloat(window.getComputedStyle(el).opacity) || 1);
+      const p = project(m.getLatLng());
+      if (!p || typeof p.x !== 'number') continue;
+      const cx = p.x, cy = p.y;
+      const op = this._esc(parseFloat(window.getComputedStyle(el).opacity) || 1);
 
       const d = this._dotSvg(el, cx, cy, op);
       if (d) dots.push(d);
@@ -267,12 +563,21 @@ class GSRMapExporter {
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-    const lr = lbl.getBoundingClientRect();
-    const wr = el.getBoundingClientRect();
+    let x = cx;
+    let y = cy - 8;
 
-    return `<text x="${cx + (lr.left - wr.left) + lr.width / 2}"` +
-      ` y="${cy + (lr.top - wr.top) + lr.height * 0.78}"` +
-      ` font-size="${this._esc(ls.fontSize || '10px')}"` +
+    try {
+      const lr = lbl.getBoundingClientRect();
+      const wr = el.getBoundingClientRect();
+      if (lr && wr && wr.width > 0) {
+        x = cx + (lr.left - wr.left) + lr.width / 2;
+        y = cy + (lr.top - wr.top) + lr.height * 0.78;
+      }
+    } catch (_) {}
+
+    return `<text x="${x.toFixed(3)}"` +
+      ` y="${y.toFixed(3)}"` +
+      ` font-size="${this._esc(ls.fontSize || '11px')}"` +
       ` font-weight="${this._esc(ls.fontWeight || '600')}"` +
       ` font-family="${this._esc(ls.fontFamily || 'sans-serif')}"` +
       ` fill="${LABEL}" text-anchor="middle"` +
