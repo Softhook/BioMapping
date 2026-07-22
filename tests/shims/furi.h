@@ -2,13 +2,20 @@
 
 // furi.h — host-test shim.
 //
-// gps_uart.c calls the real Flipper SDK directly (furi_hal_serial_*,
-// furi_mutex_*, furi_stream_buffer_*, furi_message_queue_put,
-// furi_get_tick, FURI_LOG_*, ...) — unmodified from what ships in the
-// Flipper build. This shim (plus furi_hal.h and expansion/expansion.h in
-// this directory) fakes just enough of that surface to let it run for
-// real on a host compiler in tests/test_gps_uart.c. Not a general Furi
-// replacement — only what gps_uart.c currently calls.
+// gps_uart.c and gsr_sensor.c call the real Flipper SDK directly
+// (furi_hal_serial_*, furi_hal_i2c_*, furi_mutex_*, furi_thread_*,
+// furi_stream_buffer_*, furi_message_queue_put, furi_get_tick, FURI_LOG_*,
+// ...) — unmodified from what ships in the Flipper build. This shim (plus
+// furi_hal.h and expansion/expansion.h in this directory) fakes just
+// enough of that surface to let them run for real on a host compiler.
+// Not a general Furi replacement — only what these drivers currently
+// call.
+//
+// FuriMutex and FuriThread are backed by real pthreads: gsr_sensor.c runs
+// its ADC-polling loop on a genuine background FuriThread, and
+// tests/test_gsr_sensor.c drives it concurrently with the main test
+// thread — a single-threaded fake mutex would be an actual data race in
+// the test itself, not just an inaccurate simulation.
 //
 // Included via -I tests/shims placed ahead of the real SDK on the include
 // path; never linked into the Flipper build (application.fam doesn't see
@@ -21,6 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <pthread.h>
 
 #define UNUSED(x) ((void)(x))
 
@@ -63,27 +71,76 @@ static inline uint32_t furi_get_tick(void) { return furi_test_tick; }
 static inline uint32_t furi_kernel_get_tick_frequency(void) { return 1000; }
 static inline void furi_test_advance_tick(uint32_t delta) { furi_test_tick += delta; }
 
-// ── Mutex — single-threaded host tests, so a real lock isn't needed ────
-typedef struct FuriMutex { int locked; } FuriMutex;
+// ── Mutex — real pthread mutex. gps_uart.c's tests are single-threaded so
+// this is just uncontended overhead there; gsr_sensor.c's worker thread
+// makes it load-bearing. Timeout is ignored — every real caller passes
+// FuriWaitForever, and a real pthread mutex can't deadlock a host test
+// the way a stuck ISR could hang real hardware.
+typedef struct FuriMutex { pthread_mutex_t m; } FuriMutex;
 typedef enum { FuriMutexTypeNormal } FuriMutexType;
 
 static inline FuriMutex* furi_mutex_alloc(FuriMutexType type) {
     (void)type;
     FuriMutex* m = malloc(sizeof(FuriMutex));
     assert(m);
-    m->locked = 0;
+    pthread_mutex_init(&m->m, NULL);
     return m;
 }
-static inline void furi_mutex_free(FuriMutex* m) { free(m); }
+static inline void furi_mutex_free(FuriMutex* m) {
+    pthread_mutex_destroy(&m->m);
+    free(m);
+}
 static inline FuriStatus furi_mutex_acquire(FuriMutex* m, uint32_t timeout) {
     (void)timeout;
-    m->locked = 1;
+    pthread_mutex_lock(&m->m);
     return FuriStatusOk;
 }
 static inline FuriStatus furi_mutex_release(FuriMutex* m) {
-    m->locked = 0;
+    pthread_mutex_unlock(&m->m);
     return FuriStatusOk;
 }
+
+// ── Thread — real pthread. gsr_sensor.c owns a background FuriThread that
+// polls I2C continuously; faking it as a no-op would mean the "worker"
+// never runs and gsr_sensor_tick() would only ever see the initial
+// warm-up buffer contents, testing nothing.
+typedef int32_t (*FuriThreadCallback)(void* context);
+
+typedef struct FuriThread {
+    pthread_t          pthread;
+    FuriThreadCallback callback;
+    void*              context;
+    bool                started;
+} FuriThread;
+
+static inline void* furi_thread_pthread_trampoline(void* arg) {
+    FuriThread* t = arg;
+    t->callback(t->context);
+    return NULL;
+}
+
+static inline FuriThread* furi_thread_alloc(void) {
+    FuriThread* t = malloc(sizeof(FuriThread));
+    assert(t);
+    t->callback = NULL;
+    t->context  = NULL;
+    t->started  = false;
+    return t;
+}
+static inline void furi_thread_set_name(FuriThread* t, const char* name) { (void)t; (void)name; }
+static inline void furi_thread_set_stack_size(FuriThread* t, size_t size) { (void)t; (void)size; }
+static inline void furi_thread_set_context(FuriThread* t, void* context) { t->context = context; }
+static inline void furi_thread_set_callback(FuriThread* t, FuriThreadCallback cb) { t->callback = cb; }
+static inline void furi_thread_start(FuriThread* t) {
+    t->started = true;
+    int rc = pthread_create(&t->pthread, NULL, furi_thread_pthread_trampoline, t);
+    assert(rc == 0);
+}
+static inline bool furi_thread_join(FuriThread* t) {
+    if(t->started) pthread_join(t->pthread, NULL);
+    return true;
+}
+static inline void furi_thread_free(FuriThread* t) { free(t); }
 
 // ── Stream buffer — real ring buffer; gps_uart.c's RX drain logic       ──
 // depends on genuine partial-read/write semantics, not just a stub.

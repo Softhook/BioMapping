@@ -37,6 +37,14 @@ enough that a test can inject bytes as if they'd arrived from the ISR
 (`furi_hal_mock_feed_byte`/`_string`), and the real, unmodified
 `gps_uart_process_rx()` drains and parses them for real.
 
+`modules/gsr_sensor.c` needs one more piece: it owns a real background
+`FuriThread` that polls I2C continuously and writes into a ring buffer the
+main thread's `gsr_sensor_tick()` reads from. A single-threaded fake
+wouldn't exercise any of that — `FuriMutex` and `FuriThread` in
+`tests/shims/furi.h` are backed by real `pthread`s, and the I2C mock in
+`furi_hal_mock.c` is fully atomic, so the real worker thread runs
+concurrently with the test's main thread, same as it does on device.
+
 ---
 
 ## Why this instead of a custom HAL layer
@@ -77,25 +85,28 @@ should be read as a step toward it.
 ```
 modules/                       — unchanged, no test-only content, no HAL files
   gps_uart.h / .c               — NMEA parsing + framing, calls furi_hal_serial_* directly
-  gsr_sensor.h / .c             — ADS1115 I2C, calls furi_hal_i2c_* directly (untested — see Status)
+  gsr_sensor.h / .c             — ADS1115 I2C + PGA autoranging, calls furi_hal_i2c_*/FuriThread directly
   sd_logger.h / .c, sound.h     — untested
 
 tests/
   test_firmware.c               — pipeline / calibration / CSV host tests
   test_gps_uart.c                — gps_uart.c host tests, via the shims below
+  test_gsr_sensor.c              — gsr_sensor.c host tests, real worker thread + all
   shims/
-    furi.h                      — fakes the Furi-core calls gps_uart.c makes
-                                   directly (mutex, stream buffer, message
-                                   queue, log, tick, record registry)
+    furi.h                      — fakes the Furi-core calls these drivers make
+                                   directly: mutex + thread (real pthreads —
+                                   see "Why this instead" below), stream buffer,
+                                   message queue, log, tick, record registry
     furi_hal.h / furi_hal_mock.c — fakes furi_hal_serial_* (one simulated
-                                   USART1) + the test-injection API
+                                   USART1) and furi_hal_i2c_* (one simulated
+                                   I2C bus/ADS1115), plus both test-injection APIs
     expansion/expansion.h       — no-op stub (gps_uart.c disables/re-enables
                                    the Expansion Service around USART1)
     input/input.h                — InputEvent stub (only needed because
                                    biomap_events.h pulls it in)
     notification/notification_messages.h — opaque NotificationApp stub
 
-run_tests.sh                    — builds + runs both host test binaries
+run_tests.sh                    — builds + runs all three host test binaries
 ```
 
 ---
@@ -120,10 +131,21 @@ Same idea, whatever peripheral it is:
    test needs to control (a byte arriving, a register value, ...).
 4. Write `tests/test_<driver>.c` against the driver's real public API and
    add it to `run_tests.sh`.
-5. If the driver owns a background thread (like `gsr_sensor.c`'s worker),
-   think hard before faking `FuriThread` for real concurrency — that's a
-   bigger step (see Status below for why `gsr_sensor.c` doesn't have this
-   yet).
+5. If the driver owns a background thread, decide whether the behaviour
+   worth testing actually lives inside that thread. For `gsr_sensor.c` it
+   does (autoranging, TIA conversion, and disconnect debounce all run
+   inside the worker) — `tests/shims/furi.h`'s `FuriThread`/`FuriMutex` are
+   real `pthread`s for exactly this reason, and any mock state the worker
+   touches concurrently with the test (see `furi_hal_i2c_mock_*` in
+   `furi_hal_mock.c`) must be atomic or otherwise properly synchronized —
+   this is genuine concurrency, not single-threaded convenience. Because
+   `furi_delay_ms()` is a no-op in the shim, a worker loop built around it
+   spins essentially unthrottled; don't synchronize a test against it with
+   a guessed `sleep()` duration — poll an atomic counter the mock
+   increments (`wait_for_more_reads()` in `test_gsr_sensor.c`) until the
+   worker has demonstrably done enough work, with a generous timeout that
+   turns "something is broken" into a clear assertion failure instead of
+   an indefinite hang.
 
 ---
 
@@ -131,21 +153,37 @@ Same idea, whatever peripheral it is:
 
 | File | Touches hardware | Host-tested |
 |---|---|---|
-| `biomap_pipeline.c` | No | ✅ `tests/test_firmware.c` |
-| `modules/gps_uart.c` | Yes (`furi_hal_serial_*`) | ✅ `tests/test_gps_uart.c` |
-| `modules/gsr_sensor.c` | Yes (`furi_hal_i2c_*`, `FuriThread`) | ❌ — see below |
+| `biomap_pipeline.c` | No | ✅ `tests/test_firmware.c` (20 tests) |
+| `modules/gps_uart.c` | Yes (`furi_hal_serial_*`) | ✅ `tests/test_gps_uart.c` (14 tests) |
+| `modules/gsr_sensor.c` | Yes (`furi_hal_i2c_*`, real `FuriThread`) | ✅ `tests/test_gsr_sensor.c` (9 tests) |
 | `modules/sd_logger.c` | Yes (`Storage`/`File`) | ❌ |
 | `modules/sound.h` | Yes (`furi_hal_speaker_*`) | ❌ |
 
-`gsr_sensor.c` is deliberately untested (decided 2026-07-22, unchanged by
-the HAL-layer revert). Its interesting behaviour — PGA autoranging, TIA
-conversion, disconnect debounce — only runs inside a background
-`FuriThread` that polls I2C at ~1 kHz and writes into a ring buffer the
-main-thread `tick()` reads from. Testing it for real means faking
-`FuriThread`/`FuriMutex` with actual concurrency (e.g. `pthread`) so the
-real worker runs against a fake I2C peripheral — a bigger step than
-`gps_uart.c`'s single-threaded byte-feeding, and judged not worth it yet.
-The I2C code is verified only by the real `ufbt` build.
+`test_gps_uart.c` covers every NMEA sentence type `gps_uart_parse_line()`
+dispatches on (RMC, GGA, GSA — including SBAS PRN detection, GSV —
+elevation array + `gsv_fresh`, GLL — valid and void status), the
+RX-buffer-full reinit path, the 5 s NMEA watchdog reinit, hot start,
+standby, split-line buffering, and malformed/unrecognised input. Not
+covered: the L76K-specific PCAS command path — `biomap_config.h` compiles
+this firmware for M10Q only, so that `#if` branch isn't even part of this
+binary; testing it would mean building a second variant with `GPS_MODULE`
+flipped, not done here. Every sentence fixture's checksum was verified
+with a throwaway `minmea_checksum()` probe before use, not hand-computed —
+see the checksum bug below for why that matters.
+
+`test_gsr_sensor.c` (added 2026-07-22, reversing the earlier decision to
+skip it) covers: ADS1115 probe success/failure at `alloc()`, TIA
+conversion against an independently-computed expected value, calibration
+gain/offset application, PGA autoranging in both directions (5-tick
+hysteresis ranging up, immediate ranging down on saturation), PGA lock
+suppressing autoranging, and both disconnect paths — the `tick()`-level
+20-consecutive-out-of-range debounce, and the worker-level
+50-consecutive-I2C-failure trip, which are genuinely different code paths
+(one runs on the main thread reading `raw`, the other runs inside the
+worker reacting to transport failures) and needed separate tests. This
+required the `pthread`-backed `FuriThread`/`FuriMutex` upgrade described
+above — the real worker thread runs for every one of these tests, not a
+stub standing in for it.
 
 This checksum bug and this header-hygiene bug are why `test_gps_uart.c`
 exists at all, not just a compiling build:

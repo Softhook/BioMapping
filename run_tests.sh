@@ -21,3 +21,10 @@ gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_gps_uart \
     tests/test_gps_uart.c modules/gps_uart.c \
     tests/shims/furi_hal_mock.c -lm
 ./build/test_gps_uart
+
+echo
+echo "== test_gsr_sensor (autoranging / TIA / disconnect debounce) =="
+gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_gsr_sensor \
+    tests/test_gsr_sensor.c modules/gsr_sensor.c \
+    tests/shims/furi_hal_mock.c -lm -lpthread
+./build/test_gsr_sensor
