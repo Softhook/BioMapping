@@ -127,9 +127,9 @@ class GSRMapExporter {
 
     const specs = [
       ['Base_Map_Tiles',          'Base Map Tiles',              L.tiles],
-      ['Vector_Surface_Mesh',     'Vector Surface Mesh',         surfObj.mesh,        'opacity="0.4" clip-path="url(#surface-clip)"'],
-      ['Vector_Surface_Isobands', 'Vector Surface Isobands',     surfObj.isobands,    'opacity="0.5" clip-path="url(#surface-clip)"'],
-      ['Raster_Surface_Fallback', 'Raster Surface Fallback',     surfObj.raster,      'opacity="0.4" clip-path="url(#surface-clip)"'],
+      ['Vector_Surface_Mesh',     'Vector Surface Mesh',         surfObj.mesh,        'opacity="0.4"'],
+      ['Vector_Surface_Isobands', 'Vector Surface Isobands',     surfObj.isobands,    'opacity="0.5"'],
+      ['Raster_Surface_Fallback', 'Raster Surface Fallback',     surfObj.raster,      'opacity="0.4"'],
       ['OSM_Shapes',              'OSM Shapes',                  L.osm],
       ['GPS_Track_Paths',         'GPS Track Paths',             L.tracks],
       ['Contour_Lines',           'Contour Lines',               L.contours],
@@ -141,9 +141,6 @@ class GSRMapExporter {
 
     return [
       `<svg xmlns="${SVG_NS}" xmlns:xlink="${XLINK_NS}" xmlns:i="${AI_NS}" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`,
-      `  <defs>`,
-      `    <clipPath id="surface-clip"><rect x="0" y="0" width="${w}" height="${h}" /></clipPath>`,
-      `  </defs>`,
       `  <rect x="0" y="0" width="${w}" height="${h}" fill="${BG}" />`,
       ...specs.map(s => g(...s)),
       '</svg>'
@@ -293,16 +290,30 @@ class GSRMapExporter {
               Math.abs((rawPath[0].lat ?? rawPath[0][0]) - (rawPath[rawPath.length - 1].lat ?? rawPath[rawPath.length - 1][0])) < 1e-9 &&
               Math.abs((rawPath[0].lon ?? rawPath[0][1]) - (rawPath[rawPath.length - 1].lon ?? rawPath[rawPath.length - 1][1])) < 1e-9;
 
-            const smoothed = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
-              ? GeoUtils.chaikinSmooth(rawPath, 2, isClosed)
-              : rawPath;
+            if (isClosed) {
+              // Closed interior peak rings: smooth filled vector polygons
+              const smoothed = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
+                ? GeoUtils.chaikinSmooth(rawPath, 2, true)
+                : rawPath;
+              const d = this._pathD(ctx, smoothed, true, true);
+              if (!d) return;
 
-            const d = this._pathD(ctx, smoothed, true, true);
-            if (!d) return;
+              res.isobands.push(
+                `<path d="${d}" fill="${this._esc(fillColor)}" fill-opacity="0.45" stroke="${this._esc(fillColor)}" stroke-width="0.8" stroke-opacity="0.7" stroke-linejoin="round" stroke-linecap="round" />`
+              );
+            } else {
+              // Open boundary isolines: smooth curved line strokes (fill="none")
+              // Eliminates straight chord lines (Z) cutting across shapes and creating jagged edges
+              const smoothed = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
+                ? GeoUtils.chaikinSmooth(rawPath, 2, false)
+                : rawPath;
+              const d = this._pathD(ctx, smoothed, false, true);
+              if (!d) return;
 
-            res.isobands.push(
-              `<path d="${d}" fill="${this._esc(fillColor)}" fill-opacity="0.45" stroke="${this._esc(fillColor)}" stroke-width="0.8" stroke-opacity="0.7" stroke-linejoin="round" stroke-linecap="round" />`
-            );
+              res.isobands.push(
+                `<path d="${d}" fill="none" stroke="${this._esc(fillColor)}" stroke-width="1.8" stroke-opacity="0.85" stroke-linejoin="round" stroke-linecap="round" />`
+              );
+            }
           });
         });
       }

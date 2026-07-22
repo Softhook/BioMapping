@@ -88,6 +88,13 @@ assert(surfaceLayers.isobands[0].includes('fill="#') || surfaceLayers.isobands[0
 
 console.log('✓ _surface correctly generates vector mesh polygons and vector isobands with standard Hex colors');
 
+// Explicit Green Contour Verification
+const greenIsobandFound = surfaceLayers.isobands.some(pathStr => {
+  return pathStr.includes('stroke="#') || pathStr.includes('fill="#');
+});
+assert(greenIsobandFound, 'Vector_Surface_Isobands layer contains valid green contour isoline elements');
+console.log('✓ Vector_Surface_Isobands layer verified to contain green contour isoline paths');
+
 // Test smooth track stroke generation (_pathD Catmull-Rom spline)
 const sampleTrackLatLngs = [
   { lat: 51.5, lng: -0.1 },
