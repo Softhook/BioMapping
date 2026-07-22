@@ -9,9 +9,6 @@ const AI_NS    = 'http://ns.adobe.com/AdobeIllustrator/10.0/';
 const BG       = '#0b0d16';
 const LABEL    = '#000000';
 
-/** Square of 1.5px pixel-space threshold for culling consecutive micro-jitter track points */
-const MICRO_JITTER_THRESHOLD_SQ = 2.25;
-
 class GSRMapExporter {
 
   // ═══════════════════════════════════════════════════════════════════
@@ -25,7 +22,7 @@ class GSRMapExporter {
     // Isobands at the map edge are drawn extending past the original frame
     // (see _closeOpenIsobandPaths / _tangentExtrapolate) rather than being
     // squared off against it. Growing the canvas here — instead of drawing
-    // that extension and clipping it away — means everything in the
+    // that extension and then clipping it away — means everything in the
     // export is genuinely visible; there's no invisible geometry to keep in
     // sync with a clip region.
     ctx = this._expandCanvasForIsobands(ctx);
@@ -45,18 +42,6 @@ class GSRMapExporter {
     const r = el.getBoundingClientRect();
     const proj = this._getProjection(mgr, el);
     return { map: mgr.map, el, r, w: proj.w, h: proj.h, project: proj.project, mgr };
-  }
-
-  /**
-   * Standardizes coordinate extraction from [lat, lon], {lat, lon}, or {lat, lng} objects.
-   */
-  static _toLatLon(ll) {
-    if (!ll) return { lat: 0, lon: 0 };
-    if (Array.isArray(ll)) return { lat: ll[0], lon: ll[1] };
-    return {
-      lat: ll.lat !== undefined ? ll.lat : 0,
-      lon: ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : 0)
-    };
   }
 
   static _getProjection(mgr, el) {
@@ -82,7 +67,14 @@ class GSRMapExporter {
       const targetH = Math.max(800, Math.min(4000, Math.round(targetW * (ySpan / (xSpan || 1)))));
 
       const project = (ll) => {
-        const { lat, lon } = this._toLatLon(ll);
+        if (!ll) return { x: 0, y: 0 };
+        let lat, lon;
+        if (Array.isArray(ll)) {
+          lat = ll[0]; lon = ll[1];
+        } else {
+          lat = ll.lat !== undefined ? ll.lat : 0;
+          lon = ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : 0);
+        }
         const x = ((lon - minLon) / (xSpan || 1)) * targetW;
         const y = (1 - (mercY(lat) - minY) / (ySpan || 1)) * targetH;
         return { x, y };
@@ -94,7 +86,14 @@ class GSRMapExporter {
     const w = el.clientWidth || 800;
     const h = el.clientHeight || 600;
     const project = (ll) => {
-      const { lat, lon } = this._toLatLon(ll);
+      if (!ll) return { x: 0, y: 0 };
+      let lat, lon;
+      if (Array.isArray(ll)) {
+        lat = ll[0]; lon = ll[1];
+      } else {
+        lat = ll.lat !== undefined ? ll.lat : 0;
+        lon = ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : 0);
+      }
       return mgr.map.latLngToContainerPoint([lat, lon]);
     };
     return { w, h, project };
@@ -298,30 +297,9 @@ class GSRMapExporter {
     const rangeEpsilon = 1e-9;
     const useRankColor = sortedVals && sortedVals.length > 1;
     const project = ctx.project || (ll => ctx.map.latLngToContainerPoint(ll));
-
-    // Pre-calculate latitude and longitude step spans once outside grid loop
-    const dLat = (rows > 1) ? 0.5 * (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
-    const dLon = (cols > 1) ? 0.5 * (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
-    const latSpan = bounds.maxLat - bounds.minLat;
-    const lonSpan = bounds.maxLon - bounds.minLon;
-
-    const gridLats = new Float64Array(rows);
-    for (let r = 0; r < rows; r++) {
-      gridLats[r] = (rows > 1) ? bounds.minLat + (r / (rows - 1)) * latSpan : bounds.minLat;
-    }
-
-    const gridLons = new Float64Array(cols);
-    for (let c = 0; c < cols; c++) {
-      gridLons[c] = (cols > 1) ? bounds.minLon + (c / (cols - 1)) * lonSpan : bounds.minLon;
-    }
-
     const mesh = [];
 
     for (let row = 0; row < rows; row++) {
-      const gridLat = gridLats[row];
-      const latSouth = gridLat - dLat;
-      const latNorth = gridLat + dLat;
-
       for (let col = 0; col < cols; col++) {
         const val = grid[row][col];
         if (val === null || isNaN(val)) continue;
@@ -334,7 +312,14 @@ class GSRMapExporter {
         }
 
         const fillColor = this._ratioToHex(ratio);
-        const gridLon = gridLons[col];
+
+        const dLat = (rows > 1) ? 0.5 * (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
+        const dLon = (cols > 1) ? 0.5 * (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
+        const gridLat = (rows > 1) ? bounds.minLat + (row / (rows - 1)) * (bounds.maxLat - bounds.minLat) : bounds.minLat;
+        const gridLon = (cols > 1) ? bounds.minLon + (col / (cols - 1)) * (bounds.maxLon - bounds.minLon) : bounds.minLon;
+
+        const latSouth = gridLat - dLat;
+        const latNorth = gridLat + dLat;
         const lonWest  = gridLon - dLon;
         const lonEast  = gridLon + dLon;
 
@@ -747,6 +732,11 @@ class GSRMapExporter {
   static _closeOpenIsobandPaths(openPaths, grid, rows, cols, bounds, level) {
     if (!openPaths || openPaths.length === 0) return [];
 
+    const getLL = (p) => ({
+      lat: p.lat !== undefined ? p.lat : p[0],
+      lon: p.lon !== undefined ? p.lon : (p.lng !== undefined ? p.lng : p[1])
+    });
+
     const loops = this._buildBoundaryLoops(grid, rows, cols, bounds);
     if (loops.length === 0) return [];
 
@@ -761,8 +751,8 @@ class GSRMapExporter {
 
     const endpoints = [];
     openPaths.forEach((path, idx) => {
-      const first = this._toLatLon(path[0]);
-      const last  = this._toLatLon(path[path.length - 1]);
+      const first = getLL(path[0]);
+      const last = getLL(path[path.length - 1]);
       let bestLoopIdx = 0, bestScore = Infinity, bestFirst = null, bestLast = null;
       loops.forEach((loop, li) => {
         if (loop.points.length === 0) return;
@@ -871,10 +861,10 @@ class GSRMapExporter {
           const path = openPaths[ep.pathIdx];
           let curvePts, otherIdx;
           if (ep.which === 'start') {
-            curvePts = path.map(p => this._toLatLon(p));
+            curvePts = path.map(getLL);
             otherIdx = endpointIndex.get(`${ep.pathIdx}:end`);
           } else {
-            curvePts = path.slice().reverse().map(p => this._toLatLon(p));
+            curvePts = path.slice().reverse().map(getLL);
             otherIdx = endpointIndex.get(`${ep.pathIdx}:start`);
           }
           if (otherIdx === undefined) { closedOk = false; break; }
@@ -1053,7 +1043,7 @@ class GSRMapExporter {
         const curr = rawPts[i];
         if (!curr || !prev) continue;
         const distSq = (curr.x - prev.x) ** 2 + (curr.y - prev.y) ** 2;
-        if (i === rawPts.length - 1 || distSq >= MICRO_JITTER_THRESHOLD_SQ) {
+        if (i === rawPts.length - 1 || distSq >= 2.25) {
           pts.push(curr);
         }
       }
