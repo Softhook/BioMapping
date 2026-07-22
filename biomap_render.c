@@ -46,7 +46,7 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
 
     // Fold zoom and scale into one constant so the inner loop only needs
     // one multiply per sample instead of two.
-    const float combined_scale = a->session.zoom.level * ((float)(gh / 2 - 2) / 100.0f);
+    const float combined_scale = a->session.pipeline.zoom.level * ((float)(gh / 2 - 2) / 100.0f);
 
     canvas_draw_frame(c, gx, gy, gw, gh);
 
@@ -54,7 +54,7 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
     // px_per_notch: how many pixels represent 10 seconds at current speed.
     // scroll_divider ticks per pixel, TICK_HZ ticks per second.
     // 10 s × TICK_HZ ticks/s ÷ scroll_divider ticks/px = px per notch.
-    int px_per_notch = (10 * TICK_HZ) / a->session.graph.scroll_divider; // integer, always ≥1
+    int px_per_notch = (10 * TICK_HZ) / a->session.pipeline.graph.scroll_divider; // integer, always ≥1
     if(px_per_notch > 2) {
         int right_edge = gx + gw - 2;
         int notch_top = gy > 3 ? gy - 3 : 0;   // guard against negative canvas y
@@ -67,15 +67,15 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
     // GRAPH_N (126) is not a power-of-two, so % GRAPH_N compiles to a
     // software divide on Cortex-M4. Replace with a compare-and-wrap.
     // Also cache y_prev: y1 of segment i becomes y0 of segment i+1.
-    int idx = a->session.graph.head;
-    float v0 = a->session.graph.buf[idx] * combined_scale;
+    int idx = a->session.pipeline.graph.head;
+    float v0 = a->session.pipeline.graph.buf[idx] * combined_scale;
     int y_prev = cy - (int)v0;
 
     for(int i = 0; i < n - 1; i++) {
         // Advance index with branchless wrap (compare cheaper than divide)
         if(++idx >= GRAPH_N) idx = 0;
 
-        float v1 = a->session.graph.buf[idx] * combined_scale;
+        float v1 = a->session.pipeline.graph.buf[idx] * combined_scale;
         int y1 = cy - (int)v1;
 
         canvas_draw_line(c, gx + 1 + i, y_prev, gx + 1 + i + 1, y1);
@@ -158,13 +158,13 @@ static void render_gps_detail(Canvas* c, BioMapApp* a) {
 // Render the zoom label (bottom-right corner), caching format/width to
 // avoid snprintf + canvas_string_width on every frame.  Mutex held by caller.
 static void render_zoom_label(Canvas* c, BioMapApp* a) {
-    if(a->session.zoom.level < a->session.zoom_label_last - 0.05f ||
-       a->session.zoom.level > a->session.zoom_label_last + 0.05f) {
+    if(a->session.pipeline.zoom.level < a->session.zoom_label_last - 0.05f ||
+       a->session.pipeline.zoom.level > a->session.zoom_label_last + 0.05f) {
         snprintf(a->session.zoom_label, sizeof(a->session.zoom_label), "%.1fx",
-                 (double)a->session.zoom.level);
+                 (double)a->session.pipeline.zoom.level);
         canvas_set_font(c, FontSecondary);
         a->session.zoom_label_width = canvas_string_width(c, a->session.zoom_label);
-        a->session.zoom_label_last = a->session.zoom.level;
+        a->session.zoom_label_last = a->session.pipeline.zoom.level;
     }
     canvas_set_font(c, FontSecondary);
     canvas_draw_str(c, 2, 62, a->session.zoom_label);
@@ -253,15 +253,15 @@ void biomap_render_callback(Canvas* c, void* ctx) {
             canvas_draw_str(c, 0, y, buf);  y += 10;
 
             snprintf(buf, sizeof(buf), "Raw:  %.0f nS",
-                     (double)a->session.display.raw_sample_ns);
+                     (double)a->session.pipeline.display.raw_sample_ns);
             canvas_draw_str(c, 0, y, buf);  y += 10;
 
             snprintf(buf, sizeof(buf), "Filt: %.0f nS",
-                     (double)a->session.display.filtered_ns);
+                     (double)a->session.pipeline.display.filtered_ns);
             canvas_draw_str(c, 0, y, buf);  y += 10;
 
             snprintf(buf, sizeof(buf), "Sngl: %ld",
-                     (long)a->session.display.raw_sample_count);
+                     (long)a->session.pipeline.display.raw_sample_count);
             canvas_draw_str(c, 0, y, buf);  y += 10;
 
             snprintf(buf, sizeof(buf), "Mean: %ld", (long)mean_cnt);
@@ -279,7 +279,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                     if(a->session.mode == BioMapModeGsrOnly) {
                         char buf[32];
                         // Time span label — top-left
-                        int t_span = (GRAPH_N * a->session.graph.scroll_divider) / TICK_HZ;
+                        int t_span = (GRAPH_N * a->session.pipeline.graph.scroll_divider) / TICK_HZ;
                         if(t_span >= 60) {
                             snprintf(buf, sizeof(buf), "%dm%ds", t_span / 60, t_span % 60);
                         } else {
@@ -287,13 +287,13 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                         }
                         canvas_draw_str(c, 1, 10, buf);
                         // nS value — top-right
-                        snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.display.filtered_ns);
+                        snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.pipeline.display.filtered_ns);
                         int x = 128 - canvas_string_width(c, buf) - (a->session.recording.active ? 12 : 2);
                         canvas_draw_str(c, x, 10, buf);
                     } else if(a->session.mode == BioMapModeGpsGsr) {
                         // nS value — top-right (GPS badge already at top-left)
                         char buf[16];
-                        snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.display.filtered_ns);
+                        snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.pipeline.display.filtered_ns);
                         int x = 128 - canvas_string_width(c, buf) - (a->session.recording.active ? 12 : 2);
                         canvas_draw_str(c, x, 10, buf);
                     }

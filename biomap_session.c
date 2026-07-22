@@ -1,12 +1,11 @@
-// Bio Mapping — recording session event loop and data-processing pipeline.
+// Bio Mapping — recording session event loop and module lifecycle.
 //
-// All GSR/GPS data processing (EMA, graph buffer, batch CSV, graph
-// rescaling, GPS position extraction, second-boundary logging) lives
-// here as static functions — they exist only to serve the session.
+// Pure-math pipeline functions (IIR, graph, auto-zoom, CSV formatting
+// helpers, GPS position extraction) live in biomap_pipeline.c — they
+// include no Flipper SDK headers and are testable on a host compiler.
 //
-// Pipeline functions operate on Session* (not BioMapApp*) so they can
-// be unit-tested with a plain struct and no Flipper SDK dependency.
-// Only the event loop and key handlers touch FuriMutex*/NotificationApp*.
+// This file owns the Flipper-specific event loop: timer ticks, UART
+// events, key dispatch, LED notifications, and module (de)init.
 #include "biomap.h"
 
 // ── Custom notification sequences ─────────────────────────────────────────
@@ -35,19 +34,19 @@ static const NotificationSequence sequence_blink_red_500 = {
 void session_init(Session* s, BioMapMode mode, bool zoom_enabled) {
     *s = (Session){
         .mode       = mode,
-        .display    = {.smooth_iir = 0.0f, .smooth_iir_primed = false,
-                       .smoothed = 0.0f, .primed = false,
-                       .last_displayed = 0, .raw_sample_ns = 0.0f,
-                       .filtered_ns = 0.0f, .refresh_counter = 0},
-        .graph      = {.head = 0, .tick_counter = 0,
-                       .last_smoothed = 0.0f, .scroll_divider = 1},
-        .zoom       = {.level = 1.0f, .peak = 1.0f, .enabled = zoom_enabled,
-                       .manual_timeout = 0},
+        .pipeline   = {.display = {.smooth_iir = 0.0f, .smooth_iir_primed = false,
+                                   .smoothed = 0.0f, .primed = false,
+                                   .last_displayed = 0, .raw_sample_ns = 0.0f,
+                                   .filtered_ns = 0.0f, .refresh_counter = 0},
+                       .graph   = {.head = 0, .tick_counter = 0,
+                                   .last_smoothed = 0.0f, .scroll_divider = 1},
+                       .zoom    = {.level = 1.0f, .peak = 1.0f, .enabled = zoom_enabled,
+                                   .manual_timeout = 0}},
         .recording  = {.active = false, .tick_counter = 0, .flush_counter = 0},
         .running    = true,
         .gsr_alert_sounded = false,
     };
-    memset(s->graph.buf, 0, sizeof(s->graph.buf));
+    memset(s->pipeline.graph.buf, 0, sizeof(s->pipeline.graph.buf));
 }
 
 void session_deinit(Session* s, BioMapApp* app) {
@@ -91,97 +90,16 @@ void session_deinit(Session* s, BioMapApp* app) {
 // Data-processing pipeline (static — operate on Session* only)
 // ==========================================================================
 
-// ── RTC → Unix epoch seconds (UTC) ────────────────────────────────────────
-// Converts a Flipper DateTime (local time) to seconds since 1970-01-01.
-// Assumes the RTC is set to UTC — the Flipper has no timezone concept.
-static uint32_t rtc_to_unix_epoch(const DateTime* dt) {
-    // Days before each month in a non-leap year
-    static const uint16_t days_before[12] = {
-        0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
-    };
-    // Guard against uninitialised RTC: month=0 would cause days_before[-1]
-    // (OOB read on the static array).  Year < 2020 catches a completely unset
-    // RTC which typically reads 2000-01-01.  Return 0 as a sentinel — callers
-    // write it into the CSV header and downstream tools treat 0 as "unknown".
-    if(dt->year < 2020 || dt->month < 1 || dt->month > 12 ||
-       dt->day   < 1   || dt->day   > 31) {
-        FURI_LOG_W("BioMap", "RTC not set — recording epoch will be 0 in CSV header");
-        return 0;
-    }
-    uint16_t y = dt->year;
-    // Whole days from 1970 to start of year y
-    uint32_t days = (y - 1970) * 365U
-                  + (y - 1969) / 4U
-                  - (y - 1901) / 100U
-                  + (y - 1601) / 400U;
-    days += days_before[dt->month - 1];
-    if(dt->month > 2 &&
-       (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)))
-        days++;  // leap day
-    days += dt->day - 1;
-    return (uint32_t)(days * 86400UL + dt->hour * 3600U +
-                      dt->minute * 60U + dt->second);
-}
-
-// ── Relative timestamp (seconds since recording start) ────────────────────
-// Uses the monotonic total_ticks counter; each tick = 100 ms at TICK_HZ=10.
-static double session_rel_seconds(const Session* s) {
-    return (double)s->recording.total_ticks / 10;
-}
-
-// ── Graph rescaling (time-axis zoom) ───────────────────────────────────────
-// Called on Left/Right key during GSR recording sessions.
-// zoom_out=true  → average adjacent pairs, halving resolution
-// zoom_out=false → interpolate, doubling resolution
-//
-// This is a one-time O(N) pass on keypress; performance is not a concern.
-static void rescale_graph_buf(Session* s, bool zoom_out) {
-    float temp[GRAPH_N];
-
-    // Linearise ring buffer: temp[0] = oldest sample, temp[N-1] = newest.
-    for(int i = 0; i < GRAPH_N; i++) {
-        temp[i] = s->graph.buf[(s->graph.head + i) % GRAPH_N];
-    }
-    memset(s->graph.buf, 0, sizeof(s->graph.buf));
-    s->graph.head = 0;
-
-    if(zoom_out) {
-        // Average adjacent pairs (both are rate-per-tick; average preserves that).
-        // 126 old samples → 63 averaged samples at positions [63..125].
-        // Positions [0..62] remain zero (no data at this resolution yet).
-        for(int i = 0; i < GRAPH_HALF; i++) {
-            s->graph.buf[GRAPH_HALF + i] = (temp[i * 2] + temp[i * 2 + 1]) * 0.5f;
-        }
-    } else {
-        // Zoom in (÷2): split newest 63 old samples using linear interpolation.
-        // Samples are already rate-per-tick — no amplitude scaling needed.
-        // Even positions: keep the original rate value.
-        // Odd positions: interpolate midpoint toward the next sample, avoiding
-        // the staircase a simple duplicate would produce.
-        for(int i = 0; i < GRAPH_HALF; i++) {
-            float curr = temp[GRAPH_HALF + i];
-            // For the last sample there is no following neighbour — hold value.
-            float next = (i + 1 < GRAPH_HALF) ? temp[GRAPH_HALF + i + 1] : curr;
-            s->graph.buf[i * 2]     = curr;
-            s->graph.buf[i * 2 + 1] = (curr + next) * 0.5f;
-        }
-    }
-}
-
-// ── GPS position extraction ────────────────────────────────────────────────
-// Returns a GpsPosition snapshot.  .valid is true only when GPS has a fix.
-static GpsPosition get_gps_position(const Session* s) {
+// ── Convenience wrapper: GpsStatus → GpsPosition ──────────────────────
+static inline GpsPosition get_gps_position(const Session* s) {
     GpsPosition pos = {0};
-    pos.hdop      = 99.9f;   // sentinel: unknown until GGA/GSA arrives
-    pos.pdop      = 99.9f;
-    pos.fix_type  = 1;       // 1=no fix
-    pos.speed_kts = NAN;
-    pos.course_deg = NAN;
+    pos.hdop       = 99.9f; pos.pdop = 99.9f; pos.fix_type = 1;
+    pos.speed_kts  = NAN;   pos.course_deg = NAN;
     if(!s->gps) return pos;
     GpsStatus gs = gps_uart_get_status(s->gps);
-    pos.sats      = gs.satellites_tracked;
-    pos.hdop      = gs.hdop;
-    pos.fix_type  = gs.fix_type;
+    pos.sats       = gs.satellites_tracked;
+    pos.hdop       = gs.hdop;
+    pos.fix_type   = gs.fix_type;
     pos.speed_kts  = gs.speed;
     pos.course_deg = gs.course;
     pos.pdop       = gs.pdop;
@@ -192,101 +110,6 @@ static GpsPosition get_gps_position(const Session* s) {
         pos.lon = gs.longitude;
     }
     return pos;
-}
-
-// ── Post-decimation smoothing IIR ──────────────────────────────────────────
-// First-order IIR at fc ≈ 3 Hz (α = 1 - e^{-2π·3/10} ≈ 0.848).
-// Runs at 10 Hz AFTER the 100:1 boxcar decimation — aliasing at the
-// 860→10 Hz downsampling step is a one-way door, so this filter
-// attenuates both real high-frequency GSR and any aliased noise that
-// already leaked into the 0–5 Hz band.  For a physiological signal
-// with >95 % of power below 1 Hz, the net effect is still a net SNR
-// improvement — real GSR at 3–5 Hz loses <3 dB while aliased broadband
-// EMI (radio, switching artifacts) is suppressed.
-//
-// True anti-aliasing would require filtering at 860 SPS before the
-// boxcar.  That is avoided here because PGA autoranging jumps cause
-// the IIR state to become stale; handling that cleanly at 860 SPS
-// adds complexity.  The boxcar itself is the pre-decimation filter.
-//
-// At 3 Hz the phase lag is ~50 ms — invisible for GSR where phasic
-// responses have 1–3 s rise times.  Signal attenuation at 2 Hz
-// (fastest measurable SCR onset) is <0.5 dB.
-static float smooth_iir_filter(DisplayState* d, float raw) {
-    if(!d->smooth_iir_primed) {
-        d->smooth_iir = raw;
-        d->smooth_iir_primed = true;
-        return raw;
-    }
-    d->smooth_iir = SMOOTH_IIR_A * raw + SMOOTH_IIR_B * d->smooth_iir;
-    return d->smooth_iir;
-}
-
-// ── Display pipeline ───────────────────────────────────────────────────────
-// Post-decimation smoothing IIR → EMA smoothing of GSR readings.
-static void update_display_pipeline(Session* s, float raw) {
-    float filtered = smooth_iir_filter(&s->display, raw);
-
-    if(!s->display.primed) {
-        s->display.smoothed = filtered;
-        s->graph.last_smoothed = filtered;
-        s->display.last_displayed = filtered;
-        s->display.primed = true;
-    }
-    float ns = DISPLAY_EMA_A * filtered + DISPLAY_EMA_B * s->display.smoothed;
-    s->display.smoothed = ns;
-
-    s->display.refresh_counter++;
-    if(s->display.refresh_counter >= REFRESH_EVERY) {
-        s->display.last_displayed = filtered;
-        s->display.refresh_counter = 0;
-    }
-}
-
-// ── Graph pipeline ─────────────────────────────────────────────────────────
-// Build the graph ring buffer from smoothed GSR derivative rate.
-// Handles auto-zoom peak tracking and zoom-level lerp.
-// Manual zoom (Up/Down) sets a timeout; auto-zoom re-engages when it
-// expires, with a seamless transition (peak set so target = current level).
-static void update_graph_pipeline(Session* s) {
-    // Decrement manual zoom timeout; on expiry set peak so the lerp
-    // target matches the current manual level — no visual jump.
-    if(s->zoom.manual_timeout > 0) {
-        s->zoom.manual_timeout--;
-        if(s->zoom.manual_timeout == 0) {
-            s->zoom.peak = ZOOM_TARGET_DIV / s->zoom.level;
-            if(s->zoom.peak < ZOOM_PEAK_FLOOR) s->zoom.peak = ZOOM_PEAK_FLOOR;
-        }
-    }
-
-    bool auto_active = s->zoom.enabled && s->zoom.manual_timeout == 0;
-
-    if(auto_active) {
-        s->zoom.peak *= ZOOM_PEAK_DECAY;
-    }
-
-    s->graph.tick_counter++;
-    if(s->graph.tick_counter >= s->graph.scroll_divider) {
-        float rate = s->display.smoothed - s->graph.last_smoothed;
-        s->graph.buf[s->graph.head] = -(rate / (float)s->graph.scroll_divider) * GRAPH_RATE_SCALE;
-        if(++s->graph.head >= GRAPH_N) s->graph.head = 0;
-        s->graph.last_smoothed = s->display.smoothed;
-        s->graph.tick_counter = 0;
-
-        if(auto_active) {
-            int just_written = s->graph.head - 1;
-            if(just_written < 0) just_written = GRAPH_N - 1;
-            float newest = fabsf(s->graph.buf[just_written]);
-            if(newest > s->zoom.peak) s->zoom.peak = newest;
-            if(s->zoom.peak < ZOOM_PEAK_FLOOR) s->zoom.peak = ZOOM_PEAK_FLOOR;
-        }
-    }
-
-    if(auto_active && s->zoom.peak >= ZOOM_PEAK_FLOOR) {
-        float target = ZOOM_TARGET_DIV / s->zoom.peak;
-        target = fmaxf(ZOOM_MIN, fminf(ZOOM_MAX, target));
-        s->zoom.level += (target - s->zoom.level) * ZOOM_LERP_RATE;
-    }
 }
 
 // ── Shared GPS CSV row formatter ───────────────────────────────────────────
@@ -331,7 +154,7 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
 static bool batch_csv_row(Session* s, float raw) {
     if(!s->recording.active || !has_gsr(s->mode)) return true;
 
-    double rel = session_rel_seconds(s);
+    double rel = pipeline_rel_seconds(s->recording.total_ticks);
     int ret;
 
     if(s->mode == BioMapModeGsrOnly) {
@@ -475,7 +298,11 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         // Build header: recording-start metadata line + column names.
         DateTime dt;
         furi_hal_rtc_get_datetime(&dt);
-        uint32_t epoch = rtc_to_unix_epoch(&dt);
+        uint32_t epoch = pipeline_unix_epoch(dt.year, dt.month, dt.day,
+                                              dt.hour, dt.minute, dt.second);
+        if(epoch == 0) {
+            FURI_LOG_W("BioMap", "RTC not set — recording epoch will be 0 in CSV header");
+        }
         const char* cols = (s->mode == BioMapModeGsrOnly)
             ? "timestamp,gsr_raw\n"
             : "timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw\n";
@@ -532,10 +359,10 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
 // suppressed entirely during an active recording rather than risked.
 static bool key_zoom_vertical(Session* s, FuriMutex* mutex, bool zoom_in) {
     furi_mutex_acquire(mutex, FuriWaitForever);
-    s->zoom.manual_timeout = MANUAL_ZOOM_TIMEOUT;
-    s->zoom.level = zoom_in
-        ? fminf(s->zoom.level * ZOOM_FACTOR, ZOOM_MAX)
-        : fmaxf(s->zoom.level / ZOOM_FACTOR, ZOOM_MIN);
+    s->pipeline.zoom.manual_timeout = MANUAL_ZOOM_TIMEOUT;
+    s->pipeline.zoom.level = zoom_in
+        ? fminf(s->pipeline.zoom.level * ZOOM_FACTOR, ZOOM_MAX)
+        : fmaxf(s->pipeline.zoom.level / ZOOM_FACTOR, ZOOM_MIN);
     bool recording = s->recording.active;
     furi_mutex_release(mutex);
     return recording;
@@ -546,18 +373,18 @@ static bool key_zoom_vertical(Session* s, FuriMutex* mutex, bool zoom_in) {
 static bool key_zoom_horizontal(Session* s, FuriMutex* mutex, bool zoom_out) {
     furi_mutex_acquire(mutex, FuriWaitForever);
     if(zoom_out) {
-        if(s->graph.scroll_divider < 16) {
-            s->graph.scroll_divider *= 2;
-            s->graph.tick_counter = 0;
-            s->graph.last_smoothed = s->display.smoothed;
-            rescale_graph_buf(s, true);
+        if(s->pipeline.graph.scroll_divider < 16) {
+            s->pipeline.graph.scroll_divider *= 2;
+            s->pipeline.graph.tick_counter = 0;
+            s->pipeline.graph.last_smoothed = s->pipeline.display.smoothed;
+            pipeline_rescale_graph(&s->pipeline, true);
         }
     } else {
-        if(s->graph.scroll_divider > 1) {
-            s->graph.scroll_divider /= 2;
-            s->graph.tick_counter = 0;
-            s->graph.last_smoothed = s->display.smoothed;
-            rescale_graph_buf(s, false);
+        if(s->pipeline.graph.scroll_divider > 1) {
+            s->pipeline.graph.scroll_divider /= 2;
+            s->pipeline.graph.tick_counter = 0;
+            s->pipeline.graph.last_smoothed = s->pipeline.display.smoothed;
+            pipeline_rescale_graph(&s->pipeline, false);
         }
     }
     bool recording = s->recording.active;
@@ -648,7 +475,7 @@ static bool handle_recording_tick(Session* s) {
     if(!has_gsr(s->mode) && has_gps(s->mode) && s->recording.active) {
         if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
             GpsPosition pos = get_gps_position(s);
-            return format_gps_csv_row(s, &pos, session_rel_seconds(s), 0.0f);
+            return format_gps_csv_row(s, &pos, pipeline_rel_seconds(s->recording.total_ticks), 0.0f);
         }
         return true;
     }
@@ -659,9 +486,9 @@ static bool handle_recording_tick(Session* s) {
         gsr_sensor_tick(s->gsr);                    // autoranging only
         float raw_sample = gsr_sensor_get_raw_sample_ns(s->gsr);  // pure single-sample nS
         raw = gsr_sensor_get_raw(s->gsr);           // filtered 100-sample nS (CSV)
-        s->display.raw_sample_ns = raw_sample;      // store BEFORE IIR touches it
-        s->display.filtered_ns   = raw;             // store BEFORE IIR touches it
-        s->display.raw_sample_count = gsr_sensor_get_raw_sample_count(s->gsr);
+        s->pipeline.display.raw_sample_ns = raw_sample;      // store BEFORE IIR touches it
+        s->pipeline.display.filtered_ns   = raw;             // store BEFORE IIR touches it
+        s->pipeline.display.raw_sample_count = gsr_sensor_get_raw_sample_count(s->gsr);
 
         // ── Instantaneous per-tick validity check ────────────────────
         // Use the raw single-sample value for the display so you see
@@ -670,18 +497,18 @@ static bool handle_recording_tick(Session* s) {
         bool valid = (raw_sample >= GSR_VALID_MIN_NS && raw_sample <= GSR_VALID_MAX_NS);
         if(valid) {
             // ── Re-connect smoothing ────────────────────────────────
-            float delta = (raw_sample > s->display.last_displayed)
-                ? raw_sample - s->display.last_displayed
-                : s->display.last_displayed - raw_sample;
-            bool recovering = s->display.primed && (delta > 500.0f);
+            float delta = (raw_sample > s->pipeline.display.last_displayed)
+                ? raw_sample - s->pipeline.display.last_displayed
+                : s->pipeline.display.last_displayed - raw_sample;
+            bool recovering = s->pipeline.display.primed && (delta > 500.0f);
 
-            update_display_pipeline(s, raw_sample);
+            pipeline_update_display(&s->pipeline, raw_sample);
 
             if(recovering) {
-                s->graph.last_smoothed = s->display.smoothed;
+                s->pipeline.graph.last_smoothed = s->pipeline.display.smoothed;
             }
 
-            update_graph_pipeline(s);
+            pipeline_update_graph(&s->pipeline);
         }
     }
     return batch_csv_row(s, raw);

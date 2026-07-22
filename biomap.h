@@ -8,6 +8,8 @@
 
 // ── Core types (DisplayState, GraphState, etc., constants, helpers) ────
 #include "biomap_types.h"
+// ── Pure math pipeline (platform-independent GSR signal processing) ────
+#include "biomap_pipeline.h"
 
 // ── Event types shared between biomap.c and modules/gps_uart.c ─────────
 #include "biomap_events.h"
@@ -48,9 +50,7 @@ typedef struct Session {
     ViewPort*      vp;          // == app->screen_vp while a session is active; not owned/freed here
     FuriTimer*     timer;
 
-    DisplayState   display;
-    GraphState     graph;
-    ZoomState      zoom;          // .level + .peak reset per session; .enabled from app
+    Pipeline      pipeline;     // display + graph + zoom (pure math, platform-independent)
     RecordingState recording;
 
     bool           running;
