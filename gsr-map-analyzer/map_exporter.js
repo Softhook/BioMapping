@@ -16,8 +16,16 @@ class GSRMapExporter {
   // ═══════════════════════════════════════════════════════════════════
 
   static async exportToSvg(mgr) {
-    const ctx = this._validate(mgr);
+    let ctx = this._validate(mgr);
     if (!ctx) return;
+
+    // Isobands at the map edge are drawn extending past the original frame
+    // (see _closeOpenIsobandPaths / _tangentExtrapolate) rather than being
+    // squared off against it. Growing the canvas here — instead of drawing
+    // that extension and then clipping it away — means everything in the
+    // export is actually visible; there's no invisible geometry to keep in
+    // sync with a clip region.
+    ctx = this._expandCanvasForIsobands(ctx);
 
     const layers = await this._gather(ctx);
     this._download(this._render(ctx, layers), AppState.viewMode || 'single');
@@ -91,6 +99,113 @@ class GSRMapExporter {
     return { w, h, project };
   }
 
+  /**
+   * Bounding box (in the SVG's own coordinate space) of a path `d` string built
+   * from M / L / C / Z commands only (i.e. anything _pathD can produce). Curves
+   * are flattened by sampling the cubic Bézier at a fine resolution rather than
+   * just looking at control points, since a Bézier's control points can lie
+   * outside the box the curve itself actually sweeps through — but for these
+   * gently-rounded contour paths the control points are a close enough envelope
+   * and cheap to test directly, so start there and only sample when a curve is
+   * present.
+   */
+  static _pathBBox(d) {
+    if (!d) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const see = (x, y) => {
+      if (isNaN(x) || isNaN(y)) return;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    };
+
+    const cubicAt = (p0, p1, p2, p3, t) => {
+      const mt = 1 - t;
+      const a = mt * mt * mt, b = 3 * mt * mt * t, c = 3 * mt * t * t, e = t * t * t;
+      return { x: a * p0.x + b * p1.x + c * p2.x + e * p3.x, y: a * p0.y + b * p1.y + c * p2.y + e * p3.y };
+    };
+
+    const tokens = d.match(/[MLCZ][^MLCZ]*/gi);
+    if (!tokens) return null;
+
+    let cur = { x: 0, y: 0 };
+    tokens.forEach(tok => {
+      const cmd = tok[0];
+      const nums = (tok.slice(1).match(/-?\d*\.?\d+(?:e-?\d+)?/gi) || []).map(Number);
+      if (cmd === 'M' || cmd === 'L') {
+        for (let i = 0; i + 1 < nums.length; i += 2) {
+          cur = { x: nums[i], y: nums[i + 1] };
+          see(cur.x, cur.y);
+        }
+      } else if (cmd === 'C') {
+        for (let i = 0; i + 5 < nums.length; i += 6) {
+          const p1 = { x: nums[i], y: nums[i + 1] };
+          const p2 = { x: nums[i + 2], y: nums[i + 3] };
+          const p3 = { x: nums[i + 4], y: nums[i + 5] };
+          see(p1.x, p1.y); see(p2.x, p2.y); see(p3.x, p3.y);
+          const STEPS = 12;
+          for (let s = 1; s < STEPS; s++) {
+            const pt = cubicAt(cur, p1, p2, p3, s / STEPS);
+            see(pt.x, pt.y);
+          }
+          cur = p3;
+        }
+      }
+      // 'Z' carries no coordinates.
+    });
+
+    if (!isFinite(minX)) return null;
+    return { minX, minY, maxX, maxY };
+  }
+
+  /**
+   * Runs the isoband layer once against the base (un-expanded) projection just
+   * to measure how far the extrapolated edge contours actually reach, then
+   * returns a new ctx whose canvas (w/h) and projection are grown/shifted so
+   * that full extent is visible with a small safety margin — instead of
+   * drawing that extension and clipping it away, we just make room for it.
+   */
+  static _expandCanvasForIsobands(ctx) {
+    const surfObj = this._surface(ctx);
+    const paths = (surfObj && surfObj.isobands) || [];
+    if (!paths.length) return ctx;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    paths.forEach(p => {
+      const m = p.match(/d="([^"]*)"/);
+      if (!m) return;
+      const bbox = this._pathBBox(m[1]);
+      if (!bbox) return;
+      if (bbox.minX < minX) minX = bbox.minX;
+      if (bbox.minY < minY) minY = bbox.minY;
+      if (bbox.maxX > maxX) maxX = bbox.maxX;
+      if (bbox.maxY > maxY) maxY = bbox.maxY;
+    });
+    if (!isFinite(minX)) return ctx;
+
+    const { w, h, project } = ctx;
+    // A little extra breathing room beyond the measured extent, so a stroked
+    // outline (which sits centered on the fill's edge) doesn't get shaved by
+    // sub-pixel rounding at the new canvas edge.
+    const SAFETY = 4;
+    const marginLeft   = Math.max(0, Math.ceil(-minX + SAFETY));
+    const marginTop    = Math.max(0, Math.ceil(-minY + SAFETY));
+    const marginRight  = Math.max(0, Math.ceil(maxX - w + SAFETY));
+    const marginBottom = Math.max(0, Math.ceil(maxY - h + SAFETY));
+
+    if (!marginLeft && !marginTop && !marginRight && !marginBottom) return ctx;
+
+    const newW = w + marginLeft + marginRight;
+    const newH = h + marginTop + marginBottom;
+    const newProject = (ll) => {
+      const p = project(ll);
+      return { x: p.x + marginLeft, y: p.y + marginTop };
+    };
+
+    return { ...ctx, w: newW, h: newH, project: newProject };
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   //  Data gathering
   // ═══════════════════════════════════════════════════════════════════
@@ -128,6 +243,12 @@ class GSRMapExporter {
     const specs = [
       ['Base_Map_Tiles',          'Base Map Tiles',              L.tiles],
       ['Vector_Surface_Mesh',     'Vector Surface Mesh',         surfObj.mesh,        'opacity="0.4"'],
+      // Isobands at the map edge are deliberately extrapolated past the original
+      // frame (so the curve reads as continuing into an unbounded field rather
+      // than being squared off against the boundary). Rather than hiding that
+      // extension behind a clip-path, exportToSvg() grows the canvas ahead of
+      // time (_expandCanvasForIsobands) so the full rounded shape is genuinely
+      // visible here — nothing in this layer is invisible or clipped.
       ['Vector_Surface_Isobands', 'Vector Surface Isobands',     surfObj.isobands,    'opacity="0.5"'],
       ['Raster_Surface_Fallback', 'Raster Surface Fallback',     surfObj.raster,      'opacity="0.4"'],
       ['OSM_Shapes',              'OSM Shapes',                  L.osm],
@@ -274,92 +395,96 @@ class GSRMapExporter {
         }
       }
 
-      // ── B. Vector Isoband Fills (per-cell clip) & Isoline Outlines ──
+      // ── B. Vector Isoband Fills (smooth, boundary-closed) & Isoline Outlines ──
       //
-      // Previously the fill for each isoband came from the marching-squares isoline
-      // itself: paths were stitched from raw segments, and only stitched paths whose
-      // start/end points happened to coincide (isClosed) were filled — anything the
-      // grid boundary cut off partway through (i.e. any region touching the edge of
-      // the map extent) came back as an open path and was rendered as an unfilled
-      // stroke instead, which is why isobands at the edge of the map never showed
-      // their green fill.
+      // Interior isoband rings (fully enclosed within the grid) are already closed
+      // by marching squares + stitching, so they're smoothed and filled directly —
+      // same as they always were. Rings that get cut off by the edge of the grid/map
+      // extent trace out as an OPEN path instead, because marching squares only
+      // follows the contour where it crosses a cell edge and simply stops once it
+      // runs off the grid.
       //
-      // Fix: derive the fill independently, per grid cell, via Sutherland-Hodgman
-      // clipping (_clipCellIsoband) against "value >= level". A boundary cell's own
-      // corners already sit exactly on the map extent, so its clipped polygon is
-      // closed by construction — there is no separate "closing" step that can go
-      // wrong, and the fill runs flush to the edge instead of stopping short of it.
-      // The marching-squares isoline is kept only as a thin decorative outline
-      // (fill:none), where being open at the edge is harmless.
+      // Those open paths are closed here (_closeOpenIsobandPaths) by walking the
+      // actual boundary rectangle between pairs of open ends, using the grid's own
+      // boundary values to work out which side of the rectangle is really "inside"
+      // the band — between any two adjacent boundary crossings the value can't cross
+      // the isolevel again, so sampling the midpoint settles it unambiguously. That
+      // replaces an earlier version of this code which instead guessed "whichever
+      // way around the rectangle is numerically shorter", which isn't the same thing
+      // and produced a straight chord cutting across the shape whenever it guessed
+      // wrong — and a later version which gave up on closing the smooth curve
+      // altogether and filled a blocky per-grid-cell tiling instead. Neither is
+      // needed: closing the same smooth curve correctly gives a fill that simply
+      // continues along the map edge, with no seam and no blockiness.
       if (contours && Array.isArray(contours)) {
-        const getLatLng = (r, c) => ({
-          lat: bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat),
-          lon: bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon)
-        });
-
         contours.forEach(c => {
           const fillColor = this._ratioToHex(c.ratio);
           const level = c.level;
 
-          // B1. Filled isoband polygons, tiled from clipped grid cells.
-          for (let row = 0; row < rows - 1; row++) {
-            for (let col = 0; col < cols - 1; col++) {
-              const vNW = grid[row][col];
-              const vNE = grid[row][col + 1];
-              const vSE = grid[row + 1][col + 1];
-              const vSW = grid[row + 1][col];
-              if (vNW === null || vNE === null || vSE === null || vSW === null ||
-                  isNaN(vNW) || isNaN(vNE) || isNaN(vSE) || isNaN(vSW)) continue;
-              // Cell has no overlap with this band at all — skip early.
-              if (vNW < level && vNE < level && vSE < level && vSW < level) continue;
-
-              const corners = [
-                { ...getLatLng(row, col),         val: vNW },
-                { ...getLatLng(row, col + 1),     val: vNE },
-                { ...getLatLng(row + 1, col + 1), val: vSE },
-                { ...getLatLng(row + 1, col),     val: vSW }
-              ];
-
-              // vb = Infinity: this band is "everything at or above `level`" — matches
-              // the old closed-ring semantics of "the area enclosed by this isoline",
-              // just clipped per-cell instead of traced as one big loop.
-              const poly = this._clipCellIsoband(corners, level, Infinity);
-              if (!poly) continue;
-
-              const pts = poly.map(p => project(p)).filter(p => p && typeof p.x === 'number' && !isNaN(p.x));
-              if (pts.length < 3) continue;
-
-              const d = `M${pts.map(p => `${p.x.toFixed(3)} ${p.y.toFixed(3)}`).join(' L')} Z`;
-              res.isobands.push(
-                `<path d="${d}" fill="${this._esc(fillColor)}" fill-opacity="0.45" stroke="none" />`
-              );
-            }
-          }
-
-          // B2. Thin decorative outline traced from the raw marching-squares isoline.
-          // Purely cosmetic (fill="none"), so unlike the fill above it never needs to
-          // be a closed loop — a stroke that runs off the edge of the map is fine.
           const stitchedPaths = (typeof GSRSpatialClustering !== 'undefined' && typeof GSRSpatialClustering.stitchSegments === 'function')
             ? GSRSpatialClustering.stitchSegments(c.segments)
             : (c.segments || []).map(seg => [seg[0], seg[1]]);
 
+          const isClosedPath = (rawPath) => rawPath.length >= 3 &&
+            Math.abs((rawPath[0].lat ?? rawPath[0][0]) - (rawPath[rawPath.length - 1].lat ?? rawPath[rawPath.length - 1][0])) < 1e-9 &&
+            Math.abs((rawPath[0].lon ?? rawPath[0][1]) - (rawPath[rawPath.length - 1].lon ?? rawPath[rawPath.length - 1][1])) < 1e-9;
+
+          const closedPaths = [];
+          const openPaths = [];
           stitchedPaths.forEach(rawPath => {
             if (!rawPath || rawPath.length < 2) return;
-
-            const isClosed = rawPath.length >= 3 &&
-              Math.abs((rawPath[0].lat ?? rawPath[0][0]) - (rawPath[rawPath.length - 1].lat ?? rawPath[rawPath.length - 1][0])) < 1e-9 &&
-              Math.abs((rawPath[0].lon ?? rawPath[0][1]) - (rawPath[rawPath.length - 1].lon ?? rawPath[rawPath.length - 1][1])) < 1e-9;
-
-            const smoothed = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
-              ? GeoUtils.chaikinSmooth(rawPath, 2, isClosed)
-              : rawPath;
-            const d = this._pathD(ctx, smoothed, isClosed, true);
-            if (!d) return;
-
-            res.isobands.push(
-              `<path d="${d}" fill="none" stroke="${this._esc(fillColor)}" stroke-width="1.2" stroke-opacity="0.8" stroke-linejoin="round" stroke-linecap="round" />`
-            );
+            (isClosedPath(rawPath) ? closedPaths : openPaths).push(rawPath);
           });
+
+          const smoothRing = (ring) => (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
+            ? GeoUtils.chaikinSmooth(ring, 2, true)
+            : ring;
+
+          const fillRing = (ring) => {
+            const d = this._pathD(ctx, smoothRing(ring), true, true);
+            if (!d) return;
+            res.isobands.push(
+              `<path d="${d}" fill="${this._esc(fillColor)}" fill-opacity="0.45" stroke="none" />`
+            );
+          };
+          const strokeRing = (ring) => {
+            const d = this._pathD(ctx, smoothRing(ring), true, true);
+            if (!d) return;
+            res.isobands.push(
+              `<path d="${d}" fill="none" stroke="${this._esc(fillColor)}" stroke-width="0.4" stroke-opacity="0.8" stroke-linejoin="round" stroke-linecap="round" />`
+            );
+          };
+
+          // B1a. Interior rings — already closed, smooth + fill as-is.
+          closedPaths.forEach(fillRing);
+
+          // B1b. Edge-touching rings — closed against the real grid boundary by
+          // extrapolating each open end past the edge (_tangentExtrapolate),
+          // and — where the correct side to close on isn't the immediately-
+          // adjacent one — walking the real per-node boundary data
+          // (_closeOpenIsobandPaths' boundaryWalk) instead of a literal
+          // rectangle. Rendered exactly like an interior ring (fillRing) —
+          // nothing here needs special treatment anymore, since the export
+          // canvas is sized upfront (_expandCanvasForIsobands) to fit whatever
+          // this produces.
+          const closedFromOpen = this._closeOpenIsobandPaths(openPaths, grid, rows, cols, bounds, level);
+          closedFromOpen.forEach(fillRing);
+
+          // B2. Thin decorative outline (fill="none") tracing the same closed
+          // shapes as the fill above — interior rings as-is, and (for
+          // edge-touching contours) the exact same fully-closed ring produced
+          // by _closeOpenIsobandPaths, not the raw open marching-squares
+          // fragment. An earlier version of this traced the raw open path
+          // directly and tangent-extrapolated it in isolation, with no
+          // boundary-walk closure — for short/noisy fragments that produced a
+          // visibly straight spike shooting out from the real curve, and even
+          // where it looked fine it was inconsistent with the (properly
+          // closed) fill it's supposed to trace the edge of. Reusing the same
+          // ring guarantees the outline always reads as the border of the
+          // actual filled shape, with the same organic, boundary-data-driven
+          // curve at the edges.
+          closedPaths.forEach(strokeRing);
+          closedFromOpen.forEach(strokeRing);
         });
       }
     }
@@ -455,7 +580,365 @@ class GSRMapExporter {
     return finalPoly.length >= 3 ? finalPoly : null;
   }
 
+  /**
+   * Extend an open path a bit past each of its two ends, continuing in whatever
+   * direction it was already heading (its local tangent) when it hit the edge of
+   * the grid — rather than squaring it off against the boundary rectangle. Used
+   * so an isoline reads as if it kept going into an unbounded field instead of
+   * stopping dead or being closed off with a straight line.
+   *
+   * A small outward bias is blended in on top of the pure tangent so a path that
+   * happens to run almost exactly parallel to the edge still moves clearly away
+   * from the real bounds (rather than grazing along just inside/along it).
+   *
+   * Returns a NEW array: [2 prepended points, ...original points, 2 appended
+   * points]. These extra points are meant to be fully visible in the final
+   * export — see _closeOpenIsobandPaths for how consecutive paths' extrapolated
+   * ends are smoothed directly into one another to close the shape, and
+   * _expandCanvasForIsobands for how the export canvas grows to fit all of it.
+   */
+  /**
+   * Extend one or both ends of an open curve past the real boundary along its
+   * own tangent, so it reads as continuing naturally into an unbounded field
+   * instead of stopping dead at the edge.
+   *
+   * `extrapStart`/`extrapEnd` let a caller skip extrapolating a given end: that
+   * matters when this end is about to be joined to a `boundaryWalk` stretch
+   * (see _closeOpenIsobandPaths) rather than directly to another path's own
+   * extrapolated tip. boundaryWalk already tapers its own push down to zero
+   * right at the point where it meets the real curve, so adding a further
+   * Far/Near tip *there too* would mean the ring goes real-boundary-point →
+   * (boundaryWalk, tapering back up) → Far → Near → real-boundary-point again —
+   * a non-monotonic zigzag that reads as a needle-like spike once smoothed.
+   * Skipping extrapolation on that end leaves a single, smooth, monotonic taper
+   * (owned entirely by boundaryWalk) instead of two independent ones stacked
+   * back-to-back.
+   */
+  static _tangentExtrapolate(pts, bounds, extrapStart = true, extrapEnd = true) {
+    if (!pts || pts.length < 2) return pts || [];
 
+    const latSpan = (bounds.maxLat - bounds.minLat) || 1e-9;
+    const lonSpan = (bounds.maxLon - bounds.minLon) || 1e-9;
+    const diag = Math.hypot(latSpan, lonSpan);
+
+    const outwardNormal = (lat, lon) => {
+      const dTop = Math.abs(lat - bounds.maxLat), dRight = Math.abs(lon - bounds.maxLon);
+      const dBottom = Math.abs(lat - bounds.minLat), dLeft = Math.abs(lon - bounds.minLon);
+      const m = Math.min(dTop, dRight, dBottom, dLeft);
+      if (m === dTop)    return { lat: 1, lon: 0 };
+      if (m === dRight)  return { lat: 0, lon: 1 };
+      if (m === dBottom) return { lat: -1, lon: 0 };
+      return { lat: 0, lon: -1 };
+    };
+
+    const unit = (v) => {
+      const len = Math.hypot(v.lat, v.lon) || 1e-9;
+      return { lat: v.lat / len, lon: v.lon / len };
+    };
+
+    // `normalWeight` grows from near to far, so the two extrapolated points
+    // aren't collinear with the path's local tangent — the continuation curves
+    // gently outward rather than shooting away as a dead-straight line, which
+    // reads as an obvious ruler-straight spike for any open fragment whose
+    // local tangent happens to be poorly determined (e.g. a very short raw
+    // isoline fragment).
+    const blendedDir = (from, to, normalWeight) => {
+      const tangent = unit({ lat: to.lat - from.lat, lon: to.lon - from.lon });
+      const normal = outwardNormal(to.lat, to.lon);
+      return unit({ lat: tangent.lat + normal.lat * normalWeight, lon: tangent.lon + normal.lon * normalWeight });
+    };
+
+    const n = pts.length;
+    // How far the visible continuation reaches past the real edge before curving
+    // into the closure — a fraction of the map's own diagonal, so it scales
+    // sensibly with map size instead of being an arbitrary fixed distance.
+    const L1 = 0.12 * diag, L2 = 0.28 * diag;
+
+    const extend = (from, dir, dist) => ({ lat: from.lat + dir.lat * dist, lon: from.lon + dir.lon * dist });
+
+    const head = [];
+    if (extrapStart) {
+      const nearDir = blendedDir(pts[Math.min(1, n - 1)], pts[0], 0.35);
+      const farDir  = blendedDir(pts[Math.min(1, n - 1)], pts[0], 0.7);
+      head.push(extend(pts[0], farDir, L2), extend(pts[0], nearDir, L1));
+    }
+    const tail = [];
+    if (extrapEnd) {
+      const nearDir = blendedDir(pts[Math.max(0, n - 2)], pts[n - 1], 0.35);
+      const farDir  = blendedDir(pts[Math.max(0, n - 2)], pts[n - 1], 0.7);
+      tail.push(extend(pts[n - 1], nearDir, L1), extend(pts[n - 1], farDir, L2));
+    }
+
+    return [...head, ...pts, ...tail];
+  }
+
+  /**
+   * Close the open isoline paths that get cut off at the edge of the grid/map
+   * extent. Each open end is extended past the edge along its own tangent
+   * (_tangentExtrapolate). Where two ends need to be joined and the correct
+   * side is the immediately-adjacent one, that's all there is to it — their
+   * extrapolated tips sit right next to each other and the normal Catmull-Rom
+   * smoothing pass (applied to the whole ring at once, same as an ordinary
+   * closed interior ring) bridges them with a smooth, rounded curve.
+   *
+   * But sometimes the correct side is *not* the nearby one — most of the
+   * boundary can legitimately be "inside" the band with only a small notch of
+   * open path breaking it up (e.g. a big hot region that touches three sides
+   * of the map with one small cool dip cut into an edge). In that case the
+   * fill has to actually continue along the rest of the boundary to enclose
+   * the right area — but tracing the literal bounding rectangle would draw the
+   * exact hard straight edges this feature exists to avoid. Instead, the real
+   * grid values already sampled all along that boundary stretch (`profile`,
+   * built below) are reused as a chain of real data points, each nudged
+   * outward past the edge by an amount that grows with how far above the
+   * isolevel that particular point on the boundary is — so a strongly "hot"
+   * stretch of edge bulges out further than a stretch that's only barely
+   * above level, tapering down to the same small nudge the path's own
+   * tangent-extrapolated tip gets right at the point where the data actually
+   * crosses the isolevel. It's still built from the real field, so it reads
+   * as organic continuation rather than a drafted boundary, and it's never
+   * perfectly straight unless the underlying data along that stretch truly is
+   * uniform (in which case a straight line is simply the honest answer).
+   *
+   * Which pair of open ends belong together, and which way to walk, comes from
+   * the real grid data, not a guess: every open endpoint sits exactly on the
+   * bounding rectangle (that's *why* the path is open — marching squares only
+   * traces where the contour crosses a cell edge, and stops the moment it runs
+   * off the grid), and between any two boundary-adjacent open endpoints the
+   * grid's own boundary value can't cross the isolevel again — otherwise
+   * there'd be another open endpoint in between — so sampling the midpoint of
+   * that stretch tells us, from the actual data, whether that side is inside
+   * the band. That's what decides which endpoints pair up and which direction
+   * to walk (an earlier, buggier version of this guessed based on arc length
+   * instead, which picks the wrong side whenever the correct arc isn't also the
+   * shorter one).
+   *
+   * Returns an array of closed point rings, ready to be smoothed and filled
+   * exactly like an ordinary interior ring.
+   */
+  static _closeOpenIsobandPaths(openPaths, grid, rows, cols, bounds, level) {
+    if (!openPaths || openPaths.length === 0) return [];
+
+    const getLL = (p) => ({
+      lat: p.lat !== undefined ? p.lat : p[0],
+      lon: p.lon !== undefined ? p.lon : (p.lng !== undefined ? p.lng : p[1])
+    });
+
+    const latSpan = (bounds.maxLat - bounds.minLat) || 1e-9;
+    const lonSpan = (bounds.maxLon - bounds.minLon) || 1e-9;
+    const diag = Math.hypot(latSpan, lonSpan);
+    // Same reach as _tangentExtrapolate's L1/L2, so a boundary-walk point right
+    // next to a path's own tangent-extrapolated tip (where val ≈ level, nudge ≈
+    // L1) lines up with that tip's own first extrapolated point instead of
+    // jumping to a noticeably different distance.
+    const L1 = 0.12 * diag, L2 = 0.28 * diag;
+
+    // Perimeter position in [0, 4): 0-1 top (W->E), 1-2 right (N->S),
+    // 2-3 bottom (E->W), 3-4 left (S->N) — clockwise on a standard lat/lon map.
+    const perimT = (lat, lon) => {
+      const dTop    = Math.abs(lat - bounds.maxLat);
+      const dRight  = Math.abs(lon - bounds.maxLon);
+      const dBottom = Math.abs(lat - bounds.minLat);
+      const dLeft   = Math.abs(lon - bounds.minLon);
+      const m = Math.min(dTop, dRight, dBottom, dLeft);
+      if (m === dTop)    return (lon - bounds.minLon) / lonSpan;
+      if (m === dRight)  return 1 + (bounds.maxLat - lat) / latSpan;
+      if (m === dBottom) return 2 + (bounds.maxLon - lon) / lonSpan;
+      return 3 + (lat - bounds.minLat) / latSpan;
+    };
+
+    // Real grid values AND positions sampled all the way around the boundary, in
+    // increasing-t order, so "which side is inside" is read off the actual data
+    // instead of assumed, and (for the boundary walk below) each node can also be
+    // nudged outward from its own real lat/lon. Grid row r=0 is minLat and
+    // r=rows-1 is maxLat (same convention as getLatLng elsewhere in this file and
+    // in MarchingSquares) — so the "top" edge (t 0-1, lat=maxLat) reads from grid
+    // row rows-1, not row 0.
+    const profile = [];
+    for (let c = 0; c < cols; c++) profile.push({ t: c / (cols - 1), lat: bounds.maxLat, lon: bounds.minLon + (c / (cols - 1)) * lonSpan, val: grid[rows - 1][c], normal: { lat: 1, lon: 0 } });
+    for (let r = rows - 2; r >= 0; r--) profile.push({ t: 1 + (rows - 1 - r) / (rows - 1), lat: bounds.minLat + (r / (rows - 1)) * latSpan, lon: bounds.maxLon, val: grid[r][cols - 1], normal: { lat: 0, lon: 1 } });
+    for (let c = cols - 2; c >= 0; c--) profile.push({ t: 2 + (cols - 1 - c) / (cols - 1), lat: bounds.minLat, lon: bounds.minLon + (c / (cols - 1)) * lonSpan, val: grid[0][c], normal: { lat: -1, lon: 0 } });
+    for (let r = 1; r <= rows - 2; r++) profile.push({ t: 3 + r / (rows - 1), lat: bounds.minLat + (r / (rows - 1)) * latSpan, lon: bounds.minLon, val: grid[r][0], normal: { lat: 0, lon: -1 } });
+
+    const sampleBoundary = (tRaw) => {
+      const t = ((tRaw % 4) + 4) % 4;
+      for (let i = 0; i < profile.length; i++) {
+        const a = profile[i];
+        const b = profile[(i + 1) % profile.length];
+        const bt = (i === profile.length - 1) ? b.t + 4 : b.t;
+        if (t >= a.t && t <= bt) {
+          if (a.val === null || b.val === null || isNaN(a.val) || isNaN(b.val)) return null;
+          const span = (bt - a.t) || 1e-9;
+          return a.val + (b.val - a.val) * ((t - a.t) / span);
+        }
+      }
+      return profile[0].val;
+    };
+
+    // Real boundary-node points, nudged outward, whose position lies strictly
+    // between tFrom and tTo, walking forward (increasing t, wrapping past 4) —
+    // i.e. the actual data-driven stand-in for "walk the rectangle" when the
+    // correct side to close a ring on isn't the immediately-adjacent one.
+    //
+    // The outward nudge for each node combines two things:
+    //  - A smooth positional envelope (sin, 0 at both ends of this specific
+    //    arc, peaking in the middle) — this alone guarantees the whole stretch
+    //    is curved, never a straight run, regardless of what the data does. It
+    //    also reaches exactly 0 at both ends, matching the real curve
+    //    endpoints there continuously (a boundary-walk arc always starts/ends
+    //    exactly where the data crosses `level`).
+    //  - How far above `level` each node is, normalized against the highest
+    //    value seen *on this specific arc* — not the whole boundary. Using a
+    //    single global peak to normalize would crush the nudge to ~0 for any
+    //    arc that happens to run far from wherever the field peaks (e.g. the
+    //    long way around a big low-lying region while a sharp hotspot sits
+    //    elsewhere on the map) — producing a flat, literally-straight stretch
+    //    exactly where "no straight lines" matters most. Normalizing per arc
+    //    means every arc gets its own gentle, data-shaped bulge no matter what
+    //    the rest of the field is doing.
+    const boundaryWalk = (tFrom, tTo) => {
+      let span = tTo - tFrom;
+      while (span <= 1e-9) span += 4;
+      const nodes = profile
+        .map(node => ({ node, rel: (((node.t - tFrom) % 4) + 4) % 4 }))
+        .filter(({ rel }) => rel > 1e-9 && rel < span - 1e-9)
+        .sort((a, b) => a.rel - b.rel);
+      if (nodes.length === 0) return [];
+
+      let localMax = 0;
+      nodes.forEach(({ node }) => {
+        const excess = (node.val === null || isNaN(node.val)) ? 0 : Math.max(0, node.val - level);
+        if (excess > localMax) localMax = excess;
+      });
+
+      return nodes.map(({ node, rel }) => {
+        const relPos = rel / span;
+        const envelope = Math.sin(Math.PI * relPos);
+        const excess = (node.val === null || isNaN(node.val)) ? 0 : Math.max(0, node.val - level);
+        const dataFrac = localMax > 1e-9 ? excess / localMax : 0;
+        // 0.3 floor keeps a real bulge present even where the data along this
+        // arc is essentially uniform (dataFrac ~ 0 everywhere); the remaining
+        // 0.7 lets genuinely "more inside" stretches bulge out further than
+        // barely-inside ones.
+        const dist = L2 * envelope * (0.3 + 0.7 * dataFrac);
+        return { lat: node.lat + node.normal.lat * dist, lon: node.lon + node.normal.lon * dist };
+      });
+    };
+
+    // Two endpoints per open path, sorted by their position around the perimeter.
+    const endpoints = [];
+    openPaths.forEach((path, idx) => {
+      const first = getLL(path[0]);
+      const last = getLL(path[path.length - 1]);
+      endpoints.push({ t: perimT(first.lat, first.lon), pathIdx: idx, which: 'start' });
+      endpoints.push({ t: perimT(last.lat, last.lon), pathIdx: idx, which: 'end' });
+    });
+    endpoints.sort((a, b) => a.t - b.t);
+    const n = endpoints.length;
+    if (n === 0) return [];
+
+    const endpointIndex = new Map();
+    endpoints.forEach((e, i) => endpointIndex.set(`${e.pathIdx}:${e.which}`, i));
+
+    // Whether the forward arc (i -> i+1, increasing t) is inside the band. Between
+    // any two adjacent endpoints the boundary value can't cross `level` again, so a
+    // single midpoint sample classifies the whole arc.
+    const arcInsideForward = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const tA = endpoints[i].t;
+      let tB = endpoints[(i + 1) % n].t;
+      if (tB <= tA) tB += 4;
+      const v = sampleBoundary((tA + tB) / 2);
+      arcInsideForward[i] = v !== null && v >= level;
+    }
+
+    const usedEndpoint = new Array(n).fill(false);
+    const rings = [];
+
+    for (let s = 0; s < n; s++) {
+      if (usedEndpoint[s]) continue;
+
+      // First pass: walk the endpoint graph and collect each path segment
+      // together with whatever boundary-walk stretch (if any) follows it,
+      // without deciding yet how each segment's own ends should be
+      // extrapolated — that depends on what's on *both* sides of it, which
+      // isn't known until the whole loop closes.
+      const segments = [];
+      let curIdx = s;
+      let closedOk = false;
+      let guard = 0;
+
+      while (guard++ <= n + 2) {
+        if (usedEndpoint[curIdx]) { closedOk = false; break; }
+        usedEndpoint[curIdx] = true;
+
+        const ep = endpoints[curIdx];
+        const path = openPaths[ep.pathIdx];
+        let curvePts, otherIdx;
+        if (ep.which === 'start') {
+          curvePts = path.map(getLL);
+          otherIdx = endpointIndex.get(`${ep.pathIdx}:end`);
+        } else {
+          curvePts = path.slice().reverse().map(getLL);
+          otherIdx = endpointIndex.get(`${ep.pathIdx}:start`);
+        }
+        usedEndpoint[otherIdx] = true;
+
+        // From `otherIdx`, exactly one of the two neighbouring arcs reads as
+        // "inside" the band (they strictly alternate all the way around the
+        // rectangle) — that tells us which open end comes next in the ring, and
+        // (via boundaryWalk) which real boundary-data stretch has to be nudged
+        // outward and inserted to actually enclose that side when it isn't the
+        // immediately-adjacent one.
+        const prevIdx = (otherIdx - 1 + n) % n;
+        const forward = arcInsideForward[otherIdx];
+        const backward = arcInsideForward[prevIdx];
+
+        let nextIdx, boundaryPts;
+        if (forward && !backward) {
+          nextIdx = (otherIdx + 1) % n;
+          boundaryPts = boundaryWalk(endpoints[otherIdx].t, endpoints[nextIdx].t);
+        } else if (backward && !forward) {
+          nextIdx = prevIdx;
+          boundaryPts = boundaryWalk(endpoints[nextIdx].t, endpoints[otherIdx].t).reverse();
+        } else if (forward) { // degenerate tie — pick a side rather than stall
+          nextIdx = (otherIdx + 1) % n;
+          boundaryPts = boundaryWalk(endpoints[otherIdx].t, endpoints[nextIdx].t);
+        } else { closedOk = false; break; } // neither side reads inside — bail out safely
+
+        segments.push({ curvePts, boundaryPtsAfter: boundaryPts });
+
+        if (nextIdx === s) { closedOk = true; break; }
+        curIdx = nextIdx;
+      }
+
+      const ring = [];
+      if (closedOk) {
+        // Second pass: now that every segment's neighbours are known, extend
+        // each path's own ends past the boundary along its tangent *only*
+        // where it joins directly to another path's tip (no boundary-walk
+        // stretch in between) — that's the case a synthetic tip is needed to
+        // read as "continuing into the field". Where a boundary-walk stretch
+        // already runs up to this segment, it already tapers its own outward
+        // nudge down to exactly 0 right at the join, so it's already smooth
+        // and continuous with the real curve there; adding a second,
+        // independently-placed tip on top of that would create a needless
+        // (and visually spiky) second bulge stacked on the first.
+        const m = segments.length;
+        for (let i = 0; i < m; i++) {
+          const prevBoundary = segments[(i - 1 + m) % m].boundaryPtsAfter;
+          const extrapStart = prevBoundary.length === 0;
+          const extrapEnd = segments[i].boundaryPtsAfter.length === 0;
+          ring.push(...this._tangentExtrapolate(segments[i].curvePts, bounds, extrapStart, extrapEnd));
+          ring.push(...segments[i].boundaryPtsAfter);
+        }
+      }
+
+      if (closedOk && ring.length >= 3) rings.push(ring);
+    }
+
+    return rings;
+  }
 
   // ═══════════════════════════════════════════════════════════════════
   //  Vector layers
