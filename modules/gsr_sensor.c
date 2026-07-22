@@ -5,6 +5,20 @@
 #include <stdlib.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TIA conversion: normalized ADC counts → nanosiemens
+//
+// Transimpedance amplifier circuit equation.  Clamped at 319000 counts
+// (≈rail saturation).  Constants: 5×10⁶ numerator, 1.504×10⁷ − 47×counts
+// denominator.  Used by both tick() and get_raw_sample_ns() — defined
+// here as file-local static inline so the two call sites share one copy.
+// ─────────────────────────────────────────────────────────────────────────────
+static inline float tia_counts_to_ns(float counts) {
+    if(counts <= 0.0f) return 0.0f;
+    if(counts > 319000.0f) counts = 319000.0f;
+    return (counts * 5000000.0f) / (15040000.0f - counts * 47.0f);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ADS1115 register addresses
 // ─────────────────────────────────────────────────────────────────────────────
 #define ADS1115_CONFIG_REG   0x01
@@ -331,10 +345,7 @@ float gsr_sensor_get_raw_sample_ns(const GsrSensor* gsr) {
     furi_mutex_release(gsr->mutex);
 
     if(norm <= 0) return 0.0f;
-    if(norm > 319000) norm = 319000;
-    float num = (float)norm * 5000000.0f;
-    float den = 15040000.0f - (float)norm * 47.0f;
-    return num / den;
+    return tia_counts_to_ns((float)norm);
 }
 
 int32_t gsr_sensor_get_raw_sample_count(const GsrSensor* gsr) {
@@ -446,14 +457,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // Calibration (if active) is applied AFTER the TIA, in the nS domain
     // where gain and offset were computed.
     float raw_ns;
-    if(avg_norm <= 0) {
-        raw_ns = 0.0f;
-    } else {
-        float clamped = (avg_norm > 319000) ? 319000.0f : avg_norm;
-        float num = clamped * 5000000.0f;
-        float den = 15040000.0f - clamped * 47.0f;
-        raw_ns = num / den;
-    }
+    raw_ns = tia_counts_to_ns(avg_norm);
     if(active) {
         raw_ns = gain * raw_ns + offset;
     }

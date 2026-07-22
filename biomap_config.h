@@ -20,3 +20,10 @@ typedef enum {
     BioMapModeGsrOnly,     // GSR waveform viewer, no location
     BioMapModeDiagnostics, // GSR diagnostics — raw counts, no graph
 } BioMapMode;
+
+// ── CSV column headers ────────────────────────────────────────────────
+// Must stay in sync with the printf format strings in format_gps_csv_row()
+// (biomap_session.c).  Changing column order here requires matching changes
+// to the "%.2f,%.7f,..." format strings.
+#define BIOMAP_CSV_COLS_GPS_GSR  "timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw\n"
+#define BIOMAP_CSV_COLS_GSR_ONLY "timestamp,gsr_raw\n"

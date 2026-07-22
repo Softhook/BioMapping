@@ -304,8 +304,8 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
             FURI_LOG_W("BioMap", "RTC not set — recording epoch will be 0 in CSV header");
         }
         const char* cols = (s->mode == BioMapModeGsrOnly)
-            ? "timestamp,gsr_raw\n"
-            : "timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw\n";
+            ? BIOMAP_CSV_COLS_GSR_ONLY
+            : BIOMAP_CSV_COLS_GPS_GSR;
         char header[256];
         int n = snprintf(header, sizeof(header),
                          "# RecordingStartTime:%lu\n%s", (unsigned long)epoch, cols);

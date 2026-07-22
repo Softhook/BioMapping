@@ -20,6 +20,8 @@ uint32_t pipeline_unix_epoch(uint16_t year, uint8_t month, uint8_t day,
     };
     // Guard against uninitialised RTC: month=0 would cause days_before[-1].
     // Year < 2020 catches a completely unset RTC (typically 2000-01-01).
+    // Returns 0 as sentinel — cannot collide with a valid 1970 epoch
+    // because year < 2020 is rejected above.
     if(year < 2020 || month < 1 || month > 12 ||
        day   < 1   || day   > 31) {
         return 0;  // sentinel: RTC not set
