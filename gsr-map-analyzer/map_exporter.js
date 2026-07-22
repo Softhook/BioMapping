@@ -274,70 +274,54 @@ class GSRMapExporter {
         }
       }
 
-      // ── B. Vector Isoband Polygons (Marching Isoband Cell Clipping) ──
-      // Computes exact 2D polygon slices for each value interval [va, vb] inside every grid cell.
-      // Inner edges match contour curves; outer edges terminate naturally at the dataset boundary.
-      const numBands = 10;
-      const bandThresholds = [];
-      const bandRatios = [];
+      // ── B. Vector Isoband Polygons & Iso-lines ──────────────────────
+      if (contours && Array.isArray(contours)) {
+        // Base envelope polygon at dataset edge (ratio 0.0 = Green #00e575)
+        const baseColor = this._ratioToHex(0.0);
+        const pNW = project([bounds.maxLat, bounds.minLon]);
+        const pNE = project([bounds.maxLat, bounds.maxLon]);
+        const pSE = project([bounds.minLat, bounds.maxLon]);
+        const pSW = project([bounds.minLat, bounds.minLon]);
+        const basePtsStr = `${pNW.x.toFixed(3)},${pNW.y.toFixed(3)} ${pNE.x.toFixed(3)},${pNE.y.toFixed(3)} ${pSE.x.toFixed(3)},${pSE.y.toFixed(3)} ${pSW.x.toFixed(3)},${pSW.y.toFixed(3)}`;
+        res.isobands.push(
+          `<polygon points="${basePtsStr}" fill="${this._esc(baseColor)}" fill-opacity="0.45" stroke="${this._esc(baseColor)}" stroke-width="0.5" stroke-linejoin="round" />`
+        );
 
-      for (let i = 0; i <= numBands; i++) {
-        const r = i / numBands;
-        let v;
-        if (useRankColor && sortedVals && sortedVals.length > 1) {
-          const idx = Math.min(sortedVals.length - 1, Math.floor(r * (sortedVals.length - 1)));
-          v = sortedVals[idx];
-        } else {
-          v = minVal + r * valRange;
-        }
-        bandThresholds.push(v);
-        bandRatios.push(r);
-      }
+        contours.forEach(c => {
+          const fillColor = this._ratioToHex(c.ratio);
 
-      for (let b = 0; b < numBands; b++) {
-        const va = bandThresholds[b];
-        const vb = bandThresholds[b + 1];
-        if (va >= vb) continue;
-        const midRatio = 0.5 * (bandRatios[b] + bandRatios[b + 1]);
-        const fillColor = this._ratioToHex(midRatio);
+          const stitchedPaths = (typeof GSRSpatialClustering !== 'undefined' && typeof GSRSpatialClustering.stitchSegments === 'function')
+            ? GSRSpatialClustering.stitchSegments(c.segments)
+            : (c.segments || []).map(seg => [seg[0], seg[1]]);
 
-        for (let row = 0; row < rows - 1; row++) {
-          for (let col = 0; col < cols - 1; col++) {
-            const v0 = grid[row][col];
-            const v1 = grid[row + 1][col];
-            const v2 = grid[row + 1][col + 1];
-            const v3 = grid[row][col + 1];
+          stitchedPaths.forEach(rawPath => {
+            if (!rawPath || rawPath.length < 2) return;
 
-            if (v0 === null || isNaN(v0) || v1 === null || isNaN(v1) ||
-                v2 === null || isNaN(v2) || v3 === null || isNaN(v3)) {
-              continue;
+            const isClosed = rawPath.length >= 3 &&
+              Math.abs((rawPath[0].lat ?? rawPath[0][0]) - (rawPath[rawPath.length - 1].lat ?? rawPath[rawPath.length - 1][0])) < 1e-9 &&
+              Math.abs((rawPath[0].lon ?? rawPath[0][1]) - (rawPath[rawPath.length - 1].lon ?? rawPath[rawPath.length - 1][1])) < 1e-9;
+
+            let path;
+            if (isClosed) {
+              path = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
+                ? GeoUtils.chaikinSmooth(rawPath, 2, true)
+                : rawPath;
+            } else {
+              // Smooth open isoline curve first, then close along shortest boundary perimeter arc
+              const smoothedInner = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
+                ? GeoUtils.chaikinSmooth(rawPath, 2, false)
+                : rawPath;
+              path = this._closeBoundaryPath(smoothedInner, bounds);
             }
 
-            const lat0 = bounds.minLat + (row / (rows - 1)) * (bounds.maxLat - bounds.minLat);
-            const lat1 = bounds.minLat + ((row + 1) / (rows - 1)) * (bounds.maxLat - bounds.minLat);
-            const lon0 = bounds.minLon + (col / (cols - 1)) * (bounds.maxLon - bounds.minLon);
-            const lon1 = bounds.minLon + ((col + 1) / (cols - 1)) * (bounds.maxLon - bounds.minLon);
-
-            const corners = [
-              { lat: lat0, lon: lon0, val: v0 },
-              { lat: lat1, lon: lon0, val: v1 },
-              { lat: lat1, lon: lon1, val: v2 },
-              { lat: lat0, lon: lon1, val: v3 }
-            ];
-
-            const clipped = this._clipCellIsoband(corners, va, vb);
-            if (!clipped || clipped.length < 3) continue;
-
-            const ptsStr = clipped.map(p => {
-              const proj = project([p.lat, p.lon]);
-              return `${proj.x.toFixed(3)},${proj.y.toFixed(3)}`;
-            }).join(' ');
+            const d = this._pathD(ctx, path, true, true);
+            if (!d) return;
 
             res.isobands.push(
-              `<polygon points="${ptsStr}" fill="${this._esc(fillColor)}" fill-opacity="0.45" stroke="${this._esc(fillColor)}" stroke-width="0.5" stroke-opacity="0.7" stroke-linejoin="round" />`
+              `<path d="${d}" fill="${this._esc(fillColor)}" fill-opacity="0.45" stroke="${this._esc(fillColor)}" stroke-width="0.8" stroke-opacity="0.7" stroke-linejoin="round" stroke-linecap="round" />`
             );
-          }
-        }
+          });
+        });
       }
     }
 
@@ -474,26 +458,39 @@ class GSRMapExporter {
     const t0 = getT(lat0, lon0);
     const tK = getT(latK, lonK);
 
+    const dCW  = (t0 - tK + 4) % 4;
+    const dCCW = (tK - t0 + 4) % 4;
+    const goClockwise = dCW <= dCCW;
+
     const closed = [...path];
-    let currCorner = (Math.floor(tK) + 1) % 4;
-    let guard = 0;
-
-    while (guard < 4) {
-      const cT = currCorner === 0 ? 0 : currCorner;
-      let inArc = false;
-      if (tK < t0) {
-        inArc = (cT > tK && cT < t0);
-      } else if (tK > t0) {
-        inArc = (cT > tK || cT < t0);
+    if (goClockwise) {
+      let currCorner = (Math.floor(tK) + 1) % 4;
+      let guard = 0;
+      while (guard < 4) {
+        const cT = currCorner === 0 ? 0 : currCorner;
+        let inArc = (tK < t0) ? (cT > tK && cT < t0) : (cT > tK || cT < t0);
+        if (inArc) {
+          closed.push(corners[currCorner]);
+        } else {
+          break;
+        }
+        currCorner = (currCorner + 1) % 4;
+        guard++;
       }
-
-      if (inArc) {
-        closed.push(corners[currCorner]);
-      } else {
-        break;
+    } else {
+      let currCorner = Math.floor(tK);
+      let guard = 0;
+      while (guard < 4) {
+        const cT = currCorner;
+        let inArc = (t0 < tK) ? (cT < tK && cT > t0) : (cT < tK || cT > t0);
+        if (inArc) {
+          closed.push(corners[currCorner]);
+        } else {
+          break;
+        }
+        currCorner = (currCorner + 3) % 4;
+        guard++;
       }
-      currCorner = (currCorner + 1) % 4;
-      guard++;
     }
 
     closed.push({ lat: lat0, lon: lon0, lng: lon0 });
