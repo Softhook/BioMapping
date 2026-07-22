@@ -11,8 +11,6 @@
 // Always probed at alloc(); gsr_sensor_available() reports success.
 // Readings return 0 and tick() is a no-op if the probe fails.
 
-#include <furi.h>
-#include <furi_hal.h>
 #include <stdbool.h>
 #include <stdint.h>
 

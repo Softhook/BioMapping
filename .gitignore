@@ -5,5 +5,5 @@
 .env.local
 config.local.js
 /tracks
-.DS_Store
+build/
 .DS_Store

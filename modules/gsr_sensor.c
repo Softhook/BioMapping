@@ -2,6 +2,8 @@
 // Signal processing (EMA, derivative) is deferred to the main app.
 
 #include "gsr_sensor.h"
+#include <furi.h>
+#include <furi_hal.h>
 #include <stdlib.h>
 
 // ─────────────────────────────────────────────────────────────────────────────

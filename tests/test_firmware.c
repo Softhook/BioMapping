@@ -385,7 +385,10 @@ void test_nmea_parsing() {
     // $GNGGA sentence with valid coordinates:
     // Latitude: 5133.34438 N -> 51.5557397 N
     // Longitude: 00004.28757 W -> -0.0714595 W
-    const char* gga_sentence = "$GNGGA,203337.00,5133.34438,N,00004.28757,W,1,16,0.9,123.4,M,45.6,M,,*50";
+    // Checksum corrected to the actual XOR (6C) — this test calls
+    // minmea_parse_gga() directly so an invalid checksum here wouldn't
+    // have failed the test, but it's worth being right regardless.
+    const char* gga_sentence = "$GNGGA,203337.00,5133.34438,N,00004.28757,W,1,16,0.9,123.4,M,45.6,M,,*6C";
     
     struct minmea_sentence_gga frame;
     bool parsed = minmea_parse_gga(&frame, gga_sentence);
