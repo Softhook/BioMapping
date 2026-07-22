@@ -100,7 +100,7 @@ class GSRMapExporter {
     return {
       tiles:          await this._tiles(el, r),
       surface:        this._surface(ctx),
-      osm:            this._vectors(ctx, mgr.osmLayers),
+      osm:            this._vectors(ctx, mgr.osmLayers, { exact: true }),
       tracks:         this._vectors(ctx, [...mgr.pathSegments, ...mgr.collectivePathSegments]),
       contours:       this._vectors(ctx, mgr.contourLayers),
       clusters:       this._vectors(ctx, mgr.clusterLayers),
@@ -461,23 +461,27 @@ class GSRMapExporter {
   //  Vector layers
   // ═══════════════════════════════════════════════════════════════════
 
-  static _vectors(ctx, layers) {
+  static _vectors(ctx, layers, opts) {
     const out = [];
     if (!layers) return out;
     for (const l of layers) {
-      const svg = this._pathEl(ctx, l);
+      const svg = this._pathEl(ctx, l, opts);
       if (svg) out.push(svg);
     }
     return out;
   }
 
-  static _pathEl(ctx, layer) {
+  static _pathEl(ctx, layer, opts = {}) {
     if (!layer || typeof layer.getLatLngs !== 'function') return null;
     let latlngs = layer.getLatLngs();
     const isPoly  = window.L && layer instanceof window.L.Polygon;
+    // "exact" layers (OSM building/park/water shapes) are authoritative vector
+    // geometry, not sensor data — every vertex is a real, deliberate coordinate,
+    // so none of the GPS-track-oriented smoothing/culling below should touch them.
+    const exact = !!opts.exact;
 
     // Apply Chaikin pre-smoothing to track paths to filter micro-jitter before screen projection
-    if (!isPoly && Array.isArray(latlngs) && latlngs.length >= 3 && typeof GeoUtils !== 'undefined') {
+    if (!isPoly && !exact && Array.isArray(latlngs) && latlngs.length >= 3 && typeof GeoUtils !== 'undefined') {
       try {
         const flat = Array.isArray(latlngs[0]) ? latlngs.flat() : latlngs;
         if (flat.length >= 3 && flat[0] && (typeof flat[0].lat === 'number' || Array.isArray(flat[0]))) {
@@ -486,13 +490,16 @@ class GSRMapExporter {
       } catch (_) {}
     }
 
-    const d = this._pathD(ctx, latlngs, isPoly, true);
+    const d = this._pathD(ctx, latlngs, isPoly, !exact, exact);
     if (!d) return null;
 
     const o = layer.options || {};
     const esc = this._esc;
-    // Reduced, elegant stroke size: 1.2px thin stroke for exported track vectors
-    const strokeWidth = (o.weight !== undefined ? Math.min(1.5, o.weight * 0.4) : 1.2);
+    // Reduced, elegant stroke size: 1.2px thin stroke for exported track vectors.
+    // Exact/OSM shapes keep their authored weight untouched — no cosmetic thinning.
+    const strokeWidth = exact
+      ? (o.weight !== undefined ? o.weight : 1)
+      : (o.weight !== undefined ? Math.min(1.5, o.weight * 0.4) : 1.2);
     return `<path d="${d}"` +
       ` stroke="${esc(o.color || '#ff7b00')}"` +
       ` stroke-width="${esc(strokeWidth)}"` +
@@ -500,10 +507,12 @@ class GSRMapExporter {
       ` stroke-dasharray="${esc(o.dashArray || 'none')}"` +
       ` fill="${esc(isPoly ? (o.fillColor || o.color || '#ff7b00') : 'none')}"` +
       ` fill-opacity="${esc(isPoly ? (o.fillOpacity ?? 0.2) : 0)}"` +
-      ` stroke-linecap="round" stroke-linejoin="round" />`;
+      (exact
+        ? ` stroke-linecap="square" stroke-linejoin="miter" />`
+        : ` stroke-linecap="round" stroke-linejoin="round" />`);
   }
 
-  static _pathD(ctx, latlngs, close, smooth = true) {
+  static _pathD(ctx, latlngs, close, smooth = true, exact = false) {
     if (!latlngs?.length) return '';
     const project = (typeof ctx === 'function')
       ? ctx
@@ -512,26 +521,35 @@ class GSRMapExporter {
         : (ll => (ctx?.map?.latLngToContainerPoint ? ctx.map.latLngToContainerPoint(ll) : (ctx?.latLngToContainerPoint ? ctx.latLngToContainerPoint(ll) : { x: 0, y: 0 }))));
 
     if (Array.isArray(latlngs[0]))
-      return latlngs.map(s => this._pathD(ctx, s, close, smooth)).filter(Boolean).join(' ');
+      return latlngs.map(s => this._pathD(ctx, s, close, smooth, exact)).filter(Boolean).join(' ');
 
     const rawPts = latlngs.map(ll => project(ll)).filter(p => p && typeof p.x === 'number' && !isNaN(p.x));
     if (rawPts.length === 0) return '';
     if (rawPts.length === 1) return `M${rawPts[0].x.toFixed(3)} ${rawPts[0].y.toFixed(3)}`;
 
-    // Filter consecutive micro-jitter points in pixel space (< 1.5px apart)
-    const pts = [rawPts[0]];
-    for (let i = 1; i < rawPts.length; i++) {
-      const prev = pts[pts.length - 1];
-      const curr = rawPts[i];
-      if (!curr || !prev) continue;
-      const distSq = (curr.x - prev.x) ** 2 + (curr.y - prev.y) ** 2;
-      if (i === rawPts.length - 1 || distSq >= 2.25) {
-        pts.push(curr);
+    // Exact mode (OSM shapes): keep every projected vertex verbatim — no micro-jitter
+    // culling. That culling exists to smooth out GPS/sensor noise on track paths; on
+    // authoritative building/road/water outlines it silently deletes real corners
+    // whenever two vertices happen to land within ~1.5px of each other on screen.
+    let pts;
+    if (exact) {
+      pts = rawPts;
+    } else {
+      // Filter consecutive micro-jitter points in pixel space (< 1.5px apart)
+      pts = [rawPts[0]];
+      for (let i = 1; i < rawPts.length; i++) {
+        const prev = pts[pts.length - 1];
+        const curr = rawPts[i];
+        if (!curr || !prev) continue;
+        const distSq = (curr.x - prev.x) ** 2 + (curr.y - prev.y) ** 2;
+        if (i === rawPts.length - 1 || distSq >= 2.25) {
+          pts.push(curr);
+        }
       }
     }
 
     if (pts.length < 2) return `M${rawPts[0].x.toFixed(3)} ${rawPts[0].y.toFixed(3)}`;
-    if (pts.length === 2 || !smooth) {
+    if (pts.length === 2 || !smooth || exact) {
       let d = `M${pts[0].x.toFixed(3)} ${pts[0].y.toFixed(3)}`;
       for (let i = 1; i < pts.length; i++) {
         d += ` L${pts[i].x.toFixed(3)} ${pts[i].y.toFixed(3)}`;
