@@ -127,43 +127,32 @@ assert(svgOutput.includes('id="Vector_Surface_Mesh"'), 'SVG contains Vector_Surf
 assert(svgOutput.includes('data-name="Vector Surface Mesh"'), 'SVG contains Vector Surface Mesh layer name');
 assert(svgOutput.includes('id="Vector_Surface_Isobands"'), 'SVG contains Vector_Surface_Isobands layer group');
 assert(svgOutput.includes('data-name="Vector Surface Isobands"'), 'SVG contains Vector Surface Isobands layer name');
-assert(svgOutput.includes('id="Raster_Surface_Fallback"'), 'SVG contains Raster_Surface_Fallback layer group');
+assert(!svgOutput.includes('id="Raster_Surface_Fallback"'), 'SVG contains NO Raster_Surface_Fallback layer group');
 
 // Verify that the vector layers do not contain raster images
 const meshGroupIdx = svgOutput.indexOf('id="Vector_Surface_Mesh"');
 const isobandsGroupIdx = svgOutput.indexOf('id="Vector_Surface_Isobands"');
-const rasterGroupIdx = svgOutput.indexOf('id="Raster_Surface_Fallback"');
 
 const meshSection = svgOutput.substring(meshGroupIdx, isobandsGroupIdx);
 assert(!meshSection.includes('<image'), 'Vector_Surface_Mesh Section contains NO raster image elements');
 
-console.log('✓ SVG output successfully includes separate Vector_Surface_Mesh and Vector_Surface_Isobands layers');
+console.log('✓ SVG output successfully includes separate Vector_Surface_Mesh and Vector_Surface_Isobands layers without raster fallback');
 
-// 4. Test Fallback when surfaceData is absent
+// 4. Test when surfaceData is absent
 const ctxNoSurface = {
   map: mockMap,
   el: mockEl,
   r: { left: 0, top: 0 },
   w: 800,
   h: 600,
-  mgr: {
-    surfaceOverlay: {
-      getBounds: () => ({
-        getNorthWest: () => [50.0, 0.0],
-        getSouthEast: () => [49.9, 0.1]
-      }),
-      _url: 'data:image/png;base64,mockpng'
-    }
-  }
+  mgr: {}
 };
 
 const fallbackLayers = GSRMapExporter._surface(ctxNoSurface);
 assert(fallbackLayers.mesh.length === 0, 'No vector mesh when surfaceData is missing');
 assert(fallbackLayers.isobands.length === 0, 'No vector isobands when surfaceData is missing');
-assert(fallbackLayers.raster.length === 1, 'Raster fallback contains image overlay when surfaceOverlay is present');
-assert(fallbackLayers.raster[0].includes('data:image/png;base64,mockpng'), 'Raster fallback URL matches overlay');
 
-console.log('✓ Fallback to raster image works cleanly when surfaceData is absent');
+console.log('✓ Vector surface handles missing surfaceData cleanly');
 
 // 5. Test Dataset-Framed High-Precision Projection (_getProjection)
 const mockMgrWithBounds = {

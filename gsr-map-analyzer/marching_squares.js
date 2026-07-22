@@ -35,10 +35,14 @@ class MarchingSquares {
       const p1 = getLatLng(r1, c1);
       const p2 = getLatLng(r2, c2);
 
-      if (v1 === null || v2 === null || isNaN(v1) || isNaN(v2)) return p1;
+      const isVal1 = v1 !== null && !isNaN(v1);
+      const isVal2 = v2 !== null && !isNaN(v2);
+
+      if (!isVal1 && !isVal2) return p1;
+      if (!isVal1 || !isVal2) return { lat: (p1.lat + p2.lat) / 2, lon: (p1.lon + p2.lon) / 2 };
       if (Math.abs(v1 - v2) < 1e-9) return p1;
 
-      const t = (isolevel - v1) / (v2 - v1);
+      const t = Math.max(0, Math.min(1, (isolevel - v1) / (v2 - v1)));
       return {
         lat: p1.lat + t * (p2.lat - p1.lat),
         lon: p1.lon + t * (p2.lon - p1.lon)
@@ -53,18 +57,22 @@ class MarchingSquares {
         const vSE = grid[r + 1][c + 1]; // Bottom-right (SE)
         const vSW = grid[r + 1][c];     // Bottom-left (SW)
 
-        // If any corner is null (outside boundary mask), skip cell
-        if (vNW === null || vNE === null || vSE === null || vSW === null ||
-            isNaN(vNW) || isNaN(vNE) || isNaN(vSE) || isNaN(vSW)) {
+        const nwVal = vNW !== null && !isNaN(vNW);
+        const neVal = vNE !== null && !isNaN(vNE);
+        const seVal = vSE !== null && !isNaN(vSE);
+        const swVal = vSW !== null && !isNaN(vSW);
+
+        // Skip only if all 4 corners are null/NaN (completely outside mask)
+        if (!nwVal && !neVal && !seVal && !swVal) {
           continue;
         }
 
         // 4-bit index: NW (bit 3), NE (bit 2), SE (bit 1), SW (bit 0)
         let cellIndex = 0;
-        if (vNW >= isolevel) cellIndex |= 8;
-        if (vNE >= isolevel) cellIndex |= 4;
-        if (vSE >= isolevel) cellIndex |= 2;
-        if (vSW >= isolevel) cellIndex |= 1;
+        if (nwVal && vNW >= isolevel) cellIndex |= 8;
+        if (neVal && vNE >= isolevel) cellIndex |= 4;
+        if (seVal && vSE >= isolevel) cellIndex |= 2;
+        if (swVal && vSW >= isolevel) cellIndex |= 1;
 
         if (cellIndex === 0 || cellIndex === 15) continue;
 

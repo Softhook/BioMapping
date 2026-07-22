@@ -237,8 +237,8 @@ class GSRMapExporter {
       `</g>`;
 
     const surfObj = Array.isArray(L.surface)
-      ? { mesh: [], isobands: [], raster: L.surface }
-      : (L.surface || { mesh: [], isobands: [], raster: [] });
+      ? { mesh: [], isobands: [] }
+      : (L.surface || { mesh: [], isobands: [] });
 
     const specs = [
       ['Base_Map_Tiles',          'Base Map Tiles',              L.tiles],
@@ -249,8 +249,7 @@ class GSRMapExporter {
       // extension behind a clip-path, exportToSvg() grows the canvas ahead of
       // time (_expandCanvasForIsobands) so the full rounded shape is genuinely
       // visible here — nothing in this layer is invisible or clipped.
-      ['Vector_Surface_Isobands', 'Vector Surface Isobands',     surfObj.isobands,    'opacity="0.5"'],
-      ['Raster_Surface_Fallback', 'Raster Surface Fallback',     surfObj.raster,      'opacity="0.4"'],
+      ['Vector_Surface_Isobands', 'Vector Surface Isobands',     surfObj.isobands,    'opacity="0.4"'],
       ['OSM_Shapes',              'OSM Shapes',                  L.osm],
       ['GPS_Track_Paths',         'GPS Track Paths',             L.tracks],
       ['Contour_Lines',           'Contour Lines',               L.contours],
@@ -343,8 +342,7 @@ class GSRMapExporter {
     const project = ctx.project || (ll => map.latLngToContainerPoint(ll));
     const res = {
       mesh: [],
-      isobands: [],
-      raster: []
+      isobands: []
     };
 
     // 1. If mgr.surfaceData exists, generate vector mesh and vector isobands
@@ -444,7 +442,7 @@ class GSRMapExporter {
             const d = this._pathD(ctx, smoothRing(ring), true, true);
             if (!d) return;
             res.isobands.push(
-              `<path d="${d}" fill="${this._esc(fillColor)}" fill-opacity="0.45" stroke="none" />`
+              `<path d="${d}" fill="${this._esc(fillColor)}" stroke="none" />`
             );
           };
           // B1a. Interior rings — already closed, smooth + fill as-is.
@@ -467,28 +465,6 @@ class GSRMapExporter {
           const closedFromOpen = this._closeOpenIsobandPaths(openPaths, grid, rows, cols, bounds, level);
           closedFromOpen.forEach(fillRing);
         });
-      }
-    }
-
-    // ── C. Raster Surface Fallback ──────────────────────────────────
-    const overlay = mgr?.surfaceOverlay;
-    if (overlay) {
-      try {
-        const bounds = overlay.getBounds();
-        const tl = project(bounds.getNorthWest());
-        const br = project(bounds.getSouthEast());
-        const x = tl.x, y = tl.y, w = br.x - tl.x, h = br.y - tl.y;
-        const src = overlay._url || (overlay.getElement() ? overlay.getElement().src : null);
-        if (src) res.raster.push(this._img(x, y, w, h, src));
-      } catch (e) {
-        console.warn("Raster surface overlay bounds export failed:", e);
-      }
-    }
-    if (res.raster.length === 0) {
-      const img = el.querySelector('.collective-surface-overlay');
-      if (img) {
-        const b = img.getBoundingClientRect();
-        res.raster.push(this._img(b.left - r.left, b.top - r.top, b.width, b.height, img.src));
       }
     }
 

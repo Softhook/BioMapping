@@ -276,23 +276,30 @@ class GSRCollectiveManager {
 
     const contours = [];
     const seenLevels = new Set();
+    const valRange = maxVal - minVal;
+
     for (let k = 1; k <= contourCount; k++) {
       const percentile = k / (contourCount + 1);
       const idx = Math.min(sortedVals.length - 1, Math.max(0, Math.round(percentile * (sortedVals.length - 1))));
-      const level = sortedVals.length > 0 ? sortedVals[idx] : minVal;
+      let level = sortedVals.length > 0 ? sortedVals[idx] : minVal;
+      let ratio = percentile;
 
-      // Skip duplicate levels — common when a large flat region shares the same interpolated
-      // value, which would otherwise draw a redundant (or contour-less) line at that level.
-      const levelKey = level.toFixed(6);
+      let levelKey = level.toFixed(6);
+      if (seenLevels.has(levelKey) && valRange > 1e-9) {
+        // Fall back to a linear step across the value range if percentile rank hit a flat baseline plateau
+        level = minVal + (k / (contourCount + 1)) * valRange;
+        levelKey = level.toFixed(6);
+        if (typeof StatsMath !== 'undefined' && typeof StatsMath.percentileRank === 'function' && sortedVals.length > 1) {
+          ratio = StatsMath.percentileRank(level, sortedVals);
+        }
+      }
+
       if (seenLevels.has(levelKey)) continue;
       seenLevels.add(levelKey);
 
       const segments = MarchingSquares.getContourLines(grid, rows, cols, bounds, level);
       if (segments.length > 0) {
-        // ratio = percentile rank (not magnitude ratio), so line color reflects "how high is
-        // this relative to the rest of the surface" rather than "how high on a scale that's
-        // mostly empty".
-        contours.push({ level, ratio: percentile, segments });
+        contours.push({ level, ratio, segments });
       }
     }
 
