@@ -26,7 +26,17 @@
 #include <unistd.h>
 
 #include "modules/gsr_sensor.h"
+#include "furi.h"
 #include "furi_hal.h"
+
+// Declared in tests/shims/furi.h. Only gps_uart.c's tests previously
+// needed this defined; gsr_sensor_get_worker_hz() now calls furi_get_tick()
+// too, so it must be defined here as well or the link fails. It's a
+// manually-advanced fake clock (see wait_for_more_reads below), not a
+// real one — furi_delay_ms() is a no-op in this harness, so there's no
+// wall-clock time for it to track automatically.
+extern uint32_t furi_test_tick;
+uint32_t furi_test_tick = 1;
 
 // Poll until at least `n` more I2C reads have happened since this call
 // started, or fail the test after a generous timeout. The worker spins
@@ -39,6 +49,7 @@ static void wait_for_more_reads(int n) {
     while(furi_hal_i2c_mock_read_count() < start + n) {
         usleep(200);
         waited_us += 200;
+        furi_test_advance_tick(1); // keep the fake clock moving alongside real waits
         if(waited_us > 5000000) {
             fprintf(stderr, "TIMEOUT: worker did not produce %d more I2C reads\n", n);
             assert(false);
@@ -52,6 +63,7 @@ static void wait_for_more_writes(int n) {
     while(furi_hal_i2c_mock_write_count() < start + n) {
         usleep(200);
         waited_us += 200;
+        furi_test_advance_tick(1);
         if(waited_us > 5000000) {
             fprintf(stderr, "TIMEOUT: worker did not produce %d more I2C writes\n", n);
             assert(false);
@@ -94,6 +106,66 @@ static void test_alloc_probe_failure(void) {
     assert(gsr_sensor_get_raw(gsr) == 0.0f);
 
     gsr_sensor_free(gsr); // must not hang — no worker thread was ever started
+    printf("  -> Pass\n");
+}
+
+// Confirms the rolling-window iter_count/tick() plumbing works and the
+// accessor doesn't crash or divide by zero — NOT a check of the real
+// throughput number, which is meaningless on host since
+// tests/shims/furi.h's furi_delay_ms() is a no-op there (see
+// docs/gsr_filtering_analysis.md, Recommendation 1). Only a real device
+// build can answer "is it near 1000 Hz". worker_hz_cached is written by
+// gsr_sensor_tick() only once a ~1s window has elapsed, so this test must
+// push the fake clock past that threshold and call tick() before reading
+// it — it's not live-updated by the worker thread itself.
+static void test_worker_hz_accessor(void) {
+    printf("Running test_worker_hz_accessor...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+    assert(gsr_sensor_get_worker_hz(gsr) == 0.0f); // no window has elapsed yet
+
+    wait_for_more_reads(200);
+    furi_test_advance_tick(1001); // force the ~1s measurement window to roll over
+    gsr_sensor_tick(gsr);
+
+    float hz = gsr_sensor_get_worker_hz(gsr);
+    printf("  worker_hz=%.0f (host-harness artifact, not a real-hardware rate)\n", (double)hz);
+    assert(hz > 0.0f);
+    assert(gsr_sensor_get_success_rate(gsr) > 99.0f); // no failures injected
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+// Validates the success-rate math against a known, deterministic failure
+// ratio — not just "does it run without crashing". This is the
+// diagnostic that distinguishes "the worker loop genuinely only runs
+// this fast" from "the loop runs faster but half the reads silently
+// fail" (see docs/gsr_filtering_analysis.md) — worth verifying the
+// arithmetic is actually right, not just present.
+static void test_success_rate_reflects_real_failure_ratio(void) {
+    printf("Running test_success_rate_reflects_real_failure_ratio...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_i2c_mock_set_fail_every_nth(2); // exactly 50% of reads fail
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+
+    wait_for_more_reads(400); // plenty of attempts on both sides of the 50%
+    furi_test_advance_tick(1001);
+    gsr_sensor_tick(gsr);
+
+    float rate = gsr_sensor_get_success_rate(gsr);
+    float hz = gsr_sensor_get_worker_hz(gsr);
+    printf("  fail_every_nth=2 -> success_rate=%.1f%% (expect ~50%%), worker_hz=%.0f\n",
+           (double)rate, (double)hz);
+    assert(rate > 40.0f && rate < 60.0f);
+
+    gsr_sensor_free(gsr);
     printf("  -> Pass\n");
 }
 
@@ -252,6 +324,8 @@ static void test_disconnect_on_i2c_failure(void) {
 int main(void) {
     test_alloc_probe_success();
     test_alloc_probe_failure();
+    test_worker_hz_accessor();
+    test_success_rate_reflects_real_failure_ratio();
     test_tia_conversion();
     test_calibration_applies_gain_offset();
     test_autorange_up_on_low_signal();

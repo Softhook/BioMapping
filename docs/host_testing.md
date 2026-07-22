@@ -92,6 +92,10 @@ tests/
   test_firmware.c               — pipeline / calibration / CSV host tests
   test_gps_uart.c                — gps_uart.c host tests, via the shims below
   test_gsr_sensor.c              — gsr_sensor.c host tests, real worker thread + all
+  analyze_gsr_filtering.c        — investigative tool, not pass/fail: measures
+                                   the real IIR+EMA frequency response and the
+                                   boxcar mains-notch's rate sensitivity. See
+                                   docs/gsr_filtering_analysis.md.
   shims/
     furi.h                      — fakes the Furi-core calls these drivers make
                                    directly: mutex + thread (real pthreads —

@@ -89,6 +89,12 @@ int furi_hal_i2c_mock_read_count(void);
 // failure / sensor disconnected).
 void furi_hal_i2c_mock_set_read_fail(bool fail);
 
+// When n > 0, every Nth read_mem call fails and the rest succeed — a
+// deterministic, precisely-testable intermittent-failure rate (e.g. n=2
+// gives exactly 50% success), as opposed to furi_hal_i2c_mock_set_read_fail's
+// all-or-nothing. n=0 disables (default).
+void furi_hal_i2c_mock_set_fail_every_nth(int n);
+
 // Number of write_mem (CONFIG_REG) calls so far, and the MSB of the most
 // recent one — pga_msb(index) encodes the PGA index being switched to.
 int     furi_hal_i2c_mock_write_count(void);

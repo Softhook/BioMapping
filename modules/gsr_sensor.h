@@ -77,6 +77,21 @@ int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr);
 // Current PGA index (0–5).  For diagnostics.
 uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr);
 
+// Measured worker-thread throughput in Hz — the real rate the background
+// I2C-polling loop is achieving, as opposed to the nominal ~1000 Hz the
+// mains-hum notch in gsr_sensor_tick()'s 100-sample average assumes.
+// Returns 0.0f if unavailable or if called immediately after alloc()
+// (before any real time has elapsed).  For diagnostics.
+float gsr_sensor_get_worker_hz(const GsrSensor* gsr);
+
+// Percentage of I2C read attempts that succeeded (0-100), over the same
+// window as gsr_sensor_get_worker_hz().  Near 100% means the Hz figure
+// reflects the loop's true attempt rate; well below 100% means many
+// reads are silently failing and the loop is attempting faster than the
+// Hz figure alone would suggest — a transport/wiring problem, not a rate
+// limit.  For diagnostics.
+float gsr_sensor_get_success_rate(const GsrSensor* gsr);
+
 // Update calibration parameters (thread-safe).  When active is true,
 // the raw counts are scaled by gain and offset-shifted before conductance conversion.
 void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float offset);

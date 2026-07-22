@@ -265,6 +265,11 @@ void biomap_render_callback(Canvas* c, void* ctx) {
             canvas_draw_str(c, 0, y, buf);  y += 10;
 
             snprintf(buf, sizeof(buf), "Mean: %ld", (long)mean_cnt);
+            canvas_draw_str(c, 0, y, buf);  y += 10;
+
+            snprintf(buf, sizeof(buf), "Hz:%.0f OK:%.0f%%",
+                     (double)gsr_sensor_get_worker_hz(a->session.gsr),
+                     (double)gsr_sensor_get_success_rate(a->session.gsr));
             canvas_draw_str(c, 0, y, buf);
         } else {
             canvas_draw_str(c, 0, 8, "GSR: --");

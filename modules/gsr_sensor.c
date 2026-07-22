@@ -126,6 +126,29 @@ struct GsrSensor {
 
     int32_t buffer[SENSOR_BUFFER_SIZE];
     volatile uint32_t write_idx;
+
+    // Worker throughput diagnostics (see docs/gsr_filtering_analysis.md,
+    // Recommendation 1) — iter_count counts successful buffer writes only
+    // (not PGA-change passes, which don't write), so iter_count / elapsed
+    // time is the true sample rate the CSV boxcar average in
+    // gsr_sensor_tick() actually runs at.
+    //
+    // worker_hz_cached is a ROLLING ~1 s measurement, recomputed by
+    // gsr_sensor_tick() (main thread only) whenever a window elapses —
+    // deliberately NOT a lifetime average since alloc().  A lifetime
+    // average converges slowly and stays permanently diluted by the
+    // one-time probe/warm-up delay in gsr_sensor_alloc(), so a reading
+    // taken shortly after entering the Diagnostics screen would
+    // understate the true steady-state rate.  Same no-mutex-needed
+    // pattern as tick_mean_norm below: written only by tick() on the main
+    // thread, read by the accessor on the same thread.
+    uint32_t iter_count;            // mutex-protected — worker increments (success only), tick() reads
+    uint32_t attempt_count;         // mutex-protected — worker increments (every read, success or fail)
+    uint32_t hz_window_start_tick;  // tick() only
+    uint32_t hz_window_start_count;    // iter_count snapshot — tick() only
+    uint32_t hz_window_start_attempts; // attempt_count snapshot — tick() only
+    float    worker_hz_cached;      // tick() only — successful-sample rate
+    float    success_rate_cached;   // tick() only — iter_count/attempt_count over the same window, 0-100
 };
 
 // Background worker thread for 860 SPS ADC reading.  Writes normalized
@@ -180,6 +203,14 @@ static int32_t gsr_sensor_worker(void* context) {
             data, 2, 50);
         furi_hal_i2c_release(&furi_hal_i2c_handle_external);
 
+        // Counts every attempt, success or failure — distinguishes "the
+        // loop genuinely only runs this fast" from "the loop runs fast
+        // but half the reads silently fail" (iter_count alone can't tell
+        // these apart; see docs/gsr_filtering_analysis.md).
+        furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+        gsr->attempt_count++;
+        furi_mutex_release(gsr->mutex);
+
         if(ok) {
             consecutive_failures = 0;
             if(!gsr->i2c_working) {
@@ -196,6 +227,7 @@ static int32_t gsr_sensor_worker(void* context) {
             furi_mutex_acquire(gsr->mutex, FuriWaitForever);
             gsr->buffer[gsr->write_idx] = norm;
             gsr->write_idx = (gsr->write_idx + 1) & (SENSOR_BUFFER_SIZE - 1);
+            gsr->iter_count++;
             furi_mutex_release(gsr->mutex);
         } else {
             consecutive_failures++;
@@ -284,6 +316,14 @@ GsrSensor* gsr_sensor_alloc(void) {
 
         gsr->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
         furi_assert(gsr->mutex);
+
+        gsr->iter_count = 0;
+        gsr->attempt_count = 0;
+        gsr->hz_window_start_tick = furi_get_tick(); // set before the worker starts — no lock needed
+        gsr->hz_window_start_count = 0;
+        gsr->hz_window_start_attempts = 0;
+        gsr->worker_hz_cached = 0.0f;
+        gsr->success_rate_cached = 100.0f; // optimistic default until the first window rolls
 
         gsr->running = true;
         gsr->pga_changed = false;
@@ -375,6 +415,30 @@ uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr) {
     return val;
 }
 
+// Measured worker throughput in Hz, over a rolling ~1 s window — the true
+// rate at which gsr_sensor_tick()'s 100-sample boxcar average is actually
+// sampling, as opposed to the nominal ~1000 Hz the mains-notch design
+// assumes. Updated by gsr_sensor_tick() (main thread only); reads 0.0f
+// until the first ~1 s window has elapsed. See
+// docs/gsr_filtering_analysis.md, Recommendation 1.
+float gsr_sensor_get_worker_hz(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return 0.0f;
+    return gsr->worker_hz_cached;
+}
+
+// Percentage of I2C read attempts that succeeded, over the same rolling
+// ~1 s window as gsr_sensor_get_worker_hz(). Distinguishes "the worker
+// loop genuinely only runs this fast" (success_rate near 100%) from "the
+// loop runs faster but many reads silently fail" (success_rate well below
+// 100% — a real transport/wiring problem, not a rate limit). Reads 100.0f
+// until the first window has elapsed (optimistic default, not a claim).
+float gsr_sensor_get_success_rate(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return 100.0f;
+    return gsr->success_rate_cached;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Oversampling & Filtering
 //
@@ -395,6 +459,30 @@ uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr) {
 void gsr_sensor_tick(GsrSensor* gsr) {
     furi_assert(gsr);
     if(!gsr->available) return;
+
+    // ── Roll the worker-Hz measurement window (~1 s) ────────────────────
+    // Deliberately independent of the i2c_ok early-return below — if the
+    // sensor is disconnected, the rate should visibly drop toward zero on
+    // the Diagnostics screen rather than freezing at its last good value.
+    uint32_t now = furi_get_tick();
+    uint32_t one_second_ticks = furi_kernel_get_tick_frequency();
+    if(now - gsr->hz_window_start_tick >= one_second_ticks) {
+        furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+        uint32_t count = gsr->iter_count;
+        uint32_t attempts = gsr->attempt_count;
+        furi_mutex_release(gsr->mutex);
+
+        uint32_t window_ticks = now - gsr->hz_window_start_tick;
+        uint32_t delta = count - gsr->hz_window_start_count;
+        uint32_t delta_attempts = attempts - gsr->hz_window_start_attempts;
+        gsr->worker_hz_cached = (float)delta * (float)one_second_ticks / (float)window_ticks;
+        gsr->success_rate_cached =
+            (delta_attempts > 0) ? (100.0f * (float)delta / (float)delta_attempts) : 100.0f;
+
+        gsr->hz_window_start_tick = now;
+        gsr->hz_window_start_count = count;
+        gsr->hz_window_start_attempts = attempts;
+    }
 
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     bool i2c_ok = gsr->i2c_working;

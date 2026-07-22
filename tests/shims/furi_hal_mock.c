@@ -103,6 +103,7 @@ const FuriHalI2cBusHandle furi_hal_i2c_handle_external = {0};
 static _Atomic int16_t  g_raw16       = 0;
 static _Atomic int      g_read_count  = 0;
 static _Atomic bool     g_read_fail   = false;
+static _Atomic int      g_fail_every_nth = 0;
 static _Atomic int      g_write_count = 0;
 static _Atomic uint8_t  g_last_config_msb = 0;
 
@@ -122,8 +123,10 @@ bool furi_hal_i2c_read_mem(
     (void)addr;
     (void)mem_addr;
     (void)timeout_ms;
-    atomic_fetch_add(&g_read_count, 1);
+    int call_num = atomic_fetch_add(&g_read_count, 1) + 1; // 1-based
     if(atomic_load(&g_read_fail)) return false;
+    int n = atomic_load(&g_fail_every_nth);
+    if(n > 0 && (call_num % n) == 0) return false;
 
     int16_t v = atomic_load(&g_raw16);
     if(len >= 1) data[0] = (uint8_t)((uint16_t)v >> 8);
@@ -156,6 +159,10 @@ void furi_hal_i2c_mock_set_read_fail(bool fail) {
     atomic_store(&g_read_fail, fail);
 }
 
+void furi_hal_i2c_mock_set_fail_every_nth(int n) {
+    atomic_store(&g_fail_every_nth, n);
+}
+
 int furi_hal_i2c_mock_write_count(void) {
     return atomic_load(&g_write_count);
 }
@@ -168,6 +175,7 @@ void furi_hal_i2c_mock_reset(void) {
     atomic_store(&g_raw16, 0);
     atomic_store(&g_read_count, 0);
     atomic_store(&g_read_fail, false);
+    atomic_store(&g_fail_every_nth, 0);
     atomic_store(&g_write_count, 0);
     atomic_store(&g_last_config_msb, 0);
 }
