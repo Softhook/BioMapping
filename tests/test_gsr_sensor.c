@@ -428,6 +428,38 @@ static void test_disconnect_on_i2c_failure(void) {
     printf("  -> Pass\n");
 }
 
+static void test_adc_power_down_and_reenable(void) {
+    printf("Running test_adc_power_down_and_reenable...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+
+    // Step 1: Alloc sensor -> config MSB must have MODE bit = 0 (continuous mode)
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+    uint8_t alloc_msb = furi_hal_i2c_mock_last_config_msb();
+    printf("  alloc config MSB = 0x%02X (MODE bit = %d, expect 0 for continuous)\n",
+           alloc_msb, alloc_msb & 0x01);
+    assert((alloc_msb & 0x01) == 0);
+
+    // Step 2: Free sensor -> gsr_sensor_free must write power-down command with MODE bit = 1
+    gsr_sensor_free(gsr);
+    uint8_t free_msb = furi_hal_i2c_mock_last_config_msb();
+    printf("  free config MSB = 0x%02X (MODE bit = %d, expect 1 for power-down)\n",
+           free_msb, free_msb & 0x01);
+    assert((free_msb & 0x01) == 1);
+
+    // Step 3: Re-alloc sensor -> must write continuous mode config with MODE bit = 0 again
+    GsrSensor* gsr2 = gsr_sensor_alloc();
+    assert(gsr2 != NULL);
+    uint8_t realloc_msb = furi_hal_i2c_mock_last_config_msb();
+    printf("  re-alloc config MSB = 0x%02X (MODE bit = %d, expect 0 for continuous)\n",
+           realloc_msb, realloc_msb & 0x01);
+    assert((realloc_msb & 0x01) == 0);
+
+    gsr_sensor_free(gsr2);
+    printf("  -> Pass\n");
+}
+
 int main(void) {
     test_alloc_probe_success();
     test_alloc_probe_failure();
@@ -442,6 +474,7 @@ int main(void) {
     test_pga_lock_suppresses_autorange();
     test_disconnect_debounce_low_signal();
     test_disconnect_on_i2c_failure();
+    test_adc_power_down_and_reenable();
 
     printf("\nAll gsr_sensor host tests passed successfully!\n");
     return 0;

@@ -504,6 +504,16 @@ void gsr_sensor_free(GsrSensor* gsr) {
         gsr->running = false;
         furi_thread_join(gsr->thread);
         furi_thread_free(gsr->thread);
+
+        // Put ADS1115 into low-power single-shot/power-down mode (MODE bit = 1)
+        furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
+        uint8_t cfg[2] = {(uint8_t)(pga_msb(gsr->pga_index) | 0x01), 0xE3};
+        furi_hal_i2c_write_mem(
+            &furi_hal_i2c_handle_external,
+            ADS1115_I2C_ADDR, ADS1115_CONFIG_REG,
+            cfg, 2, 50);
+        furi_hal_i2c_release(&furi_hal_i2c_handle_external);
+
         furi_mutex_free(gsr->mutex);
     }
     free(gsr);
