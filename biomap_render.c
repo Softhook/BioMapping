@@ -139,16 +139,12 @@ static void render_gps_detail(Canvas* c, BioMapApp* a) {
         // HDOP 1-2 = very good     PDOP 2-4   = very good
         // HDOP 2-5 = good          PDOP 4-8   = good
         const char* fix_str = gps_fix_label(g.fix_type);
-        if(g.hdop < 50.0f) {
-            char pbuf[8];
-            format_pdop_str(pbuf, sizeof(pbuf), g.pdop);
-            snprintf(buf, sizeof(buf), "H:%.1f  P:%s  %s%s",
-                     (double)g.hdop, pbuf, fix_str,
-                     g.sbas_active ? " SBAS" : "");
+        if(g.hacc < 50.0f) {
+            snprintf(buf, sizeof(buf), "±%.1fm  %s%s",
+                     (double)g.hacc, fix_str, g.sbas_active ? " SBAS" : "");
         } else {
-            snprintf(buf, sizeof(buf), "H:--  P:--  %s%s",
-                     fix_str,
-                     g.sbas_active ? " SBAS" : "");
+            snprintf(buf, sizeof(buf), "%s%s",
+                     fix_str, g.sbas_active ? " SBAS" : "");
         }
         canvas_draw_str(c, 0, y, buf);
     } else {
@@ -221,19 +217,10 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         char badge[16];
         if(!has_fix) {
             snprintf(badge, sizeof(badge), "No fix");
-        } else if(isnan(g.hdop) || g.hdop >= GPS_HDOP_GATE) {
-            if(isnan(g.hdop)) {
-                snprintf(badge, sizeof(badge), "Acquiring");
-            } else if(g.hdop < 50.0f) {
-                snprintf(badge, sizeof(badge), "H:%.1f !", (double)g.hdop);
-            } else {
-                snprintf(badge, sizeof(badge), "Acquiring");
-            }
+        } else if(g.hacc < 50.0f) {
+            snprintf(badge, sizeof(badge), "±%.1fm", (double)g.hacc);
         } else {
-            char pbuf[8];
-            format_pdop_str(pbuf, sizeof(pbuf), g.pdop);
-            snprintf(badge, sizeof(badge), "H:%.1f P:%s",
-                     (double)g.hdop, pbuf);
+            snprintf(badge, sizeof(badge), "3D Fix");
         }
         canvas_set_font(c, FontSecondary);
         canvas_draw_str(c, 1, 10, badge);
@@ -437,6 +424,8 @@ void options_render(Canvas* c, void* ctx) {
                 state = "SEA";
             } else if(a->nav_model == GpsNavModelBike) {
                 state = "BIKE";
+            } else if(a->nav_model == GpsNavModelFlight) {
+                state = "FLIGHT";
             } else {
                 state = "PED";
             }

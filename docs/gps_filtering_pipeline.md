@@ -120,3 +120,20 @@ The filters can be tuned in the analyzer interface:
 - **Measurement Noise ($R$)**: Kalman measurement variance. Default `10.0` $m^2$.
 - **RDP Tolerance**: Trajectory simplification distance. Default `0.5` meters.
 - **Stationary Threshold**: Stop-averaging speed gate. Default `0.5` knots.
+
+---
+
+## 6. Future Enhancement: Direct Spatial Error (`hAcc`) Integration
+
+Currently, measurement noise variance $R$ in the Kalman filter ([`gps_filter.js`](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/gps_filter.js#L120-L125)) is estimated from unitless geometry by scaling a base constant by $\text{DOP}^2$:
+$$R_{\text{effective}} = R_{\text{base}} \times \text{DOP}^2$$
+
+### The `hAcc` Spatial Error Advantage
+The u-blox SAM-M10Q calculates **`hAcc`**—the actual physical horizontal position error in meters—via its internal extended Kalman filter covariance matrix, transmitted in the `$PUBX,00` NMEA sentence. The Flipper firmware (`modules/gps_uart.c`) extracts `hAcc` for live OLED screen display.
+
+If `hAcc` (in meters) is logged to CSV in a future schema revision (e.g. as an optional `hacc_m` column):
+
+1. **Direct Kalman Variance Assignment:** Downstream filters can assign physical measurement variance directly:
+   $$R_{\text{effective}} = (\text{hAcc}_{\text{meters}})^2$$
+2. **Urban Canyon Multipath Rejection:** In urban canyons or under wet tree canopies, satellite geometry often remains acceptable ($\text{HDOP } 1.2$), causing the current filter to under-estimate measurement noise. However, physical multipath reflections cause true `hAcc` to spike from $1.5\text{ m} \longrightarrow 15.0\text{ m}$. With $R = 15^2 = 225$, the Kalman filter immediately de-weights the multipath outlier and dead-reckons smoothly past the anomaly.
+3. **True Ground Error Heatmaps:** Enables visualizer tooltips and map overlays displaying exact ground uncertainty bounds ($\pm X.X\text{ m}$) for every recorded biometric sample.

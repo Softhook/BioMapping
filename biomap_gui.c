@@ -226,9 +226,9 @@ void run_options_screen(BioMapApp* app) {
                     biomap_sound_toggle(true, app->sound_enabled);
                     break;
                 case 5:
-                    // Cycle GPS Profile (PED -> WRIST -> VEHICLE -> STATIONARY -> SEA -> BIKE)
+                    // Cycle GPS Profile (PED -> WRIST -> VEHICLE -> STATIONARY -> SEA -> BIKE -> FLIGHT)
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    app->nav_model = (app->nav_model + 1) % 6;
+                    app->nav_model = (app->nav_model + 1) % 7;
                     furi_mutex_release(app->mutex);
                     biomap_sound_click(app->sound_enabled);
                     break;

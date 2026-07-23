@@ -388,7 +388,8 @@ static void test_nav_model_allocation(void) {
         GpsNavModelVehicle,
         GpsNavModelStationary,
         GpsNavModelSea,
-        GpsNavModelBike
+        GpsNavModelBike,
+        GpsNavModelFlight
     };
 
     for(size_t i = 0; i < sizeof(models)/sizeof(models[0]); i++) {
@@ -397,6 +398,25 @@ static void test_nav_model_allocation(void) {
         gps_uart_free(g);
     }
 
+    printf("  -> Pass\n");
+}
+
+static void test_pubx_hacc_parsing(void) {
+    printf("Running test_pubx_hacc_parsing...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+
+    static const char* pubx_line =
+        "$PUBX,00,081350.00,4717.113210,N,00833.915187,E,546.589,G3,2.4,2.0,0.007,77.52,0.007,,0.92,1.16,1.08,12,0,0*5D\r\n";
+    furi_hal_mock_feed_string(pubx_line);
+    gps_uart_process_rx(g);
+
+    GpsStatus s = gps_uart_get_status(g);
+    printf("  parsed hacc = %.1f m (expect 2.4 m)\n", (double)s.hacc);
+    assert(fabs((double)s.hacc - 2.4) < 1e-3);
+
+    gps_uart_free(g);
     printf("  -> Pass\n");
 }
 
@@ -416,6 +436,7 @@ int main(void) {
     test_standby_acquires_and_releases();
     test_malformed_line_ignored();
     test_nav_model_allocation();
+    test_pubx_hacc_parsing();
 
     printf("\nAll gps_uart host tests passed successfully!\n");
     return 0;

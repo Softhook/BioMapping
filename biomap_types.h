@@ -101,6 +101,7 @@ typedef struct {
     double lon;
     float  hdop;       // Horizontal Dilution of Precision; 99.9 = unknown
     float  pdop;       // Position DOP from GSA (chip-computed); 99.9 = unknown
+    float  hacc;       // Estimated horizontal accuracy in meters (PUBX 00); 99.9 = unknown
     float  speed_kts;  // Speed over ground in knots (RMC); NaN = unknown
     float  course_deg; // Course over ground in degrees true (RMC); NaN = unknown
     int    sats;       // satellites tracked — diagnostic aid for DOP interpretation

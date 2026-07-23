@@ -126,6 +126,24 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
         return;
     }
 
+    // Parse $PUBX,00 for horizontal accuracy (hAcc in meters)
+    if(strncmp(line, "$PUBX,00,", 9) == 0) {
+        const char* p = line;
+        int field = 0;
+        while(*p && field < 9) {
+            if(*p == ',') field++;
+            p++;
+        }
+        if(field == 9 && *p) {
+            float hacc = strtof(p, NULL);
+            if(hacc > 0.0f) {
+                g->status.hacc = hacc;
+            }
+        }
+        g->last_valid_nmea_tick = furi_get_tick();
+        return;
+    }
+
     switch(minmea_sentence_id(line, false)) {
     case MINMEA_SENTENCE_RMC: {
         struct minmea_sentence_rmc frame;
@@ -401,6 +419,8 @@ static void ubx_send_nav5(GpsUart* g, GpsNavModel nav_model) {
         dyn_model = 5; // Sea / Boating
     } else if(nav_model == GpsNavModelBike) {
         dyn_model = 10; // Bicycle
+    } else if(nav_model == GpsNavModelFlight) {
+        dyn_model = 7; // Airborne <2g / Commercial Flight
     }
 
     uint8_t pkt[48] = {0};
@@ -472,6 +492,7 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
         .course             = NAN,
         .hdop               = 99.9f,
         .vdop               = 99.9f,
+        .hacc               = 99.9f,
         .fix_quality        = 0,
         .fix_type           = 1,
         .satellites_tracked = 0,
@@ -735,6 +756,9 @@ static void gps_uart_configure(GpsUart* g) {
     ubx_tx_raw(g, ubx_cfg_msg_gsv_1hz, sizeof(ubx_cfg_msg_gsv_1hz));
     ubx_send_nav5(g, g->nav_model);
     ubx_tx_raw(g, ubx_cfg_assistnow_autonomous, sizeof(ubx_cfg_assistnow_autonomous));
+    // Enable $PUBX,00 sentence at 1 Hz for live hAcc in meters
+    const char* pubx_00_rate = "$PUBX,40,00,1,1,0,0*5B\r\n";
+    furi_hal_serial_tx(g->serial_handle, (const uint8_t*)pubx_00_rate, strlen(pubx_00_rate));
     furi_delay_ms(100);
 
     FURI_LOG_I("GpsUart", "M10Q running at 115200 baud, 10 Hz, GSV@1Hz");

@@ -28,6 +28,7 @@ typedef enum {
     GpsNavModelStationary,     // Stationary / Seated baseline (dynModel = 2)
     GpsNavModelSea,            // Sea / Boating / Kayaking (dynModel = 5)
     GpsNavModelBike,           // Bicycle (dynModel = 10)
+    GpsNavModelFlight,         // Commercial Flight / Airborne <2g (dynModel = 7)
 } GpsNavModel;
 
 // ── CSV column headers ────────────────────────────────────────────────

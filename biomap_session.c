@@ -93,7 +93,7 @@ void session_deinit(Session* s, BioMapApp* app) {
 // ── Convenience wrapper: GpsStatus → GpsPosition ──────────────────────
 static inline GpsPosition get_gps_position(const Session* s) {
     GpsPosition pos = {0};
-    pos.hdop       = 99.9f; pos.pdop = 99.9f; pos.fix_type = 1;
+    pos.hdop       = 99.9f; pos.pdop = 99.9f; pos.hacc = 99.9f; pos.fix_type = 1;
     pos.speed_kts  = NAN;   pos.course_deg = NAN;
     if(!s->gps) return pos;
     GpsStatus gs = gps_uart_get_status(s->gps);
@@ -103,6 +103,7 @@ static inline GpsPosition get_gps_position(const Session* s) {
     pos.speed_kts  = gs.speed;
     pos.course_deg = gs.course;
     pos.pdop       = gs.pdop;
+    pos.hacc       = gs.hacc;
     if((gs.fix_valid || gs.fix_quality > 0)
         && !isnan(gs.latitude) && !isnan(gs.longitude)) {
         pos.valid = true;

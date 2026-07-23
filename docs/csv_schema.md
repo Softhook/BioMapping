@@ -84,3 +84,11 @@ Defined in `modules/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
 |---|---|---|
 | 1.0 | 2026-06 | Initial: `timestamp, lat, lon, alt, sats, fix, gsr_raw` (7 columns) |
 | 1.1 | 2026-07 | Added `hdop, pdop, speed_kts, course_deg`; renamed `fix`→`fix_type`; removed `alt`; total 10 columns |
+
+---
+
+## Potential Future Schema Extension: `hacc_m` (Spatial Error in Meters)
+
+* **Proposed Column:** `hacc_m` (float, horizontal accuracy in meters extracted from `$PUBX,00` Field 9).
+* **Usage:** Allows downstream web/Python Kalman filters to substitute unitless $\text{HDOP}^2$ measurement noise scaling with exact physical measurement covariance ($R = \text{hacc\_m}^2$), improving track smoothing in urban multipath environments.
+* **Compatibility Note:** The firmware parses `hacc` live for OLED display, but preserves the 10-column v1.1 schema for logging to maintain zero-overhead SD writes and full backward compatibility.

@@ -24,6 +24,7 @@ typedef struct GpsStatus {
     float course;               // degrees true
     float hdop;                 // Horizontal Dilution of Precision (GGA/GSA)
     float vdop;                 // Vertical Dilution of Precision (GSA)
+    float hacc;                 // Estimated horizontal accuracy in meters (PUBX 00); 99.9 = unknown
     int   fix_quality;          // 0=none, 1=GPS, 2=DGPS (GGA)
     int   fix_type;             // 1=none, 2=2D, 3=3D (GSA)
     int   satellites_tracked;
