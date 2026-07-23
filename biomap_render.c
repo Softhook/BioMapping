@@ -28,14 +28,6 @@ static bool gps_has_fix(const GpsStatus* g) {
     return g->fix_valid || g->fix_quality > 0;
 }
 
-static void format_pdop_str(char* out, size_t outlen, float pdop) {
-    if(pdop < 99.0f) {
-        snprintf(out, outlen, "%.1f", (double)pdop);
-    } else {
-        strcpy(out, "--");
-    }
-}
-
 
 // ==========================================================================
 // Graph rendering (GSR waveform)
