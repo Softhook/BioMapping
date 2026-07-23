@@ -49,9 +49,11 @@ bool gsr_sensor_available(const GsrSensor* gsr);
 // ticks (2+ s).  Automatically recovers when an in-range reading comes back.
 bool gsr_sensor_is_connected(const GsrSensor* gsr);
 
-// Call at 10 Hz.  Reads the ring buffer, applies 100-sample decimation,
-// autoranging, and TIA circuit equation.  Blocks for ~1 ms (100 integer
-// adds + float ops); safe at 10 Hz on Cortex-M4 @ 64 MHz.
+// Call at 10 Hz.  Reads the ring buffer, applies ~100 ms time-windowed
+// boxcar decimation (sample count varies with the worker's true rate —
+// see docs/gsr_filtering_analysis.md), autoranging, and TIA circuit
+// equation.  Well under 1 ms even at the ADS1115's 860 SPS ceiling
+// (~86 integer adds + float ops); safe at 10 Hz on Cortex-M4 @ 64 MHz.
 void gsr_sensor_tick(GsrSensor* gsr);
 
 // Skin conductance in nanosiemens (nS), computed from the TIA circuit
@@ -60,9 +62,10 @@ float gsr_sensor_get_raw(const GsrSensor* gsr);
 
 // Single raw ADC sample converted directly to nanosiemens via the TIA
 // equation — no decimation, no averaging, no autoranging, no calibration.
-// Reads the most recent ring-buffer entry (updated at ~860 Hz by the
-// background worker).  This is the "pure hardware" value: one ADS1115
-// conversion → normalised count → TIA → nS.
+// Reads the most recent ring-buffer entry (updated at whatever rate the
+// background worker is actually achieving — see gsr_sensor_get_worker_hz,
+// bounded above by the ADS1115's 860 SPS conversion rate).  This is the
+// "pure hardware" value: one ADS1115 conversion → normalised count → TIA → nS.
 // Returns 0.0f when sensor unavailable or buffer is empty.
 float gsr_sensor_get_raw_sample_ns(const GsrSensor* gsr);
 
@@ -70,7 +73,7 @@ float gsr_sensor_get_raw_sample_ns(const GsrSensor* gsr);
 // position as get_raw_sample_ns.  For hardware diagnostics.
 int32_t gsr_sensor_get_raw_sample_count(const GsrSensor* gsr);
 
-// 100-sample mean normalised count (pre-TIA).  Compare with
+// ~100 ms window mean normalised count (pre-TIA).  Compare with
 // get_raw_sample_count to see single-sample vs averaged difference.
 int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr);
 
@@ -78,10 +81,9 @@ int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr);
 uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr);
 
 // Measured worker-thread throughput in Hz — the real rate the background
-// I2C-polling loop is achieving, as opposed to the nominal ~1000 Hz the
-// mains-hum notch in gsr_sensor_tick()'s 100-sample average assumes.
-// Returns 0.0f if unavailable or if called immediately after alloc()
-// (before any real time has elapsed).  For diagnostics.
+// I2C-polling loop fills gsr_sensor_tick()'s ~100 ms averaging window
+// with samples. Returns 0.0f if unavailable or if called immediately
+// after alloc() (before any real time has elapsed).  For diagnostics.
 float gsr_sensor_get_worker_hz(const GsrSensor* gsr);
 
 // Percentage of I2C read attempts that succeeded (0-100), over the same
@@ -92,11 +94,22 @@ float gsr_sensor_get_worker_hz(const GsrSensor* gsr);
 // limit.  For diagnostics.
 float gsr_sensor_get_success_rate(const GsrSensor* gsr);
 
+// Percentage of successful reads (0-100), over the same window as
+// gsr_sensor_get_worker_hz(), whose raw ADC code exactly matched the
+// immediately preceding read — a stale re-read rather than a fresh
+// conversion. Near 0% at worker rates below the ADS1115's 860 SPS
+// conversion ceiling (expected in normal operation); rising toward the
+// nominal duplicate fraction if the loop ever runs at or above 860 SPS
+// points at the boxcar average's effective independent-sample count
+// being diluted below what its raw sample count would suggest.  For
+// diagnostics.
+float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr);
+
 // Update calibration parameters (thread-safe).  When active is true,
 // the raw counts are scaled by gain and offset-shifted before conductance conversion.
 void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float offset);
 
 // Lock PGA at a fixed index (0–5) to disable autoranging.  Pass -1 to unlock
-// and resume normal autoranging.  When locked, tick() still runs the 100-sample
-// mean but skips the PGA-switching decision.  Useful for hardware diagnostics.
+// and resume normal autoranging.  When locked, tick() still runs the ~100 ms
+// window mean but skips the PGA-switching decision.  Useful for hardware diagnostics.
 void gsr_sensor_lock_pga(GsrSensor* gsr, int8_t index);

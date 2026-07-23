@@ -238,7 +238,9 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         canvas_draw_str(c, 1, 10, badge);
     }
 
-    // ── Diagnostics: GSR only, 5 labeled lines ─────────────────────────
+    // ── Diagnostics: GSR only, 7 labeled lines ─────────────────────────
+    // 8 px line spacing (not 10) — 7 lines at 10 px would put the last
+    // line's baseline at y=68, off the bottom of the 128x64 canvas.
     if(is_diag) {
         canvas_set_font(c, FontSecondary);
 
@@ -250,26 +252,30 @@ void biomap_render_callback(Canvas* c, void* ctx) {
 
             snprintf(buf, sizeof(buf), "PGA:%u  Cal:%s",
                      (unsigned)pga, a->cal_active ? "yes" : "no");
-            canvas_draw_str(c, 0, y, buf);  y += 10;
+            canvas_draw_str(c, 0, y, buf);  y += 8;
 
             snprintf(buf, sizeof(buf), "Raw:  %.0f nS",
                      (double)a->session.pipeline.display.raw_sample_ns);
-            canvas_draw_str(c, 0, y, buf);  y += 10;
+            canvas_draw_str(c, 0, y, buf);  y += 8;
 
             snprintf(buf, sizeof(buf), "Filt: %.0f nS",
                      (double)a->session.pipeline.display.filtered_ns);
-            canvas_draw_str(c, 0, y, buf);  y += 10;
+            canvas_draw_str(c, 0, y, buf);  y += 8;
 
             snprintf(buf, sizeof(buf), "Sngl: %ld",
                      (long)a->session.pipeline.display.raw_sample_count);
-            canvas_draw_str(c, 0, y, buf);  y += 10;
+            canvas_draw_str(c, 0, y, buf);  y += 8;
 
             snprintf(buf, sizeof(buf), "Mean: %ld", (long)mean_cnt);
-            canvas_draw_str(c, 0, y, buf);  y += 10;
+            canvas_draw_str(c, 0, y, buf);  y += 8;
 
             snprintf(buf, sizeof(buf), "Hz:%.0f OK:%.0f%%",
                      (double)gsr_sensor_get_worker_hz(a->session.gsr),
                      (double)gsr_sensor_get_success_rate(a->session.gsr));
+            canvas_draw_str(c, 0, y, buf);  y += 8;
+
+            snprintf(buf, sizeof(buf), "Dup:%.0f%%",
+                     (double)gsr_sensor_get_duplicate_rate(a->session.gsr));
             canvas_draw_str(c, 0, y, buf);
         } else {
             canvas_draw_str(c, 0, 8, "GSR: --");

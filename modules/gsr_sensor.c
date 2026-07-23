@@ -79,6 +79,13 @@ static inline float tia_counts_to_ns(float counts) {
 #define ADS_LOW_THRESH         4096  // 12.5 % of FS → range up candidate
 #define ADS_LOW_COUNT_TICKS       5  // consecutive low ticks before range up
 
+// Target duration of gsr_sensor_tick()'s averaging window. Time-based
+// (see docs/gsr_filtering_analysis.md, Recommendation 1b) rather than a
+// fixed sample count — a fixed N=100 was only actually ~100 ms when the
+// worker's true rate was ~1000 Hz, which measurement showed it wasn't
+// (~500 Hz measured on real hardware, giving a ~200 ms window instead).
+#define BOXCAR_WINDOW_MS  100
+
 // Normalisation multiplier factors to pga_index=5 (±0.256 V) reference.
 static const int32_t NORM_FACTOR[6] = { 24, 16, 8, 4, 2, 1 };
 
@@ -117,14 +124,18 @@ struct GsrSensor {
     float   cal_offset; // linear calibration offset in counts (default 0.0)
     int32_t tick_last_norm; // raw normalized count at tick's last-summed index
                              // (snapshotted during tick, used by get_raw_sample_ns)
-    int32_t tick_mean_norm; // 100-sample mean normalized count (pre-TIA)
+    int32_t tick_mean_norm; // ~100 ms window mean normalized count (pre-TIA)
 
     FuriThread* thread;
     FuriMutex*  mutex;
     volatile bool running;
     volatile bool pga_changed;
 
-    int32_t buffer[SENSOR_BUFFER_SIZE];
+    int32_t  buffer[SENSOR_BUFFER_SIZE];
+    uint32_t sample_tick[SENSOR_BUFFER_SIZE]; // tick timestamp of buffer[i], for
+                                               // time-based (not count-based) averaging
+                                               // in gsr_sensor_tick() — see Recommendation
+                                               // 1b in docs/gsr_filtering_analysis.md
     volatile uint32_t write_idx;
 
     // Worker throughput diagnostics (see docs/gsr_filtering_analysis.md,
@@ -144,11 +155,26 @@ struct GsrSensor {
     // thread, read by the accessor on the same thread.
     uint32_t iter_count;            // mutex-protected — worker increments (success only), tick() reads
     uint32_t attempt_count;         // mutex-protected — worker increments (every read, success or fail)
+    // duplicate_count — mutex-protected, worker increments whenever a
+    // successful read's raw ADC code exactly matches the immediately
+    // preceding successful read's code (same PGA setting). This is the
+    // direct, measured version of the skip-vs-duplicate question in
+    // docs/gsr_filtering_analysis.md: at worker rates below the ADS1115's
+    // 860 SPS conversion rate this should stay near 0 (each read lands on
+    // a fresh conversion); a rate above 860 SPS would show it rising, the
+    // signature of the boxcar average's effective independent-sample
+    // count being diluted by re-read stale conversions. Reset to 0 (via
+    // have_last_hw = false in the worker) on every PGA change, since a
+    // gain change makes the previous reading's raw code incomparable to
+    // the new one — that's a scale change, not evidence of a stale read.
+    uint32_t duplicate_count;
     uint32_t hz_window_start_tick;  // tick() only
     uint32_t hz_window_start_count;    // iter_count snapshot — tick() only
     uint32_t hz_window_start_attempts; // attempt_count snapshot — tick() only
+    uint32_t hz_window_start_duplicates; // duplicate_count snapshot — tick() only
     float    worker_hz_cached;      // tick() only — successful-sample rate
     float    success_rate_cached;   // tick() only — iter_count/attempt_count over the same window, 0-100
+    float    duplicate_rate_cached; // tick() only — duplicate_count/iter_count over the same window, 0-100
 };
 
 // Background worker thread for 860 SPS ADC reading.  Writes normalized
@@ -158,6 +184,8 @@ static int32_t gsr_sensor_worker(void* context) {
     GsrSensor* gsr = context;
     uint8_t current_adc_pga = ADS_PGA_DEFAULT;
     uint32_t consecutive_failures = 0;
+    int16_t  last_hw = 0;
+    bool     have_last_hw = false; // no prior read to compare the first one against
 
     while(gsr->running) {
         furi_mutex_acquire(gsr->mutex, FuriWaitForever);
@@ -187,6 +215,7 @@ static int32_t gsr_sensor_worker(void* context) {
                 // the next read returns a new-PGA result.
                 furi_delay_ms(2);
                 current_adc_pga = active_pga;
+                have_last_hw = false; // new gain scale — not comparable to the pre-change code
             } else {
                 // Config write failed — retry next iteration.
                 furi_delay_ms(1);
@@ -224,10 +253,20 @@ static int32_t gsr_sensor_worker(void* context) {
             // when the conversion currently in the register was started).
             int32_t norm = (int32_t)hw * NORM_FACTOR[current_adc_pga];
 
+            // Same raw code as the immediately preceding (same-PGA) read
+            // means the ADS1115 hadn't completed a new conversion between
+            // the two I2C transactions — a stale re-read, not a fresh
+            // sample. See duplicate_count's doc comment above.
+            bool is_duplicate = have_last_hw && (hw == last_hw);
+            last_hw = hw;
+            have_last_hw = true;
+
             furi_mutex_acquire(gsr->mutex, FuriWaitForever);
             gsr->buffer[gsr->write_idx] = norm;
+            gsr->sample_tick[gsr->write_idx] = furi_get_tick();
             gsr->write_idx = (gsr->write_idx + 1) & (SENSOR_BUFFER_SIZE - 1);
             gsr->iter_count++;
+            if(is_duplicate) gsr->duplicate_count++;
             furi_mutex_release(gsr->mutex);
         } else {
             consecutive_failures++;
@@ -250,10 +289,29 @@ static int32_t gsr_sensor_worker(void* context) {
             current_adc_pga = active_pga;
         }
 
-        // Yield to the RTOS scheduler (~1000 Hz loop).  The ADS1115 converts
-        // at 860 SPS so ~14 % of reads return the same conversion as the
-        // previous iteration — duplicates are harmless: they are valid
-        // measurements and do not bias the simple mean.
+        // Yield to the RTOS scheduler (~1000 Hz loop, nominally). Per its
+        // own doc comment, furi_delay_ms(1) "aliases to scheduler timer
+        // intervals" — real wait time is "X+ milliseconds", not X — and
+        // measurement on real hardware (docs/gsr_filtering_analysis.md)
+        // showed this loop actually only achieves ~500 Hz. furi_delay_us
+        // would get the precise ~1 ms pacing, but it's documented as
+        // "Blocking and non aliased" (Cortex DWT counter) — a genuine
+        // busy-wait, not a scheduler yield, and was tried and reverted:
+        // it monopolizes the (single application) CPU core for the full
+        // wait instead of letting other threads run, which is exactly the
+        // failure mode behind flipperdevices/flipperzero-firmware#3380
+        // (a busy app thread starving the low-priority timer thread badly
+        // enough to hang input processing). The ADS1115 converts
+        // continuously at 860 SPS regardless of how often this loop reads
+        // it — at the measured ~500 Hz (slower than 860 Hz), nearly every
+        // read lands on a fresh conversion rather than re-reading a stale
+        // one; the loop instead simply never reads roughly 42% of the
+        // conversions the ADC produces. Skipped, not duplicated — either
+        // way harmless to the mean: it just needs *some* representative
+        // samples from the window, not every conversion. gsr_sensor_tick()'s
+        // time-based averaging window (BOXCAR_WINDOW_MS, see above) means
+        // correctness no longer depends on hitting any particular rate —
+        // so there's no reason to trade scheduler cooperation for it.
         furi_delay_ms(1);
     }
     return 0;
@@ -309,8 +367,14 @@ GsrSensor* gsr_sensor_alloc(void) {
 
         int16_t initial_hw = ok ? (int16_t)((data[0] << 8) | data[1]) : 0;
         int32_t initial_norm = (int32_t)initial_hw * NORM_FACTOR[ADS_PGA_DEFAULT];
+        uint32_t alloc_tick = furi_get_tick();
         for(int i = 0; i < SENSOR_BUFFER_SIZE; i++) {
             gsr->buffer[i] = initial_norm;
+            // Stamped with "now", not 0 — an uninitialized/zero timestamp
+            // would make every warm-up slot look infinitely old to
+            // gsr_sensor_tick()'s time-windowed average on the very first
+            // call, which would then have zero samples to average.
+            gsr->sample_tick[i] = alloc_tick;
         }
         gsr->write_idx = 0;
 
@@ -319,11 +383,14 @@ GsrSensor* gsr_sensor_alloc(void) {
 
         gsr->iter_count = 0;
         gsr->attempt_count = 0;
+        gsr->duplicate_count = 0;
         gsr->hz_window_start_tick = furi_get_tick(); // set before the worker starts — no lock needed
         gsr->hz_window_start_count = 0;
         gsr->hz_window_start_attempts = 0;
+        gsr->hz_window_start_duplicates = 0;
         gsr->worker_hz_cached = 0.0f;
         gsr->success_rate_cached = 100.0f; // optimistic default until the first window rolls
+        gsr->duplicate_rate_cached = 0.0f; // optimistic default until the first window rolls
 
         gsr->running = true;
         gsr->pga_changed = false;
@@ -376,7 +443,7 @@ float gsr_sensor_get_raw(const GsrSensor* gsr) {
 
 // ── Single-sample raw → nS (no decimation, no autoranging, no calibration) ──
 // Uses the normalized count snapshotted by tick() from the same buffer
-// position as the 100-sample window's most recent entry.  This guarantees
+// position as the ~100 ms window's most recent entry.  This guarantees
 // the raw sample and the filtered mean use the exact same underlying data.
 float gsr_sensor_get_raw_sample_ns(const GsrSensor* gsr) {
     furi_assert(gsr);
@@ -416,10 +483,9 @@ uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr) {
 }
 
 // Measured worker throughput in Hz, over a rolling ~1 s window — the true
-// rate at which gsr_sensor_tick()'s 100-sample boxcar average is actually
-// sampling, as opposed to the nominal ~1000 Hz the mains-notch design
-// assumes. Updated by gsr_sensor_tick() (main thread only); reads 0.0f
-// until the first ~1 s window has elapsed. See
+// rate at which gsr_sensor_tick()'s ~100 ms boxcar average is actually
+// filling with samples. Updated by gsr_sensor_tick() (main thread only);
+// reads 0.0f until the first ~1 s window has elapsed. See
 // docs/gsr_filtering_analysis.md, Recommendation 1.
 float gsr_sensor_get_worker_hz(const GsrSensor* gsr) {
     furi_assert(gsr);
@@ -439,21 +505,54 @@ float gsr_sensor_get_success_rate(const GsrSensor* gsr) {
     return gsr->success_rate_cached;
 }
 
+// Percentage of successful reads, over the same rolling ~1 s window as
+// gsr_sensor_get_worker_hz(), whose raw ADC code exactly matched the
+// immediately preceding successful read — i.e. a stale re-read of a
+// conversion the ADS1115 hadn't yet updated, rather than a fresh sample.
+// This is the direct, measured answer to the skip-vs-duplicate question
+// in docs/gsr_filtering_analysis.md: at worker rates below the ADS1115's
+// 860 SPS conversion rate this should sit near 0% (nearly every read is
+// fresh); well above 0% at rates near or above 860 SPS is the signature
+// of gsr_sensor_tick()'s boxcar average being diluted by re-counted
+// stale conversions rather than genuinely independent samples. Resets
+// across PGA changes (a gain change isn't a stale read). Reads 0.0f
+// until the first window has elapsed (optimistic default, not a claim).
+float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return 0.0f;
+    return gsr->duplicate_rate_cached;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Oversampling & Filtering
 //
-// Each 100 ms (10 Hz) tick extracts the 100 most recent buffer entries
-// and averages them — spanning the full 100 ms decimation interval.
-// Called from the main thread at exact 10 Hz boundaries, guaranteeing
-// consistent sample timing for the derivative pipeline and hum notch.
+// Each ~10 Hz tick walks the ring buffer backward from the most recent
+// entry, accumulating samples whose timestamp falls within the last
+// BOXCAR_WINDOW_MS (100 ms) of real elapsed time, and averages exactly
+// those. Time-based, not a fixed sample count — see
+// docs/gsr_filtering_analysis.md, Recommendation 1b. A fixed N=100 was
+// only actually a 100 ms window when the worker's true rate happened to
+// be ~1000 Hz; measurement on real hardware found it was actually
+// ~500 Hz, silently doubling the window to ~200 ms and (worse) making
+// consecutive ticks' windows overlap by half instead of being
+// independent samples. This version gets the right window duration
+// regardless of whatever the worker's true rate turns out to be, on any
+// device, without needing to measure or hand-tune against it.
 //
-// The background worker polls at ~1000 Hz (furi_delay_ms(1) synchronised
-// to the RTOS tick) while the ADS1115 converts at 860 SPS, so ~14 % of
-// buffer entries are duplicate reads of the same conversion.  Duplicates
-// do not bias the simple mean but reduce effective noise attenuation from
-// √100 = 10× to ~8.7×.
+// The background worker's nominal pacing is furi_delay_ms(1), measured on
+// real hardware at ~500 Hz true rate (see the pacing comment in
+// gsr_sensor_worker() for why it's not exactly 1 kHz, and why that's left
+// as-is) — below the ADS1115's 860 SPS conversion rate, so buffer entries
+// are each (almost always) a distinct conversion rather than a duplicate
+// of the previous one; the loop just never reads roughly 42% of the
+// conversions the ADC produces in between. That's fine here: every
+// sample that does land in the window is real, independent data, so the
+// √samples noise-reduction estimate below isn't inflated by re-counted
+// duplicates the way it would be if the worker ran faster than 860 Hz.
 //
-// 100 ms window nominally nulls 50/60 Hz mains hum (5 × 20 ms, 6 × 16.67 ms).
+// A correctly-sized 100 ms window nominally nulls 50/60 Hz mains hum
+// (5 × 20 ms, 6 × 16.67 ms) regardless of how many samples happen to fill
+// it — that property depends on window duration, not sample count.
 // ─────────────────────────────────────────────────────────────────────────────
 
 void gsr_sensor_tick(GsrSensor* gsr) {
@@ -470,18 +569,23 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         furi_mutex_acquire(gsr->mutex, FuriWaitForever);
         uint32_t count = gsr->iter_count;
         uint32_t attempts = gsr->attempt_count;
+        uint32_t duplicates = gsr->duplicate_count;
         furi_mutex_release(gsr->mutex);
 
         uint32_t window_ticks = now - gsr->hz_window_start_tick;
         uint32_t delta = count - gsr->hz_window_start_count;
         uint32_t delta_attempts = attempts - gsr->hz_window_start_attempts;
+        uint32_t delta_duplicates = duplicates - gsr->hz_window_start_duplicates;
         gsr->worker_hz_cached = (float)delta * (float)one_second_ticks / (float)window_ticks;
         gsr->success_rate_cached =
             (delta_attempts > 0) ? (100.0f * (float)delta / (float)delta_attempts) : 100.0f;
+        gsr->duplicate_rate_cached =
+            (delta > 0) ? (100.0f * (float)delta_duplicates / (float)delta) : 0.0f;
 
         gsr->hz_window_start_tick = now;
         gsr->hz_window_start_count = count;
         gsr->hz_window_start_attempts = attempts;
+        gsr->hz_window_start_duplicates = duplicates;
     }
 
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
@@ -490,18 +594,34 @@ void gsr_sensor_tick(GsrSensor* gsr) {
 
     if(!i2c_ok) return;
 
-    // ── Step 1: sum the most recent 100 samples directly from the ring
-    // buffer (100 ms window).  No intermediate array — the simple mean
-    // doesn't need sorting, so one pass is enough.
-    // Also snapshot the single most-recent count for get_raw_sample_ns().
+    // ── Step 1: sum every buffer entry timestamped within the last
+    // BOXCAR_WINDOW_MS of real time, walking backward from the most
+    // recent write. No intermediate array — the simple mean doesn't need
+    // sorting, so one pass is enough. Also snapshot the single
+    // most-recent count for get_raw_sample_ns().
+    //
+    // The i==0 iteration is unconditional (always included, regardless of
+    // its age) so `samples` can never be 0 — guarantees no divide-by-zero
+    // below even in the degenerate case where somehow nothing in the
+    // buffer falls inside the window (shouldn't happen once alloc()'s
+    // warm-up fill has aged out, since the worker writes far faster than
+    // once per BOXCAR_WINDOW_MS, but the loop shouldn't crash if it does).
+    // Capped at SENSOR_BUFFER_SIZE iterations so a pathological timestamp
+    // can't spin forever — at the ADS1115's 860 SPS ceiling, a 100 ms
+    // window holds at most ~86 samples, well under the buffer's 128.
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     uint32_t r_idx = gsr->write_idx;
+    uint32_t now_tick = furi_get_tick();
+    uint32_t window_ticks = (BOXCAR_WINDOW_MS * furi_kernel_get_tick_frequency()) / 1000;
     int64_t sum = 0;
-    for(int i = 0; i < 100; i++) {
+    int samples = 0;
+    for(int i = 0; i < SENSOR_BUFFER_SIZE; i++) {
         r_idx = (r_idx - 1) & (SENSOR_BUFFER_SIZE - 1);
+        if(i > 0 && (now_tick - gsr->sample_tick[r_idx] > window_ticks)) break;
         int32_t v = gsr->buffer[r_idx];
         sum += v;
         if(i == 0) gsr->tick_last_norm = v;  // snapshot for raw-sample compare
+        samples++;
     }
     uint8_t old_pga = gsr->pga_index;
     int8_t  locked   = gsr->pga_locked;
@@ -510,8 +630,13 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     float offset = gsr->cal_offset;
     furi_mutex_release(gsr->mutex);
 
-    // ── Step 2: simple mean. Effective ~8.7× noise reduction.
-    float avg_norm = (float)sum / 100.0f;
+    // ── Step 2: simple mean over however many samples landed in the
+    // window (typically ~50 at the ~500 Hz measured real-world rate;
+    // was silently ~100 at the ~1000 Hz design assumption). Noise
+    // reduction scales with √samples, so this is a real, if modest,
+    // trade against the original documented ~8.7× — see
+    // docs/gsr_filtering_analysis.md for the actual numbers.
+    float avg_norm = (float)sum / (float)samples;
     gsr->tick_mean_norm = (int32_t)avg_norm;  // snapshot for diagnostics
 
     // ── Step 3: autoranging decision on the RAW (uncalibrated) value.

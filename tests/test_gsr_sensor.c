@@ -169,6 +169,36 @@ static void test_success_rate_reflects_real_failure_ratio(void) {
     printf("  -> Pass\n");
 }
 
+// Validates the duplicate-rate math against a known, deterministic case:
+// the mock's raw16 value never changes here, so every successful read
+// after the worker's very first one has the same raw ADC code as its
+// predecessor, and gsr_sensor_get_duplicate_rate() should read close to
+// 100% (not exactly 100%, since one read per session is never a
+// "duplicate" of anything). This is the direct, measured check for the
+// skip-vs-duplicate question in docs/gsr_filtering_analysis.md — worth
+// verifying the arithmetic is actually right, not just present, the same
+// way test_success_rate_reflects_real_failure_ratio does for that ratio.
+static void test_duplicate_rate_reflects_stale_reads(void) {
+    printf("Running test_duplicate_rate_reflects_stale_reads...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000); // held constant — every read after the first repeats it
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+    assert(gsr_sensor_get_duplicate_rate(gsr) == 0.0f); // no window has elapsed yet
+
+    wait_for_more_reads(400);
+    furi_test_advance_tick(1001); // force the ~1s measurement window to roll over
+    gsr_sensor_tick(gsr);
+
+    float rate = gsr_sensor_get_duplicate_rate(gsr);
+    printf("  raw16 held constant -> duplicate_rate=%.1f%% (expect ~100%%)\n", (double)rate);
+    assert(rate > 95.0f);
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
 static void test_tia_conversion(void) {
     printf("Running test_tia_conversion...\n");
     furi_hal_i2c_mock_reset();
@@ -326,6 +356,7 @@ int main(void) {
     test_alloc_probe_failure();
     test_worker_hz_accessor();
     test_success_rate_reflects_real_failure_ratio();
+    test_duplicate_rate_reflects_stale_reads();
     test_tia_conversion();
     test_calibration_applies_gain_offset();
     test_autorange_up_on_low_signal();
