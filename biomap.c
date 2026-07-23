@@ -2,7 +2,7 @@
 #include "biomap.h"
 
 void run_gps_hot_start(BioMapApp* app) {
-    GpsUart* g = gps_uart_alloc(app->event_queue, app->notifications);
+    GpsUart* g = gps_uart_alloc(app->event_queue, app->notifications, app->nav_model);
     bool ok = g && gps_uart_is_ready(g);
     if(ok) { gps_uart_send_hot_start(g); furi_delay_ms(300); }
     notification_message(app->notifications,
@@ -23,6 +23,7 @@ int32_t biomap_app(void* p) {
         .zoom_enabled = true,
         .backlight_on = false,
         .sound_enabled = true,
+        .nav_model = GpsNavModelPedestrian,
         .cal_active = false,
         .cal_gain = 1.0f,
         .cal_offset = 0.0f

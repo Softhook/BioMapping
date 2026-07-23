@@ -91,6 +91,7 @@ typedef struct BioMapApp {
 
     bool               backlight_on;
     bool               sound_enabled;  // Options > Sound; survives session boundaries
+    GpsNavModel        nav_model;      // Options > GPS Profile (Pedestrian/Wrist/Vehicle)
     bool               cal_active;
     float              cal_gain;
     float              cal_offset;
@@ -99,7 +100,7 @@ typedef struct BioMapApp {
 // ── Menu & conversion UI types ─────────────────────────────────────────
 
 #define MENU_COUNT      5
-#define OPTIONS_COUNT   5
+#define OPTIONS_COUNT   6
 
 typedef struct {
     BioMapApp* app;

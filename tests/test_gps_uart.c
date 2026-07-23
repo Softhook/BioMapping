@@ -90,7 +90,7 @@ static void test_alloc_lifecycle(void) {
     FuriMessageQueue queue = {0};
     assert(furi_hal_mock_acquire_count() == 0);
 
-    GpsUart* g = gps_uart_alloc(&queue, NULL);
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
     assert(g != NULL);
     assert(gps_uart_is_ready(g));
     assert(furi_hal_mock_acquire_count() == 1);
@@ -103,7 +103,7 @@ static void test_alloc_lifecycle(void) {
 static void test_gga_updates_status(void) {
     printf("Running test_gga_updates_status...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL);
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(GGA_LINE);
@@ -126,7 +126,7 @@ static void test_gga_updates_status(void) {
 static void test_rmc_updates_status(void) {
     printf("Running test_rmc_updates_status...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL);
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(RMC_LINE);
@@ -147,7 +147,7 @@ static void test_rmc_updates_status(void) {
 static void test_gsa_updates_status(void) {
     printf("Running test_gsa_updates_status...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL);
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(GSA_LINE);
@@ -173,7 +173,7 @@ static void test_gsa_updates_status(void) {
 static void test_gsa_sbas_detection(void) {
     printf("Running test_gsa_sbas_detection...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL);
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(GSA_SBAS_LINE);
@@ -190,7 +190,7 @@ static void test_gsa_sbas_detection(void) {
 static void test_gsv_elevation_and_fresh(void) {
     printf("Running test_gsv_elevation_and_fresh...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL);
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(GSV_LINE);
@@ -213,7 +213,7 @@ static void test_gsv_elevation_and_fresh(void) {
 static void test_gll_updates_when_valid(void) {
     printf("Running test_gll_updates_when_valid...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL);
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
     assert(g != NULL);
 
     furi_hal_mock_feed_string(GLL_VALID_LINE);
@@ -233,7 +233,7 @@ static void test_gll_updates_when_valid(void) {
 static void test_gll_ignored_when_invalid(void) {
     printf("Running test_gll_ignored_when_invalid...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL);
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
     assert(g != NULL);
 
     // Establish a known-good position first via GGA, then feed a
@@ -261,7 +261,7 @@ static void test_gll_ignored_when_invalid(void) {
 static void test_split_line_buffering(void) {
     printf("Running test_split_line_buffering...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL);
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
     assert(g != NULL);
 
     size_t split = strlen(GGA_LINE) / 2;
@@ -289,7 +289,7 @@ static void test_split_line_buffering(void) {
 static void test_rx_buffer_overflow_reconfigures(void) {
     printf("Running test_rx_buffer_overflow_reconfigures...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL);
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
     assert(g != NULL);
     furi_hal_mock_reset_tx_count();
 
@@ -315,7 +315,7 @@ static void test_rx_buffer_overflow_reconfigures(void) {
 static void test_nmea_watchdog_reconfigures(void) {
     printf("Running test_nmea_watchdog_reconfigures...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL);
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
     assert(g != NULL);
     furi_hal_mock_reset_tx_count();
 
@@ -333,7 +333,7 @@ static void test_nmea_watchdog_reconfigures(void) {
 static void test_hot_start_sends_command(void) {
     printf("Running test_hot_start_sends_command...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL);
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
     assert(g != NULL);
     furi_hal_mock_reset_tx_count();
 
@@ -360,7 +360,7 @@ static void test_standby_acquires_and_releases(void) {
 static void test_malformed_line_ignored(void) {
     printf("Running test_malformed_line_ignored...\n");
     FuriMessageQueue queue = {0};
-    GpsUart* g = gps_uart_alloc(&queue, NULL);
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
     assert(g != NULL);
 
     furi_hal_mock_feed_string("this is not NMEA at all\r\n");
@@ -375,6 +375,28 @@ static void test_malformed_line_ignored(void) {
     assert(isnan(s.latitude));
 
     gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
+static void test_nav_model_allocation(void) {
+    printf("Running test_nav_model_allocation...\n");
+    FuriMessageQueue queue = {0};
+
+    GpsNavModel models[] = {
+        GpsNavModelPedestrian,
+        GpsNavModelWrist,
+        GpsNavModelVehicle,
+        GpsNavModelStationary,
+        GpsNavModelSea,
+        GpsNavModelBike
+    };
+
+    for(size_t i = 0; i < sizeof(models)/sizeof(models[0]); i++) {
+        GpsUart* g = gps_uart_alloc(&queue, NULL, models[i]);
+        assert(g != NULL);
+        gps_uart_free(g);
+    }
+
     printf("  -> Pass\n");
 }
 
@@ -393,6 +415,7 @@ int main(void) {
     test_hot_start_sends_command();
     test_standby_acquires_and_releases();
     test_malformed_line_ignored();
+    test_nav_model_allocation();
 
     printf("\nAll gps_uart host tests passed successfully!\n");
     return 0;

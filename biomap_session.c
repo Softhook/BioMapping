@@ -544,7 +544,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     view_port_update(s->vp);
 
     if(has_gps(mode)) {
-        s->gps = gps_uart_alloc(app->event_queue, app->notifications);
+        s->gps = gps_uart_alloc(app->event_queue, app->notifications, app->nav_model);
     } else {
         gps_uart_standby();
         s->gps = NULL;

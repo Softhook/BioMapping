@@ -13,6 +13,7 @@ static const char* const options_labels[OPTIONS_COUNT] = {
     "Backlight",
     "GSR Calibration",
     "Sound",
+    "GPS Profile",
 };
 
 // ── GPS display helpers ────────────────────────────────────────────────────
@@ -361,8 +362,14 @@ void biomap_render_callback(Canvas* c, void* ctx) {
 
 static void draw_selection_list(Canvas* c, int sel, int count,
                          const char* const* labels, int start_y) {
-    for(int i = 0; i < count; i++) {
-        int y = start_y + i * 10;
+    int max_visible = 4;
+    int top = 0;
+    if(count > max_visible) {
+        if(sel >= top + max_visible) top = sel - max_visible + 1;
+        if(sel < top) top = sel;
+    }
+    for(int i = top; i < count && (i - top) < max_visible; i++) {
+        int y = start_y + (i - top) * 10;
         if(i == sel) {
             canvas_draw_box(c, 0, y - 8, 128, 9);
             canvas_invert_color(c);
@@ -396,16 +403,20 @@ void options_render(Canvas* c, void* ctx) {
     canvas_draw_str(c, 0, 10, "Options");
     canvas_set_font(c, FontSecondary);
     int sel = (int)o_ctx->selection;
+
+    int max_visible = 4;
+    int top = 0;
+    if(OPTIONS_COUNT > max_visible) {
+        if(sel >= top + max_visible) top = sel - max_visible + 1;
+        if(sel < top) top = sel;
+    }
+
     draw_selection_list(c, sel, OPTIONS_COUNT, options_labels, 22);
 
-    // Overlay toggle state on items 1 (auto-zoom), 2 (backlight), 3
-    // (calibration), and 4 (sound). Item 4 now reaches y=62, the bottom
-    // edge of the 64px display — with 5 rows there's no longer room for a
-    // "Press Back to return" footer below the list (as there was with the
-    // original 4 items), so it's been dropped; every other screen in this
-    // app relies on Back working without an on-screen reminder.
-    for(int i = 1; i < OPTIONS_COUNT; i++) {
-        int y = 22 + i * 10;
+    // Overlay toggle state on items 1..5
+    for(int i = top; i < OPTIONS_COUNT && (i - top) < max_visible; i++) {
+        if(i == 0) continue; // Reset GPS has no right-aligned state text
+        int y = 22 + (i - top) * 10;
         const char* state;
         if(i == 1) {
             state = a->zoom_enabled ? "ON" : "OFF";
@@ -413,8 +424,22 @@ void options_render(Canvas* c, void* ctx) {
             state = a->backlight_on ? "ON" : "OFF";
         } else if(i == 3) {
             state = a->cal_active ? "YES" : "NO";
-        } else {
+        } else if(i == 4) {
             state = a->sound_enabled ? "ON" : "OFF";
+        } else {
+            if(a->nav_model == GpsNavModelWrist) {
+                state = "WRIST";
+            } else if(a->nav_model == GpsNavModelVehicle) {
+                state = "VEHICLE";
+            } else if(a->nav_model == GpsNavModelStationary) {
+                state = "STATION";
+            } else if(a->nav_model == GpsNavModelSea) {
+                state = "SEA";
+            } else if(a->nav_model == GpsNavModelBike) {
+                state = "BIKE";
+            } else {
+                state = "PED";
+            }
         }
         int sx = 128 - canvas_string_width(c, state) - 2;
         if(i == sel) canvas_invert_color(c);

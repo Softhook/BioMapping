@@ -21,6 +21,15 @@ typedef enum {
     BioMapModeDiagnostics, // GSR diagnostics — raw counts, no graph
 } BioMapMode;
 
+typedef enum {
+    GpsNavModelPedestrian = 0, // Pedestrian (default, dynModel = 3)
+    GpsNavModelWrist,          // Wrist-worn (dynModel = 9)
+    GpsNavModelVehicle,        // Vehicle / Automotive (dynModel = 4)
+    GpsNavModelStationary,     // Stationary / Seated baseline (dynModel = 2)
+    GpsNavModelSea,            // Sea / Boating / Kayaking (dynModel = 5)
+    GpsNavModelBike,           // Bicycle (dynModel = 10)
+} GpsNavModel;
+
 // ── CSV column headers ────────────────────────────────────────────────
 // Must stay in sync with the printf format strings in format_gps_csv_row()
 // (biomap_session.c).  Changing column order here requires matching changes

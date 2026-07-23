@@ -41,8 +41,10 @@ typedef struct GpsStatus {
 
 typedef struct GpsUart GpsUart;
 
+#include "../biomap_config.h"
+
 // Lifecycle — caller owns event_queue and notifications until free() returns.
-GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications);
+GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications, GpsNavModel nav_model);
 void     gps_uart_free(GpsUart* gps);
 
 GpsStatus gps_uart_get_status(const GpsUart* gps);

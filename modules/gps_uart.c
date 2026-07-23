@@ -16,6 +16,7 @@
 
 struct GpsUart {
     GpsStatus            status;
+    GpsNavModel          nav_model;
     FuriMutex*           status_mutex;  // protects status field
     FuriHalSerialHandle* serial_handle;
     FuriStreamBuffer*    rx_stream;
@@ -387,12 +388,39 @@ static const uint8_t ubx_cfg_msg_gsv_1hz[] = {
     // rate=10: every 10th epoch × 100 ms = 1 Hz
     0xB5, 0x62, 0x06, 0x01, 0x03, 0x00, 0xF0, 0x03, 0x0A, 0x07, 0x1F
 };
-static const uint8_t ubx_cfg_nav5_pedestrian[] = {
-    0xB5, 0x62, 0x06, 0x24, 0x28, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x56, 0x3E
-};
+
+static void ubx_send_nav5(GpsUart* g, GpsNavModel nav_model) {
+    uint8_t dyn_model = 3; // Pedestrian default
+    if(nav_model == GpsNavModelWrist) {
+        dyn_model = 9; // Wrist-worn
+    } else if(nav_model == GpsNavModelVehicle) {
+        dyn_model = 4; // Vehicle / Automotive
+    } else if(nav_model == GpsNavModelStationary) {
+        dyn_model = 2; // Stationary / Seated
+    } else if(nav_model == GpsNavModelSea) {
+        dyn_model = 5; // Sea / Boating
+    } else if(nav_model == GpsNavModelBike) {
+        dyn_model = 10; // Bicycle
+    }
+
+    uint8_t pkt[48] = {0};
+    pkt[0] = 0xB5; pkt[1] = 0x62; // UBX header
+    pkt[2] = 0x06; pkt[3] = 0x24; // Class 0x06 (CFG), ID 0x24 (NAV5)
+    pkt[4] = 0x28; pkt[5] = 0x00; // Payload length = 40 bytes
+    pkt[6] = 0x01; pkt[7] = 0x00; // Mask: bit 0 (apply dynModel)
+    pkt[8] = dyn_model;
+
+    uint8_t ck_a = 0, ck_b = 0;
+    for(size_t i = 2; i < 46; i++) {
+        ck_a += pkt[i];
+        ck_b += ck_a;
+    }
+    pkt[46] = ck_a;
+    pkt[47] = ck_b;
+
+    ubx_tx_raw(g, pkt, sizeof(pkt));
+}
+
 static const uint8_t ubx_cfg_assistnow_autonomous[] = {
     // VALSET packet enabling CFG-ANA-USE_ANA = 1 (true) for offline orbit predictions
     0xB5, 0x62, 0x06, 0x8A, 0x09, 0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x23, 0x10, 0x01, 0xCF, 0xC0
@@ -423,12 +451,13 @@ static void gps_uart_reinit(GpsUart* g, uint32_t baud) {
     g->last_valid_nmea_tick = 0;
 }
 
-GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications) {
+GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications, GpsNavModel nav_model) {
     GpsUart* g = malloc(sizeof(GpsUart));
     furi_assert(g);
 
     g->event_queue   = event_queue;
     g->notifications = notifications;
+    g->nav_model     = nav_model;
     g->rx_offset     = 0;
     g->ready         = false;
     g->rx_pending    = false;
@@ -704,7 +733,7 @@ static void gps_uart_configure(GpsUart* g) {
     ubx_tx_raw(g, ubx_cfg_msg_gll_off, sizeof(ubx_cfg_msg_gll_off));
     ubx_tx_raw(g, ubx_cfg_msg_vtg_off, sizeof(ubx_cfg_msg_vtg_off));
     ubx_tx_raw(g, ubx_cfg_msg_gsv_1hz, sizeof(ubx_cfg_msg_gsv_1hz));
-    ubx_tx_raw(g, ubx_cfg_nav5_pedestrian, sizeof(ubx_cfg_nav5_pedestrian));
+    ubx_send_nav5(g, g->nav_model);
     ubx_tx_raw(g, ubx_cfg_assistnow_autonomous, sizeof(ubx_cfg_assistnow_autonomous));
     furi_delay_ms(100);
 
