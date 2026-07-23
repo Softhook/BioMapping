@@ -161,9 +161,19 @@ uint32_t gsr_sensor_get_duplicate_gap_min_ticks(const GsrSensor* gsr);
 // was only 40 — because real sample timing is measurably uneven
 // (get_window_min_gap_ticks()) and Goertzel's resonant recurrence
 // amplifies that into inflated energy. This version has no such failure
-// mode. See docs/gsr_filtering_analysis.md.  Reads 0.0f only if
-// unavailable — meaningful from the first tick.  For diagnostics.
+// mode. See docs/gsr_filtering_analysis.md.  Reads 0.0f if unavailable OR
+// if gsr_sensor_set_mains_hum_enabled() hasn't turned this on (off by
+// default).  For diagnostics.
 float gsr_sensor_get_mains_hum_mag(const GsrSensor* gsr);
+
+// Enables/disables the mains-hum correlator above — off by default. It's
+// the only per-tick diagnostic costing meaningfully more than a
+// comparison or two (2 trig calls per sample in the window, ~100/tick at
+// the ~50-sample window this typically runs with), so callers that don't
+// display it shouldn't pay for it every tick of every session. When
+// disabled, get_mains_hum_mag() reads 0.0f rather than a stale
+// last-computed value.  Thread-safe, same as set_calibration().
+void gsr_sensor_set_mains_hum_enabled(GsrSensor* gsr, bool enabled);
 
 // Number of PGA (autorange) changes applied in the most recent rolling
 // ~1 s window — same cadence as get_worker_hz().  Only counts automatic

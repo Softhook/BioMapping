@@ -212,15 +212,16 @@ static void test_duplicate_rate_reflects_stale_reads(void) {
 }
 
 // Sanity-checks the window ptp / mains-hum / PGA-oscillation / failure-
-// streak accessors. Doesn't (can't, on host) validate real 50 Hz
-// rejection — the mock produces a constant value, not an oscillating
-// signal — just confirms the accessors run and give physically sensible
-// results for a known constant, mid-range, failure-free input.
+// streak accessors, plus the mains-hum enable/disable gate. Doesn't
+// (can't, on host) validate real 50 Hz rejection — the mock produces a
+// constant value, not an oscillating signal — just confirms the
+// accessors run and give physically sensible results for a known
+// constant, mid-range, failure-free input.
 //
-// mains_hum_mag is deliberately NOT asserted near 0 here, even though the
-// input is pure DC. get_mains_hum_mag() correlates each raw sample
-// against cos/sin of 2*pi*50*t, using that sample's REAL recorded
-// timestamp for t — but furi_delay_ms() is a no-op on host, and
+// mains_hum_mag, once enabled, is deliberately NOT asserted near 0 here,
+// even though the input is pure DC. get_mains_hum_mag() correlates each
+// raw sample against cos/sin of 2*pi*50*t, using that sample's REAL
+// recorded timestamp for t — but furi_delay_ms() is a no-op on host, and
 // furi_test_tick only advances via explicit furi_test_advance_tick()
 // calls (see wait_for_more_reads), so in practice most/all samples
 // captured during a single wait_for_more_reads() burst share the same
@@ -247,6 +248,13 @@ static void test_new_diagnostics_accessors(void) {
 
     wait_for_more_reads(400);
     furi_test_advance_tick(1001); // roll the ~1s window so worker_hz_cached is set
+    gsr_sensor_tick(gsr);
+
+    // Mains-hum correlator is off by default — must read exactly 0.0f,
+    // not a stale/leftover value, even though real samples exist.
+    assert(gsr_sensor_get_mains_hum_mag(gsr) == 0.0f);
+
+    gsr_sensor_set_mains_hum_enabled(gsr, true);
     gsr_sensor_tick(gsr);
 
     int32_t ptp = gsr_sensor_get_window_ptp(gsr);

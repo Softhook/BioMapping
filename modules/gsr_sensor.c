@@ -133,6 +133,16 @@ struct GsrSensor {
     bool    cal_active; // true when custom calibration is active
     float   cal_gain;   // linear calibration gain factor (default 1.0)
     float   cal_offset; // linear calibration offset in counts (default 0.0)
+    // Gates the mains-hum correlator in tick()'s Step 1 (2 trig calls per
+    // sample, ~100/tick at the ~50-sample window this typically runs
+    // with) — set by gsr_sensor_set_mains_hum_enabled(). Off by default:
+    // the app only needs this on the Diagnostics screen, and there's no
+    // reason to spend the cycles the rest of the time. Mutex-protected
+    // like cal_active above, even though today's only caller
+    // (biomap_session.c, right after gsr_sensor_alloc()) happens to run
+    // on the same thread as tick() — same reasoning as calibration:
+    // don't assume that stays true just because it is right now.
+    bool mains_hum_enabled;
     int32_t tick_last_norm; // raw normalized count at tick's last-summed index
                              // (snapshotted during tick, used by get_raw_sample_ns)
     int32_t tick_mean_norm; // ~100 ms window mean normalized count (pre-TIA)
@@ -406,6 +416,7 @@ GsrSensor* gsr_sensor_alloc(void) {
     gsr->cal_active = false;
     gsr->cal_gain = 1.0f;
     gsr->cal_offset = 0.0f;
+    gsr->mains_hum_enabled = false; // opt-in — see the struct field's doc comment
 
     furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
     uint8_t probe = 0;
@@ -713,7 +724,10 @@ uint32_t gsr_sensor_get_duplicate_gap_min_ticks(const GsrSensor* gsr) {
 // against each sample's actual recorded timestamp — no resonant poles,
 // no uniform-spacing assumption, correct for however unevenly the real
 // samples are spaced. Meaningful from the very first tick (no longer
-// needs worker_hz_cached to exist first). Reads 0.0f only if unavailable.
+// needs worker_hz_cached to exist first). Reads 0.0f if unavailable OR if
+// gsr_sensor_set_mains_hum_enabled() hasn't turned this on (off by
+// default — see that function's doc comment for why: this is the one
+// per-tick diagnostic expensive enough to be worth gating).
 // For diagnostics.
 float gsr_sensor_get_mains_hum_mag(const GsrSensor* gsr) {
     furi_assert(gsr);
@@ -859,6 +873,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // resonance to misbehave, and is naturally correct for however
     // unevenly the real samples are actually spaced.
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    bool mains_hum_on = gsr->mains_hum_enabled;
     uint32_t r_idx = gsr->write_idx;
     uint32_t now_tick = furi_get_tick();
     uint32_t window_ticks = (BOXCAR_WINDOW_MS * furi_kernel_get_tick_frequency()) / 1000;
@@ -888,11 +903,15 @@ void gsr_sensor_tick(GsrSensor* gsr) {
 
         // Correlate against this sample's REAL elapsed time (not an
         // assumed uniform rate) — sign convention doesn't matter, only
-        // magnitude is used below.
-        float t_sec = (float)(now_tick - gsr->sample_tick[r_idx]) / tick_freq;
-        float angle = 2.0f * GSR_PI * MAINS_HUM_TARGET_HZ * t_sec;
-        sum_cos += (float)v * cosf(angle);
-        sum_sin += (float)v * sinf(angle);
+        // magnitude is used below. Skipped (2 trig calls/sample —
+        // see gsr_sensor_set_mains_hum_enabled()) unless something has
+        // actually asked for this diagnostic.
+        if(mains_hum_on) {
+            float t_sec = (float)(now_tick - gsr->sample_tick[r_idx]) / tick_freq;
+            float angle = 2.0f * GSR_PI * MAINS_HUM_TARGET_HZ * t_sec;
+            sum_cos += (float)v * cosf(angle);
+            sum_sin += (float)v * sinf(angle);
+        }
 
         samples++;
     }
@@ -905,10 +924,15 @@ void gsr_sensor_tick(GsrSensor* gsr) {
 
     gsr->tick_window_ptp = win_max - win_min;
     gsr->tick_window_min_gap = (samples > 1) ? min_gap_ticks : 0;
-    // Standard real-sinusoid amplitude recovery from a cosine/sine
-    // correlation: for a true component of amplitude A, each sum
-    // approaches ~A*samples/2, so 2/samples recovers A.
-    gsr->tick_mains_hum_mag = 2.0f * sqrtf(sum_cos * sum_cos + sum_sin * sum_sin) / (float)samples;
+    if(mains_hum_on) {
+        // Standard real-sinusoid amplitude recovery from a cosine/sine
+        // correlation: for a true component of amplitude A, each sum
+        // approaches ~A*samples/2, so 2/samples recovers A.
+        gsr->tick_mains_hum_mag =
+            2.0f * sqrtf(sum_cos * sum_cos + sum_sin * sum_sin) / (float)samples;
+    } else {
+        gsr->tick_mains_hum_mag = 0.0f; // not computed this tick — see the setter's doc comment
+    }
 
     // ── Step 2: simple mean over however many samples landed in the
     // window (typically ~50 at the ~500 Hz measured real-world rate;
@@ -989,6 +1013,21 @@ void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float o
     gsr->cal_active = active;
     gsr->cal_gain = gain;
     gsr->cal_offset = offset;
+    furi_mutex_release(gsr->mutex);
+}
+
+// Enables/disables the mains-hum correlator computed in gsr_sensor_tick()
+// (see gsr_sensor_get_mains_hum_mag()) — off by default. It's the only
+// per-tick diagnostic that costs meaningfully more than a comparison or
+// two (2 trig calls per sample in the window, ~100/tick), so callers
+// that don't display it (i.e. every mode except Diagnostics) shouldn't
+// pay for it. When disabled, gsr_sensor_get_mains_hum_mag() reads 0.0f
+// rather than a stale last-computed value.
+void gsr_sensor_set_mains_hum_enabled(GsrSensor* gsr, bool enabled) {
+    furi_assert(gsr);
+    if(!gsr->available) return;
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    gsr->mains_hum_enabled = enabled;
     furi_mutex_release(gsr->mutex);
 }
 

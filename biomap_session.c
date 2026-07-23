@@ -557,6 +557,11 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         float offset = app->cal_offset;
         furi_mutex_release(app->mutex);
         gsr_sensor_set_calibration(s->gsr, active, gain, offset);
+        // Mains-hum correlator costs ~100 trig calls/tick and is off by
+        // default (see gsr_sensor_set_mains_hum_enabled()) — only the
+        // Diagnostics screen actually displays it, so only that mode
+        // pays for it.
+        gsr_sensor_set_mains_hum_enabled(s->gsr, mode == BioMapModeDiagnostics);
     }
     s->logger = sd_logger_alloc(app->storage);
     view_port_update(s->vp);
