@@ -113,6 +113,51 @@ float gsr_sensor_get_success_rate(const GsrSensor* gsr);
 // unexplained.  For diagnostics.
 float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr);
 
+// Live count of consecutive failed I2C reads happening right now — not a
+// rolling average like get_success_rate(), so it shows a fresh failure
+// streak building in real time, before either the 1 s success-rate
+// average visibly drops or the 50-failure disconnect threshold actually
+// fires.  For diagnostics.
+uint32_t gsr_sensor_get_consecutive_failures(const GsrSensor* gsr);
+
+// Peak-to-peak (max - min) of the raw normalised counts in the most
+// recent tick()'s averaging window.  A cheap, frequency-agnostic sense
+// of instantaneous signal/noise range.  For diagnostics.
+int32_t gsr_sensor_get_window_ptp(const GsrSensor* gsr);
+
+// Smallest gap (RTOS ticks, ~1 ms each) between two consecutive samples'
+// timestamps in the most recent window.  A value of 0 means two samples
+// landed in the same millisecond — evidence the worker loop is, at least
+// sometimes, running faster than a cleanly-paced ~2 ms period would
+// allow, plausibly explaining the duplicate-rate finding in
+// get_duplicate_rate()'s doc comment.  1 ms resolution can't resolve
+// finer than that.  For diagnostics.
+uint32_t gsr_sensor_get_window_min_gap_ticks(const GsrSensor* gsr);
+
+// Recovered amplitude (normalised-count units) at 50 Hz, from a direct
+// correlation against each raw sample's actual recorded timestamp (not
+// an assumed uniform rate) in the most recent window — a real, measured
+// answer to "how much mains-hum energy is actually present", as opposed
+// to the boxcar notch's rejection itself, which is a guaranteed property
+// of window duration and isn't separately measurable post-averaging.
+// NOTE: an earlier Goertzel-filter version of this (fixed coefficient
+// from get_worker_hz(), assuming uniform sample spacing) measured a
+// physically impossible result on real hardware (2026-07-23) — 103
+// counts of "50 Hz content" against a window whose total peak-to-peak
+// was only 40 — because real sample timing is measurably uneven
+// (get_window_min_gap_ticks()) and Goertzel's resonant recurrence
+// amplifies that into inflated energy. This version has no such failure
+// mode. See docs/gsr_filtering_analysis.md.  Reads 0.0f only if
+// unavailable — meaningful from the first tick.  For diagnostics.
+float gsr_sensor_get_mains_hum_mag(const GsrSensor* gsr);
+
+// Number of PGA (autorange) changes applied in the most recent rolling
+// ~1 s window — same cadence as get_worker_hz().  Only counts automatic
+// autoranging changes, not manual gsr_sensor_lock_pga() calls, so a
+// nonzero value signals the input sitting near an autorange threshold
+// and flapping between ranges.  For diagnostics.
+uint32_t gsr_sensor_get_pga_change_count(const GsrSensor* gsr);
+
 // Update calibration parameters (thread-safe).  When active is true,
 // the raw counts are scaled by gain and offset-shifted before conductance conversion.
 void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float offset);

@@ -199,6 +199,63 @@ static void test_duplicate_rate_reflects_stale_reads(void) {
     printf("  -> Pass\n");
 }
 
+// Sanity-checks the window ptp / mains-hum / PGA-oscillation / failure-
+// streak accessors. Doesn't (can't, on host) validate real 50 Hz
+// rejection — the mock produces a constant value, not an oscillating
+// signal — just confirms the accessors run and give physically sensible
+// results for a known constant, mid-range, failure-free input.
+//
+// mains_hum_mag is deliberately NOT asserted near 0 here, even though the
+// input is pure DC. get_mains_hum_mag() correlates each raw sample
+// against cos/sin of 2*pi*50*t, using that sample's REAL recorded
+// timestamp for t — but furi_delay_ms() is a no-op on host, and
+// furi_test_tick only advances via explicit furi_test_advance_tick()
+// calls (see wait_for_more_reads), so in practice most/all samples
+// captured during a single wait_for_more_reads() burst share the same
+// (or a very narrow range of) timestamp, i.e. t≈0 for nearly every
+// sample. That collapses every sample's angle to ≈0, so cos≈1, sin≈0 for
+// all of them — sum_cos≈C*samples, and the 2/samples amplitude-recovery
+// factor then gives ≈2*C, exactly double the constant input value, which
+// is what this test measures (mains_hum_mag == 2x the constant raw16-
+// derived count). That's correct arithmetic for degenerate,
+// near-identical timestamps, not a bug — on real hardware, samples are
+// spread across the real ~100 ms window (see get_window_min_gap_ticks()),
+// so a genuine DC input's angles spread out too and the correlation
+// averages toward zero instead. Only the non-negative/finite/no-crash
+// contract is host-testable; the "near 0 for no real oscillation" claim
+// needs real hardware, same caveat as worker_hz itself.
+static void test_new_diagnostics_accessors(void) {
+    printf("Running test_new_diagnostics_accessors...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000); // mid-range, constant: no autorange, no variation
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+    assert(gsr_sensor_get_consecutive_failures(gsr) == 0);
+
+    wait_for_more_reads(400);
+    furi_test_advance_tick(1001); // roll the ~1s window so worker_hz_cached is set
+    gsr_sensor_tick(gsr);
+
+    int32_t ptp = gsr_sensor_get_window_ptp(gsr);
+    float mains = gsr_sensor_get_mains_hum_mag(gsr);
+    uint32_t min_gap = gsr_sensor_get_window_min_gap_ticks(gsr);
+    uint32_t pga_changes = gsr_sensor_get_pga_change_count(gsr);
+    uint32_t fails = gsr_sensor_get_consecutive_failures(gsr);
+
+    printf("  ptp=%ld mains_hum_mag=%.4f min_gap_ticks=%lu pga_changes=%lu fails=%lu\n",
+           (long)ptp, (double)mains, (unsigned long)min_gap,
+           (unsigned long)pga_changes, (unsigned long)fails);
+
+    assert(ptp == 0);          // constant mock signal — no variation within the window
+    assert(mains >= 0.0f && isfinite(mains)); // see comment above — value itself is meaningless on host
+    assert(pga_changes == 0);  // mid-range constant signal — no autorange triggered
+    assert(fails == 0);        // no failures injected
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
 static void test_tia_conversion(void) {
     printf("Running test_tia_conversion...\n");
     furi_hal_i2c_mock_reset();
@@ -357,6 +414,7 @@ int main(void) {
     test_worker_hz_accessor();
     test_success_rate_reflects_real_failure_ratio();
     test_duplicate_rate_reflects_stale_reads();
+    test_new_diagnostics_accessors();
     test_tia_conversion();
     test_calibration_applies_gain_offset();
     test_autorange_up_on_low_signal();

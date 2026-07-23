@@ -5,6 +5,7 @@
 #include <furi.h>
 #include <furi_hal.h>
 #include <stdlib.h>
+#include <math.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TIA conversion: normalized ADC counts → nanosiemens
@@ -86,6 +87,16 @@ static inline float tia_counts_to_ns(float counts) {
 // (~500 Hz measured on real hardware, giving a ~200 ms window instead).
 #define BOXCAR_WINDOW_MS  100
 
+// Target frequency for the on-device mains-hum content estimator (see
+// gsr_sensor_get_mains_50hz_mag()). Fixed at 50 Hz — the diagnostics
+// screen has room for one, and the boxcar's exact-null property already
+// covers both 50 and 60 Hz identically by construction (Recommendation
+// 1b), so this is purely about giving a visible, measured answer to "is
+// there real mains-hum content in the raw signal", not about validating
+// one mains frequency over the other.
+#define MAINS_HUM_TARGET_HZ  50.0f
+#define GSR_PI  3.14159265358979323846f
+
 // Normalisation multiplier factors to pga_index=5 (±0.256 V) reference.
 static const int32_t NORM_FACTOR[6] = { 24, 16, 8, 4, 2, 1 };
 
@@ -126,6 +137,13 @@ struct GsrSensor {
                              // (snapshotted during tick, used by get_raw_sample_ns)
     int32_t tick_mean_norm; // ~100 ms window mean normalized count (pre-TIA)
     int32_t tick_window_samples; // how many buffer entries landed in that window
+    int32_t  tick_window_ptp;      // max-min of the window's raw counts (peak-to-peak)
+    uint32_t tick_window_min_gap;  // smallest inter-sample tick gap seen in the window
+    float    tick_mains_hum_mag;   // per-sample-timestamp correlation amplitude at
+                                    // MAINS_HUM_TARGET_HZ — see gsr_sensor_get_mains_hum_mag()
+    uint32_t pga_change_count;         // tick()-only — total PGA changes applied, lifetime
+    uint32_t hz_window_start_pga_changes; // pga_change_count snapshot — tick() only
+    uint32_t pga_change_rate_cached;      // tick() only — PGA changes in the last ~1 s window
 
     FuriThread* thread;
     FuriMutex*  mutex;
@@ -187,6 +205,17 @@ struct GsrSensor {
     float    worker_hz_cached;      // tick() only — successful-sample rate
     float    success_rate_cached;   // tick() only — iter_count/attempt_count over the same window, 0-100
     float    duplicate_rate_cached; // tick() only — duplicate_count/iter_count over the same window, 0-100
+
+    // Live (not rolling-window) count of consecutive failed I2C reads —
+    // mutex-protected, mirrors the worker's local consecutive_failures.
+    // Published so the accessor can show "how close to the 50-failure
+    // disconnect threshold right now", which a ~1 s rolling success_rate
+    // average can't: success_rate can still read e.g. 80% while a fresh
+    // failure streak is actively building toward disconnect. Only
+    // written on failure, and once on recovery (not every successful
+    // iteration) — see gsr_sensor_worker() — to avoid taking the mutex
+    // on every single normal-operation read just to publish a 0.
+    uint32_t consecutive_failures;
 };
 
 // Background worker thread for 860 SPS ADC reading.  Writes normalized
@@ -253,7 +282,12 @@ static int32_t gsr_sensor_worker(void* context) {
         furi_mutex_release(gsr->mutex);
 
         if(ok) {
-            consecutive_failures = 0;
+            if(consecutive_failures != 0) {
+                consecutive_failures = 0;
+                furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+                gsr->consecutive_failures = 0;
+                furi_mutex_release(gsr->mutex);
+            }
             if(!gsr->i2c_working) {
                 furi_mutex_acquire(gsr->mutex, FuriWaitForever);
                 gsr->i2c_working = true;
@@ -282,15 +316,16 @@ static int32_t gsr_sensor_worker(void* context) {
             furi_mutex_release(gsr->mutex);
         } else {
             consecutive_failures++;
+            furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+            gsr->consecutive_failures = consecutive_failures;
             // After ~50 ms of continuous I2C failures, treat the sensor
             // as disconnected so the UI doesn't show a stale frozen value.
             if(consecutive_failures >= 50) {
-                furi_mutex_acquire(gsr->mutex, FuriWaitForever);
                 gsr->connected = false;
                 gsr->i2c_working = false;
                 gsr->raw = 0.0f;
-                furi_mutex_release(gsr->mutex);
             }
+            furi_mutex_release(gsr->mutex);
         }
 
         // Track the PGA under which the next conversion will be started.
@@ -396,6 +431,7 @@ GsrSensor* gsr_sensor_alloc(void) {
         gsr->iter_count = 0;
         gsr->attempt_count = 0;
         gsr->duplicate_count = 0;
+        gsr->consecutive_failures = 0;
         gsr->hz_window_start_tick = furi_get_tick(); // set before the worker starts — no lock needed
         gsr->hz_window_start_count = 0;
         gsr->hz_window_start_attempts = 0;
@@ -403,6 +439,12 @@ GsrSensor* gsr_sensor_alloc(void) {
         gsr->worker_hz_cached = 0.0f;
         gsr->success_rate_cached = 100.0f; // optimistic default until the first window rolls
         gsr->duplicate_rate_cached = 0.0f; // optimistic default until the first window rolls
+        gsr->pga_change_count = 0;
+        gsr->hz_window_start_pga_changes = 0;
+        gsr->pga_change_rate_cached = 0;
+        gsr->tick_window_ptp = 0;
+        gsr->tick_window_min_gap = 0;
+        gsr->tick_mains_hum_mag = 0.0f;
 
         gsr->running = true;
         gsr->pga_changed = false;
@@ -550,6 +592,97 @@ float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr) {
     return gsr->duplicate_rate_cached;
 }
 
+// Live count of consecutive failed I2C reads happening right now — not a
+// rolling average like gsr_sensor_get_success_rate(), so it can show a
+// fresh failure streak building in real time, before either the 1 s
+// success-rate average visibly drops or the 50-failure disconnect
+// threshold (gsr_sensor_worker()) actually fires. For diagnostics.
+uint32_t gsr_sensor_get_consecutive_failures(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return 0;
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    uint32_t val = gsr->consecutive_failures;
+    furi_mutex_release(gsr->mutex);
+    return val;
+}
+
+// Peak-to-peak (max - min) of the raw normalized counts in the most
+// recent tick()'s averaging window — a cheap, frequency-agnostic sense
+// of instantaneous signal/noise range, independent of the mains-hum
+// estimate below. For diagnostics.
+int32_t gsr_sensor_get_window_ptp(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return 0;
+    // tick_window_ptp is written by tick() on the same thread — no mutex needed
+    return gsr->tick_window_ptp;
+}
+
+// Smallest gap (in RTOS ticks, ~1 ms each) between two consecutive
+// samples' timestamps in the most recent tick()'s window. Direct,
+// measured evidence for the leading (still unconfirmed) explanation for
+// the 7-11% duplicate rate measured 2026-07-23: a cleanly-paced ~2 ms
+// worker loop should never produce two samples in the same millisecond,
+// so a value of 0 here means the loop is, at least sometimes, running
+// faster than that — plausibly fast enough to occasionally beat the
+// ADS1115's ~1.16 ms conversion time and re-read a stale value. 1 ms
+// tick resolution can't distinguish "0.1 ms apart" from "0.9 ms apart"
+// within that, so this confirms or rules out bunching, not the precise
+// margin. For diagnostics.
+uint32_t gsr_sensor_get_window_min_gap_ticks(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return 0;
+    // tick_window_min_gap is written by tick() on the same thread — no mutex needed
+    return gsr->tick_window_min_gap;
+}
+
+// Recovered amplitude, at MAINS_HUM_TARGET_HZ (50 Hz), of the raw
+// (pre-averaging) samples in the most recent tick()'s window —
+// normalized-count units, comparable to gsr_sensor_get_mean_count() and
+// gsr_sensor_get_window_ptp(). Answers "how much real 50 Hz content is
+// actually present in the raw signal", which is what the boxcar's
+// mains-notch defends against; the notch's rejection itself isn't
+// independently measurable here (it's a guaranteed property of the
+// window's duration, not something to check post-averaging — 50 Hz
+// aliases to exactly 0 Hz once decimated to the 10 Hz tick rate, so
+// there's nothing meaningful to measure on the output side).
+//
+// Deliberately NOT a Goertzel filter — an earlier version was, using
+// each sample's real timestamp only to pick a fixed coefficient assuming
+// uniform spacing at the ~1 s rolling worker_hz. Real hardware
+// (2026-07-23) measured that version reporting 103 counts of "50 Hz
+// content" against a window whose total peak-to-peak was only 40 counts
+// — physically impossible, since no single frequency component can
+// exceed roughly half the signal's total peak-to-peak. Goertzel's
+// recurrence has two poles exactly on the unit circle (marginally
+// stable) and assumes uniform sample spacing; real sample timing is
+// measurably uneven (get_window_min_gap_ticks()), and that combination
+// inflates the reported energy. This version instead correlates directly
+// against each sample's actual recorded timestamp — no resonant poles,
+// no uniform-spacing assumption, correct for however unevenly the real
+// samples are spaced. Meaningful from the very first tick (no longer
+// needs worker_hz_cached to exist first). Reads 0.0f only if unavailable.
+// For diagnostics.
+float gsr_sensor_get_mains_hum_mag(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return 0.0f;
+    // tick_mains_hum_mag is written by tick() on the same thread — no mutex needed
+    return gsr->tick_mains_hum_mag;
+}
+
+// Number of PGA (autorange) changes applied in the most recent rolling
+// ~1 s window — same cadence as gsr_sensor_get_worker_hz(). Only counts
+// changes tick()'s own autoranging logic applies (Step 5 in
+// gsr_sensor_tick()), not manual gsr_sensor_lock_pga() calls, so this is
+// specifically a signal for "the input is sitting near an autorange
+// threshold and flapping between ranges" rather than counting deliberate
+// diagnostic overrides. For diagnostics.
+uint32_t gsr_sensor_get_pga_change_count(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return 0;
+    // pga_change_rate_cached is written by tick() on the same thread — no mutex needed
+    return gsr->pga_change_rate_cached;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Oversampling & Filtering
 //
@@ -608,11 +741,14 @@ void gsr_sensor_tick(GsrSensor* gsr) {
             (delta_attempts > 0) ? (100.0f * (float)delta / (float)delta_attempts) : 100.0f;
         gsr->duplicate_rate_cached =
             (delta > 0) ? (100.0f * (float)delta_duplicates / (float)delta) : 0.0f;
+        // pga_change_count is tick()-only (written in Step 5 below), no mutex needed
+        gsr->pga_change_rate_cached = gsr->pga_change_count - gsr->hz_window_start_pga_changes;
 
         gsr->hz_window_start_tick = now;
         gsr->hz_window_start_count = count;
         gsr->hz_window_start_attempts = attempts;
         gsr->hz_window_start_duplicates = duplicates;
+        gsr->hz_window_start_pga_changes = gsr->pga_change_count;
     }
 
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
@@ -636,18 +772,68 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // Capped at SENSOR_BUFFER_SIZE iterations so a pathological timestamp
     // can't spin forever — at the ADS1115's 860 SPS ceiling, a 100 ms
     // window holds at most ~86 samples, well under the buffer's 128.
+    // Same pass also tracks (a) peak-to-peak of the window's raw counts —
+    // a cheap, frequency-agnostic noise/signal-range indicator — (b) the
+    // smallest gap between consecutive samples' timestamps, which is
+    // direct evidence for or against the "furi_delay_ms(1) occasionally
+    // produces a sub-ADC-conversion-time loop period" theory for the
+    // measured (2026-07-23) 7-11% duplicate rate: a gap that reaches 0
+    // ticks means two samples landed in the same millisecond, something
+    // a cleanly-paced ~2 ms loop shouldn't produce — and (c) a direct,
+    // per-sample-timestamp correlation against MAINS_HUM_TARGET_HZ (see
+    // gsr_sensor_get_mains_hum_mag()). This is NOT a Goertzel filter — an
+    // earlier version was, using each sample's ACTUAL timestamp only to
+    // pick a fixed coefficient assuming uniform spacing at the ~1 s
+    // rolling worker_hz. On real hardware (2026-07-23) that produced a
+    // measured 50 Hz "magnitude" of 103 counts against a window whose
+    // total peak-to-peak was only 40 counts — physically impossible (no
+    // single frequency component can exceed roughly half the signal's
+    // total peak-to-peak). Root cause: Goertzel's recurrence has two
+    // poles exactly on the unit circle — a marginally-stable resonant
+    // filter — and assumes uniform sample spacing; real sample timing is
+    // measurably uneven (see get_window_min_gap_ticks()), and feeding
+    // that into a uniform-spacing-assuming resonant recurrence produces
+    // inflated, unreliable energy at the target bin. Using each sample's
+    // real timestamp (already available in sample_tick[]) directly in
+    // the correlation instead of an assumed fixed rate has no such
+    // resonance to misbehave, and is naturally correct for however
+    // unevenly the real samples are actually spaced.
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     uint32_t r_idx = gsr->write_idx;
     uint32_t now_tick = furi_get_tick();
     uint32_t window_ticks = (BOXCAR_WINDOW_MS * furi_kernel_get_tick_frequency()) / 1000;
     int64_t sum = 0;
     int samples = 0;
+    int32_t win_min = 0, win_max = 0;
+    uint32_t min_gap_ticks = UINT32_MAX;
+    uint32_t prev_sample_tick = 0;
+    float tick_freq = (float)furi_kernel_get_tick_frequency();
+    float sum_cos = 0.0f, sum_sin = 0.0f;
     for(int i = 0; i < SENSOR_BUFFER_SIZE; i++) {
         r_idx = (r_idx - 1) & (SENSOR_BUFFER_SIZE - 1);
         if(i > 0 && (now_tick - gsr->sample_tick[r_idx] > window_ticks)) break;
         int32_t v = gsr->buffer[r_idx];
         sum += v;
-        if(i == 0) gsr->tick_last_norm = v;  // snapshot for raw-sample compare
+        if(i == 0) {
+            gsr->tick_last_norm = v;  // snapshot for raw-sample compare
+            win_min = v;
+            win_max = v;
+        } else {
+            if(v < win_min) win_min = v;
+            if(v > win_max) win_max = v;
+            uint32_t gap = prev_sample_tick - gsr->sample_tick[r_idx];
+            if(gap < min_gap_ticks) min_gap_ticks = gap;
+        }
+        prev_sample_tick = gsr->sample_tick[r_idx];
+
+        // Correlate against this sample's REAL elapsed time (not an
+        // assumed uniform rate) — sign convention doesn't matter, only
+        // magnitude is used below.
+        float t_sec = (float)(now_tick - gsr->sample_tick[r_idx]) / tick_freq;
+        float angle = 2.0f * GSR_PI * MAINS_HUM_TARGET_HZ * t_sec;
+        sum_cos += (float)v * cosf(angle);
+        sum_sin += (float)v * sinf(angle);
+
         samples++;
     }
     uint8_t old_pga = gsr->pga_index;
@@ -656,6 +842,13 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     float gain = gsr->cal_gain;
     float offset = gsr->cal_offset;
     furi_mutex_release(gsr->mutex);
+
+    gsr->tick_window_ptp = win_max - win_min;
+    gsr->tick_window_min_gap = (samples > 1) ? min_gap_ticks : 0;
+    // Standard real-sinusoid amplitude recovery from a cosine/sine
+    // correlation: for a true component of amplitude A, each sum
+    // approaches ~A*samples/2, so 2/samples recovers A.
+    gsr->tick_mains_hum_mag = 2.0f * sqrtf(sum_cos * sum_cos + sum_sin * sum_sin) / (float)samples;
 
     // ── Step 2: simple mean over however many samples landed in the
     // window (typically ~50 at the ~500 Hz measured real-world rate;
@@ -713,6 +906,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
             (unsigned)old_pga, (unsigned)new_pga, PGA_LABEL[new_pga]);
         gsr->pga_index = new_pga;
         gsr->pga_changed = true;
+        gsr->pga_change_count++; // tick()-only field, safe to touch under this mutex acquisition
     }
     gsr->raw = raw_ns;
 
