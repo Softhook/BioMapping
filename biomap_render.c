@@ -244,10 +244,15 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     // already-unit-tested function of Sngl (test_tia_conversion), and
     // Filt is the smoothed display-path value the docs already describe
     // as cosmetic-only — neither adds diagnostic signal beyond what
-    // Sngl/Mean give closer to the hardware. Chg/F/Gap/P2P/50Hz are
+    // Sngl/Mean give closer to the hardware. Chg/F/DG/Gap/P2P/50Hz are
     // folded onto the line they're most related to rather than each
     // getting their own, to stay within 6 lines at comfortable 10 px
-    // spacing (7+ needs cramped 8 px spacing — see git history).
+    // spacing (7+ needs cramped 8 px spacing — see git history). DG
+    // (duplicate-specific gap) sits with Dup/Cn since it's a property of
+    // the flagged-duplicate reads; Gap (general window minimum) sits
+    // with P2P/50Hz as a general pacing stat instead — see
+    // gsr_sensor_get_duplicate_gap_min_ticks()'s doc comment for why
+    // they answer different questions.
     if(is_diag) {
         canvas_set_font(c, FontSecondary);
 
@@ -276,15 +281,32 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                      (unsigned long)gsr_sensor_get_consecutive_failures(a->session.gsr));
             canvas_draw_str(c, 0, y, buf);  y += 10;
 
-            snprintf(buf, sizeof(buf), "Dup:%.0f%% Cn:%s Gap:%lu",
-                     (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
-                     gsr_sensor_is_connected(a->session.gsr) ? "Y" : "N",
-                     (unsigned long)gsr_sensor_get_window_min_gap_ticks(a->session.gsr));
+            // DG (duplicate-gap-min) sits on the Dup line since it's a
+            // direct property of the reads that were flagged duplicate,
+            // not a general pacing stat — see
+            // gsr_sensor_get_duplicate_gap_min_ticks()'s doc comment for
+            // why it's a stronger check than the general window Gap
+            // (moved to the P2P/50Hz line below) for the "did a fast
+            // loop iteration actually cause this duplicate" question.
+            // UINT32_MAX means no duplicates happened this window —
+            // shown as "-", not a nonsense huge number.
+            uint32_t dup_gap = gsr_sensor_get_duplicate_gap_min_ticks(a->session.gsr);
+            if(dup_gap == UINT32_MAX) {
+                snprintf(buf, sizeof(buf), "Dup:%.0f%% Cn:%s DG:-",
+                         (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
+                         gsr_sensor_is_connected(a->session.gsr) ? "Y" : "N");
+            } else {
+                snprintf(buf, sizeof(buf), "Dup:%.0f%% Cn:%s DG:%lu",
+                         (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
+                         gsr_sensor_is_connected(a->session.gsr) ? "Y" : "N",
+                         (unsigned long)dup_gap);
+            }
             canvas_draw_str(c, 0, y, buf);  y += 10;
 
-            snprintf(buf, sizeof(buf), "P2P:%ld 50Hz:%.0f",
+            snprintf(buf, sizeof(buf), "P2P:%ld 50Hz:%.0f Gap:%lu",
                      (long)gsr_sensor_get_window_ptp(a->session.gsr),
-                     (double)gsr_sensor_get_mains_hum_mag(a->session.gsr));
+                     (double)gsr_sensor_get_mains_hum_mag(a->session.gsr),
+                     (unsigned long)gsr_sensor_get_window_min_gap_ticks(a->session.gsr));
             canvas_draw_str(c, 0, y, buf);
         } else {
             canvas_draw_str(c, 0, 8, "GSR: --");

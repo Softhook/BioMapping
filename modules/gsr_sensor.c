@@ -198,6 +198,20 @@ struct GsrSensor {
     // reading's raw code incomparable to the new one — that's a scale
     // change, not evidence of a stale read.
     uint32_t duplicate_count;
+    // duplicate_gap_running_min — mutex-protected. Worker tracks the
+    // smallest inter-read tick gap seen specifically AT a duplicate
+    // event (not the general per-window minimum gsr_sensor_tick()
+    // computes over the whole window in Step 1) since the last ~1 s
+    // window reset. UINT32_MAX means no duplicates have occurred yet in
+    // the current window. This is the direct correlation that
+    // duplicate_count alone doesn't give: whether the reads that
+    // actually turned out to be duplicates were specifically the
+    // tightly-spaced ones — real evidence for or against the "occasional
+    // sub-ADC-conversion-time loop period" theory, rather than comparing
+    // two independent aggregate numbers (general window Gap vs. Dup%)
+    // and eyeballing whether they seem consistent.
+    uint32_t duplicate_gap_running_min;
+    uint32_t duplicate_gap_min_cached; // tick() only — last window's value, same UINT32_MAX sentinel
     uint32_t hz_window_start_tick;  // tick() only
     uint32_t hz_window_start_count;    // iter_count snapshot — tick() only
     uint32_t hz_window_start_attempts; // attempt_count snapshot — tick() only
@@ -227,6 +241,7 @@ static int32_t gsr_sensor_worker(void* context) {
     uint32_t consecutive_failures = 0;
     int16_t  last_hw = 0;
     bool     have_last_hw = false; // no prior read to compare the first one against
+    uint32_t last_read_tick = 0;   // paired with have_last_hw — valid whenever it's true
 
     while(gsr->running) {
         furi_mutex_acquire(gsr->mutex, FuriWaitForever);
@@ -303,16 +318,27 @@ static int32_t gsr_sensor_worker(void* context) {
             // means the ADS1115 hadn't completed a new conversion between
             // the two I2C transactions — a stale re-read, not a fresh
             // sample. See duplicate_count's doc comment above.
+            uint32_t this_tick = furi_get_tick();
             bool is_duplicate = have_last_hw && (hw == last_hw);
+            // Only meaningful (and only ever read) when is_duplicate is
+            // true, which requires have_last_hw — so last_read_tick is
+            // always valid by the time it's actually used below.
+            uint32_t gap_ticks = this_tick - last_read_tick;
             last_hw = hw;
+            last_read_tick = this_tick;
             have_last_hw = true;
 
             furi_mutex_acquire(gsr->mutex, FuriWaitForever);
             gsr->buffer[gsr->write_idx] = norm;
-            gsr->sample_tick[gsr->write_idx] = furi_get_tick();
+            gsr->sample_tick[gsr->write_idx] = this_tick;
             gsr->write_idx = (gsr->write_idx + 1) & (SENSOR_BUFFER_SIZE - 1);
             gsr->iter_count++;
-            if(is_duplicate) gsr->duplicate_count++;
+            if(is_duplicate) {
+                gsr->duplicate_count++;
+                if(gap_ticks < gsr->duplicate_gap_running_min) {
+                    gsr->duplicate_gap_running_min = gap_ticks;
+                }
+            }
             furi_mutex_release(gsr->mutex);
         } else {
             consecutive_failures++;
@@ -431,6 +457,8 @@ GsrSensor* gsr_sensor_alloc(void) {
         gsr->iter_count = 0;
         gsr->attempt_count = 0;
         gsr->duplicate_count = 0;
+        gsr->duplicate_gap_running_min = UINT32_MAX;
+        gsr->duplicate_gap_min_cached = UINT32_MAX;
         gsr->consecutive_failures = 0;
         gsr->hz_window_start_tick = furi_get_tick(); // set before the worker starts — no lock needed
         gsr->hz_window_start_count = 0;
@@ -618,21 +646,46 @@ int32_t gsr_sensor_get_window_ptp(const GsrSensor* gsr) {
 }
 
 // Smallest gap (in RTOS ticks, ~1 ms each) between two consecutive
-// samples' timestamps in the most recent tick()'s window. Direct,
-// measured evidence for the leading (still unconfirmed) explanation for
-// the 7-11% duplicate rate measured 2026-07-23: a cleanly-paced ~2 ms
-// worker loop should never produce two samples in the same millisecond,
-// so a value of 0 here means the loop is, at least sometimes, running
-// faster than that — plausibly fast enough to occasionally beat the
-// ADS1115's ~1.16 ms conversion time and re-read a stale value. 1 ms
-// tick resolution can't distinguish "0.1 ms apart" from "0.9 ms apart"
-// within that, so this confirms or rules out bunching, not the precise
-// margin. For diagnostics.
+// samples' timestamps anywhere in the most recent tick()'s window —
+// general loop-pacing regularity, not tied to any specific sample.
+// CAUTION on interpreting the value: each timestamp is a floor() of the
+// real time it was taken, so a recorded gap of N ticks corresponds to a
+// true elapsed time anywhere from just over (N-1) ms to just under
+// (N+1) ms — e.g. a reading of 2 is consistent with a true minimum
+// anywhere from ~1.0 ms to ~3.0 ms, which straddles the ADS1115's
+// ~1.16 ms conversion time and so doesn't cleanly confirm or rule out
+// the "loop occasionally runs fast enough to re-read a stale conversion"
+// theory on its own. Real hardware (2026-07-23) measured this at 2 ticks
+// in the same window Dup showed 18% — see
+// gsr_sensor_get_duplicate_gap_min_ticks() for the more direct version
+// of this question, which correlates the gap specifically with samples
+// that turned out to be duplicates rather than comparing two independent
+// aggregate numbers. For diagnostics.
 uint32_t gsr_sensor_get_window_min_gap_ticks(const GsrSensor* gsr) {
     furi_assert(gsr);
     if(!gsr->available) return 0;
     // tick_window_min_gap is written by tick() on the same thread — no mutex needed
     return gsr->tick_window_min_gap;
+}
+
+// Smallest inter-read tick gap seen SPECIFICALLY at a sample that turned
+// out to be a duplicate (see gsr_sensor_get_duplicate_rate()), over the
+// same rolling ~1 s window as gsr_sensor_get_worker_hz(). Unlike
+// gsr_sensor_get_window_min_gap_ticks() (the general per-window minimum,
+// which may not even be adjacent to a duplicate), this directly
+// correlates timing with the specific reads that were actually stale —
+// the real test of the "occasional sub-ADC-conversion-time loop period"
+// theory, rather than eyeballing whether two independent aggregate
+// numbers seem consistent. Same tick-flooring caveat applies (see that
+// function's doc comment). Returns UINT32_MAX if no duplicates occurred
+// in the most recent window (not 0 — a real value of 0 is itself
+// meaningful and must stay distinguishable from "no data"), or if
+// unavailable.  For diagnostics.
+uint32_t gsr_sensor_get_duplicate_gap_min_ticks(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return UINT32_MAX;
+    // duplicate_gap_min_cached is written by tick() on the same thread — no mutex needed
+    return gsr->duplicate_gap_min_cached;
 }
 
 // Recovered amplitude, at MAINS_HUM_TARGET_HZ (50 Hz), of the raw
@@ -730,6 +783,12 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         uint32_t count = gsr->iter_count;
         uint32_t attempts = gsr->attempt_count;
         uint32_t duplicates = gsr->duplicate_count;
+        // Read-and-reset must happen in the same critical section — a
+        // separate read then a separate reset would race against the
+        // worker updating it in between, potentially discarding a
+        // just-recorded minimum that belonged to THIS window.
+        uint32_t dup_gap_min = gsr->duplicate_gap_running_min;
+        gsr->duplicate_gap_running_min = UINT32_MAX;
         furi_mutex_release(gsr->mutex);
 
         uint32_t window_ticks = now - gsr->hz_window_start_tick;
@@ -741,6 +800,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
             (delta_attempts > 0) ? (100.0f * (float)delta / (float)delta_attempts) : 100.0f;
         gsr->duplicate_rate_cached =
             (delta > 0) ? (100.0f * (float)delta_duplicates / (float)delta) : 0.0f;
+        gsr->duplicate_gap_min_cached = dup_gap_min; // UINT32_MAX = no duplicates this window
         // pga_change_count is tick()-only (written in Step 5 below), no mutex needed
         gsr->pga_change_rate_cached = gsr->pga_change_count - gsr->hz_window_start_pga_changes;
 

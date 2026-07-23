@@ -126,13 +126,27 @@ uint32_t gsr_sensor_get_consecutive_failures(const GsrSensor* gsr);
 int32_t gsr_sensor_get_window_ptp(const GsrSensor* gsr);
 
 // Smallest gap (RTOS ticks, ~1 ms each) between two consecutive samples'
-// timestamps in the most recent window.  A value of 0 means two samples
-// landed in the same millisecond — evidence the worker loop is, at least
-// sometimes, running faster than a cleanly-paced ~2 ms period would
-// allow, plausibly explaining the duplicate-rate finding in
-// get_duplicate_rate()'s doc comment.  1 ms resolution can't resolve
-// finer than that.  For diagnostics.
+// timestamps anywhere in the most recent window — general loop-pacing
+// regularity, not tied to any specific sample.  CAUTION: each timestamp
+// is a floor() of the real time taken, so a reading of N ticks is
+// consistent with a true minimum anywhere from ~(N-1) ms to ~(N+1) ms —
+// e.g. a reading of 2 straddles the ADS1115's ~1.16 ms conversion time
+// and doesn't cleanly confirm or rule out the "occasional fast loop
+// period" theory for the duplicate-rate finding on its own.  See
+// get_duplicate_gap_min_ticks() for the more direct version of this
+// question.  For diagnostics.
 uint32_t gsr_sensor_get_window_min_gap_ticks(const GsrSensor* gsr);
+
+// Smallest inter-read tick gap seen SPECIFICALLY at a sample that turned
+// out to be a duplicate (get_duplicate_rate()), over the same rolling
+// ~1 s window as get_worker_hz().  Unlike get_window_min_gap_ticks() (a
+// general per-window minimum that may not even be adjacent to a
+// duplicate), this directly correlates timing with the reads that were
+// actually stale.  Same tick-flooring caveat applies.  Returns
+// UINT32_MAX if no duplicates occurred in the most recent window (a real
+// value of 0 is itself meaningful and must stay distinguishable from "no
+// data"), or if unavailable.  For diagnostics.
+uint32_t gsr_sensor_get_duplicate_gap_min_ticks(const GsrSensor* gsr);
 
 // Recovered amplitude (normalised-count units) at 50 Hz, from a direct
 // correlation against each raw sample's actual recorded timestamp (not

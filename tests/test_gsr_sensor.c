@@ -186,6 +186,10 @@ static void test_duplicate_rate_reflects_stale_reads(void) {
     GsrSensor* gsr = gsr_sensor_alloc();
     assert(gsr != NULL);
     assert(gsr_sensor_get_duplicate_rate(gsr) == 0.0f); // no window has elapsed yet
+    // No duplicates have happened yet either — must read the UINT32_MAX
+    // "no data" sentinel, not 0 (which would misleadingly claim a real
+    // zero-tick gap was observed).
+    assert(gsr_sensor_get_duplicate_gap_min_ticks(gsr) == UINT32_MAX);
 
     wait_for_more_reads(400);
     furi_test_advance_tick(1001); // force the ~1s measurement window to roll over
@@ -194,6 +198,14 @@ static void test_duplicate_rate_reflects_stale_reads(void) {
     float rate = gsr_sensor_get_duplicate_rate(gsr);
     printf("  raw16 held constant -> duplicate_rate=%.1f%% (expect ~100%%)\n", (double)rate);
     assert(rate > 95.0f);
+
+    // Near-100% of reads were duplicates, so this window definitely had
+    // some — the sentinel must be gone, replaced by a real (small, since
+    // the host worker spins essentially unthrottled) tick-gap value.
+    uint32_t dup_gap = gsr_sensor_get_duplicate_gap_min_ticks(gsr);
+    printf("  duplicate_gap_min_ticks=%lu (expect a real value, not UINT32_MAX)\n",
+           (unsigned long)dup_gap);
+    assert(dup_gap != UINT32_MAX);
 
     gsr_sensor_free(gsr);
     printf("  -> Pass\n");
