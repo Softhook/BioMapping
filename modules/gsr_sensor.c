@@ -125,6 +125,7 @@ struct GsrSensor {
     int32_t tick_last_norm; // raw normalized count at tick's last-summed index
                              // (snapshotted during tick, used by get_raw_sample_ns)
     int32_t tick_mean_norm; // ~100 ms window mean normalized count (pre-TIA)
+    int32_t tick_window_samples; // how many buffer entries landed in that window
 
     FuriThread* thread;
     FuriMutex*  mutex;
@@ -159,14 +160,25 @@ struct GsrSensor {
     // successful read's raw ADC code exactly matches the immediately
     // preceding successful read's code (same PGA setting). This is the
     // direct, measured version of the skip-vs-duplicate question in
-    // docs/gsr_filtering_analysis.md: at worker rates below the ADS1115's
-    // 860 SPS conversion rate this should stay near 0 (each read lands on
-    // a fresh conversion); a rate above 860 SPS would show it rising, the
-    // signature of the boxcar average's effective independent-sample
-    // count being diluted by re-read stale conversions. Reset to 0 (via
-    // have_last_hw = false in the worker) on every PGA change, since a
-    // gain change makes the previous reading's raw code incomparable to
-    // the new one — that's a scale change, not evidence of a stale read.
+    // docs/gsr_filtering_analysis.md.
+    //
+    // Measured on real hardware (2026-07-23): ~7-11% with a live skin
+    // conductance signal connected, ~12-16% with the sensor disconnected
+    // (open circuit). NOT near 0% as the "worker rate is below 860 SPS,
+    // so every read should be fresh" reasoning originally predicted here
+    // — that reasoning was wrong (or at least incomplete): this counter
+    // can't distinguish a genuinely stale re-read from two fresh
+    // conversions of a signal that simply hasn't changed between them,
+    // which is why the disconnected (near-DC, no real noise source)
+    // reading is higher than the connected one. The remaining ~7-11%
+    // under a real signal is still unexplained — per-iteration timing
+    // jitter in furi_delay_ms(1)'s tick-aliasing (see the pacing comment
+    // in gsr_sensor_worker()) occasionally producing a loop period under
+    // the ADC's ~1.16 ms conversion time is the leading candidate, not
+    // yet isolated. Reset to 0 (via have_last_hw = false in the worker)
+    // on every PGA change, since a gain change makes the previous
+    // reading's raw code incomparable to the new one — that's a scale
+    // change, not evidence of a stale read.
     uint32_t duplicate_count;
     uint32_t hz_window_start_tick;  // tick() only
     uint32_t hz_window_start_count;    // iter_count snapshot — tick() only
@@ -473,6 +485,19 @@ int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr) {
     return gsr->tick_mean_norm;
 }
 
+// How many ring-buffer entries landed inside the most recent tick()'s
+// ~100 ms time window and were actually averaged into gsr_sensor_get_
+// mean_count()'s result — the real-time counterpart to the rolling ~1 s
+// gsr_sensor_get_worker_hz(): that one shows a trend, this shows exactly
+// how many independent samples back the Mean value on screen right now.
+// Always ≥ 1 (see the i==0-unconditional note in gsr_sensor_tick()).
+int32_t gsr_sensor_get_window_samples(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return 0;
+    // tick_window_samples is written by tick() on the same thread — no mutex needed
+    return gsr->tick_window_samples;
+}
+
 uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr) {
     furi_assert(gsr);
     if(!gsr->available) return ADS_PGA_DEFAULT;
@@ -507,16 +532,18 @@ float gsr_sensor_get_success_rate(const GsrSensor* gsr) {
 
 // Percentage of successful reads, over the same rolling ~1 s window as
 // gsr_sensor_get_worker_hz(), whose raw ADC code exactly matched the
-// immediately preceding successful read — i.e. a stale re-read of a
-// conversion the ADS1115 hadn't yet updated, rather than a fresh sample.
-// This is the direct, measured answer to the skip-vs-duplicate question
-// in docs/gsr_filtering_analysis.md: at worker rates below the ADS1115's
-// 860 SPS conversion rate this should sit near 0% (nearly every read is
-// fresh); well above 0% at rates near or above 860 SPS is the signature
-// of gsr_sensor_tick()'s boxcar average being diluted by re-counted
-// stale conversions rather than genuinely independent samples. Resets
-// across PGA changes (a gain change isn't a stale read). Reads 0.0f
-// until the first window has elapsed (optimistic default, not a claim).
+// immediately preceding successful read. NOTE: this can mean either a
+// stale re-read of a conversion the ADS1115 hadn't yet updated, OR two
+// genuinely fresh conversions of a signal that just hasn't moved between
+// them — the counter can't tell those apart, and real hardware
+// measurement (2026-07-23) shows the difference matters: ~12-16% with
+// the sensor disconnected (near-DC, no real signal to vary) vs. ~7-11%
+// with a live skin conductance signal connected. Both are well above the
+// "should be near 0% below 860 SPS" figure this comment originally
+// predicted — see docs/gsr_filtering_analysis.md and duplicate_count's
+// doc comment for what's still unexplained. Resets across PGA changes (a
+// gain change isn't a stale read). Reads 0.0f until the first window has
+// elapsed (optimistic default, not a claim).
 float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr) {
     furi_assert(gsr);
     if(!gsr->available) return 0.0f;
@@ -638,6 +665,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // docs/gsr_filtering_analysis.md for the actual numbers.
     float avg_norm = (float)sum / (float)samples;
     gsr->tick_mean_norm = (int32_t)avg_norm;  // snapshot for diagnostics
+    gsr->tick_window_samples = samples;       // snapshot for diagnostics
 
     // ── Step 3: autoranging decision on the RAW (uncalibrated) value.
     // Calibration is applied in the nS domain after TIA conversion —

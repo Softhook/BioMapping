@@ -77,6 +77,12 @@ int32_t gsr_sensor_get_raw_sample_count(const GsrSensor* gsr);
 // get_raw_sample_count to see single-sample vs averaged difference.
 int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr);
 
+// How many ring-buffer entries were actually averaged into the most
+// recent get_mean_count() result — the real, currently-in-effect sample
+// count behind the boxcar mean, as opposed to get_worker_hz()'s rolling
+// ~1 s trend.  Always >= 1.  For diagnostics.
+int32_t gsr_sensor_get_window_samples(const GsrSensor* gsr);
+
 // Current PGA index (0–5).  For diagnostics.
 uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr);
 
@@ -96,13 +102,15 @@ float gsr_sensor_get_success_rate(const GsrSensor* gsr);
 
 // Percentage of successful reads (0-100), over the same window as
 // gsr_sensor_get_worker_hz(), whose raw ADC code exactly matched the
-// immediately preceding read — a stale re-read rather than a fresh
-// conversion. Near 0% at worker rates below the ADS1115's 860 SPS
-// conversion ceiling (expected in normal operation); rising toward the
-// nominal duplicate fraction if the loop ever runs at or above 860 SPS
-// points at the boxcar average's effective independent-sample count
-// being diluted below what its raw sample count would suggest.  For
-// diagnostics.
+// immediately preceding read. This can mean either a stale re-read or
+// two fresh conversions of a signal that just hasn't moved between them
+// — it can't tell those apart. Measured on real hardware (2026-07-23):
+// ~7-11% with a live signal connected, ~12-16% disconnected (open
+// circuit, near-DC, no real signal to vary) — both well above the near-0%
+// this comment used to predict for worker rates below the ADS1115's
+// 860 SPS ceiling. See docs/gsr_filtering_analysis.md and
+// gsr_sensor.c's duplicate_count doc comment for what's still
+// unexplained.  For diagnostics.
 float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr);
 
 // Update calibration parameters (thread-safe).  When active is true,

@@ -238,44 +238,45 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         canvas_draw_str(c, 1, 10, badge);
     }
 
-    // ── Diagnostics: GSR only, 7 labeled lines ─────────────────────────
-    // 8 px line spacing (not 10) — 7 lines at 10 px would put the last
-    // line's baseline at y=68, off the bottom of the 128x64 canvas.
+    // ── Diagnostics: GSR only, 5 labeled lines ─────────────────────────
+    // Deliberately raw-count values (Sngl/Mean), not the nS-converted
+    // Raw/Filt this used to also show: TIA conversion is a pure,
+    // already-unit-tested function of Sngl (test_tia_conversion), and
+    // Filt is the smoothed display-path value the docs already describe
+    // as cosmetic-only — neither adds diagnostic signal beyond what
+    // Sngl/Mean give closer to the hardware, and dropping them leaves
+    // room for the two things that do: sample count backing the mean,
+    // and connection status (see gsr_sensor_get_window_samples() and
+    // gsr_sensor_is_connected() doc comments).
     if(is_diag) {
         canvas_set_font(c, FontSecondary);
 
         if(a->session.gsr && gsr_sensor_available(a->session.gsr)) {
             uint8_t pga = gsr_sensor_get_pga_index(a->session.gsr);
             int32_t mean_cnt = gsr_sensor_get_mean_count(a->session.gsr);
+            int32_t window_n = gsr_sensor_get_window_samples(a->session.gsr);
             char buf[32];
             int y = 8;
 
             snprintf(buf, sizeof(buf), "PGA:%u  Cal:%s",
                      (unsigned)pga, a->cal_active ? "yes" : "no");
-            canvas_draw_str(c, 0, y, buf);  y += 8;
-
-            snprintf(buf, sizeof(buf), "Raw:  %.0f nS",
-                     (double)a->session.pipeline.display.raw_sample_ns);
-            canvas_draw_str(c, 0, y, buf);  y += 8;
-
-            snprintf(buf, sizeof(buf), "Filt: %.0f nS",
-                     (double)a->session.pipeline.display.filtered_ns);
-            canvas_draw_str(c, 0, y, buf);  y += 8;
+            canvas_draw_str(c, 0, y, buf);  y += 10;
 
             snprintf(buf, sizeof(buf), "Sngl: %ld",
                      (long)a->session.pipeline.display.raw_sample_count);
-            canvas_draw_str(c, 0, y, buf);  y += 8;
+            canvas_draw_str(c, 0, y, buf);  y += 10;
 
-            snprintf(buf, sizeof(buf), "Mean: %ld", (long)mean_cnt);
-            canvas_draw_str(c, 0, y, buf);  y += 8;
+            snprintf(buf, sizeof(buf), "Mean: %ld (N=%ld)", (long)mean_cnt, (long)window_n);
+            canvas_draw_str(c, 0, y, buf);  y += 10;
 
             snprintf(buf, sizeof(buf), "Hz:%.0f OK:%.0f%%",
                      (double)gsr_sensor_get_worker_hz(a->session.gsr),
                      (double)gsr_sensor_get_success_rate(a->session.gsr));
-            canvas_draw_str(c, 0, y, buf);  y += 8;
+            canvas_draw_str(c, 0, y, buf);  y += 10;
 
-            snprintf(buf, sizeof(buf), "Dup:%.0f%%",
-                     (double)gsr_sensor_get_duplicate_rate(a->session.gsr));
+            snprintf(buf, sizeof(buf), "Dup:%.0f%%  Cn:%s",
+                     (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
+                     gsr_sensor_is_connected(a->session.gsr) ? "Y" : "N");
             canvas_draw_str(c, 0, y, buf);
         } else {
             canvas_draw_str(c, 0, 8, "GSR: --");

@@ -153,6 +153,45 @@ window-span issue (Recommendation 1b) remains the more actionable
 follow-up, since it's what protects against this same 2× gap landing on
 a *bad* rate on a different device or firmware revision.
 
+**Update 2026-07-23 — a direct duplicate-rate diagnostic
+(`gsr_sensor_get_duplicate_rate()`) was added and measured on real
+hardware, and it complicates the "500 Hz is below 860 SPS so reads
+should almost never be stale" reasoning above.** Measured: **~7-11%**
+with a live skin-conductance signal connected, **~12-16%** with the
+sensor disconnected (open circuit). Both are well above the near-0% that
+reasoning predicted.
+
+Two things going on, not one:
+
+1. **The disconnected-state number is confounded, not surprising.** The
+   counter detects "this read's raw code exactly matches the previous
+   read's code" — it cannot distinguish a genuinely stale re-read from
+   two fresh conversions of a signal that simply hasn't moved between
+   them. An open-circuit input is close to DC (no resistive path, so no
+   real Johnson/thermal noise or physiological variation), so consecutive
+   *fresh* conversions coincidentally matching is expected there and
+   isn't evidence of the worker rereading stale data.
+2. **The connected-state number (~7-11%) is not similarly explained away,
+   and is still open.** A live signal has real noise and real variation
+   between 2 ms-apart samples — if the loop's true instantaneous rate
+   were uniformly ~500 Hz (well under the ADS1115's ~1.16 ms conversion
+   period), stale re-reads should be rare even accounting for signal
+   noise. The leading candidate is the same one already named above:
+   `furi_delay_ms(1)`'s tick-aliasing doesn't give a clean, uniform
+   ~2 ms period — some iterations plausibly land close to or under the
+   ADC's conversion time, producing a real, if minority, rate of stale
+   reads. Not isolated to that mechanism specifically; still open.
+
+**Practical impact stays modest either way.** At ~7-11% duplicates in
+the samples that matter (connected), the boxcar window's *effective*
+independent-sample count is roughly N×0.90 rather than N — noise
+reduction of √(0.90N) vs √N, a ~5% difference, not enough on its own to
+revisit Recommendation 1b's conclusion. Worth re-measuring alongside any
+future change to the worker's pacing, since — unlike Hz/OK — nothing
+currently asserts a bound on this number in the host test suite (only
+that the arithmetic is correct against a synthetic constant-value case,
+per `test_duplicate_rate_reflects_stale_reads`).
+
 ## Finding 2 — the on-screen display has no anti-aliasing at all, and the filter comment describing it is wrong
 
 `gsr_sensor_get_raw_sample_ns()` is documented as returning "the most
