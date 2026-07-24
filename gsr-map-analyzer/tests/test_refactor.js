@@ -566,6 +566,29 @@ console.log('\n── gps_filter.js ──');
   assert(!isNaN(result[1].lat) && !isNaN(result[1].lon), 'VelocitySmoothing output is valid');
 }
 
+// 4m2. applyVelocitySmoothing — prefers hacc_m over HDOP for trust weighting
+{
+  // Same HDOP/PDOP (good geometry) in both tracks; only hacc_m differs.
+  // A bad hacc_m (multipath) should make the blend trust the raw fix less
+  // (pull further toward the dead-reckoned prediction) than an equally-good
+  // HDOP with no hacc_m at all.
+  function track(hacc) {
+    const p0 = { lat: 0, lon: 0, time: 0, speedKts: 5, course: 90, hdop: 1, pdop: 1 };
+    const p1 = { lat: 0.0002, lon: 0.0050, time: 1, speedKts: 5, course: 90, hdop: 1, pdop: 1 };
+    if (hacc !== undefined) { p0.hacc = hacc; p1.hacc = hacc; }
+    return [p0, p1];
+  }
+  const noHacc = GpsFilter.applyVelocitySmoothing(track(undefined), 0.5);
+  const badHacc = GpsFilter.applyVelocitySmoothing(track(40.0), 0.5);
+  const rawFix = track(undefined)[1];
+
+  const distNoHacc = GeoUtils.haversineMeters(noHacc[1].lat, noHacc[1].lon, rawFix.lat, rawFix.lon);
+  const distBadHacc = GeoUtils.haversineMeters(badHacc[1].lat, badHacc[1].lon, rawFix.lat, rawFix.lon);
+
+  assert(distBadHacc > distNoHacc,
+    `hacc_m=40 trusts raw fix less than HDOP=1 alone: distBadHacc=${distBadHacc.toFixed(2)} m > distNoHacc=${distNoHacc.toFixed(2)} m`);
+}
+
 // 4n. applyStopAveraging — collapses stationary cluster
 {
   const pts = [

@@ -307,9 +307,14 @@ const GpsFilter = {
       const dt   = Math.max(0, curr.time - prev.time);
 
       // Compute effective alpha: scale down GPS trust proportionally to DOP.
-      // Prefer PDOP when available; fall back to HDOP.
+      // Prefer hacc_m when available — converted to a DOP-equivalent via the
+      // same hAcc ≈ HDOP × 2.5 nominal relationship used for the OLED
+      // hacc_disp fallback (biomap_render.c) — since it reflects physical
+      // multipath error that PDOP/HDOP geometry alone can miss (see the same
+      // rationale in getEffectiveRm2() below). Falls back to PDOP, then HDOP.
       // Sentinel values >= 50.0 (e.g. 99.9 unknown) are treated as invalid.
-      const dop = !isNaN(curr.pdop) && curr.pdop > 0 && curr.pdop < 50.0 ? curr.pdop :
+      const dop = !isNaN(curr.hacc) && curr.hacc > 0 && curr.hacc < 50.0 ? curr.hacc / 2.5 :
+                  !isNaN(curr.pdop) && curr.pdop > 0 && curr.pdop < 50.0 ? curr.pdop :
                   (!isNaN(curr.hdop) && curr.hdop > 0 && curr.hdop < 50.0 ? curr.hdop : 2.0);
       const h = Math.max(0.5, Math.min(10, dop));
       const effectiveAlpha = Math.max(0.05, Math.min(0.98, alpha / h));
