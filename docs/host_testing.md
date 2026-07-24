@@ -86,12 +86,15 @@ should be read as a step toward it.
 modules/                       — unchanged, no test-only content, no HAL files
   gps_uart.h / .c               — NMEA parsing + framing, calls furi_hal_serial_* directly
   gsr_sensor.h / .c             — ADS1115 I2C + PGA autoranging, calls furi_hal_i2c_*/FuriThread directly
-  sd_logger.h / .c, sound.h     — untested
+  sd_logger.h / .c              — auto-indexing CSV writer, calls Storage/File directly
+  sound.h                       — untested
 
 tests/
   test_firmware.c               — pipeline / calibration / CSV host tests
   test_gps_uart.c                — gps_uart.c host tests, via the shims below
   test_gsr_sensor.c              — gsr_sensor.c host tests, real worker thread + all
+  test_sd_logger.c               — sd_logger.c host tests, via an in-memory
+                                   virtual filesystem (storage_mock.c)
   analyze_gsr_filtering.c        — investigative tool, not pass/fail: measures
                                    the real IIR+EMA frequency response and the
                                    boxcar mains-notch's rate sensitivity. See
@@ -104,13 +107,17 @@ tests/
     furi_hal.h / furi_hal_mock.c — fakes furi_hal_serial_* (one simulated
                                    USART1) and furi_hal_i2c_* (one simulated
                                    I2C bus/ADS1115), plus both test-injection APIs
+    storage/storage.h / storage_mock.c — fakes storage_file_*/storage_dir_*
+                                   with a real in-memory filesystem (paths ->
+                                   byte buffers), plus test-injection APIs to
+                                   pre-seed files and force open/write failures
     expansion/expansion.h       — no-op stub (gps_uart.c disables/re-enables
                                    the Expansion Service around USART1)
     input/input.h                — InputEvent stub (only needed because
                                    biomap_events.h pulls it in)
     notification/notification_messages.h — opaque NotificationApp stub
 
-run_tests.sh                    — builds + runs all three host test binaries
+run_tests.sh                    — builds + runs all four host test binaries
 ```
 
 ---
@@ -157,10 +164,10 @@ Same idea, whatever peripheral it is:
 
 | File | Touches hardware | Host-tested |
 |---|---|---|
-| `biomap_pipeline.c` | No | ✅ `tests/test_firmware.c` (20 tests) |
+| `biomap_pipeline.c` | No | ✅ `tests/test_firmware.c` (33 tests) |
 | `modules/gps_uart.c` | Yes (`furi_hal_serial_*`) | ✅ `tests/test_gps_uart.c` (14 tests) |
 | `modules/gsr_sensor.c` | Yes (`furi_hal_i2c_*`, real `FuriThread`) | ✅ `tests/test_gsr_sensor.c` (9 tests) |
-| `modules/sd_logger.c` | Yes (`Storage`/`File`) | ❌ |
+| `modules/sd_logger.c` | Yes (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (12 tests) |
 | `modules/sound.h` | Yes (`furi_hal_speaker_*`) | ❌ |
 
 `test_gps_uart.c` covers every NMEA sentence type `gps_uart_parse_line()`
@@ -174,6 +181,14 @@ binary; testing it would mean building a second variant with `GPS_MODULE`
 flipped, not done here. Every sentence fixture's checksum was verified
 with a throwaway `minmea_checksum()` probe before use, not hand-computed —
 see the checksum bug below for why that matters.
+
+`test_firmware.c` (extended 2026-07-24) now also covers `pipeline_update_graph`
+(scroll-divider gating of the ring-buffer write, buffer wraparound, manual-zoom
+timeout countdown/expiry with the peak reset that avoids a visual jump, the
+`ZOOM_PEAK_FLOOR` clamp, and peak growth on a rising signal), `pipeline_unix_epoch`
+(leap years, the century-non-leap-year rule, the RTC-unset sentinel, and
+out-of-range month/day guards), `pipeline_rel_seconds`, and the `gps_year_expand`
+Y2K pivot helper — previously declared and shipped but with zero test coverage.
 
 `test_gsr_sensor.c` (added 2026-07-22, reversing the earlier decision to
 skip it) covers: ADS1115 probe success/failure at `alloc()`, TIA
@@ -208,3 +223,54 @@ exists at all, not just a compiling build:
 
 Both were caught by actually compiling and running code, not by reviewing
 a diff — the practical argument for this whole approach.
+
+`test_sd_logger.c` (added 2026-07-24) drives the real `sd_logger.c` against
+`storage_mock.c`, a genuine in-memory filesystem (paths mapped to growable
+byte buffers) rather than a stub that always succeeds — `find_next_index()`'s
+directory scan and the batch-write path both need real read-back behaviour
+to be worth testing. Covers: auto-incrementing file index (first file, next
+free index skipping gaps, wraparound past `LOGGER_MAX_INDEX` back to 001),
+the distinct "directory doesn't exist yet" vs. "open fails" vs. "header
+write fails" failure paths in `open_log_file()` (each must leave the logger
+cleanly inactive, not half-open), `sd_logger_stop()` returning the logger to
+a reusable state, the batch append/printf/flush round trip actually landing
+bytes on "disk", and — driving the real function this time, not the
+`test_firmware.c` mirror — `sd_logger_batch_printf()`'s truncation rollback
+and `sd_logger_batch_append()`'s overflow rejection. `storage_sd_api.h`
+pulling in `<furi.h>` transitively is the same "hidden transitive include"
+shape as the `gsr_sensor.c` bug above; the shim's `storage/storage.h`
+replicates it (`#include <furi.h>`) so `sd_logger.c` needs zero changes.
+
+This surfaced a production bug, since fixed (2026-07-24): `sd_logger_batch_flush()`
+used to zero `gsr_batch_len` right after the `storage_file_write()` call
+regardless of whether the write actually succeeded, so a failed flush (e.g.
+a full SD card) silently discarded the batch instead of leaving it for a
+retry. It now only clears the buffer on confirmed success — see the
+comment above `sd_logger_batch_flush()` in `modules/sd_logger.c`.
+`test_sd_logger.c`'s `test_sd_logger_batch_flush_failure_preserves_buffer_for_retry`
+asserts on this directly: fail a write, append more data on top, recover,
+and confirm both the pre- and post-failure rows land on disk.
+
+That fix only matters if callers actually retry, so `biomap_session.c` was
+also audited: of its five `sd_logger_batch_flush()` call sites, two
+(the periodic mid-recording flush in `handle_second_boundary`, and the
+emergency flush on batch overflow) already checked the return value and
+react to failure by stopping the recording with a red LED + warning tone —
+deliberately not retried, since the batch buffer only holds ~5 s of
+headroom, so retrying instead of stopping just delays the same outcome
+while risking a worse, partial-row loss once appends start overflowing.
+The other three — `session_deinit`, `key_toggle_recording`'s stop path, and
+the Back-key stop path in `handle_recording_key` — are all *final* flushes
+on a normal, user-initiated stop, and none of them checked the result. That
+meant a failed final flush was indistinguishable from a clean stop: same
+"recording stopped" tone, silently short file. All three now go through a
+shared `flush_before_stop()` helper that retries once (covers a transient
+SD-busy blip) and, if still failing, plays `biomap_sound_warning()` instead
+of the ordinary stop chirp so a failed final flush is audibly distinct
+from a clean stop. No host test exists for `biomap_session.c` itself (it's Flipper-SDK-heavy,
+not pipeline-pure), so this path was verified by a full `ufbt build` rather
+than a host test.
+
+`modules/sound.h` (`furi_hal_speaker_*`) remains the one hardware-touching
+file with no host test — it's a thin beep/tone wrapper with little logic
+of its own to verify beyond "did it call the right SDK function."

@@ -1,11 +1,12 @@
 #!/bin/sh
 # run_tests.sh — build and run the host-side unit test binaries.
 # These compile firmware source files against a host C compiler (not the
-# Flipper Zero ARM toolchain). test_gps_uart.c compiles the real,
-# unmodified modules/gps_uart.c against tests/shims/ — a set of headers
-# that fake just enough of the Flipper SDK (furi.h, furi_hal.h,
-# expansion/expansion.h) for it to run on a host compiler, plus
-# furi_hal_mock.c which simulates USART1 so the test can inject bytes.
+# Flipper Zero ARM toolchain). test_gps_uart.c and test_sd_logger.c compile
+# the real, unmodified modules/gps_uart.c and modules/sd_logger.c against
+# tests/shims/ — a set of headers that fake just enough of the Flipper SDK
+# (furi.h, furi_hal.h, expansion/expansion.h, storage/storage.h) for them to
+# run on a host compiler, plus the _mock.c files that simulate USART1, I2C,
+# and an in-memory filesystem so each test can inject bytes/values/files.
 set -eu
 cd "$(dirname "$0")"
 
@@ -28,3 +29,10 @@ gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_gsr_sensor \
     tests/test_gsr_sensor.c modules/gsr_sensor.c \
     tests/shims/furi_hal_mock.c -lm -lpthread
 ./build/test_gsr_sensor
+
+echo
+echo "== test_sd_logger (auto-index / header / batch write) =="
+gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_sd_logger \
+    tests/test_sd_logger.c modules/sd_logger.c \
+    tests/shims/storage_mock.c -lm
+./build/test_sd_logger

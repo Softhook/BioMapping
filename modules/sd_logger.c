@@ -127,6 +127,16 @@ void sd_logger_stop(SdLogger* l) {
 
 // Flush the internal batch buffer to SD in one write.
 // Returns: >0 bytes flushed, 0 if buffer was empty, -1 on error.
+//
+// On error the buffer is left untouched (NOT cleared) so a subsequent call
+// retries the exact same bytes rather than silently discarding data the SD
+// card never actually received — the caller decides whether to retry or
+// give up. A partial write (0 < written < flushed) is treated the same as
+// a total failure: the whole batch is retried next time, which may
+// duplicate the already-written prefix on a genuine partial write. That's
+// a deliberate simplification — FatFs writes at this size (<=4 KB) are
+// effectively atomic in practice, so tracking a partial-write remainder
+// with a memmove isn't worth the complexity for an edge case this rare.
 int sd_logger_batch_flush(SdLogger* l) {
     furi_assert(l);
     if(!l->active || !l->file) return 0;
@@ -135,13 +145,14 @@ int sd_logger_batch_flush(SdLogger* l) {
     uint16_t written = storage_file_write(l->file, l->gsr_batch,
                                           (size_t)l->gsr_batch_len);
     int flushed = l->gsr_batch_len;
-    l->gsr_batch_len = 0;
 
     if(written != (uint16_t)flushed) {
         FURI_LOG_E("SdLogger", "Batch flush error: %d/%d",
                    written, flushed);
         return -1;
     }
+
+    l->gsr_batch_len = 0;
     return flushed;
 }
 

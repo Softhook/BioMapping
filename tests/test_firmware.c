@@ -175,6 +175,193 @@ void test_cycle_selection_wraparound() {
     printf("  -> Pass\n");
 }
 
+void test_unix_epoch_conversion() {
+    printf("Running test_unix_epoch_conversion...\n");
+
+    // Reference values cross-checked with Python's calendar.timegm().
+    assert(pipeline_unix_epoch(2020, 1, 1, 0, 0, 0) == 1577836800u);
+    assert(pipeline_unix_epoch(2021, 1, 1, 0, 0, 0) == 1609459200u);
+    assert(pipeline_unix_epoch(2026, 7, 24, 12, 30, 15) == 1784896215u);
+
+    // Leap-day handling: 2020 and 2024 are leap years.
+    assert(pipeline_unix_epoch(2020, 2, 29, 0, 0, 0) == 1582934400u);
+    assert(pipeline_unix_epoch(2020, 3, 1, 0, 0, 0) == 1583020800u);
+    assert(pipeline_unix_epoch(2024, 2, 29, 0, 0, 0) == 1709164800u);
+
+    // Century non-leap-year rule: 2100 is divisible by 100 but not 400,
+    // so Feb 29 doesn't exist — the day-count arithmetic must still land
+    // on the correct Mar 1 epoch (not off by the extra day 2020/2024 got).
+    assert(pipeline_unix_epoch(2100, 3, 1, 0, 0, 0) == 4107542400u);
+
+    // End-of-day / rollover.
+    assert(pipeline_unix_epoch(2023, 12, 31, 23, 59, 59) == 1704067199u);
+
+    // RTC-unset sentinel: year < 2020 returns 0, regardless of month/day.
+    assert(pipeline_unix_epoch(2019, 12, 31, 23, 59, 59) == 0u);
+    assert(pipeline_unix_epoch(2000, 1, 1, 0, 0, 0) == 0u);
+
+    // Out-of-range month/day guards (would index days_before[-1] or worse
+    // without the guard) also return the sentinel.
+    assert(pipeline_unix_epoch(2026, 0, 15, 0, 0, 0) == 0u);
+    assert(pipeline_unix_epoch(2026, 13, 15, 0, 0, 0) == 0u);
+    assert(pipeline_unix_epoch(2026, 6, 0, 0, 0, 0) == 0u);
+    assert(pipeline_unix_epoch(2026, 6, 32, 0, 0, 0) == 0u);
+    printf("  -> Pass\n");
+}
+
+void test_rel_seconds_conversion() {
+    printf("Running test_rel_seconds_conversion...\n");
+    // TICK_HZ=10 -> each tick is 100 ms.
+    assert(pipeline_rel_seconds(0) == 0.0);
+    assert(fabs(pipeline_rel_seconds(1) - 0.1) < 1e-9);
+    assert(fabs(pipeline_rel_seconds(10) - 1.0) < 1e-9);
+    assert(fabs(pipeline_rel_seconds(12345) - 1234.5) < 1e-9);
+    printf("  -> Pass\n");
+}
+
+void test_gps_year_expand_pivot() {
+    printf("Running test_gps_year_expand_pivot...\n");
+    // NMEA 2-digit years pivot at 80: 80-99 -> 1980-1999, 00-79 -> 2000-2079.
+    assert(gps_year_expand(0) == 2000);
+    assert(gps_year_expand(26) == 2026);
+    assert(gps_year_expand(79) == 2079);
+    assert(gps_year_expand(80) == 1980);
+    assert(gps_year_expand(99) == 1999);
+    printf("  -> Pass\n");
+}
+
+void test_update_graph_scroll_divider_gating() {
+    printf("Running test_update_graph_scroll_divider_gating...\n");
+    Pipeline p = {0};
+    p.graph.scroll_divider = 3;
+    p.display.smoothed = 6.0f;   // constant signal; rate only depends on last write
+
+    // First two ticks: divider not reached yet, buffer/head untouched.
+    pipeline_update_graph(&p);
+    assert(p.graph.tick_counter == 1);
+    assert(p.graph.head == 0);
+
+    pipeline_update_graph(&p);
+    assert(p.graph.tick_counter == 2);
+    assert(p.graph.head == 0);
+
+    // Third tick reaches the divider: rate = 6.0 - 0 (last_smoothed still
+    // primed at 0) over 3 ticks -> buf = -(6.0/3)*GRAPH_RATE_SCALE = -0.4.
+    pipeline_update_graph(&p);
+    assert(p.graph.tick_counter == 0);
+    assert(p.graph.head == 1);
+    assert(fabsf(p.graph.buf[0] - (-0.4f)) < 1e-5f);
+    assert(p.graph.last_smoothed == 6.0f);
+    printf("  -> Pass\n");
+}
+
+void test_update_graph_buffer_wraparound() {
+    printf("Running test_update_graph_buffer_wraparound...\n");
+    Pipeline p = {0};
+    p.graph.scroll_divider = 1;
+    p.graph.head = GRAPH_N - 1;
+
+    pipeline_update_graph(&p);
+    assert(p.graph.head == 0);   // wrapped past the end of the ring buffer
+    printf("  -> Pass\n");
+}
+
+void test_update_graph_manual_zoom_suppresses_auto_tracking() {
+    printf("Running test_update_graph_manual_zoom_suppresses_auto_tracking...\n");
+    Pipeline p = {0};
+    p.graph.scroll_divider = 1;
+    p.display.smoothed = 5.0f;
+    p.graph.last_smoothed = 5.0f;   // rate = 0, isolates the zoom logic
+    p.zoom.enabled = true;
+    p.zoom.manual_timeout = 5;      // still counting down after this tick (->4)
+    p.zoom.level = 3.0f;
+    p.zoom.peak = 10.0f;
+
+    pipeline_update_graph(&p);
+
+    // manual_timeout > 0 after decrement -> auto_active is false: peak and
+    // level must be left completely untouched (no decay, no lerp).
+    assert(p.zoom.manual_timeout == 4);
+    assert(p.zoom.level == 3.0f);
+    assert(p.zoom.peak == 10.0f);
+    printf("  -> Pass\n");
+}
+
+void test_update_graph_manual_timeout_expiry_resets_peak() {
+    printf("Running test_update_graph_manual_timeout_expiry_resets_peak...\n");
+    Pipeline p = {0};
+    p.graph.scroll_divider = 1;
+    p.display.smoothed = 0.0f;
+    p.graph.last_smoothed = 0.0f;   // rate = 0 -> isolates the zoom math
+    p.zoom.enabled = true;
+    p.zoom.manual_timeout = 1;      // expires on this very tick
+    p.zoom.level = 2.0f;
+    p.zoom.peak = 999.0f;           // stale value must be overwritten, not decayed
+
+    pipeline_update_graph(&p);
+
+    // Expiry resets peak so target == current level (no visual jump):
+    // peak = ZOOM_TARGET_DIV / level = 80/2 = 40, then decayed once
+    // (auto-zoom re-engages the same tick) -> 40 * 0.997 = 39.88.
+    assert(p.zoom.manual_timeout == 0);
+    assert(fabsf(p.zoom.peak - 39.88f) < 1e-2f);
+
+    // Lerp target = 80/39.88 ~= 2.00602 -> level nudges up from 2.0.
+    float expected_target = 80.0f / 39.88f;
+    float expected_level = 2.0f + (expected_target - 2.0f) * ZOOM_LERP_RATE;
+    assert(fabsf(p.zoom.level - expected_level) < 1e-4f);
+    printf("  -> Pass\n");
+}
+
+void test_update_graph_peak_floor_clamp_and_lerp() {
+    printf("Running test_update_graph_peak_floor_clamp_and_lerp...\n");
+    Pipeline p = {0};
+    p.graph.scroll_divider = 1;
+    p.display.smoothed = 0.0f;
+    p.graph.last_smoothed = 0.0f;   // rate = 0 -> newest sample is 0
+    p.zoom.enabled = true;
+    p.zoom.manual_timeout = 0;      // auto-zoom already active
+    p.zoom.level = 2.0f;
+    p.zoom.peak = ZOOM_PEAK_FLOOR;  // sitting right at the floor
+
+    pipeline_update_graph(&p);
+
+    // Decay (0.5 * 0.997 = 0.4985) would push peak below the floor, and
+    // the newest sample (0) doesn't raise it back up -> must clamp back
+    // to the floor rather than let auto-zoom over-magnify a quiet signal.
+    assert(fabsf(p.zoom.peak - ZOOM_PEAK_FLOOR) < 1e-6f);
+
+    // Target = 80/0.5 = 160, clamped to ZOOM_MAX (16) before the lerp.
+    float expected_level = 2.0f + (ZOOM_MAX - 2.0f) * ZOOM_LERP_RATE;
+    assert(fabsf(p.zoom.level - expected_level) < 1e-4f);
+    printf("  -> Pass\n");
+}
+
+void test_update_graph_peak_tracks_rising_signal() {
+    printf("Running test_update_graph_peak_tracks_rising_signal...\n");
+    Pipeline p = {0};
+    p.graph.scroll_divider = 1;
+    p.zoom.enabled = true;
+    p.zoom.manual_timeout = 0;
+    p.zoom.level = 1.0f;
+    p.zoom.peak = 1.0f;
+    p.display.smoothed = -5.0f;   // rate = -5 - 0 = -5 -> buf = 1.0 (positive)
+
+    pipeline_update_graph(&p);
+
+    // Decay first: 1.0 * 0.997 = 0.997. The fresh sample's magnitude (1.0)
+    // exceeds that decayed value, so it replaces peak rather than the
+    // decay value winning.
+    assert(fabsf(p.graph.buf[0] - 1.0f) < 1e-5f);
+    assert(fabsf(p.zoom.peak - 1.0f) < 1e-5f);
+    assert(p.graph.head == 1);
+
+    // Lerp target = 80/1.0 = 80, clamped to ZOOM_MAX (16).
+    float expected_level = 1.0f + (ZOOM_MAX - 1.0f) * ZOOM_LERP_RATE;
+    assert(fabsf(p.zoom.level - expected_level) < 1e-4f);
+    printf("  -> Pass\n");
+}
+
 void test_rescale_graph_buf() {
     printf("Running test_rescale_graph_buf...\n");
     Session s = {0};
@@ -893,6 +1080,15 @@ int main() {
     test_cycle_selection_wraparound();
     test_rescale_graph_buf();
     test_conductance_conversion();
+    test_unix_epoch_conversion();
+    test_rel_seconds_conversion();
+    test_gps_year_expand_pivot();
+    test_update_graph_scroll_divider_gating();
+    test_update_graph_buffer_wraparound();
+    test_update_graph_manual_zoom_suppresses_auto_tracking();
+    test_update_graph_manual_timeout_expiry_resets_peak();
+    test_update_graph_peak_floor_clamp_and_lerp();
+    test_update_graph_peak_tracks_rising_signal();
 
     printf("\n========================================\n");
     printf("CALIBRATION CORRECTNESS\n");
@@ -925,6 +1121,6 @@ int main() {
     test_batch_printf_rollback_on_truncation();
     test_nmea_parsing();
 
-    printf("\nAll 20 firmware unit tests passed successfully!\n");
+    printf("\nAll 33 firmware unit tests passed successfully!\n");
     return 0;
 }

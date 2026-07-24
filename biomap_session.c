@@ -27,6 +27,24 @@ static const NotificationSequence sequence_blink_red_500 = {
 // (sequence_blink_blue_100 is a standard SDK sequence — no
 // need to redefine it.)
 
+// ── Final flush before a normal (user-initiated) stop ──────────────────────
+// sd_logger_batch_flush() no longer discards the batch on a failed write
+// (see modules/sd_logger.c), so a single retry here actually re-sends the
+// same bytes rather than flushing an already-emptied buffer — cheap
+// insurance against a transient SD-busy blip, the most common real-world
+// failure mode. If it still fails, the file is genuinely missing its last
+// few seconds of data; the caller must know so it can warn the user
+// instead of playing the ordinary "recording stopped" chirp, which would
+// otherwise be indistinguishable from a clean stop.
+// Returns true if the buffer was confirmed empty (nothing lost).
+static bool flush_before_stop(SdLogger* logger) {
+    if(sd_logger_batch_flush(logger) >= 0) return true;
+    FURI_LOG_E("BioMap", "Final batch flush failed, retrying once");
+    if(sd_logger_batch_flush(logger) >= 0) return true;
+    FURI_LOG_E("BioMap", "Final batch flush failed after retry — recording is incomplete");
+    return false;
+}
+
 // ==========================================================================
 // Session lifecycle
 // ==========================================================================
@@ -56,7 +74,13 @@ void session_deinit(Session* s, BioMapApp* app) {
         s->timer = NULL;
     }
     if(s->recording.active && s->logger) {
-        sd_logger_batch_flush(s->logger);
+        // Defensive fallback only — in normal operation the Back-key
+        // handler and key_toggle_recording's stop path already clear
+        // recording.active and flush before this runs, so this branch is
+        // a no-op. Kept in sync with those call sites' failure handling
+        // in case a future exit path ever reaches here with recording
+        // still active.
+        if(!flush_before_stop(s->logger)) biomap_sound_warning(app->sound_enabled);
         sd_logger_stop(s->logger);
     }
     if(s->logger) {
@@ -338,13 +362,20 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
     } else {
         furi_mutex_acquire(mutex, FuriWaitForever);
         s->recording.active = false;
-        sd_logger_batch_flush(s->logger);
+        bool flush_ok = flush_before_stop(s->logger);
         furi_mutex_release(mutex);
         sd_logger_stop(s->logger);
         notification_message(notifications, &sequence_blink_stop);
         // Recording is fully stopped (flag cleared, file closed) above —
-        // only now is it safe to play the tone.
-        biomap_sound_recording_stop(sound_enabled);
+        // only now is it safe to play the tone. A failed final flush means
+        // the file is missing its last few seconds of data — the ordinary
+        // stop chirp would sound identical to a clean stop, so use the
+        // warning tone instead to make the failure audible.
+        if(flush_ok) {
+            biomap_sound_recording_stop(sound_enabled);
+        } else {
+            biomap_sound_warning(sound_enabled);
+        }
     }
     return true;  // caller should view_port_update
 }
@@ -405,13 +436,14 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
     case InputKeyBack: {
         furi_mutex_acquire(mutex, FuriWaitForever);
         bool was_recording = s->recording.active;
+        bool flush_ok = true;
         if(was_recording) {
             // Fully stop here — clear the flag and flush — rather than
             // leaving it for session_deinit() to close later. Same "GSR +
             // Sound" rule as key_toggle_recording's stop path: the file
             // must already be closed before the tone plays, not after.
             s->recording.active = false;
-            sd_logger_batch_flush(s->logger);
+            flush_ok = flush_before_stop(s->logger);
         }
         s->running = false;
         furi_mutex_release(mutex);
@@ -421,7 +453,14 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
             // session_deinit()'s own stop-on-active check is now a no-op
             // (recording.active is already false), so this is the only
             // place that closes the file for this path.
-            biomap_sound_recording_stop(sound_enabled);
+            // A failed final flush leaves the file short of its last few
+            // seconds — use the warning tone rather than the ordinary stop
+            // chirp so that's audible instead of indistinguishable.
+            if(flush_ok) {
+                biomap_sound_recording_stop(sound_enabled);
+            } else {
+                biomap_sound_warning(sound_enabled);
+            }
         } else {
             biomap_sound_back(sound_enabled);
         }
