@@ -440,7 +440,6 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 │    GPS Only                 │
 │    GSR Only                 │
 │    Options                  │
-│                             │
 └─────────────────────────────┘
 ```
 
@@ -450,7 +449,6 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 | **GPS Only** | Enters recording view with GPS only — no GSR sensor initialised. Writes a 10-column CSV at 10 Hz with `gsr_raw` = 0 (batch-buffered). |
 | **GSR Only** | Enters recording view with GSR only — no GPS driver initialised. Writes a 2-column CSV at 10 Hz. The GPS module is placed into Software Standby (M10Q) to save power. |
 | **Options** | Opens the Options screen (see below). |
-| **Diagnostics** | Enters diagnostic mode to view live raw values and sensor health metrics directly (no recording or graphs). |
 
 ### Options Screen
 
@@ -461,7 +459,7 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 │    Auto-zoom GSR   ON      │   ← toggleable
 │    Backlight           ON  │   ← toggleable
 │    GSR Calibration    YES  │   ← YES = custom calibration loaded, NO = default
-│    Sound                ON │   ← toggleable
+│    Diagnostics              │   ← enters diagnostic view
 └─────────────────────────────┘
 ```
 
@@ -471,6 +469,7 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 | **Auto-zoom GSR** | Toggles auto-zoom ON/OFF. When enabled, the graph's vertical scale adjusts automatically to keep peaks visible. When disabled, manual Up/Down zoom controls the scale. Toggling back ON resets the zoom to 1.0× and re-seeds the auto-zoom peak tracker. |
 | **Backlight** | Toggles the Flipper's backlight between auto-dimming (OFF) and always-on (ON). Useful for walks in bright sunlight or dark environments. |
 | **GSR Calibration** | Displays the current calibration status (`YES` if custom calibration is active, or `NO` for default). Pressing OK opens the calibration submenu to start the wizard or reset. |
+| **Diagnostics** | Enters diagnostic mode to view live raw values and sensor health metrics directly (no recording or graphs). |
 | **Sound** | Toggles UI audio feedback ON/OFF (default ON). This toggle always plays its own confirmation click, even when switching sound OFF, so muting is itself audible. All other tones respect this setting. |
 
 ### GSR Calibration Submenu

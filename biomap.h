@@ -99,8 +99,8 @@ typedef struct BioMapApp {
 
 // ── Menu & conversion UI types ─────────────────────────────────────────
 
-#define MENU_COUNT      5
-#define OPTIONS_COUNT   6
+#define MENU_COUNT      4
+#define OPTIONS_COUNT   7
 
 typedef struct {
     BioMapApp* app;

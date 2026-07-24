@@ -160,11 +160,17 @@ void test_cycle_selection_wraparound() {
     assert(cycle_selection(0, 2, false) == 1);
     assert(cycle_selection(1, 2, true) == 0);
 
-    // Five-item list (main menu, MENU_COUNT=5): boundaries at both ends.
-    assert(cycle_selection(0, 5, false) == 4);
-    assert(cycle_selection(4, 5, true) == 0);
-    for(int i = 0; i < 4; i++) assert(cycle_selection(i, 5, true) == i + 1);
-    for(int i = 4; i > 0; i--) assert(cycle_selection(i, 5, false) == i - 1);
+    // Four-item list (main menu, MENU_COUNT=4): boundaries at both ends.
+    assert(cycle_selection(0, 4, false) == 3);
+    assert(cycle_selection(3, 4, true) == 0);
+    for(int i = 0; i < 3; i++) assert(cycle_selection(i, 4, true) == i + 1);
+    for(int i = 3; i > 0; i--) assert(cycle_selection(i, 4, false) == i - 1);
+
+    // Seven-item list (options menu, OPTIONS_COUNT=7): boundaries at both ends.
+    assert(cycle_selection(0, 7, false) == 6);
+    assert(cycle_selection(6, 7, true) == 0);
+    for(int i = 0; i < 6; i++) assert(cycle_selection(i, 7, true) == i + 1);
+    for(int i = 6; i > 0; i--) assert(cycle_selection(i, 7, false) == i - 1);
 
     printf("  -> Pass\n");
 }

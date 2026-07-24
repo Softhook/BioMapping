@@ -208,6 +208,7 @@ struct GsrSensor {
     // reading's raw code incomparable to the new one — that's a scale
     // change, not evidence of a stale read.
     uint32_t duplicate_count;
+    uint32_t stale_count;               // mutex-protected — worker increments on duplicates with gap_ticks < 2 (stale hardware re-read)
     // duplicate_gap_running_min — mutex-protected. Worker tracks the
     // smallest inter-read tick gap seen specifically AT a duplicate
     // event (not the general per-window minimum gsr_sensor_tick()
@@ -226,9 +227,11 @@ struct GsrSensor {
     uint32_t hz_window_start_count;    // iter_count snapshot — tick() only
     uint32_t hz_window_start_attempts; // attempt_count snapshot — tick() only
     uint32_t hz_window_start_duplicates; // duplicate_count snapshot — tick() only
+    uint32_t hz_window_start_stale;    // stale_count snapshot — tick() only
     float    worker_hz_cached;      // tick() only — successful-sample rate
     float    success_rate_cached;   // tick() only — iter_count/attempt_count over the same window, 0-100
     float    duplicate_rate_cached; // tick() only — duplicate_count/iter_count over the same window, 0-100
+    float    stale_rate_cached;     // tick() only — stale_count/iter_count over the same window, 0-100
 
     // Live (not rolling-window) count of consecutive failed I2C reads —
     // mutex-protected, mirrors the worker's local consecutive_failures.
@@ -345,6 +348,9 @@ static int32_t gsr_sensor_worker(void* context) {
             gsr->iter_count++;
             if(is_duplicate) {
                 gsr->duplicate_count++;
+                if(gap_ticks < 2) {
+                    gsr->stale_count++;
+                }
                 if(gap_ticks < gsr->duplicate_gap_running_min) {
                     gsr->duplicate_gap_running_min = gap_ticks;
                 }
@@ -468,6 +474,7 @@ GsrSensor* gsr_sensor_alloc(void) {
         gsr->iter_count = 0;
         gsr->attempt_count = 0;
         gsr->duplicate_count = 0;
+        gsr->stale_count = 0;
         gsr->duplicate_gap_running_min = UINT32_MAX;
         gsr->duplicate_gap_min_cached = UINT32_MAX;
         gsr->consecutive_failures = 0;
@@ -475,9 +482,11 @@ GsrSensor* gsr_sensor_alloc(void) {
         gsr->hz_window_start_count = 0;
         gsr->hz_window_start_attempts = 0;
         gsr->hz_window_start_duplicates = 0;
+        gsr->hz_window_start_stale = 0;
         gsr->worker_hz_cached = 0.0f;
         gsr->success_rate_cached = 100.0f; // optimistic default until the first window rolls
         gsr->duplicate_rate_cached = 0.0f; // optimistic default until the first window rolls
+        gsr->stale_rate_cached = 0.0f;     // optimistic default until the first window rolls
         gsr->pga_change_count = 0;
         gsr->hz_window_start_pga_changes = 0;
         gsr->pga_change_rate_cached = 0;
@@ -639,6 +648,15 @@ float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr) {
     furi_assert(gsr);
     if(!gsr->available) return 0.0f;
     return gsr->duplicate_rate_cached;
+}
+
+// Percentage of successful reads over the rolling ~1 s window whose
+// inter-read gap was under 2 ticks (< 1.16 ms conversion period) and resulted
+// in a stale re-read of the ADS1115 register.
+float gsr_sensor_get_stale_rate(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return 0.0f;
+    return gsr->stale_rate_cached;
 }
 
 // Live count of consecutive failed I2C reads happening right now — not a
@@ -807,6 +825,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         uint32_t count = gsr->iter_count;
         uint32_t attempts = gsr->attempt_count;
         uint32_t duplicates = gsr->duplicate_count;
+        uint32_t stale = gsr->stale_count;
         // Read-and-reset must happen in the same critical section — a
         // separate read then a separate reset would race against the
         // worker updating it in between, potentially discarding a
@@ -819,11 +838,14 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         uint32_t delta = count - gsr->hz_window_start_count;
         uint32_t delta_attempts = attempts - gsr->hz_window_start_attempts;
         uint32_t delta_duplicates = duplicates - gsr->hz_window_start_duplicates;
+        uint32_t delta_stale = stale - gsr->hz_window_start_stale;
         gsr->worker_hz_cached = (float)delta * (float)one_second_ticks / (float)window_ticks;
         gsr->success_rate_cached =
             (delta_attempts > 0) ? (100.0f * (float)delta / (float)delta_attempts) : 100.0f;
         gsr->duplicate_rate_cached =
             (delta > 0) ? (100.0f * (float)delta_duplicates / (float)delta) : 0.0f;
+        gsr->stale_rate_cached =
+            (delta > 0) ? (100.0f * (float)delta_stale / (float)delta) : 0.0f;
         gsr->duplicate_gap_min_cached = dup_gap_min; // UINT32_MAX = no duplicates this window
         // pga_change_count is tick()-only (written in Step 5 below), no mutex needed
         gsr->pga_change_rate_cached = gsr->pga_change_count - gsr->hz_window_start_pga_changes;
@@ -832,6 +854,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         gsr->hz_window_start_count = count;
         gsr->hz_window_start_attempts = attempts;
         gsr->hz_window_start_duplicates = duplicates;
+        gsr->hz_window_start_stale = stale;
         gsr->hz_window_start_pga_changes = gsr->pga_change_count;
     }
 
@@ -894,6 +917,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     uint32_t prev_sample_tick = 0;
     float tick_freq = (float)furi_kernel_get_tick_frequency();
     float sum_cos = 0.0f, sum_sin = 0.0f;
+    float sum_c = 0.0f, sum_s = 0.0f;
     for(int i = 0; i < SENSOR_BUFFER_SIZE; i++) {
         r_idx = (r_idx - 1) & (SENSOR_BUFFER_SIZE - 1);
         if(i > 0 && (now_tick - gsr->sample_tick[r_idx] > window_ticks)) break;
@@ -919,8 +943,12 @@ void gsr_sensor_tick(GsrSensor* gsr) {
         if(mains_hum_on) {
             float t_sec = (float)(now_tick - gsr->sample_tick[r_idx]) / tick_freq;
             float angle = 2.0f * GSR_PI * MAINS_HUM_TARGET_HZ * t_sec;
-            sum_cos += (float)v * cosf(angle);
-            sum_sin += (float)v * sinf(angle);
+            float c_val = cosf(angle);
+            float s_val = sinf(angle);
+            sum_cos += (float)v * c_val;
+            sum_sin += (float)v * s_val;
+            sum_c += c_val;
+            sum_s += s_val;
         }
 
         samples++;
@@ -934,15 +962,6 @@ void gsr_sensor_tick(GsrSensor* gsr) {
 
     gsr->tick_window_ptp = win_max - win_min;
     gsr->tick_window_min_gap = (samples > 1) ? min_gap_ticks : 0;
-    if(mains_hum_on) {
-        // Standard real-sinusoid amplitude recovery from a cosine/sine
-        // correlation: for a true component of amplitude A, each sum
-        // approaches ~A*samples/2, so 2/samples recovers A.
-        gsr->tick_mains_hum_mag =
-            2.0f * sqrtf(sum_cos * sum_cos + sum_sin * sum_sin) / (float)samples;
-    } else {
-        gsr->tick_mains_hum_mag = 0.0f; // not computed this tick — see the setter's doc comment
-    }
 
     // ── Step 2: simple mean over however many samples landed in the
     // window (typically ~50 at the ~500 Hz measured real-world rate;
@@ -953,6 +972,18 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     float avg_norm = (float)sum / (float)samples;
     gsr->tick_mean_norm = (int32_t)avg_norm;  // snapshot for diagnostics
     gsr->tick_window_samples = samples;       // snapshot for diagnostics
+
+    if(mains_hum_on && samples > 0) {
+        // Standard real-sinusoid amplitude recovery from a cosine/sine
+        // correlation: subtract DC mean leakage (avg_norm * sum_c / sum_s)
+        // so we operate purely on the AC signal centered around the mean.
+        float sum_cos_c = sum_cos - avg_norm * sum_c;
+        float sum_sin_c = sum_sin - avg_norm * sum_s;
+        gsr->tick_mains_hum_mag =
+            2.0f * sqrtf(sum_cos_c * sum_cos_c + sum_sin_c * sum_sin_c) / (float)samples;
+    } else {
+        gsr->tick_mains_hum_mag = 0.0f; // not computed this tick — see the setter's doc comment
+    }
 
     // ── Step 3: autoranging decision on the RAW (uncalibrated) value.
     // Calibration is applied in the nS domain after TIA conversion —

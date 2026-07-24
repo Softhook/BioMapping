@@ -407,6 +407,11 @@ static const uint8_t ubx_cfg_msg_gsv_1hz[] = {
     0xB5, 0x62, 0x06, 0x01, 0x03, 0x00, 0xF0, 0x03, 0x0A, 0x07, 0x1F
 };
 
+static const uint8_t ubx_cfg_msg_pubx00_1hz[] = {
+    // Enable $PUBX,00 sentence at 1 Hz for live hAcc in meters
+    0xB5, 0x62, 0x06, 0x01, 0x03, 0x00, 0xF1, 0x00, 0x01, 0xFC, 0x13
+};
+
 static void ubx_send_nav5(GpsUart* g, GpsNavModel nav_model) {
     uint8_t dyn_model = 3; // Pedestrian default
     if(nav_model == GpsNavModelWrist) {
@@ -754,10 +759,11 @@ static void gps_uart_configure(GpsUart* g) {
     ubx_tx_raw(g, ubx_cfg_msg_gll_off, sizeof(ubx_cfg_msg_gll_off));
     ubx_tx_raw(g, ubx_cfg_msg_vtg_off, sizeof(ubx_cfg_msg_vtg_off));
     ubx_tx_raw(g, ubx_cfg_msg_gsv_1hz, sizeof(ubx_cfg_msg_gsv_1hz));
+    ubx_tx_raw(g, ubx_cfg_msg_pubx00_1hz, sizeof(ubx_cfg_msg_pubx00_1hz));
     ubx_send_nav5(g, g->nav_model);
     ubx_tx_raw(g, ubx_cfg_assistnow_autonomous, sizeof(ubx_cfg_assistnow_autonomous));
     // Enable $PUBX,00 sentence at 1 Hz for live hAcc in meters
-    const char* pubx_00_rate = "$PUBX,40,00,1,1,0,0*5B\r\n";
+    const char* pubx_00_rate = "$PUBX,40,00,1,1,0,0*1B\r\n";
     furi_hal_serial_tx(g->serial_handle, (const uint8_t*)pubx_00_rate, strlen(pubx_00_rate));
     furi_delay_ms(100);
 

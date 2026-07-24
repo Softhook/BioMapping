@@ -79,7 +79,6 @@ static int32_t cycle_selection(int32_t sel, int32_t count, bool down) {
 //  │    GPS Only                 │
 //  │    GSR Only                 │
 //  │    Options                  │
-//  │                             │
 //  └─────────────────────────────┘
 //
 //  Controls:  Up/Down → navigate     OK → select     Back → exit app
@@ -148,8 +147,8 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
 //  │  ▓ Reset GPS           ▓   │   ← selected
 //  │    Auto-zoom GSR   ON      │
 //  │    Backlight           ON  │
-//  │                             │
-//  │    Press Back to return     │
+//  │    GSR Calibration    YES  │
+//  │    Diagnostics              │
 //  └─────────────────────────────┘
 //
 //  Controls:  Up/Down → navigate     OK → select/toggle     Back → return
@@ -216,6 +215,12 @@ void run_options_screen(BioMapApp* app) {
                     vp_push(app, options_render, &ctx);
                     break;
                 case 4:
+                    // Diagnostics mode
+                    biomap_sound_confirm(app->sound_enabled);
+                    run_recording_session(app, BioMapModeDiagnostics);
+                    vp_push(app, options_render, &ctx);
+                    break;
+                case 5:
                     // Toggle sound itself — always play the confirming click
                     // (bypass the `enabled` gate) so muting/unmuting is
                     // always audible right at the moment it changes, even
@@ -225,7 +230,7 @@ void run_options_screen(BioMapApp* app) {
                     furi_mutex_release(app->mutex);
                     biomap_sound_toggle(true, app->sound_enabled);
                     break;
-                case 5:
+                case 6:
                     // Cycle GPS Profile (PED -> WRIST -> VEHICLE -> STATIONARY -> SEA -> BIKE -> FLIGHT)
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
                     app->nav_model = (app->nav_model + 1) % 7;

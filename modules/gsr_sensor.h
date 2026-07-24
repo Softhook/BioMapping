@@ -113,6 +113,12 @@ float gsr_sensor_get_success_rate(const GsrSensor* gsr);
 // unexplained.  For diagnostics.
 float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr);
 
+// Percentage of successful reads (0-100), over the same window as
+// gsr_sensor_get_worker_hz(), whose inter-read gap was under 2 ticks
+// (< 1.16 ms conversion cycle) and resulted in a stale re-read of the
+// ADS1115 register before a new conversion completed.  For diagnostics.
+float gsr_sensor_get_stale_rate(const GsrSensor* gsr);
+
 // Live count of consecutive failed I2C reads happening right now — not a
 // rolling average like get_success_rate(), so it shows a fresh failure
 // streak building in real time, before either the 1 s success-rate

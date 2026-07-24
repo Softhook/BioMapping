@@ -4,7 +4,7 @@
 // ── Label arrays for menu and options screens ──────────────────────────────
 
 static const char* const menu_labels[MENU_COUNT] = {
-    "GPS + GSR", "GPS Only", "GSR Only", "Options", "Diagnostics",
+    "GPS + GSR", "GPS Only", "GSR Only", "Options",
 };
 
 static const char* const options_labels[OPTIONS_COUNT] = {
@@ -12,6 +12,7 @@ static const char* const options_labels[OPTIONS_COUNT] = {
     "Auto-zoom GSR",
     "Backlight",
     "GSR Calibration",
+    "Diagnostics",
     "Sound",
     "GPS Profile",
 };
@@ -131,9 +132,10 @@ static void render_gps_detail(Canvas* c, BioMapApp* a) {
         // HDOP 1-2 = very good     PDOP 2-4   = very good
         // HDOP 2-5 = good          PDOP 4-8   = good
         const char* fix_str = gps_fix_label(g.fix_type);
-        if(g.hacc < 50.0f) {
-            snprintf(buf, sizeof(buf), "±%.1fm  %s%s",
-                     (double)g.hacc, fix_str, g.sbas_active ? " SBAS" : "");
+        float hacc_disp = (g.hacc < 50.0f) ? g.hacc : ((g.hdop < 50.0f) ? g.hdop * 2.5f : 99.9f);
+        if(hacc_disp < 50.0f) {
+            snprintf(buf, sizeof(buf), "+/-%.1fm  %s%s",
+                     (double)hacc_disp, fix_str, g.sbas_active ? " SBAS" : "");
         } else {
             snprintf(buf, sizeof(buf), "%s%s",
                      fix_str, g.sbas_active ? " SBAS" : "");
@@ -207,10 +209,11 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         GpsStatus g = gps_uart_get_status(a->session.gps);
         bool has_fix = gps_has_fix(&g);
         char badge[16];
+        float hacc_disp = (g.hacc < 50.0f) ? g.hacc : ((g.hdop < 50.0f) ? g.hdop * 2.5f : 99.9f);
         if(!has_fix) {
             snprintf(badge, sizeof(badge), "No fix");
-        } else if(g.hacc < 50.0f) {
-            snprintf(badge, sizeof(badge), "±%.1fm", (double)g.hacc);
+        } else if(hacc_disp < 50.0f) {
+            snprintf(badge, sizeof(badge), "+/-%.1fm", (double)hacc_disp);
         } else {
             snprintf(badge, sizeof(badge), "3D Fix");
         }
@@ -272,13 +275,13 @@ void biomap_render_callback(Canvas* c, void* ctx) {
             // shown as "-", not a nonsense huge number.
             uint32_t dup_gap = gsr_sensor_get_duplicate_gap_min_ticks(a->session.gsr);
             if(dup_gap == UINT32_MAX) {
-                snprintf(buf, sizeof(buf), "Dup:%.0f%% Cn:%s DG:-",
+                snprintf(buf, sizeof(buf), "Dup:%.0f%% Stl:%.0f%% DG:-",
                          (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
-                         gsr_sensor_is_connected(a->session.gsr) ? "Y" : "N");
+                         (double)gsr_sensor_get_stale_rate(a->session.gsr));
             } else {
-                snprintf(buf, sizeof(buf), "Dup:%.0f%% Cn:%s DG:%lu",
+                snprintf(buf, sizeof(buf), "Dup:%.0f%% Stl:%.0f%% DG:%lu",
                          (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
-                         gsr_sensor_is_connected(a->session.gsr) ? "Y" : "N",
+                         (double)gsr_sensor_get_stale_rate(a->session.gsr),
                          (unsigned long)dup_gap);
             }
             canvas_draw_str(c, 0, y, buf);  y += 10;
@@ -340,8 +343,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
 // ==========================================================================
 
 static void draw_selection_list(Canvas* c, int sel, int count,
-                         const char* const* labels, int start_y) {
-    int max_visible = 4;
+                         const char* const* labels, int start_y, int max_visible) {
     int top = 0;
     if(count > max_visible) {
         if(sel >= top + max_visible) top = sel - max_visible + 1;
@@ -369,7 +371,7 @@ void menu_render(Canvas* c, void* ctx) {
     canvas_set_font(c, FontPrimary);
     canvas_draw_str(c, 0, 10, "Bio Mapping");
     canvas_set_font(c, FontSecondary);
-    draw_selection_list(c, (int)m_ctx->selection, MENU_COUNT, menu_labels, 22);
+    draw_selection_list(c, (int)m_ctx->selection, MENU_COUNT, menu_labels, 22, 5);
     furi_mutex_release(a->mutex);
 }
 
@@ -383,18 +385,18 @@ void options_render(Canvas* c, void* ctx) {
     canvas_set_font(c, FontSecondary);
     int sel = (int)o_ctx->selection;
 
-    int max_visible = 4;
+    int max_visible = 5;
     int top = 0;
     if(OPTIONS_COUNT > max_visible) {
         if(sel >= top + max_visible) top = sel - max_visible + 1;
         if(sel < top) top = sel;
     }
 
-    draw_selection_list(c, sel, OPTIONS_COUNT, options_labels, 22);
+    draw_selection_list(c, sel, OPTIONS_COUNT, options_labels, 22, max_visible);
 
-    // Overlay toggle state on items 1..5
+    // Overlay toggle state on selectable items
     for(int i = top; i < OPTIONS_COUNT && (i - top) < max_visible; i++) {
-        if(i == 0) continue; // Reset GPS has no right-aligned state text
+        if(i == 0 || i == 4) continue; // Reset GPS and Diagnostics have no right-aligned state text
         int y = 22 + (i - top) * 10;
         const char* state;
         if(i == 1) {
@@ -403,7 +405,7 @@ void options_render(Canvas* c, void* ctx) {
             state = a->backlight_on ? "ON" : "OFF";
         } else if(i == 3) {
             state = a->cal_active ? "YES" : "NO";
-        } else if(i == 4) {
+        } else if(i == 5) {
             state = a->sound_enabled ? "ON" : "OFF";
         } else {
             if(a->nav_model == GpsNavModelWrist) {

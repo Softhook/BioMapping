@@ -217,26 +217,9 @@ static void test_duplicate_rate_reflects_stale_reads(void) {
 // constant value, not an oscillating signal — just confirms the
 // accessors run and give physically sensible results for a known
 // constant, mid-range, failure-free input.
-//
-// mains_hum_mag, once enabled, is deliberately NOT asserted near 0 here,
-// even though the input is pure DC. get_mains_hum_mag() correlates each
-// raw sample against cos/sin of 2*pi*50*t, using that sample's REAL
-// recorded timestamp for t — but furi_delay_ms() is a no-op on host, and
-// furi_test_tick only advances via explicit furi_test_advance_tick()
-// calls (see wait_for_more_reads), so in practice most/all samples
-// captured during a single wait_for_more_reads() burst share the same
-// (or a very narrow range of) timestamp, i.e. t≈0 for nearly every
-// sample. That collapses every sample's angle to ≈0, so cos≈1, sin≈0 for
-// all of them — sum_cos≈C*samples, and the 2/samples amplitude-recovery
-// factor then gives ≈2*C, exactly double the constant input value, which
-// is what this test measures (mains_hum_mag == 2x the constant raw16-
-// derived count). That's correct arithmetic for degenerate,
-// near-identical timestamps, not a bug — on real hardware, samples are
-// spread across the real ~100 ms window (see get_window_min_gap_ticks()),
-// so a genuine DC input's angles spread out too and the correlation
-// averages toward zero instead. Only the non-negative/finite/no-crash
-// contract is host-testable; the "near 0 for no real oscillation" claim
-// needs real hardware, same caveat as worker_hz itself.
+// mains_hum_mag, once enabled, operates on the DC-subtracted (centered)
+// signal. For a pure DC input (like this constant mock), subtracting the
+// mean leaves zero AC component, so get_mains_hum_mag() yields 0.0f.
 static void test_new_diagnostics_accessors(void) {
     printf("Running test_new_diagnostics_accessors...\n");
     furi_hal_i2c_mock_reset();
@@ -268,7 +251,7 @@ static void test_new_diagnostics_accessors(void) {
            (unsigned long)pga_changes, (unsigned long)fails);
 
     assert(ptp == 0);          // constant mock signal — no variation within the window
-    assert(mains >= 0.0f && isfinite(mains)); // see comment above — value itself is meaningless on host
+    assert(mains < 0.01f);     // mean-subtracted correlation removes DC offset (0.0037 float noise vs 160,000 before)
     assert(pga_changes == 0);  // mid-range constant signal — no autorange triggered
     assert(fails == 0);        // no failures injected
 
