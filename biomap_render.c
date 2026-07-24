@@ -134,7 +134,7 @@ static void render_gps_detail(Canvas* c, BioMapApp* a) {
         const char* fix_str = gps_fix_label(g.fix_type);
         float hacc_disp = (g.hacc < 50.0f) ? g.hacc : ((g.hdop < 50.0f) ? g.hdop * 2.5f : 99.9f);
         if(hacc_disp < 50.0f) {
-            snprintf(buf, sizeof(buf), "+/-%.1fm  %s%s",
+            snprintf(buf, sizeof(buf), "%.1fm  %s%s",
                      (double)hacc_disp, fix_str, g.sbas_active ? " SBAS" : "");
         } else {
             snprintf(buf, sizeof(buf), "%s%s",
@@ -192,6 +192,13 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                   && a->session.mode != BioMapModeDiagnostics;
     bool is_diag   = (a->session.mode == BioMapModeDiagnostics);
 
+    // Right/left edges of whatever ends up occupying the top-left label
+    // (GPS badge / time-span) and top-right nS value slots on this frame.
+    // Populated below as those elements are drawn, then used to place the
+    // elapsed-recording-time text so it can never overlap either one.
+    int top_left_edge  = 0;
+    int top_right_edge = 128;
+
     // Graph + zoom label (GSR modes except diagnostics)
     if(has_graph) {
         draw_graph(c, a, 0, 16, 128, 48);
@@ -213,12 +220,13 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         if(!has_fix) {
             snprintf(badge, sizeof(badge), "No fix");
         } else if(hacc_disp < 50.0f) {
-            snprintf(badge, sizeof(badge), "+/-%.1fm", (double)hacc_disp);
+            snprintf(badge, sizeof(badge), "%.1fm", (double)hacc_disp);
         } else {
             snprintf(badge, sizeof(badge), "3D Fix");
         }
         canvas_set_font(c, FontSecondary);
         canvas_draw_str(c, 1, 10, badge);
+        top_left_edge = 1 + canvas_string_width(c, badge);
     }
 
     // ── Diagnostics: GSR only, 6 labeled lines ─────────────────────────
@@ -311,16 +319,19 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                             snprintf(buf, sizeof(buf), "%ds", t_span);
                         }
                         canvas_draw_str(c, 1, 10, buf);
+                        top_left_edge = 1 + canvas_string_width(c, buf);
                         // nS value — top-right
                         snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.pipeline.display.filtered_ns);
                         int x = 128 - canvas_string_width(c, buf) - (a->session.recording.active ? 12 : 2);
                         canvas_draw_str(c, x, 10, buf);
+                        top_right_edge = x;
                     } else if(a->session.mode == BioMapModeGpsGsr) {
                         // nS value — top-right (GPS badge already at top-left)
                         char buf[16];
                         snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.pipeline.display.filtered_ns);
                         int x = 128 - canvas_string_width(c, buf) - (a->session.recording.active ? 12 : 2);
                         canvas_draw_str(c, x, 10, buf);
+                        top_right_edge = x;
                     }
                 } else {
                     draw_sensor_alert(c, "NO SIGNAL");
@@ -328,6 +339,30 @@ void biomap_render_callback(Canvas* c, void* ctx) {
             } else {
                 draw_sensor_alert(c, "NO SENSOR");
             }
+        }
+
+        // Elapsed recording time — centered in whatever gap remains between
+        // the top-left label and top-right nS value, clamped to their
+        // measured edges so it can never overlap either one. Minutes only
+        // (no seconds — not useful at a glance); rolls over to "1h05m"
+        // past 60 minutes.
+        if(a->session.recording.active) {
+            char elapsed_buf[16];
+            int elapsed_min = (int)(a->session.recording.total_ticks / TICK_HZ) / 60;
+            if(elapsed_min >= 60) {
+                snprintf(elapsed_buf, sizeof(elapsed_buf), "%dh%02dm",
+                         elapsed_min / 60, elapsed_min % 60);
+            } else {
+                snprintf(elapsed_buf, sizeof(elapsed_buf), "%dm", elapsed_min);
+            }
+            canvas_set_font(c, FontSecondary);
+            int elapsed_w = canvas_string_width(c, elapsed_buf);
+            int gap_left  = top_left_edge + 3;
+            int gap_right = top_right_edge - 3;
+            int elapsed_x = (gap_left + gap_right - elapsed_w) / 2;
+            if(elapsed_x < gap_left) elapsed_x = gap_left;
+            if(elapsed_x + elapsed_w > gap_right) elapsed_x = gap_right - elapsed_w;
+            canvas_draw_str(c, elapsed_x, 10, elapsed_buf);
         }
     } else if(!is_diag && a->session.gps) {
         render_gps_detail(c, a);
