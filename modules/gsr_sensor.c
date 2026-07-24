@@ -85,10 +85,16 @@ static inline float tia_counts_to_ns(float counts) {
 // fixed sample count — a fixed N=100 was only actually ~100 ms when the
 // worker's true rate was ~1000 Hz, which measurement showed it wasn't
 // (~500 Hz measured on real hardware, giving a ~200 ms window instead).
+// Later measurement showed the rate itself isn't a stable ~500 Hz either
+// — it varies roughly 400-500 Hz run to run — which is exactly why this
+// stays time-based rather than being re-tuned to whatever the rate
+// happens to be on a given day: window duration (and therefore the
+// 50/60 Hz null) no longer depends on hitting any particular rate at
+// all, see the pacing comment in gsr_sensor_worker() below.
 #define BOXCAR_WINDOW_MS  100
 
 // Target frequency for the on-device mains-hum content estimator (see
-// gsr_sensor_get_mains_50hz_mag()). Fixed at 50 Hz — the diagnostics
+// gsr_sensor_get_mains_hum_mag()). Fixed at 50 Hz — the diagnostics
 // screen has room for one, and the boxcar's exact-null property already
 // covers both 50 and 60 Hz identically by construction (Recommendation
 // 1b), so this is purely about giving a visible, measured answer to "is
@@ -134,8 +140,10 @@ struct GsrSensor {
     float   cal_gain;   // linear calibration gain factor (default 1.0)
     float   cal_offset; // linear calibration offset in counts (default 0.0)
     // Gates the mains-hum correlator in tick()'s Step 1 (2 trig calls per
-    // sample, ~100/tick at the ~50-sample window this typically runs
-    // with) — set by gsr_sensor_set_mains_hum_enabled(). Off by default:
+    // sample, ~80-100/tick at the ~40-50-sample window this typically
+    // runs with — the worker's real rate varies ~400-500 Hz, not a fixed
+    // ~500 Hz, so sample count varies tick to tick) — set by
+    // gsr_sensor_set_mains_hum_enabled(). Off by default:
     // the app only needs this on the Diagnostics screen, and there's no
     // reason to spend the cycles the rest of the time. Mutex-protected
     // like cal_active above, even though today's only caller
@@ -382,7 +390,8 @@ static int32_t gsr_sensor_worker(void* context) {
         // own doc comment, furi_delay_ms(1) "aliases to scheduler timer
         // intervals" — real wait time is "X+ milliseconds", not X — and
         // measurement on real hardware (docs/gsr_filtering_analysis.md)
-        // showed this loop actually only achieves ~500 Hz. furi_delay_us
+        // showed this loop actually only achieves ~400-500 Hz, varying
+        // run to run rather than settling on one fixed rate. furi_delay_us
         // would get the precise ~1 ms pacing, but it's documented as
         // "Blocking and non aliased" (Cortex DWT counter) — a genuine
         // busy-wait, not a scheduler yield, and was tried and reverted:
@@ -392,10 +401,11 @@ static int32_t gsr_sensor_worker(void* context) {
         // (a busy app thread starving the low-priority timer thread badly
         // enough to hang input processing). The ADS1115 converts
         // continuously at 860 SPS regardless of how often this loop reads
-        // it — at the measured ~500 Hz (slower than 860 Hz), nearly every
-        // read lands on a fresh conversion rather than re-reading a stale
-        // one; the loop instead simply never reads roughly 42% of the
-        // conversions the ADC produces. Skipped, not duplicated — either
+        // it — at the measured ~400-500 Hz (slower than 860 Hz), nearly
+        // every read lands on a fresh conversion rather than re-reading a
+        // stale one; the loop instead simply never reads roughly 42-53%
+        // of the conversions the ADC produces (worse at the slow end of
+        // the observed range). Skipped, not duplicated — either
         // way harmless to the mean: it just needs *some* representative
         // samples from the window, not every conversion. gsr_sensor_tick()'s
         // time-based averaging window (BOXCAR_WINDOW_MS, see above) means
@@ -964,11 +974,14 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     gsr->tick_window_min_gap = (samples > 1) ? min_gap_ticks : 0;
 
     // ── Step 2: simple mean over however many samples landed in the
-    // window (typically ~50 at the ~500 Hz measured real-world rate;
+    // window (typically ~40-50, since the worker's measured real-world
+    // rate varies ~400-500 Hz rather than sitting at one fixed value;
     // was silently ~100 at the ~1000 Hz design assumption). Noise
     // reduction scales with √samples, so this is a real, if modest,
-    // trade against the original documented ~8.7× — see
-    // docs/gsr_filtering_analysis.md for the actual numbers.
+    // trade against the original documented ~8.7× — and it now varies
+    // tick to tick along with however many samples actually land in the
+    // window — see docs/gsr_filtering_analysis.md for the actual
+    // numbers.
     float avg_norm = (float)sum / (float)samples;
     gsr->tick_mean_norm = (int32_t)avg_norm;  // snapshot for diagnostics
     gsr->tick_window_samples = samples;       // snapshot for diagnostics

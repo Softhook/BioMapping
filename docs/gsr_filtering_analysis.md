@@ -151,7 +151,10 @@ Given 500 Hz already lands on an exact mains-null point, there's no
 active problem forcing this investigation further — Finding 1's
 window-span issue (Recommendation 1b) remains the more actionable
 follow-up, since it's what protects against this same 2× gap landing on
-a *bad* rate on a different device or firmware revision.
+a *bad* rate on a different device or firmware revision. (It turned out
+to do exactly that: see the 2026-07-24 update after the Recommendations
+— the rate isn't a stable 500 Hz at all, it varies ~400-500 Hz, and 1b
+being implemented is why that's not a live mains-rejection problem.)
 
 **Update 2026-07-23 — a direct duplicate-rate diagnostic
 (`gsr_sensor_get_duplicate_rate()`) was added and measured on real
@@ -314,7 +317,15 @@ setting `n=2` and confirming `gsr_sensor_get_success_rate()` reports
 50.0% verifies the success-rate *arithmetic* against a known ratio, not
 just that the accessor runs without crashing.
 
-### 1b. Make the averaging window time-based, not sample-count-based — still worth doing, lower urgency than first thought
+### 1b. Make the averaging window time-based, not sample-count-based — ✅ implemented
+
+`gsr_sensor_tick()` now walks the ring buffer backward accumulating
+samples by timestamp (`BOXCAR_WINDOW_MS`, see `gsr_sensor.c`) rather than
+a fixed count — the change described below is done. Kept for the
+reasoning, since it's directly relevant to the 2026-07-24 update further
+down: real hardware measurement since this landed shows the worker's
+rate isn't even a stable ~500 Hz — it varies ~400-500 Hz run to run —
+which is exactly the case this fix exists to handle.
 
 The real measurement (~500 Hz, see above) resolved the mains-hum half of
 Finding 1 — by luck, 500 Hz lands on another exact-null rate. But it
@@ -390,33 +401,13 @@ real-world timing anyway). Re-run `tests/analyze_gsr_filtering.c` after
 this change to see the new notch shape and confirm it's actually wider
 and less fragile than the current rectangular one, not just theoretically.
 
-### 3. Fix the `biomap_pipeline.c` comment
+### 3. Fix the `biomap_pipeline.c` comment — ✅ implemented 2026-07-24
 
 Cheap, and prevents the next person from reasoning about aliasing using
-the wrong signal path. Proposed replacement for the
-`pipeline_smooth_iir()` comment block:
-
-```c
-// ── Post-decimation smoothing IIR ──────────────────────────────────────
-// First-order IIR, nominal fc ≈ 3 Hz via α = 1 - e^{-2π·3/10} ≈ 0.848 —
-// note this approximation assumes fc << Fs and is optimistic at Fs=10Hz;
-// measured attenuation at 3 Hz is only ~-1.9 dB, not -3 dB (see
-// docs/gsr_filtering_analysis.md).
-//
-// IMPORTANT: called from biomap_session.c with the RAW SINGLE-SAMPLE
-// value (gsr_sensor_get_raw_sample_ns()), not the boxcar-decimated one
-// (gsr_sensor_get_raw()) — this is the display/graph path only; the
-// boxcar-filtered value goes straight to CSV without passing through
-// this filter at all (see handle_recording_tick() in biomap_session.c).
-// That means there is NO anti-aliasing before this filter on the display
-// path: it subsamples an ~860 Hz source at 10 Hz with no pre-filter, so
-// aliasing (including 50/60 Hz mains hum) folds into the 0-5 Hz band
-// before this filter ever sees it, and — aliasing being a one-way door —
-// cannot be removed afterward. This is an intentional trade-off (the
-// display shows the true instantaneous hardware reading) but means the
-// on-screen graph is noisier than the logged CSV data, which uses a
-// separate, actually-decimated signal path.
-```
+the wrong signal path. `pipeline_smooth_iir()`'s comment now correctly
+describes the raw-single-sample display path (not the boxcar-decimated
+CSV path), and `pipeline_update_display()` gained a summary of Finding
+3's measured cascade bandwidth.
 
 ### 4. Lengthen the boxcar window (lower priority, independent of the mains question)
 
@@ -433,16 +424,43 @@ negligible against 1–3s phasic GSR rise times.
 
 ---
 
+**Update 2026-07-24 — the worker's real rate isn't a stable ~500 Hz
+either; it varies ~400-500 Hz run to run.** This landed after 1b was
+already implemented, and retroactively justifies it: 1b's premise
+wasn't "500 Hz is safe, 400 Hz might not be" — it's that window
+*duration* (not sample rate) is what determines the boxcar's null
+frequencies, so once the window is time-based, the null sits at exact
+multiples of `1/BOXCAR_WINDOW_MS` (10, 20, ..., 50, 60 Hz...) **regardless**
+of which rate within that range the worker happens to be running at on a
+given tick. The "500 Hz lands on a lucky exact-null point" framing
+earlier in this doc was true of the *old* fixed-`N=100` implementation,
+where the window's actual duration (`N / true_rate`) moved around with
+the rate — at 400 Hz that would have been a 250 ms window, landing the
+null at multiples of 4 Hz instead of 10, missing 50/60 Hz entirely. With
+1b in place that failure mode no longer exists: correctness depends on
+`BOXCAR_WINDOW_MS` staying 100 ms, not on the worker rate.
+
+What varying rate *does* still change, even under the time-based window:
+fewer samples land in each 100 ms window at the slow end of the range
+(~40 at 400 Hz vs. ~50 at 500 Hz) — a modest, expected √N noise-floor
+difference, not a mains-rejection one. It's also a reminder that the
+window is an equal-weight sample *mean*, not a true time-weighted
+integral — if timing within a single 100 ms window were badly uneven
+(not just the run-to-run average drifting), the discrete sum would
+deviate somewhat from the ideal continuous boxcar's exact null. There's
+no measurement yet of how uneven within-window spacing actually is
+(`gsr_sensor_get_window_min_gap_ticks()` and the mains-hum estimator's
+own diagnostics are the closest proxies) — worth a look if the on-device
+50 Hz reading is ever significantly out of line with what Recommendation
+2's wider notch would predict.
+
 ## Suggested order
 
-1 is done — measured ~500 Hz on real hardware (2026-07-22), which by luck
-is another exact mains-null rate, so the mains-hum urgency that motivated
-1b at first is gone. Current state: **3 ≈ 1b > 2 > 4**. 3 is a
-documentation fix, costs nothing, do it whenever. 1b is still worth
-doing — the window-duration problem (~200 ms vs. the intended 100 ms) is
-real regardless of the mains-rejection outcome, and it's what protects
-the *next* device that doesn't land as luckily as this one did — but it's
-no longer fixing an active emergency, just closing a real gap before it
-becomes one. 2 (Hann taper) is only worth doing once 1b lands (it's a
-refinement of the windowing, not a substitute for fixing its duration).
-4 is independent and can happen anytime.
+1 and 1b are done — see their sections above, including the 2026-07-24
+update on real-rate variability. 3 is done. Current state: **2 > 4**. 2
+(windowed/tapered boxcar, e.g. Hann or the cheaper triangular/Bartlett
+alternative) is the next actionable item — it widens the notch so
+mains rejection doesn't depend on hitting an exact rate at all, which
+matters more now that the rate is confirmed to vary rather than sit at
+one lucky value. 4 is independent, lower priority, and can happen
+anytime.
