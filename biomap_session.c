@@ -138,11 +138,12 @@ static inline GpsPosition get_gps_position(const Session* s) {
 }
 
 // ── Shared GPS CSV row formatter ───────────────────────────────────────────
-// Formats a 10-column GPS row into the SD batch buffer with an explicit GSR
-// value in the last column.  Used by both GPS+GSR mode (via batch_csv_row
-// with the live GSR reading) and GPS-only mode (via handle_recording_tick
-// with raw=0).  When the fix is absent or HDOP is too high, GPS columns are
-// left empty so the analyser treats the row as a gap rather than noise.
+// Formats an 11-column GPS row into the SD batch buffer with an explicit GSR
+// value and hacc_m (horizontal accuracy in meters, PUBX 00; 99.9 = unknown)
+// trailing.  Used by both GPS+GSR mode (via batch_csv_row with the live GSR
+// reading) and GPS-only mode (via handle_recording_tick with raw=0).  When
+// the fix is absent or HDOP is too high, GPS columns are left empty so the
+// analyser treats the row as a gap rather than noise.
 // Returns true on success, false on buffer overflow.
 static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
                                 double rel, float raw) {
@@ -152,20 +153,21 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
         bool has_vel = !isnan(pos->speed_kts) && !isnan(pos->course_deg);
         if(has_vel) {
             ret = sd_logger_batch_printf(s->logger,
-                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f\n",
+                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f\n",
                 rel, pos->lat, pos->lon,
                 (double)pos->hdop, (double)pos->pdop,
                 pos->sats, pos->fix_type,
-                (double)pos->speed_kts, (double)pos->course_deg, (double)raw);
+                (double)pos->speed_kts, (double)pos->course_deg, (double)raw,
+                (double)pos->hacc);
         } else {
             ret = sd_logger_batch_printf(s->logger,
-                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,,,%.1f\n",
+                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,,,%.1f,%.1f\n",
                 rel, pos->lat, pos->lon,
                 (double)pos->hdop, (double)pos->pdop,
-                pos->sats, pos->fix_type, (double)raw);
+                pos->sats, pos->fix_type, (double)raw, (double)pos->hacc);
         }
     } else {
-        ret = sd_logger_batch_printf(s->logger, "%.2f,,,,,,,,,%.1f\n",
+        ret = sd_logger_batch_printf(s->logger, "%.2f,,,,,,,,,%.1f,\n",
                                      rel, (double)raw);
     }
     return ret > 0;

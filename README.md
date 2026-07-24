@@ -139,9 +139,9 @@ Writing data to the Flipper's SD card takes a few milliseconds. If we write ever
 
 **The Solution:** The app uses different logging rates depending on mode:
 
-- **GPS+GSR mode:** Each 10 Hz tick formats a CSV row into the in-memory batch buffer. Every tick carries the **most recent** GPS fix — the latest parsed position is used as-is (carried forward), not interpolated to the GSR timestamp. A full 10-column row with lat, lon, hdop, pdop, sats, fix_type, speed_kts, and course_deg is formatted. The batch is flushed to the SD card every `FLUSH_INTERVAL` (= 5) seconds in a single `storage_file_write()` call (~50 rows per flush at 10 Hz), exactly like GSR-only mode. The recording LED blinks once per second, decoupled from the flush cadence.
+- **GPS+GSR mode:** Each 10 Hz tick formats a CSV row into the in-memory batch buffer. Every tick carries the **most recent** GPS fix — the latest parsed position is used as-is (carried forward), not interpolated to the GSR timestamp. A full 11-column row with lat, lon, hdop, pdop, sats, fix_type, speed_kts, course_deg, and hacc_m is formatted. The batch is flushed to the SD card every `FLUSH_INTERVAL` (= 5) seconds in a single `storage_file_write()` call (~50 rows per flush at 10 Hz), exactly like GSR-only mode. The recording LED blinks once per second, decoupled from the flush cadence.
 
-- **GPS-only mode:** A 10-column CSV row is written to the batch buffer every tick (10 Hz, `GPS_CSV_HZ`); there is no high-frequency GSR data, so the `gsr_raw` column is always 0.
+- **GPS-only mode:** An 11-column CSV row is written to the batch buffer every tick (10 Hz, `GPS_CSV_HZ`); there is no high-frequency GSR data, so the `gsr_raw` column is always 0.
 
 ---
 
@@ -218,18 +218,18 @@ M10Q GPS @ 10 Hz  ──►  UART interrupt handler
 
 ### CSV Formats
 
-**GPS+GSR mode (10 columns, 10 Hz):**
+**GPS+GSR mode (11 columns, 10 Hz):**
 ```
 # BioMapping v1.0
 # RecordingStartTime:1751204579
-# GPS:L76K
-timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw
-0.00,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4523.0   ← every row: full 10-column GPS+GSR at 10 Hz
-0.10,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4528.0
-0.20,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4521.0
+# GPS:M10Q
+timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
+0.00,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4523.0,2.4   ← every row: full 11-column GPS+GSR at 10 Hz
+0.10,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4528.0,2.3
+0.20,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4521.0,2.5
 ...
 ```
-When there is no valid fix this tick, the `lat`/`lon` columns are left empty (e.g. `0.30,,,99.9,99.9,0,1,,,4519.0`) so the analyser treats the row as a GPS gap rather than a `(0,0)` coordinate.
+When there is no valid fix this tick, `lat`/`lon` and all other GPS columns are left empty (e.g. `0.30,,,,,,,,,4519.0,`) so the analyser treats the row as a GPS gap rather than a `(0,0)` coordinate. `hacc_m` (horizontal accuracy in meters, from `$PUBX,00`) is **M10Q-only** — it stays `99.9` (unknown) on L76K hardware.
 
 **GSR-only mode (2 columns, 10 Hz):**
 ```
@@ -337,15 +337,15 @@ When `N` approaches zero (open circuit / disconnected electrodes), conductance i
 
 When the user presses "Record", the app writes a **CSV file** (`/ext/biomapping/biomap_001.csv`). This keeps the recording simple and preserves the raw GSR data for offline re-analysis. Visualisation is produced **post-recording** by the browser-based analyser (see below).
 
-**GPS+GSR mode CSV (10 columns, 10 Hz):**
+**GPS+GSR mode CSV (11 columns, 10 Hz):**
 ```
 # BioMapping v1.0
 # RecordingStartTime:1751204579
-# GPS:L76K
-timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw
-0.00,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4523.0
-0.10,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4528.0
-0.20,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4521.0
+# GPS:M10Q
+timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
+0.00,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4523.0,2.4
+0.10,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4528.0,2.3
+0.20,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4521.0,2.5
 ```
 
 **GSR-only mode CSV (2 columns, 10 Hz):**
@@ -422,7 +422,7 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 
 ### Controls
 
-* `OK (Center Button)`: Starts and stops recording. In GPS+GSR mode writes 10-column CSV at 10 Hz (every row is a full GPS+GSR row). In GSR-only mode writes 2-column CSV at 10 Hz.
+* `OK (Center Button)`: Starts and stops recording. In GPS+GSR mode writes 11-column CSV at 10 Hz (every row is a full GPS+GSR row). In GSR-only mode writes 2-column CSV at 10 Hz.
 * `Left/Right`: Changes the time scale of the graph (scroll speed). Left zooms out (slower), Right zooms in (faster).
 * `Up/Down`: Zooms in and out on the vertical sensitivity of the graph.
 * `Back`: Safely closes the file and returns to the menu.
@@ -445,8 +445,8 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 
 | Menu Item | Action |
 |---|---|
-| **GPS + GSR** | Enters recording view with both GPS and GSR active. Writes a 10-column CSV at 10 Hz; each row carries the most recent GPS fix (carried forward, not interpolated). |
-| **GPS Only** | Enters recording view with GPS only — no GSR sensor initialised. Writes a 10-column CSV at 10 Hz with `gsr_raw` = 0 (batch-buffered). |
+| **GPS + GSR** | Enters recording view with both GPS and GSR active. Writes an 11-column CSV at 10 Hz; each row carries the most recent GPS fix (carried forward, not interpolated). |
+| **GPS Only** | Enters recording view with GPS only — no GSR sensor initialised. Writes an 11-column CSV at 10 Hz with `gsr_raw` = 0 (batch-buffered). |
 | **GSR Only** | Enters recording view with GSR only — no GPS driver initialised. Writes a 2-column CSV at 10 Hz. The GPS module is placed into Software Standby (M10Q) to save power. |
 | **Options** | Opens the Options screen (see below). |
 
@@ -596,9 +596,9 @@ The GSR-disconnect warning tone is the one remaining exception: it fires while `
 All files are stored on the SD card under `/ext/biomapping/`:
 
 **CSV files:** `biomap_001.csv` through `biomap_999.csv` (auto-incrementing, wraps at 999). Every file begins with `#`-prefixed metadata lines (`# BioMapping v1.0`, `# RecordingStartTime:<unix_epoch>`, and, in GPS modes, `# GPS:L76K`/`# GPS:M10Q`) followed by the column-name header.
-- 10-column format: `timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw` (GPS+GSR and GPS-only modes)
+- 11-column format: `timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m` (GPS+GSR and GPS-only modes)
 - 2-column format: `timestamp,gsr_raw` (GSR-only mode)
-- Row size: ~60 bytes (10-column) or ~14 bytes (2-column)
+- Row size: ~65 bytes (11-column) or ~14 bytes (2-column)
 - Expected file size for a 1-hour walk: ~2.2 MB (GPS+GSR at 10 Hz) or ~0.5 MB (GSR-only at 10 Hz)
 
 See [`csv_schema.md`](csv_schema.md) for the canonical column definitions and sentinel values.

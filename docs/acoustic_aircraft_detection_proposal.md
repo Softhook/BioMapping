@@ -84,7 +84,7 @@ Sound level logging is gated behind a single define in [`biomap_config.h`](../bi
 #define BIOMAP_FEATURE_ACOUSTIC  0  // 0 = disabled, 1 = enabled
 ```
 
-When `BIOMAP_FEATURE_ACOUSTIC` is 0, all acoustic code is stripped by the preprocessor. The CSV stays at the canonical 10 columns. When set to 1, two columns are appended (`sound_rms`, `sound_event`) and the tick handler runs the sampling routine below.
+When `BIOMAP_FEATURE_ACOUSTIC` is 0, all acoustic code is stripped by the preprocessor. The CSV stays at the canonical 11 columns. When set to 1, two columns are appended (`sound_rms`, `sound_event`) and the tick handler runs the sampling routine below.
 
 ### 4.2 Integration Into the Main Tick Handler
 
@@ -291,19 +291,19 @@ With symmetric 3-second arm/disarm, a 15-second flyover produces approximately 1
 
 ### 7.1 CSV Logging Format
 
-When `BIOMAP_FEATURE_ACOUSTIC` is enabled, two columns are appended to the canonical 10-column schema:
+When `BIOMAP_FEATURE_ACOUSTIC` is enabled, two columns are appended to the canonical 11-column schema (which already ends in `hacc_m` — see [`csv_schema.md`](csv_schema.md)):
 
 ```csv
-timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,sound_rms,sound_event
-12.30,51.5074,-0.1278,1.2,1.5,12,3,4.50,182.3,12450.5,4.2,1
+timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,sound_rms,sound_event
+12.30,51.5074,-0.1278,1.2,1.5,12,3,4.50,182.3,12450.5,2.4,4.2,1
 ```
 
 | # | Column | Type | Unit | Notes |
 |---|---|---|---|---|
-| 11 | `sound_rms` | float | ADC counts | RMS amplitude above EMA bias. Near-zero for quiet environments (<70 dBA). `0.0` when mic disconnected. |
-| 12 | `sound_event` | int | boolean | `1` = sustained elevated sound detected by temporal gate (≥3 s above adaptive threshold), `0` otherwise. Source classification is performed post-hoc in the analyser. |
+| 12 | `sound_rms` | float | ADC counts | RMS amplitude above EMA bias. Near-zero for quiet environments (<70 dBA). `0.0` when mic disconnected. |
+| 13 | `sound_event` | int | boolean | `1` = sustained elevated sound detected by temporal gate (≥3 s above adaptive threshold), `0` otherwise. Source classification is performed post-hoc in the analyser. |
 
-When `BIOMAP_FEATURE_ACOUSTIC` is 0, columns 11–12 are absent and the CSV is byte-identical to the canonical 10-column format defined in [`csv_schema.md`](csv_schema.md).
+When `BIOMAP_FEATURE_ACOUSTIC` is 0, columns 12–13 are absent and the CSV is byte-identical to the canonical 11-column format defined in [`csv_schema.md`](csv_schema.md).
 
 ### 7.2 Web Dashboard Analyser — Sound Level Display
 

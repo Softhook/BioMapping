@@ -75,7 +75,8 @@ const GpsFilter = {
    *
    * Forward pass with chi-squared innovation gate for robust multipath
    * rejection, followed by an RTS backward pass for zero-phase smoothing.
-   * HDOP-adaptive R scales measurement noise by DOP² per point.
+   * Measurement noise per point prefers physical hacc_m (u-blox M10Q
+   * hAcc) when available, falling back to DOP²-scaling of R_m2 otherwise.
    *
    * The RTS displacement clamp scales with both Q and R so that extreme
    * slider settings (Q=0.02,R=150 or Q=10,R=0.5) produce visibly different
@@ -116,14 +117,22 @@ const GpsFilter = {
       if (!isNaN(pt.hdop) && pt.hdop > 0 && pt.hdop < 50.0) return pt.hdop;
       return 1.0;
     };
-    const getRLat = (pt) => {
+    // Effective measurement variance in m², per point.  Prefers hacc_m — the
+    // u-blox M10Q's physical EKF horizontal accuracy from $PUBX,00 — over
+    // DOP²-scaling when available, since DOP (satellite geometry) can look
+    // fine while multipath drives true position error up (e.g. HDOP 1.2 but
+    // hAcc 15 m in an urban canyon). hacc_m is u-blox-only: on L76K hardware,
+    // or before the first $PUBX,00 sentence, it's the 99.9 "unknown" sentinel
+    // and this falls back to the pre-existing DOP²-scaling of the R_m2 slider.
+    const getEffectiveRm2 = (pt) => {
+      if (!isNaN(pt.hacc) && pt.hacc > 0 && pt.hacc < 50.0) {
+        return pt.hacc * pt.hacc;
+      }
       const h = Math.max(0.5, Math.min(10.0, getDop(pt)));
-      return R_LAT_BASE * h * h;
+      return R_m2 * h * h;
     };
-    const getRLon = (pt) => {
-      const h = Math.max(0.5, Math.min(10.0, getDop(pt)));
-      return R_LON_BASE * h * h;
-    };
+    const getRLat = (pt) => getEffectiveRm2(pt) * M2_TO_DEG2_LAT;
+    const getRLon = (pt) => getEffectiveRm2(pt) * M2_TO_DEG2_LON;
 
     // Forward pass — standard Kalman filter with chi-squared innovation gate.
     //
@@ -160,8 +169,9 @@ const GpsFilter = {
       const R_LON = getRLon(points[i]);
 
       // Innovation (measurement − prediction) and its variance.
-      // Gate test uses HDOP-scaled R — dynamically adjusts outlier sensitivity.
-      // Kalman gain uses HDOP-inflated R — deweights noisy measurements.
+      // Gate test uses the effective (hacc- or DOP-scaled) R — dynamically
+      // adjusts outlier sensitivity.  Kalman gain uses the same inflated R —
+      // deweights noisy measurements.
       const innovLat = points[i].lat - xLat;
       const innovLon = points[i].lon - xLon;
       const gateVarLat = pPLat + R_LAT;

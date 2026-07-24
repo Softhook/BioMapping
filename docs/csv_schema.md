@@ -44,6 +44,7 @@ Each CSV begins with comment lines (prefixed `#`) before the column header:
 | 8 | `speed_kts` | float | knots | Doppler-derived speed from RMC. More accurate than position-derived. `0.0` if unavailable. |
 | 9 | `course_deg` | float | degrees (true north) | True course over ground from RMC. `0.0` if unavailable. |
 | 10 | `gsr_raw` | float | nanosiemens (nS) | Raw skin conductance. `0.0` if sensor unavailable. |
+| 11 | `hacc_m` | float | meters | Horizontal accuracy from `$PUBX,00` Field 9 (u-blox EKF covariance). **Empty string** if no valid GPS fix this tick (same gate as `lat`/`lon`). `99.9` = no `$PUBX,00` sentence yet. **M10Q only** — always `99.9` on L76K hardware, which never emits `$PUBX,00`. |
 
 ---
 
@@ -84,11 +85,10 @@ Defined in `modules/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
 |---|---|---|
 | 1.0 | 2026-06 | Initial: `timestamp, lat, lon, alt, sats, fix, gsr_raw` (7 columns) |
 | 1.1 | 2026-07 | Added `hdop, pdop, speed_kts, course_deg`; renamed `fix`→`fix_type`; removed `alt`; total 10 columns |
+| 1.2 | 2026-07 | Added `hacc_m` (M10Q-only physical accuracy in meters, `$PUBX,00`); total 11 columns |
 
 ---
 
-## Potential Future Schema Extension: `hacc_m` (Spatial Error in Meters)
+## `hacc_m`: Direct Spatial Error in Meters
 
-* **Proposed Column:** `hacc_m` (float, horizontal accuracy in meters extracted from `$PUBX,00` Field 9).
-* **Usage:** Allows downstream web/Python Kalman filters to substitute unitless $\text{HDOP}^2$ measurement noise scaling with exact physical measurement covariance ($R = \text{hacc\_m}^2$), improving track smoothing in urban multipath environments.
-* **Compatibility Note:** The firmware parses `hacc` live for OLED display, but preserves the 10-column v1.1 schema for logging to maintain zero-overhead SD writes and full backward compatibility.
+`hacc_m` lets downstream Kalman filters substitute unitless $\text{DOP}^2$ measurement noise scaling with exact physical measurement covariance ($R = \text{hacc\_m}^2$), improving track smoothing in urban multipath environments where HDOP/PDOP stay low but true position error spikes. See [`gps_filtering_pipeline.md`](gps_filtering_pipeline.md) §6 for the Kalman-side implementation. Since it's M10Q-only, downstream consumers must fall back to DOP²-scaling when `hacc_m` is empty or `99.9`.

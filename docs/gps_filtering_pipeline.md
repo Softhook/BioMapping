@@ -37,13 +37,14 @@ graph TD
 
 ### 2.2 Quality Gating (`biomap_types.h` & `biomap_session.c`)
 - **`GPS_HDOP_GATE = 5.0`**: The firmware filters out coordinates with `hdop >= 5.0` at record time. This is a permissive gate designed to allow urban canyon data to be logged for advanced post-processing, while filtering out extreme positional drift.
-- **Empty Rows**: Sub-gate ticks write empty coordinates (`timestamp,,,,,,,,,gsr_raw`) to maintain column counts and temporal continuity.
+- **Empty Rows**: Sub-gate ticks write empty coordinates (`timestamp,,,,,,,,,gsr_raw,`) to maintain column counts and temporal continuity.
 
 ### 2.3 CSV Header Layout
-The current CSV log format consists of 10 columns:
+The current CSV log format consists of 11 columns:
 ```csv
-timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw
+timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
 ```
+`hacc_m` is the u-blox M10Q's own EKF-computed horizontal accuracy in meters, from `$PUBX,00` Field 9. It is `99.9` (unknown) on L76K hardware, which never emits `$PUBX,00`, and before the first such sentence arrives on M10Q.
 
 ---
 
@@ -109,6 +110,7 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw
 |---|---|---|---|
 | **v1.0** | 2026-06 | `timestamp,lat,lon,alt,sats,fix,gsr_raw` | Initial version; no DOP values. |
 | **v1.1** | 2026-07 | `timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw` | Removed `alt`. Added `hdop`, `pdop`, `speed_kts`, `course_deg`. Renamed `fix` to `fix_type`. |
+| **v1.2** | 2026-07 | `...,gsr_raw,hacc_m` | Added `hacc_m` (M10Q-only physical horizontal accuracy in meters, `$PUBX,00`). |
 
 ---
 
@@ -123,17 +125,16 @@ The filters can be tuned in the analyzer interface:
 
 ---
 
-## 6. Future Enhancement: Direct Spatial Error (`hAcc`) Integration
+## 6. Direct Spatial Error (`hAcc`) Integration
 
-Currently, measurement noise variance $R$ in the Kalman filter ([`gps_filter.js`](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/gps_filter.js#L120-L125)) is estimated from unitless geometry by scaling a base constant by $\text{DOP}^2$:
-$$R_{\text{effective}} = R_{\text{base}} \times \text{DOP}^2$$
+Measurement noise variance $R$ in the Kalman filter ([`gps_filter.js`](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/gps_filter.js)) now prefers the physical accuracy estimate over DOP-scaling when it's available:
+
+$$R_{\text{effective}} = \begin{cases} (\text{hacc\_m})^2 & \text{if hacc\_m valid (M10Q, post-fix)} \\ R_{\text{base}} \times \text{DOP}^2 & \text{otherwise (L76K, or pre-fix)} \end{cases}$$
 
 ### The `hAcc` Spatial Error Advantage
-The u-blox SAM-M10Q calculates **`hAcc`**—the actual physical horizontal position error in meters—via its internal extended Kalman filter covariance matrix, transmitted in the `$PUBX,00` NMEA sentence. The Flipper firmware (`modules/gps_uart.c`) extracts `hAcc` for live OLED screen display.
+The u-blox SAM-M10Q calculates **`hAcc`**—the actual physical horizontal position error in meters—via its internal extended Kalman filter covariance matrix, transmitted in the `$PUBX,00` NMEA sentence. The Flipper firmware (`modules/gps_uart.c`) extracts `hAcc` for live OLED display and, as of CSV schema v1.2, logs it as `hacc_m`.
 
-If `hAcc` (in meters) is logged to CSV in a future schema revision (e.g. as an optional `hacc_m` column):
-
-1. **Direct Kalman Variance Assignment:** Downstream filters can assign physical measurement variance directly:
-   $$R_{\text{effective}} = (\text{hAcc}_{\text{meters}})^2$$
-2. **Urban Canyon Multipath Rejection:** In urban canyons or under wet tree canopies, satellite geometry often remains acceptable ($\text{HDOP } 1.2$), causing the current filter to under-estimate measurement noise. However, physical multipath reflections cause true `hAcc` to spike from $1.5\text{ m} \longrightarrow 15.0\text{ m}$. With $R = 15^2 = 225$, the Kalman filter immediately de-weights the multipath outlier and dead-reckons smoothly past the anomaly.
-3. **True Ground Error Heatmaps:** Enables visualizer tooltips and map overlays displaying exact ground uncertainty bounds ($\pm X.X\text{ m}$) for every recorded biometric sample.
+1. **Direct Kalman Variance Assignment:** When `hacc_m` is valid (not the `99.9` sentinel), the analyzer's Kalman filter (`gps_filter.js`, `getEffectiveRm2()`) assigns physical measurement variance directly instead of scaling by DOP².
+2. **Urban Canyon Multipath Rejection:** In urban canyons or under wet tree canopies, satellite geometry often remains acceptable ($\text{HDOP } 1.2$), causing DOP-based estimation to under-estimate measurement noise. However, physical multipath reflections cause true `hAcc` to spike from $1.5\text{ m} \longrightarrow 15.0\text{ m}$. With $R = 15^2 = 225$, the Kalman filter immediately de-weights the multipath outlier and dead-reckons smoothly past the anomaly.
+3. **L76K fallback:** `hacc_m` is u-blox-only (`$PUBX,00` is a u-blox proprietary sentence). On L76K hardware, or before the first `$PUBX,00` sentence arrives on M10Q, `hacc_m` stays at its `99.9` sentinel and the filter falls back to the existing DOP²-scaling — HDOP/PDOP remain necessary as the universal fallback, not redundant.
+4. **True Ground Error Heatmaps** (not yet implemented): visualizer tooltips/overlays showing exact ground uncertainty bounds ($\pm X.X\text{ m}$) per sample remain a future enhancement.

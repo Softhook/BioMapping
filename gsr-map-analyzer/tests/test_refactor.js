@@ -469,6 +469,61 @@ console.log('\n── gps_filter.js ──');
     `Kalman outlier dampened: raw=${rawDev.toFixed(6)} filt=${filtDev.toFixed(6)}`);
 }
 
+// 4j2. applyKalman — uses hacc_m directly instead of DOP²-scaling when present
+{
+  // Same noisy track fed twice: once with only HDOP/PDOP (falls back to
+  // R_m2 × DOP² = 10 m²), once with an excellent hacc_m (0.1 m → R = 0.01 m²).
+  // A much smaller effective R should make the filter trust the raw
+  // measurement more, tracking the noisy input more closely (smaller RMS
+  // deviation from input) than the DOP-fallback case.
+  const baseStep = 0.0001;
+  function buildTrack(withHacc) {
+    const pts = [];
+    for (let i = 0; i < 30; i++) {
+      const noise = Math.sin(i * 1.7) * 0.00003; // deterministic pseudo-noise
+      const lat = i * baseStep + noise;
+      const p = { lat, lon: 0, time: i, hdop: 1, pdop: 1 };
+      if (withHacc) p.hacc = 0.1;
+      pts.push(p);
+    }
+    return pts;
+  }
+  const noHacc = buildTrack(false);
+  const withHacc = buildTrack(true);
+  const resNoHacc = GpsFilter.applyKalman(noHacc, 0.5, 10);
+  const resWithHacc = GpsFilter.applyKalman(withHacc, 0.5, 10);
+
+  let rmsNoHacc = 0, rmsWithHacc = 0;
+  for (let i = 0; i < 30; i++) {
+    const dNo = GeoUtils.haversineMeters(resNoHacc[i].lat, resNoHacc[i].lon, noHacc[i].lat, noHacc[i].lon);
+    const dWith = GeoUtils.haversineMeters(resWithHacc[i].lat, resWithHacc[i].lon, withHacc[i].lat, withHacc[i].lon);
+    rmsNoHacc += dNo * dNo;
+    rmsWithHacc += dWith * dWith;
+  }
+  rmsNoHacc = Math.sqrt(rmsNoHacc / 30);
+  rmsWithHacc = Math.sqrt(rmsWithHacc / 30);
+
+  assert(rmsWithHacc < rmsNoHacc,
+    `hacc_m=0.1 tracks noisy input more closely than DOP fallback: withHacc=${rmsWithHacc.toFixed(4)} m < fallback=${rmsNoHacc.toFixed(4)} m`);
+}
+
+// 4j3. applyKalman — hacc_m sentinel (99.9 = unknown) falls back to DOP scaling
+{
+  const baseStep = 0.0001;
+  const ptsSentinel = [];
+  const ptsNoHacc = [];
+  for (let i = 0; i < 20; i++) {
+    ptsSentinel.push({ lat: i * baseStep, lon: 0, time: i, hdop: 2, pdop: 2, hacc: 99.9 });
+    ptsNoHacc.push({ lat: i * baseStep, lon: 0, time: i, hdop: 2, pdop: 2 });
+  }
+  const resultSentinel = GpsFilter.applyKalman(ptsSentinel, 0.5, 10);
+  const resultNoHacc = GpsFilter.applyKalman(ptsNoHacc, 0.5, 10);
+  for (let i = 0; i < ptsSentinel.length; i++) {
+    assert(Math.abs(resultSentinel[i].lat - resultNoHacc[i].lat) < 1e-12,
+      `hacc_m=99.9 sentinel behaves identically to missing hacc at i=${i}`);
+  }
+}
+
 // 4k. applyKalman — NaN guard
 {
   const r1 = GpsFilter.applyKalman([], 1, 1);

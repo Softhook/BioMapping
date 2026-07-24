@@ -310,6 +310,7 @@ class GSRAnalyzer {
       // The rest match exactly or via standard fallback
       else if (h === 'hdop') colIndices['hdop'] = i;
       else if (h === 'pdop') colIndices['pdop'] = i;
+      else if (h === 'hacc_m') colIndices['hacc_m'] = i;
       else if (h === 'fix_type') colIndices['fix_type'] = i;
       else if (h === 'fix') {
         if (colIndices['fix_type'] === -1) colIndices['fix_type'] = i; // fallback for older schema
@@ -375,6 +376,7 @@ class GSRAnalyzer {
       let lonVal = colIndices['lon'] !== -1 && cols[colIndices['lon']] ? parseFloat(cols[colIndices['lon']]) : NaN;
       let hdopVal     = colIndices['hdop']  !== -1 && cols[colIndices['hdop']]  ? parseFloat(cols[colIndices['hdop']])  : NaN;
       let pdopVal     = colIndices['pdop']  !== -1 && cols[colIndices['pdop']]  ? parseFloat(cols[colIndices['pdop']])  : NaN;
+      let haccVal     = colIndices['hacc_m'] !== -1 && cols[colIndices['hacc_m']] ? parseFloat(cols[colIndices['hacc_m']]) : NaN;
       let satsVal     = colIndices['sats']  !== -1 && cols[colIndices['sats']]  ? parseInt(cols[colIndices['sats']])    : 0;
       let fixTypeVal  = colIndices['fix_type'] !== -1 && cols[colIndices['fix_type']] ? parseInt(cols[colIndices['fix_type']]) : 0;
       let speedKtsVal = colIndices['speed_kts'] !== -1 && cols[colIndices['speed_kts']] ? parseFloat(cols[colIndices['speed_kts']]) : NaN;
@@ -408,6 +410,7 @@ class GSRAnalyzer {
         lon: lonVal,
         hdop: hdopVal,
         pdop: pdopVal,
+        hacc: haccVal,
         sats: satsVal,
         fixType: fixTypeVal,
         speedKts: speedKtsVal,

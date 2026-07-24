@@ -125,7 +125,8 @@ const GSR_CONST = {
     'fix_type',
     'speed_kts',
     'course_deg',
-    'gsr_raw'
+    'gsr_raw',
+    'hacc_m'
   ],
 
   // ── Unit conversion thresholds ──────────────────────────────────────────

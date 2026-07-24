@@ -79,20 +79,21 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
         bool has_vel = !isnan(pos->speed_kts) && !isnan(pos->course_deg);
         if(has_vel) {
             ret = sd_logger_batch_printf(s->logger,
-                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f\n",
+                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f\n",
                 rel, pos->lat, pos->lon,
                 (double)pos->hdop, (double)pos->pdop,
                 pos->sats, pos->fix_type,
-                (double)pos->speed_kts, (double)pos->course_deg, (double)raw);
+                (double)pos->speed_kts, (double)pos->course_deg, (double)raw,
+                (double)pos->hacc);
         } else {
             ret = sd_logger_batch_printf(s->logger,
-                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,,,%.1f\n",
+                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,,,%.1f,%.1f\n",
                 rel, pos->lat, pos->lon,
                 (double)pos->hdop, (double)pos->pdop,
-                pos->sats, pos->fix_type, (double)raw);
+                pos->sats, pos->fix_type, (double)raw, (double)pos->hacc);
         }
     } else {
-        ret = sd_logger_batch_printf(s->logger, "%.2f,,,,,,,,,%.1f\n",
+        ret = sd_logger_batch_printf(s->logger, "%.2f,,,,,,,,,%.1f,\n",
                                      rel, (double)raw);
     }
     return ret > 0;
@@ -489,23 +490,24 @@ void test_csv_formatting() {
     pos.fix_type = 3;
     pos.speed_kts = 5.25f;
     pos.course_deg = 330.2f;
-    
+    pos.hacc = 2.4f;
+
     mock_logger_buf[0] = '\0';
     format_gps_csv_row(&s, &pos, 1.25, 8345.3f);
-    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3\n") == 0);
+    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4\n") == 0);
 
     // Case 2: Valid GPS fix but no speed/course (stationary)
     pos.speed_kts = NAN;
     pos.course_deg = NAN;
     mock_logger_buf[0] = '\0';
     format_gps_csv_row(&s, &pos, 2.50, 8350.0f);
-    assert(strcmp(mock_logger_buf, "2.50,51.5557397,-0.0714595,0.9,1.3,16,3,,,8350.0\n") == 0);
+    assert(strcmp(mock_logger_buf, "2.50,51.5557397,-0.0714595,0.9,1.3,16,3,,,8350.0,2.4\n") == 0);
 
     // Case 3: Invalid GPS fix (e.g. startup, or high HDOP > 5.0)
     pos.hdop = 6.0f; // Exceeds gate limit
     mock_logger_buf[0] = '\0';
     format_gps_csv_row(&s, &pos, 3.75, 8400.0f);
-    assert(strcmp(mock_logger_buf, "3.75,,,,,,,,,8400.0\n") == 0);
+    assert(strcmp(mock_logger_buf, "3.75,,,,,,,,,8400.0,\n") == 0);
     printf("  -> Pass\n");
 }
 

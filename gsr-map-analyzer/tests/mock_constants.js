@@ -50,7 +50,7 @@ module.exports = {
 
   CSV_COLUMNS: [
     'timestamp', 'lat', 'lon', 'hdop', 'pdop', 'sats',
-    'fix_type', 'speed_kts', 'course_deg', 'gsr_raw'
+    'fix_type', 'speed_kts', 'course_deg', 'gsr_raw', 'hacc_m'
   ],
 
   RESISTANCE_MIN_AVG: 50000,

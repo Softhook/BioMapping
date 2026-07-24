@@ -73,9 +73,9 @@ assert(!('vdop' in firstPoint), 'No vdop field on parsed points (N1)');
 assert(!('wdop' in firstPoint), 'No wdop field on parsed points (N1)');
 assert(!('alt'  in firstPoint), 'No alt field on parsed points (N1)');
 
-// Check that the 10 canonical columns are present (N2)
+// Check that the 11 canonical columns are present (N2)
 const CSV_COLUMNS = GSR_CONST.CSV_COLUMNS;
-assertEq(CSV_COLUMNS.length, 10, 'CSV_COLUMNS has 10 canonical columns');
+assertEq(CSV_COLUMNS.length, 11, 'CSV_COLUMNS has 11 canonical columns');
 for (const col of CSV_COLUMNS) {
   // All points should have these canonical fields (via parser)
   if (col === 'timestamp') {
@@ -88,10 +88,17 @@ for (const col of CSV_COLUMNS) {
     assert('course' in firstPoint, `Canonical field 'course_deg' mapped to 'course'`);
   } else if (col === 'fix_type') {
     assert('fixType' in firstPoint, `Canonical field 'fix_type' mapped to 'fixType'`);
+  } else if (col === 'hacc_m') {
+    assert('hacc' in firstPoint, `Canonical field 'hacc_m' mapped to 'hacc'`);
   } else {
     assert(col in firstPoint, `Canonical field '${col}' present on parsed point`);
   }
 }
+
+// This fixture track (tracks/biomap_048.csv) predates CSV schema v1.2, so it
+// has no hacc_m column — confirm the parser degrades to NaN rather than
+// crashing or defaulting to a value that would look like a valid accuracy.
+assert(isNaN(firstPoint.hacc), 'hacc is NaN when the source CSV predates the hacc_m column (v1.1 fixture)');
 
 // Count GPS fixes
 const gpsFixes = raw.filter(p => p._isGpsFix && !isNaN(p.lat) && !isNaN(p.lon));
