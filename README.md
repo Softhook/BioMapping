@@ -12,8 +12,8 @@ The Flipper logs your Galvanic Skin Response (GSR) together with GPS coordinates
 This version of the device uses a dedicated 16-bit **ADS1115** Analog-to-Digital Converter combined with a robust and stable **Transimpedance Amplifier (TIA)** circuit. By utilising a rail-to-rail dual op-amp for active voltage buffering and hardware low-pass filtering, we achieve a precise, robust and noise-resistant way to measure the tiny changes in human sweat gland activity.
 
 The firmware supports two GPS modules, selected at compile time via `GPS_MODULE` in [`biomap_config.h`](../biomap_config.h):
-* **Quectel L76K** (`GPS_MODULE_L76K`, the current compile-time default) — external U.FL antenna, up to 5 Hz update rate, PCAS protocol
-* **u-blox SAM-M10Q** (`GPS_MODULE_M10Q`, recommended upgrade) — integrated patch antenna, up to 10 Hz update rate, Software Standby power saving, AssistNow autonomous orbit prediction
+* **u-blox SAM-M10Q** (`GPS_MODULE_M10Q`, the compile-time default) — integrated patch antenna, up to 10 Hz update rate, Software Standby power saving, AssistNow autonomous orbit prediction
+* **Quectel L76K** (`GPS_MODULE_L76K`, older alternative, still supported) — external U.FL antenna, up to 5 Hz update rate, PCAS protocol
 
 See [`m10q_capabilities.md`](docs/m10q_capabilities.md) for the full M10Q implementation reference.
 
@@ -24,7 +24,8 @@ To build this, you need the following physical components:
 
 **Core Boards:**
 * **Flipper Zero**
-* **u-blox SAM-M10Q GNSS Breakout** (recommended) or **L76K GNSS Prototyping Shield:** Provides GPS positioning. The SAM-M10Q has an integrated 15×15 mm ceramic patch antenna (no external antenna needed), boots at 9600 baud, and supports 10 Hz updates with 4-constellation concurrent reception (GPS+Galileo+GLONASS+BeiDou). The L76K shield also provides a blank 126-hole grid for your custom circuit.
+* **u-blox SAM-M10Q GNSS Breakout** (default) or **L76K GNSS Prototyping Shield** (older alternative, still supported): Provides GPS positioning. The SAM-M10Q has an integrated 15×15 mm ceramic patch antenna (no external antenna needed), boots at 9600 baud, and supports 10 Hz updates with 4-constellation concurrent reception (GPS+Galileo+GLONASS+BeiDou). The L76K shield also provides a blank 126-hole grid for your custom circuit.
+* **Flipper Zero Prototyping Board:** Only needed with the SAM-M10Q breakout, since it (unlike the L76K shield) doesn't include a built-in prototyping grid. Mounts the ADS1115 and op-amp biometric circuit — see Phase 3 below.
 * **ADS1115 Breakout Board:** A high-precision 16-bit I2C ADC chip.
 
 **Active Components:**
@@ -45,18 +46,20 @@ To build this, you need the following physical components:
 ## 3. The Wiring Guide & Hardware Surgery (Step-by-Step)
 
 ### Phase 1: Freeing the I2C Bus (Trace Cuts)
-If using the L76K shield: the two copper traces connecting **Pin 15 (PC1)** and **Pin 16 (PC0)** to the GPS module must be physically cut. These pins are for exclusive use by the ADS1115 I2C bus. (Not needed with SAM-M10Q — the breakout connects via UART only and does not occupy these pins.)
+With the default SAM-M10Q breakout, no trace cuts are needed — it connects via UART only and does not occupy Pin 15 (PC1) / Pin 16 (PC0), leaving them free for the ADS1115 I2C bus.
+
+If using the older L76K shield instead: the two copper traces connecting **Pin 15 (PC1)** and **Pin 16 (PC0)** to the GPS module must be physically cut. These pins are for exclusive use by the ADS1115 I2C bus.
 
 * Pin 15 (PC1) — **no longer connected to GPS** → used for I2C **SDA**
 * Pin 16 (PC0) — **no longer connected to GPS** → used for I2C **SCL**
 
 ### Phase 2: GPS Hardware Reroute
-**SAM-M10Q:** No additional wiring needed beyond UART TX/RX and 3.3V/GND. The M10Q supports Software Standby (~46 µA) via UBX command — no dedicated STANDBY or RESET wires required. Wake-up is triggered by a falling edge on the UART RX pin. See [`m10q_capabilities.md`](docs/m10q_capabilities.md#53-software-standby-power-management--wake-up) for the sleep/wake protocol.
+**SAM-M10Q (default):** No additional wiring needed beyond UART TX/RX and 3.3V/GND. The M10Q supports Software Standby (~46 µA) via UBX command — no dedicated STANDBY or RESET wires required. Wake-up is triggered by a falling edge on the UART RX pin. See [`m10q_capabilities.md`](docs/m10q_capabilities.md#53-software-standby-power-management--wake-up) for the sleep/wake protocol.
 
-**L76K (legacy):** No additional wiring needed. The L76K cannot be put to sleep via software, so no STANDBY or RESET wires need to be soldered. The GPS runs continuously. Software reset commands are available over UART for error recovery — see **Section 4a**.
+**L76K (older alternative):** No additional wiring needed. The L76K cannot be put to sleep via software, so no STANDBY or RESET wires need to be soldered. The GPS runs continuously. Software reset commands are available over UART for error recovery — see **Section 4a**.
 
 ### Phase 3: Installing the Biometric Sensor Circuit
-Mount the ADS1115 and the dual op-amp onto the prototyping grid. Both channels are used (one as a voltage follower for V_ref, one as the TIA).
+Mount the ADS1115 and the dual op-amp onto the prototyping grid — the L76K shield's built-in grid, or, with the default SAM-M10Q breakout, the separate Flipper Zero Prototyping Board. Both channels are used (one as a voltage follower for V_ref, one as the TIA).
 
 **Standard 8-pin dual op-amp pinout** (MCP602, MCP6002, MCP6042, and equivalents):
 ```
@@ -153,7 +156,7 @@ The app operates two independent data pipelines because GSR and GPS have fundame
 |---|---|---|
 | **GSR** | 10 Hz (tick) | Skin conductance changes in 0.5–5 seconds — 10 Hz captures physiological events with headroom |
 | **GPS (CSV rows)** | 10 Hz (`GPS_CSV_HZ`) | CSV rows are written at the 10 Hz tick rate in every GPS mode. |
-| **GPS (module fixes)** | up to 10 Hz | The module updates position over UART at up to 5 Hz (L76K, default) or up to 10 Hz (SAM-M10Q). When the module is slower than 10 Hz, consecutive CSV rows repeat the most recent fix. |
+| **GPS (module fixes)** | up to 10 Hz | The module updates position over UART at up to 10 Hz (SAM-M10Q, default) or up to 5 Hz (L76K). When the module is slower than 10 Hz, consecutive CSV rows repeat the most recent fix. |
 
 ### Timestamp Sources
 
@@ -162,7 +165,7 @@ Each CSV row's first column (`timestamp`) is a **relative time in seconds since 
 ```
 # BioMapping v1.0
 # RecordingStartTime:1751204579
-# GPS:L76K
+# GPS:M10Q
 ```
 
 | Field | Source | Notes |
