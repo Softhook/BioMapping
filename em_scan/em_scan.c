@@ -125,7 +125,7 @@ static inline bool em_scan_gps_fix_ok(const GpsStatus* gs) {
 // every tick (10Hz) regardless of which band actually got dwelled on that
 // tick, so the animation is smooth even though live readings only update
 // per-band every ~600ms — see peak_hold_dbm's doc comment on EmScanApp.
-#define EM_SCAN_PEAK_DECAY_DB_PER_TICK 1.5f
+#define EM_SCAN_PEAK_DECAY_DB_PER_TICK 0.1f
 
 // dB values the reference tick marks sit at (every 20dB) — shared by every
 // bar since they all use the same bar_x/bar_w/floor/ceil mapping.
