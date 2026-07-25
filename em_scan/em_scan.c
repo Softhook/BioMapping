@@ -141,6 +141,17 @@ static int em_scan_db_to_x(float db, int bar_x, int bar_w) {
     return bar_x + 1 + (int)(norm * (bar_w - 2));
 }
 
+static float em_scan_calc_fog_index(const float rssi_dbm[EM_SCAN_NUM_FREQS]) {
+    float sum_p_sq = 0.0f;
+    for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+        float norm = (rssi_dbm[i] - EM_SCAN_RSSI_FLOOR) / (EM_SCAN_RSSI_CEIL - EM_SCAN_RSSI_FLOOR);
+        if(norm < 0.0f) norm = 0.0f;
+        if(norm > 1.0f) norm = 1.0f;
+        sum_p_sq += (norm * norm);
+    }
+    return sqrtf(sum_p_sq / (float)EM_SCAN_NUM_FREQS) * 100.0f;
+}
+
 static void em_scan_render_callback(Canvas* canvas, void* ctx) {
     EmScanApp* app = ctx;
     furi_mutex_acquire(app->mutex, FuriWaitForever);
@@ -148,20 +159,16 @@ static void em_scan_render_callback(Canvas* canvas, void* ctx) {
     canvas_clear(canvas);
     canvas_set_font(canvas, FontSecondary);
 
-    canvas_draw_str(canvas, 2, 9, "EM Scan");
-    if(app->recording) {
-        canvas_draw_str(canvas, 100, 9, "REC");
-    }
-
-    const int bar_x = 32;
-    const int bar_w = 92;
-    const int bar_h = 6;
+    const int bar_x = 22;
+    const int bar_w = 102;
+    const int bar_h = 5;
     const int row_h = 7;
-    const int top   = 14;
+    const int top   = 4;
 
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         int y = top + i * row_h;
-        canvas_draw_str(canvas, 2, y + bar_h, em_scan_freq_label[i]);
+        canvas_set_font(canvas, FontKeyboard);
+        canvas_draw_str(canvas, 2, y + 4, em_scan_freq_label[i]);
 
         canvas_draw_frame(canvas, bar_x, y, bar_w, bar_h);
 
@@ -191,13 +198,24 @@ static void em_scan_render_callback(Canvas* canvas, void* ctx) {
         }
     }
 
+    // Bottom status bar: Left = GPS / REC status, Right = EM-Fog (F:XX)
+    canvas_set_font(canvas, FontSecondary);
     bool gps_ready = false;
     if(app->gps) {
         GpsStatus gs = gps_uart_get_status(app->gps);
         gps_ready = em_scan_gps_fix_ok(&gs);
     }
-    canvas_draw_str(canvas, 2, 63, gps_ready ? "GPS ok" : "GPS...");
-    canvas_draw_str(canvas, 50, 63, "OK=rec  Back=exit");
+    char left_str[24];
+    snprintf(left_str, sizeof(left_str), "%s%s",
+             gps_ready ? "GPS ok" : "GPS...",
+             app->recording ? " [REC]" : "");
+    canvas_draw_str(canvas, 2, 61, left_str);
+
+    float fog = em_scan_calc_fog_index(app->rssi_dbm);
+    char fog_str[16];
+    snprintf(fog_str, sizeof(fog_str), "F:%.1f", (double)fog);
+    uint16_t fog_width = canvas_string_width(canvas, fog_str);
+    canvas_draw_str(canvas, 126 - fog_width, 61, fog_str);
 
     furi_mutex_release(app->mutex);
 }
@@ -210,7 +228,7 @@ static void em_scan_render_callback(Canvas* canvas, void* ctx) {
 // ==========================================================================
 
 static void em_scan_build_header(char* out, size_t out_len) {
-    int n = snprintf(out, out_len, "timestamp,lat,lon,hdop,fix_type");
+    int n = snprintf(out, out_len, "timestamp,lat,lon,hdop,fix_type,em_fog");
     for(int i = 0; i < EM_SCAN_NUM_FREQS && n > 0 && (size_t)n < out_len; i++) {
         n += snprintf(out + n, out_len - (size_t)n, ",rssi_%s", em_scan_freq_label[i]);
     }
@@ -219,6 +237,7 @@ static void em_scan_build_header(char* out, size_t out_len) {
 
 static bool em_scan_log_row(EmScanApp* app) {
     double rel = app->total_ticks * (1.0 / TICK_HZ);
+    float fog = em_scan_calc_fog_index(app->rssi_dbm);
 
     GpsStatus gs = {0};
     bool gps_ok = false;
@@ -230,10 +249,10 @@ static bool em_scan_log_row(EmScanApp* app) {
     char row[192];
     int n;
     if(gps_ok) {
-        n = snprintf(row, sizeof(row), "%.2f,%.7f,%.7f,%.1f,%d",
-                     rel, gs.latitude, gs.longitude, (double)gs.hdop, gs.fix_type);
+        n = snprintf(row, sizeof(row), "%.2f,%.7f,%.7f,%.1f,%d,%.1f",
+                     rel, gs.latitude, gs.longitude, (double)gs.hdop, gs.fix_type, (double)fog);
     } else {
-        n = snprintf(row, sizeof(row), "%.2f,,,,", rel);
+        n = snprintf(row, sizeof(row), "%.2f,,,,,%.1f", rel, (double)fog);
     }
     for(int i = 0; i < EM_SCAN_NUM_FREQS && n > 0 && (size_t)n < sizeof(row); i++) {
         n += snprintf(row + n, sizeof(row) - (size_t)n, ",%.1f", (double)app->rssi_dbm[i]);
@@ -369,8 +388,11 @@ int32_t em_scan_app(void* p) {
             }
 
             if(app->recording) {
-                if(!em_scan_log_row(app)) {
-                    FURI_LOG_E("EmScan", "CSV row build/append failed");
+                // Log only once per complete sweep cycle across all 4 bands
+                if(app->sweep_band == 0) {
+                    if(!em_scan_log_row(app)) {
+                        FURI_LOG_E("EmScan", "CSV row build/append failed");
+                    }
                 }
                 app->total_ticks++;
                 if(++app->flush_counter >= TICK_HZ) { // flush once per second

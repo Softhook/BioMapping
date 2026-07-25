@@ -12,7 +12,7 @@
 
 #include <stdint.h>
 
-#define EM_SCAN_NUM_FREQS 6
+#define EM_SCAN_NUM_FREQS 7
 
 // Spot frequencies to sweep, in Hz. Chosen from the original 4-band EM-Fog
 // plan (315/433.92/868.3/915 MHz) plus two bands observed live on a walk

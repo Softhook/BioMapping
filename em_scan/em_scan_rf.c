@@ -16,10 +16,10 @@
 #include <lib/subghz/devices/cc1101_configs.h>
 
 const uint32_t em_scan_freq_hz[EM_SCAN_NUM_FREQS] = {
-    300000000, 315000000, 433920000, 815000000, 868350000, 915000000,
+    300000000, 315000000, 433920000, 446000000, 815000000, 868350000, 915000000,
 };
 const char* const em_scan_freq_label[EM_SCAN_NUM_FREQS] = {
-    "300", "315", "433.9", "815", "868.3", "915",
+    "300", "315", "434", "446", "815", "868", "915",
 };
 
 // Warm-up after idle->tune->rx, discarded before peak-hold sampling
@@ -42,11 +42,8 @@ const char* const em_scan_freq_label[EM_SCAN_NUM_FREQS] = {
 void em_scan_rf_init(void) {
     furi_hal_subghz_reset();
     furi_hal_subghz_idle();
-    // One OOK preset for all six frequencies: we only need a relative
-    // RSSI/noise-floor reading here, not a demodulated signal, so the exact
-    // preset matters far less than it would for actually decoding a
-    // protocol. OOK matches the ASK/OOK devices (keyfobs, PIR/driveway
-    // sensors, weather stations) most of these frequencies are aimed at.
+    // Loaded with wideband 650 kHz OOK preset to capture maximum ambient
+    // RF energy across each tuned frequency band for full-spectrum auditing.
     furi_hal_subghz_load_custom_preset(subghz_device_cc1101_preset_ook_650khz_async_regs);
 
     // One-time sanity check: set_frequency_and_path() returns the REAL
@@ -94,15 +91,13 @@ void em_scan_rf_dwell_band(int band_index, float* out_peak_dbm) {
 
     furi_delay_ms(EM_SCAN_WARMUP_MS);
 
-    // -127.0 is below any real CC1101 RSSI reading (its floor in practice
-    // is roughly -100 to -110 dBm), so the very first poll always replaces
-    // it — this is a "no reading yet" sentinel, not a plausible value.
+    // Yield execution context to FreeRTOS (furi_delay_ms(1)) instead of
+    // busy-waiting with microseconds, significantly saving CPU power.
     float peak = -127.0f;
-    for(uint32_t elapsed_us = 0; elapsed_us < (uint32_t)EM_SCAN_DWELL_MS * 1000;
-        elapsed_us += EM_SCAN_POLL_US) {
+    for(uint32_t elapsed_ms = 0; elapsed_ms < EM_SCAN_DWELL_MS; elapsed_ms++) {
         float r = furi_hal_subghz_get_rssi();
         if(r > peak) peak = r;
-        furi_delay_us(EM_SCAN_POLL_US);
+        furi_delay_ms(1);
     }
 
     furi_hal_subghz_idle();
