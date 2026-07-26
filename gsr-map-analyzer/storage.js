@@ -212,16 +212,13 @@ const GSRStorage = {
   },
 
   /**
-   * Dispatch input events across all UI sliders so text labels and rec highlights update.
+   * Fast, non-triggering UI display sync — updates text labels & dimmed states
+   * without triggering duplicate analysis runs or map re-renders.
    */
   syncSliderValueDisplays() {
-    const S = AppState.sliders;
-    if (!S) return;
-    Object.values(S).forEach(el => {
-      if (el && typeof el.dispatchEvent === 'function') {
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-    });
+    if (typeof GSREvents !== 'undefined' && typeof GSREvents.initializeLabels === 'function') {
+      GSREvents.initializeLabels();
+    }
   },
 
   /**

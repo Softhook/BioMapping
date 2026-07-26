@@ -419,18 +419,6 @@ const GSRTrackManager = {
     if (S.useDeconvolution && params.useDeconvolution !== undefined) {
       S.useDeconvolution.checked = !!params.useDeconvolution;
     }
-
-    if (typeof GSREvents !== 'undefined') {
-      if (typeof GSREvents.updateTonicMethodLayout === 'function') {
-        GSREvents.updateTonicMethodLayout();
-      }
-      if (typeof GSREvents.updateDeconvolutionUIState === 'function') {
-        GSREvents.updateDeconvolutionUIState();
-      }
-    }
-    if (typeof GSRStorage !== 'undefined' && typeof GSRStorage.syncSliderValueDisplays === 'function') {
-      GSRStorage.syncSliderValueDisplays();
-    }
   },
 
   saveActiveTrackParams() {
@@ -469,9 +457,6 @@ const GSRTrackManager = {
       if (p[paramKey] !== undefined && S[sliderKey]) {
         S[sliderKey].value = p[paramKey];
       }
-    }
-    if (typeof GSRStorage !== 'undefined' && typeof GSRStorage.syncSliderValueDisplays === 'function') {
-      GSRStorage.syncSliderValueDisplays();
     }
   },
 
