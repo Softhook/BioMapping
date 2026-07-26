@@ -17,18 +17,18 @@ module.exports = {
   CONTOUR_MAX_POINTS: 20000,
 
   GPS_DEFAULT: {
-    smoothing: 0.5, kalmanR: 10, maxHdop: 2.0, maxSpeed: 3.0,
+    smoothing: 0.5, kalmanR: 10, maxHdop: 3.0, maxSpeed: 3.0,
     rdpTolerance: 0, downsample: false, trackWeight: 5, peakLatency: 2.0
   },
 
   GSR_DEFAULT: {
     medianSize: 0, lpfWindow: 0,
-    tonicMethod: 'percentile', tonicWindow: 15, peakThreshold: 0.020,
+    tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.020,
     dwtLevel: 6,
-    shapeMinRiseTime: 0, shapeMaxRiseTime: 0,
-    shapeMinHalfRecovery: 0, shapeMaxHalfRecovery: 0,
-    shapeMinSnr: 0, shapeMaxSkewRatio: 0,
-    minPeakQuality: 0.0,
+    shapeMinRiseTime: 0.75, shapeMaxRiseTime: 4.0,
+    shapeMinHalfRecovery: 0.65, shapeMaxHalfRecovery: 7.5,
+    shapeMinSnr: 3.0, shapeMaxSkewRatio: 4.0,
+    minPeakQuality: 0.55,
     hotspotPercentile: 0.02,
     useDeconvolution: false
   },

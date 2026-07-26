@@ -114,7 +114,7 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Artifact Median Filter</span>
-                <span class="slider-value" id="valMedianSize">1.0 s</span>
+                <span class="slider-value" id="valMedianSize">off</span>
               </div>
               <input type="range" id="medianSize" min="0" max="3" step="0.1" value="0">
               <div class="slider-rec" style="left:10%; width:23.3%"></div>
@@ -124,7 +124,7 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Smoothing Low-Pass</span>
-                <span class="slider-value" id="valLpfWindow">0.8 s</span>
+                <span class="slider-value" id="valLpfWindow">off</span>
               </div>
               <input type="range" id="lpfWindow" min="0" max="4" step="0.1" value="0">
               <div class="slider-rec" style="left:7.5%; width:17.5%"></div>
@@ -138,9 +138,9 @@
                 <span>Baseline Method</span>
               </div>
               <select id="tonicMethod" class="select-control">
-                <option value="percentile" selected>Trough Tracker (10th Percentile)</option>
+                <option value="percentile">Trough Tracker (10th Percentile)</option>
                 <option value="median">Moving Median (Robust)</option>
-                <option value="lpf">Ultra Low-Pass (EMA)</option>
+                <option value="lpf" selected>Ultra Low-Pass (EMA)</option>
                 <option value="dwt">Wavelet db3 (DWT)</option>
               </select>
             </div>
@@ -148,11 +148,11 @@
             <div class="slider-group" id="tonicWindowGroup">
               <div class="slider-label">
                 <span>Tonic Baseline Window</span>
-                <span class="slider-value" id="valTonicWindow">15 s</span>
+                <span class="slider-value" id="valTonicWindow">45 s</span>
               </div>
-              <input type="range" id="tonicWindow" min="5" max="45" step="1" value="15">
-              <div class="slider-rec" id="tonicWindowRec" style="left:12.5%; width:50%"></div>
-              <p class="help-text" id="tonicWindowHelp">Wider windows isolate baseline from peaks. <strong>Recommended:</strong> 10–30 s.</p>
+              <input type="range" id="tonicWindow" min="15" max="90" step="1" value="45">
+              <div class="slider-rec" id="tonicWindowRec" style="left:20%; width:40%"></div>
+              <p class="help-text" id="tonicWindowHelp">Low-pass equivalent window for EMA smoothing. <strong>Recommended:</strong> 30–60 s.</p>
             </div>
 
             <div class="slider-group" id="dwtLevelGroup">
@@ -195,9 +195,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Min Peak Quality</span>
-                <span class="slider-value" id="valMinPeakQuality">0.00</span>
+                <span class="slider-value" id="valMinPeakQuality">0.55</span>
               </div>
-              <input type="range" id="minPeakQuality" min="0.00" max="1.00" step="0.05" value="0.00">
+              <input type="range" id="minPeakQuality" min="0.00" max="1.00" step="0.05" value="0.55">
               <p class="help-text">Filters out peaks with lower shape quality score. 0.00 = no quality filtering.</p>
             </div>
 
@@ -229,9 +229,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Min Rise Time</span>
-                <span class="slider-value" id="valShapeMinRiseTime">off</span>
+                <span class="slider-value" id="valShapeMinRiseTime">0.75 s</span>
               </div>
-              <input type="range" id="shapeMinRiseTime" min="0" max="3.0" step="0.01" value="0">
+              <input type="range" id="shapeMinRiseTime" min="0" max="3.0" step="0.01" value="0.75">
               <div class="slider-rec" style="left:16.7%; width:16.7%"></div>
               <p class="help-text">Fastest plausible SCR rise. Set to 0 = off.</p>
             </div>
@@ -239,9 +239,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Max Rise Time</span>
-                <span class="slider-value" id="valShapeMaxRiseTime">off</span>
+                <span class="slider-value" id="valShapeMaxRiseTime">4.0 s</span>
               </div>
-              <input type="range" id="shapeMaxRiseTime" min="0" max="15.0" step="0.1" value="0">
+              <input type="range" id="shapeMaxRiseTime" min="0" max="15.0" step="0.1" value="4.0">
               <div class="slider-rec" style="left:20%; width:13.3%"></div>
               <p class="help-text">Slowest plausible SCR rise. Set to 0 = off.</p>
             </div>
@@ -249,9 +249,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Min Half-Recovery</span>
-                <span class="slider-value" id="valShapeMinHalfRecovery">off</span>
+                <span class="slider-value" id="valShapeMinHalfRecovery">0.65 s</span>
               </div>
-              <input type="range" id="shapeMinHalfRecovery" min="0" max="3.0" step="0.01" value="0">
+              <input type="range" id="shapeMinHalfRecovery" min="0" max="3.0" step="0.01" value="0.65">
               <div class="slider-rec" style="left:10%; width:23.3%"></div>
               <p class="help-text">Fastest plausible half-recovery. Set to 0 = off.</p>
             </div>
@@ -259,9 +259,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Max Half-Recovery</span>
-                <span class="slider-value" id="valShapeMaxHalfRecovery">off</span>
+                <span class="slider-value" id="valShapeMaxHalfRecovery">7.5 s</span>
               </div>
-              <input type="range" id="shapeMaxHalfRecovery" min="0" max="30.0" step="0.1" value="0">
+              <input type="range" id="shapeMaxHalfRecovery" min="0" max="30.0" step="0.1" value="7.5">
               <div class="slider-rec" style="left:16.7%; width:16.7%"></div>
               <p class="help-text">Slowest plausible half-recovery. Set to 0 = off.</p>
             </div>
@@ -269,9 +269,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Min SNR</span>
-                <span class="slider-value" id="valShapeMinSnr">off</span>
+                <span class="slider-value" id="valShapeMinSnr">3.0×</span>
               </div>
-              <input type="range" id="shapeMinSnr" min="0" max="5.0" step="0.1" value="0">
+              <input type="range" id="shapeMinSnr" min="0" max="5.0" step="0.1" value="3.0">
               <div class="slider-rec" style="left:40%; width:40%"></div>
               <p class="help-text">Min signal-to-noise ratio. Set to 0 = off.</p>
             </div>
@@ -279,9 +279,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Max Skew Ratio</span>
-                <span class="slider-value" id="valShapeMaxSkewRatio">off</span>
+                <span class="slider-value" id="valShapeMaxSkewRatio">4.0</span>
               </div>
-              <input type="range" id="shapeMaxSkewRatio" min="0" max="15.0" step="0.1" value="0">
+              <input type="range" id="shapeMaxSkewRatio" min="0" max="15.0" step="0.1" value="4.0">
               <div class="slider-rec" style="left:13.3%; width:26.7%"></div>
               <p class="help-text">Max rise/recovery ratio. Classical SCRs rise fast, decay slow. Set to 0 = off.</p>
             </div>
@@ -346,9 +346,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Max HDOP</span>
-                <span class="slider-value" id="valGpsMaxHdop">≤ 2.0</span>
+                <span class="slider-value" id="valGpsMaxHdop">≤ 3.0</span>
               </div>
-              <input type="range" id="gpsMaxHdop" min="0.8" max="5.0" step="0.2" value="2.0">
+              <input type="range" id="gpsMaxHdop" min="0.8" max="5.0" step="0.2" value="3.0">
               <div class="slider-rec" style="left:40%; width:40%"></div>
               <p class="help-text">Rejects GPS fixes with poor satellite geometry. <strong>2.0</strong> = urban canyons, <strong>3.0</strong> = default, <strong>5.0</strong> = open sky (matches firmware pre-filter).</p>
             </div>

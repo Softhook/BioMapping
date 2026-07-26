@@ -127,9 +127,9 @@ const GSRTrackManager = {
           const trackId = 'track_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
           const trackColor = AppState.getNextTrackColor();
 
-          // Inherit current slider values or use imported ones if parsing a processed CSV
-          const filterParams = tempAnalyzer.importedFilterParams || GSRStorage.readGsrSliderValues();
-          const gpsFilterParams = tempAnalyzer.importedGpsFilterParams || GSRStorage.readGpsSliderValues();
+          // Use inbuilt parameters if parsing a processed CSV, or standard defaults for raw CSVs
+          const filterParams = tempAnalyzer.importedFilterParams || JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT));
+          const gpsFilterParams = tempAnalyzer.importedGpsFilterParams || JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT));
 
           const newTrack = {
             id: trackId,
@@ -538,8 +538,8 @@ const GSRTrackManager = {
           const trackId = 'track_demo_' + Date.now();
           const trackColor = AppState.getNextTrackColor();
 
-          const filterParams = GSRStorage.readGsrSliderValues();
-          const gpsFilterParams = GSRStorage.readGpsSliderValues();
+          const filterParams = tempAnalyzer.importedFilterParams || JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT));
+          const gpsFilterParams = tempAnalyzer.importedGpsFilterParams || JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT));
 
           const newTrack = {
             id: trackId,

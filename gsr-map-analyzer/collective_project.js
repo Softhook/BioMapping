@@ -228,8 +228,8 @@ const GSRCollectiveProject = {
           const analyzer = new GSRAnalyzer();
           analyzer.parseCSV(csvText); // restores filterParams/gpsFilterParams/labels/exclusions from the CSV's own embedded headers
 
-          const filterParams = analyzer.importedFilterParams || GSRStorage.readGsrSliderValues();
-          const gpsFilterParams = analyzer.importedGpsFilterParams || GSRStorage.readGpsSliderValues();
+          const filterParams = analyzer.importedFilterParams || JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT));
+          const gpsFilterParams = analyzer.importedGpsFilterParams || JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT));
           analyzer.analyze(filterParams, gpsFilterParams.peakLatency || 0); // repopulate filtered/tonic/phasic/peaks so the track is ready to render immediately
 
           const trackId = `track_${Date.now()}_${Math.floor(Math.random() * 1000)}_${i}`;

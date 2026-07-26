@@ -666,7 +666,20 @@ function snapshotAnalyzer(a) {
   };
 }
 function paramsFor(decon) {
-  return { ...GSR_CONST.GSR_DEFAULT, tonicMethod: 'dwt', dwtLevel: 6, peakThreshold: deconvPeakThreshold, useDeconvolution: decon };
+  return {
+    ...GSR_CONST.GSR_DEFAULT,
+    tonicMethod: 'dwt',
+    dwtLevel: 6,
+    peakThreshold: deconvPeakThreshold,
+    useDeconvolution: decon,
+    minPeakQuality: 0.0,
+    shapeMinRiseTime: 0,
+    shapeMaxRiseTime: 0,
+    shapeMinHalfRecovery: 0,
+    shapeMaxHalfRecovery: 0,
+    shapeMinSnr: 0,
+    shapeMaxSkewRatio: 0
+  };
 }
 
 const freshOff = new GSRAnalyzer(); freshOff.parseCSV(csvText); freshOff.analyze(paramsFor(false));
