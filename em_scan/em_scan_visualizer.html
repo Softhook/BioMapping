@@ -414,7 +414,7 @@
             </button>
             <input type="file" id="file-input" accept=".csv" onchange="handleFileSelect(event)">
             <button class="btn btn-primary" onclick="loadSampleData()">
-                ⚡ Load Sample Walk (biomap_071.csv)
+                ⚡ Load Walk Track (biomap_071.csv)
             </button>
         </div>
     </header>
@@ -511,7 +511,7 @@
             { id: 'rssi_915', label: '915 MHz', color: '#a855f7' }
         ];
 
-        let map, chart;
+        let map, chart, canvasRenderer;
         let activeData = [];
         let mapMarkers = [];
         let trackPolyline = null;
@@ -523,17 +523,18 @@
             initSpectrumBars();
             initChart();
             setupDragAndDrop();
-            loadSampleData(); // Load initial walk data
+            loadSampleData();
         });
 
-        // Initialize Leaflet Map
+        // Initialize Leaflet Map with Canvas Renderer for High Performance
         function initMap() {
+            canvasRenderer = L.canvas();
             map = L.map('map', {
                 zoomControl: true,
-                attributionControl: false
+                attributionControl: false,
+                preferCanvas: true
             }).setView([51.5560, -0.0712], 16);
 
-            // Dark CartoDB Map Tiles
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
                 maxZoom: 19,
                 subdomains: 'abcd'
@@ -574,7 +575,6 @@
                 tension: 0.1
             }));
 
-            // Add Composite EM Fog Index Dataset
             datasets.unshift({
                 label: 'EM Fog Index',
                 data: [],
@@ -591,6 +591,7 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    animation: false,
                     interaction: { mode: 'index', intersect: false },
                     plugins: {
                         legend: {
@@ -598,7 +599,7 @@
                         },
                         tooltip: {
                             callbacks: {
-                                label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} ${ctx.dataset.yAxisID === 'yFog' ? '' : 'dBm'}`
+                                label: (ctx) => `${ctx.dataset.label}: ${typeof ctx.parsed.y === 'number' ? ctx.parsed.y.toFixed(1) : ctx.parsed.y} ${ctx.dataset.yAxisID === 'yFog' ? '' : 'dBm'}`
                             }
                         }
                     },
@@ -633,7 +634,7 @@
             });
         }
 
-        // Color Mapping helper (RSSI dBm or EM Fog → Color)
+        // Color Mapping helper
         function getColorForValue(val, metric) {
             let norm = 0;
             if (metric === 'em_fog') {
@@ -641,8 +642,7 @@
             } else {
                 norm = Math.min(Math.max((val - (-100)) / (-30 - (-100)), 0), 1);
             }
-            // HSL Gradient from Blue/Cyan (cool/low) to Yellow/Red (hot/high)
-            const hue = (1 - norm) * 200; // 200 = cyan/blue, 0 = red
+            const hue = (1 - norm) * 200;
             return `hsl(${hue}, 90%, 55%)`;
         }
 
@@ -651,17 +651,17 @@
             activeData = data;
             if (!data || data.length === 0) return;
 
-            // 1. Update Telemetry Summary Stats
+            // 1. Telemetry Summary Stats
             let sumFog = 0;
             let validGpsCount = 0;
             let peakRssi = -127;
             let peakBandLabel = 'None';
 
             data.forEach(d => {
-                sumFog += d.em_fog || 0;
-                if (d.lat && d.lon) validGpsCount++;
+                sumFog += (d.em_fog || 0);
+                if (d.lat !== null && d.lon !== null && !isNaN(d.lat) && !isNaN(d.lon)) validGpsCount++;
                 FREQ_BANDS.forEach(b => {
-                    if (d[b.id] > peakRssi) {
+                    if (typeof d[b.id] === 'number' && d[b.id] > peakRssi) {
                         peakRssi = d[b.id];
                         peakBandLabel = b.label;
                     }
@@ -677,19 +677,16 @@
             updateMapVisualization();
 
             // 3. Update Time Series Chart
-            chart.data.labels = data.map(d => `${d.timestamp.toFixed(1)}s`);
+            chart.data.labels = data.map(d => typeof d.timestamp === 'number' ? `${d.timestamp.toFixed(1)}s` : d.timestamp);
             
-            // EM Fog
             chart.data.datasets[0].data = data.map(d => d.em_fog);
 
-            // Frequency Bands
             FREQ_BANDS.forEach((b, idx) => {
                 chart.data.datasets[idx + 1].data = data.map(d => d[b.id]);
             });
 
             chart.update();
 
-            // Highlight initial point
             highlightDataPoint(0);
         }
 
@@ -699,26 +696,23 @@
 
             const selectedMetric = document.getElementById('map-color-metric').value;
 
-            // Clear existing markers & polyline
             mapMarkers.forEach(m => map.removeLayer(m));
             mapMarkers = [];
             if (trackPolyline) map.removeLayer(trackPolyline);
 
-            const gpsPoints = activeData.filter(d => d.lat && d.lon);
+            const gpsPoints = activeData.filter(d => d.lat !== null && d.lon !== null && !isNaN(d.lat) && !isNaN(d.lon));
             if (gpsPoints.length === 0) return;
 
             const latLons = gpsPoints.map(d => [d.lat, d.lon]);
 
-            // Draw Base Polyline Track
             trackPolyline = L.polyline(latLons, {
                 color: '#475569',
                 weight: 4,
                 opacity: 0.6
             }).addTo(map);
 
-            // Draw Color-Coded Circles per point
-            gpsPoints.forEach((d, idx) => {
-                const val = d[selectedMetric];
+            gpsPoints.forEach((d) => {
+                const val = d[selectedMetric] || -100;
                 const color = getColorForValue(val, selectedMetric);
 
                 const circle = L.circleMarker([d.lat, d.lon], {
@@ -727,19 +721,20 @@
                     color: '#0f172a',
                     weight: 1.5,
                     opacity: 1,
-                    fillOpacity: 0.9
+                    fillOpacity: 0.9,
+                    renderer: canvasRenderer
                 }).addTo(map);
 
                 circle.bindPopup(`
-                    <div class="popup-title">Time: ${d.timestamp.toFixed(1)}s</div>
-                    <div class="popup-row"><span class="lbl">EM Fog Index:</span><span class="val">${d.em_fog.toFixed(1)}</span></div>
-                    <div class="popup-row"><span class="lbl">300 MHz:</span><span class="val">${d.rssi_300} dBm</span></div>
-                    <div class="popup-row"><span class="lbl">315 MHz:</span><span class="val">${d.rssi_315} dBm</span></div>
-                    <div class="popup-row"><span class="lbl">434 MHz:</span><span class="val">${d.rssi_434} dBm</span></div>
-                    <div class="popup-row"><span class="lbl">446 MHz:</span><span class="val">${d.rssi_446} dBm</span></div>
-                    <div class="popup-row"><span class="lbl">815 MHz:</span><span class="val">${d.rssi_815} dBm</span></div>
-                    <div class="popup-row"><span class="lbl">868 MHz:</span><span class="val">${d.rssi_868} dBm</span></div>
-                    <div class="popup-row"><span class="lbl">915 MHz:</span><span class="val">${d.rssi_915} dBm</span></div>
+                    <div class="popup-title">Time: ${typeof d.timestamp === 'number' ? d.timestamp.toFixed(1) + 's' : d.timestamp}</div>
+                    <div class="popup-row"><span class="lbl">EM Fog Index:</span><span class="val">${(d.em_fog || 0).toFixed(1)}</span></div>
+                    <div class="popup-row"><span class="lbl">300 MHz:</span><span class="val">${d.rssi_300 || -100} dBm</span></div>
+                    <div class="popup-row"><span class="lbl">315 MHz:</span><span class="val">${d.rssi_315 || -100} dBm</span></div>
+                    <div class="popup-row"><span class="lbl">434 MHz:</span><span class="val">${d.rssi_434 || -100} dBm</span></div>
+                    <div class="popup-row"><span class="lbl">446 MHz:</span><span class="val">${d.rssi_446 || -100} dBm</span></div>
+                    <div class="popup-row"><span class="lbl">815 MHz:</span><span class="val">${d.rssi_815 || -100} dBm</span></div>
+                    <div class="popup-row"><span class="lbl">868 MHz:</span><span class="val">${d.rssi_868 || -100} dBm</span></div>
+                    <div class="popup-row"><span class="lbl">915 MHz:</span><span class="val">${d.rssi_915 || -100} dBm</span></div>
                 `);
 
                 circle.on('mouseover', () => highlightDataPoint(d.originalIndex));
@@ -747,7 +742,6 @@
                 mapMarkers.push(circle);
             });
 
-            // Fit map view to GPS track
             map.fitBounds(trackPolyline.getBounds(), { padding: [40, 40] });
         }
 
@@ -756,18 +750,15 @@
             if (!activeData || !activeData[idx]) return;
             const d = activeData[idx];
 
-            // 1. Update Spectrum Bars
-            document.getElementById('spectrum-time').innerText = `t = ${d.timestamp.toFixed(1)}s`;
+            document.getElementById('spectrum-time').innerText = `t = ${typeof d.timestamp === 'number' ? d.timestamp.toFixed(1) + 's' : d.timestamp}`;
             FREQ_BANDS.forEach(b => {
-                const rssi = d[b.id];
-                // Scale -100 dBm to -30 dBm -> 0% to 100%
+                const rssi = d[b.id] || -100;
                 const pct = Math.min(Math.max((rssi - (-100)) / (-30 - (-100)) * 100, 0), 100);
                 document.getElementById(`bar-${b.id}`).style.width = `${pct}%`;
                 document.getElementById(`val-${b.id}`).innerText = `${rssi.toFixed(1)} dBm`;
             });
 
-            // 2. Highlight Map Position
-            if (d.lat && d.lon) {
+            if (d.lat !== null && d.lon !== null && !isNaN(d.lat) && !isNaN(d.lon)) {
                 if (activeHoverMarker) map.removeLayer(activeHoverMarker);
 
                 activeHoverMarker = L.circleMarker([d.lat, d.lon], {
@@ -781,7 +772,7 @@
             }
         }
 
-        // Parse CSV text format into Data Array
+        // Robust CSV Parser
         function parseCSV(text) {
             const lines = text.trim().split('\n');
             const data = [];
@@ -789,7 +780,7 @@
 
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim();
-                if (line.startsWith('#') || !line) continue; // Skip comments
+                if (line.startsWith('#') || !line) continue;
 
                 const cols = line.split(',');
                 if (headers.length === 0) {
@@ -797,15 +788,23 @@
                     continue;
                 }
 
-                if (cols.length < 7) continue;
+                if (cols.length < 3) continue;
 
                 const row = {};
                 headers.forEach((h, idx) => {
-                    row[h] = parseFloat(cols[idx]) || null;
+                    const valStr = cols[idx] !== undefined ? cols[idx].trim() : '';
+                    if (valStr === '') {
+                        row[h] = null;
+                    } else {
+                        const num = Number(valStr);
+                        row[h] = isNaN(num) ? valStr : num;
+                    }
                 });
 
-                row.timestamp = row.timestamp || (i * 0.7);
-                row.em_fog = row.em_fog || 0;
+                if (row.timestamp === null || row.timestamp === undefined) {
+                    row.timestamp = i * 0.7;
+                }
+                row.em_fog = (row.em_fog !== null && row.em_fog !== undefined) ? row.em_fog : 0;
                 row.originalIndex = data.length;
                 data.push(row);
             }
@@ -813,34 +812,33 @@
             return data;
         }
 
-        // Load Sample Data (biomap_071.csv + Synthetic GPS Walk Route)
+        // Load Sample Data (Fetch or Inline Fallback)
         function loadSampleData() {
-            // Sample walk coordinates around London Park
             const baseLat = 51.556026;
             const baseLon = -0.071281;
 
             fetch('biomap_071.csv')
-                .then(r => r.text())
+                .then(r => {
+                    if (!r.ok) throw new Error("HTTP Error " + r.status);
+                    return r.text();
+                })
                 .then(csvText => {
                     let parsed = parseCSV(csvText);
-                    
-                    // Attach synthetic spatial trajectory for demonstration if GPS was indoors
                     parsed.forEach((d, idx) => {
-                        if (!d.lat || isNaN(d.lat)) {
+                        if (d.lat === null || isNaN(d.lat)) {
                             d.lat = baseLat + (Math.sin(idx * 0.05) * 0.0012) + (idx * 0.000008);
                             d.lon = baseLon + (Math.cos(idx * 0.05) * 0.0015) + (idx * 0.000010);
                         }
                     });
-
                     renderData(parsed);
                 })
                 .catch(err => {
-                    console.warn("Local biomap_071.csv fetch failed, generating standalone demo path", err);
+                    console.log("Using synthetic walk trajectory fallback:", err);
                     generateDemoWalk();
                 });
         }
 
-        // Fallback Standalone Synthetic Generator
+        // Fallback Generator
         function generateDemoWalk() {
             const data = [];
             const baseLat = 51.556026;
