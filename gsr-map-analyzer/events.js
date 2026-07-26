@@ -113,8 +113,11 @@ const GSREvents = {
       const decimals = step < 0.1 ? 2 : (suffix.includes('μS') ? 3 : 1);
       label.innerText = val === 0 ? 'off' : val.toFixed(decimals) + suffix;
       updateDim();
+      if (typeof GSRTrackManager !== 'undefined') {
+        GSRTrackManager.saveActiveTrackParams();
+        GSRTrackManager.renderTrackList();
+      }
       GSRUI.runAnalysis();
-      GSRStorage.saveSettings();
     });
   },
 
@@ -134,8 +137,11 @@ const GSREvents = {
     slider.addEventListener('input', () => {
       label.innerText = fmt(parseFloat(slider.value));
       updateDim();
+      if (typeof GSRTrackManager !== 'undefined') {
+        GSRTrackManager.saveActiveGpsParams();
+        GSRTrackManager.renderTrackList();
+      }
       GSRUI.rerenderMap();
-      GSRStorage.saveSettings();
     });
 
     // Re-evaluate dim state when the parent slider changes
@@ -504,6 +510,96 @@ const GSREvents = {
     GSREvents.bindCollapseButton('btnMapCollapse',           'mapPanel');
     GSREvents.bindCollapseButton('btnOsmEnrichmentCollapse', 'osmEnrichmentCard');
     GSREvents.bindCollapseButton('btnEnvCollapse',           'environmentalPanel');
+
+    // ── Preset Export / Import Controls ─────────────────────────────────────
+    const btnExportPreset = document.getElementById('btnExportPreset');
+    if (btnExportPreset) {
+      btnExportPreset.addEventListener('click', () => {
+        GSRStorage.exportPreset();
+      });
+    }
+
+    const btnConfirmExportPreset = document.getElementById('btnConfirmExportPreset');
+    if (btnConfirmExportPreset) {
+      btnConfirmExportPreset.addEventListener('click', () => {
+        if (typeof GSRUI !== 'undefined' && typeof GSRUI.confirmExportPreset === 'function') {
+          GSRUI.confirmExportPreset();
+        }
+      });
+    }
+
+    const presetFileNameInput = document.getElementById('presetFileNameInput');
+    if (presetFileNameInput) {
+      presetFileNameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          if (typeof GSRUI !== 'undefined' && typeof GSRUI.confirmExportPreset === 'function') {
+            GSRUI.confirmExportPreset();
+          }
+        }
+      });
+    }
+
+    const btnApplyPreset = document.getElementById('btnApplyPreset');
+    const presetFileInput = document.getElementById('presetFileInput');
+    if (btnApplyPreset && presetFileInput) {
+      btnApplyPreset.addEventListener('click', () => {
+        presetFileInput.click();
+      });
+      presetFileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          GSRStorage.importPresetFile(file);
+          presetFileInput.value = '';
+        }
+      });
+    }
+
+    const btnApplyActiveToAll = document.getElementById('btnApplyActiveToAll');
+    if (btnApplyActiveToAll) {
+      btnApplyActiveToAll.addEventListener('click', () => {
+        const tracks = AppState.collectiveManager.tracks;
+        if (!tracks || tracks.length === 0) {
+          alert('No tracks loaded to apply preset to.');
+          return;
+        }
+
+        // Flush live UI sliders into active track params first
+        if (typeof GSRTrackManager !== 'undefined') {
+          GSRTrackManager.saveActiveTrackParams();
+          GSRTrackManager.saveActiveGpsParams();
+        }
+
+        const activeGsr = GSRStorage.readGsrSliderValues();
+        const activeGps = GSRStorage.readGpsSliderValues();
+
+        tracks.forEach(track => {
+          track.filterParams = JSON.parse(JSON.stringify(activeGsr));
+          track.gpsFilterParams = JSON.parse(JSON.stringify(activeGps));
+          try {
+            const pl = (track.gpsFilterParams && track.gpsFilterParams.peakLatency) || 0;
+            track.analyzer.analyze(track.filterParams, pl);
+          } catch (e) {
+            console.warn(`Re-analyzing track "${track.name}" failed:`, e);
+          }
+        });
+
+        if (typeof GSRUI !== 'undefined') {
+          if (typeof GSRUI.invalidateEnvironmentalCache === 'function') {
+            GSRUI.invalidateEnvironmentalCache();
+          }
+          if (typeof GSRUI.runAnalysis === 'function') {
+            GSRUI.runAnalysis();
+          }
+          if (AppState.viewMode === 'collective' && typeof GSRUI.updateCollectiveMap === 'function') {
+            GSRUI.updateCollectiveMap();
+          }
+        }
+
+        if (typeof GSRTrackManager !== 'undefined') {
+          GSRTrackManager.renderTrackList();
+        }
+      });
+    }
 
     // ── OSM Enrichment Control Bindings ─────────────────────────────────────
     {
@@ -883,8 +979,6 @@ const GSREvents = {
           if (slider.dataset.customValue !== undefined) {
             slider.value = slider.dataset.customValue;
             delete slider.dataset.customValue;
-          } else {
-            slider.value = slider.defaultValue;
           }
         }
       }

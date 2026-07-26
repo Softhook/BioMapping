@@ -1809,12 +1809,27 @@ input[type="range"]::-webkit-slider-thumb:hover {
   color: var(--text-primary);
 }
 
+.track-action-btn.apply-btn:hover {
+  color: #0288d1;
+}
+
 .track-action-btn.edit-btn:hover {
   color: var(--accent-primary);
 }
 
 .track-action-btn.delete-btn:hover {
   color: var(--danger);
+}
+
+.track-preset-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+  margin-right: 8px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1);
+  cursor: help;
 }
 
 /* Contour Lines Tooltips */
@@ -2215,8 +2230,50 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 /* Stress Peak and Label Toggling via Map Container Classes */
 #map.hide-map-peaks .peak-dot,
-#map.hide-map-peaks .peak-glow-ring {
+#map.hide-map-peaks .peak-pulse-ring,
+#map.hide-map-peaks .leaflet-marker-icon.peak-dot {
   display: none !important;
+}
+
+/* Export Preset Save Menu Modal Overlay */
+.preset-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preset-modal-content {
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 440px;
+  padding: 20px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+  color: #111111;
+}
+
+.preset-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.preset-modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 #map.hide-map-labels .peak-map-label {

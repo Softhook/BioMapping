@@ -80,6 +80,21 @@
               <ul class="track-list" id="trackList" style="list-style: none; display: flex; flex-direction: column; gap: 8px;">
                 <!-- Dynamically populated track list items -->
               </ul>
+
+              <div class="track-library-footer" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-color, #e0e0e0); display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-secondary btn-sm" id="btnExportPreset" title="Export current UI slider positions to a .json preset file on disk" style="flex: 1; padding: 6px 10px; font-size: 0.8rem;">
+                    <i class="fa-solid fa-file-export"></i> Save Preset
+                  </button>
+                  <button class="btn btn-secondary btn-sm" id="btnApplyPreset" title="Load a .json preset file from disk and set UI sliders to match" style="flex: 1; padding: 6px 10px; font-size: 0.8rem;">
+                    <i class="fa-solid fa-file-import"></i> Load Preset
+                  </button>
+                  <input type="file" id="presetFileInput" accept=".json" style="display: none;">
+                </div>
+                <button class="btn btn-secondary btn-sm" id="btnApplyActiveToAll" title="Apply active track's slider settings to all loaded tracks" style="width: 100%; padding: 6px 10px; font-size: 0.8rem;">
+                  <i class="fa-solid fa-wand-magic-sparkles"></i> Apply Preset to All Tracks
+                </button>
+              </div>
             </div>
           </div>
         </section>
@@ -984,6 +999,34 @@
         <a class="btn-external-link mapillary" id="svMapillaryExtLink" target="_blank" rel="noopener">
           <i class="fa-regular fa-map"></i> Open Mapillary in new tab
         </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export Preset Save Menu Modal -->
+  <div class="preset-modal-overlay" id="exportPresetModal" style="display:none;" onclick="GSRUI.closeExportPresetModal(event)">
+    <div class="preset-modal-content" onclick="event.stopPropagation()">
+      <div class="preset-modal-header">
+        <h3><i class="fa-solid fa-floppy-disk"></i> <span>Save Preset File</span></h3>
+        <button class="icon-btn" onclick="GSRUI.closeExportPresetModal()" title="Close">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="preset-modal-body">
+        <div class="preset-form-group" style="margin-bottom: 14px;">
+          <label for="presetFileNameInput" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px;">Preset File Name</label>
+          <input type="text" id="presetFileNameInput" class="select-control" style="width: 100%; padding: 8px 12px; font-size: 0.85rem; border-radius: 6px; box-sizing: border-box;" value="custom_preset">
+          <p class="help-text" style="margin-top: 4px;">Saves active GSR and GPS filter parameters as a <code>.json</code> preset file.</p>
+        </div>
+        <div class="preset-summary-card" id="presetModalSummary" style="background: rgba(0,0,0,0.03); border: 1px solid var(--border-color, #e0e0e0); border-radius: 6px; padding: 10px; font-size: 0.8rem; line-height: 1.5; color: var(--text-secondary, #555);">
+          <!-- Dynamic summary of active preset parameters -->
+        </div>
+      </div>
+      <div class="preset-modal-footer" style="margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end;">
+        <button class="btn btn-secondary btn-sm" onclick="GSRUI.closeExportPresetModal()">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="btnConfirmExportPreset">
+          <i class="fa-solid fa-download"></i> Save Preset File (.json)
+        </button>
       </div>
     </div>
   </div>

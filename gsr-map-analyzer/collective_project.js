@@ -240,7 +240,8 @@ const GSRCollectiveProject = {
             enabled: entry.enabled !== false,
             analyzer,
             filterParams,
-            gpsFilterParams
+            gpsFilterParams,
+            settingsSource: analyzer.importedFilterParams ? 'imported' : 'standard'
           };
           AppState.collectiveManager.addTrack(newTrack);
           if (i === manifest.activeTrackIndex) newActiveId = trackId;

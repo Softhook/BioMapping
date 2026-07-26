@@ -112,7 +112,7 @@ const GSRTrackManager = {
     let index = 0;
     const loadNext = () => {
       if (index >= files.length) {
-        AppState.fileInput.value = "";
+        if (AppState.fileInput) AppState.fileInput.value = "";
         return;
       }
       const file = files[index];
@@ -138,7 +138,8 @@ const GSRTrackManager = {
             enabled: true,
             analyzer: tempAnalyzer,
             filterParams: filterParams,
-            gpsFilterParams: gpsFilterParams
+            gpsFilterParams: gpsFilterParams,
+            settingsSource: tempAnalyzer.importedFilterParams ? 'imported' : 'standard'
           };
 
           AppState.collectiveManager.addTrack(newTrack);
@@ -230,9 +231,6 @@ const GSRTrackManager = {
         }
         if (AppState.viewMode === 'collective') {
           GSRUI.updateCollectiveMap();
-          // Which tracks are "active" just changed — refresh the OSM
-          // Layers toggle, environmental dashboard, and the Spatial Data
-          // indicator (all/none/mixed enrichment across active tracks).
           GSRUI.refreshOsmControls();
         }
       });
@@ -405,26 +403,33 @@ const GSRTrackManager = {
       'shapeMinSnr', 'shapeMaxSkewRatio'
     ];
 
+    const isDeconvOn = !!params.useDeconvolution;
+
     for (const key of gsrKeys) {
       if (params[key] !== undefined && S[key]) {
-        delete S[key].dataset.customValue;
-        S[key].value = params[key];
+        if (isDeconvOn && key.startsWith('shape') && key !== 'shapeMinSnr') {
+          S[key].dataset.customValue = params[key];
+        } else {
+          delete S[key].dataset.customValue;
+          S[key].value = params[key];
+        }
       }
     }
 
-    // Checkbox, not a range slider — .checked, not .value. Was missing from
-    // gsrKeys entirely: switching from a deconvolution-on track to a
-    // deconvolution-off track (or vice versa) left the checkbox showing
-    // whichever state the PREVIOUS track happened to be in, so a subsequent
-    // Re-analyze would silently run in the wrong mode. Re-running
-    // updateDeconvolutionUIState() afterward also re-locks/unlocks the shape
-    // sliders to match, exactly as if the user had clicked the checkbox
-    // themselves.
     if (S.useDeconvolution && params.useDeconvolution !== undefined) {
       S.useDeconvolution.checked = !!params.useDeconvolution;
     }
-    if (typeof GSREvents !== 'undefined' && typeof GSREvents.updateDeconvolutionUIState === 'function') {
-      GSREvents.updateDeconvolutionUIState();
+
+    if (typeof GSREvents !== 'undefined') {
+      if (typeof GSREvents.updateTonicMethodLayout === 'function') {
+        GSREvents.updateTonicMethodLayout();
+      }
+      if (typeof GSREvents.updateDeconvolutionUIState === 'function') {
+        GSREvents.updateDeconvolutionUIState();
+      }
+    }
+    if (typeof GSRStorage !== 'undefined' && typeof GSRStorage.syncSliderValueDisplays === 'function') {
+      GSRStorage.syncSliderValueDisplays();
     }
   },
 
@@ -464,6 +469,9 @@ const GSRTrackManager = {
       if (p[paramKey] !== undefined && S[sliderKey]) {
         S[sliderKey].value = p[paramKey];
       }
+    }
+    if (typeof GSRStorage !== 'undefined' && typeof GSRStorage.syncSliderValueDisplays === 'function') {
+      GSRStorage.syncSliderValueDisplays();
     }
   },
 

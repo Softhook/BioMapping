@@ -112,68 +112,260 @@ const GSRStorage = {
   },
 
   saveSettings() {
-    const S = AppState.sliders;
-    if (!S || !S.medianSize) return;
-    
-    const settings = {};
-    const extractValues = (controls) => {
-      if (!controls) return;
-      for (const [key, el] of Object.entries(controls)) {
-        if (el) {
-          // Shape sliders locked by updateDeconvolutionUIState() (events.js)
-          // stash the user's real pre-lock value in dataset.customValue while
-          // .value temporarily shows the kernel-canonical display number.
-          // Persisting .value directly here would save that locked decoy to
-          // localStorage; on the next page load it'd come back as the user's
-          // "custom" setting with no cache to distinguish it from a genuine
-          // one, so unchecking deconvolution later would have nothing real
-          // to restore (see updateDeconvolutionUIState()'s own doc comment).
-          settings[key] = el.type === 'checkbox' ? el.checked
-            : (el.dataset && el.dataset.customValue !== undefined ? el.dataset.customValue : el.value);
-        }
-      }
-    };
-
-    extractValues(S);
-    extractValues(AppState.contourControls);
-
-    localStorage.setItem('bioMappingSettings', JSON.stringify(settings));
+    // Deprecated: We intentionally avoid saving slider settings into browser cache (localStorage)
+    // to prevent unpredictable initial states and cross-session contamination.
+    // Presets are now explicitly exported to / imported from disk .json files.
   },
 
   loadSettings() {
-    const saved = localStorage.getItem('bioMappingSettings');
-    const S = AppState.sliders;
-    if (!saved || !S.medianSize) return;
-    try {
-      const settings = JSON.parse(saved);
-      
-      const restoreValue = (el, val) => {
-        if (!el || val === undefined) return;
-        if (el.type === 'checkbox') {
-          el.checked = !!val;
-        } else {
-          el.value = val;
-        }
-      };
+    // Deprecated: Sessions always start deterministically with standard factory defaults.
+  },
 
-      // Restore S (sliders)
-      for (const [key, val] of Object.entries(settings)) {
-        if (S[key]) {
-          restoreValue(S[key], val);
+  /**
+   * Export current slider parameters to a downloadable .json preset file on disk.
+   * Prompts the native OS Save File picker or pops up the Export Preset Save Menu modal.
+   */
+  async exportPreset(filenameBase) {
+    const gsr = this.readGsrSliderValues();
+    const gps = this.readGpsSliderValues();
+    if (!gsr || !gps) {
+      alert("No active slider settings found to export.");
+      return;
+    }
+
+    const activeTrack = AppState.activeTrackId ? AppState.collectiveManager.getTrack(AppState.activeTrackId) : null;
+    const baseName = filenameBase || (activeTrack ? activeTrack.name.replace(/\.[^/.]+$/, "") : "custom_preset");
+
+    const preset = {
+      type: "BioMappingPreset",
+      version: 1,
+      name: baseName,
+      exportedAt: new Date().toISOString(),
+      gsr: gsr,
+      gps: gps
+    };
+
+    // 1. Try Native Browser OS Save As File Picker
+    if (typeof window.showSaveFilePicker === 'function') {
+      try {
+        const stamp = new Date().toISOString().slice(0, 10);
+        const suggestedName = `biomapping_preset_${baseName.replace(/[^a-zA-Z0-9_-]/g, "_")}_${stamp}.json`;
+        const handle = await window.showSaveFilePicker({
+          suggestedName: suggestedName,
+          types: [{
+            description: 'BioMapping Preset JSON (*.json)',
+            accept: { 'application/json': ['.json'] }
+          }]
+        });
+        const writable = await handle.createWritable();
+        await writable.write(JSON.stringify(preset, null, 2));
+        await writable.close();
+        return;
+      } catch (err) {
+        if (err.name === 'AbortError') return; // User cancelled native OS save dialog
+        // SecurityError / frame restriction: fall through to Save Menu modal
+      }
+    }
+
+    // 2. Open Save Menu Modal if native picker unavailable
+    if (typeof GSRUI !== 'undefined' && typeof GSRUI.openExportPresetModal === 'function') {
+      GSRUI.openExportPresetModal(baseName);
+      return;
+    }
+
+    // 3. Direct download fallback
+    this.downloadPresetJson(preset, baseName);
+  },
+
+  downloadPresetJson(preset, filenameBase) {
+    const jsonStr = JSON.stringify(preset, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.download = `biomapping_preset_${(filenameBase || "preset").replace(/[^a-zA-Z0-9_-]/g, "_")}_${stamp}.json`;
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  },
+
+  /**
+   * Import a .json preset file from disk and apply its parameters.
+   */
+  importPresetFile(file, callback) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const preset = JSON.parse(e.target.result);
+        const success = this.applyPreset(preset);
+        if (callback) callback(success, preset);
+      } catch (err) {
+        alert("Invalid preset file format: " + err.message);
+        if (callback) callback(false, null);
+      }
+    };
+    reader.readAsText(file);
+  },
+
+  /**
+   * Dispatch input events across all UI sliders so text labels and rec highlights update.
+   */
+  syncSliderValueDisplays() {
+    const S = AppState.sliders;
+    if (!S) return;
+    Object.values(S).forEach(el => {
+      if (el && typeof el.dispatchEvent === 'function') {
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+  },
+
+  /**
+   * Apply a parsed preset object to the UI sliders and active track.
+   */
+  applyPreset(preset) {
+    if (!preset) {
+      alert("Invalid preset file.");
+      return false;
+    }
+
+    const gsr = preset.gsr || preset;
+    const gps = preset.gps || preset;
+
+    const S = AppState.sliders;
+    if (!S) return false;
+
+    // Restore GSR sliders
+    if (gsr.medianSize !== undefined && S.medianSize) S.medianSize.value = gsr.medianSize;
+    if (gsr.lpfWindow !== undefined && S.lpfWindow) S.lpfWindow.value = gsr.lpfWindow;
+    if (gsr.tonicMethod !== undefined && S.tonicMethod) S.tonicMethod.value = gsr.tonicMethod;
+    if (gsr.tonicWindow !== undefined && S.tonicWindow) S.tonicWindow.value = gsr.tonicWindow;
+    if (gsr.peakThreshold !== undefined && S.peakThreshold) S.peakThreshold.value = gsr.peakThreshold;
+    if (gsr.dwtLevel !== undefined && S.dwtLevel) S.dwtLevel.value = gsr.dwtLevel;
+    if (gsr.minPeakQuality !== undefined && S.minPeakQuality) S.minPeakQuality.value = gsr.minPeakQuality;
+    if (gsr.hotspotPercentile !== undefined && S.hotspotPercentile) {
+      S.hotspotPercentile.value = gsr.hotspotPercentile > 1.0 ? gsr.hotspotPercentile : gsr.hotspotPercentile * 100.0;
+    }
+
+    if (gsr.useDeconvolution !== undefined && S.useDeconvolution) {
+      S.useDeconvolution.checked = !!gsr.useDeconvolution;
+    }
+
+    const isDeconvOn = !!gsr.useDeconvolution;
+
+    const shapeKeys = ['shapeMinRiseTime', 'shapeMaxRiseTime', 'shapeMinHalfRecovery', 'shapeMaxHalfRecovery', 'shapeMinSnr', 'shapeMaxSkewRatio'];
+    shapeKeys.forEach(k => {
+      if (gsr[k] !== undefined && S[k]) {
+        if (isDeconvOn && k !== 'shapeMinSnr') {
+          S[k].dataset.customValue = gsr[k];
+        } else {
+          delete S[k].dataset.customValue;
+          S[k].value = gsr[k];
         }
       }
+    });
 
-      // Restore C (contour controls)
-      const C = AppState.contourControls;
-      if (C) {
-        for (const [key, val] of Object.entries(settings)) {
-          if (C[key]) {
-            restoreValue(C[key], val);
+    // Restore GPS sliders
+    if (gps.smoothing !== undefined && S.gpsSmoothing) S.gpsSmoothing.value = gps.smoothing;
+    if (gps.kalmanR !== undefined && S.gpsKalmanR) S.gpsKalmanR.value = gps.kalmanR;
+    if (gps.maxHdop !== undefined && S.gpsMaxHdop) S.gpsMaxHdop.value = gps.maxHdop;
+    if (gps.maxSpeed !== undefined && S.gpsMaxSpeed) S.gpsMaxSpeed.value = gps.maxSpeed;
+    if (gps.rdpTolerance !== undefined && S.gpsRDP) S.gpsRDP.value = gps.rdpTolerance;
+    if (gps.downsample !== undefined && S.gpsDownsample) S.gpsDownsample.value = gps.downsample;
+    if (gps.trackWeight !== undefined && S.gpsTrackWeight) S.gpsTrackWeight.value = gps.trackWeight;
+    if (gps.peakLatency !== undefined && S.gpsPeakLatency) S.gpsPeakLatency.value = gps.peakLatency;
+
+    // Update layout (DWT vs Tonic Window) and shape slider lock states (Deconvolution ON vs OFF)
+    if (typeof GSREvents !== 'undefined') {
+      if (typeof GSREvents.updateTonicMethodLayout === 'function') {
+        GSREvents.updateTonicMethodLayout();
+      }
+      if (typeof GSREvents.updateDeconvolutionUIState === 'function') {
+        GSREvents.updateDeconvolutionUIState();
+      }
+    }
+
+    // Dispatch input events on all sliders so on-screen text labels & dimmed states update immediately!
+    this.syncSliderValueDisplays();
+
+    // Commit to active track if one exists
+    if (AppState.activeTrackId) {
+      const track = AppState.collectiveManager.getTrack(AppState.activeTrackId);
+      if (track) {
+        track.filterParams = this.readGsrSliderValues();
+        track.gpsFilterParams = this.readGpsSliderValues();
+        try {
+          const pl = (track.gpsFilterParams && track.gpsFilterParams.peakLatency) || 0;
+          track.analyzer.analyze(track.filterParams, pl);
+        } catch (e) {
+          console.warn(`Re-analyzing active track failed after loading preset:`, e);
+        }
+        if (typeof GSRTrackManager !== 'undefined') {
+          GSRTrackManager.renderTrackList();
+        }
+        if (typeof GSRUI !== 'undefined') {
+          if (typeof GSRUI.invalidateEnvironmentalCache === 'function') {
+            GSRUI.invalidateEnvironmentalCache();
+          }
+          if (typeof GSRUI.runAnalysis === 'function') {
+            GSRUI.runAnalysis();
+          }
+          if (AppState.viewMode === 'collective' && typeof GSRUI.updateCollectiveMap === 'function') {
+            GSRUI.updateCollectiveMap();
           }
         }
       }
-    } catch (err) {
-      console.error('Error loading settings from localStorage:', err);
     }
+    return true;
+  },
+
+  /**
+   * Determine whether a track's parameters match standard defaults,
+   * were imported from CSV header metadata, or are custom modified.
+   * Returns: 'standard' | 'imported' | 'custom'
+   */
+  getTrackSettingsStatus(track) {
+    if (!track) return 'standard';
+    if (!track.filterParams || !track.gpsFilterParams) return 'standard';
+
+    const D = GSR_CONST.GSR_DEFAULT;
+    const fp = track.filterParams;
+
+    const isCustomGsr = (
+      fp.medianSize !== D.medianSize ||
+      fp.lpfWindow !== D.lpfWindow ||
+      fp.tonicMethod !== D.tonicMethod ||
+      fp.tonicWindow !== D.tonicWindow ||
+      Math.abs(fp.peakThreshold - D.peakThreshold) > 0.0001 ||
+      fp.dwtLevel !== D.dwtLevel ||
+      fp.useDeconvolution !== D.useDeconvolution
+    );
+
+    const G = GSR_CONST.GPS_DEFAULT;
+    const gp = track.gpsFilterParams;
+
+    const isCustomGps = (
+      gp.smoothing !== G.smoothing ||
+      gp.kalmanR !== G.kalmanR ||
+      gp.maxHdop !== G.maxHdop ||
+      gp.maxSpeed !== G.maxSpeed ||
+      gp.rdpTolerance !== G.rdpTolerance ||
+      gp.peakLatency !== G.peakLatency
+    );
+
+    if (isCustomGsr || isCustomGps) {
+      return 'custom';
+    }
+
+    if (track.settingsSource === 'imported') {
+      return 'imported';
+    }
+
+    return 'standard';
   }
 };
+

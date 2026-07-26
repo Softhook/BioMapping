@@ -1476,5 +1476,56 @@ const GSRUI = {
         setTimeout(function() { msg.style.display = 'none'; }, 3000);
       }
     }
+  },
+
+  /**
+   * Open the Export Preset Save Menu Modal Overlay.
+   */
+  openExportPresetModal(defaultName) {
+    const modal = document.getElementById('exportPresetModal');
+    const input = document.getElementById('presetFileNameInput');
+    const summary = document.getElementById('presetModalSummary');
+    if (!modal) return;
+
+    if (input) {
+      const activeTrack = AppState.activeTrackId ? AppState.collectiveManager.getTrack(AppState.activeTrackId) : null;
+      input.value = defaultName || (activeTrack ? activeTrack.name.replace(/\.[^/.]+$/, "") : "custom_preset");
+    }
+
+    if (summary && typeof GSRStorage !== 'undefined') {
+      const gsr = GSRStorage.readGsrSliderValues() || {};
+      const gps = GSRStorage.readGpsSliderValues() || {};
+      summary.innerHTML = `
+        <strong>Active Preset Parameters to Export:</strong><br>
+        • <strong>GSR:</strong> Median size=${gsr.medianSize}s, LPF window=${gsr.lpfWindow}s, Baseline=${gsr.tonicMethod} (${gsr.tonicWindow}s), Peak threshold=${gsr.peakThreshold}μS, Deconv=${gsr.useDeconvolution ? 'ON' : 'OFF'}<br>
+        • <strong>GPS:</strong> Smoothing=${gps.smoothing}, Kalman R=${gps.kalmanR}, Max HDOP=${gps.maxHdop}, Peak latency=${gps.peakLatency}s
+      `;
+    }
+
+    modal.style.display = 'flex';
+  },
+
+  closeExportPresetModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    const modal = document.getElementById('exportPresetModal');
+    if (modal) modal.style.display = 'none';
+  },
+
+  confirmExportPreset() {
+    const input = document.getElementById('presetFileNameInput');
+    const name = input ? input.value.trim() || 'preset' : 'preset';
+    const gsr = GSRStorage.readGsrSliderValues();
+    const gps = GSRStorage.readGpsSliderValues();
+    if (!gsr || !gps) return;
+    const preset = {
+      type: "BioMappingPreset",
+      version: 1,
+      name: name,
+      exportedAt: new Date().toISOString(),
+      gsr: gsr,
+      gps: gps
+    };
+    GSRStorage.downloadPresetJson(preset, name);
+    this.closeExportPresetModal();
   }
 };
