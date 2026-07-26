@@ -81,14 +81,31 @@ const GSRStorage = {
     const S = AppState.sliders;
     const D = GSR_CONST.GPS_DEFAULT;
     return {
-      smoothing:    parseFloat(S.gpsSmoothing ? S.gpsSmoothing.value : D.smoothing),
-      kalmanR:      parseFloat(S.gpsKalmanR ? S.gpsKalmanR.value : D.kalmanR),
-      maxHdop:      parseFloat(S.gpsMaxHdop ? S.gpsMaxHdop.value : D.maxHdop),
-      maxSpeed:     parseFloat(S.gpsMaxSpeed ? S.gpsMaxSpeed.value : D.maxSpeed),
-      rdpTolerance: parseFloat(S.gpsRDP ? S.gpsRDP.value : D.rdpTolerance),
-      downsample:   parseInt(S.gpsDownsample ? S.gpsDownsample.value : (D.downsample ? 1 : 0)),
-      trackWeight:  parseInt(S.gpsTrackWeight ? S.gpsTrackWeight.value : D.trackWeight),
-      peakLatency:  parseFloat(S.gpsPeakLatency ? S.gpsPeakLatency.value : D.peakLatency)
+      smoothing:             parseFloat(S.gpsSmoothing ? S.gpsSmoothing.value : D.smoothing),
+      kalmanR:               parseFloat(S.gpsKalmanR ? S.gpsKalmanR.value : D.kalmanR),
+      maxHdop:               parseFloat(S.gpsMaxHdop ? S.gpsMaxHdop.value : D.maxHdop),
+      maxSpeed:              parseFloat(S.gpsMaxSpeed ? S.gpsMaxSpeed.value : D.maxSpeed),
+      rdpTolerance:          parseFloat(S.gpsRDP ? S.gpsRDP.value : D.rdpTolerance),
+      downsample:            parseInt(S.gpsDownsample ? S.gpsDownsample.value : (D.downsample ? 1 : 0)),
+      trackWeight:           parseInt(S.gpsTrackWeight ? S.gpsTrackWeight.value : D.trackWeight),
+      peakLatency:           parseFloat(S.gpsPeakLatency ? S.gpsPeakLatency.value : D.peakLatency),
+      clusterProximity:      parseFloat(S.clusterProximity ? S.clusterProximity.value : 35),
+      clusterBoundaryRadius: parseFloat(S.clusterBoundaryRadius ? S.clusterBoundaryRadius.value : 18)
+    };
+  },
+
+  /**
+   * Read current Contour map surface slider values into a clean param object.
+   */
+  readContourSliderValues() {
+    const C = AppState.contourControls;
+    if (!C || !C.gridResolution) return null;
+    return {
+      gridResolution:  parseInt(C.gridResolution.value),
+      contourCount:    parseInt(C.contourCount.value),
+      isolationRadius: parseFloat(C.isolationRadius.value),
+      idwExponent:     parseFloat(C.idwExponent.value),
+      surfaceOpacity:  parseFloat(C.surfaceOpacity.value)
     };
   },
 
@@ -142,7 +159,8 @@ const GSRStorage = {
       name: baseName,
       exportedAt: new Date().toISOString(),
       gsr: gsr,
-      gps: gps
+      gps: gps,
+      contour: this.readContourSliderValues()
     };
 
     // 1. Try Native Browser OS Save As File Picker
@@ -266,7 +284,7 @@ const GSRStorage = {
       }
     });
 
-    // Restore GPS sliders
+    // Restore GPS & Spatial Clustering sliders
     if (gps.smoothing !== undefined && S.gpsSmoothing) S.gpsSmoothing.value = gps.smoothing;
     if (gps.kalmanR !== undefined && S.gpsKalmanR) S.gpsKalmanR.value = gps.kalmanR;
     if (gps.maxHdop !== undefined && S.gpsMaxHdop) S.gpsMaxHdop.value = gps.maxHdop;
@@ -275,6 +293,19 @@ const GSRStorage = {
     if (gps.downsample !== undefined && S.gpsDownsample) S.gpsDownsample.value = gps.downsample;
     if (gps.trackWeight !== undefined && S.gpsTrackWeight) S.gpsTrackWeight.value = gps.trackWeight;
     if (gps.peakLatency !== undefined && S.gpsPeakLatency) S.gpsPeakLatency.value = gps.peakLatency;
+    if (gps.clusterProximity !== undefined && S.clusterProximity) S.clusterProximity.value = gps.clusterProximity;
+    if (gps.clusterBoundaryRadius !== undefined && S.clusterBoundaryRadius) S.clusterBoundaryRadius.value = gps.clusterBoundaryRadius;
+
+    // Restore Contour surface sliders
+    const contour = preset.contour;
+    const C = AppState.contourControls;
+    if (contour && C) {
+      if (contour.gridResolution !== undefined && C.gridResolution) C.gridResolution.value = contour.gridResolution;
+      if (contour.contourCount !== undefined && C.contourCount) C.contourCount.value = contour.contourCount;
+      if (contour.isolationRadius !== undefined && C.isolationRadius) C.isolationRadius.value = contour.isolationRadius;
+      if (contour.idwExponent !== undefined && C.idwExponent) C.idwExponent.value = contour.idwExponent;
+      if (contour.surfaceOpacity !== undefined && C.surfaceOpacity) C.surfaceOpacity.value = contour.surfaceOpacity;
+    }
 
     // Update layout (DWT vs Tonic Window) and shape slider lock states (Deconvolution ON vs OFF)
     if (typeof GSREvents !== 'undefined') {

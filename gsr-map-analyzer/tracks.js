@@ -395,18 +395,10 @@ const GSRTrackManager = {
     if (!track || !track.filterParams) return;
     const params = track.filterParams;
     const S = AppState.sliders;
-
-    const gsrKeys = [
-      'medianSize', 'lpfWindow', 'tonicWindow', 'tonicMethod', 'peakThreshold', 'dwtLevel',
-      'minPeakQuality', 'hotspotPercentile',
-      'shapeMinRiseTime', 'shapeMaxRiseTime', 'shapeMinHalfRecovery', 'shapeMaxHalfRecovery',
-      'shapeMinSnr', 'shapeMaxSkewRatio'
-    ];
-
     const isDeconvOn = !!params.useDeconvolution;
 
-    for (const key of gsrKeys) {
-      if (params[key] !== undefined && S[key]) {
+    for (const key of Object.keys(params)) {
+      if (S[key]) {
         if (isDeconvOn && key.startsWith('shape') && key !== 'shapeMinSnr') {
           S[key].dataset.customValue = params[key];
         } else {
@@ -453,9 +445,12 @@ const GSRTrackManager = {
       peakLatency: 'gpsPeakLatency'
     };
 
-    for (const [paramKey, sliderKey] of Object.entries(gpsMap)) {
-      if (p[paramKey] !== undefined && S[sliderKey]) {
-        S[sliderKey].value = p[paramKey];
+    for (const [key, val] of Object.entries(p)) {
+      if (val === undefined) continue;
+      const sliderKey = gpsMap[key] || ('gps' + key.charAt(0).toUpperCase() + key.slice(1));
+      const slider = S[sliderKey] || S[key];
+      if (slider) {
+        slider.value = val;
       }
     }
   },
