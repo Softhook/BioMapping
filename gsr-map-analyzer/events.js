@@ -85,7 +85,7 @@ const GSREvents = {
     const group = slider.closest('.slider-group');
     if (!group) return;
     let val;
-    if (parentId) {
+    if (typeof parentId === 'string' && parentId) {
       const parent = document.getElementById(parentId);
       if (!parent) return;
       val = parseFloat(parent.value);
@@ -904,12 +904,8 @@ const GSREvents = {
       }
     }
 
-    // Initial dim state for all GSR sliders (only those that can be 0)
-    document.querySelectorAll('#gsrFilteringCard input[type="range"]').forEach(GSREvents.updateFilterDim);
-    // Initial dim state for GPS sliders
-    document.querySelectorAll('#gpsFilteringCard input[type="range"]').forEach(GSREvents.updateFilterDim);
-    // Initial dim state for map display sliders
-    document.querySelectorAll('#mapDisplayCard input[type="range"]').forEach(GSREvents.updateFilterDim);
+    // Sync dim state for all sliders across all control cards
+    document.querySelectorAll('input[type="range"]').forEach(slider => GSREvents.updateFilterDim(slider));
 
     GSREvents.updateDeconvolutionUIState();
   },
