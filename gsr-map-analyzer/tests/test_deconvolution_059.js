@@ -70,6 +70,12 @@ const BASE_PARAMS = {
   tonicWindow:    15,
   peakThreshold:  0.020,
   minPeakQuality: 0.0,
+  shapeMinRiseTime: 0,
+  shapeMaxRiseTime: 0,
+  shapeMinHalfRecovery: 0,
+  shapeMaxHalfRecovery: 0,
+  shapeMinSnr: 0,
+  shapeMaxSkewRatio: 0
 };
 
 function runAnalysis(useDeconvolution) {

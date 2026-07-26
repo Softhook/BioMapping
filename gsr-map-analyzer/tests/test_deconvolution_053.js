@@ -60,6 +60,9 @@ function analyzeTrack(decon) {
     ...global.GSR_CONST.GSR_DEFAULT,
     tonicMethod: 'percentile', tonicWindow: 15,
     peakThreshold: 0.020, minPeakQuality: 0.0,
+    shapeMinRiseTime: 0, shapeMaxRiseTime: 0,
+    shapeMinHalfRecovery: 0, shapeMaxHalfRecovery: 0,
+    shapeMinSnr: 0, shapeMaxSkewRatio: 0,
     useDeconvolution: decon
   });
   return a;
@@ -223,7 +226,15 @@ assert(minGap >= global.GSR_CONST.SCRF.minImpulseGapSec - 1e-9,
 {
   const toggler = new GSRAnalyzer();
   toggler.parseCSV(csvText);
-  const paramsOff = { ...global.GSR_CONST.GSR_DEFAULT, tonicMethod: 'percentile', tonicWindow: 15, peakThreshold: 0.020, minPeakQuality: 0.0, useDeconvolution: false };
+  const paramsOff = {
+    ...global.GSR_CONST.GSR_DEFAULT,
+    tonicMethod: 'percentile', tonicWindow: 15,
+    peakThreshold: 0.020, minPeakQuality: 0.0,
+    shapeMinRiseTime: 0, shapeMaxRiseTime: 0,
+    shapeMinHalfRecovery: 0, shapeMaxHalfRecovery: 0,
+    shapeMinSnr: 0, shapeMaxSkewRatio: 0,
+    useDeconvolution: false
+  };
   const paramsOn  = { ...paramsOff, useDeconvolution: true };
   toggler.analyze(paramsOff);
   toggler.analyze(paramsOn);

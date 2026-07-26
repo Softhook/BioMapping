@@ -1523,7 +1523,8 @@ const GSRUI = {
       name: name,
       exportedAt: new Date().toISOString(),
       gsr: gsr,
-      gps: gps
+      gps: gps,
+      contour: GSRStorage.readContourSliderValues()
     };
     GSRStorage.downloadPresetJson(preset, name);
     this.closeExportPresetModal();
