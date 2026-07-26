@@ -331,6 +331,14 @@ class GSRAnalyzer {
       if (h.includes('peakexcluded') || h.includes('peak_excluded')) peakExcludedColIndex = i;
     }
 
+    // Explicit genuine-fix marker (re-imported processed CSV only). Without this,
+    // a reimported track's dense Latitude/Longitude columns would make every row
+    // look like a genuine fix, collapsing the anchor-only Kalman input in
+    // map.js's _collectGpsPoints down to the full interpolated grid. Falls back
+    // to the lat/lon-presence heuristic below when absent (raw device CSVs, or
+    // processed CSVs exported before this column existed).
+    const isGpsFixColIdx = headers.indexOf('is_gps_fix');
+
     // OSM environmental column detection
     let osmRoadClassColIdx = headers.indexOf('osm_road_class');
     let osmDistMajorRoadColIdx = headers.indexOf('osm_dist_major_road');
@@ -382,6 +390,14 @@ class GSRAnalyzer {
       let speedKtsVal = colIndices['speed_kts'] !== -1 && cols[colIndices['speed_kts']] ? parseFloat(cols[colIndices['speed_kts']]) : NaN;
       let courseVal   = colIndices['course_deg']   !== -1 && cols[colIndices['course_deg']]   ? parseFloat(cols[colIndices['course_deg']])   : NaN;
 
+      // Genuine-fix marker: prefer the explicit re-imported column when present
+      // (see isGpsFixColIdx above); otherwise fall back to the lat/lon-presence
+      // heuristic used for raw device CSVs.
+      let isGpsFixVal = !isNaN(latVal) && !isNaN(lonVal);
+      if (isGpsFixColIdx !== -1 && cols[isGpsFixColIdx] && cols[isGpsFixColIdx].trim() !== '') {
+        isGpsFixVal = cols[isGpsFixColIdx].trim() === '1';
+      }
+
       // Read peak label from processed-CSV re-import
       let importedPeakLabel = '';
       let importedPeakExcluded = false;
@@ -416,7 +432,7 @@ class GSRAnalyzer {
         speedKts: speedKtsVal,
         course: courseVal,
         hasGps: false,
-        _isGpsFix: !isNaN(latVal) && !isNaN(lonVal),
+        _isGpsFix: isGpsFixVal,
         _importLabel: importedPeakLabel,
         _importExcluded: importedPeakExcluded,
         osm_road_class: osm_road_class,
@@ -1981,6 +1997,14 @@ class GSRAnalyzer {
 
     const hasFilteredGps = this.filteredGps && this.filteredGps.length === this.raw.length;
     const isEnriched = this.isEnriched;
+    // GPS quality fields (hdop/pdop/hacc_m/fix_type/sats/speed_kts/course_deg) feed the
+    // Kalman noise model and the maxHdop/maxSpeed/minFixType gates (gps_filter.js,
+    // gps_pipeline.js). Without them a reloaded processed CSV can't be meaningfully
+    // reprocessed with different GPS slider values, so preserve them when present.
+    const hasGpsQuality = this.raw.some(d =>
+      (!isNaN(d.hdop) || !isNaN(d.pdop) || !isNaN(d.hacc) || !isNaN(d.speedKts) || !isNaN(d.course) ||
+       d.fixType || d.sats)
+    );
 
     // Preserve recording start time and configurations for re-import
     let csv = `# RecordingStartTime:${this.recordingStartTime}\n`;
@@ -1995,7 +2019,15 @@ class GSRAnalyzer {
     }
     csv += "Time (s),Raw Conductance (uS),Filtered Conductance (uS),Tonic Baseline (uS),Phasic Response (uS),IsPeak,PeakAmplitude,PeakLabel,PeakExcluded,Latitude,Longitude";
     if (hasFilteredGps) {
-      csv += ",Raw Latitude,Raw Longitude";
+      // Named "Pre-Kalman", not "Raw" — a header containing "raw" collides with
+      // GSR_KEYWORDS ('raw' is a GSR-column keyword, checked before lat/lon
+      // detection in parseCSV), which silently swallows the column into the
+      // gsr_raw branch and makes it unrecoverable on reimport. See gps_pipeline.js
+      // applyPreKalmanFilters for what "pre-Kalman" means here.
+      csv += ",Pre-Kalman Latitude,Pre-Kalman Longitude";
+    }
+    if (hasGpsQuality) {
+      csv += ",hdop,pdop,hacc_m,fix_type,sats,speed_kts,course_deg,is_gps_fix";
     }
     if (isEnriched) {
       csv += ",osm_road_class,osm_dist_major_road,osm_in_park,osm_green_pct_50m,osm_building_density_50m,osm_dist_water,osm_tree_density_50m,osm_amenity_count_50m";
@@ -2053,6 +2085,25 @@ class GSRAnalyzer {
 
       if (hasFilteredGps) {
         csv += `,${rawLatStr},${rawLonStr}`;
+      }
+
+      if (hasGpsQuality) {
+        const r = this.raw[i];
+        // Only genuine fix rows carry real quality metadata — interpolated rows
+        // are step-held in memory (see the interpolation pass in parseCSV) but
+        // exporting that fabricated data would make every reimported row look
+        // like an independent anchor, collapsing map.js's anchor-only Kalman
+        // input back down to the dense interpolated grid. Leaving them blank
+        // mirrors how the original device CSV itself encodes "no fix this tick".
+        const isFix = !!r._isGpsFix;
+        const hdopStr     = (isFix && !isNaN(r.hdop))     ? r.hdop.toFixed(2)     : "";
+        const pdopStr     = (isFix && !isNaN(r.pdop))     ? r.pdop.toFixed(2)     : "";
+        const haccStr     = (isFix && !isNaN(r.hacc))     ? r.hacc.toFixed(2)     : "";
+        const speedKtsStr = (isFix && !isNaN(r.speedKts)) ? r.speedKts.toFixed(2) : "";
+        const courseStr   = (isFix && !isNaN(r.course))   ? r.course.toFixed(1)   : "";
+        const fixTypeStr  = isFix ? (r.fixType || 0) : "";
+        const satsStr     = isFix ? (r.sats || 0) : "";
+        csv += `,${hdopStr},${pdopStr},${haccStr},${fixTypeStr},${satsStr},${speedKtsStr},${courseStr},${isFix ? 1 : 0}`;
       }
 
       if (isEnriched) {
