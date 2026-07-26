@@ -24,7 +24,6 @@ function setup() {
   AppState.myCanvas.elt.addEventListener('mouseleave', () => { AppState.mouseOverCanvas = false; });
 
   GSREvents.cacheDOMElements();
-  GSRStorage.loadSettings();
   GSREvents.initializeLabels();
   GSREvents.setupEventListeners();
 

@@ -128,16 +128,6 @@ const GSRStorage = {
     };
   },
 
-  saveSettings() {
-    // Deprecated: We intentionally avoid saving slider settings into browser cache (localStorage)
-    // to prevent unpredictable initial states and cross-session contamination.
-    // Presets are now explicitly exported to / imported from disk .json files.
-  },
-
-  loadSettings() {
-    // Deprecated: Sessions always start deterministically with standard factory defaults.
-  },
-
   /**
    * Export current slider parameters to a downloadable .json preset file on disk.
    * Prompts the native OS Save File picker or pops up the Export Preset Save Menu modal.

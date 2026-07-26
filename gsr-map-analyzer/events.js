@@ -235,14 +235,12 @@ const GSREvents = {
         const level = parseInt(S.dwtLevel.value);
         document.getElementById('valDwtLevel').innerText = level;
         GSRUI.runAnalysis();
-        GSRStorage.saveSettings();
       });
     }
 
     S.tonicMethod.addEventListener('change', () => {
       GSREvents.updateTonicMethodLayout(false);
       GSRUI.runAnalysis();
-      GSRStorage.saveSettings();
     });
 
     // ── SCR Deconvolution toggle ──────────────────────────────────────────────
@@ -252,7 +250,6 @@ const GSREvents = {
       S.useDeconvolution.addEventListener('change', () => {
         GSREvents.updateDeconvolutionUIState();
         GSRUI.runAnalysis();
-        GSRStorage.saveSettings();
       });
     }
 
@@ -264,7 +261,6 @@ const GSREvents = {
       S.lowerGraphMode.addEventListener('change', () => {
         AppState.lowerGraphMode = S.lowerGraphMode.value;
         redraw();
-        GSRStorage.saveSettings();
       });
     }
 
@@ -388,7 +384,6 @@ const GSREvents = {
           updateDim();
         });
         slider.addEventListener('change', () => {
-          GSRStorage.saveSettings();
           if (AppState.analyzer && AppState.analyzer.osmJson) {
             GSRUI.enrichTrack(false); // Recompute using local cache!
           } else {
@@ -405,7 +400,6 @@ const GSREvents = {
       const snapToggle = document.getElementById('gpsSnapToRoads');
       if (snapToggle) {
         snapToggle.addEventListener('change', () => {
-          GSRStorage.saveSettings();
           if (AppState.analyzer && AppState.analyzer.osmJson) {
             // OSM data already loaded — re-run enrichment locally
             GSRUI.enrichTrack(false);
@@ -435,7 +429,6 @@ const GSREvents = {
         if (typeof GSRUI !== 'undefined' && typeof GSRUI.updateEnvironmentalDashboard === 'function') {
           GSRUI.updateEnvironmentalDashboard();
         }
-        GSRStorage.saveSettings();
       });
     }
 
@@ -609,7 +602,6 @@ const GSREvents = {
         radiusLabel.innerText = radiusSlider.value + ' m';
       });
       radiusSlider.addEventListener('change', () => {
-        GSRStorage.saveSettings();
         if (AppState.analyzer && AppState.analyzer.osmJson) {
           GSRUI.enrichTrack(false); // Re-run enrichment locally!
         }
@@ -785,7 +777,6 @@ const GSREvents = {
   bindContourInputs() {
     const triggerUpdate = () => {
       if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
-      GSRStorage.saveSettings();
     };
 
     const bindCi = (id, labelId, fmt) => {

@@ -274,7 +274,6 @@ const GSRCollectiveProject = {
       if (manifest.settings) {
         this._applyValues(AppState.sliders, manifest.settings.sliders);
         this._applyValues(AppState.contourControls, manifest.settings.contour);
-        GSRStorage.saveSettings();
       }
 
       const targetMode = (manifest.viewMode === 'collective') ? 'collective' : 'single';
