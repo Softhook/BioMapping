@@ -131,7 +131,19 @@ void em_scan_rf_park_band(
     float    peak = -127.0f;
     double   sum = 0.0;
     uint32_t count = 0;
-    for(uint32_t elapsed_ms = 0; elapsed_ms < park_ms; elapsed_ms += EM_SCAN_PARK_POLL_MS) {
+    // Terminate on measured elapsed time, not a nominal iteration count: the
+    // old `for(elapsed_ms = 0; elapsed_ms < park_ms; elapsed_ms +=
+    // POLL_MS)` counted a fixed number of iterations (park_ms/POLL_MS)
+    // regardless of how long each furi_delay_ms(10) actually took — and on
+    // real hardware each call ran well past 10ms (tick rounding + SPI/
+    // scheduling overhead), so a configured 300ms park always ran all 30
+    // iterations and measured ~630-670ms. Checking real elapsed ticks
+    // against park_ms means the loop exits as soon as actual time reaches
+    // the target, so it converges on the configured park_ms instead of
+    // inflating past it.
+    uint32_t start_tick = furi_get_tick();
+    uint32_t park_ticks = (park_ms * furi_kernel_get_tick_frequency()) / 1000;
+    while(furi_get_tick() - start_tick < park_ticks) {
         float r = furi_hal_subghz_get_rssi();
         if(r > peak) peak = r;
         sum += (double)r;
