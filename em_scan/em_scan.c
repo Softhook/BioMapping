@@ -5,6 +5,7 @@
 #include "biomap_types.h"
 #include "em_scan_cal.h"
 #include "em_scan_rf.h"
+#include "em_scan_rf_worker.h"
 #include "modules/gps_uart.h"
 #include "modules/sd_logger.h"
 #include "modules/sound.h"
@@ -38,6 +39,14 @@ typedef struct {
 
     GpsUart*  gps;
     SdLogger* logger;
+
+    // RF worker thread (EmScanModeNormal only — see em_scan_rf_worker.h).
+    // Owns long-park sampling; the tick loop below only reads its snapshot
+    // in Normal mode and falls back to the legacy short em_scan_rf_dwell_band()
+    // path everywhere else (Menu/CalPrep/CalSampling/CalStats), since
+    // calibration timing depends on that fixed-cadence short dwell and the
+    // two must never touch the CC1101 at the same time.
+    EmScanRfWorker* rf_worker;
 
     EmScanMode mode;
     int        menu_selection;
@@ -86,6 +95,14 @@ static inline bool em_scan_gps_fix_ok(const GpsStatus* gs) {
 #define EM_SCAN_RSSI_FLOOR -100.0f
 #define EM_SCAN_RSSI_CEIL  -30.0f
 #define EM_SCAN_PEAK_DECAY_DB_PER_TICK 0.1f
+
+// How long the RF worker thread parks on each band before hopping to the
+// next, while in EmScanModeNormal (see em_scan_rf_worker.h). This is the
+// actual dwell-time knob — chosen as a middle ground between catching more
+// short bursts (favors longer) and keeping the per-band revisit rate high
+// (favors shorter), landing well above the old tick-bound ~22ms dwell
+// without needing several seconds per band.
+#define EM_SCAN_WORKER_PARK_MS 300
 
 static const float EM_SCAN_TICK_DB[] = {-80.0f, -60.0f, -40.0f};
 #define EM_SCAN_TICK_COUNT (sizeof(EM_SCAN_TICK_DB) / sizeof(EM_SCAN_TICK_DB[0]))
@@ -393,7 +410,13 @@ static void em_scan_toggle_recording(EmScanApp* app) {
     furi_mutex_release(app->mutex);
 
     if(start) {
-        char header[192];
+        // The calibrated header (CRC line + "Band Floors" line + CSV column
+        // row) needs 236 bytes — a 192-byte buffer silently truncated it
+        // mid-word via snprintf's return-value-vs-actually-written
+        // mismatch, with no trailing newline, so the first data row landed
+        // directly on the end of the corrupted header line. Confirmed
+        // against a real recording (track 75) before sizing this.
+        char header[320];
         em_scan_build_header(app, header, sizeof(header));
         bool ok = sd_logger_start(app->logger, header);
         if(ok) {
@@ -473,6 +496,8 @@ int32_t em_scan_app(void* p) {
     app->logger = sd_logger_alloc(app->storage);
     em_scan_rf_init();
 
+    app->rf_worker = em_scan_rf_worker_alloc(EM_SCAN_WORKER_PARK_MS);
+
     bool running = true;
     PluginEvent ev;
     while(running) {
@@ -484,84 +509,101 @@ int32_t em_scan_app(void* p) {
         }
 
         if(ev.type == EventTypeTick) {
-            int band = app->sweep_band;
-            float peak;
-            em_scan_rf_dwell_band(band, &peak);
-
-            furi_mutex_acquire(app->mutex, FuriWaitForever);
-            app->rssi_dbm[band] = peak;
-            app->sweep_band = (band + 1) % EM_SCAN_NUM_FREQS;
-
-            for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-                if(app->rssi_dbm[i] > app->peak_hold_dbm[i]) {
-                    app->peak_hold_dbm[i] = app->rssi_dbm[i];
-                } else {
-                    app->peak_hold_dbm[i] -= EM_SCAN_PEAK_DECAY_DB_PER_TICK;
-                    if(app->peak_hold_dbm[i] < app->rssi_dbm[i]) {
-                        app->peak_hold_dbm[i] = app->rssi_dbm[i];
-                    }
-                }
-            }
-
             bool cal_just_finished = false;
             bool cal_passed_result = false;
 
-            if(app->mode == EmScanModeCalPrep) {
-                if(app->cal_prep_ticks_left > 0) {
-                    app->cal_prep_ticks_left--;
-                }
-                if(app->cal_prep_ticks_left == 0) {
-                    app->mode = EmScanModeCalSampling;
-                    app->cal_sample_ticks_left = 20 * TICK_HZ;
-                    app->cal_sweep_count = 0;
-                }
-            } else if(app->mode == EmScanModeCalSampling) {
-                if(app->sweep_band == 0 && app->cal_sweep_count < 64) {
-                    for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-                        app->cal_samples[app->cal_sweep_count][i] = app->rssi_dbm[i];
-                    }
-                    app->cal_sweep_count++;
-                }
+            if(app->mode != EmScanModeNormal) {
+                // Legacy short round-robin dwell, unchanged — still drives
+                // Menu/CalPrep/CalSampling/CalStats. Calibration's timing
+                // (20s / 28 sweeps) is built around this fixed ~700ms full-
+                // cycle cadence, and it's the only thing besides the RF
+                // worker allowed to touch the CC1101, so it must not run
+                // while EmScanModeNormal (worker owns the radio then) —
+                // enforced by this if/else, and by starting/stopping the
+                // worker exactly on Normal-mode entry/exit below.
+                int band = app->sweep_band;
+                float peak;
+                em_scan_rf_dwell_band(band, &peak);
 
-                if(app->cal_sample_ticks_left > 0) {
-                    app->cal_sample_ticks_left--;
-                }
-                if(app->cal_sample_ticks_left == 0) {
-                    em_scan_cal_compute_stats(
-                        (const float(*)[EM_SCAN_NUM_FREQS])app->cal_samples,
-                        app->cal_sweep_count,
-                        app->cal_computed_floors,
-                        app->cal_computed_std_devs);
+                furi_mutex_acquire(app->mutex, FuriWaitForever);
+                app->rssi_dbm[band] = peak;
+                app->sweep_band = (band + 1) % EM_SCAN_NUM_FREQS;
 
-                    app->cal_passed = (app->cal_sweep_count >= 5);
-                    if(app->cal_passed) {
-                        for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-                            if(app->cal_computed_std_devs[i] >= EM_SCAN_CAL_MAX_STD_DEV_DB) {
-                                app->cal_passed = false;
-                                break;
-                            }
+                for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+                    if(app->rssi_dbm[i] > app->peak_hold_dbm[i]) {
+                        app->peak_hold_dbm[i] = app->rssi_dbm[i];
+                    } else {
+                        app->peak_hold_dbm[i] -= EM_SCAN_PEAK_DECAY_DB_PER_TICK;
+                        if(app->peak_hold_dbm[i] < app->rssi_dbm[i]) {
+                            app->peak_hold_dbm[i] = app->rssi_dbm[i];
                         }
                     }
-
-                    app->mode = EmScanModeCalStats;
-                    cal_just_finished = true;
-                    cal_passed_result = app->cal_passed;
                 }
-            }
 
-            if(app->recording && app->mode == EmScanModeNormal) {
-                if(app->sweep_band == 0) {
+                if(app->mode == EmScanModeCalPrep) {
+                    if(app->cal_prep_ticks_left > 0) {
+                        app->cal_prep_ticks_left--;
+                    }
+                    if(app->cal_prep_ticks_left == 0) {
+                        app->mode = EmScanModeCalSampling;
+                        app->cal_sample_ticks_left = 20 * TICK_HZ;
+                        app->cal_sweep_count = 0;
+                    }
+                } else if(app->mode == EmScanModeCalSampling) {
+                    if(app->sweep_band == 0 && app->cal_sweep_count < 64) {
+                        for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+                            app->cal_samples[app->cal_sweep_count][i] = app->rssi_dbm[i];
+                        }
+                        app->cal_sweep_count++;
+                    }
+
+                    if(app->cal_sample_ticks_left > 0) {
+                        app->cal_sample_ticks_left--;
+                    }
+                    if(app->cal_sample_ticks_left == 0) {
+                        em_scan_cal_compute_stats(
+                            (const float(*)[EM_SCAN_NUM_FREQS])app->cal_samples,
+                            app->cal_sweep_count,
+                            app->cal_computed_floors,
+                            app->cal_computed_std_devs);
+
+                        app->cal_passed = (app->cal_sweep_count >= 5);
+                        if(app->cal_passed) {
+                            for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+                                if(app->cal_computed_std_devs[i] >= EM_SCAN_CAL_MAX_STD_DEV_DB) {
+                                    app->cal_passed = false;
+                                    break;
+                                }
+                            }
+                        }
+
+                        app->mode = EmScanModeCalStats;
+                        cal_just_finished = true;
+                        cal_passed_result = app->cal_passed;
+                    }
+                }
+            } else {
+                // EmScanModeNormal: the RF worker thread owns sampling
+                // (long park per band, round-robin). The tick loop just
+                // pulls its latest snapshot for the UI and CSV row, on the
+                // tick's own 100ms cadence — decoupled from however long
+                // the worker takes to cycle all 7 bands, so logging
+                // resolution doesn't depend on park duration.
+                furi_mutex_acquire(app->mutex, FuriWaitForever);
+                em_scan_rf_worker_get_snapshot(app->rf_worker, app->rssi_dbm, app->peak_hold_dbm);
+
+                if(app->recording) {
                     if(!em_scan_log_row(app)) {
                         FURI_LOG_E("EmScan", "CSV row build/append failed");
                     }
-                }
-                app->total_ticks++;
-                if(++app->flush_counter >= TICK_HZ) {
-                    app->flush_counter = 0;
-                    if(sd_logger_batch_flush(app->logger) < 0) {
-                        FURI_LOG_E("EmScan", "Batch flush failed — stopping recording");
-                        sd_logger_stop(app->logger);
-                        app->recording = false;
+                    app->total_ticks++;
+                    if(++app->flush_counter >= TICK_HZ) {
+                        app->flush_counter = 0;
+                        if(sd_logger_batch_flush(app->logger) < 0) {
+                            FURI_LOG_E("EmScan", "Batch flush failed — stopping recording");
+                            sd_logger_stop(app->logger);
+                            app->recording = false;
+                        }
                     }
                 }
             }
@@ -590,6 +632,14 @@ int32_t em_scan_app(void* p) {
                         biomap_sound_confirm(true);
                         if(app->menu_selection == 0) {
                             app->mode = EmScanModeNormal; // Enter live walk scan screen
+                            // Radio ownership handoff: the legacy tick-driven
+                            // dwell above is now gated out of this mode, so
+                            // the worker must be the one actively tuning —
+                            // starting it here (rather than once at app
+                            // init) keeps the CC1101 idle/untouched whenever
+                            // the user isn't actually on the live scan
+                            // screen.
+                            em_scan_rf_worker_start(app->rf_worker);
                         } else if(app->menu_selection == 1) {
                             em_scan_start_calibration_wizard(app); // Launch Faraday Wizard
                         } else if(app->menu_selection == 2) {
@@ -608,6 +658,7 @@ int32_t em_scan_app(void* p) {
                         if(app->recording) {
                             em_scan_toggle_recording(app);
                         }
+                        em_scan_rf_worker_stop(app->rf_worker);
                         app->mode = EmScanModeMenu; // Return to Main Menu
                         biomap_sound_back(true);
                     } else if(ev.input.key == InputKeyOk) {
@@ -663,6 +714,13 @@ int32_t em_scan_app(void* p) {
         sd_logger_batch_flush(app->logger);
         sd_logger_stop(app->logger);
     }
+    // Worker must be fully stopped (joined) before the radio is powered
+    // down and before gps is freed — em_scan_rf_worker_free() stops it
+    // internally, so this ordering guarantees no worker iteration is still
+    // in flight touching either. Normal mode's Back handler already stops
+    // it on the common path; this is the defensive belt-and-braces path
+    // for exiting straight from Menu.
+    em_scan_rf_worker_free(app->rf_worker);
     em_scan_rf_deinit();
     furi_timer_free(app->timer);
     if(app->gps) gps_uart_free(app->gps);

@@ -12,6 +12,7 @@ App(
         "em_scan.c",
         "em_scan_cal.c",
         "em_scan_rf.c",
+        "em_scan_rf_worker.c",
         "minmea.c",
         "modules/gps_uart.c",
         "modules/sd_logger.c",

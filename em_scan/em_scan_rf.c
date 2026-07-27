@@ -103,3 +103,44 @@ void em_scan_rf_dwell_band(int band_index, float* out_peak_dbm) {
     furi_hal_subghz_idle();
     *out_peak_dbm = peak;
 }
+
+// Poll interval within em_scan_rf_park_band's dwell window. Was 2ms;
+// measured on real hardware (tracks 75-80) to inflate a configured 300ms
+// park to ~470-670ms real time, because furi_delay_ms() rounds up to the
+// nearest OS tick and that rounding cost is paid once per call — 150 calls
+// at 2ms each compounds it far more than fewer, longer calls would. 10ms
+// cuts the call count 5x (150 -> 30 per 300ms park), which should shrink
+// the overshoot by roughly the same factor. Still 100-1000x finer than any
+// real signal duration seen in the data so far (shortest confirmed event
+// was several seconds), so this isn't expected to cost any catch
+// probability — see track 78-80 analysis for the reasoning.
+#define EM_SCAN_PARK_POLL_MS 10
+
+void em_scan_rf_park_band(
+    int       band_index,
+    uint32_t  park_ms,
+    float*    out_peak_dbm,
+    float*    out_mean_dbm,
+    uint32_t* out_sample_count) {
+    furi_hal_subghz_idle();
+    furi_hal_subghz_set_frequency_and_path(em_scan_freq_hz[band_index]);
+    furi_hal_subghz_rx();
+
+    furi_delay_ms(EM_SCAN_WARMUP_MS);
+
+    float    peak = -127.0f;
+    double   sum = 0.0;
+    uint32_t count = 0;
+    for(uint32_t elapsed_ms = 0; elapsed_ms < park_ms; elapsed_ms += EM_SCAN_PARK_POLL_MS) {
+        float r = furi_hal_subghz_get_rssi();
+        if(r > peak) peak = r;
+        sum += (double)r;
+        count++;
+        furi_delay_ms(EM_SCAN_PARK_POLL_MS);
+    }
+
+    furi_hal_subghz_idle();
+    *out_peak_dbm = peak;
+    *out_mean_dbm = (count > 0) ? (float)(sum / (double)count) : peak;
+    *out_sample_count = count;
+}

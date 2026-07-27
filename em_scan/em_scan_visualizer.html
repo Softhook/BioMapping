@@ -431,7 +431,7 @@
             </button>
             <input type="file" id="file-input" accept=".csv" onchange="handleFileSelect(event)">
             <button class="btn btn-primary" onclick="loadSampleData()">
-                ⚡ Load Walk Track (biomap_071.csv)
+                ⚡ Load Walk Track (biomap_073.csv)
             </button>
         </div>
     </header>
@@ -929,30 +929,32 @@
             return data;
         }
 
-        // Load Sample Data (Fetch or Inline Fallback)
+        // Load Sample Data — tries a few relative paths in turn, since this
+        // page gets opened two different ways: directly from em_scan/, or
+        // via the em_scan_visualizer.html symlink at the repo root. A plain
+        // fetch('biomap_073.csv') resolves against the *request URL*, not
+        // the symlink's real on-disk location — from the root it 404s and
+        // silently fell through to the fake-London synthetic demo below,
+        // which is what "doesn't load correctly" turned out to be.
         function loadSampleData() {
-            const baseLat = 51.556026;
-            const baseLon = -0.071281;
+            const candidates = ['biomap_073.csv', 'em_scan/biomap_073.csv'];
 
-            fetch('biomap_071.csv')
-                .then(r => {
-                    if (!r.ok) throw new Error("HTTP Error " + r.status);
-                    return r.text();
-                })
-                .then(csvText => {
-                    let parsed = parseCSV(csvText);
-                    parsed.forEach((d, idx) => {
-                        if (d.lat === null || isNaN(d.lat)) {
-                            d.lat = baseLat + (Math.sin(idx * 0.05) * 0.0012) + (idx * 0.000008);
-                            d.lon = baseLon + (Math.cos(idx * 0.05) * 0.0015) + (idx * 0.000010);
-                        }
-                    });
-                    renderData(parsed);
-                })
-                .catch(err => {
-                    console.log("Using synthetic walk trajectory fallback:", err);
+            function tryNext(i) {
+                if (i >= candidates.length) {
+                    console.log("No real track file found at any candidate path — using synthetic fallback.");
                     generateDemoWalk();
-                });
+                    return;
+                }
+                fetch(candidates[i])
+                    .then(r => {
+                        if (!r.ok) throw new Error("HTTP " + r.status);
+                        return r.text();
+                    })
+                    .then(csvText => renderData(parseCSV(csvText)))
+                    .catch(() => tryNext(i + 1));
+            }
+
+            tryNext(0);
         }
 
         // Fallback Generator
