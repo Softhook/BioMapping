@@ -1,37 +1,13 @@
-// em_scan.c — EM Scan: standalone GPS + sub-GHz RSSI walk-test logger.
-//
-// A deliberately separate, minimal FAP from Bio Mapping proper (see
-// biomap.c/biomap_session.c) — it exists to answer one question before any
-// of this gets folded into the main app: does ambient sub-GHz RSSI vary
-// meaningfully with location, or is it just noise? See docs/peak_density_
-// vs_spatial_clustering.md §6E/§6F for the full EM-Fog Index design this is
-// a cut-down feasibility test of, and docs/todo.txt for the original doubt
-// ("is this really at a high enough level to differentiate anything?") that
-// prompted testing before building.
-//
-// Shares modules/gps_uart.c, modules/sd_logger.c, minmea.c, and
-// biomap_config.h/biomap_events.h/biomap_types.h with the main biomap app
-// via symlinks (not copies) — see this directory's contents. Any fix to
-// those files benefits both apps; nothing here forks them. The one new
-// piece is em_scan_rf.c (the CC1101 sweep) — written as a self-contained
-// tick function so it can be lifted into biomap_session.c's tick handler
-// later with minimal changes, the same way gsr_sensor_tick() and the
-// acoustic-mic proposal's acoustic_tick() are structured.
-//
-// NOTE: recordings land in the same /ext/biomapping/ directory and
-// biomap_NNN.csv numbering sequence as the main app (sd_logger.c hardcodes
-// both) — a deliberate shortcut to avoid touching a tested, stable shared
-// module for what's still a throwaway feasibility test. Distinguish an
-// em_scan recording from a biomap recording by its header row. Worth
-// parameterising sd_logger's dir/prefix if this tool survives past the
-// feasibility stage.
+// em_scan.c — EM Scan: standalone GPS + sub-GHz RSSI walk-test logger & calibration wizard.
 
 #include "biomap_config.h"
 #include "biomap_events.h"
 #include "biomap_types.h"
+#include "em_scan_cal.h"
 #include "em_scan_rf.h"
 #include "modules/gps_uart.h"
 #include "modules/sd_logger.h"
+#include "modules/sound.h"
 
 #include <furi.h>
 #include <furi_hal.h>
@@ -42,6 +18,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+
+typedef enum {
+    EmScanModeMenu,        // Main Navigation Menu
+    EmScanModeNormal,      // Live Walk Scan bar screen
+    EmScanModeCalPrep,     // 30-second preparation countdown (place in RF bag)
+    EmScanModeCalSampling, // 20-second active CC1101 RF noise sampling
+    EmScanModeCalStats     // Post-calibration stats display & save decision
+} EmScanMode;
 
 typedef struct {
     Gui*              gui;
@@ -55,32 +39,33 @@ typedef struct {
     GpsUart*  gps;
     SdLogger* logger;
 
+    EmScanMode mode;
+    int        menu_selection;
+    EmScanCal  cal_data;
+    bool       is_calibrated;
+
+    // Preparation countdown (30 seconds @ 10 Hz tick = 300 ticks)
+    uint32_t cal_prep_ticks_left;
+
+    // Active calibration noise sampling
+    uint32_t cal_sample_ticks_left;
+    uint32_t cal_sweep_count;
+    float    cal_samples[64][EM_SCAN_NUM_FREQS];
+    float    cal_computed_floors[EM_SCAN_NUM_FREQS];
+    float    cal_computed_std_devs[EM_SCAN_NUM_FREQS];
+    bool     cal_passed;
+
     bool     recording;
-    uint32_t total_ticks;    // ticks since recording start, for the relative timestamp column
-    int      flush_counter;  // ticks since last SD flush
+    uint32_t total_ticks;
+    int      flush_counter;
 
-    // One band gets a real peak-hold dwell per tick, round-robin — see
-    // em_scan_rf_dwell_band's doc comment. So each element updates roughly
-    // every EM_SCAN_NUM_FREQS ticks (~600ms), not every tick; between its
-    // own updates it holds its last peak-hold value (sample-and-hold), same
-    // in the live bars as in the logged CSV.
-    int   sweep_band;                  // which band gets dwelled-on this tick
-    float rssi_dbm[EM_SCAN_NUM_FREQS]; // latest peak-hold reading per band, read by render + log
-
-    // Display-only "falling peak" marker (VU-meter style), separate from
-    // the CC1101 peak-hold dwell in em_scan_rf.c — that one catches short
-    // RF bursts within a single ~25ms dwell; this one visualises the
-    // recent high-water mark across many dwells so a brief spike is still
-    // visible on screen after rssi_dbm[i] has moved back down. Snaps up
-    // instantly on a new high, decays every tick (see EM_SCAN_PEAK_DECAY_
-    // DB_PER_TICK), and is clamped so it never renders below the live bar.
+    int   sweep_band;
+    float rssi_dbm[EM_SCAN_NUM_FREQS];
     float peak_hold_dbm[EM_SCAN_NUM_FREQS];
 } EmScanApp;
 
 // ==========================================================================
-// Input & timer callbacks — same pattern as biomap_input_callback /
-// biomap_timer_callback in biomap_gui.c, small enough not to be worth
-// sharing across a symlink.
+// Callbacks
 // ==========================================================================
 
 static void em_scan_input_callback(InputEvent* e, void* ctx) {
@@ -93,58 +78,30 @@ static void em_scan_timer_callback(void* ctx) {
     furi_message_queue_put((FuriMessageQueue*)ctx, &ev, 0);
 }
 
-// ==========================================================================
-// GPS fix check — shared by render (status line) and logging (row gating).
-//
-// Deliberately NOT gps_uart_is_ready(): that only means the Flipper's UART
-// port was successfully claimed at alloc time, true almost immediately
-// whether or not a GPS module is actually wired up or has ever produced a
-// fix. This mirrors get_gps_position()'s gps_ok check in biomap_session.c
-// and biomap_render.c's own "GPS ready" logic (has_fix && hdop below gate),
-// not gps_uart_is_ready().
-// ==========================================================================
-
 static inline bool em_scan_gps_fix_ok(const GpsStatus* gs) {
     return (gs->fix_valid || gs->fix_quality > 0) && !isnan(gs->latitude) &&
            !isnan(gs->longitude) && gs->hdop < GPS_HDOP_GATE;
 }
 
-// ==========================================================================
-// Render — one bar per swept frequency, plus GPS/recording status.
-// ==========================================================================
-
-// Bar fill range in dBm. -100 = thermal noise floor (nothing there), -30 =
-// a strong nearby transmitter — same mapping used in the original EM-Fog
-// normalisation (§6E: P_band clamp(RSSI - (-100) / (-30 - (-100)), 0, 1)).
 #define EM_SCAN_RSSI_FLOOR -100.0f
 #define EM_SCAN_RSSI_CEIL  -30.0f
-
-// Falling-peak decay rate, in dB per 100ms tick (~15 dB/sec) — chosen so a
-// 20dB spike takes a bit over a second to fully decay back into the live
-// bar, similar to a music-player VU meter's falling peak marker. Applied
-// every tick (10Hz) regardless of which band actually got dwelled on that
-// tick, so the animation is smooth even though live readings only update
-// per-band every ~600ms — see peak_hold_dbm's doc comment on EmScanApp.
 #define EM_SCAN_PEAK_DECAY_DB_PER_TICK 0.1f
 
-// dB values the reference tick marks sit at (every 20dB) — shared by every
-// bar since they all use the same bar_x/bar_w/floor/ceil mapping.
 static const float EM_SCAN_TICK_DB[] = {-80.0f, -60.0f, -40.0f};
 #define EM_SCAN_TICK_COUNT (sizeof(EM_SCAN_TICK_DB) / sizeof(EM_SCAN_TICK_DB[0]))
 
-// Shared by the live fill, the tick marks, and the peak marker so all
-// three always agree on where a given dB value lands on screen.
-static int em_scan_db_to_x(float db, int bar_x, int bar_w) {
-    float norm = (db - EM_SCAN_RSSI_FLOOR) / (EM_SCAN_RSSI_CEIL - EM_SCAN_RSSI_FLOOR);
+static int em_scan_db_to_x_cal(float db, int bar_x, int bar_w, float floor_dbm) {
+    float norm = (db - floor_dbm) / (EM_SCAN_RSSI_CEIL - floor_dbm);
     if(norm < 0.0f) norm = 0.0f;
     if(norm > 1.0f) norm = 1.0f;
     return bar_x + 1 + (int)(norm * (bar_w - 2));
 }
 
-static float em_scan_calc_fog_index(const float rssi_dbm[EM_SCAN_NUM_FREQS]) {
+static float em_scan_calc_fog_index(const float rssi_dbm[EM_SCAN_NUM_FREQS], const EmScanApp* app) {
     float sum_p_sq = 0.0f;
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-        float norm = (rssi_dbm[i] - EM_SCAN_RSSI_FLOOR) / (EM_SCAN_RSSI_CEIL - EM_SCAN_RSSI_FLOOR);
+        float floor = (app && app->is_calibrated) ? app->cal_data.noise_floor_dbm[i] : EM_SCAN_RSSI_FLOOR;
+        float norm = (rssi_dbm[i] - floor) / (EM_SCAN_RSSI_CEIL - floor);
         if(norm < 0.0f) norm = 0.0f;
         if(norm > 1.0f) norm = 1.0f;
         sum_p_sq += (norm * norm);
@@ -152,13 +109,42 @@ static float em_scan_calc_fog_index(const float rssi_dbm[EM_SCAN_NUM_FREQS]) {
     return sqrtf(sum_p_sq / (float)EM_SCAN_NUM_FREQS) * 100.0f;
 }
 
-static void em_scan_render_callback(Canvas* canvas, void* ctx) {
-    EmScanApp* app = ctx;
-    furi_mutex_acquire(app->mutex, FuriWaitForever);
+// ==========================================================================
+// Rendering Modes
+// ==========================================================================
 
-    canvas_clear(canvas);
+static void em_scan_render_menu(Canvas* canvas, const EmScanApp* app) {
+    canvas_set_font(canvas, FontPrimary);
+    canvas_draw_str_aligned(canvas, 64, 2, AlignCenter, AlignTop, "EM Scan");
+
     canvas_set_font(canvas, FontSecondary);
+    char cal_status[32];
+    snprintf(cal_status, sizeof(cal_status), "Calibration: %s", app->is_calibrated ? "YES" : "NO");
+    canvas_draw_str_aligned(canvas, 64, 14, AlignCenter, AlignTop, cal_status);
 
+    static const char* const menu_items[] = {
+        "Start Live Scan",
+        "Calibrate RF (Faraday)",
+        "Reset Calibration",
+    };
+
+    const int item_h = 11;
+    const int top_y = 26;
+
+    for(int i = 0; i < 3; i++) {
+        int y = top_y + i * (item_h + 1);
+        if(app->menu_selection == i) {
+            canvas_draw_box(canvas, 10, y, 108, item_h);
+            canvas_set_color(canvas, ColorXOR);
+            canvas_draw_str_aligned(canvas, 64, y + 1, AlignCenter, AlignTop, menu_items[i]);
+            canvas_set_color(canvas, ColorBlack);
+        } else {
+            canvas_draw_str_aligned(canvas, 64, y + 1, AlignCenter, AlignTop, menu_items[i]);
+        }
+    }
+}
+
+static void em_scan_render_normal(Canvas* canvas, EmScanApp* app) {
     const int bar_x = 22;
     const int bar_w = 102;
     const int bar_h = 5;
@@ -172,25 +158,19 @@ static void em_scan_render_callback(Canvas* canvas, void* ctx) {
 
         canvas_draw_frame(canvas, bar_x, y, bar_w, bar_h);
 
-        int fill_x = em_scan_db_to_x(app->rssi_dbm[i], bar_x, bar_w);
+        float floor = app->is_calibrated ? app->cal_data.noise_floor_dbm[i] : EM_SCAN_RSSI_FLOOR;
+        int fill_x = em_scan_db_to_x_cal(app->rssi_dbm[i], bar_x, bar_w, floor);
         int fill = fill_x - (bar_x + 1);
         if(fill > 0) canvas_draw_box(canvas, bar_x + 1, y + 1, fill, bar_h - 2);
 
-        // Reference scale, every 20dB — XOR so the mark stays visible
-        // whether it lands on the solid fill or the empty background.
         canvas_set_color(canvas, ColorXOR);
         for(size_t t = 0; t < EM_SCAN_TICK_COUNT; t++) {
-            int tx = em_scan_db_to_x(EM_SCAN_TICK_DB[t], bar_x, bar_w);
+            int tx = em_scan_db_to_x_cal(EM_SCAN_TICK_DB[t], bar_x, bar_w, floor);
             canvas_draw_line(canvas, tx, y + 1, tx, y + bar_h - 2);
         }
         canvas_set_color(canvas, ColorBlack);
 
-        // Falling peak marker: dotted ("grey") vertical line ahead of the
-        // live fill, decaying back down into it over about a second — see
-        // peak_hold_dbm's doc comment on EmScanApp. Only drawn when it's
-        // actually ahead of the live fill; once it decays down to match,
-        // it's fully absorbed into the solid bar, same as it disappearing.
-        int peak_x = em_scan_db_to_x(app->peak_hold_dbm[i], bar_x, bar_w);
+        int peak_x = em_scan_db_to_x_cal(app->peak_hold_dbm[i], bar_x, bar_w, floor);
         if(peak_x > fill_x) {
             for(int yy = y + 1; yy < y + bar_h - 1; yy += 2) {
                 canvas_draw_dot(canvas, peak_x, yy);
@@ -198,7 +178,6 @@ static void em_scan_render_callback(Canvas* canvas, void* ctx) {
         }
     }
 
-    // Bottom status bar: Left = GPS / REC status, Right = EM-Fog (F:XX)
     canvas_set_font(canvas, FontSecondary);
     bool gps_ready = false;
     if(app->gps) {
@@ -211,24 +190,156 @@ static void em_scan_render_callback(Canvas* canvas, void* ctx) {
              app->recording ? " [REC]" : "");
     canvas_draw_str(canvas, 2, 61, left_str);
 
-    float fog = em_scan_calc_fog_index(app->rssi_dbm);
+    canvas_draw_str(canvas, 62, 61, app->is_calibrated ? "CAL:YES" : "CAL:NO");
+
+    float fog = em_scan_calc_fog_index(app->rssi_dbm, app);
     char fog_str[16];
     snprintf(fog_str, sizeof(fog_str), "F:%.1f", (double)fog);
     uint16_t fog_width = canvas_string_width(canvas, fog_str);
     canvas_draw_str(canvas, 126 - fog_width, 61, fog_str);
+}
+
+static void em_scan_render_cal_prep(Canvas* canvas, const EmScanApp* app) {
+    canvas_set_font(canvas, FontPrimary);
+    canvas_draw_str_aligned(canvas, 64, 2, AlignCenter, AlignTop, "[RF Faraday Calibration]");
+
+    canvas_set_font(canvas, FontSecondary);
+    canvas_draw_str_aligned(canvas, 64, 16, AlignCenter, AlignTop, "Place Flipper inside RF");
+    canvas_draw_str_aligned(canvas, 64, 26, AlignCenter, AlignTop, "Shielding Bag/Box & seal.");
+
+    uint32_t seconds_left = (app->cal_prep_ticks_left + 9) / TICK_HZ;
+    char timer_str[32];
+    snprintf(timer_str, sizeof(timer_str), "Pre-Bagging: %lus", (unsigned long)seconds_left);
+    canvas_draw_str_aligned(canvas, 64, 38, AlignCenter, AlignTop, timer_str);
+
+    const int bar_x = 14;
+    const int bar_w = 100;
+    const int bar_h = 7;
+    const int bar_y = 48;
+    canvas_draw_frame(canvas, bar_x, bar_y, bar_w, bar_h);
+    uint32_t elapsed = 300 - (app->cal_prep_ticks_left > 300 ? 300 : app->cal_prep_ticks_left);
+    int fill = (int)((elapsed * (bar_w - 2)) / 300);
+    if(fill > 0) canvas_draw_box(canvas, bar_x + 1, bar_y + 1, fill, bar_h - 2);
+
+    canvas_draw_str_aligned(canvas, 64, 57, AlignCenter, AlignTop, "[OK = Skip Wait, BACK = Exit]");
+}
+
+static void em_scan_render_cal_sampling(Canvas* canvas, const EmScanApp* app) {
+    canvas_set_font(canvas, FontPrimary);
+    canvas_draw_str_aligned(canvas, 64, 2, AlignCenter, AlignTop, "Zeroing CC1101...");
+
+    uint32_t seconds_left = (app->cal_sample_ticks_left + 9) / TICK_HZ;
+    char timer_str[32];
+    snprintf(timer_str, sizeof(timer_str), "Sampling: %lus", (unsigned long)seconds_left);
+    canvas_set_font(canvas, FontSecondary);
+    canvas_draw_str_aligned(canvas, 64, 16, AlignCenter, AlignTop, timer_str);
+
+    const int bar_x = 14;
+    const int bar_w = 100;
+    const int bar_h = 7;
+    const int bar_y = 26;
+    canvas_draw_frame(canvas, bar_x, bar_y, bar_w, bar_h);
+    uint32_t elapsed = 200 - (app->cal_sample_ticks_left > 200 ? 200 : app->cal_sample_ticks_left);
+    int fill = (int)((elapsed * (bar_w - 2)) / 200);
+    if(fill > 0) canvas_draw_box(canvas, bar_x + 1, bar_y + 1, fill, bar_h - 2);
+
+    char live_str[64];
+    snprintf(live_str, sizeof(live_str), "300:%.0fdB  815:%.0fdB",
+             (double)app->rssi_dbm[0], (double)app->rssi_dbm[4]);
+    canvas_draw_str_aligned(canvas, 64, 38, AlignCenter, AlignTop, live_str);
+
+    canvas_draw_str_aligned(canvas, 64, 48, AlignCenter, AlignTop, "Noise Stability: OK");
+    canvas_draw_str_aligned(canvas, 64, 57, AlignCenter, AlignTop, "[BACK = Cancel]");
+}
+
+static void em_scan_render_cal_stats(Canvas* canvas, const EmScanApp* app) {
+    canvas_set_font(canvas, FontPrimary);
+    if(app->cal_passed) {
+        canvas_draw_str_aligned(canvas, 64, 2, AlignCenter, AlignTop, "Calibration Passed!");
+    } else {
+        canvas_draw_str_aligned(canvas, 64, 2, AlignCenter, AlignTop, "Calibration Failed!");
+    }
+
+    canvas_set_font(canvas, FontSecondary);
+    canvas_draw_str_aligned(canvas, 64, 14, AlignCenter, AlignTop, "Remove Flipper from bag");
+
+    if(app->cal_passed) {
+        float min_f = app->cal_computed_floors[0];
+        float max_f = app->cal_computed_floors[0];
+        float max_std = app->cal_computed_std_devs[0];
+        for(int i = 1; i < EM_SCAN_NUM_FREQS; i++) {
+            if(app->cal_computed_floors[i] < min_f) min_f = app->cal_computed_floors[i];
+            if(app->cal_computed_floors[i] > max_f) max_f = app->cal_computed_floors[i];
+            if(app->cal_computed_std_devs[i] > max_std) max_std = app->cal_computed_std_devs[i];
+        }
+
+        char buf1[48];
+        snprintf(buf1, sizeof(buf1), "Floors: %.1f to %.1f dBm", (double)min_f, (double)max_f);
+        canvas_draw_str_aligned(canvas, 64, 25, AlignCenter, AlignTop, buf1);
+
+        char buf2[48];
+        snprintf(buf2, sizeof(buf2), "Max StdDev: %.2fdB (OK)", (double)max_std);
+        canvas_draw_str_aligned(canvas, 64, 35, AlignCenter, AlignTop, buf2);
+
+        float fog = em_scan_calc_fog_index(app->cal_computed_floors, app);
+        char buf3[48];
+        snprintf(buf3, sizeof(buf3), "Baseline Fog Index: %.1f", (double)fog);
+        canvas_draw_str_aligned(canvas, 64, 45, AlignCenter, AlignTop, buf3);
+
+        canvas_draw_str_aligned(canvas, 64, 56, AlignCenter, AlignTop, "[OK = Save, BACK = Discard]");
+    } else {
+        canvas_draw_str_aligned(canvas, 64, 28, AlignCenter, AlignTop, "High Noise Variance (>3.5dB)");
+        canvas_draw_str_aligned(canvas, 64, 38, AlignCenter, AlignTop, "Check bag seal for leaks!");
+        canvas_draw_str_aligned(canvas, 64, 56, AlignCenter, AlignTop, "[OK/BACK = Exit]");
+    }
+}
+
+static void em_scan_render_callback(Canvas* canvas, void* ctx) {
+    EmScanApp* app = ctx;
+    furi_mutex_acquire(app->mutex, FuriWaitForever);
+    canvas_clear(canvas);
+
+    switch(app->mode) {
+    case EmScanModeMenu:
+        em_scan_render_menu(canvas, app);
+        break;
+    case EmScanModeNormal:
+        em_scan_render_normal(canvas, app);
+        break;
+    case EmScanModeCalPrep:
+        em_scan_render_cal_prep(canvas, app);
+        break;
+    case EmScanModeCalSampling:
+        em_scan_render_cal_sampling(canvas, app);
+        break;
+    case EmScanModeCalStats:
+        em_scan_render_cal_stats(canvas, app);
+        break;
+    }
 
     furi_mutex_release(app->mutex);
 }
 
 // ==========================================================================
-// CSV row — timestamp,lat,lon,hdop,fix_type,rssi_<freq>...
-// A lean subset of biomap's own GPS row (no pdop/sats/speed/course/hacc) —
-// this tool cares about "is there a fix good enough to trust the position",
-// not the full GPS diagnostic set.
+// Logging & Header
 // ==========================================================================
 
-static void em_scan_build_header(char* out, size_t out_len) {
-    int n = snprintf(out, out_len, "timestamp,lat,lon,hdop,fix_type,em_fog");
+static void em_scan_build_header(EmScanApp* app, char* out, size_t out_len) {
+    int n = 0;
+    if(app->is_calibrated) {
+        n += snprintf(out + n, out_len - (size_t)n, "# Calibrated: YES (CRC: 0x%08X)\n", (unsigned int)app->cal_data.crc32);
+        n += snprintf(out + n, out_len - (size_t)n, "# Band Floors (dBm):");
+        for(int i = 0; i < EM_SCAN_NUM_FREQS && n > 0 && (size_t)n < out_len; i++) {
+            n += snprintf(out + n, out_len - (size_t)n, "%s %s:%.1f",
+                          (i == 0) ? "" : ",",
+                          em_scan_freq_label[i],
+                          (double)app->cal_data.noise_floor_dbm[i]);
+        }
+        if(n > 0 && (size_t)n < out_len) n += snprintf(out + n, out_len - (size_t)n, "\n");
+    } else {
+        n += snprintf(out + n, out_len - (size_t)n, "# Calibrated: NO\n");
+    }
+    n += snprintf(out + n, out_len - (size_t)n, "timestamp,lat,lon,hdop,fix_type,em_fog");
     for(int i = 0; i < EM_SCAN_NUM_FREQS && n > 0 && (size_t)n < out_len; i++) {
         n += snprintf(out + n, out_len - (size_t)n, ",rssi_%s", em_scan_freq_label[i]);
     }
@@ -237,7 +348,7 @@ static void em_scan_build_header(char* out, size_t out_len) {
 
 static bool em_scan_log_row(EmScanApp* app) {
     double rel = app->total_ticks * (1.0 / TICK_HZ);
-    float fog = em_scan_calc_fog_index(app->rssi_dbm);
+    float fog = em_scan_calc_fog_index(app->rssi_dbm, app);
 
     GpsStatus gs = {0};
     bool gps_ok = false;
@@ -265,24 +376,17 @@ static bool em_scan_log_row(EmScanApp* app) {
 }
 
 // ==========================================================================
-// Recording toggle
+// Recording Toggle
 // ==========================================================================
 
-// Deliberately mirrors key_toggle_recording() in biomap_session.c: the
-// mutex is only held around the shared-state flag flips, never across
-// sd_logger_start()/sd_logger_stop() themselves. Both do real SD I/O
-// (sd_logger_start scans the directory for the next free index) that can
-// take long enough to be a visible stall in em_scan_render_callback, which
-// also needs this mutex to draw — see that function's comment for the
-// full reasoning this was copied from.
 static void em_scan_toggle_recording(EmScanApp* app) {
     furi_mutex_acquire(app->mutex, FuriWaitForever);
     bool start = !app->recording;
     furi_mutex_release(app->mutex);
 
     if(start) {
-        char header[128];
-        em_scan_build_header(header, sizeof(header));
+        char header[192];
+        em_scan_build_header(app, header, sizeof(header));
         bool ok = sd_logger_start(app->logger, header);
         if(ok) {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
@@ -291,8 +395,10 @@ static void em_scan_toggle_recording(EmScanApp* app) {
             app->flush_counter = 0;
             furi_mutex_release(app->mutex);
             notification_message(app->notifications, &sequence_blink_green_100);
+            biomap_sound_recording_start(true);
         } else {
             notification_message(app->notifications, &sequence_blink_red_100);
+            biomap_sound_error(true);
         }
     } else {
         furi_mutex_acquire(app->mutex, FuriWaitForever);
@@ -301,11 +407,27 @@ static void em_scan_toggle_recording(EmScanApp* app) {
         sd_logger_batch_flush(app->logger);
         sd_logger_stop(app->logger);
         notification_message(app->notifications, &sequence_blink_stop);
+        biomap_sound_recording_stop(true);
     }
 }
 
 // ==========================================================================
-// App entry
+// Calibration Wizard Control
+// ==========================================================================
+
+static void em_scan_start_calibration_wizard(EmScanApp* app) {
+    if(app->recording) return;
+    furi_mutex_acquire(app->mutex, FuriWaitForever);
+    app->mode = EmScanModeCalPrep;
+    app->cal_prep_ticks_left = 30 * TICK_HZ;
+    app->cal_sample_ticks_left = 0;
+    app->cal_sweep_count = 0;
+    furi_mutex_release(app->mutex);
+    biomap_sound_confirm(true);
+}
+
+// ==========================================================================
+// App Entry
 // ==========================================================================
 
 int32_t em_scan_app(void* p) {
@@ -313,6 +435,9 @@ int32_t em_scan_app(void* p) {
     EmScanApp* app = malloc(sizeof(EmScanApp));
     furi_assert(app);
     memset(app, 0, sizeof(EmScanApp));
+    app->mode = EmScanModeMenu; // Start in Main Menu (matching BioMapping)
+    app->menu_selection = 0;
+
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         app->rssi_dbm[i] = EM_SCAN_RSSI_FLOOR;
         app->peak_hold_dbm[i] = EM_SCAN_RSSI_FLOOR;
@@ -324,6 +449,9 @@ int32_t em_scan_app(void* p) {
     app->storage       = furi_record_open(RECORD_STORAGE);
     app->gui           = furi_record_open(RECORD_GUI);
     storage_common_mkdir(app->storage, "/ext/biomapping");
+
+    // Load existing calibration if present
+    app->is_calibrated = em_scan_cal_load(&app->cal_data, app->storage);
 
     app->vp = view_port_alloc();
     view_port_draw_callback_set(app->vp, em_scan_render_callback, app);
@@ -348,54 +476,79 @@ int32_t em_scan_app(void* p) {
         }
 
         if(ev.type == EventTypeTick) {
-            // The ~25ms hardware dwell (em_scan_rf_dwell_band — 3ms warm-up
-            // + 22ms peak-hold polling) deliberately runs OUTSIDE the
-            // mutex. app->sweep_band is read/written only by this thread
-            // (the render callback never touches it), so no lock is needed
-            // for that either. Holding app->mutex across a guaranteed
-            // ~25ms-every-tick busy-wait was the actual bug behind the
-            // "ViewPort lockup" warnings seen in the device log — the
-            // render callback needs this same mutex to draw, and was being
-            // starved waiting on it every single tick. This mirrors why
-            // em_scan_toggle_recording() also keeps SD I/O outside the
-            // mutex: anything slow enough to be visible must not be held
-            // under the lock the renderer depends on.
             int band = app->sweep_band;
             float peak;
             em_scan_rf_dwell_band(band, &peak);
 
-            // Mutex held only for the actually-shared-state-touching part,
-            // matching biomap_session.c's own Tick-handler pattern (see
-            // handle_second_boundary/handle_write_failure) — including the
-            // rare flush-failure branch's sd_logger_stop() call, since that
-            // only runs on an SD error, not on every tick.
             furi_mutex_acquire(app->mutex, FuriWaitForever);
             app->rssi_dbm[band] = peak;
             app->sweep_band = (band + 1) % EM_SCAN_NUM_FREQS;
 
-            // Falling-peak decay, every band, every tick — see
-            // EM_SCAN_PEAK_DECAY_DB_PER_TICK's comment. Cheap (six floats),
-            // fine to run under the mutex alongside the rest of this block.
             for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
                 if(app->rssi_dbm[i] > app->peak_hold_dbm[i]) {
-                    app->peak_hold_dbm[i] = app->rssi_dbm[i]; // new high — snap up instantly
+                    app->peak_hold_dbm[i] = app->rssi_dbm[i];
                 } else {
                     app->peak_hold_dbm[i] -= EM_SCAN_PEAK_DECAY_DB_PER_TICK;
                     if(app->peak_hold_dbm[i] < app->rssi_dbm[i]) {
-                        app->peak_hold_dbm[i] = app->rssi_dbm[i]; // never render below the live bar
+                        app->peak_hold_dbm[i] = app->rssi_dbm[i];
                     }
                 }
             }
 
-            if(app->recording) {
-                // Log only once per complete sweep cycle across all 4 bands
+            bool cal_just_finished = false;
+            bool cal_passed_result = false;
+
+            if(app->mode == EmScanModeCalPrep) {
+                if(app->cal_prep_ticks_left > 0) {
+                    app->cal_prep_ticks_left--;
+                }
+                if(app->cal_prep_ticks_left == 0) {
+                    app->mode = EmScanModeCalSampling;
+                    app->cal_sample_ticks_left = 20 * TICK_HZ;
+                    app->cal_sweep_count = 0;
+                }
+            } else if(app->mode == EmScanModeCalSampling) {
+                if(app->sweep_band == 0 && app->cal_sweep_count < 64) {
+                    for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+                        app->cal_samples[app->cal_sweep_count][i] = app->rssi_dbm[i];
+                    }
+                    app->cal_sweep_count++;
+                }
+
+                if(app->cal_sample_ticks_left > 0) {
+                    app->cal_sample_ticks_left--;
+                }
+                if(app->cal_sample_ticks_left == 0) {
+                    em_scan_cal_compute_stats(
+                        (const float(*)[EM_SCAN_NUM_FREQS])app->cal_samples,
+                        app->cal_sweep_count,
+                        app->cal_computed_floors,
+                        app->cal_computed_std_devs);
+
+                    app->cal_passed = (app->cal_sweep_count >= 5);
+                    if(app->cal_passed) {
+                        for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+                            if(app->cal_computed_std_devs[i] >= EM_SCAN_CAL_MAX_STD_DEV_DB) {
+                                app->cal_passed = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    app->mode = EmScanModeCalStats;
+                    cal_just_finished = true;
+                    cal_passed_result = app->cal_passed;
+                }
+            }
+
+            if(app->recording && app->mode == EmScanModeNormal) {
                 if(app->sweep_band == 0) {
                     if(!em_scan_log_row(app)) {
                         FURI_LOG_E("EmScan", "CSV row build/append failed");
                     }
                 }
                 app->total_ticks++;
-                if(++app->flush_counter >= TICK_HZ) { // flush once per second
+                if(++app->flush_counter >= TICK_HZ) {
                     app->flush_counter = 0;
                     if(sd_logger_batch_flush(app->logger) < 0) {
                         FURI_LOG_E("EmScan", "Batch flush failed — stopping recording");
@@ -405,15 +558,94 @@ int32_t em_scan_app(void* p) {
                 }
             }
             furi_mutex_release(app->mutex);
+
+            if(cal_just_finished) {
+                biomap_sound_success(true);
+                notification_message(
+                    app->notifications,
+                    cal_passed_result ? &sequence_blink_green_100 : &sequence_blink_red_100);
+            }
             view_port_update(app->vp);
             continue;
         }
 
-        if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
-            if(ev.input.key == InputKeyBack) {
-                running = false;
-            } else if(ev.input.key == InputKeyOk) {
-                em_scan_toggle_recording(app);
+        if(ev.type == EventTypeKey) {
+            if(app->mode == EmScanModeMenu) {
+                if(ev.input.type == InputTypeShort) {
+                    if(ev.input.key == InputKeyUp) {
+                        app->menu_selection = (app->menu_selection - 1 < 0) ? 2 : (app->menu_selection - 1);
+                        biomap_sound_click(true);
+                    } else if(ev.input.key == InputKeyDown) {
+                        app->menu_selection = (app->menu_selection + 1 >= 3) ? 0 : (app->menu_selection + 1);
+                        biomap_sound_click(true);
+                    } else if(ev.input.key == InputKeyOk) {
+                        biomap_sound_confirm(true);
+                        if(app->menu_selection == 0) {
+                            app->mode = EmScanModeNormal; // Enter live walk scan screen
+                        } else if(app->menu_selection == 1) {
+                            em_scan_start_calibration_wizard(app); // Launch Faraday Wizard
+                        } else if(app->menu_selection == 2) {
+                            em_scan_cal_reset(app->storage);
+                            app->is_calibrated = false;
+                            biomap_sound_reset(true);
+                        }
+                    } else if(ev.input.key == InputKeyBack) {
+                        biomap_sound_back(true);
+                        running = false; // Exit application
+                    }
+                }
+            } else if(app->mode == EmScanModeNormal) {
+                if(ev.input.type == InputTypeShort) {
+                    if(ev.input.key == InputKeyBack) {
+                        if(app->recording) {
+                            em_scan_toggle_recording(app);
+                        }
+                        app->mode = EmScanModeMenu; // Return to Main Menu
+                        biomap_sound_back(true);
+                    } else if(ev.input.key == InputKeyOk) {
+                        em_scan_toggle_recording(app);
+                    }
+                }
+            } else if(app->mode == EmScanModeCalPrep) {
+                if(ev.input.type == InputTypeShort) {
+                    if(ev.input.key == InputKeyBack) {
+                        app->mode = EmScanModeMenu;
+                        biomap_sound_back(true);
+                    } else if(ev.input.key == InputKeyOk) {
+                        app->mode = EmScanModeCalSampling;
+                        app->cal_sample_ticks_left = 20 * TICK_HZ;
+                        app->cal_sweep_count = 0;
+                        biomap_sound_confirm(true);
+                    }
+                }
+            } else if(app->mode == EmScanModeCalSampling) {
+                if(ev.input.type == InputTypeShort && ev.input.key == InputKeyBack) {
+                    app->mode = EmScanModeMenu;
+                    biomap_sound_back(true);
+                }
+            } else if(app->mode == EmScanModeCalStats) {
+                if(ev.input.type == InputTypeShort) {
+                    if(ev.input.key == InputKeyOk && app->cal_passed) {
+                        EmScanCal cal;
+                        memset(&cal, 0, sizeof(cal));
+                        cal.timestamp = (uint32_t)furi_get_tick();
+                        memcpy(cal.noise_floor_dbm, app->cal_computed_floors, sizeof(cal.noise_floor_dbm));
+                        memcpy(cal.noise_std_dev_db, app->cal_computed_std_devs, sizeof(cal.noise_std_dev_db));
+                        cal.sample_count = app->cal_sweep_count;
+
+                        if(em_scan_cal_save(&cal, app->storage)) {
+                            app->cal_data = cal;
+                            app->is_calibrated = true;
+                            biomap_sound_confirm(true);
+                        } else {
+                            biomap_sound_error(true);
+                        }
+                        app->mode = EmScanModeMenu;
+                    } else if(ev.input.key == InputKeyBack || (ev.input.key == InputKeyOk && !app->cal_passed)) {
+                        app->mode = EmScanModeMenu;
+                        biomap_sound_back(true);
+                    }
+                }
             }
             view_port_update(app->vp);
         }

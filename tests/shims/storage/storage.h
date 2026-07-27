@@ -51,12 +51,34 @@ typedef struct {
     uint64_t size;
 } FileInfo;
 
+typedef enum {
+    FSE_OK = 0,
+    FSE_NOT_READY = 1,
+    FSE_EXIST = 2,
+    FSE_NOT_EXIST = 3,
+    FSE_INVALID_PARAMETER = 4,
+    FSE_DENIED = 5,
+    FSE_INVALID_OBJECT = 6,
+    FSE_WRITE_PROTECTED = 7,
+    FSE_ENABLED_DRIVE = 8,
+    FSE_NOT_ENABLED = 9,
+    FSE_NO_FILESYSTEM = 10,
+    FSE_ALREADY_EXISTS = 11,
+    FSE_INTERNAL = 12,
+} FS_Error;
+
 File* storage_file_alloc(Storage* storage);
 void  storage_file_free(File* file);
 
 bool   storage_file_open(File* file, const char* path, FS_AccessMode access_mode, FS_OpenMode open_mode);
 bool   storage_file_close(File* file);
 size_t storage_file_write(File* file, const void* buff, size_t bytes_to_write);
+size_t storage_file_read(File* file, void* buff, size_t bytes_to_read);
+
+bool storage_simply_remove(Storage* storage, const char* path);
+bool storage_common_remove(Storage* storage, const char* path);
+bool storage_common_mkdir(Storage* storage, const char* path);
+FS_Error storage_common_rename(Storage* storage, const char* old_path, const char* new_path);
 
 bool storage_dir_open(File* file, const char* path);
 bool storage_dir_close(File* file);

@@ -36,3 +36,11 @@ gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_sd_logger \
     tests/test_sd_logger.c modules/sd_logger.c \
     tests/shims/storage_mock.c -lm
 ./build/test_sd_logger
+
+echo
+echo "== test_em_scan_cal (EM Scanner RF noise calibration & persistence) =="
+gcc -Wall -Wextra -I . -I em_scan -I tests/shims -o build/test_em_scan_cal \
+    tests/test_em_scan_cal.c em_scan/em_scan_cal.c \
+    tests/shims/storage_mock.c -lm
+./build/test_em_scan_cal
+

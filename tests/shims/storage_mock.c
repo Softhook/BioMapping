@@ -120,11 +120,12 @@ bool storage_file_open(File* file, const char* path, FS_AccessMode access_mode, 
     (void)access_mode;
     Storage* s = file->storage;
 
+    if(s->fail_next_open) {
+        s->fail_next_open = false;
+        return false;
+    }
+
     if(open_mode == FSOM_CREATE_ALWAYS && (access_mode & FSAM_WRITE)) {
-        if(s->fail_next_open) {
-            s->fail_next_open = false;
-            return false;
-        }
         MockFile* existing = find_file(s, path);
         if(existing) {
             existing->size = 0;   // truncate to zero, matching FSOM_CREATE_ALWAYS
@@ -138,9 +139,15 @@ bool storage_file_open(File* file, const char* path, FS_AccessMode access_mode, 
         return true;
     }
 
-    // Only the write-create path above is exercised by sd_logger.c; other
-    // access/open mode combinations aren't used in production and aren't
-    // implemented here.
+    if(open_mode == FSOM_OPEN_EXISTING) {
+        MockFile* existing = find_file(s, path);
+        if(!existing) return false;
+        file->vfile = existing;
+        file->is_dir = false;
+        file->open = true;
+        return true;
+    }
+
     return false;
 }
 
@@ -214,3 +221,41 @@ bool storage_dir_read(File* file, FileInfo* fileinfo, char* name, uint16_t name_
     }
     return false;
 }
+
+size_t storage_file_read(File* file, void* buff, size_t bytes_to_read) {
+    if(!file || !file->vfile || !buff) return 0;
+    MockFile* f = file->vfile;
+    size_t to_copy = (bytes_to_read > f->size) ? f->size : bytes_to_read;
+    memcpy(buff, f->data, to_copy);
+    return to_copy;
+}
+
+bool storage_simply_remove(Storage* storage, const char* path) {
+    return storage_common_remove(storage, path);
+}
+
+bool storage_common_remove(Storage* storage, const char* path) {
+    MockFile* f = find_file(storage, path);
+    if(f) {
+        free(f->data);
+        memset(f, 0, sizeof(MockFile));
+        return true;
+    }
+    return false;
+}
+
+bool storage_common_mkdir(Storage* storage, const char* path) {
+    (void)storage;
+    (void)path;
+    return true;
+}
+
+FS_Error storage_common_rename(Storage* storage, const char* old_path, const char* new_path) {
+    MockFile* f = find_file(storage, old_path);
+    if(!f) return FSE_NOT_EXIST;
+    storage_common_remove(storage, new_path);
+    strncpy(f->path, new_path, MOCK_PATH_LEN - 1);
+    f->path[MOCK_PATH_LEN - 1] = '\0';
+    return FSE_OK;
+}
+
