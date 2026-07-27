@@ -164,9 +164,17 @@ static void em_scan_render_normal(Canvas* canvas, EmScanApp* app) {
         if(fill > 0) canvas_draw_box(canvas, bar_x + 1, y + 1, fill, bar_h - 2);
 
         canvas_set_color(canvas, ColorXOR);
-        for(size_t t = 0; t < EM_SCAN_TICK_COUNT; t++) {
-            int tx = em_scan_db_to_x_cal(EM_SCAN_TICK_DB[t], bar_x, bar_w, floor);
-            canvas_draw_line(canvas, tx, y + 1, tx, y + bar_h - 2);
+        if(app->is_calibrated) {
+            float rel_ticks[] = {floor + 15.0f, floor + 35.0f, floor + 55.0f};
+            for(size_t t = 0; t < 3; t++) {
+                int tx = em_scan_db_to_x_cal(rel_ticks[t], bar_x, bar_w, floor);
+                canvas_draw_line(canvas, tx, y + 1, tx, y + bar_h - 2);
+            }
+        } else {
+            for(size_t t = 0; t < EM_SCAN_TICK_COUNT; t++) {
+                int tx = em_scan_db_to_x_cal(EM_SCAN_TICK_DB[t], bar_x, bar_w, floor);
+                canvas_draw_line(canvas, tx, y + 1, tx, y + bar_h - 2);
+            }
         }
         canvas_set_color(canvas, ColorBlack);
 
