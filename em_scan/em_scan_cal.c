@@ -119,7 +119,15 @@ void em_scan_cal_compute_stats(
     float noise_floor_dbm[EM_SCAN_NUM_FREQS],
     float noise_std_dev_db[EM_SCAN_NUM_FREQS])
 {
-    if(count == 0 || !samples || !noise_floor_dbm || !noise_std_dev_db) return;
+    if(!samples || !noise_floor_dbm || !noise_std_dev_db) return;
+
+    if(count == 0) {
+        for(int b = 0; b < EM_SCAN_NUM_FREQS; b++) {
+            noise_floor_dbm[b] = EM_SCAN_CAL_MIN_FLOOR_DBM;
+            noise_std_dev_db[b] = 0.0f;
+        }
+        return;
+    }
 
     float band_vals[64];
     uint32_t n = (count > 64) ? 64 : count;

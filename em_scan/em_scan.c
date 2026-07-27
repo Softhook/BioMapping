@@ -353,7 +353,9 @@ static void em_scan_build_header(EmScanApp* app, char* out, size_t out_len) {
     int n = 0;
     if(app->is_calibrated) {
         n += snprintf(out + n, out_len - (size_t)n, "# Calibrated: YES (CRC: 0x%08X)\n", (unsigned int)app->cal_data.crc32);
-        n += snprintf(out + n, out_len - (size_t)n, "# Band Floors (dBm):");
+        if(n > 0 && (size_t)n < out_len) {
+            n += snprintf(out + n, out_len - (size_t)n, "# Band Floors (dBm):");
+        }
         for(int i = 0; i < EM_SCAN_NUM_FREQS && n > 0 && (size_t)n < out_len; i++) {
             n += snprintf(out + n, out_len - (size_t)n, "%s %s:%.1f",
                           (i == 0) ? "" : ",",
@@ -364,7 +366,9 @@ static void em_scan_build_header(EmScanApp* app, char* out, size_t out_len) {
     } else {
         n += snprintf(out + n, out_len - (size_t)n, "# Calibrated: NO\n");
     }
-    n += snprintf(out + n, out_len - (size_t)n, "timestamp,lat,lon,hdop,fix_type,em_fog");
+    if(n > 0 && (size_t)n < out_len) {
+        n += snprintf(out + n, out_len - (size_t)n, "timestamp,lat,lon,hdop,fix_type,em_fog");
+    }
     for(int i = 0; i < EM_SCAN_NUM_FREQS && n > 0 && (size_t)n < out_len; i++) {
         n += snprintf(out + n, out_len - (size_t)n, ",rssi_%s", em_scan_freq_label[i]);
     }
