@@ -228,7 +228,13 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         }
         canvas_set_font(c, FontSecondary);
         canvas_draw_str(c, 1, 10, badge);
-        top_left_edge = 1 + canvas_string_width(c, badge);
+        // Fixed worst-case reservation ("No fix", the widest candidate),
+        // NOT this frame's actual badge width — using the real width here
+        // means every hacc digit-count change moves this boundary, which
+        // visibly shifts the elapsed-time text sideways as it re-centers
+        // against a moving target every frame. See the elapsed-time
+        // comment below for the fuller rationale.
+        top_left_edge = 1 + canvas_string_width(c, "No fix");
     }
 
     // ── Diagnostics: GSR only, 6 labeled lines ─────────────────────────
@@ -321,19 +327,27 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                             snprintf(buf, sizeof(buf), "%ds", t_span);
                         }
                         canvas_draw_str(c, 1, 10, buf);
-                        top_left_edge = 1 + canvas_string_width(c, buf);
+                        // Fixed worst-case reservation, not this frame's
+                        // actual width — see the elapsed-time comment below.
+                        top_left_edge = 1 + canvas_string_width(c, "59m59s");
                         // nS value — top-right
                         snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.pipeline.display.filtered_ns);
-                        int x = 128 - canvas_string_width(c, buf) - (a->session.recording.active ? 12 : 2);
+                        int right_margin = a->session.recording.active ? 12 : 2;
+                        int x = 128 - canvas_string_width(c, buf) - right_margin;
                         canvas_draw_str(c, x, 10, buf);
-                        top_right_edge = x;
+                        // Fixed worst-case reservation ("-99999 nS" — real
+                        // readings have been observed up to 5 digits, e.g.
+                        // 10767), not this frame's actual nS-value width —
+                        // see the elapsed-time comment below for why.
+                        top_right_edge = 128 - canvas_string_width(c, "-99999 nS") - right_margin;
                     } else if(a->session.mode == BioMapModeGpsGsr) {
                         // nS value — top-right (GPS badge already at top-left)
                         char buf[16];
                         snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.pipeline.display.filtered_ns);
-                        int x = 128 - canvas_string_width(c, buf) - (a->session.recording.active ? 12 : 2);
+                        int right_margin = a->session.recording.active ? 12 : 2;
+                        int x = 128 - canvas_string_width(c, buf) - right_margin;
                         canvas_draw_str(c, x, 10, buf);
-                        top_right_edge = x;
+                        top_right_edge = 128 - canvas_string_width(c, "-99999 nS") - right_margin;
                     }
                 } else {
                     draw_sensor_alert(c, "NO SIGNAL");
@@ -344,10 +358,21 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         }
 
         // Elapsed recording time — centered in whatever gap remains between
-        // the top-left label and top-right nS value, clamped to their
-        // measured edges so it can never overlap either one. Minutes only
+        // the top-left label and top-right nS value, clamped to fixed
+        // worst-case edges so it can never overlap either one. Minutes only
         // (no seconds — not useful at a glance); rolls over to "1h05m"
         // past 60 minutes.
+        //
+        // top_left_edge/top_right_edge are deliberately sized from fixed
+        // placeholder strings ("No fix", "-99999 nS", etc.) above, NOT
+        // from this frame's actual badge/nS-value text. Using the real
+        // width made this text visibly slide sideways every frame: as the
+        // GSR reading's digit count changes (real readings span 4-5
+        // digits, e.g. 4565 to 10767) or GPS accuracy's digit count
+        // changes, the boundary it's centered against moved with it. The
+        // fixed placeholders are conservative (real content is always
+        // narrower or equal), so the elapsed-time text can still never
+        // overlap the badge/nS value — it just no longer chases them.
         if(a->session.recording.active) {
             char elapsed_buf[16];
             int elapsed_min = (int)(a->session.recording.total_ticks / TICK_HZ) / 60;
