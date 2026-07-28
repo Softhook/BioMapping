@@ -16,10 +16,10 @@
 #include <lib/subghz/devices/cc1101_configs.h>
 
 const uint32_t em_scan_freq_hz[EM_SCAN_NUM_FREQS] = {
-    300000000, 315000000, 433920000, 446000000, 815000000, 868350000, 915000000,
+    300000000, 433920000, 446000000, 815000000, 868350000, 915000000,
 };
 const char* const em_scan_freq_label[EM_SCAN_NUM_FREQS] = {
-    "300", "315", "434", "446", "815", "868", "915",
+    "300", "434", "446", "815", "868", "915",
 };
 
 // Warm-up after idle->tune->rx, discarded before peak-hold sampling

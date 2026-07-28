@@ -114,8 +114,8 @@ When starting a CSV recording, `em_scan` prepends calibration metadata to the lo
 ```csv
 # EM Scan Walk Log v1.0
 # Calibrated: TRUE (Date: 2026-07-25, CRC: 0x8A4E012F)
-# Band Floors (dBm): 300:-84.2, 315:-91.5, 434:-84.0, 446:-84.1, 815:-91.5, 868:-91.5, 915:-91.5
-timestamp,lat,lon,hdop,fix_type,em_fog,rssi_300,rssi_315,rssi_434,rssi_446,rssi_815,rssi_868,rssi_915
+# Band Floors (dBm): 300:-84.2, 434:-84.0, 446:-84.1, 815:-91.5, 868:-91.5, 915:-91.5
+timestamp,lat,lon,hdop,fix_type,em_fog,rssi_300,rssi_434,rssi_446,rssi_815,rssi_868,rssi_915
 ```
 
 ---

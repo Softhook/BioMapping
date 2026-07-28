@@ -12,14 +12,26 @@
 
 #include <stdint.h>
 
-#define EM_SCAN_NUM_FREQS 7
+// Single source of truth for the band count — em_scan_cal.h includes this
+// header rather than defining its own copy, so adding/removing a band only
+// needs three edits, all in this file/em_scan_rf.c: this count, and the two
+// arrays below (em_scan_freq_hz/em_scan_freq_label in em_scan_rf.c).
+// Everything else (UI bars, CSV columns, calibration struct sizing) is
+// already sized off this constant. Note: bumping EM_SCAN_CAL_VERSION in
+// em_scan_cal.h is also required whenever this count changes, since it
+// changes the on-disk calibration struct's size — see em_scan_cal.h.
+#define EM_SCAN_NUM_FREQS 6
 
 // Spot frequencies to sweep, in Hz. Chosen from the original 4-band EM-Fog
-// plan (315/433.92/868.3/915 MHz) plus two bands observed live on a walk
-// with the stock Spectrum Analyzer app: ~300 MHz (garage/PIR-type ISM
-// traffic) and ~815 MHz (top edge of the UK/EU 4G "800 MHz" downlink band,
-// 791-821 MHz). Edit freely — the point of this tool is finding out which
-// of these, if any, carry a real spatially-varying signal.
+// plan (433.92/868.3/915 MHz) plus two bands observed live on a walk with
+// the stock Spectrum Analyzer app: ~300 MHz (garage/PIR-type ISM traffic)
+// and ~815 MHz (top edge of the UK/EU 4G "800 MHz" downlink band,
+// 791-821 MHz). 315 MHz was dropped — it sits in one of the most
+// RF-congested consumer ISM bands (car keyfobs, TPMS, garage remotes) and
+// consistently failed the Faraday calibration's noise-stability check
+// because of that ambient traffic, not a device fault. Edit freely — the
+// point of this tool is finding out which of these, if any, carry a real
+// spatially-varying signal.
 extern const uint32_t em_scan_freq_hz[EM_SCAN_NUM_FREQS];
 extern const char* const em_scan_freq_label[EM_SCAN_NUM_FREQS];
 

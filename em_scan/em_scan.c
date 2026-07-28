@@ -272,7 +272,7 @@ static void em_scan_render_cal_sampling(Canvas* canvas, const EmScanApp* app) {
 
     char live_str[64];
     snprintf(live_str, sizeof(live_str), "300:%.0fdB  815:%.0fdB",
-             (double)app->rssi_dbm[0], (double)app->rssi_dbm[4]);
+             (double)app->rssi_dbm[0], (double)app->rssi_dbm[3]);
     canvas_draw_str_aligned(canvas, 64, 38, AlignCenter, AlignTop, live_str);
 
     canvas_draw_str_aligned(canvas, 64, 48, AlignCenter, AlignTop, "Noise Stability: OK");
@@ -314,9 +314,31 @@ static void em_scan_render_cal_stats(Canvas* canvas, const EmScanApp* app) {
         canvas_draw_str_aligned(canvas, 64, 45, AlignCenter, AlignTop, buf3);
 
         canvas_draw_str_aligned(canvas, 64, 56, AlignCenter, AlignTop, "[OK = Save, BACK = Discard]");
+    } else if(app->cal_sweep_count < 5) {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "Too few sweeps: %lu (need 5+)",
+                 (unsigned long)app->cal_sweep_count);
+        canvas_draw_str_aligned(canvas, 64, 28, AlignCenter, AlignTop, buf);
+        canvas_draw_str_aligned(canvas, 64, 38, AlignCenter, AlignTop, "Sampling ran too slow/short");
+        canvas_draw_str_aligned(canvas, 64, 56, AlignCenter, AlignTop, "[OK/BACK = Exit]");
     } else {
-        canvas_draw_str_aligned(canvas, 64, 28, AlignCenter, AlignTop, "High Noise Variance (>3.5dB)");
-        canvas_draw_str_aligned(canvas, 64, 38, AlignCenter, AlignTop, "Check bag seal for leaks!");
+        int   worst = 0;
+        float worst_std = app->cal_computed_std_devs[0];
+        for(int i = 1; i < EM_SCAN_NUM_FREQS; i++) {
+            if(app->cal_computed_std_devs[i] > worst_std) {
+                worst_std = app->cal_computed_std_devs[i];
+                worst = i;
+            }
+        }
+
+        canvas_draw_str_aligned(canvas, 64, 25, AlignCenter, AlignTop, "High Noise Variance (>3.5dB)");
+
+        char buf2[48];
+        snprintf(buf2, sizeof(buf2), "Worst: %sMHz %.2fdB",
+                 em_scan_freq_label[worst], (double)worst_std);
+        canvas_draw_str_aligned(canvas, 64, 36, AlignCenter, AlignTop, buf2);
+
+        canvas_draw_str_aligned(canvas, 64, 46, AlignCenter, AlignTop, "Check bag seal for leaks!");
         canvas_draw_str_aligned(canvas, 64, 56, AlignCenter, AlignTop, "[OK/BACK = Exit]");
     }
 }
@@ -616,7 +638,11 @@ int32_t em_scan_app(void* p) {
             furi_mutex_release(app->mutex);
 
             if(cal_just_finished) {
-                biomap_sound_success(true);
+                if(cal_passed_result) {
+                    biomap_sound_success(true);
+                } else {
+                    biomap_sound_error(true);
+                }
                 notification_message(
                     app->notifications,
                     cal_passed_result ? &sequence_blink_green_100 : &sequence_blink_red_100);

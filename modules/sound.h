@@ -138,7 +138,7 @@ static inline void biomap_sound_success(bool enabled) {
 // Error — calibration measurement/fit failed, GPS hot-start failed, header
 // build failed at recording start.
 static inline void biomap_sound_error(bool enabled) {
-    static const SoundNote notes[] = {{300.0f, 90}, {220.0f, 130}};
+    static const SoundNote notes[] = {{600.0f, 90}, {450.0f, 130}};
     biomap_sound_play(enabled, notes, 2, BIOMAP_SOUND_VOL_ALERT);
 }
 
@@ -148,6 +148,6 @@ static inline void biomap_sound_error(bool enabled) {
 // electrodes disconnecting. Deliberately harsher/longer than sound_error
 // so it doesn't get lost while walking.
 static inline void biomap_sound_warning(bool enabled) {
-    static const SoundNote notes[] = {{260.0f, 110}, {260.0f, 110}};
+    static const SoundNote notes[] = {{550.0f, 110}, {550.0f, 110}};
     biomap_sound_play(enabled, notes, 2, BIOMAP_SOUND_VOL_ALERT);
 }
