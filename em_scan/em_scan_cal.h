@@ -18,8 +18,17 @@
 #define EM_SCAN_CAL_MAX_SAMPLES    64          // Max sweep samples collected/consumed per calibration run
 
 #define EM_SCAN_CAL_MIN_FLOOR_DBM  -110.0f
-#define EM_SCAN_CAL_MAX_FLOOR_DBM  -70.0f
 #define EM_SCAN_CAL_MAX_STD_DEV_DB 3.5f
+
+// Per-band ceiling on the calibrated floor (dBm). Not a single flat value:
+// 300/434/446 MHz have ~2x the wavelength of 815/868/915 MHz, so the same
+// bag/seam gap leaks more there, and real ambient traffic on those bands
+// is sparser to begin with — a truly shielded reading realistically sits
+// higher (closer to -80dBm) than the 815-915 bands do (closer to -95dBm).
+// A single shared ceiling either lets the low bands pass unshielded or is
+// unreachable for them even when properly sealed. See em_scan_cal.c for
+// values, tune against real known-good sealed readings.
+extern const float em_scan_cal_max_floor_dbm[EM_SCAN_NUM_FREQS];
 
 #define EM_SCAN_CAL_PATH           "/ext/biomapping/em_scan_cal.bin"
 
@@ -36,7 +45,7 @@ typedef struct {
 // Computes CRC32 over all bytes of EmScanCal preceding the crc32 field itself.
 uint32_t em_scan_cal_compute_crc(const EmScanCal* cal);
 
-// Validates magic, version, CRC32, noise floor bounds (-110..-70 dBm), and max std dev (<3.5 dB).
+// Validates magic, version, CRC32, per-band noise floor ceiling (see em_scan_cal_max_floor_dbm), and max std dev (<3.5 dB).
 bool em_scan_cal_validate(const EmScanCal* cal);
 
 // Loads and validates calibration file from SD card. Returns true if valid file loaded.

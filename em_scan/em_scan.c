@@ -106,8 +106,7 @@ static inline bool em_scan_gps_fix_ok(const GpsStatus* gs) {
 // without needing several seconds per band.
 #define EM_SCAN_WORKER_PARK_MS 300
 
-static const float EM_SCAN_TICK_DB[] = {-80.0f, -60.0f, -40.0f};
-#define EM_SCAN_TICK_COUNT (sizeof(EM_SCAN_TICK_DB) / sizeof(EM_SCAN_TICK_DB[0]))
+
 
 static int em_scan_db_to_x_cal(float db, int bar_x, int bar_w, float floor_dbm) {
     float norm = (db - floor_dbm) / (EM_SCAN_RSSI_CEIL - floor_dbm);
@@ -183,21 +182,15 @@ static void em_scan_render_normal(Canvas* canvas, EmScanApp* app) {
         if(fill > 0) canvas_draw_box(canvas, bar_x + 1, y + 1, fill, bar_h - 2);
 
         canvas_set_color(canvas, ColorXOR);
-        if(app->is_calibrated) {
-            float rel_ticks[] = {floor + 15.0f, floor + 35.0f, floor + 55.0f};
-            for(size_t t = 0; t < 3; t++) {
-                int tx = em_scan_db_to_x_cal(rel_ticks[t], bar_x, bar_w, floor);
-                canvas_draw_line(canvas, tx, y + 1, tx, y + bar_h - 2);
-            }
-        } else {
-            for(size_t t = 0; t < EM_SCAN_TICK_COUNT; t++) {
-                int tx = em_scan_db_to_x_cal(EM_SCAN_TICK_DB[t], bar_x, bar_w, floor);
-                canvas_draw_line(canvas, tx, y + 1, tx, y + bar_h - 2);
-            }
+        static const float tick_fractions[] = {0.25f, 0.50f, 0.75f};
+        for(size_t t = 0; t < 3; t++) {
+            int tx = bar_x + 1 + (int)(tick_fractions[t] * (bar_w - 2));
+            canvas_draw_line(canvas, tx, y + 1, tx, y + bar_h - 2);
         }
         canvas_set_color(canvas, ColorBlack);
 
         int peak_x = em_scan_db_to_x_cal(app->peak_hold_dbm[i], bar_x, bar_w, floor);
+        if(peak_x > bar_x + bar_w - 2) peak_x = bar_x + bar_w - 2;
         if(peak_x > fill_x) {
             for(int yy = y + 1; yy < y + bar_h - 1; yy += 2) {
                 canvas_draw_dot(canvas, peak_x, yy);
@@ -322,23 +315,46 @@ static void em_scan_render_cal_stats(Canvas* canvas, const EmScanApp* app) {
         canvas_draw_str_aligned(canvas, 64, 38, AlignCenter, AlignTop, "Sampling ran too slow/short");
         canvas_draw_str_aligned(canvas, 64, 56, AlignCenter, AlignTop, "[OK/BACK = Exit]");
     } else {
-        int   worst = 0;
+        int   worst_std_idx = 0;
         float worst_std = app->cal_computed_std_devs[0];
-        for(int i = 1; i < EM_SCAN_NUM_FREQS; i++) {
+        int   worst_floor_idx = -1;
+        float worst_floor_margin = 0.0f; // how far the floor sits over ITS OWN band ceiling
+
+        for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
             if(app->cal_computed_std_devs[i] > worst_std) {
                 worst_std = app->cal_computed_std_devs[i];
-                worst = i;
+                worst_std_idx = i;
+            }
+            float margin = app->cal_computed_floors[i] - em_scan_cal_max_floor_dbm[i];
+            if(margin > worst_floor_margin) {
+                worst_floor_margin = margin;
+                worst_floor_idx = i;
             }
         }
 
-        canvas_draw_str_aligned(canvas, 64, 25, AlignCenter, AlignTop, "High Noise Variance (>3.5dB)");
+        if(worst_floor_idx >= 0) {
+            char hdr[32];
+            snprintf(hdr, sizeof(hdr), "Unshielded (>%.0fdBm)",
+                     (double)em_scan_cal_max_floor_dbm[worst_floor_idx]);
+            canvas_draw_str_aligned(canvas, 64, 25, AlignCenter, AlignTop, hdr);
 
-        char buf2[48];
-        snprintf(buf2, sizeof(buf2), "Worst: %sMHz %.2fdB",
-                 em_scan_freq_label[worst], (double)worst_std);
-        canvas_draw_str_aligned(canvas, 64, 36, AlignCenter, AlignTop, buf2);
+            char buf2[48];
+            snprintf(buf2, sizeof(buf2), "Worst: %sMHz %.1fdBm",
+                     em_scan_freq_label[worst_floor_idx],
+                     (double)app->cal_computed_floors[worst_floor_idx]);
+            canvas_draw_str_aligned(canvas, 64, 36, AlignCenter, AlignTop, buf2);
 
-        canvas_draw_str_aligned(canvas, 64, 46, AlignCenter, AlignTop, "Check bag seal for leaks!");
+            canvas_draw_str_aligned(canvas, 64, 46, AlignCenter, AlignTop, "Place Flipper in Faraday bag!");
+        } else {
+            canvas_draw_str_aligned(canvas, 64, 25, AlignCenter, AlignTop, "High Noise Variance (>3.5dB)");
+
+            char buf2[48];
+            snprintf(buf2, sizeof(buf2), "Worst: %sMHz %.2fdB",
+                     em_scan_freq_label[worst_std_idx], (double)worst_std);
+            canvas_draw_str_aligned(canvas, 64, 36, AlignCenter, AlignTop, buf2);
+
+            canvas_draw_str_aligned(canvas, 64, 46, AlignCenter, AlignTop, "Check bag seal for leaks!");
+        }
         canvas_draw_str_aligned(canvas, 64, 56, AlignCenter, AlignTop, "[OK/BACK = Exit]");
     }
 }
@@ -598,7 +614,9 @@ int32_t em_scan_app(void* p) {
                         app->cal_passed = (app->cal_sweep_count >= 5);
                         if(app->cal_passed) {
                             for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-                                if(app->cal_computed_std_devs[i] >= EM_SCAN_CAL_MAX_STD_DEV_DB) {
+                                if(app->cal_computed_floors[i] > em_scan_cal_max_floor_dbm[i] ||
+                                   app->cal_computed_floors[i] < EM_SCAN_CAL_MIN_FLOOR_DBM ||
+                                   app->cal_computed_std_devs[i] >= EM_SCAN_CAL_MAX_STD_DEV_DB) {
                                     app->cal_passed = false;
                                     break;
                                 }

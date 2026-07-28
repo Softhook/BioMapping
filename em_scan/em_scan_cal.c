@@ -6,6 +6,24 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Order matches em_scan_freq_hz/em_scan_freq_label in em_scan_rf.c:
+// 300, 434, 446, 815, 868, 915 MHz.
+//
+// Both ceilings tuned from real sealed-box readings in Christian's Faraday
+// box (2026-07-28), each with ~1.5dB margin above the observed floor:
+//   - 300 MHz:      -76.5dBm observed -> -75dBm ceiling. Longest wavelength
+//     of the 6 bands, so it's the hardest to seal (seam/zipper gaps leak
+//     more at longer wavelengths) — 434/446 share this ceiling as a
+//     starting estimate but aren't independently confirmed yet.
+//   - 815 MHz:      -91.5dBm observed -> -90dBm ceiling. 868/915 share
+//     this ceiling as a starting estimate, same caveat.
+// Revisit any of these if a genuine sealed reading fails on that specific
+// band — 434/446/868/915 haven't each been individually confirmed.
+const float em_scan_cal_max_floor_dbm[EM_SCAN_NUM_FREQS] = {
+    -75.0f, -75.0f, -75.0f, // 300/434/446 MHz
+    -90.0f, -90.0f, -90.0f, // 815/868/915 MHz
+};
+
 uint32_t em_scan_cal_compute_crc(const EmScanCal* cal) {
     if(!cal) return 0;
     const uint8_t* p = (const uint8_t*)cal;
@@ -28,7 +46,7 @@ bool em_scan_cal_validate(const EmScanCal* cal) {
 
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         float floor = cal->noise_floor_dbm[i];
-        if(isnan(floor) || floor < EM_SCAN_CAL_MIN_FLOOR_DBM || floor > EM_SCAN_CAL_MAX_FLOOR_DBM) {
+        if(isnan(floor) || floor < EM_SCAN_CAL_MIN_FLOOR_DBM || floor > em_scan_cal_max_floor_dbm[i]) {
             return false;
         }
         float std_dev = cal->noise_std_dev_db[i];
@@ -147,9 +165,13 @@ void em_scan_cal_compute_stats(
         sort_floats(band_vals, n);
         uint32_t p10_idx = n / 10;
         if(p10_idx >= n) p10_idx = n - 1;
+        // Only clamp the low end (sanity bound against a garbage/absent
+        // reading). Do NOT clamp to the per-band ceiling here — the whole
+        // point of that ceiling is to catch a floor that's too high
+        // (unshielded), and clamping it away before callers ever compare
+        // against it would make that check unreachable.
         float floor = band_vals[p10_idx];
         if(floor < EM_SCAN_CAL_MIN_FLOOR_DBM) floor = EM_SCAN_CAL_MIN_FLOOR_DBM;
-        if(floor > EM_SCAN_CAL_MAX_FLOOR_DBM) floor = EM_SCAN_CAL_MAX_FLOOR_DBM;
         noise_floor_dbm[b] = floor;
     }
 }
