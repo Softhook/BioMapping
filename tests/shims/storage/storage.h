@@ -72,6 +72,7 @@ void  storage_file_free(File* file);
 
 bool   storage_file_open(File* file, const char* path, FS_AccessMode access_mode, FS_OpenMode open_mode);
 bool   storage_file_close(File* file);
+bool   storage_file_sync(File* file);
 size_t storage_file_write(File* file, const void* buff, size_t bytes_to_write);
 size_t storage_file_read(File* file, void* buff, size_t bytes_to_read);
 

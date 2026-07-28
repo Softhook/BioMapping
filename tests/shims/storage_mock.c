@@ -156,6 +156,15 @@ bool storage_file_close(File* file) {
     return true;
 }
 
+// The mock's "storage" is just process memory — storage_file_write()
+// already wrote directly into it, so there's no separate cache to commit.
+// Always succeeds; no fail-injection hook exists for this yet since no
+// test currently needs to exercise a sync failure.
+bool storage_file_sync(File* file) {
+    (void)file;
+    return true;
+}
+
 size_t storage_file_write(File* file, const void* buff, size_t bytes_to_write) {
     Storage* s = file->storage;
     if(s->fail_writes) return 0;

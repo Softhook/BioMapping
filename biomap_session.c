@@ -280,6 +280,29 @@ static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
         return false;
     }
 
+    // TEMPORARY DIAGNOSTIC (2026-07-28): logging free/minimum-free heap
+    // once a second, inline in the CSV as a "#"-prefixed comment line
+    // (same convention the header already uses for RecordingStartTime /
+    // Band Floors) — investigating a real on-device "furi_check failed"
+    // crash during a GPS+GSR+RF walk with no further detail on-screen.
+    // Remove once the crash is understood; this is instrumentation, not a
+    // fix. Best-effort: return value ignored, an occasional dropped
+    // diagnostic line doesn't matter the way a real data row would.
+    sd_logger_batch_printf(s->logger, "# heap:free=%u min=%u\n",
+                            (unsigned)memmgr_get_free_heap(),
+                            (unsigned)memmgr_get_minimum_free_heap());
+    // Force this line to the SD card immediately, bypassing the normal
+    // FLUSH_INTERVAL (5s) batching below. On an abrupt crash/reset,
+    // anything still sitting in the RAM batch buffer is lost — this is
+    // also why track 86 came out as a 0-byte file: even the header was
+    // still unflushed when the crash hit. Flushing every second here caps
+    // worst-case loss at ~1s instead of up to 5s, so the heap trend
+    // actually reaches disk close to the moment of a crash. Deliberately
+    // separate from the FLUSH_INTERVAL flush/failure-handling below —
+    // this is about maximizing diagnostic capture, not the recording's
+    // own data-integrity guarantees, so its result isn't checked here.
+    sd_logger_batch_flush(s->logger);
+
     bool play_warning = false;
 
     // ── LED blink (every second, independent of flush interval) ────────

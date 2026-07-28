@@ -153,6 +153,23 @@ int sd_logger_batch_flush(SdLogger* l) {
     }
 
     l->gsr_batch_len = 0;
+
+    // Force the write through to physical media now, not just into the
+    // filesystem's own cache. Without this, storage_file_write() "succeeding"
+    // only means the bytes are handed to FatFs — they can still be lost
+    // entirely on a hard crash/reset before the file is ever closed
+    // (sd_logger_stop()'s storage_file_close(), the only other place that
+    // would commit them). A failed sync here is NOT treated as a flush
+    // failure: the bytes are already written and gsr_batch_len is already
+    // cleared, so returning -1 (which callers treat as "retry the same
+    // buffer") would duplicate this data on the next flush. Log it and
+    // move on — the next flush's sync call will very likely catch up
+    // regardless, since FatFs sync typically commits all outstanding
+    // cached writes for the file, not just the most recent one.
+    if(!storage_file_sync(l->file)) {
+        FURI_LOG_W("SdLogger", "Batch flush: sync failed (written, not yet confirmed durable)");
+    }
+
     return flushed;
 }
 
