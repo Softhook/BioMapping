@@ -170,7 +170,15 @@ static inline GpsPosition get_gps_position(const Session* s) {
 static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
                                 double rel, float raw, const float* rf_rssi) {
     bool gps_ok = pos->valid && pos->hdop < GPS_HDOP_GATE;
-    char row[256];
+    // static, not a stack local: this runs on the main app thread's tick
+    // path every ~100ms during a real recording, alongside GPS/GSR/RF
+    // worker-management call chains that weren't all exercised together
+    // before this merge (see the em_scan_rf_worker.c stack-size bump made
+    // alongside this, prompted by a real on-device crash during the first
+    // sustained outdoor GPS+GSR+RF walk). Safe as static since this
+    // function is never reentrant or called concurrently — always one
+    // call at a time from the single main app thread's tick handler.
+    static char row[256];
     int n;
     if(gps_ok) {
         bool has_vel = !isnan(pos->speed_kts) && !isnan(pos->course_deg);
@@ -210,8 +218,17 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
 // Dispatches to format_gps_csv_row for GPS+GSR mode; handles GSR-only
 // and GPS-skip ticks directly.  Rows are flushed at the 1‑second boundary
 // by handle_second_boundary().
+//
+// rf_rssi is fetched by the caller BEFORE app->mutex is acquired (see the
+// Tick handler below) rather than here — em_scan_rf_worker_get_snapshot()
+// briefly blocks on the RF worker's own internal mutex, and this function
+// runs entirely inside an app->mutex-held critical section that
+// biomap_render_callback() also needs to draw. The same principle
+// handle_write_failure()'s comment already documents for sound calls
+// applies here: nothing that can block, even briefly, belongs inside that
+// section, or the recording screen's redraw gets delayed.
 // Returns true on success, false on buffer overflow.
-static bool batch_csv_row(Session* s, float raw) {
+static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
     if(!s->recording.active || !has_gsr(s->mode)) return true;
 
     double rel = pipeline_rel_seconds(s->recording.total_ticks);
@@ -220,20 +237,13 @@ static bool batch_csv_row(Session* s, float raw) {
     if(s->mode == BioMapModeGsrOnly) {
         ret = sd_logger_batch_printf(s->logger, "%.2f,%.1f\n",
                                      rel, (double)raw);
+    } else if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
+        GpsPosition pos = get_gps_position(s);
+        return format_gps_csv_row(s, &pos, rel, raw, rf_rssi);
     } else {
-        float rf_rssi[EM_SCAN_NUM_FREQS];
-        float rf_peak_hold[EM_SCAN_NUM_FREQS];
-        if(s->rf_worker) {
-            em_scan_rf_worker_get_snapshot(s->rf_worker, rf_rssi, rf_peak_hold);
-        }
-        if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
-            GpsPosition pos = get_gps_position(s);
-            return format_gps_csv_row(s, &pos, rel, raw, s->rf_worker ? rf_rssi : NULL);
-        } else {
-            // GPS-skip tick: preserve GSR data with empty GPS columns.
-            GpsPosition empty = {0};
-            return format_gps_csv_row(s, &empty, rel, raw, s->rf_worker ? rf_rssi : NULL);
-        }
+        // GPS-skip tick: preserve GSR data with empty GPS columns.
+        GpsPosition empty = {0};
+        return format_gps_csv_row(s, &empty, rel, raw, rf_rssi);
     }
     return ret > 0;
 }
@@ -571,20 +581,17 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
 }
 
 // ── Handle one GSR tick (10 Hz) during a recording session ────────────────
+// rf_rssi: see batch_csv_row's comment — fetched by the caller before
+// app->mutex is held, not in here.
 // Returns true on success, false if a batch overflow occurred (caller should
 // flush and potentially stop recording).
-static bool handle_recording_tick(Session* s) {
+static bool handle_recording_tick(Session* s, const float* rf_rssi) {
     // ── GPS-only mode: write a row on the GPS tick boundary ────────────
     if(!has_gsr(s->mode) && has_gps(s->mode) && s->recording.active) {
         if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
             GpsPosition pos = get_gps_position(s);
-            float rf_rssi[EM_SCAN_NUM_FREQS];
-            float rf_peak_hold[EM_SCAN_NUM_FREQS];
-            if(s->rf_worker) {
-                em_scan_rf_worker_get_snapshot(s->rf_worker, rf_rssi, rf_peak_hold);
-            }
             return format_gps_csv_row(s, &pos, pipeline_rel_seconds(s->recording.total_ticks), 0.0f,
-                                       s->rf_worker ? rf_rssi : NULL);
+                                       rf_rssi);
         }
         return true;
     }
@@ -620,7 +627,7 @@ static bool handle_recording_tick(Session* s) {
             pipeline_update_graph(&s->pipeline);
         }
     }
-    return batch_csv_row(s, raw);
+    return batch_csv_row(s, raw, rf_rssi);
 }
 
 // ── Run a recording session for the given mode ─────────────────────────────
@@ -726,8 +733,23 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             continue;
 
         if(ev.type == EventTypeTick) {
+            // Fetch the RF snapshot BEFORE acquiring app->mutex, not inside
+            // handle_recording_tick(). em_scan_rf_worker_get_snapshot()
+            // briefly blocks on the RF worker's own internal mutex; doing
+            // that while already holding app->mutex (which
+            // biomap_render_callback() also needs to draw) could delay a
+            // redraw every single tick, not just occasionally — see
+            // batch_csv_row's comment. Reading s->rf_worker itself without
+            // app->mutex here is safe: only this same thread ever writes
+            // it (at session setup/teardown, never during the tick loop).
+            float rf_rssi[EM_SCAN_NUM_FREQS];
+            float rf_peak_hold[EM_SCAN_NUM_FREQS];
+            if(s->rf_worker) {
+                em_scan_rf_worker_get_snapshot(s->rf_worker, rf_rssi, rf_peak_hold);
+            }
+
             furi_mutex_acquire(app->mutex, FuriWaitForever);
-            bool batch_ok = handle_recording_tick(s);
+            bool batch_ok = handle_recording_tick(s, s->rf_worker ? rf_rssi : NULL);
             s->recording.total_ticks++;
 
             bool play_warning = false;

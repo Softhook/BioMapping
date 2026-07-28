@@ -123,12 +123,19 @@ static inline bool has_gsr(int mode) {
         || mode == BioMapModeDiagnostics;
 }
 
-// RF scanning gating — currently identical to has_gps() (RF readings are
-// only useful spatially, so they're only ever active alongside GPS), but
-// kept as a separate name so this is one documented toggle point rather
-// than an alias that could silently diverge from GPS gating later.
+// RF scanning gating. Includes Diagnostics (which has no GPS at all) as a
+// deliberate exception to the "RF is only useful alongside GPS" rule below:
+// Diagnostics already surfaces the GSR worker's real measured throughput
+// (gsr_sensor_get_worker_hz(), success/duplicate/stale rates, window P2P) —
+// the only place in the app that does — so starting the RF worker there
+// too (still gated on the same Options > RF Scan toggle) lets that screen
+// double as a live instrument for RF/GSR thread-contention impact: toggle
+// RF Scan, re-enter Diagnostics, compare the numbers. Everywhere else,
+// RF is gated identically to has_gps() (RF readings are only spatially
+// useful, so only active alongside GPS).
 static inline bool has_rf(int mode) {
-    return mode == BioMapModeGpsGsr || mode == BioMapModeGpsOnly;
+    return mode == BioMapModeGpsGsr || mode == BioMapModeGpsOnly
+        || mode == BioMapModeDiagnostics;
 }
 
 // Expand a 2-digit NMEA year to a 4-digit calendar year (Y2K pivot at 80).

@@ -100,11 +100,15 @@ void em_scan_rf_worker_start(EmScanRfWorker* w) {
     w->running = true;
     furi_mutex_release(w->mutex);
 
-    // 2048B is a guess, not a measured figure — the deepest call chain
-    // (park_band -> furi_hal_subghz -> CC1101 SPI driver) hasn't been
-    // profiled on real hardware. Check furi_thread_get_stack_space() on
-    // this thread during hardware testing before trusting this number.
-    w->thread = furi_thread_alloc_ex("EmScanRfWorker", 2048, em_scan_rf_worker_thread_fn, w);
+    // 3072B — bumped from the original 2048B guess after a real-hardware
+    // crash (furi crash screen) during the first sustained outdoor walk
+    // test of this thread running alongside GSR/GPS in the merged
+    // BioMapping app (2048B had never been profiled — see the original
+    // note this replaces). Still not a measured figure: check
+    // furi_thread_get_stack_space() on this thread during hardware testing
+    // before trusting this number either — this is a safety-margin
+    // increase in response to a real crash, not a confirmed root-cause fix.
+    w->thread = furi_thread_alloc_ex("EmScanRfWorker", 3072, em_scan_rf_worker_thread_fn, w);
     // Priority set to Low so the RF worker background sweep yields to higher priority
     // event-handling threads (GUI, GPS, GSR sampling).
     furi_thread_set_priority(w->thread, FuriThreadPriorityLow);
