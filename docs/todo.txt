@@ -11,3 +11,5 @@ Consider other GSR imrpoovments in code
 Send realtime data to mobile phone / laptop - upload to server
 
 physical form factor - 3d printed case
+
+include a date in the calibration. When the calibration is more than a month old ask the user to recalibrate the device
