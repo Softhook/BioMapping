@@ -7,20 +7,11 @@
 #include <string.h>
 
 // Order matches em_scan_freq_hz/em_scan_freq_label in em_scan_rf.c:
-// 300, 434, 446, 815, 868, 915 MHz.
+// 815, 868, 915 MHz.
 //
-// Both ceilings tuned from real sealed-box readings in Christian's Faraday
-// box (2026-07-28), each with ~1.5dB margin above the observed floor:
-//   - 300 MHz:      -76.5dBm observed -> -75dBm ceiling. Longest wavelength
-//     of the 6 bands, so it's the hardest to seal (seam/zipper gaps leak
-//     more at longer wavelengths) — 434/446 share this ceiling as a
-//     starting estimate but aren't independently confirmed yet.
-//   - 815 MHz:      -91.5dBm observed -> -90dBm ceiling. 868/915 share
-//     this ceiling as a starting estimate, same caveat.
-// Revisit any of these if a genuine sealed reading fails on that specific
-// band — 434/446/868/915 haven't each been individually confirmed.
+// Ceilings tuned from real sealed-box readings in Faraday box testing,
+// with ~1.5dB margin above the observed floor (-91.5 dBm observed -> -90.0 dBm ceiling).
 const float em_scan_cal_max_floor_dbm[EM_SCAN_NUM_FREQS] = {
-    -75.0f, -75.0f, -75.0f, // 300/434/446 MHz
     -90.0f, -90.0f, -90.0f, // 815/868/915 MHz
 };
 

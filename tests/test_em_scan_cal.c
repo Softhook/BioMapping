@@ -20,10 +20,9 @@ static void test_cal_checksum(void) {
     cal.magic = EM_SCAN_CAL_MAGIC;
     cal.version = EM_SCAN_CAL_VERSION;
     cal.timestamp = 1700000000;
-    // 300/434/446 MHz (ceiling -80dBm) vs 815/868/915 MHz (ceiling -95dBm) —
-    // see em_scan_cal_max_floor_dbm.
+    // 815/868/915 MHz (ceiling -90 dBm)
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-        cal.noise_floor_dbm[i] = (i < 3) ? (-85.0f - (float)i) : (-96.0f - (float)(i - 3));
+        cal.noise_floor_dbm[i] = -95.0f - (float)i;
         cal.noise_std_dev_db[i] = 0.5f;
     }
     cal.sample_count = 28;
@@ -45,28 +44,17 @@ static void test_cal_validation_bounds(void) {
     cal.magic = EM_SCAN_CAL_MAGIC;
     cal.version = EM_SCAN_CAL_VERSION;
 
-    // Out of bounds noise floor (above every band's ceiling)
+    // Out of bounds noise floor (above ceiling -90 dBm)
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-        cal.noise_floor_dbm[i] = -60.0f; // invalid
+        cal.noise_floor_dbm[i] = -85.0f; // invalid (ceiling is -90 dBm)
         cal.noise_std_dev_db[i] = 1.0f;
     }
     cal.crc32 = em_scan_cal_compute_crc(&cal);
     assert(!em_scan_cal_validate(&cal));
 
-    // Per-band ceiling: a floor that's fine for the low bands (300/434/446,
-    // ceiling -80dBm) but unshielded for the high bands (815/868/915,
-    // ceiling -95dBm) must still fail overall.
+    // High std dev (unshielded burst, > 3.5 dB), floor within ceiling
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-        cal.noise_floor_dbm[i] = -85.0f;
-        cal.noise_std_dev_db[i] = 1.0f;
-    }
-    cal.crc32 = em_scan_cal_compute_crc(&cal);
-    assert(!em_scan_cal_validate(&cal));
-
-    // High std dev (unshielded burst, > 3.5 dB), floor within every ceiling
-    // so this isolates the variance check specifically.
-    for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-        cal.noise_floor_dbm[i] = -96.0f;
+        cal.noise_floor_dbm[i] = -95.0f;
         cal.noise_std_dev_db[i] = 4.2f; // invalid (> 3.5 dB)
     }
     cal.crc32 = em_scan_cal_compute_crc(&cal);
@@ -82,7 +70,7 @@ static void test_cal_serialization(void) {
     memset(&cal_save, 0, sizeof(cal_save));
     cal_save.timestamp = 1700000000;
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-        cal_save.noise_floor_dbm[i] = (i < 3) ? (-84.0f - (float)i) : (-96.0f - (float)(i - 3));
+        cal_save.noise_floor_dbm[i] = -95.0f - (float)i;
         cal_save.noise_std_dev_db[i] = 0.4f + (float)i * 0.1f;
     }
     cal_save.sample_count = 28;

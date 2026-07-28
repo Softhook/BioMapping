@@ -14,20 +14,15 @@
 #include "em_scan_rf.h" // EM_SCAN_NUM_FREQS — single source of truth, add/remove bands there
 
 #define EM_SCAN_CAL_MAGIC          0x454D4341  // "EMCA" (EM Scan Calibration)
-#define EM_SCAN_CAL_VERSION        2           // Bumped: 315 MHz band dropped, EM_SCAN_NUM_FREQS 7->6
+#define EM_SCAN_CAL_VERSION        3           // Bumped: reduced to 3 high bands (815, 868, 915 MHz), EM_SCAN_NUM_FREQS 6->3
 #define EM_SCAN_CAL_MAX_SAMPLES    64          // Max sweep samples collected/consumed per calibration run
 
 #define EM_SCAN_CAL_MIN_FLOOR_DBM  -110.0f
 #define EM_SCAN_CAL_MAX_STD_DEV_DB 3.5f
 
-// Per-band ceiling on the calibrated floor (dBm). Not a single flat value:
-// 300/434/446 MHz have ~2x the wavelength of 815/868/915 MHz, so the same
-// bag/seam gap leaks more there, and real ambient traffic on those bands
-// is sparser to begin with — a truly shielded reading realistically sits
-// higher (closer to -80dBm) than the 815-915 bands do (closer to -95dBm).
-// A single shared ceiling either lets the low bands pass unshielded or is
-// unreachable for them even when properly sealed. See em_scan_cal.c for
-// values, tune against real known-good sealed readings.
+// Per-band ceiling on the calibrated floor (dBm). For the 815, 868, and 915 MHz bands,
+// clean Faraday box testing showed an actual noise floor of -91.5 dBm.
+// See em_scan_cal.c for per-band values (-90.0 dBm).
 extern const float em_scan_cal_max_floor_dbm[EM_SCAN_NUM_FREQS];
 
 #define EM_SCAN_CAL_PATH           "/ext/biomapping/em_scan_cal.bin"

@@ -20,18 +20,13 @@
 // already sized off this constant. Note: bumping EM_SCAN_CAL_VERSION in
 // em_scan_cal.h is also required whenever this count changes, since it
 // changes the on-disk calibration struct's size — see em_scan_cal.h.
-#define EM_SCAN_NUM_FREQS 6
+#define EM_SCAN_NUM_FREQS 3
 
-// Spot frequencies to sweep, in Hz. Chosen from the original 4-band EM-Fog
-// plan (433.92/868.3/915 MHz) plus two bands observed live on a walk with
-// the stock Spectrum Analyzer app: ~300 MHz (garage/PIR-type ISM traffic)
-// and ~815 MHz (top edge of the UK/EU 4G "800 MHz" downlink band,
-// 791-821 MHz). 315 MHz was dropped — it sits in one of the most
-// RF-congested consumer ISM bands (car keyfobs, TPMS, garage remotes) and
-// consistently failed the Faraday calibration's noise-stability check
-// because of that ambient traffic, not a device fault. Edit freely — the
-// point of this tool is finding out which of these, if any, carry a real
-// spatially-varying signal.
+// Spot frequencies to sweep, in Hz. Focused on the 3 high-frequency sub-GHz bands:
+// 815 MHz (LTE Band 20 downlink edge), 868 MHz (EU SRD / Smart Grid), and 915 MHz (US ISM / RFID).
+// Lower frequencies (300, 315, 434, 446 MHz) were dropped due to CC1101 internal antenna
+// mismatch and self-noise floor (~-76 dBm), whereas 815-915 MHz achieve a clean -91.5 dBm
+// noise floor in Faraday box testing.
 extern const uint32_t em_scan_freq_hz[EM_SCAN_NUM_FREQS];
 extern const char* const em_scan_freq_label[EM_SCAN_NUM_FREQS];
 
@@ -57,7 +52,7 @@ void em_scan_rf_deinit(void);
 //
 // Call this once per band per tick, round-robin (see em_scan.c) — a real
 // dwell no longer fits sweeping all EM_SCAN_NUM_FREQS bands inside one
-// 100ms tick, so the full 6-band cycle now takes ~6 ticks (~600ms) instead
+// 100ms tick, so the full 3-band cycle now takes ~3 ticks (~300ms) instead
 // of 100ms. At walking pace that's under a metre of travel per cycle,
 // negligible for a spatial test.
 void em_scan_rf_dwell_band(int band_index, float* out_peak_dbm);

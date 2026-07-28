@@ -105,18 +105,9 @@ void em_scan_rf_worker_start(EmScanRfWorker* w) {
     // profiled on real hardware. Check furi_thread_get_stack_space() on
     // this thread during hardware testing before trusting this number.
     w->thread = furi_thread_alloc_ex("EmScanRfWorker", 2048, em_scan_rf_worker_thread_fn, w);
-    // TEMPORARY DIAGNOSTIC CHANGE (2026-07-27): set to Normal instead of
-    // Low to test whether Low priority is why real per-band park time
-    // measures ~630-670ms against a configured 300ms (see track 75
-    // analysis — 300/315/434/446 all showed ~4.4-4.7s per 7-band cycle,
-    // not the ~2.1s that 7x300ms predicts). There's no GSR thread in this
-    // standalone build to protect from right now, so testing at Normal is
-    // safe today — but if/when this integrates with BioMapping's GSR
-    // worker (see em_scan_worker_integration_plan.md), this MUST go back
-    // to Low (or lower than GSR's priority, whatever that ends up being)
-    // so the scheduler guarantees GSR is never starved. Don't forget to
-    // revisit this once the priority question is answered.
-    furi_thread_set_priority(w->thread, FuriThreadPriorityNormal);
+    // Priority set to Low so the RF worker background sweep yields to higher priority
+    // event-handling threads (GUI, GPS, GSR sampling).
+    furi_thread_set_priority(w->thread, FuriThreadPriorityLow);
     furi_thread_start(w->thread);
 }
 
