@@ -71,6 +71,12 @@ void em_scan_rf_init(void) {
                    diff <= EM_SCAN_FREQ_TOLERANCE_HZ ? "" : "  <-- MISMATCH");
     }
     #undef EM_SCAN_FREQ_TOLERANCE_HZ
+    // Loop ends with PLL locked to em_scan_freq_hz[EM_SCAN_NUM_FREQS-1] (915 MHz).
+    // Calling idle() puts the radio into Idle state but leaves the PLL there.
+    // em_scan_rf_park_band() always calls idle() + set_frequency_and_path() at
+    // the top of every visit, so this residual state is unconditionally reset
+    // before any real sampling begins — no caller should rely on the post-init
+    // frequency being any particular value.
     furi_hal_subghz_idle();
 }
 
@@ -91,10 +97,18 @@ void em_scan_rf_dwell_band(int band_index, float* out_peak_dbm) {
 
     furi_delay_ms(EM_SCAN_WARMUP_MS);
 
-    // Yield execution context to FreeRTOS (furi_delay_ms(1)) instead of
-    // busy-waiting with microseconds, significantly saving CPU power.
+    // Terminate on measured elapsed time, not a counted iteration: the old
+    // `for(elapsed_ms = 0; elapsed_ms < EM_SCAN_DWELL_MS; elapsed_ms++)`
+    // called furi_delay_ms(1) once per iteration but furi_delay_ms() rounds
+    // up to the nearest OS tick — on real hardware each 1ms call typically
+    // takes 2-4ms, so 22 iterations ran for 44-88ms instead of 22ms. Same
+    // fix as em_scan_rf_park_band() above: check real elapsed ticks so the
+    // loop exits as soon as actual time reaches EM_SCAN_DWELL_MS regardless
+    // of scheduling jitter.
     float peak = -127.0f;
-    for(uint32_t elapsed_ms = 0; elapsed_ms < EM_SCAN_DWELL_MS; elapsed_ms++) {
+    uint32_t start_tick = furi_get_tick();
+    uint32_t dwell_ticks = (EM_SCAN_DWELL_MS * furi_kernel_get_tick_frequency()) / 1000;
+    while(furi_get_tick() - start_tick < dwell_ticks) {
         float r = furi_hal_subghz_get_rssi();
         if(r > peak) peak = r;
         furi_delay_ms(1);

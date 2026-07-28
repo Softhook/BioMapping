@@ -37,7 +37,15 @@ typedef enum {
 // to the "%.2f,%.7f,..." format strings.
 #define BIOMAP_CSV_COLS_GPS_GSR  "timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m\n"
 #define BIOMAP_CSV_COLS_GSR_ONLY "timestamp,gsr_raw\n"
-// rssi_815/868/915 order must match em_scan_freq_label[] in em_scan_rf.c —
-// if that array changes, this header string needs to change too.
+// rssi_815/868/915 = raw peak from the most recent park on that band.
+// rssi_peak_815/868/915 = decaying peak-hold across all parks (see
+// em_scan_rf_worker.c's EM_SCAN_WORKER_TARGET_DECAY_DB_PER_SEC) — persists
+// across stale rows where the raw value is repeated unchanged, making RF
+// signal events visible even at the RF worker's slow update rate (~1/3s
+// nominal, up to 12s stall in practice).
+// Column order (raw then peak per band) must match the snprintf in
+// format_gps_csv_row() and em_scan_freq_label[] in em_scan_rf.c.
 #define BIOMAP_CSV_COLS_GPS_GSR_RF \
-    "timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,rssi_815,rssi_868,rssi_915\n"
+    "timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m," \
+    "rssi_815,rssi_868,rssi_915,rssi_peak_815,rssi_peak_868,rssi_peak_915\n"
+

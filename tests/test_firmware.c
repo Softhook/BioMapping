@@ -72,32 +72,53 @@ static inline double minmea_tocoord_double(const struct minmea_float* f) {
 }
 
 static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
-                                double rel, float raw) {
+                                double rel, float raw,
+                                const float* rf_rssi, const float* rf_peak_hold) {
+    (void)s;
     bool gps_ok = pos->valid && pos->hdop < GPS_HDOP_GATE;
-    int ret;
+
+    char row[300];
+    int n;
     if(gps_ok) {
         bool has_vel = !isnan(pos->speed_kts) && !isnan(pos->course_deg);
         if(has_vel) {
-            ret = sd_logger_batch_printf(s->logger,
-                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f\n",
+            n = snprintf(row, sizeof(row),
+                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f",
                 rel, pos->lat, pos->lon,
                 (double)pos->hdop, (double)pos->pdop,
                 pos->sats, pos->fix_type,
                 (double)pos->speed_kts, (double)pos->course_deg, (double)raw,
                 (double)pos->hacc);
         } else {
-            ret = sd_logger_batch_printf(s->logger,
-                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,,,%.1f,%.1f\n",
+            n = snprintf(row, sizeof(row),
+                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,,,%.1f,%.1f",
                 rel, pos->lat, pos->lon,
                 (double)pos->hdop, (double)pos->pdop,
                 pos->sats, pos->fix_type, (double)raw, (double)pos->hacc);
         }
     } else {
-        ret = sd_logger_batch_printf(s->logger, "%.2f,,,,,,,,,%.1f,\n",
-                                     rel, (double)raw);
+        n = snprintf(row, sizeof(row), "%.2f,,,,,,,,,%.1f,",
+                     rel, (double)raw);
     }
-    return ret > 0;
+    if(n <= 0 || (size_t)n >= sizeof(row)) return false;
+
+    if(rf_rssi && rf_peak_hold) {
+        int n2 = snprintf(row + n, sizeof(row) - (size_t)n,
+                         ",%.1f,%.1f,%.1f,%.1f,%.1f,%.1f\n",
+                         (double)rf_rssi[0],      (double)rf_rssi[1],      (double)rf_rssi[2],
+                         (double)rf_peak_hold[0], (double)rf_peak_hold[1], (double)rf_peak_hold[2]);
+        if(n2 <= 0 || (size_t)(n + n2) >= sizeof(row)) return false;
+        n += n2;
+    } else {
+        int n2 = snprintf(row + n, sizeof(row) - (size_t)n, "\n");
+        if(n2 <= 0 || (size_t)(n + n2) >= sizeof(row)) return false;
+        n += n2;
+    }
+
+    strcpy(mock_logger_buf, row);
+    return true;
 }
+
 
 // --- Test Suites ---
 
@@ -480,7 +501,7 @@ void test_csv_formatting() {
     Session s = {0};
     GpsPosition pos = {0};
 
-    // Case 1: Valid 3D GPS fix with speed and course
+    // Case 1: Valid 3D GPS fix with speed and course — RF OFF (rf_rssi = NULL, rf_peak_hold = NULL)
     pos.valid = true;
     pos.lat = 51.5557397;
     pos.lon = -0.0714595;
@@ -493,23 +514,35 @@ void test_csv_formatting() {
     pos.hacc = 2.4f;
 
     mock_logger_buf[0] = '\0';
-    format_gps_csv_row(&s, &pos, 1.25, 8345.3f);
+    format_gps_csv_row(&s, &pos, 1.25, 8345.3f, NULL, NULL);
     assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4\n") == 0);
 
-    // Case 2: Valid GPS fix but no speed/course (stationary)
+    // Case 2: Valid GPS fix but no speed/course (stationary) — RF OFF
     pos.speed_kts = NAN;
     pos.course_deg = NAN;
     mock_logger_buf[0] = '\0';
-    format_gps_csv_row(&s, &pos, 2.50, 8350.0f);
+    format_gps_csv_row(&s, &pos, 2.50, 8350.0f, NULL, NULL);
     assert(strcmp(mock_logger_buf, "2.50,51.5557397,-0.0714595,0.9,1.3,16,3,,,8350.0,2.4\n") == 0);
 
-    // Case 3: Invalid GPS fix (e.g. startup, or high HDOP > 5.0)
+    // Case 3: Invalid GPS fix (e.g. startup, or high HDOP > 5.0) — RF OFF
     pos.hdop = 6.0f; // Exceeds gate limit
     mock_logger_buf[0] = '\0';
-    format_gps_csv_row(&s, &pos, 3.75, 8400.0f);
+    format_gps_csv_row(&s, &pos, 3.75, 8400.0f, NULL, NULL);
     assert(strcmp(mock_logger_buf, "3.75,,,,,,,,,8400.0,\n") == 0);
+
+    // Case 4: Valid GPS fix — RF ON (6 extra columns: 3 raw RSSI + 3 decaying peak-hold)
+    pos.hdop = 0.9f;
+    pos.speed_kts = 5.25f;
+    pos.course_deg = 330.2f;
+    float rf_rssi[3] = {-91.5f, -88.0f, -90.5f};
+    float rf_peak_hold[3] = {-85.0f, -82.5f, -87.0f};
+    mock_logger_buf[0] = '\0';
+    format_gps_csv_row(&s, &pos, 1.25, 8345.3f, rf_rssi, rf_peak_hold);
+    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4,-91.5,-88.0,-90.5,-85.0,-82.5,-87.0\n") == 0);
+
     printf("  -> Pass\n");
 }
+
 
 // Mirrors the FIXED sd_logger_batch_printf() in modules/sd_logger.c: on a
 // truncated (buffer-would-overflow) row, it must roll back to the length

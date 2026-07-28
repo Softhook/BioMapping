@@ -66,7 +66,12 @@ void em_scan_rf_worker_stop(EmScanRfWorker* w);
 // EM_SCAN_NUM_FREQS long) out for the UI/CSV logger to consume — mirrors
 // the shape of EmScanApp's own rssi_dbm/peak_hold_dbm arrays so the
 // existing renderer and em_scan_log_row() need minimal changes.
+//
+// out_rssi_dbm is required (furi_assert if NULL).
+// out_peak_hold_dbm is optional — pass NULL to skip the peak-hold copy
+// if only the raw per-band RSSI is needed.
 void em_scan_rf_worker_get_snapshot(
     EmScanRfWorker* w,
     float*          out_rssi_dbm,
     float*          out_peak_hold_dbm);
+

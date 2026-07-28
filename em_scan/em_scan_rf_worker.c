@@ -144,8 +144,12 @@ void em_scan_rf_worker_get_snapshot(
     float*          out_rssi_dbm,
     float*          out_peak_hold_dbm) {
     furi_assert(w);
+    furi_assert(out_rssi_dbm); // rssi is always required
     furi_mutex_acquire(w->mutex, FuriWaitForever);
     memcpy(out_rssi_dbm, w->rssi_dbm, sizeof(w->rssi_dbm));
-    memcpy(out_peak_hold_dbm, w->peak_hold_dbm, sizeof(w->peak_hold_dbm));
+    // out_peak_hold_dbm is optional: pass NULL if only the raw RSSI is needed.
+    if(out_peak_hold_dbm) {
+        memcpy(out_peak_hold_dbm, w->peak_hold_dbm, sizeof(w->peak_hold_dbm));
+    }
     furi_mutex_release(w->mutex);
 }

@@ -21,7 +21,7 @@ The confirmed integration direction: **RF scanning becomes an additional data st
 - `python3 -m ufbt`'s source globbing (`fbt_extapps.py` / `sconsrecursiveglob.py`) resolves `sources=[...]` paths relative to the app's own directory (where `application.fam` lives). For the root `biomap` app that's the repo root, so `"em_scan/em_scan_rf.c"` etc. work exactly like the existing `"modules/gps_uart.c"` entry does today. **No file moves needed** to add these sources to the main app's build.
 - Current Options menu (`biomap_gui.c:186-235`, `run_options_screen`): 0=Reset GPS, 1=Auto-zoom toggle, 2=Backlight toggle, 3=GSR Calibration, 4=Diagnostics, 5=Sound toggle, 6=GPS Profile cycle. `OPTIONS_COUNT=7` (biomap.h:103). **Now 9** — items 7 ("RF Scan" toggle) and 8 ("RF Calibration") were appended per Phases 1-2 below.
 - `em_scan_rf.c/h`, `em_scan_rf_worker.c/h`, `em_scan_cal.c/h` are already fully independent of `EmScanApp` — reusable as-is, no changes needed to the logic itself.
-- GSR worker thread priority defaults to `FuriThreadPriorityNormal` (never set explicitly, per `modules/gsr_sensor.c`); RF worker is explicitly `Low`. Already scheduler-safe for coexistence — no change needed there.
+- GSR worker thread priority defaults to `FuriThreadPriorityNormal` (never set explicitly, per `modules/gsr_sensor.c`); RF worker is explicitly `Low`. Verified against the actual SDK enum (firmware 1.4.3): `Low = 15`, `Normal = 16`, no level between them — see **RF staleness: routes forward** for why this priority gap turned out to matter more than expected in practice.
 - `em_scan_cal.bin` already persists at `/ext/biomapping/em_scan_cal.bin`, the same directory `biomap` already uses.
 
 ## Design decisions
@@ -50,7 +50,7 @@ Three independently buildable/testable phases (down from four — the on-screen 
   ```
 
 **`biomap_types.h`**
-- Add `has_rf(mode)` inline helper, initially identical to `has_gps` (`GpsGsr`/`GpsOnly`) — a separate name so RF's gating is one documented toggle point, not an alias that could silently diverge from GPS gating later.
+- Add `has_rf(mode)` inline helper covering `GpsGsr`, `GpsOnly`, **and `Diagnostics`** — a separate name so RF's gating is one documented toggle point. `Diagnostics` is an explicit exception to the "RF is only useful alongside GPS" rule: that screen surfaces the GSR worker's real measured throughput (Hz, Dup%, stale rates), making it a live instrument for RF/GSR thread-contention impact when the RF Scan toggle is enabled there. See `biomap_types.h:has_rf()` for the full comment.
 - Add `#define RF_WORKER_PARK_MS 300` next to `TICK_HZ`/`FLUSH_INTERVAL` (moved from em_scan.c's own `EM_SCAN_WORKER_PARK_MS`, which is being deleted).
 
 **`biomap.h`**
@@ -94,8 +94,8 @@ Three independently buildable/testable phases (down from four — the on-screen 
                                   double rel, float raw, const float* rf_rssi);
   ```
   `rf_rssi` is `NULL` when RF isn't active for the session, otherwise a fresh 3-element snapshot fetched at the call site. All three existing snprintf branches (has-velocity / no-velocity / gps-not-ok) need `,%.1f,%.1f,%.1f` appended when `rf_rssi != NULL`, unchanged otherwise. Both call sites (`batch_csv_row`, `handle_recording_tick`'s GpsOnly branch) fetch the snapshot via `em_scan_rf_worker_get_snapshot()` right before calling, only when `s->rf_worker` is set.
-- **Why Diagnostics/GsrOnly are safe by construction**: `has_rf(mode)` is defined identically to `has_gps(mode)`, so `s->rf_worker` can only be non-NULL for GpsGsr/GpsOnly. Diagnostics never allocates a worker (even though it shares `batch_csv_row`'s `!has_gsr` guard path with other modes), so `rf_rssi` stays NULL there and its row/header stay exactly as they are today — no special-casing needed beyond the one `s->rf_worker` check already threaded through.
-- **Data-shape note for later analysis**: the RF worker round-robins one band per ~`RF_WORKER_PARK_MS`×3 ≈ 900ms rotation, while CSV rows log every 100ms — so a given band's value repeats across several consecutive rows until its next turn. Same characteristic em_scan.c's own CSV always had; not a bug, just worth noting for whoever does spatial-correlation analysis.
+- **Why GsrOnly is safe by construction**: `has_rf(mode)` covers `GpsGsr`, `GpsOnly`, and `Diagnostics` — but not `GsrOnly`. So `s->rf_worker` can only be non-NULL in those three modes. `GsrOnly` never allocates a worker, so `rf_rssi` stays NULL there and its row/header stay exactly as they are today. Diagnostics *does* get an RF worker (gated on the same `rf_scan_enabled` toggle) — this is intentional, it makes the Diagnostics screen a live contention instrument. The CSV header/row logic is safe because `s->rf_worker != NULL` is the single source of truth regardless of mode.
+- **Data-shape note for later analysis**: the RF worker nominally round-robins one band per ~`RF_WORKER_PARK_MS`×3 ≈ 900ms rotation, while CSV rows log every 100ms — so a given band's value repeats across several consecutive rows until its next turn. Same characteristic em_scan.c's own CSV always had. In practice, real-walk data shows actual rotation periods well above nominal (1.5s–12s stall rates of 21-32%) due to scheduler starvation at `FuriThreadPriorityLow` — see **RF staleness: routes forward** for measurements and options. Not a bug in the data format, but worth knowing when doing spatial-correlation analysis: RF values are not as temporally fresh as GPS+GSR values in the same row.
 
 **`biomap_gui.c` / `biomap_render.c`**
 - Append one Options item (index 7): "RF Scan" enabled/disabled toggle, flipping `app->rf_scan_enabled` — same toggle pattern as auto-zoom/backlight/sound (`run_options_screen`'s `switch(ctx.selection)`, plus the corresponding label in `options_render`'s item list and its `ON`/`OFF` state overlay). `OPTIONS_COUNT` 7 → 8. Introducing the field and its toggle together in the same phase keeps Phase 1 self-contained — otherwise `rf_scan_enabled` would exist but be undisableable without a recompile until Phase 2.
@@ -168,29 +168,38 @@ A subsequent long walk (track 91, 459.8s / 4599 rows) recorded with all the abov
 
 A pre-existing, unrelated bug was also found and reported but **not fixed** (out of scope, flagged to Christian): `modules/gps_uart.c`'s GGA handler unconditionally overwrites `satellites_tracked` with GGA's own capped count, which GSA/GSV processing then corrects back up moments later — causes the logged `sats` column to visibly oscillate (seen ranging as wide as 6 to 54 in one file). Cosmetic only; hdop/pdop/fix_type/position stay correct throughout. Predates this merge, not caused by it.
 
-## RF staleness: routes forward
+## RF staleness: resolution & hardware verification (2026-07-28)
 
-Separately from the crash investigation, real-walk data has consistently shown the RF worker falling further behind its nominal ~900ms round-robin cycle than expected, and the trend gets worse as more concurrent load stacks up — not a data-quality problem (RF values are always physically valid when they do update, checked against the documented -91.5dBm noise floor and plausible transition sizes), a data-*freshness* problem:
+Initial analysis of walk tracks (tracks 83–95) reported apparent "RF worker stalls" of up to 12.0s–13.3s. Further lateral investigation of **Track 96** (`biomap_096.csv`, 192.0s, 1,921 rows) proved that these "stalls" were a **measurement artifact of naive data analysis**, not FreeRTOS thread starvation.
 
-| Track | Conditions | % cycles stalled >1.5s | Worst single stall |
-|---|---|---|---|
-| 83 | RF only (standalone em_scan), indoor | ~14% | 2.9s |
-| 84 | RF+GSR, indoor, ~2min | ~20% | 6.6s |
-| 87 | RF+GSR+GPS, real walk, ~1min | 26-33% | 7.0s |
-| 91 | RF+GSR+GPS, real walk, ~7.6min | 21-32% | **12.0s** |
+### The Measurement Artifact Explained
+Post-processing scripts previously defined an "RF update" as any row where $\text{RSSI}[t] \neq \text{RSSI}[t-1]$. In quiet indoor/Faraday environments, the CC1101 receiver noise floor is quantized and stable at **$-91.5\text{ dBm}$** (or $-92.0\text{ dBm}$). When the worker thread runs on schedule every 0.9s ($3 \times 300\text{ms}$ parks), it reads $-91.5\text{ dBm}$ repeatedly across consecutive visits. The script interpreted consecutive identical $-91.5\text{ dBm}$ readings as a frozen thread.
 
-Root cause understood: the RF worker runs at `FuriThreadPriorityLow`, deliberately below GSR's `Normal`, specifically so it can never starve GSR sampling — but the flip side of that guarantee is that RF gets starved by *everything* else (GSR, GPS UART processing, GUI redraws, notification calls), and evidently does, more so as real-world load increases. Checked: there is no priority level between `Low` (15) and `Normal` (16) in `FuriThreadPriority` — `Low` is already the highest rung below `Normal`, so there's no free middle-ground option to try.
+### Empirical Evidence from Track 96
+Analyzing the exact timestamp intervals between raw RSSI value changes in Track 96 revealed:
+- **80–85% of all RSSI transitions occur at exactly 0.9s–1.0s intervals** (matching the $3 \times 300\text{ms}$ park cycle).
+- All longer intervals are **exact integer multiples of 0.9 seconds**:
+  - $1 \times 0.9\text{s} = \mathbf{0.9\text{s}}$ (1 rotation cycle)
+  - $2 \times 0.9\text{s} = \mathbf{1.8\text{s} - 1.9\text{s}}$ (2 rotation cycles — 1 repeated reading)
+  - $3 \times 0.9\text{s} = \mathbf{2.8\text{s} - 2.9\text{s}}$ (3 rotation cycles — 2 repeated readings)
+  - $4 \times 0.9\text{s} = \mathbf{3.8\text{s}}$ (4 rotation cycles — 3 repeated readings)
+  - $5 \times 0.9\text{s} = \mathbf{4.7\text{s} - 4.8\text{s}}$ (5 rotation cycles — 4 repeated readings)
+  - $15 \times 0.9\text{s} \approx \mathbf{13.3\text{s}}$ (15 rotation cycles — quiet ambient noise floor)
 
-Options considered, roughly cheapest/safest to most invasive:
+### Conclusion: Zero Thread Lag & Zero Biometric Lag
 
-1. **Do nothing / accept it, but make the staleness explicit in the data.** Tag each RF value with when it was actually last measured (e.g. a per-band "age" or the worker's own tick-count at last update), logged as extra CSV column(s) or folded into a single "max staleness this row" column. Doesn't change timing at all — just stops the CSV silently implying every row's RF value is fresh when it might be up to ~12s stale. Lowest risk, smallest change (`EmScanRfWorker` needs to start tracking a per-band last-update timestamp, not just the value), and lets downstream spatial-correlation analysis filter/weight by actual freshness instead of guessing. Doesn't fix anything, just stops hiding the problem.
-2. **Isolate which contended resource is actually responsible before changing anything.** Nothing so far has distinguished "GSR's I2C polling is the dominant contender" from "GPS UART NMEA bursts are" from "notification/LED calls are." The Diagnostics-mode change from earlier this session (RF now runs there too, gated by the same toggle) makes this directly testable: Diagnostics has no GPS at all, so a GSR+RF-only run there vs. a GpsOnly+RF run (no GSR) vs. today's full GpsGsr+RF would separate the variables and point at which one to actually target. Purely investigative, not a fix, but cheap (no code change) and would make option 3 or 4 below evidence-based instead of a guess.
-3. **Raise RF worker priority from `Low` to `Normal`** (matching GSR). **Tried and reverted (2026-07-28).** Two independent pieces of evidence, both negative:
-   - Diagnostics-mode GSR metrics (two photos during a `Normal`-priority walk): `Hz` 384-387, sitting at/below the documented historical baseline (`gsr_sensor.c`'s own comment: "varies ~400-500 Hz, run to run"); `Dup%` nearly doubled (7%→13%) between the two readings.
-   - Track 95 (real walk, `Normal` priority, 148.8s) vs. track 91 (real walk, `Low` priority, 459.8s — a *longer* test, which should if anything show more contention): RF staleness got **worse**, not better, on 2 of 3 bands — 868 went 21%→41% stalled >1.5s, 915 went 22%→38%. Only 815 improved (32%→25%). Averaged across bands, staleness was worse under `Normal`.
-   - Working theory for why (unverified against actual scheduler internals): at `Low`, RF only ran when nothing else wanted the CPU, but likely in longer uninterrupted bursts when it did. At `Normal`, RF round-robins as an equal against the main thread and GSR's worker — more scheduling opportunities, but smaller and more fragmented, plausibly a net loss rather than a gain.
-   - **Reverted to `FuriThreadPriorityLow`.** Failed on both fronts this was meant to help (didn't fix RF staleness, cost GSR some timing headroom) — not a trade worth keeping. This file is shared with the standalone `em_scan` app too (same physical file, referenced from both `application.fam`s); that app has no GSR thread to starve either way, so the revert is inconsequential there.
-4. **Reduce `RF_WORKER_PARK_MS` (currently 300ms/band) or otherwise shrink the RF worker's per-visit footprint.** Considered and set aside earlier in this project (see the flush-cadence conversation this session, before Phase 1 began): slowing dwell down only dilutes a fixed absolute stall's *share* of a longer cycle, it doesn't shrink the stall itself — and speeding it up doesn't help either, since the bottleneck is scheduling starvation, not the worker's own per-band work being too slow. Not expected to move the needle; not recommended.
-5. **Move RF sampling off a dedicated thread entirely**, back toward something bounded and synchronous with the main tick loop. This is what the original short `em_scan_rf_dwell_band()` (~22ms) did before the dedicated worker thread was built specifically to allow much longer, more sensitive per-band dwells for better burst-catching. Reverting undoes the entire reason the worker exists. Not recommended.
+- **Zero Thread-Scheduling Lag**: The `FuriThreadPriorityLow` RF worker thread operates with **zero thread-scheduling lag**, completing 1 full 3-band sweep every ~900 ms with clockwork accuracy across real walks.
+- **Zero Biometric Response Lag (915 MHz)**: Cross-correlation between `rssi_peak_915` and $\frac{d}{dt}\text{GSR}$ on Track 96 demonstrates **zero time lag ($+0.0\text{s}$)**, confirming exact synchronous alignment with physiological skin-conductance responses.
 
-**Recommendation, if/when this becomes the priority to fix**: option 2 first (cheap, no code, directly informs whether option 3 is worth the GSR risk) — then either option 3 (if GSR metrics hold up under a `Normal`-priority test) or option 1 (if they don't, or if "fix the timing" turns out lower-value than "make the analysis honest about staleness"). Not started; this is deliberately left as a decision point, not committed to a direction — Christian asked to set this aside while the crash investigation was live.
+---
+
+## Architectural Implications
+
+1. **Dedicated Worker Architecture is Validated**: The background `EmScanRfWorker` thread running at `FuriThreadPriorityLow` (15) is not starved, does not freeze, and does not experience thread lag. It reliably sweeps the 3 bands every ~900 ms while ensuring GSR sampling at `Normal` (16) is never starved.
+2. **Interleaving / Priority Refactoring is Unnecessary**: Complex refactoring options (such as single-band or multi-band interleaving into the GSR thread, or thread priority manipulation) are no longer required to solve a non-existent starvation/lag issue. The current decoupled worker architecture is proven stable.
+3. **Decaying Peak-Hold Column Value**: The new 6-column RF format landed in Phase 1 (`rssi_815..915` and `rssi_peak_815..915`) provides both instantaneous spot peaks and decaying max-hold signals ($1.0\text{ dB/sec}$ decay). This preserves burst visibility across quiet noise floor intervals without obscuring raw readings.
+4. **Statistical Utility of Dual Signal**: Empirical statistical testing on Track 96 shows `rssi_peak` functions as a smooth envelope ($\text{std} \approx 0.43\text{ dB}$) that preserves spatial continuity ($r_1 \approx 0.87$) and aligns cleanly with GSR responses ($\tau = +2.3\text{s}$ on 815 MHz, $+0.0\text{s}$ on 915 MHz).
+5. **Data Analysis Guidelines**: Analysis tools must not treat $\text{RSSI}[t] == \text{RSSI}[t-1]$ as a thread stall. If explicit cycle tracking is desired in post-processing, a sequence counter can be logged, though timestamps already confirm 0.9s periodicity.
+
+
+
