@@ -36,7 +36,8 @@ void biomap_timer_callback(void* ctx) {
 
 // "Push" a screen: point the shared ViewPort at a new draw callback and
 // enable it. Returns app->screen_vp for callers that pass it around.
-static ViewPort* vp_push(BioMapApp* app, ViewPortDrawCallback draw, void* ctx) {
+// Not static — reused by biomap_rf_cal.c's RF calibration menu/wizard.
+ViewPort* vp_push(BioMapApp* app, ViewPortDrawCallback draw, void* ctx) {
     ViewPort* vp = app->screen_vp;
     view_port_draw_callback_set(vp, draw, ctx);
     view_port_enabled_set(vp, true);
@@ -46,14 +47,14 @@ static ViewPort* vp_push(BioMapApp* app, ViewPortDrawCallback draw, void* ctx) {
 
 // "Pop" a screen: disable the shared ViewPort and clear its draw callback.
 // It stays in the GUI stack — never removed/freed here.
-static void vp_pop(BioMapApp* app, ViewPort* vp) {
+void vp_pop(BioMapApp* app, ViewPort* vp) {
     UNUSED(vp);
     view_port_enabled_set(app->screen_vp, false);
     view_port_draw_callback_set(app->screen_vp, NULL, NULL);
 }
 
 // Drain any stale events from the queue before starting a sub-screen loop.
-static void drain_stale_events(FuriMessageQueue* q) {
+void drain_stale_events(FuriMessageQueue* q) {
     PluginEvent ev;
     while(furi_message_queue_get(q, &ev, 0) == FuriStatusOk);
 }
@@ -62,7 +63,7 @@ static void drain_stale_events(FuriMessageQueue* q) {
 // jumps to the last, Down on the last item jumps back to the first — used
 // by the main menu, Options screen, and GSR Calibration submenu so all
 // three list screens navigate the same way.
-static int32_t cycle_selection(int32_t sel, int32_t count, bool down) {
+int32_t cycle_selection(int32_t sel, int32_t count, bool down) {
     if(down) {
         return (sel + 1 >= count) ? 0 : sel + 1;
     } else {
@@ -236,6 +237,20 @@ void run_options_screen(BioMapApp* app) {
                     app->nav_model = (app->nav_model + 1) % 7;
                     furi_mutex_release(app->mutex);
                     biomap_sound_click(app->sound_enabled);
+                    break;
+                case 7:
+                    // Toggle RF scanning (em_scan worker thread during GPS-inclusive sessions)
+                    furi_mutex_acquire(app->mutex, FuriWaitForever);
+                    app->rf_scan_enabled = !app->rf_scan_enabled;
+                    furi_mutex_release(app->mutex);
+                    biomap_sound_toggle(app->sound_enabled, app->rf_scan_enabled);
+                    break;
+                case 8:
+                    // RF Calibration — same re-arm-after-return pattern as
+                    // case 3 (GSR Calibration) above.
+                    biomap_sound_confirm(app->sound_enabled);
+                    run_rf_calibration_menu(app);
+                    vp_push(app, options_render, &ctx);
                     break;
                 default: break;
                 }

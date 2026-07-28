@@ -55,6 +55,10 @@
 #define REFRESH_EVERY     5       // display-refresh counter threshold
 #define MANUAL_ZOOM_TIMEOUT 30    // ticks before auto-zoom re-engages after manual zoom (3 s)
 #define FLUSH_INTERVAL    5       // seconds between SD batch flushes (LED blinks at 1 Hz)
+// How long the RF worker thread parks on each band before hopping to the
+// next (see em_scan_rf_worker.h) — moved here from em_scan.c's own
+// EM_SCAN_WORKER_PARK_MS when em_scan was merged into BioMapping.
+#define RF_WORKER_PARK_MS 300
 
 // ── Sub-structs (owned by BioMapApp) ───────────────────────────────────
 
@@ -117,6 +121,14 @@ static inline bool has_gps(int mode) {
 static inline bool has_gsr(int mode) {
     return mode == BioMapModeGpsGsr || mode == BioMapModeGsrOnly
         || mode == BioMapModeDiagnostics;
+}
+
+// RF scanning gating — currently identical to has_gps() (RF readings are
+// only useful spatially, so they're only ever active alongside GPS), but
+// kept as a separate name so this is one documented toggle point rather
+// than an alias that could silently diverge from GPS gating later.
+static inline bool has_rf(int mode) {
+    return mode == BioMapModeGpsGsr || mode == BioMapModeGpsOnly;
 }
 
 // Expand a 2-digit NMEA year to a 4-digit calendar year (Y2K pivot at 80).

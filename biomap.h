@@ -34,6 +34,9 @@
 #include "modules/sd_logger.h"
 #include "modules/sound.h"
 #include "modules/util.h"
+#include "em_scan/em_scan_rf.h"
+#include "em_scan/em_scan_rf_worker.h"
+#include "em_scan/em_scan_cal.h"
 
 // ── Session — per-recording-session state ──────────────────────────────
 //
@@ -47,6 +50,7 @@ typedef struct Session {
     GpsUart*       gps;
     GsrSensor*     gsr;
     SdLogger*      logger;
+    EmScanRfWorker* rf_worker;  // NULL unless has_rf(mode) && app->rf_scan_enabled
     ViewPort*      vp;          // == app->screen_vp while a session is active; not owned/freed here
     FuriTimer*     timer;
 
@@ -95,12 +99,15 @@ typedef struct BioMapApp {
     bool               cal_active;
     float              cal_gain;
     float              cal_offset;
+    bool               rf_scan_enabled; // Options > RF Scan; survives session boundaries
+    EmScanCal          rf_cal_data;     // RF Faraday calibration (em_scan_cal.h)
+    bool               rf_calibrated;
 } BioMapApp;
 
 // ── Menu & conversion UI types ─────────────────────────────────────────
 
 #define MENU_COUNT      4
-#define OPTIONS_COUNT   7
+#define OPTIONS_COUNT   9
 
 typedef struct {
     BioMapApp* app;
@@ -158,6 +165,20 @@ typedef struct {
     float r_squared;              // goodness-of-fit
 } WizardState;
 
+// RF Faraday calibration wizard state. Steps:
+//   0 = prep countdown (30s, place Flipper in shielding bag)
+//   1 = active sampling (20s round-robin CC1101 dwell)
+//   2 = stats/result (pass/fail, save decision)
+typedef struct {
+    int      step;
+    uint32_t seconds_left;                          // countdown display (prep or sampling)
+    uint32_t sweep_count;
+    float    rssi_dbm[EM_SCAN_NUM_FREQS];            // live per-band reading during sampling
+    float    computed_floors[EM_SCAN_NUM_FREQS];
+    float    computed_std_devs[EM_SCAN_NUM_FREQS];
+    bool     passed;
+} RfCalWizardState;
+
 // ── App-level function declarations ────────────────────────────────────
 
 void run_gps_hot_start(BioMapApp* app);
@@ -168,6 +189,20 @@ bool biomap_load_calibration(BioMapApp* app);
 void biomap_save_calibration(BioMapApp* app, float gain, float offset);
 void biomap_reset_calibration(BioMapApp* app);
 
+void run_rf_calibration_menu(BioMapApp* app);
+void run_rf_calibration_wizard(BioMapApp* app);
+bool biomap_load_rf_calibration(BioMapApp* app);
+void biomap_save_rf_calibration(BioMapApp* app, const EmScanCal* cal);
+void biomap_reset_rf_calibration(BioMapApp* app);
+
 void biomap_input_callback(InputEvent* e, void* ctx);
 void biomap_timer_callback(void* ctx);
 int32_t biomap_gui_show_menu(BioMapApp* app);
+
+// ── Shared sub-screen helpers (biomap_gui.c) ────────────────────────────
+// Reused by biomap_rf_cal.c's RF calibration menu/wizard — see biomap_gui.c
+// for the single-persistent-ViewPort rationale.
+ViewPort* vp_push(BioMapApp* app, ViewPortDrawCallback draw, void* ctx);
+void      vp_pop(BioMapApp* app, ViewPort* vp);
+void      drain_stale_events(FuriMessageQueue* q);
+int32_t   cycle_selection(int32_t sel, int32_t count, bool down);

@@ -23,3 +23,10 @@ void calibration_menu_render(Canvas* c, void* ctx);
 void calibration_wizard_render(Canvas* c, void* ctx);
 void show_current_calibration_render(Canvas* c, void* ctx);
 
+// RF Faraday calibration menu and wizard renderers
+void rf_calibration_menu_render(Canvas* c, void* ctx);
+void rf_calibration_wizard_prep_render(Canvas* c, void* ctx);
+void rf_calibration_wizard_sampling_render(Canvas* c, void* ctx);
+void rf_calibration_wizard_stats_render(Canvas* c, void* ctx);
+void rf_show_current_calibration_render(Canvas* c, void* ctx);
+

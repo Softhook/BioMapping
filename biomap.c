@@ -26,7 +26,8 @@ int32_t biomap_app(void* p) {
         .nav_model = GpsNavModelPedestrian,
         .cal_active = false,
         .cal_gain = 1.0f,
-        .cal_offset = 0.0f
+        .cal_offset = 0.0f,
+        .rf_scan_enabled = true
     };
 
     app->event_queue   = furi_message_queue_alloc(EVENT_QUEUE_DEPTH, sizeof(PluginEvent));
@@ -36,6 +37,7 @@ int32_t biomap_app(void* p) {
     app->gui           = furi_record_open(RECORD_GUI);
     storage_common_mkdir(app->storage, "/ext/biomapping");
     biomap_load_calibration(app);
+    biomap_load_rf_calibration(app);
     notification_message_block(app->notifications, &sequence_display_backlight_enforce_auto);
 
     // Create the single persistent ViewPort shared by every screen — stays
@@ -202,4 +204,45 @@ void biomap_reset_calibration(BioMapApp* app) {
     furi_mutex_release(app->mutex);
 
     FURI_LOG_I("BioMap", "Deleted calibration file");
+}
+
+// ── RF Faraday calibration (em_scan_cal.h) ──────────────────────────────
+// Thin BioMapApp-level wrappers around em_scan_cal_load/save/reset, mirroring
+// biomap_load_calibration/biomap_save_calibration/biomap_reset_calibration's
+// shape above. Unlike the GSR calibration file, em_scan_cal_load() already
+// does its own full validation (magic/version/CRC/per-band ceiling/std dev
+// — see em_scan_cal.h) internally, so there's no separate checksum helper
+// needed here.
+
+bool biomap_load_rf_calibration(BioMapApp* app) {
+    furi_assert(app);
+    EmScanCal cal;
+    bool ok = em_scan_cal_load(&cal, app->storage);
+    if(ok) {
+        furi_mutex_acquire(app->mutex, FuriWaitForever);
+        app->rf_cal_data = cal;
+        app->rf_calibrated = true;
+        furi_mutex_release(app->mutex);
+    }
+    return ok;
+}
+
+void biomap_save_rf_calibration(BioMapApp* app, const EmScanCal* cal) {
+    furi_assert(app);
+    bool ok = em_scan_cal_save(cal, app->storage);
+    if(ok) {
+        furi_mutex_acquire(app->mutex, FuriWaitForever);
+        app->rf_cal_data = *cal;
+        app->rf_calibrated = true;
+        furi_mutex_release(app->mutex);
+    }
+}
+
+void biomap_reset_rf_calibration(BioMapApp* app) {
+    furi_assert(app);
+    em_scan_cal_reset(app->storage);
+
+    furi_mutex_acquire(app->mutex, FuriWaitForever);
+    app->rf_calibrated = false;
+    furi_mutex_release(app->mutex);
 }

@@ -91,6 +91,11 @@ void session_deinit(Session* s, BioMapApp* app) {
         gsr_sensor_free(s->gsr);
         s->gsr = NULL;
     }
+    if(s->rf_worker) {
+        em_scan_rf_worker_free(s->rf_worker); // stops + joins internally
+        s->rf_worker = NULL;
+        em_scan_rf_deinit();
+    }
     if(s->gps) {
         gps_uart_free(s->gps);
         s->gps = NULL;
@@ -144,33 +149,61 @@ static inline GpsPosition get_gps_position(const Session* s) {
 // reading) and GPS-only mode (via handle_recording_tick with raw=0).  When
 // the fix is absent or HDOP is too high, GPS columns are left empty so the
 // analyser treats the row as a gap rather than noise.
+//
+// rf_rssi is NULL when RF scanning isn't active for this session, otherwise
+// a fresh EM_SCAN_NUM_FREQS-element snapshot — appended as 3 extra columns
+// (rssi_815,rssi_868,rssi_915, matching BIOMAP_CSV_COLS_GPS_GSR_RF).
+//
+// Builds the whole row into a local stack buffer via snprintf, then makes
+// ONE sd_logger_batch_append() call — deliberately not two separate
+// sd_logger_batch_printf() calls into the shared SD batch buffer directly.
+// Each batch_printf call is individually atomic (all-or-nothing against
+// the shared buffer), but two SEPARATE calls are not atomic as a pair: if
+// the first (GPS/GSR columns) succeeded and the second (RF suffix) then
+// failed because the buffer filled up in between, the first call's bytes
+// are already committed with no trailing newline, corrupting the CSV by
+// gluing the next row onto the same line. Building locally first and
+// appending once (same pattern em_scan_log_row() already used) keeps the
+// whole row atomic — batch_append() itself checks capacity before writing
+// any bytes (see modules/sd_logger.c).
 // Returns true on success, false on buffer overflow.
 static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
-                                double rel, float raw) {
+                                double rel, float raw, const float* rf_rssi) {
     bool gps_ok = pos->valid && pos->hdop < GPS_HDOP_GATE;
-    int ret;
+    char row[256];
+    int n;
     if(gps_ok) {
         bool has_vel = !isnan(pos->speed_kts) && !isnan(pos->course_deg);
         if(has_vel) {
-            ret = sd_logger_batch_printf(s->logger,
-                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f\n",
+            n = snprintf(row, sizeof(row),
+                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f",
                 rel, pos->lat, pos->lon,
                 (double)pos->hdop, (double)pos->pdop,
                 pos->sats, pos->fix_type,
                 (double)pos->speed_kts, (double)pos->course_deg, (double)raw,
                 (double)pos->hacc);
         } else {
-            ret = sd_logger_batch_printf(s->logger,
-                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,,,%.1f,%.1f\n",
+            n = snprintf(row, sizeof(row),
+                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,,,%.1f,%.1f",
                 rel, pos->lat, pos->lon,
                 (double)pos->hdop, (double)pos->pdop,
                 pos->sats, pos->fix_type, (double)raw, (double)pos->hacc);
         }
     } else {
-        ret = sd_logger_batch_printf(s->logger, "%.2f,,,,,,,,,%.1f,\n",
-                                     rel, (double)raw);
+        n = snprintf(row, sizeof(row), "%.2f,,,,,,,,,%.1f,",
+                     rel, (double)raw);
     }
-    return ret > 0;
+    if(n <= 0 || (size_t)n >= sizeof(row)) return false;
+
+    if(rf_rssi) {
+        n += snprintf(row + n, sizeof(row) - (size_t)n, ",%.1f,%.1f,%.1f\n",
+                     (double)rf_rssi[0], (double)rf_rssi[1], (double)rf_rssi[2]);
+    } else {
+        n += snprintf(row + n, sizeof(row) - (size_t)n, "\n");
+    }
+    if(n <= 0 || (size_t)n >= sizeof(row)) return false;
+
+    return sd_logger_batch_append(s->logger, row, (size_t)n);
 }
 
 // ── Batch CSV row construction ─────────────────────────────────────────────
@@ -187,13 +220,20 @@ static bool batch_csv_row(Session* s, float raw) {
     if(s->mode == BioMapModeGsrOnly) {
         ret = sd_logger_batch_printf(s->logger, "%.2f,%.1f\n",
                                      rel, (double)raw);
-    } else if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
-        GpsPosition pos = get_gps_position(s);
-        return format_gps_csv_row(s, &pos, rel, raw);
     } else {
-        // GPS-skip tick: preserve GSR data with empty GPS columns.
-        GpsPosition empty = {0};
-        return format_gps_csv_row(s, &empty, rel, raw);
+        float rf_rssi[EM_SCAN_NUM_FREQS];
+        float rf_peak_hold[EM_SCAN_NUM_FREQS];
+        if(s->rf_worker) {
+            em_scan_rf_worker_get_snapshot(s->rf_worker, rf_rssi, rf_peak_hold);
+        }
+        if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
+            GpsPosition pos = get_gps_position(s);
+            return format_gps_csv_row(s, &pos, rel, raw, s->rf_worker ? rf_rssi : NULL);
+        } else {
+            // GPS-skip tick: preserve GSR data with empty GPS columns.
+            GpsPosition empty = {0};
+            return format_gps_csv_row(s, &empty, rel, raw, s->rf_worker ? rf_rssi : NULL);
+        }
     }
     return ret > 0;
 }
@@ -315,7 +355,8 @@ static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
 //          flag is false and the file handle is gone, nothing the tone
 //          might do to the ADC reading can reach the recording.
 static bool key_toggle_recording(Session* s, FuriMutex* mutex,
-                                  NotificationApp* notifications, bool sound_enabled) {
+                                  NotificationApp* notifications, bool sound_enabled,
+                                  bool rf_calibrated, const float* rf_cal_floors) {
     bool start;
     furi_mutex_acquire(mutex, FuriWaitForever);
     start = !s->recording.active;
@@ -330,12 +371,32 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         if(epoch == 0) {
             FURI_LOG_W("BioMap", "RTC not set — recording epoch will be 0 in CSV header");
         }
-        const char* cols = (s->mode == BioMapModeGsrOnly)
-            ? BIOMAP_CSV_COLS_GSR_ONLY
-            : BIOMAP_CSV_COLS_GPS_GSR;
-        char header[256];
+        const char* cols;
+        if(s->mode == BioMapModeGsrOnly) {
+            cols = BIOMAP_CSV_COLS_GSR_ONLY;
+        } else if(s->rf_worker) {
+            cols = BIOMAP_CSV_COLS_GPS_GSR_RF;
+        } else {
+            cols = BIOMAP_CSV_COLS_GPS_GSR;
+        }
+        // 320 bytes (not 256) to comfortably fit the optional Band Floors
+        // line below — em_scan.c's own header build hit silent truncation
+        // at 192 bytes once a calibrated Band Floors line was added; sizing
+        // generously here avoids repeating that.
+        char header[320];
         int n = snprintf(header, sizeof(header),
-                         "# RecordingStartTime:%lu\n%s", (unsigned long)epoch, cols);
+                         "# RecordingStartTime:%lu\n", (unsigned long)epoch);
+        // Band Floors line: only meaningful once RF is both active for this
+        // session (s->rf_worker set) and a real calibration exists — order
+        // (815,868,915) matches em_scan_freq_label[] in em_scan_rf.c.
+        if(s->rf_worker && rf_calibrated && n > 0 && (size_t)n < sizeof(header)) {
+            n += snprintf(header + n, sizeof(header) - (size_t)n,
+                         "# Band Floors (dBm): 815:%.1f,868:%.1f,915:%.1f\n",
+                         (double)rf_cal_floors[0], (double)rf_cal_floors[1], (double)rf_cal_floors[2]);
+        }
+        if(n > 0 && (size_t)n < sizeof(header)) {
+            n += snprintf(header + n, sizeof(header) - (size_t)n, "%s", cols);
+        }
         if(n < 0 || (size_t)n >= sizeof(header)) {
             FURI_LOG_E("BioMap", "Header too long");
             biomap_sound_error(sound_enabled);
@@ -517,7 +578,13 @@ static bool handle_recording_tick(Session* s) {
     if(!has_gsr(s->mode) && has_gps(s->mode) && s->recording.active) {
         if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
             GpsPosition pos = get_gps_position(s);
-            return format_gps_csv_row(s, &pos, pipeline_rel_seconds(s->recording.total_ticks), 0.0f);
+            float rf_rssi[EM_SCAN_NUM_FREQS];
+            float rf_peak_hold[EM_SCAN_NUM_FREQS];
+            if(s->rf_worker) {
+                em_scan_rf_worker_get_snapshot(s->rf_worker, rf_rssi, rf_peak_hold);
+            }
+            return format_gps_csv_row(s, &pos, pipeline_rel_seconds(s->recording.total_ticks), 0.0f,
+                                       s->rf_worker ? rf_rssi : NULL);
         }
         return true;
     }
@@ -605,6 +672,16 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         // pays for it.
         gsr_sensor_set_mains_hum_enabled(s->gsr, mode == BioMapModeDiagnostics);
     }
+    furi_mutex_acquire(app->mutex, FuriWaitForever);
+    bool rf_scan_enabled = app->rf_scan_enabled;
+    furi_mutex_release(app->mutex);
+    if(has_rf(mode) && rf_scan_enabled) {
+        em_scan_rf_init();
+        s->rf_worker = em_scan_rf_worker_alloc(RF_WORKER_PARK_MS);
+        em_scan_rf_worker_start(s->rf_worker);
+    } else {
+        s->rf_worker = NULL;
+    }
     s->logger = sd_logger_alloc(app->storage);
     view_port_update(s->vp);
 
@@ -639,7 +716,8 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         // helper doesn't have access to).
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort
             && ev.input.key == InputKeyOk) {
-            if(key_toggle_recording(s, app->mutex, app->notifications, app->sound_enabled))
+            if(key_toggle_recording(s, app->mutex, app->notifications, app->sound_enabled,
+                                     app->rf_calibrated, app->rf_cal_data.noise_floor_dbm))
                 view_port_update(s->vp);
             continue;
         }
