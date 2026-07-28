@@ -48,7 +48,7 @@ bool em_scan_cal_load(EmScanCal* cal, Storage* storage) {
 
     bool success = false;
     if(storage_file_open(file, EM_SCAN_CAL_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
-        uint16_t bytes_read = storage_file_read(file, cal, sizeof(EmScanCal));
+        size_t bytes_read = storage_file_read(file, cal, sizeof(EmScanCal));
         if(bytes_read == sizeof(EmScanCal)) {
             success = em_scan_cal_validate(cal);
         }
@@ -75,7 +75,7 @@ bool em_scan_cal_save(const EmScanCal* cal, Storage* storage) {
     const char* tmp_path = "/ext/biomapping/em_scan_cal.bin.tmp";
     bool success = false;
     if(storage_file_open(file, tmp_path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
-        uint16_t written = storage_file_write(file, &temp_cal, sizeof(EmScanCal));
+        size_t written = storage_file_write(file, &temp_cal, sizeof(EmScanCal));
         if(written == sizeof(EmScanCal)) {
             success = true;
         }
@@ -85,11 +85,6 @@ bool em_scan_cal_save(const EmScanCal* cal, Storage* storage) {
 
     if(success) {
         FS_Error err = storage_common_rename(storage, tmp_path, EM_SCAN_CAL_PATH);
-        if(err != FSE_OK && err != FSE_EXIST) {
-            // fallback overwrite if rename doesn't replace
-            storage_common_remove(storage, EM_SCAN_CAL_PATH);
-            err = storage_common_rename(storage, tmp_path, EM_SCAN_CAL_PATH);
-        }
         success = (err == FSE_OK);
     }
     return success;
@@ -129,8 +124,8 @@ void em_scan_cal_compute_stats(
         return;
     }
 
-    float band_vals[64];
-    uint32_t n = (count > 64) ? 64 : count;
+    float band_vals[EM_SCAN_CAL_MAX_SAMPLES];
+    uint32_t n = (count > EM_SCAN_CAL_MAX_SAMPLES) ? EM_SCAN_CAL_MAX_SAMPLES : count;
 
     for(int b = 0; b < EM_SCAN_NUM_FREQS; b++) {
         float sum = 0.0f;

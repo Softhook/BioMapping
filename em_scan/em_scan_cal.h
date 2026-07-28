@@ -14,6 +14,7 @@
 #define EM_SCAN_CAL_MAGIC          0x454D4341  // "EMCA" (EM Scan Calibration)
 #define EM_SCAN_CAL_VERSION        1
 #define EM_SCAN_NUM_FREQS          7
+#define EM_SCAN_CAL_MAX_SAMPLES    64          // Max sweep samples collected/consumed per calibration run
 
 #define EM_SCAN_CAL_MIN_FLOOR_DBM  -110.0f
 #define EM_SCAN_CAL_MAX_FLOOR_DBM  -70.0f

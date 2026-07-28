@@ -12,6 +12,8 @@
 
 #include <furi.h>
 #include <furi_hal.h>
+#include <furi_hal_rtc.h>
+#include <datetime/datetime.h>
 #include <gui/gui.h>
 #include <gui/view_port.h>
 #include <notification/notification_messages.h>
@@ -59,7 +61,7 @@ typedef struct {
     // Active calibration noise sampling
     uint32_t cal_sample_ticks_left;
     uint32_t cal_sweep_count;
-    float    cal_samples[64][EM_SCAN_NUM_FREQS];
+    float    cal_samples[EM_SCAN_CAL_MAX_SAMPLES][EM_SCAN_NUM_FREQS];
     float    cal_computed_floors[EM_SCAN_NUM_FREQS];
     float    cal_computed_std_devs[EM_SCAN_NUM_FREQS];
     bool     cal_passed;
@@ -554,7 +556,7 @@ int32_t em_scan_app(void* p) {
                         app->cal_sweep_count = 0;
                     }
                 } else if(app->mode == EmScanModeCalSampling) {
-                    if(app->sweep_band == 0 && app->cal_sweep_count < 64) {
+                    if(app->sweep_band == 0 && app->cal_sweep_count < EM_SCAN_CAL_MAX_SAMPLES) {
                         for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
                             app->cal_samples[app->cal_sweep_count][i] = app->rssi_dbm[i];
                         }
@@ -691,7 +693,9 @@ int32_t em_scan_app(void* p) {
                     if(ev.input.key == InputKeyOk && app->cal_passed) {
                         EmScanCal cal;
                         memset(&cal, 0, sizeof(cal));
-                        cal.timestamp = (uint32_t)furi_get_tick();
+                        DateTime dt;
+                        furi_hal_rtc_get_datetime(&dt);
+                        cal.timestamp = datetime_datetime_to_timestamp(&dt);
                         memcpy(cal.noise_floor_dbm, app->cal_computed_floors, sizeof(cal.noise_floor_dbm));
                         memcpy(cal.noise_std_dev_db, app->cal_computed_std_devs, sizeof(cal.noise_std_dev_db));
                         cal.sample_count = app->cal_sweep_count;
