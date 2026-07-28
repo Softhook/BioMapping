@@ -109,8 +109,19 @@ void em_scan_rf_worker_start(EmScanRfWorker* w) {
     // before trusting this number either — this is a safety-margin
     // increase in response to a real crash, not a confirmed root-cause fix.
     w->thread = furi_thread_alloc_ex("EmScanRfWorker", 3072, em_scan_rf_worker_thread_fn, w);
-    // Priority set to Low so the RF worker background sweep yields to higher priority
-    // event-handling threads (GUI, GPS, GSR sampling).
+    // Tried Normal here on 2026-07-28 (matching GSR's own worker), to test
+    // whether it would fix the RF staleness measured on real walks — see
+    // "RF staleness: routes forward" in em_scan_biomap_merge_plan.md.
+    // Reverted: a real walk (track 95) showed RF staleness got WORSE on
+    // 2 of 3 bands (868: 21%->41% stalled >1.5s, 915: 22%->38%) despite a
+    // shorter test than the Low-priority baseline (track 91), and
+    // Diagnostics-mode GSR metrics showed a real cost (Dup% nearly
+    // doubled, Hz sitting at/below the documented 400-500Hz baseline).
+    // Failed on both fronts it was meant to help — not a trade worth
+    // keeping. Low priority is deliberate: it guarantees RF can never
+    // starve GSR sampling, at the cost of RF itself being starved instead
+    // (the still-unresolved "RF staleness" problem — being addressed via
+    // other routes, not by fighting the scheduler this way).
     furi_thread_set_priority(w->thread, FuriThreadPriorityLow);
     furi_thread_start(w->thread);
 }
