@@ -349,6 +349,15 @@ class GSRAnalyzer {
     let osmTreeDensityColIdx = headers.indexOf('osm_tree_density_50m');
     let osmAmenityCountColIdx = headers.indexOf('osm_amenity_count_50m');
 
+    // RF column detection (815, 868, 915 MHz RSSI & EM fog)
+    let rssi815ColIdx = headers.indexOf('rssi_815');
+    let rssi868ColIdx = headers.indexOf('rssi_868');
+    let rssi915ColIdx = headers.indexOf('rssi_915');
+    let rssiPeak815ColIdx = headers.indexOf('rssi_peak_815');
+    let rssiPeak868ColIdx = headers.indexOf('rssi_peak_868');
+    let rssiPeak915ColIdx = headers.indexOf('rssi_peak_915');
+    let emFogColIdx = headers.indexOf('em_fog');
+
     // Fallbacks for main biometric columns
     if (colIndices['timestamp'] === -1) colIndices['timestamp'] = 0;
     if (colIndices['gsr_raw'] === -1) colIndices['gsr_raw'] = headers.length > 1 ? 1 : 0;
@@ -360,9 +369,9 @@ class GSRAnalyzer {
       if (!line || !line.trim()) continue;
 
       const cols = this._parseCsvLine(line);
-      if (cols.length <= Math.max(colIndices['timestamp'], colIndices['gsr_raw'])) continue;
+      if (cols.length === 0) continue;
 
-      let rawTimeStr = cols[colIndices['timestamp']].trim();
+      let rawTimeStr = cols[colIndices['timestamp']] ? cols[colIndices['timestamp']].trim() : '';
       let timeVal = NaN;
 
       // Parse timestamp
@@ -376,12 +385,28 @@ class GSRAnalyzer {
         timeVal = parseFloat(rawTimeStr);
       }
 
-      let gsrVal = parseFloat(cols[colIndices['gsr_raw']]);
-      if (isNaN(timeVal) || isNaN(gsrVal)) continue;
+      let gsrVal = (colIndices['gsr_raw'] !== -1 && cols[colIndices['gsr_raw']]) ? parseFloat(cols[colIndices['gsr_raw']]) : NaN;
+
+      // Parse RF fields (dBm)
+      let rssi_815 = rssi815ColIdx !== -1 && cols[rssi815ColIdx] ? parseFloat(cols[rssi815ColIdx]) : (rssiPeak815ColIdx !== -1 && cols[rssiPeak815ColIdx] ? parseFloat(cols[rssiPeak815ColIdx]) : NaN);
+      let rssi_868 = rssi868ColIdx !== -1 && cols[rssi868ColIdx] ? parseFloat(cols[rssi868ColIdx]) : (rssiPeak868ColIdx !== -1 && cols[rssiPeak868ColIdx] ? parseFloat(cols[rssiPeak868ColIdx]) : NaN);
+      let rssi_915 = rssi915ColIdx !== -1 && cols[rssi915ColIdx] ? parseFloat(cols[rssi915ColIdx]) : (rssiPeak915ColIdx !== -1 && cols[rssiPeak915ColIdx] ? parseFloat(cols[rssiPeak915ColIdx]) : NaN);
+      let em_fog   = emFogColIdx   !== -1 && cols[emFogColIdx]   ? parseFloat(cols[emFogColIdx])   : NaN;
 
       // Parse GPS fields (empty fields parse to NaN)
       let latVal = colIndices['lat'] !== -1 && cols[colIndices['lat']] ? parseFloat(cols[colIndices['lat']]) : NaN;
       let lonVal = colIndices['lon'] !== -1 && cols[colIndices['lon']] ? parseFloat(cols[colIndices['lon']]) : NaN;
+
+      // Fallback for standalone GPS + RF CSVs (where GSR is missing/NaN)
+      if (isNaN(gsrVal)) {
+        if (!isNaN(latVal) || !isNaN(lonVal) || !isNaN(rssi_815) || !isNaN(em_fog)) {
+          gsrVal = 1.0; // Baseline value so standalone RF/GPS rows are kept
+        } else {
+          continue;
+        }
+      }
+      if (isNaN(timeVal)) continue;
+
       let hdopVal     = colIndices['hdop']  !== -1 && cols[colIndices['hdop']]  ? parseFloat(cols[colIndices['hdop']])  : NaN;
       let pdopVal     = colIndices['pdop']  !== -1 && cols[colIndices['pdop']]  ? parseFloat(cols[colIndices['pdop']])  : NaN;
       let haccVal     = colIndices['hacc_m'] !== -1 && cols[colIndices['hacc_m']] ? parseFloat(cols[colIndices['hacc_m']]) : NaN;
@@ -391,8 +416,6 @@ class GSRAnalyzer {
       let courseVal   = colIndices['course_deg']   !== -1 && cols[colIndices['course_deg']]   ? parseFloat(cols[colIndices['course_deg']])   : NaN;
 
       // Genuine-fix marker: prefer the explicit re-imported column when present
-      // (see isGpsFixColIdx above); otherwise fall back to the lat/lon-presence
-      // heuristic used for raw device CSVs.
       let isGpsFixVal = !isNaN(latVal) && !isNaN(lonVal);
       if (isGpsFixColIdx !== -1 && cols[isGpsFixColIdx] && cols[isGpsFixColIdx].trim() !== '') {
         isGpsFixVal = cols[isGpsFixColIdx].trim() === '1';
@@ -435,6 +458,10 @@ class GSRAnalyzer {
         _isGpsFix: isGpsFixVal,
         _importLabel: importedPeakLabel,
         _importExcluded: importedPeakExcluded,
+        rssi_815: rssi_815,
+        rssi_868: rssi_868,
+        rssi_915: rssi_915,
+        em_fog: em_fog,
         osm_road_class: osm_road_class,
         osm_dist_major_road: osm_dist_major_road,
         osm_in_park: osm_in_park,
@@ -652,6 +679,7 @@ class GSRAnalyzer {
     }
 
     this.raw = rawDataList;
+    this.hasRfData = rawDataList.some(r => !isNaN(r.rssi_815) || !isNaN(r.rssi_868) || !isNaN(r.rssi_915) || !isNaN(r.em_fog));
 
     // Check if imported CSV is already enriched
     if (osmRoadClassColIdx !== -1 || osmGreenPctColIdx !== -1) {

@@ -92,6 +92,11 @@ class GSRMapManager {
       iconAnchor: [8, 8]
     });
     this.scrubMarker = L.marker([0, 0], { icon: scrubIcon });
+
+    // Initialise static RF Fluid background renderer layer
+    if (typeof RFFluidRenderer !== 'undefined') {
+      this.rfFluidRenderer = new RFFluidRenderer(this.map, { visible: true });
+    }
   }
 
   /**
@@ -392,6 +397,10 @@ class GSRMapManager {
       this._fitBounds(drawPoints);
       this._lastFitBoundsTrackId = cacheKey;
     }
+    this._lastDrawPoints = drawPoints;
+    if (this.rfFluidRenderer) {
+      this.rfFluidRenderer.setData(drawPoints, analyzer.osmGeoms);
+    }
     this._renderPathSegments(drawPoints, p.trackWeight || 5, analyzer);
 
     // Peak markers (with latency compensation)
@@ -462,6 +471,10 @@ class GSRMapManager {
     this.clearOsmShapes();
     if (!geoms || !geoms.ways || !this.map) return;
     
+    if (this.rfFluidRenderer) {
+      this.rfFluidRenderer.setData(this._lastDrawPoints || [], geoms);
+    }
+
     this.osmLayers = [];
 
     geoms.ways.concat(geoms.relations).forEach(geom => {
@@ -1614,6 +1627,32 @@ class GSRMapManager {
         this.contourLayers.push(poly);
       });
     });
+  }
+
+  toggleRFFluid(show) {
+    this.showRFFluid = (show !== undefined) ? show : !this.showRFFluid;
+    if (this.rfFluidRenderer) {
+      this.rfFluidRenderer.setVisible(this.showRFFluid);
+    }
+    return this.showRFFluid;
+  }
+
+  setRFFluidMode(mode) {
+    if (this.rfFluidRenderer) {
+      this.rfFluidRenderer.setMode(mode);
+    }
+  }
+
+  setRFFluidOpacity(opacity) {
+    if (this.rfFluidRenderer) {
+      this.rfFluidRenderer.setOpacity(opacity);
+    }
+  }
+
+  setRFFluidRadius(radius) {
+    if (this.rfFluidRenderer) {
+      this.rfFluidRenderer.setRadius(radius);
+    }
   }
 }
 

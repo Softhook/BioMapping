@@ -739,7 +739,16 @@
                 <option value="amenityCount" disabled class="osm-option">Amenity Count</option>
               </select>
               <button class="btn btn-outline" id="btnToggleOsmShapes" style="display: none; padding: 4px 8px; font-size: 0.8rem; margin: 0 4px;">OSM Layers</button>
-              <span class="control-divider"></span>
+              <div class="rf-fluid-group" style="display: inline-flex; align-items: center; gap: 2px; margin: 0 2px;">
+                <button class="btn btn-outline active" id="btnToggleRFFluid" style="margin: 0;" title="Toggle static ray-casted 3-frequency RF fluid background"><i class="fa-solid fa-tower-cell"></i> RF Fluid</button>
+                <select id="rfFluidMode" class="select-control" style="background: rgba(0,0,0,0.35); color: #eee; border: 1px solid rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; height: 26px; width: auto; max-width: 130px; margin: 0;" title="Select RF Fluid visualization mode">
+                  <option value="triband" selected>Tri-Band RGB</option>
+                  <option value="815">815 MHz (LTE)</option>
+                  <option value="868">868 MHz (Grid)</option>
+                  <option value="915">915 MHz (ISM)</option>
+                  <option value="fog">EM Fog</option>
+                </select>
+              </div>
               <button class="btn btn-outline active" id="btnToggleMapPeaks">Peaks</button>
               <button class="btn btn-outline active" id="btnToggleMapHotspots" style="margin: 0 4px;">Hotspots</button>
               <button class="btn btn-outline active" id="btnToggleMapLabels" style="margin: 0 4px;">Labels</button>
@@ -938,6 +947,7 @@
   <script src="gps_pipeline.js"></script>
   <script src="label_placement.js"></script>
   <script src="map_exporter.js"></script>
+  <script src="rf_fluid_renderer.js"></script>
   <script src="map.js"></script>
   <script src="storage.js"></script>
   <script src="events.js"></script>

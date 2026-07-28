@@ -644,11 +644,13 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 12px;
-  height: 36px;
+  padding: 4px 12px;
+  min-height: 36px;
+  height: auto;
   border-bottom: 1px solid var(--border-glass);
   box-sizing: border-box;
   flex-shrink: 0;
+  gap: 8px 12px;
 }
 
 .panel-header h3 {
@@ -658,6 +660,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: flex;
   align-items: center;
   gap: 8px;
+  white-space: nowrap;
 }
 
 .panel-header h3 i {
@@ -667,7 +670,18 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .canvas-controls {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  max-width: 100%;
+}
+
+.canvas-controls .btn,
+.canvas-controls .btn-outline,
+.canvas-controls .select-control {
+  font-size: 0.75rem !important;
+  padding: 2px 7px !important;
+  height: 26px !important;
+  line-height: 1.2 !important;
 }
 
 .icon-btn {
@@ -705,6 +719,15 @@ input[type="range"]::-webkit-slider-thumb:hover {
   height: 16px;
   background-color: var(--border-glass);
   margin: 0 4px;
+}
+
+.leaflet-pane.leaflet-rfFluidPane-pane {
+  z-index: 220 !important;
+  pointer-events: none !important;
+}
+
+.rf-fluid-layer {
+  pointer-events: none !important;
 }
 
 .canvas-container {

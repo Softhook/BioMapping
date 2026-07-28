@@ -448,6 +448,21 @@ const GSREvents = {
     document.getElementById('btnMapZoomExtent').addEventListener('click', () => {
       if (AppState.mapManager) AppState.mapManager.fitToTrack();
     });
+    const btnToggleRFFluid = document.getElementById('btnToggleRFFluid');
+    if (btnToggleRFFluid) {
+      btnToggleRFFluid.addEventListener('click', () => {
+        btnToggleRFFluid.classList.toggle('active');
+        if (AppState.mapManager) AppState.mapManager.toggleRFFluid(btnToggleRFFluid.classList.contains('active'));
+      });
+    }
+
+    const rfFluidMode = document.getElementById('rfFluidMode');
+    if (rfFluidMode) {
+      rfFluidMode.addEventListener('change', (e) => {
+        if (AppState.mapManager) AppState.mapManager.setRFFluidMode(e.target.value);
+      });
+    }
+
     const btnToggleMapPeaks = document.getElementById('btnToggleMapPeaks');
     btnToggleMapPeaks.addEventListener('click', () => {
       btnToggleMapPeaks.classList.toggle('active');
