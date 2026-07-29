@@ -183,6 +183,7 @@ struct GsrSensor {
     uint32_t rf_dwell_start_tick; // furi_get_tick() when the current band's dwell began
     float    rf_dwell_peak[EM_SCAN_NUM_FREQS];
     float    rf_rssi_dbm[EM_SCAN_NUM_FREQS];
+    float    rf_peak_hold_dbm[EM_SCAN_NUM_FREQS];
 
     FuriThread* thread;
     FuriMutex*  mutex;
@@ -414,17 +415,28 @@ static int32_t gsr_sensor_worker(void* context) {
             }
             gsr->rf_rssi_dbm[band] = gsr->rf_dwell_peak[band];
 
+            if(r > gsr->rf_peak_hold_dbm[band]) {
+                gsr->rf_peak_hold_dbm[band] = r;
+            }
+
             uint32_t dwell_ticks = (RF_DWELL_MS * furi_kernel_get_tick_frequency()) / 1000;
             uint32_t now_tick = furi_get_tick();
             uint32_t elapsed_ticks = now_tick - gsr->rf_dwell_start_tick;
             if(elapsed_ticks >= dwell_ticks) {
+                // Apply peak-hold decay based on actual elapsed time (1.0 dB/sec over 3-band rotation)
+                float elapsed_sec = (float)elapsed_ticks / (float)furi_kernel_get_tick_frequency();
+                float decay_db = 1.0f * (float)EM_SCAN_NUM_FREQS * elapsed_sec;
+                gsr->rf_peak_hold_dbm[band] -= decay_db;
+                if(gsr->rf_peak_hold_dbm[band] < gsr->rf_rssi_dbm[band]) {
+                    gsr->rf_peak_hold_dbm[band] = gsr->rf_rssi_dbm[band];
+                }
+
                 gsr->rf_dwell_start_tick = now_tick;
                 gsr->rf_dwell_peak[band] = -127.0f; // reset dwell peak for next visit
                 gsr->rf_band = (gsr->rf_band + 1) % EM_SCAN_NUM_FREQS;
                 em_scan_rf_set_band(gsr->rf_band);
             }
         }
-
         furi_mutex_release(gsr->mutex);
 
         furi_delay_ms(1);
@@ -539,8 +551,8 @@ GsrSensor* gsr_sensor_alloc(void) {
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         gsr->rf_dwell_peak[i] = -127.0f;
         gsr->rf_rssi_dbm[i] = -100.0f;
+        gsr->rf_peak_hold_dbm[i] = -100.0f;
     }
-
 
     gsr->running = true;
     gsr->pga_changed = false;
@@ -1170,8 +1182,8 @@ void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled) {
             gsr->rf_dwell_start_tick = furi_get_tick();
             for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
                 gsr->rf_rssi_dbm[i] = -100.0f;
+                gsr->rf_peak_hold_dbm[i] = -100.0f;
             }
-
             em_scan_rf_set_band(0);
         } else {
             em_scan_rf_deinit();
@@ -1180,12 +1192,14 @@ void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled) {
     furi_mutex_release(gsr->mutex);
 }
 
-void gsr_sensor_get_rf_snapshot(const GsrSensor* gsr, float* out_rssi_dbm) {
+void gsr_sensor_get_rf_snapshot(const GsrSensor* gsr, float* out_rssi_dbm, float* out_peak_hold_dbm) {
     furi_check(gsr, "GsrSensor: NULL in get_rf_snapshot()");
     if(!gsr->available) return;
     furi_check(out_rssi_dbm, "GsrSensor: NULL out_rssi_dbm");
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     memcpy(out_rssi_dbm, gsr->rf_rssi_dbm, sizeof(gsr->rf_rssi_dbm));
+    if(out_peak_hold_dbm) {
+        memcpy(out_peak_hold_dbm, gsr->rf_peak_hold_dbm, sizeof(gsr->rf_peak_hold_dbm));
+    }
     furi_mutex_release(gsr->mutex);
 }
-

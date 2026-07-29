@@ -168,8 +168,12 @@ static inline GpsPosition get_gps_position(const Session* s) {
 // analyser treats the row as a gap rather than noise.
 //
 // rf_rssi is NULL when RF scanning isn't active for this session, otherwise
-// a fresh EM_SCAN_NUM_FREQS-element snapshot — appended as 3 extra columns:
-// rssi_815,rssi_868,rssi_915 (raw per-band peak from the last dwell).
+// a fresh EM_SCAN_NUM_FREQS-element snapshot — appended as 6 extra columns:
+// rssi_815,rssi_868,rssi_915 (raw per-band peak from the last park) and
+// rssi_peak_815,rssi_peak_868,rssi_peak_915 (decaying peak-hold across all
+// parks — persists across stale rows, making RF signal events visible even
+// at the RF worker's slow update rate). Both arrays are NULL together:
+// rf_peak_hold is only non-NULL when rf_rssi is non-NULL.
 //
 // Builds the whole row into a local stack buffer via snprintf, then makes
 // ONE sd_logger_batch_append() call — deliberately not two separate
@@ -186,7 +190,8 @@ static inline GpsPosition get_gps_position(const Session* s) {
 // Returns true on success, false on buffer overflow.
 static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
                                 double rel, float raw,
-                                const float* rf_rssi) {
+                                const float* rf_rssi,
+                                const float* rf_peak_hold) {
     bool gps_ok = pos->valid && pos->hdop < GPS_HDOP_GATE;
     // static, not a stack local: this runs on the main app thread's tick
     // path every ~100ms during a real recording, alongside GPS/GSR/RF
@@ -196,7 +201,7 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
     // sustained outdoor GPS+GSR+RF walk). Safe as static since this
     // function is never reentrant or called concurrently — always one
     // call at a time from the single main app thread's tick handler.
-    static char row[300];
+    static char row[300]; // 256→300: 6 RF columns (6×8 chars max) + margin
     int n;
     if(gps_ok) {
         bool has_vel = !isnan(pos->speed_kts) && !isnan(pos->course_deg);
@@ -221,11 +226,15 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
     }
     if(n <= 0 || (size_t)n >= sizeof(row)) return false;
 
-    if(rf_rssi) {
-        // Three RF columns: raw per-band RSSI.
+    if(rf_rssi && rf_peak_hold) {
+        // Six RF columns: raw RSSI then decaying peak-hold, one pair per band.
+        // Capture the suffix snprintf's own return value to check it separately
+        // from the accumulated n — n itself is always > 0 here (first block
+        // succeeded), so `n <= 0` after `n += ...` would never trigger.
         int n2 = snprintf(row + n, sizeof(row) - (size_t)n,
-                         ",%.1f,%.1f,%.1f\n",
-                         (double)rf_rssi[0], (double)rf_rssi[1], (double)rf_rssi[2]);
+                         ",%.1f,%.1f,%.1f,%.1f,%.1f,%.1f\n",
+                         (double)rf_rssi[0],      (double)rf_rssi[1],      (double)rf_rssi[2],
+                         (double)rf_peak_hold[0], (double)rf_peak_hold[1], (double)rf_peak_hold[2]);
         if(n2 <= 0 || (size_t)(n + n2) >= sizeof(row)) return false;
         n += n2;
     } else {
@@ -234,20 +243,26 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
         n += n2;
     }
 
-
     return sd_logger_batch_append(s->logger, row, (size_t)n);
 }
 
 // ── Batch CSV row construction ─────────────────────────────────────────────
 // Dispatches to format_gps_csv_row for GPS+GSR mode; handles GSR-only
-// and GPS-skip ticks directly. Rows are flushed at the 1-second boundary
+// and GPS-skip ticks directly.  Rows are flushed at the 1-second boundary
 // by handle_second_boundary().
 //
-// rf_rssi is fetched by the caller BEFORE app->mutex is acquired (see the
-// Tick handler below) rather than here — gsr_sensor_get_rf_snapshot()
-// briefly blocks on the GSR sensor's own internal mutex.
+// rf_rssi and rf_peak_hold are fetched by the caller BEFORE app->mutex is
+// acquired (see the Tick handler below) rather than here —
+// gsr_sensor_get_rf_snapshot() briefly blocks on the GSR sensor's own
+// internal mutex, and this function runs entirely inside an
+// app->mutex-held critical section that biomap_render_callback() also
+// needs to draw. The same principle handle_write_failure()'s comment
+// already documents for sound calls applies here: nothing that can block,
+// even briefly, belongs inside that section, or the recording screen's
+// redraw gets delayed.
 // Returns true on success, false on buffer overflow.
-static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
+static bool batch_csv_row(Session* s, float raw,
+                           const float* rf_rssi, const float* rf_peak_hold) {
     if(!s->recording.active || !has_gsr(s->mode)) return true;
 
     double rel = pipeline_rel_seconds(s->recording.total_ticks);
@@ -258,15 +273,14 @@ static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
                                      rel, (double)raw);
     } else if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
         GpsPosition pos = get_gps_position(s);
-        return format_gps_csv_row(s, &pos, rel, raw, rf_rssi);
+        return format_gps_csv_row(s, &pos, rel, raw, rf_rssi, rf_peak_hold);
     } else {
         // GPS-skip tick: preserve GSR data with empty GPS columns.
         GpsPosition empty = {0};
-        return format_gps_csv_row(s, &empty, rel, raw, rf_rssi);
+        return format_gps_csv_row(s, &empty, rel, raw, rf_rssi, rf_peak_hold);
     }
     return ret > 0;
 }
-
 
 // ── Write failure handler ──────────────────────────────────────────────────
 // Stop the logger, clear recording state, and signal with red LED.
@@ -605,16 +619,20 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
 }
 
 // ── Handle one GSR tick (10 Hz) during a recording session ────────────────
-// rf_rssi: see batch_csv_row's comment — fetched by the caller before
-// app->mutex is held, not in here. NULL when RF is not active.
-// Returns true on success, false if a batch overflow occurred.
-static bool handle_recording_tick(Session* s, const float* rf_rssi) {
+// rf_rssi and rf_peak_hold: see batch_csv_row's comment — both fetched by
+// the caller before app->mutex is held, not in here. Both are NULL together
+// when RF is not active for this session.
+// Returns true on success, false if a batch overflow occurred (caller should
+// flush and potentially stop recording).
+static bool handle_recording_tick(Session* s,
+                                   const float* rf_rssi,
+                                   const float* rf_peak_hold) {
     // ── GPS-only mode: write a row on the GPS tick boundary ────────────
     if(!has_gsr(s->mode) && has_gps(s->mode) && s->recording.active) {
         if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
             GpsPosition pos = get_gps_position(s);
             return format_gps_csv_row(s, &pos, pipeline_rel_seconds(s->recording.total_ticks), 0.0f,
-                                       rf_rssi);
+                                       rf_rssi, rf_peak_hold);
         }
         return true;
     }
@@ -630,6 +648,9 @@ static bool handle_recording_tick(Session* s, const float* rf_rssi) {
         s->pipeline.display.raw_sample_count = gsr_sensor_get_raw_sample_count(s->gsr);
 
         // ── Instantaneous per-tick validity check ────────────────────
+        // Use the raw single-sample value for the display so you see
+        // the unfiltered hardware reading.  The filtered value still
+        // goes to CSV for clean recordings.
         bool valid = (raw_sample >= GSR_VALID_MIN_NS && raw_sample <= GSR_VALID_MAX_NS);
         if(valid) {
             // ── Re-connect smoothing ────────────────────────────────
@@ -647,9 +668,8 @@ static bool handle_recording_tick(Session* s, const float* rf_rssi) {
             pipeline_update_graph(&s->pipeline);
         }
     }
-    return batch_csv_row(s, raw, rf_rssi);
+    return batch_csv_row(s, raw, rf_rssi, rf_peak_hold);
 }
-
 
 // ── Run a recording session for the given mode ─────────────────────────────
 // Blocks until the user presses Back or an unrecoverable error occurs.
@@ -769,14 +789,15 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             // app->mutex here is safe: only this same thread ever writes
             // it (at session setup/teardown, never during the tick loop).
             float rf_rssi[EM_SCAN_NUM_FREQS];
+            float rf_peak_hold[EM_SCAN_NUM_FREQS];
             bool rf_active = has_rf(mode) && s->gsr;
             if(rf_active) {
-                gsr_sensor_get_rf_snapshot(s->gsr, rf_rssi);
+                gsr_sensor_get_rf_snapshot(s->gsr, rf_rssi, rf_peak_hold);
             }
 
             furi_mutex_acquire(app->mutex, FuriWaitForever);
-            bool batch_ok = handle_recording_tick(s, rf_active ? rf_rssi : NULL);
-
+            bool batch_ok = handle_recording_tick(s, rf_active ? rf_rssi : NULL,
+                                                   rf_active ? rf_peak_hold : NULL);
             s->recording.total_ticks++;
 
             bool play_warning = false;

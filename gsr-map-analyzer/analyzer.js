@@ -353,6 +353,9 @@ class GSRAnalyzer {
     let rssi815ColIdx = headers.indexOf('rssi_815');
     let rssi868ColIdx = headers.indexOf('rssi_868');
     let rssi915ColIdx = headers.indexOf('rssi_915');
+    let rssiPeak815ColIdx = headers.indexOf('rssi_peak_815');
+    let rssiPeak868ColIdx = headers.indexOf('rssi_peak_868');
+    let rssiPeak915ColIdx = headers.indexOf('rssi_peak_915');
     let emFogColIdx = headers.indexOf('em_fog');
 
     // Fallbacks for main biometric columns
@@ -385,11 +388,10 @@ class GSRAnalyzer {
       let gsrVal = (colIndices['gsr_raw'] !== -1 && cols[colIndices['gsr_raw']]) ? parseFloat(cols[colIndices['gsr_raw']]) : NaN;
 
       // Parse RF fields (dBm)
-      let rssi_815 = rssi815ColIdx !== -1 && cols[rssi815ColIdx] ? parseFloat(cols[rssi815ColIdx]) : NaN;
-      let rssi_868 = rssi868ColIdx !== -1 && cols[rssi868ColIdx] ? parseFloat(cols[rssi868ColIdx]) : NaN;
-      let rssi_915 = rssi915ColIdx !== -1 && cols[rssi915ColIdx] ? parseFloat(cols[rssi915ColIdx]) : NaN;
+      let rssi_815 = rssi815ColIdx !== -1 && cols[rssi815ColIdx] ? parseFloat(cols[rssi815ColIdx]) : (rssiPeak815ColIdx !== -1 && cols[rssiPeak815ColIdx] ? parseFloat(cols[rssiPeak815ColIdx]) : NaN);
+      let rssi_868 = rssi868ColIdx !== -1 && cols[rssi868ColIdx] ? parseFloat(cols[rssi868ColIdx]) : (rssiPeak868ColIdx !== -1 && cols[rssiPeak868ColIdx] ? parseFloat(cols[rssiPeak868ColIdx]) : NaN);
+      let rssi_915 = rssi915ColIdx !== -1 && cols[rssi915ColIdx] ? parseFloat(cols[rssi915ColIdx]) : (rssiPeak915ColIdx !== -1 && cols[rssiPeak915ColIdx] ? parseFloat(cols[rssiPeak915ColIdx]) : NaN);
       let em_fog   = emFogColIdx   !== -1 && cols[emFogColIdx]   ? parseFloat(cols[emFogColIdx])   : NaN;
-
 
       // Parse GPS fields (empty fields parse to NaN)
       let latVal = colIndices['lat'] !== -1 && cols[colIndices['lat']] ? parseFloat(cols[colIndices['lat']]) : NaN;

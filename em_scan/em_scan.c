@@ -81,6 +81,7 @@ typedef struct {
 
     int   sweep_band;
     float rssi_dbm[EM_SCAN_NUM_FREQS];
+    float peak_hold_dbm[EM_SCAN_NUM_FREQS];
 } EmScanApp;
 
 // ==========================================================================
@@ -196,8 +197,15 @@ static void em_scan_render_normal(Canvas* canvas, EmScanApp* app) {
             canvas_draw_line(canvas, tx, y + 1, tx, y + bar_h - 2);
         }
         canvas_set_color(canvas, ColorBlack);
-    }
 
+        int peak_x = em_scan_db_to_x_cal(app->peak_hold_dbm[i], bar_x, bar_w, floor);
+        if(peak_x > bar_x + bar_w - 2) peak_x = bar_x + bar_w - 2;
+        if(peak_x > fill_x) {
+            for(int yy = y + 1; yy < y + bar_h - 1; yy += 2) {
+                canvas_draw_dot(canvas, peak_x, yy);
+            }
+        }
+    }
 
     canvas_set_font(canvas, FontSecondary);
     bool gps_ready = false;
@@ -568,8 +576,8 @@ int32_t em_scan_app(void* p) {
 
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         app->rssi_dbm[i] = EM_SCAN_RSSI_FLOOR;
+        app->peak_hold_dbm[i] = EM_SCAN_RSSI_FLOOR;
     }
-
 
     app->event_queue   = furi_message_queue_alloc(EVENT_QUEUE_DEPTH, sizeof(PluginEvent));
     app->mutex         = furi_mutex_alloc(FuriMutexTypeNormal);
@@ -627,6 +635,16 @@ int32_t em_scan_app(void* p) {
                 app->rssi_dbm[band] = peak;
                 app->sweep_band = (band + 1) % EM_SCAN_NUM_FREQS;
 
+                for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+                    if(app->rssi_dbm[i] > app->peak_hold_dbm[i]) {
+                        app->peak_hold_dbm[i] = app->rssi_dbm[i];
+                    } else {
+                        app->peak_hold_dbm[i] -= EM_SCAN_PEAK_DECAY_DB_PER_TICK;
+                        if(app->peak_hold_dbm[i] < app->rssi_dbm[i]) {
+                            app->peak_hold_dbm[i] = app->rssi_dbm[i];
+                        }
+                    }
+                }
 
                 if(app->mode == EmScanModeCalPrep) {
                     if(app->cal_prep_ticks_left > 0) {
@@ -680,8 +698,7 @@ int32_t em_scan_app(void* p) {
                 // the worker takes to cycle all EM_SCAN_NUM_FREQS bands, so logging
                 // resolution doesn't depend on park duration.
                 furi_mutex_acquire(app->mutex, FuriWaitForever);
-                em_scan_rf_worker_get_snapshot(app->rf_worker, app->rssi_dbm, NULL);
-
+                em_scan_rf_worker_get_snapshot(app->rf_worker, app->rssi_dbm, app->peak_hold_dbm);
 
                 if(app->recording.active) {
                     bool row_ok = em_scan_log_row(app);

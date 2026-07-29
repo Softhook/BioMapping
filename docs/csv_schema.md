@@ -45,10 +45,12 @@ Each CSV begins with comment lines (prefixed `#`) before the column header:
 | 9 | `course_deg` | float | degrees (true north) | True course over ground from RMC. `0.0` if unavailable. |
 | 10 | `gsr_raw` | float | nanosiemens (nS) | Raw skin conductance. `0.0` if sensor unavailable. |
 | 11 | `hacc_m` | float | meters | Horizontal accuracy from `$PUBX,00` Field 9. **Empty string** if no valid fix. `99.9` = no `$PUBX,00`. M10Q-only. |
-| 12 | `rssi_815` | float | dBm | SubGHz 815 MHz instantaneous RSSI peak for most recent dwell on band. |
-| 13 | `rssi_868` | float | dBm | SubGHz 868 MHz instantaneous RSSI peak for most recent dwell on band. |
-| 14 | `rssi_915` | float | dBm | SubGHz 915 MHz instantaneous RSSI peak for most recent dwell on band. |
-
+| 12 | `rssi_815` | float | dBm | SubGHz 815 MHz instantaneous RSSI peak for most recent park on band. |
+| 13 | `rssi_868` | float | dBm | SubGHz 868 MHz instantaneous RSSI peak for most recent park on band. |
+| 14 | `rssi_915` | float | dBm | SubGHz 915 MHz instantaneous RSSI peak for most recent park on band. |
+| 15 | `rssi_peak_815` | float | dBm | SubGHz 815 MHz decaying peak-hold RSSI across parks (1.0 dB/s decay). |
+| 16 | `rssi_peak_868` | float | dBm | SubGHz 868 MHz decaying peak-hold RSSI across parks (1.0 dB/s decay). |
+| 17 | `rssi_peak_915` | float | dBm | SubGHz 915 MHz decaying peak-hold RSSI across parks (1.0 dB/s decay). |
 
 ---
 
