@@ -32,8 +32,8 @@ struct EmScanRfWorker {
     uint32_t park_ms;
 
     float rssi_dbm[EM_SCAN_NUM_FREQS];
-    float peak_hold_dbm[EM_SCAN_NUM_FREQS];
 };
+
 
 static int32_t em_scan_rf_worker_thread_fn(void* context) {
     EmScanRfWorker* w = context;
@@ -52,18 +52,10 @@ static int32_t em_scan_rf_worker_thread_fn(void* context) {
         UNUSED(mean);
         UNUSED(n);
 
-        float decay_per_visit =
-            EM_SCAN_WORKER_TARGET_DECAY_DB_PER_SEC * ((float)EM_SCAN_NUM_FREQS * (float)park_ms / 1000.0f);
-
         furi_mutex_acquire(w->mutex, FuriWaitForever);
         w->rssi_dbm[band] = peak;
-        if(peak > w->peak_hold_dbm[band]) {
-            w->peak_hold_dbm[band] = peak;
-        } else {
-            w->peak_hold_dbm[band] -= decay_per_visit;
-            if(w->peak_hold_dbm[band] < peak) w->peak_hold_dbm[band] = peak;
-        }
         furi_mutex_release(w->mutex);
+
 
         band = (band + 1) % EM_SCAN_NUM_FREQS;
     }
@@ -159,22 +151,14 @@ void em_scan_rf_worker_stop(EmScanRfWorker* w) {
 
 void em_scan_rf_worker_get_snapshot(
     EmScanRfWorker* w,
-    float*          out_rssi_dbm,
-    float*          out_peak_hold_dbm) {
-    // Called every tick (10Hz) from the main thread during a recording
-    // session — the highest-frequency call site in this file, and
-    // therefore the most likely to catch corrupted state promptly if it
-    // ever occurs.
+    float*          out_rssi_dbm) {
     furi_check(w, "EmScanRfWorker: NULL in get_snapshot()");
-    furi_check(out_rssi_dbm, "EmScanRfWorker: NULL rssi out-param"); // rssi is always required
+    furi_check(out_rssi_dbm, "EmScanRfWorker: NULL rssi out-param");
     furi_mutex_acquire(w->mutex, FuriWaitForever);
     memcpy(out_rssi_dbm, w->rssi_dbm, sizeof(w->rssi_dbm));
-    // out_peak_hold_dbm is optional: pass NULL if only the raw RSSI is needed.
-    if(out_peak_hold_dbm) {
-        memcpy(out_peak_hold_dbm, w->peak_hold_dbm, sizeof(w->peak_hold_dbm));
-    }
     furi_mutex_release(w->mutex);
 }
+
 
 uint32_t em_scan_rf_worker_get_stack_space(EmScanRfWorker* w) {
     furi_check(w, "EmScanRfWorker: NULL in get_stack_space()");

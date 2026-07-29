@@ -221,16 +221,17 @@ M10Q GPS @ 10 Hz  ──►  UART interrupt handler
 
 ### CSV Formats
 
-**GPS+GSR+RF mode (17 columns, 10 Hz):**
+**GPS+GSR+RF mode (14 columns, 10 Hz):**
 ```
 # BioMapping v1.0
 # RecordingStartTime:1751204579
 # GPS:M10Q
-timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,rssi_815,rssi_868,rssi_915,rssi_peak_815,rssi_peak_868,rssi_peak_915
-0.00,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4523.0,2.4,-91.5,-88.0,-95.0,-91.5,-88.0,-95.0
-0.10,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4528.0,2.3,-91.5,-88.0,-95.0,-91.5,-88.0,-95.0
+timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,rssi_815,rssi_868,rssi_915
+0.00,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4523.0,2.4,-91.5,-88.0,-95.0
+0.10,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4528.0,2.3,-91.5,-88.0,-95.0
 ...
 ```
+
 
 **GPS+GSR mode (11 columns, 10 Hz):**
 ```

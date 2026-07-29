@@ -213,5 +213,6 @@ void gsr_sensor_lock_pga(GsrSensor* gsr, int8_t index);
 // Enable/disable SubGHz RF RSSI sampling interleaved into the background worker loop.
 void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled);
 
-// Thread-safe retrieval of 3-band RSSI and decaying peak-hold values.
-void gsr_sensor_get_rf_snapshot(const GsrSensor* gsr, float* out_rssi_dbm, float* out_peak_hold_dbm);
+// Thread-safe retrieval of 3-band RSSI values.
+void gsr_sensor_get_rf_snapshot(const GsrSensor* gsr, float* out_rssi_dbm);
+
