@@ -58,15 +58,25 @@ static void wait_for_more_reads(int n) {
     }
 }
 
-static void wait_for_more_writes(int n) {
-    int start = furi_hal_i2c_mock_write_count();
+// Absolute-threshold wait, deliberately NOT a "wait for N more from
+// whatever the count is right now" helper: a caller waiting on a one-time
+// event (e.g. "the worker applies the CONFIG_REG write my last tick()
+// call queued") needs to capture its baseline BEFORE triggering that
+// event, then wait for an ABSOLUTE target. A "start = count now, wait for
+// start+N" helper called AFTER the trigger races against how fast the
+// worker is: if it's already applied the write by the time such a helper
+// reads its own "now" baseline, that baseline already includes the write
+// being waited for, and the helper then waits forever for a second one
+// that isn't coming. This bit test_autorange_up_on_low_signal in
+// practice (~1-2% of runs) before being fixed this way.
+static void wait_for_write_count_at_least(int target) {
     int waited_us = 0;
-    while(furi_hal_i2c_mock_write_count() < start + n) {
+    while(furi_hal_i2c_mock_write_count() < target) {
         usleep(200);
         waited_us += 200;
         furi_test_advance_tick(1);
         if(waited_us > 5000000) {
-            fprintf(stderr, "TIMEOUT: worker did not produce %d more I2C writes\n", n);
+            fprintf(stderr, "TIMEOUT: write_count never reached %d\n", target);
             assert(false);
         }
     }
@@ -376,16 +386,26 @@ static void test_autorange_up_on_low_signal(void) {
     GsrSensor* gsr = gsr_sensor_alloc();
     assert(gsr != NULL);
     assert(gsr_sensor_get_pga_index(gsr) == 2);
+    // Baseline captured BEFORE the tick loop below, which is what actually
+    // triggers the PGA-change write — NOT inside wait_for_more_writes()
+    // after the loop. wait_for_more_writes(1) used to capture its own
+    // "start" baseline there instead, which raced against the worker: the
+    // worker can (and, ~1-2% of the time, does) apply the pending CONFIG_REG
+    // write in the brief gap between the tick loop finishing and that
+    // baseline being read, so "start" would already include the write we
+    // were waiting for, and the test would then time out waiting for a
+    // second write that was never coming.
+    int writes_after_alloc = furi_hal_i2c_mock_write_count();
 
     wait_for_more_reads(200);
     for(int i = 0; i < 5; i++) gsr_sensor_tick(gsr);
 
     assert(gsr_sensor_get_pga_index(gsr) == 3); // tick() applies this synchronously
-    wait_for_more_writes(1); // worker applies the CONFIG_REG write asynchronously
+    wait_for_write_count_at_least(writes_after_alloc + 1); // worker applies the CONFIG_REG write asynchronously
 
     printf("  pga_index=%d write_count=%d\n",
            gsr_sensor_get_pga_index(gsr), furi_hal_i2c_mock_write_count());
-    assert(furi_hal_i2c_mock_write_count() > 0);
+    assert(furi_hal_i2c_mock_write_count() > writes_after_alloc);
 
     gsr_sensor_free(gsr);
     printf("  -> Pass\n");
@@ -608,9 +628,12 @@ static void test_rf_band_rotates_through_all_three_bands(void) {
     assert(em_scan_rf_mock_visit_count(0) == 1);
 
     // Every band starting at visit_count 0 and reaching >= 1 proves the
-    // 150-iteration dwell counter actually rotates through all of them —
-    // not just band 0 forever — regardless of how many times the worker
-    // has since revisited any of them by the time this returns.
+    // dwell timer actually rotates through all of them — not just band 0
+    // forever — regardless of how many times the worker has since
+    // revisited any of them by the time this returns. Advances the fake
+    // clock itself (via furi_test_advance_tick(), inside wait_for_*'s
+    // polling loop) since dwell completion is tick-based, not iteration-
+    // count-based — see test_rf_dwell_completes_on_elapsed_time_not_iteration_count.
     wait_for_all_bands_visited(EM_SCAN_NUM_FREQS);
     printf("  visit counts: band0=%d band1=%d band2=%d (all >= 1)\n",
            em_scan_rf_mock_visit_count(0), em_scan_rf_mock_visit_count(1),
@@ -618,6 +641,71 @@ static void test_rf_band_rotates_through_all_three_bands(void) {
     for(int b = 0; b < EM_SCAN_NUM_FREQS; b++) {
         assert(em_scan_rf_mock_visit_count(b) >= 1);
     }
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+// Regression test for the dwell-timing fix in modules/gsr_sensor.c: a band's
+// dwell now ends when RF_DWELL_MS worth of *real elapsed ticks* have passed
+// (furi_get_tick() delta), not after a fixed number of loop iterations. This
+// test would have caught the bug this replaced — the worker used to just
+// count `rf_park_counter >= 150`, assuming the loop ran at a fixed rate,
+// which is exactly the mistake em_scan_rf.c's em_scan_rf_park_band() was
+// changed to avoid after real hardware measured it inflating a 300ms park to
+// ~630-670ms (see that function's own comment).
+//
+// This test's polling helpers (wait_for_more_rssi_reads, etc.) advance the
+// SAME fake clock (furi_test_advance_tick()) that gsr_sensor.c's worker now
+// checks — so dwell completion here is driven entirely by how much this
+// test chooses to advance that clock, not by how many real loop iterations
+// the worker happens to spin through. That's what lets the two halves of
+// this test assert something a pure iteration-count design never could:
+// "many thousands of loop iterations must NOT be enough on their own" and
+// "reaching the configured ms value, whether that takes many iterations or
+// few, must be enough".
+static void test_rf_dwell_completes_on_elapsed_time_not_iteration_count(void) {
+    printf("Running test_rf_dwell_completes_on_elapsed_time_not_iteration_count...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_subghz_mock_reset();
+    em_scan_rf_mock_reset();
+    furi_hal_subghz_mock_set_rssi(-95.0f);
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+    gsr_sensor_set_rf_enabled(gsr, true); // arms band 0 at the current fake tick
+
+    // Let the worker spin through many thousands of iterations WITHOUT this
+    // test advancing the fake clock at all (wait_for_more_rssi_reads' own
+    // polling loop still calls furi_test_advance_tick(1) once per 200us
+    // wake-up, so use a tight local loop instead to hold the clock still
+    // while still giving the worker real wall-clock time to run).
+    int start = furi_hal_subghz_mock_get_rssi_call_count();
+    int waited_us = 0;
+    while(furi_hal_subghz_mock_get_rssi_call_count() < start + 5000) {
+        usleep(200);
+        waited_us += 200;
+        if(waited_us > 5000000) { fprintf(stderr, "TIMEOUT\n"); assert(false); }
+    }
+    printf("  band0 visits=%d after 5000+ RSSI reads with the clock held still (expect 1)\n",
+           em_scan_rf_mock_visit_count(0));
+    assert(em_scan_rf_mock_visit_count(0) == 1); // must NOT have rotated on iteration count alone
+
+    // Advance to just short of RF_DWELL_MS (300ms @ 1000 Hz shim frequency)
+    // — still must not rotate, no matter how many more reads happen.
+    furi_test_advance_tick(299);
+    wait_for_more_rssi_reads(2000);
+    printf("  band0 visits=%d at 299/300 ticks (expect still 1)\n",
+           em_scan_rf_mock_visit_count(0));
+    assert(em_scan_rf_mock_visit_count(0) == 1);
+
+    // Cross the 300-tick threshold -> must rotate now.
+    furi_test_advance_tick(1);
+    wait_for_all_bands_visited(2);
+    printf("  band1 visits=%d once the clock reaches 300/300 ticks (expect >= 1)\n",
+           em_scan_rf_mock_visit_count(1));
+    assert(em_scan_rf_mock_visit_count(1) >= 1);
 
     gsr_sensor_free(gsr);
     printf("  -> Pass\n");
@@ -797,6 +885,7 @@ int main(void) {
     test_rf_enable_calls_init_and_arms_band_zero();
     test_rf_disable_calls_deinit_and_stops_reads();
     test_rf_band_rotates_through_all_three_bands();
+    test_rf_dwell_completes_on_elapsed_time_not_iteration_count();
     test_rf_dwell_peak_captures_transient_spike();
     test_rf_peak_hold_decays_and_floor_clamp_does_not_overfire();
     test_gsr_and_rf_worker_independence();

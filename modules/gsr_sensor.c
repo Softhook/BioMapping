@@ -105,6 +105,18 @@ static inline float tia_counts_to_ns(float counts) {
 #define MAINS_HUM_TARGET_HZ  50.0f
 #define GSR_PI  3.14159265358979323846f
 
+// Target dwell time per band for the interleaved SubGHz RF scan below.
+// Checked against real elapsed ticks (furi_get_tick()), not a nominal loop-
+// iteration count — em_scan_rf.c's em_scan_rf_park_band() found on real
+// hardware (tracks 75-80) that counting iterations instead inflated a
+// configured 300ms park to ~630-670ms real time, because furi_delay_ms()
+// rounds up to the nearest OS tick and that rounding cost compounds once
+// per iteration. This worker previously made the same mistake (a raw
+// `rf_park_counter >= 150` count, on the assumption the loop runs at a
+// fixed ~400 Hz — which gsr_sensor_worker()'s own pacing comments say it
+// doesn't).
+#define RF_DWELL_MS 300
+
 // Normalisation multiplier factors to pga_index=5 (±0.256 V) reference.
 static const int32_t NORM_FACTOR[6] = { 24, 16, 8, 4, 2, 1 };
 
@@ -168,7 +180,7 @@ struct GsrSensor {
     // SubGHz RF state (interleaved into worker loop)
     bool     rf_enabled;
     int      rf_band;
-    uint32_t rf_park_counter;
+    uint32_t rf_dwell_start_tick; // furi_get_tick() when the current band's dwell began
     float    rf_dwell_peak[EM_SCAN_NUM_FREQS];
     float    rf_rssi_dbm[EM_SCAN_NUM_FREQS];
     float    rf_peak_hold_dbm[EM_SCAN_NUM_FREQS];
@@ -407,16 +419,15 @@ static int32_t gsr_sensor_worker(void* context) {
                 gsr->rf_peak_hold_dbm[band] = r;
             }
 
-            gsr->rf_park_counter++;
-            // 150 iterations at ~400 Hz = ~300 ms park time per band
-            if(gsr->rf_park_counter >= 150) {
+            uint32_t dwell_ticks = (RF_DWELL_MS * furi_kernel_get_tick_frequency()) / 1000;
+            if(furi_get_tick() - gsr->rf_dwell_start_tick >= dwell_ticks) {
                 // Apply 1-visit peak-hold decay (1.0 dB/sec over 3-band rotation = ~0.9 dB)
                 gsr->rf_peak_hold_dbm[band] -= 0.9f;
                 if(gsr->rf_peak_hold_dbm[band] < gsr->rf_rssi_dbm[band]) {
                     gsr->rf_peak_hold_dbm[band] = gsr->rf_rssi_dbm[band];
                 }
 
-                gsr->rf_park_counter = 0;
+                gsr->rf_dwell_start_tick = furi_get_tick();
                 gsr->rf_dwell_peak[band] = -127.0f; // reset dwell peak for next visit
                 gsr->rf_band = (gsr->rf_band + 1) % EM_SCAN_NUM_FREQS;
                 em_scan_rf_set_band(gsr->rf_band);
@@ -532,7 +543,7 @@ GsrSensor* gsr_sensor_alloc(void) {
 
     gsr->rf_enabled = false;
     gsr->rf_band = 0;
-    gsr->rf_park_counter = 0;
+    gsr->rf_dwell_start_tick = furi_get_tick();
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         gsr->rf_dwell_peak[i] = -127.0f;
         gsr->rf_rssi_dbm[i] = -100.0f;
@@ -1164,7 +1175,7 @@ void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled) {
         if(enabled) {
             em_scan_rf_init();
             gsr->rf_band = 0;
-            gsr->rf_park_counter = 0;
+            gsr->rf_dwell_start_tick = furi_get_tick();
             for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
                 gsr->rf_rssi_dbm[i] = -100.0f;
                 gsr->rf_peak_hold_dbm[i] = -100.0f;
