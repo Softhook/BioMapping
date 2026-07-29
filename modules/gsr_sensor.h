@@ -1,9 +1,17 @@
 #pragma once
 
-// GSR Sensor — ADS1115 I2C differential reader with PGA autoranging.
+// GSR Sensor & RF Scanner — ADS1115 I2C differential reader with PGA autoranging
+// and integrated SubGHz RF spectrum scanning.
+//
+// Owns the single background FuriThread ("GsrSensorWorker") that handles both:
+//   1. Biometric GSR ADC sampling at 860 SPS with simple-mean oversampling and
+//      real-time TIA autoranging.
+//   2. SubGHz RF spectrum scanning (when enabled via gsr_sensor_set_rf_enabled),
+//      hopping through configured frequency bands (300/433/868/915 MHz) and
+//      maintaining peak-hold decay snapshots without spawning a second thread.
 //
 // Auto-ranging keeps the ADC reading in [12.5 %, 91.5 %] of full scale by
-// stepping the PGA gain in real time.  The tick() normalises the reading
+// stepping the PGA gain in real time. The tick() normalises the reading
 // through the TIA circuit equation and stores the result in nanosiemens.
 // gsr_sensor_get_raw() returns skin conductance in nS regardless of PGA.
 // Returns 0 when the sensor is unavailable.

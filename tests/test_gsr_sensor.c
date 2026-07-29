@@ -26,7 +26,7 @@
 #include <unistd.h>
 
 #include "modules/gsr_sensor.h"
-#include "em_scan/em_scan_rf.h"
+#include "modules/em_scan_rf.h"
 #include "furi.h"
 #include "furi_hal.h"
 

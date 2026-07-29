@@ -2,7 +2,7 @@
 // Signal processing (EMA, derivative) is deferred to the main app.
 
 #include "gsr_sensor.h"
-#include "em_scan/em_scan_rf.h"
+#include "em_scan_rf.h"
 #include <furi.h>
 #include <furi_hal.h>
 #include <stdlib.h>
@@ -420,14 +420,18 @@ static int32_t gsr_sensor_worker(void* context) {
             }
 
             uint32_t dwell_ticks = (RF_DWELL_MS * furi_kernel_get_tick_frequency()) / 1000;
-            if(furi_get_tick() - gsr->rf_dwell_start_tick >= dwell_ticks) {
-                // Apply 1-visit peak-hold decay (1.0 dB/sec over 3-band rotation = ~0.9 dB)
-                gsr->rf_peak_hold_dbm[band] -= 0.9f;
+            uint32_t now_tick = furi_get_tick();
+            uint32_t elapsed_ticks = now_tick - gsr->rf_dwell_start_tick;
+            if(elapsed_ticks >= dwell_ticks) {
+                // Apply peak-hold decay based on actual elapsed time (1.0 dB/sec over 3-band rotation)
+                float elapsed_sec = (float)elapsed_ticks / (float)furi_kernel_get_tick_frequency();
+                float decay_db = 1.0f * (float)EM_SCAN_NUM_FREQS * elapsed_sec;
+                gsr->rf_peak_hold_dbm[band] -= decay_db;
                 if(gsr->rf_peak_hold_dbm[band] < gsr->rf_rssi_dbm[band]) {
                     gsr->rf_peak_hold_dbm[band] = gsr->rf_rssi_dbm[band];
                 }
 
-                gsr->rf_dwell_start_tick = furi_get_tick();
+                gsr->rf_dwell_start_tick = now_tick;
                 gsr->rf_dwell_peak[band] = -127.0f; // reset dwell peak for next visit
                 gsr->rf_band = (gsr->rf_band + 1) % EM_SCAN_NUM_FREQS;
                 em_scan_rf_set_band(gsr->rf_band);

@@ -55,10 +55,6 @@
 #define REFRESH_EVERY     5       // display-refresh counter threshold
 #define MANUAL_ZOOM_TIMEOUT 30    // ticks before auto-zoom re-engages after manual zoom (3 s)
 #define FLUSH_INTERVAL    5       // seconds between SD batch flushes (LED blinks at 1 Hz)
-// How long RF scanning parks on each band before hopping to the
-// next (see modules/gsr_sensor.c) — moved here from em_scan.c's own
-// EM_SCAN_WORKER_PARK_MS when em_scan was merged into BioMapping.
-#define RF_WORKER_PARK_MS 300
 
 // ── Sub-structs (owned by BioMapApp) ───────────────────────────────────
 

@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "em_scan/em_scan_cal.h"
+#include "modules/em_scan_cal.h"
 #include "storage/storage.h"
 
 // Defined in tests/shims/storage_mock.c
