@@ -192,6 +192,16 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     bool has_graph = has_gsr(a->session.mode)
                   && a->session.mode != BioMapModeDiagnostics;
     bool is_diag   = (a->session.mode == BioMapModeDiagnostics);
+    // GPS+GSR-style top bar (badge top-left, nS top-right) applies to both
+    // GpsGsr and GpsGsrRf — anything with both GPS and GSR but not the
+    // GsrOnly time-span layout below. Added as its own flag (2026-07-29)
+    // rather than adding a second `|| mode == BioMapModeGpsGsrRf` at each
+    // call site, after BioMapModeGpsGsrRf's addition broke both direct
+    // `mode == BioMapModeGpsGsr` checks below — the top-left badge and the
+    // top-right nS value silently stopped rendering in the new mode
+    // because neither check was updated when the enum gained a new value.
+    bool gps_gsr_top_bar = (a->session.mode == BioMapModeGpsGsr
+                          || a->session.mode == BioMapModeGpsGsrRf);
 
     // Right/left edges of whatever ends up occupying the top-left label
     // (GPS badge / time-span) and top-right nS value slots on this frame.
@@ -212,8 +222,8 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         canvas_draw_box(c, 118, 1, 8, 8);
     }
 
-    // GPS quality badge — GPS+GSR mode only, top-left
-    if(a->session.mode == BioMapModeGpsGsr && a->session.gps) {
+    // GPS quality badge — GPS+GSR / GPS+GSR+RF, top-left
+    if(gps_gsr_top_bar && a->session.gps) {
         GpsStatus g = gps_uart_get_status(a->session.gps);
         bool has_fix = gps_has_fix(&g);
         char badge[16];
@@ -339,7 +349,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                         // 10767), not this frame's actual nS-value width —
                         // see the elapsed-time comment below for why.
                         top_right_edge = 128 - canvas_string_width(c, "-99999 nS") - right_margin;
-                    } else if(a->session.mode == BioMapModeGpsGsr) {
+                    } else if(gps_gsr_top_bar) {
                         // nS value — top-right (GPS badge already at top-left)
                         char buf[16];
                         snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.pipeline.display.filtered_ns);

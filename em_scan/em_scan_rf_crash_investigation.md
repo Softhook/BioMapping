@@ -567,6 +567,15 @@ of the same kind is unlikely to be the way this gets solved from here.
 
 ## Current status / open questions
 
+> **Superseded — see "Overall status" at the end of this document for the
+> current picture.** This section reflects the state of the investigation
+> before the SPI busy-wait bug was identified, before Momentum vs. stock
+> firmware was checked, and before the GSR+RF-concurrency and UART-redraw
+> hypotheses were tested and refuted. Left in place rather than rewritten,
+> per this doc's own practice of recording superseded findings instead of
+> deleting them — but don't treat the numbered list below as the current
+> state of things.
+
 - **Every app-measurable hypothesis has now been ruled out.** Heap, all
   three thread stacks (main, RF, GSR), RF signal strength, SD write/sync
   latency, GSR connection state, GPS fix quality, and outdoor/walking-
@@ -1185,3 +1194,194 @@ everywhere, not a separate decision.
 
 Builds clean (`ufbt build`) and all host tests still pass (81 assertions)
 — unaffected, since none of this touches the host-tested modules.
+
+## GPS + RF test result: negative finding on GSR, and a real fix (2026-07-29)
+
+First real-hardware run of the new "GPS + RF" mode — the test the previous
+section identified as the most useful next step (RF + GPS, deliberately no
+GSR, closest reproduction of standalone em_scan's original conditions).
+
+**Negative finding: rules out the GSR+RF-concurrency hypothesis.** It
+hung. The heartbeat line captured mid-session confirms `gsr=0` — no GSR
+worker thread existed at all this session. The previous doc section's
+leading theory ("RF worker + GSR worker running concurrently is the one
+concrete thing the merge introduced") is now refuted by direct test: GSR
+wasn't running, and it hung anyway. Recorded here as a negative result,
+not deleted, per the standing instruction to keep negative findings in
+this doc rather than only the ones that pan out.
+
+**What the log actually showed, and the correction to an in-conversation
+misread.** Before the hang, the log showed dozens of "ViewPort lockup"
+warnings in tight clusters (e.g. 3 within 15ms, 6 within 31ms) — a
+different pattern from every prior lockup (which showed either one such
+line or none at all, then silence). A heartbeat line printed successfully
+in the middle of this flurry, which was initially taken as proof the app
+wasn't frozen. That's only valid for the instant it printed — Christian
+confirmed the session did hang, afterward. Retracting the "this is just
+harmless noise" read.
+
+**Root cause of the warning burst, found by diffing against standalone
+em_scan.c again.** `biomap_session.c`'s `EventTypeUart` handler used to
+contain:
+
+```c
+if(ev.type == EventTypeUart && s->gps) {
+    gps_uart_process_rx(s->gps);
+    if(!has_gsr(s->mode))
+        view_port_update(s->vp);
+    continue;
+}
+```
+
+`modules/gps_uart.c`'s UART IRQ debounces posting `EventTypeUart` (a
+`rx_pending` guard prevents one-per-byte at 115200 baud), but a single GPS
+fix cycle still arrives as several separate NMEA sentences in a tight
+burst, not evenly spaced — enough to post multiple debounced UART events
+within a few milliseconds of each other, matching the log's clustering
+exactly. Every one of those events called `view_port_update()`, but
+**only** in modes where `has_gsr()` is false — today, only GPS+RF. Every
+other mode takes a different branch and never calls
+`view_port_update()` from here at all, relying solely on the Tick
+handler's own unconditional 10 Hz call. GPS+RF was therefore the only
+mode capable of bursting `view_port_update()` calls far above the ~10 Hz
+rate every other mode is bounded to.
+
+Checked standalone `em_scan.c`'s equivalent handler directly (not from
+memory): `if(ev.type == EventTypeUart) { if(app->gps)
+gps_uart_process_rx(app->gps); continue; }` — **it never called
+`view_port_update()` from the UART branch at all**, in any mode, ever.
+This is a genuine behavioral difference the merge introduced, not
+something standalone em_scan did.
+
+**Fix applied**: removed the `view_port_update()` call from the UART
+branch entirely (`biomap_session.c`), for every mode, matching standalone
+em_scan.c's original pattern. The Tick handler already calls
+`view_port_update(s->vp)` unconditionally every tick regardless of mode —
+so GPS-only/GPS+RF screens still redraw at that same bounded 10 Hz rate;
+the only cost is up to one tick (~100 ms) of extra latency before a fresh
+GPS reading reaches the screen, in exchange for never bursting redraw
+calls faster than every other mode already handles safely. Builds clean,
+all 81 host-test assertions still pass (this code isn't part of the host
+harness, but nothing else changed).
+
+**What this does and doesn't claim to fix**: this directly addresses a
+real, confirmed, merge-introduced difference from standalone em_scan that
+was actively spamming `view_port_update()`/`view_port->mutex` contention
+right before a real hang — a legitimate fix regardless of anything else.
+It does **not** claim to be a complete explanation for every lockup in
+this doc: GSR-inclusive modes never took this code path at all (the branch
+was always skipped for `has_gsr()==true`), so this can't explain track 105
+or the RF-on 636s freeze, both of which were GPS+GSR+RF sessions. Those
+remain open, most likely explained by the SPI busy-wait firmware bug
+documented earlier. This fix is specifically scoped to whatever this
+GPS+RF-only mechanism contributed on top of that.
+
+**Next test**: repeat GPS+RF, tethered, comparable duration, with this fix
+in place. If it now runs clean, this specific burst-redraw mechanism was
+sufficient on its own to explain the GPS+RF hang, independent of the SPI
+firmware bug. If it still hangs, this fix was necessary-but-not-sufficient
+and the firmware-level SPI busy-wait (or something else) is still doing
+the real damage in this mode too — not yet run.
+
+## GPS + RF retest with the fix: 1033s clean, then the same hard stop (2026-07-29)
+
+Fix confirmed real, but not complete. Session ran `568808` → last heartbeat
+`1602228` — **1033 seconds (~17.2 minutes)**, `gsr=0` throughout (no GSR
+worker at all), heap and every stack completely flat the entire time. Then
+it stopped: no gap, no warning, no "ViewPort lockup" line (that mechanism
+is gone now), just the same signature every hard hang in this doc has
+shown — perfectly regular right up to the last heartbeat, then nothing.
+
+**The fix helped a lot, genuinely.** Pre-fix, GPS+RF was hanging within
+~33 seconds (the ViewPort-lockup-spam session). Post-fix: ~31x longer
+before failing. Keeping the fix — it removed a real, confirmed,
+merge-introduced difference from standalone em_scan, and the improvement
+is too large to be noise.
+
+**But it's not sufficient on its own.** This is now the cleanest isolation
+in the whole investigation: no GSR worker (`gsr=0`), no UART-triggered
+redraw spam (removed), just GPS + the RF worker, and it still hung, same
+signature as every GSR-inclusive failure (track 105, the 636s GPS+GSR+RF
+run). That rules out both "GSR+RF concurrency" (already refuted last
+section) and "the UART redraw spam" as *sufficient* explanations on their
+own — RF alone, cleanly isolated from everything else this app's code
+controls, is enough to eventually hang. This is the strongest evidence yet
+that the SPI busy-wait firmware bug (documented earlier — `furi_hal_spi_
+bus_end_txrx()`'s `UNUSED(timeout); // FIXME`) is the actual root cause,
+not something in this app's own logic.
+
+**Also a new data point for duration**: 1033s beats track 103's previous
+longest clean RF-on run (655.3s) by a wide margin. Combined with the wide
+existing spread (33s to 1033s+ across everything tested with RF active),
+this continues to look like a roughly-random, per-unit-time failure
+probability rather than anything threshold- or duration-based — consistent
+with a marginal hardware race that can go a long time before misfiring,
+not a resource that runs out.
+
+**Where this leaves things**: the two concrete, app-level contributing
+factors identified in this investigation (GSR+RF concurrency load, UART
+redraw spam) have both now been tested and neither is necessary for the
+hang to occur — RF alone is sufficient. The remaining root-cause
+candidates are back to what the firmware-level sections above already
+identified: the SPI busy-wait bug specifically, or something else in
+Furi's own kernel/HAL internals not reachable from application code. No
+further app-level fix is obviously available from here without either
+patching firmware (not something a `.fap` app can do — see the "Can this
+app fix it?" section above) or reducing RF exposure/duration as a
+mitigation rather than a fix.
+
+## Overall status (2026-07-29)
+
+Read this section first if picking the investigation back up — it
+supersedes the "Current status / open questions" section from partway
+through this doc, which predates most of what's below.
+
+**What's confirmed:**
+- Not heap, not stack (any of main/RF/GSR threads), not SD/storage I/O,
+  not RSSI signal value/strength, not GSR connection state, not GPS fix
+  quality, not power-rail sag (the tether split argues against it for the
+  freeze failures specifically), not outdoor/walking-specific factors, not
+  the RF calibration wizard race (found and fixed, but cosmetic/unrelated).
+- Not GSR+RF concurrency specifically, and not the UART-triggered
+  `view_port_update()` redraw spam (fixed, real improvement, but RF alone
+  still hangs without it — see the two sections immediately above).
+- A real, concrete, unbounded busy-wait exists in the shared SPI driver
+  (`furi_hal_spi_bus_end_txrx()`, `UNUSED(timeout); // FIXME`), confirmed
+  identical in both stock Flipper firmware and Momentum, sitting directly
+  in the RF worker's hot path and nowhere else this app touches. This is
+  the strongest concrete mechanism found for why RF specifically is the
+  one common thread across every failure in this entire document.
+
+**What's still open:**
+- Why a stuck RF worker thread would freeze the *entire* app (main thread,
+  GUI, even backlight/button response) rather than just leave RF readings
+  stale — no lock chain in this app's own code explains that jump (see the
+  SPI busy-wait section's "what it does NOT explain"). The shared-FreeRTOS-
+  timer-thread mechanism (BLE section) is the best candidate found so far,
+  but its one discriminating test — disable Bluetooth, repeat an RF-on
+  soak — was never actually run. **This is the single highest-value test
+  still outstanding.**
+- Why standalone em_scan never reportedly crashed under what's now shown to
+  be a near-identical resource profile (GPS + RF worker, no GSR). Tethering
+  and cumulative exposure/duration remain the least-tested, most plausible
+  remaining explanations — standalone usage was very unlikely to have run
+  tethered for 1000+ continuous seconds the way this investigation's tests
+  have.
+
+**What can't be done from this app**: the actual bug lives in firmware
+this app doesn't control. No polling-frequency reduction, watchdog, or
+app-level workaround changes that — see "Can this app fix it?" above for
+why, and its cost/benefit list for the options that do exist (reduce
+exposure, accept the risk, or pursue an upstream firmware fix, which is a
+real possibility given the bug is open-source and already self-flagged,
+but is Christian's call, not something to act on unilaterally).
+
+**Recommended next step, in order**: (1) the BLE-off RF-on soak test —
+cheap, already designed, the one thing left that could meaningfully change
+the picture rather than add another data point to an already-established
+pattern; (2) if that doesn't resolve it, treat this as settled at "known
+intermittent firmware-level risk, roughly random per-unit-time, ranging
+from seconds to 1000+ seconds observed" and make it an operational
+decision (accept the risk for fieldwork needing RF, avoid RF scanning when
+not needed, or pursue the upstream fix) rather than continuing to search
+for an app-level cause that the evidence increasingly says doesn't exist.

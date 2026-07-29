@@ -828,13 +828,27 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         // UART events: drain GPS data without holding the app mutex for
         // the entire parse.  We parse with a dedicated GPS mutex so the
         // GUI render thread is never blocked by NMEA parsing.
+        //
+        // Deliberately does NOT call view_port_update() here (removed
+        // 2026-07-29 — see em_scan_rf_crash_investigation.md's "GPS + RF"
+        // section). A single GPS fix arrives as several separate NMEA
+        // sentences in a tight burst, not evenly spaced, so this used to
+        // fire view_port_update() many times within a few milliseconds in
+        // has_gsr()==false modes (GSR modes never took this branch, since
+        // the graph buffer hadn't changed) — a rate no other mode ever
+        // produces, spamming "ViewPort lockup" warnings and directly
+        // preceding a real hang on real hardware. The Tick handler below
+        // already calls view_port_update() unconditionally every tick
+        // (10 Hz) regardless of mode, so GPS-only/GPS+RF screens still
+        // redraw at that same bounded rate — this only costs up to one
+        // tick (~100 ms) of extra latency before a fresh GPS reading
+        // reaches the screen, in exchange for never bursting redraw calls
+        // faster than every other mode already does safely. Matches
+        // standalone em_scan.c's original UART handler, which never called
+        // view_port_update() here either — this was a behavior the merge
+        // introduced, not something standalone em_scan ever did.
         if(ev.type == EventTypeUart && s->gps) {
             gps_uart_process_rx(s->gps);
-            // In GSR modes the graph buffer hasn't changed — skip the
-            // redraw to avoid unnecessary GUI work.  GPS-only mode still
-            // needs the update because the screen shows live GPS details.
-            if(!has_gsr(s->mode))
-                view_port_update(s->vp);
             continue;
         }
 
