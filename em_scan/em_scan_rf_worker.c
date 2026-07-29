@@ -73,11 +73,24 @@ static int32_t em_scan_rf_worker_thread_fn(void* context) {
 
 EmScanRfWorker* em_scan_rf_worker_alloc(uint32_t park_ms) {
     EmScanRfWorker* w = malloc(sizeof(EmScanRfWorker));
-    furi_assert(w);
+    // furi_check, not furi_assert: this app's own build defines
+    // FURI_NDEBUG (confirmed via .vscode/compile_commands.json), so
+    // furi_assert() compiles to a no-op here — it would never actually
+    // check anything on a real device. furi_check() is unconditional
+    // regardless of build type. Promoted throughout this file
+    // (2026-07-29) as part of the ongoing crash investigation — see
+    // em_scan_rf_crash_investigation.md. These conditions should never
+    // fail under correct operation, so this costs nothing on the success
+    // path; if one ever does fail, a descriptive message here beats
+    // silently continuing with a NULL/corrupted pointer.
+    furi_check(w, "EmScanRfWorker: alloc failed");
     *w = (EmScanRfWorker){
         .mutex = furi_mutex_alloc(FuriMutexTypeNormal),
         .park_ms = park_ms,
     };
+    // Never checked before this pass — matches the same alloc-failure
+    // check gsr_sensor.c already had for its own mutex.
+    furi_check(w->mutex, "EmScanRfWorker: mutex alloc failed");
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         w->rssi_dbm[i] = EM_SCAN_RF_WORKER_DEFAULT_DBM;
         w->peak_hold_dbm[i] = EM_SCAN_RF_WORKER_DEFAULT_DBM;
@@ -93,8 +106,8 @@ void em_scan_rf_worker_free(EmScanRfWorker* w) {
 }
 
 void em_scan_rf_worker_start(EmScanRfWorker* w) {
-    furi_assert(w);
-    furi_assert(!w->thread);
+    furi_check(w, "EmScanRfWorker: NULL in start()");
+    furi_check(!w->thread, "EmScanRfWorker: start() called twice");
 
     furi_mutex_acquire(w->mutex, FuriWaitForever);
     w->running = true;
@@ -132,7 +145,7 @@ void em_scan_rf_worker_start(EmScanRfWorker* w) {
 }
 
 void em_scan_rf_worker_stop(EmScanRfWorker* w) {
-    furi_assert(w);
+    furi_check(w, "EmScanRfWorker: NULL in stop()");
     if(!w->thread) return;
 
     furi_mutex_acquire(w->mutex, FuriWaitForever);
@@ -148,8 +161,12 @@ void em_scan_rf_worker_get_snapshot(
     EmScanRfWorker* w,
     float*          out_rssi_dbm,
     float*          out_peak_hold_dbm) {
-    furi_assert(w);
-    furi_assert(out_rssi_dbm); // rssi is always required
+    // Called every tick (10Hz) from the main thread during a recording
+    // session — the highest-frequency call site in this file, and
+    // therefore the most likely to catch corrupted state promptly if it
+    // ever occurs.
+    furi_check(w, "EmScanRfWorker: NULL in get_snapshot()");
+    furi_check(out_rssi_dbm, "EmScanRfWorker: NULL rssi out-param"); // rssi is always required
     furi_mutex_acquire(w->mutex, FuriWaitForever);
     memcpy(out_rssi_dbm, w->rssi_dbm, sizeof(w->rssi_dbm));
     // out_peak_hold_dbm is optional: pass NULL if only the raw RSSI is needed.
@@ -160,7 +177,16 @@ void em_scan_rf_worker_get_snapshot(
 }
 
 uint32_t em_scan_rf_worker_get_stack_space(EmScanRfWorker* w) {
-    furi_assert(w);
+    furi_check(w, "EmScanRfWorker: NULL in get_stack_space()");
     if(!w->thread) return 0;
-    return furi_thread_get_stack_space(w->thread);
+    // furi_thread_get_stack_space() takes a FuriThreadId (the underlying
+    // RTOS handle), not a FuriThread* (Furi's own wrapper struct) — two
+    // distinct pointer values. Passing w->thread directly here compiled
+    // silently (FuriThreadId is void*, so any pointer converts to it with
+    // no warning) but was reading the watermark of whatever w->thread
+    // happens to point to as if it were a thread ID, not this thread's
+    // actual stack space. furi_thread_get_id() is the real conversion.
+    FuriThreadId id = furi_thread_get_id(w->thread);
+    if(!id) return 0; // per furi_thread_get_id()'s doc: NULL if not running
+    return furi_thread_get_stack_space(id);
 }

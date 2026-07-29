@@ -177,12 +177,153 @@ fixes calls a nonexistent function, the whole document was treated as
 unreliable (likely LLM-hallucinated, real symbol names stitched into a
 plausible-sounding but unverified story) and **not implemented**.
 
+## Second external review — mixed results
+
+A follow-up audit of this document itself raised four points. Evaluated
+each against the code:
+
+1. **RAM volatility loses pre-crash diagnostic data — correct, fixed.** A
+   crash wipes RAM, so anything sitting in the batch buffer since the last
+   5s flush (including the diagnostic line that would explain a stack
+   overflow) is lost. **Fixed**: `handle_second_boundary()`
+   (`biomap_session.c`) now force-flushes immediately if either worker's
+   logged stack headroom drops below 512B, instead of always waiting for
+   the normal `FLUSH_INTERVAL`. Same bounded-rare-blocking-call trade-off
+   already used elsewhere in this function — a stall only when things are
+   already going bad is an acceptable cost.
+2. **CC1101 RXFIFO_OVERFLOW — mechanism questionable, fix adopted anyway.**
+   CC1101's `PKT_FORMAT` field selects FIFO-buffered vs. async-serial mode;
+   they're mutually exclusive, so the async-serial preset this app uses
+   should bypass FIFO buffering for RX data entirely, and this app never
+   reads FIFO data anyway (only the separate, always-live RSSI register).
+   So "the FIFO overflows" isn't a coherent failure mode as stated. But
+   `furi_hal_subghz_flush_rx()` **is** a real SDK function, and calling it
+   (right after `idle()`, before retuning) is free and can't hurt. **Added**
+   to both `em_scan_rf_dwell_band()` and `em_scan_rf_park_band()` in
+   `em_scan_rf.c` as cheap defensive hygiene — not because the mechanism is
+   confirmed, but because there's no reason not to.
+3. **GsrSensorWorker's 1024B stack — stated justification wrong, general
+   point adopted anyway.** The review claimed the mains-hum DFT
+   (`cosf`/`sinf`) and PGA-autoranging logic run on this thread under
+   pressure. Checked `gsr_sensor_worker()` directly: it's I2C reads plus
+   plain integer arithmetic, no floats at all. That DFT/autoranging logic
+   is actually in `gsr_sensor_tick()`, which runs on the **main thread**
+   (4096B stack), not here — the claim is factually wrong. But the
+   underlying idea (this size was also never measured, same as the RF
+   worker's) is fair, and bumping it is equally cheap insurance. **Bumped**
+   1024B → 2048B in `gsr_sensor_alloc()` (`modules/gsr_sensor.c`), with the
+   correction recorded in the code comment.
+4. **GPS NMEA bursts → event/timer queue overflow → `furi_check` — doesn't
+   hold up, not implemented.** `EVENT_QUEUE_DEPTH` is already 64,
+   sized specifically for GPS UART bursts per an existing code comment. All
+   the relevant `furi_message_queue_put()` calls (the GPS ISR's, the timer
+   callback's) use a `0` (non-blocking) timeout — FreeRTOS returns an error
+   code on a full non-blocking put, it doesn't assert. This mechanism isn't
+   consistent with how the code actually handles a full queue.
+
+## Bug found in the diagnostic itself (2026-07-29)
+
+While checking whether other useful debug instrumentation should be added,
+cross-referencing `furi_thread_get_stack_space()`'s real signature against
+the cached SDK headers (`~/.ufbt/current/sdk_headers/f7_sdk/furi/core/thread.h`)
+found that `em_scan_rf_worker_get_stack_space()` and
+`gsr_sensor_get_stack_space()` (added earlier this session) were passing
+the wrong handle type. The real signature is:
+
+```c
+uint32_t furi_thread_get_stack_space(FuriThreadId thread_id);
+```
+
+`FuriThreadId` is the underlying RTOS handle, obtained via
+`furi_thread_get_id(FuriThread* thread)` — a distinct value from the
+`FuriThread*` wrapper struct pointer itself. Both getters were passing
+`w->thread`/`gsr->thread` (the `FuriThread*`) directly. Since
+`FuriThreadId` is `typedef void*`, this compiled with zero warnings — C
+allows any pointer to convert to `void*` silently — but it meant the stack
+diagnostic added specifically to investigate this crash was reading the
+watermark of the wrong handle the entire time. **Fixed** in both getters:
+now call `furi_thread_get_id()` first and pass that through, with a
+NULL-check per that function's own documented "NULL if not running"
+behavior. Also fixed the host-test shim (`tests/shims/furi.h`) to model
+the same two-handle distinction. All 81 host-test assertions still pass.
+
+This means **any stack-space numbers in tracks logged before this fix are
+not reliable** and shouldn't be used to draw conclusions — the diagnostic
+wasn't measuring what it claimed to until this point.
+
+## FURI_NDEBUG confirmed, and furi_assert() promoted to furi_check() (2026-07-29)
+
+Checked `python3 -m ufbt launch`'s actual compiler invocations
+(`.vscode/compile_commands.json`) across all 13 of this app's source
+files: every single one defines `-DFURI_NDEBUG` and none defines
+`-DFURI_DEBUG`. Cross-referenced against the real macro definitions in
+`furi/core/check.h`:
+
+```c
+#define furi_check(...) ...          // unconditional, no #ifdef guard
+#ifdef FURI_DEBUG
+  #define __furi_assert(e, m) do { if(!(e)) __furi_crash(m); } while(0)
+#else
+  #define __furi_assert(e, m) do { ((void)(e)); ((void)(m)); } while(0)
+#endif
+```
+
+Confirmed: every `furi_assert()` in this codebase — 58 total, across
+`gsr_sensor.c`, `gps_uart.c`, `sd_logger.c`, `em_scan_rf_worker.c`,
+`biomap.c` — has been a pure no-op on every real walk, including every
+prior track (91's clean run and 97-99's crashes). None of them has ever
+actually checked anything in the field. Also confirmed this app never
+calls `furi_check()` directly anywhere, so the "furi_check failed" crash
+text is conclusive: it's coming from inside Furi's own kernel/HAL
+internals, not from anything this app's code directly triggers.
+
+**Action taken**: promoted the asserts on the walk-relevant hot path to
+`furi_check()` with descriptive messages, since these conditions should
+never fail under correct operation (cost nothing extra when they don't)
+and would be exactly the diagnostic signal wanted if one ever does (most
+likely evidence of memory corruption from a stack overflow reaching a
+struct pointer).
+
+- `em_scan_rf_worker.c`: all 7 existing asserts promoted (alloc, start x2,
+  stop, get_snapshot x2, get_stack_space), plus one brand-new check added
+  on the mutex-alloc result (never checked at all before) — 8 `furi_check()`
+  call sites total.
+- `gsr_sensor.c`: the asserts in the 10 functions the normal
+  (non-Diagnostics) walk path actually calls — `gsr_sensor_alloc()` (which
+  has two separate checks: the struct malloc and its mutex alloc), `free()`,
+  `is_connected()`, `get_raw()`, `get_raw_sample_ns()`,
+  `get_raw_sample_count()`, `get_stack_space()`, `tick()`,
+  `set_calibration()`, `set_mains_hum_enabled()` — 11 `furi_check()` call
+  sites total. The remaining 14 Diagnostics-only accessors
+  (`get_worker_hz()`, `get_success_rate()`, etc., plus `lock_pga()`) were
+  deliberately left as plain `furi_assert()` — a normal walk never calls
+  them, so promoting them wouldn't help this investigation and isn't worth
+  the churn.
+- `tests/shims/furi.h` updated with a `furi_check()` shim (both 1-arg and
+  2-arg call forms) so the host tests still build. All 81 assertions still
+  pass.
+
+**Final tally, app-wide** (verified by direct grep, not estimated): 19 real
+`furi_check()` call sites — 8 in `em_scan_rf_worker.c`, 11 in
+`gsr_sensor.c`. 39 `furi_assert()` calls remain untouched: 15 in
+`gsr_sensor.c` (the Diagnostics-only accessors listed above), 9 in
+`sd_logger.c`, 8 in `gps_uart.c`, 7 in `biomap.c`, 1 in `em_scan.c` (the
+retired standalone app, not part of the `biomap.fap` build). Those weren't
+touched this pass — out of scope for this specific investigation, not
+evaluated for whether they're worth promoting too.
+
+If the next walk's crash shows one of these specific messages instead of
+a bare "furi_check failed," that directly identifies which pointer/struct
+was corrupted, rather than needing to infer it.
+
 ## Current status / open questions
 
-- **Leading hypothesis**: RF worker thread stack pressure (3072B, now
-  4096B) — still unconfirmed, but the only mechanism-level path not yet
-  disproven. The stack-space diagnostic (item 2 above) is what will
-  actually measure this.
+- **Leading hypothesis**: worker-thread stack pressure — RF worker now
+  4096B (was 3072B, was 2048B), GSR worker now 2048B (was 1024B) — still
+  unconfirmed for either, but the only mechanism-level path not yet
+  disproven. The stack-space diagnostic (item 2 above), now protected by
+  the low-stack-triggers-immediate-flush logic, is what will actually
+  measure this on the next walk instead of it being lost to a RAM wipe.
 - **The RF-signal correlation is real** but its mechanism is now back to
   unknown, since the interrupt-storm explanation didn't survive
   verification. Remaining plausible candidates, roughly in order of
@@ -203,6 +344,13 @@ plausible-sounding but unverified story) and **not implemented**.
   flat? That single data point either confirms the stack-pressure
   hypothesis or kills it and points the investigation toward the
   electrical/EMI side instead.
+- **Also check the crash screen text itself.** If the next crash shows one
+  of the newly-promoted `furi_check()` messages (e.g. "EmScanRfWorker: NULL
+  in get_snapshot()") instead of a bare "furi_check failed," that's direct,
+  immediate confirmation of which struct got corrupted — no CSV analysis
+  needed. If it's still a bare "furi_check failed" with no further text,
+  that rules out everything promoted this pass and points even more
+  strongly at something inside Furi's own kernel/HAL internals.
 - **Do not** apply speculative CC1101 register-level changes (e.g.
   IOCFG0 high-impedance) or HAL API calls that don't exist without first
   getting that data — the async preset was deliberately chosen for

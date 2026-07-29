@@ -340,11 +340,27 @@ static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
     // thread stack high-water marks: crash #1 was "mitigated" by guessing
     // the RF worker's stack needed 3072B instead of 2048B, but that was
     // never actually measured — this is that measurement.
+    uint32_t stack_rf  = s->rf_worker ? em_scan_rf_worker_get_stack_space(s->rf_worker) : 0;
+    uint32_t stack_gsr = s->gsr ? gsr_sensor_get_stack_space(s->gsr) : 0;
     sd_logger_batch_printf(s->logger, "# heap:free=%u min=%u stack:rf=%u gsr=%u\n",
                             (unsigned)memmgr_get_free_heap(),
                             (unsigned)memmgr_get_minimum_free_heap(),
-                            (unsigned)(s->rf_worker ? em_scan_rf_worker_get_stack_space(s->rf_worker) : 0),
-                            (unsigned)(s->gsr ? gsr_sensor_get_stack_space(s->gsr) : 0));
+                            (unsigned)stack_rf, (unsigned)stack_gsr);
+
+    // If either worker thread's stack is genuinely close to exhausted,
+    // force this diagnostic line to disk immediately rather than letting
+    // it wait for the normal FLUSH_INTERVAL (5s) cadence — a crash wipes
+    // RAM, so the one line of data that would actually explain a stack
+    // overflow is exactly the line most likely to still be sitting
+    // unflushed in the batch buffer when it happens. This is the same
+    // trade-off already made everywhere else in this function (a bounded,
+    // rare blocking SD sync is fine; an unconditional one every second is
+    // not — see the block comment above). 512B is a coarse threshold, not
+    // a measured one: the point is "close enough to worth capturing," not
+    // a precise overflow boundary.
+    if((s->rf_worker && stack_rf < 512) || (s->gsr && stack_gsr < 512)) {
+        sd_logger_batch_flush(s->logger);
+    }
 
     bool play_warning = false;
 

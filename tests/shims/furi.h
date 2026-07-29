@@ -34,6 +34,16 @@
 
 #define furi_assert(x) assert(x)
 
+// furi_check() is variadic in the real SDK: furi_check(cond) or
+// furi_check(cond, "message"). Unlike furi_assert, it's unconditional in
+// every build (no FURI_NDEBUG gating) — the host shim just maps both call
+// forms to a real assert() so a failed check still aborts the test binary.
+#define FURI_CHECK_GET_MACRO(_1, _2, NAME, ...) NAME
+#define furi_check(...) \
+    FURI_CHECK_GET_MACRO(__VA_ARGS__, furi_check2, furi_check1)(__VA_ARGS__)
+#define furi_check1(cond)      assert(cond)
+#define furi_check2(cond, msg) assert(cond)
+
 #define FURI_LOG_D(tag, fmt, ...) ((void)0)
 #define FURI_LOG_I(tag, fmt, ...) ((void)0)
 #define FURI_LOG_W(tag, fmt, ...) ((void)0)
@@ -141,10 +151,17 @@ static inline bool furi_thread_join(FuriThread* t) {
     return true;
 }
 static inline void furi_thread_free(FuriThread* t) { free(t); }
+// Real Furi distinguishes FuriThread* (the wrapper struct) from
+// FuriThreadId (the underlying RTOS handle, obtained via
+// furi_thread_get_id()) — gsr_sensor.c calls both, so the shim needs both
+// names to exist even though this host stub doesn't model two distinct
+// handles.
+typedef void* FuriThreadId;
+static inline FuriThreadId furi_thread_get_id(FuriThread* t) { return (FuriThreadId)t; }
 // Stub only: host pthreads aren't watermarked like FreeRTOS task stacks, so
 // this can't return a meaningful value — it exists purely so gsr_sensor.c's
 // (real, unmodified) stack-space getter still links on the host.
-static inline size_t furi_thread_get_stack_space(FuriThread* t) { (void)t; return 0; }
+static inline size_t furi_thread_get_stack_space(FuriThreadId id) { (void)id; return 0; }
 
 // ── Stream buffer — real ring buffer; gps_uart.c's RX drain logic       ──
 // depends on genuine partial-read/write semantics, not just a stub.

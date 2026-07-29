@@ -421,7 +421,16 @@ static int32_t gsr_sensor_worker(void* context) {
 // ─────────────────────────────────────────────────────────────────────────────
 GsrSensor* gsr_sensor_alloc(void) {
     GsrSensor* gsr = malloc(sizeof(GsrSensor));
-    furi_assert(gsr);
+    // furi_check, not furi_assert: this app's build defines FURI_NDEBUG
+    // (confirmed via .vscode/compile_commands.json), so furi_assert() is a
+    // no-op here — it would never actually check anything on a real
+    // device. Promoted throughout the functions this file's normal
+    // (non-Diagnostics) walk path actually calls (2026-07-29), as part of
+    // the ongoing crash investigation — see
+    // em_scan_rf_crash_investigation.md. Diagnostics-only accessors
+    // (worker_hz, success_rate, etc.) are left as plain asserts since a
+    // normal walk never exercises them.
+    furi_check(gsr, "GsrSensor: alloc failed");
     gsr->raw       = 0.0f;
     gsr->pga_index = ADS_PGA_DEFAULT;
     gsr->low_count = 0;
@@ -479,7 +488,7 @@ GsrSensor* gsr_sensor_alloc(void) {
         gsr->write_idx = 0;
 
         gsr->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
-        furi_assert(gsr->mutex);
+        furi_check(gsr->mutex, "GsrSensor: mutex alloc failed");
 
         gsr->iter_count = 0;
         gsr->attempt_count = 0;
@@ -508,7 +517,21 @@ GsrSensor* gsr_sensor_alloc(void) {
         gsr->pga_changed = false;
         gsr->thread = furi_thread_alloc();
         furi_thread_set_name(gsr->thread, "GsrSensorWorker");
-        furi_thread_set_stack_size(gsr->thread, 1024);
+        // 2048B — bumped from 1024B (2026-07-29). Not a response to any
+        // confirmed problem: gsr_sensor_worker() itself (the function that
+        // actually runs on this thread) is light — I2C reads plus plain
+        // int16_t/int32_t/uint32_t arithmetic, no floats. The mains-hum DFT
+        // (cosf/sinf) and PGA-autoranging decision logic live in
+        // gsr_sensor_tick(), which runs on the MAIN thread (called from
+        // handle_recording_tick()), not here — despite an external crash-
+        // investigation review claiming otherwise (see
+        // em_scan_rf_crash_investigation.md). This bump is cheap insurance
+        // matching the same reasoning already applied to the RF worker's
+        // stack: this size was never actually measured either, and now
+        // both threads' stack headroom are logged every second during
+        // recording (gsr_sensor_get_stack_space()) — check that data
+        // before assuming this was necessary or bumping it again.
+        furi_thread_set_stack_size(gsr->thread, 2048);
         furi_thread_set_context(gsr->thread, gsr);
         furi_thread_set_callback(gsr->thread, gsr_sensor_worker);
         furi_thread_start(gsr->thread);
@@ -518,7 +541,7 @@ GsrSensor* gsr_sensor_alloc(void) {
 }
 
 void gsr_sensor_free(GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in free()");
     if(gsr->available) {
         gsr->running = false;
         furi_thread_join(gsr->thread);
@@ -546,7 +569,7 @@ bool gsr_sensor_available(const GsrSensor* gsr) {
 }
 
 bool gsr_sensor_is_connected(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in is_connected()");
     if(!gsr->available) return false;
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     bool connected = gsr->connected;
@@ -555,7 +578,9 @@ bool gsr_sensor_is_connected(const GsrSensor* gsr) {
 }
 
 float gsr_sensor_get_raw(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    // Called every tick (10Hz) during recording — the highest-frequency
+    // call site among the promoted checks in this file.
+    furi_check(gsr, "GsrSensor: NULL in get_raw()");
     if(!gsr->available) return 0.0f;
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     float val = gsr->raw;
@@ -568,7 +593,7 @@ float gsr_sensor_get_raw(const GsrSensor* gsr) {
 // position as the ~100 ms window's most recent entry.  This guarantees
 // the raw sample and the filtered mean use the exact same underlying data.
 float gsr_sensor_get_raw_sample_ns(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in get_raw_sample_ns()");
     if(!gsr->available) return 0.0f;
 
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
@@ -580,7 +605,7 @@ float gsr_sensor_get_raw_sample_ns(const GsrSensor* gsr) {
 }
 
 int32_t gsr_sensor_get_raw_sample_count(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in get_raw_sample_count()");
     if(!gsr->available) return 0;
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     int32_t val = gsr->tick_last_norm;
@@ -670,9 +695,14 @@ float gsr_sensor_get_stale_rate(const GsrSensor* gsr) {
 }
 
 uint32_t gsr_sensor_get_stack_space(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in get_stack_space()");
     if(!gsr->available) return 0;
-    return furi_thread_get_stack_space(gsr->thread);
+    // furi_thread_get_stack_space() takes a FuriThreadId (the RTOS handle
+    // from furi_thread_get_id()), not the FuriThread* wrapper itself — see
+    // em_scan_rf_worker_get_stack_space()'s comment for the same fix.
+    FuriThreadId id = furi_thread_get_id(gsr->thread);
+    if(!id) return 0;
+    return furi_thread_get_stack_space(id);
 }
 
 // Live count of consecutive failed I2C reads happening right now — not a
@@ -827,7 +857,9 @@ uint32_t gsr_sensor_get_pga_change_count(const GsrSensor* gsr) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void gsr_sensor_tick(GsrSensor* gsr) {
-    furi_assert(gsr);
+    // Called every tick (10Hz) from the main thread during recording — the
+    // single highest-frequency call site in this file.
+    furi_check(gsr, "GsrSensor: NULL in tick()");
     if(!gsr->available) return;
 
     // ── Roll the worker-Hz measurement window (~1 s) ────────────────────
@@ -1067,7 +1099,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
 }
 
 void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float offset) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in set_calibration()");
     if(!gsr->available) return;
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     gsr->cal_active = active;
@@ -1084,7 +1116,7 @@ void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float o
 // pay for it. When disabled, gsr_sensor_get_mains_hum_mag() reads 0.0f
 // rather than a stale last-computed value.
 void gsr_sensor_set_mains_hum_enabled(GsrSensor* gsr, bool enabled) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in set_mains_hum_enabled()");
     if(!gsr->available) return;
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     gsr->mains_hum_enabled = enabled;

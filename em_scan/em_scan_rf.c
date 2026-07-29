@@ -87,6 +87,17 @@ void em_scan_rf_deinit(void) {
 
 void em_scan_rf_dwell_band(int band_index, float* out_peak_dbm) {
     furi_hal_subghz_idle();
+    // Defensive: flush the RX FIFO before retuning. This app never reads
+    // FIFO data (only get_rssi(), a separate always-live analog register),
+    // and the async-serial preset it loads should bypass FIFO buffering
+    // for RX data entirely (CC1101 PKT_FORMAT selects FIFO-buffered vs.
+    // async-serial mode — they're mutually exclusive), so this shouldn't
+    // matter under normal operation. Added 2026-07-29 anyway after a
+    // walk-crash investigation raised RX FIFO state as a hypothetical:
+    // flush_rx() is a real, cheap, idempotent strobe with no downside, so
+    // there's no reason not to call it even without confidence it does
+    // anything here — see em_scan_rf_crash_investigation.md.
+    furi_hal_subghz_flush_rx();
     // _and_path (not plain set_frequency) — this also switches the RF
     // matching network for the target band. Using plain set_frequency left
     // the antenna path wherever the previous hop left it, which silently
@@ -137,6 +148,8 @@ void em_scan_rf_park_band(
     float*    out_mean_dbm,
     uint32_t* out_sample_count) {
     furi_hal_subghz_idle();
+    // See em_scan_rf_dwell_band()'s comment on this same call.
+    furi_hal_subghz_flush_rx();
     furi_hal_subghz_set_frequency_and_path(em_scan_freq_hz[band_index]);
     furi_hal_subghz_rx();
 
