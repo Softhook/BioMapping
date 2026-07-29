@@ -316,43 +316,138 @@ If the next walk's crash shows one of these specific messages instead of
 a bare "furi_check failed," that directly identifies which pointer/struct
 was corrupted, rather than needing to infer it.
 
+## Tracks 100-103: both leading hypotheses refuted (2026-07-29)
+
+First real walk with the fixed stack diagnostic, the promoted `furi_check()`
+calls, and the RF `flush_rx()` addition all active. Tracks 100, 101, 102
+crashed; track 103 (655s) was stopped manually, no crash. Run directly from
+the Flipper's own app menu (not `ufbt launch` this time — same build either
+way, doesn't change anything about `FURI_NDEBUG`).
+
+**Stack pressure — conclusively refuted.** Both worker threads' logged
+stack headroom is flat and healthy across every track, crashed or not:
+
+| Track | Duration | Outcome | RF stack free | GSR stack free |
+|---|---|---|---|---|
+| 100 | 178.8s | crashed | 3596/4096 B | 1660/2048 B |
+| 101 | 19.9s | crashed | 3596-3604/4096 B | 1660/2048 B |
+| 102 | 34.9s | crashed | 3596-3604/4096 B | 1660/2048 B |
+| 103 | 655.3s | stopped manually | 3596-3604/4096 B | 1660/2048 B |
+
+Identical numbers whether a session crashed in 20 seconds or ran clean for
+655 — 20x longer than the shortest crash. Neither thread ever used more
+than ~500B (RF) or ~390B (GSR) of its budget. This was the leading
+hypothesis for the whole investigation, resting entirely on the fact these
+sizes had only ever been guessed, never measured. Now measured, directly,
+across four sessions including three crashes: it's not stack pressure on
+either worker thread.
+
+**RF-signal-elevation correlation — also refuted, more decisively than
+first written up.** Track 103 passed through elevated-RF conditions
+(>-85 dBm) **333 times on 815 MHz and 781 times on 915 MHz** over its 655
+clean seconds, without crashing once. Track 101 crashed at floor-level RSSI
+(-93.5/-91.5/-91.5 dBm) and never once saw an elevated reading anywhere in
+its entire 20-second file (max across the whole file: -91.5 dBm on every
+band). Track 102: identical story, max -91.5 dBm across its entire
+35-second file, never elevated at all. Track 100 *did* see real elevation
+during its run — 815 peaked at -72 dBm — but re-checked the timing
+precisely rather than just eyeballing the tail: the elevated window ran
+from t=70.4s to t=129.9s, then RSSI dropped back to floor and *stayed*
+there for the next 49 seconds before the crash at t=178.8s. That's not
+ambiguous (an earlier pass here called it that from only checking the last
+few rows) — it's a clean non-correlation, same as 101 and 102. Across all
+6 crashes now on record, only 2 (97, 99) showed elevation at the actual
+crash moment; the other 4 (98 — no data, 100, 101, 102) didn't. Most likely
+coincidental, not causal.
+
+**Heap**: flat within every session (single value throughout each track,
+consistent with every prior finding — no leak). **GPS fix quality**: no
+common pattern across the three crashes — tracks 100 and 101 show clean,
+stable fixes (steady sats/hdop, valid speed) right up to the crash; track
+102 shows the known cosmetic sats-oscillation bug (18↔8↔20) in its last
+~1.5s, but that doesn't appear in the other two, so it's not shared either.
+
+**Crash timing**: 20s / 35s / 179s this round vs. 5s / 145s / 520s last
+time — still no fixed-count or fixed-duration signature across either
+batch.
+
+**Crash screen text: still bare "furi_check failed," all three times.**
+This is the most important negative result. None of the 19 `furi_check()`
+calls promoted in `em_scan_rf_worker.c`/`gsr_sensor.c` fired — ruling out
+a corrupted `w`/`gsr` pointer reaching any of those specific entry points.
+Combined with the flat stack/heap, this crash is not happening at the
+API-boundary checks this pass added. It's either:
+1. Inside Furi's own kernel/HAL internals (a check this app doesn't
+   control and can't instrument at the application level) — still the
+   single most consistent explanation across everything ruled out so far.
+2. Inside the RF/GSR worker threads' actual loop bodies
+   (`em_scan_rf_worker_thread_fn()`, `gsr_sensor_worker()`) — neither has
+   any check at all, only their wrapper API functions do, so corruption or
+   a fault occurring mid-loop (e.g. during `em_scan_rf_park_band()` or the
+   I2C read chain) would never touch any of the checks added this pass.
+3. Somewhere never instrumented at all: **the main application thread's own
+   stack has still never been measured**, despite being flagged as worth
+   adding two turns ago. With both worker threads now cleared, this is the
+   most likely remaining stack-related candidate, if it's stack-related at
+   all.
+4. Genuinely electrical/hardware (brownout, EMI) — can't be ruled in or out
+   by any software diagnostic.
+
+## Main-thread stack-space logging added (2026-07-29)
+
+Implemented the gap flagged above: `handle_second_boundary()`
+(`biomap_session.c`) now also logs the main application thread's own
+stack headroom, via `furi_thread_get_stack_space(furi_thread_get_id(furi_thread_get_current()))`
+— `furi_thread_get_current()` is always valid here since this function
+only ever runs on the main thread itself. Diagnostic line format changed
+from `# heap:free=%u min=%u stack:rf=%u gsr=%u` to
+`# heap:free=%u min=%u stack:main=%u rf=%u gsr=%u` (main added first, ahead
+of rf/gsr, matching call order). The low-stack force-flush safety net
+(added earlier this session) now also triggers on `stack_main < 512`,
+alongside the existing RF/GSR checks — same 512B coarse threshold, same
+reasoning (a crash wipes RAM, so the one line that would explain a main-
+thread stack issue needs to reach disk before that happens, not wait for
+the normal 5s cadence).
+
+This is the last of the three threads active during a normal walk
+(main/RF/GSR) to get stack instrumentation. If the next walk still shows
+all three flat and healthy, that closes out stack pressure as an
+explanation entirely — for every thread this app runs, not just the two
+that were originally suspected — and narrows the remaining candidates down
+to: something inside Furi's own kernel/HAL internals, something inside the
+RF/GSR worker loop bodies specifically (still no checks there — see the
+tracks 100-103 section above), or genuinely electrical/hardware.
+
+**Note for reading future tracks**: the diagnostic line's column order
+changed this pass (`main` inserted before `rf`/`gsr`) — tracks 100-103 and
+everything before them used the old 2-field `stack:rf=... gsr=...` format;
+anything from this point forward uses the new 3-field
+`stack:main=... rf=... gsr=...` format. Don't parse both formats with the
+same fixed offsets.
+
 ## Current status / open questions
 
-- **Leading hypothesis**: worker-thread stack pressure — RF worker now
-  4096B (was 3072B, was 2048B), GSR worker now 2048B (was 1024B) — still
-  unconfirmed for either, but the only mechanism-level path not yet
-  disproven. The stack-space diagnostic (item 2 above), now protected by
-  the low-stack-triggers-immediate-flush logic, is what will actually
-  measure this on the next walk instead of it being lost to a RAM wipe.
-- **The RF-signal correlation is real** but its mechanism is now back to
-  unknown, since the interrupt-storm explanation didn't survive
-  verification. Remaining plausible candidates, roughly in order of
-  plausibility:
-  1. Electrical/EMI: a genuinely strong nearby transmitter inducing a
-     voltage transient on the shared 3.3V rail, or coupling into the GSR
-     I2C lines — not something a software fix addresses.
-  2. Pure correlation without shared causation (e.g. RF-noisy areas
-     happening to also be GPS-unfriendly areas near buildings, changing
-     `gps_uart.c`'s NMEA processing load coincidentally in the same spots).
-  3. Something inside the CC1101 HAL's internals not visible from the
-     public header (can't verify further without the actual firmware `.c`
-     source, which isn't in this repo — only headers are cached via
-     `ufbt`).
-- **Next walk should check**: does RF worker stack headroom
-  (`em_scan_rf_worker_get_stack_space()`, now logged every second during
-  recording) actually dip during/near a logged RSSI spike, or does it stay
-  flat? That single data point either confirms the stack-pressure
-  hypothesis or kills it and points the investigation toward the
-  electrical/EMI side instead.
-- **Also check the crash screen text itself.** If the next crash shows one
-  of the newly-promoted `furi_check()` messages (e.g. "EmScanRfWorker: NULL
-  in get_snapshot()") instead of a bare "furi_check failed," that's direct,
-  immediate confirmation of which struct got corrupted — no CSV analysis
-  needed. If it's still a bare "furi_check failed" with no further text,
-  that rules out everything promoted this pass and points even more
-  strongly at something inside Furi's own kernel/HAL internals.
-- **Do not** apply speculative CC1101 register-level changes (e.g.
-  IOCFG0 high-impedance) or HAL API calls that don't exist without first
-  getting that data — the async preset was deliberately chosen for
-  wideband ambient RF capture, and changing it has a real cost to what the
-  tool measures.
+- **No confirmed hypothesis remains standing.** Heap (flat), RF worker
+  stack (flat), GSR worker stack (flat), RF signal strength (refuted by
+  track 103), and GPS fix quality (no shared pattern) have all been
+  directly checked against real data and ruled out. This is real progress —
+  narrowing down what it *isn't* — but the actual cause is still open.
+- **Next walk should check**: does the newly-added main-thread stack
+  headroom stay flat too, or does it show pressure the other two threads
+  didn't? That's the last untested resource among the original suspects.
+- Consider promoting `gps_uart.c`'s and `sd_logger.c`'s `furi_assert()`
+  calls to `furi_check()` too, now that RF/GSR's own checks came back clean
+  — these are the other two app-level modules active throughout a walk.
+  Not done yet; ask before doing a broader sweep, same as the targeted one
+  already done.
+- **Hardware/electrical explanations are now proportionally more likely**,
+  precisely because every software-side hypothesis checked so far has come
+  back negative. Nothing in this repo can confirm or rule that out — it
+  would need physical hardware investigation (checking supply rail
+  stability under load, reseating/testing the GPS and GSR boards
+  independently, etc.), not more log analysis.
+- **Do not** apply speculative CC1101 register-level changes (e.g. IOCFG0
+  high-impedance) or nonexistent HAL API calls — the async preset was
+  deliberately chosen for wideband ambient RF capture, and changing it has
+  a real cost to what the tool measures, for a hypothesis that was already
+  weak and is now weaker still.

@@ -340,12 +340,23 @@ static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
     // thread stack high-water marks: crash #1 was "mitigated" by guessing
     // the RF worker's stack needed 3072B instead of 2048B, but that was
     // never actually measured — this is that measurement.
-    uint32_t stack_rf  = s->rf_worker ? em_scan_rf_worker_get_stack_space(s->rf_worker) : 0;
-    uint32_t stack_gsr = s->gsr ? gsr_sensor_get_stack_space(s->gsr) : 0;
-    sd_logger_batch_printf(s->logger, "# heap:free=%u min=%u stack:rf=%u gsr=%u\n",
+    // Main-thread stack space added 2026-07-29: tracks 100-103 measured
+    // both worker threads' stacks as flat and healthy (RF ~3596-3604/4096B
+    // free, GSR ~1660/2048B free) whether a session crashed in 20s or ran
+    // clean for 655s — ruling out the leading stack-pressure hypothesis
+    // for both of them. This app's own thread (application.fam's 4KB
+    // stack_size) runs this entire tick handler, all CSV formatting, and
+    // GPS status copying, and was never actually measured despite being
+    // the original "guessed, never confirmed" concern this whole
+    // diagnostic exists to resolve. furi_thread_get_current() is always
+    // valid here — this function only ever runs on the main app thread.
+    uint32_t stack_rf   = s->rf_worker ? em_scan_rf_worker_get_stack_space(s->rf_worker) : 0;
+    uint32_t stack_gsr  = s->gsr ? gsr_sensor_get_stack_space(s->gsr) : 0;
+    uint32_t stack_main = furi_thread_get_stack_space(furi_thread_get_id(furi_thread_get_current()));
+    sd_logger_batch_printf(s->logger, "# heap:free=%u min=%u stack:main=%u rf=%u gsr=%u\n",
                             (unsigned)memmgr_get_free_heap(),
                             (unsigned)memmgr_get_minimum_free_heap(),
-                            (unsigned)stack_rf, (unsigned)stack_gsr);
+                            (unsigned)stack_main, (unsigned)stack_rf, (unsigned)stack_gsr);
 
     // If either worker thread's stack is genuinely close to exhausted,
     // force this diagnostic line to disk immediately rather than letting
@@ -357,8 +368,9 @@ static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
     // rare blocking SD sync is fine; an unconditional one every second is
     // not — see the block comment above). 512B is a coarse threshold, not
     // a measured one: the point is "close enough to worth capturing," not
-    // a precise overflow boundary.
-    if((s->rf_worker && stack_rf < 512) || (s->gsr && stack_gsr < 512)) {
+    // a precise overflow boundary. Main thread included alongside the two
+    // worker threads for the same reason.
+    if(stack_main < 512 || (s->rf_worker && stack_rf < 512) || (s->gsr && stack_gsr < 512)) {
         sd_logger_batch_flush(s->logger);
     }
 
