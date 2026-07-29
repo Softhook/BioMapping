@@ -85,6 +85,14 @@ void em_scan_rf_deinit(void) {
     furi_hal_subghz_sleep();
 }
 
+void em_scan_rf_set_band(int band_index) {
+    if(band_index < 0 || band_index >= EM_SCAN_NUM_FREQS) return;
+    furi_hal_subghz_idle();
+    furi_hal_subghz_flush_rx();
+    furi_hal_subghz_set_frequency_and_path(em_scan_freq_hz[band_index]);
+    furi_hal_subghz_rx();
+}
+
 void em_scan_rf_dwell_band(int band_index, float* out_peak_dbm) {
     furi_hal_subghz_idle();
     // Defensive: flush the RX FIFO before retuning. This app never reads

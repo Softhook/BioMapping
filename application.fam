@@ -20,7 +20,6 @@ App(
         "modules/gsr_sensor.c",
         "modules/sd_logger.c",
         "em_scan/em_scan_rf.c",
-        "em_scan/em_scan_rf_worker.c",
         "em_scan/em_scan_cal.c",
     ],
 )

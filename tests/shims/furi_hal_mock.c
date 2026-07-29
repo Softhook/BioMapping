@@ -179,3 +179,8 @@ void furi_hal_i2c_mock_reset(void) {
     atomic_store(&g_write_count, 0);
     atomic_store(&g_last_config_msb, 0);
 }
+
+// ── Weak SubGHz RF stubs for host test harness ────────────────────────
+__attribute__((weak)) void em_scan_rf_init(void) {}
+__attribute__((weak)) void em_scan_rf_deinit(void) {}
+__attribute__((weak)) void em_scan_rf_set_band(int band_index) { (void)band_index; }

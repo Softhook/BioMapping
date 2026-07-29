@@ -112,11 +112,6 @@ void session_deinit(Session* s, BioMapApp* app) {
         gsr_sensor_free(s->gsr);
         s->gsr = NULL;
     }
-    if(s->rf_worker) {
-        em_scan_rf_worker_free(s->rf_worker); // stops + joins internally
-        s->rf_worker = NULL;
-        em_scan_rf_deinit();
-    }
     if(s->gps) {
         gps_uart_free(s->gps);
         s->gps = NULL;
@@ -327,78 +322,13 @@ static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
     // sd_logger — must survive a freeze that happens before the next SD
     // flush, and must exist even when no logger/file is open at all (not
     // recording means s->logger may not have an active file).
-    uint32_t stack_rf   = s->rf_worker ? em_scan_rf_worker_get_stack_space(s->rf_worker) : 0;
     uint32_t stack_gsr  = s->gsr ? gsr_sensor_get_stack_space(s->gsr) : 0;
     uint32_t stack_main = furi_thread_get_stack_space(furi_thread_get_id(furi_thread_get_current()));
-    FURI_LOG_I("BioMap", "heartbeat heap:free=%u min=%u stack:main=%u rf=%u gsr=%u",
+    FURI_LOG_I("BioMap", "heartbeat heap:free=%u min=%u stack:main=%u gsr=%u",
                (unsigned)memmgr_get_free_heap(), (unsigned)memmgr_get_minimum_free_heap(),
-               (unsigned)stack_main, (unsigned)stack_rf, (unsigned)stack_gsr);
+               (unsigned)stack_main, (unsigned)stack_gsr);
 
     if(!s->recording.active) return false;
-
-    // ── Lightweight crash diagnostics (2026-07-29) ─────────────────────
-    // Reinstated after three real "furi_check failed" crashes on one walk
-    // (tracks 97-99) — the previous heap-only version of this (removed by
-    // "no stalls") had already ruled out a slow heap leak (track 91: flat
-    // heap over 459.8s) without ever confirming the actual cause, and its
-    // removal meant this walk's crashes produced no new evidence either.
-    // Deliberately NOT repeating that version's mistake: it called
-    // sd_logger_batch_flush() (which now syncs — see modules/sd_logger.c)
-    // every single second while app->mutex was held, which very plausibly
-    // caused the real UI stalls "no stalls" was written to fix — a blocking
-    // SD sync has no business inside the same critical section
-    // biomap_render_callback() needs (see handle_write_failure's comment).
-    // This version only appends to the in-memory batch buffer via
-    // sd_logger_batch_printf() — cheap, non-blocking — and rides the
-    // existing FLUSH_INTERVAL (5s) flush/sync cadence like every other row,
-    // so it can't reintroduce that stall. Also widened beyond the old
-    // heap-only version to include the RF worker's and GSR worker's own
-    // thread stack high-water marks: crash #1 was "mitigated" by guessing
-    // the RF worker's stack needed 3072B instead of 2048B, but that was
-    // never actually measured — this is that measurement.
-    // Main-thread stack space added 2026-07-29: tracks 100-103 measured
-    // both worker threads' stacks as flat and healthy (RF ~3596-3604/4096B
-    // free, GSR ~1660/2048B free) whether a session crashed in 20s or ran
-    // clean for 655s — ruling out the leading stack-pressure hypothesis
-    // for both of them. This app's own thread (application.fam's 4KB
-    // stack_size) runs this entire tick handler, all CSV formatting, and
-    // GPS status copying, and was never actually measured despite being
-    // the original "guessed, never confirmed" concern this whole
-    // diagnostic exists to resolve. furi_thread_get_current() is always
-    // valid here — this function only ever runs on the main app thread.
-    // (stack_rf/stack_gsr/stack_main computed once, above, by the
-    // heartbeat this function now always logs first — reused here rather
-    // than measured twice.)
-    // SD write/sync latency added 2026-07-29 to test "Theory 2" (real SD
-    // cards can stall storage_file_write()/storage_file_sync() for
-    // hundreds of ms during internal flash GC/erase, blocking this main
-    // thread) — see em_scan_rf_crash_investigation.md. Running max since
-    // session start, not the latest reading — see sd_logger.c's own
-    // comment on why.
-    uint32_t sd_write_ms = sd_logger_get_max_write_ms(s->logger);
-    uint32_t sd_sync_ms  = sd_logger_get_max_sync_ms(s->logger);
-    sd_logger_batch_printf(s->logger,
-                            "# heap:free=%u min=%u stack:main=%u rf=%u gsr=%u sd:write_ms=%u sync_ms=%u\n",
-                            (unsigned)memmgr_get_free_heap(),
-                            (unsigned)memmgr_get_minimum_free_heap(),
-                            (unsigned)stack_main, (unsigned)stack_rf, (unsigned)stack_gsr,
-                            (unsigned)sd_write_ms, (unsigned)sd_sync_ms);
-
-    // If either worker thread's stack is genuinely close to exhausted,
-    // force this diagnostic line to disk immediately rather than letting
-    // it wait for the normal FLUSH_INTERVAL (5s) cadence — a crash wipes
-    // RAM, so the one line of data that would actually explain a stack
-    // overflow is exactly the line most likely to still be sitting
-    // unflushed in the batch buffer when it happens. This is the same
-    // trade-off already made everywhere else in this function (a bounded,
-    // rare blocking SD sync is fine; an unconditional one every second is
-    // not — see the block comment above). 512B is a coarse threshold, not
-    // a measured one: the point is "close enough to worth capturing," not
-    // a precise overflow boundary. Main thread included alongside the two
-    // worker threads for the same reason.
-    if(stack_main < 512 || (s->rf_worker && stack_rf < 512) || (s->gsr && stack_gsr < 512)) {
-        sd_logger_batch_flush(s->logger);
-    }
 
     bool play_warning = false;
 
@@ -423,16 +353,6 @@ static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
         bool gps_ready = pos.valid && pos.hdop < GPS_HDOP_GATE;
         if(!gps_ready) {
             notification_message(notifications, &sequence_blink_blue_100);
-        }
-    }
-
-    // ── SD flush (every FLUSH_INTERVAL seconds) ────────────────────────
-    if(++s->recording.flush_counter >= FLUSH_INTERVAL) {
-        s->recording.flush_counter = 0;
-        int flushed = sd_logger_batch_flush(s->logger);
-        if(flushed < 0) {
-            FURI_LOG_E("BioMap", "Batch flush failed");
-            if(handle_write_failure(s, notifications)) play_warning = true;
         }
     }
 
@@ -503,7 +423,7 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         const char* cols;
         if(s->mode == BioMapModeGsrOnly) {
             cols = BIOMAP_CSV_COLS_GSR_ONLY;
-        } else if(s->rf_worker) {
+        } else if(has_rf(s->mode)) {
             cols = BIOMAP_CSV_COLS_GPS_GSR_RF;
         } else {
             cols = BIOMAP_CSV_COLS_GPS_GSR;
@@ -516,9 +436,9 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         int n = snprintf(header, sizeof(header),
                          "# RecordingStartTime:%lu\n", (unsigned long)epoch);
         // Band Floors line: only meaningful once RF is both active for this
-        // session (s->rf_worker set) and a real calibration exists — order
+        // session and a real calibration exists — order
         // (815,868,915) matches em_scan_freq_label[] in em_scan_rf.c.
-        if(s->rf_worker && rf_calibrated && n > 0 && (size_t)n < sizeof(header)) {
+        if(has_rf(s->mode) && rf_calibrated && n > 0 && (size_t)n < sizeof(header)) {
             n += snprintf(header + n, sizeof(header) - (size_t)n,
                          "# Band Floors (dBm): 815:%.1f,868:%.1f,915:%.1f\n",
                          (double)rf_cal_floors[0], (double)rf_cal_floors[1], (double)rf_cal_floors[2]);
@@ -787,7 +707,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         gps_uart_standby();
         s->gps = NULL;
     }
-    s->gsr    = has_gsr(mode) ? gsr_sensor_alloc() : NULL;
+    s->gsr    = (has_gsr(mode) || has_rf(mode)) ? gsr_sensor_alloc() : NULL;
     if(s->gsr) {
         furi_mutex_acquire(app->mutex, FuriWaitForever);
         bool active = app->cal_active;
@@ -800,13 +720,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         // Diagnostics screen actually displays it, so only that mode
         // pays for it.
         gsr_sensor_set_mains_hum_enabled(s->gsr, mode == BioMapModeDiagnostics);
-    }
-    if(has_rf(mode)) {
-        em_scan_rf_init();
-        s->rf_worker = em_scan_rf_worker_alloc(RF_WORKER_PARK_MS);
-        em_scan_rf_worker_start(s->rf_worker);
-    } else {
-        s->rf_worker = NULL;
+        gsr_sensor_set_rf_enabled(s->gsr, has_rf(mode));
     }
     s->logger = sd_logger_alloc(app->storage);
     view_port_update(s->vp);
@@ -877,36 +791,42 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             // it (at session setup/teardown, never during the tick loop).
             float rf_rssi[EM_SCAN_NUM_FREQS];
             float rf_peak_hold[EM_SCAN_NUM_FREQS];
-            if(s->rf_worker) {
-                em_scan_rf_worker_get_snapshot(s->rf_worker, rf_rssi, rf_peak_hold);
+            bool rf_active = has_rf(mode) && s->gsr;
+            if(rf_active) {
+                gsr_sensor_get_rf_snapshot(s->gsr, rf_rssi, rf_peak_hold);
             }
 
             furi_mutex_acquire(app->mutex, FuriWaitForever);
-            bool batch_ok = handle_recording_tick(s, s->rf_worker ? rf_rssi : NULL,
-                                                   s->rf_worker ? rf_peak_hold : NULL);
+            bool batch_ok = handle_recording_tick(s, rf_active ? rf_rssi : NULL,
+                                                   rf_active ? rf_peak_hold : NULL);
             s->recording.total_ticks++;
 
             bool play_warning = false;
+            bool do_flush = false;
             if(++s->recording.tick_counter >= TICK_HZ) {
                 if(handle_second_boundary(s, app->notifications)) play_warning = true;
-            }
-
-            // Batch overflow: try an emergency flush.  If even the flush
-            // fails, stop recording and notify the user via red LED.
-            if(!batch_ok) {
-                FURI_LOG_W("BioMap", "Batch overflow — emergency flush");
-                int flushed = sd_logger_batch_flush(s->logger);
-                if(flushed < 0) {
-                    FURI_LOG_E("BioMap", "Emergency flush failed — stopping recording");
-                    if(handle_write_failure(s, app->notifications)) play_warning = true;
+                if(++s->recording.flush_counter >= FLUSH_INTERVAL) {
+                    s->recording.flush_counter = 0;
+                    do_flush = true;
                 }
             }
             furi_mutex_release(app->mutex);
 
-            // Sound is played AFTER releasing app->mutex — biomap_sound_warning()
-            // blocks for ~250 ms, and biomap_render_callback() needs this same
-            // mutex to draw; holding it across a speaker call would freeze the
-            // recording screen for that long (see handle_write_failure's comment).
+            // SD card batch flush is performed AFTER releasing app->mutex!
+            // storage_file_write() and storage_file_sync() block for ~20-60 ms.
+            // Executing them outside app->mutex prevents biomap_render_callback()
+            // from locking up the ViewPort.
+            if(do_flush || !batch_ok) {
+                if(!batch_ok) FURI_LOG_W("BioMap", "Batch overflow — emergency flush");
+                int flushed = sd_logger_batch_flush(s->logger);
+                if(flushed < 0) {
+                    FURI_LOG_E("BioMap", "Batch flush failed");
+                    furi_mutex_acquire(app->mutex, FuriWaitForever);
+                    if(handle_write_failure(s, app->notifications)) play_warning = true;
+                    furi_mutex_release(app->mutex);
+                }
+            }
+
             if(play_warning) biomap_sound_warning(app->sound_enabled);
 
             view_port_update(s->vp);

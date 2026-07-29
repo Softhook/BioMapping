@@ -13,7 +13,7 @@
 // Mirrors the internal gsr_batch[] size in sd_logger.c — used only to
 // size this test's fill buffer, not linked against the struct itself
 // (SdLogger is opaque to callers).
-#define SD_LOGGER_BATCH_CAP 4096
+#define SD_LOGGER_BATCH_CAP 6144
 
 // Storage for tests/shims/furi.h's furi_get_tick() shim — sd_logger.c now
 // calls furi_get_tick() itself (write/sync latency instrumentation,

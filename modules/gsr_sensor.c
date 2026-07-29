@@ -2,10 +2,12 @@
 // Signal processing (EMA, derivative) is deferred to the main app.
 
 #include "gsr_sensor.h"
+#include "em_scan/em_scan_rf.h"
 #include <furi.h>
 #include <furi_hal.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TIA conversion: normalized ADC counts → nanosiemens
@@ -107,7 +109,7 @@ static inline float tia_counts_to_ns(float counts) {
 static const int32_t NORM_FACTOR[6] = { 24, 16, 8, 4, 2, 1 };
 
 // Human-readable FSR label for each pga_index (log messages only).
-static const char* const PGA_LABEL[6] = {
+static const char* const PGA_LABEL[6] __attribute__((unused)) = {
     "6.144V", "4.096V", "2.048V", "1.024V", "0.512V", "0.256V",
 };
 
@@ -162,6 +164,14 @@ struct GsrSensor {
     uint32_t pga_change_count;         // tick()-only — total PGA changes applied, lifetime
     uint32_t hz_window_start_pga_changes; // pga_change_count snapshot — tick() only
     uint32_t pga_change_rate_cached;      // tick() only — PGA changes in the last ~1 s window
+
+    // SubGHz RF state (interleaved into worker loop)
+    bool     rf_enabled;
+    int      rf_band;
+    uint32_t rf_park_counter;
+    float    rf_dwell_peak[EM_SCAN_NUM_FREQS];
+    float    rf_rssi_dbm[EM_SCAN_NUM_FREQS];
+    float    rf_peak_hold_dbm[EM_SCAN_NUM_FREQS];
 
     FuriThread* thread;
     FuriMutex*  mutex;
@@ -378,39 +388,42 @@ static int32_t gsr_sensor_worker(void* context) {
             furi_mutex_release(gsr->mutex);
         }
 
-        // Track the PGA under which the next conversion will be started.
-        // Only update when there is no pending (uncommitted) PGA change —
-        // otherwise a failed I2C write would cause the next read to be
-        // normalized with the wrong NORM_FACTOR.
         if(!pga_changed) {
             current_adc_pga = active_pga;
         }
 
-        // Yield to the RTOS scheduler (~1000 Hz loop, nominally). Per its
-        // own doc comment, furi_delay_ms(1) "aliases to scheduler timer
-        // intervals" — real wait time is "X+ milliseconds", not X — and
-        // measurement on real hardware (docs/gsr_filtering_analysis.md)
-        // showed this loop actually only achieves ~400-500 Hz, varying
-        // run to run rather than settling on one fixed rate. furi_delay_us
-        // would get the precise ~1 ms pacing, but it's documented as
-        // "Blocking and non aliased" (Cortex DWT counter) — a genuine
-        // busy-wait, not a scheduler yield, and was tried and reverted:
-        // it monopolizes the (single application) CPU core for the full
-        // wait instead of letting other threads run, which is exactly the
-        // failure mode behind flipperdevices/flipperzero-firmware#3380
-        // (a busy app thread starving the low-priority timer thread badly
-        // enough to hang input processing). The ADS1115 converts
-        // continuously at 860 SPS regardless of how often this loop reads
-        // it — at the measured ~400-500 Hz (slower than 860 Hz), nearly
-        // every read lands on a fresh conversion rather than re-reading a
-        // stale one; the loop instead simply never reads roughly 42-53%
-        // of the conversions the ADC produces (worse at the slow end of
-        // the observed range). Skipped, not duplicated — either
-        // way harmless to the mean: it just needs *some* representative
-        // samples from the window, not every conversion. gsr_sensor_tick()'s
-        // time-based averaging window (BOXCAR_WINDOW_MS, see above) means
-        // correctness no longer depends on hitting any particular rate —
-        // so there's no reason to trade scheduler cooperation for it.
+        // ── Interleaved Sub-GHz SPI RSSI read (~5 µs) ──────────────────────
+        furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+        if(gsr->rf_enabled) {
+            float r = furi_hal_subghz_get_rssi();
+            int band = gsr->rf_band;
+
+            if(r > gsr->rf_dwell_peak[band]) {
+                gsr->rf_dwell_peak[band] = r;
+            }
+            gsr->rf_rssi_dbm[band] = gsr->rf_dwell_peak[band];
+
+            if(r > gsr->rf_peak_hold_dbm[band]) {
+                gsr->rf_peak_hold_dbm[band] = r;
+            }
+
+            gsr->rf_park_counter++;
+            // 150 iterations at ~400 Hz = ~300 ms park time per band
+            if(gsr->rf_park_counter >= 150) {
+                // Apply 1-visit peak-hold decay (1.0 dB/sec over 3-band rotation = ~0.9 dB)
+                gsr->rf_peak_hold_dbm[band] -= 0.9f;
+                if(gsr->rf_peak_hold_dbm[band] < gsr->rf_rssi_dbm[band]) {
+                    gsr->rf_peak_hold_dbm[band] = gsr->rf_rssi_dbm[band];
+                }
+
+                gsr->rf_park_counter = 0;
+                gsr->rf_dwell_peak[band] = -127.0f; // reset dwell peak for next visit
+                gsr->rf_band = (gsr->rf_band + 1) % EM_SCAN_NUM_FREQS;
+                em_scan_rf_set_band(gsr->rf_band);
+            }
+        }
+        furi_mutex_release(gsr->mutex);
+
         furi_delay_ms(1);
     }
     return 0;
@@ -460,8 +473,9 @@ GsrSensor* gsr_sensor_alloc(void) {
     }
     furi_hal_i2c_release(&furi_hal_i2c_handle_external);
 
-    gsr->available = probed;
-    FURI_LOG_I("GsrSensor", "Probe %s", probed ? "OK" : "not found");
+    gsr->available = true;
+    gsr->i2c_working = probed;
+    FURI_LOG_I("GsrSensor", "I2C Probe %s", probed ? "OK" : "not found");
 
     if(probed) {
         // Warm up buffer with initial value
@@ -479,63 +493,60 @@ GsrSensor* gsr_sensor_alloc(void) {
         uint32_t alloc_tick = furi_get_tick();
         for(int i = 0; i < SENSOR_BUFFER_SIZE; i++) {
             gsr->buffer[i] = initial_norm;
-            // Stamped with "now", not 0 — an uninitialized/zero timestamp
-            // would make every warm-up slot look infinitely old to
-            // gsr_sensor_tick()'s time-windowed average on the very first
-            // call, which would then have zero samples to average.
             gsr->sample_tick[i] = alloc_tick;
         }
-        gsr->write_idx = 0;
-
-        gsr->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
-        furi_check(gsr->mutex, "GsrSensor: mutex alloc failed");
-
-        gsr->iter_count = 0;
-        gsr->attempt_count = 0;
-        gsr->duplicate_count = 0;
-        gsr->stale_count = 0;
-        gsr->duplicate_gap_running_min = UINT32_MAX;
-        gsr->duplicate_gap_min_cached = UINT32_MAX;
-        gsr->consecutive_failures = 0;
-        gsr->hz_window_start_tick = furi_get_tick(); // set before the worker starts — no lock needed
-        gsr->hz_window_start_count = 0;
-        gsr->hz_window_start_attempts = 0;
-        gsr->hz_window_start_duplicates = 0;
-        gsr->hz_window_start_stale = 0;
-        gsr->worker_hz_cached = 0.0f;
-        gsr->success_rate_cached = 100.0f; // optimistic default until the first window rolls
-        gsr->duplicate_rate_cached = 0.0f; // optimistic default until the first window rolls
-        gsr->stale_rate_cached = 0.0f;     // optimistic default until the first window rolls
-        gsr->pga_change_count = 0;
-        gsr->hz_window_start_pga_changes = 0;
-        gsr->pga_change_rate_cached = 0;
-        gsr->tick_window_ptp = 0;
-        gsr->tick_window_min_gap = 0;
-        gsr->tick_mains_hum_mag = 0.0f;
-
-        gsr->running = true;
-        gsr->pga_changed = false;
-        gsr->thread = furi_thread_alloc();
-        furi_thread_set_name(gsr->thread, "GsrSensorWorker");
-        // 2048B — bumped from 1024B (2026-07-29). Not a response to any
-        // confirmed problem: gsr_sensor_worker() itself (the function that
-        // actually runs on this thread) is light — I2C reads plus plain
-        // int16_t/int32_t/uint32_t arithmetic, no floats. The mains-hum DFT
-        // (cosf/sinf) and PGA-autoranging decision logic live in
-        // gsr_sensor_tick(), which runs on the MAIN thread (called from
-        // handle_recording_tick()), not here — despite an external crash-
-        // investigation review claiming otherwise (see
-        // em_scan_rf_crash_investigation.md). This bump is cheap insurance
-        // matching the same reasoning already applied to the RF worker's
-        // stack: this size was never actually measured either, and now
-        // both threads' stack headroom are logged every second during
-        // recording (gsr_sensor_get_stack_space()) — check that data
-        // before assuming this was necessary or bumping it again.
-        furi_thread_set_stack_size(gsr->thread, 2048);
-        furi_thread_set_context(gsr->thread, gsr);
-        furi_thread_set_callback(gsr->thread, gsr_sensor_worker);
-        furi_thread_start(gsr->thread);
+    } else {
+        uint32_t alloc_tick = furi_get_tick();
+        for(int i = 0; i < SENSOR_BUFFER_SIZE; i++) {
+            gsr->buffer[i] = 0;
+            gsr->sample_tick[i] = alloc_tick;
+        }
     }
+    gsr->write_idx = 0;
+
+    gsr->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
+    furi_check(gsr->mutex, "GsrSensor: mutex alloc failed");
+
+    gsr->iter_count = 0;
+    gsr->attempt_count = 0;
+    gsr->duplicate_count = 0;
+    gsr->stale_count = 0;
+    gsr->duplicate_gap_running_min = UINT32_MAX;
+    gsr->duplicate_gap_min_cached = UINT32_MAX;
+    gsr->consecutive_failures = 0;
+    gsr->hz_window_start_tick = furi_get_tick(); // set before the worker starts — no lock needed
+    gsr->hz_window_start_count = 0;
+    gsr->hz_window_start_attempts = 0;
+    gsr->hz_window_start_duplicates = 0;
+    gsr->hz_window_start_stale = 0;
+    gsr->worker_hz_cached = 0.0f;
+    gsr->success_rate_cached = 100.0f; // optimistic default until the first window rolls
+    gsr->duplicate_rate_cached = 0.0f; // optimistic default until the first window rolls
+    gsr->stale_rate_cached = 0.0f;     // optimistic default until the first window rolls
+    gsr->pga_change_count = 0;
+    gsr->hz_window_start_pga_changes = 0;
+    gsr->pga_change_rate_cached = 0;
+    gsr->tick_window_ptp = 0;
+    gsr->tick_window_min_gap = 0;
+    gsr->tick_mains_hum_mag = 0.0f;
+
+    gsr->rf_enabled = false;
+    gsr->rf_band = 0;
+    gsr->rf_park_counter = 0;
+    for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+        gsr->rf_dwell_peak[i] = -127.0f;
+        gsr->rf_rssi_dbm[i] = -100.0f;
+        gsr->rf_peak_hold_dbm[i] = -100.0f;
+    }
+
+    gsr->running = true;
+    gsr->pga_changed = false;
+    gsr->thread = furi_thread_alloc();
+    furi_thread_set_name(gsr->thread, "GsrSensorWorker");
+    furi_thread_set_stack_size(gsr->thread, 2048);
+    furi_thread_set_context(gsr->thread, gsr);
+    furi_thread_set_callback(gsr->thread, gsr_sensor_worker);
+    furi_thread_start(gsr->thread);
 
     return gsr;
 }
@@ -543,6 +554,10 @@ GsrSensor* gsr_sensor_alloc(void) {
 void gsr_sensor_free(GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in free()");
     if(gsr->available) {
+        if(gsr->rf_enabled) {
+            em_scan_rf_deinit();
+            gsr->rf_enabled = false;
+        }
         gsr->running = false;
         furi_thread_join(gsr->thread);
         furi_thread_free(gsr->thread);
@@ -565,7 +580,7 @@ void gsr_sensor_free(GsrSensor* gsr) {
 // Accessors
 // ─────────────────────────────────────────────────────────────────────────────
 bool gsr_sensor_available(const GsrSensor* gsr) {
-    return gsr->available;
+    return gsr && gsr->i2c_working;
 }
 
 bool gsr_sensor_is_connected(const GsrSensor* gsr) {
@@ -1136,6 +1151,40 @@ void gsr_sensor_lock_pga(GsrSensor* gsr, int8_t index) {
         gsr->pga_index = (uint8_t)index;
         gsr->pga_changed = true;  // force worker to apply new PGA
         FURI_LOG_I("GsrSensor", "PGA locked at %d (±%s)", (int)index, PGA_LABEL[index]);
+    }
+    furi_mutex_release(gsr->mutex);
+}
+
+void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled) {
+    furi_check(gsr, "GsrSensor: NULL in set_rf_enabled()");
+    if(!gsr->available) return;
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    if(gsr->rf_enabled != enabled) {
+        gsr->rf_enabled = enabled;
+        if(enabled) {
+            em_scan_rf_init();
+            gsr->rf_band = 0;
+            gsr->rf_park_counter = 0;
+            for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+                gsr->rf_rssi_dbm[i] = -100.0f;
+                gsr->rf_peak_hold_dbm[i] = -100.0f;
+            }
+            em_scan_rf_set_band(0);
+        } else {
+            em_scan_rf_deinit();
+        }
+    }
+    furi_mutex_release(gsr->mutex);
+}
+
+void gsr_sensor_get_rf_snapshot(const GsrSensor* gsr, float* out_rssi_dbm, float* out_peak_hold_dbm) {
+    furi_check(gsr, "GsrSensor: NULL in get_rf_snapshot()");
+    if(!gsr->available) return;
+    furi_check(out_rssi_dbm, "GsrSensor: NULL out_rssi_dbm");
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    memcpy(out_rssi_dbm, gsr->rf_rssi_dbm, sizeof(gsr->rf_rssi_dbm));
+    if(out_peak_hold_dbm) {
+        memcpy(out_peak_hold_dbm, gsr->rf_peak_hold_dbm, sizeof(gsr->rf_peak_hold_dbm));
     }
     furi_mutex_release(gsr->mutex);
 }

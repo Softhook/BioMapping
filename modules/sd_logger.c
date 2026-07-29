@@ -20,32 +20,12 @@ struct SdLogger {
     char     filename[64];
     int      last_index;
 
-    // GPS+GSR batch buffer: accumulate formatted rows each tick,
+    // GPS+GSR+RF batch buffer: accumulate formatted rows each tick,
     // flush to SD in one storage_file_write every FLUSH_INTERVAL seconds.
-    // 50 rows × ~80 bytes (worst-case GPS+GSR row, 11 columns incl. hacc_m) = ~4000 bytes < 4096.
-    char gsr_batch[4096];
+    // 50 rows × ~90 bytes (GPS+GSR+RF row, 17 columns) = ~4500 bytes < 6144.
+    char gsr_batch[6144];
     int  gsr_batch_len;
-
-    // Worst-case storage_file_write()/storage_file_sync() latency observed
-    // this session (2026-07-29) — added to test the theory that a real SD
-    // card's internal flash block erase/GC can stall a write or sync for
-    // hundreds of ms, during which this app's main thread (which calls
-    // both synchronously, holding no mutex but blocking its own forward
-    // progress) can't process GPS UART bytes or ticks. See
-    // em_scan_rf_crash_investigation.md, "Theory 2." A running max, not a
-    // per-call instantaneous value, so a single slow flush before a crash
-    // isn't lost between diagnostic log lines — the worst value survives
-    // in memory (and gets flushed to disk on the normal cadence) even if
-    // it happened seconds before the second-boundary tick that logs it.
-    uint32_t max_write_ms;
-    uint32_t max_sync_ms;
 };
-
-// Elapsed time in ms since start_tick, using the same tick-to-ms
-// conversion pattern already established in em_scan_rf.c.
-static uint32_t sd_logger_elapsed_ms(uint32_t start_tick) {
-    return (furi_get_tick() - start_tick) * 1000 / furi_kernel_get_tick_frequency();
-}
 
 SdLogger* sd_logger_alloc(Storage* storage) {
     furi_check(storage, "SdLogger: NULL storage in alloc()");
@@ -114,10 +94,7 @@ static bool open_log_file(SdLogger* l, const char* header) {
     }
 
     size_t hlen = strlen(header);
-    uint32_t t0 = furi_get_tick();
     uint16_t written = storage_file_write(l->file, header, hlen);
-    uint32_t write_ms = sd_logger_elapsed_ms(t0);
-    if(write_ms > l->max_write_ms) l->max_write_ms = write_ms;
     if(written != hlen) {
         FURI_LOG_E("SdLogger", "Header write failed (%d/%d)", written, (int)hlen);
         storage_file_close(l->file);
@@ -128,17 +105,8 @@ static bool open_log_file(SdLogger* l, const char* header) {
     }
     // Sync immediately, same reasoning as sd_logger_batch_flush(): a
     // "successful" storage_file_write() only means FatFs accepted the
-    // bytes into its cache, not that they reached physical media. Without
-    // this, a crash in the FLUSH_INTERVAL-seconds window before the first
-    // batch flush loses the header too, leaving a literal 0-byte file on
-    // disk — the exact signature seen on tracks 86 and 98. Best-effort:
-    // a failed sync is logged but doesn't fail the start, since the bytes
-    // are already (uncommitted) in FatFs and the next batch flush's sync
-    // will very likely catch this file up regardless.
-    uint32_t t1 = furi_get_tick();
+    // bytes into its cache, not that they reached physical media.
     bool header_synced = storage_file_sync(l->file);
-    uint32_t sync_ms = sd_logger_elapsed_ms(t1);
-    if(sync_ms > l->max_sync_ms) l->max_sync_ms = sync_ms;
     if(!header_synced) {
         FURI_LOG_W("SdLogger", "Header sync failed (written, not yet confirmed durable)");
     }
@@ -182,11 +150,8 @@ int sd_logger_batch_flush(SdLogger* l) {
     if(!l->active || !l->file) return 0;
     if(l->gsr_batch_len == 0) return 0;
 
-    uint32_t t0 = furi_get_tick();
     uint16_t written = storage_file_write(l->file, l->gsr_batch,
                                           (size_t)l->gsr_batch_len);
-    uint32_t write_ms = sd_logger_elapsed_ms(t0);
-    if(write_ms > l->max_write_ms) l->max_write_ms = write_ms;
     int flushed = l->gsr_batch_len;
 
     if(written != (uint16_t)flushed) {
@@ -197,30 +162,9 @@ int sd_logger_batch_flush(SdLogger* l) {
 
     l->gsr_batch_len = 0;
 
-    // Force the write through to physical media now, not just into the
-    // filesystem's own cache. Without this, storage_file_write() "succeeding"
-    // only means the bytes are handed to FatFs — they can still be lost
-    // entirely on a hard crash/reset before the file is ever closed
-    // (sd_logger_stop()'s storage_file_close(), the only other place that
-    // would commit them). A failed sync here is NOT treated as a flush
-    // failure: the bytes are already written and gsr_batch_len is already
-    // cleared, so returning -1 (which callers treat as "retry the same
-    // buffer") would duplicate this data on the next flush. Log it and
-    // move on — the next flush's sync call will very likely catch up
-    // regardless, since FatFs sync typically commits all outstanding
-    // cached writes for the file, not just the most recent one.
-    //
-    // Timed (2026-07-29) to test the theory that a real SD card's internal
-    // flash GC/erase can stall this call for hundreds of ms on the main
-    // thread — see em_scan_rf_crash_investigation.md, "Theory 2." The
-    // running max is what gets logged; a single instantaneous reading
-    // could be missed if it happens between two 1-second diagnostic lines.
-    uint32_t t1 = furi_get_tick();
     bool batch_synced = storage_file_sync(l->file);
-    uint32_t sync_ms = sd_logger_elapsed_ms(t1);
-    if(sync_ms > l->max_sync_ms) l->max_sync_ms = sync_ms;
     if(!batch_synced) {
-        FURI_LOG_W("SdLogger", "Batch flush: sync failed (written, not yet confirmed durable)");
+        FURI_LOG_W("SdLogger", "Batch sync failed");
     }
 
     return flushed;
@@ -278,13 +222,3 @@ int sd_logger_batch_printf(SdLogger* l, const char* fmt, ...) {
 }
 
 const char* sd_logger_get_filename(const SdLogger* l) { return l->filename; }
-
-uint32_t sd_logger_get_max_write_ms(const SdLogger* l) {
-    furi_check(l, "SdLogger: NULL in get_max_write_ms()");
-    return l->max_write_ms;
-}
-
-uint32_t sd_logger_get_max_sync_ms(const SdLogger* l) {
-    furi_check(l, "SdLogger: NULL in get_max_sync_ms()");
-    return l->max_sync_ms;
-}

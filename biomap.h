@@ -50,7 +50,6 @@ typedef struct Session {
     GpsUart*       gps;
     GsrSensor*     gsr;
     SdLogger*      logger;
-    EmScanRfWorker* rf_worker;  // NULL unless has_rf(mode)
     ViewPort*      vp;          // == app->screen_vp while a session is active; not owned/freed here
     FuriTimer*     timer;
 

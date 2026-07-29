@@ -103,3 +103,6 @@ uint8_t furi_hal_i2c_mock_last_config_msb(void);
 // Reset all of the above to zero/defaults. Call at the start of each test
 // — never while a previous test's GsrSensor/worker is still alive.
 void furi_hal_i2c_mock_reset(void);
+
+// ── SubGHz — gsr_sensor.c interleaved RSSI reads ─────────────────────────
+static inline float furi_hal_subghz_get_rssi(void) { return -91.5f; }

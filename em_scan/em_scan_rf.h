@@ -36,6 +36,10 @@ void em_scan_rf_init(void);
 // Powers down the CC1101. Call once at app exit.
 void em_scan_rf_deinit(void);
 
+// Non-blocking tune to ONE band (0=815MHz, 1=868MHz, 2=915MHz). Sets frequency and path,
+// flushes RX FIFO, and leaves radio in RX state for continuous RSSI reads.
+void em_scan_rf_set_band(int band_index);
+
 // Tunes to ONE band (band_index into em_scan_freq_hz/em_scan_freq_label),
 // discards a short AGC/PLL warm-up, then polls RSSI repeatedly over an
 // active dwell window and returns the MAXIMUM reading seen — not a single
