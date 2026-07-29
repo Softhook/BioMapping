@@ -801,10 +801,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         // pays for it.
         gsr_sensor_set_mains_hum_enabled(s->gsr, mode == BioMapModeDiagnostics);
     }
-    furi_mutex_acquire(app->mutex, FuriWaitForever);
-    bool rf_scan_enabled = app->rf_scan_enabled;
-    furi_mutex_release(app->mutex);
-    if(has_rf(mode) && rf_scan_enabled) {
+    if(has_rf(mode)) {
         em_scan_rf_init();
         s->rf_worker = em_scan_rf_worker_alloc(RF_WORKER_PARK_MS);
         em_scan_rf_worker_start(s->rf_worker);

@@ -15,10 +15,11 @@
 #define GPS_MODULE       GPS_MODULE_M10Q
 
 typedef enum {
-    BioMapModeGpsGsr = 0,  // Both GPS and GSR enabled
-    BioMapModeGpsOnly,     // GPS track recorder, no biometrics
-    BioMapModeGsrOnly,     // GSR waveform viewer, no location
-    BioMapModeDiagnostics, // GSR diagnostics — raw counts, no graph
+    BioMapModeGpsGsrRf = 0, // GPS, GSR, and RF all enabled
+    BioMapModeGpsGsr,       // GPS and GSR, no RF
+    BioMapModeGpsOnly,      // GPS track + RF, no biometrics ("GPS + RF" on the menu)
+    BioMapModeGsrOnly,      // GSR waveform viewer, no location, no RF
+    BioMapModeDiagnostics,  // GSR diagnostics — raw counts, no graph
 } BioMapMode;
 
 typedef enum {

@@ -27,7 +27,6 @@ int32_t biomap_app(void* p) {
         .cal_active = false,
         .cal_gain = 1.0f,
         .cal_offset = 0.0f,
-        .rf_scan_enabled = true
     };
 
     app->event_queue   = furi_message_queue_alloc(EVENT_QUEUE_DEPTH, sizeof(PluginEvent));
@@ -57,11 +56,12 @@ int32_t biomap_app(void* p) {
         int32_t sel = biomap_gui_show_menu(app);
 
         switch(sel) {
-        case 0: run_recording_session(app, BioMapModeGpsGsr);  break;
-        case 1: run_recording_session(app, BioMapModeGpsOnly); break;
-        case 2: run_recording_session(app, BioMapModeGsrOnly); break;
-        case 3: run_options_screen(app);                        break;
-        default: running = false;                               break;
+        case 0: run_recording_session(app, BioMapModeGpsGsrRf); break;
+        case 1: run_recording_session(app, BioMapModeGpsGsr);   break;
+        case 2: run_recording_session(app, BioMapModeGpsOnly);  break; // "GPS + RF"
+        case 3: run_recording_session(app, BioMapModeGsrOnly);  break;
+        case 4: run_options_screen(app);                         break;
+        default: running = false;                                break;
         }
     }
 
@@ -282,13 +282,12 @@ bool biomap_load_settings(BioMapApp* app) {
             app->zoom_enabled    = s.zoom_enabled;
             app->backlight_on    = s.backlight_on;
             app->sound_enabled   = s.sound_enabled;
-            app->rf_scan_enabled = s.rf_scan_enabled;
             app->nav_model       = (GpsNavModel)s.nav_model;
             furi_mutex_release(app->mutex);
             success = true;
             FURI_LOG_I("BioMap",
-                       "Loaded settings: zoom=%d backlight=%d sound=%d rf=%d nav=%lu",
-                       s.zoom_enabled, s.backlight_on, s.sound_enabled, s.rf_scan_enabled,
+                       "Loaded settings: zoom=%d backlight=%d sound=%d nav=%lu",
+                       s.zoom_enabled, s.backlight_on, s.sound_enabled,
                        (unsigned long)s.nav_model);
         } else if(bytes_read == sizeof(BioMapSettings)) {
             FURI_LOG_W("BioMap", "Settings file invalid — using defaults");
@@ -309,7 +308,6 @@ void biomap_save_settings(BioMapApp* app) {
         .zoom_enabled    = app->zoom_enabled,
         .backlight_on    = app->backlight_on,
         .sound_enabled   = app->sound_enabled,
-        .rf_scan_enabled = app->rf_scan_enabled,
         .nav_model       = (uint32_t)app->nav_model,
     };
     furi_mutex_release(app->mutex);

@@ -50,7 +50,7 @@ typedef struct Session {
     GpsUart*       gps;
     GsrSensor*     gsr;
     SdLogger*      logger;
-    EmScanRfWorker* rf_worker;  // NULL unless has_rf(mode) && app->rf_scan_enabled
+    EmScanRfWorker* rf_worker;  // NULL unless has_rf(mode)
     ViewPort*      vp;          // == app->screen_vp while a session is active; not owned/freed here
     FuriTimer*     timer;
 
@@ -99,15 +99,14 @@ typedef struct BioMapApp {
     bool               cal_active;
     float              cal_gain;
     float              cal_offset;
-    bool               rf_scan_enabled; // Options > RF Scan; survives session boundaries
     EmScanCal          rf_cal_data;     // RF Faraday calibration (em_scan_cal.h)
     bool               rf_calibrated;
 } BioMapApp;
 
 // ── Menu & conversion UI types ─────────────────────────────────────────
 
-#define MENU_COUNT      4
-#define OPTIONS_COUNT   9
+#define MENU_COUNT      5
+#define OPTIONS_COUNT   8
 
 typedef struct {
     BioMapApp* app;
@@ -153,15 +152,22 @@ typedef struct {
 } BioMapCalibration;
 
 // ── Options persistence ─────────────────────────────────────────────────
-// Every Options-menu toggle (Auto-zoom, Backlight, Sound, GPS Profile,
-// RF Scan) previously only lived in the BioMapApp struct literal's
-// defaults (biomap.c) — reset to those hardcoded defaults on every app
-// launch, never saved. Same load/save/atomic-rename shape as
-// BioMapCalibration above, kept as a separate file/struct rather than
-// folded into it since these are independent, unrelated settings with
-// their own versioning needs.
+// Every Options-menu toggle (Auto-zoom, Backlight, Sound, GPS Profile)
+// previously only lived in the BioMapApp struct literal's defaults
+// (biomap.c) — reset to those hardcoded defaults on every app launch,
+// never saved. Same load/save/atomic-rename shape as BioMapCalibration
+// above, kept as a separate file/struct rather than folded into it since
+// these are independent, unrelated settings with their own versioning
+// needs.
+//
+// rf_scan_enabled removed and version bumped to 2 (2026-07-29): RF is no
+// longer a standalone Options toggle — it's now purely a function of which
+// main-menu mode is chosen (GPS+GSR+RF / GPS+GSR / GPS+RF / GSR Only), not
+// a persisted setting. An old v1 file on disk will simply fail the version
+// check in biomap_load_settings() and fall back to defaults, same as any
+// other format change.
 #define BIOMAP_SETTINGS_MAGIC    0x424D4753
-#define BIOMAP_SETTINGS_VERSION  1
+#define BIOMAP_SETTINGS_VERSION  2
 #define BIOMAP_SETTINGS_PATH     "/ext/biomapping/biomap.settings"
 #define BIOMAP_SETTINGS_PATH_TMP "/ext/biomapping/biomap.settings.tmp"
 
@@ -171,7 +177,6 @@ typedef struct {
     bool     zoom_enabled;
     bool     backlight_on;
     bool     sound_enabled;
-    bool     rf_scan_enabled;
     uint32_t nav_model;
     uint32_t checksum;
 } BioMapSettings;

@@ -4,7 +4,7 @@
 // ── Label arrays for menu and options screens ──────────────────────────────
 
 static const char* const menu_labels[MENU_COUNT] = {
-    "GPS + GSR", "GPS Only", "GSR Only", "Options",
+    "GPS + GSR + RF", "GPS + GSR", "GPS + RF", "GSR Only", "Options",
 };
 
 static const char* const options_labels[OPTIONS_COUNT] = {
@@ -15,7 +15,6 @@ static const char* const options_labels[OPTIONS_COUNT] = {
     "Diagnostics",
     "Sound",
     "GPS Profile",
-    "RF Scan",
     "RF Calibration",
 };
 
@@ -470,8 +469,6 @@ void options_render(Canvas* c, void* ctx) {
         } else if(i == 5) {
             state = a->sound_enabled ? "ON" : "OFF";
         } else if(i == 7) {
-            state = a->rf_scan_enabled ? "ON" : "OFF";
-        } else if(i == 8) {
             state = a->rf_calibrated ? "YES" : "NO";
         } else {
             if(a->nav_model == GpsNavModelWrist) {

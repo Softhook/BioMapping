@@ -115,26 +115,27 @@ typedef struct {
 // ── Inline helpers ─────────────────────────────────────────────────────
 
 static inline bool has_gps(int mode) {
-    return mode == BioMapModeGpsGsr || mode == BioMapModeGpsOnly;
+    return mode == BioMapModeGpsGsrRf || mode == BioMapModeGpsGsr || mode == BioMapModeGpsOnly;
 }
 
 static inline bool has_gsr(int mode) {
-    return mode == BioMapModeGpsGsr || mode == BioMapModeGsrOnly
+    return mode == BioMapModeGpsGsrRf || mode == BioMapModeGpsGsr || mode == BioMapModeGsrOnly
         || mode == BioMapModeDiagnostics;
 }
 
-// RF scanning gating. Includes Diagnostics (which has no GPS at all) as a
-// deliberate exception to the "RF is only useful alongside GPS" rule below:
-// Diagnostics already surfaces the GSR worker's real measured throughput
-// (gsr_sensor_get_worker_hz(), success/duplicate/stale rates, window P2P) —
-// the only place in the app that does — so starting the RF worker there
-// too (still gated on the same Options > RF Scan toggle) lets that screen
-// double as a live instrument for RF/GSR thread-contention impact: toggle
-// RF Scan, re-enter Diagnostics, compare the numbers. Everywhere else,
-// RF is gated identically to has_gps() (RF readings are only spatially
-// useful, so only active alongside GPS).
+// RF scanning gating. No longer a separate Options toggle — RF is now
+// purely a function of which main-menu mode was chosen (GpsGsrRf/GpsOnly),
+// always on whenever the mode includes it. Includes Diagnostics (which has
+// no GPS at all) as a deliberate exception to the "RF is only useful
+// alongside GPS" rule below: Diagnostics already surfaces the GSR worker's
+// real measured throughput (gsr_sensor_get_worker_hz(), success/duplicate/
+// stale rates, window P2P) — the only place in the app that does — so
+// running the RF worker there too makes it a live instrument for RF/GSR
+// thread-contention impact. Everywhere else, RF is gated identically to
+// has_gps() (RF readings are only spatially useful, so only active
+// alongside GPS).
 static inline bool has_rf(int mode) {
-    return mode == BioMapModeGpsGsr || mode == BioMapModeGpsOnly
+    return mode == BioMapModeGpsGsrRf || mode == BioMapModeGpsOnly
         || mode == BioMapModeDiagnostics;
 }
 

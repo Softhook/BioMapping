@@ -769,3 +769,419 @@ the second-boundary handler doesn't currently have, since its one existing
 diagnostic line only fires while recording and only reaches the SD card.
 Without it, any future idle-session freeze remains untimeable from the log
 alone, the same gap this test just ran into.
+
+## Heartbeat added; RF-off/RF-on A/B test; a real firmware bug identified (2026-07-29)
+
+### Heartbeat instrumentation
+
+Implemented the suggestion above. `handle_second_boundary()`
+(`biomap_session.c`) now logs an unconditional once-per-second line —
+`[I][BioMap] heartbeat heap:free=... min=... stack:main=... rf=... gsr=...`
+— regardless of `recording.active`, via `FURI_LOG_I` (serial only, not
+`sd_logger`, so it exists even with no file open). The stack/heap gathering
+that already existed for the recording-only SD diagnostic line was moved to
+the top of the function and is now shared by both the heartbeat and the SD
+line, rather than computed twice.
+
+**Field-naming trap worth flagging for future reading of these logs**: the
+`rf=`/`gsr=` fields are each worker thread's *stack headroom in bytes*, not
+sensor readings. `gsr=1660` does not mean anything about conductance; `rf=0`
+during an RF-off session means "no RF worker thread exists," not "0 dBm."
+This was a direct carry-over from the older recording-only diagnostic line,
+which was always about stack space, not sensor data — flagged after it
+briefly read as a live GSR value in conversation.
+
+### RF Scan toggle made persistent
+
+Unrelated to the crash mechanism itself, but load-bearing for this test
+methodology: `rf_scan_enabled` (and every other Options toggle — zoom,
+backlight, sound, GPS profile) previously reset to hardcoded defaults on
+every app launch, since only calibration data was ever saved to SD. Added
+`BioMapSettings` (`biomap.h`/`biomap.c`) — same magic/version/checksum/
+atomic-rename shape as `BioMapCalibration` — persisted to
+`/ext/biomapping/biomap.settings`, loaded at startup, saved immediately
+after each toggle in `biomap_gui.c`. Without this, "RF off" couldn't
+actually be held constant across the relaunches this test needed.
+
+### RF-off test: clean, repeated
+
+Tethered, idle (no recording), RF Scan turned off via Options. Repeated
+runs, heartbeat firing steadily throughout: heap pinned at
+`free=76920 min=72200` for the entire duration, never moving. No lockup.
+
+### RF-on test: ~636s clean, then locked up — with heartbeat evidence this time
+
+Same conditions, RF Scan back on. Heartbeat fired every ~1000ms, heap flat
+(`72336/72200`), RF/GSR/main stack all flat, from session start
+(`1022051`) through `1658050` — **636 seconds**, comparable to but still
+short of track 103's previously-longest clean run (655.3s, also RF-on,
+pre-heartbeat). Then: nothing. No further heartbeat line, no "ViewPort
+lockup" warning, no gap-then-resume — a hard, total stop after a perfectly
+regular cadence. Christian confirmed the screen was frozen and the physical
+buttons were unresponsive (couldn't even trigger the backlight), then
+power-cycled the device (the `OSError: Device not configured` in the
+Python trace is that power-cycle killing the USB serial connection, not an
+on-device event).
+
+This is the first failure captured with the heartbeat active, and it
+changes what we know in one specific way: previous lockups (track 105, the
+idle test) only had evidence the **GUI/render thread** was stuck (a
+`view_port_update()` miss, or silence). This time, the **main application
+thread itself** stopped — the heartbeat runs from inside the same
+Tick-event loop that also dispatches button input, and it didn't degrade or
+skip a beat before stopping; it simply never printed again. That's
+consistent with a hard block on a blocking call somewhere in that thread's
+per-tick path, not a gradual slowdown.
+
+One caveat on the "confirms RF" read: 636s is still inside the range
+track 103 already showed can run clean with RF on (655.3s), so on its own
+this doesn't prove RF is a deterministic trigger rather than the same
+"roughly random per-unit-time" pattern already established across 7+ prior
+crashes. It's one more data point in a now much larger set that all share
+RF-on, not proof by itself.
+
+**Heap: reconfirmed as a non-factor, with the cleanest data yet.** Both
+runs this round show heap completely pinned — not just "flat within normal
+variance" the way earlier tracks described it, but the exact same
+`free`/`min` value on every single heartbeat line for the run's entire
+duration (RF-off: `76920/72200` unchanged across repeated runs; RF-on:
+`72336/72200` unchanged across all 636 seconds up to the last line before
+the freeze). This is a stronger result than the "Current status" section's
+earlier heap conclusion (which was based on the coarser 5s-interval SD
+diagnostic, only while recording) — it's now confirmed at 1-second
+resolution, during idle sessions, immediately up to the moment of failure.
+Heap exhaustion/leak is not a live hypothesis at this point by any
+reasonable reading of the data.
+
+### Verified against Momentum, not stock — same mechanism either way
+
+Christian is running Momentum firmware, not the official Flipper build.
+Re-checked both the `view_port_update()` lockup mechanism and the SubGHz
+HAL directly against Momentum's actual source
+(`Next-Flip/Momentum-Firmware`, `dev` branch) rather than assuming the
+stock analysis carried over. The `view_port.c` "ViewPort lockup" probe is
+byte-for-byte identical between stock and Momentum — the track 105 analysis
+holds unchanged.
+
+### The actual finding: an unbounded busy-wait in the SPI driver, confirmed in BOTH stock and Momentum firmware
+
+`furi_hal_spi.c`'s `furi_hal_spi_bus_end_txrx()` — called at the end of
+every SPI transaction on any bus, including the CC1101's:
+
+```c
+static void furi_hal_spi_bus_end_txrx(const FuriHalSpiBusHandle* handle, uint32_t timeout) {
+    UNUSED(timeout); // FIXME
+    while(LL_SPI_GetTxFIFOLevel(handle->bus->spi) != LL_SPI_TX_FIFO_EMPTY)
+        ;
+    while(LL_SPI_IsActiveFlag_BSY(handle->bus->spi))
+        ;
+    while(LL_SPI_GetRxFIFOLevel(handle->bus->spi) != LL_SPI_RX_FIFO_EMPTY) {
+        LL_SPI_ReceiveData8(handle->bus->spi);
+    }
+}
+```
+
+A `timeout` parameter exists, is passed all the way down from
+`furi_hal_subghz_idle()`/`_rx()`/`set_frequency()`/`get_rssi()`, and is
+discarded on the first line — the firmware's own author left the `//
+FIXME`. The two `while` loops spin on raw SPI peripheral status flags with
+no time bound and no escape path. Diffed directly against the stock
+`flipperdevices/flipperzero-firmware` `dev` branch copy of the same
+file: **identical, not a Momentum-specific bug** — Momentum forked this
+file unchanged from upstream. (Earlier in conversation this was
+mis-described as Momentum-specific before the stock diff was actually run
+— corrected here.)
+
+This sits underneath every CC1101 register access, called ~100+ times/sec
+by `em_scan_rf_worker_thread_fn()`'s `em_scan_rf_park_band()` loop
+(`em_scan_rf_worker.c`/`em_scan_rf.c`) whenever RF scanning is active, and
+literally never otherwise — the one piece of hardware access this app
+performs continuously only when RF is on. Under a genuine SPI/CC1101
+hardware glitch (electrical noise, a timing edge case), this loop has no
+mechanism to ever return.
+
+**What this does and doesn't explain — being honest about the gap rather
+than overclaiming a clean story:**
+- It's a real, concrete, firmware-acknowledged (`FIXME`) unbounded wait,
+  reachable only through code this app's RF worker thread calls
+  continuously and only while RF scanning is on. Strongest concrete
+  mechanism found in this whole investigation for *why the RF worker
+  thread specifically* could hang forever.
+- It plausibly explains the classic bare `furi_check failed` crashes too
+  (tracks 97-102, 104): `furi_hal_subghz_idle()`/`_rx()`/`set_frequency()`
+  each wrap a *different* CC1101-status wait
+  (`cc1101_wait_status_state(..., 10000)`) in `furi_check()` — a timeout
+  there produces exactly the bare, message-less crash text seen throughout
+  this doc, from a check this app doesn't own and can't instrument (per
+  the "Current status" section above, written before this was found).
+- **What it does NOT yet explain**: why this specific incident froze the
+  main application thread and GUI too, not just left RF data stale.
+  `w->mutex` (`em_scan_rf_worker.c`) — the only thing standing between the
+  main thread and the RF worker's state — is never held during the actual
+  SPI call, only briefly before and after it (confirmed by re-reading
+  `em_scan_rf_worker_thread_fn()`). The RF worker also runs at
+  `FuriThreadPriorityLow`, and this busy-wait isn't inside any critical
+  section — under normal preemptive scheduling, a stuck low-priority thread
+  spinning in a plain `while` loop shouldn't prevent the main thread or GUI
+  service from running at all. No lock chain in this app's own code
+  connects "RF worker thread stuck in SPI" to "main thread stops
+  responding to input." Either there's a lower-level hardware effect
+  (shared clock/DMA/interrupt state) invisible from source, or the RF hang
+  and the full-system freeze are two symptoms of one deeper trigger rather
+  than a direct cause-and-effect chain — genuinely unresolved, not
+  papered over.
+
+### Can this app fix it?
+
+No, not directly. `furi_hal_spi_bus_end_txrx()` is compiled into the
+firmware itself; a `.fap` app only links against the firmware's exported
+HAL API at runtime and has no mechanism to override or patch an internal
+HAL function. Actually fixing the bug means patching firmware source and
+building/flashing a full custom firmware image — a materially bigger,
+riskier undertaking than app development (different toolchain than `ufbt`,
+real risk of a bad flash, and any patch needs re-applying on every upstream
+Momentum/stock update unless it's upstreamed and merged).
+
+What this app's own code *can* do, none of it implemented yet, pending
+Christian's call:
+- Keep RF Scan defaulting to (or staying) off — now backed by both a clean
+  A/B result and a concrete, real mechanism, not just correlation.
+- Reduce CC1101 polling frequency to lower exposure — real cost, already
+  documented elsewhere in this project as "RF staleness," a metric
+  previous changes were reverted over (see `em_scan_biomap_merge_plan.md`).
+  Lowers probability, does not eliminate the underlying bug.
+- A liveness watchdog on the RF worker (e.g., timestamp its last successful
+  read; if stale beyond some threshold, treat RF as failed and warn/disable
+  it) — only useful if the main thread genuinely stays unaffected when the
+  RF thread hangs, which is exactly the part not yet confirmed above. If
+  the main thread hangs too, a watchdog on another thread doesn't help the
+  user recover; it could only be useful for something more drastic (e.g.,
+  forcing a device reboot on suspected RF stall), which is a real behavior
+  change with false-positive risk, not a minor addition.
+- Upstreaming a real fix to `furi_hal_spi_bus_end_txrx()` (honor the
+  `timeout` parameter that's already threaded through every call site)
+  is possible in principle — it's open source and the bug is already
+  self-flagged — but that's a decision for Christian to make, not
+  something to act on unilaterally, and it wouldn't help this device
+  without a firmware update regardless.
+
+## Three follow-up questions checked against real source (2026-07-29)
+
+### Negative finding: power rail voltage sag (Theory 4) — contradicted by the tether split
+
+Theory 4 (power rail sag under combined SD+RF+GPS+backlight draw) was
+never tested directly (its own proposed experiment — backlight off, swap
+SD card — was never run). But the tether/lockup split from this session is
+itself evidence against it, for the freeze-type failures specifically:
+tethered means running on stable, regulated USB 5V with the battery
+supplementing rather than solely supplying load, i.e. *less* sag risk than
+battery-only operation, not more. Every lockup on record (track 105, both
+idle tests, the RF-on 636s run) happened tethered; every classic
+`furi_check failed` crash screen (tracks 97-102, 104) happened untethered,
+on battery. If voltage sag under load were driving the freezes, the
+opposite pattern would be expected. **Recording this as a negative
+finding**: power rail sag is not a plausible explanation for the freeze
+failure mode. It remains formally untested (not actively refuted) for the
+original `furi_check failed` crash class, since that class has so far only
+been observed under the one condition (untethered/battery) where sag would
+be expected to matter most anyway.
+
+### Bluetooth: a real, verified mechanism found — but the timing doesn't cleanly fit yet
+
+Checked whether Bluetooth (visibly active every session — `[D][BleGap]
+Start: 4` / `set_non_discoverable success` on a rigid 60s cadence in every
+log collected, crash or clean) could be involved, against Momentum's real
+source rather than speculating.
+
+**Confirmed, directly in source:**
+- That 60s cadence is real and exact: `gap.c`'s `INITIAL_ADV_TIMEOUT` is
+  literally `60000` (ms). `gap_advertise_start()` re-arms this timer at
+  its own end on every firing, so it repeats indefinitely for the entire
+  session — not a one-time startup event. Each firing calls
+  `aci_gap_set_non_discoverable()` then `aci_gap_set_discoverable()` —
+  real commands crossing to the separate BLE radio coprocessor (Flipper
+  Zero's STM32WB55 is a genuine dual-core chip: an M4 application core
+  running this app, and a separate M0+ core running the BLE stack,
+  communicating via shared-memory IPC).
+- `FuriTimer` (`furi/core/timer.c`) is a direct wrapper around FreeRTOS's
+  `xTimerCreateStatic`. This matters architecturally: FreeRTOS software
+  timers are foundationally designed so that **every timer callback in
+  the entire system runs sequentially on one single shared "timer
+  service" task** — not one thread per timer. This app's own Tick timer
+  (`biomap_timer_callback`) and BLE's GAP advertise timer both go through
+  this exact same shared mechanism. `biomap_timer_callback` itself is
+  already written defensively around this — it does a non-blocking
+  `furi_message_queue_put(ctx, &ev, 0)` specifically because, per its own
+  existing comment, "software timer callbacks run in the system timer
+  daemon task. Blocking here would stall all OS timers." That comment
+  turns out to be describing a real, verified architectural fact, not
+  just caution.
+- `ble_glue.c` (the CPU1-CPU2 command transport) has a `shci_mtx` acquired
+  with `FuriWaitForever` in at least one code path. If BLE's side of that
+  channel ever blocks — e.g. CPU2 unresponsive — whatever CPU1 thread is
+  waiting on it blocks forever.
+
+**The mechanism this adds up to, if it's real**: if any FreeRTOS software
+timer callback anywhere in the system ever blocks indefinitely, it starves
+every other timer in the system, silently, with no crash — because
+they're all served by the same single thread. That would explain the
+heartbeat's exact failure signature (perfectly regular, then a hard total
+stop with zero degradation) far better than a gradual hang would, and
+plausibly explains the backlight/button unresponsiveness too, if
+Notification service LED/backlight sequencing also runs on a `FuriTimer`
+(not directly confirmed, but a reasonable read given the existing
+"Incorrect BacklightEnforce use" log line elsewhere in every session).
+
+**What's NOT confirmed, stated plainly:**
+- Whether the GAP advertising call specifically (`aci_gap_set_discoverable`
+  et al.) is the one that can actually block on `shci_mtx` — only that
+  `shci_mtx` exists and is used with `FuriWaitForever` somewhere in the
+  same file. Didn't trace the exact call chain from `gap.c` into
+  `ble_glue.c` to close this link.
+- Why CPU2 (the BLE coprocessor) would become unresponsive in the first
+  place, or why that would specifically correlate with RF scanning being
+  on. A physically plausible bridge exists (CC1101 and the BLE radio are
+  separate RF front ends but share a board and possibly a noise/thermal
+  environment — real-world coexistence effects between co-located radios
+  are a known category of problem), but this is reasoning from general
+  RF-engineering plausibility, not something verified in source.
+- **A real complication the log timing itself raises**: if BLE's own
+  60s timer callback were the one getting stuck, the freeze should show up
+  as a `Start: N` line printed with no matching `set_non_discoverable
+  success` right after it (caught mid-call). That's not what's in the
+  logs — the last complete BLE cycle before the RF-on freeze was at
+  `1621395/1621396`, and the freeze happened around `1658-1659`, roughly
+  37 seconds later, well before the next 60s firing would even have been
+  due (~`1681395`). No partial/hanging BLE line anywhere. That's more
+  consistent with *something else* jamming the shared timer thread first
+  (with BLE's advertise timer simply never getting a turn afterward, as a
+  downstream casualty) than with BLE's own periodic call being the direct
+  trigger — which undercuts the cleanest version of this theory, even
+  though the shared-timer-thread mechanism itself is solidly verified.
+
+**Next test that would actually discriminate**: disable Bluetooth entirely
+(if Momentum's settings allow it) and repeat the RF-on soak test. If it
+still locks up with BLE off, this whole theory is dead regardless of how
+solid the underlying mechanism looks on paper. If it runs clean, that's
+strong support for it.
+
+### Why did standalone em_scan never crash, if this is a firmware bug?
+
+A fair, important challenge to the whole "pre-existing firmware bug"
+framing: if `furi_hal_spi_bus_end_txrx()`'s unbounded wait has always been
+there, why did the original standalone em_scan app — RF scanning alone,
+no GPS/GSR/SD/biomap around it — apparently never hit it?
+
+This doesn't require the firmware-bug theory to be wrong; a marginal,
+timing/electrical-noise-sensitive hardware race is exactly the kind of bug
+whose *trigger probability*, not existence, depends heavily on operating
+conditions. Several honest, non-exclusive reconciling explanations, none
+of them confirmed:
+- **Far more concurrent load now.** Standalone em_scan ran the CC1101 SPI
+  loop essentially alone. The merged app runs it alongside a GPS UART ISR,
+  a GSR I2C worker, periodic SD card writes, and a 10Hz main-thread tick
+  doing pipeline math and display updates — all sharing one CPU, one power
+  rail, and (per the previous section) one shared timer service thread.
+  More simultaneous peripheral activity is a more electrically and
+  timing-noisy environment, which is exactly the kind of condition that
+  would make a marginal hardware race more likely to actually manifest,
+  without the bug itself being new.
+- **Tethering is a new variable, not something standalone em_scan was
+  necessarily tested under for extended periods.** Every lockup on record
+  happened tethered; if standalone em_scan testing was mostly untethered
+  or short-duration tethered sessions, "never crashed" may partly reflect
+  never having been exposed to the condition under which crashes have
+  actually occurred, rather than evidence the merge introduced something.
+- **Simple exposure/duration.** The "roughly random per-unit-time
+  probability" model already established for the crash class in this doc
+  means total cumulative RF-scanning minutes matters. This investigation
+  alone has now accumulated far more instrumented RF-on runtime than
+  standalone em_scan testing likely ever did.
+- **Can't fully rule out the merge itself contributing something app-level**
+  that combines with the firmware bug rather than the firmware bug being
+  wholly sufficient on its own — the mutex/lock audits earlier in this doc
+  were thorough but not infallible, and "the firmware bug alone explains
+  everything" hasn't been proven, only argued as the most consistent
+  explanation found so far.
+
+**Genuinely unresolved** — this is a real point of healthy skepticism
+against the leading theory, not something to wave away. The test that
+would help most: deliberately reproduce something closer to standalone
+em_scan's original conditions (RF scanning alone, no GPS/GSR/SD
+concurrently, but tethered, for a comparably long duration to the RF-on
+runs that have failed) and see whether it still locks up. If it does,
+that weakens "concurrent load" as the explanation and strengthens
+"tethering itself" or "just needed more RF runtime." If it doesn't, that
+supports concurrent load as a real contributing factor, not just the
+firmware bug in isolation.
+
+## Sharpened: diffed standalone em_scan.c against the merged app directly (2026-07-29)
+
+Christian pushed back on the vague "more concurrent load" framing above:
+the real question is what specifically changed in the em_scan → BioMapping
+merge. `em_scan.c` (the retired standalone app) is still in the repo,
+never deleted — diffed it directly against the current
+`em_scan_rf_worker.c`/`biomap_session.c` rather than continuing to
+speculate.
+
+**Confirmed unchanged**: the RF worker itself is the exact same code.
+Standalone `em_scan.c`'s `EmScanModeNormal` already called
+`em_scan_rf_worker_alloc/start/stop/get_snapshot()` — the identical
+functions biomap uses today — with the identical park duration
+(`EM_SCAN_WORKER_PARK_MS` / `RF_WORKER_PARK_MS`, both `300`). The SPI
+busy-wait bug (previous section) was exactly as reachable from the
+standalone app. That part of the merge changed nothing.
+
+**Confirmed genuinely new**: `EmScanApp` (the standalone struct) has no
+GSR field at all — no `GsrSensor*`, nothing. Standalone em_scan only ever
+ran GPS + the RF worker + SD logging, concurrently, nothing else. Every
+RF-on test in this investigation has used biomap's GPS+GSR+RF mode, which
+adds a dedicated `GsrSensorWorker` thread doing continuous
+`furi_hal_i2c_acquire/read_mem/write_mem/release` calls, plus per-tick GSR
+IIR/graph-buffer math on the main thread — running the whole time,
+concurrently with the RF worker's SPI polling. That combination — RF
+worker + GSR worker, different buses (SPI vs. I2C), same chip, same
+session — never existed before the merge.
+
+This is also consistent with a cross-check already in hand: the RF-off
+idle test *still had GSR running* (GPS+GSR+RF mode, RF toggled off) and
+stayed clean, meaning GSR alone isn't sufficient either. It's specifically
+the RF+GSR combination that's new, not GSR in isolation or RF in
+isolation.
+
+**The test this points to directly**: run RF scanning with GPS but *no*
+GSR — closer to reproducing standalone em_scan's actual conditions than
+anything tried so far — for a comparable tethered duration. Not yet run.
+
+## Main menu redesigned to make GSR/RF combinations explicit (2026-07-29)
+
+Directly motivated by the above: the previous menu (GPS + GSR / GPS Only /
+GSR Only / Options) combined with a separate Options > RF Scan toggle
+meant "GPS + GSR" could silently be running with or without RF depending
+on a global setting from a different screen — exactly the ambiguity that
+made "what changed" hard to pin down, and made the isolated-RF-without-GSR
+test above impossible to reach without an extra menu detour. Changed to
+four explicit main-menu modes, RF Scan option removed entirely:
+
+- **GPS + GSR + RF** (new `BioMapModeGpsGsrRf`) — everything on.
+- **GPS + GSR** (`BioMapModeGpsGsr`, redefined) — RF now always off for
+  this mode, no toggle.
+- **GPS + RF** (`BioMapModeGpsOnly`, relabeled) — no GSR at all. This is
+  the exact condition the section above identifies as untested and most
+  useful to run next.
+- **GSR Only** (`BioMapModeGsrOnly`) — unchanged, never had RF.
+
+`has_gps`/`has_gsr`/`has_rf` (`biomap_types.h`) updated accordingly; every
+other call site in the app already keyed off those three predicates
+rather than switching on the mode enum directly, so no other logic needed
+to change. `rf_scan_enabled` removed from `BioMapApp` and from
+`BioMapSettings` (persisted-settings version bumped 1→2 — an old v1 file
+on disk just fails the version check and falls back to defaults, same as
+any other format change). Diagnostics mode (reached via Options, not the
+main menu) keeps `has_rf()` unconditionally true now, losing the
+"toggle RF Scan, re-enter Diagnostics" A/B comparison the old toggle
+enabled there — an accepted, direct consequence of removing the toggle
+everywhere, not a separate decision.
+
+Builds clean (`ufbt build`) and all host tests still pass (81 assertions)
+— unaffected, since none of this touches the host-tested modules.

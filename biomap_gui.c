@@ -243,14 +243,6 @@ void run_options_screen(BioMapApp* app) {
                     biomap_sound_click(app->sound_enabled);
                     break;
                 case 7:
-                    // Toggle RF scanning (em_scan worker thread during GPS-inclusive sessions)
-                    furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    app->rf_scan_enabled = !app->rf_scan_enabled;
-                    furi_mutex_release(app->mutex);
-                    biomap_save_settings(app);
-                    biomap_sound_toggle(app->sound_enabled, app->rf_scan_enabled);
-                    break;
-                case 8:
                     // RF Calibration — same re-arm-after-return pattern as
                     // case 3 (GSR Calibration) above.
                     biomap_sound_confirm(app->sound_enabled);
