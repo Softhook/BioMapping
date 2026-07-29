@@ -478,7 +478,7 @@ static void gps_uart_reinit(GpsUart* g, uint32_t baud) {
 
 GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications, GpsNavModel nav_model) {
     GpsUart* g = malloc(sizeof(GpsUart));
-    furi_assert(g);
+    furi_check(g, "GpsUart: NULL struct alloc");
 
     g->event_queue   = event_queue;
     g->notifications = notifications;
@@ -487,7 +487,7 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
     g->ready         = false;
     g->rx_pending    = false;
     g->status_mutex  = furi_mutex_alloc(FuriMutexTypeNormal);
-    furi_assert(g->status_mutex);
+    furi_check(g->status_mutex, "GpsUart: status_mutex alloc failed");
 
     g->status = (GpsStatus){
         .latitude           = NAN,
@@ -550,7 +550,7 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
 // Free — release serial, re-enable Expansion Service
 // ---------------------------------------------------------------------------
 void gps_uart_free(GpsUart* g) {
-    furi_assert(g);
+    furi_check(g, "GpsUart: NULL in free()");
     if(g->serial_handle) {
 #if GPS_MODULE == GPS_MODULE_M10Q
         // Put u-blox module into Software Standby sleep to save power
@@ -572,7 +572,7 @@ void gps_uart_free(GpsUart* g) {
 // Status accessors
 // ---------------------------------------------------------------------------
 GpsStatus gps_uart_get_status(const GpsUart* g) {
-    furi_assert(g);
+    furi_check(g, "GpsUart: NULL in get_status()");
     furi_mutex_acquire(g->status_mutex, FuriWaitForever);
     GpsStatus s = g->status;
     furi_mutex_release(g->status_mutex);
@@ -580,7 +580,7 @@ GpsStatus gps_uart_get_status(const GpsUart* g) {
 }
 
 bool gps_uart_is_ready(const GpsUart* g) {
-    furi_assert(g);
+    furi_check(g, "GpsUart: NULL in is_ready()");
     return g->ready;
 }
 
@@ -604,7 +604,7 @@ static void pcas_tx_raw(GpsUart* g, const char* cmd) {
 // Drain RX stream, parse complete NMEA lines; run NMEA watchdog
 // ---------------------------------------------------------------------------
 void gps_uart_process_rx(GpsUart* g) {
-    furi_assert(g);
+    furi_check(g, "GpsUart: NULL in process_rx()");
     if(!g->ready) return;
     // Clear rx_pending BEFORE draining so that any new byte arriving from the
     // ISR mid-drain sets it true again and posts a fresh UART event to the queue.
@@ -677,7 +677,7 @@ void gps_uart_process_rx(GpsUart* g) {
 // Module type is selected at compile-time via GPS_MODULE in biomap_config.h.
 // ---------------------------------------------------------------------------
 static void gps_uart_configure(GpsUart* g) {
-    furi_assert(g);
+    furi_check(g, "GpsUart: NULL in configure()");
     if(!g->ready || !g->serial_handle) return;
 
 #if GPS_MODULE == GPS_MODULE_L76K
@@ -778,7 +778,7 @@ static void gps_uart_configure(GpsUart* g) {
 // Hot Start reset — module-specific via compile-time GPS_MODULE.
 // ---------------------------------------------------------------------------
 void gps_uart_send_hot_start(GpsUart* g) {
-    furi_assert(g);
+    furi_check(g, "GpsUart: NULL in send_hot_start()");
     if(!g->ready || !g->serial_handle) return;
     FURI_LOG_I("GpsUart", "Hot Start reset");
 #if GPS_MODULE == GPS_MODULE_L76K

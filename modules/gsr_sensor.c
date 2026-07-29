@@ -614,7 +614,7 @@ int32_t gsr_sensor_get_raw_sample_count(const GsrSensor* gsr) {
 }
 
 int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in get_mean_count()");
     if(!gsr->available) return 0;
     // tick_mean_norm is written by tick() on the same thread — no mutex needed
     return gsr->tick_mean_norm;
@@ -627,14 +627,14 @@ int32_t gsr_sensor_get_mean_count(const GsrSensor* gsr) {
 // how many independent samples back the Mean value on screen right now.
 // Always ≥ 1 (see the i==0-unconditional note in gsr_sensor_tick()).
 int32_t gsr_sensor_get_window_samples(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in get_window_samples()");
     if(!gsr->available) return 0;
     // tick_window_samples is written by tick() on the same thread — no mutex needed
     return gsr->tick_window_samples;
 }
 
 uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in get_pga_index()");
     if(!gsr->available) return ADS_PGA_DEFAULT;
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     uint8_t val = gsr->pga_index;
@@ -648,7 +648,7 @@ uint8_t gsr_sensor_get_pga_index(const GsrSensor* gsr) {
 // reads 0.0f until the first ~1 s window has elapsed. See
 // docs/gsr_filtering_analysis.md, Recommendation 1.
 float gsr_sensor_get_worker_hz(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in get_worker_hz()");
     if(!gsr->available) return 0.0f;
     return gsr->worker_hz_cached;
 }
@@ -660,7 +660,7 @@ float gsr_sensor_get_worker_hz(const GsrSensor* gsr) {
 // 100% — a real transport/wiring problem, not a rate limit). Reads 100.0f
 // until the first window has elapsed (optimistic default, not a claim).
 float gsr_sensor_get_success_rate(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in get_success_rate()");
     if(!gsr->available) return 100.0f;
     return gsr->success_rate_cached;
 }
@@ -680,7 +680,7 @@ float gsr_sensor_get_success_rate(const GsrSensor* gsr) {
 // gain change isn't a stale read). Reads 0.0f until the first window has
 // elapsed (optimistic default, not a claim).
 float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in get_duplicate_rate()");
     if(!gsr->available) return 0.0f;
     return gsr->duplicate_rate_cached;
 }
@@ -689,7 +689,7 @@ float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr) {
 // inter-read gap was under 2 ticks (< 1.16 ms conversion period) and resulted
 // in a stale re-read of the ADS1115 register.
 float gsr_sensor_get_stale_rate(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in get_stale_rate()");
     if(!gsr->available) return 0.0f;
     return gsr->stale_rate_cached;
 }
@@ -711,7 +711,7 @@ uint32_t gsr_sensor_get_stack_space(const GsrSensor* gsr) {
 // success-rate average visibly drops or the 50-failure disconnect
 // threshold (gsr_sensor_worker()) actually fires. For diagnostics.
 uint32_t gsr_sensor_get_consecutive_failures(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in get_consecutive_failures()");
     if(!gsr->available) return 0;
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     uint32_t val = gsr->consecutive_failures;
@@ -724,7 +724,7 @@ uint32_t gsr_sensor_get_consecutive_failures(const GsrSensor* gsr) {
 // of instantaneous signal/noise range, independent of the mains-hum
 // estimate below. For diagnostics.
 int32_t gsr_sensor_get_window_ptp(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in get_window_ptp()");
     if(!gsr->available) return 0;
     // tick_window_ptp is written by tick() on the same thread — no mutex needed
     return gsr->tick_window_ptp;
@@ -747,7 +747,7 @@ int32_t gsr_sensor_get_window_ptp(const GsrSensor* gsr) {
 // that turned out to be duplicates rather than comparing two independent
 // aggregate numbers. For diagnostics.
 uint32_t gsr_sensor_get_window_min_gap_ticks(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in get_window_min_gap_ticks()");
     if(!gsr->available) return 0;
     // tick_window_min_gap is written by tick() on the same thread — no mutex needed
     return gsr->tick_window_min_gap;
@@ -767,7 +767,7 @@ uint32_t gsr_sensor_get_window_min_gap_ticks(const GsrSensor* gsr) {
 // meaningful and must stay distinguishable from "no data"), or if
 // unavailable.  For diagnostics.
 uint32_t gsr_sensor_get_duplicate_gap_min_ticks(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in get_duplicate_gap_min_ticks()");
     if(!gsr->available) return UINT32_MAX;
     // duplicate_gap_min_cached is written by tick() on the same thread — no mutex needed
     return gsr->duplicate_gap_min_cached;
@@ -804,7 +804,7 @@ uint32_t gsr_sensor_get_duplicate_gap_min_ticks(const GsrSensor* gsr) {
 // per-tick diagnostic expensive enough to be worth gating).
 // For diagnostics.
 float gsr_sensor_get_mains_hum_mag(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in get_mains_hum_mag()");
     if(!gsr->available) return 0.0f;
     // tick_mains_hum_mag is written by tick() on the same thread — no mutex needed
     return gsr->tick_mains_hum_mag;
@@ -818,7 +818,7 @@ float gsr_sensor_get_mains_hum_mag(const GsrSensor* gsr) {
 // threshold and flapping between ranges" rather than counting deliberate
 // diagnostic overrides. For diagnostics.
 uint32_t gsr_sensor_get_pga_change_count(const GsrSensor* gsr) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in get_pga_change_count()");
     if(!gsr->available) return 0;
     // pga_change_rate_cached is written by tick() on the same thread — no mutex needed
     return gsr->pga_change_rate_cached;
@@ -1124,7 +1124,7 @@ void gsr_sensor_set_mains_hum_enabled(GsrSensor* gsr, bool enabled) {
 }
 
 void gsr_sensor_lock_pga(GsrSensor* gsr, int8_t index) {
-    furi_assert(gsr);
+    furi_check(gsr, "GsrSensor: NULL in lock_pga()");
     if(!gsr->available) return;
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     if(index < 0) {

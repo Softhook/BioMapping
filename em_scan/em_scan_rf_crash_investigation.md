@@ -425,29 +425,128 @@ anything from this point forward uses the new 3-field
 `stack:main=... rf=... gsr=...` format. Don't parse both formats with the
 same fixed offsets.
 
+## Four more theories evaluated (2026-07-29)
+
+A follow-up proposed four detailed theories with specific test plans.
+Checked each against the real SDK/code before deciding what to act on.
+
+**Theory 1: SPI bus contention between the CC1101 (SubGHz) and the SD
+card.** Claimed both share "SPI1," and that `em_scan_rf_worker`'s tight
+polling loop contending with `sd_logger`'s writes could hit an internal
+`furi_check()` inside `furi_hal_spi`. **Core premise is factually wrong**
+— checked `furi_hal_spi_config.h` directly:
+
+```c
+/** Furi Hal Spi Bus R (Radio: CC1101, Nfc, External)*/
+extern FuriHalSpiBus furi_hal_spi_bus_r;
+/** Furi Hal Spi Bus D (Display, SdCard) */
+extern FuriHalSpiBus furi_hal_spi_bus_d;
+```
+
+CC1101 is on bus **R**; the SD card is on bus **D**, alongside the
+display — two physically separate SPI peripherals, not a shared bus. The
+proposed Experiment C (a shared `app->spi_mutex` around RF and SD calls)
+would be serializing access to buses that don't actually contend, so even
+if it happened to make crashes stop, that wouldn't prove SPI contention —
+more likely it would've coincidentally changed timing enough to dodge
+something unrelated. **Not implemented.** One genuinely relevant fact did
+turn up while checking this, though: `furi_hal_spi_acquire()`/`_release()`
+are documented as `@warning calls furi_crash() on programming error` — a
+real, confirmed crash path inside the SPI HAL, just reachable only by
+misusing a *single* bus handle (e.g. double-acquire), not by the
+cross-bus mechanism this theory describes. Worth remembering as a category
+of remaining Furi-internal explanation, not as evidence for this specific
+theory.
+
+**Theory 2: SD card flash write/GC stalls blocking the main thread for
+hundreds of ms.** Grounded in real, well-documented SD card behavior
+(unlike Theory 1) and directly testable. **Implemented** (see next
+section) — this is the one theory from this batch worth actually
+instrumenting for. The theory's own Experiment B (remove
+`storage_file_sync()` from the 5s path to see if crashes stop) was
+rejected: that sync fixes a *confirmed* bug (0-byte files on crash — see
+finding #7 and tracks 86/98) — removing it to test an *unconfirmed* one
+means a stall-triggered crash during the test would make data loss worse
+without proving anything, since the sync being tested away is also what
+makes the diagnostic line itself durable. Measure first, don't remove the
+safety net to go looking.
+
+**Theory 3: Main-thread stack overflow.** Already the subject of the
+previous section — Experiment A (log `stack:main`) is done. Holding off on
+Experiment B (bump `application.fam`'s `stack_size` to 8KB) until there's
+real data, per the same reasoning already applied to the RF worker's stack
+(guessed wrong twice — 2048→3072→4096 — before being measured and shown to
+never have been the problem; no reason to repeat that pattern here without
+evidence first).
+
+**Theory 4: Power rail voltage sag from combined SD write + SubGHz RX +
+GPS + backlight current draw.** Can't be confirmed or refuted by anything
+in this repo — it's a hardware question, not a code question. But the
+proposed field experiment (backlight off, swap to a better/industrial SD
+card) costs nothing and is reasonable to just try on a walk regardless of
+whether it definitively "proves" the mechanism.
+
+## SD write/sync latency instrumentation added (2026-07-29)
+
+Implemented Theory 2's Experiment A. `modules/sd_logger.c` now times both
+`storage_file_write()` and `storage_file_sync()` (in `open_log_file()`'s
+header write and in `sd_logger_batch_flush()`'s batch write, using a new
+`sd_logger_elapsed_ms()` helper) and tracks the **worst latency seen so
+far this session** — a running max, not the latest instantaneous reading,
+so a single slow flush several seconds before a crash isn't missed between
+1-second diagnostic log lines. New getters `sd_logger_get_max_write_ms()`
+and `sd_logger_get_max_sync_ms()` (`modules/sd_logger.h`), wired into
+`handle_second_boundary()`'s diagnostic line.
+
+**Diagnostic line format changed again**: from
+`# heap:free=... min=... stack:main=... rf=... gsr=...` to
+`# heap:free=... min=... stack:main=... rf=... gsr=... sd:write_ms=... sync_ms=...`.
+Tracks 100-103 and everything before used the 2-field stack-only format
+(see the earlier note on this); anything using the previous 3-field
+stack format (added this same day, before this change) won't have the
+`sd:` suffix at all. Check which format a given track uses before parsing.
+
+Also found and fixed a build gap while wiring this up: `test_sd_logger.c`
+never defined `furi_test_tick` (the host shim's backing storage for
+`furi_get_tick()`) because `sd_logger.c` never called it before — linker
+failed with an undefined symbol. Fixed by adding the same
+`uint32_t furi_test_tick = 1;` definition `test_gps_uart.c` and
+`test_gsr_sensor.c` already use for the same reason. All 81 host-test
+assertions pass.
+
+**Separately noted**: `modules/sd_logger.c`'s `furi_assert()` calls have
+also been promoted to `furi_check()` (all 9 of them), matching the pattern
+already applied to `em_scan_rf_worker.c` and `gsr_sensor.c`. Only
+`gps_uart.c` (8) and `biomap.c` (7) remain unpromoted now.
+
 ## Current status / open questions
 
 - **No confirmed hypothesis remains standing.** Heap (flat), RF worker
   stack (flat), GSR worker stack (flat), RF signal strength (refuted by
   track 103), and GPS fix quality (no shared pattern) have all been
-  directly checked against real data and ruled out. This is real progress —
-  narrowing down what it *isn't* — but the actual cause is still open.
-- **Next walk should check**: does the newly-added main-thread stack
-  headroom stay flat too, or does it show pressure the other two threads
-  didn't? That's the last untested resource among the original suspects.
-- Consider promoting `gps_uart.c`'s and `sd_logger.c`'s `furi_assert()`
-  calls to `furi_check()` too, now that RF/GSR's own checks came back clean
-  — these are the other two app-level modules active throughout a walk.
-  Not done yet; ask before doing a broader sweep, same as the targeted one
-  already done.
+  directly checked against real data and ruled out. Theory 1 (SPI
+  contention) is also now ruled out on inspection (wrong bus premise).
+  This is real progress — narrowing down what it *isn't* — but the actual
+  cause is still open.
+- **Next walk should check, in order of what's new**:
+  1. Does `stack:main` stay flat like the other two threads, or show
+     pressure they didn't?
+  2. Do `sd:write_ms`/`sync_ms` ever spike, and if so, does a spike land
+     near a crash? This is genuinely new data no prior walk has.
+- Consider promoting `gps_uart.c`'s remaining `furi_assert()` calls too —
+  the last app-level module active throughout a walk not yet covered.
+  Not done yet; ask before doing a broader sweep, same as every targeted
+  pass so far.
 - **Hardware/electrical explanations are now proportionally more likely**,
   precisely because every software-side hypothesis checked so far has come
   back negative. Nothing in this repo can confirm or rule that out — it
   would need physical hardware investigation (checking supply rail
   stability under load, reseating/testing the GPS and GSR boards
-  independently, etc.), not more log analysis.
+  independently, trying a different SD card, backlight off, etc.), not
+  more log analysis.
 - **Do not** apply speculative CC1101 register-level changes (e.g. IOCFG0
-  high-impedance) or nonexistent HAL API calls — the async preset was
+  high-impedance), nonexistent HAL API calls, or a cross-bus SPI mutex for
+  buses that don't actually share hardware — the async preset was
   deliberately chosen for wideband ambient RF capture, and changing it has
-  a real cost to what the tool measures, for a hypothesis that was already
-  weak and is now weaker still.
+  a real cost to what the tool measures, for hypotheses that were already
+  weak and are now weaker still.

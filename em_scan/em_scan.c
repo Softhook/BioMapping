@@ -569,7 +569,7 @@ static void em_scan_start_calibration_wizard(EmScanApp* app) {
 int32_t em_scan_app(void* p) {
     UNUSED(p);
     EmScanApp* app = malloc(sizeof(EmScanApp));
-    furi_assert(app);
+    furi_check(app, "EmScanApp: NULL app pointer");
     memset(app, 0, sizeof(EmScanApp));
     app->mode = EmScanModeMenu; // Start in Main Menu (matching BioMapping)
     app->menu_selection = 0;

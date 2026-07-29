@@ -31,3 +31,12 @@ bool        sd_logger_batch_append(SdLogger* logger, const char* data, size_t le
 int         sd_logger_batch_printf(SdLogger* logger, const char* fmt, ...);
 
 const char* sd_logger_get_filename(const SdLogger* logger);
+
+// Worst-case storage_file_write()/storage_file_sync() latency (ms)
+// observed so far this session — a running max, not the latest reading.
+// Added 2026-07-29 to test whether real SD card flash GC/erase stalls
+// (which can block the main thread for hundreds of ms) correlate with the
+// ongoing furi_check crash investigation — see
+// em_scan_rf_crash_investigation.md, "Theory 2."
+uint32_t sd_logger_get_max_write_ms(const SdLogger* logger);
+uint32_t sd_logger_get_max_sync_ms(const SdLogger* logger);

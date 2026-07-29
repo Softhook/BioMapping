@@ -2,6 +2,7 @@
 
 #include "sd_logger.h"
 #include "util.h"
+#include <furi.h>
 #include <storage/storage.h>
 #include <string.h>
 #include <stdio.h>
@@ -24,18 +25,38 @@ struct SdLogger {
     // 50 rows × ~80 bytes (worst-case GPS+GSR row, 11 columns incl. hacc_m) = ~4000 bytes < 4096.
     char gsr_batch[4096];
     int  gsr_batch_len;
+
+    // Worst-case storage_file_write()/storage_file_sync() latency observed
+    // this session (2026-07-29) — added to test the theory that a real SD
+    // card's internal flash block erase/GC can stall a write or sync for
+    // hundreds of ms, during which this app's main thread (which calls
+    // both synchronously, holding no mutex but blocking its own forward
+    // progress) can't process GPS UART bytes or ticks. See
+    // em_scan_rf_crash_investigation.md, "Theory 2." A running max, not a
+    // per-call instantaneous value, so a single slow flush before a crash
+    // isn't lost between diagnostic log lines — the worst value survives
+    // in memory (and gets flushed to disk on the normal cadence) even if
+    // it happened seconds before the second-boundary tick that logs it.
+    uint32_t max_write_ms;
+    uint32_t max_sync_ms;
 };
 
+// Elapsed time in ms since start_tick, using the same tick-to-ms
+// conversion pattern already established in em_scan_rf.c.
+static uint32_t sd_logger_elapsed_ms(uint32_t start_tick) {
+    return (furi_get_tick() - start_tick) * 1000 / furi_kernel_get_tick_frequency();
+}
+
 SdLogger* sd_logger_alloc(Storage* storage) {
-    furi_assert(storage);
+    furi_check(storage, "SdLogger: NULL storage in alloc()");
     SdLogger* l = malloc(sizeof(SdLogger));
-    furi_assert(l);
+    furi_check(l, "SdLogger: NULL logger alloc");
     *l = (SdLogger){.storage = storage};
     return l;
 }
 
 void sd_logger_free(SdLogger* l) {
-    furi_assert(l);
+    furi_check(l, "SdLogger: NULL in free()");
     if(l->active) sd_logger_stop(l);
     free(l);
 }
@@ -93,7 +114,10 @@ static bool open_log_file(SdLogger* l, const char* header) {
     }
 
     size_t hlen = strlen(header);
+    uint32_t t0 = furi_get_tick();
     uint16_t written = storage_file_write(l->file, header, hlen);
+    uint32_t write_ms = sd_logger_elapsed_ms(t0);
+    if(write_ms > l->max_write_ms) l->max_write_ms = write_ms;
     if(written != hlen) {
         FURI_LOG_E("SdLogger", "Header write failed (%d/%d)", written, (int)hlen);
         storage_file_close(l->file);
@@ -111,7 +135,11 @@ static bool open_log_file(SdLogger* l, const char* header) {
     // a failed sync is logged but doesn't fail the start, since the bytes
     // are already (uncommitted) in FatFs and the next batch flush's sync
     // will very likely catch this file up regardless.
-    if(!storage_file_sync(l->file)) {
+    uint32_t t1 = furi_get_tick();
+    bool header_synced = storage_file_sync(l->file);
+    uint32_t sync_ms = sd_logger_elapsed_ms(t1);
+    if(sync_ms > l->max_sync_ms) l->max_sync_ms = sync_ms;
+    if(!header_synced) {
         FURI_LOG_W("SdLogger", "Header sync failed (written, not yet confirmed durable)");
     }
 
@@ -121,13 +149,13 @@ static bool open_log_file(SdLogger* l, const char* header) {
 }
 
 bool sd_logger_start(SdLogger* l, const char* header) {
-    furi_assert(l);
-    furi_assert(!l->active);
+    furi_check(l, "SdLogger: NULL in start()");
+    furi_check(!l->active, "SdLogger: already active in start()");
     return open_log_file(l, header);
 }
 
 void sd_logger_stop(SdLogger* l) {
-    furi_assert(l);
+    furi_check(l, "SdLogger: NULL in stop()");
     if(!l->file) return;
     storage_file_close(l->file);
     storage_file_free(l->file);
@@ -150,12 +178,15 @@ void sd_logger_stop(SdLogger* l) {
 // effectively atomic in practice, so tracking a partial-write remainder
 // with a memmove isn't worth the complexity for an edge case this rare.
 int sd_logger_batch_flush(SdLogger* l) {
-    furi_assert(l);
+    furi_check(l, "SdLogger: NULL in batch_flush()");
     if(!l->active || !l->file) return 0;
     if(l->gsr_batch_len == 0) return 0;
 
+    uint32_t t0 = furi_get_tick();
     uint16_t written = storage_file_write(l->file, l->gsr_batch,
                                           (size_t)l->gsr_batch_len);
+    uint32_t write_ms = sd_logger_elapsed_ms(t0);
+    if(write_ms > l->max_write_ms) l->max_write_ms = write_ms;
     int flushed = l->gsr_batch_len;
 
     if(written != (uint16_t)flushed) {
@@ -178,7 +209,17 @@ int sd_logger_batch_flush(SdLogger* l) {
     // move on — the next flush's sync call will very likely catch up
     // regardless, since FatFs sync typically commits all outstanding
     // cached writes for the file, not just the most recent one.
-    if(!storage_file_sync(l->file)) {
+    //
+    // Timed (2026-07-29) to test the theory that a real SD card's internal
+    // flash GC/erase can stall this call for hundreds of ms on the main
+    // thread — see em_scan_rf_crash_investigation.md, "Theory 2." The
+    // running max is what gets logged; a single instantaneous reading
+    // could be missed if it happens between two 1-second diagnostic lines.
+    uint32_t t1 = furi_get_tick();
+    bool batch_synced = storage_file_sync(l->file);
+    uint32_t sync_ms = sd_logger_elapsed_ms(t1);
+    if(sync_ms > l->max_sync_ms) l->max_sync_ms = sync_ms;
+    if(!batch_synced) {
         FURI_LOG_W("SdLogger", "Batch flush: sync failed (written, not yet confirmed durable)");
     }
 
@@ -188,7 +229,7 @@ int sd_logger_batch_flush(SdLogger* l) {
 // Append a pre-formatted row to the internal batch buffer.
 // Returns false on overflow (data not appended, caller should log/drop).
 bool sd_logger_batch_append(SdLogger* l, const char* data, size_t len) {
-    furi_assert(l);
+    furi_check(l, "SdLogger: NULL in batch_append()");
     if(len == 0) return true;
     if(l->gsr_batch_len + (int)len > (int)sizeof(l->gsr_batch)) {
         FURI_LOG_W("SdLogger", "Batch overflow (%d + %d > %d)",
@@ -204,7 +245,7 @@ bool sd_logger_batch_append(SdLogger* l, const char* data, size_t len) {
 // stack buffer and the memcpy that sd_logger_batch_append would require.
 // Returns bytes written to the buffer, or 0 on overflow/error.
 int sd_logger_batch_printf(SdLogger* l, const char* fmt, ...) {
-    furi_assert(l);
+    furi_check(l, "SdLogger: NULL in batch_printf()");
     if(!l->active) return 0;
 
     int remaining = (int)sizeof(l->gsr_batch) - l->gsr_batch_len;
@@ -237,3 +278,13 @@ int sd_logger_batch_printf(SdLogger* l, const char* fmt, ...) {
 }
 
 const char* sd_logger_get_filename(const SdLogger* l) { return l->filename; }
+
+uint32_t sd_logger_get_max_write_ms(const SdLogger* l) {
+    furi_check(l, "SdLogger: NULL in get_max_write_ms()");
+    return l->max_write_ms;
+}
+
+uint32_t sd_logger_get_max_sync_ms(const SdLogger* l) {
+    furi_check(l, "SdLogger: NULL in get_max_sync_ms()");
+    return l->max_sync_ms;
+}

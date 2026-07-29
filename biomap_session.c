@@ -353,10 +353,20 @@ static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
     uint32_t stack_rf   = s->rf_worker ? em_scan_rf_worker_get_stack_space(s->rf_worker) : 0;
     uint32_t stack_gsr  = s->gsr ? gsr_sensor_get_stack_space(s->gsr) : 0;
     uint32_t stack_main = furi_thread_get_stack_space(furi_thread_get_id(furi_thread_get_current()));
-    sd_logger_batch_printf(s->logger, "# heap:free=%u min=%u stack:main=%u rf=%u gsr=%u\n",
+    // SD write/sync latency added 2026-07-29 to test "Theory 2" (real SD
+    // cards can stall storage_file_write()/storage_file_sync() for
+    // hundreds of ms during internal flash GC/erase, blocking this main
+    // thread) — see em_scan_rf_crash_investigation.md. Running max since
+    // session start, not the latest reading — see sd_logger.c's own
+    // comment on why.
+    uint32_t sd_write_ms = sd_logger_get_max_write_ms(s->logger);
+    uint32_t sd_sync_ms  = sd_logger_get_max_sync_ms(s->logger);
+    sd_logger_batch_printf(s->logger,
+                            "# heap:free=%u min=%u stack:main=%u rf=%u gsr=%u sd:write_ms=%u sync_ms=%u\n",
                             (unsigned)memmgr_get_free_heap(),
                             (unsigned)memmgr_get_minimum_free_heap(),
-                            (unsigned)stack_main, (unsigned)stack_rf, (unsigned)stack_gsr);
+                            (unsigned)stack_main, (unsigned)stack_rf, (unsigned)stack_gsr,
+                            (unsigned)sd_write_ms, (unsigned)sd_sync_ms);
 
     // If either worker thread's stack is genuinely close to exhausted,
     // force this diagnostic line to disk immediately rather than letting

@@ -18,7 +18,7 @@ void run_gps_hot_start(BioMapApp* app) {
 int32_t biomap_app(void* p) {
     UNUSED(p);
     BioMapApp* app = malloc(sizeof(BioMapApp));
-    furi_assert(app);
+    furi_check(app, "BioMapApp: NULL app pointer");
     *app = (BioMapApp){
         .zoom_enabled = true,
         .backlight_on = false,
@@ -92,7 +92,7 @@ static uint32_t cal_checksum(const BioMapCalibration* cal) {
 }
 
 bool biomap_load_calibration(BioMapApp* app) {
-    furi_assert(app);
+    furi_check(app, "BioMapApp: NULL app pointer");
     File* file = storage_file_alloc(app->storage);
     if(!file) return false;
 
@@ -140,7 +140,7 @@ bool biomap_load_calibration(BioMapApp* app) {
 }
 
 void biomap_save_calibration(BioMapApp* app, float gain, float offset) {
-    furi_assert(app);
+    furi_check(app, "BioMapApp: NULL app pointer");
     
     furi_mutex_acquire(app->mutex, FuriWaitForever);
     app->cal_active = true;
@@ -185,7 +185,7 @@ void biomap_save_calibration(BioMapApp* app, float gain, float offset) {
 }
 
 void biomap_reset_calibration(BioMapApp* app) {
-    furi_assert(app);
+    furi_check(app, "BioMapApp: NULL app pointer");
     
     // Delete the file FIRST, then clear the in-memory state.  This order
     // is important for crash resilience: if power is lost between the
@@ -215,7 +215,7 @@ void biomap_reset_calibration(BioMapApp* app) {
 // needed here.
 
 bool biomap_load_rf_calibration(BioMapApp* app) {
-    furi_assert(app);
+    furi_check(app, "BioMapApp: NULL app pointer");
     EmScanCal cal;
     bool ok = em_scan_cal_load(&cal, app->storage);
     if(ok) {
@@ -228,7 +228,7 @@ bool biomap_load_rf_calibration(BioMapApp* app) {
 }
 
 void biomap_save_rf_calibration(BioMapApp* app, const EmScanCal* cal) {
-    furi_assert(app);
+    furi_check(app, "BioMapApp: NULL app pointer");
     bool ok = em_scan_cal_save(cal, app->storage);
     if(ok) {
         furi_mutex_acquire(app->mutex, FuriWaitForever);
@@ -239,7 +239,7 @@ void biomap_save_rf_calibration(BioMapApp* app, const EmScanCal* cal) {
 }
 
 void biomap_reset_rf_calibration(BioMapApp* app) {
-    furi_assert(app);
+    furi_check(app, "BioMapApp: NULL app pointer");
     em_scan_cal_reset(app->storage);
 
     furi_mutex_acquire(app->mutex, FuriWaitForever);

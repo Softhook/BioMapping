@@ -15,6 +15,15 @@
 // (SdLogger is opaque to callers).
 #define SD_LOGGER_BATCH_CAP 4096
 
+// Storage for tests/shims/furi.h's furi_get_tick() shim — sd_logger.c now
+// calls furi_get_tick() itself (write/sync latency instrumentation,
+// 2026-07-29), same pattern already used in test_gps_uart.c/
+// test_gsr_sensor.c. Fixed at 1 (never advanced): these tests don't
+// exercise timing, just correctness, and the mock storage's read/write
+// calls are effectively instantaneous, so every measured latency is 0
+// regardless.
+uint32_t furi_test_tick = 1;
+
 static void test_sd_logger_start_creates_file_with_header(void) {
     printf("Running test_sd_logger_start_creates_file_with_header...\n");
     Storage* storage = storage_mock_alloc();
