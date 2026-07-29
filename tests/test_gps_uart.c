@@ -76,6 +76,11 @@ static const char* GSA_SBAS_LINE =
 static const char* GSV_LINE =
     "$GPGSV,1,1,4,03,03,111,00,04,15,270,00,06,01,010,00,13,06,292,00*42\r\n";
 
+// Second, distinct constellation (GLONASS) with a different total_sats (3),
+// for the multi-constellation-in-one-window accumulation test.
+static const char* GSV_LINE_GLONASS =
+    "$GLGSV,1,1,3,65,10,100,00,66,20,200,00,67,30,300,00*64\r\n";
+
 // Documented worked example from minmea.c, status='A' (valid) — GLL only
 // updates position when status is DATA_VALID.
 static const char* GLL_VALID_LINE =
@@ -205,6 +210,76 @@ static void test_gsv_elevation_and_fresh(void) {
     assert(s.sat_elevation[4] == 15);
     assert(s.sat_elevation[6] == 1);
     assert(s.sat_elevation[13] == 6);
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
+// Regression test for the track-111 sats-doubling bug: a talker whose GSV
+// cycle restarts (msg_nr==1 again) inside the ~800ms accumulation window
+// used to have its total_sats summed a second time (23 -> 46 on real
+// hardware). Feeding the same GP cycle twice back-to-back, with the tick
+// unmoved, must now leave gsv_total_sats at 4, not 8.
+static void test_gsv_duplicate_within_window_not_doubled(void) {
+    printf("Running test_gsv_duplicate_within_window_not_doubled...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+
+    furi_hal_mock_feed_string(GSV_LINE);
+    gps_uart_process_rx(g);
+    furi_hal_mock_feed_string(GSV_LINE);
+    gps_uart_process_rx(g);
+
+    GpsStatus s = gps_uart_get_status(g);
+    printf("  gsv_total_sats=%d (expect 4, not 8)\n", s.gsv_total_sats);
+    assert(s.gsv_total_sats == 4);
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
+// The dedup fix must not break the feature it's guarding: two DIFFERENT
+// constellations' first-of-cycle GSV sentences arriving in the same window
+// should still both contribute, giving the true combined satellite count.
+static void test_gsv_multi_constellation_within_window_sums(void) {
+    printf("Running test_gsv_multi_constellation_within_window_sums...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+
+    furi_hal_mock_feed_string(GSV_LINE);          // GP, total_sats=4
+    gps_uart_process_rx(g);
+    furi_hal_mock_feed_string(GSV_LINE_GLONASS);  // GL, total_sats=3
+    gps_uart_process_rx(g);
+
+    GpsStatus s = gps_uart_get_status(g);
+    printf("  gsv_total_sats=%d (expect 7 = 4 GP + 3 GL)\n", s.gsv_total_sats);
+    assert(s.gsv_total_sats == 7);
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
+// Once the ~800ms window genuinely elapses, the same talker's next cycle
+// is a new epoch and must be counted again (the dedup guard is per-window,
+// not permanent).
+static void test_gsv_recounts_after_window_reset(void) {
+    printf("Running test_gsv_recounts_after_window_reset...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+
+    furi_hal_mock_feed_string(GSV_LINE);
+    gps_uart_process_rx(g);
+    furi_test_advance_tick(801); // > 800ms @ 1000 Hz shim frequency
+    furi_hal_mock_feed_string(GSV_LINE);
+    gps_uart_process_rx(g);
+
+    GpsStatus s = gps_uart_get_status(g);
+    printf("  gsv_total_sats=%d (expect 4 — fresh window, not carried over)\n",
+           s.gsv_total_sats);
+    assert(s.gsv_total_sats == 4);
 
     gps_uart_free(g);
     printf("  -> Pass\n");
@@ -427,6 +502,9 @@ int main(void) {
     test_gsa_updates_status();
     test_gsa_sbas_detection();
     test_gsv_elevation_and_fresh();
+    test_gsv_duplicate_within_window_not_doubled();
+    test_gsv_multi_constellation_within_window_sums();
+    test_gsv_recounts_after_window_reset();
     test_gll_updates_when_valid();
     test_gll_ignored_when_invalid();
     test_split_line_buffering();

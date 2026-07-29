@@ -13,6 +13,7 @@
 #include <string.h>
 
 #define RX_LINE_BUF  1024      // max NMEA line length (~80 in practice)
+#define GSV_MAX_TALKERS 5      // GP/GL/GA/GB/GQ — one slot per constellation per accumulation window
 
 struct GpsUart {
     GpsStatus            status;
@@ -28,6 +29,8 @@ struct GpsUart {
     volatile bool        rx_pending;
     uint32_t             last_valid_nmea_tick;  // watchdog: last successful $Gx parse
     uint32_t             last_gsv_reset_tick;   // tick of last GSV total_sats reset
+    char                 gsv_contributed_talkers[GSV_MAX_TALKERS][2]; // talkers already summed this window
+    int                  gsv_contributed_count;
     struct minmea_time   last_epoch_time;
     // Per-session log-once flags. Kept in the struct (not as function-local
     // statics) so they reset correctly on each gps_uart_alloc() call.
@@ -332,8 +335,29 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
                    furi_kernel_get_tick_frequency() * 4 / 5) {
                     g->status.gsv_total_sats = 0;
                     g->last_gsv_reset_tick = now;
+                    g->gsv_contributed_count = 0;
                 }
-                g->status.gsv_total_sats += frame.total_sats;
+                // Only sum a given constellation once per window. Without
+                // this guard, a talker whose GSV cycle restarts (msg_nr==1
+                // again) before the ~800ms reset threshold elapses gets its
+                // total_sats added a second time, silently doubling the
+                // reported count (observed on real hardware: 23 -> 46).
+                bool already_counted = false;
+                for(int i = 0; i < g->gsv_contributed_count; i++) {
+                    if(g->gsv_contributed_talkers[i][0] == talker_id[0] &&
+                       g->gsv_contributed_talkers[i][1] == talker_id[1]) {
+                        already_counted = true;
+                        break;
+                    }
+                }
+                if(!already_counted) {
+                    g->status.gsv_total_sats += frame.total_sats;
+                    if(g->gsv_contributed_count < GSV_MAX_TALKERS) {
+                        g->gsv_contributed_talkers[g->gsv_contributed_count][0] = talker_id[0];
+                        g->gsv_contributed_talkers[g->gsv_contributed_count][1] = talker_id[1];
+                        g->gsv_contributed_count++;
+                    }
+                }
             }
 
             for(int i = 0; i < 4; i++) {
@@ -517,6 +541,7 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
     // leaving the host at 115200 while the module stays at 9600.
     g->last_valid_nmea_tick  = furi_get_tick();
     g->last_gsv_reset_tick   = furi_get_tick();
+    g->gsv_contributed_count = 0;
     g->gsa_talker_logged     = false;
     g->gsv_talker_logged     = false;
 

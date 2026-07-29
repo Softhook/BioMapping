@@ -180,7 +180,179 @@ void furi_hal_i2c_mock_reset(void) {
     atomic_store(&g_last_config_msb, 0);
 }
 
-// ── Weak SubGHz RF stubs for host test harness ────────────────────────
-__attribute__((weak)) void em_scan_rf_init(void) {}
-__attribute__((weak)) void em_scan_rf_deinit(void) {}
-__attribute__((weak)) void em_scan_rf_set_band(int band_index) { (void)band_index; }
+// ── SubGHz RF band-control stubs for host test harness ──────────────────
+// Weak so a test that ever links the real em_scan/em_scan_rf.c in addition
+// to this mock gets the real (strong) symbol instead of silently keeping
+// this one.
+//
+// gsr_sensor.c's worker loop runs unthrottled here (furi_delay_ms() is a
+// no-op — see the file banner). In practice it can rack up 10,000+
+// iterations (tens of band rotations) in the time it takes the test
+// thread's polling loop to wake up even ONCE — an earlier version of this
+// mock kept a small fixed-size ring buffer of "which band was call #N",
+// meant to be read back at small fixed indices regardless of how far the
+// worker had raced ahead; that overshoot turned out to wrap even a
+// 64-entry buffer within a single poll, silently corrupting index 0.
+// Every RF mock below is instead built from state that either (a) is a
+// plain monotonic count, safe to threshold with "at least N" — count-based
+// but never read back element-by-element — or (b) is resolved by the
+// worker itself from its OWN current band/visit bookkeeping (the
+// per-(band,visit) RSSI table below), so what value comes back never
+// depends on the test thread's timing at all. "Wait for band to differ
+// from X" (an even earlier version) is similarly unreliable — by the time
+// the test thread notices *some* change, the band may already be several
+// more steps past X than expected.
+#define RF_MOCK_MAX_BANDS  8
+#define RF_MOCK_MAX_VISITS 8
+
+static _Atomic int   g_rf_init_count     = 0;
+static _Atomic int   g_rf_deinit_count   = 0;
+static _Atomic int   g_rf_set_band_count = 0;
+static _Atomic int   g_rf_last_band      = -1;
+static _Atomic int   g_rf_current_band   = -1;
+static _Atomic int   g_rf_band_visit_count[RF_MOCK_MAX_BANDS]; // 1-based: 1 = currently on its 1st dwell
+
+// Set true by em_scan_rf_set_band() on every rotation (including the
+// initial arm-to-band-0) and consumed by the very next
+// furi_hal_subghz_get_rssi() call — i.e. "the first sample of whichever
+// dwell is currently in progress", regardless of which band or which visit
+// number that dwell is. See furi_hal_subghz_mock_set_first_read_of_each_dwell().
+static _Atomic bool  g_subghz_first_read_pending        = false;
+static _Atomic bool  g_subghz_first_read_spike_enabled  = false;
+static _Atomic float g_subghz_first_read_spike_value    = 0.0f;
+
+__attribute__((weak)) void em_scan_rf_init(void) {
+    atomic_fetch_add(&g_rf_init_count, 1);
+}
+__attribute__((weak)) void em_scan_rf_deinit(void) {
+    atomic_fetch_add(&g_rf_deinit_count, 1);
+}
+__attribute__((weak)) void em_scan_rf_set_band(int band_index) {
+    atomic_fetch_add(&g_rf_set_band_count, 1);
+    atomic_store(&g_rf_last_band, band_index);
+    atomic_store(&g_rf_current_band, band_index);
+    if(band_index >= 0 && band_index < RF_MOCK_MAX_BANDS) {
+        atomic_fetch_add(&g_rf_band_visit_count[band_index], 1);
+    }
+    atomic_store(&g_subghz_first_read_pending, true);
+}
+
+int em_scan_rf_mock_init_count(void) {
+    return atomic_load(&g_rf_init_count);
+}
+int em_scan_rf_mock_deinit_count(void) {
+    return atomic_load(&g_rf_deinit_count);
+}
+int em_scan_rf_mock_set_band_count(void) {
+    return atomic_load(&g_rf_set_band_count);
+}
+int em_scan_rf_mock_last_band(void) {
+    return atomic_load(&g_rf_last_band);
+}
+// How many times `band` has become active (1 = currently/most-recently on
+// its first dwell, 2 = its second, ...). Monotonic — safe to threshold
+// with "at least N" regardless of how far the worker has since continued,
+// unlike a fixed-size history buffer indexed by absolute call number.
+int em_scan_rf_mock_visit_count(int band) {
+    if(band < 0 || band >= RF_MOCK_MAX_BANDS) return 0;
+    return atomic_load(&g_rf_band_visit_count[band]);
+}
+void em_scan_rf_mock_reset(void) {
+    atomic_store(&g_rf_init_count, 0);
+    atomic_store(&g_rf_deinit_count, 0);
+    atomic_store(&g_rf_set_band_count, 0);
+    atomic_store(&g_rf_last_band, -1);
+    atomic_store(&g_rf_current_band, -1);
+    for(int i = 0; i < RF_MOCK_MAX_BANDS; i++) atomic_store(&g_rf_band_visit_count[i], 0);
+    atomic_store(&g_subghz_first_read_pending, false);
+}
+
+// ── SubGHz — gsr_sensor.c's interleaved RSSI read ───────────────────────
+// Resolution order per call: (1) the first-read-of-a-dwell spike, if
+// enabled — auto-rearmed by em_scan_rf_set_band() on every rotation
+// (including the initial arm-to-band-0), so it applies to whichever dwell
+// is *currently* in progress no matter how many rotations have already
+// happened by the time a test gets around to checking anything — a plain
+// "return this once" flag would only cover ONE specific dwell, and the
+// worker can race through several dwells between two of the test thread's
+// polls (see the file-banner comment on the RF band-control stubs above),
+// so a test has no way to guarantee it wins that race; (2) a value pinned
+// to the (current band, current visit-to-that-band) pair — for simulating
+// a band whose ambient level differs between one dwell and the next; (3)
+// the flat default. All configured before gsr_sensor_set_rf_enabled(true)
+// is even called; (1) and (2) are then resolved using state
+// em_scan_rf_set_band() (called from the SAME worker thread, immediately
+// before this function starts being called for the new band/dwell) has
+// already recorded, never by the test thread reacting to something
+// mid-flight.
+static _Atomic float g_subghz_rssi_default = -91.5f;
+static _Atomic int   g_subghz_rssi_count   = 0;
+static _Atomic float g_rssi_band_visit[RF_MOCK_MAX_BANDS][RF_MOCK_MAX_VISITS];
+static _Atomic bool  g_rssi_band_visit_set[RF_MOCK_MAX_BANDS][RF_MOCK_MAX_VISITS];
+
+float furi_hal_subghz_get_rssi(void) {
+    atomic_fetch_add(&g_subghz_rssi_count, 1);
+
+    if(atomic_exchange(&g_subghz_first_read_pending, false) &&
+       atomic_load(&g_subghz_first_read_spike_enabled)) {
+        return atomic_load(&g_subghz_first_read_spike_value);
+    }
+
+    int band = atomic_load(&g_rf_current_band);
+    if(band >= 0 && band < RF_MOCK_MAX_BANDS) {
+        int visit = atomic_load(&g_rf_band_visit_count[band]); // 1-based
+        int vidx = visit - 1;
+        if(vidx >= 0 && vidx < RF_MOCK_MAX_VISITS &&
+           atomic_load(&g_rssi_band_visit_set[band][vidx])) {
+            return atomic_load(&g_rssi_band_visit[band][vidx]);
+        }
+    }
+    return atomic_load(&g_subghz_rssi_default);
+}
+
+// Flat default returned for every band/visit that has no more specific
+// override configured.
+void furi_hal_subghz_mock_set_rssi(float value) {
+    atomic_store(&g_subghz_rssi_default, value);
+}
+
+// Makes the FIRST furi_hal_subghz_get_rssi() call after every single
+// em_scan_rf_set_band() rotation (any band, any visit number) return
+// `value`; every other read within that same dwell falls back to the
+// default/per-visit table. For simulating a single-sample transient burst
+// that a naive instantaneous read would usually miss but peak-hold-over-a-
+// dwell should still capture — race-free (see the resolution-order
+// comment above) regardless of how many dwells have already completed by
+// the time a test inspects the result.
+void furi_hal_subghz_mock_set_first_read_of_each_dwell(float value) {
+    atomic_store(&g_subghz_first_read_spike_value, value);
+    atomic_store(&g_subghz_first_read_spike_enabled, true);
+}
+
+// Pins the value returned for every read while `band` is active during its
+// `visit_1based`'th dwell (1 = first time this band is scanned, 2 = second,
+// ...). Must be configured before enabling RF — see file-banner comment.
+void furi_hal_subghz_mock_set_rssi_for_band_visit(int band, int visit_1based, float value) {
+    int vidx = visit_1based - 1;
+    if(band < 0 || band >= RF_MOCK_MAX_BANDS) return;
+    if(vidx < 0 || vidx >= RF_MOCK_MAX_VISITS) return;
+    atomic_store(&g_rssi_band_visit[band][vidx], value);
+    atomic_store(&g_rssi_band_visit_set[band][vidx], true);
+}
+
+int furi_hal_subghz_mock_get_rssi_call_count(void) {
+    return atomic_load(&g_subghz_rssi_count);
+}
+
+void furi_hal_subghz_mock_reset(void) {
+    atomic_store(&g_subghz_rssi_default, -91.5f);
+    atomic_store(&g_subghz_rssi_count, 0);
+    atomic_store(&g_subghz_first_read_pending, false);
+    atomic_store(&g_subghz_first_read_spike_enabled, false);
+    atomic_store(&g_subghz_first_read_spike_value, 0.0f);
+    for(int b = 0; b < RF_MOCK_MAX_BANDS; b++) {
+        for(int v = 0; v < RF_MOCK_MAX_VISITS; v++) {
+            atomic_store(&g_rssi_band_visit_set[b][v], false);
+        }
+    }
+}

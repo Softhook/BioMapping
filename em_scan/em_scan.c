@@ -370,7 +370,7 @@ static void em_scan_render_cal_stats(Canvas* canvas, const EmScanApp* app) {
 
 static void em_scan_render_callback(Canvas* canvas, void* ctx) {
     EmScanApp* app = ctx;
-    furi_mutex_acquire(app->mutex, FuriWaitForever);
+    if(furi_mutex_acquire(app->mutex, 10) != FuriStatusOk) return;
     canvas_clear(canvas);
 
     switch(app->mode) {

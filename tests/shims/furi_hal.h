@@ -105,4 +105,69 @@ uint8_t furi_hal_i2c_mock_last_config_msb(void);
 void furi_hal_i2c_mock_reset(void);
 
 // ── SubGHz — gsr_sensor.c interleaved RSSI reads ─────────────────────────
-static inline float furi_hal_subghz_get_rssi(void) { return -91.5f; }
+// Real function (not static inline) so tests can control its return value —
+// mirrors the I2C mock pattern above. The worker loop that calls this spins
+// unthrottled (furi_delay_ms() is a no-op in this harness) and can race
+// through several band rotations between two of the test thread's polling
+// wake-ups, so none of the setters below are meant to be changed reactively
+// mid-test — configure everything before enabling RF, then let the mock
+// resolve the right value off its own band/visit bookkeeping. See the
+// longer comment above the implementation in furi_hal_mock.c.
+float furi_hal_subghz_get_rssi(void);
+
+// Flat value returned for every band/visit that has no more specific
+// override below. Defaults to -91.5f (quiet-floor reading).
+void furi_hal_subghz_mock_set_rssi(float value);
+
+// Makes the FIRST call after every single band rotation (any band, any
+// visit number — auto-rearmed each time, not a one-shot) return `value`;
+// every other read within that same dwell falls back to the default/
+// per-visit table. For simulating a brief transient burst that a naive
+// instantaneous read would usually miss but peak-hold-over-a-dwell should
+// still capture — deliberately NOT a plain "next call only" one-shot: the
+// worker can race through several dwells before a test gets around to
+// checking anything (see the header comment above), so a one-shot would
+// only cover one specific dwell and a test would have no way to guarantee
+// it's still looking at that same dwell by the time it checks.
+void furi_hal_subghz_mock_set_first_read_of_each_dwell(float value);
+
+// Pins the value returned for every read while `band` (0-based) is active
+// during its `visit_1based`'th dwell (1 = the first time this band is
+// scanned since RF was enabled, 2 = the second, ...) — for simulating a
+// band whose ambient level genuinely changes between one visit and the
+// next (e.g. peak-hold decay: strong on visit 1, quiet by visit 2).
+void furi_hal_subghz_mock_set_rssi_for_band_visit(int band, int visit_1based, float value);
+
+// Number of furi_hal_subghz_get_rssi() calls so far — one per worker-loop
+// iteration while RF is enabled. Poll this (relative to a snapshot) instead
+// of guessing a sleep duration, same as furi_hal_i2c_mock_read_count().
+int furi_hal_subghz_mock_get_rssi_call_count(void);
+
+void furi_hal_subghz_mock_reset(void);
+
+// ── em_scan_rf_* — band control, called from the same interleaved block ──
+// Real (non-weak-no-op) implementations that record what gsr_sensor.c
+// actually asked for, so tests can assert on init/deinit lifecycle and on
+// band rotation.
+int em_scan_rf_mock_init_count(void);
+int em_scan_rf_mock_deinit_count(void);
+int em_scan_rf_mock_set_band_count(void);
+
+// Wherever the worker happens to be *right now*. Only useful for a
+// same-thread-of-execution synchronous check (e.g. immediately after
+// gsr_sensor_set_rf_enabled(true) returns, which synchronously arms band 0
+// before the worker can touch anything) — do NOT poll this waiting for it
+// to change to some specific value: the worker can race through several
+// rotations between two test-thread polls (in practice, 10,000+ loop
+// iterations can elapse in the time it takes this thread to wake up even
+// once), so a poll may never observe the exact value you're waiting for.
+int em_scan_rf_mock_last_band(void);
+
+// How many times `band` (0-based) has become active — 1 the first time
+// it's scanned since RF was enabled, 2 the second, etc. Monotonic, so
+// "wait until em_scan_rf_mock_visit_count(band) >= N" is safe to poll
+// regardless of how far the worker has raced ahead by the time it's
+// checked — unlike em_scan_rf_mock_last_band().
+int em_scan_rf_mock_visit_count(int band);
+
+void em_scan_rf_mock_reset(void);

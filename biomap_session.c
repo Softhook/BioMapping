@@ -829,7 +829,11 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
 
             if(play_warning) biomap_sound_warning(app->sound_enabled);
 
-            view_port_update(s->vp);
+            // Pace ViewPort redraw to 2 Hz (every 5 ticks at 10 Hz) to eliminate
+            // GUI message queue lockups during background BLE/System service activity.
+            if(s->recording.total_ticks % 5 == 0) {
+                view_port_update(s->vp);
+            }
         }
     }
 

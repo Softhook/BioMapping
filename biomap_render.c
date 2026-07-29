@@ -186,7 +186,7 @@ static void draw_sensor_alert(Canvas* c, const char* text) {
 
 void biomap_render_callback(Canvas* c, void* ctx) {
     BioMapApp* a = (BioMapApp*)ctx;
-    furi_mutex_acquire(a->mutex, FuriWaitForever);
+    if(furi_mutex_acquire(a->mutex, 10) != FuriStatusOk) return;
     canvas_clear(c);
 
     bool has_graph = has_gsr(a->session.mode)
@@ -437,7 +437,7 @@ static void draw_selection_list(Canvas* c, int sel, int count,
 void menu_render(Canvas* c, void* ctx) {
     MenuContext* m_ctx = (MenuContext*)ctx;
     BioMapApp* a = m_ctx->app;
-    furi_mutex_acquire(a->mutex, FuriWaitForever);
+    if(furi_mutex_acquire(a->mutex, 10) != FuriStatusOk) return;
     canvas_clear(c);
     canvas_set_font(c, FontPrimary);
     canvas_draw_str(c, 0, 10, "Bio Mapping");
@@ -449,7 +449,7 @@ void menu_render(Canvas* c, void* ctx) {
 void options_render(Canvas* c, void* ctx) {
     OptionsContext* o_ctx = (OptionsContext*)ctx;
     BioMapApp* a = o_ctx->app;
-    furi_mutex_acquire(a->mutex, FuriWaitForever);
+    if(furi_mutex_acquire(a->mutex, 10) != FuriStatusOk) return;
     canvas_clear(c);
     canvas_set_font(c, FontPrimary);
     canvas_draw_str(c, 0, 10, "Options");
@@ -595,7 +595,7 @@ void show_current_calibration_render(Canvas* c, void* ctx) {
     canvas_set_font(c, FontSecondary);
 
     char buf[64];
-    furi_mutex_acquire(app->mutex, FuriWaitForever);
+    if(furi_mutex_acquire(app->mutex, 10) != FuriStatusOk) return;
     bool active = app->cal_active;
     float gain = app->cal_gain;
     float offset = app->cal_offset;
@@ -775,7 +775,7 @@ void rf_show_current_calibration_render(Canvas* c, void* ctx) {
     canvas_draw_str(c, 0, 10, "RF Calibration");
     canvas_set_font(c, FontSecondary);
 
-    furi_mutex_acquire(app->mutex, FuriWaitForever);
+    if(furi_mutex_acquire(app->mutex, 10) != FuriStatusOk) return;
     bool calibrated = app->rf_calibrated;
     EmScanCal cal = app->rf_cal_data;
     furi_mutex_release(app->mutex);
