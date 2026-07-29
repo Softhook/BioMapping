@@ -7,11 +7,11 @@ The Complete Build & Software Guide (ADS1115 Transimpedance Amplifier Edition)
 BioMapping 2.0 is a new version of Christian Nold's Bio Mapping project for the **Flipper Zero**. 
 It allows you to walk through a city or landscape and record your body's physiological arousal mapped precisely to geographical coordinates. 
 
-The Flipper logs your Galvanic Skin Response (GSR) together with GPS coordinates to a CSV file on the SD card. You then load that CSV into the included browser-based analyser (`gsr-map-analyzer/index.html`), which decomposes the signal into tonic/phasic components, detects arousal peaks, and renders your route on a map **coloured by arousal**. In collective mode it builds an interpolated (IDW) contour surface across one or more walks, so calm stretches read as a flat "baseline" landscape while stress or arousal rises into "mountains" and deep relaxation drops into "valleys".
+The Flipper logs your Galvanic Skin Response (GSR) together with GPS coordinates and SubGHz RF environmental spectrum levels (300/433/868/915 MHz) to a CSV file on the SD card. You then load that CSV into the included browser-based analyser (`gsr-map-analyzer/index.html` or `em_scan_visualizer.html`), which decomposes the signal into tonic/phasic components, detects arousal peaks, correlates RF noise density, and renders your route on a map **coloured by arousal**. In collective mode it builds an interpolated (IDW) contour surface across one or more walks, so calm stretches read as a flat "baseline" landscape while stress or arousal rises into "mountains" and deep relaxation drops into "valleys".
 
-This version of the device uses a dedicated 16-bit **ADS1115** Analog-to-Digital Converter combined with a robust and stable **Transimpedance Amplifier (TIA)** circuit. By utilising a rail-to-rail dual op-amp for active voltage buffering and hardware low-pass filtering, we achieve a precise, robust and noise-resistant way to measure the tiny changes in human sweat gland activity.
+This version of the device uses a dedicated 16-bit **ADS1115** Analog-to-Digital Converter combined with a robust and stable **Transimpedance Amplifier (TIA)** circuit. By utilising a rail-to-rail dual op-amp for active voltage buffering and hardware low-pass filtering, we achieve a precise, robust and noise-resistant way to measure the tiny changes in human sweat gland activity. All background sampling (GSR ADC reads at 860 SPS and interleaved SubGHz RF band sweeps) is handled by a **single unified background worker thread** (`GsrSensorWorker` in [`modules/gsr_sensor.c`](modules/gsr_sensor.c)).
 
-The firmware supports two GPS modules, selected at compile time via `GPS_MODULE` in [`biomap_config.h`](../biomap_config.h):
+The firmware supports two GPS modules, selected at compile time via `GPS_MODULE` in [`biomap_config.h`](biomap_config.h):
 * **u-blox SAM-M10Q** (`GPS_MODULE_M10Q`, the compile-time default) — integrated patch antenna, up to 10 Hz update rate, Software Standby power saving, AssistNow autonomous orbit prediction
 * **Quectel L76K** (`GPS_MODULE_L76K`, older alternative, still supported) — external U.FL antenna, up to 5 Hz update rate, PCAS protocol
 
@@ -220,6 +220,17 @@ M10Q GPS @ 10 Hz  ──►  UART interrupt handler
 ```
 
 ### CSV Formats
+
+**GPS+GSR+RF mode (17 columns, 10 Hz):**
+```
+# BioMapping v1.0
+# RecordingStartTime:1751204579
+# GPS:M10Q
+timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,rssi_815,rssi_868,rssi_915,rssi_peak_815,rssi_peak_868,rssi_peak_915
+0.00,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4523.0,2.4,-91.5,-88.0,-95.0,-91.5,-88.0,-95.0
+0.10,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4528.0,2.3,-91.5,-88.0,-95.0,-91.5,-88.0,-95.0
+...
+```
 
 **GPS+GSR mode (11 columns, 10 Hz):**
 ```
@@ -637,4 +648,4 @@ The app is packaged as a Flipper Zero `.fap` file:
 | Requires | `gui`, `storage`, `notification`, `expansion` |
 | Stack size | 4 KB |
 | Category | GPIO |
-| Sources | 8 source files across 2 directories (`biomap.c`, `biomap_gui.c`, `biomap_session.c`, `biomap_render.c`, `minmea.c`, `modules/gps_uart.c`, `modules/gsr_sensor.c`, `modules/sd_logger.c`) |
+| Sources | 12 source files across 2 directories (`biomap.c`, `biomap_gui.c`, `biomap_session.c`, `biomap_render.c`, `biomap_pipeline.c`, `biomap_rf_cal.c`, `minmea.c`, `modules/gps_uart.c`, `modules/gsr_sensor.c`, `modules/sd_logger.c`, `modules/em_scan_rf.c`, `modules/em_scan_cal.c`) |

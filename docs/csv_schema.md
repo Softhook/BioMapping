@@ -44,7 +44,13 @@ Each CSV begins with comment lines (prefixed `#`) before the column header:
 | 8 | `speed_kts` | float | knots | Doppler-derived speed from RMC. More accurate than position-derived. `0.0` if unavailable. |
 | 9 | `course_deg` | float | degrees (true north) | True course over ground from RMC. `0.0` if unavailable. |
 | 10 | `gsr_raw` | float | nanosiemens (nS) | Raw skin conductance. `0.0` if sensor unavailable. |
-| 11 | `hacc_m` | float | meters | Horizontal accuracy from `$PUBX,00` Field 9 (u-blox EKF covariance). **Empty string** if no valid GPS fix this tick (same gate as `lat`/`lon`). `99.9` = no `$PUBX,00` sentence yet. **M10Q only** — always `99.9` on L76K hardware, which never emits `$PUBX,00`. |
+| 11 | `hacc_m` | float | meters | Horizontal accuracy from `$PUBX,00` Field 9. **Empty string** if no valid fix. `99.9` = no `$PUBX,00`. M10Q-only. |
+| 12 | `rssi_815` | float | dBm | SubGHz 815 MHz instantaneous RSSI peak for most recent park on band. |
+| 13 | `rssi_868` | float | dBm | SubGHz 868 MHz instantaneous RSSI peak for most recent park on band. |
+| 14 | `rssi_915` | float | dBm | SubGHz 915 MHz instantaneous RSSI peak for most recent park on band. |
+| 15 | `rssi_peak_815` | float | dBm | SubGHz 815 MHz decaying peak-hold RSSI across parks (1.0 dB/s decay). |
+| 16 | `rssi_peak_868` | float | dBm | SubGHz 868 MHz decaying peak-hold RSSI across parks (1.0 dB/s decay). |
+| 17 | `rssi_peak_915` | float | dBm | SubGHz 915 MHz decaying peak-hold RSSI across parks (1.0 dB/s decay). |
 
 ---
 
@@ -86,6 +92,7 @@ Defined in `modules/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
 | 1.0 | 2026-06 | Initial: `timestamp, lat, lon, alt, sats, fix, gsr_raw` (7 columns) |
 | 1.1 | 2026-07 | Added `hdop, pdop, speed_kts, course_deg`; renamed `fix`→`fix_type`; removed `alt`; total 10 columns |
 | 1.2 | 2026-07 | Added `hacc_m` (M10Q-only physical accuracy in meters, `$PUBX,00`); total 11 columns |
+| 1.3 | 2026-07 | Added SubGHz RF columns (`rssi_815/868/915` & `rssi_peak_815/868/915`) for `GPS+GSR+RF` mode; total 17 columns |
 
 ---
 
