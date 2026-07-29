@@ -519,34 +519,253 @@ also been promoted to `furi_check()` (all 9 of them), matching the pattern
 already applied to `em_scan_rf_worker.c` and `gsr_sensor.c`. Only
 `gps_uart.c` (8) and `biomap.c` (7) remain unpromoted now.
 
+## Track 104: stationary indoor crash — the cleanest negative result yet (2026-07-29)
+
+Deliberately run as an isolation test: recording left indoors, stationary
+(no walking at all), with the GSR finger cuffs physically disconnected.
+Ran 444.9 seconds (~7.4 min) and crashed — the first crash captured with
+every piece of instrumentation built this session active simultaneously
+(main-thread stack, RF/GSR stack, SD write/sync latency).
+
+Every single measured resource was healthy for the entire session:
+
+- **Heap**: flat (83208/82952 free/min — same shape as every prior track).
+- **All three thread stacks flat and healthy for 444.9s straight.**
+  `stack:main` settles at 2476B free (of 4096) within the first few
+  seconds and never moves again for the rest of the session. RF (3596B)
+  and GSR (1660B) match every prior track exactly.
+- **SD write/sync latency**: climbs gradually (write 4→86ms, sync
+  14→46ms) — consistent with normal SD card write-latency variance
+  (occasional slower writes as background flash housekeeping kicks in),
+  nowhere near the >300ms stall Theory 2 predicted as a smoking gun.
+- **RF signal**: max across all three bands, the *entire* session:
+  exactly -91.5 dBm — pinned at the quiet floor throughout, zero
+  elevation anywhere. Another clean data point against the already-dead
+  RF-correlation theory.
+- **GSR reading**: rock-stable at 16.9 nS for 4427 of ~4429 rows —
+  confirms the cuffs were disconnected, but 16.9 nS is comfortably inside
+  the "valid" range (`GSR_VALID_MIN_NS`=0.1 to `GSR_VALID_MAX_NS`=75000),
+  so `gsr_sensor_is_connected()` would have read true the whole session —
+  the disconnect/debounce code path was never actually exercised by this
+  test, worth knowing if that mattered to the isolation intent.
+- **Crash screen: still bare "furi_check failed."** Confirmed directly —
+  none of the ~28 promoted `furi_check()` calls (RF worker, GSR sensor,
+  SD logger combined) fired.
+
+**Implication**: indoors, stationary, no cuffs, 7+ minutes, every
+app-measurable resource healthy throughout — and it still crashed. This
+rules out outdoor/walking-specific causes entirely (vibration, real GPS
+motion solutions, temperature, actual RF exposure) on top of everything
+already ruled out from tracks 100-103. Combined with the wide, seemingly
+random spread of crash timings across every track so far (5s, 20s, 35s,
+145s, 179s, 444.9s, 520s — no trend, no threshold-crossing pattern in any
+resource) — this now looks much more consistent with a genuine
+intermittent race condition or fault with a roughly constant per-unit-time
+probability, not a slow resource exhaustion. Resource-usage diagnostics
+have been checked thoroughly and repeatedly turned up nothing; adding more
+of the same kind is unlikely to be the way this gets solved from here.
+
 ## Current status / open questions
 
-- **No confirmed hypothesis remains standing.** Heap (flat), RF worker
-  stack (flat), GSR worker stack (flat), RF signal strength (refuted by
-  track 103), and GPS fix quality (no shared pattern) have all been
-  directly checked against real data and ruled out. Theory 1 (SPI
-  contention) is also now ruled out on inspection (wrong bus premise).
-  This is real progress — narrowing down what it *isn't* — but the actual
-  cause is still open.
-- **Next walk should check, in order of what's new**:
-  1. Does `stack:main` stay flat like the other two threads, or show
-     pressure they didn't?
-  2. Do `sd:write_ms`/`sync_ms` ever spike, and if so, does a spike land
-     near a crash? This is genuinely new data no prior walk has.
+- **Every app-measurable hypothesis has now been ruled out.** Heap, all
+  three thread stacks (main, RF, GSR), RF signal strength, SD write/sync
+  latency, GSR connection state, GPS fix quality, and outdoor/walking-
+  specific factors have all been directly checked against real data across
+  seven crashes and two clean long runs, and none of them show a pattern.
+  Theory 1 (SPI contention) is ruled out on inspection (wrong bus premise).
+  None of the ~28 promoted `furi_check()` calls has ever fired. This is
+  real, substantial progress in eliminating explanations — but the actual
+  root cause is still open, and the remaining candidates are no longer
+  things this app's own instrumentation can resolve.
+- **What's left, roughly in order of how actionable it is**:
+  1. Something inside Furi's own kernel/HAL internals — a check this app
+     doesn't control and genuinely cannot instrument from application code.
+  2. Something inside the RF/GSR worker threads' actual loop bodies
+     (`em_scan_rf_worker_thread_fn()`, `gsr_sensor_worker()`) specifically —
+     neither has any check at all, only their wrapper API functions do.
+     There isn't much more to meaningfully check inside them (they're
+     simple SPI/I2C polling loops), but it's the one code-level blind spot
+     that hasn't been directly measured.
+  3. A genuinely intermittent hardware fault (marginal solder joint, a
+     flaky component, thermal drift, or something similarly not tied to
+     motion) — track 104 shows this doesn't require walking/vibration to
+     trigger.
+- **Worth checking if available**: Flipper Zero can sometimes retain a
+  crash log / register dump across a reboot, viewable via qFlipper or a
+  serial CLI session, which would show the actual PC/backtrace at the
+  crash — categorically more specific than anything a CSV-based diagnostic
+  can produce. Worth checking what your firmware exposes here before
+  adding further app-level instrumentation, since that path has now been
+  pushed about as far as it can go.
 - Consider promoting `gps_uart.c`'s remaining `furi_assert()` calls too —
   the last app-level module active throughout a walk not yet covered.
   Not done yet; ask before doing a broader sweep, same as every targeted
-  pass so far.
-- **Hardware/electrical explanations are now proportionally more likely**,
-  precisely because every software-side hypothesis checked so far has come
-  back negative. Nothing in this repo can confirm or rule that out — it
-  would need physical hardware investigation (checking supply rail
-  stability under load, reseating/testing the GPS and GSR boards
-  independently, trying a different SD card, backlight off, etc.), not
-  more log analysis.
+  pass so far. Given the pattern so far (every promoted check has come
+  back silent), low expectation this changes anything, but it's cheap.
 - **Do not** apply speculative CC1101 register-level changes (e.g. IOCFG0
   high-impedance), nonexistent HAL API calls, or a cross-bus SPI mutex for
   buses that don't actually share hardware — the async preset was
   deliberately chosen for wideband ambient RF capture, and changing it has
   a real cost to what the tool measures, for hypotheses that were already
-  weak and are now weaker still.
+  weak and are now dead.
+
+## Track 105: a genuinely new failure signature — "ViewPort lockup", not a crash screen (2026-07-29)
+
+Christian ran a tethered live-debug session (USB serial, `ufbt` CLI attached)
+and the Flipper locked up — but this time **no crash screen appeared**.
+Recording had just started (GPS+GSR+RF mode). The serial log shows:
+
+```
+88301 [I][SdLogger] Recording to /ext/biomapping/biomap_105.csv
+88697 [W][ViewPort] ViewPort lockup: see applications/services/gui/view_port.c:196
+121572 [D][BleGap] Start: 4
+...(BLE advertising fires again every 60s, exactly on schedule, for the
+    next several minutes — 121572, 181575, 241577, 301580)...
+```
+
+The Python-side `OSError: [Errno 6] Device not configured` at the end is
+just the USB serial connection dying when Christian power-cycled the frozen
+device — not an on-device event.
+
+**What "ViewPort lockup" actually means.** Checked the real firmware source
+(`applications/services/gui/view_port.c` in flipperdevices/flipperzero-
+firmware) directly rather than guessing from the log text alone:
+
+```c
+void view_port_update(ViewPort* view_port) {
+    // We are not going to lockup system, but will notify you instead
+    // Make sure that you don't call viewport methods inside of another
+    // mutex, especially one that is used in draw call
+    if(furi_mutex_acquire(view_port->mutex, 2) != FuriStatusOk) {
+        FURI_LOG_W(TAG, "ViewPort lockup: see %s:%d", __FILE__, __LINE__ - 3);
+    }
+    if(view_port->gui && view_port->is_enabled) gui_update(view_port->gui);
+    furi_mutex_release(view_port->mutex);
+}
+```
+
+The same pattern (2-tick non-blocking probe on `view_port->mutex`, same log
+line) also guards `view_port_draw()` and `view_port_get_orientation()`. This
+is a **different mutex from `app->mutex`** — it's Furi's own internal
+per-ViewPort lock, owned by the GUI service. The firmware comment itself
+names the classic cause: calling a `view_port_*` function while already
+holding another mutex that the app's own draw callback also needs to
+acquire — an AB-BA deadlock between `app->mutex` and `view_port->mutex`.
+
+**Audited against that specific pattern — clean.** Checked every
+`view_port_update()` call site in `biomap_session.c`, `biomap_gui.c`, and
+`biomap_rf_cal.c` against every `furi_mutex_acquire()`/`furi_mutex_release()`
+pair in those files (main recording loop, `key_toggle_recording()`,
+`handle_recording_key()`, the zoom helpers, the RF calibration wizard).
+Every single one releases `app->mutex` (or `w.mutex` in the RF cal wizard)
+*before* calling `view_port_update()` — no case found where a `view_port_*`
+call happens while the app is still holding its own mutex. This app does
+not exhibit the AB-BA pattern the firmware comment warns about.
+
+**What this does and doesn't tell us:**
+- A lone "ViewPort lockup" line, by itself, isn't proof of a full deadlock —
+  it's a 2ms non-blocking probe, so one miss can just mean the GUI thread
+  was transiently busy drawing that exact frame; `view_port_update()`
+  continues either way (it still calls `gui_update()` and unconditionally
+  releases the mutex regardless of whether the acquire actually succeeded).
+- But the device then stayed **frozen for several minutes** (only the
+  independent BLE advertising timer kept firing on schedule, proving the
+  RTOS scheduler and kernel timers were still alive) — that's a real,
+  sustained hang, not a one-frame skip.
+- Since the app's own mutex discipline checks out clean everywhere audited,
+  the sustained hang itself isn't explained by anything in this app's code.
+  It's consistent with — and mildly reinforces — the existing leading
+  candidates from the tracks 100-104 section above: something inside Furi's
+  own GUI-service/kernel internals, the display/SPI driver, or genuinely
+  electrical/hardware, rather than opening a new app-level lead to chase.
+
+**Open question, not yet investigated**: whether running tethered to a live
+USB debug session (as opposed to a normal untethered walk) is itself a
+contributing factor — none of tracks 91/96-104 were run this way. Worth
+checking if it recurs specifically under `ufbt` CLI/serial debug sessions
+versus normal standalone operation.
+
+## Idle isolation test: locks up with zero SD/recording activity (2026-07-29)
+
+Follow-up test, still tethered to the live USB debug session: sat on the
+GPS+GSR+RF recording screen for ~15 minutes **without ever pressing OK to
+start recording**. It locked up anyway.
+
+```
+601181 [I][GpsUart] M10Q running at 115200 baud, 10 Hz, GSV@1Hz
+601182 [I][GsrSensor] Probe OK
+601191-601196 [I][EmScan] freq[0..2] configured (815/868/915 MHz)
+601740-602743 [I][GsrSensor] PGA 2→3→4→5 (autorange settles)
+601240, 661247, 721250, ... 1501285 [D][BleGap] Start: 4 / set_non_discoverable
+  (16 cycles, ~60003-60007ms apart, dead-on schedule for the full 900s)
+--- USB disconnects (device power-cycled by hand) ---
+```
+
+**What this session actually exercised — corrected from my first read.**
+I initially said `handle_recording_tick()` "does almost nothing" when
+`recording.active` is false. Re-checked the function directly
+(`biomap_session.c:693-738`) and that's wrong: for GSR modes it
+unconditionally runs `gsr_sensor_tick()` (autoranging), fetches the raw
+sample, and calls `pipeline_update_display()`/`pipeline_update_graph()`
+(IIR filtering, graph ring-buffer push) **every tick regardless of
+recording state** — all of it inside the same `app->mutex` critical section
+`biomap_render_callback()` needs. Only the trailing `batch_csv_row()` call
+is gated on `s->recording.active`. So this was not an idle no-op session —
+the full GSR sampling/filtering/graph pipeline, RF worker polling, and GPS
+parsing all ran exactly as in a real walk, at the same 10 Hz tick rate,
+through the same mutex-guarded path.
+
+What's actually different from a recording session is narrower than "doing
+nothing": zero `storage_file_open/write/sync` calls, zero CSV row
+formatting (`batch_csv_row`/`format_gps_csv_row` both early-return before
+doing any work), zero diagnostic batch writes (`handle_second_boundary()`
+also early-returns immediately when not recording), and the
+recording-start chirp+200ms-settle sequence in `key_toggle_recording()`
+never ran because OK was never pressed.
+
+**SD/storage: eliminated, cleanly this time.** Track 104 already showed a
+recording session could hang while stationary/disconnected; this goes
+further — literally zero storage calls of any kind happened this entire
+900-second session, and it still locked up. Theory 2 (SD flash write/GC
+stalls) is now fully closed out, not just deprioritized.
+
+**Still fully live and unchanged as suspects:** RF worker thread (CC1101
+polling), GSR worker thread + the main-thread GSR pipeline math above, GPS
+UART, and the Tick/render loop itself — none of these are gated by
+recording state, so none of them are eliminated by this test.
+
+**Retracting my in-conversation claim that the missing "ViewPort lockup"
+line this time was itself meaningful.** That warning fires from a 2ms
+non-blocking probe on Furi's internal `view_port->mutex` (see the track 105
+section above) — whether it trips depends on exact scheduling luck, i.e.
+whether some thread happens to call a `view_port_*` function during the
+same few milliseconds another thread is mid-draw. Its absence here doesn't
+establish a different failure mechanism than track 105; it's equally
+consistent with the identical underlying stall simply not lining up with
+that specific race window this time. Not treating this as a distinct
+failure signature without better evidence.
+
+**A real gap, only clear in hindsight: we don't know when in this 900s
+window the freeze actually started.** Track 105 had a precise trigger (the
+recording-start event) pinning its freeze to ~396ms after a specific log
+line. This session has no equivalent heartbeat — the only periodic
+evidence of liveness is BLE's own 60s re-advertise timer (proves the kernel
+scheduler stayed alive throughout, nothing more), because
+`handle_second_boundary()`'s diagnostic line is gated on `recording.active`
+*and* only ever went to the SD card, never the serial log, even when
+recording. So this freeze could have happened seconds after GSR PGA
+settled (~602743, ~1.5s in — structurally close to track 105's timing) or
+only after 14 more minutes of clean operation; this log cannot distinguish
+those, and that ambiguity matters for whether this and track 105 are even
+comparable events.
+
+**Confound still open:** both this test and track 105 were run tethered to
+the live USB debug session. Neither isolates whether tethered debugging
+itself is a contributing factor — that's still untested.
+
+**Worth considering (not yet implemented, needs sign-off first):** a
+periodic `FURI_LOG` heartbeat independent of `recording.active` — something
+the second-boundary handler doesn't currently have, since its one existing
+diagnostic line only fires while recording and only reaches the SD card.
+Without it, any future idle-session freeze remains untimeable from the log
+alone, the same gap this test just ran into.

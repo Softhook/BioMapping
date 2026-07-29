@@ -193,6 +193,7 @@ void run_options_screen(BioMapApp* app) {
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
                     app->zoom_enabled = !app->zoom_enabled;
                     furi_mutex_release(app->mutex);
+                    biomap_save_settings(app);
                     biomap_sound_toggle(app->sound_enabled, app->zoom_enabled);
                     break;
                 case 2:
@@ -200,6 +201,7 @@ void run_options_screen(BioMapApp* app) {
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
                     app->backlight_on = !app->backlight_on;
                     furi_mutex_release(app->mutex);
+                    biomap_save_settings(app);
                     biomap_sound_toggle(app->sound_enabled, app->backlight_on);
                     break;
                 case 3:
@@ -229,6 +231,7 @@ void run_options_screen(BioMapApp* app) {
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
                     app->sound_enabled = !app->sound_enabled;
                     furi_mutex_release(app->mutex);
+                    biomap_save_settings(app);
                     biomap_sound_toggle(true, app->sound_enabled);
                     break;
                 case 6:
@@ -236,6 +239,7 @@ void run_options_screen(BioMapApp* app) {
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
                     app->nav_model = (app->nav_model + 1) % 7;
                     furi_mutex_release(app->mutex);
+                    biomap_save_settings(app);
                     biomap_sound_click(app->sound_enabled);
                     break;
                 case 7:
@@ -243,6 +247,7 @@ void run_options_screen(BioMapApp* app) {
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
                     app->rf_scan_enabled = !app->rf_scan_enabled;
                     furi_mutex_release(app->mutex);
+                    biomap_save_settings(app);
                     biomap_sound_toggle(app->sound_enabled, app->rf_scan_enabled);
                     break;
                 case 8:

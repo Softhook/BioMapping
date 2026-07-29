@@ -152,6 +152,30 @@ typedef struct {
     uint32_t checksum;
 } BioMapCalibration;
 
+// ── Options persistence ─────────────────────────────────────────────────
+// Every Options-menu toggle (Auto-zoom, Backlight, Sound, GPS Profile,
+// RF Scan) previously only lived in the BioMapApp struct literal's
+// defaults (biomap.c) — reset to those hardcoded defaults on every app
+// launch, never saved. Same load/save/atomic-rename shape as
+// BioMapCalibration above, kept as a separate file/struct rather than
+// folded into it since these are independent, unrelated settings with
+// their own versioning needs.
+#define BIOMAP_SETTINGS_MAGIC    0x424D4753
+#define BIOMAP_SETTINGS_VERSION  1
+#define BIOMAP_SETTINGS_PATH     "/ext/biomapping/biomap.settings"
+#define BIOMAP_SETTINGS_PATH_TMP "/ext/biomapping/biomap.settings.tmp"
+
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    bool     zoom_enabled;
+    bool     backlight_on;
+    bool     sound_enabled;
+    bool     rf_scan_enabled;
+    uint32_t nav_model;
+    uint32_t checksum;
+} BioMapSettings;
+
 // Calibration wizard state machine.  Steps:
 //   0 = prompt 470k    4 = prompt 47k      8 = success
 //   1 = measure 470k   5 = measure 47k     9 = measurement fail
@@ -202,6 +226,9 @@ void run_calibration_wizard(BioMapApp* app);
 bool biomap_load_calibration(BioMapApp* app);
 void biomap_save_calibration(BioMapApp* app, float gain, float offset);
 void biomap_reset_calibration(BioMapApp* app);
+
+bool biomap_load_settings(BioMapApp* app);
+void biomap_save_settings(BioMapApp* app);
 
 void run_rf_calibration_menu(BioMapApp* app);
 void run_rf_calibration_wizard(BioMapApp* app);

@@ -38,6 +38,7 @@ int32_t biomap_app(void* p) {
     storage_common_mkdir(app->storage, "/ext/biomapping");
     biomap_load_calibration(app);
     biomap_load_rf_calibration(app);
+    biomap_load_settings(app);
     notification_message_block(app->notifications, &sequence_display_backlight_enforce_auto);
 
     // Create the single persistent ViewPort shared by every screen — stays
@@ -245,4 +246,94 @@ void biomap_reset_rf_calibration(BioMapApp* app) {
     furi_mutex_acquire(app->mutex, FuriWaitForever);
     app->rf_calibrated = false;
     furi_mutex_release(app->mutex);
+}
+
+// ── Options persistence ──────────────────────────────────────────────────
+// Same shape as cal_checksum/biomap_load_calibration/biomap_save_calibration
+// above — see BioMapSettings's doc comment in biomap.h for why this is a
+// separate file/struct rather than folded into the GSR calibration one.
+
+static uint32_t settings_checksum(const BioMapSettings* s) {
+    uint32_t h = 0x811C9DC5u;
+    const uint8_t* p = (const uint8_t*)s;
+    size_t n = offsetof(BioMapSettings, checksum);
+    for(size_t i = 0; i < n; i++) {
+        h ^= p[i];
+        h *= 0x01000193u;
+    }
+    return h;
+}
+
+bool biomap_load_settings(BioMapApp* app) {
+    furi_check(app, "BioMapApp: NULL app pointer");
+    File* file = storage_file_alloc(app->storage);
+    if(!file) return false;
+
+    bool success = false;
+    if(storage_file_open(file, BIOMAP_SETTINGS_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
+        BioMapSettings s;
+        uint16_t bytes_read = storage_file_read(file, &s, sizeof(BioMapSettings));
+        if(bytes_read == sizeof(BioMapSettings) &&
+           s.magic == BIOMAP_SETTINGS_MAGIC &&
+           s.version == BIOMAP_SETTINGS_VERSION &&
+           s.checksum == settings_checksum(&s) &&
+           s.nav_model < 7) {
+            furi_mutex_acquire(app->mutex, FuriWaitForever);
+            app->zoom_enabled    = s.zoom_enabled;
+            app->backlight_on    = s.backlight_on;
+            app->sound_enabled   = s.sound_enabled;
+            app->rf_scan_enabled = s.rf_scan_enabled;
+            app->nav_model       = (GpsNavModel)s.nav_model;
+            furi_mutex_release(app->mutex);
+            success = true;
+            FURI_LOG_I("BioMap",
+                       "Loaded settings: zoom=%d backlight=%d sound=%d rf=%d nav=%lu",
+                       s.zoom_enabled, s.backlight_on, s.sound_enabled, s.rf_scan_enabled,
+                       (unsigned long)s.nav_model);
+        } else if(bytes_read == sizeof(BioMapSettings)) {
+            FURI_LOG_W("BioMap", "Settings file invalid — using defaults");
+        }
+        storage_file_close(file);
+    }
+    storage_file_free(file);
+    return success;
+}
+
+void biomap_save_settings(BioMapApp* app) {
+    furi_check(app, "BioMapApp: NULL app pointer");
+
+    furi_mutex_acquire(app->mutex, FuriWaitForever);
+    BioMapSettings s = {
+        .magic           = BIOMAP_SETTINGS_MAGIC,
+        .version         = BIOMAP_SETTINGS_VERSION,
+        .zoom_enabled    = app->zoom_enabled,
+        .backlight_on    = app->backlight_on,
+        .sound_enabled   = app->sound_enabled,
+        .rf_scan_enabled = app->rf_scan_enabled,
+        .nav_model       = (uint32_t)app->nav_model,
+    };
+    furi_mutex_release(app->mutex);
+    s.checksum = settings_checksum(&s);
+
+    File* file = storage_file_alloc(app->storage);
+    if(!file) return;
+
+    // Same atomic write-then-rename as biomap_save_calibration — crash or
+    // power loss mid-write leaves the old settings file intact.
+    if(storage_file_open(file, BIOMAP_SETTINGS_PATH_TMP, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+        uint16_t written = storage_file_write(file, &s, sizeof(BioMapSettings));
+        storage_file_close(file);
+
+        if(written == sizeof(BioMapSettings)) {
+            FS_Error err = storage_common_rename(app->storage,
+                BIOMAP_SETTINGS_PATH_TMP, BIOMAP_SETTINGS_PATH);
+            if(err != FSE_OK) {
+                FURI_LOG_E("BioMap", "Settings rename failed (%d) — saved to .tmp", (int)err);
+            }
+        } else {
+            FURI_LOG_E("BioMap", "Settings temp write truncated (%d/%d)",
+                       (int)written, (int)sizeof(BioMapSettings));
+        }
+    }
+    storage_file_free(file);
 }

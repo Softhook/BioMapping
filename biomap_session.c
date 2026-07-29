@@ -315,10 +315,26 @@ static bool handle_write_failure(Session* s, NotificationApp* notifications) {
 // applies here, so this function only signals the need for a tone; it
 // never calls into modules/sound.h directly).
 static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
-    if(!s->recording.active) {
-        s->recording.tick_counter = 0;
-        return false;
-    }
+    s->recording.tick_counter = 0;
+
+    // ── Heartbeat (2026-07-29): always logged once/sec, recording or not.
+    // A non-recording session previously had zero periodic signal of
+    // liveness — the idle isolation test that locked up (see
+    // em_scan_rf_crash_investigation.md) left no way to tell whether the
+    // freeze happened 2 seconds in or 14 minutes in, since the only
+    // periodic log activity (BLE's own 60s re-advertise) only proves the
+    // kernel scheduler, not this app, stayed alive. FURI_LOG only, not
+    // sd_logger — must survive a freeze that happens before the next SD
+    // flush, and must exist even when no logger/file is open at all (not
+    // recording means s->logger may not have an active file).
+    uint32_t stack_rf   = s->rf_worker ? em_scan_rf_worker_get_stack_space(s->rf_worker) : 0;
+    uint32_t stack_gsr  = s->gsr ? gsr_sensor_get_stack_space(s->gsr) : 0;
+    uint32_t stack_main = furi_thread_get_stack_space(furi_thread_get_id(furi_thread_get_current()));
+    FURI_LOG_I("BioMap", "heartbeat heap:free=%u min=%u stack:main=%u rf=%u gsr=%u",
+               (unsigned)memmgr_get_free_heap(), (unsigned)memmgr_get_minimum_free_heap(),
+               (unsigned)stack_main, (unsigned)stack_rf, (unsigned)stack_gsr);
+
+    if(!s->recording.active) return false;
 
     // ── Lightweight crash diagnostics (2026-07-29) ─────────────────────
     // Reinstated after three real "furi_check failed" crashes on one walk
@@ -350,9 +366,9 @@ static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
     // the original "guessed, never confirmed" concern this whole
     // diagnostic exists to resolve. furi_thread_get_current() is always
     // valid here — this function only ever runs on the main app thread.
-    uint32_t stack_rf   = s->rf_worker ? em_scan_rf_worker_get_stack_space(s->rf_worker) : 0;
-    uint32_t stack_gsr  = s->gsr ? gsr_sensor_get_stack_space(s->gsr) : 0;
-    uint32_t stack_main = furi_thread_get_stack_space(furi_thread_get_id(furi_thread_get_current()));
+    // (stack_rf/stack_gsr/stack_main computed once, above, by the
+    // heartbeat this function now always logs first — reused here rather
+    // than measured twice.)
     // SD write/sync latency added 2026-07-29 to test "Theory 2" (real SD
     // cards can stall storage_file_write()/storage_file_sync() for
     // hundreds of ms during internal flash GC/erase, blocking this main
@@ -420,7 +436,6 @@ static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
         }
     }
 
-    s->recording.tick_counter = 0;
     return play_warning;
 }
 
