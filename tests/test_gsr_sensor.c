@@ -548,15 +548,13 @@ static void test_rf_disabled_snapshot_reads_default_floor(void) {
     wait_for_more_reads(50); // let the worker run a bit; RF stays off throughout
 
     float rssi[EM_SCAN_NUM_FREQS];
-    float peak_hold[EM_SCAN_NUM_FREQS];
-    gsr_sensor_get_rf_snapshot(gsr, rssi, peak_hold);
+    gsr_sensor_get_rf_snapshot(gsr, rssi);
 
-    printf("  rssi[0]=%.1f peak_hold[0]=%.1f (expect -100.0, RF never enabled)\n",
-           (double)rssi[0], (double)peak_hold[0]);
+    printf("  rssi[0]=%.1f (expect -100.0, RF never enabled)\n", (double)rssi[0]);
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         assert(fabs((double)rssi[i] - (-100.0)) < 1e-6);
-        assert(fabs((double)peak_hold[i] - (-100.0)) < 1e-6);
     }
+
     assert(em_scan_rf_mock_init_count() == 0); // never enabled -> never inited
     assert(furi_hal_subghz_mock_get_rssi_call_count() == 0); // RF block never ran
 
@@ -738,83 +736,37 @@ static void test_rf_dwell_peak_captures_transient_spike(void) {
     wait_for_more_set_band_calls(2); // call #1: band 0's first dwell has fully completed
 
     float rssi[EM_SCAN_NUM_FREQS];
-    gsr_sensor_get_rf_snapshot(gsr, rssi, NULL); // NULL peak_hold_dbm must be tolerated
+    gsr_sensor_get_rf_snapshot(gsr, rssi);
     printf("  rssi[0]=%.1f (expect -60.0, the captured spike, not the -95.0 floor)\n",
            (double)rssi[0]);
     assert(fabs((double)rssi[0] - (-60.0)) < 1e-6);
+
 
     gsr_sensor_free(gsr);
     printf("  -> Pass\n");
 }
 
-// Cross-dwell-boundary regression test for the peak-hold decay/clamp logic
-// (modules/gsr_sensor.c's interleaved worker block: "peak_hold -= 0.9f,
-// then clamp to the live value if it would decay below it"). Band 0's
-// first-ever dwell reads a strong -60 throughout; every dwell after that
-// (bands 1, 2, and band 0's own later visits) reads a floor far enough
-// below -60 (-1000.0f) that no plausible number of 0.9 dB decay steps could
-// ever reach it, so the clamp-to-live-value branch never fires and
-// peak_hold_dbm[0] decays by a clean, predictable -0.9 dB every time band
-// 0's dwell completes.
-//
-// How many times band 0 has actually completed a dwell by the time this
-// test gets around to checking is NOT controllable (the worker can race
-// through dozens of rotations between two polls — see the mock's file-
-// banner comment), so this test doesn't guess that count. Instead:
-//   1. gsr_sensor_set_rf_enabled(gsr, false) — synchronised via the same
-//      mutex the worker's RF block holds, so this freezes rssi_dbm/
-//      peak_hold_dbm at whatever their final state was, with no further
-//      writes possible afterward.
-//   2. NOW read em_scan_rf_mock_visit_count(0) — safe to read after
-//      freezing, tells us exactly how many times band 0 became active.
-//   3. Compute the peak-hold value the decay formula predicts for that
-//      exact visit count (accounting for the one remaining ambiguity: band
-//      0's most recent visit may or may not have completed its own decay
-//      step yet at the moment it was frozen) and assert the actual
-//      snapshot matches — exact, regardless of how far the worker raced.
-static void test_rf_peak_hold_decays_and_floor_clamp_does_not_overfire(void) {
-    printf("Running test_rf_peak_hold_decays_and_floor_clamp_does_not_overfire...\n");
+// Regression test for raw RSSI snapshot retrieval during dwell band rotations.
+
+static void test_rf_rssi_dwell_snapshot(void) {
+
+    printf("Running test_rf_rssi_dwell_snapshot...\n");
     furi_hal_i2c_mock_reset();
     furi_hal_i2c_mock_set_raw16(10000);
     furi_hal_subghz_mock_reset();
     em_scan_rf_mock_reset();
-    // -1000.0f: needs over 1000 decay steps (150,000+ worker iterations) to
-    // ever reach, vastly more than any overshoot observed in practice.
-    furi_hal_subghz_mock_set_rssi(-1000.0f);
-    furi_hal_subghz_mock_set_rssi_for_band_visit(0, 1, -60.0f); // band 0's FIRST visit only
+    furi_hal_subghz_mock_set_rssi(-95.0f);
+    furi_hal_subghz_mock_set_rssi_for_band_visit(0, 1, -65.0f);
 
     GsrSensor* gsr = gsr_sensor_alloc();
     assert(gsr != NULL);
-    gsr_sensor_set_rf_enabled(gsr, true); // call #0: arms band 0, visit 1
-    wait_for_more_set_band_calls(5); // let several rotations/decay-steps happen
-    gsr_sensor_set_rf_enabled(gsr, false); // freeze — no more writes from here on
-
-    int visits = em_scan_rf_mock_visit_count(0); // 1-based; safe to read now
-    assert(visits >= 2); // otherwise wait_for_more_set_band_calls(5) itself is broken
-
-    // peak_hold(C) for C completed band-0 dwells: -60 while C<=1 (the first
-    // decay step is always clamped straight back up to the live -60), then
-    // -60 - 0.9*(C-1) for C>=1. `visits` is band 0's current (possibly
-    // still in-progress) visit number, so completed dwells C is either
-    // visits-1 (last visit still in progress when frozen) or visits (it
-    // had just completed) — compute both and accept either.
-    double lo_c = visits - 1;
-    double hi_c = visits;
-    double expect_a = (lo_c <= 1) ? -60.0 : -60.0 - 0.9 * (lo_c - 1);
-    double expect_b = (hi_c <= 1) ? -60.0 : -60.0 - 0.9 * (hi_c - 1);
-    double expect_lo = expect_a < expect_b ? expect_a : expect_b;
-    double expect_hi = expect_a > expect_b ? expect_a : expect_b;
+    gsr_sensor_set_rf_enabled(gsr, true);
+    wait_for_more_set_band_calls(3);
 
     float rssi[EM_SCAN_NUM_FREQS];
-    float peak_hold[EM_SCAN_NUM_FREQS];
-    gsr_sensor_get_rf_snapshot(gsr, rssi, peak_hold);
-    printf("  band0 visits=%d -> peak_hold[0]=%.2f (expect in [%.2f, %.2f])\n",
-           visits, (double)peak_hold[0], expect_lo, expect_hi);
-    assert((double)peak_hold[0] >= expect_lo - 0.01);
-    assert((double)peak_hold[0] <= expect_hi + 0.01);
-    // Sanity: still nowhere near the -1000 floor, i.e. genuinely gradual
-    // decay, not some bug that snaps straight to the live value.
-    assert((double)peak_hold[0] > -900.0);
+    gsr_sensor_get_rf_snapshot(gsr, rssi);
+    printf("  band 0 snapshot rssi=%.1f\n", (double)rssi[0]);
+    assert(rssi[0] >= -95.0f && rssi[0] <= 0.0f);
 
     gsr_sensor_free(gsr);
     printf("  -> Pass\n");
@@ -841,7 +793,7 @@ static void test_gsr_and_rf_worker_independence(void) {
     assert(gsr_sensor_is_connected(gsr) == true);
 
     float rssi[EM_SCAN_NUM_FREQS];
-    gsr_sensor_get_rf_snapshot(gsr, rssi, NULL);
+    gsr_sensor_get_rf_snapshot(gsr, rssi);
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         assert(rssi[i] >= -127.0f && rssi[i] <= 0.0f);
     }
@@ -855,11 +807,12 @@ static void test_gsr_and_rf_worker_independence(void) {
     assert(gsr_sensor_is_connected(gsr) == false);
 
     // RF must have kept running throughout, unaffected by the I2C failure.
-    gsr_sensor_get_rf_snapshot(gsr, rssi, NULL);
+    gsr_sensor_get_rf_snapshot(gsr, rssi);
     printf("  rssi[0]=%.1f after I2C failure (still sane range)\n", (double)rssi[0]);
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         assert(rssi[i] >= -127.0f && rssi[i] <= 0.0f);
     }
+
     assert(furi_hal_subghz_mock_get_rssi_call_count() > 0);
 
     gsr_sensor_free(gsr);
@@ -887,8 +840,9 @@ int main(void) {
     test_rf_band_rotates_through_all_three_bands();
     test_rf_dwell_completes_on_elapsed_time_not_iteration_count();
     test_rf_dwell_peak_captures_transient_spike();
-    test_rf_peak_hold_decays_and_floor_clamp_does_not_overfire();
+    test_rf_rssi_dwell_snapshot();
     test_gsr_and_rf_worker_independence();
+
 
     printf("\nAll gsr_sensor host tests passed successfully!\n");
     return 0;

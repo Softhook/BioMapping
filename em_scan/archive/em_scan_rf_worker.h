@@ -62,18 +62,11 @@ void em_scan_rf_worker_start(EmScanRfWorker* w);
 // Safe to call even if not running.
 void em_scan_rf_worker_stop(EmScanRfWorker* w);
 
-// Copies the current per-band peak and peak-hold-with-decay arrays (each
-// EM_SCAN_NUM_FREQS long) out for the UI/CSV logger to consume — mirrors
-// the shape of EmScanApp's own rssi_dbm/peak_hold_dbm arrays so the
-// existing renderer and em_scan_log_row() need minimal changes.
-//
-// out_rssi_dbm is required (furi_assert if NULL).
-// out_peak_hold_dbm is optional — pass NULL to skip the peak-hold copy
-// if only the raw per-band RSSI is needed.
+// Copies the current per-band RSSI array out for the UI/CSV logger to consume.
 void em_scan_rf_worker_get_snapshot(
     EmScanRfWorker* w,
-    float*          out_rssi_dbm,
-    float*          out_peak_hold_dbm);
+    float*          out_rssi_dbm);
+
 
 // Remaining free stack space (bytes) on the worker's own thread, via
 // furi_thread_get_stack_space() — see the 2048B->3072B bump above, which
