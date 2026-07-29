@@ -35,7 +35,6 @@
 #include "modules/sound.h"
 #include "modules/util.h"
 #include "em_scan/em_scan_rf.h"
-#include "em_scan/em_scan_rf_worker.h"
 #include "em_scan/em_scan_cal.h"
 
 // ── Session — per-recording-session state ──────────────────────────────

@@ -40,9 +40,9 @@ typedef enum {
 #define BIOMAP_CSV_COLS_GSR_ONLY "timestamp,gsr_raw\n"
 // rssi_815/868/915 = raw peak from the most recent park on that band.
 // rssi_peak_815/868/915 = decaying peak-hold across all parks (see
-// em_scan_rf_worker.c's EM_SCAN_WORKER_TARGET_DECAY_DB_PER_SEC) — persists
+// modules/gsr_sensor.c's peak-hold decay) — persists
 // across stale rows where the raw value is repeated unchanged, making RF
-// signal events visible even at the RF worker's slow update rate (~1/3s
+// signal events visible even at the RF scanning update rate (~1/3s
 // nominal, up to 12s stall in practice).
 // Column order (raw then peak per band) must match the snprintf in
 // format_gps_csv_row() and em_scan_freq_label[] in em_scan_rf.c.

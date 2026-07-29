@@ -79,14 +79,13 @@ void session_deinit(Session* s, BioMapApp* app) {
     // every other Session mutation in this file (tick handler, key
     // handlers) holds that same mutex for exactly this reason. This
     // function used to be the one exception: it freed s->logger/gsr/
-    // rf_worker/gps and only THEN nulled the pointers, all without the
+    // gps and only THEN nulled the pointers, all without the
     // mutex, while the ViewPort stays enabled with this screen's draw
     // callback attached until the very end below — a real window for the
     // render thread to read a pointer this thread is mid-free()ing.
-    // Narrow normally, but em_scan_rf_worker_free()'s furi_thread_join()
-    // can block this thread for up to RF_WORKER_PARK_MS (300ms) — by far
-    // the slowest step here, and one that didn't exist before RF joined
-    // this app — so the exposure is real, not theoretical. Held across
+    // Narrow normally, but gsr_sensor_free()'s furi_thread_join()
+    // can block this thread — by far the slowest step here — so the
+    // exposure is real, not theoretical. Held across the whole teardown
     // the whole teardown, not just the RF step, for symmetry with every
     // other Session-mutating call site rather than special-casing one.
     // A blocked render during this window just means a stale-but-valid
@@ -254,7 +253,7 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
 //
 // rf_rssi and rf_peak_hold are fetched by the caller BEFORE app->mutex is
 // acquired (see the Tick handler below) rather than here —
-// em_scan_rf_worker_get_snapshot() briefly blocks on the RF worker's own
+// gsr_sensor_get_rf_snapshot() briefly blocks on the GSR sensor's own
 // internal mutex, and this function runs entirely inside an
 // app->mutex-held critical section that biomap_render_callback() also
 // needs to draw. The same principle handle_write_failure()'s comment
@@ -781,12 +780,12 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
 
         if(ev.type == EventTypeTick) {
             // Fetch the RF snapshot BEFORE acquiring app->mutex, not inside
-            // handle_recording_tick(). em_scan_rf_worker_get_snapshot()
-            // briefly blocks on the RF worker's own internal mutex; doing
+            // handle_recording_tick(). gsr_sensor_get_rf_snapshot()
+            // briefly blocks on the GSR sensor's own internal mutex; doing
             // that while already holding app->mutex (which
             // biomap_render_callback() also needs to draw) could delay a
             // redraw every single tick, not just occasionally — see
-            // batch_csv_row's comment. Reading s->rf_worker itself without
+            // batch_csv_row's comment. Reading s->gsr itself without
             // app->mutex here is safe: only this same thread ever writes
             // it (at session setup/teardown, never during the tick loop).
             float rf_rssi[EM_SCAN_NUM_FREQS];
