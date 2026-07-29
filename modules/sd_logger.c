@@ -102,6 +102,18 @@ static bool open_log_file(SdLogger* l, const char* header) {
         l->filename[0] = '\0';
         return false;
     }
+    // Sync immediately, same reasoning as sd_logger_batch_flush(): a
+    // "successful" storage_file_write() only means FatFs accepted the
+    // bytes into its cache, not that they reached physical media. Without
+    // this, a crash in the FLUSH_INTERVAL-seconds window before the first
+    // batch flush loses the header too, leaving a literal 0-byte file on
+    // disk — the exact signature seen on tracks 86 and 98. Best-effort:
+    // a failed sync is logged but doesn't fail the start, since the bytes
+    // are already (uncommitted) in FatFs and the next batch flush's sync
+    // will very likely catch this file up regardless.
+    if(!storage_file_sync(l->file)) {
+        FURI_LOG_W("SdLogger", "Header sync failed (written, not yet confirmed durable)");
+    }
 
     l->active = true;
     FURI_LOG_I("SdLogger", "Recording to %s", full_path);

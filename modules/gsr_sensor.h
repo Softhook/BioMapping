@@ -119,6 +119,11 @@ float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr);
 // ADS1115 register before a new conversion completed.  For diagnostics.
 float gsr_sensor_get_stale_rate(const GsrSensor* gsr);
 
+// Remaining free stack space (bytes) on the worker's own thread, via
+// furi_thread_get_stack_space(). Returns 0 when the sensor is unavailable
+// (no thread was ever started).
+uint32_t gsr_sensor_get_stack_space(const GsrSensor* gsr);
+
 // Live count of consecutive failed I2C reads happening right now — not a
 // rolling average like get_success_rate(), so it shows a fresh failure
 // streak building in real time, before either the 1 s success-rate

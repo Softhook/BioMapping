@@ -111,4 +111,54 @@ const tMiss = renderer._raySegmentIntersectionGeo(origin, missDir, segP1, segP2)
 assert.strictEqual(tMiss, null, 'Ray in +Y should not intersect segment at lon = 50');
 
 console.log('✓ Ray-segment intersection math verified');
+
+// ── 4. Non-RF Data Guard & Noise Floor Alpha Test ─────────────────────
+console.log('Testing RFFluidRenderer non-RF data guard & alpha floor logic...');
+const nonRfAnalyzer = new GSRAnalyzer();
+nonRfAnalyzer.parseCSV([
+  'Time (s),Raw Conductance (uS),Latitude,Longitude',
+  '0.00,5.12,56.3394,-2.7894',
+  '0.10,5.15,56.3395,-2.7895'
+].join('\n'));
+
+assert.strictEqual(nonRfAnalyzer.hasRfData, false, 'hasRfData should be false for non-RF track');
+
+renderer.setData(nonRfAnalyzer.raw, null);
+assert.strictEqual(renderer.cachedNodes.length, 2, 'Should cache 2 nodes');
+assert.strictEqual(renderer.cachedNodes[0].hasRf, false, 'Node 0 hasRf should be false');
+assert.strictEqual(renderer.cachedNodes[1].hasRf, false, 'Node 1 hasRf should be false');
+
+console.log('✓ Non-RF data guard & alpha floor logic verified');
+
+// ── 5. Adaptive RSSI Normalization & Hard Noise Floor Thresholding Test ───
+console.log('Testing adaptive RSSI normalization & hard noise floor thresholding...');
+const rfAnalyzerSample = new GSRAnalyzer();
+rfAnalyzerSample.parseCSV([
+  'timestamp,lat,lon,hdop,fix_type,em_fog,rssi_815,rssi_868,rssi_915',
+  '0.00,56.3394,-2.7894,2.5,3,10.0,-91.5,-92.0,-90.0', // Ambient noise floor (no 915 MHz signal)
+  '0.10,56.3395,-2.7895,2.5,3,10.0,-72.0,-92.0,-89.5', // Active 815 MHz LTE spike, 915 remains quiet
+  '0.20,56.3396,-2.7896,2.5,3,10.0,-91.5,-72.0,-91.0'  // Active 868 MHz Grid spike, 915 remains quiet
+].join('\n'));
+
+renderer.setData(rfAnalyzerSample.raw, null);
+assert.ok(renderer.rssiStats, 'rssiStats should be computed');
+assert.strictEqual(renderer.rssiStats[815].peak, -72.0, '815 peak RSSI match');
+assert.strictEqual(renderer.rssiStats[815].hasActiveSignal, true, '815 should have active signal');
+
+// 915 MHz peak was -89.5 dBm (<= -85 dBm hard noise floor) -> hasActiveSignal should be false
+assert.strictEqual(renderer.rssiStats[915].hasActiveSignal, false, '915 should have NO active signal');
+assert.strictEqual(renderer._normDbm(-89.5, 915), 0.0, 'Quiet 915 band should return 0.0 everywhere');
+
+// Verify noise floor point for active band returns 0.0 (no fluid drawn)
+const norm815Floor = renderer._normDbm(-91.5, 815);
+assert.strictEqual(norm815Floor, 0.0, 'Noise floor signal should return 0.0 norm');
+
+// Verify elevated peak signal returns > 0.9 (vibrant fluid fan)
+const norm815Peak = renderer._normDbm(-72.0, 815);
+assert.ok(norm815Peak > 0.9, 'Peak signal should return > 0.9 norm');
+
+console.log('✓ Adaptive RSSI normalization & hard noise floor thresholding verified');
 console.log('ALL RF FLUID & TRI-BAND PIPELINE TESTS PASSED SUCCESSFULY!');
+
+
+

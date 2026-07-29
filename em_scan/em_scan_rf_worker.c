@@ -100,15 +100,20 @@ void em_scan_rf_worker_start(EmScanRfWorker* w) {
     w->running = true;
     furi_mutex_release(w->mutex);
 
-    // 3072B — bumped from the original 2048B guess after a real-hardware
-    // crash (furi crash screen) during the first sustained outdoor walk
-    // test of this thread running alongside GSR/GPS in the merged
-    // BioMapping app (2048B had never been profiled — see the original
-    // note this replaces). Still not a measured figure: check
-    // furi_thread_get_stack_space() on this thread during hardware testing
-    // before trusting this number either — this is a safety-margin
-    // increase in response to a real crash, not a confirmed root-cause fix.
-    w->thread = furi_thread_alloc_ex("EmScanRfWorker", 3072, em_scan_rf_worker_thread_fn, w);
+    // 4096B — bumped again from 3072B (2026-07-29) after three more
+    // "furi_check failed" crashes on one GPS+GSR+RF walk (tracks 97-99),
+    // with 3072B itself only ever having been a guessed safety margin
+    // (see the note this replaces — never confirmed against a real
+    // measurement). Still a guess, but a cheap one: this thread does
+    // nothing but call into the subghz HAL and touch a few stack floats,
+    // so the extra 1KB costs nothing worth worrying about on a device
+    // with plenty of RAM to spare, and this is the only new thread this
+    // merge introduced. handle_second_boundary() in biomap_session.c now
+    // logs furi_thread_get_stack_space() for this thread every second
+    // during recording (via em_scan_rf_worker_get_stack_space()) — check
+    // that on the next walk before bumping this again blindly a third
+    // time.
+    w->thread = furi_thread_alloc_ex("EmScanRfWorker", 4096, em_scan_rf_worker_thread_fn, w);
     // Tried Normal here on 2026-07-28 (matching GSR's own worker), to test
     // whether it would fix the RF staleness measured on real walks — see
     // "RF staleness: routes forward" in em_scan_biomap_merge_plan.md.
@@ -152,4 +157,10 @@ void em_scan_rf_worker_get_snapshot(
         memcpy(out_peak_hold_dbm, w->peak_hold_dbm, sizeof(w->peak_hold_dbm));
     }
     furi_mutex_release(w->mutex);
+}
+
+uint32_t em_scan_rf_worker_get_stack_space(EmScanRfWorker* w) {
+    furi_assert(w);
+    if(!w->thread) return 0;
+    return furi_thread_get_stack_space(w->thread);
 }

@@ -398,8 +398,28 @@ class GSRMapManager {
       this._lastFitBoundsTrackId = cacheKey;
     }
     this._lastDrawPoints = drawPoints;
+    const hasRf = !!(analyzer && analyzer.hasRfData);
     if (this.rfFluidRenderer) {
       this.rfFluidRenderer.setData(drawPoints, analyzer.osmGeoms);
+    }
+    const btnToggleRFFluid = document.getElementById('btnToggleRFFluid');
+    const rfFluidMode = document.getElementById('rfFluidMode');
+    if (btnToggleRFFluid) {
+      if (!hasRf) {
+        btnToggleRFFluid.classList.remove('active');
+        btnToggleRFFluid.setAttribute('disabled', 'disabled');
+        btnToggleRFFluid.title = "No radio frequency data in active track";
+      } else {
+        btnToggleRFFluid.removeAttribute('disabled');
+        btnToggleRFFluid.title = "Toggle static ray-casted 3-frequency RF fluid background";
+      }
+    }
+    if (rfFluidMode) {
+      if (!hasRf) {
+        rfFluidMode.setAttribute('disabled', 'disabled');
+      } else {
+        rfFluidMode.removeAttribute('disabled');
+      }
     }
     this._renderPathSegments(drawPoints, p.trackWeight || 5, analyzer);
 

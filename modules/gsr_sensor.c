@@ -669,6 +669,12 @@ float gsr_sensor_get_stale_rate(const GsrSensor* gsr) {
     return gsr->stale_rate_cached;
 }
 
+uint32_t gsr_sensor_get_stack_space(const GsrSensor* gsr) {
+    furi_assert(gsr);
+    if(!gsr->available) return 0;
+    return furi_thread_get_stack_space(gsr->thread);
+}
+
 // Live count of consecutive failed I2C reads happening right now — not a
 // rolling average like gsr_sensor_get_success_rate(), so it can show a
 // fresh failure streak building in real time, before either the 1 s

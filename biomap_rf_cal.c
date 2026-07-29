@@ -66,6 +66,12 @@ void run_rf_calibration_menu(BioMapApp* app) {
 
 void run_rf_calibration_wizard(BioMapApp* app) {
     RfCalWizardState w = {0};
+    // Guards every field below against the GUI thread's render callbacks
+    // (biomap_render.c's rf_calibration_wizard_*_render), which run
+    // asynchronously off view_port_update() — see RfCalWizardState's doc
+    // comment in biomap.h. Allocated before vp_push() so the callback is
+    // never live with mutex == NULL.
+    w.mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     ViewPort* vp = vp_push(app, rf_calibration_wizard_prep_render, &w);
     drain_stale_events(app->event_queue);
 
@@ -84,8 +90,10 @@ void run_rf_calibration_wizard(BioMapApp* app) {
     // whole 30s wait. The fixed delay makes iteration cadence independent
     // of how much key traffic arrives — matches the sampling loop below,
     // which already used this pattern.
+    furi_mutex_acquire(w.mutex, FuriWaitForever);
     w.step = 0;
     w.seconds_left = 30;
+    furi_mutex_release(w.mutex);
     bool cancelled = false;
     for(uint32_t elapsed = 0; elapsed < 30 * TICK_HZ; elapsed++) {
         PluginEvent ev;
@@ -100,7 +108,9 @@ void run_rf_calibration_wizard(BioMapApp* app) {
         }
         furi_delay_ms(1000 / TICK_HZ);
         if((elapsed % TICK_HZ) == 0) {
+            furi_mutex_acquire(w.mutex, FuriWaitForever);
             w.seconds_left = 30 - elapsed / TICK_HZ;
+            furi_mutex_release(w.mutex);
             view_port_update(vp);
         }
     }
@@ -108,6 +118,7 @@ void run_rf_calibration_wizard(BioMapApp* app) {
         biomap_sound_back(app->sound_enabled);
         em_scan_rf_deinit();
         vp_pop(app, vp);
+        furi_mutex_free(w.mutex);
         return;
     }
     biomap_sound_confirm(app->sound_enabled);
@@ -117,7 +128,9 @@ void run_rf_calibration_wizard(BioMapApp* app) {
     // across EM_SCAN_NUM_FREQS bands — a full sweep (one sample per band)
     // completes and is recorded every time the band index wraps to 0,
     // exactly mirroring em_scan.c's original EmScanModeCalSampling logic.
+    furi_mutex_acquire(w.mutex, FuriWaitForever);
     w.step = 1;
+    furi_mutex_release(w.mutex);
     vp_push(app, rf_calibration_wizard_sampling_render, &w);
     // static, not a stack local: 64*3 floats (768 bytes) is a meaningful
     // chunk of this thread's 4KB total stack (application.fam's
@@ -143,6 +156,8 @@ void run_rf_calibration_wizard(BioMapApp* app) {
 
         float peak;
         em_scan_rf_dwell_band(band, &peak);
+
+        furi_mutex_acquire(w.mutex, FuriWaitForever);
         w.rssi_dbm[band] = peak;
         band = (band + 1) % EM_SCAN_NUM_FREQS;
 
@@ -152,12 +167,14 @@ void run_rf_calibration_wizard(BioMapApp* app) {
         }
 
         w.seconds_left = 20 - elapsed / TICK_HZ;
+        furi_mutex_release(w.mutex);
         view_port_update(vp);
     }
     if(sampling_cancelled) {
         biomap_sound_back(app->sound_enabled);
         em_scan_rf_deinit();
         vp_pop(app, vp);
+        furi_mutex_free(w.mutex);
         return;
     }
 
@@ -165,6 +182,12 @@ void run_rf_calibration_wizard(BioMapApp* app) {
     // Same gate em_scan.c's original wizard used: per-band ceiling
     // (em_scan_cal_max_floor_dbm), floor sanity clamp (EM_SCAN_CAL_MIN_
     // FLOOR_DBM), and max std dev (EM_SCAN_CAL_MAX_STD_DEV_DB).
+    // No mutex needed here: computed_floors/computed_std_devs/passed/step
+    // are all written below BEFORE the vp_push() call that makes
+    // rf_calibration_wizard_stats_render (the first reader of any of them)
+    // live, and nothing else writes them afterward — vp_push() itself
+    // provides the happens-before edge, same reasoning as any other
+    // single-threaded-until-publish pattern.
     em_scan_cal_compute_stats(
         (const float(*)[EM_SCAN_NUM_FREQS])samples,
         w.sweep_count,
@@ -220,4 +243,5 @@ void run_rf_calibration_wizard(BioMapApp* app) {
 
     em_scan_rf_deinit();
     vp_pop(app, vp);
+    furi_mutex_free(w.mutex);
 }

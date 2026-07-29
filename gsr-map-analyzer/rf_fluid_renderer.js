@@ -17,11 +17,13 @@ class RFFluidRenderer {
   constructor(map, options = {}) {
     this.map = map;
     this.options = Object.assign({
-      opacity: 0.65,
-      radiusMeters: 120, // propagation radius in world meters
+      opacity: 0.85, // High opacity as requested for vibrant, punchy fluid overlay
+      radiusMeters: 35, // refined street canyon propagation radius in world meters
       numRays: 24, // number of radial rays cast per node
       mode: 'triband', // 'triband', '815', '868', '915', 'fog'
-      visible: true
+      visible: true,
+      gain: 1.25, // Contrast/brightness gain boost
+      autoRange: true // Adaptive RSSI dynamic range normalization per band
     }, options);
 
     this.canvas = null;
@@ -31,6 +33,7 @@ class RFFluidRenderer {
     this.buildingPolygons = [];
     this.buildingSegmentsGeo = [];
     this.cachedNodes = [];
+    this.rssiStats = null;
     this._currentBounds = null;
     this._canvasTopLeftLayer = { x: 0, y: 0 };
     this.enabled = true;
@@ -249,18 +252,104 @@ class RFFluidRenderer {
         });
       }
 
-      // Extract RSSI readings
-      const r815 = pt.rssi_815 !== undefined && !isNaN(pt.rssi_815) ? pt.rssi_815 : (pt.r_815 || -91.5);
-      const r868 = pt.rssi_868 !== undefined && !isNaN(pt.rssi_868) ? pt.rssi_868 : (pt.r_868 || -91.5);
-      const r915 = pt.rssi_915 !== undefined && !isNaN(pt.rssi_915) ? pt.rssi_915 : (pt.r_915 || -91.5);
-      const fog  = pt.em_fog   !== undefined && !isNaN(pt.em_fog)   ? pt.em_fog   : 0;
+      // Extract RSSI readings & RF presence flags
+      const has815 = pt.rssi_815 !== undefined && !isNaN(pt.rssi_815);
+      const has868 = pt.rssi_868 !== undefined && !isNaN(pt.rssi_868);
+      const has915 = pt.rssi_915 !== undefined && !isNaN(pt.rssi_915);
+      const hasFog = pt.em_fog   !== undefined && !isNaN(pt.em_fog);
+
+      const r815 = has815 ? pt.rssi_815 : (pt.r_815 || -91.5);
+      const r868 = has868 ? pt.rssi_868 : (pt.r_868 || -91.5);
+      const r915 = has915 ? pt.rssi_915 : (pt.r_915 || -91.5);
+      const fog  = hasFog ? pt.em_fog   : 0;
+      const hasRf = has815 || has868 || has915 || hasFog;
 
       this.cachedNodes.push({
         lat, lon,
         r815, r868, r915, fog,
+        hasRf, has815, has868, has915, hasFog,
         fanGeo
       });
     }
+
+    this._calculateRssiStats();
+  }
+
+  /**
+   * Calculate adaptive noise floor and peak RSSI per band across loaded nodes
+   */
+  _calculateRssiStats() {
+    let min815 = Infinity, max815 = -Infinity;
+    let min868 = Infinity, max868 = -Infinity;
+    let min915 = Infinity, max915 = -Infinity;
+
+    for (let i = 0; i < this.cachedNodes.length; i++) {
+      const node = this.cachedNodes[i];
+      if (node.has815 && !isNaN(node.r815)) {
+        if (node.r815 < min815) min815 = node.r815;
+        if (node.r815 > max815) max815 = node.r815;
+      }
+      if (node.has868 && !isNaN(node.r868)) {
+        if (node.r868 < min868) min868 = node.r868;
+        if (node.r868 > max868) max868 = node.r868;
+      }
+      if (node.has915 && !isNaN(node.r915)) {
+        if (node.r915 < min915) min915 = node.r915;
+        if (node.r915 > max915) max915 = node.r915;
+      }
+    }
+
+    // Absolute Hardware / Squelch noise floor cutoff (-85.0 dBm).
+    // Readings at or below -85.0 dBm are ambient noise, not active RF detections.
+    const hardNoiseFloor = -85.0;
+
+    const calcBandStats = (minVal, maxVal) => {
+      const floor = isFinite(minVal) ? minVal : -91.5;
+      const peak  = isFinite(maxVal) ? maxVal : -91.5;
+      // Active signal flag: peak must exceed absolute noise floor (-85.0 dBm) AND rise >= 5.0 dBm above track minimum floor
+      const hasActiveSignal = (peak > hardNoiseFloor) && ((peak - floor) >= 5.0);
+      return { floor, peak, hasActiveSignal };
+    };
+
+    this.rssiStats = {
+      815: calcBandStats(min815, max815),
+      868: calcBandStats(min868, max868),
+      915: calcBandStats(min915, max915)
+    };
+  }
+
+  /**
+   * Thresholded RSSI Normalizer:
+   * Returns 0.0 for ambient noise floor signals (<= -85.0 dBm or <= floor + 5.0 dBm).
+   * Scales smoothly [0.0 -> 1.0] ONLY for active RF signals exceeding noise floor.
+   */
+  _normDbm(val, bandKey) {
+    if (val === undefined || isNaN(val)) return 0.0;
+    const stats = (this.options.autoRange && this.rssiStats && this.rssiStats[bandKey])
+      ? this.rssiStats[bandKey]
+      : { floor: -91.5, peak: -60.0, hasActiveSignal: false };
+
+    // If band has no active signals exceeding noise floor on this track, return 0.0
+    if (!stats.hasActiveSignal) return 0.0;
+
+    const hardNoiseFloor = -85.0;
+    const floor = stats.floor;
+    const peak  = stats.peak;
+
+    // Threshold offset: signal must exceed both absolute hard noise floor (-85 dBm) AND local floor + 5.0 dBm
+    const threshold = Math.max(hardNoiseFloor, floor + 5.0);
+
+    if (val <= threshold) {
+      return 0.0; // Ambient noise floor — zero fluid rendered
+    }
+
+    const activeRange = Math.max(5.0, peak - threshold);
+    let norm = (val - threshold) / activeRange;
+    norm = Math.max(0, Math.min(1, norm));
+
+    // Non-linear gamma curve (0.75) for high visual contrast on active detections
+    const boosted = Math.pow(norm, 0.75) * (this.options.gain || 1.15);
+    return Math.max(0, Math.min(1, boosted));
   }
 
   setMode(mode) {
@@ -322,6 +411,7 @@ class RFFluidRenderer {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     if (!this.cachedNodes || this.cachedNodes.length === 0) return;
+    if (!this.cachedNodes.some(n => n.hasRf)) return;
 
     const bounds = this.map.getBounds().pad(0.3);
     const visibleNodes = [];
@@ -330,6 +420,7 @@ class RFFluidRenderer {
 
     for (let i = 0; i < this.cachedNodes.length; i++) {
       const node = this.cachedNodes[i];
+      if (!node.hasRf) continue;
       if (!bounds.contains([node.lat, node.lon])) continue;
 
       const layerPt = this.map.latLngToLayerPoint([node.lat, node.lon]);
@@ -376,7 +467,6 @@ class RFFluidRenderer {
     this.ctx.globalCompositeOperation = 'screen';
 
     const mode = this.options.mode;
-    const normDbm = (val) => Math.max(0, Math.min(1, (val - (-91.5)) / ((-30) - (-91.5))));
 
     // Draw pre-calculated propagation fans
     for (let p = 0; p < visibleNodes.length; p++) {
@@ -405,42 +495,59 @@ class RFFluidRenderer {
 
       // Multi-Spectral Color based on Mode
       let rVal = 0, gVal = 0, bVal = 0;
-      let alpha = 0.5;
+      let alpha = 0.0;
 
       if (mode === 'triband') {
-        const n815 = normDbm(node.r815);
-        const n868 = normDbm(node.r868);
-        const n915 = normDbm(node.r915);
+        const n815 = node.has815 ? this._normDbm(node.r815, 815) : 0;
+        const n868 = node.has868 ? this._normDbm(node.r868, 868) : 0;
+        const n915 = node.has915 ? this._normDbm(node.r915, 915) : 0;
 
-        rVal = Math.round(n815 * 244 + n915 * 100);
-        gVal = Math.round(n868 * 220 + n915 * 60);
-        bVal = Math.round(n915 * 240 + n815 * 90);
-        alpha = Math.max(0.2, Math.max(n815, n868, n915) * 0.7);
+        // Orthogonal high-saturation additive multi-spectral synthesis:
+        // 815 MHz (LTE Edge)   -> Vivid Warm Amber Coral  (245, 120, 10)
+        // 868 MHz (Grid Smart) -> Vivid Emerald Green      (10, 225, 110)
+        // 915 MHz (ISM SubGHz) -> Vivid Electric Cyan/Blue (6, 175, 255)
+        rVal = Math.round(n815 * 245 + n868 * 10 + n915 * 6);
+        gVal = Math.round(n815 * 120 + n868 * 225 + n915 * 175);
+        bVal = Math.round(n815 * 10 + n868 * 110 + n915 * 255);
+
+        rVal = Math.min(255, rVal);
+        gVal = Math.min(255, gVal);
+        bVal = Math.min(255, bVal);
+
+        const maxN = Math.max(n815, n868, n915);
+        alpha = Math.min(1.0, maxN * 0.95);
       } else if (mode === '815') {
-        const n = normDbm(node.r815);
-        rVal = 244; gVal = 63; bVal = 94;
-        alpha = n * 0.8;
+        const n = node.has815 ? this._normDbm(node.r815, 815) : 0;
+        rVal = 245; gVal = 120; bVal = 10;
+        alpha = Math.min(1.0, n * 0.95);
       } else if (mode === '868') {
-        const n = normDbm(node.r868);
-        rVal = 16; gVal = 185; bVal = 129;
-        alpha = n * 0.8;
+        const n = node.has868 ? this._normDbm(node.r868, 868) : 0;
+        rVal = 10; gVal = 225; bVal = 110;
+        alpha = Math.min(1.0, n * 0.95);
       } else if (mode === '915') {
-        const n = normDbm(node.r915);
-        rVal = 6; gVal = 182; bVal = 212;
-        alpha = n * 0.8;
+        const n = node.has915 ? this._normDbm(node.r915, 915) : 0;
+        rVal = 6; gVal = 175; bVal = 255;
+        alpha = Math.min(1.0, n * 0.95);
       } else if (mode === 'fog') {
-        const n = Math.min(1, node.fog / 30.0);
-        rVal = Math.round(n * 255);
-        gVal = Math.round((1 - n) * 150 + n * 50);
-        bVal = Math.round((1 - n) * 255);
-        alpha = Math.max(0.25, n * 0.75);
+        if (!node.hasFog || node.fog <= 0) {
+          alpha = 0;
+        } else {
+          const n = Math.min(1, node.fog / 30.0);
+          rVal = Math.round(n * 245 + (1 - n) * 6);
+          gVal = Math.round(n * 120 + (1 - n) * 175);
+          bVal = Math.round(n * 10 + (1 - n) * 255);
+          alpha = n > 0.05 ? Math.min(1.0, n * 0.95) : 0.0;
+        }
       }
 
-      // Create Radial Gradient Fan
-      const grad = this.ctx.createRadialGradient(originPx.x, originPx.y, 0, originPx.x, originPx.y, Math.max(10, maxPxRadius));
-      grad.addColorStop(0, `rgba(${rVal}, ${gVal}, ${bVal}, ${alpha})`);
-      grad.addColorStop(0.5, `rgba(${rVal}, ${gVal}, ${bVal}, ${alpha * 0.5})`);
-      grad.addColorStop(1, `rgba(${rVal}, ${gVal}, ${bVal}, 0)`);
+      if (alpha <= 0) continue;
+
+      // Smooth Gaussian falloff gradient fan
+      const grad = this.ctx.createRadialGradient(originPx.x, originPx.y, 0, originPx.x, originPx.y, Math.max(8, maxPxRadius));
+      grad.addColorStop(0.0, `rgba(${rVal}, ${gVal}, ${bVal}, ${alpha})`);
+      grad.addColorStop(0.4, `rgba(${rVal}, ${gVal}, ${bVal}, ${alpha * 0.75})`);
+      grad.addColorStop(0.8, `rgba(${rVal}, ${gVal}, ${bVal}, ${alpha * 0.30})`);
+      grad.addColorStop(1.0, `rgba(${rVal}, ${gVal}, ${bVal}, 0)`);
 
       // Fill pre-computed ray polygon
       this.ctx.beginPath();

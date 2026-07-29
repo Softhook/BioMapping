@@ -451,6 +451,7 @@ const GSREvents = {
     const btnToggleRFFluid = document.getElementById('btnToggleRFFluid');
     if (btnToggleRFFluid) {
       btnToggleRFFluid.addEventListener('click', () => {
+        if (btnToggleRFFluid.hasAttribute('disabled')) return;
         btnToggleRFFluid.classList.toggle('active');
         if (AppState.mapManager) AppState.mapManager.toggleRFFluid(btnToggleRFFluid.classList.contains('active'));
       });

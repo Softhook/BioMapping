@@ -640,8 +640,15 @@ void rf_calibration_wizard_prep_render(Canvas* c, void* ctx) {
     canvas_draw_str(c, 0, 25, "Place Flipper inside RF");
     canvas_draw_str(c, 0, 35, "shielding bag/box & seal.");
 
+    // Guards against run_rf_calibration_wizard()'s prep-countdown loop
+    // (main thread), which rewrites seconds_left every ~1s — see
+    // RfCalWizardState's doc comment in biomap.h.
+    furi_mutex_acquire(w->mutex, FuriWaitForever);
+    uint32_t seconds_left = w->seconds_left;
+    furi_mutex_release(w->mutex);
+
     char buf[32];
-    snprintf(buf, sizeof(buf), "Pre-bagging: %lus", (unsigned long)w->seconds_left);
+    snprintf(buf, sizeof(buf), "Pre-bagging: %lus", (unsigned long)seconds_left);
     canvas_draw_str(c, 0, 47, buf);
     canvas_draw_str(c, 0, 60, "[OK=Skip wait, Back=Cancel]");
 }
@@ -653,58 +660,83 @@ void rf_calibration_wizard_sampling_render(Canvas* c, void* ctx) {
     canvas_draw_str(c, 0, 10, "Zeroing CC1101...");
     canvas_set_font(c, FontSecondary);
 
+    // Guards against run_rf_calibration_wizard()'s sampling loop (main
+    // thread), which rewrites rssi_dbm[]/seconds_left every ~100ms — the
+    // live race this mutex was actually added for (see RfCalWizardState's
+    // doc comment in biomap.h).
+    furi_mutex_acquire(w->mutex, FuriWaitForever);
+    uint32_t seconds_left = w->seconds_left;
+    float rssi_dbm[EM_SCAN_NUM_FREQS];
+    memcpy(rssi_dbm, w->rssi_dbm, sizeof(rssi_dbm));
+    furi_mutex_release(w->mutex);
+
     char buf[32];
-    snprintf(buf, sizeof(buf), "Sampling: %lus", (unsigned long)w->seconds_left);
+    snprintf(buf, sizeof(buf), "Sampling: %lus", (unsigned long)seconds_left);
     canvas_draw_str(c, 0, 25, buf);
 
     char live[48];
     snprintf(live, sizeof(live), "%s:%.0f %s:%.0f %s:%.0f",
-             em_scan_freq_label[0], (double)w->rssi_dbm[0],
-             em_scan_freq_label[1], (double)w->rssi_dbm[1],
-             em_scan_freq_label[2], (double)w->rssi_dbm[2]);
+             em_scan_freq_label[0], (double)rssi_dbm[0],
+             em_scan_freq_label[1], (double)rssi_dbm[1],
+             em_scan_freq_label[2], (double)rssi_dbm[2]);
     canvas_draw_str(c, 0, 37, live);
     canvas_draw_str(c, 0, 60, "[Back = Cancel]");
 }
 
 void rf_calibration_wizard_stats_render(Canvas* c, void* ctx) {
     RfCalWizardState* w = (RfCalWizardState*)ctx;
+
+    // Not racing against a live writer by this point (see the "no mutex
+    // needed here" comment where these are computed in biomap_rf_cal.c),
+    // but taking the lock anyway costs nothing and keeps this function
+    // honest about being a reader of shared state — snapshotted up front,
+    // before any use, rather than reading w-> directly further down.
+    furi_mutex_acquire(w->mutex, FuriWaitForever);
+    bool passed = w->passed;
+    uint32_t sweep_count = w->sweep_count;
+    float computed_floors[EM_SCAN_NUM_FREQS];
+    float computed_std_devs[EM_SCAN_NUM_FREQS];
+    memcpy(computed_floors, w->computed_floors, sizeof(computed_floors));
+    memcpy(computed_std_devs, w->computed_std_devs, sizeof(computed_std_devs));
+    furi_mutex_release(w->mutex);
+
     canvas_clear(c);
     canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, w->passed ? "Calibration Passed!" : "Calibration Failed!");
+    canvas_draw_str(c, 0, 10, passed ? "Calibration Passed!" : "Calibration Failed!");
     canvas_set_font(c, FontSecondary);
 
     char buf[48];
-    if(w->passed) {
-        float min_f = w->computed_floors[0];
-        float max_f = w->computed_floors[0];
-        float max_std = w->computed_std_devs[0];
+    if(passed) {
+        float min_f = computed_floors[0];
+        float max_f = computed_floors[0];
+        float max_std = computed_std_devs[0];
         for(int i = 1; i < EM_SCAN_NUM_FREQS; i++) {
-            if(w->computed_floors[i] < min_f) min_f = w->computed_floors[i];
-            if(w->computed_floors[i] > max_f) max_f = w->computed_floors[i];
-            if(w->computed_std_devs[i] > max_std) max_std = w->computed_std_devs[i];
+            if(computed_floors[i] < min_f) min_f = computed_floors[i];
+            if(computed_floors[i] > max_f) max_f = computed_floors[i];
+            if(computed_std_devs[i] > max_std) max_std = computed_std_devs[i];
         }
         snprintf(buf, sizeof(buf), "Floors: %.1f to %.1f dBm", (double)min_f, (double)max_f);
         canvas_draw_str(c, 0, 24, buf);
         snprintf(buf, sizeof(buf), "Max StdDev: %.2fdB (OK)", (double)max_std);
         canvas_draw_str(c, 0, 36, buf);
         canvas_draw_str(c, 0, 60, "[OK=Save, Back=Discard]");
-    } else if(w->sweep_count < 5) {
-        snprintf(buf, sizeof(buf), "Too few sweeps: %lu (need 5+)", (unsigned long)w->sweep_count);
+    } else if(sweep_count < 5) {
+        snprintf(buf, sizeof(buf), "Too few sweeps: %lu (need 5+)", (unsigned long)sweep_count);
         canvas_draw_str(c, 0, 24, buf);
         canvas_draw_str(c, 0, 36, "Sampling ran too slow/short");
         canvas_draw_str(c, 0, 60, "[OK/Back = Exit]");
     } else {
         int worst_std_idx = 0;
-        float worst_std = w->computed_std_devs[0];
+        float worst_std = computed_std_devs[0];
         int worst_floor_idx = -1;
         float worst_floor_margin = 0.0f; // how far the floor sits over ITS OWN band ceiling
 
         for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-            if(w->computed_std_devs[i] > worst_std) {
-                worst_std = w->computed_std_devs[i];
+            if(computed_std_devs[i] > worst_std) {
+                worst_std = computed_std_devs[i];
                 worst_std_idx = i;
             }
-            float margin = w->computed_floors[i] - em_scan_cal_max_floor_dbm[i];
+            float margin = computed_floors[i] - em_scan_cal_max_floor_dbm[i];
             if(margin > worst_floor_margin) {
                 worst_floor_margin = margin;
                 worst_floor_idx = i;
@@ -715,7 +747,7 @@ void rf_calibration_wizard_stats_render(Canvas* c, void* ctx) {
             snprintf(buf, sizeof(buf), "Unshielded (>%.0fdBm)", (double)em_scan_cal_max_floor_dbm[worst_floor_idx]);
             canvas_draw_str(c, 0, 24, buf);
             snprintf(buf, sizeof(buf), "Worst: %sMHz %.1fdBm",
-                     em_scan_freq_label[worst_floor_idx], (double)w->computed_floors[worst_floor_idx]);
+                     em_scan_freq_label[worst_floor_idx], (double)computed_floors[worst_floor_idx]);
             canvas_draw_str(c, 0, 36, buf);
             canvas_draw_str(c, 0, 48, "Place Flipper in Faraday bag!");
         } else {

@@ -169,7 +169,21 @@ typedef struct {
 //   0 = prep countdown (30s, place Flipper in shielding bag)
 //   1 = active sampling (20s round-robin CC1101 dwell)
 //   2 = stats/result (pass/fail, save decision)
+//
+// Lives as a stack-local in run_rf_calibration_wizard() (biomap_rf_cal.c),
+// but its draw callbacks (biomap_render.c's rf_calibration_wizard_*_render)
+// run on the GUI service's own thread, triggered asynchronously by
+// view_port_update() — so this struct is genuinely cross-thread shared for
+// as long as the wizard's ViewPort callback points at it, unlike most
+// other per-screen state structs in this app (which are read-only from the
+// GUI thread's perspective, or don't update on a tight loop). `mutex`
+// guards every field below during the active-sampling step, where the
+// main thread rewrites rssi_dbm[]/seconds_left every ~100ms in a loop —
+// found missing during a forensic audit of cross-thread access (2026-07-29)
+// alongside biomap_session.c's Session, which already used app->mutex for
+// this same reason.
 typedef struct {
+    FuriMutex* mutex;
     int      step;
     uint32_t seconds_left;                          // countdown display (prep or sampling)
     uint32_t sweep_count;

@@ -141,6 +141,10 @@ static inline bool furi_thread_join(FuriThread* t) {
     return true;
 }
 static inline void furi_thread_free(FuriThread* t) { free(t); }
+// Stub only: host pthreads aren't watermarked like FreeRTOS task stacks, so
+// this can't return a meaningful value — it exists purely so gsr_sensor.c's
+// (real, unmodified) stack-space getter still links on the host.
+static inline size_t furi_thread_get_stack_space(FuriThread* t) { (void)t; return 0; }
 
 // ── Stream buffer — real ring buffer; gps_uart.c's RX drain logic       ──
 // depends on genuine partial-read/write semantics, not just a stub.

@@ -75,3 +75,9 @@ void em_scan_rf_worker_get_snapshot(
     float*          out_rssi_dbm,
     float*          out_peak_hold_dbm);
 
+// Remaining free stack space (bytes) on the worker's own thread, via
+// furi_thread_get_stack_space() — see the 2048B->3072B bump above, which
+// was a safety-margin guess, never confirmed against a real measurement.
+// Returns 0 if the thread isn't running (w->thread == NULL).
+uint32_t em_scan_rf_worker_get_stack_space(EmScanRfWorker* w);
+

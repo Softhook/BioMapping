@@ -73,6 +73,27 @@ void session_deinit(Session* s, BioMapApp* app) {
         furi_timer_free(s->timer);
         s->timer = NULL;
     }
+    // ── Mutex-guarded module teardown ──────────────────────────────────
+    // biomap_render_callback() runs on the GUI service's own thread (not
+    // this one) and acquires app->mutex before reading s->gsr/s->gps —
+    // every other Session mutation in this file (tick handler, key
+    // handlers) holds that same mutex for exactly this reason. This
+    // function used to be the one exception: it freed s->logger/gsr/
+    // rf_worker/gps and only THEN nulled the pointers, all without the
+    // mutex, while the ViewPort stays enabled with this screen's draw
+    // callback attached until the very end below — a real window for the
+    // render thread to read a pointer this thread is mid-free()ing.
+    // Narrow normally, but em_scan_rf_worker_free()'s furi_thread_join()
+    // can block this thread for up to RF_WORKER_PARK_MS (300ms) — by far
+    // the slowest step here, and one that didn't exist before RF joined
+    // this app — so the exposure is real, not theoretical. Held across
+    // the whole teardown, not just the RF step, for symmetry with every
+    // other Session-mutating call site rather than special-casing one.
+    // A blocked render during this window just means a stale-but-valid
+    // last frame lingers a little longer on a screen that's leaving
+    // anyway — trivial next to the alternative (a torn-down pointer read
+    // from another thread).
+    furi_mutex_acquire(app->mutex, FuriWaitForever);
     if(s->recording.active && s->logger) {
         // Defensive fallback only — in normal operation the Back-key
         // handler and key_toggle_recording's stop path already clear
@@ -100,6 +121,8 @@ void session_deinit(Session* s, BioMapApp* app) {
         gps_uart_free(s->gps);
         s->gps = NULL;
     }
+    furi_mutex_release(app->mutex);
+
     // Restore auto backlight when leaving recording view
     notification_message(app->notifications, &sequence_display_backlight_enforce_auto);
     if(s->vp) {
@@ -296,6 +319,32 @@ static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
         s->recording.tick_counter = 0;
         return false;
     }
+
+    // ── Lightweight crash diagnostics (2026-07-29) ─────────────────────
+    // Reinstated after three real "furi_check failed" crashes on one walk
+    // (tracks 97-99) — the previous heap-only version of this (removed by
+    // "no stalls") had already ruled out a slow heap leak (track 91: flat
+    // heap over 459.8s) without ever confirming the actual cause, and its
+    // removal meant this walk's crashes produced no new evidence either.
+    // Deliberately NOT repeating that version's mistake: it called
+    // sd_logger_batch_flush() (which now syncs — see modules/sd_logger.c)
+    // every single second while app->mutex was held, which very plausibly
+    // caused the real UI stalls "no stalls" was written to fix — a blocking
+    // SD sync has no business inside the same critical section
+    // biomap_render_callback() needs (see handle_write_failure's comment).
+    // This version only appends to the in-memory batch buffer via
+    // sd_logger_batch_printf() — cheap, non-blocking — and rides the
+    // existing FLUSH_INTERVAL (5s) flush/sync cadence like every other row,
+    // so it can't reintroduce that stall. Also widened beyond the old
+    // heap-only version to include the RF worker's and GSR worker's own
+    // thread stack high-water marks: crash #1 was "mitigated" by guessing
+    // the RF worker's stack needed 3072B instead of 2048B, but that was
+    // never actually measured — this is that measurement.
+    sd_logger_batch_printf(s->logger, "# heap:free=%u min=%u stack:rf=%u gsr=%u\n",
+                            (unsigned)memmgr_get_free_heap(),
+                            (unsigned)memmgr_get_minimum_free_heap(),
+                            (unsigned)(s->rf_worker ? em_scan_rf_worker_get_stack_space(s->rf_worker) : 0),
+                            (unsigned)(s->gsr ? gsr_sensor_get_stack_space(s->gsr) : 0));
 
     bool play_warning = false;
 
