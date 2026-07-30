@@ -111,8 +111,8 @@ bool biomap_load_calibration(BioMapApp* app) {
             if(cal.magic == BIOMAP_CAL_MAGIC) {
                 if(cal.version == BIOMAP_CAL_VERSION) {
                     if(cal.checksum == cal_checksum(&cal)) {
-                        if(cal.gain >= 0.2f && cal.gain <= 5.0f &&
-                           cal.offset >= -20000.0f && cal.offset <= 20000.0f) {
+                        if(cal.gain >= CAL_GAIN_MIN && cal.gain <= CAL_GAIN_MAX &&
+                           cal.offset >= CAL_OFFSET_MIN && cal.offset <= CAL_OFFSET_MAX) {
                             furi_mutex_acquire(app->mutex, FuriWaitForever);
                             app->cal_active = true;
                             app->cal_gain = cal.gain;

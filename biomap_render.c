@@ -416,13 +416,23 @@ void biomap_render_callback(Canvas* c, void* ctx) {
 // Menu & options rendering
 // ==========================================================================
 
-static void draw_selection_list(Canvas* c, int sel, int count,
-                         const char* const* labels, int start_y, int max_visible) {
+// Index of the first visible row when a list of `count` items, `max_visible`
+// of which fit on screen at once, is scrolled to keep `sel` in view.
+// Shared by draw_selection_list below and options_render's separate overlay
+// pass over the same rows (previously two copies of this calculation, which
+// must agree or the toggle-state text would land on the wrong row).
+static int scroll_window_top(int sel, int count, int max_visible) {
     int top = 0;
     if(count > max_visible) {
         if(sel >= top + max_visible) top = sel - max_visible + 1;
         if(sel < top) top = sel;
     }
+    return top;
+}
+
+static void draw_selection_list(Canvas* c, int sel, int count,
+                         const char* const* labels, int start_y, int max_visible) {
+    int top = scroll_window_top(sel, count, max_visible);
     for(int i = top; i < count && (i - top) < max_visible; i++) {
         int y = start_y + (i - top) * 10;
         if(i == sel) {
@@ -460,11 +470,7 @@ void options_render(Canvas* c, void* ctx) {
     int sel = (int)o_ctx->selection;
 
     int max_visible = 5;
-    int top = 0;
-    if(OPTIONS_COUNT > max_visible) {
-        if(sel >= top + max_visible) top = sel - max_visible + 1;
-        if(sel < top) top = sel;
-    }
+    int top = scroll_window_top(sel, OPTIONS_COUNT, max_visible);
 
     draw_selection_list(c, sel, OPTIONS_COUNT, options_labels, 22, max_visible);
 

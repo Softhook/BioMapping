@@ -132,14 +132,38 @@ typedef struct {
 #define CAL_TARGET_47K   21276.6f   // 1e9 / 47000
 
 // Valid-range gates for each resistor during calibration (nS).
-// Each gate is independent — a device with gain as low as 0.5× (the
-// calibration minimum) must still pass.  Example for 47k at 0.5× gain:
-//   21276.6 × 0.5 ≈ 10638 nS  → lower gate must be ≤ 10638.
+// Each gate is independent — a device with gain as low as CAL_GAIN_MIN
+// (below) must still pass. Example for 47k at CAL_GAIN_MIN (0.2×):
+//   21276.6 × 0.2 ≈ 4255 nS  → lower gate must be ≤ 4255.
+//
+// CORRECTED 2026-07-30: this comment previously said "0.5× (the
+// calibration minimum)" — stale relative to CAL_GAIN_MIN, which has been
+// 0.2 since before this comment was last touched (the two had drifted
+// apart; CAL_GAIN_MIN is now the single source of truth both use).
+// NOTE: CAL_LO_GATE_47K (5000) is still ABOVE the 4255 the corrected
+// example above requires, and CAL_MID_GATE_LO (3000, the 100k floor)
+// is similarly above its own 0.2×-derived floor (10000 × 0.2 = 2000) —
+// neither gate has actually been re-derived for a genuine 0.2×-gain
+// device yet. Lowering CAL_MID_GATE_LO in particular isn't a simple
+// number change: it doubles as the 470k gate's UPPER bound, and dropping
+// it below 470k's own nominal target (2127.66, CAL_TARGET_470K) would
+// break ordinary-gain 470k measurement. Left as-is pending a real
+// hardware-informed re-tuning rather than a guessed value.
 #define CAL_LO_GATE        200.0f
 #define CAL_MID_GATE_LO   3000.0f
 #define CAL_MID_GATE_HI  25000.0f
 #define CAL_LO_GATE_47K   5000.0f
 #define CAL_HI_GATE      45000.0f
+
+// Valid-range bounds for a computed or loaded gain/offset — a wizard fit
+// (biomap_gui.c's calibration_wizard_compute_fit) or a loaded calibration
+// file (biomap_load_calibration below) failing either of these is
+// rejected. Previously two separately-written copies of the same four
+// literals, one per call site.
+#define CAL_GAIN_MIN     0.2f
+#define CAL_GAIN_MAX     5.0f
+#define CAL_OFFSET_MIN  -20000.0f
+#define CAL_OFFSET_MAX   20000.0f
 
 typedef struct {
     uint32_t magic;

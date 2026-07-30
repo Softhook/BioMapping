@@ -154,6 +154,20 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
 //
 //  Controls:  Up/Down → navigate     OK → select/toggle     Back → return
 
+// Toggle a bool app setting (Auto-zoom, Backlight), persist it, and play a
+// distinct on/off confirmation tone — shared by cases 1/2 below, previously
+// identical except which field. NOT reused by the Sound toggle (case 5),
+// which deliberately always plays its tone (bypassing the `enabled` gate)
+// so muting/unmuting itself is always audible.
+static void toggle_app_setting(BioMapApp* app, bool* field) {
+    furi_mutex_acquire(app->mutex, FuriWaitForever);
+    *field = !*field;
+    bool new_val = *field;
+    furi_mutex_release(app->mutex);
+    biomap_save_settings(app);
+    biomap_sound_toggle(app->sound_enabled, new_val);
+}
+
 void run_options_screen(BioMapApp* app) {
     OptionsContext ctx = {.app = app, .selection = 0};
     ViewPort* vp = vp_push(app, options_render, &ctx);
@@ -190,19 +204,11 @@ void run_options_screen(BioMapApp* app) {
                     continue;
                 case 1:
                     // Toggle auto-zoom (session_init handles level/peak reset)
-                    furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    app->zoom_enabled = !app->zoom_enabled;
-                    furi_mutex_release(app->mutex);
-                    biomap_save_settings(app);
-                    biomap_sound_toggle(app->sound_enabled, app->zoom_enabled);
+                    toggle_app_setting(app, &app->zoom_enabled);
                     break;
                 case 2:
                     // Toggle backlight
-                    furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    app->backlight_on = !app->backlight_on;
-                    furi_mutex_release(app->mutex);
-                    biomap_save_settings(app);
-                    biomap_sound_toggle(app->sound_enabled, app->backlight_on);
+                    toggle_app_setting(app, &app->backlight_on);
                     break;
                 case 3:
                     // GSR Calibration
@@ -457,8 +463,8 @@ static bool calibration_wizard_compute_fit(const float measured[CAL_POINTS], con
     *out_r_squared = r_squared;
 
     // Validate bounds (nS domain) and linearity (R² ≥ 0.95)
-    bool ok = gain >= 0.2f && gain <= 5.0f &&
-              offset >= -20000.0f && offset <= 20000.0f &&
+    bool ok = gain >= CAL_GAIN_MIN && gain <= CAL_GAIN_MAX &&
+              offset >= CAL_OFFSET_MIN && offset <= CAL_OFFSET_MAX &&
               r_squared >= 0.95f;
     if(!ok) {
         FURI_LOG_W("BioMap", "Calibration out of bounds: gain=%.4f off=%.1f R²=%.4f",
