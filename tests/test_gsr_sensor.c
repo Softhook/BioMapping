@@ -531,9 +531,8 @@ static void test_adc_power_down_and_reenable(void) {
 // ─────────────────────────────────────────────────────────────────────────
 // RF (SubGHz) tests — the interleaved band-scan block the "only 2 threads"
 // merge (069e505) added into this same worker loop. Covers the
-// enable/disable lifecycle, dwell peak-capture, band rotation, and the
-// peak-hold decay/floor-clamp arithmetic, none of which had any coverage
-// before this file.
+// enable/disable lifecycle, dwell peak-capture, and band rotation, none of
+// which had any coverage before this file.
 // ─────────────────────────────────────────────────────────────────────────
 
 static void test_rf_disabled_snapshot_reads_default_floor(void) {

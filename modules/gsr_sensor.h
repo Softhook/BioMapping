@@ -7,8 +7,8 @@
 //   1. Biometric GSR ADC sampling at 860 SPS with simple-mean oversampling and
 //      real-time TIA autoranging.
 //   2. SubGHz RF spectrum scanning (when enabled via gsr_sensor_set_rf_enabled),
-//      hopping through configured frequency bands (300/433/868/915 MHz) and
-//      maintaining peak-hold decay snapshots without spawning a second thread.
+//      hopping through configured frequency bands (815/868/915 MHz) and
+//      tracking each band's per-dwell peak RSSI without spawning a second thread.
 //
 // Auto-ranging keeps the ADC reading in [12.5 %, 91.5 %] of full scale by
 // stepping the PGA gain in real time. The tick() normalises the reading
