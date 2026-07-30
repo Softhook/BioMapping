@@ -480,6 +480,7 @@ void run_calibration_wizard(BioMapApp* app) {
     // Allocated before vp_push() so the callback is never live with
     // mutex == NULL.
     w.mutex = furi_mutex_alloc(FuriMutexTypeNormal);
+    furi_check(w.mutex, "WizardState: mutex alloc failed");
     ViewPort* vp = vp_push(app, calibration_wizard_render, &w);
     drain_stale_events(app->event_queue);
     PluginEvent ev;

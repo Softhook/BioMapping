@@ -143,6 +143,21 @@ void furi_hal_subghz_mock_set_rssi_for_band_visit(int band, int visit_1based, fl
 // of guessing a sleep duration, same as furi_hal_i2c_mock_read_count().
 int furi_hal_subghz_mock_get_rssi_call_count(void);
 
+// Makes furi_hal_subghz_get_rssi() sleep (a REAL usleep, not the fake tick)
+// for `ms` before returning — simulates a slow/stuck SPI transaction, the
+// real-world shape of the unbounded furi_hal_spi_bus_end_txrx() busy-wait
+// (see em_scan_rf_crash_investigation.md). For proving properties like
+// "get_rf_snapshot() doesn't block behind an in-flight RF SPI call" without
+// needing the real firmware bug to actually happen. 0 (the default) means
+// no artificial delay.
+void furi_hal_subghz_mock_set_rssi_delay_ms(uint32_t ms);
+
+// True for the exact real-time span furi_hal_subghz_get_rssi() is inside
+// its (possibly artificially delayed) call — lets a test wait until the
+// worker has demonstrably ENTERED the slow call, not just been scheduled,
+// before poking at whatever concurrent behavior it wants to test.
+bool furi_hal_subghz_mock_rssi_call_in_progress(void);
+
 void furi_hal_subghz_mock_reset(void);
 
 // ── em_scan_rf_* — band control, called from the same interleaved block ──

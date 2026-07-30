@@ -21,6 +21,7 @@
 // path; never linked into the Flipper build (application.fam doesn't see
 // this directory).
 
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -76,7 +77,16 @@ static inline void furi_record_close(const char* name) { (void)name; }
 // Test-controllable so watchdog/timeout logic can be exercised without
 // wall-clock sleeps. Starts at 1 (0 has watchdog-disarmed meaning in
 // gps_uart.c) and advances only via furi_test_advance_tick().
-extern uint32_t furi_test_tick;
+//
+// _Atomic, not plain uint32_t: gsr_sensor.c's worker thread calls
+// furi_get_tick() (reading this) concurrently with the test's own thread
+// calling furi_test_advance_tick() (writing it) — a real, ThreadSanitizer-
+// confirmed data race as a plain global (found during the 2026-07-30
+// mutex work's TSAN run, alongside the same fix applied to gsr_sensor.c's
+// own volatile flags). On real hardware furi_get_tick() reads an
+// RTOS-maintained counter with its own defined atomicity; this shim's
+// plain-global stand-in needs to be explicitly atomic to match that.
+extern _Atomic uint32_t furi_test_tick;
 static inline uint32_t furi_get_tick(void) { return furi_test_tick; }
 static inline uint32_t furi_kernel_get_tick_frequency(void) { return 1000; }
 static inline void furi_test_advance_tick(uint32_t delta) { furi_test_tick += delta; }

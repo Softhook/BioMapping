@@ -23,6 +23,7 @@
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "modules/gsr_sensor.h"
@@ -36,8 +37,8 @@
 // manually-advanced fake clock (see wait_for_more_reads below), not a
 // real one — furi_delay_ms() is a no-op in this harness, so there's no
 // wall-clock time for it to track automatically.
-extern uint32_t furi_test_tick;
-uint32_t furi_test_tick = 1;
+extern _Atomic uint32_t furi_test_tick;
+_Atomic uint32_t furi_test_tick = 1;
 
 // Poll until at least `n` more I2C reads have happened since this call
 // started, or fail the test after a generous timeout. The worker spins
@@ -141,6 +142,32 @@ static void wait_for_all_bands_visited(int num_bands) {
         furi_test_advance_tick(1);
         if(waited_us > 5000000) {
             fprintf(stderr, "TIMEOUT: not all %d bands were visited\n", num_bands);
+            assert(false);
+        }
+    }
+}
+
+// Real wall-clock milliseconds between two CLOCK_MONOTONIC timestamps —
+// for the mutex-behavior tests below, which care about actual elapsed
+// time (proving something did or didn't block), not the fake tick clock
+// everything else in this file uses for dwell/pacing timing.
+static double elapsed_ms(struct timespec start, struct timespec end) {
+    return (double)(end.tv_sec - start.tv_sec) * 1000.0 +
+           (double)(end.tv_nsec - start.tv_nsec) / 1e6;
+}
+
+// Waits (real wall-clock, no fake-tick involvement) until the mocked
+// furi_hal_subghz_get_rssi() call is demonstrably in progress — i.e. the
+// worker hasn't just been scheduled to call it, it's actually inside the
+// (possibly artificially delayed) call right now. See
+// furi_hal_subghz_mock_set_rssi_delay_ms()'s doc comment.
+static void wait_for_rssi_call_in_progress(void) {
+    int waited_us = 0;
+    while(!furi_hal_subghz_mock_rssi_call_in_progress()) {
+        usleep(200);
+        waited_us += 200;
+        if(waited_us > 5000000) {
+            fprintf(stderr, "TIMEOUT: mocked RSSI call never started\n");
             assert(false);
         }
     }
@@ -600,6 +627,17 @@ static void test_rf_disable_calls_deinit_and_stops_reads(void) {
     gsr_sensor_set_rf_enabled(gsr, false);
     assert(em_scan_rf_mock_deinit_count() == 1);
 
+    // Snapshot must reset to the disabled-default floor, not linger at
+    // whatever RF last measured — a caller reading it after disable
+    // (e.g. a mode switch) shouldn't see a stale live-looking value.
+    // Regression coverage for the 2026-07-30 mutex review's fix #3.
+    float rssi[EM_SCAN_NUM_FREQS];
+    gsr_sensor_get_rf_snapshot(gsr, rssi);
+    for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+        printf("  rssi[%d]=%.1f after disable (expect -100.0)\n", i, (double)rssi[i]);
+        assert(fabs((double)rssi[i] - (-100.0)) < 1e-6);
+    }
+
     int count_at_disable = furi_hal_subghz_mock_get_rssi_call_count();
     wait_for_more_reads(50); // let the worker (GSR side) keep spinning a while
     printf("  rssi_calls at disable=%d, after=%d (expect unchanged)\n",
@@ -838,6 +876,126 @@ static void test_gsr_and_rf_worker_independence(void) {
     printf("  -> Pass\n");
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Mutex-behavior regression tests (2026-07-30) — directly exercise the
+// property the rf_mutex / gsr->mutex split exists for, using an
+// artificially slow mocked SPI call (furi_hal_subghz_mock_set_rssi_delay_ms)
+// standing in for the real, unbounded furi_hal_spi_bus_end_txrx() busy-wait
+// documented in em_scan_rf_crash_investigation.md. Before that split (when
+// RF's SPI section ran under the same gsr->mutex the ADC path and
+// gsr_sensor_get_rf_snapshot() both needed), the first test below would
+// have failed outright — it would have measured ~150ms, not <20ms.
+// ─────────────────────────────────────────────────────────────────────────
+
+static void test_rf_snapshot_read_not_blocked_by_slow_spi_call(void) {
+    printf("Running test_rf_snapshot_read_not_blocked_by_slow_spi_call...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_subghz_mock_reset();
+    em_scan_rf_mock_reset();
+    furi_hal_subghz_mock_set_rssi(-95.0f);
+    furi_hal_subghz_mock_set_rssi_delay_ms(150); // stand-in for a stuck SPI transaction
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+    gsr_sensor_set_rf_enabled(gsr, true); // forces an immediate first (slow) sample
+    wait_for_rssi_call_in_progress();
+
+    float rssi[EM_SCAN_NUM_FREQS];
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    gsr_sensor_get_rf_snapshot(gsr, rssi);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    double ms = elapsed_ms(t0, t1);
+    printf("  get_rf_snapshot() took %.2fms while a 150ms SPI call was in flight (must be fast)\n", ms);
+    assert(ms < 20.0);
+
+    // Let the slow call actually finish before tearing down, so free()'s
+    // own disable path isn't the thing waiting it out.
+    int waited_us = 0;
+    while(furi_hal_subghz_mock_rssi_call_in_progress()) {
+        usleep(200);
+        waited_us += 200;
+        if(waited_us > 5000000) { fprintf(stderr, "TIMEOUT\n"); assert(false); }
+    }
+    furi_hal_subghz_mock_set_rssi_delay_ms(0);
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+static void test_gsr_path_not_blocked_by_slow_rf_spi_call(void) {
+    printf("Running test_gsr_path_not_blocked_by_slow_rf_spi_call...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_subghz_mock_reset();
+    em_scan_rf_mock_reset();
+    furi_hal_subghz_mock_set_rssi(-95.0f);
+    furi_hal_subghz_mock_set_rssi_delay_ms(150);
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+    gsr_sensor_set_rf_enabled(gsr, true);
+    wait_for_rssi_call_in_progress();
+
+    // gsr->mutex (ADC path) is a completely separate mutex from rf_mutex —
+    // gsr_sensor_tick()/get_raw() must stay fast regardless of the RF
+    // section's SPI call, since neither ever touches rf_mutex.
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    gsr_sensor_tick(gsr);
+    float raw = gsr_sensor_get_raw(gsr);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    double ms = elapsed_ms(t0, t1);
+    printf("  tick()+get_raw() took %.2fms while a 150ms RF SPI call was in flight (raw=%.1f)\n",
+           ms, (double)raw);
+    assert(ms < 20.0);
+
+    int waited_us = 0;
+    while(furi_hal_subghz_mock_rssi_call_in_progress()) {
+        usleep(200);
+        waited_us += 200;
+        if(waited_us > 5000000) { fprintf(stderr, "TIMEOUT\n"); assert(false); }
+    }
+    furi_hal_subghz_mock_set_rssi_delay_ms(0);
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+// Regression test for the 2026-07-30 review finding: a plain rf_enabled
+// check followed by setting rf_spi_busy is a TOCTOU gap (the worker could
+// read rf_enabled==true, get preempted, and the disable path could see
+// rf_spi_busy==false and proceed in exactly that window). The fix makes
+// the worker's decide-and-mark step share rf_mutex with disable's
+// rendezvous. This test proves the actual observable guarantee: by the
+// time gsr_sensor_set_rf_enabled(gsr, false) returns, the in-flight SPI
+// call it raced against has already finished — deinit() never overlaps it.
+static void test_rf_disable_waits_for_inflight_spi_call_before_deinit(void) {
+    printf("Running test_rf_disable_waits_for_inflight_spi_call_before_deinit...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_subghz_mock_reset();
+    em_scan_rf_mock_reset();
+    furi_hal_subghz_mock_set_rssi(-95.0f);
+    furi_hal_subghz_mock_set_rssi_delay_ms(10); // comfortably under the 20ms disable-wait bound
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+    gsr_sensor_set_rf_enabled(gsr, true); // forces an immediate first (10ms) sample
+    wait_for_rssi_call_in_progress();
+
+    gsr_sensor_set_rf_enabled(gsr, false); // races the in-flight call on purpose
+
+    printf("  rssi_call_in_progress=%d immediately after set_rf_enabled(false) returns (expect 0)\n",
+           furi_hal_subghz_mock_rssi_call_in_progress());
+    assert(!furi_hal_subghz_mock_rssi_call_in_progress());
+    assert(em_scan_rf_mock_deinit_count() == 1);
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
 int main(void) {
     test_alloc_probe_success();
     test_alloc_probe_failure();
@@ -861,7 +1019,9 @@ int main(void) {
     test_rf_dwell_peak_captures_transient_spike();
     test_rf_rssi_dwell_snapshot();
     test_gsr_and_rf_worker_independence();
-
+    test_rf_snapshot_read_not_blocked_by_slow_spi_call();
+    test_gsr_path_not_blocked_by_slow_rf_spi_call();
+    test_rf_disable_waits_for_inflight_spi_call_before_deinit();
 
     printf("\nAll gsr_sensor host tests passed successfully!\n");
     return 0;

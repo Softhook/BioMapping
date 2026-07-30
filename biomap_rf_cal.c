@@ -32,6 +32,7 @@ void run_rf_calibration_wizard(BioMapApp* app) {
     // comment in biomap.h. Allocated before vp_push() so the callback is
     // never live with mutex == NULL.
     w.mutex = furi_mutex_alloc(FuriMutexTypeNormal);
+    furi_check(w.mutex, "RfCalWizardState: mutex alloc failed");
     ViewPort* vp = vp_push(app, rf_calibration_wizard_prep_render, &w);
     drain_stale_events(app->event_queue);
 

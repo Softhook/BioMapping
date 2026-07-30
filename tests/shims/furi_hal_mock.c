@@ -5,6 +5,7 @@
 
 #include "furi_hal.h"
 #include <stdatomic.h>
+#include <unistd.h>
 
 struct FuriHalSerialHandle {
     FuriHalSerialAsyncRxCallback cb;
@@ -285,17 +286,27 @@ void em_scan_rf_mock_reset(void) {
 // before this function starts being called for the new band/dwell) has
 // already recorded, never by the test thread reacting to something
 // mid-flight.
-static _Atomic float g_subghz_rssi_default = -91.5f;
-static _Atomic int   g_subghz_rssi_count   = 0;
-static _Atomic float g_rssi_band_visit[RF_MOCK_MAX_BANDS][RF_MOCK_MAX_VISITS];
-static _Atomic bool  g_rssi_band_visit_set[RF_MOCK_MAX_BANDS][RF_MOCK_MAX_VISITS];
+static _Atomic float    g_subghz_rssi_default = -91.5f;
+static _Atomic int      g_subghz_rssi_count   = 0;
+static _Atomic float    g_rssi_band_visit[RF_MOCK_MAX_BANDS][RF_MOCK_MAX_VISITS];
+static _Atomic bool     g_rssi_band_visit_set[RF_MOCK_MAX_BANDS][RF_MOCK_MAX_VISITS];
+static _Atomic uint32_t g_subghz_rssi_delay_ms       = 0;
+static _Atomic bool     g_subghz_rssi_call_in_progress = false;
 
 float furi_hal_subghz_get_rssi(void) {
+    atomic_store(&g_subghz_rssi_call_in_progress, true);
+    uint32_t delay_ms = atomic_load(&g_subghz_rssi_delay_ms);
+    if(delay_ms > 0) {
+        usleep(delay_ms * 1000);
+    }
     atomic_fetch_add(&g_subghz_rssi_count, 1);
 
+    float result;
     if(atomic_exchange(&g_subghz_first_read_pending, false) &&
        atomic_load(&g_subghz_first_read_spike_enabled)) {
-        return atomic_load(&g_subghz_first_read_spike_value);
+        result = atomic_load(&g_subghz_first_read_spike_value);
+        atomic_store(&g_subghz_rssi_call_in_progress, false);
+        return result;
     }
 
     int band = atomic_load(&g_rf_current_band);
@@ -304,10 +315,24 @@ float furi_hal_subghz_get_rssi(void) {
         int vidx = visit - 1;
         if(vidx >= 0 && vidx < RF_MOCK_MAX_VISITS &&
            atomic_load(&g_rssi_band_visit_set[band][vidx])) {
-            return atomic_load(&g_rssi_band_visit[band][vidx]);
+            result = atomic_load(&g_rssi_band_visit[band][vidx]);
+            atomic_store(&g_subghz_rssi_call_in_progress, false);
+            return result;
         }
     }
-    return atomic_load(&g_subghz_rssi_default);
+    result = atomic_load(&g_subghz_rssi_default);
+    atomic_store(&g_subghz_rssi_call_in_progress, false);
+    return result;
+}
+
+// Simulates a slow/stuck SPI transaction — see the doc comment in
+// furi_hal.h. 0 (default) disables the artificial delay.
+void furi_hal_subghz_mock_set_rssi_delay_ms(uint32_t ms) {
+    atomic_store(&g_subghz_rssi_delay_ms, ms);
+}
+
+bool furi_hal_subghz_mock_rssi_call_in_progress(void) {
+    return atomic_load(&g_subghz_rssi_call_in_progress);
 }
 
 // Flat default returned for every band/visit that has no more specific
@@ -350,6 +375,8 @@ void furi_hal_subghz_mock_reset(void) {
     atomic_store(&g_subghz_first_read_pending, false);
     atomic_store(&g_subghz_first_read_spike_enabled, false);
     atomic_store(&g_subghz_first_read_spike_value, 0.0f);
+    atomic_store(&g_subghz_rssi_delay_ms, 0);
+    atomic_store(&g_subghz_rssi_call_in_progress, false);
     for(int b = 0; b < RF_MOCK_MAX_BANDS; b++) {
         for(int v = 0; v < RF_MOCK_MAX_VISITS; v++) {
             atomic_store(&g_rssi_band_visit_set[b][v], false);

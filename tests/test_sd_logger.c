@@ -22,7 +22,7 @@
 // exercise timing, just correctness, and the mock storage's read/write
 // calls are effectively instantaneous, so every measured latency is 0
 // regardless.
-uint32_t furi_test_tick = 1;
+_Atomic uint32_t furi_test_tick = 1;
 
 static void test_sd_logger_start_creates_file_with_header(void) {
     printf("Running test_sd_logger_start_creates_file_with_header...\n");

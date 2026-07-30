@@ -36,8 +36,8 @@
 
 // Declared in tests/shims/furi.h; lets watchdog/timeout logic be exercised
 // without a real clock.
-extern uint32_t furi_test_tick;
-uint32_t furi_test_tick = 1;
+extern _Atomic uint32_t furi_test_tick;
+_Atomic uint32_t furi_test_tick = 1;
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
 // Every checksum below was verified against minmea_checksum() before use

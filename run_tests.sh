@@ -31,6 +31,25 @@ gcc -Wall -Wextra -I . -I modules -I em_scan -I tests/shims -o build/test_gsr_se
 ./build/test_gsr_sensor
 
 echo
+echo "== test_gsr_sensor, ThreadSanitizer pass (mutex/race verification) =="
+# The only test binary with genuine cross-thread concurrency (a real
+# background pthread running gsr_sensor_worker() against the main test
+# thread) — gps_uart.c and sd_logger.c's tests are single-threaded by
+# design (see their own file banners), so a TSAN pass adds nothing there.
+# This isn't a stand-in for the functional assertions above: TSAN doesn't
+# check VALUES are correct, only that no two threads touch the same memory
+# without a synchronization edge between them — exactly the property a
+# passing functional test can satisfy while still hiding a race (as
+# gsr_sensor.c's `running`/`rf_enabled`/`rf_spi_busy` flags did, and as
+# this file's own `furi_test_tick` global did, both found by this exact
+# pass during the 2026-07-30 mutex review and fixed by making them
+# _Atomic). Keep this passing whenever gsr_sensor.c's threading changes.
+gcc -fsanitize=thread -g -O1 -I . -I modules -I em_scan -I tests/shims -o build/test_gsr_sensor_tsan \
+    tests/test_gsr_sensor.c modules/gsr_sensor.c \
+    tests/shims/furi_hal_mock.c -lm -lpthread
+./build/test_gsr_sensor_tsan
+
+echo
 echo "== test_sd_logger (auto-index / header / batch write) =="
 gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_sd_logger \
     tests/test_sd_logger.c modules/sd_logger.c \

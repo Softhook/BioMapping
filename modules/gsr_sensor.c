@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#include <stdatomic.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TIA conversion: normalized ADC counts → nanosiemens
@@ -193,12 +194,12 @@ struct GsrSensor {
     // SubGHz RF state — touched ONLY by the worker thread, at ~10 Hz (see
     // RF_SAMPLE_INTERVAL_MS), except rf_enabled which the main thread also
     // writes (once at enable, once at disable/free — see
-    // gsr_sensor_set_rf_enabled()). No mutex on these three: same reasoning
-    // as `running` below (a single volatile flag, eventually-consistent by
-    // at most one loop iteration) — NOT `pga_changed`, which despite also
-    // being declared volatile is actually protected by gsr->mutex on both
-    // the write (tick()'s Step 5) and the read (this worker's loop top);
-    // it was wrongly cited here as a second lock-free precedent during the
+    // gsr_sensor_set_rf_enabled()). No mutex on these two: same reasoning
+    // as `running` below (a single flag, eventually-consistent by at most
+    // one loop iteration) — NOT `pga_changed`, which despite also being
+    // declared volatile is actually protected by gsr->mutex on both the
+    // write (tick()'s Step 5) and the read (this worker's loop top); it
+    // was wrongly cited here as a second lock-free precedent during the
     // 2026-07-30 mutex work and corrected on review. rf_enabled is a
     // narrower exception than the "no exceptions" policy from that same
     // review states, kept anyway because protecting it would mean the
@@ -208,7 +209,26 @@ struct GsrSensor {
     // to remove. Safe by the same ordering argument as `running`: the only
     // consequence of the worker observing this flag one iteration late is
     // a one-iteration-late start/stop of RF sampling, not corrupted state.
-    volatile bool rf_enabled;
+    //
+    // _Atomic, not plain volatile: a ThreadSanitizer run during the
+    // 2026-07-30 mutex work flagged this (and running, and rf_spi_busy
+    // below) as genuine data races per the C11 memory model — "single-core
+    // Cortex-M4, a plain load/store is probably fine" was an assumption,
+    // not a guarantee. _Atomic bool costs nothing extra (compiles to the
+    // same plain load/store on a naturally-aligned byte on both the host
+    // test build and the real ARM target) and makes the guarantee real
+    // instead of informal. Plain C syntax (=, ==) still works on an
+    // _Atomic-qualified variable — no call sites needed to change.
+    _Atomic bool rf_enabled;
+    // True for exactly the span of the worker's RSSI read + possible band
+    // retune (both furi_hal_subghz_* calls) — nothing else touches SPI, so
+    // this doubles as "is the worker inside an RF hardware call right
+    // now". gsr_sensor_set_rf_enabled()'s disable path polls this before
+    // calling em_scan_rf_deinit(), closing the window where that call
+    // could otherwise race an in-flight worker SPI transaction on the
+    // same CC1101. Same reasoning as rf_enabled/running — see that
+    // field's comment for why _Atomic rather than plain volatile.
+    _Atomic bool rf_spi_busy;
     int      rf_band;
     uint32_t rf_dwell_start_tick;  // furi_get_tick() when the current band's dwell began
     uint32_t rf_last_sample_tick;  // furi_get_tick() of the last RSSI read — paces to ~10 Hz
@@ -228,8 +248,11 @@ struct GsrSensor {
     FuriThread* thread;
     FuriMutex*  mutex;     // ADC ring buffer, PGA/calibration state, diagnostics counters
     FuriMutex*  rf_mutex;  // rf_rssi_dbm[] snapshot only — see doc comment above
-    volatile bool running;
-    volatile bool pga_changed;
+    // _Atomic — see rf_enabled's comment above; worker reads this every
+    // loop iteration (while(gsr->running)), gsr_sensor_free() writes it
+    // once to stop the thread.
+    _Atomic bool running;
+    volatile bool pga_changed; // mutex-protected in practice — see rf_enabled's comment
 
     int32_t  buffer[SENSOR_BUFFER_SIZE];
     uint32_t sample_tick[SENSOR_BUFFER_SIZE]; // tick timestamp of buffer[i], for
@@ -455,12 +478,43 @@ static int32_t gsr_sensor_worker(void* context) {
         // See RF_SAMPLE_INTERVAL_MS's doc comment for why this is paced
         // down from the loop's native ADC cadence instead of running every
         // iteration like before.
+        //
+        // rf_spi_busy brackets the ENTIRE SPI-touching region below (both
+        // the RSSI read and the possible retune) — see
+        // gsr_sensor_set_rf_enabled()'s disable path, which rendezvouses
+        // on rf_mutex and then polls this flag before calling
+        // em_scan_rf_deinit(), so it never races an in-flight SPI
+        // transaction on the CC1101.
+        //
+        // The decide-and-mark step (rf_enabled/pacing-gate check, up to
+        // and including setting rf_spi_busy = true) happens under
+        // rf_mutex — not just the busy flag alone — specifically so that
+        // gsr_sensor_set_rf_enabled(false)'s own rf_mutex acquire/release
+        // is guaranteed to run either fully before or fully after this
+        // block. Without that, there's a TOCTOU gap: the worker could
+        // read rf_enabled as true, get preempted before it sets
+        // rf_spi_busy, and the disable thread could observe busy==false
+        // and proceed in exactly that window. Sharing rf_mutex for both
+        // "decide to start" and "wait until finished" closes that gap —
+        // a plain volatile flag alone can narrow it but never fully
+        // closes it. The actual SPI calls stay OUTSIDE the mutex either
+        // way (see the file's mutex-vs-hardware-call rule), so this adds
+        // one more brief, uncontended acquire/release per loop iteration
+        // — not a hold across anything slow.
         if(gsr->rf_enabled) {
             uint32_t now_tick = furi_get_tick();
             uint32_t sample_ticks = (RF_SAMPLE_INTERVAL_MS * furi_kernel_get_tick_frequency()) / 1000;
-            if(now_tick - gsr->rf_last_sample_tick >= sample_ticks) {
-                gsr->rf_last_sample_tick = now_tick;
 
+            furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
+            bool should_sample = gsr->rf_enabled &&
+                (now_tick - gsr->rf_last_sample_tick >= sample_ticks);
+            if(should_sample) {
+                gsr->rf_last_sample_tick = now_tick;
+                gsr->rf_spi_busy = true;
+            }
+            furi_mutex_release(gsr->rf_mutex);
+
+            if(should_sample) {
                 int band = gsr->rf_band;
                 float r = furi_hal_subghz_get_rssi();
                 if(r > gsr->rf_dwell_peak[band]) {
@@ -479,6 +533,7 @@ static int32_t gsr_sensor_worker(void* context) {
                     gsr->rf_band = (band + 1) % EM_SCAN_NUM_FREQS;
                     em_scan_rf_set_band(gsr->rf_band);
                 }
+                gsr->rf_spi_busy = false; // SPI region ends here — see doc comment above
             }
         }
 
@@ -589,6 +644,7 @@ GsrSensor* gsr_sensor_alloc(void) {
     gsr->tick_mains_hum_mag = 0.0f;
 
     gsr->rf_enabled = false;
+    gsr->rf_spi_busy = false;
     gsr->rf_band = 0;
     gsr->rf_dwell_start_tick = furi_get_tick();
     gsr->rf_last_sample_tick = 0;
@@ -615,12 +671,12 @@ void gsr_sensor_free(GsrSensor* gsr) {
     furi_check(gsr, "GsrSensor: NULL in free()");
     if(gsr->available) {
         // Reuses gsr_sensor_set_rf_enabled()'s disable ordering (flip the
-        // flag first, then a short settle delay, then the hardware
-        // deinit) rather than duplicating it — this used to be inlined
-        // here as `em_scan_rf_deinit(); gsr->rf_enabled = false;`, which
-        // called into SPI hardware BEFORE telling the worker RF was off,
-        // racing a concurrent in-flight get_rssi()/set_band() call. See
-        // that function's doc comment for why the ordering matters.
+        // flag, wait for the worker to leave the SPI region, then the
+        // hardware deinit) rather than duplicating it — this used to be
+        // inlined here as `em_scan_rf_deinit(); gsr->rf_enabled = false;`,
+        // which called into SPI hardware BEFORE telling the worker RF was
+        // off, racing a concurrent in-flight get_rssi()/set_band() call.
+        // See that function's doc comment for why the ordering matters.
         if(gsr->rf_enabled) {
             gsr_sensor_set_rf_enabled(gsr, false);
         }
@@ -1296,15 +1352,23 @@ void gsr_sensor_lock_pga(GsrSensor* gsr, int8_t index) {
 //
 // Disable: rf_enabled flips false FIRST (the worker stops entering its RF
 // section on its very next loop check, ~1-2 ms away at the ADC's pace),
-// THEN a short settle delay, THEN the hardware deinit call. This narrows,
-// but doesn't perfectly eliminate, a window where the worker could still
-// be mid-RSSI-read when deinit() reaches the radio — the same tiny race
-// already existed, completely unguarded, in the code this replaces
-// (gsr_sensor_free() used to call em_scan_rf_deinit() before clearing
-// rf_enabled at all). RF's ~10 Hz duty cycle (see RF_SAMPLE_INTERVAL_MS)
-// means the worker spends the overwhelming majority of its time not
-// touching SPI at all, so this is a low-probability, one-time-per-session
-// window, not a recurring one.
+// THEN this polls rf_spi_busy — true for exactly the span of the worker's
+// SPI calls (RSSI read + possible retune) — before calling the hardware
+// deinit. That closes the race outright for every normal disable: deinit
+// only proceeds once the worker has demonstrably left the SPI region,
+// rather than after a fixed delay chosen to probably be long enough
+// (replaces a plain furi_delay_ms(5) used here until 2026-07-30 review).
+// The bounded timeout below is a fallback for the one case no timeout
+// can fix — the worker wedged forever in the documented unbounded SPI
+// busy-wait bug (em_scan_rf_crash_investigation.md) — where we proceed
+// anyway rather than hang the caller forever waiting for an ack that will
+// never come; that residual case was already unguarded before this
+// function existed at all, so this is strictly a narrowing, not a
+// regression. RF's ~10 Hz duty cycle (RF_SAMPLE_INTERVAL_MS) already
+// makes the race rare; this makes the ordinary case provably closed
+// instead of just probably closed.
+#define RF_DISABLE_SPI_WAIT_TIMEOUT_MS 20
+#define RF_DISABLE_SPI_WAIT_POLL_MS     1
 void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled) {
     furi_check(gsr, "GsrSensor: NULL in set_rf_enabled()");
     if(!gsr->available) return;
@@ -1327,8 +1391,46 @@ void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled) {
         gsr->rf_enabled = true; // last — see doc comment above
     } else {
         gsr->rf_enabled = false; // first — see doc comment above
-        furi_delay_ms(5);
+
+        // Rendezvous on rf_mutex before polling rf_spi_busy: forces this
+        // thread's view of rf_spi_busy to reflect whichever of the
+        // worker's decide-and-mark critical sections (see the worker
+        // loop's doc comment) most recently ran, closing the TOCTOU gap
+        // a plain flag read here would otherwise have. Cheap — this
+        // critical section is never held across a hardware call, so
+        // there's nothing to wait long for.
+        furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
+        furi_mutex_release(gsr->rf_mutex);
+
+        // Wait for the worker to demonstrably leave the SPI region before
+        // touching the radio from this thread — see doc comment above.
+        // Measured against real elapsed ticks (furi_get_tick()), not a
+        // count of nominal furi_delay_ms() calls — this file has already
+        // learned that lesson twice, the hard way, on real hardware (see
+        // RF_DWELL_MS's and em_scan_rf.c's EM_SCAN_PARK_POLL_MS's doc
+        // comments): furi_delay_ms(N) is not guaranteed to take exactly
+        // N ms, so counting calls silently drifts from the real bound.
+        // furi_delay_ms() here is purely to yield the CPU between checks,
+        // not to pace the timeout.
+        uint32_t start_tick = furi_get_tick();
+        uint32_t timeout_ticks =
+            (RF_DISABLE_SPI_WAIT_TIMEOUT_MS * furi_kernel_get_tick_frequency()) / 1000;
+        while(gsr->rf_spi_busy && (furi_get_tick() - start_tick) < timeout_ticks) {
+            furi_delay_ms(RF_DISABLE_SPI_WAIT_POLL_MS);
+        }
         em_scan_rf_deinit();
+
+        // Reset the published snapshot back to the disabled-default floor
+        // — matches what enable resets it to above; previously left at
+        // whatever RF last measured, which get_rf_snapshot() would then
+        // report as if it were live. Nothing reads it after a real
+        // session's teardown today, but "clean" shouldn't depend on that
+        // staying true.
+        furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
+        for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+            gsr->rf_rssi_dbm[i] = -100.0f;
+        }
+        furi_mutex_release(gsr->rf_mutex);
     }
 }
 
