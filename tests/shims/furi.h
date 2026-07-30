@@ -21,6 +21,7 @@
 // path; never linked into the Flipper build (application.fam doesn't see
 // this directory).
 
+#include <sched.h>
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -65,7 +66,20 @@ typedef enum {
     FuriStatusErrorISR = -6,
 } FuriStatus;
 
-static inline void furi_delay_ms(uint32_t ms) { (void)ms; }
+// A complete no-op (not even a thread yield) let gsr_sensor_set_rf_enabled()'s
+// disable-path poll loop (a while(rf_spi_busy && ...) { furi_delay_ms(1); })
+// turn into a genuine CPU-hogging tight spin under this harness: the fake
+// tick this loop bounds its timeout against never advances on its own, so
+// with no real yield, one thread can spin flat-out checking a flag the
+// OTHER thread needs CPU time to clear — a real, ThreadSanitizer-run-
+// observed slow/stuck case (2026-07-30), not just a theoretical concern.
+// sched_yield() fixes that by actually giving the scheduler a chance to
+// run the other thread, while still completing far faster than any real
+// `ms` duration — every other test's "the worker spins as fast as the CPU
+// allows" assumption is unaffected, since this returns almost immediately
+// regardless of `ms`. On real hardware furi_delay_ms() already properly
+// yields via the RTOS, so this only brings the shim in line with it.
+static inline void furi_delay_ms(uint32_t ms) { (void)ms; sched_yield(); }
 
 // ── Record registry — gps_uart.c opens/closes RECORD_EXPANSION around
 // USART1 ownership. The mechanism has no effect on NMEA parsing.

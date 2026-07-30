@@ -996,6 +996,57 @@ static void test_rf_disable_waits_for_inflight_spi_call_before_deinit(void) {
     printf("  -> Pass\n");
 }
 
+// Stress test for the specific TOCTOU gap fixed in the 2026-07-30 review:
+// the worker's "read rf_enabled, then set rf_spi_busy" is two separate
+// steps, and without sharing rf_mutex across both, the disable path could
+// land in the narrow window between them. That window is a handful of
+// instructions wide — the three tests above all wait for
+// rssi_call_in_progress first, which means rf_spi_busy is already true by
+// the time they act, so none of them actually land inside that window;
+// they'd pass identically against a version of this fix missing the
+// rf_mutex rendezvous. This test doesn't try to land in the window
+// deterministically either (there's no test hook for that without adding
+// production-code instrumentation) — instead it rapidly cycles enable/
+// disable many times, each restarting the worker's decide-and-mark step
+// at an arbitrary point in its own scheduling, to maximize how many
+// distinct interleavings actually get exercised across the run. The
+// functional assertions below are a sanity check, not the main point —
+// the real coverage is running this under ThreadSanitizer (see
+// run_tests.sh's TSAN pass), which flags the underlying unsynchronized
+// access directly if the race is ever actually hit, independent of
+// whether any particular run's assertions happen to still pass.
+static void test_rf_enable_disable_stress_no_race(void) {
+    printf("Running test_rf_enable_disable_stress_no_race...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_subghz_mock_reset();
+    em_scan_rf_mock_reset();
+    furi_hal_subghz_mock_set_rssi(-95.0f);
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+
+    // Deliberately no delay between enable and disable: a sleep here would
+    // likely give the worker enough time to complete a full decide/sample/
+    // clear cycle before disable ever runs, missing the narrow window
+    // entirely. Racing them back-to-back, 200 times, relies on ordinary
+    // thread-creation and scheduling jitter alone to land in a different
+    // phase of the worker's loop each time.
+    const int cycles = 200;
+    for(int i = 0; i < cycles; i++) {
+        gsr_sensor_set_rf_enabled(gsr, true);
+        gsr_sensor_set_rf_enabled(gsr, false);
+    }
+
+    printf("  completed %d enable/disable cycles: init=%d deinit=%d (expect both == %d)\n",
+           cycles, em_scan_rf_mock_init_count(), em_scan_rf_mock_deinit_count(), cycles);
+    assert(em_scan_rf_mock_init_count() == cycles);
+    assert(em_scan_rf_mock_deinit_count() == cycles);
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
 int main(void) {
     test_alloc_probe_success();
     test_alloc_probe_failure();
@@ -1022,6 +1073,7 @@ int main(void) {
     test_rf_snapshot_read_not_blocked_by_slow_spi_call();
     test_gsr_path_not_blocked_by_slow_rf_spi_call();
     test_rf_disable_waits_for_inflight_spi_call_before_deinit();
+    test_rf_enable_disable_stress_no_race();
 
     printf("\nAll gsr_sensor host tests passed successfully!\n");
     return 0;

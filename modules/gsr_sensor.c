@@ -488,19 +488,22 @@ static int32_t gsr_sensor_worker(void* context) {
         //
         // The decide-and-mark step (rf_enabled/pacing-gate check, up to
         // and including setting rf_spi_busy = true) happens under
-        // rf_mutex — not just the busy flag alone — specifically so that
-        // gsr_sensor_set_rf_enabled(false)'s own rf_mutex acquire/release
-        // is guaranteed to run either fully before or fully after this
-        // block. Without that, there's a TOCTOU gap: the worker could
-        // read rf_enabled as true, get preempted before it sets
-        // rf_spi_busy, and the disable thread could observe busy==false
-        // and proceed in exactly that window. Sharing rf_mutex for both
-        // "decide to start" and "wait until finished" closes that gap —
-        // a plain volatile flag alone can narrow it but never fully
-        // closes it. The actual SPI calls stay OUTSIDE the mutex either
-        // way (see the file's mutex-vs-hardware-call rule), so this adds
-        // one more brief, uncontended acquire/release per loop iteration
-        // — not a hold across anything slow.
+        // rf_mutex — not just as two separate atomic flag operations —
+        // specifically so that gsr_sensor_set_rf_enabled(false)'s own
+        // rf_mutex acquire/release is guaranteed to run either fully
+        // before or fully after this block. Without that, there's a
+        // TOCTOU gap: the worker could read rf_enabled as true, get
+        // preempted before it sets rf_spi_busy, and the disable thread
+        // could observe busy==false and proceed in exactly that window.
+        // Each flag being individually atomic (see rf_enabled's struct
+        // comment) doesn't close this — the gap is BETWEEN the two
+        // operations, not within either one. Sharing rf_mutex across both
+        // is what closes it: it makes "check rf_enabled" and "set
+        // rf_spi_busy" one indivisible step from the disable thread's
+        // point of view. The actual SPI calls stay OUTSIDE the mutex
+        // either way (see the file's mutex-vs-hardware-call rule), so
+        // this adds one more brief, uncontended acquire/release per loop
+        // iteration — not a hold across anything slow.
         if(gsr->rf_enabled) {
             uint32_t now_tick = furi_get_tick();
             uint32_t sample_ticks = (RF_SAMPLE_INTERVAL_MS * furi_kernel_get_tick_frequency()) / 1000;
