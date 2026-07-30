@@ -78,18 +78,24 @@ int32_t biomap_app(void* p) {
     return 0;
 }
 
-// Polynomial-rolling checksum over the struct prefix (everything before
-// the checksum field).  This avoids strict-aliasing UB and is much more
-// collision-resistant than the old magic ^ *(uint32_t*)&gain ^ … XOR.
-static uint32_t cal_checksum(const BioMapCalibration* cal) {
+// Polynomial-rolling FNV-1a checksum over a byte range.  Shared by
+// cal_checksum (BioMapCalibration) and settings_checksum (BioMapSettings)
+// below — same algorithm, different struct types, so this factors out the
+// only part that was actually identical between them.  This avoids
+// strict-aliasing UB and is much more collision-resistant than the old
+// magic ^ *(uint32_t*)&gain … XOR.
+static uint32_t fnv1a_checksum(const void* data, size_t n) {
     uint32_t h = 0x811C9DC5u;
-    const uint8_t* p = (const uint8_t*)cal;
-    size_t n = offsetof(BioMapCalibration, checksum);
+    const uint8_t* p = (const uint8_t*)data;
     for(size_t i = 0; i < n; i++) {
         h ^= p[i];
         h *= 0x01000193u;  // FNV-1a prime
     }
     return h;
+}
+
+static uint32_t cal_checksum(const BioMapCalibration* cal) {
+    return fnv1a_checksum(cal, offsetof(BioMapCalibration, checksum));
 }
 
 bool biomap_load_calibration(BioMapApp* app) {
@@ -254,14 +260,7 @@ void biomap_reset_rf_calibration(BioMapApp* app) {
 // separate file/struct rather than folded into the GSR calibration one.
 
 static uint32_t settings_checksum(const BioMapSettings* s) {
-    uint32_t h = 0x811C9DC5u;
-    const uint8_t* p = (const uint8_t*)s;
-    size_t n = offsetof(BioMapSettings, checksum);
-    for(size_t i = 0; i < n; i++) {
-        h ^= p[i];
-        h *= 0x01000193u;
-    }
-    return h;
+    return fnv1a_checksum(s, offsetof(BioMapSettings, checksum));
 }
 
 bool biomap_load_settings(BioMapApp* app) {

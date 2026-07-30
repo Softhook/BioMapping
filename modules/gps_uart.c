@@ -485,16 +485,29 @@ static const uint8_t ubx_cfg_rst_hot[] = {
 
 static void gps_uart_configure(GpsUart* g);
 
-// ── Serial reinit helper — stop/deinit/reinit/restart in one call. ──────────
-// Used by both the RX-buffer-full handler and the NMEA watchdog so that any
-// future change to the reinit sequence only needs to be made in one place.
-static void gps_uart_reinit(GpsUart* g, uint32_t baud) {
+// ── Serial baud-switch helper — stop/deinit/reinit/restart at a new baud,
+// resetting the RX line-framing state (rx_offset, rx_stream) since bytes
+// framed under the old baud are meaningless at the new one. Identical
+// sequence previously appeared three times: here, and in both branches of
+// gps_uart_configure() (L76K/M10Q) right after each module is told to
+// switch to 115200. The delay that follows differs by call site (50 ms
+// there vs. 100 ms below), so that stays at each call site rather than
+// being folded in here.
+static void gps_uart_switch_baud(GpsUart* g, uint32_t baud) {
     furi_hal_serial_async_rx_stop(g->serial_handle);
     furi_hal_serial_deinit(g->serial_handle);
     furi_hal_serial_init(g->serial_handle, baud);
     g->rx_offset = 0;
     furi_stream_buffer_reset(g->rx_stream);
     furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
+}
+
+// ── Serial reinit helper — switch baud, then re-run the full module
+// configure sequence. Used by both the RX-buffer-full handler and the NMEA
+// watchdog so that any future change to the reinit sequence only needs to
+// be made in one place.
+static void gps_uart_reinit(GpsUart* g, uint32_t baud) {
+    gps_uart_switch_baud(g, baud);
     furi_delay_ms(100);
     gps_uart_configure(g);
     g->last_valid_nmea_tick = 0;
@@ -739,12 +752,7 @@ static void gps_uart_configure(GpsUart* g) {
     furi_delay_ms(200);
 
     // Switch host UART to match
-    furi_hal_serial_async_rx_stop(g->serial_handle);
-    furi_hal_serial_deinit(g->serial_handle);
-    furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE_FAST);
-    g->rx_offset = 0;
-    furi_stream_buffer_reset(g->rx_stream);
-    furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
+    gps_uart_switch_baud(g, GPS_BAUD_RATE_FAST);
     furi_delay_ms(50);
 
     // Datasheet requirement (§2.3.2): Interval < 1000 ms → must use 115200
@@ -771,12 +779,7 @@ static void gps_uart_configure(GpsUart* g) {
     furi_delay_ms(200);
 
     // Switch host UART to match
-    furi_hal_serial_async_rx_stop(g->serial_handle);
-    furi_hal_serial_deinit(g->serial_handle);
-    furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE_FAST);
-    g->rx_offset = 0;
-    furi_stream_buffer_reset(g->rx_stream);
-    furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
+    gps_uart_switch_baud(g, GPS_BAUD_RATE_FAST);
     furi_delay_ms(50);
 
     // Send all six binary UBX configuration packets back-to-back.

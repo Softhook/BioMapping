@@ -162,6 +162,21 @@ static void render_zoom_label(Canvas* c, BioMapApp* a) {
     canvas_draw_str(c, 2, 62, a->session.zoom_label);
 }
 
+// nS value, top-right corner — shared by the GSR-Only layout (top-left
+// occupied by the time-span label) and the GPS+GSR/GPS+GSR+RF top bar
+// (top-left occupied by the GPS badge); previously two copies of the same
+// four lines. Returns the fixed worst-case left edge of this element
+// ("-99999 nS", not this frame's actual width — see the elapsed-time
+// comment in biomap_render_callback for why a fixed placeholder is used).
+static int draw_ns_top_right(Canvas* c, BioMapApp* a) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.pipeline.display.filtered_ns);
+    int right_margin = a->session.recording.active ? 12 : 2;
+    int x = 128 - canvas_string_width(c, buf) - right_margin;
+    canvas_draw_str(c, x, 10, buf);
+    return 128 - canvas_string_width(c, "-99999 nS") - right_margin;
+}
+
 static void draw_sensor_alert(Canvas* c, const char* text) {
     canvas_set_font(c, FontPrimary);
     int text_w = canvas_string_width(c, text);
@@ -339,24 +354,12 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                         // Fixed worst-case reservation, not this frame's
                         // actual width — see the elapsed-time comment below.
                         top_left_edge = 1 + canvas_string_width(c, "59m59s");
-                        // nS value — top-right
-                        snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.pipeline.display.filtered_ns);
-                        int right_margin = a->session.recording.active ? 12 : 2;
-                        int x = 128 - canvas_string_width(c, buf) - right_margin;
-                        canvas_draw_str(c, x, 10, buf);
-                        // Fixed worst-case reservation ("-99999 nS" — real
-                        // readings have been observed up to 5 digits, e.g.
-                        // 10767), not this frame's actual nS-value width —
-                        // see the elapsed-time comment below for why.
-                        top_right_edge = 128 - canvas_string_width(c, "-99999 nS") - right_margin;
+                        // nS value — top-right. Real readings have been
+                        // observed up to 5 digits (e.g. 10767).
+                        top_right_edge = draw_ns_top_right(c, a);
                     } else if(gps_gsr_top_bar) {
                         // nS value — top-right (GPS badge already at top-left)
-                        char buf[16];
-                        snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.pipeline.display.filtered_ns);
-                        int right_margin = a->session.recording.active ? 12 : 2;
-                        int x = 128 - canvas_string_width(c, buf) - right_margin;
-                        canvas_draw_str(c, x, 10, buf);
-                        top_right_edge = 128 - canvas_string_width(c, "-99999 nS") - right_margin;
+                        top_right_edge = draw_ns_top_right(c, a);
                     }
                 } else {
                     draw_sensor_alert(c, "NO SIGNAL");
@@ -481,21 +484,12 @@ void options_render(Canvas* c, void* ctx) {
         } else if(i == 7) {
             state = a->rf_calibrated ? "YES" : "NO";
         } else {
-            if(a->nav_model == GpsNavModelWrist) {
-                state = "WRIST";
-            } else if(a->nav_model == GpsNavModelVehicle) {
-                state = "VEHICLE";
-            } else if(a->nav_model == GpsNavModelStationary) {
-                state = "STATION";
-            } else if(a->nav_model == GpsNavModelSea) {
-                state = "SEA";
-            } else if(a->nav_model == GpsNavModelBike) {
-                state = "BIKE";
-            } else if(a->nav_model == GpsNavModelFlight) {
-                state = "FLIGHT";
-            } else {
-                state = "PED";
-            }
+            // Indexed by GpsNavModel's enum ordinal (biomap_config.h) —
+            // Pedestrian/Wrist/Vehicle/Stationary/Sea/Bike/Flight = 0..6.
+            static const char* const nav_model_labels[7] = {
+                "PED", "WRIST", "VEHICLE", "STATION", "SEA", "BIKE", "FLIGHT",
+            };
+            state = nav_model_labels[a->nav_model];
         }
         int sx = 128 - canvas_string_width(c, state) - 2;
         if(i == sel) canvas_invert_color(c);
@@ -506,13 +500,16 @@ void options_render(Canvas* c, void* ctx) {
     furi_mutex_release(a->mutex);
 }
 
-void calibration_menu_render(Canvas* c, void* ctx) {
+// Shared render body for the GSR and RF calibration menus (run_cal_submenu,
+// biomap_gui.c) — same "Start Wizard / Reset to Default / Show Current"
+// 3-item list, differing only in the title. Previously two copies.
+static void draw_cal_submenu(Canvas* c, void* ctx, const char* title) {
     int sel = *(int*)ctx;
     canvas_clear(c);
     canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, "GSR Calibration");
+    canvas_draw_str(c, 0, 10, title);
     canvas_set_font(c, FontSecondary);
-    
+
     const char* options[] = { "Start Wizard", "Reset to Default", "Show Current" };
     for(int i = 0; i < 3; i++) {
         int y = 25 + i * 12;
@@ -524,6 +521,10 @@ void calibration_menu_render(Canvas* c, void* ctx) {
         }
     }
     canvas_draw_str(c, 0, 60, "Press Back to return");
+}
+
+void calibration_menu_render(Canvas* c, void* ctx) {
+    draw_cal_submenu(c, ctx, "GSR Calibration");
 }
 
 void calibration_wizard_render(Canvas* c, void* ctx) {
@@ -619,23 +620,7 @@ void show_current_calibration_render(Canvas* c, void* ctx) {
 // ==========================================================================
 
 void rf_calibration_menu_render(Canvas* c, void* ctx) {
-    int sel = *(int*)ctx;
-    canvas_clear(c);
-    canvas_set_font(c, FontPrimary);
-    canvas_draw_str(c, 0, 10, "RF Calibration");
-    canvas_set_font(c, FontSecondary);
-
-    const char* options[] = { "Start Wizard", "Reset to Default", "Show Current" };
-    for(int i = 0; i < 3; i++) {
-        int y = 25 + i * 12;
-        if(i == sel) {
-            canvas_draw_str(c, 0, y, "> ");
-            canvas_draw_str(c, 10, y, options[i]);
-        } else {
-            canvas_draw_str(c, 10, y, options[i]);
-        }
-    }
-    canvas_draw_str(c, 0, 60, "Press Back to return");
+    draw_cal_submenu(c, ctx, "RF Calibration");
 }
 
 void rf_calibration_wizard_prep_render(Canvas* c, void* ctx) {
