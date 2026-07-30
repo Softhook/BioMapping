@@ -104,17 +104,8 @@ fully closed.**
 
 Ranked by what would most change confidence in this fix, not by effort.
 
-1. **`session_deinit()` still holds `app->mutex` across the entire
-   `gsr_sensor_free()` call, including `furi_thread_join()`**
-   (`biomap_session.c`). If the worker is ever wedged in the unbounded SPI
-   busy-wait *during teardown*, the GUI thread stalls too. Pre-existing
-   (the join-inside-`app->mutex` pattern predates this fix), narrower in
-   blast radius than the original bug (a ~1-2s teardown window, not the
-   whole active recording), and explicitly deferred earlier in this
-   review with the user's agreement. **Real fix, not yet done**: null
-   `s->logger`/`s->gsr`/`s->gps` under `app->mutex`, release the mutex,
-   *then* call the `_free()` functions on locally-saved copies — mirrors
-   the pattern the Tick handler already uses for SD flush.
+1. **[RESOLVED 2026-07-30] `session_deinit()` held `app->mutex` across `gsr_sensor_free()`**
+   (`biomap_session.c`). This was fixed by copying `s->logger`, `s->gsr`, and `s->gps` to local pointers and clearing them in the `Session` struct under `app->mutex`, then releasing `app->mutex` before executing the blocking `_free()` functions. This prevents the GUI thread from blocking on `app->mutex` if the worker thread takes time to join during teardown.
 2. **`WizardState`'s mutex fix (GSR calibration wizard) has zero test
    coverage.** It lives in `biomap_gui.c`/`biomap_render.c`, which need
    real Flipper `Canvas`/`ViewPort` types this host-test harness doesn't

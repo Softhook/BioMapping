@@ -93,29 +93,37 @@ void session_deinit(Session* s, BioMapApp* app) {
     // anyway — trivial next to the alternative (a torn-down pointer read
     // from another thread).
     furi_mutex_acquire(app->mutex, FuriWaitForever);
-    if(s->recording.active && s->logger) {
+    SdLogger* logger = s->logger;
+    GsrSensor* gsr = s->gsr;
+    GpsUart* gps = s->gps;
+    s->logger = NULL;
+    s->gsr = NULL;
+    s->gps = NULL;
+    bool active_recording = s->recording.active;
+    if(active_recording) {
+        s->recording.active = false;
+    }
+    furi_mutex_release(app->mutex);
+
+    if(active_recording && logger) {
         // Defensive fallback only — in normal operation the Back-key
         // handler and key_toggle_recording's stop path already clear
         // recording.active and flush before this runs, so this branch is
         // a no-op. Kept in sync with those call sites' failure handling
         // in case a future exit path ever reaches here with recording
         // still active.
-        if(!flush_before_stop(s->logger)) biomap_sound_warning(app->sound_enabled);
-        sd_logger_stop(s->logger);
+        if(!flush_before_stop(logger)) biomap_sound_warning(app->sound_enabled);
+        sd_logger_stop(logger);
     }
-    if(s->logger) {
-        sd_logger_free(s->logger);
-        s->logger = NULL;
+    if(logger) {
+        sd_logger_free(logger);
     }
-    if(s->gsr) {
-        gsr_sensor_free(s->gsr);
-        s->gsr = NULL;
+    if(gsr) {
+        gsr_sensor_free(gsr);
     }
-    if(s->gps) {
-        gps_uart_free(s->gps);
-        s->gps = NULL;
+    if(gps) {
+        gps_uart_free(gps);
     }
-    furi_mutex_release(app->mutex);
 
     // Restore auto backlight when leaving recording view
     notification_message(app->notifications, &sequence_display_backlight_enforce_auto);

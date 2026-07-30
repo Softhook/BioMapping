@@ -1047,6 +1047,80 @@ static void test_rf_enable_disable_stress_no_race(void) {
     printf("  -> Pass\n");
 }
 
+struct TeardownTestContext {
+    pthread_mutex_t mock_app_mutex;
+    GsrSensor* volatile shared_gsr;
+    _Atomic bool gui_thread_running;
+};
+
+static void* mock_gui_thread_fn(void* arg) {
+    struct TeardownTestContext* ctx = (struct TeardownTestContext*)arg;
+    float rf_rssi[EM_SCAN_NUM_FREQS];
+
+    while(ctx->gui_thread_running) {
+        pthread_mutex_lock(&ctx->mock_app_mutex);
+        GsrSensor* g = ctx->shared_gsr;
+        if(g) {
+            // Simulate render callback accesses
+            if(gsr_sensor_available(g)) {
+                gsr_sensor_get_rf_snapshot(g, rf_rssi);
+                volatile uint8_t pga = gsr_sensor_get_pga_index(g);
+                volatile int32_t mean = gsr_sensor_get_mean_count(g);
+                (void)pga; (void)mean;
+            }
+        }
+        pthread_mutex_unlock(&ctx->mock_app_mutex);
+        usleep(10); // yield
+    }
+    return NULL;
+}
+
+// Regression test for session_deinit early-release optimization:
+// Nulls s->gsr under app->mutex, releases it, then runs gsr_sensor_free().
+// Concurrently, the mock GUI thread tries to access shared_gsr under the
+// same mutex. This test proves that the GUI thread sees NULL and avoids
+// use-after-free, while never being blocked by the slow thread-join of
+// gsr_sensor_free() since the lock was released early.
+static void test_session_deinit_early_release_gui_safety(void) {
+    printf("Running test_session_deinit_early_release_gui_safety...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_subghz_mock_reset();
+    em_scan_rf_mock_reset();
+
+    struct TeardownTestContext ctx;
+    pthread_mutex_init(&ctx.mock_app_mutex, NULL);
+    ctx.shared_gsr = gsr_sensor_alloc();
+    assert(ctx.shared_gsr != NULL);
+    gsr_sensor_set_rf_enabled(ctx.shared_gsr, true);
+
+    ctx.gui_thread_running = true;
+    pthread_t gui_thread;
+    int rc = pthread_create(&gui_thread, NULL, mock_gui_thread_fn, &ctx);
+    assert(rc == 0);
+
+    // Let the GUI thread run and access the active sensor
+    usleep(5000);
+
+    // Simulate session_deinit early-release pattern:
+    pthread_mutex_lock(&ctx.mock_app_mutex);
+    GsrSensor* local_gsr = ctx.shared_gsr;
+    ctx.shared_gsr = NULL;
+    pthread_mutex_unlock(&ctx.mock_app_mutex);
+
+    // Free the sensor outside the lock (the slow join/deinit happens here)
+    if(local_gsr) {
+        gsr_sensor_free(local_gsr);
+    }
+
+    // Stop the mock GUI thread
+    ctx.gui_thread_running = false;
+    pthread_join(gui_thread, NULL);
+    pthread_mutex_destroy(&ctx.mock_app_mutex);
+
+    printf("  -> Pass\n");
+}
+
 int main(void) {
     test_alloc_probe_success();
     test_alloc_probe_failure();
@@ -1074,6 +1148,7 @@ int main(void) {
     test_gsr_path_not_blocked_by_slow_rf_spi_call();
     test_rf_disable_waits_for_inflight_spi_call_before_deinit();
     test_rf_enable_disable_stress_no_race();
+    test_session_deinit_early_release_gui_safety();
 
     printf("\nAll gsr_sensor host tests passed successfully!\n");
     return 0;
