@@ -1,5 +1,8 @@
 Todo
 
+Check that the RF worker inside the GSR thread is really working properly 
+Edinburgh will be a nice place to test it 
+
 priority - Think about the airport context. Would it make sense to put a microphone on there? [acoustic_aircraft_detection_proposal.md](file:///Users/softhook/Documents/GitHub/BioMapping/docs/acoustic_aircraft_detection_proposal.md)
 
 not priority - Send realtime data to mobile phone / laptop - upload to server
