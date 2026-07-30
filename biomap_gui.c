@@ -261,8 +261,12 @@ void run_options_screen(BioMapApp* app) {
     vp_pop(app, vp);
 }
 
-static void run_show_current_calibration(BioMapApp* app) {
-    ViewPort* vp = vp_push(app, show_current_calibration_render, app);
+// Simple pop-up viewer: pushes `render`, waits for OK or Back to dismiss,
+// then pops. Shared by the GSR (run_show_current_calibration below) and RF
+// (run_show_current_rf_calibration, biomap_rf_cal.c) "Show Current" screens
+// — see the declaration in biomap.h.
+void run_simple_viewer(BioMapApp* app, ViewPortDrawCallback render, void* ctx) {
+    ViewPort* vp = vp_push(app, render, ctx);
     drain_stale_events(app->event_queue);
     PluginEvent ev;
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
@@ -276,9 +280,19 @@ static void run_show_current_calibration(BioMapApp* app) {
     vp_pop(app, vp);
 }
 
-void run_calibration_menu(BioMapApp* app) {
+static void run_show_current_calibration(BioMapApp* app) {
+    run_simple_viewer(app, show_current_calibration_render, app);
+}
+
+// Generic "Start Wizard / Reset to Default / Show Current" 3-item submenu
+// loop — shared shape behind run_calibration_menu (GSR, below) and
+// run_rf_calibration_menu (RF, biomap_rf_cal.c) — see the declaration in
+// biomap.h.
+void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
+                      SubmenuAction start_wizard, SubmenuAction reset,
+                      SubmenuAction show_current) {
     int selection = 0;
-    ViewPort* vp = vp_push(app, calibration_menu_render, &selection);
+    ViewPort* vp = vp_push(app, render, &selection);
     drain_stale_events(app->event_queue);
     PluginEvent ev;
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
@@ -296,22 +310,28 @@ void run_calibration_menu(BioMapApp* app) {
             } else if(ev.input.key == InputKeyOk) {
                 if(selection == 0) {
                     biomap_sound_confirm(app->sound_enabled);
-                    run_calibration_wizard(app);
+                    start_wizard(app);
                     break;
                 } else if(selection == 1) {
                     biomap_sound_reset(app->sound_enabled);
-                    biomap_reset_calibration(app);
+                    reset(app);
                     break;
                 } else {
                     biomap_sound_confirm(app->sound_enabled);
-                    run_show_current_calibration(app);
-                    vp_push(app, calibration_menu_render, &selection);
+                    show_current(app);
+                    vp_push(app, render, &selection);
                 }
             }
             view_port_update(vp);
         }
     }
     vp_pop(app, vp);
+}
+
+void run_calibration_menu(BioMapApp* app) {
+    run_cal_submenu(app, calibration_menu_render,
+                    run_calibration_wizard, biomap_reset_calibration,
+                    run_show_current_calibration);
 }
 
 // GSR + Sound safety invariant for the calibration wizard: this function

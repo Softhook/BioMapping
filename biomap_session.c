@@ -564,11 +564,9 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
         return true;
     }
 
-    case InputKeyOk:
-        // key_toggle_recording needs NotificationApp* — pass NULL for now;
-        // the actual notifications pointer is available in the caller.
-        // (This is caught at build time — see the caller below.)
-        return false;  // handled by caller with full context
+    // InputKeyOk is never seen here: run_recording_session()'s event loop
+    // intercepts it (needs NotificationApp* for key_toggle_recording, which
+    // this helper doesn't have) before ever calling this function.
 
     case InputKeyUp:
         if(has_gsr(s->mode)) {

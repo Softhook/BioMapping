@@ -7,61 +7,21 @@
 // verbatim (see em_scan_biomap_merge_plan.md's "Calibration wizard
 // control-flow style" design decision). Kept in its own file rather than
 // folded into biomap_gui.c (already 500+ lines) — vp_push/vp_pop/
-// drain_stale_events/cycle_selection are shared from there (see biomap.h).
+// drain_stale_events/cycle_selection/run_cal_submenu/run_simple_viewer are
+// shared from there (see biomap.h).
 #include "biomap.h"
 
 // ── Show current RF calibration ─────────────────────────────────────────
+// run_simple_viewer/run_cal_submenu (biomap_gui.c) hold the shared
+// Up/Down/OK/Back loop shapes — see biomap.h.
 static void run_show_current_rf_calibration(BioMapApp* app) {
-    ViewPort* vp = vp_push(app, rf_show_current_calibration_render, app);
-    drain_stale_events(app->event_queue);
-    PluginEvent ev;
-    while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
-        if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
-            if(ev.input.key == InputKeyBack || ev.input.key == InputKeyOk) {
-                biomap_sound_back(app->sound_enabled);
-                break;
-            }
-        }
-    }
-    vp_pop(app, vp);
+    run_simple_viewer(app, rf_show_current_calibration_render, app);
 }
 
 void run_rf_calibration_menu(BioMapApp* app) {
-    int selection = 0;
-    ViewPort* vp = vp_push(app, rf_calibration_menu_render, &selection);
-    drain_stale_events(app->event_queue);
-    PluginEvent ev;
-    while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
-        if(ev.type == EventTypeKey && ev.input.type == InputTypeShort) {
-            if(ev.input.key == InputKeyBack) {
-                biomap_sound_back(app->sound_enabled);
-                break;
-            }
-            if(ev.input.key == InputKeyUp) {
-                selection = cycle_selection(selection, 3, false); // 3 items
-                biomap_sound_click(app->sound_enabled);
-            } else if(ev.input.key == InputKeyDown) {
-                selection = cycle_selection(selection, 3, true);
-                biomap_sound_click(app->sound_enabled);
-            } else if(ev.input.key == InputKeyOk) {
-                if(selection == 0) {
-                    biomap_sound_confirm(app->sound_enabled);
-                    run_rf_calibration_wizard(app);
-                    break;
-                } else if(selection == 1) {
-                    biomap_sound_reset(app->sound_enabled);
-                    biomap_reset_rf_calibration(app);
-                    break;
-                } else {
-                    biomap_sound_confirm(app->sound_enabled);
-                    run_show_current_rf_calibration(app);
-                    vp_push(app, rf_calibration_menu_render, &selection);
-                }
-            }
-            view_port_update(vp);
-        }
-    }
-    vp_pop(app, vp);
+    run_cal_submenu(app, rf_calibration_menu_render,
+                    run_rf_calibration_wizard, biomap_reset_rf_calibration,
+                    run_show_current_rf_calibration);
 }
 
 void run_rf_calibration_wizard(BioMapApp* app) {

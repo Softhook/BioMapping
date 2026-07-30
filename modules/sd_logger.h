@@ -2,8 +2,10 @@
 
 // SD Logger — auto-incrementing CSV writer.
 // Files: /ext/biomapping/biomap_001.csv … biomap_999.csv (wraps at 999).
-// Columns (10): timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw
-// See docs/csv_schema.md for the authoritative field-by-field specification.
+// Column layout varies by mode (GSR-only / GPS+GSR / GPS+GSR+RF) — see the
+// BIOMAP_CSV_COLS_* headers in biomap_config.h for the authoritative,
+// currently-in-force column lists, and docs/csv_schema.md for the
+// field-by-field specification.
 
 #include <storage/storage.h>
 #include <stdbool.h>

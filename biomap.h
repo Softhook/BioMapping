@@ -250,3 +250,20 @@ ViewPort* vp_push(BioMapApp* app, ViewPortDrawCallback draw, void* ctx);
 void      vp_pop(BioMapApp* app, ViewPort* vp);
 void      drain_stale_events(FuriMessageQueue* q);
 int32_t   cycle_selection(int32_t sel, int32_t count, bool down);
+
+// One of a submenu's fixed actions (start wizard / reset / show current) —
+// see run_cal_submenu below.
+typedef void (*SubmenuAction)(BioMapApp* app);
+
+// Generic "Start Wizard / Reset to Default / Show Current" 3-item submenu
+// loop — shared shape behind run_calibration_menu (biomap_gui.c, GSR) and
+// run_rf_calibration_menu (biomap_rf_cal.c, RF), which were previously two
+// copies of the identical Up/Down/OK/Back loop differing only in which
+// three functions and render callback they called.
+void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
+                      SubmenuAction start_wizard, SubmenuAction reset,
+                      SubmenuAction show_current);
+
+// Simple pop-up viewer: pushes `render`, waits for OK or Back to dismiss,
+// then pops. Shared by the GSR and RF "Show Current" calibration screens.
+void run_simple_viewer(BioMapApp* app, ViewPortDrawCallback render, void* ctx);
