@@ -18,6 +18,20 @@
 //
 // Always probed at alloc(); gsr_sensor_available() reports success.
 // Readings return 0 and tick() is a no-op if the probe fails.
+//
+// Thread safety / lock ordering: every accessor below that touches shared
+// state acquires this module's own internal mutex (private to GsrSensor in
+// gsr_sensor.c) — safe to call from a caller that is ALREADY holding
+// BioMapApp's app->mutex (biomap_render_callback and the tick handler in
+// biomap_session.c both do exactly this). That's safe specifically because
+// this module never acquires app->mutex itself — it doesn't even hold a
+// reference to BioMapApp — so the lock order is always app->mutex-then-
+// GsrSensor's-internal-mutex, never the reverse. Do not add any call from
+// inside this module (or gsr_sensor_worker's background thread) back into
+// app->mutex; that would create the opposite ordering and open up a
+// deadlock between the two. (Contrast with gps_uart.h's rule, which is the
+// opposite kind of caution for a different reason — bounding how long
+// app->mutex stays held during NMEA parsing, not lock ordering.)
 
 #include <stdbool.h>
 #include <stdint.h>

@@ -147,7 +147,7 @@ static void render_gps_detail(Canvas* c, BioMapApp* a) {
     }
 }
 
-// Render the zoom label (bottom-right corner), caching format/width to
+// Render the zoom label (bottom-left corner), caching format/width to
 // avoid snprintf + canvas_string_width on every frame.  Mutex held by caller.
 static void render_zoom_label(Canvas* c, BioMapApp* a) {
     if(a->session.pipeline.zoom.level < a->session.zoom_label_last - 0.05f ||
@@ -160,6 +160,45 @@ static void render_zoom_label(Canvas* c, BioMapApp* a) {
     }
     canvas_set_font(c, FontSecondary);
     canvas_draw_str(c, 2, 62, a->session.zoom_label);
+}
+
+// ── Live RF band indicator ──────────────────────────────────────────────
+// Three tiny bars, one per em_scan_freq_hz/em_scan_freq_label band
+// (815/868/915 MHz), height = live RSSI on a fixed dBm scale — but nothing
+// is drawn at all for a band sitting at/below RF_VIZ_FLOOR_DBM, so the
+// corner stays blank during ordinary ambient conditions and a bar only
+// appears once that band is actually elevated. Deliberately no numbers or
+// labels — a glanceable "is anything elevated right now" instrument, not a
+// data readout (the real per-band dBm values already go to the CSV via
+// format_gps_csv_row, biomap_session.c). Drawn in
+// BioMapModeGpsGsrRf (bottom-right, mirroring render_zoom_label's
+// bottom-left corner above) and BioMapModeGpsOnly ("GPS + RF" — top-right,
+// where GpsGsr's nS value/GPS badge would go but don't apply to this
+// GSR-less mode) — see biomap_render_callback.
+#define RF_VIZ_FLOOR_DBM  (-90.0f) // ambient-noise reference — matches em_scan_cal_max_floor_dbm; real-world idle (tracks/biomap_111.csv) sits -92.5..-90.5 dBm
+#define RF_VIZ_CEIL_DBM   (-72.0f) // "strong signal" reference — real-world elevated peaks (tracks/biomap_111.csv) top out around -72.5 dBm
+#define RF_VIZ_BAR_W          3
+#define RF_VIZ_BAR_GAP        1
+#define RF_VIZ_BAR_MAX_H      8
+
+// Draws EM_SCAN_NUM_FREQS bars growing upward from (right_x, baseline_y),
+// right-aligned so right_x is always the rightmost pixel regardless of
+// which corner the caller places them in. At or below RF_VIZ_FLOOR_DBM a
+// band draws NOTHING at all — no sliver, no placeholder — so the corner is
+// genuinely blank during ordinary ambient conditions, and a bar only
+// appears once that band's reading has actually risen above the floor.
+static void draw_rf_bars(Canvas* c, const float rssi_dbm[EM_SCAN_NUM_FREQS],
+                          int right_x, int baseline_y) {
+    int total_w = EM_SCAN_NUM_FREQS * RF_VIZ_BAR_W + (EM_SCAN_NUM_FREQS - 1) * RF_VIZ_BAR_GAP;
+    int left_x = right_x - total_w + 1;
+    for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+        float frac = (rssi_dbm[i] - RF_VIZ_FLOOR_DBM) / (RF_VIZ_CEIL_DBM - RF_VIZ_FLOOR_DBM);
+        frac = fmaxf(0.0f, fminf(1.0f, frac));
+        int h = (int)(frac * RF_VIZ_BAR_MAX_H + 0.5f);
+        if(h <= 0) continue; // at/below the floor — draw nothing for this band
+        int bx = left_x + i * (RF_VIZ_BAR_W + RF_VIZ_BAR_GAP);
+        canvas_draw_box(c, bx, baseline_y - h, RF_VIZ_BAR_W, h);
+    }
 }
 
 // nS value, top-right corner — shared by the GSR-Only layout (top-left
@@ -218,6 +257,22 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     bool gps_gsr_top_bar = (a->session.mode == BioMapModeGpsGsr
                           || a->session.mode == BioMapModeGpsGsrRf);
 
+    // Live RF band-bar snapshot (see draw_rf_bars above) — fetched once
+    // here rather than separately in each branch below. Scoped to exactly
+    // GpsGsrRf/GpsOnly, NOT has_rf()'s full set — Diagnostics also has RF
+    // active (see has_rf's doc comment in biomap_types.h) but shows its own
+    // dedicated diagnostic counters instead, so it doesn't need these bars
+    // and shouldn't pay for the snapshot's mutex acquisition either. Since
+    // has_graph's mode set ({GpsGsrRf, GpsGsr, GsrOnly}) and rf_viz's mode
+    // set ({GpsGsrRf, GpsOnly}) only overlap at GpsGsrRf, and the no-graph
+    // branch further down only reaches GpsOnly among rf_viz's set, plain
+    // `if(rf_viz)` at each draw_rf_bars call site below is already
+    // equivalent to checking the specific mode — no need to re-check it.
+    float rf_rssi[EM_SCAN_NUM_FREQS];
+    bool rf_viz = (a->session.mode == BioMapModeGpsGsrRf || a->session.mode == BioMapModeGpsOnly)
+               && a->session.gsr;
+    if(rf_viz) gsr_sensor_get_rf_snapshot(a->session.gsr, rf_rssi);
+
     // Right/left edges of whatever ends up occupying the top-left label
     // (GPS badge / time-span) and top-right nS value slots on this frame.
     // Populated below as those elements are drawn, then used to place the
@@ -229,6 +284,11 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     if(has_graph) {
         draw_graph(c, a, 0, 16, 128, 48);
         render_zoom_label(c, a);
+        // RF bars, bottom-right — mirrors render_zoom_label's bottom-left
+        // corner above. Independent of GSR connect state (the cuffs being
+        // disconnected doesn't affect RF), so this sits outside the
+        // gsr_sensor_is_connected() branch below.
+        if(rf_viz) draw_rf_bars(c, rf_rssi, 126, 63);
     }
 
     // Recording indicator only — no title to maximise data visibility
@@ -405,6 +465,17 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         }
     } else if(!is_diag && a->session.gps) {
         render_gps_detail(c, a);
+        // RF bars, top-right — this mode (GpsOnly, "GPS + RF") has no GSR
+        // badge/nS value up there (gps_gsr_top_bar doesn't apply to it), so
+        // the corner is otherwise empty EXCEPT for the recording indicator
+        // box (118,1,8x8, drawn earlier in this function) whenever
+        // recording.active — same right_margin dance draw_ns_top_right
+        // uses for the same reason: shift further left while that box is
+        // showing so the bars don't land on top of it.
+        if(rf_viz) {
+            int right_margin = a->session.recording.active ? 12 : 2;
+            draw_rf_bars(c, rf_rssi, 128 - right_margin, 10);
+        }
     } else if(!is_diag) {
         canvas_draw_str(c, 0, 20, "GPS unavailable");
     }
