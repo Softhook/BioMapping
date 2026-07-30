@@ -606,13 +606,25 @@ void calibration_menu_render(Canvas* c, void* ctx) {
 
 void calibration_wizard_render(Canvas* c, void* ctx) {
     WizardState* w = (WizardState*)ctx;
+
+    // Guards against run_calibration_wizard()'s measurement loop (main
+    // thread), which rewrites step/measured[]/gain/offset/r_squared as
+    // each resistor is measured — see WizardState's doc comment in
+    // biomap.h.
+    furi_mutex_acquire(w->mutex, FuriWaitForever);
+    int step = w->step;
+    float gain = w->gain;
+    float offset = w->offset;
+    float r_squared = w->r_squared;
+    furi_mutex_release(w->mutex);
+
     canvas_clear(c);
     canvas_set_font(c, FontPrimary);
     canvas_draw_str(c, 0, 10, "GSR Calibration");
     canvas_set_font(c, FontSecondary);
-    
+
     char buf[64];
-    switch(w->step) {
+    switch(step) {
     case 0: // Prompt 470k
         canvas_draw_str(c, 0, 25, "Step 1/3: Low (470k)");
         canvas_draw_str(c, 0, 37, "Connect 470k resistor");
@@ -642,9 +654,9 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
         break;
     case 8: // Success
         canvas_draw_str(c, 0, 23, "Calibration Success!");
-        snprintf(buf, sizeof(buf), "Gain: %.3fx  R\xb2: %.4f", (double)w->gain, (double)w->r_squared);
+        snprintf(buf, sizeof(buf), "Gain: %.3fx  R\xb2: %.4f", (double)gain, (double)r_squared);
         canvas_draw_str(c, 0, 35, buf);
-        snprintf(buf, sizeof(buf), "Offset: %.0f nS", (double)w->offset);
+        snprintf(buf, sizeof(buf), "Offset: %.0f nS", (double)offset);
         canvas_draw_str(c, 0, 47, buf);
         canvas_draw_str(c, 0, 60, "[OK to Save, Back to Cancel]");
         break;
@@ -656,7 +668,7 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
     case 10: // Fit failed — bounds or R²
         canvas_draw_str(c, 0, 25, "Calibration Failed!");
         canvas_draw_str(c, 0, 37, "Device out of range.");
-        snprintf(buf, sizeof(buf), "Gain: %.3fx  R\xb2: %.4f", (double)w->gain, (double)w->r_squared);
+        snprintf(buf, sizeof(buf), "Gain: %.3fx  R\xb2: %.4f", (double)gain, (double)r_squared);
         canvas_draw_str(c, 0, 49, buf);
         canvas_draw_str(c, 0, 61, "[Press OK to Retry]");
         break;

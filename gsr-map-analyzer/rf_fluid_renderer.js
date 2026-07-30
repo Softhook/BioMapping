@@ -299,15 +299,15 @@ class RFFluidRenderer {
       }
     }
 
-    // Absolute Hardware / Squelch noise floor cutoff (-85.0 dBm).
-    // Readings at or below -85.0 dBm are ambient noise, not active RF detections.
-    const hardNoiseFloor = -85.0;
+    // Absolute Hardware / Squelch noise floor cutoff (-90.0 dBm).
+    // Readings at or below -90.0 dBm are ambient noise, not active RF detections.
+    const hardNoiseFloor = -90.0;
 
     const calcBandStats = (minVal, maxVal) => {
       const floor = isFinite(minVal) ? minVal : -91.5;
       const peak  = isFinite(maxVal) ? maxVal : -91.5;
-      // Active signal flag: peak must exceed absolute noise floor (-85.0 dBm) AND rise >= 5.0 dBm above track minimum floor
-      const hasActiveSignal = (peak > hardNoiseFloor) && ((peak - floor) >= 5.0);
+      // Active signal flag: peak must exceed absolute noise floor (-90.0 dBm) AND rise >= 3.0 dBm above track minimum floor
+      const hasActiveSignal = (peak > hardNoiseFloor) && ((peak - floor) >= 3.0);
       return { floor, peak, hasActiveSignal };
     };
 
@@ -332,12 +332,12 @@ class RFFluidRenderer {
     // If band has no active signals exceeding noise floor on this track, return 0.0
     if (!stats.hasActiveSignal) return 0.0;
 
-    const hardNoiseFloor = -85.0;
+    const hardNoiseFloor = -90.0;
     const floor = stats.floor;
     const peak  = stats.peak;
 
-    // Threshold offset: signal must exceed both absolute hard noise floor (-85 dBm) AND local floor + 5.0 dBm
-    const threshold = Math.max(hardNoiseFloor, floor + 5.0);
+    // Threshold offset: signal must exceed both absolute hard noise floor (-90 dBm) AND local floor + 3.0 dBm
+    const threshold = Math.max(hardNoiseFloor, floor + 3.0);
 
     if (val <= threshold) {
       return 0.0; // Ambient noise floor — zero fluid rendered
@@ -502,13 +502,13 @@ class RFFluidRenderer {
         const n868 = node.has868 ? this._normDbm(node.r868, 868) : 0;
         const n915 = node.has915 ? this._normDbm(node.r915, 915) : 0;
 
-        // Orthogonal high-saturation additive multi-spectral synthesis:
-        // 815 MHz (LTE Edge)   -> Vivid Warm Amber Coral  (245, 120, 10)
-        // 868 MHz (Grid Smart) -> Vivid Emerald Green      (10, 225, 110)
-        // 915 MHz (ISM SubGHz) -> Vivid Electric Cyan/Blue (6, 175, 255)
-        rVal = Math.round(n815 * 245 + n868 * 10 + n915 * 6);
-        gVal = Math.round(n815 * 120 + n868 * 225 + n915 * 175);
-        bVal = Math.round(n815 * 10 + n868 * 110 + n915 * 255);
+        // Pure orthogonal additive multi-spectral RGB synthesis:
+        // 815 MHz (LTE Edge)   -> Pure Red   (255, 0, 0)
+        // 868 MHz (Grid Smart) -> Pure Green (0, 255, 0)
+        // 915 MHz (ISM SubGHz) -> Pure Blue  (0, 0, 255)
+        rVal = Math.round(n815 * 255);
+        gVal = Math.round(n868 * 255);
+        bVal = Math.round(n915 * 255);
 
         rVal = Math.min(255, rVal);
         gVal = Math.min(255, gVal);
@@ -518,24 +518,24 @@ class RFFluidRenderer {
         alpha = Math.min(1.0, maxN * 0.95);
       } else if (mode === '815') {
         const n = node.has815 ? this._normDbm(node.r815, 815) : 0;
-        rVal = 245; gVal = 120; bVal = 10;
+        rVal = 255; gVal = 0; bVal = 0;
         alpha = Math.min(1.0, n * 0.95);
       } else if (mode === '868') {
         const n = node.has868 ? this._normDbm(node.r868, 868) : 0;
-        rVal = 10; gVal = 225; bVal = 110;
+        rVal = 0; gVal = 255; bVal = 0;
         alpha = Math.min(1.0, n * 0.95);
       } else if (mode === '915') {
         const n = node.has915 ? this._normDbm(node.r915, 915) : 0;
-        rVal = 6; gVal = 175; bVal = 255;
+        rVal = 0; gVal = 0; bVal = 255;
         alpha = Math.min(1.0, n * 0.95);
       } else if (mode === 'fog') {
         if (!node.hasFog || node.fog <= 0) {
           alpha = 0;
         } else {
           const n = Math.min(1, node.fog / 30.0);
-          rVal = Math.round(n * 245 + (1 - n) * 6);
-          gVal = Math.round(n * 120 + (1 - n) * 175);
-          bVal = Math.round(n * 10 + (1 - n) * 255);
+          rVal = Math.round(n * 255);
+          gVal = 0;
+          bVal = Math.round((1 - n) * 255);
           alpha = n > 0.05 ? Math.min(1.0, n * 0.95) : 0.0;
         }
       }

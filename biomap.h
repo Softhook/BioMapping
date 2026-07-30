@@ -208,7 +208,18 @@ typedef struct {
 //   1 = measure 470k   5 = measure 47k     9 = measurement fail
 //   2 = prompt 100k    6 = compute fit     10 = fit fail (bounds / R²)
 //   3 = measure 100k   7 = (unused)
+//
+// Lives as a stack-local in run_calibration_wizard() (biomap_gui.c), but
+// its draw callback (biomap_render.c's calibration_wizard_render()) runs
+// on the GUI service's own thread, triggered asynchronously by
+// view_port_update() — genuinely cross-thread shared for as long as the
+// wizard's ViewPort points at it. `mutex` guards every field below.
+// Structurally identical to RfCalWizardState below (same stack-local /
+// async-render-callback shape), which got this same mutex after a forensic
+// audit found it missing there (2026-07-29) — this struct was missed by
+// that audit and had no lock at all until the 2026-07-30 mutex review.
 typedef struct {
+    FuriMutex* mutex;
     int   step;
     float measured[CAL_POINTS];  // [470k, 100k, 47k]
     float gain;

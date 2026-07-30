@@ -35,6 +35,8 @@ class GSRMapManager {
     this.showIsolines = true;
     this.showSurface = true;
     this.showTracks = true;
+    this.showRFFluid = true;
+    this.hasRfData = false;
     this.clusterLayers = [];
     this.activeColoringMetric = 'gsr';
     this._legendControl = null;
@@ -143,6 +145,7 @@ class GSRMapManager {
     };
 
     const title = metricNames[metric] || metric;
+    let html = '';
 
     if (metric === 'roadClass') {
       const allRoadLabels = {
@@ -162,7 +165,7 @@ class GSRMapManager {
         'unclassified':   '#8899aa',
         'steps':          '#cc9966'
       };
-      let html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
+      html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
       let count = 0;
       for (const [name, color] of Object.entries(allRoadLabels)) {
         if (this._legendUniqueVals && !this._legendUniqueVals.has(name)) continue;
@@ -171,71 +174,131 @@ class GSRMapManager {
       }
       if (count === 0) html += '<div class="legend-swatch-row" style="color:#999">No data</div>';
       html += '</div>';
-      el.innerHTML = html;
-      return;
-    }
-
-    if (metric === 'inPark') {
+    } else if (metric === 'inPark') {
       const hasYes = this._legendUniqueVals && this._legendUniqueVals.has(1);
       const hasNo  = this._legendUniqueVals && this._legendUniqueVals.has(0);
-      let html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
+      html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
       if (hasYes) html += '<div class="legend-swatch-row"><span class="legend-swatch" style="background:#00e575"></span>Yes</div>';
       if (hasNo)  html += '<div class="legend-swatch-row"><span class="legend-swatch" style="background:#666666"></span>No</div>';
       if (!hasYes && !hasNo) html += '<div class="legend-swatch-row" style="color:#999">No data</div>';
       html += '</div>';
-      el.innerHTML = html;
-      return;
+    } else {
+      // Continuous metrics — build gradient bar
+      const minV = this._legendMinVal;
+      const maxV = this._legendMaxVal;
+
+      let gradient;
+      switch (metric) {
+        case 'greenPct':
+          gradient = 'linear-gradient(90deg, hsl(30,80%,45%), hsl(130,80%,45%))';
+          break;
+        case 'buildingDensity':
+          gradient = 'linear-gradient(90deg, hsl(120,85%,50%), hsl(60,85%,50%), hsl(0,85%,50%))';
+          break;
+        case 'distMajorRoad':
+          gradient = 'linear-gradient(90deg, hsl(0,85%,50%), hsl(60,85%,50%), hsl(120,85%,50%))';
+          break;
+        case 'distWater':
+          gradient = 'linear-gradient(90deg, hsl(200,80%,45%), hsl(100,80%,45%), hsl(30,80%,45%))';
+          break;
+        case 'treeDensity':
+          gradient = 'linear-gradient(90deg, hsl(60,30%,45%), hsl(140,90%,45%))';
+          break;
+        case 'amenityCount':
+          gradient = 'linear-gradient(90deg, hsl(240,85%,55%), hsl(120,85%,55%), hsl(0,85%,55%))';
+          break;
+        case 'hdopQuality':
+          // Gradient left = best accuracy (green), right = worst (red)
+          gradient = 'linear-gradient(90deg, hsl(120,90%,45%), hsl(60,90%,45%), hsl(0,90%,45%))';
+          break;
+        default: // gsr
+          gradient = 'linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%))';
+          break;
+      }
+
+      // Format min/max nicely
+      const fmt = (v) => {
+        if (v >= 100) return v.toFixed(0);
+        if (v >= 1) return v.toFixed(1);
+        return v.toFixed(3);
+      };
+
+      const leftLabel  = metric === 'hdopQuality' ? `HDOP ${fmt(minV)} (best)` : fmt(minV);
+      const rightLabel = metric === 'hdopQuality' ? `HDOP ${fmt(maxV)} (worst)` : fmt(maxV);
+
+      html = `
+        <div class="legend-title">${title}</div>
+        <div class="legend-scale">
+          <div class="legend-gradient" style="background:${gradient}"></div>
+          <div class="legend-labels"><span>${leftLabel}</span><span>${rightLabel}</span></div>
+        </div>`;
     }
 
-    // Continuous metrics — build gradient bar
-    const minV = this._legendMinVal;
-    const maxV = this._legendMaxVal;
-
-    let gradient;
-    switch (metric) {
-      case 'greenPct':
-        gradient = 'linear-gradient(90deg, hsl(30,80%,45%), hsl(130,80%,45%))';
-        break;
-      case 'buildingDensity':
-        gradient = 'linear-gradient(90deg, hsl(120,85%,50%), hsl(60,85%,50%), hsl(0,85%,50%))';
-        break;
-      case 'distMajorRoad':
-        gradient = 'linear-gradient(90deg, hsl(0,85%,50%), hsl(60,85%,50%), hsl(120,85%,50%))';
-        break;
-      case 'distWater':
-        gradient = 'linear-gradient(90deg, hsl(200,80%,45%), hsl(100,80%,45%), hsl(30,80%,45%))';
-        break;
-      case 'treeDensity':
-        gradient = 'linear-gradient(90deg, hsl(60,30%,45%), hsl(140,90%,45%))';
-        break;
-      case 'amenityCount':
-        gradient = 'linear-gradient(90deg, hsl(240,85%,55%), hsl(120,85%,55%), hsl(0,85%,55%))';
-        break;
-      case 'hdopQuality':
-        // Gradient left = best accuracy (green), right = worst (red)
-        gradient = 'linear-gradient(90deg, hsl(120,90%,45%), hsl(60,90%,45%), hsl(0,90%,45%))';
-        break;
-      default: // gsr
-        gradient = 'linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%))';
-        break;
+    // Append RF Fluid Legend if active and active track has RF data:
+    if (this.showRFFluid && this.rfFluidRenderer && this.hasRfData) {
+      const rfMode = this.rfFluidRenderer.options.mode;
+      let rfHtml = '';
+      if (rfMode === 'triband') {
+        rfHtml = `
+          <hr style="margin: 8px 0; border: 0; border-top: 1px dashed #ccc;" />
+          <div class="legend-title" style="margin-bottom: 6px;">RF Fluid (Tri-Band)</div>
+          <div class="legend-swatches">
+            <div class="legend-swatch-row">
+              <span class="legend-swatch" style="background:#ff0000; border-radius:3px;"></span>
+              815 MHz (LTE)
+            </div>
+            <div class="legend-swatch-row">
+              <span class="legend-swatch" style="background:#00ff00; border-radius:3px;"></span>
+              868 MHz (Grid)
+            </div>
+            <div class="legend-swatch-row">
+              <span class="legend-swatch" style="background:#0000ff; border-radius:3px;"></span>
+              915 MHz (ISM)
+            </div>
+          </div>`;
+      } else if (rfMode === '815') {
+        rfHtml = `
+          <hr style="margin: 8px 0; border: 0; border-top: 1px dashed #ccc;" />
+          <div class="legend-title" style="margin-bottom: 6px;">RF Fluid (815 MHz)</div>
+          <div class="legend-swatches">
+            <div class="legend-swatch-row">
+              <span class="legend-swatch" style="background:#ff0000; border-radius:3px;"></span>
+              815 MHz Active
+            </div>
+          </div>`;
+      } else if (rfMode === '868') {
+        rfHtml = `
+          <hr style="margin: 8px 0; border: 0; border-top: 1px dashed #ccc;" />
+          <div class="legend-title" style="margin-bottom: 6px;">RF Fluid (868 MHz)</div>
+          <div class="legend-swatches">
+            <div class="legend-swatch-row">
+              <span class="legend-swatch" style="background:#00ff00; border-radius:3px;"></span>
+              868 MHz Active
+            </div>
+          </div>`;
+      } else if (rfMode === '915') {
+        rfHtml = `
+          <hr style="margin: 8px 0; border: 0; border-top: 1px dashed #ccc;" />
+          <div class="legend-title" style="margin-bottom: 6px;">RF Fluid (915 MHz)</div>
+          <div class="legend-swatches">
+            <div class="legend-swatch-row">
+              <span class="legend-swatch" style="background:#0000ff; border-radius:3px;"></span>
+              915 MHz Active
+            </div>
+          </div>`;
+      } else if (rfMode === 'fog') {
+        rfHtml = `
+          <hr style="margin: 8px 0; border: 0; border-top: 1px dashed #ccc;" />
+          <div class="legend-title" style="margin-bottom: 6px;">EM Fog Intensity</div>
+          <div class="legend-scale">
+            <div class="legend-gradient" style="background: linear-gradient(90deg, #0000ff, #ff0000);"></div>
+            <div class="legend-labels"><span>Low</span><span>High</span></div>
+          </div>`;
+      }
+      html += rfHtml;
     }
 
-    // Format min/max nicely
-    const fmt = (v) => {
-      if (v >= 100) return v.toFixed(0);
-      if (v >= 1) return v.toFixed(1);
-      return v.toFixed(3);
-    };
-
-    const leftLabel  = metric === 'hdopQuality' ? `HDOP ${fmt(minV)} (best)` : fmt(minV);
-    const rightLabel = metric === 'hdopQuality' ? `HDOP ${fmt(maxV)} (worst)` : fmt(maxV);
-
-    el.innerHTML = `
-      <div class="legend-title">${title}</div>
-      <div class="legend-scale">
-        <div class="legend-gradient" style="background:${gradient}"></div>
-        <div class="legend-labels"><span>${leftLabel}</span><span>${rightLabel}</span></div>
-      </div>`;
+    el.innerHTML = html;
   }
 
   /**
@@ -266,6 +329,7 @@ class GSRMapManager {
     this._legendMinVal = 0;
     this._legendMaxVal = 0;
     this._legendUniqueVals = null;
+    this.hasRfData = false;
     this.updateLegend();
   }
 
@@ -399,6 +463,7 @@ class GSRMapManager {
     }
     this._lastDrawPoints = drawPoints;
     const hasRf = !!(analyzer && analyzer.hasRfData);
+    this.hasRfData = hasRf;
     if (this.rfFluidRenderer) {
       this.rfFluidRenderer.setData(drawPoints, analyzer.osmGeoms);
     }
@@ -1654,6 +1719,7 @@ class GSRMapManager {
     if (this.rfFluidRenderer) {
       this.rfFluidRenderer.setVisible(this.showRFFluid);
     }
+    this.updateLegend();
     return this.showRFFluid;
   }
 
@@ -1661,6 +1727,7 @@ class GSRMapManager {
     if (this.rfFluidRenderer) {
       this.rfFluidRenderer.setMode(mode);
     }
+    this.updateLegend();
   }
 
   setRFFluidOpacity(opacity) {

@@ -661,6 +661,14 @@ static void test_rf_band_rotates_through_all_three_bands(void) {
 // "many thousands of loop iterations must NOT be enough on their own" and
 // "reaching the configured ms value, whether that takes many iterations or
 // few, must be enough".
+// Regression test for two elapsed-time (not iteration-count) properties in
+// gsr_sensor.c's RF section: RF_SAMPLE_INTERVAL_MS paces individual RSSI
+// reads to ~10 Hz, and RF_DWELL_MS paces band rotation — neither is a
+// counted number of worker-loop iterations, both are real furi_get_tick()
+// deltas. em_scan_rf.c's em_scan_rf_park_band() found on real hardware
+// (tracks 75-80) that counting iterations instead of elapsed ticks
+// inflated a configured 300ms park to ~630-670ms, because furi_delay_ms()
+// rounds up to the nearest OS tick and that cost compounds per iteration.
 static void test_rf_dwell_completes_on_elapsed_time_not_iteration_count(void) {
     printf("Running test_rf_dwell_completes_on_elapsed_time_not_iteration_count...\n");
     furi_hal_i2c_mock_reset();
@@ -671,36 +679,45 @@ static void test_rf_dwell_completes_on_elapsed_time_not_iteration_count(void) {
 
     GsrSensor* gsr = gsr_sensor_alloc();
     assert(gsr != NULL);
-    gsr_sensor_set_rf_enabled(gsr, true); // arms band 0 at the current fake tick
+    gsr_sensor_set_rf_enabled(gsr, true); // arms band 0; forces an immediate first sample
 
-    // Let the worker spin through many thousands of iterations WITHOUT this
-    // test advancing the fake clock at all (wait_for_more_rssi_reads' own
-    // polling loop still calls furi_test_advance_tick(1) once per 200us
-    // wake-up, so use a tight local loop instead to hold the clock still
-    // while still giving the worker real wall-clock time to run).
-    int start = furi_hal_subghz_mock_get_rssi_call_count();
+    // Let the worker take that forced first sample (real wall-clock wait,
+    // fake tick untouched), then hold the clock frozen and spin real
+    // wall-clock time — RF_SAMPLE_INTERVAL_MS's pacing gate compares
+    // furi_get_tick() against the last sample's tick, so with the clock
+    // not moving, no further RSSI reads should occur no matter how many
+    // thousands of loop iterations the worker spins through.
     int waited_us = 0;
-    while(furi_hal_subghz_mock_get_rssi_call_count() < start + 5000) {
+    while(furi_hal_subghz_mock_get_rssi_call_count() < 1) {
         usleep(200);
         waited_us += 200;
-        if(waited_us > 5000000) { fprintf(stderr, "TIMEOUT\n"); assert(false); }
+        if(waited_us > 5000000) { fprintf(stderr, "TIMEOUT: no initial RF sample\n"); assert(false); }
     }
-    printf("  band0 visits=%d after 5000+ RSSI reads with the clock held still (expect 1)\n",
-           em_scan_rf_mock_visit_count(0));
+    int count_after_first_sample = furi_hal_subghz_mock_get_rssi_call_count();
+
+    waited_us = 0;
+    while(waited_us < 500000) { // ~500ms of real wall-clock time, clock frozen
+        usleep(200);
+        waited_us += 200;
+    }
+    printf("  rssi_calls=%d after ~500ms wall time with the clock held still (expect unchanged from %d)\n",
+           furi_hal_subghz_mock_get_rssi_call_count(), count_after_first_sample);
+    assert(furi_hal_subghz_mock_get_rssi_call_count() == count_after_first_sample);
     assert(em_scan_rf_mock_visit_count(0) == 1); // must NOT have rotated on iteration count alone
 
-    // Advance to just short of RF_DWELL_MS (300ms @ 1000 Hz shim frequency)
-    // — still must not rotate, no matter how many more reads happen.
-    furi_test_advance_tick(299);
-    wait_for_more_rssi_reads(2000);
-    printf("  band0 visits=%d at 299/300 ticks (expect still 1)\n",
+    // Advance to just short of RF_DWELL_MS (3000ms @ 1000 Hz shim
+    // frequency) worth of elapsed ticks — still must not rotate, no matter
+    // how many more paced samples happen along the way.
+    furi_test_advance_tick(2999);
+    wait_for_more_rssi_reads(1);
+    printf("  band0 visits=%d at 2999/3000 ticks (expect still 1)\n",
            em_scan_rf_mock_visit_count(0));
     assert(em_scan_rf_mock_visit_count(0) == 1);
 
-    // Cross the 300-tick threshold -> must rotate now.
+    // Cross the 3000-tick threshold -> must rotate now.
     furi_test_advance_tick(1);
     wait_for_all_bands_visited(2);
-    printf("  band1 visits=%d once the clock reaches 300/300 ticks (expect >= 1)\n",
+    printf("  band1 visits=%d once the clock reaches 3000/3000 ticks (expect >= 1)\n",
            em_scan_rf_mock_visit_count(1));
     assert(em_scan_rf_mock_visit_count(1) >= 1);
 
@@ -772,11 +789,14 @@ static void test_rf_rssi_dwell_snapshot(void) {
 }
 
 // The point of the "only 2 threads" merge: GSR autoranging/disconnect logic
-// and the RF band scan share one loop iteration and one mutex. Neither must
-// perturb the other. Runs the existing I2C-failure disconnect scenario
-// (test_disconnect_on_i2c_failure) with RF concurrently enabled, and checks
-// RF readings stay within a physically sane dBm range throughout — i.e. the
-// two halves of the interleaved block aren't corrupting each other's state.
+// and the RF band scan share one worker loop and one thread, but — since
+// the 2026-07-30 mutex audit — deliberately NOT one mutex: `mutex` guards
+// ADC state, `rf_mutex` guards only the RF snapshot, so an RF SPI stall
+// can never block ADC sampling. Neither must perturb the other. Runs the
+// existing I2C-failure disconnect scenario (test_disconnect_on_i2c_failure)
+// with RF concurrently enabled, and checks RF readings stay within a
+// physically sane dBm range throughout — i.e. sharing a thread (not a
+// lock) isn't corrupting either side's state.
 static void test_gsr_and_rf_worker_independence(void) {
     printf("Running test_gsr_and_rf_worker_independence...\n");
     furi_hal_i2c_mock_reset();

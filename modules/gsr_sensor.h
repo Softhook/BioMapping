@@ -8,7 +8,9 @@
 //      real-time TIA autoranging.
 //   2. SubGHz RF spectrum scanning (when enabled via gsr_sensor_set_rf_enabled),
 //      hopping through configured frequency bands (815/868/915 MHz) and
-//      tracking each band's per-dwell peak RSSI without spawning a second thread.
+//      tracking each band's per-dwell peak RSSI — paced to ~10 Hz (one
+//      frequency per pass) rather than every ADC iteration, using this
+//      thread's spare capacity without spawning a second thread.
 //
 // Auto-ranging keeps the ADC reading in [12.5 %, 91.5 %] of full scale by
 // stepping the PGA gain in real time. The tick() normalises the reading
@@ -19,9 +21,18 @@
 // Always probed at alloc(); gsr_sensor_available() reports success.
 // Readings return 0 and tick() is a no-op if the probe fails.
 //
-// Thread safety / lock ordering: every accessor below that touches shared
-// state acquires this module's own internal mutex (private to GsrSensor in
-// gsr_sensor.c) — safe to call from a caller that is ALREADY holding
+// Thread safety / lock ordering: two internal mutexes, both private to
+// GsrSensor in gsr_sensor.c. `mutex` guards the ADC ring buffer, PGA/
+// calibration state, and diagnostics counters. `rf_mutex` guards only the
+// published rf_rssi_dbm[] snapshot (gsr_sensor_get_rf_snapshot()) —
+// deliberately separate from `mutex` so an RF SPI stall can never block
+// ADC sampling or vice versa (this used to be one shared mutex; splitting
+// it was the fix for a 2026-07-30 GPS-quality regression traced to RF's
+// SPI retune running inside the same lock the main thread needed every
+// tick). NEITHER mutex is ever held across a furi_hal_i2c_*/furi_hal_subghz_*
+// hardware call — both only ever guard the in-memory fields, copied in/out.
+//
+// Safe to call any accessor below from a caller that is ALREADY holding
 // BioMapApp's app->mutex (biomap_render_callback and the tick handler in
 // biomap_session.c both do exactly this). That's safe specifically because
 // this module never acquires app->mutex itself — it doesn't even hold a
@@ -224,9 +235,15 @@ void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float o
 // window mean but skips the PGA-switching decision.  Useful for hardware diagnostics.
 void gsr_sensor_lock_pga(GsrSensor* gsr, int8_t index);
 
-// Enable/disable SubGHz RF RSSI sampling interleaved into the background worker loop.
+// Enable/disable SubGHz RF RSSI sampling on the background worker thread
+// (paced to ~10 Hz — see gsr_sensor.c's RF_SAMPLE_INTERVAL_MS). Not
+// reentrant-safe with itself (only ever called from session setup/teardown
+// on the main thread in practice); safe with respect to the worker thread
+// by construction — see gsr_sensor.c's doc comment on this function for
+// the enable/disable ordering that makes that true.
 void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled);
 
-// Thread-safe retrieval of 3-band RSSI values.
+// Thread-safe retrieval of 3-band RSSI values. Guarded by rf_mutex, not
+// the ADC path's `mutex` — never blocks on, or is blocked by, GSR sampling.
 void gsr_sensor_get_rf_snapshot(const GsrSensor* gsr, float* out_rssi_dbm);
 

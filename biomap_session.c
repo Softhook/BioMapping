@@ -243,9 +243,9 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
 // and GPS-skip ticks directly. Rows are flushed at the 1-second boundary
 // by handle_second_boundary().
 //
-// rf_rssi is fetched by the caller BEFORE app->mutex is acquired (see the
-// Tick handler below) rather than here — gsr_sensor_get_rf_snapshot()
-// briefly blocks on the GSR sensor's own internal mutex.
+// rf_rssi is fetched by the caller (see the Tick handler below), which
+// already holds app->mutex when it does — safe, see gsr_sensor_get_rf_snapshot()'s
+// doc comment.
 // Returns true on success, false on buffer overflow.
 static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
     if(!s->recording.active || !has_gsr(s->mode)) return true;
@@ -757,22 +757,23 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             continue;
 
         if(ev.type == EventTypeTick) {
-            // Fetch the RF snapshot BEFORE acquiring app->mutex, not inside
-            // handle_recording_tick(). gsr_sensor_get_rf_snapshot()
-            // briefly blocks on the GSR sensor's own internal mutex; doing
-            // that while already holding app->mutex (which
-            // biomap_render_callback() also needs to draw) could delay a
-            // redraw every single tick, not just occasionally — see
-            // batch_csv_row's comment. Reading s->gsr itself without
-            // app->mutex here is safe: only this same thread ever writes
-            // it (at session setup/teardown, never during the tick loop).
+            furi_mutex_acquire(app->mutex, FuriWaitForever);
+
+            // Safe to call while holding app->mutex: gsr_sensor_get_rf_snapshot()
+            // is guarded by GsrSensor's own dedicated rf_mutex, held only for a
+            // 3-float memcpy and never across an RF hardware call — see
+            // gsr_sensor.h's thread-safety comment. Same pattern
+            // biomap_render_callback() already uses for this exact call
+            // (2026-07-30 mutex audit: this used to be fetched before
+            // app->mutex specifically to avoid a then-shared mutex with the
+            // ADC path; that coupling no longer exists, so there's no reason
+            // left to special-case this call site).
             float rf_rssi[EM_SCAN_NUM_FREQS];
             bool rf_active = has_rf(mode) && s->gsr;
             if(rf_active) {
                 gsr_sensor_get_rf_snapshot(s->gsr, rf_rssi);
             }
 
-            furi_mutex_acquire(app->mutex, FuriWaitForever);
             bool batch_ok = handle_recording_tick(s, rf_active ? rf_rssi : NULL);
 
             s->recording.total_ticks++;

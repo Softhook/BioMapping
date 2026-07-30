@@ -475,6 +475,11 @@ static bool calibration_wizard_compute_fit(const float measured[CAL_POINTS], con
 
 void run_calibration_wizard(BioMapApp* app) {
     WizardState w = {.step = 0};
+    // Guards every field above against calibration_wizard_render() running
+    // on the GUI thread — see WizardState's doc comment in biomap.h.
+    // Allocated before vp_push() so the callback is never live with
+    // mutex == NULL.
+    w.mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     ViewPort* vp = vp_push(app, calibration_wizard_render, &w);
     drain_stale_events(app->event_queue);
     PluginEvent ev;
@@ -530,7 +535,9 @@ void run_calibration_wizard(BioMapApp* app) {
 
         if(w.step == 9 || w.step == 10) {
             biomap_sound_click(app->sound_enabled);
+            furi_mutex_acquire(w.mutex, FuriWaitForever);
             w.step = 0;
+            furi_mutex_release(w.mutex);
             view_port_update(vp);
             continue;
         }
@@ -551,11 +558,15 @@ void run_calibration_wizard(BioMapApp* app) {
             // call, to inside calibration_wizard_measure() or its 20-sample
             // loop — that would remove the flush's settle margin.
             biomap_sound_click(app->sound_enabled);
+            furi_mutex_acquire(w.mutex, FuriWaitForever);
             w.step = (int)(idx * 2 + 1);  // 0→1, 2→3, 4→5
+            furi_mutex_release(w.mutex);
             view_port_update(vp);
 
             if(!sensor_ok) {
+                furi_mutex_acquire(w.mutex, FuriWaitForever);
                 w.step = 9;
+                furi_mutex_release(w.mutex);
                 biomap_sound_error(app->sound_enabled);
                 view_port_update(vp);
                 continue;
@@ -566,11 +577,15 @@ void run_calibration_wizard(BioMapApp* app) {
             // runs, so the confirm/error tone below cannot affect them.
             float avg_g = 0.0f;
             if(calibration_wizard_measure(gsr, idx, gates, &avg_g)) {
+                furi_mutex_acquire(w.mutex, FuriWaitForever);
                 w.measured[idx] = avg_g;
                 w.step = (int)(idx * 2 + 2);  // 1→2, 3→4, 5→6
+                furi_mutex_release(w.mutex);
                 biomap_sound_confirm(app->sound_enabled); // this resistor's reading passed its gate
             } else {
+                furi_mutex_acquire(w.mutex, FuriWaitForever);
                 w.step = 9;
+                furi_mutex_release(w.mutex);
                 biomap_sound_error(app->sound_enabled);
             }
 
@@ -578,12 +593,21 @@ void run_calibration_wizard(BioMapApp* app) {
             // calibration_wizard_compute_fit() is pure arithmetic on the
             // already-collected w.measured[] values — no GSR/ADC access —
             // so the success/error tone below can never affect a reading.
+            // w.step's own read here is this same (writer) thread's own
+            // last write, so it needs no lock; only the fields published
+            // below (read cross-thread by the render callback) do.
             if(w.step == 6) {
-                if(calibration_wizard_compute_fit(w.measured, targets, &w.gain, &w.offset, &w.r_squared)) {
-                    w.step = 8;  // success
+                float gain, offset, r_squared;
+                bool fit_ok = calibration_wizard_compute_fit(w.measured, targets, &gain, &offset, &r_squared);
+                furi_mutex_acquire(w.mutex, FuriWaitForever);
+                w.gain = gain;
+                w.offset = offset;
+                w.r_squared = r_squared;
+                w.step = fit_ok ? 8 : 10;
+                furi_mutex_release(w.mutex);
+                if(fit_ok) {
                     biomap_sound_success(app->sound_enabled);
                 } else {
-                    w.step = 10; // fit failure
                     biomap_sound_error(app->sound_enabled);
                 }
             }
@@ -593,6 +617,7 @@ void run_calibration_wizard(BioMapApp* app) {
 
     if(gsr) gsr_sensor_free(gsr);
     vp_pop(app, vp);
+    furi_mutex_free(w.mutex);
 }
 
 
