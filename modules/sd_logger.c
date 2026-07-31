@@ -22,8 +22,8 @@ struct SdLogger {
 
     // GPS+GSR+RF batch buffer: accumulate formatted rows each tick,
     // flush to SD in one storage_file_write every FLUSH_INTERVAL seconds.
-    // 50 rows × ~90 bytes (GPS+GSR+RF row, 17 columns) = ~4500 bytes < 6144.
-    char gsr_batch[6144];
+    // 100 rows × ~110 bytes (GPS+GSR+RF row, 21 columns) = ~11000 bytes < 12288.
+    char gsr_batch[12288];
     int  gsr_batch_len;
 };
 
@@ -125,6 +125,9 @@ bool sd_logger_start(SdLogger* l, const char* header) {
 void sd_logger_stop(SdLogger* l) {
     furi_check(l, "SdLogger: NULL in stop()");
     if(!l->file) return;
+    if(l->gsr_batch_len > 0) {
+        sd_logger_batch_flush(l);
+    }
     storage_file_close(l->file);
     storage_file_free(l->file);
     l->file   = NULL;
