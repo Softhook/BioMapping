@@ -195,52 +195,10 @@ void run_options_screen(BioMapApp* app) {
                 biomap_sound_click(app->sound_enabled);
                 break;
             case InputKeyOk:
+            case InputKeyLeft:
+            case InputKeyRight:
                 switch(ctx.selection) {
                 case 0:
-                    // Reset GPS — VP stays visible, no need to re-create.
-                    // run_gps_hot_start() plays its own success/error tone.
-                    run_gps_hot_start(app);
-                    view_port_update(vp);
-                    continue;
-                case 1:
-                    // Toggle auto-zoom (session_init handles level/peak reset)
-                    toggle_app_setting(app, &app->zoom_enabled);
-                    break;
-                case 2:
-                    // Toggle backlight
-                    toggle_app_setting(app, &app->backlight_on);
-                    break;
-                case 3:
-                    // GSR Calibration
-                    biomap_sound_confirm(app->sound_enabled);
-                    run_calibration_menu(app);
-                    // run_calibration_menu() (and the wizard it can open)
-                    // pops the shared screen ViewPort on every exit path,
-                    // leaving it disabled with no draw callback. This loop
-                    // keeps running afterward, so re-arm it for the Options
-                    // screen — otherwise the display is left blank/frozen
-                    // (looks like a hang) until Back is pressed enough
-                    // times to escape all the way out to the main menu.
-                    vp_push(app, options_render, &ctx);
-                    break;
-                case 4:
-                    // Diagnostics mode
-                    biomap_sound_confirm(app->sound_enabled);
-                    run_recording_session(app, BioMapModeDiagnostics);
-                    vp_push(app, options_render, &ctx);
-                    break;
-                case 5:
-                    // Toggle sound itself — always play the confirming click
-                    // (bypass the `enabled` gate) so muting/unmuting is
-                    // always audible right at the moment it changes, even
-                    // when turning sound OFF.
-                    furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    app->sound_enabled = !app->sound_enabled;
-                    furi_mutex_release(app->mutex);
-                    biomap_save_settings(app);
-                    biomap_sound_toggle(true, app->sound_enabled);
-                    break;
-                case 6:
                     // Cycle GPS Profile (PED -> WRIST -> VEHICLE -> STATIONARY -> SEA -> BIKE -> FLIGHT)
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
                     app->nav_model = (app->nav_model + 1) % 7;
@@ -248,11 +206,44 @@ void run_options_screen(BioMapApp* app) {
                     biomap_save_settings(app);
                     biomap_sound_click(app->sound_enabled);
                     break;
-                case 7:
-                    // RF Calibration — same re-arm-after-return pattern as
-                    // case 3 (GSR Calibration) above.
+                case 1:
+                    // Reset GPS — VP stays visible, no need to re-create.
+                    // run_gps_hot_start() plays its own success/error tone.
+                    run_gps_hot_start(app);
+                    view_port_update(vp);
+                    continue;
+                case 2:
+                    // Toggle auto-zoom (session_init handles level/peak reset)
+                    toggle_app_setting(app, &app->zoom_enabled);
+                    break;
+                case 3:
+                    // GSR Calibration
+                    biomap_sound_confirm(app->sound_enabled);
+                    run_calibration_menu(app);
+                    vp_push(app, options_render, &ctx);
+                    break;
+                case 4:
+                    // RF Calibration — re-arm-after-return pattern, same as GSR Calibration
                     biomap_sound_confirm(app->sound_enabled);
                     run_rf_calibration_menu(app);
+                    vp_push(app, options_render, &ctx);
+                    break;
+                case 5:
+                    // Toggle backlight
+                    toggle_app_setting(app, &app->backlight_on);
+                    break;
+                case 6:
+                    // Toggle sound itself
+                    furi_mutex_acquire(app->mutex, FuriWaitForever);
+                    app->sound_enabled = !app->sound_enabled;
+                    furi_mutex_release(app->mutex);
+                    biomap_save_settings(app);
+                    biomap_sound_toggle(true, app->sound_enabled);
+                    break;
+                case 7:
+                    // Diagnostics mode (LAST ITEM)
+                    biomap_sound_confirm(app->sound_enabled);
+                    run_recording_session(app, BioMapModeDiagnostics);
                     vp_push(app, options_render, &ctx);
                     break;
                 default: break;

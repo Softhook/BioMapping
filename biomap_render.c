@@ -8,14 +8,14 @@ static const char* const menu_labels[MENU_COUNT] = {
 };
 
 static const char* const options_labels[OPTIONS_COUNT] = {
+    "GPS Profile",
     "Reset GPS",
     "Auto-zoom GSR",
-    "Backlight",
     "GSR Calibration",
-    "Diagnostics",
-    "Sound",
-    "GPS Profile",
     "RF Calibration",
+    "Backlight",
+    "Sound",
+    "Diagnostics",
 };
 
 // ── GPS display helpers ────────────────────────────────────────────────────
@@ -547,26 +547,28 @@ void options_render(Canvas* c, void* ctx) {
 
     // Overlay toggle state on selectable items
     for(int i = top; i < OPTIONS_COUNT && (i - top) < max_visible; i++) {
-        if(i == 0 || i == 4) continue; // Reset GPS and Diagnostics have no right-aligned state text
+        if(i == 1 || i == 7) continue; // Reset GPS and Diagnostics have no right-aligned state text
         int y = 22 + (i - top) * 10;
         const char* state;
-        if(i == 1) {
-            state = a->zoom_enabled ? "ON" : "OFF";
-        } else if(i == 2) {
-            state = a->backlight_on ? "ON" : "OFF";
-        } else if(i == 3) {
-            state = a->cal_active ? "YES" : "NO";
-        } else if(i == 5) {
-            state = a->sound_enabled ? "ON" : "OFF";
-        } else if(i == 7) {
-            state = a->rf_calibrated ? "YES" : "NO";
-        } else {
+        if(i == 0) {
             // Indexed by GpsNavModel's enum ordinal (biomap_config.h) —
             // Pedestrian/Wrist/Vehicle/Stationary/Sea/Bike/Flight = 0..6.
             static const char* const nav_model_labels[7] = {
                 "PED", "WRIST", "VEHICLE", "STATION", "SEA", "BIKE", "FLIGHT",
             };
             state = nav_model_labels[a->nav_model];
+        } else if(i == 2) {
+            state = a->zoom_enabled ? "ON" : "OFF";
+        } else if(i == 3) {
+            state = a->cal_active ? "YES" : "NO";
+        } else if(i == 4) {
+            state = a->rf_calibrated ? "YES" : "NO";
+        } else if(i == 5) {
+            state = a->backlight_on ? "ON" : "OFF";
+        } else if(i == 6) {
+            state = a->sound_enabled ? "ON" : "OFF";
+        } else {
+            continue;
         }
         int sx = 128 - canvas_string_width(c, state) - 2;
         if(i == sel) canvas_invert_color(c);
