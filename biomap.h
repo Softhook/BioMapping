@@ -116,6 +116,18 @@ typedef struct {
     int32_t    selection;
 } OptionsContext;
 
+// run_cal_submenu()'s (biomap_gui.c) stack-local ctx — same shape/lock
+// reasoning as MenuContext/OptionsContext above: `selection` is written by
+// the main thread's key-handling loop and read by draw_cal_submenu()
+// (biomap_render.c) on the GUI service's own render thread, so it's guarded
+// by app->mutex like the other two, rather than a dedicated mutex (unlike
+// WizardState/RfCalWizardState, which have no BioMapApp* to reuse). Found
+// unguarded — a plain int race — during the 2026-07-31 mutex audit.
+typedef struct {
+    BioMapApp* app;
+    int32_t    selection;
+} CalSubmenuContext;
+
 #define BIOMAP_CAL_MAGIC   0x424D4341
 #define BIOMAP_CAL_VERSION 2
 #define BIOMAP_CAL_PATH    "/ext/biomapping/biomap.cal"

@@ -580,8 +580,15 @@ void options_render(Canvas* c, void* ctx) {
 // Shared render body for the GSR and RF calibration menus (run_cal_submenu,
 // biomap_gui.c) — same "Start Wizard / Reset to Default / Show Current"
 // 3-item list, differing only in the title. Previously two copies.
+//
+// ctx is a CalSubmenuContext* (biomap.h) — guarded by app->mutex against
+// run_cal_submenu()'s key-handling loop, same as menu_render/options_render
+// below. Was a bare int* read with no lock at all until the 2026-07-31
+// mutex audit found it.
 static void draw_cal_submenu(Canvas* c, void* ctx, const char* title) {
-    int sel = *(int*)ctx;
+    CalSubmenuContext* sm = (CalSubmenuContext*)ctx;
+    if(furi_mutex_acquire(sm->app->mutex, 10) != FuriStatusOk) return;
+    int sel = (int)sm->selection;
     canvas_clear(c);
     canvas_set_font(c, FontPrimary);
     canvas_draw_str(c, 0, 10, title);
@@ -598,6 +605,7 @@ static void draw_cal_submenu(Canvas* c, void* ctx, const char* title) {
         }
     }
     canvas_draw_str(c, 0, 60, "Press Back to return");
+    furi_mutex_release(sm->app->mutex);
 }
 
 void calibration_menu_render(Canvas* c, void* ctx) {

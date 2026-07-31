@@ -297,8 +297,12 @@ static void run_show_current_calibration(BioMapApp* app) {
 void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
                       SubmenuAction start_wizard, SubmenuAction reset,
                       SubmenuAction show_current) {
-    int selection = 0;
-    ViewPort* vp = vp_push(app, render, &selection);
+    // ctx.selection is read cross-thread by draw_cal_submenu() (GUI render
+    // thread) — guarded by app->mutex on both sides, same as MenuContext/
+    // OptionsContext above. See CalSubmenuContext's doc comment in
+    // biomap.h.
+    CalSubmenuContext ctx = {.app = app, .selection = 0};
+    ViewPort* vp = vp_push(app, render, &ctx);
     drain_stale_events(app->event_queue);
     PluginEvent ev;
     while(furi_message_queue_get(app->event_queue, &ev, FuriWaitForever) == FuriStatusOk) {
@@ -308,24 +312,31 @@ void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
                 break;
             }
             if(ev.input.key == InputKeyUp) {
-                selection = cycle_selection(selection, 3, false); // 3 items
+                furi_mutex_acquire(app->mutex, FuriWaitForever);
+                ctx.selection = cycle_selection(ctx.selection, 3, false); // 3 items
+                furi_mutex_release(app->mutex);
                 biomap_sound_click(app->sound_enabled);
             } else if(ev.input.key == InputKeyDown) {
-                selection = cycle_selection(selection, 3, true);
+                furi_mutex_acquire(app->mutex, FuriWaitForever);
+                ctx.selection = cycle_selection(ctx.selection, 3, true);
+                furi_mutex_release(app->mutex);
                 biomap_sound_click(app->sound_enabled);
             } else if(ev.input.key == InputKeyOk) {
-                if(selection == 0) {
+                // This thread's own last write — no lock needed to read it
+                // back (see WizardState's identical reasoning in
+                // biomap_gui.c's run_calibration_wizard()).
+                if(ctx.selection == 0) {
                     biomap_sound_confirm(app->sound_enabled);
                     start_wizard(app);
                     break;
-                } else if(selection == 1) {
+                } else if(ctx.selection == 1) {
                     biomap_sound_reset(app->sound_enabled);
                     reset(app);
                     break;
                 } else {
                     biomap_sound_confirm(app->sound_enabled);
                     show_current(app);
-                    vp_push(app, render, &selection);
+                    vp_push(app, render, &ctx);
                 }
             }
             view_port_update(vp);

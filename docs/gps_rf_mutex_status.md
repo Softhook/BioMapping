@@ -106,6 +106,20 @@ Ranked by what would most change confidence in this fix, not by effort.
 
 1. **[RESOLVED 2026-07-30] `session_deinit()` held `app->mutex` across `gsr_sensor_free()`**
    (`biomap_session.c`). This was fixed by copying `s->logger`, `s->gsr`, and `s->gps` to local pointers and clearing them in the `Session` struct under `app->mutex`, then releasing `app->mutex` before executing the blocking `_free()` functions. This prevents the GUI thread from blocking on `app->mutex` if the worker thread takes time to join during teardown.
+1a. **[RESOLVED 2026-07-31] `run_cal_submenu()`'s `selection` was an unguarded
+   cross-thread `int`** (`biomap_gui.c`/`biomap_render.c`). Same bug class as
+   #2 below (a stack-local read by `draw_cal_submenu()` on the GUI render
+   thread while the main thread's key-handling loop writes it) but in the
+   shared GSR/RF calibration submenu, missed by both the 2026-07-29 and
+   2026-07-30 audits since `WizardState`/`RfCalWizardState` covered the
+   *wizard* screens, not this submenu. Unlike those two (which have no
+   `BioMapApp*` and so needed their own dedicated mutex), this one is now a
+   `CalSubmenuContext {app, selection}` (`biomap.h`) guarded by the existing
+   `app->mutex`, matching `MenuContext`/`OptionsContext`'s established
+   pattern. Verified: real ARM toolchain build (`-Wall -Wextra -Werror`)
+   clean, full host test suite passing (this code path isn't exercised by
+   the host harness — no `Canvas`/`ViewPort` mocks — so this is a build/
+   regression check, not new coverage).
 2. **`WizardState`'s mutex fix (GSR calibration wizard) has zero test
    coverage.** It lives in `biomap_gui.c`/`biomap_render.c`, which need
    real Flipper `Canvas`/`ViewPort` types this host-test harness doesn't
