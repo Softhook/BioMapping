@@ -11,6 +11,7 @@
 #include <expansion/expansion.h>
 #include <math.h>
 #include <string.h>
+#include <stdatomic.h>
 
 #define RX_LINE_BUF  1024      // max NMEA line length (~80 in practice)
 #define GSV_MAX_TALKERS 5      // GP/GL/GA/GB/GQ — one slot per constellation per accumulation window
@@ -36,6 +37,18 @@ struct GpsUart {
     // statics) so they reset correctly on each gps_uart_alloc() call.
     bool                 gsa_talker_logged;
     bool                 gsv_talker_logged;
+
+    // ── Contention diagnostics (2026-07-31) — see gps_uart.h ────────────
+    // rx_drop_count is written from ISR context (gps_uart_irq_cb) and read
+    // from the main thread (gps_uart_get_rx_drop_count) — genuinely
+    // cross-context, so _Atomic, same reasoning as gsr_sensor.c's
+    // rf_enabled/rf_spi_busy/running flags after their ThreadSanitizer
+    // review. nmea_fail_count is written only from gps_uart_parse_line(),
+    // itself only ever called from the main thread inside
+    // gps_uart_process_rx() — no ISR involvement — so a plain uint32_t is
+    // sufficient, no atomics needed.
+    _Atomic uint32_t     rx_drop_count;
+    uint32_t             nmea_fail_count;
 };
 
 // UART IRQ — fires per received byte (ISR context).
@@ -49,7 +62,11 @@ static void gps_uart_irq_cb(
     GpsUart* g = (GpsUart*)context;
     if(event == FuriHalSerialRxEventData) {
         uint8_t data = furi_hal_serial_async_rx(handle);
-        furi_stream_buffer_send(g->rx_stream, &data, 1, 0);
+        if(furi_stream_buffer_send(g->rx_stream, &data, 1, 0) == 0) {
+            // rx_stream was full — the byte is lost. Previously silent;
+            // see gps_uart.h's doc comment on gps_uart_get_rx_drop_count().
+            g->rx_drop_count++;
+        }
         if(!g->rx_pending) {
             g->rx_pending = true;
             PluginEvent ev = {.type = EventTypeUart};
@@ -147,7 +164,17 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
         return;
     }
 
-    switch(minmea_sentence_id(line, false)) {
+    enum minmea_sentence_id id = minmea_sentence_id(line, false);
+    if(id == MINMEA_INVALID) {
+        // Checksum/format failure — our proxy for a corrupted or dropped
+        // byte in transit (see gps_uart.h's doc comment). A well-formed
+        // sentence of a type we don't handle is MINMEA_UNKNOWN, not this —
+        // that's not counted, since nothing was actually lost.
+        g->nmea_fail_count++;
+        return;
+    }
+
+    switch(id) {
     case MINMEA_SENTENCE_RMC: {
         struct minmea_sentence_rmc frame;
         if(minmea_parse_rmc(&frame, line)) {
@@ -557,6 +584,8 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
     g->gsv_contributed_count = 0;
     g->gsa_talker_logged     = false;
     g->gsv_talker_logged     = false;
+    g->rx_drop_count         = 0;
+    g->nmea_fail_count       = 0;
 
     g->rx_stream = furi_stream_buffer_alloc(GPS_RX_BUF_SIZE, 1);
 
@@ -620,6 +649,16 @@ GpsStatus gps_uart_get_status(const GpsUart* g) {
 bool gps_uart_is_ready(const GpsUart* g) {
     furi_check(g, "GpsUart: NULL in is_ready()");
     return g->ready;
+}
+
+uint32_t gps_uart_get_rx_drop_count(const GpsUart* g) {
+    furi_check(g, "GpsUart: NULL in get_rx_drop_count()");
+    return g->rx_drop_count;
+}
+
+uint32_t gps_uart_get_nmea_fail_count(const GpsUart* g) {
+    furi_check(g, "GpsUart: NULL in get_nmea_fail_count()");
+    return g->nmea_fail_count;
 }
 
 #if GPS_MODULE == GPS_MODULE_L76K

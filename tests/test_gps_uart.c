@@ -495,6 +495,59 @@ static void test_pubx_hacc_parsing(void) {
     printf("  -> Pass\n");
 }
 
+// ── Contention diagnostics (2026-07-31) — see docs/gps_rf_mutex_status.md ──
+
+// A checksum/format failure must count; a well-formed sentence (even one
+// PUBX doesn't act on data from) must not — nmea_fail_count is specifically
+// a corruption proxy, not a count of "unhandled sentence types".
+static void test_nmea_fail_counter(void) {
+    printf("Running test_nmea_fail_counter...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+    assert(gps_uart_get_nmea_fail_count(g) == 0);
+
+    furi_hal_mock_feed_string("this is not NMEA at all\r\n");
+    gps_uart_process_rx(g);
+    printf("  fail count after garbage line = %u (expect 1)\n",
+           (unsigned)gps_uart_get_nmea_fail_count(g));
+    assert(gps_uart_get_nmea_fail_count(g) == 1);
+
+    furi_hal_mock_feed_string(GGA_LINE); // well-formed, valid checksum
+    gps_uart_process_rx(g);
+    assert(gps_uart_get_nmea_fail_count(g) == 1); // unchanged
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
+// Filling rx_stream (GPS_RX_BUF_SIZE bytes) without ever draining it via
+// gps_uart_process_rx() must not silently lose data — every byte beyond
+// capacity has to be counted. furi_hal_mock_feed_byte() calls the real ISR
+// callback synchronously (see furi_hal_mock.c), so this exercises the exact
+// gps_uart_irq_cb() code path a real overrun would hit.
+static void test_rx_stream_drop_counter(void) {
+    printf("Running test_rx_stream_drop_counter...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+    assert(gps_uart_get_rx_drop_count(g) == 0);
+
+    for(int i = 0; i < GPS_RX_BUF_SIZE; i++) furi_hal_mock_feed_byte('A');
+    assert(gps_uart_get_rx_drop_count(g) == 0);
+
+    furi_hal_mock_feed_byte('A'); // one byte past capacity
+    printf("  drop count after 1 byte past capacity = %u (expect 1)\n",
+           (unsigned)gps_uart_get_rx_drop_count(g));
+    assert(gps_uart_get_rx_drop_count(g) == 1);
+
+    furi_hal_mock_feed_byte('A');
+    assert(gps_uart_get_rx_drop_count(g) == 2);
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
 int main(void) {
     test_alloc_lifecycle();
     test_gga_updates_status();
@@ -515,6 +568,8 @@ int main(void) {
     test_malformed_line_ignored();
     test_nav_model_allocation();
     test_pubx_hacc_parsing();
+    test_nmea_fail_counter();
+    test_rx_stream_drop_counter();
 
     printf("\nAll gps_uart host tests passed successfully!\n");
     return 0;

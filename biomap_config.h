@@ -36,11 +36,21 @@ typedef enum {
 // Must stay in sync with the printf format strings in format_gps_csv_row()
 // (biomap_session.c).  Changing column order here requires matching changes
 // to the "%.2f,%.7f,..." format strings.
-#define BIOMAP_CSV_COLS_GPS_GSR  "timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m\n"
+//
+// tick_dt_ms/gps_rx_drops/nmea_fail/gsr_hz (2026-07-31): real, measured
+// contention diagnostics added alongside the GPS/RF mutex fix — see
+// docs/gps_rf_mutex_status.md and RowDiag's doc comment (biomap_types.h).
+// Present in both GPS_GSR and GPS_GSR_RF (not just the RF variant) so an
+// RF-off vs RF-on recording of the same route is a direct column-for-column
+// diff, not a comparison across differently-shaped files.
+#define BIOMAP_CSV_COLS_GPS_GSR  \
+    "timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m," \
+    "tick_dt_ms,gps_rx_drops,nmea_fail,gsr_hz\n"
 #define BIOMAP_CSV_COLS_GSR_ONLY "timestamp,gsr_raw\n"
 // rssi_815/868/915 = raw per-band RSSI peak from the most recent dwell.
 #define BIOMAP_CSV_COLS_GPS_GSR_RF \
     "timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m," \
+    "tick_dt_ms,gps_rx_drops,nmea_fail,gsr_hz," \
     "rssi_815,rssi_868,rssi_915\n"
 
 

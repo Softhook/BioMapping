@@ -91,6 +91,15 @@ typedef struct {
     int      flush_counter;  // seconds since last SD flush; triggers at FLUSH_INTERVAL
     uint32_t total_ticks;    // monotonic tick count since recording start; used for
                              // relative centisecond timestamps (total_ticks * 0.1 s)
+    // ── GPS/RF mutex-contention diagnostics (2026-07-31) ────────────────
+    // total_ticks above (and the `rel` CSV column derived from it) is a
+    // sequence counter — it stays perfectly uniform even if the main loop
+    // stalls, so it can't prove contention is or isn't happening (see
+    // docs/gps_rf_mutex_status.md). last_tick_wall_ms/tick_dt_ms are the
+    // real furi_get_tick() measurement instead: updated every Tick event
+    // in run_recording_session(), regardless of recording.active.
+    uint32_t last_tick_wall_ms; // bookkeeping only — previous furi_get_tick() reading
+    uint32_t tick_dt_ms;        // real elapsed ms since the previous Tick event; 0 on the first tick
 } RecordingState;
 
 // Extracted GPS position snapshot (returned by value from get_gps_position).
@@ -107,6 +116,19 @@ typedef struct {
     int    sats;       // satellites tracked — diagnostic aid for DOP interpretation
     int    fix_type;   // fix_type from GSA: 1=none, 2=2D, 3=3D
 } GpsPosition;
+
+// Per-row contention diagnostics (2026-07-31, GPS/RF mutex investigation —
+// see docs/gps_rf_mutex_status.md). Built by the caller (biomap_session.c)
+// from real, measured sources — never inferred — and threaded into
+// format_gps_csv_row() alongside GpsPosition so a future track can answer
+// "was the main loop or the GPS UART actually stalled" directly instead of
+// by inference from GPS accuracy after the fact.
+typedef struct {
+    uint32_t tick_dt_ms;     // real furi_get_tick() delta since the previous Tick event
+    uint32_t gps_rx_drops;   // cumulative UART bytes dropped (gps_uart's rx_stream was full)
+    uint32_t nmea_fail;      // cumulative NMEA sentences that failed checksum/parse
+    float    gsr_hz;         // GSR worker's real achieved sample rate (gsr_sensor_get_worker_hz)
+} RowDiag;
 
 // ── Inline helpers ─────────────────────────────────────────────────────
 

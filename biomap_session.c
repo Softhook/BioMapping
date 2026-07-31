@@ -167,6 +167,21 @@ static inline GpsPosition get_gps_position(const Session* s) {
     return pos;
 }
 
+// ── Contention-diagnostic snapshot (2026-07-31) ─────────────────────────
+// The only place that reads s->gps/s->gsr for RowDiag — see format_gps_csv_row's
+// doc comment. Null-guards both: format_gps_csv_row's callers all currently
+// guarantee non-NULL s->gsr/s->gps in practice (see gsr_sensor_get_worker_hz's
+// callers and has_rf()/has_gps() gating in run_recording_session), but this
+// stays defensive rather than relying on that holding forever.
+static inline RowDiag get_row_diag(const Session* s) {
+    RowDiag d = {0};
+    d.tick_dt_ms   = s->recording.tick_dt_ms;
+    d.gps_rx_drops = s->gps ? gps_uart_get_rx_drop_count(s->gps) : 0;
+    d.nmea_fail    = s->gps ? gps_uart_get_nmea_fail_count(s->gps) : 0;
+    d.gsr_hz       = s->gsr ? gsr_sensor_get_worker_hz(s->gsr) : 0.0f;
+    return d;
+}
+
 // ── Shared GPS CSV row formatter ───────────────────────────────────────────
 // Formats an 11-column GPS row into the SD batch buffer with an explicit GSR
 // value and hacc_m (horizontal accuracy in meters, PUBX 00; 99.9 = unknown)
@@ -191,10 +206,14 @@ static inline GpsPosition get_gps_position(const Session* s) {
 // appending once (same pattern em_scan_log_row() already used) keeps the
 // whole row atomic — batch_append() itself checks capacity before writing
 // any bytes (see modules/sd_logger.c).
+// diag carries the contention-diagnostic columns (RowDiag, biomap_types.h)
+// — always non-NULL; built by the caller (get_row_diag() below), which is
+// the only place that touches s->gps/s->gsr directly, keeping this
+// function a pure formatter (mirrored, not linked, by tests/test_firmware.c).
 // Returns true on success, false on buffer overflow.
 static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
                                 double rel, float raw,
-                                const float* rf_rssi) {
+                                const float* rf_rssi, const RowDiag* diag) {
     bool gps_ok = pos->valid && pos->hdop < GPS_HDOP_GATE;
     // static, not a stack local: this runs on the main app thread's tick
     // path every ~100ms during a real recording, alongside GPS/GSR/RF
@@ -228,6 +247,15 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
                      rel, (double)raw);
     }
     if(n <= 0 || (size_t)n >= sizeof(row)) return false;
+
+    // Contention-diagnostic columns — always present, ahead of the
+    // optional RF suffix. See RowDiag's doc comment (biomap_types.h).
+    int nd = snprintf(row + n, sizeof(row) - (size_t)n,
+                      ",%u,%u,%u,%.1f",
+                      (unsigned)diag->tick_dt_ms, (unsigned)diag->gps_rx_drops,
+                      (unsigned)diag->nmea_fail, (double)diag->gsr_hz);
+    if(nd <= 0 || (size_t)(n + nd) >= sizeof(row)) return false;
+    n += nd;
 
     if(rf_rssi) {
         // Three RF columns: raw per-band RSSI.
@@ -266,11 +294,13 @@ static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
                                      rel, (double)raw);
     } else if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
         GpsPosition pos = get_gps_position(s);
-        return format_gps_csv_row(s, &pos, rel, raw, rf_rssi);
+        RowDiag diag = get_row_diag(s);
+        return format_gps_csv_row(s, &pos, rel, raw, rf_rssi, &diag);
     } else {
         // GPS-skip tick: preserve GSR data with empty GPS columns.
         GpsPosition empty = {0};
-        return format_gps_csv_row(s, &empty, rel, raw, rf_rssi);
+        RowDiag diag = get_row_diag(s);
+        return format_gps_csv_row(s, &empty, rel, raw, rf_rssi, &diag);
     }
     return ret > 0;
 }
@@ -619,8 +649,9 @@ static bool handle_recording_tick(Session* s, const float* rf_rssi) {
     if(!has_gsr(s->mode) && has_gps(s->mode) && s->recording.active) {
         if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
             GpsPosition pos = get_gps_position(s);
+            RowDiag diag = get_row_diag(s);
             return format_gps_csv_row(s, &pos, pipeline_rel_seconds(s->recording.total_ticks), 0.0f,
-                                       rf_rssi);
+                                       rf_rssi, &diag);
         }
         return true;
     }
@@ -765,7 +796,18 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             continue;
 
         if(ev.type == EventTypeTick) {
+            // Real wall-clock capture, taken before anything else (mutex
+            // acquire, UART draining that preceded this Tick in the queue,
+            // etc. all show up in the diff below). See RecordingState's
+            // tick_dt_ms doc comment (biomap_types.h) for why total_ticks/
+            // `rel` can't be used for this instead.
+            uint32_t now_tick = furi_get_tick();
+
             furi_mutex_acquire(app->mutex, FuriWaitForever);
+
+            s->recording.tick_dt_ms = s->recording.last_tick_wall_ms
+                ? (now_tick - s->recording.last_tick_wall_ms) : 0;
+            s->recording.last_tick_wall_ms = now_tick;
 
             // Safe to call while holding app->mutex: gsr_sensor_get_rf_snapshot()
             // is guarded by GsrSensor's own dedicated rf_mutex, held only for a

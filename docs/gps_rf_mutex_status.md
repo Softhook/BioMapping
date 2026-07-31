@@ -100,6 +100,55 @@ fully closed.**
   result was reported back in this conversation, so it isn't known whether
   that build succeeded or what it showed on hardware.
 
+### 2026-07-31: track 113 recorded with the fix — inconclusive, not closed
+
+Track 113 was recorded on-device with this fix in place and analyzed
+against 112 (pre-fix) and 099 (pre-merge baseline). Result: **did not
+confirm the fix, but didn't contradict it either** — the CSV data available
+at the time couldn't distinguish "no contention occurred" from "contention
+occurred but left no CSV-visible trace."
+
+- `hacc_m` did not improve: 113 mean 1.20m / median 1.10m vs 112's
+  1.14m / 1.00m — statistically no better, arguably marginally worse. 099's
+  0.82m mean turned out to be a confounded comparison, not a clean
+  baseline: it was recorded at a different site with ~31 mean satellites
+  tracked vs 112/113's ~17, so its better numbers are likely site geometry,
+  not code.
+- 113 had one real ~7s total GPS fix loss (t=169–176s) plus a rough patch
+  of elevated PDOP (up to 18.9) and low sat count (down to 6), but *only*
+  in the first ~200s of an 1130s walk — after that it's clean/comparable to
+  112 for the rest of the walk. Concentrated-then-clean is more consistent
+  with an environmental cause (obstruction at the start point) than a
+  recurring software stall, but this is circumstantial, not proof.
+- No corrupted/teleporting positions, no abnormal frozen-position runs, and
+  `gsr_raw` (real ADC worker output) changed on essentially every tick in
+  both 112 and 113 (mean run length 1.00, zero runs ≥1s) — no footprint of
+  a worker/main-thread stall by this proxy either.
+- **The real blocker**: the CSV `timestamp` column is `total_ticks/10` — a
+  sequence counter, not a wall-clock capture. It would look identical
+  ("perfectly uniform 0.1s spacing") whether the main loop ran in real time
+  or stalled and caught up in a burst. None of the above evidence is a
+  direct measurement of contention; it's all inference.
+
+**Fix**: added four real, measured diagnostic CSV columns (`tick_dt_ms`,
+`gps_rx_drops`, `nmea_fail`, `gsr_hz`) so the next recording can answer this
+directly instead of by inference — see `biomap_types.h`'s `RowDiag` doc
+comment, `modules/gps_uart.h`'s doc comments on the two new accessors, and
+`biomap_session.c`'s `format_gps_csv_row`/`get_row_diag`. Verified: real ARM
+toolchain build (`-Wall -Wextra -Werror`) clean, full host test suite
+passing including new `test_nmea_fail_counter`/`test_rx_stream_drop_counter`
+in `tests/test_gps_uart.c` and updated `test_csv_formatting` in
+`tests/test_firmware.c`.
+
+**Still needed, not done in this session**: an actual recording with these
+fields. A normal walk risks being clean by luck rather than by proof, since
+RF's 10Hz/3s-dwell pacing already minimizes SPI exposure — the
+recommended test is a same-session, same-route **RF-off vs RF-on A/B**
+recording (`gsr_sensor_set_rf_enabled()` already supports this), ideally
+with RF's dwell/pacing temporarily shortened on the RF-on leg to stress the
+SPI path rather than hope a casual walk happens to hit it. Until that
+exists, this bug stays open per the note at the top of this section.
+
 ## Other open items
 
 Ranked by what would most change confidence in this fix, not by effort.

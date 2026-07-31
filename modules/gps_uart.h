@@ -53,6 +53,26 @@ bool      gps_uart_is_ready(const GpsUart* gps);
 void      gps_uart_process_rx(GpsUart* gps);
 void      gps_uart_send_hot_start(GpsUart* gps);
 
+// ── Contention diagnostics (2026-07-31 — see docs/gps_rf_mutex_status.md) ──
+// Cumulative, monotonic counters — the caller (biomap_session.c) diffs or
+// just logs the running totals, same pattern as gsr_sensor.c's iter_count.
+//
+// gps_uart_get_rx_drop_count(): incremented from ISR context
+// (gps_uart_irq_cb) whenever a received byte can't be pushed into
+// rx_stream because it's full — i.e. the main thread fell behind draining
+// it. This is the direct, real-world symptom the old RF/GSR mutex bug
+// would have caused (main thread stalled behind gsr->mutex -> UART event
+// processing delayed -> rx_stream fills -> bytes silently dropped, which
+// is exactly what used to happen with zero visibility before this).
+uint32_t  gps_uart_get_rx_drop_count(const GpsUart* gps);
+
+// gps_uart_get_nmea_fail_count(): incremented in gps_uart_parse_line()
+// whenever a line fails NMEA checksum/format validation (minmea_sentence_id
+// returns MINMEA_INVALID). A well-formed sentence of a type we don't act on
+// (MINMEA_UNKNOWN) does NOT count — this is specifically a corruption/
+// parse-failure proxy, not "sentences we ignore by design".
+uint32_t  gps_uart_get_nmea_fail_count(const GpsUart* gps);
+
 // Put the GPS module into its lowest-power standby/sleep state.
 // Acquires USART1 briefly — does NOT require a full GpsUart allocation.
 // Safe to call even when no module is connected (no-op on acquire failure).
