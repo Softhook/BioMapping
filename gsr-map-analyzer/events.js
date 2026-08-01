@@ -378,7 +378,7 @@ const GSREvents = {
     bindToggle('btnTogglePeaks',    'showPeaks');
     bindToggle('btnToggleHotspots', 'showHotspots');
 
-    // ── Page Unload Protection ───────────────────────────────────────────────
+    // ── Page Unload & Keyboard Listener ──────────────────────────────────────
     window.addEventListener('beforeunload', (e) => {
       const hasDirty = AppState.collectiveManager && AppState.collectiveManager.tracks
         ? AppState.collectiveManager.tracks.some(t => t.hasUnsavedLabels)
@@ -386,6 +386,15 @@ const GSREvents = {
       if (hasDirty) {
         e.preventDefault();
         e.returnValue = '';
+      }
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const modal = document.getElementById('unsavedLabelsModal');
+        if (modal && modal.style.display !== 'none') {
+          GSRUI.closeUnsavedLabelsModal();
+        }
       }
     });
 

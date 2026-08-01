@@ -55,7 +55,7 @@ class GSRAnalyzer {
     } else {
       this._userPeakLabels.delete(key);
       for (const [t] of this._userPeakLabels.entries()) {
-        if (Math.abs(t - time) <= 0.5) {
+        if (Math.abs(t - time) <= 0.2) {
           this._userPeakLabels.delete(t);
         }
       }
@@ -65,10 +65,10 @@ class GSRAnalyzer {
   /**
    * Retrieve a user peak label by timestamp, using exact match first then nearest-neighbor lookup within tolerance.
    * @param {number} targetTime - Peak timestamp in seconds
-   * @param {number} [maxToleranceSec=0.5] - Proximity window tolerance in seconds
+   * @param {number} [maxToleranceSec=1.0] - Proximity window tolerance in seconds
    * @returns {string} Matching label or empty string
    */
-  getMatchingLabel(targetTime, maxToleranceSec = 0.5) {
+  getMatchingLabel(targetTime, maxToleranceSec = 1.0) {
     if (targetTime == null || this._userPeakLabels.size === 0) return '';
     const key = Number(targetTime.toFixed(3));
     if (this._userPeakLabels.has(key)) {
@@ -84,6 +84,43 @@ class GSRAnalyzer {
       }
     }
     return bestMatch;
+  }
+
+  /**
+   * Assign persistent user labels to a list of detected peak objects using optimal 1-to-1 timestamp matching.
+   * @param {Array<object>} peaks - List of detected peak objects
+   * @private
+   */
+  _assignLabelsToPeaks(peaks) {
+    if (!peaks || peaks.length === 0 || !this._userPeakLabels || this._userPeakLabels.size === 0) return;
+
+    // Build list of candidate (peak, labelKey, diff) pairs within tolerance window (1.0s)
+    const candidates = [];
+    for (let pIdx = 0; pIdx < peaks.length; pIdx++) {
+      const peak = peaks[pIdx];
+      const pTime = peak.time;
+      for (const [tKey, labelStr] of this._userPeakLabels.entries()) {
+        const diff = Math.abs(pTime - tKey);
+        if (diff <= 1.0 && labelStr) {
+          candidates.push({ pIdx, tKey, labelStr, diff });
+        }
+      }
+    }
+
+    // Sort candidate pairs by ascending distance diff (closest matches first)
+    candidates.sort((a, b) => a.diff - b.diff);
+
+    // Greedily match 1-to-1: each peak gets at most 1 label, and each label key is used at most once
+    const assignedPeaks = new Set();
+    const assignedLabels = new Set();
+
+    for (const cand of candidates) {
+      if (!assignedPeaks.has(cand.pIdx) && !assignedLabels.has(cand.tKey)) {
+        peaks[cand.pIdx].label = cand.labelStr;
+        assignedPeaks.add(cand.pIdx);
+        assignedLabels.add(cand.tKey);
+      }
+    }
   }
 
 
@@ -1289,6 +1326,7 @@ class GSRAnalyzer {
     // curve for local maxima — see _detectPeaksFromCurve()'s doc comment for
     // why this replaces the previous atom-level "run consolidation" pass.
     this.peaks = this._detectPeaksFromCurve(cleanVals, times, params, oldLabels, oldExcluded);
+    this._assignLabelsToPeaks(this.peaks);
   }
 
   /**
@@ -1896,6 +1934,7 @@ class GSRAnalyzer {
       // Skip ahead to enforce minimum gap between peaks
       i = Math.min(n - 2, i + Math.round(GSR_CONST.PEAK_MIN_GAP * this.sampleRate));
     }
+    this._assignLabelsToPeaks(this.peaks);
   }
 
   /**
