@@ -123,11 +123,11 @@ function draw() {
   yMinUpper = Math.max(0, yMinUpper - paddingUpper);
   yMaxUpper = yMaxUpper + paddingUpper;
 
-  // Y-scaling for Lower Graph \u2014 mode-selectable: phasic (default) / peakDensity /
+  // Y-scaling for Lower Graph — mode-selectable: phasic (default) / peakDensity /
   // phasicAUC / arousalIndex. See GSR_CONST.LOWER_GRAPH_MODES.
   const lowerMode = AppState.lowerGraphMode || 'phasic';
   const lowerCfg = GSR_CONST.LOWER_GRAPH_MODES[lowerMode] || GSR_CONST.LOWER_GRAPH_MODES.phasic;
-  const lowerSeries = AppState.analyzer[lowerMode] || AppState.analyzer.phasic;
+  const lowerSeries = AppState.analyzer[lowerMode] || AppState.analyzer.em_fog || AppState.analyzer.phasic;
 
   let yMinLower = lowerCfg.allowNegative ? Infinity : 0;
   let yMaxLower;
@@ -149,7 +149,7 @@ function draw() {
     if (yMaxLower === -Infinity) yMaxLower = 1;
   } else {
     if (yMaxLower === -Infinity || yMaxLower <= 0) {
-      yMaxLower = lowerMode === 'phasic' ? parseFloat(AppState.sliders.peakThreshold.value) * 2 : 1;
+      yMaxLower = lowerMode === 'phasic' ? parseFloat(AppState.sliders.peakThreshold.value) * 2 : 100;
     }
   }
   const lowerSpan = yMaxLower - yMinLower;
@@ -166,7 +166,8 @@ function draw() {
     phasic:       { steps: [[0.05, 0.005], [0.15, 0.01], [0.5, 0.05], [1.5, 0.1]], defaultStep: 0.5, decimals: 3, unit: ' \u03bcS' },
     peakDensity:  { steps: [[5, 1], [20, 2], [60, 5], [200, 20]],                  defaultStep: 10,  decimals: 0, unit: ' /min' },
     phasicAUC:    { steps: [[0.5, 0.05], [2, 0.2], [5, 0.5], [20, 2]],             defaultStep: 5,   decimals: 2, unit: ' \u03bcS\u00b7s' },
-    arousalIndex: { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' }
+    arousalIndex: { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' },
+    emFog:        { steps: [[10, 2], [25, 5], [50, 10], [100, 20]],                defaultStep: 20,  decimals: 1, unit: ' EMF-I' }
   };
   const gridPreset = lowerGridPresets[lowerMode] || lowerGridPresets.phasic;
   GSRRenderer.drawGridY(yMinLower, yMaxLower, yLowerBottom, yLowerBottom - hLower,

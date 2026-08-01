@@ -349,11 +349,15 @@ class GSRAnalyzer {
     let osmTreeDensityColIdx = headers.indexOf('osm_tree_density_50m');
     let osmAmenityCountColIdx = headers.indexOf('osm_amenity_count_50m');
 
-    // RF column detection (815, 868, 915 MHz RSSI & EM fog)
+    // RF column detection (300, 315, 434, 446, 815, 868, 915 MHz RSSI & EM fog)
+    let rssi300ColIdx = headers.indexOf('rssi_300');
+    let rssi315ColIdx = headers.indexOf('rssi_315');
+    let rssi434ColIdx = headers.indexOf('rssi_434');
+    let rssi446ColIdx = headers.indexOf('rssi_446');
     let rssi815ColIdx = headers.indexOf('rssi_815');
     let rssi868ColIdx = headers.indexOf('rssi_868');
     let rssi915ColIdx = headers.indexOf('rssi_915');
-    let emFogColIdx = headers.indexOf('em_fog');
+    let emFogColIdx   = headers.indexOf('em_fog');
 
     // Fallbacks for main biometric columns
     if (colIndices['timestamp'] === -1) colIndices['timestamp'] = 0;
@@ -385,11 +389,19 @@ class GSRAnalyzer {
       let gsrVal = (colIndices['gsr_raw'] !== -1 && cols[colIndices['gsr_raw']]) ? parseFloat(cols[colIndices['gsr_raw']]) : NaN;
 
       // Parse RF fields (dBm)
+      let rssi_300 = rssi300ColIdx !== -1 && cols[rssi300ColIdx] ? parseFloat(cols[rssi300ColIdx]) : NaN;
+      let rssi_315 = rssi315ColIdx !== -1 && cols[rssi315ColIdx] ? parseFloat(cols[rssi315ColIdx]) : NaN;
+      let rssi_434 = rssi434ColIdx !== -1 && cols[rssi434ColIdx] ? parseFloat(cols[rssi434ColIdx]) : NaN;
+      let rssi_446 = rssi446ColIdx !== -1 && cols[rssi446ColIdx] ? parseFloat(cols[rssi446ColIdx]) : NaN;
       let rssi_815 = rssi815ColIdx !== -1 && cols[rssi815ColIdx] ? parseFloat(cols[rssi815ColIdx]) : NaN;
       let rssi_868 = rssi868ColIdx !== -1 && cols[rssi868ColIdx] ? parseFloat(cols[rssi868ColIdx]) : NaN;
       let rssi_915 = rssi915ColIdx !== -1 && cols[rssi915ColIdx] ? parseFloat(cols[rssi915ColIdx]) : NaN;
       let em_fog   = emFogColIdx   !== -1 && cols[emFogColIdx]   ? parseFloat(cols[emFogColIdx])   : NaN;
 
+      // Dynamic fallback for EM Fog if missing or NaN but RSSI values exist
+      if (isNaN(em_fog)) {
+        em_fog = GSRAnalyzer.calcEmFog({ rssi_300, rssi_315, rssi_434, rssi_446, rssi_815, rssi_868, rssi_915 });
+      }
 
       // Parse GPS fields (empty fields parse to NaN)
       let latVal = colIndices['lat'] !== -1 && cols[colIndices['lat']] ? parseFloat(cols[colIndices['lat']]) : NaN;
@@ -397,7 +409,7 @@ class GSRAnalyzer {
 
       // Fallback for standalone GPS + RF CSVs (where GSR is missing/NaN)
       if (isNaN(gsrVal)) {
-        if (!isNaN(latVal) || !isNaN(lonVal) || !isNaN(rssi_815) || !isNaN(em_fog)) {
+        if (!isNaN(latVal) || !isNaN(lonVal) || !isNaN(rssi_815) || !isNaN(rssi_868) || !isNaN(rssi_915) || !isNaN(rssi_300) || !isNaN(rssi_315) || !isNaN(rssi_434) || !isNaN(rssi_446) || !isNaN(em_fog)) {
           gsrVal = 1.0; // Baseline value so standalone RF/GPS rows are kept
         } else {
           continue;
@@ -456,6 +468,10 @@ class GSRAnalyzer {
         _isGpsFix: isGpsFixVal,
         _importLabel: importedPeakLabel,
         _importExcluded: importedPeakExcluded,
+        rssi_300: rssi_300,
+        rssi_315: rssi_315,
+        rssi_434: rssi_434,
+        rssi_446: rssi_446,
         rssi_815: rssi_815,
         rssi_868: rssi_868,
         rssi_915: rssi_915,
@@ -677,7 +693,7 @@ class GSRAnalyzer {
     }
 
     this.raw = rawDataList;
-    this.hasRfData = rawDataList.some(r => !isNaN(r.rssi_815) || !isNaN(r.rssi_868) || !isNaN(r.rssi_915) || !isNaN(r.em_fog));
+    this.hasRfData = rawDataList.some(r => !isNaN(r.rssi_300) || !isNaN(r.rssi_315) || !isNaN(r.rssi_434) || !isNaN(r.rssi_446) || !isNaN(r.rssi_815) || !isNaN(r.rssi_868) || !isNaN(r.rssi_915) || !isNaN(r.em_fog));
 
     // Check if imported CSV is already enriched
     if (osmRoadClassColIdx !== -1 || osmGreenPctColIdx !== -1) {
@@ -864,10 +880,11 @@ class GSRAnalyzer {
       this.memorableEvents = selected;
     }
 
-    // 6. Continuous, threshold-independent arousal metrics (ISCR/AUC + combined index)
+    // 6. Continuous, threshold-independent arousal metrics (ISCR/AUC + combined index + EM Fog)
     this.peakDensity = this.computeTemporalPeakDensity();
     this.phasicAUC = this.computePhasicAUC();
     this.arousalIndex = this.computeCombinedArousalIndex();
+    this.em_fog = this.raw.map(d => ({ time: d.time, val: (d.em_fog !== undefined && !isNaN(d.em_fog)) ? d.em_fog : 0 }));
 
     // 7. Build display cache for fast rendering (Y-range pyramid, timeline)
     this._buildDisplayCache();
@@ -1377,7 +1394,7 @@ class GSRAnalyzer {
   _buildDisplayCache() {
     // Global Y-range per curve — used when view covers >40 % of data
     this._globalRange = {};
-    for (const key of ['raw', 'filtered', 'tonic', 'phasic', 'peakDensity', 'phasicAUC', 'arousalIndex']) {
+    for (const key of ['raw', 'filtered', 'tonic', 'phasic', 'peakDensity', 'phasicAUC', 'arousalIndex', 'em_fog']) {
       const arr = this[key];
       if (!arr || arr.length === 0) continue;
       let mn = Infinity, mx = -Infinity;
@@ -2147,6 +2164,23 @@ class GSRAnalyzer {
       csv += "\n";
     }
     return csv;
+  }
+
+  /**
+   * Calculate EM Fog Index (0-100) from RSSI readings across Sub-GHz bands.
+   */
+  static calcEmFog(row) {
+    const BANDS = ['rssi_300', 'rssi_315', 'rssi_434', 'rssi_446', 'rssi_815', 'rssi_868', 'rssi_915'];
+    let sumPsq = 0, cnt = 0;
+    for (let i = 0; i < BANDS.length; i++) {
+      const v = row[BANDS[i]];
+      if (typeof v === 'number' && !isNaN(v)) {
+        const norm = Math.min(1.0, Math.max(0.0, (v + 100.0) / 70.0));
+        sumPsq += norm * norm;
+        cnt++;
+      }
+    }
+    return cnt > 0 ? Math.sqrt(sumPsq / cnt) * 100.0 : NaN;
   }
 }
 

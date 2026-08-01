@@ -28,6 +28,14 @@ const MapColors = {
         metric === 'peakDensity' || metric === 'phasicAUC' || metric === 'arousalIndex') {
       return MapColors.getColorForValue(val, minVal, maxVal);
     }
+
+    if (metric === 'em_fog' || metric === 'emFog') {
+      let ratio = 0;
+      if (maxVal !== minVal) ratio = (val - minVal) / (maxVal - minVal);
+      ratio = Math.max(0, Math.min(1, ratio));
+      const hue = 220 + ratio * 80; // Blue (220) -> Purple/Magenta (300)
+      return `hsl(${hue}, 90%, 55%)`;
+    }
     
     if (metric === 'roadClass') {
       const roadColors = {

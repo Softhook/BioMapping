@@ -691,10 +691,26 @@
             }
         }
 
-        function getValForMetric(d, metricId) {
-            const rawVal = d[metricId] !== undefined ? d[metricId] : -100;
-            if (metricId === 'em_fog') return rawVal;
+        function calcEmFog(d, useCal = false) {
+            let sumPsq = 0, cnt = 0;
+            FREQ_BANDS.forEach(b => {
+                const rssi = typeof d[b.id] === 'number' ? d[b.id] : null;
+                if (rssi !== null && !isNaN(rssi)) {
+                    const floor = useCal ? getFloorForBand(b.id.replace('rssi_', '')) : -100.0;
+                    const norm = Math.min(1.0, Math.max(0.0, (rssi - floor) / (-30.0 - floor)));
+                    sumPsq += norm * norm;
+                    cnt++;
+                }
+            });
+            return cnt > 0 ? Math.sqrt(sumPsq / cnt) * 100.0 : 0;
+        }
 
+        function getValForMetric(d, metricId) {
+            if (metricId === 'em_fog') {
+                return applyCalibration ? calcEmFog(d, true) : ((d.em_fog !== undefined && d.em_fog !== null) ? d.em_fog : calcEmFog(d, false));
+            }
+
+            const rawVal = d[metricId] !== undefined ? d[metricId] : -100;
             if (applyCalibration) {
                 const bKey = metricId.replace('rssi_', '');
                 const floor = getFloorForBand(bKey);
@@ -919,7 +935,9 @@
                 if (row.timestamp === null || row.timestamp === undefined) {
                     row.timestamp = i * 0.7;
                 }
-                row.em_fog = (row.em_fog !== null && row.em_fog !== undefined) ? row.em_fog : 0;
+                if (row.em_fog === null || row.em_fog === undefined || row.em_fog === 0 || isNaN(row.em_fog)) {
+                    row.em_fog = calcEmFog(row, false);
+                }
                 row.originalIndex = data.length;
                 data.push(row);
             }

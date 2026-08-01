@@ -12,7 +12,9 @@ const DERIVED_METRIC_SERIES = {
   tonic: 'tonic',
   peakDensity: 'peakDensity',
   phasicAUC: 'phasicAUC',
-  arousalIndex: 'arousalIndex'
+  arousalIndex: 'arousalIndex',
+  em_fog: 'em_fog',
+  emFog: 'em_fog'
 };
 
 class GSRMapManager {
@@ -533,7 +535,8 @@ class GSRMapManager {
       'buildingDensity': 'osm_building_density_50m',
       'distWater': 'osm_dist_water',
       'treeDensity': 'osm_tree_density_50m',
-      'amenityCount': 'osm_amenity_count_50m'
+      'amenityCount': 'osm_amenity_count_50m',
+      'em_fog': 'em_fog'
       // Note: phasic/tonic/peakDensity/phasicAUC/arousalIndex are NOT looked
       // up via this key — see DERIVED_METRIC_SERIES in _renderPathSegments.
       // They live in per-sample analyzer arrays (analyzer.phasic[i], etc.),

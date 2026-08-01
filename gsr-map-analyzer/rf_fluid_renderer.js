@@ -256,12 +256,16 @@ class RFFluidRenderer {
       const has815 = pt.rssi_815 !== undefined && !isNaN(pt.rssi_815);
       const has868 = pt.rssi_868 !== undefined && !isNaN(pt.rssi_868);
       const has915 = pt.rssi_915 !== undefined && !isNaN(pt.rssi_915);
-      const hasFog = pt.em_fog   !== undefined && !isNaN(pt.em_fog);
+      let fog = (pt.em_fog !== undefined && !isNaN(pt.em_fog)) ? pt.em_fog : 0;
+      if (!fog && typeof GSRAnalyzer !== 'undefined' && GSRAnalyzer.calcEmFog) {
+        const fallback = GSRAnalyzer.calcEmFog(pt);
+        if (!isNaN(fallback)) fog = fallback;
+      }
+      const hasFog = fog > 0;
 
       const r815 = has815 ? pt.rssi_815 : (pt.r_815 || -91.5);
       const r868 = has868 ? pt.rssi_868 : (pt.r_868 || -91.5);
       const r915 = has915 ? pt.rssi_915 : (pt.r_915 || -91.5);
-      const fog  = hasFog ? pt.em_fog   : 0;
       const hasRf = has815 || has868 || has915 || hasFog;
 
       this.cachedNodes.push({
@@ -532,7 +536,7 @@ class RFFluidRenderer {
         if (!node.hasFog || node.fog <= 0) {
           alpha = 0;
         } else {
-          const n = Math.min(1, node.fog / 30.0);
+          const n = Math.min(1, Math.max(0, node.fog / 100.0));
           rVal = Math.round(n * 255);
           gVal = 0;
           bVal = Math.round((1 - n) * 255);
@@ -675,7 +679,7 @@ class RFFluidRenderer {
       }
 
       if (processFog && node.hasFog && node.fog > 0) {
-        const nFog = Math.min(1, node.fog / 30.0);
+        const nFog = Math.min(1, Math.max(0, node.fog / 100.0));
         const alphaFog = nFog > 0.05 ? Math.min(1.0, nFog * 0.95) : 0.0;
         if (alphaFog > 0) {
           const rVal = Math.round(nFog * 255);

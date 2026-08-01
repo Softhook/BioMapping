@@ -193,6 +193,11 @@ const GSR_CONST = {
       label: 'Combined Arousal Index', unit: 'z', decimals: 2,
       colorVar: '--color-arousal-index', colorDefault: '#7b00cc',
       showPeakOverlay: false, allowNegative: true
+    },
+    emFog: {
+      label: 'EM Fog Index (EMF-I)', unit: '', decimals: 1,
+      colorVar: '--color-em-fog', colorDefault: '#a855f7',
+      showPeakOverlay: false, allowNegative: false
     }
   },
 

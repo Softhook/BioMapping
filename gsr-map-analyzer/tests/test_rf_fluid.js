@@ -40,6 +40,7 @@ loadModule(path.join(__dirname, '../map_colors.js'),         'MapColors');
 loadModule(path.join(__dirname, '../gps_filter.js'),         'GpsFilter');
 loadModule(path.join(__dirname, '../gps_pipeline.js'),       'GpsPipeline');
 loadModule(path.join(__dirname, '../deconvolution.js'),       'SCRDeconvolution');
+loadModule(path.join(__dirname, '../gsr_filter.js'),         'GsrFilter');
 loadModule(path.join(__dirname, '../analyzer.js'),            'GSRAnalyzer');
 loadModule(path.join(__dirname, '../rf_fluid_renderer.js'),   'RFFluidRenderer');
 
@@ -158,6 +159,33 @@ const norm815Peak = renderer._normDbm(-72.0, 815);
 assert.ok(norm815Peak > 0.9, 'Peak signal should return > 0.9 norm');
 
 console.log('✓ Adaptive RSSI normalization & hard noise floor thresholding verified');
+
+// ── 6. Dynamic EM Fog Calculation & Analyzer Time-Series Test ─────────────
+console.log('Testing dynamic EM Fog calculation & time-series generation...');
+const missingFogCsv = [
+  'timestamp,lat,lon,rssi_300,rssi_315,rssi_434,rssi_446,rssi_815,rssi_868,rssi_915',
+  '0.00,56.3394,-2.7894,-82.0,-78.0,-81.0,-83.0,-90.0,-88.0,-91.5',
+  '0.10,56.3395,-2.7895,-70.0,-65.0,-60.0,-72.0,-85.0,-78.0,-80.0'
+].join('\n');
+
+const dynamicFogAnalyzer = new GSRAnalyzer();
+dynamicFogAnalyzer.parseCSV(missingFogCsv);
+
+assert.strictEqual(dynamicFogAnalyzer.raw.length, 2, 'Should parse 2 rows');
+assert.ok(!isNaN(dynamicFogAnalyzer.raw[0].em_fog), 'Row 0 em_fog should be dynamically calculated');
+assert.ok(dynamicFogAnalyzer.raw[0].em_fog > 0, 'Row 0 em_fog should be positive');
+assert.ok(dynamicFogAnalyzer.raw[1].em_fog > dynamicFogAnalyzer.raw[0].em_fog, 'Row 1 em_fog should be higher than Row 0');
+
+dynamicFogAnalyzer.analyze(GSR_CONST.GSR_DEFAULT);
+assert.ok(Array.isArray(dynamicFogAnalyzer.em_fog), 'analyzer.em_fog array should exist');
+assert.strictEqual(dynamicFogAnalyzer.em_fog.length, 2, 'analyzer.em_fog length should match raw length');
+assert.ok(dynamicFogAnalyzer._globalRange.em_fog, '_globalRange.em_fog should be cached');
+
+renderer.setData(dynamicFogAnalyzer.raw, null);
+assert.strictEqual(renderer.cachedNodes[0].hasFog, true, 'Cached node 0 should have fog flag');
+assert.ok(renderer.cachedNodes[0].fog > 0, 'Cached node 0 fog should be > 0');
+
+console.log('✓ Dynamic EM Fog calculation & time-series generation verified');
 console.log('ALL RF FLUID & TRI-BAND PIPELINE TESTS PASSED SUCCESSFULY!');
 
 

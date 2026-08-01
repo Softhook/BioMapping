@@ -30,6 +30,7 @@
   --color-peak-density: #e59e00; /* Peak density (NS-SCR) amber */
   --color-phasic-auc: #0099aa; /* Phasic AUC (ISCR) teal */
   --color-arousal-index: #7b00cc; /* Combined arousal index deep purple */
+  --color-em-fog: #a855f7; /* EM Fog Index (EMF-I) glowing purple/violet */
   
   --success: #008f3c;
   --warning: #cf7900;
