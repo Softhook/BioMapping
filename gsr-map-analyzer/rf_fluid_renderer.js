@@ -256,8 +256,9 @@ class RFFluidRenderer {
       const has815 = pt.rssi_815 !== undefined && !isNaN(pt.rssi_815);
       const has868 = pt.rssi_868 !== undefined && !isNaN(pt.rssi_868);
       const has915 = pt.rssi_915 !== undefined && !isNaN(pt.rssi_915);
-      let fog = (pt.em_fog !== undefined && !isNaN(pt.em_fog)) ? pt.em_fog : 0;
-      if (!fog && typeof GSRAnalyzer !== 'undefined' && GSRAnalyzer.calcEmFog) {
+      const emFogMissing = pt.em_fog === undefined || isNaN(pt.em_fog);
+      let fog = emFogMissing ? 0 : pt.em_fog;
+      if (emFogMissing && typeof GSRAnalyzer !== 'undefined' && GSRAnalyzer.calcEmFog) {
         const fallback = GSRAnalyzer.calcEmFog(pt);
         if (!isNaN(fallback)) fog = fallback;
       }

@@ -186,6 +186,20 @@ assert.strictEqual(renderer.cachedNodes[0].hasFog, true, 'Cached node 0 should h
 assert.ok(renderer.cachedNodes[0].fog > 0, 'Cached node 0 fog should be > 0');
 
 console.log('✓ Dynamic EM Fog calculation & time-series generation verified');
+
+// ── 7. Explicit Zero em_fog Must Not Be Overwritten By The Fallback ───────
+console.log('Testing explicit em_fog=0 is preserved despite present RSSI data...');
+const zeroFogPoint = {
+  lat: 56.3394, lon: -2.7894,
+  em_fog: 0,
+  rssi_300: -70.0, rssi_315: -65.0, rssi_434: -60.0, rssi_446: -72.0,
+  rssi_815: -85.0, rssi_868: -78.0, rssi_915: -80.0
+};
+renderer.setData([zeroFogPoint], null);
+assert.strictEqual(renderer.cachedNodes[0].fog, 0, 'Explicit em_fog=0 should stay 0, not be recomputed from RSSI');
+assert.strictEqual(renderer.cachedNodes[0].hasFog, false, 'hasFog should be false when em_fog is explicitly 0');
+console.log('✓ Explicit em_fog=0 preserved (not overwritten by RSSI-derived fallback)');
+
 console.log('ALL RF FLUID & TRI-BAND PIPELINE TESTS PASSED SUCCESSFULY!');
 
 
