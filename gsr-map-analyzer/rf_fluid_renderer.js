@@ -590,14 +590,32 @@ class RFFluidRenderer {
    * @returns {{ defs: string[], polygons: string[] }} SVG defs and polygon markup strings
    */
   exportToSvgElements(project, targetW = 2000, targetH = 2000) {
-    const result = { defs: [], polygons: [] };
+    const result = { defs: [], layers: { '815': [], '868': [], '915': [], 'fog': [] }, polygons: [] };
     if (!this.cachedNodes || this.cachedNodes.length === 0) return result;
     if (!this.cachedNodes.some(n => n.hasRf)) return result;
 
     const mode = this.options.mode;
     const globalOpacity = this.options.opacity !== undefined ? this.options.opacity : 0.85;
     const defs = [];
+    const layers = { '815': [], '868': [], '915': [], 'fog': [] };
     const polygons = [];
+
+    const addGradientAndPoly = (gradId, rVal, gVal, bVal, alpha, ptsStr, effectiveRadius, originPx, targetLayerKey) => {
+      const gradStr =
+        `<radialGradient id="${gradId}" cx="${originPx.x.toFixed(2)}" cy="${originPx.y.toFixed(2)}" r="${effectiveRadius.toFixed(2)}" gradientUnits="userSpaceOnUse">\n` +
+        `  <stop offset="0%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="${(alpha * globalOpacity).toFixed(3)}" />\n` +
+        `  <stop offset="40%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="${(alpha * 0.75 * globalOpacity).toFixed(3)}" />\n` +
+        `  <stop offset="80%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="${(alpha * 0.30 * globalOpacity).toFixed(3)}" />\n` +
+        `  <stop offset="100%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="0" />\n` +
+        `</radialGradient>`;
+
+      defs.push(gradStr);
+      const polyStr = `<polygon points="${ptsStr}" fill="url(#${gradId})" />`;
+      polygons.push(polyStr);
+      if (layers[targetLayerKey]) {
+        layers[targetLayerKey].push(polyStr);
+      }
+    };
 
     for (let i = 0; i < this.cachedNodes.length; i++) {
       const node = this.cachedNodes[i];
@@ -623,61 +641,48 @@ class RFFluidRenderer {
       }
 
       if (rayPoints.length < 3) continue;
+      const ptsStr = rayPoints.map(p => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
+      const effectiveRadius = Math.max(8, maxPxRadius);
 
-      // Color synthesis based on mode
-      let rVal = 0, gVal = 0, bVal = 0;
-      let alpha = 0.0;
+      // Separate exports for individual frequency channels
+      const process815 = mode === 'triband' || mode === '815';
+      const process868 = mode === 'triband' || mode === '868';
+      const process915 = mode === 'triband' || mode === '915';
+      const processFog = mode === 'fog';
 
-      if (mode === 'triband') {
-        const n815 = node.has815 ? this._normDbm(node.r815, 815) : 0;
-        const n868 = node.has868 ? this._normDbm(node.r868, 868) : 0;
-        const n915 = node.has915 ? this._normDbm(node.r915, 915) : 0;
-
-        rVal = Math.min(255, Math.round(n815 * 255));
-        gVal = Math.min(255, Math.round(n868 * 255));
-        bVal = Math.min(255, Math.round(n915 * 255));
-
-        const maxN = Math.max(n815, n868, n915);
-        alpha = Math.min(1.0, maxN * 0.95);
-      } else if (mode === '815') {
-        const n = node.has815 ? this._normDbm(node.r815, 815) : 0;
-        rVal = 255; gVal = 0; bVal = 0;
-        alpha = Math.min(1.0, n * 0.95);
-      } else if (mode === '868') {
-        const n = node.has868 ? this._normDbm(node.r868, 868) : 0;
-        rVal = 0; gVal = 255; bVal = 0;
-        alpha = Math.min(1.0, n * 0.95);
-      } else if (mode === '915') {
-        const n = node.has915 ? this._normDbm(node.r915, 915) : 0;
-        rVal = 0; gVal = 0; bVal = 255;
-        alpha = Math.min(1.0, n * 0.95);
-      } else if (mode === 'fog') {
-        if (node.hasFog && node.fog > 0) {
-          const n = Math.min(1, node.fog / 30.0);
-          rVal = Math.round(n * 255);
-          gVal = 0;
-          bVal = Math.round((1 - n) * 255);
-          alpha = n > 0.05 ? Math.min(1.0, n * 0.95) : 0.0;
+      if (process815 && node.has815) {
+        const n815 = this._normDbm(node.r815, 815);
+        const alpha815 = Math.min(1.0, n815 * 0.95);
+        if (alpha815 > 0) {
+          addGradientAndPoly(`rfGrad_815_node_${i}`, 255, 0, 0, alpha815, ptsStr, effectiveRadius, originPx, '815');
         }
       }
 
-      if (alpha <= 0) continue;
+      if (process868 && node.has868) {
+        const n868 = this._normDbm(node.r868, 868);
+        const alpha868 = Math.min(1.0, n868 * 0.95);
+        if (alpha868 > 0) {
+          addGradientAndPoly(`rfGrad_868_node_${i}`, 0, 255, 0, alpha868, ptsStr, effectiveRadius, originPx, '868');
+        }
+      }
 
-      const gradId = `rfGrad_node_${i}`;
-      const effectiveRadius = Math.max(8, maxPxRadius);
+      if (process915 && node.has915) {
+        const n915 = this._normDbm(node.r915, 915);
+        const alpha915 = Math.min(1.0, n915 * 0.95);
+        if (alpha915 > 0) {
+          addGradientAndPoly(`rfGrad_915_node_${i}`, 0, 0, 255, alpha915, ptsStr, effectiveRadius, originPx, '915');
+        }
+      }
 
-      const gradStr =
-        `<radialGradient id="${gradId}" cx="${originPx.x.toFixed(2)}" cy="${originPx.y.toFixed(2)}" r="${effectiveRadius.toFixed(2)}" gradientUnits="userSpaceOnUse">\n` +
-        `  <stop offset="0%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="${(alpha * globalOpacity).toFixed(3)}" />\n` +
-        `  <stop offset="40%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="${(alpha * 0.75 * globalOpacity).toFixed(3)}" />\n` +
-        `  <stop offset="80%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="${(alpha * 0.30 * globalOpacity).toFixed(3)}" />\n` +
-        `  <stop offset="100%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="0" />\n` +
-        `</radialGradient>`;
-
-      defs.push(gradStr);
-
-      const ptsStr = rayPoints.map(p => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
-      polygons.push(`<polygon points="${ptsStr}" fill="url(#${gradId})" />`);
+      if (processFog && node.hasFog && node.fog > 0) {
+        const nFog = Math.min(1, node.fog / 30.0);
+        const alphaFog = nFog > 0.05 ? Math.min(1.0, nFog * 0.95) : 0.0;
+        if (alphaFog > 0) {
+          const rVal = Math.round(nFog * 255);
+          const bVal = Math.round((1 - nFog) * 255);
+          addGradientAndPoly(`rfGrad_fog_node_${i}`, rVal, 0, bVal, alphaFog, ptsStr, effectiveRadius, originPx, 'fog');
+        }
+      }
     }
 
     // Building Footprint Clip Mask Definition
@@ -702,8 +707,8 @@ class RFFluidRenderer {
     }
 
     result.defs = defs;
+    result.layers = layers;
     result.polygons = polygons;
     return result;
   }
 }
-

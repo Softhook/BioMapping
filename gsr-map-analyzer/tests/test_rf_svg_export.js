@@ -144,8 +144,12 @@ const fullSvgMarkup = GSRMapExporter._render(ctx, {
 });
 
 assert(fullSvgMarkup.includes('id="RF_Fluid_Field"'), 'SVG output must include RF_Fluid_Field group layer');
+assert(fullSvgMarkup.includes('id="RF_815MHz_LTE"'), 'SVG output must include RF_815MHz_LTE sub-layer');
+assert(fullSvgMarkup.includes('id="RF_868MHz_Grid"'), 'SVG output must include RF_868MHz_Grid sub-layer');
+assert(fullSvgMarkup.includes('id="RF_915MHz_SubGHz"'), 'SVG output must include RF_915MHz_SubGHz sub-layer');
 assert(fullSvgMarkup.includes('mask="url(#rfBuildingMask)"'), 'RF_Fluid_Field layer must apply building mask');
 assert(!fullSvgMarkup.includes('NaN'), 'SVG output must contain zero NaN values');
 
+console.log('✔ Generated separated Illustrator frequency sub-layers (815, 868, 915 MHz)');
 console.log('✔ Full SVG rendering integration passed with zero NaN coordinates');
 console.log('── All Sub-GHz RF Data SVG Export Tests Passed Successfully ──');

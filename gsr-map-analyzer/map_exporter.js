@@ -256,9 +256,29 @@ class GSRMapExporter {
       ? { mesh: [], isobands: [] }
       : (L.surface || { mesh: [], isobands: [] });
 
-    const rfObj = L.rfFluid || { defs: [], polygons: [] };
+    const rfObj = L.rfFluid || { defs: [], layers: {}, polygons: [] };
     const hasMask = rfObj.defs && rfObj.defs.some(d => d.includes('id="rfBuildingMask"'));
-    const maskAttr = hasMask ? 'mask="url(#rfBuildingMask)" style="mix-blend-mode: screen;"' : 'style="mix-blend-mode: screen;"';
+    const maskAttr = hasMask ? 'mask="url(#rfBuildingMask)"' : '';
+
+    // Build separated frequency sub-layers for Illustrator
+    const rfSubLayers = [];
+    if (rfObj.layers) {
+      if (rfObj.layers['815'] && rfObj.layers['815'].length) {
+        rfSubLayers.push(g('RF_815MHz_LTE', 'RF 815 MHz (LTE Edge)', rfObj.layers['815'], 'style="mix-blend-mode: screen;"'));
+      }
+      if (rfObj.layers['868'] && rfObj.layers['868'].length) {
+        rfSubLayers.push(g('RF_868MHz_Grid', 'RF 868 MHz (Grid Smart)', rfObj.layers['868'], 'style="mix-blend-mode: screen;"'));
+      }
+      if (rfObj.layers['915'] && rfObj.layers['915'].length) {
+        rfSubLayers.push(g('RF_915MHz_SubGHz', 'RF 915 MHz (ISM SubGHz)', rfObj.layers['915'], 'style="mix-blend-mode: screen;"'));
+      }
+      if (rfObj.layers['fog'] && rfObj.layers['fog'].length) {
+        rfSubLayers.push(g('RF_EM_Fog', 'RF Electromagnetic Fog', rfObj.layers['fog'], 'style="mix-blend-mode: screen;"'));
+      }
+    }
+
+    const rfLayerItems = rfSubLayers.length > 0 ? rfSubLayers : (rfObj.polygons || []);
+    const rfMasterAttr = hasMask ? maskAttr : 'style="mix-blend-mode: screen;"';
 
     const defsContent = rfObj.defs && rfObj.defs.length > 0
       ? `  <defs>\n${rfObj.defs.map(d => '    ' + d).join('\n')}\n  </defs>`
@@ -274,7 +294,7 @@ class GSRMapExporter {
       // time (_expandCanvasForIsobands) so the full rounded shape is genuinely
       // visible here — nothing in this layer is invisible or clipped.
       ['Vector_Surface_Isobands', 'Vector Surface Isobands',     surfObj.isobands,    'opacity="0.4"'],
-      ['RF_Fluid_Field',          'RF Fluid Field',              rfObj.polygons,      maskAttr],
+      ['RF_Fluid_Field',          'RF Fluid Field',              rfLayerItems,        rfMasterAttr],
       ['OSM_Shapes',              'OSM Shapes',                  L.osm],
       ['GPS_Track_Paths',         'GPS Track Paths',             L.tracks],
       ['Contour_Lines',           'Contour Lines',               L.contours],
