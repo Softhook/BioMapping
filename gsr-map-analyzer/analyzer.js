@@ -38,7 +38,54 @@ class GSRAnalyzer {
     this.sampleRate = 10;   // In Hz, auto-detected
     this.isResistance = false; // Whether original CSV was resistance (Ohms)
     this.filteredGps = [];
+    this._userPeakLabels = new Map(); // Persistent time-indexed store: timestamp (sec) -> label string
   }
+
+  /**
+   * Register or update a user-assigned peak label by timestamp.
+   * @param {number} time - Peak timestamp in seconds
+   * @param {string} label - Text label for the peak
+   */
+  setPeakLabel(time, label) {
+    if (time == null) return;
+    const cleanLabel = (label || '').trim();
+    const key = Number(time.toFixed(3));
+    if (cleanLabel) {
+      this._userPeakLabels.set(key, cleanLabel);
+    } else {
+      this._userPeakLabels.delete(key);
+      for (const [t] of this._userPeakLabels.entries()) {
+        if (Math.abs(t - time) <= 0.5) {
+          this._userPeakLabels.delete(t);
+        }
+      }
+    }
+  }
+
+  /**
+   * Retrieve a user peak label by timestamp, using exact match first then nearest-neighbor lookup within tolerance.
+   * @param {number} targetTime - Peak timestamp in seconds
+   * @param {number} [maxToleranceSec=0.5] - Proximity window tolerance in seconds
+   * @returns {string} Matching label or empty string
+   */
+  getMatchingLabel(targetTime, maxToleranceSec = 0.5) {
+    if (targetTime == null || this._userPeakLabels.size === 0) return '';
+    const key = Number(targetTime.toFixed(3));
+    if (this._userPeakLabels.has(key)) {
+      return this._userPeakLabels.get(key);
+    }
+    let bestMatch = '';
+    let minDiff = Infinity;
+    for (const [t, label] of this._userPeakLabels.entries()) {
+      const diff = Math.abs(t - targetTime);
+      if (diff <= maxToleranceSec && diff < minDiff) {
+        minDiff = diff;
+        bestMatch = label;
+      }
+    }
+    return bestMatch;
+  }
+
 
   /**
    * Parse one CSV line into fields, honoring quoted commas and escaped quotes.
@@ -579,7 +626,10 @@ class GSRAnalyzer {
     this._importedPeakLabels = new Map();
     this._importedPeakExcluded = new Map();
     for (const d of rawDataList) {
-      if (d._importLabel) this._importedPeakLabels.set(d.time, d._importLabel);
+      if (d._importLabel) {
+        this._importedPeakLabels.set(d.time, d._importLabel);
+        this.setPeakLabel(d.time, d._importLabel);
+      }
       if (d._importExcluded) this._importedPeakExcluded.set(d.time, true);
       delete d._importLabel;
       delete d._importExcluded;
@@ -1000,7 +1050,10 @@ class GSRAnalyzer {
     const oldLabels = new Map();
     const oldExcluded = new Set();
     for (const pk of this.peaks) {
-      if (pk.label && pk.label.trim()) oldLabels.set(pk.index, pk.label);
+      if (pk.label && pk.label.trim()) {
+        this.setPeakLabel(pk.time, pk.label);
+        oldLabels.set(pk.index, pk.label);
+      }
       if (pk.excluded) oldExcluded.add(pk.index);
     }
 
@@ -1359,7 +1412,10 @@ class GSRAnalyzer {
         skewnessRatio: skewnessRatio,
         fwhm: fwhm,
         snr: snr,
-        label: oldLabels.get(i) || '',
+        label: oldLabels.get(i) ||
+               this.getMatchingLabel(times[i]) ||
+               (this._importedPeakLabels ? this._importedPeakLabels.get(times[i]) : '') ||
+               '',
         excluded: oldExcluded.has(i)
       };
       // Uses the deconvolution-specific quality formula, not
@@ -1628,7 +1684,10 @@ class GSRAnalyzer {
     const oldLabels = new Map();
     const oldExcluded = new Set();
     for (const pk of this.peaks) {
-      if (pk.label && pk.label.trim()) oldLabels.set(pk.index, pk.label);
+      if (pk.label && pk.label.trim()) {
+        this.setPeakLabel(pk.time, pk.label);
+        oldLabels.set(pk.index, pk.label);
+      }
       if (pk.excluded) oldExcluded.add(pk.index);
     }
     // Also merge labels and exclusion imported from re-loaded processed CSV (matched by time)
@@ -1818,6 +1877,7 @@ class GSRAnalyzer {
         fwhm: fwhm,
         snr: snr,
         label: oldLabels.get(i) ||
+               this.getMatchingLabel(times[i]) ||
                (this._importedPeakLabels ? this._importedPeakLabels.get(times[i]) : '') ||
                '',
         excluded: oldExcluded.has(i) ||

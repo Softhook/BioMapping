@@ -1039,5 +1039,31 @@
     </div>
   </div>
 
+  <!-- Unsaved Labels Warning Modal -->
+  <div class="preset-modal-overlay" id="unsavedLabelsModal" style="display:none;" onclick="GSRUI.closeUnsavedLabelsModal(event)">
+    <div class="preset-modal-content" onclick="event.stopPropagation()" style="max-width: 440px;">
+      <div class="preset-modal-header">
+        <h3 style="color: #f59e0b;"><i class="fa-solid fa-triangle-exclamation"></i> <span id="unsavedLabelsModalTitle">Unsaved Peak Labels</span></h3>
+        <button class="icon-btn" onclick="GSRUI.closeUnsavedLabelsModal()" title="Close">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="preset-modal-body" style="padding: 16px 0;">
+        <p id="unsavedLabelsModalText" style="font-size: 0.9rem; line-height: 1.5; margin: 0; color: var(--text-color, #e2e8f0);">
+          You have unsaved peak labels on this track. Would you like to export your peak labels to CSV before closing, or lose unsaved labels?
+        </p>
+      </div>
+      <div class="preset-modal-footer" style="margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+        <button class="btn btn-secondary btn-sm" onclick="GSRUI.closeUnsavedLabelsModal()" style="margin-right: auto;">Cancel</button>
+        <button class="btn btn-danger btn-sm" id="btnLoseUnsavedLabels">
+          <i class="fa-solid fa-trash-can"></i> Lose Labels
+        </button>
+        <button class="btn btn-primary btn-sm" id="btnExportUnsavedLabels">
+          <i class="fa-solid fa-file-export"></i> Export CSV
+        </button>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

@@ -161,8 +161,10 @@ const GSRCollectiveProject = {
 
       const blob = await zip.generateAsync({ type: 'blob' });
       const stamp = new Date().toISOString().slice(0, 10);
-      const suggestedName = `biomapping_collective_project_${stamp}.zip`;
-      await GSRFileSaver.saveFile(blob, suggestedName);
+      const saved = await GSRFileSaver.saveFile(blob, suggestedName);
+      if (saved !== false) {
+        AppState.collectiveManager.tracks.forEach(t => { t.hasUnsavedLabels = false; });
+      }
     } catch (err) {
       console.error('Project export failed:', err);
       alert('Error exporting project: ' + err.message);

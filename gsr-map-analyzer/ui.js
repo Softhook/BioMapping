@@ -39,16 +39,32 @@ const GSRUI = {
    * If trackId is provided, the peak belongs to that track (collective mode).
    */
   updatePeakLabel(idx, label, trackId) {
-    let peaksArr;
+    let track = null;
+    let analyzer = null;
     if (trackId) {
-      const track = AppState.collectiveManager.getTrack(trackId);
-      if (!track || !track.analyzer || !track.analyzer.peaks || idx >= track.analyzer.peaks.length) return;
-      peaksArr = track.analyzer.peaks;
+      track = AppState.collectiveManager.getTrack(trackId);
+      if (track) analyzer = track.analyzer;
     } else {
-      if (!AppState.analyzer || !AppState.analyzer.peaks || idx >= AppState.analyzer.peaks.length) return;
-      peaksArr = AppState.analyzer.peaks;
+      analyzer = AppState.analyzer;
+      if (AppState.activeTrackId) {
+        track = AppState.collectiveManager.getTrack(AppState.activeTrackId);
+      }
     }
-    peaksArr[idx].label = label.trim();
+
+    if (!analyzer || !analyzer.peaks || idx >= analyzer.peaks.length) return;
+    const pk = analyzer.peaks[idx];
+    const clean = label.trim();
+    pk.label = clean;
+    if (typeof analyzer.setPeakLabel === 'function') {
+      analyzer.setPeakLabel(pk.time, clean);
+    }
+    if (track) {
+      track.hasUnsavedLabels = true;
+    } else if (AppState.activeTrackId) {
+      const activeTrack = AppState.collectiveManager.getTrack(AppState.activeTrackId);
+      if (activeTrack) activeTrack.hasUnsavedLabels = true;
+    }
+
     GSRUI.invalidateEnvironmentalCache();
     // Refresh displays
     if (AppState.viewMode === 'single') {
@@ -67,11 +83,32 @@ const GSRUI = {
    * without destroying/recreating the active Leaflet map popups.
    */
   handleLiveLabelInput(idx, value, trackId) {
+    let track = null;
+    let analyzer = null;
+    if (trackId) {
+      track = AppState.collectiveManager.getTrack(trackId);
+      if (track) analyzer = track.analyzer;
+    } else {
+      analyzer = AppState.analyzer;
+      if (AppState.activeTrackId) {
+        track = AppState.collectiveManager.getTrack(AppState.activeTrackId);
+      }
+    }
     let peaksArr = GSRUI._getPeaksArray(trackId);
     if (!peaksArr || idx >= peaksArr.length) return;
     
     // Update in-memory model (avoid trim during typing to allow trailing spaces)
-    peaksArr[idx].label = value;
+    const pk = peaksArr[idx];
+    pk.label = value;
+    if (analyzer && typeof analyzer.setPeakLabel === 'function') {
+      analyzer.setPeakLabel(pk.time, value);
+    }
+    if (track) {
+      track.hasUnsavedLabels = true;
+    } else if (AppState.activeTrackId) {
+      const activeTrack = AppState.collectiveManager.getTrack(AppState.activeTrackId);
+      if (activeTrack) activeTrack.hasUnsavedLabels = true;
+    }
 
     // 1. Sync table input if it exists and is not the active typing element
     const tableInput = document.querySelector(`.peak-label-input[data-peak-idx="${idx}"]`);
@@ -448,14 +485,35 @@ const GSRUI = {
 
   /**
    * Export processed GSR data as CSV.
+   * @param {string} [targetTrackId] - Optional track ID to export, defaults to active track
+   * @returns {Promise<boolean>} True if saved, false if cancelled or failed
    */
-  async exportCSV() {
-    if (AppState.analyzer.raw.length === 0) return;
-    const params = GSRStorage.readGsrSliderValues();
-    const gpsParams = GSRStorage.readGpsSliderValues();
-    const csvContent = AppState.analyzer.exportToCSV(params, gpsParams);
-    const baseName = GSRUI._exportFilenameBase();
-    await GSRFileSaver.saveFile(csvContent, baseName + '_processed.csv');
+  async exportCSV(targetTrackId) {
+    let track = null;
+    let analyzer = AppState.analyzer;
+    if (targetTrackId) {
+      track = AppState.collectiveManager.getTrack(targetTrackId);
+      if (track) analyzer = track.analyzer;
+    } else if (AppState.activeTrackId) {
+      track = AppState.collectiveManager.getTrack(AppState.activeTrackId);
+    }
+
+    if (!analyzer || analyzer.raw.length === 0) return false;
+    const params = track ? track.filterParams : GSRStorage.readGsrSliderValues();
+    const gpsParams = track ? track.gpsFilterParams : GSRStorage.readGpsSliderValues();
+    const csvContent = analyzer.exportToCSV(params, gpsParams);
+    const nameToSanitize = track ? track.name : (AppState.activeTrackId ? (AppState.collectiveManager.getTrack(AppState.activeTrackId) || {}).name : null);
+    const baseName = nameToSanitize ? nameToSanitize.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9._-]/g, '_') : GSRUI._exportFilenameBase();
+    const saved = await GSRFileSaver.saveFile(csvContent, baseName + '_processed.csv');
+    if (saved !== false) {
+      if (track) track.hasUnsavedLabels = false;
+      if (AppState.activeTrackId && (!targetTrackId || targetTrackId === AppState.activeTrackId)) {
+        const activeTrack = AppState.collectiveManager.getTrack(AppState.activeTrackId);
+        if (activeTrack) activeTrack.hasUnsavedLabels = false;
+      }
+      return true;
+    }
+    return false;
   },
 
   /**
@@ -1528,5 +1586,69 @@ const GSRUI = {
     };
     GSRStorage.downloadPresetJson(preset, name);
     this.closeExportPresetModal();
+  },
+
+  /**
+   * Open the Unsaved Labels Warning Modal.
+   * @param {string} trackName - Name of the track being closed/deleted.
+   * @param {string|null} trackId - ID of track being closed, or 'ALL' for multiple.
+   * @param {Function} onConfirmClose - Callback to execute if user chooses to proceed with close/deletion.
+   */
+  showUnsavedLabelsModal(trackName, trackId, onConfirmClose) {
+    const modal = document.getElementById('unsavedLabelsModal');
+    if (!modal) {
+      if (confirm(`Track "${trackName}" has unsaved peak labels. Do you want to lose unsaved labels and close?`)) {
+        onConfirmClose();
+      }
+      return;
+    }
+
+    const textEl = document.getElementById('unsavedLabelsModalText');
+    if (textEl) {
+      if (trackId === 'ALL') {
+        textEl.innerText = `You have unsaved peak labels across loaded tracks. Would you like to export your project bundle before closing, or lose all unsaved labels?`;
+      } else {
+        textEl.innerText = `You have unsaved peak labels on track "${trackName}". Would you like to export your peak labels to CSV before closing, or lose unsaved labels?`;
+      }
+    }
+
+    const exportBtn = document.getElementById('btnExportUnsavedLabels');
+    const loseBtn = document.getElementById('btnLoseUnsavedLabels');
+
+    if (exportBtn) {
+      exportBtn.onclick = async () => {
+        GSRUI.closeUnsavedLabelsModal();
+        let success = false;
+        if (trackId === 'ALL') {
+          if (typeof GSRCollectiveProject !== 'undefined') {
+            await GSRCollectiveProject.exportProject();
+            success = true;
+          }
+        } else {
+          success = await GSRUI.exportCSV(trackId);
+        }
+        if (success) {
+          onConfirmClose();
+        }
+      };
+    }
+
+    if (loseBtn) {
+      loseBtn.onclick = () => {
+        GSRUI.closeUnsavedLabelsModal();
+        onConfirmClose();
+      };
+    }
+
+    modal.style.display = 'flex';
+  },
+
+  /**
+   * Close the Unsaved Labels Warning Modal.
+   */
+  closeUnsavedLabelsModal(event) {
+    if (event && event.target !== document.getElementById('unsavedLabelsModal')) return;
+    const modal = document.getElementById('unsavedLabelsModal');
+    if (modal) modal.style.display = 'none';
   }
 };

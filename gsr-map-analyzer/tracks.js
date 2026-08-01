@@ -364,30 +364,41 @@ const GSRTrackManager = {
   },
 
   deleteTrack(trackId) {
-    // Save current GPS params before switching away
-    GSRTrackManager.saveActiveGpsParams();
+    const track = AppState.collectiveManager.getTrack(trackId);
+    if (!track) return;
 
-    AppState.collectiveManager.removeTrack(trackId);
+    const performDelete = () => {
+      // Save current GPS params before switching away
+      GSRTrackManager.saveActiveGpsParams();
 
-    if (AppState.activeTrackId === trackId) {
-      if (AppState.collectiveManager.tracks.length > 0) {
-        GSRTrackManager.switchActiveTrack(AppState.collectiveManager.tracks[0].id);
-      } else {
-        AppState.activeTrackId = null;
-        AppState.analyzer = new GSRAnalyzer();
+      AppState.collectiveManager.removeTrack(trackId);
+
+      if (AppState.activeTrackId === trackId) {
+        if (AppState.collectiveManager.tracks.length > 0) {
+          GSRTrackManager.switchActiveTrack(AppState.collectiveManager.tracks[0].id);
+        } else {
+          AppState.activeTrackId = null;
+          AppState.analyzer = new GSRAnalyzer();
+        }
       }
-    }
 
-    GSRTrackManager.renderTrackList();
+      GSRTrackManager.renderTrackList();
 
-    if (AppState.collectiveManager.tracks.length > 0) {
-      GSRTrackManager.setFileStatus('success', `${AppState.collectiveManager.tracks.length} Tracks Loaded`);
+      if (AppState.collectiveManager.tracks.length > 0) {
+        GSRTrackManager.setFileStatus('success', `${AppState.collectiveManager.tracks.length} Tracks Loaded`);
+      } else {
+        GSRTrackManager.setFileStatus('warning', 'No File Loaded');
+      }
+
+      if (AppState.viewMode === 'collective') {
+        GSRUI.updateCollectiveMap();
+      }
+    };
+
+    if (track.hasUnsavedLabels) {
+      GSRUI.showUnsavedLabelsModal(track.name, trackId, performDelete);
     } else {
-      GSRTrackManager.setFileStatus('warning', 'No File Loaded');
-    }
-
-    if (AppState.viewMode === 'collective') {
-      GSRUI.updateCollectiveMap();
+      performDelete();
     }
   },
 

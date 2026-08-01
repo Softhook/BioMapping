@@ -378,6 +378,17 @@ const GSREvents = {
     bindToggle('btnTogglePeaks',    'showPeaks');
     bindToggle('btnToggleHotspots', 'showHotspots');
 
+    // ── Page Unload Protection ───────────────────────────────────────────────
+    window.addEventListener('beforeunload', (e) => {
+      const hasDirty = AppState.collectiveManager && AppState.collectiveManager.tracks
+        ? AppState.collectiveManager.tracks.some(t => t.hasUnsavedLabels)
+        : false;
+      if (hasDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
+
     // ── Export Buttons ────────────────────────────────────────────────────────
     document.getElementById('exportCsvBtn').addEventListener('click',   GSRUI.exportCSV);
     document.getElementById('exportImageBtn').addEventListener('click', GSRUI.saveCanvasImage);
