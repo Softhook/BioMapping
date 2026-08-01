@@ -78,6 +78,31 @@ const GSREvents = {
 
 
   /**
+   * Wrap fn so repeated calls collapse into one trailing-edge call per
+   * animation frame. A slider's native 'input' event can fire far more often
+   * than the screen actually repaints during a drag, and the work behind
+   * these sliders (analyzer.analyze() / the GPS Kalman pipeline, followed by
+   * mapManager.clearMap() + a full Leaflet layer rebuild) is heavy enough
+   * that running it on every single tick makes dragging feel sluggish. This
+   * keeps the label/dim updates instant (callers do those synchronously,
+   * outside the wrapped fn) while capping the expensive re-render to once
+   * per frame.
+   */
+  rafCoalesce(fn) {
+    let scheduled = false;
+    let lastArgs;
+    return (...args) => {
+      lastArgs = args;
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        fn(...lastArgs);
+      });
+    };
+  },
+
+  /**
    * Update the dimmed state of a slider-group based on whether value is 0 (off).
    * If a parentId is provided, dims based on the parent slider's value instead.
    */
@@ -107,17 +132,21 @@ const GSREvents = {
     // Initial dim state
     updateDim();
 
+    const runHeavyWork = GSREvents.rafCoalesce(() => {
+      if (typeof GSRTrackManager !== 'undefined') {
+        GSRTrackManager.saveActiveTrackParams();
+        GSRTrackManager.renderTrackList();
+      }
+      GSRUI.runAnalysis();
+    });
+
     slider.addEventListener('input', () => {
       const val = parseFloat(slider.value);
       const step = parseFloat(slider.step) || 0.1;
       const decimals = step < 0.1 ? 2 : (suffix.includes('μS') ? 3 : 1);
       label.innerText = val === 0 ? 'off' : val.toFixed(decimals) + suffix;
       updateDim();
-      if (typeof GSRTrackManager !== 'undefined') {
-        GSRTrackManager.saveActiveTrackParams();
-        GSRTrackManager.renderTrackList();
-      }
-      GSRUI.runAnalysis();
+      runHeavyWork();
     });
   },
 
@@ -134,14 +163,18 @@ const GSREvents = {
     // Initial dim state
     updateDim();
 
-    slider.addEventListener('input', () => {
-      label.innerText = fmt(parseFloat(slider.value));
-      updateDim();
+    const runHeavyWork = GSREvents.rafCoalesce(() => {
       if (typeof GSRTrackManager !== 'undefined') {
         GSRTrackManager.saveActiveGpsParams();
         GSRTrackManager.renderTrackList();
       }
       GSRUI.rerenderMap();
+    });
+
+    slider.addEventListener('input', () => {
+      label.innerText = fmt(parseFloat(slider.value));
+      updateDim();
+      runHeavyWork();
     });
 
     // Re-evaluate dim state when the parent slider changes
@@ -231,10 +264,11 @@ const GSREvents = {
 
     // DWT level — custom binding (integer display)
     if (S.dwtLevel) {
+      const runHeavyWork = GSREvents.rafCoalesce(() => GSRUI.runAnalysis());
       S.dwtLevel.addEventListener('input', () => {
         const level = parseInt(S.dwtLevel.value);
         document.getElementById('valDwtLevel').innerText = level;
-        GSRUI.runAnalysis();
+        runHeavyWork();
       });
     }
 
@@ -422,13 +456,16 @@ const GSREvents = {
         if (group) group.classList.toggle('latency-active', parseFloat(slider.value) > 0);
       };
       updateDim();
-      slider.addEventListener('input', () => {
-        label.innerText = parseFloat(slider.value).toFixed(1) + ' s';
-        updateDim();
+      const runHeavyWork = GSREvents.rafCoalesce(() => {
         GSRUI.rerenderMap();
         if (typeof GSRUI !== 'undefined' && typeof GSRUI.updateEnvironmentalDashboard === 'function') {
           GSRUI.updateEnvironmentalDashboard();
         }
+      });
+      slider.addEventListener('input', () => {
+        label.innerText = parseFloat(slider.value).toFixed(1) + ' s';
+        updateDim();
+        runHeavyWork();
       });
     }
 
@@ -791,9 +828,9 @@ const GSREvents = {
    * Contour settings sliders.
    */
   bindContourInputs() {
-    const triggerUpdate = () => {
+    const triggerUpdate = GSREvents.rafCoalesce(() => {
       if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
-    };
+    });
 
     const bindCi = (id, labelId, fmt) => {
       const input = document.getElementById(id);
