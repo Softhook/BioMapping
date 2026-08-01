@@ -607,7 +607,7 @@ const OSMEnricher = {
       // it here would map-match a snap-biased path, progressively pulling
       // coordinates toward wrong parallel roads on subsequent runs.
       const coords = analyzer.getCoordinates(i, true);
-      if (coords && coords.lat != null && coords.lon != null) {
+      if (coords && coords.lat != null && coords.lon != null && !isNaN(coords.lat) && !isNaN(coords.lon)) {
         gpsIndices.push({ idx: i, lat: coords.lat, lon: coords.lon });
       }
     }

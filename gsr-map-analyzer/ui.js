@@ -652,6 +652,8 @@ const GSRUI = {
    * Orchestrates bounding box computation, Overpass fetching, and spatial enrichment.
    */
   async enrichTrack(forceFetch = false) {
+    if (GSRUI._enriching) return;
+    
     const isCollective = (AppState.viewMode === 'collective');
     
     // Get tracks to enrich
@@ -673,62 +675,28 @@ const GSRUI = {
       return;
     }
 
-    const radius = parseInt(document.getElementById('osmRadius').value) || 50;
-    const snapRadius  = parseInt(document.getElementById('gpsSnapRadius')?.value) || 25;
-    const maxRadius   = Math.max(radius, snapRadius);
+    // Filter to tracks that contain at least one valid GPS coordinate fix
+    const validTracks = tracksToEnrich.filter(t => {
+      if (!t || !t.analyzer || !t.analyzer.raw) return false;
+      return t.analyzer.raw.some(pt => pt && OSMEnricher._isValidCoord(pt.lat, pt.lon));
+    });
 
-    // Calculate union bounding box by combining raw coords arrays
-    const combinedRaw = [];
-    for (const t of tracksToEnrich) {
-      combinedRaw.push(...t.analyzer.raw);
+    if (validTracks.length === 0) {
+      alert("No valid GPS coordinates found in the selected track(s). OpenStreetMap spatial data retrieval requires GPS location fixes.");
+      return;
     }
 
-    const unionBBox = OSMEnricher.calculateBBox(combinedRaw, maxRadius + 50);
-    if (!unionBBox) {
-      throw new Error("Could not calculate bounding box. Track coordinates may be invalid.");
-    }
-
-    const area = OSMEnricher.calculateBBoxAreaKm2(unionBBox);
-    if (area > 12.0) {
-      throw new Error(`The combined tracks' bounding box is too large (${area.toFixed(1)} km²). Maximum size is 12 km² to prevent API overload. Try selecting fewer active tracks.`);
-    }
-
-    // Check if we can reuse cached OSM data
-    const allCached = !forceFetch && tracksToEnrich.every(t => t.analyzer.osmJson);
-
-    if (allCached) {
-      try {
-        const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? false;
-        tracksToEnrich.forEach(t => {
-          OSMEnricher.enrichTrack(t.analyzer, t.analyzer.osmJson, radius,
-            { enabled: snapEnabled, radiusOut: snapRadius }
-          );
-        });
-        GSRUI.invalidateEnvironmentalCache();
-        GSRUI.refreshOsmControls();
-        GSRUI.rerenderMap();
-        return;
-      } catch (err) {
-        console.error('Local enrichment failed:', err);
-        tracksToEnrich.forEach(t => t.analyzer.osmJson = null);
-      }
-    }
-
-    // Prevent re-entrant network calls
-    if (GSRUI._enriching) return;
-    GSRUI._enriching = true;
-    
     const btn = document.getElementById('btnEnrichTrack');
     const statusContainer = document.getElementById('osmStatusContainer');
     const statusMsg = document.getElementById('osmStatusMessage');
     const progressBar = document.getElementById('osmProgressBar');
     
     if (!btn || !statusContainer || !statusMsg || !progressBar) {
-      GSRUI._enriching = false;
       return;
     }
 
     const originalText = btn.innerHTML;
+    GSRUI._enriching = true;
     btn.setAttribute('disabled', 'true');
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enriching...';
     
@@ -742,26 +710,51 @@ const GSRUI = {
     };
 
     try {
-      // Always check the persistent cache first, regardless of forceFetch.
-      // forceFetch only means "don't trust this session's in-memory
-      // analyzer.osmJson" (handled above via the allCached early-return) —
-      // it does not mean "must hit the network." The whole point of this
-      // cache is to cut Overpass API calls, and the "Retrieve Spatial Data"
-      // button is the *only* path that ever reaches this code, so skipping
-      // the cache here for forceFetch would make it dead code in practice.
-      // If the user genuinely wants to force a fresh network fetch for an
-      // area, "Clear Cached Map Data" already exists for that.
+      const radius = parseInt(document.getElementById('osmRadius').value) || 50;
+      const snapRadius  = parseInt(document.getElementById('gpsSnapRadius')?.value) || 25;
+      const maxRadius   = Math.max(radius, snapRadius);
+
+      // Calculate union bounding box using valid raw coordinates
+      const combinedRaw = [];
+      for (const t of validTracks) {
+        combinedRaw.push(...t.analyzer.raw);
+      }
+
+      const unionBBox = OSMEnricher.calculateBBox(combinedRaw, maxRadius + 50);
+      if (!unionBBox) {
+        throw new Error("Could not calculate bounding box. Track coordinates may be invalid.");
+      }
+
+      const area = OSMEnricher.calculateBBoxAreaKm2(unionBBox);
+      if (area > 12.0) {
+        throw new Error(`The combined tracks' bounding box is too large (${area.toFixed(1)} km²). Maximum size is 12 km² to prevent API overload. Try selecting fewer active tracks.`);
+      }
+
+      // Check if we can reuse cached in-memory OSM data
+      const allCached = !forceFetch && validTracks.every(t => t.analyzer.osmJson);
+
+      if (allCached) {
+        const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? false;
+        validTracks.forEach(t => {
+          OSMEnricher.enrichTrack(t.analyzer, t.analyzer.osmJson, radius,
+            { enabled: snapEnabled, radiusOut: snapRadius }
+          );
+        });
+        GSRUI.invalidateEnvironmentalCache();
+        GSRUI.refreshOsmControls();
+        GSRUI.rerenderMap();
+        updateProgress('Enrichment complete (using local cache)!', 100);
+        setTimeout(() => { statusContainer.style.display = 'none'; }, 2500);
+        return;
+      }
+
+      // Check persistent storage cache or fetch from Overpass API
       updateProgress('Checking local cache...', 10);
       let osmJson = await OsmCache.getForBBox(unionBBox);
 
       if (osmJson) {
         updateProgress('Using cached OpenStreetMap data...', 50);
       } else {
-        // No single cached entry fully covers this area. Rather than
-        // fetching exactly unionBBox and stacking a redundant, partially-
-        // overlapping entry on top of any nearby cached ones, expand the
-        // fetch to cover their union so the result can replace them —
-        // cache coverage grows and coalesces instead of duplicating.
         const plan = await OsmCache.planFetch(unionBBox);
         if (plan.mergeIds.length > 0) {
           updateProgress(`Expanding cached coverage (merging ${plan.mergeIds.length} nearby area${plan.mergeIds.length > 1 ? 's' : ''})...`, 20);
@@ -769,21 +762,18 @@ const GSRUI = {
 
         updateProgress('Fetching OpenStreetMap features for tracks...', 30);
         osmJson = await OSMEnricher.fetchOSMData(plan.fetchBBox, (msg) => updateProgress(msg));
-        // Best-effort: a cache-store failure (e.g. private browsing) must
-        // never fail enrichment itself, so this isn't awaited into the
-        // critical path beyond letting store() catch its own errors.
         OsmCache.store(plan.fetchBBox, osmJson, plan.mergeIds);
       }
 
       updateProgress('Processing spatial metrics...', 60);
       const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? false;
 
-      // Enrich each track using the fetched OSM JSON
-      tracksToEnrich.forEach((t, i) => {
+      // Enrich each valid track using OSM JSON
+      validTracks.forEach((t, i) => {
         t.analyzer.osmJson = osmJson;
         OSMEnricher.enrichTrack(t.analyzer, osmJson, radius,
           { enabled: snapEnabled, radiusOut: snapRadius },
-          (msg) => updateProgress(`[Track ${i+1}/${tracksToEnrich.length}] ${msg}`)
+          (msg) => updateProgress(`[Track ${i+1}/${validTracks.length}] ${msg}`)
         );
       });
 
@@ -795,14 +785,19 @@ const GSRUI = {
       GSRUI.refreshOsmControls();
       GSRUI.rerenderMap();
       
-      updateProgress('Enrichment complete!', 100);
+      const skippedCount = tracksToEnrich.length - validTracks.length;
+      if (skippedCount > 0) {
+        updateProgress(`Enrichment complete! (Skipped ${skippedCount} track${skippedCount > 1 ? 's' : ''} with no GPS fixes)`, 100);
+      } else {
+        updateProgress('Enrichment complete!', 100);
+      }
       
       setTimeout(() => {
         statusContainer.style.display = 'none';
       }, 3000);
 
     } catch (err) {
-      console.error(err);
+      console.error('OSM Enrichment error:', err);
       alert("OSM Enrichment failed: " + err.message);
       statusMsg.innerText = "Error: " + err.message;
       progressBar.style.backgroundColor = "var(--danger)";
