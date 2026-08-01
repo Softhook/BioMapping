@@ -198,6 +198,11 @@ const GSR_CONST = {
       label: 'EM Fog Index (EMF-I)', unit: '', decimals: 1,
       colorVar: '--color-em-fog', colorDefault: '#a855f7',
       showPeakOverlay: false, allowNegative: false
+    },
+    em_fog: {
+      label: 'EM Fog Index (EMF-I)', unit: '', decimals: 1,
+      colorVar: '--color-em-fog', colorDefault: '#a855f7',
+      showPeakOverlay: false, allowNegative: false
     }
   },
 

@@ -167,7 +167,8 @@ function draw() {
     peakDensity:  { steps: [[5, 1], [20, 2], [60, 5], [200, 20]],                  defaultStep: 10,  decimals: 0, unit: ' /min' },
     phasicAUC:    { steps: [[0.5, 0.05], [2, 0.2], [5, 0.5], [20, 2]],             defaultStep: 5,   decimals: 2, unit: ' \u03bcS\u00b7s' },
     arousalIndex: { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' },
-    emFog:        { steps: [[10, 2], [25, 5], [50, 10], [100, 20]],                defaultStep: 20,  decimals: 1, unit: ' EMF-I' }
+    emFog:        { steps: [[10, 2], [25, 5], [50, 10], [100, 20]],                defaultStep: 20,  decimals: 1, unit: ' EMF-I' },
+    em_fog:       { steps: [[10, 2], [25, 5], [50, 10], [100, 20]],                defaultStep: 20,  decimals: 1, unit: ' EMF-I' }
   };
   const gridPreset = lowerGridPresets[lowerMode] || lowerGridPresets.phasic;
   GSRRenderer.drawGridY(yMinLower, yMaxLower, yLowerBottom, yLowerBottom - hLower,

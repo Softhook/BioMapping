@@ -517,7 +517,9 @@
     </div>
 
     <script>
-        // Frequency Bands Definition & Color Palette
+        /**
+         * EM Scan Visualizer — Modular Application Architecture
+         */
         const FREQ_BANDS = [
             { id: 'rssi_300', label: '300 MHz', color: '#06b6d4' },
             { id: 'rssi_315', label: '315 MHz', color: '#38bdf8' },
@@ -528,230 +530,243 @@
             { id: 'rssi_915', label: '915 MHz', color: '#a855f7' }
         ];
 
-        let map, chart, canvasRenderer;
-        let activeData = [];
-        let mapMarkers = [];
-        let trackPolyline = null;
-        let activeHoverMarker = null;
-
-        // Initialize Application
-        window.addEventListener('DOMContentLoaded', () => {
-            initMap();
-            initSpectrumBars();
-            initChart();
-            setupDragAndDrop();
-            loadSampleData();
-        });
-
-        // Initialize Leaflet Map with Canvas Renderer for High Performance
-        function initMap() {
-            canvasRenderer = L.canvas();
-            map = L.map('map', {
-                zoomControl: true,
-                attributionControl: false,
-                preferCanvas: true
-            }).setView([51.5560, -0.0712], 16);
-
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                maxZoom: 19,
-                subdomains: 'abcd'
-            }).addTo(map);
-        }
-
-        // Initialize Spectrum Gauges
-        function initSpectrumBars() {
-            const container = document.getElementById('spectrum-bars');
-            container.innerHTML = '';
-
-            FREQ_BANDS.forEach(b => {
-                const row = document.createElement('div');
-                row.className = 'spectrum-row';
-                row.innerHTML = `
-                    <div class="band-tag">${b.label}</div>
-                    <div class="bar-wrapper">
-                        <div class="bar-fill" id="bar-${b.id}" style="background: ${b.color}; width: 0%;"></div>
-                    </div>
-                    <div class="rssi-val" id="val-${b.id}">-100 dBm</div>
-                `;
-                container.appendChild(row);
-            });
-        }
-
-        // Initialize Chart.js Time Series
-        function initChart() {
-            const ctx = document.getElementById('timeline-chart').getContext('2d');
-            
-            const datasets = FREQ_BANDS.map(b => ({
-                label: b.label,
-                data: [],
-                borderColor: b.color,
-                backgroundColor: b.color,
-                borderWidth: 1.5,
-                pointRadius: 0,
-                pointHoverRadius: 5,
-                tension: 0.1
-            }));
-
-            datasets.unshift({
-                label: 'EM Fog Index',
-                data: [],
-                borderColor: '#ffffff',
-                borderWidth: 2.5,
-                borderDash: [4, 4],
-                pointRadius: 0,
-                yAxisID: 'yFog'
-            });
-
-            chart = new Chart(ctx, {
-                type: 'line',
-                data: { labels: [], datasets: datasets },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    animation: false,
-                    interaction: { mode: 'index', intersect: false },
-                    plugins: {
-                        legend: {
-                            labels: { color: '#94a3b8', font: { family: 'Inter', size: 11 } }
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: (ctx) => `${ctx.dataset.label}: ${typeof ctx.parsed.y === 'number' ? ctx.parsed.y.toFixed(1) : ctx.parsed.y} ${ctx.dataset.yAxisID === 'yFog' ? '' : 'dBm'}`
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 10 } },
-                            grid: { color: '#334155' }
-                        },
-                        y: {
-                            min: -105,
-                            max: -25,
-                            title: { display: true, text: 'RSSI (dBm)', color: '#94a3b8' },
-                            ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 10 } },
-                            grid: { color: '#334155' }
-                        },
-                        yFog: {
-                            position: 'right',
-                            min: 0,
-                            max: 100,
-                            title: { display: true, text: 'EM Fog Index', color: '#ffffff' },
-                            ticks: { color: '#ffffff', font: { family: 'JetBrains Mono', size: 10 } },
-                            grid: { drawOnChartArea: false }
-                        }
-                    },
-                    onHover: (e, activeElements) => {
-                        if (activeElements.length > 0) {
-                            const idx = activeElements[0].index;
-                            highlightDataPoint(idx);
-                        }
-                    }
-                }
-            });
-        }
-
-        let applyCalibration = false;
-
         const DEFAULT_CALIBRATED_FLOORS = {
-            '300': -82.5,
-            '315': -91.5,
-            '434': -91.5,
-            '446': -91.5,
-            '815': -91.5,
-            '868': -91.5,
-            '915': -91.5
+            '300': -82.5, '315': -91.5, '434': -91.5,
+            '446': -91.5, '815': -91.5, '868': -91.5, '915': -91.5
         };
 
-        function getFloorForBand(bKey) {
-            if (activeData && activeData.bandFloors && typeof activeData.bandFloors[bKey] === 'number') {
-                return activeData.bandFloors[bKey];
-            }
-            return DEFAULT_CALIBRATED_FLOORS[bKey] || -90.0;
-        }
+        // ── 1. Application State & Storage ─────────────────────────────────────
+        const EMState = {
+            activeData: [],
+            applyCalibration: false,
+            map: null,
+            chart: null,
+            canvasRenderer: null,
+            mapMarkers: [],
+            trackPolyline: null,
+            activeHoverMarker: null,
 
-        function toggleCalibrationMode() {
-            applyCalibration = !applyCalibration;
-            const btn = document.getElementById('btn-toggle-cal');
-            const label = document.getElementById('cal-label');
-            const icon = document.getElementById('cal-icon');
-
-            if (applyCalibration) {
-                btn.classList.add('cal-active');
-                icon.innerText = '✨';
-                label.innerText = 'CALIBRATED: NET ΔdB';
-            } else {
-                btn.classList.remove('cal-active');
-                icon.innerText = '🎯';
-                label.innerText = 'RAW: ABSOLUTE dBm';
-            }
-
-            if (activeData) {
-                renderData(activeData);
-            }
-        }
-
-        function calcEmFog(d, useCal = false) {
-            let sumPsq = 0, cnt = 0;
-            FREQ_BANDS.forEach(b => {
-                const rssi = typeof d[b.id] === 'number' ? d[b.id] : null;
-                if (rssi !== null && !isNaN(rssi)) {
-                    const floor = useCal ? getFloorForBand(b.id.replace('rssi_', '')) : -100.0;
-                    const norm = Math.min(1.0, Math.max(0.0, (rssi - floor) / (-30.0 - floor)));
-                    sumPsq += norm * norm;
-                    cnt++;
+            getFloorForBand(bKey) {
+                if (this.activeData && this.activeData.bandFloors && typeof this.activeData.bandFloors[bKey] === 'number') {
+                    return this.activeData.bandFloors[bKey];
                 }
-            });
-            return cnt > 0 ? Math.sqrt(sumPsq / cnt) * 100.0 : 0;
-        }
+                return DEFAULT_CALIBRATED_FLOORS[bKey] || -90.0;
+            },
 
-        function getValForMetric(d, metricId) {
-            if (metricId === 'em_fog') {
-                return applyCalibration ? calcEmFog(d, true) : ((d.em_fog !== undefined && d.em_fog !== null) ? d.em_fog : calcEmFog(d, false));
-            }
+            calcEmFog(d, useCal = false) {
+                let sumPsq = 0, cnt = 0;
+                FREQ_BANDS.forEach(b => {
+                    const rssi = typeof d[b.id] === 'number' ? d[b.id] : null;
+                    if (rssi !== null && !isNaN(rssi)) {
+                        const floor = useCal ? this.getFloorForBand(b.id.replace('rssi_', '')) : -100.0;
+                        const norm = Math.min(1.0, Math.max(0.0, (rssi - floor) / (-30.0 - floor)));
+                        sumPsq += norm * norm;
+                        cnt++;
+                    }
+                });
+                return cnt > 0 ? Math.sqrt(sumPsq / cnt) * 100.0 : 0;
+            },
 
-            const rawVal = d[metricId] !== undefined ? d[metricId] : -100;
-            if (applyCalibration) {
+            getValForMetric(d, metricId) {
+                if (metricId === 'em_fog') {
+                    return this.applyCalibration ? this.calcEmFog(d, true) : ((d.em_fog !== undefined && d.em_fog !== null) ? d.em_fog : this.calcEmFog(d, false));
+                }
+                const rawVal = d[metricId] !== undefined ? d[metricId] : -100;
+                if (this.applyCalibration) {
+                    const bKey = metricId.replace('rssi_', '');
+                    const floor = this.getFloorForBand(bKey);
+                    return Math.max(0, rawVal - floor);
+                }
+                return rawVal;
+            },
+
+            formatValPopup(d, metricId) {
+                const rawVal = d[metricId] !== undefined ? d[metricId] : -100;
                 const bKey = metricId.replace('rssi_', '');
-                const floor = getFloorForBand(bKey);
-                return Math.max(0, rawVal - floor);
+                const floor = this.getFloorForBand(bKey);
+                const net = Math.max(0, rawVal - floor);
+                return `${rawVal.toFixed(1)} dBm (+${net.toFixed(1)} dB net)`;
+            },
+
+            getColorForValue(val, metric) {
+                let norm = 0;
+                if (metric === 'em_fog') {
+                    norm = Math.min(Math.max((val - 15) / 30, 0), 1);
+                } else if (this.applyCalibration) {
+                    norm = Math.min(Math.max(val / 25.0, 0), 1);
+                } else {
+                    norm = Math.min(Math.max((val - (-100)) / (-30 - (-100)), 0), 1);
+                }
+                const hue = (1 - norm) * 200;
+                return `hsl(${hue}, 90%, 55%)`;
             }
-            return rawVal;
-        }
+        };
 
-        function formatValPopup(d, metricId) {
-            const rawVal = d[metricId] !== undefined ? d[metricId] : -100;
-            const bKey = metricId.replace('rssi_', '');
-            const floor = getFloorForBand(bKey);
-            const net = Math.max(0, rawVal - floor);
-            return `${rawVal.toFixed(1)} dBm (+${net.toFixed(1)} dB net)`;
-        }
+        // ── 2. Spatial Map Controller ─────────────────────────────────────────
+        const EMMapController = {
+            init() {
+                EMState.canvasRenderer = L.canvas();
+                EMState.map = L.map('map', {
+                    zoomControl: true,
+                    attributionControl: false,
+                    preferCanvas: true
+                }).setView([51.5560, -0.0712], 16);
 
-        // Color Mapping helper
-        function getColorForValue(val, metric) {
-            let norm = 0;
-            if (metric === 'em_fog') {
-                norm = Math.min(Math.max((val - 15) / 30, 0), 1);
-            } else if (applyCalibration) {
-                norm = Math.min(Math.max(val / 25.0, 0), 1);
-            } else {
-                norm = Math.min(Math.max((val - (-100)) / (-30 - (-100)), 0), 1);
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                    maxZoom: 19,
+                    subdomains: 'abcd'
+                }).addTo(EMState.map);
+            },
+
+            updateVisualization() {
+                if (!EMState.activeData || EMState.activeData.length === 0) return;
+                const selectedMetric = document.getElementById('map-color-metric').value;
+
+                EMState.mapMarkers.forEach(m => EMState.map.removeLayer(m));
+                EMState.mapMarkers = [];
+                if (EMState.trackPolyline) EMState.map.removeLayer(EMState.trackPolyline);
+
+                const gpsPoints = EMState.activeData.filter(d => d.lat !== null && d.lon !== null && !isNaN(d.lat) && !isNaN(d.lon));
+                if (gpsPoints.length === 0) return;
+
+                const latLons = gpsPoints.map(d => [d.lat, d.lon]);
+
+                EMState.trackPolyline = L.polyline(latLons, {
+                    color: '#475569', weight: 4, opacity: 0.6
+                }).addTo(EMState.map);
+
+                gpsPoints.forEach((d) => {
+                    const val = EMState.getValForMetric(d, selectedMetric);
+                    const color = EMState.getColorForValue(val, selectedMetric);
+
+                    const circle = L.circleMarker([d.lat, d.lon], {
+                        radius: 6,
+                        fillColor: color,
+                        color: '#0f172a',
+                        weight: 1.5,
+                        opacity: 1,
+                        fillOpacity: 0.9,
+                        renderer: EMState.canvasRenderer
+                    }).addTo(EMState.map);
+
+                    circle.bindPopup(`
+                        <div class="popup-title">Time: ${typeof d.timestamp === 'number' ? d.timestamp.toFixed(1) + 's' : d.timestamp}</div>
+                        <div class="popup-row"><span class="lbl">EM Fog Index:</span><span class="val">${(d.em_fog || 0).toFixed(1)}</span></div>
+                        <div class="popup-row"><span class="lbl">300 MHz:</span><span class="val">${EMState.formatValPopup(d, 'rssi_300')}</span></div>
+                        <div class="popup-row"><span class="lbl">315 MHz:</span><span class="val">${EMState.formatValPopup(d, 'rssi_315')}</span></div>
+                        <div class="popup-row"><span class="lbl">434 MHz:</span><span class="val">${EMState.formatValPopup(d, 'rssi_434')}</span></div>
+                        <div class="popup-row"><span class="lbl">446 MHz:</span><span class="val">${EMState.formatValPopup(d, 'rssi_446')}</span></div>
+                        <div class="popup-row"><span class="lbl">815 MHz:</span><span class="val">${EMState.formatValPopup(d, 'rssi_815')}</span></div>
+                        <div class="popup-row"><span class="lbl">868 MHz:</span><span class="val">${EMState.formatValPopup(d, 'rssi_868')}</span></div>
+                        <div class="popup-row"><span class="lbl">915 MHz:</span><span class="val">${EMState.formatValPopup(d, 'rssi_915')}</span></div>
+                    `);
+
+                    circle.on('mouseover', () => EMSpectrumController.highlightPoint(d.originalIndex));
+                    EMState.mapMarkers.push(circle);
+                });
+
+                EMState.map.fitBounds(EMState.trackPolyline.getBounds(), { padding: [40, 40] });
             }
-            const hue = (1 - norm) * 200;
-            return `hsl(${hue}, 90%, 55%)`;
-        }
+        };
 
-        // Render Data to Map & Charts
+        // ── 3. Spectrum & Dashboard Controller ────────────────────────────────
+        const EMSpectrumController = {
+            init() {
+                const container = document.getElementById('spectrum-bars');
+                container.innerHTML = '';
+                FREQ_BANDS.forEach(b => {
+                    const row = document.createElement('div');
+                    row.className = 'spectrum-row';
+                    row.innerHTML = `
+                        <div class="band-tag">${b.label}</div>
+                        <div class="bar-wrapper">
+                            <div class="bar-fill" id="bar-${b.id}" style="background: ${b.color}; width: 0%;"></div>
+                        </div>
+                        <div class="rssi-val" id="val-${b.id}">-100 dBm</div>
+                    `;
+                    container.appendChild(row);
+                });
+            },
+
+            highlightPoint(idx) {
+                if (!EMState.activeData || !EMState.activeData[idx]) return;
+                const d = EMState.activeData[idx];
+
+                document.getElementById('spectrum-time').innerText = `t = ${typeof d.timestamp === 'number' ? d.timestamp.toFixed(1) + 's' : d.timestamp}`;
+                FREQ_BANDS.forEach(b => {
+                    const rssi = d[b.id] || -100;
+                    const bKey = b.id.replace('rssi_', '');
+                    const floor = EMState.getFloorForBand(bKey);
+                    const net = Math.max(0, rssi - floor);
+
+                    if (EMState.applyCalibration) {
+                        const pct = Math.min(Math.max((net / 25.0) * 100, 0), 100);
+                        document.getElementById(`bar-${b.id}`).style.width = `${pct}%`;
+                        document.getElementById(`val-${b.id}`).innerText = `+${net.toFixed(1)} dB`;
+                    } else {
+                        const pct = Math.min(Math.max((rssi - (-100)) / (-30 - (-100)) * 100, 0), 100);
+                        document.getElementById(`bar-${b.id}`).style.width = `${pct}%`;
+                        document.getElementById(`val-${b.id}`).innerText = `${rssi.toFixed(1)} dBm`;
+                    }
+                });
+
+                if (d.lat !== null && d.lon !== null && !isNaN(d.lat) && !isNaN(d.lon)) {
+                    if (EMState.activeHoverMarker) EMState.map.removeLayer(EMState.activeHoverMarker);
+                    EMState.activeHoverMarker = L.circleMarker([d.lat, d.lon], {
+                        radius: 10, fillColor: '#ffffff', color: '#06b6d4', weight: 3, opacity: 1, fillOpacity: 0.8
+                    }).addTo(EMState.map);
+                }
+            }
+        };
+
+        // ── 4. Timeline Chart Controller ─────────────────────────────────────
+        const EMTimelineController = {
+            init() {
+                const ctx = document.getElementById('timeline-chart').getContext('2d');
+                const datasets = FREQ_BANDS.map(b => ({
+                    label: b.label, data: [], borderColor: b.color, backgroundColor: b.color,
+                    borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.1
+                }));
+                datasets.unshift({
+                    label: 'EM Fog Index', data: [], borderColor: '#ffffff', borderWidth: 2.5,
+                    borderDash: [4, 4], pointRadius: 0, yAxisID: 'yFog'
+                });
+
+                EMState.chart = new Chart(ctx, {
+                    type: 'line',
+                    data: { labels: [], datasets: datasets },
+                    options: {
+                        responsive: true, maintainAspectRatio: false, animation: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            legend: { labels: { color: '#94a3b8', font: { family: 'Inter', size: 11 } } },
+                            tooltip: {
+                                callbacks: {
+                                    label: (ctx) => `${ctx.dataset.label}: ${typeof ctx.parsed.y === 'number' ? ctx.parsed.y.toFixed(1) : ctx.parsed.y} ${ctx.dataset.yAxisID === 'yFog' ? '' : 'dBm'}`
+                                }
+                            }
+                        },
+                        scales: {
+                            x: { ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 10 } }, grid: { color: '#334155' } },
+                            y: { min: -105, max: -25, title: { display: true, text: 'RSSI (dBm)', color: '#94a3b8' }, ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 10 } }, grid: { color: '#334155' } },
+                            yFog: { position: 'right', min: 0, max: 100, title: { display: true, text: 'EM Fog Index', color: '#ffffff' }, ticks: { color: '#ffffff', font: { family: 'JetBrains Mono', size: 10 } }, grid: { drawOnChartArea: false } }
+                        },
+                        onHover: (e, activeElements) => {
+                            if (activeElements.length > 0) {
+                                EMSpectrumController.highlightPoint(activeElements[0].index);
+                            }
+                        }
+                    }
+                });
+            }
+        };
+
+        // ── 5. Data Pipeline & File I/O ────────────────────────────────────────
         function renderData(data) {
-            activeData = data;
+            EMState.activeData = data;
             if (!data || data.length === 0) return;
 
-            // 1. Telemetry Summary Stats
-            let sumFog = 0;
-            let validGpsCount = 0;
-            let peakRssi = -127;
-            let peakBandLabel = 'None';
-
+            let sumFog = 0, validGpsCount = 0, peakRssi = -127, peakBandLabel = 'None';
             data.forEach(d => {
                 sumFog += (d.em_fog || 0);
                 if (d.lat !== null && d.lon !== null && !isNaN(d.lat) && !isNaN(d.lon)) validGpsCount++;
@@ -768,136 +783,57 @@
             document.getElementById('stat-samples').innerText = data.length;
             document.getElementById('stat-gps').innerText = validGpsCount > 0 ? `${validGpsCount} Fixes` : 'No GPS';
 
-            // 2. Update Map Markers & Track Polyline
-            updateMapVisualization();
+            EMMapController.updateVisualization();
 
-            // 3. Update Time Series Chart Scales & Datasets
-            if (applyCalibration) {
-                chart.options.scales.y.min = 0;
-                chart.options.scales.y.max = 35;
-                chart.options.scales.y.title.text = 'Net Signal Above Noise Floor (ΔdB)';
+            if (EMState.applyCalibration) {
+                EMState.chart.options.scales.y.min = 0;
+                EMState.chart.options.scales.y.max = 35;
+                EMState.chart.options.scales.y.title.text = 'Net Signal Above Noise Floor (ΔdB)';
             } else {
-                chart.options.scales.y.min = -105;
-                chart.options.scales.y.max = -25;
-                chart.options.scales.y.title.text = 'RSSI (dBm)';
+                EMState.chart.options.scales.y.min = -105;
+                EMState.chart.options.scales.y.max = -25;
+                EMState.chart.options.scales.y.title.text = 'RSSI (dBm)';
             }
 
-            chart.data.labels = data.map(d => typeof d.timestamp === 'number' ? `${d.timestamp.toFixed(1)}s` : d.timestamp);
-            chart.data.datasets[0].data = data.map(d => d.em_fog);
+            EMState.chart.data.labels = data.map(d => typeof d.timestamp === 'number' ? `${d.timestamp.toFixed(1)}s` : d.timestamp);
+            EMState.chart.data.datasets[0].data = data.map(d => d.em_fog);
 
             FREQ_BANDS.forEach((b, idx) => {
-                chart.data.datasets[idx + 1].data = data.map(d => getValForMetric(d, b.id));
+                EMState.chart.data.datasets[idx + 1].data = data.map(d => EMState.getValForMetric(d, b.id));
             });
 
-            chart.update();
-            highlightDataPoint(0);
+            EMState.chart.update();
+            EMSpectrumController.highlightPoint(0);
         }
 
-        // Update Map Layers based on Selected Metric
-        function updateMapVisualization() {
-            if (!activeData || activeData.length === 0) return;
+        function toggleCalibrationMode() {
+            EMState.applyCalibration = !EMState.applyCalibration;
+            const btn = document.getElementById('btn-toggle-cal');
+            const label = document.getElementById('cal-label');
+            const icon = document.getElementById('cal-icon');
 
-            const selectedMetric = document.getElementById('map-color-metric').value;
-
-            mapMarkers.forEach(m => map.removeLayer(m));
-            mapMarkers = [];
-            if (trackPolyline) map.removeLayer(trackPolyline);
-
-            const gpsPoints = activeData.filter(d => d.lat !== null && d.lon !== null && !isNaN(d.lat) && !isNaN(d.lon));
-            if (gpsPoints.length === 0) return;
-
-            const latLons = gpsPoints.map(d => [d.lat, d.lon]);
-
-            trackPolyline = L.polyline(latLons, {
-                color: '#475569',
-                weight: 4,
-                opacity: 0.6
-            }).addTo(map);
-
-            gpsPoints.forEach((d) => {
-                const val = getValForMetric(d, selectedMetric);
-                const color = getColorForValue(val, selectedMetric);
-
-                const circle = L.circleMarker([d.lat, d.lon], {
-                    radius: 6,
-                    fillColor: color,
-                    color: '#0f172a',
-                    weight: 1.5,
-                    opacity: 1,
-                    fillOpacity: 0.9,
-                    renderer: canvasRenderer
-                }).addTo(map);
-
-                circle.bindPopup(`
-                    <div class="popup-title">Time: ${typeof d.timestamp === 'number' ? d.timestamp.toFixed(1) + 's' : d.timestamp}</div>
-                    <div class="popup-row"><span class="lbl">EM Fog Index:</span><span class="val">${(d.em_fog || 0).toFixed(1)}</span></div>
-                    <div class="popup-row"><span class="lbl">300 MHz:</span><span class="val">${formatValPopup(d, 'rssi_300')}</span></div>
-                    <div class="popup-row"><span class="lbl">315 MHz:</span><span class="val">${formatValPopup(d, 'rssi_315')}</span></div>
-                    <div class="popup-row"><span class="lbl">434 MHz:</span><span class="val">${formatValPopup(d, 'rssi_434')}</span></div>
-                    <div class="popup-row"><span class="lbl">446 MHz:</span><span class="val">${formatValPopup(d, 'rssi_446')}</span></div>
-                    <div class="popup-row"><span class="lbl">815 MHz:</span><span class="val">${formatValPopup(d, 'rssi_815')}</span></div>
-                    <div class="popup-row"><span class="lbl">868 MHz:</span><span class="val">${formatValPopup(d, 'rssi_868')}</span></div>
-                    <div class="popup-row"><span class="lbl">915 MHz:</span><span class="val">${formatValPopup(d, 'rssi_915')}</span></div>
-                `);
-
-                circle.on('mouseover', () => highlightDataPoint(d.originalIndex));
-                mapMarkers.push(circle);
-            });
-
-            map.fitBounds(trackPolyline.getBounds(), { padding: [40, 40] });
-        }
-
-        // Synchronized Hovering Highlight
-        function highlightDataPoint(idx) {
-            if (!activeData || !activeData[idx]) return;
-            const d = activeData[idx];
-
-            document.getElementById('spectrum-time').innerText = `t = ${typeof d.timestamp === 'number' ? d.timestamp.toFixed(1) + 's' : d.timestamp}`;
-            FREQ_BANDS.forEach(b => {
-                const rssi = d[b.id] || -100;
-                const bKey = b.id.replace('rssi_', '');
-                const floor = getFloorForBand(bKey);
-                const net = Math.max(0, rssi - floor);
-
-                if (applyCalibration) {
-                    const pct = Math.min(Math.max((net / 25.0) * 100, 0), 100);
-                    document.getElementById(`bar-${b.id}`).style.width = `${pct}%`;
-                    document.getElementById(`val-${b.id}`).innerText = `+${net.toFixed(1)} dB`;
-                } else {
-                    const pct = Math.min(Math.max((rssi - (-100)) / (-30 - (-100)) * 100, 0), 100);
-                    document.getElementById(`bar-${b.id}`).style.width = `${pct}%`;
-                    document.getElementById(`val-${b.id}`).innerText = `${rssi.toFixed(1)} dBm`;
-                }
-            });
-
-            if (d.lat !== null && d.lon !== null && !isNaN(d.lat) && !isNaN(d.lon)) {
-                if (activeHoverMarker) map.removeLayer(activeHoverMarker);
-
-                activeHoverMarker = L.circleMarker([d.lat, d.lon], {
-                    radius: 10,
-                    fillColor: '#ffffff',
-                    color: '#06b6d4',
-                    weight: 3,
-                    opacity: 1,
-                    fillOpacity: 0.8
-                }).addTo(map);
+            if (EMState.applyCalibration) {
+                btn.classList.add('cal-active');
+                icon.innerText = '✨';
+                label.innerText = 'CALIBRATED: NET ΔdB';
+            } else {
+                btn.classList.remove('cal-active');
+                icon.innerText = '🎯';
+                label.innerText = 'RAW: ABSOLUTE dBm';
             }
+
+            if (EMState.activeData) renderData(EMState.activeData);
         }
 
-        // Robust CSV Parser
         function parseCSV(text) {
             const lines = text.trim().split('\n');
             const data = [];
-            let headers = [];
-            let isCalibrated = false;
-            let bandFloors = {};
+            let headers = [], isCalibrated = false, bandFloors = {};
 
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim();
                 if (line.startsWith('#')) {
-                    if (line.includes('Calibrated: YES')) {
-                        isCalibrated = true;
-                    }
+                    if (line.includes('Calibrated: YES')) isCalibrated = true;
                     if (line.includes('Band Floors (dBm):')) {
                         const parts = line.split('Band Floors (dBm):')[1];
                         if (parts) {
@@ -918,74 +854,55 @@
                     headers = cols.map(c => c.trim());
                     continue;
                 }
-
                 if (cols.length < 3) continue;
 
                 const row = {};
                 headers.forEach((h, idx) => {
                     const valStr = cols[idx] !== undefined ? cols[idx].trim() : '';
-                    if (valStr === '') {
-                        row[h] = null;
-                    } else {
+                    if (valStr === '') row[h] = null;
+                    else {
                         const num = Number(valStr);
                         row[h] = isNaN(num) ? valStr : num;
                     }
                 });
 
-                if (row.timestamp === null || row.timestamp === undefined) {
-                    row.timestamp = i * 0.7;
+                if (row.timestamp === null || row.timestamp === undefined) row.timestamp = i * 0.7;
+                if (row.subghz_em_fog !== undefined && row.subghz_em_fog !== null && !isNaN(row.subghz_em_fog)) {
+                    row.em_fog = row.subghz_em_fog;
                 }
                 if (row.em_fog === null || row.em_fog === undefined || row.em_fog === 0 || isNaN(row.em_fog)) {
-                    row.em_fog = calcEmFog(row, false);
+                    row.em_fog = EMState.calcEmFog(row, false);
                 }
                 row.originalIndex = data.length;
                 data.push(row);
             }
-
             data.isCalibrated = isCalibrated;
             data.bandFloors = bandFloors;
             return data;
         }
 
-        // Load Sample Data — tries a few relative paths in turn, since this
-        // page gets opened two different ways: directly from em_scan/, or
-        // via the em_scan_visualizer.html symlink at the repo root. A plain
-        // fetch('biomap_073.csv') resolves against the *request URL*, not
-        // the symlink's real on-disk location — from the root it 404s and
-        // silently fell through to the fake-London synthetic demo below,
-        // which is what "doesn't load correctly" turned out to be.
         function loadSampleData() {
             const candidates = ['biomap_073.csv', 'em_scan/biomap_073.csv'];
-
             function tryNext(i) {
                 if (i >= candidates.length) {
-                    console.log("No real track file found at any candidate path — using synthetic fallback.");
                     generateDemoWalk();
                     return;
                 }
                 fetch(candidates[i])
-                    .then(r => {
-                        if (!r.ok) throw new Error("HTTP " + r.status);
-                        return r.text();
-                    })
+                    .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
                     .then(csvText => renderData(parseCSV(csvText)))
                     .catch(() => tryNext(i + 1));
             }
-
             tryNext(0);
         }
 
-        // Fallback Generator
         function generateDemoWalk() {
             const data = [];
-            const baseLat = 51.556026;
-            const baseLon = -0.071281;
-
+            const baseLat = 51.556026, baseLon = -0.071281;
             for (let i = 0; i < 200; i++) {
                 const t = i * 0.7;
                 const lat = baseLat + (Math.sin(i * 0.04) * 0.0015) + (i * 0.00001);
                 const lon = baseLon + (Math.cos(i * 0.04) * 0.0018) + (i * 0.000012);
-
                 const rssi_300 = -82.0 + Math.sin(i * 0.1) * 8.0;
                 const rssi_315 = -78.0 + Math.cos(i * 0.2) * 12.0;
                 const rssi_434 = -81.0 + Math.sin(i * 0.15) * 15.0;
@@ -994,64 +911,49 @@
                 const rssi_868 = -88.0 + Math.sin(i * 0.3) * 18.0;
                 const rssi_915 = -91.5 + Math.random() * 2.0;
 
-                const fog = Math.min(Math.max((Math.abs(rssi_434) + Math.abs(rssi_315)) / 7.0, 10), 85);
-
-                data.push({
-                    timestamp: t,
-                    lat: lat,
-                    lon: lon,
-                    hdop: 0.9,
-                    fix_type: 3,
-                    em_fog: fog,
-                    rssi_300: rssi_300,
-                    rssi_315: rssi_315,
-                    rssi_434: rssi_434,
-                    rssi_446: rssi_446,
-                    rssi_815: rssi_815,
-                    rssi_868: rssi_868,
-                    rssi_915: rssi_915,
-                    originalIndex: i
-                });
+                const row = {
+                    timestamp: t, lat: lat, lon: lon, hdop: 0.9, fix_type: 3,
+                    rssi_300: rssi_300, rssi_315: rssi_315, rssi_434: rssi_434, rssi_446: rssi_446,
+                    rssi_815: rssi_815, rssi_868: rssi_868, rssi_915: rssi_915, originalIndex: i
+                };
+                row.em_fog = EMState.calcEmFog(row, false);
+                data.push(row);
             }
             renderData(data);
         }
 
-        // File Drag & Drop Handling
         function setupDragAndDrop() {
             const overlay = document.getElementById('drop-overlay');
-
-            window.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                overlay.classList.add('active');
-            });
-
-            overlay.addEventListener('dragleave', () => {
-                overlay.classList.remove('active');
-            });
-
+            window.addEventListener('dragover', (e) => { e.preventDefault(); overlay.classList.add('active'); });
+            overlay.addEventListener('dragleave', () => { overlay.classList.remove('active'); });
             window.addEventListener('drop', (e) => {
-                e.preventDefault();
-                overlay.classList.remove('active');
-                if (e.dataTransfer.files.length > 0) {
-                    readCSVFile(e.dataTransfer.files[0]);
-                }
+                e.preventDefault(); overlay.classList.remove('active');
+                if (e.dataTransfer.files.length > 0) readCSVFile(e.dataTransfer.files[0]);
             });
         }
 
         function handleFileSelect(e) {
-            if (e.target.files.length > 0) {
-                readCSVFile(e.target.files[0]);
-            }
+            if (e.target.files.length > 0) readCSVFile(e.target.files[0]);
         }
 
         function readCSVFile(file) {
             const reader = new FileReader();
-            reader.onload = (evt) => {
-                const data = parseCSV(evt.target.result);
-                renderData(data);
-            };
+            reader.onload = (evt) => renderData(parseCSV(evt.target.result));
             reader.readAsText(file);
         }
+
+        function updateMapVisualization() {
+            EMMapController.updateVisualization();
+        }
+
+        // Initialize Application
+        window.addEventListener('DOMContentLoaded', () => {
+            EMMapController.init();
+            EMSpectrumController.init();
+            EMTimelineController.init();
+            setupDragAndDrop();
+            loadSampleData();
+        });
     </script>
 </body>
 </html>

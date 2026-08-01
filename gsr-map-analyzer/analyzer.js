@@ -357,7 +357,7 @@ class GSRAnalyzer {
     let rssi815ColIdx = headers.indexOf('rssi_815');
     let rssi868ColIdx = headers.indexOf('rssi_868');
     let rssi915ColIdx = headers.indexOf('rssi_915');
-    let emFogColIdx   = headers.indexOf('em_fog');
+    let emFogColIdx   = headers.indexOf('em_fog') !== -1 ? headers.indexOf('em_fog') : headers.indexOf('subghz_em_fog');
 
     // Fallbacks for main biometric columns
     if (colIndices['timestamp'] === -1) colIndices['timestamp'] = 0;
@@ -885,6 +885,7 @@ class GSRAnalyzer {
     this.phasicAUC = this.computePhasicAUC();
     this.arousalIndex = this.computeCombinedArousalIndex();
     this.em_fog = this.raw.map(d => ({ time: d.time, val: (d.em_fog !== undefined && !isNaN(d.em_fog)) ? d.em_fog : 0 }));
+    this.emFog = this.em_fog;
 
     // 7. Build display cache for fast rendering (Y-range pyramid, timeline)
     this._buildDisplayCache();
