@@ -581,4 +581,129 @@ class RFFluidRenderer {
 
     this.ctx.restore();
   }
+
+  /**
+   * Export pre-calculated ray fans and building footprint clip mask as Illustrator-compatible SVG elements.
+   * @param {Function} project Mercator projection function converting {lat, lon} or [lat, lon] to SVG canvas (x, y)
+   * @param {number} targetW SVG canvas width in pixels
+   * @param {number} targetH SVG canvas height in pixels
+   * @returns {{ defs: string[], polygons: string[] }} SVG defs and polygon markup strings
+   */
+  exportToSvgElements(project, targetW = 2000, targetH = 2000) {
+    const result = { defs: [], polygons: [] };
+    if (!this.cachedNodes || this.cachedNodes.length === 0) return result;
+    if (!this.cachedNodes.some(n => n.hasRf)) return result;
+
+    const mode = this.options.mode;
+    const globalOpacity = this.options.opacity !== undefined ? this.options.opacity : 0.85;
+    const defs = [];
+    const polygons = [];
+
+    for (let i = 0; i < this.cachedNodes.length; i++) {
+      const node = this.cachedNodes[i];
+      if (!node.hasRf || !node.fanGeo || node.fanGeo.length === 0) continue;
+
+      const originPx = project({ lat: node.lat, lon: node.lon });
+      if (isNaN(originPx.x) || isNaN(originPx.y)) continue;
+
+      const rayPoints = [];
+      let maxPxRadius = 10;
+
+      for (let r = 0; r < node.fanGeo.length; r++) {
+        const ptGeo = node.fanGeo[r];
+        const pxPt = project({ lat: ptGeo.lat, lon: ptGeo.lon });
+        rayPoints.push(pxPt);
+
+        const dx = pxPt.x - originPx.x;
+        const dy = pxPt.y - originPx.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > maxPxRadius) {
+          maxPxRadius = dist;
+        }
+      }
+
+      if (rayPoints.length < 3) continue;
+
+      // Color synthesis based on mode
+      let rVal = 0, gVal = 0, bVal = 0;
+      let alpha = 0.0;
+
+      if (mode === 'triband') {
+        const n815 = node.has815 ? this._normDbm(node.r815, 815) : 0;
+        const n868 = node.has868 ? this._normDbm(node.r868, 868) : 0;
+        const n915 = node.has915 ? this._normDbm(node.r915, 915) : 0;
+
+        rVal = Math.min(255, Math.round(n815 * 255));
+        gVal = Math.min(255, Math.round(n868 * 255));
+        bVal = Math.min(255, Math.round(n915 * 255));
+
+        const maxN = Math.max(n815, n868, n915);
+        alpha = Math.min(1.0, maxN * 0.95);
+      } else if (mode === '815') {
+        const n = node.has815 ? this._normDbm(node.r815, 815) : 0;
+        rVal = 255; gVal = 0; bVal = 0;
+        alpha = Math.min(1.0, n * 0.95);
+      } else if (mode === '868') {
+        const n = node.has868 ? this._normDbm(node.r868, 868) : 0;
+        rVal = 0; gVal = 255; bVal = 0;
+        alpha = Math.min(1.0, n * 0.95);
+      } else if (mode === '915') {
+        const n = node.has915 ? this._normDbm(node.r915, 915) : 0;
+        rVal = 0; gVal = 0; bVal = 255;
+        alpha = Math.min(1.0, n * 0.95);
+      } else if (mode === 'fog') {
+        if (node.hasFog && node.fog > 0) {
+          const n = Math.min(1, node.fog / 30.0);
+          rVal = Math.round(n * 255);
+          gVal = 0;
+          bVal = Math.round((1 - n) * 255);
+          alpha = n > 0.05 ? Math.min(1.0, n * 0.95) : 0.0;
+        }
+      }
+
+      if (alpha <= 0) continue;
+
+      const gradId = `rfGrad_node_${i}`;
+      const effectiveRadius = Math.max(8, maxPxRadius);
+
+      const gradStr =
+        `<radialGradient id="${gradId}" cx="${originPx.x.toFixed(2)}" cy="${originPx.y.toFixed(2)}" r="${effectiveRadius.toFixed(2)}" gradientUnits="userSpaceOnUse">\n` +
+        `  <stop offset="0%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="${(alpha * globalOpacity).toFixed(3)}" />\n` +
+        `  <stop offset="40%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="${(alpha * 0.75 * globalOpacity).toFixed(3)}" />\n` +
+        `  <stop offset="80%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="${(alpha * 0.30 * globalOpacity).toFixed(3)}" />\n` +
+        `  <stop offset="100%" stop-color="rgb(${rVal},${gVal},${bVal})" stop-opacity="0" />\n` +
+        `</radialGradient>`;
+
+      defs.push(gradStr);
+
+      const ptsStr = rayPoints.map(p => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
+      polygons.push(`<polygon points="${ptsStr}" fill="url(#${gradId})" />`);
+    }
+
+    // Building Footprint Clip Mask Definition
+    if (this.buildingPolygons && this.buildingPolygons.length > 0) {
+      const maskPolys = [];
+      for (let b = 0; b < this.buildingPolygons.length; b++) {
+        const ring = this.buildingPolygons[b];
+        if (!ring || ring.length < 3) continue;
+        const pts = ring.map(ll => project({ lat: ll.lat, lon: ll.lon }));
+        const ptsStr = pts.map(p => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
+        maskPolys.push(`    <polygon points="${ptsStr}" fill="#000000" />`);
+      }
+
+      if (maskPolys.length > 0) {
+        const maskStr =
+          `<mask id="rfBuildingMask" maskUnits="userSpaceOnUse">\n` +
+          `  <rect x="0" y="0" width="${targetW}" height="${targetH}" fill="#ffffff" />\n` +
+          maskPolys.join('\n') + '\n' +
+          `</mask>`;
+        defs.push(maskStr);
+      }
+    }
+
+    result.defs = defs;
+    result.polygons = polygons;
+    return result;
+  }
 }
+

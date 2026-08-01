@@ -1425,6 +1425,8 @@ class GSRMapManager {
     const trackSetSignature = activeTracks.map(t => t.id).sort().join(',');
 
     const allActivePeaksAcrossTracks = [];
+    let collectiveDrawPoints = [];
+    let collectiveWays = [], collectiveRelations = [];
 
     // 1. Draw dashed, semi-transparent paths for each track
     activeTracks.forEach(track => {
@@ -1433,6 +1435,14 @@ class GSRMapManager {
 
       // Use cached GPS pipeline (cache keyed by track id)
       const { drawPoints } = this._getOrBuildDrawPoints(track.id, track.analyzer, p);
+      if (drawPoints.length > 0) {
+        collectiveDrawPoints.push(...drawPoints);
+      }
+      if (track.analyzer && track.analyzer.osmGeoms) {
+        if (track.analyzer.osmGeoms.ways) collectiveWays.push(...track.analyzer.osmGeoms.ways);
+        if (track.analyzer.osmGeoms.relations) collectiveRelations.push(...track.analyzer.osmGeoms.relations);
+      }
+
       if (drawPoints.length < 2) return;
 
       const latlngs = drawPoints.map(pt => [pt.lat, pt.lon]);
@@ -1547,6 +1557,11 @@ class GSRMapManager {
       // rather than blending into that track's own color scheme.
       this._renderCollectiveTrackHotspots(track, peakLatency);
     });
+
+    if (this.rfFluidRenderer && collectiveDrawPoints.length > 0) {
+      const combinedGeoms = { ways: collectiveWays, relations: collectiveRelations };
+      this.rfFluidRenderer.setData(collectiveDrawPoints, combinedGeoms);
+    }
 
     // Render collective global clusters across all active tracks
     if (allActivePeaksAcrossTracks.length > 0 && typeof GSRSpatialClustering !== 'undefined') {

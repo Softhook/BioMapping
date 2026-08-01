@@ -218,6 +218,7 @@ class GSRMapExporter {
     const { map, el, r, mgr } = ctx;
     return {
       tiles:          await this._tiles(el, r),
+      rfFluid:        this._rfFluid(ctx),
       surface:        this._surface(ctx),
       osm:            this._vectors(ctx, mgr.osmLayers, { exact: true }),
       tracks:         this._vectors(ctx, [...mgr.pathSegments, ...mgr.collectivePathSegments]),
@@ -226,6 +227,17 @@ class GSRMapExporter {
       dotsAndLabels:  this._markers(ctx, [...mgr.peakMarkers, ...mgr.collectivePeakMarkers]),
       hotspots:       this._markers(ctx, [...(mgr.hotspotMarkers || []), ...(mgr.collectiveHotspotMarkers || [])])
     };
+  }
+
+  static _rfFluid(ctx) {
+    const rfRenderer = ctx.mgr?.rfFluidRenderer;
+    if (!rfRenderer || !rfRenderer.options || !rfRenderer.options.visible) {
+      return { defs: [], polygons: [] };
+    }
+    if (typeof rfRenderer.exportToSvgElements === 'function') {
+      return rfRenderer.exportToSvgElements(ctx.project, ctx.w, ctx.h);
+    }
+    return { defs: [], polygons: [] };
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -244,6 +256,14 @@ class GSRMapExporter {
       ? { mesh: [], isobands: [] }
       : (L.surface || { mesh: [], isobands: [] });
 
+    const rfObj = L.rfFluid || { defs: [], polygons: [] };
+    const hasMask = rfObj.defs && rfObj.defs.some(d => d.includes('id="rfBuildingMask"'));
+    const maskAttr = hasMask ? 'mask="url(#rfBuildingMask)" style="mix-blend-mode: screen;"' : 'style="mix-blend-mode: screen;"';
+
+    const defsContent = rfObj.defs && rfObj.defs.length > 0
+      ? `  <defs>\n${rfObj.defs.map(d => '    ' + d).join('\n')}\n  </defs>`
+      : '';
+
     const specs = [
       ['Base_Map_Tiles',          'Base Map Tiles',              L.tiles],
       ['Vector_Surface_Mesh',     'Vector Surface Mesh',         surfObj.mesh,        'opacity="0.4"'],
@@ -254,6 +274,7 @@ class GSRMapExporter {
       // time (_expandCanvasForIsobands) so the full rounded shape is genuinely
       // visible here — nothing in this layer is invisible or clipped.
       ['Vector_Surface_Isobands', 'Vector Surface Isobands',     surfObj.isobands,    'opacity="0.4"'],
+      ['RF_Fluid_Field',          'RF Fluid Field',              rfObj.polygons,      maskAttr],
       ['OSM_Shapes',              'OSM Shapes',                  L.osm],
       ['GPS_Track_Paths',         'GPS Track Paths',             L.tracks],
       ['Contour_Lines',           'Contour Lines',               L.contours],
@@ -263,12 +284,14 @@ class GSRMapExporter {
       ['Stress_Peak_Labels',      'Stress Peak Labels',          L.dotsAndLabels.labels]
     ];
 
-    return [
+    const lines = [
       `<svg xmlns="${SVG_NS}" xmlns:xlink="${XLINK_NS}" xmlns:i="${AI_NS}" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`,
-      `  <rect x="0" y="0" width="${w}" height="${h}" fill="${BG}" />`,
-      ...specs.map(s => g(...s)),
-      '</svg>'
-    ].join('\n');
+      `  <rect x="0" y="0" width="${w}" height="${h}" fill="${BG}" />`
+    ];
+    if (defsContent) lines.push(defsContent);
+    lines.push(...specs.map(s => g(...s)));
+    lines.push('</svg>');
+    return lines.join('\n');
   }
 
   // ═══════════════════════════════════════════════════════════════════
