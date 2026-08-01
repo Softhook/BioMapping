@@ -454,13 +454,8 @@ const GSRUI = {
     const params = GSRStorage.readGsrSliderValues();
     const gpsParams = GSRStorage.readGpsSliderValues();
     const csvContent = AppState.analyzer.exportToCSV(params, gpsParams);
-
     const baseName = GSRUI._exportFilenameBase();
-    const suggestedName = baseName + '_processed.csv';
-    await GSRFileSaver.saveFile(csvContent, suggestedName, [{
-      description: 'CSV File (*.csv)',
-      accept: { 'text/csv': ['.csv'] }
-    }]);
+    await GSRFileSaver.saveFile(csvContent, baseName + '_processed.csv');
   },
 
   /**
@@ -474,10 +469,7 @@ const GSRUI = {
     if (canvasEl && typeof canvasEl.toBlob === 'function') {
       canvasEl.toBlob(async (blob) => {
         if (blob) {
-          await GSRFileSaver.saveFile(blob, suggestedName, [{
-            description: 'PNG Image (*.png)',
-            accept: { 'image/png': ['.png'] }
-          }]);
+          await GSRFileSaver.saveFile(blob, suggestedName);
         }
       }, 'image/png');
     } else {
@@ -512,22 +504,13 @@ const GSRUI = {
         await new Promise((resolve) => {
           canvas.toBlob(async (blob) => {
             if (blob) {
-              await GSRFileSaver.saveFile(blob, suggestedName, [{
-                description: 'PNG Image (*.png)',
-                accept: { 'image/png': ['.png'] }
-              }]);
+              await GSRFileSaver.saveFile(blob, suggestedName);
             }
             resolve();
           }, 'image/png');
         });
       } else {
-        const link = document.createElement("a");
-        link.download = suggestedName;
-        link.href = canvas.toDataURL("image/png");
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        await GSRFileSaver.saveFile(canvas.toDataURL("image/png"), suggestedName);
       }
     } catch (err) {
       console.error("Error generating map PNG:", err);

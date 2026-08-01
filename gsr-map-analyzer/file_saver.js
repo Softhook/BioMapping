@@ -1,53 +1,79 @@
 /**
  * GSR File Saver Utility.
- * Uses native OS File System Access API (showSaveFilePicker) when available
- * to present a "Save Location" dialog box to the user, falling back to direct download.
+ * Provides a unified API for exporting files using the native OS "Save Location" dialog box
+ * (File System Access API `showSaveFilePicker`) with automatic fallback to direct download.
  */
 const GSRFileSaver = {
   /**
-   * Save content (Blob, string, or ArrayBuffer) using save location dialog picker or direct download fallback.
+   * Infer MIME type and description from suggested filename extension.
+   * @param {string} filename
+   * @returns {{mimeType: string, description: string, ext: string}}
+   */
+  getFormatInfo(filename) {
+    const ext = filename.includes('.') ? filename.substring(filename.lastIndexOf('.')).toLowerCase() : '';
+    switch (ext) {
+      case '.csv':
+        return { mimeType: 'text/csv', description: 'CSV File (*.csv)', ext };
+      case '.json':
+        return { mimeType: 'application/json', description: 'JSON File (*.json)', ext };
+      case '.png':
+        return { mimeType: 'image/png', description: 'PNG Image (*.png)', ext };
+      case '.svg':
+        return { mimeType: 'image/svg+xml', description: 'SVG Vector Map (*.svg)', ext };
+      case '.zip':
+        return { mimeType: 'application/zip', description: 'Zip Archive (*.zip)', ext };
+      default:
+        return { mimeType: 'application/octet-stream', description: 'File', ext };
+    }
+  },
+
+  /**
+   * Save content (Blob, string, data URL, or ArrayBuffer) using save location dialog picker or direct download fallback.
    * @param {Blob|string|ArrayBuffer} content - Content to save
-   * @param {string} suggestedName - Suggested default filename
-   * @param {Array<{description: string, accept: Object}>} [types] - File types for save dialog picker
+   * @param {string} suggestedName - Suggested default filename (e.g., 'export.csv')
+   * @param {Array<{description: string, accept: Object}>} [types] - Optional File System Access API picker file types filter
    * @returns {Promise<boolean>} True if saved or initiated fallback, false if cancelled by user
    */
   async saveFile(content, suggestedName, types) {
+    const format = this.getFormatInfo(suggestedName);
     let blob;
+
     if (content instanceof Blob) {
       blob = content;
     } else if (typeof content === 'string') {
-      blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      if (content.startsWith('data:')) {
+        const parts = content.split(',');
+        const mimeMatch = parts[0].match(/:(.*?);/);
+        const mime = mimeMatch ? mimeMatch[1] : format.mimeType;
+        const isBase64 = parts[0].includes(';base64');
+        if (isBase64) {
+          const bstr = atob(parts[1]);
+          let n = bstr.length;
+          const u8arr = new Uint8Array(n);
+          while (n--) {
+            u8arr[n] = bstr.charCodeAt(n);
+          }
+          blob = new Blob([u8arr], { type: mime });
+        } else {
+          const text = decodeURIComponent(parts[1]);
+          blob = new Blob([text], { type: mime });
+        }
+      } else {
+        const mime = format.mimeType !== 'application/octet-stream' ? `${format.mimeType};charset=utf-8` : 'text/plain;charset=utf-8';
+        blob = new Blob([content], { type: mime });
+      }
     } else {
-      blob = new Blob([content]);
+      blob = new Blob([content], { type: format.mimeType });
     }
 
     if (!types || types.length === 0) {
-      const ext = suggestedName.includes('.') ? suggestedName.substring(suggestedName.lastIndexOf('.')).toLowerCase() : '';
-      let mimeType = blob.type || 'application/octet-stream';
-      let description = 'File';
-      if (ext === '.csv') {
-        mimeType = 'text/csv';
-        description = 'CSV File (*.csv)';
-      } else if (ext === '.json') {
-        mimeType = 'application/json';
-        description = 'JSON Preset File (*.json)';
-      } else if (ext === '.png') {
-        mimeType = 'image/png';
-        description = 'PNG Image (*.png)';
-      } else if (ext === '.svg') {
-        mimeType = 'image/svg+xml';
-        description = 'SVG Vector Map (*.svg)';
-      } else if (ext === '.zip') {
-        mimeType = 'application/zip';
-        description = 'Zip Archive (*.zip)';
-      }
       types = [{
-        description,
-        accept: { [mimeType]: [ext || '.*'] }
+        description: format.description,
+        accept: { [format.mimeType]: [format.ext || '.*'] }
       }];
     }
 
-    // 1. Try Native Browser OS Save As File Picker
+    // 1. Native OS Save As File Picker Dialog Box
     if (typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function') {
       try {
         const handle = await window.showSaveFilePicker({
@@ -60,10 +86,10 @@ const GSRFileSaver = {
         return true;
       } catch (err) {
         if (err.name === 'AbortError') {
-          // User explicitly cancelled the Save location dialog box
+          // User explicitly cancelled the save location dialog box
           return false;
         }
-        console.warn("showSaveFilePicker failed or restricted, falling back to download:", err);
+        console.warn("showSaveFilePicker failed or restricted, using direct download fallback:", err);
       }
     }
 

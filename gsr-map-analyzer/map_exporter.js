@@ -1237,21 +1237,7 @@ class GSRMapExporter {
       : 'biomapping';
     const suggestedName = `${baseName}_map_${mode}_export.svg`;
     const blob = new Blob([svg], { type: 'image/svg+xml' });
-    if (typeof GSRFileSaver !== 'undefined' && typeof GSRFileSaver.saveFile === 'function') {
-      await GSRFileSaver.saveFile(blob, suggestedName, [{
-        description: 'SVG Vector Map (*.svg)',
-        accept: { 'image/svg+xml': ['.svg'] }
-      }]);
-    } else {
-      const u = URL.createObjectURL(blob);
-      const a = Object.assign(document.createElement('a'), {
-        download: suggestedName, href: u
-      });
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(u);
-    }
+    await GSRFileSaver.saveFile(blob, suggestedName);
   }
 }
 

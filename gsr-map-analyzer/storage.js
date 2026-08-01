@@ -153,59 +153,15 @@ const GSRStorage = {
       contour: this.readContourSliderValues()
     };
 
-    // 1. Try Native Browser OS Save As File Picker
-    if (typeof window.showSaveFilePicker === 'function') {
-      try {
-        const stamp = new Date().toISOString().slice(0, 10);
-        const suggestedName = `biomapping_preset_${baseName.replace(/[^a-zA-Z0-9_-]/g, "_")}_${stamp}.json`;
-        const handle = await window.showSaveFilePicker({
-          suggestedName: suggestedName,
-          types: [{
-            description: 'BioMapping Preset JSON (*.json)',
-            accept: { 'application/json': ['.json'] }
-          }]
-        });
-        const writable = await handle.createWritable();
-        await writable.write(JSON.stringify(preset, null, 2));
-        await writable.close();
-        return;
-      } catch (err) {
-        if (err.name === 'AbortError') return; // User cancelled native OS save dialog
-        // SecurityError / frame restriction: fall through to Save Menu modal
-      }
-    }
-
-    // 2. Open Save Menu Modal if native picker unavailable
-    if (typeof GSRUI !== 'undefined' && typeof GSRUI.openExportPresetModal === 'function') {
-      GSRUI.openExportPresetModal(baseName);
-      return;
-    }
-
-    // 3. Direct download fallback
-    this.downloadPresetJson(preset, baseName);
+    // Save via GSRFileSaver save location dialog box
+    await this.downloadPresetJson(preset, baseName);
   },
 
   async downloadPresetJson(preset, filenameBase) {
     const jsonStr = JSON.stringify(preset, null, 2);
     const stamp = new Date().toISOString().slice(0, 10);
     const suggestedName = `biomapping_preset_${(filenameBase || "preset").replace(/[^a-zA-Z0-9_-]/g, "_")}_${stamp}.json`;
-    if (typeof GSRFileSaver !== 'undefined' && typeof GSRFileSaver.saveFile === 'function') {
-      await GSRFileSaver.saveFile(jsonStr, suggestedName, [{
-        description: 'BioMapping Preset JSON (*.json)',
-        accept: { 'application/json': ['.json'] }
-      }]);
-    } else {
-      const blob = new Blob([jsonStr], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = suggestedName;
-      link.style.visibility = "hidden";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    }
+    await GSRFileSaver.saveFile(jsonStr, suggestedName);
   },
 
   /**
