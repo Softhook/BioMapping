@@ -1,5 +1,12 @@
 Todo
 
+there is a problem when i change peak settings labels dissapear forever.
+think of solutions
+
+when there is any unsaved labels and the user tres to close the track a warning should appear asking the user to save
+
+when exporting track or map open up a save loaction dialog box not just saving to downloads
+
 Check that the RF worker inside the GSR thread is really working properly 
 Edinburgh will be a nice place to test it 
 
