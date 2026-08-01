@@ -1017,13 +1017,17 @@ class GSRMapExporter {
   static _pathEl(ctx, layer, opts = {}) {
     if (!layer || typeof layer.getLatLngs !== 'function') return null;
     let latlngs = layer.getLatLngs();
-    const isPoly  = window.L && layer instanceof window.L.Polygon;
+    const isPoly = !!(
+      (typeof L !== 'undefined' && L.Polygon && layer instanceof L.Polygon) ||
+      (typeof window !== 'undefined' && window.L && window.L.Polygon && layer instanceof window.L.Polygon) ||
+      (layer.options && (layer.options.fill || layer.options.fillColor || layer.options.fillOpacity > 0))
+    );
     // "exact" layers (OSM building/park/water shapes) are authoritative vector
     // geometry, not sensor data — every vertex is a real, deliberate coordinate,
     // so none of the GPS-track-oriented smoothing/culling below should touch them.
     const exact = !!opts.exact;
 
-    // Apply Chaikin pre-smoothing to track paths to filter micro-jitter before screen projection
+    // Apply Chaikin pre-smoothing ONLY to track paths to filter micro-jitter before screen projection
     if (!isPoly && !exact && Array.isArray(latlngs) && latlngs.length >= 3 && typeof GeoUtils !== 'undefined') {
       try {
         const flat = Array.isArray(latlngs[0]) ? latlngs.flat() : latlngs;
@@ -1052,7 +1056,7 @@ class GSRMapExporter {
       ` fill="${esc(isPoly ? (o.fillColor || o.color || '#ff7b00') : 'none')}"` +
       ` fill-opacity="${esc(isPoly ? (o.fillOpacity ?? 0.2) : 0)}"` +
       (exact
-        ? ` stroke-linecap="square" stroke-linejoin="miter" />`
+        ? ` stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="10" />`
         : ` stroke-linecap="round" stroke-linejoin="round" />`);
   }
 
