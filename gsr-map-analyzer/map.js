@@ -556,8 +556,23 @@ class GSRMapManager {
     this.clearOsmShapes();
     if (!geoms || !geoms.ways || !this.map) return;
     
+    let points = this._lastDrawPoints || [];
+    if ((!points || points.length === 0) && typeof AppState !== 'undefined' && AppState.viewMode === 'collective' && AppState.collectiveManager) {
+      const activeTracks = AppState.collectiveManager.getActiveTracks();
+      const combinedPoints = [];
+      activeTracks.forEach(t => {
+        const p = t.gpsFilterParams || {};
+        const { drawPoints } = this._getOrBuildDrawPoints(t.id, t.analyzer, p);
+        if (drawPoints) combinedPoints.push(...drawPoints);
+      });
+      if (combinedPoints.length > 0) {
+        points = combinedPoints;
+        this._lastDrawPoints = combinedPoints;
+      }
+    }
+
     if (this.rfFluidRenderer) {
-      this.rfFluidRenderer.setData(this._lastDrawPoints || [], geoms);
+      this.rfFluidRenderer.setData(points, geoms);
     }
 
     this.osmLayers = [];
@@ -1558,6 +1573,9 @@ class GSRMapManager {
       this._renderCollectiveTrackHotspots(track, peakLatency);
     });
 
+    if (collectiveDrawPoints.length > 0) {
+      this._lastDrawPoints = collectiveDrawPoints;
+    }
     if (this.rfFluidRenderer && collectiveDrawPoints.length > 0) {
       const combinedGeoms = { ways: collectiveWays, relations: collectiveRelations };
       this.rfFluidRenderer.setData(collectiveDrawPoints, combinedGeoms);
