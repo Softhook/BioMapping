@@ -2149,6 +2149,17 @@ class GSRAnalyzer {
        d.fixType || d.sats)
     );
 
+    const hasRssi300 = this.raw.some(d => !isNaN(d.rssi_300));
+    const hasRssi315 = this.raw.some(d => !isNaN(d.rssi_315));
+    const hasRssi434 = this.raw.some(d => !isNaN(d.rssi_434));
+    const hasRssi446 = this.raw.some(d => !isNaN(d.rssi_446));
+    const hasRssi815 = this.raw.some(d => !isNaN(d.rssi_815));
+    const hasRssi868 = this.raw.some(d => !isNaN(d.rssi_868));
+    const hasRssi915 = this.raw.some(d => !isNaN(d.rssi_915));
+    const hasEmFog   = this.raw.some(d => !isNaN(d.em_fog));
+
+    const hasRf = hasRssi300 || hasRssi315 || hasRssi434 || hasRssi446 || hasRssi815 || hasRssi868 || hasRssi915 || hasEmFog;
+
     // Preserve recording start time and configurations for re-import
     let csv = `# RecordingStartTime:${this.recordingStartTime}\n`;
     if (params) {
@@ -2171,6 +2182,16 @@ class GSRAnalyzer {
     }
     if (hasGpsQuality) {
       csv += ",hdop,pdop,hacc_m,fix_type,sats,speed_kts,course_deg,is_gps_fix";
+    }
+    if (hasRf) {
+      if (hasRssi300) csv += ",rssi_300";
+      if (hasRssi315) csv += ",rssi_315";
+      if (hasRssi434) csv += ",rssi_434";
+      if (hasRssi446) csv += ",rssi_446";
+      if (hasRssi815) csv += ",rssi_815";
+      if (hasRssi868) csv += ",rssi_868";
+      if (hasRssi915) csv += ",rssi_915";
+      if (hasEmFog)   csv += ",em_fog";
     }
     if (isEnriched) {
       csv += ",osm_road_class,osm_dist_major_road,osm_in_park,osm_green_pct_50m,osm_building_density_50m,osm_dist_water,osm_tree_density_50m,osm_amenity_count_50m";
@@ -2247,6 +2268,18 @@ class GSRAnalyzer {
         const fixTypeStr  = isFix ? (r.fixType || 0) : "";
         const satsStr     = isFix ? (r.sats || 0) : "";
         csv += `,${hdopStr},${pdopStr},${haccStr},${fixTypeStr},${satsStr},${speedKtsStr},${courseStr},${isFix ? 1 : 0}`;
+      }
+
+      if (hasRf) {
+        const r = this.raw[i];
+        if (hasRssi300) csv += `,${(!isNaN(r.rssi_300)) ? r.rssi_300.toFixed(1) : ""}`;
+        if (hasRssi315) csv += `,${(!isNaN(r.rssi_315)) ? r.rssi_315.toFixed(1) : ""}`;
+        if (hasRssi434) csv += `,${(!isNaN(r.rssi_434)) ? r.rssi_434.toFixed(1) : ""}`;
+        if (hasRssi446) csv += `,${(!isNaN(r.rssi_446)) ? r.rssi_446.toFixed(1) : ""}`;
+        if (hasRssi815) csv += `,${(!isNaN(r.rssi_815)) ? r.rssi_815.toFixed(1) : ""}`;
+        if (hasRssi868) csv += `,${(!isNaN(r.rssi_868)) ? r.rssi_868.toFixed(1) : ""}`;
+        if (hasRssi915) csv += `,${(!isNaN(r.rssi_915)) ? r.rssi_915.toFixed(1) : ""}`;
+        if (hasEmFog)   csv += `,${(!isNaN(r.em_fog))   ? r.em_fog.toFixed(1)   : ""}`;
       }
 
       if (isEnriched) {

@@ -83,6 +83,28 @@ assert.strictEqual(analyzerFull.raw[1].rssi_815, -70.0, 'Row 1 rssi_815 match');
 assert.strictEqual(analyzerFull.hasRfData, true, 'hasRfData should be true for full CSV');
 console.log('✓ Unified GSR + GPS + RF CSV parsed successfully');
 
+// ── 2b. Export & Re-Import Processed CSV with RF Data Test ────────────
+console.log('Testing export & re-import of processed CSV with RF data...');
+analyzerFull.analyze(GSR_CONST.GSR_DEFAULT);
+const exportedCsv = analyzerFull.exportToCSV();
+
+assert.ok(exportedCsv.includes('rssi_815'), 'Exported CSV header must contain rssi_815');
+assert.ok(exportedCsv.includes('rssi_868'), 'Exported CSV header must contain rssi_868');
+assert.ok(exportedCsv.includes('rssi_915'), 'Exported CSV header must contain rssi_915');
+assert.ok(exportedCsv.includes('em_fog'), 'Exported CSV header must contain em_fog');
+assert.ok(exportedCsv.includes('-70.0'), 'Exported CSV data must contain rssi_815 value -70.0');
+
+const analyzerReimported = new GSRAnalyzer();
+analyzerReimported.parseCSV(exportedCsv);
+assert.strictEqual(analyzerReimported.raw.length, 2, 'Should re-import 2 rows');
+assert.strictEqual(analyzerReimported.hasRfData, true, 'hasRfData should be true on re-imported CSV');
+assert.strictEqual(analyzerReimported.raw[0].rssi_815, -91.5, 'Row 0 rssi_815 preserved on re-import');
+assert.strictEqual(analyzerReimported.raw[1].rssi_815, -70.0, 'Row 1 rssi_815 preserved on re-import');
+assert.strictEqual(analyzerReimported.raw[1].rssi_868, -82.0, 'Row 1 rssi_868 preserved on re-import');
+assert.strictEqual(analyzerReimported.raw[1].rssi_915, -88.0, 'Row 1 rssi_915 preserved on re-import');
+assert.strictEqual(analyzerReimported.raw[1].em_fog, 22.5, 'Row 1 em_fog preserved on re-import');
+console.log('✓ Export & re-import of processed CSV with RF data verified successfully');
+
 // ── 3. Ray-Segment Intersection Math Test ─────────────────────────────
 console.log('Testing RFFluidRenderer ray-segment intersection math...');
 // Mock simple Leaflet map object
