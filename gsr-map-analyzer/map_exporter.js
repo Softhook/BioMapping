@@ -1231,16 +1231,27 @@ class GSRMapExporter {
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  static _download(svg, mode) {
-    const b = new Blob([svg], { type: 'image/svg+xml' });
-    const u = URL.createObjectURL(b);
-    const a = Object.assign(document.createElement('a'), {
-      download: `biomapping_map_${mode}_export.svg`, href: u
-    });
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(u);
+  static async _download(svg, mode) {
+    const baseName = (typeof GSRUI !== 'undefined' && typeof GSRUI._exportFilenameBase === 'function')
+      ? GSRUI._exportFilenameBase()
+      : 'biomapping';
+    const suggestedName = `${baseName}_map_${mode}_export.svg`;
+    const blob = new Blob([svg], { type: 'image/svg+xml' });
+    if (typeof GSRFileSaver !== 'undefined' && typeof GSRFileSaver.saveFile === 'function') {
+      await GSRFileSaver.saveFile(blob, suggestedName, [{
+        description: 'SVG Vector Map (*.svg)',
+        accept: { 'image/svg+xml': ['.svg'] }
+      }]);
+    } else {
+      const u = URL.createObjectURL(blob);
+      const a = Object.assign(document.createElement('a'), {
+        download: suggestedName, href: u
+      });
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(u);
+    }
   }
 }
 

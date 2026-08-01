@@ -160,16 +160,24 @@ const GSRCollectiveProject = {
       zip.file('manifest.json', JSON.stringify(manifest, null, 2));
 
       const blob = await zip.generateAsync({ type: 'blob' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
       const stamp = new Date().toISOString().slice(0, 10);
-      link.href = url;
-      link.download = `biomapping_collective_project_${stamp}.zip`;
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      const suggestedName = `biomapping_collective_project_${stamp}.zip`;
+      if (typeof GSRFileSaver !== 'undefined' && typeof GSRFileSaver.saveFile === 'function') {
+        await GSRFileSaver.saveFile(blob, suggestedName, [{
+          description: 'Zip Archive (*.zip)',
+          accept: { 'application/zip': ['.zip'] }
+        }]);
+      } else {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = suggestedName;
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
     } catch (err) {
       console.error('Project export failed:', err);
       alert('Error exporting project: ' + err.message);

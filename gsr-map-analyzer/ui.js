@@ -449,38 +449,46 @@ const GSRUI = {
   /**
    * Export processed GSR data as CSV.
    */
-  exportCSV() {
+  async exportCSV() {
     if (AppState.analyzer.raw.length === 0) return;
     const params = GSRStorage.readGsrSliderValues();
     const gpsParams = GSRStorage.readGpsSliderValues();
     const csvContent = AppState.analyzer.exportToCSV(params, gpsParams);
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url  = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-
     const baseName = GSRUI._exportFilenameBase();
-    link.setAttribute("href", url);
-    link.setAttribute("download", baseName + '_processed.csv');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const suggestedName = baseName + '_processed.csv';
+    await GSRFileSaver.saveFile(csvContent, suggestedName, [{
+      description: 'CSV File (*.csv)',
+      accept: { 'text/csv': ['.csv'] }
+    }]);
   },
 
   /**
    * Export p5.js canvas as PNG.
    */
-  saveCanvasImage() {
+  async saveCanvasImage() {
     if (!AppState.myCanvas || AppState.analyzer.raw.length === 0) return;
     const baseName = GSRUI._exportFilenameBase();
-    saveCanvas(AppState.myCanvas, baseName + '_chart', 'png');
+    const suggestedName = baseName + '_chart.png';
+    const canvasEl = document.querySelector("#sketch-container canvas") || (AppState.myCanvas ? AppState.myCanvas.elt : null);
+    if (canvasEl && typeof canvasEl.toBlob === 'function') {
+      canvasEl.toBlob(async (blob) => {
+        if (blob) {
+          await GSRFileSaver.saveFile(blob, suggestedName, [{
+            description: 'PNG Image (*.png)',
+            accept: { 'image/png': ['.png'] }
+          }]);
+        }
+      }, 'image/png');
+    } else {
+      saveCanvas(AppState.myCanvas, baseName + '_chart', 'png');
+    }
   },
 
   /**
    * Export Leaflet map as PNG via html2canvas.
    */
-  saveMapImage() {
+  async saveMapImage() {
     if (AppState.analyzer.raw.length === 0) return;
 
     const mapElement = document.getElementById('map');
@@ -491,29 +499,43 @@ const GSRUI = {
     btn.setAttribute('disabled', 'true');
 
     const baseName = GSRUI._exportFilenameBase();
-    html2canvas(mapElement, {
-      useCORS: true,
-      allowTaint: false,
-      backgroundColor: null,
-      scale: window.devicePixelRatio || 1,
-      logging: false
-    }).then(canvas => {
-      const link = document.createElement("a");
-      link.download = baseName + '_map.png';
-      link.href = canvas.toDataURL("image/png");
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      btn.innerHTML = originalText;
-      btn.removeAttribute('disabled');
-    }).catch(err => {
+    const suggestedName = baseName + '_map.png';
+    try {
+      const canvas = await html2canvas(mapElement, {
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: null,
+        scale: window.devicePixelRatio || 1,
+        logging: false
+      });
+      if (typeof canvas.toBlob === 'function') {
+        await new Promise((resolve) => {
+          canvas.toBlob(async (blob) => {
+            if (blob) {
+              await GSRFileSaver.saveFile(blob, suggestedName, [{
+                description: 'PNG Image (*.png)',
+                accept: { 'image/png': ['.png'] }
+              }]);
+            }
+            resolve();
+          }, 'image/png');
+        });
+      } else {
+        const link = document.createElement("a");
+        link.download = suggestedName;
+        link.href = canvas.toDataURL("image/png");
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    } catch (err) {
       console.error("Error generating map PNG:", err);
       alert("Could not export map. Some map resources may have failed to load securely (CORS).");
+    } finally {
       btn.innerHTML = originalText;
       btn.removeAttribute('disabled');
-    });
+    }
   },
 
   /**

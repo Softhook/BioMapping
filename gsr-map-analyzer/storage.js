@@ -185,19 +185,27 @@ const GSRStorage = {
     this.downloadPresetJson(preset, baseName);
   },
 
-  downloadPresetJson(preset, filenameBase) {
+  async downloadPresetJson(preset, filenameBase) {
     const jsonStr = JSON.stringify(preset, null, 2);
-    const blob = new Blob([jsonStr], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
     const stamp = new Date().toISOString().slice(0, 10);
-    link.href = url;
-    link.download = `biomapping_preset_${(filenameBase || "preset").replace(/[^a-zA-Z0-9_-]/g, "_")}_${stamp}.json`;
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const suggestedName = `biomapping_preset_${(filenameBase || "preset").replace(/[^a-zA-Z0-9_-]/g, "_")}_${stamp}.json`;
+    if (typeof GSRFileSaver !== 'undefined' && typeof GSRFileSaver.saveFile === 'function') {
+      await GSRFileSaver.saveFile(jsonStr, suggestedName, [{
+        description: 'BioMapping Preset JSON (*.json)',
+        accept: { 'application/json': ['.json'] }
+      }]);
+    } else {
+      const blob = new Blob([jsonStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = suggestedName;
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
   },
 
   /**
