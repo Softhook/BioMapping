@@ -557,8 +557,22 @@ static UbxAckOutcome ubx_wait_ack(GpsUart* g, uint8_t want_cls, uint8_t want_id)
 // than a clean ACK. class/id are read back out of the packet itself
 // (bytes[2],[3]) — every call site already has one, no need to pass them
 // separately.
+//
+// Drains any bytes already sitting in rx_stream immediately before
+// transmitting. Every M10Q packet sent by gps_uart_configure() is
+// UBX-CFG-VALSET (class 0x06, id 0x8A) regardless of which keys it
+// carries, so ubx_wait_ack()'s (class, id) check can't tell two VALSET
+// replies apart by content — only by timing. If a previous packet's ACK
+// arrived late (after that wait had already given up) it would otherwise
+// still be sitting here and get misread as this packet's reply. Draining
+// right before the send — not just before the wait — shrinks that race
+// to the gap between the drain and the transmit instead of the whole gap
+// since the last timeout; the protocol doesn't expose enough information
+// (no per-message sequence number) to close it further than that.
 static void ubx_send_and_confirm(GpsUart* g, const uint8_t* data, size_t len, const char* label) {
     UNUSED(label); // only referenced inside FURI_LOG_W, which host test builds compile out entirely
+    uint8_t discard;
+    while(furi_stream_buffer_receive(g->rx_stream, &discard, 1, 0) == 1) {}
     furi_hal_serial_tx(g->serial_handle, data, len);
     UbxAckOutcome outcome = ubx_wait_ack(g, data[2], data[3]);
     if(outcome == UbxAckNak) {
@@ -568,31 +582,88 @@ static void ubx_send_and_confirm(GpsUart* g, const uint8_t* data, size_t len, co
     }
 }
 
-// ── Binary UBX configuration packets for M10Q ──────────────────────────────
-static const uint8_t ubx_cfg_rate_10hz[] = {
+// ── CFG-VALSET packet builder ───────────────────────────────────────────
+// u-blox M10 SPG 5.10 Interface Description §1.3: "Users are strongly
+// advised to only use the Configuration interface [VALSET/VALGET]." The
+// legacy CFG-MSG/CFG-RATE/CFG-NAV5 messages this replaces are absent from
+// the SPG 5.10 message reference entirely (§3.10 lists only CFG-CFG,
+// CFG-RST, CFG-VALDEL, CFG-VALGET, CFG-VALSET) — they may still work via
+// a backward-compat shim, but nothing guarantees that on every firmware
+// revision, which is the whole reason ubx_send_and_confirm() checks
+// ACK/NAK in the first place.
+//
+// Key IDs self-describe their value size (bits 28-30 of the key), so the
+// caller supplies value_len explicitly per pair rather than this code
+// trying to infer it. Always writes to the RAM layer only — this app
+// never persists GPS config to BBR/Flash, matching the rest of
+// gps_uart_configure() (AssistNow's VALSET below does the same).
+typedef struct {
+    uint32_t key;
+    const uint8_t* value;
+    uint8_t value_len;
+} UbxValsetPair;
+
+static void ubx_send_valset(GpsUart* g, const UbxValsetPair* pairs, size_t count, const char* label) {
+    uint8_t pkt[40];
+    size_t n = 0;
+    pkt[n++] = 0xB5; pkt[n++] = 0x62;
+    pkt[n++] = 0x06; pkt[n++] = 0x8A; // CFG-VALSET
+    size_t len_offset = n;
+    n += 2; // length filled in below, once the payload size is known
+    pkt[n++] = 0x00; // version
+    pkt[n++] = 0x01; // layers: RAM only
+    pkt[n++] = 0x00; pkt[n++] = 0x00; // reserved
+    for(size_t i = 0; i < count; i++) {
+        furi_check(n + 4 + pairs[i].value_len + 2 <= sizeof(pkt), "GpsUart: VALSET packet too large");
+        pkt[n++] = (uint8_t)(pairs[i].key);
+        pkt[n++] = (uint8_t)(pairs[i].key >> 8);
+        pkt[n++] = (uint8_t)(pairs[i].key >> 16);
+        pkt[n++] = (uint8_t)(pairs[i].key >> 24);
+        memcpy(&pkt[n], pairs[i].value, pairs[i].value_len);
+        n += pairs[i].value_len;
+    }
+    uint16_t payload_len = (uint16_t)(n - (len_offset + 2));
+    pkt[len_offset] = (uint8_t)payload_len;
+    pkt[len_offset + 1] = (uint8_t)(payload_len >> 8);
+
+    uint8_t ck_a, ck_b;
+    ubx_calc_checksum(&pkt[2], n - 2, &ck_a, &ck_b);
+    pkt[n++] = ck_a;
+    pkt[n++] = ck_b;
+
+    ubx_send_and_confirm(g, pkt, n, label);
+}
+
+// ── M10Q configuration values ───────────────────────────────────────────
+static void ubx_send_rate(GpsUart* g) {
     // 100 ms measRate = 10 Hz.  SAM-M10Q datasheet Table 1: 10 Hz is the
     // high-performance-mode maximum for the default 4-constellation config.
     // No separate HP-mode enable packet is required — setting the rate is
     // sufficient on M10 SPG 5.10 firmware.
-    0xB5, 0x62, 0x06, 0x08, 0x06, 0x00, 0x64, 0x00, 0x01, 0x00, 0x01, 0x00, 0x7A, 0x12
-};
-static const uint8_t ubx_cfg_msg_gll_off[] = {
-    0xB5, 0x62, 0x06, 0x01, 0x03, 0x00, 0xF0, 0x01, 0x00, 0xFB, 0x11
-};
-static const uint8_t ubx_cfg_msg_vtg_off[] = {
-    0xB5, 0x62, 0x06, 0x01, 0x03, 0x00, 0xF0, 0x05, 0x00, 0xFF, 0x19
-};
-static const uint8_t ubx_cfg_msg_gsv_1hz[] = {
-    // rate=10: every 10th epoch × 100 ms = 1 Hz
-    0xB5, 0x62, 0x06, 0x01, 0x03, 0x00, 0xF0, 0x03, 0x0A, 0x07, 0x1F
-};
+    static const uint8_t meas_val[] = {0x64, 0x00}; // 100 (x 0.001s = 100ms = 10Hz)
+    static const uint8_t nav_val[]  = {0x01, 0x00}; // 1 measurement per nav solution
+    const UbxValsetPair pairs[] = {
+        {0x30210001, meas_val, sizeof(meas_val)}, // CFG-RATE-MEAS
+        {0x30210002, nav_val,  sizeof(nav_val)},  // CFG-RATE-NAV
+    };
+    ubx_send_valset(g, pairs, 2, "CFG-VALSET rate 10Hz");
+}
 
-static const uint8_t ubx_cfg_msg_pubx00_1hz[] = {
-    // Enable $PUBX,00 sentence at 1 Hz for live hAcc in meters
-    0xB5, 0x62, 0x06, 0x01, 0x03, 0x00, 0xF1, 0x00, 0x01, 0xFC, 0x13
-};
+static void ubx_send_nmea_output_rates(GpsUart* g) {
+    static const uint8_t off_val[]      = {0x00};
+    static const uint8_t gsv_rate_val[] = {0x0A}; // every 10th epoch @ 10Hz = 1Hz
+    const UbxValsetPair pairs[] = {
+        {0x209100ca, off_val,      sizeof(off_val)},      // CFG-MSGOUT-NMEA_ID_GLL_UART1
+        {0x209100b1, off_val,      sizeof(off_val)},      // CFG-MSGOUT-NMEA_ID_VTG_UART1
+        {0x209100c5, gsv_rate_val, sizeof(gsv_rate_val)}, // CFG-MSGOUT-NMEA_ID_GSV_UART1
+    };
+    ubx_send_valset(g, pairs, 3, "CFG-VALSET NMEA output rates");
+}
 
 static void ubx_send_nav5(GpsUart* g, GpsNavModel nav_model) {
+    // CFG-NAVSPG-DYNMODEL constants (spec Table 22) are numerically
+    // identical to the legacy UBX-CFG-NAV5.dynModel byte values — same
+    // enum, same wire values, just addressed as a VALSET key now.
     uint8_t dyn_model = 3; // Pedestrian default
     if(nav_model == GpsNavModelWrist) {
         dyn_model = 9; // Wrist-worn
@@ -608,16 +679,8 @@ static void ubx_send_nav5(GpsUart* g, GpsNavModel nav_model) {
         dyn_model = 7; // Airborne <2g / Commercial Flight
     }
 
-    uint8_t pkt[48] = {0};
-    pkt[0] = 0xB5; pkt[1] = 0x62; // UBX header
-    pkt[2] = 0x06; pkt[3] = 0x24; // Class 0x06 (CFG), ID 0x24 (NAV5)
-    pkt[4] = 0x28; pkt[5] = 0x00; // Payload length = 40 bytes
-    pkt[6] = 0x01; pkt[7] = 0x00; // Mask: bit 0 (apply dynModel)
-    pkt[8] = dyn_model;
-
-    ubx_calc_checksum(&pkt[2], 44, &pkt[46], &pkt[47]);
-
-    ubx_send_and_confirm(g, pkt, sizeof(pkt), "CFG-NAV5 dynamic model");
+    const UbxValsetPair pair = {0x20110021, &dyn_model, 1}; // CFG-NAVSPG-DYNMODEL
+    ubx_send_valset(g, &pair, 1, "CFG-VALSET dynamic model");
 }
 
 static const uint8_t ubx_cfg_assistnow_autonomous[] = {
@@ -946,15 +1009,17 @@ static void gps_uart_configure(GpsUart* g) {
     gps_uart_switch_baud(g, GPS_BAUD_RATE_FAST);
     furi_delay_ms(50);
 
-    // Send each binary UBX configuration packet, confirming its ACK/NAK.
-    ubx_send_and_confirm(g, ubx_cfg_rate_10hz, sizeof(ubx_cfg_rate_10hz), "CFG-RATE 10Hz");
-    ubx_send_and_confirm(g, ubx_cfg_msg_gll_off, sizeof(ubx_cfg_msg_gll_off), "CFG-MSG GLL off");
-    ubx_send_and_confirm(g, ubx_cfg_msg_vtg_off, sizeof(ubx_cfg_msg_vtg_off), "CFG-MSG VTG off");
-    ubx_send_and_confirm(g, ubx_cfg_msg_gsv_1hz, sizeof(ubx_cfg_msg_gsv_1hz), "CFG-MSG GSV 1Hz");
-    ubx_send_and_confirm(g, ubx_cfg_msg_pubx00_1hz, sizeof(ubx_cfg_msg_pubx00_1hz), "CFG-MSG PUBX00 1Hz");
+    // Send configuration via CFG-VALSET, confirming each packet's ACK/NAK.
+    ubx_send_rate(g);
+    ubx_send_nmea_output_rates(g);
     ubx_send_nav5(g, g->nav_model);
     ubx_send_and_confirm(g, ubx_cfg_assistnow_autonomous, sizeof(ubx_cfg_assistnow_autonomous), "CFG-VALSET AssistNow");
-    // Enable $PUBX,00 sentence at 1 Hz for live hAcc in meters
+    // Enable $PUBX,00 sentence at 1 Hz for live hAcc in meters. Proprietary
+    // NMEA-PUBX-RATE (spec §2.8.3) — still current in SPG 5.10 (unlike
+    // CFG-MSG), and there's no VALSET key for a proprietary PUBX sentence,
+    // so this ASCII command is the only mechanism for it. (A binary
+    // CFG-MSG packet enabling the same 0xF1/0x00 message used to be sent
+    // here too — removed as a straight duplicate of this line.)
     const char* pubx_00_rate = "$PUBX,40,00,1,1,0,0*1B\r\n";
     furi_hal_serial_tx(g->serial_handle, (const uint8_t*)pubx_00_rate, strlen(pubx_00_rate));
     furi_delay_ms(100);

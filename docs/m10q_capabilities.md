@@ -82,23 +82,21 @@ The SAM-M10Q module boots at a default speed of **9600 bps**. To handle 10 Hz hi
 3. The Flipper reconfigures its internal USART1 interface to 115200 bps, flushes the RX stream, and starts the asynchronous receiver.
 
 ### 5.2 Binary Configuration Packets (UBX Protocol)
-Once communicating at 115200 bps, the firmware configures the module by sending the following binary packets. Each packet contains the `B5 62` sync header, Class/ID, Length, Payload, and Fletcher-8 checksum:
+Once communicating at 115200 bps, the firmware configures the module via **`UBX-CFG-VALSET`** (the modern key-value configuration interface), each packet's `UBX-ACK-ACK`/`UBX-ACK-NAK` reply read back and confirmed before moving on. Legacy `UBX-CFG-MSG`/`CFG-RATE`/`CFG-NAV5` are absent from the M10 SPG 5.10 interface description's message reference (§3.10 lists only `CFG-CFG`, `CFG-RST`, `CFG-VALDEL`, `CFG-VALGET`, `CFG-VALSET`) — u-blox's own guidance is "users are strongly advised to only use the Configuration interface." All values are written to the RAM layer only (not persisted to BBR/Flash), matching the rest of this firmware's philosophy of reconfiguring fresh on every boot rather than relying on stored module state.
 
-1.  **Set Update Rate to 10 Hz (`UBX-CFG-RATE`)**: Sets measurement period to 100 ms.
-    *   *Hex*: `B5 62 06 08 06 00 64 00 01 00 01 00 7A 12`
-2.  **Disable NMEA GLL (`UBX-CFG-MSG`)**:
-    *   *Hex*: `B5 62 06 01 03 00 F0 01 00 FB 11`
-3.  **Disable NMEA VTG (`UBX-CFG-MSG`)**:
-    *   *Hex*: `B5 62 06 01 03 00 F0 05 00 FF 19`
-4.  **Throttle NMEA GSV to 1 Hz (`UBX-CFG-MSG`)**: Reduces overhead by only sending satellite detail once per second.
-    *   *Hex*: `B5 62 06 01 03 00 F0 03 0A 07 1F`
-5.  **Enable AssistNow Autonomous (`UBX-CFG-VALSET`)**: Activates self-contained background orbit prediction in the module's RAM, dropping cold-start TTFF to ~4 seconds on subsequent warm boots.
+1.  **Set Update Rate to 10 Hz (`CFG-RATE-MEAS` + `CFG-RATE-NAV`)**: measurement period 100 ms, 1 measurement per navigation solution.
+    *   *Hex*: `B5 62 06 8A 10 00 00 01 00 00 01 00 21 30 64 00 02 00 21 30 01 00 AB 2D`
+2.  **NMEA output rates (`CFG-MSGOUT-NMEA_ID_GLL_UART1`=0, `..._VTG_UART1`=0, `..._GSV_UART1`=10)**: disables GLL/VTG, throttles GSV to 1 Hz (every 10th epoch at 10 Hz) — one packet, three keys.
+    *   *Hex*: `B5 62 06 8A 13 00 00 01 00 00 CA 00 91 20 00 B1 00 91 20 00 C5 00 91 20 0A 01 E2`
+3.  **Set Platform Model (`CFG-NAVSPG-DYNMODEL`)**: optimizes the positioning engine for the selected nav model (Pedestrian shown; value is user-selectable — see §1 above). `CFG-NAVSPG-DYNMODEL`'s enum values are numerically identical to the legacy `CFG-NAV5.dynModel` byte values.
+    *   *Hex (Pedestrian, value 3)*: `B5 62 06 8A 09 00 00 01 00 00 21 00 11 20 03 EF 4C`
+4.  **Enable AssistNow Autonomous (`CFG-ANA-USE_ANA`, already `UBX-CFG-VALSET`)**: activates self-contained background orbit prediction in the module's RAM, dropping cold-start TTFF to ~4 seconds on subsequent warm boots.
     *   *Hex*: `B5 62 06 8A 09 00 00 01 00 00 01 00 23 10 01 CF C0`
-6.  **Set Platform Model to Pedestrian (`UBX-CFG-NAV5`)**: Optimizes the positioning engine for walking speeds.
-    *   *Hex*: `B5 62 06 24 28 00 01 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 56 3E`
-7.  **Hot Start Reset (`UBX-CFG-RST`)**: Controlled GNSS-only reset for error recovery.
+5.  **Enable `$PUBX,00` at 1 Hz (proprietary `NMEA-PUBX-RATE`, `$PUBX,40`)**: for live horizontal accuracy (hAcc). Sent as an ASCII command, not binary UBX — proprietary PUBX sentences have no VALSET key, and this one (§2.8.3) is still current in SPG 5.10, unlike `CFG-MSG`. (A binary `CFG-MSG` packet enabling this same sentence used to be sent redundantly alongside this command — removed as a straight duplicate.)
+    *   *ASCII*: `$PUBX,40,00,1,1,0,0*1B`
+6.  **Hot Start Reset (`UBX-CFG-RST`)**: Controlled GNSS-only reset for error recovery. Datasheet note: the module does not acknowledge this message (or may not finish sending the ACK before resetting on older firmware), so this one is fire-and-forget — no ACK/NAK confirmation.
     *   *Hex*: `B5 62 06 04 04 00 00 00 02 00 10 68`
-8.  **Software Standby (`UBX-RXM-PMREQ`)**: Puts the module into low-power sleep (~46 µA) when inactive.
+7.  **Software Standby (`UBX-RXM-PMREQ`)**: Puts the module into low-power sleep (~46 µA) when inactive.
     *   *Hex*: `B5 62 02 41 10 00 00 00 00 00 00 00 00 00 02 00 00 00 01 00 00 00 56 2F`
 
 ### 5.3 Software Standby Power Management & Wake-up
