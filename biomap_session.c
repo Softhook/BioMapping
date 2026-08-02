@@ -125,13 +125,8 @@ void session_deinit(Session* s, BioMapApp* app) {
         gps_uart_free(gps);
     }
 
-    // Restore auto backlight when leaving recording view — only if this
-    // session actually claimed enforce_on (see biomap.h's
-    // backlight_enforced doc comment on why this must stay paired).
-    if(app->backlight_enforced) {
-        notification_message(app->notifications, &sequence_display_backlight_enforce_auto);
-        app->backlight_enforced = false;
-    }
+    // Restore auto backlight when leaving recording view.
+    biomap_backlight_release(app, false);
     if(s->vp) {
         // s->vp is app->screen_vp — the single persistent fullscreen
         // ViewPort shared by every screen. Disable it and clear its draw
@@ -738,16 +733,8 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     s->logger = sd_logger_alloc(app->storage);
     view_port_update(s->vp);
 
-    // Apply backlight preference — only claim enforce_on when actually
-    // wanted; there's nothing to release when it's off (see biomap.h's
-    // backlight_enforced doc comment on why enforce_auto must never be
-    // sent unpaired).
-    if(app->backlight_on) {
-        notification_message(app->notifications, &sequence_display_backlight_enforce_on);
-        app->backlight_enforced = true;
-    } else {
-        app->backlight_enforced = false;
-    }
+    // Apply backlight preference for this session.
+    biomap_backlight_claim(app);
 
     s->timer = furi_timer_alloc(biomap_timer_callback, FuriTimerTypePeriodic, app->event_queue);
     furi_timer_start(s->timer, furi_kernel_get_tick_frequency() / TICK_HZ);

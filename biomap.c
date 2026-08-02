@@ -15,6 +15,25 @@ void run_gps_hot_start(BioMapApp* app) {
     if(g) gps_uart_free(g);
 }
 
+void biomap_backlight_claim(BioMapApp* app) {
+    if(app->backlight_on) {
+        notification_message(app->notifications, &sequence_display_backlight_enforce_on);
+        app->backlight_enforced = true;
+    } else {
+        app->backlight_enforced = false;
+    }
+}
+
+void biomap_backlight_release(BioMapApp* app, bool block) {
+    if(!app->backlight_enforced) return;
+    if(block) {
+        notification_message_block(app->notifications, &sequence_display_backlight_enforce_auto);
+    } else {
+        notification_message(app->notifications, &sequence_display_backlight_enforce_auto);
+    }
+    app->backlight_enforced = false;
+}
+
 int32_t biomap_app(void* p) {
     UNUSED(p);
     BioMapApp* app = malloc(sizeof(BioMapApp));
@@ -68,14 +87,10 @@ int32_t biomap_app(void* p) {
         }
     }
 
-    // Defensive: only release if we actually still hold a claim. Every
-    // run_recording_session() call already releases its own claim via
-    // session_deinit() before returning, so this should normally be a
-    // no-op by the time we get here.
-    if(app->backlight_enforced) {
-        notification_message_block(app->notifications, &sequence_display_backlight_enforce_auto);
-        app->backlight_enforced = false;
-    }
+    // Defensive: every run_recording_session() call already releases its
+    // own claim via session_deinit() before returning, so this should
+    // normally be a no-op by the time we get here.
+    biomap_backlight_release(app, true);
 
     gui_remove_view_port(app->gui, app->screen_vp);
     view_port_free(app->screen_vp);

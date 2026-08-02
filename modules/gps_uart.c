@@ -603,8 +603,7 @@ static UbxAckOutcome ubx_wait_ack(GpsUart* g, uint8_t want_cls, uint8_t want_id)
 static void ubx_send_and_confirm(GpsUart* g, const uint8_t* data, size_t len, const char* label) {
     UNUSED(label); // only referenced inside FURI_LOG_W, which host test builds compile out entirely
     for(int attempt = 0; attempt < 2; attempt++) {
-        uint8_t discard;
-        while(furi_stream_buffer_receive(g->rx_stream, &discard, 1, 0) == 1) {}
+        furi_stream_buffer_reset(g->rx_stream);
         furi_hal_serial_tx(g->serial_handle, data, len);
         UbxAckOutcome outcome = ubx_wait_ack(g, data[2], data[3]);
         if(outcome == UbxAckAck) return;
@@ -682,7 +681,7 @@ static void ubx_send_rate(GpsUart* g) {
         {0x30210001, meas_val, sizeof(meas_val)}, // CFG-RATE-MEAS
         {0x30210002, nav_val,  sizeof(nav_val)},  // CFG-RATE-NAV
     };
-    ubx_send_valset(g, pairs, 2, "CFG-VALSET rate 10Hz");
+    ubx_send_valset(g, pairs, COUNT_OF(pairs), "CFG-VALSET rate 10Hz");
 }
 
 static void ubx_send_nmea_output_rates(GpsUart* g) {
@@ -693,7 +692,7 @@ static void ubx_send_nmea_output_rates(GpsUart* g) {
         {0x209100b1, off_val,      sizeof(off_val)},      // CFG-MSGOUT-NMEA_ID_VTG_UART1
         {0x209100c5, gsv_rate_val, sizeof(gsv_rate_val)}, // CFG-MSGOUT-NMEA_ID_GSV_UART1
     };
-    ubx_send_valset(g, pairs, 3, "CFG-VALSET NMEA output rates");
+    ubx_send_valset(g, pairs, COUNT_OF(pairs), "CFG-VALSET NMEA output rates");
 }
 
 static void ubx_send_nav5(GpsUart* g, GpsNavModel nav_model) {

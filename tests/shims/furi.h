@@ -34,6 +34,10 @@
 
 #define UNUSED(x) ((void)(x))
 
+#ifndef COUNT_OF
+#define COUNT_OF(x) (sizeof(x) / sizeof((x)[0]))
+#endif
+
 #define furi_assert(x) assert(x)
 
 // furi_check() is variadic in the real SDK: furi_check(cond) or

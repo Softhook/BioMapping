@@ -100,6 +100,8 @@ typedef struct BioMapApp {
     // unconditionally. Tracked here (not derived from backlight_on) because
     // the two can differ: backlight_on may change between sessions, but this
     // reflects what was actually claimed for the currently-running session.
+    // Always go through biomap_backlight_claim()/biomap_backlight_release()
+    // below rather than touching this flag directly.
     bool               backlight_enforced;
     bool               sound_enabled;  // Options > Sound; survives session boundaries
     GpsNavModel        nav_model;      // Options > GPS Profile (Pedestrian/Wrist/Vehicle)
@@ -279,6 +281,14 @@ typedef struct {
 // ── App-level function declarations ────────────────────────────────────
 
 void run_gps_hot_start(BioMapApp* app);
+// Claims/releases the backlight enforce_on lock according to
+// app->backlight_on, keeping app->backlight_enforced in sync so the pair
+// can never go unbalanced (see the field's doc comment above). release()
+// is a no-op if no claim is currently held. Pass block=true only where the
+// caller is about to tear down NotificationSrv's record right after (app
+// shutdown) and needs the message to have gone out first.
+void biomap_backlight_claim(BioMapApp* app);
+void biomap_backlight_release(BioMapApp* app, bool block);
 void run_options_screen(BioMapApp* app);
 void run_calibration_menu(BioMapApp* app);
 void run_calibration_wizard(BioMapApp* app);
