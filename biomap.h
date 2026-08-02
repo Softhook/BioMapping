@@ -117,6 +117,21 @@ typedef struct BioMapApp {
 #define MENU_COUNT      5
 #define OPTIONS_COUNT   8
 
+// Options screen selection indices — matches OPTIONS_COUNT above and the
+// item order drawn by options_render() (biomap_render.c). Shared between
+// biomap_gui.c (key handling) and biomap_render.c (toggle-state overlay) so
+// the two stay in sync by construction rather than by comment.
+enum {
+    OptGpsProfile = 0,
+    OptResetGps,
+    OptAutoZoom,
+    OptGsrCalibration,
+    OptRfCalibration,
+    OptBacklight,
+    OptSound,
+    OptDiagnostics,
+};
+
 typedef struct {
     BioMapApp* app;
     int32_t    selection;

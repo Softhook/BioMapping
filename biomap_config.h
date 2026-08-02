@@ -30,6 +30,7 @@ typedef enum {
     GpsNavModelSea,            // Sea / Boating / Kayaking (dynModel = 5)
     GpsNavModelBike,           // Bicycle (dynModel = 10)
     GpsNavModelFlight,         // Commercial Flight / Airborne <2g (dynModel = 7)
+    GpsNavModelCount,          // sentinel — number of valid GpsNavModel values, not a real mode
 } GpsNavModel;
 
 // ── CSV column headers ────────────────────────────────────────────────

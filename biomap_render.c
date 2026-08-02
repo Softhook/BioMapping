@@ -553,25 +553,25 @@ void options_render(Canvas* c, void* ctx) {
 
     // Overlay toggle state on selectable items
     for(int i = top; i < OPTIONS_COUNT && (i - top) < max_visible; i++) {
-        if(i == 1 || i == 7) continue; // Reset GPS and Diagnostics have no right-aligned state text
+        if(i == OptResetGps || i == OptDiagnostics) continue; // no right-aligned state text
         int y = 22 + (i - top) * 10;
         const char* state;
-        if(i == 0) {
+        if(i == OptGpsProfile) {
             // Indexed by GpsNavModel's enum ordinal (biomap_config.h) —
             // Pedestrian/Wrist/Vehicle/Stationary/Sea/Bike/Flight = 0..6.
             static const char* const nav_model_labels[7] = {
                 "PED", "WRIST", "VEHICLE", "STATION", "SEA", "BIKE", "FLIGHT",
             };
             state = nav_model_labels[a->nav_model];
-        } else if(i == 2) {
+        } else if(i == OptAutoZoom) {
             state = a->zoom_enabled ? "ON" : "OFF";
-        } else if(i == 3) {
+        } else if(i == OptGsrCalibration) {
             state = a->cal_active ? "YES" : "NO";
-        } else if(i == 4) {
+        } else if(i == OptRfCalibration) {
             state = a->rf_calibrated ? "YES" : "NO";
-        } else if(i == 5) {
+        } else if(i == OptBacklight) {
             state = a->backlight_on ? "ON" : "OFF";
-        } else if(i == 6) {
+        } else if(i == OptSound) {
             state = a->sound_enabled ? "ON" : "OFF";
         } else {
             continue;

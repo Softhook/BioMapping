@@ -165,19 +165,6 @@ static void toggle_app_setting(BioMapApp* app, bool* field, bool force_tone) {
     biomap_sound_toggle(force_tone ? true : app->sound_enabled, new_val);
 }
 
-// Options screen selection indices — matches OPTIONS_COUNT (biomap.h) and
-// the item order drawn by options_render() (biomap_render.c).
-enum {
-    OptGpsProfile = 0,
-    OptResetGps,
-    OptAutoZoom,
-    OptGsrCalibration,
-    OptRfCalibration,
-    OptBacklight,
-    OptSound,
-    OptDiagnostics,
-};
-
 void run_options_screen(BioMapApp* app) {
     OptionsContext ctx = {.app = app, .selection = 0};
     ViewPort* vp = vp_push(app, options_render, &ctx);
@@ -205,7 +192,7 @@ void run_options_screen(BioMapApp* app) {
                 case OptGpsProfile:
                     // Cycle GPS Profile (PED -> WRIST -> VEHICLE -> STATIONARY -> SEA -> BIKE -> FLIGHT)
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    app->nav_model = (GpsNavModel)cycle_selection((int32_t)app->nav_model, 7, true);
+                    app->nav_model = (GpsNavModel)cycle_selection((int32_t)app->nav_model, GpsNavModelCount, true);
                     furi_mutex_release(app->mutex);
                     biomap_save_settings(app);
                     biomap_sound_click(app->sound_enabled);

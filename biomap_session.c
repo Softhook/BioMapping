@@ -612,8 +612,11 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
     case InputKeyLeft:
     case InputKeyRight:
         if(has_gsr(s->mode)) {
-            bool zoom_in = (ev->input.key == InputKeyLeft);
-            if(!key_zoom_horizontal(s, mutex, zoom_in)) biomap_sound_click(sound_enabled);
+            // Left = zoom out, Right = zoom in (key_zoom_horizontal's doc
+            // comment) — named zoom_out here (not zoom_in) since that's
+            // what it actually means, matching the callee's parameter name.
+            bool zoom_out = (ev->input.key == InputKeyLeft);
+            if(!key_zoom_horizontal(s, mutex, zoom_out)) biomap_sound_click(sound_enabled);
             view_port_update(vp);
         }
         return true;

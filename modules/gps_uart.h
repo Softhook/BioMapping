@@ -44,7 +44,9 @@ typedef struct GpsUart GpsUart;
 
 #include "../biomap_config.h"
 
-// Lifecycle — caller owns event_queue and notifications until free() returns.
+// Lifecycle — caller owns event_queue until free() returns. `notifications`
+// is accepted for API-shape consistency with other module allocators but is
+// not currently read or stored by this module.
 GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications, GpsNavModel nav_model);
 void     gps_uart_free(GpsUart* gps);
 

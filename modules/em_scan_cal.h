@@ -29,7 +29,7 @@ extern const float em_scan_cal_max_floor_dbm[EM_SCAN_NUM_FREQS];
 
 typedef struct {
     uint32_t magic;                              // 0x454D4341
-    uint32_t version;                            // Version 1
+    uint32_t version;                            // EM_SCAN_CAL_VERSION (currently 3)
     uint32_t timestamp;                          // Unix epoch timestamp of calibration
     float    noise_floor_dbm[EM_SCAN_NUM_FREQS]; // Calibrated noise floor per band (dBm)
     float    noise_std_dev_db[EM_SCAN_NUM_FREQS];// Signal stability during calibration

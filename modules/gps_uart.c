@@ -25,7 +25,6 @@ struct GpsUart {
     uint8_t              rx_buf[RX_LINE_BUF];
     size_t               rx_offset;
     FuriMessageQueue*    event_queue;
-    NotificationApp*     notifications;   // caller-owned
     bool                 ready;
     volatile bool        rx_pending;
     uint32_t             last_valid_nmea_tick;  // watchdog: last successful $Gx parse
@@ -774,11 +773,11 @@ static void gps_uart_reinit(GpsUart* g, uint32_t baud) {
 }
 
 GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications, GpsNavModel nav_model) {
+    UNUSED(notifications); // not currently used by this module — see gps_uart.h's doc comment
     GpsUart* g = malloc(sizeof(GpsUart));
     furi_check(g, "GpsUart: NULL struct alloc");
 
     g->event_queue   = event_queue;
-    g->notifications = notifications;
     g->nav_model     = nav_model;
     g->rx_offset     = 0;
     g->ready         = false;

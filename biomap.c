@@ -301,7 +301,7 @@ bool biomap_load_settings(BioMapApp* app) {
            s.magic == BIOMAP_SETTINGS_MAGIC &&
            s.version == BIOMAP_SETTINGS_VERSION &&
            s.checksum == settings_checksum(&s) &&
-           s.nav_model < 7) {
+           s.nav_model < GpsNavModelCount) {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
             app->zoom_enabled    = s.zoom_enabled;
             app->backlight_on    = s.backlight_on;

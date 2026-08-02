@@ -2,8 +2,6 @@
 
 #include "em_scan_cal.h"
 #include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 // Order matches em_scan_freq_hz/em_scan_freq_label in em_scan_rf.c:
