@@ -96,11 +96,8 @@ static void nav_cycle(BioMapApp* app, int32_t* selection, int32_t count, bool do
 
 int32_t biomap_gui_show_menu(BioMapApp* app) {
     MenuContext ctx = {.app = app, .selection = 0};
-    view_port_draw_callback_set(app->screen_vp, menu_render, &ctx);
-
-    // Enable the shared screen VP so it receives input and renders
-    view_port_enabled_set(app->screen_vp, true);
-    view_port_update(app->screen_vp);
+    ViewPort* vp = vp_push(app, menu_render, &ctx);
+    drain_stale_events(app->event_queue);
 
     PluginEvent ev;
     int32_t result = -1;
@@ -113,11 +110,11 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
         switch(ev.input.key) {
         case InputKeyUp:
             nav_cycle(app, &ctx.selection, MENU_COUNT, false);
-            view_port_update(app->screen_vp);
+            view_port_update(vp);
             break;
         case InputKeyDown:
             nav_cycle(app, &ctx.selection, MENU_COUNT, true);
-            view_port_update(app->screen_vp);
+            view_port_update(vp);
             break;
         case InputKeyOk:
             furi_mutex_acquire(app->mutex, FuriWaitForever);
@@ -135,11 +132,7 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
         }
     }
 
-    // Disable the shared screen VP so it stops receiving input/rendering
-    // while the caller sets up the next sub-screen (which re-enables the
-    // same ViewPort via vp_push — see biomap_gui.c comment above).
-    view_port_enabled_set(app->screen_vp, false);
-    view_port_draw_callback_set(app->screen_vp, NULL, NULL);
+    vp_pop(app, vp);
     return result;
 }
 
@@ -158,19 +151,32 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
 //
 //  Controls:  Up/Down → navigate     OK → select/toggle     Back → return
 
-// Toggle a bool app setting (Auto-zoom, Backlight), persist it, and play a
-// distinct on/off confirmation tone — shared by cases 1/2 below, previously
-// identical except which field. NOT reused by the Sound toggle (case 5),
-// which deliberately always plays its tone (bypassing the `enabled` gate)
-// so muting/unmuting itself is always audible.
-static void toggle_app_setting(BioMapApp* app, bool* field) {
+// Toggle a bool app setting (Auto-zoom, Backlight, Sound), persist it, and
+// play a distinct on/off confirmation tone — shared by cases 2/5/6 below,
+// previously identical except which field. force_tone bypasses the
+// `sound_enabled` gate: used only by the Sound toggle itself, so
+// muting/unmuting is always audible regardless of the new state.
+static void toggle_app_setting(BioMapApp* app, bool* field, bool force_tone) {
     furi_mutex_acquire(app->mutex, FuriWaitForever);
     *field = !*field;
     bool new_val = *field;
     furi_mutex_release(app->mutex);
     biomap_save_settings(app);
-    biomap_sound_toggle(app->sound_enabled, new_val);
+    biomap_sound_toggle(force_tone ? true : app->sound_enabled, new_val);
 }
+
+// Options screen selection indices — matches OPTIONS_COUNT (biomap.h) and
+// the item order drawn by options_render() (biomap_render.c).
+enum {
+    OptGpsProfile = 0,
+    OptResetGps,
+    OptAutoZoom,
+    OptGsrCalibration,
+    OptRfCalibration,
+    OptBacklight,
+    OptSound,
+    OptDiagnostics,
+};
 
 void run_options_screen(BioMapApp* app) {
     OptionsContext ctx = {.app = app, .selection = 0};
@@ -196,54 +202,48 @@ void run_options_screen(BioMapApp* app) {
             case InputKeyLeft:
             case InputKeyRight:
                 switch(ctx.selection) {
-                case 0:
+                case OptGpsProfile:
                     // Cycle GPS Profile (PED -> WRIST -> VEHICLE -> STATIONARY -> SEA -> BIKE -> FLIGHT)
                     furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    app->nav_model = (app->nav_model + 1) % 7;
+                    app->nav_model = (GpsNavModel)cycle_selection((int32_t)app->nav_model, 7, true);
                     furi_mutex_release(app->mutex);
                     biomap_save_settings(app);
                     biomap_sound_click(app->sound_enabled);
                     break;
-                case 1:
+                case OptResetGps:
                     // Reset GPS — VP stays visible, no need to re-create.
                     // run_gps_hot_start() plays its own success/error tone.
                     run_gps_hot_start(app);
                     view_port_update(vp);
                     continue;
-                case 2:
+                case OptAutoZoom:
                     // Toggle auto-zoom (session_init handles level/peak reset)
-                    toggle_app_setting(app, &app->zoom_enabled);
+                    toggle_app_setting(app, &app->zoom_enabled, false);
                     break;
-                case 3:
-                    // GSR Calibration
+                case OptGsrCalibration:
                     biomap_sound_confirm(app->sound_enabled);
                     run_calibration_menu(app);
                     vp_push(app, options_render, &ctx);
-                    break;
-                case 4:
-                    // RF Calibration — re-arm-after-return pattern, same as GSR Calibration
+                    continue;
+                case OptRfCalibration:
+                    // Re-arm-after-return pattern, same as GSR Calibration
                     biomap_sound_confirm(app->sound_enabled);
                     run_rf_calibration_menu(app);
                     vp_push(app, options_render, &ctx);
+                    continue;
+                case OptBacklight:
+                    toggle_app_setting(app, &app->backlight_on, false);
                     break;
-                case 5:
-                    // Toggle backlight
-                    toggle_app_setting(app, &app->backlight_on);
+                case OptSound:
+                    // force_tone: mute/unmute must always be audible,
+                    // regardless of the new sound_enabled state.
+                    toggle_app_setting(app, &app->sound_enabled, true);
                     break;
-                case 6:
-                    // Toggle sound itself
-                    furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    app->sound_enabled = !app->sound_enabled;
-                    furi_mutex_release(app->mutex);
-                    biomap_save_settings(app);
-                    biomap_sound_toggle(true, app->sound_enabled);
-                    break;
-                case 7:
-                    // Diagnostics mode (LAST ITEM)
+                case OptDiagnostics:
                     biomap_sound_confirm(app->sound_enabled);
                     run_recording_session(app, BioMapModeDiagnostics);
                     vp_push(app, options_render, &ctx);
-                    break;
+                    continue;
                 default: break;
                 }
                 break;
@@ -283,6 +283,15 @@ static void run_show_current_calibration(BioMapApp* app) {
 // loop — shared shape behind run_calibration_menu (GSR, below) and
 // run_rf_calibration_menu (RF, biomap_rf_cal.c) — see the declaration in
 // biomap.h.
+// run_cal_submenu()'s fixed 3-item shape: Start Wizard / Reset / Show
+// Current — matches the order drawn by draw_cal_submenu() (biomap_render.c).
+#define CAL_SUBMENU_COUNT 3
+enum {
+    CalSubmenuStartWizard = 0,
+    CalSubmenuReset,
+    CalSubmenuShowCurrent,
+};
+
 void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
                       SubmenuAction start_wizard, SubmenuAction reset,
                       SubmenuAction show_current) {
@@ -301,18 +310,18 @@ void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
                 break;
             }
             if(ev.input.key == InputKeyUp) {
-                nav_cycle(app, &ctx.selection, 3, false); // 3 items
+                nav_cycle(app, &ctx.selection, CAL_SUBMENU_COUNT, false);
             } else if(ev.input.key == InputKeyDown) {
-                nav_cycle(app, &ctx.selection, 3, true);
+                nav_cycle(app, &ctx.selection, CAL_SUBMENU_COUNT, true);
             } else if(ev.input.key == InputKeyOk) {
                 // This thread's own last write — no lock needed to read it
                 // back (see WizardState's identical reasoning in
                 // biomap_gui.c's run_calibration_wizard()).
-                if(ctx.selection == 0) {
+                if(ctx.selection == CalSubmenuStartWizard) {
                     biomap_sound_confirm(app->sound_enabled);
                     start_wizard(app);
                     break;
-                } else if(ctx.selection == 1) {
+                } else if(ctx.selection == CalSubmenuReset) {
                     biomap_sound_reset(app->sound_enabled);
                     reset(app);
                     break;
@@ -320,6 +329,7 @@ void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
                     biomap_sound_confirm(app->sound_enabled);
                     show_current(app);
                     vp_push(app, render, &ctx);
+                    continue;
                 }
             }
             view_port_update(vp);
@@ -467,8 +477,51 @@ static bool calibration_wizard_compute_fit(const float measured[CAL_POINTS], con
     return ok;
 }
 
+// Wizard step values — mirrors the numeric cases calibration_wizard_render()
+// (biomap_render.c) switches on; keep both in sync if steps change. 6 and 7
+// are transient/unused as UI-visible states (6 is decided-but-not-yet-drawn
+// fit-pending, checked only internally below).
+enum {
+    WizardStepPrompt470k    = 0,
+    WizardStepMeasuring470k = 1,
+    WizardStepPrompt100k    = 2,
+    WizardStepMeasuring100k = 3,
+    WizardStepPrompt47k     = 4,
+    WizardStepMeasuring47k  = 5,
+    WizardStepFitPending    = 6,
+    WizardStepSuccess       = 8,
+    WizardStepMeasureFailed = 9,
+    WizardStepFitFailed     = 10,
+};
+
+// Mutex-guarded WizardState field writers — collapse the repeated
+// acquire/write/release blocks below (w.mutex guards every field, see
+// WizardState's doc comment in biomap.h).
+static void wizard_set_step(WizardState* w, int step) {
+    furi_mutex_acquire(w->mutex, FuriWaitForever);
+    w->step = step;
+    furi_mutex_release(w->mutex);
+}
+
+static void wizard_set_measurement(WizardState* w, int idx, float avg_g, int step) {
+    furi_mutex_acquire(w->mutex, FuriWaitForever);
+    w->measured[idx] = avg_g;
+    w->step = step;
+    furi_mutex_release(w->mutex);
+}
+
+static void wizard_set_fit_result(WizardState* w, float gain, float offset,
+                                   float r_squared, int step) {
+    furi_mutex_acquire(w->mutex, FuriWaitForever);
+    w->gain = gain;
+    w->offset = offset;
+    w->r_squared = r_squared;
+    w->step = step;
+    furi_mutex_release(w->mutex);
+}
+
 void run_calibration_wizard(BioMapApp* app) {
-    WizardState w = {.step = 0};
+    WizardState w = {.step = WizardStepPrompt470k};
     // Guards every field above against calibration_wizard_render() running
     // on the GUI thread — see WizardState's doc comment in biomap.h.
     // Allocated before vp_push() so the callback is never live with
@@ -506,7 +559,10 @@ void run_calibration_wizard(BioMapApp* app) {
         // ── Back handler ──────────────────────────────────────────
         if(ev.input.key == InputKeyBack) {
             // Allowed to cancel from any prompt, success, or fail screen.
-            if(w.step == 0 || w.step == 2 || w.step == 4 || w.step == 8 || w.step == 9 || w.step == 10) {
+            bool cancelable = w.step == WizardStepPrompt470k || w.step == WizardStepPrompt100k ||
+                              w.step == WizardStepPrompt47k || w.step == WizardStepSuccess ||
+                              w.step == WizardStepMeasureFailed || w.step == WizardStepFitFailed;
+            if(cancelable) {
                 biomap_sound_back(app->sound_enabled);
                 break;
             }
@@ -517,31 +573,23 @@ void run_calibration_wizard(BioMapApp* app) {
         if(ev.input.key != InputKeyOk)
             continue;
 
-        // step 0,2,4 = resistor prompts  → start measurement
-        // step 8     = success            → save & exit
-        // step 9     = measurement fail   → retry (go back to step 0)
-        // step 10    = fit fail           → retry (go back to step 0)
-
-        if(w.step == 8) {
+        if(w.step == WizardStepSuccess) {
             biomap_sound_confirm(app->sound_enabled);
             biomap_save_calibration(app, w.gain, w.offset);
             break;
         }
 
-        if(w.step == 9 || w.step == 10) {
+        if(w.step == WizardStepMeasureFailed || w.step == WizardStepFitFailed) {
             biomap_sound_click(app->sound_enabled);
-            furi_mutex_acquire(w.mutex, FuriWaitForever);
-            w.step = 0;
-            furi_mutex_release(w.mutex);
+            wizard_set_step(&w, WizardStepPrompt470k);
             view_port_update(vp);
             continue;
         }
 
-        // Determine which resistor to measure (0=470k, 1=100k, 2=47k).
-        int idx = -1;
-        if(w.step == 0)      idx = 0;
-        else if(w.step == 2) idx = 1;
-        else if(w.step == 4) idx = 2;
+        // Resistor prompts are spaced 2 apart (470k/100k/47k → 0/2/4), so
+        // dividing recovers which resistor (0/1/2) directly.
+        int idx = (w.step == WizardStepPrompt470k || w.step == WizardStepPrompt100k ||
+                   w.step == WizardStepPrompt47k) ? w.step / 2 : -1;
 
         if(idx >= 0) {
             // ── Measurement step ──────────────────────────────────
@@ -553,15 +601,11 @@ void run_calibration_wizard(BioMapApp* app) {
             // call, to inside calibration_wizard_measure() or its 20-sample
             // loop — that would remove the flush's settle margin.
             biomap_sound_click(app->sound_enabled);
-            furi_mutex_acquire(w.mutex, FuriWaitForever);
-            w.step = (int)(idx * 2 + 1);  // 0→1, 2→3, 4→5
-            furi_mutex_release(w.mutex);
+            wizard_set_step(&w, idx * 2 + 1);  // Prompt → Measuring
             view_port_update(vp);
 
             if(!sensor_ok) {
-                furi_mutex_acquire(w.mutex, FuriWaitForever);
-                w.step = 9;
-                furi_mutex_release(w.mutex);
+                wizard_set_step(&w, WizardStepMeasureFailed);
                 biomap_sound_error(app->sound_enabled);
                 view_port_update(vp);
                 continue;
@@ -572,15 +616,10 @@ void run_calibration_wizard(BioMapApp* app) {
             // runs, so the confirm/error tone below cannot affect them.
             float avg_g = 0.0f;
             if(calibration_wizard_measure(gsr, idx, gates, &avg_g)) {
-                furi_mutex_acquire(w.mutex, FuriWaitForever);
-                w.measured[idx] = avg_g;
-                w.step = (int)(idx * 2 + 2);  // 1→2, 3→4, 5→6
-                furi_mutex_release(w.mutex);
+                wizard_set_measurement(&w, idx, avg_g, idx * 2 + 2);  // Measuring → next Prompt (or FitPending)
                 biomap_sound_confirm(app->sound_enabled); // this resistor's reading passed its gate
             } else {
-                furi_mutex_acquire(w.mutex, FuriWaitForever);
-                w.step = 9;
-                furi_mutex_release(w.mutex);
+                wizard_set_step(&w, WizardStepMeasureFailed);
                 biomap_sound_error(app->sound_enabled);
             }
 
@@ -591,15 +630,11 @@ void run_calibration_wizard(BioMapApp* app) {
             // w.step's own read here is this same (writer) thread's own
             // last write, so it needs no lock; only the fields published
             // below (read cross-thread by the render callback) do.
-            if(w.step == 6) {
+            if(w.step == WizardStepFitPending) {
                 float gain, offset, r_squared;
                 bool fit_ok = calibration_wizard_compute_fit(w.measured, targets, &gain, &offset, &r_squared);
-                furi_mutex_acquire(w.mutex, FuriWaitForever);
-                w.gain = gain;
-                w.offset = offset;
-                w.r_squared = r_squared;
-                w.step = fit_ok ? 8 : 10;
-                furi_mutex_release(w.mutex);
+                wizard_set_fit_result(&w, gain, offset, r_squared,
+                                      fit_ok ? WizardStepSuccess : WizardStepFitFailed);
                 if(fit_ok) {
                     biomap_sound_success(app->sound_enabled);
                 } else {
