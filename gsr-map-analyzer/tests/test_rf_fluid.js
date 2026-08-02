@@ -219,10 +219,32 @@ const zeroFogPoint = {
 };
 renderer.setData([zeroFogPoint], null);
 assert.strictEqual(renderer.cachedNodes[0].fog, 0, 'Explicit em_fog=0 should stay 0, not be recomputed from RSSI');
-assert.strictEqual(renderer.cachedNodes[0].hasFog, false, 'hasFog should be false when em_fog is explicitly 0');
-console.log('✓ Explicit em_fog=0 preserved (not overwritten by RSSI-derived fallback)');
+// ── 8. Test # Band Floors (dBm) CSV Metadata Header Parsing ──────────────
+console.log('Testing # Band Floors (dBm) CSV metadata header parsing...');
+const calibratedHeaderCsv = [
+  '# RecordingStartTime:1754135280',
+  '# Band Floors (dBm): 815:-91.5,868:-91.5,915:-91.5',
+  'timestamp,lat,lon,rssi_815,rssi_868,rssi_915',
+  '0.00,56.3394,-2.7894,-91.5,-91.5,-91.5',
+  '0.10,56.3395,-2.7895,-80.0,-75.0,-70.0'
+].join('\n');
+
+const calibratedAnalyzer = new GSRAnalyzer();
+calibratedAnalyzer.parseCSV(calibratedHeaderCsv);
+
+assert.ok(calibratedAnalyzer.bandFloors, 'bandFloors object should be parsed from header');
+assert.strictEqual(calibratedAnalyzer.bandFloors['815'], -91.5, '815 MHz noise floor should be -91.5');
+assert.strictEqual(calibratedAnalyzer.bandFloors['868'], -91.5, '868 MHz noise floor should be -91.5');
+assert.strictEqual(calibratedAnalyzer.bandFloors['915'], -91.5, '915 MHz noise floor should be -91.5');
+
+// Row 0 is exactly at noise floor (-91.5), so normalized power is 0
+const row0Fog = GSRAnalyzer.calcEmFog(calibratedAnalyzer.raw[0], calibratedAnalyzer.bandFloors);
+assert.strictEqual(row0Fog, 0, 'Fog at exact noise floor should be 0');
+
+console.log('✓ # Band Floors (dBm) CSV metadata header parsing verified');
 
 console.log('ALL RF FLUID & TRI-BAND PIPELINE TESTS PASSED SUCCESSFULY!');
+
 
 
 

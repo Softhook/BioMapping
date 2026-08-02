@@ -1,5 +1,7 @@
 Todo
 
+error rf is left behind when track is removed
+
 Check that the RF worker inside the GSR thread is really working properly 
 Edinburgh will be a nice place to test it 
 
