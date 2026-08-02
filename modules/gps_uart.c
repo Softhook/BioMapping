@@ -733,6 +733,18 @@ static const uint8_t ubx_cfg_rst_hot[] = {
 
 static void gps_uart_configure(GpsUart* g);
 
+// Disable/enable the Expansion Service around USART1 use — this app claims
+// the pin for GPS, which Expansion also wants. Shared by alloc/free/standby.
+static void gps_uart_set_expansion_enabled(bool enabled) {
+    Expansion* expansion = furi_record_open(RECORD_EXPANSION);
+    if(enabled) {
+        expansion_enable(expansion);
+    } else {
+        expansion_disable(expansion);
+    }
+    furi_record_close(RECORD_EXPANSION);
+}
+
 // ── Serial baud-switch helper — stop/deinit/reinit/restart at a new baud,
 // resetting the RX line-framing state (rx_offset, rx_stream) since bytes
 // framed under the old baud are meaningless at the new one. Identical
@@ -811,9 +823,7 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
     g->rx_stream = furi_stream_buffer_alloc(GPS_RX_BUF_SIZE, 1);
 
     // Disable Expansion Service to free USART1 (re-enabled in free)
-    Expansion* expansion = furi_record_open(RECORD_EXPANSION);
-    expansion_disable(expansion);
-    furi_record_close(RECORD_EXPANSION);
+    gps_uart_set_expansion_enabled(false);
 
     g->serial_handle = furi_hal_serial_control_acquire(GPS_UART_CH);
     if(g->serial_handle) {
@@ -846,9 +856,7 @@ void gps_uart_free(GpsUart* g) {
         furi_hal_serial_deinit(g->serial_handle);
         furi_hal_serial_control_release(g->serial_handle);
     }
-    Expansion* expansion = furi_record_open(RECORD_EXPANSION);
-    expansion_enable(expansion);
-    furi_record_close(RECORD_EXPANSION);
+    gps_uart_set_expansion_enabled(true);
     furi_stream_buffer_free(g->rx_stream);
     furi_mutex_free(g->status_mutex);
     free(g);
@@ -884,17 +892,15 @@ uint32_t gps_uart_get_nmea_fail_count(const GpsUart* g) {
 // ---------------------------------------------------------------------------
 // Helpers — send PCAS commands over the GPS UART (L76K only)
 // ---------------------------------------------------------------------------
-static void pcas_tx(GpsUart* g, const char* cmd) {
-    furi_hal_serial_tx(g->serial_handle, (const uint8_t*)cmd, strlen(cmd));
-    furi_delay_ms(100);
-}
 // Send without delay — for batching multiple commands before a single wait.
 static void pcas_tx_raw(GpsUart* g, const char* cmd) {
     furi_hal_serial_tx(g->serial_handle, (const uint8_t*)cmd, strlen(cmd));
 }
+static void pcas_tx(GpsUart* g, const char* cmd) {
+    pcas_tx_raw(g, cmd);
+    furi_delay_ms(100);
+}
 #endif
-
-
 
 // ---------------------------------------------------------------------------
 // Drain RX stream, parse complete NMEA lines; run NMEA watchdog
@@ -1084,9 +1090,7 @@ void gps_uart_send_hot_start(GpsUart* g) {
 // mode so the GPS board isn't left idle at full power.
 // ---------------------------------------------------------------------------
 void gps_uart_standby(void) {
-    Expansion* expansion = furi_record_open(RECORD_EXPANSION);
-    expansion_disable(expansion);
-    furi_record_close(RECORD_EXPANSION);
+    gps_uart_set_expansion_enabled(false);
 
     FuriHalSerialHandle* handle = furi_hal_serial_control_acquire(GPS_UART_CH);
     if(handle) {
@@ -1107,9 +1111,5 @@ void gps_uart_standby(void) {
         furi_hal_serial_control_release(handle);
     }
 
-    expansion = furi_record_open(RECORD_EXPANSION);
-    expansion_enable(expansion);
-    furi_record_close(RECORD_EXPANSION);
+    gps_uart_set_expansion_enabled(true);
 }
-
-

@@ -93,7 +93,11 @@ void em_scan_rf_set_band(int band_index) {
     furi_hal_subghz_rx();
 }
 
-void em_scan_rf_dwell_band(int band_index, float* out_peak_dbm) {
+// Shared retune-and-warmup entry sequence for em_scan_rf_dwell_band() and
+// em_scan_rf_park_band() below — idle, flush the RX FIFO, retune (with
+// path — see the doc comment on that call below), start RX, then wait out
+// the AGC/PLL settling transient before either function starts sampling.
+static void em_scan_rf_tune_and_warmup(int band_index) {
     furi_hal_subghz_idle();
     // Defensive: flush the RX FIFO before retuning. This app never reads
     // FIFO data (only get_rssi(), a separate always-live analog register),
@@ -115,6 +119,10 @@ void em_scan_rf_dwell_band(int band_index, float* out_peak_dbm) {
     furi_hal_subghz_rx();
 
     furi_delay_ms(EM_SCAN_WARMUP_MS);
+}
+
+void em_scan_rf_dwell_band(int band_index, float* out_peak_dbm) {
+    em_scan_rf_tune_and_warmup(band_index);
 
     // Terminate on measured elapsed time, not a counted iteration: the old
     // `for(elapsed_ms = 0; elapsed_ms < EM_SCAN_DWELL_MS; elapsed_ms++)`
@@ -155,13 +163,7 @@ void em_scan_rf_park_band(
     float*    out_peak_dbm,
     float*    out_mean_dbm,
     uint32_t* out_sample_count) {
-    furi_hal_subghz_idle();
-    // See em_scan_rf_dwell_band()'s comment on this same call.
-    furi_hal_subghz_flush_rx();
-    furi_hal_subghz_set_frequency_and_path(em_scan_freq_hz[band_index]);
-    furi_hal_subghz_rx();
-
-    furi_delay_ms(EM_SCAN_WARMUP_MS);
+    em_scan_rf_tune_and_warmup(band_index);
 
     float    peak = -127.0f;
     double   sum = 0.0;
