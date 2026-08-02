@@ -313,6 +313,17 @@ class GSRMapManager {
   }
 
   /**
+   * Clear the RF fluid canvas — shared by clearMap() and clearCollectiveLayers()
+   * so the two "which layers am I clearing" branches can't drift apart and
+   * leave one of them holding stale RF data (see clearAll()).
+   */
+  _clearRfFluid() {
+    if (this.rfFluidRenderer) {
+      this.rfFluidRenderer.setData([], null);
+    }
+  }
+
+  /**
    * Reset path and markers on map
    */
   clearMap() {
@@ -327,12 +338,25 @@ class GSRMapManager {
       this.map.removeLayer(this.scrubMarker);
     }
 
+    this._clearRfFluid();
+
     // Reset legend
     this._legendMinVal = 0;
     this._legendMaxVal = 0;
     this._legendUniqueVals = null;
     this.hasRfData = false;
     this.updateLegend();
+  }
+
+  /**
+   * Wipe every rendered map layer — single-track and collective, RF included.
+   * The single entry point for "the map should show nothing" (no active track,
+   * no active track set, whole library cleared) so callers never have to
+   * remember which pair of clear*() methods to call together.
+   */
+  clearAll() {
+    this.clearMap();
+    this.clearCollectiveLayers();
   }
 
 
@@ -1408,6 +1432,7 @@ class GSRMapManager {
     this.collectiveHotspotMarkers = this._clearLayerGroup(this.collectiveHotspotMarkers);
     this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
     this.clearContours();
+    this._clearRfFluid();
   }
 
   /**
@@ -1425,8 +1450,7 @@ class GSRMapManager {
    * Render all active tracks overlaid simultaneously, then draw contour lines.
    */
   renderCollectiveData(collectiveManager, contourParams = {}, peakLatency) {
-    this.clearMap(); // Clear single-track drawing
-    this.clearCollectiveLayers();
+    this.clearAll(); // Clear single-track drawing + prior collective layers
 
     const activeTracks = collectiveManager.getActiveTracks();
     if (activeTracks.length === 0) {

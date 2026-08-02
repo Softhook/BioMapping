@@ -190,8 +190,7 @@ const GSRTrackManager = {
       });
 
       if (AppState.mapManager) {
-        AppState.mapManager.clearMap();
-        AppState.mapManager.clearCollectiveLayers();
+        AppState.mapManager.clearAll();
       }
 
       GSRTrackManager.setFileStatus('warning', 'No File Loaded');
@@ -358,8 +357,7 @@ const GSRTrackManager = {
     AppState.trackColorIndex = 0; // restart the color palette, matching a fresh page load
 
     if (AppState.mapManager) {
-      AppState.mapManager.clearMap();
-      AppState.mapManager.clearCollectiveLayers();
+      AppState.mapManager.clearAll();
     }
   },
 
@@ -379,6 +377,9 @@ const GSRTrackManager = {
         } else {
           AppState.activeTrackId = null;
           AppState.analyzer = new GSRAnalyzer();
+          if (AppState.mapManager) {
+            AppState.mapManager.clearAll();
+          }
         }
       }
 
