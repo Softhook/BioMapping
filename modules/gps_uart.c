@@ -474,9 +474,20 @@ static void ubx_calc_checksum(const uint8_t* buf, size_t len, uint8_t* ck_a, uin
 // ubx_wait_ack() below parses a single frame rather than looping to scan
 // past "foreign" ones.
 #define UBX_ACK_BYTE_POLLS      250  // ~250 ms worst case per byte
-#define UBX_ACK_MAX_SYNC_BYTES  256  // bytes tolerated while hunting for 0xB5 0x62 — a few
-                                      // NMEA sentences' worth, since the module keeps streaming
-                                      // its still-active output throughout configure()
+// Bytes tolerated while hunting for 0xB5 0x62. Sized against a real
+// reconfigure log, not a cold-boot guess: on a reconfigure (module already
+// running, not freshly powered on), it can still be streaming GGA+GLL+
+// GSA+GSV(x several)+RMC+VTG at up to 10 Hz from whatever a previous
+// session left it at — the exact set this VALSET call is trying to pare
+// down — which is ~400-500 bytes/epoch, ~4-5 KB/s. A smaller budget here
+// (256, an earlier guess) measured a live device exhausting it on real
+// NMEA noise in well under 100 ms, well before the actual ACK — logged as
+// spurious "no ACK/NAK received" on every packet despite the module
+// configuring correctly. Real bytes cost near-zero incremental time when
+// they're actually flowing (each read returns instantly, no per-byte
+// delay incurred) so this only matters for genuine noise volume, not the
+// happy-path latency.
+#define UBX_ACK_MAX_SYNC_BYTES  8192
 
 // Bounded by iteration count, not furi_get_tick(): the host test harness
 // (tests/shims/furi.h) makes the tick a caller-controlled fake clock that
@@ -569,17 +580,33 @@ static UbxAckOutcome ubx_wait_ack(GpsUart* g, uint8_t want_cls, uint8_t want_id)
 // to the gap between the drain and the transmit instead of the whole gap
 // since the last timeout; the protocol doesn't expose enough information
 // (no per-message sequence number) to close it further than that.
+//
+// Retries once, immediately, on a timeout (not on a NAK — that's a
+// definitive rejection, retrying it wastes time for nothing). This isn't
+// speculative: real M10Q hardware logs across multiple runs consistently
+// show the FIRST VALSET packet after the baud switch going unanswered for
+// ~2.2 s (most likely the module still settling its own baud/protocol
+// transition) while every packet after it gets a clean ACK immediately —
+// and lengthening the pre-send delay up to 3x had no effect on that ~2.2s
+// figure, so it isn't a "didn't wait long enough before sending" issue.
+// A resend right after the first wait naturally times out lands after
+// that same settling period has already elapsed, same as packets 2+ do.
 static void ubx_send_and_confirm(GpsUart* g, const uint8_t* data, size_t len, const char* label) {
     UNUSED(label); // only referenced inside FURI_LOG_W, which host test builds compile out entirely
-    uint8_t discard;
-    while(furi_stream_buffer_receive(g->rx_stream, &discard, 1, 0) == 1) {}
-    furi_hal_serial_tx(g->serial_handle, data, len);
-    UbxAckOutcome outcome = ubx_wait_ack(g, data[2], data[3]);
-    if(outcome == UbxAckNak) {
-        FURI_LOG_W("GpsUart", "%s: rejected (UBX-ACK-NAK)", label);
-    } else if(outcome == UbxAckTimeout) {
-        FURI_LOG_W("GpsUart", "%s: no ACK/NAK received", label);
+    for(int attempt = 0; attempt < 2; attempt++) {
+        uint8_t discard;
+        while(furi_stream_buffer_receive(g->rx_stream, &discard, 1, 0) == 1) {}
+        furi_hal_serial_tx(g->serial_handle, data, len);
+        UbxAckOutcome outcome = ubx_wait_ack(g, data[2], data[3]);
+        if(outcome == UbxAckAck) return;
+        if(outcome == UbxAckNak) {
+            FURI_LOG_W("GpsUart", "%s: rejected (UBX-ACK-NAK)", label);
+            return;
+        }
+        // UbxAckTimeout: loop around for the one retry, or fall through
+        // to the log below once attempts are exhausted.
     }
+    FURI_LOG_W("GpsUart", "%s: no ACK/NAK received", label);
 }
 
 // ── CFG-VALSET packet builder ───────────────────────────────────────────

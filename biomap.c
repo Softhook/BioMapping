@@ -22,6 +22,7 @@ int32_t biomap_app(void* p) {
     *app = (BioMapApp){
         .zoom_enabled = true,
         .backlight_on = false,
+        .backlight_enforced = false,
         .sound_enabled = true,
         .nav_model = GpsNavModelPedestrian,
         .cal_active = false,
@@ -38,7 +39,9 @@ int32_t biomap_app(void* p) {
     biomap_load_calibration(app);
     biomap_load_rf_calibration(app);
     biomap_load_settings(app);
-    notification_message_block(app->notifications, &sequence_display_backlight_enforce_auto);
+    // No enforce_auto here — nothing has claimed enforce_on yet at startup,
+    // and NotificationSrv logs "Incorrect BacklightEnforce use" for an
+    // unpaired release (see biomap.h's backlight_enforced doc comment).
 
     // Create the single persistent ViewPort shared by every screen — stays
     // in the GUI stack for the app's whole lifetime. Screens are switched by
@@ -65,7 +68,14 @@ int32_t biomap_app(void* p) {
         }
     }
 
-    notification_message_block(app->notifications, &sequence_display_backlight_enforce_auto);
+    // Defensive: only release if we actually still hold a claim. Every
+    // run_recording_session() call already releases its own claim via
+    // session_deinit() before returning, so this should normally be a
+    // no-op by the time we get here.
+    if(app->backlight_enforced) {
+        notification_message_block(app->notifications, &sequence_display_backlight_enforce_auto);
+        app->backlight_enforced = false;
+    }
 
     gui_remove_view_port(app->gui, app->screen_vp);
     view_port_free(app->screen_vp);

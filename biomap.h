@@ -91,7 +91,16 @@ typedef struct BioMapApp {
     // through underneath during the transition.
     ViewPort*          screen_vp;
 
-    bool               backlight_on;
+    bool               backlight_on;   // Options > Backlight — user preference
+    // Whether this app currently holds an active
+    // sequence_display_backlight_enforce_on claim. NotificationSrv's
+    // enforce_auto decrements an internal lock counter and logs "Incorrect
+    // BacklightEnforce use" if it's already 0 — enforce_auto must only ever
+    // be sent to release a claim THIS app actually made via enforce_on, never
+    // unconditionally. Tracked here (not derived from backlight_on) because
+    // the two can differ: backlight_on may change between sessions, but this
+    // reflects what was actually claimed for the currently-running session.
+    bool               backlight_enforced;
     bool               sound_enabled;  // Options > Sound; survives session boundaries
     GpsNavModel        nav_model;      // Options > GPS Profile (Pedestrian/Wrist/Vehicle)
     bool               cal_active;
