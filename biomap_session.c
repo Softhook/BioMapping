@@ -1,8 +1,9 @@
 // Bio Mapping — recording session event loop and module lifecycle.
 //
-// Pure-math pipeline functions (IIR, graph, auto-zoom, CSV formatting
-// helpers, GPS position extraction) live in biomap_pipeline.c — they
-// include no Flipper SDK headers and are testable on a host compiler.
+// Pure-math pipeline functions (IIR, graph, auto-zoom) live in
+// biomap_pipeline.c — they include no Flipper SDK headers and are
+// testable on a host compiler. CSV formatting and GPS position
+// extraction live here, alongside the Flipper-specific state they read.
 //
 // This file owns the Flipper-specific event loop: timer ticks, UART
 // events, key dispatch, LED notifications, and module (de)init.
@@ -85,9 +86,9 @@ void session_deinit(Session* s, BioMapApp* app) {
     // render thread to read a pointer this thread is mid-free()ing.
     // Narrow normally, but gsr_sensor_free()'s furi_thread_join()
     // can block this thread — by far the slowest step here — so the
-    // exposure is real, not theoretical. Held across the whole teardown
-    // the whole teardown, not just the RF step, for symmetry with every
-    // other Session-mutating call site rather than special-casing one.
+    // exposure is real, not theoretical. Held across the whole teardown,
+    // not just the RF step, for symmetry with every other Session-mutating
+    // call site rather than special-casing one.
     // A blocked render during this window just means a stale-but-valid
     // last frame lingers a little longer on a screen that's leaving
     // anyway — trivial next to the alternative (a torn-down pointer read
@@ -100,9 +101,7 @@ void session_deinit(Session* s, BioMapApp* app) {
     s->gsr = NULL;
     s->gps = NULL;
     bool active_recording = s->recording.active;
-    if(active_recording) {
-        s->recording.active = false;
-    }
+    s->recording.active = false;
     furi_mutex_release(app->mutex);
 
     if(active_recording && logger) {
@@ -143,6 +142,11 @@ void session_deinit(Session* s, BioMapApp* app) {
 // ==========================================================================
 // Data-processing pipeline (static — operate on Session* only)
 // ==========================================================================
+
+// ── GPS row cadence: is this tick the GPS sub-sample boundary? ─────────
+static inline bool is_gps_row_tick(const Session* s) {
+    return s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0;
+}
 
 // ── Convenience wrapper: GpsStatus → GpsPosition ──────────────────────
 static inline GpsPosition get_gps_position(const Session* s) {
@@ -257,19 +261,14 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
     if(nd <= 0 || (size_t)(n + nd) >= sizeof(row)) return false;
     n += nd;
 
-    if(rf_rssi) {
-        // Three RF columns: raw per-band RSSI.
-        int n2 = snprintf(row + n, sizeof(row) - (size_t)n,
-                         ",%.1f,%.1f,%.1f\n",
-                         (double)rf_rssi[0], (double)rf_rssi[1], (double)rf_rssi[2]);
-        if(n2 <= 0 || (size_t)(n + n2) >= sizeof(row)) return false;
-        n += n2;
-    } else {
-        int n2 = snprintf(row + n, sizeof(row) - (size_t)n, "\n");
-        if(n2 <= 0 || (size_t)(n + n2) >= sizeof(row)) return false;
-        n += n2;
-    }
-
+    // Three RF columns (raw per-band RSSI) when active, otherwise just
+    // the terminating newline.
+    int n2 = rf_rssi
+        ? snprintf(row + n, sizeof(row) - (size_t)n, ",%.1f,%.1f,%.1f\n",
+                   (double)rf_rssi[0], (double)rf_rssi[1], (double)rf_rssi[2])
+        : snprintf(row + n, sizeof(row) - (size_t)n, "\n");
+    if(n2 <= 0 || (size_t)(n + n2) >= sizeof(row)) return false;
+    n += n2;
 
     return sd_logger_batch_append(s->logger, row, (size_t)n);
 }
@@ -287,22 +286,18 @@ static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
     if(!s->recording.active || !has_gsr(s->mode)) return true;
 
     double rel = pipeline_rel_seconds(s->recording.total_ticks);
-    int ret;
 
     if(s->mode == BioMapModeGsrOnly) {
-        ret = sd_logger_batch_printf(s->logger, "%.2f,%.1f\n",
-                                     rel, (double)raw);
-    } else if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
-        GpsPosition pos = get_gps_position(s);
-        RowDiag diag = get_row_diag(s);
-        return format_gps_csv_row(s, &pos, rel, raw, rf_rssi, &diag);
-    } else {
-        // GPS-skip tick: preserve GSR data with empty GPS columns.
-        GpsPosition empty = {0};
-        RowDiag diag = get_row_diag(s);
-        return format_gps_csv_row(s, &empty, rel, raw, rf_rssi, &diag);
+        int ret = sd_logger_batch_printf(s->logger, "%.2f,%.1f\n",
+                                         rel, (double)raw);
+        return ret > 0;
     }
-    return ret > 0;
+
+    // On the GPS tick boundary, include a fresh fix; otherwise preserve
+    // GSR data with empty GPS columns (a GPS-skip tick).
+    GpsPosition pos = is_gps_row_tick(s) ? get_gps_position(s) : (GpsPosition){0};
+    RowDiag diag = get_row_diag(s);
+    return format_gps_csv_row(s, &pos, rel, raw, rf_rssi, &diag);
 }
 
 
@@ -539,20 +534,16 @@ static bool key_zoom_vertical(Session* s, FuriMutex* mutex, bool zoom_in) {
 // Returns whether a recording was active — see key_zoom_vertical's comment.
 static bool key_zoom_horizontal(Session* s, FuriMutex* mutex, bool zoom_out) {
     furi_mutex_acquire(mutex, FuriWaitForever);
-    if(zoom_out) {
-        if(s->pipeline.graph.scroll_divider < 16) {
-            s->pipeline.graph.scroll_divider *= 2;
-            s->pipeline.graph.tick_counter = 0;
-            s->pipeline.graph.last_smoothed = s->pipeline.display.smoothed;
-            pipeline_rescale_graph(&s->pipeline, true);
-        }
-    } else {
-        if(s->pipeline.graph.scroll_divider > 1) {
-            s->pipeline.graph.scroll_divider /= 2;
-            s->pipeline.graph.tick_counter = 0;
-            s->pipeline.graph.last_smoothed = s->pipeline.display.smoothed;
-            pipeline_rescale_graph(&s->pipeline, false);
-        }
+    bool in_range = zoom_out
+        ? s->pipeline.graph.scroll_divider < 16
+        : s->pipeline.graph.scroll_divider > 1;
+    if(in_range) {
+        s->pipeline.graph.scroll_divider = zoom_out
+            ? s->pipeline.graph.scroll_divider * 2
+            : s->pipeline.graph.scroll_divider / 2;
+        s->pipeline.graph.tick_counter = 0;
+        s->pipeline.graph.last_smoothed = s->pipeline.display.smoothed;
+        pipeline_rescale_graph(&s->pipeline, zoom_out);
     }
     bool recording = s->recording.active;
     furi_mutex_release(mutex);
@@ -639,7 +630,7 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
 static bool handle_recording_tick(Session* s, const float* rf_rssi) {
     // ── GPS-only mode: write a row on the GPS tick boundary ────────────
     if(!has_gsr(s->mode) && has_gps(s->mode) && s->recording.active) {
-        if(s->recording.tick_counter % (TICK_HZ / GPS_CSV_HZ) == 0) {
+        if(is_gps_row_tick(s)) {
             GpsPosition pos = get_gps_position(s);
             RowDiag diag = get_row_diag(s);
             return format_gps_csv_row(s, &pos, pipeline_rel_seconds(s->recording.total_ticks), 0.0f,
@@ -808,7 +799,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             // ADC path; that coupling no longer exists, so there's no reason
             // left to special-case this call site).
             float rf_rssi[EM_SCAN_NUM_FREQS];
-            bool rf_active = has_rf(mode) && s->gsr;
+            bool rf_active = has_rf(mode) && s->gsr && s->recording.active;
             if(rf_active) {
                 gsr_sensor_get_rf_snapshot(s->gsr, rf_rssi);
             }
