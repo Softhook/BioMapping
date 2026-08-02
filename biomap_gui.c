@@ -368,8 +368,7 @@ static bool calibration_wizard_measure(GsrSensor* gsr, int resistor_idx, const f
         gsr_sensor_tick(gsr);
     }
 
-    #define CAL_SAMPLES      20
-    #define CAL_MIN_VALID    12
+    enum { CAL_SAMPLES = 20, CAL_MIN_VALID = 12 };
     float samples[CAL_SAMPLES];
     int total = 0;
     float first_raw = 0;
@@ -400,15 +399,11 @@ static bool calibration_wizard_measure(GsrSensor* gsr, int resistor_idx, const f
             if(s > s_max) s_max = s;
         }
         *out_avg_g = (sum_g - s_min - s_max) / (float)(total - 2);
-        #undef CAL_SAMPLES
-        #undef CAL_MIN_VALID
         return true;
     } else {
         FURI_LOG_W("BioMap", "Cal measure %d failed: first_raw=%.1f in=%d below=%d above=%d gate=[%.0f, %.0f]",
                    resistor_idx, (double)first_raw, total, below, above,
                    (double)gates[resistor_idx][0], (double)gates[resistor_idx][1]);
-        #undef CAL_SAMPLES
-        #undef CAL_MIN_VALID
         return false;
     }
 }
@@ -649,6 +644,4 @@ void run_calibration_wizard(BioMapApp* app) {
     vp_pop(app, vp);
     furi_mutex_free(w.mutex);
 }
-
-
 

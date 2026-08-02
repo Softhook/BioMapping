@@ -641,33 +641,25 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
 
     char buf[64];
     switch(step) {
-    case 0: // Prompt 470k
-        canvas_draw_str(c, 0, 25, "Step 1/3: Low (470k)");
-        canvas_draw_str(c, 0, 37, "Connect 470k resistor");
-        canvas_draw_str(c, 0, 49, "[Press OK to measure]");
+    case 0: case 1: case 2: case 3: case 4: case 5: { // Prompt/Measuring, one pair per resistor
+        static const struct { const char* level; const char* resistor; } cal_steps[3] = {
+            {"Low", "470k"}, {"Mid", "100k"}, {"High", "47k"},
+        };
+        int idx = step / 2;
+        if(step % 2 == 0) { // Prompt
+            snprintf(buf, sizeof(buf), "Step %d/3: %s (%s)",
+                     idx + 1, cal_steps[idx].level, cal_steps[idx].resistor);
+            canvas_draw_str(c, 0, 25, buf);
+            snprintf(buf, sizeof(buf), "Connect %s resistor", cal_steps[idx].resistor);
+            canvas_draw_str(c, 0, 37, buf);
+            canvas_draw_str(c, 0, 49, "[Press OK to measure]");
+        } else { // Measuring
+            snprintf(buf, sizeof(buf), "Measuring %s...", cal_steps[idx].resistor);
+            canvas_draw_str(c, 0, 25, buf);
+            canvas_draw_str(c, 0, 40, "Keep resistor connected");
+        }
         break;
-    case 1: // Measuring 470k
-        canvas_draw_str(c, 0, 25, "Measuring 470k...");
-        canvas_draw_str(c, 0, 40, "Keep resistor connected");
-        break;
-    case 2: // Prompt 100k
-        canvas_draw_str(c, 0, 25, "Step 2/3: Mid (100k)");
-        canvas_draw_str(c, 0, 37, "Connect 100k resistor");
-        canvas_draw_str(c, 0, 49, "[Press OK to measure]");
-        break;
-    case 3: // Measuring 100k
-        canvas_draw_str(c, 0, 25, "Measuring 100k...");
-        canvas_draw_str(c, 0, 40, "Keep resistor connected");
-        break;
-    case 4: // Prompt 47k
-        canvas_draw_str(c, 0, 25, "Step 3/3: High (47k)");
-        canvas_draw_str(c, 0, 37, "Connect 47k resistor");
-        canvas_draw_str(c, 0, 49, "[Press OK to measure]");
-        break;
-    case 5: // Measuring 47k
-        canvas_draw_str(c, 0, 25, "Measuring 47k...");
-        canvas_draw_str(c, 0, 40, "Keep resistor connected");
-        break;
+    }
     case 8: // Success
         canvas_draw_str(c, 0, 23, "Calibration Success!");
         snprintf(buf, sizeof(buf), "Gain: %.3fx  R\xb2: %.4f", (double)gain, (double)r_squared);

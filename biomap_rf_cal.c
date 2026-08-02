@@ -24,6 +24,16 @@ void run_rf_calibration_menu(BioMapApp* app) {
                     run_show_current_rf_calibration);
 }
 
+// Shared cancel-cleanup for the prep and sampling loops below — both bail
+// out with the identical "back tone, power down radio, pop screen, free
+// mutex" sequence, differing only in which loop's cancel flag triggered it.
+static void rf_cal_wizard_abort(BioMapApp* app, ViewPort* vp, FuriMutex* mutex) {
+    biomap_sound_back(app->sound_enabled);
+    em_scan_rf_deinit();
+    vp_pop(app, vp);
+    furi_mutex_free(mutex);
+}
+
 void run_rf_calibration_wizard(BioMapApp* app) {
     RfCalWizardState w = {0};
     // Guards every field below against the GUI thread's render callbacks
@@ -76,10 +86,7 @@ void run_rf_calibration_wizard(BioMapApp* app) {
         }
     }
     if(cancelled) {
-        biomap_sound_back(app->sound_enabled);
-        em_scan_rf_deinit();
-        vp_pop(app, vp);
-        furi_mutex_free(w.mutex);
+        rf_cal_wizard_abort(app, vp, w.mutex);
         return;
     }
     biomap_sound_confirm(app->sound_enabled);
@@ -132,10 +139,7 @@ void run_rf_calibration_wizard(BioMapApp* app) {
         view_port_update(vp);
     }
     if(sampling_cancelled) {
-        biomap_sound_back(app->sound_enabled);
-        em_scan_rf_deinit();
-        vp_pop(app, vp);
-        furi_mutex_free(w.mutex);
+        rf_cal_wizard_abort(app, vp, w.mutex);
         return;
     }
 

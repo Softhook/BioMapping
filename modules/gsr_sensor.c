@@ -593,6 +593,7 @@ GsrSensor* gsr_sensor_alloc(void) {
     gsr->i2c_working = probed;
     FURI_LOG_I("GsrSensor", "I2C Probe %s", probed ? "OK" : "not found");
 
+    int32_t initial_norm = 0;
     if(probed) {
         // Warm up buffer with initial value
         furi_delay_ms(5);
@@ -605,18 +606,12 @@ GsrSensor* gsr_sensor_alloc(void) {
         furi_hal_i2c_release(&furi_hal_i2c_handle_external);
 
         int16_t initial_hw = ok ? (int16_t)((data[0] << 8) | data[1]) : 0;
-        int32_t initial_norm = (int32_t)initial_hw * NORM_FACTOR[ADS_PGA_DEFAULT];
-        uint32_t alloc_tick = furi_get_tick();
-        for(int i = 0; i < SENSOR_BUFFER_SIZE; i++) {
-            gsr->buffer[i] = initial_norm;
-            gsr->sample_tick[i] = alloc_tick;
-        }
-    } else {
-        uint32_t alloc_tick = furi_get_tick();
-        for(int i = 0; i < SENSOR_BUFFER_SIZE; i++) {
-            gsr->buffer[i] = 0;
-            gsr->sample_tick[i] = alloc_tick;
-        }
+        initial_norm = (int32_t)initial_hw * NORM_FACTOR[ADS_PGA_DEFAULT];
+    }
+    uint32_t alloc_tick = furi_get_tick();
+    for(int i = 0; i < SENSOR_BUFFER_SIZE; i++) {
+        gsr->buffer[i] = initial_norm;
+        gsr->sample_tick[i] = alloc_tick;
     }
     gsr->write_idx = 0;
 
@@ -1372,6 +1367,19 @@ void gsr_sensor_lock_pga(GsrSensor* gsr, int8_t index) {
 // instead of just probably closed.
 #define RF_DISABLE_SPI_WAIT_TIMEOUT_MS 20
 #define RF_DISABLE_SPI_WAIT_POLL_MS     1
+
+// Reset the published RF snapshot to the disabled-default floor — shared by
+// both the enable path (fresh start, no stale reading from a prior session)
+// and the disable path (don't leave the last live reading visible once RF
+// is off) below.
+static void rf_reset_snapshot(GsrSensor* gsr) {
+    furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
+    for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+        gsr->rf_rssi_dbm[i] = -100.0f;
+    }
+    furi_mutex_release(gsr->rf_mutex);
+}
+
 void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled) {
     furi_check(gsr, "GsrSensor: NULL in set_rf_enabled()");
     if(!gsr->available) return;
@@ -1385,11 +1393,7 @@ void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled) {
         for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
             gsr->rf_dwell_peak[i] = -127.0f;
         }
-        furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
-        for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-            gsr->rf_rssi_dbm[i] = -100.0f;
-        }
-        furi_mutex_release(gsr->rf_mutex);
+        rf_reset_snapshot(gsr);
         em_scan_rf_set_band(0);
         gsr->rf_enabled = true; // last — see doc comment above
     } else {
@@ -1423,17 +1427,12 @@ void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled) {
         }
         em_scan_rf_deinit();
 
-        // Reset the published snapshot back to the disabled-default floor
-        // — matches what enable resets it to above; previously left at
+        // Matches what enable resets it to above; previously left at
         // whatever RF last measured, which get_rf_snapshot() would then
         // report as if it were live. Nothing reads it after a real
         // session's teardown today, but "clean" shouldn't depend on that
         // staying true.
-        furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
-        for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-            gsr->rf_rssi_dbm[i] = -100.0f;
-        }
-        furi_mutex_release(gsr->rf_mutex);
+        rf_reset_snapshot(gsr);
     }
 }
 
