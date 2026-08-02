@@ -105,6 +105,30 @@ static void test_alloc_lifecycle(void) {
     printf("  -> Pass\n");
 }
 
+// gps_uart_configure() sends 7 UBX-CFG packets (rate, GLL off, VTG off,
+// GSV throttle, PUBX00 enable, NAV5, AssistNow VALSET) and waits for each
+// one's UBX-ACK-ACK/NAK. This mock never feeds any bytes back during that
+// window (furi_hal_serial_tx() is a no-op — see furi_hal_mock.c), so every
+// packet times out waiting for a reply that never arrives (logged via
+// FURI_LOG_W, compiled out under this host harness — see furi.h). This
+// proves the failure path is bounded and doesn't hang or crash the host
+// test's fake clock (tests/shims/furi.h's furi_get_tick() never advances
+// on its own) — the exact risk a wall-clock-deadline design would have
+// hit — and that a fully-unanswered configure() still leaves the module
+// usable rather than failing alloc() outright. The ACK-received path
+// itself isn't reachable from this mock, since nothing here can reply
+// mid-configure().
+static void test_cfg_ack_timeout_is_bounded(void) {
+    printf("Running test_cfg_ack_timeout_is_bounded...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+    assert(gps_uart_is_ready(g)); // config failures are logged, not fatal
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
 static void test_gga_updates_status(void) {
     printf("Running test_gga_updates_status...\n");
     FuriMessageQueue queue = {0};
@@ -550,6 +574,7 @@ static void test_rx_stream_drop_counter(void) {
 
 int main(void) {
     test_alloc_lifecycle();
+    test_cfg_ack_timeout_is_bounded();
     test_gga_updates_status();
     test_rmc_updates_status();
     test_gsa_updates_status();

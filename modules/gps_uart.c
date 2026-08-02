@@ -434,9 +434,138 @@ static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
     furi_hal_serial_tx(g->serial_handle, data, len);
     furi_delay_ms(100);
 }
-// Send without delay — for batching multiple packets before a single wait.
-static void ubx_tx_raw(GpsUart* g, const uint8_t* data, size_t len) {
+
+// ── UBX Fletcher-8 checksum (spec §3.4) — shared by outgoing packet
+// construction (ubx_send_nav5) and incoming ACK/NAK verification below.
+static void ubx_calc_checksum(const uint8_t* buf, size_t len, uint8_t* ck_a, uint8_t* ck_b) {
+    uint8_t a = 0, b = 0;
+    for(size_t i = 0; i < len; i++) {
+        a = (uint8_t)(a + buf[i]);
+        b = (uint8_t)(b + a);
+    }
+    *ck_a = a;
+    *ck_b = b;
+}
+
+// ── UBX-ACK-ACK/NAK confirmation ────────────────────────────────────────
+// u-blox M10 SPG 5.10 Interface Description §3.5.1/§3.9: every UBX-CFG
+// message sent to the receiver gets a binary UBX-ACK-ACK or UBX-ACK-NAK
+// reply — unconditional protocol behaviour, confirmed against the official
+// doc that there's no CFG-MSGOUT key to disable it. Reading it back,
+// rather than firing packets blind behind a fixed delay, is what actually
+// catches a rejected packet: CFG-MSG/CFG-RATE/CFG-NAV5 (used below) are
+// legacy messages absent from the SPG 5.10 message reference entirely, so
+// nothing guarantees a given firmware revision still accepts them.
+//
+// This reads straight from rx_stream, ahead of gps_uart_process_rx()'s
+// '\n'-based NMEA line splitter — required, not just tidier. ACK/NAK
+// frames never contain a literal 0x0A byte for any packet we send below
+// (checked), so left alone they'd silently glue onto the front of
+// whichever real NMEA sentence follows, corrupting it into one line that
+// fails minmea_check()'s leading-'$' test and gets dropped. Safe to
+// consume here because gps_uart_configure() runs synchronously on the
+// same thread as gps_uart_process_rx() — the two never interleave.
+//
+// Sized for the one call pattern this app actually has: gps_uart_configure()
+// sends one CFG packet, then waits for exactly that packet's reply before
+// sending the next — never more than one outstanding, and this app never
+// itself enables any periodic binary UBX output, so the only binary
+// traffic that can appear here is this app's own ACK/NAK. That's why
+// ubx_wait_ack() below parses a single frame rather than looping to scan
+// past "foreign" ones.
+#define UBX_ACK_BYTE_POLLS      250  // ~250 ms worst case per byte
+#define UBX_ACK_MAX_SYNC_BYTES  256  // bytes tolerated while hunting for 0xB5 0x62 — a few
+                                      // NMEA sentences' worth, since the module keeps streaming
+                                      // its still-active output throughout configure()
+
+// Bounded by iteration count, not furi_get_tick(): the host test harness
+// (tests/shims/furi.h) makes the tick a caller-controlled fake clock that
+// never advances on its own, so a wall-clock deadline would spin forever
+// there. furi_delay_ms(1) paces real-hardware polling between empty
+// polls; under test furi_delay_ms() is a no-op, so this still terminates
+// promptly when no data is available.
+static bool ubx_read_byte(GpsUart* g, uint8_t* out) {
+    for(int i = 0; i < UBX_ACK_BYTE_POLLS; i++) {
+        if(furi_stream_buffer_receive(g->rx_stream, out, 1, 0) == 1) return true;
+        furi_delay_ms(1);
+    }
+    return false;
+}
+
+// Hunts for the UBX sync sequence 0xB5 0x62, tolerating up to
+// UBX_ACK_MAX_SYNC_BYTES of anything else along the way (NMEA text — 0xB5
+// never appears in printable NMEA, so it can't false-sync). Every byte
+// gets the full ubx_read_byte() wait — u-blox only guarantees an ACK
+// within one second of the triggering message (spec §3.9.1), so a real
+// gap between the buffered noise draining and the ACK's own bytes
+// actually arriving over the wire is normal and must not be mistaken for
+// a dead link.
+static bool ubx_find_sync(GpsUart* g) {
+    bool have_first = false;
+    for(int i = 0; i < UBX_ACK_MAX_SYNC_BYTES; i++) {
+        uint8_t b;
+        if(!ubx_read_byte(g, &b)) return false;
+        if(have_first && b == 0x62) return true;
+        have_first = (b == 0xB5);
+    }
+    return false;
+}
+
+typedef enum {
+    UbxAckAck,
+    UbxAckNak,
+    UbxAckTimeout,
+} UbxAckOutcome;
+
+// Reads exactly one UBX frame after locating sync and checks it's an
+// ACK/NAK for (want_cls, want_id) — the packet gps_uart_configure() just
+// sent. Anything else (wrong class/length, bad checksum, ACK/NAK for a
+// different message) is reported as a failure rather than scanned past:
+// per the file banner above, no other binary UBX traffic legitimately
+// appears on this link, so a mismatch here is itself the problem being
+// reported, not noise to search past.
+static UbxAckOutcome ubx_wait_ack(GpsUart* g, uint8_t want_cls, uint8_t want_id) {
+    if(!ubx_find_sync(g)) return UbxAckTimeout;
+
+    uint8_t hdr[4]; // class, id, len_lo, len_hi
+    if(!ubx_read_byte(g, &hdr[0]) || !ubx_read_byte(g, &hdr[1]) ||
+       !ubx_read_byte(g, &hdr[2]) || !ubx_read_byte(g, &hdr[3])) {
+        return UbxAckTimeout;
+    }
+    uint16_t len = (uint16_t)hdr[2] | ((uint16_t)hdr[3] << 8);
+
+    uint8_t payload[2];
+    if(!ubx_read_byte(g, &payload[0]) || !ubx_read_byte(g, &payload[1])) {
+        return UbxAckTimeout;
+    }
+    uint8_t ck_a, ck_b;
+    if(!ubx_read_byte(g, &ck_a) || !ubx_read_byte(g, &ck_b)) return UbxAckTimeout;
+
+    if(hdr[0] != 0x05 || len != 2) return UbxAckTimeout; // not an ACK/NAK frame
+
+    uint8_t ck_buf[6] = {hdr[0], hdr[1], hdr[2], hdr[3], payload[0], payload[1]};
+    uint8_t calc_a, calc_b;
+    ubx_calc_checksum(ck_buf, sizeof(ck_buf), &calc_a, &calc_b);
+    if(calc_a != ck_a || calc_b != ck_b) return UbxAckTimeout; // corrupted frame
+
+    if(payload[0] != want_cls || payload[1] != want_id) return UbxAckTimeout; // for a different message
+
+    return (hdr[1] == 0x01) ? UbxAckAck : UbxAckNak;
+}
+
+// Sends a UBX packet and waits for its ACK/NAK, logging anything other
+// than a clean ACK. class/id are read back out of the packet itself
+// (bytes[2],[3]) — every call site already has one, no need to pass them
+// separately.
+static void ubx_send_and_confirm(GpsUart* g, const uint8_t* data, size_t len, const char* label) {
+    UNUSED(label); // only referenced inside FURI_LOG_W, which host test builds compile out entirely
     furi_hal_serial_tx(g->serial_handle, data, len);
+    UbxAckOutcome outcome = ubx_wait_ack(g, data[2], data[3]);
+    if(outcome == UbxAckNak) {
+        FURI_LOG_W("GpsUart", "%s: rejected (UBX-ACK-NAK)", label);
+    } else if(outcome == UbxAckTimeout) {
+        FURI_LOG_W("GpsUart", "%s: no ACK/NAK received", label);
+    }
 }
 
 // ── Binary UBX configuration packets for M10Q ──────────────────────────────
@@ -486,15 +615,9 @@ static void ubx_send_nav5(GpsUart* g, GpsNavModel nav_model) {
     pkt[6] = 0x01; pkt[7] = 0x00; // Mask: bit 0 (apply dynModel)
     pkt[8] = dyn_model;
 
-    uint8_t ck_a = 0, ck_b = 0;
-    for(size_t i = 2; i < 46; i++) {
-        ck_a += pkt[i];
-        ck_b += ck_a;
-    }
-    pkt[46] = ck_a;
-    pkt[47] = ck_b;
+    ubx_calc_checksum(&pkt[2], 44, &pkt[46], &pkt[47]);
 
-    ubx_tx_raw(g, pkt, sizeof(pkt));
+    ubx_send_and_confirm(g, pkt, sizeof(pkt), "CFG-NAV5 dynamic model");
 }
 
 static const uint8_t ubx_cfg_assistnow_autonomous[] = {
@@ -805,9 +928,11 @@ static void gps_uart_configure(GpsUart* g) {
 
 #elif GPS_MODULE == GPS_MODULE_M10Q
     // ── u-blox SAM-M10Q ───────────────────────────────────────────────
-    // Delays are minimised by sending all six UBX packets back-to-back
-    // (ubx_tx_raw) after the baud switch, with a single wait.  This reduces
-    // the configure time from ~1100 ms to ~500 ms on M10Q.
+    // Each binary UBX packet below is sent and then confirmed via
+    // ubx_send_and_confirm() (UBX-ACK-ACK/NAK, see its doc comment) rather
+    // than fired blind behind a fixed delay — ACK typically arrives within
+    // a few ms at 115200 baud, so this is usually faster than the old
+    // batch-then-wait approach in addition to catching rejected packets.
     FURI_LOG_I("GpsUart", "Configuring u-blox SAM-M10Q");
 
     // Switch module to 115200 baud (ASCII at 9600).
@@ -821,14 +946,14 @@ static void gps_uart_configure(GpsUart* g) {
     gps_uart_switch_baud(g, GPS_BAUD_RATE_FAST);
     furi_delay_ms(50);
 
-    // Send all six binary UBX configuration packets back-to-back.
-    ubx_tx_raw(g, ubx_cfg_rate_10hz, sizeof(ubx_cfg_rate_10hz));
-    ubx_tx_raw(g, ubx_cfg_msg_gll_off, sizeof(ubx_cfg_msg_gll_off));
-    ubx_tx_raw(g, ubx_cfg_msg_vtg_off, sizeof(ubx_cfg_msg_vtg_off));
-    ubx_tx_raw(g, ubx_cfg_msg_gsv_1hz, sizeof(ubx_cfg_msg_gsv_1hz));
-    ubx_tx_raw(g, ubx_cfg_msg_pubx00_1hz, sizeof(ubx_cfg_msg_pubx00_1hz));
+    // Send each binary UBX configuration packet, confirming its ACK/NAK.
+    ubx_send_and_confirm(g, ubx_cfg_rate_10hz, sizeof(ubx_cfg_rate_10hz), "CFG-RATE 10Hz");
+    ubx_send_and_confirm(g, ubx_cfg_msg_gll_off, sizeof(ubx_cfg_msg_gll_off), "CFG-MSG GLL off");
+    ubx_send_and_confirm(g, ubx_cfg_msg_vtg_off, sizeof(ubx_cfg_msg_vtg_off), "CFG-MSG VTG off");
+    ubx_send_and_confirm(g, ubx_cfg_msg_gsv_1hz, sizeof(ubx_cfg_msg_gsv_1hz), "CFG-MSG GSV 1Hz");
+    ubx_send_and_confirm(g, ubx_cfg_msg_pubx00_1hz, sizeof(ubx_cfg_msg_pubx00_1hz), "CFG-MSG PUBX00 1Hz");
     ubx_send_nav5(g, g->nav_model);
-    ubx_tx_raw(g, ubx_cfg_assistnow_autonomous, sizeof(ubx_cfg_assistnow_autonomous));
+    ubx_send_and_confirm(g, ubx_cfg_assistnow_autonomous, sizeof(ubx_cfg_assistnow_autonomous), "CFG-VALSET AssistNow");
     // Enable $PUBX,00 sentence at 1 Hz for live hAcc in meters
     const char* pubx_00_rate = "$PUBX,40,00,1,1,0,0*1B\r\n";
     furi_hal_serial_tx(g->serial_handle, (const uint8_t*)pubx_00_rate, strlen(pubx_00_rate));
