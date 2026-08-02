@@ -612,30 +612,22 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
     // this helper doesn't have) before ever calling this function.
 
     case InputKeyUp:
+    case InputKeyDown:
         if(has_gsr(s->mode)) {
             // No click while actively recording — see key_zoom_vertical's
             // comment. Zoom itself still works either way; only the tone
             // is suppressed.
-            if(!key_zoom_vertical(s, mutex, true)) biomap_sound_click(sound_enabled);
-            view_port_update(vp);
-        }
-        return true;
-    case InputKeyDown:
-        if(has_gsr(s->mode)) {
-            if(!key_zoom_vertical(s, mutex, false)) biomap_sound_click(sound_enabled);
+            bool zoom_in = (ev->input.key == InputKeyUp);
+            if(!key_zoom_vertical(s, mutex, zoom_in)) biomap_sound_click(sound_enabled);
             view_port_update(vp);
         }
         return true;
 
     case InputKeyLeft:
-        if(has_gsr(s->mode)) {
-            if(!key_zoom_horizontal(s, mutex, true)) biomap_sound_click(sound_enabled);
-            view_port_update(vp);
-        }
-        return true;
     case InputKeyRight:
         if(has_gsr(s->mode)) {
-            if(!key_zoom_horizontal(s, mutex, false)) biomap_sound_click(sound_enabled);
+            bool zoom_in = (ev->input.key == InputKeyLeft);
+            if(!key_zoom_horizontal(s, mutex, zoom_in)) biomap_sound_click(sound_enabled);
             view_port_update(vp);
         }
         return true;

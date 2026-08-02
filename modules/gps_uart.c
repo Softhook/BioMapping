@@ -435,6 +435,15 @@ static void ubx_tx(GpsUart* g, const uint8_t* data, size_t len) {
     furi_delay_ms(100);
 }
 
+// Wake the M10Q from Software Standby: any byte on RX brings it back to
+// full power. Takes a raw handle (not GpsUart*) — also called from
+// gps_uart_standby() before the module is fully alloc'd/torn down.
+static void ubx_wake(FuriHalSerialHandle* handle) {
+    uint8_t dummy = 0xFF;
+    furi_hal_serial_tx(handle, &dummy, 1);
+    furi_delay_ms(100);
+}
+
 // ── UBX Fletcher-8 checksum (spec §3.4) — shared by outgoing packet
 // construction (ubx_send_nav5) and incoming ACK/NAK verification below.
 static void ubx_calc_checksum(const uint8_t* buf, size_t len, uint8_t* ck_a, uint8_t* ck_b) {
@@ -812,9 +821,7 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
         furi_hal_serial_init(g->serial_handle, GPS_BAUD_RATE);
 #if GPS_MODULE == GPS_MODULE_M10Q
         // Wake up module in case it was in Software Standby
-        uint8_t dummy = 0xFF;
-        furi_hal_serial_tx(g->serial_handle, &dummy, 1);
-        furi_delay_ms(100);
+        ubx_wake(g->serial_handle);
 #endif
         furi_hal_serial_async_rx_start(g->serial_handle, gps_uart_irq_cb, g, false);
         g->ready = true;
@@ -1048,8 +1055,7 @@ static void gps_uart_configure(GpsUart* g) {
     // CFG-MSG packet enabling the same 0xF1/0x00 message used to be sent
     // here too — removed as a straight duplicate of this line.)
     const char* pubx_00_rate = "$PUBX,40,00,1,1,0,0*1B\r\n";
-    furi_hal_serial_tx(g->serial_handle, (const uint8_t*)pubx_00_rate, strlen(pubx_00_rate));
-    furi_delay_ms(100);
+    ubx_tx(g, (const uint8_t*)pubx_00_rate, strlen(pubx_00_rate));
 
     FURI_LOG_I("GpsUart", "M10Q running at 115200 baud, 10 Hz, GSV@1Hz");
 
@@ -1088,9 +1094,7 @@ void gps_uart_standby(void) {
         furi_hal_serial_init(handle, GPS_BAUD_RATE);
 #if GPS_MODULE == GPS_MODULE_M10Q
         // Wake from possible standby, then send Software Standby command
-        uint8_t dummy = 0xFF;
-        furi_hal_serial_tx(handle, &dummy, 1);
-        furi_delay_ms(100);
+        ubx_wake(handle);
         furi_hal_serial_tx(handle, ubx_rxm_pmreq_standby,
                            sizeof(ubx_rxm_pmreq_standby));
         furi_delay_ms(100);

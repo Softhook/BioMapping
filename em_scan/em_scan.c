@@ -220,6 +220,15 @@ static void em_scan_render_normal(Canvas* canvas, EmScanApp* app) {
     canvas_draw_str(canvas, 126 - fog_width, 61, fog_str);
 }
 
+// Shared frame+fill progress bar for the two calibration countdown screens
+// below (differ only in position and total duration).
+static void draw_progress_bar(
+    Canvas* canvas, int x, int y, int w, int h, uint32_t elapsed, uint32_t total) {
+    canvas_draw_frame(canvas, x, y, w, h);
+    int fill = (int)((elapsed * (uint32_t)(w - 2)) / total);
+    if(fill > 0) canvas_draw_box(canvas, x + 1, y + 1, fill, h - 2);
+}
+
 static void em_scan_render_cal_prep(Canvas* canvas, const EmScanApp* app) {
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str_aligned(canvas, 64, 2, AlignCenter, AlignTop, "[RF Faraday Calibration]");
@@ -233,14 +242,8 @@ static void em_scan_render_cal_prep(Canvas* canvas, const EmScanApp* app) {
     snprintf(timer_str, sizeof(timer_str), "Pre-Bagging: %lus", (unsigned long)seconds_left);
     canvas_draw_str_aligned(canvas, 64, 38, AlignCenter, AlignTop, timer_str);
 
-    const int bar_x = 14;
-    const int bar_w = 100;
-    const int bar_h = 7;
-    const int bar_y = 48;
-    canvas_draw_frame(canvas, bar_x, bar_y, bar_w, bar_h);
     uint32_t elapsed = 300 - (app->cal_prep_ticks_left > 300 ? 300 : app->cal_prep_ticks_left);
-    int fill = (int)((elapsed * (bar_w - 2)) / 300);
-    if(fill > 0) canvas_draw_box(canvas, bar_x + 1, bar_y + 1, fill, bar_h - 2);
+    draw_progress_bar(canvas, 14, 48, 100, 7, elapsed, 300);
 
     canvas_draw_str_aligned(canvas, 64, 57, AlignCenter, AlignTop, "[OK = Skip Wait, BACK = Exit]");
 }
@@ -255,14 +258,8 @@ static void em_scan_render_cal_sampling(Canvas* canvas, const EmScanApp* app) {
     canvas_set_font(canvas, FontSecondary);
     canvas_draw_str_aligned(canvas, 64, 16, AlignCenter, AlignTop, timer_str);
 
-    const int bar_x = 14;
-    const int bar_w = 100;
-    const int bar_h = 7;
-    const int bar_y = 26;
-    canvas_draw_frame(canvas, bar_x, bar_y, bar_w, bar_h);
     uint32_t elapsed = 200 - (app->cal_sample_ticks_left > 200 ? 200 : app->cal_sample_ticks_left);
-    int fill = (int)((elapsed * (bar_w - 2)) / 200);
-    if(fill > 0) canvas_draw_box(canvas, bar_x + 1, bar_y + 1, fill, bar_h - 2);
+    draw_progress_bar(canvas, 14, 26, 100, 7, elapsed, 200);
 
     char live_str[64];
     snprintf(live_str, sizeof(live_str), "815:%.0fdB  915:%.0fdB",
@@ -460,22 +457,21 @@ static bool em_scan_handle_write_failure(EmScanApp* app) {
 }
 
 // Called once per second while in EmScanModeNormal. Blinks a recording
-// heartbeat (plus a blue blip if GPS has no usable fix) and flushes the SD
-// batch buffer every FLUSH_INTERVAL seconds. Returns true when the caller
-// should play the warning tone.
+// heartbeat (plus a blue blip if GPS has no usable fix). Flush timing
+// (FLUSH_INTERVAL) and the flush call itself are driven by the Tick handler,
+// not here — see its comment on why the flush must run after app->mutex is
+// released (mirrors biomap_session.c's handle_second_boundary/
+// handle_recording_tick split).
 //
 // Must NOT play sound itself: this runs from the Tick handler while
 // app->mutex is held, and em_scan_render_callback() needs that same mutex
 // to draw. biomap_sound_warning() blocks for ~250ms — playing it here would
-// freeze the recording screen for that long. The caller plays the tone
-// after releasing app->mutex, using this function's return value.
-static bool em_scan_handle_second_boundary(EmScanApp* app) {
+// freeze the recording screen for that long.
+static void em_scan_handle_second_boundary(EmScanApp* app) {
     if(!app->recording.active) {
         app->recording.tick_counter = 0;
-        return false;
+        return;
     }
-
-    bool play_warning = false;
 
     notification_message(app->notifications, &sequence_blink_green_500);
     if(app->gps) {
@@ -485,16 +481,7 @@ static bool em_scan_handle_second_boundary(EmScanApp* app) {
         }
     }
 
-    if(++app->recording.flush_counter >= FLUSH_INTERVAL) {
-        app->recording.flush_counter = 0;
-        if(sd_logger_batch_flush(app->logger) < 0) {
-            FURI_LOG_E("EmScan", "Batch flush failed — stopping recording");
-            if(em_scan_handle_write_failure(app)) play_warning = true;
-        }
-    }
-
     app->recording.tick_counter = 0;
-    return play_warning;
 }
 
 // ==========================================================================
@@ -672,6 +659,7 @@ int32_t em_scan_app(void* p) {
                         cal_passed_result = app->cal_passed;
                     }
                 }
+                furi_mutex_release(app->mutex);
             } else {
                 // EmScanModeNormal: the RF worker thread owns sampling
                 // (long park per band, round-robin). The tick loop just
@@ -682,29 +670,40 @@ int32_t em_scan_app(void* p) {
                 furi_mutex_acquire(app->mutex, FuriWaitForever);
                 em_scan_rf_worker_get_snapshot(app->rf_worker, app->rssi_dbm, NULL);
 
-
+                bool do_flush = false;
+                bool batch_overflow = false;
                 if(app->recording.active) {
                     bool row_ok = em_scan_log_row(app);
                     app->recording.total_ticks++;
+                    batch_overflow = !row_ok;
 
                     if(++app->recording.tick_counter >= TICK_HZ) {
-                        if(em_scan_handle_second_boundary(app)) play_warning = true;
-                    }
-
-                    // Batch overflow: try an emergency flush. If even the
-                    // flush fails, stop recording and notify via red LED —
-                    // mirrors biomap_session.c's handle_recording_tick/
-                    // handle_write_failure pair.
-                    if(!row_ok) {
-                        FURI_LOG_W("EmScan", "CSV row build/append failed — emergency flush");
-                        if(sd_logger_batch_flush(app->logger) < 0) {
-                            FURI_LOG_E("EmScan", "Emergency flush failed — stopping recording");
-                            if(em_scan_handle_write_failure(app)) play_warning = true;
+                        em_scan_handle_second_boundary(app);
+                        if(++app->recording.flush_counter >= FLUSH_INTERVAL) {
+                            app->recording.flush_counter = 0;
+                            do_flush = true;
                         }
                     }
                 }
+                furi_mutex_release(app->mutex);
+
+                // SD card batch flush is performed AFTER releasing app->mutex!
+                // storage_file_write()/storage_file_sync() block for ~20-60ms.
+                // Executing them outside app->mutex prevents
+                // em_scan_render_callback() from locking up the ViewPort —
+                // mirrors biomap_session.c's handle_recording_tick.
+                if(do_flush || batch_overflow) {
+                    if(batch_overflow) {
+                        FURI_LOG_W("EmScan", "CSV row build/append failed — emergency flush");
+                    }
+                    if(sd_logger_batch_flush(app->logger) < 0) {
+                        FURI_LOG_E("EmScan", "Emergency flush failed — stopping recording");
+                        furi_mutex_acquire(app->mutex, FuriWaitForever);
+                        if(em_scan_handle_write_failure(app)) play_warning = true;
+                        furi_mutex_release(app->mutex);
+                    }
+                }
             }
-            furi_mutex_release(app->mutex);
 
             // Sound is played AFTER releasing app->mutex — see
             // em_scan_handle_second_boundary's comment.
@@ -720,7 +719,14 @@ int32_t em_scan_app(void* p) {
                     app->notifications,
                     cal_passed_result ? &sequence_blink_green_100 : &sequence_blink_red_100);
             }
-            view_port_update(app->vp);
+            // Pace ViewPort redraw to 2 Hz (every 5 ticks at 10 Hz) during
+            // EmScanModeNormal to eliminate GUI message queue lockups during
+            // background BLE/System service activity — mirrors
+            // biomap_session.c's identical fix for the recording screen.
+            // Cal/menu screens keep full-rate redraw for smooth countdowns.
+            if(app->mode != EmScanModeNormal || app->recording.total_ticks % 5 == 0) {
+                view_port_update(app->vp);
+            }
             continue;
         }
 

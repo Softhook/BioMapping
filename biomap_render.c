@@ -30,6 +30,12 @@ static bool gps_has_fix(const GpsStatus* g) {
     return g->fix_valid || g->fix_quality > 0;
 }
 
+// Prefer u-blox's own hAcc; fall back to HDOP*2.5 (rough meters estimate)
+// when hAcc isn't available/valid, else 99.9 to mean "no usable accuracy".
+static float gps_hacc_display(const GpsStatus* g) {
+    return (g->hacc < 50.0f) ? g->hacc : ((g->hdop < 50.0f) ? g->hdop * 2.5f : 99.9f);
+}
+
 
 // ==========================================================================
 // Graph rendering (GSR waveform)
@@ -133,7 +139,7 @@ static void render_gps_detail(Canvas* c, BioMapApp* a) {
         // HDOP 1-2 = very good     PDOP 2-4   = very good
         // HDOP 2-5 = good          PDOP 4-8   = good
         const char* fix_str = gps_fix_label(g.fix_type);
-        float hacc_disp = (g.hacc < 50.0f) ? g.hacc : ((g.hdop < 50.0f) ? g.hdop * 2.5f : 99.9f);
+        float hacc_disp = gps_hacc_display(&g);
         if(hacc_disp < 50.0f) {
             snprintf(buf, sizeof(buf), "%.1fm  %s%s",
                      (double)hacc_disp, fix_str, g.sbas_active ? " SBAS" : "");
@@ -302,7 +308,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         GpsStatus g = gps_uart_get_status(a->session.gps);
         bool has_fix = gps_has_fix(&g);
         char badge[16];
-        float hacc_disp = (g.hacc < 50.0f) ? g.hacc : ((g.hdop < 50.0f) ? g.hdop * 2.5f : 99.9f);
+        float hacc_disp = gps_hacc_display(&g);
         if(!has_fix) {
             snprintf(badge, sizeof(badge), "No fix");
         } else if(hacc_disp < 50.0f) {

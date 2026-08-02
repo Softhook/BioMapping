@@ -71,6 +71,16 @@ int32_t cycle_selection(int32_t sel, int32_t count, bool down) {
     }
 }
 
+// Cycle *selection under app->mutex (the render callback reads it from
+// another thread) and play the nav click — shared Up/Down handling for the
+// main menu, Options screen, and GSR/RF calibration submenu.
+static void nav_cycle(BioMapApp* app, int32_t* selection, int32_t count, bool down) {
+    furi_mutex_acquire(app->mutex, FuriWaitForever);
+    *selection = cycle_selection(*selection, count, down);
+    furi_mutex_release(app->mutex);
+    biomap_sound_click(app->sound_enabled);
+}
+
 // ==========================================================================
 // Launch menu — main navigation
 // ==========================================================================
@@ -102,17 +112,11 @@ int32_t biomap_gui_show_menu(BioMapApp* app) {
 
         switch(ev.input.key) {
         case InputKeyUp:
-            furi_mutex_acquire(app->mutex, FuriWaitForever);
-            ctx.selection = cycle_selection(ctx.selection, MENU_COUNT, false);
-            furi_mutex_release(app->mutex);
-            biomap_sound_click(app->sound_enabled);
+            nav_cycle(app, &ctx.selection, MENU_COUNT, false);
             view_port_update(app->screen_vp);
             break;
         case InputKeyDown:
-            furi_mutex_acquire(app->mutex, FuriWaitForever);
-            ctx.selection = cycle_selection(ctx.selection, MENU_COUNT, true);
-            furi_mutex_release(app->mutex);
-            biomap_sound_click(app->sound_enabled);
+            nav_cycle(app, &ctx.selection, MENU_COUNT, true);
             view_port_update(app->screen_vp);
             break;
         case InputKeyOk:
@@ -183,16 +187,10 @@ void run_options_screen(BioMapApp* app) {
 
             switch(ev.input.key) {
             case InputKeyUp:
-                furi_mutex_acquire(app->mutex, FuriWaitForever);
-                ctx.selection = cycle_selection(ctx.selection, OPTIONS_COUNT, false);
-                furi_mutex_release(app->mutex);
-                biomap_sound_click(app->sound_enabled);
+                nav_cycle(app, &ctx.selection, OPTIONS_COUNT, false);
                 break;
             case InputKeyDown:
-                furi_mutex_acquire(app->mutex, FuriWaitForever);
-                ctx.selection = cycle_selection(ctx.selection, OPTIONS_COUNT, true);
-                furi_mutex_release(app->mutex);
-                biomap_sound_click(app->sound_enabled);
+                nav_cycle(app, &ctx.selection, OPTIONS_COUNT, true);
                 break;
             case InputKeyOk:
             case InputKeyLeft:
@@ -303,15 +301,9 @@ void run_cal_submenu(BioMapApp* app, ViewPortDrawCallback render,
                 break;
             }
             if(ev.input.key == InputKeyUp) {
-                furi_mutex_acquire(app->mutex, FuriWaitForever);
-                ctx.selection = cycle_selection(ctx.selection, 3, false); // 3 items
-                furi_mutex_release(app->mutex);
-                biomap_sound_click(app->sound_enabled);
+                nav_cycle(app, &ctx.selection, 3, false); // 3 items
             } else if(ev.input.key == InputKeyDown) {
-                furi_mutex_acquire(app->mutex, FuriWaitForever);
-                ctx.selection = cycle_selection(ctx.selection, 3, true);
-                furi_mutex_release(app->mutex);
-                biomap_sound_click(app->sound_enabled);
+                nav_cycle(app, &ctx.selection, 3, true);
             } else if(ev.input.key == InputKeyOk) {
                 // This thread's own last write — no lock needed to read it
                 // back (see WizardState's identical reasoning in
