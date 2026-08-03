@@ -263,12 +263,12 @@ So: the *existence* of occasional multi-hundred-ms write stalls isn't a bug in t
 **What our implementation does that shapes how often/how badly it bites** (real, own-code factors, not the card's fault):
 
 1. **`storage_file_sync()` after every batch flush** (`modules/sd_logger.c`) forces the card to actually commit to physical media every `FLUSH_INTERVAL` (10s), rather than trusting FatFs's write cache and syncing less often. This is a deliberate durability choice (a crash/pull mid-recording should lose at most ~10s, not the whole file) — but it's also the single call most likely to catch the card mid-housekeeping, since `sync` is exactly what forces the card to finish committing rather than letting it buffer more.
-2. **[RESOLVED 2026-08-03] The flush is synchronous on the main event-loop thread** (`run_recording_session()`'s Tick handler, `biomap_session.c`) — released from `app->mutex` first, but still on the thread that must then process the next Tick, drain GPS UART, and pace `view_port_update()`. The card being occasionally slow is normal; the whole app stalling because of it is a consequence of waiting for that call in-line on the one thread everything else depends on. Fixed by moving the actual `storage_file_write()`/`storage_file_sync()` onto `sd_logger.c`'s own background writer thread — see the "SD flush mitigation options" entry below (option A).
+2. **The flush is synchronous on the main event-loop thread** (`run_recording_session()`'s Tick handler, `biomap_session.c`) — released from `app->mutex` first, but still on the thread that must then process the next Tick, drain GPS UART, and pace `view_port_update()`. The card being occasionally slow is normal; the whole app stalling because of it is a consequence of waiting for that call in-line on the one thread everything else depends on.
 3. **The batch file grows by repeated `storage_file_write()` appends with no pre-allocation** (`sd_logger_batch_flush()`) — a flush that crosses a FAT cluster boundary also forces a FAT-table/directory-entry update at a different physical location on the card than the data itself, on top of the ~12KB data write.
 
 **How other projects handle the same symptom** — none of them make the stall itself go away (it's the card's firmware, out of anyone's control); they all work around it:
 
-- **Move the write off the time-critical path.** PX4's logger is its own dedicated module, not code running inline in the flight-control loop — the real-time-sensitive work is structurally isolated from SD I/O latency, so a slow `fsync` costs the logger a buffer, not the aircraft a control tick. Direct analogue here: item 2 above (flush on the main/GUI/input thread) was the one architectural choice with a real fix, and it's now **implemented** — `sd_logger_batch_flush()` hands a buffer off to its own writer thread instead of writing inline, so a slow flush delays the next SD write, not the next Tick/GPS-drain/redraw. See the "SD flush mitigation options" entry below (option A) for the design and verification.
+- **Move the write off the time-critical path.** PX4's logger is its own dedicated module, not code running inline in the flight-control loop — the real-time-sensitive work is structurally isolated from SD I/O latency, so a slow `fsync` costs the logger a buffer, not the aircraft a control tick. Direct analogue here: item 2 above (flush on the main/GUI/input thread) is the one architectural choice with a real fix — moving `sd_logger_batch_flush()` onto its own worker thread would mean a slow flush delays the next SD write, not the next Tick/GPS-drain/redraw. This has NOT been implemented — noted here as the option, not a decision.
 - **Size the buffer to absorb the spike, not avoid it.** PX4's docs say plainly: *"PX4 uses bigger buffers on F7/H7 and read caching, which is enough to compensate for spikes in many poor cards."* The logic: if a stall is going to happen periodically regardless, give the in-RAM buffer enough headroom that a ~1s stall doesn't cause a data-loss overflow, even if it still costs latency. Our 12288-byte / ~100-row buffer already does this for data-loss purposes (a flush being late doesn't drop rows, `handle_recording_tick`'s overflow path is the fallback) — the open question is only about the app *freezing*, not about losing GSR/GPS samples.
 - **Pre-allocate the file.** A recurring recommendation across embedded SD-logging discussions (PX4's guidance included) is to pre-allocate/pre-erase the log file's space up front rather than growing it write-by-write, specifically to avoid the FAT-metadata-update-plus-seek cost on an active recording. Directly addresses factor 3 above; not attempted here.
 - **Card selection / benchmarking, not firmware changes at all.** PX4 ships a `sd_bench` tool and publishes a list of SD cards known not to exhibit write-time spikes (SanDisk Extreme U3, Samsung EVO Plus, in their testing) — i.e., some of this is solved by picking a better card rather than changing any code. Relevant here too: it's worth checking whether the SD card used for tracks 116/117 is a known-good one or an unbranded/cheap card, since Flipper's own docs specifically warn that off-brand cards are less stable over SPI.
@@ -333,100 +333,16 @@ entry above) and RF/I2C cleared, here are the candidate mitigations,
 ordered cheapest/least-invasive to most structural. **None of these have
 been implemented** — this is a menu to choose from, not a plan in progress.
 
-**A. [IMPLEMENTED 2026-08-03] Move the flush to a dedicated background
-thread** (the PX4-style fix). Give the logger its own Furi thread that owns
-the SD file; the Tick handler swaps a filled buffer into a queue instead of
-calling `sd_logger_batch_flush()` itself. A slow `storage_file_write`/`sync`
-then only delays the *next* SD write, never the Tick/GUI/UART path. This is
-the only option that eliminates the freeze mechanism rather than reducing
-its odds.
-
-Implemented in `modules/sd_logger.c`/`sd_logger.h`:
-
-- **Double-buffered** (`gsr_batch[2][12288]`, was one 12288-byte buffer —
-  the deliberate, minimal RAM cost of not blocking the caller). The caller
-  always fills `cur_buf`; `sd_logger_batch_flush()` hands that buffer to
-  the writer thread and switches to the other one, but only once the other
-  buffer is confirmed free. If the writer thread is still busy with it
-  when the next flush is due, the flush is **skipped** that call (returns
-  0, data stays put and is retried next time) rather than blocking — same
-  "some data-loss risk under duress" spirit the existing overflow path
-  already accepted, not a new category of risk.
-- **No mutex, and no manual atomics either.** Two `FuriMessageQueue`s
-  (`to_writer`/`from_writer`) carry buffer ownership across the thread
-  boundary — the same primitive the app's own event loop already uses.
-  `cur_buf`, `gsr_batch_len[]`, and `buf_free[]` are touched only by the
-  calling (main) thread; each `gsr_batch[N]`'s contents are touched by the
-  caller while filling, then exclusively by the writer thread once handed
-  off, never both at once. Verified, not just argued: a ThreadSanitizer
-  pass (`run_tests.sh`'s new `test_sd_logger_tsan` target) reports zero
-  races across all 15 host tests, run repeatedly.
-- **Writer thread created once** (`sd_logger_alloc()`) **and destroyed
-  once** (`sd_logger_free()`), mirroring `GsrSensor`'s worker thread
-  (`modules/gsr_sensor.c`) — not recreated per recording. Between
-  recordings and between flushes it just blocks on
-  `furi_message_queue_get(..., FuriWaitForever)`, costing nothing; a new
-  test (`test_sd_logger_writer_thread_persists_across_recordings`) proves
-  a second start/stop cycle on the same `SdLogger` works with no extra
-  alloc/free.
-- **`sd_logger_stop()` still synchronously waits** for the writer to flush
-  whatever's left and close the file (an ack-queue wait, not
-  `furi_thread_join()`, since the thread itself stays alive for a future
-  recording) — every caller in `biomap_session.c` assumes the file is
-  fully closed by the time `stop()` returns, and that's still true; only
-  the *periodic* in-recording flushes became asynchronous.
-
-**Deliberate trade, explicitly chosen over a more complete version**: a
-write/sync failure is no longer reported back to the caller.
-`sd_logger_batch_flush()` always returns `>= 0` now. Before this, a
-broken/full/pulled SD card was detected synchronously and stopped the
-recording with a red-LED alert (`biomap_session.c`'s
-`handle_write_failure()`, and the warning-tone branch in
-`flush_before_stop()`'s three call sites) — both removed alongside this
-change, since they could never fire again. **This safety behavior is
-gone**: the writer thread just logs and moves on; a genuinely broken card
-now fails silently rather than stopping the recording. Restoring it would
-mean the writer reporting status back through the ack queue too — not
-done here, a conscious choice for a minimal first version, made when
-asked directly rather than assumed.
-
-Also needed: a **real functional `FuriMessageQueue`** in the host test
-shim (`tests/shims/furi.h`) — the previous one was a stub that only
-counted `put()` calls and discarded the message (fine for `gps_uart.c`'s
-post-and-forget use, not enough for a real handoff). Backward-compatible:
-a zero-initialized queue (`FuriMessageQueue q = {0};`, what `gps_uart.c`'s
-own tests already construct directly) still gets the old stub behavior;
-only a properly `furi_message_queue_alloc()`'d queue gets the real
-ring-buffer-plus-condvar implementation. Also added a real `usleep()`-based
-write-delay hook to the storage mock
-(`storage_mock_set_next_write_delay_ms()`, replacing the old fake-tick-only
-version that timed the now-removed `flush_peak_ms`) so
-`test_sd_logger_flush_skipped_while_writer_busy_then_recovers` can
-genuinely exercise the busy-writer skip path against a real concurrent
-thread, not just assert on logic in isolation.
-
-`flush_peak_ms` (the column added earlier in this investigation, see the
-track 118 entry above) was **removed** rather than kept: it timed a call
-that no longer blocks the thread it was diagnosing a stall on, so keeping
-it would mean instrumenting a problem that was fixed at the mechanism
-level instead. Removed from `RowDiag` (`biomap_types.h`), the CSV headers
-(`biomap_config.h`), `get_row_diag()`/`format_gps_csv_row()`
-(`biomap_session.c`), and `sd_logger.h`'s accessor — the existing
-`test_csv_header_matches_row_column_count` regression test (added
-specifically to catch a header/row column-count mismatch) confirms the
-removal was clean on both sides (18/21 columns, no/with RF).
-
-**Verified**: full host test suite passes (`./run_tests.sh`, including the
-new `test_sd_logger_tsan` target); real ARM toolchain build
-(`python3 -m ufbt`) compiles and links cleanly against the actual Flipper
-SDK headers, not just the host shims — `FuriThread`/`FuriMessageQueue`
-usage in `sd_logger.c` is exercised against the real API surface, not only
-mocked.
-
-**Not yet done**: an actual on-device recording to confirm the freeze is
-gone in practice, not just that the mechanism moved threads. The dropped
-failure-detection behavior is also worth revisiting if a real SD failure
-in the field turns out to matter more than the felt freeze did.
+**A. Move the flush to a dedicated background thread** (the PX4-style fix).
+Give the logger its own Furi thread that owns the SD file; the Tick
+handler swaps a filled buffer into a queue instead of calling
+`sd_logger_batch_flush()` itself. A slow `storage_file_write`/`sync` then
+only delays the *next* SD write, never the Tick/GUI/UART path. This is the
+only option that eliminates the freeze mechanism rather than reducing its
+odds — but it's also the highest-effort, highest-risk option: needs
+double-buffering (main thread keeps filling a fresh buffer while the
+worker flushes the previous one), a handoff mechanism, and `SdLogger`
+currently assumes a single caller thread, an assumption this would break.
 
 **C. Sync less often.** Skip `storage_file_sync()` on most flushes; only
 sync every Nth flush or right before stopping the recording. `sync` is the
@@ -440,10 +356,8 @@ rarer.
 both ways: smaller/more-frequent flushes reduce backlog-at-risk per event
 but increase total exposure events; bigger/less-frequent reduces exposure
 events but risks a bigger stall when one lands. Cheap to experiment with
-(one `#define`). Less urgent now that A is done — the freeze itself no
-longer reaches the caller — but the double-buffer's own backlog risk (how
-much unflushed data piles up if the writer thread is genuinely stuck for
-longer than a `FLUSH_INTERVAL`) is still shaped by this value.
+(one `#define`), and now directly measurable with `flush_peak_ms` already
+in place — could A/B a couple of values against real walks.
 
 **E. Pre-allocate the log file up front.** Avoids the FAT cluster/
 metadata-update overhead when the file grows via repeated appends — one of
@@ -461,11 +375,12 @@ card in hand is just a bad one — but doesn't fix it for anyone else running
 this firmware with a different card; it's a workaround for this specific
 card, not the app.
 
-**Suggested order of attack**: A (the structural fix) is done. C, D, and F
-remain candidates if the writer thread's own failure modes (silent write
-failures, backlog buildup under a genuinely stuck card) turn out to matter
-in practice — F (a better card) is still the cheapest lever and would
-reduce how often the writer thread's now-silent failure path fires at all.
+**Suggested order of attack**: try F first (cheap, might make this moot),
+tune D a little while at it since it's nearly free, then treat something
+like A as the real structural fix only if the freeze turns out to cost
+something concrete (dropped GPS bytes, UART overflow) that justifies a
+threading rework — right now it's a felt freeze, not a proven data-loss
+problem, based on what's been measured so far.
 
 ## Other open items
 
