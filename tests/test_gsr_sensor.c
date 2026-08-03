@@ -173,6 +173,50 @@ static void wait_for_rssi_call_in_progress(void) {
     }
 }
 
+// I2C/set_band analogs of wait_for_rssi_call_in_progress — deliberately
+// tick-neutral (no furi_test_advance_tick() in the poll loop, unlike
+// wait_for_more_reads/wait_for_more_rssi_reads) so a caller can advance the
+// fake clock by an EXACT, test-chosen amount afterward without any
+// incidental drift from this wait itself. Used by the peak_ms attribution
+// tests below, where the assertion is an exact ms value.
+static void wait_for_i2c_call_in_progress(void) {
+    int waited_us = 0;
+    while(!furi_hal_i2c_mock_call_in_progress()) {
+        usleep(200);
+        waited_us += 200;
+        if(waited_us > 5000000) {
+            fprintf(stderr, "TIMEOUT: mocked I2C call never started\n");
+            assert(false);
+        }
+    }
+}
+
+// Polls a peak_ms accessor until it reaches `target`, instead of trusting
+// "the mocked call's own call_in_progress flag went false" as proof the
+// result is ready to read. Those are NOT the same moment: the mock flips
+// call_in_progress false as its very last step before returning, but the
+// WORKER's surrounding code still has to compute the duration, take
+// gsr->mutex, and publish it into the peak_ms field afterward — a real,
+// if normally nanoseconds-wide, gap. A test that reads the accessor
+// immediately after observing call_in_progress==false can race ahead of
+// that publish and see the pre-call value (0) instead — measured in
+// practice as a rare failure under the ThreadSanitizer build specifically
+// (its heavier instrumentation on the mutex/atomic write widens this exact
+// gap enough to occasionally lose the race). Waiting for the actual result
+// removes the gap instead of guessing a settle delay to pad around it.
+static void wait_for_peak_ms_at_least(
+    uint32_t (*getter)(const GsrSensor*), const GsrSensor* gsr, uint32_t target) {
+    int waited_us = 0;
+    while(getter(gsr) < target) {
+        usleep(200);
+        waited_us += 200;
+        if(waited_us > 5000000) {
+            fprintf(stderr, "TIMEOUT: peak_ms accessor never reached %u\n", (unsigned)target);
+            assert(false);
+        }
+    }
+}
+
 // Mirrors gsr_sensor.c's tia_counts_to_ns() (documented, stable hardware
 // formula) — used to compute an independently-derived expected value,
 // not to duplicate the driver's control flow.
@@ -996,6 +1040,238 @@ static void test_rf_disable_waits_for_inflight_spi_call_before_deinit(void) {
     printf("  -> Pass\n");
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Per-call stall attribution tests (2026-08-03) — exercise the
+// i2c_peak_ms/rf_rssi_peak_ms/rf_retune_peak_ms columns added to answer
+// "which of the worker thread's three candidate blocking calls actually
+// caused a given tick_dt_ms stall" directly, for the next real recording
+// (track 116 showed real ~1s stalls; see docs/gps_rf_mutex_status.md's
+// 2026-08-03 entry). Each test injects a real delay into exactly ONE
+// underlying mock call (same furi_hal_*_mock_set_*_delay_ms() technique as
+// the mutex-behavior tests above), advances the fake clock by the SAME
+// amount while that one call is confirmed in flight (via its
+// wait_for_*_call_in_progress() helper — see those functions' comments for
+// why this is safe and precise even though gsr_sensor.c's worker measures
+// duration with furi_get_tick(), which does not advance on its own here),
+// then asserts not just that the right column caught it but that the
+// OTHER TWO stayed at 0 — proving these columns can tell the three causes
+// apart, not just detect that something happened. RF is enabled with real
+// (undelayed) traffic in all three, so "the untouched columns stay 0" is
+// checked against genuine concurrent activity, not against RF simply never
+// having run.
+// ─────────────────────────────────────────────────────────────────────────
+
+static void test_i2c_peak_ms_detects_slow_i2c_call(void) {
+    printf("Running test_i2c_peak_ms_detects_slow_i2c_call...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_subghz_mock_reset();
+    em_scan_rf_mock_reset();
+    furi_hal_subghz_mock_set_rssi(-95.0f);
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+    gsr_sensor_set_rf_enabled(gsr, true); // real, undelayed RF traffic alongside the I2C stall
+
+    // Only NOW arm the I2C delay — gsr_sensor_alloc()'s own probe read (not
+    // measured by i2c_peak_ms; that's worker-thread-only instrumentation)
+    // already happened above, and this way the delay lands on an ordinary
+    // worker-loop read, the common case (see i2c_peak_ms's struct comment
+    // for why the rarer PGA-write path shares this same column instead of
+    // needing its own test).
+    furi_hal_i2c_mock_set_delay_ms(150); // stand-in for a stuck ADS1115 transaction
+    wait_for_i2c_call_in_progress();
+    furi_test_advance_tick(150); // simulate 150ms of device time elapsing during the stall
+
+    // Unlike the RF RSSI poll (paced by RF_SAMPLE_INTERVAL_MS, so it won't
+    // fire again while the fake tick sits still), the I2C read path runs
+    // on every worker-loop iteration unconditionally — with the delay left
+    // armed, the worker would immediately re-enter another 150ms-delayed
+    // call the instant this one returns, and polling could easily miss
+    // the vanishingly narrow false-in-between window, hanging until the
+    // timeout below despite nothing being wrong. Reset the delay now: the
+    // ALREADY-in-flight call already captured 150 into its own local
+    // before this write (see furi_hal_i2c_read_mem's delay_ms local), so
+    // it still sleeps out its committed duration — only calls that
+    // haven't started yet are affected, closing the race.
+    furi_hal_i2c_mock_set_delay_ms(0);
+
+    int waited_us = 0;
+    while(furi_hal_i2c_mock_call_in_progress()) {
+        usleep(200);
+        waited_us += 200;
+        if(waited_us > 5000000) { fprintf(stderr, "TIMEOUT\n"); assert(false); }
+    }
+    // See wait_for_peak_ms_at_least's doc comment — call_in_progress going
+    // false above proves the mock returned, not that the worker has
+    // finished publishing the measured duration into i2c_peak_ms yet.
+    wait_for_peak_ms_at_least(gsr_sensor_get_i2c_peak_ms, gsr, 150);
+
+    printf("  i2c_peak_ms=%u rf_rssi_peak_ms=%u rf_retune_peak_ms=%u (expect 150/0/0)\n",
+           (unsigned)gsr_sensor_get_i2c_peak_ms(gsr),
+           (unsigned)gsr_sensor_get_rf_rssi_peak_ms(gsr),
+           (unsigned)gsr_sensor_get_rf_retune_peak_ms(gsr));
+    assert(gsr_sensor_get_i2c_peak_ms(gsr) == 150);
+    assert(gsr_sensor_get_rf_rssi_peak_ms(gsr) == 0);
+    assert(gsr_sensor_get_rf_retune_peak_ms(gsr) == 0);
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+static void test_rf_rssi_peak_ms_detects_slow_rssi_call(void) {
+    printf("Running test_rf_rssi_peak_ms_detects_slow_rssi_call...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_subghz_mock_reset();
+    em_scan_rf_mock_reset();
+    furi_hal_subghz_mock_set_rssi(-95.0f);
+    furi_hal_subghz_mock_set_rssi_delay_ms(150); // stand-in for a stuck SPI RSSI read
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+    gsr_sensor_set_rf_enabled(gsr, true); // forces an immediate first (slow) sample
+    wait_for_rssi_call_in_progress();
+    furi_test_advance_tick(150); // simulate 150ms of device time elapsing during the stall
+
+    int waited_us = 0;
+    while(furi_hal_subghz_mock_rssi_call_in_progress()) {
+        usleep(200);
+        waited_us += 200;
+        if(waited_us > 5000000) { fprintf(stderr, "TIMEOUT\n"); assert(false); }
+    }
+    furi_hal_subghz_mock_set_rssi_delay_ms(0);
+    // See wait_for_peak_ms_at_least's doc comment — rssi_call_in_progress
+    // going false above proves the mock returned, not that the worker has
+    // finished publishing the measured duration into rf_rssi_peak_ms yet.
+    wait_for_peak_ms_at_least(gsr_sensor_get_rf_rssi_peak_ms, gsr, 150);
+
+    printf("  rf_rssi_peak_ms=%u i2c_peak_ms=%u rf_retune_peak_ms=%u (expect 150/0/0)\n",
+           (unsigned)gsr_sensor_get_rf_rssi_peak_ms(gsr),
+           (unsigned)gsr_sensor_get_i2c_peak_ms(gsr),
+           (unsigned)gsr_sensor_get_rf_retune_peak_ms(gsr));
+    assert(gsr_sensor_get_rf_rssi_peak_ms(gsr) == 150);
+    assert(gsr_sensor_get_i2c_peak_ms(gsr) == 0);
+    assert(gsr_sensor_get_rf_retune_peak_ms(gsr) == 0);
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+static void test_rf_retune_peak_ms_detects_slow_set_band_call(void) {
+    printf("Running test_rf_retune_peak_ms_detects_slow_set_band_call...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_subghz_mock_reset();
+    em_scan_rf_mock_reset();
+    furi_hal_subghz_mock_set_rssi(-95.0f);
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+    // Enable with NO retune delay yet: gsr_sensor_set_rf_enabled() arms
+    // band 0 via a SYNCHRONOUS em_scan_rf_set_band(0) call on this thread
+    // (not the worker), which rf_retune_peak_ms does not (and should not)
+    // measure — only the worker loop's own retune call site does. Arming
+    // fast here, then delaying only the worker's later rotation call
+    // below, is what keeps this test targeted at the right call site.
+    gsr_sensor_set_rf_enabled(gsr, true);
+    assert(em_scan_rf_mock_visit_count(0) == 1);
+
+    // Real wall-clock wait for the forced first sample, fake tick untouched
+    // — same technique as
+    // test_rf_dwell_completes_on_elapsed_time_not_iteration_count, so the
+    // upcoming furi_test_advance_tick(3000) below is the ONLY thing that
+    // moves the clock before the rotation, keeping this test's timing
+    // exact rather than approximate.
+    int waited_us = 0;
+    while(furi_hal_subghz_mock_get_rssi_call_count() < 1) {
+        usleep(200);
+        waited_us += 200;
+        if(waited_us > 5000000) { fprintf(stderr, "TIMEOUT: no initial RF sample\n"); assert(false); }
+    }
+
+    // Arm the retune delay, then cross RF_DWELL_MS (3000 ticks) so the
+    // worker's next paced sample sees the dwell has elapsed and rotates
+    // band 0 -> band 1, calling the now-slow em_scan_rf_set_band(1).
+    //
+    // Advanced in small steps with a REAL usleep between each, stopping
+    // the INSTANT the retune call is observed starting — not a fixed
+    // furi_test_advance_tick(3000) in one shot, and not a fixed-count loop
+    // either (both tried first). Two distinct problems ruled those out:
+    //
+    // 1. Corruption: the worker keeps making ordinary (undelayed,
+    //    near-instant) I2C reads and paced RSSI polls the whole time this
+    //    runs, on its own thread, completely unsynchronized with this one
+    //    — any test-thread tick write that lands while one of those calls
+    //    is between ITS OWN start/end furi_get_tick() reads hands that
+    //    call a spurious measured duration matching however much ground
+    //    the write covered. A single 3000-tick jump risked corrupting
+    //    i2c_peak_ms by up to ~3000; a tight no-yield loop of 3000
+    //    single-tick writes still let several land inside the same
+    //    slow-to-be-scheduled call (observed corrupting i2c_peak_ms/
+    //    rf_rssi_peak_ms up to ~20-30). A real sleep between steps
+    //    (mirroring wait_for_more_reads' own pacing elsewhere in this
+    //    file) gives the worker a genuine wall-clock window to finish
+    //    whatever fast call it's in between each write.
+    // 2. Under-shoot: a FIXED step count (e.g. 300 steps of 10 = exactly
+    //    3000) can finish with the clock frozen at exactly the threshold
+    //    while should_sample's own bookkeeping (rf_last_sample_tick, which
+    //    every sample — not just the rotating one — advances to whatever
+    //    now_tick was at the time) happens to have landed within
+    //    RF_SAMPLE_INTERVAL_MS of that same final value, depending on
+    //    exactly how this loop's real-time scheduling interleaved with the
+    //    worker's. If so, should_sample never becomes true again once this
+    //    loop stops advancing the clock — nothing hangs, the worker just
+    //    has no further reason to re-check, so it spins on fast I2C reads
+    //    forever (observed directly: i2c read count climbing into the
+    //    millions with rssi_count/set_band_count frozen). A fixed budget
+    //    can't distinguish "still en route" from "already permanently
+    //    stalled a few ticks short" — so instead of guessing a big enough
+    //    fixed count, keep advancing (with a generous but bounded cap)
+    //    until the actual effect being waited for is directly observed.
+    em_scan_rf_mock_set_set_band_delay_ms(150); // stand-in for a stuck retune
+    int ramp_steps = 0;
+    while(!em_scan_rf_mock_set_band_call_in_progress()) {
+        furi_test_advance_tick(10);
+        usleep(200);
+        ramp_steps++;
+        if(ramp_steps > 2000) { // >> the ~300 steps normally needed to cross 3000 ticks
+            fprintf(stderr, "TIMEOUT: em_scan_rf_set_band never started after %d ramp steps\n",
+                    ramp_steps);
+            assert(false);
+        }
+    }
+    furi_test_advance_tick(150); // simulate 150ms of device time elapsing during the stall
+
+    waited_us = 0;
+    while(em_scan_rf_mock_set_band_call_in_progress()) {
+        usleep(200);
+        waited_us += 200;
+        if(waited_us > 5000000) { fprintf(stderr, "TIMEOUT\n"); assert(false); }
+    }
+    em_scan_rf_mock_set_set_band_delay_ms(0);
+    // See wait_for_peak_ms_at_least's doc comment — set_band_call_in_progress
+    // going false above proves the mock returned, not that the worker has
+    // finished publishing the measured duration into rf_retune_peak_ms yet.
+    wait_for_peak_ms_at_least(gsr_sensor_get_rf_retune_peak_ms, gsr, 150);
+
+    printf("  rf_retune_peak_ms=%u i2c_peak_ms=%u rf_rssi_peak_ms=%u (expect 150/~0/~0)\n",
+           (unsigned)gsr_sensor_get_rf_retune_peak_ms(gsr),
+           (unsigned)gsr_sensor_get_i2c_peak_ms(gsr),
+           (unsigned)gsr_sensor_get_rf_rssi_peak_ms(gsr));
+    assert(gsr_sensor_get_rf_retune_peak_ms(gsr) == 150);
+    // Small tolerance, not strict ==0 — see the 1-tick-step comment above:
+    // an occasional single-tick collision with an unrelated worker call is
+    // possible by construction of the shared fake clock, and a few ms is
+    // still overwhelming discrimination against the targeted column's 150.
+    assert(gsr_sensor_get_i2c_peak_ms(gsr) < 50);
+    assert(gsr_sensor_get_rf_rssi_peak_ms(gsr) < 50);
+    assert(em_scan_rf_mock_visit_count(1) == 1); // rotation genuinely happened, not skipped
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
 // Stress test for the specific TOCTOU gap fixed in the 2026-07-30 review:
 // the worker's "read rf_enabled, then set rf_spi_busy" is two separate
 // steps, and without sharing rf_mutex across both, the disable path could
@@ -1147,6 +1423,9 @@ int main(void) {
     test_rf_snapshot_read_not_blocked_by_slow_spi_call();
     test_gsr_path_not_blocked_by_slow_rf_spi_call();
     test_rf_disable_waits_for_inflight_spi_call_before_deinit();
+    test_i2c_peak_ms_detects_slow_i2c_call();
+    test_rf_rssi_peak_ms_detects_slow_rssi_call();
+    test_rf_retune_peak_ms_detects_slow_set_band_call();
     test_rf_enable_disable_stress_no_race();
     test_session_deinit_early_release_gui_safety();
 

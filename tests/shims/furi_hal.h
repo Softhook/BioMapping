@@ -104,6 +104,18 @@ uint8_t furi_hal_i2c_mock_last_config_msb(void);
 // — never while a previous test's GsrSensor/worker is still alive.
 void furi_hal_i2c_mock_reset(void);
 
+// Makes read_mem/write_mem sleep (a REAL usleep, not the fake tick) for
+// `ms` before returning — simulates a slow/stuck ADS1115 I2C transaction,
+// same purpose and shape as furi_hal_subghz_mock_set_rssi_delay_ms() for
+// the RF SPI path. Applies to BOTH calls (one knob, since gsr_sensor.c
+// times them into the same i2c_peak_ms column). 0 (default) disables it.
+void furi_hal_i2c_mock_set_delay_ms(uint32_t ms);
+
+// True for the exact real-time span read_mem/write_mem is inside its
+// (possibly artificially delayed) call — same purpose as
+// furi_hal_subghz_mock_rssi_call_in_progress() below.
+bool furi_hal_i2c_mock_call_in_progress(void);
+
 // ── SubGHz — gsr_sensor.c interleaved RSSI reads ─────────────────────────
 // Real function (not static inline) so tests can control its return value —
 // mirrors the I2C mock pattern above. The worker loop that calls this spins
@@ -184,5 +196,17 @@ int em_scan_rf_mock_last_band(void);
 // regardless of how far the worker has raced ahead by the time it's
 // checked — unlike em_scan_rf_mock_last_band().
 int em_scan_rf_mock_visit_count(int band);
+
+// Makes em_scan_rf_set_band() sleep (a REAL usleep, not the fake tick) for
+// `ms` before returning — simulates a slow/stuck band retune (the real
+// function is four chained CC1101 SPI transactions), same purpose and
+// shape as furi_hal_subghz_mock_set_rssi_delay_ms(). 0 (default) disables
+// it. Also reset by em_scan_rf_mock_reset().
+void em_scan_rf_mock_set_set_band_delay_ms(uint32_t ms);
+
+// True for the exact real-time span em_scan_rf_set_band() is inside its
+// (possibly artificially delayed) call — same purpose as
+// furi_hal_subghz_mock_rssi_call_in_progress().
+bool em_scan_rf_mock_set_band_call_in_progress(void);
 
 void em_scan_rf_mock_reset(void);

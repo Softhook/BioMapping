@@ -107,6 +107,18 @@ static _Atomic bool     g_read_fail   = false;
 static _Atomic int      g_fail_every_nth = 0;
 static _Atomic int      g_write_count = 0;
 static _Atomic uint8_t  g_last_config_msb = 0;
+// Simulates a slow/stuck I2C transaction — same real-usleep stand-in as
+// furi_hal_subghz_mock_set_rssi_delay_ms(), for a stuck ADS1115 transfer
+// instead of a stuck CC1101 one. Applied to BOTH read_mem and write_mem
+// (one knob for either call site, mirroring gsr_sensor.c's i2c_peak_ms
+// column covering both) — unconditionally, before any
+// success/failure resolution, same ordering as the RSSI mock. 0 (default)
+// disables the artificial delay.
+static _Atomic uint32_t g_i2c_delay_ms = 0;
+// True for the exact real-time span read_mem/write_mem is inside its
+// (possibly artificially delayed) call — mirrors
+// furi_hal_subghz_mock_rssi_call_in_progress(), same purpose.
+static _Atomic bool     g_i2c_call_in_progress = false;
 
 void furi_hal_i2c_acquire(const FuriHalI2cBusHandle* handle) {
     (void)handle;
@@ -124,14 +136,26 @@ bool furi_hal_i2c_read_mem(
     (void)addr;
     (void)mem_addr;
     (void)timeout_ms;
+    atomic_store(&g_i2c_call_in_progress, true);
+    uint32_t delay_ms = atomic_load(&g_i2c_delay_ms);
+    if(delay_ms > 0) {
+        usleep(delay_ms * 1000);
+    }
     int call_num = atomic_fetch_add(&g_read_count, 1) + 1; // 1-based
-    if(atomic_load(&g_read_fail)) return false;
+    if(atomic_load(&g_read_fail)) {
+        atomic_store(&g_i2c_call_in_progress, false);
+        return false;
+    }
     int n = atomic_load(&g_fail_every_nth);
-    if(n > 0 && (call_num % n) == 0) return false;
+    if(n > 0 && (call_num % n) == 0) {
+        atomic_store(&g_i2c_call_in_progress, false);
+        return false;
+    }
 
     int16_t v = atomic_load(&g_raw16);
     if(len >= 1) data[0] = (uint8_t)((uint16_t)v >> 8);
     if(len >= 2) data[1] = (uint8_t)((uint16_t)v & 0xFF);
+    atomic_store(&g_i2c_call_in_progress, false);
     return true;
 }
 
@@ -143,9 +167,23 @@ bool furi_hal_i2c_write_mem(
     (void)addr;
     (void)mem_addr;
     (void)timeout_ms;
+    atomic_store(&g_i2c_call_in_progress, true);
+    uint32_t delay_ms = atomic_load(&g_i2c_delay_ms);
+    if(delay_ms > 0) {
+        usleep(delay_ms * 1000);
+    }
     atomic_fetch_add(&g_write_count, 1);
     if(len >= 1) atomic_store(&g_last_config_msb, data[0]);
+    atomic_store(&g_i2c_call_in_progress, false);
     return true;
+}
+
+void furi_hal_i2c_mock_set_delay_ms(uint32_t ms) {
+    atomic_store(&g_i2c_delay_ms, ms);
+}
+
+bool furi_hal_i2c_mock_call_in_progress(void) {
+    return atomic_load(&g_i2c_call_in_progress);
 }
 
 void furi_hal_i2c_mock_set_raw16(int16_t value) {
@@ -179,6 +217,8 @@ void furi_hal_i2c_mock_reset(void) {
     atomic_store(&g_fail_every_nth, 0);
     atomic_store(&g_write_count, 0);
     atomic_store(&g_last_config_msb, 0);
+    atomic_store(&g_i2c_delay_ms, 0);
+    atomic_store(&g_i2c_call_in_progress, false);
 }
 
 // ── SubGHz RF band-control stubs for host test harness ──────────────────
@@ -221,6 +261,16 @@ static _Atomic int   g_rf_band_visit_count[RF_MOCK_MAX_BANDS]; // 1-based: 1 = c
 static _Atomic bool  g_subghz_first_read_pending        = false;
 static _Atomic bool  g_subghz_first_read_spike_enabled  = false;
 static _Atomic float g_subghz_first_read_spike_value    = 0.0f;
+// Simulates a slow/stuck band-retune (the real function is four chained
+// CC1101 SPI transactions — idle/flush_rx/set_frequency_and_path/rx, see
+// em_scan_rf.c) — same real-usleep stand-in as
+// furi_hal_subghz_mock_set_rssi_delay_ms(), applied unconditionally before
+// the rest of this mock's bookkeeping. 0 (default) disables it.
+static _Atomic uint32_t g_rf_set_band_delay_ms = 0;
+// True for the exact real-time span em_scan_rf_set_band() is inside its
+// (possibly artificially delayed) call — mirrors
+// furi_hal_subghz_mock_rssi_call_in_progress(), same purpose.
+static _Atomic bool     g_rf_set_band_call_in_progress = false;
 
 __attribute__((weak)) void em_scan_rf_init(void) {
     atomic_fetch_add(&g_rf_init_count, 1);
@@ -229,6 +279,11 @@ __attribute__((weak)) void em_scan_rf_deinit(void) {
     atomic_fetch_add(&g_rf_deinit_count, 1);
 }
 __attribute__((weak)) void em_scan_rf_set_band(int band_index) {
+    atomic_store(&g_rf_set_band_call_in_progress, true);
+    uint32_t delay_ms = atomic_load(&g_rf_set_band_delay_ms);
+    if(delay_ms > 0) {
+        usleep(delay_ms * 1000);
+    }
     atomic_fetch_add(&g_rf_set_band_count, 1);
     atomic_store(&g_rf_last_band, band_index);
     atomic_store(&g_rf_current_band, band_index);
@@ -236,6 +291,15 @@ __attribute__((weak)) void em_scan_rf_set_band(int band_index) {
         atomic_fetch_add(&g_rf_band_visit_count[band_index], 1);
     }
     atomic_store(&g_subghz_first_read_pending, true);
+    atomic_store(&g_rf_set_band_call_in_progress, false);
+}
+
+void em_scan_rf_mock_set_set_band_delay_ms(uint32_t ms) {
+    atomic_store(&g_rf_set_band_delay_ms, ms);
+}
+
+bool em_scan_rf_mock_set_band_call_in_progress(void) {
+    return atomic_load(&g_rf_set_band_call_in_progress);
 }
 
 int em_scan_rf_mock_init_count(void) {
@@ -266,6 +330,8 @@ void em_scan_rf_mock_reset(void) {
     atomic_store(&g_rf_current_band, -1);
     for(int i = 0; i < RF_MOCK_MAX_BANDS; i++) atomic_store(&g_rf_band_visit_count[i], 0);
     atomic_store(&g_subghz_first_read_pending, false);
+    atomic_store(&g_rf_set_band_delay_ms, 0);
+    atomic_store(&g_rf_set_band_call_in_progress, false);
 }
 
 // ── SubGHz — gsr_sensor.c's interleaved RSSI read ───────────────────────

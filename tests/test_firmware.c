@@ -103,9 +103,11 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
     if(n <= 0 || (size_t)n >= sizeof(row)) return false;
 
     int nd = snprintf(row + n, sizeof(row) - (size_t)n,
-                      ",%u,%u,%u,%.1f",
+                      ",%u,%u,%u,%.1f,%u,%u,%u",
                       (unsigned)diag->tick_dt_ms, (unsigned)diag->gps_rx_drops,
-                      (unsigned)diag->nmea_fail, (double)diag->gsr_hz);
+                      (unsigned)diag->nmea_fail, (double)diag->gsr_hz,
+                      (unsigned)diag->i2c_peak_ms, (unsigned)diag->rf_rssi_peak_ms,
+                      (unsigned)diag->rf_retune_peak_ms);
     if(nd <= 0 || (size_t)(n + nd) >= sizeof(row)) return false;
     n += nd;
 
@@ -508,8 +510,12 @@ void test_csv_formatting() {
     GpsPosition pos = {0};
     // Fixed, recognizable diagnostic values (RowDiag, biomap_types.h) so
     // the expected strings below actually exercise the new columns'
-    // formatting, not just leave them at zero.
-    RowDiag diag = {.tick_dt_ms = 100, .gps_rx_drops = 2, .nmea_fail = 1, .gsr_hz = 987.6f};
+    // formatting, not just leave them at zero. Distinct values on the
+    // three peak_ms fields (3, 4, 5) so a column-order mistake in the
+    // formatter would show up as a wrong-order match failure here, not a
+    // false pass.
+    RowDiag diag = {.tick_dt_ms = 100, .gps_rx_drops = 2, .nmea_fail = 1, .gsr_hz = 987.6f,
+                     .i2c_peak_ms = 3, .rf_rssi_peak_ms = 4, .rf_retune_peak_ms = 5};
 
     // Case 1: Valid 3D GPS fix with speed and course — RF OFF (rf_rssi = NULL)
     pos.valid = true;
@@ -525,20 +531,20 @@ void test_csv_formatting() {
 
     mock_logger_buf[0] = '\0';
     format_gps_csv_row(&s, &pos, 1.25, 8345.3f, NULL, &diag);
-    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4,100,2,1,987.6\n") == 0);
+    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4,100,2,1,987.6,3,4,5\n") == 0);
 
     // Case 2: Valid GPS fix but no speed/course (stationary) — RF OFF
     pos.speed_kts = NAN;
     pos.course_deg = NAN;
     mock_logger_buf[0] = '\0';
     format_gps_csv_row(&s, &pos, 2.50, 8350.0f, NULL, &diag);
-    assert(strcmp(mock_logger_buf, "2.50,51.5557397,-0.0714595,0.9,1.3,16,3,,,8350.0,2.4,100,2,1,987.6\n") == 0);
+    assert(strcmp(mock_logger_buf, "2.50,51.5557397,-0.0714595,0.9,1.3,16,3,,,8350.0,2.4,100,2,1,987.6,3,4,5\n") == 0);
 
     // Case 3: Invalid GPS fix (e.g. startup, or high HDOP > 5.0) — RF OFF
     pos.hdop = 6.0f; // Exceeds gate limit
     mock_logger_buf[0] = '\0';
     format_gps_csv_row(&s, &pos, 3.75, 8400.0f, NULL, &diag);
-    assert(strcmp(mock_logger_buf, "3.75,,,,,,,,,8400.0,,100,2,1,987.6\n") == 0);
+    assert(strcmp(mock_logger_buf, "3.75,,,,,,,,,8400.0,,100,2,1,987.6,3,4,5\n") == 0);
 
     // Case 4: Valid GPS fix — RF ON (3 extra columns: raw RSSI per band)
     pos.hdop = 0.9f;
@@ -547,7 +553,69 @@ void test_csv_formatting() {
     float rf_rssi[3] = {-91.5f, -88.0f, -90.5f};
     mock_logger_buf[0] = '\0';
     format_gps_csv_row(&s, &pos, 1.25, 8345.3f, rf_rssi, &diag);
-    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4,100,2,1,987.6,-91.5,-88.0,-90.5\n") == 0);
+    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4,100,2,1,987.6,3,4,5,-91.5,-88.0,-90.5\n") == 0);
+
+    printf("  -> Pass\n");
+}
+
+// Counts comma-separated fields in a CSV header or row string — works for
+// either since both end in a trailing '\n' this simply doesn't count as a
+// field separator. `n` fields means `n-1` commas, so this returns
+// (comma count + 1).
+static int count_csv_columns(const char* s) {
+    int columns = 1;
+    for(const char* p = s; *p; p++) {
+        if(*p == ',') columns++;
+    }
+    return columns;
+}
+
+// Regression test for a real bug (2026-08-03): BIOMAP_CSV_COLS_GPS_GSR /
+// _GPS_GSR_RF (biomap_config.h) are a SEPARATE literal from the printf
+// format string in format_gps_csv_row() below — biomap_config.h's own doc
+// comment says "must stay in sync" but nothing enforced that. The three
+// peak_ms columns were added to the row formatter without updating these
+// header strings, so recorded files would have shipped with a header
+// listing 4 diagnostic columns while every row actually carried 7 — silent
+// on its own, but csv.DictReader (analyze_track.py) and the JS analyzer
+// both map columns by name from the header row, so the trailing rssi_815/
+// 868/915 columns would have been misread as soon as row width outran
+// what the header claimed. A column NAME/order check would also catch
+// this, but would need to duplicate the exact column list here and go
+// stale itself; comparing counts against a row this same test just
+// generated is the direct version of the property that actually broke —
+// "the header promises exactly as many fields as a row delivers".
+static void test_csv_header_matches_row_column_count(void) {
+    printf("Running test_csv_header_matches_row_column_count...\n");
+    Session s = {0};
+    GpsPosition pos = {0};
+    pos.valid = true;
+    pos.lat = 51.5557397;
+    pos.lon = -0.0714595;
+    pos.hdop = 0.9f;
+    pos.pdop = 1.3f;
+    pos.sats = 16;
+    pos.fix_type = 3;
+    pos.speed_kts = 5.25f;
+    pos.course_deg = 330.2f;
+    pos.hacc = 2.4f;
+    RowDiag diag = {.tick_dt_ms = 100, .gps_rx_drops = 2, .nmea_fail = 1, .gsr_hz = 987.6f,
+                     .i2c_peak_ms = 3, .rf_rssi_peak_ms = 4, .rf_retune_peak_ms = 5};
+
+    mock_logger_buf[0] = '\0';
+    format_gps_csv_row(&s, &pos, 1.25, 8345.3f, NULL, &diag);
+    int row_cols_no_rf = count_csv_columns(mock_logger_buf);
+    int header_cols_no_rf = count_csv_columns(BIOMAP_CSV_COLS_GPS_GSR);
+    printf("  GPS_GSR: header=%d row=%d\n", header_cols_no_rf, row_cols_no_rf);
+    assert(header_cols_no_rf == row_cols_no_rf);
+
+    float rf_rssi[3] = {-91.5f, -88.0f, -90.5f};
+    mock_logger_buf[0] = '\0';
+    format_gps_csv_row(&s, &pos, 1.25, 8345.3f, rf_rssi, &diag);
+    int row_cols_rf = count_csv_columns(mock_logger_buf);
+    int header_cols_rf = count_csv_columns(BIOMAP_CSV_COLS_GPS_GSR_RF);
+    printf("  GPS_GSR_RF: header=%d row=%d\n", header_cols_rf, row_cols_rf);
+    assert(header_cols_rf == row_cols_rf);
 
     printf("  -> Pass\n");
 }
@@ -1163,6 +1231,7 @@ int main() {
     printf("CSV / NMEA\n");
     printf("========================================\n");
     test_csv_formatting();
+    test_csv_header_matches_row_column_count();
     test_batch_printf_rollback_on_truncation();
     test_nmea_parsing();
 

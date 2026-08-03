@@ -123,11 +123,23 @@ typedef struct {
 // format_gps_csv_row() alongside GpsPosition so a future track can answer
 // "was the main loop or the GPS UART actually stalled" directly instead of
 // by inference from GPS accuracy after the fact.
+//
+// i2c_peak_ms/rf_rssi_peak_ms/rf_retune_peak_ms (2026-08-03, same
+// investigation) go one level deeper: given a stall in tick_dt_ms above,
+// which of the worker thread's three candidate blocking calls actually
+// caused it? Each is a lifetime-max real furi_get_tick() delta measured
+// immediately around one specific hardware call — see the matching
+// gsr_sensor_get_*_peak_ms() accessors (gsr_sensor.h) for exactly which
+// call site each one times. Never reset, same as gps_rx_drops/nmea_fail
+// above, so a track's later rows show which one first jumped and when.
 typedef struct {
     uint32_t tick_dt_ms;     // real furi_get_tick() delta since the previous Tick event
     uint32_t gps_rx_drops;   // cumulative UART bytes dropped (gps_uart's rx_stream was full)
     uint32_t nmea_fail;      // cumulative NMEA sentences that failed checksum/parse
     float    gsr_hz;         // GSR worker's real achieved sample rate (gsr_sensor_get_worker_hz)
+    uint32_t i2c_peak_ms;       // worst single GSR I2C call (read or PGA-change write) ever seen
+    uint32_t rf_rssi_peak_ms;   // worst single RF RSSI-poll SPI call ever seen
+    uint32_t rf_retune_peak_ms; // worst single RF band-retune SPI call ever seen
 } RowDiag;
 
 // ── Inline helpers ─────────────────────────────────────────────────────

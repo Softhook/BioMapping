@@ -149,6 +149,36 @@ with RF's dwell/pacing temporarily shortened on the RF-on leg to stress the
 SPI path rather than hope a casual walk happens to hit it. Until that
 exists, this bug stays open per the note at the top of this section.
 
+### 2026-08-03: track 116 recorded, real stalls found — added per-call attribution columns
+
+Track 116 (1824s, RF on throughout) recorded three real `tick_dt_ms`
+spikes (216ms, 789ms, and a 957ms stall with `gps_rx_drops` jumping 0→102
+in the same row) — the direct evidence the "still needed" step above was
+asking for. But `tick_dt_ms` alone can't say which of the worker thread's
+three candidate blocking calls (I2C read/write, RF RSSI poll, RF band
+retune) actually caused it — only that *something* on that thread did.
+
+Added three more `RowDiag` columns for exactly that: `i2c_peak_ms`,
+`rf_rssi_peak_ms`, `rf_retune_peak_ms` (`biomap_types.h`, populated in
+`biomap_session.c`'s `get_row_diag()`, sourced from new lifetime-max
+counters in `gsr_sensor.c` timed with `furi_get_tick()` immediately around
+each of the four call sites — see `gsr_sensor.h`'s
+`gsr_sensor_get_i2c_peak_ms()`/`_rf_rssi_peak_ms()`/`_rf_retune_peak_ms()`
+doc comments). `i2c_peak_ms` covers both I2C call sites (routine read and
+the rarer PGA-change config write), since the two never happen in the same
+loop iteration.
+
+Covered by three new host tests (`tests/test_gsr_sensor.c`) mirroring the
+existing slow-SPI-call tests: each injects a real delay into exactly one
+of the three underlying mock calls and asserts both that the matching
+column reports it and that the other two stay near zero — proving
+discrimination, not just detection. Required adding delay-injection mocks
+for I2C and `em_scan_rf_set_band()` (`tests/shims/furi_hal_mock.c`) — only
+the RF RSSI mock had one before. Real-recording verification (does one of
+these light up on the next long walk, and does it point at retune the
+occurrence-rate argument favored) is still outstanding — that's the actual
+close-out step, not the columns existing.
+
 ## Other open items
 
 Ranked by what would most change confidence in this fix, not by effort.

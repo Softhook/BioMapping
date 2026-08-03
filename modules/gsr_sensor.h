@@ -247,3 +247,16 @@ void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled);
 // the ADC path's `mutex` — never blocks on, or is blocked by, GSR sampling.
 void gsr_sensor_get_rf_snapshot(const GsrSensor* gsr, float* out_rssi_dbm);
 
+// Worst single blocking-call duration ever observed on the worker thread,
+// in ms — a lifetime max (never reset), timed immediately around each
+// hardware call with furi_get_tick(). Added 2026-08-03 alongside
+// biomap_types.h's RowDiag to answer "which specific call caused a given
+// main-loop stall" directly rather than by inference — see RowDiag's doc
+// comment and docs/gps_rf_mutex_status.md. Each covers exactly one call
+// site (i2c_peak_ms covers both the config-write and conversion-read I2C
+// calls, which are mutually exclusive per loop iteration — see the struct
+// comment in gsr_sensor.c). Returns 0 if unavailable. For diagnostics.
+uint32_t gsr_sensor_get_i2c_peak_ms(const GsrSensor* gsr);
+uint32_t gsr_sensor_get_rf_rssi_peak_ms(const GsrSensor* gsr);
+uint32_t gsr_sensor_get_rf_retune_peak_ms(const GsrSensor* gsr);
+

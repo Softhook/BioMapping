@@ -337,6 +337,27 @@ struct GsrSensor {
     // iteration) — see gsr_sensor_worker() — to avoid taking the mutex
     // on every single normal-operation read just to publish a 0.
     uint32_t consecutive_failures;
+
+    // Per-op-type worst-case blocking-call duration ever observed, in ms —
+    // real furi_get_tick() deltas measured immediately around each
+    // hardware call below, never reset (same "only grows" spirit as
+    // gps_uart's gps_rx_drops/nmea_fail — see RowDiag's doc comment,
+    // biomap_types.h). Added 2026-08-03 to answer "which of the candidate
+    // calls actually caused a given main-loop stall" directly, in place of
+    // inferring it from how often each call type runs. i2c_peak_ms covers
+    // BOTH I2C call sites in the worker below (the PGA-change config write
+    // and the routine conversion read) — the two are mutually exclusive
+    // within a single loop iteration, so one column covers both.
+    // i2c_peak_ms is guarded by `mutex` (the ADC-path lock, like the other
+    // diagnostics counters above); rf_rssi_peak_ms/rf_retune_peak_ms are
+    // guarded by `rf_mutex` instead, matching rf_rssi_dbm[]'s separation
+    // above — keeps RF diagnostic bookkeeping from ever contending with
+    // the ADC path, same reason the two mutexes exist at all. None of the
+    // three is ever updated while its mutex is held across the hardware
+    // call itself, only in the brief window afterward.
+    uint32_t i2c_peak_ms;
+    uint32_t rf_rssi_peak_ms;
+    uint32_t rf_retune_peak_ms;
 };
 
 // Background worker thread for 860 SPS ADC reading.  Writes normalized
@@ -362,11 +383,19 @@ static int32_t gsr_sensor_worker(void* context) {
         if(pga_changed) {
             furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
             uint8_t cfg[2] = { pga_msb(active_pga), 0xE3 };
+            uint32_t i2c_write_start = furi_get_tick();
             bool cfg_ok = furi_hal_i2c_write_mem(
                 &furi_hal_i2c_handle_external,
                 ADS1115_I2C_ADDR, ADS1115_CONFIG_REG,
                 cfg, 2, 50);
+            uint32_t i2c_write_dur = furi_get_tick() - i2c_write_start;
             furi_hal_i2c_release(&furi_hal_i2c_handle_external);
+
+            // Timed regardless of cfg_ok — a stall is worth recording
+            // whether or not the write it stalled on happened to succeed.
+            furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+            if(i2c_write_dur > gsr->i2c_peak_ms) gsr->i2c_peak_ms = i2c_write_dur;
+            furi_mutex_release(gsr->mutex);
 
             if(cfg_ok) {
                 furi_mutex_acquire(gsr->mutex, FuriWaitForever);
@@ -389,10 +418,12 @@ static int32_t gsr_sensor_worker(void* context) {
         // ── Normal read path: acquire I2C, read conversion, release. ────
         furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
         uint8_t data[2];
+        uint32_t i2c_read_start = furi_get_tick();
         bool ok = furi_hal_i2c_read_mem(
             &furi_hal_i2c_handle_external,
             ADS1115_I2C_ADDR, ADS1115_CONV_REG,
             data, 2, 50);
+        uint32_t i2c_read_dur = furi_get_tick() - i2c_read_start;
         furi_hal_i2c_release(&furi_hal_i2c_handle_external);
 
         // Counts every attempt, success or failure — distinguishes "the
@@ -401,6 +432,7 @@ static int32_t gsr_sensor_worker(void* context) {
         // these apart; see docs/gsr_filtering_analysis.md).
         furi_mutex_acquire(gsr->mutex, FuriWaitForever);
         gsr->attempt_count++;
+        if(i2c_read_dur > gsr->i2c_peak_ms) gsr->i2c_peak_ms = i2c_read_dur;
         furi_mutex_release(gsr->mutex);
 
         if(ok) {
@@ -519,13 +551,16 @@ static int32_t gsr_sensor_worker(void* context) {
 
             if(should_sample) {
                 int band = gsr->rf_band;
+                uint32_t rssi_start = furi_get_tick();
                 float r = furi_hal_subghz_get_rssi();
+                uint32_t rssi_dur = furi_get_tick() - rssi_start;
                 if(r > gsr->rf_dwell_peak[band]) {
                     gsr->rf_dwell_peak[band] = r;
                 }
 
                 furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
                 gsr->rf_rssi_dbm[band] = gsr->rf_dwell_peak[band];
+                if(rssi_dur > gsr->rf_rssi_peak_ms) gsr->rf_rssi_peak_ms = rssi_dur;
                 furi_mutex_release(gsr->rf_mutex);
 
                 uint32_t dwell_ticks = (RF_DWELL_MS * furi_kernel_get_tick_frequency()) / 1000;
@@ -534,7 +569,12 @@ static int32_t gsr_sensor_worker(void* context) {
                     gsr->rf_dwell_start_tick = now_tick;
                     gsr->rf_dwell_peak[band] = -127.0f; // reset dwell peak for next visit
                     gsr->rf_band = (band + 1) % EM_SCAN_NUM_FREQS;
+                    uint32_t retune_start = furi_get_tick();
                     em_scan_rf_set_band(gsr->rf_band);
+                    uint32_t retune_dur = furi_get_tick() - retune_start;
+                    furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
+                    if(retune_dur > gsr->rf_retune_peak_ms) gsr->rf_retune_peak_ms = retune_dur;
+                    furi_mutex_release(gsr->rf_mutex);
                 }
                 gsr->rf_spi_busy = false; // SPI region ends here — see doc comment above
             }
@@ -640,6 +680,7 @@ GsrSensor* gsr_sensor_alloc(void) {
     gsr->tick_window_ptp = 0;
     gsr->tick_window_min_gap = 0;
     gsr->tick_mains_hum_mag = 0.0f;
+    gsr->i2c_peak_ms = 0;
 
     gsr->rf_enabled = false;
     gsr->rf_spi_busy = false;
@@ -650,6 +691,8 @@ GsrSensor* gsr_sensor_alloc(void) {
         gsr->rf_dwell_peak[i] = -127.0f;
         gsr->rf_rssi_dbm[i] = -100.0f;
     }
+    gsr->rf_rssi_peak_ms = 0;
+    gsr->rf_retune_peak_ms = 0;
     gsr->rf_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     furi_check(gsr->rf_mutex, "GsrSensor: rf_mutex alloc failed");
 
@@ -998,6 +1041,45 @@ uint32_t gsr_sensor_get_pga_change_count(const GsrSensor* gsr) {
     furi_mutex_acquire(gsr->mutex, FuriWaitForever);
     uint32_t val = gsr->pga_change_rate_cached;
     furi_mutex_release(gsr->mutex);
+    return val;
+}
+
+// Worst single I2C call duration (config write OR conversion read, real
+// furi_get_tick() delta) ever observed on the worker thread — lifetime
+// max, never reset. See i2c_peak_ms's struct comment for why one column
+// covers both call sites. For diagnostics.
+uint32_t gsr_sensor_get_i2c_peak_ms(const GsrSensor* gsr) {
+    furi_check(gsr, "GsrSensor: NULL in get_i2c_peak_ms()");
+    if(!gsr->available) return 0;
+    furi_mutex_acquire(gsr->mutex, FuriWaitForever);
+    uint32_t val = gsr->i2c_peak_ms;
+    furi_mutex_release(gsr->mutex);
+    return val;
+}
+
+// Worst single furi_hal_subghz_get_rssi() call duration ever observed —
+// lifetime max, never reset. Guarded by rf_mutex, NOT gsr->mutex — same
+// separation reasoning as rf_rssi_dbm[] (see the struct's doc comment):
+// keeping this under the RF-dedicated lock means updating it can never
+// contend with the ADC path. For diagnostics.
+uint32_t gsr_sensor_get_rf_rssi_peak_ms(const GsrSensor* gsr) {
+    furi_check(gsr, "GsrSensor: NULL in get_rf_rssi_peak_ms()");
+    if(!gsr->available) return 0;
+    furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
+    uint32_t val = gsr->rf_rssi_peak_ms;
+    furi_mutex_release(gsr->rf_mutex);
+    return val;
+}
+
+// Worst single em_scan_rf_set_band() (band retune) call duration ever
+// observed — lifetime max, never reset. Guarded by rf_mutex — see
+// gsr_sensor_get_rf_rssi_peak_ms()'s comment. For diagnostics.
+uint32_t gsr_sensor_get_rf_retune_peak_ms(const GsrSensor* gsr) {
+    furi_check(gsr, "GsrSensor: NULL in get_rf_retune_peak_ms()");
+    if(!gsr->available) return 0;
+    furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
+    uint32_t val = gsr->rf_retune_peak_ms;
+    furi_mutex_release(gsr->rf_mutex);
     return val;
 }
 
