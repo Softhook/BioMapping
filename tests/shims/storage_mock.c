@@ -28,6 +28,7 @@ struct Storage {
     bool     fail_next_open;
     bool     fail_writes;
     uint32_t next_write_delay_ticks;
+    int      sync_call_count;
 };
 
 struct File {
@@ -166,9 +167,11 @@ bool storage_file_close(File* file) {
 // Always succeeds; no fail-injection hook exists for this yet since no
 // test currently needs to exercise a sync failure.
 bool storage_file_sync(File* file) {
-    (void)file;
+    file->storage->sync_call_count++;
     return true;
 }
+
+int storage_mock_sync_call_count(Storage* storage) { return storage->sync_call_count; }
 
 size_t storage_file_write(File* file, const void* buff, size_t bytes_to_write) {
     Storage* s = file->storage;

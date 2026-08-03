@@ -116,6 +116,12 @@ void storage_mock_fail_next_open(Storage* storage, bool fail);
 // requested length (simulates a failed/full SD write).
 void storage_mock_fail_writes(Storage* storage, bool fail);
 
+// Total number of storage_file_sync() calls made so far across the whole
+// Storage instance — lets a test verify sync cadence (e.g. that
+// sd_logger.c's SD_LOGGER_SYNC_INTERVAL_MS actually suppresses most calls)
+// without caring about the mock's sync() being otherwise a no-op.
+int storage_mock_sync_call_count(Storage* storage);
+
 // Makes the next storage_file_write() call advance the shared fake clock
 // (tests/shims/furi.h's furi_test_advance_tick()) by `ticks` before it
 // copies any bytes — a stand-in for a real SD card occasionally taking far

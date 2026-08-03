@@ -275,6 +275,150 @@ So: the *existence* of occasional multi-hundred-ms write stalls isn't a bug in t
 
 **Not changed as a result of this entry** — this is research/documentation only, per the "hypothetically speaking" framing this was raised under. If the freezes turn out to matter enough in practice, the ranked options above (background-thread flush > bigger buffer > pre-allocated file > card swap) are the candidates to revisit, roughly in order of how directly each addresses "the app freezes," not "the card is occasionally slow" (which none of them eliminate).
 
+### 2026-08-03: track 118 recorded — flush hypothesis directly confirmed (independently verified); RF/I2C get a real negative confirmation
+
+Track 118 (1454s / ~24 min, real outdoor GPS+GSR+RF walk, live fix throughout)
+was the first recording made with `flush_peak_ms` in the CSV. Unlike track
+117's statistical/phase correlation, this one shows direct, same-row causation:
+
+- Row 5270 (t=527.00s): `tick_dt_ms=973`, and `flush_peak_ms` jumps
+  `102→949` **in that exact row**. 949+overhead ≈ 973 — the flush call
+  alone accounts for essentially the entire stall.
+- `i2c_peak_ms`/`rf_rssi_peak_ms`/`rf_retune_peak_ms` at that row: 3/2/6 —
+  unchanged from surrounding rows. Their maxima across all 14,539 rows of
+  the whole 24-minute track: 3ms / 2ms / 7ms. Never remotely close.
+- Row 0's 675ms startup transient is unrelated (`flush_peak_ms=0` there,
+  same as track 117's).
+
+**Independently verified by two separate agents**, each given only the raw
+CSV, the column semantics, and the surrounding source files — no access to
+this document's conclusions, no shared context with each other. Both
+converged on the identical row (5270), identical values (973/949), and the
+identical conclusion (i2c/rf never approach any tick spike, anywhere in the
+file). This upgrades the finding from single-analyst inference to an
+independently reproduced result.
+
+**Negative confirmation, combined across tracks 117+118** (~1816s / ~30 min
+of real on-device recording with per-call attribution live, RF active in
+both): `i2c_peak_ms` max 3ms, `rf_rssi_peak_ms` max 2ms, `rf_retune_peak_ms`
+max 7ms — across the board, in real usage, since the mutex fix. That's a
+direct, repeated, real-world negative result for the RF/I2C side of the
+original bug (see "The bug this was about" at the top of this document):
+RF's SPI retune and RSSI poll are not blocking anything, with wide margin
+under the 100ms tick budget. This is real evidence, not just verified
+mechanism-in-isolation — but it's ~30 minutes of data, not proof the
+firmware-level unbounded SPI busy-wait (item 5, "Other open items" below)
+can never fire; it just hasn't.
+
+**New, separate, unexplained finding** (both agents surfaced this
+independently in track 118, neither was asked to look for it specifically):
+starting with sparse isolated occurrences around t≈607s and becoming a
+continuous, unbroken pattern from t=1111.5s to the end of the recording
+(the last ~342s), `tick_dt_ms` enters a regular 5-row (0.5s) cycle:
+~150-157ms (peaking to 250ms right when it overlaps a flush tick) followed
+by a ~45-52ms compensating dip — net ~200ms per 2-tick cycle, no drift.
+Initially looked correlated with `sats` alternating (11↔19), but both
+independent agents disproved that as the driver: the correlation vanishes
+later in the file (`sats` steady at 21 through both phases in the last
+~60s) and `sats` jitter appears earlier in the recording without
+triggering the pattern. `fix_type`/`hdop`/`gps_rx_drops`/`nmea_fail` show
+no discrete change at onset either. Logged as an open item below — minor
+(no data loss, self-correcting, never exceeds ~250ms) but genuinely
+unexplained, distinct from both the SD-flush and RF/I2C questions.
+
+### 2026-08-03: SD flush mitigation options (proposed, none implemented)
+
+With the flush confirmed as the real, sized cause of the freeze (track 118
+entry above) and RF/I2C cleared, here are the candidate mitigations,
+ordered cheapest/least-invasive to most structural. **None of these have
+been implemented** — this is a menu to choose from, not a plan in progress.
+
+**A. Move the flush to a dedicated background thread** (the PX4-style fix).
+Give the logger its own Furi thread that owns the SD file; the Tick
+handler swaps a filled buffer into a queue instead of calling
+`sd_logger_batch_flush()` itself. A slow `storage_file_write`/`sync` then
+only delays the *next* SD write, never the Tick/GUI/UART path. This is the
+only option that eliminates the freeze mechanism rather than reducing its
+odds — but it's also the highest-effort, highest-risk option: needs
+double-buffering (main thread keeps filling a fresh buffer while the
+worker flushes the previous one), a handoff mechanism, and `SdLogger`
+currently assumes a single caller thread, an assumption this would break.
+
+**C. [IMPLEMENTED 2026-08-03] Sync less often.** Skip `storage_file_sync()`
+on most flushes; only sync every Nth flush or right before stopping the
+recording. `sync` is the call most likely to catch the card mid-
+housekeeping, so this directly cuts how often that's touched. Trades away
+durability — currently a crash/pull loses at most ~10s of data
+(`FLUSH_INTERVAL`); this could push that to 30-60s+ depending on N.
+Doesn't eliminate the freeze, just makes hitting it rarer.
+
+Implemented as a time-based check (`SD_LOGGER_SYNC_INTERVAL_MS = 60000`,
+`modules/sd_logger.c`), not a flush-count threshold, so it stays correct
+regardless of the caller's own flush cadence: `sd_logger_batch_flush()`
+still calls `storage_file_write()` every time (write frequency, i.e.
+`FLUSH_INTERVAL` = 10s in `biomap_types.h`/`biomap_session.c`,
+**unchanged**), but `storage_file_sync()` now only fires once real elapsed
+time (`furi_get_tick()`) since the last sync reaches 60s — roughly once
+every 6th flush instead of every flush. New `last_sync_tick` field on
+`SdLogger`, initialized in `open_log_file()` right after the existing
+header sync so the first batch flush's decision is relative to the file's
+actual open time, not device uptime. `flush_peak_ms` (added in the track
+118 entry above) now times "whatever this call actually did" — write
+alone on most calls, write+sync on the ~1-in-6 call that also syncs — so
+it remains the correct "worst single call" signal without any further
+change.
+
+Durability trade now explicitly accepted: worst-case loss on a crash/pull
+grows from ~10s to ~60s. `sd_logger_stop()`'s final `storage_file_close()`
+still does an implicit FatFs flush+metadata commit on a normal stop,
+independent of this interval, so a *clean* stop is unaffected either way.
+
+Covered by a new host test, `test_sd_logger_sync_only_once_per_interval`
+(`tests/test_sd_logger.c`): asserts several flushes within the interval
+all write but don't trigger a second sync, then that crossing the
+interval (`furi_test_advance_tick(60000)`) does trigger exactly one more.
+Needed a sync call-counter on the mock (`storage_mock_sync_call_count()`,
+`tests/shims/storage_mock.c`/`storage/storage.h`) that didn't exist
+before — the mock's `storage_file_sync()` was a bare no-op with nothing to
+assert against. Full host test suite (`./run_tests.sh`) passes, 15/15
+`test_sd_logger` cases.
+
+**Not yet done**: a real recording to see whether this actually reduces
+how often `flush_peak_ms` spikes in practice — everything above verifies
+the mechanism (write/sync decoupled, cadence correct) on a host compiler
+with mocked storage, not that it measurably helps on a real card.
+
+**D. Tune `FLUSH_INTERVAL`/buffer size.** A dial, not a fix, and it cuts
+both ways: smaller/more-frequent flushes reduce backlog-at-risk per event
+but increase total exposure events; bigger/less-frequent reduces exposure
+events but risks a bigger stall when one lands. Cheap to experiment with
+(one `#define`), and now directly measurable with `flush_peak_ms` already
+in place — could A/B a couple of values against real walks.
+
+**E. Pre-allocate the log file up front.** Avoids the FAT cluster/
+metadata-update overhead when the file grows via repeated appends — one of
+the three implementation factors from the SD-card-research entry above.
+Moderate effort (need to confirm the storage API exposes a pre-allocate/
+seek-extend primitive). Likely a secondary win at best — the data (track
+118's 949ms) points at SD-internal garbage collection as the dominant
+cause, not FAT overhead, so this alone probably won't close the gap.
+
+**F. Card selection/preconditioning.** Swap to a known-good SD card (PX4
+publishes ones like SanDisk Extreme U3/Samsung EVO Plus that don't show
+write-time spikes in their testing) and/or reformat the current one. Zero
+code change, cheap to test, could make the problem rare-to-vanishing if the
+card in hand is just a bad one — but doesn't fix it for anyone else running
+this firmware with a different card; it's a workaround for this specific
+card, not the app.
+
+**Suggested order of attack**: C is done (above); next is a real recording
+to see whether it actually helped, and trying F (cheap, might make this
+moot on its own) and D (nearly free to experiment with) alongside it.
+Treat something like A as the real structural fix only if the freeze
+turns out to cost something concrete (dropped GPS bytes, UART overflow)
+that justifies a threading rework — right now it's a felt freeze, not a
+proven data-loss problem, based on what's been measured so far.
+
 ## Other open items
 
 Ranked by what would most change confidence in this fix, not by effort.
@@ -317,7 +461,27 @@ Ranked by what would most change confidence in this fix, not by effort.
    confirmed byte-identical) discards its `timeout` parameter. Reducing
    exposure (10 Hz RF pacing) is the only lever available from app code —
    this is a permanent, accepted risk, not a to-do item.
-6. **Cosmetic, optional**: `gsr->available` is set `true` unconditionally
+   **[2026-08-03 update]** Real-world data now backs this up rather than
+   just leaving it theoretical: tracks 117+118 (~30 min combined real
+   recording, RF active, `i2c_peak_ms`/`rf_rssi_peak_ms`/`rf_retune_peak_ms`
+   live) show these calls consistently taking 1-7ms, nowhere near the
+   ~100ms tick budget — see the track 118 entry above. That's real headroom
+   to pace RF more aggressively (shorter dwell / more frequent retune) if
+   desired; the risk itself (firmware-level unbounded busy-wait) is still
+   permanent and unproven-impossible, just not observed to matter in
+   practice so far.
+6. **[NEW 2026-08-03] Unexplained 2Hz `tick_dt_ms` oscillation, track 118,
+   t=1111.5s to end of recording** (building up from sparse occurrences
+   around t≈607s). See the track 118 entry above for the full pattern.
+   Ruled out: `sats`/GSV-burst correlation (both independent verification
+   agents found it doesn't hold up through the whole affected region).
+   Not yet investigated: whether it's `view_port_update()`'s 2Hz redraw
+   pacing getting heavier (the 5-row/0.5s period matches that call's
+   cadence exactly), a GPS-fix-quality effect distinct from raw `sats`,
+   or something else entirely. Low priority — no data loss, self-correcting,
+   never exceeds ~250ms — but a real, reproducible pattern change, not
+   noise.
+7. **Cosmetic, optional**: `gsr->available` is set `true` unconditionally
    at alloc (right after a `furi_check` that would already have aborted on
    allocation failure) and never set `false` anywhere — every
    `if(!gsr->available) return;` guard in every accessor is dead code.

@@ -13,6 +13,19 @@
 #define LOGGER_EXT       ".csv"
 #define LOGGER_MAX_INDEX 999
 
+// Minimum real time between forced storage_file_sync() calls (2026-08-03,
+// docs/gps_rf_mutex_status.md's SD-flush investigation). storage_file_write()
+// still runs on every batch_flush() call (every FLUSH_INTERVAL, 10s —
+// biomap_types.h), same as before — this only decouples the durability-
+// forcing sync from that cadence. Time-based (furi_get_tick()), not a flush
+// count, so it stays correct regardless of the caller's own flush cadence.
+// Trade-off, deliberately accepted: worst-case data loss on a crash/pull
+// grows from ~FLUSH_INTERVAL (10s) to ~this value (60s), in exchange for
+// forcing far fewer of the durability commits most likely to catch the SD
+// card mid-housekeeping (see the doc's "hypothesis" entry for why sync
+// specifically, not the data write, is the suspected trigger).
+#define SD_LOGGER_SYNC_INTERVAL_MS 60000
+
 struct SdLogger {
     Storage* storage;
     File*    file;
@@ -26,9 +39,15 @@ struct SdLogger {
     char gsr_batch[12288];
     int  gsr_batch_len;
 
-    // Worst single batch_flush() (write+sync) real duration ever seen —
-    // see sd_logger_get_flush_peak_ms()'s doc comment (sd_logger.h).
+    // Worst single batch_flush() real duration ever seen (write, plus sync
+    // when one happens to run in that same call) — see
+    // sd_logger_get_flush_peak_ms()'s doc comment (sd_logger.h).
     uint32_t flush_peak_ms;
+
+    // furi_get_tick() as of the last successful storage_file_sync() (header
+    // sync at open, or a batch flush's periodic sync) — see
+    // SD_LOGGER_SYNC_INTERVAL_MS above.
+    uint32_t last_sync_tick;
 };
 
 SdLogger* sd_logger_alloc(Storage* storage) {
@@ -114,6 +133,10 @@ static bool open_log_file(SdLogger* l, const char* header) {
     if(!header_synced) {
         FURI_LOG_W("SdLogger", "Header sync failed (written, not yet confirmed durable)");
     }
+    // Baseline for SD_LOGGER_SYNC_INTERVAL_MS — relative to this file's own
+    // open time, not device uptime, so the first batch flush's sync
+    // decision reflects real elapsed recording time.
+    l->last_sync_tick = furi_get_tick();
 
     l->active = true;
     FURI_LOG_I("SdLogger", "Recording to %s", full_path);
@@ -152,13 +175,20 @@ void sd_logger_stop(SdLogger* l) {
 // a deliberate simplification — FatFs writes at this size (<=4 KB) are
 // effectively atomic in practice, so tracking a partial-write remainder
 // with a memmove isn't worth the complexity for an edge case this rare.
+//
+// storage_file_write() runs every call; storage_file_sync() only runs once
+// SD_LOGGER_SYNC_INTERVAL_MS has actually elapsed since the last one (see
+// that constant's doc comment) — the two used to always run back to back,
+// now they don't. A write-only call still gets bytes to the card's own
+// cache (see sd_logger.h's doc comment on this distinction); it just isn't
+// forced durable/FAT-committed on every call anymore.
 int sd_logger_batch_flush(SdLogger* l) {
     furi_check(l, "SdLogger: NULL in batch_flush()");
     if(!l->active || !l->file) return 0;
     if(l->gsr_batch_len == 0) return 0;
 
-    // Timed as one unit (write+sync) since they always run back to back
-    // here and the caller (biomap_session.c's Tick handler) only cares
+    // Timed as one unit (write, plus sync when this call's the one that
+    // runs it) — the caller (biomap_session.c's Tick handler) only cares
     // about the total real time this call held the main thread — see
     // sd_logger_get_flush_peak_ms()'s doc comment (sd_logger.h).
     uint32_t flush_start = furi_get_tick();
@@ -177,9 +207,12 @@ int sd_logger_batch_flush(SdLogger* l) {
 
     l->gsr_batch_len = 0;
 
-    bool batch_synced = storage_file_sync(l->file);
-    if(!batch_synced) {
-        FURI_LOG_W("SdLogger", "Batch sync failed");
+    if(furi_get_tick() - l->last_sync_tick >= SD_LOGGER_SYNC_INTERVAL_MS) {
+        bool batch_synced = storage_file_sync(l->file);
+        if(!batch_synced) {
+            FURI_LOG_W("SdLogger", "Batch sync failed");
+        }
+        l->last_sync_tick = furi_get_tick();
     }
 
     uint32_t flush_dur = furi_get_tick() - flush_start;

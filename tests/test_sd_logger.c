@@ -318,6 +318,50 @@ static void test_sd_logger_flush_peak_ms_detects_slow_flush(void) {
     printf("  -> Pass\n");
 }
 
+// 2026-08-03: SD_LOGGER_SYNC_INTERVAL_MS decouples storage_file_sync() from
+// storage_file_write() (docs/gps_rf_mutex_status.md's SD-flush mitigation
+// entry) — write still happens every batch_flush() call, but sync should
+// only fire once real elapsed time crosses the interval, not on every
+// call. Verifies the actual cadence, not just that sync eventually happens.
+static void test_sd_logger_sync_only_once_per_interval(void) {
+    printf("Running test_sd_logger_sync_only_once_per_interval...\n");
+    Storage* storage = storage_mock_alloc();
+    SdLogger* l = sd_logger_alloc(storage);
+    assert(sd_logger_start(l, "H\n"));
+    // sd_logger_start()'s header write syncs once, unconditionally.
+    assert(storage_mock_sync_call_count(storage) == 1);
+
+    // Several flushes shortly after start (well under the 60s interval)
+    // must all write but none may trigger an additional sync.
+    for(int i = 0; i < 3; i++) {
+        assert(sd_logger_batch_append(l, "row\n", 4));
+        assert(sd_logger_batch_flush(l) == 4);
+    }
+    assert(storage_mock_sync_call_count(storage) == 1);
+
+    size_t len;
+    const uint8_t* contents = storage_mock_get_file_contents(
+        storage, "/ext/biomapping/biomap_001.csv", &len);
+    // The writes themselves still happened despite no new sync.
+    assert(memcmp(contents, "H\nrow\nrow\nrow\n", len) == 0);
+
+    // Cross the interval — the next flush must sync.
+    furi_test_advance_tick(60000);
+    assert(sd_logger_batch_append(l, "row\n", 4));
+    assert(sd_logger_batch_flush(l) == 4);
+    assert(storage_mock_sync_call_count(storage) == 2);
+
+    // Immediately after, another flush must NOT sync again (interval just
+    // reset by the one above).
+    assert(sd_logger_batch_append(l, "row\n", 4));
+    assert(sd_logger_batch_flush(l) == 4);
+    assert(storage_mock_sync_call_count(storage) == 2);
+
+    sd_logger_free(l);
+    storage_mock_free(storage);
+    printf("  -> Pass\n");
+}
+
 static void test_sd_logger_free_while_active_stops_cleanly(void) {
     printf("Running test_sd_logger_free_while_active_stops_cleanly...\n");
     Storage* storage = storage_mock_alloc();
@@ -350,8 +394,9 @@ int main(void) {
     test_sd_logger_batch_printf_truncation_rolls_back();
     test_sd_logger_batch_append_overflow_rejected();
     test_sd_logger_flush_peak_ms_detects_slow_flush();
+    test_sd_logger_sync_only_once_per_interval();
     test_sd_logger_free_while_active_stops_cleanly();
 
-    printf("\nAll 14 sd_logger host tests passed successfully!\n");
+    printf("\nAll 15 sd_logger host tests passed successfully!\n");
     return 0;
 }
