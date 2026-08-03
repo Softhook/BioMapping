@@ -28,31 +28,19 @@ void        sd_logger_stop(SdLogger* logger);
 //                             or 0 on overflow (logged internally).
 //   sd_logger_batch_flush   — flush buffer to SD, returns >0 on success (bytes
 //                             written), 0 if buffer was empty, <0 on error.
-//                             storage_file_write() runs every call; the
-//                             durability-forcing storage_file_sync() only
-//                             runs once SD_LOGGER_SYNC_INTERVAL_MS (60s,
-//                             sd_logger.c) has elapsed since the last one —
-//                             a "successful" write before that still only
-//                             means the bytes reached the card's own cache,
-//                             not confirmed physical media (2026-08-03,
-//                             docs/gps_rf_mutex_status.md's SD-flush entry).
 int         sd_logger_batch_flush(SdLogger* logger);
 bool        sd_logger_batch_append(SdLogger* logger, const char* data, size_t len);
 int         sd_logger_batch_printf(SdLogger* logger, const char* fmt, ...);
 
 const char* sd_logger_get_filename(const SdLogger* logger);
 
-// Worst single sd_logger_batch_flush() call ever seen (storage_file_write(),
-// plus storage_file_sync() when that particular call is the one that runs
-// it — see sd_logger_batch_flush()'s doc comment above), real
-// furi_get_tick() delta, in ms. Lifetime max, never reset — added
-// 2026-08-03 alongside gsr_sensor.h's
+// Worst single sd_logger_batch_flush() call ever seen (storage_file_write()
+// + storage_file_sync() together, real furi_get_tick() delta), in ms.
+// Lifetime max, never reset — added 2026-08-03 alongside gsr_sensor.h's
 // i2c_peak_ms/rf_rssi_peak_ms/rf_retune_peak_ms: tracks 116 and 117 both
 // showed real tick_dt_ms stalls (up to ~950 ms) landing exactly on the
 // once-per-FLUSH_INTERVAL flush tick while those three GSR-worker-thread
 // columns stayed near zero, pointing at the SD write/sync itself (main
 // thread, ~20-60 ms normally, occasionally much longer on real SD cards)
-// rather than any GSR/RF hardware call. Track 118 then directly confirmed
-// it (tick_dt_ms and flush_peak_ms jumped together, same row). See
-// docs/gps_rf_mutex_status.md.
+// rather than any GSR/RF hardware call. See docs/gps_rf_mutex_status.md.
 uint32_t    sd_logger_get_flush_peak_ms(const SdLogger* logger);

@@ -344,49 +344,13 @@ double-buffering (main thread keeps filling a fresh buffer while the
 worker flushes the previous one), a handoff mechanism, and `SdLogger`
 currently assumes a single caller thread, an assumption this would break.
 
-**C. [IMPLEMENTED 2026-08-03] Sync less often.** Skip `storage_file_sync()`
-on most flushes; only sync every Nth flush or right before stopping the
-recording. `sync` is the call most likely to catch the card mid-
-housekeeping, so this directly cuts how often that's touched. Trades away
-durability — currently a crash/pull loses at most ~10s of data
-(`FLUSH_INTERVAL`); this could push that to 30-60s+ depending on N.
-Doesn't eliminate the freeze, just makes hitting it rarer.
-
-Implemented as a time-based check (`SD_LOGGER_SYNC_INTERVAL_MS = 60000`,
-`modules/sd_logger.c`), not a flush-count threshold, so it stays correct
-regardless of the caller's own flush cadence: `sd_logger_batch_flush()`
-still calls `storage_file_write()` every time (write frequency, i.e.
-`FLUSH_INTERVAL` = 10s in `biomap_types.h`/`biomap_session.c`,
-**unchanged**), but `storage_file_sync()` now only fires once real elapsed
-time (`furi_get_tick()`) since the last sync reaches 60s — roughly once
-every 6th flush instead of every flush. New `last_sync_tick` field on
-`SdLogger`, initialized in `open_log_file()` right after the existing
-header sync so the first batch flush's decision is relative to the file's
-actual open time, not device uptime. `flush_peak_ms` (added in the track
-118 entry above) now times "whatever this call actually did" — write
-alone on most calls, write+sync on the ~1-in-6 call that also syncs — so
-it remains the correct "worst single call" signal without any further
-change.
-
-Durability trade now explicitly accepted: worst-case loss on a crash/pull
-grows from ~10s to ~60s. `sd_logger_stop()`'s final `storage_file_close()`
-still does an implicit FatFs flush+metadata commit on a normal stop,
-independent of this interval, so a *clean* stop is unaffected either way.
-
-Covered by a new host test, `test_sd_logger_sync_only_once_per_interval`
-(`tests/test_sd_logger.c`): asserts several flushes within the interval
-all write but don't trigger a second sync, then that crossing the
-interval (`furi_test_advance_tick(60000)`) does trigger exactly one more.
-Needed a sync call-counter on the mock (`storage_mock_sync_call_count()`,
-`tests/shims/storage_mock.c`/`storage/storage.h`) that didn't exist
-before — the mock's `storage_file_sync()` was a bare no-op with nothing to
-assert against. Full host test suite (`./run_tests.sh`) passes, 15/15
-`test_sd_logger` cases.
-
-**Not yet done**: a real recording to see whether this actually reduces
-how often `flush_peak_ms` spikes in practice — everything above verifies
-the mechanism (write/sync decoupled, cadence correct) on a host compiler
-with mocked storage, not that it measurably helps on a real card.
+**C. Sync less often.** Skip `storage_file_sync()` on most flushes; only
+sync every Nth flush or right before stopping the recording. `sync` is the
+call most likely to catch the card mid-housekeeping, so this directly cuts
+how often that's touched. Trades away durability — currently a crash/pull
+loses at most ~10s of data (`FLUSH_INTERVAL`); this could push that to
+30-60s+ depending on N. Doesn't eliminate the freeze, just makes hitting it
+rarer.
 
 **D. Tune `FLUSH_INTERVAL`/buffer size.** A dial, not a fix, and it cuts
 both ways: smaller/more-frequent flushes reduce backlog-at-risk per event
@@ -411,13 +375,12 @@ card in hand is just a bad one — but doesn't fix it for anyone else running
 this firmware with a different card; it's a workaround for this specific
 card, not the app.
 
-**Suggested order of attack**: C is done (above); next is a real recording
-to see whether it actually helped, and trying F (cheap, might make this
-moot on its own) and D (nearly free to experiment with) alongside it.
-Treat something like A as the real structural fix only if the freeze
-turns out to cost something concrete (dropped GPS bytes, UART overflow)
-that justifies a threading rework — right now it's a felt freeze, not a
-proven data-loss problem, based on what's been measured so far.
+**Suggested order of attack**: try F first (cheap, might make this moot),
+tune D a little while at it since it's nearly free, then treat something
+like A as the real structural fix only if the freeze turns out to cost
+something concrete (dropped GPS bytes, UART overflow) that justifies a
+threading rework — right now it's a felt freeze, not a proven data-loss
+problem, based on what's been measured so far.
 
 ## Other open items
 
