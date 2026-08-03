@@ -48,16 +48,20 @@ typedef enum {
 // i2c_peak_ms/rf_rssi_peak_ms/rf_retune_peak_ms (2026-08-03): per-call
 // stall-attribution columns added alongside the above — see RowDiag's doc
 // comment and gsr_sensor.h's gsr_sensor_get_*_peak_ms() accessors.
+//
+// flush_peak_ms (2026-08-03): main-thread SD-flush stall attribution,
+// added once tracks 116/117 ruled out the three columns above — see
+// RowDiag's doc comment and sd_logger.h's sd_logger_get_flush_peak_ms().
 #define BIOMAP_CSV_COLS_GPS_GSR  \
     "timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m," \
     "tick_dt_ms,gps_rx_drops,nmea_fail,gsr_hz," \
-    "i2c_peak_ms,rf_rssi_peak_ms,rf_retune_peak_ms\n"
+    "i2c_peak_ms,rf_rssi_peak_ms,rf_retune_peak_ms,flush_peak_ms\n"
 #define BIOMAP_CSV_COLS_GSR_ONLY "timestamp,gsr_raw\n"
 // rssi_815/868/915 = raw per-band RSSI peak from the most recent dwell.
 #define BIOMAP_CSV_COLS_GPS_GSR_RF \
     "timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m," \
     "tick_dt_ms,gps_rx_drops,nmea_fail,gsr_hz," \
-    "i2c_peak_ms,rf_rssi_peak_ms,rf_retune_peak_ms," \
+    "i2c_peak_ms,rf_rssi_peak_ms,rf_retune_peak_ms,flush_peak_ms," \
     "rssi_815,rssi_868,rssi_915\n"
 
 

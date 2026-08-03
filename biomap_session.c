@@ -186,6 +186,7 @@ static inline RowDiag get_row_diag(const Session* s) {
     d.i2c_peak_ms       = s->gsr ? gsr_sensor_get_i2c_peak_ms(s->gsr) : 0;
     d.rf_rssi_peak_ms   = s->gsr ? gsr_sensor_get_rf_rssi_peak_ms(s->gsr) : 0;
     d.rf_retune_peak_ms = s->gsr ? gsr_sensor_get_rf_retune_peak_ms(s->gsr) : 0;
+    d.flush_peak_ms     = s->logger ? sd_logger_get_flush_peak_ms(s->logger) : 0;
     return d;
 }
 
@@ -258,11 +259,11 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
     // Contention-diagnostic columns — always present, ahead of the
     // optional RF suffix. See RowDiag's doc comment (biomap_types.h).
     int nd = snprintf(row + n, sizeof(row) - (size_t)n,
-                      ",%u,%u,%u,%.1f,%u,%u,%u",
+                      ",%u,%u,%u,%.1f,%u,%u,%u,%u",
                       (unsigned)diag->tick_dt_ms, (unsigned)diag->gps_rx_drops,
                       (unsigned)diag->nmea_fail, (double)diag->gsr_hz,
                       (unsigned)diag->i2c_peak_ms, (unsigned)diag->rf_rssi_peak_ms,
-                      (unsigned)diag->rf_retune_peak_ms);
+                      (unsigned)diag->rf_retune_peak_ms, (unsigned)diag->flush_peak_ms);
     if(nd <= 0 || (size_t)(n + nd) >= sizeof(row)) return false;
     n += nd;
 

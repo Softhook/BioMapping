@@ -27,6 +27,7 @@ struct Storage {
     bool     fail_next_dir_open;
     bool     fail_next_open;
     bool     fail_writes;
+    uint32_t next_write_delay_ticks;
 };
 
 struct File {
@@ -95,6 +96,10 @@ bool storage_mock_file_exists(Storage* storage, const char* path) {
 void storage_mock_fail_next_dir_open(Storage* storage, bool fail) { storage->fail_next_dir_open = fail; }
 void storage_mock_fail_next_open(Storage* storage, bool fail) { storage->fail_next_open = fail; }
 void storage_mock_fail_writes(Storage* storage, bool fail) { storage->fail_writes = fail; }
+
+void storage_mock_set_next_write_delay_ticks(Storage* storage, uint32_t ticks) {
+    storage->next_write_delay_ticks = ticks;
+}
 
 File* storage_file_alloc(Storage* storage) {
     File* f = malloc(sizeof(File));
@@ -167,6 +172,10 @@ bool storage_file_sync(File* file) {
 
 size_t storage_file_write(File* file, const void* buff, size_t bytes_to_write) {
     Storage* s = file->storage;
+    if(s->next_write_delay_ticks > 0) {
+        furi_test_advance_tick(s->next_write_delay_ticks);
+        s->next_write_delay_ticks = 0;
+    }
     if(s->fail_writes) return 0;
 
     MockFile* f = file->vfile;

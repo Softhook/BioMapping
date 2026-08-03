@@ -132,6 +132,14 @@ typedef struct {
 // gsr_sensor_get_*_peak_ms() accessors (gsr_sensor.h) for exactly which
 // call site each one times. Never reset, same as gps_rx_drops/nmea_fail
 // above, so a track's later rows show which one first jumped and when.
+//
+// flush_peak_ms (2026-08-03): tracks 116 and 117 both showed their only
+// real tick_dt_ms stalls landing exactly on a once-per-FLUSH_INTERVAL SD
+// flush tick, while the three columns above stayed near zero at that same
+// row — ruling out the GSR worker thread and pointing at
+// sd_logger_batch_flush() (main thread, write+sync) instead. Same
+// lifetime-max-since-start convention; see sd_logger_get_flush_peak_ms()'s
+// doc comment (sd_logger.h) for exactly what it times.
 typedef struct {
     uint32_t tick_dt_ms;     // real furi_get_tick() delta since the previous Tick event
     uint32_t gps_rx_drops;   // cumulative UART bytes dropped (gps_uart's rx_stream was full)
@@ -140,6 +148,7 @@ typedef struct {
     uint32_t i2c_peak_ms;       // worst single GSR I2C call (read or PGA-change write) ever seen
     uint32_t rf_rssi_peak_ms;   // worst single RF RSSI-poll SPI call ever seen
     uint32_t rf_retune_peak_ms; // worst single RF band-retune SPI call ever seen
+    uint32_t flush_peak_ms;     // worst single SD batch flush (write+sync) ever seen
 } RowDiag;
 
 // ── Inline helpers ─────────────────────────────────────────────────────

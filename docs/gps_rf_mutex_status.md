@@ -179,6 +179,102 @@ these light up on the next long walk, and does it point at retune the
 occurrence-rate argument favored) is still outstanding — that's the actual
 close-out step, not the columns existing.
 
+### 2026-08-03: track 117 recorded — the three new columns cleared themselves; culprit is the SD flush, not RF/I2C
+
+Track 117 (362s, indoors — no GPS fix the whole recording) was the first
+recording made with `i2c_peak_ms`/`rf_rssi_peak_ms`/`rf_retune_peak_ms` in
+the CSV. It has exactly one real `tick_dt_ms` stall (930ms at t=29.0s,
+against a ~100ms baseline with normal jitter up to ~107ms; a second
+outlier at t=0.00s/663ms is startup, not investigated here). At that
+930ms row, `i2c_peak_ms=2`, `rf_rssi_peak_ms=1`, `rf_retune_peak_ms=5` —
+and those are the *lifetime maxes for the entire 362s track*. Since these
+are never-reset running maximums, that rules out all three: none of them
+ever got anywhere close to 930ms, on this thread, at any point in the
+recording.
+
+**Same freeze as track 116?** Re-examined track 116 (which predates these
+columns) with that question in mind. Both tracks' stalls line up exactly
+with the once-per-`FLUSH_INTERVAL` (10s) SD flush tick, not with anything
+GSR/RF-related:
+
+- Track 116: `tick_dt_ms` exceeds 108ms exactly 3 times in 18241 rows —
+  216ms, 789ms, 957ms, at t=397.00s, 387.00s, 1177.00s. All three are
+  `t mod 10 == 7`. Every one of the other 182 ticks landing on that same
+  `mod 10 == 7` phase (i.e. every other flush) stayed at or near the
+  100ms baseline (max 114ms) — and every non-flush, non-startup tick in
+  the whole track (18058 of them) topped out at 108ms. So the anomalies
+  are 3-for-185 *flush* ticks, 0-for-18058 everywhere else.
+- Track 117: same check, phase `t mod 10 == 9` — the single 930ms stall
+  is the only flush tick that spiked; the other 8 phases per second
+  (non-flush ticks) topped out at 102-105ms.
+
+That's occasional-flush-stall in both tracks, not RF/I2C — consistent
+with `sd_logger_batch_flush()`'s own comment
+(`biomap_session.c`/`sd_logger.c`) that `storage_file_write()`/
+`storage_file_sync()` normally cost ~20-60ms but can run far longer on
+real SD cards (flash wear-leveling/garbage-collection stalls are a known
+SD failure mode, not something this codebase controls). Track 117 is too
+short and GPS-fix-free to be the outstanding "long walk" verification
+walk from the previous entry — it looks like a quick bench test that
+happened to catch this by chance.
+
+**Added a fourth column, `flush_peak_ms`**, for exactly this: a
+lifetime-max real `furi_get_tick()` delta timed around
+`sd_logger_batch_flush()`'s `storage_file_write()` + `storage_file_sync()`
+pair (`modules/sd_logger.c`, new `flush_peak_ms` field + accessor
+`sd_logger_get_flush_peak_ms()` in `sd_logger.h`), wired into `RowDiag`
+(`biomap_types.h`), `get_row_diag()`/`format_gps_csv_row()`
+(`biomap_session.c`), and the `BIOMAP_CSV_COLS_*` headers
+(`biomap_config.h`). Same "never reset" convention as the other four
+diagnostic columns.
+
+Covered by a new host test,
+`test_sd_logger_flush_peak_ms_detects_slow_flush`
+(`tests/test_sd_logger.c`), mirroring the existing peak_ms tests: injects
+an artificial delay into the mock's `storage_file_write()` (new
+`storage_mock_set_next_write_delay_ticks()` in `tests/shims/storage_mock.c`
+/`storage/storage.h`) and asserts the column reports it and a subsequent
+fast flush doesn't lower it. `test_firmware.c`'s CSV-formatting and
+header/row-column-count tests were updated for the new column (5th
+diagnostic value, distinct from the other four so a column-order bug
+would show up as a mismatch, not a false pass). Full host test suite
+(`./run_tests.sh`) passes.
+
+**Still outstanding**: the next real recording with `flush_peak_ms`
+present should confirm this call, not something else on the main thread
+(GPS UART draining, view_port_update pacing, etc.), is what lights up at
+the next stall — this entry's evidence is a strong statistical
+correlation (every stall in both tracks landed on a flush tick, and
+nothing else ever spiked that high), not a direct per-call timing on
+this specific mechanism yet.
+
+### 2026-08-03: hypothesis — is this an SD card characteristic or something our implementation does? (external research, no code change)
+
+Assuming the flush hypothesis above holds, is 200-950ms of `storage_file_write()`/`storage_file_sync()` latency a known SD/FatFs behavior, or is something in this codebase making it worse? Looked for outside discussion of the same symptom before changing anything further.
+
+**It's a well-documented characteristic of SD-over-SPI, and our numbers land right in the middle of the range others report.** In SPI mode, an SD card signals "busy" after a write by holding the DO line low until its internal controller finishes committing the data — normally under the local flash's already-erased blocks, but occasionally the card needs to garbage-collect/relocate data first, and the host has no way to distinguish the two cases except waiting:
+
+- An embeddedrelated.com thread on SD-over-SPI: normal post-write busy waits are usually under a few ms, but *"long 'busy' times occasionally exceed 160 ms... in extreme cases, measured times up to 900 ms have been observed."* That's within a few percent of track 116/117's 789/930/957 ms outliers.
+- PX4's own logging documentation (flight-controller firmware, same "real-time loop + SD card logger" shape as this project) puts it plainly: *"Most SD cards we tested exhibit multiple pauses per minute. This shows itself as a several 100 ms delay during a write command."* Their own benchmark table shows even SD cards they consider "reliable" have max per-block write times in the 8-60 ms range under good conditions, with worse cards spiking far higher — consistent with our normal ~20-60 ms budget occasionally blowing out to ~1 s.
+- Flipper Zero specifically drives the microSD card over **SPI "slow mode"**, not the 4-bit SDIO mode phones/laptops use ([docs.flipper.net](https://docs.flipper.net/zero/basics/sd-card)) — a deliberate power-saving tradeoff on Flipper's part that makes this class of stall more likely here than on faster hardware, independent of anything in this codebase.
+
+So: the *existence* of occasional multi-hundred-ms write stalls isn't a bug in this project — it's inherent to cheap/consumer flash behind an SPI interface, and it would show up on essentially any Flipper Zero app that writes to SD on a schedule like this.
+
+**What our implementation does that shapes how often/how badly it bites** (real, own-code factors, not the card's fault):
+
+1. **`storage_file_sync()` after every batch flush** (`modules/sd_logger.c`) forces the card to actually commit to physical media every `FLUSH_INTERVAL` (10s), rather than trusting FatFs's write cache and syncing less often. This is a deliberate durability choice (a crash/pull mid-recording should lose at most ~10s, not the whole file) — but it's also the single call most likely to catch the card mid-housekeeping, since `sync` is exactly what forces the card to finish committing rather than letting it buffer more.
+2. **The flush is synchronous on the main event-loop thread** (`run_recording_session()`'s Tick handler, `biomap_session.c`) — released from `app->mutex` first, but still on the thread that must then process the next Tick, drain GPS UART, and pace `view_port_update()`. The card being occasionally slow is normal; the whole app stalling because of it is a consequence of waiting for that call in-line on the one thread everything else depends on.
+3. **The batch file grows by repeated `storage_file_write()` appends with no pre-allocation** (`sd_logger_batch_flush()`) — a flush that crosses a FAT cluster boundary also forces a FAT-table/directory-entry update at a different physical location on the card than the data itself, on top of the ~12KB data write.
+
+**How other projects handle the same symptom** — none of them make the stall itself go away (it's the card's firmware, out of anyone's control); they all work around it:
+
+- **Move the write off the time-critical path.** PX4's logger is its own dedicated module, not code running inline in the flight-control loop — the real-time-sensitive work is structurally isolated from SD I/O latency, so a slow `fsync` costs the logger a buffer, not the aircraft a control tick. Direct analogue here: item 2 above (flush on the main/GUI/input thread) is the one architectural choice with a real fix — moving `sd_logger_batch_flush()` onto its own worker thread would mean a slow flush delays the next SD write, not the next Tick/GPS-drain/redraw. This has NOT been implemented — noted here as the option, not a decision.
+- **Size the buffer to absorb the spike, not avoid it.** PX4's docs say plainly: *"PX4 uses bigger buffers on F7/H7 and read caching, which is enough to compensate for spikes in many poor cards."* The logic: if a stall is going to happen periodically regardless, give the in-RAM buffer enough headroom that a ~1s stall doesn't cause a data-loss overflow, even if it still costs latency. Our 12288-byte / ~100-row buffer already does this for data-loss purposes (a flush being late doesn't drop rows, `handle_recording_tick`'s overflow path is the fallback) — the open question is only about the app *freezing*, not about losing GSR/GPS samples.
+- **Pre-allocate the file.** A recurring recommendation across embedded SD-logging discussions (PX4's guidance included) is to pre-allocate/pre-erase the log file's space up front rather than growing it write-by-write, specifically to avoid the FAT-metadata-update-plus-seek cost on an active recording. Directly addresses factor 3 above; not attempted here.
+- **Card selection / benchmarking, not firmware changes at all.** PX4 ships a `sd_bench` tool and publishes a list of SD cards known not to exhibit write-time spikes (SanDisk Extreme U3, Samsung EVO Plus, in their testing) — i.e., some of this is solved by picking a better card rather than changing any code. Relevant here too: it's worth checking whether the SD card used for tracks 116/117 is a known-good one or an unbranded/cheap card, since Flipper's own docs specifically warn that off-brand cards are less stable over SPI.
+
+**Not changed as a result of this entry** — this is research/documentation only, per the "hypothetically speaking" framing this was raised under. If the freezes turn out to matter enough in practice, the ranked options above (background-thread flush > bigger buffer > pre-allocated file > card swap) are the candidates to revisit, roughly in order of how directly each addresses "the app freezes," not "the card is occasionally slow" (which none of them eliminate).
+
 ## Other open items
 
 Ranked by what would most change confidence in this fix, not by effort.

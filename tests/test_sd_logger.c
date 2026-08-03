@@ -15,13 +15,14 @@
 // (SdLogger is opaque to callers).
 #define SD_LOGGER_BATCH_CAP 12288
 
-// Storage for tests/shims/furi.h's furi_get_tick() shim — sd_logger.c now
-// calls furi_get_tick() itself (write/sync latency instrumentation,
-// 2026-07-29), same pattern already used in test_gps_uart.c/
-// test_gsr_sensor.c. Fixed at 1 (never advanced): these tests don't
-// exercise timing, just correctness, and the mock storage's read/write
-// calls are effectively instantaneous, so every measured latency is 0
-// regardless.
+// Storage for tests/shims/furi.h's furi_get_tick() shim — sd_logger.c calls
+// furi_get_tick() itself (flush_peak_ms write/sync latency instrumentation,
+// 2026-08-03), same pattern already used in test_gps_uart.c/
+// test_gsr_sensor.c. Left untouched (at 1) by every test except
+// test_sd_logger_flush_peak_ms_detects_slow_flush, which advances it via
+// storage_mock_set_next_write_delay_ticks() to simulate a slow SD write —
+// every other test's measured latency is 0, since the mock storage's
+// read/write calls are otherwise effectively instantaneous.
 _Atomic uint32_t furi_test_tick = 1;
 
 static void test_sd_logger_start_creates_file_with_header(void) {
@@ -286,6 +287,37 @@ static void test_sd_logger_batch_append_overflow_rejected(void) {
     printf("  -> Pass\n");
 }
 
+// 2026-08-03: tracks 116/117 (docs/gps_rf_mutex_status.md) showed real
+// tick_dt_ms stalls landing exactly on the once-per-FLUSH_INTERVAL flush
+// tick while gsr_sensor.c's i2c/rf_rssi/rf_retune peak columns stayed near
+// zero — pointing at sd_logger_batch_flush() itself. This proves the new
+// flush_peak_ms counter actually catches a slow flush, mirroring the
+// three existing gsr_sensor.c peak_ms tests (tests/test_gsr_sensor.c).
+static void test_sd_logger_flush_peak_ms_detects_slow_flush(void) {
+    printf("Running test_sd_logger_flush_peak_ms_detects_slow_flush...\n");
+    Storage* storage = storage_mock_alloc();
+    SdLogger* l = sd_logger_alloc(storage);
+    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_get_flush_peak_ms(l) == 0);
+
+    assert(sd_logger_batch_append(l, "row1\n", 5));
+    storage_mock_set_next_write_delay_ticks(storage, 150); // stand-in for a stuck SD write
+    int flushed = sd_logger_batch_flush(l);
+    assert(flushed == 5);
+    assert(sd_logger_get_flush_peak_ms(l) == 150);
+
+    // A second, fast flush must NOT lower the recorded peak — lifetime max,
+    // never reset, same convention as gsr_sensor.h's peak_ms columns.
+    assert(sd_logger_batch_append(l, "row2\n", 5));
+    int flushed2 = sd_logger_batch_flush(l);
+    assert(flushed2 == 5);
+    assert(sd_logger_get_flush_peak_ms(l) == 150);
+
+    sd_logger_free(l);
+    storage_mock_free(storage);
+    printf("  -> Pass\n");
+}
+
 static void test_sd_logger_free_while_active_stops_cleanly(void) {
     printf("Running test_sd_logger_free_while_active_stops_cleanly...\n");
     Storage* storage = storage_mock_alloc();
@@ -317,8 +349,9 @@ int main(void) {
     test_sd_logger_batch_printf_writes_formatted_row();
     test_sd_logger_batch_printf_truncation_rolls_back();
     test_sd_logger_batch_append_overflow_rejected();
+    test_sd_logger_flush_peak_ms_detects_slow_flush();
     test_sd_logger_free_while_active_stops_cleanly();
 
-    printf("\nAll 13 sd_logger host tests passed successfully!\n");
+    printf("\nAll 14 sd_logger host tests passed successfully!\n");
     return 0;
 }

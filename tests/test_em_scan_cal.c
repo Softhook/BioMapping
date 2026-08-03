@@ -13,6 +13,15 @@
 Storage* storage_mock_alloc(void);
 void storage_mock_free(Storage* storage);
 
+// Declared in tests/shims/furi.h; storage_mock.c's storage_file_write()
+// unconditionally references furi_test_advance_tick() (for
+// storage_mock_set_next_write_delay_ticks(), added alongside sd_logger.c's
+// flush_peak_ms — see tests/test_sd_logger.c), so this definition is needed
+// to link even though this test never advances it itself. Same convention
+// test_gps_uart.c/test_gsr_sensor.c already use.
+extern _Atomic uint32_t furi_test_tick;
+_Atomic uint32_t furi_test_tick = 1;
+
 static void test_cal_checksum(void) {
     printf("Running test_cal_checksum...\n");
     EmScanCal cal;

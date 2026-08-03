@@ -115,3 +115,15 @@ void storage_mock_fail_next_open(Storage* storage, bool fail);
 // While true, storage_file_write() writes 0 bytes regardless of the
 // requested length (simulates a failed/full SD write).
 void storage_mock_fail_writes(Storage* storage, bool fail);
+
+// Makes the next storage_file_write() call advance the shared fake clock
+// (tests/shims/furi.h's furi_test_advance_tick()) by `ticks` before it
+// copies any bytes — a stand-in for a real SD card occasionally taking far
+// longer than its ~20-60 ms budget (see sd_logger.h's
+// sd_logger_get_flush_peak_ms() doc comment / tests/test_sd_logger.c).
+// Unlike the I2C/RF mocks (tests/shims/furi_hal_mock.c), which use a real
+// usleep() because gsr_sensor.c's worker runs on its own pthread, sd_logger
+// is only ever called from the single test/main thread, so directly
+// advancing the fake tick is enough — no real wall-clock wait needed.
+// Auto-clears after one use, same convention as the fail_next_* hooks above.
+void storage_mock_set_next_write_delay_ticks(Storage* storage, uint32_t ticks);

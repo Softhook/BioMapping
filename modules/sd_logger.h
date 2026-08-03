@@ -33,3 +33,14 @@ bool        sd_logger_batch_append(SdLogger* logger, const char* data, size_t le
 int         sd_logger_batch_printf(SdLogger* logger, const char* fmt, ...);
 
 const char* sd_logger_get_filename(const SdLogger* logger);
+
+// Worst single sd_logger_batch_flush() call ever seen (storage_file_write()
+// + storage_file_sync() together, real furi_get_tick() delta), in ms.
+// Lifetime max, never reset — added 2026-08-03 alongside gsr_sensor.h's
+// i2c_peak_ms/rf_rssi_peak_ms/rf_retune_peak_ms: tracks 116 and 117 both
+// showed real tick_dt_ms stalls (up to ~950 ms) landing exactly on the
+// once-per-FLUSH_INTERVAL flush tick while those three GSR-worker-thread
+// columns stayed near zero, pointing at the SD write/sync itself (main
+// thread, ~20-60 ms normally, occasionally much longer on real SD cards)
+// rather than any GSR/RF hardware call. See docs/gps_rf_mutex_status.md.
+uint32_t    sd_logger_get_flush_peak_ms(const SdLogger* logger);

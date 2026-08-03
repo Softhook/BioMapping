@@ -25,6 +25,10 @@ struct SdLogger {
     // 100 rows × ~110 bytes (GPS+GSR+RF row, 21 columns) = ~11000 bytes < 12288.
     char gsr_batch[12288];
     int  gsr_batch_len;
+
+    // Worst single batch_flush() (write+sync) real duration ever seen —
+    // see sd_logger_get_flush_peak_ms()'s doc comment (sd_logger.h).
+    uint32_t flush_peak_ms;
 };
 
 SdLogger* sd_logger_alloc(Storage* storage) {
@@ -153,6 +157,12 @@ int sd_logger_batch_flush(SdLogger* l) {
     if(!l->active || !l->file) return 0;
     if(l->gsr_batch_len == 0) return 0;
 
+    // Timed as one unit (write+sync) since they always run back to back
+    // here and the caller (biomap_session.c's Tick handler) only cares
+    // about the total real time this call held the main thread — see
+    // sd_logger_get_flush_peak_ms()'s doc comment (sd_logger.h).
+    uint32_t flush_start = furi_get_tick();
+
     uint16_t written = storage_file_write(l->file, l->gsr_batch,
                                           (size_t)l->gsr_batch_len);
     int flushed = l->gsr_batch_len;
@@ -160,6 +170,8 @@ int sd_logger_batch_flush(SdLogger* l) {
     if(written != (uint16_t)flushed) {
         FURI_LOG_E("SdLogger", "Batch flush error: %d/%d",
                    written, flushed);
+        uint32_t flush_dur = furi_get_tick() - flush_start;
+        if(flush_dur > l->flush_peak_ms) l->flush_peak_ms = flush_dur;
         return -1;
     }
 
@@ -169,6 +181,9 @@ int sd_logger_batch_flush(SdLogger* l) {
     if(!batch_synced) {
         FURI_LOG_W("SdLogger", "Batch sync failed");
     }
+
+    uint32_t flush_dur = furi_get_tick() - flush_start;
+    if(flush_dur > l->flush_peak_ms) l->flush_peak_ms = flush_dur;
 
     return flushed;
 }
@@ -225,3 +240,5 @@ int sd_logger_batch_printf(SdLogger* l, const char* fmt, ...) {
 }
 
 const char* sd_logger_get_filename(const SdLogger* l) { return l->filename; }
+
+uint32_t sd_logger_get_flush_peak_ms(const SdLogger* l) { return l->flush_peak_ms; }
