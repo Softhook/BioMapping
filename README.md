@@ -246,7 +246,7 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
 ```
 When there is no valid fix this tick, `lat`/`lon` and all other GPS columns are left empty (e.g. `0.30,,,,,,,,,4519.0,`) so the analyser treats the row as a GPS gap rather than a `(0,0)` coordinate. `hacc_m` (horizontal accuracy in meters, from `$PUBX,00`) is **M10Q-only** — it stays `99.9` (unknown) on L76K hardware.
 
-**GSR-only mode (2 columns, 10 Hz):**
+**GSR-only mode (2 columns, 10 Hz, production default):**
 ```
 # BioMapping v1.0
 # RecordingStartTime:1751204579
@@ -257,6 +257,7 @@ timestamp,gsr_raw
 ...
 ```
 Each row is a point reading of skin conductance in nanosiemens at 10 Hz. This resolution allows offline re-analysis with different filter parameters.
+When `BIOMAP_DEBUG_FIELDS` is enabled, additional diagnostic columns are appended.
 
 ---
 
@@ -363,7 +364,7 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
 0.20,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4521.0,2.5
 ```
 
-**GSR-only mode CSV (2 columns, 10 Hz):**
+**GSR-only mode CSV (2 columns, 10 Hz, production default):**
 ```
 # BioMapping v1.0
 # RecordingStartTime:1751204579
@@ -371,6 +372,7 @@ timestamp,gsr_raw
 0.00,4523.0
 0.10,4528.0
 ```
+If `BIOMAP_DEBUG_FIELDS` is enabled, debug-only columns are appended for diagnostics.
 
 ### Post-Processing: The Browser-Based Analyser
 

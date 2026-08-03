@@ -318,6 +318,40 @@ static void test_sd_logger_flush_peak_ms_detects_slow_flush(void) {
     printf("  -> Pass\n");
 }
 
+static void test_sd_logger_continuity_counters_track_pressure(void) {
+    printf("Running test_sd_logger_continuity_counters_track_pressure...\n");
+    Storage* storage = storage_mock_alloc();
+    SdLogger* l = sd_logger_alloc(storage);
+    assert(sd_logger_start(l, "H\n"));
+
+    assert(sd_logger_get_batch_fill_bytes(l) == 0);
+    assert(sd_logger_get_batch_fill_peak_bytes(l) == 0);
+    assert(sd_logger_get_overflow_count(l) == 0);
+    assert(sd_logger_get_flush_fail_count(l) == 0);
+
+    assert(sd_logger_batch_append(l, "abc\n", 4));
+    assert(sd_logger_get_batch_fill_bytes(l) == 4);
+    assert(sd_logger_get_batch_fill_peak_bytes(l) == 4);
+
+    // Force an append overflow near buffer capacity.
+    char filler[SD_LOGGER_BATCH_CAP - 4 - 2];
+    memset(filler, 'x', sizeof(filler));
+    assert(sd_logger_batch_append(l, filler, sizeof(filler)));
+    assert(sd_logger_get_batch_fill_bytes(l) == (uint32_t)(4 + sizeof(filler)));
+    assert(sd_logger_get_batch_fill_peak_bytes(l) == (uint32_t)(4 + sizeof(filler)));
+    assert(!sd_logger_batch_append(l, "123", 3));
+    assert(sd_logger_get_overflow_count(l) == 1);
+
+    // Force a flush failure and verify the counter increments.
+    storage_mock_fail_writes(storage, true);
+    assert(sd_logger_batch_flush(l) == -1);
+    assert(sd_logger_get_flush_fail_count(l) == 1);
+
+    sd_logger_free(l);
+    storage_mock_free(storage);
+    printf("  -> Pass\n");
+}
+
 static void test_sd_logger_free_while_active_stops_cleanly(void) {
     printf("Running test_sd_logger_free_while_active_stops_cleanly...\n");
     Storage* storage = storage_mock_alloc();
@@ -350,8 +384,9 @@ int main(void) {
     test_sd_logger_batch_printf_truncation_rolls_back();
     test_sd_logger_batch_append_overflow_rejected();
     test_sd_logger_flush_peak_ms_detects_slow_flush();
+    test_sd_logger_continuity_counters_track_pressure();
     test_sd_logger_free_while_active_stops_cleanly();
 
-    printf("\nAll 14 sd_logger host tests passed successfully!\n");
+    printf("\nAll 15 sd_logger host tests passed successfully!\n");
     return 0;
 }

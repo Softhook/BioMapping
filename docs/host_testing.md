@@ -9,6 +9,22 @@ Some firmware source files can be compiled and unit-tested on a Mac/Linux
 host compiler (`gcc`) instead of the Flipper Zero ARM toolchain, without
 touching real hardware. `run_tests.sh` builds and runs all of it.
 
+## Running modes
+
+Use the harness in two modes so it stays practical during day-to-day work:
+
+- `./run_tests.sh --quick`
+: Fast local pass, skips the ThreadSanitizer binary.
+- `./run_tests.sh --full`
+: Full suite, including ThreadSanitizer (default).
+
+Equivalent env toggles:
+
+- `RUN_TESTS_MODE=quick ./run_tests.sh`
+- `RUN_TESTS_TSAN=no ./run_tests.sh`
+
+Run `./run_tests.sh --help` for all options.
+
 There are two different techniques in play, depending on whether the file
 touches hardware:
 

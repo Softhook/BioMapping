@@ -15,6 +15,11 @@
 
 #define RX_LINE_BUF  1024      // max NMEA line length (~80 in practice)
 #define GSV_MAX_TALKERS 5      // GP/GL/GA/GB/GQ — one slot per constellation per accumulation window
+// Bound main-thread monopolization: drain a chunk, then reschedule if more.
+// This keeps one UART event from consuming an unbounded slice of the app
+// loop when backlog builds.
+#define GPS_RX_MAX_DRAIN_BYTES_PER_CALL 384
+#define GPS_RX_MAX_LINES_PER_CALL 8
 
 struct GpsUart {
     GpsStatus            status;
@@ -915,6 +920,11 @@ void gps_uart_process_rx(GpsUart* g) {
     g->rx_pending = false;
 
     size_t len;
+    size_t drained_bytes = 0;
+    size_t parsed_lines = 0;
+    bool budget_hit = false;
+    bool may_have_more_stream = false;
+    bool has_more_complete_lines = false;
     do {
         if(sizeof(g->rx_buf) - 1 - g->rx_offset == 0) {
             FURI_LOG_W("GpsUart", "RX buffer full — reconfiguring");
@@ -925,14 +935,28 @@ void gps_uart_process_rx(GpsUart* g) {
             gps_uart_reinit(g, GPS_BAUD_RATE);
         }
 
+        size_t remaining_budget = GPS_RX_MAX_DRAIN_BYTES_PER_CALL - drained_bytes;
+        if(remaining_budget == 0) {
+            budget_hit = true;
+            break;
+        }
+
+        size_t recv_cap = sizeof(g->rx_buf) - 1 - g->rx_offset;
+        if(recv_cap > remaining_budget) recv_cap = remaining_budget;
+
         len = furi_stream_buffer_receive(
             g->rx_stream,
             g->rx_buf + g->rx_offset,
-            sizeof(g->rx_buf) - 1 - g->rx_offset,
+            recv_cap,
             0);
 
         if(len > 0) {
             g->rx_offset += len;
+            drained_bytes += len;
+            if(len == recv_cap) may_have_more_stream = true;
+        }
+
+        if(g->rx_offset > 0) {
             char* line = (char*)g->rx_buf;
             char* end  = (char*)g->rx_buf + g->rx_offset;
 
@@ -940,10 +964,15 @@ void gps_uart_process_rx(GpsUart* g) {
             // brief status update — not for the entire drain.
             furi_mutex_acquire(g->status_mutex, FuriWaitForever);
             while(line < end) {
+                if(parsed_lines >= GPS_RX_MAX_LINES_PER_CALL) {
+                    budget_hit = true;
+                    break;
+                }
                 char* nl = memchr(line, '\n', end - line);
                 if(nl) {
                     *nl = '\0';
                     gps_uart_parse_line(g, line);
+                    parsed_lines++;
                     line = nl + 1;
                 } else {
                     break;
@@ -951,13 +980,28 @@ void gps_uart_process_rx(GpsUart* g) {
             }
             furi_mutex_release(g->status_mutex);
 
+            if(budget_hit && line < end) {
+                // Another complete line already sits in the current buffer.
+                // Schedule a continuation rather than consuming it now.
+                has_more_complete_lines = memchr(line, '\n', end - line) != NULL;
+            }
+
             if(line > (char*)g->rx_buf) {
                 size_t remaining = end - line;
                 memmove(g->rx_buf, line, remaining);
                 g->rx_offset = remaining;
             }
+
+            if(budget_hit) break;
         }
     } while(len > 0);
+
+    if(budget_hit && (len > 0 || may_have_more_stream || has_more_complete_lines)) {
+        PluginEvent ev = {.type = EventTypeUart};
+        if(furi_message_queue_put(g->event_queue, &ev, 0) == FuriStatusOk) {
+            g->rx_pending = true;
+        }
+    }
 
     // ── NMEA watchdog: if no valid sentence parsed in 5 seconds, ──────
     // the GPS module may be disconnected or malfunctioning.  A hot-start

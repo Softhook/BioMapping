@@ -75,6 +75,9 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
                                 double rel, float raw,
                                 const float* rf_rssi, const RowDiag* diag) {
     (void)s;
+#if !BIOMAP_DEBUG_FIELDS
+    (void)diag;
+#endif
     bool gps_ok = pos->valid && pos->hdop < GPS_HDOP_GATE;
 
     char row[300];
@@ -102,26 +105,30 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
     }
     if(n <= 0 || (size_t)n >= sizeof(row)) return false;
 
+    int n2 = rf_rssi
+        ? snprintf(row + n, sizeof(row) - (size_t)n,
+                   ",%.1f,%.1f,%.1f",
+                   (double)rf_rssi[0], (double)rf_rssi[1], (double)rf_rssi[2])
+        : 0;
+    if(n2 < 0 || (size_t)(n + n2) >= sizeof(row)) return false;
+    n += n2;
+
+#if BIOMAP_DEBUG_FIELDS
     int nd = snprintf(row + n, sizeof(row) - (size_t)n,
-                      ",%u,%u,%u,%.1f,%u,%u,%u,%u",
+                      ",%u,%u,%u,%.1f,%u,%u,%u,%u,%u,%u,%u,%u\n",
                       (unsigned)diag->tick_dt_ms, (unsigned)diag->gps_rx_drops,
                       (unsigned)diag->nmea_fail, (double)diag->gsr_hz,
                       (unsigned)diag->i2c_peak_ms, (unsigned)diag->rf_rssi_peak_ms,
-                      (unsigned)diag->rf_retune_peak_ms, (unsigned)diag->flush_peak_ms);
+                      (unsigned)diag->rf_retune_peak_ms, (unsigned)diag->flush_peak_ms,
+                      (unsigned)diag->log_fill_bytes, (unsigned)diag->log_fill_peak_bytes,
+                      (unsigned)diag->log_overflow_count, (unsigned)diag->log_flush_fail_count);
     if(nd <= 0 || (size_t)(n + nd) >= sizeof(row)) return false;
     n += nd;
-
-    if(rf_rssi) {
-        int n2 = snprintf(row + n, sizeof(row) - (size_t)n,
-                         ",%.1f,%.1f,%.1f\n",
-                         (double)rf_rssi[0], (double)rf_rssi[1], (double)rf_rssi[2]);
-        if(n2 <= 0 || (size_t)(n + n2) >= sizeof(row)) return false;
-        n += n2;
-    } else {
-        int n2 = snprintf(row + n, sizeof(row) - (size_t)n, "\n");
-        if(n2 <= 0 || (size_t)(n + n2) >= sizeof(row)) return false;
-        n += n2;
-    }
+#else
+    int nd = snprintf(row + n, sizeof(row) - (size_t)n, "\n");
+    if(nd <= 0 || (size_t)(n + nd) >= sizeof(row)) return false;
+    n += nd;
+#endif
 
     strcpy(mock_logger_buf, row);
     return true;
@@ -516,7 +523,8 @@ void test_csv_formatting() {
     // false pass.
     RowDiag diag = {.tick_dt_ms = 100, .gps_rx_drops = 2, .nmea_fail = 1, .gsr_hz = 987.6f,
                      .i2c_peak_ms = 3, .rf_rssi_peak_ms = 4, .rf_retune_peak_ms = 5,
-                     .flush_peak_ms = 6};
+                     .flush_peak_ms = 6, .log_fill_bytes = 7, .log_fill_peak_bytes = 8,
+                     .log_overflow_count = 9, .log_flush_fail_count = 10};
 
     // Case 1: Valid 3D GPS fix with speed and course — RF OFF (rf_rssi = NULL)
     pos.valid = true;
@@ -532,20 +540,32 @@ void test_csv_formatting() {
 
     mock_logger_buf[0] = '\0';
     format_gps_csv_row(&s, &pos, 1.25, 8345.3f, NULL, &diag);
-    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4,100,2,1,987.6,3,4,5,6\n") == 0);
+#if BIOMAP_DEBUG_FIELDS
+    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4,100,2,1,987.6,3,4,5,6,7,8,9,10\n") == 0);
+#else
+    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4\n") == 0);
+#endif
 
     // Case 2: Valid GPS fix but no speed/course (stationary) — RF OFF
     pos.speed_kts = NAN;
     pos.course_deg = NAN;
     mock_logger_buf[0] = '\0';
     format_gps_csv_row(&s, &pos, 2.50, 8350.0f, NULL, &diag);
-    assert(strcmp(mock_logger_buf, "2.50,51.5557397,-0.0714595,0.9,1.3,16,3,,,8350.0,2.4,100,2,1,987.6,3,4,5,6\n") == 0);
+#if BIOMAP_DEBUG_FIELDS
+    assert(strcmp(mock_logger_buf, "2.50,51.5557397,-0.0714595,0.9,1.3,16,3,,,8350.0,2.4,100,2,1,987.6,3,4,5,6,7,8,9,10\n") == 0);
+#else
+    assert(strcmp(mock_logger_buf, "2.50,51.5557397,-0.0714595,0.9,1.3,16,3,,,8350.0,2.4\n") == 0);
+#endif
 
     // Case 3: Invalid GPS fix (e.g. startup, or high HDOP > 5.0) — RF OFF
     pos.hdop = 6.0f; // Exceeds gate limit
     mock_logger_buf[0] = '\0';
     format_gps_csv_row(&s, &pos, 3.75, 8400.0f, NULL, &diag);
-    assert(strcmp(mock_logger_buf, "3.75,,,,,,,,,8400.0,,100,2,1,987.6,3,4,5,6\n") == 0);
+#if BIOMAP_DEBUG_FIELDS
+    assert(strcmp(mock_logger_buf, "3.75,,,,,,,,,8400.0,,100,2,1,987.6,3,4,5,6,7,8,9,10\n") == 0);
+#else
+    assert(strcmp(mock_logger_buf, "3.75,,,,,,,,,8400.0,\n") == 0);
+#endif
 
     // Case 4: Valid GPS fix — RF ON (3 extra columns: raw RSSI per band)
     pos.hdop = 0.9f;
@@ -554,7 +574,11 @@ void test_csv_formatting() {
     float rf_rssi[3] = {-91.5f, -88.0f, -90.5f};
     mock_logger_buf[0] = '\0';
     format_gps_csv_row(&s, &pos, 1.25, 8345.3f, rf_rssi, &diag);
-    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4,100,2,1,987.6,3,4,5,6,-91.5,-88.0,-90.5\n") == 0);
+#if BIOMAP_DEBUG_FIELDS
+    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4,-91.5,-88.0,-90.5,100,2,1,987.6,3,4,5,6,7,8,9,10\n") == 0);
+#else
+    assert(strcmp(mock_logger_buf, "1.25,51.5557397,-0.0714595,0.9,1.3,16,3,5.25,330.2,8345.3,2.4,-91.5,-88.0,-90.5\n") == 0);
+#endif
 
     printf("  -> Pass\n");
 }
@@ -602,7 +626,8 @@ static void test_csv_header_matches_row_column_count(void) {
     pos.hacc = 2.4f;
     RowDiag diag = {.tick_dt_ms = 100, .gps_rx_drops = 2, .nmea_fail = 1, .gsr_hz = 987.6f,
                      .i2c_peak_ms = 3, .rf_rssi_peak_ms = 4, .rf_retune_peak_ms = 5,
-                     .flush_peak_ms = 6};
+                     .flush_peak_ms = 6, .log_fill_bytes = 7, .log_fill_peak_bytes = 8,
+                     .log_overflow_count = 9, .log_flush_fail_count = 10};
 
     mock_logger_buf[0] = '\0';
     format_gps_csv_row(&s, &pos, 1.25, 8345.3f, NULL, &diag);
@@ -618,6 +643,15 @@ static void test_csv_header_matches_row_column_count(void) {
     int header_cols_rf = count_csv_columns(BIOMAP_CSV_COLS_GPS_GSR_RF);
     printf("  GPS_GSR_RF: header=%d row=%d\n", header_cols_rf, row_cols_rf);
     assert(header_cols_rf == row_cols_rf);
+
+    int header_cols_gsr_only = count_csv_columns(BIOMAP_CSV_COLS_GSR_ONLY);
+#if BIOMAP_DEBUG_FIELDS
+    printf("  GSR_ONLY: header=%d expected=6\n", header_cols_gsr_only);
+    assert(header_cols_gsr_only == 6);
+#else
+    printf("  GSR_ONLY: header=%d expected=2\n", header_cols_gsr_only);
+    assert(header_cols_gsr_only == 2);
+#endif
 
     printf("  -> Pass\n");
 }
@@ -711,6 +745,123 @@ void test_nmea_parsing() {
     
     float hdop = minmea_tofloat(&frame.hdop);
     assert(fabsf(hdop - 0.9f) < 1e-4f);
+    printf("  -> Pass\n");
+}
+
+// ── Event-loop timing mock-up for GUI-delay investigation ─────────────
+// Pure host-side simulation: no Flipper SDK calls. Models the same
+// wall-clock tick_dt measurement used in biomap_session.c:
+// tick_dt = now_at_tick_start - last_tick_start.
+//
+// The scheduler posts ticks every 100 ms (TICK_HZ=10), while work on the
+// app thread can overrun. When one iteration overruns, subsequent ticks run
+// back-to-back (short dt) until the loop catches up — exactly the signature
+// seen in field data.
+typedef struct {
+    uint32_t tick_dt_ms[32];
+    int count;
+} MockTickSeries;
+
+static MockTickSeries simulate_tick_loop(
+    int ticks,
+    uint32_t base_work_ms,
+    uint32_t redraw_period_ticks,
+    uint32_t redraw_cost_ms,
+    bool with_backlog_feedback) {
+    MockTickSeries out = {0};
+    assert(ticks > 0 && ticks <= (int)(sizeof(out.tick_dt_ms) / sizeof(out.tick_dt_ms[0])));
+
+    const uint32_t tick_period_ms = 100;
+    uint32_t now_ms = 0;
+    uint32_t next_tick_due_ms = tick_period_ms;
+    uint32_t last_tick_start_ms = 0;
+
+    // Simple UART-backlog model: bytes accumulate while app thread is busy;
+    // each tick drains a capped amount, and the drain time itself consumes
+    // app-thread time (positive feedback during overruns).
+    uint32_t backlog_bytes = 0;
+    const uint32_t rx_rate_bytes_per_ms = with_backlog_feedback ? 10 : 3;
+    const uint32_t drain_cap_bytes = with_backlog_feedback ? 1200 : 300;
+    const uint32_t drain_cost_per_100_bytes = with_backlog_feedback ? 20 : 8;
+
+    for(int i = 0; i < ticks; i++) {
+        if(now_ms < next_tick_due_ms) now_ms = next_tick_due_ms;
+
+        uint32_t tick_start = now_ms;
+        out.tick_dt_ms[out.count++] =
+            last_tick_start_ms ? (tick_start - last_tick_start_ms) : 0;
+        last_tick_start_ms = tick_start;
+
+        uint32_t work_ms = base_work_ms;
+        if(((uint32_t)(i + 1) % redraw_period_ticks) == 0) {
+            work_ms += redraw_cost_ms;
+        }
+
+        if(with_backlog_feedback) {
+            backlog_bytes += work_ms * rx_rate_bytes_per_ms;
+            uint32_t drain = backlog_bytes > drain_cap_bytes ? drain_cap_bytes : backlog_bytes;
+            backlog_bytes -= drain;
+            work_ms += ((drain + 99) / 100) * drain_cost_per_100_bytes;
+        }
+
+        now_ms += work_ms;
+        next_tick_due_ms += tick_period_ms;
+    }
+
+    return out;
+}
+
+static void test_gui_mockup_2hz_redraw_catchup_signature(void) {
+    printf("Running test_gui_mockup_2hz_redraw_catchup_signature...\n");
+
+    // Every 5th tick (2 Hz) we inject a heavy redraw cost. Expect:
+    // one long dt spike followed by short catch-up dts.
+    MockTickSeries s = simulate_tick_loop(
+        12,   // ticks
+        10,   // base work ms
+        5,    // redraw period
+        340,  // heavy redraw cost
+        false // no backlog feedback in this test
+    );
+
+    // Indexing by tick number (0-based array):
+    // tick 6 start should show a large dt due to tick 5 overrun.
+    assert(s.tick_dt_ms[5] >= 300); // long stall observed at next tick start
+    // Catch-up ticks should be much shorter than nominal 100 ms.
+    assert(s.tick_dt_ms[6] < 60);
+    assert(s.tick_dt_ms[7] < 60);
+    // Then the cadence should recover toward nominal spacing.
+    assert(s.tick_dt_ms[9] >= 90 && s.tick_dt_ms[9] <= 130);
+
+    printf("  dt sequence:");
+    for(int i = 0; i < s.count; i++) printf(" %u", (unsigned)s.tick_dt_ms[i]);
+    printf("\n  -> Pass\n");
+}
+
+static void test_gui_mockup_backlog_smears_stall_across_ticks(void) {
+    printf("Running test_gui_mockup_backlog_smears_stall_across_ticks...\n");
+
+    // Same 2 Hz redraw cost, but now add a drain/backlog feedback model.
+    // Expect a smeared burst: multiple consecutive elevated dts after an
+    // overrun, not just one isolated spike.
+    MockTickSeries s = simulate_tick_loop(
+        15,
+        12,
+        5,
+        260,
+        true
+    );
+
+    int elevated_after_spike = 0;
+    for(int i = 5; i <= 8; i++) {
+        if(s.tick_dt_ms[i] >= 140) elevated_after_spike++;
+    }
+    printf("  dt sequence:");
+    for(int i = 0; i < s.count; i++) printf(" %u", (unsigned)s.tick_dt_ms[i]);
+    printf("\n");
+    // At least two elevated ticks in the post-redraw window indicates
+    // smear/echo rather than a single clean spike.
+    assert(elevated_after_spike >= 2);
     printf("  -> Pass\n");
 }
 
@@ -1236,7 +1387,9 @@ int main() {
     test_csv_header_matches_row_column_count();
     test_batch_printf_rollback_on_truncation();
     test_nmea_parsing();
+    test_gui_mockup_2hz_redraw_catchup_signature();
+    test_gui_mockup_backlog_smears_stall_across_ticks();
 
-    printf("\nAll 33 firmware unit tests passed successfully!\n");
+    printf("\nAll 35 firmware unit tests passed successfully!\n");
     return 0;
 }

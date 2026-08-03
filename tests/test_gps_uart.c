@@ -393,10 +393,13 @@ static void test_rx_buffer_overflow_reconfigures(void) {
     furi_hal_mock_reset_tx_count();
 
     for(int i = 0; i < 1023; i++) furi_hal_mock_feed_byte('A');
-    gps_uart_process_rx(g);
+    for(int i = 0; i < 8 && furi_hal_mock_tx_count() == 0; i++) {
+        gps_uart_process_rx(g);
+    }
 
     int tx_after_overflow = furi_hal_mock_tx_count();
-    printf("  tx_count after 1023 bytes with no newline = %d\n", tx_after_overflow);
+    printf("  tx_count after 1023 bytes with no newline (chunked drains) = %d\n",
+           tx_after_overflow);
     assert(tx_after_overflow > 0); // configure() re-ran
 
     // Confirm the reinit left it in a working state, not just "did something".
@@ -572,6 +575,111 @@ static void test_rx_stream_drop_counter(void) {
     printf("  -> Pass\n");
 }
 
+// Backlog should be drained across multiple process_rx() calls, not all in
+// one monopolizing pass. Feed many malformed lines at once and verify the
+// first call parses only a subset, with later calls finishing the rest.
+static void test_rx_drain_is_chunked_not_monolithic(void) {
+    printf("Running test_rx_drain_is_chunked_not_monolithic...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+
+    enum { Lines = 30 };
+    for(int i = 0; i < Lines; i++) {
+        furi_hal_mock_feed_string("garbage line\r\n");
+    }
+
+    gps_uart_process_rx(g);
+    uint32_t after_first = gps_uart_get_nmea_fail_count(g);
+    printf("  nmea_fail after first drain = %u (expect partial, not all %d)\n",
+           (unsigned)after_first, Lines);
+    assert(after_first > 0);
+    assert(after_first < Lines);
+
+    for(int i = 0; i < 40 && gps_uart_get_nmea_fail_count(g) < Lines; i++) {
+        gps_uart_process_rx(g);
+    }
+    uint32_t final = gps_uart_get_nmea_fail_count(g);
+    printf("  nmea_fail after follow-up drains = %u (expect %d)\n",
+           (unsigned)final, Lines);
+    assert(final == Lines);
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
+// Tighter host-side mock-up: drive the real gps_uart_process_rx() in a
+// synthetic 10 Hz scheduler. Incoming UART load scales with the measured
+// tick_dt (long tick => more bytes accrued before the app returns), and
+// every 5th tick adds a heavy redraw cost. This couples redraw stalls to
+// bigger UART drains on the next iterations, reproducing the same
+// stall-and-catch-up shape seen on-device.
+static void test_scheduler_mock_with_real_uart_drain_feedback(void) {
+    printf("Running test_scheduler_mock_with_real_uart_drain_feedback...\n");
+
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+
+    enum { SimTicks = 15 };
+    uint32_t tick_dt_ms[SimTicks] = {0};
+    uint32_t drained_lines[SimTicks] = {0};
+
+    uint32_t now_ms = 0;
+    uint32_t next_tick_due_ms = 100;
+    uint32_t last_tick_start_ms = 0;
+
+    for(int i = 0; i < SimTicks; i++) {
+        if(now_ms < next_tick_due_ms) now_ms = next_tick_due_ms;
+
+        uint32_t tick_start = now_ms;
+        uint32_t dt = last_tick_start_ms ? (tick_start - last_tick_start_ms) : 0;
+        tick_dt_ms[i] = dt;
+        last_tick_start_ms = tick_start;
+
+        // Input load model: two malformed lines per 100 ms of elapsed time.
+        // A long dt therefore creates proportionally larger backlog.
+        uint32_t lines_to_feed = (dt == 0) ? 2 : ((dt * 2 + 99) / 100);
+        for(uint32_t n = 0; n < lines_to_feed; n++) {
+            furi_hal_mock_feed_string("not nmea\r\n");
+        }
+
+        uint32_t before = gps_uart_get_nmea_fail_count(g);
+        gps_uart_process_rx(g);
+        uint32_t after = gps_uart_get_nmea_fail_count(g);
+        drained_lines[i] = after - before;
+
+        // Synthetic app-thread work budget: base per tick + cost per drained
+        // line + heavy redraw every 5th tick (2 Hz at 10 Hz tick rate).
+        uint32_t work_ms = 12 + drained_lines[i] * 18;
+        if(((uint32_t)(i + 1) % 5) == 0) work_ms += 220;
+
+        now_ms += work_ms;
+        next_tick_due_ms += 100;
+    }
+
+    printf("  dt:");
+    for(int i = 0; i < SimTicks; i++) printf(" %u", (unsigned)tick_dt_ms[i]);
+    printf("\n  drained:");
+    for(int i = 0; i < SimTicks; i++) printf(" %u", (unsigned)drained_lines[i]);
+    printf("\n");
+
+    // 2 Hz redraw produces a clear overrun burst at/after the 5th tick.
+    assert(tick_dt_ms[5] >= 200);
+    // Drain work should rise after the overrun because more input accrued.
+    assert(drained_lines[5] > drained_lines[4]);
+    // Post-overrun window should show at least two elevated dt values,
+    // indicating a smeared disturbance rather than a single spike.
+    int elevated = 0;
+    for(int i = 5; i <= 8; i++) {
+        if(tick_dt_ms[i] >= 120) elevated++;
+    }
+    assert(elevated >= 2);
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
 int main(void) {
     test_alloc_lifecycle();
     test_cfg_ack_timeout_is_bounded();
@@ -595,6 +703,8 @@ int main(void) {
     test_pubx_hacc_parsing();
     test_nmea_fail_counter();
     test_rx_stream_drop_counter();
+    test_rx_drain_is_chunked_not_monolithic();
+    test_scheduler_mock_with_real_uart_drain_feedback();
 
     printf("\nAll gps_uart host tests passed successfully!\n");
     return 0;

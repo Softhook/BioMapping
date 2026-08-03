@@ -172,6 +172,8 @@ static inline GpsPosition get_gps_position(const Session* s) {
 }
 
 // ── Contention-diagnostic snapshot (2026-07-31) ─────────────────────────
+// Only compiled in debug mode where RowDiag columns are emitted.
+#if BIOMAP_DEBUG_FIELDS
 // The only place that reads s->gps/s->gsr for RowDiag — see format_gps_csv_row's
 // doc comment. Null-guards both: format_gps_csv_row's callers all currently
 // guarantee non-NULL s->gsr/s->gps in practice (see gsr_sensor_get_worker_hz's
@@ -187,8 +189,13 @@ static inline RowDiag get_row_diag(const Session* s) {
     d.rf_rssi_peak_ms   = s->gsr ? gsr_sensor_get_rf_rssi_peak_ms(s->gsr) : 0;
     d.rf_retune_peak_ms = s->gsr ? gsr_sensor_get_rf_retune_peak_ms(s->gsr) : 0;
     d.flush_peak_ms     = s->logger ? sd_logger_get_flush_peak_ms(s->logger) : 0;
+    d.log_fill_bytes      = s->logger ? sd_logger_get_batch_fill_bytes(s->logger) : 0;
+    d.log_fill_peak_bytes = s->logger ? sd_logger_get_batch_fill_peak_bytes(s->logger) : 0;
+    d.log_overflow_count  = s->logger ? sd_logger_get_overflow_count(s->logger) : 0;
+    d.log_flush_fail_count = s->logger ? sd_logger_get_flush_fail_count(s->logger) : 0;
     return d;
 }
+#endif
 
 // ── Shared GPS CSV row formatter ───────────────────────────────────────────
 // Formats an 11-column GPS row into the SD batch buffer with an explicit GSR
@@ -214,14 +221,18 @@ static inline RowDiag get_row_diag(const Session* s) {
 // appending once (same pattern em_scan_log_row() already used) keeps the
 // whole row atomic — batch_append() itself checks capacity before writing
 // any bytes (see modules/sd_logger.c).
-// diag carries the contention-diagnostic columns (RowDiag, biomap_types.h)
-// — always non-NULL; built by the caller (get_row_diag() below), which is
+// diag carries contention-diagnostic columns (RowDiag, biomap_types.h)
+// when BIOMAP_DEBUG_FIELDS is enabled; otherwise it is unused/NULL.
+// Built by the caller (get_row_diag() below in debug builds), which is
 // the only place that touches s->gps/s->gsr directly, keeping this
 // function a pure formatter (mirrored, not linked, by tests/test_firmware.c).
 // Returns true on success, false on buffer overflow.
 static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
                                 double rel, float raw,
                                 const float* rf_rssi, const RowDiag* diag) {
+#if !BIOMAP_DEBUG_FIELDS
+    UNUSED(diag);
+#endif
     bool gps_ok = pos->valid && pos->hdop < GPS_HDOP_GATE;
     // static, not a stack local: this runs on the main app thread's tick
     // path every ~100ms during a real recording, alongside GPS/GSR/RF
@@ -256,25 +267,32 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
     }
     if(n <= 0 || (size_t)n >= sizeof(row)) return false;
 
-    // Contention-diagnostic columns — always present, ahead of the
-    // optional RF suffix. See RowDiag's doc comment (biomap_types.h).
+    // Optional RF columns (raw per-band RSSI).
+    int n2 = rf_rssi
+        ? snprintf(row + n, sizeof(row) - (size_t)n, ",%.1f,%.1f,%.1f",
+                   (double)rf_rssi[0], (double)rf_rssi[1], (double)rf_rssi[2])
+        : 0;
+    if(n2 < 0 || (size_t)(n + n2) >= sizeof(row)) return false;
+    n += n2;
+
+    // Debug columns are always appended at the very end so production
+    // columns stay contiguous and easy to consume.
+#if BIOMAP_DEBUG_FIELDS
     int nd = snprintf(row + n, sizeof(row) - (size_t)n,
-                      ",%u,%u,%u,%.1f,%u,%u,%u,%u",
+                      ",%u,%u,%u,%.1f,%u,%u,%u,%u,%u,%u,%u,%u\n",
                       (unsigned)diag->tick_dt_ms, (unsigned)diag->gps_rx_drops,
                       (unsigned)diag->nmea_fail, (double)diag->gsr_hz,
                       (unsigned)diag->i2c_peak_ms, (unsigned)diag->rf_rssi_peak_ms,
-                      (unsigned)diag->rf_retune_peak_ms, (unsigned)diag->flush_peak_ms);
+                      (unsigned)diag->rf_retune_peak_ms, (unsigned)diag->flush_peak_ms,
+                      (unsigned)diag->log_fill_bytes, (unsigned)diag->log_fill_peak_bytes,
+                      (unsigned)diag->log_overflow_count, (unsigned)diag->log_flush_fail_count);
     if(nd <= 0 || (size_t)(n + nd) >= sizeof(row)) return false;
     n += nd;
-
-    // Three RF columns (raw per-band RSSI) when active, otherwise just
-    // the terminating newline.
-    int n2 = rf_rssi
-        ? snprintf(row + n, sizeof(row) - (size_t)n, ",%.1f,%.1f,%.1f\n",
-                   (double)rf_rssi[0], (double)rf_rssi[1], (double)rf_rssi[2])
-        : snprintf(row + n, sizeof(row) - (size_t)n, "\n");
-    if(n2 <= 0 || (size_t)(n + n2) >= sizeof(row)) return false;
-    n += n2;
+#else
+    int nd = snprintf(row + n, sizeof(row) - (size_t)n, "\n");
+    if(nd <= 0 || (size_t)(n + nd) >= sizeof(row)) return false;
+    n += nd;
+#endif
 
     return sd_logger_batch_append(s->logger, row, (size_t)n);
 }
@@ -292,18 +310,39 @@ static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
     if(!s->recording.active || !has_gsr(s->mode)) return true;
 
     double rel = pipeline_rel_seconds(s->recording.total_ticks);
+#if BIOMAP_DEBUG_FIELDS
+    RowDiag diag = get_row_diag(s);
+#endif
 
     if(s->mode == BioMapModeGsrOnly) {
-        int ret = sd_logger_batch_printf(s->logger, "%.2f,%.1f\n",
-                                         rel, (double)raw);
+#if BIOMAP_DEBUG_FIELDS
+        int ret = sd_logger_batch_printf(
+            s->logger,
+            "%.2f,%.1f,%u,%u,%u,%u\n",
+            rel,
+            (double)raw,
+            (unsigned)diag.log_fill_bytes,
+            (unsigned)diag.log_fill_peak_bytes,
+            (unsigned)diag.log_overflow_count,
+            (unsigned)diag.log_flush_fail_count);
+#else
+        int ret = sd_logger_batch_printf(
+            s->logger,
+            "%.2f,%.1f\n",
+            rel,
+            (double)raw);
+#endif
         return ret > 0;
     }
 
     // On the GPS tick boundary, include a fresh fix; otherwise preserve
     // GSR data with empty GPS columns (a GPS-skip tick).
     GpsPosition pos = is_gps_row_tick(s) ? get_gps_position(s) : (GpsPosition){0};
-    RowDiag diag = get_row_diag(s);
+#if BIOMAP_DEBUG_FIELDS
     return format_gps_csv_row(s, &pos, rel, raw, rf_rssi, &diag);
+#else
+    return format_gps_csv_row(s, &pos, rel, raw, rf_rssi, NULL);
+#endif
 }
 
 
@@ -336,7 +375,7 @@ static bool handle_write_failure(Session* s, NotificationApp* notifications) {
 static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
     s->recording.tick_counter = 0;
 
-    // ── Heartbeat (2026-07-29): always logged once/sec, recording or not.
+    // ── Heartbeat (2026-07-29): logged once/sec in debug mode.
     // A non-recording session previously had zero periodic signal of
     // liveness — the idle isolation test that locked up (see
     // em_scan_rf_crash_investigation.md) left no way to tell whether the
@@ -346,13 +385,46 @@ static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
     // sd_logger — must survive a freeze that happens before the next SD
     // flush, and must exist even when no logger/file is open at all (not
     // recording means s->logger may not have an active file).
+#if BIOMAP_DEBUG_FIELDS
     uint32_t stack_gsr  = s->gsr ? gsr_sensor_get_stack_space(s->gsr) : 0;
     uint32_t stack_main = furi_thread_get_stack_space(furi_thread_get_id(furi_thread_get_current()));
-    FURI_LOG_I("BioMap", "heartbeat heap:free=%u min=%u stack:main=%u gsr=%u",
+    FURI_LOG_I("BioMap", "heartbeat heap:free=%u min=%u stack:main=%u gsr=%u sd_dry=%u",
                (unsigned)memmgr_get_free_heap(), (unsigned)memmgr_get_minimum_free_heap(),
-               (unsigned)stack_main, (unsigned)stack_gsr);
+               (unsigned)stack_main, (unsigned)stack_gsr, (unsigned)BIOMAP_SD_DRY_RUN);
+#endif
 
     if(!s->recording.active) return false;
+
+#if BIOMAP_DEBUG_FIELDS
+    uint32_t tick_dt_max = s->recording.tick_dt_max_ms;
+    s->recording.tick_dt_max_ms = 0;
+    RowDiag diag = get_row_diag(s);
+    uint32_t flush_last_ms = s->logger ? sd_logger_get_flush_last_ms(s->logger) : 0;
+    uint32_t flush_max_win_ms = s->logger ? sd_logger_take_flush_window_max_ms(s->logger) : 0;
+    FURI_LOG_I(
+        "BioMap",
+        "telemetry tick_dt=%u tick_max=%u ovr150=%u ovr250=%u ovr500=%u gps_drop=%u nmea_fail=%u gsr_hz=%.1f i2c=%u rf=%u ret=%u flush_last=%u flush_max=%u flush_peak=%u fill=%u peak=%u over=%u flfail=%u",
+        (unsigned)diag.tick_dt_ms,
+        (unsigned)tick_dt_max,
+        (unsigned)s->recording.tick_over_150_count,
+        (unsigned)s->recording.tick_over_250_count,
+        (unsigned)s->recording.tick_over_500_count,
+        (unsigned)diag.gps_rx_drops,
+        (unsigned)diag.nmea_fail,
+        (double)diag.gsr_hz,
+        (unsigned)diag.i2c_peak_ms,
+        (unsigned)diag.rf_rssi_peak_ms,
+        (unsigned)diag.rf_retune_peak_ms,
+        (unsigned)flush_last_ms,
+        (unsigned)flush_max_win_ms,
+        (unsigned)diag.flush_peak_ms,
+        (unsigned)diag.log_fill_bytes,
+        (unsigned)diag.log_fill_peak_bytes,
+        (unsigned)diag.log_overflow_count,
+        (unsigned)diag.log_flush_fail_count);
+#else
+    s->recording.tick_dt_max_ms = 0;
+#endif
 
     bool play_warning = false;
 
@@ -452,11 +524,11 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         } else {
             cols = BIOMAP_CSV_COLS_GPS_GSR;
         }
-        // 320 bytes (not 256) to comfortably fit the optional Band Floors
-        // line below — em_scan.c's own header build hit silent truncation
-        // at 192 bytes once a calibrated Band Floors line was added; sizing
-        // generously here avoids repeating that.
-        char header[320];
+        // 512 bytes to comfortably fit recording metadata + optional Band
+        // Floors + widest CSV schema line (GPS+GSR+RF with continuity
+        // columns). Keep this headroom so schema expansions do not block
+        // recording start with "Header too long".
+        char header[512];
         int n = snprintf(header, sizeof(header),
                          "# RecordingStartTime:%lu\n", (unsigned long)epoch);
         // Band Floors line: only meaningful once RF is both active for this
@@ -487,6 +559,10 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
             s->recording.active = true;
             s->recording.tick_counter = 0;
             s->recording.total_ticks  = 0;
+            s->recording.tick_dt_max_ms = 0;
+            s->recording.tick_over_150_count = 0;
+            s->recording.tick_over_250_count = 0;
+            s->recording.tick_over_500_count = 0;
             furi_mutex_release(mutex);
             // Recording indicator: the green LED flash from
             // handle_second_boundary is used instead of a solid red LED.
@@ -641,9 +717,14 @@ static bool handle_recording_tick(Session* s, const float* rf_rssi) {
     if(!has_gsr(s->mode) && has_gps(s->mode) && s->recording.active) {
         if(is_gps_row_tick(s)) {
             GpsPosition pos = get_gps_position(s);
+#if BIOMAP_DEBUG_FIELDS
             RowDiag diag = get_row_diag(s);
             return format_gps_csv_row(s, &pos, pipeline_rel_seconds(s->recording.total_ticks), 0.0f,
                                        rf_rssi, &diag);
+#else
+            return format_gps_csv_row(s, &pos, pipeline_rel_seconds(s->recording.total_ticks), 0.0f,
+                                       rf_rssi, NULL);
+#endif
         }
         return true;
     }
@@ -797,6 +878,18 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             s->recording.tick_dt_ms = s->recording.last_tick_wall_ms
                 ? (now_tick - s->recording.last_tick_wall_ms) : 0;
             s->recording.last_tick_wall_ms = now_tick;
+            if(s->recording.tick_dt_ms > s->recording.tick_dt_max_ms) {
+                s->recording.tick_dt_max_ms = s->recording.tick_dt_ms;
+            }
+            if(s->recording.tick_dt_ms > 500) {
+                s->recording.tick_over_500_count++;
+            }
+            if(s->recording.tick_dt_ms > 250) {
+                s->recording.tick_over_250_count++;
+            }
+            if(s->recording.tick_dt_ms > 150) {
+                s->recording.tick_over_150_count++;
+            }
 
             // Safe to call while holding app->mutex: gsr_sensor_get_rf_snapshot()
             // is guarded by GsrSensor's own dedicated rf_mutex, held only for a

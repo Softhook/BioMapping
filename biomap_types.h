@@ -100,6 +100,10 @@ typedef struct {
     // in run_recording_session(), regardless of recording.active.
     uint32_t last_tick_wall_ms; // bookkeeping only — previous furi_get_tick() reading
     uint32_t tick_dt_ms;        // real elapsed ms since the previous Tick event; 0 on the first tick
+    uint32_t tick_dt_max_ms;    // max tick_dt_ms observed since last 1 Hz telemetry heartbeat
+    uint32_t tick_over_150_count; // cumulative ticks with dt > 150 ms
+    uint32_t tick_over_250_count; // cumulative ticks with dt > 250 ms
+    uint32_t tick_over_500_count; // cumulative ticks with dt > 500 ms
 } RecordingState;
 
 // Extracted GPS position snapshot (returned by value from get_gps_position).
@@ -140,6 +144,13 @@ typedef struct {
 // sd_logger_batch_flush() (main thread, write+sync) instead. Same
 // lifetime-max-since-start convention; see sd_logger_get_flush_peak_ms()'s
 // doc comment (sd_logger.h) for exactly what it times.
+//
+// log_fill_bytes/log_fill_peak_bytes/log_overflow_count/log_flush_fail_count
+// (2026-08-03): continuity-pressure telemetry from sd_logger.c. These are
+// intentionally logger-internal rather than inferred from timing:
+// current batch occupancy, lifetime occupancy high-water mark, count of rows
+// rejected due to batch-capacity pressure, and count of flush write/sync
+// failures.
 typedef struct {
     uint32_t tick_dt_ms;     // real furi_get_tick() delta since the previous Tick event
     uint32_t gps_rx_drops;   // cumulative UART bytes dropped (gps_uart's rx_stream was full)
@@ -149,6 +160,10 @@ typedef struct {
     uint32_t rf_rssi_peak_ms;   // worst single RF RSSI-poll SPI call ever seen
     uint32_t rf_retune_peak_ms; // worst single RF band-retune SPI call ever seen
     uint32_t flush_peak_ms;     // worst single SD batch flush (write+sync) ever seen
+    uint32_t log_fill_bytes;       // current SD batch occupancy in bytes
+    uint32_t log_fill_peak_bytes;  // lifetime high-water occupancy in bytes
+    uint32_t log_overflow_count;   // rows rejected due to batch-capacity pressure
+    uint32_t log_flush_fail_count; // flush write/sync failures (batch preserved for retry)
 } RowDiag;
 
 // ── Inline helpers ─────────────────────────────────────────────────────

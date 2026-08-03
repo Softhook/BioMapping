@@ -30,6 +30,27 @@ Each CSV begins with comment lines (prefixed `#`) before the column header:
 
 ---
 
+## Debug Field Toggle
+
+CSV debug columns are controlled by `BIOMAP_DEBUG_FIELDS` in `biomap_config.h`:
+
+- `0` (production default): core schemas only.
+- `1` (debug): appends diagnostic columns to GPS+GSR, GPS+GSR+RF, and GSR-only rows.
+
+Core production schemas:
+
+- GPS+GSR: 11 columns (`timestamp`..`hacc_m`)
+- GPS+GSR+RF: 14 columns (`timestamp`..`hacc_m` + `rssi_815/868/915`)
+- GSR-only: 2 columns (`timestamp`,`gsr_raw`)
+
+Debug-only appended columns when enabled:
+
+- `tick_dt_ms`, `gps_rx_drops`, `nmea_fail`, `gsr_hz`
+- `i2c_peak_ms`, `rf_rssi_peak_ms`, `rf_retune_peak_ms`
+- `flush_peak_ms`, `log_fill_bytes`, `log_fill_peak_bytes`, `log_overflow_count`, `log_flush_fail_count`
+
+---
+
 ## Column Definitions
 
 | # | Column | Type | Unit | Sentinel / Notes |

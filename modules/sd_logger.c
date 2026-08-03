@@ -1,6 +1,7 @@
 // SD Logger — auto-incrementing CSV writer.
 
 #include "sd_logger.h"
+#include "biomap_config.h"
 #include "util.h"
 #include <furi.h>
 #include <storage/storage.h>
@@ -12,6 +13,16 @@
 #define LOGGER_BASENAME "biomap_"
 #define LOGGER_EXT       ".csv"
 #define LOGGER_MAX_INDEX 999
+
+#if BIOMAP_DEBUG_FIELDS
+#define SD_LOG_I(tag, fmt, ...) FURI_LOG_I(tag, fmt, ##__VA_ARGS__)
+#define SD_LOG_W(tag, fmt, ...) FURI_LOG_W(tag, fmt, ##__VA_ARGS__)
+#define SD_LOG_E(tag, fmt, ...) FURI_LOG_E(tag, fmt, ##__VA_ARGS__)
+#else
+#define SD_LOG_I(tag, fmt, ...) do { UNUSED(tag); UNUSED(fmt); } while(0)
+#define SD_LOG_W(tag, fmt, ...) do { UNUSED(tag); UNUSED(fmt); } while(0)
+#define SD_LOG_E(tag, fmt, ...) do { UNUSED(tag); UNUSED(fmt); } while(0)
+#endif
 
 struct SdLogger {
     Storage* storage;
@@ -29,6 +40,14 @@ struct SdLogger {
     // Worst single batch_flush() (write+sync) real duration ever seen —
     // see sd_logger_get_flush_peak_ms()'s doc comment (sd_logger.h).
     uint32_t flush_peak_ms;
+    uint32_t flush_last_ms;
+    uint32_t flush_window_max_ms;
+
+    // Continuity-pressure metrics: current/peak batch occupancy and
+    // cumulative failures that indicate logging risk under load.
+    uint32_t batch_fill_peak_bytes;
+    uint32_t overflow_count;
+    uint32_t flush_fail_count;
 };
 
 SdLogger* sd_logger_alloc(Storage* storage) {
@@ -73,7 +92,7 @@ static int find_next_index(SdLogger* l) {
 
     int next_idx = max_idx + 1;
     if(next_idx > LOGGER_MAX_INDEX) {
-        FURI_LOG_W("SdLogger", "All %d slots used — wrapping to 001", LOGGER_MAX_INDEX);
+        SD_LOG_W("SdLogger", "All %d slots used — wrapping to 001", LOGGER_MAX_INDEX);
         next_idx = 1;
     }
     l->last_index = next_idx;
@@ -86,12 +105,20 @@ static int find_next_index(SdLogger* l) {
 static bool open_log_file(SdLogger* l, const char* header) {
     int idx = find_next_index(l);
     snprintf(l->filename, sizeof(l->filename), LOGGER_BASENAME "%03d" LOGGER_EXT, idx);
+
+#if BIOMAP_SD_DRY_RUN
+    UNUSED(header);
+    l->active = true;
+    l->file = NULL;
+    SD_LOG_W("SdLogger", "SD dry-run active: bypassing file I/O for %s", l->filename);
+    return true;
+#else
     char full_path[96];
     snprintf(full_path, sizeof(full_path), EXT_PATH(LOGGER_DIR "/%s"), l->filename);
 
     l->file = storage_file_alloc(l->storage);
     if(!l->file || !storage_file_open(l->file, full_path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
-        FURI_LOG_E("SdLogger", "Failed to open %s", full_path);
+        SD_LOG_E("SdLogger", "Failed to open %s", full_path);
         if(l->file) { storage_file_free(l->file); l->file = NULL; }
         l->filename[0] = '\0';
         return false;
@@ -100,7 +127,7 @@ static bool open_log_file(SdLogger* l, const char* header) {
     size_t hlen = strlen(header);
     uint16_t written = storage_file_write(l->file, header, hlen);
     if(written != hlen) {
-        FURI_LOG_E("SdLogger", "Header write failed (%d/%d)", written, (int)hlen);
+        SD_LOG_E("SdLogger", "Header write failed (%d/%d)", written, (int)hlen);
         storage_file_close(l->file);
         storage_file_free(l->file);
         l->file = NULL;
@@ -112,31 +139,44 @@ static bool open_log_file(SdLogger* l, const char* header) {
     // bytes into its cache, not that they reached physical media.
     bool header_synced = storage_file_sync(l->file);
     if(!header_synced) {
-        FURI_LOG_W("SdLogger", "Header sync failed (written, not yet confirmed durable)");
+        SD_LOG_W("SdLogger", "Header sync failed (written, not yet confirmed durable)");
     }
 
     l->active = true;
-    FURI_LOG_I("SdLogger", "Recording to %s", full_path);
+    SD_LOG_I("SdLogger", "Recording to %s", full_path);
     return true;
+#endif
 }
 
 bool sd_logger_start(SdLogger* l, const char* header) {
     furi_check(l, "SdLogger: NULL in start()");
     furi_check(!l->active, "SdLogger: already active in start()");
-    return open_log_file(l, header);
+    bool ok = open_log_file(l, header);
+    if(ok) {
+        l->gsr_batch_len = 0;
+        l->flush_peak_ms = 0;
+        l->flush_last_ms = 0;
+        l->flush_window_max_ms = 0;
+        l->batch_fill_peak_bytes = 0;
+        l->overflow_count = 0;
+        l->flush_fail_count = 0;
+    }
+    return ok;
 }
 
 void sd_logger_stop(SdLogger* l) {
     furi_check(l, "SdLogger: NULL in stop()");
-    if(!l->file) return;
+    if(!l->active && !l->file) return;
     if(l->gsr_batch_len > 0) {
         sd_logger_batch_flush(l);
     }
-    storage_file_close(l->file);
-    storage_file_free(l->file);
-    l->file   = NULL;
+    if(l->file) {
+        storage_file_close(l->file);
+        storage_file_free(l->file);
+        l->file = NULL;
+    }
     l->active = false;
-    FURI_LOG_I("SdLogger", "Stopped %s", l->filename);
+    SD_LOG_I("SdLogger", "Stopped %s", l->filename);
 }
 
 
@@ -154,8 +194,15 @@ void sd_logger_stop(SdLogger* l) {
 // with a memmove isn't worth the complexity for an edge case this rare.
 int sd_logger_batch_flush(SdLogger* l) {
     furi_check(l, "SdLogger: NULL in batch_flush()");
-    if(!l->active || !l->file) return 0;
+    if(!l->active) return 0;
     if(l->gsr_batch_len == 0) return 0;
+
+#if BIOMAP_SD_DRY_RUN
+    int flushed = l->gsr_batch_len;
+    l->gsr_batch_len = 0;
+    return flushed;
+#else
+    if(!l->file) return 0;
 
     // Timed as one unit (write+sync) since they always run back to back
     // here and the caller (biomap_session.c's Tick handler) only cares
@@ -168,10 +215,13 @@ int sd_logger_batch_flush(SdLogger* l) {
     int flushed = l->gsr_batch_len;
 
     if(written != (uint16_t)flushed) {
-        FURI_LOG_E("SdLogger", "Batch flush error: %d/%d",
-                   written, flushed);
+        SD_LOG_E("SdLogger", "Batch flush error: %d/%d",
+                 written, flushed);
         uint32_t flush_dur = furi_get_tick() - flush_start;
+        l->flush_last_ms = flush_dur;
         if(flush_dur > l->flush_peak_ms) l->flush_peak_ms = flush_dur;
+        if(flush_dur > l->flush_window_max_ms) l->flush_window_max_ms = flush_dur;
+        l->flush_fail_count++;
         return -1;
     }
 
@@ -179,13 +229,17 @@ int sd_logger_batch_flush(SdLogger* l) {
 
     bool batch_synced = storage_file_sync(l->file);
     if(!batch_synced) {
-        FURI_LOG_W("SdLogger", "Batch sync failed");
+        SD_LOG_W("SdLogger", "Batch sync failed");
+        l->flush_fail_count++;
     }
 
     uint32_t flush_dur = furi_get_tick() - flush_start;
+    l->flush_last_ms = flush_dur;
     if(flush_dur > l->flush_peak_ms) l->flush_peak_ms = flush_dur;
+    if(flush_dur > l->flush_window_max_ms) l->flush_window_max_ms = flush_dur;
 
     return flushed;
+#endif
 }
 
 // Append a pre-formatted row to the internal batch buffer.
@@ -194,12 +248,16 @@ bool sd_logger_batch_append(SdLogger* l, const char* data, size_t len) {
     furi_check(l, "SdLogger: NULL in batch_append()");
     if(len == 0) return true;
     if(l->gsr_batch_len + (int)len > (int)sizeof(l->gsr_batch)) {
-        FURI_LOG_W("SdLogger", "Batch overflow (%d + %d > %d)",
-                   l->gsr_batch_len, (int)len, (int)sizeof(l->gsr_batch));
+        SD_LOG_W("SdLogger", "Batch overflow (%d + %d > %d)",
+                 l->gsr_batch_len, (int)len, (int)sizeof(l->gsr_batch));
+        l->overflow_count++;
         return false;
     }
     memcpy(l->gsr_batch + l->gsr_batch_len, data, len);
     l->gsr_batch_len += (int)len;
+    if((uint32_t)l->gsr_batch_len > l->batch_fill_peak_bytes) {
+        l->batch_fill_peak_bytes = (uint32_t)l->gsr_batch_len;
+    }
     return true;
 }
 
@@ -212,7 +270,8 @@ int sd_logger_batch_printf(SdLogger* l, const char* fmt, ...) {
 
     int remaining = (int)sizeof(l->gsr_batch) - l->gsr_batch_len;
     if(remaining <= 0) {
-        FURI_LOG_W("SdLogger", "Batch printf overflow (buffer full)");
+        SD_LOG_W("SdLogger", "Batch printf overflow (buffer full)");
+        l->overflow_count++;
         return 0;
     }
 
@@ -231,14 +290,28 @@ int sd_logger_batch_printf(SdLogger* l, const char* fmt, ...) {
         // sd_logger_batch_flush() would write straight to the SD card,
         // corrupting the CSV. Roll back and let the caller's overflow
         // path (emergency flush) start the row fresh in a cleared buffer.
-        FURI_LOG_W("SdLogger", "Batch printf truncated (%d >= %d) — row discarded",
-                   n, remaining);
+        SD_LOG_W("SdLogger", "Batch printf truncated (%d >= %d) — row discarded",
+                 n, remaining);
+        l->overflow_count++;
         return 0;
     }
     l->gsr_batch_len += n;
+    if((uint32_t)l->gsr_batch_len > l->batch_fill_peak_bytes) {
+        l->batch_fill_peak_bytes = (uint32_t)l->gsr_batch_len;
+    }
     return n;
 }
 
 const char* sd_logger_get_filename(const SdLogger* l) { return l->filename; }
 
 uint32_t sd_logger_get_flush_peak_ms(const SdLogger* l) { return l->flush_peak_ms; }
+uint32_t sd_logger_get_flush_last_ms(const SdLogger* l) { return l->flush_last_ms; }
+uint32_t sd_logger_take_flush_window_max_ms(SdLogger* l) {
+    uint32_t value = l->flush_window_max_ms;
+    l->flush_window_max_ms = 0;
+    return value;
+}
+uint32_t sd_logger_get_batch_fill_bytes(const SdLogger* l) { return (uint32_t)l->gsr_batch_len; }
+uint32_t sd_logger_get_batch_fill_peak_bytes(const SdLogger* l) { return l->batch_fill_peak_bytes; }
+uint32_t sd_logger_get_overflow_count(const SdLogger* l) { return l->overflow_count; }
+uint32_t sd_logger_get_flush_fail_count(const SdLogger* l) { return l->flush_fail_count; }
