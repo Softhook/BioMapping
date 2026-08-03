@@ -116,14 +116,25 @@ void storage_mock_fail_next_open(Storage* storage, bool fail);
 // requested length (simulates a failed/full SD write).
 void storage_mock_fail_writes(Storage* storage, bool fail);
 
-// Makes the next storage_file_write() call advance the shared fake clock
-// (tests/shims/furi.h's furi_test_advance_tick()) by `ticks` before it
-// copies any bytes — a stand-in for a real SD card occasionally taking far
-// longer than its ~20-60 ms budget (see sd_logger.h's
-// sd_logger_get_flush_peak_ms() doc comment / tests/test_sd_logger.c).
-// Unlike the I2C/RF mocks (tests/shims/furi_hal_mock.c), which use a real
-// usleep() because gsr_sensor.c's worker runs on its own pthread, sd_logger
-// is only ever called from the single test/main thread, so directly
-// advancing the fake tick is enough — no real wall-clock wait needed.
-// Auto-clears after one use, same convention as the fail_next_* hooks above.
-void storage_mock_set_next_write_delay_ticks(Storage* storage, uint32_t ticks);
+// Makes the next storage_file_write() call block for `ms` real
+// milliseconds (a real usleep(), same technique tests/shims/furi_hal_mock.c
+// already uses for its I2C/RF delay mocks) before it copies any bytes — a
+// stand-in for a real SD card occasionally taking far longer than its
+// ~20-60 ms budget. modules/sd_logger.c's write/sync now runs on its own
+// writer thread (2026-08-03), so this needs to be a genuine wall-clock
+// delay, not just a fake-tick advance, for tests/test_sd_logger.c to
+// exercise real busy-writer-thread timing (e.g.
+// sd_logger_batch_flush()'s "writer still busy" skip path) against the
+// test's main thread running concurrently. Auto-clears after one use,
+// same convention as the fail_next_* hooks above.
+void storage_mock_set_next_write_delay_ms(Storage* storage, uint32_t ms);
+
+// True for the exact real-time span storage_file_write() is inside its
+// (possibly artificially delayed) call — mirrors
+// furi_hal_i2c_mock_call_in_progress() (tests/shims/furi_hal_mock.c). Lets
+// a test know exactly when it's safe to advance the fake tick
+// (tests/shims/furi.h's furi_test_advance_tick()) to simulate elapsed
+// device time during an injected delay, without racing the mock's own
+// start/end — see tests/test_sd_logger.c's
+// test_sd_logger_flush_dur_ms_detects_slow_write for the pattern.
+bool storage_mock_write_in_progress(Storage* storage);

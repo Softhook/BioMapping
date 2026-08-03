@@ -246,12 +246,105 @@ static inline size_t furi_stream_buffer_receive(
     return read;
 }
 
-// ── Message queue — gps_uart.c only ever posts and discards the result ─
-typedef struct FuriMessageQueue { int put_count; } FuriMessageQueue;
+// ── Message queue ────────────────────────────────────────────────────
+// Two usage patterns coexist here:
+//   - gps_uart.c constructs `FuriMessageQueue queue = {0};` directly on
+//     the stack, bypassing furi_message_queue_alloc() entirely, and only
+//     ever calls put() — "post and discard the result" (its own comment).
+//     `capacity == 0` (true for any zero-initialized queue) is the signal
+//     for this stub mode: put() just counts the call via put_count and
+//     does nothing else, matching that existing behaviour exactly.
+//   - sd_logger.c (2026-08-03, SD-write worker thread) needs a REAL queue:
+//     alloc() a properly sized one, and both put() and get() carry actual
+//     message bytes across threads. `capacity > 0` (only true after a
+//     real alloc()) switches put()/get() into the real ring-buffer path
+//     below, backed by a pthread mutex + two condvars.
+// Timeout is only faithfully modeled for the two values every real caller
+// in this codebase actually passes: FuriWaitForever (blocks on the
+// condvar — no deadline, so it doesn't depend on the fake tick advancing)
+// and 0 (non-blocking, tries once). Same simplification FuriMutex's shim
+// above already makes for timeout.
+typedef struct FuriMessageQueue {
+    int put_count;   // stub-mode counter only (capacity == 0) — see above
+    pthread_mutex_t m;
+    pthread_cond_t  not_empty;
+    pthread_cond_t  not_full;
+    uint8_t*        slots;
+    uint32_t        msg_size;
+    uint32_t        capacity;  // 0 = stub (zero-initialized, never alloc()'d)
+    uint32_t        count;
+    uint32_t        head;      // next slot index to get()
+    uint32_t        tail;      // next slot index to put()
+} FuriMessageQueue;
+
+static inline FuriMessageQueue* furi_message_queue_alloc(uint32_t msg_count, uint32_t msg_size) {
+    FuriMessageQueue* q = malloc(sizeof(FuriMessageQueue));
+    assert(q);
+    memset(q, 0, sizeof(*q));
+    pthread_mutex_init(&q->m, NULL);
+    pthread_cond_init(&q->not_empty, NULL);
+    pthread_cond_init(&q->not_full, NULL);
+    q->slots = malloc((size_t)msg_count * msg_size);
+    assert(q->slots);
+    q->msg_size = msg_size;
+    q->capacity = msg_count;
+    return q;
+}
+
+static inline void furi_message_queue_free(FuriMessageQueue* q) {
+    if(q->capacity > 0) {
+        pthread_mutex_destroy(&q->m);
+        pthread_cond_destroy(&q->not_empty);
+        pthread_cond_destroy(&q->not_full);
+        free(q->slots);
+    }
+    free(q);
+}
 
 static inline FuriStatus furi_message_queue_put(FuriMessageQueue* q, const void* msg, uint32_t timeout) {
-    (void)msg;
-    (void)timeout;
-    if(q) q->put_count++;
+    if(q->capacity == 0) {
+        (void)msg;
+        (void)timeout;
+        q->put_count++;
+        return FuriStatusOk;
+    }
+    pthread_mutex_lock(&q->m);
+    while(q->count == q->capacity) {
+        if(timeout == 0) {
+            pthread_mutex_unlock(&q->m);
+            return FuriStatusErrorTimeout;
+        }
+        pthread_cond_wait(&q->not_full, &q->m);
+    }
+    memcpy(q->slots + (size_t)q->tail * q->msg_size, msg, q->msg_size);
+    q->tail = (q->tail + 1) % q->capacity;
+    q->count++;
+    pthread_cond_signal(&q->not_empty);
+    pthread_mutex_unlock(&q->m);
+    return FuriStatusOk;
+}
+
+static inline FuriStatus furi_message_queue_get(FuriMessageQueue* q, void* msg, uint32_t timeout) {
+    if(q->capacity == 0) {
+        // Stub-mode queue: nothing was ever really stored (see put()
+        // above) — gps_uart.c never calls get() on one of these, so this
+        // exists only as a safe default rather than undefined behaviour.
+        (void)msg;
+        (void)timeout;
+        return FuriStatusErrorTimeout;
+    }
+    pthread_mutex_lock(&q->m);
+    while(q->count == 0) {
+        if(timeout == 0) {
+            pthread_mutex_unlock(&q->m);
+            return FuriStatusErrorTimeout;
+        }
+        pthread_cond_wait(&q->not_empty, &q->m);
+    }
+    memcpy(msg, q->slots + (size_t)q->head * q->msg_size, q->msg_size);
+    q->head = (q->head + 1) % q->capacity;
+    q->count--;
+    pthread_cond_signal(&q->not_full);
+    pthread_mutex_unlock(&q->m);
     return FuriStatusOk;
 }

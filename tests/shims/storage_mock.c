@@ -10,6 +10,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <stdatomic.h>
+#include <unistd.h>
 
 #define MOCK_MAX_FILES 64
 #define MOCK_PATH_LEN  128
@@ -27,7 +29,22 @@ struct Storage {
     bool     fail_next_dir_open;
     bool     fail_next_open;
     bool     fail_writes;
-    uint32_t next_write_delay_ticks;
+    // Real usleep()-based delay (not a fake-tick advance) for the NEXT
+    // storage_file_write() call only, then auto-clears — same technique
+    // tests/shims/furi_hal_mock.c already uses for its I2C/RF delay mocks,
+    // needed here so tests/test_sd_logger.c can genuinely make the SD
+    // writer thread (modules/sd_logger.c, 2026-08-03) busy for real wall-
+    // clock time, e.g. to exercise sd_logger_batch_flush()'s "writer
+    // thread still busy with the other buffer" skip path.
+    // _Atomic: written by the test thread, read by the writer thread.
+    _Atomic uint32_t next_write_delay_ms;
+    // True for the exact real-time span storage_file_write() is inside
+    // its (possibly artificially delayed) call — mirrors
+    // furi_hal_i2c_mock_call_in_progress()/furi_hal_subghz_mock_rssi_call_in_progress()
+    // (tests/shims/furi_hal_mock.c): lets a test know exactly when it's
+    // safe to advance the fake tick to simulate elapsed device time
+    // during the stall, without racing the mock's own start/end.
+    _Atomic bool write_in_progress;
 };
 
 struct File {
@@ -97,8 +114,12 @@ void storage_mock_fail_next_dir_open(Storage* storage, bool fail) { storage->fai
 void storage_mock_fail_next_open(Storage* storage, bool fail) { storage->fail_next_open = fail; }
 void storage_mock_fail_writes(Storage* storage, bool fail) { storage->fail_writes = fail; }
 
-void storage_mock_set_next_write_delay_ticks(Storage* storage, uint32_t ticks) {
-    storage->next_write_delay_ticks = ticks;
+void storage_mock_set_next_write_delay_ms(Storage* storage, uint32_t ms) {
+    atomic_store(&storage->next_write_delay_ms, ms);
+}
+
+bool storage_mock_write_in_progress(Storage* storage) {
+    return atomic_load(&storage->write_in_progress);
 }
 
 File* storage_file_alloc(Storage* storage) {
@@ -172,11 +193,15 @@ bool storage_file_sync(File* file) {
 
 size_t storage_file_write(File* file, const void* buff, size_t bytes_to_write) {
     Storage* s = file->storage;
-    if(s->next_write_delay_ticks > 0) {
-        furi_test_advance_tick(s->next_write_delay_ticks);
-        s->next_write_delay_ticks = 0;
+    atomic_store(&s->write_in_progress, true);
+    uint32_t delay_ms = atomic_exchange(&s->next_write_delay_ms, 0);
+    if(delay_ms > 0) {
+        usleep(delay_ms * 1000);
     }
-    if(s->fail_writes) return 0;
+    if(s->fail_writes) {
+        atomic_store(&s->write_in_progress, false);
+        return 0;
+    }
 
     MockFile* f = file->vfile;
     size_t needed = f->size + bytes_to_write;
@@ -190,6 +215,7 @@ size_t storage_file_write(File* file, const void* buff, size_t bytes_to_write) {
     }
     memcpy(f->data + f->size, buff, bytes_to_write);
     f->size += bytes_to_write;
+    atomic_store(&s->write_in_progress, false);
     return bytes_to_write;
 }
 
