@@ -69,6 +69,11 @@ typedef struct Session {
     char           zoom_label[16];
     float          zoom_label_last;
     int            zoom_label_width;
+
+    // Render cache — nS value (top-right corner)
+    char           ns_label[16];
+    float          ns_label_last;
+    int            ns_label_width;
 } Session;
 
 // ── BioMapApp — shared application state (fully typed) ─────────────────

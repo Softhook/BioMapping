@@ -40,10 +40,34 @@ static float gps_hacc_display(const GpsStatus* g) {
 // ==========================================================================
 // Graph rendering (GSR waveform)
 // ==========================================================================
+//
+// Hybrid approach: canvas_draw_dot() for each sample column (avoids the
+// Bresenham overhead that canvas_draw_line pays even for dx=1 segments),
+// with canvas_draw_line() for vertical gap-fill when |dy| > 1 between
+// consecutive samples.  A single vertical line call replaces |dy| individual
+// dot calls — critical at high zoom where large y-steps would otherwise
+// incur heavy function-call overhead from the gap-fill loop.
+//
+// Clamp helpers clip y to the graph frame interior (gy+1 .. gy+gh-2) so
+// zoomed-out values cannot bleed into the top bar or overlap the zoom label.
+// x is always within the frame (computed from gx+1+i, i bounded by gw).
+// Branches are well-predicted: values stay in range during normal operation.
+
+static inline uint8_t clamp_to_u8(int v, int lo, int hi) {
+    if(v < lo) return (uint8_t)lo;
+    if(v > hi) return (uint8_t)hi;
+    return (uint8_t)v;
+}
 
 static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) {
     int n  = gw - 2;
     int cy = gy + gh / 2;
+
+    // Graph frame interior — all graph pixels must stay within these bounds
+    // to avoid bleeding into the top bar (y < gy+1) or overlapping the
+    // zoom label / frame border.
+    const int y0 = gy + 1;
+    const int y1 = gy + gh - 2;
 
     // Fold zoom and scale into one constant so the inner loop only needs
     // one multiply per sample instead of two.
@@ -52,35 +76,46 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
     canvas_draw_frame(c, gx, gy, gw, gh);
 
     // 10-second notches above the graph — integer arithmetic only.
-    // px_per_notch: how many pixels represent 10 seconds at current speed.
-    // scroll_divider ticks per pixel, TICK_HZ ticks per second.
-    // 10 s × TICK_HZ ticks/s ÷ scroll_divider ticks/px = px per notch.
-    int px_per_notch = (10 * TICK_HZ) / a->session.pipeline.graph.scroll_divider; // integer, always ≥1
+    int px_per_notch = (10 * TICK_HZ) / a->session.pipeline.graph.scroll_divider;
     if(px_per_notch > 2) {
         int right_edge = gx + gw - 2;
-        int notch_top = gy > 3 ? gy - 3 : 0;   // guard against negative canvas y
+        int notch_top = gy > 3 ? gy - 3 : 0;
         for(int x = right_edge - px_per_notch; x > gx; x -= px_per_notch) {
             canvas_draw_line(c, x, notch_top, x, gy);
         }
     }
 
     // Walk the ring buffer linearly — no modulo divisions per pixel.
-    // GRAPH_N (126) is not a power-of-two, so % GRAPH_N compiles to a
-    // software divide on Cortex-M4. Replace with a compare-and-wrap.
-    // Also cache y_prev: y1 of segment i becomes y0 of segment i+1.
     int idx = a->session.pipeline.graph.head;
     float v0 = a->session.pipeline.graph.buf[idx] * combined_scale;
     int y_prev = cy - (int)v0;
 
-    for(int i = 0; i < n - 1; i++) {
-        // Advance index with branchless wrap (compare cheaper than divide)
+    // First column: plot the initial sample, clamped to graph interior.
+    canvas_draw_dot(c, (uint8_t)(gx + 1), clamp_to_u8(y_prev, y0, y1));
+
+    for(int i = 1; i < n; i++) {
         if(++idx >= GRAPH_N) idx = 0;
 
         float v1 = a->session.pipeline.graph.buf[idx] * combined_scale;
-        int y1 = cy - (int)v1;
+        int y_cur = cy - (int)v1;
 
-        canvas_draw_line(c, gx + 1 + i, y_prev, gx + 1 + i + 1, y1);
-        y_prev = y1;
+        // Dot at current sample column — cheap (u8g2_DrawPixel, no Bresenham).
+        canvas_draw_dot(c, (uint8_t)(gx + 1 + i), clamp_to_u8(y_cur, y0, y1));
+
+        // Vertical gap-fill: one canvas_draw_line for the entire gap
+        // between consecutive dots, drawn at the current column (dx=0).
+        // Only fires when |dy| > 1 — rare for normal GSR data.
+        if(y_prev < y_cur - 1) {
+            canvas_draw_line(c,
+                (uint8_t)(gx + 1 + i), clamp_to_u8(y_prev + 1, y0, y1),
+                (uint8_t)(gx + 1 + i), clamp_to_u8(y_cur - 1, y0, y1));
+        } else if(y_prev > y_cur + 1) {
+            canvas_draw_line(c,
+                (uint8_t)(gx + 1 + i), clamp_to_u8(y_cur + 1, y0, y1),
+                (uint8_t)(gx + 1 + i), clamp_to_u8(y_prev - 1, y0, y1));
+        }
+
+        y_prev = y_cur;
     }
 }
 
@@ -281,12 +316,25 @@ static void draw_rf_panel_left(Canvas* c, BioMapApp* a, const float rssi_dbm[EM_
 // ("-99999 nS", not this frame's actual width — see the elapsed-time
 // comment in biomap_render_callback for why a fixed placeholder is used).
 static int draw_ns_top_right(Canvas* c, BioMapApp* a) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%.0f nS", (double)a->session.pipeline.display.filtered_ns);
+    // Cache worst-case placeholder width — constant string, measure once.
+    static int worst_case_w = 0;
+    if(worst_case_w == 0) worst_case_w = canvas_string_width(c, "-99999 nS");
+
+    // Only reformat + remeasure when the nS value actually changes.
+    // The float comparison is exact for whole-number nS values rendered
+    // with "%.0f" — two frames with the same integer nS produce the
+    // identical string and width, so we skip both snprintf and
+    // canvas_string_width (an expensive glyph-measurement call).
+    float ns = a->session.pipeline.display.filtered_ns;
+    if(ns != a->session.ns_label_last) {
+        snprintf(a->session.ns_label, sizeof(a->session.ns_label), "%.0f nS", (double)ns);
+        a->session.ns_label_width = canvas_string_width(c, a->session.ns_label);
+        a->session.ns_label_last = ns;
+    }
     int right_margin = a->session.recording.active ? 12 : 2;
-    int x = 128 - canvas_string_width(c, buf) - right_margin;
-    canvas_draw_str(c, x, 10, buf);
-    return 128 - canvas_string_width(c, "-99999 nS") - right_margin;
+    int x = 128 - a->session.ns_label_width - right_margin;
+    canvas_draw_str(c, x, 10, a->session.ns_label);
+    return 128 - worst_case_w - right_margin;
 }
 
 static void draw_sensor_alert(Canvas* c, const char* text) {

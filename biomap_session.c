@@ -64,6 +64,7 @@ void session_init(Session* s, BioMapMode mode, bool zoom_enabled) {
         .recording  = {.active = false, .tick_counter = 0, .flush_counter = 0},
         .running    = true,
         .gsr_alert_sounded = false,
+        .ns_label_last = -1.0f,  // sentinel — forces format on first frame (nS ≥ 0 always)
     };
     memset(s->pipeline.graph.buf, 0, sizeof(s->pipeline.graph.buf));
 }
