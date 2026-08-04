@@ -447,12 +447,22 @@ static void render_diagnostics(Canvas* c, BioMapApp* a) {
         int32_t window_n = gsr_sensor_get_window_samples(a->session.gsr);
         int y = 8;
 
+        // Raw single-sample and filtered (100-sample mean) in nS and kΩ.
+        // kΩ = 1e6 / nS  (since G_nS = 1e9/R_Ω → R_kΩ = 1e6/G_nS).
+        // Displayed here so a calibration resistor can be verified directly
+        // against a multimeter reading without mental arithmetic.
+        float raw_ns  = a->session.pipeline.display.raw_sample_ns;
+        float filt_ns = a->session.pipeline.display.filtered_ns;
+        float raw_kohm  = (raw_ns  > 0.0f) ? 1000000.0f / raw_ns  : 0.0f;
+        float filt_kohm = (filt_ns > 0.0f) ? 1000000.0f / filt_ns : 0.0f;
+        y = draw_fmt(c, 0, y, "Raw: %.0fnS / %.1fk", (double)raw_ns,  (double)raw_kohm);
+        y = draw_fmt(c, 0, y, "Filt:%.0fnS / %.1fk", (double)filt_ns, (double)filt_kohm);
+
         y = draw_fmt(c, 0, y, "PGA:%u Cal:%s Chg:%lu",
                      (unsigned)pga, a->cal_active ? "yes" : "no",
                      (unsigned long)gsr_sensor_get_pga_change_count(a->session.gsr));
-        y = draw_fmt(c, 0, y, "Sngl: %ld",
-                     (long)a->session.pipeline.display.raw_sample_count);
-        y = draw_fmt(c, 0, y, "Mean: %ld (N=%ld)",
+        y = draw_fmt(c, 0, y, "Sngl:%ld Mean:%ld(N=%ld)",
+                     (long)a->session.pipeline.display.raw_sample_count,
                      (long)mean_cnt, (long)window_n);
         y = draw_fmt(c, 0, y, "Hz:%.0f OK:%.0f%% F:%lu",
                      (double)gsr_sensor_get_worker_hz(a->session.gsr),
@@ -461,19 +471,15 @@ static void render_diagnostics(Canvas* c, BioMapApp* a) {
 
         uint32_t dup_gap = gsr_sensor_get_duplicate_gap_min_ticks(a->session.gsr);
         if(dup_gap == UINT32_MAX) {
-            y = draw_fmt(c, 0, y, "Dup:%.0f%% Stl:%.0f%% DG:-",
-                         (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
-                         (double)gsr_sensor_get_stale_rate(a->session.gsr));
+            draw_fmt(c, 0, y, "Dup:%.0f%% Stl:%.0f%% DG:-",
+                     (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
+                     (double)gsr_sensor_get_stale_rate(a->session.gsr));
         } else {
-            y = draw_fmt(c, 0, y, "Dup:%.0f%% Stl:%.0f%% DG:%lu",
-                         (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
-                         (double)gsr_sensor_get_stale_rate(a->session.gsr),
-                         (unsigned long)dup_gap);
+            draw_fmt(c, 0, y, "Dup:%.0f%% Stl:%.0f%% DG:%lu",
+                     (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
+                     (double)gsr_sensor_get_stale_rate(a->session.gsr),
+                     (unsigned long)dup_gap);
         }
-        draw_fmt(c, 0, y, "P2P:%ld 50Hz:%.0f Gap:%lu",
-                 (long)gsr_sensor_get_window_ptp(a->session.gsr),
-                 (double)gsr_sensor_get_mains_hum_mag(a->session.gsr),
-                 (unsigned long)gsr_sensor_get_window_min_gap_ticks(a->session.gsr));
     } else {
         canvas_draw_str(c, 0, 8, "GSR: --");
     }
