@@ -41,6 +41,8 @@ static float gps_hacc_display(const GpsStatus* g) {
 // Format + draw at (x, y) in one call, returning y + 10 for the next line.
 // Replaces the repetitive snprintf + canvas_draw_str + y += 10 triplet
 // that appears ~30 times across diagnostics, GPS, and calibration renders.
+// buf is intentionally capped at 48 bytes — FontSecondary fits ≤ ~21 glyphs
+// per line on the 128 px display, so 48 chars is a safe ceiling per line.
 static int draw_fmt(Canvas* c, int x, int y, const char* fmt, ...) {
     char buf[48];
     va_list args;
@@ -139,8 +141,8 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
 // Render the zoom label (bottom-left corner), caching format/width to
 // avoid snprintf + canvas_string_width on every frame.  Mutex held by caller.
 static void render_zoom_label(Canvas* c, BioMapApp* a, int x) {
-    if(a->session.pipeline.zoom.level != a->session.zoom_label_last &&
-       a->session.pipeline.zoom.level > a->session.zoom_label_last + 0.05f) {
+    // Use |delta| so the cache also updates when zoom decreases (e.g. zoom-out).
+    if(fabsf(a->session.pipeline.zoom.level - a->session.zoom_label_last) > 0.05f) {
         snprintf(a->session.zoom_label, sizeof(a->session.zoom_label), "%.1fx",
                  (double)a->session.pipeline.zoom.level);
         canvas_set_font(c, FontSecondary);
@@ -325,18 +327,21 @@ static void draw_inline_graph_status(
 // to FontPrimary only where needed (alerts).
 
 // ── GPS badge, top-left (GPS+GSR / GPS+GSR+RF modes) ──────────────────
-// Returns the fixed worst-case right edge for elapsed-time centering.
+// Returns the FIXED worst-case right edge ("No fix" width) for elapsed-time
+// centering — not this frame's actual badge width.  Using the real width
+// would shift the centered elapsed-time label sideways on every hacc
+// digit-count change, producing visible jitter each frame.
 static int render_gps_badge(Canvas* c, BioMapApp* a) {
     GpsStatus g = gps_uart_get_status(a->session.gps);
     bool has_fix = gps_has_fix(&g);
     char badge[16];
     float hacc_disp = gps_hacc_display(&g);
     if(!has_fix) {
-        snprintf(badge, sizeof(badge), "No fix");
+        strcpy(badge, "No fix");
     } else if(hacc_disp < 50.0f) {
         snprintf(badge, sizeof(badge), "%.1fm", (double)hacc_disp);
     } else {
-        snprintf(badge, sizeof(badge), "3D Fix");
+        strcpy(badge, "3D Fix");
     }
     canvas_draw_str(c, 1, 10, badge);
     return 1 + canvas_string_width(c, "No fix");
@@ -357,14 +362,21 @@ static int render_time_span(Canvas* c, BioMapApp* a) {
 }
 
 // ── Elapsed recording time (centered, all GSR modes) ──────────────────
+// left_edge / right_edge are FIXED worst-case reservations supplied by the
+// caller (render_gps_badge / render_time_span), NOT the actual pixel width
+// of whatever badge is rendered this frame.  Fixed boundaries keep the
+// elapsed-time label stationary even as the GPS hacc value changes digit
+// count frame-to-frame — using live widths would make it visibly jitter.
 static void render_elapsed(Canvas* c, BioMapApp* a, int left_edge, int right_edge) {
     if(!a->session.recording.active) return;
     char buf[16];
-    int elapsed_min = (int)(a->session.recording.total_ticks / TICK_HZ) / 60;
-    if(elapsed_min >= 60) {
-        snprintf(buf, sizeof(buf), "%dh%02dm", elapsed_min / 60, elapsed_min % 60);
+    int elapsed_s = (int)(a->session.recording.total_ticks / TICK_HZ);
+    if(elapsed_s < 60) {
+        snprintf(buf, sizeof(buf), "%ds", elapsed_s);
+    } else if(elapsed_s < 3600) {
+        snprintf(buf, sizeof(buf), "%dm", elapsed_s / 60);
     } else {
-        snprintf(buf, sizeof(buf), "%dm", elapsed_min);
+        snprintf(buf, sizeof(buf), "%dh%02dm", elapsed_s / 3600, (elapsed_s % 3600) / 60);
     }
     int w = canvas_string_width(c, buf);
     int gap_left  = left_edge + 3;
@@ -796,7 +808,6 @@ void rf_calibration_wizard_stats_render(Canvas* c, void* ctx) {
     canvas_draw_str(c, 0, 10, passed ? "Calibration Passed!" : "Calibration Failed!");
     canvas_set_font(c, FontSecondary);
 
-    char buf[48];
     if(passed) {
         float min_f = computed_floors[0];
         float max_f = computed_floors[0];
@@ -810,8 +821,7 @@ void rf_calibration_wizard_stats_render(Canvas* c, void* ctx) {
         draw_fmt(c, 0, 36, "Max StdDev: %.2fdB (OK)", (double)max_std);
         canvas_draw_str(c, 0, 60, "[OK=Save, Back=Discard]");
     } else if(sweep_count < 5) {
-        snprintf(buf, sizeof(buf), "Too few sweeps: %lu (need 5+)", (unsigned long)sweep_count);
-        canvas_draw_str(c, 0, 24, buf);
+        draw_fmt(c, 0, 24, "Too few sweeps: %lu (need 5+)", (unsigned long)sweep_count);
         canvas_draw_str(c, 0, 36, "Sampling ran too slow/short");
         canvas_draw_str(c, 0, 60, "[OK/Back = Exit]");
     } else {
