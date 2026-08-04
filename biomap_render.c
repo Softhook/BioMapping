@@ -259,6 +259,9 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     bool has_graph = has_gsr(a->session.mode)
                   && a->session.mode != BioMapModeDiagnostics;
     bool is_diag   = (a->session.mode == BioMapModeDiagnostics);
+    bool gsr_signal_visible = a->session.gsr
+                           && gsr_sensor_available(a->session.gsr)
+                           && gsr_sensor_is_connected(a->session.gsr);
     // GPS+GSR-style top bar (badge top-left, nS top-right) applies to both
     // GpsGsr and GpsGsrRf — anything with both GPS and GSR but not the
     // GsrOnly time-span layout below. Added as its own flag (2026-07-29)
@@ -295,8 +298,10 @@ void biomap_render_callback(Canvas* c, void* ctx) {
 
     // Graph + zoom label (GSR modes except diagnostics)
     if(has_graph) {
-        draw_graph(c, a, 0, 16, 128, 48);
-        render_zoom_label(c, a);
+        if(gsr_signal_visible) {
+            draw_graph(c, a, 0, 16, 128, 48);
+            render_zoom_label(c, a);
+        }
         // RF bars, bottom-right — mirrors render_zoom_label's bottom-left
         // corner above. Independent of GSR connect state (the cuffs being
         // disconnected doesn't affect RF), so this sits outside the
@@ -413,7 +418,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     if(has_graph) {
         if(a->session.gsr) {
             if(gsr_sensor_available(a->session.gsr)) {
-                if(gsr_sensor_is_connected(a->session.gsr)) {
+                if(gsr_signal_visible) {
                     if(a->session.mode == BioMapModeGsrOnly) {
                         char buf[32];
                         // Time span label — top-left
@@ -435,7 +440,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                         top_right_edge = draw_ns_top_right(c, a);
                     }
                 } else {
-                    draw_inline_graph_status(c, "NO SIGNAL");
+                    draw_inline_graph_status(c, "Finger cuffs disconnected");
                 }
             } else {
                 draw_sensor_alert(c, "NO SENSOR");
