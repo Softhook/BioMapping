@@ -203,9 +203,11 @@ void em_scan_rf_fast_sweep_snapshot(
 
 Every hardware call here is one already used (and working) elsewhere in `em_scan_rf.c` — `em_scan_rf_tune_and_warmup()` is the same helper `em_scan_rf_dwell_band()` and `em_scan_rf_park_band()` already call. No new radio-state-machine sequencing is introduced at all; the only change from the pre-existing dwell/park functions is doing one read instead of a dwell loop, and doing it for all 3 bands back to back.
 
-### 6.4 Actual verification target
+### 6.4 Actual verification target — measured on hardware 2026-08-04
 
-~10 ms per 3-band sweep (retune + 3ms warmup, x3), not the originally targeted ~6ms and nowhere near the abandoned design's theoretical ~1.5ms — but still roughly a 30-90x improvement over the 300-900ms baseline, using only sequencing already known not to hang this hardware. §5's verification plan still applies with this revised target; §5.1's "~6-10ms" is now the right ballpark by coincidence, though for a different reason (a full retune+warmup per band, not a fast in-place register write).
+No freeze, ran continuously (35s+ observed, steady heartbeats). Measured: `sweep=18-22ms`, `retune=6-8ms` (single worst-band peak, includes the 3ms warmup — i.e. the idle/flush/set_frequency_and_path/rx SPI sequence itself costs ~3-5ms on top of the fixed delay, confirming §1's ~750µs FSCAL estimate was optimistic for the real overhead of a full retune). Total ~18-22ms for 3 bands is higher than the ~10ms estimated in the previous revision of this section, but still a ~15-45x improvement over the 300-900ms baseline, using only sequencing already known not to hang this hardware.
+
+**Open question from this same capture, not yet resolved:** band 0 (815MHz) showed real dynamic range (-79 to -92 dBm) across the whole run; bands 1/2 (868.35/915MHz) stayed pinned at -91.5/-92.0dBm almost the entire time. Both are plausible: (a) 868/915 are genuinely quiet ISM/LoRa spectrum at this location while 815 sits near cellular uplink bands with real ambient activity, or (b) something's still off with those two bands specifically. Note this can NOT be the §2/§3 antenna-path-sharing assumption from the abandoned design — the shipped §6.3 code calls `set_frequency_and_path()` (full path reselect) for every band, including 1 and 2, identical to the pre-existing `em_scan_rf_dwell_band()`. If this is a real issue, it predates today's change entirely. Next check: compare against any pre-2026-08-04 CSV logs from a similar location (did 868/915 ever show real movement historically?), or hold a known sub-GHz transmitter near 868 or 915 MHz specifically and confirm a deflection.
 
 ### 6.5 If faster is still wanted later
 
