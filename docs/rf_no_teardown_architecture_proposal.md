@@ -1,12 +1,16 @@
 # Technical Proposal: RF No-Teardown Fast Tuning Architecture for BioMapping
 
-## Executive Summary
+## STATUS (2026-08-04): No-teardown approach abandoned after hardware freeze — see §6
 
-This document proposes transitioning the **BioMapping** Sub-GHz radio scanning architecture from its legacy radio-teardown mechanism (`idle()` $\rightarrow$ `flush_rx()` $\rightarrow$ `set_frequency_and_path()` $\rightarrow$ `rx()` $\rightarrow$ 3 ms warmup) to an **In-Place Fast Tuning (No-Teardown) Duty-Cycled Architecture**, modeled on the core mechanisms of the **Flipper Zero Frequency Analyzer**.
+The core idea this document originally proposed — keeping the CC1101 in RX and retuning bands 1/2 without an intervening `idle()` — **froze the Flipper Zero on the very first sweep** when tried on real hardware (serial log stopped mid-sequence, device required a power-cycle to recover, which very likely also caused a secondary SD card corruption on the same run). That specific mechanism (§2/§3 below) is **not implemented** and should not be re-attempted without hardware-in-the-loop bisection. What's actually shipped is a much more conservative fix described in §6: same known-safe per-band retune sequence BioMapping already used, just with the long dwell/park polling window removed. It's slower than this document's original target but still a large improvement, and everything in it reuses code paths already proven not to hang this hardware. Sections 1-5 below are kept as a record of the original (abandoned) proposal; read §6 for what's real.
 
-By retuning the TI CC1101 transceiver in place — a single `idle()`/`rx()` bracket for the whole sweep instead of one per band — during a 10 Hz session tick, BioMapping reduces its 3-band RF sweep duration from **300–900 ms down to ~6 ms**, while preserving **~94% CPU availability** for GPS UART processing, GUI rendering, and SD card logging.
+## Executive Summary (original proposal — see STATUS above)
 
-**Implementation note (2026-08-04):** the SDK exposed by this project's `~/.ufbt` headers (`furi_hal_subghz.h`) does not provide a raw `furi_hal_subghz_write_reg()` / direct `CC1101_FREQ2/1/0` register API — that call, used in an earlier draft of this proposal, doesn't exist at the app level and would not compile. The actual implementation instead uses the SDK's `furi_hal_subghz_set_frequency()` (frequency only, no antenna-path switch) for in-sweep retunes, plus a single `furi_hal_subghz_rx()` re-strobe per band to latch the new frequency — modeled directly on the official Flipper Zero Frequency Analyzer app's retune loop (`applications/main/subghz/helpers/subghz_frequency_analyzer_worker.c`), including its ~2 ms post-retune settle delay, rather than an unverified 150 µs guess. See §4 below for the as-built code.
+This document proposed transitioning the **BioMapping** Sub-GHz radio scanning architecture from its legacy radio-teardown mechanism (`idle()` $\rightarrow$ `flush_rx()` $\rightarrow$ `set_frequency_and_path()` $\rightarrow$ `rx()` $\rightarrow$ 3 ms warmup) to an **In-Place Fast Tuning (No-Teardown) Duty-Cycled Architecture**, modeled on the core mechanisms of the **Flipper Zero Frequency Analyzer**.
+
+The claimed benefit was reducing a 3-band RF sweep from **300–900 ms down to ~6 ms** by retuning the TI CC1101 transceiver in place — a single `idle()`/`rx()` bracket for the whole sweep instead of one per band. **This was never achieved: the device froze before completing the first sweep.** See §6 for what was shipped instead (~10 ms via a different, safer mechanism).
+
+**Implementation note (2026-08-04):** the SDK exposed by this project's `~/.ufbt` headers (`furi_hal_subghz.h`) does not provide a raw `furi_hal_subghz_write_reg()` / direct `CC1101_FREQ2/1/0` register API — that call, used in an earlier draft of this proposal, doesn't exist at the app level and would not compile. An interim implementation instead used the SDK's `furi_hal_subghz_set_frequency()` (frequency only, no antenna-path switch) for in-sweep retunes, plus a single `furi_hal_subghz_rx()` re-strobe per band to latch the new frequency — modeled directly on the official Flipper Zero Frequency Analyzer app's retune loop (`applications/main/subghz/helpers/subghz_frequency_analyzer_worker.c`), including its ~2 ms post-retune settle delay, rather than an unverified 150 µs guess. That interim version is what froze the device — see §6.
 
 ---
 
@@ -44,7 +48,7 @@ The Flipper Zero Frequency Analyzer and community Spectrum Analyzer applications
 
 ---
 
-## 3. Proposed Architecture: Duty-Cycled Fast Sweep (No Teardown)
+## 3. Proposed Architecture: Duty-Cycled Fast Sweep (No Teardown) — ABANDONED, see §6
 
 To avoid system instability, CPU starvation, high battery drain, and SPI bus congestion, BioMapping will **NOT** use continuous 100% busy-hopping. Instead, it will use a **Duty-Cycled Fast Sweep** synchronized to the 10 Hz (`TICK_HZ = 10`) session recording rate.
 
@@ -68,7 +72,7 @@ To avoid system instability, CPU starvation, high battery drain, and SPI bus con
 
 ---
 
-## 4. Proposed Implementation Plan
+## 4. Proposed Implementation Plan — ABANDONED, froze the device on first hardware test; see §6
 
 ### Component 1: `modules/em_scan_rf.c` & `modules/em_scan_rf.h` (as implemented)
 
@@ -137,7 +141,7 @@ if(gsr->rf_enabled) {
 
 ---
 
-## 5. Verification Plan
+## 5. Verification Plan — superseded by §6.4; §5.1's target latency was never reached
 
 ### Automated Tests
 1. **Host Build Verification:** Run `./run_tests.sh` to ensure all host unit test shims compile cleanly.
@@ -147,3 +151,62 @@ if(gsr->rf_enabled) {
 1. **Sweep Latency Measurement:** Verify via `BIOMAP_DEBUG_FIELDS` telemetry that `tm_rf` execution time drops from **>300 ms** down to **~6-10 ms**. Not sub-3ms — the 2ms-per-band settle delay alone accounts for ~6ms of that, and it is deliberately NOT the more aggressive 150µs-per-band figure the first draft assumed (see §1 implementation note); only shrink it below 2ms after confirming on real hardware that RSSI readings stay valid (§5.3) at a shorter delay.
 2. **GPS Sentence Quality Check:** Record a 10-minute walk session while logging NMEA sentence arrival times. Verify `tick_over_150_count` is **0** and no GPS UART sentences are dropped.
 3. **RF Sensitivity Check:** Confirm using a handheld sub-GHz transmitter (or ambient background) that RSSI response across 815, 868, and 915 MHz remains dynamic and accurately reflects local signal strength.
+
+---
+
+## 6. What Actually Happened, and What's Shipped Instead
+
+### 6.1 The hardware failure
+
+The §3/§4 implementation (staying in RX across the sweep, retuning bands 1/2 via `set_frequency()` + a bare `rx()` re-strobe with no `idle()`/`flush_rx()` in between) was flashed and run on the actual Flipper Zero. Serial log at the point of failure:
+
+```
+21094 [I][GpsUart] Configuring u-blox SAM-M10Q
+21094 [I][GpsUart] Switching GPS to 115200 baud
+21492 [I][GpsUart] M10Q running at 115200 baud, 10 Hz, GSV@1Hz
+21493 [I][GsrSensor] I2C Probe OK
+21502 [I][EmScan] freq[0] 815: requested=815000000 actual=814999786
+21504 [I][EmScan] freq[1] 868: requested=868350000 actual=868349853
+21507 [I][EmScan] freq[2] 915: requested=915000000 actual=914999969
+```
+
+That's `em_scan_rf_init()`'s one-time startup calibration log (§ implementation note) completing normally. The device then froze solid — no crash screen, required a power-cycle to recover. Critically, a rate-limited `[I][GsrSensor] RF sweep=...` log had been added specifically to observe the first live sweep, and it **never printed** — meaning the freeze happened inside the very first call to `em_scan_rf_fast_sweep_snapshot()`, before it returned from even one band. The abrupt power-cycle also correlated with a "mounting SD card failed" error on the next boot — consistent with FAT32 corruption from power loss mid-write, not a separate bug.
+
+**Most likely cause:** `furi_hal_subghz_rx()` called a second/third time while the radio is already in RX (no intervening `idle()`). The CC1101 datasheet documents an `SRX` strobe issued while already in RX as a no-op; if this SDK's `rx()` wrapper polls for a state *transition* rather than checking current state before waiting, it would spin forever exactly where the log shows the hang. The also-removed `flush_rx()` (added in an earlier fix specifically after a prior hardware-crash investigation — see `em_scan_rf_crash_investigation.md`) can't be ruled out as a contributing factor either. Given a frozen device and a corrupted SD card are the cost of guessing wrong, both were reverted together rather than bisected further without hardware-in-the-loop access.
+
+### 6.2 The insight that made the safe version possible
+
+The original 300–900 ms cost was never actually coming from the retune sequence itself (`idle → flush_rx → set_frequency_and_path → rx`, a handful of SPI transactions). It came from `em_scan_rf_dwell_band()` / `em_scan_rf_park_band()` polling RSSI repeatedly over a tens-to-hundreds-of-ms **dwell window** per band. Swapping that dwell for a single RSSI read per band — while keeping the exact retune sequence already proven safe elsewhere in this file — captures most of the speedup without touching the part that froze the device.
+
+### 6.3 What's actually implemented (`modules/em_scan_rf.c`)
+
+```c
+void em_scan_rf_fast_sweep_snapshot(
+    float     out_rssi_dbm[EM_SCAN_NUM_FREQS],
+    uint32_t* out_retune_peak_ms) {
+    uint32_t retune_peak_ms = 0;
+
+    for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+        uint32_t retune_start = furi_get_tick();
+        em_scan_rf_tune_and_warmup(i); // idle -> flush_rx -> set_frequency_and_path -> rx -> 3ms warmup
+        uint32_t retune_dur = furi_get_tick() - retune_start;
+        if(retune_dur > retune_peak_ms) retune_peak_ms = retune_dur;
+
+        out_rssi_dbm[i] = furi_hal_subghz_get_rssi();
+    }
+
+    furi_hal_subghz_idle();
+
+    if(out_retune_peak_ms) *out_retune_peak_ms = retune_peak_ms;
+}
+```
+
+Every hardware call here is one already used (and working) elsewhere in `em_scan_rf.c` — `em_scan_rf_tune_and_warmup()` is the same helper `em_scan_rf_dwell_band()` and `em_scan_rf_park_band()` already call. No new radio-state-machine sequencing is introduced at all; the only change from the pre-existing dwell/park functions is doing one read instead of a dwell loop, and doing it for all 3 bands back to back.
+
+### 6.4 Actual verification target
+
+~10 ms per 3-band sweep (retune + 3ms warmup, x3), not the originally targeted ~6ms and nowhere near the abandoned design's theoretical ~1.5ms — but still roughly a 30-90x improvement over the 300-900ms baseline, using only sequencing already known not to hang this hardware. §5's verification plan still applies with this revised target; §5.1's "~6-10ms" is now the right ballpark by coincidence, though for a different reason (a full retune+warmup per band, not a fast in-place register write).
+
+### 6.5 If faster is still wanted later
+
+Any future attempt at true in-place retuning (skipping `idle()` between bands) should be bisected on real hardware one variable at a time — e.g., first test keeping `flush_rx()` but dropping `idle()`, separately from dropping the settle delay, separately from skipping the antenna-path switch — rather than combining several untested changes in one pass, which is what made this failure hard to diagnose from a single log capture.

@@ -234,6 +234,14 @@ struct GsrSensor {
     uint32_t rf_last_sample_tick;  // furi_get_tick() of the last RSSI read — paces to ~10 Hz
     float    rf_dwell_peak[EM_SCAN_NUM_FREQS];
 
+    // Worker-thread-only counter, no mutex needed (same reasoning as
+    // rf_dwell_start_tick above) — gates the fast-sweep serial log below to
+    // ~1 Hz instead of the sweep's native ~10 Hz, added 2026-08-04 to
+    // verify the no-teardown fast-sweep change on real hardware (see
+    // docs/rf_no_teardown_architecture_proposal.md §5). Temporary
+    // diagnostic; remove once that verification is done.
+    uint32_t rf_log_counter;
+
     // Published RF snapshot — the ONLY RF state read cross-thread (main
     // thread's Tick handler + GUI thread's render callback, both via
     // gsr_sensor_get_rf_snapshot()). Guarded by rf_mutex, deliberately NOT
@@ -576,6 +584,22 @@ static int32_t gsr_sensor_worker(void* context) {
                 furi_mutex_release(gsr->rf_mutex);
 
                 gsr->rf_spi_busy = false; // SPI region ends here — see doc comment above
+
+                // Temporary serial diagnostic for verifying the no-teardown
+                // fast-sweep change on real hardware (see rf_log_counter's
+                // struct comment) — every 10th sample, i.e. ~1 Hz against
+                // RF_SAMPLE_INTERVAL_MS's ~10 Hz pacing, not every sample,
+                // to avoid flooding the serial console.
+                if((gsr->rf_log_counter++ % 10) == 0) {
+                    FURI_LOG_I(
+                        "GsrSensor",
+                        "RF sweep=%lums retune=%lums rssi=[%.1f,%.1f,%.1f]dBm",
+                        (unsigned long)sweep_dur,
+                        (unsigned long)retune_dur,
+                        (double)snapshot[0],
+                        (double)snapshot[1],
+                        (double)snapshot[2]);
+                }
             }
         }
 
@@ -692,6 +716,7 @@ GsrSensor* gsr_sensor_alloc(void) {
     }
     gsr->rf_rssi_peak_ms = 0;
     gsr->rf_retune_peak_ms = 0;
+    gsr->rf_log_counter = 0;
     gsr->rf_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     furi_check(gsr->rf_mutex, "GsrSensor: rf_mutex alloc failed");
 
