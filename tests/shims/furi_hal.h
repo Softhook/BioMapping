@@ -213,4 +213,16 @@ int em_scan_rf_mock_fast_sweep_count(void);
 void em_scan_rf_mock_set_fast_sweep_delay_ms(uint32_t ms);
 bool em_scan_rf_mock_fast_sweep_call_in_progress(void);
 
+// Delays specifically the per-band retune sub-step inside
+// em_scan_rf_fast_sweep_snapshot() (before the RSSI-read loop), so a test
+// can exercise that call's out_retune_peak_ms param independently of
+// em_scan_rf_mock_set_fast_sweep_delay_ms() above, which delays the whole
+// call. 0 (default) disables it. Also reset by em_scan_rf_mock_reset().
+void em_scan_rf_mock_set_retune_delay_ms(uint32_t ms);
+
+// True for the exact real-time span the (possibly artificially delayed)
+// retune sub-step above is in progress — same purpose as
+// em_scan_rf_mock_fast_sweep_call_in_progress().
+bool em_scan_rf_mock_retune_call_in_progress(void);
+
 void em_scan_rf_mock_reset(void);

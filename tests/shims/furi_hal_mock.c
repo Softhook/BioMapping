@@ -4,6 +4,7 @@
 // test-facing APIs.
 
 #include "furi_hal.h"
+#include "furi.h"
 #include <stdatomic.h>
 #include <unistd.h>
 #include "em_scan_rf.h"
@@ -257,6 +258,13 @@ static _Atomic int   g_rf_band_visit_count[RF_MOCK_MAX_BANDS]; // 1-based: 1 = c
 static _Atomic int      g_rf_fast_sweep_count = 0;
 static _Atomic uint32_t g_rf_fast_sweep_delay_ms = 0;
 static _Atomic bool     g_rf_fast_sweep_call_in_progress = false;
+// Simulates a slow/stuck per-band retune sub-step specifically (distinct
+// from g_rf_fast_sweep_delay_ms, which delays the whole call) — lets a test
+// exercise em_scan_rf_fast_sweep_snapshot()'s out_retune_peak_ms param in
+// isolation. Applied once, before the first band, same real-usleep
+// technique as the other *_delay_ms mocks.
+static _Atomic uint32_t g_rf_retune_delay_ms = 0;
+static _Atomic bool     g_rf_retune_call_in_progress = false;
 
 // Set true by em_scan_rf_set_band() on every rotation (including the
 // initial arm-to-band-0) and consumed by the very next
@@ -340,14 +348,33 @@ void em_scan_rf_mock_reset(void) {
     atomic_store(&g_rf_fast_sweep_count, 0);
     atomic_store(&g_rf_fast_sweep_delay_ms, 0);
     atomic_store(&g_rf_fast_sweep_call_in_progress, false);
+    atomic_store(&g_rf_retune_delay_ms, 0);
+    atomic_store(&g_rf_retune_call_in_progress, false);
 }
 
-__attribute__((weak)) void em_scan_rf_fast_sweep_snapshot(float out_rssi_dbm[EM_SCAN_NUM_FREQS]) {
+__attribute__((weak)) void em_scan_rf_fast_sweep_snapshot(
+    float     out_rssi_dbm[EM_SCAN_NUM_FREQS],
+    uint32_t* out_retune_peak_ms) {
     atomic_store(&g_rf_fast_sweep_call_in_progress, true);
     uint32_t delay_ms = atomic_load(&g_rf_fast_sweep_delay_ms);
     if(delay_ms > 0) {
         usleep(delay_ms * 1000);
     }
+
+    // Retune sub-step timing, measured the same way the real implementation
+    // does (furi_get_tick() before/after) — see furi.h's furi_test_tick doc
+    // comment for why this correctly picks up a test's furi_test_advance_tick()
+    // call made while g_rf_retune_call_in_progress is true, even though the
+    // usleep() below runs on the real OS clock, not the fake one.
+    uint32_t retune_start = furi_get_tick();
+    uint32_t retune_delay_ms = atomic_load(&g_rf_retune_delay_ms);
+    if(retune_delay_ms > 0) {
+        atomic_store(&g_rf_retune_call_in_progress, true);
+        usleep(retune_delay_ms * 1000);
+        atomic_store(&g_rf_retune_call_in_progress, false);
+    }
+    if(out_retune_peak_ms) *out_retune_peak_ms = furi_get_tick() - retune_start;
+
     atomic_fetch_add(&g_rf_fast_sweep_count, 1);
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         atomic_store(&g_rf_current_band, i);
@@ -370,6 +397,14 @@ void em_scan_rf_mock_set_fast_sweep_delay_ms(uint32_t ms) {
 
 bool em_scan_rf_mock_fast_sweep_call_in_progress(void) {
     return atomic_load(&g_rf_fast_sweep_call_in_progress);
+}
+
+void em_scan_rf_mock_set_retune_delay_ms(uint32_t ms) {
+    atomic_store(&g_rf_retune_delay_ms, ms);
+}
+
+bool em_scan_rf_mock_retune_call_in_progress(void) {
+    return atomic_load(&g_rf_retune_call_in_progress);
 }
 
 // ── SubGHz — gsr_sensor.c's interleaved RSSI read ───────────────────────

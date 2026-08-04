@@ -86,5 +86,19 @@ void em_scan_rf_park_band(
     float*    out_mean_dbm,
     uint32_t* out_sample_count);
 
-// Performs a single-pass 3-band sweep in ~1.5 ms without RF teardown
-void em_scan_rf_fast_sweep_snapshot(float out_rssi_dbm[EM_SCAN_NUM_FREQS]);
+// Performs a single-pass 3-band sweep in ~6 ms (3 x EM_SCAN_FAST_SWEEP_SETTLE_US)
+// without a full idle/recalibrate teardown between bands — see the doc
+// comment on this function's definition in em_scan_rf.c for the approach
+// and its basis in the official Flipper Zero Frequency Analyzer app.
+//
+// out_retune_peak_ms (may be NULL): set to the worst single per-band retune
+// sub-step (set_frequency[_and_path]() + rx() strobe, NOT including the
+// settle delay or the RSSI read) observed during this call, in ms. Callers
+// that separately time the whole call (as gsr_sensor.c's worker does, for
+// rf_rssi_peak_ms) will find that outer duration is now always >= this
+// value, since retune and RSSI-read are no longer separate top-level calls
+// the caller can bracket independently — this out-param is the only way to
+// attribute time specifically to the retune step.
+void em_scan_rf_fast_sweep_snapshot(
+    float     out_rssi_dbm[EM_SCAN_NUM_FREQS],
+    uint32_t* out_retune_peak_ms);

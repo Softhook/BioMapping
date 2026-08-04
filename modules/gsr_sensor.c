@@ -355,6 +355,17 @@ struct GsrSensor {
     // the ADC path, same reason the two mutexes exist at all. None of the
     // three is ever updated while its mutex is held across the hardware
     // call itself, only in the brief window afterward.
+    //
+    // rf_rssi_peak_ms/rf_retune_peak_ms are no longer independent
+    // measurements of two separate top-level calls (2026-08-04, the
+    // no-teardown fast-sweep change): em_scan_rf_fast_sweep_snapshot() now
+    // does both the retune and the RSSI read internally in one call, so
+    // rf_rssi_peak_ms (timed around the whole call, below) is always >=
+    // rf_retune_peak_ms (the worst single per-band retune sub-step,
+    // reported back via that call's out-param) for the same sample — it no
+    // longer stays at 0 while retune is slow the way i2c_peak_ms does.
+    // rf_retune_peak_ms is still useful for attributing time *within* a
+    // slow sweep to the retune step specifically vs. the settle/RSSI part.
     uint32_t i2c_peak_ms;
     uint32_t rf_rssi_peak_ms;
     uint32_t rf_retune_peak_ms;
@@ -550,9 +561,10 @@ static int32_t gsr_sensor_worker(void* context) {
             furi_mutex_release(gsr->rf_mutex);
 
             if(should_sample) {
-                float snapshot[EM_SCAN_NUM_FREQS];
+                float    snapshot[EM_SCAN_NUM_FREQS];
+                uint32_t retune_dur = 0;
                 uint32_t sweep_start = furi_get_tick();
-                em_scan_rf_fast_sweep_snapshot(snapshot);
+                em_scan_rf_fast_sweep_snapshot(snapshot, &retune_dur);
                 uint32_t sweep_dur = furi_get_tick() - sweep_start;
 
                 furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
@@ -560,6 +572,7 @@ static int32_t gsr_sensor_worker(void* context) {
                     gsr->rf_rssi_dbm[b] = snapshot[b];
                 }
                 if(sweep_dur > gsr->rf_rssi_peak_ms) gsr->rf_rssi_peak_ms = sweep_dur;
+                if(retune_dur > gsr->rf_retune_peak_ms) gsr->rf_retune_peak_ms = retune_dur;
                 furi_mutex_release(gsr->rf_mutex);
 
                 gsr->rf_spi_busy = false; // SPI region ends here — see doc comment above

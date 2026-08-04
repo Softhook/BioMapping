@@ -4,7 +4,9 @@
 
 This document proposes transitioning the **BioMapping** Sub-GHz radio scanning architecture from its legacy radio-teardown mechanism (`idle()` $\rightarrow$ `flush_rx()` $\rightarrow$ `set_frequency_and_path()` $\rightarrow$ `rx()` $\rightarrow$ 3 ms warmup) to an **In-Place Fast Tuning (No-Teardown) Duty-Cycled Architecture**, modeled on the core mechanisms of the **Flipper Zero Frequency Analyzer**.
 
-By keeping the TI CC1101 transceiver in an active `RX` state and writing frequency registers directly over SPI during a 10 Hz session tick, BioMapping will reduce its 3-band RF sweep duration from **300–900 ms down to ~1.5 ms**, while preserving **98% CPU availability** for GPS UART processing, GUI rendering, and SD card logging.
+By retuning the TI CC1101 transceiver in place — a single `idle()`/`rx()` bracket for the whole sweep instead of one per band — during a 10 Hz session tick, BioMapping reduces its 3-band RF sweep duration from **300–900 ms down to ~6 ms**, while preserving **~94% CPU availability** for GPS UART processing, GUI rendering, and SD card logging.
+
+**Implementation note (2026-08-04):** the SDK exposed by this project's `~/.ufbt` headers (`furi_hal_subghz.h`) does not provide a raw `furi_hal_subghz_write_reg()` / direct `CC1101_FREQ2/1/0` register API — that call, used in an earlier draft of this proposal, doesn't exist at the app level and would not compile. The actual implementation instead uses the SDK's `furi_hal_subghz_set_frequency()` (frequency only, no antenna-path switch) for in-sweep retunes, plus a single `furi_hal_subghz_rx()` re-strobe per band to latch the new frequency — modeled directly on the official Flipper Zero Frequency Analyzer app's retune loop (`applications/main/subghz/helpers/subghz_frequency_analyzer_worker.c`), including its ~2 ms post-retune settle delay, rather than an unverified 150 µs guess. See §4 below for the as-built code.
 
 ---
 
@@ -37,7 +39,7 @@ The Flipper Zero Frequency Analyzer and community Spectrum Analyzer applications
 
 1. **Continuous RX State (No Teardown):** The transceiver is placed into `RX` mode once at the start of a sweep frame and remains in `RX` mode as frequency registers are updated.
 2. **Direct `FREQ` Register Writes:** Frequency changes are written directly to registers `CC1101_FREQ2` (0x0D), `CC1101_FREQ1` (0x0E), and `CC1101_FREQ0` (0x0F) over SPI without strobing `SIDLE` or `SFRX`.
-3. **Fast VCO Synthesizer Lock (~90–150 $\mu\text{s}$):** Because the local oscillator (VCO) is already running in RX mode, small frequency shifts lock within ~90–150 microseconds without triggering a full `FSCAL` recalibration cycle.
+3. **Fast VCO Synthesizer Lock (~90–150 $\mu\text{s}$ theoretical; ~2 ms used here):** Because the local oscillator (VCO) is already running in RX mode, small frequency shifts can lock in well under a millisecond without triggering a full `FSCAL` recalibration cycle. The 90–150 µs figure is the CC1101 datasheet's VCO-lock time in isolation; BioMapping's implementation instead reuses the ~2 ms settle delay the official Frequency Analyzer app actually ships with, since that number is real on-hardware-verified behavior rather than a datasheet best case, and this codebase has no way to verify the tighter figure without first confirming the shorter delay is safe on real hardware (see §5).
 4. **AGC Gain Stability:** Maintaining active RX state prevents the AGC circuit from resetting to max gain, completely eliminating the need for a 3 ms AGC warm-up delay.
 
 ---
@@ -48,76 +50,89 @@ To avoid system instability, CPU starvation, high battery drain, and SPI bus con
 
 ```
 |-------------------------- 100 ms Session Frame (10 Hz) --------------------------|
-[ 1.5 ms Active Sweep ] [------------------- 98.5 ms Sleep Yield -------------------]
- (No RF Teardown)        (Thread sleeping; FreeRTOS gets 98% CPU for GPS/GUI/SD)
+[  ~6 ms Active Sweep  ] [-------------------- ~94 ms Free For Other Work ---------]
+ (No Per-Band Teardown)   (Worker's native 1ms loop keeps running GPS/GUI/SD work;
+                           the sweep just doesn't fire again until the next 100ms tick)
 ```
 
 ### Detailed Timing Breakdown per 100 ms Frame:
 
-1. **Active Sweep Phase (~1.5 ms Total):**
-   * **Start Frame:** Call `furi_hal_subghz_rx()` ONCE to enter receive state.
-   * **Band 0 (815 MHz):** Direct SPI write to `FREQ2..0` $\rightarrow$ `furi_delay_us(150)` $\rightarrow$ Read `CC1101_RSSI` register.
-   * **Band 1 (868 MHz):** Direct SPI write to `FREQ2..0` $\rightarrow$ `furi_delay_us(150)` $\rightarrow$ Read `CC1101_RSSI` register.
-   * **Band 2 (915 MHz):** Direct SPI write to `FREQ2..0` $\rightarrow$ `furi_delay_us(150)` $\rightarrow$ Read `CC1101_RSSI` register.
+1. **Active Sweep Phase (~6 ms Total):**
+   * **Band 0 (815 MHz):** `furi_hal_subghz_set_frequency_and_path()` (antenna path selected here, once) $\rightarrow$ `furi_hal_subghz_rx()` $\rightarrow$ `furi_delay_us(2000)` $\rightarrow$ `furi_hal_subghz_get_rssi()`.
+   * **Band 1 (868 MHz):** `furi_hal_subghz_set_frequency()` (no path switch — see §4 for why this is safe for these 3 bands) $\rightarrow$ `furi_hal_subghz_rx()` $\rightarrow$ `furi_delay_us(2000)` $\rightarrow$ `furi_hal_subghz_get_rssi()`.
+   * **Band 2 (915 MHz):** Same as Band 1.
    * **End Sweep:** Call `furi_hal_subghz_idle()` ONCE to put the radio into low-power idle.
 
-2. **Sleep Yield Phase (~98.5 ms Total):**
-   * Call `furi_delay_ms(98)` to yield the thread back to FreeRTOS.
-   * During this 98 ms window, the thread is 100% suspended. FreeRTOS allocates **98% of CPU cycles** to GPS UART parsing, GUI drawing, and SD writing.
+2. **Remaining ~94 ms of the Frame:**
+   * Unlike the original proposal, the worker thread does not sleep for a dedicated block of time — it keeps running its existing native ~1 ms loop (ADC sampling, GPS UART, etc.) and simply skips re-entering the RF branch until `RF_SAMPLE_INTERVAL_MS` (100 ms) has elapsed again, via a tick-timestamp gate (`gsr->rf_last_sample_tick`). This fits the worker's existing structure without adding a second sleep/wake cycle — see §4.
 
 ---
 
 ## 4. Proposed Implementation Plan
 
-### Component 1: `modules/em_scan_rf.c` & `modules/em_scan_rf.h`
-Add a dedicated, non-teardown fast-sweep function:
+### Component 1: `modules/em_scan_rf.c` & `modules/em_scan_rf.h` (as implemented)
 
 ```c
-// Performs a single-pass 3-band sweep in ~1.5 ms without RF teardown
-void em_scan_rf_fast_sweep_snapshot(float out_rssi_dbm[EM_SCAN_NUM_FREQS]) {
-    furi_hal_subghz_rx(); // Enter RX state ONCE
+#define EM_SCAN_FAST_SWEEP_SETTLE_US 2000
+
+void em_scan_rf_fast_sweep_snapshot(
+    float     out_rssi_dbm[EM_SCAN_NUM_FREQS],
+    uint32_t* out_retune_peak_ms) { // may be NULL; worst per-band retune sub-step, for diagnostics
+    uint32_t retune_peak_ms = 0;
 
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-        // Direct FREQ register update over SPI (In-place tuning, no IDLE strobe)
-        uint32_t freq_val = (uint32_t)((double)em_scan_freq_hz[i] * 65536.0 / 26000000.0);
-        uint8_t freq_regs[3] = {
-            (uint8_t)(freq_val >> 16),
-            (uint8_t)(freq_val >> 8),
-            (uint8_t)(freq_val)
-        };
-        furi_hal_subghz_write_reg(CC1101_FREQ2, freq_regs[0]);
-        furi_hal_subghz_write_reg(CC1101_FREQ1, freq_regs[1]);
-        furi_hal_subghz_write_reg(CC1101_FREQ0, freq_regs[2]);
+        uint32_t retune_start = furi_get_tick();
+        if(i == 0) {
+            // Antenna path is only switched once per sweep, on band 0 — all
+            // configured bands (815/868.35/915 MHz) share one path bucket.
+            furi_hal_subghz_set_frequency_and_path(em_scan_freq_hz[i]);
+        } else {
+            furi_hal_subghz_set_frequency(em_scan_freq_hz[i]);
+        }
+        // Re-strobe RX (not idle()+rx()) to latch the new frequency word —
+        // mirrors the official Frequency Analyzer app's per-step retune.
+        furi_hal_subghz_rx();
+        uint32_t retune_dur = furi_get_tick() - retune_start;
+        if(retune_dur > retune_peak_ms) retune_peak_ms = retune_dur;
 
-        // Microsecond PLL lock delay (blocks CPU for only 150 microseconds)
-        furi_delay_us(150);
+        furi_delay_us(EM_SCAN_FAST_SWEEP_SETTLE_US);
 
-        // Read RSSI status register
         out_rssi_dbm[i] = furi_hal_subghz_get_rssi();
     }
 
-    furi_hal_subghz_idle(); // Return radio to low-power idle
+    furi_hal_subghz_idle(); // Return radio to low-power idle once, at sweep end
+
+    if(out_retune_peak_ms) *out_retune_peak_ms = retune_peak_ms;
 }
 ```
 
-### Component 2: `modules/gsr_sensor.c`
-Update `gsr_sensor_worker()` to replace the long park/dwell loop with the duty-cycled fast sweep:
+No raw register access is used — `furi_hal_subghz_write_reg()` doesn't exist in this SDK (see the implementation note in §1). The no-teardown property comes entirely from never calling `furi_hal_subghz_idle()` (the expensive full state-machine walk) between bands, not from bypassing the driver's frequency-set functions.
+
+`out_retune_peak_ms` exists because retune and RSSI-read are no longer separate top-level calls the worker can time independently (they were, before this change, via `em_scan_rf_set_band()` + a separate `furi_hal_subghz_get_rssi()`) — without it, the `rf_retune_peak_ms` diagnostic column (logged to CSV, see `docs/csv_schema.md`) would silently go dead. See `modules/gsr_sensor.c`'s `rf_rssi_peak_ms`/`rf_retune_peak_ms` struct comment for how the two now relate (the former always ≥ the latter, since it now times the whole call).
+
+### Component 2: `modules/gsr_sensor.c` (as implemented)
+`gsr_sensor_worker()`'s existing native ~1ms loop gates entry into the RF branch with a tick-timestamp check instead of adding a dedicated sleep:
 
 ```c
-// Inside gsr_sensor_worker thread loop:
+// Inside gsr_sensor_worker's existing 1ms-cadence loop:
 if(gsr->rf_enabled) {
-    float snapshot[EM_SCAN_NUM_FREQS];
-    em_scan_rf_fast_sweep_snapshot(snapshot);
+    uint32_t now_tick = furi_get_tick();
+    uint32_t sample_ticks = (RF_SAMPLE_INTERVAL_MS * furi_kernel_get_tick_frequency()) / 1000;
+    bool should_sample = (now_tick - gsr->rf_last_sample_tick) >= sample_ticks;
+    // (rf_mutex bracketing / rf_spi_busy bookkeeping omitted here — see
+    // modules/gsr_sensor.c for the full TOCTOU-safe version)
 
-    furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
-    for(int b = 0; b < EM_SCAN_NUM_FREQS; b++) {
-        gsr->rf_rssi_dbm[b] = snapshot[b];
+    if(should_sample) {
+        gsr->rf_last_sample_tick = now_tick;
+        float    snapshot[EM_SCAN_NUM_FREQS];
+        uint32_t retune_dur = 0;
+        em_scan_rf_fast_sweep_snapshot(snapshot, &retune_dur);
+        for(int b = 0; b < EM_SCAN_NUM_FREQS; b++) {
+            gsr->rf_rssi_dbm[b] = snapshot[b];
+        }
+        if(retune_dur > gsr->rf_retune_peak_ms) gsr->rf_retune_peak_ms = retune_dur;
     }
-    furi_mutex_release(gsr->rf_mutex);
 }
-
-// Sleeping yield: Gives 98 ms per 100 ms frame back to FreeRTOS
-furi_delay_ms(98);
 ```
 
 ---
@@ -126,9 +141,9 @@ furi_delay_ms(98);
 
 ### Automated Tests
 1. **Host Build Verification:** Run `./run_tests.sh` to ensure all host unit test shims compile cleanly.
-2. **SPI API Compliance:** Verify that direct register writes use valid `furi_hal_subghz_*` SDK functions (`furi_hal_subghz_write_reg`).
+2. **SDK API Compliance:** Confirm every `furi_hal_subghz_*` call used actually exists in `~/.ufbt/current/sdk_headers/f7_sdk/targets/f7/furi_hal/furi_hal_subghz.h` — this caught the nonexistent `furi_hal_subghz_write_reg()` in the original draft before it ever reached hardware.
 
 ### On-Device Hardware Verification
-1. **Sweep Latency Measurement:** Verify via `BIOMAP_DEBUG_FIELDS` telemetry that `tm_rf` execution time drops from **>300 ms** down to **< 3 ms**.
+1. **Sweep Latency Measurement:** Verify via `BIOMAP_DEBUG_FIELDS` telemetry that `tm_rf` execution time drops from **>300 ms** down to **~6-10 ms**. Not sub-3ms — the 2ms-per-band settle delay alone accounts for ~6ms of that, and it is deliberately NOT the more aggressive 150µs-per-band figure the first draft assumed (see §1 implementation note); only shrink it below 2ms after confirming on real hardware that RSSI readings stay valid (§5.3) at a shorter delay.
 2. **GPS Sentence Quality Check:** Record a 10-minute walk session while logging NMEA sentence arrival times. Verify `tick_over_150_count` is **0** and no GPS UART sentences are dropped.
 3. **RF Sensitivity Check:** Confirm using a handheld sub-GHz transmitter (or ambient background) that RSSI response across 815, 868, and 915 MHz remains dynamic and accurately reflects local signal strength.

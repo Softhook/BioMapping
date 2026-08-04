@@ -194,18 +194,61 @@ void em_scan_rf_park_band(
     *out_sample_count = count;
 }
 
-void em_scan_rf_fast_sweep_snapshot(float out_rssi_dbm[EM_SCAN_NUM_FREQS]) {
+// Settle time between a retune and the RSSI read that follows it. Matches
+// the value used by the official Flipper Zero Frequency Analyzer app
+// (applications/main/subghz/helpers/subghz_frequency_analyzer_worker.c),
+// which this function's approach is modeled on: it retunes per step via a
+// bare frequency write + RX re-strobe (no idle() in between) and waits 2ms
+// before sampling RSSI. That number is real, shipped, on-hardware-verified
+// behavior — not a datasheet-derived estimate — so it's used as-is here
+// rather than guessed down further without a way to verify on our own
+// hardware first.
+#define EM_SCAN_FAST_SWEEP_SETTLE_US 2000
+
+// Single-pass, no-idle-per-hop sweep across all configured bands, meant to
+// run inside a duty-cycled ~10Hz tick without starving GPS/GUI/SD (see
+// docs/rf_no_teardown_architecture_proposal.md). Enters RX once for the
+// whole sweep instead of once per band — the earlier version of this
+// function called idle() before every band, which walks the CC1101 back
+// through its full IDLE -> FS_WAKEUP -> CALIBRATE -> SETTLING -> RX sequence
+// on every hop and is the exact teardown cost this function exists to
+// avoid.
+//
+// Antenna path is only switched on band 0 (via set_frequency_and_path());
+// bands 1..N-1 use the pathless set_frequency(). This is safe specifically
+// because all of em_scan_freq_hz's configured bands (815/868.35/915 MHz)
+// fall inside the same ~779-928MHz antenna path bucket (FuriHalSubGhzPath868)
+// — NOT because path switching is unnecessary in general. See
+// em_scan_rf_tune_and_warmup()'s _and_path comment: using plain
+// set_frequency() across a band that crosses a path boundary was the actual
+// cause of a prior "bars didn't move" bug. If a future band outside that
+// range is ever added to em_scan_freq_hz, every band would need
+// set_frequency_and_path() again (or path selection would need to become
+// explicit rather than piggybacking on band 0).
+void em_scan_rf_fast_sweep_snapshot(
+    float     out_rssi_dbm[EM_SCAN_NUM_FREQS],
+    uint32_t* out_retune_peak_ms) {
+    uint32_t retune_peak_ms = 0;
+
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-        furi_hal_subghz_idle();
-        furi_hal_subghz_set_frequency_and_path(em_scan_freq_hz[i]);
+        uint32_t retune_start = furi_get_tick();
+        if(i == 0) {
+            furi_hal_subghz_set_frequency_and_path(em_scan_freq_hz[i]);
+        } else {
+            furi_hal_subghz_set_frequency(em_scan_freq_hz[i]);
+        }
+        // Re-strobe RX (not idle()+rx()) to latch the new frequency word —
+        // mirrors cc1101_switch_to_rx() in the reference app's per-step loop.
         furi_hal_subghz_rx();
+        uint32_t retune_dur = furi_get_tick() - retune_start;
+        if(retune_dur > retune_peak_ms) retune_peak_ms = retune_dur;
 
-        // Microsecond PLL lock delay (blocks CPU for only 150 microseconds)
-        furi_delay_us(150);
+        furi_delay_us(EM_SCAN_FAST_SWEEP_SETTLE_US);
 
-        // Read RSSI status register
         out_rssi_dbm[i] = furi_hal_subghz_get_rssi();
     }
 
-    furi_hal_subghz_idle(); // Return radio to low-power idle
+    furi_hal_subghz_idle(); // Return radio to low-power idle once, at sweep end
+
+    if(out_retune_peak_ms) *out_retune_peak_ms = retune_peak_ms;
 }

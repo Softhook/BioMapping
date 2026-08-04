@@ -217,6 +217,18 @@ static void wait_for_fast_sweep_call_in_progress(void) {
     }
 }
 
+static void wait_for_retune_call_in_progress(void) {
+    int waited_us = 0;
+    while(!em_scan_rf_mock_retune_call_in_progress()) {
+        usleep(200);
+        waited_us += 200;
+        if(waited_us > 5000000) {
+            fprintf(stderr, "TIMEOUT: mocked retune call never started\n");
+            assert(false);
+        }
+    }
+}
+
 // Polls a peak_ms accessor until it reaches `target`, instead of trusting
 // "the mocked call's own call_in_progress flag went false" as proof the
 // result is ready to read. Those are NOT the same moment: the mock flips
@@ -1137,8 +1149,53 @@ static void test_rf_rssi_peak_ms_detects_slow_rssi_call(void) {
     printf("  -> Pass\n");
 }
 
-static void test_rf_retune_peak_ms_detects_slow_set_band_call(void) {
-    printf("Running test_rf_retune_peak_ms_detects_slow_set_band_call (Skipped)...\n");
+// Was test_rf_retune_peak_ms_detects_slow_set_band_call, stubbed to a no-op
+// on 2026-08-04 when em_scan_rf_set_band()'s separate per-band retune call
+// was replaced by em_scan_rf_fast_sweep_snapshot() (see
+// docs/rf_no_teardown_architecture_proposal.md) — retune and RSSI-read
+// stopped being separate top-level calls the worker could time
+// independently, so rf_retune_peak_ms had nothing left to measure it.
+// Restored here now that em_scan_rf_fast_sweep_snapshot() reports its own
+// internal retune sub-step timing back via an out-param.
+static void test_rf_retune_peak_ms_detects_slow_retune_step(void) {
+    printf("Running test_rf_retune_peak_ms_detects_slow_retune_step...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(10000);
+    furi_hal_subghz_mock_reset();
+    em_scan_rf_mock_reset();
+    furi_hal_subghz_mock_set_rssi(-95.0f);
+    em_scan_rf_mock_set_retune_delay_ms(150); // stand-in for a stuck per-band retune
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+    gsr_sensor_set_rf_enabled(gsr, true); // forces an immediate first (slow-retune) sweep
+    wait_for_retune_call_in_progress();
+    furi_test_advance_tick(150); // simulate 150ms of device time elapsing during the retune
+
+    int waited_us = 0;
+    while(em_scan_rf_mock_retune_call_in_progress()) {
+        usleep(200);
+        waited_us += 200;
+        if(waited_us > 5000000) { fprintf(stderr, "TIMEOUT\n"); assert(false); }
+    }
+    em_scan_rf_mock_set_retune_delay_ms(0);
+    wait_for_peak_ms_at_least(gsr_sensor_get_rf_retune_peak_ms, gsr, 150);
+
+    printf("  rf_retune_peak_ms=%u rf_rssi_peak_ms=%u i2c_peak_ms=%u (expect 150/>=150/0)\n",
+           (unsigned)gsr_sensor_get_rf_retune_peak_ms(gsr),
+           (unsigned)gsr_sensor_get_rf_rssi_peak_ms(gsr),
+           (unsigned)gsr_sensor_get_i2c_peak_ms(gsr));
+    assert(gsr_sensor_get_rf_retune_peak_ms(gsr) == 150);
+    // Unlike i2c_peak_ms (still a fully separate call, unaffected here), a
+    // slow retune now also shows up in rf_rssi_peak_ms — that column is
+    // timed around the WHOLE fast-sweep call (retune + settle + RSSI read,
+    // fused into one since the no-teardown change), which necessarily
+    // includes the slow retune. See gsr_sensor.c's rf_rssi_peak_ms/
+    // rf_retune_peak_ms struct comment.
+    assert(gsr_sensor_get_rf_rssi_peak_ms(gsr) >= 150);
+    assert(gsr_sensor_get_i2c_peak_ms(gsr) == 0);
+
+    gsr_sensor_free(gsr);
     printf("  -> Pass\n");
 }
 
@@ -1295,7 +1352,7 @@ int main(void) {
     test_rf_disable_waits_for_inflight_spi_call_before_deinit();
     test_i2c_peak_ms_detects_slow_i2c_call();
     test_rf_rssi_peak_ms_detects_slow_rssi_call();
-    test_rf_retune_peak_ms_detects_slow_set_band_call();
+    test_rf_retune_peak_ms_detects_slow_retune_step();
     test_rf_enable_disable_stress_no_race();
     test_session_deinit_early_release_gui_safety();
 
