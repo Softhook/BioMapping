@@ -6,6 +6,7 @@
 #include "furi_hal.h"
 #include <stdatomic.h>
 #include <unistd.h>
+#include "em_scan_rf.h"
 
 struct FuriHalSerialHandle {
     FuriHalSerialAsyncRxCallback cb;
@@ -253,6 +254,10 @@ static _Atomic int   g_rf_last_band      = -1;
 static _Atomic int   g_rf_current_band   = -1;
 static _Atomic int   g_rf_band_visit_count[RF_MOCK_MAX_BANDS]; // 1-based: 1 = currently on its 1st dwell
 
+static _Atomic int      g_rf_fast_sweep_count = 0;
+static _Atomic uint32_t g_rf_fast_sweep_delay_ms = 0;
+static _Atomic bool     g_rf_fast_sweep_call_in_progress = false;
+
 // Set true by em_scan_rf_set_band() on every rotation (including the
 // initial arm-to-band-0) and consumed by the very next
 // furi_hal_subghz_get_rssi() call — i.e. "the first sample of whichever
@@ -332,6 +337,39 @@ void em_scan_rf_mock_reset(void) {
     atomic_store(&g_subghz_first_read_pending, false);
     atomic_store(&g_rf_set_band_delay_ms, 0);
     atomic_store(&g_rf_set_band_call_in_progress, false);
+    atomic_store(&g_rf_fast_sweep_count, 0);
+    atomic_store(&g_rf_fast_sweep_delay_ms, 0);
+    atomic_store(&g_rf_fast_sweep_call_in_progress, false);
+}
+
+__attribute__((weak)) void em_scan_rf_fast_sweep_snapshot(float out_rssi_dbm[EM_SCAN_NUM_FREQS]) {
+    atomic_store(&g_rf_fast_sweep_call_in_progress, true);
+    uint32_t delay_ms = atomic_load(&g_rf_fast_sweep_delay_ms);
+    if(delay_ms > 0) {
+        usleep(delay_ms * 1000);
+    }
+    atomic_fetch_add(&g_rf_fast_sweep_count, 1);
+    for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+        atomic_store(&g_rf_current_band, i);
+        if(i < RF_MOCK_MAX_BANDS) {
+            atomic_fetch_add(&g_rf_band_visit_count[i], 1);
+        }
+        atomic_store(&g_subghz_first_read_pending, true);
+        out_rssi_dbm[i] = furi_hal_subghz_get_rssi();
+    }
+    atomic_store(&g_rf_fast_sweep_call_in_progress, false);
+}
+
+int em_scan_rf_mock_fast_sweep_count(void) {
+    return atomic_load(&g_rf_fast_sweep_count);
+}
+
+void em_scan_rf_mock_set_fast_sweep_delay_ms(uint32_t ms) {
+    atomic_store(&g_rf_fast_sweep_delay_ms, ms);
+}
+
+bool em_scan_rf_mock_fast_sweep_call_in_progress(void) {
+    return atomic_load(&g_rf_fast_sweep_call_in_progress);
 }
 
 // ── SubGHz — gsr_sensor.c's interleaved RSSI read ───────────────────────

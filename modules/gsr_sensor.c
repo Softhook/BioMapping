@@ -550,32 +550,18 @@ static int32_t gsr_sensor_worker(void* context) {
             furi_mutex_release(gsr->rf_mutex);
 
             if(should_sample) {
-                int band = gsr->rf_band;
-                uint32_t rssi_start = furi_get_tick();
-                float r = furi_hal_subghz_get_rssi();
-                uint32_t rssi_dur = furi_get_tick() - rssi_start;
-                if(r > gsr->rf_dwell_peak[band]) {
-                    gsr->rf_dwell_peak[band] = r;
-                }
+                float snapshot[EM_SCAN_NUM_FREQS];
+                uint32_t sweep_start = furi_get_tick();
+                em_scan_rf_fast_sweep_snapshot(snapshot);
+                uint32_t sweep_dur = furi_get_tick() - sweep_start;
 
                 furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
-                gsr->rf_rssi_dbm[band] = gsr->rf_dwell_peak[band];
-                if(rssi_dur > gsr->rf_rssi_peak_ms) gsr->rf_rssi_peak_ms = rssi_dur;
+                for(int b = 0; b < EM_SCAN_NUM_FREQS; b++) {
+                    gsr->rf_rssi_dbm[b] = snapshot[b];
+                }
+                if(sweep_dur > gsr->rf_rssi_peak_ms) gsr->rf_rssi_peak_ms = sweep_dur;
                 furi_mutex_release(gsr->rf_mutex);
 
-                uint32_t dwell_ticks = (RF_DWELL_MS * furi_kernel_get_tick_frequency()) / 1000;
-                uint32_t elapsed_ticks = now_tick - gsr->rf_dwell_start_tick;
-                if(elapsed_ticks >= dwell_ticks) {
-                    gsr->rf_dwell_start_tick = now_tick;
-                    gsr->rf_dwell_peak[band] = -127.0f; // reset dwell peak for next visit
-                    gsr->rf_band = (band + 1) % EM_SCAN_NUM_FREQS;
-                    uint32_t retune_start = furi_get_tick();
-                    em_scan_rf_set_band(gsr->rf_band);
-                    uint32_t retune_dur = furi_get_tick() - retune_start;
-                    furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
-                    if(retune_dur > gsr->rf_retune_peak_ms) gsr->rf_retune_peak_ms = retune_dur;
-                    furi_mutex_release(gsr->rf_mutex);
-                }
                 gsr->rf_spi_busy = false; // SPI region ends here — see doc comment above
             }
         }
@@ -1476,7 +1462,6 @@ void gsr_sensor_set_rf_enabled(GsrSensor* gsr, bool enabled) {
             gsr->rf_dwell_peak[i] = -127.0f;
         }
         rf_reset_snapshot(gsr);
-        em_scan_rf_set_band(0);
         gsr->rf_enabled = true; // last — see doc comment above
     } else {
         gsr->rf_enabled = false; // first — see doc comment above

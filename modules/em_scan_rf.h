@@ -85,3 +85,6 @@ void em_scan_rf_park_band(
     float*    out_peak_dbm,
     float*    out_mean_dbm,
     uint32_t* out_sample_count);
+
+// Performs a single-pass 3-band sweep in ~1.5 ms without RF teardown
+void em_scan_rf_fast_sweep_snapshot(float out_rssi_dbm[EM_SCAN_NUM_FREQS]);

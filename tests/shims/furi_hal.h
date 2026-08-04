@@ -209,4 +209,8 @@ void em_scan_rf_mock_set_set_band_delay_ms(uint32_t ms);
 // furi_hal_subghz_mock_rssi_call_in_progress().
 bool em_scan_rf_mock_set_band_call_in_progress(void);
 
+int em_scan_rf_mock_fast_sweep_count(void);
+void em_scan_rf_mock_set_fast_sweep_delay_ms(uint32_t ms);
+bool em_scan_rf_mock_fast_sweep_call_in_progress(void);
+
 void em_scan_rf_mock_reset(void);

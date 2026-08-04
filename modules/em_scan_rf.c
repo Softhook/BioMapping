@@ -193,3 +193,19 @@ void em_scan_rf_park_band(
     *out_mean_dbm = (count > 0) ? (float)(sum / (double)count) : peak;
     *out_sample_count = count;
 }
+
+void em_scan_rf_fast_sweep_snapshot(float out_rssi_dbm[EM_SCAN_NUM_FREQS]) {
+    for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+        furi_hal_subghz_idle();
+        furi_hal_subghz_set_frequency_and_path(em_scan_freq_hz[i]);
+        furi_hal_subghz_rx();
+
+        // Microsecond PLL lock delay (blocks CPU for only 150 microseconds)
+        furi_delay_us(150);
+
+        // Read RSSI status register
+        out_rssi_dbm[i] = furi_hal_subghz_get_rssi();
+    }
+
+    furi_hal_subghz_idle(); // Return radio to low-power idle
+}
