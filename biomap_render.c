@@ -73,8 +73,6 @@ static void draw_graph(Canvas* c, BioMapApp* a, int gx, int gy, int gw, int gh) 
     // one multiply per sample instead of two.
     const float combined_scale = a->session.pipeline.zoom.level * ((float)(gh / 2 - 2) / 100.0f);
 
-    canvas_draw_frame(c, gx, gy, gw, gh);
-
     // 10-second notches above the graph — integer arithmetic only.
     int px_per_notch = (10 * TICK_HZ) / a->session.pipeline.graph.scroll_divider;
     if(px_per_notch > 2) {
@@ -419,6 +417,12 @@ void biomap_render_callback(Canvas* c, void* ctx) {
 
     // Graph + zoom label (GSR modes except diagnostics)
     if(has_graph) {
+        // Draw the graph frame always — even when finger cuffs are
+        // disconnected, so the user still sees the graph boundary box
+        // with the "Finger cuffs disconnected" message inside it.
+        int graph_gx = (a->session.mode == BioMapModeGpsGsrRf) ? RF_PANEL_W : 0;
+        canvas_draw_frame(c, graph_gx, 16, 128 - graph_gx, 48);
+
         if(gsr_signal_visible) {
             // GPS+GSR+RF: narrow the graph to the right 2/3 so the left
             // 1/3 can host the labeled RF band panel (draw_rf_panel_left,
