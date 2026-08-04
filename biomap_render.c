@@ -155,8 +155,8 @@ static void render_gps_detail(Canvas* c, BioMapApp* a) {
 
 // Render the zoom label (bottom-left corner), caching format/width to
 // avoid snprintf + canvas_string_width on every frame.  Mutex held by caller.
-static void render_zoom_label(Canvas* c, BioMapApp* a) {
-    if(a->session.pipeline.zoom.level < a->session.zoom_label_last - 0.05f ||
+static void render_zoom_label(Canvas* c, BioMapApp* a, int x) {
+    if(a->session.pipeline.zoom.level != a->session.zoom_label_last &&
        a->session.pipeline.zoom.level > a->session.zoom_label_last + 0.05f) {
         snprintf(a->session.zoom_label, sizeof(a->session.zoom_label), "%.1fx",
                  (double)a->session.pipeline.zoom.level);
@@ -165,7 +165,7 @@ static void render_zoom_label(Canvas* c, BioMapApp* a) {
         a->session.zoom_label_last = a->session.pipeline.zoom.level;
     }
     canvas_set_font(c, FontSecondary);
-    canvas_draw_str(c, 2, 62, a->session.zoom_label);
+    canvas_draw_str(c, x, 62, a->session.zoom_label);
 }
 
 // ── Live RF band indicator ──────────────────────────────────────────────
@@ -176,16 +176,29 @@ static void render_zoom_label(Canvas* c, BioMapApp* a) {
 // appears once that band is actually elevated. Deliberately no numbers or
 // labels — a glanceable "is anything elevated right now" instrument, not a
 // data readout (the real per-band dBm values already go to the CSV via
-// format_gps_csv_row, biomap_session.c). Drawn in
-// BioMapModeGpsGsrRf (bottom-right, mirroring render_zoom_label's
-// bottom-left corner above) and BioMapModeGpsOnly ("GPS + RF" — top-right,
-// where GpsGsr's nS value/GPS badge would go but don't apply to this
-// GSR-less mode) — see biomap_render_callback.
+// format_gps_csv_row, biomap_session.c). In BioMapModeGpsGsrRf this tiny
+// corner readout is superseded by draw_rf_panel_left (a larger, labeled
+// left-side panel — see below); draw_rf_bars is still used by
+// BioMapModeGpsOnly ("GPS + RF" — top-right, where GpsGsr's nS
+// value/GPS badge would go but don't apply to this GSR-less mode) — see
+// biomap_render_callback.
 #define RF_VIZ_FLOOR_DBM  (-90.0f) // ambient-noise reference — matches em_scan_cal_max_floor_dbm; real-world idle (tracks/biomap_111.csv) sits -92.5..-90.5 dBm
 #define RF_VIZ_CEIL_DBM   (-72.0f) // "strong signal" reference — real-world elevated peaks (tracks/biomap_111.csv) top out around -72.5 dBm
 #define RF_VIZ_BAR_W          3
 #define RF_VIZ_BAR_GAP        1
 #define RF_VIZ_BAR_MAX_H      8
+
+// Full-scale window (dB) above a band's floor for the left RF panel in
+// GPS+GSR+RF mode. Each bar maps this span of "dB above that band's
+// floor" onto its full length; the floor itself is the per-band
+// Faraday-calibrated noise floor (see draw_rf_panel_left). Kept at 18 dB
+// to match the old RF_VIZ_FLOOR..RF_VIZ_CEIL window width.
+#define RF_VIZ_SPAN_DB       18.0f
+
+// Width in px of the left RF band panel in BioMapModeGpsGsrRf — the GSR
+// graph narrows to the remaining right 2/3 (128 - RF_PANEL_W) of the
+// screen, and this panel occupies x 0..RF_PANEL_W-1 / y 16..63.
+#define RF_PANEL_W          43
 
 // Draws EM_SCAN_NUM_FREQS bars growing upward from (right_x, baseline_y),
 // right-aligned so right_x is always the rightmost pixel regardless of
@@ -204,6 +217,60 @@ static void draw_rf_bars(Canvas* c, const float rssi_dbm[EM_SCAN_NUM_FREQS],
         if(h <= 0) continue; // at/below the floor — draw nothing for this band
         int bx = left_x + i * (RF_VIZ_BAR_W + RF_VIZ_BAR_GAP);
         canvas_draw_box(c, bx, baseline_y - h, RF_VIZ_BAR_W, h);
+    }
+}
+
+// ── Left RF band panel (GPS+GSR+RF layout) ─────────────────────────────
+// Replaces the tiny bottom-right bars in BioMapModeGpsGsrRf: the GSR
+// graph narrows to the right 2/3 (see RF_PANEL_W) and this function fills
+// the left 1/3 (x 0..RF_PANEL_W-1, y 16..63) with one labeled bar per
+// band — 815/868/915 MHz — stacked in three 15px rows.
+//
+// Bars grow LEFT to RIGHT (level-meter style), which uses the narrow
+// panel's horizontal space far better than bottom-up vertical bars would.
+// Each label sits UNDERNEATH its bar (not in line with it), which frees
+// the full panel width for the bar: a bar runs from x=3 to x=41 (~38px)
+// instead of being squeezed to ~21px by an in-line label.
+//
+// Scale: each bar maps "dB above that band's FLOOR" onto its length, where
+// the floor is the per-band Faraday-calibrated noise floor
+// (app->rf_cal_data.noise_floor_dbm[i], loaded at startup) — falling back
+// to RF_VIZ_FLOOR_DBM when no calibration exists. This is what makes the
+// bars correct per band: 868/915 typically calibrate to ~-91.5 dBm while
+// 815 sits ~-90.5, so an absolute floor would misread one of them.
+// RF_VIZ_SPAN_DB is the full-scale window above the floor. (Called with
+// app->mutex already held by biomap_render_callback, so reading
+// rf_calibrated/rf_cal_data is safe.)
+static void draw_rf_panel_left(Canvas* c, BioMapApp* a, const float rssi_dbm[EM_SCAN_NUM_FREQS]) {
+    const int row_h = 15;
+    const int row_gap = 1;
+    const int panel_x = 1; // left-aligned with a 1px edge margin; label right edge stays clear of the graph frame at x=43
+    const int bar_h = 6; // thin enough to leave a 1px gap above the label in a 15px row
+    const int bar_max_w = 41 - panel_x; // 40px — bar spans nearly the full panel width
+
+    canvas_set_font(c, FontSecondary);
+    for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
+        int row_top = 16 + i * (row_h + row_gap); // 16 / 32 / 48
+
+        // Per-band floor: Faraday-calibrated noise floor if present, else
+        // the default ambient reference. Calibrated floors are validated
+        // to lie in [-110, -90] dBm (em_scan_cal.c), so they're always
+        // <= the default — a calibrated band may sit below the old floor.
+        float floor_dbm = RF_VIZ_FLOOR_DBM;
+        if(a->rf_calibrated) floor_dbm = a->rf_cal_data.noise_floor_dbm[i];
+
+        float frac = (rssi_dbm[i] - floor_dbm) / RF_VIZ_SPAN_DB;
+        frac = fmaxf(0.0f, fminf(1.0f, frac));
+        int w = (int)(frac * bar_max_w + 0.5f);
+        if(w > 0) canvas_draw_box(c, panel_x, row_top, w, bar_h);
+
+        // Label under the bar at the bottom of the row — full designation
+        // ("815 MHz"), not just the bare band number. The bands are sub-GHz
+        // CC1101 channels (0.815/0.868/0.915 GHz), so MHz is the correct
+        // unit; GHz would be three orders of magnitude off.
+        char label[16];
+        snprintf(label, sizeof(label), "%s MHz", em_scan_freq_label[i]);
+        canvas_draw_str(c, panel_x, row_top + row_h - 1, label);
     }
 }
 
@@ -244,11 +311,17 @@ static void draw_sensor_alert(Canvas* c, const char* text) {
     canvas_set_font(c, FontSecondary);
 }
 
-static void draw_inline_graph_status(Canvas* c, const char* text) {
+// "Finger cuffs disconnected", centered over two lines inside the graph
+// area (which is only the right 2/3 in GPS+GSR+RF mode) when the cuffs
+// drop out. Two short lines read better than one long one squeezed into
+// the narrowed graph region.
+static void draw_inline_graph_status(
+    Canvas* c, const char* line1, const char* line2, int center_x) {
     canvas_set_font(c, FontSecondary);
-    int text_w = canvas_string_width(c, text);
-    int x = (128 - text_w) / 2;
-    canvas_draw_str(c, x, 38, text);
+    int w1 = canvas_string_width(c, line1);
+    int w2 = canvas_string_width(c, line2);
+    canvas_draw_str(c, center_x - w1 / 2, 36, line1);
+    canvas_draw_str(c, center_x - w2 / 2, 45, line2);
 }
 
 void biomap_render_callback(Canvas* c, void* ctx) {
@@ -282,8 +355,8 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     // has_graph's mode set ({GpsGsrRf, GpsGsr, GsrOnly}) and rf_viz's mode
     // set ({GpsGsrRf, GpsOnly}) only overlap at GpsGsrRf, and the no-graph
     // branch further down only reaches GpsOnly among rf_viz's set, plain
-    // `if(rf_viz)` at each draw_rf_bars call site below is already
-    // equivalent to checking the specific mode — no need to re-check it.
+    // `if(rf_viz)` at each RF-bar call site below is already equivalent to
+    // checking the specific mode — no need to re-check it.
     float rf_rssi[EM_SCAN_NUM_FREQS];
     bool rf_viz = (a->session.mode == BioMapModeGpsGsrRf || a->session.mode == BioMapModeGpsOnly)
                && a->session.gsr;
@@ -299,14 +372,25 @@ void biomap_render_callback(Canvas* c, void* ctx) {
     // Graph + zoom label (GSR modes except diagnostics)
     if(has_graph) {
         if(gsr_signal_visible) {
-            draw_graph(c, a, 0, 16, 128, 48);
-            render_zoom_label(c, a);
+            // GPS+GSR+RF: narrow the graph to the right 2/3 so the left
+            // 1/3 can host the labeled RF band panel (draw_rf_panel_left,
+            // 815/868/915 MHz). GPS+GSR and GSR-only keep full width.
+            if(a->session.mode == BioMapModeGpsGsrRf) {
+                draw_graph(c, a, RF_PANEL_W, 16, 128 - RF_PANEL_W, 48);
+                render_zoom_label(c, a, RF_PANEL_W + 2);
+            } else {
+                draw_graph(c, a, 0, 16, 128, 48);
+                render_zoom_label(c, a, 2);
+            }
         }
-        // RF bars, bottom-right — mirrors render_zoom_label's bottom-left
-        // corner above. Independent of GSR connect state (the cuffs being
-        // disconnected doesn't affect RF), so this sits outside the
+        // RF band readout. Only BioMapModeGpsGsrRf is reachable here
+        // (rf_viz also covers GPS+RF, but that mode has no GSR graph and
+        // its tiny bars are drawn in the GPS-detail branch below). The
+        // left panel replaces the old tiny bottom-right bars for this
+        // mode. Independent of GSR connect state (the cuffs being
+        // disconnected doesn't affect RF), so it sits outside the
         // gsr_sensor_is_connected() branch below.
-        if(rf_viz) draw_rf_bars(c, rf_rssi, 126, 63);
+        if(rf_viz) draw_rf_panel_left(c, a, rf_rssi);
     }
 
     // Recording indicator only — no title to maximise data visibility
@@ -440,7 +524,11 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                         top_right_edge = draw_ns_top_right(c, a);
                     }
                 } else {
-                    draw_inline_graph_status(c, "Finger cuffs disconnected");
+                    // GPS+GSR+RF centers this inside the narrowed graph
+                    // (right 2/3) so the text clears the left RF panel.
+                    int status_cx = (a->session.mode == BioMapModeGpsGsrRf) ?
+                        RF_PANEL_W + (128 - RF_PANEL_W) / 2 : 64;
+                    draw_inline_graph_status(c, "Finger cuffs", "disconnected", status_cx);
                 }
             } else {
                 draw_sensor_alert(c, "NO SENSOR");
