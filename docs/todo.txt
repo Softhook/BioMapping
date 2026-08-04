@@ -1,5 +1,6 @@
 Todo
 
+391 looks like a good frequency used for VHF
 
 Check that the RF worker inside the GSR thread is really working properly 
 Edinburgh will be a nice place to test it 
