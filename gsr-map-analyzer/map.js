@@ -770,13 +770,74 @@ class GSRMapManager {
 
   // Note: Cartographic label placement algorithms and HTML builders moved to GSRLabelManager in label_placement.js
 
-  _buildStreetViewButton(lat, lon, label) {
+  _getHeadingAtPeak(analyzer, peak) {
+    if (!analyzer || !peak) return 0;
+
+    const idx = peak.index;
+    const rawPoint = analyzer.raw[idx];
+    if (rawPoint && !isNaN(rawPoint.course) && rawPoint.course !== null) {
+      return rawPoint.course;
+    }
+
+    const n = analyzer.raw.length;
+    const offset = Math.max(1, Math.round(analyzer.sampleRate || 10.0));
+
+    let pCurrent = analyzer.getCoordinates(idx);
+    if (!pCurrent) return 0;
+
+    let pNext = null;
+    let idxNext = idx;
+    while (idxNext < n - 1 && idxNext - idx < offset) {
+      idxNext++;
+      const p = analyzer.getCoordinates(idxNext);
+      if (p && (p.lat !== pCurrent.lat || p.lon !== pCurrent.lon)) {
+        pNext = p;
+        break;
+      }
+    }
+
+    if (!pNext) {
+      let idxPrev = idx;
+      while (idxPrev > 0 && idx - idxPrev < offset) {
+        idxPrev--;
+        const p = analyzer.getCoordinates(idxPrev);
+        if (p && (p.lat !== pCurrent.lat || p.lon !== pCurrent.lon)) {
+          pNext = pCurrent;
+          pCurrent = p;
+          break;
+        }
+      }
+    }
+
+    if (pCurrent && pNext) {
+      const lat1 = pCurrent.lat;
+      const lon1 = pCurrent.lon;
+      const lat2 = pNext.lat;
+      const lon2 = pNext.lon;
+
+      const rad = Math.PI / 180;
+      const lat1Rad = lat1 * rad;
+      const lat2Rad = lat2 * rad;
+      const dLonRad = (lon2 - lon1) * rad;
+
+      const y = Math.sin(dLonRad) * Math.cos(lat2Rad);
+      const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
+                Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLonRad);
+
+      const brng = Math.atan2(y, x) / rad;
+      return (brng + 360) % 360;
+    }
+
+    return 0;
+  }
+
+  _buildStreetViewButton(lat, lon, label, heading) {
     const btn = L.DomUtil.create('button', 'btn-external-link streetview');
     btn.title = 'View street-level imagery';
     btn.innerHTML = '<i class="fa-solid fa-street-view"></i> Street View';
     L.DomEvent.on(btn, 'click', function(e) {
       L.DomEvent.stopPropagation(e);
-      GSRUI.openStreetView(lat, lon, label);
+      GSRUI.openStreetView(lat, lon, label, heading);
     });
     L.DomEvent.disableClickPropagation(btn);
     return btn;
@@ -844,9 +905,11 @@ class GSRMapManager {
     // --- Bottom row: external links (left) + exclude button (right) ---
     const bottomRow = L.DomUtil.create('div', 'popup-bottom-row', container);
     const links = L.DomUtil.create('div', 'popup-external-links', bottomRow);
+    const headingVal = this._getHeadingAtPeak(analyzerRef, peak);
     links.appendChild(this._buildStreetViewButton(
       lat, lon,
-      displayLabel || ('Peak #' + (index + 1))
+      displayLabel || ('Peak #' + (index + 1)),
+      headingVal
     ));
 
     const excludeBtn = L.DomUtil.create('button', 'btn-exclude-popup', bottomRow);

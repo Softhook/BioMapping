@@ -1424,7 +1424,7 @@ const GSRUI = {
    * Open the street-level imagery modal overlay at the given coordinates.
    * Shows Mapillary by default; Google Street View embed if API key is set.
    */
-  openStreetView(lat, lon, label) {
+  openStreetView(lat, lon, label, heading) {
     const modal = document.getElementById('streetviewModal');
     const mapillaryIframe = document.getElementById('svIframe');
     const googleIframe = document.getElementById('svGoogleIframe');
@@ -1435,9 +1435,19 @@ const GSRUI = {
 
     if (!modal || !mapillaryIframe) return;
 
-    // Store coords for tab switching
+    // Resolve heading defensively to a finite number
+    let cleanHeading = 0;
+    if (typeof heading === 'number' && !isNaN(heading) && isFinite(heading)) {
+      cleanHeading = heading;
+    } else if (typeof heading === 'string') {
+      const parsed = parseFloat(heading);
+      if (!isNaN(parsed) && isFinite(parsed)) cleanHeading = parsed;
+    }
+
+    // Store coords and heading for tab switching
     this._svLat = lat;
     this._svLon = lon;
+    this._svHeading = cleanHeading;
 
     titleEl.textContent = label ? 'Street-Level View — ' + label : 'Street-Level View';
     coordsEl.textContent = lat.toFixed(5) + ', ' + lon.toFixed(5);
@@ -1445,20 +1455,24 @@ const GSRUI = {
     // Set Mapillary embed URL
     mapillaryIframe.src = 'https://www.mapillary.com/embed?lat=' + lat + '&lng=' + lon + '&z=18';
 
-    // Set Google Maps external link (fallback)
-    googleLink.href = 'https://www.google.com/maps?layer=c&cbll=' + lat + ',' + lon;
+    // Set Google Maps external link (fallback) using viewpoint API to support heading orientation
+    googleLink.href = 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + lat + ',' + lon + '&heading=' + cleanHeading.toFixed(0);
 
     // Set Mapillary external link
     mapillaryExtLink.href = 'https://www.mapillary.com/app/?lat=' + lat + '&lng=' + lon + '&z=18';
+
+    // Show the modal first so that the browser does not pause/optimize away the iframe loading
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+
+    // Set Mapillary embed URL (now loaded while modal is visible)
+    mapillaryIframe.src = 'https://www.mapillary.com/embed?lat=' + lat + '&lng=' + lon + '&z=18';
 
     // Reset Google iframe
     if (googleIframe) googleIframe.src = '';
 
     // Start on Google tab (left)
     GSRUI.switchStreetViewTab('google');
-
-    modal.style.display = 'flex';
-    document.body.style.overflow = 'hidden';
 
     // Restore saved API key into input field
     const keyInput = document.getElementById('svApiKeyInput');
@@ -1482,6 +1496,7 @@ const GSRUI = {
     if (googleIframe) googleIframe.src = '';
     this._svLat = null;
     this._svLon = null;
+    this._svHeading = null;
     document.body.style.overflow = '';
   },
 
@@ -1508,9 +1523,20 @@ const GSRUI = {
       if (apiKey) {
         googleIframeContainer.style.display = '';
         googleFallback.style.display = 'none';
+
+        let cleanHeading = 0;
+        if (typeof this._svHeading === 'number' && !isNaN(this._svHeading) && isFinite(this._svHeading)) {
+          cleanHeading = this._svHeading;
+        }
+
         const embedUrl = 'https://www.google.com/maps/embed/v1/streetview?key=' + encodeURIComponent(apiKey)
-          + '&location=' + this._svLat + ',' + this._svLon + '&heading=0&pitch=0&fov=90';
-        googleIframe.src = embedUrl;
+          + '&location=' + this._svLat + ',' + this._svLon + '&heading=' + cleanHeading.toFixed(0) + '&pitch=0&fov=90';
+        
+        // Defer setting the source to allow the browser layout engine to paint
+        // the newly visible iframe container first. This resolves lazy-loading deferrals in modern browsers.
+        setTimeout(() => {
+          googleIframe.src = embedUrl;
+        }, 0);
       } else {
         googleIframeContainer.style.display = 'none';
         googleFallback.style.display = '';
