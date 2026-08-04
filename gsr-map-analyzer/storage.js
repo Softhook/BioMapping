@@ -90,7 +90,7 @@ const GSRStorage = {
       trackWeight:           parseInt(S.gpsTrackWeight ? S.gpsTrackWeight.value : D.trackWeight),
       peakLatency:           parseFloat(S.gpsPeakLatency ? S.gpsPeakLatency.value : D.peakLatency),
       clusterProximity:      parseFloat(S.clusterProximity ? S.clusterProximity.value : 35),
-      clusterBoundaryRadius: parseFloat(S.clusterBoundaryRadius ? S.clusterBoundaryRadius.value : 18)
+      clusterBoundaryRadius: parseFloat(S.clusterBoundaryRadius ? S.clusterBoundaryRadius.value : 5)
     };
   },
 

@@ -1231,8 +1231,8 @@ class GSRMapManager {
   _getClusteringParams() {
     let proximity = AppState.sliders.clusterProximity ? parseFloat(AppState.sliders.clusterProximity.value) : 35;
     if (isNaN(proximity)) proximity = 35;
-    let boundaryRadius = AppState.sliders.clusterBoundaryRadius ? parseFloat(AppState.sliders.clusterBoundaryRadius.value) : 18;
-    if (isNaN(boundaryRadius)) boundaryRadius = 18;
+    let boundaryRadius = AppState.sliders.clusterBoundaryRadius ? parseFloat(AppState.sliders.clusterBoundaryRadius.value) : 5;
+    if (isNaN(boundaryRadius)) boundaryRadius = 5;
 
     return {
       proximity,
