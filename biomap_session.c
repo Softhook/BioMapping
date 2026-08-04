@@ -375,68 +375,20 @@ static bool handle_write_failure(Session* s, NotificationApp* notifications) {
 static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
     s->recording.tick_counter = 0;
 
-    // ── Heartbeat (2026-07-29): logged once/sec in debug mode.
-    // A non-recording session previously had zero periodic signal of
-    // liveness — the idle isolation test that locked up (see
-    // em_scan_rf_crash_investigation.md) left no way to tell whether the
-    // freeze happened 2 seconds in or 14 minutes in, since the only
-    // periodic log activity (BLE's own 60s re-advertise) only proves the
-    // kernel scheduler, not this app, stayed alive. FURI_LOG only, not
-    // sd_logger — must survive a freeze that happens before the next SD
-    // flush, and must exist even when no logger/file is open at all (not
-    // recording means s->logger may not have an active file).
-#if BIOMAP_DEBUG_FIELDS
-    uint32_t stack_gsr  = s->gsr ? gsr_sensor_get_stack_space(s->gsr) : 0;
-    uint32_t stack_main = furi_thread_get_stack_space(furi_thread_get_id(furi_thread_get_current()));
-    FURI_LOG_I("BioMap", "heartbeat heap:free=%u min=%u stack:main=%u gsr=%u sd_dry=%u",
-               (unsigned)memmgr_get_free_heap(), (unsigned)memmgr_get_minimum_free_heap(),
-               (unsigned)stack_main, (unsigned)stack_gsr, (unsigned)BIOMAP_SD_DRY_RUN);
-#endif
-
     if(!s->recording.active) return false;
-
-#if BIOMAP_DEBUG_FIELDS
-    uint32_t tick_dt_max = s->recording.tick_dt_max_ms;
-    s->recording.tick_dt_max_ms = 0;
-    RowDiag diag = get_row_diag(s);
-    uint32_t flush_last_ms = s->logger ? sd_logger_get_flush_last_ms(s->logger) : 0;
-    uint32_t flush_max_win_ms = s->logger ? sd_logger_take_flush_window_max_ms(s->logger) : 0;
-    FURI_LOG_I(
-        "BioMap",
-        "telemetry tick_dt=%u tick_max=%u ovr150=%u ovr250=%u ovr500=%u gps_drop=%u nmea_fail=%u gsr_hz=%.1f i2c=%u rf=%u ret=%u flush_last=%u flush_max=%u flush_peak=%u fill=%u peak=%u over=%u flfail=%u",
-        (unsigned)diag.tick_dt_ms,
-        (unsigned)tick_dt_max,
-        (unsigned)s->recording.tick_over_150_count,
-        (unsigned)s->recording.tick_over_250_count,
-        (unsigned)s->recording.tick_over_500_count,
-        (unsigned)diag.gps_rx_drops,
-        (unsigned)diag.nmea_fail,
-        (double)diag.gsr_hz,
-        (unsigned)diag.i2c_peak_ms,
-        (unsigned)diag.rf_rssi_peak_ms,
-        (unsigned)diag.rf_retune_peak_ms,
-        (unsigned)flush_last_ms,
-        (unsigned)flush_max_win_ms,
-        (unsigned)diag.flush_peak_ms,
-        (unsigned)diag.log_fill_bytes,
-        (unsigned)diag.log_fill_peak_bytes,
-        (unsigned)diag.log_overflow_count,
-        (unsigned)diag.log_flush_fail_count);
-#else
-    s->recording.tick_dt_max_ms = 0;
-#endif
 
     bool play_warning = false;
 
     // ── LED blink (every second, independent of flush interval) ────────
     // 500 ms blink — green when sensor OK, red when cuffs need attention.
-    // The warning tone fires once per disconnect episode (edge-triggered
-    // via gsr_alert_sounded), not every second — otherwise a loose
-    // electrode would nag continuously for the rest of the walk.
+    // Disconnect during recording is a visual-only alert: red blink, no
+    // tone. Playing the speaker mid-recording contaminates the signal and
+    // can also create long event-loop stalls while queued Tick events
+    // catch up. Keep the edge flag so reconnect/re-disconnect cycles do
+    // not need extra state changes elsewhere.
     if(has_gsr(s->mode) && s->gsr && !gsr_sensor_is_connected(s->gsr)) {
         notification_message(notifications, &sequence_blink_red_500);
         if(!s->gsr_alert_sounded) {
-            play_warning = true;
             s->gsr_alert_sounded = true;
         }
     } else {
@@ -912,7 +864,66 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
 
             bool play_warning = false;
             bool do_flush = false;
+#if BIOMAP_DEBUG_FIELDS
+            bool emit_heartbeat = false;
+            bool emit_telemetry = false;
+            uint32_t hb_heap_free = 0;
+            uint32_t hb_heap_min = 0;
+            uint32_t hb_stack_main = 0;
+            uint32_t hb_stack_gsr = 0;
+            uint32_t tm_tick_dt = 0;
+            uint32_t tm_tick_max = 0;
+            uint32_t tm_ovr150 = 0;
+            uint32_t tm_ovr250 = 0;
+            uint32_t tm_ovr500 = 0;
+            uint32_t tm_gps_drop = 0;
+            uint32_t tm_nmea_fail = 0;
+            float tm_gsr_hz = 0.0f;
+            uint32_t tm_i2c = 0;
+            uint32_t tm_rf = 0;
+            uint32_t tm_ret = 0;
+            uint32_t tm_flush_last = 0;
+            uint32_t tm_flush_max = 0;
+            uint32_t tm_flush_peak = 0;
+            uint32_t tm_fill = 0;
+            uint32_t tm_peak = 0;
+            uint32_t tm_over = 0;
+            uint32_t tm_flfail = 0;
+#endif
             if(++s->recording.tick_counter >= TICK_HZ) {
+#if BIOMAP_DEBUG_FIELDS
+                emit_heartbeat = true;
+                hb_heap_free = memmgr_get_free_heap();
+                hb_heap_min = memmgr_get_minimum_free_heap();
+                hb_stack_main = furi_thread_get_stack_space(furi_thread_get_id(furi_thread_get_current()));
+                hb_stack_gsr = s->gsr ? gsr_sensor_get_stack_space(s->gsr) : 0;
+
+                if(s->recording.active) {
+                    RowDiag diag = get_row_diag(s);
+                    emit_telemetry = true;
+                    tm_tick_dt = diag.tick_dt_ms;
+                    tm_tick_max = s->recording.tick_dt_max_ms;
+                    tm_ovr150 = s->recording.tick_over_150_count;
+                    tm_ovr250 = s->recording.tick_over_250_count;
+                    tm_ovr500 = s->recording.tick_over_500_count;
+                    tm_gps_drop = diag.gps_rx_drops;
+                    tm_nmea_fail = diag.nmea_fail;
+                    tm_gsr_hz = diag.gsr_hz;
+                    tm_i2c = diag.i2c_peak_ms;
+                    tm_rf = diag.rf_rssi_peak_ms;
+                    tm_ret = diag.rf_retune_peak_ms;
+                    tm_flush_last = s->logger ? sd_logger_get_flush_last_ms(s->logger) : 0;
+                    tm_flush_max = s->logger ? sd_logger_take_flush_window_max_ms(s->logger) : 0;
+                    tm_flush_peak = diag.flush_peak_ms;
+                    tm_fill = diag.log_fill_bytes;
+                    tm_peak = diag.log_fill_peak_bytes;
+                    tm_over = diag.log_overflow_count;
+                    tm_flfail = diag.log_flush_fail_count;
+                }
+                s->recording.tick_dt_max_ms = 0;
+#else
+                s->recording.tick_dt_max_ms = 0;
+#endif
                 if(handle_second_boundary(s, app->notifications)) play_warning = true;
                 if(++s->recording.flush_counter >= FLUSH_INTERVAL) {
                     s->recording.flush_counter = 0;
@@ -920,6 +931,38 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                 }
             }
             furi_mutex_release(app->mutex);
+
+#if BIOMAP_DEBUG_FIELDS
+            if(emit_heartbeat) {
+                FURI_LOG_I("BioMap", "heartbeat heap:free=%u min=%u stack:main=%u gsr=%u sd_dry=%u",
+                           (unsigned)hb_heap_free, (unsigned)hb_heap_min,
+                           (unsigned)hb_stack_main, (unsigned)hb_stack_gsr,
+                           (unsigned)BIOMAP_SD_DRY_RUN);
+            }
+            if(emit_telemetry) {
+                FURI_LOG_I(
+                    "BioMap",
+                    "telemetry tick_dt=%u tick_max=%u ovr150=%u ovr250=%u ovr500=%u gps_drop=%u nmea_fail=%u gsr_hz=%.1f i2c=%u rf=%u ret=%u flush_last=%u flush_max=%u flush_peak=%u fill=%u peak=%u over=%u flfail=%u",
+                    (unsigned)tm_tick_dt,
+                    (unsigned)tm_tick_max,
+                    (unsigned)tm_ovr150,
+                    (unsigned)tm_ovr250,
+                    (unsigned)tm_ovr500,
+                    (unsigned)tm_gps_drop,
+                    (unsigned)tm_nmea_fail,
+                    (double)tm_gsr_hz,
+                    (unsigned)tm_i2c,
+                    (unsigned)tm_rf,
+                    (unsigned)tm_ret,
+                    (unsigned)tm_flush_last,
+                    (unsigned)tm_flush_max,
+                    (unsigned)tm_flush_peak,
+                    (unsigned)tm_fill,
+                    (unsigned)tm_peak,
+                    (unsigned)tm_over,
+                    (unsigned)tm_flfail);
+            }
+#endif
 
             // SD card batch flush is performed AFTER releasing app->mutex!
             // storage_file_write() and storage_file_sync() block for ~20-60 ms.

@@ -23,7 +23,7 @@
 // Debug fields verbosity control.
 // 0 = production mode: hide debug fields/logs
 // 1 = debug mode: include debug fields/logs
-#define BIOMAP_DEBUG_FIELDS 0
+#define BIOMAP_DEBUG_FIELDS 1
 
 typedef enum {
     BioMapModeGpsGsrRf = 0, // GPS, GSR, and RF all enabled
