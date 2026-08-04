@@ -685,7 +685,7 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
         if(step % 2 == 0) { // Prompt
             draw_fmt(c, 0, 25, "Step %d/3: %s (%s)",
                      idx + 1, cal_steps[idx].level, cal_steps[idx].resistor);
-            draw_fmt(c, 0, 37, "Connect %s resistor", cal_steps[idx].resistor);
+            draw_fmt(c, 0, 37, "Connect %s 0.1%% resistor", cal_steps[idx].resistor);
             canvas_draw_str(c, 0, 49, "OK to measure");
         } else { // Measuring
             draw_fmt(c, 0, 25, "Measuring %s...", cal_steps[idx].resistor);

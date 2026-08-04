@@ -34,8 +34,8 @@ To build this, you need the following physical components:
 **Passive Components:**
 * **1x 56kΩ Resistor** (For the voltage divider 0.1% tolerance metal film)
 * **1x 10kΩ Resistor** (For the voltage divider 0.1% tolerance metal film)
-* **1x 47kΩ Resistor** (For the TIA gain/feedback 1% tolerance metal film)
-* **2x 4.7kΩ Resistors** (For safety inline with the electrodes 1% tolerance metal film)
+* **1x 47kΩ Resistor** (For the TIA gain/feedback 0.1% tolerance metal film)
+* **2x 4.7kΩ Resistors** (For safety inline with the electrodes 0.1% tolerance metal film)
 * **2x 100nF (0.1µF) Ceramic Capacitors** (One for power bypass, one for the feedback filter)
 
 **Biometric Interface:**
