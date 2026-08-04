@@ -36,6 +36,21 @@ static float gps_hacc_display(const GpsStatus* g) {
     return (g->hacc < 50.0f) ? g->hacc : ((g->hdop < 50.0f) ? g->hdop * 2.5f : 99.9f);
 }
 
+// ── Rendering helpers ──────────────────────────────────────────────────────
+
+// Format + draw at (x, y) in one call, returning y + 10 for the next line.
+// Replaces the repetitive snprintf + canvas_draw_str + y += 10 triplet
+// that appears ~30 times across diagnostics, GPS, and calibration renders.
+static int draw_fmt(Canvas* c, int x, int y, const char* fmt, ...) {
+    char buf[48];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    canvas_draw_str(c, x, y, buf);
+    return y + 10;
+}
+
 
 // ==========================================================================
 // Graph rendering (GSR waveform)
@@ -172,48 +187,36 @@ static void render_gps_compact(Canvas* c, BioMapApp* a) {
     }
 
     if(gps_uart_is_ready(a->session.gps) && g.date.year) {
-        char buf[48];
-
         // UTC time only — no date line
-        snprintf(buf, sizeof(buf), "%02d:%02d:%02d UTC",
+        y = draw_fmt(c, x, y, "%02d:%02d:%02d UTC",
             g.time.hours, g.time.minutes, g.time.seconds);
-        canvas_draw_str(c, x, y, buf);
-        y += 10;
 
         bool has_fix = gps_has_fix(&g);
         bool gps_ready = has_fix && g.hdop < GPS_HDOP_GATE;
 
         if(gps_ready) {
-            snprintf(buf, sizeof(buf), "%.5f", (double)g.latitude);
-            canvas_draw_str(c, x, y, buf);
-            y += 10;
-            snprintf(buf, sizeof(buf), "%.5f", (double)g.longitude);
-            canvas_draw_str(c, x, y, buf);
-            y += 10;
+            y = draw_fmt(c, x, y, "%.5f", (double)g.latitude);
+            y = draw_fmt(c, x, y, "%.5f", (double)g.longitude);
         } else if(has_fix) {
             if(g.hdop < 50.0f) {
-                snprintf(buf, sizeof(buf), "Acquiring (HDOP:%.1f)", (double)g.hdop);
+                y = draw_fmt(c, x, y, "Acquiring (HDOP:%.1f)", (double)g.hdop);
             } else {
-                snprintf(buf, sizeof(buf), "Acquiring...");
+                y = draw_fmt(c, x, y, "Acquiring...");
             }
-            canvas_draw_str(c, x, y, buf);
-            y += 10;
         } else {
-            canvas_draw_str(c, x, y, "Waiting for fix...");
-            y += 10;
+            y = draw_fmt(c, x, y, "Waiting for fix...");
         }
 
         // Fix quality line
         const char* fix_str = gps_fix_label(g.fix_type);
         float hacc_disp = gps_hacc_display(&g);
         if(hacc_disp < 50.0f) {
-            snprintf(buf, sizeof(buf), "%.1fm  %s%s",
+            draw_fmt(c, x, y, "%.1fm  %s%s",
                      (double)hacc_disp, fix_str, g.sbas_active ? " SBAS" : "");
         } else {
-            snprintf(buf, sizeof(buf), "%s%s",
+            draw_fmt(c, x, y, "%s%s",
                      fix_str, g.sbas_active ? " SBAS" : "");
         }
-        canvas_draw_str(c, x, y, buf);
     } else {
         canvas_draw_str(c, x, y, "GPS: no signal");
     }
@@ -301,28 +304,6 @@ static int draw_ns_top_right(Canvas* c, BioMapApp* a) {
     return 128 - worst_case_w - right_margin;
 }
 
-static void draw_sensor_alert(Canvas* c, const char* text) {
-    canvas_set_font(c, FontPrimary);
-    int text_w = canvas_string_width(c, text);
-    int box_w = text_w + 12;
-    int box_h = 14;
-    int box_x = (128 - box_w) / 2;
-    int box_y = 16 + (48 - box_h) / 2; // Centered in 16..64 graph area
-
-    // Draw solid black background
-    canvas_draw_box(c, box_x, box_y, box_w, box_h);
-
-    // Draw white border inside the black box
-    canvas_invert_color(c);
-    canvas_draw_frame(c, box_x + 1, box_y + 1, box_w - 2, box_h - 2);
-
-    // Draw white text
-    canvas_draw_str(c, box_x + 6, box_y + box_h - 4, text);
-    canvas_invert_color(c);
-
-    canvas_set_font(c, FontSecondary);
-}
-
 // "Finger cuffs disconnected", centered over two lines inside the graph
 // area (which is only the right 2/3 in GPS+GSR+RF mode) when the cuffs
 // drop out. Two short lines read better than one long one squeezed into
@@ -336,259 +317,199 @@ static void draw_inline_graph_status(
     canvas_draw_str(c, center_x - w2 / 2, 45, line2);
 }
 
+// ==========================================================================
+// Sub-renderers — one per mode, called from biomap_render_callback
+// ==========================================================================
+// Each sub-renderer assumes app->mutex is already held by the caller and
+// the canvas has just been cleared.  FontSecondary is the default; switch
+// to FontPrimary only where needed (alerts).
+
+// ── GPS badge, top-left (GPS+GSR / GPS+GSR+RF modes) ──────────────────
+// Returns the fixed worst-case right edge for elapsed-time centering.
+static int render_gps_badge(Canvas* c, BioMapApp* a) {
+    GpsStatus g = gps_uart_get_status(a->session.gps);
+    bool has_fix = gps_has_fix(&g);
+    char badge[16];
+    float hacc_disp = gps_hacc_display(&g);
+    if(!has_fix) {
+        snprintf(badge, sizeof(badge), "No fix");
+    } else if(hacc_disp < 50.0f) {
+        snprintf(badge, sizeof(badge), "%.1fm", (double)hacc_disp);
+    } else {
+        snprintf(badge, sizeof(badge), "3D Fix");
+    }
+    canvas_draw_str(c, 1, 10, badge);
+    return 1 + canvas_string_width(c, "No fix");
+}
+
+// ── Time-span label, top-left (GSR-only mode) ─────────────────────────
+// Returns the fixed worst-case right edge for elapsed-time centering.
+static int render_time_span(Canvas* c, BioMapApp* a) {
+    char buf[32];
+    int t_span = (GRAPH_N * a->session.pipeline.graph.scroll_divider) / TICK_HZ;
+    if(t_span >= 60) {
+        snprintf(buf, sizeof(buf), "%dm%ds", t_span / 60, t_span % 60);
+    } else {
+        snprintf(buf, sizeof(buf), "%ds", t_span);
+    }
+    canvas_draw_str(c, 1, 10, buf);
+    return 1 + canvas_string_width(c, "59m59s");
+}
+
+// ── Elapsed recording time (centered, all GSR modes) ──────────────────
+static void render_elapsed(Canvas* c, BioMapApp* a, int left_edge, int right_edge) {
+    if(!a->session.recording.active) return;
+    char buf[16];
+    int elapsed_min = (int)(a->session.recording.total_ticks / TICK_HZ) / 60;
+    if(elapsed_min >= 60) {
+        snprintf(buf, sizeof(buf), "%dh%02dm", elapsed_min / 60, elapsed_min % 60);
+    } else {
+        snprintf(buf, sizeof(buf), "%dm", elapsed_min);
+    }
+    int w = canvas_string_width(c, buf);
+    int gap_left  = left_edge + 3;
+    int gap_right = right_edge - 3;
+    int x = (gap_left + gap_right - w) / 2;
+    if(x < gap_left) x = gap_left;
+    if(x + w > gap_right) x = gap_right - w;
+    canvas_draw_str(c, x, 10, buf);
+}
+
+// ── GSR session (GPS+GSR+RF / GPS+GSR / GSR-only) ─────────────────────
+static void render_gsr_session(Canvas* c, BioMapApp* a,
+                                bool gsr_visible, bool rf_viz,
+                                const float* rf_rssi) {
+    BioMapMode mode = a->session.mode;
+    bool gps_gsr_top_bar = (mode == BioMapModeGpsGsr || mode == BioMapModeGpsGsrRf);
+
+    // Graph frame — always drawn (even when cuffs disconnected)
+    int gx = (mode == BioMapModeGpsGsrRf) ? RF_PANEL_W : 0;
+    canvas_draw_frame(c, gx, 16, 128 - gx, 48);
+
+    // Graph data + zoom label (only when signal is visible)
+    if(gsr_visible) {
+        if(mode == BioMapModeGpsGsrRf) {
+            draw_graph(c, a, RF_PANEL_W, 16, 128 - RF_PANEL_W, 48);
+            render_zoom_label(c, a, RF_PANEL_W + 2);
+        } else {
+            draw_graph(c, a, 0, 16, 128, 48);
+            render_zoom_label(c, a, 2);
+        }
+    }
+
+    // RF band panel (GPS+GSR+RF — independent of GSR connect state)
+    if(rf_viz) draw_rf_panel_left(c, a, rf_rssi);
+
+    // ── Top bar: left label + right nS value ──────────────────────────
+    int top_left  = 0;
+    int top_right = 128;
+
+    if(a->session.gsr && gsr_sensor_available(a->session.gsr)) {
+        if(gsr_visible) {
+            if(mode == BioMapModeGsrOnly) {
+                top_left  = render_time_span(c, a);
+                top_right = draw_ns_top_right(c, a);
+            } else if(gps_gsr_top_bar) {
+                top_left  = render_gps_badge(c, a);
+                top_right = draw_ns_top_right(c, a);
+            }
+        } else {
+            // Cuffs disconnected — center message in the graph area
+            int cx = (mode == BioMapModeGpsGsrRf)
+                ? RF_PANEL_W + (128 - RF_PANEL_W) / 2 : 64;
+            draw_inline_graph_status(c, "Finger cuffs", "disconnected", cx);
+        }
+    }
+    // No sensor → no pop-up.  Frame is already drawn above; an empty
+    // graph area is self-explanatory.
+
+    // Elapsed recording time — centered between left/right top-bar labels
+    render_elapsed(c, a, top_left, top_right);
+}
+
+// ── Diagnostics screen ────────────────────────────────────────────────
+static void render_diagnostics(Canvas* c, BioMapApp* a) {
+    if(a->session.gsr && gsr_sensor_available(a->session.gsr)) {
+        uint8_t pga = gsr_sensor_get_pga_index(a->session.gsr);
+        int32_t mean_cnt = gsr_sensor_get_mean_count(a->session.gsr);
+        int32_t window_n = gsr_sensor_get_window_samples(a->session.gsr);
+        int y = 8;
+
+        y = draw_fmt(c, 0, y, "PGA:%u Cal:%s Chg:%lu",
+                     (unsigned)pga, a->cal_active ? "yes" : "no",
+                     (unsigned long)gsr_sensor_get_pga_change_count(a->session.gsr));
+        y = draw_fmt(c, 0, y, "Sngl: %ld",
+                     (long)a->session.pipeline.display.raw_sample_count);
+        y = draw_fmt(c, 0, y, "Mean: %ld (N=%ld)",
+                     (long)mean_cnt, (long)window_n);
+        y = draw_fmt(c, 0, y, "Hz:%.0f OK:%.0f%% F:%lu",
+                     (double)gsr_sensor_get_worker_hz(a->session.gsr),
+                     (double)gsr_sensor_get_success_rate(a->session.gsr),
+                     (unsigned long)gsr_sensor_get_consecutive_failures(a->session.gsr));
+
+        uint32_t dup_gap = gsr_sensor_get_duplicate_gap_min_ticks(a->session.gsr);
+        if(dup_gap == UINT32_MAX) {
+            y = draw_fmt(c, 0, y, "Dup:%.0f%% Stl:%.0f%% DG:-",
+                         (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
+                         (double)gsr_sensor_get_stale_rate(a->session.gsr));
+        } else {
+            y = draw_fmt(c, 0, y, "Dup:%.0f%% Stl:%.0f%% DG:%lu",
+                         (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
+                         (double)gsr_sensor_get_stale_rate(a->session.gsr),
+                         (unsigned long)dup_gap);
+        }
+        draw_fmt(c, 0, y, "P2P:%ld 50Hz:%.0f Gap:%lu",
+                 (long)gsr_sensor_get_window_ptp(a->session.gsr),
+                 (double)gsr_sensor_get_mains_hum_mag(a->session.gsr),
+                 (unsigned long)gsr_sensor_get_window_min_gap_ticks(a->session.gsr));
+    } else {
+        canvas_draw_str(c, 0, 8, "GSR: --");
+    }
+}
+
+// ── GPS + RF mode ─────────────────────────────────────────────────────
+static void render_gps_rf(Canvas* c, BioMapApp* a,
+                           bool rf_viz, const float* rf_rssi) {
+    canvas_draw_frame(c, RF_PANEL_W, 16, 128 - RF_PANEL_W, 48);
+    if(rf_viz) draw_rf_panel_left(c, a, rf_rssi);
+    render_gps_compact(c, a);
+}
+
+// ==========================================================================
+// Main render callback — dispatcher (one mode → one sub-renderer)
+// ==========================================================================
+
 void biomap_render_callback(Canvas* c, void* ctx) {
     BioMapApp* a = (BioMapApp*)ctx;
     if(furi_mutex_acquire(a->mutex, 10) != FuriStatusOk) return;
     canvas_clear(c);
+    canvas_set_font(c, FontSecondary);
 
-    bool has_graph = has_gsr(a->session.mode)
-                  && a->session.mode != BioMapModeDiagnostics;
     bool is_diag   = (a->session.mode == BioMapModeDiagnostics);
-    bool gsr_signal_visible = a->session.gsr
-                           && gsr_sensor_available(a->session.gsr)
-                           && gsr_sensor_is_connected(a->session.gsr);
-    // GPS+GSR-style top bar (badge top-left, nS top-right) applies to both
-    // GpsGsr and GpsGsrRf — anything with both GPS and GSR but not the
-    // GsrOnly time-span layout below. Added as its own flag (2026-07-29)
-    // rather than adding a second `|| mode == BioMapModeGpsGsrRf` at each
-    // call site, after BioMapModeGpsGsrRf's addition broke both direct
-    // `mode == BioMapModeGpsGsr` checks below — the top-left badge and the
-    // top-right nS value silently stopped rendering in the new mode
-    // because neither check was updated when the enum gained a new value.
-    bool gps_gsr_top_bar = (a->session.mode == BioMapModeGpsGsr
-                          || a->session.mode == BioMapModeGpsGsrRf);
+    bool has_graph = has_gsr(a->session.mode) && !is_diag;
 
-    // Live RF band snapshot — fetched once here rather than separately in
-    // each branch below.  Both GpsGsrRf and GpsOnly use draw_rf_panel_left
-    // (the labeled left-side panel).  Diagnostics has RF active but shows
-    // its own dedicated counters, so it's excluded from rf_viz.
+    // RF snapshot — needed by both GSR session and GPS+RF modes
     float rf_rssi[EM_SCAN_NUM_FREQS];
     bool rf_viz = (a->session.mode == BioMapModeGpsGsrRf || a->session.mode == BioMapModeGpsOnly)
                && a->session.gsr;
     if(rf_viz) gsr_sensor_get_rf_snapshot(a->session.gsr, rf_rssi);
 
-    // Right/left edges of whatever ends up occupying the top-left label
-    // (GPS badge / time-span) and top-right nS value slots on this frame.
-    // Populated below as those elements are drawn, then used to place the
-    // elapsed-recording-time text so it can never overlap either one.
-    int top_left_edge  = 0;
-    int top_right_edge = 128;
-
-    // Graph + zoom label (GSR modes except diagnostics)
-    if(has_graph) {
-        // Draw the graph frame always — even when finger cuffs are
-        // disconnected, so the user still sees the graph boundary box
-        // with the "Finger cuffs disconnected" message inside it.
-        int graph_gx = (a->session.mode == BioMapModeGpsGsrRf) ? RF_PANEL_W : 0;
-        canvas_draw_frame(c, graph_gx, 16, 128 - graph_gx, 48);
-
-        if(gsr_signal_visible) {
-            // GPS+GSR+RF: narrow the graph to the right 2/3 so the left
-            // 1/3 can host the labeled RF band panel (draw_rf_panel_left,
-            // 815/868/915 MHz). GPS+GSR and GSR-only keep full width.
-            if(a->session.mode == BioMapModeGpsGsrRf) {
-                draw_graph(c, a, RF_PANEL_W, 16, 128 - RF_PANEL_W, 48);
-                render_zoom_label(c, a, RF_PANEL_W + 2);
-            } else {
-                draw_graph(c, a, 0, 16, 128, 48);
-                render_zoom_label(c, a, 2);
-            }
-        }
-        // RF band readout. Only BioMapModeGpsGsrRf is reachable here
-        // (rf_viz also covers GPS+RF, but that mode has no GSR graph and
-        // its tiny bars are drawn in the GPS-detail branch below). The
-        // left panel replaces the old tiny bottom-right bars for this
-        // mode. Independent of GSR connect state (the cuffs being
-        // disconnected doesn't affect RF), so it sits outside the
-        // gsr_sensor_is_connected() branch below.
-        if(rf_viz) draw_rf_panel_left(c, a, rf_rssi);
+    if(is_diag) {
+        render_diagnostics(c, a);
+    } else if(has_graph) {
+        bool gsr_visible = a->session.gsr
+                        && gsr_sensor_available(a->session.gsr)
+                        && gsr_sensor_is_connected(a->session.gsr);
+        render_gsr_session(c, a, gsr_visible, rf_viz, rf_rssi);
+    } else if(a->session.gps) {
+        render_gps_rf(c, a, rf_viz, rf_rssi);
+    } else {
+        canvas_draw_str(c, 0, 20, "GPS unavailable");
     }
 
-    // Recording indicator only — no title to maximise data visibility
-    canvas_set_font(c, FontSecondary);
+    // Recording indicator — shared across all modes
     if(a->session.recording.active) {
         canvas_draw_box(c, 118, 1, 8, 8);
-    }
-
-    // GPS quality badge — GPS+GSR / GPS+GSR+RF, top-left
-    if(gps_gsr_top_bar && a->session.gps) {
-        GpsStatus g = gps_uart_get_status(a->session.gps);
-        bool has_fix = gps_has_fix(&g);
-        char badge[16];
-        float hacc_disp = gps_hacc_display(&g);
-        if(!has_fix) {
-            snprintf(badge, sizeof(badge), "No fix");
-        } else if(hacc_disp < 50.0f) {
-            snprintf(badge, sizeof(badge), "%.1fm", (double)hacc_disp);
-        } else {
-            snprintf(badge, sizeof(badge), "3D Fix");
-        }
-        canvas_set_font(c, FontSecondary);
-        canvas_draw_str(c, 1, 10, badge);
-        // Fixed worst-case reservation ("No fix", the widest candidate),
-        // NOT this frame's actual badge width — using the real width here
-        // means every hacc digit-count change moves this boundary, which
-        // visibly shifts the elapsed-time text sideways as it re-centers
-        // against a moving target every frame. See the elapsed-time
-        // comment below for the fuller rationale.
-        top_left_edge = 1 + canvas_string_width(c, "No fix");
-    }
-
-    // ── Diagnostics: GSR only, 6 labeled lines ─────────────────────────
-    // Deliberately raw-count values (Sngl/Mean), not the nS-converted
-    // Raw/Filt this used to also show: TIA conversion is a pure,
-    // already-unit-tested function of Sngl (test_tia_conversion), and
-    // Filt is the smoothed display-path value the docs already describe
-    // as cosmetic-only — neither adds diagnostic signal beyond what
-    // Sngl/Mean give closer to the hardware. Chg/F/DG/Gap/P2P/50Hz are
-    // folded onto the line they're most related to rather than each
-    // getting their own, to stay within 6 lines at comfortable 10 px
-    // spacing (7+ needs cramped 8 px spacing — see git history). DG
-    // (duplicate-specific gap) sits with Dup/Cn since it's a property of
-    // the flagged-duplicate reads; Gap (general window minimum) sits
-    // with P2P/50Hz as a general pacing stat instead — see
-    // gsr_sensor_get_duplicate_gap_min_ticks()'s doc comment for why
-    // they answer different questions.
-    if(is_diag) {
-        canvas_set_font(c, FontSecondary);
-
-        if(a->session.gsr && gsr_sensor_available(a->session.gsr)) {
-            uint8_t pga = gsr_sensor_get_pga_index(a->session.gsr);
-            int32_t mean_cnt = gsr_sensor_get_mean_count(a->session.gsr);
-            int32_t window_n = gsr_sensor_get_window_samples(a->session.gsr);
-            char buf[32];
-            int y = 8;
-
-            snprintf(buf, sizeof(buf), "PGA:%u Cal:%s Chg:%lu",
-                     (unsigned)pga, a->cal_active ? "yes" : "no",
-                     (unsigned long)gsr_sensor_get_pga_change_count(a->session.gsr));
-            canvas_draw_str(c, 0, y, buf);  y += 10;
-
-            snprintf(buf, sizeof(buf), "Sngl: %ld",
-                     (long)a->session.pipeline.display.raw_sample_count);
-            canvas_draw_str(c, 0, y, buf);  y += 10;
-
-            snprintf(buf, sizeof(buf), "Mean: %ld (N=%ld)", (long)mean_cnt, (long)window_n);
-            canvas_draw_str(c, 0, y, buf);  y += 10;
-
-            snprintf(buf, sizeof(buf), "Hz:%.0f OK:%.0f%% F:%lu",
-                     (double)gsr_sensor_get_worker_hz(a->session.gsr),
-                     (double)gsr_sensor_get_success_rate(a->session.gsr),
-                     (unsigned long)gsr_sensor_get_consecutive_failures(a->session.gsr));
-            canvas_draw_str(c, 0, y, buf);  y += 10;
-
-            // DG (duplicate-gap-min) sits on the Dup line since it's a
-            // direct property of the reads that were flagged duplicate,
-            // not a general pacing stat — see
-            // gsr_sensor_get_duplicate_gap_min_ticks()'s doc comment for
-            // why it's a stronger check than the general window Gap
-            // (moved to the P2P/50Hz line below) for the "did a fast
-            // loop iteration actually cause this duplicate" question.
-            // UINT32_MAX means no duplicates happened this window —
-            // shown as "-", not a nonsense huge number.
-            uint32_t dup_gap = gsr_sensor_get_duplicate_gap_min_ticks(a->session.gsr);
-            if(dup_gap == UINT32_MAX) {
-                snprintf(buf, sizeof(buf), "Dup:%.0f%% Stl:%.0f%% DG:-",
-                         (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
-                         (double)gsr_sensor_get_stale_rate(a->session.gsr));
-            } else {
-                snprintf(buf, sizeof(buf), "Dup:%.0f%% Stl:%.0f%% DG:%lu",
-                         (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
-                         (double)gsr_sensor_get_stale_rate(a->session.gsr),
-                         (unsigned long)dup_gap);
-            }
-            canvas_draw_str(c, 0, y, buf);  y += 10;
-
-            snprintf(buf, sizeof(buf), "P2P:%ld 50Hz:%.0f Gap:%lu",
-                     (long)gsr_sensor_get_window_ptp(a->session.gsr),
-                     (double)gsr_sensor_get_mains_hum_mag(a->session.gsr),
-                     (unsigned long)gsr_sensor_get_window_min_gap_ticks(a->session.gsr));
-            canvas_draw_str(c, 0, y, buf);
-        } else {
-            canvas_draw_str(c, 0, 8, "GSR: --");
-        }
-    }
-
-    // Mode-specific overlay (GSR modes with graph)
-    if(has_graph) {
-        if(a->session.gsr) {
-            if(gsr_sensor_available(a->session.gsr)) {
-                if(gsr_signal_visible) {
-                    if(a->session.mode == BioMapModeGsrOnly) {
-                        char buf[32];
-                        // Time span label — top-left
-                        int t_span = (GRAPH_N * a->session.pipeline.graph.scroll_divider) / TICK_HZ;
-                        if(t_span >= 60) {
-                            snprintf(buf, sizeof(buf), "%dm%ds", t_span / 60, t_span % 60);
-                        } else {
-                            snprintf(buf, sizeof(buf), "%ds", t_span);
-                        }
-                        canvas_draw_str(c, 1, 10, buf);
-                        // Fixed worst-case reservation, not this frame's
-                        // actual width — see the elapsed-time comment below.
-                        top_left_edge = 1 + canvas_string_width(c, "59m59s");
-                        // nS value — top-right. Real readings have been
-                        // observed up to 5 digits (e.g. 10767).
-                        top_right_edge = draw_ns_top_right(c, a);
-                    } else if(gps_gsr_top_bar) {
-                        // nS value — top-right (GPS badge already at top-left)
-                        top_right_edge = draw_ns_top_right(c, a);
-                    }
-                } else {
-                    // GPS+GSR+RF centers this inside the narrowed graph
-                    // (right 2/3) so the text clears the left RF panel.
-                    int status_cx = (a->session.mode == BioMapModeGpsGsrRf) ?
-                        RF_PANEL_W + (128 - RF_PANEL_W) / 2 : 64;
-                    draw_inline_graph_status(c, "Finger cuffs", "disconnected", status_cx);
-                }
-            } else {
-                draw_sensor_alert(c, "NO SENSOR");
-            }
-        }
-
-        // Elapsed recording time — centered in whatever gap remains between
-        // the top-left label and top-right nS value, clamped to fixed
-        // worst-case edges so it can never overlap either one. Minutes only
-        // (no seconds — not useful at a glance); rolls over to "1h05m"
-        // past 60 minutes.
-        //
-        // top_left_edge/top_right_edge are deliberately sized from fixed
-        // placeholder strings ("No fix", "-99999 nS", etc.) above, NOT
-        // from this frame's actual badge/nS-value text. Using the real
-        // width made this text visibly slide sideways every frame: as the
-        // GSR reading's digit count changes (real readings span 4-5
-        // digits, e.g. 4565 to 10767) or GPS accuracy's digit count
-        // changes, the boundary it's centered against moved with it. The
-        // fixed placeholders are conservative (real content is always
-        // narrower or equal), so the elapsed-time text can still never
-        // overlap the badge/nS value — it just no longer chases them.
-        if(a->session.recording.active) {
-            char elapsed_buf[16];
-            int elapsed_min = (int)(a->session.recording.total_ticks / TICK_HZ) / 60;
-            if(elapsed_min >= 60) {
-                snprintf(elapsed_buf, sizeof(elapsed_buf), "%dh%02dm",
-                         elapsed_min / 60, elapsed_min % 60);
-            } else {
-                snprintf(elapsed_buf, sizeof(elapsed_buf), "%dm", elapsed_min);
-            }
-            canvas_set_font(c, FontSecondary);
-            int elapsed_w = canvas_string_width(c, elapsed_buf);
-            int gap_left  = top_left_edge + 3;
-            int gap_right = top_right_edge - 3;
-            int elapsed_x = (gap_left + gap_right - elapsed_w) / 2;
-            if(elapsed_x < gap_left) elapsed_x = gap_left;
-            if(elapsed_x + elapsed_w > gap_right) elapsed_x = gap_right - elapsed_w;
-            canvas_draw_str(c, elapsed_x, 10, elapsed_buf);
-        }
-    } else if(!is_diag && a->session.gps) {
-        // GPS + RF mode: RF panel on the left (same labeled bars as
-        // GPS+GSR+RF), compact GPS info on the right.  Replaces the old
-        // full-width GPS detail + tiny corner bars layout.
-        canvas_draw_frame(c, RF_PANEL_W, 16, 128 - RF_PANEL_W, 48);
-        if(rf_viz) draw_rf_panel_left(c, a, rf_rssi);
-        render_gps_compact(c, a);
-    } else if(!is_diag) {
-        canvas_draw_str(c, 0, 20, "GPS unavailable");
     }
 
     furi_mutex_release(a->mutex);
@@ -744,33 +665,27 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
     canvas_draw_str(c, 0, 10, "GSR Calibration");
     canvas_set_font(c, FontSecondary);
 
-    char buf[64];
     switch(step) {
-    case 0: case 1: case 2: case 3: case 4: case 5: { // Prompt/Measuring, one pair per resistor
+    case 0: case 1: case 2: case 3: case 4: case 5: {
         static const struct { const char* level; const char* resistor; } cal_steps[3] = {
             {"Low", "470k"}, {"Mid", "100k"}, {"High", "47k"},
         };
         int idx = step / 2;
         if(step % 2 == 0) { // Prompt
-            snprintf(buf, sizeof(buf), "Step %d/3: %s (%s)",
+            draw_fmt(c, 0, 25, "Step %d/3: %s (%s)",
                      idx + 1, cal_steps[idx].level, cal_steps[idx].resistor);
-            canvas_draw_str(c, 0, 25, buf);
-            snprintf(buf, sizeof(buf), "Connect %s resistor", cal_steps[idx].resistor);
-            canvas_draw_str(c, 0, 37, buf);
+            draw_fmt(c, 0, 37, "Connect %s resistor", cal_steps[idx].resistor);
             canvas_draw_str(c, 0, 49, "[Press OK to measure]");
         } else { // Measuring
-            snprintf(buf, sizeof(buf), "Measuring %s...", cal_steps[idx].resistor);
-            canvas_draw_str(c, 0, 25, buf);
+            draw_fmt(c, 0, 25, "Measuring %s...", cal_steps[idx].resistor);
             canvas_draw_str(c, 0, 40, "Keep resistor connected");
         }
         break;
     }
     case 8: // Success
         canvas_draw_str(c, 0, 23, "Calibration Success!");
-        snprintf(buf, sizeof(buf), "Gain: %.3fx  R\xb2: %.4f", (double)gain, (double)r_squared);
-        canvas_draw_str(c, 0, 35, buf);
-        snprintf(buf, sizeof(buf), "Offset: %.0f nS", (double)offset);
-        canvas_draw_str(c, 0, 47, buf);
+        draw_fmt(c, 0, 35, "Gain: %.3fx  R\xb2: %.4f", (double)gain, (double)r_squared);
+        draw_fmt(c, 0, 47, "Offset: %.0f nS", (double)offset);
         canvas_draw_str(c, 0, 60, "[OK to Save, Back to Cancel]");
         break;
     case 9: // Measurement failed — not enough samples in gate
@@ -781,8 +696,7 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
     case 10: // Fit failed — bounds or R²
         canvas_draw_str(c, 0, 25, "Calibration Failed!");
         canvas_draw_str(c, 0, 37, "Device out of range.");
-        snprintf(buf, sizeof(buf), "Gain: %.3fx  R\xb2: %.4f", (double)gain, (double)r_squared);
-        canvas_draw_str(c, 0, 49, buf);
+        draw_fmt(c, 0, 49, "Gain: %.3fx  R\xb2: %.4f", (double)gain, (double)r_squared);
         canvas_draw_str(c, 0, 61, "[Press OK to Retry]");
         break;
     default:
@@ -797,23 +711,15 @@ void show_current_calibration_render(Canvas* c, void* ctx) {
     canvas_draw_str(c, 0, 10, "GSR Calibration");
     canvas_set_font(c, FontSecondary);
 
-    char buf[64];
     if(furi_mutex_acquire(app->mutex, 10) != FuriStatusOk) return;
     bool active = app->cal_active;
     float gain = app->cal_gain;
     float offset = app->cal_offset;
     furi_mutex_release(app->mutex);
 
-    if(active) {
-        canvas_draw_str(c, 0, 23, "Active Custom Cal:");
-    } else {
-        canvas_draw_str(c, 0, 23, "Active Default Cal:");
-    }
-
-    snprintf(buf, sizeof(buf), "Gain: %.3fx", (double)gain);
-    canvas_draw_str(c, 0, 35, buf);
-    snprintf(buf, sizeof(buf), "Offset: %.0f nS", (double)offset);
-    canvas_draw_str(c, 0, 47, buf);
+    draw_fmt(c, 0, 23, "Active %s Cal:", active ? "Custom" : "Default");
+    draw_fmt(c, 0, 35, "Gain: %.3fx", (double)gain);
+    draw_fmt(c, 0, 47, "Offset: %.0f nS", (double)offset);
     canvas_draw_str(c, 0, 60, "[Press OK or Back to return]");
 }
 
@@ -854,26 +760,17 @@ void rf_calibration_wizard_sampling_render(Canvas* c, void* ctx) {
     canvas_draw_str(c, 0, 10, "Zeroing CC1101...");
     canvas_set_font(c, FontSecondary);
 
-    // Guards against run_rf_calibration_wizard()'s sampling loop (main
-    // thread), which rewrites rssi_dbm[]/seconds_left every ~100ms — the
-    // live race this mutex was actually added for (see RfCalWizardState's
-    // doc comment in biomap.h).
     furi_mutex_acquire(w->mutex, FuriWaitForever);
     uint32_t seconds_left = w->seconds_left;
     float rssi_dbm[EM_SCAN_NUM_FREQS];
     memcpy(rssi_dbm, w->rssi_dbm, sizeof(rssi_dbm));
     furi_mutex_release(w->mutex);
 
-    char buf[32];
-    snprintf(buf, sizeof(buf), "Sampling: %lus", (unsigned long)seconds_left);
-    canvas_draw_str(c, 0, 25, buf);
-
-    char live[48];
-    snprintf(live, sizeof(live), "%s:%.0f %s:%.0f %s:%.0f",
+    draw_fmt(c, 0, 25, "Sampling: %lus", (unsigned long)seconds_left);
+    draw_fmt(c, 0, 37, "%s:%.0f %s:%.0f %s:%.0f",
              em_scan_freq_label[0], (double)rssi_dbm[0],
              em_scan_freq_label[1], (double)rssi_dbm[1],
              em_scan_freq_label[2], (double)rssi_dbm[2]);
-    canvas_draw_str(c, 0, 37, live);
     canvas_draw_str(c, 0, 60, "[Back = Cancel]");
 }
 
@@ -909,10 +806,8 @@ void rf_calibration_wizard_stats_render(Canvas* c, void* ctx) {
             if(computed_floors[i] > max_f) max_f = computed_floors[i];
             if(computed_std_devs[i] > max_std) max_std = computed_std_devs[i];
         }
-        snprintf(buf, sizeof(buf), "Floors: %.1f to %.1f dBm", (double)min_f, (double)max_f);
-        canvas_draw_str(c, 0, 24, buf);
-        snprintf(buf, sizeof(buf), "Max StdDev: %.2fdB (OK)", (double)max_std);
-        canvas_draw_str(c, 0, 36, buf);
+        draw_fmt(c, 0, 24, "Floors: %.1f to %.1f dBm", (double)min_f, (double)max_f);
+        draw_fmt(c, 0, 36, "Max StdDev: %.2fdB (OK)", (double)max_std);
         canvas_draw_str(c, 0, 60, "[OK=Save, Back=Discard]");
     } else if(sweep_count < 5) {
         snprintf(buf, sizeof(buf), "Too few sweeps: %lu (need 5+)", (unsigned long)sweep_count);
@@ -923,7 +818,7 @@ void rf_calibration_wizard_stats_render(Canvas* c, void* ctx) {
         int worst_std_idx = 0;
         float worst_std = computed_std_devs[0];
         int worst_floor_idx = -1;
-        float worst_floor_margin = 0.0f; // how far the floor sits over ITS OWN band ceiling
+        float worst_floor_margin = 0.0f;
 
         for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
             if(computed_std_devs[i] > worst_std) {
@@ -938,17 +833,14 @@ void rf_calibration_wizard_stats_render(Canvas* c, void* ctx) {
         }
 
         if(worst_floor_idx >= 0) {
-            snprintf(buf, sizeof(buf), "Unshielded (>%.0fdBm)", (double)em_scan_cal_max_floor_dbm[worst_floor_idx]);
-            canvas_draw_str(c, 0, 24, buf);
-            snprintf(buf, sizeof(buf), "Worst: %sMHz %.1fdBm",
+            draw_fmt(c, 0, 24, "Unshielded (>%.0fdBm)", (double)em_scan_cal_max_floor_dbm[worst_floor_idx]);
+            draw_fmt(c, 0, 36, "Worst: %sMHz %.1fdBm",
                      em_scan_freq_label[worst_floor_idx], (double)computed_floors[worst_floor_idx]);
-            canvas_draw_str(c, 0, 36, buf);
             canvas_draw_str(c, 0, 48, "Place Flipper in Faraday bag!");
         } else {
             canvas_draw_str(c, 0, 24, "High Noise Variance (>3.5dB)");
-            snprintf(buf, sizeof(buf), "Worst: %sMHz %.2fdB",
+            draw_fmt(c, 0, 36, "Worst: %sMHz %.2fdB",
                      em_scan_freq_label[worst_std_idx], (double)worst_std);
-            canvas_draw_str(c, 0, 36, buf);
             canvas_draw_str(c, 0, 48, "Check bag seal for leaks!");
         }
         canvas_draw_str(c, 0, 60, "[OK/Back = Exit]");
@@ -970,14 +862,13 @@ void rf_show_current_calibration_render(Canvas* c, void* ctx) {
     if(!calibrated) {
         canvas_draw_str(c, 0, 24, "Not calibrated.");
     } else {
-        canvas_draw_str(c, 0, 24, "Band Floors (dBm):");
-        char buf[48];
-        int y = 36;
+        int y = 24;
+        y = draw_fmt(c, 0, y, "Band Floors (dBm):");
         for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
-            snprintf(buf, sizeof(buf), "%s: %.1f  (std %.2f)",
-                     em_scan_freq_label[i], (double)cal.noise_floor_dbm[i], (double)cal.noise_std_dev_db[i]);
-            canvas_draw_str(c, 0, y, buf);
-            y += 10;
+            y = draw_fmt(c, 0, y, "%s: %.1f  (std %.2f)",
+                         em_scan_freq_label[i],
+                         (double)cal.noise_floor_dbm[i],
+                         (double)cal.noise_std_dev_db[i]);
         }
     }
     canvas_draw_str(c, 0, 60, "[Press OK or Back to return]");
