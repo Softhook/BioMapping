@@ -650,7 +650,6 @@ static void draw_cal_submenu(Canvas* c, void* ctx, const char* title) {
             canvas_draw_str(c, 10, y, options[i]);
         }
     }
-    canvas_draw_str(c, 0, 60, "Press Back to return");
     furi_mutex_release(sm->app->mutex);
 }
 
@@ -687,10 +686,10 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
             draw_fmt(c, 0, 25, "Step %d/3: %s (%s)",
                      idx + 1, cal_steps[idx].level, cal_steps[idx].resistor);
             draw_fmt(c, 0, 37, "Connect %s resistor", cal_steps[idx].resistor);
-            canvas_draw_str(c, 0, 49, "[Press OK to measure]");
+            canvas_draw_str(c, 0, 49, "OK to measure");
         } else { // Measuring
             draw_fmt(c, 0, 25, "Measuring %s...", cal_steps[idx].resistor);
-            canvas_draw_str(c, 0, 40, "Keep resistor connected");
+            canvas_draw_str(c, 0, 37, "Keep resistor connected");
         }
         break;
     }
@@ -698,18 +697,16 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
         canvas_draw_str(c, 0, 23, "Calibration Success!");
         draw_fmt(c, 0, 35, "Gain: %.3fx  R\xb2: %.4f", (double)gain, (double)r_squared);
         draw_fmt(c, 0, 47, "Offset: %.0f nS", (double)offset);
-        canvas_draw_str(c, 0, 60, "[OK to Save, Back to Cancel]");
+        canvas_draw_str(c, 0, 60, "OK=Save  Back=Discard");
         break;
     case 9: // Measurement failed — not enough samples in gate
         canvas_draw_str(c, 0, 25, "Calibration Failed!");
         canvas_draw_str(c, 0, 38, "Check connections.");
-        canvas_draw_str(c, 0, 50, "[Press OK to Retry]");
         break;
     case 10: // Fit failed — bounds or R²
         canvas_draw_str(c, 0, 25, "Calibration Failed!");
         canvas_draw_str(c, 0, 37, "Device out of range.");
         draw_fmt(c, 0, 49, "Gain: %.3fx  R\xb2: %.4f", (double)gain, (double)r_squared);
-        canvas_draw_str(c, 0, 61, "[Press OK to Retry]");
         break;
     default:
         break;
@@ -732,7 +729,6 @@ void show_current_calibration_render(Canvas* c, void* ctx) {
     draw_fmt(c, 0, 23, "Active %s Cal:", active ? "Custom" : "Default");
     draw_fmt(c, 0, 35, "Gain: %.3fx", (double)gain);
     draw_fmt(c, 0, 47, "Offset: %.0f nS", (double)offset);
-    canvas_draw_str(c, 0, 60, "[Press OK or Back to return]");
 }
 
 // ==========================================================================
@@ -762,7 +758,6 @@ void rf_calibration_wizard_prep_render(Canvas* c, void* ctx) {
     char buf[32];
     snprintf(buf, sizeof(buf), "Pre-bagging: %lus", (unsigned long)seconds_left);
     canvas_draw_str(c, 0, 47, buf);
-    canvas_draw_str(c, 0, 60, "[OK=Skip wait, Back=Cancel]");
 }
 
 void rf_calibration_wizard_sampling_render(Canvas* c, void* ctx) {
@@ -783,7 +778,6 @@ void rf_calibration_wizard_sampling_render(Canvas* c, void* ctx) {
              em_scan_freq_label[0], (double)rssi_dbm[0],
              em_scan_freq_label[1], (double)rssi_dbm[1],
              em_scan_freq_label[2], (double)rssi_dbm[2]);
-    canvas_draw_str(c, 0, 60, "[Back = Cancel]");
 }
 
 void rf_calibration_wizard_stats_render(Canvas* c, void* ctx) {
@@ -819,11 +813,10 @@ void rf_calibration_wizard_stats_render(Canvas* c, void* ctx) {
         }
         draw_fmt(c, 0, 24, "Floors: %.1f to %.1f dBm", (double)min_f, (double)max_f);
         draw_fmt(c, 0, 36, "Max StdDev: %.2fdB (OK)", (double)max_std);
-        canvas_draw_str(c, 0, 60, "[OK=Save, Back=Discard]");
+        canvas_draw_str(c, 0, 60, "OK=Save  Back=Discard");
     } else if(sweep_count < 5) {
         draw_fmt(c, 0, 24, "Too few sweeps: %lu (need 5+)", (unsigned long)sweep_count);
         canvas_draw_str(c, 0, 36, "Sampling ran too slow/short");
-        canvas_draw_str(c, 0, 60, "[OK/Back = Exit]");
     } else {
         int worst_std_idx = 0;
         float worst_std = computed_std_devs[0];
@@ -853,7 +846,6 @@ void rf_calibration_wizard_stats_render(Canvas* c, void* ctx) {
                      em_scan_freq_label[worst_std_idx], (double)worst_std);
             canvas_draw_str(c, 0, 48, "Check bag seal for leaks!");
         }
-        canvas_draw_str(c, 0, 60, "[OK/Back = Exit]");
     }
 }
 
@@ -881,5 +873,4 @@ void rf_show_current_calibration_render(Canvas* c, void* ctx) {
                          (double)cal.noise_std_dev_db[i]);
         }
     }
-    canvas_draw_str(c, 0, 60, "[Press OK or Back to return]");
 }
