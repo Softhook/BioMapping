@@ -244,6 +244,13 @@ static void draw_sensor_alert(Canvas* c, const char* text) {
     canvas_set_font(c, FontSecondary);
 }
 
+static void draw_inline_graph_status(Canvas* c, const char* text) {
+    canvas_set_font(c, FontSecondary);
+    int text_w = canvas_string_width(c, text);
+    int x = (128 - text_w) / 2;
+    canvas_draw_str(c, x, 38, text);
+}
+
 void biomap_render_callback(Canvas* c, void* ctx) {
     BioMapApp* a = (BioMapApp*)ctx;
     if(furi_mutex_acquire(a->mutex, 10) != FuriStatusOk) return;
@@ -428,7 +435,7 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                         top_right_edge = draw_ns_top_right(c, a);
                     }
                 } else {
-                    draw_sensor_alert(c, "NO SIGNAL");
+                    draw_inline_graph_status(c, "NO SIGNAL");
                 }
             } else {
                 draw_sensor_alert(c, "NO SENSOR");
