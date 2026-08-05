@@ -33,8 +33,27 @@ struct SdLogger {
 
     // GPS+GSR+RF batch buffer: accumulate formatted rows each tick,
     // flush to SD in one storage_file_write every FLUSH_INTERVAL seconds.
-    // 100 rows × ~110 bytes (GPS+GSR+RF row, 21 columns) = ~11000 bytes < 12288.
-    char gsr_batch[12288];
+    //
+    // Sized against a worst-case row, not the ~110-125 byte typical case the
+    // previous 12288-byte size assumed (2026-08-05, track 015 investigation
+    // — docs/gps_rf_mutex_status.md). With BIOMAP_DEBUG_FIELDS on, several
+    // of the 12 debug columns are lifetime peak-hold/cumulative counters
+    // (log_fill_peak_bytes, flush_peak_ms, log_overflow_count, etc.)
+    // formatted as bare %u — they gain digits as a recording runs longer,
+    // permanently costing the shared buffer bytes on every subsequent row.
+    // The old size left only ~5 bytes/row of headroom over its own typical-
+    // case estimate, so a long enough recording reliably grew into it:
+    // track 015 crossed the 12288 cap at t=1009s (66% into a 1515s walk)
+    // and stayed over budget for the rest of the recording, silently
+    // dropping one row every FLUSH_INTERVAL from then on — overflow_count
+    // itself growing a digit made this self-reinforcing, not self-correcting.
+    // ~169 bytes/row worst case (generous per-field digit bounds, not
+    // absolute type limits) × 100 rows = ~16900 bytes; doubling the old
+    // size to 24576 clears that with real margin to spare for future
+    // columns. Also the same total footprint as the double-buffered
+    // gsr_batch[2][12288] tried and reverted earlier (7e4bc3a) — already
+    // proven to fit comfortably in the Flipper's RAM.
+    char gsr_batch[24576];
     int  gsr_batch_len;
 
     // Worst single batch_flush() (write+sync) real duration ever seen —
