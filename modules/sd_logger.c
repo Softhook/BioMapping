@@ -14,15 +14,15 @@
 #define LOGGER_EXT       ".csv"
 #define LOGGER_MAX_INDEX 999
 
-#if BIOMAP_DEBUG_FIELDS
+// Always real FURI_LOG_* calls (2026-08-05): previously compiled out under
+// BIOMAP_DEBUG_FIELDS=0, but that macro is gone — debug CSV *fields* are
+// now a runtime Options-menu toggle (BioMapApp::debug_fields_enabled),
+// unrelated to whether these serial logs exist. SdLogger has no app-level
+// context to gate on anyway; Flipper's own runtime log level already
+// controls what's actually visible on a given build/session.
 #define SD_LOG_I(tag, fmt, ...) FURI_LOG_I(tag, fmt, ##__VA_ARGS__)
 #define SD_LOG_W(tag, fmt, ...) FURI_LOG_W(tag, fmt, ##__VA_ARGS__)
 #define SD_LOG_E(tag, fmt, ...) FURI_LOG_E(tag, fmt, ##__VA_ARGS__)
-#else
-#define SD_LOG_I(tag, fmt, ...) do { UNUSED(tag); UNUSED(fmt); } while(0)
-#define SD_LOG_W(tag, fmt, ...) do { UNUSED(tag); UNUSED(fmt); } while(0)
-#define SD_LOG_E(tag, fmt, ...) do { UNUSED(tag); UNUSED(fmt); } while(0)
-#endif
 
 struct SdLogger {
     Storage* storage;
@@ -36,7 +36,8 @@ struct SdLogger {
     //
     // Sized against a worst-case row, not the ~110-125 byte typical case the
     // previous 12288-byte size assumed (2026-08-05, track 015 investigation
-    // — docs/gps_rf_mutex_status.md). With BIOMAP_DEBUG_FIELDS on, several
+    // — docs/gps_rf_mutex_status.md). With debug fields on (now an Options-
+    // menu runtime toggle, biomap_config.h), several
     // of the 12 debug columns are lifetime peak-hold/cumulative counters
     // (log_fill_peak_bytes, flush_peak_ms, log_overflow_count, etc.)
     // formatted as bare %u — they gain digits as a recording runs longer,
@@ -59,8 +60,6 @@ struct SdLogger {
     // Worst single batch_flush() (write+sync) real duration ever seen —
     // see sd_logger_get_flush_peak_ms()'s doc comment (sd_logger.h).
     uint32_t flush_peak_ms;
-    uint32_t flush_last_ms;
-    uint32_t flush_window_max_ms;
 
     // Continuity-pressure metrics: current/peak batch occupancy and
     // cumulative failures that indicate logging risk under load.
@@ -174,8 +173,6 @@ bool sd_logger_start(SdLogger* l, const char* header) {
     if(ok) {
         l->gsr_batch_len = 0;
         l->flush_peak_ms = 0;
-        l->flush_last_ms = 0;
-        l->flush_window_max_ms = 0;
         l->batch_fill_peak_bytes = 0;
         l->overflow_count = 0;
         l->flush_fail_count = 0;
@@ -237,9 +234,7 @@ int sd_logger_batch_flush(SdLogger* l) {
         SD_LOG_E("SdLogger", "Batch flush error: %d/%d",
                  written, flushed);
         uint32_t flush_dur = furi_get_tick() - flush_start;
-        l->flush_last_ms = flush_dur;
         if(flush_dur > l->flush_peak_ms) l->flush_peak_ms = flush_dur;
-        if(flush_dur > l->flush_window_max_ms) l->flush_window_max_ms = flush_dur;
         l->flush_fail_count++;
         return -1;
     }
@@ -253,9 +248,7 @@ int sd_logger_batch_flush(SdLogger* l) {
     }
 
     uint32_t flush_dur = furi_get_tick() - flush_start;
-    l->flush_last_ms = flush_dur;
     if(flush_dur > l->flush_peak_ms) l->flush_peak_ms = flush_dur;
-    if(flush_dur > l->flush_window_max_ms) l->flush_window_max_ms = flush_dur;
 
     return flushed;
 #endif
@@ -324,12 +317,6 @@ int sd_logger_batch_printf(SdLogger* l, const char* fmt, ...) {
 const char* sd_logger_get_filename(const SdLogger* l) { return l->filename; }
 
 uint32_t sd_logger_get_flush_peak_ms(const SdLogger* l) { return l->flush_peak_ms; }
-uint32_t sd_logger_get_flush_last_ms(const SdLogger* l) { return l->flush_last_ms; }
-uint32_t sd_logger_take_flush_window_max_ms(SdLogger* l) {
-    uint32_t value = l->flush_window_max_ms;
-    l->flush_window_max_ms = 0;
-    return value;
-}
 uint32_t sd_logger_get_batch_fill_bytes(const SdLogger* l) { return (uint32_t)l->gsr_batch_len; }
 uint32_t sd_logger_get_batch_fill_peak_bytes(const SdLogger* l) { return l->batch_fill_peak_bytes; }
 uint32_t sd_logger_get_overflow_count(const SdLogger* l) { return l->overflow_count; }

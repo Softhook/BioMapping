@@ -231,6 +231,9 @@ void run_options_screen(BioMapApp* app) {
                     run_recording_session(app, BioMapModeDiagnostics);
                     vp_push(app, options_render, &ctx);
                     continue;
+                case OptDebugFields:
+                    toggle_app_setting(app, &app->debug_fields_enabled, false);
+                    break;
                 default: break;
                 }
                 break;

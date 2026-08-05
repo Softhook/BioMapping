@@ -382,6 +382,143 @@ something concrete (dropped GPS bytes, UART overflow) that justifies a
 threading rework — right now it's a felt freeze, not a proven data-loss
 problem, based on what's been measured so far.
 
+### 2026-08-05: track 015 recorded — a real, distinct bug found (buffer-margin exhaustion, not the SD-stall mechanism above), fixed
+
+Track 015 (1515s, the first recording made after the full `BIOMAP_DEBUG_FIELDS`
+column set landed) showed `log_overflow_count` climbing by exactly 1 every
+~10.0s from t=1009s (66% through the walk) to the end, never recovering —
+one dropped sample per `FLUSH_INTERVAL` cycle for the last ~500s. This is
+**not** the SD-write/sync stall documented above (that's inherent SD-over-SPI
+latency); this is a fixed-size batch buffer with almost no real margin.
+
+Root cause: `sd_logger.c`'s `gsr_batch` was sized (12288 bytes) against a
+"~110-125 bytes/row typical case" estimate — only ~5 bytes/row of headroom
+over its own best case. Several `BIOMAP_DEBUG_FIELDS` columns are lifetime
+peak-hold/cumulative counters printed as bare `%u` (`log_fill_peak_bytes`,
+`flush_peak_ms`, `log_overflow_count`) that gain digits as a recording runs
+longer — each digit gained costs the shared buffer 100 bytes/cycle (100
+rows/flush). Measured directly from the CSV: cycle totals crept from
+11753 bytes (t=0) to 12283 bytes (cycle 99) and crossed the 12288 cap at
+cycle 100 (row 10089) — and once `log_overflow_count` itself gained a digit
+(crossing 9→10), that made the overflow self-reinforcing rather than
+self-correcting.
+
+**Fix**: `gsr_batch` doubled to 24576 bytes (`modules/sd_logger.c`), sized
+against a ~169 bytes/row worst-case estimate (generous per-field digit
+bounds) × 100 rows, with real margin left over for future columns. Same
+total footprint as the double-buffered `gsr_batch[2][12288]` tried and
+reverted earlier (`7e4bc3a`) — already proven to fit the Flipper's RAM.
+Verified: full host test suite (`SD_LOGGER_BATCH_CAP` in
+`tests/test_sd_logger.c` updated to match) and a real ARM toolchain build,
+both clean.
+
+### 2026-08-05: debug-field and serial-logging review — dead fields removed, three new CSV columns added
+
+Prompted by the track 015 investigation above, reviewed every `RowDiag`/CSV
+debug column and every `FURI_LOG_*`/`SD_LOG_*` call in the firmware for
+whether it's actually reachable by post-hoc analysis — the channel every
+real finding in this document has come from — versus serial-only (a channel
+this project has never once used to diagnose a real issue).
+
+**Removed** (serial-only, fully redundant with data already in the CSV,
+zero test coverage found for any of them): `tick_dt_max_ms`,
+`tick_over_150_count`, `tick_over_250_count`, `tick_over_500_count`
+(`RecordingState`, `biomap_types.h`) — a windowed max and bucket counts
+derived from `tick_dt_ms`, which is already logged raw every row; and
+`flush_last_ms`/`flush_window_max_ms` (`sd_logger.c`/`.h`) — redundant with
+`flush_peak_ms`'s own row-by-row progression in the CSV (see the track 118
+entry above, which found the exact row a new worst flush occurred at using
+exactly that column).
+
+**Added** to `RowDiag`/CSV (`biomap_types.h`, `biomap_config.h`,
+`biomap_session.c`): `gps_reinit_count` (new counter, `gps_uart.c`/`.h`,
+mirrors `gps_rx_drops`/`nmea_fail`'s pattern exactly — increments once in
+`gps_uart_reinit()`, covering both its call sites: RX-buffer-full and the
+5s NMEA watchdog) so a GPS quality drop is no longer indistinguishable from
+"the module got power-cycled N times"; and `pga_change_count`/
+`i2c_consec_fail` (`gsr_sensor.c` — already-existing accessors, already
+computed unconditionally in every mode, just never wired into the CSV)
+directly explaining gain-change waveform artifacts and I2C/electrode
+dropouts. Covered by new assertions in `tests/test_gps_uart.c`
+(`test_rx_buffer_overflow_reconfigures`, `test_nmea_watchdog_reconfigures`)
+and updated `tests/test_firmware.c` CSV-formatting/column-count tests.
+
+**Deliberately not added** (real value, but not a clean same-pass fit):
+`mains_hum_mag` — mode-gated for genuine CPU cost (2 trig calls × ~100
+samples/tick), and Diagnostics mode currently shares `GPS_GSR_RF`'s CSV
+header, so logging it there would print a misleading `0.0` for every
+non-Diagnostics recording that never computes it. Needs a Diagnostics-
+specific header variant first. `success_rate`/`duplicate_rate`/`stale_rate`
+— pre-averaged ~1s rolling windows with no raw-count accessor to log
+instead; promoting the rates would repeat the exact "log the bucket, not
+the raw signal" mistake the removed `tick_over_*_count` fields made.
+`gsr_raw`'s own repeat pattern in the CSV already partially covers
+duplicate/stale detection in the meantime.
+
+Full host test suite and a real ARM toolchain build both verified clean
+after every change above.
+
+### 2026-08-05: `BIOMAP_DEBUG_FIELDS` converted to a runtime Options toggle — introduced, then fixed, a real mutex-touch regression on the tick path
+
+Requested change: stop requiring a firmware rebuild to see the debug CSV
+columns above. `BIOMAP_DEBUG_FIELDS` (compile-time `#define`) replaced with
+`BioMapApp::debug_fields_enabled` — a persisted Options-menu toggle
+("Debug Fields"), **off by default**, snapshotted into
+`Session::debug_fields_enabled` at `session_init()` (same lifecycle as
+`zoom_enabled`). Both the `_PROD` and `_DEBUG` CSV column variants
+(`biomap_config.h`) are now always compiled in; `key_toggle_recording()`
+picks between them per-session from the runtime flag. Measured cost of
+compiling both permanently: +536 bytes (~0.6%) `.fap` size — negligible.
+
+**A real regression was introduced and then caught by review, directly
+relevant to this document's whole subject.** `get_row_diag()`
+(`biomap_session.c`) reads several `gsr_sensor_get_*()` accessors that
+acquire `gsr->mutex`/`gsr->rf_mutex` (`worker_hz`, `i2c_peak_ms`,
+`pga_change_count`, `consecutive_failures`, `rf_rssi_peak_ms`,
+`rf_retune_peak_ms`). The first pass at the runtime conversion called it
+**unconditionally** at three sites — `batch_csv_row()` and
+`handle_recording_tick()`'s GPS-only branch (both 10 Hz, every recording
+tick) and the 1 Hz heartbeat/telemetry block — regardless of
+`debug_fields_enabled`. Under the old `BIOMAP_DEBUG_FIELDS=0` compile-time
+build this code didn't exist at all; under the new runtime toggle, turning
+Debug Fields **off (the default)** still touched these mutexes every tick,
+computed a full `RowDiag`, and threw it away unused.
+
+Checked whether this reintroduces the original bug this document is about
+(RF SPI held across a mutex the main thread needs): it does not — every
+`furi_hal_i2c_*` call in `gsr_sensor_worker()` releases `gsr->mutex` before
+the hardware call, confirmed by direct read, so there's no long-hold-then-
+block risk. But it's still real, unnecessary contention-surface on the
+exact path this document has scrutinized more than any other, for zero
+benefit in the default (off) configuration.
+
+**Fix**: all three sites now read
+`s->debug_fields_enabled ? get_row_diag(s) : (RowDiag){0}` (the 1 Hz
+telemetry site additionally only enters its block — and only emits the
+"telemetry" log line — when `debug_fields_enabled` is true). A second
+review pass caught that the neighboring 1 Hz **heartbeat** block (heap/
+stack introspection: `memmgr_get_free_heap()`, `furi_thread_get_stack_space()`,
+`gsr_sensor_get_stack_space()`) had been left unconditional on the reasoning
+that it touches no mutex — true, but beside the point: under the old
+`BIOMAP_DEBUG_FIELDS=0` build neither heartbeat nor telemetry existed at
+all, so "off" should mean the same zero-cost thing at runtime for both, not
+just the mutex-touching half. Heartbeat is now gated identically to
+telemetry. Verified: 3 consecutive clean host test runs and a clean ARM
+toolchain build (confirmed against the project's real flag bar — `-Wall
+-Wextra -Werror -Wredundant-decls -Wdouble-promotion -Wundef` etc., read
+directly out of `compile_commands.json`, not assumed) after each fix,
+including this final one.
+
+**Known gap, not closed**: no host test can catch a regression like this.
+`tests/test_firmware.c` exercises `format_gps_csv_row()` via a hand-
+mirrored copy (documented as "mirrored, not linked" — the real
+`biomap_session.c` needs the full Flipper SDK the host harness doesn't
+provide), so it never calls the real `batch_csv_row()`/`get_row_diag()`/
+`gsr_sensor_get_*()` accessors and structurally can't observe whether they
+were skipped. This class of bug — an expensive call hiding behind a flag
+that should but doesn't gate it — can currently only be caught by manual
+review of this exact call-site pattern, not automated tests.
+
 ## Other open items
 
 Ranked by what would most change confidence in this fix, not by effort.

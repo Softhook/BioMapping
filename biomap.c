@@ -47,6 +47,7 @@ int32_t biomap_app(void* p) {
         .cal_active = false,
         .cal_gain = 1.0f,
         .cal_offset = 0.0f,
+        .debug_fields_enabled = false,
     };
 
     app->event_queue   = furi_message_queue_alloc(EVENT_QUEUE_DEPTH, sizeof(PluginEvent));
@@ -307,12 +308,13 @@ bool biomap_load_settings(BioMapApp* app) {
             app->backlight_on    = s.backlight_on;
             app->sound_enabled   = s.sound_enabled;
             app->nav_model       = (GpsNavModel)s.nav_model;
+            app->debug_fields_enabled = s.debug_fields_enabled;
             furi_mutex_release(app->mutex);
             success = true;
             FURI_LOG_I("BioMap",
-                       "Loaded settings: zoom=%d backlight=%d sound=%d nav=%lu",
+                       "Loaded settings: zoom=%d backlight=%d sound=%d nav=%lu debug_fields=%d",
                        s.zoom_enabled, s.backlight_on, s.sound_enabled,
-                       (unsigned long)s.nav_model);
+                       (unsigned long)s.nav_model, s.debug_fields_enabled);
         } else if(bytes_read == sizeof(BioMapSettings)) {
             FURI_LOG_W("BioMap", "Settings file invalid — using defaults");
         }
@@ -333,6 +335,7 @@ void biomap_save_settings(BioMapApp* app) {
         .backlight_on    = app->backlight_on,
         .sound_enabled   = app->sound_enabled,
         .nav_model       = (uint32_t)app->nav_model,
+        .debug_fields_enabled = app->debug_fields_enabled,
     };
     furi_mutex_release(app->mutex);
     s.checksum = settings_checksum(&s);

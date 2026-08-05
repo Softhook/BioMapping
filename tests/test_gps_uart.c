@@ -401,6 +401,7 @@ static void test_rx_buffer_overflow_reconfigures(void) {
     printf("  tx_count after 1023 bytes with no newline (chunked drains) = %d\n",
            tx_after_overflow);
     assert(tx_after_overflow > 0); // configure() re-ran
+    assert(gps_uart_get_reinit_count(g) == 1); // real, measured — not just TX activity
 
     // Confirm the reinit left it in a working state, not just "did something".
     furi_hal_mock_feed_string(GGA_LINE);
@@ -427,6 +428,7 @@ static void test_nmea_watchdog_reconfigures(void) {
     int tx_after_watchdog = furi_hal_mock_tx_count();
     printf("  tx_count after 5.001s idle = %d\n", tx_after_watchdog);
     assert(tx_after_watchdog > 0); // configure() re-ran
+    assert(gps_uart_get_reinit_count(g) == 1); // real, measured — not just TX activity
 
     gps_uart_free(g);
     printf("  -> Pass\n");

@@ -14,7 +14,7 @@ typedef struct Session   Session;
 // app-level auto-zoom preference (set in Options, survives sessions).
 // This is the single place where session state is reset — if a new field
 // is added to Session, it MUST be initialised here.
-void session_init(Session* s, BioMapMode mode, bool zoom_enabled);
+void session_init(Session* s, BioMapMode mode, bool zoom_enabled, bool debug_fields_enabled);
 
 // Tear down a Session: stop timer, close logger, free GPS/GSR modules,
 // remove ViewPort from GUI stack.  Safe to call even if init was partial

@@ -100,10 +100,16 @@ typedef struct {
     // in run_recording_session(), regardless of recording.active.
     uint32_t last_tick_wall_ms; // bookkeeping only — previous furi_get_tick() reading
     uint32_t tick_dt_ms;        // real elapsed ms since the previous Tick event; 0 on the first tick
-    uint32_t tick_dt_max_ms;    // max tick_dt_ms observed since last 1 Hz telemetry heartbeat
-    uint32_t tick_over_150_count; // cumulative ticks with dt > 150 ms
-    uint32_t tick_over_250_count; // cumulative ticks with dt > 250 ms
-    uint32_t tick_over_500_count; // cumulative ticks with dt > 500 ms
+    // tick_dt_max_ms/tick_over_{150,250,500}_count (2026-07-31 → removed
+    // 2026-08-05, debug-field review): a windowed max and bucket counts
+    // derived from tick_dt_ms, surfaced only on the serial-only 1 Hz
+    // telemetry heartbeat — a channel this project has never actually used
+    // to diagnose a real issue (docs/gps_rf_mutex_status.md is entirely
+    // CSV-based). Fully redundant with the per-row tick_dt_ms column
+    // already in the CSV, which gives strictly more information (exact
+    // values at exact rows, not coarse buckets) and is the channel real
+    // analysis has always used. Removed rather than kept as unused
+    // bookkeeping.
 } RecordingState;
 
 // Extracted GPS position snapshot (returned by value from get_gps_position).
@@ -151,10 +157,28 @@ typedef struct {
 // current batch occupancy, lifetime occupancy high-water mark, count of rows
 // rejected due to batch-capacity pressure, and count of flush write/sync
 // failures.
+//
+// gps_reinit_count/pga_change_count/i2c_consec_fail (2026-08-05, debug-field
+// review): promoted from either a serial-only log line or a Diagnostics-
+// screen-only reading (both invisible to post-hoc CSV analysis, which is
+// how every real bug in this project has actually been diagnosed — see
+// docs/gps_rf_mutex_status.md). gps_reinit_count mirrors gps_rx_drops/
+// nmea_fail's pattern exactly (gps_uart.h). pga_change_count and
+// i2c_consec_fail were already computed unconditionally in every mode with
+// no extra cost — just never reached the file. Deliberately NOT included
+// here: gsr_sensor's success/duplicate/stale rate (pre-averaged over a
+// rolling window with no raw-count accessor to log instead — would repeat
+// the "log the bucket, not the raw signal" mistake tick_over_*_count made,
+// see RecordingState's doc comment) and mains_hum_mag (mode-gated for real
+// CPU cost, and Diagnostics mode currently shares GPS_GSR_RF's header —
+// logging it there would print a misleading 0.0 for every non-Diagnostics
+// recording that never computes it). Both need a dedicated follow-up, not
+// a same-pass bundling.
 typedef struct {
     uint32_t tick_dt_ms;     // real furi_get_tick() delta since the previous Tick event
     uint32_t gps_rx_drops;   // cumulative UART bytes dropped (gps_uart's rx_stream was full)
     uint32_t nmea_fail;      // cumulative NMEA sentences that failed checksum/parse
+    uint32_t gps_reinit_count; // cumulative full GPS module reconfigure cycles (gps_uart_get_reinit_count)
     float    gsr_hz;         // GSR worker's real achieved sample rate (gsr_sensor_get_worker_hz)
     uint32_t i2c_peak_ms;       // worst single GSR I2C call (read or PGA-change write) ever seen
     uint32_t rf_rssi_peak_ms;   // worst single RF RSSI-poll SPI call ever seen
@@ -164,6 +188,8 @@ typedef struct {
     uint32_t log_fill_peak_bytes;  // lifetime high-water occupancy in bytes
     uint32_t log_overflow_count;   // rows rejected due to batch-capacity pressure
     uint32_t log_flush_fail_count; // flush write/sync failures (batch preserved for retry)
+    uint32_t pga_change_count;   // cumulative GSR auto-ranging PGA gain switches (gain-change artifact marker)
+    uint32_t i2c_consec_fail;    // current run length of consecutive GSR I2C failures (0 = healthy)
 } RowDiag;
 
 // ── Inline helpers ─────────────────────────────────────────────────────

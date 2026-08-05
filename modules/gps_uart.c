@@ -53,6 +53,10 @@ struct GpsUart {
     // sufficient, no atomics needed.
     _Atomic uint32_t     rx_drop_count;
     uint32_t             nmea_fail_count;
+    // reinit_count: same "main thread only" reasoning as nmea_fail_count —
+    // both gps_uart_reinit() call sites (RX-buffer-full, NMEA watchdog) run
+    // from gps_uart_process_rx() on the main thread, no ISR involvement.
+    uint32_t             reinit_count;
 };
 
 // UART IRQ — fires per received byte (ISR context).
@@ -775,6 +779,7 @@ static void gps_uart_reinit(GpsUart* g, uint32_t baud) {
     furi_delay_ms(100);
     gps_uart_configure(g);
     g->last_valid_nmea_tick = 0;
+    g->reinit_count++;
 }
 
 GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifications, GpsNavModel nav_model) {
@@ -823,6 +828,7 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
     g->gsv_talker_logged     = false;
     g->rx_drop_count         = 0;
     g->nmea_fail_count       = 0;
+    g->reinit_count          = 0;
 
     g->rx_stream = furi_stream_buffer_alloc(GPS_RX_BUF_SIZE, 1);
 
@@ -890,6 +896,11 @@ uint32_t gps_uart_get_rx_drop_count(const GpsUart* g) {
 uint32_t gps_uart_get_nmea_fail_count(const GpsUart* g) {
     furi_check(g, "GpsUart: NULL in get_nmea_fail_count()");
     return g->nmea_fail_count;
+}
+
+uint32_t gps_uart_get_reinit_count(const GpsUart* g) {
+    furi_check(g, "GpsUart: NULL in get_reinit_count()");
+    return g->reinit_count;
 }
 
 #if GPS_MODULE == GPS_MODULE_L76K

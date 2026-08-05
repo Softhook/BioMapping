@@ -57,6 +57,15 @@ typedef struct Session {
 
     bool           running;
 
+    // Snapshotted from app->debug_fields_enabled at session_init() — same
+    // "fixed for the session, changed only via Options" lifecycle as
+    // zoom_enabled above (2026-08-05: Options > Debug Fields, replacing the
+    // old BIOMAP_DEBUG_FIELDS compile-time switch). Read directly wherever
+    // CSV column selection/formatting already has a Session* in scope
+    // (biomap_session.c), rather than threading a new parameter through
+    // every call site.
+    bool           debug_fields_enabled;
+
     // Edge-trigger latch for the GSR-disconnect audio warning: true once
     // biomap_sound_warning() has fired for the CURRENT disconnect episode,
     // so the alert plays once per episode (not once per second alongside
@@ -115,12 +124,21 @@ typedef struct BioMapApp {
     float              cal_offset;
     EmScanCal          rf_cal_data;     // RF Faraday calibration (em_scan_cal.h)
     bool               rf_calibrated;
+    // Options > Debug Fields (2026-08-05) — replaces the old
+    // BIOMAP_DEBUG_FIELDS compile-time switch (biomap_config.h) with a
+    // runtime, persisted toggle. Off by default (see biomap_app()'s
+    // defaults, biomap.c) — the diagnostic CSV columns and RowDiag
+    // instrumentation are always compiled in now; this only decides
+    // whether a given recording session's CSV actually includes them.
+    // Snapshotted into Session::debug_fields_enabled at session_init(),
+    // same lifecycle as zoom_enabled.
+    bool               debug_fields_enabled;
 } BioMapApp;
 
 // ── Menu & conversion UI types ─────────────────────────────────────────
 
 #define MENU_COUNT      5
-#define OPTIONS_COUNT   8
+#define OPTIONS_COUNT   9
 
 // Options screen selection indices — matches OPTIONS_COUNT above and the
 // item order drawn by options_render() (biomap_render.c). Shared between
@@ -135,6 +153,7 @@ enum {
     OptBacklight,
     OptSound,
     OptDiagnostics,
+    OptDebugFields,
 };
 
 typedef struct {
@@ -231,8 +250,14 @@ typedef struct {
 // a persisted setting. An old v1 file on disk will simply fail the version
 // check in biomap_load_settings() and fall back to defaults, same as any
 // other format change.
+//
+// debug_fields_enabled added and version bumped to 3 (2026-08-05): replaces
+// the old BIOMAP_DEBUG_FIELDS compile-time switch (biomap_config.h) with a
+// persisted runtime toggle (Options > Debug Fields). An old v2 file on disk
+// fails the version check and falls back to defaults — debug_fields_enabled
+// defaults to false either way, matching "off by default" as requested.
 #define BIOMAP_SETTINGS_MAGIC    0x424D4753
-#define BIOMAP_SETTINGS_VERSION  2
+#define BIOMAP_SETTINGS_VERSION  3
 #define BIOMAP_SETTINGS_PATH     "/ext/biomapping/biomap.settings"
 #define BIOMAP_SETTINGS_PATH_TMP "/ext/biomapping/biomap.settings.tmp"
 
@@ -243,6 +268,7 @@ typedef struct {
     bool     backlight_on;
     bool     sound_enabled;
     uint32_t nav_model;
+    bool     debug_fields_enabled;
     uint32_t checksum;
 } BioMapSettings;
 

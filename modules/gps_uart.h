@@ -75,6 +75,15 @@ uint32_t  gps_uart_get_rx_drop_count(const GpsUart* gps);
 // parse-failure proxy, not "sentences we ignore by design".
 uint32_t  gps_uart_get_nmea_fail_count(const GpsUart* gps);
 
+// gps_uart_get_reinit_count() (2026-08-05): incremented once per
+// gps_uart_reinit() call — a full baud-switch + module-reconfigure cycle,
+// triggered either by the RX-buffer-full guard or the 5s NMEA watchdog
+// (both in gps_uart_process_rx()). Without this, a GPS quality drop
+// midway through a recording is indistinguishable from "the module got
+// power-cycled N times" — this makes that distinction directly visible
+// in the CSV instead of only in a serial log nobody was watching live.
+uint32_t  gps_uart_get_reinit_count(const GpsUart* gps);
+
 // Put the GPS module into its lowest-power standby/sleep state.
 // Acquires USART1 briefly — does NOT require a full GpsUart allocation.
 // Safe to call even when no module is connected (no-op on acquire failure).

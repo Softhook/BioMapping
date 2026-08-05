@@ -16,6 +16,7 @@ static const char* const options_labels[OPTIONS_COUNT] = {
     "Backlight",
     "Sound",
     "Diagnostics",
+    "Debug Fields",
 };
 
 // ── GPS display helpers ────────────────────────────────────────────────────
@@ -617,6 +618,8 @@ void options_render(Canvas* c, void* ctx) {
             state = a->backlight_on ? "ON" : "OFF";
         } else if(i == OptSound) {
             state = a->sound_enabled ? "ON" : "OFF";
+        } else if(i == OptDebugFields) {
+            state = a->debug_fields_enabled ? "ON" : "OFF";
         } else {
             continue;
         }

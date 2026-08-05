@@ -32,10 +32,19 @@ Each CSV begins with comment lines (prefixed `#`) before the column header:
 
 ## Debug Field Toggle
 
-CSV debug columns are controlled by `BIOMAP_DEBUG_FIELDS` in `biomap_config.h`:
+CSV debug columns are controlled by **Options > Debug Fields** on the device
+(`BioMapApp::debug_fields_enabled`, persisted in `biomap.settings`) — a
+runtime toggle, **off by default**. This replaced the old
+`BIOMAP_DEBUG_FIELDS` compile-time switch (`biomap_config.h`) on 2026-08-05:
+both the production and debug column sets (`BIOMAP_CSV_COLS_*_PROD` /
+`_DEBUG`) are always compiled into the firmware now, so switching this no
+longer requires a rebuild — just an Options-menu toggle before starting a
+recording. Since it's read once at `session_init()` (mirroring
+`zoom_enabled`'s lifecycle), a change only takes effect for the *next*
+recording session, not one already in progress.
 
-- `0` (production default): core schemas only.
-- `1` (debug): appends diagnostic columns to GPS+GSR, GPS+GSR+RF, and GSR-only rows.
+- Off (default): core schemas only.
+- On: appends diagnostic columns to GPS+GSR, GPS+GSR+RF, and GSR-only rows.
 
 Core production schemas:
 
@@ -45,9 +54,10 @@ Core production schemas:
 
 Debug-only appended columns when enabled:
 
-- `tick_dt_ms`, `gps_rx_drops`, `nmea_fail`, `gsr_hz`
+- `tick_dt_ms`, `gps_rx_drops`, `nmea_fail`, `gps_reinit_count` (GPS-bearing modes only), `gsr_hz`
 - `i2c_peak_ms`, `rf_rssi_peak_ms`, `rf_retune_peak_ms`
 - `flush_peak_ms`, `log_fill_bytes`, `log_fill_peak_bytes`, `log_overflow_count`, `log_flush_fail_count`
+- `pga_change_count`, `i2c_consec_fail` (all GSR-bearing modes, including GSR-only)
 
 ---
 
@@ -113,6 +123,8 @@ Defined in `modules/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
 | 1.2 | 2026-07 | Added `hacc_m` (M10Q-only physical accuracy in meters, `$PUBX,00`); total 11 columns |
 | 1.3 | 2026-07 | Added SubGHz RF columns (`rssi_815/868/915` & `rssi_peak_815/868/915`) for `GPS+GSR+RF` mode; total 17 columns |
 | 1.4 | 2026-07 | Removed `rssi_peak_815/868/915` (decaying peak-hold) — redundant with raw RSSI for offline analysis; total 14 columns |
+| 1.5 | 2026-08-05 | Debug-field review (see `docs/gps_rf_mutex_status.md`): added `gps_reinit_count` (GPS-bearing debug modes) and `pga_change_count`/`i2c_consec_fail` (all GSR-bearing debug modes) — promoted from serial-only/Diagnostics-screen-only readings that never reached the CSV. No production (non-debug) column changes. |
+| 1.6 | 2026-08-05 | `BIOMAP_DEBUG_FIELDS` compile-time switch replaced with a persisted runtime Options-menu toggle (`BioMapApp::debug_fields_enabled`, Options > Debug Fields), off by default. No column-list changes — same debug columns as 1.5, just switchable per-session without a rebuild. |
 
 ---
 

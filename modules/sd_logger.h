@@ -45,15 +45,14 @@ const char* sd_logger_get_filename(const SdLogger* logger);
 // columns stayed near zero, pointing at the SD write/sync itself (main
 // thread, ~20-60 ms normally, occasionally much longer on real SD cards)
 // rather than any GSR/RF hardware call. See docs/gps_rf_mutex_status.md.
+// flush_last_ms/take_flush_window_max_ms (2026-08-03 → removed 2026-08-05,
+// debug-field review): only ever reached the serial-only 1 Hz telemetry
+// line, a channel this project has never actually used to diagnose a real
+// issue — every finding in docs/gps_rf_mutex_status.md came from CSV
+// analysis. flush_peak_ms's own row-by-row progression in the CSV already
+// pinpoints exactly which row a new worst flush occurred at (see the
+// track 118 entry in that doc), making both fields fully redundant.
 uint32_t    sd_logger_get_flush_peak_ms(const SdLogger* logger);
-
-// Duration of the most recent completed batch flush (write+sync), in ms.
-// 0 until the first successful flush completes.
-uint32_t    sd_logger_get_flush_last_ms(const SdLogger* logger);
-
-// Max flush duration observed since the previous call, in ms.
-// Calling this function resets the windowed max back to 0.
-uint32_t    sd_logger_take_flush_window_max_ms(SdLogger* logger);
 
 // Current and worst-ever in-memory batch occupancy (bytes).
 // These expose queue pressure directly: sustained high occupancy means
