@@ -123,6 +123,13 @@ gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_sd_logger \
 ./build/test_sd_logger
 
 echo
+echo "== test_sd_logger_prealloc (experimental: rolling chunk pre-allocation, docs/gps_rf_mutex_status.md option E) =="
+gcc -Wall -Wextra -I . -I tests/shims -o build/test_sd_logger_prealloc \
+    tests/test_sd_logger_prealloc.c \
+    tests/shims/storage_mock.c -lm
+./build/test_sd_logger_prealloc
+
+echo
 echo "== test_em_scan_cal (EM Scanner RF noise calibration & persistence) =="
 gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_em_scan_cal \
     tests/test_em_scan_cal.c modules/em_scan_cal.c \

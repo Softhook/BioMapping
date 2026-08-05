@@ -14,11 +14,53 @@ from datetime import datetime
 import biomap_utils
 
 
+def read_csv_rows(path):
+    """Read a BioMapping track CSV into a list of row dicts.
+
+    Tolerant of a stranded pre-allocated tail: an interrupted recording
+    that never reached sd_logger_stop()'s truncate step (crash/battery
+    pull/SD card removed) leaves the file padded out to
+    SD_LOGGER_PREALLOC_BYTES with whatever undefined bytes were already on
+    the SD card (docs/gps_rf_mutex_status.md, BIOMAP_SD_PREALLOC). Three
+    precautions against that, mirroring analyze_telemetry_log.py's existing
+    errors="replace" convention:
+      - errors="replace" so a non-UTF-8 byte in that tail doesn't crash the
+        whole read the way open()'s default strict decoding would.
+      - csv.Error is caught per-row: the csv module raises this outright
+        (independent of the decoding above) on things like an embedded NUL
+        byte, which undefined tail content can easily contain.
+      - stop at the first row whose column count doesn't match the header --
+        garbage bytes won't happen to keep splitting into well-formed rows
+        for long, so this reliably finds the real end of data instead of
+        trying to parse megabytes of noise as CSV.
+    Either failure is treated the same way: stop there, keep everything
+    read so far.
+    """
+    with open(path, encoding="utf-8", errors="replace") as f:
+        lines = [line for line in f if not line.strip().startswith('#')]
+
+    if not lines:
+        return []
+
+    reader = csv.reader(lines)
+    header = next(reader)
+    rows = []
+    while True:
+        try:
+            fields = next(reader)
+        except StopIteration:
+            break
+        except csv.Error:
+            break
+        if len(fields) != len(header):
+            break
+        rows.append(dict(zip(header, fields)))
+    return rows
+
+
 def load_gps_rows(path):
     """Return list of (csv_row_index, row_dict) for rows with GPS coordinates."""
-    with open(path) as f:
-        lines = [line for line in f if not line.strip().startswith('#')]
-        rows = list(csv.DictReader(lines))
+    rows = read_csv_rows(path)
     return [(i, r) for i, r in enumerate(rows) if r.get('lat', '').strip()], rows
 
 
@@ -132,8 +174,7 @@ def compare_gsr_noise(path_a, label_a, path_b, label_b):
 
     results = {}
     for path, label in [(path_a, label_a), (path_b, label_b)]:
-        with open(path) as f:
-            rows = list(csv.DictReader(f))
+        rows = read_csv_rows(path)
         vals = biomap_utils.extract_valid_gsr(rows)
 
         if len(vals) < 2: continue

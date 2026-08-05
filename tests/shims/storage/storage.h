@@ -76,6 +76,17 @@ bool   storage_file_sync(File* file);
 size_t storage_file_write(File* file, const void* buff, size_t bytes_to_write);
 size_t storage_file_read(File* file, void* buff, size_t bytes_to_read);
 
+// offset/from_start/return semantics match the real SDK exactly (see
+// applications/services/storage/storage.h in the f7 SDK headers): from_start
+// selects absolute-from-file-start vs. relative-to-current-position, and a
+// seek past the current size in write mode expands the file immediately, in
+// this call — see storage_mock.c's implementation for the pre-allocation
+// cost model this exists to let tests/test_sd_logger_prealloc.c exercise.
+bool     storage_file_seek(File* file, uint32_t offset, bool from_start);
+uint64_t storage_file_tell(File* file);
+bool     storage_file_truncate(File* file);
+uint64_t storage_file_size(File* file);
+
 bool storage_simply_remove(Storage* storage, const char* path);
 bool storage_common_remove(Storage* storage, const char* path);
 bool storage_common_mkdir(Storage* storage, const char* path);
@@ -127,3 +138,19 @@ void storage_mock_fail_writes(Storage* storage, bool fail);
 // advancing the fake tick is enough — no real wall-clock wait needed.
 // Auto-clears after one use, same convention as the fail_next_* hooks above.
 void storage_mock_set_next_write_delay_ticks(Storage* storage, uint32_t ticks);
+
+// Same convention as storage_mock_set_next_write_delay_ticks(), but for the
+// next storage_file_seek() call that actually extends the file past its
+// current size — real FatFs's f_lseek() pays its cluster-allocation cost at
+// that moment (elm-chan.org/fsw/ff/doc/lseek.html), not on the write that
+// follows. A seek that does NOT extend the file (headroom already
+// sufficient) leaves any queued delay untouched. Auto-clears after one use.
+void storage_mock_set_next_seek_extend_delay_ticks(Storage* storage, uint32_t ticks);
+
+// Simulates a card too full to satisfy a storage_file_seek() extension past
+// `max_bytes` total file size -- that seek call then returns false, same as
+// real FatFs's f_lseek() can when it can't expand as far as requested
+// (elm-chan.org/fsw/ff/doc/lseek.html's disk-full case). 0 = unlimited (the
+// default). Not auto-clearing (unlike the fail_next_*/next_*_delay hooks
+// above) -- a full card stays full until the test says otherwise.
+void storage_mock_set_capacity_limit(Storage* storage, size_t max_bytes);

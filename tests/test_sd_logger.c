@@ -15,6 +15,15 @@
 // (SdLogger is opaque to callers).
 #define SD_LOGGER_BATCH_CAP 24576
 
+// Mirrors sd_logger.c's SD_LOGGER_PREALLOC_BYTES (BIOMAP_SD_PREALLOC,
+// biomap_config.h — 2026-08-05, docs/gps_rf_mutex_status.md's "option E"
+// entries). With pre-allocation on (the default), sd_logger_start() grows
+// the mock file to real_data_len + this many bytes immediately, so any test
+// that inspects file content/length BEFORE calling sd_logger_stop() (which
+// trims the unused tail back down) must account for it: compare only the
+// real-data PREFIX, not the file's full reported length.
+#define SD_LOGGER_PREALLOC_BYTES (8u * 1024u * 1024u)
+
 // Storage for tests/shims/furi.h's furi_get_tick() shim — sd_logger.c calls
 // furi_get_tick() itself (flush_peak_ms write/sync latency instrumentation,
 // 2026-08-03), same pattern already used in test_gps_uart.c/
@@ -38,8 +47,13 @@ static void test_sd_logger_start_creates_file_with_header(void) {
     const uint8_t* contents = storage_mock_get_file_contents(
         storage, "/ext/biomapping/biomap_001.csv", &len);
     assert(contents != NULL);
-    assert(len == strlen("timestamp,lat,lon\n"));
-    assert(memcmp(contents, "timestamp,lat,lon\n", len) == 0);
+    // The header is still exactly the real-data prefix -- pre-allocation
+    // only grows the file AFTER it, never touches already-written bytes.
+    assert(memcmp(contents, "timestamp,lat,lon\n", strlen("timestamp,lat,lon\n")) == 0);
+    // Pre-allocation (default on, BIOMAP_SD_PREALLOC) grows the file past
+    // the header immediately, in sd_logger_start() -- this is the direct
+    // proof it ran, not inferred from timing.
+    assert(len == strlen("timestamp,lat,lon\n") + SD_LOGGER_PREALLOC_BYTES);
 
     sd_logger_free(l);
     storage_mock_free(storage);
@@ -175,9 +189,16 @@ static void test_sd_logger_batch_flush_failure_preserves_buffer_for_retry(void) 
     int flushed = sd_logger_batch_flush(l);
     assert(flushed == 10);
 
+    // Stop first: with pre-allocation on (default, BIOMAP_SD_PREALLOC) the
+    // file is grown past the real data at sd_logger_start() and only
+    // trimmed back down at sd_logger_stop() -- checking exact content/
+    // length before that would see the pre-allocated (undefined-content)
+    // tail too, same as reading a real recording while it's still running.
+    sd_logger_stop(l);
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
         storage, "/ext/biomapping/biomap_001.csv", &len);
+    assert(len == strlen("H\nrow1\nrow2\n"));
     assert(memcmp(contents, "H\nrow1\nrow2\n", len) == 0);
 
     sd_logger_free(l);
@@ -197,14 +218,18 @@ static void test_sd_logger_batch_append_and_flush_writes_to_disk(void) {
     int flushed = sd_logger_batch_flush(l);
     assert(flushed == 10);
 
+    // Buffer is empty now -> flushing again is a no-op, not a zero-byte write.
+    assert(sd_logger_batch_flush(l) == 0);
+
+    // Stop first so pre-allocation's tail (default on, BIOMAP_SD_PREALLOC)
+    // is trimmed before checking exact content/length -- see the matching
+    // comment in test_sd_logger_batch_flush_failure_preserves_buffer_for_retry.
+    sd_logger_stop(l);
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
         storage, "/ext/biomapping/biomap_001.csv", &len);
     assert(len == strlen("H\nrow1\nrow2\n"));
     assert(memcmp(contents, "H\nrow1\nrow2\n", len) == 0);
-
-    // Buffer is empty now -> flushing again is a no-op, not a zero-byte write.
-    assert(sd_logger_batch_flush(l) == 0);
 
     sd_logger_free(l);
     storage_mock_free(storage);
@@ -221,9 +246,14 @@ static void test_sd_logger_batch_printf_writes_formatted_row(void) {
     assert(n == (int)strlen("1.50,42\n"));
 
     assert(sd_logger_batch_flush(l) == n);
+
+    // Stop first so pre-allocation's tail (default on, BIOMAP_SD_PREALLOC)
+    // is trimmed before checking exact content/length.
+    sd_logger_stop(l);
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
         storage, "/ext/biomapping/biomap_001.csv", &len);
+    assert(len == strlen("H\n1.50,42\n"));
     assert(memcmp(contents, "H\n1.50,42\n", len) == 0);
 
     sd_logger_free(l);
@@ -254,6 +284,9 @@ static void test_sd_logger_batch_printf_truncation_rolls_back(void) {
     int flushed = sd_logger_batch_flush(l);
     assert(flushed == (int)sizeof(filler));
 
+    // Stop first so pre-allocation's tail (default on, BIOMAP_SD_PREALLOC)
+    // is trimmed before checking exact content/length.
+    sd_logger_stop(l);
     size_t len;
     const uint8_t* contents = storage_mock_get_file_contents(
         storage, "/ext/biomapping/biomap_001.csv", &len);
@@ -352,6 +385,146 @@ static void test_sd_logger_continuity_counters_track_pressure(void) {
     printf("  -> Pass\n");
 }
 
+// 2026-08-05: BIOMAP_SD_PREALLOC (biomap_config.h) — the real, wired-in
+// version of the standalone experiment in tests/test_sd_logger_prealloc.c.
+// That file prototyped the seek+write+truncate mechanics in isolation;
+// these tests prove sd_logger_start()/sd_logger_stop() actually use them
+// correctly, end to end, through the real production code path — see
+// docs/gps_rf_mutex_status.md's "option E" entries.
+static void test_sd_logger_start_preallocates_file(void) {
+    printf("Running test_sd_logger_start_preallocates_file...\n");
+    Storage* storage = storage_mock_alloc();
+    SdLogger* l = sd_logger_alloc(storage);
+    assert(sd_logger_start(l, "H\n"));
+
+    // Pre-allocation happens immediately in sd_logger_start(), not lazily
+    // on first flush -- the whole point is paying the allocation cost once,
+    // up front, before any time-critical batch write.
+    size_t len;
+    storage_mock_get_file_contents(storage, "/ext/biomapping/biomap_001.csv", &len);
+    assert(len == strlen("H\n") + SD_LOGGER_PREALLOC_BYTES);
+
+    sd_logger_free(l);
+    storage_mock_free(storage);
+    printf("  -> Pass\n");
+}
+
+static void test_sd_logger_stop_trims_preallocated_tail(void) {
+    printf("Running test_sd_logger_stop_trims_preallocated_tail...\n");
+    Storage* storage = storage_mock_alloc();
+    SdLogger* l = sd_logger_alloc(storage);
+    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_batch_append(l, "row1\n", 5));
+    assert(sd_logger_batch_flush(l) == 5);
+
+    sd_logger_stop(l);
+
+    // The file must shrink back down to exactly the real data written --
+    // proof the pre-allocated (undefined-content) tail was trimmed, not
+    // shipped as a garbage-padded CSV. This is the exact drawback flagged
+    // in docs/gps_rf_mutex_status.md's option E research: forgetting this
+    // step silently pads every recording out to SD_LOGGER_PREALLOC_BYTES.
+    size_t len;
+    const uint8_t* contents = storage_mock_get_file_contents(
+        storage, "/ext/biomapping/biomap_001.csv", &len);
+    assert(len == strlen("H\nrow1\n"));
+    assert(memcmp(contents, "H\nrow1\n", len) == 0);
+
+    sd_logger_free(l);
+    storage_mock_free(storage);
+    printf("  -> Pass\n");
+}
+
+static void test_sd_logger_preallocation_does_not_corrupt_subsequent_writes(void) {
+    printf("Running test_sd_logger_preallocation_does_not_corrupt_subsequent_writes...\n");
+    Storage* storage = storage_mock_alloc();
+    SdLogger* l = sd_logger_alloc(storage);
+    assert(sd_logger_start(l, "H\n"));
+
+    // Several flush cycles after the one-shot pre-allocation -- each must
+    // land immediately after the previous one's real data, never inside or
+    // past the pre-allocated (undefined-content) tail. This is the position-
+    // rewind correctness property from the standalone experiment, now
+    // proven against the real batch_append/batch_flush path.
+    for(int i = 0; i < 5; i++) {
+        assert(sd_logger_batch_append(l, "row\n", 4));
+        assert(sd_logger_batch_flush(l) == 4);
+    }
+    sd_logger_stop(l);
+
+    size_t len;
+    const uint8_t* contents = storage_mock_get_file_contents(
+        storage, "/ext/biomapping/biomap_001.csv", &len);
+    assert(len == strlen("H\n") + 5 * 4);
+    assert(memcmp(contents, "H\nrow\nrow\nrow\nrow\nrow\n", len) == 0);
+
+    sd_logger_free(l);
+    storage_mock_free(storage);
+    printf("  -> Pass\n");
+}
+
+static void test_sd_logger_prealloc_ms_measures_seek_extend_cost(void) {
+    printf("Running test_sd_logger_prealloc_ms_measures_seek_extend_cost...\n");
+    Storage* storage = storage_mock_alloc();
+    SdLogger* l = sd_logger_alloc(storage);
+    assert(sd_logger_get_prealloc_ms(l) == 0); // nothing recorded before a session ever starts
+
+    // Stand-in for real f_lseek()'s cluster-allocation cost on a real SD
+    // card, same hook this project already uses for flush_peak_ms.
+    storage_mock_set_next_seek_extend_delay_ticks(storage, 220);
+    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_get_prealloc_ms(l) == 220);
+
+    // A second session must re-measure, not keep the first session's value
+    // around stale -- prealloc_ms is session-constant, not a lifetime max
+    // like flush_peak_ms.
+    sd_logger_stop(l);
+    assert(sd_logger_start(l, "H\n"));
+    assert(sd_logger_get_prealloc_ms(l) == 0); // no delay queued this time
+
+    sd_logger_free(l);
+    storage_mock_free(storage);
+    printf("  -> Pass\n");
+}
+
+// Exercises preallocate_log_file()'s disk-full fallback branch
+// (modules/sd_logger.c) -- a card too full to satisfy the full
+// SD_LOGGER_PREALLOC_BYTES extension must not block recording from
+// starting, or corrupt where subsequent writes land. Degrading to today's
+// plain-append behavior is the correct fallback, not a hard failure.
+static void test_sd_logger_preallocate_survives_disk_full(void) {
+    printf("Running test_sd_logger_preallocate_survives_disk_full...\n");
+    Storage* storage = storage_mock_alloc();
+    // Room for the header but nowhere near SD_LOGGER_PREALLOC_BYTES ->
+    // preallocate_log_file()'s storage_file_seek() call must return false
+    // and hit the fallback branch.
+    storage_mock_set_capacity_limit(storage, 4096);
+    SdLogger* l = sd_logger_alloc(storage);
+
+    assert(sd_logger_start(l, "H\n"));
+    // The file must NOT have grown to the full pre-allocation size --
+    // proof the fallback actually ran rather than silently ignoring the cap.
+    size_t len_after_start;
+    storage_mock_get_file_contents(storage, "/ext/biomapping/biomap_001.csv", &len_after_start);
+    assert(len_after_start < SD_LOGGER_PREALLOC_BYTES);
+
+    // Recording must still be fully functional: writes land contiguously
+    // right after the header, same as if pre-allocation had never run.
+    assert(sd_logger_batch_append(l, "row1\n", 5));
+    assert(sd_logger_batch_flush(l) == 5);
+    sd_logger_stop(l);
+
+    size_t len;
+    const uint8_t* contents = storage_mock_get_file_contents(
+        storage, "/ext/biomapping/biomap_001.csv", &len);
+    assert(len == strlen("H\nrow1\n"));
+    assert(memcmp(contents, "H\nrow1\n", len) == 0);
+
+    sd_logger_free(l);
+    storage_mock_free(storage);
+    printf("  -> Pass\n");
+}
+
 static void test_sd_logger_free_while_active_stops_cleanly(void) {
     printf("Running test_sd_logger_free_while_active_stops_cleanly...\n");
     Storage* storage = storage_mock_alloc();
@@ -385,8 +558,13 @@ int main(void) {
     test_sd_logger_batch_append_overflow_rejected();
     test_sd_logger_flush_peak_ms_detects_slow_flush();
     test_sd_logger_continuity_counters_track_pressure();
+    test_sd_logger_start_preallocates_file();
+    test_sd_logger_stop_trims_preallocated_tail();
+    test_sd_logger_preallocation_does_not_corrupt_subsequent_writes();
+    test_sd_logger_prealloc_ms_measures_seek_extend_cost();
+    test_sd_logger_preallocate_survives_disk_full();
     test_sd_logger_free_while_active_stops_cleanly();
 
-    printf("\nAll 15 sd_logger host tests passed successfully!\n");
+    printf("\nAll 21 sd_logger host tests passed successfully!\n");
     return 0;
 }

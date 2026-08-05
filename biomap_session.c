@@ -200,6 +200,7 @@ static inline RowDiag get_row_diag(const Session* s) {
     d.log_flush_fail_count = s->logger ? sd_logger_get_flush_fail_count(s->logger) : 0;
     d.pga_change_count  = s->gsr ? gsr_sensor_get_pga_change_count(s->gsr) : 0;
     d.i2c_consec_fail   = s->gsr ? gsr_sensor_get_consecutive_failures(s->gsr) : 0;
+    d.prealloc_ms       = s->logger ? sd_logger_get_prealloc_ms(s->logger) : 0;
     return d;
 }
 
@@ -284,7 +285,7 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
     // columns stay contiguous and easy to consume.
     int nd = s->debug_fields_enabled
         ? snprintf(row + n, sizeof(row) - (size_t)n,
-                   ",%u,%u,%u,%u,%.1f,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",
+                   ",%u,%u,%u,%u,%.1f,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",
                    (unsigned)diag->tick_dt_ms, (unsigned)diag->gps_rx_drops,
                    (unsigned)diag->nmea_fail, (unsigned)diag->gps_reinit_count,
                    (double)diag->gsr_hz,
@@ -292,7 +293,8 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
                    (unsigned)diag->rf_retune_peak_ms, (unsigned)diag->flush_peak_ms,
                    (unsigned)diag->log_fill_bytes, (unsigned)diag->log_fill_peak_bytes,
                    (unsigned)diag->log_overflow_count, (unsigned)diag->log_flush_fail_count,
-                   (unsigned)diag->pga_change_count, (unsigned)diag->i2c_consec_fail)
+                   (unsigned)diag->pga_change_count, (unsigned)diag->i2c_consec_fail,
+                   (unsigned)diag->prealloc_ms)
         : snprintf(row + n, sizeof(row) - (size_t)n, "\n");
     if(nd <= 0 || (size_t)(n + nd) >= sizeof(row)) return false;
     n += nd;
@@ -325,7 +327,7 @@ static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
         int ret = s->debug_fields_enabled
             ? sd_logger_batch_printf(
                   s->logger,
-                  "%.2f,%.1f,%u,%u,%u,%u,%u,%u\n",
+                  "%.2f,%.1f,%u,%u,%u,%u,%u,%u,%u\n",
                   rel,
                   (double)raw,
                   (unsigned)diag.log_fill_bytes,
@@ -333,7 +335,8 @@ static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
                   (unsigned)diag.log_overflow_count,
                   (unsigned)diag.log_flush_fail_count,
                   (unsigned)diag.pga_change_count,
-                  (unsigned)diag.i2c_consec_fail)
+                  (unsigned)diag.i2c_consec_fail,
+                  (unsigned)diag.prealloc_ms)
             : sd_logger_batch_printf(
                   s->logger,
                   "%.2f,%.1f\n",

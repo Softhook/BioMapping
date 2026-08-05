@@ -54,6 +54,17 @@ const char* sd_logger_get_filename(const SdLogger* logger);
 // track 118 entry in that doc), making both fields fully redundant.
 uint32_t    sd_logger_get_flush_peak_ms(const SdLogger* logger);
 
+// How long sd_logger_start()'s one-shot log-file pre-allocation took, in ms
+// (0 if BIOMAP_SD_PREALLOC is off, biomap_config.h). Set once per recording,
+// not a lifetime-max like flush_peak_ms above — see sd_logger.c's
+// SD_LOGGER_PREALLOC_BYTES / preallocate_log_file() and docs/
+// gps_rf_mutex_status.md's "option E" entries for why this exists: testing
+// whether growing the file to its expected full size once, up front, via
+// storage_file_seek() keeps the once-per-FLUSH_INTERVAL SD-flush stall
+// (flush_peak_ms above) from getting worse across a long recording the way
+// track 016 showed.
+uint32_t    sd_logger_get_prealloc_ms(const SdLogger* logger);
+
 // Current and worst-ever in-memory batch occupancy (bytes).
 // These expose queue pressure directly: sustained high occupancy means
 // producer (tick path) is outrunning consumer (flush cadence).

@@ -19,6 +19,12 @@ typedef struct {
     uint8_t* data;
     size_t   size;
     size_t   capacity;
+    size_t   pos;      // current read/write pointer, distinct from size —
+                        // needed so storage_file_seek() past EOF can grow
+                        // `size` ahead of `pos` (pre-allocation) without
+                        // every existing append-only test noticing: as long
+                        // as nothing seeks, pos tracks size exactly like
+                        // before.
     bool     used;
 } MockFile;
 
@@ -28,6 +34,8 @@ struct Storage {
     bool     fail_next_open;
     bool     fail_writes;
     uint32_t next_write_delay_ticks;
+    uint32_t next_seek_extend_delay_ticks;
+    size_t   capacity_limit; // 0 = unlimited
 };
 
 struct File {
@@ -101,6 +109,14 @@ void storage_mock_set_next_write_delay_ticks(Storage* storage, uint32_t ticks) {
     storage->next_write_delay_ticks = ticks;
 }
 
+void storage_mock_set_next_seek_extend_delay_ticks(Storage* storage, uint32_t ticks) {
+    storage->next_seek_extend_delay_ticks = ticks;
+}
+
+void storage_mock_set_capacity_limit(Storage* storage, size_t max_bytes) {
+    storage->capacity_limit = max_bytes;
+}
+
 File* storage_file_alloc(Storage* storage) {
     File* f = malloc(sizeof(File));
     assert(f);
@@ -138,6 +154,7 @@ bool storage_file_open(File* file, const char* path, FS_AccessMode access_mode, 
             existing = alloc_file_slot(s, path);
             if(!existing) return false;   // out of mock file slots
         }
+        existing->pos = 0;
         file->vfile = existing;
         file->is_dir = false;
         file->open = true;
@@ -147,6 +164,7 @@ bool storage_file_open(File* file, const char* path, FS_AccessMode access_mode, 
     if(open_mode == FSOM_OPEN_EXISTING) {
         MockFile* existing = find_file(s, path);
         if(!existing) return false;
+        existing->pos = 0;
         file->vfile = existing;
         file->is_dir = false;
         file->open = true;
@@ -178,8 +196,12 @@ size_t storage_file_write(File* file, const void* buff, size_t bytes_to_write) {
     }
     if(s->fail_writes) return 0;
 
+    // Writes at the current position, not always at size's end -- matters
+    // once storage_file_seek() has been used (pre-allocation). Every
+    // existing caller never seeks, so pos == size always here for them,
+    // identical to the old always-append behaviour.
     MockFile* f = file->vfile;
-    size_t needed = f->size + bytes_to_write;
+    size_t needed = f->pos + bytes_to_write;
     if(needed > f->capacity) {
         size_t new_cap = f->capacity ? f->capacity * 2 : 256;
         while(new_cap < needed) new_cap *= 2;
@@ -188,9 +210,65 @@ size_t storage_file_write(File* file, const void* buff, size_t bytes_to_write) {
         f->data = grown;
         f->capacity = new_cap;
     }
-    memcpy(f->data + f->size, buff, bytes_to_write);
-    f->size += bytes_to_write;
+    memcpy(f->data + f->pos, buff, bytes_to_write);
+    f->pos += bytes_to_write;
+    if(f->pos > f->size) f->size = f->pos;
     return bytes_to_write;
+}
+
+// Matches real f_lseek()'s write-mode expand-on-seek-past-EOF behaviour
+// (elm-chan.org/fsw/ff/doc/lseek.html): the file size grows immediately, in
+// this call, to the new position -- the gap's content is undefined (NOT
+// zero-filled, unlike POSIX), so callers/tests must never assert on it.
+// Real FatFs pays its cluster-allocation cost here too, which is why the
+// seek-extend delay hook fires from this function rather than the next
+// write.
+bool storage_file_seek(File* file, uint32_t offset, bool from_start) {
+    if(!file || !file->vfile) return false;
+    MockFile* f = file->vfile;
+    size_t new_pos = from_start ? (size_t)offset : f->pos + (size_t)offset;
+
+    if(new_pos > f->size) {
+        Storage* s = file->storage;
+        // Real FatFs's f_lseek() can fail to expand as far as requested on
+        // a full card -- see storage_mock_set_capacity_limit()'s doc
+        // comment. The position/size are left untouched on this path (no
+        // partial expand modeled), matching a plain seek failure.
+        if(s->capacity_limit > 0 && new_pos > s->capacity_limit) return false;
+        if(new_pos > f->capacity) {
+            size_t new_cap = f->capacity ? f->capacity * 2 : 256;
+            while(new_cap < new_pos) new_cap *= 2;
+            uint8_t* grown = realloc(f->data, new_cap);
+            assert(grown);
+            f->data = grown;
+            f->capacity = new_cap;
+        }
+        f->size = new_pos;
+        if(s->next_seek_extend_delay_ticks > 0) {
+            furi_test_advance_tick(s->next_seek_extend_delay_ticks);
+            s->next_seek_extend_delay_ticks = 0;
+        }
+    }
+    f->pos = new_pos;
+    return true;
+}
+
+uint64_t storage_file_tell(File* file) {
+    if(!file || !file->vfile) return 0;
+    return file->vfile->pos;
+}
+
+// Matches the real API: truncates to the CURRENT position, not to any
+// caller-supplied length.
+bool storage_file_truncate(File* file) {
+    if(!file || !file->vfile) return false;
+    file->vfile->size = file->vfile->pos;
+    return true;
+}
+
+uint64_t storage_file_size(File* file) {
+    if(!file || !file->vfile) return 0;
+    return file->vfile->size;
 }
 
 bool storage_dir_open(File* file, const char* path) {

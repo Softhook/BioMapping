@@ -174,6 +174,13 @@ typedef struct {
 // logging it there would print a misleading 0.0 for every non-Diagnostics
 // recording that never computes it). Both need a dedicated follow-up, not
 // a same-pass bundling.
+//
+// prealloc_ms (2026-08-05, BIOMAP_SD_PREALLOC — biomap_config.h, docs/
+// gps_rf_mutex_status.md's "option E" entries): how long sd_logger_start()'s
+// one-shot storage_file_seek() pre-allocation took, in ms. Unlike the
+// lifetime-max columns above, this is set once at recording start and stays
+// constant for the whole file — there's only one pre-allocation per
+// recording, not a per-flush event. 0 when BIOMAP_SD_PREALLOC is off.
 typedef struct {
     uint32_t tick_dt_ms;     // real furi_get_tick() delta since the previous Tick event
     uint32_t gps_rx_drops;   // cumulative UART bytes dropped (gps_uart's rx_stream was full)
@@ -190,6 +197,7 @@ typedef struct {
     uint32_t log_flush_fail_count; // flush write/sync failures (batch preserved for retry)
     uint32_t pga_change_count;   // cumulative GSR auto-ranging PGA gain switches (gain-change artifact marker)
     uint32_t i2c_consec_fail;    // current run length of consecutive GSR I2C failures (0 = healthy)
+    uint32_t prealloc_ms;        // one-shot file pre-allocation duration at recording start
 } RowDiag;
 
 // ── Inline helpers ─────────────────────────────────────────────────────

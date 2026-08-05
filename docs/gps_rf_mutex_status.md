@@ -519,6 +519,183 @@ were skipped. This class of bug — an expensive call hiding behind a flag
 that should but doesn't gate it — can currently only be caught by manual
 review of this exact call-site pattern, not automated tests.
 
+### 2026-08-05: track 016 recorded — buffer-margin fix holds, but the SD-flush stall now shows a within-recording progressive trend, not just isolated spikes
+
+Track 016 (3546.6s / 59 min, 35,467 rows @ 10Hz, GPS+GSR+RF) is the first
+full-length recording made since the track 015 buffer fix and the debug-field
+additions above. Two findings, one reassuring and one new.
+
+**Buffer-margin fix confirmed working.** `log_fill_peak_bytes` tops out at
+13,066 of the 24,576-byte `gsr_batch` (53%), and `log_overflow_count`/
+`log_flush_fail_count` both stay at 0 for the entire recording — no repeat
+of track 015's overflow bug, real headroom left over.
+
+**SD-flush stall reproduced, with a new pattern.** Same mechanism as tracks
+116-118 (`flush_peak_ms` jump landing exactly on a `FLUSH_INTERVAL` boundary,
+`i2c_peak_ms`/`rf_rssi_peak_ms`/`rf_retune_peak_ms` flat at the same row,
+ruling those three out again). What's new is that the *baseline* flush cost
+climbs over the course of this one continuous recording rather than jumping
+once and holding steady:
+
+- t=0-1220s: flush-boundary `tick_dt_ms` averages 94ms; `flush_peak_ms`
+  (lifetime-max) plateaus at 152ms after the startup ramp
+- t=1226s and t=1236s (back-to-back, one `FLUSH_INTERVAL` apart):
+  `flush_peak_ms` steps 152→203→231ms, `tick_dt_ms` spikes to 208ms then 237ms
+- t=2326-2336s: another spike (206ms, 224ms `tick_dt_ms`), `flush_peak_ms`
+  already saturated at 231ms so no further lifetime-max movement
+- From ~t=2350s to the end: the *baseline* itself keeps drifting up rather
+  than settling back to the ~94-150ms pre-1220s range — by t>3000s,
+  flush-boundary `tick_dt_ms` averages 162.6ms (max 203ms), ~70% above the
+  early-recording average, and closing in on the 231ms lifetime peak
+
+Worst single stall this track: 237ms (row 12360, t=1236.0s) — well under
+track 118's 949-957ms outliers, and under item 6's ~250ms "no data loss,
+self-correcting" threshold below. No overflow resulted; the 24,576-byte
+buffer's real margin absorbed it. Consistent with mitigation option E's
+FAT-cluster/write-amplification theory (line 362) — cost rising with file
+size rather than one-off SD housekeeping — though a single track can't rule
+out a card-specific effect (option F) instead.
+
+**Not yet done**: no second long (~1hr+) track exists yet to confirm this
+drift continues past 3546s rather than plateauing; the mechanism (and
+whether it's file-size-driven vs. time-driven) is inferred from this one
+recording, not confirmed by a repeat.
+
+### 2026-08-05: option E ("pre-allocate the log file") researched and prototyped — rolling chunk approach recommended, not yet integrated
+
+Follow-up to track 016's progressive-drift finding above: growing cost with
+file size is the textbook signature of FAT fragmentation on repeated small
+appends, not random SD jitter — confirmed against outside sources rather
+than assumed. An embedded-logger writeup measured *"this card was formatted
+with 32kb clusters... this results in 16 separate transactions. Every one of
+these transactions incurs a 1ms write time when the card is busy"*
+([SD optimisations, Hackaday.io](https://hackaday.io/project/160928-boson-frame-grabber/log/153612-sd-optimisations)),
+and general SD-datalogging guidance treats pre-allocating the file's
+expected size as standard practice specifically to avoid this
+(*"reduces file-system metadata updates and mitigates performance noise due
+to incremental extent allocation"* — see search summary in the conversation
+this entry is drawn from; no single authoritative page, general consensus
+across Arduino/Teensy datalogging forums).
+
+**FatFs's purpose-built primitive for this, `f_expand()`, is not reachable
+from a Flipper app.** Grepped the full app SDK (`~/.ufbt/current/sdk_headers/`
+— every header shipped for building a `.fap`): no `f_expand` binding
+anywhere, and `File` is declared as an opaque `typedef struct File File;`
+with no member definition in any public header, so there's no way to reach
+past the wrapper to a raw FatFs `FIL*` either — not just restricted to
+built-in apps, structurally absent from the SDK surface. (A separate
+"extract the internal FatFs handle via `storage_file_get_internal_pointer`"
+idea floated during this same investigation doesn't hold up either — that
+function doesn't exist anywhere in the SDK, and Flipper's storage subsystem
+is a service the app talks to, not a direct synchronous FatFs wrapper it
+could safely cast into even with firmware source access.)
+
+**The one primitive actually available — `storage_file_seek()` past the
+current file size — does work, confirmed against FatFs's own documentation**
+([f_lseek](https://raw.githubusercontent.com/abbrev/fatfs/master/documents/doc/lseek.html)):
+seeking past EOF in write mode expands the file size immediately, inside
+that call (real allocation cost, real place to attribute a stall to), but
+*"the file data in the expanded part is undefined... because no data is
+written to the file in this process"* — not zero-filled. That has one
+concrete implication for any real implementation: **the pre-allocated tail
+must be trimmed with `storage_file_truncate()` before closing the file**, or
+every track ends with a trailing block of garbage bytes past the real CSV
+rows. Easy to do (`storage_file_truncate()` exists in the SDK), easy to
+forget silently.
+
+**Once vs. rolling**: a one-shot pre-allocation at recording start was
+rejected as a poor fit — BioMapping tracks are stopped by the user, not
+fixed-length (track 016 ran 59 min, track 015 ran 25 min), so any fixed
+guess either wastes SD space or silently falls back to normal fragmented
+growth once exceeded, with no signal that happened. A rolling/chunked
+approach (extend by a fixed amount whenever headroom ahead of the real
+write position drops low, checked once per flush cycle) fits an open-ended
+recording without guessing a final size.
+
+**Prototyped and tested** (`tests/test_sd_logger_prealloc.c`,
+`tests/shims/storage/storage.h`/`storage_mock.c`) — a standalone
+experiment, deliberately **not** wired into `modules/sd_logger.c` or the
+live recording path (`biomap_session.c`), operating directly on the
+Storage/File mock rather than through `SdLogger`'s public API. Added
+`storage_file_seek`/`_tell`/`_truncate`/`_size` to the mock (previously
+absent — nothing in `sd_logger.c` had ever called them), matching real
+FatFs semantics including the undefined-content-on-expand behaviour above,
+plus a `storage_mock_set_next_seek_extend_delay_ticks()` hook mirroring the
+existing write-delay hook so a future test can model the allocation stall's
+actual duration. Five tests, all passing:
+
+- extension only triggers when headroom drops below the low-water mark, not on every check
+- the real write position (and already-written data either side of an extension) survives an extension untouched — proves the seek-out-and-rewind pattern doesn't corrupt or gap the file
+- skipping the truncate-at-stop step reproduces the garbage-tail drawback concretely (file padded to the full pre-allocated chunk, not the real bytes written) — a regression test for the exact mistake the naive version of this idea would make
+- **the frequency claim, measured, not estimated**: simulating 800 flush cycles at track 016's own measured ~13,000 bytes/10s-cycle rate with a 1 MiB rolling chunk produced **11 extension events instead of up to 800** — a ~73x reduction in how often the allocation-cost path runs
+- the seek-extend delay hook fires only on a real extension, not on every headroom check (needed so a later test can distinguish "how many times did this pay a cost" from "how many times was this merely checked")
+
+**Not done**: real integration into `sd_logger.c`/`biomap_session.c`, and no
+measurement yet of what a single extension call actually costs on real
+hardware (the open question flagged in the earlier conversation — a 1 MiB
+extension might itself be a non-trivial stall, and that determines whether
+73x-fewer-but-individually-bigger stalls is actually a net win over
+today's every-10s-but-small pattern). That's the next thing to measure
+before deciding whether to integrate this for real.
+
+### 2026-08-05: one-shot pre-allocation integrated for real (`BIOMAP_SD_PREALLOC`), pending on-device verification
+
+Follow-up to the rolling-chunk prototype above: given the user's actual walk
+lengths (20 min to just over an hour), track 016's own measured rate
+(~72.04 KiB/min, computed from its real 4,360,599-byte file size / 3546.6s)
+puts a realistic file at 1.4-6.3 MiB — small enough that a single upfront
+pre-allocation sized for ~90 minutes covers nearly every real walk in one
+allocation event, simpler than the rolling chunk for this project's actual
+usage pattern. Implemented for real (not a prototype) to let the user test
+it via `python3 -m ufbt` + flashing to their own device:
+
+- `modules/sd_logger.c`: `SD_LOGGER_PREALLOC_BYTES` (8 MiB — ~90 min +
+  margin). `open_log_file()` calls new `preallocate_log_file()` right after
+  the header write+sync: `storage_file_seek()` past current EOF (the size-
+  extend happens immediately, inside that call, real allocation cost timed
+  with `furi_get_tick()`), then always rewinds to the real data boundary so
+  the first batch flush lands contiguously. A seek that fails outright
+  (disk-full fallback) is handled gracefully — recording continues with
+  today's plain-append behavior rather than failing to start.
+  `sd_logger_stop()` now calls `storage_file_truncate()` before closing,
+  trimming the unused (undefined-content) tail back to the real data
+  length — safe unconditionally, since batch flushes always leave the file
+  position at the real end of data, so truncating to the current position
+  is a no-op when nothing grew past it.
+- New session-constant telemetry field `prealloc_ms` (`sd_logger_get_prealloc_ms()`,
+  `RowDiag`, new CSV column in all three DEBUG schemas) — how long the
+  one-shot pre-allocation took, the number needed to answer whether this is
+  a net win over today's small-but-constant pattern.
+- `biomap_config.h`'s new `BIOMAP_SD_PREALLOC` (default **1**, on) is a
+  clean A/B switch, same shape as the existing `BIOMAP_SD_DRY_RUN` — flip to
+  0 and rebuild for a same-device control walk if the comparison needs one.
+- Six new host tests (`tests/test_sd_logger.c`) exercise the real,
+  production `sd_logger_start()`/`sd_logger_stop()` path end to end:
+  pre-allocation happens immediately at start, the tail is trimmed at stop,
+  several post-preallocation flush cycles land contiguously with no
+  gap/corruption, `prealloc_ms` re-measures per session rather than going
+  stale, and a simulated full-card seek failure degrades gracefully instead
+  of blocking recording. Existing tests that inspected file content before
+  `sd_logger_stop()` needed updating (pre-allocation now genuinely changes
+  file size mid-recording) — fixing those also caught a real latent
+  buffer-overflow bug in `tests/test_firmware.c`'s `mock_logger_buf[256]`
+  (`strcpy`'d from a `row[300]` source, silently one CSV column away from
+  overflow already; caught the moment `prealloc_ms` pushed a debug row past
+  256 bytes) — fixed by sizing the mock buffer to match its source with
+  margin (320 bytes).
+- Verified: full host test suite (`./run_tests.sh --full`, including
+  ThreadSanitizer) and a real ARM toolchain build via `python3 -m ufbt`,
+  both clean.
+
+**Not verified yet — the actual point of this change**: whether it helps on
+real hardware. No walk has been recorded with it. The user is testing this
+themselves by flashing the built `.fap` and recording real walks; the
+column to check is `prealloc_ms` (did the one-shot allocation cost
+something reasonable, or was it itself a multi-second stall) alongside
+`flush_peak_ms`/`tick_dt_ms`'s per-flush progression (does it stay flat
+near track 016's early-recording ~94ms baseline instead of climbing to
+~230ms the way track 016 did without this).
+
 ## Other open items
 
 Ranked by what would most change confidence in this fix, not by effort.

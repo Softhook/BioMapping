@@ -14,6 +14,16 @@
 #define LOGGER_EXT       ".csv"
 #define LOGGER_MAX_INDEX 999
 
+// One-shot pre-allocation size (BIOMAP_SD_PREALLOC, biomap_config.h) — see
+// preallocate_log_file() below and docs/gps_rf_mutex_status.md's "option E"
+// entries. Sized against track 016's own measured worst-case rate (GPS+GSR+
+// RF, debug fields on — the widest schema, ~72 KiB/min): ~90 minutes
+// (6.33 MiB) plus real margin, rounded to 8 MiB. Every mode gets the same
+// pre-allocation regardless of its actual (lower) row width — harmless,
+// since sd_logger_stop() always trims the unused tail back to the real
+// data length.
+#define SD_LOGGER_PREALLOC_BYTES (8u * 1024u * 1024u)
+
 // Always real FURI_LOG_* calls (2026-08-05): previously compiled out under
 // BIOMAP_DEBUG_FIELDS=0, but that macro is gone — debug CSV *fields* are
 // now a runtime Options-menu toggle (BioMapApp::debug_fields_enabled),
@@ -60,6 +70,10 @@ struct SdLogger {
     // Worst single batch_flush() (write+sync) real duration ever seen —
     // see sd_logger_get_flush_peak_ms()'s doc comment (sd_logger.h).
     uint32_t flush_peak_ms;
+
+    // One-shot pre-allocation duration, set once in open_log_file() —
+    // see sd_logger_get_prealloc_ms()'s doc comment (sd_logger.h).
+    uint32_t prealloc_ms;
 
     // Continuity-pressure metrics: current/peak batch occupancy and
     // cumulative failures that indicate logging risk under load.
@@ -117,12 +131,50 @@ static int find_next_index(SdLogger* l) {
     return next_idx;
 }
 
+#if BIOMAP_SD_PREALLOC
+// Grows the just-opened file to SD_LOGGER_PREALLOC_BYTES once, up front, via
+// storage_file_seek() past the current end -- the only pre-allocation
+// primitive the app SDK exposes (no f_expand binding exists; File is an
+// opaque struct with no accessor to a raw FatFs handle either -- confirmed
+// by grepping the full SDK headers, see docs/gps_rf_mutex_status.md). Real
+// FatFs's f_lseek() performs the size-extend (and pays its cluster-
+// allocation cost) immediately, inside that call, with undefined -- NOT
+// zero-filled -- content in the gap. Always leaves the file positioned back
+// at the real data boundary (right after the header) so the first batch
+// flush lands contiguously, never inside the pre-allocated tail.
+// sd_logger_stop() trims the unused tail back to the real data length.
+static void preallocate_log_file(SdLogger* l) {
+    uint64_t real_pos = storage_file_tell(l->file); // right after header write+sync
+    uint64_t target = real_pos + SD_LOGGER_PREALLOC_BYTES;
+
+    uint32_t start_tick = furi_get_tick();
+    if(storage_file_seek(l->file, (uint32_t)(target - 1), true)) {
+        uint8_t dummy = 0;
+        storage_file_write(l->file, &dummy, 1);
+    } else {
+        // Real FatFs still expands as far as it can on disk-full rather than
+        // failing outright (elm-chan.org/fsw/ff/doc/lseek.html) -- this
+        // branch is a defensive fallback for a seek that fails outright, not
+        // the expected path. Either way, skip the dummy write and fall
+        // through to the rewind below: a partial or missing pre-allocation
+        // degrades to today's plain-append behavior, it doesn't corrupt
+        // anything.
+        SD_LOG_W("SdLogger", "Pre-allocation seek failed (SD full/near-full?) — continuing without it");
+    }
+    // Always rewind to the real data boundary, whatever happened above, so
+    // the next batch flush resumes exactly where the header left off.
+    storage_file_seek(l->file, (uint32_t)real_pos, true);
+    l->prealloc_ms = furi_get_tick() - start_tick;
+}
+#endif
+
 // Open (or create) the next auto-indexed CSV file and write a header row.
 // Returns true on success; on failure the logger is left inactive with no
 // open file handle.
 static bool open_log_file(SdLogger* l, const char* header) {
     int idx = find_next_index(l);
     snprintf(l->filename, sizeof(l->filename), LOGGER_BASENAME "%03d" LOGGER_EXT, idx);
+    l->prealloc_ms = 0;
 
 #if BIOMAP_SD_DRY_RUN
     UNUSED(header);
@@ -160,6 +212,10 @@ static bool open_log_file(SdLogger* l, const char* header) {
         SD_LOG_W("SdLogger", "Header sync failed (written, not yet confirmed durable)");
     }
 
+#if BIOMAP_SD_PREALLOC
+    preallocate_log_file(l);
+#endif
+
     l->active = true;
     SD_LOG_I("SdLogger", "Recording to %s", full_path);
     return true;
@@ -187,6 +243,22 @@ void sd_logger_stop(SdLogger* l) {
         sd_logger_batch_flush(l);
     }
     if(l->file) {
+#if BIOMAP_SD_PREALLOC
+        // Trim any never-written pre-allocated tail (preallocate_log_file(),
+        // open_log_file() above) back to the real data length -- the
+        // pre-allocated region's content is undefined, not zero-filled
+        // (real FatFs f_lseek() semantics), so leaving it in place would pad
+        // every recording out to the full SD_LOGGER_PREALLOC_BYTES with
+        // garbage bytes. storage_file_truncate() truncates to the CURRENT
+        // position, which sd_logger_batch_flush()'s writes always leave
+        // sitting at the real end of data -- safe even when pre-allocation
+        // never actually grew the file (the seek-full fallback above):
+        // truncating to the current position when nothing grew past it is a
+        // no-op.
+        if(!storage_file_truncate(l->file)) {
+            SD_LOG_W("SdLogger", "Final truncate failed — file may retain pre-allocated padding");
+        }
+#endif
         storage_file_close(l->file);
         storage_file_free(l->file);
         l->file = NULL;
@@ -317,6 +389,7 @@ int sd_logger_batch_printf(SdLogger* l, const char* fmt, ...) {
 const char* sd_logger_get_filename(const SdLogger* l) { return l->filename; }
 
 uint32_t sd_logger_get_flush_peak_ms(const SdLogger* l) { return l->flush_peak_ms; }
+uint32_t sd_logger_get_prealloc_ms(const SdLogger* l) { return l->prealloc_ms; }
 uint32_t sd_logger_get_batch_fill_bytes(const SdLogger* l) { return (uint32_t)l->gsr_batch_len; }
 uint32_t sd_logger_get_batch_fill_peak_bytes(const SdLogger* l) { return l->batch_fill_peak_bytes; }
 uint32_t sd_logger_get_overflow_count(const SdLogger* l) { return l->overflow_count; }
