@@ -39,6 +39,10 @@ class GSRAnalyzer {
     this.isResistance = false; // Whether original CSV was resistance (Ohms)
     this.filteredGps = [];
     this._userPeakLabels = new Map(); // Persistent time-indexed store: timestamp (sec) -> label string
+
+    this.rfPeakIndices = new Set(); // this.raw row indices with a momentary RF
+                                     // spike on any band — must survive map
+                                     // simplification, see _detectRfPeakIndices()
   }
 
   /**
@@ -793,6 +797,7 @@ class GSRAnalyzer {
 
     this.raw = rawDataList;
     this.hasRfData = rawDataList.some(r => !isNaN(r.rssi_300) || !isNaN(r.rssi_315) || !isNaN(r.rssi_434) || !isNaN(r.rssi_446) || !isNaN(r.rssi_815) || !isNaN(r.rssi_868) || !isNaN(r.rssi_915) || !isNaN(r.em_fog));
+    this.rfPeakIndices = this.hasRfData ? this._detectRfPeakIndices() : new Set();
 
     // Check if imported CSV is already enriched
     if (osmRoadClassColIdx !== -1 || osmGreenPctColIdx !== -1) {
@@ -2309,6 +2314,44 @@ class GSRAnalyzer {
       csv += "\n";
     }
     return csv;
+  }
+
+  /**
+   * Row indices where at least one Sub-GHz band shows a momentary spike —
+   * a local maximum at least RF_PEAK_PROMINENCE_DB above an adjacent sample.
+   * The map pipeline (GpsPipeline.downsampleForDisplay / GpsFilter.applyRDP,
+   * see map.js:_getOrBuildDrawPoints()) treats these as forced vertices so
+   * brief 868/915MHz-class emissions can't be simplified away before they're
+   * ever drawn — plain geometric RDP/stride decimation has no notion of RF
+   * magnitude and will happily erase a spike that sits on an otherwise
+   * straight/stationary stretch of track.
+   */
+  _detectRfPeakIndices() {
+    const BANDS = ['rssi_300', 'rssi_315', 'rssi_434', 'rssi_446', 'rssi_815', 'rssi_868', 'rssi_915'];
+    const PROMINENCE_DB = 3.5;
+    const data = this.raw;
+    const n = data.length;
+    const peakIndices = new Set();
+
+    for (const band of BANDS) {
+      for (let i = 0; i < n; i++) {
+        const v = data[i][band];
+        if (typeof v !== 'number' || isNaN(v)) continue;
+
+        const prev = i > 0 ? data[i - 1][band] : undefined;
+        const next = i < n - 1 ? data[i + 1][band] : undefined;
+        const prevValid = typeof prev === 'number' && !isNaN(prev);
+        const nextValid = typeof next === 'number' && !isNaN(next);
+
+        if (prevValid && v < prev) continue;
+        if (nextValid && v < next) continue;
+
+        const prominent = (prevValid && (v - prev) >= PROMINENCE_DB) ||
+                           (nextValid && (v - next) >= PROMINENCE_DB);
+        if (prominent) peakIndices.add(i);
+      }
+    }
+    return peakIndices;
   }
 
   /**

@@ -190,7 +190,11 @@ class RFFluidRenderer {
       const lat = pt.lat;
       const lon = pt.lon;
 
-      if (lastLat !== null) {
+      // A momentary RF spike (pt.isRfPeak, see GSRAnalyzer._detectRfPeakIndices())
+      // always gets its own node — otherwise this spatial dedup silently erases
+      // exactly the brief emissions this renderer exists to show, and multi-track
+      // collective sessions revisiting the same spot make that far more likely.
+      if (lastLat !== null && !pt.isRfPeak) {
         const dLatM = (lat - lastLat) * metersPerDegLat;
         const dLonM = (lon - lastLon) * metersPerDegLat * Math.cos((lat * Math.PI) / 180.0);
         if (dLatM * dLatM + dLonM * dLonM < minSpatialDistMeters * minSpatialDistMeters) {

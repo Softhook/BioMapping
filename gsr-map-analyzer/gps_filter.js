@@ -446,8 +446,15 @@ const GpsFilter = {
   /**
    * Ramer-Douglas-Peucker (RDP) trajectory simplification.
    * Reduces point count while preserving the overall shape.
+   *
+   * @param {Set<number>} [forceIndexSet] - analyzer.raw row indices (matched
+   *   against each point's .origIdx) that must never be dropped, regardless
+   *   of perpendicular distance — see GSRAnalyzer._detectRfPeakIndices().
+   *   Plain RDP only reasons about geometric shape, so a momentary RF spike
+   *   sitting on an otherwise-straight segment would normally fall below
+   *   tolerance and vanish.
    */
-  applyRDP(points, tolerance) {
+  applyRDP(points, tolerance, forceIndexSet) {
     if (!tolerance || isNaN(tolerance) || tolerance <= 0.001 || points.length < 3) return points;
 
     const getPerpendicularDistance = (p, s, e) => {
@@ -498,7 +505,26 @@ const GpsFilter = {
       }
     };
 
-    return rdpRecurse(points, 0, points.length - 1);
+    if (!forceIndexSet || forceIndexSet.size === 0) {
+      return rdpRecurse(points, 0, points.length - 1);
+    }
+
+    // Split into segments at forced vertices so they're guaranteed to survive
+    // — each segment is still simplified independently, only the boundaries
+    // (the forced points themselves) are exempt from removal.
+    const boundaryIdxs = [0];
+    for (let i = 1; i < points.length - 1; i++) {
+      if (forceIndexSet.has(points[i].origIdx)) boundaryIdxs.push(i);
+    }
+    boundaryIdxs.push(points.length - 1);
+
+    let result = [];
+    for (let s = 0; s < boundaryIdxs.length - 1; s++) {
+      const segResult = rdpRecurse(points, boundaryIdxs[s], boundaryIdxs[s + 1]);
+      if (s > 0) segResult.shift(); // shared boundary point already added by previous segment
+      result = result.concat(segResult);
+    }
+    return result;
   }
 };
 

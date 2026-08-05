@@ -122,16 +122,38 @@ const GpsPipeline = {
 
   /**
    * Downsample points for Leaflet display.
+   *
+   * @param {Set<number>} [forceIndexSet] - analyzer.raw row indices (matched
+   *   against each point's .origIdx) that must survive the stride even when
+   *   they'd otherwise be skipped — see GSRAnalyzer._detectRfPeakIndices().
    */
-  downsampleForDisplay(gpsPoints, sampleRate, doDownsample) {
+  downsampleForDisplay(gpsPoints, sampleRate, doDownsample, forceIndexSet) {
     const step = doDownsample ? Math.max(1, Math.round(sampleRate)) : 1;
     const draw = [];
+    const includedIdx = new Set();
     for (let i = 0; i < gpsPoints.length; i += step) {
       draw.push({ ...gpsPoints[i] });
+      includedIdx.add(i);
     }
     if (gpsPoints.length > 0 && (gpsPoints.length - 1) % step !== 0) {
       draw.push({ ...gpsPoints[gpsPoints.length - 1] });
+      includedIdx.add(gpsPoints.length - 1);
     }
+
+    if (forceIndexSet && forceIndexSet.size > 0) {
+      let addedForced = false;
+      for (let i = 0; i < gpsPoints.length; i++) {
+        if (includedIdx.has(i)) continue;
+        const p = gpsPoints[i];
+        if (forceIndexSet.has(p.origIdx)) {
+          draw.push({ ...p });
+          includedIdx.add(i);
+          addedForced = true;
+        }
+      }
+      if (addedForced) draw.sort((a, b) => a.origIdx - b.origIdx);
+    }
+
     return draw;
   }
 };

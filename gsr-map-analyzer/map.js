@@ -442,13 +442,18 @@ class GSRMapManager {
           ...data[i],
           lat: fg.lat,
           lon: fg.lon,
-          origIdx: i
+          origIdx: i,
+          // Tagged directly (rather than looked up by origIdx downstream) so the
+          // flag survives collective mode's concatenation of multiple tracks'
+          // drawPoints, where origIdx collides across tracks — see
+          // RFFluidRenderer._precalculateSpatialFans().
+          isRfPeak: !!(analyzer.rfPeakIndices && analyzer.rfPeakIndices.has(i))
         });
       }
     }
 
-    drawPoints = GpsPipeline.downsampleForDisplay(drawPoints, analyzer.sampleRate || 10.0, p.downsample === true || p.downsample === 1);
-    drawPoints = GpsFilter.applyRDP(drawPoints, p.rdpTolerance || 0);
+    drawPoints = GpsPipeline.downsampleForDisplay(drawPoints, analyzer.sampleRate || 10.0, p.downsample === true || p.downsample === 1, analyzer.rfPeakIndices);
+    drawPoints = GpsFilter.applyRDP(drawPoints, p.rdpTolerance || 0, analyzer.rfPeakIndices);
 
     this._gpsCache.set(cacheKey, { paramsHash, snapFingerprint: snapFp, gpsPoints, drawPoints });
     return { gpsPoints, drawPoints };
@@ -488,30 +493,10 @@ class GSRMapManager {
       this._lastFitBoundsTrackId = cacheKey;
     }
     this._lastDrawPoints = drawPoints;
-    const hasRf = !!(analyzer && analyzer.hasRfData);
-    this.hasRfData = hasRf;
     if (this.rfFluidRenderer) {
       this.rfFluidRenderer.setData(drawPoints, analyzer.osmGeoms);
     }
-    const btnToggleRFFluid = document.getElementById('btnToggleRFFluid');
-    const rfFluidMode = document.getElementById('rfFluidMode');
-    if (btnToggleRFFluid) {
-      if (!hasRf) {
-        btnToggleRFFluid.classList.remove('active');
-        btnToggleRFFluid.setAttribute('disabled', 'disabled');
-        btnToggleRFFluid.title = "No radio frequency data in active track";
-      } else {
-        btnToggleRFFluid.removeAttribute('disabled');
-        btnToggleRFFluid.title = "Toggle static ray-casted 3-frequency RF fluid background";
-      }
-    }
-    if (rfFluidMode) {
-      if (!hasRf) {
-        rfFluidMode.setAttribute('disabled', 'disabled');
-      } else {
-        rfFluidMode.removeAttribute('disabled');
-      }
-    }
+    this._updateRfFluidButtonState(!!(analyzer && analyzer.hasRfData));
     this._renderPathSegments(drawPoints, p.trackWeight || 5, analyzer);
 
     // Peak markers (with latency compensation)
@@ -546,6 +531,35 @@ class GSRMapManager {
   _fitBounds(drawPoints) {
     const bounds = drawPoints.map(p => [p.lat, p.lon]);
     this.map.fitBounds(bounds, { padding: [30, 30] });
+  }
+
+  /**
+   * Enable/disable the RF Fluid toggle button + mode select for the active
+   * view (single-track or collective). Shared so collective mode doesn't
+   * leave the button stuck disabled from whatever the last single-track
+   * render happened to set it to.
+   */
+  _updateRfFluidButtonState(hasRf) {
+    this.hasRfData = hasRf;
+    const btnToggleRFFluid = document.getElementById('btnToggleRFFluid');
+    const rfFluidMode = document.getElementById('rfFluidMode');
+    if (btnToggleRFFluid) {
+      if (!hasRf) {
+        btnToggleRFFluid.classList.remove('active');
+        btnToggleRFFluid.setAttribute('disabled', 'disabled');
+        btnToggleRFFluid.title = "No radio frequency data in active track";
+      } else {
+        btnToggleRFFluid.removeAttribute('disabled');
+        btnToggleRFFluid.title = "Toggle static ray-casted 3-frequency RF fluid background";
+      }
+    }
+    if (rfFluidMode) {
+      if (!hasRf) {
+        rfFluidMode.setAttribute('disabled', 'disabled');
+      } else {
+        rfFluidMode.removeAttribute('disabled');
+      }
+    }
   }
 
   _getMetricKey(metric) {
@@ -1670,6 +1684,7 @@ class GSRMapManager {
       const combinedGeoms = { ways: collectiveWays, relations: collectiveRelations };
       this.rfFluidRenderer.setData(collectiveDrawPoints, combinedGeoms);
     }
+    this._updateRfFluidButtonState(activeTracks.some(t => t.analyzer && t.analyzer.hasRfData));
 
     // Render collective global clusters across all active tracks
     if (allActivePeaksAcrossTracks.length > 0 && typeof GSRSpatialClustering !== 'undefined') {
