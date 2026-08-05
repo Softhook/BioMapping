@@ -1376,6 +1376,11 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     // where gain and offset were computed.
     float raw_ns;
     raw_ns = tia_counts_to_ns(avg_norm);
+    // Disconnect detection (Step 5 below) always checks this pre-calibration
+    // value: a nonzero calibration offset can shift a true open-circuit
+    // reading (raw TIA ~0 nS) into the "valid" window, masking a real
+    // finger-cuff disconnect for anyone who's run the calibration wizard.
+    float uncal_raw_ns = raw_ns;
     if(active) {
         raw_ns = gain * raw_ns + offset;
     }
@@ -1393,7 +1398,7 @@ void gsr_sensor_tick(GsrSensor* gsr) {
     gsr->raw = raw_ns;
 
     // ── Finger-cuff disconnect detection (20-tick debounce).
-    if(gsr->raw < GSR_VALID_MIN_NS || gsr->raw > GSR_VALID_MAX_NS) {
+    if(uncal_raw_ns < GSR_VALID_MIN_NS || uncal_raw_ns > GSR_VALID_MAX_NS) {
         if(++gsr->zero_count >= 20) {
             gsr->connected = false;
         }

@@ -582,6 +582,62 @@ static void test_disconnect_debounce_low_signal(void) {
     printf("  -> Pass\n");
 }
 
+// Real open-circuit hardware doesn't read exactly 0 nS — ADC leakage/noise
+// with the cuffs off measures ~17 nS in the field (raw16=7 here reproduces
+// that: counts = 7*8 = 56 -> ~18.6 nS via tia_counts_to_ns()). The old
+// GSR_VALID_MIN_NS=0.1f threshold sat far below this, so a real disconnect
+// never tripped; GSR_VALID_MIN_NS=100.0f gives margin above this noise floor
+// while staying well under the ~1000 nS literature floor for real skin.
+static void test_disconnect_debounce_realistic_open_circuit_noise(void) {
+    printf("Running test_disconnect_debounce_realistic_open_circuit_noise...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(7); // ~18.6 nS raw TIA — realistic open-circuit noise, not exactly 0
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+    wait_for_more_reads(200);
+
+    for(int i = 0; i < 19; i++) {
+        gsr_sensor_tick(gsr);
+        assert(gsr_sensor_is_connected(gsr) == true);
+    }
+    gsr_sensor_tick(gsr); // 20th consecutive out-of-range tick
+    printf("  connected=%d after 20 ticks at raw=%.2f nS (realistic open-circuit noise)\n",
+           gsr_sensor_is_connected(gsr), (double)gsr_sensor_get_raw(gsr));
+    assert(gsr_sensor_is_connected(gsr) == false);
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
+// A nonzero calibration offset must not mask a true open circuit: the
+// disconnect check has to run on the pre-calibration TIA value, otherwise
+// `gain*0 + offset` can land back inside [GSR_VALID_MIN_NS, GSR_VALID_MAX_NS]
+// and the finger-cuff-disconnected message never fires for anyone who's run
+// the calibration wizard.
+static void test_disconnect_debounce_ignores_calibration_offset(void) {
+    printf("Running test_disconnect_debounce_ignores_calibration_offset...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_i2c_mock_set_raw16(0); // open circuit -> ~0 nS raw TIA
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+    gsr_sensor_set_calibration(gsr, true, 2.0f, 500.0f); // offset alone sits well inside the valid window
+    wait_for_more_reads(200);
+
+    for(int i = 0; i < 19; i++) {
+        gsr_sensor_tick(gsr);
+        assert(gsr_sensor_is_connected(gsr) == true);
+    }
+    gsr_sensor_tick(gsr); // 20th consecutive out-of-range tick
+    printf("  connected=%d after 20 ticks with offset=500 masking calibrated raw=%.2f\n",
+           gsr_sensor_is_connected(gsr), (double)gsr_sensor_get_raw(gsr));
+    assert(gsr_sensor_is_connected(gsr) == false);
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
 // Worker-level debounce: 50 consecutive I2C failures (real transport
 // failure, not just an out-of-range value) trips connected=false directly
 // inside gsr_sensor_worker(), independent of tick() ever being called.
@@ -1337,6 +1393,8 @@ int main(void) {
     test_autorange_down_on_saturation();
     test_pga_lock_suppresses_autorange();
     test_disconnect_debounce_low_signal();
+    test_disconnect_debounce_realistic_open_circuit_noise();
+    test_disconnect_debounce_ignores_calibration_offset();
     test_disconnect_on_i2c_failure();
     test_adc_power_down_and_reenable();
     test_rf_disabled_snapshot_reads_default_floor();

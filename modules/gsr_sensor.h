@@ -64,7 +64,11 @@
 //
 // Typical resting range: 1–20 µS = 1 000–20 000 nS.
 // Literature: Boucsein 2012 reports SCL 1–50 µS as normal range.
-#define GSR_VALID_MIN_NS    0.1f      // nS — below this: open circuit
+// GSR_VALID_MIN_NS sits well above the observed open-circuit noise floor
+// (~17 nS of ADC leakage with cuffs removed, tia_counts_to_ns() only clamps
+// to exactly 0 at counts <= 0) and well below that 1 000 nS literature
+// floor, so it can't false-trigger on genuinely dry skin.
+#define GSR_VALID_MIN_NS    100.0f    // nS — below this: open circuit
 #define GSR_VALID_MAX_NS    75000.0f  // nS — above this: rail saturation
 
 typedef struct GsrSensor GsrSensor;
