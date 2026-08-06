@@ -411,3 +411,106 @@ test('GSRCSVParser._detectRfPeakIndices: momentary spike on any band', () => {
   ]);
   assert.deepStrictEqual([...otherBand], [1]);
 });
+
+// ── Peak labelling & scoring: _assignLabelsToPeaks / quality / salience ─────
+
+test('GSRAnalyzer _assignLabelsToPeaks: assigns nearest label within 1.0s window', () => {
+  const a = new GSRAnalyzer();
+  a.setPeakLabel(10.0, 'A');
+  a.setPeakLabel(20.0, 'B');
+
+  const peaks = [{ time: 10.0 }, { time: 10.4 }, { time: 20.0 }, { time: 50.0 }];
+  a._assignLabelsToPeaks(peaks);
+
+  assert.strictEqual(peaks[0].label, 'A');   // exact match
+  assert.strictEqual(peaks[2].label, 'B');   // exact match
+  // 10.4 is within 1.0s of 'A', but 'A' is already used 1-to-1; too far from 'B'
+  assert.strictEqual(peaks[1].label, undefined);
+  assert.strictEqual(peaks[3].label, undefined);  // 50.0 too far from any label
+});
+
+test('GSRAnalyzer _assignLabelsToPeaks: greedy 1-to-1, closest peak wins the label', () => {
+  const a = new GSRAnalyzer();
+  a.setPeakLabel(10.0, 'A');
+
+  const peaks = [{ time: 10.2 }, { time: 10.0 }];
+  a._assignLabelsToPeaks(peaks);
+
+  // The exact-match peak (index 1) grabs the label; the farther one (10.2) gets nothing
+  assert.strictEqual(peaks[1].label, 'A');
+  assert.strictEqual(peaks[0].label, undefined);
+});
+
+test('GSRAnalyzer _assignLabelsToPeaks: no-ops and boundary cases', () => {
+  const a = new GSRAnalyzer();
+
+  // No labels stored -> no-op
+  const peaks = [{ time: 10.0 }];
+  a._assignLabelsToPeaks(peaks);
+  assert.strictEqual(peaks[0].label, undefined);
+
+  // null / empty peaks -> no throw
+  a.setPeakLabel(5, 'X');
+  a._assignLabelsToPeaks(null);
+  a._assignLabelsToPeaks([]);
+
+  // Empty-string labels are skipped (candidate requires a truthy label)
+  const b = new GSRAnalyzer();
+  b._userPeakLabels = new Map([[10.0, '']]);
+  const peaks2 = [{ time: 10.0 }];
+  b._assignLabelsToPeaks(peaks2);
+  assert.strictEqual(peaks2[0].label, undefined);
+
+  // A peak exactly at the 1.0s tolerance boundary still matches
+  const c = new GSRAnalyzer();
+  c.setPeakLabel(10.0, 'A');
+  const peaks3 = [{ time: 11.0 }, { time: 11.1 }];
+  c._assignLabelsToPeaks(peaks3);
+  assert.strictEqual(peaks3[0].label, 'A');
+  assert.strictEqual(peaks3[1].label, undefined);
+});
+
+test('GSRAnalyzer _computePeakQuality: ideal peak scores 1, poor peak scores low', () => {
+  const a = new GSRAnalyzer();
+  const near = (actual, expected, msg) => {
+    assert.ok(Math.abs(actual - expected) < 1e-9, `${msg} — got ${actual}, expected ${expected}`);
+  };
+
+  // All shape metrics ideal -> every weight contributes fully -> 1.0
+  const ideal = {
+    amplitude: 0.5, halfRecoveryTime: 2.0, riseTime: 1.0, skewnessRatio: 0.5,
+    onsetSlope: 0.5, snr: 5.0, decaySlope: 0.05
+  };
+  near(a._computePeakQuality(ideal), 1.0, 'ideal peak');
+
+  // Everything outside the credited ranges -> only amplitude contributes (0.02)
+  const poor = {
+    amplitude: 0.05, riseTime: 10, halfRecoveryTime: 20, skewnessRatio: 5,
+    onsetSlope: 10, snr: 1.0, decaySlope: 0
+  };
+  near(a._computePeakQuality(poor), 0.02, 'poor peak');
+
+  // Half-credit branches: 0.5 amplitude, edge-of-ideal recovery/rise, etc.
+  const partial = {
+    amplitude: 0.25, riseTime: 4.0, halfRecoveryTime: 6.0, skewnessRatio: 1.5,
+    onsetSlope: 2.0, snr: 2.5, decaySlope: 0.002
+  };
+  // 0.10 + 0.075 + 0.075 + 0.09 + 0.05 + 0.105 + 0.10 = 0.595
+  near(a._computePeakQuality(partial), 0.595, 'partial peak');
+});
+
+test('GSRAnalyzer _computeSalienceScore: fast, high-amplitude, high-SNR peaks win', () => {
+  const a = new GSRAnalyzer();
+  const near = (actual, expected, msg) => {
+    assert.ok(Math.abs(actual - expected) < 1e-9, `${msg} — got ${actual}, expected ${expected}`);
+  };
+
+  // All maxed -> 1.0
+  near(a._computeSalienceScore({ amplitude: 0.5, onsetSlope: 0.5, snr: 3.0 }), 1.0, 'salient');
+  // All zero -> 0.0
+  near(a._computeSalienceScore({ amplitude: 0, onsetSlope: 0, snr: 0 }), 0.0, 'faint');
+  // onsetSlope missing -> falls back to amplitude/riseTime
+  near(a._computeSalienceScore({ amplitude: 0.5, riseTime: 1.0, snr: 3.0 }), 1.0, 'slope fallback');
+  // snr missing -> default 0.5 score (0.50 + 0.30 + 0.5*0.20 = 0.90)
+  near(a._computeSalienceScore({ amplitude: 0.5, onsetSlope: 0.5 }), 0.90, 'no snr default');
+});
