@@ -50,6 +50,15 @@ const P5_GLOBAL_NAMES = [
 ];
 const P5_CONSTANTS = { CENTER: 'center', LEFT: 'left', RIGHT: 'right', TOP: 'top', BOTTOM: 'bottom', CLOSE: 'close' };
 
+// CAUTION if reusing this outside bootApp()'s jsdom context: `new Blob([superMock()])`
+// against Node's *native* global Blob crashes the whole process with a native
+// V8 assertion ("Incorrect Blob initialization type") instead of throwing a
+// catchable error — verified directly. It does NOT crash inside bootApp()'s
+// tests today because vm.runInContext(..., window) resolves `Blob` to jsdom's
+// own pure-JS Blob polyfill (window.Blob !== Node's global Blob), which
+// coerces the mock via its parts' Symbol.toPrimitive/toString instead of
+// hitting Node's native code path. Don't pass a superMock() to Node's native
+// `Blob` constructor directly (e.g. in a test that doesn't go through jsdom).
 function superMock() {
   const fn = function () { return superMock(); };
   const handler = {
