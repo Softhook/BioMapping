@@ -74,10 +74,11 @@ out skel qt;`;
     const maxRetries = 3;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      let timeoutId;
       try {
         const controller = new AbortController();
         const timeoutMs = 200000;                       // 200 s network timeout
-        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
         const response = await fetch(OverpassClient.overpassEndpoint, {
           method: 'POST',
@@ -85,8 +86,6 @@ out skel qt;`;
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           signal: controller.signal
         });
-
-        clearTimeout(timeoutId);
 
         if (response.ok) {
           if (onProgress) onProgress('Parsing geographical payload...');
@@ -155,7 +154,16 @@ out skel qt;`;
           continue;
         }
         throw err;
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
   }
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { OverpassClient };
+}
+if (typeof window !== 'undefined') {
+  window.OverpassClient = OverpassClient;
+}

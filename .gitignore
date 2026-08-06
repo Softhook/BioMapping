@@ -8,3 +8,4 @@ config.local.js
 build/
 dist/
 .DS_Store
+node_modules/

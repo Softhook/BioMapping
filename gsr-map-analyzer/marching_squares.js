@@ -109,3 +109,10 @@ class MarchingSquares {
     return lines;
   }
 }
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { MarchingSquares };
+}
+if (typeof window !== 'undefined') {
+  window.MarchingSquares = MarchingSquares;
+}

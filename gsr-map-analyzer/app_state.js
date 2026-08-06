@@ -62,7 +62,7 @@ const AppState = {
   },
   set viewDuration(d) {
     if (typeof d !== 'number' || isNaN(d)) return;
-    const minDur = window.GSR_CONST ? GSR_CONST.ZOOM_MIN_DURATION : 2.0;
+    const minDur = (typeof GSR_CONST !== 'undefined') ? GSR_CONST.ZOOM_MIN_DURATION : 2.0;
     this._viewDuration = Math.max(minDur, Math.min(d, this.totalDuration));
   },
 
@@ -72,8 +72,8 @@ const AppState = {
   },
   set zoomFactor(z) {
     if (typeof z !== 'number' || isNaN(z)) return;
-    const minZ = window.GSR_CONST ? GSR_CONST.ZOOM_MIN : 1.0;
-    const maxZ = window.GSR_CONST ? GSR_CONST.ZOOM_MAX : 50.0;
+    const minZ = (typeof GSR_CONST !== 'undefined') ? GSR_CONST.ZOOM_MIN : 1.0;
+    const maxZ = (typeof GSR_CONST !== 'undefined') ? GSR_CONST.ZOOM_MAX : 50.0;
     this._zoomFactor = Math.max(minZ, Math.min(maxZ, z));
   },
 
@@ -107,3 +107,10 @@ const AppState = {
   fileInput: null,
   dropZone: null
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { AppState };
+}
+if (typeof window !== 'undefined') {
+  window.AppState = AppState;
+}

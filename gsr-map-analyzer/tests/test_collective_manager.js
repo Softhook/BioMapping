@@ -1,0 +1,318 @@
+/**
+ * Unit tests for collective_manager.js (GSRCollectiveManager) — multi-track
+ * spatial aggregation (track bookkeeping, bounding box, contour surface
+ * generation).
+ *
+ * NOTE: generateContourSurface()'s topographySource selection ('phasic',
+ * 'tonic', 'peaks', 'auc', 'arousal_index', with/without normalizeZScore) is
+ * already exercised end-to-end against a real GSRAnalyzer in
+ * tests/test_all_pipelines.js — this file focuses on what that coverage
+ * doesn't touch: the constructor and plain track bookkeeping (addTrack,
+ * removeTrack, getTrack, getActiveTracks), getBounds() in isolation (never
+ * called directly in the existing suites), and generateContourSurface() edge
+ * cases (no tracks / no active tracks / no coordinates, default
+ * contourParams, isolationRadius masking producing null grid cells, and
+ * peak exclusion).
+ *
+ * Run: node --test tests/test_collective_manager.js  (or `npm test` for the whole suite)
+ */
+
+const assert = require('assert');
+const test = require('node:test');
+
+global.GSR_CONST = require('./mock_constants.js');
+global.MarchingSquares = require('../marching_squares.js').MarchingSquares;
+
+const { GSRCollectiveManager } = require('../collective_manager.js');
+
+/**
+ * Builds a minimal mock "analyzer" exposing exactly the surface
+ * GSRCollectiveManager reads: .raw (length only matters), .getCoordinates(i),
+ * .sampleRate, phasic/tonic (+Z variants), .phasicAUC, .arousalIndex,
+ * .phasicStd, and .peaks.
+ */
+function makeAnalyzer(points, opts = {}) {
+  return {
+    raw: new Array(points.length).fill(0),
+    getCoordinates: (i) => points[i] || null,
+    sampleRate: opts.sampleRate !== undefined ? opts.sampleRate : 1,
+    phasic: opts.phasic || [],
+    phasicZ: opts.phasicZ || [],
+    tonic: opts.tonic || [],
+    tonicZ: opts.tonicZ || [],
+    phasicAUC: opts.phasicAUC || [],
+    arousalIndex: opts.arousalIndex || [],
+    phasicStd: opts.phasicStd !== undefined ? opts.phasicStd : 1,
+    peaks: opts.peaks || [],
+  };
+}
+
+function makeTrack(id, points, opts = {}) {
+  return {
+    id,
+    name: opts.name || `${id}.csv`,
+    color: opts.color || '#000',
+    enabled: opts.enabled !== undefined ? opts.enabled : true,
+    analyzer: makeAnalyzer(points, opts),
+  };
+}
+
+// ── constructor ──────────────────────────────────────────────────────────
+
+test('constructor: starts with an empty tracks array', () => {
+  const mgr = new GSRCollectiveManager();
+  assert.deepStrictEqual(mgr.tracks, []);
+});
+
+// ── addTrack / getTrack / removeTrack / getActiveTracks ─────────────────
+
+test('addTrack: appends tracks and preserves insertion order', () => {
+  const mgr = new GSRCollectiveManager();
+  const t1 = makeTrack('a', []);
+  const t2 = makeTrack('b', []);
+  mgr.addTrack(t1);
+  mgr.addTrack(t2);
+  assert.deepStrictEqual(mgr.tracks, [t1, t2]);
+});
+
+test('getTrack: finds a track by id, returns undefined when absent', () => {
+  const mgr = new GSRCollectiveManager();
+  const t1 = makeTrack('a', []);
+  mgr.addTrack(t1);
+  assert.strictEqual(mgr.getTrack('a'), t1);
+  assert.strictEqual(mgr.getTrack('missing'), undefined);
+});
+
+test('removeTrack: removes only the matching id and leaves the rest intact', () => {
+  const mgr = new GSRCollectiveManager();
+  const t1 = makeTrack('a', []);
+  const t2 = makeTrack('b', []);
+  const t3 = makeTrack('c', []);
+  mgr.addTrack(t1); mgr.addTrack(t2); mgr.addTrack(t3);
+  mgr.removeTrack('b');
+  assert.deepStrictEqual(mgr.tracks, [t1, t3]);
+});
+
+test('removeTrack: removing a non-existent id is a harmless no-op', () => {
+  const mgr = new GSRCollectiveManager();
+  const t1 = makeTrack('a', []);
+  mgr.addTrack(t1);
+  mgr.removeTrack('does-not-exist');
+  assert.deepStrictEqual(mgr.tracks, [t1]);
+});
+
+test('getActiveTracks: filters to only enabled tracks', () => {
+  const mgr = new GSRCollectiveManager();
+  const on1 = makeTrack('a', [], { enabled: true });
+  const off = makeTrack('b', [], { enabled: false });
+  const on2 = makeTrack('c', [], { enabled: true });
+  mgr.addTrack(on1); mgr.addTrack(off); mgr.addTrack(on2);
+  assert.deepStrictEqual(mgr.getActiveTracks(), [on1, on2]);
+});
+
+test('getActiveTracks: a track with no `enabled` property at all is excluded', () => {
+  const mgr = new GSRCollectiveManager();
+  // Bypass makeTrack's enabled-defaults-to-true convenience so `enabled` is
+  // truly absent (undefined), matching a freshly-constructed track object
+  // before the UI has set the flag.
+  mgr.addTrack({ id: 'a', analyzer: makeAnalyzer([]) });
+  assert.deepStrictEqual(mgr.getActiveTracks(), []);
+});
+
+// ── getBounds() ───────────────────────────────────────────────────────────
+
+test('getBounds: returns null when there are no tracks at all', () => {
+  const mgr = new GSRCollectiveManager();
+  assert.strictEqual(mgr.getBounds(), null);
+});
+
+test('getBounds: returns null when no tracks are enabled', () => {
+  const mgr = new GSRCollectiveManager();
+  mgr.addTrack(makeTrack('a', [{ lat: 51.5, lon: -0.1 }], { enabled: false }));
+  assert.strictEqual(mgr.getBounds(), null);
+});
+
+test('getBounds: returns null when active tracks have no resolvable coordinates', () => {
+  const mgr = new GSRCollectiveManager();
+  mgr.addTrack(makeTrack('a', [null, null, null]));
+  assert.strictEqual(mgr.getBounds(), null);
+});
+
+test('getBounds: a single point falls back to a fixed 0.001 deg pad (zero span)', () => {
+  const mgr = new GSRCollectiveManager();
+  mgr.addTrack(makeTrack('a', [{ lat: 51.5, lon: -0.1 }]));
+  const bounds = mgr.getBounds();
+  assert.ok(Math.abs(bounds.minLat - (51.5 - 0.001)) < 1e-9);
+  assert.ok(Math.abs(bounds.maxLat - (51.5 + 0.001)) < 1e-9);
+  assert.ok(Math.abs(bounds.minLon - (-0.1 - 0.001)) < 1e-9);
+  assert.ok(Math.abs(bounds.maxLon - (-0.1 + 0.001)) < 1e-9);
+});
+
+test('getBounds: computes a tight bbox with 10% padding across multiple points and tracks', () => {
+  const mgr = new GSRCollectiveManager();
+  mgr.addTrack(makeTrack('a', [{ lat: 51.0, lon: 0.0 }, { lat: 51.1, lon: 0.05 }]));
+  mgr.addTrack(makeTrack('b', [{ lat: 50.9, lon: -0.05 }]));
+  const bounds = mgr.getBounds();
+
+  const minLat = 50.9, maxLat = 51.1, minLon = -0.05, maxLon = 0.05;
+  const latPad = (maxLat - minLat) * 0.10;
+  const lonPad = (maxLon - minLon) * 0.10;
+  assert.ok(Math.abs(bounds.minLat - (minLat - latPad)) < 1e-9);
+  assert.ok(Math.abs(bounds.maxLat - (maxLat + latPad)) < 1e-9);
+  assert.ok(Math.abs(bounds.minLon - (minLon - lonPad)) < 1e-9);
+  assert.ok(Math.abs(bounds.maxLon - (maxLon + lonPad)) < 1e-9);
+});
+
+test('getBounds: disabled tracks do not influence the bbox of enabled ones', () => {
+  const mgr = new GSRCollectiveManager();
+  mgr.addTrack(makeTrack('a', [{ lat: 51.0, lon: 0.0 }]));
+  mgr.addTrack(makeTrack('b', [{ lat: 60.0, lon: 10.0 }], { enabled: false }));
+  const bounds = mgr.getBounds();
+  assert.ok(bounds.maxLat < 55, 'the disabled far-away track must not widen the bbox');
+});
+
+// ── generateContourSurface() edge cases ──────────────────────────────────
+
+test('generateContourSurface: returns [] when there are no tracks', () => {
+  const mgr = new GSRCollectiveManager();
+  assert.deepStrictEqual(mgr.generateContourSurface({ gridResolution: 10, contourCount: 3 }), []);
+});
+
+test('generateContourSurface: returns [] when no tracks are enabled', () => {
+  const mgr = new GSRCollectiveManager();
+  mgr.addTrack(makeTrack('a', [{ lat: 51.5, lon: -0.1 }], { enabled: false }));
+  assert.deepStrictEqual(mgr.generateContourSurface({}), []);
+});
+
+test('generateContourSurface: returns [] when contourParams is omitted entirely (falls back to GSR_CONST.COLLECTIVE)', () => {
+  const mgr = new GSRCollectiveManager();
+  // No tracks -> short-circuits before gridResolution/contourCount even matter,
+  // but this exercises the `if (!contourParams) contourParams = {}` branch
+  // and the GSR_CONST.COLLECTIVE default lookups without throwing.
+  assert.doesNotThrow(() => {
+    const result = mgr.generateContourSurface();
+    assert.deepStrictEqual(result, []);
+  });
+});
+
+test('generateContourSurface: a track with points that all resolve to null coordinates yields []', () => {
+  const mgr = new GSRCollectiveManager();
+  mgr.addTrack(makeTrack('a', [null, null]));
+  assert.deepStrictEqual(mgr.generateContourSurface({ gridResolution: 10, contourCount: 3 }), []);
+});
+
+function gridTrack(rows = 6, cols = 6, spacingDeg = 0.001) {
+  // A small regular lattice of GPS points with a phasic value gradient so
+  // there's real variation for IDW/contouring to work with.
+  const points = [];
+  const phasic = [];
+  let i = 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      points.push({ lat: 51.5 + r * spacingDeg, lon: -0.1 + c * spacingDeg });
+      phasic.push({ time: i, val: r + c });
+      i++;
+    }
+  }
+  return makeTrack('grid', points, { phasic, phasicZ: phasic, sampleRate: 1 });
+}
+
+test('generateContourSurface: default gridResolution/contourCount come from GSR_CONST.COLLECTIVE when contourParams omits them', () => {
+  const mgr = new GSRCollectiveManager();
+  mgr.addTrack(gridTrack());
+  const result = mgr.generateContourSurface({ isolationRadius: 500, normalizeZScore: false });
+  assert.ok(Array.isArray(result.grid), 'should return a real surface object, not []');
+  assert.strictEqual(result.grid.length, global.GSR_CONST.COLLECTIVE.gridResolution);
+  assert.strictEqual(result.grid[0].length, global.GSR_CONST.COLLECTIVE.gridResolution);
+});
+
+test('generateContourSurface: returns the expected shape { contours, grid, minVal, maxVal, bounds, sortedVals }', () => {
+  const mgr = new GSRCollectiveManager();
+  mgr.addTrack(gridTrack());
+  const result = mgr.generateContourSurface({
+    gridResolution: 12, contourCount: 4, isolationRadius: 500,
+    idwExponent: 2, normalizeZScore: false,
+  });
+  assert.ok(Array.isArray(result.contours));
+  assert.strictEqual(result.grid.length, 12);
+  assert.strictEqual(typeof result.minVal, 'number');
+  assert.strictEqual(typeof result.maxVal, 'number');
+  assert.ok(result.maxVal >= result.minVal);
+  assert.ok(result.bounds && typeof result.bounds.minLat === 'number');
+  assert.ok(Array.isArray(result.sortedVals));
+  for (const c of result.contours) {
+    assert.strictEqual(typeof c.level, 'number');
+    assert.strictEqual(typeof c.ratio, 'number');
+    assert.ok(Array.isArray(c.segments));
+  }
+});
+
+test('generateContourSurface: a narrow isolationRadius masks (nulls) grid cells far from the walked corridor', () => {
+  const mgr = new GSRCollectiveManager();
+  // A diagonal ~1.1km "walked path" of 30 points across the grid's bounding
+  // box. With only a 15m isolation radius, cells away from the diagonal
+  // corridor should be masked out (null) while cells right along it stay live.
+  const N = 30;
+  const points = [];
+  const phasic = [];
+  for (let i = 0; i < N; i++) {
+    const t = i / (N - 1);
+    points.push({ lat: 51.50 + t * 0.01, lon: -0.10 + t * 0.01 });
+    phasic.push({ time: i, val: 1 });
+  }
+  mgr.addTrack(makeTrack('a', points, { phasic, phasicZ: phasic }));
+
+  const result = mgr.generateContourSurface({
+    gridResolution: 25, contourCount: 2, isolationRadius: 15, normalizeZScore: false,
+  });
+  assert.ok(Array.isArray(result.grid), 'should still produce a surface object');
+  let nullCount = 0, total = 0;
+  for (const row of result.grid) {
+    for (const v of row) { total++; if (v === null) nullCount++; }
+  }
+  assert.ok(nullCount > 0, 'cells far from the narrow corridor should be masked out');
+  assert.ok(nullCount < total, 'cells right along the corridor should remain unmasked');
+});
+
+test('generateContourSurface: peaks marked excluded are omitted from the "peaks" topography source', () => {
+  const mgr = new GSRCollectiveManager();
+  const sharedPoints = [{ lat: 51.5, lon: -0.1 }, { lat: 51.5005, lon: -0.1005 }];
+
+  const withPeak = makeTrack('a', sharedPoints, {
+    peaks: [{ index: 0, amplitude: 5, excluded: false }],
+  });
+  const excludedPeak = makeTrack('b', sharedPoints, {
+    peaks: [{ index: 0, amplitude: 5, excluded: true }],
+  });
+
+  const mgrWith = new GSRCollectiveManager();
+  mgrWith.addTrack(withPeak);
+  const mgrExcluded = new GSRCollectiveManager();
+  mgrExcluded.addTrack(excludedPeak);
+
+  const params = { gridResolution: 8, contourCount: 2, isolationRadius: 50, topographySource: 'peaks', normalizeZScore: false };
+  const surfaceWith = mgrWith.generateContourSurface(params);
+  const surfaceExcluded = mgrExcluded.generateContourSurface(params);
+
+  // Note: minVal===maxVal grids get nudged apart by +0.1 (see the dedicated
+  // "flat surface" test below), so a fully-zero (all peaks excluded) surface
+  // would misleadingly report maxVal===0.1 too — assert on the raw grid
+  // values collected in sortedVals instead, which are untouched by that nudge.
+  assert.ok(surfaceWith.sortedVals.some(v => v > 0), 'a non-excluded peak should contribute positive KDE density somewhere in the grid');
+  assert.ok(surfaceExcluded.sortedVals.every(v => v === 0), 'an excluded peak must not contribute any density to any grid cell');
+});
+
+test('generateContourSurface: minVal===maxVal (perfectly flat surface) is nudged apart to avoid a degenerate range', () => {
+  const mgr = new GSRCollectiveManager();
+  // Every point has the same phasic value -> IDW interpolates to a constant.
+  const points = [{ lat: 51.5, lon: -0.1 }, { lat: 51.5001, lon: -0.1001 }, { lat: 51.4999, lon: -0.0999 }];
+  const phasic = points.map((_, i) => ({ time: i, val: 3 }));
+  mgr.addTrack(makeTrack('flat', points, { phasic, phasicZ: phasic }));
+
+  const result = mgr.generateContourSurface({
+    gridResolution: 6, contourCount: 2, isolationRadius: 500, normalizeZScore: false,
+  });
+  assert.ok(Array.isArray(result.grid));
+  assert.ok(result.maxVal > result.minVal, 'degenerate flat range should be nudged apart by +0.1');
+  assert.ok(Math.abs((result.maxVal - result.minVal) - 0.1) < 1e-9);
+});

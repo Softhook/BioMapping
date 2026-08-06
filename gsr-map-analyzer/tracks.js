@@ -555,7 +555,8 @@ const GSRTrackManager = {
             enabled: true,
             analyzer: tempAnalyzer,
             filterParams: filterParams,
-            gpsFilterParams: gpsFilterParams
+            gpsFilterParams: gpsFilterParams,
+            settingsSource: tempAnalyzer.importedFilterParams ? 'imported' : 'standard'
           };
 
           AppState.collectiveManager.addTrack(newTrack);
@@ -577,3 +578,10 @@ const GSRTrackManager = {
       });
   }
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { GSRTrackManager };
+}
+if (typeof window !== 'undefined') {
+  window.GSRTrackManager = GSRTrackManager;
+}

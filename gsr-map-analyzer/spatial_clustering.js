@@ -429,4 +429,9 @@ class GSRSpatialClustering {
 }
 
 // Make globally available
-window.GSRSpatialClustering = GSRSpatialClustering;
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { GSRSpatialClustering };
+}
+if (typeof window !== 'undefined') {
+  window.GSRSpatialClustering = GSRSpatialClustering;
+}

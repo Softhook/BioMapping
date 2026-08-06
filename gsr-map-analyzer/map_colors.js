@@ -139,3 +139,10 @@ const MapColors = {
     return lut;
   }
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { MapColors };
+}
+if (typeof window !== 'undefined') {
+  window.MapColors = MapColors;
+}

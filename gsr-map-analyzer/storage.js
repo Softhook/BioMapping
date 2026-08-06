@@ -351,3 +351,10 @@ const GSRStorage = {
   }
 };
 
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { GSRStorage, sliderVal, shapeSliderVal };
+}
+if (typeof window !== 'undefined') {
+  window.GSRStorage = GSRStorage;
+}
+

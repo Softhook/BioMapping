@@ -500,3 +500,10 @@ const MapMatcher = {
     'footway':       -8,  'path':         -8
   }
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { MapMatcher };
+}
+if (typeof window !== 'undefined') {
+  window.MapMatcher = MapMatcher;
+}

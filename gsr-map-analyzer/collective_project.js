@@ -161,6 +161,7 @@ const GSRCollectiveProject = {
 
       const blob = await zip.generateAsync({ type: 'blob' });
       const stamp = new Date().toISOString().slice(0, 10);
+      const suggestedName = `biomapping_project_${stamp}.zip`;
       const saved = await GSRFileSaver.saveFile(blob, suggestedName);
       if (saved !== false) {
         AppState.collectiveManager.tracks.forEach(t => { t.hasUnsavedLabels = false; });
@@ -313,4 +314,9 @@ const GSRCollectiveProject = {
   }
 };
 
-window.GSRCollectiveProject = GSRCollectiveProject;
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { GSRCollectiveProject };
+}
+if (typeof window !== 'undefined') {
+  window.GSRCollectiveProject = GSRCollectiveProject;
+}

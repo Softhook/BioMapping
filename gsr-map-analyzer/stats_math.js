@@ -151,3 +151,10 @@ const StatsMath = {
     return -tmp + Math.log(2.5066282746310005 * sum / x);
   }
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { StatsMath };
+}
+if (typeof window !== 'undefined') {
+  window.StatsMath = StatsMath;
+}

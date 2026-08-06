@@ -335,3 +335,10 @@ const DWT = (() => {
 
   return { decompose, reconstructFromApproximation, analyzeGSR, levelLabels };
 })();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = DWT;
+}
+if (typeof window !== 'undefined') {
+  window.DWT = DWT;
+}

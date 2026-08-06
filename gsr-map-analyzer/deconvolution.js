@@ -286,3 +286,10 @@ const SCRDeconvolution = {
     return clean;
   }
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = SCRDeconvolution;
+}
+if (typeof window !== 'undefined') {
+  window.SCRDeconvolution = SCRDeconvolution;
+}

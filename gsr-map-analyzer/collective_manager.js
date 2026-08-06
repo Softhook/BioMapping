@@ -306,3 +306,10 @@ class GSRCollectiveManager {
     return { contours, grid, minVal, maxVal, bounds, sortedVals };
   }
 }
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { GSRCollectiveManager };
+}
+if (typeof window !== 'undefined') {
+  window.GSRCollectiveManager = GSRCollectiveManager;
+}

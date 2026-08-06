@@ -133,3 +133,6 @@ const GeoUtils = {
 };
 
 if (typeof window !== 'undefined') window.GeoUtils = GeoUtils;
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { GeoUtils };
+}

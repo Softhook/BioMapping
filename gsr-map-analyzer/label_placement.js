@@ -226,3 +226,10 @@ class GSRLabelManager {
   }
 
 }
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { GSRLabelManager };
+}
+if (typeof window !== 'undefined') {
+  window.GSRLabelManager = GSRLabelManager;
+}
