@@ -461,6 +461,12 @@ test('startRenameTrack: sets _renamingTrackId even when the DOM row is missing (
 });
 
 test('startRenameTrack: starting a rename while another is in progress cancels the first', () => {
+  // `_renamingTrackId` ends up as 't2' either way (startRenameTrack
+  // unconditionally overwrites it at the end), so that alone can't tell
+  // apart "cancelRenameTrack() ran first" from "the cancel branch was
+  // deleted". cancelRenameTrack() has one distinguishing side effect —
+  // it calls renderTrackList() — so assert that too, via the __renderCount
+  // spy already installed for renderTrackList (see resetSpies()/line 132).
   resetSpies();
   global.AppState = freshAppState();
   const t1 = makeTrack('t1'), t2 = makeTrack('t2');
@@ -472,6 +478,7 @@ test('startRenameTrack: starting a rename while another is in progress cancels t
   GSRTrackManager.startRenameTrack('t2');
 
   assert.strictEqual(global.AppState._renamingTrackId, 't2', 'rename moved to the new target');
+  assert.strictEqual(global.__renderCount, 1, 'cancelRenameTrack() should have run for t1, re-rendering the list once');
   dom.restore();
   delete global.AppState;
 });

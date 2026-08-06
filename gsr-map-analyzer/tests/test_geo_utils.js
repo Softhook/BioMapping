@@ -162,18 +162,40 @@ test('chaikinSmooth: closed square loop dedupes the repeated closing vertex and 
   assert.deepStrictEqual(result[result.length - 1], result[0], 'ring should be re-closed: last point === first point');
 });
 
-test('chaikinSmooth: more iterations pulls points further from the sharp corner (progressively rounder)', () => {
+test('chaikinSmooth: more iterations shortens total path length (progressively rounder, converging corner-cut)', () => {
+  // NOTE: "distance from the nearest sample point to the original corner"
+  // is NOT a valid measure of rounding here — it's confounded by point
+  // density (more iterations = more samples = a sample happens to land
+  // closer purely by resolution, even with zero further smoothing).
+  // Verified numerically: for this exact corner, that metric goes 2.5 ->
+  // 1.98 -> 1.82 -> ... i.e. it looks like it's "proving" progressive
+  // rounding, but a *distance-to-the-polyline-as-a-path* check shows the
+  // curve's closest approach to the corner is already at its converged
+  // limit after a single iteration for this symmetric right-angle corner —
+  // the earlier metric's improvement was pure sampling-density artifact.
+  //
+  // Total path length IS a true, monotonically-decreasing invariant of
+  // Chaikin corner-cutting: each cut replaces a corner with a chord,
+  // strictly shortening the path, converging toward the limit spline's
+  // (shorter) length. That's what "progressively rounder" actually means
+  // here, and it holds regardless of how densely the result is sampled.
   const pts = [{ lat: 0, lon: 0 }, { lat: 0, lon: 10 }, { lat: 10, lon: 10 }];
+  const pathLength = (poly) => {
+    let len = 0;
+    for (let i = 0; i < poly.length - 1; i++) {
+      len += Math.hypot(poly[i + 1].lat - poly[i].lat, poly[i + 1].lon - poly[i].lon);
+    }
+    return len;
+  };
+  const original = pathLength(pts);
   const one = GeoUtils.chaikinSmooth(pts, 1, false);
   const three = GeoUtils.chaikinSmooth(pts, 3, false);
-  // The point nearest the original sharp corner (0,10) should sit closer to
-  // it after fewer iterations than after more iterations of corner-cutting.
-  const nearCornerOne = one.find(p => p.lon === 7.5 && p.lat === 0);
-  const distFromCorner = (p) => Math.hypot(p.lat - 0, p.lon - 10);
-  const closestThree = three.reduce((best, p) => Math.min(best, distFromCorner(p)), Infinity);
-  assert.ok(distFromCorner(nearCornerOne) < closestThree || three.length > one.length,
-    'higher iteration count should further erode the sharp corner (or at least subdivide further)');
-  assert.ok(three.length > one.length, 'more iterations should produce more points');
+  const lenOne = pathLength(one);
+  const lenThree = pathLength(three);
+
+  assert.ok(lenOne < original, 'even one corner cut should shorten the path below the sharp-cornered original');
+  assert.ok(lenThree < lenOne, 'more iterations should shorten the path further, converging toward the limit curve');
+  assert.ok(three.length > one.length, 'more iterations should also produce more points');
 });
 
 // ---------------------------------------------------------------------------

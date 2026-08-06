@@ -185,12 +185,16 @@ test('deconvolve: negative-index onsets (SCR apex within kPeakIdx samples of t=0
 test('deconvolve: respects the maxIter budget on a signal that would otherwise need more iterations', () => {
   // Many separated, low-amplitude spikes just above convTol force one MP
   // iteration each; capping maxIter well below that count must bound
-  // result.iterations without throwing or looping forever.
+  // result.iterations to exactly maxIter (49 spikes are available, so the
+  // budget — not convergence — is what stops the loop). An `<=` check here
+  // would pass even if the maxIter loop bound were silently broken, since
+  // nothing else in the algorithm could push iterations past 5 by accident;
+  // asserting the exact count makes this a real regression guard.
   const n = 500;
   const phasic = new Float64Array(n);
   for (let i = 10; i < n; i += 10) phasic[i] = 0.5; // 49 separated spikes
   const result = SCRDeconvolution.deconvolve(phasic, SR, { maxIter: 5, convTol: 0.001 });
-  assert.ok(result.iterations <= 5, `iterations (${result.iterations}) must not exceed maxIter (5)`);
+  assert.strictEqual(result.iterations, 5, 'maxIter=5 with 49 available spikes should use the full budget');
 });
 
 test('deconvolve: convTol stops iteration once the residual max falls below threshold', () => {
@@ -201,7 +205,12 @@ test('deconvolve: convTol stops iteration once the residual max falls below thre
   assert.strictEqual(result.iterations, 0, 'a residual entirely below convTol should never place an atom');
 });
 
-test('deconvolve: driver and residual stay non-negative throughout (nonnegative deconvolution)', () => {
+test('deconvolve: driver stays non-negative throughout (nonnegative deconvolution)', () => {
+  // NOTE: deconvolve()'s return value has no `residual` field to inspect —
+  // this only checks `driver`, which is structurally guaranteed to be >= 0
+  // regardless of overlap (it only ever accumulates maxVal*lr with
+  // maxVal >= 0). Kept as a documentation/regression guard, not a
+  // discriminating test of the overlap-handling logic itself.
   const n = 200;
   const trueDriver = new Float64Array(n);
   trueDriver[40] = 0.9;
@@ -228,8 +237,14 @@ test('deconvolve: single-sample phasic array does not throw', () => {
   });
 });
 
-test('deconvolve: negative input values are clamped to zero before fitting begins', () => {
-  // "Clamp input" comment: residual[i] = Math.max(0, phasic[i]).
+test('deconvolve: a signal with no positive samples places zero impulses', () => {
+  // NOTE: this does NOT actually exercise the "Clamp input" line
+  // (residual[i] = Math.max(0, phasic[i])) — the max-search below it
+  // initializes maxVal to 0 and only accepts strictly-greater values, so a
+  // negative sample can never win regardless of whether it was clamped
+  // first. The clamp is presently redundant with that threshold; this test
+  // only documents the end-to-end guarantee that negative/zero-only input
+  // yields no impulses, which holds either way.
   const phasic = new Float64Array(30);
   phasic[10] = -3.0; // physically invalid input
   const result = SCRDeconvolution.deconvolve(phasic, SR, { maxIter: 10 });

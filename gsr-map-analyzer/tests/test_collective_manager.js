@@ -224,6 +224,16 @@ test('generateContourSurface: default gridResolution/contourCount come from GSR_
   assert.ok(Array.isArray(result.grid), 'should return a real surface object, not []');
   assert.strictEqual(result.grid.length, global.GSR_CONST.COLLECTIVE.gridResolution);
   assert.strictEqual(result.grid[0].length, global.GSR_CONST.COLLECTIVE.gridResolution);
+
+  // contourCount default: with this gradient fixture every one of the mock's
+  // 10 default percentile levels lands on a distinct grid value, so the
+  // count of generated contours should match GSR_CONST.COLLECTIVE.contourCount
+  // exactly — distinguishing "used the real default" from an accidental
+  // hardcoded count elsewhere in the level-generation loop.
+  assert.strictEqual(result.contours.length, global.GSR_CONST.COLLECTIVE.contourCount);
+
+  const overridden = mgr.generateContourSurface({ isolationRadius: 500, normalizeZScore: false, contourCount: 1 });
+  assert.strictEqual(overridden.contours.length, 1, 'an explicit contourCount should override the default');
 });
 
 test('generateContourSurface: returns the expected shape { contours, grid, minVal, maxVal, bounds, sortedVals }', () => {

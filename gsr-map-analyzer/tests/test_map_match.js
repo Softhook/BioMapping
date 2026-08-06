@@ -190,10 +190,16 @@ test('match: a gap point with zero candidates does not corrupt the rest of the s
   });
 });
 
-test('match: road-class penalty prefers a footway over an equidistant residential road', () => {
-  // Two parallel ways equidistant from the fix; footway carries a -8 m
-  // class bonus in _ROAD_CLASS_PENALTY, so it should be picked even though
-  // raw perpendicular distance ties.
+test('match: road-class penalty breaks an EXACT distance tie in favour of a footway over a residential road', () => {
+  // _logEmit deliberately ignores road class (see its docstring — "excluded
+  // ... to avoid double-counting"), so class only affects effDist-based
+  // candidate ORDERING, not the Viterbi score itself. With a single eval
+  // point, a genuine dist tie leaves both candidates with an identical
+  // emission log-prob, so the backtrace's strict `>` comparison picks
+  // whichever candidate sorted first — and effDist sorts the footway first
+  // thanks to its -8 m class bonus. This test documents that tie-break
+  // mechanism; it is NOT evidence that class preference survives a real
+  // distance difference (see the "does not override" test below for that).
   const residential = way('RES', [{ lat: metersToLatDeg(9), lon: 0 }, { lat: metersToLatDeg(9), lon: 0.001 }], 'residential');
   const footway = way('FOOT', [{ lat: -metersToLatDeg(9), lon: 0 }, { lat: -metersToLatDeg(9), lon: 0.001 }], 'footway');
   const raw = [{ time: 0 }];
@@ -201,6 +207,23 @@ test('match: road-class penalty prefers a footway over an equidistant residentia
 
   const result = MapMatcher.match(evalPoints, raw, 50);
   assert.strictEqual(result.get(0).wayId, 'FOOT');
+});
+
+test('match: road-class penalty does NOT override a real distance difference in the final match', () => {
+  // Companion to the tie-break test above: once the raw perpendicular
+  // distances actually differ, _logEmit's pure-distance Gaussian dominates
+  // and the closer road wins regardless of class, even though the farther
+  // footway still sorts first in the effDist-ranked candidate list.
+  const residential = way('RES', [{ lat: metersToLatDeg(2), lon: 0 }, { lat: metersToLatDeg(2), lon: 0.001 }], 'residential');
+  const footway = way('FOOT', [{ lat: -metersToLatDeg(8), lon: 0 }, { lat: -metersToLatDeg(8), lon: 0.001 }], 'footway');
+  const raw = [{ time: 0 }];
+  const evalPoints = [{ idx: 0, lat: 0, lon: 0.0005, nearby: [residential, footway] }];
+
+  const cands = MapMatcher._getCandidates(0, 0.0005, [residential, footway], 50, NaN, NaN);
+  assert.strictEqual(cands[0].wayId, 'FOOT', 'sanity check: the farther footway should still rank first by effDist');
+
+  const result = MapMatcher.match(evalPoints, raw, 50);
+  assert.strictEqual(result.get(0).wayId, 'RES', 'the genuinely closer road should win the actual match despite ranking second');
 });
 
 test('match: non-highway / malformed geometries in `nearby` are ignored, not crashed on', () => {
@@ -218,10 +241,13 @@ test('match: non-highway / malformed geometries in `nearby` are ignored, not cra
   });
 });
 
-test('match: speed/course-aware candidate ranking favours the segment matching the direction of travel', () => {
-  // Two crossing ways through the same point; when speed is above the gate
-  // and course is supplied, the segment whose bearing matches course should
-  // be preferred over the perpendicular one, even at equal raw distance.
+test('match: speed/course-aware candidate ranking breaks an EXACT distance tie in favour of the heading-aligned segment', () => {
+  // Same tie-break mechanism as the road-class test above: _logEmit ignores
+  // bearingDiffRad entirely (by design, see its docstring), so heading only
+  // shifts effDist-based candidate ORDERING. With both ways passing exactly
+  // through the fix (dist=0 for each), the emission scores are identical and
+  // the backtrace's strict `>` falls through to whichever candidate sorted
+  // first — which effDist puts as the heading-aligned one.
   const eastWest = way('EW', [{ lat: 0, lon: -0.001 }, { lat: 0, lon: 0.001 }]);
   const northSouth = way('NS', [{ lat: -0.001, lon: 0 }, { lat: 0.001, lon: 0 }]);
   const raw = [{ time: 0, speedKts: 5, course: 90 }]; // moving due east (~2.57 m/s, above SPEED_GATE)

@@ -191,8 +191,15 @@ test('setRadius: updates options.radiusMeters and re-precalculates spatial fans'
   global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
   const renderer = new RFFluidRenderer(map);
 
+  // Spy on the instance (own-property override shadows the prototype method)
+  // so we can prove _precalculateSpatialFans() is actually invoked by
+  // setRadius(), not just that radiusMeters got written and nothing threw.
+  let fansRecalculated = 0;
+  renderer._precalculateSpatialFans = () => { fansRecalculated++; };
+
   assert.doesNotThrow(() => renderer.setRadius(60));
   assert.strictEqual(renderer.options.radiusMeters, 60);
+  assert.strictEqual(fansRecalculated, 1, 'setRadius should re-run _precalculateSpatialFans exactly once');
 });
 
 test('setVisible: toggles canvas display style and redraws only when becoming visible', () => {
@@ -201,11 +208,20 @@ test('setVisible: toggles canvas display style and redraws only when becoming vi
   global.L.DomUtil.create = () => canvasEl;
   const renderer = new RFFluidRenderer(map);
 
+  // Spy on the instance so the "redraws only when becoming visible" claim
+  // is actually checked, not just the display style / options flag (which
+  // don't depend on rf_fluid_renderer.js:385's `if (visible) this.redraw()`
+  // branch at all).
+  let redrawCount = 0;
+  renderer.redraw = () => { redrawCount++; };
+
   renderer.setVisible(false);
   assert.strictEqual(canvasEl.style.display, 'none');
   assert.strictEqual(renderer.options.visible, false);
+  assert.strictEqual(redrawCount, 0, 'becoming invisible should not trigger a redraw');
 
   renderer.setVisible(true);
   assert.strictEqual(canvasEl.style.display, 'block');
   assert.strictEqual(renderer.options.visible, true);
+  assert.strictEqual(redrawCount, 1, 'becoming visible should trigger exactly one redraw');
 });

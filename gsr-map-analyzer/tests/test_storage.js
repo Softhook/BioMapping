@@ -158,6 +158,15 @@ test('readGsrSliderValues: shape sliders read the locked dataset.customValue whe
 
 // ── GSRStorage.readGpsSliderValues() ────────────────────────────────────
 
+test('readGpsSliderValues: returns null (not a throw) when AppState.sliders is undefined', () => {
+  // Regression test: unlike readGsrSliderValues/readContourSliderValues, this
+  // used to have no `!S` guard and would throw a TypeError reading S.gpsSmoothing
+  // off undefined — which broke exportPreset()'s "no active slider settings"
+  // alert path when sliders hadn't been wired up yet.
+  resetGlobals();
+  assert.strictEqual(GSRStorage.readGpsSliderValues(), null);
+});
+
 test('readGpsSliderValues: falls back to GPS_DEFAULT for every field when sliders are absent', () => {
   resetGlobals();
   global.AppState.sliders = {};
@@ -249,6 +258,16 @@ test('buildGpsParams: downsample=0 maps to false', () => {
 test('exportPreset: alerts and does not throw when no active slider settings are found', async () => {
   resetGlobals();
   global.AppState.sliders = {}; // readGsrSliderValues() -> null (no medianSize)
+  await GSRStorage.exportPreset('mytest');
+  assert.strictEqual(alertCalls.length, 1);
+  assert.match(alertCalls[0], /No active slider settings/);
+});
+
+test('exportPreset: alerts (does not throw) when AppState.sliders is entirely undefined', async () => {
+  // Regression test: readGpsSliderValues() used to throw a TypeError here
+  // instead of returning null, crashing exportPreset() before it could reach
+  // its own `if (!gsr || !gps)` guard.
+  resetGlobals();
   await GSRStorage.exportPreset('mytest');
   assert.strictEqual(alertCalls.length, 1);
   assert.match(alertCalls[0], /No active slider settings/);

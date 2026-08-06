@@ -50,10 +50,25 @@ test('saveFile: base64 data URL is decoded to a Blob without throwing', async ()
   assert.strictEqual(result, true);
 });
 
-test('saveFile: non-base64 (percent-encoded) data URL is decoded without throwing', async () => {
+test('saveFile: non-base64 (percent-encoded) data URL is decoded to a Blob with the correct MIME type', async () => {
+  // Regression test: a data URL with no ";base64"/";charset" suffix (no literal
+  // ";" before the comma) used to fail the mime-sniffing regex entirely and
+  // silently fall back to the extension-guessed type instead of "text/plain".
+  let written = null;
+  global.window = {
+    showSaveFilePicker: async () => ({
+      createWritable: async () => ({
+        write: async (blob) => { written = blob; },
+        close: async () => {},
+      }),
+    }),
+  };
   const dataUrl = 'data:text/plain,' + encodeURIComponent('hello world');
   const result = await GSRFileSaver.saveFile(dataUrl, 'note.txt');
   assert.strictEqual(result, true);
+  assert.ok(written, 'blob should have been written via the picker handle');
+  assert.strictEqual(written.type, 'text/plain');
+  delete global.window;
 });
 
 test('saveFile: Blob content is used as-is', async () => {
@@ -102,12 +117,30 @@ test('saveFile: showSaveFilePicker AbortError (user cancelled) returns false, no
 });
 
 test('saveFile: a non-abort picker error falls back to direct download instead of rejecting', async () => {
+  const created = [];
   global.window = {
     showSaveFilePicker: async () => { throw new Error('picker not permitted in this context'); },
   };
+  global.document = {
+    createElement: (tag) => {
+      const el = { tag, style: {}, clicked: false, click() { this.clicked = true; } };
+      return el;
+    },
+    body: {
+      appendChild: (el) => created.push({ action: 'append', el }),
+      removeChild: (el) => created.push({ action: 'remove', el }),
+    },
+  };
+  global.URL.createObjectURL = global.URL.createObjectURL || (() => 'blob:fake-url');
+  global.URL.revokeObjectURL = global.URL.revokeObjectURL || (() => {});
+
   const result = await GSRFileSaver.saveFile('a,b\n1,2', 'export.csv');
   assert.strictEqual(result, true, 'should fall through to the download-link path and still resolve true');
+  assert.strictEqual(created.length, 2, 'the DOM fallback should actually have appended and removed a download link');
+  assert.strictEqual(created[0].el.clicked, true, 'the fallback link should have been clicked to trigger the download');
+
   delete global.window;
+  delete global.document;
 });
 
 test('saveFile: custom `types` argument is passed straight through to showSaveFilePicker without being overridden', async () => {

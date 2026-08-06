@@ -79,6 +79,7 @@ const GSRStorage = {
    */
   readGpsSliderValues() {
     const S = AppState.sliders;
+    if (!S) return null;
     const D = GSR_CONST.GPS_DEFAULT;
     return {
       smoothing:             parseFloat(S.gpsSmoothing ? S.gpsSmoothing.value : D.smoothing),

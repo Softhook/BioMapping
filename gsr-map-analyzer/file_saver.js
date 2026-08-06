@@ -43,7 +43,7 @@ const GSRFileSaver = {
     } else if (typeof content === 'string') {
       if (content.startsWith('data:')) {
         const parts = content.split(',');
-        const mimeMatch = parts[0].match(/:(.*?);/);
+        const mimeMatch = parts[0].match(/^data:([^;]*)/);
         const mime = mimeMatch ? mimeMatch[1] : format.mimeType;
         const isBase64 = parts[0].includes(';base64');
         if (isBase64) {

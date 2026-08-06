@@ -203,7 +203,21 @@ test('exportProject: builds a suggestedName from the current date and hands the 
 
 // ── importProject ────────────────────────────────────────────────────────
 test('importProject: returns without doing anything when no file is given', async () => {
+  // Regression: importProject() checks `typeof JSZip === 'undefined'` BEFORE
+  // `!file` (collective_project.js:181-185). global.JSZip must be defined
+  // here or this test actually falls through the JSZip-missing branch
+  // instead of the `!file` early-return it claims to cover — which is
+  // exactly what happened before this fix, since the previous test's
+  // cleanup deletes global.JSZip.
+  global.JSZip = class {};
+  let alerted = false;
+  global.alert = () => { alerted = true; };
+
   await assert.doesNotReject(GSRCollectiveProject.importProject(null));
+  assert.strictEqual(alerted, false, 'a null file should be a silent no-op, not an alert');
+
+  delete global.JSZip;
+  global.alert = () => {};
 });
 
 test('importProject: shows an alert and does not throw when JSZip is unavailable', async () => {

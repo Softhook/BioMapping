@@ -92,8 +92,24 @@ test('getContourLines: interpolated points fall within the supplied lat/lon boun
   }
 });
 
-test('getContourLines: exact isolevel match on both edge endpoints does not divide by zero', () => {
-  // v1 === v2 === isolevel triggers the |v1-v2| < 1e-9 branch (return p1) rather than 0/0 division.
+test('getContourLines: tied corner values at the isolevel boundary does not throw', () => {
+  // NOTE: this grid does NOT actually exercise interpolate()'s
+  // `|v1-v2| < 1e-9` guard. With this NW=NE=5, isolevel=5 grid, cellIndex
+  // works out to 13 (case: getB()+getR()), so the tied NW/NE pair (the top
+  // edge) is never interpolated at all.
+  //
+  // In fact that guard is structurally unreachable through getContourLines()
+  // for any non-masked grid: cellIndex bits come from the SAME `v >= isolevel`
+  // predicate applied to both endpoints of every edge the switch table can
+  // select, so two equal values always classify identically (both high or
+  // both low) — meaning the switch table can never pick an edge whose own
+  // two corners are numerically tied (a "crossing" edge, by construction,
+  // needs corners on opposite sides of isolevel, which requires them to
+  // differ). The guard only matters for interpolate() as a defensively
+  // written helper (e.g. against a future edit to the case table), not for
+  // any input reachable via the public API today.
+  //
+  // Kept as a general no-crash/robustness check on a boundary-value grid.
   const grid = [
     [5, 5],
     [10, 0],
