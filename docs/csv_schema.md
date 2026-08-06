@@ -1,7 +1,7 @@
 # BioMapping CSV Schema
 
 > **Canonical reference.** Update this file whenever the column list changes.
-> Referenced from: `biomap_session.c`, `sd_logger.h`, `analyzer.js`, `analyze_track.py`.
+> Referenced from: `biomap_session.c`, `sd_logger.h`, `analyzer.js`, `scripts/analyze_track.py`.
 
 ---
 

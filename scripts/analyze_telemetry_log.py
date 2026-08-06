@@ -9,9 +9,9 @@ and newer lines with windowed diagnostics:
   telemetry tick_dt=... tick_max=... ovr150=... flush_last=... flush_max=...
 
 Usage:
-  python3 analyze_telemetry_log.py tracks/seriallog.txt
-  python3 analyze_telemetry_log.py tracks/seriallog.txt --events 20
-  python3 analyze_telemetry_log.py tracks/seriallog.txt --tick-threshold 150
+  python3 scripts/analyze_telemetry_log.py tracks/seriallog.txt
+  python3 scripts/analyze_telemetry_log.py tracks/seriallog.txt --events 20
+  python3 scripts/analyze_telemetry_log.py tracks/seriallog.txt --tick-threshold 150
 """
 
 from __future__ import annotations

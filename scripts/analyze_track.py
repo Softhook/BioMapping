@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 BioMapping GPS/GSR Track Analyzer
-Usage: python3 analyze_track.py biomap_XXX.csv
+Usage: python3 scripts/analyze_track.py biomap_XXX.csv
 
 Analyzes GPS quality metrics, GSR signal characteristics, and cross-track
 comparisons.  Designed for rapid iteration during firmware and algorithm
