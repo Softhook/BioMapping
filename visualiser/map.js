@@ -944,11 +944,15 @@ class GSRMapManager {
         // (on the map), never directly onto the map. `layerGroup` is null when
         // there is no managed track — fall back to the legacy direct add.
         const poly = L.polyline(latlngsBuf.slice(), { color, weight: trackWeight, opacity: 0.95 });
+        // Phase 1 (slice 3): the single-track path respects the global
+        // showTracks toggle (same as collective paths) so the GPS "Tracks"
+        // button hides the path in both modes. Always tag the owning group so
+        // toggleTracks can restore it into the group later.
         if (layerGroup) {
           poly._gsrLayerGroup = layerGroup;
           poly._gsrKind = 'path';
-          layerGroup.addLayer(poly);
-        } else {
+          if (this.showTracks) layerGroup.addLayer(poly);
+        } else if (this.showTracks) {
           poly.addTo(this.map);
         }
         this._registerTrackLayer(track, poly);
@@ -1703,11 +1707,13 @@ class GSRMapManager {
    */
   toggleTracks(visible) {
     this.showTracks = visible;
-    // Phase 1 (slice 3): collective paths live inside each track's layerGroup;
-    // iterate the full registry rather than a flat array so paths can be
-    // restored after being hidden.
+    // Phase 1 (slice 3): the GPS "Tracks" toggle controls the track path in
+    // BOTH modes — the single-track path ('path') and the collective paths
+    // ('collectivePath') live inside each track's layerGroup; iterate the full
+    // registry rather than a flat array so paths can be restored after being
+    // hidden.
     for (const m of this._allTrackLayers()) {
-      if (m._gsrKind === 'collectivePath') this._toggleLayer(m, visible);
+      if (m._gsrKind === 'path' || m._gsrKind === 'collectivePath') this._toggleLayer(m, visible);
     }
   }
 
@@ -1747,6 +1753,13 @@ class GSRMapManager {
     this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
     this.clearContours();
     this._clearRfFluid();
+    // There is no graph to scrub in collective view — drop any scrub indicator
+    // left over from single-track hover. clearMap covers the full clearAll()
+    // path; this covers the 0-active-tracks path, which only calls
+    // clearCollectiveLayers() (and noLoop() stops handleScrubber from hiding it).
+    if (this.scrubMarker && this.map && this.map.hasLayer(this.scrubMarker)) {
+      this.map.removeLayer(this.scrubMarker);
+    }
   }
 
   /**

@@ -844,6 +844,11 @@ const GSREvents = {
       document.getElementById('eventsPanel').style.display = 'none';
       noLoop();
 
+      // No graph to scrub in collective view — drop any scrub indicator left
+      // over from single-track hover immediately (the collective render below
+      // is debounced ~150ms, and handleScrubber no longer runs after noLoop()).
+      if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
+
       GSRUI.updateCollectiveMap();
       GSRUI.refreshOsmControls(); // reflects all/none/mixed enrichment across active tracks
       if (AppState.mapManager && AppState.mapManager.map) {

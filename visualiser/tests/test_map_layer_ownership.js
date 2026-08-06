@@ -154,6 +154,7 @@ function installRecordingLeaflet(window) {
       bindTooltip() { return this; },
       setZIndexOffset() { return this; },
       setOpacity() { return this; },
+      setLatLng() { return this; },
       on() { return this; },
       openPopup() { return this; }
     };
@@ -607,4 +608,44 @@ test('slice3: fitToTrack still fits the rendered paths without the flat arrays',
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
   assert.doesNotThrow(() => mapManager.fitToTrack(), 'fitToTrack should work off the derived paths');
+});
+
+test('slice3: showTracks toggle controls the single-track path too', () => {
+  // The GPS "Tracks" toggle must hide the track path in BOTH modes. In single
+  // mode the active track's path is rendered by _renderPathSegments, which
+  // used to ignore showTracks entirely (and toggleTracks only handled the
+  // collectivePath kind) — so the toggle could never hide the GPS path.
+  const { window, map, mapManager } = bootWithRecordingL();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+
+  mapManager.showTracks = false;
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+  const kindsHidden = track.layerGroup.getLayers().map(l => l._gsrKind);
+  assert.ok(!kindsHidden.includes('path'), 'single-track path should be hidden when showTracks=false');
+  assert.ok(kindsHidden.includes('peak'), 'peak markers should still render');
+
+  mapManager.toggleTracks(true);
+  const kindsShown = track.layerGroup.getLayers().map(l => l._gsrKind);
+  assert.ok(kindsShown.includes('path'), 'single-track path should reappear when showTracks=true');
+});
+
+test('slice3: entering collective (0 active tracks) drops a lingering scrub marker', () => {
+  // Regression for: "black pulsing dot on the map while not in the scrub graph
+  // window." Hovering the single-track graph shows the map scrub indicator;
+  // entering collective with 0 active tracks calls clearCollectiveLayers() (not
+  // clearMap), which used to leave that marker on the map — and with noLoop()
+  // stopping handleScrubber there, nothing ever hid it.
+  const { window, map, mapManager } = bootWithRecordingL();
+  addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
+
+  // Show the scrub indicator (as if hovering the graph in single mode).
+  mapManager.setScrubPosition(51.5, -0.1);
+  assert.ok(map.hasLayer(mapManager.scrubMarker), 'precondition: scrub marker shown on the map');
+
+  // The 0-active-tracks collective path (ui.js _updateCollectiveMapNow) only
+  // calls clearCollectiveLayers().
+  mapManager.clearCollectiveLayers();
+
+  assert.ok(!map.hasLayer(mapManager.scrubMarker),
+    'clearCollectiveLayers should drop the scrub marker (no graph to scrub in collective view)');
 });

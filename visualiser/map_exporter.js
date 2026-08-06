@@ -1063,11 +1063,11 @@ class GSRMapExporter {
       : (o.weight !== undefined ? Math.min(1.5, o.weight * 0.4) : 1.2);
 
     return `<path d="${d}"` +
-      ` stroke="${esc(o.color || '#ff7b00')}"` +
+      ` stroke="${esc(this._toHex(o.color || '#ff7b00'))}"` +
       ` stroke-width="${esc(strokeWidth)}"` +
       ` stroke-opacity="${esc(o.opacity ?? 0.85)}"` +
       ` stroke-dasharray="${esc(o.dashArray || 'none')}"` +
-      ` fill="${esc(isPoly ? (o.fillColor || o.color || '#ff7b00') : 'none')}"` +
+      ` fill="${esc(isPoly ? this._toHex(o.fillColor || o.color || '#ff7b00') : 'none')}"` +
       ` fill-opacity="${esc(isPoly ? (o.fillOpacity ?? 0.2) : 0)}"` +
       (exact
         ? ` stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="10" />`
@@ -1234,6 +1234,25 @@ class GSRMapExporter {
     const r = Math.max(0, Math.min(1, ratio));
     const hue = (1.0 - r) * 120; // 120 = Green, 60 = Yellow, 0 = Red
     return this._hslToHex(hue, 100, 50);
+  }
+
+  /**
+   * Convert a CSS color to a #rrggbb hex string so the exported SVG does not
+   * depend on a viewer's hsl() support. Track paths, contour isolines and
+   * cluster outlines all carry their color as an hsl(...) string (often with
+   * a long-decimal hue, e.g. hsl(109.0909090909091, 100%, 55%)) which some SVG
+   * renderers / Illustrator fail to parse and paint black — the "GPS tracks /
+   * ISO contours export as black & white" bug. Hex, rgb()/rgba() and named
+   * colors pass through unchanged.
+   * @private
+   */
+  static _toHex(color) {
+    if (!color || typeof color !== 'string' || color[0] === '#') return color;
+    const m = color.match(/^hsl\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*\)$/i);
+    if (m) {
+      return this._hslToHex(parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3]));
+    }
+    return color;
   }
 
   static _img(x, y, w, h, url) {
