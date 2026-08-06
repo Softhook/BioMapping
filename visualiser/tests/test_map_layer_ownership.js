@@ -737,6 +737,46 @@ test('slice3: peaks/hotspots hidden at render time still route through the track
   assert.strictEqual(map._groups.size, 0, 'no on-map groups should remain');
 });
 
+test('slice3: RF Fluid button stays in sync with showRFFluid across no-RF→RF renders', () => {
+  // Regression for: "RF fluid visible on the loaded track even when the button
+  // is not pressed, in collective mode." _updateRfFluidButtonState(false) (a
+  // no-RF track) used to clear the button's 'active' class and disable it while
+  // leaving showRFFluid true and the renderer visible. A later
+  // _updateRfFluidButtonState(true) (collective render where a track has RF
+  // data) re-enabled the button but did NOT restore its pressed state — so the
+  // fluid rendered behind an "unpressed" button with no way to turn it off.
+  // The button + renderer must be re-synced to the real showRFFluid value.
+  const { window, mapManager } = bootWithRecordingL();
+  const btn = window.document.getElementById('btnToggleRFFluid');
+  assert.ok(btn, 'RF Fluid button should exist in the booted DOM');
+
+  // Default: button pressed (HTML starts with 'active') and fluid on.
+  assert.ok(mapManager.showRFFluid, 'precondition: showRFFluid starts true');
+  assert.ok(btn.classList.contains('active'), 'precondition: button starts pressed');
+
+  // 1. Render a no-RF track → button disabled + unpressed, but showRFFluid stays true.
+  mapManager._updateRfFluidButtonState(false);
+  assert.ok(btn.hasAttribute('disabled'), 'no-RF track should disable the RF Fluid button');
+  assert.ok(!btn.classList.contains('active'), 'no-RF track should unpressed the button');
+
+  // 2. Render with RF data again → button re-enabled AND re-pressed (matching
+  //    the still-true showRFFluid), so the fluid is clearly "on".
+  mapManager._updateRfFluidButtonState(true);
+  assert.ok(!btn.hasAttribute('disabled'), 'RF track should re-enable the button');
+  assert.ok(btn.classList.contains('active'),
+    'RF track must restore the button pressed state to match showRFFluid (regression)');
+  assert.ok(mapManager.showRFFluid, 'showRFFluid unchanged by button-state sync');
+
+  // 3. User toggles fluid OFF → showRFFluid false; a no-RF then RF sequence
+  //    must NOT silently re-enable the fluid.
+  mapManager.showRFFluid = false;
+  mapManager._updateRfFluidButtonState(false); // no-RF track
+  mapManager._updateRfFluidButtonState(true);  // RF track
+  assert.ok(!btn.classList.contains('active'),
+    'after user toggled off, the RF Fluid button must stay unpressed through a re-render');
+  assert.ok(!mapManager.showRFFluid, 'showRFFluid stays false after user toggled off');
+});
+
 test('slice3: entering collective (0 active tracks) drops a lingering scrub marker', () => {
   // Regression for: "black pulsing dot on the map while not in the scrub graph
   // window." Hovering the single-track graph shows the map scrub indicator;

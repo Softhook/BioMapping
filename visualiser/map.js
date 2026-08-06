@@ -749,6 +749,16 @@ class GSRMapManager {
       } else {
         btnToggleRFFluid.removeAttribute('disabled');
         btnToggleRFFluid.title = "Toggle static ray-casted 3-frequency RF fluid background";
+        // Re-sync the button's pressed state (and the renderer's visibility)
+        // to the real RF-fluid toggle. Without this, a no-RF track earlier
+        // cleared the button's 'active' class while showRFFluid stayed true
+        // (and the renderer stayed visible), so a later RF render — e.g. a
+        // collective view where one track has RF data — drew the fluid behind
+        // an "unpressed" button with no way to turn it off.
+        btnToggleRFFluid.classList.toggle('active', !!this.showRFFluid);
+        if (this.rfFluidRenderer) {
+          this.rfFluidRenderer.setVisible(!!this.showRFFluid);
+        }
       }
     }
     if (rfFluidMode) {
