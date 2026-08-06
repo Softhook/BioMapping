@@ -93,7 +93,7 @@ const GpsFilter = {
     // Latitude: 1° ≈ 111,320 m (constant).
     // Longitude: 1° ≈ 111,320 × cos(lat) m — varies with latitude.
     // Use the mean latitude of the track for a reasonable approximation.
-    const meanLat = points.reduce((s, p) => s + p.lat, 0) / points.length;
+    const meanLat = points.reduce((s, p) => s + p.lat, 0) / n;
     const cosLat = Math.cos(meanLat * Math.PI / 180);
     const M_TO_DEG_LAT = 1.0 / 111320.0;
     const M_TO_DEG_LON = 1.0 / (111320.0 * cosLat);
@@ -134,29 +134,47 @@ const GpsFilter = {
     const getRLat = (pt) => getEffectiveRm2(pt) * M2_TO_DEG2_LAT;
     const getRLon = (pt) => getEffectiveRm2(pt) * M2_TO_DEG2_LON;
 
-    // Forward pass — standard Kalman filter with chi-squared innovation gate.
-    //
-    // Innovation gate: when the measurement disagrees with the prediction by
-    // more than 3σ (χ² = 9.0 for 1 DOF), the measurement is treated as an
-    // outlier and rejected — the prediction alone is used.  This is standard
-    // practice in navigation filters and is critical for urban canyons where
-    // multipath creates non-Gaussian 10–50 m jumps that HDOP does not catch.
-    const CHI2_THRESH = 9.0;  // 3σ for 1 DOF (99.7 % confidence)
+    const { forwardLats, forwardLons, fwdCovLat, fwdCovLon } =
+      this._kalmanForwardPass(points, Q_LAT, Q_LON, R_LAT_BASE, R_LON_BASE, getRLat, getRLon);
+
+    return this._rtsBackwardPass(
+      points, forwardLats, forwardLons, fwdCovLat, fwdCovLon,
+      Q_LAT, Q_LON, R_m2, M_TO_DEG_LAT
+    );
+  },
+
+  /**
+   * Chi-squared-gated Kalman forward pass over GPS points.
+   *
+   * Innovation gate: when the measurement disagrees with the prediction by
+   * more than 3σ (χ² = 9.0 for 1 DOF), the measurement is treated as an
+   * outlier and rejected — the prediction alone is used.  This is standard
+   * practice in navigation filters and is critical for urban canyons where
+   * multipath creates non-Gaussian 10–50 m jumps that HDOP does not catch.
+   *
+   * @param {Array}    points      - GPS points with lat/lon/time fields.
+   * @param {number}   Q_LAT       - Process noise variance, latitude (deg²).
+   * @param {number}   Q_LON       - Process noise variance, longitude (deg²).
+   * @param {number}   R_LAT_BASE  - Base measurement variance, latitude (deg²).
+   * @param {number}   R_LON_BASE  - Base measurement variance, longitude (deg²).
+   * @param {Function} getRLat     - Per-point effective R for latitude (deg²).
+   * @param {Function} getRLon     - Per-point effective R for longitude (deg²).
+   * @returns {{ forwardLats, forwardLons, fwdCovLat, fwdCovLon }}
+   */
+  _kalmanForwardPass(points, Q_LAT, Q_LON, R_LAT_BASE, R_LON_BASE, getRLat, getRLon) {
+    const n = points.length;
+    const CHI2_THRESH = 9.0; // 3σ for 1 DOF (99.7 % confidence)
     const forwardLats = new Array(n);
     const forwardLons = new Array(n);
-    const fwdCovLat    = new Array(n);
-    const fwdCovLon    = new Array(n);
+    const fwdCovLat   = new Array(n);
+    const fwdCovLon   = new Array(n);
 
-    let xLat = points[0].lat;
-    let xLon = points[0].lon;
-    let PLat = R_LAT_BASE;
-    let PLon = R_LON_BASE;
+    let xLat = points[0].lat,  xLon = points[0].lon;
+    let PLat = R_LAT_BASE,      PLon = R_LON_BASE;
     let lastTime = points[0].time;
 
-    forwardLats[0] = xLat;
-    forwardLons[0] = xLon;
-    fwdCovLat[0]    = PLat;
-    fwdCovLon[0]    = PLon;
+    forwardLats[0] = xLat;  forwardLons[0] = xLon;
+    fwdCovLat[0]   = PLat;  fwdCovLon[0]   = PLon;
 
     for (let i = 1; i < n; i++) {
       const dt = Math.max(0.1, points[i].time - lastTime);
@@ -172,8 +190,8 @@ const GpsFilter = {
       // Gate test uses the effective (hacc- or DOP-scaled) R — dynamically
       // adjusts outlier sensitivity.  Kalman gain uses the same inflated R —
       // deweights noisy measurements.
-      const innovLat = points[i].lat - xLat;
-      const innovLon = points[i].lon - xLon;
+      const innovLat   = points[i].lat - xLat;
+      const innovLon   = points[i].lon - xLon;
       const gateVarLat = pPLat + R_LAT;
       const gateVarLon = pPLon + R_LON;
       const gainVarLat = pPLat + R_LAT;
@@ -202,25 +220,38 @@ const GpsFilter = {
         PLon = pPLon * 5.0;
       }
 
-      forwardLats[i] = xLat;
-      forwardLons[i] = xLon;
-      fwdCovLat[i]    = PLat;
-      fwdCovLon[i]    = PLon;
+      forwardLats[i] = xLat;  forwardLons[i] = xLon;
+      fwdCovLat[i]   = PLat;  fwdCovLon[i]   = PLon;
     }
 
-    // RTS backward smoother — optimal gain from forward-pass covariance.
-    // A_i = P_i|i / (P_i|i + Q·dt)  =  P_fwd[i] / P_pred[i+1]
-    // For the scalar random-walk model (F = 1) the predicted state equals
-    // the filtered state, so the innovation is simply the difference
-    // between the already-smoothed next point and the current forward point.
-    //
-    // Per-point displacement cap: prevents the RTS backward propagation
-    // from pulling any single anchor beyond 3σ of the measurement noise
-    // (standard GPS/INS practice).  This is generous enough that the RTS
-    // is essentially never constrained at smooth extremes:
-    //   R=150 → 37 m  (RTS needs ~20 m — only 6 of 150 points hit the clamp)
-    //   R=10  →  9 m  (RTS needs ~3 m — 0 hits)
-    //   R=0.5 →  2 m  (RTS needs < 1 m — forward lag negligible, 0 hits)
+    return { forwardLats, forwardLons, fwdCovLat, fwdCovLon };
+  },
+
+  /**
+   * Rauch-Tung-Striebel (RTS) backward smoother — optimal gain from the
+   * forward-pass covariance.  A_i = P_fwd[i] / P_pred[i+1].
+   *
+   * Per-point displacement cap prevents the RTS backward propagation from
+   * pulling any single anchor beyond 3σ of the measurement noise (standard
+   * GPS/INS practice).
+   *
+   * @param {Array}    points      - Original GPS points (lat/lon/time source).
+   * @param {Array}    forwardLats - Filtered latitudes from the forward pass.
+   * @param {Array}    forwardLons - Filtered longitudes from the forward pass.
+   * @param {Array}    fwdCovLat   - Forward-pass covariance, latitude.
+   * @param {Array}    fwdCovLon   - Forward-pass covariance, longitude.
+   * @param {number}   Q_LAT       - Process noise variance, latitude (deg²).
+   * @param {number}   Q_LON       - Process noise variance, longitude (deg²).
+   * @param {number}   R_m2        - Base measurement noise variance (metres²).
+   * @param {number}   M_TO_DEG_LAT - Metres → degrees latitude conversion.
+   * @returns {Array} Smoothed GPS point array (same shape as input points).
+   */
+  _rtsBackwardPass(points, forwardLats, forwardLons, fwdCovLat, fwdCovLon, Q_LAT, Q_LON, R_m2, M_TO_DEG_LAT) {
+    const n = points.length;
+
+    // Per-point displacement clamp: prevents the RTS backward propagation
+    // from pulling any single anchor beyond 3σ of the measurement noise.
+    //   R=150 → 37 m  R=10 → 9 m  R=0.5 → 2 m
     const MAX_DISP_M  = 3.0 * Math.sqrt(R_m2);
     const maxDispDeg  = MAX_DISP_M * M_TO_DEG_LAT;
     const maxDispDeg2 = maxDispDeg * maxDispDeg;

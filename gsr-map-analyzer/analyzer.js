@@ -450,14 +450,11 @@ class GSRAnalyzer {
     let osmAmenityCountColIdx = headers.indexOf('osm_amenity_count_50m');
 
     // RF column detection (300, 315, 434, 446, 815, 868, 915 MHz RSSI & EM fog)
-    let rssi300ColIdx = headers.indexOf('rssi_300');
-    let rssi315ColIdx = headers.indexOf('rssi_315');
-    let rssi434ColIdx = headers.indexOf('rssi_434');
-    let rssi446ColIdx = headers.indexOf('rssi_446');
-    let rssi815ColIdx = headers.indexOf('rssi_815');
-    let rssi868ColIdx = headers.indexOf('rssi_868');
-    let rssi915ColIdx = headers.indexOf('rssi_915');
-    let emFogColIdx   = headers.indexOf('em_fog') !== -1 ? headers.indexOf('em_fog') : headers.indexOf('subghz_em_fog');
+    // EM fog has a legacy alias (subghz_em_fog) so it's handled separately.
+    const RF_BANDS = ['rssi_300', 'rssi_315', 'rssi_434', 'rssi_446', 'rssi_815', 'rssi_868', 'rssi_915'];
+    const rfColIdx = {};
+    for (const band of RF_BANDS) rfColIdx[band] = headers.indexOf(band);
+    let emFogColIdx = headers.indexOf('em_fog') !== -1 ? headers.indexOf('em_fog') : headers.indexOf('subghz_em_fog');
 
     // Fallbacks for main biometric columns
     if (colIndices['timestamp'] === -1) colIndices['timestamp'] = 0;
@@ -489,14 +486,13 @@ class GSRAnalyzer {
       let gsrVal = (colIndices['gsr_raw'] !== -1 && cols[colIndices['gsr_raw']]) ? parseFloat(cols[colIndices['gsr_raw']]) : NaN;
 
       // Parse RF fields (dBm)
-      let rssi_300 = rssi300ColIdx !== -1 && cols[rssi300ColIdx] ? parseFloat(cols[rssi300ColIdx]) : NaN;
-      let rssi_315 = rssi315ColIdx !== -1 && cols[rssi315ColIdx] ? parseFloat(cols[rssi315ColIdx]) : NaN;
-      let rssi_434 = rssi434ColIdx !== -1 && cols[rssi434ColIdx] ? parseFloat(cols[rssi434ColIdx]) : NaN;
-      let rssi_446 = rssi446ColIdx !== -1 && cols[rssi446ColIdx] ? parseFloat(cols[rssi446ColIdx]) : NaN;
-      let rssi_815 = rssi815ColIdx !== -1 && cols[rssi815ColIdx] ? parseFloat(cols[rssi815ColIdx]) : NaN;
-      let rssi_868 = rssi868ColIdx !== -1 && cols[rssi868ColIdx] ? parseFloat(cols[rssi868ColIdx]) : NaN;
-      let rssi_915 = rssi915ColIdx !== -1 && cols[rssi915ColIdx] ? parseFloat(cols[rssi915ColIdx]) : NaN;
-      let em_fog   = emFogColIdx   !== -1 && cols[emFogColIdx]   ? parseFloat(cols[emFogColIdx])   : NaN;
+      const rfRow = {};
+      for (const band of RF_BANDS) {
+        const idx = rfColIdx[band];
+        rfRow[band] = idx !== -1 && cols[idx] ? parseFloat(cols[idx]) : NaN;
+      }
+      let { rssi_300, rssi_315, rssi_434, rssi_446, rssi_815, rssi_868, rssi_915 } = rfRow;
+      let em_fog = emFogColIdx !== -1 && cols[emFogColIdx] ? parseFloat(cols[emFogColIdx]) : NaN;
 
       // Dynamic fallback for EM Fog if missing or NaN but RSSI values exist
       if (isNaN(em_fog)) {
@@ -720,80 +716,7 @@ class GSRAnalyzer {
     // ─────────────────────────────────────────────────────────────────────────
     // Linear Interpolation for Sparse 10 Hz GPS Coordinates
     // ─────────────────────────────────────────────────────────────────────────
-    let gpsIndices = [];
-    for (let i = 0; i < rawDataList.length; i++) {
-      const d = rawDataList[i];
-      if (!isNaN(d.lat) && !isNaN(d.lon) && (Math.abs(d.lat) > 0.0001 || Math.abs(d.lon) > 0.0001)) {
-        d.hasGps = true;
-        gpsIndices.push(i);
-      } else {
-        d.hasGps = false;
-        d.lat = NaN;
-        d.lon = NaN;
-      }
-    }
-
-    if (gpsIndices.length > 0) {
-      // 1. Fill values before first GPS coordinate
-      const firstGpsIdx = gpsIndices[0];
-      const firstGps = rawDataList[firstGpsIdx];
-      for (let i = 0; i < firstGpsIdx; i++) {
-        rawDataList[i].lat     = firstGps.lat;
-        rawDataList[i].lon     = firstGps.lon;
-        rawDataList[i].sats    = firstGps.sats;
-        rawDataList[i].hdop    = firstGps.hdop;
-        rawDataList[i].pdop    = firstGps.pdop;
-        rawDataList[i].fixType = firstGps.fixType;
-        rawDataList[i].speedKts = firstGps.speedKts;
-        rawDataList[i].course  = firstGps.course;
-        rawDataList[i].hasGps  = true;
-      }
-
-      // 2. Linearly interpolate coordinates in gap intervals
-      for (let k = 0; k < gpsIndices.length - 1; k++) {
-        const idxA = gpsIndices[k];
-        const idxB = gpsIndices[k + 1];
-        const dA = rawDataList[idxA];
-        const dB = rawDataList[idxB];
-        const tA = dA.time;
-        const tB = dB.time;
-
-        for (let i = idxA + 1; i < idxB; i++) {
-          const d = rawDataList[i];
-          const tI = d.time;
-          const ratio = (tI - tA) / (tB - tA);
-          d.lat = dA.lat + ratio * (dB.lat - dA.lat);
-          d.lon = dA.lon + ratio * (dB.lon - dA.lon);
-          d.sats    = dB.sats;
-          // Step-hold DOP, fix_type, and velocity from the prior GPS anchor —
-          // DOP reflects satellite geometry which changes slowly (~1 min).
-          // Speed/course are held rather than interpolated since they can
-          // jump discontinuously at corners; the velocity-aiding filter
-          // uses the per-anchor values directly.
-          d.hdop    = dA.hdop;
-          d.pdop    = dA.pdop;
-          d.fixType = dA.fixType;
-          d.speedKts = dA.speedKts;
-          d.course  = dA.course;
-          d.hasGps  = true;
-        }
-      }
-
-      // 3. Fill values after last GPS coordinate
-      const lastGpsIdx = gpsIndices[gpsIndices.length - 1];
-      const lastGps = rawDataList[lastGpsIdx];
-      for (let i = lastGpsIdx + 1; i < rawDataList.length; i++) {
-        rawDataList[i].lat     = lastGps.lat;
-        rawDataList[i].lon     = lastGps.lon;
-        rawDataList[i].sats    = lastGps.sats;
-        rawDataList[i].hdop    = lastGps.hdop;
-        rawDataList[i].pdop    = lastGps.pdop;
-        rawDataList[i].fixType = lastGps.fixType;
-        rawDataList[i].speedKts = lastGps.speedKts;
-        rawDataList[i].course  = lastGps.course;
-        rawDataList[i].hasGps  = true;
-      }
-    }
+    this._interpolateGPS(rawDataList);
 
     this.raw = rawDataList;
     this.hasRfData = rawDataList.some(r => !isNaN(r.rssi_300) || !isNaN(r.rssi_315) || !isNaN(r.rssi_434) || !isNaN(r.rssi_446) || !isNaN(r.rssi_815) || !isNaN(r.rssi_868) || !isNaN(r.rssi_915) || !isNaN(r.em_fog));
@@ -809,6 +732,82 @@ class GSRAnalyzer {
     }
 
     return this.raw;
+  }
+
+  /**
+   * Interpolate GPS coordinates across a dense 10 Hz row list where anchors
+   * arrive at the GPS fix rate (~1–5 Hz). Mutates rawDataList in-place:
+   *
+   * 1. Mark genuine fix rows (hasGps = true) and clear sentinel (0, 0) rows.
+   * 2. Constant-fill rows before the first fix from the first fix's position.
+   * 3. Linearly interpolate lat/lon between each pair of adjacent anchors;
+   *    step-hold DOP, fix_type, speed and course from the prior anchor
+   *    (they change too discontinuously to interpolate meaningfully).
+   * 4. Constant-fill rows after the last fix from the last fix's position.
+   *
+   * @param {Array<object>} rawDataList - Mutable array of parsed row objects.
+   * @private
+   */
+  _interpolateGPS(rawDataList) {
+    const gpsIndices = [];
+    for (let i = 0; i < rawDataList.length; i++) {
+      const d = rawDataList[i];
+      if (!isNaN(d.lat) && !isNaN(d.lon) && (Math.abs(d.lat) > 0.0001 || Math.abs(d.lon) > 0.0001)) {
+        d.hasGps = true;
+        gpsIndices.push(i);
+      } else {
+        d.hasGps = false;
+        d.lat = NaN;
+        d.lon = NaN;
+      }
+    }
+
+    if (gpsIndices.length === 0) return;
+
+    // 1. Fill rows before the first fix
+    const firstGps = rawDataList[gpsIndices[0]];
+    for (let i = 0; i < gpsIndices[0]; i++) {
+      Object.assign(rawDataList[i], {
+        lat: firstGps.lat, lon: firstGps.lon, sats: firstGps.sats,
+        hdop: firstGps.hdop, pdop: firstGps.pdop, fixType: firstGps.fixType,
+        speedKts: firstGps.speedKts, course: firstGps.course, hasGps: true
+      });
+    }
+
+    // 2. Linearly interpolate between adjacent anchors
+    for (let k = 0; k < gpsIndices.length - 1; k++) {
+      const idxA = gpsIndices[k];
+      const idxB = gpsIndices[k + 1];
+      const dA = rawDataList[idxA];
+      const dB = rawDataList[idxB];
+      const tA = dA.time, tB = dB.time;
+
+      for (let i = idxA + 1; i < idxB; i++) {
+        const d = rawDataList[i];
+        const ratio = (d.time - tA) / (tB - tA);
+        d.lat = dA.lat + ratio * (dB.lat - dA.lat);
+        d.lon = dA.lon + ratio * (dB.lon - dA.lon);
+        d.sats = dB.sats;
+        // Step-hold DOP, fix_type, and velocity from the prior GPS anchor —
+        // DOP reflects satellite geometry which changes slowly (~1 min).
+        // Speed/course are held rather than interpolated since they can
+        // jump discontinuously at corners; the velocity-aiding filter
+        // uses the per-anchor values directly.
+        d.hdop = dA.hdop; d.pdop = dA.pdop; d.fixType = dA.fixType;
+        d.speedKts = dA.speedKts; d.course = dA.course; d.hasGps = true;
+      }
+    }
+
+    // 3. Fill rows after the last fix
+    const lastGps = rawDataList[gpsIndices[gpsIndices.length - 1]];
+    const lastGpsIdx = gpsIndices[gpsIndices.length - 1];
+    for (let i = lastGpsIdx + 1; i < rawDataList.length; i++) {
+      Object.assign(rawDataList[i], {
+        lat: lastGps.lat, lon: lastGps.lon, sats: lastGps.sats,
+        hdop: lastGps.hdop, pdop: lastGps.pdop, fixType: lastGps.fixType,
+        speedKts: lastGps.speedKts, course: lastGps.course, hasGps: true
+      });
+    }
   }
 
   /**
@@ -1099,17 +1098,7 @@ class GSRAnalyzer {
     this.phasicDriverPeaks = [];
     if (n === 0) { this.peaks = []; return; }
 
-    // Preserve user-set labels/exclusions across re-analysis, same convention
-    // as detectPeaks().
-    const oldLabels = new Map();
-    const oldExcluded = new Set();
-    for (const pk of this.peaks) {
-      if (pk.label && pk.label.trim()) {
-        this.setPeakLabel(pk.time, pk.label);
-        oldLabels.set(pk.index, pk.label);
-      }
-      if (pk.excluded) oldExcluded.add(pk.index);
-    }
+    const { oldLabels, oldExcluded } = this._preserveLabelsAndExclusions();
 
     const scf = GSR_CONST.SCRF;
     const dt = 1.0 / this.sampleRate;
@@ -1451,28 +1440,10 @@ class GSRAnalyzer {
       const noiseFloor = this._computeNoiseFloor(onsetIdx, noiseHalfWin);
       const snr = noiseFloor > 0 ? amplitude / noiseFloor : 0;
 
-      const peak = {
-        index: i,
-        time: times[i],
-        value: curr,
-        amplitude: amplitude,
-        onsetIndex: onsetIdx,
-        onsetTime: times[onsetIdx],
-        onsetValue: cleanVals[onsetIdx],
-        recoveryIndex: recoveryIdx,
-        halfRecoveryTime: halfRecoveryTime,
-        riseTime: riseTime,
-        onsetSlope: onsetSlope,
-        decaySlope: decaySlope,
-        skewnessRatio: skewnessRatio,
-        fwhm: fwhm,
-        snr: snr,
-        label: oldLabels.get(i) ||
-               this.getMatchingLabel(times[i]) ||
-               (this._importedPeakLabels ? this._importedPeakLabels.get(times[i]) : '') ||
-               '',
-        excluded: oldExcluded.has(i)
-      };
+      const peak = this._buildPeakObject(i, curr, cleanVals, times,
+        { amplitude, onsetIdx, recoveryIdx, halfRecoveryTime,
+          riseTime, onsetSlope, decaySlope, skewnessRatio, fwhm, snr },
+        oldLabels, oldExcluded, false);
       // Uses the deconvolution-specific quality formula, not
       // _computePeakQuality() — see _computeDeconPeakQuality()'s doc
       // comment for why the shape-based formula doesn't apply here.
@@ -1498,6 +1469,56 @@ class GSRAnalyzer {
     result = result.filter(pk => pk.qualityScore >= minQuality);
 
     return result;
+  }
+
+  /**
+   * Construct a peak object from shape metrics, resolving labels and exclusion
+   * flags from both the in-memory store and (optionally) imported CSV data.
+   *
+   * @param {number}  i                     - Sample index of the peak apex.
+   * @param {number}  currVal               - Signal value at the apex.
+   * @param {Array}   vals                  - Signal values array (phasic or reconstructed).
+   * @param {Array}   times                 - Timestamps parallel to vals.
+   * @param {object}  shape                 - Pre-computed shape metrics:
+   *   { amplitude, onsetIdx, recoveryIdx, halfRecoveryTime, riseTime,
+   *     onsetSlope, decaySlope, skewnessRatio, fwhm, snr }
+   * @param {Map}     oldLabels             - Index→label map from pre-analysis peaks.
+   * @param {Set}     oldExcluded           - Index set of excluded pre-analysis peaks.
+   * @param {boolean} [checkImportedExcluded=false]
+   *   When true also checks this._importedPeakExcluded by *time* (detectPeaks
+   *   mode, where the imported-CSV exclusion map exists). False in
+   *   _detectPeaksFromCurve mode, which only sees the index-keyed oldExcluded.
+   * @returns {object} Peak object (qualityScore and salienceScore NOT yet set).
+   * @private
+   */
+  _buildPeakObject(i, currVal, vals, times, shape, oldLabels, oldExcluded, checkImportedExcluded = false) {
+    const { amplitude, onsetIdx, recoveryIdx, halfRecoveryTime,
+            riseTime, onsetSlope, decaySlope, skewnessRatio, fwhm, snr } = shape;
+    return {
+      index: i,
+      time: times[i],
+      value: currVal,
+      amplitude,
+      onsetIndex: onsetIdx,
+      onsetTime: times[onsetIdx],
+      onsetValue: vals[onsetIdx],
+      recoveryIndex: recoveryIdx,
+      halfRecoveryTime,
+      riseTime,
+      onsetSlope,
+      decaySlope,
+      skewnessRatio,
+      fwhm,
+      snr,
+      label: oldLabels.get(i) ||
+             this.getMatchingLabel(times[i]) ||
+             (this._importedPeakLabels ? this._importedPeakLabels.get(times[i]) : '') ||
+             '',
+      excluded: oldExcluded.has(i) ||
+                (checkImportedExcluded && this._importedPeakExcluded
+                  ? this._importedPeakExcluded.has(times[i])
+                  : false)
+    };
   }
 
   /**
@@ -1734,8 +1755,16 @@ class GSRAnalyzer {
     return si >= 0 ? si : peak.index;
   }
 
-  detectPeaks(threshold, params) {
-    // Preserve any user-set labels and exclusion state across re-analysis by matching on raw index
+  /**
+   * Snapshot any user-set labels and exclusion flags from the current peak list
+   * so they survive re-analysis. Also merges labels/exclusions imported from a
+   * re-loaded processed CSV (matched by time). Called at the top of both
+   * detectPeaks() and _runDeconvolutionPipeline() before this.peaks is cleared.
+   *
+   * @returns {{ oldLabels: Map<number,string>, oldExcluded: Set<number> }}
+   * @private
+   */
+  _preserveLabelsAndExclusions() {
     const oldLabels = new Map();
     const oldExcluded = new Set();
     for (const pk of this.peaks) {
@@ -1745,7 +1774,7 @@ class GSRAnalyzer {
       }
       if (pk.excluded) oldExcluded.add(pk.index);
     }
-    // Also merge labels and exclusion imported from re-loaded processed CSV (matched by time)
+    // Merge labels/exclusions imported from a re-loaded processed CSV (time-matched)
     if (this._importedPeakLabels && this._importedPeakLabels.size > 0) {
       for (const pk of this.peaks) {
         if (!pk.label || !pk.label.trim()) {
@@ -1758,6 +1787,11 @@ class GSRAnalyzer {
         }
       }
     }
+    return { oldLabels, oldExcluded };
+  }
+
+  detectPeaks(threshold, params) {
+    const { oldLabels, oldExcluded } = this._preserveLabelsAndExclusions();
     this.peaks = [];
     const n = this.phasic.length;
     if (n < 3) return;
@@ -1914,30 +1948,10 @@ class GSRAnalyzer {
       }
 
       // ── 10. Build peak object with full shape metrics ──────────────────
-      const peak = {
-        index: i,
-        time: times[i],
-        value: curr,
-        amplitude: amplitude,
-        onsetIndex: onsetIdx,
-        onsetTime: times[onsetIdx],
-        onsetValue: phasicVals[onsetIdx],
-        recoveryIndex: recoveryIdx,
-        halfRecoveryTime: halfRecoveryTime,
-        // New shape metrics
-        riseTime: riseTime,
-        onsetSlope: onsetSlope,
-        decaySlope: decaySlope,
-        skewnessRatio: skewnessRatio,
-        fwhm: fwhm,
-        snr: snr,
-        label: oldLabels.get(i) ||
-               this.getMatchingLabel(times[i]) ||
-               (this._importedPeakLabels ? this._importedPeakLabels.get(times[i]) : '') ||
-               '',
-        excluded: oldExcluded.has(i) ||
-                  (this._importedPeakExcluded ? this._importedPeakExcluded.has(times[i]) : false)
-      };
+      const peak = this._buildPeakObject(i, curr, phasicVals, times,
+        { amplitude, onsetIdx, recoveryIdx, halfRecoveryTime,
+          riseTime, onsetSlope, decaySlope, skewnessRatio, fwhm, snr },
+        oldLabels, oldExcluded, true);
 
       // ── 11. Compute composite quality score ────────────────────────────
       peak.qualityScore = this._computePeakQuality(peak);

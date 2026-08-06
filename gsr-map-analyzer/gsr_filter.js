@@ -9,6 +9,49 @@
 const GsrFilter = {
 
   /**
+   * Create a sliding sorted window pre-seeded with the first `half+1` elements
+   * of `arr`. Returns `{ window, insert, remove }` where `insert`/`remove` keep
+   * the window sorted via binary search — O(log n + n) per op (splice dominates).
+   *
+   * Factored out of applyMedianFilter and applyPercentileFilter which were
+   * carrying byte-for-byte duplicate copies of this machinery.
+   *
+   * @param {Array<number>} arr  - Source data array
+   * @param {number} half        - Floor of windowSize / 2
+   * @returns {{ window: Array<number>, insert: Function, remove: Function }}
+   */
+  _makeSortedWindow(arr, half) {
+    const win = [];
+    for (let i = 0; i <= Math.min(half, arr.length - 1); i++) {
+      win.push(arr[i]);
+    }
+    win.sort((a, b) => a - b);
+
+    function insert(val) {
+      let lo = 0, hi = win.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (win[mid] < val) lo = mid + 1;
+        else hi = mid;
+      }
+      win.splice(lo, 0, val);
+    }
+
+    function remove(val) {
+      let lo = 0, hi = win.length - 1, found = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >>> 1;
+        if (win[mid] === val) { found = mid; break; }
+        else if (win[mid] < val) lo = mid + 1;
+        else hi = mid - 1;
+      }
+      if (found !== -1) win.splice(found, 1);
+    }
+
+    return { window: win, insert, remove };
+  },
+
+  /**
    * Sliding window median filter — removes impulse noise / motion artifacts.
    */
   applyMedianFilter(arr, windowSize) {
@@ -16,57 +59,15 @@ const GsrFilter = {
     if (!windowSize || isNaN(windowSize) || windowSize <= 1 || n === 0) return [...arr];
     const result = new Array(n);
     const half = Math.floor(windowSize / 2);
-
-    const sortedWindow = [];
-    for (let i = 0; i <= Math.min(half, n - 1); i++) {
-      sortedWindow.push(arr[i]);
-    }
-    sortedWindow.sort((a, b) => a - b);
-
-    function insertSorted(val) {
-      let low = 0;
-      let high = sortedWindow.length;
-      while (low < high) {
-        const mid = (low + high) >>> 1;
-        if (sortedWindow[mid] < val) {
-          low = mid + 1;
-        } else {
-          high = mid;
-        }
-      }
-      sortedWindow.splice(low, 0, val);
-    }
-
-    function removeSorted(val) {
-      let low = 0;
-      let high = sortedWindow.length - 1;
-      let foundIdx = -1;
-      while (low <= high) {
-        const mid = (low + high) >>> 1;
-        if (sortedWindow[mid] === val) {
-          foundIdx = mid;
-          break;
-        } else if (sortedWindow[mid] < val) {
-          low = mid + 1;
-        } else {
-          high = mid - 1;
-        }
-      }
-      if (foundIdx !== -1) {
-        sortedWindow.splice(foundIdx, 1);
-      }
-    }
+    const { window: sortedWindow, insert: insertSorted, remove: removeSorted } =
+      this._makeSortedWindow(arr, half);
 
     for (let i = 0; i < n; i++) {
       if (i > 0) {
         const leftOut = i - 1 - half;
-        if (leftOut >= 0) {
-          removeSorted(arr[leftOut]);
-        }
+        if (leftOut >= 0) removeSorted(arr[leftOut]);
         const rightIn = i + half;
-        if (rightIn < n) {
-          insertSorted(arr[rightIn]);
-        }
+        if (rightIn < n) insertSorted(arr[rightIn]);
       }
       result[i] = sortedWindow[Math.floor(sortedWindow.length / 2)];
     }
@@ -81,57 +82,15 @@ const GsrFilter = {
     if (!windowSize || isNaN(windowSize) || windowSize <= 1 || n === 0) return [...arr];
     const result = new Array(n);
     const half = Math.floor(windowSize / 2);
-
-    const sortedWindow = [];
-    for (let i = 0; i <= Math.min(half, n - 1); i++) {
-      sortedWindow.push(arr[i]);
-    }
-    sortedWindow.sort((a, b) => a - b);
-
-    function insertSorted(val) {
-      let low = 0;
-      let high = sortedWindow.length;
-      while (low < high) {
-        const mid = (low + high) >>> 1;
-        if (sortedWindow[mid] < val) {
-          low = mid + 1;
-        } else {
-          high = mid;
-        }
-      }
-      sortedWindow.splice(low, 0, val);
-    }
-
-    function removeSorted(val) {
-      let low = 0;
-      let high = sortedWindow.length - 1;
-      let foundIdx = -1;
-      while (low <= high) {
-        const mid = (low + high) >>> 1;
-        if (sortedWindow[mid] === val) {
-          foundIdx = mid;
-          break;
-        } else if (sortedWindow[mid] < val) {
-          low = mid + 1;
-        } else {
-          high = mid - 1;
-        }
-      }
-      if (foundIdx !== -1) {
-        sortedWindow.splice(foundIdx, 1);
-      }
-    }
+    const { window: sortedWindow, insert: insertSorted, remove: removeSorted } =
+      this._makeSortedWindow(arr, half);
 
     for (let i = 0; i < n; i++) {
       if (i > 0) {
         const leftOut = i - 1 - half;
-        if (leftOut >= 0) {
-          removeSorted(arr[leftOut]);
-        }
+        if (leftOut >= 0) removeSorted(arr[leftOut]);
         const rightIn = i + half;
-        if (rightIn < n) {
-          insertSorted(arr[rightIn]);
-        }
+        if (rightIn < n) insertSorted(arr[rightIn]);
       }
       const targetIdx = Math.floor(sortedWindow.length * percentile);
       result[i] = sortedWindow[targetIdx];
