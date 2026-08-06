@@ -36,7 +36,12 @@ const GSRTrackManager = {
       // created by GSRMapManager._getTrackLayerGroup() on first render; null
       // when the track owns nothing on the map. Removing the track = removing
       // this group from the map.
-      layerGroup: null
+      layerGroup: null,
+      // Phase 1 (slice 3): the full registry of this track's render layers
+      // (visible + hidden) so visibility toggles can restore hidden ones. The
+      // layerGroup only holds the currently-visible layers. Populated by
+      // GSRMapManager._registerTrackLayer().
+      _ownedLayers: []
     };
   },
 

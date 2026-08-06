@@ -216,16 +216,22 @@ class GSRMapExporter {
 
   static async _gather(ctx) {
     const { map, el, r, mgr } = ctx;
+    // Phase 1 (slice 3): per-track render layers are derived from the track
+    // layerGroups via getRenderLayers(); only the aggregate layers (OSM shapes,
+    // contours, clusters) are still read off the manager directly.
+    const render = (typeof mgr.getRenderLayers === 'function')
+      ? mgr.getRenderLayers()
+      : { paths: [], peakMarkers: [], hotspots: [] };
     return {
       tiles:          await this._tiles(el, r),
       rfFluid:        this._rfFluid(ctx),
       surface:        this._surface(ctx),
       osm:            this._vectors(ctx, mgr.osmLayers, { exact: true }),
-      tracks:         this._vectors(ctx, [...mgr.pathSegments, ...mgr.collectivePathSegments]),
+      tracks:         this._vectors(ctx, render.paths),
       contours:       this._vectors(ctx, mgr.contourLayers),
       clusters:       this._vectors(ctx, mgr.clusterLayers),
-      dotsAndLabels:  this._markers(ctx, [...mgr.peakMarkers, ...mgr.collectivePeakMarkers]),
-      hotspots:       this._markers(ctx, [...(mgr.hotspotMarkers || []), ...(mgr.collectiveHotspotMarkers || [])])
+      dotsAndLabels:  this._markers(ctx, render.peakMarkers),
+      hotspots:       this._markers(ctx, render.hotspots)
     };
   }
 

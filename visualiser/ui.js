@@ -165,12 +165,13 @@ const GSRUI = {
 
     // 3. Open map marker popup if not clicked from map marker itself and track has GPS
     if (source !== 'map' && hasGps) {
-      if (AppState.mapManager && AppState.mapManager.peakMarkers && AppState.mapManager.peakMarkers[idx]) {
-        setTimeout(() => {
-          if (AppState.mapManager.peakMarkers[idx]) {
-            AppState.mapManager.peakMarkers[idx].openPopup();
-          }
-        }, 100);
+      // Phase 1 (slice 3): the peakMarkers flat array is gone; resolve the
+      // marker for this peak index from the track layerGroups instead.
+      const peakMarker = (AppState.mapManager && typeof AppState.mapManager.getPeakMarkerByIndex === 'function')
+        ? AppState.mapManager.getPeakMarkerByIndex(idx)
+        : null;
+      if (peakMarker) {
+        setTimeout(() => peakMarker.openPopup(), 100);
       }
     }
   },

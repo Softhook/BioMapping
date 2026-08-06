@@ -211,6 +211,12 @@ function installRecordingLeaflet(window) {
     marker: (latlng, opts) => { const l = makeLayer('marker'); l._latlng = latlng; l._options = opts; return l; },
     tileLayer: () => makeLayer('tile'),
     imageOverlay: (url, bounds, opts) => { const l = makeLayer('surface'); l._url = url; l._bounds = bounds; l._options = opts; return l; },
+    featureGroup: function (layers) {
+      const g = makeGroup();
+      (layers || []).forEach(l => g.addLayer(l));
+      g.getBounds = () => ({ getNorthWest: () => ({ lat: 0, lon: 0 }), getSouthEast: () => ({ lat: 0, lon: 0 }) });
+      return g;
+    },
     divIcon: (opts) => opts || {},
     icon: (opts) => opts || {},
     DomUtil: {
@@ -359,8 +365,6 @@ test('slice1: clearMap removes every track.layerGroup from the map and nulls it'
   assert.ok(!map.hasLayer(oldGroup), 'clearMap should remove the track layerGroup from the map');
   assert.strictEqual(map._groups.size, 0, 'no on-map groups should remain');
   assert.deepStrictEqual(map.renderKindsOnMap(), [], 'no path/peak/hotspot layers should remain on the map');
-  assert.strictEqual(mapManager.peakMarkers.length, 0, 'flat marker array should be cleared');
-  assert.strictEqual(mapManager.pathSegments.length, 0, 'flat path array should be cleared');
 });
 
 test('slice1: deleteTrack removes the track layerGroup from the map', () => {
@@ -517,4 +521,90 @@ test('slice2: surface overlay is recreated on render while hidden, so it can be 
   // 4. Toggling the surface back on must bring it back — the reported bug.
   mapManager.toggleSurface(true);
   assert.ok(map.hasLayer(mapManager.surfaceOverlay), 'surface overlay should reappear when toggled on');
+});
+
+test('slice3: getRenderLayers() derives the per-track layers from the layerGroups (single)', () => {
+  const { window, map, mapManager } = bootWithRecordingL();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  // The flat arrays are gone — getRenderLayers() is the source of truth,
+  // derived from the track's layerGroup (so the SVG exporter can still work).
+  assert.strictEqual(mapManager.pathSegments, undefined, 'pathSegments flat array should be removed');
+  assert.strictEqual(mapManager.peakMarkers, undefined, 'peakMarkers flat array should be removed');
+  assert.strictEqual(mapManager.hotspotMarkers, undefined, 'hotspotMarkers flat array should be removed');
+
+  const render = mapManager.getRenderLayers();
+  assert.ok(render.paths.length > 0, 'paths should be derived from the group');
+  assert.ok(render.peakMarkers.length > 0, 'peak markers should be derived from the group');
+  assert.ok(render.hotspots.length > 0, 'hotspots should be derived from the group');
+
+  const groupLayers = track.layerGroup.getLayers();
+  render.paths.forEach(p => assert.ok(groupLayers.includes(p), 'path should come from the group'));
+  render.peakMarkers.forEach(m => assert.ok(groupLayers.includes(m), 'peak/connector should come from the group'));
+  render.hotspots.forEach(m => assert.ok(groupLayers.includes(m), 'hotspot should come from the group'));
+
+  // All the group's per-track layers are reachable through the accessor.
+  const renderSet = new Set([...render.paths, ...render.peakMarkers, ...render.hotspots]);
+  groupLayers.forEach(l => {
+    if (['path', 'peak', 'connector', 'hotspot'].includes(l._gsrKind)) {
+      assert.ok(renderSet.has(l), `group ${l._gsrKind} should be exposed via getRenderLayers()`);
+    }
+  });
+});
+
+test('slice3: getRenderLayers() derives the collective layers from each track group', () => {
+  const { window, map, mapManager } = bootWithRecordingL();
+  const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
+  const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
+  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+
+  const render = mapManager.getRenderLayers();
+  assert.ok(render.paths.some(p => p._gsrKind === 'collectivePath'), 'collective paths should be exposed');
+  assert.ok(render.peakMarkers.some(m => m._gsrKind === 'collectivePeak'), 'collective peaks should be exposed');
+  assert.ok(render.hotspots.length > 0, 'collective hotspots should be exposed');
+
+  // All collective layers come from per-track groups.
+  const allGroupLayers = [...trackA.layerGroup.getLayers(), ...trackB.layerGroup.getLayers()];
+  const renderSet = new Set([...render.paths, ...render.peakMarkers, ...render.hotspots]);
+  allGroupLayers.forEach(l => assert.ok(renderSet.has(l), `${l._gsrKind} should be exposed via getRenderLayers()`));
+});
+
+test('slice3: getPeakMarkerByIndex resolves the marker for a peak index', () => {
+  const { window, map, mapManager } = bootWithRecordingL();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  const marker = mapManager.getPeakMarkerByIndex(0);
+  assert.ok(marker, 'peak marker for index 0 should resolve');
+  assert.strictEqual(marker._gsrKind, 'peak', 'resolved marker should be a peak marker');
+  assert.ok(track.layerGroup.hasLayer(marker), 'resolved marker should live in the track group');
+
+  assert.strictEqual(mapManager.getPeakMarkerByIndex(9999), null,
+    'an out-of-range peak index should resolve to null (no crash)');
+});
+
+test('slice3: clearCollectiveLayers clears the per-track layerGroups (stale-group fix)', () => {
+  // Regression for: uncheck the last track in collective view -> ui.js calls
+  // clearCollectiveLayers() and returns (no re-render), so the previous
+  // render's per-track groups used to linger on the map.
+  const { window, map, mapManager } = bootWithRecordingL();
+  const track = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
+  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+  const group = track.layerGroup;
+  assert.ok(group && map.hasLayer(group), 'precondition: rendered track owns an on-map group');
+
+  mapManager.clearCollectiveLayers();
+
+  assert.ok(!map.hasLayer(group), 'clearCollectiveLayers should remove the per-track group');
+  assert.strictEqual(track.layerGroup, null, 'clearCollectiveLayers should null the track layerGroup');
+  assert.strictEqual(map._groups.size, 0, 'no on-map groups should remain');
+  assert.deepStrictEqual(map.renderKindsOnMap(), [], 'no render layers should remain on the map');
+});
+
+test('slice3: fitToTrack still fits the rendered paths without the flat arrays', () => {
+  const { window, map, mapManager } = bootWithRecordingL();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+  assert.doesNotThrow(() => mapManager.fitToTrack(), 'fitToTrack should work off the derived paths');
 });
