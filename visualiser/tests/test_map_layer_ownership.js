@@ -210,6 +210,7 @@ function installRecordingLeaflet(window) {
     polygon: (latlngs, opts) => { const l = makeLayer('cluster'); l._latlngs = latlngs; l._options = opts; return l; },
     marker: (latlng, opts) => { const l = makeLayer('marker'); l._latlng = latlng; l._options = opts; return l; },
     tileLayer: () => makeLayer('tile'),
+    imageOverlay: (url, bounds, opts) => { const l = makeLayer('surface'); l._url = url; l._bounds = bounds; l._options = opts; return l; },
     divIcon: (opts) => opts || {},
     icon: (opts) => opts || {},
     DomUtil: {
@@ -231,9 +232,13 @@ function installRecordingLeaflet(window) {
 // RF fluid + spatial clustering are map-level aggregate layers (owned by
 // GSRMapManager, out of slice-1 scope); they're nulled via the shared lexical
 // binding so the tests exercise a deterministic surface: paths+peaks+hotspots.
+// jsdom canvases have no 2d context, but the collective surface renderer needs
+// one (fillStyle/fillRect) plus a toDataURL for the image overlay.
 function bootWithRecordingL() {
   const { window, context } = bootApp();
   vm.runInContext('RFFluidRenderer = undefined; GSRSpatialClustering = undefined;', context);
+  window.HTMLCanvasElement.prototype.getContext = () => ({ fillStyle: '', fillRect() {} });
+  window.HTMLCanvasElement.prototype.toDataURL = () => 'data:image/png;base64,AA==';
   const { map } = installRecordingLeaflet(window);
   window.setup();
   return { window, map, mapManager: window.AppState.mapManager };
@@ -479,4 +484,37 @@ test('slice2: toggling showTracks removes only the collective path layers (via t
     assert.ok(trackA.layerGroup.hasLayer(p), 'path should be restored to its track group');
     assert.ok(map.hasLayer(p), 'path should be back on the map');
   });
+});
+
+test('slice2: surface overlay is recreated on render while hidden, so it can be toggled back on', () => {
+  // Regression for: "delete a track while the collective surface is off, and
+  // the surface won't come back when toggled on." renderContours() used to gate
+  // overlay *creation* on the button's showShadedSurface, but every render
+  // calls clearContours() which nulls surfaceOverlay — so a re-render while
+  // hidden (exactly what deleteTrack triggers via updateCollectiveMap) left
+  // surfaceOverlay null, and toggleSurface(true)'s `if (!this.surfaceOverlay)
+  // return;` had nothing to re-add.
+  const { window, map, mapManager } = bootWithRecordingL();
+  addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
+  addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
+
+  // 1. Render with the surface ON.
+  mapManager.renderCollectiveData(window.AppState.collectiveManager, {}, 0);
+  const firstOverlay = mapManager.surfaceOverlay;
+  assert.ok(firstOverlay, 'precondition: a surface overlay should exist when the surface is on');
+  assert.ok(map.hasLayer(firstOverlay), 'precondition: the surface should be on the map');
+
+  // 2. Toggle the surface off.
+  mapManager.toggleSurface(false);
+  assert.ok(!map.hasLayer(firstOverlay), 'surface removed when toggled off');
+
+  // 3. Simulate deleting a track while the surface is off: the delete path
+  //    re-renders collective with the button's (now off) contourParams.
+  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+  assert.ok(mapManager.surfaceOverlay, 'render while hidden must recreate the overlay (not leave it null)');
+  assert.ok(!map.hasLayer(mapManager.surfaceOverlay), 'recreated overlay stays hidden while showSurface=false');
+
+  // 4. Toggling the surface back on must bring it back — the reported bug.
+  mapManager.toggleSurface(true);
+  assert.ok(map.hasLayer(mapManager.surfaceOverlay), 'surface overlay should reappear when toggled on');
 });

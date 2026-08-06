@@ -1898,10 +1898,18 @@ class GSRMapManager {
     this._collectiveTopographySource = contourParams.topographySource;
     this._legendMinVal = minVal;
     this._legendMaxVal = maxVal;
-    const { showShadedSurface = true, surfaceOpacity = 0.40 } = contourParams;
+    const { surfaceOpacity = 0.40 } = contourParams;
 
-    // 1. Draw shaded continuous surface overlay
-    if (showShadedSurface && grid && grid.length > 0 && bounds) {
+    // 1. Draw shaded continuous surface overlay.
+    //    The overlay is created whenever there is surface data — it is NOT gated
+    //    on the button's showShadedSurface state. Gating creation meant a
+    //    re-render while the surface was hidden (e.g. deleting a track with the
+    //    surface off) ran clearContours() (which nulls surfaceOverlay) and then
+    //    skipped recreating it, so toggleSurface(true)'s `if (!this.surfaceOverlay)
+    //    return;` had nothing to re-add and the surface never came back. Visibility
+    //    is a pure add/remove of this overlay via this.showSurface — same pattern
+    //    as the isoline/track toggles, which also always create their layers.
+    if (grid && grid.length > 0 && bounds) {
       const rows = grid.length;
       const cols = grid[0].length;
 
