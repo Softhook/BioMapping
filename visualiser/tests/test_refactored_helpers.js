@@ -3,7 +3,7 @@
  * session — covering areas with no prior direct test coverage:
  *
  *   1. GSRAnalyzer.calcEmFog()          — static pure function
- *   2. GSRAnalyzer._interpolateGPS()    — extracted from parseCSV()
+ *   2. GSRCSVParser._interpolateGPS()  — extracted from parseCSV()
  *   3. GpsFilter._kalmanForwardPass()   — split from applyKalman()
  *   4. GpsFilter._rtsBackwardPass()     — split from applyKalman()
  *
@@ -39,6 +39,7 @@ loadBrowserModule('../gps_pipeline.js', 'GpsPipeline');
 loadBrowserModule('../dwt_filter.js',   'DWT');
 loadBrowserModule('../gsr_filter.js',   'GsrFilter');
 loadBrowserModule('../deconvolution.js','SCRDeconvolution');
+loadBrowserModule('../csv_parser.js',    'GSRCSVParser');
 loadBrowserModule('../map_exporter.js', 'GSRMapExporter');
 loadBrowserModule('../tracks.js',       'GSRTrackManager');
 loadBrowserModule('../ui.js',           'GSRUI');
@@ -48,6 +49,7 @@ vm.runInThisContext(analyzerSrc, { filename: 'analyzer.js' });
 
 const GpsFilter   = global.GpsFilter;
 const GSRAnalyzer = global.GSRAnalyzer;
+const GSRCSVParser = global.GSRCSVParser;
 const GeoUtils    = global.GeoUtils;
 const StatsMath   = global.StatsMath;
 const GSRMapExporter = global.GSRMapExporter;
@@ -121,7 +123,7 @@ test('calcEmFog: two bands (norm=0 and norm=1) → RMS = 70.71', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  2. GSRAnalyzer._interpolateGPS
+//  2. GSRCSVParser._interpolateGPS
 // ══════════════════════════════════════════════════════════════════════════════
 
 function makeAnalyzer() { return new GSRAnalyzer(); }
@@ -136,13 +138,13 @@ function makeRows(pts) {
 
 test('_interpolateGPS: empty array → no-op', () => {
   const rows = [];
-  makeAnalyzer()._interpolateGPS(rows);
+  GSRCSVParser._interpolateGPS(rows);
   assert.strictEqual(rows.length, 0);
 });
 
 test('_interpolateGPS: all NaN rows → hasGps remains false', () => {
   const rows = makeRows([{ lat: NaN, lon: NaN, time: 0 }, { lat: NaN, lon: NaN, time: 1 }]);
-  makeAnalyzer()._interpolateGPS(rows);
+  GSRCSVParser._interpolateGPS(rows);
   assert.ok(rows.every(r => r.hasGps === false));
 });
 
@@ -153,7 +155,7 @@ test('_interpolateGPS: rows before first fix are constant-filled from first fix'
     { lat: 51.5, lon: -0.1, time: 2 },
     { lat: 51.6, lon: -0.2, time: 3 },
   ]);
-  makeAnalyzer()._interpolateGPS(rows);
+  GSRCSVParser._interpolateGPS(rows);
   assert.strictEqual(rows[0].lat, 51.5, 'row 0 lat filled from first fix');
   assert.strictEqual(rows[0].lon, -0.1, 'row 0 lon filled from first fix');
   assert.strictEqual(rows[1].lat, 51.5, 'row 1 lat filled from first fix');
@@ -168,7 +170,7 @@ test('_interpolateGPS: rows after last fix are constant-filled from last fix', (
     { lat: NaN,  lon: NaN,  time: 2 },
     { lat: NaN,  lon: NaN,  time: 3 },
   ]);
-  makeAnalyzer()._interpolateGPS(rows);
+  GSRCSVParser._interpolateGPS(rows);
   assert.strictEqual(rows[2].lat, 51.6, 'row 2 lat filled from last fix');
   assert.strictEqual(rows[3].lon, -0.2, 'row 3 lon filled from last fix');
   assert.ok(rows[2].hasGps === true);
@@ -183,7 +185,7 @@ test('_interpolateGPS: gap between two fixes is linearly interpolated', () => {
     { lat: NaN, lon: NaN, time: 2 },
     { lat: 13,  lon: 13,  time: 3 },
   ]);
-  makeAnalyzer()._interpolateGPS(rows);
+  GSRCSVParser._interpolateGPS(rows);
   // ratio at t=1: 1/3 → lat=10 + 1/3*3 = 11
   closeTo(rows[1].lat, 11.0, 1e-10, 'gap t=1 lat');
   closeTo(rows[1].lon, 11.0, 1e-10, 'gap t=1 lon');
@@ -196,7 +198,7 @@ test('_interpolateGPS: gap between two fixes is linearly interpolated', () => {
 
 test('_interpolateGPS: real fix rows get hasGps = true', () => {
   const rows = makeRows([{ lat: 51.0, lon: 0, time: 0 }, { lat: 52.0, lon: 0, time: 1 }]);
-  makeAnalyzer()._interpolateGPS(rows);
+  GSRCSVParser._interpolateGPS(rows);
   assert.ok(rows[0].hasGps === true);
   assert.ok(rows[1].hasGps === true);
 });
@@ -207,7 +209,7 @@ test('_interpolateGPS: sentinel (0,0) treated as no-fix, filled from real fix', 
     { lat: 0,    lon: 0,    time: 0 },
     { lat: 51.0, lon: -0.1, time: 1 },
   ]);
-  makeAnalyzer()._interpolateGPS(rows);
+  GSRCSVParser._interpolateGPS(rows);
   assert.strictEqual(rows[0].lat, 51.0, 'sentinel row filled from real fix');
   assert.strictEqual(rows[0].lon, -0.1);
 });

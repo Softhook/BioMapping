@@ -41,6 +41,7 @@ loadModule(path.join(__dirname, '../gps_filter.js'),         'GpsFilter');
 loadModule(path.join(__dirname, '../gps_pipeline.js'),       'GpsPipeline');
 loadModule(path.join(__dirname, '../deconvolution.js'),       'SCRDeconvolution');
 loadModule(path.join(__dirname, '../gsr_filter.js'),         'GsrFilter');
+loadModule(path.join(__dirname, '../csv_parser.js'),         'GSRCSVParser');
 loadModule(path.join(__dirname, '../analyzer.js'),            'GSRAnalyzer');
 loadModule(path.join(__dirname, '../rf_fluid_renderer.js'),   'RFFluidRenderer');
 

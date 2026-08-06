@@ -34,7 +34,7 @@ const APP_DIR = path.join(__dirname, '..', '..');
 const SCRIPT_ORDER = [
   'app_state.js', 'layout_manager.js', 'constants.js', 'geo_utils.js', 'file_saver.js',
   'stats_math.js', 'overpass_client.js', 'osm_cache.js', 'dwt_filter.js', 'deconvolution.js',
-  'analyzer.js', 'osm_enrichment.js', 'map_match.js', 'gsr_filter.js', 'marching_squares.js',
+  'csv_parser.js', 'analyzer.js', 'osm_enrichment.js', 'map_match.js', 'gsr_filter.js', 'marching_squares.js',
   'spatial_clustering.js', 'collective_manager.js', 'gps_filter.js', 'map_colors.js', 'gps_pipeline.js',
   'label_placement.js', 'map_exporter.js', 'rf_fluid_renderer.js', 'map.js', 'storage.js',
   'events.js', 'tracks.js', 'collective_project.js', 'ui.js', 'renderer.js', 'sketch.js',

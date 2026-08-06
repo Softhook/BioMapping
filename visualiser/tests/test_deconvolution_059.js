@@ -41,6 +41,7 @@ function loadModule(filePath, varName) {
 loadModule(path.join(__dirname, '../dwt_filter.js'),     'DWT');
 loadModule(path.join(__dirname, '../gsr_filter.js'),     'GsrFilter');
 loadModule(path.join(__dirname, '../deconvolution.js'),  'SCRDeconvolution');
+loadModule(path.join(__dirname, '../csv_parser.js'),     'GSRCSVParser');
 loadModule(path.join(__dirname, '../analyzer.js'),       'GSRAnalyzer');
 const { GSRAnalyzer } = global;
 

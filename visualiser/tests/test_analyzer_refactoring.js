@@ -1,0 +1,296 @@
+'use strict';
+
+const assert = require('assert');
+const test   = require('node:test');
+const fs     = require('fs');
+const path   = require('path');
+const vm     = require('vm');
+
+global.window = global;
+global.GSR_CONST = require('./mock_constants.js');
+
+function loadModule(filePath, varName) {
+  const src = fs.readFileSync(filePath, 'utf8');
+  const wrapped = src.replace(
+    new RegExp(`class ${varName}\\s*{`),
+    `global.${varName} = class ${varName} {`
+  ).replace(
+    new RegExp(`const ${varName}\\s*=`),
+    `global.${varName} =`
+  );
+  vm.runInThisContext(wrapped, { filename: filePath });
+}
+
+loadModule(path.join(__dirname, '../geo_utils.js'),          'GeoUtils');
+loadModule(path.join(__dirname, '../stats_math.js'),         'StatsMath');
+loadModule(path.join(__dirname, '../map_colors.js'),         'MapColors');
+loadModule(path.join(__dirname, '../gps_filter.js'),         'GpsFilter');
+loadModule(path.join(__dirname, '../gps_pipeline.js'),       'GpsPipeline');
+loadModule(path.join(__dirname, '../dwt_filter.js'),         'DWT');
+loadModule(path.join(__dirname, '../gsr_filter.js'),         'GsrFilter');
+loadModule(path.join(__dirname, '../deconvolution.js'),      'SCRDeconvolution');
+
+const { GSRAnalyzer } = require('../analyzer.js');
+const { GSRCSVParser } = require('../csv_parser.js');
+
+// ── Time & Date Formatting Tests ─────────────────────────────────────────────
+
+test('GSRAnalyzer formatting: relative fallback when recordingStartTime is 0', () => {
+  const a = new GSRAnalyzer();
+  a.recordingStartTime = 0;
+
+  // formatClockTime: hours/minutes/seconds
+  assert.strictEqual(a.formatClockTime(45), '0:45');
+  assert.strictEqual(a.formatClockTime(3665), '1:01:05');
+
+  // formatTimeOnly: falls back to formatClockTime
+  assert.strictEqual(a.formatTimeOnly(45), '0:45');
+  assert.strictEqual(a.formatTimeOnly(3665), '1:01:05');
+
+  // formatDateUK: falls back to formatClockTime
+  assert.strictEqual(a.formatDateUK(45), '0:45');
+
+  // formatDateShort: falls back to formatClockTime
+  assert.strictEqual(a.formatDateShort(45), '0:45');
+});
+
+test('GSRAnalyzer formatting: absolute dates when recordingStartTime is real', () => {
+  const a = new GSRAnalyzer();
+  // 1798725600: Tuesday, December 30, 2026 14:00:00 UTC
+  a.recordingStartTime = 1798725600;
+
+  // formatClockTime at t = 0
+  assert.strictEqual(a.formatClockTime(0), '14:00:00');
+  // formatClockTime at t = 75 (14:01:15)
+  assert.strictEqual(a.formatClockTime(75), '14:01:15');
+
+  // formatTimeOnly at t = 75
+  assert.strictEqual(a.formatTimeOnly(75), '14:01:15');
+
+  // formatDateUK suffixes
+  a.recordingStartTime = 1798725600; // Dec 31 (31st)
+  assert.strictEqual(a.formatDateUK(0), '31st Dec 2026');
+
+  // test st suffix: Jan 1st 2027 (1798808400 is Jan 1st 13:00 UTC)
+  a.recordingStartTime = 1798808400 + 3600; // Jan 1st 14:00 UTC
+  assert.strictEqual(a.formatDateUK(0), '1st Jan 2027');
+
+  // test nd suffix: Jan 2nd
+  a.recordingStartTime = 1798808400 + 86400 + 3600;
+  assert.strictEqual(a.formatDateUK(0), '2nd Jan 2027');
+
+  // test rd suffix: Jan 3rd
+  a.recordingStartTime = 1798808400 + 2 * 86400 + 3600;
+  assert.strictEqual(a.formatDateUK(0), '3rd Jan 2027');
+
+  // test th suffix: Jan 4th
+  a.recordingStartTime = 1798808400 + 3 * 86400 + 3600;
+  assert.strictEqual(a.formatDateUK(0), '4th Jan 2027');
+
+  // formatDateShort: Dec 31st 2026
+  a.recordingStartTime = 1798725600;
+  assert.strictEqual(a.formatDateShort(0), '31.12.2026');
+
+  // test th suffix for teens: Jan 11th 2027
+  a.recordingStartTime = 1798808400 + 10 * 86400 + 3600;
+  assert.strictEqual(a.formatDateUK(0), '11th Jan 2027');
+});
+
+// ── CSV Parsing & Interpolation Tests ────────────────────────────────────────
+
+test('GSRAnalyzer parseCSV: basic parsing and column mapping', () => {
+  const csv = `time,lat,lon,gsr_raw,hdop,sats
+1000.0,51.5074,-0.1278,2.5,1.2,8
+1000.1,51.5075,-0.1279,2.6,1.3,9`;
+
+  const a = new GSRAnalyzer();
+  a.parseCSV(csv);
+
+  assert.strictEqual(a.raw.length, 2);
+  assert.strictEqual(a.recordingStartTime, 1000.0);
+  assert.ok(Math.abs(a.raw[0].time - 0.0) < 1e-5);
+  assert.ok(Math.abs(a.raw[1].time - 0.1) < 1e-5);
+  assert.strictEqual(a.raw[0].val, 2.5);
+  assert.strictEqual(a.raw[0].lat, 51.5074);
+  assert.strictEqual(a.raw[0].lon, -0.1278);
+  assert.strictEqual(a.raw[0].hdop, 1.2);
+  assert.strictEqual(a.raw[0].sats, 8);
+  // sampleRate is derived from a mean of float time diffs, so compare with a
+  // tolerance rather than exact equality (1/0.1 !== 10 in IEEE-754).
+  assert.ok(Math.abs(a.sampleRate - 10) < 1e-5, `expected sampleRate ~10, got ${a.sampleRate}`);
+});
+
+test('GSRAnalyzer parseCSV: metadata comments parsed correctly', () => {
+  const csv = `# RecordingStartTime:1798725600
+# FilterParams:{"peakThreshold":0.03}
+# GpsFilterParams:{"maxHdop":2.5}
+# EnrichmentRadius:75
+# Band Floors (dBm): rssi_868:-105, rssi_915:-98
+time,gsr,osm_road_class
+0.0,1.5,"residential"
+0.1,1.6,"residential"`;
+
+  const a = new GSRAnalyzer();
+  a.parseCSV(csv);
+
+  assert.strictEqual(a.recordingStartTime, 1798725600);
+  assert.deepStrictEqual(a.importedFilterParams, { peakThreshold: 0.03 });
+  assert.deepStrictEqual(a.importedGpsFilterParams, { maxHdop: 2.5 });
+  assert.strictEqual(a.enrichmentRadius, 75);
+  assert.deepStrictEqual(a.bandFloors, { rssi_868: -105, rssi_915: -98 });
+});
+
+test('GSRAnalyzer parseCSV: quote escaping and comma-handling', () => {
+  const csv = `time,gsr,osm_road_class
+0.0,1.2,"residential"
+0.1,1.3,"primary, trunk"
+0.2,1.4,"escaped ""quotes"" here"`;
+
+  const a = new GSRAnalyzer();
+  a.parseCSV(csv);
+
+  assert.strictEqual(a.raw[0].osm_road_class, 'residential');
+  assert.strictEqual(a.raw[1].osm_road_class, 'primary, trunk');
+  assert.strictEqual(a.raw[2].osm_road_class, 'escaped "quotes" here');
+});
+
+test('GSRAnalyzer parseCSV: resistance conversion (Ohms -> uS)', () => {
+  const csv = `time,ohms
+0.0,500000
+0.1,1000000`; // 500k Ohm = 2 uS, 1M Ohm = 1 uS
+
+  const a = new GSRAnalyzer();
+  a.parseCSV(csv);
+
+  assert.strictEqual(a.isResistance, true);
+  assert.strictEqual(a.raw[0].val, 2.0);
+  assert.strictEqual(a.raw[1].val, 1.0);
+});
+
+test('GSRAnalyzer parseCSV: nanoSiemens conversion to microSiemens', () => {
+  const csv = `time,conductance_ns
+0.0,1200
+0.1,1500`; // 1200 nS = 1.2 uS
+
+  const a = new GSRAnalyzer();
+  a.parseCSV(csv);
+
+  assert.strictEqual(a.isResistance, false);
+  assert.strictEqual(a.raw[0].val, 1.2);
+  assert.strictEqual(a.raw[1].val, 1.5);
+});
+
+test('GSRAnalyzer parseCSV: duplicate timestamps reconstructed', () => {
+  const csv = `time,gsr
+10.0,1.1
+10.0,1.2
+10.0,1.3
+10.0,1.4`;
+
+  const a = new GSRAnalyzer();
+  a.parseCSV(csv);
+
+  // Time diffs should be reconstructed with 0.1s increments (since totalTimeDiff is 0)
+  assert.ok(Math.abs(a.raw[0].time - 0.0) < 1e-5);
+  assert.ok(Math.abs(a.raw[1].time - 0.1) < 1e-5);
+  assert.ok(Math.abs(a.raw[2].time - 0.2) < 1e-5);
+  assert.ok(Math.abs(a.raw[3].time - 0.3) < 1e-5);
+});
+
+test('GSRAnalyzer parseCSV: validation warnings and error checks', () => {
+  // Empty check
+  const emptyCsv = "";
+  const aEmpty = new GSRAnalyzer();
+  assert.throws(() => aEmpty.parseCSV(emptyCsv), /CSV file is empty/);
+
+  // Timestamp reversals
+  const badCsv = `time,gsr,lat,lon
+10.0,1.0,0.0,0.0
+9.0,1.1,51.5,-0.1`;
+  const aBad = new GSRAnalyzer();
+  aBad.parseCSV(badCsv);
+  assert.ok(aBad._csvWarnings.some(w => w.includes('non-monotonic')));
+  assert.ok(aBad._csvWarnings.some(w => w.includes('startup sentinel')));
+});
+
+// ── Canonical column-synonym matching ────────────────────────────────────────
+
+test('GSRAnalyzer parseCSV: canonical column synonyms (sec/latitude/longitude/nsats/fix/speed/course)', () => {
+  const csv = `sec,gsr,latitude,longitude,hdop,pdop,nsats,speed_kts,course_deg,fix
+0,2.5,51.5074,-0.1278,1.2,1.5,8,3.2,270,3
+0.1,2.6,51.5075,-0.1279,1.3,1.6,9,3.4,271,3`;
+
+  const a = new GSRAnalyzer();
+  a.parseCSV(csv);
+
+  assert.strictEqual(a.raw.length, 2);
+  // 'sec' is a TIME_KEYWORDS synonym
+  assert.ok(Math.abs(a.raw[0].time - 0.0) < 1e-5);
+  assert.ok(Math.abs(a.raw[1].time - 0.1) < 1e-5);
+  // 'latitude'/'longitude' map to lat/lon
+  assert.strictEqual(a.raw[0].lat, 51.5074);
+  assert.strictEqual(a.raw[0].lon, -0.1278);
+  // hdop / pdop
+  assert.strictEqual(a.raw[0].hdop, 1.2);
+  assert.strictEqual(a.raw[0].pdop, 1.5);
+  // 'nsats' -> sats
+  assert.strictEqual(a.raw[0].sats, 8);
+  // speed_kts / course_deg
+  assert.strictEqual(a.raw[0].speedKts, 3.2);
+  assert.strictEqual(a.raw[0].course, 270);
+  // 'fix' -> fix_type fallback (older schema)
+  assert.strictEqual(a.raw[0].fixType, 3);
+});
+
+test('GSRAnalyzer parseCSV: longitude lng synonym and explicit is_gps_fix column', () => {
+  const csv = `time,gsr,lat,lng,is_gps_fix
+0.0,1.0,51.5,-0.1,1
+0.1,1.1,51.6,-0.2,0`;
+
+  const a = new GSRAnalyzer();
+  a.parseCSV(csv);
+
+  assert.strictEqual(a.raw[0].lat, 51.5);
+  // 'lng' is a recognized longitude synonym
+  assert.strictEqual(a.raw[0].lon, -0.1);
+  // explicit is_gps_fix column overrides the lat/lon-presence heuristic
+  assert.strictEqual(a.raw[0]._isGpsFix, true);
+  assert.strictEqual(a.raw[1]._isGpsFix, false);
+});
+
+// ── Failure cases ────────────────────────────────────────────────────────────
+
+test('GSRAnalyzer parseCSV: header-only CSV throws no-valid-data error', () => {
+  const a = new GSRAnalyzer();
+  assert.throws(() => a.parseCSV('time,gsr\n'), /No valid numeric data/);
+});
+
+// ── Extracted helper: GSRCSVParser ───────────────────────────────────────────
+
+test('GSRCSVParser.parse: returns the documented result fields', () => {
+  const csv = `# RecordingStartTime:1798725600
+# FilterParams:{"peakThreshold":0.03}
+# GpsFilterParams:{"maxHdop":2.5}
+# EnrichmentRadius:75
+time,gsr,osm_road_class
+0.0,1.5,"residential"
+0.1,1.6,"residential"`;
+
+  const res = GSRCSVParser.parse(csv);
+
+  assert.ok(Array.isArray(res.raw));
+  assert.strictEqual(res.raw.length, 2);
+  assert.strictEqual(res.isResistance, false);
+  assert.strictEqual(res.recordingStartTime, 1798725600);
+  assert.deepStrictEqual(res.importedFilterParams, { peakThreshold: 0.03 });
+  assert.deepStrictEqual(res.importedGpsFilterParams, { maxHdop: 2.5 });
+  // EnrichmentRadius metadata passthrough + enriched flag (OSM column present)
+  assert.strictEqual(res.enrichmentRadius, 75);
+  assert.strictEqual(res.isEnriched, true);
+  assert.strictEqual(res.hasRfData, false);
+  assert.ok(res.rfPeakIndices instanceof Set);
+  assert.strictEqual(res.warnings, null);
+  assert.ok(res.importedPeakLabels instanceof Map);
+  assert.ok(res.importedPeakExcluded instanceof Map);
+  assert.ok(Math.abs(res.sampleRate - 10) < 1e-5, `expected sampleRate ~10, got ${res.sampleRate}`);
+});

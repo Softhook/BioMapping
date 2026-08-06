@@ -39,6 +39,7 @@ loadModule(path.join(__dirname, '../spatial_clustering.js'), 'GSRSpatialClusteri
 loadModule(path.join(__dirname, '../marching_squares.js'),   'MarchingSquares');
 loadModule(path.join(__dirname, '../collective_manager.js'), 'GSRCollectiveManager');
 loadModule(path.join(__dirname, '../deconvolution.js'),  'SCRDeconvolution');
+loadModule(path.join(__dirname, '../csv_parser.js'),     'GSRCSVParser');
 
 const {
   GeoUtils, StatsMath, MapColors, GpsFilter, GpsPipeline,

@@ -14,10 +14,15 @@ const vm = require('vm');
 
 function loadModule(filePath, varName) {
   const src = fs.readFileSync(filePath, 'utf8');
-  const wrapped = src.replace(
-    new RegExp(`const ${varName}\\s*=`),
-    `global.${varName} =`
-  );
+  const wrapped = src
+    .replace(
+      new RegExp(`class ${varName}\\s*{`),
+      `global.${varName} = class ${varName} {`
+    )
+    .replace(
+      new RegExp(`const ${varName}\\s*=`),
+      `global.${varName} =`
+    );
   vm.runInThisContext(wrapped, { filename: filePath });
 }
 
@@ -31,6 +36,7 @@ loadModule(path.join(__dirname, '../gps_filter.js'),   'GpsFilter');
 loadModule(path.join(__dirname, '../gps_pipeline.js'), 'GpsPipeline');
 loadModule(path.join(__dirname, '../dwt_filter.js'),   'DWT');       // needed by analyzer.js
 loadModule(path.join(__dirname, '../gsr_filter.js'),   'GsrFilter');  // needed by analyzer.js
+loadModule(path.join(__dirname, '../csv_parser.js'),   'GSRCSVParser');       // needed by analyzer.js
 
 const { GeoUtils, StatsMath, MapColors, GpsFilter, GpsPipeline, GsrFilter } = global;
 
