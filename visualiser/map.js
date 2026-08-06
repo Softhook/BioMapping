@@ -637,11 +637,6 @@ class GSRMapManager {
     const data = analyzer.raw;
     if (!data || data.length === 0) return;
 
-    // Use cached GPS pipeline result (cache keyed by active track id)
-    const cacheKey = AppState.activeTrackId || 'single';
-    const { drawPoints } = this._getOrBuildDrawPoints(cacheKey, analyzer, p);
-    if (drawPoints.length === 0) return;
-
     // Phase 1 (slice 1): resolve the active track's layerGroup — its single
     // render handle. Path/peak/hotspot layers below are added INTO this group
     // (which is on the map), never directly onto the map. When there is no
@@ -652,21 +647,41 @@ class GSRMapManager {
       : null;
     const layerGroup = this._getTrackLayerGroup(activeTrack);
 
+    // Use cached GPS pipeline result (cache keyed by active track id)
+    const cacheKey = AppState.activeTrackId || 'single';
+    const { drawPoints } = this._getOrBuildDrawPoints(cacheKey, analyzer, p);
+    const hasPath = drawPoints.length > 0;
+
     // Only auto-fit the viewport when a different track just became active (or the caller
     // explicitly asks for it) — not on every re-render, otherwise nudging a GSR/GPS filter
     // slider yanks the map back out to full-extent zoom and you lose whatever detail view
     // you'd zoomed into to actually see the slider's effect.
     const isNewTrack = cacheKey !== this._lastFitBoundsTrackId;
-    if (options.fitBounds || isNewTrack) {
-      this._fitBounds(drawPoints);
-      this._lastFitBoundsTrackId = cacheKey;
+    if (hasPath) {
+      if (options.fitBounds || isNewTrack) {
+        this._fitBounds(drawPoints);
+        this._lastFitBoundsTrackId = cacheKey;
+      }
+      this._lastDrawPoints = drawPoints;
+      if (this.rfFluidRenderer) {
+        this.rfFluidRenderer.setData(drawPoints, analyzer.osmGeoms);
+      }
+      this._updateRfFluidButtonState(!!(analyzer && analyzer.hasRfData));
+      this._renderPathSegments(drawPoints, p.trackWeight || 5, analyzer, activeTrack);
+    } else {
+      // Every GPS fix was dropped by the quality gates (e.g. all HDOP values
+      // exceed the gate), so there is no filtered path to draw. Peak/hotspot
+      // markers resolve their own coordinates from the RAW data (independent of
+      // the filter pipeline — see analyzer.getCoordinates), so they can still
+      // be placed: never leave a blank map for a track that has detectable
+      // peaks. (Beware regression risk: any earlier `drawPoints.length === 0`
+      // early-return here silently hid every layer for such tracks.)
+      this._lastDrawPoints = [];
+      if (this.rfFluidRenderer) {
+        this.rfFluidRenderer.setData([], null);
+      }
+      this._updateRfFluidButtonState(false);
     }
-    this._lastDrawPoints = drawPoints;
-    if (this.rfFluidRenderer) {
-      this.rfFluidRenderer.setData(drawPoints, analyzer.osmGeoms);
-    }
-    this._updateRfFluidButtonState(!!(analyzer && analyzer.hasRfData));
-    this._renderPathSegments(drawPoints, p.trackWeight || 5, analyzer, activeTrack);
 
     // Peak markers (with latency compensation)
     this._renderPeakMarkers(analyzer, data, p.peakLatency || 0, activeTrack);
@@ -677,6 +692,20 @@ class GSRMapManager {
 
     // Apply the active peak/label/hotspot toggle styles
     this.updateMarkerVisibility();
+
+    // When the path was fully gated out but peaks/hotspots rendered, fit the
+    // view to them so the user can actually see the track's events (otherwise
+    // the map would stay at whatever stale viewport it had).
+    if (!hasPath && (options.fitBounds || isNewTrack)) {
+      const peakLayers = this.getRenderLayers().peakMarkers;
+      const coords = peakLayers
+        .filter(m => m._latlng && !isNaN(m._latlng.lat) && !isNaN(m._latlng.lng))
+        .map(m => [m._latlng.lat, m._latlng.lng]);
+      if (coords.length > 0) {
+        this.map.fitBounds(coords, { padding: [30, 30] });
+        this._lastFitBoundsTrackId = cacheKey;
+      }
+    }
   }
 
   // ── Pipeline helpers ──────────────────────────────────────────────────────

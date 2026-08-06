@@ -9,6 +9,16 @@ const GSRLayoutManager = {
   _mapObserver: null,
   _regressionObserver: null,
 
+  // Last-applied container sizes, keyed by observer role. Used to skip
+  // no-change resize notifications (a ResizeObserver that acts on unchanged
+  // sizes synchronously is the classic source of the browser's benign
+  // "ResizeObserver loop completed with undelivered notifications" diagnostic,
+  // which GSRNotices would otherwise surface as red toasts — see notices.js).
+  _lastSizes: {},
+  // rAF token for coalescing bursts of resize notifications into one layout pass.
+  _resizeRaf: null,
+  _pendingResize: null,
+
   /**
    * Cross-browser Fullscreen API helpers.
    */
@@ -49,16 +59,21 @@ const GSRLayoutManager = {
 
   /**
    * Set up ResizeObservers for dynamic container layout tracking.
+   *
+   * Every callback routes through _scheduleResize() rather than doing its work
+   * inline: resize work is deferred to the next animation frame and skipped
+   * when the size didn't actually change. Acting synchronously on an observed
+   * element (Leaflet invalidateSize, p5 resizeCanvas) is what makes the
+   * browser emit the benign "ResizeObserver loop completed with undelivered
+   * notifications" diagnostic, which this app's window.onerror → GSRNotices
+   * wiring would otherwise surface as a burst of red toasts.
    */
   setupResizeObservers() {
     const canvasContainer = document.getElementById('canvasContainer');
     if (canvasContainer) {
       this._canvasObserver = new ResizeObserver((entries) => {
-        for (let entry of entries) {
-          const w = entry.contentRect.width;
-          const h = entry.contentRect.height;
-          this.resizeCanvas(w, h);
-        }
+        const e = entries[entries.length - 1];
+        this._scheduleResize('canvas', e.contentRect.width, e.contentRect.height);
       });
       this._canvasObserver.observe(canvasContainer);
     }
@@ -66,11 +81,8 @@ const GSRLayoutManager = {
     const mapElement = document.getElementById('map');
     if (mapElement) {
       this._mapObserver = new ResizeObserver((entries) => {
-        for (let entry of entries) {
-          const w = entry.contentRect.width;
-          const h = entry.contentRect.height;
-          this.resizeMap(w, h);
-        }
+        const e = entries[entries.length - 1];
+        this._scheduleResize('map', e.contentRect.width, e.contentRect.height);
       });
       this._mapObserver.observe(mapElement);
     }
@@ -78,12 +90,46 @@ const GSRLayoutManager = {
     const regressionContainer = document.querySelector('.regression-chart-container');
     if (regressionContainer) {
       this._regressionObserver = new ResizeObserver(() => {
-        if (typeof GSRUI !== 'undefined' && typeof GSRUI.drawRegressionScatterPlot === 'function') {
-          GSRUI.drawRegressionScatterPlot();
-        }
+        this._scheduleResize('regression');
       });
       this._regressionObserver.observe(regressionContainer);
     }
+  },
+
+  /**
+   * Coalesce a ResizeObserver notification into a single rAF layout pass,
+   * skipping no-change sizes. `role` is 'canvas' | 'map' | 'regression'.
+   * @private
+   */
+  _scheduleResize(role, w, h) {
+    // Skip when the size is unchanged (or unknown for the regression chart,
+    // which has no dimension payload).
+    if (role !== 'regression') {
+      const last = this._lastSizes[role];
+      if (last && last.w === w && last.h === h) return;
+      this._lastSizes[role] = { w, h };
+    }
+
+    // Defer to the next frame so layout work runs outside the observer's
+    // notification cycle (breaks the ResizeObserver loop diagnostic).
+    this._pendingResize = { role, w, h };
+    if (this._resizeRaf) return;
+    const raf = (typeof requestAnimationFrame === 'function')
+      ? requestAnimationFrame
+      : (fn) => setTimeout(fn, 0);
+    this._resizeRaf = raf(() => {
+      this._resizeRaf = null;
+      const pending = this._pendingResize;
+      this._pendingResize = null;
+      if (!pending) return;
+      const { role: r, w: rw, h: rh } = pending;
+      if (r === 'canvas') this.resizeCanvas(rw, rh);
+      else if (r === 'map') this.resizeMap(rw, rh);
+      else if (r === 'regression' && typeof GSRUI !== 'undefined' &&
+               typeof GSRUI.drawRegressionScatterPlot === 'function') {
+        GSRUI.drawRegressionScatterPlot();
+      }
+    });
   },
 
   /**

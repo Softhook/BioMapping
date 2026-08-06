@@ -106,6 +106,43 @@ test('GSRNotices: window error/unhandledrejection hooks surface uncaught errors'
   assert.ok(toast.textContent.includes('uncaught boom'), 'toast surfaces the uncaught error message');
 });
 
+test('GSRNotices: benign ResizeObserver loop diagnostic does not spawn a red toast', () => {
+  // Regression for: "223 notices ... [GSRNotices:window.onerror] ResizeObserver
+  // loop completed with undelivered notifications." Browsers fire this harmless
+  // diagnostic through window.onerror when a ResizeObserver callback resizes an
+  // observed element in the same frame (Leaflet invalidateSize / p5
+  // resizeCanvas are classic triggers). Surfacing it as a red error toast was
+  // pure noise — a resize burst can emit hundreds. Known-benign diagnostics
+  // must be swallowed by the onerror hook, while real errors still toast.
+  const listeners = {};
+  const fakeWindow = {
+    addEventListener: (type, fn) => { listeners[type] = fn; },
+  };
+
+  let bodyChildren = [];
+  const makeNode = () => ({
+    style: {}, children: [], textContent: '', title: '', id: '',
+    remove() {}, appendChild(c) { this.children.push(c); }, addEventListener() {},
+  });
+  const fakeDocument = {
+    createElement: () => makeNode(),
+    getElementById: () => null,
+    body: { appendChild(c) { bodyChildren.push(c); } },
+  };
+
+  const src = fs.readFileSync(path.join(__dirname, '../notices.js'), 'utf8');
+  vm.runInNewContext(src, { window: fakeWindow, document: fakeDocument, console, setTimeout });
+
+  // Fire the benign diagnostic exactly as browsers do (message on the event,
+  // no error object).
+  listeners.error({ error: undefined, message: 'ResizeObserver loop completed with undelivered notifications.' });
+  assert.strictEqual(bodyChildren.length, 0, 'benign ResizeObserver diagnostic must not create a toast');
+
+  // Sanity: a real error on the same hook still toasts — the filter is narrow.
+  listeners.error({ error: new Error('real boom'), message: 'real boom' });
+  assert.strictEqual(bodyChildren.length, 1, 'a real error still toasts after the benign one was swallowed');
+});
+
 test('GSRNotices.warn: shows an amber toast (not the red error toast)', () => {
   let bodyChildren = [];
   const makeNode = () => ({

@@ -631,6 +631,56 @@ test('slice3: the single-track path always renders regardless of showTracks (tog
     'toggling tracks off must not hide the single-track path');
 });
 
+test('slice3: renderData renders peaks/hotspots even when every GPS fix is quality-gated out', () => {
+  // Regression for: "a track in single mode where I couldn't see any of the
+  // peaks." Some real tracks have ALL GPS fixes dropped by the quality gates
+  // (e.g. every HDOP > the 3.0 default), so the GPS pipeline returns an empty
+  // drawPoints array. renderData used to early-return on `drawPoints.length ===
+  // 0`, silently hiding the path AND the peaks/hotspots — even though peak and
+  // hotspot markers resolve their own coordinates from the RAW data via
+  // analyzer.getCoordinates, independent of the filter pipeline. The map must
+  // still show the track's events (peaks + hotspots) when there's no drawable
+  // path.
+  const { window, map, mapManager } = bootWithRecordingL();
+
+  // Same SCR fixture as SAMPLE_CSV but with HDOP 9.0 on every fix — well above
+  // the default gate (GPS_DEFAULT.maxHdop = 3.0), so the whole path is gated.
+  const GATED_CSV = [
+    'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m',
+    ...SAMPLE_GSR_RAW.map((g, i) => {
+      const t = (i * 0.1).toFixed(2);
+      const lat = (51.5074 + i * 0.0001).toFixed(6);
+      const lon = (-0.1278 + i * 0.0001).toFixed(6);
+      return `${t},${lat},${lon},9.0,1.5,8,3,0.5,90,${g},3.0`;
+    })
+  ].join('\n');
+
+  const track = addTrack(window, 't1', 't1.csv', GATED_CSV);
+
+  // Fixture self-check: the analyzer must still detect peaks (from GSR), and
+  // those peaks must be placeable from raw GPS coords.
+  assert.ok(track.analyzer.peaks.length > 0, 'fixture must still produce peaks');
+  assert.ok(track.analyzer.peaks.every((peak, idx) => {
+    const coords = track.analyzer.getCoordinates(idx);
+    return coords && !isNaN(coords.lat) && !isNaN(coords.lon);
+  }), 'fixture peaks must be resolvable from raw data');
+
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  // The path is fully gated out — but the track's events must still render.
+  const group = track.layerGroup;
+  assert.ok(group, 'a layerGroup should be created even when the path is gated out');
+  assert.ok(map.hasLayer(group), 'the layerGroup should be on the map');
+  const kinds = group.getLayers().map(l => l._gsrKind);
+  assert.ok(!kinds.includes('path'), `no path when every fix is gated out (got: ${kinds})`);
+  assert.ok(kinds.includes('peak'), `peak markers must render without a path (got: ${kinds})`);
+  assert.ok(kinds.includes('hotspot'), `hotspot markers must render without a path (got: ${kinds})`);
+
+  // Peaks must be on the map (via the group) and resolvable by index.
+  group.getLayers().forEach(l => assert.ok(map.hasLayer(l), `${l._gsrKind} should be on the map`));
+  assert.ok(mapManager.getPeakMarkerByIndex(0), 'peak index 0 should resolve to a rendered marker');
+});
+
 test('slice3: entering collective (0 active tracks) drops a lingering scrub marker', () => {
   // Regression for: "black pulsing dot on the map while not in the scrub graph
   // window." Hovering the single-track graph shows the map scrub indicator;

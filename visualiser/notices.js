@@ -225,7 +225,23 @@ class GSRNotices {
 }
 
 if (typeof window !== 'undefined') {
+  // Known-benign browser diagnostics that fire through window.onerror but are
+  // NOT app errors. Surfacing these as red toasts is noise (a resize burst can
+  // emit hundreds). Kept in one list so the "don't fail silently" guarantee
+  // stays intact for everything else.
+  const BENIGN_ONERROR_PATTERNS = [
+    // Fired by browsers when a ResizeObserver callback synchronously triggers a
+    // resize of an observed element in the same frame. Harmless diagnostic —
+    // see layout_manager.js (which also debounces to avoid it in the first
+    // place).
+    /ResizeObserver loop completed with undelivered notifications/,
+  ];
+
   window.addEventListener('error', (event) => {
+    const msg = String((event && (event.error ? (event.error.message || event.error) : event.message)) || '');
+    if (BENIGN_ONERROR_PATTERNS.some(re => re.test(msg))) {
+      return; // known-benign browser diagnostic — log nothing, toast nothing
+    }
     GSRNotices.report(event.error || event.message, 'window.onerror');
   });
   window.addEventListener('unhandledrejection', (event) => {
