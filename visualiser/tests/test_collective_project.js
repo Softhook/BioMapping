@@ -264,16 +264,16 @@ test('importProject: rejects a manifest with an empty/missing tracks array', asy
 });
 
 test('importProject: prompts for confirmation before replacing an existing non-empty track list', async () => {
-  let confirmCalled = false;
-  global.confirm = () => { confirmCalled = true; return false; }; // decline — import should abort
+  let dialogCalled = false;
+  global.GSRNotices = { dialog: async () => { dialogCalled = true; return null; } }; // decline — import should abort
   global.JSZip = { loadAsync: async () => ({ file: () => null }) };
   global.AppState = { collectiveManager: { tracks: [{ id: 'existing' }] } };
 
   await GSRCollectiveProject.importProject({ name: 'project.zip' });
-  assert.strictEqual(confirmCalled, true);
-  assert.strictEqual(global.AppState.collectiveManager.tracks.length, 1, 'declining the confirm should leave existing tracks untouched');
+  assert.strictEqual(dialogCalled, true, 'the replace-tracks dialog was shown');
+  assert.strictEqual(global.AppState.collectiveManager.tracks.length, 1, 'declining the dialog should leave existing tracks untouched');
 
   delete global.JSZip;
   delete global.AppState;
-  global.confirm = () => true;
+  delete global.GSRNotices;
 });
