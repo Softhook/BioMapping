@@ -1377,10 +1377,9 @@ const GSRUI = {
     // Resolve data source: direct arg, single-track cache, or collective cache
     let dataSrc = allData;
     if (!dataSrc) {
-      if (AppState.analyzer && AppState.analyzer._cachedEnvStats) {
-        dataSrc = AppState.analyzer._cachedEnvStats.allData;
-      } else if (AppState.collectiveManager && AppState.collectiveManager._cachedEnvStats) {
-        dataSrc = AppState.collectiveManager._cachedEnvStats.allData;
+      const cacheTarget = (AppState.viewMode === 'single') ? AppState.analyzer : AppState.collectiveManager;
+      if (cacheTarget && cacheTarget._cachedEnvStats) {
+        dataSrc = cacheTarget._cachedEnvStats.allData;
       } else {
         dataSrc = [];
       }
@@ -1672,3 +1671,10 @@ const GSRUI = {
     if (modal) modal.style.display = 'none';
   }
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { GSRUI };
+}
+if (typeof window !== 'undefined') {
+  window.GSRUI = GSRUI;
+}

@@ -998,3 +998,10 @@ const GSRRenderer = {
     rect(xViewStart, AppState.yTimelineTop, xViewEnd - xViewStart, timelineHeight, 2);
   }
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { GSRRenderer };
+}
+if (typeof window !== 'undefined') {
+  window.GSRRenderer = GSRRenderer;
+}

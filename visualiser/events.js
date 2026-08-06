@@ -1056,3 +1056,10 @@ const GSREvents = {
     });
   }
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { GSREvents };
+}
+if (typeof window !== 'undefined') {
+  window.GSREvents = GSREvents;
+}

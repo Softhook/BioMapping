@@ -157,3 +157,10 @@ const GpsPipeline = {
     return draw;
   }
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { GpsPipeline };
+}
+if (typeof window !== 'undefined') {
+  window.GpsPipeline = GpsPipeline;
+}

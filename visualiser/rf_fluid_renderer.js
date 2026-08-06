@@ -721,3 +721,10 @@ class RFFluidRenderer {
     return result;
   }
 }
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { RFFluidRenderer };
+}
+if (typeof window !== 'undefined') {
+  window.RFFluidRenderer = RFFluidRenderer;
+}

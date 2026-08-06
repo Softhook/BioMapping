@@ -225,3 +225,10 @@ const GSRLayoutManager = {
     this._activePanelExits.forEach((exitFn) => exitFn());
   }
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { GSRLayoutManager };
+}
+if (typeof window !== 'undefined') {
+  window.GSRLayoutManager = GSRLayoutManager;
+}
