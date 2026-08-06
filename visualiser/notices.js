@@ -73,6 +73,9 @@ class GSRNotices {
       const tone = options.tone || 'warn';
       const accent = tone === 'error' ? '#b91c1c' : (tone === 'info' ? '#1d4ed8' : '#b45309');
 
+      // Remember what had focus so it can be restored when the dialog closes.
+      const previouslyFocused = document.activeElement;
+
       const overlay = document.createElement('div');
       Object.assign(overlay.style, {
         position: 'fixed', top: '0', right: '0', bottom: '0', left: '0',
@@ -81,6 +84,8 @@ class GSRNotices {
       });
 
       const card = document.createElement('div');
+      card.setAttribute('role', 'dialog');
+      card.setAttribute('aria-modal', 'true');
       Object.assign(card.style, {
         background: '#fff', color: '#111', borderRadius: '10px',
         maxWidth: '440px', width: '90%', padding: '20px 22px',
@@ -89,8 +94,10 @@ class GSRNotices {
       });
 
       const titleEl = document.createElement('h3');
+      titleEl.id = 'gsr-notice-dialog-title';
       titleEl.textContent = title;
       Object.assign(titleEl.style, { margin: '0 0 8px', color: accent, fontSize: '16px' });
+      card.setAttribute('aria-labelledby', titleEl.id);
 
       const msgEl = document.createElement('p');
       msgEl.textContent = message;
@@ -101,12 +108,31 @@ class GSRNotices {
         display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap'
       });
 
+      // All focusable controls in the dialog, in DOM order, for the Tab trap.
+      const focusables = [];
+
       const finish = (value) => {
         overlay.remove();
         document.removeEventListener('keydown', onKey);
+        if (previouslyFocused && typeof previouslyFocused.focus === 'function' && previouslyFocused.isConnected) {
+          previouslyFocused.focus();
+        }
         resolve(value);
       };
-      const onKey = (e) => { if (e.key === 'Escape') finish(null); };
+      const onKey = (e) => {
+        if (e.key === 'Escape') { finish(null); return; }
+        // Lightweight focus trap: keep Tab cycling inside the dialog.
+        if (e.key === 'Tab' && focusables.length > 0) {
+          const first = focusables[0];
+          const last = focusables[focusables.length - 1];
+          const active = document.activeElement;
+          if (e.shiftKey) {
+            if (active === first) { e.preventDefault(); last.focus(); }
+          } else if (active === last) {
+            e.preventDefault(); first.focus();
+          }
+        }
+      };
 
       buttons.forEach((b) => {
         const btn = document.createElement('button');
@@ -119,6 +145,7 @@ class GSRNotices {
         });
         btn.addEventListener('click', () => finish(b.value));
         btnRow.appendChild(btn);
+        focusables.push(btn);
       });
 
       if (options.dismissLabel !== null) {
@@ -131,6 +158,7 @@ class GSRNotices {
         });
         cancel.addEventListener('click', () => finish(null));
         btnRow.appendChild(cancel);
+        focusables.push(cancel);
       }
 
       card.appendChild(titleEl);
@@ -140,6 +168,8 @@ class GSRNotices {
       overlay.addEventListener('click', (e) => { if (e.target === overlay) finish(null); });
       document.body.appendChild(overlay);
       document.addEventListener('keydown', onKey);
+      // Move focus into the dialog so keyboard users are where the action is.
+      if (focusables.length > 0) focusables[0].focus();
     });
   }
 

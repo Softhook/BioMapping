@@ -681,7 +681,18 @@ const GSREvents = {
     document.getElementById('btnEnrichTrack').addEventListener('click', () => GSRUI.enrichTrack(true));
 
     document.getElementById('btnClearOsmCache').addEventListener('click', async () => {
-      if (!confirm('Clear locally cached OpenStreetMap data? Future enrichment will re-fetch from the Overpass API.')) return;
+      // Ask via the shared notices layer; fall back to a no-op (rather than
+      // silently clearing) if no notice layer is available.
+      const proceed = (typeof GSRNotices !== 'undefined')
+        ? await GSRNotices.dialog({
+            title: 'Clear OSM Cache',
+            message: 'Clear locally cached OpenStreetMap data? Future enrichment will re-fetch from the Overpass API.',
+            buttons: [{ label: 'Clear', value: 'clear', style: 'danger' }],
+            dismissLabel: 'Cancel',
+            tone: 'warn',
+          })
+        : null;
+      if (proceed !== 'clear') return;
       try {
         await OsmCache.clear();
         alert('OSM cache cleared.');

@@ -229,3 +229,49 @@ test('GSRNotices.dialog: resolves null on overlay (outside) click', async () => 
     dom.window.close();
   }
 });
+
+test('GSRNotices.dialog: is announced as a dialog and moves focus to its first button', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>');
+  global.document = dom.window.document;
+  try {
+    const p = GSRNotices.dialog({
+      title: 'Replace Tracks', message: 'Continue?',
+      buttons: [{ label: 'Import', value: 'import' }],
+      dismissLabel: 'Cancel',
+    });
+    const card = dom.window.document.querySelector('[role="dialog"]');
+    assert.ok(card, 'card is exposed as a dialog role');
+    assert.strictEqual(card.getAttribute('aria-modal'), 'true');
+    assert.ok(card.getAttribute('aria-labelledby'), 'dialog is labelled by its title');
+    const titleEl = dom.window.document.getElementById(card.getAttribute('aria-labelledby'));
+    assert.ok(titleEl && titleEl.textContent === 'Replace Tracks', 'aria-labelledby points at the title');
+    const firstButton = dom.window.document.querySelector('[role="dialog"] button');
+    assert.strictEqual(dom.window.document.activeElement, firstButton, 'focus moves into the dialog, on the first button');
+    firstButton.click();
+    await p;
+  } finally {
+    delete global.document;
+    dom.window.close();
+  }
+});
+
+test('GSRNotices.dialog: restores focus to the trigger when it closes', async () => {
+  const dom = new JSDOM('<!doctype html><body><button id="trigger">Open</button></body>');
+  global.document = dom.window.document;
+  try {
+    const trigger = dom.window.document.getElementById('trigger');
+    trigger.focus();
+    assert.strictEqual(dom.window.document.activeElement, trigger, 'setup: trigger has focus');
+
+    const p = GSRNotices.dialog({ title: 'T', message: 'M', buttons: [{ label: 'OK', value: 'ok' }] });
+    // Focus moved into the dialog first...
+    assert.notStrictEqual(dom.window.document.activeElement, trigger, 'focus leaves the trigger while the dialog is open');
+    // ...and returns after choosing.
+    dom.window.document.querySelector('[role="dialog"] button').click();
+    await p;
+    assert.strictEqual(dom.window.document.activeElement, trigger, 'focus is restored to the trigger');
+  } finally {
+    delete global.document;
+    dom.window.close();
+  }
+});
