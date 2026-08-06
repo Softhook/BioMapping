@@ -25,19 +25,38 @@ class GSRErrors {
   static report(err, context = '') {
     const label = context ? `[GSRErrors:${context}]` : '[GSRErrors]';
     console.error(label, err);
-    GSRErrors._toast(context, err);
+    GSRErrors._toast('error', context, err);
   }
 
   /**
-   * Append a non-blocking toast for the error. No-op when there is no DOM.
-   * @param {string} context - Source of the error.
-   * @param {Error|string} err - Error or message.
+   * Report a non-fatal warning. Logs via console.warn and (unless
+   * options.toast === false) shows an amber, non-blocking toast — the same
+   * notification layer as report(), but for warnings rather than errors.
+   * @param {string} message - The warning message.
+   * @param {string} [context=''] - Where it came from, e.g. 'unsaved-labels'.
+   * @param {{toast?: boolean}} [options={}] - Pass { toast: false } to log
+   *   only, e.g. when another UI element is already showing the warning.
+   */
+  static warn(message, context = '', options = {}) {
+    const label = context ? `[GSRErrors:${context}]` : '[GSRErrors]';
+    console.warn(label, message);
+    if (options.toast !== false) {
+      GSRErrors._toast('warn', context, message);
+    }
+  }
+
+  /**
+   * Append a non-blocking toast for a notice. No-op when there is no DOM.
+   * @param {'error'|'warn'} level - Controls the toast styling.
+   * @param {string} context - Source of the notice.
+   * @param {Error|string} err - Error, warning message, or string.
    * @private
    */
-  static _toast(context, err) {
+  static _toast(level, context, err) {
     if (typeof document === 'undefined' || !document.body) return;
 
     const msg = err && err.message ? err.message : String(err);
+    const isWarn = level === 'warn';
 
     let container = document.getElementById('gsr-error-toasts');
     if (!container) {
@@ -58,7 +77,7 @@ class GSRErrors {
 
     const toast = document.createElement('div');
     Object.assign(toast.style, {
-      background: '#7f1d1d',
+      background: isWarn ? '#92400e' : '#7f1d1d',
       color: '#fff',
       padding: '8px 12px',
       borderRadius: '6px',

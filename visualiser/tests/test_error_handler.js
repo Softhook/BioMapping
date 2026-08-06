@@ -12,6 +12,7 @@ test('GSRErrors.report: logs without throwing in a no-DOM environment', () => {
   // No window/document globals are set here, so _toast() must no-op gracefully.
   assert.doesNotThrow(() => GSRErrors.report(new Error('boom'), 'unit-test'));
   assert.doesNotThrow(() => GSRErrors.report('plain message'));
+  assert.doesNotThrow(() => GSRErrors.warn('plain warning'));
 });
 
 test('GSRErrors.report: creates a visible, non-blocking toast when a DOM exists', () => {
@@ -102,4 +103,42 @@ test('GSRErrors: window error/unhandledrejection hooks surface uncaught errors',
   assert.strictEqual(bodyChildren.length, 1, 'toast container appears on uncaught error');
   const toast = bodyChildren[0].children[0];
   assert.ok(toast.textContent.includes('uncaught boom'), 'toast surfaces the uncaught error message');
+});
+
+test('GSRErrors.warn: shows an amber toast (not the red error toast)', () => {
+  let bodyChildren = [];
+  const makeNode = () => ({
+    style: {}, children: [], textContent: '', title: '', id: '',
+    remove() {}, appendChild(c) { this.children.push(c); }, addEventListener() {},
+  });
+  global.document = {
+    createElement: () => makeNode(),
+    getElementById: () => null,
+    body: { appendChild(c) { bodyChildren.push(c); } },
+  };
+
+  GSRErrors.warn('careful now', 'warn-ctx');
+
+  assert.strictEqual(bodyChildren.length, 1, 'toast container appended');
+  const toast = bodyChildren[0].children[0];
+  assert.ok(toast.textContent.includes('careful now'), 'toast shows the warning message');
+  assert.ok(toast.textContent.includes('warn-ctx'), 'toast shows the warning context');
+  assert.strictEqual(toast.style.background, '#92400e', 'warning uses amber styling, distinct from the red error toast');
+
+  delete global.document;
+});
+
+test('GSRErrors.warn: { toast: false } logs only and creates no toast', () => {
+  let bodyChildren = [];
+  global.document = {
+    createElement: () => ({ style: {}, children: [], textContent: '', title: '', id: '',
+      remove() {}, appendChild(c) { this.children.push(c); }, addEventListener() {} }),
+    getElementById: () => null,
+    body: { appendChild(c) { bodyChildren.push(c); } },
+  };
+
+  GSRErrors.warn('log only, no toast', 'ctx', { toast: false });
+
+  assert.strictEqual(bodyChildren.length, 0, 'no toast created when toast:false (e.g. a modal already shows the warning)');
+  delete global.document;
 });

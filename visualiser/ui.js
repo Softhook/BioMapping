@@ -1614,12 +1614,26 @@ const GSRUI = {
    * @param {Function} onConfirmClose - Callback to execute if user chooses to proceed with close/deletion.
    */
   showUnsavedLabelsModal(trackName, trackId, onConfirmClose) {
+    const warning = trackId === 'ALL'
+      ? 'You have unsaved peak labels across loaded tracks.'
+      : `Track "${trackName}" has unsaved peak labels.`;
+
     const modal = document.getElementById('unsavedLabelsModal');
     if (!modal) {
-      if (confirm(`Track "${trackName}" has unsaved peak labels. Do you want to lose unsaved labels and close?`)) {
-        onConfirmClose();
+      // Modal DOM unavailable — surface the warning through the notification
+      // layer (GSRErrors) instead of a blocking native confirm(), and DON'T
+      // auto-proceed: the user hasn't explicitly chosen to lose labels.
+      if (typeof GSRErrors !== 'undefined') {
+        GSRErrors.warn(`${warning} Export them first, or lose unsaved labels.`, 'unsaved-labels');
       }
       return;
+    }
+
+    // Report the warning through the notification layer too for consistent
+    // logging, but suppress the duplicate toast — the modal is the visible
+    // notice and the decision point.
+    if (typeof GSRErrors !== 'undefined') {
+      GSRErrors.warn(warning, 'unsaved-labels', { toast: false });
     }
 
     const textEl = document.getElementById('unsavedLabelsModalText');
