@@ -750,6 +750,68 @@ either FAT or GC theories.
   enough to call the steady-state improvement (152ms→60ms) reliable either,
   though it's a promising sign on its own.
 
+### 2026-08-06: state of play after tracks 017/018/019 — pre-allocation looks like it's working; a separate, pre-existing "2Hz" issue is still there but small
+
+Three real recordings with `BIOMAP_SD_PREALLOC` on (017: 19s, 018: 18.1min,
+019: 67.9min) are enough now to say something with more confidence than the
+track 018 entry above could on its own. Two separate headline findings —
+one encouraging, one a reminder that this investigation isn't closed.
+
+**1. Pre-allocation appears to be working.**
+
+- `prealloc_ms` is cheap and consistent: 21-22ms across all three tracks —
+  the one-shot allocation is not itself a meaningful stall.
+- Steady-state flush cost is dramatically lower: track 019 sits at
+  97-100ms average flush-boundary tick time for the entire 68-minute
+  recording (vs. track 016's 94ms→163ms *climb* over 59 minutes without
+  pre-allocation) — the sustained, ever-worsening drift that was the
+  original concern does not show up.
+- Where escalation events still happen (track 018's 266ms jump, track
+  019's two spikes at ~40min and ~55-60min), track 019's much longer tail
+  answers the question track 018 couldn't: **they recover.** Every bucket
+  after each spike returns to the ~100ms baseline, unlike track 016 where
+  the equivalent jump never came back down for the rest of the recording.
+  That's a real, qualitative difference in failure mode — occasional
+  self-correcting stalls instead of permanent, compounding degradation —
+  not just a smaller version of the same problem.
+- No data lost in any of the three tracks (`log_overflow_count`/
+  `log_flush_fail_count` stayed 0 throughout).
+- Still open, not contradicted by any of this: whether pre-allocation is
+  quietly costing more in total SD-card metadata churn than it saves (the
+  8 MiB-vs-real-walk-size overshoot question raised earlier), since that
+  isn't visible in `flush_peak_ms`/`tick_dt_ms` at all — see the
+  instrumentation menu two entries below.
+
+**2. The "2Hz" tick-delay pattern (open item #6 below) is real, still
+unexplained, but small and independent of this investigation.**
+
+Checked nine long tracks total (015, 016, 018, 019, 116, 118, 119, 121,
+122) for `tick_dt_ms` delays that land nowhere near an SD flush. Splits
+cleanly: **every track with `flush_peak_ms` in its CSV schema (015, 016,
+018, 019, and the original track 118) shows the pattern; every track
+without it (116, 119, 121, 122) doesn't** — no exceptions. It shows up
+whether pre-allocation is on or off, so it isn't something this change
+introduced or affects.
+
+Where it appears, it grows from rare at the start of a recording to
+frequent later on (e.g. track 019: ~16 occurrences in the first 5 minutes
+vs. 200+ in the last 5). Two competing explanations for the
+`flush_peak_ms`-presence correlation, neither confirmed: genuinely more
+per-tick formatting cost from the larger debug-column set those tracks
+share, or a confound — those tracks are chronologically later, on a card
+with many more prior recordings on it, independent of column count. Not
+distinguished yet; would need a same-card, same-walk, debug-fields-on-vs-off
+comparison to tell them apart.
+
+**Why "not particularly significant" is the right way to hold this**:
+aggregate cost measured directly on track 019 is ~55 seconds over a
+68-minute recording (~1.3% of total time), values stay in the 130-190ms
+range (versus multi-hundred-ms for the SD-flush issue), and — same as
+everything else in this document — no data loss. It doesn't change
+anything concluded about pre-allocation above; it's a separate, older,
+lower-priority thread that happened to become visible while investigating
+this one.
+
 ## Other open items
 
 Ranked by what would most change confidence in this fix, not by effort.
@@ -812,6 +874,15 @@ Ranked by what would most change confidence in this fix, not by effort.
    or something else entirely. Low priority — no data loss, self-correcting,
    never exceeds ~250ms — but a real, reproducible pattern change, not
    noise.
+   **[2026-08-06 update]** Confirmed present across 5 of 9 long tracks
+   checked (015, 016, 018, 019, and this original track 118), absent in
+   the other 4 (116, 119, 121, 122) — splits cleanly on whether
+   `flush_peak_ms` is in the track's CSV schema, no exceptions. Independent
+   of `BIOMAP_SD_PREALLOC` (shows up with it on or off). Two competing
+   explanations, neither confirmed: more per-tick debug-column formatting
+   cost, or a same-direction confound (those tracks are chronologically
+   later, on a more-used card). See the "state of play" entry above for
+   the full breakdown and aggregate cost (~1.3% of recording time).
 7. **Cosmetic, optional**: `gsr->available` is set `true` unconditionally
    at alloc (right after a `furi_check` that would already have aborted on
    allocation failure) and never set `false` anywhere — every

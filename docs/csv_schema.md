@@ -21,12 +21,15 @@
 Each CSV begins with comment lines (prefixed `#`) before the column header:
 
 ```
-# BioMapping v1.0
 # RecordingStartTime:<unix_epoch_seconds>
-# GPS:L76K  (or GPS:M10Q)
+# Band Floors (dBm): 815:<float>,868:<float>,915:<float>
 ```
 
-`RecordingStartTime` is `0` if the Flipper RTC has never been set.
+`RecordingStartTime` is `0` if the Flipper RTC has never been set. The
+`# Band Floors` line only appears when RF is active for the session (GPS +
+GSR + RF or GPS + RF) **and** an RF calibration exists (`key_toggle_recording()`,
+`biomap_session.c`) — there is no `# GPS:<module>` line in the current
+format.
 
 ---
 
@@ -58,6 +61,7 @@ Debug-only appended columns when enabled:
 - `i2c_peak_ms`, `rf_rssi_peak_ms`, `rf_retune_peak_ms`
 - `flush_peak_ms`, `log_fill_bytes`, `log_fill_peak_bytes`, `log_overflow_count`, `log_flush_fail_count`
 - `pga_change_count`, `i2c_consec_fail` (all GSR-bearing modes, including GSR-only)
+- `prealloc_ms` (all three variants) — one-shot SD log-file pre-allocation duration at recording start, session-constant rather than a lifetime-max like the columns above (`BIOMAP_SD_PREALLOC`, see `docs/gps_rf_mutex_status.md`'s "option E" entries)
 
 ---
 
@@ -125,6 +129,7 @@ Defined in `modules/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
 | 1.4 | 2026-07 | Removed `rssi_peak_815/868/915` (decaying peak-hold) — redundant with raw RSSI for offline analysis; total 14 columns |
 | 1.5 | 2026-08-05 | Debug-field review (see `docs/gps_rf_mutex_status.md`): added `gps_reinit_count` (GPS-bearing debug modes) and `pga_change_count`/`i2c_consec_fail` (all GSR-bearing debug modes) — promoted from serial-only/Diagnostics-screen-only readings that never reached the CSV. No production (non-debug) column changes. |
 | 1.6 | 2026-08-05 | `BIOMAP_DEBUG_FIELDS` compile-time switch replaced with a persisted runtime Options-menu toggle (`BioMapApp::debug_fields_enabled`, Options > Debug Fields), off by default. No column-list changes — same debug columns as 1.5, just switchable per-session without a rebuild. |
+| 1.7 | 2026-08-05 | Added `prealloc_ms` (all three debug variants) alongside `BIOMAP_SD_PREALLOC` — see `docs/gps_rf_mutex_status.md`. Also: the metadata header's old `# BioMapping v1.0` / `# GPS:<module>` lines don't reflect the current format — corrected above to `# RecordingStartTime:` + conditional `# Band Floors` line. |
 
 ---
 

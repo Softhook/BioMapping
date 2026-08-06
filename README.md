@@ -7,7 +7,7 @@ The Complete Build & Software Guide (ADS1115 Transimpedance Amplifier Edition)
 BioMapping 2.0 is a new version of Christian Nold's Bio Mapping project for the **Flipper Zero**. 
 It allows you to walk through a city or landscape and record your body's physiological arousal mapped precisely to geographical coordinates. 
 
-The Flipper logs your Galvanic Skin Response (GSR) together with GPS coordinates and SubGHz RF environmental spectrum levels (300/433/868/915 MHz) to a CSV file on the SD card. You then load that CSV into the included browser-based analyser (`gsr-map-analyzer/index.html` or `em_scan_visualizer.html`), which decomposes the signal into tonic/phasic components, detects arousal peaks, correlates RF noise density, and renders your route on a map **coloured by arousal**. In collective mode it builds an interpolated (IDW) contour surface across one or more walks, so calm stretches read as a flat "baseline" landscape while stress or arousal rises into "mountains" and deep relaxation drops into "valleys".
+The Flipper logs your Galvanic Skin Response (GSR) together with GPS coordinates and SubGHz RF environmental spectrum levels (815/868/915 MHz) to a CSV file on the SD card. You then load that CSV into the included browser-based analyser (`gsr-map-analyzer/index.html`), which decomposes the signal into tonic/phasic components, detects arousal peaks, correlates RF noise density (rendered via its own RF fluid canvas), and renders your route on a map **coloured by arousal**. In collective mode it builds an interpolated (IDW) contour surface across one or more walks, so calm stretches read as a flat "baseline" landscape while stress or arousal rises into "mountains" and deep relaxation drops into "valleys".
 
 This version of the device uses a dedicated 16-bit **ADS1115** Analog-to-Digital Converter combined with a robust and stable **Transimpedance Amplifier (TIA)** circuit. By utilising a rail-to-rail dual op-amp for active voltage buffering and hardware low-pass filtering, we achieve a precise, robust and noise-resistant way to measure the tiny changes in human sweat gland activity. All background sampling (GSR ADC reads at 860 SPS and interleaved SubGHz RF band sweeps) is handled by a **single unified background worker thread** (`GsrSensorWorker` in [`modules/gsr_sensor.c`](modules/gsr_sensor.c)).
 
@@ -138,13 +138,15 @@ int16_t hw_val = (int16_t)((data[0] << 8) | data[1]);
 ```
 
 ### Challenge: SD Card Lag
-Writing data to the Flipper's SD card takes a few milliseconds. If we write every measurement to the card, the app will freeze up.
+Writing data to the Flipper's SD card takes a few milliseconds — occasionally much longer on a real card (see `docs/gps_rf_mutex_status.md` for the full investigation into this). If we write every measurement to the card individually, the app will freeze up.
 
-**The Solution:** The app uses different logging rates depending on mode:
+**The Solution:** Every mode formats its CSV row into an in-memory batch buffer every 10 Hz tick, and the batch is flushed to the SD card in one `storage_file_write()` + `storage_file_sync()` call every `FLUSH_INTERVAL` (= 10) seconds — ~100 rows per flush at 10 Hz. The recording LED blinks once per second, decoupled from the flush cadence.
 
-- **GPS+GSR mode:** Each 10 Hz tick formats a CSV row into the in-memory batch buffer. Every tick carries the **most recent** GPS fix — the latest parsed position is used as-is (carried forward), not interpolated to the GSR timestamp. A full 11-column row with lat, lon, hdop, pdop, sats, fix_type, speed_kts, course_deg, and hacc_m is formatted. The batch is flushed to the SD card every `FLUSH_INTERVAL` (= 5) seconds in a single `storage_file_write()` call (~50 rows per flush at 10 Hz), exactly like GSR-only mode. The recording LED blinks once per second, decoupled from the flush cadence.
+- **GPS + GSR + RF / GPS + GSR modes:** Every tick carries the **most recent** GPS fix — the latest parsed position is used as-is (carried forward), not interpolated to the GSR timestamp. A full GPS+GSR row (11 core columns, +3 RF columns in GPS+GSR+RF) is formatted each tick.
+- **GPS + RF mode:** A GPS row is written every tick; there is no high-frequency GSR data, so `gsr_raw` is always `0.0`.
+- **GSR Only mode:** A 2-column row (`timestamp`,`gsr_raw`) is written every tick; no GPS driver is initialised (the module is put into Software Standby on M10Q hardware to save power).
 
-- **GPS-only mode:** An 11-column CSV row is written to the batch buffer every tick (10 Hz, `GPS_CSV_HZ`); there is no high-frequency GSR data, so the `gsr_raw` column is always 0.
+The SD log file is also pre-allocated once, up front, to its expected full size when a recording starts (`BIOMAP_SD_PREALLOC`, `modules/sd_logger.c`), then trimmed back down to the real data length when the recording stops — this reduces filesystem overhead from the file growing incrementally across a long recording. See `docs/gps_rf_mutex_status.md`'s "option E" entries for the investigation behind this.
 
 ---
 
@@ -163,10 +165,11 @@ The app operates two independent data pipelines because GSR and GPS have fundame
 Each CSV row's first column (`timestamp`) is a **relative time in seconds since the start of the recording**, written as a float with 0.1 s resolution (`%.2f`, e.g. `12.30`) — it is *not* an ISO 8601 string. The **absolute** start time is written once, in the file's metadata header, as a Unix epoch:
 
 ```
-# BioMapping v1.0
 # RecordingStartTime:1751204579
-# GPS:M10Q
+# Band Floors (dBm): 815:-91.5,868:-91.5,915:-91.5
 ```
+
+The `# Band Floors` line only appears when RF is active for the session (GPS + GSR + RF or GPS + RF) **and** an RF calibration exists — it's the per-band noise floor from RF Calibration (Section 8), used by the analyser to normalise RSSI readings.
 
 | Field | Source | Notes |
 |---|---|---|
@@ -221,34 +224,33 @@ M10Q GPS @ 10 Hz  ──►  UART interrupt handler
 
 ### CSV Formats
 
-**GPS+GSR+RF mode (14 columns, 10 Hz):**
+Every mode has two variants: a **production** schema (the columns below) and a wider **debug** schema with diagnostic columns appended. Which one gets written is chosen per-session by **Options > Debug Fields** (off by default) — see [Debug Fields](#debug-fields) below. [`docs/csv_schema.md`](docs/csv_schema.md) is the canonical, versioned reference for every column; this section shows representative examples.
+
+**GPS + GSR + RF mode (14 columns, 10 Hz):**
 ```
-# BioMapping v1.0
 # RecordingStartTime:1751204579
-# GPS:M10Q
+# Band Floors (dBm): 815:-91.5,868:-91.5,915:-91.5
 timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,rssi_815,rssi_868,rssi_915
 0.00,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4523.0,2.4,-91.5,-88.0,-95.0
 0.10,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4528.0,2.3,-91.5,-88.0,-95.0
 ...
 ```
 
-
-**GPS+GSR mode (11 columns, 10 Hz):**
+**GPS + GSR mode (11 columns, 10 Hz):**
 ```
-# BioMapping v1.0
 # RecordingStartTime:1751204579
-# GPS:M10Q
 timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
-0.00,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4523.0,2.4   ← every row: full 11-column GPS+GSR at 10 Hz
+0.00,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4523.0,2.4
 0.10,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4528.0,2.3
 0.20,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4521.0,2.5
 ...
 ```
 When there is no valid fix this tick, `lat`/`lon` and all other GPS columns are left empty (e.g. `0.30,,,,,,,,,4519.0,`) so the analyser treats the row as a GPS gap rather than a `(0,0)` coordinate. `hacc_m` (horizontal accuracy in meters, from `$PUBX,00`) is **M10Q-only** — it stays `99.9` (unknown) on L76K hardware.
 
-**GSR-only mode (2 columns, 10 Hz, production default):**
+**GPS + RF mode (14 columns, 10 Hz):** same shape as GPS + GSR + RF above, but `gsr_raw` is always `0.0` — no GSR sensor is initialised in this mode.
+
+**GSR Only mode (2 columns, 10 Hz):**
 ```
-# BioMapping v1.0
 # RecordingStartTime:1751204579
 timestamp,gsr_raw
 0.00,4523.0
@@ -257,7 +259,23 @@ timestamp,gsr_raw
 ...
 ```
 Each row is a point reading of skin conductance in nanosiemens at 10 Hz. This resolution allows offline re-analysis with different filter parameters.
-When `BIOMAP_DEBUG_FIELDS` is enabled, additional diagnostic columns are appended.
+
+### Debug Fields
+
+**Options > Debug Fields** (off by default, persisted, takes effect on the *next* recording) appends diagnostic columns to every mode's rows — added incrementally over the course of firmware development to track down real timing/reliability issues (see `docs/gps_rf_mutex_status.md`), not needed for normal use. With it on, GPS + GSR / GPS + GSR + RF grow to 27/30 columns and GSR Only grows to 9, adding:
+
+| Column | Meaning |
+|---|---|
+| `tick_dt_ms` | Real elapsed ms since the previous tick (contention/stall diagnostic) |
+| `gps_rx_drops`, `nmea_fail`, `gps_reinit_count` | Cumulative GPS UART error counters (GPS-bearing modes only) |
+| `gsr_hz` | GSR worker's real achieved sample rate |
+| `i2c_peak_ms`, `rf_rssi_peak_ms`, `rf_retune_peak_ms` | Worst single GSR I2C / RF SPI call ever seen this session |
+| `flush_peak_ms` | Worst single SD batch flush (write+sync) ever seen this session |
+| `log_fill_bytes`, `log_fill_peak_bytes`, `log_overflow_count`, `log_flush_fail_count` | SD logger batch-buffer occupancy and continuity-risk counters |
+| `pga_change_count`, `i2c_consec_fail` | Cumulative GSR auto-ranging gain switches / consecutive I2C failure run length |
+| `prealloc_ms` | How long the one-shot SD log-file pre-allocation took at recording start |
+
+All are lifetime-max or cumulative-since-start except `prealloc_ms`, which is set once and stays constant for the file. See [`docs/csv_schema.md`](docs/csv_schema.md) for the authoritative column order and [`docs/gps_rf_mutex_status.md`](docs/gps_rf_mutex_status.md) for what each one was added to diagnose.
 
 ---
 
@@ -351,32 +369,11 @@ When `N` approaches zero (open circuit / disconnected electrodes), conductance i
 
 ### Recording: CSV on the SD Card
 
-When the user presses "Record", the app writes a **CSV file** (`/ext/biomapping/biomap_001.csv`). This keeps the recording simple and preserves the raw GSR data for offline re-analysis. Visualisation is produced **post-recording** by the browser-based analyser (see below).
-
-**GPS+GSR mode CSV (11 columns, 10 Hz):**
-```
-# BioMapping v1.0
-# RecordingStartTime:1751204579
-# GPS:M10Q
-timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
-0.00,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4523.0,2.4
-0.10,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4528.0,2.3
-0.20,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4521.0,2.5
-```
-
-**GSR-only mode CSV (2 columns, 10 Hz, production default):**
-```
-# BioMapping v1.0
-# RecordingStartTime:1751204579
-timestamp,gsr_raw
-0.00,4523.0
-0.10,4528.0
-```
-If `BIOMAP_DEBUG_FIELDS` is enabled, debug-only columns are appended for diagnostics.
+When the user presses "Record", the app writes a **CSV file** (`/ext/biomapping/biomap_001.csv`, next free index). This keeps the recording simple and preserves the raw GSR data for offline re-analysis. Visualisation is produced **post-recording** by the browser-based analyser (see below). See [Section 4b's CSV Formats](#csv-formats) for the current column layouts per mode, and [`docs/csv_schema.md`](docs/csv_schema.md) for the canonical, versioned column reference.
 
 ### Post-Processing: The Browser-Based Analyser
 
-Post-processing happens off-device in the included web analyser. Open [`gsr-map-analyzer/index.html`](../gsr-map-analyzer/index.html) directly in a browser (no server required) and drag-and-drop one or more `biomap_*.csv` files onto it.
+Post-processing happens off-device in the included web analyser. Open [`gsr-map-analyzer/index.html`](gsr-map-analyzer/index.html) directly in a browser (no server required) and drag-and-drop one or more `biomap_*.csv` files onto it.
 
 The analyser:
 
@@ -386,7 +383,7 @@ The analyser:
 4. **Maps** the track on a Leaflet base map, **coloured by arousal** — arousal is shown as colour.
 5. **Collective mode:** overlays multiple tracks, builds an inverse-distance-weighted (IDW) contour surface, and can enrich the data against OpenStreetMap features (road class, green space, buildings).
 
-Both rapid rises **and** rapid drops in GSR register as high arousal — only the magnitude of change matters, not the direction. See [`csv_schema.md`](csv_schema.md) for the canonical column definitions the analyser reads, and the [README](../README.md) for the full feature list.
+Both rapid rises **and** rapid drops in GSR register as high arousal — only the magnitude of change matters, not the direction. See [`docs/csv_schema.md`](docs/csv_schema.md) for the canonical column definitions the analyser reads.
 
 ---
 
@@ -394,7 +391,7 @@ Both rapid rises **and** rapid drops in GSR register as high arousal — only th
 
 The Flipper's 128x64 black-and-white screen shows different information depending on the active mode.
 
-### GPS+GSR Mode
+### GPS + GSR Mode
 
 ```
 ┌───────────────────────┐
@@ -408,21 +405,11 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 └───────────────────────┘
 ```
 
-### GPS-Only Mode
+### GPS + GSR + RF / GPS + RF Modes
 
-```
-┌───────────────────────┐
-│ Bio Mapping        [■]│   ← Recording indicator
-│ biomap_001.csv        │
-│ 13:42:59 UTC          │   ← GPS time and date
-│ 2026-06-16            │
-│ 51.55636              │   ← Latitude
-│ -0.07136              │   ← Longitude
-│ Sats:6  Q:1           │   ← Satellite count and fix quality
-└───────────────────────┘
-```
+Same GSR derivative graph and GPS status as above, plus a live per-band RSSI panel down the left edge of the screen (`draw_rf_panel_left()`, `biomap_render.c`) — one bar per SubGHz band (815/868/915 MHz) showing signal level above that band's calibrated noise floor. In GPS + RF mode (no GSR sensor), the freed screen space is used for GPS status instead of a GSR graph.
 
-### GSR-Only Mode
+### GSR Only Mode
 
 ```
 ┌───────────────────────┐
@@ -439,7 +426,7 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 
 ### Controls
 
-* `OK (Center Button)`: Starts and stops recording. In GPS+GSR mode writes 11-column CSV at 10 Hz (every row is a full GPS+GSR row). In GSR-only mode writes 2-column CSV at 10 Hz.
+* `OK (Center Button)`: Starts and stops recording. See [Section 4b's CSV Formats](#csv-formats) for the column layout each mode writes.
 * `Left/Right`: Changes the time scale of the graph (scroll speed). Left zooms out (slower), Right zooms in (faster).
 * `Up/Down`: Zooms in and out on the vertical sensitivity of the graph.
 * `Back`: Safely closes the file and returns to the menu.
@@ -453,8 +440,9 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 ```
 ┌─────────────────────────────┐
 │  Bio Mapping                │
-│  ▓ GPS + GSR           ▓   │   ← selected item (inverse bar)
-│    GPS Only                 │
+│  ▓ GPS + GSR + RF      ▓   │   ← selected item (inverse bar)
+│    GPS + GSR                │
+│    GPS + RF                 │
 │    GSR Only                 │
 │    Options                  │
 └─────────────────────────────┘
@@ -462,32 +450,42 @@ The Flipper's 128x64 black-and-white screen shows different information dependin
 
 | Menu Item | Action |
 |---|---|
-| **GPS + GSR** | Enters recording view with both GPS and GSR active. Writes an 11-column CSV at 10 Hz; each row carries the most recent GPS fix (carried forward, not interpolated). |
-| **GPS Only** | Enters recording view with GPS only — no GSR sensor initialised. Writes an 11-column CSV at 10 Hz with `gsr_raw` = 0 (batch-buffered). |
+| **GPS + GSR + RF** | Enters recording view with GPS, GSR, and RF scanning all active. Writes a 14-column CSV at 10 Hz (11 GPS+GSR columns + `rssi_815`/`rssi_868`/`rssi_915`); each row carries the most recent GPS fix (carried forward, not interpolated). |
+| **GPS + GSR** | Enters recording view with GPS and GSR active, RF off. Writes an 11-column CSV at 10 Hz. |
+| **GPS + RF** | Enters recording view with GPS and RF active, no GSR sensor initialised. Writes a 14-column CSV at 10 Hz with `gsr_raw` = `0.0`. (`BioMapModeGpsOnly` internally — despite the name, this mode still scans RF.) |
 | **GSR Only** | Enters recording view with GSR only — no GPS driver initialised. Writes a 2-column CSV at 10 Hz. The GPS module is placed into Software Standby (M10Q) to save power. |
 | **Options** | Opens the Options screen (see below). |
+
+Diagnostics is not on the main menu — it's reached via **Options > Diagnostics** (below).
 
 ### Options Screen
 
 ```
 ┌─────────────────────────────┐
 │  Options                    │
-│  ▓ Reset GPS           ▓   │   ← selected (inverse bar)
-│    Auto-zoom GSR   ON      │   ← toggleable
-│    Backlight           ON  │   ← toggleable
-│    GSR Calibration    YES  │   ← YES = custom calibration loaded, NO = default
-│    Diagnostics              │   ← enters diagnostic view
+│  ▓ GPS Profile   Pedestrian▓│   ← selected (inverse bar), cycles with Up/Down
+│    Reset GPS                │
+│    Auto-zoom GSR       ON   │   ← toggleable
+│    GSR Calibration    YES   │   ← YES = custom calibration loaded, NO = default
+│    RF Calibration     YES   │   ← YES = custom calibration loaded, NO = default
+│    Backlight            ON  │   ← toggleable
+│    Sound                ON  │   ← toggleable
+│    Diagnostics               │   ← enters diagnostic view
+│    Debug Fields         OFF │   ← toggleable
 └─────────────────────────────┘
 ```
 
 | Option | OK Action |
 |---|---|
+| **GPS Profile** | Cycles the GPS module's dynamic navigation model (Up/Down): Pedestrian (default), Wrist-worn, Vehicle, Stationary, Sea, Bike, or Flight — tunes the GPS chip's internal motion filtering for the activity type. |
 | **Reset GPS** | Sends a hot-start command to the GPS module. SAM-M10Q: binary `UBX-CFG-RST` packet. L76K: `$PCAS10,0*1C\r\n` ASCII command. Useful if GPS is outputting stale/frozen data. Leaves a green flash on success, red on failure — and plays a success/error tone (see [Audio Feedback](#audio-feedback) below). |
 | **Auto-zoom GSR** | Toggles auto-zoom ON/OFF. When enabled, the graph's vertical scale adjusts automatically to keep peaks visible. When disabled, manual Up/Down zoom controls the scale. Toggling back ON resets the zoom to 1.0× and re-seeds the auto-zoom peak tracker. |
+| **GSR Calibration** | Displays the current calibration status (`YES` if custom calibration is active, or `NO` for default). Pressing OK opens the calibration submenu to start the wizard or reset (see below). |
+| **RF Calibration** | Displays the current RF Faraday noise-floor calibration status (`YES`/`NO`). Pressing OK opens a submenu with the same shape as GSR Calibration — start the wizard, view the current per-band floors, or reset to default. The result becomes the `# Band Floors` line in a session's CSV header. |
 | **Backlight** | Toggles the Flipper's backlight between auto-dimming (OFF) and always-on (ON). Useful for walks in bright sunlight or dark environments. |
-| **GSR Calibration** | Displays the current calibration status (`YES` if custom calibration is active, or `NO` for default). Pressing OK opens the calibration submenu to start the wizard or reset. |
-| **Diagnostics** | Enters diagnostic mode to view live raw values and sensor health metrics directly (no recording or graphs). |
 | **Sound** | Toggles UI audio feedback ON/OFF (default ON). This toggle always plays its own confirmation click, even when switching sound OFF, so muting is itself audible. All other tones respect this setting. |
+| **Diagnostics** | Enters diagnostic mode to view live raw values and sensor health metrics directly (no recording or graphs). |
+| **Debug Fields** | Toggles whether recordings include the extra diagnostic CSV columns (off by default). Persisted, but only takes effect on the *next* recording started, not one already in progress. See [Debug Fields](#debug-fields) in Section 4b for the full column list. |
 
 ### GSR Calibration Submenu
 
@@ -582,7 +580,7 @@ While recording, the LED blinks once per second (a "heartbeat"), independent of 
 
 ## 9a. Audio Feedback
 
-The Flipper's piezo speaker gives short tones for key/state changes, so the important ones — recording start/stop, mode changes, and mid-recording alerts — are audible without looking at the screen. Implemented in [`modules/sound.h`](../modules/sound.h) using the same `furi_hal_speaker_acquire/start/stop/release` pattern as other Flipper Zero FAP apps. Toggle in **Options > Sound** (default ON); every tone in the app respects this setting except the Sound toggle's own confirmation click, which always plays so muting is itself audible.
+The Flipper's piezo speaker gives short tones for key/state changes, so the important ones — recording start/stop, mode changes, and mid-recording alerts — are audible without looking at the screen. Implemented in [`modules/sound.h`](modules/sound.h) using the same `furi_hal_speaker_acquire/start/stop/release` pattern as other Flipper Zero FAP apps. Toggle in **Options > Sound** (default ON); every tone in the app respects this setting except the Sound toggle's own confirmation click, which always plays so muting is itself audible.
 
 | Event | Tone |
 |---|---|
@@ -612,13 +610,19 @@ The GSR-disconnect warning tone is the one remaining exception: it fires while `
 
 All files are stored on the SD card under `/ext/biomapping/`:
 
-**CSV files:** `biomap_001.csv` through `biomap_999.csv` (auto-incrementing, wraps at 999). Every file begins with `#`-prefixed metadata lines (`# BioMapping v1.0`, `# RecordingStartTime:<unix_epoch>`, and, in GPS modes, `# GPS:L76K`/`# GPS:M10Q`) followed by the column-name header.
-- 11-column format: `timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m` (GPS+GSR and GPS-only modes)
-- 2-column format: `timestamp,gsr_raw` (GSR-only mode)
-- Row size: ~65 bytes (11-column) or ~14 bytes (2-column)
-- Expected file size for a 1-hour walk: ~2.2 MB (GPS+GSR at 10 Hz) or ~0.5 MB (GSR-only at 10 Hz)
+**CSV files:** `biomap_001.csv` through `biomap_999.csv` (auto-incrementing, wraps at 999). Every file begins with `#`-prefixed metadata lines (`# RecordingStartTime:<unix_epoch>`, and, only when RF was active and calibrated, `# Band Floors (dBm): 815:<f>,868:<f>,915:<f>`) followed by the column-name header. See [Section 4b's CSV Formats](#csv-formats) for the exact column layout per mode, and [Debug Fields](#debug-fields) for the optional diagnostic columns.
 
-See [`csv_schema.md`](csv_schema.md) for the canonical column definitions and sentinel values.
+Approximate file size per hour of recording, production (Debug Fields off) vs. debug schema, at the 10 Hz row rate:
+
+| Mode | Production | With Debug Fields on |
+|---|---|---|
+| GPS + GSR (11 col) | ~2.1 MB/hr | larger — debug columns add ~16 more per row |
+| GPS + GSR + RF / GPS + RF (14 col) | ~2.8 MB/hr | ~4.4 MB/hr (measured; see `docs/gps_rf_mutex_status.md`) |
+| GSR Only (2 col) | ~0.4 MB/hr | larger — debug columns add ~7 more per row |
+
+The SD log file is pre-allocated to roughly its expected size at recording start and trimmed to the real size at stop (see Section 4's "Challenge: SD Card Lag"), so free-space usage during a recording will briefly look larger than the numbers above until the recording is stopped.
+
+See [`docs/csv_schema.md`](docs/csv_schema.md) for the canonical column definitions and sentinel values.
 
 ---
 
@@ -634,7 +638,7 @@ Tuning lives in two places:
 
 This is deliberately permissive: logging up to HDOP 5.0 preserves urban-canyon fixes that the analyser can optionally reject later. The signal-processing constants (`SMOOTH_IIR_A`/`_B`, `DISPLAY_EMA_A`/`_B`, PGA thresholds) are also defined in `biomap_types.h` / `modules/gsr_sensor.h`.
 
-**Analyser (post-processing).** Filtering, peak detection, and the GPS quality filter are adjustable in the web analyser's UI at runtime — no rebuild required. The analyser's default HDOP filter is stricter (2.0) than the firmware logging gate (5.0); see the HDOP-gate note in [`csv_schema.md`](csv_schema.md).
+**Analyser (post-processing).** Filtering, peak detection, and the GPS quality filter are adjustable in the web analyser's UI at runtime — no rebuild required. The analyser's default HDOP filter is stricter (2.0) than the firmware logging gate (5.0); see the HDOP-gate note in [`docs/csv_schema.md`](docs/csv_schema.md).
 
 ---
 
