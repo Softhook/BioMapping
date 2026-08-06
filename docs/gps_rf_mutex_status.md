@@ -696,6 +696,60 @@ something reasonable, or was it itself a multi-second stall) alongside
 near track 016's early-recording ~94ms baseline instead of climbing to
 ~230ms the way track 016 did without this).
 
+### 2026-08-05: tracks 017/018 recorded with `BIOMAP_SD_PREALLOC` on — cheap to run, but doesn't prevent the worst-case jump; working theory revised, not confirmed
+
+Track 017 (19.2s, clean stop) first confirmed `prealloc_ms` on real hardware:
+**21ms** — the one-shot 8 MiB allocation is cheap, not the multi-second risk
+flagged as open in the previous entry. Too short to say anything about the
+drift question itself.
+
+Track 018 (1083.1s / 18.1 min, real GPS, clean stop, `prealloc_ms`=22ms —
+consistent with track 017) is long enough to say something, and it's a
+mixed result, not a clean win:
+
+- **Steady-state flush cost is dramatically better while it holds.**
+  `flush_peak_ms` settles at 55-60ms from t=478s to t=998s, vs. track 016's
+  152ms steady state over the equivalent no-prealloc stretch — roughly
+  2.5x lower, sustained for over 16 minutes.
+- **But a sharp escalation still happened.** t=998s to t=1018s: three
+  consecutive flush-boundary jumps, 60→98→193→**266ms** — higher than
+  track 016 ever reached (231ms), reached with *less* data written
+  (1.12 MiB vs. 1.38 MiB) and *less* wall-clock time (17.0 min vs. 20.4 min)
+  than track 016's first jump. Same verification as every prior entry here:
+  `i2c_peak_ms`/`rf_rssi_peak_ms`/`rf_retune_peak_ms` stayed completely flat
+  through the whole window, ruling out GSR/RF again — this is the SD flush
+  itself. No data lost (`log_overflow_count`/`log_flush_fail_count` stayed
+  0 in both tracks).
+
+**Working theory, revised — explicitly a theory, not a confirmed
+conclusion**: pre-allocation targets FAT cluster-allocation overhead
+specifically. If that overhead were the *whole* cause of the worst-case
+jumps (not just the steady-state baseline), removing it should have
+prevented the jump outright, not just lowered the floor while leaving a
+separate escalation event intact. One plausible reading is a second,
+independent mechanism — SD-card-internal garbage collection / wear-leveling
+housekeeping, which lives in the flash controller below the filesystem and
+which no amount of FAT-level pre-allocation can touch. This is consistent
+with the two data points so far, but **it is not proven** — it's an
+inference from n=1 comparison (one track with prealloc showing a jump
+despite the fix), not a mechanism directly observed. Real alternatives not
+ruled out: this specific SD card having a periodic housekeeping cadence
+unrelated to either hypothesis, a coincidence, or something about this
+particular walk (RF/GPS environment, temperature, card wear) unrelated to
+either FAT or GC theories.
+
+**Not established by this data**:
+- Whether the 266ms jump would have kept climbing or plateaued — the file
+  ends only 65s later (1083.1s total), too little to tell, unlike track
+  016 where the equivalent jump was followed by ~38 more minutes showing it
+  never recovered.
+- Time-driven vs. size-driven trigger — track 018's jump came at both less
+  elapsed time AND less data written than track 016's, so the two tracks
+  don't cleanly separate these; more data points needed either way.
+- Whether this generalizes — n=1 track with pre-allocation active is not
+  enough to call the steady-state improvement (152ms→60ms) reliable either,
+  though it's a promising sign on its own.
+
 ## Other open items
 
 Ranked by what would most change confidence in this fix, not by effort.
