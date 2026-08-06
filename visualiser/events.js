@@ -56,12 +56,13 @@ const GSREvents = {
     // Contour controls (used in collective map)
     const contourKeys = [
       'gridResolution', 'contourCount', 'isolationRadius', 'idwExponent',
-      'topoSource', 'showShadedSurface', 'normalizeZScore', 'surfaceOpacity'
+      'topoSource', 'normalizeZScore', 'surfaceOpacity'
     ];
     AppState.contourControls = {};
     for (const key of contourKeys) {
       AppState.contourControls[key] = GSREvents._id(key);
     }
+    AppState.contourControls.showShadedSurface = GSREvents._id('btnToggleMapSurface');
   },
 
   /**
@@ -552,9 +553,14 @@ const GSREvents = {
     });
 
     const btnToggleMapSurface = document.getElementById('btnToggleMapSurface');
+    const opacityGroup = document.getElementById('surfaceOpacityGroup');
     btnToggleMapSurface.addEventListener('click', () => {
       btnToggleMapSurface.classList.toggle('active');
-      if (AppState.mapManager) AppState.mapManager.toggleSurface(btnToggleMapSurface.classList.contains('active'));
+      const isActive = btnToggleMapSurface.classList.contains('active');
+      if (opacityGroup) {
+        opacityGroup.style.display = isActive ? 'block' : 'none';
+      }
+      if (AppState.mapManager) AppState.mapManager.toggleSurface(isActive);
     });
 
     const btnToggleMapTracks = document.getElementById('btnToggleMapTracks');
@@ -867,15 +873,7 @@ const GSREvents = {
     bindCi('idwExponent',     'valIdwExponent',     v => v.toFixed(1));
     bindCi('surfaceOpacity',  'valSurfaceOpacity',  v => `${Math.round(v * 100)}%`);
 
-    const showShaded   = document.getElementById('showShadedSurface');
-    const opacityGroup = document.getElementById('surfaceOpacityGroup');
-    if (showShaded && opacityGroup) {
-      opacityGroup.style.display = showShaded.checked ? 'block' : 'none';
-      showShaded.addEventListener('change', () => {
-        opacityGroup.style.display = showShaded.checked ? 'block' : 'none';
-        triggerUpdate();
-      });
-    }
+
 
     document.getElementById('topoSource').addEventListener('change', triggerUpdate);
 
@@ -961,10 +959,10 @@ const GSREvents = {
       updateCLabel('idwExponent',     'valIdwExponent',     v => v.toFixed(1));
       updateCLabel('surfaceOpacity',  'valSurfaceOpacity',  v => `${Math.round(v * 100)}%`);
 
-      const showShaded = document.getElementById('showShadedSurface');
+      const btnToggleMapSurface = document.getElementById('btnToggleMapSurface');
       const opacityGroup = document.getElementById('surfaceOpacityGroup');
-      if (showShaded && opacityGroup) {
-        opacityGroup.style.display = showShaded.checked ? 'block' : 'none';
+      if (btnToggleMapSurface && opacityGroup) {
+        opacityGroup.style.display = btnToggleMapSurface.classList.contains('active') ? 'block' : 'none';
       }
     }
 

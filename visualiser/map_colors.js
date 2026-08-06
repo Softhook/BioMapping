@@ -4,6 +4,24 @@
 const MapColors = {
   _colorLutCache: new Map(),
 
+  ROAD_COLORS: {
+    'motorway':       '#ff0055',
+    'trunk':          '#ff4400',
+    'primary':        '#ff6600',
+    'secondary':      '#ffaa00',
+    'tertiary':       '#ffd500',
+    'residential':    '#0099ff',
+    'pedestrian':     '#00ffc4',
+    'footway':        '#00e575',
+    'path':           '#80e500',
+    'cycleway':       '#00ffd5',
+    'living_street':  '#9b5de5',
+    'service':        '#b8c0ff',
+    'track':          '#a0522d',
+    'unclassified':   '#8899aa',
+    'steps':          '#cc9966'
+  },
+
   getHslColor(ratio, saturation = 100, lightness = 50) {
     const r = Math.max(0, Math.min(1, ratio));
     const hue = (1.0 - r) * 120;
@@ -38,24 +56,7 @@ const MapColors = {
     }
     
     if (metric === 'roadClass') {
-      const roadColors = {
-        'motorway':       '#ff0055',
-        'trunk':          '#ff4400',
-        'primary':        '#ff6600',
-        'secondary':      '#ffaa00',
-        'tertiary':       '#ffd500',
-        'residential':    '#0099ff',
-        'pedestrian':     '#00ffc4',
-        'footway':        '#00e575',
-        'path':           '#80e500',
-        'cycleway':       '#00ffd5',
-        'living_street':  '#9b5de5',
-        'service':        '#b8c0ff',
-        'track':          '#a0522d',
-        'unclassified':   '#8899aa',
-        'steps':          '#cc9966'
-      };
-      return roadColors[val] || '#666666';
+      return MapColors.ROAD_COLORS[val] || '#666666';
     }
     
     if (metric === 'inPark') {

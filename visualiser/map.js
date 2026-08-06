@@ -150,23 +150,7 @@ class GSRMapManager {
     let html = '';
 
     if (metric === 'roadClass') {
-      const allRoadLabels = {
-        'motorway':       '#ff0055',
-        'trunk':          '#ff4400',
-        'primary':        '#ff6600',
-        'secondary':      '#ffaa00',
-        'tertiary':       '#ffd500',
-        'residential':    '#0099ff',
-        'pedestrian':     '#00ffc4',
-        'footway':        '#00e575',
-        'path':           '#80e500',
-        'cycleway':       '#00ffd5',
-        'living_street':  '#9b5de5',
-        'service':        '#b8c0ff',
-        'track':          '#a0522d',
-        'unclassified':   '#8899aa',
-        'steps':          '#cc9966'
-      };
+      const allRoadLabels = MapColors.ROAD_COLORS;
       html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
       let count = 0;
       for (const [name, color] of Object.entries(allRoadLabels)) {

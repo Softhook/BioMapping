@@ -59,7 +59,11 @@ const GSRCollectiveProject = {
     keys.forEach(key => {
       const el = controls[key];
       if (!el) return;
-      out[key] = (el.type === 'checkbox') ? el.checked : el.value;
+      if (el.tagName === 'BUTTON') {
+        out[key] = el.classList.contains('active');
+      } else {
+        out[key] = (el.type === 'checkbox') ? el.checked : el.value;
+      }
     });
     return out;
   },
@@ -69,8 +73,13 @@ const GSRCollectiveProject = {
     Object.entries(values).forEach(([key, val]) => {
       const el = controls[key];
       if (!el || val === undefined) return;
-      if (el.type === 'checkbox') el.checked = !!val;
-      else el.value = val;
+      if (el.tagName === 'BUTTON') {
+        el.classList.toggle('active', !!val);
+      } else if (el.type === 'checkbox') {
+        el.checked = !!val;
+      } else {
+        el.value = val;
+      }
     });
   },
 

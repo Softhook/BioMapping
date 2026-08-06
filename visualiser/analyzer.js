@@ -1407,42 +1407,26 @@ class GSRAnalyzer {
       if (!(curr > prev && curr >= next)) continue;
       if (curr < 0.001) continue;
 
-      let onsetIdx = i, onsetSteps = 0;
-      while (onsetIdx > 0 && cleanVals[onsetIdx] > 0 && onsetSteps < maxOnsetSteps) {
-        if (onsetIdx < i && cleanVals[onsetIdx] < cleanVals[onsetIdx - 1]) break;
-        onsetIdx--;
-        onsetSteps++;
-      }
-
+      const onsetIdx = this._findOnsetIndex(cleanVals, i, maxOnsetSteps);
       const amplitude = curr - cleanVals[onsetIdx];
       if (amplitude < threshold) continue;
 
-      const riseTime = times[i] - times[onsetIdx];
-      const onsetSlope = riseTime > 0 ? amplitude / riseTime : 0;
-
-      const halfDecayVal = cleanVals[onsetIdx] + amplitude * 0.5;
-      let recoveryIdx = -1;
-      for (let j = i + 1; j < n; j++) {
-        if (cleanVals[j] <= halfDecayVal) { recoveryIdx = j; break; }
-        if (j < n - 1 && cleanVals[j] < cleanVals[j + 1] &&
-            cleanVals[j] > halfDecayVal + GSR_CONST.PEAK_RECOVERY_BREAK) break;
-      }
-      const halfRecoveryTime = recoveryIdx !== -1 ? times[recoveryIdx] - times[i] : -1;
-      const decaySlope = halfRecoveryTime > 0 ? (cleanVals[i] - cleanVals[recoveryIdx]) / halfRecoveryTime : 0;
-      const skewnessRatio = halfRecoveryTime > 0 ? riseTime / halfRecoveryTime : 0;
-
-      let fwhmStart = onsetIdx;
-      for (let j = onsetIdx; j <= i; j++) {
-        if (cleanVals[j] >= halfDecayVal) { fwhmStart = j; break; }
-      }
-      const fwhm = recoveryIdx !== -1 ? times[recoveryIdx] - times[fwhmStart] : -1;
-
-      const noiseFloor = this._computeNoiseFloor(onsetIdx, noiseHalfWin);
-      const snr = noiseFloor > 0 ? amplitude / noiseFloor : 0;
+      const recoveryIdx = this._findRecoveryIndex(cleanVals, i, onsetIdx, amplitude);
+      const metrics = this._calculateShapeMetrics(cleanVals, times, i, onsetIdx, recoveryIdx, noiseHalfWin);
 
       const peak = this._buildPeakObject(i, curr, cleanVals, times,
-        { amplitude, onsetIdx, recoveryIdx, halfRecoveryTime,
-          riseTime, onsetSlope, decaySlope, skewnessRatio, fwhm, snr },
+        {
+          amplitude: metrics.amplitude,
+          onsetIdx,
+          recoveryIdx,
+          halfRecoveryTime: metrics.halfRecoveryTime,
+          riseTime: metrics.riseTime,
+          onsetSlope: metrics.onsetSlope,
+          decaySlope: metrics.decaySlope,
+          skewnessRatio: metrics.skewnessRatio,
+          fwhm: metrics.fwhm,
+          snr: metrics.snr
+        },
         oldLabels, oldExcluded, false);
       // Uses the deconvolution-specific quality formula, not
       // _computePeakQuality() — see _computeDeconPeakQuality()'s doc
@@ -1561,6 +1545,59 @@ class GSRAnalyzer {
           .map(pk => pk.time / totalDur);
       }
     }
+  }
+
+  _findOnsetIndex(vals, i, maxOnsetSteps) {
+    let onsetIdx = i;
+    let onsetSteps = 0;
+    while (onsetIdx > 0 && vals[onsetIdx] > 0 && onsetSteps < maxOnsetSteps) {
+      if (onsetIdx < i && vals[onsetIdx] < vals[onsetIdx - 1]) break;
+      onsetIdx--;
+      onsetSteps++;
+    }
+    return onsetIdx;
+  }
+
+  _findRecoveryIndex(vals, i, onsetIdx, amplitude) {
+    const halfDecayVal = vals[onsetIdx] + amplitude * 0.5;
+    const n = vals.length;
+    for (let j = i + 1; j < n; j++) {
+      if (vals[j] <= halfDecayVal) return j;
+      if (j < n - 1 && vals[j] < vals[j + 1] &&
+          vals[j] > halfDecayVal + GSR_CONST.PEAK_RECOVERY_BREAK) break;
+    }
+    return -1;
+  }
+
+  _calculateShapeMetrics(vals, times, i, onsetIdx, recoveryIdx, noiseHalfWin) {
+    const curr = vals[i];
+    const amplitude = curr - vals[onsetIdx];
+    const riseTime = times[i] - times[onsetIdx];
+    const onsetSlope = riseTime > 0 ? amplitude / riseTime : 0;
+    const halfRecoveryTime = recoveryIdx !== -1 ? times[recoveryIdx] - times[i] : -1;
+    const decaySlope = halfRecoveryTime > 0 ? (vals[i] - vals[recoveryIdx]) / halfRecoveryTime : 0;
+    const skewnessRatio = halfRecoveryTime > 0 ? riseTime / halfRecoveryTime : 0;
+
+    const halfDecayVal = vals[onsetIdx] + amplitude * 0.5;
+    let fwhmStart = onsetIdx;
+    for (let j = onsetIdx; j <= i; j++) {
+      if (vals[j] >= halfDecayVal) { fwhmStart = j; break; }
+    }
+    const fwhm = recoveryIdx !== -1 ? times[recoveryIdx] - times[fwhmStart] : -1;
+
+    const noiseFloor = this._computeNoiseFloor(onsetIdx, noiseHalfWin);
+    const snr = noiseFloor > 0 ? amplitude / noiseFloor : 0;
+
+    return {
+      amplitude,
+      riseTime,
+      onsetSlope,
+      halfRecoveryTime,
+      decaySlope,
+      skewnessRatio,
+      fwhm,
+      snr
+    };
   }
 
   /**
@@ -1825,32 +1862,19 @@ class GSRAnalyzer {
       if (!(curr > prev && curr >= next)) continue;
       if (curr < 0.001) continue; // Noise floor check to skip flat/zero regions
 
-      // ── 2. Find onset (trough before peak) ──────────────────────────────
-      // Limit backward search to MAX_RISE_TIME seconds to prevent walking
-      // backward through overlapping SCRs into an unrelated trough.
-      // If the slider is set to 0 (off), fallback to standard default limit (5.0s).
+      // ── 2. Find onset ──────────────────────────────
       const maxRiseLimit = shape.MAX_RISE_TIME > 0 ? shape.MAX_RISE_TIME : defaults.MAX_RISE_TIME;
       const maxOnsetSteps = Math.round(maxRiseLimit * this.sampleRate);
-      let onsetIdx = i;
-      let onsetSteps = 0;
-      while (onsetIdx > 0 && phasicVals[onsetIdx] > 0 && onsetSteps < maxOnsetSteps) {
-        if (onsetIdx < i && phasicVals[onsetIdx] < phasicVals[onsetIdx - 1]) {
-          break;
-        }
-        onsetIdx--;
-        onsetSteps++;
-      }
+      const onsetIdx = this._findOnsetIndex(phasicVals, i, maxOnsetSteps);
 
       const amplitude = curr - phasicVals[onsetIdx];
-      // Under literature standards, threshold is strictly applied to response amplitude
       if (amplitude < threshold) continue;
 
-      // ── 3. Rise time (onset → peak duration) ────────────────────────────
+      // ── 3. Rise time ────────────────────────────
       const riseTime = times[i] - times[onsetIdx];
-
       const onsetSlope = riseTime > 0 ? amplitude / riseTime : 0;
 
-      // Rise time bounds (skip check when slider is 0 / off)
+      // Rise time bounds
       if (shape.MIN_RISE_TIME > 0 && riseTime < shape.MIN_RISE_TIME) {
         i = Math.min(n - 2, i + 1);
         continue;
@@ -1865,37 +1889,18 @@ class GSRAnalyzer {
       }
 
       // ── 5. Half-recovery search ─────────────────────────────────────────
-      const halfDecayVal = phasicVals[onsetIdx] + amplitude * 0.5;
-      let recoveryIdx = -1;
-      for (let j = i + 1; j < n; j++) {
-        if (phasicVals[j] <= halfDecayVal) {
-          recoveryIdx = j;
-          break;
-        }
-        if (j < n - 1 &&
-            phasicVals[j] < phasicVals[j + 1] &&
-            phasicVals[j] > halfDecayVal + GSR_CONST.PEAK_RECOVERY_BREAK) {
-          break;
-        }
-      }
-
-      let halfRecoveryTime = -1;
-      if (recoveryIdx !== -1) {
-        halfRecoveryTime = times[recoveryIdx] - times[i];
-      }
+      const recoveryIdx = this._findRecoveryIndex(phasicVals, i, onsetIdx, amplitude);
+      const halfRecoveryTime = recoveryIdx !== -1 ? times[recoveryIdx] - times[i] : -1;
 
       // ── 6. Decay / recovery metrics ─────────────────────────────────────
       const decaySlope = halfRecoveryTime > 0
         ? (phasicVals[i] - phasicVals[recoveryIdx]) / halfRecoveryTime
         : 0;
-
-      // Genuine SCRs have fast rise, slow recovery → ratio < 1
       const skewnessRatio = halfRecoveryTime > 0
         ? riseTime / halfRecoveryTime
         : 0;
 
-      // Shape checks that require a valid half-recovery (skip if none found,
-      // e.g. for overlapping peaks or peaks near the end of the recording)
+      // Shape checks that require a valid half-recovery
       if (halfRecoveryTime >= 0) {
         if (shape.MIN_HALF_RECOVERY > 0 && halfRecoveryTime < shape.MIN_HALF_RECOVERY) {
           i = Math.min(n - 2, i + 1);
@@ -1919,38 +1924,34 @@ class GSRAnalyzer {
         }
       }
 
-      // ── 8. Full width at half maximum (FWHM) ───────────────────────────
-      // Find start of half-max on rising edge
-      let fwhmStart = onsetIdx;
-      for (let j = onsetIdx; j <= i; j++) {
-        if (phasicVals[j] >= halfDecayVal) {
-          fwhmStart = j;
-          break;
-        }
-      }
-      const fwhm = recoveryIdx !== -1
-        ? times[recoveryIdx] - times[fwhmStart]
-        : -1;
+      // Compute FWHM and SNR using helper
+      const noiseHalfWin = Math.max(1, Math.round(this.sampleRate));
+      const metrics = this._calculateShapeMetrics(phasicVals, times, i, onsetIdx, recoveryIdx, noiseHalfWin);
 
-      if (fwhm > 0 && fwhm > shape.MAX_PEAK_WIDTH) {
+      if (metrics.fwhm > 0 && metrics.fwhm > shape.MAX_PEAK_WIDTH) {
         i = Math.min(n - 2, i + 1);
         continue;
       }
 
-      // ── 9. Signal-to-noise ratio ───────────────────────────────────────
-      const noiseHalfWin = Math.max(1, Math.round(this.sampleRate)); // ±1 s
-      const noiseFloor = this._computeNoiseFloor(onsetIdx, noiseHalfWin);
-      const snr = noiseFloor > 0 ? amplitude / noiseFloor : 0;
-
-      if (shape.MIN_SNR > 0 && snr < shape.MIN_SNR) {
+      if (shape.MIN_SNR > 0 && metrics.snr < shape.MIN_SNR) {
         i = Math.min(n - 2, i + 1);
         continue;
       }
 
       // ── 10. Build peak object with full shape metrics ──────────────────
       const peak = this._buildPeakObject(i, curr, phasicVals, times,
-        { amplitude, onsetIdx, recoveryIdx, halfRecoveryTime,
-          riseTime, onsetSlope, decaySlope, skewnessRatio, fwhm, snr },
+        {
+          amplitude: metrics.amplitude,
+          onsetIdx,
+          recoveryIdx,
+          halfRecoveryTime: metrics.halfRecoveryTime,
+          riseTime: metrics.riseTime,
+          onsetSlope: metrics.onsetSlope,
+          decaySlope: metrics.decaySlope,
+          skewnessRatio: metrics.skewnessRatio,
+          fwhm: metrics.fwhm,
+          snr: metrics.snr
+        },
         oldLabels, oldExcluded, true);
 
       // ── 11. Compute composite quality score ────────────────────────────

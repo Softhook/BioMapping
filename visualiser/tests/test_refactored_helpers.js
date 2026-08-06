@@ -467,3 +467,42 @@ test('GsrFilter.applyMedianFilter: delegates correctly to applyPercentileFilter'
   assert.strictEqual(medResult[5], 7);
   assert.strictEqual(medResult[6], 60);
 });
+
+test('MapColors.ROAD_COLORS is populated and matches getColorForMetric', () => {
+  const MapColors = global.MapColors;
+  assert.ok(MapColors.ROAD_COLORS, 'ROAD_COLORS exists');
+  assert.strictEqual(MapColors.ROAD_COLORS['motorway'], '#ff0055');
+  assert.strictEqual(MapColors.ROAD_COLORS['primary'], '#ff6600');
+  
+  // Verify getColorForMetric maps correctly
+  assert.strictEqual(MapColors.getColorForMetric('roadClass', 'motorway'), '#ff0055');
+  assert.strictEqual(MapColors.getColorForMetric('roadClass', 'primary'), '#ff6600');
+  assert.strictEqual(MapColors.getColorForMetric('roadClass', 'unknown_class'), '#666666'); // fallback
+});
+
+test('GSRAnalyzer peak detection helpers work correctly', () => {
+  const analyzer = new GSRAnalyzer();
+  analyzer.sampleRate = 10;
+  // Mock filtered signal for noise floor check
+  analyzer.filtered = Array.from({ length: 20 }, (_, i) => ({ val: 0.1 }));
+
+  const vals =  [0.1, 0.1, 0.2, 0.5, 0.8, 0.4, 0.2, 0.1, 0.1];
+  const times = [0,   0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+
+  const onsetIdx = analyzer._findOnsetIndex(vals, 4, 10);
+  assert.strictEqual(onsetIdx, 0, 'onset index is at index 0 (value 0.1)');
+
+  const amplitude = vals[4] - vals[onsetIdx];
+  closeTo(amplitude, 0.7, 1e-6);
+
+  const recoveryIdx = analyzer._findRecoveryIndex(vals, 4, onsetIdx, amplitude);
+  assert.strictEqual(recoveryIdx, 5, 'recovery index is at index 5 (value 0.4)');
+
+  const noiseHalfWin = 10;
+  const metrics = analyzer._calculateShapeMetrics(vals, times, 4, onsetIdx, recoveryIdx, noiseHalfWin);
+  closeTo(metrics.amplitude, 0.7, 1e-6);
+  closeTo(metrics.riseTime, 0.4, 1e-6);
+  closeTo(metrics.halfRecoveryTime, 0.1, 1e-6);
+  closeTo(metrics.onsetSlope, 0.7 / 0.4, 1e-6);
+  closeTo(metrics.decaySlope, (0.8 - 0.4) / 0.1, 1e-6);
+});
