@@ -221,6 +221,41 @@ const GSRRenderer = {
     return { startIdx, endIdx, count, step, useSpline, xScale, yScale, indices };
   },
 
+  _drawVertices(ctx, data, tMin, yMin, yBottom, useCurveVertex) {
+    const drawIndices = ctx.indices || null;
+    const vertexFn = useCurveVertex ? curveVertex : vertex;
+
+    if (drawIndices) {
+      for (const i of drawIndices) {
+        const d = data[i];
+        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
+        const y = yBottom + (d.val - yMin) * ctx.yScale;
+        vertexFn(x, y);
+      }
+    } else {
+      for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
+        const d = data[i];
+        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
+        const y = yBottom + (d.val - yMin) * ctx.yScale;
+        vertexFn(x, y);
+      }
+    }
+  },
+
+  _drawPeakShadedRegion(p, tMin, scales, yBottomL, yMinL, fillColor, xOnset, xPeak) {
+    fill(fillColor);
+    noStroke();
+    beginShape();
+    vertex(xOnset, yBottomL);
+    for (let i = p.onsetIndex; i <= p.index; i++) {
+      const xVal = GSR_CONST.MARGIN.left + (AppState.analyzer.phasic[i].time - tMin) * scales.xScale;
+      const yVal = yBottomL + (AppState.analyzer.phasic[i].val - yMinL) * scales.yScaleL;
+      vertex(xVal, yVal);
+    }
+    vertex(xPeak, yBottomL);
+    endShape(CLOSE);
+  },
+
   /**
    * Draw a line/curve from data points with optional spline smoothing.
    * @param {Array<number>} [forceIndices] - See _buildCurveContext().
@@ -241,39 +276,13 @@ const GSRRenderer = {
       const xFirst = GSR_CONST.MARGIN.left + (dFirst.time - tMin) * ctx.xScale;
       const yFirst = yBottom + (dFirst.val - yMin) * ctx.yScale;
       curveVertex(xFirst, yFirst);
-      if (drawIndices) {
-        for (const i of drawIndices) {
-          const d = data[i];
-          const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
-          const y = yBottom + (d.val - yMin) * ctx.yScale;
-          curveVertex(x, y);
-        }
-      } else {
-        for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
-          const d = data[i];
-          const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
-          const y = yBottom + (d.val - yMin) * ctx.yScale;
-          curveVertex(x, y);
-        }
-      }
+      this._drawVertices(ctx, data, tMin, yMin, yBottom, true);
       const dLast = data[ctx.endIdx];
       const xLast = GSR_CONST.MARGIN.left + (dLast.time - tMin) * ctx.xScale;
       const yLast = yBottom + (dLast.val - yMin) * ctx.yScale;
       curveVertex(xLast, yLast);
-    } else if (drawIndices) {
-      for (const i of drawIndices) {
-        const d = data[i];
-        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
-        const y = yBottom + (d.val - yMin) * ctx.yScale;
-        vertex(x, y);
-      }
     } else {
-      for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
-        const d = data[i];
-        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
-        const y = yBottom + (d.val - yMin) * ctx.yScale;
-        vertex(x, y);
-      }
+      this._drawVertices(ctx, data, tMin, yMin, yBottom, false);
     }
     endShape();
   },
@@ -305,40 +314,12 @@ const GSRRenderer = {
 
     if (ctx.useSpline) {
       curveVertex(xStart, yBottom);
-      if (drawIndices) {
-        for (const i of drawIndices) {
-          const d = data[i];
-          const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
-          const y = yBottom + (d.val - yMin) * ctx.yScale;
-          curveVertex(x, y);
-        }
-      } else {
-        for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
-          const d = data[i];
-          const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
-          const y = yBottom + (d.val - yMin) * ctx.yScale;
-          curveVertex(x, y);
-        }
-      }
+      this._drawVertices(ctx, data, tMin, yMin, yBottom, true);
       const xEnd = GSR_CONST.MARGIN.left + (data[ctx.endIdx].time - tMin) * ctx.xScale;
       curveVertex(xEnd, yBottom);
       vertex(xEnd, yBottom);
-    } else if (drawIndices) {
-      for (const i of drawIndices) {
-        const d = data[i];
-        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
-        const y = yBottom + (d.val - yMin) * ctx.yScale;
-        vertex(x, y);
-      }
-      const xEnd = GSR_CONST.MARGIN.left + (data[ctx.endIdx].time - tMin) * ctx.xScale;
-      vertex(xEnd, yBottom);
     } else {
-      for (let i = ctx.startIdx; i <= ctx.endIdx; i += ctx.step) {
-        const d = data[i];
-        const x = GSR_CONST.MARGIN.left + (d.time - tMin) * ctx.xScale;
-        const y = yBottom + (d.val - yMin) * ctx.yScale;
-        vertex(x, y);
-      }
+      this._drawVertices(ctx, data, tMin, yMin, yBottom, false);
       const xEnd = GSR_CONST.MARGIN.left + (data[ctx.endIdx].time - tMin) * ctx.xScale;
       vertex(xEnd, yBottom);
     }
@@ -462,17 +443,8 @@ const GSRRenderer = {
       // ALSO skipped entirely in the resting state (previously always drawn)
       // to keep hundreds of resting markers from reading as visual noise.
       if (showLowerMarker && isEmphasized) {
-        fill(isExcluded ? color(lineClr + EXCLUDED_STYLE.fillAlpha) : color(peakColor + '4b'));
-        noStroke();
-        beginShape();
-        vertex(xOnset, yBottomL);
-        for (let i = p.onsetIndex; i <= p.index; i++) {
-          const xVal = GSR_CONST.MARGIN.left + (AppState.analyzer.phasic[i].time - tMin) * scales.xScale;
-          const yVal = yBottomL + (AppState.analyzer.phasic[i].val - yMinL) * scales.yScaleL;
-          vertex(xVal, yVal);
-        }
-        vertex(xPeak, yBottomL);
-        endShape(CLOSE);
+        const fillClr = isExcluded ? color(lineClr + EXCLUDED_STYLE.fillAlpha) : color(peakColor + '4b');
+        this._drawPeakShadedRegion(p, tMin, scales, yBottomL, yMinL, fillClr, xOnset, xPeak);
 
         stroke(isExcluded ? lineClr : this.getThemeColor('--color-phasic', '#008f3c'));
         strokeWeight(dotWt);
@@ -598,17 +570,7 @@ const GSRRenderer = {
       const isActive = (realIdx !== -1 && realIdx === AppState.activePeakIndex);
 
       if (showLowerMarker) {
-        fill(color(hotspotColor + '4b'));
-        noStroke();
-        beginShape();
-        vertex(xOnset, yBottomL);
-        for (let i = p.onsetIndex; i <= p.index; i++) {
-          const xVal = GSR_CONST.MARGIN.left + (AppState.analyzer.phasic[i].time - tMin) * scales.xScale;
-          const yVal = yBottomL + (AppState.analyzer.phasic[i].val - yMinL) * scales.yScaleL;
-          vertex(xVal, yVal);
-        }
-        vertex(xPeak, yBottomL);
-        endShape(CLOSE);
+        this._drawPeakShadedRegion(p, tMin, scales, yBottomL, yMinL, color(hotspotColor + '4b'), xOnset, xPeak);
 
         stroke(colorPhasic);
         strokeWeight(1.5);

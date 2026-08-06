@@ -35,6 +35,18 @@ class GSRMapExporter {
   //  Validation & Mercator Projection Setup
   // ═══════════════════════════════════════════════════════════════════
 
+  static _parseLatLng(ll) {
+    if (!ll) return { lat: 0, lon: 0 };
+    let lat, lon;
+    if (Array.isArray(ll)) {
+      lat = ll[0]; lon = ll[1];
+    } else {
+      lat = ll.lat !== undefined ? ll.lat : 0;
+      lon = ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : 0);
+    }
+    return { lat, lon };
+  }
+
   static _validate(mgr) {
     if (!mgr?.map) { alert("Map not initialized."); return null; }
     const el = document.getElementById(mgr.containerId);
@@ -68,13 +80,7 @@ class GSRMapExporter {
 
       const project = (ll) => {
         if (!ll) return { x: 0, y: 0 };
-        let lat, lon;
-        if (Array.isArray(ll)) {
-          lat = ll[0]; lon = ll[1];
-        } else {
-          lat = ll.lat !== undefined ? ll.lat : 0;
-          lon = ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : 0);
-        }
+        const { lat, lon } = GSRMapExporter._parseLatLng(ll);
         const x = ((lon - minLon) / (xSpan || 1)) * targetW;
         const y = (1 - (mercY(lat) - minY) / (ySpan || 1)) * targetH;
         return { x, y };
@@ -87,13 +93,7 @@ class GSRMapExporter {
     const h = el.clientHeight || 600;
     const project = (ll) => {
       if (!ll) return { x: 0, y: 0 };
-      let lat, lon;
-      if (Array.isArray(ll)) {
-        lat = ll[0]; lon = ll[1];
-      } else {
-        lat = ll.lat !== undefined ? ll.lat : 0;
-        lon = ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : 0);
-      }
+      const { lat, lon } = GSRMapExporter._parseLatLng(ll);
       return mgr.map.latLngToContainerPoint([lat, lon]);
     };
     return { w, h, project };

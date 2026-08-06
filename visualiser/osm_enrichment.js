@@ -838,44 +838,19 @@ const OSMEnricher = {
   },
 
   /**
-   * Project a point onto an OSM way's coordinates and find the closest segment.
-   */
   _projectToWay(lat, lon, coords) {
-    const cosLat = Math.cos(lat * Math.PI / 180);
-    const MDEG   = GeoUtils.METERS_PER_DEG_LAT;
-
     let minDist = Infinity;
     let bestSnapLat = lat;
     let bestSnapLon = lon;
 
-    const qx = lon * cosLat;
-    const qy = lat;
-
     for (let i = 0; i < coords.length - 1; i++) {
       const a = coords[i], b = coords[i + 1];
-      const ax = a.lon * cosLat, ay = a.lat;
-      const bx = b.lon * cosLat, by = b.lat;
+      const proj = GeoUtils.projectPointToSegment(lat, lon, a.lat, a.lon, b.lat, b.lon);
 
-      const dx = bx - ax, dy = by - ay;
-      const l2 = dx * dx + dy * dy;
-
-      let t = 0;
-      if (l2 > 1e-12) {
-        t = ((qx - ax) * dx + (qy - ay) * dy) / l2;
-        t = Math.max(0, Math.min(1, t));
-      }
-
-      const projX = ax + t * dx;
-      const projY = ay + t * dy;
-
-      const dLat = (projY - qy) * MDEG;
-      const dLon = (projX - qx) * MDEG;
-      const dist = Math.sqrt(dLat * dLat + dLon * dLon);
-
-      if (dist < minDist) {
-        minDist = dist;
-        bestSnapLat = projY;
-        bestSnapLon = projX / cosLat;
+      if (proj.distance < minDist) {
+        minDist = proj.distance;
+        bestSnapLat = proj.lat;
+        bestSnapLon = proj.lon;
       }
     }
 

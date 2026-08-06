@@ -18,6 +18,22 @@ const GSRTrackManager = {
     return AppState.collectiveManager.getActiveTracks();
   },
 
+  createTrackObject(trackId, trackName, trackColor, analyzer) {
+    const filterParams = analyzer.importedFilterParams || JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT));
+    const gpsFilterParams = analyzer.importedGpsFilterParams || JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT));
+
+    return {
+      id: trackId,
+      name: trackName,
+      color: trackColor,
+      enabled: true,
+      analyzer: analyzer,
+      filterParams: filterParams,
+      gpsFilterParams: gpsFilterParams,
+      settingsSource: analyzer.importedFilterParams ? 'imported' : 'standard'
+    };
+  },
+
   /** Saved before file dialog opens (browser exits fullscreen on dialog open). */
   _browserFsSave: false,
   /** Currently showing restore-fullscreen pill (avoid duplicates). */
@@ -127,20 +143,7 @@ const GSRTrackManager = {
           const trackId = 'track_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
           const trackColor = AppState.getNextTrackColor();
 
-          // Use inbuilt parameters if parsing a processed CSV, or standard defaults for raw CSVs
-          const filterParams = tempAnalyzer.importedFilterParams || JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT));
-          const gpsFilterParams = tempAnalyzer.importedGpsFilterParams || JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT));
-
-          const newTrack = {
-            id: trackId,
-            name: file.name,
-            color: trackColor,
-            enabled: true,
-            analyzer: tempAnalyzer,
-            filterParams: filterParams,
-            gpsFilterParams: gpsFilterParams,
-            settingsSource: tempAnalyzer.importedFilterParams ? 'imported' : 'standard'
-          };
+          const newTrack = GSRTrackManager.createTrackObject(trackId, file.name, trackColor, tempAnalyzer);
 
           AppState.collectiveManager.addTrack(newTrack);
 
@@ -545,19 +548,7 @@ const GSRTrackManager = {
           const trackId = 'track_demo_' + Date.now();
           const trackColor = AppState.getNextTrackColor();
 
-          const filterParams = tempAnalyzer.importedFilterParams || JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT));
-          const gpsFilterParams = tempAnalyzer.importedGpsFilterParams || JSON.parse(JSON.stringify(GSR_CONST.GPS_DEFAULT));
-
-          const newTrack = {
-            id: trackId,
-            name: 'default_processed.csv',
-            color: trackColor,
-            enabled: true,
-            analyzer: tempAnalyzer,
-            filterParams: filterParams,
-            gpsFilterParams: gpsFilterParams,
-            settingsSource: tempAnalyzer.importedFilterParams ? 'imported' : 'standard'
-          };
+          const newTrack = GSRTrackManager.createTrackObject(trackId, 'default_processed.csv', trackColor, tempAnalyzer);
 
           AppState.collectiveManager.addTrack(newTrack);
 

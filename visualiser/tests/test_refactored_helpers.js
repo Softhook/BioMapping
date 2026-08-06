@@ -39,12 +39,20 @@ loadBrowserModule('../gps_pipeline.js', 'GpsPipeline');
 loadBrowserModule('../dwt_filter.js',   'DWT');
 loadBrowserModule('../gsr_filter.js',   'GsrFilter');
 loadBrowserModule('../deconvolution.js','SCRDeconvolution');
+loadBrowserModule('../map_exporter.js', 'GSRMapExporter');
+loadBrowserModule('../tracks.js',       'GSRTrackManager');
+loadBrowserModule('../ui.js',           'GSRUI');
 
 const analyzerSrc = fs.readFileSync(path.join(__dirname, '../analyzer.js'), 'utf8');
 vm.runInThisContext(analyzerSrc, { filename: 'analyzer.js' });
 
 const GpsFilter   = global.GpsFilter;
 const GSRAnalyzer = global.GSRAnalyzer;
+const GeoUtils    = global.GeoUtils;
+const StatsMath   = global.StatsMath;
+const GSRMapExporter = global.GSRMapExporter;
+const GSRTrackManager = global.GSRTrackManager;
+const GSRUI          = global.GSRUI;
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 const closeTo = (actual, expected, tol, msg) => {
@@ -331,4 +339,131 @@ test('applyKalman round-trip: split passes maintain end-to-end accuracy', () => 
     const distM = Math.sqrt((r.lat - pts[i].lat) ** 2 + (r.lon - pts[i].lon) ** 2) * 111320;
     assert.ok(distM < 10, `point ${i}: ${distM.toFixed(2)} m from straight track (expected < 10 m)`);
   });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  5. Refactored New Helpers
+// ══════════════════════════════════════════════════════════════════════════════
+
+test('GeoUtils.projectPointToSegment: closest point on segment matches expected projection', () => {
+  // segment from (0,0) to (0,2)
+  // query point at (1,1) -> projected point should be at (0,1)
+  const proj = GeoUtils.projectPointToSegment(1, 1, 0, 0, 0, 2);
+  closeTo(proj.lat, 0, 1e-6, 'projected lat');
+  closeTo(proj.lon, 1, 1e-6, 'projected lon');
+  // distance in meters: 1 degree of latitude difference at equator (approx 111320m)
+  closeTo(proj.distance, 111320, 100, 'projected distance');
+
+  // distanceToSegmentMeters should match proj.distance
+  const dist = GeoUtils.distanceToSegmentMeters(1, 1, 0, 0, 0, 2);
+  closeTo(dist, proj.distance, 1e-6, 'distance matches');
+});
+
+test('StatsMath._computeSums: returns correct sum terms', () => {
+  const x = [1, 2, 3];
+  const y = [4, 5, 6];
+  const sums = StatsMath._computeSums(x, y);
+  assert.strictEqual(sums.sumX, 6);
+  assert.strictEqual(sums.sumY, 15);
+  assert.strictEqual(sums.sumXY, 32);
+  assert.strictEqual(sums.sumX2, 14);
+  assert.strictEqual(sums.sumY2, 77);
+
+  // Pearson correlation check
+  const corr = StatsMath.calculatePearsonCorrelation(x, y);
+  closeTo(corr.r, 1.0, 1e-6, 'Pearson correlation coefficient');
+
+  // Linear regression check
+  const reg = StatsMath.calculateLinearRegression(x, y);
+  closeTo(reg.m, 1.0, 1e-6, 'regression slope');
+  closeTo(reg.c, 3.0, 1e-6, 'regression intercept');
+});
+
+test('GSRMapExporter._parseLatLng: parses array and object coordinates', () => {
+  // Array format
+  const arrayFormat = [51.5, -0.1];
+  const parsed1 = GSRMapExporter._parseLatLng(arrayFormat);
+  assert.strictEqual(parsed1.lat, 51.5);
+  assert.strictEqual(parsed1.lon, -0.1);
+
+  // Object format with lat/lon
+  const objectFormat1 = { lat: 51.5, lon: -0.1 };
+  const parsed2 = GSRMapExporter._parseLatLng(objectFormat1);
+  assert.strictEqual(parsed2.lat, 51.5);
+  assert.strictEqual(parsed2.lon, -0.1);
+
+  // Object format with lat/lng
+  const objectFormat2 = { lat: 51.5, lng: -0.1 };
+  const parsed3 = GSRMapExporter._parseLatLng(objectFormat2);
+  assert.strictEqual(parsed3.lat, 51.5);
+  assert.strictEqual(parsed3.lon, -0.1);
+
+  // Fallbacks
+  const emptyParsed = GSRMapExporter._parseLatLng(null);
+  assert.strictEqual(emptyParsed.lat, 0);
+  assert.strictEqual(emptyParsed.lon, 0);
+});
+
+test('GSRTrackManager.createTrackObject: constructs valid track representation', () => {
+  const analyzerMock = {
+    importedFilterParams: { medianSize: 5 },
+    importedGpsFilterParams: { smoothing: 0.1 }
+  };
+  const track = GSRTrackManager.createTrackObject('track_123', 'my_track.csv', '#ff0000', analyzerMock);
+  assert.strictEqual(track.id, 'track_123');
+  assert.strictEqual(track.name, 'my_track.csv');
+  assert.strictEqual(track.color, '#ff0000');
+  assert.strictEqual(track.enabled, true);
+  assert.strictEqual(track.analyzer, analyzerMock);
+  assert.strictEqual(track.filterParams.medianSize, 5);
+  assert.strictEqual(track.gpsFilterParams.smoothing, 0.1);
+  assert.strictEqual(track.settingsSource, 'imported');
+});
+
+test('GSRUI resolution and marking helpers function correctly', () => {
+  const mockAnalyzer = { peaks: [ { time: 10, label: 'test' } ], setPeakLabel() {} };
+  const mockTrack = { id: 'track_123', analyzer: mockAnalyzer, hasUnsavedLabels: false };
+
+  global.AppState = {
+    activeTrackId: 'track_123',
+    analyzer: mockAnalyzer,
+    collectiveManager: {
+      getTrack(trackId) {
+        if (trackId === 'track_123') return mockTrack;
+        return null;
+      }
+    }
+  };
+
+  // Test _resolveTrackAndAnalyzer in single/collective mode
+  const resolvedSingle = GSRUI._resolveTrackAndAnalyzer(null);
+  assert.strictEqual(resolvedSingle.track, mockTrack);
+  assert.strictEqual(resolvedSingle.analyzer, mockAnalyzer);
+
+  const resolvedCollective = GSRUI._resolveTrackAndAnalyzer('track_123');
+  assert.strictEqual(resolvedCollective.track, mockTrack);
+  assert.strictEqual(resolvedCollective.analyzer, mockAnalyzer);
+
+  // Test _markUnsavedLabels
+  GSRUI._markUnsavedLabels(mockTrack);
+  assert.strictEqual(mockTrack.hasUnsavedLabels, true);
+
+  delete global.AppState;
+});
+
+test('GsrFilter.applyMedianFilter: delegates correctly to applyPercentileFilter', () => {
+  const signal = [1, 20, 3, 40, 5, 60, 7];
+  const GsrFilter = global.GsrFilter;
+  
+  const medResult = GsrFilter.applyMedianFilter(signal, 3);
+  const pctResult = GsrFilter.applyPercentileFilter(signal, 3, 0.5);
+
+  assert.deepStrictEqual(medResult, pctResult);
+  assert.strictEqual(medResult[0], 20);
+  assert.strictEqual(medResult[1], 3);
+  assert.strictEqual(medResult[2], 20);
+  assert.strictEqual(medResult[3], 5);
+  assert.strictEqual(medResult[4], 40);
+  assert.strictEqual(medResult[5], 7);
+  assert.strictEqual(medResult[6], 60);
 });

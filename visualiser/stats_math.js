@@ -24,9 +24,8 @@ const StatsMath = {
     return lo / n;
   },
 
-  calculatePearsonCorrelation(x, y) {
+  _computeSums(x, y) {
     const n = x.length;
-    if (n === 0) return { r: 0, p: 1 };
     let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
     for (let i = 0; i < n; i++) {
       sumX += x[i];
@@ -35,6 +34,13 @@ const StatsMath = {
       sumX2 += x[i] * x[i];
       sumY2 += y[i] * y[i];
     }
+    return { sumX, sumY, sumXY, sumX2, sumY2 };
+  },
+
+  calculatePearsonCorrelation(x, y) {
+    const n = x.length;
+    if (n === 0) return { r: 0, p: 1 };
+    const { sumX, sumY, sumXY, sumX2, sumY2 } = this._computeSums(x, y);
     const num = n * sumXY - sumX * sumY;
     const den = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
     const r = den === 0 ? 0 : num / den;
@@ -51,14 +57,7 @@ const StatsMath = {
   calculateLinearRegression(x, y) {
     const n = x.length;
     if (n === 0) return { m: 0, c: 0, r2: 0 };
-    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
-    for (let i = 0; i < n; i++) {
-      sumX += x[i];
-      sumY += y[i];
-      sumXY += x[i] * y[i];
-      sumX2 += x[i] * x[i];
-      sumY2 += y[i] * y[i];
-    }
+    const { sumX, sumY, sumXY, sumX2, sumY2 } = this._computeSums(x, y);
     const meanX = sumX / n;
     const meanY = sumY / n;
     

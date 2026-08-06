@@ -7,6 +7,30 @@
 
 const GSRUI = {
 
+  _resolveTrackAndAnalyzer(trackId) {
+    let track = null;
+    let analyzer = null;
+    if (trackId) {
+      track = AppState.collectiveManager.getTrack(trackId);
+      if (track) analyzer = track.analyzer;
+    } else {
+      analyzer = AppState.analyzer;
+      if (AppState.activeTrackId) {
+        track = AppState.collectiveManager.getTrack(AppState.activeTrackId);
+      }
+    }
+    return { track, analyzer };
+  },
+
+  _markUnsavedLabels(track) {
+    if (track) {
+      track.hasUnsavedLabels = true;
+    } else if (AppState.activeTrackId) {
+      const activeTrack = AppState.collectiveManager.getTrack(AppState.activeTrackId);
+      if (activeTrack) activeTrack.hasUnsavedLabels = true;
+    }
+  },
+
   /**
    * Invalidate cached environmental dashboard stats.
    */
@@ -39,17 +63,7 @@ const GSRUI = {
    * If trackId is provided, the peak belongs to that track (collective mode).
    */
   updatePeakLabel(idx, label, trackId) {
-    let track = null;
-    let analyzer = null;
-    if (trackId) {
-      track = AppState.collectiveManager.getTrack(trackId);
-      if (track) analyzer = track.analyzer;
-    } else {
-      analyzer = AppState.analyzer;
-      if (AppState.activeTrackId) {
-        track = AppState.collectiveManager.getTrack(AppState.activeTrackId);
-      }
-    }
+    const { track, analyzer } = this._resolveTrackAndAnalyzer(trackId);
 
     if (!analyzer || !analyzer.peaks || idx >= analyzer.peaks.length) return;
     const pk = analyzer.peaks[idx];
@@ -58,12 +72,7 @@ const GSRUI = {
     if (typeof analyzer.setPeakLabel === 'function') {
       analyzer.setPeakLabel(pk.time, clean);
     }
-    if (track) {
-      track.hasUnsavedLabels = true;
-    } else if (AppState.activeTrackId) {
-      const activeTrack = AppState.collectiveManager.getTrack(AppState.activeTrackId);
-      if (activeTrack) activeTrack.hasUnsavedLabels = true;
-    }
+    this._markUnsavedLabels(track);
 
     GSRUI.invalidateEnvironmentalCache();
     // Refresh displays
@@ -83,17 +92,7 @@ const GSRUI = {
    * without destroying/recreating the active Leaflet map popups.
    */
   handleLiveLabelInput(idx, value, trackId) {
-    let track = null;
-    let analyzer = null;
-    if (trackId) {
-      track = AppState.collectiveManager.getTrack(trackId);
-      if (track) analyzer = track.analyzer;
-    } else {
-      analyzer = AppState.analyzer;
-      if (AppState.activeTrackId) {
-        track = AppState.collectiveManager.getTrack(AppState.activeTrackId);
-      }
-    }
+    const { track, analyzer } = this._resolveTrackAndAnalyzer(trackId);
     let peaksArr = GSRUI._getPeaksArray(trackId);
     if (!peaksArr || idx >= peaksArr.length) return;
     
@@ -103,12 +102,7 @@ const GSRUI = {
     if (analyzer && typeof analyzer.setPeakLabel === 'function') {
       analyzer.setPeakLabel(pk.time, value);
     }
-    if (track) {
-      track.hasUnsavedLabels = true;
-    } else if (AppState.activeTrackId) {
-      const activeTrack = AppState.collectiveManager.getTrack(AppState.activeTrackId);
-      if (activeTrack) activeTrack.hasUnsavedLabels = true;
-    }
+    this._markUnsavedLabels(track);
 
     // 1. Sync table input if it exists and is not the active typing element
     const tableInput = document.querySelector(`.peak-label-input[data-peak-idx="${idx}"]`);

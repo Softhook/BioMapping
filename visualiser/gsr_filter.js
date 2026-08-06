@@ -51,27 +51,8 @@ const GsrFilter = {
     return { window: win, insert, remove };
   },
 
-  /**
-   * Sliding window median filter — removes impulse noise / motion artifacts.
-   */
   applyMedianFilter(arr, windowSize) {
-    const n = arr.length;
-    if (!windowSize || isNaN(windowSize) || windowSize <= 1 || n === 0) return [...arr];
-    const result = new Array(n);
-    const half = Math.floor(windowSize / 2);
-    const { window: sortedWindow, insert: insertSorted, remove: removeSorted } =
-      this._makeSortedWindow(arr, half);
-
-    for (let i = 0; i < n; i++) {
-      if (i > 0) {
-        const leftOut = i - 1 - half;
-        if (leftOut >= 0) removeSorted(arr[leftOut]);
-        const rightIn = i + half;
-        if (rightIn < n) insertSorted(arr[rightIn]);
-      }
-      result[i] = sortedWindow[Math.floor(sortedWindow.length / 2)];
-    }
-    return result;
+    return this.applyPercentileFilter(arr, windowSize, 0.5);
   },
 
   /**

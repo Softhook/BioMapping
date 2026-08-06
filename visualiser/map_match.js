@@ -257,30 +257,10 @@ const MapMatcher = {
       const classPenalty = this._ROAD_CLASS_PENALTY[geom.tags.highway] || 0;
       const coords       = geom.coordinates;
 
-      // Metre-equivalent Cartesian for the query point.
-      const qx = lon * cosLat;
-      const qy = lat;
-
       for (let i = 0; i < coords.length - 1; i++) {
         const a = coords[i], b = coords[i + 1];
-        const ax = a.lon * cosLat, ay = a.lat;
-        const bx = b.lon * cosLat, by = b.lat;
-
-        const dx = bx - ax, dy = by - ay;
-        const l2 = dx * dx + dy * dy;
-
-        let t = 0;
-        if (l2 > 1e-12) {
-          t = ((qx - ax) * dx + (qy - ay) * dy) / l2;
-          if (t < 0) t = 0; else if (t > 1) t = 1;
-        }
-
-        const projX = ax + t * dx;
-        const projY = ay + t * dy;
-
-        const dLat = (projY - qy) * MDEG;
-        const dLon = (projX - qx) * MDEG;
-        const dist = Math.sqrt(dLat * dLat + dLon * dLon);
+        const proj = GeoUtils.projectPointToSegment(lat, lon, a.lat, a.lon, b.lat, b.lon);
+        const dist = proj.distance;
 
         if (dist > radiusM) continue;
 
@@ -307,8 +287,8 @@ const MapMatcher = {
         candidates.push({
           wayId:    geom.id,
           segIdx:   i,
-          snapLat:  projY,
-          snapLon:  projX / cosLat,
+          snapLat:  proj.lat,
+          snapLon:  proj.lon,
           dist,
           effDist,
           endpoints: [coords[0], coords[coords.length - 1]],

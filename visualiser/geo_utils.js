@@ -20,9 +20,9 @@ const GeoUtils = {
   },
 
   /**
-   * Shortest distance (m) from point P(lat, lon) to line segment AB.
+   * Project point P(lat, lon) onto segment AB, returning distance (m) and snapped coordinates.
    */
-  distanceToSegmentMeters(lat, lon, lat1, lon1, lat2, lon2) {
+  projectPointToSegment(lat, lon, lat1, lon1, lat2, lon2) {
     const cosLat = Math.cos(((lat + lat1 + lat2) / 3) * Math.PI / 180);
     const x = lon * cosLat,  y = lat;
     const x1 = lon1 * cosLat, y1 = lat1;
@@ -41,8 +41,20 @@ const GeoUtils = {
     const projY = y1 + t * dy;
     const distLat = projY - y;
     const distLon = (projX - x) / cosLat;
+    const dist = Math.sqrt(distLat * distLat + distLon * distLon) * GeoUtils.METERS_PER_DEG_LAT;
 
-    return Math.sqrt(distLat * distLat + distLon * distLon) * GeoUtils.METERS_PER_DEG_LAT;
+    return {
+      distance: dist,
+      lat: projY,
+      lon: projX / cosLat
+    };
+  },
+
+  /**
+   * Shortest distance (m) from point P(lat, lon) to line segment AB.
+   */
+  distanceToSegmentMeters(lat, lon, lat1, lon1, lat2, lon2) {
+    return this.projectPointToSegment(lat, lon, lat1, lon1, lat2, lon2).distance;
   },
 
   /**

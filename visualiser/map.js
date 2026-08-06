@@ -1092,25 +1092,7 @@ class GSRMapManager {
       // Group peaks within selected proximity limit and boundary constraints
       const clusters = GSRSpatialClustering.clusterPeaks(ptsForClustering, effectiveProximity, boundaryRadius, sigma);
 
-      clusters.forEach(cluster => {
-        const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, boundaryRadius, refAmplitude);
-        const style = this._severityStyleForCluster(cluster, refAmplitude);
-        paths.forEach(path => {
-          const latlngs = path.map(p => [p.lat, p.lon]);
-          const poly = L.polygon(latlngs, {
-            color: style.color,
-            weight: style.weight,
-            fillColor: style.color,
-            fillOpacity: style.fillOpacity,
-            dashArray: '4, 6',
-            lineCap: 'round',
-            lineJoin: 'round'
-          });
-          poly.bindTooltip(style.tooltip, { sticky: true, className: 'contour-tooltip-label' });
-          if (this.showClusters) poly.addTo(this.map);
-          this.clusterLayers.push(poly);
-        });
-      });
+      this._renderClusters(clusters, refAmplitude, sigma, boundaryRadius);
     }
   }
 
@@ -1169,29 +1151,64 @@ class GSRMapManager {
    * its real index for label-editing/exclusion/focus wiring).
    * @private
    */
+  _renderClusters(clusters, refAmplitude, sigma, boundaryRadius) {
+    clusters.forEach(cluster => {
+      const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, boundaryRadius, refAmplitude);
+      const style = this._severityStyleForCluster(cluster, refAmplitude);
+      paths.forEach(path => {
+        const latlngs = path.map(p => [p.lat, p.lon]);
+        const poly = L.polygon(latlngs, {
+          color: style.color,
+          weight: style.weight,
+          fillColor: style.color,
+          fillOpacity: style.fillOpacity,
+          dashArray: '4, 6',
+          lineCap: 'round',
+          lineJoin: 'round'
+        });
+        poly.bindTooltip(style.tooltip, { sticky: true, className: 'contour-tooltip-label' });
+        if (this.showClusters) poly.addTo(this.map);
+        this.clusterLayers.push(poly);
+      });
+    });
+  }
+
+  /**
+   * Internal helper to construct and initialize a Leaflet hotspot marker.
+   * @private
+   */
+  _createHotspotMarker(analyzer, peak, peakLatency, popupCallback, clickCallback) {
+    const index = analyzer.peaks.indexOf(peak);
+    if (index < 0) return null;
+
+    const coords = this._hotspotMarkerCoords(analyzer, peak, peakLatency);
+    if (!coords) return null;
+
+    const hotspotIcon = GSRMapManager._buildHotspotIcon();
+    const marker = L.marker([coords.lat, coords.lon], { icon: hotspotIcon });
+    marker.setZIndexOffset(1500); // Above both regular peak dots and labels
+    if (this.showHotspots) marker.addTo(this.map);
+
+    marker.bindPopup(() => popupCallback(index, coords, marker));
+    if (clickCallback) {
+      marker.on('click', () => clickCallback(index));
+    }
+    return marker;
+  }
+
   _renderHotspotMarkers(analyzer, peakLatency) {
     const events = analyzer.memorableEvents;
     if (!events || events.length === 0) return;
 
-    const hotspotIcon = GSRMapManager._buildHotspotIcon();
-
     events.forEach(peak => {
-      const index = analyzer.peaks.indexOf(peak);
-      if (index < 0) return;
-
-      const coords = this._hotspotMarkerCoords(analyzer, peak, peakLatency);
-      if (!coords) return;
-
-      const marker = L.marker([coords.lat, coords.lon], { icon: hotspotIcon });
-      marker.setZIndexOffset(1500); // Above both regular peak dots and labels
-      if (this.showHotspots) marker.addTo(this.map);
-
-      marker.bindPopup(() => this._buildSinglePeakPopup(analyzer, peak, index, coords, marker));
-      marker.on('click', () => {
-        GSRUI.focusOnPeak(index, 'map');
-      });
-
-      this.hotspotMarkers.push(marker);
+      const marker = this._createHotspotMarker(
+        analyzer,
+        peak,
+        peakLatency,
+        (index, coords, m) => this._buildSinglePeakPopup(analyzer, peak, index, coords, m),
+        (index) => GSRUI.focusOnPeak(index, 'map')
+      );
+      if (marker) this.hotspotMarkers.push(marker);
     });
   }
 
@@ -1211,22 +1228,14 @@ class GSRMapManager {
     const events = analyzer.memorableEvents;
     if (!events || events.length === 0) return;
 
-    const hotspotIcon = GSRMapManager._buildHotspotIcon();
-
     events.forEach(peak => {
-      const index = analyzer.peaks.indexOf(peak);
-      if (index < 0) return;
-
-      const coords = this._hotspotMarkerCoords(analyzer, peak, peakLatency);
-      if (!coords) return;
-
-      const marker = L.marker([coords.lat, coords.lon], { icon: hotspotIcon });
-      marker.setZIndexOffset(1500);
-      if (this.showHotspots) marker.addTo(this.map);
-
-      marker.bindPopup(() => this._buildCollectivePeakPopup(track, peak, index, coords.lat, coords.lon, marker));
-
-      this.collectiveHotspotMarkers.push(marker);
+      const marker = this._createHotspotMarker(
+        analyzer,
+        peak,
+        peakLatency,
+        (index, coords, m) => this._buildCollectivePeakPopup(track, peak, index, coords.lat, coords.lon, m)
+      );
+      if (marker) this.collectiveHotspotMarkers.push(marker);
     });
   }
 
@@ -1693,25 +1702,7 @@ class GSRMapManager {
 
       const refAmplitude = this._meanAmplitude(allActivePeaksAcrossTracks);
       const clusters = GSRSpatialClustering.clusterPeaks(allActivePeaksAcrossTracks, effectiveProximity, boundaryRadius, sigma);
-      clusters.forEach(cluster => {
-        const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, boundaryRadius, refAmplitude);
-        const style = this._severityStyleForCluster(cluster, refAmplitude);
-        paths.forEach(path => {
-          const latlngs = path.map(p => [p.lat, p.lon]);
-          const poly = L.polygon(latlngs, {
-            color: style.color,
-            weight: style.weight,
-            fillColor: style.color,
-            fillOpacity: style.fillOpacity,
-            dashArray: '4, 6',
-            lineCap: 'round',
-            lineJoin: 'round'
-          });
-          poly.bindTooltip(style.tooltip, { sticky: true, className: 'contour-tooltip-label' });
-          if (this.showClusters) poly.addTo(this.map);
-          this.clusterLayers.push(poly);
-        });
-      });
+      this._renderClusters(clusters, refAmplitude, sigma, boundaryRadius);
     }
 
     // 3. Zoom and Pan Map to fit collective bounding envelope — but only when the active
