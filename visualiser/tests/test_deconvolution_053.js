@@ -13,7 +13,7 @@
  * the exact data that has driven every fix so far, not just synthetic or
  * lighter-weight fixtures.
  *
- * Run: node gsr-map-analyzer/tests/test_deconvolution_053.js
+ * Run: node visualiser/tests/test_deconvolution_053.js
  */
 
 const fs = require('fs');

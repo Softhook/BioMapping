@@ -2,7 +2,7 @@
  * Regression test: OSM shapes (buildings/parks/water) must export as hard, exact
  * vector geometry — every original vertex preserved, straight edges, sharp
  * (miter) corners — not run through the GPS-track smoothing/culling pipeline.
- * Run: node gsr-map-analyzer/tests/test_osm_hard_shapes.js
+ * Run: node visualiser/tests/test_osm_hard_shapes.js
  */
 const assert = require('assert');
 const fs     = require('fs');

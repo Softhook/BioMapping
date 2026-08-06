@@ -12,7 +12,7 @@
  * that file for the detailed closure-correctness tests (including the adversarial
  * "long arc is the correct one" case).
  *
- * Run: node gsr-map-analyzer/tests/test_isoband_smoothness_perf.js
+ * Run: node visualiser/tests/test_isoband_smoothness_perf.js
  */
 const assert = require('assert');
 const fs     = require('fs');

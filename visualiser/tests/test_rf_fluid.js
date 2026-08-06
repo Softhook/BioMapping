@@ -7,7 +7,7 @@
  * 3. RFFluidRenderer ray-segment intersection calculation.
  * 4. Multi-spectral RGB fluid color normalization.
  *
- * Run: node gsr-map-analyzer/tests/test_rf_fluid.js
+ * Run: node visualiser/tests/test_rf_fluid.js
  */
 
 const fs   = require('fs');

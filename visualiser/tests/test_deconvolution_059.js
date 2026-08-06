@@ -18,7 +18,7 @@
  * track and recording what it actually produces, then setting limits with
  * headroom so a real regression is caught but ordinary noise is not.
  *
- * Run: node gsr-map-analyzer/tests/test_deconvolution_059.js
+ * Run: node visualiser/tests/test_deconvolution_059.js
  */
 
 'use strict';

@@ -1,6 +1,6 @@
 # Environmental Enrichment & Analysis — Implementation Reference
 
-This document describes the environmental-enrichment system as it is actually implemented in the Bio Mapping GSR map analyzer (`gsr-map-analyzer/`), and lists concrete suggestions for extending it. It replaces an earlier forward-looking plan; that plan's Phase 1 (native OSM integration) shipped, was extended with a GPS road-snapping system that was never in the original plan, and Phases 2–3 (satellite NDVI/LiDAR, automated Street View greenery index) were not built.
+This document describes the environmental-enrichment system as it is actually implemented in the Bio Mapping GSR map visualiser (`visualiser/`), and lists concrete suggestions for extending it. It replaces an earlier forward-looking plan; that plan's Phase 1 (native OSM integration) shipped, was extended with a GPS road-snapping system that was never in the original plan, and Phases 2–3 (satellite NDVI/LiDAR, automated Street View greenery index) were not built.
 
 ---
 
@@ -13,7 +13,7 @@ Skin conductance (GSR/EDA) measures sympathetic nervous system activation, refle
 [Restorative Zones]   --> [Sympathetic Decay]    --> GSR Recovery / SCL Decline
 ```
 
-The implemented system captures five environmental dimensions, each backed by an OpenStreetMap tag set (see `gsr-map-analyzer/osm_enrichment.js`):
+The implemented system captures five environmental dimensions, each backed by an OpenStreetMap tag set (see `visualiser/osm_enrichment.js`):
 
 1. **Traffic & Acoustic Stress** — road classification and distance to the nearest major road.
 2. **Visual & Natural Restoration (Green Spaces)** — park containment and green-space density from `leisure`, `landuse`, and `natural` tags.
@@ -135,7 +135,7 @@ A schema note: the cache started as a single object store mixing metadata and da
 ## 5. File Architecture — as built
 
 ```
-gsr-map-analyzer/
+visualiser/
 ├── osm_enrichment.js     - Overpass orchestration, evaluation-point selection,
 │                           per-point feature extraction, CSV column wiring.
 ├── overpass_client.js    - Overpass HTTP client: query building, rate-limit
@@ -198,7 +198,7 @@ Items 1, 2, and 4 from the original version of this list (spatial-math tests, ma
 
 7. **The merge is single-pass, not transitive.** `planFetch` only checks what overlaps the *original* request bbox. If merging with one entry produces a union that now also overlaps a second entry that didn't overlap the original request, that second entry isn't folded in — it's picked up (if at all) by some later request. A fixed-point merge (keep re-checking for new overlaps until none remain) would converge to a cleaner cache state, at the cost of more DB round-trips per miss.
 
-8. **No cross-tab cache coordination.** The `_enriching` re-entrancy guard in `ui.js` is an in-memory flag scoped to one page. Two browser tabs enriching overlapping areas around the same time could each independently plan and store a merge, producing two overlapping "merged" entries instead of one. Low priority for a single-user local analysis tool, but worth knowing if the analyzer is ever used with multiple tabs open side by side.
+8. **No cross-tab cache coordination.** The `_enriching` re-entrancy guard in `ui.js` is an in-memory flag scoped to one page. Two browser tabs enriching overlapping areas around the same time could each independently plan and store a merge, producing two overlapping "merged" entries instead of one. Low priority for a single-user local analysis tool, but worth knowing if the visualiser is ever used with multiple tabs open side by side.
 
 9. **Exercise `osm_cache.js`'s actual IndexedDB glue in tests.** Everything currently tested (`_bboxContains`, `_planFetch`, `_selectEvictions`, etc.) is pure logic with no IndexedDB dependency, by design — Node has none. Adding the `fake-indexeddb` npm package to the test setup would let `_openDb`, `_putEntry`, `_deleteEntries`, and the `DB_VERSION` 1→2 migration path get real regression coverage too, rather than relying on manual in-browser verification.
 

@@ -11,7 +11,7 @@ Adding **319 MHz** (a frequency widely used in North American wireless security 
 The implementation spans:
 1. **Flipper Zero C Firmware:** Sweeping, calibrating, logging, and displaying the new band on the LCD.
 2. **Host-Side C Tests:** Updating mock arrays and diagnostic verification suites.
-3. **GSR Web Analyzer:** Parsing the new CSV column, adding it to the EM Fog Index, and providing Leaflet Map overlays.
+3. **GSR Web Visualiser:** Parsing the new CSV column, adding it to the EM Fog Index, and providing Leaflet Map overlays.
 
 ### Hardware & RF Constraints
 * **Antenna Performance:** The Flipper Zero's internal CC1101 antenna matching network is optimized for 433, 868, and 915 MHz. As noted in the codebase, lower frequencies (300–446 MHz) suffer from impedance mismatch and show a higher self-noise floor (~-76 dBm) compared to high-frequency bands (~-91.5 dBm).
@@ -159,9 +159,9 @@ Below is the structured list of files that would need modifications:
 
 ---
 
-### C. Web Analyzer & Visualization (JS / HTML)
+### C. Web Visualiser & Visualization (JS / HTML)
 
-#### [MODIFY] [`gsr-map-analyzer/analyzer.js`](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/analyzer.js)
+#### [MODIFY] [`visualiser/analyzer.js`](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/analyzer.js)
 * Detect `rssi_319` from the CSV headers and parse it.
 * Register `rssi_319` in the `BANDS` arrays for peak-prominence detection.
 * Dynamically include `rssi_319` in `GSRAnalyzer.calcEmFog()`.
@@ -171,7 +171,7 @@ Below is the structured list of files that would need modifications:
 const BANDS = ['rssi_300', 'rssi_315', 'rssi_319', 'rssi_434', 'rssi_446', 'rssi_815', 'rssi_868', 'rssi_915'];
 ```
 
-#### [MODIFY] [`gsr-map-analyzer/rf_fluid_renderer.js`](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/rf_fluid_renderer.js)
+#### [MODIFY] [`visualiser/rf_fluid_renderer.js`](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/rf_fluid_renderer.js)
 * Parse `rssi_319` from the nodes, compute its adaptive noise floors, and scale it within `_normDbm()`.
 * Map 319 MHz to a distinct visualization color when rendering individual layers. For example, use **Vibrant Amber/Yellow (255, 200, 0)**:
 
@@ -190,7 +190,7 @@ let min319 = Infinity, max319 = -Infinity;
 }
 ```
 
-#### [MODIFY] [`gsr-map-analyzer/index.html`](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/index.html)
+#### [MODIFY] [`visualiser/index.html`](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/index.html)
 * Add a select option to switch the fluid visualization mode to the 319 MHz channel:
 
 ```html
@@ -202,5 +202,5 @@ let min319 = Infinity, max319 = -Infinity;
 </select>
 ```
 
-#### [MODIFY] [`gsr-map-analyzer/map.js`](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/map.js)
+#### [MODIFY] [`visualiser/map.js`](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/map.js)
 * Update `updateLegend()` to draw the legend item for the 319 MHz channel when active.

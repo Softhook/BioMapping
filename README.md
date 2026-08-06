@@ -7,7 +7,7 @@ The Complete Build & Software Guide (ADS1115 Transimpedance Amplifier Edition)
 BioMapping 2.0 is a new version of Christian Nold's Bio Mapping project for the **Flipper Zero**. 
 It allows you to walk through a city or landscape and record your body's physiological arousal mapped precisely to geographical coordinates. 
 
-The Flipper logs your Galvanic Skin Response (GSR) together with GPS coordinates and SubGHz RF environmental spectrum levels (815/868/915 MHz) to a CSV file on the SD card. You then load that CSV into the included browser-based analyser (`gsr-map-analyzer/index.html`), which decomposes the signal into tonic/phasic components, detects arousal peaks, correlates RF noise density (rendered via its own RF fluid canvas), and renders your route on a map **coloured by arousal**. In collective mode it builds an interpolated (IDW) contour surface across one or more walks, so calm stretches read as a flat "baseline" landscape while stress or arousal rises into "mountains" and deep relaxation drops into "valleys".
+The Flipper logs your Galvanic Skin Response (GSR) together with GPS coordinates and SubGHz RF environmental spectrum levels (815/868/915 MHz) to a CSV file on the SD card. You then load that CSV into the included browser-based visualiser (`visualiser/index.html`), which decomposes the signal into tonic/phasic components, detects arousal peaks, correlates RF noise density (rendered via its own RF fluid canvas), and renders your route on a map **coloured by arousal**. In collective mode it builds an interpolated (IDW) contour surface across one or more walks, so calm stretches read as a flat "baseline" landscape while stress or arousal rises into "mountains" and deep relaxation drops into "valleys".
 
 This version of the device uses a dedicated 16-bit **ADS1115** Analog-to-Digital Converter combined with a robust and stable **Transimpedance Amplifier (TIA)** circuit. By utilising a rail-to-rail dual op-amp for active voltage buffering and hardware low-pass filtering, we achieve a precise, robust and noise-resistant way to measure the tiny changes in human sweat gland activity. All background sampling (GSR ADC reads at 860 SPS and interleaved SubGHz RF band sweeps) is handled by a **single unified background worker thread** (`GsrSensorWorker` in [`modules/gsr_sensor.c`](modules/gsr_sensor.c)).
 
@@ -169,7 +169,7 @@ Each CSV row's first column (`timestamp`) is a **relative time in seconds since 
 # Band Floors (dBm): 815:-91.5,868:-91.5,915:-91.5
 ```
 
-The `# Band Floors` line only appears when RF is active for the session (GPS + GSR + RF or GPS + RF) **and** an RF calibration exists — it's the per-band noise floor from RF Calibration (Section 8), used by the analyser to normalise RSSI readings.
+The `# Band Floors` line only appears when RF is active for the session (GPS + GSR + RF or GPS + RF) **and** an RF calibration exists — it's the per-band noise floor from RF Calibration (Section 8), used by the visualiser to normalise RSSI readings.
 
 | Field | Source | Notes |
 |---|---|---|
@@ -245,7 +245,7 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
 0.20,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4521.0,2.5
 ...
 ```
-When there is no valid fix this tick, `lat`/`lon` and all other GPS columns are left empty (e.g. `0.30,,,,,,,,,4519.0,`) so the analyser treats the row as a GPS gap rather than a `(0,0)` coordinate. `hacc_m` (horizontal accuracy in meters, from `$PUBX,00`) is **M10Q-only** — it stays `99.9` (unknown) on L76K hardware.
+When there is no valid fix this tick, `lat`/`lon` and all other GPS columns are left empty (e.g. `0.30,,,,,,,,,4519.0,`) so the visualiser treats the row as a GPS gap rather than a `(0,0)` coordinate. `hacc_m` (horizontal accuracy in meters, from `$PUBX,00`) is **M10Q-only** — it stays `99.9` (unknown) on L76K hardware.
 
 **GPS + RF mode (14 columns, 10 Hz):** same shape as GPS + GSR + RF above, but `gsr_raw` is always `0.0` — no GSR sensor is initialised in this mode.
 
@@ -338,7 +338,7 @@ In our TIA setup:
 * **Stress Response (Resistance Drops):** Skin conductance increases, pushing more current through the feedback resistor. `V_out` rises, making the differential read increase. `Rate_of_Change` goes heavily positive.
 * **Relaxation (Resistance Climbs):** Current drops, `V_out` falls closer to `V_ref`. `Rate_of_Change` goes negative.
 
-On the live display graph, the derivative is shown with its natural sign — arousal spikes upward, relaxation dips below center. For the arousal mapping in the analyser (Section 6), only the **magnitude** of change matters: both rapid rises and rapid drops read as high arousal.
+On the live display graph, the derivative is shown with its natural sign — arousal spikes upward, relaxation dips below center. For the arousal mapping in the visualiser (Section 6), only the **magnitude** of change matters: both rapid rises and rapid drops read as high arousal.
 
 ### TIA Conductance Equation
 
@@ -369,13 +369,13 @@ When `N` approaches zero (open circuit / disconnected electrodes), conductance i
 
 ### Recording: CSV on the SD Card
 
-When the user presses "Record", the app writes a **CSV file** (`/ext/biomapping/biomap_001.csv`, next free index). This keeps the recording simple and preserves the raw GSR data for offline re-analysis. Visualisation is produced **post-recording** by the browser-based analyser (see below). See [Section 4b's CSV Formats](#csv-formats) for the current column layouts per mode, and [`docs/csv_schema.md`](docs/csv_schema.md) for the canonical, versioned column reference.
+When the user presses "Record", the app writes a **CSV file** (`/ext/biomapping/biomap_001.csv`, next free index). This keeps the recording simple and preserves the raw GSR data for offline re-analysis. Visualisation is produced **post-recording** by the browser-based visualiser (see below). See [Section 4b's CSV Formats](#csv-formats) for the current column layouts per mode, and [`docs/csv_schema.md`](docs/csv_schema.md) for the canonical, versioned column reference.
 
-### Post-Processing: The Browser-Based Analyser
+### Post-Processing: The Browser-Based Visualiser
 
-Post-processing happens off-device in the included web analyser. Open [`gsr-map-analyzer/index.html`](gsr-map-analyzer/index.html) directly in a browser (no server required) and drag-and-drop one or more `biomap_*.csv` files onto it.
+Post-processing happens off-device in the included web visualiser. Open [`visualiser/index.html`](visualiser/index.html) directly in a browser (no server required) and drag-and-drop one or more `biomap_*.csv` files onto it.
 
-The analyser:
+The visualiser:
 
 1. **Loads** the CSV, honouring the `#`-prefixed metadata header and the relative-seconds `timestamp` column, and skipping rows with empty `lat`/`lon` (GPS gaps).
 2. **Filters** the GSR signal (median / low-pass) and decomposes it into tonic and phasic components (DWT).
@@ -383,7 +383,7 @@ The analyser:
 4. **Maps** the track on a Leaflet base map, **coloured by arousal** — arousal is shown as colour.
 5. **Collective mode:** overlays multiple tracks, builds an inverse-distance-weighted (IDW) contour surface, and can enrich the data against OpenStreetMap features (road class, green space, buildings).
 
-Both rapid rises **and** rapid drops in GSR register as high arousal — only the magnitude of change matters, not the direction. See [`docs/csv_schema.md`](docs/csv_schema.md) for the canonical column definitions the analyser reads.
+Both rapid rises **and** rapid drops in GSR register as high arousal — only the magnitude of change matters, not the direction. See [`docs/csv_schema.md`](docs/csv_schema.md) for the canonical column definitions the visualiser reads.
 
 ---
 
@@ -636,9 +636,9 @@ Tuning lives in two places:
 #define GPS_HDOP_GATE   5.0f   // rows with HDOP above this log empty lat/lon
 ```
 
-This is deliberately permissive: logging up to HDOP 5.0 preserves urban-canyon fixes that the analyser can optionally reject later. The signal-processing constants (`SMOOTH_IIR_A`/`_B`, `DISPLAY_EMA_A`/`_B`, PGA thresholds) are also defined in `biomap_types.h` / `modules/gsr_sensor.h`.
+This is deliberately permissive: logging up to HDOP 5.0 preserves urban-canyon fixes that the visualiser can optionally reject later. The signal-processing constants (`SMOOTH_IIR_A`/`_B`, `DISPLAY_EMA_A`/`_B`, PGA thresholds) are also defined in `biomap_types.h` / `modules/gsr_sensor.h`.
 
-**Analyser (post-processing).** Filtering, peak detection, and the GPS quality filter are adjustable in the web analyser's UI at runtime — no rebuild required. The analyser's default HDOP filter is stricter (2.0) than the firmware logging gate (5.0); see the HDOP-gate note in [`docs/csv_schema.md`](docs/csv_schema.md).
+**Visualiser (post-processing).** Filtering, peak detection, and the GPS quality filter are adjustable in the web visualiser's UI at runtime — no rebuild required. The visualiser's default HDOP filter is stricter (2.0) than the firmware logging gate (5.0); see the HDOP-gate note in [`docs/csv_schema.md`](docs/csv_schema.md).
 
 ---
 

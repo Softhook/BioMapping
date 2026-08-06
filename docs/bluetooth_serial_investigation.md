@@ -1,6 +1,6 @@
 # Investigation Report: Real-Time Bluetooth Serial Data Streaming for GSR/GPS Visualization
 
-This document details the feasibility, hardware/software architecture, API hooks, and implementation steps required to add real-time Bluetooth serial data streaming. This features allows wireless streaming of GSR and GPS data from the Flipper Zero device directly to the browser-based `gsr-map-analyzer` frontend for live mapping and visualization.
+This document details the feasibility, hardware/software architecture, API hooks, and implementation steps required to add real-time Bluetooth serial data streaming. This features allows wireless streaming of GSR and GPS data from the Flipper Zero device directly to the browser-based `visualiser` frontend for live mapping and visualization.
 
 ---
 
@@ -12,12 +12,12 @@ The proposed live visualization system spans three main layers:
 graph TD
     A[GSR & GPS Sensors] -->|Analog/UART| B(Flipper Zero biomap App)
     B -->|BLE Serial Service NUS| C(Web Bluetooth API - Browser)
-    C -->|Real-time Chunk Parser| D(gsr-map-analyzer Engine)
+    C -->|Real-time Chunk Parser| D(visualiser Engine)
     D -->|DSP & Filtering| E[Live p5.js Graph & Leaflet Map]
 ```
 
 1. **Flipper Zero Firmware (`biomap` C app)**: Captures sensor data at 10 Hz and transmits formatted CSV rows or custom binary packets over Flipper's BLE Serial hardware abstraction layer.
-2. **Web Browser Frontend (`gsr-map-analyzer` JS)**: Establishes a wireless link using the browser's Web Bluetooth API, subscribes to Flipper's TX notifications, and reconstructs the data stream.
+2. **Web Browser Frontend (`visualiser` JS)**: Establishes a wireless link using the browser's Web Bluetooth API, subscribes to Flipper's TX notifications, and reconstructs the data stream.
 3. **Data Pipeline & Renderer (p5.js / Leaflet)**: Streams the incoming points into the active `GSRAnalyzer` data structure, triggers real-time filtering, and renders a rolling line graph and moving Leaflet track trail.
 
 ---
@@ -67,12 +67,12 @@ To stream data over BLE, we would:
 
 ---
 
-## 3. Web Analyzer Frontend Implementation
+## 3. Web Visualiser Frontend Implementation
 
 Browsers supporting the **Web Bluetooth API** (such as Chrome, Edge, and Opera) can connect directly to the Flipper Zero without installing native desktop software.
 
 ### Web Bluetooth Connection API Setup
-In [gsr-map-analyzer/ui.js](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/ui.js), a new controller class or module (e.g. `GSRLiveBluetoothManager`) would implement the pairing flow:
+In [visualiser/ui.js](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/ui.js), a new controller class or module (e.g. `GSRLiveBluetoothManager`) would implement the pairing flow:
 
 ```javascript
 class GSRLiveBluetoothManager {
@@ -126,12 +126,12 @@ Because BLE notifications are chunked to fit the MTU size (~20 to ~244 bytes), p
 
 ## 4. Real-time Analysis, Map & Graph Rendering
 
-Currently, [gsr-map-analyzer/analyzer.js](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/analyzer.js) expects a completed array in [GSRAnalyzer.parseCSV](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/analyzer.js#L208) to execute the [GSRAnalyzer.analyze](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/analyzer.js#L628) filter pipelines. 
+Currently, [visualiser/analyzer.js](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/analyzer.js) expects a completed array in [GSRAnalyzer.parseCSV](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/analyzer.js#L208) to execute the [GSRAnalyzer.analyze](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/analyzer.js#L628) filter pipelines. 
 
 To adapt this for live plotting:
 
 1. **Incremental Data Feeding**:
-   Create a dedicated live analyzer instance inside [AppState](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/app_state.js):
+   Create a dedicated live analyzer instance inside [AppState](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/app_state.js):
    ```javascript
    function parseLiveRow(line) {
      const cols = line.split(',');
@@ -167,7 +167,7 @@ To adapt this for live plotting:
    ```
 
 2. **Leaflet Live Map Marker**:
-   In [gsr-map-analyzer/map.js](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/map.js), we would render a pulsing cursor at the latest valid coordinates:
+   In [visualiser/map.js](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/map.js), we would render a pulsing cursor at the latest valid coordinates:
    ```javascript
    updateLiveCursor(lat, lon) {
      if (this.liveMarker) {
@@ -185,7 +185,7 @@ To adapt this for live plotting:
    ```
 
 3. **Graph Rolling Autoscroll**:
-   Inside [gsr-map-analyzer/sketch.js](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/sketch.js#L42), the canvas should dynamically slide the timeline window forward as time progresses, keeping the visual display aligned with a real-time oscilloscope.
+   Inside [visualiser/sketch.js](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/sketch.js#L42), the canvas should dynamically slide the timeline window forward as time progresses, keeping the visual display aligned with a real-time oscilloscope.
 
 ---
 
@@ -195,10 +195,10 @@ To adapt this for live plotting:
 | :--- | :--- | :--- |
 | **`biomap` (C app)** | Include BLE Serial headers | Reference `<furi_hal_bt_serial.h>` to access the low-level serial Tx buffers. |
 | [biomap_session.c](file:///Users/softhook/Documents/GitHub/BioMapping/biomap_session.c) | Add BLE write calls | Output formatted CSV strings via `furi_hal_bt_serial_tx` inside the 10 Hz ticker. |
-| [index.html](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/index.html) | Add Connect Button | Add a "Connect Live" floating button with a pulsing Bluetooth icon. |
-| [ui.js](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/ui.js) | Add Web Bluetooth controller | Implement the Gatt connecting, notification binding, and parsing stream flow. |
-| [analyzer.js](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/analyzer.js) | Support progressive filtering | Optimize the LPF and Phasic filter steps to run progressively on single data points or handle fast periodic re-runs. |
-| [map.js](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/map.js) | Add rolling cursor | Enable centering Leaflet view on the newest coordinates and rendering a real-time trail. |
+| [index.html](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/index.html) | Add Connect Button | Add a "Connect Live" floating button with a pulsing Bluetooth icon. |
+| [ui.js](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/ui.js) | Add Web Bluetooth controller | Implement the Gatt connecting, notification binding, and parsing stream flow. |
+| [analyzer.js](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/analyzer.js) | Support progressive filtering | Optimize the LPF and Phasic filter steps to run progressively on single data points or handle fast periodic re-runs. |
+| [map.js](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/map.js) | Add rolling cursor | Enable centering Leaflet view on the newest coordinates and rendering a real-time trail. |
 
 ---
 
@@ -359,7 +359,7 @@ class GSRLiveBinaryParser {
 
 ## 9. Mobile Live Visualizer & Remote Sync (Android PWA)
 
-Instead of running the heavy, desktop-optimized [GSRMapManager](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/map.js) (which loads Leaflet tile layers, maps historical tracks, and processes complex OSM geometries), we can build a mobile-first **Progressive Web App (PWA)** optimized for Android.
+Instead of running the heavy, desktop-optimized [GSRMapManager](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/map.js) (which loads Leaflet tile layers, maps historical tracks, and processes complex OSM geometries), we can build a mobile-first **Progressive Web App (PWA)** optimized for Android.
 
 ### A. Why a PWA on Android?
 * **Native Web Bluetooth Support:** Android Chrome natively supports Web Bluetooth, meaning a web app can pair directly with the Flipper Zero without installing native Android SDKs or going through the Google Play Store.
@@ -401,7 +401,7 @@ To visualize the live path remotely (e.g. on a desktop monitor back home while t
 As each 45-byte BLE packet is received and parsed by the phone:
 1. The phone serializes it to a JSON payload or a compact binary message.
 2. The phone sends it instantly to a remote backend server via a **WebSocket connection** or highly frequent **fetch HTTP POST requests**.
-3. A remote receiver (e.g., the desktop `gsr-map-analyzer` running on a computer at home) listens to this websocket channel, allowing another person to watch the trail grow on the map in real time.
+3. A remote receiver (e.g., the desktop `visualiser` running on a computer at home) listens to this websocket channel, allowing another person to watch the trail grow on the map in real time.
 
 *Example Payload Forwarded to Server:*
 ```json

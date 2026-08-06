@@ -20,7 +20,7 @@ graph TD
     E -->|Store in DisplayState| F[CSV: sound_rms column]
     E -->|Temporal Gate| G[sound_event flag]
     G -->|Logged to CSV| H[CSV: sound_event column]
-    H -->|Post-hoc in analyser| I[ADS-B API query]
+    H -->|Post-hoc in visualiser| I[ADS-B API query]
     I -->|Match?| J[Confirmed Aircraft Flyover]
     I -->|No match| K[Unidentified Elevated Sound]
 ```
@@ -228,7 +228,7 @@ To prevent the bias from drifting during extended loud periods (frequent flyover
 
 ## 6. Elevated-Sound Event Detection (Temporal Gating)
 
-The microphone measures broadband RMS sound level — it cannot distinguish an aircraft from a truck, a motorcycle, or a construction site. The firmware's job is simply to detect *sustained elevated sound* and flag it. Source classification (was this an aircraft?) happens later in the web analyser via ADS-B data matching (see §7.3).
+The microphone measures broadband RMS sound level — it cannot distinguish an aircraft from a truck, a motorcycle, or a construction site. The firmware's job is simply to detect *sustained elevated sound* and flag it. Source classification (was this an aircraft?) happens later in the web visualiser via ADS-B data matching (see §7.3).
 
 ### 6.1 Adaptive Threshold
 
@@ -287,7 +287,7 @@ With symmetric 3-second arm/disarm, a 15-second flyover produces approximately 1
 
 ---
 
-## 7. Data Logging & Dashboard Analyzer Integration
+## 7. Data Logging & Dashboard Visualiser Integration
 
 ### 7.1 CSV Logging Format
 
@@ -305,30 +305,30 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,so
 
 When `BIOMAP_FEATURE_ACOUSTIC` is 0, columns 12–13 are absent and the CSV is byte-identical to the canonical 11-column format defined in [`csv_schema.md`](csv_schema.md).
 
-### 7.2 Web Dashboard Analyser — Sound Level Display
+### 7.2 Web Dashboard Visualiser — Sound Level Display
 
-In the browser analyser:
+In the browser visualiser:
 * **Sound Level Timeline:** The `sound_rms` column is rendered as a second trace below the GSR tonic/phasic graph, sharing the same time axis.
 * **Event Marker Overlay:** `sound_event=1` segments are highlighted as coloured bands behind the GSR trace so elevated-sound periods are visually aligned with arousal data.
 * **Latency Compensation:** A shift slider offsets the sound timeline relative to GSR (default: 0 s; adjustable 0–6 s). Skin conductance responses to startling noises typically peak 1.5–3.0 seconds after stimulus onset.
 
 ### 7.3 Post-Hoc Aircraft Identification via ADS-B Data
 
-The analyser imports public aircraft transponder data to determine which `sound_event=1` segments correspond to actual overflights. Both data sources below have been verified against their current API documentation; neither supports free, no-signup, browser-callable historical queries in the way originally envisioned. The constraints are documented here along with a recommended alternative (§7.3.3).
+The visualiser imports public aircraft transponder data to determine which `sound_event=1` segments correspond to actual overflights. Both data sources below have been verified against their current API documentation; neither supports free, no-signup, browser-callable historical queries in the way originally envisioned. The constraints are documented here along with a recommended alternative (§7.3.3).
 
 #### 7.3.1 Data sources — verified constraints
 
 **OpenSky Network** (`opensky-network.org`), current API version 1.4.0:
 * **Anonymous (no account) access is live-only.** For `/states/all`, "the time parameter is ignored" for anonymous requests — you only ever get the single most-recent state vector. There is no way to query anonymously for a time window in the past, which rules out anonymous access for this use case entirely.
 * **Historical access requires a registered account.** Even authenticated, `/states/all` only reaches 1 hour back; `/flights/all` (a 2-hour window) and the experimental `/tracks` endpoint (up to 30 days back, and the only endpoint that returns actual lat/lon/altitude waypoints rather than just flight metadata) both require it too.
-* **Authentication is OAuth2 client-credentials** (`client_id` + `client_secret` exchanged for a 30-minute bearer token) — HTTP Basic auth with username/password is no longer accepted. A `client_secret` is not safe to embed in client-side JavaScript (anyone can read it from the page/network tab); doing this properly needs a small backend to hold the secret and proxy the token exchange, which this project does not currently have — the analyser is a static, serverless page.
+* **Authentication is OAuth2 client-credentials** (`client_id` + `client_secret` exchanged for a 30-minute bearer token) — HTTP Basic auth with username/password is no longer accepted. A `client_secret` is not safe to embed in client-side JavaScript (anyone can read it from the page/network tab); doing this properly needs a small backend to hold the secret and proxy the token exchange, which this project does not currently have — the visualiser is a static, serverless page.
 * The previously-stated "400 requests/day for anonymous users" figure is accurate as a number (it's the correct anonymous credit quota) but is moot given the above — those credits can't be spent on historical data at all.
 
 **ADS-B Exchange** (`adsbexchange.com`):
 * The free tier is real-time-only. Historical backfill (their own materials describe up to 10 years of archive) is a paid-subscription feature, not part of free access.
-* The API does not support CORS. A direct `fetch()` call from browser JavaScript — the architecture described below and used everywhere else in this analyser — would be blocked by the browser regardless of authentication, unless routed through a server-side proxy.
+* The API does not support CORS. A direct `fetch()` call from browser JavaScript — the architecture described below and used everywhere else in this visualiser — would be blocked by the browser regardless of authentication, unless routed through a server-side proxy.
 
-Net effect: as described, this feature cannot be built as a client-side-only addition to the existing static analyser. It needs either new backend infrastructure (to hold OpenSky credentials and/or proxy around ADS-B Exchange's CORS restriction), or a different approach — see §7.3.3.
+Net effect: as described, this feature cannot be built as a client-side-only addition to the existing static visualiser. It needs either new backend infrastructure (to hold OpenSky credentials and/or proxy around ADS-B Exchange's CORS restriction), or a different approach — see §7.3.3.
 
 #### 7.3.2 Matching algorithm (as originally proposed — logic is fine, only the data-fetch step needs to change)
 
@@ -354,7 +354,7 @@ If a pure "no extra hardware" solution is a hard requirement, the fallback is to
 **Why ADS-B correlation (via either path above) is better than trying to classify aircraft from the microphone alone:**
 * Zero false positives from trucks, motorcycles, construction, or helicopters not in the ADS-B database.
 * The microphone provides the *timing* of the loud event (when did the user's body hear it?); ADS-B provides the *identity* (was that actually an aircraft, and how close was it?).
-* Both `sound_rms` and aircraft proximity can be plotted against GSR simultaneously — the analyser can show whether arousal correlates with raw loudness, confirmed overflights, or both.
+* Both `sound_rms` and aircraft proximity can be plotted against GSR simultaneously — the visualiser can show whether arousal correlates with raw loudness, confirmed overflights, or both.
 
 **Limitations:**
 * Light aircraft without ADS-B transponders (ultralights, some private planes) are invisible either way.

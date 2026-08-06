@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-15  
 **Scope:** Complete overview of the GPS processing pipeline, from firmware-level quality gating through to downstream spatial analysis filters.
-**Files:** `modules/gps_uart.c`, `biomap_types.h`, `biomap_session.c`, `gsr-map-analyzer/gps_filter.js`, `gsr-map-analyzer/gps_pipeline.js`, `gsr-map-analyzer/map_match.js`, `gsr-map-analyzer/map.js`
+**Files:** `modules/gps_uart.c`, `biomap_types.h`, `biomap_session.c`, `visualiser/gps_filter.js`, `visualiser/gps_pipeline.js`, `visualiser/map_match.js`, `visualiser/map.js`
 
 ---
 
@@ -48,7 +48,7 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
 
 ---
 
-## 3. Analyzer Processing Pipeline
+## 3. Visualiser Processing Pipeline
 
 ### 3.1 Quality Gates (`gps_pipeline.js`)
 1. **HDOP Gate (`applyHdopGate`)**: Rejects points with `hdop > maxHdop` (user-adjustable in UI, default `2.0`). Points lacking HDOP are kept.
@@ -116,7 +116,7 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
 
 ## 5. Parameter Guidelines & Tuning
 
-The filters can be tuned in the analyzer interface:
+The filters can be tuned in the visualiser interface:
 - **Smoothing ($\alpha_{\text{base}}$)**: Controls velocity-aided smoothing. Default `0.5`. Lower values trust dead-reckoning more; higher values trust the raw GPS coordinate.
 - **Process Noise ($Q$)**: Kalman process variance. Default `0.5` $m^2$.
 - **Measurement Noise ($R$)**: Kalman measurement variance. Default `10.0` $m^2$.
@@ -127,14 +127,14 @@ The filters can be tuned in the analyzer interface:
 
 ## 6. Direct Spatial Error (`hAcc`) Integration
 
-Measurement noise variance $R$ in the Kalman filter ([`gps_filter.js`](file:///Users/softhook/Documents/GitHub/BioMapping/gsr-map-analyzer/gps_filter.js)) now prefers the physical accuracy estimate over DOP-scaling when it's available:
+Measurement noise variance $R$ in the Kalman filter ([`gps_filter.js`](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/gps_filter.js)) now prefers the physical accuracy estimate over DOP-scaling when it's available:
 
 $$R_{\text{effective}} = \begin{cases} (\text{hacc\_m})^2 & \text{if hacc\_m valid (M10Q, post-fix)} \\ R_{\text{base}} \times \text{DOP}^2 & \text{otherwise (L76K, or pre-fix)} \end{cases}$$
 
 ### The `hAcc` Spatial Error Advantage
 The u-blox SAM-M10Q calculates **`hAcc`**—the actual physical horizontal position error in meters—via its internal extended Kalman filter covariance matrix, transmitted in the `$PUBX,00` NMEA sentence. The Flipper firmware (`modules/gps_uart.c`) extracts `hAcc` for live OLED display and, as of CSV schema v1.2, logs it as `hacc_m`.
 
-1. **Direct Kalman Variance Assignment:** When `hacc_m` is valid (not the `99.9` sentinel), the analyzer's Kalman filter (`gps_filter.js`, `getEffectiveRm2()`) assigns physical measurement variance directly instead of scaling by DOP².
+1. **Direct Kalman Variance Assignment:** When `hacc_m` is valid (not the `99.9` sentinel), the visualiser's Kalman filter (`gps_filter.js`, `getEffectiveRm2()`) assigns physical measurement variance directly instead of scaling by DOP².
 2. **Pre-Kalman Velocity Smoothing:** `applyVelocitySmoothing()` (`gps_filter.js`) runs immediately before the Kalman step and independently blends each fix with a dead-reckoned prediction, trusting the raw fix proportionally to DOP. It applies the same `hacc_m` preference (converted to a DOP-equivalent via the `hAcc ≈ HDOP × 2.5` relationship used for the OLED fallback), so a bad-hacc/good-HDOP point isn't over-trusted at this stage before Kalman gets to see it.
 3. **Urban Canyon Multipath Rejection:** In urban canyons or under wet tree canopies, satellite geometry often remains acceptable ($\text{HDOP } 1.2$), causing DOP-based estimation to under-estimate measurement noise. However, physical multipath reflections cause true `hAcc` to spike from $1.5\text{ m} \longrightarrow 15.0\text{ m}$. With $R = 15^2 = 225$, the Kalman filter immediately de-weights the multipath outlier and dead-reckons smoothly past the anomaly.
 4. **L76K fallback:** `hacc_m` is u-blox-only (`$PUBX,00` is a u-blox proprietary sentence). On L76K hardware, or before the first `$PUBX,00` sentence arrives on M10Q, `hacc_m` stays at its `99.9` sentinel and both consumers above fall back to the existing DOP-based scaling — HDOP/PDOP remain necessary as the universal fallback, not redundant.

@@ -14,7 +14,7 @@
  * (_expandCanvasForIsobands) to fit whatever the closure produces, so
  * everything drawn here is meant to be visible.
  *
- * Run: node gsr-map-analyzer/tests/test_isoband_boundary_closure.js
+ * Run: node visualiser/tests/test_isoband_boundary_closure.js
  */
 const assert = require('assert');
 const fs     = require('fs');

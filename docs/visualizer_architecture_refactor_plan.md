@@ -1,8 +1,8 @@
-# GSR Map Analyzer — Stability Refactor Plan
+# GSR Map Visualiser — Stability Refactor Plan
 
 > **Living document.** This is a forward plan, not a status report — update phase
 > status as work lands, and correct anything that turns out wrong once touched.
-> Scope: `gsr-map-analyzer/` only (the browser-based track/RF visualizer), not
+> Scope: `visualiser/` only (the browser-based track/RF visualizer), not
 > the Flipper firmware.
 
 ## Why this document exists
@@ -86,7 +86,7 @@ downstream consumer — the same root cause as §1.2, one level up.
 
 ### 1.5 Testing — real coverage exists, but informal
 
-`gsr-map-analyzer/tests/` has 19 plain Node scripts (pipelines, deconvolution,
+`visualiser/tests/` has 19 plain Node scripts (pipelines, deconvolution,
 DWT, OSM cache/enrichment, isoband rendering, RF fluid, SVG export, label
 persistence, refactor regression) plus `tests/mock_constants.js`, run
 individually via `node tests/test_x.js`. No `package.json` anywhere in the

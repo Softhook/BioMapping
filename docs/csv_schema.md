@@ -100,9 +100,9 @@ Two HDOP thresholds exist — **this is intentional:**
 | Context | Value | Location | Purpose |
 |---|---|---|---|
 | Firmware logging gate | `5.0` | `biomap_types.h GPS_HDOP_GATE` | Permissive: log urban canyon data for post-analysis |
-| JS analyser default | `2.0` | `constants.js GPS_DEFAULT.maxHdop` | Post-processing quality filter (user-adjustable) |
+| JS visualiser default | `2.0` | `constants.js GPS_DEFAULT.maxHdop` | Post-processing quality filter (user-adjustable) |
 
-**Rationale:** Logging at 5.0 preserves data that the analyser can optionally reject. Logging at 2.0 would permanently discard urban canyon fixes.
+**Rationale:** Logging at 5.0 preserves data that the visualiser can optionally reject. Logging at 2.0 would permanently discard urban canyon fixes.
 
 ---
 

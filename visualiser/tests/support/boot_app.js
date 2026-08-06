@@ -1,6 +1,6 @@
 /**
  * Smoke-test harness: boots the REAL app (real index.html DOM + every real
- * gsr-map-analyzer/*.js source file, unmodified, in the exact order
+ * visualiser/*.js source file, unmodified, in the exact order
  * index.html loads them) inside jsdom, with a hand-rolled stand-in for the
  * CDN libraries (Leaflet, p5, JSZip/html2canvas) instead of loading them for
  * real.

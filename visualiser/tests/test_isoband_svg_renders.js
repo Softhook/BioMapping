@@ -23,7 +23,7 @@
  * machine — it's a real-render sanity check, not something the whole suite
  * should depend on.
  *
- * Run: node gsr-map-analyzer/tests/test_isoband_svg_renders.js
+ * Run: node visualiser/tests/test_isoband_svg_renders.js
  */
 const assert = require('assert');
 const fs     = require('fs');

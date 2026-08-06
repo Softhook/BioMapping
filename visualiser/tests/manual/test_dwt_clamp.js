@@ -6,7 +6,7 @@
  *   2. Full analyzer pipeline (median → LPF → DWT → smooth → local-floor)
  *   3. Trough-connection baseline
  *
- * Run:  node gsr-map-analyzer/test_dwt_clamp.js
+ * Run:  node visualiser/test_dwt_clamp.js
  */
 
 const fs = require("fs");

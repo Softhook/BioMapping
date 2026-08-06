@@ -5,7 +5,7 @@
  * - Spatial clustering (GSRSpatialClustering)
  * - Marching Squares contouring (MarchingSquares)
  *
- * Run: node gsr-map-analyzer/tests/test_all_pipelines.js
+ * Run: node visualiser/tests/test_all_pipelines.js
  */
 
 const fs   = require('fs');

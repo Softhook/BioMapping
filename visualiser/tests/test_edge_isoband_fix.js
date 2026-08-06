@@ -2,7 +2,7 @@
  * Regression test: isobands that touch the edge of the grid/map extent must still
  * be filled (previously they came back as an open, unfilled stroke because the
  * marching-squares isoline never closes itself against the grid boundary).
- * Run: node gsr-map-analyzer/tests/test_edge_isoband_fix.js
+ * Run: node visualiser/tests/test_edge_isoband_fix.js
  */
 const assert = require('assert');
 const fs     = require('fs');

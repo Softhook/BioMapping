@@ -1,6 +1,6 @@
 /**
  * Test for Vector Surface SVG Export (Mesh & Isobands)
- * Run: node gsr-map-analyzer/tests/test_svg_vector_surface.js
+ * Run: node visualiser/tests/test_svg_vector_surface.js
  */
 
 const assert = require('assert');

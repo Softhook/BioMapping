@@ -1,10 +1,10 @@
-# GSR Map Analyzer — Test Coverage & Gradual Refactor Plan
+# GSR Map Visualiser — Test Coverage & Gradual Refactor Plan
 
 > Companion to `visualizer_architecture_refactor_plan.md`. That document's
 > **Phase 4** already sketches "formalize the test suite" in one paragraph;
 > this document expands that into its own plan, focused specifically on
 > getting every function under automated test — and is honest about which
-> functions that's actually achievable for. Scope: `gsr-map-analyzer/` only.
+> functions that's actually achievable for. Scope: `visualiser/` only.
 
 ## Direct answer: can this be automated unit tests?
 
@@ -117,7 +117,7 @@ matching the sequencing style of the architecture refactor plan.
 
 ### Phase A — Wire up a real harness
 
-1. Add a minimal `package.json` in `gsr-map-analyzer/` (no dependencies
+1. Add a minimal `package.json` in `visualiser/` (no dependencies
    required) with `"test": "node --test tests/"` or a small loop script —
    Node 18+'s built-in `node:test` runner works with the existing
    `assert`-based style with minimal rewriting.

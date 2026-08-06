@@ -13,7 +13,7 @@
  * bug: low-value ("green") isoband bands missing from a real export while
  * small interior hotspot rings kept working fine.
  *
- * Run: node gsr-map-analyzer/tests/test_masked_grid_isobands.js
+ * Run: node visualiser/tests/test_masked_grid_isobands.js
  */
 const assert = require('assert');
 const fs     = require('fs');
