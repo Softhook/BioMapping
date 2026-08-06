@@ -118,7 +118,11 @@ function bootApp() {
     vm.runInContext(src, context, { filename: file });
   }
 
-  return { window, document: window.document };
+  // `context` is exposed so tests can null out optional top-level class
+  // bindings (e.g. RFFluidRenderer / GSRSpatialClustering) via
+  // vm.runInContext before window.setup() — the app's own
+  // `typeof X !== 'undefined'` guards make that a supported configuration.
+  return { window, document: window.document, context };
 }
 
 module.exports = { bootApp, superMock };

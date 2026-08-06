@@ -30,7 +30,13 @@ const GSRTrackManager = {
       analyzer: analyzer,
       filterParams: filterParams,
       gpsFilterParams: gpsFilterParams,
-      settingsSource: analyzer.importedFilterParams ? 'imported' : 'standard'
+      settingsSource: analyzer.importedFilterParams ? 'imported' : 'standard',
+      // Phase 1 (slice 1): the track's single Leaflet rendering handle — an
+      // L.layerGroup() owning this track's path/peak/hotspot layers. Lazily
+      // created by GSRMapManager._getTrackLayerGroup() on first render; null
+      // when the track owns nothing on the map. Removing the track = removing
+      // this group from the map.
+      layerGroup: null
     };
   },
 
@@ -371,6 +377,16 @@ const GSRTrackManager = {
     const performDelete = () => {
       // Save current GPS params before switching away
       GSRTrackManager.saveActiveGpsParams();
+
+      // Phase 1 (slice 1): removal = map.removeLayer(track.layerGroup). Do this
+      // before removing the track from the manager so the switch-active-track /
+      // clearAll paths below never leave an orphaned group behind.
+      if (AppState.mapManager && AppState.mapManager.map && track.layerGroup) {
+        if (AppState.mapManager.map.hasLayer(track.layerGroup)) {
+          AppState.mapManager.map.removeLayer(track.layerGroup);
+        }
+        track.layerGroup = null;
+      }
 
       AppState.collectiveManager.removeTrack(trackId);
 

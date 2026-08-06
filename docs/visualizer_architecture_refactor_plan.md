@@ -134,6 +134,8 @@ Phases are independently shippable; §4 gives suggested sequencing.
 
 ### Phase 1 — Track/map rendering ownership model
 
+**Status:** slice 1 (track `layerGroup` field + single-track render path routes into it; `clearMap`/`deleteTrack` remove the group) ✅ LANDED 2026-08-06, behind the new recording-Leaflet regression suite in `visualiser/tests/test_map_layer_ownership.js`. Remaining: slice 2 (map diffing / `track.render()`+`track.clear()`), slice 3 (drop the flat arrays as a migration scaffold; migrate collective + aggregate layers), slice 4 (`deleteTrack` pilot rollout).
+
 **Goal:** eliminate the specific flat-array-drift pattern in `GSRMapManager` that caused the original bug, for the map specifically.
 
 **Steps:** (designed in the prior conversation, restated here for the record)

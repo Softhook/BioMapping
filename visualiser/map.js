@@ -354,10 +354,43 @@ class GSRMapManager {
   }
 
   /**
+   * Phase 1 (slice 1): return (creating it if needed) the track's single
+   * render handle — an L.layerGroup() added to the map that owns all of this
+   * track's path/peak/hotspot layers. Null tracks (a bare analyzer rendered
+   * outside the track manager) fall back to the legacy direct-to-map path.
+   * @private
+   */
+  _getTrackLayerGroup(track) {
+    if (!track) return null;
+    if (!track.layerGroup) {
+      track.layerGroup = L.layerGroup().addTo(this.map);
+    }
+    return track.layerGroup;
+  }
+
+  /**
    * Reset path and markers on map
    */
   clearMap() {
     if (!this.map) return;
+
+    // Phase 1 (slice 1): a track's render handle is its layerGroup — removing
+    // it from the map drops every path/peak/hotspot layer the track owns in
+    // one call. Iterate all managed tracks so a group left over from an
+    // earlier active-track render is always cleaned up, even one that is no
+    // longer the active track.
+    if (typeof AppState !== 'undefined' && AppState.collectiveManager) {
+      for (const t of AppState.collectiveManager.tracks) {
+        if (t && t.layerGroup) {
+          if (this.map.hasLayer(t.layerGroup)) this.map.removeLayer(t.layerGroup);
+          t.layerGroup = null;
+        }
+      }
+    }
+
+    // Flat arrays are kept as a migration scaffold (legend/counts + collective
+    // still rely on them); the layers they reference were already removed with
+    // the groups above, so these per-layer removes are no-ops.
     this.pathSegments = this._clearLayerGroup(this.pathSegments);
     this.peakMarkers = this._clearLayerGroup(this.peakMarkers);
     this.hotspotMarkers = this._clearLayerGroup(this.hotspotMarkers);
@@ -513,6 +546,16 @@ class GSRMapManager {
     const { drawPoints } = this._getOrBuildDrawPoints(cacheKey, analyzer, p);
     if (drawPoints.length === 0) return;
 
+    // Phase 1 (slice 1): resolve the active track's layerGroup — its single
+    // render handle. Path/peak/hotspot layers below are added INTO this group
+    // (which is on the map), never directly onto the map. When there is no
+    // managed track for this analyzer (e.g. cacheKey 'single' fallback), the
+    // renderers fall back to the legacy direct-to-map path.
+    const activeTrack = (typeof AppState !== 'undefined' && AppState.collectiveManager)
+      ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
+      : null;
+    const layerGroup = this._getTrackLayerGroup(activeTrack);
+
     // Only auto-fit the viewport when a different track just became active (or the caller
     // explicitly asks for it) — not on every re-render, otherwise nudging a GSR/GPS filter
     // slider yanks the map back out to full-extent zoom and you lose whatever detail view
@@ -527,14 +570,14 @@ class GSRMapManager {
       this.rfFluidRenderer.setData(drawPoints, analyzer.osmGeoms);
     }
     this._updateRfFluidButtonState(!!(analyzer && analyzer.hasRfData));
-    this._renderPathSegments(drawPoints, p.trackWeight || 5, analyzer);
+    this._renderPathSegments(drawPoints, p.trackWeight || 5, analyzer, layerGroup);
 
     // Peak markers (with latency compensation)
-    this._renderPeakMarkers(analyzer, data, p.peakLatency || 0);
+    this._renderPeakMarkers(analyzer, data, p.peakLatency || 0, layerGroup);
 
     // Hotspot markers — the small top-2%-by-amplitude "memorable event" subset,
     // rendered as a separate, visually distinct layer (see _renderHotspotMarkers).
-    this._renderHotspotMarkers(analyzer, p.peakLatency || 0);
+    this._renderHotspotMarkers(analyzer, p.peakLatency || 0, layerGroup);
 
     // Apply the active peak/label/hotspot toggle styles
     this.updateMarkerVisibility();
@@ -696,7 +739,7 @@ class GSRMapManager {
     this.osmLayers = [];
   }
 
-  _renderPathSegments(drawPoints, trackWeight, analyzer) {
+  _renderPathSegments(drawPoints, trackWeight, analyzer, layerGroup) {
     const metric = this.activeColoringMetric || 'gsr';
     const key = this._getMetricKey(metric);
     const isCategorical = (metric === 'roadClass');
@@ -800,9 +843,18 @@ class GSRMapManager {
           color = colorLut[b];
         }
 
-        this.pathSegments.push(
-          L.polyline(latlngsBuf.slice(), { color, weight: trackWeight, opacity: 0.95 }).addTo(this.map)
-        );
+        // Phase 1 (slice 1): path segments render into the track's layerGroup
+        // (on the map), never directly onto the map. `layerGroup` is null when
+        // there is no managed track — fall back to the legacy direct add.
+        const poly = L.polyline(latlngsBuf.slice(), { color, weight: trackWeight, opacity: 0.95 });
+        if (layerGroup) {
+          poly._gsrLayerGroup = layerGroup;
+          poly._gsrKind = 'path';
+          layerGroup.addLayer(poly);
+        } else {
+          poly.addTo(this.map);
+        }
+        this.pathSegments.push(poly);
 
         batchStart = batchEnd;
       }
@@ -1013,7 +1065,7 @@ class GSRMapManager {
     });
   }
 
-  _renderPeakMarkers(analyzer, data, peakLatency) {
+  _renderPeakMarkers(analyzer, data, peakLatency, layerGroup) {
     const map = this.map;
     const labelCandidates = [];
     const allPeaks = [];
@@ -1071,7 +1123,16 @@ class GSRMapManager {
       }
 
       const shouldAdd = this.showPeaks || (this.showLabels && marker.hasLabel);
-      if (shouldAdd) marker.addTo(this.map);
+      if (shouldAdd) {
+        // Phase 1 (slice 1): peak markers render into the track's layerGroup.
+        if (layerGroup) {
+          marker._gsrLayerGroup = layerGroup;
+          marker._gsrKind = 'peak';
+          layerGroup.addLayer(marker);
+        } else {
+          marker.addTo(this.map);
+        }
+      }
 
       // Dim excluded peak markers
       if (peak.excluded) {
@@ -1097,7 +1158,14 @@ class GSRMapManager {
           weight: 1.5,
           opacity: 0.35,
           dashArray: '3, 5'
-        }).addTo(this.map);
+        });
+        if (layerGroup) {
+          conn._gsrLayerGroup = layerGroup;
+          conn._gsrKind = 'connector';
+          layerGroup.addLayer(conn);
+        } else {
+          conn.addTo(this.map);
+        }
         this.peakMarkers.push(conn); // store so clearMap removes them
       }
     }
@@ -1207,7 +1275,7 @@ class GSRMapManager {
    * Internal helper to construct and initialize a Leaflet hotspot marker.
    * @private
    */
-  _createHotspotMarker(analyzer, peak, peakLatency, popupCallback, clickCallback) {
+  _createHotspotMarker(analyzer, peak, peakLatency, popupCallback, clickCallback, layerGroup) {
     const index = analyzer.peaks.indexOf(peak);
     if (index < 0) return null;
 
@@ -1217,7 +1285,17 @@ class GSRMapManager {
     const hotspotIcon = GSRMapManager._buildHotspotIcon();
     const marker = L.marker([coords.lat, coords.lon], { icon: hotspotIcon });
     marker.setZIndexOffset(1500); // Above both regular peak dots and labels
-    if (this.showHotspots) marker.addTo(this.map);
+    // Phase 1 (slice 1): single-track hotspots render into the track's
+    // layerGroup. Collective callers don't pass a group → legacy direct add.
+    marker._gsrKind = 'hotspot';
+    if (this.showHotspots) {
+      if (layerGroup) {
+        marker._gsrLayerGroup = layerGroup;
+        layerGroup.addLayer(marker);
+      } else {
+        marker.addTo(this.map);
+      }
+    }
 
     marker.bindPopup(() => popupCallback(index, coords, marker));
     if (clickCallback) {
@@ -1226,7 +1304,7 @@ class GSRMapManager {
     return marker;
   }
 
-  _renderHotspotMarkers(analyzer, peakLatency) {
+  _renderHotspotMarkers(analyzer, peakLatency, layerGroup) {
     const events = analyzer.memorableEvents;
     if (!events || events.length === 0) return;
 
@@ -1236,7 +1314,8 @@ class GSRMapManager {
         peak,
         peakLatency,
         (index, coords, m) => this._buildSinglePeakPopup(analyzer, peak, index, coords, m),
-        (index) => GSRUI.focusOnPeak(index, 'map')
+        (index) => GSRUI.focusOnPeak(index, 'map'),
+        layerGroup
       );
       if (marker) this.hotspotMarkers.push(marker);
     });
@@ -1437,23 +1516,33 @@ class GSRMapManager {
       }
     }
 
-    const allMarkers = [...this.peakMarkers, ...this.collectivePeakMarkers];
-    allMarkers.forEach(m => {
-      const shouldShow = this.showPeaks || (this.showLabels && m.hasLabel);
-      if (shouldShow) {
+    // Phase 1 (slice 1): markers owned by a track's layerGroup are toggled
+    // through that group (child in/out of the group — the group is on the map,
+    // so the marker appears/disappears with it). Collective markers have no
+    // group and are toggled directly against the map, as before.
+    const toggle = (m, show) => {
+      const group = m._gsrLayerGroup;
+      if (group) {
+        if (show) {
+          if (!group.hasLayer(m)) group.addLayer(m);
+        } else {
+          if (group.hasLayer(m)) group.removeLayer(m);
+        }
+      } else if (show) {
         if (!this.map.hasLayer(m)) m.addTo(this.map);
       } else {
         if (this.map.hasLayer(m)) this.map.removeLayer(m);
       }
+    };
+
+    const allMarkers = [...this.peakMarkers, ...this.collectivePeakMarkers];
+    allMarkers.forEach(m => {
+      toggle(m, this.showPeaks || (this.showLabels && m.hasLabel));
     });
 
     const allHotspotMarkers = [...this.hotspotMarkers, ...this.collectiveHotspotMarkers];
     allHotspotMarkers.forEach(m => {
-      if (this.showHotspots) {
-        if (!this.map.hasLayer(m)) m.addTo(this.map);
-      } else {
-        if (this.map.hasLayer(m)) this.map.removeLayer(m);
-      }
+      toggle(m, this.showHotspots);
     });
   }
 

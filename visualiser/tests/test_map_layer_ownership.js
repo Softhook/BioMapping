@@ -1,0 +1,393 @@
+/**
+ * Phase 1 (slice 1) behavior tests: the track.layerGroup ownership model.
+ *
+ * Contract under test (docs/visualizer_architecture_refactor_plan.md, Phase 1):
+ *   - Each track owns a single Leaflet layerGroup() — its rendering handle.
+ *   - The single-track render path adds path/peak/hotspot layers INTO the
+ *     active track's layerGroup, never directly onto the map.
+ *   - Removing a track (deleteTrack) / wiping the map (clearMap) = removing
+ *     its layerGroup from the map: one call, nothing left behind.
+ *   - Peak/hotspot visibility toggles operate on the track's layerGroup.
+ *
+ * Why these tests matter: the existing smoke tests boot the real app against a
+ * universal superMock() Leaflet that swallows every add/remove/hasLayer call,
+ * so they can only assert "doesn't throw" — NOT "the right layers are on the
+ * map". These tests boot the REAL app with a *recording* Leaflet mock that
+ * faithfully tracks which layers were added directly to the map vs. into a
+ * layerGroup, and what happens to them on toggle/clear/delete. They are
+ * written against the NEW contract, so they FAIL on the pre-slice-1 code
+ * (where tracks have no layerGroup and renderers add directly to the map).
+ *
+ * Run: node --test tests/test_map_layer_ownership.js
+ */
+
+const assert = require('assert');
+const test = require('node:test');
+const vm = require('vm');
+const { bootApp } = require('./support/boot_app.js');
+
+// ── Fixture ────────────────────────────────────────────────────────────────
+// One clean SCR in raw ADC units (the parser divides by 1000 ⇒ µS), so the
+// analyzer finds exactly one peak (and from it, one memorable event / hotspot):
+//   baseline 10.0 µS, peak 14.0 µS, rise 1.5s, half-recovery 1.0s — all inside
+//   GSR_DEFAULT's shape bounds (rise 0.75–4.0s, half-recovery 0.65–7.5s).
+function rampRaw(from, to, steps) {
+  const out = [];
+  for (let i = 1; i <= steps; i++) out.push(Math.round(from + (to - from) * i / steps));
+  return out;
+}
+const SAMPLE_GSR_RAW = [
+  ...Array(8).fill(10000),             // baseline
+  ...rampRaw(10000, 14000, 15),        // rise over 1.5s
+  14000,                               // apex
+  ...rampRaw(14000, 12000, 10),        // drop to half over 1.0s
+  ...rampRaw(12000, 10000, 10),        // return to baseline
+  ...Array(8).fill(10000)
+];
+const SAMPLE_CSV = [
+  'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m',
+  ...SAMPLE_GSR_RAW.map((g, i) => {
+    const t = (i * 0.1).toFixed(2);
+    const lat = (51.5074 + i * 0.0001).toFixed(6);
+    const lon = (-0.1278 + i * 0.0001).toFixed(6);
+    return `${t},${lat},${lon},1.0,1.5,8,3,0.5,90,${g},3.0`;
+  })
+].join('\n');
+
+const RENDER_KINDS = ['path', 'peak', 'connector', 'hotspot'];
+
+// ── Recording Leaflet mock ─────────────────────────────────────────────────
+// Faithfully models the ownership semantics tests care about:
+//   - map.addLayer(layer)            → "directly added to the map" (tiles,
+//                                     legend control, and — pre-slice-1 — the
+//                                     render layers themselves).
+//   - layerGroup.addTo(map)          → group becomes an on-map group; its
+//                                     children are on the map *via* the group
+//                                     (not direct adds).
+//   - group.addLayer / removeLayer   → children move in/out of the group; if
+//                                     the group is on the map they appear/
+//                                     disappear from the map with it.
+//   - map.removeLayer(group)         → group + all children leave the map.
+function installRecordingLeaflet(window) {
+  const map = {
+    _layers: new Map(),    // id -> top-level thing added to the map
+    _direct: [],           // non-group layers added via map.addLayer (recording)
+    _groups: new Map(),    // id -> layerGroup added via map.addLayer
+    _viaGroup: new Set(),  // layers currently on the map only because their group is
+    _nextId: 1,
+
+    addLayer(layer) {
+      if (!layer || typeof layer !== 'object') return map;
+      if (layer._gsrId === undefined) layer._gsrId = map._nextId++;
+      map._layers.set(layer._gsrId, layer);
+      if (layer._isGroup) {
+        map._groups.set(layer._gsrId, layer);
+        layer._onMap = true;
+        layer._children.forEach(c => map._viaGroup.add(c));
+      } else {
+        map._direct.push(layer);
+      }
+      return map;
+    },
+
+    removeLayer(layer) {
+      if (!layer || layer._gsrId === undefined) return map;
+      if (layer._isGroup) {
+        map._groups.delete(layer._gsrId);
+        map._layers.delete(layer._gsrId);
+        layer._onMap = false;
+        layer._children.forEach(c => map._viaGroup.delete(c));
+      } else {
+        const i = map._direct.indexOf(layer);
+        if (i >= 0) map._direct.splice(i, 1);
+        map._layers.delete(layer._gsrId);
+        map._viaGroup.delete(layer);
+        // Defensive: also detach from any on-map group that contained it.
+        for (const g of map._groups.values()) {
+          if (g.hasLayer(layer)) g._children.delete(layer._gsrId);
+        }
+      }
+      return map;
+    },
+
+    hasLayer(layer) {
+      if (!layer || layer._gsrId === undefined) return false;
+      if (layer._isGroup) return map._groups.has(layer._gsrId);
+      return map._direct.includes(layer) || map._viaGroup.has(layer);
+    },
+
+    // ── Geometry / lifecycle no-ops the render path touches ──
+    latLngToLayerPoint() { return { x: 10, y: 20 }; },
+    fitBounds() {},
+    setView() { return map; },
+    getBounds() { return { pad: () => ({ getNorthWest: () => ({ lat: 0, lon: 0 }), getSouthEast: () => ({ lat: 0, lon: 0 }) }) }; },
+    getSize() { return { x: 800, y: 600 }; },
+    on() {},
+    remove() {},
+
+    // Introspection used by the tests:
+    // Render-kind layers ON the map (directly added OR living inside an on-map
+    // group). Used for "nothing is left behind" assertions after clear/delete.
+    renderKindsOnMap() {
+      return [...map._direct, ...map._viaGroup]
+        .filter(l => RENDER_KINDS.includes(l._gsrKind))
+        .map(l => l._gsrKind);
+    },
+    // Render-kind layers added DIRECTLY via map.addLayer (not through a group).
+    // Used to prove the render path never bypasses the track's layerGroup.
+    directRenderKinds() {
+      return map._direct
+        .filter(l => RENDER_KINDS.includes(l._gsrKind))
+        .map(l => l._gsrKind);
+    }
+  };
+
+  function makeLayer(kind) {
+    return {
+      _gsrId: map._nextId++,
+      _isGroup: false,
+      _gsrKind: kind || 'layer',
+      _gsrLayerGroup: null,
+      addTo(m) { m.addLayer(this); return this; },
+      remove() { map.removeLayer(this); return this; },
+      bindPopup() { return this; },
+      bindTooltip() { return this; },
+      setZIndexOffset() { return this; },
+      setOpacity() { return this; },
+      on() { return this; },
+      openPopup() { return this; }
+    };
+  }
+
+  function makeGroup() {
+    return {
+      _gsrId: map._nextId++,
+      _isGroup: true,
+      _children: new Map(),
+      _onMap: false,
+      addLayer(child) {
+        this._children.set(child._gsrId, child);
+        if (this._onMap) map._viaGroup.add(child);
+        return this;
+      },
+      removeLayer(child) {
+        this._children.delete(child._gsrId);
+        if (this._onMap) map._viaGroup.delete(child);
+        return this;
+      },
+      hasLayer(child) { return this._children.has(child._gsrId); },
+      addTo(m) {
+        m.addLayer(this); // registers group + marks children on-map
+        return this;
+      },
+      remove() {
+        map.removeLayer(this);
+        return this;
+      },
+      getLayers() { return [...this._children.values()]; },
+      eachLayer(fn) { this._children.forEach(fn); }
+    };
+  }
+
+  // Legend control: enough of Leaflet's Control API for _initLegend/updateLegend.
+  class FakeControl {
+    constructor(options) { this.options = options || {}; }
+    _onAdd() { return window.document.createElement('div'); }
+    addTo(m) { m.addLayer(this); this._container = this._onAdd(); return this; }
+    getContainer() { return this._container; }
+    getPosition() { return this.options.position; }
+  }
+  FakeControl.extend = (proto) => {
+    class C extends FakeControl {}
+    Object.keys(proto).forEach(k => { C.prototype[k] = proto[k]; });
+    return C;
+  };
+
+  const L = {
+    map: () => map,
+    layerGroup: makeGroup,
+    polyline: (latlngs, opts) => { const l = makeLayer('path'); l._latlngs = latlngs; l._options = opts; return l; },
+    polygon: (latlngs, opts) => { const l = makeLayer('cluster'); l._latlngs = latlngs; l._options = opts; return l; },
+    marker: (latlng, opts) => { const l = makeLayer('marker'); l._latlng = latlng; l._options = opts; return l; },
+    tileLayer: () => makeLayer('tile'),
+    divIcon: (opts) => opts || {},
+    icon: (opts) => opts || {},
+    DomUtil: {
+      create: (tag, className) => {
+        const el = window.document.createElement(tag);
+        if (className) el.className = className;
+        return el;
+      },
+      setTransform() {}
+    },
+    Control: FakeControl
+  };
+
+  window.L = L;
+  return { L, map };
+}
+
+// Boots the real app with the recording Leaflet mock installed before setup().
+// RF fluid + spatial clustering are map-level aggregate layers (owned by
+// GSRMapManager, out of slice-1 scope); they're nulled via the shared lexical
+// binding so the tests exercise a deterministic surface: paths+peaks+hotspots.
+function bootWithRecordingL() {
+  const { window, context } = bootApp();
+  vm.runInContext('RFFluidRenderer = undefined; GSRSpatialClustering = undefined;', context);
+  const { map } = installRecordingLeaflet(window);
+  window.setup();
+  return { window, map, mapManager: window.AppState.mapManager };
+}
+
+// Builds a real analyzer + track object directly (no async FileReader dance),
+// activates it, and returns the track. analyze() is called explicitly, mirroring
+// the real runAnalysis() path with the track's filter params (GSR_DEFAULT for a
+// CSV with no import block) and 0 latency.
+function addTrack(window, id, name, csvText) {
+  const analyzer = new window.GSRAnalyzer();
+  analyzer.parseCSV(csvText);
+  const track = window.GSRTrackManager.createTrackObject(id, name, '#ff0000', analyzer);
+  analyzer.analyze(track.filterParams, 0);
+  window.AppState.collectiveManager.addTrack(track);
+  window.AppState.activeTrackId = id;
+  window.AppState.analyzer = analyzer;
+  return track;
+}
+
+test('slice1: single-track render owns path/peak/hotspot layers in track.layerGroup', () => {
+  const { window, map, mapManager } = bootWithRecordingL();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+
+  // Fixture self-check: the ownership assertions below are only meaningful if
+  // this CSV actually produces peaks and hotspots — fail loudly if it stops.
+  assert.ok(track.analyzer.peaks.length > 0, 'fixture must produce at least one peak');
+  assert.ok(track.analyzer.memorableEvents.length > 0, 'fixture must produce at least one memorable event');
+
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  // The track now owns a single rendering handle, and it is on the map.
+  assert.ok(track.layerGroup, 'track.layerGroup should be created by renderData');
+  assert.ok(map.hasLayer(track.layerGroup), 'track.layerGroup should be on the map');
+
+  const kinds = track.layerGroup.getLayers().map(l => l._gsrKind);
+  assert.ok(kinds.includes('path'), `path segments should live in the layerGroup (got: ${kinds})`);
+  assert.ok(kinds.includes('peak'), `peak markers should live in the layerGroup (got: ${kinds})`);
+  assert.ok(kinds.includes('hotspot'), `hotspot markers should live in the layerGroup (got: ${kinds})`);
+
+  // The single-track render path must NOT add its layers directly to the map —
+  // they render only through the track's layerGroup. (Clusters are a map-level
+  // aggregate and out of scope; connectors render with peaks and are checked
+  // via the group.)
+  const directRenderKinds = map.directRenderKinds();
+  assert.deepStrictEqual(directRenderKinds, [],
+    `no path/peak/hotspot layers should be added directly to the map (got: ${directRenderKinds})`);
+
+  // Each render layer is reachable on the map through the group.
+  track.layerGroup.getLayers().forEach(l => {
+    assert.ok(map.hasLayer(l), `${l._gsrKind} layer should be on the map via its group`);
+  });
+});
+
+test('slice1: peak/hotspot visibility toggles operate on the track.layerGroup', () => {
+  const { window, map, mapManager } = bootWithRecordingL();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  const group = track.layerGroup;
+  const peakLayers = group.getLayers().filter(l => l._gsrKind === 'peak');
+  const hotspotLayers = group.getLayers().filter(l => l._gsrKind === 'hotspot');
+  assert.ok(peakLayers.length > 0, 'fixture should render peak markers');
+  assert.ok(hotspotLayers.length > 0, 'fixture should render hotspot markers');
+
+  // Toggle peaks OFF — they leave the group (and the map with it); hotspots stay.
+  mapManager.showPeaks = false;
+  mapManager.updateMarkerVisibility();
+  peakLayers.forEach(m => {
+    assert.ok(!group.hasLayer(m), 'peak marker should be removed from the group');
+    assert.ok(!map.hasLayer(m), 'peak marker should be off the map');
+  });
+  hotspotLayers.forEach(m => {
+    assert.ok(group.hasLayer(m), 'hotspot should be unaffected by the peak toggle');
+    assert.ok(map.hasLayer(m), 'hotspot should remain on the map');
+  });
+
+  // Toggle peaks back ON.
+  mapManager.showPeaks = true;
+  mapManager.updateMarkerVisibility();
+  peakLayers.forEach(m => {
+    assert.ok(group.hasLayer(m), 'peak marker should be restored to the group');
+    assert.ok(map.hasLayer(m), 'peak marker should be back on the map');
+  });
+
+  // Toggle hotspots OFF — they leave the group; peaks stay.
+  mapManager.showHotspots = false;
+  mapManager.updateMarkerVisibility();
+  hotspotLayers.forEach(m => {
+    assert.ok(!group.hasLayer(m), 'hotspot marker should be removed from the group');
+    assert.ok(!map.hasLayer(m), 'hotspot marker should be off the map');
+  });
+  peakLayers.forEach(m => {
+    assert.ok(group.hasLayer(m), 'peak should be unaffected by the hotspot toggle');
+  });
+
+  // Toggle hotspots back ON.
+  mapManager.showHotspots = true;
+  mapManager.updateMarkerVisibility();
+  hotspotLayers.forEach(m => {
+    assert.ok(group.hasLayer(m), 'hotspot marker should be restored to the group');
+    assert.ok(map.hasLayer(m), 'hotspot marker should be back on the map');
+  });
+});
+
+test('slice1: clearMap removes every track.layerGroup from the map and nulls it', () => {
+  const { window, map, mapManager } = bootWithRecordingL();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  const oldGroup = track.layerGroup;
+  assert.ok(oldGroup && map.hasLayer(oldGroup), 'precondition: rendered track owns an on-map group');
+  assert.ok(map.renderKindsOnMap().length > 0, 'precondition: render layers are on the map');
+
+  mapManager.clearMap();
+
+  assert.strictEqual(track.layerGroup, null, 'clearMap should null the track layerGroup');
+  assert.ok(!map.hasLayer(oldGroup), 'clearMap should remove the track layerGroup from the map');
+  assert.strictEqual(map._groups.size, 0, 'no on-map groups should remain');
+  assert.deepStrictEqual(map.renderKindsOnMap(), [], 'no path/peak/hotspot layers should remain on the map');
+  assert.strictEqual(mapManager.peakMarkers.length, 0, 'flat marker array should be cleared');
+  assert.strictEqual(mapManager.pathSegments.length, 0, 'flat path array should be cleared');
+});
+
+test('slice1: deleteTrack removes the track layerGroup from the map', () => {
+  const { window, map, mapManager } = bootWithRecordingL();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  const oldGroup = track.layerGroup;
+  assert.ok(oldGroup && map.hasLayer(oldGroup), 'precondition: rendered track owns an on-map group');
+
+  window.GSRTrackManager.deleteTrack(track.id);
+
+  assert.ok(!window.AppState.collectiveManager.getTrack(track.id), 'track should be removed from the manager');
+  assert.ok(!map.hasLayer(oldGroup), 'deleteTrack should remove the track layerGroup from the map');
+  assert.strictEqual(map._groups.size, 0, 'no on-map groups should remain');
+  assert.deepStrictEqual(map.renderKindsOnMap(), [], 'no render layers should remain on the map');
+});
+
+test('slice1: re-rendering the same track leaves exactly one on-map layerGroup', () => {
+  const { window, map, mapManager } = bootWithRecordingL();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+  const group1 = track.layerGroup;
+  assert.ok(map.hasLayer(group1), 'precondition: first render owns an on-map group');
+
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  assert.notStrictEqual(track.layerGroup, group1, 're-render should recreate the layerGroup');
+  assert.ok(!map.hasLayer(group1), 'the stale layerGroup must be removed on re-render');
+  assert.ok(map.hasLayer(track.layerGroup), 'the new layerGroup should be on the map');
+  assert.strictEqual(map._groups.size, 1, 'exactly one on-map group for one rendered track');
+  const groupKinds = track.layerGroup.getLayers().map(l => l._gsrKind).sort();
+  assert.deepStrictEqual(map.renderKindsOnMap().sort(), groupKinds,
+    'render layers on the map should exactly match the new group contents');
+});

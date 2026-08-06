@@ -8,7 +8,12 @@ class GSRCollectiveManager {
     this.tracks = []; // { id, name, color, enabled, analyzer, filterParams }
   }
 
-  addTrack(track) { this.tracks.push(track); }
+  addTrack(track) {
+    // Phase 1 (slice 1): normalize tracks that predate the layerGroup field so
+    // GSRMapManager can always rely on it being present (null = owns nothing).
+    if (track && track.layerGroup === undefined) track.layerGroup = null;
+    this.tracks.push(track);
+  }
 
   removeTrack(id) { this.tracks = this.tracks.filter(t => t.id !== id); }
 
