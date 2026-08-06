@@ -126,91 +126,38 @@ class GSRMapManager {
     const el = this._legendControl.getContainer();
     if (!el) return;
 
-    const metric = this.activeColoringMetric || 'gsr';
-
-    const metricNames = {
-      'gsr':              'GSR Arousal (Raw)',
-      'phasic':           'Phasic (SCR)',
-      'tonic':            'Tonic Baseline (SCL)',
-      'peakDensity':      'Peak Density (NS-SCR)',
-      'phasicAUC':        'Phasic AUC (ISCR)',
-      'arousalIndex':     'Combined Arousal Index',
-      'hdopQuality':      'GPS Accuracy (HDOP)',
-      'roadClass':        'Road Class',
-      'distMajorRoad':    'Distance to Major Road',
-      'inPark':           'In Park / Green Space',
-      'greenPct':         'Green Space %',
-      'buildingDensity':  'Building Density',
-      'distWater':        'Distance to Water',
-      'treeDensity':      'Tree Density',
-      'amenityCount':     'Amenity Count'
-    };
-
-    const title = metricNames[metric] || metric;
+    const isCollective = (typeof AppState !== 'undefined' && AppState.viewMode === 'collective');
     let html = '';
 
-    if (metric === 'roadClass') {
-      const allRoadLabels = MapColors.ROAD_COLORS;
-      html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
-      let count = 0;
-      for (const [name, color] of Object.entries(allRoadLabels)) {
-        if (this._legendUniqueVals && !this._legendUniqueVals.has(name)) continue;
-        html += `<div class="legend-swatch-row"><span class="legend-swatch" style="background:${color}"></span>${name}</div>`;
-        count++;
-      }
-      if (count === 0) html += '<div class="legend-swatch-row" style="color:#999">No data</div>';
-      html += '</div>';
-    } else if (metric === 'inPark') {
-      const hasYes = this._legendUniqueVals && this._legendUniqueVals.has(1);
-      const hasNo  = this._legendUniqueVals && this._legendUniqueVals.has(0);
-      html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
-      if (hasYes) html += '<div class="legend-swatch-row"><span class="legend-swatch" style="background:#00e575"></span>Yes</div>';
-      if (hasNo)  html += '<div class="legend-swatch-row"><span class="legend-swatch" style="background:#666666"></span>No</div>';
-      if (!hasYes && !hasNo) html += '<div class="legend-swatch-row" style="color:#999">No data</div>';
-      html += '</div>';
-    } else {
-      // Continuous metrics — build gradient bar
+    if (isCollective) {
+      const topoSource = this._collectiveTopographySource || 'phasic';
+      const topoNames = {
+        'phasic':           'Phasic Arousal',
+        'tonic':            'Tonic Baseline (SCL)',
+        'peaks':            'Peak Stress Hotspots',
+        'auc':              'Phasic AUC (ISCR)',
+        'arousal_index':    'Combined Arousal Index'
+      };
+      const title = topoNames[topoSource] || 'Topography';
+
+      const topoUnits = { peaks: '', auc: ' μS·s', arousal_index: ' z' };
+      const unit = topoUnits[topoSource] !== undefined
+        ? topoUnits[topoSource]
+        : ' μS';
+
       const minV = this._legendMinVal;
       const maxV = this._legendMaxVal;
 
-      let gradient;
-      switch (metric) {
-        case 'greenPct':
-          gradient = 'linear-gradient(90deg, hsl(30,80%,45%), hsl(130,80%,45%))';
-          break;
-        case 'buildingDensity':
-          gradient = 'linear-gradient(90deg, hsl(120,85%,50%), hsl(60,85%,50%), hsl(0,85%,50%))';
-          break;
-        case 'distMajorRoad':
-          gradient = 'linear-gradient(90deg, hsl(0,85%,50%), hsl(60,85%,50%), hsl(120,85%,50%))';
-          break;
-        case 'distWater':
-          gradient = 'linear-gradient(90deg, hsl(200,80%,45%), hsl(100,80%,45%), hsl(30,80%,45%))';
-          break;
-        case 'treeDensity':
-          gradient = 'linear-gradient(90deg, hsl(60,30%,45%), hsl(140,90%,45%))';
-          break;
-        case 'amenityCount':
-          gradient = 'linear-gradient(90deg, hsl(240,85%,55%), hsl(120,85%,55%), hsl(0,85%,55%))';
-          break;
-        case 'hdopQuality':
-          // Gradient left = best accuracy (green), right = worst (red)
-          gradient = 'linear-gradient(90deg, hsl(120,90%,45%), hsl(60,90%,45%), hsl(0,90%,45%))';
-          break;
-        default: // gsr
-          gradient = 'linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%))';
-          break;
-      }
+      const gradient = 'linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%))';
 
-      // Format min/max nicely
       const fmt = (v) => {
         if (v >= 100) return v.toFixed(0);
         if (v >= 1) return v.toFixed(1);
         return v.toFixed(3);
       };
 
-      const leftLabel  = metric === 'hdopQuality' ? `HDOP ${fmt(minV)} (best)` : fmt(minV);
-      const rightLabel = metric === 'hdopQuality' ? `HDOP ${fmt(maxV)} (worst)` : fmt(maxV);
+      const leftLabel  = fmt(minV) + unit;
+      const rightLabel = fmt(maxV) + unit;
 
       html = `
         <div class="legend-title">${title}</div>
@@ -218,6 +165,105 @@ class GSRMapManager {
           <div class="legend-gradient" style="background:${gradient}"></div>
           <div class="legend-labels"><span>${leftLabel}</span><span>${rightLabel}</span></div>
         </div>`;
+    } else {
+      const metric = this.activeColoringMetric || 'gsr';
+
+      const metricNames = {
+        'gsr':              'GSR Arousal (Raw)',
+        'phasic':           'Phasic (SCR)',
+        'tonic':            'Tonic Baseline (SCL)',
+        'peakDensity':      'Peak Density (NS-SCR)',
+        'phasicAUC':        'Phasic AUC (ISCR)',
+        'arousalIndex':     'Combined Arousal Index',
+        'em_fog':           'EM Fog Index (0-100)',
+        'emFog':            'EM Fog Index (0-100)',
+        'hdopQuality':      'GPS Accuracy (HDOP)',
+        'roadClass':        'Road Class',
+        'distMajorRoad':    'Distance to Major Road',
+        'inPark':           'In Park / Green Space',
+        'greenPct':         'Green Space %',
+        'buildingDensity':  'Building Density',
+        'distWater':        'Distance to Water',
+        'treeDensity':      'Tree Density',
+        'amenityCount':     'Amenity Count'
+      };
+
+      const title = metricNames[metric] || metric;
+
+      if (metric === 'roadClass') {
+        const allRoadLabels = MapColors.ROAD_COLORS;
+        html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
+        let count = 0;
+        for (const [name, color] of Object.entries(allRoadLabels)) {
+          if (this._legendUniqueVals && !this._legendUniqueVals.has(name)) continue;
+          html += `<div class="legend-swatch-row"><span class="legend-swatch" style="background:${color}"></span>${name}</div>`;
+          count++;
+        }
+        if (count === 0) html += '<div class="legend-swatch-row" style="color:#999">No data</div>';
+        html += '</div>';
+      } else if (metric === 'inPark') {
+        const hasYes = this._legendUniqueVals && this._legendUniqueVals.has(1);
+        const hasNo  = this._legendUniqueVals && this._legendUniqueVals.has(0);
+        html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
+        if (hasYes) html += '<div class="legend-swatch-row"><span class="legend-swatch" style="background:#00e575"></span>Yes</div>';
+        if (hasNo)  html += '<div class="legend-swatch-row"><span class="legend-swatch" style="background:#666666"></span>No</div>';
+        if (!hasYes && !hasNo) html += '<div class="legend-swatch-row" style="color:#999">No data</div>';
+        html += '</div>';
+      } else {
+        // Continuous metrics — build gradient bar
+        const minV = this._legendMinVal;
+        const maxV = this._legendMaxVal;
+
+        let gradient;
+        switch (metric) {
+          case 'greenPct':
+            gradient = 'linear-gradient(90deg, hsl(30,80%,45%), hsl(130,80%,45%))';
+            break;
+          case 'buildingDensity':
+            gradient = 'linear-gradient(90deg, hsl(120,85%,50%), hsl(60,85%,50%), hsl(0,85%,50%))';
+            break;
+          case 'distMajorRoad':
+            gradient = 'linear-gradient(90deg, hsl(0,85%,50%), hsl(60,85%,50%), hsl(120,85%,50%))';
+            break;
+          case 'distWater':
+            gradient = 'linear-gradient(90deg, hsl(200,80%,45%), hsl(100,80%,45%), hsl(30,80%,45%))';
+            break;
+          case 'treeDensity':
+            gradient = 'linear-gradient(90deg, hsl(60,30%,45%), hsl(140,90%,45%))';
+            break;
+          case 'amenityCount':
+            gradient = 'linear-gradient(90deg, hsl(240,85%,55%), hsl(120,85%,55%), hsl(0,85%,55%))';
+            break;
+          case 'em_fog':
+          case 'emFog':
+            gradient = 'linear-gradient(90deg, hsl(220,90%,55%), hsl(300,90%,55%))';
+            break;
+          case 'hdopQuality':
+            // Gradient left = best accuracy (green), right = worst (red)
+            gradient = 'linear-gradient(90deg, hsl(120,90%,45%), hsl(60,90%,45%), hsl(0,90%,45%))';
+            break;
+          default: // gsr
+            gradient = 'linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%))';
+            break;
+        }
+
+        // Format min/max nicely
+        const fmt = (v) => {
+          if (v >= 100) return v.toFixed(0);
+          if (v >= 1) return v.toFixed(1);
+          return v.toFixed(3);
+        };
+
+        const leftLabel  = metric === 'hdopQuality' ? `HDOP ${fmt(minV)} (best)` : fmt(minV);
+        const rightLabel = metric === 'hdopQuality' ? `HDOP ${fmt(maxV)} (worst)` : fmt(maxV);
+
+        html = `
+          <div class="legend-title">${title}</div>
+          <div class="legend-scale">
+            <div class="legend-gradient" style="background:${gradient}"></div>
+            <div class="legend-labels"><span>${leftLabel}</span><span>${rightLabel}</span></div>
+          </div>`;
+      }
     }
 
     // Append RF Fluid Legend if active and active track has RF data:
@@ -1708,6 +1754,9 @@ class GSRMapManager {
 
     // Apply the active peak/label toggle styles
     this.updateMarkerVisibility();
+
+    // Update legend for collective view
+    this.updateLegend();
   }
 
   /**
@@ -1717,10 +1766,18 @@ class GSRMapManager {
     this.clearContours();
 
     const surfaceData = collectiveManager.generateContourSurface(contourParams);
-    if (!surfaceData || !surfaceData.contours) return;
+    if (!surfaceData || !surfaceData.contours) {
+      this._collectiveTopographySource = null;
+      this._legendMinVal = 0;
+      this._legendMaxVal = 0;
+      return;
+    }
     this.surfaceData = surfaceData;
 
     const { contours, grid, minVal, maxVal, bounds, sortedVals } = surfaceData;
+    this._collectiveTopographySource = contourParams.topographySource;
+    this._legendMinVal = minVal;
+    this._legendMaxVal = maxVal;
     const { showShadedSurface = true, surfaceOpacity = 0.40 } = contourParams;
 
     // 1. Draw shaded continuous surface overlay
