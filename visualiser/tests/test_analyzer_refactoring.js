@@ -294,3 +294,120 @@ time,gsr,osm_road_class
   assert.ok(res.importedPeakExcluded instanceof Map);
   assert.ok(Math.abs(res.sampleRate - 10) < 1e-5, `expected sampleRate ~10, got ${res.sampleRate}`);
 });
+
+// ── Analyzer helpers: findClosestIndex / getMatchingLabel / peak density ────
+
+test('GSRAnalyzer findClosestIndex: binary search over raw timestamps', () => {
+  const a = new GSRAnalyzer();
+
+  // Empty raw -> -1
+  assert.strictEqual(a.findClosestIndex(15), -1);
+
+  a.raw = [{ time: 0 }, { time: 10 }, { time: 20 }, { time: 30 }];
+  // Before first / after last clamp to the endpoints
+  assert.strictEqual(a.findClosestIndex(-5), 0);
+  assert.strictEqual(a.findClosestIndex(40), 3);
+  // Exact match returns that index
+  assert.strictEqual(a.findClosestIndex(10), 1);
+  assert.strictEqual(a.findClosestIndex(30), 3);
+  // Between two points returns the nearer index
+  assert.strictEqual(a.findClosestIndex(14), 1);  // nearer to 10
+  assert.strictEqual(a.findClosestIndex(16), 2);  // nearer to 20
+});
+
+test('GSRAnalyzer getMatchingLabel: exact match then nearest within tolerance', () => {
+  const a = new GSRAnalyzer();
+  assert.strictEqual(a.getMatchingLabel(10.0), '');   // no labels stored
+
+  a.setPeakLabel(10.0, 'A');
+  a.setPeakLabel(20.0, 'B');
+
+  assert.strictEqual(a.getMatchingLabel(10.0), 'A');  // exact key match
+  assert.strictEqual(a.getMatchingLabel(10.5), 'A');  // nearest within 1.0s
+  assert.strictEqual(a.getMatchingLabel(11.0), 'A');  // at the tolerance boundary
+  assert.strictEqual(a.getMatchingLabel(11.1), '');   // outside tolerance
+  assert.strictEqual(a.getMatchingLabel(19.0), 'B');  // nearer to B
+  assert.strictEqual(a.getMatchingLabel(null), '');   // null target
+  assert.strictEqual(a.getMatchingLabel(10.0, 0.5), 'A'); // custom tolerance (exact still hits)
+
+  // Clearing a label removes it (exact + nearby keys)
+  a.setPeakLabel(10.0, '');
+  assert.strictEqual(a.getMatchingLabel(10.0), '');
+});
+
+test('GSRAnalyzer computeTemporalPeakDensity: centered sliding window, peaks/min', () => {
+  const a = new GSRAnalyzer();
+  assert.deepStrictEqual(a.computeTemporalPeakDensity(60), []); // empty phasic
+
+  a.phasic = [{ time: 0 }, { time: 30 }, { time: 60 }];
+  a.peaks = [
+    { time: 10, excluded: false },
+    { time: 20, excluded: false },
+    { time: 50, excluded: false }
+  ];
+
+  const d = a.computeTemporalPeakDensity(60);
+  assert.strictEqual(d.length, 3);
+  // Window ±30s: t=0 counts peaks 10,20 (2); t=30 counts all three (3); t=60 counts peak 50 only (1)
+  assert.strictEqual(d[0].time, 0);
+  assert.strictEqual(d[0].val, 2);
+  assert.strictEqual(d[1].val, 3);
+  assert.strictEqual(d[2].val, 1);
+
+  // Excluded peaks are ignored by the count
+  a.peaks.push({ time: 15, excluded: true });
+  const d2 = a.computeTemporalPeakDensity(60);
+  assert.strictEqual(d2[0].val, 2);
+  assert.strictEqual(d2[1].val, 3);
+
+  // Narrower window scales the rate: ±15s, 1 peak in window -> (60/30) = 2 peaks/min
+  const a2 = new GSRAnalyzer();
+  a2.phasic = [{ time: 0 }];
+  a2.peaks = [{ time: 10, excluded: false }, { time: 20, excluded: false }];
+  const d3 = a2.computeTemporalPeakDensity(30);
+  assert.strictEqual(d3[0].val, 2);
+});
+
+// ── GSRCSVParser statics: _csvEscape / _detectRfPeakIndices ─────────────────
+
+test('GSRCSVParser._csvEscape: RFC4180 double-quote escaping', () => {
+  assert.strictEqual(GSRCSVParser._csvEscape(null), '');
+  assert.strictEqual(GSRCSVParser._csvEscape(undefined), '');
+  assert.strictEqual(GSRCSVParser._csvEscape('plain'), '"plain"');
+  assert.strictEqual(GSRCSVParser._csvEscape('has "quotes"'), '"has ""quotes"""');
+  assert.strictEqual(GSRCSVParser._csvEscape(123), '"123"');
+});
+
+test('GSRCSVParser._detectRfPeakIndices: momentary spike on any band', () => {
+  // Middle sample is 5 dB above both neighbours -> spike
+  const spike = GSRCSVParser._detectRfPeakIndices([
+    { rssi_868: -100 },
+    { rssi_868: -95 },
+    { rssi_868: -100 }
+  ]);
+  assert.deepStrictEqual([...spike], [1]);
+
+  // Gradual/no prominent peak -> empty set
+  const noSpike = GSRCSVParser._detectRfPeakIndices([
+    { rssi_868: -100 },
+    { rssi_868: -101 },
+    { rssi_868: -100 }
+  ]);
+  assert.strictEqual(noSpike.size, 0);
+
+  // Spike on the first row (no previous neighbour) is still detected
+  const boundary = GSRCSVParser._detectRfPeakIndices([
+    { rssi_868: -95 },
+    { rssi_868: -100 },
+    { rssi_868: -100 }
+  ]);
+  assert.deepStrictEqual([...boundary], [0]);
+
+  // Spike on a different band is found too
+  const otherBand = GSRCSVParser._detectRfPeakIndices([
+    { rssi_915: -90 },
+    { rssi_915: -85 },
+    { rssi_915: -90 }
+  ]);
+  assert.deepStrictEqual([...otherBand], [1]);
+});
