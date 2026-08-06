@@ -610,23 +610,25 @@ test('slice3: fitToTrack still fits the rendered paths without the flat arrays',
   assert.doesNotThrow(() => mapManager.fitToTrack(), 'fitToTrack should work off the derived paths');
 });
 
-test('slice3: showTracks toggle controls the single-track path too', () => {
-  // The GPS "Tracks" toggle must hide the track path in BOTH modes. In single
-  // mode the active track's path is rendered by _renderPathSegments, which
-  // used to ignore showTracks entirely (and toggleTracks only handled the
-  // collectivePath kind) — so the toggle could never hide the GPS path.
+test('slice3: the single-track path always renders regardless of showTracks (toggle is collective-only)', () => {
+  // Regression: gating the single-track path on showTracks meant a leftover
+  // showTracks=false from a collective toggle hid the active track's path in
+  // single mode — with no way to restore it (the Tracks button is hidden in
+  // single view). The single path always renders; toggleTracks only affects
+  // collective paths.
   const { window, map, mapManager } = bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
 
   mapManager.showTracks = false;
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
-  const kindsHidden = track.layerGroup.getLayers().map(l => l._gsrKind);
-  assert.ok(!kindsHidden.includes('path'), 'single-track path should be hidden when showTracks=false');
-  assert.ok(kindsHidden.includes('peak'), 'peak markers should still render');
+  const kinds = track.layerGroup.getLayers().map(l => l._gsrKind);
+  assert.ok(kinds.includes('path'), 'single-track path should always render, even with showTracks=false');
+  assert.ok(kinds.includes('peak'), 'peak markers should render');
 
-  mapManager.toggleTracks(true);
-  const kindsShown = track.layerGroup.getLayers().map(l => l._gsrKind);
-  assert.ok(kindsShown.includes('path'), 'single-track path should reappear when showTracks=true');
+  // toggleTracks must NOT hide the single-track path (it only affects collective paths).
+  mapManager.toggleTracks(false);
+  assert.ok(track.layerGroup.getLayers().some(l => l._gsrKind === 'path'),
+    'toggling tracks off must not hide the single-track path');
 });
 
 test('slice3: entering collective (0 active tracks) drops a lingering scrub marker', () => {

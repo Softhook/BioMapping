@@ -944,15 +944,11 @@ class GSRMapManager {
         // (on the map), never directly onto the map. `layerGroup` is null when
         // there is no managed track — fall back to the legacy direct add.
         const poly = L.polyline(latlngsBuf.slice(), { color, weight: trackWeight, opacity: 0.95 });
-        // Phase 1 (slice 3): the single-track path respects the global
-        // showTracks toggle (same as collective paths) so the GPS "Tracks"
-        // button hides the path in both modes. Always tag the owning group so
-        // toggleTracks can restore it into the group later.
         if (layerGroup) {
           poly._gsrLayerGroup = layerGroup;
           poly._gsrKind = 'path';
-          if (this.showTracks) layerGroup.addLayer(poly);
-        } else if (this.showTracks) {
+          layerGroup.addLayer(poly);
+        } else {
           poly.addTo(this.map);
         }
         this._registerTrackLayer(track, poly);
@@ -1707,13 +1703,14 @@ class GSRMapManager {
    */
   toggleTracks(visible) {
     this.showTracks = visible;
-    // Phase 1 (slice 3): the GPS "Tracks" toggle controls the track path in
-    // BOTH modes — the single-track path ('path') and the collective paths
-    // ('collectivePath') live inside each track's layerGroup; iterate the full
+    // Phase 1 (slice 3): the GPS "Tracks" toggle controls the COLLECTIVE track
+    // paths (which live inside each track's layerGroup); iterate the full
     // registry rather than a flat array so paths can be restored after being
-    // hidden.
+    // hidden. The single-track path ('path') is deliberately NOT toggled — it
+    // always renders in single-track mode (it is the active track's essential
+    // data view, and the Tracks button is hidden there anyway).
     for (const m of this._allTrackLayers()) {
-      if (m._gsrKind === 'path' || m._gsrKind === 'collectivePath') this._toggleLayer(m, visible);
+      if (m._gsrKind === 'collectivePath') this._toggleLayer(m, visible);
     }
   }
 
