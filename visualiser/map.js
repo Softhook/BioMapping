@@ -1253,16 +1253,21 @@ class GSRMapManager {
       // marker without the old flat array.
       marker._gsrPeakIndex = index;
 
+      // Phase 1 (slice 1/3): the marker belongs to the track's layerGroup
+      // REGARDLESS of whether it's currently visible. Tagging it only inside
+      // the `shouldAdd` gate left hidden-at-render markers untagged, so
+      // toggling them on later fell back to the legacy direct-to-map path and
+      // they escaped the group — surviving track removal (removal only takes
+      // the group). Tag always; add to the group only when visible.
       const shouldAdd = this.showPeaks || (this.showLabels && marker.hasLabel);
-      if (shouldAdd) {
-        // Phase 1 (slice 1): peak markers render into the track's layerGroup.
-        if (layerGroup) {
-          marker._gsrLayerGroup = layerGroup;
-          marker._gsrKind = 'peak';
+      if (layerGroup) {
+        marker._gsrLayerGroup = layerGroup;
+        marker._gsrKind = 'peak';
+        if (shouldAdd) {
           layerGroup.addLayer(marker);
-        } else {
-          marker.addTo(this.map);
         }
+      } else if (shouldAdd) {
+        marker.addTo(this.map);
       }
 
       // Dim excluded peak markers
@@ -1419,14 +1424,18 @@ class GSRMapManager {
     marker.setZIndexOffset(1500); // Above both regular peak dots and labels
     // Phase 1 (slice 1): single-track hotspots render into the track's
     // layerGroup. Collective callers don't pass a group → legacy direct add.
+    // The group is tagged ALWAYS (even when currently hidden) so toggling the
+    // hotspot on later routes it through the group — tagging only inside the
+    // `showHotspots` gate made hidden hotspots fall back to direct-to-map adds
+    // that survived the track's removal.
     marker._gsrKind = 'hotspot';
-    if (this.showHotspots) {
-      if (layerGroup) {
-        marker._gsrLayerGroup = layerGroup;
+    if (layerGroup) {
+      marker._gsrLayerGroup = layerGroup;
+      if (this.showHotspots) {
         layerGroup.addLayer(marker);
-      } else {
-        marker.addTo(this.map);
       }
+    } else if (this.showHotspots) {
+      marker.addTo(this.map);
     }
     this._registerTrackLayer(track, marker);
 
@@ -1856,10 +1865,13 @@ class GSRMapManager {
         dashArray: '5, 8'
       });
       // Phase 1 (slice 2): the collective path renders into this track's own
-      // layerGroup, never directly onto the map.
+      // layerGroup, never directly onto the map. Tag the group ALWAYS (even
+      // when showTracks is off) so toggling the Tracks control back on routes
+      // the path through the group — tagging only when visible made paths
+      // fall back to direct-to-map adds that survived the track's removal.
       poly._gsrKind = 'collectivePath';
+      poly._gsrLayerGroup = layerGroup;
       if (this.showTracks) {
-        poly._gsrLayerGroup = layerGroup;
         layerGroup.addLayer(poly);
       }
       this._registerTrackLayer(track, poly);
@@ -1933,11 +1945,15 @@ class GSRMapManager {
 
         // Phase 1 (slice 2/3): collective peak markers render into this track's
         // own layerGroup; the peak index is tagged so focusOnPeak can resolve it.
+        // Tag the group ALWAYS (even when currently hidden) so toggling the
+        // marker on later routes it through the group — tagging only when
+        // visible made hidden markers fall back to direct-to-map adds that
+        // survived the track's removal.
         marker._gsrKind = 'collectivePeak';
         marker._gsrPeakIndex = index;
+        marker._gsrLayerGroup = layerGroup;
         const shouldAdd = this.showPeaks || (this.showLabels && marker.hasLabel);
         if (shouldAdd) {
-          marker._gsrLayerGroup = layerGroup;
           layerGroup.addLayer(marker);
         }
         // Dim excluded peak markers

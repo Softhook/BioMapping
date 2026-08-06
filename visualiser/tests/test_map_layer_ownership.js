@@ -681,6 +681,62 @@ test('slice3: renderData renders peaks/hotspots even when every GPS fix is quali
   assert.ok(mapManager.getPeakMarkerByIndex(0), 'peak index 0 should resolve to a rendered marker');
 });
 
+test('slice3: peaks/hotspots hidden at render time still route through the track group (removal-safe)', () => {
+  // Regression for: "in collective view I removed all the tracks and all the
+  // peaks and hotspots were left behind." When peaks/hotspots were toggled OFF
+  // at render time, their markers were created but never tagged with
+  // _gsrLayerGroup (the tag lived inside the `shouldAdd` / `showHotspots`
+  // gate). Toggling them ON later made _toggleLayer fall back to the legacy
+  // direct-to-map add — so removing the track (which removes only its
+  // layerGroup) left those peaks/hotspots on the map. The group tag must be
+  // applied regardless of visibility.
+  const { window, map, mapManager } = bootWithRecordingL();
+  addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
+  addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
+  window.AppState.activeTrackId = 'A';
+  window.AppState.viewMode = 'collective';
+
+  // Render collective with peaks/hotspots OFF (hidden at render time).
+  mapManager.showPeaks = false;
+  mapManager.showHotspots = false;
+  mapManager.showLabels = false;
+  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+
+  // Toggle them back ON — this is where the old code leaked markers to the map.
+  mapManager.showPeaks = true;
+  mapManager.showHotspots = true;
+  mapManager.updateMarkerVisibility();
+
+  assert.deepStrictEqual(map.directRenderKinds(), [],
+    'toggling peaks/hotspots on must not add any render layer directly to the map (they belong in track groups)');
+
+  const trackA = window.AppState.collectiveManager.getTrack('A');
+  const trackB = window.AppState.collectiveManager.getTrack('B');
+  const peakCount = trackA.layerGroup.getLayers().filter(l => l._gsrKind === 'collectivePeak').length;
+  const hotspotCount = trackA.layerGroup.getLayers().filter(l => l._gsrKind === 'hotspot').length;
+  assert.ok(peakCount > 0, 'toggled-on collective peaks should live in track A group');
+  assert.ok(hotspotCount > 0, 'toggled-on hotspots should live in track A group');
+
+  // Snapshot A's rendered layers so we can prove removal takes them all.
+  const aGroup = trackA.layerGroup;
+  const aGroupLayers = aGroup.getLayers();
+  assert.ok(aGroupLayers.length > 0, 'precondition: A owns on-map group layers');
+
+  // Removing a track must take its (now group-owned) peaks/hotspots with it.
+  window.GSRTrackManager.deleteTrack('A');
+  assert.ok(!map.hasLayer(aGroup), 'track A group should be removed from the map');
+  aGroupLayers.forEach(l => {
+    assert.ok(!map.hasLayer(l), `A's ${l._gsrKind} should be off the map after removal`);
+  });
+
+  // B's group survives (only A was removed) — then removing B empties the map.
+  assert.ok(map.hasLayer(trackB.layerGroup), 'track B group should remain on the map');
+  window.GSRTrackManager.deleteTrack('B');
+  assert.deepStrictEqual(map.renderKindsOnMap(), [],
+    `deleting all tracks must leave no render layers behind (got: ${map.renderKindsOnMap()})`);
+  assert.strictEqual(map._groups.size, 0, 'no on-map groups should remain');
+});
+
 test('slice3: entering collective (0 active tracks) drops a lingering scrub marker', () => {
   // Regression for: "black pulsing dot on the map while not in the scrub graph
   // window." Hovering the single-track graph shows the map scrub indicator;
