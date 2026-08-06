@@ -54,7 +54,7 @@ const SAMPLE_CSV = [
   })
 ].join('\n');
 
-const RENDER_KINDS = ['path', 'peak', 'connector', 'hotspot'];
+const RENDER_KINDS = ['path', 'peak', 'connector', 'hotspot', 'collectivePath', 'collectivePeak', 'collectiveConnector'];
 
 // ── Recording Leaflet mock ─────────────────────────────────────────────────
 // Faithfully models the ownership semantics tests care about:
@@ -390,4 +390,93 @@ test('slice1: re-rendering the same track leaves exactly one on-map layerGroup',
   const groupKinds = track.layerGroup.getLayers().map(l => l._gsrKind).sort();
   assert.deepStrictEqual(map.renderKindsOnMap().sort(), groupKinds,
     'render layers on the map should exactly match the new group contents');
+});
+
+test('slice2: collective render gives each active track its own on-map layerGroup', () => {
+  const { window, map, mapManager } = bootWithRecordingL();
+  const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
+  const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
+
+  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+
+  // Each active track owns its own on-map layerGroup.
+  assert.ok(trackA.layerGroup, 'track A should own a layerGroup');
+  assert.ok(trackB.layerGroup, 'track B should own a layerGroup');
+  assert.ok(map.hasLayer(trackA.layerGroup), 'track A layerGroup should be on the map');
+  assert.ok(map.hasLayer(trackB.layerGroup), 'track B layerGroup should be on the map');
+  assert.notStrictEqual(trackA.layerGroup, trackB.layerGroup, 'each track owns a distinct layerGroup');
+
+  // Each group owns that track's path/peak/hotspot layers.
+  const kindsA = trackA.layerGroup.getLayers().map(l => l._gsrKind);
+  const kindsB = trackB.layerGroup.getLayers().map(l => l._gsrKind);
+  assert.ok(kindsA.includes('collectivePath'), `A should own a path (got: ${kindsA})`);
+  assert.ok(kindsA.includes('collectivePeak'), `A should own peak markers (got: ${kindsA})`);
+  assert.ok(kindsA.includes('hotspot'), `A should own hotspots (got: ${kindsA})`);
+  assert.ok(kindsB.includes('collectivePath'), `B should own a path (got: ${kindsB})`);
+  assert.ok(kindsB.includes('collectivePeak'), `B should own peak markers (got: ${kindsB})`);
+  assert.ok(kindsB.includes('hotspot'), `B should own hotspots (got: ${kindsB})`);
+
+  // No per-track render layer is added directly to the map — everything routes
+  // through its track's layerGroup.
+  assert.deepStrictEqual(map.directRenderKinds(), [],
+    `no collective render layers should be added directly to the map (got: ${map.directRenderKinds()})`);
+
+  // Each group's layers are on the map via their group.
+  trackA.layerGroup.getLayers().forEach(l => assert.ok(map.hasLayer(l), `A ${l._gsrKind} should be on the map`));
+  trackB.layerGroup.getLayers().forEach(l => assert.ok(map.hasLayer(l), `B ${l._gsrKind} should be on the map`));
+});
+
+test('slice2: re-rendering collective without a removed track leaves no stale group behind', () => {
+  const { window, map, mapManager } = bootWithRecordingL();
+  const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
+  const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
+
+  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+  const groupB = trackB.layerGroup;
+  assert.ok(groupB && map.hasLayer(groupB), 'precondition: B owns an on-map layerGroup');
+
+  // Remove B from the manager, then re-render collective with A only.
+  window.AppState.collectiveManager.removeTrack('B');
+  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+
+  assert.ok(!map.hasLayer(groupB), 'the removed track B layerGroup must be gone from the map');
+  assert.strictEqual(trackB.layerGroup, null, 'removed track B layerGroup should be nulled');
+  assert.ok(map.hasLayer(trackA.layerGroup), 'track A layerGroup should remain on the map');
+  assert.strictEqual(map._groups.size, 1, 'exactly one on-map group should remain (A)');
+  const aKinds = trackA.layerGroup.getLayers().map(l => l._gsrKind).sort();
+  assert.deepStrictEqual(map.renderKindsOnMap().sort(), aKinds,
+    'only track A render layers should remain on the map');
+});
+
+test('slice2: toggling showTracks removes only the collective path layers (via their groups)', () => {
+  const { window, map, mapManager } = bootWithRecordingL();
+  const trackA = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
+  const trackB = addTrack(window, 'B', 'b.csv', SAMPLE_CSV);
+
+  mapManager.renderCollectiveData(window.AppState.collectiveManager, { showShadedSurface: false }, 0);
+  const pathsA = trackA.layerGroup.getLayers().filter(l => l._gsrKind === 'collectivePath');
+  const peaksA = trackA.layerGroup.getLayers().filter(l => l._gsrKind === 'collectivePeak');
+  assert.ok(pathsA.length > 0, 'fixture should render a collective path for A');
+  assert.ok(peaksA.length > 0, 'fixture should render collective peak markers for A');
+  pathsA.forEach(p => assert.ok(map.hasLayer(p), 'precondition: path is on the map'));
+
+  mapManager.showTracks = false;
+  mapManager.toggleTracks(false);
+
+  pathsA.forEach(p => {
+    assert.ok(!trackA.layerGroup.hasLayer(p), 'path should be removed from its track group');
+    assert.ok(!map.hasLayer(p), 'path should be off the map');
+  });
+  peaksA.forEach(m => {
+    assert.ok(trackA.layerGroup.hasLayer(m), 'peak markers should be unaffected by showTracks');
+    assert.ok(map.hasLayer(m), 'peak markers should remain on the map');
+  });
+
+  // Re-enable.
+  mapManager.showTracks = true;
+  mapManager.toggleTracks(true);
+  pathsA.forEach(p => {
+    assert.ok(trackA.layerGroup.hasLayer(p), 'path should be restored to its track group');
+    assert.ok(map.hasLayer(p), 'path should be back on the map');
+  });
 });

@@ -380,12 +380,16 @@ const GSRTrackManager = {
 
       // Phase 1 (slice 1): removal = map.removeLayer(track.layerGroup). Do this
       // before removing the track from the manager so the switch-active-track /
-      // clearAll paths below never leave an orphaned group behind.
+      // clearAll paths below never leave an orphaned group behind. Slice 2: also
+      // forget the group from the map manager's rendered-set.
       if (AppState.mapManager && AppState.mapManager.map && track.layerGroup) {
         if (AppState.mapManager.map.hasLayer(track.layerGroup)) {
           AppState.mapManager.map.removeLayer(track.layerGroup);
         }
         track.layerGroup = null;
+        if (typeof AppState.mapManager._forgetTrackGroup === 'function') {
+          AppState.mapManager._forgetTrackGroup(trackId);
+        }
       }
 
       AppState.collectiveManager.removeTrack(trackId);
