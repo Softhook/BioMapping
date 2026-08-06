@@ -917,7 +917,7 @@
   </div>
 
   <!-- Scripts — load order matters: AppState+constants first, sketch.js last -->
-  <script src="error_handler.js"></script>
+  <script src="notices.js"></script>
   <script src="app_state.js"></script>
   <script src="layout_manager.js"></script>
   <script src="constants.js"></script>
@@ -1030,32 +1030,6 @@
         <button class="btn btn-secondary btn-sm" onclick="GSRUI.closeExportPresetModal()">Cancel</button>
         <button class="btn btn-primary btn-sm" id="btnConfirmExportPreset">
           <i class="fa-solid fa-download"></i> Save Preset File (.json)
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Unsaved Labels Warning Modal -->
-  <div class="preset-modal-overlay" id="unsavedLabelsModal" style="display:none;" onclick="GSRUI.closeUnsavedLabelsModal(event)">
-    <div class="preset-modal-content" onclick="event.stopPropagation()" style="max-width: 440px;">
-      <div class="preset-modal-header">
-        <h3 style="color: #f59e0b;"><i class="fa-solid fa-triangle-exclamation"></i> <span id="unsavedLabelsModalTitle">Unsaved Labels</span></h3>
-        <button class="icon-btn" onclick="GSRUI.closeUnsavedLabelsModal()" title="Close">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
-      </div>
-      <div class="preset-modal-body" style="padding: 16px 0;">
-        <p id="unsavedLabelsModalText" style="font-size: 0.9rem; line-height: 1.5; margin: 0; color: #111111;">
-          You have unsaved labels on this track. Would you like to export to CSV before closing, or lose unsaved labels?
-        </p>
-      </div>
-      <div class="preset-modal-footer" style="margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
-        <button class="btn btn-secondary btn-sm" onclick="GSRUI.closeUnsavedLabelsModal()" style="margin-right: auto;">Cancel</button>
-        <button class="btn btn-danger btn-sm" id="btnLoseUnsavedLabels">
-          <i class="fa-solid fa-trash-can"></i> Lose Labels
-        </button>
-        <button class="btn btn-primary btn-sm" id="btnExportUnsavedLabels">
-          <i class="fa-solid fa-file-export"></i> Export CSV
         </button>
       </div>
     </div>

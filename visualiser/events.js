@@ -390,15 +390,6 @@ const GSREvents = {
       }
     });
 
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        const modal = document.getElementById('unsavedLabelsModal');
-        if (modal && modal.style.display !== 'none') {
-          GSRUI.closeUnsavedLabelsModal();
-        }
-      }
-    });
-
     // ── Export Buttons ────────────────────────────────────────────────────────
     document.getElementById('exportCsvBtn').addEventListener('click',   GSRUI.exportCSV);
     document.getElementById('exportImageBtn').addEventListener('click', GSRUI.saveCanvasImage);

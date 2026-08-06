@@ -991,7 +991,7 @@ class GSRMapExporter {
       if (u?.startsWith('data:')) return u;
     } catch (err) {
       // Canvas is tainted (cross-origin tiles) — fall through to the fetch path below.
-      if (typeof GSRErrors !== 'undefined') GSRErrors.report(err, 'map_exporter:rasterizeImage(tainted canvas)');
+      if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'map_exporter:rasterizeImage(tainted canvas)');
     }
 
     try {
@@ -1005,7 +1005,7 @@ class GSRMapExporter {
         fr.readAsDataURL(blob);
       });
     } catch (err) {
-      if (typeof GSRErrors !== 'undefined') GSRErrors.report(err, 'map_exporter:rasterizeImage(fetch)');
+      if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'map_exporter:rasterizeImage(fetch)');
       return null;
     }
   }
@@ -1041,7 +1041,7 @@ class GSRMapExporter {
           latlngs = GeoUtils.chaikinSmooth(flat, 2, false);
         }
       } catch (err) {
-        if (typeof GSRErrors !== 'undefined') GSRErrors.report(err, 'map_exporter:_vectors(smoothing)');
+        if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'map_exporter:_vectors(smoothing)');
       }
     }
 
@@ -1196,7 +1196,7 @@ class GSRMapExporter {
         y = cy + (lr.top - wr.top) + lr.height * 0.78;
       }
     } catch (err) {
-      if (typeof GSRErrors !== 'undefined') GSRErrors.report(err, 'map_exporter:label placement');
+      if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'map_exporter:label placement');
     }
 
     return `<text x="${x.toFixed(3)}"` +

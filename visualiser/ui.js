@@ -1613,77 +1613,55 @@ const GSRUI = {
    * @param {string|null} trackId - ID of track being closed, or 'ALL' for multiple.
    * @param {Function} onConfirmClose - Callback to execute if user chooses to proceed with close/deletion.
    */
-  showUnsavedLabelsModal(trackName, trackId, onConfirmClose) {
+  /**
+   * Open the Unsaved Labels Warning Dialog via the shared notices layer.
+   * @param {string} trackName - Name of the track being closed/deleted.
+   * @param {string|null} trackId - ID of track being closed, or 'ALL' for multiple.
+   * @param {Function} onConfirmClose - Callback to execute if the user chooses to proceed with close/deletion.
+   */
+  async showUnsavedLabelsModal(trackName, trackId, onConfirmClose) {
+    if (typeof GSRNotices === 'undefined') {
+      // No notice layer available — refuse to delete: losing unsaved labels
+      // without an explicit user choice is not acceptable.
+      return;
+    }
+
     const warning = trackId === 'ALL'
       ? 'You have unsaved peak labels across loaded tracks.'
       : `Track "${trackName}" has unsaved peak labels.`;
 
-    const modal = document.getElementById('unsavedLabelsModal');
-    if (!modal) {
-      // Modal DOM unavailable — surface the warning through the notification
-      // layer (GSRErrors) instead of a blocking native confirm(), and DON'T
-      // auto-proceed: the user hasn't explicitly chosen to lose labels.
-      if (typeof GSRErrors !== 'undefined') {
-        GSRErrors.warn(`${warning} Export them first, or lose unsaved labels.`, 'unsaved-labels');
-      }
-      return;
-    }
+    // Log the warning through the notices layer; the dialog below is the
+    // visible notice and the decision point, so no duplicate toast.
+    GSRNotices.warn(warning, 'unsaved-labels', { toast: false });
 
-    // Report the warning through the notification layer too for consistent
-    // logging, but suppress the duplicate toast — the modal is the visible
-    // notice and the decision point.
-    if (typeof GSRErrors !== 'undefined') {
-      GSRErrors.warn(warning, 'unsaved-labels', { toast: false });
-    }
+    const action = await GSRNotices.dialog({
+      title: 'Unsaved Labels',
+      message: trackId === 'ALL'
+        ? `${warning} Would you like to export your project bundle before closing, or lose all unsaved labels?`
+        : `${warning} Would you like to export your peak labels to CSV before closing, or lose unsaved labels?`,
+      buttons: [
+        { label: 'Export CSV', value: 'export', style: 'primary' },
+        { label: 'Lose Labels', value: 'lose', style: 'danger' },
+      ],
+      dismissLabel: 'Cancel',
+      tone: 'warn',
+    });
 
-    const textEl = document.getElementById('unsavedLabelsModalText');
-    if (textEl) {
+    if (action === 'export') {
+      let success = false;
       if (trackId === 'ALL') {
-        textEl.innerText = `You have unsaved peak labels across loaded tracks. Would you like to export your project bundle before closing, or lose all unsaved labels?`;
+        if (typeof GSRCollectiveProject !== 'undefined') {
+          await GSRCollectiveProject.exportProject();
+          success = true;
+        }
       } else {
-        textEl.innerText = `You have unsaved peak labels on track "${trackName}". Would you like to export your peak labels to CSV before closing, or lose unsaved labels?`;
+        success = await GSRUI.exportCSV(trackId);
       }
+      if (success) onConfirmClose();
+    } else if (action === 'lose') {
+      onConfirmClose();
     }
-
-    const exportBtn = document.getElementById('btnExportUnsavedLabels');
-    const loseBtn = document.getElementById('btnLoseUnsavedLabels');
-
-    if (exportBtn) {
-      exportBtn.onclick = async () => {
-        GSRUI.closeUnsavedLabelsModal();
-        let success = false;
-        if (trackId === 'ALL') {
-          if (typeof GSRCollectiveProject !== 'undefined') {
-            await GSRCollectiveProject.exportProject();
-            success = true;
-          }
-        } else {
-          success = await GSRUI.exportCSV(trackId);
-        }
-        if (success) {
-          onConfirmClose();
-        }
-      };
-    }
-
-    if (loseBtn) {
-      loseBtn.onclick = () => {
-        GSRUI.closeUnsavedLabelsModal();
-        onConfirmClose();
-      };
-    }
-
-    modal.style.display = 'flex';
   },
-
-  /**
-   * Close the Unsaved Labels Warning Modal.
-   */
-  closeUnsavedLabelsModal(event) {
-    if (event && event.target !== document.getElementById('unsavedLabelsModal')) return;
-    const modal = document.getElementById('unsavedLabelsModal');
-    if (modal) modal.style.display = 'none';
-  }
 };
 
 if (typeof module !== 'undefined' && module.exports) {
