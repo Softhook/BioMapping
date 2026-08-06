@@ -113,7 +113,13 @@ To keep this from becoming a rewrite:
 Each phase lists goal, concrete steps, files touched, risk, and how to verify.
 Phases are independently shippable; §4 gives suggested sequencing.
 
-### Phase 0 — Global error safety net
+### Phase 0 — Global error safety net  ✅ DONE (2026-08-06)
+
+> **Status:** landed. `error_handler.js` (loaded first in `index.html`/`boot_app.js`) adds `window.onerror` +
+> `unhandledrejection` hooks and a `GSRErrors.report(err, context)` helper that shows a non-blocking toast
+> (own container, no load-order coupling to app UI). The 4 silent `catch(_){}` sites in `map_exporter.js`
+> now log through it (fallbacks preserved). `alert()` sites untouched per plan. Covered by
+> `tests/test_error_handler.js` (4 tests). No test changes to other flows.
 
 **Goal:** make failures visible instead of silent, with minimal behavior change.
 

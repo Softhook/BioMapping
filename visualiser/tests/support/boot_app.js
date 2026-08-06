@@ -32,7 +32,7 @@ const APP_DIR = path.join(__dirname, '..', '..');
 // Real script load order, copied from index.html's own <script src="...">
 // list (local app files only — the 4 CDN libraries are stubbed instead).
 const SCRIPT_ORDER = [
-  'app_state.js', 'layout_manager.js', 'constants.js', 'geo_utils.js', 'file_saver.js',
+  'error_handler.js', 'app_state.js', 'layout_manager.js', 'constants.js', 'geo_utils.js', 'file_saver.js',
   'stats_math.js', 'overpass_client.js', 'osm_cache.js', 'dwt_filter.js', 'deconvolution.js',
   'csv_parser.js', 'analyzer.js', 'osm_enrichment.js', 'map_match.js', 'gsr_filter.js', 'marching_squares.js',
   'spatial_clustering.js', 'collective_manager.js', 'gps_filter.js', 'map_colors.js', 'gps_pipeline.js',

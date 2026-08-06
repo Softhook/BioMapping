@@ -989,7 +989,10 @@ class GSRMapExporter {
       c.getContext('2d').drawImage(img, 0, 0);
       const u = c.toDataURL('image/png');
       if (u?.startsWith('data:')) return u;
-    } catch (_) { /* tainted */ }
+    } catch (err) {
+      // Canvas is tainted (cross-origin tiles) — fall through to the fetch path below.
+      if (typeof GSRErrors !== 'undefined') GSRErrors.report(err, 'map_exporter:rasterizeImage(tainted canvas)');
+    }
 
     try {
       const res = await fetch(src, { mode: 'cors' });
@@ -1001,7 +1004,10 @@ class GSRMapExporter {
         fr.onerror = reject;
         fr.readAsDataURL(blob);
       });
-    } catch (_) { return null; }
+    } catch (err) {
+      if (typeof GSRErrors !== 'undefined') GSRErrors.report(err, 'map_exporter:rasterizeImage(fetch)');
+      return null;
+    }
   }
 
   static _vectors(ctx, layers, opts) {
@@ -1034,7 +1040,9 @@ class GSRMapExporter {
         if (flat.length >= 3 && flat[0] && (typeof flat[0].lat === 'number' || Array.isArray(flat[0]))) {
           latlngs = GeoUtils.chaikinSmooth(flat, 2, false);
         }
-      } catch (_) {}
+      } catch (err) {
+        if (typeof GSRErrors !== 'undefined') GSRErrors.report(err, 'map_exporter:_vectors(smoothing)');
+      }
     }
 
     const d = this._pathD(ctx, latlngs, isPoly, !exact, exact);
@@ -1187,7 +1195,9 @@ class GSRMapExporter {
         x = cx + (lr.left - wr.left) + lr.width / 2;
         y = cy + (lr.top - wr.top) + lr.height * 0.78;
       }
-    } catch (_) {}
+    } catch (err) {
+      if (typeof GSRErrors !== 'undefined') GSRErrors.report(err, 'map_exporter:label placement');
+    }
 
     return `<text x="${x.toFixed(3)}"` +
       ` y="${y.toFixed(3)}"` +
