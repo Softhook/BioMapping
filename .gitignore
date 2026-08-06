@@ -6,4 +6,5 @@
 config.local.js
 /tracks
 build/
+dist/
 .DS_Store
