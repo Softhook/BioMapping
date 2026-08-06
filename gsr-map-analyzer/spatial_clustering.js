@@ -33,26 +33,7 @@ class GSRSpatialClustering {
     return dx * dx + dy * dy;
   }
 
-  /**
-   * Ray Casting Algorithm (Point-in-Polygon) to check if a lat/lon point lies inside a path boundary.
-   *
-   * @param {{lat: number, lon: number}} point - The point to test.
-   * @param {Array<{lat: number, lon: number}>} polygon - The polygon path vertices.
-   * @returns {boolean} True if the point is inside the polygon.
-   * @private
-   */
-  static _isPointInPolygon(point, polygon) {
-    const x = parseFloat(point.lon), y = parseFloat(point.lat);
-    let inside = false;
-    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-      const xi = parseFloat(polygon[i].lon), yi = parseFloat(polygon[i].lat);
-      const xj = parseFloat(polygon[j].lon), yj = parseFloat(polygon[j].lat);
-      const intersect = ((yi > y) !== (yj > y)) &&
-        (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-      if (intersect) inside = !inside;
-    }
-    return inside;
-  }
+
 
   /**
    * Group peaks into clusters based on proximity.
@@ -359,7 +340,7 @@ class GSRSpatialClustering {
     // Filter out degenerate paths and empty islands (loops that contain no peak points)
     return paths.filter(path => {
       if (path.length < 3) return false;
-      return cluster.some(peak => GSRSpatialClustering._isPointInPolygon(peak, path));
+      return cluster.some(peak => GeoUtils.pointInPolygon(peak.lat, peak.lon, path));
     });
   }
 

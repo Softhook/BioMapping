@@ -95,8 +95,8 @@ const GpsFilter = {
     // Use the mean latitude of the track for a reasonable approximation.
     const meanLat = points.reduce((s, p) => s + p.lat, 0) / n;
     const cosLat = Math.cos(meanLat * Math.PI / 180);
-    const M_TO_DEG_LAT = 1.0 / 111320.0;
-    const M_TO_DEG_LON = 1.0 / (111320.0 * cosLat);
+    const M_TO_DEG_LAT = 1.0 / GeoUtils.METERS_PER_DEG_LAT;
+    const M_TO_DEG_LON = 1.0 / (GeoUtils.METERS_PER_DEG_LAT * cosLat);
     const M2_TO_DEG2_LAT = M_TO_DEG_LAT * M_TO_DEG_LAT;
     const M2_TO_DEG2_LON = M_TO_DEG_LON * M_TO_DEG_LON;
 
@@ -320,7 +320,7 @@ const GpsFilter = {
 
     const KNOTS_TO_MS = 0.51444;
     const DEG_TO_RAD  = Math.PI / 180;
-    const M_TO_DEG_LAT = 1.0 / 111320.0;
+    const M_TO_DEG_LAT = 1.0 / GeoUtils.METERS_PER_DEG_LAT;
 
     // Initialise dead-reckoning heading tracker from the first point's course.
     // Using a local variable avoids both the off-by-one indexing bug
@@ -489,30 +489,7 @@ const GpsFilter = {
     if (!tolerance || isNaN(tolerance) || tolerance <= 0.001 || points.length < 3) return points;
 
     const getPerpendicularDistance = (p, s, e) => {
-      const latRad = s.lat * Math.PI / 180;
-      const cosLat = Math.cos(latRad);
-
-      const xS = 0;
-      const yS = 0;
-      const xE = (e.lon - s.lon) * 111320.0 * cosLat;
-      const yE = (e.lat - s.lat) * 111320.0;
-      const xP = (p.lon - s.lon) * 111320.0 * cosLat;
-      const yP = (p.lat - s.lat) * 111320.0;
-
-      const lineLen2 = (xE - xS) * (xE - xS) + (yE - yS) * (yE - yS);
-      if (lineLen2 === 0) {
-        return Math.sqrt(xP * xP + yP * yP);
-      }
-
-      let t = ((xP - xS) * (xE - xS) + (yP - yS) * (yE - yS)) / lineLen2;
-      t = Math.max(0, Math.min(1, t));
-
-      const projX = xS + t * (xE - xS);
-      const projY = yS + t * (yE - yS);
-
-      const dx = xP - projX;
-      const dy = yP - projY;
-      return Math.sqrt(dx * dx + dy * dy);
+      return GeoUtils.distanceToSegmentMeters(p.lat, p.lon, s.lat, s.lon, e.lat, e.lon);
     };
 
     const rdpRecurse = (pts, startIdx, endIdx) => {

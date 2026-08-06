@@ -5,8 +5,8 @@
  */
 
 // -- Numerical constants ---------------------------------------------------
-const METERS_PER_DEG_LAT  = 111320;         // m per degree of latitude
-const METERS_PER_DEG_LAT_KM = 111.32;       // km per degree (area calcs)
+const METERS_PER_DEG_LAT  = GeoUtils.METERS_PER_DEG_LAT;         // m per degree of latitude
+const METERS_PER_DEG_LAT_KM = METERS_PER_DEG_LAT / 1000.0;       // km per degree (area calcs)
 const CELL_SIZE_DEG       = 0.001;          // spatial-hash cell (~111 m)
 const SENTINEL_DIST       = 999;            // sentinel for "no feature nearby"
 const DEFAULT_RADIUS_M    = 50;             // enrichment search radius
@@ -842,7 +842,7 @@ const OSMEnricher = {
    */
   _projectToWay(lat, lon, coords) {
     const cosLat = Math.cos(lat * Math.PI / 180);
-    const MDEG   = 111320;
+    const MDEG   = GeoUtils.METERS_PER_DEG_LAT;
 
     let minDist = Infinity;
     let bestSnapLat = lat;
