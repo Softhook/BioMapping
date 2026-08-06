@@ -26,6 +26,7 @@
  * Run: node visualiser/tests/test_isoband_svg_renders.js
  */
 const assert = require('assert');
+const { test } = require('node:test');
 const fs     = require('fs');
 const os     = require('os');
 const path   = require('path');
@@ -60,10 +61,10 @@ const GSRMapExporter = global.GSRMapExporter;
 console.log('── Running Isoband SVG Real-Render Regression Test ──');
 
 const hasConvert = spawnSync('which', ['convert']).status === 0;
-if (!hasConvert) {
-  console.log('⚠ ImageMagick `convert` not found on this machine — skipping real-render check.');
-  process.exit(0);
-}
+test(
+  'Isoband SVG real-render: exported isobands rasterize to visible content',
+  { skip: hasConvert ? false : 'ImageMagick `convert` not available — skipping real-render check.' },
+  () => {
 
 // A peak pinned right at a corner (the original bug report scenario), at a
 // realistic worst-case gridResolution/contourCount.
@@ -133,7 +134,4 @@ assert(
   `Rendered PNG has a substantial fraction of non-background pixels (i.e. the isobands actually rendered, not blank): ${(diffFraction * 100).toFixed(1)}%`
 );
 console.log(`✓ Exported isobands render as actual visible content in a real SVG engine (${(diffFraction * 100).toFixed(1)}% non-background pixels)`);
-
-console.log('\n============================================================');
-console.log('Isoband SVG Real-Render Regression Test: ALL PASSED');
-console.log('============================================================');
+});
