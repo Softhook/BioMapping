@@ -216,9 +216,16 @@ test('GSRAnalyzer parseCSV: validation warnings and error checks', () => {
 // ── Canonical column-synonym matching ────────────────────────────────────────
 
 test('GSRAnalyzer parseCSV: canonical column synonyms (sec/latitude/longitude/nsats/fix/speed/course)', () => {
-  const csv = `sec,gsr,latitude,longitude,hdop,pdop,nsats,speed_kts,course_deg,fix
-0,2.5,51.5074,-0.1278,1.2,1.5,8,3.2,270,3
-0.1,2.6,51.5075,-0.1279,1.3,1.6,9,3.4,271,3`;
+  // Headers deliberately ordered so the parser's timestamp/gsr fallbacks (col 0
+  // / col 1) can NOT mask a broken synonym mapping:
+  //  - 'sec' sits at index 1, NOT the fallback column (0). If the TIME keyword
+  //    match breaks, timestamp resolves to col 0 (the 'lat' column) whose
+  //    0.0001 spacing differs from the intended 0.1s -> the time assertions fail.
+  //  - 'gsr' sits at index 2, NOT the fallback column (1). If the GSR keyword
+  //    match breaks, gsr_raw resolves to col 1 (the 'sec' column) -> val=0 fails.
+  const csv = `lat,sec,gsr,longitude,hdop,pdop,nsats,speed_kts,course_deg,fix
+51.5074,0,2.5,-0.1278,1.2,1.5,8,3.2,270,3
+51.5075,0.1,2.6,-0.1279,1.3,1.6,9,3.4,271,3`;
 
   const a = new GSRAnalyzer();
   a.parseCSV(csv);
@@ -227,6 +234,8 @@ test('GSRAnalyzer parseCSV: canonical column synonyms (sec/latitude/longitude/ns
   // 'sec' is a TIME_KEYWORDS synonym
   assert.ok(Math.abs(a.raw[0].time - 0.0) < 1e-5);
   assert.ok(Math.abs(a.raw[1].time - 0.1) < 1e-5);
+  // 'gsr' is a GSR_KEYWORDS synonym
+  assert.strictEqual(a.raw[0].val, 2.5);
   // 'latitude'/'longitude' map to lat/lon
   assert.strictEqual(a.raw[0].lat, 51.5074);
   assert.strictEqual(a.raw[0].lon, -0.1278);
@@ -328,7 +337,10 @@ test('GSRAnalyzer getMatchingLabel: exact match then nearest within tolerance', 
   assert.strictEqual(a.getMatchingLabel(11.1), '');   // outside tolerance
   assert.strictEqual(a.getMatchingLabel(19.0), 'B');  // nearer to B
   assert.strictEqual(a.getMatchingLabel(null), '');   // null target
-  assert.strictEqual(a.getMatchingLabel(10.0, 0.5), 'A'); // custom tolerance (exact still hits)
+  // Custom tolerance actually narrows the window: 0.4s is within the default
+  // 1.0s but outside a 0.3s tolerance.
+  assert.strictEqual(a.getMatchingLabel(10.4, 0.3), '');
+  assert.strictEqual(a.getMatchingLabel(10.4), 'A');
 
   // Clearing a label removes it (exact + nearby keys)
   a.setPeakLabel(10.0, '');
