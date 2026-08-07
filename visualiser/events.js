@@ -67,13 +67,17 @@ const GSREvents = {
 
   /**
    * Bind a collapse button to toggle the `.collapsed` class on its card.
-   * Replaces 7+ copy-pasted addEventListener blocks.
+   * Replaces 7+ copy-pasted addEventListener blocks. Optional onToggle(collapsed)
+   * lets a caller react to the new state (see the gsrPanel binding below).
    */
-  bindCollapseButton(btnId, cardId) {
+  bindCollapseButton(btnId, cardId, onToggle) {
     const btn = GSREvents._id(btnId);
     const card = GSREvents._id(cardId);
     if (!btn || !card) return;
-    btn.addEventListener('click', () => card.classList.toggle('collapsed'));
+    btn.addEventListener('click', () => {
+      const collapsed = card.classList.toggle('collapsed');
+      if (onToggle) onToggle(collapsed);
+    });
   },
 
 
@@ -569,7 +573,21 @@ const GSREvents = {
     GSREvents.bindCollapseButton('btnImportCollapse',        'importCard');
     GSREvents.bindCollapseButton('btnExportCollapse',        'exportCard');
     GSREvents.bindCollapseButton('btnContourCollapse',       'contourSettingsCard');
-    GSREvents.bindCollapseButton('btnGsrCollapse',           'gsrPanel');
+    // The p5 canvas keeps its own layout box (and last mouseenter/mouseleave
+    // state) even while its ancestor is visibility:hidden — collapsing the
+    // panel doesn't move the mouse, so no mouseleave fires and the canvas'
+    // bounding rect can still overlap whatever panel expands into that space.
+    // Without this, a stale AppState.mouseOverCanvas=true plus coincidental
+    // in-bounds coordinates let the GSR scrubber reactivate while panning the
+    // map panel that took over the collapsed graph's screen area.
+    GSREvents.bindCollapseButton('btnGsrCollapse',           'gsrPanel', (collapsed) => {
+      AppState.isGsrCollapsed = collapsed;
+      if (collapsed) {
+        AppState.mouseOverCanvas = false;
+        AppState.hoveredIndex = -1;
+        if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
+      }
+    });
     GSREvents.bindCollapseButton('btnMapCollapse',           'mapPanel');
     GSREvents.bindCollapseButton('btnOsmEnrichmentCollapse', 'osmEnrichmentCard');
     GSREvents.bindCollapseButton('btnEnvCollapse',           'environmentalPanel');
@@ -857,6 +875,13 @@ const GSREvents = {
       // No graph to scrub in collective view — drop any scrub indicator left
       // over from single-track hover immediately (the collective render below
       // is debounced ~150ms, and handleScrubber no longer runs after noLoop()).
+      // Also clear mouseOverCanvas: hiding gsrPanel via inline style doesn't
+      // move the mouse, so no mouseleave fires on the canvas and the flag
+      // would otherwise stay stuck true — which makes mouseMoved() keep
+      // forcing redraw()s (and thus handleScrubber() re-runs) while panning
+      // the map, even though AppState.viewMode now guards handleScrubber itself.
+      AppState.mouseOverCanvas = false;
+      AppState.hoveredIndex = -1;
       if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
 
       GSRUI.updateCollectiveMap();

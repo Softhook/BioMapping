@@ -775,8 +775,14 @@ const GSRRenderer = {
   },
 
   handleScrubber(tMin, tMax, yMinU, yMaxU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
-    // Don't scrub when the map panel is fullscreen (p5 canvas is hidden behind overlay)
-    if (AppState.isMapFullscreen) {
+    // Don't scrub when the map panel is fullscreen (p5 canvas is hidden behind
+    // overlay), the GSR panel itself is collapsed (canvas is visibility:hidden
+    // but its layout box can still overlap whatever panel expanded into its
+    // space), or we're in collective view (gsrPanel is display:none — the
+    // canvas' getBoundingClientRect collapses to all-zero, so p5 computes
+    // mouseX/mouseY from raw viewport coordinates, which can coincidentally
+    // fall inside the graph's plot bounds while panning the map).
+    if (AppState.isMapFullscreen || AppState.isGsrCollapsed || AppState.viewMode === 'collective') {
       AppState.hoveredIndex = -1;
       if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
       return;
