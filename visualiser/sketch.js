@@ -8,6 +8,17 @@ function setup() {
   AppState.analyzer = new GSRAnalyzer();
   AppState.mapManager = new GSRMapManager('map');
 
+  // Phase 3 pilot (docs/visualizer_architecture_refactor_plan.md): each
+  // interested module reacts to 'trackRemoved' independently instead of
+  // GSRTrackManager.deleteTrack() calling them all out by name.
+  AppState.on('trackRemoved', () => GSRTrackManager.renderTrackList());
+  AppState.on('trackRemoved', () => {
+    if (AppState.collectiveManager.tracks.length === 0) AppState.mapManager.clearAll();
+  });
+  AppState.on('trackRemoved', () => {
+    if (AppState.viewMode === 'collective') GSRUI.updateCollectiveMap();
+  });
+
   const container = document.getElementById('canvasContainer');
   if (!container) {
     console.error('GSR Map Analyzer: #canvasContainer not found — cannot initialise canvas.');

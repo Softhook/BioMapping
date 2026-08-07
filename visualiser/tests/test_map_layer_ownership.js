@@ -368,6 +368,33 @@ test('slice1: clearMap removes every track.layerGroup from the map and nulls it'
   assert.deepStrictEqual(map.renderKindsOnMap(), [], 'no path/peak/hotspot layers should remain on the map');
 });
 
+test('orphan-fix: clearMap removes legacy no-track-fallback layers, not just the tracking array reference', () => {
+  const { window, map, mapManager } = bootWithRecordingL();
+
+  const analyzer = new window.GSRAnalyzer();
+  analyzer.parseCSV(SAMPLE_CSV);
+  const track = window.GSRTrackManager.createTrackObject('orphan', 'orphan.csv', '#ff0000', analyzer);
+  analyzer.analyze(track.filterParams, 0);
+
+  // Deliberately do NOT add this track to AppState.collectiveManager or make
+  // it active — renderData() then can't resolve an active track and falls
+  // back to the legacy direct-to-map path (GSRMapManager._unownedLayers).
+  // Regression test for a bug found in review: _clearRenderedTrackGroups()
+  // used to reset _unownedLayers = [] without calling map.removeLayer() on
+  // any of them first, so every clearMap() permanently orphaned these layers
+  // on the map instead of removing them.
+  mapManager.renderData(analyzer, track.gpsFilterParams);
+
+  assert.ok(map.renderKindsOnMap().length > 0, 'precondition: the legacy fallback actually rendered something');
+  assert.strictEqual(map.directRenderKinds().length, map.renderKindsOnMap().length,
+    'precondition: with no active track, layers go straight to the map, not a group');
+
+  mapManager.clearMap();
+
+  assert.deepStrictEqual(map.renderKindsOnMap(), [],
+    'clearMap must remove legacy no-track layers from the map, not just drop the tracking array reference');
+});
+
 test('slice1: deleteTrack removes the track layerGroup from the map', () => {
   const { window, map, mapManager } = bootWithRecordingL();
   const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);

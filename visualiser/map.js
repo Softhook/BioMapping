@@ -472,6 +472,13 @@ class GSRMapManager {
       if (track) track._ownedLayers = [];
     }
     this._renderedTrackGroups.clear();
+    // Legacy no-track fallback layers were added straight to the map
+    // (never into a group) — removeLayer() each one before dropping the
+    // array, or they're stranded on the map forever with no reference left
+    // to find or clear them by (see _registerTrackLayer/getRenderLayers).
+    for (const layer of this._unownedLayers) {
+      if (this.map.hasLayer(layer)) this.map.removeLayer(layer);
+    }
     this._unownedLayers = [];
   }
 

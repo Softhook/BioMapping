@@ -405,13 +405,8 @@ const GSRTrackManager = {
         } else {
           AppState.activeTrackId = null;
           AppState.analyzer = new GSRAnalyzer();
-          if (AppState.mapManager) {
-            AppState.mapManager.clearAll();
-          }
         }
       }
-
-      GSRTrackManager.renderTrackList();
 
       if (AppState.collectiveManager.tracks.length > 0) {
         GSRTrackManager.setFileStatus('success', `${AppState.collectiveManager.tracks.length} Tracks Loaded`);
@@ -419,9 +414,13 @@ const GSRTrackManager = {
         GSRTrackManager.setFileStatus('warning', 'No File Loaded');
       }
 
-      if (AppState.viewMode === 'collective') {
-        GSRUI.updateCollectiveMap();
-      }
+      // Phase 3 pilot (docs/visualizer_architecture_refactor_plan.md): notify
+      // interested modules instead of calling them directly by name.
+      // GSRTrackManager (renderTrackList), GSRMapManager (clearAll when the
+      // library goes empty), and GSRUI (updateCollectiveMap in collective
+      // view) each subscribe to 'trackRemoved' independently — see the
+      // AppState.on(...) registrations in sketch.js's setup().
+      AppState.emit('trackRemoved', trackId);
     };
 
     if (track.hasUnsavedLabels) {
