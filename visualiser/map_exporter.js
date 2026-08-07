@@ -1044,7 +1044,16 @@ class GSRMapExporter {
     const isPoly = !!(
       (typeof L !== 'undefined' && L.Polygon && layer instanceof L.Polygon) ||
       (typeof window !== 'undefined' && window.L && window.L.Polygon && layer instanceof window.L.Polygon) ||
-      (layer.options && (layer.options.fill || layer.options.fillColor || layer.options.fillOpacity > 0))
+      // NOT `layer.options.fillOpacity > 0` here: Leaflet's base Path class
+      // defaults fillOpacity to 0.2 on the options PROTOTYPE for every vector
+      // layer (polylines included), inherited regardless of whether `fill`
+      // is actually enabled — plain property access sees it same as an own
+      // property, so that check was true for every track/connector polyline,
+      // closing (Z) and filling paths that were never meant to be filled.
+      // `fill` and `fillColor` are safe: both default to a falsy value
+      // (false / null) on Path, so a truthy value only ever comes from an
+      // explicit, intentional option (e.g. cluster blobs, OSM shapes).
+      (layer.options && (layer.options.fill || layer.options.fillColor))
     );
     // "exact" layers (OSM building/park/water shapes) are authoritative vector
     // geometry, not sensor data — every vertex is a real, deliberate coordinate,
