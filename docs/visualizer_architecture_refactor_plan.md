@@ -247,6 +247,48 @@ Phases are independently shippable; §4 gives suggested sequencing.
 
 **Priority note:** this is a performance phase, not a stability one — sequence it after §4's test harness exists, and only if/when track counts in practice make it worth the risk. Not blocking on the correctness phases above.
 
+### Phase 6 — Finish the rendering performance pass
+
+> **Status:** two items landed ad-hoc ahead of this phase being written up, in
+> response to a user-reported slowdown while zooming and adding a peak label
+> (2026-08-07): **(a)** the p5 canvas mouse-wheel zoom handler
+> (`sketch.js:mouseWheel`) is now rAF-coalesced — same `GSREvents.rafCoalesce()`
+> pattern §1 already validated for the GSR/GPS sliders — instead of firing a
+> full synchronous `redraw()` per wheel tick (trackpads fire ticks faster than
+> a repaint completes, stacking up stutter). **(b)** `GSRUI.updatePeakLabel()`'s
+> single-track path no longer calls the full `renderData()`; a new
+> `GSRMapManager.refreshPeakMarkers()` rebuilds only the active track's
+> peak/connector layers (+ cluster blobs, + a `updateMarkerVisibility()` pass),
+> leaving path and hotspot layers untouched by reference, falling back to the
+> full `renderData()` for the legacy no-track case. Found and fixed an
+> adjacent pre-existing bug while adding it: `_renderPeakMarkers()` only
+> tagged marker/connector layers with `_gsrKind` inside the `if (layerGroup)`
+> branch, so peaks rendered via the legacy fallback were invisible to
+> `getRenderLayers()`/`getPeakMarkerByIndex()`/`updateMarkerVisibility()`'s
+> classification (hotspots already tagged unconditionally — peaks/connectors
+> now match). Both covered by new tests in `tests/test_map_layer_ownership.js`
+> (path/hotspot layers survive by reference, peak/connector layers are fully
+> replaced with no orphans/duplicates, the no-track fallback still works, and
+> the real `GSRUI.updatePeakLabel()` wiring is exercised end to end — not just
+> the map.js method in isolation). Full detail, including what's deliberately
+> *not* fixed yet, lives in the companion document
+> `docs/visualizer_rendering_perf_routes.md` (top-of-doc 2026-08-07 update +
+> §2.2's status note). The steps below are what's left of that document's
+> survey.
+
+**Goal:** close out the remaining items in `docs/visualizer_rendering_perf_routes.md` — real, measured-or-reasoned rendering costs distinct from Phase 5's specific RF fan-cast *caching* gap (complementary, not overlapping — see that document's §2.1 for how the two relate).
+
+**Steps:**
+1. **RF fan-cast spatial index** (perf-routes §2.1): `_precalculateSpatialFans()` (`rf_fluid_renderer.js:174`) linearly re-scans every building segment for every GPS node, on every settled GPS-slider-drag frame. Bucket `buildingSegmentsGeo` into a uniform spatial grid once per `setData()` call; per-node lookup becomes "gather segments from the 3×3 cells around this node" instead of a full scan. Self-contained to one method, no layer-ownership interaction — the strongest standalone candidate per that document's own priority ranking; do this one first.
+2. **Finish the `renderData()` → `refreshPeakMarkers()` migration** (perf-routes §2.2 remainder): `togglePeakExclusion()` (`ui.js`) has the identical full-rebuild cost `updatePeakLabel()` had — same fix, already validated by the ad-hoc work above (swap the call site, extend the same `test_map_layer_ownership.js` pattern). Also extend the partial-render principle to the map-coloring-metric dropdown (`events.js:705-708`, which only needs a path repaint, not peaks/hotspots too) and to collective mode's `renderCollectiveData()` — bigger scope since it loops every active track, needs its own investigation rather than an assumed copy of the single-track fix.
+3. **Investigate-only** (perf-routes §2.3, not sized yet): `GSRLabelManager.computeLabelPositions()` collision-avoidance cost on tracks with many *labeled* peaks (depends on step 2 landing first); `getRenderLayers()`/`_allTrackLayers()` rebuilding their classification arrays on every call (toggle-triggered, not drag-triggered — likely low priority until a specific toggle is reported sluggish with many tracks active). Profile against a large real track before scoping further; don't implement speculatively.
+
+**Risk:** low for step 1 — pure lookup-acceleration, output unchanged (verify via identical `fanGeo` output before/after on a fixed fixture). Medium for step 2's collective-mode piece specifically — same layer-ownership contract the ad-hoc `refreshPeakMarkers()` work above already had to respect; the `togglePeakExclusion()`/dropdown pieces are low risk since they reuse an already-shipped, already-tested mechanism. Step 3 is measurement, not a code-risk item, until it's actually scoped.
+
+**Verify:** step 1 — existing RF fluid test extended to assert identical output, plus a call-count/timing check proving the indexed path does less work. Step 2 — extend `tests/test_map_layer_ownership.js` the same way the `refreshPeakMarkers()` work already did, for each newly-migrated call site. Step 3 — no code changes without a profile first.
+
+**Priority note:** sequence after Phase 5 (or interleaved — different methods in the same file, no conflict) and after Phase 4's test harness exists, so new perf regression tests have a home. Not blocking on Phase 3.
+
 ## 4. Suggested sequencing
 
 ```
@@ -261,6 +303,10 @@ Phase 2 (self-validating caches) ── after Phase 1 proves the pattern works
 Phase 3 (event notification)  ── only after 0–2 are stable; start with one pilot
                                │
 Phase 5 (RF fan-cast caching) ── performance work, sequence whenever, not urgent
+                               │
+Phase 6 (finish perf pass)    ── after Phase 5 (or interleaved) + Phase 4;
+                                   two items already landed ad-hoc, rest is
+                                   the perf-routes doc's remaining survey
 ```
 
 ## 5. Open questions before starting
@@ -268,3 +314,4 @@ Phase 5 (RF fan-cast caching) ── performance work, sequence whenever, not ur
 - Phase 2: does every `analyzer`/`collectiveManager` mutation actually funnel through a small enough set of setters to make a generation counter reliable? Needs a grep audit before committing to the approach (see Phase 2, step 4 risk note).
 - Phase 3: is the four-event set (`trackAdded`/`trackRemoved`/`activeTrackChanged`/`viewModeChanged`) actually sufficient, or will `updateCollectiveMap()`'s debounce (`ui.js:414`) need its own event/coalescing story once multiple listeners can independently trigger it?
 - Phase 4: confirm none of the 19 existing test scripts have undocumented ordering dependencies (e.g. shared IndexedDB state from `osm_cache.js` tests) before wiring them into one sequential runner.
+- Phase 6: is collective mode's `renderCollectiveData()` partial-render migration (step 2) worth the risk on its own, or should it wait until a user actually reports collective-mode sluggishness the way the single-track case was reported? The single-track fix landed reactively, not speculatively — the collective-mode piece risks being speculative unless there's a concrete report to size it against.
