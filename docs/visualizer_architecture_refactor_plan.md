@@ -608,7 +608,125 @@ private method with one call site, verified output-identical.
 `_computeNoiseFloor` tests, plus `tests/manual/_bench_analyzer_perf.js` for
 the timing claim.
 
-### Phase 8 — Simplification pass across Phases 0–7
+### Phase 8 — Collective-mode spatial density performance (`spatial_clustering.js` + `collective_manager.js`) ✅ DONE (2026-08-07)
+
+**Status:** landed, same session as Phase 7, continuing the same "look for
+the next biggest real cost" approach once it proved productive twice in a
+row. Different files from Phase 7 (spatial clustering / contour
+interpolation, not signal analysis) but the same underlying pattern as
+Phase 6 step 1 (RF fan-cast) and Phase 7 (`_computeNoiseFloor`): a fixed
+grid scanned unconditionally for every input, when almost all of that
+scanning gets discarded.
+
+**What was found:** profiled `renderCollectiveData()` (the full collective-
+view rebuild — entering collective mode, adding/removing a track, changing
+a contour parameter) on 4 real same-city tracks (708 total peaks;
+`biomap_016/039/048/015.csv`) with every sub-call instrumented, rather than
+guessing which part was slow. `GSRSpatialClustering.getConcaveBlob()`
+(`spatial_clustering.js`) — per-cluster boundary blobs, a Gaussian kernel
+density estimate on a fixed 70x70 grid — was ~72ms of a ~101ms total.
+`GSRCollectiveManager.generateContourSurface()` (`collective_manager.js`)
+— the IDW topography surface, up to `CONTOUR_MAX_POINTS`=20,000 points
+against a `gridResolution`x`gridResolution` grid (1,600 cells at the
+default 40) — was a further ~16ms. Both loops scanned every (grid cell,
+input) pair unconditionally: a distance check that, ~94-98% of the time on
+this fixture, immediately discarded the result as beyond the
+kernel/interpolation's effective range.
+
+A first attempt at `getConcaveBlob()` just skipped `Math.exp()` for pairs
+past a 6-sigma cutoff (contribution ≈1.5e-8, standard Gaussian truncation)
+but kept the cell-major loop structure (scan every cell for every peak).
+That only bought ~20% — profiling with `Math.exp()`/`_getDistanceMetersSq()`
+call counters (patched inside the vm-isolated test-harness realm, not the
+outer Node process — a real gotcha worth recording: `vm.createContext`
+gives the sandboxed code its own `Math` object, so patching the outer
+process's `Math.exp` silently patches nothing) showed V8's `Math.exp()`
+itself is cheap (~0.5ns/call); the real cost was ~4M loop iterations and
+distance-computation calls, 94% of which computed a distance only to
+immediately discard it. Restructured both loops from cell-major ("for
+every cell, scan every input, discard most") to point-major ("for every
+input, touch only the small window of cells it could possibly reach") —
+the same class of restructuring Phase 6 step 1 already validated for RF
+fan-casting, applied here to two different files.
+
+**Fix:** both loops now compute a grid-cell window from each input's
+position + its effective range (kernel cutoff distance for
+`getConcaveBlob`, `isolationRadius`/`isolationRadius*1.5` for the boundary
+mask/IDW in `generateContourSurface`) and only touch cells inside that
+window, accumulating into small per-cell scratch arrays
+(`Float64Array`/`Uint8Array`) instead of local variables inside a cell-major
+loop. `generateContourSurface`'s boundary mask (`isNearTrack`) also got a
+free simplification in the process: its original fallback condition
+(`minTrackDist > isolationRadius`) turned out to be always true exactly
+when `isNearTrack` was already false, by construction — the mask reduces
+to "was any sampled point within isolationRadius," which the splat computes
+directly. `weightForPeak()` in `getConcaveBlob` is now called once per peak
+instead of once per (peak, cell) pair, a smaller free win from the same
+restructuring.
+
+**Verified empirically, not just analytically** (the same discipline as
+Phase 6 step 1's `_buildSegmentGrid`-stubbed brute-force comparison): output
+diffed against the true pre-fix implementation (`git show HEAD:...`) across
+real 800+-peak collective data, all 5 `topographySource` values, and
+several grid-resolution/isolation-radius/idw-exponent combinations —
+`getConcaveBlob`'s output matched to ~3.6 micrometers (pure floating-point
+summation-order noise, not a real difference; same category of change
+already accepted for Phase 5/6's caching work), and `generateContourSurface`'s
+output was **byte-identical** (max diff exactly 0) across every case tested.
+Getting to a fixture that actually exercised the real code paths took a
+detour worth recording: an earlier verification fixture accidentally
+included `biomap_113_processed.csv`, which turns out to be recorded in
+Edinburgh while the other four tracks are all in London — the resulting
+~500km bounding box made every grid cell fail the boundary-mask check
+identically in both old and new code, silently testing nothing about the
+IDW/exact-match logic. Caught by checking per-track coordinate bounds
+directly rather than trusting that "returns a result" meant "exercised the
+interesting code paths."
+
+**Measured impact (4-track same-city fixture, 708 peaks):**
+`getConcaveBlob`: ~71.8ms → ~9.95ms (**7.2x**). `generateContourSurface`:
+~16.2ms → ~9.0ms (**1.8x** — the IDW branch's per-cell work is inherently
+larger per touched cell than the Gaussian kernel case, so there was less
+pure-overhead to remove). Full `renderCollectiveData()`: ~101ms → ~36ms
+(**2.8x**). Re-run via `tests/manual/_bench_render_perf.js` bench 4.
+
+**Interaction with Phase 6's status note:** `refreshPeakMarkers()`'s
+non-`skipClustering` path (single-track view, `togglePeakExclusion()`) also
+calls `_renderClusters()` → `getConcaveBlob()`, so this fix sped up that
+path too — bench 2's "skipClustering alone" ratio (originally measured at
+~27x, Phase 6's status note) dropped to **~7x** after this phase landed,
+because the clustering cost it was being compared against got cheaper on
+its own. The Phase 6 number is not wrong, just measured before this phase
+existed — both numbers are real, from real runs, at different points in
+the same session. Absolute time is what improved; the ratio between two
+already-fast things is less meaningful than either being fast.
+
+**Regression coverage:** `tests/test_spatial_clustering.js` — a peak far
+outside the cutoff doesn't distort a nearby peak's boundary (verified
+non-vacuous against an injected 1.5-sigma cutoff), a threshold deep in the
+Gaussian tail still reaches its full boundary radius (same non-vacuous
+check), three peaks at near/mid/far distances get independently correct
+boundaries. `tests/test_collective_manager.js` — a new brute-force
+reference implementation (the literal pre-fix algorithm, reimplemented
+directly in the test rather than imported) diffed cell-by-cell against the
+real output on a 5-point mixed-distance fixture; verified non-vacuous
+against an injected splat-window-too-small bug, which required bumping the
+test's grid resolution from 9 to 40 after discovering the bug was
+invisible at coarse resolution (the `Math.max(1, ...)` cell-radius floor
+masked a 10x window-size error when the "correct" radius already rounded
+up to that floor). Full suite green (625 tests, 1 pre-existing
+environment-gated skip).
+
+**Risk:** low — both restructurings preserve the exact per-cell formula
+(cutoff, IDW weights, exact-match, peak-preservation blend); the risk that
+materialized during development was in getting a correctness-verification
+fixture that actually exercised the logic, not in the restructuring itself.
+
+**Verify:** `tests/test_spatial_clustering.js` and
+`tests/test_collective_manager.js`'s new tests; `tests/manual/_bench_render_perf.js`
+bench 4 for the timing claim.
+
+### Phase 9 — Simplification pass across Phases 0–8
 
 **Status:** NOT STARTED — added to the plan on request, not yet scoped or
 implemented. Per this project's own established practice (see the Phase 3
@@ -620,15 +738,16 @@ listener/consumer is actually gone, or two code shapes are actually
 identical, before merging or deleting anything. "Looks similar" is not
 "is duplicated."
 
-**Goal:** seven phases of additive, independently-shippable work (plus
+**Goal:** eight phases of additive, independently-shippable work (plus
 several ad-hoc fixes) have landed on top of each other without a pass
 dedicated to looking back across all of it for consolidation. Unlike
-Phases 0–7, this phase is not chasing a bug or a measured cost — it's
+Phases 0–8, this phase is not chasing a bug or a measured cost — it's
 asking whether the code that fixed them can now say the same thing in less
 of it, without changing behavior. Scope: `visualiser/*.js` source files
-touched by Phases 0–7 (`map.js` above all — it has grown the most; also
-`app_state.js`, `ui.js`, `analyzer.js`). Explicitly not a rewrite or a
-restyling pass — see §2's existing out-of-scope list, which still applies.
+touched by Phases 0–8 (`map.js` above all — it has grown the most; also
+`app_state.js`, `ui.js`, `analyzer.js`, `spatial_clustering.js`,
+`collective_manager.js`). Explicitly not a rewrite or a restyling pass —
+see §2's existing out-of-scope list, which still applies.
 
 **Candidates to audit (none pre-approved for a code change):**
 1. **The `refresh*()` partial-render family in `map.js`**
@@ -668,10 +787,21 @@ restyling pass — see §2's existing out-of-scope list, which still applies.
    to keep in sync instead of two cross-referencing each other. Not urgent —
    do this last, only if the companion doc's remaining open items shrink to
    near-zero.
+5. **The cell-window-from-radius calculation in `spatial_clustering.js`
+   (`getConcaveBlob`) and `collective_manager.js` (`generateContourSurface`,
+   Phase 8)** — both independently compute "which grid rows/cols could be
+   within N meters of this point" (degrees-per-cell, `Math.ceil`, center
+   index, clamp to grid bounds). Audit whether the two are actually the same
+   few lines duplicated across files (candidate for a shared geo-grid
+   utility) or whether they differ enough in practice (different padding/
+   bounds conventions, different cutoff semantics) that extracting one would
+   paper over a real distinction. Don't assume — this phase's own status
+   note recorded the two as parallel restructurings of the same idea, not
+   as verified-identical code.
 
 **Explicitly out of scope:** no line-count target, no forced extraction
 of "helper" files for their own sake, no touching code outside what
-Phases 0–7 actually modified. If an audited candidate turns out not to be
+Phases 0–8 actually modified. If an audited candidate turns out not to be
 genuine duplication, the correct outcome is leaving it alone and recording
 why — same as Phase 3 step 4's dropdown/`switchActiveTrack` findings.
 
@@ -714,7 +844,12 @@ Phase 7 (analyzer.js perf)    ── independent of Phase 6 (different subsystem
                                │   same session, found via the Phase 6 A/B
                                │   benchmarking approach applied elsewhere
                                │
-Phase 8 (simplification pass) ── sequence last, after Phase 6 fully closes;
+Phase 8 (collective density perf) ── independent of Phase 6/7 (spatial
+                               │   clustering + contour interpolation);
+                               │   landed same session, same A/B approach
+                               │   applied a third time
+                               │
+Phase 9 (simplification pass) ── sequence last, after Phase 6 fully closes;
                                    audit-first, no pre-approved code changes
 ```
 
@@ -726,4 +861,5 @@ Phase 8 (simplification pass) ── sequence last, after Phase 6 fully closes;
 - Phase 6: is collective mode's `renderCollectiveData()` partial-render migration (step 2) worth the risk on its own, or should it wait until a user actually reports collective-mode sluggishness the way the single-track case was reported? The single-track fix landed reactively, not speculatively — the collective-mode piece risks being speculative unless there's a concrete report to size it against.
 - ~~Phase 6 (added 2026-08-07): is perf-routes §2.4 ... worth fixing~~ — resolved: fixed the same session, once asked to act on the measured ~33ms/call finding (see Phase 6's status note).
 - Phase 7: is `GpsFilter.applyKalman()`'s ~110ms/35k-points cost (spot-checked, not a bug — see Phase 7's own note) worth further profiling? Left as a flagged-not-sized candidate, lower priority than `analyze()` was since it's cached above and only 1 of 2 slider groups triggers it.
-- Phase 8: none of its four candidates are pre-approved — the open question for each is answered by the audit itself (see Phase 8's own "Candidates to audit" list), not listed separately here.
+- Phase 8: `generateContourSurface()`'s `topographySource === 'peaks'` branch was deliberately left as a direct (non-splat) scan — peak counts are typically far smaller than the point set the IDW branch handles. Not sized; revisit only if a real track's peak count makes it worth it.
+- Phase 9: none of its five candidates are pre-approved — the open question for each is answered by the audit itself (see Phase 9's own "Candidates to audit" list), not listed separately here.

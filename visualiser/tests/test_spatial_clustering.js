@@ -324,3 +324,69 @@ test('getConcaveBlob: every returned path contains at least one of the cluster p
     assert.ok(containsAPeak);
   }
 });
+
+// ─── getConcaveBlob perf fix (2026-08-07): cutoff + splat restructuring ───
+// docs/visualizer_architecture_refactor_plan.md Phase 7. The density-grid
+// loop used to scan every (grid cell, peak) pair unconditionally; it now
+// (a) skips Math.exp() for pairs beyond a 6-sigma cutoff (negligible
+// contribution) and (b) only touches the small window of cells that could
+// possibly be within that cutoff of each peak, instead of scanning the
+// full 70x70 grid for every peak. Verified byte-identical against the
+// pre-fix implementation on real 800+ peak collective data (see the plan
+// doc's Phase 7 status note) — these tests pin the two behaviors that
+// restructuring could plausibly get wrong: a peak far outside the cutoff
+// contributing nothing, and the splat window not clipping a peak's own
+// legitimate boundary.
+test('getConcaveBlob: a peak far outside the density cutoff does not distort a nearby peak\'s boundary radius', () => {
+  const sigma = 15, thresholdRadius = 18;
+  // Second peak ~500m away — far beyond any plausible cutoff for this
+  // sigma/threshold pairing (6*sigma = 90m) — so the boundary radius around
+  // the first peak should be indistinguishable from the single-peak case.
+  const cluster = [{ lat: 0, lon: 0 }, { lat: 0.0045, lon: 0 }];
+  const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, thresholdRadius);
+  const distsFromFirst = [];
+  for (const path of paths) {
+    for (const pt of path) {
+      const d = GeoUtils.haversineMeters(cluster[0].lat, cluster[0].lon, pt.lat, pt.lon);
+      if (d < 100) distsFromFirst.push(d); // only points that belong to peak 0's own blob
+    }
+  }
+  const maxDist = Math.max(...distsFromFirst);
+  assert.ok(maxDist > thresholdRadius * 0.7 && maxDist < thresholdRadius * 1.3,
+    `expected peak 0's boundary ~${thresholdRadius}m (unaffected by the far peak), got ${maxDist.toFixed(2)}m`);
+});
+
+test('getConcaveBlob: a threshold deep in the Gaussian tail (thresholdRadius >> sigma) still reaches its boundary radius', () => {
+  // sigma=5, thresholdRadius=25 -> the isolevel sits at exp(-25^2/(2*25)) =
+  // exp(-12.5), deep in the tail. A too-tight cutoff (this fix uses 6 sigma
+  // = 30m, comfortably past 25m) would silently shrink the boundary well
+  // below thresholdRadius instead of reaching it, because contributions
+  // between the (buggy) cutoff and the real isolevel distance would be
+  // dropped as if they were negligible when they aren't, at this shape.
+  const sigma = 5, thresholdRadius = 25;
+  const cluster = [{ lat: 0, lon: 0 }];
+  const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, thresholdRadius);
+  const maxDist = maxDistFromPeak(cluster[0], paths);
+  assert.ok(maxDist > thresholdRadius * 0.7 && maxDist < thresholdRadius * 1.3,
+    `expected boundary ~${thresholdRadius}m even deep in the tail, got ${maxDist.toFixed(2)}m`);
+});
+
+test('getConcaveBlob: three peaks spanning near/mid/far distances all get correctly-sized independent boundaries', () => {
+  // 0m, ~40m, ~600m apart — the middle peak is close enough that a
+  // too-small splat window would clip its boundary, and the far peak is
+  // close enough (relative to a buggy huge cutoff) that it could wrongly
+  // bleed into the others if the cutoff distance were computed wrong.
+  const sigma = 4.15, thresholdRadius = 5; // matches this codebase's actual default clustering params
+  const cluster = [
+    { lat: 0, lon: 0 },
+    { lat: 0.00036, lon: 0 },  // ~40m north
+    { lat: 0.0054, lon: 0 },   // ~600m north
+  ];
+  const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, thresholdRadius);
+  assert.ok(paths.length >= 2, 'well-separated peaks should not all merge into one blob');
+  // Every peak must be inside at least one returned path (isolated-island filter).
+  for (const pk of cluster) {
+    const found = paths.some(path => GeoUtils.pointInPolygon(pk.lat, pk.lon, path));
+    assert.ok(found, `peak at (${pk.lat},${pk.lon}) should be enclosed by its own boundary blob`);
+  }
+});

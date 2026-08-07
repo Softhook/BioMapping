@@ -350,15 +350,20 @@ function benchSingleTrackPeakRefresh() {
   printSpeedup(fullResult, scopedResult);
 }
 
+// Real same-city tracks (all London — see bench 4's comment for why this
+// matters: an earlier fixture accidentally included a track recorded in a
+// different city entirely, which produces a degenerate all-null grid that
+// hid a real bug during development of the bench 4 fix).
+const COLLECTIVE_FIXTURE_FILES = ['biomap_016.csv', 'biomap_039.csv', 'biomap_048.csv', 'biomap_015.csv'];
+
 // ── Bench 3: collective-mode peak-label edit — refreshCollectivePeakMarkers() vs full renderCollectiveData() ──
 function benchCollectiveTrackPeakRefresh() {
   console.log('── Bench 3: collective-mode peak-label edit — refreshCollectivePeakMarkers() vs full renderCollectiveData() ──');
-  console.log('   (map.js, Phase 6 step 2 collective piece; fixture: 5 real tracks)\n');
+  console.log('   (map.js, Phase 6 step 2 collective piece; fixture: 4 real same-city tracks)\n');
 
   const { window, mapManager, context } = bootWithRecordingL();
   window.AppState.viewMode = 'collective';
-  const files = ['biomap_016.csv', 'biomap_039.csv', 'biomap_048.csv', 'biomap_015.csv', 'biomap_113_processed.csv'];
-  const tracks = files.map((f, idx) => loadRealTrack(window, `bench-${idx}`, f));
+  const tracks = COLLECTIVE_FIXTURE_FILES.map((f, idx) => loadRealTrack(window, `bench-${idx}`, f));
   const totalPeaks = tracks.reduce((s, t) => s + t.analyzer.peaks.length, 0);
   console.log(`   fixture: ${tracks.length} tracks, ${totalPeaks} total peaks (target track: ${tracks[0].analyzer.peaks.length} peaks)\n`);
 
@@ -383,6 +388,47 @@ function benchCollectiveTrackPeakRefresh() {
   printSpeedup(fullResult, scopedResult);
 }
 
+// ── Bench 4: cold collective render — getConcaveBlob() + generateContourSurface() cost ──
+// Unlike bench 3 (a label edit on an ALREADY-rendered collective view), this
+// times the full renderCollectiveData() cost itself — what pays every time
+// collective mode is entered, a track is added/removed, or a contour
+// parameter changes. Both GSRSpatialClustering.getConcaveBlob() (cluster
+// boundary blobs) and GSRCollectiveManager.generateContourSurface() (the
+// IDW topography surface) used to scan every (grid cell, peak-or-point)
+// pair unconditionally; both are now point-major splats that only touch
+// cells within actual range. See docs/visualizer_architecture_refactor_plan.md
+// Phase 7 for the full before/after (verified via git stash on this exact
+// fixture: ~101ms -> ~36ms, 2.8x, for the full renderCollectiveData() call).
+function benchCollectiveColdRender() {
+  console.log('── Bench 4: cold collective render — getConcaveBlob()/generateContourSurface() cost ──');
+  console.log('   (spatial_clustering.js + collective_manager.js, Phase 7; fixture: 4 real same-city tracks)\n');
+
+  const { window, mapManager, context } = bootWithRecordingL();
+  window.AppState.viewMode = 'collective';
+  const tracks = COLLECTIVE_FIXTURE_FILES.map((f, idx) => loadRealTrack(window, `bench4-${idx}`, f));
+  const totalPeaks = tracks.reduce((s, t) => s + t.analyzer.peaks.length, 0);
+  console.log(`   fixture: ${tracks.length} tracks, ${totalPeaks} total peaks\n`);
+
+  const contourParams = { gridResolution: 40, contourCount: 10, isolationRadius: 50, idwExponent: 2, topographySource: 'phasic', showShadedSurface: false, normalizeZScore: true, surfaceOpacity: 0.4 };
+  const collectiveManager = window.AppState.collectiveManager;
+
+  const GSRSpatialClustering = vm.runInContext('GSRSpatialClustering', context);
+  let blobMs = 0, blobN = 0, surfaceMs = 0, surfaceN = 0;
+  const origBlob = GSRSpatialClustering.getConcaveBlob.bind(GSRSpatialClustering);
+  GSRSpatialClustering.getConcaveBlob = (...a) => { const t0 = process.hrtime.bigint(); const r = origBlob(...a); blobMs += Number(process.hrtime.bigint() - t0) / 1e6; blobN++; return r; };
+  const origSurface = collectiveManager.generateContourSurface.bind(collectiveManager);
+  collectiveManager.generateContourSurface = (...a) => { const t0 = process.hrtime.bigint(); const r = origSurface(...a); surfaceMs += Number(process.hrtime.bigint() - t0) / 1e6; surfaceN++; return r; };
+
+  const fullResult = bench('renderCollectiveData() [current]', 3, 12, () => {
+    mapManager.renderCollectiveData(collectiveManager, contourParams, 0);
+  });
+  printRow(fullResult);
+  console.log(`  getConcaveBlob:          avg=${(blobMs / blobN).toFixed(3)}ms/call over ${blobN} calls`);
+  console.log(`  generateContourSurface:  avg=${(surfaceMs / surfaceN).toFixed(3)}ms/call over ${surfaceN} calls`);
+  console.log('  (compare against this phase\'s documented pre-fix numbers — see the plan doc)\n');
+}
+
 benchRfSpatialIndex();
 benchSingleTrackPeakRefresh();
 benchCollectiveTrackPeakRefresh();
+benchCollectiveColdRender();

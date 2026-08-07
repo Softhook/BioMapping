@@ -326,3 +326,100 @@ test('generateContourSurface: minVal===maxVal (perfectly flat surface) is nudged
   assert.ok(result.maxVal > result.minVal, 'degenerate flat range should be nudged apart by +0.1');
   assert.ok(Math.abs((result.maxVal - result.minVal) - 0.1) < 1e-9);
 });
+
+// ─── generateContourSurface perf fix (2026-08-07): boundary-mask + IDW splat ──
+// docs/visualizer_architecture_refactor_plan.md Phase 7. Both the boundary
+// mask (isNearTrack) and the IDW accumulation used to scan every point for
+// every grid cell, computing then mostly discarding a distance; both are now
+// point-major splats that only touch the small window of cells within range
+// of each point. Verified byte-identical against the pre-fix implementation
+// on real 4-track/700+-peak collective data (see the plan doc's Phase 7
+// status note). This test pins the same guarantee with an independent
+// brute-force reference (the literal pre-fix algorithm, reimplemented here
+// rather than imported) against real result.bounds, so a future change to
+// either implementation that silently diverges gets caught.
+function bruteForceIdwGrid(points, bounds, rows, cols, isolationRadius, idwExponent) {
+  const DEG_TO_M_LAT = 111320.0;
+  const latMid = (bounds.minLat + bounds.maxLat) / 2;
+  const DEG_TO_M_LON = 111320.0 * Math.cos(latMid * Math.PI / 180);
+  const dist = (lat1, lon1, lat2, lon2) => {
+    const dy = (lat1 - lat2) * DEG_TO_M_LAT;
+    const dx = (lon1 - lon2) * DEG_TO_M_LON;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+  const grid = Array.from({ length: rows }, () => new Array(cols).fill(null));
+  for (let r = 0; r < rows; r++) {
+    const gridLat = bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat);
+    for (let c = 0; c < cols; c++) {
+      const gridLon = bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon);
+      let isNearTrack = false;
+      for (const p of points) {
+        if (dist(gridLat, gridLon, p.lat, p.lon) <= isolationRadius) { isNearTrack = true; break; }
+      }
+      if (!isNearTrack) { grid[r][c] = null; continue; }
+
+      let sumWeightedVal = 0, sumWeight = 0, localMax = -Infinity, exactMatch = false;
+      for (const p of points) {
+        const d = dist(gridLat, gridLon, p.lat, p.lon);
+        if (d < 1e-3) { grid[r][c] = p.phasic; exactMatch = true; break; }
+        if (d <= isolationRadius * 1.5) {
+          const w = 1.0 / Math.pow(d, idwExponent);
+          sumWeightedVal += w * p.phasic;
+          sumWeight += w;
+          if (p.phasic > localMax) localMax = p.phasic;
+        }
+      }
+      if (!exactMatch) {
+        grid[r][c] = sumWeight > 0 ? 0.5 * (sumWeightedVal / sumWeight) + 0.5 * localMax : null;
+      }
+    }
+  }
+  return grid;
+}
+
+test('generateContourSurface: IDW grid matches an independent brute-force reference implementation', () => {
+  // 5 points scattered at varied distances (some within isolationRadius*1.5
+  // of each other, some not) with distinct phasic values, small enough that
+  // checkStep (the boundary mask's own sampling stride) is 1 — every point
+  // participates in both the reference and the real computation identically.
+  const pts = [
+    { lat: 51.5000, lon: -0.1000, phasic: 1.0 },
+    { lat: 51.5003, lon: -0.1000, phasic: 2.0 },  // ~33m from pt0
+    { lat: 51.5000, lon: -0.0990, phasic: 3.0 },  // ~69m from pt0 (east)
+    { lat: 51.5020, lon: -0.1020, phasic: 4.0 },  // ~250m from pt0 (far)
+    { lat: 51.4990, lon: -0.1010, phasic: 5.0 },  // ~140m from pt0 (south)
+  ];
+  const phasic = pts.map((p, i) => ({ time: i, val: p.phasic }));
+  const mgr = new GSRCollectiveManager();
+  mgr.addTrack(makeTrack('a', pts, { phasic, phasicZ: phasic }));
+
+  // A fine grid (40x40, ~14m/cell over this fixture's bounds) so the splat
+  // window genuinely spans several cells in each direction rather than
+  // rounding up to the Math.max(1, ...) single-cell floor either way — a
+  // coarser grid was tried first and turned out to mask a real window-sizing
+  // bug entirely (both a correct and a 10x-too-small radius calculation
+  // floored to the same 1-cell window at that resolution).
+  const isolationRadius = 60, idwExponent = 2, gridResolution = 40;
+  const result = mgr.generateContourSurface({
+    gridResolution, contourCount: 3, isolationRadius, idwExponent,
+    topographySource: 'phasic', normalizeZScore: false,
+  });
+
+  const expected = bruteForceIdwGrid(pts, result.bounds, gridResolution, gridResolution, isolationRadius, idwExponent);
+
+  let nonNullCells = 0;
+  for (let r = 0; r < gridResolution; r++) {
+    for (let c = 0; c < gridResolution; c++) {
+      const actual = result.grid[r][c];
+      const exp = expected[r][c];
+      if (exp === null) {
+        assert.strictEqual(actual, null, `cell [${r}][${c}]: expected null (far from every point), got ${actual}`);
+      } else {
+        assert.ok(actual !== null, `cell [${r}][${c}]: expected ${exp}, got null`);
+        assert.ok(Math.abs(actual - exp) < 1e-6, `cell [${r}][${c}]: expected ${exp}, got ${actual}`);
+        nonNullCells++;
+      }
+    }
+  }
+  assert.ok(nonNullCells > 0, 'precondition: at least some cells should be near enough to a point to have a value');
+});

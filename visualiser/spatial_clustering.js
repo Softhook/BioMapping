@@ -308,19 +308,59 @@ class GSRSpatialClustering {
     const twoSigmaSq = 2 * s * s;
     const m = cluster.length;
 
-    // Calculate density at each grid cell
-    for (let r = 0; r < rows; r++) {
-      const lat = lats[r];
-      for (let c = 0; c < cols; c++) {
-        const lon = lons[c];
-        
-        let density = 0;
-        for (let i = 0; i < m; i++) {
-          const pk = cluster[i];
-          const dSq = GSRSpatialClustering._getDistanceMetersSq(lat, lon, pk.lat, pk.lon, scale);
-          density += weightForPeak(pk) * Math.exp(-dSq / twoSigmaSq);
+    // A Gaussian kernel's contribution is negligible far past a few sigma —
+    // at 6 sigma it's exp(-18) ~= 1.5e-8, and even summed across every peak
+    // in the cluster in the worst case that's still ~4-5 orders of magnitude
+    // below a typical isolevel threshold (~1e-4 to 1e-5 with this codebase's
+    // defaults). Standard Gaussian-kernel truncation practice, not an
+    // approximation that changes the rendered contour.
+    //
+    // Found via real A/B benchmarking (docs/visualizer_architecture_refactor_plan.md
+    // Phase 7): on a real 5-track/822-peak collective fixture, ~94% of
+    // (grid cell, peak) pairs fell beyond this cutoff, and this loop was the
+    // dominant cost of a full collective re-render (~87ms of ~115ms). A
+    // first pass just skipped Math.exp() for far pairs but kept the
+    // cell-major loop (scan every cell for every peak, discard most) — that
+    // only bought ~20%, because V8's Math.exp() itself turned out to be
+    // cheap (~0.5ns/call); the real cost was the ~4M row/col/peak loop
+    // iterations and _getDistanceMetersSq() calls, 94% of which computed a
+    // distance only to immediately discard it. Restructured to loop peaks
+    // first and "splat" each one's contribution only onto the small
+    // row/col window that could possibly be within cutoffDSq of it — same
+    // physics, but the skipped pairs are never iterated at all instead of
+    // being iterated then discarded.
+    const CUTOFF_SIGMA = 6;
+    const cutoffMeters = CUTOFF_SIGMA * s;
+    const cutoffDSq = cutoffMeters * cutoffMeters;
+
+    const latStep = (bounds.maxLat - bounds.minLat) / (rows - 1);
+    const lonStep = (bounds.maxLon - bounds.minLon) / (cols - 1);
+    const cutoffLatDeg = cutoffMeters / scale.degToMeterLat;
+    const cutoffLonDeg = cutoffMeters / scale.degToMeterLon;
+    const rRadius = Math.max(1, Math.ceil(cutoffLatDeg / latStep));
+    const cRadius = Math.max(1, Math.ceil(cutoffLonDeg / lonStep));
+
+    // Calculate density at each grid cell, one peak's window at a time.
+    for (let i = 0; i < m; i++) {
+      const pk = cluster[i];
+      const w = weightForPeak(pk);
+      const pkLat = parseFloat(pk.lat);
+      const pkLon = parseFloat(pk.lon);
+      const centerRow = Math.round((pkLat - bounds.minLat) / latStep);
+      const centerCol = Math.round((pkLon - bounds.minLon) / lonStep);
+      const rMin = Math.max(0, centerRow - rRadius);
+      const rMax = Math.min(rows - 1, centerRow + rRadius);
+      const cMin = Math.max(0, centerCol - cRadius);
+      const cMax = Math.min(cols - 1, centerCol + cRadius);
+
+      for (let r = rMin; r <= rMax; r++) {
+        const lat = lats[r];
+        const gridRow = grid[r];
+        for (let c = cMin; c <= cMax; c++) {
+          const dSq = GSRSpatialClustering._getDistanceMetersSq(lat, lons[c], pk.lat, pk.lon, scale);
+          if (dSq > cutoffDSq) continue;
+          gridRow[c] += w * Math.exp(-dSq / twoSigmaSq);
         }
-        grid[r][c] = density;
       }
     }
 

@@ -181,27 +181,127 @@ class GSRCollectiveManager {
 
     let minVal = Infinity, maxVal = -Infinity;
 
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const gridLat = bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat);
-        const gridLon = bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon);
+    const latStep = rows > 1 ? (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
+    const lonStep = cols > 1 ? (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
+    const gridLatOf = (r) => bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat);
+    const gridLonOf = (c) => bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon);
+    // Window (in grid rows/cols) that could possibly fall within `meters` of
+    // a point at (lat, lon) — used by both splats below to avoid touching
+    // every cell for every point (see the perf note further down).
+    const cellWindowFor = (lat, lon, meters) => {
+      const radLatDeg = meters / DEG_TO_M_LAT;
+      const radLonDeg = meters / DEG_TO_M_LON;
+      const rRad = latStep > 0 ? Math.max(1, Math.ceil(radLatDeg / latStep)) : rows;
+      const cRad = lonStep > 0 ? Math.max(1, Math.ceil(radLonDeg / lonStep)) : cols;
+      const centerRow = latStep > 0 ? Math.round((lat - bounds.minLat) / latStep) : 0;
+      const centerCol = lonStep > 0 ? Math.round((lon - bounds.minLon) / lonStep) : 0;
+      return {
+        rMin: Math.max(0, centerRow - rRad), rMax: Math.min(rows - 1, centerRow + rRad),
+        cMin: Math.max(0, centerCol - cRad), cMax: Math.min(cols - 1, centerCol + cRad)
+      };
+    };
 
-        // Boundary mask — check proximity to any walk track
-        // Sample at ~2x the stride of the contour grid to balance speed vs accuracy
-        let isNearTrack = false;
-        let minTrackDist = Infinity;
-        const checkStep = Math.max(1, Math.floor(points.length / (rows * cols * 2)));
-        for (let i = 0; i < points.length; i += checkStep) {
-          const dist = getDistanceMeters(gridLat, gridLon, points[i].lat, points[i].lon);
-          if (dist < minTrackDist) minTrackDist = dist;
-          if (dist <= isolationRadius) { isNearTrack = true; break; }
+    // Boundary mask — is this cell within isolationRadius of ANY (sampled)
+    // walk-track point? Splat each sampled point onto its own small window
+    // of nearby cells instead of, per cell, scanning every sampled point
+    // with an early break — same "is any point near" answer (see below),
+    // computed without the O(rows*cols*sampledPoints) worst case (a cell
+    // far from every track — which happens for most of the grid outside a
+    // track's own corridor — used to scan the ENTIRE sampled point set
+    // before concluding "not near").
+    //
+    // Equivalence: the original's fallback `minTrackDist > isolationRadius`
+    // check only ever runs when `!isNearTrack` — i.e. no sampled point was
+    // within isolationRadius — which by construction already means every
+    // sampled distance exceeded isolationRadius, so minTrackDist (their min)
+    // must exceed it too. The fallback condition is therefore always true
+    // exactly when isNearTrack is false, making the mask equivalent to
+    // "was any sampled point within isolationRadius of this cell" — which is
+    // what the splat below computes directly. Verified empirically against
+    // the original cell-major scan on real tracks, not just by this
+    // derivation (see tests/test_collective_manager.js).
+    const checkStep = Math.max(1, Math.floor(points.length / (rows * cols * 2)));
+    const nearTrack = new Uint8Array(rows * cols);
+    for (let i = 0; i < points.length; i += checkStep) {
+      const p = points[i];
+      const w = cellWindowFor(p.lat, p.lon, isolationRadius);
+      for (let r = w.rMin; r <= w.rMax; r++) {
+        const gridLat = gridLatOf(r);
+        const rowOff = r * cols;
+        for (let c = w.cMin; c <= w.cMax; c++) {
+          const idx = rowOff + c;
+          if (nearTrack[idx]) continue;
+          const dist = getDistanceMeters(gridLat, gridLonOf(c), p.lat, p.lon);
+          if (dist <= isolationRadius) nearTrack[idx] = 1;
         }
-        if (!isNearTrack && minTrackDist > isolationRadius) {
+      }
+    }
+
+    // Continuous (non-peak) topography sources: raw phasic/tonic, or the
+    // threshold-independent Phasic AUC / Combined Arousal Index. Same splat
+    // restructuring as the boundary mask above — point-major instead of
+    // cell-major — for the identical reason: the vast majority of
+    // (cell, point) pairs are beyond isolationRadius*1.5 and get discarded
+    // after computing a distance for nothing. Found via real A/B
+    // benchmarking (docs/visualizer_architecture_refactor_plan.md Phase 7):
+    // this was the dominant cost of generateContourSurface() on a real
+    // 5-track collective fixture (up to CONTOUR_MAX_POINTS=20,000 points x
+    // gridResolution^2 cells, unindexed).
+    const sumWeightedVal = new Float64Array(rows * cols);
+    const sumWeight = new Float64Array(rows * cols);
+    const localMaxArr = new Float64Array(rows * cols).fill(-Infinity);
+    const exactMatchVal = new Float64Array(rows * cols);
+    const hasExactMatch = new Uint8Array(rows * cols);
+    if (topographySource !== 'peaks') {
+      const idwRadius = isolationRadius * 1.5;
+      for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        const pointVal = topographySource === 'tonic' ? p.tonic :
+                          topographySource === 'auc' ? p.phasicAUC :
+                          topographySource === 'arousal_index' ? p.arousalIndex :
+                          p.phasic;
+        const w = cellWindowFor(p.lat, p.lon, idwRadius);
+        for (let r = w.rMin; r <= w.rMax; r++) {
+          const gridLat = gridLatOf(r);
+          const rowOff = r * cols;
+          for (let c = w.cMin; c <= w.cMax; c++) {
+            const idx = rowOff + c;
+            if (!nearTrack[idx] || hasExactMatch[idx]) continue;
+            const d = getDistanceMeters(gridLat, gridLonOf(c), p.lat, p.lon);
+            if (d < 1e-3) {
+              exactMatchVal[idx] = pointVal;
+              hasExactMatch[idx] = 1;
+              continue;
+            }
+            if (d <= idwRadius) {
+              const wt = 1.0 / Math.pow(d, idwExponent);
+              sumWeightedVal[idx] += wt * pointVal;
+              sumWeight[idx] += wt;
+              if (pointVal > localMaxArr[idx]) localMaxArr[idx] = pointVal;
+            }
+          }
+        }
+      }
+    }
+
+    const alpha = GSR_CONST.COLLECTIVE.peakPreservation !== undefined ? GSR_CONST.COLLECTIVE.peakPreservation : 0.5;
+
+    for (let r = 0; r < rows; r++) {
+      const gridLat = gridLatOf(r);
+      const rowOff = r * cols;
+      for (let c = 0; c < cols; c++) {
+        const idx = rowOff + c;
+        if (!nearTrack[idx]) {
           grid[r][c] = null;
           continue;
         }
+        const gridLon = gridLonOf(c);
 
         if (topographySource === 'peaks') {
+          // Peak count is typically far smaller than the point set above
+          // (dozens-to-hundreds vs up to 20,000) — left as a direct scan,
+          // not restructured; see this phase's status note for why this
+          // branch wasn't prioritized.
           let density = 0;
           for (const pk of peaks) {
             const d = getDistanceMeters(gridLat, gridLon, pk.lat, pk.lon);
@@ -211,45 +311,17 @@ class GSRCollectiveManager {
             density += weight * Math.exp(-(d * d) / (2 * peakSigma * peakSigma));
           }
           grid[r][c] = density;
+        } else if (hasExactMatch[idx]) {
+          grid[r][c] = exactMatchVal[idx];
+        } else if (sumWeight[idx] > 0) {
+          const weightedMean = sumWeightedVal[idx] / sumWeight[idx];
+          // Blend the smooth IDW mean with the local peak envelope (the highest single
+          // value recorded nearby) so a lone transient spike survives the merge instead
+          // of being averaged down toward its calmer neighborhood — pure IDW mean was
+          // the main reason isolated peaks disappeared from the surface entirely.
+          grid[r][c] = (1 - alpha) * weightedMean + alpha * localMaxArr[idx];
         } else {
-          // Continuous (non-peak) topography sources: raw phasic/tonic, or the
-          // threshold-independent Phasic AUC / Combined Arousal Index.
-          let sumWeightedVal = 0, sumWeight = 0;
-          let localMax = -Infinity;
-          let exactMatch = false;
-          for (let i = 0; i < points.length; i++) {
-            const p = points[i];
-            const d = getDistanceMeters(gridLat, gridLon, p.lat, p.lon);
-            const pointVal = topographySource === 'tonic' ? p.tonic :
-                              topographySource === 'auc' ? p.phasicAUC :
-                              topographySource === 'arousal_index' ? p.arousalIndex :
-                              p.phasic;
-            if (d < 1e-3) {
-              grid[r][c] = pointVal;
-              exactMatch = true;
-              break;
-            }
-            if (d <= isolationRadius * 1.5) {
-              const val = pointVal;
-              const w = 1.0 / Math.pow(d, idwExponent);
-              sumWeightedVal += w * val;
-              sumWeight += w;
-              if (val > localMax) localMax = val;
-            }
-          }
-          if (!exactMatch) {
-            if (sumWeight > 0) {
-              const weightedMean = sumWeightedVal / sumWeight;
-              // Blend the smooth IDW mean with the local peak envelope (the highest single
-              // value recorded nearby) so a lone transient spike survives the merge instead
-              // of being averaged down toward its calmer neighborhood — pure IDW mean was
-              // the main reason isolated peaks disappeared from the surface entirely.
-              const alpha = GSR_CONST.COLLECTIVE.peakPreservation !== undefined ? GSR_CONST.COLLECTIVE.peakPreservation : 0.5;
-              grid[r][c] = (1 - alpha) * weightedMean + alpha * localMax;
-            } else {
-              grid[r][c] = null;
-            }
-          }
+          grid[r][c] = null;
         }
 
         const val = grid[r][c];
