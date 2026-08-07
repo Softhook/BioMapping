@@ -126,16 +126,28 @@ console.log('── Running Hillshade Algorithm Test ──');
   console.log('✓ Masked cells handled without crashing; all shaded cells stay finite and within [0,1]');
 }
 
-// ── Test 5: perf smoke — 200x200 (the UI's max gridResolution, index.html
-// #gridResolution max="200") computes well within a single frame budget. ──
+// ── Test 5: perf smoke — 400x400 (the UI's max gridResolution, index.html
+// #gridResolution max="400"). The hillshade pass itself stays cheap even at
+// this size (~15ms budget here) — generateContourSurface()'s own grid
+// interpolation is the dominant cost at 400x400 (~125ms on a real 3-track
+// fixture per the perf investigation that set this max), not hillshading. ──
 {
-  const rows = 200, cols = 200;
+  const rows = 400, cols = 400;
   const grid = Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => Math.sin(r * 0.3) + Math.cos(c * 0.2)));
-  const t0 = process.hrtime.bigint();
-  Hillshade.compute(grid, rows, cols, 1, 1, { azimuthDeg: 315, altitudeDeg: 45 });
-  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-  assert(ms < 30, `200x200 hillshade pass completes in well under a frame budget (took ${ms.toFixed(3)}ms)`);
-  console.log(`✓ 200x200 grid (UI max resolution) hillshades in ${ms.toFixed(3)}ms`);
+  // `node --test tests/*.js` runs test files concurrently, so a single
+  // timed call is noisy under CPU contention from sibling test files —
+  // warm up, take several samples, and assert on the MINIMUM (the sample
+  // least polluted by contention), same approach tests/manual/_bench_render_perf.js
+  // uses for exactly this reason.
+  for (let i = 0; i < 2; i++) Hillshade.compute(grid, rows, cols, 1, 1, { azimuthDeg: 315, altitudeDeg: 45 });
+  let minMs = Infinity;
+  for (let i = 0; i < 5; i++) {
+    const t0 = process.hrtime.bigint();
+    Hillshade.compute(grid, rows, cols, 1, 1, { azimuthDeg: 315, altitudeDeg: 45 });
+    minMs = Math.min(minMs, Number(process.hrtime.bigint() - t0) / 1e6);
+  }
+  assert(minMs < 100, `400x400 hillshade pass completes in well under a frame budget (best of 5: ${minMs.toFixed(3)}ms)`);
+  console.log(`✓ 400x400 grid (UI max resolution) hillshades in ${minMs.toFixed(3)}ms (best of 5)`);
 }
 
 // ── Test 6: azimuthDeg calibration — a slope whose real downhill direction
@@ -206,6 +218,71 @@ console.log('── Running Hillshade Algorithm Test ──');
   assert(shade.length === rows * cols, 'shade array covers every cell');
   assert(shade[1 * cols + 1] > 0, 'An unmasked interior cell gets a real (non-zero-by-default) shade value');
   console.log('✓ shadeValueGrid() hillshades the same ratio field a caller\'s color fill uses, and exposes it via ratioGrid');
+}
+
+// ── Test 8: valueRatio() — the single canonical formula now used by map.js,
+// map_exporter.js, and buildRatioGrid instead of four independent copies. ──
+{
+  const sorted = [10, 20, 30, 40, 50];
+  assert.strictEqual(Hillshade.valueRatio(30, 10, 50, sorted, (v, s) => s.indexOf(v) / (s.length - 1)), 0.5, 'Uses rankFn when a real sorted-values distribution is given');
+  assert.strictEqual(Hillshade.valueRatio(30, 10, 50, undefined, undefined), 0.5, 'Falls back to linear min/max ratio when no rankFn/sortedVals is given (30 is halfway between 10 and 50)');
+  assert.strictEqual(Hillshade.valueRatio(5, 10, 10, undefined, undefined), 0.5, 'Degenerate minVal===maxVal falls back to the neutral 0.5 ratio, not division by zero/NaN');
+  assert.strictEqual(Hillshade.valueRatio(30, 10, 50, [42], (v, s) => 0.9), 0.5, 'A single-element sortedVals (rank undefined) is treated as "no real distribution" and falls back to linear, ignoring rankFn');
+  console.log('✓ valueRatio() is the single ratio formula: percentile rank when available, linear min/max fallback otherwise');
+}
+
+// ── Test 9: buildRatioGrid() — valueRatio() applied per-cell, preserving the
+// source grid's null mask. ──────────────────────────────────────────────────
+{
+  const rows = 4, cols = 4;
+  const grid = Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => (r === 2 && c === 2) ? null : r * 4 + c));
+  const ratioGrid = Hillshade.buildRatioGrid(grid, rows, cols, { minVal: 0, maxVal: 15 });
+  assert.strictEqual(ratioGrid[2][2], null, 'Masked source cell stays null');
+  assert.strictEqual(ratioGrid[0][0], 0, 'Min-value cell ratio is 0');
+  assert.strictEqual(ratioGrid[3][3], 1, 'Max-value cell ratio is 1');
+  console.log('✓ buildRatioGrid() applies valueRatio() per-cell and preserves the null mask');
+}
+
+// ── Test 10: blendLightness() — the single blend formula now used by map.js
+// and map_exporter.js instead of two independent copies. strength=0 must
+// return the baseline EXACTLY (this is what makes the 0% UI slider position
+// a true no-op, not an approximation). ──────────────────────────────────────
+{
+  assert.strictEqual(Hillshade.blendLightness(0.9, 0, 10, 90), 50, 'strength=0 returns the default baseline (50) exactly, regardless of shade');
+  assert.strictEqual(Hillshade.blendLightness(1, 1, 10, 90), 90, 'strength=1, shade=1 returns maxLightness exactly');
+  assert.strictEqual(Hillshade.blendLightness(0, 1, 10, 90), 10, 'strength=1, shade=0 returns minLightness exactly');
+  assert.strictEqual(Hillshade.blendLightness(1, 0.5, 10, 90), 70, 'strength=0.5 is a linear midpoint between baseline (50) and the full shaded lightness (90): 50+0.5*(90-50)=70');
+  assert.strictEqual(Hillshade.blendLightness(1, 1, 10, 90, 20), 90, 'Custom baseLightness only matters when strength<1 — at strength=1 it has no effect');
+  assert.strictEqual(Hillshade.blendLightness(1, 0, 10, 90, 20), 20, 'Custom baseLightness is honored at strength=0');
+  console.log('✓ blendLightness() linearly interpolates baseline -> shaded lightness, strength=0 exact no-op');
+}
+
+// ── Test 11: shadeValueGrid()'s zFactor-based shading is mathematically
+// equivalent to the previous implementation, which pre-multiplied a whole
+// second "heightGrid" array by `exaggeration` before calling compute() with
+// the default zFactor=1. Scaling every height by a constant k before
+// computing slope/aspect is identical to computing unscaled and passing
+// zFactor=k (slope's magnitude scales linearly with k; aspect, a ratio of
+// two quantities both scaled by k, is unchanged) — this pins that equivalence
+// so the optimization that dropped the extra array pass can't silently
+// change what gets rendered. ─────────────────────────────────────────────────
+{
+  const rows = 10, cols = 10;
+  const grid = Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => Math.sin(r * 0.4) + Math.cos(c * 0.3)));
+  const minVal = -2, maxVal = 2, exaggeration = 3.7, azimuthDeg = 200, altitudeDeg = 50;
+
+  const { shade: actual } = Hillshade.shadeValueGrid(grid, rows, cols, { minVal, maxVal, exaggeration, azimuthDeg, altitudeDeg });
+
+  // Old approach: build ratioGrid, pre-multiply into a separate heightGrid,
+  // shade with the default zFactor=1.
+  const ratioGrid = Hillshade.buildRatioGrid(grid, rows, cols, { minVal, maxVal });
+  const heightGrid = ratioGrid.map(row => row.map(v => v === null ? null : v * exaggeration));
+  const expected = Hillshade.compute(heightGrid, rows, cols, 1, 1, { azimuthDeg, altitudeDeg });
+
+  for (let i = 0; i < actual.length; i++) {
+    assert(Math.abs(actual[i] - expected[i]) < 1e-6, `Cell ${i}: zFactor-based shade (${actual[i]}) matches the old pre-multiplied-heightGrid shade (${expected[i]})`);
+  }
+  console.log('✓ shadeValueGrid()\'s zFactor optimization produces numerically identical output to the old separate-heightGrid approach');
 }
 
 console.log('\n============================================================');

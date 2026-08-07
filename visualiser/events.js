@@ -878,8 +878,20 @@ const GSREvents = {
     const bindCi = (id, labelId, fmt) => {
       const input = document.getElementById(id);
       const label = document.getElementById(labelId);
+      // Initial dim state — matters for hillshadeStrength specifically,
+      // whose default is 0 ("off"); the others can never reach 0 (all have
+      // min > 0), so this is a no-op for them.
+      GSREvents.updateFilterDim(input);
       input.addEventListener('input', () => {
         if (label) label.innerText = fmt(parseFloat(input.value));
+        // Without this, a slider that starts at 0 (only hillshadeStrength
+        // does) stays marked filter-off — and visually greyed out — forever
+        // after the very first initializeLabels() sweep, even once dragged
+        // up to a nonzero value: this listener is the only place hillshade's
+        // own dim state gets re-evaluated on drag (unlike bindGsrSlider/
+        // bindGpsSlider, which call updateFilterDim from their own input
+        // handlers already).
+        GSREvents.updateFilterDim(input);
         triggerUpdate();
       });
     };

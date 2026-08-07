@@ -19,7 +19,15 @@ function loadModule(filePath, exportName) {
   }
 }
 
-loadModule(path.join(__dirname, 'mock_constants.js'));
+// mock_constants.js is a plain CommonJS module (module.exports = {...}), not
+// a window.X=... browser-style script — require() it directly rather than
+// through the eval-based loadModule() above, which only recovers globals
+// that a script attaches to window. (This was previously silently not
+// loaded at all: GSR_CONST was undefined for this entire file, so
+// _buildVectorMesh's now-removed `typeof GSR_CONST !== 'undefined'` guard
+// was quietly skipping all hillshading here — this test never actually
+// exercised the shaded code path.)
+global.GSR_CONST = require('./mock_constants.js');
 loadModule(path.join(__dirname, '../stats_math.js'),      'StatsMath');
 loadModule(path.join(__dirname, '../map_colors.js'),      'MapColors');
 loadModule(path.join(__dirname, '../geo_utils.js'),       'GeoUtils');

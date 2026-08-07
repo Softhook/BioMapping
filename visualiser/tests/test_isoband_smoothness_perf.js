@@ -39,6 +39,7 @@ loadModule(path.join(__dirname, '../map_colors.js'),      'MapColors');
 loadModule(path.join(__dirname, '../geo_utils.js'),       'GeoUtils');
 loadModule(path.join(__dirname, '../marching_squares.js'),'MarchingSquares');
 loadModule(path.join(__dirname, '../spatial_clustering.js'), 'GSRSpatialClustering');
+loadModule(path.join(__dirname, '../hillshade.js'),       'Hillshade');
 loadModule(path.join(__dirname, '../map_exporter.js'),   'GSRMapExporter');
 
 const { MarchingSquares } = global;
@@ -46,9 +47,12 @@ const GSRMapExporter = global.GSRMapExporter;
 
 console.log('── Running Isoband Smoothness / Performance Regression Test ──');
 
-// Worst-case realistic settings: max gridResolution (80) and max contourCount (25),
-// per index.html's slider bounds, with the hot peak deliberately pinned right up
-// against a map edge/corner.
+// Representative large-grid settings (80x80 — not literally index.html's
+// current #gridResolution max, which has grown since this was written; kept
+// at 80 here since this test targets isoband smoothness/correctness at
+// scale, not the literal slider ceiling, and a larger grid would only slow
+// the test down for no extra coverage) and max contourCount (25), with the
+// hot peak deliberately pinned right up against a map edge/corner.
 const rows = 80, cols = 80;
 const grid = Array.from({ length: rows }, (_, r) =>
   Array.from({ length: cols }, (_, c) => {

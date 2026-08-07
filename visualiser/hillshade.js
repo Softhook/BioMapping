@@ -1,11 +1,16 @@
 /**
- * Grayscale relief shading (hillshade) for a scalar grid surface.
- * Same algorithm GIS tools use for DEM relief shading — Horn's method
- * slope/aspect estimate + Lambertian reflectance against a simulated sun —
- * applied here to collective_manager.js's interpolated arousal/phasic/tonic
- * grid, which is already the same shape as a DEM: a regular raster of
- * scalar "height" values. Pure algorithm, zero dependencies — mirrors
- * marching_squares.js.
+ * Grayscale relief shading (hillshade) for a scalar grid surface, plus the
+ * small shared value->ratio and ratio->lightness math the shading needs to
+ * consume/produce — kept here rather than duplicated at each call site (see
+ * each method's doc for why). Zero hard dependencies: anything another
+ * module would normally own (percentile ranking) is taken as an injected
+ * function parameter instead of imported, mirroring marching_squares.js.
+ *
+ * Core algorithm: Horn's method slope/aspect estimate + Lambertian
+ * reflectance against a simulated sun — the same one GIS tools use for DEM
+ * relief shading — applied here to collective_manager.js's interpolated
+ * arousal/phasic/tonic grid, which is already the same shape as a DEM: a
+ * regular raster of scalar "height" values.
  */
 class Hillshade {
   /**
@@ -43,28 +48,32 @@ class Hillshade {
     const sinAlt = Math.sin(altitudeRad);
     const shade = new Float32Array(rows * cols);
 
+    // 3x3 Horn's-method neighborhood lookup, hoisted OUTSIDE the per-cell
+    // loop (was previously redefined as a fresh closure on every one of the
+    // rows*cols iterations — 40,000 throwaway closures at a 200x200 grid).
+    // `fallback` is passed explicitly instead of captured, so this closure
+    // only needs to close over rows/cols/grid, which don't change per cell.
+    // Off-grid or masked neighbors fall back to the cell's own value (flat
+    // extrapolation) instead of branching the stencil — matches how DEM
+    // hillshade tools treat nodata edges/holes, and keeps corridor-boundary
+    // cells from reading a spurious cliff against the surrounding null mask.
+    const at = (rr, cc, fallback) => {
+      if (rr < 0 || rr >= rows || cc < 0 || cc >= cols) return fallback;
+      const vv = grid[rr][cc];
+      return (vv === null || vv === undefined || isNaN(vv)) ? fallback : vv;
+    };
+
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const v = grid[r][c];
         if (v === null || v === undefined || isNaN(v)) continue;
 
-        // 3x3 Horn's-method neighborhood. Off-grid or masked neighbors fall
-        // back to this cell's own value (flat extrapolation) instead of
-        // branching the stencil — matches how DEM hillshade tools treat
-        // nodata edges/holes, and keeps corridor-boundary cells from reading
-        // a spurious cliff against the surrounding null mask.
-        const at = (rr, cc) => {
-          if (rr < 0 || rr >= rows || cc < 0 || cc >= cols) return v;
-          const vv = grid[rr][cc];
-          return (vv === null || vv === undefined || isNaN(vv)) ? v : vv;
-        };
-
         // Compass-named per this codebase's grid convention (collective_manager.js
         // gridLatOf(r) = minLat + r/(rows-1)*(maxLat-minLat)): row increases
         // northward, so row r-1 is the southern neighbor and r+1 the northern one.
-        const sw = at(r - 1, c - 1), s = at(r - 1, c), se = at(r - 1, c + 1);
-        const w  = at(r, c - 1),                        e  = at(r, c + 1);
-        const nw = at(r + 1, c - 1), n = at(r + 1, c), ne = at(r + 1, c + 1);
+        const sw = at(r - 1, c - 1, v), s = at(r - 1, c, v), se = at(r - 1, c + 1, v);
+        const w  = at(r, c - 1, v),                            e  = at(r, c + 1, v);
+        const nw = at(r + 1, c - 1, v), n = at(r + 1, c, v), ne = at(r + 1, c + 1, v);
 
         const dzdx = ((se + 2 * e + ne) - (sw + 2 * w + nw)) / (8 * cx);
         const dzdy = ((sw + 2 * s + se) - (nw + 2 * n + ne)) / (8 * cy);
@@ -81,37 +90,100 @@ class Hillshade {
   }
 
   /**
-   * Turns a raw value grid into a shaded relief, using the SAME percentile-rank
-   * (or linear, when rank isn't available) ratio a caller's color fill uses as
-   * the "height" field — not the raw value. Shading a different function of
-   * the data than the one being colored/contoured means the relief doesn't
-   * track what's actually drawn (see map.js renderContours()'s comment for
-   * the full rationale). Shared by map.js (live raster surface) and
-   * map_exporter.js (SVG vector mesh export) so both draw the identical
-   * relief instead of two hand-rolled copies of this math drifting apart.
+   * Canonical single-cell "raw value -> [0,1] display ratio" formula:
+   * percentile rank when a sorted reference distribution is available,
+   * linear min/max otherwise. This is the SAME ratio a caller's color fill
+   * uses (see map.js renderContours()'s comment on why percentile rank, not
+   * linear value, is the right basis for both color AND the hillshade
+   * "height" field: shading a different function of the data than the one
+   * being colored/contoured means the relief doesn't track what's drawn).
+   * Extracted so it exists in exactly one place — this file previously had
+   * four independent hand-copies of this formula across map.js and
+   * map_exporter.js, including one the exporter computed and then never
+   * used (see buildRatioGrid's callers).
+   *
+   * @param {number} v
+   * @param {number} minVal
+   * @param {number} maxVal
+   * @param {number[]} [sortedVals]  ascending; enables percentile ranking when length > 1
+   * @param {(v:number, sorted:number[]) => number} [rankFn]  e.g. StatsMath.percentileRank
+   * @returns {number} ratio in [0, 1]
+   */
+  static valueRatio(v, minVal, maxVal, sortedVals, rankFn) {
+    if (sortedVals && sortedVals.length > 1 && typeof rankFn === 'function') {
+      return rankFn(v, sortedVals);
+    }
+    const valRange = maxVal - minVal;
+    return valRange > 1e-9 ? (v - minVal) / valRange : 0.5;
+  }
+
+  /**
+   * valueRatio() applied over an entire grid, preserving null/NaN cells as
+   * null (masked/no-data — same convention the source grid uses).
    *
    * @param {Array<Array<number|null>>} grid
    * @param {number} rows
    * @param {number} cols
-   * @param {{minVal:number, maxVal:number, sortedVals?:number[], rankFn?: (v:number, sorted:number[]) => number,
+   * @param {{minVal:number, maxVal:number, sortedVals?:number[], rankFn?: Function}} config
+   * @returns {(number|null)[][]}
+   */
+  static buildRatioGrid(grid, rows, cols, config) {
+    const { minVal, maxVal, sortedVals, rankFn } = config;
+    return grid.map(row => row.map(v =>
+      (v === null || v === undefined || isNaN(v)) ? null : Hillshade.valueRatio(v, minVal, maxVal, sortedVals, rankFn)
+    ));
+  }
+
+  /**
+   * Turns a raw value grid into a shaded relief in one call: builds the
+   * ratio grid (buildRatioGrid) and hillshades it directly — the ratio grid
+   * IS the height field, scaled via compute()'s zFactor rather than by
+   * pre-multiplying a separate array (mathematically identical: scaling
+   * every height by a constant k before computing slope/aspect is the same
+   * as computing slope/aspect unscaled and passing zFactor=k, since slope's
+   * magnitude scales linearly with k and aspect — a ratio of the same two
+   * scaled quantities — is unchanged by it). That equivalence is what lets
+   * this skip building the extra full-grid "heightGrid" array the previous
+   * version allocated for no numeric difference.
+   *
+   * Convenience wrapper for callers that unconditionally want both — see
+   * map.js renderContours()'s hillshadeStrength>0 branch. A caller that only
+   * sometimes needs the shade pass (map_exporter.js, gated on
+   * hillshadeStrength) should call buildRatioGrid() and compute() directly
+   * instead, so the ratio grid isn't paid for twice when combined with a
+   * caller-side conditional.
+   *
+   * @param {Array<Array<number|null>>} grid
+   * @param {number} rows
+   * @param {number} cols
+   * @param {{minVal:number, maxVal:number, sortedVals?:number[], rankFn?: Function,
    *          exaggeration:number, azimuthDeg:number, altitudeDeg:number}} config
    * @returns {{ratioGrid: (number|null)[][], shade: Float32Array}}
    */
   static shadeValueGrid(grid, rows, cols, config) {
     const { minVal, maxVal, sortedVals, rankFn, exaggeration, azimuthDeg, altitudeDeg } = config;
-    const valRange = maxVal - minVal;
-    const rangeEpsilon = 1e-9;
-    const useRank = sortedVals && sortedVals.length > 1 && typeof rankFn === 'function';
-
-    const ratioGrid = grid.map(row => row.map(v => {
-      if (v === null || v === undefined || isNaN(v)) return null;
-      if (useRank) return rankFn(v, sortedVals);
-      return valRange > rangeEpsilon ? (v - minVal) / valRange : 0.5;
-    }));
-
-    const heightGrid = ratioGrid.map(row => row.map(r => r === null ? null : r * exaggeration));
-    const shade = Hillshade.compute(heightGrid, rows, cols, 1, 1, { azimuthDeg, altitudeDeg });
+    const ratioGrid = Hillshade.buildRatioGrid(grid, rows, cols, { minVal, maxVal, sortedVals, rankFn });
+    const shade = Hillshade.compute(ratioGrid, rows, cols, 1, 1, { azimuthDeg, altitudeDeg, zFactor: exaggeration });
     return { ratioGrid, shade };
+  }
+
+  /**
+   * Canonical "how hillshadeStrength blends toward the flat baseline"
+   * formula — previously duplicated verbatim in map.js and map_exporter.js.
+   * strength=0 returns baseLightness exactly (matches the flat, unshaded
+   * fill precisely, not an approximation); strength=1 returns the full
+   * shaded lightness.
+   *
+   * @param {number} shade  from compute(), in [0, 1]
+   * @param {number} strength  in [0, 1]
+   * @param {number} minLightness  HSL lightness % for shade=0
+   * @param {number} maxLightness  HSL lightness % for shade=1
+   * @param {number} [baseLightness=50]  the unshaded fill's own lightness
+   * @returns {number} HSL lightness %
+   */
+  static blendLightness(shade, strength, minLightness, maxLightness, baseLightness = 50) {
+    const shadedLightness = minLightness + shade * (maxLightness - minLightness);
+    return baseLightness + strength * (shadedLightness - baseLightness);
   }
 }
 

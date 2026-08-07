@@ -291,6 +291,17 @@ const GSRCollectiveProject = {
       if (manifest.settings) {
         this._applyValues(AppState.sliders, manifest.settings.sliders);
         this._applyValues(AppState.contourControls, manifest.settings.contour);
+        // _applyValues() sets el.value directly, which does NOT fire an
+        // 'input' event — so the on-screen text labels (e.g. "40 x 40" next
+        // to Grid Resolution) and filter-off dim states never got the
+        // memo, even though the slider thumb itself (native browser
+        // behavior, always reflects the live .value) was already showing
+        // the real restored value. Same fix storage.js's applyPreset()
+        // already applies via syncSliderValueDisplays() after doing the
+        // exact same direct .value assignment.
+        if (typeof GSREvents !== 'undefined' && typeof GSREvents.initializeLabels === 'function') {
+          GSREvents.initializeLabels();
+        }
       }
 
       const targetMode = (manifest.viewMode === 'collective') ? 'collective' : 'single';

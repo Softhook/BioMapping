@@ -368,47 +368,35 @@ class GSRMapExporter {
   /**
    * Generates cell-by-cell vector mesh polygons, each colored by its exact
    * percentile rank and — matching the live raster surface (map.js
-   * renderContours()) — relief-shaded via the same Hillshade.shadeValueGrid()
-   * helper, at whatever hillshadeStrength was last set on the map (so the
-   * export matches what's currently on screen). Skips the shading pass
-   * entirely at 0% strength, same zero-overhead guarantee as the live surface.
+   * renderContours()) — relief-shaded via the shared Hillshade primitives, at
+   * whatever hillshadeStrength was last set on the map (so the export
+   * matches what's currently on screen).
+   *
+   * Builds the ratio grid once via Hillshade.buildRatioGrid() and reuses it
+   * for every cell's fill color — NOT Hillshade.shadeValueGrid(), which
+   * would build that same ratio grid a second time internally only to have
+   * its result discarded whenever shading is skipped (hillshadeStrength<=0).
    */
   static _buildVectorMesh(ctx, surfaceData) {
     const { grid, minVal, maxVal, bounds, sortedVals } = surfaceData;
     const rows = grid.length;
     const cols = grid[0].length;
-    const valRange = maxVal - minVal;
-    const rangeEpsilon = 1e-9;
-    const useRankColor = sortedVals && sortedVals.length > 1;
     const project = ctx.project || (ll => ctx.map.latLngToContainerPoint(ll));
     const mesh = [];
 
     const hillshadeStrength = (ctx.mgr && ctx.mgr._hillshadeStrength !== undefined) ? ctx.mgr._hillshadeStrength : 0.0;
-    const hc = (typeof GSR_CONST !== 'undefined') ? GSR_CONST.HILLSHADE : null;
-    const shaded = (hillshadeStrength > 0 && hc && typeof Hillshade !== 'undefined' && typeof StatsMath !== 'undefined')
-      ? Hillshade.shadeValueGrid(grid, rows, cols, {
-          minVal, maxVal, sortedVals, rankFn: StatsMath.percentileRank,
-          exaggeration: hc.exaggeration, azimuthDeg: hc.azimuthDeg, altitudeDeg: hc.altitudeDeg
-        })
+    const hc = GSR_CONST.HILLSHADE;
+    const ratioGrid = Hillshade.buildRatioGrid(grid, rows, cols, { minVal, maxVal, sortedVals, rankFn: StatsMath.percentileRank });
+    const shade = (hillshadeStrength > 0)
+      ? Hillshade.compute(ratioGrid, rows, cols, 1, 1, { azimuthDeg: hc.azimuthDeg, altitudeDeg: hc.altitudeDeg, zFactor: hc.exaggeration })
       : null;
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
-        const val = grid[row][col];
-        if (val === null || isNaN(val)) continue;
+        const ratio = ratioGrid[row][col];
+        if (ratio === null) continue;
 
-        let ratio;
-        if (useRankColor && typeof StatsMath !== 'undefined' && typeof StatsMath.percentileRank === 'function') {
-          ratio = StatsMath.percentileRank(val, sortedVals);
-        } else {
-          ratio = valRange > rangeEpsilon ? (val - minVal) / valRange : 0.5;
-        }
-
-        let lightness = 50;
-        if (shaded) {
-          const shadedLightness = hc.minLightness + shaded.shade[row * cols + col] * (hc.maxLightness - hc.minLightness);
-          lightness = 50 + hillshadeStrength * (shadedLightness - 50);
-        }
+        const lightness = shade ? Hillshade.blendLightness(shade[row * cols + col], hillshadeStrength, hc.minLightness, hc.maxLightness) : 50;
         const fillColor = this._ratioToHex(ratio, lightness);
 
         const dLat = (rows > 1) ? 0.5 * (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
