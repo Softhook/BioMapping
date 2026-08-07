@@ -134,7 +134,7 @@ Phases are independently shippable; §4 gives suggested sequencing.
 
 ### Phase 1 — Track/map rendering ownership model
 
-**Status:** slice 1 (track `layerGroup` field + single-track render path routes into it; `clearMap`/`deleteTrack` remove the group) ✅ LANDED 2026-08-06, behind the new recording-Leaflet regression suite in `visualiser/tests/test_map_layer_ownership.js`. Slice 2 (collective/multi-track path now routes each active track's layers into ITS OWN layerGroup; `GSRMapManager` tracks the set of groups it rendered (`_renderedTrackGroups`) so `clearMap` clears by what it rendered, not by the manager's current tracks — a removed track can't leave an orphaned group) ✅ LANDED 2026-08-06, same suite extended (3 new collective tests). Also fixed during slice-2 verification: the collective surface overlay was gated on the button's `showShadedSurface` at *creation*, so a re-render while the surface was hidden (delete a track with the surface off) left `surfaceOverlay` null and toggling it back on did nothing — the overlay is now always created when there is surface data and visibility is a pure add/remove via `showSurface` (regression test added). Slice 3 (drop the flat render arrays: `pathSegments`/`peakMarkers`/`hotspotMarkers`/`collective*` are gone as state; `GSRMapManager` now owns per-track `layerGroup`s + a full per-track `_ownedLayers` registry so toggles can restore hidden layers; `getRenderLayers()`/`getPeakMarkerByIndex()` are the public accessors the SVG exporter and `focusOnPeak` use; `clearCollectiveLayers` also clears per-track groups, fixing the "uncheck the last track" stale-group bug) ✅ LANDED 2026-08-06, suite extended (5 tests). Browser-verification bug fixes (2026-08-06, commit ac57e26): the scrub marker lingered into collective view (0-active-tracks path only called `clearCollectiveLayers`), the GPS "Tracks" toggle didn't affect the single-track path, and track/contour/cluster colors exported as raw `hsl(...)` strings that render black in SVG viewers — exporter now converts to hex. Code-review fix (2026-08-07): `_clearRenderedTrackGroups()` (`map.js`) reset the legacy `_unownedLayers` array (layers rendered via the null-track fallback, i.e. no managed track for the active analyzer) without ever calling `map.removeLayer()` on them first — every `clearMap()`/`clearAll()`/`clearCollectiveLayers()` call permanently orphaned those layers, exactly the failure mode this ownership model exists to prevent. No test exercised that fallback path, so it wasn't caught by the slice 1–3 suite; fixed (now removes each `_unownedLayers` entry from the map before dropping the array) — not separately regression-tested yet (see Phase 4 note re: this test file's coverage gap). "Slice 4 (`deleteTrack` pilot rollout)" was a forward reference to Phase 3 §3's pilot below, not unfinished Phase 1 work — Phase 1 itself (steps 1–4) is complete.
+**Status:** slice 1 (track `layerGroup` field + single-track render path routes into it; `clearMap`/`deleteTrack` remove the group) ✅ LANDED 2026-08-06, behind the new recording-Leaflet regression suite in `visualiser/tests/test_map_layer_ownership.js`. Slice 2 (collective/multi-track path now routes each active track's layers into ITS OWN layerGroup; `GSRMapManager` tracks the set of groups it rendered (`_renderedTrackGroups`) so `clearMap` clears by what it rendered, not by the manager's current tracks — a removed track can't leave an orphaned group) ✅ LANDED 2026-08-06, same suite extended (3 new collective tests). Also fixed during slice-2 verification: the collective surface overlay was gated on the button's `showShadedSurface` at *creation*, so a re-render while the surface was hidden (delete a track with the surface off) left `surfaceOverlay` null and toggling it back on did nothing — the overlay is now always created when there is surface data and visibility is a pure add/remove via `showSurface` (regression test added). Slice 3 (drop the flat render arrays: `pathSegments`/`peakMarkers`/`hotspotMarkers`/`collective*` are gone as state; `GSRMapManager` now owns per-track `layerGroup`s + a full per-track `_ownedLayers` registry so toggles can restore hidden layers; `getRenderLayers()`/`getPeakMarkerByIndex()` are the public accessors the SVG exporter and `focusOnPeak` use; `clearCollectiveLayers` also clears per-track groups, fixing the "uncheck the last track" stale-group bug) ✅ LANDED 2026-08-06, suite extended (5 tests). Browser-verification bug fixes (2026-08-06, commit ac57e26): the scrub marker lingered into collective view (0-active-tracks path only called `clearCollectiveLayers`), the GPS "Tracks" toggle didn't affect the single-track path, and track/contour/cluster colors exported as raw `hsl(...)` strings that render black in SVG viewers — exporter now converts to hex. Code-review fix (2026-08-07): `_clearRenderedTrackGroups()` (`map.js`) reset the legacy `_unownedLayers` array (layers rendered via the null-track fallback, i.e. no managed track for the active analyzer) without ever calling `map.removeLayer()` on them first — every `clearMap()`/`clearAll()`/`clearCollectiveLayers()` call permanently orphaned those layers, exactly the failure mode this ownership model exists to prevent. No test exercised that fallback path, so it wasn't caught by the slice 1–3 suite; fixed (now removes each `_unownedLayers` entry from the map before dropping the array) — regression-tested (`tests/test_map_layer_ownership.js`, "orphan-fix: clearMap removes legacy no-track-fallback layers, not just the tracking array reference"; this status note previously said untested, corrected 2026-08-07 on rediscovering the test already existed). "Slice 4 (`deleteTrack` pilot rollout)" was a forward reference to Phase 3 §3's pilot below, not unfinished Phase 1 work — Phase 1 itself (steps 1–4) is complete.
 
 **Goal:** eliminate the specific flat-array-drift pattern in `GSRMapManager` that caused the original bug, for the map specifically.
 
@@ -309,8 +309,37 @@ Phases are independently shippable; §4 gives suggested sequencing.
 > the map.js method in isolation). Full detail, including what's deliberately
 > *not* fixed yet, lives in the companion document
 > `docs/visualizer_rendering_perf_routes.md` (top-of-doc 2026-08-07 update +
-> §2.2's status note). The steps below are what's left of that document's
-> survey.
+> §2.2's status note).
+>
+> **Step 1 (RF fan-cast spatial index) ✅ DONE (2026-08-07).**
+> `_precalculateSpatialFans()` (`rf_fluid_renderer.js`) now buckets
+> `buildingSegmentsGeo` into a uniform lat/lon grid once per call
+> (`_buildSegmentGrid`, new) instead of linearly re-scanning every segment
+> for every GPS node; the per-node candidate lookup (`_queryNearbySegments`,
+> new) gathers only the segments in the grid cells overlapping that node's
+> bounding box, then runs the exact same bbox filter over that smaller set —
+> the filter logic and the ray/segment intersection math
+> (`_raySegmentIntersectionGeo`) are untouched, only which segments get
+> tested changes. Cell size is derived from `radiusMeters` and a
+> representative latitude from the track's first valid point; correctness
+> doesn't depend on the exact size (see `_buildSegmentGrid`'s doc comment) —
+> only lookup cost does. New regression coverage:
+> `tests/test_rf_fluid_spatial_index.js` — (1) byte-identical `cachedNodes`
+> output between the grid path and a forced brute-force fallback
+> (`_buildSegmentGrid` stubbed to return `null`, which routes
+> `_precalculateSpatialFans` back to scanning `buildingSegmentsGeo` directly)
+> on a fixture with nodes spread far apart and buildings clustered near only
+> two of them; (2) a work-reduction check (spy on `_queryNearbySegments`,
+> assert total candidates handed back across all node queries is less than
+> `queries × totalSegments`); (3) a standalone `_buildSegmentGrid`/
+> `_queryNearbySegments` unit test against a hand-rolled brute-force filter
+> over several query boxes (corner, middle, cover-everything,
+> cover-nothing). Verified none of the three are vacuous by simulating two
+> broken variants outside the suite — an always-empty grid (caught by test
+> 1's identical-output check) and a no-op grid that returns every segment
+> regardless of bbox (caught by test 2's reduction check) — both correctly
+> fail against the real assertions. Full suite green (607 tests, 1
+> pre-existing environment-gated skip). Steps 2–3 below are still open.
 
 **Goal:** close out the remaining items in `docs/visualizer_rendering_perf_routes.md` — real, measured-or-reasoned rendering costs distinct from Phase 5's specific RF fan-cast *caching* gap (complementary, not overlapping — see that document's §2.1 for how the two relate).
 

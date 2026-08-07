@@ -250,6 +250,64 @@ class RFFluidRenderer {
   }
 
   /**
+   * Bucket building segments into a uniform lat/lon grid so per-node lookups
+   * (see _queryNearbySegments) only scan segments near that node instead of
+   * every segment in the track's OSM data. Correctness doesn't depend on the
+   * chosen cell size — any positive size still yields a grid whose queried
+   * cell range fully covers a query bbox's overlapping segments, since a
+   * segment is inserted into every cell its own bbox spans. Cell size only
+   * affects how many segments land in the queried range (perf, not output).
+   */
+  _buildSegmentGrid(buildingSegmentsGeo, cellSizeLat, cellSizeLon) {
+    const grid = new Map();
+    for (let s = 0; s < buildingSegmentsGeo.length; s++) {
+      const seg = buildingSegmentsGeo[s];
+      const rowMin = Math.floor(Math.min(seg.p1.lat, seg.p2.lat) / cellSizeLat);
+      const rowMax = Math.floor(Math.max(seg.p1.lat, seg.p2.lat) / cellSizeLat);
+      const colMin = Math.floor(Math.min(seg.p1.lon, seg.p2.lon) / cellSizeLon);
+      const colMax = Math.floor(Math.max(seg.p1.lon, seg.p2.lon) / cellSizeLon);
+      for (let row = rowMin; row <= rowMax; row++) {
+        for (let col = colMin; col <= colMax; col++) {
+          const key = row + ',' + col;
+          let bucket = grid.get(key);
+          if (!bucket) { bucket = []; grid.set(key, bucket); }
+          bucket.push(seg);
+        }
+      }
+    }
+    return grid;
+  }
+
+  /**
+   * Gather every segment whose grid cell overlaps bbox, deduped via a
+   * per-query stamp on each segment (cheaper than a Set for the common case
+   * of a segment appearing in several queried cells). queryId must be unique
+   * per call site invocation (a fresh counter per _precalculateSpatialFans
+   * call, since segment objects — and any stale stamp on them — are rebuilt
+   * fresh each call in _buildTrackEntry).
+   */
+  _queryNearbySegments(grid, cellSizeLat, cellSizeLon, bbox, queryId) {
+    const rowMin = Math.floor(bbox.minLat / cellSizeLat);
+    const rowMax = Math.floor(bbox.maxLat / cellSizeLat);
+    const colMin = Math.floor(bbox.minLon / cellSizeLon);
+    const colMax = Math.floor(bbox.maxLon / cellSizeLon);
+    const candidates = [];
+    for (let row = rowMin; row <= rowMax; row++) {
+      for (let col = colMin; col <= colMax; col++) {
+        const bucket = grid.get(row + ',' + col);
+        if (!bucket) continue;
+        for (let i = 0; i < bucket.length; i++) {
+          const seg = bucket[i];
+          if (seg._gridQueryId === queryId) continue;
+          seg._gridQueryId = queryId;
+          candidates.push(seg);
+        }
+      }
+    }
+    return candidates;
+  }
+
+  /**
    * Pre-compute radial propagation fan polygons in geographic lat/lon coordinates
    * for one track's drawPoints against one track's building segments.
    * Downsamples nodes spatially (~6m world spacing) to keep node count optimal.
@@ -263,6 +321,29 @@ class RFFluidRenderer {
     numRays = numRays || this.options.numRays || 24;
     radiusMeters = radiusMeters || this.options.radiusMeters || 120;
     const metersPerDegLat = 111320;
+
+    // Grid-index the building segments once per call (perf-routes doc §2.1)
+    // instead of linearly re-scanning all of them for every node below. Cell
+    // size is sized off radiusMeters/numRays' own scale, using the first
+    // valid point's latitude as a representative cosLat for the lon cell
+    // size — see _buildSegmentGrid's doc for why the exact size doesn't
+    // affect correctness, only lookup cost.
+    let segmentGrid = null;
+    let gridCellSizeLat = 0;
+    let gridCellSizeLon = 0;
+    let gridQueryCounter = 0;
+    if (buildingSegmentsGeo.length > 0) {
+      let refLat = null;
+      for (let i = 0; i < drawPoints.length; i++) {
+        const p = drawPoints[i];
+        if (p && !isNaN(p.lat)) { refLat = p.lat; break; }
+      }
+      if (refLat === null) refLat = 0;
+      const refCosLat = Math.max(0.1, Math.cos((refLat * Math.PI) / 180.0));
+      gridCellSizeLat = radiusMeters / metersPerDegLat;
+      gridCellSizeLon = radiusMeters / (metersPerDegLat * refCosLat);
+      segmentGrid = this._buildSegmentGrid(buildingSegmentsGeo, gridCellSizeLat, gridCellSizeLon);
+    }
 
     // Spatial node downsampling: ensure min ~6.0 meters separation in world space
     const minSpatialDistMeters = 6.0;
@@ -307,8 +388,16 @@ class RFFluidRenderer {
         maxLon: lon + dLonMax * 1.2
       };
 
-      for (let s = 0; s < buildingSegmentsGeo.length; s++) {
-        const seg = buildingSegmentsGeo[s];
+      // Grid-indexed candidate gathering (perf-routes doc §2.1) replaces a
+      // full linear scan of buildingSegmentsGeo here — the exact bbox test
+      // below is unchanged, so nearbySegments is the identical set (just
+      // possibly in a different order, which doesn't matter: the ray/segment
+      // loop below only takes a min over intersecting segments).
+      const gridCandidates = segmentGrid
+        ? this._queryNearbySegments(segmentGrid, gridCellSizeLat, gridCellSizeLon, nodeBbox, ++gridQueryCounter)
+        : buildingSegmentsGeo;
+      for (let s = 0; s < gridCandidates.length; s++) {
+        const seg = gridCandidates[s];
         if (Math.min(seg.p1.lat, seg.p2.lat) <= nodeBbox.maxLat &&
             Math.max(seg.p1.lat, seg.p2.lat) >= nodeBbox.minLat &&
             Math.min(seg.p1.lon, seg.p2.lon) <= nodeBbox.maxLon &&

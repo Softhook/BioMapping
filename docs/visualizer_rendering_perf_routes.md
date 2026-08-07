@@ -98,6 +98,15 @@ None of the above needs touching. The routes below are what's left.
 
 ### 2.1 RF fan-cast building-segment lookup is unindexed — `rf_fluid_renderer.js:174-285`
 
+> **Status: landed (2026-08-07).** See the architecture refactor plan's
+> Phase 6 step 1 status note for full detail. Summary: `buildingSegmentsGeo`
+> is now grid-indexed once per `_precalculateSpatialFans()` call
+> (`_buildSegmentGrid`), and each node's candidate-segment lookup queries
+> that grid (`_queryNearbySegments`) instead of scanning the full segment
+> list. Output is unchanged (verified byte-identical against a forced
+> brute-force fallback) — only the lookup cost changes. Regression coverage:
+> `tests/test_rf_fluid_spatial_index.js`.
+
 **What:** `_precalculateSpatialFans()` loops every downsampled GPS node
 (~1 per 6 m of track) and, for each node, linearly scans **all**
 `buildingSegmentsGeo` twice — once for the bbox `nearbySegments` filter
