@@ -841,6 +841,9 @@ const OSMEnricher = {
   },
 
   /**
+   * Project a point onto the nearest segment of a way, returning the snapped
+   * lat/lon and distance to that segment.
+   */
   _projectToWay(lat, lon, coords) {
     let minDist = Infinity;
     let bestSnapLat = lat;

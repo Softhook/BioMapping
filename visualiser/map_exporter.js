@@ -296,17 +296,25 @@ class GSRMapExporter {
     }
 
     const rfLayerItems = rfSubLayers.length > 0 ? rfSubLayers : (rfObj.polygons || []);
-    // The building mask and the screen blend do two unrelated jobs — the mask
-    // clips the field to building footprints, the blend is what makes
-    // overlapping red/green/blue node gradients read as a colored glow
-    // instead of opaque, normally-composited fills. Picking one OR the other
-    // (previous code: `hasMask ? maskAttr : screenBlend`) meant any track with
-    // OSM building enrichment (hasMask true) lost the blend entirely — with
-    // enough overlapping gradient nodes, normal-blended translucent red/green/
-    // blue stacks toward opaque white, exporting the whole RF field as a flat
-    // white shape instead of the intended glow. Both attributes are needed
-    // together whenever a mask exists.
-    const rfMasterAttr = hasMask ? `${maskAttr} style="mix-blend-mode: screen;"` : 'style="mix-blend-mode: screen;"';
+    // `mix-blend-mode` on a descendant blends against EVERYTHING already
+    // painted behind it in the same stacking context — not just its own
+    // siblings. The per-band sub-layers (815/868/915/fog, above) each carry
+    // their own `mix-blend-mode: screen` so overlapping RF gradients combine
+    // additively with each other (and with each other's bands) — that part
+    // is correct and wanted. But without a stacking-context boundary, that
+    // same screen blend also reaches through RF_Fluid_Field to whatever's
+    // painted underneath it: Base_Map_Tiles. This basemap is a LIGHT-colored
+    // style (CartoDB "light_all") — screen(a, near-white) collapses to
+    // near-white for any `a`, so wherever tiles were visible, the entire RF
+    // field washed out to a flat white shape (reported bug — confirmed by
+    // the user: hiding the tile layer revealed the RF glow was fine
+    // underneath all along). `isolation: isolate` gives RF_Fluid_Field its
+    // own stacking context, so its children's screen blends only see each
+    // other (and the isolated context's own transparent backdrop) — the
+    // group as a whole then composites normally on top of the tiles below,
+    // same as any other layer. The building mask is unrelated (clips to
+    // footprints) and still applies either way.
+    const rfMasterAttr = hasMask ? `${maskAttr} style="isolation: isolate;"` : 'style="isolation: isolate;"';
 
     const defsContent = rfObj.defs && rfObj.defs.length > 0
       ? `  <defs>\n${rfObj.defs.map(d => '    ' + d).join('\n')}\n  </defs>`

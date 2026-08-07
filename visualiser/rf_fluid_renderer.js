@@ -310,7 +310,9 @@ class RFFluidRenderer {
   /**
    * Pre-compute radial propagation fan polygons in geographic lat/lon coordinates
    * for one track's drawPoints against one track's building segments.
-   * Downsamples nodes spatially (~6m world spacing) to keep node count optimal.
+   * Downsamples nodes spatially (min separation scaled to radiusMeters, see
+   * minSpatialDistMeters below) to keep node count optimal and prevent
+   * screen-blend oversaturation from near-duplicate overlapping fans.
    * Pure function — returns the nodes array rather than writing this.cachedNodes,
    * so per-track results can be cached and combined by setDataForTracks().
    */
@@ -345,8 +347,25 @@ class RFFluidRenderer {
       segmentGrid = this._buildSegmentGrid(buildingSegmentsGeo, gridCellSizeLat, gridCellSizeLon);
     }
 
-    // Spatial node downsampling: ensure min ~6.0 meters separation in world space
-    const minSpatialDistMeters = 6.0;
+    // Spatial node downsampling: ensure a minimum separation in world space,
+    // scaled to the fan radius rather than a fixed 6m. A fixed distance meant
+    // GPS-sampled tracks (often ~0.1-3m apart depending on sample rate/pace)
+    // kept nodes far closer together than their own radiusMeters warranted,
+    // so thousands of heavily-overlapping fans stacked via screen-blend
+    // saturated to solid white along the whole path (reported bug: exported
+    // RF field showed as a flat white shape/halo hugging the track).
+    // `screen()` compositing saturates fast — screen(0.5,0.5) is already
+    // 0.75 — so a spacing that still leaves fans overlapping by, say, 80% of
+    // their radius (an earlier 0.4x attempt) isn't nearly enough; it just
+    // shrinks the saturated area rather than removing the saturation. 1.2x
+    // radiusMeters spacing keeps immediate neighbors overlapping by a modest,
+    // visually-continuous amount while `distance > 2x spacing == diameter`
+    // for next-nearest neighbors, so no point ever has more than ~2 fans
+    // stacked on top of each other — real signal-strength variation along
+    // the route still shows (a genuinely strong source can still saturate
+    // its own immediate neighborhood), but uniform full-route whiteout from
+    // pure sampling redundancy is gone.
+    const minSpatialDistMeters = Math.max(4.0, radiusMeters * 1.2);
     let lastLat = null, lastLon = null;
 
     for (let i = 0; i < drawPoints.length; i++) {

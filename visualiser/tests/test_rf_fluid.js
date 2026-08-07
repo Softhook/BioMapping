@@ -142,7 +142,12 @@ const nonRfAnalyzer = new GSRAnalyzer();
 nonRfAnalyzer.parseCSV([
   'Time (s),Raw Conductance (uS),Latitude,Longitude',
   '0.00,5.12,56.3394,-2.7894',
-  '0.10,5.15,56.3395,-2.7895'
+  // ~127m from the first point (0.001deg step, not 0.0001) — comfortably past
+  // _precalculateSpatialFans's spatial-downsampling threshold (scaled to
+  // radiusMeters, ~14m at the default 35m radius) so this fixture still
+  // produces two distinct cached nodes regardless of that threshold's exact
+  // value; this section is testing the non-RF guard, not thinning.
+  '0.10,5.15,56.3405,-2.7905'
 ].join('\n'));
 
 assert.strictEqual(nonRfAnalyzer.hasRfData, false, 'hasRfData should be false for non-RF track');
@@ -159,9 +164,13 @@ console.log('Testing adaptive RSSI normalization & hard noise floor thresholding
 const rfAnalyzerSample = new GSRAnalyzer();
 rfAnalyzerSample.parseCSV([
   'timestamp,lat,lon,hdop,fix_type,em_fog,rssi_815,rssi_868,rssi_915',
+  // ~127m between consecutive points (0.001deg step) — see the comment on
+  // the non-RF guard fixture above; _calculateRssiStats reads this.cachedNodes
+  // (post spatial-downsampling), so a tightly-spaced fixture would silently
+  // thin away the very peak values these assertions check for.
   '0.00,56.3394,-2.7894,2.5,3,10.0,-91.5,-92.0,-90.0', // Ambient noise floor (no 915 MHz signal)
-  '0.10,56.3395,-2.7895,2.5,3,10.0,-72.0,-92.0,-89.5', // Active 815 MHz LTE spike, 915 remains quiet
-  '0.20,56.3396,-2.7896,2.5,3,10.0,-91.5,-72.0,-91.0'  // Active 868 MHz Grid spike, 915 remains quiet
+  '0.10,56.3405,-2.7905,2.5,3,10.0,-72.0,-92.0,-89.5', // Active 815 MHz LTE spike, 915 remains quiet
+  '0.20,56.3416,-2.7916,2.5,3,10.0,-91.5,-72.0,-91.0'  // Active 868 MHz Grid spike, 915 remains quiet
 ].join('\n'));
 
 renderer.setData(rfAnalyzerSample.raw, null);

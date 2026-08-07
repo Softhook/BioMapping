@@ -218,6 +218,84 @@ test('setRadius: updates options.radiusMeters and re-precalculates fans for ever
   assert.strictEqual(fansRecalculated, 0, 'setRadius with an unchanged radius should reuse cached fans');
 });
 
+// ── _precalculateSpatialFans spatial-downsampling: scaled to radiusMeters ──
+// Reported bug: single-track SVG export of a real GPS-sampled track (points
+// only ~0.1-3m apart depending on pace/sample rate) came out as a flat white
+// halo hugging the whole track — traced to _precalculateSpatialFans's
+// node-spacing downsample being a FIXED 6m regardless of the configured RF
+// radius. At the default 35m radius, 6m spacing put consecutive fan centers
+// only ~17% of a radius apart, so thousands of near-total-overlap fans got
+// screen-blended together, saturating to solid white. A first fix
+// (radiusMeters * 0.4) reduced but didn't remove the saturation — screen()
+// compositing saturates fast (screen(0.5,0.5) is already 0.75), so leaving
+// fans still overlapping by ~80% of their radius just shrank the white area
+// rather than fixing it. Landed on radiusMeters * 1.2: spacing exceeds the
+// radius, so only IMMEDIATE neighbors overlap (next-nearest neighbors are
+// more than a diameter apart), capping how many fans can stack on any one
+// point. These tests pin the resulting node counts directly, not just "some
+// thinning happens somewhere."
+function makeStraightLinePoints(n, spacingMeters) {
+  // Straight line along longitude at the equator, where 1 degree = ~111,320m
+  // exactly (cosLat = 1), so spacingMeters converts to degrees with no
+  // latitude-dependent distortion to account for in the test's own math.
+  const degPerMeter = 1 / 111320;
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    pts.push({ lat: 0, lon: i * spacingMeters * degPerMeter });
+  }
+  return pts;
+}
+
+test('_precalculateSpatialFans: points closer than the radius-scaled threshold are thinned (default 35m radius)', () => {
+  const map = makeFakeMap();
+  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  const renderer = new RFFluidRenderer(map); // default radiusMeters: 35 -> threshold 42m
+
+  // 100 points spaced 3m apart (~walking-pace GPS sampling) spans 300m total
+  // — at a 42m thinning threshold that collapses to ~8 kept nodes
+  // (ceil(300/42)+1), a world away from the old fixed-6m behavior which
+  // would have kept every other point (~50 nodes).
+  const drawPoints = makeStraightLinePoints(100, 3);
+  renderer.setData(drawPoints, null);
+
+  assert.ok(renderer.cachedNodes.length < 15,
+    `expected radius-scaled thinning (42m @ 35m radius) to keep well under 15 of 100 points spaced 3m apart, got ${renderer.cachedNodes.length}`);
+  assert.ok(renderer.cachedNodes.length >= 5,
+    `thinning should not collapse a 300m-long line down to fewer than ~5 nodes, got ${renderer.cachedNodes.length}`);
+});
+
+test('_precalculateSpatialFans: thinning threshold scales up with a larger configured radius', () => {
+  const map = makeFakeMap();
+  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  const renderer = new RFFluidRenderer(map, { radiusMeters: 100 }); // threshold: 120m
+
+  const drawPoints = makeStraightLinePoints(100, 3); // same 300m-long fixture as above
+  renderer.setData(drawPoints, null);
+
+  // At a 120m threshold, a 300m line fits at most ~4 kept nodes — fewer
+  // than the 35m-radius case above, proving the threshold actually tracks
+  // radiusMeters rather than being some other fixed constant.
+  assert.ok(renderer.cachedNodes.length <= 4,
+    `expected a 100m-radius renderer's 120m thinning threshold to keep <= 4 nodes on a 300m line, got ${renderer.cachedNodes.length}`);
+});
+
+test('_precalculateSpatialFans: an isRfPeak point always gets its own node, even inside the thinning radius', () => {
+  const map = makeFakeMap();
+  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  const renderer = new RFFluidRenderer(map); // threshold: 42m
+
+  // Two points only 3m apart (well inside the 42m threshold) — the second
+  // would normally be thinned away, EXCEPT it's flagged as a momentary RF
+  // spike, which this dedup must never silently erase.
+  const drawPoints = [
+    { lat: 0, lon: 0 },
+    { lat: 0, lon: (3 / 111320), isRfPeak: true },
+  ];
+  renderer.setData(drawPoints, null);
+
+  assert.strictEqual(renderer.cachedNodes.length, 2, 'an isRfPeak point must survive thinning regardless of spacing');
+});
+
 test('setVisible: toggles canvas display style and redraws only when becoming visible', () => {
   const map = makeFakeMap();
   const canvasEl = { style: {}, getContext: () => fakeCanvasContext() };

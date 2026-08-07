@@ -153,25 +153,36 @@ assert(!fullSvgMarkup.includes('NaN'), 'SVG output must contain zero NaN values'
 console.log('✔ Generated separated Illustrator frequency sub-layers (815, 868, 915 MHz)');
 console.log('✔ Full SVG rendering integration passed with zero NaN coordinates');
 
-// 4. Regression: RF_Fluid_Field's OWN opening tag must carry BOTH the
-// building mask AND the screen blend together, not one or the other.
+// 4. Regression: RF_Fluid_Field's OWN opening tag must isolate its children's
+// screen blend from whatever's painted underneath (tiles), while still
+// carrying the building mask when one exists.
+//
 // Reported bug: "in single track mode the RF fluid layer seems to SVG
-// export as a white shape" (collective mode looked fine). Traced to
-// `rfMasterAttr = hasMask ? maskAttr : screenBlendStyle` — whenever a track
-// has OSM building enrichment (any buildingPolygons at all, single or
-// collective, this test fixture's mockOsmGeoms included), the mask attribute
-// was substituted IN PLACE OF mix-blend-mode:screen on the wrapping group.
-// The per-frequency sub-layers (815/868/915/fog) always keep their own
-// screen blend regardless, but the outer group compositing those (now
-// mostly-opaque, normally-blended where they overlap) onto the map below no
-// longer screens — with enough overlapping translucent red/green/blue node
-// gradients, normal blending washes out toward a flat white/opaque shape
-// instead of the intended colored glow.
+// export as a white shape." First traced to `rfMasterAttr = hasMask ?
+// maskAttr : screenBlendStyle` — whenever a track had OSM building
+// enrichment, the mask attribute was substituted IN PLACE OF
+// mix-blend-mode:screen on the wrapping group, so overlapping RF gradients
+// normal-blended into an opaque mess. That was real and is still fixed
+// (mask no longer displaces the isolation setup below) — but it wasn't the
+// actual root cause: the user confirmed toggling the basemap tile layer OFF
+// made the RF field render correctly, proving the RF geometry itself was
+// always fine. `mix-blend-mode` on a descendant blends against EVERYTHING
+// already painted behind it in the same stacking context — not just its
+// own siblings — so even with the mask+blend fix, RF_Fluid_Field's screen
+// blend was reaching through to Base_Map_Tiles (painted earlier in the
+// SVG). CartoDB's "light_all" basemap is light-colored, and
+// screen(anything, near-white) collapses to near-white, so wherever tiles
+// were visible the whole RF field washed out to white regardless of its
+// own content. `isolation: isolate` gives RF_Fluid_Field its own stacking
+// context: the per-band sub-layers' own mix-blend-mode:screen (815/868/915/
+// fog, asserted above) still combines THEM with each other correctly, but
+// the group as a whole then composites normally on top of the tiles below.
 const rfFieldTagMatch = fullSvgMarkup.match(/<g[^>]*id="RF_Fluid_Field"[^>]*>/);
 assert(rfFieldTagMatch, 'RF_Fluid_Field opening tag must be present in the SVG output');
 const rfFieldTag = rfFieldTagMatch[0];
 assert(rfFieldTag.includes('mask="url(#rfBuildingMask)"'), 'RF_Fluid_Field must still carry the building mask when one exists');
-assert(rfFieldTag.includes('mix-blend-mode: screen'), 'RF_Fluid_Field must ALSO keep mix-blend-mode:screen when a building mask is present — losing it is what exports the field as a flat white shape');
+assert(rfFieldTag.includes('isolation: isolate'), 'RF_Fluid_Field must isolate its blend context so its screen blend does not reach through to the tiles below it');
+assert(!rfFieldTag.includes('mix-blend-mode'), 'RF_Fluid_Field itself must NOT carry mix-blend-mode — only its per-band sub-layers should (screening against the tiles is exactly the bug)');
 
-console.log('✔ RF_Fluid_Field keeps mix-blend-mode:screen together with the building mask (not one or the other)');
+console.log('✔ RF_Fluid_Field isolates its blend context from the tiles below it, and still keeps the building mask');
 console.log('── All Sub-GHz RF Data SVG Export Tests Passed Successfully ──');
