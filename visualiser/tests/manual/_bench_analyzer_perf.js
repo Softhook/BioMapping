@@ -102,3 +102,96 @@ console.log(`
   map.js's _getOrBuildDrawPoints() caches the GPS pipeline. A large real
   track's per-drag-frame cost is what this number represents.
 `);
+
+// ── §A A/B Bench: Monotonic Deque vs Nested Loop Window Min ──────────────────
+console.log('── §A A/B Bench: Sliding-Window Minimum on real data (biomap_019.csv) ──\n');
+{
+  const { analyzer } = loadTrack('biomap_019.csv');
+  const n = analyzer.raw.length;
+  // Synthesize a dummy signal of same length
+  const signal = new Float64Array(n);
+  for (let i = 0; i < n; i++) signal[i] = Math.sin(i * 0.1) * 2;
+  const halfWindow = Math.max(1, Math.round(6 * 10.0)); // ±6 s at 10Hz
+
+  const runBruteForce = () => {
+    const localOffsets = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const s = Math.max(0, i - halfWindow);
+      const e = Math.min(n - 1, i + halfWindow);
+      let mn = Infinity;
+      for (let j = s; j <= e; j++) {
+        if (signal[j] < mn) mn = signal[j];
+      }
+      localOffsets[i] = mn;
+    }
+    return localOffsets;
+  };
+
+  const runMonotonicDeque = () => {
+    const localOffsets = new Array(n);
+    const bwd = new Array(n);
+    const dq1 = [];
+    for (let i = 0; i < n; i++) {
+      if (dq1.length > 0 && dq1[0] < i - halfWindow) dq1.shift();
+      while (dq1.length > 0 && signal[dq1[dq1.length - 1]] >= signal[i]) dq1.pop();
+      dq1.push(i);
+      bwd[i] = signal[dq1[0]];
+    }
+    const dq2 = [];
+    for (let i = n - 1; i >= 0; i--) {
+      if (dq2.length > 0 && dq2[0] > i + halfWindow) dq2.shift();
+      while (dq2.length > 0 && signal[dq2[dq2.length - 1]] >= signal[i]) dq2.pop();
+      dq2.push(i);
+      localOffsets[i] = Math.min(bwd[i], signal[dq2[0]]);
+    }
+    return localOffsets;
+  };
+
+  const bruteResult = bench(runBruteForce, 5, 20);
+  const dequeResult = bench(runMonotonicDeque, 5, 20);
+
+  console.log(`  O(N×W) Nested Loop:   median=${bruteResult.median.toFixed(3)}ms`);
+  console.log(`  O(N) Monotonic Deque: median=${dequeResult.median.toFixed(3)}ms`);
+  console.log(`  → §A optimization is ${(bruteResult.median / dequeResult.median).toFixed(1)}x faster\n`);
+}
+
+// ── §B A/B Bench: computeCombinedArousalIndex optimizations ─────────────────
+console.log('── §B A/B Bench: computeCombinedArousalIndex optimizations (biomap_019.csv) ──\n');
+{
+  const { analyzer } = loadTrack('biomap_019.csv');
+  // run full analyze once to populate tonic/phasic
+  const params = JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT));
+  analyzer.analyze(params, 0);
+
+  // Old computeCombinedArousalIndex implementation (without precomputed AUC & using .map)
+  const runOldArousalIndex = () => {
+    const n = analyzer.phasic.length;
+    if (n === 0) return [];
+    const auc = analyzer.computePhasicAUC(30);
+    const tonicVals = analyzer.tonic.map(d => d.val);
+    const aucVals = auc.map(d => d.val);
+    const tonicStats = GsrFilter.calculateStats(tonicVals);
+    const aucStats = GsrFilter.calculateStats(aucVals);
+    const arousalIndex = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const tZ = (analyzer.tonic[i].val - tonicStats.mean) / tonicStats.std;
+      const aZ = (aucVals[i] - aucStats.mean) / aucStats.std;
+      arousalIndex[i] = {
+        time: analyzer.phasic[i].time,
+        val: (0.3 * tZ) + (0.7 * aZ)
+      };
+    }
+    return arousalIndex;
+  };
+
+  const runNewArousalIndex = () => {
+    return analyzer.computeCombinedArousalIndex(0.3, 0.7, analyzer.phasicAUC);
+  };
+
+  const oldResult = bench(runOldArousalIndex, 5, 20);
+  const newResult = bench(runNewArousalIndex, 5, 20);
+
+  console.log(`  Old (no precompute + maps): median=${oldResult.median.toFixed(3)}ms`);
+  console.log(`  New (precomputed + inline): median=${newResult.median.toFixed(3)}ms`);
+  console.log(`  → §B optimization is ${(oldResult.median / newResult.median).toFixed(1)}x faster\n`);
+}

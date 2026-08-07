@@ -601,3 +601,117 @@ test('GSRAnalyzer _computeNoiseFloor: constant window has zero noise floor', () 
   a.filtered = [5, 5, 5, 5, 5].map((val, i) => ({ time: i, val }));
   assert.strictEqual(a._computeNoiseFloor(2, 2), 0);
 });
+
+// ── §A perf fix: sliding-window minimum correctness (2026-08-07) ─────────────
+// The O(N) monotonic-deque localOffsets result must be identical to the
+// O(N×W) brute-force nested loop it replaced. These tests verify the algorithm
+// in isolation on synthetic data (boundary cases + mid-track) and confirm that
+// analyze() still produces non-negative phasic values (the floor's purpose).
+
+function bruteForceWindowMin(arr, halfWindow) {
+  const n = arr.length;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const s = Math.max(0, i - halfWindow);
+    const e = Math.min(n - 1, i + halfWindow);
+    let mn = Infinity;
+    for (let j = s; j <= e; j++) if (arr[j] < mn) mn = arr[j];
+    out[i] = mn;
+  }
+  return out;
+}
+
+function dequeWindowMin(arr, halfWindow) {
+  // Verbatim copy of the two-pass algorithm now in analyze().
+  const n = arr.length;
+  const result = new Array(n);
+  const bwd = new Array(n);
+  const dq1 = [];
+  for (let i = 0; i < n; i++) {
+    if (dq1.length > 0 && dq1[0] < i - halfWindow) dq1.shift();
+    while (dq1.length > 0 && arr[dq1[dq1.length - 1]] >= arr[i]) dq1.pop();
+    dq1.push(i);
+    bwd[i] = arr[dq1[0]];
+  }
+  const dq2 = [];
+  for (let i = n - 1; i >= 0; i--) {
+    if (dq2.length > 0 && dq2[0] > i + halfWindow) dq2.shift();
+    while (dq2.length > 0 && arr[dq2[dq2.length - 1]] >= arr[i]) dq2.pop();
+    dq2.push(i);
+    result[i] = Math.min(bwd[i], arr[dq2[0]]);
+  }
+  return result;
+}
+
+test('§A sliding-window min: deque matches brute-force on a 200-sample synthetic signal', () => {
+  const n = 200, halfW = 20;
+  const arr = [];
+  for (let i = 0; i < n; i++) arr.push(Math.sin(i * 0.3) * 5 - i * 0.01);
+  const brute = bruteForceWindowMin(arr, halfW);
+  const deque = dequeWindowMin(arr, halfW);
+  for (let i = 0; i < n; i++) {
+    assert.ok(Math.abs(deque[i] - brute[i]) < 1e-12,
+      `index ${i}: deque=${deque[i]} brute=${brute[i]}`);
+  }
+});
+
+test('§A sliding-window min: single-element array (window >> length)', () => {
+  assert.deepStrictEqual(dequeWindowMin([42], 100), bruteForceWindowMin([42], 100));
+});
+
+test('§A sliding-window min: window of 1 (halfWindow=0 clamp to 1)', () => {
+  const arr = [3, 1, 4, 1, 5, 9, 2, 6];
+  // halfWindow=1 → each position sees [i-1..i+1]
+  assert.deepStrictEqual(dequeWindowMin(arr, 1), bruteForceWindowMin(arr, 1));
+});
+
+test('§A sliding-window min: all-equal values', () => {
+  const arr = new Array(50).fill(7.5);
+  assert.deepStrictEqual(dequeWindowMin(arr, 15), bruteForceWindowMin(arr, 15));
+});
+
+test('§A sliding-window min: analyze() phasic is non-negative after deque fix', () => {
+  const fs = require('fs'), path = require('path');
+  const csvPath = path.join(__dirname, '..', '..', 'tracks', 'biomap_048.csv');
+  if (!fs.existsSync(csvPath)) { return; } // skip if tracks dir absent
+  const a = new GSRAnalyzer();
+  a.parseCSV(fs.readFileSync(csvPath, 'utf8'));
+  a.analyze(JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT)), 0);
+  assert.strictEqual(a.phasic.length, a.raw.length);
+  for (let i = 0; i < a.phasic.length; i++) {
+    assert.ok(a.phasic[i].val >= -1e-9, `phasic[${i}]=${a.phasic[i].val} should be >= 0`);
+  }
+});
+
+// ── §B perf fix: computeCombinedArousalIndex with precomputedAUC (2026-08-07) ─
+
+test('§B computeCombinedArousalIndex: precomputedAUC gives identical values to fresh-computed path', () => {
+  const fs = require('fs'), path = require('path');
+  const csvPath = path.join(__dirname, '..', '..', 'tracks', 'biomap_048.csv');
+  if (!fs.existsSync(csvPath)) { return; }
+  const a = new GSRAnalyzer();
+  a.parseCSV(fs.readFileSync(csvPath, 'utf8'));
+  a.analyze(JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT)), 0);
+
+  const fresh  = a.computeCombinedArousalIndex(0.3, 0.7, null);   // fresh AUC
+  const reused = a.computeCombinedArousalIndex(0.3, 0.7, a.phasicAUC); // reused
+
+  assert.strictEqual(fresh.length, reused.length, 'length mismatch');
+  for (let i = 0; i < fresh.length; i++) {
+    assert.ok(Math.abs(fresh[i].val - reused[i].val) < 1e-9,
+      `index ${i}: fresh=${fresh[i].val} reused=${reused[i].val}`);
+    assert.strictEqual(fresh[i].time, reused[i].time);
+  }
+});
+
+test('§B computeCombinedArousalIndex: standalone call (no precomputedAUC) still works', () => {
+  const fs = require('fs'), path = require('path');
+  const csvPath = path.join(__dirname, '..', '..', 'tracks', 'biomap_048.csv');
+  if (!fs.existsSync(csvPath)) { return; }
+  const a = new GSRAnalyzer();
+  a.parseCSV(fs.readFileSync(csvPath, 'utf8'));
+  a.analyze(JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT)), 0);
+  const result = a.computeCombinedArousalIndex(); // no args — must not throw
+  assert.strictEqual(result.length, a.phasic.length);
+  assert.ok(isFinite(result[0].val));
+});

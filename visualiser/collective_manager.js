@@ -355,6 +355,11 @@ class GSRCollectiveManager {
     const seenLevels = new Set();
     const valRange = maxVal - minVal;
 
+    // §C perf fix (2026-08-07): collect all unique levels first, then call
+    // MarchingSquares.getContourLinesMulti() once (single O(R×C) grid pass)
+    // instead of K separate getContourLines() calls (K × O(R×C)).
+    // The dedup + fallback logic below is identical to the previous loop.
+    const levelEntries = []; // [{ level, ratio }]
     for (let k = 1; k <= contourCount; k++) {
       const percentile = k / (contourCount + 1);
       const idx = Math.min(sortedVals.length - 1, Math.max(0, Math.round(percentile * (sortedVals.length - 1))));
@@ -373,8 +378,15 @@ class GSRCollectiveManager {
 
       if (seenLevels.has(levelKey)) continue;
       seenLevels.add(levelKey);
+      levelEntries.push({ level, ratio });
+    }
 
-      const segments = MarchingSquares.getContourLines(grid, rows, cols, bounds, level);
+    // Single grid traversal for all levels.
+    const sortedLevels = levelEntries.map(e => e.level).sort((a, b) => a - b);
+    const multiResult = MarchingSquares.getContourLinesMulti(grid, rows, cols, bounds, sortedLevels);
+
+    for (const { level, ratio } of levelEntries) {
+      const segments = multiResult.get(level) || [];
       if (segments.length > 0) {
         contours.push({ level, ratio, segments });
       }

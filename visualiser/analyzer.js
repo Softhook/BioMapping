@@ -407,16 +407,37 @@ class GSRAnalyzer {
     // tonic needs to drop at that point to sit at the local floor (troughs).
     // This correction is applied to all methods (dwt, median, percentile, lpf)
     // to track the lower envelope and ensure the Phasic signal is non-negative.
+    //
+    // §A perf fix (2026-08-07): was O(N × W) nested loop (W = ±6 s window =
+    // ~121 samples at 10 Hz), causing ~4.8 M inner iterations on a 40 k-sample
+    // track. Replaced with two O(N) monotonic-deque passes:
+    //   bwd[i] = min of phasicVals[i-floorHalf .. i]   (trailing window, L→R)
+    //   fwd[i] = min of phasicVals[i .. i+floorHalf]   (leading window,  R→L)
+    //   localOffsets[i] = min(bwd[i], fwd[i])          (= symmetric window min)
+    // Each deque entry is pushed and popped at most once → ≤ 2N total deque ops.
     const floorHalf = Math.max(1, Math.round(6 * this.sampleRate)); // ±6 s
     const localOffsets = new Array(n);
-    for (let i = 0; i < n; i++) {
-      const s = Math.max(0, i - floorHalf);
-      const e = Math.min(n - 1, i + floorHalf);
-      let mn = Infinity;
-      for (let j = s; j <= e; j++) {
-        if (phasicVals[j] < mn) mn = phasicVals[j];
+    {
+      // Pass 1 (left-to-right): bwd[i] = min over [max(0,i-floorHalf) .. i]
+      const bwd = new Array(n);
+      const dq1 = []; // monotonic deque of indices, front = minimum
+      for (let i = 0; i < n; i++) {
+        // Evict indices that have left the window
+        if (dq1.length > 0 && dq1[0] < i - floorHalf) dq1.shift();
+        // Maintain ascending-minimum invariant: remove tail indices ≥ current
+        while (dq1.length > 0 && phasicVals[dq1[dq1.length - 1]] >= phasicVals[i]) dq1.pop();
+        dq1.push(i);
+        bwd[i] = phasicVals[dq1[0]];
       }
-      localOffsets[i] = mn;
+      // Pass 2 (right-to-left): fwd[i] = min over [i .. min(n-1,i+floorHalf)]
+      const dq2 = [];
+      for (let i = n - 1; i >= 0; i--) {
+        // Evict indices that have left the window (right side)
+        if (dq2.length > 0 && dq2[0] > i + floorHalf) dq2.shift();
+        while (dq2.length > 0 && phasicVals[dq2[dq2.length - 1]] >= phasicVals[i]) dq2.pop();
+        dq2.push(i);
+        localOffsets[i] = Math.min(bwd[i], phasicVals[dq2[0]]);
+      }
     }
     // Light smoothing on offset curve (4 s window) keeps the tonic responsive
     // to rapid SCR onsets without introducing jitter.
@@ -522,7 +543,10 @@ class GSRAnalyzer {
     // 6. Continuous, threshold-independent arousal metrics (ISCR/AUC + combined index + EM Fog)
     this.peakDensity = this.computeTemporalPeakDensity();
     this.phasicAUC = this.computePhasicAUC();
-    this.arousalIndex = this.computeCombinedArousalIndex();
+    // §B perf fix (2026-08-07): pass the already-computed phasicAUC so
+    // computeCombinedArousalIndex() does not re-run computePhasicAUC(30)
+    // internally (was an identical O(N) sliding-window recompute, discarded).
+    this.arousalIndex = this.computeCombinedArousalIndex(0.3, 0.7, this.phasicAUC);
     this.em_fog = this.raw.map(d => ({ time: d.time, val: (d.em_fog !== undefined && !isNaN(d.em_fog)) ? d.em_fog : 0 }));
     this.emFog = this.em_fog;
 
@@ -1646,23 +1670,38 @@ class GSRAnalyzer {
    *
    * @param {number} wTonic - Weight for tonic SCL component (default: 0.3)
    * @param {number} wPhasic - Weight for phasic AUC component (default: 0.7)
+   * @param {Array|null} precomputedAUC - Optional already-computed phasicAUC array
+   *   (same 30 s window). When supplied by analyze(), skips the redundant
+   *   computePhasicAUC(30) call (§B perf fix 2026-08-07).
    */
-  computeCombinedArousalIndex(wTonic = 0.3, wPhasic = 0.7) {
+  computeCombinedArousalIndex(wTonic = 0.3, wPhasic = 0.7, precomputedAUC = null) {
     const n = this.phasic.length;
     if (n === 0) return [];
 
-    const auc = this.computePhasicAUC(30);
-    const tonicVals = this.tonic.map(d => d.val);
-    const aucVals = auc.map(d => d.val);
+    // §B perf fix: reuse caller-supplied AUC instead of recomputing it.
+    // When called standalone (e.g. tests, external code), falls back to
+    // computing it fresh — same behaviour as before this fix.
+    const auc = precomputedAUC || this.computePhasicAUC(30);
 
-    const tonicStats = GsrFilter.calculateStats(tonicVals);
-    const aucStats = GsrFilter.calculateStats(aucVals);
+    // §B perf fix: compute mean/std in a single pass over this.tonic and auc
+    // directly, eliminating the two O(N) .map(d => d.val) intermediate arrays
+    // that were previously allocated only to pass into GsrFilter.calculateStats().
+    let tSum = 0, tSumSq = 0, aSum = 0, aSumSq = 0;
+    for (let i = 0; i < n; i++) {
+      const tv = this.tonic[i].val;
+      const av = auc[i].val;
+      tSum += tv; tSumSq += tv * tv;
+      aSum += av; aSumSq += av * av;
+    }
+    const tMean = tSum / n;
+    const tStd = Math.sqrt(Math.max(0, tSumSq / n - tMean * tMean)) || 1;
+    const aMean = aSum / n;
+    const aStd = Math.sqrt(Math.max(0, aSumSq / n - aMean * aMean)) || 1;
 
     const arousalIndex = new Array(n);
     for (let i = 0; i < n; i++) {
-      const tZ = (this.tonic[i].val - tonicStats.mean) / tonicStats.std;
-      const aZ = (aucVals[i] - aucStats.mean) / aucStats.std;
-
+      const tZ = (this.tonic[i].val - tMean) / tStd;
+      const aZ = (auc[i].val - aMean) / aStd;
       arousalIndex[i] = {
         time: this.phasic[i].time,
         val: (wTonic * tZ) + (wPhasic * aZ)

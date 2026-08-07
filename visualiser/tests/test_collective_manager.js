@@ -423,3 +423,119 @@ test('generateContourSurface: IDW grid matches an independent brute-force refere
   }
   assert.ok(nonNullCells > 0, 'precondition: at least some cells should be near enough to a point to have a value');
 });
+
+// ── §C perf fix: getContourLinesMulti correctness (2026-08-07) ───────────────
+// Single-pass multi-isolevel output must be identical to K separate
+// getContourLines() calls on the same grid and levels.
+
+const { MarchingSquares: MS } = require('../marching_squares.js');
+
+function segmentsToKey(segs) {
+  // Canonical string for a segment array — order-invariant within each segment
+  // (since {lat,lon} object identity differs), position-invariant across segments.
+  return segs.map(s =>
+    s.map(pt => `${pt.lat.toFixed(8)},${pt.lon.toFixed(8)}`).sort().join('|')
+  ).sort().join(';');
+}
+
+function makeSyntheticGrid(rows, cols) {
+  // Simple gradient grid: value = r + c (clear gradients for contour crossings)
+  const grid = [];
+  for (let r = 0; r < rows; r++) {
+    grid[r] = [];
+    for (let c = 0; c < cols; c++) grid[r][c] = r + c;
+  }
+  return grid;
+}
+
+const BOUNDS = { minLat: 51.0, maxLat: 52.0, minLon: -1.0, maxLon: 0.0 };
+
+test('§C getContourLinesMulti: identical segments to K getContourLines() calls on a 5×5 gradient grid', () => {
+  const rows = 5, cols = 5;
+  const grid = makeSyntheticGrid(rows, cols);
+  const levels = [1, 2, 3, 4, 5, 6];
+
+  // Reference: K separate calls
+  for (const lv of levels) {
+    const ref = MS.getContourLines(grid, rows, cols, BOUNDS, lv);
+    const multi = MS.getContourLinesMulti(grid, rows, cols, BOUNDS, levels);
+    const got = multi.get(lv) || [];
+    assert.strictEqual(segmentsToKey(got), segmentsToKey(ref),
+      `level ${lv}: segment mismatch`);
+  }
+});
+
+test('§C getContourLinesMulti: handles masked (null) cells identically to getContourLines()', () => {
+  const rows = 4, cols = 4;
+  const grid = makeSyntheticGrid(rows, cols);
+  // Mask top-left corner
+  grid[0][0] = null;
+  grid[0][1] = null;
+  const levels = [1.5, 3.0, 4.5];
+  const multi = MS.getContourLinesMulti(grid, rows, cols, BOUNDS, levels);
+  for (const lv of levels) {
+    const ref = MS.getContourLines(grid, rows, cols, BOUNDS, lv);
+    const got = multi.get(lv) || [];
+    assert.strictEqual(segmentsToKey(got), segmentsToKey(ref),
+      `masked grid level ${lv}: segment mismatch`);
+  }
+});
+
+test('§C getContourLinesMulti: empty levels array returns empty Map', () => {
+  const grid = makeSyntheticGrid(3, 3);
+  const result = MS.getContourLinesMulti(grid, 3, 3, BOUNDS, []);
+  assert.strictEqual(result.size, 0);
+});
+
+test('§C getContourLinesMulti: level outside grid range produces empty segment array', () => {
+  const grid = makeSyntheticGrid(4, 4); // values 0..6
+  const multi = MS.getContourLinesMulti(grid, 4, 4, BOUNDS, [100]);
+  const segs = multi.get(100) || [];
+  assert.strictEqual(segs.length, 0);
+});
+
+test('§C generateContourSurface: contour count and segment structure unchanged after §C wiring', () => {
+  // Build a realistic multi-track fixture (same as existing generateContourSurface tests)
+  const pts = [
+    { lat: 51.1, lon: -0.8 }, { lat: 51.2, lon: -0.7 },
+    { lat: 51.3, lon: -0.6 }, { lat: 51.4, lon: -0.5 },
+  ];
+  const phasicVals = [0.1, 0.5, 0.9, 0.3];
+  function makeA(points, vals) {
+    const n = points.length;
+    return {
+      raw: new Array(n).fill(0),
+      getCoordinates: (i) => points[i] || null,
+      sampleRate: 1,
+      phasic: vals.map((v, i) => ({ time: i, val: v })),
+      phasicZ: vals.map((v, i) => ({ time: i, val: v })),
+      tonic: vals.map((v, i) => ({ time: i, val: v * 0.5 })),
+      tonicZ: vals.map((v, i) => ({ time: i, val: v * 0.5 })),
+      phasicAUC: vals.map((v, i) => ({ time: i, val: v })),
+      arousalIndex: vals.map((v, i) => ({ time: i, val: v })),
+      phasicStd: 1,
+      peaks: [],
+    };
+  }
+  const mgr = new GSRCollectiveManager();
+  const t = { id: 'c', name: 'C', color: '#00f', analyzer: makeA(pts, phasicVals), enabled: true, filterParams: {} };
+  mgr.addTrack(t);
+
+  const params = { gridResolution: 10, contourCount: 5, isolationRadius: 100000,
+    idwExponent: 2, topographySource: 'phasic', normalizeZScore: false,
+    showShadedSurface: false, surfaceOpacity: 0.4 };
+  const result = mgr.generateContourSurface(params);
+
+  assert.ok(Array.isArray(result.contours));
+  // Each contour must have level, ratio, segments
+  for (const c of result.contours) {
+    assert.ok(typeof c.level === 'number', 'level must be number');
+    assert.ok(typeof c.ratio === 'number', 'ratio must be number');
+    assert.ok(Array.isArray(c.segments) && c.segments.length > 0, 'segments must be non-empty');
+    // Each segment: 2 {lat,lon} points
+    for (const seg of c.segments) {
+      assert.strictEqual(seg.length, 2);
+      assert.ok(typeof seg[0].lat === 'number' && typeof seg[0].lon === 'number');
+    }
+  }
+});
