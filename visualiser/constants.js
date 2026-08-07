@@ -236,6 +236,32 @@ const GSR_CONST = {
     peakPreservation: 0.5
   },
 
+  // ── Collective surface hillshading ──────────────────────────────────────
+  // Relief-shades the same grid COLLECTIVE.gridResolution interpolates,
+  // treating value (not elevation) as height. Since the values are z-scored
+  // arousal/phasic metrics (not meters), the height field is
+  // normalized to [0, 1] and re-scaled by `exaggeration` (in grid-cell
+  // widths) before shading, rather than using real-world cell spacing —
+  // that keeps the relief's visual intensity consistent across tracks
+  // regardless of grid resolution or the metric's raw unit scale.
+  HILLSHADE: {
+    azimuthDeg: 315,   // simulated sun direction, true compass bearing (0=N, 90=E, 180=S, 270=W); 315 = NW (top-left on a north-up map), casting shadow toward SE (bottom-right)
+    altitudeDeg: 35,   // sun elevation above the horizon — lower angle = longer, more dramatic shadows
+    exaggeration: 6.0, // full 0..1 normalized value range mapped to this many grid-cell widths of "height"
+    // minLightness/maxLightness are deliberately NOT symmetric around the 50%
+    // baseline. Flat (unsloped) cells always render at cos(altitudeDeg) —
+    // here cos(35deg) = 0.82 — regardless of exaggeration, so a naive
+    // symmetric range (e.g. 8..92) brightens almost the ENTIRE surface well
+    // above baseline (flat cells alone landed at ~76%), leaving true shadow
+    // as the rare exception instead of the common case. maxLightness=60 puts
+    // that same flat-cell brightness back at ~50% (neutral, matching the old
+    // unshaded look), so brightening only shows up where a slope genuinely
+    // faces the sun MORE than ambient — while minLightness stays low so
+    // slopes facing away still read as a real, strong shadow.
+    minLightness: 6,   // HSL lightness % for fully-shadowed cells
+    maxLightness: 60   // HSL lightness % for cells facing the sun directly
+  },
+
   // ── Memorable-event ("hotspot") selection ────────────────────────────────
   // See GSRAnalyzer.analyze()'s "Memorable-event view" section for the full
   // rationale (was a fixed salienceScore threshold, moved to percentile-based

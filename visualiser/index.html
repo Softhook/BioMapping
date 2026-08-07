@@ -513,7 +513,7 @@
                 <span>Grid Resolution</span>
                 <span class="slider-value" id="valGridResolution">40 x 40</span>
               </div>
-              <input type="range" id="gridResolution" min="20" max="80" step="5" value="40">
+              <input type="range" id="gridResolution" min="20" max="200" step="5" value="40">
               <p class="help-text">Higher values make contour lines smoother but require more calculation.</p>
             </div>
 
@@ -553,6 +553,15 @@
               </div>
               <input type="range" id="surfaceOpacity" min="0.05" max="1.0" step="0.05" value="0.40">
               <p class="help-text">Controls transparency of the continuous surface layer.</p>
+            </div>
+
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Hillshade Strength</span>
+                <span class="slider-value" id="valHillshadeStrength">0%</span>
+              </div>
+              <input type="range" id="hillshadeStrength" min="0" max="100" step="5" value="0">
+              <p class="help-text">Relief-shading intensity on the surface layer. 0% = flat color, no shading.</p>
             </div>
           </div>
         </section>
@@ -932,6 +941,7 @@
   <script src="map_match.js"></script>
   <script src="gsr_filter.js"></script>
   <script src="marching_squares.js"></script>
+  <script src="hillshade.js"></script>
   <script src="spatial_clustering.js"></script>
   <script src="collective_manager.js"></script>
   <script src="gps_filter.js"></script>

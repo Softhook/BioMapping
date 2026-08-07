@@ -45,7 +45,8 @@ const GSRCollectiveProject = {
   COLLECTIVE_SLIDER_KEYS: ['gpsPeakLatency', 'clusterProximity', 'clusterBoundaryRadius'],
   CONTOUR_KEYS: [
     'gridResolution', 'contourCount', 'isolationRadius', 'idwExponent',
-    'topoSource', 'showShadedSurface', 'normalizeZScore', 'surfaceOpacity'
+    'topoSource', 'showShadedSurface', 'normalizeZScore', 'surfaceOpacity',
+    'hillshadeStrength'
   ],
 
   /** Same sanitization as GSRUI._exportFilenameBase(), applied per-track instead of to the active track only. */

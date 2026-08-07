@@ -2302,6 +2302,7 @@ class GSRMapManager {
     this._legendMinVal = minVal;
     this._legendMaxVal = maxVal;
     const { surfaceOpacity = 0.40 } = contourParams;
+    const hillshadeStrength = contourParams.hillshadeStrength !== undefined ? contourParams.hillshadeStrength : 0.0;
 
     // 1. Draw shaded continuous surface overlay.
     //    The overlay is created whenever there is surface data — it is NOT gated
@@ -2324,31 +2325,57 @@ class GSRMapManager {
       const valRange = maxVal - minVal;
       const rangeEpsilon = 1e-9;
       const useRankColor = sortedVals && sortedVals.length > 1;
+      const ratioOf = (v) => useRankColor ? StatsMath.percentileRank(v, sortedVals) : (valRange > rangeEpsilon ? (v - minVal) / valRange : 0.5);
 
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          const val = grid[r][c];
-          if (val === null || isNaN(val)) {
-            continue;
+      // Remember for GSRMapExporter's SVG export, which recomputes this same
+      // shading over its own vector mesh (map_exporter.js _buildVectorMesh)
+      // and needs to match what's currently on screen.
+      this._hillshadeStrength = hillshadeStrength;
+
+      if (hillshadeStrength <= 0) {
+        // True zero-overhead path at 0% strength: no ratio grid, no height
+        // grid, no Hillshade.compute() call, no per-cell shade blend — this
+        // is byte-for-byte the single-pass loop that existed before
+        // hillshading was added, not a "diluted" shaded pass.
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const val = grid[r][c];
+            if (val === null || isNaN(val)) continue;
+            ctx.fillStyle = MapColors.getHslColor(ratioOf(val), 100, 50);
+            ctx.fillRect(c, rows - 1 - r, 1, 1);
           }
+        }
+      } else {
+        // Percentile-rank ratio grid — the SAME field that drives both the
+        // fill hue below and, in generateContourSurface(), where the isoline
+        // levels themselves land (both percentile-based, not linear-value-
+        // based — see that method's comment on why: it keeps bands/lines
+        // spread across where the distribution actually varies instead of
+        // bunching on a flat majority). shadeValueGrid() (hillshade.js)
+        // hillshades that SAME ratio field, not the raw value, so the relief
+        // is the literal same surface the isolines and colors are drawn from.
+        const hc = GSR_CONST.HILLSHADE;
+        const { ratioGrid, shade } = (typeof Hillshade !== 'undefined')
+          ? Hillshade.shadeValueGrid(grid, rows, cols, {
+              minVal, maxVal, sortedVals, rankFn: StatsMath.percentileRank,
+              exaggeration: hc.exaggeration, azimuthDeg: hc.azimuthDeg, altitudeDeg: hc.altitudeDeg
+            })
+          : { ratioGrid: grid.map(row => row.map(v => (v === null || isNaN(v)) ? null : ratioOf(v))), shade: null };
 
-          // Percentile-rank color ratio, consistent with the contour levels below: a cell's
-          // color reflects where it sits in the surface's actual value distribution rather
-          // than a linear min/max ratio, which gets swamped by the flat low-arousal majority
-          // whenever a small number of cells spike far above the rest.
-          let ratio;
-          if (useRankColor) {
-            ratio = StatsMath.percentileRank(val, sortedVals);
-          } else {
-            ratio = valRange > rangeEpsilon ? (val - minVal) / valRange : 0.5;
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const ratio = ratioGrid[r][c];
+            if (ratio === null) continue;
+
+            // Lightness carries the hillshade relief (dark = shadowed, bright =
+            // sun-facing); hue/saturation still carry the data value via `ratio`.
+            // hillshadeStrength blends between the full relief lightness and the
+            // flat baseline (50%) it replaces.
+            const shadedLightness = shade ? hc.minLightness + shade[r * cols + c] * (hc.maxLightness - hc.minLightness) : 50;
+            const lightness = 50 + hillshadeStrength * (shadedLightness - 50);
+            ctx.fillStyle = MapColors.getHslColor(ratio, 100, lightness);
+            ctx.fillRect(c, rows - 1 - r, 1, 1);
           }
-
-          ctx.fillStyle = MapColors.getHslColor(ratio, 100, 50);
-
-          // Flip row index vertically for canvas space
-          const x = c;
-          const y = rows - 1 - r;
-          ctx.fillRect(x, y, 1, 1);
         }
       }
 

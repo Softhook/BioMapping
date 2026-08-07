@@ -366,7 +366,12 @@ class GSRMapExporter {
   }
 
   /**
-   * Generates cell-by-cell vector mesh polygons, each colored by its exact percentile rank.
+   * Generates cell-by-cell vector mesh polygons, each colored by its exact
+   * percentile rank and — matching the live raster surface (map.js
+   * renderContours()) — relief-shaded via the same Hillshade.shadeValueGrid()
+   * helper, at whatever hillshadeStrength was last set on the map (so the
+   * export matches what's currently on screen). Skips the shading pass
+   * entirely at 0% strength, same zero-overhead guarantee as the live surface.
    */
   static _buildVectorMesh(ctx, surfaceData) {
     const { grid, minVal, maxVal, bounds, sortedVals } = surfaceData;
@@ -377,6 +382,15 @@ class GSRMapExporter {
     const useRankColor = sortedVals && sortedVals.length > 1;
     const project = ctx.project || (ll => ctx.map.latLngToContainerPoint(ll));
     const mesh = [];
+
+    const hillshadeStrength = (ctx.mgr && ctx.mgr._hillshadeStrength !== undefined) ? ctx.mgr._hillshadeStrength : 0.0;
+    const hc = (typeof GSR_CONST !== 'undefined') ? GSR_CONST.HILLSHADE : null;
+    const shaded = (hillshadeStrength > 0 && hc && typeof Hillshade !== 'undefined' && typeof StatsMath !== 'undefined')
+      ? Hillshade.shadeValueGrid(grid, rows, cols, {
+          minVal, maxVal, sortedVals, rankFn: StatsMath.percentileRank,
+          exaggeration: hc.exaggeration, azimuthDeg: hc.azimuthDeg, altitudeDeg: hc.altitudeDeg
+        })
+      : null;
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
@@ -390,7 +404,12 @@ class GSRMapExporter {
           ratio = valRange > rangeEpsilon ? (val - minVal) / valRange : 0.5;
         }
 
-        const fillColor = this._ratioToHex(ratio);
+        let lightness = 50;
+        if (shaded) {
+          const shadedLightness = hc.minLightness + shaded.shade[row * cols + col] * (hc.maxLightness - hc.minLightness);
+          lightness = 50 + hillshadeStrength * (shadedLightness - 50);
+        }
+        const fillColor = this._ratioToHex(ratio, lightness);
 
         const dLat = (rows > 1) ? 0.5 * (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
         const dLon = (cols > 1) ? 0.5 * (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
@@ -1269,10 +1288,10 @@ class GSRMapExporter {
     return `#${f(0)}${f(8)}${f(4)}`;
   }
 
-  static _ratioToHex(ratio) {
+  static _ratioToHex(ratio, lightness = 50) {
     const r = Math.max(0, Math.min(1, ratio));
     const hue = (1.0 - r) * 120; // 120 = Green, 60 = Yellow, 0 = Red
-    return this._hslToHex(hue, 100, 50);
+    return this._hslToHex(hue, 100, lightness);
   }
 
   /**

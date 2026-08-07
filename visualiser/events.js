@@ -56,7 +56,7 @@ const GSREvents = {
     // Contour controls (used in collective map)
     const contourKeys = [
       'gridResolution', 'contourCount', 'isolationRadius', 'idwExponent',
-      'topoSource', 'normalizeZScore', 'surfaceOpacity'
+      'topoSource', 'normalizeZScore', 'surfaceOpacity', 'hillshadeStrength'
     ];
     AppState.contourControls = {};
     for (const key of contourKeys) {
@@ -889,6 +889,7 @@ const GSREvents = {
     bindCi('isolationRadius', 'valIsolationRadius', v => `${v} m`);
     bindCi('idwExponent',     'valIdwExponent',     v => v.toFixed(1));
     bindCi('surfaceOpacity',  'valSurfaceOpacity',  v => `${Math.round(v * 100)}%`);
+    bindCi('hillshadeStrength', 'valHillshadeStrength', v => `${v}%`);
 
 
 
@@ -975,6 +976,7 @@ const GSREvents = {
       updateCLabel('isolationRadius', 'valIsolationRadius', v => `${v} m`);
       updateCLabel('idwExponent',     'valIdwExponent',     v => v.toFixed(1));
       updateCLabel('surfaceOpacity',  'valSurfaceOpacity',  v => `${Math.round(v * 100)}%`);
+      updateCLabel('hillshadeStrength', 'valHillshadeStrength', v => `${v}%`);
 
       const btnToggleMapSurface = document.getElementById('btnToggleMapSurface');
       const opacityGroup = document.getElementById('surfaceOpacityGroup');

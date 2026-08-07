@@ -87,6 +87,11 @@ module.exports = {
     idwExponent: 2, surfaceOpacity: 0.40
   },
 
+  HILLSHADE: {
+    azimuthDeg: 315, altitudeDeg: 35, exaggeration: 6.0,
+    minLightness: 6, maxLightness: 60
+  },
+
   SNAP: {
     HEADING_W: 0.7, SPEED_GATE: 0.3
   },
