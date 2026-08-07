@@ -91,8 +91,6 @@ const AppState = {
 
   // ── Interaction state ──────────────────────────────────────────────────────
   isDragging: false,
-  isMapFullscreen: false,
-  isGsrCollapsed: false,
   isBrowserFullscreen: false,
   dragStartMouseX: 0,
   dragStartViewStart: 0,

@@ -775,22 +775,23 @@ const GSRRenderer = {
   },
 
   handleScrubber(tMin, tMax, yMinU, yMaxU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
-    // Don't scrub when the map panel is fullscreen (p5 canvas is hidden behind
-    // overlay), the GSR panel itself is collapsed (canvas is visibility:hidden
-    // but its layout box can still overlap whatever panel expanded into its
-    // space), or we're in collective view (gsrPanel is display:none — the
-    // canvas' getBoundingClientRect collapses to all-zero, so p5 computes
-    // mouseX/mouseY from raw viewport coordinates, which can coincidentally
-    // fall inside the graph's plot bounds while panning the map).
-    if (AppState.isMapFullscreen || AppState.isGsrCollapsed || AppState.viewMode === 'collective') {
+    // Whatever the reason the canvas isn't reachable — collapsed panel
+    // (visibility:hidden), collective view (display:none), the map's
+    // fullscreen overlay sitting on top (z-index 9999) — a real hit-test at
+    // the cursor's screen position is the one check that stays correct
+    // without needing a dedicated AppState flag per hiding mechanism. p5's
+    // own mouseX/mouseY and the mouseenter/mouseleave-driven mouseOverCanvas
+    // flag are computed from the canvas' own layout box, which can go stale
+    // or keep overlapping whatever took its place once the canvas is hidden
+    // by CSS rather than actually moved/removed.
+    if (!AppState.myCanvas || document.elementFromPoint(winMouseX, winMouseY) !== AppState.myCanvas.elt) {
       AppState.hoveredIndex = -1;
       if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
       return;
     }
 
-    // Only show scrubber when the mouse is actually over the canvas and inside the graph area
-    if (!AppState.mouseOverCanvas ||
-        mouseX < GSR_CONST.MARGIN.left || mouseX > width - GSR_CONST.MARGIN.right ||
+    // Only show scrubber when the mouse is inside the graph's plot area
+    if (mouseX < GSR_CONST.MARGIN.left || mouseX > width - GSR_CONST.MARGIN.right ||
         mouseY < GSR_CONST.MARGIN.top || mouseY > yBottomL ||
         AppState.isDragging) {
       AppState.hoveredIndex = -1;

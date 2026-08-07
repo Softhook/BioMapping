@@ -50,9 +50,7 @@ const GSRLayoutManager = {
     this.setupResizeObservers();
     this.setupBrowserFullscreen();
     this.setupPanelFullscreen('btnGsrFullscreen', 'gsrPanel');
-    this.setupPanelFullscreen('btnMapFullscreen', 'mapPanel', (isFs) => {
-      AppState.isMapFullscreen = isFs;
-    });
+    this.setupPanelFullscreen('btnMapFullscreen', 'mapPanel');
     this.setupPanelFullscreen('btnEventsFullscreen', 'eventsPanel');
     this.setupPanelFullscreen('btnEnvFullscreen', 'environmentalPanel');
   },

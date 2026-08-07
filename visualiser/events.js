@@ -573,15 +573,12 @@ const GSREvents = {
     GSREvents.bindCollapseButton('btnImportCollapse',        'importCard');
     GSREvents.bindCollapseButton('btnExportCollapse',        'exportCard');
     GSREvents.bindCollapseButton('btnContourCollapse',       'contourSettingsCard');
-    // The p5 canvas keeps its own layout box (and last mouseenter/mouseleave
-    // state) even while its ancestor is visibility:hidden — collapsing the
-    // panel doesn't move the mouse, so no mouseleave fires and the canvas'
-    // bounding rect can still overlap whatever panel expands into that space.
-    // Without this, a stale AppState.mouseOverCanvas=true plus coincidental
-    // in-bounds coordinates let the GSR scrubber reactivate while panning the
-    // map panel that took over the collapsed graph's screen area.
+    // Collapsing the panel doesn't move the mouse, so no mouseleave fires on
+    // the canvas — reset mouseOverCanvas here so mouseMoved() (sketch.js)
+    // doesn't keep forcing redraws while the mouse sits over the collapsed
+    // graph's old screen area. (handleScrubber's own elementFromPoint
+    // hit-test is what actually keeps the scrubber from reactivating.)
     GSREvents.bindCollapseButton('btnGsrCollapse',           'gsrPanel', (collapsed) => {
-      AppState.isGsrCollapsed = collapsed;
       if (collapsed) {
         AppState.mouseOverCanvas = false;
         AppState.hoveredIndex = -1;
@@ -877,9 +874,9 @@ const GSREvents = {
       // is debounced ~150ms, and handleScrubber no longer runs after noLoop()).
       // Also clear mouseOverCanvas: hiding gsrPanel via inline style doesn't
       // move the mouse, so no mouseleave fires on the canvas and the flag
-      // would otherwise stay stuck true — which makes mouseMoved() keep
-      // forcing redraw()s (and thus handleScrubber() re-runs) while panning
-      // the map, even though AppState.viewMode now guards handleScrubber itself.
+      // would otherwise stay stuck true, making mouseMoved() (sketch.js) keep
+      // forcing pointless redraws while panning the map. (handleScrubber's own
+      // elementFromPoint hit-test is what actually keeps the scrubber inert.)
       AppState.mouseOverCanvas = false;
       AppState.hoveredIndex = -1;
       if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
