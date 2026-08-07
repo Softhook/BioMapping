@@ -1675,6 +1675,10 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border-bottom: 1px dashed var(--border-glass);
 }
 
+.card-content > .control-subgroup-title:first-child {
+  margin-top: 0;
+}
+
 .panel-title-group {
   display: flex;
   align-items: center;
