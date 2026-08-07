@@ -699,6 +699,9 @@ const OSMEnricher = {
 
     analyzer.isEnriched = true;
     analyzer.enrichmentRadius = radiusMeters;
+    // Wrote osm_* fields onto every raw sample above — bump so callers
+    // caching derived data (e.g. GSRUI's environmental dashboard) recompute.
+    analyzer._dataVersion = (analyzer._dataVersion || 0) + 1;
     if (onProgress) onProgress('Enrichment complete!');
   },
 

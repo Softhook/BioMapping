@@ -150,7 +150,47 @@ Phases are independently shippable; §4 gives suggested sequencing.
 
 **Verify:** the existing manual repro (add N tracks, toggle/remove in various orders and both view modes, confirm no stale layers of any kind) plus a new automated regression test (see Phase 4).
 
-### Phase 2 — Collapse manual-invalidation caches to self-validating state
+### Phase 2 — Collapse manual-invalidation caches to self-validating state ✅ DONE (2026-08-07)
+
+> **Status:** landed. `GSRAnalyzer` (`analyzer.js`) gained a `_dataVersion` counter, bumped by every
+> mutation path that actually touches cached-worthy data: `analyze()` (end of the method, after
+> `_buildDisplayCache()`), `setPeakLabel()`, and a new `setPeakExcluded(idx, excluded)` method
+> (replaces the direct `peaks[idx].excluded = …` mutation that used to live in
+> `ui.js:togglePeakExclusion` — that call site now resolves the analyzer via
+> `_resolveTrackAndAnalyzer()` and calls the setter instead of poking the array directly).
+> `OSMEnricher.enrichTrack()` (`osm_enrichment.js`) bumps the same counter on the analyzer it's
+> passed, right after it sets `isEnriched = true` — the point where all `osm_*` fields on `raw`
+> are finalized. The grep audit called for in the risk note below found exactly these mutation
+> paths (plus internal-only ones like `this.peaks.push()` inside `analyze()`, already covered
+> since `analyze()` bumps once at the end) — no direct `analyzer.raw =` / `peaks.push` bypass from
+> outside the class.
+>
+> The read side (`GSRUI.updateEnvironmentalDashboard()`, `ui.js`) already fingerprinted the cache
+> on `latency`/`trackCount`/`trackIds` (so track add/remove/enable-toggle and latency changes were
+> already self-correcting); it now also folds in `versionSig` — a per-active-track join of each
+> analyzer's `_dataVersion` — so a mutation that leaves the active-track set unchanged (peak label
+> edit, exclusion toggle, re-analyze, OSM enrichment) also forces a recompute. All 9
+> `invalidateEnvironmentalCache()` call sites (`ui.js` ×6, `tracks.js`, `events.js`, `storage.js`)
+> and the method itself are deleted — the cache can no longer go stale by a caller forgetting to
+> invalidate it, because nothing calls "invalidate" anymore. `_gpsCache` and
+> `_lastFitBoundsTrackId/Set` left untouched per step 4. New regression coverage:
+> `tests/test_analyzer_refactoring.js` (`_dataVersion` bumped by `setPeakLabel`/`setPeakExcluded`/
+> `analyze()`, and *not* bumped by an out-of-range `setPeakExcluded` index) and
+> `tests/test_osm_enrichment.js` (`enrichTrack` bumps `_dataVersion`) cover the write side —
+> analyzer methods bump the counter correctly. `tests/test_env_dashboard_cache.js` (new) covers the
+> read side, which the write-side tests alone don't prove: it drives the real
+> `GSRUI.updateEnvironmentalDashboard()` against a real `GSRAnalyzer` built from an actual track CSV
+> (`tracks/biomap_048.csv`, the same fixture `test_all_pipelines.js` uses), with `document` stubbed
+> to return no render targets so the cache-computation logic runs for real while DOM painting
+> no-ops. Five cases: cache reused across repeat calls with no mutation; recomputes after
+> `setPeakLabel`, `setPeakExcluded`, and re-`analyze()` in single mode; and — the one most worth
+> having, since it's genuinely new logic rather than a restated unit test — in collective mode,
+> mutating only ONE of two active tracks still invalidates the shared `collectiveManager`-level
+> cache (the `versionSig` join across tracks). Verified this test suite isn't vacuous by
+> temporarily reverting the `versionSig` check in `ui.js` and confirming 4 of 5 cases fail, then
+> restoring the fix. `tests/test_storage.js` and `tests/test_tracks.js` updated to drop their
+> now-dead `invalidateEnvironmentalCache` mocks/assertions. Full suite green (all `tests/test_*.js`,
+> run individually per §1.5 — no `npm test` yet, that's Phase 4).
 
 **Goal:** apply the Phase 1 principle (state that can't go stale by construction) to the `_cachedEnvStats` family from §1.2, the highest-call-count instance of the pattern.
 

@@ -32,18 +32,6 @@ const GSRUI = {
   },
 
   /**
-   * Invalidate cached environmental dashboard stats.
-   */
-  invalidateEnvironmentalCache() {
-    if (AppState.analyzer) {
-      AppState.analyzer._cachedEnvStats = null;
-    }
-    if (AppState.collectiveManager) {
-      AppState.collectiveManager._cachedEnvStats = null;
-    }
-  },
-
-  /**
    * Re-render the Leaflet map with current GPS filter parameters.
    */
   rerenderMap() {
@@ -74,11 +62,13 @@ const GSRUI = {
     }
     this._markUnsavedLabels(track);
 
-    GSRUI.invalidateEnvironmentalCache();
-    // Refresh displays
+    // Refresh displays. A label edit only ever changes this one peak's label
+    // chip/popup — refreshPeakMarkers() re-renders just the peak-marker layer
+    // instead of renderData()'s full path+peaks+hotspots rebuild (see
+    // docs/visualizer_rendering_perf_routes.md §2.2).
     if (AppState.viewMode === 'single') {
       if (AppState.mapManager) {
-        AppState.mapManager.renderData(AppState.analyzer, GSRStorage.buildGpsParams());
+        AppState.mapManager.refreshPeakMarkers(AppState.analyzer, GSRStorage.buildGpsParams());
       }
       GSRUI.updatePeaksTable();
       redraw();
@@ -191,10 +181,9 @@ const GSRUI = {
    * Toggle exclusion state for a peak event, then refresh all views.
    */
   togglePeakExclusion(idx, trackId) {
-    const peaks = GSRUI._getPeaksArray(trackId);
-    if (!peaks || idx >= peaks.length) return;
-    peaks[idx].excluded = !peaks[idx].excluded;
-    GSRUI.invalidateEnvironmentalCache();
+    const { analyzer } = this._resolveTrackAndAnalyzer(trackId);
+    if (!analyzer || !analyzer.peaks || idx >= analyzer.peaks.length) return;
+    analyzer.setPeakExcluded(idx, !analyzer.peaks[idx].excluded);
     // Refresh displays
     if (AppState.viewMode === 'single') {
       GSRUI.updatePeaksTable();
@@ -223,7 +212,6 @@ const GSRUI = {
       if (AppState.viewMode === 'single') {
         GSRTrackManager.saveActiveTrackParams();
         AppState.analyzer.analyze(params, peakLatency);
-        GSRUI.invalidateEnvironmentalCache();
         if (AppState.mapManager) {
           AppState.mapManager.renderData(AppState.analyzer, GSRStorage.buildGpsParams());
         }
@@ -235,7 +223,6 @@ const GSRUI = {
             track.filterParams = { ...params };
           });
         }
-        GSRUI.invalidateEnvironmentalCache();
         GSRUI.updateCollectiveMap();
       }
 
@@ -798,7 +785,6 @@ const GSRUI = {
             { enabled: snapEnabled, radiusOut: snapRadius }
           );
         });
-        GSRUI.invalidateEnvironmentalCache();
         GSRUI.refreshOsmControls();
         GSRUI.rerenderMap();
         updateProgress('Enrichment complete (using local cache)!', 100);
@@ -835,8 +821,6 @@ const GSRUI = {
         );
       });
 
-      GSRUI.invalidateEnvironmentalCache();
-      
       updateProgress('Redrawing visualizer...', 90);
       
       // Update UI displays
@@ -993,15 +977,22 @@ const GSRUI = {
 
     const latency = parseFloat(document.getElementById('gpsPeakLatency').value) || 2.0;
     const trackIdsStr = activeTracks.map(t => t.id).join(',');
+    // Per-track data-mutation fingerprint (bumped by analyzer.analyze(),
+    // setPeakLabel(), setPeakExcluded(), and OSMEnricher.enrichTrack() —
+    // see analyzer.js's _dataVersion doc comment). Folding this into the
+    // cache key means the cache self-validates against any of those
+    // mutations without a caller having to remember to invalidate it.
+    const versionSig = activeTracks.map(t => (t.analyzer && t.analyzer._dataVersion) || 0).join(',');
 
     // Use a shared cache location: in single mode, store on the analyzer;
     // in collective mode, store on the collective manager (avoids losing cache when switching active track)
     const cacheTarget = (AppState.viewMode === 'single') ? AppState.analyzer : AppState.collectiveManager;
     const cache = cacheTarget._cachedEnvStats;
-    const needsRecalc = !cache || 
-                      cache.latency !== latency || 
+    const needsRecalc = !cache ||
+                      cache.latency !== latency ||
                       cache.trackCount !== activeTracks.length ||
-                      cache.trackIds !== trackIdsStr;
+                      cache.trackIds !== trackIdsStr ||
+                      cache.versionSig !== versionSig;
 
     if (needsRecalc) {
       const allData = [];
@@ -1173,6 +1164,7 @@ const GSRUI = {
         latency,
         trackCount: activeTracks.length,
         trackIds: trackIdsStr,
+        versionSig,
         allData,
         correlationMatrix,
         roadProfile

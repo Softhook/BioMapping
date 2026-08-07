@@ -55,6 +55,13 @@ class GSRAnalyzer {
     this.rfPeakIndices = new Set(); // this.raw row indices with a momentary RF
                                      // spike on any band — must survive map
                                      // simplification, see _detectRfPeakIndices()
+
+    // Bumped by analyze()/setPeakLabel()/setPeakExcluded() (and by
+    // OSMEnricher.enrichTrack() after it finishes writing osm_* fields onto
+    // `raw`). Callers that cache derived data (e.g. GSRUI's environmental
+    // dashboard) key their cache on this instead of relying on being told
+    // to invalidate — see docs/visualizer_architecture_refactor_plan.md Phase 2.
+    this._dataVersion = 0;
   }
 
   /**
@@ -76,6 +83,16 @@ class GSRAnalyzer {
         }
       }
     }
+    this._dataVersion++;
+  }
+
+  /**
+   * Toggle (or set) a peak's excluded flag by index.
+   */
+  setPeakExcluded(idx, excluded) {
+    if (!this.peaks[idx]) return;
+    this.peaks[idx].excluded = excluded;
+    this._dataVersion++;
   }
 
   /**
@@ -511,6 +528,10 @@ class GSRAnalyzer {
 
     // 7. Build display cache for fast rendering (Y-range pyramid, timeline)
     this._buildDisplayCache();
+
+    // Bump so any cache keyed on this analyzer's data (e.g. the environmental
+    // dashboard's _cachedEnvStats) recomputes instead of trusting stale stats.
+    this._dataVersion++;
   }
 
   /**

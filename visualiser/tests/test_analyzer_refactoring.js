@@ -347,6 +347,32 @@ test('GSRAnalyzer getMatchingLabel: exact match then nearest within tolerance', 
   assert.strictEqual(a.getMatchingLabel(10.0), '');
 });
 
+test('GSRAnalyzer _dataVersion: bumped by every mutation path a self-validating cache must key on', () => {
+  // Phase 2 (docs/visualizer_architecture_refactor_plan.md): callers that cache
+  // derived data off an analyzer (e.g. GSRUI's environmental dashboard) key
+  // their cache on _dataVersion instead of relying on being told to invalidate.
+  // This only works if every mutation path actually bumps it — that's what's
+  // under test here, not the counter mechanics themselves.
+  const a = new GSRAnalyzer();
+  assert.strictEqual(a._dataVersion, 0);
+
+  a.setPeakLabel(10.0, 'A');
+  assert.strictEqual(a._dataVersion, 1, 'setPeakLabel bumps _dataVersion');
+
+  a.peaks = [{ time: 10, excluded: false }];
+  a.setPeakExcluded(0, true);
+  assert.strictEqual(a.peaks[0].excluded, true, 'setPeakExcluded flips the flag');
+  assert.strictEqual(a._dataVersion, 2, 'setPeakExcluded bumps _dataVersion');
+
+  // Out-of-range index is a no-op, including for the version counter.
+  a.setPeakExcluded(5, true);
+  assert.strictEqual(a._dataVersion, 2, 'setPeakExcluded on an invalid index does not bump _dataVersion');
+
+  a.raw = [{ time: 0, val: 1 }, { time: 1, val: 2 }];
+  a.analyze(GSR_CONST.GSR_DEFAULT, 0);
+  assert.strictEqual(a._dataVersion, 3, 'analyze() bumps _dataVersion');
+});
+
 test('GSRAnalyzer computeTemporalPeakDensity: centered sliding window, peaks/min', () => {
   const a = new GSRAnalyzer();
   assert.deepStrictEqual(a.computeTemporalPeakDensity(60), []); // empty phasic

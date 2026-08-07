@@ -9,6 +9,43 @@
 > fan-cast cross-track caching) is one of the routes below; see §2.1 for how
 > it relates to the other RF finding here.
 
+> **2026-08-07 update:** a user report of "extreme slowdowns with zooming and
+> adding label" traced to two concrete causes, now both fixed:
+> 1. **p5 canvas mouse-wheel zoom wasn't rAF-coalesced** (`sketch.js:mouseWheel`)
+>    — outside this doc's original scope (sketch.js, not map.js/events.js), but
+>    the same class of issue §1 already solved for GSR/GPS sliders. Trackpads
+>    fire wheel ticks faster than `redraw()` (synchronous full `draw()` under
+>    `noLoop()`) can keep up with, so a zoom gesture stacked up many full
+>    repaints before the browser could paint any of them — read as a stutter/
+>    freeze. Fixed by wrapping the repaint (not the state update, which stays
+>    synchronous) in `GSREvents.rafCoalesce()`, capping it to one repaint per
+>    animation frame — the exact pattern §1 already validated.
+> 2. **§2.2 below, for the label-edit case specifically**: `GSRUI.updatePeakLabel()`
+>    (`ui.js`) no longer calls `renderData()`. It calls a new
+>    `GSRMapManager.refreshPeakMarkers()` (`map.js`) that rebuilds only the
+>    active track's peak/connector layers (+ cluster blobs, + a
+>    `updateMarkerVisibility()` pass) — path and hotspot layers are left
+>    untouched by reference. Falls back to the full `renderData()` when there's
+>    no resolvable managed track (the legacy no-track fallback, whose layers
+>    aren't tagged per-track so a scoped removal isn't possible). While adding
+>    this, found and fixed an adjacent pre-existing bug it exposed: in that
+>    same legacy fallback, `_renderPeakMarkers()` only tagged marker/connector
+>    layers with `_gsrKind` *inside* the `if (layerGroup)` branch, so
+>    fallback-rendered peaks were invisible to `getRenderLayers()` /
+>    `getPeakMarkerByIndex()` / `updateMarkerVisibility()`'s classification
+>    (hotspots already tagged unconditionally — peaks/connectors now match that
+>    pattern). Regression coverage: three new tests in
+>    `tests/test_map_layer_ownership.js` (path/hotspot layers survive by
+>    reference, peak/connector layers are fully replaced with no orphans/
+>    duplicates, the no-track fallback still renders correctly, and the real
+>    `GSRUI.updatePeakLabel()` wiring — not just the map.js method in
+>    isolation — is exercised end to end). `togglePeakExclusion()` (`ui.js`)
+>    has the identical `renderData()`-does-a-full-rebuild issue noted below and
+>    was deliberately left alone — same fix would apply, not done without being
+>    asked. Collective-mode label edits (`GSRUI.updateCollectiveMap()` →
+>    `renderCollectiveData()`) also still do a full rebuild; not in scope of
+>    this pass either.
+
 ## 1. Current state — what's already optimized
 
 A read-through of the rendering path (2026-08-07) found it already carries
@@ -114,6 +151,12 @@ fans" cost cheaper too.
 
 ### 2.2 `renderData()` always does a full clear + rebuild, even for changes that only affect one layer kind
 
+> **Status: partially landed (2026-08-07).** The label-edit case is fixed —
+> see the 2026-08-07 update at the top of this document for what shipped
+> (`GSRMapManager.refreshPeakMarkers()`) and what didn't (the
+> `togglePeakExclusion()` case below, and collective mode). The other cases
+> below are still open.
+
 **What:** every call to `renderData()` (`map.js:631-709`) starts with
 `this.clearMap()` and rebuilds path segments, peak markers, *and* hotspot
 markers unconditionally. But not every trigger needs all three:
@@ -121,7 +164,10 @@ markers unconditionally. But not every trigger needs all three:
   the path is colored — peak/hotspot marker positions and popups are
   identical before and after, yet they're destroyed and rebuilt anyway.
 - `togglePeakExclusion()` (`ui.js:193-208`) changes one peak's excluded
-  state — same full rebuild.
+  state — same full rebuild. **Not fixed** — `refreshPeakMarkers()` (landed
+  for the label-edit case) would apply here unchanged, just swap the call
+  site; deliberately left alone since it wasn't what was asked for.
+- ~~`updatePeakLabel()` changes one peak's label~~ — **fixed**, see above.
 
 **When it fires:** dropdown/checkbox-driven, not drag-driven, so this is
 infrequent compared to §2.1 — but each occurrence does real work (`L.marker`

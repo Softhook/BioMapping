@@ -533,7 +533,6 @@ test('applyPreset: commits parsed sliders to the active track and re-analyzes it
   const uiCalls = [];
   global.GSRTrackManager = { renderTrackList: () => uiCalls.push('renderTrackList') };
   global.GSRUI = {
-    invalidateEnvironmentalCache: () => uiCalls.push('invalidateCache'),
     runAnalysis: () => uiCalls.push('runAnalysis'),
     updateCollectiveMap: () => uiCalls.push('updateCollectiveMap'),
   };
@@ -546,7 +545,7 @@ test('applyPreset: commits parsed sliders to the active track and re-analyzes it
   assert.ok(track.gpsFilterParams, 'track.gpsFilterParams should have been assigned');
   assert.ok(analyzeArgs, 'track.analyzer.analyze should have been called');
   assert.strictEqual(analyzeArgs.pl, 1.5);
-  assert.deepStrictEqual(uiCalls, ['renderTrackList', 'invalidateCache', 'runAnalysis', 'updateCollectiveMap']);
+  assert.deepStrictEqual(uiCalls, ['renderTrackList', 'runAnalysis', 'updateCollectiveMap']);
 });
 
 test('applyPreset: swallows an error thrown by track.analyzer.analyze() and still returns true', () => {

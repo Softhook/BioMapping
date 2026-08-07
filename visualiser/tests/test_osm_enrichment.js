@@ -388,6 +388,7 @@ console.log('\n── OSMEnricher: enrichTrack (integration, no snapping) ──
 
   assert(analyzer.isEnriched === true, 'enrichTrack sets analyzer.isEnriched');
   assertEq(analyzer.enrichmentRadius, 50, 'enrichTrack records the search radius used');
+  assertEq(analyzer._dataVersion, 1, 'enrichTrack bumps _dataVersion so self-validating caches (e.g. GSRUI env dashboard) recompute');
   assert(analyzer.osmGeoms && analyzer.osmGeoms.ways.length === 1, 'enrichTrack caches reconstructed geometries');
   for (let i = 0; i < raw.length; i++) {
     assertEq(raw[i].osm_road_class, 'residential', `enrichTrack — row ${i} classified as residential road`);

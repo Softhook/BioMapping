@@ -824,3 +824,90 @@ test('slice3: entering collective (0 active tracks) drops a lingering scrub mark
   assert.ok(!map.hasLayer(mapManager.scrubMarker),
     'clearCollectiveLayers should drop the scrub marker (no graph to scrub in collective view)');
 });
+
+// ── refreshPeakMarkers (docs/visualizer_rendering_perf_routes.md §2.2) ──────
+// A label edit only ever changes one peak's label chip/popup; refreshPeakMarkers()
+// exists so that no longer costs a full renderData() clear+rebuild of the path
+// and hotspot layers too. These tests pin the contract: path/hotspot layers
+// must survive by reference (proving they weren't touched), peak/connector
+// layers must be fully replaced (proving the label/collision change actually
+// took effect), and nothing is left orphaned or duplicated on the map.
+
+test('refreshPeakMarkers: rebuilds only peak/connector layers, leaving path and hotspot layers untouched', () => {
+  const { window, map, mapManager } = bootWithRecordingL();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  const byKind = (layers, kinds) => layers.filter(l => kinds.includes(l._gsrKind));
+  const before = track.layerGroup.getLayers();
+  const pathBefore = byKind(before, ['path']);
+  const hotspotBefore = byKind(before, ['hotspot']);
+  const peakBefore = byKind(before, ['peak', 'connector']);
+  assert.ok(pathBefore.length > 0, 'fixture renders at least one path segment');
+  assert.ok(hotspotBefore.length > 0, 'fixture renders at least one hotspot');
+  assert.ok(peakBefore.length > 0, 'fixture renders at least one peak marker');
+
+  track.analyzer.peaks[0].label = 'Edited label';
+  mapManager.refreshPeakMarkers(track.analyzer, track.gpsFilterParams);
+
+  const after = track.layerGroup.getLayers();
+  const pathAfter = byKind(after, ['path']);
+  const hotspotAfter = byKind(after, ['hotspot']);
+  const peakAfter = byKind(after, ['peak', 'connector']);
+
+  assert.strictEqual(pathAfter.length, pathBefore.length, 'path layer count unchanged');
+  assert.ok(pathBefore.every(l => pathAfter.includes(l)), 'every path layer instance survives refreshPeakMarkers untouched');
+
+  assert.strictEqual(hotspotAfter.length, hotspotBefore.length, 'hotspot layer count unchanged');
+  assert.ok(hotspotBefore.every(l => hotspotAfter.includes(l)), 'every hotspot layer instance survives refreshPeakMarkers untouched');
+
+  assert.ok(peakBefore.every(l => !peakAfter.includes(l)), 'old peak/connector layer instances are replaced, not reused');
+  peakBefore.forEach(l => assert.ok(!map.hasLayer(l), 'old peak/connector layer removed from the map'));
+  peakAfter.forEach(l => assert.ok(map.hasLayer(l), 'new peak/connector layer is on the map via the track group'));
+
+  // No duplicates and no orphans: exactly one on-map group, its contents are
+  // exactly path (untouched) + hotspot (untouched) + the fresh peak/connector set.
+  assert.strictEqual(map._groups.size, 1, 'still exactly one on-map layerGroup for the track');
+  assert.strictEqual(after.length, pathAfter.length + hotspotAfter.length + peakAfter.length,
+    'group contains only path+hotspot+peak/connector layers — nothing orphaned or duplicated');
+});
+
+test('refreshPeakMarkers: falls back to a full renderData() when there is no resolvable active track', () => {
+  const { window, map, mapManager } = bootWithRecordingL();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  // Simulate the legacy no-track fallback (see _getTrackLayerGroup's doc
+  // comment): activeTrackId no longer resolves to a managed track.
+  window.AppState.activeTrackId = 'does-not-exist';
+
+  mapManager.refreshPeakMarkers(track.analyzer, track.gpsFilterParams);
+
+  const kinds = map.renderKindsOnMap();
+  assert.ok(kinds.includes('path'), 'fallback renderData() still renders the path');
+  assert.ok(kinds.includes('peak'), 'fallback renderData() still renders peaks');
+  assert.ok(kinds.includes('hotspot'), 'fallback renderData() still renders hotspots');
+});
+
+test('updatePeakLabel (ui.js): commits a label via refreshPeakMarkers, not a full renderData() rebuild', () => {
+  const { window, map, mapManager } = bootWithRecordingL();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+  window.AppState.viewMode = 'single';
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  const before = track.layerGroup.getLayers();
+  const pathBefore = before.filter(l => l._gsrKind === 'path');
+  const hotspotBefore = before.filter(l => l._gsrKind === 'hotspot');
+  assert.ok(pathBefore.length > 0, 'fixture renders at least one path segment');
+  assert.ok(hotspotBefore.length > 0, 'fixture renders at least one hotspot');
+
+  window.GSRUI.updatePeakLabel(0, 'Interesting spot');
+
+  assert.strictEqual(track.analyzer.peaks[0].label, 'Interesting spot', 'label was actually committed');
+
+  const after = track.layerGroup.getLayers();
+  const pathAfter = after.filter(l => l._gsrKind === 'path');
+  const hotspotAfter = after.filter(l => l._gsrKind === 'hotspot');
+  assert.deepStrictEqual(pathAfter, pathBefore, 'committing a label through the real ui.js path must not rebuild path layers');
+  assert.deepStrictEqual(hotspotAfter, hotspotBefore, 'committing a label through the real ui.js path must not rebuild hotspot layers');
+});

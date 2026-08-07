@@ -313,6 +313,15 @@ function mouseReleased() {
   AppState.isDraggingTimeline = false;
 }
 
+// Trackpads/mice can fire many wheel ticks per animation frame during a
+// zoom gesture; redraw() runs draw() synchronously (noLoop() mode), so
+// calling it once per tick stacks up full canvas repaints faster than the
+// browser can paint them, reading as a stutter/freeze. Cap it to once per
+// frame — same GSREvents.rafCoalesce() pattern already used for the GSR/GPS
+// sliders (events.js). mouseWheel's state updates below stay synchronous
+// (cheap arithmetic), only the expensive repaint is coalesced.
+const coalescedZoomRedraw = GSREvents.rafCoalesce(() => redraw());
+
 function mouseWheel(event) {
   if (mouseX >= GSR_CONST.MARGIN.left && mouseX <= width - GSR_CONST.MARGIN.right &&
       mouseY >= GSR_CONST.MARGIN.top && mouseY <= AppState.yGraphBottom) {
@@ -331,7 +340,7 @@ function mouseWheel(event) {
     const select = document.getElementById('timeWindowSelect');
     if (select) select.value = 'custom';
 
-    redraw();
+    coalescedZoomRedraw();
     return false;
   }
 }

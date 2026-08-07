@@ -715,6 +715,61 @@ class GSRMapManager {
     }
   }
 
+  /**
+   * Re-render ONLY the active track's peak markers (+ connector lines +
+   * spatial-cluster blobs) instead of the full renderData() path/peak/hotspot
+   * rebuild. For changes that only affect peak data — e.g. a label edit,
+   * which changes at most one on-map label chip plus label-collision layout
+   * for the rest — renderData()'s full clearMap()+rebuild is disproportionate
+   * cost (see docs/visualizer_rendering_perf_routes.md §2.2): rebuilding
+   * every path polyline segment and every hotspot marker for a text-only
+   * change on tracks with hundreds/thousands of peaks.
+   *
+   * Falls back to the full renderData() when there's no resolvable managed
+   * track (the legacy no-track fallback — see _getTrackLayerGroup's doc
+   * comment): that path's layers aren't tagged per-track, so a scoped
+   * removal isn't possible, and it's rare enough not to be worth a second
+   * removal mechanism.
+   *
+   * Cluster blobs (`this.clusterLayers`) are a manager-wide array, not
+   * track-scoped — _renderPeakMarkers() always appends to it without
+   * clearing first (clearMap()/clearCollectiveLayers() own that job), so it
+   * must be cleared here too or a second call would leave duplicate blobs on
+   * the map.
+   */
+  refreshPeakMarkers(analyzer, gpsParams) {
+    if (!this.map || !analyzer) return;
+    const p = gpsParams || {};
+
+    const activeTrack = (typeof AppState !== 'undefined' && AppState.collectiveManager)
+      ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
+      : null;
+
+    if (!activeTrack) {
+      this.renderData(analyzer, gpsParams);
+      return;
+    }
+
+    const PEAK_KINDS = new Set(['peak', 'connector']);
+    const keep = [];
+    for (const layer of (activeTrack._ownedLayers || [])) {
+      if (PEAK_KINDS.has(layer._gsrKind)) {
+        if (this.map.hasLayer(layer)) this.map.removeLayer(layer);
+        if (activeTrack.layerGroup && activeTrack.layerGroup.hasLayer(layer)) {
+          activeTrack.layerGroup.removeLayer(layer);
+        }
+      } else {
+        keep.push(layer);
+      }
+    }
+    activeTrack._ownedLayers = keep;
+
+    this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
+
+    this._renderPeakMarkers(analyzer, analyzer.raw, p.peakLatency || 0, activeTrack);
+    this.updateMarkerVisibility();
+  }
+
   // ── Pipeline helpers ──────────────────────────────────────────────────────
 
   _collectGpsPoints(data) {
@@ -1276,10 +1331,18 @@ class GSRMapManager {
       // toggling them on later fell back to the legacy direct-to-map path and
       // they escaped the group — surviving track removal (removal only takes
       // the group). Tag always; add to the group only when visible.
+      //
+      // _gsrKind must be set unconditionally (not just in the layerGroup
+      // branch) — getRenderLayers()/getPeakMarkerByIndex()/
+      // updateMarkerVisibility() all classify layers by _gsrKind, including
+      // ones rendered via the legacy no-track fallback below. Leaving it
+      // unset there made fallback-rendered peaks invisible to all three
+      // (found via refreshPeakMarkers()'s fallback-path test — see
+      // _createHotspotMarker for the pattern this now matches).
+      marker._gsrKind = 'peak';
       const shouldAdd = this.showPeaks || (this.showLabels && marker.hasLabel);
       if (layerGroup) {
         marker._gsrLayerGroup = layerGroup;
-        marker._gsrKind = 'peak';
         if (shouldAdd) {
           layerGroup.addLayer(marker);
         }
@@ -1312,9 +1375,10 @@ class GSRMapManager {
           opacity: 0.35,
           dashArray: '3, 5'
         });
+        // Same unconditional-_gsrKind fix as the peak marker above.
+        conn._gsrKind = 'connector';
         if (layerGroup) {
           conn._gsrLayerGroup = layerGroup;
-          conn._gsrKind = 'connector';
           layerGroup.addLayer(conn);
         } else {
           conn.addTo(this.map);

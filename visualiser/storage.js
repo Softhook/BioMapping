@@ -291,9 +291,6 @@ const GSRStorage = {
           GSRTrackManager.renderTrackList();
         }
         if (typeof GSRUI !== 'undefined') {
-          if (typeof GSRUI.invalidateEnvironmentalCache === 'function') {
-            GSRUI.invalidateEnvironmentalCache();
-          }
           if (typeof GSRUI.runAnalysis === 'function') {
             GSRUI.runAnalysis();
           }

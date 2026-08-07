@@ -46,7 +46,6 @@ global.GSRUI = {
   runAnalysis: () => {},
   refreshOsmControls: () => {},
   updateCollectiveMap: () => { global.__collectiveMapUpdated = true; },
-  invalidateEnvironmentalCache: () => {},
   showUnsavedLabelsModal: (name, id, cb) => { global.__unsavedModal = { name, id, cb }; },
 };
 global.GSRRenderer = { drawPlaceholder: () => {} };
