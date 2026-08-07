@@ -158,14 +158,13 @@ const GSRTrackManager = {
 
           AppState.collectiveManager.addTrack(newTrack);
 
-          // Always switch to the newly loaded track so the user sees it immediately
+          // Always switch to the newly loaded track so the user sees it immediately.
+          // No separate "refresh the collective map" call needed here: switchActiveTrack()
+          // -> GSRUI.runAnalysis() already calls updateCollectiveMap() whenever
+          // AppState.viewMode isn't 'single' (ui.js).
           GSRTrackManager.switchActiveTrack(trackId);
 
           GSRTrackManager.setFileStatus('success', `${AppState.collectiveManager.tracks.length} Tracks Loaded`);
-
-          if (AppState.viewMode === 'collective') {
-            GSRUI.updateCollectiveMap();
-          }
 
           index++;
           loadNext();
@@ -573,14 +572,12 @@ const GSRTrackManager = {
 
           AppState.collectiveManager.addTrack(newTrack);
 
+          // switchActiveTrack() already ends by calling renderTrackList() itself, and
+          // (via GSRUI.runAnalysis()) updateCollectiveMap() whenever AppState.viewMode
+          // isn't 'single' — no separate calls needed here (see loadFilesSequentially above).
           GSRTrackManager.switchActiveTrack(trackId);
-          GSRTrackManager.renderTrackList();
 
           GSRTrackManager.setFileStatus('success', AppState.collectiveManager.tracks.length + ' Tracks Loaded');
-
-          if (AppState.viewMode === 'collective') {
-            GSRUI.updateCollectiveMap();
-          }
         } catch (err) {
           alert('Error parsing demo data: ' + err.message);
         }

@@ -85,6 +85,33 @@ test('loading a track via the real file-drop pipeline adds it to AppState.collec
   assert.ok(track.analyzer.filtered && track.analyzer.filtered.length > 0, 'the loaded track should have been analyzed');
 });
 
+test('loading a track while in collective view mode refreshes the collective map (via switchActiveTrack -> runAnalysis, not a separate call)', async () => {
+  const { window, document } = bootApp();
+  installFakeFileReader(window);
+  window.setup();
+
+  document.getElementById('btnCollectiveView').dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.strictEqual(window.AppState.viewMode, 'collective');
+
+  let updateCalls = 0;
+  const original = window.GSRUI.updateCollectiveMap;
+  window.GSRUI.updateCollectiveMap = (...args) => { updateCalls++; return original.apply(window.GSRUI, args); };
+
+  await new Promise((resolve, reject) => {
+    window.GSRTrackManager.loadFilesSequentially([makeFakeFile('track1.csv', SAMPLE_CSV)]);
+    const start = Date.now();
+    const check = () => {
+      if (window.AppState.collectiveManager.tracks.length > 0) return resolve();
+      if (Date.now() - start > 2000) return reject(new Error('track never loaded within 2s'));
+      setTimeout(check, 10);
+    };
+    check();
+  });
+
+  window.GSRUI.updateCollectiveMap = original;
+  assert.ok(updateCalls > 0, 'updateCollectiveMap should have been triggered by the trackAdded listener');
+});
+
 test('deleteTrack removes the track and leaves a clean, consistent AppState', async () => {
   const { window } = bootApp();
   installFakeFileReader(window);
