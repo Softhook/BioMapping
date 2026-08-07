@@ -1379,6 +1379,19 @@ input[type="range"]::-webkit-slider-thumb:hover {
   line-height: 1.2;
 }
 
+/* Pulsing ring behind a hotspot marker on the GSR canvas graph — a DOM
+   overlay positioned by GSRRenderer._syncPulseRing() (renderer.js) rather
+   than repainted into the canvas every frame, so the animation runs on the
+   compositor instead of requiring a continuous draw() loop. Size/position/
+   color are set inline per marker; this only supplies the shared animation,
+   mirroring the map's .hotspot-glow-ring. */
+.graph-hotspot-pulse {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: pulse-glow 2s infinite ease-in-out;
+}
+
 @keyframes pulse-glow {
   0% { transform: scale(0.6); opacity: 0.9; box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.7); }
   70% { transform: scale(1.2); opacity: 0; box-shadow: 0 0 0 8px rgba(244, 63, 94, 0); }

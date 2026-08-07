@@ -32,7 +32,13 @@ function setup() {
 
   // Track whether mouse is actually over the canvas (stale coordinates otherwise)
   AppState.myCanvas.elt.addEventListener('mouseenter', () => { AppState.mouseOverCanvas = true; });
-  AppState.myCanvas.elt.addEventListener('mouseleave', () => { AppState.mouseOverCanvas = false; });
+  AppState.myCanvas.elt.addEventListener('mouseleave', () => {
+    AppState.mouseOverCanvas = false;
+    // Without this, the scrubber/tooltip/map-cursor from the last hovered
+    // position would stay stuck on screen until some unrelated redraw — see
+    // mouseMoved() below for why hovering no longer keeps the loop running.
+    redraw();
+  });
 
   GSREvents.cacheDOMElements();
   GSREvents.initializeLabels();
@@ -55,7 +61,6 @@ function draw() {
     return;
   }
 
-  GSRRenderer.clearThemeCache();
   const canvasBg = GSRRenderer.getThemeColor('--canvas-bg', '#ffffff');
   background(canvasBg);
 
@@ -311,6 +316,21 @@ function mouseDragged() {
 function mouseReleased() {
   AppState.isDragging = false;
   AppState.isDraggingTimeline = false;
+}
+
+// Restores hover-follow (tooltip / scrubber dot / map cursor sync,
+// GSRRenderer.handleScrubber()) now that draw() no longer runs continuously
+// for the life of a track view (see tracks.js/events.js — loop() used to be
+// left running uncapped just so hover updates kept landing every frame; see
+// docs/visualizer_rendering_perf_routes.md §2.5). p5 only calls this while
+// no mouse button is held (mouseDragged() covers the held case above), so
+// this is purely the passive-hover path. rAF-coalesced like the other
+// high-frequency inputs (GSREvents.rafCoalesce) since native mousemove can
+// still fire faster than the screen repaints.
+const coalescedHoverRedraw = GSREvents.rafCoalesce(() => redraw());
+
+function mouseMoved() {
+  if (AppState.mouseOverCanvas) coalescedHoverRedraw();
 }
 
 // Trackpads/mice can fire many wheel ticks per animation frame during a

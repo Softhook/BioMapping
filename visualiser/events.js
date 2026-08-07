@@ -810,7 +810,9 @@ const GSREvents = {
 
       if (AppState.analyzer && AppState.analyzer.raw.length > 0) {
         windowResized();
-        loop();
+        // No loop() here — the canvas renders on demand via windowResized()'s
+        // resizeCanvas() and runAnalysis()'s own redraw(); see
+        // docs/visualizer_rendering_perf_routes.md §2.5.
         GSRUI.runAnalysis();
       } else {
         noLoop();

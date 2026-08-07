@@ -66,6 +66,7 @@ const GSRRenderer = {
   drawPlaceholder() {
     const bg = this.getThemeColor('--canvas-bg', '#ffffff');
     background(bg);
+    this.clearPulseRings();
   },
 
   drawGridX(tMin, tMax, yUpperBottom, yLowerBottom) {
@@ -507,26 +508,83 @@ const GSRRenderer = {
   },
 
   /**
-   * Draw the expanding, fading pulse ring behind a hotspot dot — restores the
-   * animation peak markers originally had before they were deliberately made
-   * static/minor (see drawPeakMarkers()'s doc comment), applied instead to
-   * the much smaller, curated hotspot set. Mirrors styles.css's
-   * @keyframes pulse-glow (used by the map's .hotspot-glow-ring) frame for
-   * frame — scale 0.6→1.2 and opacity 0.9→0 over the first 70% of a 2s cycle,
-   * then invisible for the remaining 30% until it repeats — so the canvas
-   * graph and the Leaflet map pulse in the same visual rhythm rather than
-   * each inventing its own animation curve.
+   * DOM/CSS overlay for the expanding, fading pulse ring behind a hotspot
+   * dot — restores the animation peak markers originally had before they
+   * were deliberately made static/minor (see drawPeakMarkers()'s doc
+   * comment), applied instead to the much smaller, curated hotspot set.
+   *
+   * Previously this animated by having draw() itself run continuously at
+   * ~60fps (p5's loop() with no matching noLoop() while a track was active)
+   * just to repaint the whole canvas every frame for a few pulsing circles.
+   * Replaced with real DOM elements using styles.css's own
+   * @keyframes pulse-glow (already used by the map's .hotspot-glow-ring) so
+   * the animation runs on the compositor for free — the canvas itself goes
+   * back to rendering on demand (see tracks.js/events.js, which no longer
+   * call loop()). One absolutely-positioned div per ring, repositioned only
+   * when drawHotspotMarkers() actually runs (pan/zoom/track-switch/toggle),
+   * not every frame.
+   */
+  _ensurePulseOverlay() {
+    if (this._pulseOverlay && this._pulseOverlay.isConnected) return this._pulseOverlay;
+    const container = document.getElementById('canvasContainer');
+    if (!container) return null;
+    const overlay = document.createElement('div');
+    overlay.id = 'hotspotPulseOverlay';
+    overlay.style.cssText = 'position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; overflow:hidden;';
+    container.appendChild(overlay);
+    this._pulseOverlay = overlay;
+    this._pulseRingEls = new Map();
+    return overlay;
+  },
+
+  /**
+   * Create/update the DOM ring for one hotspot pulse, keyed so repeated
+   * calls across frames reuse the same element instead of re-creating it.
    * @private
    */
-  _drawHotspotPulseRing(x, y, baseD, hotspotColor, phase) {
-    if (phase > 0.7) return; // matches the CSS keyframe's invisible 70-100% gap
-    const local = phase / 0.7;
-    const scale = 0.6 + local * 0.6;       // 0.6 -> 1.2, same range as the CSS keyframe
-    const alpha = 0.9 * (1 - local);        // 0.9 -> 0
-    const d = baseD * 2.33 * scale;         // ring's natural size ~2.33x the dot, same ratio as the map's 28px ring around a 12px dot
-    noStroke();
-    fill(color(hotspotColor + Math.round(alpha * 255).toString(16).padStart(2, '0')));
-    circle(x, y, d);
+  _syncPulseRing(key, x, y, baseD, hotspotColor) {
+    const overlay = this._ensurePulseOverlay();
+    if (!overlay) return;
+    const d = baseD * 2.33; // ring's natural size ~2.33x the dot, same ratio as the map's 28px ring around a 12px dot
+    let el = this._pulseRingEls.get(key);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'graph-hotspot-pulse';
+      overlay.appendChild(el);
+      this._pulseRingEls.set(key, el);
+    }
+    el.style.width = d + 'px';
+    el.style.height = d + 'px';
+    el.style.left = (x - d / 2) + 'px';
+    el.style.top = (y - d / 2) + 'px';
+    el.style.backgroundColor = hotspotColor;
+  },
+
+  /**
+   * Remove any pulse-ring divs not touched by the current
+   * drawHotspotMarkers() pass (e.g. a hotspot that scrolled out of view or
+   * belonged to a now-inactive track).
+   * @private
+   */
+  _prunePulseRings(seenKeys) {
+    if (!this._pulseRingEls) return;
+    for (const [key, el] of this._pulseRingEls) {
+      if (!seenKeys.has(key)) {
+        el.remove();
+        this._pulseRingEls.delete(key);
+      }
+    }
+  },
+
+  /**
+   * Remove every pulse-ring div — called whenever there's nothing to show
+   * (drawPlaceholder()) so a stale ring from a previous track/view can't be
+   * left floating over an empty canvas.
+   */
+  clearPulseRings() {
+    if (!this._pulseRingEls) return;
+    for (const el of this._pulseRingEls.values()) el.remove();
+    this._pulseRingEls.clear();
   },
 
   /**
@@ -547,7 +605,10 @@ const GSRRenderer = {
    */
   drawHotspotMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL, showLowerMarker) {
     if (showLowerMarker === undefined) showLowerMarker = true;
-    if (!AppState.showHotspots || !AppState.analyzer.memorableEvents || AppState.analyzer.memorableEvents.length === 0) return;
+    if (!AppState.showHotspots || !AppState.analyzer.memorableEvents || AppState.analyzer.memorableEvents.length === 0) {
+      this.clearPulseRings();
+      return;
+    }
 
     const scales = this._computeGraphScales(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL);
 
@@ -555,10 +616,12 @@ const GSRRenderer = {
     const colorPhasic = this.getThemeColor('--color-phasic', '#008f3c');
     const canvasBg = this.getThemeColor('--canvas-bg', '#ffffff');
 
-    // Shared animation phase for every hotspot this frame, so all of them pulse
-    // in lockstep (same convention as the map's CSS @keyframes pulse-glow —
-    // see _drawHotspotPulseRing()'s doc comment).
-    const pulsePhase = (millis() % 2000) / 2000;
+    // Pulse-ring positions are synced into DOM elements (see _syncPulseRing())
+    // that animate via styles.css's own @keyframes pulse-glow instead of being
+    // repainted into the canvas every frame — this set tracks which of those
+    // elements are still current so stale ones (hotspot scrolled out of view,
+    // track switched) get pruned at the end of this pass.
+    const seenPulseKeys = new Set();
 
     for (const p of AppState.analyzer.memorableEvents) {
       if (this._peakOutOfView(p, tMin, tMax)) continue;
@@ -583,14 +646,18 @@ const GSRRenderer = {
         line(xPeak, yFilteredPeak, xPeak, yPhasicPeak);
         drawingContext.setLineDash([]);
 
-        this._drawHotspotPulseRing(xPeak, yPhasicPeak, isActive ? 9 : 6, hotspotColor, pulsePhase);
+        const lowerKey = realIdx + ':lower';
+        this._syncPulseRing(lowerKey, xPeak, yPhasicPeak, isActive ? 9 : 6, hotspotColor);
+        seenPulseKeys.add(lowerKey);
         stroke(hotspotColor);
         strokeWeight(2);
         fill(isActive ? color(hotspotColor) : color(canvasBg));
         circle(xPeak, yPhasicPeak, isActive ? 9 : 6);
       }
 
-      this._drawHotspotPulseRing(xPeak, yFilteredPeak, isActive ? 9 : 6, hotspotColor, pulsePhase);
+      const upperKey = realIdx + ':upper';
+      this._syncPulseRing(upperKey, xPeak, yFilteredPeak, isActive ? 9 : 6, hotspotColor);
+      seenPulseKeys.add(upperKey);
       stroke(hotspotColor);
       strokeWeight(2);
       fill(isActive ? color(hotspotColor) : color(canvasBg));
@@ -623,6 +690,8 @@ const GSRRenderer = {
         textStyle(NORMAL);
       }
     }
+
+    this._prunePulseRings(seenPulseKeys);
   },
 
   /**

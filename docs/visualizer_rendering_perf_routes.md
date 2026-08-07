@@ -296,10 +296,251 @@ peak/connector layers exactly like the default call) — needed a new boot
 helper since the suite's usual harness nulls `GSRSpatialClustering` entirely
 for every other test in that file.
 
+### 2.5 `loop()` runs the full p5 `draw()` pipeline continuously at ~60fps for the entire time a single track is being viewed — found and landed 2026-08-07
+
+> **Status: landed (2026-08-07).** Fix sketch option 2 (below) was the one
+> implemented, at the user's suggestion to explore a standalone animation
+> rather than throttling the loop: the hotspot pulse ring is now a real DOM
+> element (`.graph-hotspot-pulse`, `styles.css`) inside a
+> `#hotspotPulseOverlay` div absolutely positioned over `#canvasContainer`,
+> animated with the map's own existing `@keyframes pulse-glow` — the same
+> keyframe `.hotspot-glow-ring` already used, so the graph and the map pulse
+> identically, now for the same reason (a CSS animation, not a JS re-render)
+> instead of just the same hand-tuned curve. `GSRRenderer._syncPulseRing()` /
+> `_prunePulseRings()` / `clearPulseRings()` (`renderer.js`) create/reposition/
+> remove these divs only when `drawHotspotMarkers()` actually runs (i.e. on
+> an on-demand `redraw()`), not every frame — the compositor keeps the
+> animation going by itself in between. `_drawHotspotPulseRing()` (the old
+> per-frame canvas painter) is deleted.
+>
+> With the pulse animation no longer needing continuous frames, both
+> `loop()` call sites (`tracks.js:351`, `events.js:813`) were removed
+> outright — the canvas is back to strictly on-demand `redraw()`, same as
+> every other interactive path in this codebase.
+>
+> This surfaced a real dependency that wasn't obvious until the loop was
+> actually removed: with no continuous loop, hovering the mouse over the
+> graph (without dragging) stopped updating the tooltip/scrubber/map-cursor,
+> because `handleScrubber()` only runs inside `draw()` and nothing had ever
+> called `redraw()` on plain mouse movement — the 60fps loop had been
+> silently doing that job too. Fixed by adding a `mouseMoved()` handler
+> (`sketch.js`), rAF-coalesced with the same `GSREvents.rafCoalesce()`
+> pattern used for sliders/wheel-zoom, plus an explicit `redraw()` on
+> `mouseleave` so the scrubber/tooltip don't stick at their last position
+> when the mouse exits the canvas.
+>
+> Verified live (Playwright against the real app, not just unit tests): 0
+> `draw()` calls over a 2s idle window with a track loaded (previously ~120
+> at 60fps); hovering without clicking still updates
+> `AppState.hoveredIndex` and clears correctly on mouse-leave; the pulse-ring
+> divs are correctly created/repositioned/pruned/cleared by
+> `_syncPulseRing()`/`_prunePulseRings()`/`clearPulseRings()`, and computed
+> `opacity`/`transform` were sampled 500ms apart to confirm the CSS
+> animation genuinely progresses on its own — confirmed both synthetically
+> (forced ring positions) and by driving the exact real
+> `redraw()` → `draw()` → `drawHotspotMarkers()` path with real peaks
+> promoted to hotspots. The demo dataset itself has no GPS-resolvable
+> hotspots, so this pass couldn't eyeball an organically-detected hotspot —
+> two peaks were manually flagged with fake GPS coords to exercise the
+> exact same code path a real hotspot would take.
+>
+> The user then hit this for real and initially reported the graph's
+> hotspots weren't pulsing (while the *map's* independent, pre-existing
+> hotspot pulse — unrelated CSS, untouched by this change — was visible)
+> — root cause was a stale cached `styles.css` (no build step/bundler in
+> this app, so a plain browser reload doesn't always pick up an edited
+> stylesheet); a hard refresh fixed it and confirmed the mechanism works
+> as designed. Worth remembering for any future CSS-only change here: this
+> app has no cache-busting, so "reload and it doesn't look different" isn't
+> proof the change didn't ship.
+>
+> Follow-up suitability review (prompted by "will this DOM approach cause
+> problems?"), checking the actual risk areas rather than re-asserting it
+> works:
+> - **Panel fullscreen** (`layout_manager.js`'s `setupPanelFullscreen`)
+>   moves the *entire* `#gsrPanel` subtree — including `#canvasContainer`
+>   and the pulse overlay inside it — into a new wrapper via `appendChild()`.
+>   That's a DOM move, not a destroy/recreate, so the overlay's positioning
+>   (relative to `#canvasContainer`, which travels with it) and each ring's
+>   running CSS animation both survive the transition intact. Checked, not
+>   just assumed.
+> - **Chart PNG export** (`GSRUI.saveCanvasImage()`) calls `canvasEl.toBlob()`
+>   directly on the raw `<canvas>` bitmap — a real, permanent behavior
+>   change: exported chart images will no longer contain the hotspot pulse
+>   ring at all (previously whatever phase happened to be mid-render at
+>   export time got baked into the canvas pixels). Arguably an improvement —
+>   a static export capturing a random half-faded ring was never something
+>   anyone was relying on — but worth knowing about if it's ever reported as
+>   "the exported chart looks different now."
+> - **Lost cross-hotspot pulse sync**: the old canvas version computed one
+>   `pulsePhase` per `draw()` call and used it for every ring that frame, so
+>   every hotspot pulsed in *exact* lockstep, guaranteed, by construction
+>   (explicitly called out in the removed code's doc comment). CSS
+>   animations instead start their own clock from whenever each element was
+>   inserted — rings created in the same `drawHotspotMarkers()` pass (the
+>   common case: a track's hotspots all appearing together on first load)
+>   stay in sync since they're inserted in the same synchronous pass, but a
+>   ring created later (panning a new hotspot into view, switching tracks)
+>   starts on its own clock, out of phase with rings already running. Purely
+>   cosmetic — no functional impact — and not fixed in this pass since it
+>   wasn't reported as noticeable, but the fix if it ever is: a
+>   negative `animation-delay` computed from `performance.now() % 2000` at
+>   creation time, so every new ring's clock is phase-aligned to a shared
+>   reference instant instead of to its own insertion time.
+> - **No prior regression coverage existed** for any of this (the project's
+>   jsdom test harness has no rendering/DOM-drawing coverage at all
+>   pre-existing — `tests/test_map_layer_ownership.js` covers Leaflet layer
+>   ownership, not the p5/DOM canvas side). Added
+>   `tests/test_hotspot_pulse_overlay.js`: create/reuse-by-key/reposition,
+>   a distinct key creates a distinct element, `_prunePulseRings()` removes
+>   only untouched keys (DOM *and* the internal `Map`, not just one or the
+>   other), `clearPulseRings()` empties both, `drawPlaceholder()` clears
+>   stale rings, and toggling `showHotspots` off clears rings left over from
+>   before the toggle. Verified non-vacuous by stashing the fix and
+>   confirming all 7 fail against pre-fix `renderer.js` (`_syncPulseRing is
+>   not a function`). Deliberately does NOT assert real CSS animation
+>   behavior (opacity/transform over time, lockstep sync) — jsdom has no CSS
+>   engine, so those assertions would be meaningless; that class of check is
+>   what the live-browser pass above is for. `npm test` is now 644 tests,
+>   still green.
+
+**What:** `GSRTrackManager.switchActiveTrack()` (`tracks.js:351`) and the
+"Single View" button handler (`events.js:813`) both call p5's `loop()` and
+never call the matching `noLoop()` — the only places that turn it back off
+are deleting every track (`tracks.js:188`/`213`) or switching to Collective
+view (`events.js:853`). Every other interactive path in this codebase
+(sliders, drags, wheel zoom, toggles) is careful to render on demand via
+`redraw()` under `noLoop()` — this is the one place that instead leaves the
+canvas in a continuous animation-frame loop. `frameRate()` is never called
+to throttle it, so it runs at the display's native refresh rate (typically
+60fps).
+
+Traced the reason `loop()` exists at all: `GSRRenderer.drawHotspotMarkers()`
+→ `_drawHotspotPulseRing()` animates a pulsing ring around each hotspot
+marker using `(millis() % 2000) / 2000` as phase — a genuine continuous
+animation that needs repeated frames. `AppState.showHotspots` defaults to
+`true` (`app_state.js:85`), so this isn't an opt-in feature — most tracks
+with any fast/high-amplitude peaks have at least one hotspot, and hotspots
+are visible out of the box.
+
+**When it fires:** as soon as any track is loaded/selected and the single
+track view is showing — i.e. the default, primary way this app is used, for
+the entire duration it's open, not just during a drag or a click. This is
+the single most "used all the time" path found in this whole review: every
+other item in this document only costs something while the user is actively
+interacting (dragging, zooming, toggling); this one costs something
+constantly, including while the user is doing nothing at all — just reading
+the stats panel.
+
+**The actual cost:** the full `draw()` body runs every frame, not just the
+pulse rings — grid/axis drawing, three signal curves
+(`drawSignalCurve` ×3, already decimated to `DRAW_MAX_VERTICES` but still
+real per-vertex work), `drawPeakMarkers()` iterating every in-view peak
+(color computation, dot/line drawing per peak — the codebase's own comments
+call out "hundreds/thousands of peaks" tracks as the expected upper bound),
+`handleScrubber()`, and `drawTimelineOverview()`. All of that reruns 60
+times a second to animate what's usually a handful of small pulsing circles.
+
+**Fix sketch:** a few options, roughly increasing in effort/payoff:
+1. Cheapest: only call `loop()` when hotspots are both toggled on *and* at
+   least one falls in the current view (`AppState.showHotspots &&
+   memorableEvents.some(p => !_peakOutOfView(p, viewStartTime, viewEndTime))`),
+   re-checking on pan/zoom/toggle instead of unconditionally on track switch;
+   falls back to `noLoop()` + on-demand `redraw()` otherwise (the majority of
+   idle viewing time even when hotspots exist somewhere in the recording but
+   the user has panned/zoomed away from them).
+2. Better: stop redrawing the *entire* canvas for the pulse and instead
+   layer just the pulsing rings on a second, cheap overlay (e.g. a small
+   `<canvas>` positioned over the marker positions, or draw everything else
+   once into an offscreen buffer and only re-composite the rings each frame)
+   — keeps the animation smooth without paying for the static content 60x/sec.
+3. Throttle instead of eliminate: `frameRate(10-15)` while looping — the CSS
+   `@keyframes pulse-glow` this mirrors (per the code comment) is likely
+   already a slow pulse, so a lower cap would be visually indistinguishable
+   from 60fps while cutting the constant cost by 4-6x.
+
+**Impact:** high — this is a continuous background cost, not a one-off, so
+even a modest per-frame saving compounds over an entire viewing session
+(battery/CPU on laptops, fan noise, contention with other tabs). Fixing it
+removes work that currently never stops rather than just making occasional
+work faster.
+
+**Effort:** small for option 1 (condition-gate the existing `loop()` calls
+and add pan/zoom/toggle re-checks), medium for option 2 (introduces a second
+render surface).
+
+**Risk:** low-to-medium — needs to preserve "hotspot ring pulses when a
+hotspot is on screen" exactly, and needs to correctly re-enter/exit loop
+mode on every path that can change what's in view (pan, zoom, toggle
+`showHotspots`, switch tracks, delete the last hotspot) without leaving a
+stale loop running or a hotspot silently not pulsing. Same class of "N call
+sites must all remember to do the right thing" risk §2.2 flagged for the
+layer-ownership contract — worth its own small regression test (e.g. assert
+`isLooping()`-equivalent state after each of those triggers) rather than
+manual-only verification.
+
+### 2.6 `clearThemeCache()` forces a style recalc on every single `draw()` frame, not just on actual theme/resize changes
+
+> **Status: landed (2026-08-07).** Fix sketch below was applied verbatim —
+> the `GSRRenderer.clearThemeCache()` call at `sketch.js:58` was deleted.
+> The resize-triggered clear in `layout_manager.js:140` is unaffected and
+> remains the only invalidation path. Verified via the same live-browser
+> pass as §2.5: rendered colors (curve/grid/peak colors) look correct in
+> screenshots taken after this change, and `npm test` stays green.
+
+**What:** `draw()` (`sketch.js:58`) unconditionally calls
+`GSRRenderer.clearThemeCache()` as its first line, every frame. That forces
+the next `getThemeColor()` call to re-run
+`window.getComputedStyle(document.documentElement)` — a synchronous style
+recalculation — against the full `styles.css` cascade (~54KB). The cache is
+otherwise reused correctly within a frame (all the `getThemeColor()` calls
+in one `draw()` share one `getComputedStyle()` result), and
+`GSRLayoutManager.resizeCanvas()` (`layout_manager.js:140`) already
+separately clears it on resize, which is a real invalidation trigger. But
+there is no theme-toggle mechanism anywhere in this codebase (no
+`prefers-color-scheme` media query, no `matchMedia` listener, no dark-mode
+class toggle found) — the CSS custom properties `getThemeColor()` reads
+never change after page load, so busting the cache every frame invalidates
+something that is, in the app's current state, invariant for the life of
+the page.
+
+**When it fires:** every `draw()` call — i.e. every `redraw()` anywhere in
+the app, plus (see §2.5) 60x/sec for the entire time a single track is
+being viewed. Compounds §2.5 directly: fixing §2.5 alone still leaves this
+paying a style-recalc cost on whatever reduced frame rate replaces it;
+fixing this alone removes a real per-frame cost regardless of whether §2.5
+is also fixed.
+
+**Fix sketch:** delete the `GSRRenderer.clearThemeCache()` call at
+`sketch.js:58`. The resize-triggered clear in `layout_manager.js:140`
+remains as the (currently only meaningful) invalidation path. If dark-mode
+support is ever added, its toggle handler would need to call
+`clearThemeCache()` itself at that point — not a regression risk today since
+no such handler exists to lose.
+
+**Impact:** medium on its own (one `getComputedStyle()` call is not huge in
+isolation), but high combined with §2.5 since it currently runs 60x/sec
+during normal single-track viewing, unconditionally.
+
+**Effort:** trivial — one line removed.
+
+**Risk:** low. Easy to verify: confirm rendered colors are unaffected by
+diffing a screenshot/canvas pixel sample before and after across a resize
+event (the one remaining invalidation path) still picking up the change
+correctly.
+
 ## 3. Suggested priority if picked up
 
-§2.1 (RF fan-cast segment index) is the strongest standalone candidate:
-self-contained, low risk, and targets the one place a continuous *drag*
+**§2.5 and §2.6 both landed 2026-08-07**, ahead of §2.1 in this list despite
+being found later — they were the only items in this document that cost
+something *constantly* (the entire time the app's primary single-track view
+is open, including while fully idle) rather than only during active
+dragging/clicking, so they outweighed §2.1's previous "strongest standalone
+candidate" ranking once found. See their status notes above for what
+shipped and how it was verified.
+
+§2.1 (RF fan-cast segment index) remains a strong, already-scoped,
+self-contained, low-risk candidate: the one place a continuous *drag*
 interaction (not just a discrete click/toggle) does unindexed O(n×m) work.
 §2.2 is real but lower-frequency and higher-risk given the layer-ownership
 contract it touches — better sequenced after, and ideally validated against

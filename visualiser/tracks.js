@@ -348,7 +348,10 @@ const GSRTrackManager = {
     if (placeholder) placeholder.style.display = 'none';
 
     GSRTrackManager.renderTrackList();
-    loop();
+    // No loop() here — the canvas renders on demand via the redraw() calls
+    // already made above/below (resetView(), runAnalysis(), windowResized()'s
+    // resizeCanvas()); see docs/visualizer_rendering_perf_routes.md §2.5 for
+    // why continuous looping was removed.
     requestAnimationFrame(() => windowResized());
   },
 
