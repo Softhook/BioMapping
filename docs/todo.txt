@@ -1,9 +1,8 @@
 Todo
 
-391 looks like a good frequency used for VHF
+hill shading? pseudo 3d?
 
-Check that the RF worker inside the GSR thread is really working properly 
-Edinburgh will be a nice place to test it 
+391 looks like a good frequency used for VHF
 
 priority - Think about the airport context. Would it make sense to put a microphone on there? [acoustic_aircraft_detection_proposal.md](file:///Users/softhook/Documents/GitHub/BioMapping/docs/acoustic_aircraft_detection_proposal.md)
 
