@@ -186,20 +186,36 @@ test('setOpacity: updates options.opacity and triggers a redraw', () => {
   assert.strictEqual(renderer.options.opacity, 0.2);
 });
 
-test('setRadius: updates options.radiusMeters and re-precalculates spatial fans', () => {
+test('setRadius: updates options.radiusMeters and re-precalculates fans for every previously-set track', () => {
   const map = makeFakeMap();
   global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
   const renderer = new RFFluidRenderer(map);
+
+  // Phase 5: fan-casting is cached per track (setDataForTracks), so setRadius()
+  // no longer unconditionally recomputes — it replays the last tracks data,
+  // and each track's cache entry now mismatches on radiusMeters. Seed two
+  // tracks first so there's something for setRadius() to actually re-run.
+  renderer.setDataForTracks([
+    { id: 'a', drawPoints: [{ lat: 0, lon: 0 }], osmGeoms: null },
+    { id: 'b', drawPoints: [{ lat: 1, lon: 1 }], osmGeoms: null },
+  ]);
 
   // Spy on the instance (own-property override shadows the prototype method)
   // so we can prove _precalculateSpatialFans() is actually invoked by
   // setRadius(), not just that radiusMeters got written and nothing threw.
   let fansRecalculated = 0;
-  renderer._precalculateSpatialFans = () => { fansRecalculated++; };
+  renderer._precalculateSpatialFans = () => { fansRecalculated++; return []; };
 
   assert.doesNotThrow(() => renderer.setRadius(60));
   assert.strictEqual(renderer.options.radiusMeters, 60);
-  assert.strictEqual(fansRecalculated, 1, 'setRadius should re-run _precalculateSpatialFans exactly once');
+  assert.strictEqual(fansRecalculated, 2, 'setRadius should re-run _precalculateSpatialFans once per previously-set track');
+
+  // A second setRadius() call with the SAME radius should be a no-op recompute
+  // (every entry's radiusMeters now matches again) — proves the cache check,
+  // not just that setRadius() always forces work.
+  fansRecalculated = 0;
+  renderer.setRadius(60);
+  assert.strictEqual(fansRecalculated, 0, 'setRadius with an unchanged radius should reuse cached fans');
 });
 
 test('setVisible: toggles canvas display style and redraws only when becoming visible', () => {
@@ -224,4 +240,135 @@ test('setVisible: toggles canvas display style and redraws only when becoming vi
   assert.strictEqual(canvasEl.style.display, 'block');
   assert.strictEqual(renderer.options.visible, true);
   assert.strictEqual(redrawCount, 1, 'becoming visible should trigger exactly one redraw');
+});
+
+// ── Phase 5: per-track fan-cast cache (setDataForTracks) ───────────────────
+//
+// The whole point of the refactor: _precalculateSpatialFans() is the expensive
+// step (O(points x rays x building segments)), so a track whose drawPoints/
+// osmGeoms reference didn't change since the last setDataForTracks() call must
+// NOT pay that cost again, even when a DIFFERENT track in the same call did
+// change. These tests spy on _precalculateSpatialFans by track identity (via
+// the drawPoints array passed in) to prove that, not just that nothing throws.
+
+function countingRenderer(map) {
+  const renderer = new RFFluidRenderer(map);
+  const calls = []; // each entry: the drawPoints array passed to _precalculateSpatialFans
+  const real = renderer._precalculateSpatialFans.bind(renderer);
+  renderer._precalculateSpatialFans = (drawPoints, ...rest) => {
+    calls.push(drawPoints);
+    return real(drawPoints, ...rest);
+  };
+  renderer.__calls = calls;
+  return renderer;
+}
+
+test('setDataForTracks: reuses a cached track\'s fans when only an unrelated track changes', () => {
+  const map = makeFakeMap();
+  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  const renderer = countingRenderer(map);
+
+  const drawPointsA = [{ lat: 10, lon: 10 }];
+  const drawPointsB1 = [{ lat: 20, lon: 20 }];
+
+  renderer.setDataForTracks([
+    { id: 'trackA', drawPoints: drawPointsA, osmGeoms: null },
+    { id: 'trackB', drawPoints: drawPointsB1, osmGeoms: null },
+  ]);
+  assert.strictEqual(renderer.__calls.length, 2, 'first call: both tracks are new, both recompute');
+
+  // Re-render with trackA's array reference unchanged (the real map.js caller
+  // gets this from _getOrBuildDrawPoints()'s own cache) and trackB replaced by
+  // a genuinely new array (e.g. a GPS slider drag on track B).
+  renderer.__calls.length = 0;
+  const drawPointsB2 = [{ lat: 21, lon: 21 }];
+  renderer.setDataForTracks([
+    { id: 'trackA', drawPoints: drawPointsA, osmGeoms: null },
+    { id: 'trackB', drawPoints: drawPointsB2, osmGeoms: null },
+  ]);
+
+  assert.strictEqual(renderer.__calls.length, 1, 'only the changed track (B) should recompute');
+  assert.strictEqual(renderer.__calls[0], drawPointsB2, 'the one recompute should be for track B\'s new data');
+});
+
+test('setDataForTracks: combines cached and freshly-computed nodes into one cachedNodes array', () => {
+  const map = makeFakeMap();
+  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  const renderer = new RFFluidRenderer(map);
+
+  renderer.setDataForTracks([
+    { id: 'trackA', drawPoints: [{ lat: 10, lon: 10 }], osmGeoms: null },
+    { id: 'trackB', drawPoints: [{ lat: 20, lon: 20 }], osmGeoms: null },
+  ]);
+  assert.strictEqual(renderer.cachedNodes.length, 2, 'one node per track on first render');
+
+  renderer.setDataForTracks([
+    { id: 'trackA', drawPoints: [{ lat: 10, lon: 10 }], osmGeoms: null }, // same id, new array -> recomputes
+    { id: 'trackB', drawPoints: renderer._trackCache.get('trackB').drawPointsRef, osmGeoms: null }, // reused ref
+  ]);
+  assert.strictEqual(renderer.cachedNodes.length, 2, 'combined output still has one node per track');
+});
+
+test('setDataForTracks: drops cache entries for tracks no longer present (e.g. deleted/deactivated)', () => {
+  const map = makeFakeMap();
+  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  const renderer = new RFFluidRenderer(map);
+
+  renderer.setDataForTracks([
+    { id: 'trackA', drawPoints: [{ lat: 10, lon: 10 }], osmGeoms: null },
+    { id: 'trackB', drawPoints: [{ lat: 20, lon: 20 }], osmGeoms: null },
+  ]);
+  assert.strictEqual(renderer._trackCache.size, 2);
+
+  renderer.setDataForTracks([
+    { id: 'trackA', drawPoints: [{ lat: 10, lon: 10 }], osmGeoms: null },
+  ]);
+  assert.strictEqual(renderer._trackCache.size, 1, 'trackB\'s cache entry should be pruned once it drops out');
+  assert.ok(!renderer._trackCache.has('trackB'));
+  assert.strictEqual(renderer.cachedNodes.length, 1);
+});
+
+test('clear(): blanks cachedNodes/buildingPolygons and redraws, without touching the per-track fan cache', () => {
+  const map = makeFakeMap();
+  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  const renderer = countingRenderer(map);
+
+  renderer.setDataForTracks([
+    { id: 'trackA', drawPoints: [{ lat: 10, lon: 10 }], osmGeoms: null },
+  ]);
+  assert.strictEqual(renderer.cachedNodes.length, 1);
+  assert.strictEqual(renderer._trackCache.size, 1);
+
+  let redrawCount = 0;
+  const realRedraw = renderer.redraw.bind(renderer);
+  renderer.redraw = () => { redrawCount++; realRedraw(); };
+
+  renderer.clear();
+  assert.strictEqual(renderer.cachedNodes.length, 0, 'clear() blanks the visible nodes');
+  assert.strictEqual(redrawCount, 1, 'clear() triggers exactly one redraw');
+  assert.strictEqual(renderer._trackCache.size, 1, 'clear() must NOT prune the per-track fan cache — a real setData(For Tracks) call right after (map.js clearMap()->render pattern) needs it intact to skip recomputing unchanged tracks');
+
+  // Prove the cache survival actually matters: re-supplying the SAME track
+  // right after clear() should not recompute its fans.
+  renderer.__calls.length = 0;
+  renderer.setDataForTracks([
+    { id: 'trackA', drawPoints: renderer._trackCache.get('trackA').drawPointsRef, osmGeoms: null },
+  ]);
+  assert.strictEqual(renderer.__calls.length, 0, 'the track re-supplied unchanged right after clear() should reuse its cached fans');
+  assert.strictEqual(renderer.cachedNodes.length, 1, 'cachedNodes is repopulated from the surviving cache entry');
+});
+
+test('setData(): single-track wrapper still reuses cached fans when the same drawPoints reference is passed again', () => {
+  const map = makeFakeMap();
+  global.L.DomUtil.create = () => ({ style: {}, getContext: () => fakeCanvasContext() });
+  const renderer = countingRenderer(map);
+
+  const drawPoints = [{ lat: 10, lon: 10 }];
+  renderer.setData(drawPoints, null);
+  assert.strictEqual(renderer.__calls.length, 1);
+
+  renderer.__calls.length = 0;
+  renderer.setData(drawPoints, null);
+  assert.strictEqual(renderer.__calls.length, 0, 'unchanged drawPoints reference should skip recompute, same as the old fast path');
+  assert.strictEqual(renderer.cachedNodes.length, 1);
 });

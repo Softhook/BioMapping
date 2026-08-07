@@ -30,13 +30,21 @@ class RFFluidRenderer {
     this.ctx = null;
     this.drawPoints = [];
     this.osmGeomsRef = null;
-    this.buildingPolygons = [];
-    this.buildingSegmentsGeo = [];
-    this.cachedNodes = [];
+    this.buildingPolygons = []; // combined across all tracks in the last setData(For Tracks) call
+    this.cachedNodes = [];      // combined across all tracks in the last setData(For Tracks) call
     this.rssiStats = null;
     this._currentBounds = null;
     this._canvasTopLeftLayer = { x: 0, y: 0 };
     this.enabled = true;
+
+    // Phase 5: per-track fan-cast cache. Key is whatever id setDataForTracks()
+    // was called with (a track id, or '__single__' via the setData() wrapper).
+    // Each entry holds the expensive-to-compute nodes/buildingPolygons for one
+    // track, plus the inputs that produced them — a track whose drawPoints/
+    // osmGeoms references and radius/rayCount are unchanged since the last call
+    // reuses its entry instead of re-running _precalculateSpatialFans().
+    this._trackCache = new Map();
+    this._lastTracksData = null;
 
     this._initCanvas();
     this._bindEvents();
@@ -118,34 +126,107 @@ class RFFluidRenderer {
   }
 
   /**
-   * Set RF sample data & building geometries.
-   * Only re-precalculates spatial fans when data array or OSM reference actually changes.
+   * Set RF sample data & building geometries for a single logical track (or the
+   * whole dataset, in single-track view). Thin wrapper around setDataForTracks()
+   * using one fixed pseudo-id, so single-track view gets the same fan-cast
+   * reuse fast path as collective view.
    */
   setData(drawPoints, osmGeoms) {
-    const dataChanged = (this.drawPoints !== drawPoints);
-    const geomsChanged = (this.osmGeomsRef !== osmGeoms);
-
-    if (!dataChanged && !geomsChanged && this.cachedNodes.length > 0) {
-      // Data reference unchanged — fast redraw cached state
-      this.redraw();
-      return;
-    }
-
     this.drawPoints = drawPoints || [];
     this.osmGeomsRef = osmGeoms;
+    this.setDataForTracks([{ id: '__single__', drawPoints, osmGeoms }]);
+  }
+
+  /**
+   * Set RF sample data & building geometries for potentially several tracks at
+   * once (collective view). Fan-casting (_precalculateSpatialFans) is the
+   * expensive step — O(points x rays x building segments) — so it only re-runs
+   * for a track whose drawPoints/osmGeoms reference (or radius/ray count)
+   * actually changed since the last call; unchanged tracks reuse their cached
+   * nodes. The combine step (concatenate per-track nodes/buildings, recompute
+   * rssiStats, redraw) is cheap and always runs.
+   *
+   * @param {Array<{id: *, drawPoints: Array, osmGeoms: Object}>} tracksData
+   */
+  setDataForTracks(tracksData) {
+    tracksData = tracksData || [];
+    this._lastTracksData = tracksData;
+
+    const radiusMeters = this.options.radiusMeters || 120;
+    const numRays = this.options.numRays || 24;
+
+    const activeIds = new Set();
+    const combinedNodes = [];
+    const combinedBuildingPolygons = [];
+
+    for (let i = 0; i < tracksData.length; i++) {
+      const t = tracksData[i];
+      if (!t || t.id === undefined || t.id === null) continue;
+      activeIds.add(t.id);
+
+      const cached = this._trackCache.get(t.id);
+      const reusable = cached &&
+        cached.drawPointsRef === t.drawPoints &&
+        cached.osmGeomsRef === t.osmGeoms &&
+        cached.radiusMeters === radiusMeters &&
+        cached.numRays === numRays;
+
+      const entry = reusable ? cached : this._buildTrackEntry(t.drawPoints, t.osmGeoms, radiusMeters, numRays);
+      if (!reusable) this._trackCache.set(t.id, entry);
+
+      if (entry.nodes.length > 0) combinedNodes.push(...entry.nodes);
+      if (entry.buildingPolygons.length > 0) combinedBuildingPolygons.push(...entry.buildingPolygons);
+    }
+
+    // Drop cache entries for tracks no longer present in this call — bounds
+    // cache growth as tracks are added/removed over a session (mirrors the
+    // "invalidated by that track's own data changing" scope from the plan;
+    // a track that's gone is trivially "changed").
+    for (const key of this._trackCache.keys()) {
+      if (!activeIds.has(key)) this._trackCache.delete(key);
+    }
+
+    this.cachedNodes = combinedNodes;
+    this.buildingPolygons = combinedBuildingPolygons;
+    this._calculateRssiStats();
+    this.redraw();
+  }
+
+  /**
+   * Blank the canvas immediately without touching the per-track fan cache.
+   * clearMap()/clearCollectiveLayers() (map.js) call this at the START of every
+   * render pass as a "definitely no orphaned RF fluid" safety net, immediately
+   * followed by a real setData()/setDataForTracks() call later in the same pass
+   * — using setData([], null) here instead would prune every track's cached fan
+   * geometry via that empty call's own bookkeeping, forcing a full recompute on
+   * every single re-render and defeating the cache this method exists to keep.
+   */
+  clear() {
+    this.cachedNodes = [];
     this.buildingPolygons = [];
-    this.buildingSegmentsGeo = [];
+    this.redraw();
+  }
+
+  /**
+   * Build one track's worth of building segments + fan-cast nodes. Pure
+   * function of its arguments (radiusMeters/numRays are read from options by
+   * the caller so cache-key comparisons and the actual computation always
+   * agree) — no instance state is read or written here.
+   */
+  _buildTrackEntry(drawPoints, osmGeoms, radiusMeters, numRays) {
+    const buildingPolygons = [];
+    const buildingSegmentsGeo = [];
 
     if (osmGeoms) {
       const allWays = (osmGeoms.ways || []).concat(osmGeoms.relations || []);
       allWays.forEach(geom => {
         if (!geom.tags || !geom.tags.building) return;
         if (geom.type === 'way' && geom.coordinates && geom.coordinates.length > 2) {
-          this.buildingPolygons.push(geom.coordinates);
+          buildingPolygons.push(geom.coordinates);
         } else if (geom.type === 'relation' && geom.outerWays) {
           geom.outerWays.forEach(way => {
             if (way.coordinates && way.coordinates.length > 2) {
-              this.buildingPolygons.push(way.coordinates);
+              buildingPolygons.push(way.coordinates);
             }
           });
         }
@@ -153,38 +234,42 @@ class RFFluidRenderer {
     }
 
     // Build building line segments in Geographic Coordinates (lat/lon)
-    for (let b = 0; b < this.buildingPolygons.length; b++) {
-      const ring = this.buildingPolygons[b];
+    for (let b = 0; b < buildingPolygons.length; b++) {
+      const ring = buildingPolygons[b];
       for (let i = 0; i < ring.length - 1; i++) {
-        this.buildingSegmentsGeo.push({ p1: ring[i], p2: ring[i + 1] });
+        buildingSegmentsGeo.push({ p1: ring[i], p2: ring[i + 1] });
       }
       if (ring.length > 2) {
-        this.buildingSegmentsGeo.push({ p1: ring[ring.length - 1], p2: ring[0] });
+        buildingSegmentsGeo.push({ p1: ring[ring.length - 1], p2: ring[0] });
       }
     }
 
-    this._precalculateSpatialFans();
-    this.redraw();
+    const nodes = this._precalculateSpatialFans(drawPoints, buildingSegmentsGeo, radiusMeters, numRays);
+
+    return { drawPointsRef: drawPoints, osmGeomsRef: osmGeoms, radiusMeters, numRays, nodes, buildingPolygons };
   }
 
   /**
-   * Pre-compute radial propagation fan polygons in geographic lat/lon coordinates.
+   * Pre-compute radial propagation fan polygons in geographic lat/lon coordinates
+   * for one track's drawPoints against one track's building segments.
    * Downsamples nodes spatially (~6m world spacing) to keep node count optimal.
+   * Pure function — returns the nodes array rather than writing this.cachedNodes,
+   * so per-track results can be cached and combined by setDataForTracks().
    */
-  _precalculateSpatialFans() {
-    this.cachedNodes = [];
-    if (!this.drawPoints || this.drawPoints.length === 0) return;
+  _precalculateSpatialFans(drawPoints, buildingSegmentsGeo, radiusMeters, numRays) {
+    const nodes = [];
+    if (!drawPoints || drawPoints.length === 0) return nodes;
 
-    const numRays = this.options.numRays || 24;
-    const radiusMeters = this.options.radiusMeters || 120;
+    numRays = numRays || this.options.numRays || 24;
+    radiusMeters = radiusMeters || this.options.radiusMeters || 120;
     const metersPerDegLat = 111320;
 
     // Spatial node downsampling: ensure min ~6.0 meters separation in world space
     const minSpatialDistMeters = 6.0;
     let lastLat = null, lastLon = null;
 
-    for (let i = 0; i < this.drawPoints.length; i++) {
-      const pt = this.drawPoints[i];
+    for (let i = 0; i < drawPoints.length; i++) {
+      const pt = drawPoints[i];
       if (!pt || isNaN(pt.lat) || isNaN(pt.lon)) continue;
 
       const lat = pt.lat;
@@ -222,8 +307,8 @@ class RFFluidRenderer {
         maxLon: lon + dLonMax * 1.2
       };
 
-      for (let s = 0; s < this.buildingSegmentsGeo.length; s++) {
-        const seg = this.buildingSegmentsGeo[s];
+      for (let s = 0; s < buildingSegmentsGeo.length; s++) {
+        const seg = buildingSegmentsGeo[s];
         if (Math.min(seg.p1.lat, seg.p2.lat) <= nodeBbox.maxLat &&
             Math.max(seg.p1.lat, seg.p2.lat) >= nodeBbox.minLat &&
             Math.min(seg.p1.lon, seg.p2.lon) <= nodeBbox.maxLon &&
@@ -273,7 +358,7 @@ class RFFluidRenderer {
       const r915 = has915 ? pt.rssi_915 : (pt.r_915 || -91.5);
       const hasRf = has815 || has868 || has915 || hasFog;
 
-      this.cachedNodes.push({
+      nodes.push({
         lat, lon,
         r815, r868, r915, fog,
         hasRf, has815, has868, has915, hasFog,
@@ -281,7 +366,7 @@ class RFFluidRenderer {
       });
     }
 
-    this._calculateRssiStats();
+    return nodes;
   }
 
   /**
@@ -373,8 +458,11 @@ class RFFluidRenderer {
 
   setRadius(radius) {
     this.options.radiusMeters = radius;
-    this._precalculateSpatialFans();
-    this.redraw();
+    // Re-run the last setData(For Tracks) call — every per-track cache entry's
+    // radiusMeters check in setDataForTracks() will now mismatch the new value,
+    // so this naturally recomputes fans for every active track without needing
+    // to manually clear _trackCache first.
+    this.setDataForTracks(this._lastTracksData || []);
   }
 
   setVisible(visible) {

@@ -238,7 +238,38 @@ Phases are independently shippable; §4 gives suggested sequencing.
 
 **Verify:** `npm test` (or documented equivalent) runs clean from a fresh checkout.
 
-### Phase 5 — RF fan-cast caching (performance, not correctness)
+### Phase 5 — RF fan-cast caching (performance, not correctness) ✅ DONE (2026-08-07)
+
+> **Status:** landed. `RFFluidRenderer` gained a per-track fan-cast cache (`_trackCache`, keyed by
+> track id): `setDataForTracks(tracksData)` (new) takes `[{id, drawPoints, osmGeoms}, ...]` and only
+> re-runs `_precalculateSpatialFans()` (now a pure function of its arguments, no longer reading/
+> writing instance state) for a track whose `drawPoints`/`osmGeoms` reference, radius, or ray count
+> actually changed since the last call — an unchanged track reuses its cached nodes. The cheap combine
+> step (concatenate per-track nodes/buildings, recompute `rssiStats`, `redraw()`) always runs.
+> `setData(drawPoints, osmGeoms)` (single-track view) is now a thin wrapper around
+> `setDataForTracks([{id: '__single__', ...}])`, so it gets the same reuse fast path the old
+> reference-equality check gave it. `setRadius()` replays the last `tracksData` through
+> `setDataForTracks()` — the per-entry radius check does the invalidation, no manual cache-clear
+> needed. `map.js`'s `renderCollectiveData()` was the actual bug: it built one concatenated
+> `collectiveDrawPoints` array (a fresh reference every render, defeating even the old fast path) and
+> called `setData()` once — now it collects per-track `{id, drawPoints, osmGeoms}` entries (reusing
+> the already-cached per-track `drawPoints` from `_getOrBuildDrawPoints()`, keyed by track id) and
+> calls `setDataForTracks()`. Found during implementation: `clearMap()`/`clearCollectiveLayers()` call
+> `_clearRfFluid()` at the START of every render pass, immediately followed by the real
+> `setData()`/`setDataForTracks()` call later in the same synchronous pass — `_clearRfFluid()` used to
+> call `setData([], null)`, which would prune every track's cache entry via that empty call's own
+> active-track-set bookkeeping, forcing a full recompute on every single re-render and defeating the
+> cache entirely. Added `RFFluidRenderer.clear()` (blanks `cachedNodes`/`buildingPolygons` + redraws,
+> does not touch `_trackCache`) and switched `_clearRfFluid()` to use it. New regression coverage:
+> `tests/test_rf_fluid_lifecycle.js` (per-track cache reuse when an unrelated track changes; cache
+> pruning when a track drops out; `clear()` preserves the cache; `setRadius()`/`setData()` reuse
+> behavior) and `tests/test_rf_fluid_collective_wiring.js` (new — boots the real app, proves
+> `renderCollectiveData()` calls `setDataForTracks()` with genuine per-track entries and not the old
+> single-blob `setData()`, that an unrelated track's `drawPoints` reference survives a re-render
+> unchanged, and that `_clearRfFluid()` goes through `clear()` not `setData([], null)`). Verified the
+> three new integration tests are not vacuous by running them against the pre-refactor code via `git
+> stash` — all three fail there and pass on the refactored code. Full suite green (604 tests, 1
+> pre-existing environment-gated skip unrelated to this change).
 
 **Goal:** the "many tracks" scaling concern from the earlier discussion — `_precalculateSpatialFans()` (`rf_fluid_renderer.js:174`) recomputes fan-casting for *all* active tracks' points on every `setData()` call, including tracks that didn't change.
 

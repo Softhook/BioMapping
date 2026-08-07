@@ -351,10 +351,19 @@ class GSRMapManager {
    * Clear the RF fluid canvas — shared by clearMap() and clearCollectiveLayers()
    * so the two "which layers am I clearing" branches can't drift apart and
    * leave one of them holding stale RF data (see clearAll()).
+   *
+   * Uses clear() rather than setData([], null): clearMap()/clearCollectiveLayers()
+   * run at the START of every render pass (renderData()/renderCollectiveData()),
+   * which then immediately calls setData()/setDataForTracks() again with the real
+   * per-track data a few lines later in the same synchronous pass. setData([], null)
+   * would prune RFFluidRenderer's per-track fan-cast cache (Phase 5) via that empty
+   * call's own active-track-set bookkeeping, forcing every track to recompute right
+   * after — defeating the cache on every single re-render. clear() only blanks the
+   * visible canvas; the fan cache survives until the real setData call right after.
    */
   _clearRfFluid() {
     if (this.rfFluidRenderer) {
-      this.rfFluidRenderer.setData([], null);
+      this.rfFluidRenderer.clear();
     }
   }
 
@@ -1911,7 +1920,10 @@ class GSRMapManager {
 
     const allActivePeaksAcrossTracks = [];
     let collectiveDrawPoints = [];
-    let collectiveWays = [], collectiveRelations = [];
+    // Phase 5: per-track drawPoints/osmGeoms references (not concatenated) so
+    // RFFluidRenderer.setDataForTracks() can reuse cached fan-cast geometry
+    // for tracks whose data didn't change (see that method's doc comment).
+    const rfTracksData = [];
 
     // 1. Draw dashed, semi-transparent paths for each track
     activeTracks.forEach(track => {
@@ -1928,10 +1940,7 @@ class GSRMapManager {
       const { drawPoints } = this._getOrBuildDrawPoints(track.id, track.analyzer, p);
       if (drawPoints.length > 0) {
         collectiveDrawPoints.push(...drawPoints);
-      }
-      if (track.analyzer && track.analyzer.osmGeoms) {
-        if (track.analyzer.osmGeoms.ways) collectiveWays.push(...track.analyzer.osmGeoms.ways);
-        if (track.analyzer.osmGeoms.relations) collectiveRelations.push(...track.analyzer.osmGeoms.relations);
+        rfTracksData.push({ id: track.id, drawPoints, osmGeoms: track.analyzer && track.analyzer.osmGeoms });
       }
 
       if (drawPoints.length < 2) return;
@@ -2074,9 +2083,8 @@ class GSRMapManager {
     if (collectiveDrawPoints.length > 0) {
       this._lastDrawPoints = collectiveDrawPoints;
     }
-    if (this.rfFluidRenderer && collectiveDrawPoints.length > 0) {
-      const combinedGeoms = { ways: collectiveWays, relations: collectiveRelations };
-      this.rfFluidRenderer.setData(collectiveDrawPoints, combinedGeoms);
+    if (this.rfFluidRenderer && rfTracksData.length > 0) {
+      this.rfFluidRenderer.setDataForTracks(rfTracksData);
     }
     this._updateRfFluidButtonState(activeTracks.some(t => t.analyzer && t.analyzer.hasRfData));
 
