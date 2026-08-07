@@ -115,28 +115,36 @@ Phases are independently shippable; §4 gives suggested sequencing.
 
 ### Phase 0 — Global error safety net  ✅ DONE (2026-08-06)
 
-> **Status:** landed. `error_handler.js` (loaded first in `index.html`/`boot_app.js`) adds `window.onerror` +
-> `unhandledrejection` hooks and a `GSRErrors.report(err, context)` helper that shows a non-blocking toast
-> (own container, no load-order coupling to app UI). The 4 silent `catch(_){}` sites in `map_exporter.js`
-> now log through it (fallbacks preserved). `alert()` sites untouched per plan. Covered by
-> `tests/test_error_handler.js` (4 tests). No test changes to other flows.
+> **Status:** landed. The error safety net lives in `notices.js`. Loaded as the
+> first local app script in `index.html` (line 920), before `app_state.js`
+> and all other app files. Adds `window.addEventListener('error', …)` + 
+> `window.addEventListener('unhandledrejection', …)` hooks and a 
+> `GSRNotices.report(err, context)` helper. The 4 silent `catch(_){}` sites in `map_exporter.js`
+> (lines 998–1001, 1013–1016, 1049–1051, 1204–1206) now call `GSRNotices.report(err, '<context>')` with
+> fallbacks preserved. `alert()` sites untouched per plan. Covered by `tests/test_notices.js` (13 tests,
+> including `GSRNotices.report`, `window.onerror`, `unhandledrejection`, benign-error filtering, warning
+> toasts, and dialogs).
+>
+> **Code-verified 2026-08-07:** `notices.js` confirmed loaded at `index.html:920`; `window.addEventListener`
+> handlers at `notices.js:240–249`; `GSRNotices.report` at `notices.js:26–30`; all 4 `map_exporter.js`
+> catch sites confirmed routing through `GSRNotices.report`; test count confirmed 13 in `test_notices.js`.
 
 **Goal:** make failures visible instead of silent, with minimal behavior change.
 
 **Steps:**
-1. Add one `window.onerror` + `window.addEventListener('unhandledrejection', …)` handler (new small file, e.g. `error_handler.js`, loaded early in `index.html`) that logs consistently and surfaces a visible, non-blocking notice (reuse the existing file-status/toast UI pattern already used elsewhere, e.g. `GSRTrackManager.setFileStatus`) rather than failing silently.
-2. Add a small `GSRErrors.report(err, context)` helper and migrate the worst offenders — the silent `catch (_) {}` sites in `map_exporter.js:992,1004,1037,1190` — to at least log through it. Leave the deliberate graceful-fallback catches (`osm_cache.js`) alone; those are intentional, not bugs.
+1. Add one `window.onerror` + `window.addEventListener('unhandledrejection', …)` handler in `notices.js` (loaded early in `index.html`) that logs consistently and surfaces a visible, non-blocking notice via `GSRNotices.report(err, context)`, rather than failing silently.
+2. Migrate the worst offenders — the silent `catch (_) {}` sites in `map_exporter.js:992,1004,1037,1190` — to log through `GSRNotices.report`. Leave the deliberate graceful-fallback catches (`osm_cache.js`) alone; those are intentional, not bugs.
 3. Do **not** touch the 22 `alert()` call sites in this phase — that's a UX change (blocking alerts → toasts) worth doing but separable from "add a safety net," and mixing the two makes this phase harder to review.
 
 **Risk:** very low — additive only, no existing behavior changes except the silent-catch sites gaining a log line.
 
 **Verify:** manually throw inside a render path (temporary) and confirm the notice appears instead of a silent stuck UI; confirm existing `alert()` flows are unaffected.
 
+**Code-verified 2026-08-07.**
+
 ### Phase 1 — Track/map rendering ownership model
 
 **Status:** slice 1 (track `layerGroup` field + single-track render path routes into it; `clearMap`/`deleteTrack` remove the group) ✅ LANDED 2026-08-06, behind the new recording-Leaflet regression suite in `visualiser/tests/test_map_layer_ownership.js`. Slice 2 (collective/multi-track path now routes each active track's layers into ITS OWN layerGroup; `GSRMapManager` tracks the set of groups it rendered (`_renderedTrackGroups`) so `clearMap` clears by what it rendered, not by the manager's current tracks — a removed track can't leave an orphaned group) ✅ LANDED 2026-08-06, same suite extended (3 new collective tests). Also fixed during slice-2 verification: the collective surface overlay was gated on the button's `showShadedSurface` at *creation*, so a re-render while the surface was hidden (delete a track with the surface off) left `surfaceOverlay` null and toggling it back on did nothing — the overlay is now always created when there is surface data and visibility is a pure add/remove via `showSurface` (regression test added). Slice 3 (drop the flat render arrays: `pathSegments`/`peakMarkers`/`hotspotMarkers`/`collective*` are gone as state; `GSRMapManager` now owns per-track `layerGroup`s + a full per-track `_ownedLayers` registry so toggles can restore hidden layers; `getRenderLayers()`/`getPeakMarkerByIndex()` are the public accessors the SVG exporter and `focusOnPeak` use; `clearCollectiveLayers` also clears per-track groups, fixing the "uncheck the last track" stale-group bug) ✅ LANDED 2026-08-06, suite extended (5 tests). Browser-verification bug fixes (2026-08-06, commit ac57e26): the scrub marker lingered into collective view (0-active-tracks path only called `clearCollectiveLayers`), the GPS "Tracks" toggle didn't affect the single-track path, and track/contour/cluster colors exported as raw `hsl(...)` strings that render black in SVG viewers — exporter now converts to hex. Code-review fix (2026-08-07): `_clearRenderedTrackGroups()` (`map.js`) reset the legacy `_unownedLayers` array (layers rendered via the null-track fallback, i.e. no managed track for the active analyzer) without ever calling `map.removeLayer()` on them first — every `clearMap()`/`clearAll()`/`clearCollectiveLayers()` call permanently orphaned those layers, exactly the failure mode this ownership model exists to prevent. No test exercised that fallback path, so it wasn't caught by the slice 1–3 suite; fixed (now removes each `_unownedLayers` entry from the map before dropping the array) — regression-tested (`tests/test_map_layer_ownership.js`, "orphan-fix: clearMap removes legacy no-track-fallback layers, not just the tracking array reference"; this status note previously said untested, corrected 2026-08-07 on rediscovering the test already existed). "Slice 4 (`deleteTrack` pilot rollout)" was a forward reference to Phase 3 §3's pilot below, not unfinished Phase 1 work — Phase 1 itself (steps 1–4) is complete.
-
-**Goal:** eliminate the specific flat-array-drift pattern in `GSRMapManager` that caused the original bug, for the map specifically.
 
 **Goal:** eliminate the specific flat-array-drift pattern in `GSRMapManager` that caused the original bug, for the map specifically.
 
@@ -149,6 +157,8 @@ Phases are independently shippable; §4 gives suggested sequencing.
 **Risk:** medium — touches `renderCollectiveData()` (`map.js`) and the track object shape (`collective_manager.js`, `tracks.js`) directly.
 
 **Verify:** the existing manual repro (add N tracks, toggle/remove in various orders and both view modes, confirm no stale layers of any kind) plus a new automated regression test (see Phase 4).
+
+**Code-verified 2026-08-07:** `_getTrackLayerGroup()` (`map.js:377–390`) lazily creates per-track `L.layerGroup()` and registers in `_renderedTrackGroups`; `_clearRenderedTrackGroups()` (`map.js:474–492`) calls `map.removeLayer()` on every `_unownedLayers` entry before clearing; `pathSegments`/`peakMarkers`/`hotspotMarkers` confirmed absent from `GSRMapManager` state (assertions in `test_map_layer_ownership.js:574–576`); `getRenderLayers()` at `map.js:407–427`, `getPeakMarkerByIndex()` at `map.js:434–441`, `clearAll()` at `map.js:532–535`.
 
 ### Phase 2 — Collapse manual-invalidation caches to self-validating state ✅ DONE (2026-08-07)
 
@@ -204,6 +214,8 @@ Phases are independently shippable; §4 gives suggested sequencing.
 
 **Verify:** new regression test asserting stats reflect a mutation made through every known mutation path (peak label edit, GPS param change, track add/remove, environmental enrichment).
 
+**Code-verified 2026-08-07:** `_dataVersion` initialized at `analyzer.js:64`; incremented by `setPeakLabel` at `:86`, `setPeakExcluded` at `:95`, `analyze()` at `:534`; `OSMEnricher.enrichTrack()` bumps it at `osm_enrichment.js:704`; `invalidateEnvironmentalCache` fully deleted (0 calls remain in any source file); `versionSig` join computed at `ui.js:1001`, cache miss check at `:1011`; `test_env_dashboard_cache.js`, `test_analyzer_refactoring.js`, `test_osm_enrichment.js` all confirmed present.
+
 ### Phase 3 — Minimal event notification between rendering surfaces
 
 > **Status:** step 1–3 pilot ✅ LANDED 2026-08-07. `AppState.on(event, fn)`/`AppState.emit(event, ...args)` added (`app_state.js`) — plain array-of-listeners per event name, only `trackRemoved` defined/fired so far. `GSRTrackManager.deleteTrack()` (`tracks.js`) no longer calls `renderTrackList()`, `clearAll()`, or `updateCollectiveMap()` directly; it mutates state (unchanged) and ends with `AppState.emit('trackRemoved', trackId)`. The three listeners are registered once, centrally, in `sketch.js`'s `setup()` — not at `tracks.js`/`ui.js`/`map.js` module-top-level, because `tests/test_tracks.js` requires `tracks.js` directly against a hand-built `AppState` mock with no real `setup()` call ever made (deliberate isolation, see that file's header) — a top-level `AppState.on(...)` in `tracks.js` would throw at `require()` time under that harness. `tests/test_tracks.js`'s two assertions that depended on the old direct calls (`clearAllCalled`, `__collectiveMapUpdated`) now register the equivalent listener inline, mirroring what `setup()` does for real, since that file never boots the app; `tests/test_app_smoke.js` and `tests/test_map_layer_ownership.js` both call the real `window.setup()` so they exercise the actual listeners. All 90 tests across the four affected files pass, plus the full 587-test suite. Step 4 (migrating `addTrack`/`switchActiveTrack`/view-mode-toggle to also fire events) investigated 2026-08-07, **no event added** — none of the three named candidates actually has the "N call sites must each remember M things" duplication this phase exists to fix:
@@ -225,6 +237,8 @@ Phases are independently shippable; §4 gives suggested sequencing.
 
 **Verify:** the `deleteTrack()` pilot must produce identical observable behavior to today (same regression tests as Phase 1) before expanding further.
 
+**Code-verified 2026-08-07:** `AppState.on`/`emit` at `app_state.js:116–122`; `deleteTrack()` emits at `tracks.js:419`; three `trackRemoved` listeners registered in `sketch.js:setup()` at lines 14–20; `trackAdded` confirmed absent from codebase; dead-code blocks removed from `loadFilesSequentially()` and `loadDefaultTrack()`.
+
 ### Phase 4 — Formalize the test suite
 
 **Goal:** turn the 19 existing ad hoc scripts (§1.5) into something that runs automatically and can hold new regression tests.
@@ -237,6 +251,8 @@ Phases are independently shippable; §4 gives suggested sequencing.
 **Risk:** very low, purely additive.
 
 **Verify:** `npm test` (or documented equivalent) runs clean from a fresh checkout.
+
+**Code-verified 2026-08-07:** `visualiser/package.json` confirmed with `"test": "node --test tests/*.js"`; `npm test` runs 625 tests, 624 pass, 1 pre-existing environment-gated skip, 0 fail; `test_map_layer_ownership.js` confirmed present (1,191 lines) with orphan-fix and collective layer regression tests.
 
 ### Phase 5 — RF fan-cast caching (performance, not correctness) ✅ DONE (2026-08-07)
 
@@ -280,6 +296,8 @@ Phases are independently shippable; §4 gives suggested sequencing.
 **Risk:** medium — the fan-casting math itself (`rf_fluid_renderer.js:174-260`) is unchanged, only the caching boundary moves; regression risk is mostly "did I cache at the right granularity."
 
 **Verify:** existing `tests/` RF fluid test, extended to assert per-track cache reuse (e.g. via a call counter) when an unrelated track is toggled.
+
+**Code-verified 2026-08-07:** `_trackCache` at `rf_fluid_renderer.js:46`; `setDataForTracks()` at `:151–193`; `setData()` thin wrapper at `:134–138`; `clear()` at `:204–208` leaves `_trackCache` untouched (confirmed by comment at `:553`); `test_rf_fluid_lifecycle.js` and `test_rf_fluid_collective_wiring.js` both confirmed present.
 
 **Priority note:** this is a performance phase, not a stability one — sequence it after §4's test harness exists, and only if/when track counts in practice make it worth the risk. Not blocking on the correctness phases above.
 
@@ -527,6 +545,8 @@ Phases are independently shippable; §4 gives suggested sequencing.
 
 **Verify:** step 1 — existing RF fluid test extended to assert identical output, plus a call-count/timing check proving the indexed path does less work. Step 2 — extend `tests/test_map_layer_ownership.js` the same way the `refreshPeakMarkers()` work already did, for each newly-migrated call site. Step 3 — no code changes without a profile first. Step 4 — the bench script's own console output, re-run manually as a sanity check whenever a Phase 6 method changes.
 
+**Code-verified 2026-08-07:** `mouseWheel` rAF-coalesced via `coalescedZoomRedraw` at `sketch.js:323/343`; `refreshPeakMarkers()` at `map.js:763–797`, `refreshPath()` at `:810–832`, `refreshCollectivePeakMarkers()` at `:1800–1826`; `_buildSegmentGrid()` at `rf_fluid_renderer.js:261–279`, `_queryNearbySegments()` at `:289–310`; `test_rf_fluid_spatial_index.js` confirmed present (196 lines); `skipClustering` option threading confirmed in `_renderPeakMarkers()` and `refreshPeakMarkers()`; `_renderCollectiveTrackPeaks()` extracted with `activePeaksSink` param; `tests/manual/_bench_render_perf.js` confirmed present.
+
 **Priority note:** sequence after Phase 5 (or interleaved — different methods in the same file, no conflict) and after Phase 4's test harness exists, so new perf regression tests have a home. Not blocking on Phase 3.
 
 ### Phase 7 — Signal-analysis pipeline performance (`analyzer.js`) ✅ DONE (2026-08-07)
@@ -607,6 +627,8 @@ private method with one call site, verified output-identical.
 **Verify:** `tests/test_analyzer_refactoring.js`'s four new
 `_computeNoiseFloor` tests, plus `tests/manual/_bench_analyzer_perf.js` for
 the timing claim.
+
+**Code-verified 2026-08-07:** `_computeNoiseFloor()` at `analyzer.js:1147–1173` confirmed to index directly into `this.filtered[j].val` with no intermediate `.map()` call; `tests/manual/_bench_analyzer_perf.js` confirmed present (105 lines); `tests/test_analyzer_refactoring.js` confirmed present with `_computeNoiseFloor` windowed-stdev and boundary-clamp tests.
 
 ### Phase 8 — Collective-mode spatial density performance (`spatial_clustering.js` + `collective_manager.js`) ✅ DONE (2026-08-07)
 
@@ -725,6 +747,8 @@ fixture that actually exercised the logic, not in the restructuring itself.
 **Verify:** `tests/test_spatial_clustering.js` and
 `tests/test_collective_manager.js`'s new tests; `tests/manual/_bench_render_perf.js`
 bench 4 for the timing claim.
+
+**Code-verified 2026-08-07:** `getConcaveBlob()` at `spatial_clustering.js:252` confirmed to use point-major loop (peaks first, splat onto `rMin–rMax`/`cMin–cMax` cell window); `generateContourSurface()` at `collective_manager.js:61` confirmed point-major for boundary mask (`lines 225–238`) and IDW topography (`lines 257–284`), using shared `cellWindowFor()` helper at `:191–202`; `test_spatial_clustering.js` and `test_collective_manager.js` both confirmed present with new Phase 8 test suites; `_bench_render_perf.js` bench 4 referenced.
 
 ### Phase 9 — Simplification pass across Phases 0–8
 
