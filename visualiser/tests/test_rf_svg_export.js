@@ -152,4 +152,26 @@ assert(!fullSvgMarkup.includes('NaN'), 'SVG output must contain zero NaN values'
 
 console.log('✔ Generated separated Illustrator frequency sub-layers (815, 868, 915 MHz)');
 console.log('✔ Full SVG rendering integration passed with zero NaN coordinates');
+
+// 4. Regression: RF_Fluid_Field's OWN opening tag must carry BOTH the
+// building mask AND the screen blend together, not one or the other.
+// Reported bug: "in single track mode the RF fluid layer seems to SVG
+// export as a white shape" (collective mode looked fine). Traced to
+// `rfMasterAttr = hasMask ? maskAttr : screenBlendStyle` — whenever a track
+// has OSM building enrichment (any buildingPolygons at all, single or
+// collective, this test fixture's mockOsmGeoms included), the mask attribute
+// was substituted IN PLACE OF mix-blend-mode:screen on the wrapping group.
+// The per-frequency sub-layers (815/868/915/fog) always keep their own
+// screen blend regardless, but the outer group compositing those (now
+// mostly-opaque, normally-blended where they overlap) onto the map below no
+// longer screens — with enough overlapping translucent red/green/blue node
+// gradients, normal blending washes out toward a flat white/opaque shape
+// instead of the intended colored glow.
+const rfFieldTagMatch = fullSvgMarkup.match(/<g[^>]*id="RF_Fluid_Field"[^>]*>/);
+assert(rfFieldTagMatch, 'RF_Fluid_Field opening tag must be present in the SVG output');
+const rfFieldTag = rfFieldTagMatch[0];
+assert(rfFieldTag.includes('mask="url(#rfBuildingMask)"'), 'RF_Fluid_Field must still carry the building mask when one exists');
+assert(rfFieldTag.includes('mix-blend-mode: screen'), 'RF_Fluid_Field must ALSO keep mix-blend-mode:screen when a building mask is present — losing it is what exports the field as a flat white shape');
+
+console.log('✔ RF_Fluid_Field keeps mix-blend-mode:screen together with the building mask (not one or the other)');
 console.log('── All Sub-GHz RF Data SVG Export Tests Passed Successfully ──');

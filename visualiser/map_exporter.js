@@ -296,7 +296,17 @@ class GSRMapExporter {
     }
 
     const rfLayerItems = rfSubLayers.length > 0 ? rfSubLayers : (rfObj.polygons || []);
-    const rfMasterAttr = hasMask ? maskAttr : 'style="mix-blend-mode: screen;"';
+    // The building mask and the screen blend do two unrelated jobs — the mask
+    // clips the field to building footprints, the blend is what makes
+    // overlapping red/green/blue node gradients read as a colored glow
+    // instead of opaque, normally-composited fills. Picking one OR the other
+    // (previous code: `hasMask ? maskAttr : screenBlend`) meant any track with
+    // OSM building enrichment (hasMask true) lost the blend entirely — with
+    // enough overlapping gradient nodes, normal-blended translucent red/green/
+    // blue stacks toward opaque white, exporting the whole RF field as a flat
+    // white shape instead of the intended glow. Both attributes are needed
+    // together whenever a mask exists.
+    const rfMasterAttr = hasMask ? `${maskAttr} style="mix-blend-mode: screen;"` : 'style="mix-blend-mode: screen;"';
 
     const defsContent = rfObj.defs && rfObj.defs.length > 0
       ? `  <defs>\n${rfObj.defs.map(d => '    ' + d).join('\n')}\n  </defs>`
