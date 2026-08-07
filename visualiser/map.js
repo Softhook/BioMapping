@@ -779,6 +779,53 @@ class GSRMapManager {
     this.updateMarkerVisibility();
   }
 
+  /**
+   * Re-render ONLY the active track's path segments — used by the map-
+   * coloring-metric dropdown, which changes how the path is colored but
+   * leaves peak/hotspot positions and popups untouched (see
+   * docs/visualizer_rendering_perf_routes.md §2.2). Same shape as
+   * refreshPeakMarkers(): remove just the 'path' layers from the track's
+   * owned-layers registry and layerGroup, then re-run the path renderer.
+   *
+   * Falls back to the full renderData() for the legacy no-track case, same
+   * reason as refreshPeakMarkers() — those layers aren't tagged per-track.
+   */
+  refreshPath(analyzer, gpsParams) {
+    if (!this.map || !analyzer) return;
+    const p = gpsParams || {};
+
+    const activeTrack = (typeof AppState !== 'undefined' && AppState.collectiveManager)
+      ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
+      : null;
+
+    if (!activeTrack) {
+      this.renderData(analyzer, gpsParams);
+      return;
+    }
+
+    const cacheKey = AppState.activeTrackId || 'single';
+    const { drawPoints } = this._getOrBuildDrawPoints(cacheKey, analyzer, p);
+    // No path today (e.g. every GPS fix gated out) — nothing to recolor, and
+    // renderData()'s own no-path branch already left peak/hotspot markers as
+    // the only rendered layers, so there's nothing here to touch either.
+    if (drawPoints.length === 0) return;
+
+    const keep = [];
+    for (const layer of (activeTrack._ownedLayers || [])) {
+      if (layer._gsrKind === 'path') {
+        if (this.map.hasLayer(layer)) this.map.removeLayer(layer);
+        if (activeTrack.layerGroup && activeTrack.layerGroup.hasLayer(layer)) {
+          activeTrack.layerGroup.removeLayer(layer);
+        }
+      } else {
+        keep.push(layer);
+      }
+    }
+    activeTrack._ownedLayers = keep;
+
+    this._renderPathSegments(drawPoints, p.trackWeight || 5, analyzer, activeTrack);
+  }
+
   // ── Pipeline helpers ──────────────────────────────────────────────────────
 
   _collectGpsPoints(data) {
@@ -1581,6 +1628,174 @@ class GSRMapManager {
   }
 
   /**
+   * Render one track's collective-mode peak dot markers + connector lines,
+   * with 360° label-collision avoidance scoped to just this track's own
+   * peaks (collectiveLabelCandidates/collectiveAllPeaks are per-call, not
+   * shared across tracks — a label change on one track can't perturb
+   * another track's layout). Shared by renderCollectiveData() (full
+   * rebuild, passes activePeaksSink so non-excluded peaks feed the global
+   * clustering pass) and refreshCollectivePeakMarkers() (label-edit-only
+   * partial refresh, passes null — see that method's doc comment for why
+   * skipping the clustering push is correct there).
+   * @private
+   */
+  _renderCollectiveTrackPeaks(track, layerGroup, trackColor, peakLatency, activePeaksSink) {
+    const map = this.map;
+    const collectiveLabelCandidates = [];
+    const collectiveAllPeaks = [];
+
+    // First pass: collect pixel positions (with latency compensation)
+    track.analyzer.peaks.forEach((peak, index) => {
+      // Original (unshifted) GPS position for connector line
+      const origCoords = track.analyzer.getCoordinates(peak.index);
+
+      // Shifted position (with latency)
+      const si = this._resolveLatencyIndex(track.analyzer, peak, peakLatency);
+      const coords = track.analyzer.getCoordinates(si);
+      if (coords) {
+        const pt = map.latLngToLayerPoint([coords.lat, coords.lon]);
+        collectiveAllPeaks.push({
+          peak, index, lat: coords.lat, lon: coords.lon, px: pt.x, py: pt.y,
+          origLatLon: origCoords ? [origCoords.lat, origCoords.lon] : null
+        });
+        if (peak.label && peak.label.trim()) {
+          collectiveLabelCandidates.push({ idx: index, px: pt.x, py: pt.y, text: peak.label });
+        }
+        if (activePeaksSink && !peak.excluded) {
+          activePeaksSink.push({
+            lat: coords.lat,
+            lon: coords.lon,
+            amplitude: peak.amplitude
+          });
+        }
+      }
+    });
+
+    // 360° collision avoidance for collective labels
+    const collectivePositions = GSRLabelManager.computeLabelPositions(collectiveLabelCandidates);
+
+    // Compact dot-only icon for unlabeled peaks — same shared icon
+    // single-track peaks use (GSRMapManager._buildPeakIcon()), not
+    // track-colored, so a peak looks identical regardless of which view
+    // it's shown in (see that method's doc comment for why track color
+    // was dropped here).
+    const collectiveSimpleIcon = GSRMapManager._buildPeakIcon();
+
+    collectiveAllPeaks.forEach(({ peak, index, lat, lon, px, py }) => {
+      const displayLabel = peak.label || '';
+
+      let marker;
+      const hasLabel = displayLabel && displayLabel.trim();
+      if (hasLabel) {
+        const dirResult = collectivePositions.get(index);
+        if (dirResult) {
+          marker = L.marker([lat, lon], {
+            icon: GSRLabelManager.buildLabelledIcon(px, py, displayLabel, dirResult, { showGlow: false, dotPx: 6 })
+          });
+          // Bump labeled markers above everything else on the map
+          marker.setZIndexOffset(1000);
+          marker.hasLabel = true;
+        } else {
+          marker = L.marker([lat, lon], { icon: collectiveSimpleIcon });
+          marker.hasLabel = false;
+        }
+      } else {
+        marker = L.marker([lat, lon], { icon: collectiveSimpleIcon });
+        marker.hasLabel = false;
+      }
+
+      marker.bindPopup(() => this._buildCollectivePeakPopup(track, peak, index, lat, lon, marker));
+
+      // Phase 1 (slice 2/3): collective peak markers render into this track's
+      // own layerGroup; the peak index is tagged so focusOnPeak can resolve it.
+      // Tag the group ALWAYS (even when currently hidden) so toggling the
+      // marker on later routes it through the group — tagging only when
+      // visible made hidden markers fall back to direct-to-map adds that
+      // survived the track's removal.
+      marker._gsrKind = 'collectivePeak';
+      marker._gsrPeakIndex = index;
+      marker._gsrLayerGroup = layerGroup;
+      const shouldAdd = this.showPeaks || (this.showLabels && marker.hasLabel);
+      if (shouldAdd) {
+        layerGroup.addLayer(marker);
+      }
+      // Dim excluded peak markers
+      if (peak.excluded) {
+        marker.setOpacity(0.35);
+      }
+      this._registerTrackLayer(track, marker);
+    });
+
+    // Draw connector lines from original to shifted position (collective)
+    if (peakLatency > 0) {
+      for (const ap of collectiveAllPeaks) {
+        if (!ap.origLatLon) continue;
+        const shiftedLatLon = [ap.lat, ap.lon];
+        const conn = L.polyline([ap.origLatLon, shiftedLatLon], {
+          color: trackColor,
+          weight: 1,
+          opacity: 0.25,
+          dashArray: '2, 4'
+        });
+        conn._gsrKind = 'collectiveConnector';
+        conn._gsrLayerGroup = layerGroup;
+        layerGroup.addLayer(conn);
+        this._registerTrackLayer(track, conn);
+      }
+    }
+  }
+
+  /**
+   * Re-render ONLY one track's collective-mode peak dot markers + connector
+   * lines — used by updatePeakLabel() in collective view. A label edit only
+   * ever changes that one peak's label chip/popup plus this track's own
+   * 360° label-collision layout (see _renderCollectiveTrackPeaks's doc
+   * comment: that layout is computed per-track, not globally) — nothing
+   * else in collective mode reads peak.label. Path, hotspots, clusters, and
+   * the contour surface are all left untouched by reference.
+   *
+   * Deliberately NOT reused for togglePeakExclusion() in collective mode:
+   * `excluded` IS read by both the global clustering pass
+   * (allActivePeaksAcrossTracks in renderCollectiveData()) and
+   * generateContourSurface() (collective_manager.js, when topographySource
+   * is 'peaks') — both full-dataset computations across every active track,
+   * not per-track, so an exclusion toggle still needs the full
+   * renderCollectiveData() rebuild to stay correct. See the Phase 6 step 2
+   * investigation note in docs/visualizer_architecture_refactor_plan.md.
+   *
+   * Falls back to GSRUI.updateCollectiveMap() (the full rebuild) when the
+   * track isn't a currently-active/rendered one (no layerGroup to refresh
+   * into) — same reasoning as refreshPeakMarkers()'s no-track fallback.
+   */
+  refreshCollectivePeakMarkers(track, peakLatency) {
+    if (!this.map) return;
+    if (!track || !track.layerGroup) {
+      if (typeof GSRUI !== 'undefined' && typeof GSRUI.updateCollectiveMap === 'function') {
+        GSRUI.updateCollectiveMap();
+      }
+      return;
+    }
+
+    const layerGroup = track.layerGroup;
+    const trackColor = track.color || '#0ea5e9';
+
+    const PEAK_KINDS = new Set(['collectivePeak', 'collectiveConnector']);
+    const keep = [];
+    for (const layer of (track._ownedLayers || [])) {
+      if (PEAK_KINDS.has(layer._gsrKind)) {
+        if (this.map.hasLayer(layer)) this.map.removeLayer(layer);
+        if (layerGroup.hasLayer(layer)) layerGroup.removeLayer(layer);
+      } else {
+        keep.push(layer);
+      }
+    }
+    track._ownedLayers = keep;
+
+    this._renderCollectiveTrackPeaks(track, layerGroup, trackColor, peakLatency || 0, null);
+    this.updateMarkerVisibility();
+  }
+
+  /**
    * Resolve the raw-sample index a marker should be positioned at, applying
    * the optional GPS-latency shift (find the GPS fix at peak.time -
    * peakLatency instead of peak.time itself, falling back to peak.index if
@@ -1967,109 +2182,7 @@ class GSRMapManager {
       this._registerTrackLayer(track, poly);
 
       // 2. Draw peak dot markers — 360° label placement with collision avoidance
-      const map = this.map;
-      const collectiveLabelCandidates = [];
-      const collectiveAllPeaks = [];
-
-      // First pass: collect pixel positions (with latency compensation)
-      track.analyzer.peaks.forEach((peak, index) => {
-        // Original (unshifted) GPS position for connector line
-        const origCoords = track.analyzer.getCoordinates(peak.index);
-
-        // Shifted position (with latency)
-        const si = this._resolveLatencyIndex(track.analyzer, peak, peakLatency);
-        const coords = track.analyzer.getCoordinates(si);
-        if (coords) {
-          const pt = map.latLngToLayerPoint([coords.lat, coords.lon]);
-          collectiveAllPeaks.push({
-            peak, index, lat: coords.lat, lon: coords.lon, px: pt.x, py: pt.y,
-            origLatLon: origCoords ? [origCoords.lat, origCoords.lon] : null
-          });
-          if (peak.label && peak.label.trim()) {
-            collectiveLabelCandidates.push({ idx: index, px: pt.x, py: pt.y, text: peak.label });
-          }
-          if (!peak.excluded) {
-            allActivePeaksAcrossTracks.push({
-              lat: coords.lat,
-              lon: coords.lon,
-              amplitude: peak.amplitude
-            });
-          }
-        }
-      });
-
-      // 360° collision avoidance for collective labels
-      const collectivePositions = GSRLabelManager.computeLabelPositions(collectiveLabelCandidates);
-
-      // Compact dot-only icon for unlabeled peaks — same shared icon
-      // single-track peaks use (GSRMapManager._buildPeakIcon()), not
-      // track-colored, so a peak looks identical regardless of which view
-      // it's shown in (see that method's doc comment for why track color
-      // was dropped here).
-      const collectiveSimpleIcon = GSRMapManager._buildPeakIcon();
-
-      collectiveAllPeaks.forEach(({ peak, index, lat, lon, px, py }) => {
-        const displayLabel = peak.label || '';
-
-        let marker;
-        const hasLabel = displayLabel && displayLabel.trim();
-        if (hasLabel) {
-          const dirResult = collectivePositions.get(index);
-          if (dirResult) {
-            marker = L.marker([lat, lon], {
-              icon: GSRLabelManager.buildLabelledIcon(px, py, displayLabel, dirResult, { showGlow: false, dotPx: 6 })
-            });
-            // Bump labeled markers above everything else on the map
-            marker.setZIndexOffset(1000);
-            marker.hasLabel = true;
-          } else {
-            marker = L.marker([lat, lon], { icon: collectiveSimpleIcon });
-            marker.hasLabel = false;
-          }
-        } else {
-          marker = L.marker([lat, lon], { icon: collectiveSimpleIcon });
-          marker.hasLabel = false;
-        }
-
-        marker.bindPopup(() => this._buildCollectivePeakPopup(track, peak, index, lat, lon, marker));
-
-        // Phase 1 (slice 2/3): collective peak markers render into this track's
-        // own layerGroup; the peak index is tagged so focusOnPeak can resolve it.
-        // Tag the group ALWAYS (even when currently hidden) so toggling the
-        // marker on later routes it through the group — tagging only when
-        // visible made hidden markers fall back to direct-to-map adds that
-        // survived the track's removal.
-        marker._gsrKind = 'collectivePeak';
-        marker._gsrPeakIndex = index;
-        marker._gsrLayerGroup = layerGroup;
-        const shouldAdd = this.showPeaks || (this.showLabels && marker.hasLabel);
-        if (shouldAdd) {
-          layerGroup.addLayer(marker);
-        }
-        // Dim excluded peak markers
-        if (peak.excluded) {
-          marker.setOpacity(0.35);
-        }
-        this._registerTrackLayer(track, marker);
-      });
-
-      // Draw connector lines from original to shifted position (collective)
-      if (peakLatency > 0) {
-        for (const ap of collectiveAllPeaks) {
-          if (!ap.origLatLon) continue;
-          const shiftedLatLon = [ap.lat, ap.lon];
-          const conn = L.polyline([ap.origLatLon, shiftedLatLon], {
-            color: trackColor,
-            weight: 1,
-            opacity: 0.25,
-            dashArray: '2, 4'
-          });
-          conn._gsrKind = 'collectiveConnector';
-          conn._gsrLayerGroup = layerGroup;
-          layerGroup.addLayer(conn);
-          this._registerTrackLayer(track, conn);
-        }
-      }
+      this._renderCollectiveTrackPeaks(track, layerGroup, trackColor, peakLatency, allActivePeaksAcrossTracks);
 
       // Hotspot markers for this track — same shared icon/styling as the
       // single-track view (_renderHotspotMarkers), deliberately NOT

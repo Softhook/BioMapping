@@ -40,11 +40,13 @@
 >    duplicates, the no-track fallback still renders correctly, and the real
 >    `GSRUI.updatePeakLabel()` wiring — not just the map.js method in
 >    isolation — is exercised end to end). `togglePeakExclusion()` (`ui.js`)
->    has the identical `renderData()`-does-a-full-rebuild issue noted below and
->    was deliberately left alone — same fix would apply, not done without being
->    asked. Collective-mode label edits (`GSRUI.updateCollectiveMap()` →
+>    had the identical `renderData()`-does-a-full-rebuild issue noted below and
+>    was deliberately left alone in this pass — same fix would apply, not done
+>    without being asked. (Update: fixed in the Phase 6 step 2 pass below —
+>    this paragraph is left as-is as the record of that pass's own scoping
+>    decision.) Collective-mode label edits (`GSRUI.updateCollectiveMap()` →
 >    `renderCollectiveData()`) also still do a full rebuild; not in scope of
->    this pass either.
+>    this pass either, nor of Phase 6 step 2.
 
 ## 1. Current state — what's already optimized
 
@@ -160,23 +162,45 @@ fans" cost cheaper too.
 
 ### 2.2 `renderData()` always does a full clear + rebuild, even for changes that only affect one layer kind
 
-> **Status: partially landed (2026-08-07).** The label-edit case is fixed —
-> see the 2026-08-07 update at the top of this document for what shipped
-> (`GSRMapManager.refreshPeakMarkers()`) and what didn't (the
-> `togglePeakExclusion()` case below, and collective mode). The other cases
-> below are still open.
+> **Status: landed for every case that turned out to need it (2026-08-07).**
+> The label-edit, exclusion-toggle, and single-track coloring-metric cases
+> are fixed. Collective mode's `renderCollectiveData()` was investigated
+> trigger-by-trigger rather than assumed to need the same treatment: the
+> coloring-metric dropdown turns out not to affect collective view at all
+> (nothing to fix), the exclusion toggle turns out to feed global clustering
+> + the contour surface so it correctly keeps the full rebuild, and the
+> label-edit case turns out to be genuinely safe to scope down and is now
+> fixed too. See the architecture refactor plan's Phase 6 step 2 status note
+> for the full trigger-by-trigger trace.
 
 **What:** every call to `renderData()` (`map.js:631-709`) starts with
 `this.clearMap()` and rebuilds path segments, peak markers, *and* hotspot
 markers unconditionally. But not every trigger needs all three:
-- The map-coloring-metric dropdown (`events.js:705-708`) only changes how
-  the path is colored — peak/hotspot marker positions and popups are
-  identical before and after, yet they're destroyed and rebuilt anyway.
-- `togglePeakExclusion()` (`ui.js:193-208`) changes one peak's excluded
-  state — same full rebuild. **Not fixed** — `refreshPeakMarkers()` (landed
-  for the label-edit case) would apply here unchanged, just swap the call
-  site; deliberately left alone since it wasn't what was asked for.
-- ~~`updatePeakLabel()` changes one peak's label~~ — **fixed**, see above.
+- The map-coloring-metric dropdown (`events.js`) only changes how the path
+  is colored — peak/hotspot marker positions and popups are identical before
+  and after, yet they were destroyed and rebuilt anyway. ~~**Fixed**~~ — new
+  `GSRMapManager.refreshPath()` handles single-track view. Collective mode
+  needs no fix: `activeColoringMetric` is never read there (collective paths
+  are always `track.color`, the collective legend is driven by
+  `_collectiveTopographySource` instead) — the dropdown has zero visible
+  effect in collective view, so its existing full-rebuild fallback there is
+  wasted work but not a correctness gap worth this pass's scope.
+- ~~`togglePeakExclusion()` (`ui.js`) changes one peak's excluded state —
+  same full rebuild.~~ **Fixed** for single-track — swapped to
+  `refreshPeakMarkers()`. **Deliberately NOT fixed for collective mode**:
+  `pk.excluded` is read by both `generateContourSurface()`
+  (`collective_manager.js`, when `topographySource === 'peaks'`) and
+  `renderCollectiveData()`'s clustering input, both full-dataset
+  computations across every active track — a correct partial render would
+  still need to re-run most of that work, for a much smaller win than the
+  single-track case.
+- ~~`updatePeakLabel()` changes one peak's label~~ — **fixed**, single-track
+  (see above) **and now collective mode too**: traced every collective-mode
+  consumer of peak data and confirmed none of them — clustering, the
+  contour surface, or per-track label-collision layout (computed per-track,
+  not globally) — read `peak.label`, so a new
+  `GSRMapManager.refreshCollectivePeakMarkers(track, peakLatency)` can
+  safely rebuild just the edited track's peak/connector layers.
 
 **When it fires:** dropdown/checkbox-driven, not drag-driven, so this is
 infrequent compared to §2.1 — but each occurrence does real work (`L.marker`

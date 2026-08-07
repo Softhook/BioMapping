@@ -63,17 +63,22 @@ const GSRUI = {
     this._markUnsavedLabels(track);
 
     // Refresh displays. A label edit only ever changes this one peak's label
-    // chip/popup — refreshPeakMarkers() re-renders just the peak-marker layer
-    // instead of renderData()'s full path+peaks+hotspots rebuild (see
-    // docs/visualizer_rendering_perf_routes.md §2.2).
+    // chip/popup — refreshPeakMarkers()/refreshCollectivePeakMarkers()
+    // re-render just the peak-marker layer instead of a full path+peaks+
+    // hotspots(+clusters+contours, in collective mode) rebuild (see
+    // docs/visualizer_rendering_perf_routes.md §2.2 and the Phase 6 step 2
+    // investigation note in the architecture refactor plan for why this is
+    // safe in collective mode specifically for labels, unlike exclusion).
     if (AppState.viewMode === 'single') {
       if (AppState.mapManager) {
         AppState.mapManager.refreshPeakMarkers(AppState.analyzer, GSRStorage.buildGpsParams());
       }
       GSRUI.updatePeaksTable();
       redraw();
-    } else {
-      GSRUI.updateCollectiveMap();
+    } else if (AppState.mapManager) {
+      const latSlider = AppState.sliders.gpsPeakLatency;
+      const peakLatency = parseFloat(latSlider ? latSlider.value : GSR_CONST.GPS_DEFAULT.peakLatency);
+      AppState.mapManager.refreshCollectivePeakMarkers(track, peakLatency);
     }
   },
 
@@ -184,12 +189,15 @@ const GSRUI = {
     const { analyzer } = this._resolveTrackAndAnalyzer(trackId);
     if (!analyzer || !analyzer.peaks || idx >= analyzer.peaks.length) return;
     analyzer.setPeakExcluded(idx, !analyzer.peaks[idx].excluded);
-    // Refresh displays
+    // Refresh displays. Same reasoning as updatePeakLabel(): an exclusion
+    // toggle only changes one peak marker's styling, so refreshPeakMarkers()
+    // rebuilds just the peak-marker layer instead of renderData()'s full
+    // path+peaks+hotspots rebuild (see docs/visualizer_rendering_perf_routes.md §2.2).
     if (AppState.viewMode === 'single') {
       GSRUI.updatePeaksTable();
       redraw();
       if (AppState.mapManager) {
-        AppState.mapManager.renderData(AppState.analyzer, GSRStorage.buildGpsParams());
+        AppState.mapManager.refreshPeakMarkers(AppState.analyzer, GSRStorage.buildGpsParams());
       }
     } else {
       GSRUI.updateCollectiveMap();

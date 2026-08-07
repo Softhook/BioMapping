@@ -339,7 +339,96 @@ Phases are independently shippable; §4 gives suggested sequencing.
 > 1's identical-output check) and a no-op grid that returns every segment
 > regardless of bbox (caught by test 2's reduction check) — both correctly
 > fail against the real assertions. Full suite green (607 tests, 1
-> pre-existing environment-gated skip). Steps 2–3 below are still open.
+> pre-existing environment-gated skip).
+>
+> **Step 2, `togglePeakExclusion()` + coloring-metric dropdown pieces ✅ DONE
+> (2026-08-07)** — the collective-mode `renderCollectiveData()` piece is
+> still open (see below). `togglePeakExclusion()` (`ui.js`) now calls
+> `GSRMapManager.refreshPeakMarkers()` instead of the full `renderData()`,
+> identical swap to the `updatePeakLabel()` fix it was already validated by.
+> The coloring-metric dropdown (`events.js`, `mapColoringMetric` change
+> handler) got a new `GSRMapManager.refreshPath()` (`map.js`, mirrors
+> `refreshPeakMarkers()`'s shape exactly: strip only `_gsrKind === 'path'`
+> layers from the active track's owned-layers registry + layerGroup, then
+> re-run `_renderPathSegments()`) — wired in for single-track view only;
+> collective mode still calls the existing `GSRUI.rerenderMap()` full
+> rebuild, per the step's own scope note. Both fall back to the full
+> `renderData()` for the legacy no-track case, same reasoning as
+> `refreshPeakMarkers()`. New regression coverage in
+> `tests/test_map_layer_ownership.js`: `togglePeakExclusion` end-to-end
+> (peak/connector layers replaced, path/hotspot layers survive by
+> reference); `refreshPath` unit tests (path layers replaced, peak/connector
+> + hotspot layers survive by reference, no orphans/duplicates; falls back
+> to `renderData()` with no active track); and the `mapColoringMetric`
+> dropdown wired end-to-end through the real `events.js` handler (peak +
+> hotspot layers survive a metric switch by reference). Verified non-vacuous
+> by stashing the three production files and confirming exactly the 4 new
+> behavior tests fail against pre-fix code (the two "falls back" tests still
+> pass either way, as expected). Full suite green (611 tests, 1 pre-existing
+> environment-gated skip).
+>
+> **Collective-mode `renderCollectiveData()` investigation (2026-08-07).**
+> Before touching code, traced exactly what each of the three triggers above
+> actually reads in collective mode, without assuming the single-track fix
+> generalizes:
+> - **Coloring-metric dropdown: nothing to do.** `activeColoringMetric` is
+>   only read by `_renderPathSegments()` (single-track) and the single-track
+>   legend branch. Collective mode's dashed per-track paths always use
+>   `track.color`, and its legend branch is driven entirely by
+>   `_collectiveTopographySource` — the dropdown has **zero visible effect**
+>   in collective view today. (That means the existing full
+>   `GSRUI.rerenderMap()` fallback the dropdown handler takes in collective
+>   mode is pure wasted work with no correctness stake either way — a
+>   separate, smaller finding than what this step was scoped to fix, left
+>   as-is.)
+> - **`togglePeakExclusion()`: confirmed NOT safe to scope down.**
+>   `pk.excluded` is read directly by `generateContourSurface()`
+>   (`collective_manager.js`, filters excluded peaks out of the density calc
+>   when `topographySource === 'peaks'`) and by `renderCollectiveData()`'s
+>   `allActivePeaksAcrossTracks` clustering input. Both are full-dataset
+>   computations across every active track, not per-track — a correct
+>   partial render would still need to re-run clustering and (when
+>   peaks-sourced) the contour grid scan, which is most of the cost the
+>   optimization exists to avoid. Left on the full `renderCollectiveData()`
+>   rebuild; not worth the risk/complexity at this cost ratio.
+> - **`updatePeakLabel()`: confirmed safe to scope down** — done, see below.
+>   `peak.label` is never read by `generateContourSurface()` or by the
+>   clustering input (both only touch `lat`/`lon`/`amplitude`/`excluded`).
+>   Label-collision layout (`GSRLabelManager.computeLabelPositions`) is
+>   computed **per-track**, inside `renderCollectiveData()`'s
+>   `activeTracks.forEach` loop, not globally — one track's label edit can't
+>   perturb another track's layout. Hotspot markers use a fixed icon
+>   regardless of label, and popups are lazy thunks reading the live `peak`
+>   object, so neither needs touching either.
+>
+> **Collective-mode `updatePeakLabel()` scoped refresh ✅ DONE (2026-08-07).**
+> Extracted the per-track peak-marker+connector-line rendering block out of
+> `renderCollectiveData()`'s `activeTracks.forEach` loop into a new private
+> `_renderCollectiveTrackPeaks(track, layerGroup, trackColor, peakLatency,
+> activePeaksSink)` (`map.js`) — `activePeaksSink` is the
+> `allActivePeaksAcrossTracks` array when called from the full rebuild (so
+> clustering still sees this track's peaks), or `null` when called from the
+> new scoped refresh (so clustering is correctly left untouched, per the
+> investigation above). New `GSRMapManager.refreshCollectivePeakMarkers(track,
+> peakLatency)` mirrors `refreshPeakMarkers()`'s shape: strip only that
+> track's `collectivePeak`/`collectiveConnector` layers, re-run
+> `_renderCollectiveTrackPeaks()` for it alone, leave that track's own path/
+> hotspots and every other track's entire layerGroup untouched by reference.
+> Falls back to the full `GSRUI.updateCollectiveMap()` (debounced, same
+> entry point every other collective-mode trigger already uses) when the
+> track has no layerGroup yet. `ui.js`'s `updatePeakLabel()` now routes
+> non-single-mode edits through this instead of the old unconditional
+> `GSRUI.updateCollectiveMap()`. New regression coverage in
+> `tests/test_map_layer_ownership.js`: refresh scoped to track A leaves A's
+> own path/hotspot layers and track B's entire layerGroup untouched by
+> reference, while A's peak/connector layers are fully replaced with no
+> orphans/duplicates; falls back to a full rebuild for an unrendered track
+> (awaited past the 150 ms `updateCollectiveMap()` debounce); and the real
+> `ui.js` `updatePeakLabel()` wiring exercised end to end in collective mode
+> with two tracks. Verified non-vacuous by stashing `map.js`/`ui.js` and
+> confirming the new tests fail against pre-fix code (`refreshCollectivePeakMarkers
+> is not a function`). Full suite green (614 tests, 1 pre-existing
+> environment-gated skip). Step 3 below is still open.
 
 **Goal:** close out the remaining items in `docs/visualizer_rendering_perf_routes.md` — real, measured-or-reasoned rendering costs distinct from Phase 5's specific RF fan-cast *caching* gap (complementary, not overlapping — see that document's §2.1 for how the two relate).
 

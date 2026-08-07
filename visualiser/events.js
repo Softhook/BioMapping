@@ -702,7 +702,18 @@ const GSREvents = {
     document.getElementById('mapColoringMetric').addEventListener('change', (e) => {
       if (AppState.mapManager) {
         AppState.mapManager.activeColoringMetric = e.target.value;
-        GSRUI.rerenderMap();
+        // Only the path's color changes here — a full rerenderMap() also
+        // destroys/rebuilds peak+hotspot markers for no reason (perf-routes
+        // doc §2.2). Single-track view has a scoped path-only refresh;
+        // collective mode still does the full rebuild (out of scope for
+        // this pass — renderCollectiveData()'s per-track loop needs its own
+        // investigation before a partial-render path is worth the risk).
+        if (AppState.viewMode === 'single' && AppState.analyzer && AppState.analyzer.raw.length > 0) {
+          GSRTrackManager.saveActiveGpsParams();
+          AppState.mapManager.refreshPath(AppState.analyzer, GSRStorage.buildGpsParams());
+        } else {
+          GSRUI.rerenderMap();
+        }
       }
     });
 
