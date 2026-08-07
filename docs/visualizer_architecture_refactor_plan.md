@@ -529,7 +529,86 @@ Phases are independently shippable; §4 gives suggested sequencing.
 
 **Priority note:** sequence after Phase 5 (or interleaved — different methods in the same file, no conflict) and after Phase 4's test harness exists, so new perf regression tests have a home. Not blocking on Phase 3.
 
-### Phase 7 — Simplification pass across Phases 0–6
+### Phase 7 — Signal-analysis pipeline performance (`analyzer.js`) ✅ DONE (2026-08-07)
+
+**Status:** landed. Different subsystem from Phase 6 (rendering) and Phase 5
+(RF fan-casting) — this is `GSRAnalyzer.analyze()`, the pipeline that reruns
+on every settled frame of any of the 12 GSR sliders (`events.js`'s
+`bindGsrSlider()`, rafCoalesced per §1's existing pattern but never cached
+or skipped — unlike the GPS pipeline, which `map.js`'s
+`_getOrBuildDrawPoints()` caches by params hash). Prompted by "the app
+should be faster" plus the real A/B benchmarking approach that had just
+proven productive on Phase 6 — asked to point that same approach at the
+rest of the app rather than only the rendering paths already covered.
+
+**What was found:** timed `analyze()` on real tracks from `../tracks/`
+(`tests/manual/_bench_analyzer_perf.js`, new) rather than guessing. On
+`biomap_016.csv` (35,467 rows), a full `analyze()` call took **~212ms
+median** — a single slider drag on a large real track was a visible UI
+freeze, nowhere near a 16ms frame budget. Instrumented every named
+sub-method of `analyze()`/`detectPeaks()` with call counters + per-call
+timing to find where the time actually went, rather than assuming it was
+the filtering pipeline (median filter / LPF / tonic-phasic decomposition —
+all measured at well under 1ms combined). It wasn't: `detectPeaks()` alone
+was ~171ms of the ~212ms, and within that, `_calculateShapeMetrics()` (577
+calls on this fixture) accounted for ~169ms of it — **~0.29ms per call**,
+roughly 1,700x the per-call cost of every sibling helper
+(`_findOnsetIndex`, `_findRecoveryIndex`, `_buildPeakObject`, etc., all
+sub-microsecond). Traced into `_calculateShapeMetrics()`'s one expensive
+call: `_computeNoiseFloor(idx, halfWindow)` (`analyzer.js`) opened with
+`const vals = this.filtered.map(d => d.val)` — rebuilding a plain-value
+copy of the **entire** `this.filtered` array (all 35,467 samples) every
+single call, to then read only a `±halfWindow` (~20-sample) slice of it.
+Called once per candidate local-maximum in `detectPeaks()`'s main loop
+(577 candidates on this track, not the 284 that became real peaks — most
+candidates fail shape checks and get discarded, but each one still paid
+this cost first), the effective work was O(candidates × track length) —
+577 × 35,467 ≈ 20.5M wasted array-copy operations, not O(candidates ×
+window) as the ±1s window the function is named for would suggest.
+
+**Fix:** `_computeNoiseFloor()` now indexes directly into `this.filtered`
+(`filtered[j].val`) inside its two existing windowed loops instead of
+pre-copying the whole array — same math, same output, only the O(n)
+per-call setup is gone. One call site, no other callers of
+`_computeNoiseFloor()` exist. Verified byte-identical output on the same
+35k-row track (all 284 peaks' `time`/`amplitude`/`snr`/`qualityScore`/
+`salienceScore` fields compared before/after via `git stash`) — a pure
+performance change, not a behavior change.
+
+**Measured impact:** `biomap_016.csv` (35,467 rows): **~212ms → ~39ms
+median**, a **5.4x** speedup. `biomap_019.csv` (40,747 rows): ~90ms → ~43ms
+(**2.1x** — fewer candidate peaks relative to size than `biomap_016`, so a
+smaller fraction of the fixed cost applied). `biomap_048.csv` (5,908 rows):
+~6.7ms → ~2.5ms (**2.7x**). Re-run via `tests/manual/_bench_analyzer_perf.js`.
+
+**Regression coverage:** four new tests in `tests/test_analyzer_refactoring.js`
+— the windowed population-stdev computation against a hand-computed
+expected value, and the start-of-array / end-of-array clamp behavior the
+fix's direct-indexing depends on getting right (verified non-vacuous: 2 of
+4 fail when a deliberate off-by-one is injected into the clamp bounds).
+Full suite green (621 tests, 1 pre-existing environment-gated skip).
+
+**Not investigated further, flagged for a future pass if it matters in
+practice:** `GpsFilter.applyKalman()` (the RTS-smoother pipeline the 6 GPS
+sliders drive, `gps_filter.js`) took ~110ms on the same 35k-point track in
+a spot-check — read through `_kalmanForwardPass()`/`_rtsBackwardPass()` and
+found no equivalent bug (both are genuine single-pass O(n) loops, no hidden
+per-point O(n) work) — plausibly just the real cost of two full passes with
+per-point trig (`Math.cos`) and object-spread allocation. Already
+lower-priority than the `analyze()` fix was: GPS-param changes are 1 of 2
+slider groups (vs. `analyze()` being unconditional on ALL 12 GSR sliders),
+and the result is cached by `map.js`'s `_getOrBuildDrawPoints()` so a
+GSR-only drag doesn't pay it at all. Not sized or profiled further — left
+here so a future pass doesn't have to rediscover the starting point.
+
+**Risk:** very low — the fix is a pure array-access change in a single
+private method with one call site, verified output-identical.
+
+**Verify:** `tests/test_analyzer_refactoring.js`'s four new
+`_computeNoiseFloor` tests, plus `tests/manual/_bench_analyzer_perf.js` for
+the timing claim.
+
+### Phase 8 — Simplification pass across Phases 0–7
 
 **Status:** NOT STARTED — added to the plan on request, not yet scoped or
 implemented. Per this project's own established practice (see the Phase 3
@@ -541,13 +620,13 @@ listener/consumer is actually gone, or two code shapes are actually
 identical, before merging or deleting anything. "Looks similar" is not
 "is duplicated."
 
-**Goal:** six phases of additive, independently-shippable work (plus
+**Goal:** seven phases of additive, independently-shippable work (plus
 several ad-hoc fixes) have landed on top of each other without a pass
 dedicated to looking back across all of it for consolidation. Unlike
-Phases 0–6, this phase is not chasing a bug or a measured cost — it's
+Phases 0–7, this phase is not chasing a bug or a measured cost — it's
 asking whether the code that fixed them can now say the same thing in less
 of it, without changing behavior. Scope: `visualiser/*.js` source files
-touched by Phases 0–6 (`map.js` above all — it has grown the most; also
+touched by Phases 0–7 (`map.js` above all — it has grown the most; also
 `app_state.js`, `ui.js`, `analyzer.js`). Explicitly not a rewrite or a
 restyling pass — see §2's existing out-of-scope list, which still applies.
 
@@ -583,15 +662,16 @@ restyling pass — see §2's existing out-of-scope list, which still applies.
    that reference an approach a later phase superseded, and confirm nothing
    still points at removed state.
 4. **`docs/visualizer_rendering_perf_routes.md` merge-back.** Once Phase 6
-   fully closes (step 3 + any Phase 7 outcome for §2.4), consider folding
-   its now-fully-landed sections back into this document's Phase 6 status
-   note so there's one living document to keep in sync instead of two
-   cross-referencing each other. Not urgent — do this last, only if the
-   companion doc's remaining open items shrink to near-zero.
+   fully closes (step 3 — §2.4 already landed as part of Phase 6, see that
+   phase's status note), consider folding its now-fully-landed sections back
+   into this document's Phase 6 status note so there's one living document
+   to keep in sync instead of two cross-referencing each other. Not urgent —
+   do this last, only if the companion doc's remaining open items shrink to
+   near-zero.
 
 **Explicitly out of scope:** no line-count target, no forced extraction
 of "helper" files for their own sake, no touching code outside what
-Phases 0–6 actually modified. If an audited candidate turns out not to be
+Phases 0–7 actually modified. If an audited candidate turns out not to be
 genuine duplication, the correct outcome is leaving it alone and recording
 why — same as Phase 3 step 4's dropdown/`switchActiveTrack` findings.
 
@@ -606,9 +686,9 @@ wasn't behavior-preserving and needs to be reconsidered, not just
 re-tested.
 
 **Priority note:** sequence last, after Phase 6 (including its still-open
-step 3) — simplifying code that's still being actively changed by an
-unfinished perf pass risks merge friction for no benefit. Not blocking
-anything else in this document.
+step 3) and Phase 7 — simplifying code that's still being actively changed
+by an unfinished perf pass risks merge friction for no benefit. Not
+blocking anything else in this document.
 
 ## 4. Suggested sequencing
 
@@ -626,10 +706,15 @@ Phase 3 (event notification)  ── only after 0–2 are stable; start with one
 Phase 5 (RF fan-cast caching) ── performance work, sequence whenever, not urgent
                                │
 Phase 6 (finish perf pass)    ── after Phase 5 (or interleaved) + Phase 4;
-                                   two items already landed ad-hoc, rest is
-                                   the perf-routes doc's remaining survey
+                               │   two items already landed ad-hoc, rest is
+                               │   the perf-routes doc's remaining survey
                                │
-Phase 7 (simplification pass) ── sequence last, after Phase 6 fully closes;
+Phase 7 (analyzer.js perf)    ── independent of Phase 6 (different subsystem —
+                               │   signal analysis, not rendering); landed
+                               │   same session, found via the Phase 6 A/B
+                               │   benchmarking approach applied elsewhere
+                               │
+Phase 8 (simplification pass) ── sequence last, after Phase 6 fully closes;
                                    audit-first, no pre-approved code changes
 ```
 
@@ -640,4 +725,5 @@ Phase 7 (simplification pass) ── sequence last, after Phase 6 fully closes;
 - Phase 4: confirm none of the 19 existing test scripts have undocumented ordering dependencies (e.g. shared IndexedDB state from `osm_cache.js` tests) before wiring them into one sequential runner.
 - Phase 6: is collective mode's `renderCollectiveData()` partial-render migration (step 2) worth the risk on its own, or should it wait until a user actually reports collective-mode sluggishness the way the single-track case was reported? The single-track fix landed reactively, not speculatively — the collective-mode piece risks being speculative unless there's a concrete report to size it against.
 - ~~Phase 6 (added 2026-08-07): is perf-routes §2.4 ... worth fixing~~ — resolved: fixed the same session, once asked to act on the measured ~33ms/call finding (see Phase 6's status note).
-- Phase 7: none of its four candidates are pre-approved — the open question for each is answered by the audit itself (see Phase 7's own "Candidates to audit" list), not listed separately here.
+- Phase 7: is `GpsFilter.applyKalman()`'s ~110ms/35k-points cost (spot-checked, not a bug — see Phase 7's own note) worth further profiling? Left as a flagged-not-sized candidate, lower priority than `analyze()` was since it's cached above and only 1 of 2 slider groups triggers it.
+- Phase 8: none of its four candidates are pre-approved — the open question for each is answered by the audit itself (see Phase 8's own "Candidates to audit" list), not listed separately here.

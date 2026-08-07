@@ -1146,19 +1146,28 @@ class GSRAnalyzer {
    */
   _computeNoiseFloor(idx, halfWindow) {
     // Use the filtered signal (median+LPF, pre-decomposition) instead of
-    // phasic, so that nearby SCRs don't inflate the noise estimate.
-    const vals = this.filtered.map(d => d.val);
+    // phasic, so that nearby SCRs don't inflate the noise estimate. Index
+    // directly into this.filtered rather than mapping the whole array to
+    // plain values first — this is called once per candidate peak (hundreds
+    // per track) but only ever reads a small ±halfWindow slice, so the old
+    // full-array .map() re-copied the entire signal (tens of thousands of
+    // samples) on every call for a ~20-sample window. Found via real A/B
+    // benchmarking: this was ~170ms of a ~210ms analyze() call on a real
+    // 35k-row track — the actual dominant cost of every GSR slider drag,
+    // not the filtering pipeline itself (see the architecture refactor
+    // plan's Phase 8 status note).
+    const filtered = this.filtered;
     const start = Math.max(0, idx - halfWindow);
-    const end = Math.min(vals.length - 1, idx + halfWindow);
+    const end = Math.min(filtered.length - 1, idx + halfWindow);
     let sum = 0, count = 0;
     for (let j = start; j <= end; j++) {
-      sum += vals[j];
+      sum += filtered[j].val;
       count++;
     }
     const mean = sum / count;
     let sqSum = 0;
     for (let j = start; j <= end; j++) {
-      sqSum += (vals[j] - mean) ** 2;
+      sqSum += (filtered[j].val - mean) ** 2;
     }
     return Math.sqrt(sqSum / count);
   }

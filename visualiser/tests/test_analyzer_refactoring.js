@@ -552,3 +552,52 @@ test('GSRAnalyzer _computeSalienceScore: fast, high-amplitude, high-SNR peaks wi
   // snr missing -> default 0.5 score (0.50 + 0.30 + 0.5*0.20 = 0.90)
   near(a._computeSalienceScore({ amplitude: 0.5, onsetSlope: 0.5 }), 0.90, 'no snr default');
 });
+
+// ── _computeNoiseFloor perf fix (2026-08-07) ────────────────────────────────
+// Found via real A/B benchmarking (docs/visualizer_architecture_refactor_plan.md
+// Phase 8): _computeNoiseFloor() used to rebuild `this.filtered.map(d => d.val)`
+// — a full-array copy — on every call, even though it only ever reads a small
+// ±halfWindow slice. Called once per candidate peak inside detectPeaks()'s main
+// loop (hundreds per track), this was ~170ms of a ~210ms analyze() call on a
+// real 35k-row track. Fixed to index directly into this.filtered instead.
+// These tests pin the windowed stdev computation itself (unaffected by the
+// fix — same math, different array access) plus the boundary-clamp behavior
+// the fix's array-length handling depends on getting right.
+test('GSRAnalyzer _computeNoiseFloor: population stdev over the exact ±halfWindow slice', () => {
+  const a = new GSRAnalyzer();
+  // filtered[3..7] = [1, 2, 3, 4, 5] around idx=5, halfWindow=2 -> window [3..7].
+  a.filtered = [10, 10, 10, 1, 2, 3, 4, 5, 10, 10].map((val, i) => ({ time: i, val }));
+  const windowVals = [1, 2, 3, 4, 5];
+  const mean = windowVals.reduce((s, v) => s + v, 0) / windowVals.length;
+  const expected = Math.sqrt(windowVals.reduce((s, v) => s + (v - mean) ** 2, 0) / windowVals.length);
+  const actual = a._computeNoiseFloor(5, 2);
+  assert.ok(Math.abs(actual - expected) < 1e-9, `expected ${expected}, got ${actual}`);
+});
+
+test('GSRAnalyzer _computeNoiseFloor: clamps the window at the start of the array (idx=0)', () => {
+  const a = new GSRAnalyzer();
+  a.filtered = [1, 2, 3, 4, 5].map((val, i) => ({ time: i, val }));
+  // idx=0, halfWindow=2 -> window clamps to [0..2] = [1, 2, 3], not [-2..2].
+  const windowVals = [1, 2, 3];
+  const mean = windowVals.reduce((s, v) => s + v, 0) / windowVals.length;
+  const expected = Math.sqrt(windowVals.reduce((s, v) => s + (v - mean) ** 2, 0) / windowVals.length);
+  const actual = a._computeNoiseFloor(0, 2);
+  assert.ok(Math.abs(actual - expected) < 1e-9, `expected ${expected}, got ${actual}`);
+});
+
+test('GSRAnalyzer _computeNoiseFloor: clamps the window at the end of the array (idx=length-1)', () => {
+  const a = new GSRAnalyzer();
+  a.filtered = [1, 2, 3, 4, 5].map((val, i) => ({ time: i, val }));
+  // idx=4 (last), halfWindow=2 -> window clamps to [2..4] = [3, 4, 5], not [2..6].
+  const windowVals = [3, 4, 5];
+  const mean = windowVals.reduce((s, v) => s + v, 0) / windowVals.length;
+  const expected = Math.sqrt(windowVals.reduce((s, v) => s + (v - mean) ** 2, 0) / windowVals.length);
+  const actual = a._computeNoiseFloor(4, 2);
+  assert.ok(Math.abs(actual - expected) < 1e-9, `expected ${expected}, got ${actual}`);
+});
+
+test('GSRAnalyzer _computeNoiseFloor: constant window has zero noise floor', () => {
+  const a = new GSRAnalyzer();
+  a.filtered = [5, 5, 5, 5, 5].map((val, i) => ({ time: i, val }));
+  assert.strictEqual(a._computeNoiseFloor(2, 2), 0);
+});
