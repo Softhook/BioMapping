@@ -467,28 +467,50 @@ Phases are independently shippable; §4 gives suggested sequencing.
 >   regeneration, all real, measured cost.
 > - **Single-track peak-label edit**, `refreshPeakMarkers()` vs full
 >   `renderData()` (the ad-hoc fix + step 2's single-track piece): only
->   **~1.1x** on a real 284-peak track (`biomap_016.csv`) — much smaller than
->   expected, and worth understanding rather than shipping as-is. A
->   sub-instrumented breakdown (also in the bench script) traces the
->   `renderData()` cost on this fixture to be ~34ms peaks / ~3ms path /
->   ~0.04ms hotspots — peak-marker rendering is already the dominant cost,
->   not path/hotspot (the two things the fix skips). Narrowing further:
->   re-running with `GSRSpatialClustering` undefined drops the peaks cost
->   from ~34ms to ~1.4ms — **spatial-cluster blob computation
->   (`GSRSpatialClustering.clusterPeaks` + concave-blob generation) is ~33ms
->   of the ~36ms total**, and `refreshPeakMarkers()` has no mechanism to skip
->   it — it still calls the same `_renderPeakMarkers()` that unconditionally
->   recomputes clustering, every call. This is a genuinely new finding, not a
->   restatement of anything above: `refreshCollectivePeakMarkers()` (bench 3)
->   already skips the equivalent cost in collective mode, by passing
->   `activePeaksSink = null` into `_renderCollectiveTrackPeaks()` — the
->   single-track path was never given the equivalent option. `clusterPeaks()`
->   only reads `lat`/`lon`/`amplitude` per peak (`_renderPeakMarkers()`'s own
+>   **~1.1x** on a real 284-peak track (`biomap_016.csv`) at first — much
+>   smaller than expected, and worth understanding rather than shipping
+>   as-is. A sub-instrumented breakdown (also in the bench script at the
+>   time) traced the `renderData()` cost on this fixture to be ~34ms peaks /
+>   ~3ms path / ~0.04ms hotspots — peak-marker rendering was already the
+>   dominant cost, not path/hotspot (the two things the fix skips).
+>   Narrowing further: re-running with `GSRSpatialClustering` undefined
+>   dropped the peaks cost from ~34ms to ~1.4ms — **spatial-cluster blob
+>   computation (`GSRSpatialClustering.clusterPeaks` + concave-blob
+>   generation) was ~33ms of the ~36ms total**, and `refreshPeakMarkers()`
+>   had no mechanism to skip it — it called the same `_renderPeakMarkers()`
+>   that unconditionally recomputed clustering, every call.
+>   `refreshCollectivePeakMarkers()` (bench 3) already skipped the
+>   equivalent cost in collective mode, by passing `activePeaksSink = null`
+>   into `_renderCollectiveTrackPeaks()` — the single-track path had never
+>   been given the equivalent option. `clusterPeaks()` only reads
+>   `lat`/`lon`/`amplitude` per peak (`_renderPeakMarkers()`'s own
 >   `ptsForClustering` mapping, `map.js`) — a label edit touches none of
->   those, so this recompute is provably unnecessary on every call, not just
->   probably. **Not fixed here** — found via benchmarking, not asked for;
->   logged as a candidate in `docs/visualizer_rendering_perf_routes.md` §2.4
->   for a future pass rather than fixed reactively mid-benchmark.
+>   those, so the recompute was provably unnecessary, not just probably.
+>   **Fixed** (2026-08-07, same session, once asked to act on the finding):
+>   `_renderPeakMarkers(analyzer, data, peakLatency, track, options)` gained
+>   an `options.skipClustering` guard around the whole cluster-boundary
+>   block; `refreshPeakMarkers(analyzer, gpsParams, options)` threads it
+>   through and skips clearing `this.clusterLayers` too when set (existing
+>   blobs are already correct — same reasoning as leaving path/hotspot
+>   alone). `ui.js`'s `updatePeakLabel()` now passes
+>   `{ skipClustering: true }` for the single-track case; `renderData()`
+>   and `togglePeakExclusion()` (which DOES change `clusterPeaks()`'s input
+>   — exclusion filters `activePeaks`) both still omit it, so they keep
+>   recomputing. Re-run after the fix: single-track went from ~1.1x to
+>   **~29x** faster — isolating just the `skipClustering` contribution (vs.
+>   the same call without it) shows it alone is ~27x, cleanly separable from
+>   §2.2's already-landed path/hotspot skip. Regression coverage: three new
+>   tests in `tests/test_map_layer_ownership.js` — a label edit leaves
+>   `mapManager.clusterLayers` byte-identical by reference (verified
+>   non-vacuous: fails against pre-fix code via `git stash`), an exclusion
+>   toggle still visibly recomputes it (unaffected by this change), and
+>   `refreshPeakMarkers({ skipClustering: true })` still replaces
+>   peak/connector layers exactly like the default call. These tests needed
+>   a new boot helper (`bootWithRecordingLClusteringOn()`) since the
+>   suite's usual `bootWithRecordingL()` nulls `GSRSpatialClustering`
+>   entirely, out of scope for every other test in that file. Full suite
+>   green (617 tests, 1 pre-existing environment-gated skip). Logged as
+>   §2.4 in `docs/visualizer_rendering_perf_routes.md`, now marked landed.
 >
 > Step 3 (the perf-routes doc's `computeLabelPositions`/`getRenderLayers`
 > investigate-only items) is still open — unaffected by the above.
@@ -617,5 +639,5 @@ Phase 7 (simplification pass) ── sequence last, after Phase 6 fully closes;
 - Phase 3: is the four-event set (`trackAdded`/`trackRemoved`/`activeTrackChanged`/`viewModeChanged`) actually sufficient, or will `updateCollectiveMap()`'s debounce (`ui.js:414`) need its own event/coalescing story once multiple listeners can independently trigger it?
 - Phase 4: confirm none of the 19 existing test scripts have undocumented ordering dependencies (e.g. shared IndexedDB state from `osm_cache.js` tests) before wiring them into one sequential runner.
 - Phase 6: is collective mode's `renderCollectiveData()` partial-render migration (step 2) worth the risk on its own, or should it wait until a user actually reports collective-mode sluggishness the way the single-track case was reported? The single-track fix landed reactively, not speculatively — the collective-mode piece risks being speculative unless there's a concrete report to size it against.
-- Phase 6 (added 2026-08-07): is perf-routes §2.4 (single-track `refreshPeakMarkers()`'s uncapped cluster recompute) worth fixing given it was found by benchmarking rather than a user report — same reactive-vs-speculative question as the line above, but here there's a measured ~33ms/call number to size it against rather than a guess.
+- ~~Phase 6 (added 2026-08-07): is perf-routes §2.4 ... worth fixing~~ — resolved: fixed the same session, once asked to act on the measured ~33ms/call finding (see Phase 6's status note).
 - Phase 7: none of its four candidates are pre-approved — the open question for each is answered by the audit itself (see Phase 7's own "Candidates to audit" list), not listed separately here.

@@ -326,63 +326,28 @@ function benchSingleTrackPeakRefresh() {
     track.analyzer.peaks[i % track.analyzer.peaks.length].label = `Label ${i++}`;
     mapManager.renderData(track.analyzer, gpsParams);
   };
-  const editAndScopedRefresh = () => {
+  const editAndScopedRefreshNoSkip = () => {
     track.analyzer.peaks[i % track.analyzer.peaks.length].label = `Label ${i++}`;
     mapManager.refreshPeakMarkers(track.analyzer, gpsParams);
   };
+  // The actual call ui.js's updatePeakLabel() makes today (perf-routes §2.4,
+  // now landed): passes skipClustering so a label edit — which can't affect
+  // clusterPeaks()'s lat/lon/amplitude input — doesn't recompute cluster
+  // blobs on every keystroke-commit.
+  const editAndScopedRefreshSkipClustering = () => {
+    track.analyzer.peaks[i % track.analyzer.peaks.length].label = `Label ${i++}`;
+    mapManager.refreshPeakMarkers(track.analyzer, gpsParams, { skipClustering: true });
+  };
 
   const fullResult = bench('renderData() [pre-fix]', 3, 20, editAndFullRender);
-  const scopedResult = bench('refreshPeakMarkers() [current]', 3, 20, editAndScopedRefresh);
+  const scopedNoSkipResult = bench('refreshPeakMarkers() [no skip]', 3, 20, editAndScopedRefreshNoSkip);
+  const scopedResult = bench('refreshPeakMarkers() [current]', 3, 20, editAndScopedRefreshSkipClustering);
   printRow(fullResult);
+  printRow(scopedNoSkipResult);
   printRow(scopedResult);
+  console.log(`  → skipClustering alone is ${(scopedNoSkipResult.median / scopedResult.median).toFixed(1)}x faster than the`);
+  console.log(`    same call without it (isolates §2.4's fix from the path/hotspot skip §2.2 already landed)`);
   printSpeedup(fullResult, scopedResult);
-
-  // The speedup above is much smaller than bench 3's — worth knowing WHY,
-  // since "should be faster" intuition alone wouldn't surface this. Break
-  // down where renderData()'s own time goes by wrapping its three
-  // sub-renderers, on a fresh boot (wrapping is intrusive, don't reuse the
-  // instance timed above).
-  {
-    const { window: w2, mapManager: mm2, context: ctx2 } = bootWithRecordingL();
-    const t2 = loadRealTrack(w2, 'bench-breakdown', 'biomap_016.csv');
-    w2.AppState.activeTrackId = t2.id; w2.AppState.analyzer = t2.analyzer;
-    const gp2 = gpsDefault(ctx2);
-    mm2.renderData(t2.analyzer, gp2);
-
-    let pathMs = 0, peakMs = 0, hotspotMs = 0, clearMs = 0, n = 0;
-    const origPath = mm2._renderPathSegments.bind(mm2);
-    const origPeak = mm2._renderPeakMarkers.bind(mm2);
-    const origHotspot = mm2._renderHotspotMarkers.bind(mm2);
-    const origClear = mm2.clearMap.bind(mm2);
-    mm2._renderPathSegments = (...a) => { const t0 = process.hrtime.bigint(); const r = origPath(...a); pathMs += Number(process.hrtime.bigint() - t0) / 1e6; return r; };
-    mm2._renderPeakMarkers = (...a) => { const t0 = process.hrtime.bigint(); const r = origPeak(...a); peakMs += Number(process.hrtime.bigint() - t0) / 1e6; return r; };
-    mm2._renderHotspotMarkers = (...a) => { const t0 = process.hrtime.bigint(); const r = origHotspot(...a); hotspotMs += Number(process.hrtime.bigint() - t0) / 1e6; return r; };
-    mm2.clearMap = (...a) => { const t0 = process.hrtime.bigint(); const r = origClear(...a); clearMs += Number(process.hrtime.bigint() - t0) / 1e6; return r; };
-    let j = 0;
-    for (let k = 0; k < 20; k++) { t2.analyzer.peaks[j % t2.analyzer.peaks.length].label = `L${j++}`; mm2.renderData(t2.analyzer, gp2); n++; }
-
-    console.log('  renderData() cost breakdown (avg/call, this fixture):');
-    console.log(`    clearMap:  ${(clearMs / n).toFixed(3)}ms   path: ${(pathMs / n).toFixed(3)}ms   peaks: ${(peakMs / n).toFixed(3)}ms   hotspots: ${(hotspotMs / n).toFixed(3)}ms`);
-    console.log(`  → peak-marker rendering (which refreshPeakMarkers() ALSO still pays in full) is the`);
-    console.log(`    dominant cost, not path/hotspot (which the fix skips) — see next line for why.\n`);
-
-    // Isolate how much of _renderPeakMarkers' own cost is spatial-cluster
-    // blob computation specifically, by re-running with GSRSpatialClustering
-    // undefined (map.js's own `typeof GSRSpatialClustering !== 'undefined'`
-    // guard skips clustering entirely when unset — same seam
-    // test_map_layer_ownership.js uses to exclude it from ITS scope).
-    vm.runInContext('GSRSpatialClustering = undefined;', ctx2);
-    let peakMsNoCluster = 0, n2 = 0;
-    mm2._renderPeakMarkers = (...a) => { const t0 = process.hrtime.bigint(); const r = origPeak(...a); peakMsNoCluster += Number(process.hrtime.bigint() - t0) / 1e6; return r; };
-    for (let k = 0; k < 20; k++) { t2.analyzer.peaks[j % t2.analyzer.peaks.length].label = `L${j++}`; mm2.renderData(t2.analyzer, gp2); n2++; }
-    const clusterMs = (peakMs / n) - (peakMsNoCluster / n2);
-    console.log(`  peaks cost with clustering: ${(peakMs / n).toFixed(3)}ms   without: ${(peakMsNoCluster / n2).toFixed(3)}ms   → clustering itself: ~${clusterMs.toFixed(3)}ms`);
-    console.log(`  NOT a Phase 6 bug — a separate, previously-undocumented finding: refreshPeakMarkers()`);
-    console.log(`  has no way to skip cluster-blob recompute, unlike refreshCollectivePeakMarkers()`);
-    console.log(`  (bench 3), which passes activePeaksSink=null specifically to skip it. A label edit`);
-    console.log(`  changes neither lat/lon/amplitude/excluded, clusterPeaks()'s only inputs — this`);
-    console.log(`  recompute is provably unnecessary on every call, single-track or collective.\n`);
-  }
 }
 
 // ── Bench 3: collective-mode peak-label edit — refreshCollectivePeakMarkers() vs full renderCollectiveData() ──

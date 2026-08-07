@@ -251,6 +251,19 @@ function bootWithRecordingL() {
   return { window, map, mapManager: window.AppState.mapManager };
 }
 
+// Same as bootWithRecordingL() but leaves GSRSpatialClustering defined — used
+// only by the skipClustering tests below, which need real cluster-blob
+// layers to assert survive-by-reference (vs. replaced) behavior.
+function bootWithRecordingLClusteringOn() {
+  const { window, context } = bootApp();
+  vm.runInContext('RFFluidRenderer = undefined;', context);
+  window.HTMLCanvasElement.prototype.getContext = () => ({ fillStyle: '', fillRect() {} });
+  window.HTMLCanvasElement.prototype.toDataURL = () => 'data:image/png;base64,AA==';
+  const { map } = installRecordingLeaflet(window);
+  window.setup();
+  return { window, map, mapManager: window.AppState.mapManager };
+}
+
 // Builds a real analyzer + track object directly (no async FileReader dance),
 // activates it, and returns the track. analyze() is called explicitly, mirroring
 // the real runAnalysis() path with the track's filter params (GSR_DEFAULT for a
@@ -939,6 +952,69 @@ test('togglePeakExclusion (ui.js): commits via refreshPeakMarkers, not a full re
   const hotspotAfter = after.filter(l => l._gsrKind === 'hotspot');
   assert.deepStrictEqual(pathAfter, pathBefore, 'toggling exclusion through the real ui.js path must not rebuild path layers');
   assert.deepStrictEqual(hotspotAfter, hotspotBefore, 'toggling exclusion through the real ui.js path must not rebuild hotspot layers');
+});
+
+// ── refreshPeakMarkers skipClustering (docs/visualizer_rendering_perf_routes.md §2.4) ──
+// Found via real A/B benchmarking: refreshPeakMarkers() unconditionally
+// recomputed spatial-cluster blobs even for a label-only edit, which
+// clusterPeaks() can't be affected by (it only reads lat/lon/amplitude per
+// non-excluded peak). updatePeakLabel() now passes { skipClustering: true };
+// togglePeakExclusion() must NOT, since excluding a peak changes
+// clusterPeaks()'s input set. These tests need real cluster layers, so they
+// use bootWithRecordingLClusteringOn() instead of the suite's usual
+// bootWithRecordingL() (which nulls GSRSpatialClustering out of scope for
+// every other test in this file).
+
+test('updatePeakLabel (ui.js): a label edit leaves existing cluster blob layers untouched by reference', () => {
+  const { window, mapManager } = bootWithRecordingLClusteringOn();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+  window.AppState.viewMode = 'single';
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  const clustersBefore = mapManager.clusterLayers.slice();
+  assert.ok(clustersBefore.length > 0, 'fixture renders at least one cluster blob');
+
+  window.GSRUI.updatePeakLabel(0, 'Interesting spot');
+
+  assert.strictEqual(track.analyzer.peaks[0].label, 'Interesting spot', 'label was actually committed');
+  assert.deepStrictEqual(mapManager.clusterLayers, clustersBefore,
+    'a label edit must not recompute cluster blobs — clusterPeaks() input (lat/lon/amplitude) is unaffected by a label');
+});
+
+test('togglePeakExclusion (ui.js): an exclusion toggle DOES recompute cluster blob layers (clusterPeaks() input changed)', () => {
+  const { window, mapManager } = bootWithRecordingLClusteringOn();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+  window.AppState.viewMode = 'single';
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  const clustersBefore = mapManager.clusterLayers.slice();
+  assert.ok(clustersBefore.length > 0, 'fixture renders at least one cluster blob');
+
+  window.GSRUI.togglePeakExclusion(0);
+
+  // The fixture's one peak just became excluded, so activePeaks is now
+  // empty and no cluster blobs should remain — the important assertion is
+  // that the array was actually touched (recomputed), not left as-is.
+  assert.notDeepStrictEqual(mapManager.clusterLayers, clustersBefore,
+    'toggling exclusion must recompute cluster blobs, unlike a label edit');
+});
+
+test('refreshPeakMarkers({ skipClustering: true }): replaces peak/connector layers exactly like the default call, only clustering differs', () => {
+  const { window, map, mapManager } = bootWithRecordingLClusteringOn();
+  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  const byKind = (layers, kinds) => layers.filter(l => kinds.includes(l._gsrKind));
+  const peakBefore = byKind(track.layerGroup.getLayers(), ['peak', 'connector']);
+  assert.ok(peakBefore.length > 0, 'fixture renders at least one peak marker');
+
+  track.analyzer.peaks[0].label = 'Edited label';
+  mapManager.refreshPeakMarkers(track.analyzer, track.gpsFilterParams, { skipClustering: true });
+
+  const peakAfter = byKind(track.layerGroup.getLayers(), ['peak', 'connector']);
+  assert.ok(peakBefore.every(l => !peakAfter.includes(l)), 'old peak/connector layer instances are still replaced, not reused');
+  peakBefore.forEach(l => assert.ok(!map.hasLayer(l), 'old peak/connector layer removed from the map'));
+  peakAfter.forEach(l => assert.ok(map.hasLayer(l), 'new peak/connector layer is on the map via the track group'));
 });
 
 // ── refreshPath (docs/visualizer_rendering_perf_routes.md §2.2) ────────────

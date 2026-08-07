@@ -250,56 +250,51 @@ scratch:
   interaction-triggered, not drag-triggered, so likely not worth touching
   unless a specific toggle is reported as sluggish with many tracks active.
 
-### 2.4 `refreshPeakMarkers()` (single-track) recomputes spatial-cluster blobs on every call — found via benchmarking, 2026-08-07
+### 2.4 `refreshPeakMarkers()` (single-track) recomputed spatial-cluster blobs on every call — found via benchmarking, landed 2026-08-07
+
+> **Status: landed (2026-08-07).** Full detail, including the exact fix and
+> its regression coverage, lives in the architecture refactor plan's Phase 6
+> status note — summary below.
 
 **What:** discovered while measuring §2.2's fix with real A/B timing
-(architecture refactor plan's Phase 6 status note has the full run —
-`tests/manual/_bench_render_perf.js`), not from a read-through. On a real
-284-peak track, `refreshPeakMarkers()` (`map.js`) is only ~1.1x faster than
+(`tests/manual/_bench_render_perf.js`), not from a read-through. On a real
+284-peak track, `refreshPeakMarkers()` (`map.js`) was only ~1.1x faster than
 the full `renderData()` rebuild it replaced for a peak-label edit — far
-below collective mode's ~204x for the equivalent case (§2.2, now landed). A
-cost breakdown traced the gap to `GSRSpatialClustering.clusterPeaks()` +
+below collective mode's ~204x for the equivalent case (§2.2). A cost
+breakdown traced the gap to `GSRSpatialClustering.clusterPeaks()` +
 concave-blob generation, called unconditionally from inside
 `_renderPeakMarkers()` (the method both `renderData()` and
 `refreshPeakMarkers()` call) — ~33ms of the ~36ms total on that fixture.
 `refreshCollectivePeakMarkers()` (collective mode's equivalent scoped
-refresh) already avoids this exact cost, by passing `activePeaksSink = null`
-into `_renderCollectiveTrackPeaks()` so clustering is skipped — the
-single-track path was never given an equivalent option.
+refresh) already avoided this exact cost, by passing `activePeaksSink =
+null` into `_renderCollectiveTrackPeaks()` so clustering is skipped — the
+single-track path had never been given an equivalent option. `clusterPeaks()`
+only reads `lat`/`lon`/`amplitude` per active (non-excluded) peak — provably
+unaffected by a label edit, so the recompute was pure waste on that trigger.
 
-**When it fires:** every single-track peak-label edit and exclusion toggle
-(both route through `_renderPeakMarkers()`), on any track with clustering
-active (sigma/proximity nonzero — the default).
+**Fix:** `_renderPeakMarkers(analyzer, data, peakLatency, track, options)`
+gained an `options.skipClustering` guard around the whole cluster-boundary
+block; `refreshPeakMarkers(analyzer, gpsParams, options)` threads it through
+and also skips clearing `this.clusterLayers` when set (the existing blobs
+are already correct). `ui.js`'s `updatePeakLabel()` passes
+`{ skipClustering: true }` for the single-track case. `togglePeakExclusion()`
+deliberately does **not** — excluding a peak changes `activePeaks`, which
+feeds `clusterPeaks()` directly, so that trigger must keep recomputing (same
+distinction §2.2 already drew for collective mode's exclusion vs. label-edit
+triggers).
 
-**Fix sketch:** `clusterPeaks()`'s only inputs are `lat`/`lon`/`amplitude`
-per active (non-excluded) peak — provably unaffected by a label edit. Two
-options, not sized yet: (a) give `_renderPeakMarkers()` the same
-skip-clustering escape hatch `_renderCollectiveTrackPeaks()` already has, so
-`refreshPeakMarkers()` can pass it for the label-edit case specifically
-(exclusion toggles DO change `clusterPeaks()`'s input set — same
-peaks-sourced-topography caveat §2.2 found for collective mode — so those
-must keep recomputing); or (b) a small cache keyed on the active peak
-set's lat/lon/amplitude fingerprint, closer in shape to Phase 2's
-self-validating-cache pattern than a one-off parameter.
+**Measured impact:** single-track peak-label edit went from ~1.1x to **~29x**
+faster than the full `renderData()` rebuild (re-run via the same bench
+script) — isolating `skipClustering`'s own contribution from §2.2's
+already-landed path/hotspot skip shows it alone accounts for ~27x of that.
 
-**Impact:** on the measured fixture, closing this gap would take the
-single-track case from ~1.1x toward something closer to collective mode's
-~204x for the same trigger — the largest remaining single-number
-opportunity this document has quantified.
-
-**Effort:** small for option (a) — `_renderCollectiveTrackPeaks()` already
-proves the shape works; `_renderPeakMarkers()` would need the equivalent
-parameter and a call-site change in `refreshPeakMarkers()` only (not
-`renderData()`, which must keep recomputing for a real peak-set change).
-
-**Risk:** low-medium — same class of risk as §2.2 generally (must not skip
-clustering for a trigger that actually changes clustering input), narrower
-in scope than §2.2 was since only one call site (`refreshPeakMarkers()`)
-needs the new option.
-
-**Not implemented** — flagged during benchmarking, not requested; left here
-per this document's own convention (§1's opening: a survey, not a
-commitment) rather than fixed reactively mid-benchmark.
+**Regression coverage:** three new tests in `tests/test_map_layer_ownership.js`
+(a label edit leaves `mapManager.clusterLayers` untouched by reference,
+verified non-vacuous against pre-fix code; an exclusion toggle still visibly
+recomputes it; `refreshPeakMarkers({ skipClustering: true })` still replaces
+peak/connector layers exactly like the default call) — needed a new boot
+helper since the suite's usual harness nulls `GSRSpatialClustering` entirely
+for every other test in that file.
 
 ## 3. Suggested priority if picked up
 
@@ -311,8 +306,8 @@ contract it touches — better sequenced after, and ideally validated against
 the same `test_map_layer_ownership.js`-style regression tests used for
 Phase 1 of the architecture refactor plan. §2.3 items need actual profiling
 against a large real track before they're worth scoping further. §2.4,
-found via real A/B timing rather than a read-through, is now the
-highest-measured-impact item in this document (~1.1x → a measured path
-toward ~204x on the same trigger) — narrow in scope (one call site) and low
-risk, worth prioritizing above §2.2's still-open collective-mode items if
-picked up.
+found via real A/B timing rather than a read-through, landed the same
+session it was found (~1.1x → ~29x measured on the same trigger) —
+proof that this document's own real-timing approach is worth repeating
+against the still-open items above, not just the read-through-and-reason
+method that flagged them originally.

@@ -744,11 +744,26 @@ class GSRMapManager {
    * track-scoped — _renderPeakMarkers() always appends to it without
    * clearing first (clearMap()/clearCollectiveLayers() own that job), so it
    * must be cleared here too or a second call would leave duplicate blobs on
-   * the map.
+   * the map. UNLESS options.skipClustering is set (see below), in which
+   * case the existing cluster blobs are already correct and left untouched
+   * — same reasoning as leaving path/hotspot layers alone.
+   *
+   * @param {object} [options] – { skipClustering: bool }. Pass true only
+   *   when the caller's change is provably invisible to
+   *   GSRSpatialClustering.clusterPeaks() (lat/lon/amplitude per non-excluded
+   *   peak — see _renderPeakMarkers()'s own doc comment) — a label edit
+   *   qualifies (ui.js: updatePeakLabel()), an exclusion toggle does NOT
+   *   (ui.js: togglePeakExclusion() must omit this / pass false, since
+   *   excluding a peak changes clusterPeaks()'s input set). Found and added
+   *   via real A/B benchmarking (docs/visualizer_rendering_perf_routes.md
+   *   §2.4) — clustering was ~33ms of a ~36ms single-track refresh, the
+   *   reason this method was only ~1.1x faster than a full renderData()
+   *   rebuild for a label edit despite already skipping path/hotspot work.
    */
-  refreshPeakMarkers(analyzer, gpsParams) {
+  refreshPeakMarkers(analyzer, gpsParams, options) {
     if (!this.map || !analyzer) return;
     const p = gpsParams || {};
+    const opts = options || {};
 
     const activeTrack = (typeof AppState !== 'undefined' && AppState.collectiveManager)
       ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
@@ -773,9 +788,11 @@ class GSRMapManager {
     }
     activeTrack._ownedLayers = keep;
 
-    this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
+    if (!opts.skipClustering) {
+      this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
+    }
 
-    this._renderPeakMarkers(analyzer, analyzer.raw, p.peakLatency || 0, activeTrack);
+    this._renderPeakMarkers(analyzer, analyzer.raw, p.peakLatency || 0, activeTrack, { skipClustering: !!opts.skipClustering });
     this.updateMarkerVisibility();
   }
 
@@ -1319,7 +1336,8 @@ class GSRMapManager {
     });
   }
 
-  _renderPeakMarkers(analyzer, data, peakLatency, track) {
+  _renderPeakMarkers(analyzer, data, peakLatency, track, options) {
+    options = options || {};
     const layerGroup = track ? track.layerGroup : null;
     const map = this.map;
     const labelCandidates = [];
@@ -1443,27 +1461,39 @@ class GSRMapManager {
       }
     }
 
-    // Render cluster boundaries
-    const activePeaks = allPeaks.filter(ap => !ap.peak.excluded);
-    if (activePeaks.length > 0 && typeof GSRSpatialClustering !== 'undefined') {
-      const ptsForClustering = activePeaks.map(ap => ({
-        lat: ap.coords.lat,
-        lon: ap.coords.lon,
-        amplitude: ap.peak.amplitude
-      }));
+    // Render cluster boundaries. Skipped when options.skipClustering is set
+    // (refreshPeakMarkers()'s label-edit path — see its own doc comment):
+    // clusterPeaks() only reads lat/lon/amplitude per active peak, none of
+    // which a label edit touches, so recomputing here is provably wasted —
+    // found via real A/B benchmarking (docs/visualizer_rendering_perf_routes.md
+    // §2.4), where this was ~33ms of a ~36ms single-track refresh, the
+    // reason that refresh was only ~1.1x faster than a full renderData()
+    // despite skipping path/hotspot rebuilding entirely. An exclusion toggle
+    // DOES change this method's input (activePeaks filters on ap.peak.excluded),
+    // so it must keep recomputing — refreshPeakMarkers() only passes
+    // skipClustering for the label-edit call site, not the exclusion one.
+    if (!options.skipClustering) {
+      const activePeaks = allPeaks.filter(ap => !ap.peak.excluded);
+      if (activePeaks.length > 0 && typeof GSRSpatialClustering !== 'undefined') {
+        const ptsForClustering = activePeaks.map(ap => ({
+          lat: ap.coords.lat,
+          lon: ap.coords.lon,
+          amplitude: ap.peak.amplitude
+        }));
 
-      // Retrieve dynamic clustering parameters from UI sliders
-      const { boundaryRadius, sigma, effectiveProximity } = this._getClusteringParams();
+        // Retrieve dynamic clustering parameters from UI sliders
+        const { boundaryRadius, sigma, effectiveProximity } = this._getClusteringParams();
 
-      // Mean peak amplitude across this track's active peaks — the reference point that
-      // "severe" and "mild" are measured against, so blob size/color reflect intensity
-      // rather than every cluster looking identical regardless of how bad it was.
-      const refAmplitude = this._meanAmplitude(ptsForClustering);
+        // Mean peak amplitude across this track's active peaks — the reference point that
+        // "severe" and "mild" are measured against, so blob size/color reflect intensity
+        // rather than every cluster looking identical regardless of how bad it was.
+        const refAmplitude = this._meanAmplitude(ptsForClustering);
 
-      // Group peaks within selected proximity limit and boundary constraints
-      const clusters = GSRSpatialClustering.clusterPeaks(ptsForClustering, effectiveProximity, boundaryRadius, sigma);
+        // Group peaks within selected proximity limit and boundary constraints
+        const clusters = GSRSpatialClustering.clusterPeaks(ptsForClustering, effectiveProximity, boundaryRadius, sigma);
 
-      this._renderClusters(clusters, refAmplitude, sigma, boundaryRadius);
+        this._renderClusters(clusters, refAmplitude, sigma, boundaryRadius);
+      }
     }
   }
 
