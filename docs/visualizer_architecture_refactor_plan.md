@@ -532,6 +532,46 @@ Phases are independently shippable; §4 gives suggested sequencing.
 >
 > Step 3 (the perf-routes doc's `computeLabelPositions`/`getRenderLayers`
 > investigate-only items) is still open — unaffected by the above.
+>
+> **`_collectGpsPoints()` field-trim, found via fresh end-to-end profiling
+> ✅ DONE (2026-08-07).** Asked to look for more perf wins with the same
+> real-timing discipline the above already validated; rather than starting
+> from the still-open step-3 items (which the plan's own rule says need a
+> profile first, not a guess), profiled `_getOrBuildDrawPoints()` end to end
+> on real large tracks first, since it's the pipeline that feeds §2.1's
+> already-fixed RF fan-cast stage and hadn't itself been profiled as a
+> whole. Found the single biggest number in either doc: **~270ms median on
+> a 40,747-row track** (`biomap_019.csv`) — paid once per settled frame of
+> any GPS-param slider drag. Instrumenting the named sub-stages
+> (`applyKalman`, `downsampleForDisplay`, etc.) only explained ~40ms of
+> that; the other ~230ms was in two uninstrumented stretches —
+> `_collectGpsPoints()` (~104ms) and the inline `drawPoints`-build loop
+> (~115ms) — both spreading the full ~29-field raw CSV row per point.
+> Traced actual field usage: the `gpsPoints` array `_collectGpsPoints()`
+> builds is purely internal (no caller of `_getOrBuildDrawPoints()` ever
+> destructures it, only `drawPoints`) and only 10 of its 29 fields are read
+> anywhere in the chain between there and `reconstructFilteredGps()`. Fixed
+> `_collectGpsPoints()` to build exactly those 10 fields instead of
+> spreading the row — every downstream filter stage's own `{...pt}` copy
+> gets cheaper for free as a result. The `drawPoints`-build loop's spread
+> was investigated too and **deliberately left alone**: `_renderPathSegments()`'s
+> coloring-metric dropdown legitimately reads arbitrary raw fields
+> (`osm_*`, `hdop`, `val`) off `drawPoints[i]` via `_getMetricKey()`, so
+> trimming that array's fields would mean hand-maintaining an allow-list in
+> sync with that key table — the same "N places must remember the same
+> thing" risk shape this plan has flagged elsewhere, for a smaller, riskier
+> win. Verified output-identical (`drawPoints`/`analyzer.filteredGps` —
+> the only two things that escape the function — diffed byte-for-byte via
+> `git stash` across 3 real tracks). Measured: `_collectGpsPoints()` alone
+> ~104ms → ~5ms (21x); full `_getOrBuildDrawPoints()` ~270ms → ~156ms
+> (1.7x) on `biomap_019.csv`, ~235ms → ~133ms (1.8x) on `biomap_016.csv`.
+> Regression coverage: new `tests/test_gps_collect_points.js` (exact-keys
+> assertion, per-field value preservation, and full-pipeline `drawPoints`
+> untouched — verified non-vacuous against pre-fix `map.js` via `git
+> stash`); new bench 5 in `tests/manual/_bench_render_perf.js`. Full suite
+> green (647 tests, 1 pre-existing environment-gated skip). Logged as §2.7
+> in `docs/visualizer_rendering_perf_routes.md`. Step 3's two items remain
+> the only still-open, unsized candidates in either document.
 
 **Goal:** close out the remaining items in `docs/visualizer_rendering_perf_routes.md` — real, measured-or-reasoned rendering costs distinct from Phase 5's specific RF fan-cast *caching* gap (complementary, not overlapping — see that document's §2.1 for how the two relate).
 
@@ -545,7 +585,7 @@ Phases are independently shippable; §4 gives suggested sequencing.
 
 **Verify:** step 1 — existing RF fluid test extended to assert identical output, plus a call-count/timing check proving the indexed path does less work. Step 2 — extend `tests/test_map_layer_ownership.js` the same way the `refreshPeakMarkers()` work already did, for each newly-migrated call site. Step 3 — no code changes without a profile first. Step 4 — the bench script's own console output, re-run manually as a sanity check whenever a Phase 6 method changes.
 
-**Code-verified 2026-08-07:** `mouseWheel` rAF-coalesced via `coalescedZoomRedraw` at `sketch.js:323/343`; `refreshPeakMarkers()` at `map.js:763–797`, `refreshPath()` at `:810–832`, `refreshCollectivePeakMarkers()` at `:1800–1826`; `_buildSegmentGrid()` at `rf_fluid_renderer.js:261–279`, `_queryNearbySegments()` at `:289–310`; `test_rf_fluid_spatial_index.js` confirmed present (196 lines); `skipClustering` option threading confirmed in `_renderPeakMarkers()` and `refreshPeakMarkers()`; `_renderCollectiveTrackPeaks()` extracted with `activePeaksSink` param; `tests/manual/_bench_render_perf.js` confirmed present.
+**Code-verified 2026-08-07:** `mouseWheel` rAF-coalesced via `coalescedZoomRedraw` at `sketch.js:323/343`; `refreshPeakMarkers()` at `map.js:763–797`, `refreshPath()` at `:810–832`, `refreshCollectivePeakMarkers()` at `:1800–1826`; `_buildSegmentGrid()` at `rf_fluid_renderer.js:261–279`, `_queryNearbySegments()` at `:289–310`; `test_rf_fluid_spatial_index.js` confirmed present (196 lines); `skipClustering` option threading confirmed in `_renderPeakMarkers()` and `refreshPeakMarkers()`; `_renderCollectiveTrackPeaks()` extracted with `activePeaksSink` param; `tests/manual/_bench_render_perf.js` confirmed present, now with bench 5; `_collectGpsPoints()` field-trim confirmed at `map.js:848–867`; `tests/test_gps_collect_points.js` confirmed present (3 tests).
 
 **Priority note:** sequence after Phase 5 (or interleaved — different methods in the same file, no conflict) and after Phase 4's test harness exists, so new perf regression tests have a home. Not blocking on Phase 3.
 

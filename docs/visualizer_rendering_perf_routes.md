@@ -529,6 +529,97 @@ diffing a screenshot/canvas pixel sample before and after across a resize
 event (the one remaining invalidation path) still picking up the change
 correctly.
 
+### 2.7 `_collectGpsPoints()` spread the full ~29-field raw CSV row per point, for every point, on every GPS-slider-drag frame — found via profiling, landed 2026-08-07
+
+> **Status: landed (2026-08-07).**
+
+**What:** profiled `_getOrBuildDrawPoints()` (`map.js`) end to end on real
+large tracks — the pipeline that reruns on every settled frame of a
+GPS-param slider drag (§2.1's cache-reference-equality trick means GSR-only
+drags skip it entirely, but a GPS-param change always misses). On
+`biomap_019.csv` (40,747 rows) it cost **~270ms median** — a real,
+multi-frame UI freeze, worse than any other single item in this document.
+Instrumenting every named sub-stage (`applyHdopGate`, `applyKalman`,
+`downsampleForDisplay`, etc.) only accounted for ~40ms of that — the other
+~230ms was hiding in two places with no name to instrument: `_collectGpsPoints()`
+itself (~104ms) and the inline `drawPoints`-construction loop a few lines
+below it (~115ms). Both spread the **entire** raw CSV row — `time, val, lat,
+lon, hdop, pdop, hacc, sats, fixType, speedKts, course, hasGps, _isGpsFix,
+rssi_300/315/434/446/815/868/915, em_fog, osm_road_class,
+osm_dist_major_road, osm_in_park, osm_green_pct_50m,
+osm_building_density_50m, osm_dist_water, osm_tree_density_50m,
+osm_amenity_count_50m` — 29 fields — for every one of ~35–40k rows, and
+every filter stage between `_collectGpsPoints()` and `reconstructFilteredGps()`
+(`applyStopAveraging`/`applySpeedFilter`/`applyVelocitySmoothing`/`applyKalman`,
+all in `gps_filter.js`) does its own `{ ...pt, ... }` copy, so the same
+29-field payload gets re-copied at every one of those stages too, compounding
+the cost of whatever shape `_collectGpsPoints()` handed it.
+
+Traced where each of those 29 fields actually gets *read* downstream: the
+`gpsPoints` array `_collectGpsPoints()` builds is purely internal to
+`_getOrBuildDrawPoints()` — every one of its 4 call sites destructures only
+`{ drawPoints }`, never `gpsPoints` — and by the time it reaches
+`reconstructFilteredGps()`, only `.lat`/`.lon`/`.origIdx` are read back out
+of it. The filter stages in between read a small fixed set: `lat`, `lon`,
+`time`, `hdop`, `pdop`, `hacc`, `speedKts`, `course`, `fixType`. None of them
+ever touch `rssi_*`, `osm_*`, `em_fog`, `val`, `sats`, `hasGps`, or
+`_isGpsFix` — those 19 fields were pure copy overhead, 100% of the time,
+for this array specifically.
+
+The separate `drawPoints`-build loop (~115ms, the other unaccounted chunk)
+is a different story and was **deliberately left alone**: `drawPoints` *is*
+what every caller consumes, and `_renderPathSegments()`'s coloring-metric
+lookup (`_getMetricKey()`, `map.js:925-945`) reads an arbitrary field off
+each `drawPoints[i]` keyed by whichever metric the user has selected in the
+dropdown — `val`, `hdop`, and all 8 `osm_*` fields are legitimately live
+reads, not dead weight, and `rssi_815/868/915`/`em_fog` feed the RF fluid
+renderer the same way. Trimming that loop's field set would mean hand-
+maintaining an allow-list kept in sync with `_getMetricKey()`'s key table —
+exactly the "N places must each remember the same thing" risk shape §2.2's
+status note already flagged for a different part of this codebase — for a
+smaller, riskier win than `_collectGpsPoints()`'s clean one. Left as a
+candidate, not fixed, same as this document's other declined-on-purpose
+items.
+
+**Fix:** `_collectGpsPoints()` now builds `{ lat, lon, time, hdop, pdop,
+hacc, speedKts, course, fixType, origIdx }` explicitly instead of spreading
+the full row. Every downstream filter stage's own `{...pt}` copy
+automatically gets cheaper too, since they're copying a 10-field object
+instead of a 29-field one — the fix is one function, but its effect
+compounds across the whole `gpsPoints` pipeline.
+
+**Verified output-identical:** `drawPoints` and `analyzer.filteredGps` (the
+two things that escape `_getOrBuildDrawPoints()`) diffed byte-for-byte
+(full JSON, not a sample) before/after via `git stash`, across 3 real
+tracks (`biomap_019.csv`, `biomap_016.csv`, `biomap_048.csv`) — identical
+in every case. `gpsPoints` itself is never compared because it never
+escapes the function.
+
+**Measured impact:** `biomap_019.csv` (40,747 rows): `_collectGpsPoints()`
+alone **~104ms → ~5ms** (21x). Full `_getOrBuildDrawPoints()`: **~270ms →
+~156ms** (1.7x). `biomap_016.csv` (35,467 rows): **~235ms → ~133ms**
+(1.8x). Re-run via `tests/manual/_bench_render_perf.js` bench 5.
+
+**Regression coverage:** new `tests/test_gps_collect_points.js` — asserts
+`_collectGpsPoints()`'s output has exactly the 10 expected keys (a fixture
+row with `rssi_815`/`osm_road_class`/`sats` columns present proves those
+don't leak through), that every carried field's value matches the source
+row, and that the full pipeline's `drawPoints` output still carries every
+raw field (including the ones deliberately dropped from `gpsPoints`)
+untouched. Verified non-vacuous: all 3 fail against pre-fix `map.js` via
+`git stash` (the first with the exact pre-fix 29-key list in its diff
+output). `npm test` stays green (647 tests, 1 pre-existing environment-gated
+skip).
+
+**Risk:** low — the only consumer of `gpsPoints`'s shape is the filter
+pipeline between `_collectGpsPoints()` and `reconstructFilteredGps()`, and
+every field that chain reads is confirmed still present; output-identical
+verification covers the actual observable surface (`drawPoints`/
+`filteredGps`), not just an analytical argument.
+
+**Verify:** `tests/test_gps_collect_points.js`; `tests/manual/_bench_render_perf.js`
+bench 5 for the timing claim.
+
 ## 3. Suggested priority if picked up
 
 **§2.5 and §2.6 both landed 2026-08-07**, ahead of §2.1 in this list despite
@@ -552,3 +643,15 @@ session it was found (~1.1x → ~29x measured on the same trigger) —
 proof that this document's own real-timing approach is worth repeating
 against the still-open items above, not just the read-through-and-reason
 method that flagged them originally.
+
+**§2.7 landed 2026-08-07**, found the same way as §2.4 — profiling the real
+pipeline end to end on a real large track rather than reasoning about which
+stage looked expensive. It turned out to be the single biggest number
+measured anywhere in this document (~270ms on a 40k-row track, more than
+§2.1's RF fan-cast cost was before that fix landed), hiding in two
+unnamed inline stretches of code that no per-stage instrumentation would
+have caught without deliberately looking for the gap between "sum of the
+named sub-calls" and "the whole function's own measured time." §2.3 items
+remain the last unscoped candidates — still not sized, per the same "no
+code changes without a profile first" rule this section and §2.7 both
+followed.

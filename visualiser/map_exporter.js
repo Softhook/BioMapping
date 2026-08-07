@@ -207,7 +207,19 @@ class GSRMapExporter {
       return { x: p.x + marginLeft, y: p.y + marginTop };
     };
 
-    return { ...ctx, w: newW, h: newH, project: newProject };
+    // _tiles() positions tiles from raw DOM getBoundingClientRect() values,
+    // not through project() — so growing/shifting the canvas here without
+    // also shifting the reference rect it measures tiles against left the
+    // tile layer anchored to the OLD, pre-expansion origin while everything
+    // else (tracks/contours/peaks, via newProject above) moved to fill the
+    // new canvas. Whatever margin got added on the right/bottom (or shifted
+    // in from the left/top) ended up as tile-less blank canvas — visible as
+    // a chunk of missing background tiles wherever the isobands pushed the
+    // canvas out furthest. Shifting `r` by the same margin keeps tiles in
+    // the same coordinate space as everything else _gather() collects.
+    const newR = { left: ctx.r.left - marginLeft, top: ctx.r.top - marginTop };
+
+    return { ...ctx, w: newW, h: newH, project: newProject, r: newR };
   }
 
   // ═══════════════════════════════════════════════════════════════════

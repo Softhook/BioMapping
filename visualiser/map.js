@@ -852,8 +852,25 @@ class GSRMapManager {
       // Kalman filter processes the true measurement rate (1-2 Hz) rather
       // than the 10 Hz interpolated grid, preventing artificial covariance
       // deflation and sluggish corner tracking.
-      if (data[i]._isGpsFix && !isNaN(data[i].lat) && !isNaN(data[i].lon)) {
-        pts.push({ ...data[i], origIdx: i });
+      const d = data[i];
+      if (d._isGpsFix && !isNaN(d.lat) && !isNaN(d.lon)) {
+        // Deliberately NOT a full `{ ...d, origIdx: i }` spread: this array
+        // (and every filter stage between here and reconstructFilteredGps —
+        // gate/speed/velocity/stop-averaging/Kalman) only ever reads the
+        // fields listed below, and it's discarded once reconstructFilteredGps
+        // pulls lat/lon back out (no caller of _getOrBuildDrawPoints ever
+        // destructures `gpsPoints`, only `drawPoints`, which is built
+        // separately from the raw row — see that method). Spreading the full
+        // ~29-field CSV row (rssi_*/osm_*/em_fog/val/etc., none of them read
+        // downstream) here and at every subsequent filter's own `{...pt}`
+        // copy was ~35-40% of this pipeline's real cost on a large track —
+        // found by profiling, not guessed (docs/visualizer_rendering_perf_routes.md §2.7).
+        pts.push({
+          lat: d.lat, lon: d.lon, time: d.time,
+          hdop: d.hdop, pdop: d.pdop, hacc: d.hacc,
+          speedKts: d.speedKts, course: d.course, fixType: d.fixType,
+          origIdx: i
+        });
       }
     }
     return pts;

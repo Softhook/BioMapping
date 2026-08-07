@@ -349,6 +349,78 @@ function samplesFromPathD(d) {
   console.log(`✓ _expandCanvasForIsobands grows the canvas (${ctx.w}x${ctx.h} → ${expanded.w}x${expanded.h}) to fit the full isoband geometry with nothing clipped`);
 }
 
+// ── Test 6: _expandCanvasForIsobands shifts ctx.r by the same margin it
+// shifts the vector projection by, so _tiles() (which positions tiles from
+// raw getBoundingClientRect() values against ctx.r, not through project())
+// stays aligned with the expanded canvas instead of being left anchored to
+// the pre-expansion origin. Reported bug: exported maps were missing a
+// chunk of background tiles (reported as "bottom right, about half") —
+// traced to exactly this: ctx.r was never touched by this function, so any
+// marginLeft/marginTop shift here silently misaligned the whole tile layer
+// against the (correctly shifted) vector layers built on top of it.
+{
+  const rows = 20, cols = 20;
+  const grid = Array.from({ length: rows }, (_, r) =>
+    Array.from({ length: cols }, (_, c) => {
+      // Peak pinned near the bottom-right corner (high row/col), same shape
+      // Test 5 uses — extrapolates the isoband curve out past the right and
+      // bottom edges, and (since the curve must sweep to clear the corner)
+      // typically past the left/top too, giving all four margins a real,
+      // independently-checkable, non-zero value on one fixture.
+      const dr = r - 19, dc = c - 19;
+      return 3.0 * Math.exp(-(dr * dr + dc * dc) / 60);
+    })
+  );
+  const bounds = { minLat: 49.9, maxLat: 50.0, minLon: 0.0, maxLon: 0.1 };
+  const sortedVals = grid.flat().slice().sort((a, b) => a - b);
+  const contours = [];
+  for (let k = 1; k <= 5; k++) {
+    const pct = k / 6;
+    const idx = Math.min(sortedVals.length - 1, Math.round(pct * (sortedVals.length - 1)));
+    const level = sortedVals[idx];
+    const segments = MarchingSquares.getContourLines(grid, rows, cols, bounds, level);
+    if (segments.length) contours.push({ level, ratio: pct, segments });
+  }
+  const project = (ll) => {
+    const lat = ll.lat !== undefined ? ll.lat : ll[0];
+    const lon = ll.lon !== undefined ? ll.lon : (ll.lng !== undefined ? ll.lng : ll[1]);
+    return { x: lon * 20000, y: (50 - lat) * 20000 };
+  };
+  // A non-zero starting r (mirrors a real map container that isn't flush
+  // against the browser viewport's top-left corner) so this doesn't
+  // coincidentally pass just because 0 - margin == -margin either way.
+  const ctx = {
+    map: { latLngToContainerPoint: project },
+    el: { querySelectorAll: () => [], querySelector: () => null },
+    r: { left: 317, top: 144 }, w: 2000, h: 2000, project,
+    mgr: { surfaceData: { grid, minVal: 0, maxVal: 3, bounds, sortedVals, contours } }
+  };
+  const expanded = GSRMapExporter._expandCanvasForIsobands(ctx);
+  const marginLeft = ctx.w === expanded.w && ctx.r.left === expanded.r.left ? 0 : (ctx.r.left - expanded.r.left);
+  const marginTop = ctx.h === expanded.h && ctx.r.top === expanded.r.top ? 0 : (ctx.r.top - expanded.r.top);
+  assert(expanded !== ctx, 'Sanity: this fixture actually triggers canvas expansion (same shape as Test 5)');
+  assert(marginLeft > 0 && marginTop > 0, `Sanity: fixture produces non-zero left/top margins to actually exercise the r-shift (marginLeft=${marginLeft}, marginTop=${marginTop})`);
+
+  // The shift applied to ctx.r must exactly match the shift baked into the
+  // new project() function — i.e. a point that projected to the same pixel
+  // as a tile's raw screen position before expansion must still coincide
+  // with that tile's re-derived position after expansion.
+  const oldProjected = project({ lat: 49.95, lon: 0.05 }); // arbitrary point inside the original frame
+  const newProjected = expanded.project({ lat: 49.95, lon: 0.05 });
+  const tileOldRelX = oldProjected.x; // a tile drawn at this raw offset from the OLD r
+  const tileOldRelY = oldProjected.y;
+  // _tiles() computes `b.left - r.left`; here b.left stands in for
+  // `ctx.r.left + tileOldRelX` (a tile whose getBoundingClientRect() was
+  // measured against the pre-expansion container position).
+  const bLeft = ctx.r.left + tileOldRelX;
+  const bTop = ctx.r.top + tileOldRelY;
+  const tileNewRelX = bLeft - expanded.r.left;
+  const tileNewRelY = bTop - expanded.r.top;
+  assert.strictEqual(tileNewRelX, newProjected.x, 'Tile position (re-derived via the shifted r) lands exactly where the same real-world point now projects to after expansion');
+  assert.strictEqual(tileNewRelY, newProjected.y, 'Tile position (re-derived via the shifted r) lands exactly where the same real-world point now projects to after expansion (Y)');
+  console.log(`✓ _expandCanvasForIsobands shifts ctx.r (left -${marginLeft}, top -${marginTop}) to keep tile placement aligned with the expanded vector coordinate space`);
+}
+
 console.log('\n============================================================');
 console.log('Isoband Boundary Closure Regression Test: ALL PASSED');
 console.log('============================================================');

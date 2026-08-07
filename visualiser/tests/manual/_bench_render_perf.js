@@ -428,7 +428,60 @@ function benchCollectiveColdRender() {
   console.log('  (compare against this phase\'s documented pre-fix numbers — see the plan doc)\n');
 }
 
+// ── Bench 5: GPS pipeline cache-miss cost — trimmed vs full-row-spread _collectGpsPoints() ──
+// What pays once per settled frame of a GPS-param slider drag (Q/R/HDOP/
+// speed/downsample/RDP sliders — anything that changes `_hashGpsParams()`'s
+// output), on a large real track: `_getOrBuildDrawPoints()`'s cache misses
+// and reruns the full pipeline (§2.1's already-fixed RF fan-cast cost is a
+// separate, later stage — this is the pipeline that FEEDS it). Same forced-
+// fallback seam bench 1 uses (method override, not a reimplementation):
+// `_collectGpsPoints` swapped back to the pre-fix full `{ ...data[i],
+// origIdx: i }` spread to measure what the trim (perf-routes §2.7) removed.
+function benchGpsCollectPoints() {
+  console.log('── Bench 5: GPS pipeline cache-miss cost — _collectGpsPoints() field trim ──');
+  console.log('   (map.js, perf-routes §2.7; fixture: real track biomap_019.csv, 40,747 rows)\n');
+
+  const { window, mapManager } = bootWithRecordingL();
+  const track = loadRealTrack(window, 'bench5', 'biomap_019.csv');
+  const p = { maxHdop: 2.0, smoothing: 0.5, kalmanR: 10, maxSpeed: 3.0, rdpTolerance: 0, downsample: false };
+
+  console.log(`   fixture: ${track.analyzer.raw.length} raw rows\n`);
+
+  const origCollect = mapManager._collectGpsPoints.bind(mapManager);
+  function fullSpreadCollect(data) {
+    const pts = [];
+    for (let i = 0; i < data.length; i++) {
+      if (data[i]._isGpsFix && !isNaN(data[i].lat) && !isNaN(data[i].lon)) {
+        pts.push({ ...data[i], origIdx: i });
+      }
+    }
+    return pts;
+  }
+
+  const runFullSpread = () => {
+    mapManager._gpsCache.clear();
+    track.analyzer._filteredGpsCacheKey = null;
+    mapManager._collectGpsPoints = fullSpreadCollect;
+    mapManager._getOrBuildDrawPoints('bench5', track.analyzer, p);
+  };
+  const runTrimmed = () => {
+    mapManager._gpsCache.clear();
+    track.analyzer._filteredGpsCacheKey = null;
+    mapManager._collectGpsPoints = origCollect;
+    mapManager._getOrBuildDrawPoints('bench5', track.analyzer, p);
+  };
+
+  const fullResult = bench('full-row-spread [pre-fix]', 2, 8, runFullSpread);
+  const trimmedResult = bench('field-trimmed [current]', 2, 8, runTrimmed);
+  printRow(fullResult);
+  printRow(trimmedResult);
+  printSpeedup(fullResult, trimmedResult);
+
+  mapManager._collectGpsPoints = origCollect;
+}
+
 benchRfSpatialIndex();
 benchSingleTrackPeakRefresh();
 benchCollectiveTrackPeakRefresh();
 benchCollectiveColdRender();
+benchGpsCollectPoints();
