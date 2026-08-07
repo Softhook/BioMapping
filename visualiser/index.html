@@ -217,9 +217,9 @@
                 <input type="checkbox" id="useDeconvolution">
                 <span class="slider round"></span>
               </label>
-              <span class="toggle-label">SCR Deconvolution (Benedek &amp; Kaernbach, 2010)</span>
+              <span class="toggle-label">SCR Deconvolution</span>
             </div>
-            <p class="help-text" style="margin-top:4px;">Deconvolves the whole phasic signal against a bi-exponential SCRF kernel (Benedek &amp; Kaernbach, 2010) to recover the underlying sparse neural driver, then reconvolves each driver impulse into an isolated SCR waveform — resolving overlapping/superposed responses that trough-to-peak detection undercounts. Peak shape metrics (rise time, recovery, skew) come from the canonical kernel rather than being measured per event, since fixing one response shape per recording is what makes amplitude-only separation possible. <strong>Improves peak separation for closely-spaced or compound SCRs; can occasionally flag low-amplitude noise as a spurious response, a known limitation of this class of method.</strong> When off, the simpler shape-criteria trough-to-peak detector is used (faster, same as before).</p>
+            <p class="help-text" style="margin-top:4px;">Improves peak separation for compound SCR (Benedek &amp; Kaernbach, 2010), but distorts the temporal resolution of the signal.</p>
             <div class="deconv-truncation-warning" id="deconvTruncationWarning" style="display:none; margin-top:6px; padding:7px 10px; border-radius:6px; background:rgba(229,158,0,0.15); border:1px solid rgba(229,158,0,0.4); color:#e59e00; font-size:0.78rem; line-height:1.4;">
               <i class="fa-solid fa-triangle-exclamation"></i> Matching pursuit hit its iteration cap before fully converging on this track — some real SCRs may be left unmodeled. Results are still usable but may be undercounted; consider this track a candidate for a longer maxIter budget.
             </div>
@@ -330,7 +330,7 @@
               </div>
               <input type="range" id="gpsSmoothing" min="0.02" max="10" step="0.02" value="0.5">
               <div class="slider-rec" style="left:5%; width:15%"></div>
-              <p class="help-text">How quickly the path responds to GPS movement. <strong>0.02–0.1</strong> = extreme smooth (nearly straight). <strong>0.5</strong> = balanced (default). <strong>5.0–10</strong> = extreme response (follows every jitter).</p>
+              <p class="help-text">How quickly the path responds to GPS movement.</p>
             </div>
 
             <div class="slider-group">
@@ -340,7 +340,7 @@
               </div>
               <input type="range" id="gpsKalmanR" min="0.5" max="150" step="0.5" value="10">
               <div class="slider-rec" style="left:6%; width:13%"></div>
-              <p class="help-text">How much you trust each GPS reading (measurement noise R). <strong>0.5–2</strong> = survey-grade (tracks tightly). <strong>10</strong> = consumer GPS (default). <strong>80–150</strong> = deep urban (heavy smooth). On M10Q recordings with logged <code>hacc_m</code>, this is overridden per-point by the physical accuracy value where available — the slider only applies as a fallback.</p>
+              <p class="help-text">How much you trust each GPS reading. On M10Q this is overridden by accuracy value.</p>
             </div>
 
             <div class="slider-group">
@@ -360,7 +360,7 @@
               </div>
               <input type="range" id="gpsMaxSpeed" min="1.0" max="12.0" step="0.5" value="3.0">
               <div class="slider-rec" style="left:17%; width:25%"></div>
-              <p class="help-text">Rejects GPS jumps that imply impossible speeds. <strong>3</strong> = walking, <strong>5</strong> = running, <strong>10</strong> = cycling. Computes step-to-step speed to reject transient positioning leaps.</p>
+              <p class="help-text">Rejects GPS jumps that imply impossible speeds. <strong>3</strong> = walking, <strong>5</strong> = running, <strong>10</strong> = cycling.</p>
             </div>
 
             <div class="control-subgroup-title">Display</div>
@@ -440,10 +440,8 @@
                 <span class="slider-value" id="valGpsSnapRadius">25 m</span>
               </div>
               <input type="range" id="gpsSnapRadius" min="10" max="60" step="5" value="25">
-              <p class="help-text">Max distance to snap toward roads (candidate search radius for the map-matcher). <strong>10–15&thinsp;m</strong> = tight (only near curbs). <strong>25&thinsp;m</strong> = moderate (default). <strong>40–60&thinsp;m</strong> = aggressive (urban canyons).</p>
+              <p class="help-text">Max distance to snap toward roads <strong>10–15&thinsp;m</strong> = tight (only near curbs). <strong>25&thinsp;m</strong> = moderate (default). <strong>40–60&thinsp;m</strong> = aggressive (urban canyons).</p>
             </div>
-
-            <p class="help-text" style="margin-top:6px;">Corrects GPS multipath drift by aligning coordinates with streets and park paths. Releases smoothly when walking off-road.</p>
           </div>
         </section>
 
@@ -473,7 +471,7 @@
               </div>
               <input type="range" id="gpsPeakLatency" min="0" max="5" step="0.1" value="2.0">
               <div class="slider-rec" style="left:20%; width:40%"></div>
-              <p class="help-text">Compensates for physiological SCR delay when placing peak markers on the map (single-track and collective) and computing location-based stats. Does not affect the GSR graph, which always shows peaks at their true detected time. <strong>Recommended:</strong> 1–3 s. Set to 0 = off.</p>
+              <p class="help-text">Compensates for physiological SCR delay on the map.</p>
             </div>
           </div>
         </section>
