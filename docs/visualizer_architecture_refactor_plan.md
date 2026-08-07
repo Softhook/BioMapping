@@ -428,7 +428,70 @@ Phases are independently shippable; §4 gives suggested sequencing.
 > with two tracks. Verified non-vacuous by stashing `map.js`/`ui.js` and
 > confirming the new tests fail against pre-fix code (`refreshCollectivePeakMarkers
 > is not a function`). Full suite green (614 tests, 1 pre-existing
-> environment-gated skip). Step 3 below is still open.
+> environment-gated skip).
+>
+> **Real A/B timing (2026-08-07).** Everything above was justified by
+> reasoning about the code, not measurement — asked to verify "should be
+> faster" against actual numbers. Added `tests/manual/_bench_render_perf.js`
+> (a measurement script, not a regression test — no assertions, run manually
+> via `node tests/manual/_bench_render_perf.js`), which times the REAL
+> production code paths (not reimplementations) against real track CSVs from
+> `../tracks/` using the same `bootApp()` + recording-Leaflet harness
+> `tests/test_map_layer_ownership.js`/`tests/test_rf_fluid_spatial_index.js`
+> already validate for correctness. Methodology note (also in the script's
+> header): the recording Leaflet mock has no real DOM/canvas paint, so
+> absolute ms are lower than a real browser would show — both sides of each
+> A/B pay the same near-zero mocked-DOM cost, so the *speedup ratio* is what
+> carries over, not the absolute numbers. Three benches, run against this
+> repo's actual track fixtures:
+> - **RF fan-cast grid vs brute-force** (step 1): **2.3x** faster (median,
+>   n=8) on a fixture sized to a real dense-city OSM extract — 400 track
+>   nodes, ~40,000 buildings (~160,000 segments) spread over a 6km×6km bbox
+>   at realistic ~50%-cell occupancy, giving each node's actual 35m search
+>   radius (`radiusMeters`) a realistic few-dozen nearby buildings rather than
+>   thousands. Getting to a fixture that showed the real effect took two
+>   wrong turns, left in the bench script's comments as a warning: an earlier
+>   version clustered buildings tightly around 10 "town center" pockets and
+>   showed ~1.0x (no measurable difference) — profiling with a call-counter
+>   traced this to a fixture bug, not a fix bug: that layout put 1,000+
+>   buildings within a single node's 35m radius, an unrealistic density at
+>   which the ray/segment intersection math (identical cost either way, by
+>   the correctness suite's own proof) dominates over the candidate-gathering
+>   pass this fix actually targets — a good example of how an unrealistic
+>   fixture can hide a real optimization's effect.
+> - **Collective peak-label edit**, `refreshCollectivePeakMarkers()` vs full
+>   `renderCollectiveData()` (step 2's collective piece): **~204x** faster
+>   (median, n=15) on 5 real tracks (822 peaks total). Matches the
+>   investigation above almost exactly — the scoped path skips both the
+>   4-other-tracks' path/peak rebuild AND the full contour-surface
+>   regeneration, all real, measured cost.
+> - **Single-track peak-label edit**, `refreshPeakMarkers()` vs full
+>   `renderData()` (the ad-hoc fix + step 2's single-track piece): only
+>   **~1.1x** on a real 284-peak track (`biomap_016.csv`) — much smaller than
+>   expected, and worth understanding rather than shipping as-is. A
+>   sub-instrumented breakdown (also in the bench script) traces the
+>   `renderData()` cost on this fixture to be ~34ms peaks / ~3ms path /
+>   ~0.04ms hotspots — peak-marker rendering is already the dominant cost,
+>   not path/hotspot (the two things the fix skips). Narrowing further:
+>   re-running with `GSRSpatialClustering` undefined drops the peaks cost
+>   from ~34ms to ~1.4ms — **spatial-cluster blob computation
+>   (`GSRSpatialClustering.clusterPeaks` + concave-blob generation) is ~33ms
+>   of the ~36ms total**, and `refreshPeakMarkers()` has no mechanism to skip
+>   it — it still calls the same `_renderPeakMarkers()` that unconditionally
+>   recomputes clustering, every call. This is a genuinely new finding, not a
+>   restatement of anything above: `refreshCollectivePeakMarkers()` (bench 3)
+>   already skips the equivalent cost in collective mode, by passing
+>   `activePeaksSink = null` into `_renderCollectiveTrackPeaks()` — the
+>   single-track path was never given the equivalent option. `clusterPeaks()`
+>   only reads `lat`/`lon`/`amplitude` per peak (`_renderPeakMarkers()`'s own
+>   `ptsForClustering` mapping, `map.js`) — a label edit touches none of
+>   those, so this recompute is provably unnecessary on every call, not just
+>   probably. **Not fixed here** — found via benchmarking, not asked for;
+>   logged as a candidate in `docs/visualizer_rendering_perf_routes.md` §2.4
+>   for a future pass rather than fixed reactively mid-benchmark.
+>
+> Step 3 (the perf-routes doc's `computeLabelPositions`/`getRenderLayers`
+> investigate-only items) is still open — unaffected by the above.
 
 **Goal:** close out the remaining items in `docs/visualizer_rendering_perf_routes.md` — real, measured-or-reasoned rendering costs distinct from Phase 5's specific RF fan-cast *caching* gap (complementary, not overlapping — see that document's §2.1 for how the two relate).
 
@@ -436,12 +499,94 @@ Phases are independently shippable; §4 gives suggested sequencing.
 1. **RF fan-cast spatial index** (perf-routes §2.1): `_precalculateSpatialFans()` (`rf_fluid_renderer.js:174`) linearly re-scans every building segment for every GPS node, on every settled GPS-slider-drag frame. Bucket `buildingSegmentsGeo` into a uniform spatial grid once per `setData()` call; per-node lookup becomes "gather segments from the 3×3 cells around this node" instead of a full scan. Self-contained to one method, no layer-ownership interaction — the strongest standalone candidate per that document's own priority ranking; do this one first.
 2. **Finish the `renderData()` → `refreshPeakMarkers()` migration** (perf-routes §2.2 remainder): `togglePeakExclusion()` (`ui.js`) has the identical full-rebuild cost `updatePeakLabel()` had — same fix, already validated by the ad-hoc work above (swap the call site, extend the same `test_map_layer_ownership.js` pattern). Also extend the partial-render principle to the map-coloring-metric dropdown (`events.js:705-708`, which only needs a path repaint, not peaks/hotspots too) and to collective mode's `renderCollectiveData()` — bigger scope since it loops every active track, needs its own investigation rather than an assumed copy of the single-track fix.
 3. **Investigate-only** (perf-routes §2.3, not sized yet): `GSRLabelManager.computeLabelPositions()` collision-avoidance cost on tracks with many *labeled* peaks (depends on step 2 landing first); `getRenderLayers()`/`_allTrackLayers()` rebuilding their classification arrays on every call (toggle-triggered, not drag-triggered — likely low priority until a specific toggle is reported sluggish with many tracks active). Profile against a large real track before scoping further; don't implement speculatively.
+4. **Real A/B timing** ✅ DONE (2026-08-07) — see the step-1/step-2 status notes above for full results (`tests/manual/_bench_render_perf.js`). Also surfaced a new, previously-undocumented finding (perf-routes §2.4: single-track `refreshPeakMarkers()` recomputes spatial-cluster blobs unconditionally, unlike its collective-mode equivalent) — not fixed, logged as a candidate.
 
-**Risk:** low for step 1 — pure lookup-acceleration, output unchanged (verify via identical `fanGeo` output before/after on a fixed fixture). Medium for step 2's collective-mode piece specifically — same layer-ownership contract the ad-hoc `refreshPeakMarkers()` work above already had to respect; the `togglePeakExclusion()`/dropdown pieces are low risk since they reuse an already-shipped, already-tested mechanism. Step 3 is measurement, not a code-risk item, until it's actually scoped.
+**Risk:** low for step 1 — pure lookup-acceleration, output unchanged (verify via identical `fanGeo` output before/after on a fixed fixture). Medium for step 2's collective-mode piece specifically — same layer-ownership contract the ad-hoc `refreshPeakMarkers()` work above already had to respect; the `togglePeakExclusion()`/dropdown pieces are low risk since they reuse an already-shipped, already-tested mechanism. Step 3 is measurement, not a code-risk item, until it's actually scoped. Step 4 is purely additive (a new manual measurement script) — no risk.
 
-**Verify:** step 1 — existing RF fluid test extended to assert identical output, plus a call-count/timing check proving the indexed path does less work. Step 2 — extend `tests/test_map_layer_ownership.js` the same way the `refreshPeakMarkers()` work already did, for each newly-migrated call site. Step 3 — no code changes without a profile first.
+**Verify:** step 1 — existing RF fluid test extended to assert identical output, plus a call-count/timing check proving the indexed path does less work. Step 2 — extend `tests/test_map_layer_ownership.js` the same way the `refreshPeakMarkers()` work already did, for each newly-migrated call site. Step 3 — no code changes without a profile first. Step 4 — the bench script's own console output, re-run manually as a sanity check whenever a Phase 6 method changes.
 
 **Priority note:** sequence after Phase 5 (or interleaved — different methods in the same file, no conflict) and after Phase 4's test harness exists, so new perf regression tests have a home. Not blocking on Phase 3.
+
+### Phase 7 — Simplification pass across Phases 0–6
+
+**Status:** NOT STARTED — added to the plan on request, not yet scoped or
+implemented. Per this project's own established practice (see the Phase 3
+step-4 investigation above, and Phase 6's collective-mode trigger-by-trigger
+trace): this phase is an *audit* to run before any code moves, not a
+license to reorganize on sight. Each candidate below needs the same
+proof-before-refactor treatment those investigations used — confirm a
+listener/consumer is actually gone, or two code shapes are actually
+identical, before merging or deleting anything. "Looks similar" is not
+"is duplicated."
+
+**Goal:** six phases of additive, independently-shippable work (plus
+several ad-hoc fixes) have landed on top of each other without a pass
+dedicated to looking back across all of it for consolidation. Unlike
+Phases 0–6, this phase is not chasing a bug or a measured cost — it's
+asking whether the code that fixed them can now say the same thing in less
+of it, without changing behavior. Scope: `visualiser/*.js` source files
+touched by Phases 0–6 (`map.js` above all — it has grown the most; also
+`app_state.js`, `ui.js`, `analyzer.js`). Explicitly not a rewrite or a
+restyling pass — see §2's existing out-of-scope list, which still applies.
+
+**Candidates to audit (none pre-approved for a code change):**
+1. **The `refresh*()` partial-render family in `map.js`**
+   (`refreshPeakMarkers()`, `refreshPath()`, `refreshCollectivePeakMarkers()`
+   — Phase 6) share a described shape across their own doc comments ("mirrors
+   `refreshPeakMarkers()`'s shape exactly", "same shape as
+   `refreshPeakMarkers()`"): strip layers of one `_gsrKind` from a track's
+   owned-layers registry + layerGroup, re-run one private renderer, fall back
+   to a full rebuild when there's no resolvable track. Audit whether the
+   *strip-by-kind-then-rebuild* step is byte-for-byte identical across all
+   three (candidate for one shared private helper parameterized by kind +
+   rebuild function) or whether the single-track/collective split (different
+   owned-layers source, different fallback target) makes a shared helper
+   more indirection than the three call sites it would replace. Don't
+   assume the answer — read all three before deciding.
+2. **Phase 3's `AppState.on`/`emit` mechanism** — after the step-4
+   investigation, this ships one real event (`trackRemoved`) and the
+   machinery (event registration centralized in `sketch.js`'s `setup()`,
+   for the `tests/test_tracks.js` isolation reason documented there) to
+   support it. Audit whether a generic pub/sub layer is pulling its weight
+   for a single event, or whether it should stay exactly as-is (already
+   minimal per §2's "no full pub/sub framework" constraint) — this is a
+   read-and-confirm task, not an assumed simplification; removing working,
+   tested infrastructure to "simplify" it is not automatically a win.
+3. **Dead-code sweep for superseded status language.** Several status notes
+   across Phases 1–6 record a decision later corrected on rediscovery (e.g.
+   Phase 1's "this status note previously said untested, corrected
+   2026-08-07") or a forward reference that turned out to be to different
+   work (Phase 1's "Slice 4" note). Grep for lingering comments in the
+   *source* (not this planning doc, which is meant to keep its own history)
+   that reference an approach a later phase superseded, and confirm nothing
+   still points at removed state.
+4. **`docs/visualizer_rendering_perf_routes.md` merge-back.** Once Phase 6
+   fully closes (step 3 + any Phase 7 outcome for §2.4), consider folding
+   its now-fully-landed sections back into this document's Phase 6 status
+   note so there's one living document to keep in sync instead of two
+   cross-referencing each other. Not urgent — do this last, only if the
+   companion doc's remaining open items shrink to near-zero.
+
+**Explicitly out of scope:** no line-count target, no forced extraction
+of "helper" files for their own sake, no touching code outside what
+Phases 0–6 actually modified. If an audited candidate turns out not to be
+genuine duplication, the correct outcome is leaving it alone and recording
+why — same as Phase 3 step 4's dropdown/`switchActiveTrack` findings.
+
+**Risk:** low, provided the audit-first discipline above is actually
+followed — the risk this phase exists to avoid is a "simplification" that
+quietly changes behavior because two things that looked identical weren't.
+
+**Verify:** full existing suite (`node --test tests/*.js`) stays green with
+zero test changes for any candidate where behavior is provably unchanged;
+a candidate that requires a test change is a signal the "simplification"
+wasn't behavior-preserving and needs to be reconsidered, not just
+re-tested.
+
+**Priority note:** sequence last, after Phase 6 (including its still-open
+step 3) — simplifying code that's still being actively changed by an
+unfinished perf pass risks merge friction for no benefit. Not blocking
+anything else in this document.
 
 ## 4. Suggested sequencing
 
@@ -461,6 +606,9 @@ Phase 5 (RF fan-cast caching) ── performance work, sequence whenever, not ur
 Phase 6 (finish perf pass)    ── after Phase 5 (or interleaved) + Phase 4;
                                    two items already landed ad-hoc, rest is
                                    the perf-routes doc's remaining survey
+                               │
+Phase 7 (simplification pass) ── sequence last, after Phase 6 fully closes;
+                                   audit-first, no pre-approved code changes
 ```
 
 ## 5. Open questions before starting
@@ -469,3 +617,5 @@ Phase 6 (finish perf pass)    ── after Phase 5 (or interleaved) + Phase 4;
 - Phase 3: is the four-event set (`trackAdded`/`trackRemoved`/`activeTrackChanged`/`viewModeChanged`) actually sufficient, or will `updateCollectiveMap()`'s debounce (`ui.js:414`) need its own event/coalescing story once multiple listeners can independently trigger it?
 - Phase 4: confirm none of the 19 existing test scripts have undocumented ordering dependencies (e.g. shared IndexedDB state from `osm_cache.js` tests) before wiring them into one sequential runner.
 - Phase 6: is collective mode's `renderCollectiveData()` partial-render migration (step 2) worth the risk on its own, or should it wait until a user actually reports collective-mode sluggishness the way the single-track case was reported? The single-track fix landed reactively, not speculatively — the collective-mode piece risks being speculative unless there's a concrete report to size it against.
+- Phase 6 (added 2026-08-07): is perf-routes §2.4 (single-track `refreshPeakMarkers()`'s uncapped cluster recompute) worth fixing given it was found by benchmarking rather than a user report — same reactive-vs-speculative question as the line above, but here there's a measured ~33ms/call number to size it against rather than a guess.
+- Phase 7: none of its four candidates are pre-approved — the open question for each is answered by the audit itself (see Phase 7's own "Candidates to audit" list), not listed separately here.
