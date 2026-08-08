@@ -12,6 +12,22 @@ const SENTINEL_DIST       = 999;            // sentinel for "no feature nearby"
 const DEFAULT_RADIUS_M    = 50;             // enrichment search radius
 const DEFAULT_BBOX_BUFFER_M = 100;          // bounding-box padding
 
+// Collective-mode enrichment fetches one shared osmJson (by reference) for
+// every track covering the same bbox (ui.js's union-bbox fetch), but each
+// enrichTrack() call used to independently re-run reconstructGeometries() AND
+// buildSpatialIndex() on it — both full-cost passes over every point/way/
+// relation, repeated once per track even when the input was byte-identical
+// (same object). Both WeakMaps key on object identity (not content), so
+// neither ever returns a stale result for a genuinely different fetch, and
+// entries are collected automatically once the track/analyzer that
+// referenced them is gone. _spatialIndexCache keys on the *geoms* object
+// (reconstructGeometries()'s output), not osmJson directly — since geoms
+// itself is already deduped per osmJson via _geomsCache, two tracks sharing
+// one osmJson resolve to the same geoms reference and therefore the same
+// cached spatial index too, transitively.
+const _geomsCache = new WeakMap();
+const _spatialIndexCache = new WeakMap();
+
 // -- Green-space sampling grid ---------------------------------------------
 const SAMPLING_RINGS      = 3;              // concentric rings
 const POINTS_PER_RING     = [1, 8, 16];     // centre, ring 1, ring 2
@@ -224,6 +240,9 @@ const OSMEnricher = {
      ====================================================================== */
 
   reconstructGeometries(osmJson) {
+    const cached = _geomsCache.get(osmJson);
+    if (cached) return cached;
+
     const nodeMap = new Map();
     const wayMap  = new Map();   // O(1) lookup for relation resolution
     const ways    = [];
@@ -270,22 +289,31 @@ const OSMEnricher = {
       }
     }
 
-    return { nodeMap, ways, points, relations };
+    const geoms = { nodeMap, ways, points, relations };
+    _geomsCache.set(osmJson, geoms);
+    return geoms;
   },
 
   /* ======================================================================
      Spatial index (grid hash)
      ====================================================================== */
 
+  /**
+   * Thin wrapper over the shared SpatialGrid (spatial_grid.js): computes each
+   * geom's own lat/lon bbox, then inserts it padded by one extra cell in
+   * every direction. Combined with getNearby()'s own 3x3-neighborhood query
+   * below, a geom is reachable from up to ~2 cells away (~222m at
+   * CELL_SIZE_DEG=0.001) — deliberately wider than the single-cell reach
+   * either padding alone would give, since enrichment search radii can
+   * exceed one cell width. _evaluatePosition still does the real distance/
+   * containment check on every candidate this returns, so over-inclusion
+   * here only costs a bit of extra evaluation work, never a wrong result.
+   */
   buildSpatialIndex(geoms) {
-    const grid = new Map();
-    const cellSize = CELL_SIZE_DEG;
+    const cached = _spatialIndexCache.get(geoms);
+    if (cached) return cached;
 
-    const add = (key, item) => {
-      const bucket = grid.get(key);
-      if (bucket) bucket.push(item);
-      else grid.set(key, [item]);
-    };
+    const spatialGrid = new SpatialGrid(CELL_SIZE_DEG);
 
     const insert = (geom) => {
       let minLat = Infinity, maxLat = -Infinity;
@@ -309,49 +337,20 @@ const OSMEnricher = {
       }
 
       if (minLat === Infinity) return;
-
-      const minCX = Math.floor(minLon / cellSize);
-      const maxCX = Math.floor(maxLon / cellSize);
-      const minCY = Math.floor(minLat / cellSize);
-      const maxCY = Math.floor(maxLat / cellSize);
-
-      for (let cx = minCX - 1; cx <= maxCX + 1; cx++) {
-        for (let cy = minCY - 1; cy <= maxCY + 1; cy++) {
-          add(`${cx}_${cy}`, geom);
-        }
-      }
+      spatialGrid.insert({ minLat, maxLat, minLon, maxLon }, geom, 1);
     };
 
     for (const p of geoms.points)    insert(p);
     for (const w of geoms.ways)     insert(w);
     for (const r of geoms.relations) insert(r);
 
-    return {
-      grid,
-      cellSize,
-
+    const index = {
       getNearby(lat, lon) {
-        const cx = Math.floor(lon / cellSize);
-        const cy = Math.floor(lat / cellSize);
-        const result = [];
-        const seen = new Set();
-
-        for (let dx = -1; dx <= 1; dx++) {
-          for (let dy = -1; dy <= 1; dy++) {
-            const bucket = grid.get(`${cx + dx}_${cy + dy}`);
-            if (!bucket) continue;
-            for (const item of bucket) {
-              const key = `${item.type}_${item.id}`;
-              if (!seen.has(key)) {
-                seen.add(key);
-                result.push(item);
-              }
-            }
-          }
-        }
-        return result;
+        return spatialGrid.getNearby(lat, lon, item => `${item.type}_${item.id}`);
       }
     };
+    _spatialIndexCache.set(geoms, index);
+    return index;
   },
 
   /* ======================================================================

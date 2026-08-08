@@ -28,13 +28,16 @@ global.L = {
 };
 global.window = { devicePixelRatio: 1 };
 
-const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'rf_fluid_renderer.js'), 'utf8');
 // rf_fluid_renderer.js declares `class RFFluidRenderer { ... }` with no
 // module.exports at all (unlike the files touched elsewhere in this pass) —
 // load it via vm the same way several pre-existing tests in this suite do
 // for un-exported classes, rather than editing production source just to
 // add an export hook for a class with no guard either way already.
 const vm = require('vm');
+const spatialGridSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'spatial_grid.js'), 'utf8');
+vm.runInThisContext(spatialGridSrc.replace('class SpatialGrid', 'global.SpatialGrid = class SpatialGrid'), { filename: 'spatial_grid.js' });
+
+const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'rf_fluid_renderer.js'), 'utf8');
 vm.runInThisContext(src.replace('class RFFluidRenderer', 'global.RFFluidRenderer = class RFFluidRenderer'), { filename: 'rf_fluid_renderer.js' });
 const RFFluidRenderer = global.RFFluidRenderer;
 

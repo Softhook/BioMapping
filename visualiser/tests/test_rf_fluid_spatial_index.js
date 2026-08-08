@@ -38,8 +38,11 @@ function fakeCanvasContext() {
   });
 }
 
-const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'rf_fluid_renderer.js'), 'utf8');
 const vm = require('vm');
+const spatialGridSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'spatial_grid.js'), 'utf8');
+vm.runInThisContext(spatialGridSrc.replace('class SpatialGrid', 'global.SpatialGrid = class SpatialGrid'), { filename: 'spatial_grid.js' });
+
+const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'rf_fluid_renderer.js'), 'utf8');
 vm.runInThisContext(src.replace('class RFFluidRenderer', 'global.RFFluidRenderer = class RFFluidRenderer'), { filename: 'rf_fluid_renderer.js' });
 const RFFluidRenderer = global.RFFluidRenderer;
 
@@ -168,7 +171,7 @@ test('_buildSegmentGrid + _queryNearbySegments: candidate set (after the exact b
   }
 
   function gridFilter(bbox, queryId) {
-    const candidates = renderer._queryNearbySegments(grid, cellSizeLat, cellSizeLon, bbox, queryId);
+    const candidates = renderer._queryNearbySegments(grid, bbox, queryId);
     return candidates.filter(seg =>
       Math.min(seg.p1.lat, seg.p2.lat) <= bbox.maxLat &&
       Math.max(seg.p1.lat, seg.p2.lat) >= bbox.minLat &&

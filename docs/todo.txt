@@ -1,6 +1,6 @@
 Todo
 
-hill shading? pseudo 3d?
+correlation GSR vs 866 and 915 RF
 
 391 looks like a good frequency used for VHF
 

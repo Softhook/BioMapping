@@ -221,31 +221,52 @@ class GSRMapExporter {
     const newR = { left: ctx.r.left - marginLeft, top: ctx.r.top - marginTop };
 
     // Realigning `r` (above) only fixes tiles that already exist in the DOM.
-    // Leaflet only ever loads/renders tiles for its own on-screen viewport
-    // (plus a small `keepBuffer` margin, default ~2 tiles/512px) — it has no
-    // reason to have fetched imagery for geography the isobands extrapolate
-    // into but the visible map never showed. Past that buffer, this margin
-    // is genuinely tile-less: no amount of repositioning conjures pixels
-    // that were never downloaded. `tileMargin` is read by exportToSvg to
-    // temporarily widen the live tile layer's buffer and let it actually
-    // fetch that area before capture (see _ensureTileCoverage).
+    // Leaflet only ever loads/renders tiles for its own on-screen viewport —
+    // it has no reason to have fetched imagery for geography the isobands
+    // extrapolate into but the visible map never showed, so this margin is
+    // genuinely tile-less: no amount of repositioning conjures pixels that
+    // were never downloaded. `tileMargin` is read by exportToSvg to
+    // temporarily make the live map report a bigger viewport and let the
+    // tile layer actually fetch that area before capture (see
+    // _ensureTileCoverage — and its own doc comment for why this can't be
+    // done via Leaflet's `keepBuffer` option, despite that being the more
+    // obviously-named fit).
     return { ...ctx, w: newW, h: newH, project: newProject, r: newR,
       tileMargin: { left: marginLeft, top: marginTop, right: marginRight, bottom: marginBottom } };
   }
 
   /**
-   * Best-effort: widen the live base tile layer's `keepBuffer` so Leaflet
-   * actually fetches tiles covering `ctx.tileMargin` (the area the export
-   * canvas grew into for isoband extrapolation, see _expandCanvasForIsobands)
-   * before _tiles() captures whatever's in the DOM. Without this, that
-   * margin is real, undownloaded geography — no amount of repositioning
-   * existing tile images can fill it, it just renders as flat background.
+   * Best-effort: make the live base tile layer actually fetch tiles covering
+   * `ctx.tileMargin` (the area the export canvas grew into for isoband
+   * extrapolation, see _expandCanvasForIsobands) before _tiles() captures
+   * whatever's in the DOM. Without this, that margin is real, undownloaded
+   * geography — no amount of repositioning existing tile images can fill it,
+   * it just renders as flat background.
    *
-   * Touches Leaflet's private GridLayer API (`_update`/`_noTilesToLoad`) —
-   * there's no public "load more tiles than the viewport needs" method.
-   * Wrapped defensively: any failure here (missing layer, API drift in a
-   * future Leaflet version) just means the export falls back to today's
-   * behavior (a blank margin) rather than breaking the export outright.
+   * An earlier version of this bumped `layer.options.keepBuffer` and called
+   * `_update()`, on the assumption keepBuffer widens the fetch range. It
+   * doesn't: in Leaflet's GridLayer, the tile range that actually gets
+   * fetched (`_update`'s `tileRange`, from `_getTiledPixelBounds`) is built
+   * purely from `map.getSize()` — the live container's own pixel dimensions.
+   * `keepBuffer` only feeds `noPruneRange`, which decides which ALREADY-
+   * loaded tiles survive a prune on pan; it plays no part in deciding what
+   * gets newly requested. Bumping it was a no-op for this purpose, which is
+   * why the black-margin bug this was meant to fix could still recur.
+   *
+   * The actual fix: temporarily make `map.getSize()` report a bigger
+   * viewport (inflated by 2x the largest margin, so the extra reach applies
+   * in every direction), call `_update()` once while that's in effect, then
+   * restore the real getSize() immediately — synchronous, and Leaflet's
+   * `createTile()` sets each new tile's `<img src>` (kicking off its network
+   * fetch) synchronously within that same `_update()` call, so the in-flight
+   * requests are unaffected by getSize() being restored right after.
+   *
+   * Touches Leaflet's private GridLayer API (`_update`/`_noTilesToLoad`,
+   * verified against leaflet@1.9.4's actual source) — there's no public
+   * "load tiles beyond the viewport" method. Wrapped defensively: any
+   * failure here (missing layer, API drift in a future Leaflet version)
+   * just means the export falls back to a blank margin rather than breaking
+   * the export outright.
    */
   static async _ensureTileCoverage(ctx, mgr) {
     const margin = ctx.tileMargin;
@@ -255,15 +276,31 @@ class GSRMapExporter {
 
     try {
       const layer = mgr.baseTileLayer;
-      if (!layer || typeof layer._update !== 'function' || !mgr.map) return;
+      const map = mgr.map;
+      if (!layer || typeof layer._update !== 'function') return;
+      if (!map || typeof map.getSize !== 'function' || typeof map.getCenter !== 'function') return;
 
+      const originalGetSize = map.getSize.bind(map);
+      const originalSize = originalGetSize();
+      if (!originalSize || typeof originalSize.add !== 'function') return; // not a real Leaflet Point — don't guess at its shape
+
+      const inflated = originalSize.add({ x: maxMarginPx * 2, y: maxMarginPx * 2 });
+      map.getSize = () => inflated;
+      try {
+        layer._update(map.getCenter());
+      } finally {
+        map.getSize = originalGetSize;
+      }
+
+      // Scale the wait with how much extra area was just requested — a
+      // large collective-view margin can mean hundreds of tiles, and a flat
+      // timeout tuned for a single-track export would cut those off early
+      // (tiles load nearest-center-first, so a too-short wait reproduces
+      // exactly this bug: only the tiles closest to the original viewport
+      // finish in time, leaving the margin's far side blank).
       const tileSize = (typeof layer.getTileSize === 'function') ? layer.getTileSize().x : 256;
-      const neededBuffer = Math.ceil(maxMarginPx / tileSize);
-      const prevBuffer = layer.options.keepBuffer || 0;
-      if (neededBuffer <= prevBuffer) return; // default buffer already covers this margin
-
-      layer.options.keepBuffer = neededBuffer;
-      layer._update(mgr.map.getCenter());
+      const ringsOut = Math.ceil(maxMarginPx / tileSize);
+      const timeoutMs = Math.min(30000, 8000 + ringsOut * 500);
 
       await new Promise(resolve => {
         if (typeof layer._noTilesToLoad !== 'function' || layer._noTilesToLoad()) { resolve(); return; }
@@ -279,11 +316,9 @@ class GSRMapExporter {
         // Never let a slow/failed tile fetch block the export indefinitely.
         // unref()'d so a still-pending timer (the common case: 'load' fires
         // first and clears it) can never keep the process alive on its own.
-        const timer = setTimeout(done, 8000);
+        const timer = setTimeout(done, timeoutMs);
         if (typeof timer.unref === 'function') timer.unref();
       });
-
-      layer.options.keepBuffer = prevBuffer;
     } catch (err) {
       if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'map_exporter:_ensureTileCoverage');
     }

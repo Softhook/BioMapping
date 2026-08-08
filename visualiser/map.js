@@ -79,8 +79,9 @@ class GSRMapManager {
 
     // Light Map Style (OpenStreetMap base, CartoDB Positron)
     // Kept as this.baseTileLayer (not just addTo(this.map) and discarded) so
-    // GSRMapExporter can temporarily widen its keepBuffer before an SVG
-    // export — see exportToSvg's isoband-canvas-expansion handling.
+    // GSRMapExporter can force it to prefetch tiles beyond the live viewport
+    // before an SVG export — see exportToSvg's isoband-canvas-expansion
+    // handling and map_exporter.js's _ensureTileCoverage doc comment.
     this.baseTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
       maxZoom: 19,
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
@@ -176,6 +177,10 @@ class GSRMapManager {
     } else {
       const metric = this.activeColoringMetric || 'gsr';
 
+      // OSM entries (roadClass..amenityCount) come from the shared
+      // GSR_CONST.OSM_METRICS table (constants.js) — single source of truth
+      // for the key<->field<->label mapping, also used by _getMetricKey()
+      // below and ui.js's correlation dashboard.
       const metricNames = {
         'gsr':              'GSR Arousal (Raw)',
         'phasic':           'Phasic (SCR)',
@@ -185,16 +190,9 @@ class GSRMapManager {
         'arousalIndex':     'Combined Arousal Index',
         'em_fog':           'EM Fog Index (0-100)',
         'emFog':            'EM Fog Index (0-100)',
-        'hdopQuality':      'GPS Accuracy (HDOP)',
-        'roadClass':        'Road Class',
-        'distMajorRoad':    'Distance to Major Road',
-        'inPark':           'In Park / Green Space',
-        'greenPct':         'Green Space %',
-        'buildingDensity':  'Building Density',
-        'distWater':        'Distance to Water',
-        'treeDensity':      'Tree Density',
-        'amenityCount':     'Amenity Count'
+        'hdopQuality':      'GPS Accuracy (HDOP)'
       };
+      GSR_CONST.OSM_METRICS.forEach(m => { metricNames[m.key] = m.label; });
 
       const title = metricNames[metric] || metric;
 
@@ -926,17 +924,12 @@ class GSRMapManager {
   }
 
   _getMetricKey(metric) {
+    // OSM entries (roadClass..amenityCount) come from the shared
+    // GSR_CONST.OSM_METRICS table (constants.js) — see the legend's
+    // metricNames above for the other consumer of that same table.
     const keys = {
       'gsr': 'val',
       'hdopQuality': 'hdop',
-      'roadClass': 'osm_road_class',
-      'distMajorRoad': 'osm_dist_major_road',
-      'inPark': 'osm_in_park',
-      'greenPct': 'osm_green_pct_50m',
-      'buildingDensity': 'osm_building_density_50m',
-      'distWater': 'osm_dist_water',
-      'treeDensity': 'osm_tree_density_50m',
-      'amenityCount': 'osm_amenity_count_50m',
       'em_fog': 'em_fog'
       // Note: phasic/tonic/peakDensity/phasicAUC/arousalIndex are NOT looked
       // up via this key — see DERIVED_METRIC_SERIES in _renderPathSegments.
@@ -946,6 +939,7 @@ class GSRMapManager {
       // here would go stale the moment a GSR slider changes without a GPS
       // param also changing.
     };
+    GSR_CONST.OSM_METRICS.forEach(m => { keys[m.key] = m.field; });
     return keys[metric] || 'val';
   }
 

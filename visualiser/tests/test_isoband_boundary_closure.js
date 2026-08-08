@@ -422,23 +422,54 @@ function samplesFromPathD(d) {
   console.log(`✓ _expandCanvasForIsobands shifts ctx.r (left -${marginLeft}, top -${marginTop}) to keep tile placement aligned with the expanded vector coordinate space`);
 }
 
-// ── Test 7: _ensureTileCoverage widens the live tile layer's buffer to
-// actually fetch imagery for ctx.tileMargin before capture, instead of
-// leaving it as genuinely-undownloaded geography (see _expandCanvasForIsobands's
-// tileMargin doc comment — the deeper bug behind Test 6's misalignment fix:
-// even with tiles correctly repositioned, a margin past Leaflet's own
-// keepBuffer was never downloaded in the first place, reported as a solid
-// blank/black region wherever the isobands pushed the canvas out furthest).
-// A fake GridLayer stands in for Leaflet's real one.
+// ── Test 7: _ensureTileCoverage temporarily inflates what map.getSize()
+// reports so Leaflet's GridLayer._update() — whose fetch range is built
+// purely from map.getSize(), NOT from keepBuffer (verified against
+// leaflet@1.9.4's actual source: keepBuffer only controls which ALREADY-
+// loaded tiles survive a prune on pan, it plays no part in deciding what
+// gets newly fetched) — requests tiles covering ctx.tileMargin before
+// capture, instead of leaving it as genuinely-undownloaded geography (see
+// _expandCanvasForIsobands's tileMargin doc comment — the deeper bug behind
+// Test 6's misalignment fix: even with tiles correctly repositioned, a
+// margin the live viewport never showed was never downloaded in the first
+// place, reported as a solid blank/black region wherever the isobands
+// pushed the canvas out furthest). An earlier version of this fix bumped
+// keepBuffer instead, which — per the source check above — never actually
+// requested any extra tiles at all. Fakes stand in for Leaflet's real Map/
+// GridLayer, modeling only the getSize()/_update()/_noTilesToLoad()/on()/
+// off() surface _ensureTileCoverage actually touches.
 (async () => {
-  function fakeLayer(keepBuffer) {
+  function fakePoint(x, y) {
+    return {
+      x, y,
+      add(other) { return fakePoint(this.x + (other.x || 0), this.y + (other.y || 0)); }
+    };
+  }
+
+  function fakeMap(size) {
+    return {
+      _size: size,
+      getSize() { return this._size; },
+      getCenter: () => ({ lat: 1, lon: 2 })
+    };
+  }
+
+  function fakeLayer(mapRef) {
     const handlers = {};
     return {
-      options: { keepBuffer },
       _updateCalls: 0,
+      _sizeSeenDuringUpdate: null,
       _loaded: true,
       getTileSize: () => ({ x: 256, y: 256 }),
-      _update(center) { this._updateCalls++; this._updateCenter = center; },
+      _update(center) {
+        this._updateCalls++;
+        this._updateCenter = center;
+        // Real GridLayer._update() calls this._map.getSize() internally
+        // (via _getTiledPixelBounds) to compute the tile fetch range —
+        // mirror that here so the test can see what getSize() reported at
+        // the moment _update() actually ran.
+        this._sizeSeenDuringUpdate = mapRef.getSize();
+      },
       _noTilesToLoad() { return this._loaded; },
       on(evt, fn) { handlers[evt] = fn; },
       off(evt, fn) { if (handlers[evt] === fn) delete handlers[evt]; },
@@ -446,35 +477,29 @@ function samplesFromPathD(d) {
     };
   }
 
-  // 7a: margin bigger than the default keepBuffer's reach → widens the
-  // buffer, calls _update() to request the new tiles, awaits the 'load'
-  // event, then restores the original keepBuffer once loading settles.
+  // 7a: _update() sees an INFLATED getSize() (original + 2x the largest
+  // margin, in both axes) while it runs, and getSize() reports the real,
+  // unchanged size again immediately afterward — the synchronous window
+  // Leaflet's createTile() uses to kick off each new tile's network fetch.
   {
-    const layer = fakeLayer(2);
+    const map = fakeMap(fakePoint(800, 600));
+    const layer = fakeLayer(map);
     layer._loaded = false; // tiles not yet loaded when _update() is called
-    const mgr = { baseTileLayer: layer, map: { getCenter: () => ({ lat: 1, lon: 2 }) } };
+    const mgr = { baseTileLayer: layer, map };
     const ctx = { tileMargin: { left: 801, top: 73, right: 0, bottom: 0 } };
     const pending = GSRMapExporter._ensureTileCoverage(ctx, mgr);
-    assert.strictEqual(layer._updateCalls, 1, '_update() is called once to request the wider buffer');
-    assert.strictEqual(layer.options.keepBuffer, Math.ceil(801 / 256), 'keepBuffer is widened to cover the largest margin, in tile units');
+
+    assert.strictEqual(layer._updateCalls, 1, '_update() is called once to request the wider area');
+    assert.strictEqual(layer._sizeSeenDuringUpdate.x, 800 + 801 * 2, 'getSize() reports an inflated width (original + 2x the largest margin) while _update() runs');
+    assert.strictEqual(layer._sizeSeenDuringUpdate.y, 600 + 801 * 2, 'getSize() inflates height too, so the extra reach applies in every direction, not just the axis the margin happened to be on');
+    assert.strictEqual(map.getSize().x, 800, 'getSize() reports the real, original size again once _update() has returned');
+
     layer._fireLoad();
     await pending;
-    assert.strictEqual(layer.options.keepBuffer, 2, 'keepBuffer is restored to its original value once tiles finish loading');
-    console.log('✓ _ensureTileCoverage widens keepBuffer, waits for the load event, then restores it');
+    console.log('✓ _ensureTileCoverage temporarily inflates map.getSize() during _update(), then restores it');
   }
 
-  // 7b: margin already within the existing buffer's reach → no-op, doesn't
-  // touch the live layer at all.
-  {
-    const layer = fakeLayer(4); // 4 tiles * 256px = 1024px, comfortably covers a 100px margin
-    const mgr = { baseTileLayer: layer, map: { getCenter: () => ({ lat: 1, lon: 2 }) } };
-    const ctx = { tileMargin: { left: 100, top: 50, right: 0, bottom: 0 } };
-    await GSRMapExporter._ensureTileCoverage(ctx, mgr);
-    assert.strictEqual(layer._updateCalls, 0, 'no _update() call when the existing keepBuffer already covers the margin');
-    console.log('✓ _ensureTileCoverage is a no-op when the default tile buffer already covers the margin');
-  }
-
-  // 7c: no tileMargin (canvas was never expanded) and a missing layer both
+  // 7b: no tileMargin (canvas was never expanded) and a missing layer both
   // resolve harmlessly — this step must never hang or throw and break the
   // rest of the export.
   {

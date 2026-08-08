@@ -1071,15 +1071,12 @@ const GSRUI = {
         }
       });
 
-      // Calculate Pearson correlation matrix rows
-      const features = [
-        { name: 'Green Space %', key: 'osm_green_pct_50m' },
-        { name: 'Building Density', key: 'osm_building_density_50m' },
-        { name: 'Distance to Major Road', key: 'osm_dist_major_road' },
-        { name: 'Distance to Water', key: 'osm_dist_water' },
-        { name: 'Tree Density', key: 'osm_tree_density_50m' },
-        { name: 'Amenity Count', key: 'osm_amenity_count_50m' }
-      ];
+      // Calculate Pearson correlation matrix rows — continuous OSM fields
+      // only (roadClass/inPark are categorical, not correlatable), from the
+      // shared GSR_CONST.OSM_METRICS table (constants.js).
+      const features = GSR_CONST.OSM_METRICS
+        .filter(m => m.kind === 'continuous')
+        .map(m => ({ name: m.label, key: m.field }));
 
       const phasicVals = allData.map(d => d.phasic);
       const tonicVals = allData.map(d => d.tonic);
@@ -1406,14 +1403,14 @@ const GSRUI = {
 
     const { m, c, r2 } = StatsMath.calculateLinearRegression(xVals, yVals);
     
-    const xLabels = {
-      'osm_green_pct_50m': 'Green Space %',
-      'osm_building_density_50m': 'Building Density',
-      'osm_dist_major_road': 'Distance to Major Road (m)',
-      'osm_dist_water': 'Distance to Water (m)',
-      'osm_tree_density_50m': 'Tree Density',
-      'osm_amenity_count_50m': 'Amenity Count'
-    };
+    // Continuous OSM fields, from the shared GSR_CONST.OSM_METRICS table
+    // (constants.js) — unit (when present) appended in parens, matching
+    // this axis-label context's existing "(m)" suffix on the two distance
+    // fields; every other OSM_METRICS consumer uses the bare label.
+    const xLabels = {};
+    GSR_CONST.OSM_METRICS.filter(m => m.kind === 'continuous').forEach(m => {
+      xLabels[m.field] = m.unit ? `${m.label} (${m.unit})` : m.label;
+    });
     
     const yLabels = {
       'phasic': 'Phasic (momentary arousal)',

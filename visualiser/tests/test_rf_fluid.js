@@ -35,6 +35,7 @@ function loadModule(filePath, varName) {
 }
 
 loadModule(path.join(__dirname, '../geo_utils.js'),          'GeoUtils');
+loadModule(path.join(__dirname, '../spatial_grid.js'),        'SpatialGrid');
 loadModule(path.join(__dirname, '../stats_math.js'),         'StatsMath');
 loadModule(path.join(__dirname, '../map_colors.js'),         'MapColors');
 loadModule(path.join(__dirname, '../gps_filter.js'),         'GpsFilter');

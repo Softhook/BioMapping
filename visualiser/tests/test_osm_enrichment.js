@@ -21,17 +21,22 @@ const fs = require('fs');
 function loadModule(filePath, varName) {
   const src = fs.readFileSync(filePath, 'utf8');
   const wrapped = src.replace(
+    new RegExp(`class ${varName}\\s*{`),
+    `global.${varName} = class ${varName} {`
+  ).replace(
     new RegExp(`const ${varName}\\s*=`),
     `global.${varName} =`
   );
   vm.runInThisContext(wrapped, { filename: filePath });
 }
 
-// Load order: GeoUtils first (both modules depend on it), then MapMatcher
-// (osm_enrichment's HMM-snap path depends on it), then OSMEnricher itself.
-// OverpassClient is deliberately NOT loaded — nothing in this suite calls
+// Load order: GeoUtils and SpatialGrid first (osm_enrichment's
+// buildSpatialIndex depends on SpatialGrid), then MapMatcher (osm_enrichment's
+// HMM-snap path depends on it), then OSMEnricher itself. OverpassClient is
+// deliberately NOT loaded — nothing in this suite calls
 // OSMEnricher.fetchOSMData(), so it's never dereferenced.
 loadModule(__dirname + '/../geo_utils.js',      'GeoUtils');
+loadModule(__dirname + '/../spatial_grid.js',   'SpatialGrid');
 loadModule(__dirname + '/../map_match.js',      'MapMatcher');
 loadModule(__dirname + '/../osm_enrichment.js', 'OSMEnricher');
 
@@ -161,6 +166,26 @@ console.log('\n── OSMEnricher: reconstructGeometries ──');
   assertEq(geoms.relations[0].innerWays.length, 0, 'reconstructGeometries — no inner ways (no hole)');
 }
 
+// 2c. Repeated calls with the SAME osmJson reference return the identical
+// (===) geoms object instead of rebuilding — the cache collective-mode
+// enrichment relies on when several tracks share one fetched osmJson.
+{
+  const osmJson = {
+    elements: [
+      { type: 'node', id: 1, lat: 51.5000, lon: -0.1000 },
+      { type: 'node', id: 2, lat: 51.5010, lon: -0.1000 },
+      { type: 'way', id: 100, nodes: [1, 2], tags: { highway: 'residential' } },
+    ]
+  };
+  const first  = OSMEnricher.reconstructGeometries(osmJson);
+  const second = OSMEnricher.reconstructGeometries(osmJson);
+  assert(first === second, 'reconstructGeometries — same osmJson reference returns the cached (===) geoms object, not a fresh rebuild');
+
+  const otherOsmJson = { elements: osmJson.elements.slice() }; // same content, different object identity
+  const third = OSMEnricher.reconstructGeometries(otherOsmJson);
+  assert(third !== first, 'reconstructGeometries — a different osmJson object (even with identical content) is rebuilt fresh, not cache-hit by content');
+}
+
 // ════════════════════════════════════════════════════════════════════════
 //  3. OSMEnricher — spatial hash index
 // ════════════════════════════════════════════════════════════════════════
@@ -183,6 +208,23 @@ console.log('\n── OSMEnricher: buildSpatialIndex / getNearby ──');
   // De-duplication: querying twice near the same geometry shouldn't double-list it.
   const ids = nearby.map(g => `${g.type}_${g.id}`);
   assertEq(new Set(ids).size, ids.length, 'getNearby returns each geometry at most once');
+}
+
+// 3b. Repeated calls with the SAME geoms reference return the identical
+// (===) index instead of rebuilding — mirrors reconstructGeometries's own
+// cache (2c above), and matters for the same reason: multiple tracks sharing
+// one osmJson resolve to the same cached geoms, so they should also resolve
+// to the same cached spatial index rather than each re-walking every point/
+// way/relation to rebuild it.
+{
+  const geoms = { points: [], ways: [{ type: 'way', id: 1, coordinates: [{ lat: 51.5, lon: -0.1 }, { lat: 51.51, lon: -0.1 }] }], relations: [] };
+  const first  = OSMEnricher.buildSpatialIndex(geoms);
+  const second = OSMEnricher.buildSpatialIndex(geoms);
+  assert(first === second, 'buildSpatialIndex — same geoms reference returns the cached (===) index object, not a fresh rebuild');
+
+  const otherGeoms = { points: [], ways: geoms.ways.slice(), relations: [] }; // same content, different object identity
+  const third = OSMEnricher.buildSpatialIndex(otherGeoms);
+  assert(third !== first, 'buildSpatialIndex — a different geoms object (even with identical content) is rebuilt fresh, not cache-hit by content');
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -411,8 +453,270 @@ console.log('\n── OSMEnricher: enrichTrack (integration, no snapping) ──
   assert(threw, 'enrichTrack throws when no valid GPS coordinates exist');
 }
 
+// 7c. Two tracks enriched against the SAME shared osmJson reference (the
+// collective-mode case: ui.js fetches one osmJson for a union bbox and
+// enriches every active track against it) end up with === identical
+// analyzer.osmGeoms — reconstructGeometries() isn't redone per track.
+{
+  const osmJson = {
+    elements: [
+      { type: 'node', id: 1, lat: 51.5000, lon: -0.1000 },
+      { type: 'node', id: 2, lat: 51.5010, lon: -0.1000 },
+      { type: 'way', id: 100, nodes: [1, 2], tags: { highway: 'residential' } },
+    ]
+  };
+  function makeAnalyzer() {
+    const raw = [];
+    for (let i = 0; i < 3; i++) raw.push({ time: i, lat: 51.5000 + i * 0.0001, lon: -0.1000 });
+    return {
+      raw,
+      getCoordinates(i, preferRaw) {
+        const r = this.raw[i];
+        return (preferRaw && !isNaN(r.lat) && !isNaN(r.lon)) ? { lat: r.lat, lon: r.lon } : null;
+      }
+    };
+  }
+  const analyzerA = makeAnalyzer();
+  const analyzerB = makeAnalyzer();
+  OSMEnricher.enrichTrack(analyzerA, osmJson, 50);
+  OSMEnricher.enrichTrack(analyzerB, osmJson, 50);
+  assert(analyzerA.osmGeoms === analyzerB.osmGeoms, 'enrichTrack — two tracks sharing the same osmJson reference end up with the identical (===) osmGeoms object');
+}
+
 // ════════════════════════════════════════════════════════════════════════
-//  8. MapMatcher — geometric helpers
+//  8. OSMEnricher — _projectToWay / _interpolateSnappedGps (road-snap gap fill)
+// ════════════════════════════════════════════════════════════════════════
+console.log('\n── OSMEnricher: _projectToWay / _interpolateSnappedGps ──');
+
+// A two-point way (straight N-S segment) and an L-shaped 3-point way, shared
+// across the cases below.
+const STRAIGHT_WAY = [{ lat: 51.5000, lon: -0.1000 }, { lat: 51.5010, lon: -0.1000 }];
+const L_SHAPED_WAY = [
+  { lat: 51.5000, lon: -0.1000 },
+  { lat: 51.5010, lon: -0.1000 },
+  { lat: 51.5010, lon: -0.0980 }
+];
+// A second straight N-S way, parallel to STRAIGHT_WAY but 0.0020° further west
+// — used for the dual-way-blend cases below.
+const PARALLEL_WAY = [{ lat: 51.5000, lon: -0.1020 }, { lat: 51.5010, lon: -0.1020 }];
+
+// 8a. _projectToWay — single-segment way matches GeoUtils.projectPointToSegment directly
+{
+  const expected = GeoUtils.projectPointToSegment(51.5005, -0.0995, 51.5000, -0.1000, 51.5010, -0.1000);
+  const got = OSMEnricher._projectToWay(51.5005, -0.0995, STRAIGHT_WAY);
+  assertClose(got.dist, expected.distance, 1e-9, '_projectToWay — single segment, distance matches GeoUtils directly');
+  assertClose(got.snapLat, expected.lat, 1e-9, '_projectToWay — single segment, snapLat matches GeoUtils directly');
+  assertClose(got.snapLon, expected.lon, 1e-9, '_projectToWay — single segment, snapLon matches GeoUtils directly');
+}
+
+// 8b. _projectToWay — multi-segment way picks the minimum-distance segment, not just segment 0
+{
+  const testLat = 51.5010, testLon = -0.0990; // sits on the L's second (E-W) leg
+  const proj0 = GeoUtils.projectPointToSegment(testLat, testLon, L_SHAPED_WAY[0].lat, L_SHAPED_WAY[0].lon, L_SHAPED_WAY[1].lat, L_SHAPED_WAY[1].lon);
+  const proj1 = GeoUtils.projectPointToSegment(testLat, testLon, L_SHAPED_WAY[1].lat, L_SHAPED_WAY[1].lon, L_SHAPED_WAY[2].lat, L_SHAPED_WAY[2].lon);
+  assert(proj1.distance < proj0.distance, 'Sanity: fixture point is genuinely closer to the second leg than the first');
+
+  const got = OSMEnricher._projectToWay(testLat, testLon, L_SHAPED_WAY);
+  assertClose(got.dist, proj1.distance, 1e-9, '_projectToWay — multi-segment way picks the closer (second) segment, not segment 0');
+  assertClose(got.snapLat, proj1.lat, 1e-9, '_projectToWay — multi-segment way returns the closer segment\'s snapLat');
+  assertClose(got.snapLon, proj1.lon, 1e-9, '_projectToWay — multi-segment way returns the closer segment\'s snapLon');
+}
+
+function wayMapFor(...ways) {
+  const idsAndCoords = ways; // [{id, coordinates}, ...]
+  return { ways: idsAndCoords.map(w => ({ id: w.id, coordinates: w.coordinates })) };
+}
+
+// 8c. _interpolateSnappedGps — no valid entries at all is a no-op
+{
+  const sg = [{ lat: NaN, lon: NaN }, { lat: NaN, lon: NaN }, { lat: NaN, lon: NaN }];
+  const analyzer = { snappedGps: sg, osmGeoms: { ways: [] } };
+  const raw = [{ time: 0 }, { time: 1 }, { time: 2 }];
+  OSMEnricher._interpolateSnappedGps(analyzer, raw);
+  assert(sg.every(s => isNaN(s.lat) && isNaN(s.lon)), '_interpolateSnappedGps — all-NaN snappedGps stays untouched (no valid anchor to fill from)');
+}
+
+// 8d. _interpolateSnappedGps — fills every index before the first valid one with
+// a distinct copy of that first valid entry's values.
+{
+  const anchor = { lat: 51.5005, lon: -0.1000, roadLat: 51.5005, roadLon: -0.1000, alpha: 0.8, dist: 2, wayId: 100 };
+  const sg = [{ lat: NaN, lon: NaN }, { lat: NaN, lon: NaN }, anchor];
+  const analyzer = { snappedGps: sg, osmGeoms: { ways: [] } };
+  const raw = [{ time: 0 }, { time: 1 }, { time: 2 }];
+  OSMEnricher._interpolateSnappedGps(analyzer, raw);
+  assertEq(sg[0].lat, anchor.lat, '_interpolateSnappedGps — fill-before-first copies the first valid entry\'s lat');
+  assertEq(sg[1].wayId, anchor.wayId, '_interpolateSnappedGps — fill-before-first copies the first valid entry\'s wayId');
+  assert(sg[0] !== anchor && sg[1] !== anchor && sg[0] !== sg[1], '_interpolateSnappedGps — fill-before-first gives each earlier index its own object, not a shared reference');
+}
+
+// 8e. _interpolateSnappedGps — fills every index from the last valid one onward
+// (including re-copying the last valid entry itself into a fresh object).
+{
+  const anchor = { lat: 51.5001, lon: -0.1000, roadLat: 51.5001, roadLon: -0.1000, alpha: 0.5, dist: 1, wayId: 100 };
+  const sg = [anchor, { lat: NaN, lon: NaN }, { lat: NaN, lon: NaN }];
+  const originalAnchorRef = sg[0];
+  const analyzer = { snappedGps: sg, osmGeoms: { ways: [] } };
+  const raw = [{ time: 0 }, { time: 1 }, { time: 2 }];
+  OSMEnricher._interpolateSnappedGps(analyzer, raw);
+  assertEq(sg[1].lat, anchor.lat, '_interpolateSnappedGps — fill-after-last copies the last valid entry\'s lat forward');
+  assertEq(sg[2].wayId, anchor.wayId, '_interpolateSnappedGps — fill-after-last copies the last valid entry\'s wayId forward');
+  assertEq(sg[0].lat, anchor.lat, '_interpolateSnappedGps — the last valid entry itself keeps its own values after the fill-forward pass');
+  assert(sg[0] !== originalAnchorRef, '_interpolateSnappedGps — the last valid entry is reassigned to a fresh object, not left as the original reference');
+}
+
+// 8f. _interpolateSnappedGps — a >30s time gap between two valid anchors fills
+// the gap with bare {lat: NaN, lon: NaN}, not the full snap-result shape.
+{
+  const a = { lat: 51.5000, lon: -0.1000, roadLat: 51.5000, roadLon: -0.1000, alpha: 0.5, dist: 1, wayId: 100 };
+  const b = { lat: 51.5010, lon: -0.1000, roadLat: 51.5010, roadLon: -0.1000, alpha: 0.5, dist: 1, wayId: 100 };
+  const sg = [a, { lat: NaN, lon: NaN }, b];
+  const analyzer = { snappedGps: sg, osmGeoms: { ways: [{ id: 100, coordinates: STRAIGHT_WAY }] } };
+  const raw = [{ time: 0 }, { time: 15 }, { time: 40 }]; // 40s gap > GPS_MAX_GAP_S (30s)
+  OSMEnricher._interpolateSnappedGps(analyzer, raw);
+  assert(isNaN(sg[1].lat) && isNaN(sg[1].lon), '_interpolateSnappedGps — gap point stays NaN across a >30s time gap');
+  assertEq(sg[1].roadLat, undefined, '_interpolateSnappedGps — >30s gap fill is the bare {lat,lon} shape, not the full 6-key snap-result shape');
+}
+
+// 8g. _interpolateSnappedGps — different way IDs on both ends, with real GPS at
+// the gap point, blends both ways' projections and switches wayId at t=0.5.
+{
+  const sg = [
+    { lat: 51.5000, lon: -0.1000, roadLat: 51.5000, roadLon: -0.1000, alpha: 0.6, dist: 0, wayId: 100 },
+    { lat: NaN, lon: NaN }, { lat: NaN, lon: NaN },
+    { lat: 51.5010, lon: -0.1020, roadLat: 51.5010, roadLon: -0.1020, alpha: 1.0, dist: 0, wayId: 200 }
+  ];
+  const analyzer = { snappedGps: sg, osmGeoms: wayMapFor({ id: 100, coordinates: STRAIGHT_WAY }, { id: 200, coordinates: PARALLEL_WAY }) };
+  const raw = [
+    { time: 0, lat: 51.5000, lon: -0.1010 },
+    { time: 1, lat: 51.5003, lon: -0.1010 },
+    { time: 2, lat: 51.5007, lon: -0.1010 },
+    { time: 3, lat: 51.5010, lon: -0.1010 }
+  ];
+  OSMEnricher._interpolateSnappedGps(analyzer, raw);
+
+  // i=1: t=1/3 < 0.5 → expect wayId to still read the near (A) side
+  {
+    const t = 1 / 3;
+    const projA = GeoUtils.projectPointToSegment(raw[1].lat, raw[1].lon, STRAIGHT_WAY[0].lat, STRAIGHT_WAY[0].lon, STRAIGHT_WAY[1].lat, STRAIGHT_WAY[1].lon);
+    const projB = GeoUtils.projectPointToSegment(raw[1].lat, raw[1].lon, PARALLEL_WAY[0].lat, PARALLEL_WAY[0].lon, PARALLEL_WAY[1].lat, PARALLEL_WAY[1].lon);
+    const snapLat = (1 - t) * projA.lat + t * projB.lat;
+    const snapLon = (1 - t) * projA.lon + t * projB.lon;
+    const alpha = 0.6 + t * (1.0 - 0.6);
+    const expLat = alpha * snapLat + (1 - alpha) * raw[1].lat;
+    const expLon = alpha * snapLon + (1 - alpha) * raw[1].lon;
+    assertClose(sg[1].lat, expLat, 1e-9, '_interpolateSnappedGps — dual-way blend (t<0.5) matches hand-computed blended lat');
+    assertClose(sg[1].lon, expLon, 1e-9, '_interpolateSnappedGps — dual-way blend (t<0.5) matches hand-computed blended lon');
+    assertEq(sg[1].wayId, 100, '_interpolateSnappedGps — dual-way blend reports the near-side wayId while t<0.5');
+  }
+  // i=2: t=2/3 >= 0.5 → expect wayId to switch to the far (B) side
+  {
+    const t = 2 / 3;
+    const projA = GeoUtils.projectPointToSegment(raw[2].lat, raw[2].lon, STRAIGHT_WAY[0].lat, STRAIGHT_WAY[0].lon, STRAIGHT_WAY[1].lat, STRAIGHT_WAY[1].lon);
+    const projB = GeoUtils.projectPointToSegment(raw[2].lat, raw[2].lon, PARALLEL_WAY[0].lat, PARALLEL_WAY[0].lon, PARALLEL_WAY[1].lat, PARALLEL_WAY[1].lon);
+    const snapLat = (1 - t) * projA.lat + t * projB.lat;
+    const snapLon = (1 - t) * projA.lon + t * projB.lon;
+    const alpha = 0.6 + t * (1.0 - 0.6);
+    const expLat = alpha * snapLat + (1 - alpha) * raw[2].lat;
+    const expLon = alpha * snapLon + (1 - alpha) * raw[2].lon;
+    assertClose(sg[2].lat, expLat, 1e-9, '_interpolateSnappedGps — dual-way blend (t>=0.5) matches hand-computed blended lat');
+    assertClose(sg[2].lon, expLon, 1e-9, '_interpolateSnappedGps — dual-way blend (t>=0.5) matches hand-computed blended lon');
+    assertEq(sg[2].wayId, 200, '_interpolateSnappedGps — dual-way blend switches to the far-side wayId once t>=0.5');
+  }
+}
+
+// 8h. _interpolateSnappedGps — same way ID on both ends projects onto that one
+// way and lerps alpha between the two endpoints.
+{
+  const sg = [
+    { lat: 51.5000, lon: -0.1005, roadLat: 51.5000, roadLon: -0.1005, alpha: 0.4, dist: 0, wayId: 100 },
+    { lat: NaN, lon: NaN },
+    { lat: 51.5010, lon: -0.1005, roadLat: 51.5010, roadLon: -0.1005, alpha: 0.9, dist: 0, wayId: 100 }
+  ];
+  const analyzer = { snappedGps: sg, osmGeoms: wayMapFor({ id: 100, coordinates: STRAIGHT_WAY }) };
+  const raw = [
+    { time: 0, lat: 51.5000, lon: -0.1005 },
+    { time: 1, lat: 51.5005, lon: -0.1005 },
+    { time: 2, lat: 51.5010, lon: -0.1005 }
+  ];
+  OSMEnricher._interpolateSnappedGps(analyzer, raw);
+
+  const proj = GeoUtils.projectPointToSegment(raw[1].lat, raw[1].lon, STRAIGHT_WAY[0].lat, STRAIGHT_WAY[0].lon, STRAIGHT_WAY[1].lat, STRAIGHT_WAY[1].lon);
+  const alpha = 0.4 + 0.5 * (0.9 - 0.4);
+  const expLat = alpha * proj.lat + (1 - alpha) * raw[1].lat;
+  const expLon = alpha * proj.lon + (1 - alpha) * raw[1].lon;
+  assertClose(sg[1].lat, expLat, 1e-9, '_interpolateSnappedGps — single-way projection matches hand-computed blended lat');
+  assertClose(sg[1].lon, expLon, 1e-9, '_interpolateSnappedGps — single-way projection matches hand-computed blended lon');
+  assertClose(sg[1].alpha, alpha, 1e-9, '_interpolateSnappedGps — single-way projection lerps alpha between the two endpoints');
+  assertEq(sg[1].wayId, 100, '_interpolateSnappedGps — single-way projection keeps the shared wayId');
+}
+
+// 8i. _interpolateSnappedGps — different way IDs but no raw GPS at the gap point
+// (hasGps false) falls through to a plain linear interpolation of the existing
+// snap values, ignoring way geometry entirely.
+{
+  const sg = [
+    { lat: 51.5000, lon: -0.1000, roadLat: 51.5000, roadLon: -0.1000, alpha: 0.3, dist: 0, wayId: 100 },
+    { lat: NaN, lon: NaN },
+    { lat: 51.5010, lon: -0.1020, roadLat: 51.5010, roadLon: -0.1020, alpha: 0.7, dist: 0, wayId: 200 }
+  ];
+  const analyzer = { snappedGps: sg, osmGeoms: wayMapFor({ id: 100, coordinates: STRAIGHT_WAY }, { id: 200, coordinates: PARALLEL_WAY }) };
+  const raw = [
+    { time: 0, lat: 51.5000, lon: -0.1000 },
+    { time: 1, lat: NaN, lon: NaN }, // no GPS fix at the gap point
+    { time: 2, lat: 51.5010, lon: -0.1020 }
+  ];
+  OSMEnricher._interpolateSnappedGps(analyzer, raw);
+  assertClose(sg[1].lat, 51.5005, 1e-9, '_interpolateSnappedGps — hasGps=false falls back to linear lat interpolation of the anchors\' own values');
+  assertClose(sg[1].lon, -0.1010, 1e-9, '_interpolateSnappedGps — hasGps=false falls back to linear lon interpolation of the anchors\' own values');
+  assertClose(sg[1].alpha, 0.5, 1e-9, '_interpolateSnappedGps — hasGps=false fallback also lerps alpha directly from the anchors');
+  assertEq(sg[1].wayId, 200, '_interpolateSnappedGps — hasGps=false fallback still picks a wayId by t<0.5 (far side here)');
+}
+
+// 8j. _interpolateSnappedGps — neither end has a way ID (even with real GPS at
+// the gap point) also falls back to plain linear interpolation.
+{
+  const sg = [
+    { lat: 51.5000, lon: -0.1000, roadLat: 51.5000, roadLon: -0.1000, alpha: 0.2, dist: 5, wayId: null },
+    { lat: NaN, lon: NaN },
+    { lat: 51.5010, lon: -0.1010, roadLat: 51.5010, roadLon: -0.1010, alpha: 0.8, dist: 5, wayId: null }
+  ];
+  const analyzer = { snappedGps: sg, osmGeoms: { ways: [] } };
+  const raw = [
+    { time: 0, lat: 51.5000, lon: -0.1000 },
+    { time: 1, lat: 51.5005, lon: -0.1005 }, // real GPS fix — proves it's the missing wayId, not hasGps, causing the fallback
+    { time: 2, lat: 51.5010, lon: -0.1010 }
+  ];
+  OSMEnricher._interpolateSnappedGps(analyzer, raw);
+  assertClose(sg[1].lat, 51.5005, 1e-9, '_interpolateSnappedGps — no wayId on either end falls back to linear lat interpolation even with a real GPS fix present');
+  assertClose(sg[1].dist, 5, 1e-9, '_interpolateSnappedGps — no-wayId fallback also lerps dist directly from the anchors');
+  assertEq(sg[1].wayId, null, '_interpolateSnappedGps — no-wayId fallback keeps wayId null (t<0.5 side, still null either way)');
+}
+
+// 8k. _interpolateSnappedGps — only one end has a way ID; that way is used for
+// the whole gap.
+{
+  const sg = [
+    { lat: 51.5000, lon: -0.1003, roadLat: 51.5000, roadLon: -0.1003, alpha: 0.5, dist: 0, wayId: 100 },
+    { lat: NaN, lon: NaN },
+    { lat: 51.5010, lon: -0.1003, roadLat: 51.5010, roadLon: -0.1003, alpha: 0.9, dist: 0, wayId: null }
+  ];
+  const analyzer = { snappedGps: sg, osmGeoms: wayMapFor({ id: 100, coordinates: STRAIGHT_WAY }) };
+  const raw = [
+    { time: 0, lat: 51.5000, lon: -0.1003 },
+    { time: 1, lat: 51.5005, lon: -0.1003 },
+    { time: 2, lat: 51.5010, lon: -0.1003 }
+  ];
+  OSMEnricher._interpolateSnappedGps(analyzer, raw);
+
+  const proj = GeoUtils.projectPointToSegment(raw[1].lat, raw[1].lon, STRAIGHT_WAY[0].lat, STRAIGHT_WAY[0].lon, STRAIGHT_WAY[1].lat, STRAIGHT_WAY[1].lon);
+  const alpha = 0.5 + 0.5 * (0.9 - 0.5);
+  const expLat = alpha * proj.lat + (1 - alpha) * raw[1].lat;
+  assertClose(sg[1].lat, expLat, 1e-9, '_interpolateSnappedGps — only-A-has-a-wayId case projects onto A\'s way for the whole gap');
+  assertEq(sg[1].wayId, 100, '_interpolateSnappedGps — only-A-has-a-wayId case reports A\'s wayId, not t-based');
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  9. MapMatcher — geometric helpers
 // ════════════════════════════════════════════════════════════════════════
 console.log('\n── MapMatcher: geometric helpers ──');
 
@@ -481,7 +785,7 @@ assert(Math.abs(Math.abs(MapMatcher._segmentBearing(0, 0, -1, 0)) - Math.PI) < 0
 }
 
 // ════════════════════════════════════════════════════════════════════════
-//  9. MapMatcher — candidate generation & full Viterbi match
+//  10. MapMatcher — candidate generation & full Viterbi match
 // ════════════════════════════════════════════════════════════════════════
 console.log('\n── MapMatcher: _getCandidates / match() ──');
 

@@ -287,5 +287,28 @@ const GSR_CONST = {
   SNAP: {
     HEADING_W:  0.7,   // heading penalty weight in map-matcher candidate ranking
     SPEED_GATE: 0.3    // m/s — below this speed, course is unreliable so the heading penalty is skipped
-  }
+  },
+
+  // The 8 OSM enrichment fields (osm_enrichment.js), and the UI metric key
+  // each is exposed under (map.js's "Map Metric" dropdown, ui.js's
+  // correlation dashboard). Single source of truth for key<->field<->label —
+  // used to live hardcoded in 4 separate places (map.js's legend title map
+  // and _getMetricKey, ui.js's correlation-matrix feature list and
+  // regression-scatter axis labels), which meant adding/renaming/removing a
+  // metric meant editing all 4 by hand with nothing to catch a missed one.
+  // `kind: 'categorical'` metrics (roadClass, inPark) render as legend
+  // swatches and are excluded from the continuous-only correlation/scatter
+  // UI; `unit` (when present) is appended in parens only where that already
+  // happened (ui.js's regression-scatter axis labels) — every other consumer
+  // uses the bare label, unchanged from before this table existed.
+  OSM_METRICS: [
+    { key: 'roadClass',       field: 'osm_road_class',            label: 'Road Class',              kind: 'categorical' },
+    { key: 'distMajorRoad',   field: 'osm_dist_major_road',        label: 'Distance to Major Road',  kind: 'continuous', unit: 'm' },
+    { key: 'inPark',          field: 'osm_in_park',                label: 'In Park / Green Space',   kind: 'categorical' },
+    { key: 'greenPct',        field: 'osm_green_pct_50m',          label: 'Green Space %',           kind: 'continuous' },
+    { key: 'buildingDensity', field: 'osm_building_density_50m',   label: 'Building Density',        kind: 'continuous' },
+    { key: 'distWater',       field: 'osm_dist_water',             label: 'Distance to Water',       kind: 'continuous', unit: 'm' },
+    { key: 'treeDensity',     field: 'osm_tree_density_50m',       label: 'Tree Density',            kind: 'continuous' },
+    { key: 'amenityCount',    field: 'osm_amenity_count_50m',      label: 'Amenity Count',           kind: 'continuous' }
+  ]
 };

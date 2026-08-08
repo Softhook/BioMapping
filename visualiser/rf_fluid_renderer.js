@@ -258,24 +258,22 @@ class RFFluidRenderer {
    * segment is inserted into every cell its own bbox spans. Cell size only
    * affects how many segments land in the queried range (perf, not output).
    */
+  // Delegates its bucket mechanics to the shared SpatialGrid (spatial_grid.js)
+  // — see that file's doc comment for why this and osm_enrichment.js's
+  // buildSpatialIndex keep separate padding/dedup policies on top of it
+  // instead of merging into one shared query method.
   _buildSegmentGrid(buildingSegmentsGeo, cellSizeLat, cellSizeLon) {
-    const grid = new Map();
+    const spatialGrid = new SpatialGrid(cellSizeLat, cellSizeLon);
     for (let s = 0; s < buildingSegmentsGeo.length; s++) {
       const seg = buildingSegmentsGeo[s];
-      const rowMin = Math.floor(Math.min(seg.p1.lat, seg.p2.lat) / cellSizeLat);
-      const rowMax = Math.floor(Math.max(seg.p1.lat, seg.p2.lat) / cellSizeLat);
-      const colMin = Math.floor(Math.min(seg.p1.lon, seg.p2.lon) / cellSizeLon);
-      const colMax = Math.floor(Math.max(seg.p1.lon, seg.p2.lon) / cellSizeLon);
-      for (let row = rowMin; row <= rowMax; row++) {
-        for (let col = colMin; col <= colMax; col++) {
-          const key = row + ',' + col;
-          let bucket = grid.get(key);
-          if (!bucket) { bucket = []; grid.set(key, bucket); }
-          bucket.push(seg);
-        }
-      }
+      spatialGrid.insert({
+        minLat: Math.min(seg.p1.lat, seg.p2.lat),
+        maxLat: Math.max(seg.p1.lat, seg.p2.lat),
+        minLon: Math.min(seg.p1.lon, seg.p2.lon),
+        maxLon: Math.max(seg.p1.lon, seg.p2.lon)
+      }, seg);
     }
-    return grid;
+    return spatialGrid;
   }
 
   /**
@@ -284,25 +282,17 @@ class RFFluidRenderer {
    * of a segment appearing in several queried cells). queryId must be unique
    * per call site invocation (a fresh counter per _precalculateSpatialFans
    * call, since segment objects — and any stale stamp on them — are rebuilt
-   * fresh each call in _buildTrackEntry).
+   * fresh each call in _buildTrackEntry). No cell-size params — the
+   * SpatialGrid instance already carries its own.
    */
-  _queryNearbySegments(grid, cellSizeLat, cellSizeLon, bbox, queryId) {
-    const rowMin = Math.floor(bbox.minLat / cellSizeLat);
-    const rowMax = Math.floor(bbox.maxLat / cellSizeLat);
-    const colMin = Math.floor(bbox.minLon / cellSizeLon);
-    const colMax = Math.floor(bbox.maxLon / cellSizeLon);
+  _queryNearbySegments(spatialGrid, bbox, queryId) {
+    const raw = spatialGrid.queryBBoxRaw(bbox);
     const candidates = [];
-    for (let row = rowMin; row <= rowMax; row++) {
-      for (let col = colMin; col <= colMax; col++) {
-        const bucket = grid.get(row + ',' + col);
-        if (!bucket) continue;
-        for (let i = 0; i < bucket.length; i++) {
-          const seg = bucket[i];
-          if (seg._gridQueryId === queryId) continue;
-          seg._gridQueryId = queryId;
-          candidates.push(seg);
-        }
-      }
+    for (let i = 0; i < raw.length; i++) {
+      const seg = raw[i];
+      if (seg._gridQueryId === queryId) continue;
+      seg._gridQueryId = queryId;
+      candidates.push(seg);
     }
     return candidates;
   }
@@ -413,7 +403,7 @@ class RFFluidRenderer {
       // possibly in a different order, which doesn't matter: the ray/segment
       // loop below only takes a min over intersecting segments).
       const gridCandidates = segmentGrid
-        ? this._queryNearbySegments(segmentGrid, gridCellSizeLat, gridCellSizeLon, nodeBbox, ++gridQueryCounter)
+        ? this._queryNearbySegments(segmentGrid, nodeBbox, ++gridQueryCounter)
         : buildingSegmentsGeo;
       for (let s = 0; s < gridCandidates.length; s++) {
         const seg = gridCandidates[s];
