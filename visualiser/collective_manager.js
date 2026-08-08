@@ -155,7 +155,7 @@ class GSRCollectiveManager {
 
     const rows = gridResolution;
     const cols = gridResolution;
-    const grid = Array.from({ length: rows }, () => new Array(cols).fill(null));
+    let grid = Array.from({ length: rows }, () => new Array(cols).fill(null));
 
     const latMid = (bounds.minLat + bounds.maxLat) / 2;
     const DEG_TO_M_LAT = 111320.0;
@@ -332,6 +332,59 @@ class GSRCollectiveManager {
       }
     }
 
+    if (minVal === Infinity || maxVal === -Infinity) return [];
+
+    // Masked blur — smooths pure grid-quantization noise (the single-cell "wiggle" Marching
+    // Squares traces literally, cell edge by cell edge) directly in the source field, before
+    // any contour is extracted. This is safer than smoothing/simplifying the traced isolines
+    // afterward: a per-line simplification pass moves each level's line independently and can
+    // nudge two originally non-crossing, closely-spaced levels into crossing each other.
+    // Isolines of one continuous scalar field are level sets of that same field and can
+    // never cross regardless of how smooth it is, so blurring the field itself can only
+    // reduce wiggle, never introduce a crossing artifact. Respects the null/no-data mask —
+    // only valid cells contribute to a valid cell's blurred value — so the isolationRadius
+    // boundary stays exactly where it was; a masked cell is never pulled toward its valid
+    // neighbors nor vice versa.
+    const blurred = Array.from({ length: rows }, () => new Array(cols).fill(null));
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (grid[r][c] === null || isNaN(grid[r][c])) { blurred[r][c] = grid[r][c]; continue; }
+        let sum = 0, weight = 0;
+        for (let dr = -1; dr <= 1; dr++) {
+          const rr = r + dr;
+          if (rr < 0 || rr >= rows) continue;
+          for (let dc = -1; dc <= 1; dc++) {
+            const cc = c + dc;
+            if (cc < 0 || cc >= cols) continue;
+            const v = grid[rr][cc];
+            if (v === null || isNaN(v)) continue;
+            // Tent-shaped 3x3 kernel ([1,2,1;2,4,2;1,2,1]/16 when all 9 neighbors are
+            // valid) — a mild blur that reduces single-cell noise without washing out
+            // real hotspot shape spanning multiple cells.
+            const w = (dr === 0 && dc === 0) ? 4 : ((dr === 0 || dc === 0) ? 2 : 1);
+            sum += v * w;
+            weight += w;
+          }
+        }
+        blurred[r][c] = weight > 0 ? sum / weight : grid[r][c];
+      }
+    }
+    grid = blurred;
+
+    // minVal/maxVal above were measured on the pre-blur grid; a weighted average can only
+    // pull values toward their neighbors, never past the original extremes, but recompute
+    // from the blurred grid anyway so the returned range (and the percentile levels below,
+    // which read straight from `grid`) matches what's actually drawn.
+    minVal = Infinity; maxVal = -Infinity;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const v = grid[r][c];
+        if (v !== null && !isNaN(v)) {
+          if (v < minVal) minVal = v;
+          if (v > maxVal) maxVal = v;
+        }
+      }
+    }
     if (minVal === Infinity || maxVal === -Infinity) return [];
     if (Math.abs(maxVal - minVal) < 1e-9) maxVal = minVal + 0.1;
 

@@ -377,6 +377,36 @@ function bruteForceIdwGrid(points, bounds, rows, cols, isolationRadius, idwExpon
   return grid;
 }
 
+// generateContourSurface now applies a masked 3x3 tent blur to the raw IDW grid before
+// returning it (contour-smoothing fix — see collective_manager.js), so the brute-force
+// reference above must have the identical blur applied to stay a valid comparison; this
+// re-derivation, not the raw IDW output, is what test cases below compare `result.grid`
+// against.
+function applyMaskedBlur(grid, rows, cols) {
+  const blurred = Array.from({ length: rows }, () => new Array(cols).fill(null));
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (grid[r][c] === null || isNaN(grid[r][c])) { blurred[r][c] = grid[r][c]; continue; }
+      let sum = 0, weight = 0;
+      for (let dr = -1; dr <= 1; dr++) {
+        const rr = r + dr;
+        if (rr < 0 || rr >= rows) continue;
+        for (let dc = -1; dc <= 1; dc++) {
+          const cc = c + dc;
+          if (cc < 0 || cc >= cols) continue;
+          const v = grid[rr][cc];
+          if (v === null || isNaN(v)) continue;
+          const w = (dr === 0 && dc === 0) ? 4 : ((dr === 0 || dc === 0) ? 2 : 1);
+          sum += v * w;
+          weight += w;
+        }
+      }
+      blurred[r][c] = weight > 0 ? sum / weight : grid[r][c];
+    }
+  }
+  return blurred;
+}
+
 test('generateContourSurface: IDW grid matches an independent brute-force reference implementation', () => {
   // 5 points scattered at varied distances (some within isolationRadius*1.5
   // of each other, some not) with distinct phasic values, small enough that
@@ -405,7 +435,8 @@ test('generateContourSurface: IDW grid matches an independent brute-force refere
     topographySource: 'phasic', normalizeZScore: false,
   });
 
-  const expected = bruteForceIdwGrid(pts, result.bounds, gridResolution, gridResolution, isolationRadius, idwExponent);
+  const rawExpected = bruteForceIdwGrid(pts, result.bounds, gridResolution, gridResolution, isolationRadius, idwExponent);
+  const expected = applyMaskedBlur(rawExpected, gridResolution, gridResolution);
 
   let nonNullCells = 0;
   for (let r = 0; r < gridResolution; r++) {
