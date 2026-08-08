@@ -78,7 +78,10 @@ class GSRMapManager {
     }).setView([0, 0], 2);
 
     // Light Map Style (OpenStreetMap base, CartoDB Positron)
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    // Kept as this.baseTileLayer (not just addTo(this.map) and discarded) so
+    // GSRMapExporter can temporarily widen its keepBuffer before an SVG
+    // export — see exportToSvg's isoband-canvas-expansion handling.
+    this.baseTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
       maxZoom: 19,
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
       crossOrigin: true
@@ -978,6 +981,23 @@ class GSRMapManager {
 
     this.osmLayers = [];
 
+    // Group same-style shapes into a single ring array per category, instead
+    // of one Leaflet Path layer per feature. Areas with dense OSM building
+    // coverage can hand back thousands of ways/relations; each one used to
+    // become its own L.polygon (own layer registration, own onAdd/_project
+    // pass, own entry in the map's layer table). Rings within a category
+    // never overlap each other (they're distinct real-world buildings/parks/
+    // water bodies), so a single multi-ring L.polygon per category renders
+    // pixel-identical output — canvas/SVG fill and stroke both treat each
+    // disjoint ring independently regardless of winding — while cutting the
+    // layer count from N features down to at most 3 (park/water/building).
+    const ringsByCategory = { park: [], water: [], building: [] };
+    const STYLES = {
+      park:     { color: '#2d6a4f', fillColor: '#52b788', fillOpacity: 0.15, weight: 1 },
+      water:    { color: '#0077b6', fillColor: '#90e0ef', fillOpacity: 0.25, weight: 1 },
+      building: { color: '#4a4e69', fillColor: '#9a8c98', fillOpacity: 0.1,  weight: 1 }
+    };
+
     geoms.ways.concat(geoms.relations).forEach(geom => {
       const tags = geom.tags;
       if (!tags) return;
@@ -986,37 +1006,25 @@ class GSRMapManager {
       const isWater = tags.natural === 'water' || tags.natural === 'wetland' || tags.waterway === 'river' || tags.waterway === 'canal' || tags.waterway === 'stream' || tags.waterway === 'drain' || tags.waterway === 'ditch' || tags.landuse === 'basin' || tags.landuse === 'reservoir';
       const isBuilding = !!tags.building;
 
-      let color = null;
-      let fillColor = null;
-      let fillOpacity = 0.15;
+      const category = isPark ? 'park' : (isWater ? 'water' : (isBuilding ? 'building' : null));
+      if (!category) return;
 
-      if (isPark) {
-        color = '#2d6a4f';
-        fillColor = '#52b788';
-      } else if (isWater) {
-        color = '#0077b6';
-        fillColor = '#90e0ef';
-        fillOpacity = 0.25;
-      } else if (isBuilding) {
-        color = '#4a4e69';
-        fillColor = '#9a8c98';
-        fillOpacity = 0.1;
-      }
-
-      if (color) {
-        if (geom.type === 'way' && geom.coordinates.length > 2) {
-          const latlngs = geom.coordinates.map(pt => [pt.lat, pt.lon]);
-          const poly = L.polygon(latlngs, { color, fillColor, fillOpacity, weight: 1 }).addTo(this.map);
-          this.osmLayers.push(poly);
-        } else if (geom.type === 'relation' && geom.outerWays) {
-          geom.outerWays.forEach(way => {
-            const latlngs = way.coordinates.map(pt => [pt.lat, pt.lon]);
-            const poly = L.polygon(latlngs, { color, fillColor, fillOpacity, weight: 1 }).addTo(this.map);
-            this.osmLayers.push(poly);
-          });
-        }
+      const rings = ringsByCategory[category];
+      if (geom.type === 'way' && geom.coordinates.length > 2) {
+        rings.push(geom.coordinates.map(pt => [pt.lat, pt.lon]));
+      } else if (geom.type === 'relation' && geom.outerWays) {
+        geom.outerWays.forEach(way => {
+          rings.push(way.coordinates.map(pt => [pt.lat, pt.lon]));
+        });
       }
     });
+
+    for (const category of Object.keys(ringsByCategory)) {
+      const rings = ringsByCategory[category];
+      if (rings.length === 0) continue;
+      const poly = L.polygon(rings, STYLES[category]).addTo(this.map);
+      this.osmLayers.push(poly);
+    }
   }
 
   clearOsmShapes() {

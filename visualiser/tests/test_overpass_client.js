@@ -35,9 +35,17 @@ test('buildQuery: interpolates the bbox (lat,lon,lat,lon order) fixed to 6 decim
   const q = OverpassClient.buildQuery(BBOX);
   const expectedBbox = '51.500700,-0.124600,51.510700,-0.114600';
   assert.ok(q.includes(expectedBbox), 'query should contain the formatted bbox string');
-  // Every filter clause uses the same bbox token
+});
+
+test('buildQuery: uses a single global [bbox:...] setting rather than repeating the area filter on every clause', () => {
+  const q = OverpassClient.buildQuery(BBOX);
+  const expectedBbox = '51.500700,-0.124600,51.510700,-0.114600';
+  assert.match(q, /\[bbox:51\.500700,-0\.124600,51\.510700,-0\.114600\];/);
+  // Only the global [bbox:...] setting carries the coordinates — individual
+  // clauses (e.g. way["highway"];) rely on it instead of repeating "(${b})".
   const occurrences = q.split(expectedBbox).length - 1;
-  assert.ok(occurrences >= 10, `expected the bbox to appear many times, got ${occurrences}`);
+  assert.strictEqual(occurrences, 1, `expected the bbox string to appear exactly once (in [bbox:...]), got ${occurrences}`);
+  assert.ok(!q.includes(`(${expectedBbox})`), 'no clause should carry its own per-statement bbox filter');
 });
 
 test('buildQuery: rounds/pads bbox coordinates to exactly 6 decimals regardless of input precision', () => {
@@ -47,7 +55,7 @@ test('buildQuery: rounds/pads bbox coordinates to exactly 6 decimals regardless 
 
 test('buildQuery: includes [out:json], timeout, and maxsize directives', () => {
   const q = OverpassClient.buildQuery(BBOX);
-  assert.match(q, /\[out:json\]\[timeout:180\]\[maxsize:536870912\];/);
+  assert.match(q, /\[out:json\]\[timeout:180\]\[maxsize:536870912\]\[bbox:[^\]]+\];/);
 });
 
 test('buildQuery: requests highway/building/leisure/natural/amenity/shop feature classes', () => {

@@ -26,6 +26,7 @@ class GSRMapExporter {
     // export is genuinely visible; there's no invisible geometry to keep in
     // sync with a clip region.
     ctx = this._expandCanvasForIsobands(ctx);
+    await this._ensureTileCoverage(ctx, mgr);
 
     const layers = await this._gather(ctx);
     this._download(this._render(ctx, layers), AppState.viewMode || 'single');
@@ -219,7 +220,73 @@ class GSRMapExporter {
     // the same coordinate space as everything else _gather() collects.
     const newR = { left: ctx.r.left - marginLeft, top: ctx.r.top - marginTop };
 
-    return { ...ctx, w: newW, h: newH, project: newProject, r: newR };
+    // Realigning `r` (above) only fixes tiles that already exist in the DOM.
+    // Leaflet only ever loads/renders tiles for its own on-screen viewport
+    // (plus a small `keepBuffer` margin, default ~2 tiles/512px) — it has no
+    // reason to have fetched imagery for geography the isobands extrapolate
+    // into but the visible map never showed. Past that buffer, this margin
+    // is genuinely tile-less: no amount of repositioning conjures pixels
+    // that were never downloaded. `tileMargin` is read by exportToSvg to
+    // temporarily widen the live tile layer's buffer and let it actually
+    // fetch that area before capture (see _ensureTileCoverage).
+    return { ...ctx, w: newW, h: newH, project: newProject, r: newR,
+      tileMargin: { left: marginLeft, top: marginTop, right: marginRight, bottom: marginBottom } };
+  }
+
+  /**
+   * Best-effort: widen the live base tile layer's `keepBuffer` so Leaflet
+   * actually fetches tiles covering `ctx.tileMargin` (the area the export
+   * canvas grew into for isoband extrapolation, see _expandCanvasForIsobands)
+   * before _tiles() captures whatever's in the DOM. Without this, that
+   * margin is real, undownloaded geography — no amount of repositioning
+   * existing tile images can fill it, it just renders as flat background.
+   *
+   * Touches Leaflet's private GridLayer API (`_update`/`_noTilesToLoad`) —
+   * there's no public "load more tiles than the viewport needs" method.
+   * Wrapped defensively: any failure here (missing layer, API drift in a
+   * future Leaflet version) just means the export falls back to today's
+   * behavior (a blank margin) rather than breaking the export outright.
+   */
+  static async _ensureTileCoverage(ctx, mgr) {
+    const margin = ctx.tileMargin;
+    if (!margin) return;
+    const maxMarginPx = Math.max(margin.left, margin.top, margin.right, margin.bottom);
+    if (maxMarginPx <= 0) return;
+
+    try {
+      const layer = mgr.baseTileLayer;
+      if (!layer || typeof layer._update !== 'function' || !mgr.map) return;
+
+      const tileSize = (typeof layer.getTileSize === 'function') ? layer.getTileSize().x : 256;
+      const neededBuffer = Math.ceil(maxMarginPx / tileSize);
+      const prevBuffer = layer.options.keepBuffer || 0;
+      if (neededBuffer <= prevBuffer) return; // default buffer already covers this margin
+
+      layer.options.keepBuffer = neededBuffer;
+      layer._update(mgr.map.getCenter());
+
+      await new Promise(resolve => {
+        if (typeof layer._noTilesToLoad !== 'function' || layer._noTilesToLoad()) { resolve(); return; }
+        let settled = false;
+        const done = () => {
+          if (settled) return;
+          settled = true;
+          layer.off('load', done);
+          clearTimeout(timer);
+          resolve();
+        };
+        layer.on('load', done);
+        // Never let a slow/failed tile fetch block the export indefinitely.
+        // unref()'d so a still-pending timer (the common case: 'load' fires
+        // first and clears it) can never keep the process alive on its own.
+        const timer = setTimeout(done, 8000);
+        if (typeof timer.unref === 'function') timer.unref();
+      });
+
+      layer.options.keepBuffer = prevBuffer;
+    } catch (err) {
+      if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'map_exporter:_ensureTileCoverage');
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1103,9 +1170,13 @@ class GSRMapExporter {
     const o = layer.options || {};
     const esc = this._esc;
     // Reduced stroke size: 1.2px thin stroke for exported track vectors.
-    // Exact/OSM shapes keep their authored weight untouched — no cosmetic thinning.
+    // Exact/OSM shapes keep the exact-mode *geometry* (every vertex, no
+    // smoothing/culling — see the "exact" comment above), but the stroke
+    // itself is cosmetically thinned same as tracks: at authored weight
+    // (1px, from map.js's drawOsmShapes), park/water/building outlines
+    // print heavier than intended on export, so scale it down.
     const strokeWidth = exact
-      ? (o.weight !== undefined ? o.weight : 1)
+      ? (o.weight !== undefined ? o.weight * 0.35 : 0.35)
       : (o.weight !== undefined ? Math.min(1.5, o.weight * 0.4) : 1.2);
 
     return `<path d="${d}"` +

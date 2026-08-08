@@ -422,6 +422,68 @@ function samplesFromPathD(d) {
   console.log(`✓ _expandCanvasForIsobands shifts ctx.r (left -${marginLeft}, top -${marginTop}) to keep tile placement aligned with the expanded vector coordinate space`);
 }
 
-console.log('\n============================================================');
-console.log('Isoband Boundary Closure Regression Test: ALL PASSED');
-console.log('============================================================');
+// ── Test 7: _ensureTileCoverage widens the live tile layer's buffer to
+// actually fetch imagery for ctx.tileMargin before capture, instead of
+// leaving it as genuinely-undownloaded geography (see _expandCanvasForIsobands's
+// tileMargin doc comment — the deeper bug behind Test 6's misalignment fix:
+// even with tiles correctly repositioned, a margin past Leaflet's own
+// keepBuffer was never downloaded in the first place, reported as a solid
+// blank/black region wherever the isobands pushed the canvas out furthest).
+// A fake GridLayer stands in for Leaflet's real one.
+(async () => {
+  function fakeLayer(keepBuffer) {
+    const handlers = {};
+    return {
+      options: { keepBuffer },
+      _updateCalls: 0,
+      _loaded: true,
+      getTileSize: () => ({ x: 256, y: 256 }),
+      _update(center) { this._updateCalls++; this._updateCenter = center; },
+      _noTilesToLoad() { return this._loaded; },
+      on(evt, fn) { handlers[evt] = fn; },
+      off(evt, fn) { if (handlers[evt] === fn) delete handlers[evt]; },
+      _fireLoad() { if (handlers.load) handlers.load(); }
+    };
+  }
+
+  // 7a: margin bigger than the default keepBuffer's reach → widens the
+  // buffer, calls _update() to request the new tiles, awaits the 'load'
+  // event, then restores the original keepBuffer once loading settles.
+  {
+    const layer = fakeLayer(2);
+    layer._loaded = false; // tiles not yet loaded when _update() is called
+    const mgr = { baseTileLayer: layer, map: { getCenter: () => ({ lat: 1, lon: 2 }) } };
+    const ctx = { tileMargin: { left: 801, top: 73, right: 0, bottom: 0 } };
+    const pending = GSRMapExporter._ensureTileCoverage(ctx, mgr);
+    assert.strictEqual(layer._updateCalls, 1, '_update() is called once to request the wider buffer');
+    assert.strictEqual(layer.options.keepBuffer, Math.ceil(801 / 256), 'keepBuffer is widened to cover the largest margin, in tile units');
+    layer._fireLoad();
+    await pending;
+    assert.strictEqual(layer.options.keepBuffer, 2, 'keepBuffer is restored to its original value once tiles finish loading');
+    console.log('✓ _ensureTileCoverage widens keepBuffer, waits for the load event, then restores it');
+  }
+
+  // 7b: margin already within the existing buffer's reach → no-op, doesn't
+  // touch the live layer at all.
+  {
+    const layer = fakeLayer(4); // 4 tiles * 256px = 1024px, comfortably covers a 100px margin
+    const mgr = { baseTileLayer: layer, map: { getCenter: () => ({ lat: 1, lon: 2 }) } };
+    const ctx = { tileMargin: { left: 100, top: 50, right: 0, bottom: 0 } };
+    await GSRMapExporter._ensureTileCoverage(ctx, mgr);
+    assert.strictEqual(layer._updateCalls, 0, 'no _update() call when the existing keepBuffer already covers the margin');
+    console.log('✓ _ensureTileCoverage is a no-op when the default tile buffer already covers the margin');
+  }
+
+  // 7c: no tileMargin (canvas was never expanded) and a missing layer both
+  // resolve harmlessly — this step must never hang or throw and break the
+  // rest of the export.
+  {
+    await GSRMapExporter._ensureTileCoverage({}, { baseTileLayer: null, map: {} });
+    await GSRMapExporter._ensureTileCoverage({ tileMargin: { left: 500, top: 0, right: 0, bottom: 0 } }, { baseTileLayer: null, map: {} });
+    console.log('✓ _ensureTileCoverage resolves harmlessly with no tileMargin or no tile layer');
+  }
+
+  console.log('\n============================================================');
+  console.log('Isoband Boundary Closure Regression Test: ALL PASSED');
+  console.log('============================================================');
+})();

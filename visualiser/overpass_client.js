@@ -9,28 +9,34 @@ const OverpassClient = {
   _nextAllowedCallTime: null,
 
   buildQuery(bbox) {
+    // A single global [bbox:...] setting (rather than repeating the same
+    // area filter "(${b})" on all 20 clauses below) is the form Overpass QL
+    // itself recommends for this shape of query — smaller request body, and
+    // the server only has to resolve the bounding box once instead of once
+    // per clause. Semantically identical result set to the old per-clause
+    // filters, so no OsmCache.QUERY_VERSION bump is needed.
     const b = `${bbox.minLat.toFixed(6)},${bbox.minLon.toFixed(6)},${bbox.maxLat.toFixed(6)},${bbox.maxLon.toFixed(6)}`;
-    return `[out:json][timeout:180][maxsize:536870912];
+    return `[out:json][timeout:180][maxsize:536870912][bbox:${b}];
 (
-  way["highway"](${b});
-  way["building"](${b});
-  relation["building"](${b});
-  way["leisure"~"park|garden|nature_reserve|playground"](${b});
-  way["landuse"~"grass|forest|meadow|recreation_ground|village_green|orchard"](${b});
-  way["natural"~"wood|scrub|grassland|heath"](${b});
-  relation["leisure"~"park|garden|nature_reserve|playground"](${b});
-  relation["landuse"~"grass|forest|meadow|recreation_ground|village_green|orchard"](${b});
-  relation["natural"~"wood|scrub|grassland|heath"](${b});
-  way["natural"~"water|wetland"](${b});
-  way["waterway"](${b});
-  relation["natural"~"water|wetland"](${b});
-  relation["waterway"](${b});
-  node["amenity"](${b});
-  way["amenity"](${b});
-  node["shop"](${b});
-  way["shop"](${b});
-  node["highway"="bus_stop"](${b});
-  node["natural"="tree"](${b});
+  way["highway"];
+  way["building"];
+  relation["building"];
+  way["leisure"~"park|garden|nature_reserve|playground"];
+  way["landuse"~"grass|forest|meadow|recreation_ground|village_green|orchard"];
+  way["natural"~"wood|scrub|grassland|heath"];
+  relation["leisure"~"park|garden|nature_reserve|playground"];
+  relation["landuse"~"grass|forest|meadow|recreation_ground|village_green|orchard"];
+  relation["natural"~"wood|scrub|grassland|heath"];
+  way["natural"~"water|wetland"];
+  way["waterway"];
+  relation["natural"~"water|wetland"];
+  relation["waterway"];
+  node["amenity"];
+  way["amenity"];
+  node["shop"];
+  way["shop"];
+  node["highway"="bus_stop"];
+  node["natural"="tree"];
 );
 out body;
 >;
