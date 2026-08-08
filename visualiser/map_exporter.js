@@ -1187,19 +1187,36 @@ class GSRMapExporter {
     // so none of the GPS-track-oriented smoothing/culling below should touch them.
     const exact = !!opts.exact;
 
-    // Apply Chaikin pre-smoothing ONLY to track paths to filter micro-jitter before screen projection
+    // Apply Chaikin pre-smoothing ONLY to track/contour paths to filter micro-jitter
+    // before screen projection.
+    let isClosedLoop = false;
     if (!isPoly && !exact && Array.isArray(latlngs) && latlngs.length >= 3 && typeof GeoUtils !== 'undefined') {
       try {
         const flat = Array.isArray(latlngs[0]) ? latlngs.flat() : latlngs;
         if (flat.length >= 3 && flat[0] && (typeof flat[0].lat === 'number' || Array.isArray(flat[0]))) {
-          latlngs = GeoUtils.chaikinSmooth(flat, 2, false);
+          // Contour isolines are frequently closed rings (concentric loops around a
+          // hotspot) whose first/last point coincide (see GSRSpatialClustering.stitchSegments).
+          // A fixed `closed=false` here — unlike map.js's renderContours, which detects this
+          // and smooths with closed=true — left the ring's seam as a sharp, un-cut corner and
+          // then never closed the SVG path with 'Z', so every exported contour ring was both
+          // less smoothed than its on-screen counterpart AND carried a visible kink at the seam.
+          const getLat = p => Array.isArray(p) ? p[0] : p.lat;
+          const getLon = p => Array.isArray(p) ? p[1] : (p.lon !== undefined ? p.lon : p.lng);
+          const first = flat[0], last = flat[flat.length - 1];
+          isClosedLoop = Math.abs(getLat(first) - getLat(last)) < 1e-9 && Math.abs(getLon(first) - getLon(last)) < 1e-9;
+          // One more iteration than the live-map pass (map.js renderContours uses 3): export
+          // always rasterizes the full data bounds onto a fixed ~2000-4000px canvas
+          // (_getProjection), which is typically a higher px/degree scale than the on-screen
+          // map panel when zoomed out to fit a large collective map — the same degree-space
+          // wiggle otherwise lands on proportionally more (and so more visible) export pixels.
+          latlngs = GeoUtils.chaikinSmooth(flat, 4, isClosedLoop);
         }
       } catch (err) {
         if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'map_exporter:_vectors(smoothing)');
       }
     }
 
-    const d = this._pathD(ctx, latlngs, isPoly, !exact, exact);
+    const d = this._pathD(ctx, latlngs, isPoly || isClosedLoop, !exact, exact);
     if (!d) return null;
 
     const o = layer.options || {};
@@ -1274,11 +1291,20 @@ class GSRMapExporter {
     // Catmull-Rom to Cubic Bézier spline smoothing for continuous, smooth strokes
     let d = `M${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
     const n = pts.length;
+    // Rings produced via GeoUtils.chaikinSmooth(..., closed=true) (contour isolines,
+    // isoband boundary rings) explicitly duplicate the closing vertex — pts[n-1] === pts[0]
+    // — whereas a plain Leaflet L.Polygon ring (isPoly) does NOT duplicate it and relies on
+    // the trailing 'Z' for closure. Only rings with that duplicate can be wrapped as an
+    // (n-1)-point ring below; otherwise pts[0]/pts[n-1] are two distinct real vertices and
+    // must be left on the clamped (non-wrapping) path so polygon rendering doesn't shift.
+    const isDuplicateClosed = close && n >= 3 &&
+      Math.abs(pts[0].x - pts[n - 1].x) < 1e-6 && Math.abs(pts[0].y - pts[n - 1].y) < 1e-6;
+    const m = isDuplicateClosed ? n - 1 : n;
     for (let i = 0; i < n - 1; i++) {
-      const pPrev = pts[Math.max(0, i - 1)];
+      const pPrev = isDuplicateClosed ? pts[(i - 1 + m) % m] : pts[Math.max(0, i - 1)];
       const pCurr = pts[i];
       const pNext = pts[i + 1];
-      const pFut  = pts[Math.min(n - 1, i + 2)];
+      const pFut  = isDuplicateClosed ? pts[(i + 2) % m] : pts[Math.min(n - 1, i + 2)];
 
       const c1x = pCurr.x + (pNext.x - pPrev.x) / 6;
       const c1y = pCurr.y + (pNext.y - pPrev.y) / 6;
