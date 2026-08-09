@@ -363,6 +363,28 @@ $$G_{nS} = \frac{N \times 5{,}000{,}000}{15{,}040{,}000 - N \times 47}$$
 
 When `N` approaches zero (open circuit / disconnected electrodes), conductance is clamped to 0. When `N` exceeds 319,000 (near the denominator singularity at `N = 15,040,000 / 47 ≈ 320,000`), the value is clamped to prevent overflow.
 
+### Hardware Accuracy & Comparison to Commercial Devices
+The device's accuracy was evaluated using a precision metal-film reference resistor grid (10 kΩ to 9 MΩ). Within the active wear/physiological range, the device exhibits exceptional accuracy and sensitivity:
+
+*   **Ultra-High Accuracy Zone (Error $\le$ ±0.10%):** **47 kΩ to 1 MΩ** (Conductance: $1,000\text{ nS} \le G \le 21,277\text{ nS}$). In this range, where **99.05%** of all active-wear track data falls, the calibration error is virtually non-existent.
+*   **High Accuracy Zone (Error $\le$ ±0.50%):** **22 kΩ to 2.2 MΩ** (Conductance: $455\text{ nS} \le G \le 45,455\text{ nS}$). This covers **99.75%** of all active-wear track data.
+*   **Acceptable Accuracy Zone (Error $\le$ ±1.00%):** **15 kΩ to 4.7 MΩ** (Conductance: $213\text{ nS} \le G \le 66,667\text{ nS}$). This covers **99.89%** of all active-wear track data.
+*   **Open-Circuit Limit:** Below 100 nS ($> 10\text{ M}\Omega$), the device detects an open-circuit state (electrodes disconnected/air).
+
+#### Comparison with Commercial EDA Systems
+
+To put this performance into perspective, here is how the BioMapping 2.0 device compares to prominent research-grade devices (such as the Shimmer3 GSR+ wearable and the laboratory-standard BIOPAC EDA100C) in terms of resolution and accuracy error:
+
+*   **Measurement Method:** Constant Voltage ($0.5\text{ V}$ bias), which matches the standard methodology used by both BIOPAC and Shimmer3.
+*   **GSR Resolution:** 
+    *   **BioMapping 2.0:** **$< 0.5\text{ nS}$** (enabled by a 16-bit delta-sigma ADC and 100-sample decimation filtering).
+    *   **BIOPAC (EDA100C):** **$0.7\text{ nS}$** sensitivity.
+    *   **Shimmer3 GSR+:** Variable resolution (utilizes a lower 12-bit ADC, which decreases precision at low skin conductance ranges).
+*   **Accuracy Error:**
+    *   **BioMapping 2.0:** **$\le$ ±0.10%** error in the primary range ($47\text{ k}\Omega - 1\text{ M}\Omega$), **$\le$ ±0.50%** in the wide range ($22\text{ k}\Omega - 2.2\text{ M}\Omega$), and **$\le$ ±1.00%** across the extreme range ($15\text{ k}\Omega - 4.7\text{ M}\Omega$).
+    *   **Shimmer3 GSR+:** **±3%** error in the primary range ($22\text{ k}\Omega - 680\text{ k}\Omega$) and **±10%** error across the wide range ($10\text{ k}\Omega - 4.7\text{ M}\Omega$).
+    *   **BIOPAC (EDA100C):** High laboratory-grade accuracy (dependent on careful skin preparation and conductive gel application).
+
 ---
 
 ## 6. Recording & Post-Processing
