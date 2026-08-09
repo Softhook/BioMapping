@@ -117,7 +117,7 @@ The core module `gsr_sensor.c` runs a background thread to read the ADS1115 at 8
    - **Range Down (Avoid Clipping):** If the absolute differential voltage exceeds 30,000 counts (~91.5% of full scale), the PGA gain index is immediately decreased (e.g. from ±0.512V to ±1.024V) to widen the range.
    - **Range Up (Increase Resolution):** If the absolute reading remains below 4,096 counts (~12.5% of full scale) for 5 consecutive ticks, the PGA gain index is increased (e.g. from ±2.048V to ±1.024V) to narrow the range.
 2. **Output Normalization:** To ensure downstream filters (EMA and Derivative) receive a consistent signal, all hardware readings are normalized back to a common baseline of the ±0.256V range (where 1 LSB = 7.8125 µV) regardless of the active hardware gain setting.
-3. **Simple-Mean Oversampling:** All 100 buffer entries (spanning the full 100 ms decimation interval) are averaged directly. The background worker polls at ~1000 Hz while the ADS1115 converts at 860 SPS, so ~14 % of entries are duplicate reads — these don't bias the mean but yield an effective unique-sample count of ~86. The 100 ms window duration cancels sinusoidal 50/60 Hz mains hum perfectly (100 ms = 5 cycles of 50 Hz = 6 cycles of 60 Hz). Because the 14 duplicate reads are double-weighted rather than independent, the effective noise reduction is **~8.7×** — below the √100 = 10× ideal, and also below a naive √86 ≈ 9.27× estimate — against the Gaussian noise sources that dominate the ADC front-end. Empirical testing (873-sample recording) confirmed zero I2C glitches — all large tick-to-tick jumps were sustained physiological SCR onsets, not noise spikes that would benefit from trimming.
+3. **Simple-Mean Oversampling:** Rather than averaging a fixed sample count (which would double in duration if the worker thread rate varied), the decimation window is strictly time-based, spanning exactly the last 100 ms. Because the worker thread rate averages ~400–500 Hz on real Flipper Zero hardware, this window contains approximately 40 to 50 samples tick-to-tick. A 100 ms window duration cancels sinusoidal 50/60 Hz mains hum perfectly (100 ms = 5 cycles of 50 Hz = 6 cycles of 60 Hz) regardless of sample count. The resulting noise-reduction factor is $\approx 6.7\times$ (scaling with $\sqrt{N}$), providing a highly stable baseline. Empirical testing (873-sample recording) confirmed zero I2C glitches — all large tick-to-tick jumps were sustained physiological SCR onsets, not noise spikes that would benefit from trimming.
 4. **Conductance Conversion:** The filtered voltage is translated into physical skin conductance in nanosiemens (nS) using the TIA circuit equation.
 
 Here is the core logic for writing the dynamic PGA configuration and reading the raw ADC conversion registers:
@@ -208,7 +208,7 @@ ADS1115 @ 860 SPS  ──►  Background worker thread
                  (all modes)         (derivative display)
 ```
 
-**Post-decimation smoothing rationale:** The 100-sample boxcar average is the pre-decimation (anti-aliasing) filter — it provides ~4 dB at the 5 Hz Nyquist frequency and perfectly cancels sinusoidal 50/60 Hz mains hum (100 ms = 5 cycles of 50 Hz = 6 cycles of 60 Hz). Aliasing from the 860→10 Hz downsampling cannot be undone, but a post-decimation first-order IIR at 3 Hz (α = 0.848) attenuates both real high-frequency GSR and any aliased noise that leaked into the 0–5 Hz band. Since >95 % of GSR signal power is below 1 Hz, the net SNR improves: real phasic GSR at 2 Hz loses <0.5 dB, while broadband EMI (BLE radio, switching artifacts) that passed through the boxcar sidelobes is suppressed. The IIR costs one multiply-add per tick (~3 CPU cycles) and introduces ~50 ms phase lag at 1 Hz — invisible for GSR where phasic responses have 1–3 s rise times.  See `smooth_iir_filter()` in `biomap_session.c`.
+**Post-decimation smoothing rationale:** The 100 ms boxcar average is the pre-decimation (anti-aliasing) filter — it provides ~4 dB at the 5 Hz Nyquist frequency and perfectly cancels sinusoidal 50/60 Hz mains hum (100 ms = 5 cycles of 50 Hz = 6 cycles of 60 Hz). Aliasing from the 860→10 Hz downsampling cannot be undone, but a post-decimation first-order IIR at 3 Hz (α = 0.848) attenuates both real high-frequency GSR and any aliased noise that leaked into the 0–5 Hz band. Since >95 % of GSR signal power is below 1 Hz, the net SNR improves: real phasic GSR at 2 Hz loses <0.5 dB, while broadband EMI (BLE radio, switching artifacts) that passed through the boxcar sidelobes is suppressed. The IIR costs one multiply-add per tick (~3 CPU cycles) and introduces ~50 ms phase lag at 1 Hz — invisible for GSR where phasic responses have 1–3 s rise times.  See `smooth_iir_filter()` in `biomap_session.c`.
 
 ### GPS Signal Chain
 
@@ -377,7 +377,7 @@ To put this performance into perspective, here is how the BioMapping 2.0 device 
 
 *   **Measurement Method:** Constant Voltage ($0.5\text{ V}$ bias), which matches the standard methodology used by both BIOPAC and Shimmer3.
 *   **GSR Resolution:** 
-    *   **BioMapping 2.0:** **$< 0.5\text{ nS}$** (enabled by a 16-bit delta-sigma ADC and 100-sample decimation filtering).
+    *   **BioMapping 2.0:** **$< 0.5\text{ nS}$** (enabled by a 16-bit delta-sigma ADC and 100 ms time-based decimation filtering).
     *   **BIOPAC (EDA100C):** **$0.7\text{ nS}$** sensitivity.
     *   **Shimmer3 GSR+:** Variable resolution (utilizes a lower 12-bit ADC, which decreases precision at low skin conductance ranges).
 *   **Accuracy Error:**
@@ -553,9 +553,9 @@ It displays the following variables in real-time:
   * `5`: $\pm0.256\text{ V}$ (maximum sensitivity)
 * **Cal:** Shows whether custom calibration is active (`yes` or `no`).
 * **Raw:** Single-sample real-time skin conductance in nanosiemens (nS) computed using the TIA equation.
-* **Filt:** The $100$-sample boxcar-averaged (decimated) skin conductance in nanosiemens (nS) before post-decimation IIR/EMA filtering is applied.
+* **Filt:** The $100\text{ ms}$ boxcar-averaged (decimated) skin conductance in nanosiemens (nS) before post-decimation IIR/EMA filtering is applied.
 * **Sngl:** The raw single-sample normalized ADC count (pre-TIA conversion, normalized to the $\pm0.256\text{ V}$ range).
-* **Mean:** The $100$-sample mean normalized ADC count (pre-TIA conversion, snapshot of the oversampling window).
+* **Mean:** The $100\text{ ms}$ mean normalized ADC count (pre-TIA conversion, snapshot of the oversampling window).
 
 ### Full Control Reference
 
