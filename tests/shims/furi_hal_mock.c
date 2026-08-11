@@ -21,6 +21,39 @@ static struct FuriHalSerialHandle g_handle;
 static int g_acquired = 0;
 static int g_tx_count = 0;
 
+// ── TX-triggered response injection ─────────────────────────────────────
+// furi_hal_mock_feed_byte/_string() deliver synchronously, which is fine
+// for injecting bytes *between* calls into production code but gives a
+// test no way to get bytes into rx_stream *during* a single blocking call
+// like gps_uart_alloc() — there's no point at which the test regains
+// control to feed anything until the call returns. Arming a response here
+// makes it land at the exact TX that triggers it on real hardware (e.g. a
+// module replying to a specific poll), wherever in a longer sequence of
+// unrelated TX calls that happens to fall. Matched by exact byte content
+// rather than "whichever TX comes next": a single gps_uart_alloc() call
+// can send several unrelated packets (wake byte, baud-switch command, CFG
+// packets, ...) before the one a test actually cares about, e.g.
+// ubx_poll_chip_id()'s UBX-SEC-UNIQID poll, sent last.
+#define TX_RESPONSE_MAX_TRIGGER 16
+#define TX_RESPONSE_MAX_BYTES   640
+static uint8_t g_tx_trigger[TX_RESPONSE_MAX_TRIGGER];
+static size_t  g_tx_trigger_len = 0;
+static uint8_t g_tx_response[TX_RESPONSE_MAX_BYTES];
+static size_t  g_tx_response_len = 0;
+static bool    g_tx_response_armed = false;
+
+void furi_hal_mock_arm_response_for_tx(
+    const uint8_t* trigger, size_t trigger_len,
+    const uint8_t* response, size_t response_len) {
+    furi_check(trigger_len <= sizeof(g_tx_trigger), "furi_hal_mock: trigger too long");
+    furi_check(response_len <= sizeof(g_tx_response), "furi_hal_mock: response too long");
+    memcpy(g_tx_trigger, trigger, trigger_len);
+    g_tx_trigger_len = trigger_len;
+    memcpy(g_tx_response, response, response_len);
+    g_tx_response_len = response_len;
+    g_tx_response_armed = true;
+}
+
 FuriHalSerialHandle* furi_hal_serial_control_acquire(FuriHalSerialId id) {
     (void)id;
     if(g_acquired) return NULL;
@@ -66,9 +99,14 @@ uint8_t furi_hal_serial_async_rx(FuriHalSerialHandle* handle) {
 
 void furi_hal_serial_tx(FuriHalSerialHandle* handle, const uint8_t* data, size_t len) {
     (void)handle;
-    (void)data;
-    (void)len;
     g_tx_count++;
+    if(g_tx_response_armed && len == g_tx_trigger_len &&
+       memcmp(data, g_tx_trigger, len) == 0) {
+        g_tx_response_armed = false;
+        for(size_t i = 0; i < g_tx_response_len; i++) {
+            furi_hal_mock_feed_byte(g_tx_response[i]);
+        }
+    }
 }
 
 void furi_hal_mock_feed_byte(uint8_t byte) {

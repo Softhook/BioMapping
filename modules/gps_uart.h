@@ -84,6 +84,19 @@ uint32_t  gps_uart_get_nmea_fail_count(const GpsUart* gps);
 // in the CSV instead of only in a serial log nobody was watching live.
 uint32_t  gps_uart_get_reinit_count(const GpsUart* gps);
 
+// gps_uart_get_chip_id(): best-effort GPS module chip serial number,
+// polled via the binary UBX-SEC-UNIQID message and rendered as a 5-word
+// mnemonic phrase (EFF short wordlist — see ubx_poll_chip_id() in
+// gps_uart.c) rather than the raw 12-hex-digit value, e.g. "axis slang
+// boast putt chunk" — 1296^5 >= 2^48, so this is a lossless, collision-free
+// encoding of the chip ID, not just a recognisable label. Returns "" if
+// not yet captured — e.g. L76K builds (no UBX protocol support), or the
+// poll got no valid response. Not tied to a specific GpsUart allocation:
+// a capture persists across gps_uart_free()/gps_uart_alloc() cycles
+// within the same app session (file-scope cache), so a later mode switch
+// can still see an ID found earlier.
+const char* gps_uart_get_chip_id(const GpsUart* gps);
+
 // Put the GPS module into its lowest-power standby/sleep state.
 // Acquires USART1 briefly — does NOT require a full GpsUart allocation.
 // Safe to call even when no module is connected (no-op on acquire failure).

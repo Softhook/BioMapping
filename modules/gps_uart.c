@@ -12,6 +12,9 @@
 #include <math.h>
 #include <string.h>
 #include <stdatomic.h>
+#if GPS_MODULE == GPS_MODULE_M10Q
+#include "eff_short_wordlist.h" // chip-ID mnemonic phrase — see ubx_poll_chip_id()
+#endif
 
 #define RX_LINE_BUF  1024      // max NMEA line length (~80 in practice)
 #define GSV_MAX_TALKERS 5      // GP/GL/GA/GB/GQ — one slot per constellation per accumulation window
@@ -431,6 +434,35 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
     }
 }
 
+// ── GPS chip ID cache ────────────────────────────────────────────────────
+// File-scope, not a GpsStatus/GpsUart field: this app frees and reallocs
+// GpsUart across mode switches (e.g. GSR-only standby cycling), and a
+// capture from an earlier alloc should survive into a later one within the
+// same app session rather than being lost with the struct that held it.
+// Empty ("") until ubx_poll_chip_id() (M10Q only, see below) polls and
+// validates one. Never cleared — once found, kept for the life of the
+// process.
+//
+// An earlier version of this tried to catch the chip ID opportunistically
+// from the module's $..TXT NMEA boot banner (u-blox M10 ROM 5.10 Release
+// Notes §2.3.1 documents "CHIPID=..." appearing there). Real-hardware
+// testing showed that never worked on this app's wake path: the module is
+// woken from UBX backup mode (a single byte on RX, see ubx_wake()), not a
+// true power-on reset, and three separate capture attempts — including a
+// genuine full power cycle — only ever saw baud-mismatched noise in the
+// pre-configure window, never a recognizable NMEA line. The boot banner,
+// if this module even emits one on this wake path, most likely happens
+// before the app is even running (the module is powered continuously off
+// the Flipper's 3V3 rail from well before the app is launched) — nothing
+// is listening yet at that point. Binary UBX-SEC-UNIQID below sidesteps
+// this entirely: a direct request/response that doesn't depend on catching
+// a one-time transient at exactly the right moment.
+//
+// Holds a 5-word mnemonic phrase (see ubx_poll_chip_id_once()), not the
+// raw hex — max 5*5-char words + 4 spaces + NUL = 30 bytes, comfortably
+// under 32.
+static char g_gps_chip_id[32] = {0};
+
 // ---------------------------------------------------------------------------
 // Alloc — acquire USART1, init serial, configure GPS
 // ---------------------------------------------------------------------------
@@ -623,6 +655,92 @@ static void ubx_send_and_confirm(GpsUart* g, const uint8_t* data, size_t len, co
         // to the log below once attempts are exhausted.
     }
     FURI_LOG_W("GpsUart", "%s: no ACK/NAK received", label);
+}
+
+// ── UBX-SEC-UNIQID (class 0x27, id 0x03) — unique chip ID poll ──────────
+// u-blox M10 SPG 5.10 Interface Description §3.17.1: a 0-length poll
+// request to this class/id gets back a 10-byte payload — version(1) +
+// reserved(3) + uniqueId(6, the 48-bit chip ID) — per §3.5.2's generic UBX
+// polling mechanism (send the message with no payload, receive it back
+// with the payload populated). See g_gps_chip_id's doc comment above for
+// why this replaced an earlier attempt to catch the ID opportunistically
+// off the module's NMEA boot banner.
+static const uint8_t ubx_poll_uniqid[] = {0xB5, 0x62, 0x27, 0x03, 0x00, 0x00, 0x2A, 0xA5};
+
+// One attempt: send the poll, read back exactly one frame, accept it only
+// if it's actually UBX-SEC-UNIQID with a valid checksum. Anything else
+// (wrong class/id/length, corrupted frame, timeout) is a failure — same
+// "don't guess, don't trust partial data" stance the old boot-banner
+// attempt used its checksum check for.
+static bool ubx_poll_chip_id_once(GpsUart* g) {
+    furi_stream_buffer_reset(g->rx_stream); // drop stale bytes first — see ubx_send_and_confirm()'s doc comment
+    furi_hal_serial_tx(g->serial_handle, ubx_poll_uniqid, sizeof(ubx_poll_uniqid));
+
+    if(!ubx_find_sync(g)) return false;
+
+    uint8_t hdr[4]; // class, id, len_lo, len_hi
+    if(!ubx_read_byte(g, &hdr[0]) || !ubx_read_byte(g, &hdr[1]) ||
+       !ubx_read_byte(g, &hdr[2]) || !ubx_read_byte(g, &hdr[3])) {
+        return false;
+    }
+    uint16_t len = (uint16_t)hdr[2] | ((uint16_t)hdr[3] << 8);
+    if(hdr[0] != 0x27 || hdr[1] != 0x03 || len != 10) return false; // not our response
+
+    uint8_t payload[10];
+    for(int i = 0; i < 10; i++) {
+        if(!ubx_read_byte(g, &payload[i])) return false;
+    }
+    uint8_t ck_a, ck_b;
+    if(!ubx_read_byte(g, &ck_a) || !ubx_read_byte(g, &ck_b)) return false;
+
+    uint8_t ck_buf[14] = {
+        hdr[0], hdr[1], hdr[2], hdr[3],
+        payload[0], payload[1], payload[2], payload[3], payload[4],
+        payload[5], payload[6], payload[7], payload[8], payload[9]};
+    uint8_t calc_a, calc_b;
+    ubx_calc_checksum(ck_buf, sizeof(ck_buf), &calc_a, &calc_b);
+    if(calc_a != ck_a || calc_b != ck_b) return false; // corrupted frame
+
+    // payload[4..9] is the 6-byte (48-bit) uniqueId (spec offset 4, U1[6]).
+    // Rendered as a 5-word phrase (EFF short wordlist, see
+    // eff_short_wordlist.h) rather than 12 hex digits, for a CSV header a
+    // human can actually glance at and recognise. 1296^5 == 6^20 ==
+    // 3,656,158,440,062,976, comfortably >= 2^48 (281,474,976,710,656), so
+    // — unlike a 4-word phrase, which would only cover ~41.4 of the 48
+    // bits — this is a genuinely lossless, collision-free encoding: every
+    // 48-bit chip ID maps to a unique 5-word phrase, not just a
+    // recognisable label.
+    uint64_t id = 0;
+    for(int i = 0; i < 6; i++) {
+        id = (id << 8) | payload[4 + i];
+    }
+    int digit[5];
+    for(int i = 0; i < 5; i++) {
+        digit[i] = (int)(id % EFF_SHORT_WORDLIST_COUNT);
+        id /= EFF_SHORT_WORDLIST_COUNT;
+    }
+    // Most-significant word first (digit[4]..digit[0]) so the phrase reads
+    // in the same order the underlying bits do.
+    snprintf(g_gps_chip_id, sizeof(g_gps_chip_id), "%s %s %s %s %s",
+             eff_short_wordlist[digit[4]], eff_short_wordlist[digit[3]],
+             eff_short_wordlist[digit[2]], eff_short_wordlist[digit[1]],
+             eff_short_wordlist[digit[0]]);
+    return true;
+}
+
+// Retries once on failure, mirroring ubx_send_and_confirm()'s one-retry
+// convention (see its doc comment) — a poll going unanswered on the very
+// first attempt right after the baud switch is the same known settling
+// behaviour that motivated that retry, not speculative.
+static void ubx_poll_chip_id(GpsUart* g) {
+    if(g_gps_chip_id[0] != '\0') return; // already known — cheap early-out
+    for(int attempt = 0; attempt < 2; attempt++) {
+        if(ubx_poll_chip_id_once(g)) {
+            FURI_LOG_I("GpsUart", "GPS chip ID: %s", g_gps_chip_id);
+            return;
+        }
+    }
+    FURI_LOG_W("GpsUart", "UBX-SEC-UNIQID poll: no valid response");
 }
 
 // ── CFG-VALSET packet builder ───────────────────────────────────────────
@@ -903,6 +1021,11 @@ uint32_t gps_uart_get_reinit_count(const GpsUart* g) {
     return g->reinit_count;
 }
 
+const char* gps_uart_get_chip_id(const GpsUart* g) {
+    furi_check(g, "GpsUart: NULL in get_chip_id()");
+    return g_gps_chip_id;
+}
+
 #if GPS_MODULE == GPS_MODULE_L76K
 // ---------------------------------------------------------------------------
 // Helpers — send PCAS commands over the GPS UART (L76K only)
@@ -1115,6 +1238,12 @@ static void gps_uart_configure(GpsUart* g) {
     // here too — removed as a straight duplicate of this line.)
     const char* pubx_00_rate = "$PUBX,40,00,1,1,0,0*1B\r\n";
     ubx_tx(g, (const uint8_t*)pubx_00_rate, strlen(pubx_00_rate));
+
+    // Best-effort, not blocking normal operation on it — see
+    // ubx_poll_chip_id()'s doc comment. Runs after everything else above
+    // has already established the link is working (clean ACKs), and only
+    // until a chip ID has been found once this app session.
+    ubx_poll_chip_id(g);
 
     FURI_LOG_I("GpsUart", "M10Q running at 115200 baud, 10 Hz, GSV@1Hz");
 

@@ -53,6 +53,20 @@ int furi_hal_mock_acquire_count(void);
 int  furi_hal_mock_tx_count(void);
 void furi_hal_mock_reset_tx_count(void);
 
+// Arms a one-shot response: the next furi_hal_serial_tx() call whose bytes
+// exactly match `trigger` synchronously feeds `response` back in as if
+// received, before that TX call returns. Lets a test simulate a module
+// replying to one specific command buried inside a longer sequence of
+// unrelated TX calls (e.g. ubx_poll_chip_id()'s poll, sent only after
+// gps_uart_configure()'s other packets), landing bytes inside a single
+// blocking call (like gps_uart_alloc()) that furi_hal_mock_feed_byte/
+// _string() alone can't reach into. Consumed after firing once; call
+// again to arm another response. trigger_len must be <= 16 bytes,
+// response_len <= 640 bytes (furi_check()s otherwise).
+void furi_hal_mock_arm_response_for_tx(
+    const uint8_t* trigger, size_t trigger_len,
+    const uint8_t* response, size_t response_len);
+
 // ── I2C — gsr_sensor.c's ADS1115 transport ──────────────────────────────
 // Content doesn't matter — gsr_sensor.c only ever passes
 // &furi_hal_i2c_handle_external through, never dereferences it.

@@ -482,13 +482,35 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         } else {
             cols = s->debug_fields_enabled ? BIOMAP_CSV_COLS_GPS_GSR_DEBUG : BIOMAP_CSV_COLS_GPS_GSR_PROD;
         }
-        // 512 bytes to comfortably fit recording metadata + optional Band
-        // Floors + widest CSV schema line (GPS+GSR+RF with continuity
-        // columns). Keep this headroom so schema expansions do not block
-        // recording start with "Header too long".
-        char header[512];
+        // 768 bytes to comfortably fit recording metadata + optional Band
+        // Floors/DeviceName/GPSChipID + widest CSV schema line (GPS+GSR+RF
+        // with continuity columns). Keep this headroom so schema
+        // expansions do not block recording start with "Header too long".
+        char header[768];
         int n = snprintf(header, sizeof(header),
                          "# RecordingStartTime:%lu\n", (unsigned long)epoch);
+        // DeviceName: the Flipper's user-visible name (Settings > System >
+        // Device Name), for tracing which physical unit recorded a given
+        // file. NULL-guarded — furi_hal_version_get_name_ptr()'s contract
+        // doesn't promise non-NULL, and passing NULL to "%s" is UB on some
+        // libc implementations.
+        if(n > 0 && (size_t)n < sizeof(header)) {
+            const char* device_name = furi_hal_version_get_name_ptr();
+            n += snprintf(header + n, sizeof(header) - (size_t)n,
+                         "# DeviceName:%s\n", device_name ? device_name : "");
+        }
+        // GPSChipID: a 5-word mnemonic phrase, not the raw hex — best
+        // effort, only present once the UBX-SEC-UNIQID poll in gps_uart.c
+        // has actually found one (see gps_uart_get_chip_id()'s doc
+        // comment). Gated on has_gps() the same way Band Floors is gated
+        // on has_rf() below.
+        if(has_gps(s->mode) && s->gps && n > 0 && (size_t)n < sizeof(header)) {
+            const char* chip_id = gps_uart_get_chip_id(s->gps);
+            if(chip_id[0] != '\0') {
+                n += snprintf(header + n, sizeof(header) - (size_t)n,
+                             "# GPSChipID:%s\n", chip_id);
+            }
+        }
         // Band Floors line: only meaningful once RF is both active for this
         // session and a real calibration exists — order
         // (815,868,915) matches em_scan_freq_label[] in em_scan_rf.c.

@@ -22,14 +22,37 @@ Each CSV begins with comment lines (prefixed `#`) before the column header:
 
 ```
 # RecordingStartTime:<unix_epoch_seconds>
+# DeviceName:<flipper_device_name>
+# GPSChipID:<word1 word2 word3 word4 word5>
 # Band Floors (dBm): 815:<float>,868:<float>,915:<float>
 ```
 
-`RecordingStartTime` is `0` if the Flipper RTC has never been set. The
-`# Band Floors` line only appears when RF is active for the session (GPS +
+`RecordingStartTime` is `0` if the Flipper RTC has never been set.
+
+`DeviceName` is always present — the Flipper's user-visible name
+(`furi_hal_version_get_name_ptr()`, Settings > System > Device Name),
+for tracing which physical unit recorded a given file. Empty
+(`# DeviceName:`) only if the HAL returns no name.
+
+`GPSChipID` is a 5-word mnemonic phrase (e.g. `axis slang boast putt
+chunk`) derived from the u-blox SAM-M10Q module's unique chip identifier,
+retrieved via a binary UBX-SEC-UNIQID poll during GPS init and rendered
+using the EFF short wordlist (`modules/eff_short_wordlist.h`) instead of
+the raw 12-hex-digit value — see `gps_uart_get_chip_id()`'s doc comment in
+`modules/gps_uart.h` for the exact derivation. `1296^5 == 6^20 >= 2^48`,
+so this is a lossless, collision-free encoding of the full 48-bit chip
+ID, not just a recognisable approximation. It only
+appears when GPS is active for the session **and** the poll actually got a
+valid response — best-effort (the poll gets one retry, then gives up), so
+this line may be absent even in a GPS-bearing session if the module didn't
+answer. Not emitted at all on L76K builds (no UBX protocol support). Once
+found, the ID is cached for the rest of the app session, so if it's present
+on one recording it should be present on every recording after that until
+the app is closed.
+
+The `# Band Floors` line only appears when RF is active for the session (GPS +
 GSR + RF or GPS + RF) **and** an RF calibration exists (`key_toggle_recording()`,
-`biomap_session.c`) — there is no `# GPS:<module>` line in the current
-format.
+`biomap_session.c`).
 
 ---
 

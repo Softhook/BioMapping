@@ -413,6 +413,104 @@ static void test_rx_buffer_overflow_reconfigures(void) {
     printf("  -> Pass\n");
 }
 
+// ── GPS chip ID capture (ubx_poll_chip_id(), M10Q only) ─────────────────
+// gps_uart_get_chip_id()'s cache is a file-scope static with no reset hook
+// (deliberately — production behaviour is that a capture is never cleared
+// once found, see its doc comment in gps_uart.c), so it is sticky across
+// every test in this process. All three phases below therefore live in
+// ONE test function, run strictly in this order, rather than as separate
+// tests relying on main()'s call order to keep them meaningful — a future
+// test added between two separately-registered tests couldn't silently
+// break this the way it could if the ordering were only enforced by a
+// comment in main().
+//
+// The exact bytes here are ubx_poll_uniqid[] (the poll gps_uart.c actually
+// sends) and hand-verified UBX-SEC-UNIQID response frames — class 0x27 id
+// 0x03, 10-byte payload (version=0x02, reserved[3], then a 6-byte
+// uniqueId), Fletcher-8 checksum computed the same way ubx_calc_checksum()
+// does. furi_hal_mock_arm_response_for_tx() matches on the poll's exact
+// bytes rather than "whichever TX comes next", since gps_uart_alloc() has
+// already sent several unrelated packets (wake byte, baud switch, CFG-
+// VALSET x4) by the time the poll itself goes out.
+static const uint8_t k_uniqid_poll[] = {0xB5, 0x62, 0x27, 0x03, 0x00, 0x00, 0x2A, 0xA5};
+
+static void test_chipid_capture(void) {
+    printf("Running test_chipid_capture...\n");
+
+    // Phase 1: no response at all (nothing armed) must leave the cache
+    // empty, not hang or crash — ubx_read_byte()'s iteration-bounded
+    // timeout (not wall-clock) is what makes this terminate promptly
+    // under test; see test_cfg_ack_timeout_is_bounded for the same
+    // property exercised directly.
+    {
+        FuriMessageQueue queue = {0};
+        GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+        assert(g != NULL);
+
+        printf("  phase 1: chip_id with no poll response = \"%s\" (expect empty)\n",
+               gps_uart_get_chip_id(g));
+        assert(gps_uart_get_chip_id(g)[0] == '\0');
+
+        gps_uart_free(g);
+    }
+
+    // Phase 2: a response with a corrupted checksum must be rejected, not
+    // just "some frame arrived". Byte 17 flipped (0x8D -> 0x8E) from a
+    // known-good frame (see phase 3) so ubx_calc_checksum() must fail it.
+    // Consumed on the first of ubx_poll_chip_id()'s two attempts; the
+    // second attempt has nothing armed and times out the same as phase 1.
+    {
+        static const uint8_t bad_checksum_response[] = {
+            0xB5, 0x62, 0x27, 0x03, 0x0A, 0x00,             // header, len=10
+            0x02, 0x00, 0x00, 0x00,                          // version, reserved
+            0x11, 0x22, 0x33, 0x44, 0x55, 0x66,              // uniqueId
+            0x9B, 0x8E,                                      // checksum: should be 9B 8D
+        };
+        FuriMessageQueue queue = {0};
+        furi_hal_mock_arm_response_for_tx(
+            k_uniqid_poll, sizeof(k_uniqid_poll),
+            bad_checksum_response, sizeof(bad_checksum_response));
+        GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+        assert(g != NULL);
+
+        printf("  phase 2: chip_id after corrupted-checksum response = \"%s\" (expect empty)\n",
+               gps_uart_get_chip_id(g));
+        assert(gps_uart_get_chip_id(g)[0] == '\0');
+
+        gps_uart_free(g);
+    }
+
+    // Phase 3: a valid response is parsed correctly and rendered as the
+    // expected 5-word phrase. Phases 1-2 left the cache empty, so this can
+    // only have come from this exchange. Expected phrase independently
+    // computed in Python against the same eff_short_wordlist_1.txt source
+    // (big-endian uniqueId -> uint64 -> five (%1296, /=1296) rounds,
+    // most-significant word first — see ubx_poll_chip_id_once()'s doc
+    // comment) — not derived from the C code under test.
+    {
+        static const uint8_t good_response[] = {
+            0xB5, 0x62, 0x27, 0x03, 0x0A, 0x00,             // header, len=10
+            0x02, 0x00, 0x00, 0x00,                          // version, reserved
+            0x11, 0x22, 0x33, 0x44, 0x55, 0x66,              // uniqueId
+            0x9B, 0x8D,                                      // valid checksum
+        };
+        FuriMessageQueue queue = {0};
+        furi_hal_mock_arm_response_for_tx(
+            k_uniqid_poll, sizeof(k_uniqid_poll),
+            good_response, sizeof(good_response));
+        GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+        assert(g != NULL);
+
+        printf("  phase 3: chip_id after valid response = \"%s\" (expect \"aged risk fit cage scam\")\n",
+               gps_uart_get_chip_id(g));
+        assert(strcmp(gps_uart_get_chip_id(g), "aged risk fit cage scam") == 0);
+
+        gps_uart_free(g);
+    }
+
+    printf("  -> Pass\n");
+}
+
 // No valid NMEA sentence for > 5 s (furi_kernel_get_tick_frequency() * 5
 // ticks) must trigger the watchdog reinit path.
 static void test_nmea_watchdog_reconfigures(void) {
@@ -697,6 +795,7 @@ int main(void) {
     test_gll_ignored_when_invalid();
     test_split_line_buffering();
     test_rx_buffer_overflow_reconfigures();
+    test_chipid_capture();
     test_nmea_watchdog_reconfigures();
     test_hot_start_sends_command();
     test_standby_acquires_and_releases();
