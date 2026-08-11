@@ -239,7 +239,7 @@ static inline RowDiag get_row_diag(const Session* s) {
 static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
                                 double rel, float raw,
                                 const float* rf_rssi, const RowDiag* diag) {
-    bool gps_ok = pos->valid && pos->hdop < GPS_HDOP_GATE;
+    bool gps_ok = pos->valid;
     // static, not a stack local: this runs on the main app thread's tick
     // path every ~100ms during a real recording, alongside GPS/GSR/RF
     // worker-management call chains that weren't all exercised together

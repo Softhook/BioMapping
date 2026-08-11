@@ -79,7 +79,7 @@ static inline double minmea_tocoord_double(const struct minmea_float* f) {
 static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
                                 double rel, float raw,
                                 const float* rf_rssi, const RowDiag* diag) {
-    bool gps_ok = pos->valid && pos->hdop < GPS_HDOP_GATE;
+    bool gps_ok = pos->valid;
 
     char row[300];
     int n;
@@ -568,8 +568,9 @@ void test_csv_formatting() {
     format_gps_csv_row(&s, &pos, 2.50, 8350.0f, NULL, &diag);
     assert(strcmp(mock_logger_buf, "2.50,51.5557397,-0.0714595,0.9,1.3,16,3,,,8350.0,2.4\n") == 0);
 
-    // Case 3: Invalid GPS fix (e.g. startup, or high HDOP > 5.0) — RF OFF
-    pos.hdop = 6.0f; // Exceeds gate limit
+    // Case 3: Invalid GPS fix (e.g. startup, or no fix) — RF OFF
+    pos.valid = false;
+    pos.hdop = 6.0f;
 
     s.debug_fields_enabled = true;
     mock_logger_buf[0] = '\0';
@@ -582,6 +583,7 @@ void test_csv_formatting() {
     assert(strcmp(mock_logger_buf, "3.75,,,,,,,,,8400.0,\n") == 0);
 
     // Case 4: Valid GPS fix — RF ON (3 extra columns: raw RSSI per band)
+    pos.valid = true;
     pos.hdop = 0.9f;
     pos.speed_kts = 5.25f;
     pos.course_deg = 330.2f;
