@@ -480,7 +480,8 @@ class GSRMapExporter {
    * its result discarded whenever shading is skipped (hillshadeStrength<=0).
    */
   static _buildVectorMesh(ctx, surfaceData) {
-    const { grid, minVal, maxVal, bounds, sortedVals } = surfaceData;
+    const grid = surfaceData.upsampledGrid || surfaceData.grid;
+    const { minVal, maxVal, bounds, sortedVals } = surfaceData;
     const rows = grid.length;
     const cols = grid[0].length;
     const project = ctx.project || (ll => ctx.map.latLngToContainerPoint(ll));
@@ -488,45 +489,70 @@ class GSRMapExporter {
 
     const hillshadeStrength = (ctx.mgr && ctx.mgr._hillshadeStrength !== undefined) ? ctx.mgr._hillshadeStrength : 0.0;
     const hc = GSR_CONST.HILLSHADE;
-    const ratioGrid = Hillshade.buildRatioGrid(grid, rows, cols, { minVal, maxVal, sortedVals, rankFn: StatsMath.percentileRank });
-    const shade = (hillshadeStrength > 0)
-      ? Hillshade.compute(ratioGrid, rows, cols, 1, 1, { azimuthDeg: hc.azimuthDeg, altitudeDeg: hc.altitudeDeg, zFactor: hc.exaggeration })
-      : null;
+
+    // Cache the ratioGrid and shade array on surfaceData to avoid recomputing them
+    if (!surfaceData.cachedRatioGrid) {
+      surfaceData.cachedRatioGrid = Hillshade.buildRatioGrid(grid, rows, cols, { minVal, maxVal, sortedVals, rankFn: StatsMath.percentileRank });
+    }
+    const ratioGrid = surfaceData.cachedRatioGrid;
+
+    if (hillshadeStrength > 0 && !surfaceData.cachedShade) {
+      surfaceData.cachedShade = Hillshade.compute(ratioGrid, rows, cols, 1, 1, { azimuthDeg: hc.azimuthDeg, altitudeDeg: hc.altitudeDeg, zFactor: hc.exaggeration });
+    }
+    const shade = hillshadeStrength > 0 ? surfaceData.cachedShade : null;
 
     // Stride logic: if grid is high-resolution (upsampled), we subsample it to a target 40x40
     // mesh. This scales the SVG file size down while keeping Vector_Surface_Mesh light.
     const stride = Math.max(1, Math.round(rows / 40));
 
-    for (let row = 0; row < rows; row += stride) {
-      for (let col = 0; col < cols; col += stride) {
-        const ratio = ratioGrid[row][col];
-        if (ratio === null) continue;
+    // Cache the geographic cell bounds to avoid math on every pass
+    if (!surfaceData.cachedMeshCells) {
+      surfaceData.cachedMeshCells = [];
+      for (let row = 0; row < rows; row += stride) {
+        for (let col = 0; col < cols; col += stride) {
+          const ratio = ratioGrid[row][col];
+          if (ratio === null) continue;
 
-        const lightness = shade ? Hillshade.blendLightness(shade[row * cols + col], hillshadeStrength, hc.minLightness, hc.maxLightness) : 50;
-        const fillColor = this._ratioToHex(ratio, lightness);
+          const lightness = shade ? Hillshade.blendLightness(shade[row * cols + col], hillshadeStrength, hc.minLightness, hc.maxLightness) : 50;
+          const fillColor = this._ratioToHex(ratio, lightness);
 
-        const dLat = (rows > 1) ? 0.5 * stride * (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
-        const dLon = (cols > 1) ? 0.5 * stride * (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
-        const gridLat = (rows > 1) ? bounds.minLat + (row / (rows - 1)) * (bounds.maxLat - bounds.minLat) : bounds.minLat;
-        const gridLon = (cols > 1) ? bounds.minLon + (col / (cols - 1)) * (bounds.maxLon - bounds.minLon) : bounds.minLon;
+          const dLat = (rows > 1) ? 0.5 * stride * (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
+          const dLon = (cols > 1) ? 0.5 * stride * (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
+          const gridLat = (rows > 1) ? bounds.minLat + (row / (rows - 1)) * (bounds.maxLat - bounds.minLat) : bounds.minLat;
+          const gridLon = (cols > 1) ? bounds.minLon + (col / (cols - 1)) * (bounds.maxLon - bounds.minLon) : bounds.minLon;
 
-        const latSouth = gridLat - dLat;
-        const latNorth = gridLat + dLat;
-        const lonWest  = gridLon - dLon;
-        const lonEast  = gridLon + dLon;
+          const latSouth = gridLat - dLat;
+          const latNorth = gridLat + dLat;
+          const lonWest  = gridLon - dLon;
+          const lonEast  = gridLon + dLon;
 
-        const pNW = project([latNorth, lonWest]);
-        const pNE = project([latNorth, lonEast]);
-        const pSE = project([latSouth, lonEast]);
-        const pSW = project([latSouth, lonWest]);
-
-        const pointsStr = `${pNW.x.toFixed(3)},${pNW.y.toFixed(3)} ${pNE.x.toFixed(3)},${pNE.y.toFixed(3)} ${pSE.x.toFixed(3)},${pSE.y.toFixed(3)} ${pSW.x.toFixed(3)},${pSW.y.toFixed(3)}`;
-        
-        mesh.push(
-          `<polygon points="${pointsStr}" fill="${this._esc(fillColor)}" stroke="${this._esc(fillColor)}" stroke-width="0.5" stroke-linejoin="round" />`
-        );
+          surfaceData.cachedMeshCells.push({
+            fillColor,
+            coords: [
+              [latNorth, lonWest],
+              [latNorth, lonEast],
+              [latSouth, lonEast],
+              [latSouth, lonWest]
+            ]
+          });
+        }
       }
     }
+
+    // Project and build SVG polygons
+    surfaceData.cachedMeshCells.forEach(cell => {
+      const pNW = project(cell.coords[0]);
+      const pNE = project(cell.coords[1]);
+      const pSE = project(cell.coords[2]);
+      const pSW = project(cell.coords[3]);
+
+      const pointsStr = `${pNW.x.toFixed(3)},${pNW.y.toFixed(3)} ${pNE.x.toFixed(3)},${pNE.y.toFixed(3)} ${pSE.x.toFixed(3)},${pSE.y.toFixed(3)} ${pSW.x.toFixed(3)},${pSW.y.toFixed(3)}`;
+      
+      mesh.push(
+        `<polygon points="${pointsStr}" fill="${this._esc(cell.fillColor)}" stroke="${this._esc(cell.fillColor)}" stroke-width="0.5" stroke-linejoin="round" />`
+      );
+    });
+
     return mesh;
   }
 
@@ -551,43 +577,58 @@ class GSRMapExporter {
     const cols = grid[0].length;
     const isobands = [];
 
-    contours.forEach(c => {
-      const fillColor = this._ratioToHex(c.ratio);
-      const level = c.level;
+    // Pre-calculate boundary loops once for all contour levels to optimize performance
+    const loops = this._buildBoundaryLoops(grid, rows, cols, bounds);
 
-      const stitchedPaths = (typeof GSRSpatialClustering !== 'undefined' && typeof GSRSpatialClustering.stitchSegments === 'function')
-        ? GSRSpatialClustering.stitchSegments(c.segments)
-        : (c.segments || []).map(seg => [seg[0], seg[1]]);
+    // Cache the geographic rings on surfaceData to avoid redundant calculations across passes
+    if (!surfaceData.cachedIsobandRings) {
+      surfaceData.cachedIsobandRings = [];
 
-      const isClosedPath = (rawPath) => rawPath.length >= 3 &&
-        Math.abs((rawPath[0].lat ?? rawPath[0][0]) - (rawPath[rawPath.length - 1].lat ?? rawPath[rawPath.length - 1][0])) < 1e-9 &&
-        Math.abs((rawPath[0].lon ?? rawPath[0][1]) - (rawPath[rawPath.length - 1].lon ?? rawPath[rawPath.length - 1][1])) < 1e-9;
+      contours.forEach(c => {
+        const stitchedPaths = (typeof GSRSpatialClustering !== 'undefined' && typeof GSRSpatialClustering.stitchSegments === 'function')
+          ? GSRSpatialClustering.stitchSegments(c.segments)
+          : (c.segments || []).map(seg => [seg[0], seg[1]]);
 
-      const closedPaths = [];
-      const openPaths = [];
-      stitchedPaths.forEach(rawPath => {
-        if (!rawPath || rawPath.length < 2) return;
-        (isClosedPath(rawPath) ? closedPaths : openPaths).push(rawPath);
+        const isClosedPath = (rawPath) => rawPath.length >= 3 &&
+          Math.abs((rawPath[0].lat ?? rawPath[0][0]) - (rawPath[rawPath.length - 1].lat ?? rawPath[rawPath.length - 1][0])) < 1e-9 &&
+          Math.abs((rawPath[0].lon ?? rawPath[0][1]) - (rawPath[rawPath.length - 1].lon ?? rawPath[rawPath.length - 1][1])) < 1e-9;
+
+        const closedPaths = [];
+        const openPaths = [];
+        stitchedPaths.forEach(rawPath => {
+          if (!rawPath || rawPath.length < 2) return;
+          (isClosedPath(rawPath) ? closedPaths : openPaths).push(rawPath);
+        });
+
+        // Edge-touching rings — closed against real grid boundary loops.
+        const closedFromOpen = this._closeOpenIsobandPaths(openPaths, loops, grid, rows, cols, bounds, c.level);
+
+        const rings = [];
+        closedPaths.forEach(r => rings.push(r));
+        closedFromOpen.forEach(r => rings.push(r));
+
+        surfaceData.cachedIsobandRings.push({
+          ratio: c.ratio,
+          rings: rings
+        });
       });
+    }
+
+    // Project and build SVG paths using the current ctx.project
+    surfaceData.cachedIsobandRings.forEach(item => {
+      const fillColor = this._ratioToHex(item.ratio);
 
       const smoothRing = (ring) => (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
         ? GeoUtils.chaikinSmooth(ring, 3, true)
         : ring;
 
-      const fillRing = (ring) => {
+      item.rings.forEach(ring => {
         const d = this._pathD(ctx, smoothRing(ring), true, true);
         if (!d) return;
         isobands.push(
           `<path d="${d}" fill="${this._esc(fillColor)}" stroke="none" />`
         );
-      };
-
-      // Interior rings — already closed, smooth + fill as-is.
-      closedPaths.forEach(fillRing);
-
-      // Edge-touching rings — closed against real grid boundary loops.
-      const closedFromOpen = this._closeOpenIsobandPaths(openPaths, grid, rows, cols, bounds, level);
-      closedFromOpen.forEach(fillRing);
+      });
     });
 
     return isobands;
@@ -922,7 +963,7 @@ class GSRMapExporter {
    *
    * Returns an array of closed point rings ready to be smoothed and filled.
    */
-  static _closeOpenIsobandPaths(openPaths, grid, rows, cols, bounds, level) {
+  static _closeOpenIsobandPaths(openPaths, loopsOrGrid, grid, rows, cols, bounds, level) {
     if (!openPaths || openPaths.length === 0) return [];
 
     const getLL = (p) => ({
@@ -930,8 +971,13 @@ class GSRMapExporter {
       lon: p.lon !== undefined ? p.lon : (p.lng !== undefined ? p.lng : p[1])
     });
 
-    const loops = this._buildBoundaryLoops(grid, rows, cols, bounds);
-    if (loops.length === 0) return [];
+    let loops = loopsOrGrid;
+    if (Array.isArray(loopsOrGrid) && loopsOrGrid.length > 0 && Array.isArray(loopsOrGrid[0])) {
+      level = bounds;
+      loops = this._buildBoundaryLoops(loopsOrGrid, grid, rows, cols);
+    }
+
+    if (!loops || loops.length === 0) return [];
 
     const nearestOnLoop = (loop, latlon) => {
       let best = null;
@@ -1261,7 +1307,7 @@ class GSRMapExporter {
         ? ctx.project
         : (ll => (ctx?.map?.latLngToContainerPoint ? ctx.map.latLngToContainerPoint(ll) : (ctx?.latLngToContainerPoint ? ctx.latLngToContainerPoint(ll) : { x: 0, y: 0 }))));
 
-    if (Array.isArray(latlngs[0]))
+    if (Array.isArray(latlngs[0]) && (Array.isArray(latlngs[0][0]) || (latlngs[0][0] !== null && typeof latlngs[0][0] === 'object')))
       return latlngs.map(s => this._pathD(ctx, s, close, smooth, exact)).filter(Boolean).join(' ');
 
     const rawPts = latlngs.map(ll => project(ll)).filter(p => p && typeof p.x === 'number' && !isNaN(p.x));

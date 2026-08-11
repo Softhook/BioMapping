@@ -230,6 +230,36 @@ function assertContourSmoothness(dString, maxAllowedAngleDeg = 30) {
 assertContourSmoothness(isolineD, 30);
 console.log('✓ MATHEMATICALLY PROVED: Contour path has smooth tangent continuity (C1) with zero sharp or jagged corners');
 
+// ── Regression Test: Coordinate Array Parsing in _pathD ──────────────────────
+{
+  const project = (ll) => ({ x: ll[1] * 10, y: ll[0] * 10 }); // [lat, lon]
+  const pathData = [
+    [50.0, 10.0],
+    [51.0, 11.0],
+    [52.0, 12.0]
+  ];
+
+  // Exact mode
+  const exactD = GSRMapExporter._pathD(project, pathData, false, false, true);
+  assert.strictEqual(exactD, 'M100.000 500.000 L110.000 510.000 L120.000 520.000', 'Exact mode with coordinate arrays parsed correctly');
+
+  // Smooth mode
+  const smoothD = GSRMapExporter._pathD(project, pathData, false, true, false);
+  assert(smoothD.startsWith('M100.0'), 'Smooth mode starts at correct coordinates');
+  assert(smoothD.includes('C'), 'Smooth mode generates cubic Bézier curves');
+  assert(!smoothD.includes('NaN'), 'Smooth mode contains no NaN coordinates');
+  
+  // Nested paths
+  const nestedPaths = [
+    [[50.0, 10.0], [50.1, 10.1]],
+    [[50.2, 10.2], [50.3, 10.3]]
+  ];
+  const nestedD = GSRMapExporter._pathD(project, nestedPaths, false, false, true);
+  assert.strictEqual(nestedD, 'M100.000 500.000 L101.000 501.000 M102.000 502.000 L103.000 503.000', 'Nested paths are correctly joined');
+  
+  console.log('✓ Regression Test: Coordinate arrays parsed correctly in both exact/smooth/nested modes without falling back to (0,0)');
+}
+
 console.log('\n============================================================');
 console.log('Vector Surface SVG Export Tests: ALL PASSED');
 console.log('============================================================');
