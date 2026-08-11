@@ -83,8 +83,10 @@ module.exports = {
   },
 
   COLLECTIVE: {
-    gridResolution: 40, isolationRadius: 50, contourCount: 10,
-    idwExponent: 2, surfaceOpacity: 0.40
+    gridResolution: 60, upsampledResolution: 240, blurIterations: 6,
+    isolationRadius: 50, contourCount: 10,
+    idwExponent: 2, surfaceOpacity: 0.40, peakPreservation: 0.0, softening: 25.0,
+    temporalSmoothingWindow: 0.0
   },
 
   HILLSHADE: {

@@ -92,12 +92,42 @@ class MarchingSquares {
           case 2:  lines.push([getR(), getB()]); break;
           case 3:  lines.push([getR(), getL()]); break;
           case 4:  lines.push([getT(), getR()]); break;
-          case 5:  lines.push([getT(), getR()]); lines.push([getB(), getL()]); break;
+          case 5: {
+            let sum = 0, count = 0;
+            if (nwVal) { sum += vNW; count++; }
+            if (neVal) { sum += vNE; count++; }
+            if (seVal) { sum += vSE; count++; }
+            if (swVal) { sum += vSW; count++; }
+            const vCenter = count > 0 ? sum / count : 0;
+            if (vCenter >= isolevel) {
+              lines.push([getT(), getL()]);
+              lines.push([getB(), getR()]);
+            } else {
+              lines.push([getT(), getR()]);
+              lines.push([getB(), getL()]);
+            }
+            break;
+          }
           case 6:  lines.push([getT(), getB()]); break;
           case 7:  lines.push([getT(), getL()]); break;
           case 8:  lines.push([getL(), getT()]); break;
           case 9:  lines.push([getB(), getT()]); break;
-          case 10: lines.push([getL(), getB()]); lines.push([getT(), getR()]); break;
+          case 10: {
+            let sum = 0, count = 0;
+            if (nwVal) { sum += vNW; count++; }
+            if (neVal) { sum += vNE; count++; }
+            if (seVal) { sum += vSE; count++; }
+            if (swVal) { sum += vSW; count++; }
+            const vCenter = count > 0 ? sum / count : 0;
+            if (vCenter >= isolevel) {
+              lines.push([getL(), getT()]);
+              lines.push([getB(), getR()]);
+            } else {
+              lines.push([getL(), getB()]);
+              lines.push([getT(), getR()]);
+            }
+            break;
+          }
           case 11: lines.push([getR(), getT()]); break;
           case 12: lines.push([getL(), getR()]); break;
           case 13: lines.push([getB(), getR()]); break;
@@ -215,12 +245,42 @@ class MarchingSquares {
             case 2:  segs.push([getR(), getB()]); break;
             case 3:  segs.push([getR(), getL()]); break;
             case 4:  segs.push([getT(), getR()]); break;
-            case 5:  segs.push([getT(), getR()]); segs.push([getB(), getL()]); break;
+            case 5: {
+              let sum = 0, count = 0;
+              if (okNW) { sum += vNW; count++; }
+              if (okNE) { sum += vNE; count++; }
+              if (okSE) { sum += vSE; count++; }
+              if (okSW) { sum += vSW; count++; }
+              const vCenter = count > 0 ? sum / count : 0;
+              if (vCenter >= isolevel) {
+                segs.push([getT(), getL()]);
+                segs.push([getB(), getR()]);
+              } else {
+                segs.push([getT(), getR()]);
+                segs.push([getB(), getL()]);
+              }
+              break;
+            }
             case 6:  segs.push([getT(), getB()]); break;
             case 7:  segs.push([getT(), getL()]); break;
             case 8:  segs.push([getL(), getT()]); break;
             case 9:  segs.push([getB(), getT()]); break;
-            case 10: segs.push([getL(), getB()]); segs.push([getT(), getR()]); break;
+            case 10: {
+              let sum = 0, count = 0;
+              if (okNW) { sum += vNW; count++; }
+              if (okNE) { sum += vNE; count++; }
+              if (okSE) { sum += vSE; count++; }
+              if (okSW) { sum += vSW; count++; }
+              const vCenter = count > 0 ? sum / count : 0;
+              if (vCenter >= isolevel) {
+                segs.push([getL(), getT()]);
+                segs.push([getB(), getR()]);
+              } else {
+                segs.push([getL(), getB()]);
+                segs.push([getT(), getR()]);
+              }
+              break;
+            }
             case 11: segs.push([getR(), getT()]); break;
             case 12: segs.push([getL(), getR()]); break;
             case 13: segs.push([getB(), getR()]); break;

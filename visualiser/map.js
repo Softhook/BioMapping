@@ -2315,9 +2315,10 @@ class GSRMapManager {
     //    return;` had nothing to re-add and the surface never came back. Visibility
     //    is a pure add/remove of this overlay via this.showSurface — same pattern
     //    as the isoline/track toggles, which also always create their layers.
-    if (grid && grid.length > 0 && bounds) {
-      const rows = grid.length;
-      const cols = grid[0].length;
+    const activeGrid = surfaceData.upsampledGrid || grid;
+    if (activeGrid && activeGrid.length > 0 && bounds) {
+      const rows = activeGrid.length;
+      const cols = activeGrid[0].length;
 
       const canvas = document.createElement('canvas');
       canvas.width = cols;
@@ -2342,7 +2343,7 @@ class GSRMapManager {
         // pre-hillshade single-pass loop this replaced.
         for (let r = 0; r < rows; r++) {
           for (let c = 0; c < cols; c++) {
-            const val = grid[r][c];
+            const val = activeGrid[r][c];
             if (val === null || isNaN(val)) continue;
             drawCell(r, c, Hillshade.valueRatio(val, minVal, maxVal, sortedVals, StatsMath.percentileRank), 50);
           }
@@ -2357,7 +2358,7 @@ class GSRMapManager {
         // field, not the raw value, so the relief is the literal same
         // surface the isolines and colors are drawn from.
         const hc = GSR_CONST.HILLSHADE;
-        const { ratioGrid, shade } = Hillshade.shadeValueGrid(grid, rows, cols, {
+        const { ratioGrid, shade } = Hillshade.shadeValueGrid(activeGrid, rows, cols, {
           minVal, maxVal, sortedVals, rankFn: StatsMath.percentileRank,
           exaggeration: hc.exaggeration, azimuthDeg: hc.azimuthDeg, altitudeDeg: hc.altitudeDeg
         });
@@ -2415,7 +2416,7 @@ class GSRMapManager {
 
         const poly = L.polyline(smoothed.map(p => [p.lat, p.lon]), {
           color: color,
-          weight: 1.5,
+          weight: 0.75,
           opacity: 0.85,
           lineCap: 'round',
           lineJoin: 'round',

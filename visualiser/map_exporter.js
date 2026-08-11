@@ -424,7 +424,7 @@ class GSRMapExporter {
 
     const specs = [
       ['Base_Map_Tiles',          'Base Map Tiles',              L.tiles],
-      ['Vector_Surface_Mesh',     'Vector Surface Mesh',         surfObj.mesh,        'opacity="0.4"'],
+      ['Vector_Surface_Mesh',     'Vector Surface Mesh',         surfObj.mesh,        'opacity="0.4" display="none"'],
       // Isobands at the map edge are deliberately extrapolated past the original
       // frame (so the curve reads as continuing into an unbounded field rather
       // than being squared off against the boundary). Rather than hiding that
@@ -493,16 +493,20 @@ class GSRMapExporter {
       ? Hillshade.compute(ratioGrid, rows, cols, 1, 1, { azimuthDeg: hc.azimuthDeg, altitudeDeg: hc.altitudeDeg, zFactor: hc.exaggeration })
       : null;
 
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
+    // Stride logic: if grid is high-resolution (upsampled), we subsample it to a target 40x40
+    // mesh. This scales the SVG file size down while keeping Vector_Surface_Mesh light.
+    const stride = Math.max(1, Math.round(rows / 40));
+
+    for (let row = 0; row < rows; row += stride) {
+      for (let col = 0; col < cols; col += stride) {
         const ratio = ratioGrid[row][col];
         if (ratio === null) continue;
 
         const lightness = shade ? Hillshade.blendLightness(shade[row * cols + col], hillshadeStrength, hc.minLightness, hc.maxLightness) : 50;
         const fillColor = this._ratioToHex(ratio, lightness);
 
-        const dLat = (rows > 1) ? 0.5 * (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
-        const dLon = (cols > 1) ? 0.5 * (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
+        const dLat = (rows > 1) ? 0.5 * stride * (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
+        const dLon = (cols > 1) ? 0.5 * stride * (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
         const gridLat = (rows > 1) ? bounds.minLat + (row / (rows - 1)) * (bounds.maxLat - bounds.minLat) : bounds.minLat;
         const gridLon = (cols > 1) ? bounds.minLon + (col / (cols - 1)) * (bounds.maxLon - bounds.minLon) : bounds.minLon;
 
@@ -539,8 +543,9 @@ class GSRMapExporter {
    * is inside the band.
    */
   static _buildVectorIsobands(ctx, surfaceData) {
-    const { grid, bounds, contours } = surfaceData;
-    if (!contours || !Array.isArray(contours)) return [];
+    const grid = surfaceData.upsampledGrid || surfaceData.grid;
+    const { bounds, contours } = surfaceData;
+    if (!contours || !Array.isArray(contours) || !grid) return [];
 
     const rows = grid.length;
     const cols = grid[0].length;
@@ -566,7 +571,7 @@ class GSRMapExporter {
       });
 
       const smoothRing = (ring) => (typeof GeoUtils !== 'undefined' && typeof GeoUtils.chaikinSmooth === 'function')
-        ? GeoUtils.chaikinSmooth(ring, 2, true)
+        ? GeoUtils.chaikinSmooth(ring, 3, true)
         : ring;
 
       const fillRing = (ring) => {
@@ -1167,6 +1172,7 @@ class GSRMapExporter {
 
   static _pathEl(ctx, layer, opts = {}) {
     if (!layer || typeof layer.getLatLngs !== 'function') return null;
+    const isContour = layer._gsrKind === 'contour';
     let latlngs = layer.getLatLngs();
     const isPoly = !!(
       (typeof L !== 'undefined' && L.Polygon && layer instanceof L.Polygon) ||
@@ -1209,7 +1215,8 @@ class GSRMapExporter {
           // (_getProjection), which is typically a higher px/degree scale than the on-screen
           // map panel when zoomed out to fit a large collective map — the same degree-space
           // wiggle otherwise lands on proportionally more (and so more visible) export pixels.
-          latlngs = GeoUtils.chaikinSmooth(flat, 4, isClosedLoop);
+          // For contour lines, we use exactly 3 iterations to align perfectly with the surface isobands.
+          latlngs = GeoUtils.chaikinSmooth(flat, isContour ? 3 : 4, isClosedLoop);
         }
       } catch (err) {
         if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'map_exporter:_vectors(smoothing)');
@@ -1227,9 +1234,12 @@ class GSRMapExporter {
     // itself is cosmetically thinned same as tracks: at authored weight
     // (1px, from map.js's drawOsmShapes), park/water/building outlines
     // print heavier than intended on export, so scale it down.
+    // Contour lines are thinned significantly more to look very fine and elegant.
     const strokeWidth = exact
       ? (o.weight !== undefined ? o.weight * 0.35 : 0.35)
-      : (o.weight !== undefined ? Math.min(1.5, o.weight * 0.4) : 1.2);
+      : isContour
+        ? (o.weight !== undefined ? o.weight * 0.33 : 0.25)
+        : (o.weight !== undefined ? Math.min(1.5, o.weight * 0.4) : 1.2);
 
     return `<path d="${d}"` +
       ` stroke="${esc(this._toHex(o.color || '#ff7b00'))}"` +

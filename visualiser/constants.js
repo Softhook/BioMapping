@@ -223,17 +223,25 @@ const GSR_CONST = {
 
   // ── Collective surface defaults ─────────────────────────────────────────
   COLLECTIVE: {
-    gridResolution: 40,
+    gridResolution: 60,
+    upsampledResolution: 240,
+    blurIterations: 6,
     isolationRadius: 50,
     contourCount: 10,
     idwExponent: 2,
     surfaceOpacity: 0.40,
+    // Softening/smoothing parameter in meters added to the IDW distance denominator
+    // to prevent singular bull's eye spikes at track points and saddles between them.
+    softening: 25.0,
     // Blend factor between the IDW weighted-mean and the local peak envelope (max value
     // within the interpolation radius) for the phasic/tonic continuous surface. 0 = pure
     // average (old behavior, smooths transient spikes away). 1 = pure "worst moment
-    // recorded nearby" (no smoothing at all). 0.5 keeps a smooth, readable surface while
-    // no longer averaging a lone spike down to near-baseline.
-    peakPreservation: 0.5
+    // recorded nearby" (no smoothing at all). 0.0 keeps a smooth, readable surface.
+    peakPreservation: 0.0,
+    // Sliding window size in seconds for temporal anti-aliasing (smoothing) of biometric
+    // data. 0.0 disables smoothing. 20.0 seconds filters out rapid 10 Hz spikes to reveal
+    // macro-level arousal trends.
+    temporalSmoothingWindow: 20.0
   },
 
   // ── Collective surface hillshading ──────────────────────────────────────

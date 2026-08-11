@@ -60,6 +60,97 @@ class GSRCollectiveManager {
    */
   generateContourSurface(contourParams) {
     if (!contourParams) contourParams = {};
+
+    function upsampleGrid(srcGrid, targetRows, targetCols) {
+      const rows = srcGrid.length;
+      const cols = srcGrid[0].length;
+      const upsampled = Array.from({ length: targetRows }, () => new Array(targetCols).fill(null));
+      
+      function cubicInterpolate(p0, p1, p2, p3, t) {
+        return 0.5 * (
+          (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t +
+          (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t +
+          (-p0 + p2) * t +
+          2 * p1
+        );
+      }
+
+      for (let r = 0; r < targetRows; r++) {
+        const srcR = (r / (targetRows - 1)) * (rows - 1);
+        const r0 = Math.floor(srcR);
+        const dr = srcR - r0;
+        
+        for (let c = 0; c < targetCols; c++) {
+          const srcC = (c / (targetCols - 1)) * (cols - 1);
+          const c0 = Math.floor(srcC);
+          const dc = srcC - c0;
+          
+          // Check if we can perform bicubic interpolation (4x4 neighborhood must be fully in-bounds and non-null)
+          let useBicubic = false;
+          if (r0 - 1 >= 0 && r0 + 2 < rows && c0 - 1 >= 0 && c0 + 2 < cols) {
+            useBicubic = true;
+            for (let i = -1; i <= 2; i++) {
+              for (let j = -1; j <= 2; j++) {
+                const val = srcGrid[r0 + i][c0 + j];
+                if (val === null || isNaN(val)) {
+                  useBicubic = false;
+                  break;
+                }
+              }
+              if (!useBicubic) break;
+            }
+          }
+
+          if (useBicubic) {
+            const p = [];
+            for (let i = -1; i <= 2; i++) {
+              p[i + 1] = [];
+              const rowIdx = r0 + i;
+              for (let j = -1; j <= 2; j++) {
+                p[i + 1][j + 1] = srcGrid[rowIdx][c0 + j];
+              }
+            }
+            
+            const rVals = [];
+            for (let i = 0; i < 4; i++) {
+              rVals[i] = cubicInterpolate(p[i][0], p[i][1], p[i][2], p[i][3], dc);
+            }
+            
+            upsampled[r][c] = cubicInterpolate(rVals[0], rVals[1], rVals[2], rVals[3], dr);
+          } else {
+            // Bilinear fallback for boundary/masked cells
+            const r1 = Math.min(rows - 1, r0 + 1);
+            const c1 = Math.min(cols - 1, c0 + 1);
+            
+            const v00 = srcGrid[r0][c0];
+            const v01 = srcGrid[r0][c1];
+            const v10 = srcGrid[r1][c0];
+            const v11 = srcGrid[r1][c1];
+            
+            let sumVal = 0;
+            let sumWt = 0;
+            
+            const w00 = (1 - dr) * (1 - dc);
+            const w01 = (1 - dr) * dc;
+            const w10 = dr * (1 - dc);
+            const w11 = dr * dc;
+            
+            if (v00 !== null && !isNaN(v00)) { sumVal += v00 * w00; sumWt += w00; }
+            if (v01 !== null && !isNaN(v01)) { sumVal += v01 * w01; sumWt += w01; }
+            if (v10 !== null && !isNaN(v10)) { sumVal += v10 * w10; sumWt += w10; }
+            if (v11 !== null && !isNaN(v11)) { sumVal += v11 * w11; sumWt += w11; }
+            
+            if (sumWt > 0.5) {
+              upsampled[r][c] = sumVal / sumWt;
+            } else {
+              upsampled[r][c] = null;
+            }
+          }
+        }
+      }
+      return upsampled;
+    }
+
     // Use explicit !== undefined checks so falsy values (0, false, '') are not silently overridden
     const gridResolution  = contourParams.gridResolution  !== undefined ? contourParams.gridResolution  : GSR_CONST.COLLECTIVE.gridResolution;
     const isolationRadius = contourParams.isolationRadius !== undefined ? contourParams.isolationRadius : GSR_CONST.COLLECTIVE.isolationRadius;
@@ -70,6 +161,19 @@ class GSRCollectiveManager {
     // index.html), so a caller that omits this entirely should get the same on-by-default
     // behavior as the UI, not silently fall back to unnormalized.
     const useNormalization = contourParams.normalizeZScore !== undefined ? contourParams.normalizeZScore : true;
+
+    const blurIterations = contourParams.blurIterations !== undefined
+      ? contourParams.blurIterations
+      : (GSR_CONST.COLLECTIVE.blurIterations !== undefined ? GSR_CONST.COLLECTIVE.blurIterations : 3);
+    const upsampledResolution = contourParams.upsampledResolution !== undefined
+      ? contourParams.upsampledResolution
+      : (GSR_CONST.COLLECTIVE.upsampledResolution !== undefined ? GSR_CONST.COLLECTIVE.upsampledResolution : 160);
+    const softening = (contourParams && contourParams.softening !== undefined)
+      ? contourParams.softening
+      : (GSR_CONST.COLLECTIVE.softening !== undefined ? GSR_CONST.COLLECTIVE.softening : 0.0);
+    const temporalSmoothingWindow = (contourParams && contourParams.temporalSmoothingWindow !== undefined)
+      ? contourParams.temporalSmoothingWindow
+      : (GSR_CONST.COLLECTIVE.temporalSmoothingWindow !== undefined ? GSR_CONST.COLLECTIVE.temporalSmoothingWindow : 0.0);
 
     const bounds = this.getBounds();
     if (!bounds) return [];
@@ -120,7 +224,57 @@ class GSRCollectiveManager {
       // rescale it, not change its cross-participant comparability.
       const arousalIndex = t.analyzer.arousalIndex || [];
 
-      const baseFsStep = Math.max(1, Math.round(t.analyzer.sampleRate || 10.0));
+      // Implement O(N) running-sum moving average
+      function getSmoothArray(arr, windowSize) {
+        if (!arr || arr.length === 0) return new Float64Array(0);
+        const result = new Float64Array(arr.length);
+        const half = Math.floor(windowSize / 2);
+        let sum = 0;
+        let count = 0;
+        
+        // Initialize sum for initial window [0, half - 1]
+        for (let j = 0; j < Math.min(arr.length, half); j++) {
+          const v = arr[j] ? arr[j].val : null;
+          if (v !== null && !isNaN(v)) {
+            sum += v;
+            count++;
+          }
+        }
+        
+        for (let j = 0; j < arr.length; j++) {
+          // Add element entering window on the right
+          const rightIdx = j + half;
+          if (rightIdx < arr.length) {
+            const v = arr[rightIdx] ? arr[rightIdx].val : null;
+            if (v !== null && !isNaN(v)) {
+              sum += v;
+              count++;
+            }
+          }
+          // Remove element leaving window on the left
+          const leftIdx = j - half - 1;
+          if (leftIdx >= 0) {
+            const v = arr[leftIdx] ? arr[leftIdx].val : null;
+            if (v !== null && !isNaN(v)) {
+              sum -= v;
+              count--;
+            }
+          }
+          result[j] = count > 0 ? sum / count : 0;
+        }
+        return result;
+      }
+
+      const Fs = t.analyzer.sampleRate || 10.0;
+      const windowSize = Math.round(Fs * temporalSmoothingWindow);
+      const doSmoothing = windowSize > 1;
+
+      const smoothPhasic = doSmoothing ? getSmoothArray(phasic, windowSize) : null;
+      const smoothTonic = doSmoothing ? getSmoothArray(tonic, windowSize) : null;
+      const smoothAUC = doSmoothing ? getSmoothArray(phasicAUC, windowSize) : null;
+      const smoothArousal = doSmoothing ? getSmoothArray(arousalIndex, windowSize) : null;
+
+      const baseFsStep = Math.max(1, Math.round(Fs));
       const step       = baseFsStep * globalStride;
 
       for (let i = 0; i < rawData.length; i += step) {
@@ -129,10 +283,10 @@ class GSRCollectiveManager {
           points.push({
             lat: coords.lat,
             lon: coords.lon,
-            phasic: (phasic[i] ? phasic[i].val : 0),
-            tonic: (tonic[i] ? tonic[i].val : 0),
-            phasicAUC: (phasicAUC[i] ? phasicAUC[i].val : 0),
-            arousalIndex: (arousalIndex[i] ? arousalIndex[i].val : 0)
+            phasic: doSmoothing ? smoothPhasic[i] : (phasic[i] ? phasic[i].val : 0),
+            tonic: doSmoothing ? smoothTonic[i] : (tonic[i] ? tonic[i].val : 0),
+            phasicAUC: doSmoothing ? smoothAUC[i] : (phasicAUC[i] ? phasicAUC[i].val : 0),
+            arousalIndex: doSmoothing ? smoothArousal[i] : (arousalIndex[i] ? arousalIndex[i].val : 0)
           });
         }
       }
@@ -268,13 +422,13 @@ class GSRCollectiveManager {
             const idx = rowOff + c;
             if (!nearTrack[idx] || hasExactMatch[idx]) continue;
             const d = getDistanceMeters(gridLat, gridLonOf(c), p.lat, p.lon);
-            if (d < 1e-3) {
+            if (softening === 0 && d < 1e-3) {
               exactMatchVal[idx] = pointVal;
               hasExactMatch[idx] = 1;
               continue;
             }
             if (d <= idwRadius) {
-              const wt = 1.0 / Math.pow(d, idwExponent);
+              const wt = 1.0 / Math.pow(d + softening, idwExponent);
               sumWeightedVal[idx] += wt * pointVal;
               sumWeight[idx] += wt;
               if (pointVal > localMaxArr[idx]) localMaxArr[idx] = pointVal;
@@ -284,7 +438,9 @@ class GSRCollectiveManager {
       }
     }
 
-    const alpha = GSR_CONST.COLLECTIVE.peakPreservation !== undefined ? GSR_CONST.COLLECTIVE.peakPreservation : 0.5;
+    const alpha = (contourParams && contourParams.peakPreservation !== undefined)
+      ? contourParams.peakPreservation
+      : (GSR_CONST.COLLECTIVE.peakPreservation !== undefined ? GSR_CONST.COLLECTIVE.peakPreservation : 0.5);
 
     for (let r = 0; r < rows; r++) {
       const gridLat = gridLatOf(r);
@@ -336,40 +492,39 @@ class GSRCollectiveManager {
 
     // Masked blur — smooths pure grid-quantization noise (the single-cell "wiggle" Marching
     // Squares traces literally, cell edge by cell edge) directly in the source field, before
-    // any contour is extracted. This is safer than smoothing/simplifying the traced isolines
-    // afterward: a per-line simplification pass moves each level's line independently and can
-    // nudge two originally non-crossing, closely-spaced levels into crossing each other.
-    // Isolines of one continuous scalar field are level sets of that same field and can
-    // never cross regardless of how smooth it is, so blurring the field itself can only
-    // reduce wiggle, never introduce a crossing artifact. Respects the null/no-data mask —
-    // only valid cells contribute to a valid cell's blurred value — so the isolationRadius
-    // boundary stays exactly where it was; a masked cell is never pulled toward its valid
-    // neighbors nor vice versa.
-    const blurred = Array.from({ length: rows }, () => new Array(cols).fill(null));
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        if (grid[r][c] === null || isNaN(grid[r][c])) { blurred[r][c] = grid[r][c]; continue; }
-        let sum = 0, weight = 0;
-        for (let dr = -1; dr <= 1; dr++) {
-          const rr = r + dr;
-          if (rr < 0 || rr >= rows) continue;
-          for (let dc = -1; dc <= 1; dc++) {
-            const cc = c + dc;
-            if (cc < 0 || cc >= cols) continue;
-            const v = grid[rr][cc];
-            if (v === null || isNaN(v)) continue;
-            // Tent-shaped 3x3 kernel ([1,2,1;2,4,2;1,2,1]/16 when all 9 neighbors are
-            // valid) — a mild blur that reduces single-cell noise without washing out
-            // real hotspot shape spanning multiple cells.
-            const w = (dr === 0 && dc === 0) ? 4 : ((dr === 0 || dc === 0) ? 2 : 1);
-            sum += v * w;
-            weight += w;
+    // any contour is extracted.
+    let currentGrid = grid;
+    for (let iter = 0; iter < blurIterations; iter++) {
+      const blurred = Array.from({ length: rows }, () => new Array(cols).fill(null));
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (currentGrid[r][c] === null || isNaN(currentGrid[r][c])) {
+            blurred[r][c] = currentGrid[r][c];
+            continue;
           }
+          let sum = 0, weight = 0;
+          for (let dr = -1; dr <= 1; dr++) {
+            const rr = r + dr;
+            if (rr < 0 || rr >= rows) continue;
+            for (let dc = -1; dc <= 1; dc++) {
+              const cc = c + dc;
+              if (cc < 0 || cc >= cols) continue;
+              const v = currentGrid[rr][cc];
+              if (v === null || isNaN(v)) continue;
+              // Tent-shaped 3x3 kernel ([1,2,1;2,4,2;1,2,1]/16 when all 9 neighbors are
+              // valid) — a mild blur that reduces single-cell noise without washing out
+              // real hotspot shape spanning multiple cells.
+              const w = (dr === 0 && dc === 0) ? 4 : ((dr === 0 || dc === 0) ? 2 : 1);
+              sum += v * w;
+              weight += w;
+            }
+          }
+          blurred[r][c] = weight > 0 ? sum / weight : currentGrid[r][c];
         }
-        blurred[r][c] = weight > 0 ? sum / weight : grid[r][c];
       }
+      currentGrid = blurred;
     }
-    grid = blurred;
+    grid = currentGrid;
 
     // minVal/maxVal above were measured on the pre-blur grid; a weighted average can only
     // pull values toward their neighbors, never past the original extremes, but recompute
@@ -387,6 +542,13 @@ class GSRCollectiveManager {
     }
     if (minVal === Infinity || maxVal === -Infinity) return [];
     if (Math.abs(maxVal - minVal) < 1e-9) maxVal = minVal + 0.1;
+
+    // Perform Bilinear upsampling on the blurred 40x40 grid to get a high-resolution 160x160 grid
+    const upsampledGrid = (upsampledResolution > gridResolution)
+      ? upsampleGrid(grid, upsampledResolution, upsampledResolution)
+      : grid;
+    const upsampledRows = upsampledGrid.length;
+    const upsampledCols = upsampledGrid[0].length;
 
     // Collect every valid (non-masked) grid value to build percentile-based contour levels.
     // Equal-interval levels (old behavior: minVal + k * (maxVal-minVal)/(n+1)) waste most of
@@ -434,9 +596,9 @@ class GSRCollectiveManager {
       levelEntries.push({ level, ratio });
     }
 
-    // Single grid traversal for all levels.
+    // Single grid traversal for all levels on the upsampled high-resolution grid.
     const sortedLevels = levelEntries.map(e => e.level).sort((a, b) => a - b);
-    const multiResult = MarchingSquares.getContourLinesMulti(grid, rows, cols, bounds, sortedLevels);
+    const multiResult = MarchingSquares.getContourLinesMulti(upsampledGrid, upsampledRows, upsampledCols, bounds, sortedLevels);
 
     for (const { level, ratio } of levelEntries) {
       const segments = multiResult.get(level) || [];
@@ -445,7 +607,7 @@ class GSRCollectiveManager {
       }
     }
 
-    return { contours, grid, minVal, maxVal, bounds, sortedVals };
+    return { contours, grid, upsampledGrid, minVal, maxVal, bounds, sortedVals };
   }
 }
 
