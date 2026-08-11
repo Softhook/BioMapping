@@ -404,7 +404,7 @@ static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
     // Brief blue blip after the main blink when GPS has no fix.
     if(has_gps(s->mode) && s->gps) {
         GpsPosition pos = get_gps_position(s);
-        bool gps_ready = pos.valid && pos.hdop < GPS_HDOP_GATE;
+        bool gps_ready = pos.valid;
         if(!gps_ready) {
             notification_message(notifications, &sequence_blink_blue_100);
         }

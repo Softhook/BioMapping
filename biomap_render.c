@@ -195,17 +195,10 @@ static void render_gps_compact(Canvas* c, BioMapApp* a) {
             g.time.hours, g.time.minutes, g.time.seconds);
 
         bool has_fix = gps_has_fix(&g);
-        bool gps_ready = has_fix && g.hdop < GPS_HDOP_GATE;
 
-        if(gps_ready) {
+        if(has_fix) {
             y = draw_fmt(c, x, y, "%.5f", (double)g.latitude);
             y = draw_fmt(c, x, y, "%.5f", (double)g.longitude);
-        } else if(has_fix) {
-            if(g.hdop < 50.0f) {
-                y = draw_fmt(c, x, y, "Acquiring (HDOP:%.1f)", (double)g.hdop);
-            } else {
-                y = draw_fmt(c, x, y, "Acquiring...");
-            }
         } else {
             y = draw_fmt(c, x, y, "Waiting for fix...");
         }

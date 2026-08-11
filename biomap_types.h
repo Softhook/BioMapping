@@ -22,20 +22,6 @@
 #define ZOOM_MIN         0.25f
 #define ZOOM_MAX         16.0f
 
-// GPS quality gate — positions with HDOP >= this value are treated as
-// too imprecise to log.  Empty GPS columns are written instead, which
-// the analyser treats as a gap rather than a noisy position.
-// Also used by the LED indicator: blue blinks until HDOP drops below this.
-// DOP terminology: < 2 = excellent, < 5 = good, < 10 = moderate, ≥ 10 = poor.
-// 5.0 is appropriate for urban use (canyons/trees regularly push HDOP to 3–5).
-// Lower to 3.0 for open-sky environments where higher precision is achievable.
-//
-// NOTE: The JS web analyser (constants.js GPS_DEFAULT.maxHdop) defaults to 2.0.
-// This firmware gate is intentionally MORE permissive: we log everything that
-// has a plausible fix so the analyser can apply a tighter filter in post-processing.
-// Logging at 5.0 and filtering at 2.0 gives maximum flexibility; logging at 2.0
-// would silently discard data in urban canyons that the analyser could have kept.
-#define GPS_HDOP_GATE    5.0f
 // GPS logging rate — rows per second in the CSV.
 // 10 Hz = 100 ms between fixes; matches TICK_HZ so every tick logs GPS+GSR
 // (tick_counter % 1 == 0 always).  With M10Q at 10 Hz each row gets a fresh
