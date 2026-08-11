@@ -53,16 +53,18 @@ int furi_hal_mock_acquire_count(void);
 int  furi_hal_mock_tx_count(void);
 void furi_hal_mock_reset_tx_count(void);
 
-// Arms a one-shot response: the next furi_hal_serial_tx() call whose bytes
+// Queues a response: the next furi_hal_serial_tx() call whose bytes
 // exactly match `trigger` synchronously feeds `response` back in as if
-// received, before that TX call returns. Lets a test simulate a module
-// replying to one specific command buried inside a longer sequence of
-// unrelated TX calls (e.g. ubx_poll_chip_id()'s poll, sent only after
-// gps_uart_configure()'s other packets), landing bytes inside a single
-// blocking call (like gps_uart_alloc()) that furi_hal_mock_feed_byte/
-// _string() alone can't reach into. Consumed after firing once; call
-// again to arm another response. trigger_len must be <= 16 bytes,
-// response_len <= 640 bytes (furi_check()s otherwise).
+// received, before that TX call returns, then this entry is consumed.
+// Lets a test simulate a module replying to one specific command buried
+// inside a longer sequence of unrelated TX calls (e.g. ubx_poll_chip_id()
+// 's poll, sent only after gps_uart_configure()'s other packets), landing
+// bytes inside a single blocking call (like gps_uart_alloc()) that
+// furi_hal_mock_feed_byte/_string() alone can't reach into. Call multiple
+// times to queue several responses in order — e.g. a corrupted response
+// for a first attempt and a valid one for its retry, both sent with the
+// identical trigger bytes. Up to 4 entries queued at once, trigger_len
+// <= 16 bytes, response_len <= 640 bytes each (furi_check()s otherwise).
 void furi_hal_mock_arm_response_for_tx(
     const uint8_t* trigger, size_t trigger_len,
     const uint8_t* response, size_t response_len);

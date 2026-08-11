@@ -732,8 +732,27 @@ static bool ubx_poll_chip_id_once(GpsUart* g) {
 // convention (see its doc comment) — a poll going unanswered on the very
 // first attempt right after the baud switch is the same known settling
 // behaviour that motivated that retry, not speculative.
+// Attempted at most ONCE per process lifetime, success or failure — not
+// just "stop once found" (that alone only bounds the success case).
+// gps_uart_configure() runs on every RX-buffer-full and NMEA-watchdog
+// reinit, not just the initial alloc, and has no way to tell "first ever
+// call" apart from "mid-recovery retry". Without this gate, a module that
+// never answers this poll cleanly would pay up to ~3.6s of main-thread
+// blocking (2 attempts x ubx_find_sync() hunting its full
+// UBX_ACK_MAX_SYNC_BYTES budget through live NMEA — see that function's
+// doc comment for the measured ~4-5KB/s real-hardware rate this implies)
+// on every single reinit for the rest of the session, discarding real GPS
+// fixes the whole time it's scanning — on exactly the recovery path
+// that's supposed to be restoring good reception, not degrading it
+// further. One bounded attempt, right after gps_uart_configure() has
+// already proven the link works (clean CFG-VALSET ACKs), is the one shot
+// most likely to succeed anyway; a module that doesn't answer then is
+// unlikely to start answering on a later, degraded-link retry.
+static bool g_chip_id_poll_attempted = false;
+
 static void ubx_poll_chip_id(GpsUart* g) {
-    if(g_gps_chip_id[0] != '\0') return; // already known — cheap early-out
+    if(g_chip_id_poll_attempted) return;
+    g_chip_id_poll_attempted = true;
     for(int attempt = 0; attempt < 2; attempt++) {
         if(ubx_poll_chip_id_once(g)) {
             FURI_LOG_I("GpsUart", "GPS chip ID: %s", g_gps_chip_id);
@@ -1239,10 +1258,10 @@ static void gps_uart_configure(GpsUart* g) {
     const char* pubx_00_rate = "$PUBX,40,00,1,1,0,0*1B\r\n";
     ubx_tx(g, (const uint8_t*)pubx_00_rate, strlen(pubx_00_rate));
 
-    // Best-effort, not blocking normal operation on it — see
-    // ubx_poll_chip_id()'s doc comment. Runs after everything else above
-    // has already established the link is working (clean ACKs), and only
-    // until a chip ID has been found once this app session.
+    // Best-effort, and attempted at most once ever regardless of outcome
+    // — see ubx_poll_chip_id()'s doc comment for why "only until found"
+    // alone isn't enough. Runs after everything else above has already
+    // established the link is working (clean ACKs).
     ubx_poll_chip_id(g);
 
     FURI_LOG_I("GpsUart", "M10Q running at 115200 baud, 10 Hz, GSV@1Hz");

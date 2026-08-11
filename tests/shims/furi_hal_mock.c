@@ -34,24 +34,36 @@ static int g_tx_count = 0;
 // can send several unrelated packets (wake byte, baud-switch command, CFG
 // packets, ...) before the one a test actually cares about, e.g.
 // ubx_poll_chip_id()'s UBX-SEC-UNIQID poll, sent last.
+//
+// A small FIFO queue, not a single slot: production code can retry the
+// exact same trigger bytes more than once (e.g. ubx_poll_chip_id_once()'s
+// two attempts both send the identical poll packet), and a test may want
+// a *different* response for each — e.g. a corrupted response for the
+// first attempt, a valid one for the retry, to prove rejection and
+// recovery in one exchange rather than assuming a single canned response
+// covers every match.
 #define TX_RESPONSE_MAX_TRIGGER 16
 #define TX_RESPONSE_MAX_BYTES   640
-static uint8_t g_tx_trigger[TX_RESPONSE_MAX_TRIGGER];
-static size_t  g_tx_trigger_len = 0;
-static uint8_t g_tx_response[TX_RESPONSE_MAX_BYTES];
-static size_t  g_tx_response_len = 0;
-static bool    g_tx_response_armed = false;
+#define TX_RESPONSE_QUEUE_MAX   4
+static struct {
+    uint8_t trigger[TX_RESPONSE_MAX_TRIGGER];
+    size_t  trigger_len;
+    uint8_t response[TX_RESPONSE_MAX_BYTES];
+    size_t  response_len;
+} g_tx_queue[TX_RESPONSE_QUEUE_MAX];
+static size_t g_tx_queue_count = 0;
 
 void furi_hal_mock_arm_response_for_tx(
     const uint8_t* trigger, size_t trigger_len,
     const uint8_t* response, size_t response_len) {
-    furi_check(trigger_len <= sizeof(g_tx_trigger), "furi_hal_mock: trigger too long");
-    furi_check(response_len <= sizeof(g_tx_response), "furi_hal_mock: response too long");
-    memcpy(g_tx_trigger, trigger, trigger_len);
-    g_tx_trigger_len = trigger_len;
-    memcpy(g_tx_response, response, response_len);
-    g_tx_response_len = response_len;
-    g_tx_response_armed = true;
+    furi_check(g_tx_queue_count < TX_RESPONSE_QUEUE_MAX, "furi_hal_mock: tx response queue full");
+    furi_check(trigger_len <= TX_RESPONSE_MAX_TRIGGER, "furi_hal_mock: trigger too long");
+    furi_check(response_len <= TX_RESPONSE_MAX_BYTES, "furi_hal_mock: response too long");
+    size_t i = g_tx_queue_count++;
+    memcpy(g_tx_queue[i].trigger, trigger, trigger_len);
+    g_tx_queue[i].trigger_len = trigger_len;
+    memcpy(g_tx_queue[i].response, response, response_len);
+    g_tx_queue[i].response_len = response_len;
 }
 
 FuriHalSerialHandle* furi_hal_serial_control_acquire(FuriHalSerialId id) {
@@ -100,11 +112,19 @@ uint8_t furi_hal_serial_async_rx(FuriHalSerialHandle* handle) {
 void furi_hal_serial_tx(FuriHalSerialHandle* handle, const uint8_t* data, size_t len) {
     (void)handle;
     g_tx_count++;
-    if(g_tx_response_armed && len == g_tx_trigger_len &&
-       memcmp(data, g_tx_trigger, len) == 0) {
-        g_tx_response_armed = false;
-        for(size_t i = 0; i < g_tx_response_len; i++) {
-            furi_hal_mock_feed_byte(g_tx_response[i]);
+    // Only the front of the queue is ever checked — a non-matching TX
+    // (e.g. an unrelated CFG-VALSET packet sent before the one a test
+    // armed a response for) leaves the queue untouched, exactly as a
+    // single-slot "arm for next matching TX" would, just generalized to
+    // more than one queued entry.
+    if(g_tx_queue_count > 0 && len == g_tx_queue[0].trigger_len &&
+       memcmp(data, g_tx_queue[0].trigger, len) == 0) {
+        uint8_t response[TX_RESPONSE_MAX_BYTES];
+        size_t response_len = g_tx_queue[0].response_len;
+        memcpy(response, g_tx_queue[0].response, response_len);
+        memmove(&g_tx_queue[0], &g_tx_queue[1], (--g_tx_queue_count) * sizeof(g_tx_queue[0]));
+        for(size_t i = 0; i < response_len; i++) {
+            furi_hal_mock_feed_byte(response[i]);
         }
     }
 }

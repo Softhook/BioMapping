@@ -414,15 +414,20 @@ static void test_rx_buffer_overflow_reconfigures(void) {
 }
 
 // ── GPS chip ID capture (ubx_poll_chip_id(), M10Q only) ─────────────────
-// gps_uart_get_chip_id()'s cache is a file-scope static with no reset hook
-// (deliberately — production behaviour is that a capture is never cleared
-// once found, see its doc comment in gps_uart.c), so it is sticky across
-// every test in this process. All three phases below therefore live in
-// ONE test function, run strictly in this order, rather than as separate
-// tests relying on main()'s call order to keep them meaningful — a future
-// test added between two separately-registered tests couldn't silently
-// break this the way it could if the ordering were only enforced by a
-// comment in main().
+// gps_uart_get_chip_id()'s cache AND the "have we tried" gate
+// (g_chip_id_poll_attempted) are both file-scope statics with no reset
+// hook — deliberately: production behaviour is that the poll is attempted
+// at MOST ONCE per process lifetime, success or failure, never retried on
+// a later reinit (see ubx_poll_chip_id()'s doc comment for why — it used
+// to retry on every RX-buffer-full/NMEA-watchdog reinit, which could
+// block the main thread for seconds on a module that never answers
+// cleanly). That one-shot-ever behaviour is exactly what this test needs
+// to prove — which also means it's not just this function's own two
+// phases that must stay ordered: ANY gps_uart_alloc() call anywhere in
+// this binary, in ANY test, spends the one lifetime attempt. This test
+// MUST run first in main(), before every other test that (like almost
+// all of them) calls gps_uart_alloc() without arming a chip-id response —
+// see the comment at its call site in main().
 //
 // The exact bytes here are ubx_poll_uniqid[] (the poll gps_uart.c actually
 // sends) and hand-verified UBX-SEC-UNIQID response frames — class 0x27 id
@@ -437,30 +442,26 @@ static const uint8_t k_uniqid_poll[] = {0xB5, 0x62, 0x27, 0x03, 0x00, 0x00, 0x2A
 static void test_chipid_capture(void) {
     printf("Running test_chipid_capture...\n");
 
-    // Phase 1: no response at all (nothing armed) must leave the cache
-    // empty, not hang or crash — ubx_read_byte()'s iteration-bounded
-    // timeout (not wall-clock) is what makes this terminate promptly
-    // under test; see test_cfg_ack_timeout_is_bounded for the same
-    // property exercised directly.
+    // Phase 1: the overall poll attempt FAILS — this is the scenario the
+    // fix actually matters for. A corrupted response is queued for
+    // attempt 1 (must be rejected); attempt 2 gets nothing armed and
+    // times out on its own (bounded by iteration count, not wall clock —
+    // see test_cfg_ack_timeout_is_bounded for the same property exercised
+    // directly). Deliberately NOT testing "corrupted then a valid retry
+    // succeeds" here: that scenario's overall outcome is success, and a
+    // reverted, pre-fix version of ubx_poll_chip_id() (guarded only by
+    // "stop once found") behaves IDENTICALLY to the fixed version whenever
+    // the very first alloc's attempt happens to succeed — checked this by
+    // literally reverting the fix in a scratch copy and confirming a
+    // success-first test still passed. Only a FAILED first attempt can
+    // tell the two behaviours apart, which is exactly what phase 2 below
+    // does. (Checksum-rejection itself is unchanged code, already covered
+    // by this phase, and the corrupted-then-valid-succeeds parse path is
+    // unchanged from before this fix and was verified separately, both by
+    // an earlier version of this test and on real hardware.)
+    GpsUart* g;
     {
-        FuriMessageQueue queue = {0};
-        GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
-        assert(g != NULL);
-
-        printf("  phase 1: chip_id with no poll response = \"%s\" (expect empty)\n",
-               gps_uart_get_chip_id(g));
-        assert(gps_uart_get_chip_id(g)[0] == '\0');
-
-        gps_uart_free(g);
-    }
-
-    // Phase 2: a response with a corrupted checksum must be rejected, not
-    // just "some frame arrived". Byte 17 flipped (0x8D -> 0x8E) from a
-    // known-good frame (see phase 3) so ubx_calc_checksum() must fail it.
-    // Consumed on the first of ubx_poll_chip_id()'s two attempts; the
-    // second attempt has nothing armed and times out the same as phase 1.
-    {
-        static const uint8_t bad_checksum_response[] = {
+        static const uint8_t corrupted_response[] = {
             0xB5, 0x62, 0x27, 0x03, 0x0A, 0x00,             // header, len=10
             0x02, 0x00, 0x00, 0x00,                          // version, reserved
             0x11, 0x22, 0x33, 0x44, 0x55, 0x66,              // uniqueId
@@ -469,41 +470,42 @@ static void test_chipid_capture(void) {
         FuriMessageQueue queue = {0};
         furi_hal_mock_arm_response_for_tx(
             k_uniqid_poll, sizeof(k_uniqid_poll),
-            bad_checksum_response, sizeof(bad_checksum_response));
-        GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+            corrupted_response, sizeof(corrupted_response));
+        g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
         assert(g != NULL);
 
-        printf("  phase 2: chip_id after corrupted-checksum response = \"%s\" (expect empty)\n",
+        printf("  phase 1: chip_id after corrupted response + timed-out retry = \"%s\" (expect empty)\n",
                gps_uart_get_chip_id(g));
         assert(gps_uart_get_chip_id(g)[0] == '\0');
 
         gps_uart_free(g);
     }
 
-    // Phase 3: a valid response is parsed correctly and rendered as the
-    // expected 5-word phrase. Phases 1-2 left the cache empty, so this can
-    // only have come from this exchange. Expected phrase independently
-    // computed in Python against the same eff_short_wordlist_1.txt source
-    // (big-endian uniqueId -> uint64 -> five (%1296, /=1296) rounds,
-    // most-significant word first — see ubx_poll_chip_id_once()'s doc
-    // comment) — not derived from the C code under test.
+    // Phase 2: THE fix under test. A later gps_uart_alloc() (e.g. a mode
+    // switch, or exactly what an RX-buffer-full/NMEA-watchdog reinit
+    // does) must NOT retry the poll just because phase 1's attempt
+    // failed. A valid response is queued for the same trigger; if the old
+    // "stop once found" guard were still in place, this alloc WOULD poll
+    // again (chip_id is still empty from phase 1) and it WOULD succeed,
+    // setting chip_id to this phrase. It must not: chip_id staying empty
+    // here is only possible if the poll never fired at all this time.
     {
-        static const uint8_t good_response[] = {
+        static const uint8_t valid_response[] = {
             0xB5, 0x62, 0x27, 0x03, 0x0A, 0x00,             // header, len=10
             0x02, 0x00, 0x00, 0x00,                          // version, reserved
-            0x11, 0x22, 0x33, 0x44, 0x55, 0x66,              // uniqueId
-            0x9B, 0x8D,                                      // valid checksum
+            0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF,              // uniqueId
+            0x31, 0x1A,                                      // valid checksum
         };
         FuriMessageQueue queue = {0};
         furi_hal_mock_arm_response_for_tx(
             k_uniqid_poll, sizeof(k_uniqid_poll),
-            good_response, sizeof(good_response));
-        GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+            valid_response, sizeof(valid_response));
+        g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
         assert(g != NULL);
 
-        printf("  phase 3: chip_id after valid response = \"%s\" (expect \"aged risk fit cage scam\")\n",
+        printf("  phase 2: chip_id after a later alloc = \"%s\" (expect still empty, NOT \"baker mute aloha fable poet\")\n",
                gps_uart_get_chip_id(g));
-        assert(strcmp(gps_uart_get_chip_id(g), "aged risk fit cage scam") == 0);
+        assert(gps_uart_get_chip_id(g)[0] == '\0');
 
         gps_uart_free(g);
     }
@@ -781,6 +783,15 @@ static void test_scheduler_mock_with_real_uart_drain_feedback(void) {
 }
 
 int main(void) {
+    // Must run before any other test: ubx_poll_chip_id() now attempts its
+    // UBX-SEC-UNIQID poll at most ONCE per process, on the first
+    // gps_uart_configure() call from ANY test's gps_uart_alloc() — not
+    // just this one. Every other test below also calls gps_uart_alloc()
+    // without arming a chip-id response, so if this ran anywhere else,
+    // the one lifetime attempt would already be spent by the time it got
+    // here and every assertion in it would silently fail against an
+    // empty chip_id instead of testing what it claims to.
+    test_chipid_capture();
     test_alloc_lifecycle();
     test_cfg_ack_timeout_is_bounded();
     test_gga_updates_status();
@@ -795,7 +806,6 @@ int main(void) {
     test_gll_ignored_when_invalid();
     test_split_line_buffering();
     test_rx_buffer_overflow_reconfigures();
-    test_chipid_capture();
     test_nmea_watchdog_reconfigures();
     test_hot_start_sends_command();
     test_standby_acquires_and_releases();
