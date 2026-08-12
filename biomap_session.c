@@ -459,7 +459,8 @@ static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
 //          might do to the ADC reading can reach the recording.
 static bool key_toggle_recording(Session* s, FuriMutex* mutex,
                                   NotificationApp* notifications, bool sound_enabled,
-                                  bool rf_calibrated, const float* rf_cal_floors) {
+                                  bool rf_calibrated, const float* rf_cal_floors,
+                                  bool gsr_cal_active, float gsr_cal_gain, float gsr_cal_offset) {
     bool start;
     furi_mutex_acquire(mutex, FuriWaitForever);
     start = !s->recording.active;
@@ -483,9 +484,10 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
             cols = s->debug_fields_enabled ? BIOMAP_CSV_COLS_GPS_GSR_DEBUG : BIOMAP_CSV_COLS_GPS_GSR_PROD;
         }
         // 768 bytes to comfortably fit recording metadata + optional Band
-        // Floors/DeviceName/GPSChipID + widest CSV schema line (GPS+GSR+RF
-        // with continuity columns). Keep this headroom so schema
-        // expansions do not block recording start with "Header too long".
+        // Floors/DeviceName/GPSChipID/GSR Calibration + widest CSV schema
+        // line (GPS+GSR+RF with continuity columns). Keep this headroom so
+        // schema expansions do not block recording start with "Header too
+        // long".
         char header[768];
         int n = snprintf(header, sizeof(header),
                          "# RecordingStartTime:%lu\n", (unsigned long)epoch);
@@ -499,18 +501,6 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
             n += snprintf(header + n, sizeof(header) - (size_t)n,
                          "# DeviceName:%s\n", device_name ? device_name : "");
         }
-        // GPSChipID: a 5-word mnemonic phrase, not the raw hex — best
-        // effort, only present once the UBX-SEC-UNIQID poll in gps_uart.c
-        // has actually found one (see gps_uart_get_chip_id()'s doc
-        // comment). Gated on has_gps() the same way Band Floors is gated
-        // on has_rf() below.
-        if(has_gps(s->mode) && s->gps && n > 0 && (size_t)n < sizeof(header)) {
-            const char* chip_id = gps_uart_get_chip_id(s->gps);
-            if(chip_id[0] != '\0') {
-                n += snprintf(header + n, sizeof(header) - (size_t)n,
-                             "# GPSChipID:%s\n", chip_id);
-            }
-        }
         // Band Floors line: only meaningful once RF is both active for this
         // session and a real calibration exists — order
         // (815,868,915) matches em_scan_freq_label[] in em_scan_rf.c.
@@ -518,6 +508,28 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
             n += snprintf(header + n, sizeof(header) - (size_t)n,
                          "# Band Floors (dBm): 815:%.1f,868:%.1f,915:%.1f\n",
                          (double)rf_cal_floors[0], (double)rf_cal_floors[1], (double)rf_cal_floors[2]);
+        }
+        // GPSChipID: a 5-word mnemonic phrase, not the raw hex — best
+        // effort, only present once the UBX-SEC-UNIQID poll in gps_uart.c
+        // has actually found one (see gps_uart_get_chip_id()'s doc
+        // comment). Gated on has_gps() the same way Band Floors is gated
+        // on has_rf() above.
+        if(has_gps(s->mode) && s->gps && n > 0 && (size_t)n < sizeof(header)) {
+            const char* chip_id = gps_uart_get_chip_id(s->gps);
+            if(chip_id[0] != '\0') {
+                n += snprintf(header + n, sizeof(header) - (size_t)n,
+                             "# GPSChipID:%s\n", chip_id);
+            }
+        }
+        // GSR Calibration line: gain/offset are applied inside GsrSensor
+        // before gsr_raw is ever computed (see gsr_sensor_set_calibration),
+        // so this is the only record of what transform produced the
+        // logged values — only emitted when a calibration is actually
+        // active, same gating style as Band Floors above.
+        if(gsr_cal_active && n > 0 && (size_t)n < sizeof(header)) {
+            n += snprintf(header + n, sizeof(header) - (size_t)n,
+                         "# GSR Calibration: gain:%.4f,offset:%.4f\n",
+                         (double)gsr_cal_gain, (double)gsr_cal_offset);
         }
         if(n > 0 && (size_t)n < sizeof(header)) {
             n += snprintf(header + n, sizeof(header) - (size_t)n, "%s", cols);
@@ -830,7 +842,8 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort
             && ev.input.key == InputKeyOk) {
             if(key_toggle_recording(s, app->mutex, app->notifications, app->sound_enabled,
-                                     app->rf_calibrated, app->rf_cal_data.noise_floor_dbm))
+                                     app->rf_calibrated, app->rf_cal_data.noise_floor_dbm,
+                                     app->cal_active, app->cal_gain, app->cal_offset))
                 view_port_update(s->vp);
             continue;
         }
