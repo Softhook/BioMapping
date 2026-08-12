@@ -140,7 +140,7 @@ class GSRCollectiveManager {
             if (v10 !== null && !isNaN(v10)) { sumVal += v10 * w10; sumWt += w10; }
             if (v11 !== null && !isNaN(v11)) { sumVal += v11 * w11; sumWt += w11; }
             
-            if (sumWt > 0.5) {
+            if (sumWt > 1e-6) {
               upsampled[r][c] = sumVal / sumWt;
             } else {
               upsampled[r][c] = null;

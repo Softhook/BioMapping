@@ -607,9 +607,56 @@ class GSRMapExporter {
         closedPaths.forEach(r => rings.push(r));
         closedFromOpen.forEach(r => rings.push(r));
 
+        // A mask loop (loops[1:] — loops[0] is always the literal bounding
+        // rectangle) traces the edge of a "no data" island: e.g. a park the
+        // GPS track walks around but never crosses. _closeOpenIsobandPaths
+        // above only ever consumes a mask loop to CLOSE an open isoline that
+        // touches it — an island with no isoline path reaching it at all
+        // (nothing crosses this level anywhere near it) is otherwise never
+        // referenced again, so it would silently get painted over solid
+        // instead of staying an unfilled hole. Detect any such loop that
+        // geometrically falls inside one of this level's rings and record it
+        // to be cut out (see fill-rule="evenodd" below).
+        //
+        // A ring that was itself closed via _closeOpenIsobandPaths often
+        // directly incorporates long stretches of a mask loop's own points
+        // (boundaryWalk copies them verbatim) — that loop's centroid then
+        // trivially tests as "inside" the ring, which would misidentify the
+        // ring's own boundary as a hole of itself. Guard against that with
+        // an area check: a genuine interior island is always meaningfully
+        // smaller than the ring it punches a hole in, never comparable to it.
+        const shoelaceArea = (pts) => {
+          let a = 0;
+          for (let i = 0; i < pts.length; i++) {
+            const p1 = pts[i], p2 = pts[(i + 1) % pts.length];
+            const lat1 = p1.lat ?? p1[0], lon1 = p1.lon ?? p1[1];
+            const lat2 = p2.lat ?? p2[0], lon2 = p2.lon ?? p2[1];
+            a += lon1 * lat2 - lon2 * lat1;
+          }
+          return Math.abs(a) / 2;
+        };
+        const holesByRingIndex = rings.map(ring => {
+          const ringArea = shoelaceArea(ring);
+          const holes = [];
+          for (let i = 1; i < loops.length; i++) {
+            const loopPts = loops[i].points;
+            if (!loopPts || loopPts.length < 3) continue;
+            const loopArea = shoelaceArea(loopPts);
+            if (loopArea > ringArea * 0.5) continue; // too close in size — likely the ring's own boundary, not an interior island
+            let cLat = 0, cLon = 0;
+            loopPts.forEach(p => { cLat += p.lat; cLon += p.lon; });
+            cLat /= loopPts.length; cLon /= loopPts.length;
+            if (GeoUtils.pointInPolygon(cLat, cLon, ring)) {
+              holes.push(loopPts.map(p => ({ lat: p.lat, lon: p.lon })));
+            }
+          }
+          return holes;
+        });
+
         surfaceData.cachedIsobandRings.push({
           ratio: c.ratio,
-          rings: rings
+          rings: rings,
+          holesByRingIndex: holesByRingIndex
         });
       });
     }
@@ -622,11 +669,17 @@ class GSRMapExporter {
         ? GeoUtils.chaikinSmooth(ring, 3, true)
         : ring;
 
-      item.rings.forEach(ring => {
+      item.rings.forEach((ring, idx) => {
         const d = this._pathD(ctx, smoothRing(ring), true, true, false, true, 'bspline');
         if (!d) return;
+        const holes = (item.holesByRingIndex && item.holesByRingIndex[idx]) || [];
+        const holeDs = holes
+          .map(hole => this._pathD(ctx, smoothRing(hole), true, true, false, true, 'bspline'))
+          .filter(Boolean);
+        const fullD = [d, ...holeDs].join(' ');
         isobands.push(
-          `<path d="${d}" fill="${this._esc(fillColor)}" stroke="none" />`
+          `<path d="${fullD}" fill="${this._esc(fillColor)}" stroke="none"` +
+          (holeDs.length ? ` fill-rule="evenodd"` : '') + ` />`
         );
       });
     });
