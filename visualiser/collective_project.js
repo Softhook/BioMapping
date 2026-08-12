@@ -44,7 +44,7 @@ const GSRCollectiveProject = {
   // (which travel with that track's CSV instead, per the doc comment above).
   COLLECTIVE_SLIDER_KEYS: ['gpsPeakLatency', 'clusterProximity', 'clusterBoundaryRadius'],
   CONTOUR_KEYS: [
-    'gridResolution', 'contourCount', 'isolationRadius', 'idwExponent',
+    'gridResolution', 'contourCount', 'isolationRadius', 'idwExponent', 'peakPreservation',
     'topoSource', 'showShadedSurface', 'normalizeZScore', 'surfaceOpacity',
     'hillshadeStrength'
   ],

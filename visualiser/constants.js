@@ -233,11 +233,12 @@ const GSR_CONST = {
     // Softening/smoothing parameter in meters added to the IDW distance denominator
     // to prevent singular bull's eye spikes at track points and saddles between them.
     softening: 25.0,
-    // Blend factor between the IDW weighted-mean and the local peak envelope (max value
-    // within the interpolation radius) for the phasic/tonic continuous surface. 0 = pure
-    // average (old behavior, smooths transient spikes away). 1 = pure "worst moment
-    // recorded nearby" (no smoothing at all). 0.0 keeps a smooth, readable surface.
-    peakPreservation: 0.0,
+    // Blend factor between the IDW weighted-mean and the local peak envelope (a
+    // distance-decayed max within the interpolation radius) for the phasic/tonic
+    // continuous surface. 0 = pure average (many overlapping calm samples can bury a
+    // rare high-arousal one). 1 = pure "most aroused moment recorded nearby" (no
+    // averaging at all). Exposed as the "Peak Preservation" slider in the UI.
+    peakPreservation: 0.5,
     // Sliding window size in seconds for temporal anti-aliasing (smoothing) of biometric
     // data. 0.0 disables smoothing. 20.0 seconds filters out rapid 10 Hz spikes to reveal
     // macro-level arousal trends.

@@ -423,6 +423,17 @@ class GSRCollectiveManager {
     const hasExactMatch = new Uint8Array(rows * cols);
     if (topographySource !== 'peaks') {
       const idwRadius = isolationRadius * 1.5;
+      // Envelope (local-max) contributions are distance-decayed with the same Gaussian
+      // shape as the "Peak Stress Hotspots" KDE, sigma tied to idwRadius so it reaches
+      // ~0 near the cutoff. Without this, a raw (non-decayed) max would stay flat right
+      // out to idwRadius and then hard-cut off — since the IDW mean term *does* decay
+      // continuously with distance, blending a flat plateau against it produces a dip
+      // right at the crowded source point (where many low-value samples pull the mean
+      // down) and a ring of falsely elevated value at the plateau's edge. Decaying the
+      // envelope the same way keeps its peak exactly at the source point and lets both
+      // terms fall off together.
+      const envelopeSigma = idwRadius / 3;
+      const twoEnvSigmaSq = 2 * envelopeSigma * envelopeSigma;
       for (let i = 0; i < points.length; i++) {
         const p = points[i];
         const pointVal = topographySource === 'tonic' ? p.tonic :
@@ -446,7 +457,8 @@ class GSRCollectiveManager {
               const wt = 1.0 / Math.pow(d + softening, idwExponent);
               sumWeightedVal[idx] += wt * pointVal;
               sumWeight[idx] += wt;
-              if (pointVal > localMaxArr[idx]) localMaxArr[idx] = pointVal;
+              const envelopeVal = pointVal * Math.exp(-(d * d) / twoEnvSigmaSq);
+              if (envelopeVal > localMaxArr[idx]) localMaxArr[idx] = envelopeVal;
             }
           }
         }
