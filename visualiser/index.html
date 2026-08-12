@@ -553,6 +553,15 @@
               <p class="help-text">Only affects Phasic/Tonic/AUC/Arousal surfaces (not Peak Stress Hotspots). 0% = plain average — a few high-arousal moments can get buried by many calmer ones nearby. 100% = the most aroused moment recorded near each spot wins outright, even if it's a single outlier.</p>
             </div>
 
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Coverage Confidence</span>
+                <span class="slider-value" id="valCoverageWeighting">50%</span>
+              </div>
+              <input type="range" id="coverageWeighting" min="0" max="1" step="0.05" value="0.5">
+              <p class="help-text">Fades out areas that few people actually walked through, so a single passerby's reading doesn't look as certain as a place many people visited. 0% = every area shown at full strength regardless of foot traffic. 100% = lightly-visited areas fade toward transparent, even if their reading was extreme. Relative to this dataset — coverage is ranked against the other loaded tracks, not an absolute headcount.</p>
+            </div>
+
             <div class="slider-group" id="surfaceOpacityGroup">
               <div class="slider-label">
                 <span>Surface Opacity</span>

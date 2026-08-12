@@ -56,7 +56,7 @@ const GSREvents = {
     // Contour controls (used in collective map)
     const contourKeys = [
       'gridResolution', 'contourCount', 'isolationRadius', 'idwExponent', 'peakPreservation',
-      'topoSource', 'normalizeZScore', 'surfaceOpacity', 'hillshadeStrength'
+      'coverageWeighting', 'topoSource', 'normalizeZScore', 'surfaceOpacity', 'hillshadeStrength'
     ];
     AppState.contourControls = {};
     for (const key of contourKeys) {
@@ -923,6 +923,7 @@ const GSREvents = {
     bindCi('isolationRadius', 'valIsolationRadius', v => `${v} m`);
     bindCi('idwExponent',     'valIdwExponent',     v => v.toFixed(1));
     bindCi('peakPreservation', 'valPeakPreservation', v => `${Math.round(v * 100)}%`);
+    bindCi('coverageWeighting', 'valCoverageWeighting', v => `${Math.round(v * 100)}%`);
     bindCi('surfaceOpacity',  'valSurfaceOpacity',  v => `${Math.round(v * 100)}%`);
     bindCi('hillshadeStrength', 'valHillshadeStrength', v => `${v}%`);
 
@@ -1011,6 +1012,7 @@ const GSREvents = {
       updateCLabel('isolationRadius', 'valIsolationRadius', v => `${v} m`);
       updateCLabel('idwExponent',     'valIdwExponent',     v => v.toFixed(1));
       updateCLabel('peakPreservation', 'valPeakPreservation', v => `${Math.round(v * 100)}%`);
+      updateCLabel('coverageWeighting', 'valCoverageWeighting', v => `${Math.round(v * 100)}%`);
       updateCLabel('surfaceOpacity',  'valSurfaceOpacity',  v => `${Math.round(v * 100)}%`);
       updateCLabel('hillshadeStrength', 'valHillshadeStrength', v => `${v}%`);
 

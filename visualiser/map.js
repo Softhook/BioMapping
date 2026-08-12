@@ -2299,12 +2299,17 @@ class GSRMapManager {
     }
     this.surfaceData = surfaceData;
 
-    const { contours, grid, minVal, maxVal, bounds, sortedVals } = surfaceData;
+    const { contours, grid, minVal, maxVal, bounds, sortedVals, upsampledCoverageRatioGrid } = surfaceData;
     this._collectiveTopographySource = contourParams.topographySource;
     this._legendMinVal = minVal;
     this._legendMaxVal = maxVal;
     const { surfaceOpacity = 0.40 } = contourParams;
     const hillshadeStrength = contourParams.hillshadeStrength !== undefined ? contourParams.hillshadeStrength : 0.0;
+    const coverageWeighting = contourParams.coverageWeighting !== undefined ? contourParams.coverageWeighting : 0.0;
+    // Never fade a reading all the way to invisible just because few people were there to
+    // corroborate it — a lone walker's spike should still be visible, just clearly
+    // de-emphasized (same "shrink, don't erase" floor used elsewhere for outlier weighting).
+    const COVERAGE_OPACITY_FLOOR = 0.12;
 
     // 1. Draw shaded continuous surface overlay.
     //    The overlay is created whenever there is surface data — it is NOT gated
@@ -2332,6 +2337,13 @@ class GSRMapManager {
 
       const drawCell = (r, c, ratio, lightness) => {
         ctx.fillStyle = MapColors.getHslColor(ratio, 100, lightness);
+        if (coverageWeighting > 0 && upsampledCoverageRatioGrid) {
+          const covRatio = upsampledCoverageRatioGrid[r] ? upsampledCoverageRatioGrid[r][c] : null;
+          const covMultiplier = (covRatio === null || covRatio === undefined)
+            ? 1
+            : COVERAGE_OPACITY_FLOOR + (1 - COVERAGE_OPACITY_FLOOR) * covRatio;
+          ctx.globalAlpha = (1 - coverageWeighting) + coverageWeighting * covMultiplier;
+        }
         ctx.fillRect(c, rows - 1 - r, 1, 1);
       };
 

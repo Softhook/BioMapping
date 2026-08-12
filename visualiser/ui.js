@@ -437,6 +437,7 @@ const GSRUI = {
       isolationRadius:   parseFloat(cc.isolationRadius ? cc.isolationRadius.value : GSR_CONST.COLLECTIVE.isolationRadius),
       idwExponent:       parseFloat(cc.idwExponent ? cc.idwExponent.value : GSR_CONST.COLLECTIVE.idwExponent),
       peakPreservation:  parseFloat(cc.peakPreservation ? cc.peakPreservation.value : GSR_CONST.COLLECTIVE.peakPreservation),
+      coverageWeighting: parseFloat(cc.coverageWeighting ? cc.coverageWeighting.value : GSR_CONST.COLLECTIVE.coverageWeighting),
       topographySource:  cc.topoSource ? cc.topoSource.value : 'phasic',
       showShadedSurface: cc.showShadedSurface ? cc.showShadedSurface.classList.contains('active') : true,
       normalizeZScore:   cc.normalizeZScore ? cc.normalizeZScore.checked : true,

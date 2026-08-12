@@ -107,6 +107,7 @@ const GSRStorage = {
       isolationRadius: parseFloat(C.isolationRadius.value),
       idwExponent:     parseFloat(C.idwExponent.value),
       peakPreservation: parseFloat(C.peakPreservation ? C.peakPreservation.value : GSR_CONST.COLLECTIVE.peakPreservation),
+      coverageWeighting: parseFloat(C.coverageWeighting ? C.coverageWeighting.value : GSR_CONST.COLLECTIVE.coverageWeighting),
       surfaceOpacity:  parseFloat(C.surfaceOpacity.value)
     };
   },
@@ -261,6 +262,7 @@ const GSRStorage = {
       if (contour.isolationRadius !== undefined && C.isolationRadius) C.isolationRadius.value = contour.isolationRadius;
       if (contour.idwExponent !== undefined && C.idwExponent) C.idwExponent.value = contour.idwExponent;
       if (contour.peakPreservation !== undefined && C.peakPreservation) C.peakPreservation.value = contour.peakPreservation;
+      if (contour.coverageWeighting !== undefined && C.coverageWeighting) C.coverageWeighting.value = contour.coverageWeighting;
       if (contour.surfaceOpacity !== undefined && C.surfaceOpacity) C.surfaceOpacity.value = contour.surfaceOpacity;
     }
 

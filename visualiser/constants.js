@@ -239,6 +239,15 @@ const GSR_CONST = {
     // rare high-arousal one). 1 = pure "most aroused moment recorded nearby" (no
     // averaging at all). Exposed as the "Peak Preservation" slider in the UI.
     peakPreservation: 0.5,
+    // Blends the rendered surface's per-cell opacity toward a "coverage confidence" ratio:
+    // how many distinct participant tracks actually passed near that cell, relative to how
+    // well-covered the rest of the loaded dataset is (percentile rank, not an absolute
+    // headcount — see generateContourSurface()'s coverage block). 0 = ignore coverage, every
+    // cell renders at full strength regardless of how many people walked through it (old
+    // behavior). 1 = cells with relatively little foot traffic fade toward
+    // COVERAGE_OPACITY_FLOOR even if their value is extreme, so a single passerby's reading
+    // doesn't visually read as confidently as a place many people corroborated.
+    coverageWeighting: 0.5,
     // Sliding window size in seconds for temporal anti-aliasing (smoothing) of biometric
     // data. 0.0 disables smoothing. 20.0 seconds filters out rapid 10 Hz spikes to reveal
     // macro-level arousal trends.

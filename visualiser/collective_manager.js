@@ -172,6 +172,7 @@ class GSRCollectiveManager {
     const topographySource = contourParams.topographySource !== undefined ? contourParams.topographySource : 'phasic';
     const contourCount    = contourParams.contourCount    !== undefined ? contourParams.contourCount    : GSR_CONST.COLLECTIVE.contourCount;
     const idwExponent     = contourParams.idwExponent     !== undefined ? contourParams.idwExponent     : GSR_CONST.COLLECTIVE.idwExponent;
+    const coverageWeighting = contourParams.coverageWeighting !== undefined ? contourParams.coverageWeighting : GSR_CONST.COLLECTIVE.coverageWeighting;
     // Defaults to true — the "Standardize arousal range" checkbox ships checked (see
     // index.html), so a caller that omits this entirely should get the same on-by-default
     // behavior as the UI, not silently fall back to unnormalized.
@@ -215,6 +216,10 @@ class GSRCollectiveManager {
 
     const points = [];
     const peaks  = [];
+    // [start, end) index ranges into `points` for each track, used below to compute the
+    // coverage field per-track (see "Coverage field" block) without re-deriving track
+    // boundaries — a track contributed no points is simply omitted.
+    const trackPointRanges = [];
 
     for (const t of active) {
       const rawData    = t.analyzer.raw;
@@ -292,6 +297,7 @@ class GSRCollectiveManager {
       const baseFsStep = Math.max(1, Math.round(Fs));
       const step       = baseFsStep * globalStride;
 
+      const trackStartIdx = points.length;
       for (let i = 0; i < rawData.length; i += step) {
         const coords = t.analyzer.getCoordinates(i);
         if (coords) {
@@ -304,6 +310,9 @@ class GSRCollectiveManager {
             arousalIndex: doSmoothing ? smoothArousal[i] : (arousalIndex[i] ? arousalIndex[i].val : 0)
           });
         }
+      }
+      if (points.length > trackStartIdx) {
+        trackPointRanges.push({ start: trackStartIdx, end: points.length });
       }
 
       // If normalizing, scale peak amplitudes by the cached standard deviation of the participant's phasic values.
@@ -404,6 +413,92 @@ class GSRCollectiveManager {
           if (dist <= isolationRadius) nearTrack[idx] = 1;
         }
       }
+    }
+
+    // Coverage field — how many distinct participant tracks actually passed near each cell,
+    // used to fade the rendered surface's opacity where the reading is backed by little
+    // evidence (see the coverageWeighting param above). This answers a different question
+    // than the value grid below: not "what's the arousal here" but "how much do we actually
+    // know about this spot." Gated on coverageWeighting > 0 so leaving the slider off costs
+    // nothing (same style as the topographySource !== 'peaks' gate below).
+    //
+    // Per-track max, not per-sample sum: a track that lingered at one spot for ten minutes at
+    // 10Hz would otherwise dump thousands of correlated samples into one cell and look like
+    // "heavy coverage" when it's really one person standing still. Splatting each track's own
+    // samples with `max` first (so a track contributes at most its single closest approach to
+    // a cell, regardless of how long it dwelled there or how many samples fell nearby), then
+    // summing those per-track maxima across tracks, turns this into "how many distinct people
+    // came near this spot" rather than "how many samples landed near this spot."
+    let coverageRatioGrid = null;
+    let upsampledCoverageRatioGrid = null;
+    if (coverageWeighting > 0) {
+      const coverageRadius = isolationRadius * 1.5; // same spatial scale as the IDW/envelope radius below
+      const coverageSigma = coverageRadius / 3;
+      const twoCovSigmaSq = 2 * coverageSigma * coverageSigma;
+      const coverageGrid = new Float64Array(rows * cols);
+      const trackMaxArr = new Float64Array(rows * cols); // reused scratch, reset per track below
+
+      for (const range of trackPointRanges) {
+        let touchedMinR = rows, touchedMaxR = -1, touchedMinC = cols, touchedMaxC = -1;
+        for (let pi = range.start; pi < range.end; pi++) {
+          const p = points[pi];
+          const w = cellWindowFor(p.lat, p.lon, coverageRadius);
+          if (w.rMin < touchedMinR) touchedMinR = w.rMin;
+          if (w.rMax > touchedMaxR) touchedMaxR = w.rMax;
+          if (w.cMin < touchedMinC) touchedMinC = w.cMin;
+          if (w.cMax > touchedMaxC) touchedMaxC = w.cMax;
+          for (let r = w.rMin; r <= w.rMax; r++) {
+            const gridLat = gridLatOf(r);
+            const rowOff = r * cols;
+            for (let c = w.cMin; c <= w.cMax; c++) {
+              const d = getDistanceMeters(gridLat, gridLonOf(c), p.lat, p.lon);
+              if (d > coverageRadius) continue;
+              const decay = Math.exp(-(d * d) / twoCovSigmaSq);
+              const idx = rowOff + c;
+              if (decay > trackMaxArr[idx]) trackMaxArr[idx] = decay;
+            }
+          }
+        }
+        // Fold this track's max-decay field into the running total, then reset only the
+        // cells it touched (cheaper than clearing the whole scratch array every track).
+        if (touchedMaxR >= touchedMinR) {
+          for (let r = touchedMinR; r <= touchedMaxR; r++) {
+            const rowOff = r * cols;
+            for (let c = touchedMinC; c <= touchedMaxC; c++) {
+              const idx = rowOff + c;
+              if (trackMaxArr[idx] > 0) {
+                coverageGrid[idx] += trackMaxArr[idx];
+                trackMaxArr[idx] = 0;
+              }
+            }
+          }
+        }
+      }
+
+      // Percentile rank, not a fixed headcount threshold — deliberately relative to how
+      // covered the REST of this loaded dataset is, not an absolute "3 people is confident"
+      // rule. Matches the percentile-based contour levels further down for the same reason:
+      // it self-scales whether the collective has 2 tracks or 200, rather than needing a
+      // tuned constant that's meaningful for one dataset size and useless for another.
+      const sortedCoverageVals = [];
+      for (let idx = 0; idx < rows * cols; idx++) {
+        if (nearTrack[idx]) sortedCoverageVals.push(coverageGrid[idx]);
+      }
+      sortedCoverageVals.sort((a, b) => a - b);
+
+      const rankFn = (typeof StatsMath !== 'undefined' && StatsMath.percentileRank) ? StatsMath.percentileRank : null;
+      coverageRatioGrid = Array.from({ length: rows }, () => new Array(cols).fill(null));
+      for (let r = 0; r < rows; r++) {
+        const rowOff = r * cols;
+        for (let c = 0; c < cols; c++) {
+          const idx = rowOff + c;
+          if (!nearTrack[idx]) continue;
+          coverageRatioGrid[r][c] = rankFn ? rankFn(coverageGrid[idx], sortedCoverageVals) : 1;
+        }
+      }
+      upsampledCoverageRatioGrid = (upsampledResolution > gridResolution)
+        ? GSRCollectiveManager.upsampleGrid(coverageRatioGrid, upsampledResolution, upsampledResolution)
+        : coverageRatioGrid;
     }
 
     // Continuous (non-peak) topography sources: raw phasic/tonic, or the
@@ -634,7 +729,7 @@ class GSRCollectiveManager {
       }
     }
 
-    return { contours, grid, upsampledGrid, minVal, maxVal, bounds, sortedVals };
+    return { contours, grid, upsampledGrid, minVal, maxVal, bounds, sortedVals, upsampledCoverageRatioGrid };
   }
 }
 
