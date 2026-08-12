@@ -571,3 +571,69 @@ test('§C generateContourSurface: contour count and segment structure unchanged 
     }
   }
 });
+
+// ---------------------------------------------------------------------------
+// GSRCollectiveManager.upsampleGrid
+// ---------------------------------------------------------------------------
+
+test('upsampleGrid: preserves corner values exactly (interpolation always passes through the source grid\'s own corners)', () => {
+  const src = [[0, 1, 2], [3, 4, 5], [6, 7, 8]];
+  const up = GSRCollectiveManager.upsampleGrid(src, 5, 5);
+  assert.strictEqual(up.length, 5);
+  assert.strictEqual(up[0].length, 5);
+  assert.ok(Math.abs(up[0][0] - src[0][0]) < 1e-9, 'top-left corner should match exactly');
+  assert.ok(Math.abs(up[0][4] - src[0][2]) < 1e-9, 'top-right corner should match exactly');
+  assert.ok(Math.abs(up[4][0] - src[2][0]) < 1e-9, 'bottom-left corner should match exactly');
+  assert.ok(Math.abs(up[4][4] - src[2][2]) < 1e-9, 'bottom-right corner should match exactly');
+});
+
+test('upsampleGrid: bicubic path on a smooth interior region interpolates monotonically between two values on a linear ramp', () => {
+  // A linear ramp: bicubic on 4 evenly-spaced collinear values reduces to
+  // that same line, so the upsampled result should also be monotonic and
+  // bounded by the ramp's own min/max — no overshoot.
+  const src = Array.from({ length: 6 }, (_, r) => Array.from({ length: 6 }, (_, c) => r + c));
+  const up = GSRCollectiveManager.upsampleGrid(src, 20, 20);
+  let prevRow = null;
+  for (const row of up) {
+    for (let c = 1; c < row.length; c++) {
+      assert.ok(row[c] >= row[c - 1] - 1e-6, 'ramp should stay monotonically non-decreasing across each row');
+    }
+    if (prevRow) {
+      for (let c = 0; c < row.length; c++) {
+        assert.ok(row[c] >= prevRow[c] - 1e-6, 'ramp should stay monotonically non-decreasing down each column');
+      }
+    }
+    prevRow = row;
+  }
+  const flat = up.flat();
+  assert.ok(Math.min(...flat) >= 0 - 1e-6 && Math.max(...flat) <= 10 + 1e-6, 'no overshoot past the source ramp\'s own [0,10] range');
+});
+
+test('upsampleGrid: bilinear fallback fills a fine cell from a single valid neighbor when no full bicubic neighborhood is available', () => {
+  // All-null except one corner — no 4x4 all-valid neighborhood exists anywhere,
+  // so every fine cell must go through the bilinear-fallback branch.
+  const src = [[null, null], [null, 5]];
+  const up = GSRCollectiveManager.upsampleGrid(src, 4, 4);
+  assert.ok(Math.abs(up[3][3] - 5) < 1e-9, 'the fine cell coincident with the one valid corner should equal it');
+  assert.ok(up[0][0] === null, 'the fine cell coincident with an all-null corner (zero bilinear weight from the valid one) stays null');
+});
+
+test('upsampleGrid: an entirely null source grid stays entirely null', () => {
+  const src = [[null, null], [null, null]];
+  const up = GSRCollectiveManager.upsampleGrid(src, 5, 5);
+  assert.ok(up.every(row => row.every(v => v === null)));
+});
+
+test('upsampleGrid: NaN source cells are treated the same as null', () => {
+  const srcNull = [[null, null], [null, 5]];
+  const srcNaN = [[NaN, NaN], [NaN, 5]];
+  const upNull = GSRCollectiveManager.upsampleGrid(srcNull, 4, 4);
+  const upNaN = GSRCollectiveManager.upsampleGrid(srcNaN, 4, 4);
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 4; c++) {
+      const a = upNull[r][c], b = upNaN[r][c];
+      if (a === null) assert.strictEqual(b, null);
+      else assert.ok(Math.abs(a - b) < 1e-9);
+    }
+  }
+});

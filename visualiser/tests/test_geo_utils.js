@@ -237,3 +237,36 @@ test('pointInPolygon: works on a non-convex (L-shaped) polygon', () => {
   assert.strictEqual(GeoUtils.pointInPolygon(2, 2, lShape), true);
   assert.strictEqual(GeoUtils.pointInPolygon(8, 2, lShape), true);
 });
+
+// ---------------------------------------------------------------------------
+// shoelaceArea
+// ---------------------------------------------------------------------------
+
+test('shoelaceArea: unit square (object form) has area 1', () => {
+  assert.strictEqual(GeoUtils.shoelaceArea(SQUARE_OBJ), 100); // 10x10 square from SQUARE_OBJ above
+});
+
+test('shoelaceArea: accepts [lat,lon] array-pair vertices identically to object form', () => {
+  assert.strictEqual(GeoUtils.shoelaceArea(SQUARE_ARR), 100);
+});
+
+test('shoelaceArea: right triangle matches 0.5*base*height', () => {
+  const tri = [{ lat: 0, lon: 0 }, { lat: 0, lon: 6 }, { lat: 4, lon: 0 }];
+  assert.strictEqual(GeoUtils.shoelaceArea(tri), 12);
+});
+
+test('shoelaceArea: is winding-direction independent (reversed ring gives the same area)', () => {
+  const reversed = [...SQUARE_OBJ].reverse();
+  assert.strictEqual(GeoUtils.shoelaceArea(reversed), GeoUtils.shoelaceArea(SQUARE_OBJ));
+});
+
+test('shoelaceArea: fewer than 3 points is degenerate — area 0', () => {
+  assert.strictEqual(GeoUtils.shoelaceArea([]), 0);
+  assert.strictEqual(GeoUtils.shoelaceArea([{ lat: 0, lon: 0 }]), 0);
+  assert.strictEqual(GeoUtils.shoelaceArea([{ lat: 0, lon: 0 }, { lat: 1, lon: 1 }]), 0);
+});
+
+test('shoelaceArea: collinear (degenerate, zero-width) points have zero area', () => {
+  const line = [{ lat: 0, lon: 0 }, { lat: 0, lon: 5 }, { lat: 0, lon: 10 }];
+  assert.strictEqual(GeoUtils.shoelaceArea(line), 0);
+});

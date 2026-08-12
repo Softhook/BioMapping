@@ -41,6 +41,8 @@ loadModule(path.join(__dirname, '../geo_utils.js'),       'GeoUtils');
 loadModule(path.join(__dirname, '../marching_squares.js'),'MarchingSquares');
 loadModule(path.join(__dirname, '../spatial_clustering.js'), 'GSRSpatialClustering');
 loadModule(path.join(__dirname, '../hillshade.js'),       'Hillshade');
+loadModule(path.join(__dirname, '../bezier_spline.js'),   'BezierSpline');
+loadModule(path.join(__dirname, '../contour_ring_geometry.js'), 'ContourRingGeometry');
 loadModule(path.join(__dirname, '../map_exporter.js'),   'GSRMapExporter');
 
 const { MarchingSquares, GSRSpatialClustering, GeoUtils } = global;
@@ -99,7 +101,7 @@ function openClosedSplit(stitched) {
 
     const stitched = GSRSpatialClustering.stitchSegments(segments);
     const { closed, open } = openClosedSplit(stitched);
-    const rings = GSRMapExporter._closeOpenIsobandPaths(open, grid, rows, cols, bounds, level);
+    const rings = ContourRingGeometry.closeOpenPaths(open, ContourRingGeometry.buildBoundaryLoops(grid, rows, cols, bounds), level);
 
     const totalFillableShapes = closed.length + rings.length;
     assert(
@@ -125,7 +127,7 @@ function openClosedSplit(stitched) {
   const stitched = GSRSpatialClustering.stitchSegments(segments);
   const { closed, open } = openClosedSplit(stitched);
   assert(closed.length > 0 || open.length > 0, 'Low-value level produces closed or open paths');
-  const rings = open.length > 0 ? GSRMapExporter._closeOpenIsobandPaths(open, grid, rows, cols, bounds, lowLevel) : closed;
+  const rings = open.length > 0 ? ContourRingGeometry.closeOpenPaths(open, ContourRingGeometry.buildBoundaryLoops(grid, rows, cols, bounds), lowLevel) : closed;
   assert(rings.length > 0, 'Low-value band produces at least one fillable ring instead of vanishing');
 
   const gridArea = (bounds.maxLat - bounds.minLat) * (bounds.maxLon - bounds.minLon);
@@ -268,10 +270,10 @@ function openClosedSplit(stitched) {
   const { closed, open } = openClosedSplit(stitched);
   assert(closed.length > 0 || open.length > 0, 'Sanity: this level touches the mask boundary (closed or open path present)');
 
-  const rings = open.length > 0 ? GSRMapExporter._closeOpenIsobandPaths(open, grid, rows, cols, bounds, level) : closed;
+  const rings = open.length > 0 ? ContourRingGeometry.closeOpenPaths(open, ContourRingGeometry.buildBoundaryLoops(grid, rows, cols, bounds), level) : closed;
   assert(rings.length > 0, 'Outermost band closes into at least one ring');
 
-  const loops = GSRMapExporter._buildBoundaryLoops(grid, rows, cols, bounds);
+  const loops = ContourRingGeometry.buildBoundaryLoops(grid, rows, cols, bounds);
   const maskLoop = loops.find((l, i) => i !== 0); // index 0 is always the rectangle
   assert(maskLoop, 'Sanity: a mask coastline loop exists for this grid');
 

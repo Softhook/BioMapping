@@ -1,5 +1,5 @@
 /**
- * Regression tests for _closeOpenIsobandPaths / _tangentExtrapolate — closing
+ * Regression tests for ContourRingGeometry.closeOpenPaths / tangentExtrapolate — closing
  * isoband fills at the edge of the grid/map extent so they read as continuing
  * into an unbounded field (extrapolated past the edge along their own tangent,
  * or — when the correct side to close on isn't the immediately-adjacent one —
@@ -42,6 +42,8 @@ loadModule(path.join(__dirname, '../geo_utils.js'),       'GeoUtils');
 loadModule(path.join(__dirname, '../marching_squares.js'),'MarchingSquares');
 loadModule(path.join(__dirname, '../spatial_clustering.js'), 'GSRSpatialClustering');
 loadModule(path.join(__dirname, '../hillshade.js'),       'Hillshade');
+loadModule(path.join(__dirname, '../bezier_spline.js'),   'BezierSpline');
+loadModule(path.join(__dirname, '../contour_ring_geometry.js'), 'ContourRingGeometry');
 loadModule(path.join(__dirname, '../map_exporter.js'),   'GSRMapExporter');
 
 const { MarchingSquares, GSRSpatialClustering, GeoUtils } = global;
@@ -115,7 +117,7 @@ function samplesFromPathD(d) {
   const openPaths = openPathsFor(grid, rows, cols, bounds, level);
   assert.strictEqual(openPaths.length, 1, 'Corner-pinned peak produces exactly one open isoline');
 
-  const rings = GSRMapExporter._closeOpenIsobandPaths(openPaths, grid, rows, cols, bounds, level);
+  const rings = ContourRingGeometry.closeOpenPaths(openPaths, ContourRingGeometry.buildBoundaryLoops(grid, rows, cols, bounds), level);
   assert.strictEqual(rings.length, 1, 'Exactly one closed ring is produced');
   assert(rings[0].length >= 3, 'Closed ring has a real polygon shape');
 
@@ -147,7 +149,7 @@ function samplesFromPathD(d) {
   const openPaths = openPathsFor(grid, rows, cols, bounds, level);
   assert.strictEqual(openPaths.length, 1, 'Notch produces exactly one open isoline');
 
-  const rings = GSRMapExporter._closeOpenIsobandPaths(openPaths, grid, rows, cols, bounds, level);
+  const rings = ContourRingGeometry.closeOpenPaths(openPaths, ContourRingGeometry.buildBoundaryLoops(grid, rows, cols, bounds), level);
   assert.strictEqual(rings.length, 1, 'Exactly one closed ring is produced');
 
   const latSpan = bounds.maxLat - bounds.minLat, lonSpan = bounds.maxLon - bounds.minLon;
@@ -225,7 +227,7 @@ function samplesFromPathD(d) {
 
   cases.forEach(({ name, rows, cols, grid, bounds, level }) => {
     const openPaths = openPathsFor(grid, rows, cols, bounds, level);
-    const rings = GSRMapExporter._closeOpenIsobandPaths(openPaths, grid, rows, cols, bounds, level);
+    const rings = ContourRingGeometry.closeOpenPaths(openPaths, ContourRingGeometry.buildBoundaryLoops(grid, rows, cols, bounds), level);
     assert(rings.length > 0, `${name}: at least one ring produced`);
 
     rings.forEach((ring, i) => {
@@ -282,7 +284,7 @@ function samplesFromPathD(d) {
     const idx = Math.min(sortedVals.length - 1, Math.round(pct * (sortedVals.length - 1)));
     const level = sortedVals[idx];
     const openPaths = openPathsFor(grid, rows, cols, bounds, level);
-    totalRings += GSRMapExporter._closeOpenIsobandPaths(openPaths, grid, rows, cols, bounds, level).length;
+    totalRings += ContourRingGeometry.closeOpenPaths(openPaths, ContourRingGeometry.buildBoundaryLoops(grid, rows, cols, bounds), level).length;
   }
   const elapsedMs = Date.now() - t0;
   assert(elapsedMs < 2000, `Closure across 25 contour levels on an 80x80 grid completes quickly (${elapsedMs}ms)`);

@@ -55,101 +55,116 @@ class GSRCollectiveManager {
   }
 
   /**
+   * Upsamples a 2D value grid (e.g. the coarse gridResolution×gridResolution
+   * surface generateContourSurface interpolates) to a higher target
+   * resolution, for smoother Marching Squares tracing than the raw grid
+   * would allow. Bicubic where a cell's full 4x4 neighborhood is valid
+   * (non-null) data; bilinear (weighted by whichever corners are valid) as a
+   * fallback at masked/boundary cells, where a full bicubic neighborhood
+   * isn't available.
+   *
+   * The `sumWt > 1e-6` threshold below (rather than e.g. requiring majority
+   * coverage) matters for the shape of the resulting mask boundary: since
+   * bilinear weights vary continuously across a cell, a stricter threshold
+   * would cut through that gradient unevenly and produce a visibly ragged
+   * boundary at the edge of the valid-data region, rather than a smooth one.
+   */
+  static upsampleGrid(srcGrid, targetRows, targetCols) {
+    const rows = srcGrid.length;
+    const cols = srcGrid[0].length;
+    const upsampled = Array.from({ length: targetRows }, () => new Array(targetCols).fill(null));
+
+    function cubicInterpolate(p0, p1, p2, p3, t) {
+      return 0.5 * (
+        (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t +
+        (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t +
+        (-p0 + p2) * t +
+        2 * p1
+      );
+    }
+
+    for (let r = 0; r < targetRows; r++) {
+      const srcR = (r / (targetRows - 1)) * (rows - 1);
+      const r0 = Math.floor(srcR);
+      const dr = srcR - r0;
+
+      for (let c = 0; c < targetCols; c++) {
+        const srcC = (c / (targetCols - 1)) * (cols - 1);
+        const c0 = Math.floor(srcC);
+        const dc = srcC - c0;
+
+        // Check if we can perform bicubic interpolation (4x4 neighborhood must be fully in-bounds and non-null)
+        let useBicubic = false;
+        if (r0 - 1 >= 0 && r0 + 2 < rows && c0 - 1 >= 0 && c0 + 2 < cols) {
+          useBicubic = true;
+          for (let i = -1; i <= 2; i++) {
+            for (let j = -1; j <= 2; j++) {
+              const val = srcGrid[r0 + i][c0 + j];
+              if (val === null || isNaN(val)) {
+                useBicubic = false;
+                break;
+              }
+            }
+            if (!useBicubic) break;
+          }
+        }
+
+        if (useBicubic) {
+          const p = [];
+          for (let i = -1; i <= 2; i++) {
+            p[i + 1] = [];
+            const rowIdx = r0 + i;
+            for (let j = -1; j <= 2; j++) {
+              p[i + 1][j + 1] = srcGrid[rowIdx][c0 + j];
+            }
+          }
+
+          const rVals = [];
+          for (let i = 0; i < 4; i++) {
+            rVals[i] = cubicInterpolate(p[i][0], p[i][1], p[i][2], p[i][3], dc);
+          }
+
+          upsampled[r][c] = cubicInterpolate(rVals[0], rVals[1], rVals[2], rVals[3], dr);
+        } else {
+          // Bilinear fallback for boundary/masked cells
+          const r1 = Math.min(rows - 1, r0 + 1);
+          const c1 = Math.min(cols - 1, c0 + 1);
+
+          const v00 = srcGrid[r0][c0];
+          const v01 = srcGrid[r0][c1];
+          const v10 = srcGrid[r1][c0];
+          const v11 = srcGrid[r1][c1];
+
+          let sumVal = 0;
+          let sumWt = 0;
+
+          const w00 = (1 - dr) * (1 - dc);
+          const w01 = (1 - dr) * dc;
+          const w10 = dr * (1 - dc);
+          const w11 = dr * dc;
+
+          if (v00 !== null && !isNaN(v00)) { sumVal += v00 * w00; sumWt += w00; }
+          if (v01 !== null && !isNaN(v01)) { sumVal += v01 * w01; sumWt += w01; }
+          if (v10 !== null && !isNaN(v10)) { sumVal += v10 * w10; sumWt += w10; }
+          if (v11 !== null && !isNaN(v11)) { sumVal += v11 * w11; sumWt += w11; }
+
+          if (sumWt > 1e-6) {
+            upsampled[r][c] = sumVal / sumWt;
+          } else {
+            upsampled[r][c] = null;
+          }
+        }
+      }
+    }
+    return upsampled;
+  }
+
+  /**
    * Interpolate path values into a grid and extract topographic contour isolines.
    * Uses IDW (Inverse Distance Weighting) for continuous metrics or Gaussian kernel density for peaks.
    */
   generateContourSurface(contourParams) {
     if (!contourParams) contourParams = {};
-
-    function upsampleGrid(srcGrid, targetRows, targetCols) {
-      const rows = srcGrid.length;
-      const cols = srcGrid[0].length;
-      const upsampled = Array.from({ length: targetRows }, () => new Array(targetCols).fill(null));
-      
-      function cubicInterpolate(p0, p1, p2, p3, t) {
-        return 0.5 * (
-          (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t +
-          (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t +
-          (-p0 + p2) * t +
-          2 * p1
-        );
-      }
-
-      for (let r = 0; r < targetRows; r++) {
-        const srcR = (r / (targetRows - 1)) * (rows - 1);
-        const r0 = Math.floor(srcR);
-        const dr = srcR - r0;
-        
-        for (let c = 0; c < targetCols; c++) {
-          const srcC = (c / (targetCols - 1)) * (cols - 1);
-          const c0 = Math.floor(srcC);
-          const dc = srcC - c0;
-          
-          // Check if we can perform bicubic interpolation (4x4 neighborhood must be fully in-bounds and non-null)
-          let useBicubic = false;
-          if (r0 - 1 >= 0 && r0 + 2 < rows && c0 - 1 >= 0 && c0 + 2 < cols) {
-            useBicubic = true;
-            for (let i = -1; i <= 2; i++) {
-              for (let j = -1; j <= 2; j++) {
-                const val = srcGrid[r0 + i][c0 + j];
-                if (val === null || isNaN(val)) {
-                  useBicubic = false;
-                  break;
-                }
-              }
-              if (!useBicubic) break;
-            }
-          }
-
-          if (useBicubic) {
-            const p = [];
-            for (let i = -1; i <= 2; i++) {
-              p[i + 1] = [];
-              const rowIdx = r0 + i;
-              for (let j = -1; j <= 2; j++) {
-                p[i + 1][j + 1] = srcGrid[rowIdx][c0 + j];
-              }
-            }
-            
-            const rVals = [];
-            for (let i = 0; i < 4; i++) {
-              rVals[i] = cubicInterpolate(p[i][0], p[i][1], p[i][2], p[i][3], dc);
-            }
-            
-            upsampled[r][c] = cubicInterpolate(rVals[0], rVals[1], rVals[2], rVals[3], dr);
-          } else {
-            // Bilinear fallback for boundary/masked cells
-            const r1 = Math.min(rows - 1, r0 + 1);
-            const c1 = Math.min(cols - 1, c0 + 1);
-            
-            const v00 = srcGrid[r0][c0];
-            const v01 = srcGrid[r0][c1];
-            const v10 = srcGrid[r1][c0];
-            const v11 = srcGrid[r1][c1];
-            
-            let sumVal = 0;
-            let sumWt = 0;
-            
-            const w00 = (1 - dr) * (1 - dc);
-            const w01 = (1 - dr) * dc;
-            const w10 = dr * (1 - dc);
-            const w11 = dr * dc;
-            
-            if (v00 !== null && !isNaN(v00)) { sumVal += v00 * w00; sumWt += w00; }
-            if (v01 !== null && !isNaN(v01)) { sumVal += v01 * w01; sumWt += w01; }
-            if (v10 !== null && !isNaN(v10)) { sumVal += v10 * w10; sumWt += w10; }
-            if (v11 !== null && !isNaN(v11)) { sumVal += v11 * w11; sumWt += w11; }
-            
-            if (sumWt > 1e-6) {
-              upsampled[r][c] = sumVal / sumWt;
-            } else {
-              upsampled[r][c] = null;
-            }
-          }
-        }
-      }
-      return upsampled;
-    }
 
     // Use explicit !== undefined checks so falsy values (0, false, '') are not silently overridden
     const gridResolution  = contourParams.gridResolution  !== undefined ? contourParams.gridResolution  : GSR_CONST.COLLECTIVE.gridResolution;
@@ -545,7 +560,7 @@ class GSRCollectiveManager {
 
     // Perform Bilinear upsampling on the blurred 40x40 grid to get a high-resolution 160x160 grid
     const upsampledGrid = (upsampledResolution > gridResolution)
-      ? upsampleGrid(grid, upsampledResolution, upsampledResolution)
+      ? GSRCollectiveManager.upsampleGrid(grid, upsampledResolution, upsampledResolution)
       : grid;
     const upsampledRows = upsampledGrid.length;
     const upsampledCols = upsampledGrid[0].length;

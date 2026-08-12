@@ -30,6 +30,8 @@ loadModule(path.join(__dirname, '../geo_utils.js'),       'GeoUtils');
 loadModule(path.join(__dirname, '../marching_squares.js'),'MarchingSquares');
 loadModule(path.join(__dirname, '../spatial_clustering.js'), 'GSRSpatialClustering');
 loadModule(path.join(__dirname, '../hillshade.js'),       'Hillshade');
+loadModule(path.join(__dirname, '../bezier_spline.js'),   'BezierSpline');
+loadModule(path.join(__dirname, '../contour_ring_geometry.js'), 'ContourRingGeometry');
 loadModule(path.join(__dirname, '../map_exporter.js'),   'GSRMapExporter');
 
 const { MarchingSquares, GSRSpatialClustering, GeoUtils } = global;

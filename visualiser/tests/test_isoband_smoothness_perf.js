@@ -7,7 +7,7 @@
  * Note: this file previously tested a since-abandoned supersampled/per-cell-clip
  * fill approach (hence the filename). That approach traded the smooth isoline
  * curve for a blocky tiled fill to guarantee closure at the map edge. It's been
- * replaced by _closeOpenIsobandPaths (see tests/test_isoband_boundary_closure.js),
+ * replaced by ContourRingGeometry.closeOpenPaths (see tests/test_isoband_boundary_closure.js),
  * which closes the same smooth curve correctly instead of tiling grid cells — see
  * that file for the detailed closure-correctness tests (including the adversarial
  * "long arc is the correct one" case).
@@ -40,6 +40,8 @@ loadModule(path.join(__dirname, '../geo_utils.js'),       'GeoUtils');
 loadModule(path.join(__dirname, '../marching_squares.js'),'MarchingSquares');
 loadModule(path.join(__dirname, '../spatial_clustering.js'), 'GSRSpatialClustering');
 loadModule(path.join(__dirname, '../hillshade.js'),       'Hillshade');
+loadModule(path.join(__dirname, '../bezier_spline.js'),   'BezierSpline');
+loadModule(path.join(__dirname, '../contour_ring_geometry.js'), 'ContourRingGeometry');
 loadModule(path.join(__dirname, '../map_exporter.js'),   'GSRMapExporter');
 
 const { MarchingSquares } = global;

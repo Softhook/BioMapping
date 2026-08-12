@@ -122,6 +122,25 @@ const GeoUtils = {
   },
 
   /**
+   * Shoelace formula: unsigned area enclosed by a closed polygon ring.
+   * Coordinates should be array of {lat, lon} or [lat, lon]. Units are
+   * (whatever the input coordinates are)², e.g. degrees² for lat/lon rings —
+   * not a real-world area, but consistent for comparing two rings' relative
+   * size (e.g. "is this loop meaningfully smaller than that one").
+   */
+  shoelaceArea(points) {
+    if (!points || points.length < 3) return 0;
+    let a = 0;
+    for (let i = 0; i < points.length; i++) {
+      const p1 = points[i], p2 = points[(i + 1) % points.length];
+      const lat1 = Array.isArray(p1) ? p1[0] : p1.lat, lon1 = Array.isArray(p1) ? p1[1] : p1.lon;
+      const lat2 = Array.isArray(p2) ? p2[0] : p2.lat, lon2 = Array.isArray(p2) ? p2[1] : p2.lon;
+      a += lon1 * lat2 - lon2 * lat1;
+    }
+    return Math.abs(a) / 2;
+  },
+
+  /**
    * Ray-casting point-in-polygon check.
    * Coordinates should be array of {lat, lon} or [lat, lon].
    */
