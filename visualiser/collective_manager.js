@@ -416,11 +416,11 @@ class GSRCollectiveManager {
     }
 
     // Coverage field — how many distinct participant tracks actually passed near each cell,
-    // used to fade the rendered surface's opacity where the reading is backed by little
-    // evidence (see the coverageWeighting param above). This answers a different question
-    // than the value grid below: not "what's the arousal here" but "how much do we actually
-    // know about this spot." Gated on coverageWeighting > 0 so leaving the slider off costs
-    // nothing (same style as the topographySource !== 'peaks' gate below).
+    // used by map.js's renderContours() to checkerboard cells whose reading is backed by
+    // little evidence (see the coverageWeighting param above). This answers a different
+    // question than the value grid below: not "what's the arousal here" but "how much do we
+    // actually know about this spot." Gated on coverageWeighting > 0 so leaving the slider
+    // off costs nothing (same style as the topographySource !== 'peaks' gate below).
     //
     // Per-track max, not per-sample sum: a track that lingered at one spot for ten minutes at
     // 10Hz would otherwise dump thousands of correlated samples into one cell and look like

@@ -2082,11 +2082,19 @@ class GSRMapManager {
    */
   toggleSurface(visible) {
     this.showSurface = visible;
-    if (!this.surfaceOverlay) return;
-    if (visible) {
-      if (!this.map.hasLayer(this.surfaceOverlay)) this.surfaceOverlay.addTo(this.map);
-    } else {
-      if (this.map.hasLayer(this.surfaceOverlay)) this.map.removeLayer(this.surfaceOverlay);
+    if (this.surfaceOverlay) {
+      if (visible) {
+        if (!this.map.hasLayer(this.surfaceOverlay)) this.surfaceOverlay.addTo(this.map);
+      } else {
+        if (this.map.hasLayer(this.surfaceOverlay)) this.map.removeLayer(this.surfaceOverlay);
+      }
+    }
+    if (this.coverageOverlay) {
+      if (visible) {
+        if (!this.map.hasLayer(this.coverageOverlay)) this.coverageOverlay.addTo(this.map);
+      } else {
+        if (this.map.hasLayer(this.coverageOverlay)) this.map.removeLayer(this.coverageOverlay);
+      }
     }
   }
 
@@ -2159,6 +2167,10 @@ class GSRMapManager {
     if (this.surfaceOverlay) {
       this.map.removeLayer(this.surfaceOverlay);
       this.surfaceOverlay = null;
+    }
+    if (this.coverageOverlay) {
+      this.map.removeLayer(this.coverageOverlay);
+      this.coverageOverlay = null;
     }
   }
 
@@ -2306,10 +2318,6 @@ class GSRMapManager {
     const { surfaceOpacity = 0.40 } = contourParams;
     const hillshadeStrength = contourParams.hillshadeStrength !== undefined ? contourParams.hillshadeStrength : 0.0;
     const coverageWeighting = contourParams.coverageWeighting !== undefined ? contourParams.coverageWeighting : 0.0;
-    // Never fade a reading all the way to invisible just because few people were there to
-    // corroborate it — a lone walker's spike should still be visible, just clearly
-    // de-emphasized (same "shrink, don't erase" floor used elsewhere for outlier weighting).
-    const COVERAGE_OPACITY_FLOOR = 0.12;
 
     // 1. Draw shaded continuous surface overlay.
     //    The overlay is created whenever there is surface data — it is NOT gated
@@ -2337,13 +2345,6 @@ class GSRMapManager {
 
       const drawCell = (r, c, ratio, lightness) => {
         ctx.fillStyle = MapColors.getHslColor(ratio, 100, lightness);
-        if (coverageWeighting > 0 && upsampledCoverageRatioGrid) {
-          const covRatio = upsampledCoverageRatioGrid[r] ? upsampledCoverageRatioGrid[r][c] : null;
-          const covMultiplier = (covRatio === null || covRatio === undefined)
-            ? 1
-            : COVERAGE_OPACITY_FLOOR + (1 - COVERAGE_OPACITY_FLOOR) * covRatio;
-          ctx.globalAlpha = (1 - coverageWeighting) + coverageWeighting * covMultiplier;
-        }
         ctx.fillRect(c, rows - 1 - r, 1, 1);
       };
 
@@ -2398,6 +2399,61 @@ class GSRMapManager {
         className: 'collective-surface-overlay'
       });
       if (this.showSurface) this.surfaceOverlay.addTo(this.map);
+
+      // 1b. Coverage hatch — a SEPARATE raster layer, not baked into the color canvas
+      // above. That canvas is intentionally small and gets stretched with smooth
+      // interpolation (bicubic-upsampled, blurred) so the color gradient looks continuous —
+      // exactly the wrong scaling mode for a crisp overlay pattern, which would blur into
+      // gray mush at most zoom levels if it shared that canvas. Instead this draws its own
+      // raster at a finer resolution, and .collective-coverage-hatch (styles.css) forces
+      // nearest-neighbor scaling on just this layer, so the lines stay crisp at any zoom
+      // while the color layer underneath keeps its smooth blur.
+      //
+      // Diagonal lines, not a checkerboard: a checkerboard's alternating cells read via
+      // brightness CONTRAST BETWEEN NEIGHBORING cells — which the color data underneath
+      // (itself varying cell to cell) visually collides with, breaking the grid up into
+      // noise. A continuous diagonal stroke carries its own orientation regardless of what
+      // color it crosses, so it stays legible as "this is a texture laid over the data"
+      // instead of blending into the data's own variation.
+      if (coverageWeighting > 0 && upsampledCoverageRatioGrid) {
+        // Rendered at a multiple of the data grid's own resolution — fine, dense lines read
+        // as "quite high resolution" hatching rather than a handful of chunky diagonal
+        // staircase steps; the coverage lookup below just maps each hatch pixel back down to
+        // its data cell, so this costs more canvas fill calls but no extra coverage math.
+        const HATCH_SCALE = 3;
+        const hatchCols = cols * HATCH_SCALE;
+        const hatchRows = rows * HATCH_SCALE;
+        const LINE_SPACING = 5; // hatch-canvas px between diagonal line starts
+        const LINE_WIDTH = 2;   // hatch-canvas px wide
+
+        const hatchCanvas = document.createElement('canvas');
+        hatchCanvas.width = hatchCols;
+        hatchCanvas.height = hatchRows;
+        const hctx = hatchCanvas.getContext('2d');
+        hctx.fillStyle = 'rgba(43, 40, 35, 0.6)';
+        for (let hr = 0; hr < hatchRows; hr++) {
+          const r = Math.floor(hr / HATCH_SCALE);
+          const covRow = upsampledCoverageRatioGrid[r];
+          if (!covRow) continue;
+          // Points where (hr + hc) is constant form a 45° diagonal; testing that sum modulo
+          // a period draws repeating parallel diagonal bands with no separate pattern tile.
+          for (let hc = 0; hc < hatchCols; hc++) {
+            if ((hr + hc) % LINE_SPACING >= LINE_WIDTH) continue;
+            const c = Math.floor(hc / HATCH_SCALE);
+            const covRatio = covRow[c];
+            // Below the confidence threshold — the slider value, read directly as a
+            // percentile rank (see generateContourSurface()'s coverage block).
+            if (covRatio === null || covRatio === undefined || covRatio >= coverageWeighting) continue;
+            hctx.fillRect(hc, hatchRows - 1 - hr, 1, 1);
+          }
+        }
+        this.coverageOverlay = L.imageOverlay(hatchCanvas.toDataURL(), imageBounds, {
+          opacity: 1,
+          interactive: false,
+          className: 'collective-coverage-hatch'
+        });
+        if (this.showSurface) this.coverageOverlay.addTo(this.map);
+      }
     }
 
     // 2. Draw isoline curves. Marching Squares returns raw, unordered 2-point segments —
