@@ -705,7 +705,18 @@ class GSRMapExporter {
           const getLon = p => Array.isArray(p) ? p[1] : (p.lon !== undefined ? p.lon : p.lng);
           const first = flat[0], last = flat[flat.length - 1];
           isClosedLoop = Math.abs(getLat(first) - getLat(last)) < 1e-9 && Math.abs(getLon(first) - getLon(last)) < 1e-9;
-          latlngs = GeoUtils.chaikinSmooth(flat, isContour ? 3 : 4, isClosedLoop);
+          // Contour layers are a special case: `flat` here is layer.getLatLngs()
+          // from the LIVE Leaflet polyline, which map.js's renderContours already
+          // ran through GeoUtils.chaikinSmooth(path, 3, isClosed) once. Smoothing
+          // it again here would double the corner-cutting relative to the isoband
+          // fill's SINGLE chaikin(3) pass over the same raw ring (see
+          // _buildVectorIsobands/ContourRingGeometry, which starts from the raw
+          // stitched segments, not the live layer) — the two would no longer be
+          // the same curve, and the isoline stroke would visibly diverge from its
+          // own isoband's fill edge ("contour lines overlapping" when viewed
+          // together). Tracks have no such prior smoothing pass, so they still get
+          // their one-and-only chaikin pass here.
+          latlngs = isContour ? flat : GeoUtils.chaikinSmooth(flat, 4, isClosedLoop);
         }
       } catch (err) {
         if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'map_exporter:_vectors(smoothing)');
