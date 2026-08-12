@@ -29,7 +29,7 @@ class GSRMapExporter {
     await this._ensureTileCoverage(ctx, mgr);
 
     const layers = await this._gather(ctx);
-    this._download(this._render(ctx, layers), AppState.viewMode || 'single');
+    await this._download(this._render(ctx, layers), AppState.viewMode || 'single');
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -623,7 +623,7 @@ class GSRMapExporter {
         : ring;
 
       item.rings.forEach(ring => {
-        const d = this._pathD(ctx, smoothRing(ring), true, true);
+        const d = this._pathD(ctx, smoothRing(ring), true, true, false, true, 'bspline');
         if (!d) return;
         isobands.push(
           `<path d="${d}" fill="${this._esc(fillColor)}" stroke="none" />`
@@ -1256,12 +1256,6 @@ class GSRMapExporter {
           const getLon = p => Array.isArray(p) ? p[1] : (p.lon !== undefined ? p.lon : p.lng);
           const first = flat[0], last = flat[flat.length - 1];
           isClosedLoop = Math.abs(getLat(first) - getLat(last)) < 1e-9 && Math.abs(getLon(first) - getLon(last)) < 1e-9;
-          // One more iteration than the live-map pass (map.js renderContours uses 3): export
-          // always rasterizes the full data bounds onto a fixed ~2000-4000px canvas
-          // (_getProjection), which is typically a higher px/degree scale than the on-screen
-          // map panel when zoomed out to fit a large collective map — the same degree-space
-          // wiggle otherwise lands on proportionally more (and so more visible) export pixels.
-          // For contour lines, we use exactly 3 iterations to align perfectly with the surface isobands.
           latlngs = GeoUtils.chaikinSmooth(flat, isContour ? 3 : 4, isClosedLoop);
         }
       } catch (err) {
@@ -1269,7 +1263,7 @@ class GSRMapExporter {
       }
     }
 
-    const d = this._pathD(ctx, latlngs, isPoly || isClosedLoop, !exact, exact);
+    const d = this._pathD(ctx, latlngs, isPoly || isClosedLoop, !exact, exact, true, isContour ? 'bspline' : 'catmull');
     if (!d) return null;
 
     const o = layer.options || {};
@@ -1284,7 +1278,7 @@ class GSRMapExporter {
     const strokeWidth = exact
       ? (o.weight !== undefined ? o.weight * 0.35 : 0.35)
       : isContour
-        ? (o.weight !== undefined ? o.weight * 0.33 : 0.25)
+        ? (o.weight !== undefined ? o.weight * 0.20 : 0.15)
         : (o.weight !== undefined ? Math.min(1.5, o.weight * 0.4) : 1.2);
 
     return `<path d="${d}"` +
@@ -1299,7 +1293,7 @@ class GSRMapExporter {
         : ` stroke-linecap="round" stroke-linejoin="round" />`);
   }
 
-  static _pathD(ctx, latlngs, close, smooth = true, exact = false) {
+  static _pathD(ctx, latlngs, close, smooth = true, exact = false, cull = true, curveMode = 'catmull') {
     if (!latlngs?.length) return '';
     const project = (typeof ctx === 'function')
       ? ctx
@@ -1308,7 +1302,7 @@ class GSRMapExporter {
         : (ll => (ctx?.map?.latLngToContainerPoint ? ctx.map.latLngToContainerPoint(ll) : (ctx?.latLngToContainerPoint ? ctx.latLngToContainerPoint(ll) : { x: 0, y: 0 }))));
 
     if (Array.isArray(latlngs[0]) && (Array.isArray(latlngs[0][0]) || (latlngs[0][0] !== null && typeof latlngs[0][0] === 'object')))
-      return latlngs.map(s => this._pathD(ctx, s, close, smooth, exact)).filter(Boolean).join(' ');
+      return latlngs.map(s => this._pathD(ctx, s, close, smooth, exact, cull, curveMode)).filter(Boolean).join(' ');
 
     const rawPts = latlngs.map(ll => project(ll)).filter(p => p && typeof p.x === 'number' && !isNaN(p.x));
     if (rawPts.length === 0) return '';
@@ -1319,7 +1313,7 @@ class GSRMapExporter {
     // authoritative building/road/water outlines it silently deletes real corners
     // whenever two vertices happen to land within ~1.5px of each other on screen.
     let pts;
-    if (exact) {
+    if (exact || !cull) {
       pts = rawPts;
     } else {
       // Filter consecutive micro-jitter points in pixel space (< 1.5px apart)
@@ -1344,8 +1338,6 @@ class GSRMapExporter {
       return close ? d + ' Z' : d;
     }
 
-    // Catmull-Rom to Cubic Bézier spline smoothing for continuous, smooth strokes
-    let d = `M${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
     const n = pts.length;
     // Rings produced via GeoUtils.chaikinSmooth(..., closed=true) (contour isolines,
     // isoband boundary rings) explicitly duplicate the closing vertex — pts[n-1] === pts[0]
@@ -1356,18 +1348,64 @@ class GSRMapExporter {
     const isDuplicateClosed = close && n >= 3 &&
       Math.abs(pts[0].x - pts[n - 1].x) < 1e-6 && Math.abs(pts[0].y - pts[n - 1].y) < 1e-6;
     const m = isDuplicateClosed ? n - 1 : n;
+
+    // Uniform cubic B-spline → Bézier, used only for closed contour/isoband rings.
+    // Every segment's Bézier hull is a weighted average (not interpolation) of 4
+    // consecutive points with weights that sum to 1 and are never negative, so the
+    // curve is mathematically confined to that hull — it cannot overshoot past a
+    // neighbouring contour level's line the way an interpolating spline can, and it
+    // cannot degenerate into a straight through-line when a ring has only a few
+    // points left (an interpolating spline over 2-3 points does exactly that).
+    if (curveMode === 'bspline' && isDuplicateClosed && m >= 3) {
+      const P = i => pts[((i % m) + m) % m];
+      const seg = i => {
+        const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+        return {
+          start: { x: (p0.x + 4 * p1.x + p2.x) / 6, y: (p0.y + 4 * p1.y + p2.y) / 6 },
+          c1: { x: (2 * p1.x + p2.x) / 3, y: (2 * p1.y + p2.y) / 3 },
+          c2: { x: (p1.x + 2 * p2.x) / 3, y: (p1.y + 2 * p2.y) / 3 },
+          end: { x: (p1.x + 4 * p2.x + p3.x) / 6, y: (p1.y + 4 * p2.y + p3.y) / 6 }
+        };
+      };
+      const first = seg(0);
+      let bd = `M${first.start.x.toFixed(3)} ${first.start.y.toFixed(3)}`;
+      for (let i = 0; i < m; i++) {
+        const s = seg(i);
+        bd += ` C${s.c1.x.toFixed(3)} ${s.c1.y.toFixed(3)}, ${s.c2.x.toFixed(3)} ${s.c2.y.toFixed(3)}, ${s.end.x.toFixed(3)} ${s.end.y.toFixed(3)}`;
+      }
+      return bd + ' Z';
+    }
+
+    // Catmull-Rom to Cubic Bézier spline smoothing for continuous, smooth strokes.
+    // Centripetal parameterization (knot spacing ∝ distance^0.5) rather than uniform
+    // spacing — uniform Catmull-Rom assumes evenly-spaced points, which Marching
+    // Squares + Chaikin output never is, and it overshoots/loops exactly where
+    // spacing is uneven. That was the confirmed cause of visibly crossing lines
+    // before centripetal parameterization was introduced.
+    let d = `M${pts[0].x.toFixed(3)} ${pts[0].y.toFixed(3)}`;
+    const EPS = 1e-6;
     for (let i = 0; i < n - 1; i++) {
       const pPrev = isDuplicateClosed ? pts[(i - 1 + m) % m] : pts[Math.max(0, i - 1)];
       const pCurr = pts[i];
       const pNext = pts[i + 1];
       const pFut  = isDuplicateClosed ? pts[(i + 2) % m] : pts[Math.min(n - 1, i + 2)];
 
-      const c1x = pCurr.x + (pNext.x - pPrev.x) / 6;
-      const c1y = pCurr.y + (pNext.y - pPrev.y) / 6;
-      const c2x = pNext.x - (pFut.x - pCurr.x) / 6;
-      const c2y = pNext.y - (pFut.y - pCurr.y) / 6;
+      const t01 = Math.max(EPS, Math.hypot(pCurr.x - pPrev.x, pCurr.y - pPrev.y) ** 0.5);
+      const t12 = Math.max(EPS, Math.hypot(pNext.x - pCurr.x, pNext.y - pCurr.y) ** 0.5);
+      const t23 = Math.max(EPS, Math.hypot(pFut.x - pNext.x, pFut.y - pNext.y) ** 0.5);
+      const t0 = 0, t1 = t01, t2 = t01 + t12, t3 = t01 + t12 + t23;
 
-      d += ` C${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${pNext.x.toFixed(1)} ${pNext.y.toFixed(1)}`;
+      const m1x = (t2 - t1) * ((pCurr.x - pPrev.x) / (t1 - t0) - (pNext.x - pPrev.x) / (t2 - t0) + (pNext.x - pCurr.x) / (t2 - t1));
+      const m1y = (t2 - t1) * ((pCurr.y - pPrev.y) / (t1 - t0) - (pNext.y - pPrev.y) / (t2 - t0) + (pNext.y - pCurr.y) / (t2 - t1));
+      const m2x = (t2 - t1) * ((pNext.x - pCurr.x) / (t2 - t1) - (pFut.x - pCurr.x) / (t3 - t1) + (pFut.x - pNext.x) / (t3 - t2));
+      const m2y = (t2 - t1) * ((pNext.y - pCurr.y) / (t2 - t1) - (pFut.y - pCurr.y) / (t3 - t1) + (pFut.y - pNext.y) / (t3 - t2));
+
+      const c1x = pCurr.x + m1x / 3;
+      const c1y = pCurr.y + m1y / 3;
+      const c2x = pNext.x - m2x / 3;
+      const c2y = pNext.y - m2y / 3;
+
+      d += ` C${c1x.toFixed(3)} ${c1y.toFixed(3)}, ${c2x.toFixed(3)} ${c2y.toFixed(3)}, ${pNext.x.toFixed(3)} ${pNext.y.toFixed(3)}`;
     }
     return close ? d + ' Z' : d;
   }

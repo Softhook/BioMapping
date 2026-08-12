@@ -2412,6 +2412,7 @@ class GSRMapManager {
         const isClosed = path.length > 2 &&
           Math.abs(path[0].lat - path[path.length - 1].lat) < 1e-9 &&
           Math.abs(path[0].lon - path[path.length - 1].lon) < 1e-9;
+
         const smoothed = GeoUtils.chaikinSmooth(path, 3, isClosed);
 
         const poly = L.polyline(smoothed.map(p => [p.lat, p.lon]), {
