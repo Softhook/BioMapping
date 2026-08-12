@@ -553,7 +553,7 @@ const GSREvents = {
       btnToggleMapSurface.classList.toggle('active');
       const isActive = btnToggleMapSurface.classList.contains('active');
       if (opacityGroup) {
-        opacityGroup.style.display = isActive ? 'block' : 'none';
+        opacityGroup.classList.toggle('ctrl-inert', !isActive);
       }
       if (AppState.mapManager) AppState.mapManager.toggleSurface(isActive);
     });
@@ -925,16 +925,32 @@ const GSREvents = {
     bindCi('peakPreservation', 'valPeakPreservation', v => `${Math.round(v * 100)}%`);
     bindCi('coverageWeighting', 'valCoverageWeighting', v => `${Math.round(v * 100)}%`);
     bindCi('surfaceOpacity',  'valSurfaceOpacity',  v => `${Math.round(v * 100)}%`);
-    bindCi('hillshadeStrength', 'valHillshadeStrength', v => `${v}%`);
+    bindCi('hillshadeStrength', 'valHillshadeStrength', v => `${Math.round(v * 100)}%`);
 
-
-
-    document.getElementById('topoSource').addEventListener('change', triggerUpdate);
+    const topoSource = document.getElementById('topoSource');
+    topoSource.addEventListener('change', () => {
+      GSREvents.updatePeakPreservationInertState();
+      triggerUpdate();
+    });
+    GSREvents.updatePeakPreservationInertState();
 
     const normalizeZ = document.getElementById('normalizeZScore');
     if (normalizeZ) {
       normalizeZ.addEventListener('change', triggerUpdate);
     }
+  },
+
+  /**
+   * Peak Preservation has no effect when the collective surface's topography
+   * source is Peak Stress Hotspots (see generateContourSurface()'s
+   * `topographySource !== 'peaks'` gate) — hide it entirely rather than
+   * leaving an inert control on screen.
+   */
+  updatePeakPreservationInertState() {
+    const topoSource = document.getElementById('topoSource');
+    const group = document.getElementById('peakPreservationGroup');
+    if (!topoSource || !group) return;
+    group.style.display = topoSource.value === 'peaks' ? 'none' : '';
   },
 
   /**
@@ -1014,13 +1030,15 @@ const GSREvents = {
       updateCLabel('peakPreservation', 'valPeakPreservation', v => `${Math.round(v * 100)}%`);
       updateCLabel('coverageWeighting', 'valCoverageWeighting', v => `${Math.round(v * 100)}%`);
       updateCLabel('surfaceOpacity',  'valSurfaceOpacity',  v => `${Math.round(v * 100)}%`);
-      updateCLabel('hillshadeStrength', 'valHillshadeStrength', v => `${v}%`);
+      updateCLabel('hillshadeStrength', 'valHillshadeStrength', v => `${Math.round(v * 100)}%`);
 
       const btnToggleMapSurface = document.getElementById('btnToggleMapSurface');
       const opacityGroup = document.getElementById('surfaceOpacityGroup');
       if (btnToggleMapSurface && opacityGroup) {
-        opacityGroup.style.display = btnToggleMapSurface.classList.contains('active') ? 'block' : 'none';
+        opacityGroup.classList.toggle('ctrl-inert', !btnToggleMapSurface.classList.contains('active'));
       }
+
+      GSREvents.updatePeakPreservationInertState();
     }
 
     // Sync dim state for all sliders across all control cards
@@ -1098,7 +1116,7 @@ const GSREvents = {
         }
       }
       if (group) {
-        group.classList.toggle('deconv-locked', useDeconv);
+        group.style.display = useDeconv ? 'none' : '';
       }
       if (label) {
         if (useDeconv) {

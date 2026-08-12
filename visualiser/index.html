@@ -532,7 +532,7 @@
                 <span class="slider-value" id="valIsolationRadius">50 m</span>
               </div>
               <input type="range" id="isolationRadius" min="15" max="150" step="5" value="50">
-              <p class="help-text">Max distance from paths to draw lines (prevents bleeding into blank space).</p>
+              <p class="help-text">Max distance from paths to draw lines (prevents bleeding into blank space). Also sets the interpolation search radius and the coverage-hatch radius, both at 1.5&times; this value.</p>
             </div>
 
             <div class="slider-group">
@@ -544,22 +544,22 @@
               <p class="help-text">Spatial weight drop-off with distance (higher = more localized peaks).</p>
             </div>
 
-            <div class="slider-group">
+            <div class="slider-group" id="peakPreservationGroup">
               <div class="slider-label">
                 <span>Peak Preservation</span>
                 <span class="slider-value" id="valPeakPreservation">50%</span>
               </div>
               <input type="range" id="peakPreservation" min="0" max="1" step="0.05" value="0.5">
-              <p class="help-text">Only affects Phasic/Tonic/AUC/Arousal surfaces (not Peak Stress Hotspots). 0% = plain average — a few high-arousal moments can get buried by many calmer ones nearby. 100% = the most aroused moment recorded near each spot wins outright, even if it's a single outlier.</p>
+              <p class="help-text">Only affects Phasic/Tonic/AUC/Arousal surfaces — hidden while Topography Source is set to Peak Stress Hotspots, since it has no effect there. 0% = plain average — a few high-arousal moments can get buried by many calmer ones nearby. 100% = the most aroused moment recorded near each spot wins outright, even if it's a single outlier.</p>
             </div>
 
             <div class="slider-group">
               <div class="slider-label">
-                <span>Coverage Confidence</span>
+                <span>Coverage Hatch Threshold</span>
                 <span class="slider-value" id="valCoverageWeighting">50%</span>
               </div>
               <input type="range" id="coverageWeighting" min="0" max="1" step="0.05" value="0.5">
-              <p class="help-text">Hatches over areas that few people actually walked through, so a single passerby's reading doesn't look as certain as a place many people visited. 0% = nothing hatched, every area shown as-is. 100% = only the single best-covered spot escapes the hatching — most everything else gets flagged. Relative to this dataset — coverage is ranked against the other loaded tracks, not an absolute headcount.</p>
+              <p class="help-text">Hatches over areas that few people actually walked through, so a single passerby's reading doesn't look as certain as a place many people visited. Higher = more of the map gets hatched as low-confidence. 0% = nothing hatched, every area shown as-is. 100% = only the single best-covered spot escapes the hatching — most everything else gets flagged. Relative to this dataset — coverage is ranked against the other loaded tracks, not an absolute headcount.</p>
             </div>
 
             <div class="slider-group" id="surfaceOpacityGroup">
@@ -568,7 +568,7 @@
                 <span class="slider-value" id="valSurfaceOpacity">40%</span>
               </div>
               <input type="range" id="surfaceOpacity" min="0.05" max="1.0" step="0.05" value="0.40">
-              <p class="help-text">Controls transparency of the continuous surface layer.</p>
+              <p class="help-text">Controls transparency of the continuous surface layer. Only applies while the shaded surface layer is shown.</p>
             </div>
 
             <div class="slider-group">
@@ -576,7 +576,7 @@
                 <span>Hillshade Strength</span>
                 <span class="slider-value" id="valHillshadeStrength">0%</span>
               </div>
-              <input type="range" id="hillshadeStrength" min="0" max="100" step="5" value="0">
+              <input type="range" id="hillshadeStrength" min="0" max="1" step="0.05" value="0">
               <p class="help-text">Relief-shading intensity on the surface layer. 0% = flat color, no shading.</p>
             </div>
           </div>

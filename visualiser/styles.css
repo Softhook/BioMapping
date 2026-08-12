@@ -292,26 +292,38 @@ body {
   margin-bottom: 0;
 }
 
-/* Dimmed state when a filter slider is set to 0 (off) */
-.slider-group.filter-off .slider-label {
+/* Dimmed state when a filter slider is set to 0 (off), or a slider is
+   currently inert because of another control's state (e.g. Surface Opacity
+   while the shaded surface layer is hidden). Separate classes so the two
+   conditions can toggle independently on the same slider-group without
+   clobbering each other — bindCi()'s own input listener re-evaluates
+   filter-off from the slider's own value on every drag, which would wipe
+   out an externally-driven dim if it used the same class. */
+.slider-group.filter-off .slider-label,
+.slider-group.ctrl-inert .slider-label {
   opacity: 0.45;
 }
 
-.slider-group.filter-off .slider-value {
+.slider-group.filter-off .slider-value,
+.slider-group.ctrl-inert .slider-value {
   color: var(--text-muted);
 }
 
-.slider-group.filter-off input[type="range"]::-webkit-slider-thumb {
+.slider-group.filter-off input[type="range"]::-webkit-slider-thumb,
+.slider-group.ctrl-inert input[type="range"]::-webkit-slider-thumb {
   background: var(--text-muted);
   box-shadow: none;
 }
 
-.slider-group.filter-off input[type="range"] {
+.slider-group.filter-off input[type="range"],
+.slider-group.ctrl-inert input[type="range"] {
   background: rgba(17, 17, 17, 0.05);
 }
 
 .slider-group.filter-off .help-text,
-.slider-group.filter-off .slider-rec {
+.slider-group.filter-off .slider-rec,
+.slider-group.ctrl-inert .help-text,
+.slider-group.ctrl-inert .slider-rec {
   opacity: 0.35;
 }
 
@@ -321,17 +333,6 @@ body {
   border-left: 2px solid var(--color-peak);
   padding-left: 13px;
   border-radius: 0 6px 6px 0;
-}
-
-/* Locked state when deconvolution overrides shape settings */
-.slider-group.deconv-locked {
-  opacity: 0.55;
-  pointer-events: none;
-}
-
-.slider-group.deconv-locked .slider-value {
-  color: var(--accent-color, #005bc4);
-  font-weight: 600;
 }
 
 .slider-label {

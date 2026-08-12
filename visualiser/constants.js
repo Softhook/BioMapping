@@ -223,7 +223,7 @@ const GSR_CONST = {
 
   // ── Collective surface defaults ─────────────────────────────────────────
   COLLECTIVE: {
-    gridResolution: 60,
+    gridResolution: 40,
     upsampledResolution: 240,
     blurIterations: 6,
     isolationRadius: 50,

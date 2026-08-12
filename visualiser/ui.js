@@ -442,7 +442,7 @@ const GSRUI = {
       showShadedSurface: cc.showShadedSurface ? cc.showShadedSurface.classList.contains('active') : true,
       normalizeZScore:   cc.normalizeZScore ? cc.normalizeZScore.checked : true,
       surfaceOpacity:    cc.surfaceOpacity ? parseFloat(cc.surfaceOpacity.value) : 0.40,
-      hillshadeStrength: cc.hillshadeStrength ? parseFloat(cc.hillshadeStrength.value) / 100 : 0.0
+      hillshadeStrength: cc.hillshadeStrength ? parseFloat(cc.hillshadeStrength.value) : 0.0
     };
 
     const lat = parseFloat(AppState.sliders.gpsPeakLatency ? AppState.sliders.gpsPeakLatency.value : GSR_CONST.GPS_DEFAULT.peakLatency);
