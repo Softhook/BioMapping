@@ -171,5 +171,84 @@ const GsrFilter = {
       time: d.time,
       val: (d.val - stats.mean) / stats.std
     }));
+  },
+
+  /**
+   * Decomposes a filtered/smoothed signal into Tonic and Phasic components.
+   * Reuses the exact same logic and local-floor envelope correction from the analyzer.
+   *
+   * @param {Array<number>} afterLPF - Low-pass filtered signal
+   * @param {number} sampleRate     - Sample rate in Hz
+   * @param {Object} params         - Parameters: { tonicMethod, tonicWindow, dwtLevel }
+   * @returns {{ tonic: Array<number>, phasic: Array<number> }}
+   */
+  decomposeTonicPhasic(afterLPF, sampleRate, params = {}) {
+    const n = afterLPF.length;
+    if (n === 0) return { tonic: [], phasic: [] };
+
+    let tonicVals = [];
+    let phasicVals = [];
+
+    const method = params.tonicMethod || 'lpf';
+
+    if (method === 'dwt') {
+      const dwtLevel = params.dwtLevel || 6;
+      if (typeof DWT === 'undefined') {
+        throw new Error('DWT is not defined. Ensure dwt_filter.js is loaded.');
+      }
+      const result = DWT.analyzeGSR(afterLPF, dwtLevel);
+      const smoothWin = Math.max(1, Math.round(5 * sampleRate));
+      tonicVals = this.applyZeroPhaseMovingAverage(result.tonic, smoothWin);
+    } else {
+      const windowSec = params.tonicWindow !== undefined ? params.tonicWindow : 45;
+      const tonicWinSize = Math.max(5, Math.round(windowSec * sampleRate));
+
+      if (method === 'median') {
+        tonicVals = this.applyMedianFilter(afterLPF, tonicWinSize);
+      } else if (method === 'percentile') {
+        tonicVals = this.applyPercentileFilter(afterLPF, tonicWinSize, 0.10);
+      } else { // 'lpf' / 'ema'
+        const alpha = 2.0 / (tonicWinSize + 1);
+        tonicVals = this.applyZeroPhaseEMA(afterLPF, alpha);
+      }
+    }
+
+    // Phasic = Filtered - Tonic (Initial Subtraction)
+    phasicVals = afterLPF.map((v, i) => v - tonicVals[i]);
+
+    // Reposition the tonic using a local-floor approach: for each sample, find
+    // the minimum of (signal - tonic) in a ±6 s window.
+    const floorHalf = Math.max(1, Math.round(6 * sampleRate)); // ±6 s
+    const localOffsets = new Array(n);
+    {
+      const bwd = new Array(n);
+      const dq1 = [];
+      for (let i = 0; i < n; i++) {
+        if (dq1.length > 0 && dq1[0] < i - floorHalf) dq1.shift();
+        while (dq1.length > 0 && phasicVals[dq1[dq1.length - 1]] >= phasicVals[i]) dq1.pop();
+        dq1.push(i);
+        bwd[i] = phasicVals[dq1[0]];
+      }
+      const dq2 = [];
+      for (let i = n - 1; i >= 0; i--) {
+        if (dq2.length > 0 && dq2[0] > i + floorHalf) dq2.shift();
+        while (dq2.length > 0 && phasicVals[dq2[dq2.length - 1]] >= phasicVals[i]) dq2.pop();
+        dq2.push(i);
+        localOffsets[i] = Math.min(bwd[i], phasicVals[dq2[0]]);
+      }
+    }
+
+    // Light smoothing on offset curve (4 s window)
+    const smoothOffsets = this.applyZeroPhaseMovingAverage(
+      localOffsets, Math.round(4 * sampleRate)
+    );
+    for (let i = 0; i < n; i++) {
+      tonicVals[i] += smoothOffsets[i];
+    }
+
+    // Recompute phasic from repositioned tonic, clamp to >=0
+    phasicVals = afterLPF.map((v, i) => Math.max(0, v - tonicVals[i]));
+
+    return { tonic: tonicVals, phasic: phasicVals };
   }
 };

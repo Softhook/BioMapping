@@ -6,6 +6,7 @@
 <title>Bio Mapping — Live</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="gsr_filter.js"></script>
 <style>
   :root {
     --bg: #0b0e11;
@@ -47,6 +48,7 @@
   }
   button:disabled { opacity: 0.4; cursor: default; }
   button.primary { background: var(--accent); color: #04140e; border-color: var(--accent); font-weight: 600; }
+  button.active { background: var(--warn); color: #04140e; border-color: var(--warn); font-weight: 600; }
 
   #graphWrap { position: relative; background: var(--panel); border-bottom: 1px solid var(--border); flex: 0 0 34%; min-height: 120px; }
   #graph { width: 100%; height: 100%; display: block; }
@@ -96,6 +98,7 @@
     <button id="reconnectBtn" style="display:none;">Reconnect</button>
     <button id="newConnectionBtn" style="display:none;">New Connection</button>
     <button id="exportBtn" disabled>Export CSV</button>
+    <button id="togglePhasicBtn" disabled>Show Phasic (P)</button>
     <span id="reconnectErr"></span>
   </header>
 
@@ -126,31 +129,7 @@
 </div>
 
 <script>
-// ==========================================================================
-// GsrFilter (subset) — copied from visualiser/gsr_filter.js:131-148, pure,
-// no DOM coupling. Only the zero-phase EMA smoother is needed here; the
-// live graph re-runs it over the whole accumulated buffer on every arrival
-// (docs/bluetooth_serial_investigation.md §8's "Rendering and filtering" —
-// every sample that arrives is already finished data, so there's no
-// shimmer at the live edge from doing this).
-// ==========================================================================
-const GsrFilter = {
-  applyZeroPhaseEMA(arr, alpha) {
-    const n = arr.length;
-    if (n === 0) return [];
-    const forward = new Array(n);
-    forward[0] = arr[0];
-    for (let i = 1; i < n; i++) {
-      forward[i] = alpha * arr[i] + (1 - alpha) * forward[i - 1];
-    }
-    const backward = new Array(n);
-    backward[n - 1] = forward[n - 1];
-    for (let i = n - 2; i >= 0; i--) {
-      backward[i] = alpha * forward[i] + (1 - alpha) * backward[i + 1];
-    }
-    return backward;
-  },
-};
+
 
 // ==========================================================================
 // MapColors (subset) — copied from visualiser/map_colors.js:24-35.
@@ -261,6 +240,7 @@ const LiveState = {
   status: 'disconnected', // 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
   packets: [],
   gapCount: 0,
+  showPhasicOnly: false,
 
   // docs/bluetooth_serial_investigation.md §3's BT_STREAM_INTERVAL_MS
   // (biomap_types.h) — kept in sync manually; a real send-interval change
@@ -458,10 +438,16 @@ function drawGraph() {
   const paddedPkts = pkts.slice(padStartIdx);
   const paddedSmoothed = GsrFilter.applyZeroPhaseEMA(paddedPkts.map(p => p.gsrRaw), GRAPH_EMA_ALPHA);
 
+  // Compute Tonic/Phasic baseline dynamically using a slow EMA (approx 45s window equivalent)
+  const sampleRate = 1.0 / LiveState.STREAM_INTERVAL_S;
+  const decomp = GsrFilter.decomposeTonicPhasic(paddedSmoothed, sampleRate, { tonicMethod: 'lpf', tonicWindow: 45 });
+  const paddedTonic = decomp.tonic;
+  const paddedPhasic = decomp.phasic;
+
   let startIdx = paddedPkts.length - 1;
   while (startIdx > 0 && paddedPkts[startIdx - 1].timestamp >= t0) startIdx--;
 
-  const visible = paddedSmoothed.slice(startIdx);
+  const visible = (LiveState.showPhasicOnly ? paddedPhasic : paddedSmoothed).slice(startIdx);
   const visiblePkts = paddedPkts.slice(startIdx);
   if (visible.length === 0) return;
 
@@ -517,11 +503,15 @@ function drawGraph() {
   }
   ctx.stroke();
 
-  // Draw area under the curve with a subtle green gradient
+  const colorCurve = LiveState.showPhasicOnly ? '#ff9f00' : '#00e5a0';
+  const colorFillStart = LiveState.showPhasicOnly ? 'rgba(255, 159, 0, 0.15)' : 'rgba(0, 229, 160, 0.12)';
+  const colorFillEnd = LiveState.showPhasicOnly ? 'rgba(255, 159, 0, 0.0)' : 'rgba(0, 229, 160, 0.0)';
+
+  // Draw area under the curve with a subtle gradient
   if (visiblePkts.length > 0) {
     const grad = ctx.createLinearGradient(0, 8, 0, h - 20);
-    grad.addColorStop(0, 'rgba(0, 229, 160, 0.12)');
-    grad.addColorStop(1, 'rgba(0, 229, 160, 0.0)');
+    grad.addColorStop(0, colorFillStart);
+    grad.addColorStop(1, colorFillEnd);
     ctx.fillStyle = grad;
 
     let segmentStartIdx = 0;
@@ -545,7 +535,7 @@ function drawGraph() {
   }
 
   // Draw GSR curve
-  ctx.strokeStyle = '#00e5a0';
+  ctx.strokeStyle = colorCurve;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   let penDown = false;
@@ -561,8 +551,15 @@ function drawGraph() {
   }
   ctx.stroke();
 
+  const lastSmoothed = paddedSmoothed[paddedSmoothed.length - 1];
+  const lastTonic = paddedTonic[paddedTonic.length - 1];
+  const lastPhasic = Math.max(0, lastSmoothed - lastTonic);
+
   document.getElementById('graphValue').textContent =
-    pkts[pkts.length - 1].gsrRaw.toFixed(0) + ' nS';
+    (LiveState.showPhasicOnly ? lastPhasic : pkts[pkts.length - 1].gsrRaw).toFixed(0) + ' nS';
+
+  document.getElementById('graphLabel').textContent =
+    LiveState.showPhasicOnly ? 'GSR (nS, Phasic) — last 2 min' : 'GSR (nS) — last 2 min';
 }
 
 // ==========================================================================
@@ -671,6 +668,7 @@ const statusBadge = document.getElementById('statusBadge');
 const reconnectBtn = document.getElementById('reconnectBtn');
 const newConnectionBtn = document.getElementById('newConnectionBtn');
 const exportBtn = document.getElementById('exportBtn');
+const togglePhasicBtn = document.getElementById('togglePhasicBtn');
 const connectOverlay = document.getElementById('connectOverlay');
 const connectBtn = document.getElementById('connectBtn');
 const connectErr = document.getElementById('connectErr');
@@ -706,6 +704,7 @@ LiveState.on('packet', (pkt) => {
     : 'GPS: No fix';
   document.getElementById('statLastSeen').textContent = `Last: ${pkt.timestamp.toFixed(1)}s`;
   exportBtn.disabled = false;
+  togglePhasicBtn.disabled = false;
   drawGraph();
   updateLiveMap(pkt);
 });
@@ -752,7 +751,33 @@ newConnectionBtn.addEventListener('click', () => {
 
 exportBtn.addEventListener('click', exportCsv);
 
+function updateTogglePhasicBtn() {
+  if (LiveState.showPhasicOnly) {
+    togglePhasicBtn.textContent = 'Show Full GSR (P)';
+    togglePhasicBtn.classList.add('active');
+  } else {
+    togglePhasicBtn.textContent = 'Show Phasic (P)';
+    togglePhasicBtn.classList.remove('active');
+  }
+}
+
+togglePhasicBtn.addEventListener('click', () => {
+  LiveState.showPhasicOnly = !LiveState.showPhasicOnly;
+  updateTogglePhasicBtn();
+  drawGraph();
+});
+
+window.addEventListener('keydown', (e) => {
+  if ((e.key === 'p' || e.key === 'P') && !togglePhasicBtn.disabled) {
+    LiveState.showPhasicOnly = !LiveState.showPhasicOnly;
+    updateTogglePhasicBtn();
+    drawGraph();
+  }
+});
+
 window.addEventListener('resize', drawGraph);
+
+updateTogglePhasicBtn();
 
 // Map is initialized lazily when GPS data is received
 renderStatus('disconnected');

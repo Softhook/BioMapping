@@ -370,85 +370,9 @@ class GSRAnalyzer {
     this.filtered = this.raw.map((d, i) => ({ time: d.time, val: afterLPF[i] }));
 
     // 3. Tonic/Phasic Decomposition
-    // 3. Tonic/Phasic Decomposition (Initial Estimate)
-    let tonicVals = [];
-    let phasicVals = [];
-
-    if (params.tonicMethod === 'dwt') {
-      // ── DWT Wavelet Decomposition (db3) ────────────────────────────────
-      // Uses the afterLPF signal (median + low-pass filtered) as input.
-      // Tonic: approximation at level N (SCL), 0–Fs/2^(N+1) Hz
-      const dwtLevel = params.dwtLevel || 6;
-      const result = DWT.analyzeGSR(afterLPF, dwtLevel);
-      // Gentle post-smoothing (5 s window) removes DWT reconstruction
-      // ripples without introducing phase lag.  Empirically, 5 s gives the
-      // best tonic RMSE and phasic/truth correlation across levels 4–7.
-      const smoothWin = Math.max(1, Math.round(5 * this.sampleRate));
-      tonicVals = GsrFilter.applyZeroPhaseMovingAverage(result.tonic, smoothWin);
-    } else {
-      // ── Classical sliding-window methods ────────────────────────────────
-      const tonicWinSize = Math.max(5, Math.round(params.tonicWindow * this.sampleRate));
-
-      if (params.tonicMethod === 'median') {
-        tonicVals = GsrFilter.applyMedianFilter(afterLPF, tonicWinSize);
-      } else if (params.tonicMethod === 'percentile') {
-        tonicVals = GsrFilter.applyPercentileFilter(afterLPF, tonicWinSize, 0.10);
-      } else {
-        const alpha = 2.0 / (tonicWinSize + 1);
-        tonicVals = GsrFilter.applyZeroPhaseEMA(afterLPF, alpha);
-      }
-    }
-
-    // 4. Phasic = Filtered - Tonic (Initial Subtraction)
-    phasicVals = afterLPF.map((v, i) => v - tonicVals[i]);
-
-    // Reposition the tonic using a local-floor approach: for each sample, find
-    // the minimum of (signal - tonic) in a ±6 s window — this is how far the
-    // tonic needs to drop at that point to sit at the local floor (troughs).
-    // This correction is applied to all methods (dwt, median, percentile, lpf)
-    // to track the lower envelope and ensure the Phasic signal is non-negative.
-    //
-    // §A perf fix (2026-08-07): was O(N × W) nested loop (W = ±6 s window =
-    // ~121 samples at 10 Hz), causing ~4.8 M inner iterations on a 40 k-sample
-    // track. Replaced with two O(N) monotonic-deque passes:
-    //   bwd[i] = min of phasicVals[i-floorHalf .. i]   (trailing window, L→R)
-    //   fwd[i] = min of phasicVals[i .. i+floorHalf]   (leading window,  R→L)
-    //   localOffsets[i] = min(bwd[i], fwd[i])          (= symmetric window min)
-    // Each deque entry is pushed and popped at most once → ≤ 2N total deque ops.
-    const floorHalf = Math.max(1, Math.round(6 * this.sampleRate)); // ±6 s
-    const localOffsets = new Array(n);
-    {
-      // Pass 1 (left-to-right): bwd[i] = min over [max(0,i-floorHalf) .. i]
-      const bwd = new Array(n);
-      const dq1 = []; // monotonic deque of indices, front = minimum
-      for (let i = 0; i < n; i++) {
-        // Evict indices that have left the window
-        if (dq1.length > 0 && dq1[0] < i - floorHalf) dq1.shift();
-        // Maintain ascending-minimum invariant: remove tail indices ≥ current
-        while (dq1.length > 0 && phasicVals[dq1[dq1.length - 1]] >= phasicVals[i]) dq1.pop();
-        dq1.push(i);
-        bwd[i] = phasicVals[dq1[0]];
-      }
-      // Pass 2 (right-to-left): fwd[i] = min over [i .. min(n-1,i+floorHalf)]
-      const dq2 = [];
-      for (let i = n - 1; i >= 0; i--) {
-        // Evict indices that have left the window (right side)
-        if (dq2.length > 0 && dq2[0] > i + floorHalf) dq2.shift();
-        while (dq2.length > 0 && phasicVals[dq2[dq2.length - 1]] >= phasicVals[i]) dq2.pop();
-        dq2.push(i);
-        localOffsets[i] = Math.min(bwd[i], phasicVals[dq2[0]]);
-      }
-    }
-    // Light smoothing on offset curve (4 s window) keeps the tonic responsive
-    // to rapid SCR onsets without introducing jitter.
-    const smoothOffsets = GsrFilter.applyZeroPhaseMovingAverage(
-      localOffsets, Math.round(4 * this.sampleRate)
-    );
-    for (let i = 0; i < n; i++) {
-      tonicVals[i] += smoothOffsets[i];  // offset is negative → moves tonic down
-    }
-    // Recompute phasic from repositioned tonic, clamp to ≥0
-    phasicVals = afterLPF.map((v, i) => Math.max(0, v - tonicVals[i]));
+    const decomp = GsrFilter.decomposeTonicPhasic(afterLPF, this.sampleRate, params);
+    const tonicVals = decomp.tonic;
+    const phasicVals = decomp.phasic;
 
     this.tonic = this.raw.map((d, i) => ({ time: d.time, val: tonicVals[i] }));
     this.phasic = this.raw.map((d, i) => ({ time: d.time, val: phasicVals[i] }));
