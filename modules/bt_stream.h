@@ -28,6 +28,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "biomap_types.h"
+
+#define BT_STREAM_PACKET_SIZE 45
+
 typedef struct BtStream BtStream;
 
 // Backed by a static singleton, not a per-call heap allocation, despite
@@ -75,3 +79,9 @@ uint32_t bt_stream_get_drop_count(const BtStream* bs);
 // delta, ms) — lifetime max, same pattern as sd_logger.h's flush_peak_ms
 // and gsr_sensor.h's i2c_peak_ms/rf_rssi_peak_ms/rf_retune_peak_ms.
 uint32_t bt_stream_get_tx_peak_ms(const BtStream* bs);
+
+// Packs one wire packet at the exact offsets in §5's table.
+void bt_stream_pack_packet(uint8_t out[BT_STREAM_PACKET_SIZE],
+                           uint32_t timestamp_ms,
+                           const GpsPosition* pos,
+                           float gsr_raw);

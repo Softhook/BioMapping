@@ -144,6 +144,17 @@ typedef struct BioMapApp {
 #define MENU_COUNT      6
 #define OPTIONS_COUNT   9
 
+// Menu screen selection indices — matches MENU_COUNT above and the
+// item order drawn by menu_render() (biomap_render.c).
+enum {
+    MenuGpsGsrRf = 0,
+    MenuGpsGsr,
+    MenuGpsOnly,
+    MenuGsrOnly,
+    MenuLiveStream,
+    MenuOptions,
+};
+
 // Options screen selection indices — matches OPTIONS_COUNT above and the
 // item order drawn by options_render() (biomap_render.c). Shared between
 // biomap_gui.c (key handling) and biomap_render.c (toggle-state overlay) so

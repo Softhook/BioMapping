@@ -5,6 +5,8 @@
 #include <profiles/serial_profile.h>
 #include <stdatomic.h>
 #include <stdlib.h>
+#include <string.h>
+#include <math.h>
 
 struct BtStream {
     Bt* bt;
@@ -114,6 +116,7 @@ bool bt_stream_is_connected(const BtStream* bs) {
 
 bool bt_stream_tx_batch(BtStream* bs, const uint8_t* data, size_t len) {
     furi_check(bs, "BtStream: NULL in tx_batch()");
+    furi_check(len <= UINT16_MAX, "BtStream: packet too large for BLE serial");
 
     if(!bt_stream_is_connected(bs) || !bs->profile) {
         bs->drop_count++;
@@ -121,6 +124,9 @@ bool bt_stream_tx_batch(BtStream* bs, const uint8_t* data, size_t len) {
     }
 
     uint32_t t0 = furi_get_tick();
+    // Cast away const: ble_profile_serial_tx()'s signature takes non-const
+    // uint8_t*, but the SDK does not modify the buffer — it copies into the
+    // BLE stack's own internal queue. Safe as long as that contract holds.
     bool sent = ble_profile_serial_tx(bs->profile, (uint8_t*)data, (uint16_t)len);
     uint32_t dt = furi_get_tick() - t0;
     if(dt > bs->tx_peak_ms) bs->tx_peak_ms = dt;
@@ -140,4 +146,38 @@ uint32_t bt_stream_get_drop_count(const BtStream* bs) {
 uint32_t bt_stream_get_tx_peak_ms(const BtStream* bs) {
     furi_check(bs, "BtStream: NULL in get_tx_peak_ms()");
     return bs->tx_peak_ms;
+}
+
+void bt_stream_pack_packet(uint8_t out[BT_STREAM_PACKET_SIZE],
+                           uint32_t timestamp_ms,
+                           const GpsPosition* pos,
+                           float gsr_raw) {
+    out[0] = 0x42; // 'B'
+    out[1] = 0x4d; // 'M'
+    memcpy(out + 2, &timestamp_ms, sizeof(timestamp_ms));
+    // Not a `pos->valid ? pos->lat : 0.0` ternary — this project's build
+    // treats -Wdouble-promotion as an error, and GCC's conditional-operator
+    // type unification flags that form even though both branches are
+    // already double.
+    double lat = 0.0, lon = 0.0;
+    if(pos->valid) {
+        lat = pos->lat;
+        lon = pos->lon;
+    }
+    memcpy(out + 6,  &lat, sizeof(lat));
+    memcpy(out + 14, &lon, sizeof(lon));
+    memcpy(out + 22, &gsr_raw, sizeof(gsr_raw));
+    memcpy(out + 26, &pos->hdop, sizeof(pos->hdop));
+    memcpy(out + 30, &pos->pdop, sizeof(pos->pdop));
+    // speed_kts/course_deg are NaN when GPS has no velocity fix (see
+    // get_gps_position) — the wire format has no separate "no velocity"
+    // flag, so send 0 rather than propagating a NaN the frontend would
+    // have to special-case.
+    float speed = isnan(pos->speed_kts) ? 0.0f : pos->speed_kts;
+    float course = isnan(pos->course_deg) ? 0.0f : pos->course_deg;
+    memcpy(out + 34, &speed, sizeof(speed));
+    memcpy(out + 38, &course, sizeof(course));
+    out[42] = (uint8_t)pos->sats;
+    out[43] = (uint8_t)pos->fix_type;
+    out[44] = pos->valid ? 1 : 0;
 }

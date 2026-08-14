@@ -195,6 +195,11 @@ typedef struct {
 
 // ── Inline helpers ─────────────────────────────────────────────────────
 
+// Note: BioMapModeLiveStream is deliberately excluded from has_gps(),
+// has_gsr(), and has_rf() because these gate the shared CSV-writing tick
+// and render paths. Live Stream captures GPS/GSR but routes it to BLE
+// directly via bt_stream instead of the SD logger (and does not use RF).
+
 static inline bool has_gps(int mode) {
     return mode == BioMapModeGpsGsrRf || mode == BioMapModeGpsGsr || mode == BioMapModeGpsOnly;
 }
@@ -214,7 +219,7 @@ static inline bool has_gsr(int mode) {
 // running the RF worker there too makes it a live instrument for RF/GSR
 // thread-contention impact. Everywhere else, RF is gated identically to
 // has_gps() (RF readings are only spatially useful, so only active
-// alongside GPS).
+// alongside GPS). Live Stream mode does not support RF.
 static inline bool has_rf(int mode) {
     return mode == BioMapModeGpsGsrRf || mode == BioMapModeGpsOnly
         || mode == BioMapModeDiagnostics;

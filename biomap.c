@@ -74,17 +74,19 @@ int32_t biomap_app(void* p) {
     view_port_enabled_set(app->screen_vp, false);
     gui_add_view_port(app->gui, app->screen_vp, GuiLayerFullscreen);
 
+    _Static_assert(MenuOptions == MENU_COUNT - 1, "MENU_COUNT mismatch with MenuOptions enum");
+
     bool running = true;
     while(running) {
         int32_t sel = biomap_gui_show_menu(app);
 
         switch(sel) {
-        case 0: run_recording_session(app, BioMapModeGpsGsrRf); break;
-        case 1: run_recording_session(app, BioMapModeGpsGsr);   break;
-        case 2: run_recording_session(app, BioMapModeGpsOnly);  break; // "GPS + RF"
-        case 3: run_recording_session(app, BioMapModeGsrOnly);  break;
-        case 4: run_recording_session(app, BioMapModeLiveStream); break; // Live Stream
-        case 5: run_options_screen(app);                         break;
+        case MenuGpsGsrRf:    run_recording_session(app, BioMapModeGpsGsrRf); break;
+        case MenuGpsGsr:      run_recording_session(app, BioMapModeGpsGsr);   break;
+        case MenuGpsOnly:     run_recording_session(app, BioMapModeGpsOnly);  break; // "GPS + RF"
+        case MenuGsrOnly:     run_recording_session(app, BioMapModeGsrOnly);  break;
+        case MenuLiveStream:  run_recording_session(app, BioMapModeLiveStream); break; // Live Stream
+        case MenuOptions:     run_options_screen(app);                         break;
         default: running = false;                                break;
         }
     }

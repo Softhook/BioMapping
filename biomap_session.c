@@ -713,46 +713,6 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
 // runs every tick so autoranging stays current), but the 45-byte packed
 // binary packet is sent over BLE at BT_STREAM_INTERVAL_TICKS instead of
 // written to SD every tick.
-#define LIVE_STREAM_PACKET_SIZE 45
-
-// Packs one wire packet at the exact offsets in §5's table. Uses memcpy at
-// fixed byte offsets rather than a padded C struct — this project's STM32
-// target is little-endian, matching the wire format's LE fields, so no
-// byte-swapping is needed, but memcpy sidesteps any struct-padding
-// ambiguity entirely rather than relying on that alignment coincidence.
-static void pack_live_stream_packet(uint8_t out[LIVE_STREAM_PACKET_SIZE],
-                                     uint32_t timestamp_ms, const GpsPosition* pos,
-                                     float gsr_raw) {
-    out[0] = 0x42; // 'B'
-    out[1] = 0x4d; // 'M'
-    memcpy(out + 2, &timestamp_ms, sizeof(timestamp_ms));
-    // Not a `pos->valid ? pos->lat : 0.0` ternary — this project's build
-    // treats -Wdouble-promotion as an error, and GCC's conditional-operator
-    // type unification flags that form even though both branches are
-    // already double.
-    double lat = 0.0, lon = 0.0;
-    if(pos->valid) {
-        lat = pos->lat;
-        lon = pos->lon;
-    }
-    memcpy(out + 6,  &lat, sizeof(lat));
-    memcpy(out + 14, &lon, sizeof(lon));
-    memcpy(out + 22, &gsr_raw, sizeof(gsr_raw));
-    memcpy(out + 26, &pos->hdop, sizeof(pos->hdop));
-    memcpy(out + 30, &pos->pdop, sizeof(pos->pdop));
-    // speed_kts/course_deg are NaN when GPS has no velocity fix (see
-    // get_gps_position) — the wire format has no separate "no velocity"
-    // flag, so send 0 rather than propagating a NaN the frontend would
-    // have to special-case.
-    float speed = isnan(pos->speed_kts) ? 0.0f : pos->speed_kts;
-    float course = isnan(pos->course_deg) ? 0.0f : pos->course_deg;
-    memcpy(out + 34, &speed, sizeof(speed));
-    memcpy(out + 38, &course, sizeof(course));
-    out[42] = (uint8_t)pos->sats;
-    out[43] = (uint8_t)pos->fix_type;
-    out[44] = pos->valid ? 1 : 0;
-}
-
 // Builds this tick's packet (if any is due) while app->mutex is still
 // held — GPS/GSR reads need it, same as every other mode's tick handling.
 // Does NOT send it: ble_profile_serial_tx()'s worst-case latency is
@@ -762,7 +722,7 @@ static void pack_live_stream_packet(uint8_t out[LIVE_STREAM_PACKET_SIZE],
 // below already follows (see that block's own comment). *out_should_send
 // is left false on every tick that isn't a send boundary.
 static void handle_live_stream_tick_locked(
-    Session* s, uint8_t out_packet[LIVE_STREAM_PACKET_SIZE], bool* out_should_send) {
+    Session* s, uint8_t out_packet[BT_STREAM_PACKET_SIZE], bool* out_should_send) {
     *out_should_send = false;
 
     float raw = 0.0f;
@@ -781,7 +741,7 @@ static void handle_live_stream_tick_locked(
 
     GpsPosition pos = get_gps_position(s);
     uint32_t timestamp_ms = s->recording.total_ticks * (1000 / TICK_HZ);
-    pack_live_stream_packet(out_packet, timestamp_ms, &pos, raw);
+    bt_stream_pack_packet(out_packet, timestamp_ms, &pos, raw);
     *out_should_send = true;
 }
 
@@ -1012,7 +972,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             // handle_recording_tick()) so its BLE send can happen after
             // app->mutex is released below — see
             // handle_live_stream_tick_locked()'s doc comment.
-            uint8_t live_stream_packet[LIVE_STREAM_PACKET_SIZE];
+            uint8_t live_stream_packet[BT_STREAM_PACKET_SIZE];
             bool live_stream_should_send = false;
             bool batch_ok;
             if(mode == BioMapModeLiveStream) {

@@ -27,6 +27,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 #include "modules/bt_stream.h"
 #include "bt/bt_service/bt.h"
@@ -323,6 +324,106 @@ static void test_alloc_after_free_reuses_singleton_cleanly(void) {
     printf("  -> Pass\n");
 }
 
+static void test_pack_packet(void) {
+    printf("Running test_pack_packet...\n");
+    uint8_t out[BT_STREAM_PACKET_SIZE];
+    memset(out, 0xEE, sizeof(out));
+
+    // Test 1: Valid GPS position
+    GpsPosition pos1 = {
+        .valid = true,
+        .lat = 37.774929,
+        .lon = -122.419416,
+        .hdop = 1.2f,
+        .pdop = 1.5f,
+        .speed_kts = 5.5f,
+        .course_deg = 180.0f,
+        .sats = 8,
+        .fix_type = 3
+    };
+    uint32_t ts1 = 123456u;
+    float gsr1 = 1500.5f;
+
+    bt_stream_pack_packet(out, ts1, &pos1, gsr1);
+
+    assert(out[0] == 0x42);
+    assert(out[1] == 0x4d);
+
+    uint32_t ts_out;
+    memcpy(&ts_out, out + 2, 4);
+    assert(ts_out == ts1);
+
+    double lat_out, lon_out;
+    memcpy(&lat_out, out + 6, 8);
+    memcpy(&lon_out, out + 14, 8);
+    assert(lat_out == pos1.lat);
+    assert(lon_out == pos1.lon);
+
+    float gsr_out, hdop_out, pdop_out, speed_out, course_out;
+    memcpy(&gsr_out, out + 22, 4);
+    memcpy(&hdop_out, out + 26, 4);
+    memcpy(&pdop_out, out + 30, 4);
+    memcpy(&speed_out, out + 34, 4);
+    memcpy(&course_out, out + 38, 4);
+
+    assert(gsr_out == gsr1);
+    assert(hdop_out == pos1.hdop);
+    assert(pdop_out == pos1.pdop);
+    assert(speed_out == pos1.speed_kts);
+    assert(course_out == pos1.course_deg);
+
+    assert(out[42] == 8);
+    assert(out[43] == 3);
+    assert(out[44] == 1);
+
+    // Test 2: Invalid GPS position (NaN velocity, invalid flag)
+    memset(out, 0xEE, sizeof(out));
+    GpsPosition pos2 = {
+        .valid = false,
+        .lat = 0.0,
+        .lon = 0.0,
+        .hdop = 99.9f,
+        .pdop = 99.9f,
+        .speed_kts = NAN,
+        .course_deg = NAN,
+        .sats = 0,
+        .fix_type = 1
+    };
+    uint32_t ts2 = 7890u;
+    float gsr2 = 0.0f;
+
+    bt_stream_pack_packet(out, ts2, &pos2, gsr2);
+
+    assert(out[0] == 0x42);
+    assert(out[1] == 0x4d);
+
+    memcpy(&ts_out, out + 2, 4);
+    assert(ts_out == ts2);
+
+    memcpy(&lat_out, out + 6, 8);
+    memcpy(&lon_out, out + 14, 8);
+    assert(lat_out == 0.0);
+    assert(lon_out == 0.0);
+
+    memcpy(&gsr_out, out + 22, 4);
+    memcpy(&hdop_out, out + 26, 4);
+    memcpy(&pdop_out, out + 30, 4);
+    memcpy(&speed_out, out + 34, 4);
+    memcpy(&course_out, out + 38, 4);
+
+    assert(gsr_out == gsr2);
+    assert(hdop_out == pos2.hdop);
+    assert(pdop_out == pos2.pdop);
+    assert(speed_out == 0.0f); // NaN converted to 0.0
+    assert(course_out == 0.0f); // NaN converted to 0.0
+
+    assert(out[42] == 0);
+    assert(out[43] == 1);
+    assert(out[44] == 0);
+
+    printf("  -> Pass\n");
+}
+
 int main(void) {
     test_alloc_free();
     test_start_success_claims_profile();
@@ -336,6 +437,7 @@ int main(void) {
     test_stop_resets_status();
     test_stop_unregisters_status_callback();
     test_alloc_after_free_reuses_singleton_cleanly();
+    test_pack_packet();
     printf("\nAll bt_stream tests passed!\n");
     return 0;
 }
