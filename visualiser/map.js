@@ -77,6 +77,10 @@ class GSRMapManager {
       preferCanvas: true
     }).setView([0, 0], 2);
 
+    if (this.map.attributionControl) {
+      this.map.attributionControl.setPrefix(false);
+    }
+
     // Light Map Style (OpenStreetMap base, CartoDB Positron)
     // Kept as this.baseTileLayer (not just addTo(this.map) and discarded) so
     // GSRMapExporter can force it to prefetch tiles beyond the live viewport

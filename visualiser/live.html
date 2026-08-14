@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Bio Mapping — Live</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -44,7 +44,7 @@
   button {
     font-size: 13px; padding: 6px 12px; border-radius: 6px;
     border: 1px solid var(--border); background: #1b2229; color: var(--text);
-    cursor: pointer;
+    cursor: pointer; touch-action: manipulation;
   }
   button:disabled { opacity: 0.4; cursor: default; }
   button.primary { background: var(--accent); color: #04140e; border-color: var(--accent); font-weight: 600; }
@@ -88,6 +88,14 @@
   #connectOverlay p { color: var(--muted); max-width: 320px; font-size: 13px; margin: 0; }
   #connectOverlay .err { color: var(--bad); font-size: 12px; max-width: 320px; }
   #reconnectErr { color: var(--bad); font-size: 11px; flex-basis: 100%; }
+
+  @media (max-width: 480px) {
+    header { padding: 6px 8px; gap: 6px; }
+    header h1 { font-size: 13px; }
+    .badge { font-size: 11px; padding: 2px 6px; }
+    button { font-size: 11px; padding: 4px 8px; }
+    footer { padding: 4px 8px; font-size: 10px; }
+  }
 </style>
 </head>
 <body>
@@ -99,6 +107,8 @@
     <button id="newConnectionBtn" style="display:none;">New Connection</button>
     <button id="exportBtn" disabled>Export CSV</button>
     <button id="togglePhasicBtn" disabled>Show Phasic (P)</button>
+    <button id="cacheMapBtn" disabled>Cache Map (C)</button>
+    <button id="toggleFullscreenBtn">Fullscreen (F)</button>
     <span id="reconnectErr"></span>
   </header>
 
@@ -120,11 +130,8 @@
 </div>
 
 <div id="connectOverlay">
-  <div style="font-size:20px;font-weight:600;">Bio Mapping Live</div>
-  <p>Connects over Web Bluetooth to a Flipper Zero running Live Stream mode.
-     Requires desktop Chrome/Edge or Android Chrome/Edge — Web Bluetooth has
-     no iOS/Safari support (see docs/bluetooth_serial_investigation.md §1.1).</p>
-  <button class="primary" id="connectBtn">Connect over Bluetooth</button>
+  <div style="font-size:20px;font-weight:600;">Bio Mapping 2 Live Stream</div>
+  <button class="primary" id="connectBtn">Connect via Bluetooth</button>
   <div class="err" id="connectErr"></div>
 </div>
 
@@ -568,12 +575,204 @@ let liveLastLatLng = null;
 let liveMarker = null;
 let gsrMin = Infinity, gsrMax = -Infinity;
 
+// ==========================================================================
+// Custom Leaflet TileLayer subclass with Cache Storage API backend
+// Normalizes subdomain to 'a' to maximize cache reuse and minimize downloads.
+// ==========================================================================
+const L_TileLayer_Cache = L.TileLayer.extend({
+  createTile: function (coords, done) {
+    const tile = document.createElement('img');
+    L.DomEvent.on(tile, 'load', L.Util.bind(this._tileOnLoad, this, done, tile));
+    L.DomEvent.on(tile, 'error', L.Util.bind(this._tileOnError, this, done, tile));
+
+    if (this.options.crossOrigin || this.options.crossOrigin === '') {
+      tile.crossOrigin = this.options.crossOrigin === true ? '' : this.options.crossOrigin;
+    }
+
+    tile.alt = '';
+    tile.setAttribute('role', 'presentation');
+    // Set initial source to a transparent 1x1 GIF to prevent flashing a broken image placeholder
+    tile.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+    const url = this.getTileUrl(coords);
+    const cacheUrl = url.replace(/https:\/\/[a-d]\.basemaps\.cartocdn\.com/, 'https://a.basemaps.cartocdn.com');
+
+    if (typeof caches !== 'undefined') {
+      const cacheName = 'leaflet-map-tiles';
+      caches.open(cacheName).then((cache) => {
+        cache.match(cacheUrl).then((response) => {
+          if (response) {
+            response.blob().then((blob) => {
+              const objUrl = URL.createObjectURL(blob);
+              tile.src = objUrl;
+              tile._objUrl = objUrl;
+            });
+          } else {
+            fetch(url).then((netResponse) => {
+              if (netResponse.ok) {
+                cache.put(cacheUrl, netResponse.clone());
+                netResponse.blob().then((blob) => {
+                  const objUrl = URL.createObjectURL(blob);
+                  tile.src = objUrl;
+                  tile._objUrl = objUrl;
+                });
+              } else {
+                tile.src = url;
+              }
+            }).catch(() => {
+              tile.src = url;
+            });
+          }
+        }).catch(() => {
+          tile.src = url;
+        });
+      }).catch(() => {
+        tile.src = url;
+      });
+    } else {
+      tile.src = url;
+    }
+
+    return tile;
+  },
+
+  _cleanTile: function (tile) {
+    if (tile._objUrl) {
+      URL.revokeObjectURL(tile._objUrl);
+      delete tile._objUrl;
+    }
+  },
+
+  _removeTile: function (id) {
+    const tile = this._tiles[id];
+    if (tile) {
+      this._cleanTile(tile.el);
+    }
+    L.TileLayer.prototype._removeTile.call(this, id);
+  }
+});
+
+L.tileLayer.cache = function (url, options) {
+  return new L_TileLayer_Cache(url, options);
+};
+
+function latLngToTileCoords(latlng, zoom) {
+  const lat = latlng.lat;
+  const lon = latlng.lng;
+  const x = Math.floor((lon + 180) / 360 * Math.pow(2, zoom));
+  const y = Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom));
+  return { x, y };
+}
+
+async function cacheCurrentMapArea() {
+  if (!liveMap) return;
+  const bounds = liveMap.getBounds();
+  const currentZoom = liveMap.getZoom();
+  const maxZoom = Math.min(currentZoom + 3, 18);
+  
+  const cacheMapBtn = document.getElementById('cacheMapBtn');
+  const originalText = cacheMapBtn.textContent;
+  cacheMapBtn.disabled = true;
+  cacheMapBtn.textContent = 'Caching...';
+  
+  let tileLayerInstance = null;
+  liveMap.eachLayer((layer) => {
+    if (layer instanceof L.TileLayer) {
+      tileLayerInstance = layer;
+    }
+  });
+  
+  if (!tileLayerInstance) {
+    cacheMapBtn.disabled = false;
+    cacheMapBtn.textContent = originalText;
+    return;
+  }
+  
+  const tileUrls = [];
+  
+  for (let z = currentZoom; z <= maxZoom; z++) {
+    const minTile = latLngToTileCoords(bounds.getNorthWest(), z);
+    const maxTile = latLngToTileCoords(bounds.getSouthEast(), z);
+    
+    const numTiles = Math.pow(2, z);
+    const minX = Math.max(0, Math.min(numTiles - 1, minTile.x));
+    const maxX = Math.max(0, Math.min(numTiles - 1, maxTile.x));
+    const minY = Math.max(0, Math.min(numTiles - 1, Math.min(minTile.y, maxTile.y)));
+    const maxY = Math.max(0, Math.min(numTiles - 1, Math.max(minTile.y, maxTile.y)));
+    
+    for (let x = minX; x <= maxX; x++) {
+      for (let y = minY; y <= maxY; y++) {
+        const url = tileLayerInstance.getTileUrl({ x, y, z });
+        const cacheUrl = url.replace(/https:\/\/[a-d]\.basemaps\.cartocdn\.com/, 'https://a.basemaps.cartocdn.com');
+        tileUrls.push({ url, cacheUrl });
+      }
+    }
+  }
+  
+  const totalTiles = tileUrls.length;
+  if (totalTiles === 0) {
+    cacheMapBtn.disabled = false;
+    cacheMapBtn.textContent = originalText;
+    alert('No tiles to cache in the current view.');
+    return;
+  }
+  
+  if (totalTiles > 300) {
+    if (!confirm(`Caching the current view at zoom levels ${currentZoom} to ${maxZoom} will download ${totalTiles} tiles. Proceed?`)) {
+      cacheMapBtn.disabled = false;
+      cacheMapBtn.textContent = originalText;
+      return;
+    }
+  }
+  
+  let downloadedTiles = 0;
+  try {
+    const cache = await caches.open('leaflet-map-tiles');
+    
+    const batchSize = 10;
+    for (let i = 0; i < tileUrls.length; i += batchSize) {
+      const batch = tileUrls.slice(i, i + batchSize);
+      await Promise.all(batch.map(async (tile) => {
+        try {
+          const response = await fetch(tile.url);
+          if (response.ok) {
+            await cache.put(tile.cacheUrl, response);
+            downloadedTiles++;
+          }
+        } catch (err) {
+          console.warn('Failed to cache tile:', tile.url, err);
+        }
+      }));
+      cacheMapBtn.textContent = `Caching (${Math.round((downloadedTiles / totalTiles) * 100)}%)`;
+    }
+    
+    cacheMapBtn.textContent = 'Cached!';
+    setTimeout(() => {
+      cacheMapBtn.disabled = false;
+      cacheMapBtn.textContent = originalText;
+    }, 2000);
+    
+    alert(`Successfully cached ${downloadedTiles} of ${totalTiles} map tiles for offline use!`);
+  } catch (err) {
+    console.error('Map caching failed:', err);
+    alert('Failed to cache map area: ' + err.message);
+    cacheMapBtn.disabled = false;
+    cacheMapBtn.textContent = originalText;
+  }
+}
+
 function initLiveMap() {
   liveMap = L.map('map', { zoomControl: true, scrollWheelZoom: true, preferCanvas: true }).setView([0, 0], 2);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  if (liveMap.attributionControl) {
+    liveMap.attributionControl.setPrefix(false);
+  }
+  L.tileLayer.cache('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
     maxZoom: 19,
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
   }).addTo(liveMap);
+  
+  // Enable the Cache Map button
+  document.getElementById('cacheMapBtn').disabled = false;
 }
 
 let hasValidGpsReceived = false;
@@ -673,6 +872,35 @@ let bleManager = null;
 let lastPacketTimestamp = 0;
 let lastPacketArrivalTime = 0;
 let animationFrameId = null;
+let wakeLock = null;
+
+async function requestWakeLock() {
+  if ('wakeLock' in navigator) {
+    try {
+      if (wakeLock && !wakeLock.released) {
+        await wakeLock.release();
+      }
+      wakeLock = await navigator.wakeLock.request('screen');
+    } catch (err) {
+      console.warn('Could not acquire screen wake lock:', err);
+    }
+  }
+}
+
+function releaseWakeLock() {
+  if (wakeLock !== null) {
+    wakeLock.release();
+    wakeLock = null;
+  }
+}
+
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible') {
+    if (LiveState.status === 'connected' || LiveState.status === 'reconnecting') {
+      await requestWakeLock();
+    }
+  }
+});
 
 function startAnimationLoop() {
   if (animationFrameId) return;
@@ -715,9 +943,11 @@ LiveState.on('status', (status) => {
   renderStatus(status);
   if (status === 'connected' || status === 'reconnecting') {
     startAnimationLoop();
+    requestWakeLock();
   } else {
     stopAnimationLoop();
     drawGraph();
+    releaseWakeLock();
   }
 });
 LiveState.on('packet', (pkt) => {
@@ -761,7 +991,12 @@ async function attemptConnect() {
   }
 }
 
-connectBtn.addEventListener('click', () => attemptConnect());
+connectBtn.addEventListener('click', () => {
+  attemptConnect();
+  if (document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
+});
 
 reconnectBtn.addEventListener('click', () => {
   if (bleManager) bleManager.manualReconnect();
@@ -794,11 +1029,44 @@ togglePhasicBtn.addEventListener('click', () => {
   drawGraph();
 });
 
+const cacheMapBtn = document.getElementById('cacheMapBtn');
+cacheMapBtn.addEventListener('click', cacheCurrentMapArea);
+
+const toggleFullscreenBtn = document.getElementById('toggleFullscreenBtn');
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch((err) => {
+      console.warn('Fullscreen request failed:', err);
+    });
+  } else {
+    if (document.exitFullscreen) {
+      document.exitFullscreen();
+    }
+  }
+}
+toggleFullscreenBtn.addEventListener('click', toggleFullscreen);
+
+document.addEventListener('fullscreenchange', () => {
+  if (document.fullscreenElement) {
+    toggleFullscreenBtn.textContent = 'Exit Fullscreen (F)';
+    toggleFullscreenBtn.classList.add('active');
+  } else {
+    toggleFullscreenBtn.textContent = 'Fullscreen (F)';
+    toggleFullscreenBtn.classList.remove('active');
+  }
+});
+
 window.addEventListener('keydown', (e) => {
   if ((e.key === 'p' || e.key === 'P') && !togglePhasicBtn.disabled) {
     LiveState.showPhasicOnly = !LiveState.showPhasicOnly;
     updateTogglePhasicBtn();
     drawGraph();
+  }
+  if ((e.key === 'c' || e.key === 'C') && !cacheMapBtn.disabled) {
+    cacheCurrentMapArea();
+  }
+  if (e.key === 'f' || e.key === 'F') {
+    toggleFullscreen();
   }
 });
 
