@@ -427,7 +427,9 @@ function drawGraph() {
   const pkts = LiveState.packets;
   if (pkts.length === 0) return;
 
-  const lastT = pkts[pkts.length - 1].timestamp;
+  // Smooth time progression between packets to enable 60fps graph scrolling
+  const elapsed = lastPacketArrivalTime ? (Date.now() - lastPacketArrivalTime) / 1000 : 0;
+  const lastT = (lastPacketTimestamp || pkts[pkts.length - 1].timestamp) + elapsed;
   const t0 = lastT - GRAPH_WINDOW_S;
   const padT0 = t0 - GRAPH_PAD_S;
 
@@ -668,6 +670,27 @@ const connectErr = document.getElementById('connectErr');
 const reconnectErr = document.getElementById('reconnectErr');
 
 let bleManager = null;
+let lastPacketTimestamp = 0;
+let lastPacketArrivalTime = 0;
+let animationFrameId = null;
+
+function startAnimationLoop() {
+  if (animationFrameId) return;
+  function frame() {
+    if (LiveState.status === 'connected' || LiveState.status === 'reconnecting') {
+      drawGraph();
+    }
+    animationFrameId = requestAnimationFrame(frame);
+  }
+  animationFrameId = requestAnimationFrame(frame);
+}
+
+function stopAnimationLoop() {
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+}
 
 function renderStatus(status) {
   const labels = {
@@ -688,7 +711,15 @@ function renderStatus(status) {
   if (status !== 'disconnected') reconnectErr.textContent = '';
 }
 
-LiveState.on('status', renderStatus);
+LiveState.on('status', (status) => {
+  renderStatus(status);
+  if (status === 'connected' || status === 'reconnecting') {
+    startAnimationLoop();
+  } else {
+    stopAnimationLoop();
+    drawGraph();
+  }
+});
 LiveState.on('packet', (pkt) => {
   document.getElementById('statPackets').textContent = `Packets: ${LiveState.packets.length}`;
   document.getElementById('statGaps').textContent = `Gaps: ${LiveState.gapCount}`;
@@ -696,9 +727,12 @@ LiveState.on('packet', (pkt) => {
     ? `GPS: ${pkt.fixType === 3 ? '3D' : pkt.fixType === 2 ? '2D' : 'fix'} (${pkt.sats} sat)`
     : 'GPS: No fix';
   document.getElementById('statLastSeen').textContent = `Last: ${pkt.timestamp.toFixed(1)}s`;
+  
+  lastPacketTimestamp = pkt.timestamp;
+  lastPacketArrivalTime = Date.now();
+  
   exportBtn.disabled = false;
   togglePhasicBtn.disabled = false;
-  drawGraph();
   updateLiveMap(pkt);
 });
 
