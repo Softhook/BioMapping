@@ -515,7 +515,18 @@ static void render_live_stream(Canvas* c, BioMapApp* a) {
     draw_fmt(c, 0, 35, "Dropped: %lu", (unsigned long)dropped);
 
     if(a->session.gsr && gsr_sensor_available(a->session.gsr)) {
-        draw_fmt(c, 0, 47, "GSR: %.0f nS", (double)gsr_sensor_get_raw(a->session.gsr));
+        // gsr_sensor_is_connected(), not just available() — matches
+        // render_gsr_session()'s gating (every other GSR-displaying mode
+        // shows "disconnected" rather than a frozen last-good reading).
+        // The transmitted/exported value itself already carries whatever
+        // gsr_sensor_get_raw() returns regardless of connection state,
+        // same as every mode's CSV row — this only fixes the on-screen
+        // cue, not what gets sent.
+        if(gsr_sensor_is_connected(a->session.gsr)) {
+            draw_fmt(c, 0, 47, "GSR: %.0f nS", (double)gsr_sensor_get_raw(a->session.gsr));
+        } else {
+            canvas_draw_str(c, 0, 47, "GSR: cuffs disconnected");
+        }
     } else {
         canvas_draw_str(c, 0, 47, "GSR: --");
     }

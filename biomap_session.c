@@ -753,10 +753,18 @@ static void pack_live_stream_packet(uint8_t out[LIVE_STREAM_PACKET_SIZE],
     out[44] = pos->valid ? 1 : 0;
 }
 
-// Always returns true — there's no batch buffer to overflow here, unlike
-// the CSV path's handle_recording_tick (whose bool return is a real
-// success/failure signal from sd_logger_batch_append).
-static bool handle_live_stream_tick(Session* s) {
+// Builds this tick's packet (if any is due) while app->mutex is still
+// held — GPS/GSR reads need it, same as every other mode's tick handling.
+// Does NOT send it: ble_profile_serial_tx()'s worst-case latency is
+// unmeasured (modules/bt_stream.h), so the actual bt_stream_tx_batch()
+// call happens in the Tick handler AFTER releasing app->mutex, the same
+// "no blocking hardware call under the render lock" rule the SD flush
+// below already follows (see that block's own comment). *out_should_send
+// is left false on every tick that isn't a send boundary.
+static void handle_live_stream_tick_locked(
+    Session* s, uint8_t out_packet[LIVE_STREAM_PACKET_SIZE], bool* out_should_send) {
+    *out_should_send = false;
+
     float raw = 0.0f;
     if(s->gsr) {
         gsr_sensor_tick(s->gsr); // autoranging only, same as every other GSR mode
@@ -769,24 +777,22 @@ static bool handle_live_stream_tick(Session* s) {
     // (total_ticks == 0) sends immediately, then every
     // BT_STREAM_INTERVAL_TICKS-th tick after. A one-tick phase shift
     // either way is immaterial to a periodic send cadence.
-    if(s->recording.total_ticks % BT_STREAM_INTERVAL_TICKS != 0) return true;
+    if(s->recording.total_ticks % BT_STREAM_INTERVAL_TICKS != 0) return;
 
     GpsPosition pos = get_gps_position(s);
     uint32_t timestamp_ms = s->recording.total_ticks * (1000 / TICK_HZ);
-    uint8_t packet[LIVE_STREAM_PACKET_SIZE];
-    pack_live_stream_packet(packet, timestamp_ms, &pos, raw);
-
-    if(s->bt_stream) bt_stream_tx_batch(s->bt_stream, packet, sizeof(packet));
-    return true;
+    pack_live_stream_packet(out_packet, timestamp_ms, &pos, raw);
+    *out_should_send = true;
 }
 
 // ── Handle one GSR tick (10 Hz) during a recording session ────────────────
 // rf_rssi: see batch_csv_row's comment — fetched by the caller before
 // app->mutex is held, not in here. NULL when RF is not active.
+// Live Stream mode is dispatched separately by the caller (Tick handler,
+// below), not through here — its packet-send needs to happen after
+// app->mutex is released, unlike every path in this function.
 // Returns true on success, false if a batch overflow occurred.
 static bool handle_recording_tick(Session* s, const float* rf_rssi) {
-    if(s->mode == BioMapModeLiveStream) return handle_live_stream_tick(s);
-
     // ── GPS-only mode: write a row on the GPS tick boundary ────────────
     if(!has_gsr(s->mode) && has_gps(s->mode) && s->recording.active) {
         if(is_gps_row_tick(s)) {
@@ -961,6 +967,11 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                                          app->rf_calibrated, app->rf_cal_data.noise_floor_dbm,
                                          app->cal_active, app->cal_gain, app->cal_offset))
                     view_port_update(s->vp);
+            } else {
+                // No CSV to toggle, but every other screen in this app
+                // gives SOME audible response to every key press — a
+                // silent OK here reads as a frozen screen/dead button.
+                biomap_sound_click(app->sound_enabled);
             }
             continue;
         }
@@ -997,7 +1008,19 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                 gsr_sensor_get_rf_snapshot(s->gsr, rf_rssi);
             }
 
-            bool batch_ok = handle_recording_tick(s, rf_active ? rf_rssi : NULL);
+            // Live Stream is dispatched separately (not through
+            // handle_recording_tick()) so its BLE send can happen after
+            // app->mutex is released below — see
+            // handle_live_stream_tick_locked()'s doc comment.
+            uint8_t live_stream_packet[LIVE_STREAM_PACKET_SIZE];
+            bool live_stream_should_send = false;
+            bool batch_ok;
+            if(mode == BioMapModeLiveStream) {
+                handle_live_stream_tick_locked(s, live_stream_packet, &live_stream_should_send);
+                batch_ok = true; // no batch buffer to overflow in this mode
+            } else {
+                batch_ok = handle_recording_tick(s, rf_active ? rf_rssi : NULL);
+            }
 
             s->recording.total_ticks++;
 
@@ -1087,6 +1110,15 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                 }
             }
             furi_mutex_release(app->mutex);
+
+            // BLE send happens here, after releasing app->mutex — same
+            // rule the SD flush below follows, for the same reason
+            // (ble_profile_serial_tx()'s worst-case latency is unmeasured,
+            // and biomap_render_callback() only waits 10ms for this same
+            // mutex before skipping its redraw).
+            if(live_stream_should_send && s->bt_stream) {
+                bt_stream_tx_batch(s->bt_stream, live_stream_packet, sizeof(live_stream_packet));
+            }
 
             if(emit_heartbeat) {
                 FURI_LOG_I("BioMap", "heartbeat heap:free=%u min=%u stack:main=%u gsr=%u sd_dry=%u",

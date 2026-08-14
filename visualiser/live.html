@@ -83,6 +83,7 @@
   #connectOverlay.hidden { display: none; }
   #connectOverlay p { color: var(--muted); max-width: 320px; font-size: 13px; margin: 0; }
   #connectOverlay .err { color: var(--bad); font-size: 12px; max-width: 320px; }
+  #reconnectErr { color: var(--bad); font-size: 11px; flex-basis: 100%; }
 </style>
 </head>
 <body>
@@ -91,7 +92,9 @@
     <h1>Bio Mapping — Live</h1>
     <span id="statusBadge" class="badge">Not connected</span>
     <button id="reconnectBtn" style="display:none;">Reconnect</button>
+    <button id="newConnectionBtn" style="display:none;">New Connection</button>
     <button id="exportBtn" disabled>Export CSV</button>
+    <span id="reconnectErr"></span>
   </header>
 
   <div id="graphWrap">
@@ -357,10 +360,26 @@ class GSRLiveBluetoothManager {
   // retry loops are a documented way to make requestDevice() itself stop
   // responding afterward, so this must give up and fall back to a manual
   // Reconnect button rather than retrying forever.
+  //
+  // This whole path assumes the SAME BLE peripheral session is still
+  // reachable (device.gatt.connect() on the cached BluetoothDevice) — the
+  // right model for a transient link drop (phone walks out of range). It
+  // is NOT the right model for the Flipper exiting and re-entering Live
+  // Stream mode: bt_stream_stop()/bt_stream_start() call
+  // bt_profile_restore_default()/bt_profile_start(), which the SDK's own
+  // doc comment says restarts the BLE co-processor's second core — a much
+  // bigger discontinuity than a link drop, and (per the stale-bond issue
+  // hit earlier the same session) plausibly enough to invalidate the
+  // cached device/bond. When every attempt here fails, onStatusText
+  // surfaces the real error so that's distinguishable from "still out of
+  // range" — and the caller (wire-up code) offers "New Connection" (a
+  // fresh requestDevice()) as the real fix for that case, not more
+  // retries against a reference that may no longer be usable.
   async _handleDisconnect() {
     if (this._reconnecting) return;
     this._reconnecting = true;
     LiveState.setStatus('reconnecting');
+    let lastError = null;
     for (let attempt = 0, delay = 500; attempt < 6; attempt++, delay = Math.min(delay * 2, 8000)) {
       await new Promise(r => setTimeout(r, delay));
       try {
@@ -369,11 +388,14 @@ class GSRLiveBluetoothManager {
         this._reconnecting = false;
         return;
       } catch (e) {
-        // keep retrying within the cap
+        lastError = e; // keep retrying within the cap
       }
     }
     this._reconnecting = false;
     LiveState.setStatus('disconnected');
+    const msg = (lastError && lastError.message) ? lastError.message : String(lastError);
+    console.error('Live: auto-reconnect exhausted —', lastError);
+    this.onStatusText(`Auto-reconnect failed: ${msg}`);
   }
 
   async manualReconnect() {
@@ -384,6 +406,9 @@ class GSRLiveBluetoothManager {
       LiveState.setStatus('connected');
     } catch (e) {
       LiveState.setStatus('disconnected');
+      const msg = (e && e.message) ? e.message : String(e);
+      console.error('Live: manual reconnect failed —', e);
+      this.onStatusText(`Reconnect failed: ${msg}`);
     }
   }
 }
@@ -397,6 +422,15 @@ class GSRLiveBluetoothManager {
 // ==========================================================================
 const GRAPH_WINDOW_S = 120;
 const GRAPH_EMA_ALPHA = 0.25;
+// Extra history included in the smoothing pass beyond the visible window,
+// so the EMA isn't starting cold right at the window's left edge (a zero-
+// phase filter needs some run-up on both sides to be accurate near its
+// boundaries). Bounds the smoothing pass to a fixed size regardless of
+// total session length — re-running EMA over the WHOLE accumulated buffer
+// on every ~300ms redraw (the original approach here) made per-packet
+// cost grow linearly across a long walk instead of staying flat; a full
+// ~90-minute session at this cadence is ~18,000 packets by the end.
+const GRAPH_PAD_S = 30;
 
 function drawGraph() {
   const canvas = document.getElementById('graph');
@@ -414,19 +448,22 @@ function drawGraph() {
   const pkts = LiveState.packets;
   if (pkts.length === 0) return;
 
-  // Zero-phase smoothing over the WHOLE buffer, then slice to the visible
-  // window — cheap even at a full session's worth of samples (§8), and
-  // means no shimmer at the live edge from a causal-only filter.
-  const rawVals = pkts.map(p => p.gsrRaw);
-  const smoothed = GsrFilter.applyZeroPhaseEMA(rawVals, GRAPH_EMA_ALPHA);
-
   const lastT = pkts[pkts.length - 1].timestamp;
   const t0 = lastT - GRAPH_WINDOW_S;
-  let startIdx = pkts.length - 1;
-  while (startIdx > 0 && pkts[startIdx - 1].timestamp >= t0) startIdx--;
+  const padT0 = t0 - GRAPH_PAD_S;
 
-  const visible = smoothed.slice(startIdx);
-  const visiblePkts = pkts.slice(startIdx);
+  // Bound the smoothing pass to [padT0, lastT] — visible window plus
+  // warm-up padding — not the whole accumulated session (see GRAPH_PAD_S).
+  let padStartIdx = pkts.length - 1;
+  while (padStartIdx > 0 && pkts[padStartIdx - 1].timestamp >= padT0) padStartIdx--;
+  const paddedPkts = pkts.slice(padStartIdx);
+  const paddedSmoothed = GsrFilter.applyZeroPhaseEMA(paddedPkts.map(p => p.gsrRaw), GRAPH_EMA_ALPHA);
+
+  let startIdx = paddedPkts.length - 1;
+  while (startIdx > 0 && paddedPkts[startIdx - 1].timestamp >= t0) startIdx--;
+
+  const visible = paddedSmoothed.slice(startIdx);
+  const visiblePkts = paddedPkts.slice(startIdx);
   if (visible.length === 0) return;
 
   let minV = Math.min(...visible), maxV = Math.max(...visible);
@@ -454,7 +491,7 @@ function drawGraph() {
   ctx.stroke();
 
   document.getElementById('graphValue').textContent =
-    rawVals[rawVals.length - 1].toFixed(0) + ' nS';
+    pkts[pkts.length - 1].gsrRaw.toFixed(0) + ' nS';
 }
 
 // ==========================================================================
@@ -548,11 +585,13 @@ function exportCsv() {
 // ==========================================================================
 const statusBadge = document.getElementById('statusBadge');
 const reconnectBtn = document.getElementById('reconnectBtn');
+const newConnectionBtn = document.getElementById('newConnectionBtn');
 const exportBtn = document.getElementById('exportBtn');
 const connectOverlay = document.getElementById('connectOverlay');
 const connectBtn = document.getElementById('connectBtn');
 const showAllBtn = document.getElementById('showAllBtn');
 const connectErr = document.getElementById('connectErr');
+const reconnectErr = document.getElementById('reconnectErr');
 
 let bleManager = null;
 
@@ -567,6 +606,12 @@ function renderStatus(status) {
   statusBadge.textContent = text;
   statusBadge.className = 'badge' + (cls ? ' ' + cls : '');
   reconnectBtn.style.display = status === 'disconnected' ? '' : 'none';
+  // "New Connection" (fresh requestDevice()) is the one that actually
+  // works after the Flipper exits/re-enters Live Stream mode — see
+  // GSRLiveBluetoothManager's _handleDisconnect() doc comment for why the
+  // lightweight Reconnect button alone can't be trusted to cover that case.
+  newConnectionBtn.style.display = status === 'disconnected' ? '' : 'none';
+  if (status !== 'disconnected') reconnectErr.textContent = '';
 }
 
 LiveState.on('status', renderStatus);
@@ -594,7 +639,13 @@ async function attemptConnect(showAll) {
     return;
   }
   LiveState.setStatus('connecting');
-  bleManager = new GSRLiveBluetoothManager((text) => { connectErr.textContent = text; });
+  // onStatusText fires for both pre-connect issues (shown in the overlay,
+  // still visible at this point) and later reconnect failures (overlay
+  // already hidden by then) — write to both; whichever is visible is seen.
+  bleManager = new GSRLiveBluetoothManager((text) => {
+    connectErr.textContent = text;
+    reconnectErr.textContent = text;
+  });
   try {
     await bleManager.connect(showAll);
     connectOverlay.classList.add('hidden');
@@ -610,6 +661,16 @@ showAllBtn.addEventListener('click', () => attemptConnect(true));
 
 reconnectBtn.addEventListener('click', () => {
   if (bleManager) bleManager.manualReconnect();
+});
+
+// Escape hatch when the lightweight Reconnect keeps failing — goes back
+// through a fresh requestDevice() instead of reusing a possibly-stale
+// BluetoothDevice reference (see _handleDisconnect()'s doc comment).
+newConnectionBtn.addEventListener('click', () => {
+  reconnectErr.textContent = '';
+  connectErr.textContent = '';
+  showAllBtn.style.display = 'none';
+  connectOverlay.classList.remove('hidden');
 });
 
 exportBtn.addEventListener('click', exportCsv);
