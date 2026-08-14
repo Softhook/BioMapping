@@ -136,3 +136,10 @@ gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_em_scan_cal \
     tests/shims/storage_mock.c -lm
 ./build/test_em_scan_cal
 
+echo
+echo "== test_bt_stream (BLE serial profile lifecycle / send-or-drop logic) =="
+gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_bt_stream \
+    tests/test_bt_stream.c modules/bt_stream.c \
+    tests/shims/bt_ble_mock.c -lm
+./build/test_bt_stream
+

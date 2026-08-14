@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bio Mapping — Live</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg: #0b0e11;
+    --panel: #12161b;
+    --border: #232a32;
+    --text: #d7dee5;
+    --muted: #7c8894;
+    --accent: #00e5a0;
+    --warn: #ffb020;
+    --bad: #ff4d5e;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+  }
+  #app { display: flex; flex-direction: column; height: 100%; }
+
+  header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; background: var(--panel); border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; flex: 1 1 auto; min-width: 0; }
+  .badge {
+    font-size: 12px; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted); white-space: nowrap;
+  }
+  .badge.live { color: var(--accent); border-color: var(--accent); }
+  .badge.warn { color: var(--warn); border-color: var(--warn); }
+  .badge.bad  { color: var(--bad);  border-color: var(--bad); }
+
+  button {
+    font-size: 13px; padding: 6px 12px; border-radius: 6px;
+    border: 1px solid var(--border); background: #1b2229; color: var(--text);
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.primary { background: var(--accent); color: #04140e; border-color: var(--accent); font-weight: 600; }
+
+  #graphWrap { position: relative; background: var(--panel); border-bottom: 1px solid var(--border); flex: 0 0 34%; min-height: 120px; }
+  #graph { width: 100%; height: 100%; display: block; }
+  #graphLabel {
+    position: absolute; top: 6px; left: 10px; font-size: 11px; color: var(--muted);
+    pointer-events: none;
+  }
+  #graphValue {
+    position: absolute; top: 6px; right: 10px; font-size: 13px; color: var(--text); font-weight: 600;
+    pointer-events: none;
+  }
+
+  #map { flex: 1 1 auto; min-height: 0; background: #05070a; }
+
+  footer {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    background: var(--panel); border-top: 1px solid var(--border); font-size: 12px; color: var(--muted);
+    flex-wrap: wrap;
+  }
+  footer .stat { white-space: nowrap; }
+  footer .spacer { flex: 1 1 auto; }
+
+  #connectOverlay {
+    position: fixed; inset: 0; background: rgba(5,7,10,0.92);
+    display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px;
+    text-align: center; padding: 24px;
+    /* Leaflet's own CSS puts its tile/marker panes and controls at
+       z-index 200-1000 (.leaflet-top/.leaflet-bottom alone are 1000).
+       #map never establishes its own stacking context, so those values
+       compete directly against this overlay in the same top-level
+       stacking context — 20 loses. Comfortably above Leaflet's ceiling. */
+    z-index: 10000;
+  }
+  #connectOverlay.hidden { display: none; }
+  #connectOverlay p { color: var(--muted); max-width: 320px; font-size: 13px; margin: 0; }
+  #connectOverlay .err { color: var(--bad); font-size: 12px; max-width: 320px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Bio Mapping — Live</h1>
+    <span id="statusBadge" class="badge">Not connected</span>
+    <button id="reconnectBtn" style="display:none;">Reconnect</button>
+    <button id="exportBtn" disabled>Export CSV</button>
+  </header>
+
+  <div id="graphWrap">
+    <canvas id="graph"></canvas>
+    <span id="graphLabel">GSR (nS) — last 2 min</span>
+    <span id="graphValue">--</span>
+  </div>
+
+  <div id="map"></div>
+
+  <footer>
+    <span class="stat" id="statPackets">Packets: 0</span>
+    <span class="stat" id="statGaps">Gaps: 0</span>
+    <span class="stat" id="statGps">GPS: --</span>
+    <span class="spacer"></span>
+    <span class="stat" id="statLastSeen">--</span>
+  </footer>
+</div>
+
+<div id="connectOverlay">
+  <div style="font-size:20px;font-weight:600;">Bio Mapping Live</div>
+  <p>Connects over Web Bluetooth to a Flipper Zero running Live Stream mode.
+     Requires desktop Chrome/Edge or Android Chrome/Edge — Web Bluetooth has
+     no iOS/Safari support (see docs/bluetooth_serial_investigation.md §1.1).</p>
+  <button class="primary" id="connectBtn">Connect over Bluetooth</button>
+  <button id="showAllBtn" style="display:none;">Show all nearby devices</button>
+  <div class="err" id="connectErr"></div>
+</div>
+
+<script>
+// ==========================================================================
+// GsrFilter (subset) — copied from visualiser/gsr_filter.js:131-148, pure,
+// no DOM coupling. Only the zero-phase EMA smoother is needed here; the
+// live graph re-runs it over the whole accumulated buffer on every arrival
+// (docs/bluetooth_serial_investigation.md §8's "Rendering and filtering" —
+// every sample that arrives is already finished data, so there's no
+// shimmer at the live edge from doing this).
+// ==========================================================================
+const GsrFilter = {
+  applyZeroPhaseEMA(arr, alpha) {
+    const n = arr.length;
+    if (n === 0) return [];
+    const forward = new Array(n);
+    forward[0] = arr[0];
+    for (let i = 1; i < n; i++) {
+      forward[i] = alpha * arr[i] + (1 - alpha) * forward[i - 1];
+    }
+    const backward = new Array(n);
+    backward[n - 1] = forward[n - 1];
+    for (let i = n - 2; i >= 0; i--) {
+      backward[i] = alpha * forward[i] + (1 - alpha) * backward[i + 1];
+    }
+    return backward;
+  },
+};
+
+// ==========================================================================
+// MapColors (subset) — copied from visualiser/map_colors.js:24-35.
+// ==========================================================================
+const MapColors = {
+  getHslColor(ratio, saturation = 100, lightness = 50) {
+    const r = Math.max(0, Math.min(1, ratio));
+    const hue = (1.0 - r) * 120;
+    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+  },
+  getColorForValue(val, minVal, maxVal) {
+    if (maxVal === minVal) return 'hsl(120, 90%, 50%)';
+    const ratio = (val - minVal) / (maxVal - minVal);
+    return MapColors.getHslColor(ratio, 90, 50);
+  },
+};
+
+// ==========================================================================
+// GpsPipeline (subset) — copied from visualiser/gps_pipeline.js:10-21.
+// ==========================================================================
+const GpsPipeline = {
+  applyHdopGate(pts, maxHdop = 3.0) {
+    return pts.filter(d => isNaN(d.hdop) || d.hdop <= maxHdop);
+  },
+  applyFixTypeGate(pts, minFixType = 2) {
+    if (minFixType < 2) return pts;
+    return pts.filter(d => d.fixType == null || d.fixType === 0 || d.fixType >= minFixType);
+  },
+};
+
+// visualiser/constants.js's GPS_DEFAULT.maxHdop (docs/csv_schema.md's "HDOP
+// Gate Design" — 2.0 is the post-processing quality filter, distinct from
+// the firmware's permissive 5.0 logging gate).
+const LIVE_MAX_HDOP = 2.0;
+
+// ==========================================================================
+// GSRLiveBinaryParser — copied from visualiser/live_binary_parser.js
+// (source of truth; that file's own tests cover this decoder directly —
+// see visualiser/tests/test_live_binary_parser.js). Decodes the 45-byte
+// packets from docs/bluetooth_serial_investigation.md §5.
+// ==========================================================================
+const LIVE_PACKET_SIZE = 45;
+const LIVE_MAGIC_0 = 0x42;
+const LIVE_MAGIC_1 = 0x4d;
+
+class GSRLiveBinaryParser {
+  constructor(onPacketParsed) {
+    this.onPacketParsed = onPacketParsed;
+    this.buffer = new Uint8Array(0);
+  }
+  append(newData) {
+    const combined = new Uint8Array(this.buffer.length + newData.length);
+    combined.set(this.buffer, 0);
+    combined.set(newData, this.buffer.length);
+    this.buffer = combined;
+    this._processQueue();
+  }
+  _processQueue() {
+    for (;;) {
+      if (this.buffer.length < LIVE_PACKET_SIZE) return;
+      if (this.buffer[0] === LIVE_MAGIC_0 && this.buffer[1] === LIVE_MAGIC_1) {
+        this._parsePacket(this.buffer.subarray(0, LIVE_PACKET_SIZE));
+        this.buffer = this.buffer.subarray(LIVE_PACKET_SIZE);
+        continue;
+      }
+      let syncIndex = -1;
+      for (let i = 1; i < this.buffer.length - 1; i++) {
+        if (this.buffer[i] === LIVE_MAGIC_0 && this.buffer[i + 1] === LIVE_MAGIC_1) {
+          syncIndex = i;
+          break;
+        }
+      }
+      if (syncIndex !== -1) {
+        this.buffer = this.buffer.subarray(syncIndex);
+        continue;
+      }
+      this.buffer = this.buffer[this.buffer.length - 1] === LIVE_MAGIC_0
+        ? new Uint8Array([LIVE_MAGIC_0])
+        : new Uint8Array(0);
+      return;
+    }
+  }
+  _parsePacket(bytes) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const valid = view.getUint8(44);
+    this.onPacketParsed({
+      timestamp: view.getUint32(2, true) / 1000.0,
+      lat: valid ? view.getFloat64(6, true) : NaN,
+      lon: valid ? view.getFloat64(14, true) : NaN,
+      gsrRaw: view.getFloat32(22, true),
+      hdop: view.getFloat32(26, true),
+      pdop: view.getFloat32(30, true),
+      speedKts: view.getFloat32(34, true),
+      courseDeg: view.getFloat32(38, true),
+      sats: view.getUint8(42),
+      fixType: view.getUint8(43),
+      valid: !!valid,
+    });
+  }
+}
+
+// ==========================================================================
+// LiveState — connection status + accumulated packets + a listener/emit()
+// pattern matching visualiser/app_state.js:115-121 (same shape, not the
+// same object — this page has no dependency on app_state.js).
+// ==========================================================================
+const LiveState = {
+  status: 'disconnected', // 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
+  packets: [],
+  gapCount: 0,
+
+  // docs/bluetooth_serial_investigation.md §3's BT_STREAM_INTERVAL_MS
+  // (biomap_types.h) — kept in sync manually; a real send-interval change
+  // on the firmware side needs the same number updated here.
+  STREAM_INTERVAL_S: 0.3,
+
+  _listeners: {},
+  on(event, fn) { (LiveState._listeners[event] = LiveState._listeners[event] || []).push(fn); },
+  emit(event, ...args) { (LiveState._listeners[event] || []).forEach(fn => fn(...args)); },
+
+  setStatus(status) {
+    this.status = status;
+    this.emit('status', status);
+  },
+
+  addPacket(pkt) {
+    const prev = this.packets[this.packets.length - 1];
+    pkt.gap = !!prev && (pkt.timestamp - prev.timestamp) > 2 * this.STREAM_INTERVAL_S;
+    if (pkt.gap) this.gapCount++;
+    this.packets.push(pkt);
+    this.emit('packet', pkt);
+  },
+};
+
+// ==========================================================================
+// GSRLiveBluetoothManager — docs/bluetooth_serial_investigation.md §8.
+//
+// SERVICE_UUID/TX_CHAR_UUID/RX_CHAR_UUID are UNVERIFIED against real
+// hardware (§8's own caveat) — Flipper's stock BLE serial service's GATT
+// table isn't part of the public app SDK headers this project builds
+// against (checked: no UUID appears anywhere under
+// ~/.ufbt/current/sdk_headers), so these can only be confirmed by a live
+// GATT scan against a real Flipper running Live Stream mode. If
+// getPrimaryService() fails with this UUID, _logDiscoveredServices() below
+// enumerates whatever the connected device actually advertises so the
+// real UUID can be read off the page instead of guessed at again.
+// ==========================================================================
+const BLE_SERVICE_UUID = '8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000';
+const BLE_RX_CHAR_UUID = '19ed82ae-ed21-4c9d-4145-228e61fe0000'; // Flipper TX / host notify
+
+class GSRLiveBluetoothManager {
+  constructor(onStatusText) {
+    this.device = null;
+    this.characteristic = null;
+    this.onStatusText = onStatusText || (() => {});
+    this.parser = new GSRLiveBinaryParser((pkt) => LiveState.addPacket(pkt));
+    this._reconnecting = false;
+  }
+
+  // showAll: skip the namePrefix:'Flipper' filter and show every nearby
+  // BLE device instead (§1.4 — the advertised name follows the Flipper's
+  // configured device name, which a user can change in Settings > System
+  // > Device Name; the filtered picker silently finds nothing for a
+  // renamed device rather than erroring).
+  async connect(showAll) {
+    this.device = await navigator.bluetooth.requestDevice(
+      showAll
+        ? { acceptAllDevices: true, optionalServices: [BLE_SERVICE_UUID] }
+        : { filters: [{ namePrefix: 'Flipper' }], optionalServices: [BLE_SERVICE_UUID] }
+    );
+    this.device.addEventListener('gattserverdisconnected', () => this._handleDisconnect());
+    await this._subscribe();
+    LiveState.setStatus('connected');
+  }
+
+  async _subscribe() {
+    const server = await this.device.gatt.connect();
+    let service;
+    try {
+      service = await server.getPrimaryService(BLE_SERVICE_UUID);
+    } catch (e) {
+      await this._logDiscoveredServices(server);
+      throw e;
+    }
+    this.characteristic = await service.getCharacteristic(BLE_RX_CHAR_UUID);
+    this.characteristic.addEventListener('characteristicvaluechanged', (e) => {
+      this.parser.append(new Uint8Array(e.target.value.buffer));
+    });
+    await this.characteristic.startNotifications();
+  }
+
+  // Best-effort discovery aid — not a functional fallback (a specific
+  // characteristic is still required to subscribe), just surfaces what the
+  // real hardware actually advertises so BLE_SERVICE_UUID above can be
+  // corrected without a separate BLE inspector tool.
+  async _logDiscoveredServices(server) {
+    try {
+      const services = await server.getPrimaryServices();
+      const uuids = services.map(s => s.uuid);
+      console.warn('Live: expected service UUID not found. Discovered:', uuids);
+      this.onStatusText('Service UUID mismatch — see console for discovered UUIDs');
+    } catch (e2) {
+      console.warn('Live: service discovery also failed', e2);
+    }
+  }
+
+  // Bounded exponential backoff, capped attempts — §1.10/§8: unbounded
+  // retry loops are a documented way to make requestDevice() itself stop
+  // responding afterward, so this must give up and fall back to a manual
+  // Reconnect button rather than retrying forever.
+  async _handleDisconnect() {
+    if (this._reconnecting) return;
+    this._reconnecting = true;
+    LiveState.setStatus('reconnecting');
+    for (let attempt = 0, delay = 500; attempt < 6; attempt++, delay = Math.min(delay * 2, 8000)) {
+      await new Promise(r => setTimeout(r, delay));
+      try {
+        await this._subscribe();
+        LiveState.setStatus('connected');
+        this._reconnecting = false;
+        return;
+      } catch (e) {
+        // keep retrying within the cap
+      }
+    }
+    this._reconnecting = false;
+    LiveState.setStatus('disconnected');
+  }
+
+  async manualReconnect() {
+    if (!this.device) return;
+    LiveState.setStatus('reconnecting');
+    try {
+      await this._subscribe();
+      LiveState.setStatus('connected');
+    } catch (e) {
+      LiveState.setStatus('disconnected');
+    }
+  }
+}
+
+// ==========================================================================
+// Rolling graph — plain <canvas> 2D, redrawn only on each packet arrival
+// (docs/bluetooth_serial_investigation.md §8 — matches the desktop app's
+// noLoop()+manual-redraw() convention rather than a continuous animation
+// loop; there's no zoom/pan/timeline-drag here, just "show the last N
+// seconds of a growing session").
+// ==========================================================================
+const GRAPH_WINDOW_S = 120;
+const GRAPH_EMA_ALPHA = 0.25;
+
+function drawGraph() {
+  const canvas = document.getElementById('graph');
+  const wrap = document.getElementById('graphWrap');
+  const dpr = window.devicePixelRatio || 1;
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  const pkts = LiveState.packets;
+  if (pkts.length === 0) return;
+
+  // Zero-phase smoothing over the WHOLE buffer, then slice to the visible
+  // window — cheap even at a full session's worth of samples (§8), and
+  // means no shimmer at the live edge from a causal-only filter.
+  const rawVals = pkts.map(p => p.gsrRaw);
+  const smoothed = GsrFilter.applyZeroPhaseEMA(rawVals, GRAPH_EMA_ALPHA);
+
+  const lastT = pkts[pkts.length - 1].timestamp;
+  const t0 = lastT - GRAPH_WINDOW_S;
+  let startIdx = pkts.length - 1;
+  while (startIdx > 0 && pkts[startIdx - 1].timestamp >= t0) startIdx--;
+
+  const visible = smoothed.slice(startIdx);
+  const visiblePkts = pkts.slice(startIdx);
+  if (visible.length === 0) return;
+
+  let minV = Math.min(...visible), maxV = Math.max(...visible);
+  if (maxV - minV < 1) { maxV += 0.5; minV -= 0.5; }
+  const pad = (maxV - minV) * 0.1;
+  minV -= pad; maxV += pad;
+
+  const xForT = (t) => ((t - t0) / GRAPH_WINDOW_S) * w;
+  const yForV = (v) => h - ((v - minV) / (maxV - minV)) * h;
+
+  ctx.strokeStyle = '#00e5a0';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  let penDown = false;
+  for (let i = 0; i < visiblePkts.length; i++) {
+    const x = xForT(visiblePkts[i].timestamp);
+    const y = yForV(visible[i]);
+    if (!penDown || visiblePkts[i].gap) {
+      ctx.moveTo(x, y);
+      penDown = true;
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.stroke();
+
+  document.getElementById('graphValue').textContent =
+    rawVals[rawVals.length - 1].toFixed(0) + ' nS';
+}
+
+// ==========================================================================
+// Leaflet map wrapper — same CartoDB "light_all" tile layer + init options
+// visualiser/map.js's GSRMapManager.initMap() actually uses (map.js:72-89;
+// the plan doc's "Dark Matter" reference didn't match the real file —
+// checked directly rather than carried over unverified).
+// ==========================================================================
+let liveMap = null;
+let liveLastLatLng = null;
+let liveMarker = null;
+let gsrMin = Infinity, gsrMax = -Infinity;
+
+function initLiveMap() {
+  liveMap = L.map('map', { zoomControl: true, scrollWheelZoom: true, preferCanvas: true }).setView([0, 0], 2);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19,
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
+  }).addTo(liveMap);
+}
+
+function updateLiveMap(pkt) {
+  if (!pkt.valid || isNaN(pkt.lat) || isNaN(pkt.lon)) return;
+  const gated = GpsPipeline.applyFixTypeGate(
+    GpsPipeline.applyHdopGate([pkt], LIVE_MAX_HDOP), 2);
+  if (gated.length === 0) return;
+
+  gsrMin = Math.min(gsrMin, pkt.gsrRaw);
+  gsrMax = Math.max(gsrMax, pkt.gsrRaw);
+  const color = MapColors.getColorForValue(pkt.gsrRaw, gsrMin, gsrMax);
+
+  const latlng = [pkt.lat, pkt.lon];
+  if (!liveLastLatLng) {
+    liveMap.setView(latlng, 17);
+  } else if (pkt.gap) {
+    // §8 "Show the gap, don't paper over it" — a real time gap (dropped/
+    // disconnected interval) breaks the trail rather than drawing a
+    // straight line across whatever distance was covered during it.
+  } else {
+    // Per-segment coloring: one short polyline per new point, colored for
+    // that point's GSR value, rather than one polyline whose single color
+    // can only represent the latest reading.
+    L.polyline([liveLastLatLng, latlng], { color, weight: 3 }).addTo(liveMap);
+  }
+  liveLastLatLng = latlng;
+
+  if (!liveMarker) {
+    liveMarker = L.circleMarker(latlng, { radius: 6, color: '#fff', weight: 2, fillColor: color, fillOpacity: 1 }).addTo(liveMap);
+  } else {
+    liveMarker.setLatLng(latlng);
+    liveMarker.setStyle({ fillColor: color });
+  }
+  liveMap.panTo(latlng, { animate: true, duration: 0.3 });
+}
+
+// ==========================================================================
+// CSV export — docs/csv_schema.md's canonical GPS+GSR schema (11 columns).
+// hacc_m is always empty: the wire packet (§5) never carries it, so this
+// is honestly "not measured" rather than a guessed value. Blob +
+// object-URL download, the same primitive visualiser/file_saver.js uses
+// for its own fallback path (file_saver.js:96-106) — not the full
+// GSRFileSaver object (its File-System-Access-API picker isn't needed for
+// a single-purpose export button).
+// ==========================================================================
+function exportCsv() {
+  const rows = ['timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m'];
+  const startEpoch = Math.floor(Date.now() / 1000) - Math.floor(LiveState.packets.at(-1)?.timestamp || 0);
+  for (const p of LiveState.packets) {
+    const lat = p.valid ? p.lat.toFixed(7) : '';
+    const lon = p.valid ? p.lon.toFixed(7) : '';
+    rows.push([
+      p.timestamp.toFixed(2), lat, lon,
+      p.hdop.toFixed(1), p.pdop.toFixed(1), p.sats, p.fixType,
+      p.speedKts.toFixed(1), p.courseDeg.toFixed(1), p.gsrRaw.toFixed(1), '',
+    ].join(','));
+  }
+  const header = `# RecordingStartTime:${startEpoch}\n# DeviceName:LiveStream\n`;
+  const blob = new Blob([header + rows.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `biomap_live_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ==========================================================================
+// Wire-up
+// ==========================================================================
+const statusBadge = document.getElementById('statusBadge');
+const reconnectBtn = document.getElementById('reconnectBtn');
+const exportBtn = document.getElementById('exportBtn');
+const connectOverlay = document.getElementById('connectOverlay');
+const connectBtn = document.getElementById('connectBtn');
+const showAllBtn = document.getElementById('showAllBtn');
+const connectErr = document.getElementById('connectErr');
+
+let bleManager = null;
+
+function renderStatus(status) {
+  const labels = {
+    connecting: ['Connecting…', ''],
+    connected: ['Live', 'live'],
+    reconnecting: ['Reconnecting…', 'warn'],
+    disconnected: ['Disconnected', 'bad'],
+  };
+  const [text, cls] = labels[status] || ['Not connected', ''];
+  statusBadge.textContent = text;
+  statusBadge.className = 'badge' + (cls ? ' ' + cls : '');
+  reconnectBtn.style.display = status === 'disconnected' ? '' : 'none';
+}
+
+LiveState.on('status', renderStatus);
+LiveState.on('packet', (pkt) => {
+  document.getElementById('statPackets').textContent = `Packets: ${LiveState.packets.length}`;
+  document.getElementById('statGaps').textContent = `Gaps: ${LiveState.gapCount}`;
+  document.getElementById('statGps').textContent = pkt.valid
+    ? `GPS: ${pkt.fixType === 3 ? '3D' : pkt.fixType === 2 ? '2D' : 'fix'} (${pkt.sats} sat)`
+    : 'GPS: No fix';
+  document.getElementById('statLastSeen').textContent = `Last: ${pkt.timestamp.toFixed(1)}s`;
+  exportBtn.disabled = false;
+  drawGraph();
+  updateLiveMap(pkt);
+});
+
+// showAll=false first: the filtered picker (namePrefix:'Flipper') is the
+// quick path when it works. On any failure — most commonly the picker
+// coming up empty because the Flipper's been renamed away from the
+// default "Flipper*" name (§1.4) — reveal "Show all nearby devices" so
+// the user isn't stuck without knowing why nothing appeared.
+async function attemptConnect(showAll) {
+  connectErr.textContent = '';
+  if (!navigator.bluetooth) {
+    connectErr.textContent = 'Web Bluetooth is not available in this browser (needs desktop Chrome/Edge or Android Chrome/Edge — not Safari, even on macOS).';
+    return;
+  }
+  LiveState.setStatus('connecting');
+  bleManager = new GSRLiveBluetoothManager((text) => { connectErr.textContent = text; });
+  try {
+    await bleManager.connect(showAll);
+    connectOverlay.classList.add('hidden');
+  } catch (e) {
+    LiveState.setStatus('disconnected');
+    connectErr.textContent = (e && e.message) ? e.message : String(e);
+    if (!showAll) showAllBtn.style.display = '';
+  }
+}
+
+connectBtn.addEventListener('click', () => attemptConnect(false));
+showAllBtn.addEventListener('click', () => attemptConnect(true));
+
+reconnectBtn.addEventListener('click', () => {
+  if (bleManager) bleManager.manualReconnect();
+});
+
+exportBtn.addEventListener('click', exportCsv);
+
+window.addEventListener('resize', drawGraph);
+
+initLiveMap();
+renderStatus('disconnected');
+</script>
+</body>
+</html>

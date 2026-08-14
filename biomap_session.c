@@ -99,12 +99,23 @@ void session_deinit(Session* s, BioMapApp* app) {
     SdLogger* logger = s->logger;
     GsrSensor* gsr = s->gsr;
     GpsUart* gps = s->gps;
+    BtStream* bt_stream = s->bt_stream;
     s->logger = NULL;
     s->gsr = NULL;
     s->gps = NULL;
+    s->bt_stream = NULL;
     bool active_recording = s->recording.active;
     s->recording.active = false;
     furi_mutex_release(app->mutex);
+
+    if(bt_stream) {
+        // bt_profile_restore_default() restarts the BLE co-processor's
+        // second core (same doc-comment warning bt_profile_start() carries)
+        // — slow, like gsr_sensor_free()'s furi_thread_join() below, which
+        // is why this runs after the mutex is released rather than under it.
+        bt_stream_stop(bt_stream);
+        bt_stream_free(bt_stream);
+    }
 
     if(active_recording && logger) {
         // Defensive fallback only — in normal operation the Back-key
@@ -696,11 +707,86 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
     }
 }
 
+// ── Live Stream mode (BLE) ──────────────────────────────────────────────
+// docs/bluetooth_serial_investigation.md §3/§5. No SdLogger, no CSV — GPS
+// and GSR are captured exactly like every other mode (gsr_sensor_tick()
+// runs every tick so autoranging stays current), but the 45-byte packed
+// binary packet is sent over BLE at BT_STREAM_INTERVAL_TICKS instead of
+// written to SD every tick.
+#define LIVE_STREAM_PACKET_SIZE 45
+
+// Packs one wire packet at the exact offsets in §5's table. Uses memcpy at
+// fixed byte offsets rather than a padded C struct — this project's STM32
+// target is little-endian, matching the wire format's LE fields, so no
+// byte-swapping is needed, but memcpy sidesteps any struct-padding
+// ambiguity entirely rather than relying on that alignment coincidence.
+static void pack_live_stream_packet(uint8_t out[LIVE_STREAM_PACKET_SIZE],
+                                     uint32_t timestamp_ms, const GpsPosition* pos,
+                                     float gsr_raw) {
+    out[0] = 0x42; // 'B'
+    out[1] = 0x4d; // 'M'
+    memcpy(out + 2, &timestamp_ms, sizeof(timestamp_ms));
+    // Not a `pos->valid ? pos->lat : 0.0` ternary — this project's build
+    // treats -Wdouble-promotion as an error, and GCC's conditional-operator
+    // type unification flags that form even though both branches are
+    // already double.
+    double lat = 0.0, lon = 0.0;
+    if(pos->valid) {
+        lat = pos->lat;
+        lon = pos->lon;
+    }
+    memcpy(out + 6,  &lat, sizeof(lat));
+    memcpy(out + 14, &lon, sizeof(lon));
+    memcpy(out + 22, &gsr_raw, sizeof(gsr_raw));
+    memcpy(out + 26, &pos->hdop, sizeof(pos->hdop));
+    memcpy(out + 30, &pos->pdop, sizeof(pos->pdop));
+    // speed_kts/course_deg are NaN when GPS has no velocity fix (see
+    // get_gps_position) — the wire format has no separate "no velocity"
+    // flag, so send 0 rather than propagating a NaN the frontend would
+    // have to special-case.
+    float speed = isnan(pos->speed_kts) ? 0.0f : pos->speed_kts;
+    float course = isnan(pos->course_deg) ? 0.0f : pos->course_deg;
+    memcpy(out + 34, &speed, sizeof(speed));
+    memcpy(out + 38, &course, sizeof(course));
+    out[42] = (uint8_t)pos->sats;
+    out[43] = (uint8_t)pos->fix_type;
+    out[44] = pos->valid ? 1 : 0;
+}
+
+// Always returns true — there's no batch buffer to overflow here, unlike
+// the CSV path's handle_recording_tick (whose bool return is a real
+// success/failure signal from sd_logger_batch_append).
+static bool handle_live_stream_tick(Session* s) {
+    float raw = 0.0f;
+    if(s->gsr) {
+        gsr_sensor_tick(s->gsr); // autoranging only, same as every other GSR mode
+        raw = gsr_sensor_get_raw(s->gsr);
+    }
+
+    // s->recording.total_ticks is incremented by the caller AFTER this
+    // returns (see the Tick handler below), so it's still last tick's
+    // value here — using it directly means the very first tick
+    // (total_ticks == 0) sends immediately, then every
+    // BT_STREAM_INTERVAL_TICKS-th tick after. A one-tick phase shift
+    // either way is immaterial to a periodic send cadence.
+    if(s->recording.total_ticks % BT_STREAM_INTERVAL_TICKS != 0) return true;
+
+    GpsPosition pos = get_gps_position(s);
+    uint32_t timestamp_ms = s->recording.total_ticks * (1000 / TICK_HZ);
+    uint8_t packet[LIVE_STREAM_PACKET_SIZE];
+    pack_live_stream_packet(packet, timestamp_ms, &pos, raw);
+
+    if(s->bt_stream) bt_stream_tx_batch(s->bt_stream, packet, sizeof(packet));
+    return true;
+}
+
 // ── Handle one GSR tick (10 Hz) during a recording session ────────────────
 // rf_rssi: see batch_csv_row's comment — fetched by the caller before
 // app->mutex is held, not in here. NULL when RF is not active.
 // Returns true on success, false if a batch overflow occurred.
 static bool handle_recording_tick(Session* s, const float* rf_rssi) {
+    if(s->mode == BioMapModeLiveStream) return handle_live_stream_tick(s);
+
     // ── GPS-only mode: write a row on the GPS tick boundary ────────────
     if(!has_gsr(s->mode) && has_gps(s->mode) && s->recording.active) {
         if(is_gps_row_tick(s)) {
@@ -775,13 +861,21 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
     view_port_enabled_set(s->vp, true);
     view_port_update(s->vp);
 
-    if(has_gps(mode)) {
+    // Live Stream (BioMapModeLiveStream) is deliberately excluded from
+    // has_gps()/has_gsr()/has_rf() (biomap_config.h's enum comment) since
+    // those also gate the shared CSV-writing path — but it still needs
+    // real GPS+GSR capture, just routed to BLE instead of SD. OR'd in
+    // explicitly here rather than folded into has_gps()/has_gsr()
+    // themselves, so the CSV path stays untouched by this mode.
+    bool is_live_stream = (mode == BioMapModeLiveStream);
+
+    if(has_gps(mode) || is_live_stream) {
         s->gps = gps_uart_alloc(app->event_queue, app->notifications, app->nav_model);
     } else {
         gps_uart_standby();
         s->gps = NULL;
     }
-    s->gsr    = (has_gsr(mode) || has_rf(mode)) ? gsr_sensor_alloc() : NULL;
+    s->gsr    = (has_gsr(mode) || has_rf(mode) || is_live_stream) ? gsr_sensor_alloc() : NULL;
     if(s->gsr) {
         furi_mutex_acquire(app->mutex, FuriWaitForever);
         bool active = app->cal_active;
@@ -794,9 +888,26 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         // Diagnostics screen actually displays it, so only that mode
         // pays for it.
         gsr_sensor_set_mains_hum_enabled(s->gsr, mode == BioMapModeDiagnostics);
+        // has_rf(LiveStream) is false — this mode never scans RF (§2's
+        // architecture diagram: GSR+GPS only, no RF fields in the wire
+        // packet).
         gsr_sensor_set_rf_enabled(s->gsr, has_rf(mode));
     }
-    s->logger = sd_logger_alloc(app->storage);
+    // No SdLogger at all for Live Stream (§3) — bt_stream replaces it.
+    s->logger = is_live_stream ? NULL : sd_logger_alloc(app->storage);
+    if(is_live_stream) {
+        s->bt_stream = bt_stream_alloc();
+        if(!bt_stream_start(s->bt_stream)) {
+            // §1.7 — Bluetooth unavailable. Not fatal: bt_stream_get_status()
+            // stays BtStatusUnavailable, and render_live_stream() shows that
+            // as the on-screen status text rather than a separate error
+            // screen — same "explicit, not silent" requirement, cheaper to
+            // implement given the status readout already exists.
+            FURI_LOG_W("BioMap", "Live Stream: BLE profile failed to start");
+        }
+    } else {
+        s->bt_stream = NULL;
+    }
     view_port_update(s->vp);
 
     // Apply backlight preference for this session.
@@ -838,13 +949,19 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         }
 
         // Handle OK key inline (needs NotificationApp* which the static
-        // helper doesn't have access to).
+        // helper doesn't have access to). Live Stream has no CSV to
+        // start/stop — reaching this mode's session_init() at all is
+        // already the one deliberate "start streaming" act (§6) — so OK
+        // is a no-op here rather than calling key_toggle_recording, which
+        // assumes a real s->logger to open/close.
         if(ev.type == EventTypeKey && ev.input.type == InputTypeShort
             && ev.input.key == InputKeyOk) {
-            if(key_toggle_recording(s, app->mutex, app->notifications, app->sound_enabled,
-                                     app->rf_calibrated, app->rf_cal_data.noise_floor_dbm,
-                                     app->cal_active, app->cal_gain, app->cal_offset))
-                view_port_update(s->vp);
+            if(s->mode != BioMapModeLiveStream) {
+                if(key_toggle_recording(s, app->mutex, app->notifications, app->sound_enabled,
+                                         app->rf_calibrated, app->rf_cal_data.noise_floor_dbm,
+                                         app->cal_active, app->cal_gain, app->cal_offset))
+                    view_port_update(s->vp);
+            }
             continue;
         }
 
@@ -888,6 +1005,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             bool do_flush = false;
             bool emit_heartbeat = false;
             bool emit_telemetry = false;
+            bool emit_bt_telemetry = false;
             uint32_t hb_heap_free = 0;
             uint32_t hb_heap_min = 0;
             uint32_t hb_stack_main = 0;
@@ -907,6 +1025,9 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             uint32_t tm_flfail = 0;
             uint32_t tm_pga = 0;
             uint32_t tm_i2c_consec = 0;
+            uint32_t tm_bt_tick_dt = 0;
+            uint32_t tm_bt_tx_peak = 0;
+            uint32_t tm_bt_drop = 0;
             if(++s->recording.tick_counter >= TICK_HZ) {
                 // Both heartbeat (heap/stack) and telemetry (RowDiag) are
                 // gated on debug_fields_enabled (2026-08-05) — under the old
@@ -942,6 +1063,23 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                     tm_pga = diag.pga_change_count;
                     tm_i2c_consec = diag.i2c_consec_fail;
                 }
+
+                // Live Stream's own once-a-second diagnostic line (§10 Phase
+                // 3 / §11's bt_tx_peak_ms bullet): the RowDiag-based
+                // telemetry above is gated on s->recording.active, which
+                // this mode never sets (there's no CSV to toggle recording
+                // for — §6), so it would otherwise never fire here at all.
+                // Same-row tick_dt_ms/bt_tx_peak_ms pairing is exactly the
+                // signature this project has used to attribute every
+                // previous tick stall to its real cause (SD flush, I2C, RF
+                // retune) — this is that tool for BLE TX.
+                if(s->mode == BioMapModeLiveStream && s->debug_fields_enabled && s->bt_stream) {
+                    emit_bt_telemetry = true;
+                    tm_bt_tick_dt = s->recording.tick_dt_ms;
+                    tm_bt_tx_peak = bt_stream_get_tx_peak_ms(s->bt_stream);
+                    tm_bt_drop = bt_stream_get_drop_count(s->bt_stream);
+                }
+
                 if(handle_second_boundary(s, app->notifications)) play_warning = true;
                 if(++s->recording.flush_counter >= FLUSH_INTERVAL) {
                     s->recording.flush_counter = 0;
@@ -955,6 +1093,10 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                            (unsigned)hb_heap_free, (unsigned)hb_heap_min,
                            (unsigned)hb_stack_main, (unsigned)hb_stack_gsr,
                            (unsigned)BIOMAP_SD_DRY_RUN);
+            }
+            if(emit_bt_telemetry) {
+                FURI_LOG_I("BioMap", "bt_telemetry tick_dt=%u bt_tx_peak_ms=%u bt_drop=%u",
+                           (unsigned)tm_bt_tick_dt, (unsigned)tm_bt_tx_peak, (unsigned)tm_bt_drop);
             }
             if(emit_telemetry) {
                 FURI_LOG_I(
@@ -981,7 +1123,14 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             // storage_file_write() and storage_file_sync() block for ~20-60 ms.
             // Executing them outside app->mutex prevents biomap_render_callback()
             // from locking up the ViewPort.
-            if(do_flush || !batch_ok) {
+            // s->logger is NULL for Live Stream (no SdLogger at all, §3) —
+            // sd_logger_batch_flush() furi_check()s its argument non-NULL,
+            // so this must never fire for that mode. do_flush can still go
+            // true there (flush_counter/FLUSH_INTERVAL bookkeeping isn't
+            // mode-gated above), and handle_live_stream_tick() always
+            // returns batch_ok=true, so `s->logger &&` is the guard that
+            // actually matters here.
+            if(s->logger && (do_flush || !batch_ok)) {
                 if(!batch_ok) FURI_LOG_W("BioMap", "Batch overflow — emergency flush");
                 int flushed = sd_logger_batch_flush(s->logger);
                 if(flushed < 0) {

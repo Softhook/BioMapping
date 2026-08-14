@@ -36,6 +36,7 @@
 #include "modules/util.h"
 #include "modules/em_scan_rf.h"
 #include "modules/em_scan_cal.h"
+#include "modules/bt_stream.h"
 
 // ── Session — per-recording-session state ──────────────────────────────
 //
@@ -49,6 +50,9 @@ typedef struct Session {
     GpsUart*       gps;
     GsrSensor*     gsr;
     SdLogger*      logger;
+    // BioMapModeLiveStream only — NULL for every other mode. No SdLogger
+    // for this mode at all (docs/bluetooth_serial_investigation.md §3).
+    BtStream*      bt_stream;
     ViewPort*      vp;          // == app->screen_vp while a session is active; not owned/freed here
     FuriTimer*     timer;
 
@@ -137,7 +141,7 @@ typedef struct BioMapApp {
 
 // ── Menu & conversion UI types ─────────────────────────────────────────
 
-#define MENU_COUNT      5
+#define MENU_COUNT      6
 #define OPTIONS_COUNT   9
 
 // Options screen selection indices — matches OPTIONS_COUNT above and the

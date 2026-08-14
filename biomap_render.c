@@ -4,7 +4,7 @@
 // ── Label arrays for menu and options screens ──────────────────────────────
 
 static const char* const menu_labels[MENU_COUNT] = {
-    "GPS + GSR + RF", "GPS + GSR", "GPS + RF", "GSR Only", "Options",
+    "GPS + GSR + RF", "GPS + GSR", "GPS + RF", "GSR Only", "Live Stream", "Options",
 };
 
 static const char* const options_labels[OPTIONS_COUNT] = {
@@ -487,6 +487,49 @@ static void render_gps_rf(Canvas* c, BioMapApp* a,
     render_gps_compact(c, a);
 }
 
+// ── Live Stream screen (BLE) ────────────────────────────────────────────
+static const char* bt_status_label(BtStatus status) {
+    switch(status) {
+    case BtStatusConnected:   return "Connected";
+    case BtStatusAdvertising: return "Advertising";
+    case BtStatusOff:         return "Bluetooth off";
+    case BtStatusUnavailable:
+    default:                  return "Unavailable";
+    }
+}
+
+// Reads GSR/GPS directly (gsr_sensor_get_raw() / gps_uart_get_status())
+// rather than a->session.pipeline.display — handle_live_stream_tick()
+// (biomap_session.c) never calls pipeline_update_display()/_graph() for
+// this mode, so those fields would stay stale/zero the whole session.
+static void render_live_stream(Canvas* c, BioMapApp* a) {
+    canvas_set_font(c, FontPrimary);
+    canvas_draw_str(c, 0, 10, "Live Stream");
+    canvas_set_font(c, FontSecondary);
+
+    BtStatus status = a->session.bt_stream
+        ? bt_stream_get_status(a->session.bt_stream) : BtStatusUnavailable;
+    uint32_t dropped = a->session.bt_stream
+        ? bt_stream_get_drop_count(a->session.bt_stream) : 0;
+    draw_fmt(c, 0, 23, "BLE: %s", bt_status_label(status));
+    draw_fmt(c, 0, 35, "Dropped: %lu", (unsigned long)dropped);
+
+    if(a->session.gsr && gsr_sensor_available(a->session.gsr)) {
+        draw_fmt(c, 0, 47, "GSR: %.0f nS", (double)gsr_sensor_get_raw(a->session.gsr));
+    } else {
+        canvas_draw_str(c, 0, 47, "GSR: --");
+    }
+
+    if(a->session.gps) {
+        GpsStatus g = gps_uart_get_status(a->session.gps);
+        draw_fmt(c, 0, 59, "GPS: %s  Sats:%d",
+                 gps_has_fix(&g) ? gps_fix_label(g.fix_type) : "No fix",
+                 g.satellites_tracked);
+    } else {
+        canvas_draw_str(c, 0, 59, "GPS: --");
+    }
+}
+
 // ==========================================================================
 // Main render callback — dispatcher (one mode → one sub-renderer)
 // ==========================================================================
@@ -506,7 +549,9 @@ void biomap_render_callback(Canvas* c, void* ctx) {
                && a->session.gsr;
     if(rf_viz) gsr_sensor_get_rf_snapshot(a->session.gsr, rf_rssi);
 
-    if(is_diag) {
+    if(a->session.mode == BioMapModeLiveStream) {
+        render_live_stream(c, a);
+    } else if(is_diag) {
         render_diagnostics(c, a);
     } else if(has_graph) {
         bool gsr_visible = a->session.gsr

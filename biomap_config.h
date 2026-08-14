@@ -39,6 +39,14 @@ typedef enum {
     BioMapModeGpsOnly,      // GPS track + RF, no biometrics ("GPS + RF" on the menu)
     BioMapModeGsrOnly,      // GSR waveform viewer, no location, no RF
     BioMapModeDiagnostics,  // GSR diagnostics — raw counts, no graph
+    // Live Stream (2026-08-14, docs/bluetooth_serial_investigation.md):
+    // GPS+GSR captured as normal but sent live over BLE to a phone instead
+    // of written to SD — no SdLogger for this mode at all. Deliberately
+    // excluded from has_gps()/has_gsr()/has_rf() below (biomap_types.h):
+    // those gate the shared CSV-writing tick/render path that this mode
+    // does not use — its own session handling reads GpsUart/GsrSensor
+    // directly instead (see modules/bt_stream.h).
+    BioMapModeLiveStream,
 } BioMapMode;
 
 typedef enum {

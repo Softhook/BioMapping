@@ -3,7 +3,7 @@ App(
     name="Bio Mapping",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="biomap_app",
-    requires=["gui", "storage", "notification", "expansion"],
+    requires=["gui", "storage", "notification", "expansion", "bt"],
     stack_size=4 * 1024,
     order=10,
     fap_icon="biomap_icon.png",
@@ -21,5 +21,6 @@ App(
         "modules/sd_logger.c",
         "modules/em_scan_rf.c",
         "modules/em_scan_cal.c",
+        "modules/bt_stream.c",
     ],
 )

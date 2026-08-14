@@ -32,6 +32,13 @@
 #define DISPLAY_EMA_A    0.2f
 #define DISPLAY_EMA_B    0.8f   // (1.0f - DISPLAY_EMA_A), precomputed
 
+// Live Stream (BLE) send cadence — docs/bluetooth_serial_investigation.md
+// §3/§10 Phase 3: real hardware may show 300ms is too aggressive, in which
+// case this is a one-line change; not guessed at, just not yet measured.
+// Must divide evenly into 1000/TICK_HZ ms per tick (300 / 100 = 3 ticks).
+#define BT_STREAM_INTERVAL_MS    300
+#define BT_STREAM_INTERVAL_TICKS (BT_STREAM_INTERVAL_MS * TICK_HZ / 1000)
+
 // ── Auto-zoom tuning (update_graph_pipeline) ──────────────────────────
 #define ZOOM_PEAK_DECAY   0.997f  // multiplicative decay of peak per tick
 #define ZOOM_LERP_RATE    0.02f   // zoom level lerp toward target per tick
