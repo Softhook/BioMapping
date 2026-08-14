@@ -60,6 +60,8 @@
   }
 
   #map { flex: 1 1 auto; min-height: 0; background: #05070a; }
+  #app.no-map #map { display: none; }
+  #app.no-map #graphWrap { flex: 1 1 auto; border-bottom: none; }
 
   footer {
     display: flex; align-items: center; gap: 10px; padding: 8px 12px;
@@ -87,7 +89,7 @@
 </style>
 </head>
 <body>
-<div id="app">
+<div id="app" class="no-map">
   <header>
     <h1>Bio Mapping — Live</h1>
     <span id="statusBadge" class="badge">Not connected</span>
@@ -472,8 +474,80 @@ function drawGraph() {
   minV -= pad; maxV += pad;
 
   const xForT = (t) => ((t - t0) / GRAPH_WINDOW_S) * w;
-  const yForV = (v) => h - ((v - minV) / (maxV - minV)) * h;
+  const yForV = (v) => 8 + (1 - (v - minV) / (maxV - minV)) * (h - 28);
 
+  // Draw subtle horizontal grid lines
+  ctx.strokeStyle = 'rgba(124, 136, 148, 0.05)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let fraction of [0.25, 0.5, 0.75]) {
+    const y = 8 + fraction * (h - 28);
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+  }
+  ctx.stroke();
+
+  // Draw subtle vertical grid lines (time increments)
+  ctx.strokeStyle = 'rgba(124, 136, 148, 0.06)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+
+  const firstT = pkts[0].timestamp;
+  const step = 20; // 20s increments are clean and readable for a 120s window
+  const elapsedT0 = t0 - firstT;
+  const elapsedLastT = lastT - firstT;
+  const startTickElapsed = Math.max(0, Math.ceil(elapsedT0 / step) * step);
+
+  ctx.fillStyle = '#7c8894';
+  ctx.font = '9px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  for (let tickElapsed = startTickElapsed; tickElapsed <= elapsedLastT; tickElapsed += step) {
+    const tickTime = firstT + tickElapsed;
+    const x = xForT(tickTime);
+    if (x > 15 && x < w - 15) {
+      // Draw grid line
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h - 20);
+
+      // Draw label (mm:ss elapsed)
+      const m = Math.floor(tickElapsed / 60);
+      const s = tickElapsed % 60;
+      const label = `${m}:${s.toString().padStart(2, '0')}`;
+      ctx.fillText(label, x, h - 10);
+    }
+  }
+  ctx.stroke();
+
+  // Draw area under the curve with a subtle green gradient
+  if (visiblePkts.length > 0) {
+    const grad = ctx.createLinearGradient(0, 8, 0, h - 20);
+    grad.addColorStop(0, 'rgba(0, 229, 160, 0.12)');
+    grad.addColorStop(1, 'rgba(0, 229, 160, 0.0)');
+    ctx.fillStyle = grad;
+
+    let segmentStartIdx = 0;
+    for (let i = 0; i <= visiblePkts.length; i++) {
+      const isGap = i === visiblePkts.length || (i > 0 && visiblePkts[i].gap);
+      if (isGap) {
+        if (i > segmentStartIdx) {
+          ctx.beginPath();
+          ctx.moveTo(xForT(visiblePkts[segmentStartIdx].timestamp), yForV(visible[segmentStartIdx]));
+          for (let j = segmentStartIdx + 1; j < i; j++) {
+            ctx.lineTo(xForT(visiblePkts[j].timestamp), yForV(visible[j]));
+          }
+          ctx.lineTo(xForT(visiblePkts[i - 1].timestamp), h - 20);
+          ctx.lineTo(xForT(visiblePkts[segmentStartIdx].timestamp), h - 20);
+          ctx.closePath();
+          ctx.fill();
+        }
+        segmentStartIdx = i;
+      }
+    }
+  }
+
+  // Draw GSR curve
   ctx.strokeStyle = '#00e5a0';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
@@ -513,11 +587,24 @@ function initLiveMap() {
   }).addTo(liveMap);
 }
 
+let hasValidGpsReceived = false;
+
 function updateLiveMap(pkt) {
   if (!pkt.valid || isNaN(pkt.lat) || isNaN(pkt.lon)) return;
   const gated = GpsPipeline.applyFixTypeGate(
     GpsPipeline.applyHdopGate([pkt], LIVE_MAX_HDOP), 2);
   if (gated.length === 0) return;
+
+  if (!hasValidGpsReceived) {
+    hasValidGpsReceived = true;
+    document.getElementById('app').classList.remove('no-map');
+    if (!liveMap) {
+      initLiveMap();
+    } else {
+      liveMap.invalidateSize();
+    }
+    drawGraph();
+  }
 
   gsrMin = Math.min(gsrMin, pkt.gsrRaw);
   gsrMax = Math.max(gsrMax, pkt.gsrRaw);
@@ -677,7 +764,7 @@ exportBtn.addEventListener('click', exportCsv);
 
 window.addEventListener('resize', drawGraph);
 
-initLiveMap();
+// Map is initialized lazily when GPS data is received
 renderStatus('disconnected');
 </script>
 </body>
