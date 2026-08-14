@@ -470,34 +470,27 @@ function drawGraph() {
   }
   ctx.stroke();
 
-  // Draw subtle vertical grid lines (time increments)
+  // Draw subtle vertical grid lines (time increments relative to present time)
   ctx.strokeStyle = 'rgba(124, 136, 148, 0.06)';
   ctx.lineWidth = 1;
   ctx.beginPath();
 
-  const firstT = pkts[0].timestamp;
   const step = 20; // 20s increments are clean and readable for a 120s window
-  const elapsedT0 = t0 - firstT;
-  const elapsedLastT = lastT - firstT;
-  const startTickElapsed = Math.max(0, Math.ceil(elapsedT0 / step) * step);
 
   ctx.fillStyle = '#7c8894';
   ctx.font = '9px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  for (let tickElapsed = startTickElapsed; tickElapsed <= elapsedLastT; tickElapsed += step) {
-    const tickTime = firstT + tickElapsed;
-    const x = xForT(tickTime);
+  for (let offset = 0; offset <= GRAPH_WINDOW_S; offset += step) {
+    const x = w - (offset / GRAPH_WINDOW_S) * w;
     if (x > 15 && x < w - 15) {
       // Draw grid line
       ctx.moveTo(x, 0);
       ctx.lineTo(x, h - 20);
 
-      // Draw label (mm:ss elapsed)
-      const m = Math.floor(tickElapsed / 60);
-      const s = tickElapsed % 60;
-      const label = `${m}:${s.toString().padStart(2, '0')}`;
+      // Draw label relative to now (e.g. -20s, -40s...)
+      const label = offset === 0 ? 'now' : `-${offset}s`;
       ctx.fillText(label, x, h - 10);
     }
   }
