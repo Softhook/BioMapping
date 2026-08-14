@@ -122,7 +122,6 @@
      Requires desktop Chrome/Edge or Android Chrome/Edge — Web Bluetooth has
      no iOS/Safari support (see docs/bluetooth_serial_investigation.md §1.1).</p>
   <button class="primary" id="connectBtn">Connect over Bluetooth</button>
-  <button id="showAllBtn" style="display:none;">Show all nearby devices</button>
   <div class="err" id="connectErr"></div>
 </div>
 
@@ -311,17 +310,15 @@ class GSRLiveBluetoothManager {
     this._reconnecting = false;
   }
 
-  // showAll: skip the namePrefix:'Flipper' filter and show every nearby
-  // BLE device instead (§1.4 — the advertised name follows the Flipper's
-  // configured device name, which a user can change in Settings > System
-  // > Device Name; the filtered picker silently finds nothing for a
-  // renamed device rather than erroring).
-  async connect(showAll) {
-    this.device = await navigator.bluetooth.requestDevice(
-      showAll
-        ? { acceptAllDevices: true, optionalServices: [BLE_SERVICE_UUID] }
-        : { filters: [{ namePrefix: 'Flipper' }], optionalServices: [BLE_SERVICE_UUID] }
-    );
+  // Show every nearby BLE device instead of filtering by namePrefix:'Flipper'
+  // (§1.4 — the advertised name follows the Flipper's configured device name,
+  // which a user can change in Settings > System > Device Name; using
+  // acceptAllDevices: true allows connecting to a renamed Flipper Zero).
+  async connect() {
+    this.device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: [BLE_SERVICE_UUID]
+    });
     this.device.addEventListener('gattserverdisconnected', () => this._handleDisconnect());
     await this._subscribe();
     LiveState.setStatus('connected');
@@ -676,7 +673,6 @@ const newConnectionBtn = document.getElementById('newConnectionBtn');
 const exportBtn = document.getElementById('exportBtn');
 const connectOverlay = document.getElementById('connectOverlay');
 const connectBtn = document.getElementById('connectBtn');
-const showAllBtn = document.getElementById('showAllBtn');
 const connectErr = document.getElementById('connectErr');
 const reconnectErr = document.getElementById('reconnectErr');
 
@@ -714,12 +710,9 @@ LiveState.on('packet', (pkt) => {
   updateLiveMap(pkt);
 });
 
-// showAll=false first: the filtered picker (namePrefix:'Flipper') is the
-// quick path when it works. On any failure — most commonly the picker
-// coming up empty because the Flipper's been renamed away from the
-// default "Flipper*" name (§1.4) — reveal "Show all nearby devices" so
-// the user isn't stuck without knowing why nothing appeared.
-async function attemptConnect(showAll) {
+// Connects over Web Bluetooth using the browser's device chooser. We show all
+// nearby devices so that custom-named or renamed Flippers can connect.
+async function attemptConnect() {
   connectErr.textContent = '';
   if (!navigator.bluetooth) {
     connectErr.textContent = 'Web Bluetooth is not available in this browser (needs desktop Chrome/Edge or Android Chrome/Edge — not Safari, even on macOS).';
@@ -734,17 +727,15 @@ async function attemptConnect(showAll) {
     reconnectErr.textContent = text;
   });
   try {
-    await bleManager.connect(showAll);
+    await bleManager.connect();
     connectOverlay.classList.add('hidden');
   } catch (e) {
     LiveState.setStatus('disconnected');
     connectErr.textContent = (e && e.message) ? e.message : String(e);
-    if (!showAll) showAllBtn.style.display = '';
   }
 }
 
-connectBtn.addEventListener('click', () => attemptConnect(false));
-showAllBtn.addEventListener('click', () => attemptConnect(true));
+connectBtn.addEventListener('click', () => attemptConnect());
 
 reconnectBtn.addEventListener('click', () => {
   if (bleManager) bleManager.manualReconnect();
@@ -756,7 +747,6 @@ reconnectBtn.addEventListener('click', () => {
 newConnectionBtn.addEventListener('click', () => {
   reconnectErr.textContent = '';
   connectErr.textContent = '';
-  showAllBtn.style.display = 'none';
   connectOverlay.classList.remove('hidden');
 });
 
