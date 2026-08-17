@@ -64,6 +64,16 @@
   #map { flex: 1 1 auto; min-height: 0; background: #05070a; }
   #app.no-map #map { display: none; }
   #app.no-map #graphWrap { flex: 1 1 auto; border-bottom: none; }
+  #app.no-map #locationBar { display: none; }
+
+  #locationBar {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap;
+  }
+  #locationBar input {
+    font-size: 13px; padding: 6px 8px; border-radius: 6px; width: 130px;
+    border: 1px solid var(--border); background: #1b2229; color: var(--text);
+  }
 
   footer {
     display: flex; align-items: center; gap: 10px; padding: 8px 12px;
@@ -107,6 +117,7 @@
     <button id="newConnectionBtn" style="display:none;">New Connection</button>
     <button id="exportBtn" disabled>Export CSV</button>
     <button id="togglePhasicBtn" disabled>Show Phasic (P)</button>
+    <button id="toggleMapBtn">Show Map (M)</button>
     <button id="cacheMapBtn" disabled>Cache Map (C)</button>
     <button id="toggleFullscreenBtn">Fullscreen (F)</button>
     <span id="reconnectErr"></span>
@@ -116,6 +127,13 @@
     <canvas id="graph"></canvas>
     <span id="graphLabel">GSR (nS) — last 2 min</span>
     <span id="graphValue">--</span>
+  </div>
+
+  <div id="locationBar">
+    <input type="number" id="latInput" placeholder="Latitude" step="any" inputmode="decimal">
+    <input type="number" id="lonInput" placeholder="Longitude" step="any" inputmode="decimal">
+    <button id="goToLocationBtn">Go</button>
+    <button id="myLocationBtn">My Location</button>
   </div>
 
   <div id="map"></div>
@@ -132,6 +150,7 @@
 <div id="connectOverlay">
   <div style="font-size:20px;font-weight:600;">Bio Mapping 2 Live Stream</div>
   <button class="primary" id="connectBtn">Connect via Bluetooth</button>
+  <button id="skipConnectBtn">Prepare Map Offline</button>
   <div class="err" id="connectErr"></div>
 </div>
 
@@ -265,7 +284,11 @@ const LiveState = {
 
   addPacket(pkt) {
     const prev = this.packets[this.packets.length - 1];
-    pkt.gap = !!prev && (pkt.timestamp - prev.timestamp) > 2 * this.STREAM_INTERVAL_S;
+    // pkt.timestamp is device-uptime ms, not wall-clock — a new device (or
+    // the same one power-cycled) restarts it near 0, so a plain ">" delta
+    // check misses that case (negative delta never exceeds the threshold).
+    // Treat any non-increasing timestamp as a gap too.
+    pkt.gap = !!prev && (pkt.timestamp <= prev.timestamp || (pkt.timestamp - prev.timestamp) > 2 * this.STREAM_INTERVAL_S);
     if (pkt.gap) this.gapCount++;
     this.packets.push(pkt);
     this.emit('packet', pkt);
@@ -579,6 +602,33 @@ let gsrMin = Infinity, gsrMax = -Infinity;
 // Custom Leaflet TileLayer subclass with Cache Storage API backend
 // Normalizes subdomain to 'a' to maximize cache reuse and minimize downloads.
 // ==========================================================================
+function normalizeTileCacheUrl(url) {
+  return url.replace(/https:\/\/[a-d]\.basemaps\.cartocdn\.com/, 'https://a.basemaps.cartocdn.com');
+}
+
+// Builds a tile URL for an arbitrary z/x/y directly from the layer's raw URL
+// template, rather than through Leaflet's own TileLayer.getTileUrl(coords).
+// That matters here specifically: real Leaflet's getTileUrl() IGNORES
+// coords.z and substitutes the layer's own currently-displayed zoom instead
+// (TileLayer.js's _getZoomForUrl() reads this._tileZoom, never the argument)
+// — harmless during normal panning (Leaflet only ever asks for tiles at the
+// zoom it's actually showing, so coords.z and _tileZoom always agree), but
+// cacheCurrentMapArea() deliberately asks for zoom levels ABOVE the current
+// one to pre-fetch detail for offline zooming-in. Going through getTileUrl()
+// there would stamp every one of those requests with the CURRENT zoom's `z`
+// while keeping the target zoom's x/y — a mismatched, invalid tile request
+// the CDN 400s (and, lacking CORS headers on that error response, the
+// browser reports as a blocked-by-CORS failure instead of the real cause).
+function buildTileUrl(urlTemplate, x, y, z) {
+  const retina = ((window.devicePixelRatio || 1) > 1) ? '@2x' : '';
+  return urlTemplate
+    .replace('{s}', 'a') // any subdomain serves identical tiles; cache keys are normalized to 'a' anyway
+    .replace('{z}', z)
+    .replace('{x}', x)
+    .replace('{y}', y)
+    .replace('{r}', retina);
+}
+
 const L_TileLayer_Cache = L.TileLayer.extend({
   createTile: function (coords, done) {
     const tile = document.createElement('img');
@@ -595,7 +645,7 @@ const L_TileLayer_Cache = L.TileLayer.extend({
     tile.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
     const url = this.getTileUrl(coords);
-    const cacheUrl = url.replace(/https:\/\/[a-d]\.basemaps\.cartocdn\.com/, 'https://a.basemaps.cartocdn.com');
+    const cacheUrl = normalizeTileCacheUrl(url);
 
     if (typeof caches !== 'undefined') {
       const cacheName = 'leaflet-map-tiles';
@@ -702,8 +752,8 @@ async function cacheCurrentMapArea() {
     
     for (let x = minX; x <= maxX; x++) {
       for (let y = minY; y <= maxY; y++) {
-        const url = tileLayerInstance.getTileUrl({ x, y, z });
-        const cacheUrl = url.replace(/https:\/\/[a-d]\.basemaps\.cartocdn\.com/, 'https://a.basemaps.cartocdn.com');
+        const url = buildTileUrl(tileLayerInstance._url, x, y, z);
+        const cacheUrl = normalizeTileCacheUrl(url);
         tileUrls.push({ url, cacheUrl });
       }
     }
@@ -725,34 +775,42 @@ async function cacheCurrentMapArea() {
     }
   }
   
-  let downloadedTiles = 0;
+  let newlyDownloaded = 0, alreadyCached = 0;
   try {
     const cache = await caches.open('leaflet-map-tiles');
-    
+
     const batchSize = 10;
     for (let i = 0; i < tileUrls.length; i += batchSize) {
       const batch = tileUrls.slice(i, i + batchSize);
       await Promise.all(batch.map(async (tile) => {
         try {
+          // Re-caching an already-cached area is a real, expected flow (the
+          // location picker exists precisely so this can be run ahead of a
+          // trip) — skip tiles already on disk instead of re-downloading
+          // the whole view every time.
+          if (await cache.match(tile.cacheUrl)) {
+            alreadyCached++;
+            return;
+          }
           const response = await fetch(tile.url);
           if (response.ok) {
             await cache.put(tile.cacheUrl, response);
-            downloadedTiles++;
+            newlyDownloaded++;
           }
         } catch (err) {
           console.warn('Failed to cache tile:', tile.url, err);
         }
       }));
-      cacheMapBtn.textContent = `Caching (${Math.round((downloadedTiles / totalTiles) * 100)}%)`;
+      cacheMapBtn.textContent = `Caching (${Math.round(((newlyDownloaded + alreadyCached) / totalTiles) * 100)}%)`;
     }
-    
+
     cacheMapBtn.textContent = 'Cached!';
     setTimeout(() => {
       cacheMapBtn.disabled = false;
       cacheMapBtn.textContent = originalText;
     }, 2000);
-    
-    alert(`Successfully cached ${downloadedTiles} of ${totalTiles} map tiles for offline use!`);
+
+    alert(`Map area ready offline: ${newlyDownloaded + alreadyCached} of ${totalTiles} tiles (${newlyDownloaded} downloaded, ${alreadyCached} already cached).`);
   } catch (err) {
     console.error('Map caching failed:', err);
     alert('Failed to cache map area: ' + err.message);
@@ -770,12 +828,28 @@ function initLiveMap() {
     maxZoom: 19,
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
   }).addTo(liveMap);
-  
+
   // Enable the Cache Map button
   document.getElementById('cacheMapBtn').disabled = false;
 }
 
-let hasValidGpsReceived = false;
+// Map visibility is a manual toggle (toggleMapBtn / showMap / hideMap below),
+// not something GPS packets turn on — so an area can be panned to and cached
+// before there's any GPS reception at all.
+function showMap() {
+  document.getElementById('app').classList.remove('no-map');
+  if (!liveMap) {
+    initLiveMap();
+  } else {
+    liveMap.invalidateSize();
+  }
+  drawGraph();
+}
+
+function hideMap() {
+  document.getElementById('app').classList.add('no-map');
+  drawGraph();
+}
 
 function updateLiveMap(pkt) {
   if (!pkt.valid || isNaN(pkt.lat) || isNaN(pkt.lon)) return;
@@ -783,43 +857,35 @@ function updateLiveMap(pkt) {
     GpsPipeline.applyHdopGate([pkt], LIVE_MAX_HDOP), 2);
   if (gated.length === 0) return;
 
-  if (!hasValidGpsReceived) {
-    hasValidGpsReceived = true;
-    document.getElementById('app').classList.remove('no-map');
-    if (!liveMap) {
-      initLiveMap();
-    } else {
-      liveMap.invalidateSize();
-    }
-    drawGraph();
-  }
-
-  gsrMin = Math.min(gsrMin, pkt.gsrRaw);
-  gsrMax = Math.max(gsrMax, pkt.gsrRaw);
-  const color = MapColors.getColorForValue(pkt.gsrRaw, gsrMin, gsrMax);
-
   const latlng = [pkt.lat, pkt.lon];
-  if (!liveLastLatLng) {
-    liveMap.setView(latlng, 17);
-  } else if (pkt.gap) {
-    // §8 "Show the gap, don't paper over it" — a real time gap (dropped/
-    // disconnected interval) breaks the trail rather than drawing a
-    // straight line across whatever distance was covered during it.
-  } else {
-    // Per-segment coloring: one short polyline per new point, colored for
-    // that point's GSR value, rather than one polyline whose single color
-    // can only represent the latest reading.
-    L.polyline([liveLastLatLng, latlng], { color, weight: 3 }).addTo(liveMap);
+
+  if (liveMap) {
+    gsrMin = Math.min(gsrMin, pkt.gsrRaw);
+    gsrMax = Math.max(gsrMax, pkt.gsrRaw);
+    const color = MapColors.getColorForValue(pkt.gsrRaw, gsrMin, gsrMax);
+
+    if (!liveLastLatLng) {
+      liveMap.setView(latlng, 17);
+    } else if (pkt.gap) {
+      // §8 "Show the gap, don't paper over it" — a real time gap (dropped/
+      // disconnected interval) breaks the trail rather than drawing a
+      // straight line across whatever distance was covered during it.
+    } else {
+      // Per-segment coloring: one short polyline per new point, colored for
+      // that point's GSR value, rather than one polyline whose single color
+      // can only represent the latest reading.
+      L.polyline([liveLastLatLng, latlng], { color, weight: 3 }).addTo(liveMap);
+    }
+
+    if (!liveMarker) {
+      liveMarker = L.circleMarker(latlng, { radius: 6, color: '#fff', weight: 2, fillColor: color, fillOpacity: 1 }).addTo(liveMap);
+    } else {
+      liveMarker.setLatLng(latlng);
+      liveMarker.setStyle({ fillColor: color });
+    }
+    liveMap.panTo(latlng, { animate: true, duration: 0.3 });
   }
   liveLastLatLng = latlng;
-
-  if (!liveMarker) {
-    liveMarker = L.circleMarker(latlng, { radius: 6, color: '#fff', weight: 2, fillColor: color, fillOpacity: 1 }).addTo(liveMap);
-  } else {
-    liveMarker.setLatLng(latlng);
-    liveMarker.setStyle({ fillColor: color });
-  }
-  liveMap.panTo(latlng, { animate: true, duration: 0.3 });
 }
 
 // ==========================================================================
@@ -930,11 +996,15 @@ function renderStatus(status) {
   const [text, cls] = labels[status] || ['Not connected', ''];
   statusBadge.textContent = text;
   statusBadge.className = 'badge' + (cls ? ' ' + cls : '');
-  reconnectBtn.style.display = status === 'disconnected' ? '' : 'none';
-  // "New Connection" (fresh requestDevice()) is the one that actually
-  // works after the Flipper exits/re-enters Live Stream mode — see
+  // manualReconnect() is a no-op without a prior device reference, so don't
+  // show it before a connection has ever been attempted (e.g. right after
+  // "Prepare Map Offline" skips the connect overlay). "New Connection"
+  // stays available regardless — it's the escape hatch back to the connect
+  // overlay for exactly that case, as well as the one that actually works
+  // after the Flipper exits/re-enters Live Stream mode — see
   // GSRLiveBluetoothManager's _handleDisconnect() doc comment for why the
   // lightweight Reconnect button alone can't be trusted to cover that case.
+  reconnectBtn.style.display = (status === 'disconnected' && bleManager) ? '' : 'none';
   newConnectionBtn.style.display = status === 'disconnected' ? '' : 'none';
   if (status !== 'disconnected') reconnectErr.textContent = '';
 }
@@ -966,6 +1036,30 @@ LiveState.on('packet', (pkt) => {
   updateLiveMap(pkt);
 });
 
+// A fresh requestDevice() (initial Connect, or "New Connection" after the
+// lightweight Reconnect gave up) may land on a different physical device, or
+// the same one power-cycled — either way its device-uptime timestamp starts
+// low again, unlike _subscribe()-only reconnects which resume the same
+// counter. Carrying the old session's packets/last-position/color-range
+// into that would misdraw the graph window and put a bogus connecting line
+// on the map (see addPacket()'s gap-detection comment), so start clean.
+function resetSession() {
+  LiveState.packets = [];
+  LiveState.gapCount = 0;
+  liveLastLatLng = null;
+  gsrMin = Infinity;
+  gsrMax = -Infinity;
+  lastPacketTimestamp = 0;
+  lastPacketArrivalTime = 0;
+  document.getElementById('statPackets').textContent = 'Packets: 0';
+  document.getElementById('statGaps').textContent = 'Gaps: 0';
+  document.getElementById('statGps').textContent = 'GPS: --';
+  document.getElementById('statLastSeen').textContent = '--';
+  exportBtn.disabled = true;
+  togglePhasicBtn.disabled = true;
+  drawGraph();
+}
+
 // Connects over Web Bluetooth using the browser's device chooser. We show all
 // nearby devices so that custom-named or renamed Flippers can connect.
 async function attemptConnect() {
@@ -974,6 +1068,7 @@ async function attemptConnect() {
     connectErr.textContent = 'Web Bluetooth is not available in this browser (needs desktop Chrome/Edge or Android Chrome/Edge — not Safari, even on macOS).';
     return;
   }
+  resetSession();
   LiveState.setStatus('connecting');
   // onStatusText fires for both pre-connect issues (shown in the overlay,
   // still visible at this point) and later reconnect failures (overlay
@@ -996,6 +1091,13 @@ connectBtn.addEventListener('click', () => {
   if (document.documentElement.requestFullscreen) {
     document.documentElement.requestFullscreen().catch(() => {});
   }
+});
+
+// Lets the map be shown, panned, and cached before (or without) connecting
+// to a device — the whole reason toggleMapBtn/locationBar aren't gated on
+// a BLE connection or GPS fix.
+document.getElementById('skipConnectBtn').addEventListener('click', () => {
+  connectOverlay.classList.add('hidden');
 });
 
 reconnectBtn.addEventListener('click', () => {
@@ -1032,6 +1134,66 @@ togglePhasicBtn.addEventListener('click', () => {
 const cacheMapBtn = document.getElementById('cacheMapBtn');
 cacheMapBtn.addEventListener('click', cacheCurrentMapArea);
 
+// ==========================================================================
+// Map toggle + manual location picker — lets an area be found and cached
+// with no GPS fix at all (device or browser), by typing coordinates.
+// ==========================================================================
+const toggleMapBtn = document.getElementById('toggleMapBtn');
+let mapVisible = false;
+
+function updateToggleMapBtn() {
+  toggleMapBtn.textContent = mapVisible ? 'Hide Map (M)' : 'Show Map (M)';
+  toggleMapBtn.classList.toggle('active', mapVisible);
+}
+
+// Single place that changes map visibility, so `mapVisible` (used to skip
+// re-showing an already-visible map) and the toggle button's own label/state
+// can't drift apart the way they could when each caller (the toggle click,
+// and both branches of goToLatLon below) flipped them separately.
+function setMapVisible(visible) {
+  mapVisible = visible;
+  if (visible) showMap(); else hideMap();
+  updateToggleMapBtn();
+}
+
+toggleMapBtn.addEventListener('click', () => setMapVisible(!mapVisible));
+
+const MANUAL_LOCATION_ZOOM = 15;
+
+function goToLatLon(lat, lon, zoom) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    alert('Enter a valid latitude (-90 to 90) and longitude (-180 to 180).');
+    return;
+  }
+  if (!mapVisible) setMapVisible(true);
+  liveMap.setView([lat, lon], zoom);
+}
+
+const latInput = document.getElementById('latInput');
+const lonInput = document.getElementById('lonInput');
+
+document.getElementById('goToLocationBtn').addEventListener('click', () => {
+  goToLatLon(parseFloat(latInput.value), parseFloat(lonInput.value), MANUAL_LOCATION_ZOOM);
+});
+
+document.getElementById('myLocationBtn').addEventListener('click', () => {
+  if (!navigator.geolocation) {
+    alert('Geolocation is not available in this browser.');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      latInput.value = pos.coords.latitude;
+      lonInput.value = pos.coords.longitude;
+      goToLatLon(pos.coords.latitude, pos.coords.longitude, MANUAL_LOCATION_ZOOM);
+    },
+    (err) => {
+      alert('Could not get your location: ' + err.message);
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+});
+
 const toggleFullscreenBtn = document.getElementById('toggleFullscreenBtn');
 function toggleFullscreen() {
   if (!document.fullscreenElement) {
@@ -1057,10 +1219,16 @@ document.addEventListener('fullscreenchange', () => {
 });
 
 window.addEventListener('keydown', (e) => {
+  // Don't hijack keys while the user is typing coordinates.
+  if (e.target === latInput || e.target === lonInput) return;
+
   if ((e.key === 'p' || e.key === 'P') && !togglePhasicBtn.disabled) {
     LiveState.showPhasicOnly = !LiveState.showPhasicOnly;
     updateTogglePhasicBtn();
     drawGraph();
+  }
+  if (e.key === 'm' || e.key === 'M') {
+    toggleMapBtn.click();
   }
   if ((e.key === 'c' || e.key === 'C') && !cacheMapBtn.disabled) {
     cacheCurrentMapArea();
@@ -1073,8 +1241,10 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('resize', drawGraph);
 
 updateTogglePhasicBtn();
+updateToggleMapBtn();
 
-// Map is initialized lazily when GPS data is received
+// Map visibility/init is a manual toggle (toggleMapBtn), not tied to GPS —
+// see showMap()/hideMap() above.
 renderStatus('disconnected');
 </script>
 </body>
