@@ -32,6 +32,14 @@ const vm = require('vm');
 const { JSDOM } = require('jsdom');
 
 const LIVE_HTML_PATH = path.join(__dirname, '..', '..', 'live.html');
+// live.html's <head> loads this via <script src="gsr_filter.js"> before its
+// own inline <script> block runs — drawGraph() calls GsrFilter.* assuming
+// it's already a page-level global by the time it executes. gsr_filter.js
+// has no module.exports/window.X dual-export (unlike map_colors.js/
+// gps_pipeline.js/live_binary_parser.js — it's only ever loaded as a
+// classic <script>), so it can't be require()'d; running its real source
+// in this same vm context first reproduces that real load order exactly.
+const GSR_FILTER_PATH = path.join(__dirname, '..', '..', 'gsr_filter.js');
 
 function makeLeafletMock() {
   class Layer {
@@ -212,6 +220,7 @@ function bootLive() {
   if (!inlineScriptMatch) throw new Error('live.html: could not find its inline <script> block');
 
   const context = vm.createContext(window);
+  vm.runInContext(fs.readFileSync(GSR_FILTER_PATH, 'utf8'), context, { filename: 'gsr_filter.js' });
   vm.runInContext(inlineScriptMatch[1], context, { filename: 'live.html (inline script)' });
 
   return { window, document: window.document, context };

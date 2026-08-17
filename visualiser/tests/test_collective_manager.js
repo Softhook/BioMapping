@@ -347,6 +347,9 @@ function bruteForceIdwGrid(points, bounds, rows, cols, isolationRadius, idwExpon
     const dx = (lon1 - lon2) * DEG_TO_M_LON;
     return Math.sqrt(dx * dx + dy * dy);
   };
+  const idwRadius = isolationRadius * 1.5;
+  const envelopeSigma = idwRadius / 3;
+  const twoEnvSigmaSq = 2 * envelopeSigma * envelopeSigma;
   const grid = Array.from({ length: rows }, () => new Array(cols).fill(null));
   for (let r = 0; r < rows; r++) {
     const gridLat = bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat);
@@ -362,11 +365,12 @@ function bruteForceIdwGrid(points, bounds, rows, cols, isolationRadius, idwExpon
       for (const p of points) {
         const d = dist(gridLat, gridLon, p.lat, p.lon);
         if (d < 1e-3) { grid[r][c] = p.phasic; exactMatch = true; break; }
-        if (d <= isolationRadius * 1.5) {
+        if (d <= idwRadius) {
           const w = 1.0 / Math.pow(d, idwExponent);
           sumWeightedVal += w * p.phasic;
           sumWeight += w;
-          if (p.phasic > localMax) localMax = p.phasic;
+          const envelopeVal = p.phasic * Math.exp(-(d * d) / twoEnvSigmaSq);
+          if (envelopeVal > localMax) localMax = envelopeVal;
         }
       }
       if (!exactMatch) {

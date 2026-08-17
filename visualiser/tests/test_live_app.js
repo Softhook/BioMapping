@@ -347,3 +347,104 @@ test('renderStatus: Reconnect appears once a connection has actually been attemp
 
   assert.strictEqual(window.document.getElementById('reconnectBtn').style.display, '');
 });
+
+// ==========================================================================
+// Live-tracking zoom level and delayed phasic recoloring of the track.
+// ==========================================================================
+
+test('updateLiveMap: the first GPS fix zooms to LIVE_ZOOM (18), replacing the old fixed 17', () => {
+  const { context } = bootLive();
+  run(context, 'showMap()');
+  run(context, "updateLiveMap({ valid: true, lat: 51.5, lon: -0.12, gsrRaw: 1000, hdop: 1.0, fixType: 3, sats: 8, gap: false })");
+
+  assert.strictEqual(run(context, 'LIVE_ZOOM'), 18);
+  assert.strictEqual(run(context, 'liveMap.getZoom()'), 18);
+});
+
+test('recolorPhasicSegments: holds a segment back until its packet is BOTH phasic-annotated AND old enough, then repaints exactly once with the phasic-based color', () => {
+  const { context } = bootLive();
+  run(context, `
+    LiveState.packets = [{ timestamp: 0 }];
+    const __pktA = { timestamp: 0 }; // no .phasic yet
+    const __lineA = L.polyline([[0, 0], [0, 0]], { color: 'raw-gsr-color' });
+    pendingPhasicSegments.push({ pkt: __pktA, line: __lineA });
+  `);
+
+  // Recent (delta < PHASIC_COLOR_LAG_S) and no phasic yet — held back.
+  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 3 }]; recolorPhasicSegments();');
+  assert.strictEqual(run(context, 'pendingPhasicSegments.length'), 1);
+  assert.strictEqual(run(context, '__lineA._style'), undefined);
+
+  // Old enough now (delta 20 >= 8), but still no phasic value — still held
+  // back (proves the phasic-availability check isn't skipped once time
+  // alone would allow it through).
+  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 20 }]; recolorPhasicSegments();');
+  assert.strictEqual(run(context, 'pendingPhasicSegments.length'), 1);
+  assert.strictEqual(run(context, '__lineA._style'), undefined);
+
+  // Phasic is available now, but back to too-recent (delta 3 < 8) — still
+  // held back (the mirror image of the previous check: proves the time
+  // check isn't skipped once phasic alone would allow it through).
+  run(context, '__pktA.phasic = 42; LiveState.packets = [{ timestamp: 0 }, { timestamp: 3 }]; recolorPhasicSegments();');
+  assert.strictEqual(run(context, 'pendingPhasicSegments.length'), 1);
+  assert.strictEqual(run(context, '__lineA._style'), undefined);
+
+  // Phasic now available AND old enough — repaints and clears the queue.
+  run(context, 'LiveState.packets = [{ timestamp: 0 }, { timestamp: 20 }]; recolorPhasicSegments();');
+  assert.strictEqual(run(context, 'pendingPhasicSegments.length'), 0);
+  assert.strictEqual(run(context, 'phasicMax'), 42);
+  const style = JSON.parse(run(context, 'JSON.stringify(__lineA._style)'));
+  // getColorForValue(42, 0, 42): ratio 1.0 -> hue 0 -> red end of the scale.
+  assert.strictEqual(style.color, 'hsl(0, 90%, 50%)');
+});
+
+test('resetSession: clears pendingPhasicSegments and phasicMax, so a stale entry from a prior session (whose pkt.phasic will never be set again) can never wedge the next session\'s recolor queue', () => {
+  const { context } = bootLive();
+  run(context, `
+    pendingPhasicSegments.push({ pkt: { timestamp: 0 }, line: L.polyline([[0, 0], [0, 0]], {}) });
+    phasicMax = 99;
+  `);
+
+  run(context, 'resetSession()');
+
+  assert.strictEqual(run(context, 'pendingPhasicSegments.length'), 0);
+  assert.strictEqual(run(context, 'phasicMax'), 0);
+});
+
+test('end-to-end: a walking session progressively repaints its older track segments with phasic color while its most recent segments stay provisional', () => {
+  const { context } = bootLive();
+  // 50 packets at the real STREAM_INTERVAL_S cadence (0.3s), stepping GSR up
+  // partway through so decomposeTonicPhasic has a real, non-trivial phasic
+  // response to compute — not just feeding a flat, uninformative signal.
+  run(context, `
+    showMap();
+    for (let i = 0; i < 50; i++) {
+      LiveState.addPacket({
+        valid: true,
+        lat: 51.5074 + i * 0.00002,
+        lon: -0.1278 + i * 0.00002,
+        gsrRaw: i < 10 ? 1000 : 1400,
+        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3,
+        timestamp: i * 0.3,
+      });
+      drawGraph(); // stands in for the real animation loop's per-frame call
+    }
+  `);
+
+  const result = JSON.parse(run(context, `
+    JSON.stringify({
+      totalSegments: liveMap._layers.filter(l => l.latlngs).length,
+      repaintedCount: liveMap._layers.filter(l => l.latlngs && l._style !== undefined).length,
+      pendingCount: pendingPhasicSegments.length,
+      oldestPendingAge: pendingPhasicSegments.length > 0
+        ? LiveState.packets[LiveState.packets.length - 1].timestamp - pendingPhasicSegments[0].pkt.timestamp
+        : null,
+    })
+  `));
+
+  assert.strictEqual(result.totalSegments, 49, '50 packets -> 49 segments (the first fix only sets the view, no segment)');
+  assert.ok(result.repaintedCount > 0, 'some early segments should have settled and repainted by now');
+  assert.ok(result.pendingCount > 0, 'the most recent segments should still be waiting out the lag');
+  assert.strictEqual(result.repaintedCount + result.pendingCount, result.totalSegments);
+  assert.ok(result.oldestPendingAge < 8, `the oldest still-pending segment should be within PHASIC_COLOR_LAG_S, got ${result.oldestPendingAge}`);
+});

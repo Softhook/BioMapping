@@ -223,7 +223,8 @@ test('readContourSliderValues: parses all contour surface sliders', () => {
   const result = GSRStorage.readContourSliderValues();
   assert.deepStrictEqual(result, {
     gridResolution: 40, contourCount: 8, isolationRadius: 50,
-    idwExponent: 2, surfaceOpacity: 0.4,
+    idwExponent: 2, peakPreservation: global.GSR_CONST.COLLECTIVE.peakPreservation,
+    coverageWeighting: global.GSR_CONST.COLLECTIVE.coverageWeighting, surfaceOpacity: 0.4,
   });
 });
 

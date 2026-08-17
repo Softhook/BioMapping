@@ -476,6 +476,17 @@ function drawGraph() {
   const paddedTonic = decomp.tonic;
   const paddedPhasic = decomp.phasic;
 
+  // Byproduct of this same recompute: stash each packet's current phasic
+  // estimate on the packet object itself, and let the live map's delayed
+  // track recoloring pick up any that have now settled — see
+  // recolorPhasicSegments()'s doc comment for why "settled" isn't
+  // "just computed". Reuses this exact decomposition instead of running a
+  // second one just for the map.
+  for (let i = 0; i < paddedPkts.length; i++) {
+    paddedPkts[i].phasic = paddedPhasic[i];
+  }
+  recolorPhasicSegments();
+
   let startIdx = paddedPkts.length - 1;
   while (startIdx > 0 && paddedPkts[startIdx - 1].timestamp >= t0) startIdx--;
 
@@ -597,6 +608,41 @@ let liveMap = null;
 let liveLastLatLng = null;
 let liveMarker = null;
 let gsrMin = Infinity, gsrMax = -Infinity;
+
+// Delayed phasic recoloring for the live track — updateLiveMap() paints a
+// new segment immediately from raw GSR (0-latency), then this repaints it
+// once its phasic value has settled. phasicMin is fixed at 0 (phasic is
+// already clamped >= 0 in decomposeTonicPhasic — 0 is a meaningful "at
+// baseline" reference point, unlike gsrMin/gsrMax which have no natural
+// floor) so only the ceiling needs to track the session's peak.
+let phasicMax = 0;
+const pendingPhasicSegments = []; // FIFO of { pkt, line } awaiting a settled pkt.phasic
+const PHASIC_COLOR_LAG_S = 8; // matches decomposeTonicPhasic's ±6s local-floor window + margin
+
+// decomposeTonicPhasic() is a zero-phase/batch filter (a backward EMA pass,
+// then a ±6s look-ahead "local floor" correction) — a sample's phasic value
+// isn't trustworthy the instant drawGraph() first computes it; it needs a
+// few seconds of FUTURE packets behind it to stabilize (see GRAPH_PAD_S's
+// comment for the same "zero-phase needs run-up" idea, applied here to
+// look-ahead instead). This repaints already-drawn segments once that's
+// true, using the exact decomposition drawGraph() already runs — not a
+// second, cheaper approximation. A session that ends abruptly leaves its
+// last ~8s of segments in their initial raw-GSR color; resetSession()
+// clears this queue so a stale entry from a prior session can never block
+// it (pkt.phasic would otherwise never be set again once LiveState.packets
+// has moved on, wedging this FIFO forever on that one entry).
+function recolorPhasicSegments() {
+  const lastPkt = LiveState.packets[LiveState.packets.length - 1];
+  if (!lastPkt) return;
+  while (pendingPhasicSegments.length > 0) {
+    const entry = pendingPhasicSegments[0];
+    if (entry.pkt.phasic === undefined) break; // not in drawGraph()'s current window yet
+    if (lastPkt.timestamp - entry.pkt.timestamp < PHASIC_COLOR_LAG_S) break; // not settled yet
+    phasicMax = Math.max(phasicMax, entry.pkt.phasic);
+    entry.line.setStyle({ color: MapColors.getColorForValue(entry.pkt.phasic, 0, phasicMax) });
+    pendingPhasicSegments.shift();
+  }
+}
 
 // ==========================================================================
 // Custom Leaflet TileLayer subclass with Cache Storage API backend
@@ -851,6 +897,13 @@ function hideMap() {
   drawGraph();
 }
 
+// Meters/pixel at this zoom is small enough that a ~2min stretch of a
+// typical walking pace (packets every STREAM_INTERVAL_S, ~0.3-0.4m apart)
+// fills a comfortable chunk of a phone screen while the per-segment color
+// stays legible — zoom 17's wider view diluted color detail across a much
+// longer, less relevant stretch of the walk.
+const LIVE_ZOOM = 18;
+
 function updateLiveMap(pkt) {
   if (!pkt.valid || isNaN(pkt.lat) || isNaN(pkt.lon)) return;
   const gated = GpsPipeline.applyFixTypeGate(
@@ -865,16 +918,18 @@ function updateLiveMap(pkt) {
     const color = MapColors.getColorForValue(pkt.gsrRaw, gsrMin, gsrMax);
 
     if (!liveLastLatLng) {
-      liveMap.setView(latlng, 17);
+      liveMap.setView(latlng, LIVE_ZOOM);
     } else if (pkt.gap) {
       // §8 "Show the gap, don't paper over it" — a real time gap (dropped/
       // disconnected interval) breaks the trail rather than drawing a
       // straight line across whatever distance was covered during it.
     } else {
-      // Per-segment coloring: one short polyline per new point, colored for
-      // that point's GSR value, rather than one polyline whose single color
-      // can only represent the latest reading.
-      L.polyline([liveLastLatLng, latlng], { color, weight: 3 }).addTo(liveMap);
+      // Per-segment coloring: one short polyline per new point, colored
+      // provisionally from that point's raw GSR value for instant feedback
+      // — recolorPhasicSegments() (called from drawGraph()) repaints it
+      // with the more meaningful phasic value once that's settled.
+      const line = L.polyline([liveLastLatLng, latlng], { color, weight: 3 }).addTo(liveMap);
+      pendingPhasicSegments.push({ pkt, line });
     }
 
     if (!liveMarker) {
@@ -1049,6 +1104,12 @@ function resetSession() {
   liveLastLatLng = null;
   gsrMin = Infinity;
   gsrMax = -Infinity;
+  phasicMax = 0;
+  // A pending entry's pkt.phasic only ever gets set by a drawGraph() that
+  // still has that packet in LiveState.packets — once packets is reset
+  // above, any leftover entry from the old session would never settle,
+  // wedging recolorPhasicSegments()'s FIFO on it forever.
+  pendingPhasicSegments.length = 0;
   lastPacketTimestamp = 0;
   lastPacketArrivalTime = 0;
   document.getElementById('statPackets').textContent = 'Packets: 0';
