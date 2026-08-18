@@ -93,35 +93,46 @@ const GsrFilter = {
       const r = (windowSize - 1) / 2;
       const m = Math.floor(r);
       const f = r - m;
+      const oneMinusF = 1.0 - f;
 
-      for (let i = 0; i < n; i++) {
-        let sum = 0;
-        let count = 0;
+      const getVal = (idx) => (idx >= 0 && idx < n) ? data[idx] : 0.0;
+      const getInd = (idx) => (idx >= 0 && idx < n) ? 1.0 : 0.0;
 
-        // Central region (fully-included samples)
-        for (let j = i - m; j <= i + m; j++) {
-          if (j >= 0 && j < n) {
-            sum += data[j];
-            count += 1.0;
-          }
+      // Initial sum and count at i = 0
+      let sum = 0.0;
+      let count = 0.0;
+      for (let j = -m; j <= m; j++) {
+        if (j >= 0 && j < n) {
+          sum += data[j];
+          count += 1.0;
         }
-
-        // Left boundary
-        const leftIdx = i - m - 1;
-        if (leftIdx >= 0 && leftIdx < n) {
-          sum += data[leftIdx] * f;
-          count += f;
-        }
-
-        // Right boundary
-        const rightIdx = i + m + 1;
-        if (rightIdx >= 0 && rightIdx < n) {
-          sum += data[rightIdx] * f;
-          count += f;
-        }
-
-        res[i] = count > 0 ? (sum / count) : data[i];
       }
+      
+      const leftIdx = -m - 1;
+      if (leftIdx >= 0 && leftIdx < n) {
+        sum += data[leftIdx] * f;
+        count += f;
+      }
+      
+      const rightIdx = m + 1;
+      if (rightIdx >= 0 && rightIdx < n) {
+        sum += data[rightIdx] * f;
+        count += f;
+      }
+
+      res[0] = count > 0 ? (sum / count) : data[0];
+
+      // Slide window
+      for (let i = 0; i < n - 1; i++) {
+        sum += oneMinusF * (getVal(i + m + 1) - getVal(i - m))
+             + f * (getVal(i + m + 2) - getVal(i - m - 1));
+
+        count += oneMinusF * (getInd(i + m + 1) - getInd(i - m))
+               + f * (getInd(i + m + 2) - getInd(i - m - 1));
+
+        res[i + 1] = count > 0 ? (sum / count) : data[i + 1];
+      }
+
       return res;
     };
 
