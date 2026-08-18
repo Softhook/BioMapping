@@ -364,8 +364,15 @@ class GSRAnalyzer {
     let afterMedian = GsrFilter.applyMedianFilter(this.raw.map(d => d.val), medWindowSize);
 
     // 2. Low-Pass Filter
-    const lpfWinSize = Math.max(1, Math.round(params.lpfWindow * this.sampleRate));
-    let afterLPF = GsrFilter.applyZeroPhaseMovingAverage(afterMedian, lpfWinSize);
+    let afterLPF;
+    if (params.adaptiveNotch) {
+      const defaultWinSize = params.lpfWindow * this.sampleRate;
+      const windowSizes = GsrFilter.estimateGaitPeriods(afterMedian, this.sampleRate, defaultWinSize);
+      afterLPF = GsrFilter.applyAdaptiveZeroPhaseMovingAverage(afterMedian, windowSizes);
+    } else {
+      const lpfWinSize = params.lpfWindow * this.sampleRate;
+      afterLPF = GsrFilter.applyZeroPhaseMovingAverage(afterMedian, lpfWinSize);
+    }
 
     this.filtered = this.raw.map((d, i) => ({ time: d.time, val: afterLPF[i] }));
 

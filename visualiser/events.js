@@ -32,7 +32,7 @@ const GSREvents = {
       'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsDownsample', 'gpsTrackWeight', 'gpsPeakLatency',
       'gpsSnapToRoads', 'gpsSnapRadius',
       'clusterProximity', 'clusterBoundaryRadius',
-      'lowerGraphMode', 'useDeconvolution'
+      'lowerGraphMode', 'useDeconvolution', 'adaptiveNotch'
     ];
     for (const key of sliderKeys) {
       AppState.sliders[key] = GSREvents._id(key);
@@ -288,6 +288,14 @@ const GSREvents = {
     if (S.useDeconvolution) {
       S.useDeconvolution.addEventListener('change', () => {
         GSREvents.updateDeconvolutionUIState();
+        GSRUI.runAnalysis();
+      });
+    }
+
+    // ── Adaptive Notch Filter toggle ──────────────────────────────────────────
+    if (S.adaptiveNotch) {
+      S.adaptiveNotch.addEventListener('change', () => {
+        GSREvents.updateAdaptiveNotchUIState();
         GSRUI.runAnalysis();
       });
     }
@@ -1045,6 +1053,7 @@ const GSREvents = {
     document.querySelectorAll('input[type="range"]').forEach(slider => GSREvents.updateFilterDim(slider));
 
     GSREvents.updateDeconvolutionUIState();
+    GSREvents.updateAdaptiveNotchUIState();
   },
 
   /**
@@ -1129,6 +1138,30 @@ const GSREvents = {
         }
       }
     });
+  },
+
+  updateAdaptiveNotchUIState() {
+    const adaptiveCheckbox = document.getElementById('adaptiveNotch');
+    const isAdaptive = adaptiveCheckbox ? adaptiveCheckbox.checked : false;
+
+    const lpfSlider = document.getElementById('lpfWindow');
+    const lpfLabel = document.getElementById('valLpfWindow');
+    const lpfGroup = lpfSlider ? lpfSlider.closest('.slider-group') : null;
+
+    if (lpfSlider) {
+      lpfSlider.disabled = isAdaptive;
+    }
+    if (lpfGroup) {
+      lpfGroup.classList.toggle('ctrl-inert', isAdaptive);
+    }
+    if (lpfLabel) {
+      if (isAdaptive) {
+        lpfLabel.innerText = 'auto';
+      } else if (lpfSlider) {
+        const val = parseFloat(lpfSlider.value);
+        lpfLabel.innerText = val === 0 ? 'off' : val.toFixed(1) + ' s';
+      }
+    }
   }
 };
 

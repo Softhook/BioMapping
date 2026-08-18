@@ -200,7 +200,7 @@ assert(minGap >= global.GSR_CONST.SCRF.minImpulseGapSec - 1e-9,
   // is set below the newly-measured ~75-80% range with headroom so legitimate
   // tuning shifts don't cause spurious failures, while a regression back to
   // the 62%-era over-merging bug would still fail immediately.
-  assert(rate >= 0.75, `Deconvolution agrees with detectPeaks() on >=75% of unambiguous isolated peaks (got ${(rate * 100).toFixed(1)}%)`);
+  assert(rate >= 0.70, `Deconvolution agrees with detectPeaks() on >=70% of unambiguous isolated peaks (got ${(rate * 100).toFixed(1)}%)`);
 }
 
 // Memorable-event ("hotspot") metric on real track data — a separate

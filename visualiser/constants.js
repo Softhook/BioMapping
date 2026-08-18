@@ -39,6 +39,7 @@ const GSR_CONST = {
   // ── GSR filter defaults ──────────────────────────────────────────────────
   GSR_DEFAULT: {
     medianSize: 0, lpfWindow: 0,
+    adaptiveNotch: false,
     tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.020,
     dwtLevel: 6,
     shapeMinRiseTime: 0.75, shapeMaxRiseTime: 4.0,
