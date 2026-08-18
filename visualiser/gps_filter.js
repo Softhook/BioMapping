@@ -487,17 +487,25 @@ const GpsFilter = {
    */
   applyRDP(points, tolerance, forceIndexSet) {
     if (!tolerance || isNaN(tolerance) || tolerance <= 0.001 || points.length < 3) return points;
+    const n = points.length;
 
     const getPerpendicularDistance = (p, s, e) => {
       return GeoUtils.distanceToSegmentMeters(p.lat, p.lon, s.lat, s.lon, e.lat, e.lon);
     };
 
-    const rdpRecurse = (pts, startIdx, endIdx) => {
+    // keep mask: keep[i] is 1 if point i is kept, 0 if dropped.
+    const keep = new Uint8Array(n);
+    keep[0] = 1;
+    keep[n - 1] = 1;
+
+    const rdpRecurse = (startIdx, endIdx) => {
+      if (endIdx <= startIdx + 1) return;
+      
       let maxDist = 0;
       let index = -1;
 
       for (let i = startIdx + 1; i < endIdx; i++) {
-        const dist = getPerpendicularDistance(pts[i], pts[startIdx], pts[endIdx]);
+        const dist = getPerpendicularDistance(points[i], points[startIdx], points[endIdx]);
         if (dist > maxDist) {
           maxDist = dist;
           index = i;
@@ -505,32 +513,36 @@ const GpsFilter = {
       }
 
       if (maxDist > tolerance) {
-        const results1 = rdpRecurse(pts, startIdx, index);
-        const results2 = rdpRecurse(pts, index, endIdx);
-        return results1.slice(0, results1.length - 1).concat(results2);
-      } else {
-        return [pts[startIdx], pts[endIdx]];
+        keep[index] = 1;
+        rdpRecurse(startIdx, index);
+        rdpRecurse(index, endIdx);
       }
     };
 
     if (!forceIndexSet || forceIndexSet.size === 0) {
-      return rdpRecurse(points, 0, points.length - 1);
+      rdpRecurse(0, n - 1);
+    } else {
+      // Split into segments at forced vertices so they are guaranteed to survive
+      const boundaryIdxs = [0];
+      for (let i = 1; i < n - 1; i++) {
+        if (forceIndexSet.has(points[i].origIdx)) {
+          boundaryIdxs.push(i);
+          keep[i] = 1;
+        }
+      }
+      boundaryIdxs.push(n - 1);
+
+      for (let s = 0; s < boundaryIdxs.length - 1; s++) {
+        rdpRecurse(boundaryIdxs[s], boundaryIdxs[s + 1]);
+      }
     }
 
-    // Split into segments at forced vertices so they're guaranteed to survive
-    // — each segment is still simplified independently, only the boundaries
-    // (the forced points themselves) are exempt from removal.
-    const boundaryIdxs = [0];
-    for (let i = 1; i < points.length - 1; i++) {
-      if (forceIndexSet.has(points[i].origIdx)) boundaryIdxs.push(i);
-    }
-    boundaryIdxs.push(points.length - 1);
-
-    let result = [];
-    for (let s = 0; s < boundaryIdxs.length - 1; s++) {
-      const segResult = rdpRecurse(points, boundaryIdxs[s], boundaryIdxs[s + 1]);
-      if (s > 0) segResult.shift(); // shared boundary point already added by previous segment
-      result = result.concat(segResult);
+    // Build the final array of kept points in a single pass
+    const result = [];
+    for (let i = 0; i < n; i++) {
+      if (keep[i] === 1) {
+        result.push(points[i]);
+      }
     }
     return result;
   }
