@@ -763,8 +763,9 @@ function latLngToTileCoords(latlng, zoom) {
 async function cacheCurrentMapArea() {
   if (!liveMap) return;
   const bounds = liveMap.getBounds();
-  const currentZoom = liveMap.getZoom();
-  const maxZoom = Math.min(currentZoom + 3, 18);
+  const currentZoom = Math.round(liveMap.getZoom());
+  const startZoom = Math.min(currentZoom, 18);
+  const maxZoom = Math.min(startZoom + 3, 18);
   
   const cacheMapBtn = document.getElementById('cacheMapBtn');
   const originalText = cacheMapBtn.textContent;
@@ -786,7 +787,7 @@ async function cacheCurrentMapArea() {
   
   const tileUrls = [];
   
-  for (let z = currentZoom; z <= maxZoom; z++) {
+  for (let z = startZoom; z <= maxZoom; z++) {
     const minTile = latLngToTileCoords(bounds.getNorthWest(), z);
     const maxTile = latLngToTileCoords(bounds.getSouthEast(), z);
     
@@ -866,12 +867,20 @@ async function cacheCurrentMapArea() {
 }
 
 function initLiveMap() {
-  liveMap = L.map('map', { zoomControl: true, scrollWheelZoom: true, preferCanvas: true }).setView([0, 0], 2);
+  liveMap = L.map('map', {
+    zoomControl: true,
+    scrollWheelZoom: true,
+    preferCanvas: true,
+    zoomSnap: 0.25,
+    zoomDelta: 0.25,
+    maxZoom: 22
+  }).setView([0, 0], 2);
   if (liveMap.attributionControl) {
     liveMap.attributionControl.setPrefix(false);
   }
   L.tileLayer.cache('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19,
+    maxZoom: 22,
+    maxNativeZoom: 19,
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
   }).addTo(liveMap);
 

@@ -74,7 +74,10 @@ class GSRMapManager {
     this.map = L.map(this.containerId, {
       zoomControl: false,
       scrollWheelZoom: true,
-      preferCanvas: true
+      preferCanvas: true,
+      zoomSnap: 0.25,
+      zoomDelta: 0.25,
+      maxZoom: 22
     }).setView([0, 0], 2);
 
     if (this.map.attributionControl) {
@@ -87,7 +90,8 @@ class GSRMapManager {
     // before an SVG export — see exportToSvg's isoband-canvas-expansion
     // handling and map_exporter.js's _ensureTileCoverage doc comment.
     this.baseTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19,
+      maxZoom: 22,
+      maxNativeZoom: 19,
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
       crossOrigin: true
     }).addTo(this.map);

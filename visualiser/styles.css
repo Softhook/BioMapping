@@ -857,6 +857,10 @@ input[type="range"]::-webkit-slider-thumb:hover {
   pointer-events: none !important;
 }
 
+.leaflet-tile {
+  will-change: auto !important;
+}
+
 .rf-fluid-layer {
   pointer-events: none !important;
 }
