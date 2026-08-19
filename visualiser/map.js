@@ -96,9 +96,7 @@ class GSRMapManager {
     // "Leaflet" credit link (added in v1.8.0). Keep the credit link, drop the
     // flag — same text Leaflet itself renders by default, minus the emoji.
     if (this.map.attributionControl) {
-      this.map.attributionControl.setPrefix(
-        '<a href="https://leafletjs.com" title="A JS library for interactive maps">Leaflet</a>'
-      );
+      this.map.attributionControl.setPrefix(false);
     }
 
     // Initialise scrubbing indicator marker (pulsing blue circle)
