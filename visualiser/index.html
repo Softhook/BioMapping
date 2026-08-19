@@ -698,22 +698,26 @@
               <h3><i class="fa-solid fa-chart-area"></i> GSR Signal</h3>
             </div>
             <div class="canvas-controls">
-              <button class="icon-btn" id="btnZoomIn" title="Zoom In"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
-              <button class="icon-btn" id="btnZoomOut" title="Zoom Out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
-              <button class="icon-btn" id="btnResetView" title="Reset View"><i class="fa-solid fa-arrows-to-eye"></i></button>
+              <div class="btn-group">
+                <button class="icon-btn" id="btnZoomIn" title="Zoom In"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+                <button class="icon-btn" id="btnZoomOut" title="Zoom Out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+                <button class="icon-btn" id="btnResetView" title="Reset View"><i class="fa-solid fa-arrows-to-eye"></i></button>
+              </div>
               <span class="control-divider"></span>
-              <button class="btn btn-outline active" id="btnToggleRaw">Raw</button>
-              <button class="btn btn-outline active" id="btnToggleFiltered">Filtered</button>
-              <button class="btn btn-outline active" id="btnToggleTonic">Tonic</button>
-              <button class="btn btn-outline active" id="btnTogglePeaks">Peaks</button>
-              <button class="btn btn-outline active" id="btnToggleHotspots">Hotspots</button>
+              <div class="btn-group">
+                <button class="btn btn-outline active" id="btnToggleRaw">Raw</button>
+                <button class="btn btn-outline active" id="btnToggleFiltered">Filtered</button>
+                <button class="btn btn-outline active" id="btnToggleTonic">Tonic</button>
+                <button class="btn btn-outline active" id="btnTogglePeaks">Peaks</button>
+                <button class="btn btn-outline active" id="btnToggleHotspots">Hotspots</button>
+              </div>
               <span class="control-divider"></span>
-              <select id="lowerGraphMode" class="select-control" style="width: auto; min-width: 150px;" title="Lower graph metric">
-                <option value="phasic" selected>Phasic (SCR)</option>
-                <option value="peakDensity">Peak Density (NS-SCR)</option>
-                <option value="phasicAUC">Phasic AUC (ISCR)</option>
-                <option value="arousalIndex">Combined Arousal Index</option>
-                <option value="emFog">EM Fog Index (EMF-I)</option>
+              <select id="lowerGraphMode" class="select-control" style="width: auto; min-width: 130px;" title="Lower graph metric">
+                <option value="phasic" selected>Phasic</option>
+                <option value="peakDensity">Peak Density</option>
+                <option value="phasicAUC">Phasic AUC</option>
+                <option value="arousalIndex">Arousal Index</option>
+                <option value="emFog">EM Fog</option>
               </select>
               <span class="control-divider"></span>
               <button class="icon-btn fullscreen-btn" id="btnGsrFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>
@@ -743,41 +747,45 @@
               <h3><i class="fa-solid fa-map-location-dot"></i> Map Overlay</h3>
             </div>
             <div class="canvas-controls">
-              <button class="icon-btn" id="btnMapZoomIn" title="Zoom In"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
-              <button class="icon-btn" id="btnMapZoomOut" title="Zoom Out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
-              <button class="icon-btn" id="btnMapZoomExtent" title="Zoom to Extent"><i class="fa-solid fa-arrows-to-eye"></i></button>
+              <div class="btn-group">
+                <button class="icon-btn" id="btnMapZoomIn" title="Zoom In"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+                <button class="icon-btn" id="btnMapZoomOut" title="Zoom Out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+                <button class="icon-btn" id="btnMapZoomExtent" title="Zoom to Extent"><i class="fa-solid fa-arrows-to-eye"></i></button>
+              </div>
               <span class="control-divider"></span>
-              <button class="btn btn-outline active" id="btnToggleRFFluid" title="Toggle static ray-casted 3-frequency RF fluid background">RF Fluid</button>
-              <button class="btn btn-outline active" id="btnToggleMapPeaks">Peaks</button>
-              <button class="btn btn-outline active" id="btnToggleMapHotspots">Hotspots</button>
-              <button class="btn btn-outline active" id="btnToggleMapLabels">Labels</button>
-              <button class="btn btn-outline active" id="btnToggleMapClusters">Clusters</button>
-              <button class="btn btn-outline" id="btnToggleOsmShapes" style="display: none;">OSM Layers</button>
-              <!-- Collective-only -->
-              <button class="btn btn-outline active" id="btnToggleMapIsolines" style="display: none;">Isolines</button>
-              <button class="btn btn-outline active" id="btnToggleMapSurface" style="display: none;">Surface</button>
-              <button class="btn btn-outline active" id="btnToggleMapTracks" style="display: none;">Tracks</button>
+              <div class="btn-group">
+                <button class="btn btn-outline active" id="btnToggleRFFluid" title="Toggle static ray-casted 3-frequency RF fluid background">RF</button>
+                <button class="btn btn-outline active" id="btnToggleMapPeaks">Peaks</button>
+                <button class="btn btn-outline active" id="btnToggleMapHotspots">Hotspots</button>
+                <button class="btn btn-outline active" id="btnToggleMapLabels">Labels</button>
+                <button class="btn btn-outline active" id="btnToggleMapClusters">Clusters</button>
+                <button class="btn btn-outline" id="btnToggleOsmShapes" style="display: none;" title="Toggle OSM Layers">OSM</button>
+                <!-- Collective-only -->
+                <button class="btn btn-outline active" id="btnToggleMapIsolines" style="display: none;" title="Toggle Isolines">Iso</button>
+                <button class="btn btn-outline active" id="btnToggleMapSurface" style="display: none;" title="Toggle Surface Grid">Surf</button>
+                <button class="btn btn-outline active" id="btnToggleMapTracks" style="display: none;" title="Toggle Track Paths">Tracks</button>
+              </div>
               <span class="control-divider"></span>
-              <select id="rfFluidMode" class="select-control btn btn-outline" style="width: auto; min-width: 120px;" title="Select RF Fluid visualization mode">
+              <select id="rfFluidMode" class="select-control btn btn-outline" style="width: auto; min-width: 100px;" title="Select RF Fluid visualization mode">
                 <option value="triband" selected>Tri-Band RGB</option>
                 <option value="815">815 MHz (LTE)</option>
                 <option value="868">868 MHz (Grid)</option>
                 <option value="915">915 MHz (ISM)</option>
                 <option value="fog">EM Fog</option>
               </select>
-              <select id="mapColoringMetric" class="select-control btn btn-outline" style="width: auto; min-width: 150px;" title="Select Map Metric">
-                <option value="gsr" selected>GSR Arousal (Raw)</option>
-                <option value="phasic">Phasic (SCR)</option>
-                <option value="tonic">Tonic Baseline (SCL)</option>
-                <option value="peakDensity">Peak Density (NS-SCR)</option>
-                <option value="phasicAUC">Phasic AUC (ISCR)</option>
-                <option value="arousalIndex">Combined Arousal Index</option>
-                <option value="em_fog">EM Fog Index (0-100)</option>
-                <option value="hdopQuality">GPS Accuracy (HDOP)</option>
-                <option value="roadClass" disabled class="osm-option">OSM Road Class</option>
-                <option value="distMajorRoad" disabled class="osm-option">Dist Major Road</option>
+              <select id="mapColoringMetric" class="select-control btn btn-outline" style="width: auto; min-width: 130px;" title="Select Map Metric">
+                <option value="gsr" selected>GSR Arousal</option>
+                <option value="phasic">Phasic</option>
+                <option value="tonic">Tonic</option>
+                <option value="peakDensity">Peak Density</option>
+                <option value="phasicAUC">Phasic AUC</option>
+                <option value="arousalIndex">Arousal Index</option>
+                <option value="em_fog">EM Fog</option>
+                <option value="hdopQuality">GPS Accuracy</option>
+                <option value="roadClass" disabled class="osm-option">Road Class</option>
+                <option value="distMajorRoad" disabled class="osm-option">Dist to Road</option>
                 <option value="inPark" disabled class="osm-option">In Park</option>
-                <option value="greenPct" disabled class="osm-option">Green Space %</option>
+                <option value="greenPct" disabled class="osm-option">Green Space</option>
                 <option value="buildingDensity" disabled class="osm-option">Building Density</option>
                 <option value="distWater" disabled class="osm-option">Dist to Water</option>
                 <option value="treeDensity" disabled class="osm-option">Tree Density</option>

@@ -656,14 +656,13 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 12px;
-  height: 38px;
+  padding: 6px 12px;
   min-height: 38px;
   border-bottom: 1px solid var(--border-glass);
   box-sizing: border-box;
   flex-shrink: 0;
-  gap: 12px;
-  overflow: hidden;
+  gap: 8px 12px;
+  flex-wrap: wrap;
 }
 
 .panel-title-group {
@@ -709,19 +708,62 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .canvas-controls {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 6px 3px;
   white-space: nowrap;
 }
 
 .canvas-controls .btn,
 .canvas-controls .btn-outline {
   font-size: 0.76rem !important;
-  padding: 3px 9px !important;
+  padding: 3px 7px !important;
   height: 26px !important;
   line-height: 1.2 !important;
   border-radius: 4px !important;
   margin: 0 !important;
+}
+
+/* Unified Segmented Button Group */
+.btn-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.btn-group .btn,
+.btn-group .btn-outline,
+.btn-group .icon-btn {
+  border-radius: 0 !important;
+  margin: 0 !important;
+  height: 26px !important;
+  box-sizing: border-box;
+}
+
+/* Base border for visible buttons */
+.btn-group > *:not([style*="display: none"]) {
+  border: 1px solid var(--border-glass) !important;
+}
+
+/* Remove left border for visible elements preceded by another visible element */
+.btn-group > *:not([style*="display: none"]) ~ *:not([style*="display: none"]) {
+  border-left: none !important;
+}
+
+/* Grouped icon buttons style */
+.btn-group .icon-btn {
+  background: #ffffff;
+  padding: 0 6px !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px !important;
+}
+
+.btn-group .icon-btn:hover {
+  background: #f5f4f0;
 }
 
 .canvas-controls .select-control {
@@ -803,10 +845,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .control-divider {
-  width: 1px;
-  height: 16px;
-  background-color: var(--border-glass);
-  margin: 0 4px;
+  display: inline-block;
+  width: 8px;
+  height: 1px;
+  background-color: transparent;
+  margin: 0;
 }
 
 .leaflet-pane.leaflet-rfFluidPane-pane {
@@ -1683,7 +1726,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .panel-title-group {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 4px;
 }
 
 .collapse-btn {
@@ -2355,6 +2398,10 @@ input[type="range"]::-webkit-slider-thumb:hover {
 /* Allow environmental panel to grow taller and fill space when available */
 #environmentalPanel {
   max-height: 500px;
+}
+
+#environmentalPanel .panel-header {
+  flex-wrap: nowrap !important;
 }
 
 /* Hide tab content completely when environmental panel is collapsed */
