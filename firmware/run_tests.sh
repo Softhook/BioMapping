@@ -75,12 +75,12 @@ if [ "$RUN_TSAN" != "yes" ] && [ "$RUN_TSAN" != "no" ]; then
 fi
 
 echo "== test_firmware (pipeline / CSV / calibration) =="
-gcc -Wall -Wextra -I . -o build/test_firmware biomap_pipeline.c tests/test_firmware.c -lm
+gcc -Wall -Wextra -I . -I vendor/minmea -o build/test_firmware biomap_pipeline.c tests/test_firmware.c -lm
 ./build/test_firmware
 
 echo
 echo "== test_gps_uart (NMEA dispatch / RX framing) =="
-gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_gps_uart \
+gcc -Wall -Wextra -I . -I modules -I vendor/minmea -I tests/shims -o build/test_gps_uart \
     tests/test_gps_uart.c modules/gps_uart.c \
     tests/shims/furi_hal_mock.c -lm
 ./build/test_gps_uart

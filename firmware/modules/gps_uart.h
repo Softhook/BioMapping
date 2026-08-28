@@ -9,7 +9,7 @@
 #include <furi.h>
 #include <furi_hal.h>
 #include <notification/notification_messages.h>
-#include "../minmea.h"
+#include "../vendor/minmea/minmea.h"
 
 #define GPS_RX_BUF_SIZE   (1024 * 5)
 #define GPS_BAUD_RATE     9600

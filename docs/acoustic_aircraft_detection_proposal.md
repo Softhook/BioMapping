@@ -75,7 +75,7 @@ If RF interference from the Flipper's sub-GHz or BLE radios becomes a concern du
 
 ### 4.1 Compile-Time Feature Flag
 
-Sound level logging is gated behind a single define in [`biomap_config.h`](../biomap_config.h):
+Sound level logging is gated behind a single define in [`biomap_config.h`](../firmware/biomap_config.h):
 
 ```c
 // Environmental sound level logging — SparkFun SPH8878LR5H-1 MEMS microphone
@@ -88,7 +88,7 @@ When `BIOMAP_FEATURE_ACOUSTIC` is 0, all acoustic code is stripped by the prepro
 
 ### 4.2 Integration Into the Main Tick Handler
 
-Rather than a standalone thread (which would drift relative to the 10 Hz `FuriTimer`), acoustic sampling runs inline inside `handle_recording_tick()` in [`biomap_session.c`](../biomap_session.c). This guarantees that the sound RMS value written to each CSV row corresponds to the same 100 ms window as the GSR and GPS data in that row.
+Rather than a standalone thread (which would drift relative to the 10 Hz `FuriTimer`), acoustic sampling runs inline inside `handle_recording_tick()` in [`biomap_session.c`](../firmware/biomap_session.c). This guarantees that the sound RMS value written to each CSV row corresponds to the same 100 ms window as the GSR and GPS data in that row.
 
 **Mutex consideration:** The tick handler holds `app->mutex` while `acoustic_tick()` runs. The 10 ms of `furi_delay_us(1000)` busy-wait blocks the GUI render callback (`biomap_render_callback`) and any other mutex contenders for that window — roughly 10% of each 100 ms frame cycle. The STM32WB55 has no hardware FPU, so the soft-float `sqrt()` and double-precision accumulation add ~300 µs on top. The effective tick-handler duration is ~12 ms, leaving ~88 ms headroom. The "GSR Impact: ZERO" claim in §2 refers to the analog hardware path (the ADS1115 keeps running independently); this software-side mutex contention is a separate concern. The STM32WB55 supports ADC with DMA — using DMA-triggered capture instead of a busy-wait loop would eliminate the mutex block entirely and is the recommended follow-up if timing proves tight in practice.
 

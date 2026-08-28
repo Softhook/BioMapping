@@ -11,7 +11,7 @@ This new version of the device is much more accurate and high fidelity than the 
 The data is rcorded as a CSV file on the SD card which can then be loaded into the browser-based visualiser (`visualiser/index.html`). This decomposes the signal into tonic/phasic components, detects arousal peaks, correlates RF noise density (rendered via its own RF fluid canvas), and renders your route on a map **coloured by arousal**. In collective mode it builds an interpolated contour surface across one or more walks, so calm stretches read as a flat "baseline" landscape while stress or arousal rises into "mountains" and deep relaxation drops into "valleys".
 
 
-The firmware supports two GPS modules, selected at compile time via `GPS_MODULE` in [`biomap_config.h`](biomap_config.h):
+The firmware supports two GPS modules, selected at compile time via `GPS_MODULE` in [`biomap_config.h`](firmware/biomap_config.h):
 * **u-blox SAM-M10Q** (`GPS_MODULE_M10Q`, the compile-time default) — integrated patch antenna, up to 10 Hz update rate, Software Standby power saving, AssistNow autonomous orbit prediction
 * **Quectel L76K** (`GPS_MODULE_L76K`, older alternative, still supported) — external U.FL antenna, up to 5 Hz update rate, PCAS protocol
 
@@ -106,6 +106,26 @@ By routing the signals this way, the ADS1115 subtracts the 0.5V virtual ground o
 ---
 
 ## 4. Software Architecture
+
+### Repository Layout
+
+```
+firmware/            Flipper Zero app — the ufbt project root (run `ufbt` from here)
+  application.fam      build manifest
+  biomap*.c/.h         app translation units (session, GUI, render, pipeline, RF cal)
+  biomap_config.h      compile-time options (GPS_MODULE, debug fields, …)
+  modules/            self-contained hardware drivers (GPS, GSR, SD, EM scan, BT)
+  vendor/minmea/      third-party NMEA parser (unmodified upstream)
+  tests/             host-side unit tests + shims (`./firmware/run_tests.sh`)
+  tests/benchmarks/  standalone characterisation / benchmark programs
+visualiser/          browser-based post-processing & map viewer (own package.json)
+scripts/             Python analysis helpers for recordings and telemetry logs
+docs/                design notes, investigations, datasheets, CSV schema
+tracks/              local recordings & logs (git-ignored, not part of the repo)
+```
+
+Build the app with `ufbt` run from `firmware/`; run the host test suite with
+`./firmware/run_tests.sh`.
 
 Writing this app in C is highly efficient with the ADS1115 in differential mode. We configure the ADS1115 to measure the exact difference between A0 and A1.
 
@@ -602,7 +622,7 @@ While recording, the LED blinks once per second (a "heartbeat"), independent of 
 
 ## 9a. Audio Feedback
 
-The Flipper's piezo speaker gives short tones for key/state changes, so the important ones — recording start/stop, mode changes, and mid-recording alerts — are audible without looking at the screen. Implemented in [`modules/sound.h`](modules/sound.h) using the same `furi_hal_speaker_acquire/start/stop/release` pattern as other Flipper Zero FAP apps. Toggle in **Options > Sound** (default ON); every tone in the app respects this setting except the Sound toggle's own confirmation click, which always plays so muting is itself audible.
+The Flipper's piezo speaker gives short tones for key/state changes, so the important ones — recording start/stop, mode changes, and mid-recording alerts — are audible without looking at the screen. Implemented in [`modules/sound.h`](firmware/modules/sound.h) using the same `furi_hal_speaker_acquire/start/stop/release` pattern as other Flipper Zero FAP apps. Toggle in **Options > Sound** (default ON); every tone in the app respects this setting except the Sound toggle's own confirmation click, which always plays so muting is itself audible.
 
 | Event | Tone |
 |---|---|
@@ -677,4 +697,4 @@ The app is packaged as a Flipper Zero `.fap` file:
 | Requires | `gui`, `storage`, `notification`, `expansion` |
 | Stack size | 4 KB |
 | Category | GPIO |
-| Sources | 12 source files across 2 directories (`biomap.c`, `biomap_gui.c`, `biomap_session.c`, `biomap_render.c`, `biomap_pipeline.c`, `biomap_rf_cal.c`, `minmea.c`, `modules/gps_uart.c`, `modules/gsr_sensor.c`, `modules/sd_logger.c`, `modules/em_scan_rf.c`, `modules/em_scan_cal.c`) |
+| Sources | 13 source files under `firmware/` (`biomap.c`, `biomap_gui.c`, `biomap_session.c`, `biomap_render.c`, `biomap_pipeline.c`, `biomap_rf_cal.c`, `vendor/minmea/minmea.c`, `modules/gps_uart.c`, `modules/gsr_sensor.c`, `modules/sd_logger.c`, `modules/em_scan_rf.c`, `modules/em_scan_cal.c`, `modules/bt_stream.c`) |

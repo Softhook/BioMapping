@@ -3,7 +3,7 @@
 // runs both approaches N times against identical GSR-like data, measuring
 // wall-clock time and counting pixel writes.
 //
-// Build:  gcc -O2 -o build/benchmark_graph benchmark_graph.c -lm
+// Build:  gcc -O2 -o build/benchmark_graph tests/benchmarks/benchmark_graph.c -lm
 // Run:    ./build/benchmark_graph
 
 #include <stdio.h>

@@ -13,17 +13,17 @@ touching real hardware. `run_tests.sh` builds and runs all of it.
 
 Use the harness in two modes so it stays practical during day-to-day work:
 
-- `./run_tests.sh --quick`
+- `./firmware/run_tests.sh --quick`
 : Fast local pass, skips the ThreadSanitizer binary.
-- `./run_tests.sh --full`
+- `./firmware/run_tests.sh --full`
 : Full suite, including ThreadSanitizer (default).
 
 Equivalent env toggles:
 
-- `RUN_TESTS_MODE=quick ./run_tests.sh`
-- `RUN_TESTS_TSAN=no ./run_tests.sh`
+- `RUN_TESTS_MODE=quick ./firmware/run_tests.sh`
+- `RUN_TESTS_TSAN=no ./firmware/run_tests.sh`
 
-Run `./run_tests.sh --help` for all options.
+Run `./firmware/run_tests.sh --help` for all options.
 
 There are two different techniques in play, depending on whether the file
 touches hardware:
@@ -99,22 +99,26 @@ should be read as a step toward it.
 ## Directory map
 
 ```
-modules/                       — unchanged, no test-only content, no HAL files
+firmware/                      — ufbt project root (run `ufbt` and run_tests.sh from here)
+
+firmware/modules/              — unchanged, no test-only content, no HAL files
   gps_uart.h / .c               — NMEA parsing + framing, calls furi_hal_serial_* directly
   gsr_sensor.h / .c             — ADS1115 I2C + PGA autoranging, calls furi_hal_i2c_*/FuriThread directly
   sd_logger.h / .c              — auto-indexing CSV writer, calls Storage/File directly
   sound.h                       — untested
 
-tests/
+firmware/tests/
   test_firmware.c               — pipeline / calibration / CSV host tests
   test_gps_uart.c                — gps_uart.c host tests, via the shims below
   test_gsr_sensor.c              — gsr_sensor.c host tests, real worker thread + all
   test_sd_logger.c               — sd_logger.c host tests, via an in-memory
                                    virtual filesystem (storage_mock.c)
-  analyze_gsr_filtering.c        — investigative tool, not pass/fail: measures
+  benchmarks/
+    analyze_gsr_filtering.c      — investigative tool, not pass/fail: measures
                                    the real IIR+EMA frequency response and the
                                    boxcar mains-notch's rate sensitivity. See
                                    docs/gsr_filtering_analysis.md.
+    benchmark_graph.c            — canvas_draw_line vs canvas_draw_dot micro-benchmark
   shims/
     furi.h                      — fakes the Furi-core calls these drivers make
                                    directly: mutex + thread (real pthreads —
@@ -133,7 +137,7 @@ tests/
                                    biomap_events.h pulls it in)
     notification/notification_messages.h — opaque NotificationApp stub
 
-run_tests.sh                    — builds + runs all four host test binaries
+firmware/run_tests.sh           — builds + runs all host test binaries
 ```
 
 ---

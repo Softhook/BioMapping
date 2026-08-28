@@ -17,7 +17,7 @@
 // effect on the numbers there.
 //
 // Build: gcc -Wall -Wextra -I . -o /tmp/analyze_gsr_filtering \
-//            biomap_pipeline.c tests/analyze_gsr_filtering.c -lm
+//            biomap_pipeline.c tests/benchmarks/analyze_gsr_filtering.c -lm
 
 #include <stdio.h>
 #include <math.h>

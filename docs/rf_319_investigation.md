@@ -26,7 +26,7 @@ Below is the structured list of files that would need modifications:
 
 ### A. Flipper Zero Firmware (C)
 
-#### [MODIFY] [`modules/em_scan_rf.h`](file:///Users/softhook/Documents/GitHub/BioMapping/modules/em_scan_rf.h)
+#### [MODIFY] [`modules/em_scan_rf.h`](file:///Users/softhook/Documents/GitHub/BioMapping/firmware/modules/em_scan_rf.h)
 * Bump `EM_SCAN_NUM_FREQS` from `3` to `4`.
 * Update documentation regarding the added band.
 
@@ -35,7 +35,7 @@ Below is the structured list of files that would need modifications:
 +#define EM_SCAN_NUM_FREQS 4
 ```
 
-#### [MODIFY] [`modules/em_scan_rf.c`](file:///Users/softhook/Documents/GitHub/BioMapping/modules/em_scan_rf.c)
+#### [MODIFY] [`modules/em_scan_rf.c`](file:///Users/softhook/Documents/GitHub/BioMapping/firmware/modules/em_scan_rf.c)
 * Add `319000000` to the `em_scan_freq_hz` array.
 * Add `"319"` to the `em_scan_freq_label` array.
 
@@ -50,7 +50,7 @@ Below is the structured list of files that would need modifications:
  };
 ```
 
-#### [MODIFY] [`modules/em_scan_cal.h`](file:///Users/softhook/Documents/GitHub/BioMapping/modules/em_scan_cal.h)
+#### [MODIFY] [`modules/em_scan_cal.h`](file:///Users/softhook/Documents/GitHub/BioMapping/firmware/modules/em_scan_cal.h)
 * Bump `EM_SCAN_CAL_VERSION` from `3` to `4` (since the on-disk calibration struct size changes).
 
 ```diff
@@ -58,7 +58,7 @@ Below is the structured list of files that would need modifications:
 +#define EM_SCAN_CAL_VERSION        4           // Bumped: added 319 MHz, EM_SCAN_NUM_FREQS 3->4
 ```
 
-#### [MODIFY] [`modules/em_scan_cal.c`](file:///Users/softhook/Documents/GitHub/BioMapping/modules/em_scan_cal.c)
+#### [MODIFY] [`modules/em_scan_cal.c`](file:///Users/softhook/Documents/GitHub/BioMapping/firmware/modules/em_scan_cal.c)
 * Add a relaxed noise floor ceiling for 319 MHz (`-70.0f` dBm) to allow calibration to succeed despite antenna impedance mismatch.
 
 ```diff
@@ -149,7 +149,7 @@ Below is the structured list of files that would need modifications:
 
 ### B. Unit & Integration Tests (C)
 
-#### [MODIFY] [`tests/test_firmware.c`](file:///Users/softhook/Documents/GitHub/BioMapping/tests/test_firmware.c)
+#### [MODIFY] [`tests/test_firmware.c`](file:///Users/softhook/Documents/GitHub/BioMapping/firmware/tests/test_firmware.c)
 * Expand the test's static mock array size to `4` elements to mirror the new band count.
 
 ```diff

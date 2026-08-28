@@ -4,7 +4,7 @@
 > infrastructure (see `docs/host_testing.md`) plus a standalone
 > frequency-response tool. Update the Recommendations section's status as
 > items land.
-> Reproduce/rerun the sweep with: `gcc -Wall -Wextra -I . -o /tmp/a biomap_pipeline.c tests/analyze_gsr_filtering.c -lm && /tmp/a`
+> Reproduce/rerun the sweep with: `gcc -Wall -Wextra -I . -o /tmp/a biomap_pipeline.c tests/benchmarks/analyze_gsr_filtering.c -lm && /tmp/a`
 
 ## Why this exists
 
@@ -397,7 +397,7 @@ extracted from the display path. That makes the *new* windowing math
 directly unit-testable in `tests/test_firmware.c` — deterministic, no
 pthread/timing dependency at all — rather than only checkable via the
 worker-thread harness (which, per Finding 1's own caveat, can't validate
-real-world timing anyway). Re-run `tests/analyze_gsr_filtering.c` after
+real-world timing anyway). Re-run `tests/benchmarks/analyze_gsr_filtering.c` after
 this change to see the new notch shape and confirm it's actually wider
 and less fragile than the current rectangular one, not just theoretically.
 

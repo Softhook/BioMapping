@@ -35,7 +35,7 @@ const { GSRAnalyzer } = require('../analyzer.js');
 console.log('── Testing Peak Label Persistence & Store ──');
 
 // Load sample track CSV
-const csvPath = path.join(__dirname, '../../default_processed.csv');
+const csvPath = path.join(__dirname, '../default_processed.csv');
 let csvData = '';
 if (fs.existsSync(csvPath)) {
   csvData = fs.readFileSync(csvPath, 'utf8');
