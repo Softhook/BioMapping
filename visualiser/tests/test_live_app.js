@@ -799,3 +799,162 @@ test('_handleDisconnect: after a successful auto-reconnect, one BLE notification
   );
   assert.strictEqual(run(context, 'LiveState.gapCount'), 0, 'the duplicate is not a real gap');
 });
+
+// ==========================================================================
+// exportCsv() — the "Export CSV" button. Must emit docs/csv_schema.md's
+// canonical 11-column GPS+GSR schema with the two mandatory metadata lines,
+// and use the sentinel-correct empty string (not "NaN") for lat/lon on a
+// no-fix sample. Nothing covered this.
+// ==========================================================================
+
+// Captures the text exportCsv() hands to `new Blob([...])` and stops the
+// synthetic <a> click from reaching jsdom's unimplemented navigation.
+function captureCsvExport(window) {
+  const box = { text: null };
+  window.Blob = class { constructor(parts) { box.text = parts.join(''); } };
+  window.HTMLAnchorElement.prototype.click = () => {};
+  return box;
+}
+
+test('exportCsv: emits the canonical 11-column schema, both metadata lines, and sentinel-correct rows', () => {
+  const { window, context } = bootLive();
+  const csv = captureCsvExport(window);
+  run(context, 'Date.now = () => 1700000123456'); // -> epoch seconds 1700000123
+
+  run(context, `
+    LiveState.packets = [
+      { timestamp: 0.30, valid: true,  lat: 51.5074, lon: -0.1278,
+        hdop: 1.2, pdop: 1.8, sats: 9, fixType: 3, speedKts: 3.4, courseDeg: 270.0, gsrRaw: 1234.5 },
+      { timestamp: 12.60, valid: false, lat: NaN, lon: NaN,
+        hdop: 99.9, pdop: 99.9, sats: 0, fixType: 1, speedKts: 0, courseDeg: 0, gsrRaw: 800.0 },
+    ];
+  `);
+
+  run(context, 'exportCsv()');
+  const lines = csv.text.split('\n');
+
+  // docs/csv_schema.md §"Column Definitions" — GPS+GSR is exactly these 11.
+  assert.strictEqual(lines[0], '# RecordingStartTime:1700000111'); // 1700000123 - floor(12.60)
+  assert.strictEqual(lines[1], '# DeviceName:LiveStream');
+  assert.strictEqual(lines[2], 'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m');
+
+  // Valid fix: lat/lon to 7dp, DOP/speed/course/gsr to 1dp, sats+fix as ints,
+  // hacc_m always the trailing empty field (the wire packet never carries it).
+  assert.strictEqual(lines[3], '0.30,51.5074000,-0.1278000,1.2,1.8,9,3,3.4,270.0,1234.5,');
+  // No-fix sample: lat AND lon are the empty string, never "NaN"; every other
+  // column still present (docs/csv_schema.md §"GPS Column Sentinel Behaviour").
+  assert.strictEqual(lines[4], '12.60,,,99.9,99.9,0,1,0.0,0.0,800.0,');
+
+  // Trailing newline, and every data row carries exactly 11 fields (10 commas).
+  assert.strictEqual(lines[5], '');
+  for (const row of [lines[3], lines[4]]) {
+    assert.strictEqual(row.split(',').length, 11, `row has 11 fields: ${row}`);
+  }
+});
+
+test('exportCsv: RecordingStartTime is wall-clock-now minus the last packet\'s device uptime, floored', () => {
+  const { window, context } = bootLive();
+  const csv = captureCsvExport(window);
+  run(context, 'Date.now = () => 1_699_999_999_000'); // epoch seconds 1699999999
+  run(context, 'LiveState.packets = [{ timestamp: 100.9, valid: false, lat: NaN, lon: NaN, hdop: 99.9, pdop: 99.9, sats: 0, fixType: 0, speedKts: 0, courseDeg: 0, gsrRaw: 1 }]');
+
+  run(context, 'exportCsv()');
+
+  // 1699999999 - floor(100.9) == 1699999899
+  assert.match(csv.text, /^# RecordingStartTime:1699999899\n/);
+});
+
+test('exportCsv: a session with no packets still produces just the header (no throw, no rows)', () => {
+  const { window, context } = bootLive();
+  const csv = captureCsvExport(window);
+  run(context, 'Date.now = () => 1700000000000');
+
+  run(context, 'exportCsv()');
+
+  assert.strictEqual(
+    csv.text,
+    '# RecordingStartTime:1700000000\n# DeviceName:LiveStream\n'
+    + 'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m\n',
+  );
+});
+
+// ==========================================================================
+// updateLiveMap() — GPS quality gating (live.html:861). LIVE_MAX_HDOP is
+// 2.0, tighter than the firmware's permissive 5.0 logging gate; fixType 1
+// (no fix) is rejected; a gap breaks the drawn trail without stopping
+// tracking. Only "first fix zooms" was covered.
+// ==========================================================================
+
+const FIX = (over = {}) => JSON.stringify({
+  valid: true, lat: 51.5074, lon: -0.1278, gsrRaw: 1000,
+  hdop: 1.0, pdop: 1.5, fixType: 3, sats: 9, gap: false, ...over,
+});
+const segLatLngs = (context) =>
+  runJSON(context, 'liveMap._layers.filter(l => l.latlngs).map(l => l.latlngs)');
+
+test('updateLiveMap: a fix worse than LIVE_MAX_HDOP (2.0) is dropped — no segment, and it does not advance the trail anchor', () => {
+  const { context } = bootLive();
+  run(context, 'showMap()');
+
+  run(context, `updateLiveMap(${FIX({ lat: 51.0, lon: 0.0 })})`);       // 1st good fix: view + marker, no segment
+  run(context, `updateLiveMap(${FIX({ lat: 52.0, lon: 1.0, hdop: 5.0 })})`); // rejected
+
+  assert.strictEqual(segLatLngs(context).length, 0, 'the high-HDOP fix drew nothing');
+  assert.deepStrictEqual(runJSON(context, 'liveLastLatLng'), [51.0, 0.0], 'trail anchor unmoved by the rejected fix');
+
+  run(context, `updateLiveMap(${FIX({ lat: 51.5, lon: 0.5 })})`);       // next good fix
+  const segs = segLatLngs(context);
+  assert.strictEqual(segs.length, 1);
+  assert.deepStrictEqual(segs[0], [[51.0, 0.0], [51.5, 0.5]], 'segment bridges the two GOOD fixes, skipping the rejected one');
+});
+
+test('updateLiveMap: fixType gating — 1 (no fix) is rejected, 0 (unknown) and >=2 are accepted', () => {
+  const { context } = bootLive();
+  run(context, 'showMap()');
+
+  run(context, `updateLiveMap(${FIX({ lat: 51.0, lon: 0.0, fixType: 3 })})`); // anchor
+  run(context, `updateLiveMap(${FIX({ lat: 51.1, lon: 0.1, fixType: 1 })})`); // rejected
+  assert.strictEqual(segLatLngs(context).length, 0);
+  assert.deepStrictEqual(runJSON(context, 'liveLastLatLng'), [51.0, 0.0]);
+
+  run(context, `updateLiveMap(${FIX({ lat: 51.2, lon: 0.2, fixType: 0 })})`); // accepted (unknown)
+  run(context, `updateLiveMap(${FIX({ lat: 51.3, lon: 0.3, fixType: 2 })})`); // accepted (2D)
+  assert.deepStrictEqual(segLatLngs(context), [
+    [[51.0, 0.0], [51.2, 0.2]],
+    [[51.2, 0.2], [51.3, 0.3]],
+  ]);
+});
+
+test('updateLiveMap: a gap fix breaks the drawn trail (no segment, nothing queued for recolor) but tracking resumes after it', () => {
+  const { context } = bootLive();
+  run(context, 'showMap()');
+
+  run(context, `updateLiveMap(${FIX({ lat: 51.0, lon: 0.0 })})`);            // anchor
+  run(context, `updateLiveMap(${FIX({ lat: 51.1, lon: 0.1 })})`);            // segment 1
+  run(context, `updateLiveMap(${FIX({ lat: 51.2, lon: 0.2, gap: true })})`); // gap: draw nothing
+
+  assert.strictEqual(segLatLngs(context).length, 1, 'the gap interval itself gets no line');
+  assert.strictEqual(run(context, 'pendingPhasicSegments.length'), 1, 'nothing new queued for phasic recolor across the gap');
+  assert.deepStrictEqual(runJSON(context, 'liveLastLatLng'), [51.2, 0.2], 'but the anchor moves to the gap point');
+
+  run(context, `updateLiveMap(${FIX({ lat: 51.3, lon: 0.3 })})`);            // resumes
+  assert.deepStrictEqual(
+    segLatLngs(context).at(-1), [[51.2, 0.2], [51.3, 0.3]],
+    'tracking picks up from the gap point, not bridged across the gap',
+  );
+});
+
+test('updateLiveMap: an invalid / NaN-position sample is a no-op — no marker, no segment, anchor untouched', () => {
+  const { context } = bootLive();
+  run(context, 'showMap()');
+  run(context, `updateLiveMap(${FIX({ lat: 51.0, lon: 0.0 })})`); // anchor
+  const before = runJSON(context, 'liveLastLatLng');
+
+  run(context, `updateLiveMap(${FIX({ valid: false, lat: 51.9, lon: 0.9 })})`);
+  // NaN can't survive JSON.stringify (-> null), so spell this call out so a
+  // real NaN reaches updateLiveMap()'s isNaN() guard.
+  run(context, 'updateLiveMap({ valid: true, lat: NaN, lon: NaN, gsrRaw: 1000, hdop: 1.0, pdop: 1.5, fixType: 3, sats: 9, gap: false })');
+
+  assert.strictEqual(segLatLngs(context).length, 0);
+  assert.deepStrictEqual(runJSON(context, 'liveLastLatLng'), before);
+});
