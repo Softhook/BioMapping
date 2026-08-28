@@ -779,123 +779,6 @@ void test_nmea_parsing() {
     printf("  -> Pass\n");
 }
 
-// ── Event-loop timing mock-up for GUI-delay investigation ─────────────
-// Pure host-side simulation: no Flipper SDK calls. Models the same
-// wall-clock tick_dt measurement used in biomap_session.c:
-// tick_dt = now_at_tick_start - last_tick_start.
-//
-// The scheduler posts ticks every 100 ms (TICK_HZ=10), while work on the
-// app thread can overrun. When one iteration overruns, subsequent ticks run
-// back-to-back (short dt) until the loop catches up — exactly the signature
-// seen in field data.
-typedef struct {
-    uint32_t tick_dt_ms[32];
-    int count;
-} MockTickSeries;
-
-static MockTickSeries simulate_tick_loop(
-    int ticks,
-    uint32_t base_work_ms,
-    uint32_t redraw_period_ticks,
-    uint32_t redraw_cost_ms,
-    bool with_backlog_feedback) {
-    MockTickSeries out = {0};
-    assert(ticks > 0 && ticks <= (int)(sizeof(out.tick_dt_ms) / sizeof(out.tick_dt_ms[0])));
-
-    const uint32_t tick_period_ms = 100;
-    uint32_t now_ms = 0;
-    uint32_t next_tick_due_ms = tick_period_ms;
-    uint32_t last_tick_start_ms = 0;
-
-    // Simple UART-backlog model: bytes accumulate while app thread is busy;
-    // each tick drains a capped amount, and the drain time itself consumes
-    // app-thread time (positive feedback during overruns).
-    uint32_t backlog_bytes = 0;
-    const uint32_t rx_rate_bytes_per_ms = with_backlog_feedback ? 10 : 3;
-    const uint32_t drain_cap_bytes = with_backlog_feedback ? 1200 : 300;
-    const uint32_t drain_cost_per_100_bytes = with_backlog_feedback ? 20 : 8;
-
-    for(int i = 0; i < ticks; i++) {
-        if(now_ms < next_tick_due_ms) now_ms = next_tick_due_ms;
-
-        uint32_t tick_start = now_ms;
-        out.tick_dt_ms[out.count++] =
-            last_tick_start_ms ? (tick_start - last_tick_start_ms) : 0;
-        last_tick_start_ms = tick_start;
-
-        uint32_t work_ms = base_work_ms;
-        if(((uint32_t)(i + 1) % redraw_period_ticks) == 0) {
-            work_ms += redraw_cost_ms;
-        }
-
-        if(with_backlog_feedback) {
-            backlog_bytes += work_ms * rx_rate_bytes_per_ms;
-            uint32_t drain = backlog_bytes > drain_cap_bytes ? drain_cap_bytes : backlog_bytes;
-            backlog_bytes -= drain;
-            work_ms += ((drain + 99) / 100) * drain_cost_per_100_bytes;
-        }
-
-        now_ms += work_ms;
-        next_tick_due_ms += tick_period_ms;
-    }
-
-    return out;
-}
-
-static void test_gui_mockup_2hz_redraw_catchup_signature(void) {
-    printf("Running test_gui_mockup_2hz_redraw_catchup_signature...\n");
-
-    // Every 5th tick (2 Hz) we inject a heavy redraw cost. Expect:
-    // one long dt spike followed by short catch-up dts.
-    MockTickSeries s = simulate_tick_loop(
-        12,   // ticks
-        10,   // base work ms
-        5,    // redraw period
-        340,  // heavy redraw cost
-        false // no backlog feedback in this test
-    );
-
-    // Indexing by tick number (0-based array):
-    // tick 6 start should show a large dt due to tick 5 overrun.
-    assert(s.tick_dt_ms[5] >= 300); // long stall observed at next tick start
-    // Catch-up ticks should be much shorter than nominal 100 ms.
-    assert(s.tick_dt_ms[6] < 60);
-    assert(s.tick_dt_ms[7] < 60);
-    // Then the cadence should recover toward nominal spacing.
-    assert(s.tick_dt_ms[9] >= 90 && s.tick_dt_ms[9] <= 130);
-
-    printf("  dt sequence:");
-    for(int i = 0; i < s.count; i++) printf(" %u", (unsigned)s.tick_dt_ms[i]);
-    printf("\n  -> Pass\n");
-}
-
-static void test_gui_mockup_backlog_smears_stall_across_ticks(void) {
-    printf("Running test_gui_mockup_backlog_smears_stall_across_ticks...\n");
-
-    // Same 2 Hz redraw cost, but now add a drain/backlog feedback model.
-    // Expect a smeared burst: multiple consecutive elevated dts after an
-    // overrun, not just one isolated spike.
-    MockTickSeries s = simulate_tick_loop(
-        15,
-        12,
-        5,
-        260,
-        true
-    );
-
-    int elevated_after_spike = 0;
-    for(int i = 5; i <= 8; i++) {
-        if(s.tick_dt_ms[i] >= 140) elevated_after_spike++;
-    }
-    printf("  dt sequence:");
-    for(int i = 0; i < s.count; i++) printf(" %u", (unsigned)s.tick_dt_ms[i]);
-    printf("\n");
-    // At least two elevated ticks in the post-redraw window indicates
-    // smear/echo rather than a single clean spike.
-    assert(elevated_after_spike >= 2);
-    printf("  -> Pass\n");
-}
-
 // ── Calibration persistence constants (mirrored from biomap.h) ──────
 #define CAL_MAGIC    0x424D4341u
 #define CAL_VERSION  2
@@ -1418,9 +1301,7 @@ int main() {
     test_csv_header_matches_row_column_count();
     test_batch_printf_rollback_on_truncation();
     test_nmea_parsing();
-    test_gui_mockup_2hz_redraw_catchup_signature();
-    test_gui_mockup_backlog_smears_stall_across_ticks();
 
-    printf("\nAll 35 firmware unit tests passed successfully!\n");
+    printf("\nAll 33 firmware unit tests passed successfully!\n");
     return 0;
 }

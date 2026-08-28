@@ -20,7 +20,6 @@ tests/test_firmware.c|-Ivendor/minmea
 tests/test_gps_uart.c|-Imodules -Ivendor/minmea -Itests/shims
 tests/test_gsr_sensor.c|-pthread -Imodules -Itests/shims
 tests/test_sd_logger.c|-Imodules -Itests/shims
-tests/test_sd_logger_prealloc.c|-Itests/shims
 tests/test_em_scan_cal.c|-Imodules -Itests/shims
 tests/test_bt_stream.c|-Imodules -Itests/shims
 tests/benchmarks/analyze_gsr_filtering.c|

@@ -127,8 +127,8 @@ firmware/tests/
   test_gps_uart.c                — gps_uart.c host tests, via the shims below
   test_gsr_sensor.c              — gsr_sensor.c host tests, real worker thread + all
   test_sd_logger.c               — sd_logger.c host tests, via an in-memory
-                                   virtual filesystem (storage_mock.c)
-  test_sd_logger_prealloc.c     — one-shot log-file pre-allocation (BIOMAP_SD_PREALLOC)
+                                   virtual filesystem (storage_mock.c); includes
+                                   log-file pre-allocation (BIOMAP_SD_PREALLOC)
   test_em_scan_cal.c            — em_scan_cal.c: RF calibration validation + persist/load
   test_bt_stream.c              — bt_stream.c: profile start/stop, connect-status
                                    callback, send-or-drop, packet packing (BLE mock shims)
@@ -210,10 +210,10 @@ Approximate test counts — the exact numbers drift with each addition; run
 
 | File | Touches hardware | Host-tested |
 |---|---|---|
-| `biomap_pipeline.c` | No | ✅ `tests/test_firmware.c` (~35 tests) |
+| `biomap_pipeline.c` | No | ✅ `tests/test_firmware.c` (~33 tests) |
 | `modules/gps_uart.c` | Yes (`furi_hal_serial_*`) | ✅ `tests/test_gps_uart.c` (~25 tests) |
 | `modules/gsr_sensor.c` | Yes (`furi_hal_i2c_*`, real `FuriThread`) | ✅ `tests/test_gsr_sensor.c` (~31 tests) + a ThreadSanitizer pass |
-| `modules/sd_logger.c` | Yes (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (~20 tests) + `tests/test_sd_logger_prealloc.c` (~5) |
+| `modules/sd_logger.c` | Yes (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (~20 tests, includes `BIOMAP_SD_PREALLOC`) |
 | `modules/em_scan_cal.c` | No (pure calc + Storage for persist) | ✅ `tests/test_em_scan_cal.c` (~5 tests) |
 | `modules/bt_stream.c` | Yes (`Bt`/`ble_profile_serial_*`) | ✅ `tests/test_bt_stream.c` (~13 tests, BLE mock shims) |
 | `modules/em_scan_rf.c` | Yes (CC1101 SPI) | ❌ (SPI-bound; RF pacing verified on-device — see `archive/gps_rf_mutex_status.md`) |

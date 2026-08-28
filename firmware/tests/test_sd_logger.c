@@ -385,12 +385,10 @@ static void test_sd_logger_continuity_counters_track_pressure(void) {
     printf("  -> Pass\n");
 }
 
-// 2026-08-05: BIOMAP_SD_PREALLOC (biomap_config.h) — the real, wired-in
-// version of the standalone experiment in tests/test_sd_logger_prealloc.c.
-// That file prototyped the seek+write+truncate mechanics in isolation;
-// these tests prove sd_logger_start()/sd_logger_stop() actually use them
-// correctly, end to end, through the real production code path — see
-// docs/archive/gps_rf_mutex_status.md's "option E" entries.
+// BIOMAP_SD_PREALLOC (biomap_config.h): the seek+write+truncate log-file
+// pre-allocation. These tests prove sd_logger_start()/sd_logger_stop()
+// use it correctly, end to end, through the real production code path —
+// see docs/archive/gps_rf_mutex_status.md's "option E" entries.
 static void test_sd_logger_start_preallocates_file(void) {
     printf("Running test_sd_logger_start_preallocates_file...\n");
     Storage* storage = storage_mock_alloc();
