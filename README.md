@@ -297,3 +297,8 @@ Filtering, peak detection, and the GPS quality filter are all adjustable in the 
 ## CSV Schema
 
 [`docs/csv_schema.md`](docs/csv_schema.md) is the canonical, versioned definition of every column and sentinel value, shared by the firmware writer and both visualiser pages.
+
+## Licence## 
+Bio Mapping is open for community, artistic, and educational use under the **Bio Mapping Community Licence 1.0**. 
+
+In short: You are free to build your own Bio Mapping devices for personal use, research, and workshops (including charging participants for materials). You cannot manufacture or sell Bio Mapping hardware or software commercially without written permission. See `LICENCE.md` for full details.
