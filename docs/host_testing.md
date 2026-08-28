@@ -25,6 +25,17 @@ Equivalent env toggles:
 
 Run `./firmware/run_tests.sh --help` for all options.
 
+## IDE IntelliSense for the test files
+
+`compile_commands.json` files are git-ignored (machine-specific paths). ufbt
+writes `firmware/.vscode/compile_commands.json` for the FAP sources on every
+build; for the host tests, run once after cloning:
+
+- `./firmware/tests/gen_compile_commands.sh`
+
+Re-run it whenever a `tests/` or `tests/shims/` file is added or `run_tests.sh`'s
+`-I` flags change, then "C/C++: Reset IntelliSense Database" in VSCode.
+
 There are two different techniques in play, depending on whether the file
 touches hardware:
 

@@ -9,3 +9,12 @@ build/
 dist/
 .DS_Store
 node_modules/
+
+# IDE integration — generated locally, machine-specific paths, never committed.
+# ufbt regenerates firmware/.vscode/compile_commands.json on every build;
+# firmware/tests/compile_commands.json is produced by tests/gen_compile_commands.sh
+compile_commands.json
+
+# Flipper build artefacts (also covered by build/ and dist/ above)
+*.fap
+*.elf
