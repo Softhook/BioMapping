@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Christian Nold
+// Licensed under the Bio Mapping Community Licence 1.0.
+// See LICENCE.md in the project root for terms.
+
 // Bio Mapping — app entry, GPS hot-start, and timestamp formatting.
 #include "biomap.h"
 

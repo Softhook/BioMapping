@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Christian Nold
+// Licensed under the Bio Mapping Community Licence 1.0.
+// See LICENCE.md in the project root for terms.
+
 // GSR/EDA Signal Analysis Engine with GPS coordinate parsing and interpolation
 // Handles variable-rate (10 Hz GSR, up to 5 Hz GPS) CSV files.
 //
