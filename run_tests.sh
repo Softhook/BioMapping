@@ -87,7 +87,7 @@ gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_gps_uart \
 
 echo
 echo "== test_gsr_sensor (autoranging / TIA / disconnect debounce) =="
-gcc -Wall -Wextra -I . -I modules -I em_scan -I tests/shims -o build/test_gsr_sensor \
+gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_gsr_sensor \
     tests/test_gsr_sensor.c modules/gsr_sensor.c \
     tests/shims/furi_hal_mock.c -lm -lpthread
 ./build/test_gsr_sensor
@@ -107,7 +107,7 @@ if [ "$RUN_TSAN" = "yes" ]; then
     # this file's own `furi_test_tick` global did, both found by this exact
     # pass during the 2026-07-30 mutex review and fixed by making them
     # _Atomic). Keep this passing whenever gsr_sensor.c's threading changes.
-    gcc -fsanitize=thread -g -O1 -I . -I modules -I em_scan -I tests/shims -o build/test_gsr_sensor_tsan \
+    gcc -fsanitize=thread -g -O1 -I . -I modules -I tests/shims -o build/test_gsr_sensor_tsan \
         tests/test_gsr_sensor.c modules/gsr_sensor.c \
         tests/shims/furi_hal_mock.c -lm -lpthread
     ./build/test_gsr_sensor_tsan

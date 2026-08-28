@@ -93,7 +93,7 @@ static void em_scan_rf_tune_and_warmup(int band_index) {
     // and the async-serial preset it loads should bypass FIFO buffering
     // entirely, so this shouldn't matter — but flush_rx() is a cheap,
     // idempotent strobe with no downside, and a walk-crash investigation
-    // raised RX FIFO state as a hypothetical (em_scan_rf_crash_investigation.md).
+    // raised RX FIFO state as a hypothetical.
     furi_hal_subghz_flush_rx();
     // _and_path (not plain set_frequency) — this also switches the RF
     // matching network for the target band. Using plain set_frequency left

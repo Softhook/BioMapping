@@ -848,8 +848,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         // the entire parse.  We parse with a dedicated GPS mutex so the
         // GUI render thread is never blocked by NMEA parsing.
         //
-        // Deliberately does NOT call view_port_update() here (see
-        // em_scan_rf_crash_investigation.md's "GPS + RF" section). A single
+        // Deliberately does NOT call view_port_update() here. A single
         // GPS fix arrives as several NMEA sentences in a tight burst, so
         // calling it here fired view_port_update() many times within a few
         // milliseconds in has_gsr()==false modes — a rate no other mode

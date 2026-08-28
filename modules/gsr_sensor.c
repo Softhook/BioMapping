@@ -94,10 +94,10 @@ static inline float tia_counts_to_ns(float counts) {
 // Paces RF sampling within the worker loop to ~10 Hz instead of every ADC
 // iteration (~1-2 ms) — this worker has spare capacity relative to what the
 // ADC needs, but RF doesn't need anywhere near that resolution, and every
-// furi_hal_subghz_* call is exposure to the unbounded SPI busy-wait bug
-// documented in em_scan_rf_crash_investigation.md (furi_hal_spi_bus_end_txrx()
-// has no timeout). Cutting call frequency ~50-100x is the only mitigation
-// available from app code for that bug — reducing exposure, not fixing it.
+// furi_hal_subghz_* call is exposure to the unbounded SPI busy-wait bug in
+// furi_hal_spi_bus_end_txrx() (no timeout). Cutting call frequency ~50-100x
+// is the only mitigation available from app code for that bug — reducing
+// exposure, not fixing it.
 #define RF_SAMPLE_INTERVAL_MS 100
 
 // Normalisation multiplier factors to pga_index=5 (±0.256 V) reference.
@@ -1138,8 +1138,8 @@ void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float o
 // only proceeds once the worker has demonstrably left the SPI region,
 // rather than after a fixed delay chosen to probably be long enough.
 // The bounded timeout below is a fallback for the one case no timeout
-// can fix — the worker wedged forever in the documented unbounded SPI
-// busy-wait bug (em_scan_rf_crash_investigation.md) — where we proceed
+// can fix — the worker wedged forever in the unbounded SPI busy-wait bug
+// in furi_hal_spi_bus_end_txrx() (no timeout) — where we proceed
 // anyway rather than hang the caller forever waiting for an ack that will
 // never come; that residual case was already unguarded before this
 // function existed at all, so this is strictly a narrowing, not a
