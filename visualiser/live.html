@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="gsr_filter.js"></script>
+<script src="live_binary_parser.js"></script>
 <style>
   :root {
     --bg: #0b0e11;
@@ -196,71 +197,10 @@ const GpsPipeline = {
 // the firmware's permissive 5.0 logging gate).
 const LIVE_MAX_HDOP = 2.0;
 
-// ==========================================================================
-// GSRLiveBinaryParser — copied from visualiser/live_binary_parser.js
-// (source of truth; that file's own tests cover this decoder directly —
-// see visualiser/tests/test_live_binary_parser.js). Decodes the 45-byte
-// packets from docs/bluetooth_serial_investigation.md §5.
-// ==========================================================================
-const LIVE_PACKET_SIZE = 45;
-const LIVE_MAGIC_0 = 0x42;
-const LIVE_MAGIC_1 = 0x4d;
-
-class GSRLiveBinaryParser {
-  constructor(onPacketParsed) {
-    this.onPacketParsed = onPacketParsed;
-    this.buffer = new Uint8Array(0);
-  }
-  append(newData) {
-    const combined = new Uint8Array(this.buffer.length + newData.length);
-    combined.set(this.buffer, 0);
-    combined.set(newData, this.buffer.length);
-    this.buffer = combined;
-    this._processQueue();
-  }
-  _processQueue() {
-    for (;;) {
-      if (this.buffer.length < LIVE_PACKET_SIZE) return;
-      if (this.buffer[0] === LIVE_MAGIC_0 && this.buffer[1] === LIVE_MAGIC_1) {
-        this._parsePacket(this.buffer.subarray(0, LIVE_PACKET_SIZE));
-        this.buffer = this.buffer.subarray(LIVE_PACKET_SIZE);
-        continue;
-      }
-      let syncIndex = -1;
-      for (let i = 1; i < this.buffer.length - 1; i++) {
-        if (this.buffer[i] === LIVE_MAGIC_0 && this.buffer[i + 1] === LIVE_MAGIC_1) {
-          syncIndex = i;
-          break;
-        }
-      }
-      if (syncIndex !== -1) {
-        this.buffer = this.buffer.subarray(syncIndex);
-        continue;
-      }
-      this.buffer = this.buffer[this.buffer.length - 1] === LIVE_MAGIC_0
-        ? new Uint8Array([LIVE_MAGIC_0])
-        : new Uint8Array(0);
-      return;
-    }
-  }
-  _parsePacket(bytes) {
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const valid = view.getUint8(44);
-    this.onPacketParsed({
-      timestamp: view.getUint32(2, true) / 1000.0,
-      lat: valid ? view.getFloat64(6, true) : NaN,
-      lon: valid ? view.getFloat64(14, true) : NaN,
-      gsrRaw: view.getFloat32(22, true),
-      hdop: view.getFloat32(26, true),
-      pdop: view.getFloat32(30, true),
-      speedKts: view.getFloat32(34, true),
-      courseDeg: view.getFloat32(38, true),
-      sats: view.getUint8(42),
-      fixType: view.getUint8(43),
-      valid: !!valid,
-    });
-  }
-}
+// GSRLiveBinaryParser (the 45-byte packet decoder from
+// docs/bluetooth_serial_investigation.md §5) is loaded from
+// visualiser/live_binary_parser.js in the <head> — its own tests cover it
+// directly, see visualiser/tests/test_live_binary_parser.js.
 
 // ==========================================================================
 // LiveState — connection status + accumulated packets + a listener/emit()

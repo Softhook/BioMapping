@@ -6,9 +6,10 @@
  * fetch, canvas 2D, Wake Lock, Fullscreen), then run the real script text
  * in that DOM's context.
  *
- * live.html's script is a single inline block, not separate <script src>
- * files, so unlike boot_app.js there's no SCRIPT_ORDER — it's extracted
- * from the HTML and run once. Its top-level `const`/`class`/`function`
+ * live.html's own logic is a single inline block (its only <script src>
+ * deps are gsr_filter.js and live_binary_parser.js), so unlike boot_app.js
+ * there's no SCRIPT_ORDER — the two deps then the inline block are
+ * extracted and run in order. Its top-level `const`/`class`/`function`
  * declarations (LiveState, GSRLiveBluetoothManager, resetSession,
  * goToLatLon, normalizeTileCacheUrl, ...) are NOT copied onto `window`
  * (plain classic-script `let`/`const` never is) — reach them through the
@@ -40,6 +41,11 @@ const LIVE_HTML_PATH = path.join(__dirname, '..', '..', 'live.html');
 // classic <script>), so it can't be require()'d; running its real source
 // in this same vm context first reproduces that real load order exactly.
 const GSR_FILTER_PATH = path.join(__dirname, '..', '..', 'gsr_filter.js');
+// Also loaded via <script src> in live.html's <head>, before the inline
+// block — the inline script does `new GSRLiveBinaryParser(...)` assuming
+// it's already a page-level global. Run its real source in the vm context
+// first, same as gsr_filter.js, to reproduce that load order.
+const LIVE_BINARY_PARSER_PATH = path.join(__dirname, '..', '..', 'live_binary_parser.js');
 
 function makeLeafletMock() {
   class Layer {
@@ -221,6 +227,7 @@ function bootLive() {
 
   const context = vm.createContext(window);
   vm.runInContext(fs.readFileSync(GSR_FILTER_PATH, 'utf8'), context, { filename: 'gsr_filter.js' });
+  vm.runInContext(fs.readFileSync(LIVE_BINARY_PARSER_PATH, 'utf8'), context, { filename: 'live_binary_parser.js' });
   vm.runInContext(inlineScriptMatch[1], context, { filename: 'live.html (inline script)' });
 
   return { window, document: window.document, context };

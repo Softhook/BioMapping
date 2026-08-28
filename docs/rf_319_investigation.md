@@ -26,7 +26,7 @@ Below is the structured list of files that would need modifications:
 
 ### A. Flipper Zero Firmware (C)
 
-#### [MODIFY] [`modules/em_scan_rf.h`](file:///Users/softhook/Documents/GitHub/BioMapping/firmware/modules/em_scan_rf.h)
+#### [MODIFY] [`modules/em_scan_rf.h`](../firmware/modules/em_scan_rf.h)
 * Bump `EM_SCAN_NUM_FREQS` from `3` to `4`.
 * Update documentation regarding the added band.
 
@@ -35,7 +35,7 @@ Below is the structured list of files that would need modifications:
 +#define EM_SCAN_NUM_FREQS 4
 ```
 
-#### [MODIFY] [`modules/em_scan_rf.c`](file:///Users/softhook/Documents/GitHub/BioMapping/firmware/modules/em_scan_rf.c)
+#### [MODIFY] [`modules/em_scan_rf.c`](../firmware/modules/em_scan_rf.c)
 * Add `319000000` to the `em_scan_freq_hz` array.
 * Add `"319"` to the `em_scan_freq_label` array.
 
@@ -50,7 +50,7 @@ Below is the structured list of files that would need modifications:
  };
 ```
 
-#### [MODIFY] [`modules/em_scan_cal.h`](file:///Users/softhook/Documents/GitHub/BioMapping/firmware/modules/em_scan_cal.h)
+#### [MODIFY] [`modules/em_scan_cal.h`](../firmware/modules/em_scan_cal.h)
 * Bump `EM_SCAN_CAL_VERSION` from `3` to `4` (since the on-disk calibration struct size changes).
 
 ```diff
@@ -58,7 +58,7 @@ Below is the structured list of files that would need modifications:
 +#define EM_SCAN_CAL_VERSION        4           // Bumped: added 319 MHz, EM_SCAN_NUM_FREQS 3->4
 ```
 
-#### [MODIFY] [`modules/em_scan_cal.c`](file:///Users/softhook/Documents/GitHub/BioMapping/firmware/modules/em_scan_cal.c)
+#### [MODIFY] [`modules/em_scan_cal.c`](../firmware/modules/em_scan_cal.c)
 * Add a relaxed noise floor ceiling for 319 MHz (`-70.0f` dBm) to allow calibration to succeed despite antenna impedance mismatch.
 
 ```diff
@@ -68,7 +68,7 @@ Below is the structured list of files that would need modifications:
  };
 ```
 
-#### [MODIFY] [`biomap_config.h`](file:///Users/softhook/Documents/GitHub/BioMapping/biomap_config.h)
+#### [MODIFY] [`biomap_config.h`](../firmware/biomap_config.h)
 * Update CSV schemas to declare the `rssi_319` column in the headers.
 
 ```diff
@@ -83,7 +83,7 @@ Below is the structured list of files that would need modifications:
      "tick_dt_ms,gps_rx_drops,nmea_fail,gps_reinit_count,gsr_hz," \
 ```
 
-#### [MODIFY] [`biomap_session.c`](file:///Users/softhook/Documents/GitHub/BioMapping/biomap_session.c)
+#### [MODIFY] [`biomap_session.c`](../firmware/biomap_session.c)
 * Adjust `format_gps_csv_row` to format and append four RSSI values.
 
 ```diff
@@ -96,7 +96,7 @@ Below is the structured list of files that would need modifications:
          : 0;
 ```
 
-#### [MODIFY] [`biomap_render.c`](file:///Users/softhook/Documents/GitHub/BioMapping/biomap_render.c)
+#### [MODIFY] [`biomap_render.c`](../firmware/biomap_render.c)
 * **Left RF panel height adjustment (`draw_rf_panel_left`):**
   The vertical screen height available for the RF panel is 48 pixels (y=16 to y=64). With 3 bands, rows were 15px high with a 1px gap. To fit 4 bands, we must scale rows to **11px high** with a **1px gap** (`11 * 4 + 4 = 48`):
 
@@ -149,7 +149,7 @@ Below is the structured list of files that would need modifications:
 
 ### B. Unit & Integration Tests (C)
 
-#### [MODIFY] [`tests/test_firmware.c`](file:///Users/softhook/Documents/GitHub/BioMapping/firmware/tests/test_firmware.c)
+#### [MODIFY] [`tests/test_firmware.c`](../firmware/tests/test_firmware.c)
 * Expand the test's static mock array size to `4` elements to mirror the new band count.
 
 ```diff
@@ -161,7 +161,7 @@ Below is the structured list of files that would need modifications:
 
 ### C. Web Visualiser & Visualization (JS / HTML)
 
-#### [MODIFY] [`visualiser/analyzer.js`](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/analyzer.js)
+#### [MODIFY] [`visualiser/analyzer.js`](../visualiser/analyzer.js)
 * Detect `rssi_319` from the CSV headers and parse it.
 * Register `rssi_319` in the `BANDS` arrays for peak-prominence detection.
 * Dynamically include `rssi_319` in `GSRAnalyzer.calcEmFog()`.
@@ -171,7 +171,7 @@ Below is the structured list of files that would need modifications:
 const BANDS = ['rssi_300', 'rssi_315', 'rssi_319', 'rssi_434', 'rssi_446', 'rssi_815', 'rssi_868', 'rssi_915'];
 ```
 
-#### [MODIFY] [`visualiser/rf_fluid_renderer.js`](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/rf_fluid_renderer.js)
+#### [MODIFY] [`visualiser/rf_fluid_renderer.js`](../visualiser/rf_fluid_renderer.js)
 * Parse `rssi_319` from the nodes, compute its adaptive noise floors, and scale it within `_normDbm()`.
 * Map 319 MHz to a distinct visualization color when rendering individual layers. For example, use **Vibrant Amber/Yellow (255, 200, 0)**:
 
@@ -190,7 +190,7 @@ let min319 = Infinity, max319 = -Infinity;
 }
 ```
 
-#### [MODIFY] [`visualiser/index.html`](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/index.html)
+#### [MODIFY] [`visualiser/index.html`](../visualiser/index.html)
 * Add a select option to switch the fluid visualization mode to the 319 MHz channel:
 
 ```html
@@ -202,5 +202,5 @@ let min319 = Infinity, max319 = -Infinity;
 </select>
 ```
 
-#### [MODIFY] [`visualiser/map.js`](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/map.js)
+#### [MODIFY] [`visualiser/map.js`](../visualiser/map.js)
 * Update `updateLegend()` to draw the legend item for the 319 MHz channel when active.

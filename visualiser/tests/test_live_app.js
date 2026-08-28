@@ -9,7 +9,7 @@
  * repeat caching, a dead Reconnect button before any connection) rather
  * than re-deriving coverage of things already tested elsewhere:
  * live_binary_parser.js's own decoder tests (test_live_binary_parser.js)
- * cover the wire-format parsing that live.html's inline copy mirrors, and
+ * cover the wire-format parsing (live.html loads that file directly), and
  * map_colors.js/gps_pipeline.js's own tests cover the subsets live.html
  * copies from them.
  *

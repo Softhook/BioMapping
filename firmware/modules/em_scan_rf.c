@@ -133,7 +133,8 @@ void em_scan_rf_dwell_band(int band_index, float* out_peak_dbm) {
 // retune with a bare set_frequency() + rx() re-strobe): that froze the
 // device on the first sweep on real hardware — most likely
 // furi_hal_subghz_rx() spinning when strobed from an already-RX state. See
-// docs/rf_no_teardown_architecture_proposal.md for that abandoned approach.
+// docs/archive/rf_no_teardown_architecture_proposal.md for that abandoned
+// approach.
 //
 // The speed win doesn't need that trick: the old 300-900 ms cost came from
 // em_scan_rf_dwell_band()'s DWELL window (repeated RSSI polling per band),

@@ -1110,7 +1110,7 @@ static void test_rf_rssi_peak_ms_detects_slow_rssi_call(void) {
 // Was test_rf_retune_peak_ms_detects_slow_set_band_call, stubbed to a no-op
 // on 2026-08-04 when em_scan_rf_set_band()'s separate per-band retune call
 // was replaced by em_scan_rf_fast_sweep_snapshot() (see
-// docs/rf_no_teardown_architecture_proposal.md) — retune and RSSI-read
+// docs/archive/rf_no_teardown_architecture_proposal.md) — retune and RSSI-read
 // stopped being separate top-level calls the worker could time
 // independently, so rf_retune_peak_ms had nothing left to measure it.
 // Restored here now that em_scan_rf_fast_sweep_snapshot() reports its own

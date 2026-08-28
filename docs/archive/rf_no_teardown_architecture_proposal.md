@@ -16,7 +16,7 @@ The claimed benefit was reducing a 3-band RF sweep from **300–900 ms down to ~
 
 ## 1. Problem Statement: Current BioMapping Teardown Overhead
 
-BioMapping currently measures ambient radiofrequency energy across three Sub-GHz ISM bands (815 MHz, 868.35 MHz, and 915 MHz). In [`modules/em_scan_rf.c`](file:///Users/softhook/Documents/GitHub/BioMapping/modules/em_scan_rf.c), every frequency transition calls `em_scan_rf_tune_and_warmup()`:
+BioMapping currently measures ambient radiofrequency energy across three Sub-GHz ISM bands (815 MHz, 868.35 MHz, and 915 MHz). In [`modules/em_scan_rf.c`](../../firmware/modules/em_scan_rf.c), every frequency transition calls `em_scan_rf_tune_and_warmup()`:
 
 ```c
 // Current BioMapping Tuning Teardown Sequence (em_scan_rf.c)

@@ -241,7 +241,7 @@ if(!sent) {
 Flipper's stock serial profile doubles as the RPC transport used by the companion mobile app and
 qFlipper — per `serial_service.h`'s own comment, it "implements RPC over BLE, with flow control."
 It's one profile with an RPC-active flag (`ble_svc_serial_set_rpc_active`), not two competing
-services. This project's own `docs/todo.txt` notes the companion app isn't used, so this is a
+services. The companion mobile app isn't part of this project's normal workflow, so this is a
 low-priority edge case in practice, but worth a defensive check (skip streaming if RPC is
 reported active) rather than an assumption it can never happen — qFlipper itself can also open an
 RPC session over the same path.

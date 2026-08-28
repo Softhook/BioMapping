@@ -127,7 +127,7 @@ The filters can be tuned in the visualiser interface:
 
 ## 6. Direct Spatial Error (`hAcc`) Integration
 
-Measurement noise variance $R$ in the Kalman filter ([`gps_filter.js`](file:///Users/softhook/Documents/GitHub/BioMapping/visualiser/gps_filter.js)) now prefers the physical accuracy estimate over DOP-scaling when it's available:
+Measurement noise variance $R$ in the Kalman filter ([`gps_filter.js`](../visualiser/gps_filter.js)) now prefers the physical accuracy estimate over DOP-scaling when it's available:
 
 $$R_{\text{effective}} = \begin{cases} (\text{hacc\_m})^2 & \text{if hacc\_m valid (M10Q, post-fix)} \\ R_{\text{base}} \times \text{DOP}^2 & \text{otherwise (L76K, or pre-fix)} \end{cases}$$
 
