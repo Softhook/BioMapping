@@ -7,10 +7,10 @@
 //   1. Biometric GSR ADC sampling at 860 SPS with simple-mean oversampling and
 //      real-time TIA autoranging.
 //   2. SubGHz RF spectrum scanning (when enabled via gsr_sensor_set_rf_enabled),
-//      hopping through configured frequency bands (815/868/915 MHz) and
-//      tracking each band's per-dwell peak RSSI — paced to ~10 Hz (one
-//      frequency per pass) rather than every ADC iteration, using this
-//      thread's spare capacity without spawning a second thread.
+//      a single-pass RSSI snapshot across the configured frequency bands
+//      (815/868/915 MHz) via em_scan_rf_fast_sweep_snapshot() — paced to
+//      ~10 Hz rather than every ADC iteration, using this thread's spare
+//      capacity without spawning a second thread.
 //
 // Auto-ranging keeps the ADC reading in [12.5 %, 91.5 %] of full scale by
 // stepping the PGA gain in real time. The tick() normalises the reading
@@ -165,74 +165,26 @@ uint32_t gsr_sensor_get_stack_space(const GsrSensor* gsr);
 // fires.  For diagnostics.
 uint32_t gsr_sensor_get_consecutive_failures(const GsrSensor* gsr);
 
-// Peak-to-peak (max - min) of the raw normalised counts in the most
-// recent tick()'s averaging window.  A cheap, frequency-agnostic sense
-// of instantaneous signal/noise range.  For diagnostics.
-int32_t gsr_sensor_get_window_ptp(const GsrSensor* gsr);
-
-// Smallest gap (RTOS ticks, ~1 ms each) between two consecutive samples'
-// timestamps anywhere in the most recent window — general loop-pacing
-// regularity, not tied to any specific sample.  CAUTION: each timestamp
-// is a floor() of the real time taken, so a reading of N ticks is
-// consistent with a true minimum anywhere from ~(N-1) ms to ~(N+1) ms —
-// e.g. a reading of 2 straddles the ADS1115's ~1.16 ms conversion time
-// and doesn't cleanly confirm or rule out the "occasional fast loop
-// period" theory for the duplicate-rate finding on its own.  See
-// get_duplicate_gap_min_ticks() for the more direct version of this
-// question.  For diagnostics.
-uint32_t gsr_sensor_get_window_min_gap_ticks(const GsrSensor* gsr);
-
 // Smallest inter-read tick gap seen SPECIFICALLY at a sample that turned
 // out to be a duplicate (get_duplicate_rate()), over the same rolling
-// ~1 s window as get_worker_hz().  Unlike get_window_min_gap_ticks() (a
-// general per-window minimum that may not even be adjacent to a
-// duplicate), this directly correlates timing with the reads that were
-// actually stale.  Same tick-flooring caveat applies.  Returns
-// UINT32_MAX if no duplicates occurred in the most recent window (a real
-// value of 0 is itself meaningful and must stay distinguishable from "no
-// data"), or if unavailable.  For diagnostics.
+// ~1 s window as get_worker_hz().  Directly correlates timing with the
+// reads that were actually stale.  Each timestamp is a floor() of the
+// real time taken, so a reading of N ticks is consistent with a true
+// minimum anywhere from ~(N-1) ms to ~(N+1) ms.  Returns UINT32_MAX if
+// no duplicates occurred in the most recent window (a real value of 0 is
+// itself meaningful and must stay distinguishable from "no data"), or if
+// unavailable.  For diagnostics.
 uint32_t gsr_sensor_get_duplicate_gap_min_ticks(const GsrSensor* gsr);
 
-// Recovered amplitude (normalised-count units) at 50 Hz, from a direct
-// correlation against each raw sample's actual recorded timestamp (not
-// an assumed uniform rate) in the most recent window — a real, measured
-// answer to "how much mains-hum energy is actually present", as opposed
-// to the boxcar notch's rejection itself, which is a guaranteed property
-// of window duration and isn't separately measurable post-averaging.
-// NOT a Goertzel filter: real sample timing here is measurably uneven
-// (get_window_min_gap_ticks()) and Goertzel's resonant recurrence assumes
-// uniform spacing, which inflates the reported energy (a Goertzel version
-// once measured 103 counts of "50 Hz content" against a window whose total
-// peak-to-peak was only 40). See docs/gsr_filtering_analysis.md.  Reads
-// 0.0f if unavailable OR
-// if gsr_sensor_set_mains_hum_enabled() hasn't turned this on (off by
-// default).  For diagnostics.
-float gsr_sensor_get_mains_hum_mag(const GsrSensor* gsr);
-
-// Enables/disables the mains-hum correlator above — off by default. It's
-// the only per-tick diagnostic costing meaningfully more than a
-// comparison or two (2 trig calls per sample in the window, ~100/tick at
-// the ~50-sample window this typically runs with), so callers that don't
-// display it shouldn't pay for it every tick of every session. When
-// disabled, get_mains_hum_mag() reads 0.0f rather than a stale
-// last-computed value.  Thread-safe, same as set_calibration().
-void gsr_sensor_set_mains_hum_enabled(GsrSensor* gsr, bool enabled);
-
 // Number of PGA (autorange) changes applied in the most recent rolling
-// ~1 s window — same cadence as get_worker_hz().  Only counts automatic
-// autoranging changes, not manual gsr_sensor_lock_pga() calls, so a
-// nonzero value signals the input sitting near an autorange threshold
-// and flapping between ranges.  For diagnostics.
+// ~1 s window — same cadence as get_worker_hz().  A nonzero value signals
+// the input sitting near an autorange threshold and flapping between
+// ranges.  For diagnostics.
 uint32_t gsr_sensor_get_pga_change_count(const GsrSensor* gsr);
 
 // Update calibration parameters (thread-safe).  When active is true,
 // the raw counts are scaled by gain and offset-shifted before conductance conversion.
 void gsr_sensor_set_calibration(GsrSensor* gsr, bool active, float gain, float offset);
-
-// Lock PGA at a fixed index (0–5) to disable autoranging.  Pass -1 to unlock
-// and resume normal autoranging.  When locked, tick() still runs the ~100 ms
-// window mean but skips the PGA-switching decision.  Useful for hardware diagnostics.
-void gsr_sensor_lock_pga(GsrSensor* gsr, int8_t index);
 
 // Enable/disable SubGHz RF RSSI sampling on the background worker thread
 // (paced to ~10 Hz — see gsr_sensor.c's RF_SAMPLE_INTERVAL_MS). Not

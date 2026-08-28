@@ -1,8 +1,8 @@
-// Bio Mapping — GUI: input/timer callbacks, menus, options, converter flow.
+// Bio Mapping — GUI: input/timer callbacks, menus, options.
 //
 // Render callbacks (draw_graph, biomap_render_callback, menu_render,
-// options_render, conv_progress_render, conv_status_render) live in
-// biomap_render.c for separation of presentation from control flow.
+// options_render) live in biomap_render.c for separation of presentation
+// from control flow.
 #include "biomap.h"
 
 // ==========================================================================

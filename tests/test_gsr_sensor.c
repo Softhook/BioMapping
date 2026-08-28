@@ -395,15 +395,8 @@ static void test_duplicate_rate_reflects_stale_reads(void) {
     printf("  -> Pass\n");
 }
 
-// Sanity-checks the window ptp / mains-hum / PGA-oscillation / failure-
-// streak accessors, plus the mains-hum enable/disable gate. Doesn't
-// (can't, on host) validate real 50 Hz rejection — the mock produces a
-// constant value, not an oscillating signal — just confirms the
-// accessors run and give physically sensible results for a known
-// constant, mid-range, failure-free input.
-// mains_hum_mag, once enabled, operates on the DC-subtracted (centered)
-// signal. For a pure DC input (like this constant mock), subtracting the
-// mean leaves zero AC component, so get_mains_hum_mag() yields 0.0f.
+// Sanity-checks the PGA-oscillation and failure-streak accessors for a
+// known constant, mid-range, failure-free input.
 static void test_new_diagnostics_accessors(void) {
     printf("Running test_new_diagnostics_accessors...\n");
     furi_hal_i2c_mock_reset();
@@ -414,28 +407,16 @@ static void test_new_diagnostics_accessors(void) {
     assert(gsr_sensor_get_consecutive_failures(gsr) == 0);
 
     wait_for_more_reads(400);
-    furi_test_advance_tick(1001); // roll the ~1s window so worker_hz_cached is set
+    furi_test_advance_tick(1001); // roll the ~1s window so the cached rates update
+    gsr_sensor_tick(gsr);
     gsr_sensor_tick(gsr);
 
-    // Mains-hum correlator is off by default — must read exactly 0.0f,
-    // not a stale/leftover value, even though real samples exist.
-    assert(gsr_sensor_get_mains_hum_mag(gsr) == 0.0f);
-
-    gsr_sensor_set_mains_hum_enabled(gsr, true);
-    gsr_sensor_tick(gsr);
-
-    int32_t ptp = gsr_sensor_get_window_ptp(gsr);
-    float mains = gsr_sensor_get_mains_hum_mag(gsr);
-    uint32_t min_gap = gsr_sensor_get_window_min_gap_ticks(gsr);
     uint32_t pga_changes = gsr_sensor_get_pga_change_count(gsr);
     uint32_t fails = gsr_sensor_get_consecutive_failures(gsr);
 
-    printf("  ptp=%ld mains_hum_mag=%.4f min_gap_ticks=%lu pga_changes=%lu fails=%lu\n",
-           (long)ptp, (double)mains, (unsigned long)min_gap,
+    printf("  pga_changes=%lu fails=%lu\n",
            (unsigned long)pga_changes, (unsigned long)fails);
 
-    assert(ptp == 0);          // constant mock signal — no variation within the window
-    assert(mains < 0.01f);     // mean-subtracted correlation removes DC offset (0.0037 float noise vs 160,000 before)
     assert(pga_changes == 0);  // mid-range constant signal — no autorange triggered
     assert(fails == 0);        // no failures injected
 
@@ -533,26 +514,6 @@ static void test_autorange_down_on_saturation(void) {
     gsr_sensor_tick(gsr);
     printf("  pga_index=%d (expect 1)\n", gsr_sensor_get_pga_index(gsr));
     assert(gsr_sensor_get_pga_index(gsr) == 1);
-
-    gsr_sensor_free(gsr);
-    printf("  -> Pass\n");
-}
-
-static void test_pga_lock_suppresses_autorange(void) {
-    printf("Running test_pga_lock_suppresses_autorange...\n");
-    furi_hal_i2c_mock_reset();
-    furi_hal_i2c_mock_set_raw16(31000); // would range down hard if unlocked
-
-    GsrSensor* gsr = gsr_sensor_alloc();
-    assert(gsr != NULL);
-
-    gsr_sensor_lock_pga(gsr, 4);
-    assert(gsr_sensor_get_pga_index(gsr) == 4);
-
-    wait_for_more_reads(200);
-    for(int i = 0; i < 10; i++) gsr_sensor_tick(gsr);
-    printf("  pga_index=%d (expect 4, still locked)\n", gsr_sensor_get_pga_index(gsr));
-    assert(gsr_sensor_get_pga_index(gsr) == 4);
 
     gsr_sensor_free(gsr);
     printf("  -> Pass\n");
@@ -1391,7 +1352,6 @@ int main(void) {
     test_calibration_applies_gain_offset();
     test_autorange_up_on_low_signal();
     test_autorange_down_on_saturation();
-    test_pga_lock_suppresses_autorange();
     test_disconnect_debounce_low_signal();
     test_disconnect_debounce_realistic_open_circuit_noise();
     test_disconnect_debounce_ignores_calibration_offset();

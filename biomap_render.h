@@ -1,8 +1,8 @@
 // biomap_render.h — Canvas rendering callbacks for Bio Mapping ViewPorts.
 //
-// All shared types (ConvResult, MenuContext, OptionsContext) and screen
-// constants (MENU_COUNT, OPTIONS_COUNT) live in biomap.h — this header
-// declares only the draw-callback functions used by the GUI control layer.
+// All shared types (MenuContext, OptionsContext) and screen constants
+// (MENU_COUNT, OPTIONS_COUNT) live in biomap.h — this header declares only
+// the draw-callback functions used by the GUI control layer.
 
 #pragma once
 
