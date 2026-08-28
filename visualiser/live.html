@@ -263,6 +263,9 @@ class GSRLiveBluetoothManager {
     this.onStatusText = onStatusText || (() => {});
     this.parser = new GSRLiveBinaryParser((pkt) => LiveState.addPacket(pkt));
     this._reconnecting = false;
+    // Bound once so _subscribe() can removeEventListener the previous
+    // subscription before re-adding on a reconnect (see there).
+    this._onCharValue = (e) => this.parser.append(new Uint8Array(e.target.value.buffer));
   }
 
   // Show every nearby BLE device instead of filtering by namePrefix:'Flipper'
@@ -288,10 +291,17 @@ class GSRLiveBluetoothManager {
       await this._logDiscoveredServices(server);
       throw e;
     }
+    // Drop the listener from whatever we were subscribed to before re-adding
+    // it. On a reconnect getCharacteristic() hands back the SAME object, so
+    // without this each reconnect would stack another live listener and every
+    // notification would be parsed once per listener — duplicate packets, and
+    // (identical timestamp) bogus gaps. this._onCharValue is bound once in the
+    // constructor precisely so this remove/add pair can match.
+    if (this.characteristic) {
+      this.characteristic.removeEventListener('characteristicvaluechanged', this._onCharValue);
+    }
     this.characteristic = await service.getCharacteristic(BLE_RX_CHAR_UUID);
-    this.characteristic.addEventListener('characteristicvaluechanged', (e) => {
-      this.parser.append(new Uint8Array(e.target.value.buffer));
-    });
+    this.characteristic.addEventListener('characteristicvaluechanged', this._onCharValue);
     await this.characteristic.startNotifications();
   }
 

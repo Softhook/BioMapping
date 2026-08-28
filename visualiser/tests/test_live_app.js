@@ -40,6 +40,124 @@ function runJSON(context, expr) {
   return JSON.parse(JSON.stringify(vm.runInContext(expr, context)));
 }
 
+// One valid 45-byte wire packet (docs/archive/bluetooth_serial_investigation.md
+// §5). A compact copy of test_live_binary_parser.js's builder, kept local so
+// this file stays self-contained — the wire format is frozen (§5). Returns a
+// plain number[] so it crosses into the vm realm without an ArrayBuffer.
+function buildPacket({
+  timestampMs = 1000, lat = 51.5074, lon = -0.1278, gsrRaw = 1234.5,
+  hdop = 1.2, pdop = 1.8, speedKts = 3.4, courseDeg = 270.0,
+  sats = 9, fixType = 3, valid = 1,
+} = {}) {
+  const buf = new Uint8Array(45);
+  const view = new DataView(buf.buffer);
+  buf[0] = 0x42; buf[1] = 0x4d;
+  view.setUint32(2, timestampMs, true);
+  view.setFloat64(6, lat, true);
+  view.setFloat64(14, lon, true);
+  view.setFloat32(22, gsrRaw, true);
+  view.setFloat32(26, hdop, true);
+  view.setFloat32(30, pdop, true);
+  view.setFloat32(34, speedKts, true);
+  view.setFloat32(38, courseDeg, true);
+  buf[42] = sats; buf[43] = fixType; buf[44] = valid;
+  return Array.from(buf);
+}
+
+// A fake Web Bluetooth stack: navigator.bluetooth.requestDevice() ->
+// device.gatt.connect() -> server.getPrimaryService() -> getCharacteristic()
+// -> startNotifications(), plus hooks to fire a 'characteristicvaluechanged'
+// notification and a 'gattserverdisconnected' event. Only as faithful as
+// GSRLiveBluetoothManager's own call sequence needs — not a real GATT
+// implementation.
+//
+// opts.missingService      — getPrimaryService() always throws (UUID mismatch).
+// opts.reconnectFailures   — the first N _subscribe() calls AFTER the initial
+//                            connect() throw, to exercise _handleDisconnect()'s
+//                            retry loop. getCharacteristic() is the throw point
+//                            (getPrimaryService() succeeds), so this doesn't
+//                            also trip _logDiscoveredServices().
+function makeFakeBle(context, {
+  failRequestDevice = false, missingService = false, reconnectFailures = 0,
+} = {}) {
+  // Build the notification's DataView with the vm context's own typed-array
+  // constructors, so `new Uint8Array(e.target.value.buffer)` inside live.html
+  // consumes a same-realm ArrayBuffer.
+  const bytesToDataView = context.__bytesToDataView || (context.__bytesToDataView =
+    vm.runInContext('(bytes => new DataView(Uint8Array.from(bytes).buffer))', context));
+
+  const charHandlers = [];
+  const deviceHandlers = {};
+  let subscribeCalls = 0;   // getCharacteristic() calls == _subscribe() attempts
+  let subscribeGate = null; // when set, the next getCharacteristic() awaits it
+
+  const characteristic = {
+    addEventListener(type, fn) { if (type === 'characteristicvaluechanged') charHandlers.push(fn); },
+    removeEventListener(type, fn) {
+      if (type !== 'characteristicvaluechanged') return;
+      const i = charHandlers.indexOf(fn);
+      if (i !== -1) charHandlers.splice(i, 1);
+    },
+    async startNotifications() { return this; },
+  };
+  const service = {
+    async getCharacteristic() {
+      subscribeCalls++;
+      if (subscribeGate) { const g = subscribeGate; subscribeGate = null; await g; }
+      if (subscribeCalls > 1 && subscribeCalls <= 1 + reconnectFailures) {
+        throw new Error(`reconnect attempt ${subscribeCalls - 1} failed`);
+      }
+      return characteristic;
+    },
+  };
+  const server = {
+    async getPrimaryService() {
+      if (missingService) throw new Error('service not found');
+      return service;
+    },
+    async getPrimaryServices() { return [{ uuid: 'aaaa1111-0000-1000-8000-00805f9b34fb' }]; },
+  };
+  const device = {
+    gatt: { async connect() { return server; } },
+    addEventListener(type, fn) { deviceHandlers[type] = fn; },
+  };
+  return {
+    bluetooth: {
+      async requestDevice() {
+        if (failRequestDevice) throw new Error('user cancelled the device chooser');
+        return device;
+      },
+    },
+    fireNotification(byteArray) {
+      const value = bytesToDataView(byteArray);
+      charHandlers.forEach((fn) => fn({ target: { value } }));
+    },
+    fireDisconnect() {
+      if (deviceHandlers.gattserverdisconnected) deviceHandlers.gattserverdisconnected();
+    },
+    notificationHandlerCount: () => charHandlers.length,
+    subscribeCallCount: () => subscribeCalls,
+    // Blocks the NEXT getCharacteristic() until the returned function is
+    // called — lets a test hold _handleDisconnect() mid-attempt.
+    blockNextSubscribe() {
+      let release;
+      subscribeGate = new Promise((r) => { release = r; });
+      return release;
+    },
+  };
+}
+
+// Replaces the context's setTimeout with one that fires (near-)immediately
+// and records the delay it was asked for, so a test can await
+// _handleDisconnect()'s whole retry loop in ~no time and still assert the
+// real backoff schedule. Returns { delays, restore }.
+function recordingTimers(window) {
+  const delays = [];
+  const real = window.setTimeout;
+  window.setTimeout = (fn, ms) => { delays.push(ms); return real(fn, 0); };
+  return { delays, restore() { window.setTimeout = real; } };
+}
+
 // ==========================================================================
 // LiveState.addPacket() — gap detection
 // ==========================================================================
@@ -447,4 +565,237 @@ test('end-to-end: a walking session progressively repaints its older track segme
   assert.ok(result.pendingCount > 0, 'the most recent segments should still be waiting out the lag');
   assert.strictEqual(result.repaintedCount + result.pendingCount, result.totalSegments);
   assert.ok(result.oldestPendingAge < 8, `the oldest still-pending segment should be within PHASIC_COLOR_LAG_S, got ${result.oldestPendingAge}`);
+});
+
+// ==========================================================================
+// End-to-end BLE receive path: a Web Bluetooth notification -> the binary
+// parser -> LiveState.addPacket -> footer stats + live map. The parser
+// (test_live_binary_parser.js) and LiveState (above) are each covered in
+// isolation; nothing else exercises the join — GSRLiveBluetoothManager
+// ._subscribe() wiring the characteristic's 'characteristicvaluechanged'
+// event through to a drawn map segment.
+// ==========================================================================
+
+test('attemptConnect: a real BLE notification flows through the parser to LiveState, the footer, and the live map', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context);
+  window.navigator.bluetooth = ble.bluetooth;
+
+  run(context, 'showMap()'); // updateLiveMap() only draws once liveMap exists
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected');
+  assert.ok(
+    window.document.getElementById('connectOverlay').classList.contains('hidden'),
+    'a successful connect hides the connect overlay',
+  );
+  assert.strictEqual(
+    ble.notificationHandlerCount(), 1,
+    '_subscribe() should register exactly one characteristicvaluechanged listener',
+  );
+
+  // First fix: sets the map view and drops the position marker, no segment yet.
+  ble.fireNotification(buildPacket({ timestampMs: 300, lat: 51.5074, lon: -0.1278, gsrRaw: 1000, sats: 9, fixType: 3 }));
+
+  assert.strictEqual(run(context, 'LiveState.packets.length'), 1);
+  assert.strictEqual(window.document.getElementById('statPackets').textContent, 'Packets: 1');
+  assert.strictEqual(window.document.getElementById('statGps').textContent, 'GPS: 3D (9 sat)');
+  assert.strictEqual(window.document.getElementById('exportBtn').disabled, false);
+  assert.strictEqual(run(context, 'liveMap.getZoom()'), 18, 'first fix zooms to LIVE_ZOOM');
+  assert.strictEqual(
+    run(context, 'liveMap._layers.filter(l => l.options && l.options.radius).length'), 1,
+    'first fix creates the position marker',
+  );
+
+  // Second fix a cadence-step later, new position, no gap -> one track segment.
+  ble.fireNotification(buildPacket({ timestampMs: 600, lat: 51.5076, lon: -0.1276, gsrRaw: 1200, sats: 9, fixType: 3 }));
+
+  assert.strictEqual(run(context, 'LiveState.packets.length'), 2);
+  assert.strictEqual(run(context, 'LiveState.gapCount'), 0);
+  assert.strictEqual(
+    run(context, 'liveMap._layers.filter(l => l.latlngs).length'), 1,
+    'the second consecutive fix draws exactly one polyline segment',
+  );
+
+  run(context, "drawGraph(); LiveState.setStatus('disconnected')"); // render once, then stop the RAF loop
+  assert.match(window.document.getElementById('graphValue').textContent, /-?\d+ nS$/);
+});
+
+test('attemptConnect: an invalid (no-fix) notification still counts as a packet and updates stats, but draws nothing on the map', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context);
+  window.navigator.bluetooth = ble.bluetooth;
+
+  run(context, 'showMap()');
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+
+  ble.fireNotification(buildPacket({ timestampMs: 300, gsrRaw: 800, sats: 0, fixType: 1, valid: 0 }));
+
+  assert.strictEqual(run(context, 'LiveState.packets.length'), 1);
+  assert.strictEqual(window.document.getElementById('statGps').textContent, 'GPS: No fix');
+  assert.strictEqual(
+    run(context, 'liveMap._layers.filter(l => (l.options && l.options.radius) || l.latlngs).length'), 0,
+    'a no-fix sample must not place a marker or a segment',
+  );
+
+  run(context, "LiveState.setStatus('disconnected')");
+});
+
+test('attemptConnect: a service-UUID mismatch fails the connect and surfaces the discovered UUIDs, without marking the session connected', async () => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context, { missingService: true });
+  window.navigator.bluetooth = ble.bluetooth;
+
+  await run(context, 'attemptConnect()');
+
+  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
+  assert.ok(
+    !window.document.getElementById('connectOverlay').classList.contains('hidden'),
+    'a failed connect leaves the connect overlay up',
+  );
+  assert.strictEqual(ble.notificationHandlerCount(), 0, 'no characteristic was ever subscribed');
+  // _logDiscoveredServices() routes the discovery hint through onStatusText,
+  // which attemptConnect() mirrors into reconnectErr (connectErr is then
+  // overwritten by the thrown error's own message in the catch).
+  assert.match(
+    window.document.getElementById('reconnectErr').textContent, /Service UUID mismatch/,
+  );
+});
+
+// ==========================================================================
+// GSRLiveBluetoothManager._handleDisconnect() — the bounded auto-reconnect
+// loop behind a 'gattserverdisconnected' event (live.html ~L332). Its own
+// doc comment says an unbounded retry loop is "a documented way to make
+// requestDevice() itself stop responding afterward", so the attempt cap,
+// the backoff schedule, and the _reconnecting re-entrancy guard are all
+// load-bearing — and none of it was covered.
+// ==========================================================================
+
+// Yields the event loop until `pred()` is true (or `tries` runs out) — for
+// stepping through _handleDisconnect()'s awaits, which span a macrotask (the
+// recordingTimers setTimeout) plus several microtasks per attempt.
+async function settle(pred, tries = 200) {
+  for (let i = 0; i < tries && !pred(); i++) await new Promise((r) => setImmediate(r));
+}
+
+// Every test here reaches 'connected'/'reconnecting', which starts live.html's
+// requestAnimationFrame loop (jsdom's rAF is a non-unref'd timer) — a failing
+// assertion that skips the explicit reset would hang `npm test`. t.after()
+// runs regardless, so the loop always stops.
+function stopLoopAfter(t, context) {
+  t.after(() => { try { vm.runInContext("LiveState.setStatus('disconnected')", context); } catch { /* torn down */ } });
+}
+
+test('_handleDisconnect: retries then recovers — status ends "connected", loop stops early on the first successful re-subscribe', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context, { reconnectFailures: 2 }); // 2 fail, 3rd succeeds
+  window.navigator.bluetooth = ble.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+
+  const timers = recordingTimers(window);
+  await run(context, 'bleManager._handleDisconnect()');
+  timers.restore();
+
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected');
+  assert.strictEqual(run(context, 'bleManager._reconnecting'), false, 'the guard flag must be cleared on success');
+  // 1 initial connect + 3 reconnect attempts (fail, fail, succeed).
+  assert.strictEqual(ble.subscribeCallCount(), 4);
+  // Backoff waited before attempts 1..3 only — no wait after the success.
+  assert.deepStrictEqual(timers.delays, [500, 1000, 2000]);
+});
+
+test('_handleDisconnect: gives up after exactly 6 attempts, drops to "disconnected", and surfaces the last error via onStatusText', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context, { reconnectFailures: 99 }); // every reconnect fails
+  window.navigator.bluetooth = ble.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+
+  run(context, 'globalThis.__statusSeen = []; LiveState.on("status", (s) => globalThis.__statusSeen.push(s))');
+
+  const timers = recordingTimers(window);
+  await run(context, 'bleManager._handleDisconnect()');
+  timers.restore();
+
+  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
+  assert.strictEqual(run(context, 'bleManager._reconnecting'), false);
+  assert.strictEqual(ble.subscribeCallCount(), 1 + 6, 'exactly 6 reconnect attempts, then it stops');
+  // The cap: 500, 1000, 2000, 4000, then clamped at 8000.
+  assert.deepStrictEqual(timers.delays, [500, 1000, 2000, 4000, 8000, 8000]);
+
+  const seen = runJSON(context, 'globalThis.__statusSeen');
+  assert.deepStrictEqual(seen, ['reconnecting', 'disconnected'], 'one reconnecting, then one disconnected — no flicker');
+  assert.match(
+    window.document.getElementById('reconnectErr').textContent, /Auto-reconnect failed: reconnect attempt 6 failed/,
+  );
+});
+
+test('_handleDisconnect: a second gattserverdisconnected while a reconnect loop is already running is a no-op (the _reconnecting guard)', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context);
+  window.navigator.bluetooth = ble.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+  assert.strictEqual(ble.subscribeCallCount(), 1);
+
+  const timers = recordingTimers(window);
+  const releaseSubscribe = ble.blockNextSubscribe(); // hold the first reconnect mid-attempt
+
+  const firstLoop = run(context, 'bleManager._handleDisconnect()'); // don't await yet
+  await settle(() => ble.subscribeCallCount() === 2); // wait until it's blocked in getCharacteristic()
+
+  assert.strictEqual(run(context, 'bleManager._reconnecting'), true);
+  assert.strictEqual(run(context, 'LiveState.status'), 'reconnecting');
+  assert.strictEqual(ble.subscribeCallCount(), 2, 'the first reconnect attempt is in flight');
+
+  // Re-entrant call — must bail immediately on the guard, starting nothing.
+  await run(context, 'bleManager._handleDisconnect()');
+  assert.strictEqual(ble.subscribeCallCount(), 2, 'the second call started no new attempt');
+
+  releaseSubscribe();
+  await firstLoop;
+  timers.restore();
+
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected');
+  assert.strictEqual(run(context, 'bleManager._reconnecting'), false);
+});
+
+// Regression test: _subscribe() used to add a fresh
+// 'characteristicvaluechanged' closure on every call — and it's called again
+// on each auto-reconnect (live.html:340) / manualReconnect (live.html:359),
+// with no removeEventListener. Chrome's Web Bluetooth returns the SAME
+// characteristic object across a disconnect/reconnect on the same
+// BluetoothDevice, so the stale listener stayed live: after one auto-
+// reconnect every notification was parsed twice (three times after two, …).
+// Duplicated packets carry an identical device-uptime timestamp, so
+// addPacket() also flagged each as a gap (timestamp <= prev), inflating
+// gapCount and drawing spurious breaks. Fixed by binding the handler once in
+// the constructor and remove-then-add'ing it in _subscribe().
+test('_handleDisconnect: after a successful auto-reconnect, one BLE notification yields exactly one packet', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context, { reconnectFailures: 1 });
+  window.navigator.bluetooth = ble.bluetooth;
+  run(context, 'showMap()');
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+
+  const timers = recordingTimers(window);
+  await run(context, 'bleManager._handleDisconnect()');
+  timers.restore();
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected');
+  assert.strictEqual(
+    ble.notificationHandlerCount(), 1,
+    'the reconnect re-subscribes with exactly one listener, not a stack of them',
+  );
+
+  ble.fireNotification(buildPacket({ timestampMs: 900, gsrRaw: 1111, sats: 8, fixType: 3 }));
+
+  assert.strictEqual(
+    run(context, 'LiveState.packets.length'), 1,
+    'a re-subscribe must not leave a stale listener that double-parses every notification',
+  );
+  assert.strictEqual(run(context, 'LiveState.gapCount'), 0, 'the duplicate is not a real gap');
 });
