@@ -83,48 +83,6 @@ static void wait_for_write_count_at_least(int target) {
     }
 }
 
-// RF analog of wait_for_more_reads — the interleaved SubGHz block in the
-// worker loop runs once per iteration whenever RF is enabled, in step with
-// the I2C portion.
-static void wait_for_more_rssi_reads(int n) {
-    int start = furi_hal_subghz_mock_get_rssi_call_count();
-    int waited_us = 0;
-    while(furi_hal_subghz_mock_get_rssi_call_count() < start + n) {
-        usleep(200);
-        waited_us += 200;
-        furi_test_advance_tick(1);
-        if(waited_us > 5000000) {
-            fprintf(stderr, "TIMEOUT: worker did not produce %d more RSSI reads\n", n);
-            assert(false);
-        }
-    }
-}
-
-// RF analog of wait_for_more_reads, keyed off em_scan_rf_set_band() calls
-// instead of I2C reads. NOTE: deliberately an "at least N" threshold, not
-// "wait until the band changes" — the worker can race through several
-// 150-iteration rotations (in practice, 10,000+ loop iterations can elapse
-// in the time it takes this thread's polling loop to wake up even once)
-// between two of this test thread's polling wake-ups, so by the time a
-// "did it change yet?" check runs, the band may already be many steps past
-// whatever you expected. Combine this with state the worker itself
-// resolves (the per-(band,visit) RSSI table, or em_scan_rf_mock_visit_count()
-// for a monotonic count) rather than em_scan_rf_mock_last_band() (only ever
-// shows wherever the worker happens to be *right now*).
-static void wait_for_more_set_band_calls(int n) {
-    int start = em_scan_rf_mock_set_band_count();
-    int waited_us = 0;
-    while(em_scan_rf_mock_set_band_count() < start + n) {
-        usleep(200);
-        waited_us += 200;
-        furi_test_advance_tick(1);
-        if(waited_us > 5000000) {
-            fprintf(stderr, "TIMEOUT: worker did not produce %d more band-rotation calls\n", n);
-            assert(false);
-        }
-    }
-}
-
 static void wait_for_more_fast_sweeps(int n) {
     int start = em_scan_rf_mock_fast_sweep_count();
     int waited_us = 0;
@@ -170,29 +128,12 @@ static double elapsed_ms(struct timespec start, struct timespec end) {
            (double)(end.tv_nsec - start.tv_nsec) / 1e6;
 }
 
-// Waits (real wall-clock, no fake-tick involvement) until the mocked
-// furi_hal_subghz_get_rssi() call is demonstrably in progress — i.e. the
-// worker hasn't just been scheduled to call it, it's actually inside the
-// (possibly artificially delayed) call right now. See
-// furi_hal_subghz_mock_set_rssi_delay_ms()'s doc comment.
-static void wait_for_rssi_call_in_progress(void) {
-    int waited_us = 0;
-    while(!furi_hal_subghz_mock_rssi_call_in_progress()) {
-        usleep(200);
-        waited_us += 200;
-        if(waited_us > 5000000) {
-            fprintf(stderr, "TIMEOUT: mocked RSSI call never started\n");
-            assert(false);
-        }
-    }
-}
-
-// I2C/set_band analogs of wait_for_rssi_call_in_progress — deliberately
-// tick-neutral (no furi_test_advance_tick() in the poll loop, unlike
-// wait_for_more_reads/wait_for_more_rssi_reads) so a caller can advance the
-// fake clock by an EXACT, test-chosen amount afterward without any
-// incidental drift from this wait itself. Used by the peak_ms attribution
-// tests below, where the assertion is an exact ms value.
+// Deliberately tick-neutral (no furi_test_advance_tick() in the poll loop,
+// unlike wait_for_more_reads) so a caller can advance the fake clock by an
+// EXACT, test-chosen amount afterward without any incidental drift from
+// this wait itself. Used by the peak_ms attribution tests below, where the
+// assertion is an exact ms value. wait_for_fast_sweep_call_in_progress()
+// below is the RF analog.
 static void wait_for_i2c_call_in_progress(void) {
     int waited_us = 0;
     while(!furi_hal_i2c_mock_call_in_progress()) {

@@ -2,8 +2,17 @@
     "configurations": [
         {
             "name": "Flipper Zero",
-            "compileCommands": "${workspaceFolder}/.vscode/compile_commands.json",
-            "intelliSenseMode": "gcc-arm"
+            "compileCommands": [
+                "${workspaceFolder}/.vscode/compile_commands.json",
+                "${workspaceFolder}/tests/compile_commands.json"
+            ],
+            "intelliSenseMode": "gcc-arm",
+            "cStandard": "c11",
+            "includePath": [
+                "${workspaceFolder}",
+                "${workspaceFolder}/modules",
+                "${workspaceFolder}/tests/shims"
+            ]
         }
     ],
     "version": 4

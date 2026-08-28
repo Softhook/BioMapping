@@ -1,0 +1,57 @@
+[
+  {
+    "directory": "/Users/softhook/Documents/GitHub/BioMapping",
+    "arguments": ["/usr/bin/clang", "-std=gnu11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-I.", "-c", "tests/test_firmware.c"],
+    "file": "/Users/softhook/Documents/GitHub/BioMapping/tests/test_firmware.c"
+  },
+  {
+    "directory": "/Users/softhook/Documents/GitHub/BioMapping",
+    "arguments": ["/usr/bin/clang", "-std=gnu11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-I.", "-Imodules", "-Itests/shims", "-c", "tests/test_gps_uart.c"],
+    "file": "/Users/softhook/Documents/GitHub/BioMapping/tests/test_gps_uart.c"
+  },
+  {
+    "directory": "/Users/softhook/Documents/GitHub/BioMapping",
+    "arguments": ["/usr/bin/clang", "-std=gnu11", "-D_GNU_SOURCE", "-pthread", "-Wall", "-Wextra", "-I.", "-Imodules", "-Itests/shims", "-c", "tests/test_gsr_sensor.c"],
+    "file": "/Users/softhook/Documents/GitHub/BioMapping/tests/test_gsr_sensor.c"
+  },
+  {
+    "directory": "/Users/softhook/Documents/GitHub/BioMapping",
+    "arguments": ["/usr/bin/clang", "-std=gnu11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-I.", "-Imodules", "-Itests/shims", "-c", "tests/test_sd_logger.c"],
+    "file": "/Users/softhook/Documents/GitHub/BioMapping/tests/test_sd_logger.c"
+  },
+  {
+    "directory": "/Users/softhook/Documents/GitHub/BioMapping",
+    "arguments": ["/usr/bin/clang", "-std=gnu11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-I.", "-Itests/shims", "-c", "tests/test_sd_logger_prealloc.c"],
+    "file": "/Users/softhook/Documents/GitHub/BioMapping/tests/test_sd_logger_prealloc.c"
+  },
+  {
+    "directory": "/Users/softhook/Documents/GitHub/BioMapping",
+    "arguments": ["/usr/bin/clang", "-std=gnu11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-I.", "-Imodules", "-Itests/shims", "-c", "tests/test_em_scan_cal.c"],
+    "file": "/Users/softhook/Documents/GitHub/BioMapping/tests/test_em_scan_cal.c"
+  },
+  {
+    "directory": "/Users/softhook/Documents/GitHub/BioMapping",
+    "arguments": ["/usr/bin/clang", "-std=gnu11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-I.", "-Imodules", "-Itests/shims", "-c", "tests/test_bt_stream.c"],
+    "file": "/Users/softhook/Documents/GitHub/BioMapping/tests/test_bt_stream.c"
+  },
+  {
+    "directory": "/Users/softhook/Documents/GitHub/BioMapping",
+    "arguments": ["/usr/bin/clang", "-std=gnu11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-I.", "-c", "tests/analyze_gsr_filtering.c"],
+    "file": "/Users/softhook/Documents/GitHub/BioMapping/tests/analyze_gsr_filtering.c"
+  },
+  {
+    "directory": "/Users/softhook/Documents/GitHub/BioMapping",
+    "arguments": ["/usr/bin/clang", "-std=gnu11", "-D_GNU_SOURCE", "-pthread", "-Wall", "-Wextra", "-I.", "-Imodules", "-Itests/shims", "-c", "tests/shims/furi_hal_mock.c"],
+    "file": "/Users/softhook/Documents/GitHub/BioMapping/tests/shims/furi_hal_mock.c"
+  },
+  {
+    "directory": "/Users/softhook/Documents/GitHub/BioMapping",
+    "arguments": ["/usr/bin/clang", "-std=gnu11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-I.", "-Imodules", "-Itests/shims", "-c", "tests/shims/storage_mock.c"],
+    "file": "/Users/softhook/Documents/GitHub/BioMapping/tests/shims/storage_mock.c"
+  },
+  {
+    "directory": "/Users/softhook/Documents/GitHub/BioMapping",
+    "arguments": ["/usr/bin/clang", "-std=gnu11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-I.", "-Imodules", "-Itests/shims", "-c", "tests/shims/bt_ble_mock.c"],
+    "file": "/Users/softhook/Documents/GitHub/BioMapping/tests/shims/bt_ble_mock.c"
+  }
+]
