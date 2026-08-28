@@ -1,6 +1,6 @@
 /**
  * GSR Live Binary Parser — decodes the 45-byte packed binary packets sent by
- * BioMapModeLiveStream (see docs/bluetooth_serial_investigation.md §5 for the
+ * BioMapModeLiveStream (see docs/archive/bluetooth_serial_investigation.md §5 for the
  * wire format). Pure, no DOM/transport coupling — fed raw bytes via append()
  * from either a Web Serial ReadableStream (Phase 0) or a Web Bluetooth
  * 'characteristicvaluechanged' event (Phase 4), and resyncs on the magic

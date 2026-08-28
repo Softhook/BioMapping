@@ -51,7 +51,7 @@ typedef struct Session {
     GsrSensor*     gsr;
     SdLogger*      logger;
     // BioMapModeLiveStream only — NULL for every other mode. No SdLogger
-    // for this mode at all (docs/bluetooth_serial_investigation.md §3).
+    // for this mode at all (docs/archive/bluetooth_serial_investigation.md §3).
     BtStream*      bt_stream;
     ViewPort*      vp;          // == app->screen_vp while a session is active; not owned/freed here
     FuriTimer*     timer;

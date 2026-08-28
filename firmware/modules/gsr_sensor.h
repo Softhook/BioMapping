@@ -202,7 +202,7 @@ void gsr_sensor_get_rf_snapshot(const GsrSensor* gsr, float* out_rssi_dbm);
 // in ms — a lifetime max (never reset), timed immediately around each
 // hardware call with furi_get_tick(). Answers "which specific call caused a
 // given main-loop stall" directly — see biomap_types.h's RowDiag doc
-// comment and docs/gps_rf_mutex_status.md. i2c_peak_ms covers both the
+// comment and docs/archive/gps_rf_mutex_status.md. i2c_peak_ms covers both the
 // config-write and conversion-read I2C calls (mutually exclusive per loop
 // iteration). Returns 0 if unavailable. For diagnostics.
 uint32_t gsr_sensor_get_i2c_peak_ms(const GsrSensor* gsr);

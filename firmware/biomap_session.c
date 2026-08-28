@@ -674,7 +674,7 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
 }
 
 // ── Live Stream mode (BLE) ──────────────────────────────────────────────
-// docs/bluetooth_serial_investigation.md §3/§5. No SdLogger, no CSV — GPS
+// docs/archive/bluetooth_serial_investigation.md §3/§5. No SdLogger, no CSV — GPS
 // and GSR are captured exactly like every other mode (gsr_sensor_tick()
 // runs every tick so autoranging stays current), but the 45-byte packed
 // binary packet is sent over BLE at BT_STREAM_INTERVAL_TICKS instead of

@@ -21,7 +21,7 @@ def read_csv_rows(path):
     that never reached sd_logger_stop()'s truncate step (crash/battery
     pull/SD card removed) leaves the file padded out to
     SD_LOGGER_PREALLOC_BYTES with whatever undefined bytes were already on
-    the SD card (docs/gps_rf_mutex_status.md, BIOMAP_SD_PREALLOC). Three
+    the SD card (docs/archive/gps_rf_mutex_status.md, BIOMAP_SD_PREALLOC). Three
     precautions against that, mirroring analyze_telemetry_log.py's existing
     errors="replace" convention:
       - errors="replace" so a non-UTF-8 byte in that tail doesn't crash the

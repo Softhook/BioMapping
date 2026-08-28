@@ -997,7 +997,7 @@ static void test_rf_disable_waits_for_inflight_spi_call_before_deinit(void) {
 // i2c_peak_ms/rf_rssi_peak_ms/rf_retune_peak_ms columns added to answer
 // "which of the worker thread's three candidate blocking calls actually
 // caused a given tick_dt_ms stall" directly, for the next real recording
-// (track 116 showed real ~1s stalls; see docs/gps_rf_mutex_status.md's
+// (track 116 showed real ~1s stalls; see docs/archive/gps_rf_mutex_status.md's
 // 2026-08-03 entry). Each test injects a real delay into exactly ONE
 // underlying mock call (same furi_hal_*_mock_set_*_delay_ms() technique as
 // the mutex-behavior tests above), advances the fake clock by the SAME

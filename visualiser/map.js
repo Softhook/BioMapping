@@ -737,7 +737,7 @@ class GSRMapManager {
    * rebuild. For changes that only affect peak data — e.g. a label edit,
    * which changes at most one on-map label chip plus label-collision layout
    * for the rest — renderData()'s full clearMap()+rebuild is disproportionate
-   * cost (see docs/visualizer_rendering_perf_routes.md §2.2): rebuilding
+   * cost (see docs/archive/visualizer_rendering_perf_routes.md §2.2): rebuilding
    * every path polyline segment and every hotspot marker for a text-only
    * change on tracks with hundreds/thousands of peaks.
    *
@@ -762,7 +762,7 @@ class GSRMapManager {
    *   qualifies (ui.js: updatePeakLabel()), an exclusion toggle does NOT
    *   (ui.js: togglePeakExclusion() must omit this / pass false, since
    *   excluding a peak changes clusterPeaks()'s input set). Found and added
-   *   via real A/B benchmarking (docs/visualizer_rendering_perf_routes.md
+   *   via real A/B benchmarking (docs/archive/visualizer_rendering_perf_routes.md
    *   §2.4) — clustering was ~33ms of a ~36ms single-track refresh, the
    *   reason this method was only ~1.1x faster than a full renderData()
    *   rebuild for a label edit despite already skipping path/hotspot work.
@@ -807,7 +807,7 @@ class GSRMapManager {
    * Re-render ONLY the active track's path segments — used by the map-
    * coloring-metric dropdown, which changes how the path is colored but
    * leaves peak/hotspot positions and popups untouched (see
-   * docs/visualizer_rendering_perf_routes.md §2.2). Same shape as
+   * docs/archive/visualizer_rendering_perf_routes.md §2.2). Same shape as
    * refreshPeakMarkers(): remove just the 'path' layers from the track's
    * owned-layers registry and layerGroup, then re-run the path renderer.
    *
@@ -871,7 +871,7 @@ class GSRMapManager {
         // ~29-field CSV row (rssi_*/osm_*/em_fog/val/etc., none of them read
         // downstream) here and at every subsequent filter's own `{...pt}`
         // copy was ~35-40% of this pipeline's real cost on a large track —
-        // found by profiling, not guessed (docs/visualizer_rendering_perf_routes.md §2.7).
+        // found by profiling, not guessed (docs/archive/visualizer_rendering_perf_routes.md §2.7).
         pts.push({
           lat: d.lat, lon: d.lon, time: d.time,
           hdop: d.hdop, pdop: d.pdop, hacc: d.hacc,
@@ -1490,7 +1490,7 @@ class GSRMapManager {
     // (refreshPeakMarkers()'s label-edit path — see its own doc comment):
     // clusterPeaks() only reads lat/lon/amplitude per active peak, none of
     // which a label edit touches, so recomputing here is provably wasted —
-    // found via real A/B benchmarking (docs/visualizer_rendering_perf_routes.md
+    // found via real A/B benchmarking (docs/archive/visualizer_rendering_perf_routes.md
     // §2.4), where this was ~33ms of a ~36ms single-track refresh, the
     // reason that refresh was only ~1.1x faster than a full renderData()
     // despite skipping path/hotspot rebuilding entirely. An exclusion toggle
@@ -1816,7 +1816,7 @@ class GSRMapManager {
    * is 'peaks') — both full-dataset computations across every active track,
    * not per-track, so an exclusion toggle still needs the full
    * renderCollectiveData() rebuild to stay correct. See the Phase 6 step 2
-   * investigation note in docs/visualizer_architecture_refactor_plan.md.
+   * investigation note in docs/archive/visualizer_architecture_refactor_plan.md.
    *
    * Falls back to GSRUI.updateCollectiveMap() (the full rebuild) when the
    * track isn't a currently-active/rendered one (no layerGroup to refresh

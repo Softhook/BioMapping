@@ -15,7 +15,7 @@
 // bt_profile_restore_default() — even after a failed start — per §3's
 // "every exit path" requirement.
 //
-// NOT covered here (see docs/bluetooth_serial_investigation.md §4): real
+// NOT covered here (see docs/archive/bluetooth_serial_investigation.md §4): real
 // ble_profile_serial_tx() latency / tick-thread contention. This mock's
 // fake clock (furi_test_tick) never advances on its own, so
 // bt_stream_get_tx_peak_ms() can only be checked for a sane baseline, not

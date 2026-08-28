@@ -15,7 +15,7 @@
 #define LOGGER_MAX_INDEX 999
 
 // One-shot pre-allocation size (BIOMAP_SD_PREALLOC, biomap_config.h) — see
-// preallocate_log_file() below and docs/gps_rf_mutex_status.md's "option E"
+// preallocate_log_file() below and docs/archive/gps_rf_mutex_status.md's "option E"
 // entries. Sized against track 016's own measured worst-case rate (GPS+GSR+
 // RF, debug fields on — the widest schema, ~72 KiB/min): ~90 minutes
 // (6.33 MiB) plus real margin, rounded to 8 MiB. Every mode gets the same
@@ -123,7 +123,7 @@ static int find_next_index(SdLogger* l) {
 // storage_file_seek() past the current end -- the only pre-allocation
 // primitive the app SDK exposes (no f_expand binding exists; File is an
 // opaque struct with no accessor to a raw FatFs handle either -- confirmed
-// by grepping the full SDK headers, see docs/gps_rf_mutex_status.md). Real
+// by grepping the full SDK headers, see docs/archive/gps_rf_mutex_status.md). Real
 // FatFs's f_lseek() performs the size-extend (and pays its cluster-
 // allocation cost) immediately, inside that call, with undefined -- NOT
 // zero-filled -- content in the gap. Always leaves the file positioned back

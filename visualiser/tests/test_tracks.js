@@ -3,7 +3,7 @@
  * file loading, track add/remove/switch/rename, and per-track parameter
  * persistence. This file previously had zero test coverage despite owning
  * exactly the class of "state that must be remembered to stay in sync" bug
- * class flagged in docs/visualizer_architecture_refactor_plan.md §1.2.
+ * class flagged in docs/archive/visualizer_architecture_refactor_plan.md §1.2.
  *
  * No jsdom — plain manual mocks for document/AppState/GSRAnalyzer/etc.,
  * matching the pattern established in tests/test_collective_project.js.
@@ -151,7 +151,7 @@ function freshAppState(overrides) {
     _renamingTrackId: null,
     // Mirrors the real AppState.on/emit (app_state.js) — deleteTrack()
     // notifies via 'trackRemoved' rather than calling consumers by name; see
-    // the Phase 3 pilot note in docs/visualizer_architecture_refactor_plan.md.
+    // the Phase 3 pilot note in docs/archive/visualizer_architecture_refactor_plan.md.
     // Production wires the real listeners once in sketch.js's setup(), which
     // this file deliberately never calls (see file header) — tests that care
     // about a 'trackRemoved' side effect register the matching listener
@@ -315,7 +315,7 @@ test('deleteTrack: removing the last remaining track clears activeTrackId and re
   global.AppState.mapManager = { clearAll() { clearAllCalled = true; } };
   // Mirrors the listener sketch.js's setup() registers for real (see
   // app_state.js's AppState.on/emit and the Phase 3 pilot note in
-  // docs/visualizer_architecture_refactor_plan.md) — this file never boots
+  // docs/archive/visualizer_architecture_refactor_plan.md) — this file never boots
   // the real app, so the test registers it itself.
   global.AppState.on('trackRemoved', () => {
     if (global.AppState.collectiveManager.tracks.length === 0) global.AppState.mapManager.clearAll();

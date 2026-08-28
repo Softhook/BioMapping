@@ -116,7 +116,11 @@ firmware/modules/              — unchanged, no test-only content, no HAL files
   gps_uart.h / .c               — NMEA parsing + framing, calls furi_hal_serial_* directly
   gsr_sensor.h / .c             — ADS1115 I2C + PGA autoranging, calls furi_hal_i2c_*/FuriThread directly
   sd_logger.h / .c              — auto-indexing CSV writer, calls Storage/File directly
+  em_scan_rf.h / .c             — SubGHz RF sweep/RSSI (untested on host — CC1101 SPI)
+  em_scan_cal.h / .c            — RF noise-floor calibration + on-disk persistence
+  bt_stream.h / .c              — BLE serial-profile lifecycle + send-or-drop (Live Stream)
   sound.h                       — untested
+  eff_short_wordlist.h / util.h  — small helpers
 
 firmware/tests/
   test_firmware.c               — pipeline / calibration / CSV host tests
@@ -124,6 +128,10 @@ firmware/tests/
   test_gsr_sensor.c              — gsr_sensor.c host tests, real worker thread + all
   test_sd_logger.c               — sd_logger.c host tests, via an in-memory
                                    virtual filesystem (storage_mock.c)
+  test_sd_logger_prealloc.c     — one-shot log-file pre-allocation (BIOMAP_SD_PREALLOC)
+  test_em_scan_cal.c            — em_scan_cal.c: RF calibration validation + persist/load
+  test_bt_stream.c              — bt_stream.c: profile start/stop, connect-status
+                                   callback, send-or-drop, packet packing (BLE mock shims)
   benchmarks/
     analyze_gsr_filtering.c      — investigative tool, not pass/fail: measures
                                    the real IIR+EMA frequency response and the
@@ -147,6 +155,10 @@ firmware/tests/
     input/input.h                — InputEvent stub (only needed because
                                    biomap_events.h pulls it in)
     notification/notification_messages.h — opaque NotificationApp stub
+    bt/bt_service/bt.h           — fakes Bt/bt_profile_start/bt_profile_restore_default
+                                   + the status-changed callback (for test_bt_stream.c)
+    profiles/serial_profile.h    — fakes ble_profile_serial_tx (can fail) and the
+                                   serial-profile event callback
 
 firmware/run_tests.sh           — builds + runs all host test binaries
 ```
@@ -193,12 +205,18 @@ Same idea, whatever peripheral it is:
 
 ## Status
 
+Approximate test counts — the exact numbers drift with each addition; run
+`./run_tests.sh` for the current tally.
+
 | File | Touches hardware | Host-tested |
 |---|---|---|
-| `biomap_pipeline.c` | No | ✅ `tests/test_firmware.c` (33 tests) |
-| `modules/gps_uart.c` | Yes (`furi_hal_serial_*`) | ✅ `tests/test_gps_uart.c` (14 tests) |
-| `modules/gsr_sensor.c` | Yes (`furi_hal_i2c_*`, real `FuriThread`) | ✅ `tests/test_gsr_sensor.c` (9 tests) |
-| `modules/sd_logger.c` | Yes (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (12 tests) |
+| `biomap_pipeline.c` | No | ✅ `tests/test_firmware.c` (~35 tests) |
+| `modules/gps_uart.c` | Yes (`furi_hal_serial_*`) | ✅ `tests/test_gps_uart.c` (~25 tests) |
+| `modules/gsr_sensor.c` | Yes (`furi_hal_i2c_*`, real `FuriThread`) | ✅ `tests/test_gsr_sensor.c` (~31 tests) + a ThreadSanitizer pass |
+| `modules/sd_logger.c` | Yes (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (~20 tests) + `tests/test_sd_logger_prealloc.c` (~5) |
+| `modules/em_scan_cal.c` | No (pure calc + Storage for persist) | ✅ `tests/test_em_scan_cal.c` (~5 tests) |
+| `modules/bt_stream.c` | Yes (`Bt`/`ble_profile_serial_*`) | ✅ `tests/test_bt_stream.c` (~13 tests, BLE mock shims) |
+| `modules/em_scan_rf.c` | Yes (CC1101 SPI) | ❌ (SPI-bound; RF pacing verified on-device — see `archive/gps_rf_mutex_status.md`) |
 | `modules/sound.h` | Yes (`furi_hal_speaker_*`) | ❌ |
 
 `test_gps_uart.c` covers every NMEA sentence type `gps_uart_parse_line()`

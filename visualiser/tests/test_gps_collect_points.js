@@ -1,7 +1,7 @@
 'use strict';
 /**
  * Regression coverage for the `_collectGpsPoints()` field-trimming fix
- * (docs/visualizer_rendering_perf_routes.md §2.7; map.js). Found via
+ * (docs/archive/visualizer_rendering_perf_routes.md §2.7; map.js). Found via
  * profiling, not a read-through: `_collectGpsPoints()` used to spread the
  * FULL ~29-field raw CSV row (`{ ...data[i], origIdx: i }`) for every GPS
  * fix, and every filter stage between there and `reconstructFilteredGps()`

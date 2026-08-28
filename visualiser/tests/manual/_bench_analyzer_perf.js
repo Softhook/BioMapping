@@ -9,7 +9,7 @@
  *
  *   node tests/manual/_bench_analyzer_perf.js
  *
- * Found via this same approach (docs/visualizer_architecture_refactor_plan.md
+ * Found via this same approach (docs/archive/visualizer_architecture_refactor_plan.md
  * Phase 8): analyze() -> detectPeaks() -> _calculateShapeMetrics() ->
  * _computeNoiseFloor() used to rebuild `this.filtered.map(d => d.val)` — a
  * full-array copy of the WHOLE track — on every call, despite only reading a

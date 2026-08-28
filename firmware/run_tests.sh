@@ -123,7 +123,7 @@ gcc -Wall -Wextra -I . -I modules -I tests/shims -o build/test_sd_logger \
 ./build/test_sd_logger
 
 echo
-echo "== test_sd_logger_prealloc (experimental: rolling chunk pre-allocation, docs/gps_rf_mutex_status.md option E) =="
+echo "== test_sd_logger_prealloc (experimental: rolling chunk pre-allocation, docs/archive/gps_rf_mutex_status.md option E) =="
 gcc -Wall -Wextra -I . -I tests/shims -o build/test_sd_logger_prealloc \
     tests/test_sd_logger_prealloc.c \
     tests/shims/storage_mock.c -lm

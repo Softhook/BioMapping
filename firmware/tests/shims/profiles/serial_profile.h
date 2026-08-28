@@ -6,7 +6,7 @@
 // profiles/serial_profile.h). Fakes only ble_profile_serial (the profile
 // descriptor passed to bt_profile_start()) and ble_profile_serial_tx() —
 // the two symbols modules/bt_stream.c calls. Real signature: tx() returns
-// bool (can fail — see docs/bluetooth_serial_investigation.md §1.2), not
+// bool (can fail — see docs/archive/bluetooth_serial_investigation.md §1.2), not
 // fire-and-forget.
 //
 // See bt_ble_mock.c for the implementation and the test-injection API

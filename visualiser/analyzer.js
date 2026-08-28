@@ -64,7 +64,7 @@ class GSRAnalyzer {
     // OSMEnricher.enrichTrack() after it finishes writing osm_* fields onto
     // `raw`). Callers that cache derived data (e.g. GSRUI's environmental
     // dashboard) key their cache on this instead of relying on being told
-    // to invalidate — see docs/visualizer_architecture_refactor_plan.md Phase 2.
+    // to invalidate — see docs/archive/visualizer_architecture_refactor_plan.md Phase 2.
     this._dataVersion = 0;
   }
 

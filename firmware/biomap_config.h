@@ -21,7 +21,7 @@
 #define BIOMAP_SD_DRY_RUN 0
 
 // One-shot log-file pre-allocation, A/B switch (see
-// docs/gps_rf_mutex_status.md's "option E" entries). The
+// docs/archive/gps_rf_mutex_status.md's "option E" entries). The
 // once-per-FLUSH_INTERVAL SD-flush stall grows across a long recording
 // (~94 ms -> ~162 ms average over 59 minutes on track 016, consistent with
 // FAT fragmentation from repeated small appends). sd_logger_start() grows
@@ -39,7 +39,7 @@ typedef enum {
     BioMapModeGpsOnly,      // GPS track + RF, no biometrics ("GPS + RF" on the menu)
     BioMapModeGsrOnly,      // GSR waveform viewer, no location, no RF
     BioMapModeDiagnostics,  // GSR diagnostics — raw counts, no graph
-    // Live Stream (docs/bluetooth_serial_investigation.md): GPS+GSR captured
+    // Live Stream (docs/archive/bluetooth_serial_investigation.md): GPS+GSR captured
     // as normal but sent live over BLE to a phone instead of written to SD —
     // no SdLogger for this mode at all. Deliberately excluded from
     // has_gps()/has_gsr()/has_rf() below (biomap_types.h): those gate the
@@ -66,7 +66,7 @@ typedef enum {
 // to the "%.2f,%.7f,..." format strings.
 //
 // The _DEBUG schemas add contention/continuity diagnostics — see RowDiag's
-// doc comment (biomap_types.h) and docs/gps_rf_mutex_status.md for what each
+// doc comment (biomap_types.h) and docs/archive/gps_rf_mutex_status.md for what each
 // column measures and why. tick_dt_ms and the peak-ms columns appear in
 // both GPS_GSR and GPS_GSR_RF (not just the RF variant) so an RF-off vs
 // RF-on recording of the same route is a direct column-for-column diff.

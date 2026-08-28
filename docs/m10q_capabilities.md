@@ -2,6 +2,14 @@
 
 The **u-blox SAM-M10Q** is a state-of-the-art GNSS module. Beyond raw accuracy and 4-constellation concurrent tracking, it features several built-in hardware capabilities that we can leverage to enhance the **BioMapping** platform.
 
+> **Status (2026-08-28).** **Shipped:** §1 dynamic platform model (selectable
+> in Options → GPS Profile), §5 serial config + UBX-VALSET init +
+> Software Standby for GSR-only mode, and the UBX-SEC-UNIQID chip-ID poll
+> that produces the `# GPSChipID` CSV header line (see
+> [`csv_schema.md`](csv_schema.md)). **Not built:** §2 jamming/spoofing
+> detection, §3 Super-E power mode, §4 hardware odometer. §5's low-level
+> details still match `firmware/modules/gps_uart.c`.
+
 ---
 
 ## 1. Dynamic Platform Optimization ("Pedestrian" and "Wrist" Models)

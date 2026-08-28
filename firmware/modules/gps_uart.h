@@ -55,7 +55,7 @@ bool      gps_uart_is_ready(const GpsUart* gps);
 void      gps_uart_process_rx(GpsUart* gps);
 void      gps_uart_send_hot_start(GpsUart* gps);
 
-// ── Contention diagnostics (see docs/gps_rf_mutex_status.md) ──────────────
+// ── Contention diagnostics (see docs/archive/gps_rf_mutex_status.md) ──────────────
 // Cumulative, monotonic counters — the caller (biomap_session.c) diffs or
 // just logs the running totals, same pattern as gsr_sensor.c's iter_count.
 //

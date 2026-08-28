@@ -1,7 +1,7 @@
 #pragma once
 
 // BLE Stream — Live Stream mode's BLE serial transport
-// (docs/bluetooth_serial_investigation.md §3/§4).
+// (docs/archive/bluetooth_serial_investigation.md §3/§4).
 //
 // Claims Flipper's stock BLE serial profile for the duration of one Live
 // Stream session (bt_stream_start()/bt_stream_stop(), each called exactly

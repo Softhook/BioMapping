@@ -1,5 +1,5 @@
 /**
- * Phase 5 (docs/visualizer_architecture_refactor_plan.md) integration test:
+ * Phase 5 (docs/archive/visualizer_architecture_refactor_plan.md) integration test:
  * GSRMapManager.renderCollectiveData() must hand RFFluidRenderer per-track
  * {id, drawPoints, osmGeoms} entries (via setDataForTracks()), not a single
  * pre-concatenated blob (the old setData(collectiveDrawPoints, combinedGeoms)

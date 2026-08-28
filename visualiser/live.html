@@ -198,7 +198,7 @@ const GpsPipeline = {
 const LIVE_MAX_HDOP = 2.0;
 
 // GSRLiveBinaryParser (the 45-byte packet decoder from
-// docs/bluetooth_serial_investigation.md §5) is loaded from
+// docs/archive/bluetooth_serial_investigation.md §5) is loaded from
 // visualiser/live_binary_parser.js in the <head> — its own tests cover it
 // directly, see visualiser/tests/test_live_binary_parser.js.
 
@@ -213,7 +213,7 @@ const LiveState = {
   gapCount: 0,
   showPhasicOnly: false,
 
-  // docs/bluetooth_serial_investigation.md §3's BT_STREAM_INTERVAL_MS
+  // docs/archive/bluetooth_serial_investigation.md §3's BT_STREAM_INTERVAL_MS
   // (biomap_types.h) — kept in sync manually; a real send-interval change
   // on the firmware side needs the same number updated here.
   STREAM_INTERVAL_S: 0.3,
@@ -241,7 +241,7 @@ const LiveState = {
 };
 
 // ==========================================================================
-// GSRLiveBluetoothManager — docs/bluetooth_serial_investigation.md §8.
+// GSRLiveBluetoothManager — docs/archive/bluetooth_serial_investigation.md §8.
 //
 // SERVICE_UUID/TX_CHAR_UUID/RX_CHAR_UUID are UNVERIFIED against real
 // hardware (§8's own caveat) — Flipper's stock BLE serial service's GATT
@@ -369,7 +369,7 @@ class GSRLiveBluetoothManager {
 
 // ==========================================================================
 // Rolling graph — plain <canvas> 2D, redrawn only on each packet arrival
-// (docs/bluetooth_serial_investigation.md §8 — matches the desktop app's
+// (docs/archive/bluetooth_serial_investigation.md §8 — matches the desktop app's
 // noLoop()+manual-redraw() convention rather than a continuous animation
 // loop; there's no zoom/pan/timeline-drag here, just "show the last N
 // seconds of a growing session").

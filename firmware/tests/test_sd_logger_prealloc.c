@@ -1,6 +1,6 @@
 // test_sd_logger_prealloc.c — experiment, NOT production code.
 //
-// docs/gps_rf_mutex_status.md's option E ("pre-allocate the log file") asks
+// docs/archive/gps_rf_mutex_status.md's option E ("pre-allocate the log file") asks
 // whether the seek-past-EOF-and-write-dummy-byte trick (the only pre-alloc
 // primitive the Flipper app SDK actually exposes -- storage.h has no
 // f_expand binding, confirmed by grepping the real SDK headers) can cut the
@@ -140,7 +140,7 @@ static void test_prealloc_cuts_extension_frequency_vs_naive_growth(void) {
     File* file = storage_file_alloc(storage);
     assert(storage_file_open(file, "/ext/biomapping/prealloc_test.csv", FSAM_WRITE, FSOM_CREATE_ALWAYS));
 
-    // Track 016's own measured rate (docs/gps_rf_mutex_status.md, 2026-08-05
+    // Track 016's own measured rate (docs/archive/gps_rf_mutex_status.md, 2026-08-05
     // entry): ~13000 bytes written per 10s FLUSH_INTERVAL cycle. Simulate
     // 800 cycles -- ~2.2 hours, well past track 016's 59-minute length --
     // to see whether the rolling chunk keeps up over a long walk.
@@ -208,7 +208,7 @@ static void test_prealloc_extension_delay_hook_fires_only_on_real_extension(void
 
 int main(void) {
     printf("========================================\n");
-    printf("SD LOGGER PRE-ALLOCATION EXPERIMENT (docs/gps_rf_mutex_status.md option E)\n");
+    printf("SD LOGGER PRE-ALLOCATION EXPERIMENT (docs/archive/gps_rf_mutex_status.md option E)\n");
     printf("Prototype only -- not wired into modules/sd_logger.c\n");
     printf("========================================\n");
     test_prealloc_extends_only_when_headroom_low();

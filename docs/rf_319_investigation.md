@@ -2,6 +2,13 @@
 
 This document details the feasibility, system impact, and concrete code changes required to add a fourth sub-GHz frequency band (**319 MHz**) to the BioMapping logging and visualization pipeline.
 
+> **Status (2026-08-28) — proposal, not implemented.** The RF sweep is still
+> 3 bands (815 / 868 / 915 MHz): `EM_SCAN_NUM_FREQS == 3`,
+> `EM_SCAN_CAL_VERSION == 3`, CSV columns `rssi_815/868/915`. The file paths
+> and diffs below still line up with the current tree; the visualiser
+> band-name references (`rssi_300`, `rssi_315`, …) are illustrative, not
+> existing code.
+
 ---
 
 ## 1. Executive Summary

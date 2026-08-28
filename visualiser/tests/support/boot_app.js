@@ -19,7 +19,7 @@
  * surface. The tradeoff: these tests catch "the app throws an uncaught
  * exception" and "app-level state ends up wrong" bugs, NOT "the map renders
  * the wrong pixels" bugs — that class of bug is out of scope here by design
- * (see docs/visualizer_test_coverage_plan.md).
+ * (see docs/archive/visualizer_test_coverage_plan.md).
  */
 
 const fs = require('fs');

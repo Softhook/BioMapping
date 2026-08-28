@@ -326,7 +326,7 @@ test('getConcaveBlob: every returned path contains at least one of the cluster p
 });
 
 // ─── getConcaveBlob perf fix (2026-08-07): cutoff + splat restructuring ───
-// docs/visualizer_architecture_refactor_plan.md Phase 7. The density-grid
+// docs/archive/visualizer_architecture_refactor_plan.md Phase 7. The density-grid
 // loop used to scan every (grid cell, peak) pair unconditionally; it now
 // (a) skips Math.exp() for pairs beyond a 6-sigma cutoff (negligible
 // contribution) and (b) only touches the small window of cells that could

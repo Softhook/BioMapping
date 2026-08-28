@@ -1,8 +1,13 @@
 # GPS Pipeline & Filter Architecture
 
-**Date:** 2026-07-15  
+**Written:** 2026-07-15 · **Last checked against code:** 2026-08-28
 **Scope:** Complete overview of the GPS processing pipeline, from firmware-level quality gating through to downstream spatial analysis filters.
-**Files:** `modules/gps_uart.c`, `biomap_types.h`, `biomap_session.c`, `visualiser/gps_filter.js`, `visualiser/gps_pipeline.js`, `visualiser/map_match.js`, `visualiser/map.js`
+**Files:** `firmware/modules/gps_uart.c`, `firmware/biomap_types.h`, `firmware/biomap_session.c`, `visualiser/gps_filter.js`, `visualiser/gps_pipeline.js`, `visualiser/map_match.js`, `visualiser/map.js`
+
+> The filter stages and their order still match the code as of the
+> last-checked date. For the authoritative, versioned CSV column list see
+> [`csv_schema.md`](csv_schema.md) — the abbreviated history in §4 below is
+> kept only for the context it gives the pipeline discussion.
 
 ---
 
@@ -106,11 +111,12 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
 
 ## 4. CSV Version History
 
-| Version | Date | Columns | Notes |
-|---|---|---|---|
-| **v1.0** | 2026-06 | `timestamp,lat,lon,alt,sats,fix,gsr_raw` | Initial version; no DOP values. |
-| **v1.1** | 2026-07 | `timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw` | Removed `alt`. Added `hdop`, `pdop`, `speed_kts`, `course_deg`. Renamed `fix` to `fix_type`. |
-| **v1.2** | 2026-07 | `...,gsr_raw,hacc_m` | Added `hacc_m` (M10Q-only physical horizontal accuracy in meters, `$PUBX,00`). |
+Superseded — the canonical, up-to-date version history and column list live
+in [`csv_schema.md`](csv_schema.md) (currently at v1.8: RF columns, a runtime
+debug-column toggle, and metadata-header lines this section predates). The
+columns this pipeline actually consumes — `lat`, `lon`, `hdop`, `pdop`,
+`fix_type`, `speed_kts`, `course_deg`, `hacc_m` — have been stable since
+schema v1.2.
 
 ---
 

@@ -348,7 +348,7 @@ test('GSRAnalyzer getMatchingLabel: exact match then nearest within tolerance', 
 });
 
 test('GSRAnalyzer _dataVersion: bumped by every mutation path a self-validating cache must key on', () => {
-  // Phase 2 (docs/visualizer_architecture_refactor_plan.md): callers that cache
+  // Phase 2 (docs/archive/visualizer_architecture_refactor_plan.md): callers that cache
   // derived data off an analyzer (e.g. GSRUI's environmental dashboard) key
   // their cache on _dataVersion instead of relying on being told to invalidate.
   // This only works if every mutation path actually bumps it — that's what's
@@ -554,7 +554,7 @@ test('GSRAnalyzer _computeSalienceScore: fast, high-amplitude, high-SNR peaks wi
 });
 
 // ── _computeNoiseFloor perf fix (2026-08-07) ────────────────────────────────
-// Found via real A/B benchmarking (docs/visualizer_architecture_refactor_plan.md
+// Found via real A/B benchmarking (docs/archive/visualizer_architecture_refactor_plan.md
 // Phase 8): _computeNoiseFloor() used to rebuild `this.filtered.map(d => d.val)`
 // — a full-array copy — on every call, even though it only ever reads a small
 // ±halfWindow slice. Called once per candidate peak inside detectPeaks()'s main

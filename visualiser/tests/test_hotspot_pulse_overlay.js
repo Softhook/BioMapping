@@ -1,6 +1,6 @@
 /**
  * Regression coverage for the DOM/CSS hotspot pulse-ring overlay
- * (docs/visualizer_rendering_perf_routes.md §2.5) that replaced the old
+ * (docs/archive/visualizer_rendering_perf_routes.md §2.5) that replaced the old
  * per-frame canvas-painted pulse. GSRRenderer._syncPulseRing()/
  * _prunePulseRings()/clearPulseRings() are the only thing standing between
  * "renders on demand" and "silently piles up orphaned DOM nodes forever" —

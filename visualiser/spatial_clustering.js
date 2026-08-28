@@ -315,7 +315,7 @@ class GSRSpatialClustering {
     // defaults). Standard Gaussian-kernel truncation practice, not an
     // approximation that changes the rendered contour.
     //
-    // Found via real A/B benchmarking (docs/visualizer_architecture_refactor_plan.md
+    // Found via real A/B benchmarking (docs/archive/visualizer_architecture_refactor_plan.md
     // Phase 7): on a real 5-track/822-peak collective fixture, ~94% of
     // (grid cell, peak) pairs fell beyond this cutoff, and this loop was the
     // dominant cost of a full collective re-render (~87ms of ~115ms). A

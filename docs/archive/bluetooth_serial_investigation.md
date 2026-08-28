@@ -1,9 +1,19 @@
 # Bluetooth Live Streaming — Implementation Plan
 
+> **ARCHIVED (2026-08-28) — the feature this plans is shipped.** Live Stream
+> mode is implemented: `firmware/modules/bt_stream.c`/`.h`,
+> `visualiser/live.html` + `visualiser/live_binary_parser.js`, host tests in
+> `firmware/tests/test_bt_stream.c` and `visualiser/tests/test_live_binary_parser.js`.
+> Phases 1, 2 and 4 of §10 are done; only Phase 3 (real-hardware BLE
+> validation of tick-timing/battery/reconnect) is outstanding. The README's
+> "Live View" section is the current user-facing description; this document
+> is kept for the SDK-hook research, packet-format rationale, and the §1
+> gotcha list that shaped the implementation.
+
 Real-time streaming of GSR and GPS data from the Flipper Zero to a browser-based live viewer,
 for watching a walk unfold on a phone or laptop while it happens. This is the implementation
 reference for that feature: confirmed Flipper SDK hooks, firmware and frontend design, known
-risks, and a phased build plan. Nothing described here is implemented yet.
+risks, and a phased build plan.
 
 ---
 

@@ -507,7 +507,7 @@ class GSRCollectiveManager {
     // cell-major — for the identical reason: the vast majority of
     // (cell, point) pairs are beyond isolationRadius*1.5 and get discarded
     // after computing a distance for nothing. Found via real A/B
-    // benchmarking (docs/visualizer_architecture_refactor_plan.md Phase 7):
+    // benchmarking (docs/archive/visualizer_architecture_refactor_plan.md Phase 7):
     // this was the dominant cost of generateContourSurface() on a real
     // 5-track collective fixture (up to CONTOUR_MAX_POINTS=20,000 points x
     // gridResolution^2 cells, unindexed).

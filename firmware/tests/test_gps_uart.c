@@ -624,7 +624,7 @@ static void test_pubx_hacc_parsing(void) {
     printf("  -> Pass\n");
 }
 
-// ── Contention diagnostics (2026-07-31) — see docs/gps_rf_mutex_status.md ──
+// ── Contention diagnostics (2026-07-31) — see docs/archive/gps_rf_mutex_status.md ──
 
 // A checksum/format failure must count; a well-formed sentence (even one
 // PUBX doesn't act on data from) must not — nmea_fail_count is specifically

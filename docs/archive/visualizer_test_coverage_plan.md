@@ -1,5 +1,14 @@
 # GSR Map Visualiser — Test Coverage & Gradual Refactor Plan
 
+> **ARCHIVED (2026-08-28) — superseded.** Phase A (a real harness) has
+> landed: `visualiser/package.json` runs `node --test tests/*.js`, with
+> `jsdom` for the DOM-coupled smoke tests. `visualiser/tests/` now holds
+> ~55 test files (up from the 19 ad hoc scripts this doc describes) covering
+> the pure modules and the boot/track-ownership smoke paths. The tier
+> analysis and per-file DOM-coupling table below are still a fair map of
+> what is and isn't unit-testable, but the phased plan itself is done or
+> folded into `visualizer_architecture_refactor_plan.md`'s Phase 4/7/8.
+
 > Companion to `visualizer_architecture_refactor_plan.md`. That document's
 > **Phase 4** already sketches "formalize the test suite" in one paragraph;
 > this document expands that into its own plan, focused specifically on

@@ -1,7 +1,7 @@
 /**
  * Phase 1 (slice 1) behavior tests: the track.layerGroup ownership model.
  *
- * Contract under test (docs/visualizer_architecture_refactor_plan.md, Phase 1):
+ * Contract under test (docs/archive/visualizer_architecture_refactor_plan.md, Phase 1):
  *   - Each track owns a single Leaflet layerGroup() — its rendering handle.
  *   - The single-track render path adds path/peak/hotspot layers INTO the
  *     active track's layerGroup, never directly onto the map.
@@ -838,7 +838,7 @@ test('slice3: entering collective (0 active tracks) drops a lingering scrub mark
     'clearCollectiveLayers should drop the scrub marker (no graph to scrub in collective view)');
 });
 
-// ── refreshPeakMarkers (docs/visualizer_rendering_perf_routes.md §2.2) ──────
+// ── refreshPeakMarkers (docs/archive/visualizer_rendering_perf_routes.md §2.2) ──────
 // A label edit only ever changes one peak's label chip/popup; refreshPeakMarkers()
 // exists so that no longer costs a full renderData() clear+rebuild of the path
 // and hotspot layers too. These tests pin the contract: path/hotspot layers
@@ -954,7 +954,7 @@ test('togglePeakExclusion (ui.js): commits via refreshPeakMarkers, not a full re
   assert.deepStrictEqual(hotspotAfter, hotspotBefore, 'toggling exclusion through the real ui.js path must not rebuild hotspot layers');
 });
 
-// ── refreshPeakMarkers skipClustering (docs/visualizer_rendering_perf_routes.md §2.4) ──
+// ── refreshPeakMarkers skipClustering (docs/archive/visualizer_rendering_perf_routes.md §2.4) ──
 // Found via real A/B benchmarking: refreshPeakMarkers() unconditionally
 // recomputed spatial-cluster blobs even for a label-only edit, which
 // clusterPeaks() can't be affected by (it only reads lat/lon/amplitude per
@@ -1017,7 +1017,7 @@ test('refreshPeakMarkers({ skipClustering: true }): replaces peak/connector laye
   peakAfter.forEach(l => assert.ok(map.hasLayer(l), 'new peak/connector layer is on the map via the track group'));
 });
 
-// ── refreshPath (docs/visualizer_rendering_perf_routes.md §2.2) ────────────
+// ── refreshPath (docs/archive/visualizer_rendering_perf_routes.md §2.2) ────────────
 // The map-coloring-metric dropdown only changes how the path is colored;
 // refreshPath() exists so that no longer costs a full renderData() rebuild of
 // peak and hotspot layers too. Mirrors the refreshPeakMarkers contract tests

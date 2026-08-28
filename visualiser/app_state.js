@@ -107,7 +107,7 @@ const AppState = {
   dropZone: null,
 
   // ── Minimal event notification (Phase 3 pilot, see
-  // docs/visualizer_architecture_refactor_plan.md) ───────────────────────────
+  // docs/archive/visualizer_architecture_refactor_plan.md) ───────────────────────────
   // A handful of named events, not a generic pub-sub library: plain
   // array-of-listeners per event name. Lets a mutation point (e.g.
   // deleteTrack) announce what happened once instead of every caller having

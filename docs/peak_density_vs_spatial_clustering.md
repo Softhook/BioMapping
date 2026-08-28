@@ -2,6 +2,23 @@
 
 This document details the scientific rationale, mathematical definitions, core challenges solved, AI/ML enhancement models, Flipper Zero hardware integrations, urban EMF precedents, and visualization blueprints for advanced physiological analysis in the BioMapping system.
 
+> **Status (2026-08-28) — part reference, part roadmap.** This is a research
+> rationale document, not a build spec, and it predates several decisions it
+> describes speculatively. What has since **shipped**: temporal peak density
+> (PPM), Integrated SCR / Phasic AUC, the Combined Arousal Index, and their
+> use as continuous map-contour sources and lower-graph metrics (§2–§4, §8);
+> and an **RF sweep — but 3 bands (815 / 868 / 915 MHz), not the 4-band
+> 315 / 433 / 868 / 915 set in §2 and §6E/§6F**. The composite index is
+> called the **EM Fog Index** in the visualiser (`analyzer.js`
+> `calcEmFog()`, `rf_fluid_renderer.js`); the CSV columns are
+> `rssi_815 / rssi_868 / rssi_915` (see [`csv_schema.md`](csv_schema.md)),
+> not the `rssi_315…` names below. Still **speculative / not built**: the
+> AI/ML models (§5), and the NFC-checkpoint / IR-sniff / PM2.5 / decibel
+> GPIO expansions (§6B–§6D) — the acoustic one has its own proposal at
+> [`acoustic_aircraft_detection_proposal.md`](acoustic_aircraft_detection_proposal.md).
+> The firmware's `modules/em_scan_rf.h` cites §6E/§6F as the "original full
+> design"; treat the band count and timings there as aspirational.
+
 ---
 
 ## 1. Core Research Challenges in Mobile Environmental Biosensing

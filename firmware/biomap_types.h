@@ -32,7 +32,7 @@
 #define DISPLAY_EMA_A    0.2f
 #define DISPLAY_EMA_B    0.8f   // (1.0f - DISPLAY_EMA_A), precomputed
 
-// Live Stream (BLE) send cadence — docs/bluetooth_serial_investigation.md
+// Live Stream (BLE) send cadence — docs/archive/bluetooth_serial_investigation.md
 // §3/§10 Phase 3: real hardware may show 300ms is too aggressive, in which
 // case this is a one-line change; not guessed at, just not yet measured.
 // Must divide evenly into 1000/TICK_HZ ms per tick (300 / 100 = 3 ticks).
@@ -88,7 +88,7 @@ typedef struct {
     // total_ticks above (and the `rel` CSV column derived from it) is a
     // sequence counter — it stays perfectly uniform even if the main loop
     // stalls, so it can't prove contention is or isn't happening (see
-    // docs/gps_rf_mutex_status.md). last_tick_wall_ms/tick_dt_ms are the
+    // docs/archive/gps_rf_mutex_status.md). last_tick_wall_ms/tick_dt_ms are the
     // real furi_get_tick() measurement instead: updated every Tick event in
     // run_recording_session(), regardless of recording.active.
     uint32_t last_tick_wall_ms; // bookkeeping only — previous furi_get_tick() reading
@@ -111,7 +111,7 @@ typedef struct {
 } GpsPosition;
 
 // Per-row contention diagnostics (GPS/RF mutex investigation — see
-// docs/gps_rf_mutex_status.md). Built by the caller (biomap_session.c) from
+// docs/archive/gps_rf_mutex_status.md). Built by the caller (biomap_session.c) from
 // real, measured sources — never inferred — and threaded into
 // format_gps_csv_row() alongside GpsPosition so a track can answer "was the
 // main loop or the GPS UART actually stalled" directly rather than by

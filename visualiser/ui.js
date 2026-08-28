@@ -66,7 +66,7 @@ const GSRUI = {
     // chip/popup — refreshPeakMarkers()/refreshCollectivePeakMarkers()
     // re-render just the peak-marker layer instead of a full path+peaks+
     // hotspots(+clusters+contours, in collective mode) rebuild (see
-    // docs/visualizer_rendering_perf_routes.md §2.2 and the Phase 6 step 2
+    // docs/archive/visualizer_rendering_perf_routes.md §2.2 and the Phase 6 step 2
     // investigation note in the architecture refactor plan for why this is
     // safe in collective mode specifically for labels, unlike exclusion).
     if (AppState.viewMode === 'single') {
@@ -74,7 +74,7 @@ const GSRUI = {
         // skipClustering: true — a label edit can't change clusterPeaks()'s
         // input (lat/lon/amplitude per non-excluded peak), so recomputing
         // cluster blobs here is provably wasted (see refreshPeakMarkers()'s
-        // own doc comment and docs/visualizer_rendering_perf_routes.md §2.4).
+        // own doc comment and docs/archive/visualizer_rendering_perf_routes.md §2.4).
         AppState.mapManager.refreshPeakMarkers(AppState.analyzer, GSRStorage.buildGpsParams(), { skipClustering: true });
       }
       GSRUI.updatePeaksTable();
@@ -196,7 +196,7 @@ const GSRUI = {
     // Refresh displays. Same path/hotspot-skip reasoning as updatePeakLabel():
     // refreshPeakMarkers() rebuilds just the peak-marker layer instead of
     // renderData()'s full path+peaks+hotspots rebuild (see
-    // docs/visualizer_rendering_perf_routes.md §2.2). Unlike a label edit,
+    // docs/archive/visualizer_rendering_perf_routes.md §2.2). Unlike a label edit,
     // this does NOT pass skipClustering — excluding a peak changes
     // clusterPeaks()'s input set (activePeaks filters on ap.peak.excluded),
     // so cluster blobs must be recomputed here (see §2.4 and

@@ -328,7 +328,7 @@ test('generateContourSurface: minVal===maxVal (perfectly flat surface) is nudged
 });
 
 // ─── generateContourSurface perf fix (2026-08-07): boundary-mask + IDW splat ──
-// docs/visualizer_architecture_refactor_plan.md Phase 7. Both the boundary
+// docs/archive/visualizer_architecture_refactor_plan.md Phase 7. Both the boundary
 // mask (isNearTrack) and the IDW accumulation used to scan every point for
 // every grid cell, computing then mostly discarding a distance; both are now
 // point-major splats that only touch the small window of cells within range

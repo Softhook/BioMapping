@@ -1,10 +1,16 @@
 # GSR Map Visualiser — Rendering Performance: Possible Routes for Speed-Up
 
-> **Living document.** This is a survey of options, not a commitment to do any
-> of them — nothing here is scheduled. Update as items are picked up, ruled
-> out, or superseded by code changes. Scope: `visualiser/` track/path/layer
-> rendering (`map.js`, `rf_fluid_renderer.js`, `renderer.js`, the slider event
-> wiring in `events.js`). Companion to
+> **ARCHIVED (2026-08-28) — companion to the completed
+> `visualizer_architecture_refactor_plan.md`.** Every sized route here
+> landed 2026-08-07 (§2.1, §2.2, §2.4, §2.5, §2.6, §2.7 — see each status
+> note). Only §2.3's two investigate-only candidates remain, unsized by
+> design ("no code changes without a profile first"). Kept because
+> `visualiser/*.js` source comments cite these section numbers as the
+> rationale-of-record for shipped optimisations.
+
+> This was a survey of options, not a commitment. Scope: `visualiser/`
+> track/path/layer rendering (`map.js`, `rf_fluid_renderer.js`,
+> `renderer.js`, the slider event wiring in `events.js`). Companion to
 > `visualizer_architecture_refactor_plan.md` — that document's Phase 5 (RF
 > fan-cast cross-track caching) is one of the routes below; see §2.1 for how
 > it relates to the other RF finding here.

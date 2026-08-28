@@ -1,8 +1,25 @@
 # GPS-quality / GSR-RF mutex fix — status
 
-> **Living document.** Update as remaining items are closed or new ones are
-> found. Referenced from: `modules/gsr_sensor.c`, `tests/test_gsr_sensor.c`,
-> `run_tests.sh`.
+> **ARCHIVED (2026-08-28) — root cause fixed and verified.** The mechanism
+> (RF SPI work holding a mutex the main thread needs every tick) was split
+> into two mutexes, RF sampling paced to ~10 Hz, and the fix proven by
+> ThreadSanitizer + direct regression tests. The bulk of this document is
+> the track-by-track investigation history (tracks 112–019) that got there,
+> plus the SD-flush-stall thread that branched off it (real, inherent to
+> SD-over-SPI; `BIOMAP_SD_PREALLOC` shipped as the mitigation). It stays
+> archived rather than deleted because ~20 firmware source comments and the
+> `BIOMAP_SD_PREALLOC` / debug-CSV-column rationale point here.
+>
+> **Still-open items** — everything actionable from "Other open items" #2–7
+> (all except #5, which is a permanent accepted risk, not a to-do) has been
+> lifted into [`docs/todo.md`](../todo.md) so it doesn't get lost: the
+> unexplained low-severity "2 Hz `tick_dt_ms` oscillation", the `WizardState`
+> mutex fix having no host-test coverage, the race not being formally proven
+> absent, the missing reverse-direction I2C/RF test, and the `gsr->available`
+> dead-code cleanup.
+
+> This was a living document while the fix was in progress. Referenced from:
+> `modules/gsr_sensor.c`, `tests/test_gsr_sensor.c`, `run_tests.sh`.
 
 ## The bug this was about
 

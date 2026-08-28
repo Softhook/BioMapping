@@ -32,7 +32,7 @@ use. Not a bug unique to this app, but real and measured here regardless.
 ## What was built
 
 The chosen fix (of several options considered — see
-`docs/gps_rf_mutex_status.md`'s "SD flush mitigation options" entry for
+`docs/archive/gps_rf_mutex_status.md`'s "SD flush mitigation options" entry for
 the full list) was to move the actual `storage_file_write()`/
 `storage_file_sync()` off the main thread onto a dedicated background
 writer thread inside `modules/sd_logger.c`, so a slow SD card would block
@@ -214,7 +214,7 @@ tried and why it didn't fully pan out.
 - `tests/test_firmware.c`, `tests/test_em_scan_cal.c` — small follow-on
   fixes from the above
 - `run_tests.sh` — added the `test_sd_logger` TSAN pass, `-lpthread`
-- `docs/gps_rf_mutex_status.md` — the full turn-by-turn history of this
+- `docs/archive/gps_rf_mutex_status.md` — the full turn-by-turn history of this
   investigation (more granular than this summary)
 
 ## Raw evidence (data files, not code — not part of the revert)

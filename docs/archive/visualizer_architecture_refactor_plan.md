@@ -1,9 +1,19 @@
 # GSR Map Visualiser — Stability Refactor Plan
 
-> **Living document.** This is a forward plan, not a status report — update phase
-> status as work lands, and correct anything that turns out wrong once touched.
-> Scope: `visualiser/` only (the browser-based track/RF visualizer), not
-> the Flipper firmware.
+> **ARCHIVED (2026-08-28) — the refactor is done.** Phases 0–8 all landed and
+> are code-verified (see each phase's status note). Two threads never
+> started, both explicitly optional: **Phase 9** (a "simplification audit" —
+> no pre-approved changes, run only if wanted) and **Phase 6 step 3** (two
+> investigate-only rendering-cost candidates: `computeLabelPositions`
+> collision cost, `getRenderLayers()` array rebuilds — "no code changes
+> without a profile first"). If either is picked up it can start from this
+> record. The companion `visualizer_rendering_perf_routes.md` is archived
+> alongside this. Kept because ~15 source-comment references in
+> `visualiser/*.js` cite specific phases here as the rationale-of-record for
+> shipped code.
+
+> This was a forward plan, not a status report. Scope: `visualiser/` only
+> (the browser-based track/RF visualizer), not the Flipper firmware.
 
 ## Why this document exists
 
@@ -326,7 +336,7 @@ Phases are independently shippable; §4 gives suggested sequencing.
 > the real `GSRUI.updatePeakLabel()` wiring is exercised end to end — not just
 > the map.js method in isolation). Full detail, including what's deliberately
 > *not* fixed yet, lives in the companion document
-> `docs/visualizer_rendering_perf_routes.md` (top-of-doc 2026-08-07 update +
+> `docs/archive/visualizer_rendering_perf_routes.md` (top-of-doc 2026-08-07 update +
 > §2.2's status note).
 >
 > **Step 1 (RF fan-cast spatial index) ✅ DONE (2026-08-07).**
@@ -528,7 +538,7 @@ Phases are independently shippable; §4 gives suggested sequencing.
 >   suite's usual `bootWithRecordingL()` nulls `GSRSpatialClustering`
 >   entirely, out of scope for every other test in that file. Full suite
 >   green (617 tests, 1 pre-existing environment-gated skip). Logged as
->   §2.4 in `docs/visualizer_rendering_perf_routes.md`, now marked landed.
+>   §2.4 in `docs/archive/visualizer_rendering_perf_routes.md`, now marked landed.
 >
 > Step 3 (the perf-routes doc's `computeLabelPositions`/`getRenderLayers`
 > investigate-only items) is still open — unaffected by the above.
@@ -570,10 +580,10 @@ Phases are independently shippable; §4 gives suggested sequencing.
 > untouched — verified non-vacuous against pre-fix `map.js` via `git
 > stash`); new bench 5 in `tests/manual/_bench_render_perf.js`. Full suite
 > green (647 tests, 1 pre-existing environment-gated skip). Logged as §2.7
-> in `docs/visualizer_rendering_perf_routes.md`. Step 3's two items remain
+> in `docs/archive/visualizer_rendering_perf_routes.md`. Step 3's two items remain
 > the only still-open, unsized candidates in either document.
 
-**Goal:** close out the remaining items in `docs/visualizer_rendering_perf_routes.md` — real, measured-or-reasoned rendering costs distinct from Phase 5's specific RF fan-cast *caching* gap (complementary, not overlapping — see that document's §2.1 for how the two relate).
+**Goal:** close out the remaining items in `docs/archive/visualizer_rendering_perf_routes.md` — real, measured-or-reasoned rendering costs distinct from Phase 5's specific RF fan-cast *caching* gap (complementary, not overlapping — see that document's §2.1 for how the two relate).
 
 **Steps:**
 1. **RF fan-cast spatial index** (perf-routes §2.1): `_precalculateSpatialFans()` (`rf_fluid_renderer.js:174`) linearly re-scans every building segment for every GPS node, on every settled GPS-slider-drag frame. Bucket `buildingSegmentsGeo` into a uniform spatial grid once per `setData()` call; per-node lookup becomes "gather segments from the 3×3 cells around this node" instead of a full scan. Self-contained to one method, no layer-ownership interaction — the strongest standalone candidate per that document's own priority ranking; do this one first.
@@ -844,7 +854,7 @@ see §2's existing out-of-scope list, which still applies.
    *source* (not this planning doc, which is meant to keep its own history)
    that reference an approach a later phase superseded, and confirm nothing
    still points at removed state.
-4. **`docs/visualizer_rendering_perf_routes.md` merge-back.** Once Phase 6
+4. **`docs/archive/visualizer_rendering_perf_routes.md` merge-back.** Once Phase 6
    fully closes (step 3 — §2.4 already landed as part of Phase 6, see that
    phase's status note), consider folding its now-fully-landed sections back
    into this document's Phase 6 status note so there's one living document

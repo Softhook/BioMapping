@@ -17,7 +17,7 @@
  * pattern test_map_layer_ownership.js already uses against boot_app.js's
  * context to null out bindings before boot.
  *
- * Scope, matching docs/visualizer_test_coverage_plan.md's philosophy for
+ * Scope, matching docs/archive/visualizer_test_coverage_plan.md's philosophy for
  * boot_app.js: this is for exercising real logic (gap detection, session
  * reset, tile-cache bookkeeping, location validation) without throwing —
  * NOT a faithful Leaflet reimplementation and NOT real Bluetooth GATT.

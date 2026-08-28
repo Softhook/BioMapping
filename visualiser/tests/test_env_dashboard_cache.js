@@ -2,7 +2,7 @@
 
 /**
  * Integration test for GSRUI.updateEnvironmentalDashboard()'s cache
- * self-validation (docs/visualizer_architecture_refactor_plan.md Phase 2).
+ * self-validation (docs/archive/visualizer_architecture_refactor_plan.md Phase 2).
  *
  * The unit-level coverage in test_analyzer_refactoring.js and
  * test_osm_enrichment.js only proves the WRITE side: that analyze() /

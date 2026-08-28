@@ -8,7 +8,7 @@ function setup() {
   AppState.analyzer = new GSRAnalyzer();
   AppState.mapManager = new GSRMapManager('map');
 
-  // Phase 3 pilot (docs/visualizer_architecture_refactor_plan.md): each
+  // Phase 3 pilot (docs/archive/visualizer_architecture_refactor_plan.md): each
   // interested module reacts to 'trackRemoved' independently instead of
   // GSRTrackManager.deleteTrack() calling them all out by name.
   AppState.on('trackRemoved', () => GSRTrackManager.renderTrackList());
@@ -322,7 +322,7 @@ function mouseReleased() {
 // GSRRenderer.handleScrubber()) now that draw() no longer runs continuously
 // for the life of a track view (see tracks.js/events.js — loop() used to be
 // left running uncapped just so hover updates kept landing every frame; see
-// docs/visualizer_rendering_perf_routes.md §2.5). p5 only calls this while
+// docs/archive/visualizer_rendering_perf_routes.md §2.5). p5 only calls this while
 // no mouse button is held (mouseDragged() covers the held case above), so
 // this is purely the passive-hover path. rAF-coalesced like the other
 // high-frequency inputs (GSREvents.rafCoalesce) since native mousemove can

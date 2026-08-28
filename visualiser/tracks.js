@@ -350,7 +350,7 @@ const GSRTrackManager = {
     GSRTrackManager.renderTrackList();
     // No loop() here — the canvas renders on demand via the redraw() calls
     // already made above/below (resetView(), runAnalysis(), windowResized()'s
-    // resizeCanvas()); see docs/visualizer_rendering_perf_routes.md §2.5 for
+    // resizeCanvas()); see docs/archive/visualizer_rendering_perf_routes.md §2.5 for
     // why continuous looping was removed.
     requestAnimationFrame(() => windowResized());
   },
@@ -413,7 +413,7 @@ const GSRTrackManager = {
         GSRTrackManager.setFileStatus('warning', 'No File Loaded');
       }
 
-      // Phase 3 pilot (docs/visualizer_architecture_refactor_plan.md): notify
+      // Phase 3 pilot (docs/archive/visualizer_architecture_refactor_plan.md): notify
       // interested modules instead of calling them directly by name.
       // GSRTrackManager (renderTrackList), GSRMapManager (clearAll when the
       // library goes empty), and GSRUI (updateCollectiveMap in collective

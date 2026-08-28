@@ -23,9 +23,14 @@ Each CSV begins with comment lines (prefixed `#`) before the column header:
 ```
 # RecordingStartTime:<unix_epoch_seconds>
 # DeviceName:<flipper_device_name>
-# GPSChipID:<word1 word2 word3 word4 word5>
 # Band Floors (dBm): 815:<float>,868:<float>,915:<float>
+# GPSChipID:<word1 word2 word3 word4 word5>
+# GSR Calibration: gain:<float>,offset:<float>
 ```
+
+Emitted in the order shown above (`biomap_session.c`,
+`key_toggle_recording()`). `RecordingStartTime` and `DeviceName` are always
+present; the other three are conditional (see below).
 
 `RecordingStartTime` is `0` if the Flipper RTC has never been set.
 
@@ -53,6 +58,14 @@ the app is closed.
 The `# Band Floors` line only appears when RF is active for the session (GPS +
 GSR + RF or GPS + RF) **and** an RF calibration exists (`key_toggle_recording()`,
 `biomap_session.c`).
+
+`GSR Calibration` records the linear fit (`gain`, `offset` in nS) applied
+inside `GsrSensor` before `gsr_raw` is ever computed
+(`gsr_sensor_set_calibration()`) — the only record of what transform produced
+the logged values. It appears only when a calibration is active — a
+`biomap.cal` was loaded or one was set through the calibration wizard
+(`cal_active`, `biomap.c`). An uncalibrated recording, which runs at the
+identity fit (gain 1.0 / offset 0.0), omits the line.
 
 ---
 
@@ -84,7 +97,7 @@ Debug-only appended columns when enabled:
 - `i2c_peak_ms`, `rf_rssi_peak_ms`, `rf_retune_peak_ms`
 - `flush_peak_ms`, `log_fill_bytes`, `log_fill_peak_bytes`, `log_overflow_count`, `log_flush_fail_count`
 - `pga_change_count`, `i2c_consec_fail` (all GSR-bearing modes, including GSR-only)
-- `prealloc_ms` (all three variants) — one-shot SD log-file pre-allocation duration at recording start, session-constant rather than a lifetime-max like the columns above (`BIOMAP_SD_PREALLOC`, see `docs/gps_rf_mutex_status.md`'s "option E" entries)
+- `prealloc_ms` (all three variants) — one-shot SD log-file pre-allocation duration at recording start, session-constant rather than a lifetime-max like the columns above (`BIOMAP_SD_PREALLOC`, see `docs/archive/gps_rf_mutex_status.md`'s "option E" entries)
 
 ---
 
@@ -150,9 +163,10 @@ Defined in `modules/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
 | 1.2 | 2026-07 | Added `hacc_m` (M10Q-only physical accuracy in meters, `$PUBX,00`); total 11 columns |
 | 1.3 | 2026-07 | Added SubGHz RF columns (`rssi_815/868/915` & `rssi_peak_815/868/915`) for `GPS+GSR+RF` mode; total 17 columns |
 | 1.4 | 2026-07 | Removed `rssi_peak_815/868/915` (decaying peak-hold) — redundant with raw RSSI for offline analysis; total 14 columns |
-| 1.5 | 2026-08-05 | Debug-field review (see `docs/gps_rf_mutex_status.md`): added `gps_reinit_count` (GPS-bearing debug modes) and `pga_change_count`/`i2c_consec_fail` (all GSR-bearing debug modes) — promoted from serial-only/Diagnostics-screen-only readings that never reached the CSV. No production (non-debug) column changes. |
+| 1.5 | 2026-08-05 | Debug-field review (see `docs/archive/gps_rf_mutex_status.md`): added `gps_reinit_count` (GPS-bearing debug modes) and `pga_change_count`/`i2c_consec_fail` (all GSR-bearing debug modes) — promoted from serial-only/Diagnostics-screen-only readings that never reached the CSV. No production (non-debug) column changes. |
 | 1.6 | 2026-08-05 | `BIOMAP_DEBUG_FIELDS` compile-time switch replaced with a persisted runtime Options-menu toggle (`BioMapApp::debug_fields_enabled`, Options > Debug Fields), off by default. No column-list changes — same debug columns as 1.5, just switchable per-session without a rebuild. |
-| 1.7 | 2026-08-05 | Added `prealloc_ms` (all three debug variants) alongside `BIOMAP_SD_PREALLOC` — see `docs/gps_rf_mutex_status.md`. Also: the metadata header's old `# BioMapping v1.0` / `# GPS:<module>` lines don't reflect the current format — corrected above to `# RecordingStartTime:` + conditional `# Band Floors` line. |
+| 1.7 | 2026-08-05 | Added `prealloc_ms` (all three debug variants) alongside `BIOMAP_SD_PREALLOC` — see `docs/archive/gps_rf_mutex_status.md`. Also: the metadata header's old `# BioMapping v1.0` / `# GPS:<module>` lines don't reflect the current format — corrected above to `# RecordingStartTime:` + conditional `# Band Floors` line. |
+| 1.8 | 2026-08-28 | Doc sync, no column changes: documented the `# GSR Calibration: gain:…,offset:…` metadata line (emitted since custom GSR calibration shipped) and corrected the metadata-header order to match `biomap_session.c`. Post-processing enrichment columns (`osm_*`, snapped GPS) are appended by the visualiser, not the firmware writer — see [`environmental_enrichment_plan.md`](environmental_enrichment_plan.md). |
 
 ---
 

@@ -6,7 +6,7 @@
  * shape. This is deliberately breadth-over-depth: it does NOT try to unit-
  * test every function in the DOM/Leaflet/p5 rendering layer (map.js, ui.js,
  * events.js, sketch.js, layout_manager.js) — see
- * docs/visualizer_test_coverage_plan.md for why that's out of scope and
+ * docs/archive/visualizer_test_coverage_plan.md for why that's out of scope and
  * tests/support/boot_app.js's header comment for exactly what these tests
  * can and can't catch.
  *

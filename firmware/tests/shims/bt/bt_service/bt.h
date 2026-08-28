@@ -5,7 +5,7 @@
 // against ~/.ufbt/current/sdk_headers/f7_sdk/applications/services/bt/
 // bt_service/bt.h). Fakes just the surface modules/bt_stream.c calls
 // directly: claiming/releasing the BLE profile and the connection-status
-// callback (see docs/bluetooth_serial_investigation.md §1.3/§1.7). Real
+// callback (see docs/archive/bluetooth_serial_investigation.md §1.3/§1.7). Real
 // signatures, not simplified — bt_profile_start() genuinely returns NULL on
 // failure and bt_profile_restore_default() genuinely returns bool, so the
 // shim must let tests exercise both failure paths.

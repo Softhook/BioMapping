@@ -1,7 +1,7 @@
 'use strict';
 /**
  * Real A/B timing for the three Phase 6 rendering-perf changes (architecture
- * refactor plan §Phase 6 / docs/visualizer_rendering_perf_routes.md). Not a
+ * refactor plan §Phase 6 / docs/archive/visualizer_rendering_perf_routes.md). Not a
  * regression test (no assertions, nothing fails CI) — a measurement script,
  * following the `_probe_*.js` convention in this directory. Run manually:
  *
@@ -396,7 +396,7 @@ function benchCollectiveTrackPeakRefresh() {
 // boundary blobs) and GSRCollectiveManager.generateContourSurface() (the
 // IDW topography surface) used to scan every (grid cell, peak-or-point)
 // pair unconditionally; both are now point-major splats that only touch
-// cells within actual range. See docs/visualizer_architecture_refactor_plan.md
+// cells within actual range. See docs/archive/visualizer_architecture_refactor_plan.md
 // Phase 7 for the full before/after (verified via git stash on this exact
 // fixture: ~101ms -> ~36ms, 2.8x, for the full renderCollectiveData() call).
 function benchCollectiveColdRender() {
