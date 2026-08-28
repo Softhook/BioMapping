@@ -24,7 +24,7 @@ typedef struct GpsStatus {
     float course;               // degrees true
     float hdop;                 // Horizontal Dilution of Precision (GGA/GSA)
     float vdop;                 // Vertical Dilution of Precision (GSA)
-    float hacc;                 // Estimated horizontal accuracy in meters (PUBX 00); 99.9 = unknown
+    float hacc;                 // Estimated horizontal accuracy in metres (PUBX 00); 99.9 = unknown
     int   fix_quality;          // 0=none, 1=GPS, 2=DGPS (GGA)
     int   fix_type;             // 1=none, 2=2D, 3=3D (GSA)
     int   satellites_tracked;
@@ -55,17 +55,15 @@ bool      gps_uart_is_ready(const GpsUart* gps);
 void      gps_uart_process_rx(GpsUart* gps);
 void      gps_uart_send_hot_start(GpsUart* gps);
 
-// ── Contention diagnostics (2026-07-31 — see docs/gps_rf_mutex_status.md) ──
+// ── Contention diagnostics (see docs/gps_rf_mutex_status.md) ──────────────
 // Cumulative, monotonic counters — the caller (biomap_session.c) diffs or
 // just logs the running totals, same pattern as gsr_sensor.c's iter_count.
 //
 // gps_uart_get_rx_drop_count(): incremented from ISR context
-// (gps_uart_irq_cb) whenever a received byte can't be pushed into
-// rx_stream because it's full — i.e. the main thread fell behind draining
-// it. This is the direct, real-world symptom the old RF/GSR mutex bug
-// would have caused (main thread stalled behind gsr->mutex -> UART event
-// processing delayed -> rx_stream fills -> bytes silently dropped, which
-// is exactly what used to happen with zero visibility before this).
+// (gps_uart_irq_cb) whenever a received byte can't be pushed into rx_stream
+// because it's full — i.e. the main thread fell behind draining it. That is
+// the direct symptom of a main-thread stall (e.g. behind a mutex) delaying
+// UART event processing until rx_stream overflows.
 uint32_t  gps_uart_get_rx_drop_count(const GpsUart* gps);
 
 // gps_uart_get_nmea_fail_count(): incremented in gps_uart_parse_line()
@@ -75,13 +73,11 @@ uint32_t  gps_uart_get_rx_drop_count(const GpsUart* gps);
 // parse-failure proxy, not "sentences we ignore by design".
 uint32_t  gps_uart_get_nmea_fail_count(const GpsUart* gps);
 
-// gps_uart_get_reinit_count() (2026-08-05): incremented once per
-// gps_uart_reinit() call — a full baud-switch + module-reconfigure cycle,
-// triggered either by the RX-buffer-full guard or the 5s NMEA watchdog
-// (both in gps_uart_process_rx()). Without this, a GPS quality drop
-// midway through a recording is indistinguishable from "the module got
-// power-cycled N times" — this makes that distinction directly visible
-// in the CSV instead of only in a serial log nobody was watching live.
+// gps_uart_get_reinit_count(): incremented once per gps_uart_reinit()
+// call — a full baud-switch + module-reconfigure cycle, triggered either by
+// the RX-buffer-full guard or the 5 s NMEA watchdog (both in
+// gps_uart_process_rx()). Makes "the module got reconfigured N times
+// mid-recording" visible in the CSV rather than only in the serial log.
 uint32_t  gps_uart_get_reinit_count(const GpsUart* gps);
 
 // gps_uart_get_chip_id(): best-effort GPS module chip serial number,

@@ -47,22 +47,19 @@ BtStream* bt_stream_alloc(void) {
 
 // Deliberately does NOT free anything — see the static singleton above.
 //
-// Real-hardware crash investigation (2026-08-14): bt_profile_restore_default()
-// "restarts the BLE co-processor's second core" per the SDK's own doc
-// comment on bt_profile_start() — an inherently asynchronous hardware
-// event, with no documented way to synchronously wait for it to fully
-// settle (unlike GpsUart/GsrSensor's worker threads, which this codebase's
-// other modules safely tear down via furi_thread_join() before freeing —
-// there's no equivalent join here). That leaves a real window where
-// bt_stream_status_cb() could still be invoked by the BLE stack's own
-// thread, with the OLD context pointer, after a heap-allocated BtStream
-// had already been freed — a genuine use-after-free write, and the most
-// plausible explanation for a bus-fault crash observed on real hardware
-// while backing out of and re-entering Live Stream mode. bt_stream_stop()
-// below also explicitly asks the BLE stack to stop calling back before
-// tearing down, but that's best-effort (unverified whether it's honored
-// synchronously) — this static allocation is what actually guarantees
-// safety: a stray late callback can only write a stale status value into
+// bt_profile_restore_default() "restarts the BLE co-processor's second
+// core" per the SDK's own doc comment on bt_profile_start() — an
+// asynchronous hardware event with no documented way to wait for it to
+// settle (unlike GpsUart/GsrSensor's worker threads, torn down via
+// furi_thread_join(); there's no equivalent join here). That leaves a real
+// window where bt_stream_status_cb() could still be invoked by the BLE
+// stack's own thread, with the OLD context pointer, after a heap-allocated
+// BtStream had been freed — a use-after-free write, and the most plausible
+// explanation for a bus-fault crash seen on hardware while backing out of
+// and re-entering Live Stream mode. bt_stream_stop() below also asks the
+// BLE stack to stop calling back before tearing down, but that's
+// best-effort — this static allocation is what actually guarantees safety:
+// a stray late callback can only write a stale status value into
 // still-valid memory, never into memory that's been freed and reused.
 void bt_stream_free(BtStream* bs) {
     furi_check(bs == &g_bt_stream, "BtStream: bt_stream_free() with unexpected pointer");

@@ -29,14 +29,13 @@ static const NotificationSequence sequence_blink_red_500 = {
 // need to redefine it.)
 
 // ── Final flush before a normal (user-initiated) stop ──────────────────────
-// sd_logger_batch_flush() no longer discards the batch on a failed write
-// (see modules/sd_logger.c), so a single retry here actually re-sends the
-// same bytes rather than flushing an already-emptied buffer — cheap
-// insurance against a transient SD-busy blip, the most common real-world
-// failure mode. If it still fails, the file is genuinely missing its last
-// few seconds of data; the caller must know so it can warn the user
-// instead of playing the ordinary "recording stopped" chirp, which would
-// otherwise be indistinguishable from a clean stop.
+// sd_logger_batch_flush() keeps the batch on a failed write (see
+// modules/sd_logger.c), so a single retry here re-sends the same bytes
+// rather than flushing an already-emptied buffer — cheap insurance against a
+// transient SD-busy blip, the most common real-world failure mode. If it
+// still fails, the file is genuinely missing its last few seconds of data;
+// the caller must know so it can warn the user instead of playing the
+// ordinary "recording stopped" chirp.
 // Returns true if the buffer was confirmed empty (nothing lost).
 static bool flush_before_stop(SdLogger* logger) {
     if(sd_logger_batch_flush(logger) >= 0) return true;
@@ -63,7 +62,6 @@ void session_init(Session* s, BioMapMode mode, bool zoom_enabled, bool debug_fie
                                    .manual_timeout = 0}},
         .recording  = {.active = false, .tick_counter = 0, .flush_counter = 0},
         .running    = true,
-        .gsr_alert_sounded = false,
         .ns_label_last = -1.0f,  // sentinel — forces format on first frame (nS ≥ 0 always)
         .debug_fields_enabled = debug_fields_enabled,
     };
@@ -77,24 +75,19 @@ void session_deinit(Session* s, BioMapApp* app) {
         s->timer = NULL;
     }
     // ── Mutex-guarded module teardown ──────────────────────────────────
-    // biomap_render_callback() runs on the GUI service's own thread (not
-    // this one) and acquires app->mutex before reading s->gsr/s->gps —
-    // every other Session mutation in this file (tick handler, key
-    // handlers) holds that same mutex for exactly this reason. This
-    // function used to be the one exception: it freed s->logger/gsr/
-    // gps and only THEN nulled the pointers, all without the
-    // mutex, while the ViewPort stays enabled with this screen's draw
-    // callback attached until the very end below — a real window for the
-    // render thread to read a pointer this thread is mid-free()ing.
-    // Narrow normally, but gsr_sensor_free()'s furi_thread_join()
-    // can block this thread — by far the slowest step here — so the
-    // exposure is real, not theoretical. Held across the whole teardown,
-    // not just the RF step, for symmetry with every other Session-mutating
-    // call site rather than special-casing one.
-    // A blocked render during this window just means a stale-but-valid
-    // last frame lingers a little longer on a screen that's leaving
-    // anyway — trivial next to the alternative (a torn-down pointer read
-    // from another thread).
+    // biomap_render_callback() runs on the GUI service's own thread and
+    // acquires app->mutex before reading s->gsr/s->gps — every other Session
+    // mutation in this file (tick handler, key handlers) holds that same
+    // mutex for the same reason. The ViewPort stays enabled with this
+    // screen's draw callback attached until the very end below, so freeing
+    // s->logger/gsr/gps and nulling the pointers without the mutex would
+    // leave a real window for the render thread to read a pointer this
+    // thread is mid-free()ing — and gsr_sensor_free()'s furi_thread_join()
+    // can block here for a while, widening it. The lock is held across the
+    // whole teardown, not just the RF step, for symmetry with every other
+    // Session-mutating call site. A blocked render during this window only
+    // means a stale-but-valid last frame lingers on a screen that's leaving
+    // anyway.
     furi_mutex_acquire(app->mutex, FuriWaitForever);
     SdLogger* logger = s->logger;
     GsrSensor* gsr = s->gsr;
@@ -142,10 +135,10 @@ void session_deinit(Session* s, BioMapApp* app) {
     if(s->vp) {
         // s->vp is app->screen_vp — the single persistent fullscreen
         // ViewPort shared by every screen. Disable it and clear its draw
-        // callback, but never remove/free it here: doing so (the old
-        // behavior) left a window with zero enabled fullscreen ViewPorts
-        // in the GUI stack, which let the desktop/dolphin flash through
-        // before the next screen re-enabled it.
+        // callback, but never remove/free it here: that would leave a window
+        // with zero enabled fullscreen ViewPorts in the GUI stack, letting
+        // the desktop/dolphin flash through before the next screen re-enables
+        // it.
         view_port_enabled_set(s->vp, false);
         view_port_draw_callback_set(s->vp, NULL, NULL);
         s->vp = NULL;
@@ -184,16 +177,12 @@ static inline GpsPosition get_gps_position(const Session* s) {
     return pos;
 }
 
-// ── Contention-diagnostic snapshot (2026-07-31) ─────────────────────────
-// Always computed regardless of Session::debug_fields_enabled (2026-08-05
-// — these are cheap accessor reads, no reason to branch on the runtime
-// toggle here too; the toggle only decides whether the result gets
-// written into the CSV, in format_gps_csv_row()/batch_csv_row() below).
-// The only place that reads s->gps/s->gsr for RowDiag — see format_gps_csv_row's
-// doc comment. Null-guards both: format_gps_csv_row's callers all currently
-// guarantee non-NULL s->gsr/s->gps in practice (see gsr_sensor_get_worker_hz's
-// callers and has_rf()/has_gps() gating in run_recording_session), but this
-// stays defensive rather than relying on that holding forever.
+// ── Contention-diagnostic snapshot ─────────────────────────────────────
+// Cheap accessor reads only — the debug_fields_enabled toggle decides
+// whether the result is written to the CSV (in batch_csv_row() below), not
+// whether it's gathered. Null-guards s->gps/s->gsr/s->logger: the callers
+// all guarantee non-NULL in practice via the has_gps()/has_rf() gating in
+// run_recording_session(), but this stays defensive.
 static inline RowDiag get_row_diag(const Session* s) {
     RowDiag d = {0};
     d.tick_dt_ms   = s->recording.tick_dt_ms;
@@ -217,48 +206,38 @@ static inline RowDiag get_row_diag(const Session* s) {
 
 // ── Shared GPS CSV row formatter ───────────────────────────────────────────
 // Formats an 11-column GPS row into the SD batch buffer with an explicit GSR
-// value and hacc_m (horizontal accuracy in meters, PUBX 00; 99.9 = unknown)
-// trailing.  Used by both GPS+GSR mode (via batch_csv_row with the live GSR
-// reading) and GPS-only mode (via handle_recording_tick with raw=0).  When
-// the fix is absent or HDOP is too high, GPS columns are left empty so the
-// analyser treats the row as a gap rather than noise.
+// value and trailing hacc_m (horizontal accuracy in metres, PUBX 00;
+// 99.9 = unknown). Used by both GPS+GSR mode (via batch_csv_row with the
+// live GSR reading) and GPS-only mode (via handle_recording_tick with
+// raw=0). When the fix is absent or HDOP is too high, GPS columns are left
+// empty so the analyser treats the row as a gap rather than noise.
 //
 // rf_rssi is NULL when RF scanning isn't active for this session, otherwise
 // a fresh EM_SCAN_NUM_FREQS-element snapshot — appended as 3 extra columns:
 // rssi_815,rssi_868,rssi_915 (raw per-band peak from the last dwell).
 //
-// Builds the whole row into a local stack buffer via snprintf, then makes
-// ONE sd_logger_batch_append() call — deliberately not two separate
-// sd_logger_batch_printf() calls into the shared SD batch buffer directly.
-// Each batch_printf call is individually atomic (all-or-nothing against
-// the shared buffer), but two SEPARATE calls are not atomic as a pair: if
-// the first (GPS/GSR columns) succeeded and the second (RF suffix) then
-// failed because the buffer filled up in between, the first call's bytes
-// are already committed with no trailing newline, corrupting the CSV by
-// gluing the next row onto the same line. Building locally first and
-// appending once (same pattern em_scan_log_row() already used) keeps the
-// whole row atomic — batch_append() itself checks capacity before writing
-// any bytes (see modules/sd_logger.c).
-// diag carries contention-diagnostic columns (RowDiag, biomap_types.h) —
-// always built by the caller (get_row_diag(), above), but only written into
-// the row when s->debug_fields_enabled is set (Options > Debug Fields,
-// 2026-08-05 — runtime toggle, replacing the old BIOMAP_DEBUG_FIELDS
-// compile-time switch). The only place that touches s->gps/s->gsr
-// directly, keeping this function a pure formatter (mirrored, not linked,
-// by tests/test_firmware.c).
+// The whole row is built into a local buffer and appended with ONE
+// sd_logger_batch_append() call, never two batch_printf() calls into the
+// shared buffer. Each batch_printf() is individually atomic, but a pair is
+// not: if the GPS/GSR columns land and the RF suffix then fails because the
+// buffer filled in between, the first call's bytes are committed with no
+// trailing newline and the next row is glued onto the same line. One append
+// of a fully-built row keeps it atomic — batch_append() checks capacity
+// before writing any bytes (see modules/sd_logger.c).
+//
+// diag carries the RowDiag contention columns (biomap_types.h), written only
+// when s->debug_fields_enabled (Options > Debug Fields). This is the one
+// place that reads s->gps/s->gsr directly, keeping the function a pure
+// formatter (mirrored, not linked, by tests/test_firmware.c).
 // Returns true on success, false on buffer overflow.
 static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
                                 double rel, float raw,
                                 const float* rf_rssi, const RowDiag* diag) {
     bool gps_ok = pos->valid;
-    // static, not a stack local: this runs on the main app thread's tick
-    // path every ~100ms during a real recording, alongside GPS/GSR/RF
-    // worker-management call chains that weren't all exercised together
-    // before this merge (see the em_scan_rf_worker.c stack-size bump made
-    // alongside this, prompted by a real on-device crash during the first
-    // sustained outdoor GPS+GSR+RF walk). Safe as static since this
-    // function is never reentrant or called concurrently — always one
-    // call at a time from the single main app thread's tick handler.
+    // static, not a stack local: keeps 300 bytes off the main app thread's
+    // stack on the tick path, where it runs alongside the GPS/GSR/RF worker
+    // call chains. Safe as static — this function is never reentrant or
+    // called concurrently, always one call at a time from the tick handler.
     static char row[300];
     int n;
     if(gps_ok) {
@@ -328,10 +307,9 @@ static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
     double rel = pipeline_rel_seconds(s->recording.total_ticks);
     // get_row_diag() reads several gsr_sensor_get_*()/gps_uart_get_*()
     // accessors, some of which acquire gsr->mutex/gsr->rf_mutex — real
-    // (if brief) cost on the 10 Hz tick path. Only pay for it when the
-    // result will actually be written to the CSV; a zeroed RowDiag keeps
-    // this call truly free when the toggle is off (the default), same as
-    // the old BIOMAP_DEBUG_FIELDS=0 compile-time behavior.
+    // (if brief) cost on the 10 Hz tick path. Only pay it when the result
+    // will actually be written to the CSV; a zeroed RowDiag keeps this call
+    // free when the toggle is off (the default).
     RowDiag diag = s->debug_fields_enabled ? get_row_diag(s) : (RowDiag){0};
 
     if(s->mode == BioMapModeGsrOnly) {
@@ -364,16 +342,14 @@ static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
 
 
 // ── Write failure handler ──────────────────────────────────────────────────
-// Stop the logger, clear recording state, and signal with red LED.
+// Stop the logger, clear recording state, and signal with the red LED.
 // Returns true when the caller should play the warning tone.
 //
-// IMPORTANT: this function (and handle_second_boundary below) must NOT play
-// sound itself. Both are called from run_recording_session()'s Tick handler
-// while app->mutex is held, and biomap_render_callback() needs that same
-// mutex to draw. biomap_sound_warning() blocks for ~250 ms (see
-// modules/sound.h) — playing it here would hold the mutex for that long and
-// freeze the recording screen. The caller must release app->mutex first,
-// then play the tone using this return value.
+// Must not play sound itself: it runs from the Tick handler with app->mutex
+// held, and biomap_sound_warning() blocks for ~250 ms (modules/sound.h) —
+// long enough to freeze biomap_render_callback(), which needs the same
+// mutex. The caller releases app->mutex first, then plays the tone from
+// this return value.
 static bool handle_write_failure(Session* s, NotificationApp* notifications) {
     if(s->logger) sd_logger_stop(s->logger);
     s->recording.active = false;
@@ -382,46 +358,32 @@ static bool handle_write_failure(Session* s, NotificationApp* notifications) {
 }
 
 // ── 1‑second boundary ──────────────────────────────────────────────────────
-// Called once per second.  Blinks the recording LED at 1 Hz and flushes the
-// SD batch buffer every FLUSH_INTERVAL seconds (decoupled — LED always 1 Hz).
-// GPS rows are written in handle_recording_tick; GSR rows in batch_csv_row.
-// Returns true when the caller should play the warning tone (see
-// handle_write_failure's comment above — the same mutex-hold constraint
-// applies here, so this function only signals the need for a tone; it
-// never calls into modules/sound.h directly).
-static bool handle_second_boundary(Session* s, NotificationApp* notifications) {
+// Called once per second. Blinks the recording LED at 1 Hz — green when the
+// GSR sensor is OK, red when the finger cuffs are disconnected — and adds a
+// brief blue blip when GPS has no fix.
+//
+// Must not play sound: it runs with app->mutex held, and biomap_sound_*()
+// blocks for ~250 ms (modules/sound.h), long enough to freeze the render
+// callback that needs the same mutex. A mid-recording disconnect is a
+// visual-only alert for the same reason — and a tone would contaminate the
+// GSR signal.
+static void handle_second_boundary(Session* s, NotificationApp* notifications) {
     s->recording.tick_counter = 0;
 
-    if(!s->recording.active) return false;
+    if(!s->recording.active) return;
 
-    bool play_warning = false;
-
-    // ── LED blink (every second, independent of flush interval) ────────
-    // 500 ms blink — green when sensor OK, red when cuffs need attention.
-    // Disconnect during recording is a visual-only alert: red blink, no
-    // tone. Playing the speaker mid-recording contaminates the signal and
-    // can also create long event-loop stalls while queued Tick events
-    // catch up. Keep the edge flag so reconnect/re-disconnect cycles do
-    // not need extra state changes elsewhere.
     if(has_gsr(s->mode) && s->gsr && !gsr_sensor_is_connected(s->gsr)) {
         notification_message(notifications, &sequence_blink_red_500);
-        if(!s->gsr_alert_sounded) {
-            s->gsr_alert_sounded = true;
-        }
     } else {
         notification_message(notifications, &sequence_blink_green_500);
-        s->gsr_alert_sounded = false;
     }
     // Brief blue blip after the main blink when GPS has no fix.
     if(has_gps(s->mode) && s->gps) {
         GpsPosition pos = get_gps_position(s);
-        bool gps_ready = pos.valid;
-        if(!gps_ready) {
+        if(!pos.valid) {
             notification_message(notifications, &sequence_blink_blue_100);
         }
     }
-
-    return play_warning;
 }
 
 // ==========================================================================
@@ -891,24 +853,17 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
         // the entire parse.  We parse with a dedicated GPS mutex so the
         // GUI render thread is never blocked by NMEA parsing.
         //
-        // Deliberately does NOT call view_port_update() here (removed
-        // 2026-07-29 — see em_scan_rf_crash_investigation.md's "GPS + RF"
-        // section). A single GPS fix arrives as several separate NMEA
-        // sentences in a tight burst, not evenly spaced, so this used to
-        // fire view_port_update() many times within a few milliseconds in
-        // has_gsr()==false modes (GSR modes never took this branch, since
-        // the graph buffer hadn't changed) — a rate no other mode ever
-        // produces, spamming "ViewPort lockup" warnings and directly
-        // preceding a real hang on real hardware. The Tick handler below
-        // already calls view_port_update() unconditionally every tick
-        // (10 Hz) regardless of mode, so GPS-only/GPS+RF screens still
-        // redraw at that same bounded rate — this only costs up to one
-        // tick (~100 ms) of extra latency before a fresh GPS reading
-        // reaches the screen, in exchange for never bursting redraw calls
-        // faster than every other mode already does safely. Matches
-        // standalone em_scan.c's original UART handler, which never called
-        // view_port_update() here either — this was a behavior the merge
-        // introduced, not something standalone em_scan ever did.
+        // Deliberately does NOT call view_port_update() here (see
+        // em_scan_rf_crash_investigation.md's "GPS + RF" section). A single
+        // GPS fix arrives as several NMEA sentences in a tight burst, so
+        // calling it here fired view_port_update() many times within a few
+        // milliseconds in has_gsr()==false modes — a rate no other mode
+        // produces, which spammed "ViewPort lockup" warnings and directly
+        // preceded a real hang on hardware. The Tick handler below already
+        // calls view_port_update() every tick (10 Hz) regardless of mode, so
+        // GPS-only/GPS+RF screens still redraw at that bounded rate; this
+        // only costs up to one tick (~100 ms) of extra latency before a
+        // fresh GPS reading reaches the screen.
         if(ev.type == EventTypeUart && s->gps) {
             gps_uart_process_rx(s->gps);
             continue;
@@ -956,12 +911,8 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             // Safe to call while holding app->mutex: gsr_sensor_get_rf_snapshot()
             // is guarded by GsrSensor's own dedicated rf_mutex, held only for a
             // 3-float memcpy and never across an RF hardware call — see
-            // gsr_sensor.h's thread-safety comment. Same pattern
-            // biomap_render_callback() already uses for this exact call
-            // (2026-07-30 mutex audit: this used to be fetched before
-            // app->mutex specifically to avoid a then-shared mutex with the
-            // ADC path; that coupling no longer exists, so there's no reason
-            // left to special-case this call site).
+            // gsr_sensor.h's thread-safety comment. biomap_render_callback()
+            // reads the same snapshot the same way.
             float rf_rssi[EM_SCAN_NUM_FREQS];
             bool rf_active = has_rf(mode) && s->gsr && s->recording.active;
             if(rf_active) {
@@ -1012,13 +963,10 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             uint32_t tm_bt_tx_peak = 0;
             uint32_t tm_bt_drop = 0;
             if(++s->recording.tick_counter >= TICK_HZ) {
-                // Both heartbeat (heap/stack) and telemetry (RowDiag) are
-                // gated on debug_fields_enabled (2026-08-05) — under the old
-                // BIOMAP_DEBUG_FIELDS=0 compile-time build neither of this
-                // existed at all, so "off" should mean the same zero-cost
-                // thing at runtime: no heap/stack introspection, no
-                // gsr->mutex/gsr->rf_mutex touches, no serial log line,
-                // once a second, for every recording tick otherwise.
+                // Heartbeat (heap/stack) and telemetry (RowDiag) are both
+                // gated on debug_fields_enabled: with it off, no heap/stack
+                // introspection, no gsr->mutex/gsr->rf_mutex touches, and no
+                // serial log line, once a second, for every recording tick.
                 if(s->debug_fields_enabled) {
                     emit_heartbeat = true;
                     hb_heap_free = memmgr_get_free_heap();
@@ -1063,7 +1011,7 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                     tm_bt_drop = bt_stream_get_drop_count(s->bt_stream);
                 }
 
-                if(handle_second_boundary(s, app->notifications)) play_warning = true;
+                handle_second_boundary(s, app->notifications);
                 if(++s->recording.flush_counter >= FLUSH_INTERVAL) {
                     s->recording.flush_counter = 0;
                     do_flush = true;

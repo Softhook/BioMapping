@@ -49,7 +49,7 @@ void em_scan_rf_set_band(int band_index);
 // this function (one instantaneous read per band) looked "similar
 // everywhere" — it was mostly measuring the quiet floor between bursts,
 // not the bursts themselves. Peak-hold-over-a-dwell is the standard
-// spectrum-analyzer "max hold" technique for exactly this problem.
+// spectrum-analyser "max hold" technique for exactly this problem.
 //
 // Leaves the radio idle when done, same duty-cycled approach as the
 // original EM-Fog plan (§6F).
@@ -90,7 +90,7 @@ void em_scan_rf_park_band(
 // band (no dwell/park polling window) after each band's normal, known-safe
 // em_scan_rf_tune_and_warmup() retune. See the doc comment on this
 // function's definition in em_scan_rf.c for why this does NOT try to stay
-// in RX across bands — an earlier version did, modeled on the official
+// in RX across bands — an earlier version did, modelled on the official
 // Flipper Zero Frequency Analyzer app, and froze the device on real
 // hardware on the very first sweep.
 //

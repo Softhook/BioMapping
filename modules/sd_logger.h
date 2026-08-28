@@ -23,7 +23,7 @@ void        sd_logger_stop(SdLogger* logger);
 // to SD in a single storage_file_write every FLUSH_INTERVAL seconds.
 // The internal buffer (24576 bytes, sd_logger.c) holds the ~100 rows/flush
 // at the 10 Hz rate with real headroom over worst-case row length — see
-// gsr_batch's doc comment (sd_logger.c) for the 2026-08-05 sizing rationale.
+// gsr_batch's doc comment (sd_logger.c) for the sizing rationale.
 //   sd_logger_batch_append  — append a pre-formatted row (returns false on overflow)
 //   sd_logger_batch_printf  — format a row directly into the batch buffer (no
 //                             intermediate stack buffer).  Returns bytes written
@@ -38,20 +38,12 @@ const char* sd_logger_get_filename(const SdLogger* logger);
 
 // Worst single sd_logger_batch_flush() call ever seen (storage_file_write()
 // + storage_file_sync() together, real furi_get_tick() delta), in ms.
-// Lifetime max, never reset — added 2026-08-03 alongside gsr_sensor.h's
-// i2c_peak_ms/rf_rssi_peak_ms/rf_retune_peak_ms: tracks 116 and 117 both
-// showed real tick_dt_ms stalls (up to ~950 ms) landing exactly on the
-// once-per-FLUSH_INTERVAL flush tick while those three GSR-worker-thread
-// columns stayed near zero, pointing at the SD write/sync itself (main
-// thread, ~20-60 ms normally, occasionally much longer on real SD cards)
-// rather than any GSR/RF hardware call. See docs/gps_rf_mutex_status.md.
-// flush_last_ms/take_flush_window_max_ms (2026-08-03 → removed 2026-08-05,
-// debug-field review): only ever reached the serial-only 1 Hz telemetry
-// line, a channel this project has never actually used to diagnose a real
-// issue — every finding in docs/gps_rf_mutex_status.md came from CSV
-// analysis. flush_peak_ms's own row-by-row progression in the CSV already
-// pinpoints exactly which row a new worst flush occurred at (see the
-// track 118 entry in that doc), making both fields fully redundant.
+// Lifetime max, never reset — pairs with gsr_sensor.h's peak-ms accessors:
+// real tick_dt_ms stalls (up to ~950 ms) have landed exactly on the
+// once-per-FLUSH_INTERVAL flush tick while those GSR-worker columns stayed
+// near zero, pointing at the SD write/sync itself (main thread, ~20-60 ms
+// normally, occasionally much longer on real SD cards) rather than any
+// GSR/RF hardware call. See docs/gps_rf_mutex_status.md.
 uint32_t    sd_logger_get_flush_peak_ms(const SdLogger* logger);
 
 // How long sd_logger_start()'s one-shot log-file pre-allocation took, in ms

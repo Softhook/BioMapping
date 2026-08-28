@@ -63,20 +63,10 @@ typedef struct Session {
 
     // Snapshotted from app->debug_fields_enabled at session_init() — same
     // "fixed for the session, changed only via Options" lifecycle as
-    // zoom_enabled above (2026-08-05: Options > Debug Fields, replacing the
-    // old BIOMAP_DEBUG_FIELDS compile-time switch). Read directly wherever
-    // CSV column selection/formatting already has a Session* in scope
-    // (biomap_session.c), rather than threading a new parameter through
-    // every call site.
+    // zoom_enabled above. Read directly wherever CSV column selection has a
+    // Session* in scope (biomap_session.c) rather than threading a new
+    // parameter through every call site.
     bool           debug_fields_enabled;
-
-    // Edge-trigger latch for the GSR-disconnect audio warning: true once
-    // biomap_sound_warning() has fired for the CURRENT disconnect episode,
-    // so the alert plays once per episode (not once per second alongside
-    // the LED blink). Reset to false as soon as the sensor reads connected
-    // again. Lives on Session (not DisplayState) because it's a one-shot
-    // UI-event latch, not a signal-processing value.
-    bool           gsr_alert_sounded;
 
     // Render cache — avoids snprintf + canvas_string_width every frame
     char           zoom_label[16];
@@ -128,14 +118,12 @@ typedef struct BioMapApp {
     float              cal_offset;
     EmScanCal          rf_cal_data;     // RF Faraday calibration (em_scan_cal.h)
     bool               rf_calibrated;
-    // Options > Debug Fields (2026-08-05) — replaces the old
-    // BIOMAP_DEBUG_FIELDS compile-time switch (biomap_config.h) with a
-    // runtime, persisted toggle. Off by default (see biomap_app()'s
-    // defaults, biomap.c) — the diagnostic CSV columns and RowDiag
-    // instrumentation are always compiled in now; this only decides
-    // whether a given recording session's CSV actually includes them.
-    // Snapshotted into Session::debug_fields_enabled at session_init(),
-    // same lifecycle as zoom_enabled.
+    // Options > Debug Fields — runtime, persisted toggle for the diagnostic
+    // CSV columns and RowDiag instrumentation (always compiled in; this only
+    // decides whether a given session's CSV includes them). Off by default
+    // (see biomap_app()'s defaults). Snapshotted into
+    // Session::debug_fields_enabled at session_init(), same lifecycle as
+    // zoom_enabled.
     bool               debug_fields_enabled;
 } BioMapApp;
 
@@ -186,8 +174,7 @@ typedef struct {
 // the main thread's key-handling loop and read by draw_cal_submenu()
 // (biomap_render.c) on the GUI service's own render thread, so it's guarded
 // by app->mutex like the other two, rather than a dedicated mutex (unlike
-// WizardState/RfCalWizardState, which have no BioMapApp* to reuse). Found
-// unguarded — a plain int race — during the 2026-07-31 mutex audit.
+// WizardState/RfCalWizardState, which have no BioMapApp* to reuse).
 typedef struct {
     BioMapApp* app;
     int32_t    selection;
@@ -213,19 +200,12 @@ typedef struct {
 // (below) must still pass. Example for 47k at CAL_GAIN_MIN (0.2×):
 //   21276.6 × 0.2 ≈ 4255 nS  → lower gate must be ≤ 4255.
 //
-// CORRECTED 2026-07-30: this comment previously said "0.5× (the
-// calibration minimum)" — stale relative to CAL_GAIN_MIN, which has been
-// 0.2 since before this comment was last touched (the two had drifted
-// apart; CAL_GAIN_MIN is now the single source of truth both use).
-// NOTE: CAL_LO_GATE_47K (5000) is still ABOVE the 4255 the corrected
-// example above requires, and CAL_MID_GATE_LO (3000, the 100k floor)
-// is similarly above its own 0.2×-derived floor (10000 × 0.2 = 2000) —
-// neither gate has actually been re-derived for a genuine 0.2×-gain
-// device yet. Lowering CAL_MID_GATE_LO in particular isn't a simple
-// number change: it doubles as the 470k gate's UPPER bound, and dropping
-// it below 470k's own nominal target (2127.66, CAL_TARGET_470K) would
-// break ordinary-gain 470k measurement. Left as-is pending a real
-// hardware-informed re-tuning rather than a guessed value.
+// The gates below have not all been re-derived for a genuine 0.2×-gain
+// device: CAL_LO_GATE_47K (5000) sits above the 4255 the example needs,
+// and CAL_MID_GATE_LO (3000) above its 0.2×-derived floor of 2000.
+// CAL_MID_GATE_LO also doubles as the 470k gate's upper bound, so dropping
+// it below CAL_TARGET_470K (2127.66) would break ordinary-gain 470k
+// measurement — left as-is pending a hardware-informed re-tune.
 #define CAL_LO_GATE        200.0f
 #define CAL_MID_GATE_LO   3000.0f
 #define CAL_MID_GATE_HI  25000.0f
@@ -234,9 +214,7 @@ typedef struct {
 
 // Valid-range bounds for a computed or loaded gain/offset — a wizard fit
 // (biomap_gui.c's calibration_wizard_compute_fit) or a loaded calibration
-// file (biomap_load_calibration below) failing either of these is
-// rejected. Previously two separately-written copies of the same four
-// literals, one per call site.
+// file (biomap_load_calibration below) failing either of these is rejected.
 #define CAL_GAIN_MIN     0.2f
 #define CAL_GAIN_MAX     5.0f
 #define CAL_OFFSET_MIN  -20000.0f
@@ -251,26 +229,14 @@ typedef struct {
 } BioMapCalibration;
 
 // ── Options persistence ─────────────────────────────────────────────────
-// Every Options-menu toggle (Auto-zoom, Backlight, Sound, GPS Profile)
-// previously only lived in the BioMapApp struct literal's defaults
-// (biomap.c) — reset to those hardcoded defaults on every app launch,
-// never saved. Same load/save/atomic-rename shape as BioMapCalibration
-// above, kept as a separate file/struct rather than folded into it since
-// these are independent, unrelated settings with their own versioning
-// needs.
+// Persists every Options-menu toggle (Auto-zoom, Backlight, Sound, GPS
+// Profile, Debug Fields). Same load/save/atomic-rename shape as
+// BioMapCalibration above, kept as a separate file/struct since these are
+// independent settings with their own versioning needs.
 //
-// rf_scan_enabled removed and version bumped to 2 (2026-07-29): RF is no
-// longer a standalone Options toggle — it's now purely a function of which
-// main-menu mode is chosen (GPS+GSR+RF / GPS+GSR / GPS+RF / GSR Only), not
-// a persisted setting. An old v1 file on disk will simply fail the version
-// check in biomap_load_settings() and fall back to defaults, same as any
-// other format change.
-//
-// debug_fields_enabled added and version bumped to 3 (2026-08-05): replaces
-// the old BIOMAP_DEBUG_FIELDS compile-time switch (biomap_config.h) with a
-// persisted runtime toggle (Options > Debug Fields). An old v2 file on disk
-// fails the version check and falls back to defaults — debug_fields_enabled
-// defaults to false either way, matching "off by default" as requested.
+// An on-disk file whose version doesn't match BIOMAP_SETTINGS_VERSION fails
+// the check in biomap_load_settings() and falls back to defaults, same as
+// any other format change — so a version bump is all a schema change needs.
 #define BIOMAP_SETTINGS_MAGIC    0x424D4753
 #define BIOMAP_SETTINGS_VERSION  3
 #define BIOMAP_SETTINGS_PATH     "/ext/biomapping/biomap.settings"
@@ -298,10 +264,7 @@ typedef struct {
 // on the GUI service's own thread, triggered asynchronously by
 // view_port_update() — genuinely cross-thread shared for as long as the
 // wizard's ViewPort points at it. `mutex` guards every field below.
-// Structurally identical to RfCalWizardState below (same stack-local /
-// async-render-callback shape), which got this same mutex after a forensic
-// audit found it missing there (2026-07-29) — this struct was missed by
-// that audit and had no lock at all until the 2026-07-30 mutex review.
+// Structurally identical to RfCalWizardState below.
 typedef struct {
     FuriMutex* mutex;
     int   step;
@@ -323,11 +286,8 @@ typedef struct {
 // as long as the wizard's ViewPort callback points at it, unlike most
 // other per-screen state structs in this app (which are read-only from the
 // GUI thread's perspective, or don't update on a tight loop). `mutex`
-// guards every field below during the active-sampling step, where the
-// main thread rewrites rssi_dbm[]/seconds_left every ~100ms in a loop —
-// found missing during a forensic audit of cross-thread access (2026-07-29)
-// alongside biomap_session.c's Session, which already used app->mutex for
-// this same reason.
+// guards every field below during the active-sampling step, where the main
+// thread rewrites rssi_dbm[]/seconds_left every ~100 ms in a loop.
 typedef struct {
     FuriMutex* mutex;
     int      step;

@@ -2,11 +2,8 @@
 //
 // Mirrors biomap_gui.c's GSR calibration menu/wizard (run_calibration_menu/
 // run_calibration_wizard) in shape, but drives em_scan_cal.h's Faraday
-// noise-floor calibration instead — rewritten to that blocking-loop style
-// rather than porting em_scan.c's original tick/timer-driven state machine
-// verbatim (see em_scan_biomap_merge_plan.md's "Calibration wizard
-// control-flow style" design decision). Kept in its own file rather than
-// folded into biomap_gui.c (already 500+ lines) — vp_push/vp_pop/
+// noise-floor calibration instead, in the same blocking-loop style. Kept in
+// its own file rather than folded into biomap_gui.c — vp_push/vp_pop/
 // drain_stale_events/cycle_selection/run_cal_submenu/run_simple_viewer are
 // shared from there (see biomap.h).
 #include "biomap.h"
@@ -92,21 +89,19 @@ void run_rf_calibration_wizard(BioMapApp* app) {
     biomap_sound_confirm(app->sound_enabled);
 
     // ── Active sampling (20s / up to EM_SCAN_CAL_MAX_SAMPLES sweeps) ───
-    // One em_scan_rf_dwell_band() call per ~100ms iteration, round-robin
+    // One em_scan_rf_dwell_band() call per ~100 ms iteration, round-robin
     // across EM_SCAN_NUM_FREQS bands — a full sweep (one sample per band)
-    // completes and is recorded every time the band index wraps to 0,
-    // exactly mirroring em_scan.c's original EmScanModeCalSampling logic.
+    // completes and is recorded every time the band index wraps to 0.
     furi_mutex_acquire(w.mutex, FuriWaitForever);
     w.step = 1;
     furi_mutex_release(w.mutex);
     vp_push(app, rf_calibration_wizard_sampling_render, &w);
     // static, not a stack local: 64*3 floats (768 bytes) is a meaningful
-    // chunk of this thread's 4KB total stack (application.fam's
-    // stack_size) several call-frames deep (biomap_app -> run_options_
-    // screen -> run_rf_calibration_menu -> here). em_scan.c's original
-    // avoided this the same way, just via a heap-allocated EmScanApp field
-    // instead — static works equally well since this wizard is never
-    // re-entrant/concurrent (single blocking call on the main app thread).
+    // chunk of this thread's 4 KB total stack (application.fam's stack_size)
+    // several call-frames deep (biomap_app -> run_options_screen ->
+    // run_rf_calibration_menu -> here). Safe as static — this wizard is
+    // never re-entrant or concurrent (single blocking call on the main app
+    // thread).
     static float samples[EM_SCAN_CAL_MAX_SAMPLES][EM_SCAN_NUM_FREQS];
     w.sweep_count = 0;
     int band = 0;
@@ -144,9 +139,8 @@ void run_rf_calibration_wizard(BioMapApp* app) {
     }
 
     // ── Compute stats + pass/fail ───────────────────────────────────────
-    // Same gate em_scan.c's original wizard used: per-band ceiling
-    // (em_scan_cal_max_floor_dbm), floor sanity clamp (EM_SCAN_CAL_MIN_
-    // FLOOR_DBM), and max std dev (EM_SCAN_CAL_MAX_STD_DEV_DB).
+    // Gate: per-band ceiling (em_scan_cal_max_floor_dbm), floor sanity clamp
+    // (EM_SCAN_CAL_MIN_FLOOR_DBM), and max std dev (EM_SCAN_CAL_MAX_STD_DEV_DB).
     // No mutex needed here: computed_floors/computed_std_devs/passed/step
     // are all written below BEFORE the vp_push() call that makes
     // rf_calibration_wizard_stats_render (the first reader of any of them)

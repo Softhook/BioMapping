@@ -102,13 +102,9 @@ static void em_scan_rf_tune_and_warmup(int band_index) {
     // Defensive: flush the RX FIFO before retuning. This app never reads
     // FIFO data (only get_rssi(), a separate always-live analog register),
     // and the async-serial preset it loads should bypass FIFO buffering
-    // for RX data entirely (CC1101 PKT_FORMAT selects FIFO-buffered vs.
-    // async-serial mode — they're mutually exclusive), so this shouldn't
-    // matter under normal operation. Added 2026-07-29 anyway after a
-    // walk-crash investigation raised RX FIFO state as a hypothetical:
-    // flush_rx() is a real, cheap, idempotent strobe with no downside, so
-    // there's no reason not to call it even without confidence it does
-    // anything here — see em_scan_rf_crash_investigation.md.
+    // entirely, so this shouldn't matter — but flush_rx() is a cheap,
+    // idempotent strobe with no downside, and a walk-crash investigation
+    // raised RX FIFO state as a hypothetical (em_scan_rf_crash_investigation.md).
     furi_hal_subghz_flush_rx();
     // _and_path (not plain set_frequency) — this also switches the RF
     // matching network for the target band. Using plain set_frequency left
@@ -194,33 +190,18 @@ void em_scan_rf_park_band(
     *out_sample_count = count;
 }
 
-// 2026-08-04 hardware note: an earlier version of this function tried to
-// stay in RX across the whole sweep — idle()/flush_rx() only once total,
-// retuning bands 1/2 via a bare furi_hal_subghz_set_frequency() + a second
-// furi_hal_subghz_rx() re-strobe with no idle() in between, on the theory
-// (modeled on the official Frequency Analyzer app's retune loop) that this
-// was a cheap, safe way to latch a new frequency without the full
-// IDLE -> FS_WAKEUP -> CALIBRATE -> SETTLING -> RX walk. On real hardware
-// this froze the device on the very first sweep, before a single band
-// completed — most likely furi_hal_subghz_rx() blocking/spinning when
-// called from an already-RX state (a CC1101 SRX strobe issued while
-// already in RX is a documented no-op; if the HAL's rx() polls for a state
-// transition rather than checking current state, it would spin forever),
-// though the also-dropped flush_rx() (added after a prior hardware-crash
-// investigation, see em_scan_rf_crash_investigation.md) can't be ruled
-// out either. Both are reverted below rather than bisected further without
-// hardware-in-the-loop access — see
-// docs/rf_no_teardown_architecture_proposal.md for the abandoned approach.
+// Do NOT try to stay in RX across the whole sweep (idle/flush_rx once,
+// retune with a bare set_frequency() + rx() re-strobe): that froze the
+// device on the first sweep on real hardware — most likely
+// furi_hal_subghz_rx() spinning when strobed from an already-RX state. See
+// docs/rf_no_teardown_architecture_proposal.md for that abandoned approach.
 //
-// The actual speed win doesn't depend on that trick anyway: the old
-// 300-900ms cost came from em_scan_rf_dwell_band()/park_band()'s tens-to-
-// hundreds-of-ms DWELL windows (repeated RSSI polling per band), not from
-// the retune sequence itself. Doing one known-safe idle+flush+retune+rx
-// cycle per band (identical to em_scan_rf_tune_and_warmup(), just with a
-// single RSSI read instead of a dwell) already cuts a 3-band sweep to
-// roughly (retune + EM_SCAN_WARMUP_MS) x 3 — on the order of 10ms, not
-// microseconds, but a ~30-90x improvement over the old dwell-based path
-// using only sequencing already proven not to hang this hardware.
+// The speed win doesn't need that trick: the old 300-900 ms cost came from
+// em_scan_rf_dwell_band()/park_band()'s DWELL windows (repeated RSSI polling
+// per band), not the retune. One known-safe idle+flush+retune+rx cycle per
+// band (as em_scan_rf_tune_and_warmup(), with a single RSSI read instead of
+// a dwell) cuts a 3-band sweep to roughly (retune + EM_SCAN_WARMUP_MS) x 3
+// — a ~30-90x improvement using only sequencing proven not to hang.
 void em_scan_rf_fast_sweep_snapshot(
     float     out_rssi_dbm[EM_SCAN_NUM_FREQS],
     uint32_t* out_retune_peak_ms) {

@@ -84,25 +84,15 @@ typedef struct {
     int      flush_counter;  // seconds since last SD flush; triggers at FLUSH_INTERVAL
     uint32_t total_ticks;    // monotonic tick count since recording start; used for
                              // relative centisecond timestamps (total_ticks * 0.1 s)
-    // ── GPS/RF mutex-contention diagnostics (2026-07-31) ────────────────
+    // ── GPS/RF mutex-contention diagnostics ────────────────────────────
     // total_ticks above (and the `rel` CSV column derived from it) is a
     // sequence counter — it stays perfectly uniform even if the main loop
     // stalls, so it can't prove contention is or isn't happening (see
     // docs/gps_rf_mutex_status.md). last_tick_wall_ms/tick_dt_ms are the
-    // real furi_get_tick() measurement instead: updated every Tick event
-    // in run_recording_session(), regardless of recording.active.
+    // real furi_get_tick() measurement instead: updated every Tick event in
+    // run_recording_session(), regardless of recording.active.
     uint32_t last_tick_wall_ms; // bookkeeping only — previous furi_get_tick() reading
     uint32_t tick_dt_ms;        // real elapsed ms since the previous Tick event; 0 on the first tick
-    // tick_dt_max_ms/tick_over_{150,250,500}_count (2026-07-31 → removed
-    // 2026-08-05, debug-field review): a windowed max and bucket counts
-    // derived from tick_dt_ms, surfaced only on the serial-only 1 Hz
-    // telemetry heartbeat — a channel this project has never actually used
-    // to diagnose a real issue (docs/gps_rf_mutex_status.md is entirely
-    // CSV-based). Fully redundant with the per-row tick_dt_ms column
-    // already in the CSV, which gives strictly more information (exact
-    // values at exact rows, not coarse buckets) and is the channel real
-    // analysis has always used. Removed rather than kept as unused
-    // bookkeeping.
 } RecordingState;
 
 // Extracted GPS position snapshot (returned by value from get_gps_position).
@@ -113,67 +103,33 @@ typedef struct {
     double lon;
     float  hdop;       // Horizontal Dilution of Precision; 99.9 = unknown
     float  pdop;       // Position DOP from GSA (chip-computed); 99.9 = unknown
-    float  hacc;       // Estimated horizontal accuracy in meters (PUBX 00); 99.9 = unknown
+    float  hacc;       // Estimated horizontal accuracy in metres (PUBX 00); 99.9 = unknown
     float  speed_kts;  // Speed over ground in knots (RMC); NaN = unknown
     float  course_deg; // Course over ground in degrees true (RMC); NaN = unknown
     int    sats;       // satellites tracked — diagnostic aid for DOP interpretation
     int    fix_type;   // fix_type from GSA: 1=none, 2=2D, 3=3D
 } GpsPosition;
 
-// Per-row contention diagnostics (2026-07-31, GPS/RF mutex investigation —
-// see docs/gps_rf_mutex_status.md). Built by the caller (biomap_session.c)
-// from real, measured sources — never inferred — and threaded into
-// format_gps_csv_row() alongside GpsPosition so a future track can answer
-// "was the main loop or the GPS UART actually stalled" directly instead of
-// by inference from GPS accuracy after the fact.
+// Per-row contention diagnostics (GPS/RF mutex investigation — see
+// docs/gps_rf_mutex_status.md). Built by the caller (biomap_session.c) from
+// real, measured sources — never inferred — and threaded into
+// format_gps_csv_row() alongside GpsPosition so a track can answer "was the
+// main loop or the GPS UART actually stalled" directly rather than by
+// inference from GPS accuracy after the fact.
 //
-// i2c_peak_ms/rf_rssi_peak_ms/rf_retune_peak_ms (2026-08-03, same
-// investigation) go one level deeper: given a stall in tick_dt_ms above,
-// which of the worker thread's three candidate blocking calls actually
-// caused it? Each is a lifetime-max real furi_get_tick() delta measured
-// immediately around one specific hardware call — see the matching
-// gsr_sensor_get_*_peak_ms() accessors (gsr_sensor.h) for exactly which
-// call site each one times. Never reset, same as gps_rx_drops/nmea_fail
-// above, so a track's later rows show which one first jumped and when.
+// The *_peak_ms columns go one level deeper: given a stall in tick_dt_ms,
+// which of the worker's candidate blocking calls caused it? Each is a
+// lifetime-max furi_get_tick() delta measured immediately around one
+// specific hardware call — see the matching gsr_sensor_get_*_peak_ms()
+// (gsr_sensor.h) and sd_logger_get_flush_peak_ms() (sd_logger.h) accessors
+// for exactly what each one times. Like gps_rx_drops/nmea_fail they are
+// never reset, so a track's later rows show which one first jumped and when.
 //
-// flush_peak_ms (2026-08-03): tracks 116 and 117 both showed their only
-// real tick_dt_ms stalls landing exactly on a once-per-FLUSH_INTERVAL SD
-// flush tick, while the three columns above stayed near zero at that same
-// row — ruling out the GSR worker thread and pointing at
-// sd_logger_batch_flush() (main thread, write+sync) instead. Same
-// lifetime-max-since-start convention; see sd_logger_get_flush_peak_ms()'s
-// doc comment (sd_logger.h) for exactly what it times.
-//
-// log_fill_bytes/log_fill_peak_bytes/log_overflow_count/log_flush_fail_count
-// (2026-08-03): continuity-pressure telemetry from sd_logger.c. These are
-// intentionally logger-internal rather than inferred from timing:
-// current batch occupancy, lifetime occupancy high-water mark, count of rows
-// rejected due to batch-capacity pressure, and count of flush write/sync
-// failures.
-//
-// gps_reinit_count/pga_change_count/i2c_consec_fail (2026-08-05, debug-field
-// review): promoted from either a serial-only log line or a Diagnostics-
-// screen-only reading (both invisible to post-hoc CSV analysis, which is
-// how every real bug in this project has actually been diagnosed — see
-// docs/gps_rf_mutex_status.md). gps_reinit_count mirrors gps_rx_drops/
-// nmea_fail's pattern exactly (gps_uart.h). pga_change_count and
-// i2c_consec_fail were already computed unconditionally in every mode with
-// no extra cost — just never reached the file. Deliberately NOT included
-// here: gsr_sensor's success/duplicate/stale rate (pre-averaged over a
-// rolling window with no raw-count accessor to log instead — would repeat
-// the "log the bucket, not the raw signal" mistake tick_over_*_count made,
-// see RecordingState's doc comment) and mains_hum_mag (mode-gated for real
-// CPU cost, and Diagnostics mode currently shares GPS_GSR_RF's header —
-// logging it there would print a misleading 0.0 for every non-Diagnostics
-// recording that never computes it). Both need a dedicated follow-up, not
-// a same-pass bundling.
-//
-// prealloc_ms (2026-08-05, BIOMAP_SD_PREALLOC — biomap_config.h, docs/
-// gps_rf_mutex_status.md's "option E" entries): how long sd_logger_start()'s
-// one-shot storage_file_seek() pre-allocation took, in ms. Unlike the
-// lifetime-max columns above, this is set once at recording start and stays
-// constant for the whole file — there's only one pre-allocation per
-// recording, not a per-flush event. 0 when BIOMAP_SD_PREALLOC is off.
+// The log_* columns are continuity-pressure telemetry read straight from
+// sd_logger.c: current batch occupancy, lifetime high-water mark, rows
+// rejected under batch-capacity pressure, and flush write/sync failures.
+// prealloc_ms is set once at recording start and stays constant for the
+// whole file; 0 when BIOMAP_SD_PREALLOC is off.
 typedef struct {
     uint32_t tick_dt_ms;     // real furi_get_tick() delta since the previous Tick event
     uint32_t gps_rx_drops;   // cumulative UART bytes dropped (gps_uart's rx_stream was full)
@@ -209,11 +165,11 @@ static inline bool has_gsr(int mode) {
         || mode == BioMapModeDiagnostics;
 }
 
-// RF scanning gating. No longer a separate Options toggle — RF is now
-// purely a function of which main-menu mode was chosen (GpsGsrRf/GpsOnly),
-// always on whenever the mode includes it. Includes Diagnostics (which has
-// no GPS at all) as a deliberate exception to the "RF is only useful
-// alongside GPS" rule below: Diagnostics already surfaces the GSR worker's
+// RF scanning gating — purely a function of which main-menu mode was chosen
+// (GpsGsrRf/GpsOnly), always on whenever the mode includes it. Includes
+// Diagnostics (which has no GPS at all) as a deliberate exception to the
+// "RF is only useful alongside GPS" rule below: Diagnostics already surfaces
+// the GSR worker's
 // real measured throughput (gsr_sensor_get_worker_hz(), success/duplicate/
 // stale rates, window P2P) — the only place in the app that does — so
 // running the RF worker there too makes it a live instrument for RF/GSR

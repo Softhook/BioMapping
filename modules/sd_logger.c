@@ -24,12 +24,11 @@
 // data length.
 #define SD_LOGGER_PREALLOC_BYTES (8u * 1024u * 1024u)
 
-// Always real FURI_LOG_* calls (2026-08-05): previously compiled out under
-// BIOMAP_DEBUG_FIELDS=0, but that macro is gone — debug CSV *fields* are
-// now a runtime Options-menu toggle (BioMapApp::debug_fields_enabled),
-// unrelated to whether these serial logs exist. SdLogger has no app-level
-// context to gate on anyway; Flipper's own runtime log level already
-// controls what's actually visible on a given build/session.
+// Always real FURI_LOG_* calls — debug CSV *fields* are a runtime
+// Options-menu toggle (BioMapApp::debug_fields_enabled), unrelated to
+// whether these serial logs exist. SdLogger has no app-level context to
+// gate on anyway, and Flipper's own runtime log level already controls
+// what's visible on a given build/session.
 #define SD_LOG_I(tag, fmt, ...) FURI_LOG_I(tag, fmt, ##__VA_ARGS__)
 #define SD_LOG_W(tag, fmt, ...) FURI_LOG_W(tag, fmt, ##__VA_ARGS__)
 #define SD_LOG_E(tag, fmt, ...) FURI_LOG_E(tag, fmt, ##__VA_ARGS__)
@@ -44,26 +43,14 @@ struct SdLogger {
     // GPS+GSR+RF batch buffer: accumulate formatted rows each tick,
     // flush to SD in one storage_file_write every FLUSH_INTERVAL seconds.
     //
-    // Sized against a worst-case row, not the ~110-125 byte typical case the
-    // previous 12288-byte size assumed (2026-08-05, track 015 investigation
-    // — docs/gps_rf_mutex_status.md). With debug fields on (now an Options-
-    // menu runtime toggle, biomap_config.h), several
-    // of the 12 debug columns are lifetime peak-hold/cumulative counters
-    // (log_fill_peak_bytes, flush_peak_ms, log_overflow_count, etc.)
-    // formatted as bare %u — they gain digits as a recording runs longer,
-    // permanently costing the shared buffer bytes on every subsequent row.
-    // The old size left only ~5 bytes/row of headroom over its own typical-
-    // case estimate, so a long enough recording reliably grew into it:
-    // track 015 crossed the 12288 cap at t=1009s (66% into a 1515s walk)
-    // and stayed over budget for the rest of the recording, silently
-    // dropping one row every FLUSH_INTERVAL from then on — overflow_count
-    // itself growing a digit made this self-reinforcing, not self-correcting.
-    // ~169 bytes/row worst case (generous per-field digit bounds, not
-    // absolute type limits) × 100 rows = ~16900 bytes; doubling the old
-    // size to 24576 clears that with real margin to spare for future
-    // columns. Also the same total footprint as the double-buffered
-    // gsr_batch[2][12288] tried and reverted earlier (7e4bc3a) — already
-    // proven to fit comfortably in the Flipper's RAM.
+    // Sized against a worst-case row, not the ~110-125 byte typical case.
+    // With debug fields on, several of the debug columns are lifetime
+    // peak-hold/cumulative counters formatted as bare %u — they gain digits
+    // as a recording runs longer, permanently costing the shared buffer
+    // bytes on every subsequent row, so a long recording can grow past a
+    // tight typical-case estimate and start dropping one row per flush.
+    // ~169 bytes/row worst case (generous per-field digit bounds) × 100 rows
+    // ≈ 16900 bytes; 24576 clears that with margin for future columns.
     char gsr_batch[24576];
     int  gsr_batch_len;
 
@@ -157,8 +144,7 @@ static void preallocate_log_file(SdLogger* l) {
         // branch is a defensive fallback for a seek that fails outright, not
         // the expected path. Either way, skip the dummy write and fall
         // through to the rewind below: a partial or missing pre-allocation
-        // degrades to today's plain-append behavior, it doesn't corrupt
-        // anything.
+        // degrades to a plain append, it doesn't corrupt anything.
         SD_LOG_W("SdLogger", "Pre-allocation seek failed (SD full/near-full?) — continuing without it");
     }
     // Always rewind to the real data boundary, whatever happened above, so

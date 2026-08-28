@@ -26,11 +26,11 @@
 // calibration state, and diagnostics counters. `rf_mutex` guards only the
 // published rf_rssi_dbm[] snapshot (gsr_sensor_get_rf_snapshot()) —
 // deliberately separate from `mutex` so an RF SPI stall can never block
-// ADC sampling or vice versa (this used to be one shared mutex; splitting
-// it was the fix for a 2026-07-30 GPS-quality regression traced to RF's
-// SPI retune running inside the same lock the main thread needed every
-// tick). NEITHER mutex is ever held across a furi_hal_i2c_*/furi_hal_subghz_*
-// hardware call — both only ever guard the in-memory fields, copied in/out.
+// ADC sampling or vice versa (a single shared mutex here caused a
+// GPS-quality regression, traced to RF's SPI retune running inside the lock
+// the main thread needed every tick). NEITHER mutex is ever held across a
+// furi_hal_i2c_*/furi_hal_subghz_* hardware call — both only ever guard the
+// in-memory fields, copied in/out.
 //
 // Safe to call any accessor below from a caller that is ALREADY holding
 // BioMapApp's app->mutex (biomap_render_callback and the tick handler in
@@ -139,15 +139,12 @@ float gsr_sensor_get_success_rate(const GsrSensor* gsr);
 
 // Percentage of successful reads (0-100), over the same window as
 // gsr_sensor_get_worker_hz(), whose raw ADC code exactly matched the
-// immediately preceding read. This can mean either a stale re-read or
-// two fresh conversions of a signal that just hasn't moved between them
-// — it can't tell those apart. Measured on real hardware (2026-07-23):
-// ~7-11% with a live signal connected, ~12-16% disconnected (open
-// circuit, near-DC, no real signal to vary) — both well above the near-0%
-// this comment used to predict for worker rates below the ADS1115's
-// 860 SPS ceiling. See docs/gsr_filtering_analysis.md and
-// gsr_sensor.c's duplicate_count doc comment for what's still
-// unexplained.  For diagnostics.
+// immediately preceding read. This can mean either a stale re-read or two
+// fresh conversions of a signal that just hasn't moved between them — it
+// can't tell those apart. Measured ~7-11% with a live signal connected,
+// ~12-16% disconnected (open circuit, near-DC). See
+// docs/gsr_filtering_analysis.md and gsr_sensor.c's duplicate_count doc
+// comment.  For diagnostics.
 float gsr_sensor_get_duplicate_rate(const GsrSensor* gsr);
 
 // Percentage of successful reads (0-100), over the same window as
@@ -202,14 +199,12 @@ uint32_t gsr_sensor_get_duplicate_gap_min_ticks(const GsrSensor* gsr);
 // answer to "how much mains-hum energy is actually present", as opposed
 // to the boxcar notch's rejection itself, which is a guaranteed property
 // of window duration and isn't separately measurable post-averaging.
-// NOTE: an earlier Goertzel-filter version of this (fixed coefficient
-// from get_worker_hz(), assuming uniform sample spacing) measured a
-// physically impossible result on real hardware (2026-07-23) — 103
-// counts of "50 Hz content" against a window whose total peak-to-peak
-// was only 40 — because real sample timing is measurably uneven
-// (get_window_min_gap_ticks()) and Goertzel's resonant recurrence
-// amplifies that into inflated energy. This version has no such failure
-// mode. See docs/gsr_filtering_analysis.md.  Reads 0.0f if unavailable OR
+// NOT a Goertzel filter: real sample timing here is measurably uneven
+// (get_window_min_gap_ticks()) and Goertzel's resonant recurrence assumes
+// uniform spacing, which inflates the reported energy (a Goertzel version
+// once measured 103 counts of "50 Hz content" against a window whose total
+// peak-to-peak was only 40). See docs/gsr_filtering_analysis.md.  Reads
+// 0.0f if unavailable OR
 // if gsr_sensor_set_mains_hum_enabled() hasn't turned this on (off by
 // default).  For diagnostics.
 float gsr_sensor_get_mains_hum_mag(const GsrSensor* gsr);
@@ -253,13 +248,11 @@ void gsr_sensor_get_rf_snapshot(const GsrSensor* gsr, float* out_rssi_dbm);
 
 // Worst single blocking-call duration ever observed on the worker thread,
 // in ms — a lifetime max (never reset), timed immediately around each
-// hardware call with furi_get_tick(). Added 2026-08-03 alongside
-// biomap_types.h's RowDiag to answer "which specific call caused a given
-// main-loop stall" directly rather than by inference — see RowDiag's doc
-// comment and docs/gps_rf_mutex_status.md. Each covers exactly one call
-// site (i2c_peak_ms covers both the config-write and conversion-read I2C
-// calls, which are mutually exclusive per loop iteration — see the struct
-// comment in gsr_sensor.c). Returns 0 if unavailable. For diagnostics.
+// hardware call with furi_get_tick(). Answers "which specific call caused a
+// given main-loop stall" directly — see biomap_types.h's RowDiag doc
+// comment and docs/gps_rf_mutex_status.md. i2c_peak_ms covers both the
+// config-write and conversion-read I2C calls (mutually exclusive per loop
+// iteration). Returns 0 if unavailable. For diagnostics.
 uint32_t gsr_sensor_get_i2c_peak_ms(const GsrSensor* gsr);
 uint32_t gsr_sensor_get_rf_rssi_peak_ms(const GsrSensor* gsr);
 uint32_t gsr_sensor_get_rf_retune_peak_ms(const GsrSensor* gsr);

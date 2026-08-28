@@ -31,7 +31,7 @@ static bool gps_has_fix(const GpsStatus* g) {
     return g->fix_valid || g->fix_quality > 0;
 }
 
-// Prefer u-blox's own hAcc; fall back to HDOP*2.5 (rough meters estimate)
+// Prefer u-blox's own hAcc; fall back to HDOP*2.5 (rough metres estimate)
 // when hAcc isn't available/valid, else 99.9 to mean "no usable accuracy".
 static float gps_hacc_display(const GpsStatus* g) {
     return (g->hacc < 50.0f) ? g->hacc : ((g->hdop < 50.0f) ? g->hdop * 2.5f : 99.9f);
@@ -156,7 +156,7 @@ static void render_zoom_label(Canvas* c, BioMapApp* a, int x) {
 
 // ── RF visualization constants ────────────────────────────────────────
 // All RF modes (GPS+GSR+RF and GPS+RF) now use draw_rf_panel_left — the
-// larger labeled left-side panel with per-band calibrated floors.
+// larger labelled left-side panel with per-band calibrated floors.
 #define RF_VIZ_FLOOR_DBM  (-90.0f) // ambient-noise reference — matches em_scan_cal_max_floor_dbm; real-world idle (tracks/biomap_111.csv) sits -92.5..-90.5 dBm
 #define RF_VIZ_CEIL_DBM   (-72.0f) // "strong signal" reference — real-world elevated peaks (tracks/biomap_111.csv) top out around -72.5 dBm
 
@@ -173,7 +173,7 @@ static void render_zoom_label(Canvas* c, BioMapApp* a, int x) {
 #define RF_PANEL_W          43
 
 // Render compact GPS info for GPS+RF mode — positioned in the right 2/3
-// (x=RF_PANEL_W..127) so the left 1/3 hosts the labeled RF band panel
+// (x=RF_PANEL_W..127) so the left 1/3 hosts the labelled RF band panel
 // (drawn separately via draw_rf_panel_left).  Shows only UTC time (no
 // date), lat, lon, and fix quality — fits comfortably in the 85px-wide
 // right pane at FontSecondary.
@@ -221,7 +221,7 @@ static void render_gps_compact(Canvas* c, BioMapApp* a) {
 // ── Left RF band panel (GPS+GSR+RF layout) ─────────────────────────────
 // Replaces the tiny bottom-right bars in BioMapModeGpsGsrRf: the GSR
 // graph narrows to the right 2/3 (see RF_PANEL_W) and this function fills
-// the left 1/3 (x 0..RF_PANEL_W-1, y 16..63) with one labeled bar per
+// the left 1/3 (x 0..RF_PANEL_W-1, y 16..63) with one labelled bar per
 // band — 815/868/915 MHz — stacked in three 15px rows.
 //
 // Bars grow LEFT to RIGHT (level-meter style), which uses the narrow
@@ -274,8 +274,8 @@ static void draw_rf_panel_left(Canvas* c, BioMapApp* a, const float rssi_dbm[EM_
 
 // nS value, top-right corner — shared by the GSR-Only layout (top-left
 // occupied by the time-span label) and the GPS+GSR/GPS+GSR+RF top bar
-// (top-left occupied by the GPS badge); previously two copies of the same
-// four lines. Returns the fixed worst-case left edge of this element
+// (top-left occupied by the GPS badge). Returns the fixed worst-case left
+// edge of this element
 // ("-99999 nS", not this frame's actual width — see the elapsed-time
 // comment in biomap_render_callback for why a fixed placeholder is used).
 static int draw_ns_top_right(Canvas* c, BioMapApp* a) {
@@ -300,17 +300,17 @@ static int draw_ns_top_right(Canvas* c, BioMapApp* a) {
     return 128 - worst_case_w - right_margin;
 }
 
-// "Finger cuffs disconnected", centered over two lines inside the graph
+// "Finger cuffs disconnected", centred over two lines inside the graph
 // area (which is only the right 2/3 in GPS+GSR+RF mode) when the cuffs
 // drop out. Two short lines read better than one long one squeezed into
 // the narrowed graph region.
 static void draw_inline_graph_status(
-    Canvas* c, const char* line1, const char* line2, int center_x) {
+    Canvas* c, const char* line1, const char* line2, int centre_x) {
     canvas_set_font(c, FontSecondary);
     int w1 = canvas_string_width(c, line1);
     int w2 = canvas_string_width(c, line2);
-    canvas_draw_str(c, center_x - w1 / 2, 36, line1);
-    canvas_draw_str(c, center_x - w2 / 2, 45, line2);
+    canvas_draw_str(c, centre_x - w1 / 2, 36, line1);
+    canvas_draw_str(c, centre_x - w2 / 2, 45, line2);
 }
 
 // ==========================================================================
@@ -322,8 +322,8 @@ static void draw_inline_graph_status(
 
 // ── GPS badge, top-left (GPS+GSR / GPS+GSR+RF modes) ──────────────────
 // Returns the FIXED worst-case right edge ("No fix" width) for elapsed-time
-// centering — not this frame's actual badge width.  Using the real width
-// would shift the centered elapsed-time label sideways on every hacc
+// centring — not this frame's actual badge width.  Using the real width
+// would shift the centred elapsed-time label sideways on every hacc
 // digit-count change, producing visible jitter each frame.
 static int render_gps_badge(Canvas* c, BioMapApp* a) {
     GpsStatus g = gps_uart_get_status(a->session.gps);
@@ -342,7 +342,7 @@ static int render_gps_badge(Canvas* c, BioMapApp* a) {
 }
 
 // ── Time-span label, top-left (GSR-only mode) ─────────────────────────
-// Returns the fixed worst-case right edge for elapsed-time centering.
+// Returns the fixed worst-case right edge for elapsed-time centring.
 static int render_time_span(Canvas* c, BioMapApp* a) {
     char buf[32];
     int t_span = (GRAPH_N * a->session.pipeline.graph.scroll_divider) / TICK_HZ;
@@ -355,7 +355,7 @@ static int render_time_span(Canvas* c, BioMapApp* a) {
     return 1 + canvas_string_width(c, "59m59s");
 }
 
-// ── Elapsed recording time (centered, all GSR modes) ──────────────────
+// ── Elapsed recording time (centred, all GSR modes) ───────────────────
 // left_edge / right_edge are FIXED worst-case reservations supplied by the
 // caller (render_gps_badge / render_time_span), NOT the actual pixel width
 // of whatever badge is rendered this frame.  Fixed boundaries keep the
@@ -420,7 +420,7 @@ static void render_gsr_session(Canvas* c, BioMapApp* a,
                 top_right = draw_ns_top_right(c, a);
             }
         } else {
-            // Cuffs disconnected — center message in the graph area
+            // Cuffs disconnected — centre message in the graph area
             int cx = (mode == BioMapModeGpsGsrRf)
                 ? RF_PANEL_W + (128 - RF_PANEL_W) / 2 : 64;
             draw_inline_graph_status(c, "Finger cuffs", "disconnected", cx);
@@ -429,7 +429,7 @@ static void render_gsr_session(Canvas* c, BioMapApp* a,
     // No sensor → no pop-up.  Frame is already drawn above; an empty
     // graph area is self-explanatory.
 
-    // Elapsed recording time — centered between left/right top-bar labels
+    // Elapsed recording time — centred between left/right top-bar labels
     render_elapsed(c, a, top_left, top_right);
 }
 
@@ -590,8 +590,8 @@ void biomap_render_callback(Canvas* c, void* ctx) {
 // Index of the first visible row when a list of `count` items, `max_visible`
 // of which fit on screen at once, is scrolled to keep `sel` in view.
 // Shared by draw_selection_list below and options_render's separate overlay
-// pass over the same rows (previously two copies of this calculation, which
-// must agree or the toggle-state text would land on the wrong row).
+// pass over the same rows — the two must agree or the toggle-state text
+// lands on the wrong row.
 static int scroll_window_top(int sel, int count, int max_visible) {
     int top = 0;
     if(count > max_visible) {
@@ -683,12 +683,10 @@ void options_render(Canvas* c, void* ctx) {
 
 // Shared render body for the GSR and RF calibration menus (run_cal_submenu,
 // biomap_gui.c) — same "Start Wizard / Reset to Default / Show Current"
-// 3-item list, differing only in the title. Previously two copies.
+// 3-item list, differing only in the title.
 //
 // ctx is a CalSubmenuContext* (biomap.h) — guarded by app->mutex against
-// run_cal_submenu()'s key-handling loop, same as menu_render/options_render
-// below. Was a bare int* read with no lock at all until the 2026-07-31
-// mutex audit found it.
+// run_cal_submenu()'s key-handling loop, same as menu_render/options_render.
 static void draw_cal_submenu(Canvas* c, void* ctx, const char* title) {
     CalSubmenuContext* sm = (CalSubmenuContext*)ctx;
     if(furi_mutex_acquire(sm->app->mutex, 10) != FuriStatusOk) return;

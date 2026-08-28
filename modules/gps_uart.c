@@ -45,7 +45,7 @@ struct GpsUart {
     bool                 gsa_talker_logged;
     bool                 gsv_talker_logged;
 
-    // ── Contention diagnostics (2026-07-31) — see gps_uart.h ────────────
+    // ── Contention diagnostics — see gps_uart.h ─────────────────────────
     // rx_drop_count is written from ISR context (gps_uart_irq_cb) and read
     // from the main thread (gps_uart_get_rx_drop_count) — genuinely
     // cross-context, so _Atomic, same reasoning as gsr_sensor.c's
@@ -74,8 +74,8 @@ static void gps_uart_irq_cb(
     if(event == FuriHalSerialRxEventData) {
         uint8_t data = furi_hal_serial_async_rx(handle);
         if(furi_stream_buffer_send(g->rx_stream, &data, 1, 0) == 0) {
-            // rx_stream was full — the byte is lost. Previously silent;
-            // see gps_uart.h's doc comment on gps_uart_get_rx_drop_count().
+            // rx_stream was full — the byte is lost. See gps_uart.h's doc
+            // comment on gps_uart_get_rx_drop_count().
             g->rx_drop_count++;
         }
         if(!g->rx_pending) {
@@ -157,7 +157,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
         return;
     }
 
-    // Parse $PUBX,00 for horizontal accuracy (hAcc in meters)
+    // Parse $PUBX,00 for horizontal accuracy (hAcc in metres)
     if(strncmp(line, "$PUBX,00,", 9) == 0) {
         const char* p = line;
         int field = 0;
@@ -450,7 +450,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
 // woken from UBX backup mode (a single byte on RX, see ubx_wake()), not a
 // true power-on reset, and three separate capture attempts — including a
 // genuine full power cycle — only ever saw baud-mismatched noise in the
-// pre-configure window, never a recognizable NMEA line. The boot banner,
+// pre-configure window, never a recognisable NMEA line. The boot banner,
 // if this module even emits one on this wake path, most likely happens
 // before the app is even running (the module is powered continuously off
 // the Flipper's 3V3 rail from well before the app is launched) — nothing
@@ -892,12 +892,10 @@ static void gps_uart_set_expansion_enabled(bool enabled) {
 
 // ── Serial baud-switch helper — stop/deinit/reinit/restart at a new baud,
 // resetting the RX line-framing state (rx_offset, rx_stream) since bytes
-// framed under the old baud are meaningless at the new one. Identical
-// sequence previously appeared three times: here, and in both branches of
-// gps_uart_configure() (L76K/M10Q) right after each module is told to
-// switch to 115200. The delay that follows differs by call site (50 ms
-// there vs. 100 ms below), so that stays at each call site rather than
-// being folded in here.
+// framed under the old baud are meaningless at the new one. Shared by
+// gps_uart_configure()'s L76K and M10Q branches right after each module is
+// told to switch to 115200. The delay that follows differs by call site
+// (50 ms there vs. 100 ms below), so that stays at each call site.
 static void gps_uart_switch_baud(GpsUart* g, uint32_t baud) {
     furi_hal_serial_async_rx_stop(g->serial_handle);
     furi_hal_serial_deinit(g->serial_handle);
@@ -1249,12 +1247,10 @@ static void gps_uart_configure(GpsUart* g) {
     ubx_send_nmea_output_rates(g);
     ubx_send_nav5(g, g->nav_model);
     ubx_send_and_confirm(g, ubx_cfg_assistnow_autonomous, sizeof(ubx_cfg_assistnow_autonomous), "CFG-VALSET AssistNow");
-    // Enable $PUBX,00 sentence at 1 Hz for live hAcc in meters. Proprietary
+    // Enable $PUBX,00 sentence at 1 Hz for live hAcc in metres. Proprietary
     // NMEA-PUBX-RATE (spec §2.8.3) — still current in SPG 5.10 (unlike
     // CFG-MSG), and there's no VALSET key for a proprietary PUBX sentence,
-    // so this ASCII command is the only mechanism for it. (A binary
-    // CFG-MSG packet enabling the same 0xF1/0x00 message used to be sent
-    // here too — removed as a straight duplicate of this line.)
+    // so this ASCII command is the only mechanism for it.
     const char* pubx_00_rate = "$PUBX,40,00,1,1,0,0*1B\r\n";
     ubx_tx(g, (const uint8_t*)pubx_00_rate, strlen(pubx_00_rate));
 
