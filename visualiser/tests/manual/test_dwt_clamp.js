@@ -13,12 +13,12 @@ const fs = require("fs");
 const path = require("path");
 
 // ── Load DWT filter ──────────────────────────────────────────────────────
-const dwtSrc = fs.readFileSync(path.join(__dirname, "..", "dwt_filter.js"), "utf8");
+const dwtSrc = fs.readFileSync(path.join(__dirname, "..", "..", "src", "signal", "dwt_filter.js"), "utf8");
 let DWT;
 eval("DWT = " + dwtSrc.slice(dwtSrc.indexOf("(() =>")));
 
 // ── Load GsrFilter ───────────────────────────────────────────────────────
-const gsfSrc = fs.readFileSync(path.join(__dirname, "..", "gsr_filter.js"), "utf8");
+const gsfSrc = fs.readFileSync(path.join(__dirname, "..", "..", "src", "signal", "gsr_filter.js"), "utf8");
 let GsrFilter;
 eval("GsrFilter = " + gsfSrc.slice(gsfSrc.indexOf("{")));
 

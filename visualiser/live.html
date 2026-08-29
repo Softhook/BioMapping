@@ -11,8 +11,10 @@
 <title>Bio Mapping — Live</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="gsr_filter.js"></script>
-<script src="live_binary_parser.js"></script>
+<!-- Runtime config: window.BIOMAP_CONFIG. Committed; on a local origin it also pulls in the optional gitignored config.local.js. See config.local.example.js -->
+<script src="config.js"></script>
+<script src="src/signal/gsr_filter.js"></script>
+<script src="src/live/live_binary_parser.js"></script>
 <style>
   :root {
     --bg: #0b0e11;
@@ -604,7 +606,11 @@ function recolorPhasicSegments() {
 // Normalizes subdomain to 'a' to maximize cache reuse and minimize downloads.
 // ==========================================================================
 function normalizeTileCacheUrl(url) {
-  return url.replace(/https:\/\/[a-d]\.basemaps\.cartocdn\.com/, 'https://a.basemaps.cartocdn.com');
+  // Fold the CDN subdomain and drop the query string (the CARTO ?key=...), so
+  // every subdomain — and any key rotation — maps to one cache entry per tile.
+  return url
+    .replace(/https:\/\/[a-d]\.basemaps\.cartocdn\.com/, 'https://a.basemaps.cartocdn.com')
+    .replace(/\?.*$/, '');
 }
 
 // Builds a tile URL for an arbitrary z/x/y directly from the layer's raw URL
@@ -833,7 +839,18 @@ function initLiveMap() {
   if (liveMap.attributionControl) {
     liveMap.attributionControl.setPrefix(false);
   }
-  L.tileLayer.cache('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  // CARTO now requires a (free) key on its raster basemaps — without one the
+  // tiles load but carry an "API key required" watermark. Key from
+  // config.local.js (window.BIOMAP_CONFIG) or localStorage; see
+  // config.local.example.js. localStorage access can throw on file:// with
+  // site data disabled — live.html is opened that way, so guard it.
+  let cartoKey = (window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.cartoApiKey) || '';
+  if (!cartoKey) {
+    try { cartoKey = localStorage.getItem('bioMappingCartoApiKey') || ''; } catch (e) { /* no-op */ }
+  }
+  const cartoUrl = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png' +
+    (cartoKey ? '?key=' + encodeURIComponent(cartoKey) : '');
+  L.tileLayer.cache(cartoUrl, {
     maxZoom: 22,
     maxNativeZoom: 19,
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',

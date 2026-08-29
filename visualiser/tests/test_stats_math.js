@@ -9,7 +9,7 @@
 const assert = require('assert');
 const test = require('node:test');
 
-const { StatsMath } = require('../stats_math.js');
+const { StatsMath } = require('../src/signal/stats_math.js');
 
 const closeTo = (actual, expected, tolerance, msg) => {
   assert.ok(Math.abs(actual - expected) <= tolerance,

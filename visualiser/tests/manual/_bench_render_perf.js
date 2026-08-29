@@ -229,7 +229,7 @@ function benchRfSpatialIndex() {
       }
     });
   }
-  const src = fs.readFileSync(path.join(__dirname, '..', '..', 'rf_fluid_renderer.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'render', 'rf_fluid_renderer.js'), 'utf8');
   vm.runInThisContext(src.replace('class RFFluidRenderer', 'global.RFFluidRenderer = class RFFluidRenderer'), { filename: 'rf_fluid_renderer.js' });
   const RFFluidRenderer = global.RFFluidRenderer;
 

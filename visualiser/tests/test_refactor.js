@@ -37,11 +37,11 @@ function loadModule(filePath, varName) {
 }
 
 // Load order must match index.html dependencies.
-loadModule(__dirname + '/../geo_utils.js',    'GeoUtils');
-loadModule(__dirname + '/../stats_math.js',   'StatsMath');
-loadModule(__dirname + '/../map_colors.js',   'MapColors');
-loadModule(__dirname + '/../gps_filter.js',   'GpsFilter');
-loadModule(__dirname + '/../gps_pipeline.js', 'GpsPipeline');
+loadModule(__dirname + '/../src/gps/geo_utils.js',    'GeoUtils');
+loadModule(__dirname + '/../src/signal/stats_math.js',   'StatsMath');
+loadModule(__dirname + '/../src/map/map_colors.js',   'MapColors');
+loadModule(__dirname + '/../src/gps/gps_filter.js',   'GpsFilter');
+loadModule(__dirname + '/../src/gps/gps_pipeline.js', 'GpsPipeline');
 
 const GeoUtils    = global.GeoUtils;
 const StatsMath   = global.StatsMath;

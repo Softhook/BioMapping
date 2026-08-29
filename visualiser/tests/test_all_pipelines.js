@@ -28,18 +28,18 @@ function loadModule(filePath, varName) {
   vm.runInThisContext(wrapped, { filename: filePath });
 }
 
-loadModule(path.join(__dirname, '../geo_utils.js'),          'GeoUtils');
-loadModule(path.join(__dirname, '../stats_math.js'),         'StatsMath');
-loadModule(path.join(__dirname, '../map_colors.js'),         'MapColors');
-loadModule(path.join(__dirname, '../gps_filter.js'),         'GpsFilter');
-loadModule(path.join(__dirname, '../gps_pipeline.js'),       'GpsPipeline');
-loadModule(path.join(__dirname, '../dwt_filter.js'),         'DWT');
-loadModule(path.join(__dirname, '../gsr_filter.js'),         'GsrFilter');
-loadModule(path.join(__dirname, '../spatial_clustering.js'), 'GSRSpatialClustering');
-loadModule(path.join(__dirname, '../marching_squares.js'),   'MarchingSquares');
-loadModule(path.join(__dirname, '../collective_manager.js'), 'GSRCollectiveManager');
-loadModule(path.join(__dirname, '../deconvolution.js'),  'SCRDeconvolution');
-loadModule(path.join(__dirname, '../csv_parser.js'),     'GSRCSVParser');
+loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),          'GeoUtils');
+loadModule(path.join(__dirname, '../src/signal/stats_math.js'),         'StatsMath');
+loadModule(path.join(__dirname, '../src/map/map_colors.js'),         'MapColors');
+loadModule(path.join(__dirname, '../src/gps/gps_filter.js'),         'GpsFilter');
+loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'),       'GpsPipeline');
+loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'),         'DWT');
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'),         'GsrFilter');
+loadModule(path.join(__dirname, '../src/spatial/spatial_clustering.js'), 'GSRSpatialClustering');
+loadModule(path.join(__dirname, '../src/render/marching_squares.js'),   'MarchingSquares');
+loadModule(path.join(__dirname, '../src/spatial/collective_manager.js'), 'GSRCollectiveManager');
+loadModule(path.join(__dirname, '../src/signal/deconvolution.js'),  'SCRDeconvolution');
+loadModule(path.join(__dirname, '../src/signal/csv_parser.js'),     'GSRCSVParser');
 
 const {
   GeoUtils, StatsMath, MapColors, GpsFilter, GpsPipeline,
@@ -47,7 +47,7 @@ const {
 } = global;
 
 // Load GSRAnalyzer
-const analyzerSrc = fs.readFileSync(path.join(__dirname, '../analyzer.js'), 'utf8');
+const analyzerSrc = fs.readFileSync(path.join(__dirname, '../src/signal/analyzer.js'), 'utf8');
 vm.runInThisContext(analyzerSrc, { filename: 'analyzer.js' });
 const GSRAnalyzer = global.GSRAnalyzer;
 

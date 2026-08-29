@@ -11,7 +11,7 @@
  * Run: node tests/test_hillshade.js
  */
 const assert = require('assert');
-const { Hillshade } = require('../hillshade.js');
+const { Hillshade } = require('../src/map/hillshade.js');
 
 console.log('── Running Hillshade Algorithm Test ──');
 

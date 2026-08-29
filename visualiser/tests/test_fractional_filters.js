@@ -28,9 +28,9 @@ function loadModule(filePath, varName) {
   vm.runInThisContext(wrapped, { filename: filePath });
 }
 
-loadModule(path.join(__dirname, '../stats_math.js'),         'StatsMath');
-loadModule(path.join(__dirname, '../gsr_filter.js'),         'GsrFilter');
-loadModule(path.join(__dirname, '../csv_parser.js'),         'GSRCSVParser');
+loadModule(path.join(__dirname, '../src/signal/stats_math.js'),         'StatsMath');
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'),         'GsrFilter');
+loadModule(path.join(__dirname, '../src/signal/csv_parser.js'),         'GSRCSVParser');
 
 const { GsrFilter, GSRCSVParser } = global;
 

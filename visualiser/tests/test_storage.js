@@ -25,7 +25,7 @@ global.localStorage = {
   removeItem: () => {},
 };
 
-const { GSRStorage, sliderVal, shapeSliderVal } = require('../storage.js');
+const { GSRStorage, sliderVal, shapeSliderVal } = require('../src/ui/storage.js');
 
 function el(value) {
   return { value: String(value) };

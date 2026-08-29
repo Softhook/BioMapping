@@ -8,7 +8,7 @@
 const assert = require('assert');
 const test = require('node:test');
 
-const { MapColors } = require('../map_colors.js');
+const { MapColors } = require('../src/map/map_colors.js');
 
 // ---------------------------------------------------------------------------
 // getHslColor

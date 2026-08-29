@@ -298,6 +298,19 @@ test('normalizeTileCacheUrl: an already-"a" URL round-trips unchanged, and an un
   assert.strictEqual(norm('https://example.com/tile.png'), 'https://example.com/tile.png');
 });
 
+test('normalizeTileCacheUrl: strips the CARTO ?key=… query so a key change does not orphan the tile cache', () => {
+  const { context } = bootLive();
+  const norm = (u) => run(context, `normalizeTileCacheUrl(${JSON.stringify(u)})`);
+  assert.strictEqual(
+    norm('https://c.basemaps.cartocdn.com/light_all/15/1000/2000.png?key=abc123'),
+    'https://a.basemaps.cartocdn.com/light_all/15/1000/2000.png',
+  );
+  assert.strictEqual(
+    norm('https://a.basemaps.cartocdn.com/light_all/15/1000/2000@2x.png?key=xyz'),
+    'https://a.basemaps.cartocdn.com/light_all/15/1000/2000@2x.png',
+  );
+});
+
 // ==========================================================================
 // Map visibility toggle — manual, not GPS-driven (see live.html's showMap/
 // hideMap/setMapVisible comments for why).

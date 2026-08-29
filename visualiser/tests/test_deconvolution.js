@@ -17,7 +17,7 @@
 const assert = require('assert');
 const test = require('node:test');
 
-const SCRDeconvolution = require('../deconvolution.js');
+const SCRDeconvolution = require('../src/signal/deconvolution.js');
 
 const SR = 10; // Hz, matches the project's standard GSR sample rate
 

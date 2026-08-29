@@ -7,7 +7,7 @@ const path   = require('path');
 const vm     = require('vm');
 const { JSDOM } = require('jsdom');
 
-const { GSRNotices } = require('../notices.js');
+const { GSRNotices } = require('../src/core/notices.js');
 
 test('GSRNotices.report: logs without throwing in a no-DOM environment', () => {
   // No window/document globals are set here, so _toast() must no-op gracefully.
@@ -93,7 +93,7 @@ test('GSRNotices: window error/unhandledrejection hooks surface uncaught errors'
     body: { appendChild(c) { bodyChildren.push(c); } },
   };
 
-  const src = fs.readFileSync(path.join(__dirname, '../notices.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '../src/core/notices.js'), 'utf8');
   vm.runInNewContext(src, { window: fakeWindow, document: fakeDocument, console, setTimeout });
 
   assert.strictEqual(typeof listeners.error, 'function', 'window error hook registered');
@@ -130,7 +130,7 @@ test('GSRNotices: benign ResizeObserver loop diagnostic does not spawn a red toa
     body: { appendChild(c) { bodyChildren.push(c); } },
   };
 
-  const src = fs.readFileSync(path.join(__dirname, '../notices.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '../src/core/notices.js'), 'utf8');
   vm.runInNewContext(src, { window: fakeWindow, document: fakeDocument, console, setTimeout });
 
   // Fire the benign diagnostic exactly as browsers do (message on the event,

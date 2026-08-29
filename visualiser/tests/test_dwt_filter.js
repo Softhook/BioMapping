@@ -16,7 +16,7 @@
 const assert = require('assert');
 const test = require('node:test');
 
-const DWT = require('../dwt_filter.js');
+const DWT = require('../src/signal/dwt_filter.js');
 
 // ── Helpers to build synthetic GSR-like signals ─────────────────────────────
 

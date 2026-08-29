@@ -168,7 +168,7 @@ Below is the structured list of files that would need modifications:
 
 ### C. Web Visualiser & Visualization (JS / HTML)
 
-#### [MODIFY] [`visualiser/analyzer.js`](../visualiser/analyzer.js)
+#### [MODIFY] [`visualiser/src/signal/analyzer.js`](../visualiser/src/signal/analyzer.js)
 * Detect `rssi_319` from the CSV headers and parse it.
 * Register `rssi_319` in the `BANDS` arrays for peak-prominence detection.
 * Dynamically include `rssi_319` in `GSRAnalyzer.calcEmFog()`.
@@ -178,7 +178,7 @@ Below is the structured list of files that would need modifications:
 const BANDS = ['rssi_300', 'rssi_315', 'rssi_319', 'rssi_434', 'rssi_446', 'rssi_815', 'rssi_868', 'rssi_915'];
 ```
 
-#### [MODIFY] [`visualiser/rf_fluid_renderer.js`](../visualiser/rf_fluid_renderer.js)
+#### [MODIFY] [`visualiser/src/render/rf_fluid_renderer.js`](../visualiser/src/render/rf_fluid_renderer.js)
 * Parse `rssi_319` from the nodes, compute its adaptive noise floors, and scale it within `_normDbm()`.
 * Map 319 MHz to a distinct visualization color when rendering individual layers. For example, use **Vibrant Amber/Yellow (255, 200, 0)**:
 
@@ -209,5 +209,5 @@ let min319 = Infinity, max319 = -Infinity;
 </select>
 ```
 
-#### [MODIFY] [`visualiser/map.js`](../visualiser/map.js)
+#### [MODIFY] [`visualiser/src/map/map.js`](../visualiser/src/map/map.js)
 * Update `updateLegend()` to draw the legend item for the 319 MHz channel when active.

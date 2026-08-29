@@ -10,7 +10,7 @@
 const assert = require('assert');
 const test = require('node:test');
 
-const { AppState } = require('../app_state.js');
+const { AppState } = require('../src/core/app_state.js');
 
 test('getNextTrackColor: cycles through the palette in order and wraps around', () => {
   // Note: getNextTrackColor()'s body reads/writes `AppState.trackColors` /
@@ -116,7 +116,7 @@ test('zoomFactor: silently ignores non-number / NaN assignments', () => {
 });
 
 test('default state shape: key fields start with documented defaults', () => {
-  const fresh = require('fs').readFileSync(require('path').join(__dirname, '..', 'app_state.js'), 'utf8');
+  const fresh = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'core', 'app_state.js'), 'utf8');
   // Sanity-check the defaults documented in the module comments are actually
   // present in source, since AppState is a singleton mutated by the tests
   // above and can't be freshly re-instantiated without re-parsing the file.

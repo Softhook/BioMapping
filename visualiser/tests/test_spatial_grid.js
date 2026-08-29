@@ -15,7 +15,7 @@
 const assert = require('assert');
 const test = require('node:test');
 
-const { SpatialGrid } = require('../spatial_grid.js');
+const { SpatialGrid } = require('../src/map/spatial_grid.js');
 
 function bboxAround(lat, lon, halfSpan = 0) {
   return { minLat: lat - halfSpan, maxLat: lat + halfSpan, minLon: lon - halfSpan, maxLon: lon + halfSpan };

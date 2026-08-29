@@ -2,7 +2,7 @@
 
 **Written:** 2026-07-15 · **Last checked against code:** 2026-08-29
 **Scope:** Complete overview of the GPS processing pipeline, from firmware-level quality gating through to downstream spatial analysis filters.
-**Files:** `firmware/modules/gps_uart.c`, `firmware/biomap_types.h`, `firmware/biomap_session.c`, `visualiser/gps_filter.js`, `visualiser/gps_pipeline.js`, `visualiser/map_match.js`, `visualiser/map.js`
+**Files:** `firmware/modules/gps_uart.c`, `firmware/biomap_types.h`, `firmware/biomap_session.c`, `visualiser/src/gps/gps_filter.js`, `visualiser/src/gps/gps_pipeline.js`, `visualiser/src/gps/map_match.js`, `visualiser/src/map/map.js`
 
 > The filter stages and their order still match the code as of the
 > last-checked date. For the authoritative, versioned CSV column list see
@@ -133,7 +133,7 @@ The filters can be tuned in the visualiser interface:
 
 ## 6. Direct Spatial Error (`hAcc`) Integration
 
-Measurement noise variance $R$ in the Kalman filter ([`gps_filter.js`](../visualiser/gps_filter.js)) now prefers the physical accuracy estimate over DOP-scaling when it's available:
+Measurement noise variance $R$ in the Kalman filter ([`gps_filter.js`](../visualiser/src/gps/gps_filter.js)) now prefers the physical accuracy estimate over DOP-scaling when it's available:
 
 $$R_{\text{effective}} = \begin{cases} (\text{hacc\_m})^2 & \text{if hacc\_m valid (M10Q, post-fix)} \\ R_{\text{base}} \times \text{DOP}^2 & \text{otherwise (L76K, or pre-fix)} \end{cases}$$
 

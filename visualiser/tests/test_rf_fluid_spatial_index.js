@@ -39,10 +39,10 @@ function fakeCanvasContext() {
 }
 
 const vm = require('vm');
-const spatialGridSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'spatial_grid.js'), 'utf8');
+const spatialGridSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'map', 'spatial_grid.js'), 'utf8');
 vm.runInThisContext(spatialGridSrc.replace('class SpatialGrid', 'global.SpatialGrid = class SpatialGrid'), { filename: 'spatial_grid.js' });
 
-const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'rf_fluid_renderer.js'), 'utf8');
+const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'render', 'rf_fluid_renderer.js'), 'utf8');
 vm.runInThisContext(src.replace('class RFFluidRenderer', 'global.RFFluidRenderer = class RFFluidRenderer'), { filename: 'rf_fluid_renderer.js' });
 const RFFluidRenderer = global.RFFluidRenderer;
 

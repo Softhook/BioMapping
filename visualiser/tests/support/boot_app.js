@@ -31,13 +31,15 @@ const APP_DIR = path.join(__dirname, '..', '..');
 
 // Real script load order, copied from index.html's own <script src="...">
 // list (local app files only — the 4 CDN libraries are stubbed instead).
+// Kept byte-for-byte in sync with index.html by tests/support/test_script_order.js.
 const SCRIPT_ORDER = [
-  'notices.js', 'app_state.js', 'layout_manager.js', 'constants.js', 'geo_utils.js', 'spatial_grid.js', 'file_saver.js',
-  'stats_math.js', 'overpass_client.js', 'osm_cache.js', 'dwt_filter.js', 'deconvolution.js',
-  'csv_parser.js', 'analyzer.js', 'osm_enrichment.js', 'map_match.js', 'gsr_filter.js', 'marching_squares.js',
-  'hillshade.js', 'spatial_clustering.js', 'collective_manager.js', 'gps_filter.js', 'map_colors.js', 'gps_pipeline.js',
-  'label_placement.js', 'bezier_spline.js', 'contour_ring_geometry.js', 'map_exporter.js', 'rf_fluid_renderer.js', 'map.js', 'storage.js',
-  'events.js', 'tracks.js', 'collective_project.js', 'ui.js', 'renderer.js', 'sketch.js',
+  'src/core/notices.js', 'src/core/app_state.js', 'src/core/layout_manager.js', 'src/core/constants.js',
+  'src/gps/geo_utils.js', 'src/map/spatial_grid.js', 'src/core/file_saver.js',
+  'src/signal/stats_math.js', 'src/osm/overpass_client.js', 'src/osm/osm_cache.js', 'src/signal/dwt_filter.js', 'src/signal/deconvolution.js',
+  'src/signal/csv_parser.js', 'src/signal/analyzer.js', 'src/osm/osm_enrichment.js', 'src/gps/map_match.js', 'src/signal/gsr_filter.js', 'src/render/marching_squares.js',
+  'src/map/hillshade.js', 'src/spatial/spatial_clustering.js', 'src/spatial/collective_manager.js', 'src/gps/gps_filter.js', 'src/map/map_colors.js', 'src/gps/gps_pipeline.js',
+  'src/render/label_placement.js', 'src/render/bezier_spline.js', 'src/render/contour_ring_geometry.js', 'src/map/map_exporter.js', 'src/render/rf_fluid_renderer.js', 'src/map/map.js', 'src/ui/storage.js',
+  'src/ui/events.js', 'src/ui/tracks.js', 'src/spatial/collective_project.js', 'src/ui/ui.js', 'src/render/renderer.js', 'src/render/sketch.js',
 ];
 
 // p5 "global mode" functions/constants referenced as bare identifiers by
@@ -125,4 +127,4 @@ function bootApp() {
   return { window, document: window.document, context };
 }
 
-module.exports = { bootApp, superMock };
+module.exports = { bootApp, superMock, SCRIPT_ORDER };

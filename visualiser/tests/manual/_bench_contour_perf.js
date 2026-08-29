@@ -10,7 +10,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { MarchingSquares } = require('../../marching_squares.js');
+const { MarchingSquares } = require('../../src/render/marching_squares.js');
 
 function median(nums) {
   const s = [...nums].sort((a, b) => a - b);

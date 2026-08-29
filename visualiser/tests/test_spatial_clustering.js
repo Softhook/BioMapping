@@ -12,10 +12,10 @@ const test = require('node:test');
 // getConcaveBlob() delegates contour extraction to the global MarchingSquares
 // (typeof-guarded, so undefined is tolerated — but we want real boundaries
 // for most tests, so load the real thing, same pattern as GeoUtils below).
-global.MarchingSquares = require('../marching_squares.js').MarchingSquares;
-global.GeoUtils = require('../geo_utils.js').GeoUtils;
+global.MarchingSquares = require('../src/render/marching_squares.js').MarchingSquares;
+global.GeoUtils = require('../src/gps/geo_utils.js').GeoUtils;
 
-const { GSRSpatialClustering } = require('../spatial_clustering.js');
+const { GSRSpatialClustering } = require('../src/spatial/spatial_clustering.js');
 
 const METERS_PER_DEG_LAT = 111320.0;
 

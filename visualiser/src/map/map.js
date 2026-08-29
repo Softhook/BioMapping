@@ -89,7 +89,18 @@ class GSRMapManager {
     // GSRMapExporter can force it to prefetch tiles beyond the live viewport
     // before an SVG export — see exportToSvg's isoband-canvas-expansion
     // handling and map_exporter.js's _ensureTileCoverage doc comment.
-    this.baseTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    // CARTO now requires a (free) key on its raster basemaps; without one the
+    // tiles still load but carry an "API key required" watermark. Key comes
+    // from config.local.js (window.BIOMAP_CONFIG) or localStorage — see
+    // config.local.example.js. localStorage access can throw (file://, site
+    // data disabled), so guard it.
+    let cartoKey = (window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.cartoApiKey) || '';
+    if (!cartoKey) {
+      try { cartoKey = localStorage.getItem('bioMappingCartoApiKey') || ''; } catch (e) { /* no-op */ }
+    }
+    const cartoUrl = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png' +
+      (cartoKey ? '?key=' + encodeURIComponent(cartoKey) : '');
+    this.baseTileLayer = L.tileLayer(cartoUrl, {
       maxZoom: 22,
       maxNativeZoom: 19,
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',

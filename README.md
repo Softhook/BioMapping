@@ -270,6 +270,16 @@ Filtering, peak detection, and the GPS quality filter are all adjustable in the 
 - **In the browser:** open `live.html`, press **Connect**, and pair with the Flipper. It shows a rolling GSR graph and a Leaflet map of the track, flags dropped-packet gaps, and can **Export CSV** in the same 11-column GPS + GSR schema as a recorded track.
 - **Browser support:** Web Bluetooth needs desktop Chrome / Edge or Android Chrome / Edge. Safari (any platform) and Firefox are unsupported — there is no iPhone path.
 
+## Basemap tiles
+
+Both pages draw on CARTO's Positron basemap, which now needs a free key
+(`carto.com/basemaps/apikey`). Put it in [`visualiser/config.js`](visualiser/config.js)
+(`cartoApiKey`) and, since that file is served publicly, restrict the key to
+your domain(s) in the CARTO dashboard. Without a key the map still loads but
+every tile carries an "API key required" watermark. For local development,
+`visualiser/config.local.js` (gitignored, see `config.local.example.js`) or a
+`localStorage['bioMappingCartoApiKey']` entry overrides `config.js`.
+
 ## CSV Schema
 
 [`docs/csv_schema.md`](docs/csv_schema.md) is the canonical, versioned definition of every column and sentinel value, shared by the device and both visualiser pages.

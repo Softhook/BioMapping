@@ -39,7 +39,7 @@ const vm = require('vm');
 const fs = require('fs');
 const path = require('path');
 
-const src = fs.readFileSync(path.join(__dirname, '..', 'map_exporter.js'), 'utf8');
+const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'map', 'map_exporter.js'), 'utf8');
 global.window = global;
 vm.runInThisContext(src.replace('class GSRMapExporter', 'global.GSRMapExporter = class GSRMapExporter'), { filename: 'map_exporter.js' });
 const GSRMapExporter = global.GSRMapExporter;

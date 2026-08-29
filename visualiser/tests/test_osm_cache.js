@@ -26,7 +26,7 @@ function loadModule(filePath, varName) {
   vm.runInThisContext(wrapped, { filename: filePath });
 }
 
-loadModule(__dirname + '/../osm_cache.js', 'OsmCache');
+loadModule(__dirname + '/../src/osm/osm_cache.js', 'OsmCache');
 const OsmCache = global.OsmCache;
 
 // ── Test helpers ────────────────────────────────────────────────────────────

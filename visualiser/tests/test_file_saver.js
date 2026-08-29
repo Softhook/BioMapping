@@ -13,7 +13,7 @@
 const assert = require('assert');
 const test = require('node:test');
 
-const GSRFileSaver = require('../file_saver.js');
+const GSRFileSaver = require('../src/core/file_saver.js');
 
 // ── getFormatInfo ─────────────────────────────────────────────────────────
 test('getFormatInfo: recognises every explicitly-supported extension', () => {

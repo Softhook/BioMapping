@@ -555,10 +555,10 @@ const GSRTrackManager = {
   },
 
   /**
-   * Load the default demo track from default_processed.csv.
+   * Load the default demo track from fixtures/default_processed.csv.
    */
   loadDefaultTrack() {
-    fetch('default_processed.csv')
+    fetch('fixtures/default_processed.csv')
       .then(response => {
         if (!response.ok) throw new Error('HTTP ' + response.status + ' — could not load demo data');
         return response.text();

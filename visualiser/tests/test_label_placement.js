@@ -12,7 +12,7 @@ const test = require('node:test');
 // requiring the module so the module-level code doesn't need Leaflet itself.
 global.L = { divIcon: (opts) => opts };
 
-const { GSRLabelManager } = require('../label_placement.js');
+const { GSRLabelManager } = require('../src/render/label_placement.js');
 
 test('textWidth: empty string returns just the padding', () => {
   assert.strictEqual(GSRLabelManager.textWidth(''), 8);

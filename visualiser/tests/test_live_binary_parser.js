@@ -12,7 +12,7 @@
 const assert = require('assert');
 const test = require('node:test');
 
-const { GSRLiveBinaryParser, PACKET_SIZE } = require('../live_binary_parser.js');
+const { GSRLiveBinaryParser, PACKET_SIZE } = require('../src/live/live_binary_parser.js');
 
 // Builds one valid 45-byte wire packet from field values, matching the
 // offset table in docs/archive/bluetooth_serial_investigation.md §5 exactly.

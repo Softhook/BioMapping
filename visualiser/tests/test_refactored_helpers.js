@@ -31,20 +31,20 @@ function loadBrowserModule(relPath, varName) {
   vm.runInThisContext(wrapped, { filename: relPath });
 }
 
-loadBrowserModule('../geo_utils.js',    'GeoUtils');
-loadBrowserModule('../stats_math.js',   'StatsMath');
-loadBrowserModule('../map_colors.js',   'MapColors');
-loadBrowserModule('../gps_filter.js',   'GpsFilter');
-loadBrowserModule('../gps_pipeline.js', 'GpsPipeline');
-loadBrowserModule('../dwt_filter.js',   'DWT');
-loadBrowserModule('../gsr_filter.js',   'GsrFilter');
-loadBrowserModule('../deconvolution.js','SCRDeconvolution');
-loadBrowserModule('../csv_parser.js',    'GSRCSVParser');
-loadBrowserModule('../map_exporter.js', 'GSRMapExporter');
-loadBrowserModule('../tracks.js',       'GSRTrackManager');
-loadBrowserModule('../ui.js',           'GSRUI');
+loadBrowserModule('../src/gps/geo_utils.js',    'GeoUtils');
+loadBrowserModule('../src/signal/stats_math.js',   'StatsMath');
+loadBrowserModule('../src/map/map_colors.js',   'MapColors');
+loadBrowserModule('../src/gps/gps_filter.js',   'GpsFilter');
+loadBrowserModule('../src/gps/gps_pipeline.js', 'GpsPipeline');
+loadBrowserModule('../src/signal/dwt_filter.js',   'DWT');
+loadBrowserModule('../src/signal/gsr_filter.js',   'GsrFilter');
+loadBrowserModule('../src/signal/deconvolution.js','SCRDeconvolution');
+loadBrowserModule('../src/signal/csv_parser.js',    'GSRCSVParser');
+loadBrowserModule('../src/map/map_exporter.js', 'GSRMapExporter');
+loadBrowserModule('../src/ui/tracks.js',       'GSRTrackManager');
+loadBrowserModule('../src/ui/ui.js',           'GSRUI');
 
-const analyzerSrc = fs.readFileSync(path.join(__dirname, '../analyzer.js'), 'utf8');
+const analyzerSrc = fs.readFileSync(path.join(__dirname, '../src/signal/analyzer.js'), 'utf8');
 vm.runInThisContext(analyzerSrc, { filename: 'analyzer.js' });
 
 const GpsFilter   = global.GpsFilter;

@@ -24,7 +24,7 @@ const vm = require('vm');
 // realm with its own Array/Object prototypes, which makes every
 // assert.deepStrictEqual below fail on prototype identity even when every
 // property matches.
-const constantsSrc = fs.readFileSync(path.join(__dirname, '../constants.js'), 'utf8');
+const constantsSrc = fs.readFileSync(path.join(__dirname, '../src/core/constants.js'), 'utf8');
 vm.runInThisContext(
   constantsSrc.replace('const GSR_CONST', 'global.__REAL_GSR_CONST__'),
   { filename: 'constants.js' }

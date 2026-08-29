@@ -14,8 +14,8 @@
 const assert = require('assert');
 const test = require('node:test');
 
-global.GeoUtils = require('../geo_utils.js').GeoUtils;
-const { ContourRingGeometry } = require('../contour_ring_geometry.js');
+global.GeoUtils = require('../src/gps/geo_utils.js').GeoUtils;
+const { ContourRingGeometry } = require('../src/render/contour_ring_geometry.js');
 
 // ── toLoop ───────────────────────────────────────────────────────────────
 test('toLoop: empty input returns a zeroed loop shape without throwing', () => {

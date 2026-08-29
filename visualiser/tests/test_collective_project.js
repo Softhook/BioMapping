@@ -22,7 +22,7 @@ global.document = { getElementById: () => null };
 global.alert = () => {};
 global.confirm = () => true;
 
-const { GSRCollectiveProject } = require('../collective_project.js');
+const { GSRCollectiveProject } = require('../src/spatial/collective_project.js');
 
 // ── _sanitizeName ────────────────────────────────────────────────────────
 test('_sanitizeName: strips a file extension and replaces disallowed characters', () => {

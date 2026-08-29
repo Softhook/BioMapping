@@ -26,9 +26,9 @@ function loadModule(filePath, exportName) {
   }
 }
 
-loadModule(path.join(__dirname, '../geo_utils.js'), 'GeoUtils');
-loadModule(path.join(__dirname, '../bezier_spline.js'), 'BezierSpline');
-loadModule(path.join(__dirname, '../map_exporter.js'), 'GSRMapExporter');
+loadModule(path.join(__dirname, '../src/gps/geo_utils.js'), 'GeoUtils');
+loadModule(path.join(__dirname, '../src/render/bezier_spline.js'), 'BezierSpline');
+loadModule(path.join(__dirname, '../src/map/map_exporter.js'), 'GSRMapExporter');
 const GSRMapExporter = global.GSRMapExporter;
 
 const project = (ll) => ({

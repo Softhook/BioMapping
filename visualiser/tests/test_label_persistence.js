@@ -18,24 +18,24 @@ function loadModule(filePath, varName) {
   vm.runInThisContext(wrapped, { filename: filePath });
 }
 
-loadModule(path.join(__dirname, '../geo_utils.js'),          'GeoUtils');
-loadModule(path.join(__dirname, '../stats_math.js'),         'StatsMath');
-loadModule(path.join(__dirname, '../map_colors.js'),         'MapColors');
-loadModule(path.join(__dirname, '../gps_filter.js'),         'GpsFilter');
-loadModule(path.join(__dirname, '../gps_pipeline.js'),       'GpsPipeline');
-loadModule(path.join(__dirname, '../dwt_filter.js'),         'DWT');
-loadModule(path.join(__dirname, '../gsr_filter.js'),         'GsrFilter');
-loadModule(path.join(__dirname, '../spatial_clustering.js'), 'GSRSpatialClustering');
-loadModule(path.join(__dirname, '../marching_squares.js'),   'MarchingSquares');
-loadModule(path.join(__dirname, '../collective_manager.js'), 'GSRCollectiveManager');
-loadModule(path.join(__dirname, '../deconvolution.js'),      'SCRDeconvolution');
+loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),          'GeoUtils');
+loadModule(path.join(__dirname, '../src/signal/stats_math.js'),         'StatsMath');
+loadModule(path.join(__dirname, '../src/map/map_colors.js'),         'MapColors');
+loadModule(path.join(__dirname, '../src/gps/gps_filter.js'),         'GpsFilter');
+loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'),       'GpsPipeline');
+loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'),         'DWT');
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'),         'GsrFilter');
+loadModule(path.join(__dirname, '../src/spatial/spatial_clustering.js'), 'GSRSpatialClustering');
+loadModule(path.join(__dirname, '../src/render/marching_squares.js'),   'MarchingSquares');
+loadModule(path.join(__dirname, '../src/spatial/collective_manager.js'), 'GSRCollectiveManager');
+loadModule(path.join(__dirname, '../src/signal/deconvolution.js'),      'SCRDeconvolution');
 
-const { GSRAnalyzer } = require('../analyzer.js');
+const { GSRAnalyzer } = require('../src/signal/analyzer.js');
 
 console.log('── Testing Peak Label Persistence & Store ──');
 
 // Load sample track CSV
-const csvPath = path.join(__dirname, '../default_processed.csv');
+const csvPath = path.join(__dirname, '../fixtures/default_processed.csv');
 let csvData = '';
 if (fs.existsSync(csvPath)) {
   csvData = fs.readFileSync(csvPath, 'utf8');

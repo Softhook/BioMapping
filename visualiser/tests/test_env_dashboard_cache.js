@@ -52,17 +52,17 @@ function loadModule(filePath, varName) {
   vm.runInThisContext(wrapped, { filename: filePath });
 }
 
-loadModule(path.join(__dirname, '../geo_utils.js'),     'GeoUtils');
-loadModule(path.join(__dirname, '../stats_math.js'),    'StatsMath');   // also read directly by ui.js
-loadModule(path.join(__dirname, '../map_colors.js'),    'MapColors');
-loadModule(path.join(__dirname, '../gps_filter.js'),    'GpsFilter');
-loadModule(path.join(__dirname, '../gps_pipeline.js'),  'GpsPipeline');
-loadModule(path.join(__dirname, '../dwt_filter.js'),    'DWT');
-loadModule(path.join(__dirname, '../gsr_filter.js'),    'GsrFilter');
-loadModule(path.join(__dirname, '../deconvolution.js'), 'SCRDeconvolution');
+loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),     'GeoUtils');
+loadModule(path.join(__dirname, '../src/signal/stats_math.js'),    'StatsMath');   // also read directly by ui.js
+loadModule(path.join(__dirname, '../src/map/map_colors.js'),    'MapColors');
+loadModule(path.join(__dirname, '../src/gps/gps_filter.js'),    'GpsFilter');
+loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'),  'GpsPipeline');
+loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'),    'DWT');
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'),    'GsrFilter');
+loadModule(path.join(__dirname, '../src/signal/deconvolution.js'), 'SCRDeconvolution');
 
-const { GSRAnalyzer } = require('../analyzer.js');
-const { GSRUI }       = require('../ui.js');
+const { GSRAnalyzer } = require('../src/signal/analyzer.js');
+const { GSRUI }       = require('../src/ui/ui.js');
 
 // ── Fixture: a real recorded track (same file test_all_pipelines.js uses). ──
 const csvText = fs.readFileSync(path.join(__dirname, '../../tracks/biomap_048.csv'), 'utf8');

@@ -21,7 +21,7 @@ const test = require('node:test');
 const _origSetTimeout = global.setTimeout;
 global.setTimeout = (fn, ms, ...rest) => _origSetTimeout(fn, Math.min(ms, 100), ...rest).unref();
 
-const { OverpassClient } = require('../overpass_client.js');
+const { OverpassClient } = require('../src/osm/overpass_client.js');
 
 const BBOX = { minLat: 51.5007, minLon: -0.1246, maxLat: 51.5107, maxLon: -0.1146 };
 

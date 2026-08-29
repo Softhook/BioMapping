@@ -21,12 +21,12 @@ function loadModule(filePath, varName) {
   vm.runInThisContext(wrapped, { filename: filePath });
 }
 
-loadModule(path.join(__dirname, '../stats_math.js'),        'StatsMath');
-loadModule(path.join(__dirname, '../map_colors.js'),        'MapColors');
-loadModule(path.join(__dirname, '../geo_utils.js'),         'GeoUtils');
-loadModule(path.join(__dirname, '../spatial_grid.js'),       'SpatialGrid');
-loadModule(path.join(__dirname, '../rf_fluid_renderer.js'), 'RFFluidRenderer');
-loadModule(path.join(__dirname, '../map_exporter.js'),     'GSRMapExporter');
+loadModule(path.join(__dirname, '../src/signal/stats_math.js'),        'StatsMath');
+loadModule(path.join(__dirname, '../src/map/map_colors.js'),        'MapColors');
+loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),         'GeoUtils');
+loadModule(path.join(__dirname, '../src/map/spatial_grid.js'),       'SpatialGrid');
+loadModule(path.join(__dirname, '../src/render/rf_fluid_renderer.js'), 'RFFluidRenderer');
+loadModule(path.join(__dirname, '../src/map/map_exporter.js'),     'GSRMapExporter');
 
 const RFFluidRenderer = global.RFFluidRenderer;
 const GSRMapExporter = global.GSRMapExporter;

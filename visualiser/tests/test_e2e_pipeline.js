@@ -29,21 +29,21 @@ function loadModule(filePath, varName) {
 // Mock GSR_CONST (same as mock_constants.js)
 global.GSR_CONST = require('./mock_constants.js');
 
-loadModule(path.join(__dirname, '../geo_utils.js'),    'GeoUtils');
-loadModule(path.join(__dirname, '../stats_math.js'),   'StatsMath');
-loadModule(path.join(__dirname, '../map_colors.js'),   'MapColors');
-loadModule(path.join(__dirname, '../gps_filter.js'),   'GpsFilter');
-loadModule(path.join(__dirname, '../gps_pipeline.js'), 'GpsPipeline');
-loadModule(path.join(__dirname, '../dwt_filter.js'),   'DWT');       // needed by analyzer.js
-loadModule(path.join(__dirname, '../gsr_filter.js'),   'GsrFilter');  // needed by analyzer.js
-loadModule(path.join(__dirname, '../csv_parser.js'),   'GSRCSVParser');       // needed by analyzer.js
+loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),    'GeoUtils');
+loadModule(path.join(__dirname, '../src/signal/stats_math.js'),   'StatsMath');
+loadModule(path.join(__dirname, '../src/map/map_colors.js'),   'MapColors');
+loadModule(path.join(__dirname, '../src/gps/gps_filter.js'),   'GpsFilter');
+loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'), 'GpsPipeline');
+loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'),   'DWT');       // needed by analyzer.js
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'),   'GsrFilter');  // needed by analyzer.js
+loadModule(path.join(__dirname, '../src/signal/csv_parser.js'),   'GSRCSVParser');       // needed by analyzer.js
 
 const { GeoUtils, StatsMath, MapColors, GpsFilter, GpsPipeline, GsrFilter } = global;
 
 // ── Load GSRAnalyzer class ──────────────────────────────────────────────────
 // The analyzer assigns itself to window.GSRAnalyzer at the end.
 global.window = global;
-const analyzerSrc = fs.readFileSync(path.join(__dirname, '../analyzer.js'), 'utf8');
+const analyzerSrc = fs.readFileSync(path.join(__dirname, '../src/signal/analyzer.js'), 'utf8');
 vm.runInThisContext(analyzerSrc, { filename: 'analyzer.js' });
 const GSRAnalyzer = global.GSRAnalyzer;
 

@@ -48,13 +48,13 @@ function loadModule(filePath, varName) {
   vm.runInThisContext(wrapped, { filename: filePath });
 }
 
-loadModule(path.join(__dirname, '../stats_math.js'),      'StatsMath');
-loadModule(path.join(__dirname, '../map_colors.js'),      'MapColors');
-loadModule(path.join(__dirname, '../geo_utils.js'),       'GeoUtils');
-loadModule(path.join(__dirname, '../marching_squares.js'),'MarchingSquares');
-loadModule(path.join(__dirname, '../spatial_clustering.js'), 'GSRSpatialClustering');
-loadModule(path.join(__dirname, '../hillshade.js'),       'Hillshade');
-loadModule(path.join(__dirname, '../map_exporter.js'),   'GSRMapExporter');
+loadModule(path.join(__dirname, '../src/signal/stats_math.js'),      'StatsMath');
+loadModule(path.join(__dirname, '../src/map/map_colors.js'),      'MapColors');
+loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),       'GeoUtils');
+loadModule(path.join(__dirname, '../src/render/marching_squares.js'),'MarchingSquares');
+loadModule(path.join(__dirname, '../src/spatial/spatial_clustering.js'), 'GSRSpatialClustering');
+loadModule(path.join(__dirname, '../src/map/hillshade.js'),       'Hillshade');
+loadModule(path.join(__dirname, '../src/map/map_exporter.js'),   'GSRMapExporter');
 
 const { MarchingSquares } = global;
 const GSRMapExporter = global.GSRMapExporter;

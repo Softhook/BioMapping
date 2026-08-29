@@ -8,7 +8,7 @@
 const assert = require('assert');
 const test = require('node:test');
 
-const { MarchingSquares } = require('../marching_squares.js');
+const { MarchingSquares } = require('../src/render/marching_squares.js');
 
 const BOUNDS_UNIT = { minLat: 0, maxLat: 1, minLon: 0, maxLon: 1 };
 

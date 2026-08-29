@@ -13,7 +13,7 @@ Skin conductance (GSR/EDA) measures sympathetic nervous system activation, refle
 [Restorative Zones]   --> [Sympathetic Decay]    --> GSR Recovery / SCL Decline
 ```
 
-The implemented system captures five environmental dimensions, each backed by an OpenStreetMap tag set (see `visualiser/osm_enrichment.js`):
+The implemented system captures five environmental dimensions, each backed by an OpenStreetMap tag set (see `visualiser/src/osm/osm_enrichment.js`):
 
 1. **Traffic & Acoustic Stress** — road classification and distance to the nearest major road.
 2. **Visual & Natural Restoration (Green Spaces)** — park containment and green-space density from `leisure`, `landuse`, and `natural` tags.

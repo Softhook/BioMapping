@@ -8,7 +8,7 @@
 const assert = require('assert');
 const test = require('node:test');
 
-const { GeoUtils } = require('../geo_utils.js');
+const { GeoUtils } = require('../src/gps/geo_utils.js');
 
 const closeTo = (actual, expected, tolerance, msg) => {
   assert.ok(Math.abs(actual - expected) <= tolerance,

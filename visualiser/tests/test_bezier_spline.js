@@ -9,7 +9,7 @@
 const assert = require('assert');
 const test = require('node:test');
 
-const { BezierSpline } = require('../bezier_spline.js');
+const { BezierSpline } = require('../src/render/bezier_spline.js');
 
 const close = (a, b, tol = 1e-6) => Math.abs(a - b) <= tol;
 const pointsClose = (p, q, tol = 1e-6) => close(p.x, q.x, tol) && close(p.y, q.y, tol);

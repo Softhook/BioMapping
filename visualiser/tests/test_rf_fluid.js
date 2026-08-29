@@ -34,17 +34,17 @@ function loadModule(filePath, varName) {
   vm.runInThisContext(wrapped, { filename: filePath });
 }
 
-loadModule(path.join(__dirname, '../geo_utils.js'),          'GeoUtils');
-loadModule(path.join(__dirname, '../spatial_grid.js'),        'SpatialGrid');
-loadModule(path.join(__dirname, '../stats_math.js'),         'StatsMath');
-loadModule(path.join(__dirname, '../map_colors.js'),         'MapColors');
-loadModule(path.join(__dirname, '../gps_filter.js'),         'GpsFilter');
-loadModule(path.join(__dirname, '../gps_pipeline.js'),       'GpsPipeline');
-loadModule(path.join(__dirname, '../deconvolution.js'),       'SCRDeconvolution');
-loadModule(path.join(__dirname, '../gsr_filter.js'),         'GsrFilter');
-loadModule(path.join(__dirname, '../csv_parser.js'),         'GSRCSVParser');
-loadModule(path.join(__dirname, '../analyzer.js'),            'GSRAnalyzer');
-loadModule(path.join(__dirname, '../rf_fluid_renderer.js'),   'RFFluidRenderer');
+loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),          'GeoUtils');
+loadModule(path.join(__dirname, '../src/map/spatial_grid.js'),        'SpatialGrid');
+loadModule(path.join(__dirname, '../src/signal/stats_math.js'),         'StatsMath');
+loadModule(path.join(__dirname, '../src/map/map_colors.js'),         'MapColors');
+loadModule(path.join(__dirname, '../src/gps/gps_filter.js'),         'GpsFilter');
+loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'),       'GpsPipeline');
+loadModule(path.join(__dirname, '../src/signal/deconvolution.js'),       'SCRDeconvolution');
+loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'),         'GsrFilter');
+loadModule(path.join(__dirname, '../src/signal/csv_parser.js'),         'GSRCSVParser');
+loadModule(path.join(__dirname, '../src/signal/analyzer.js'),            'GSRAnalyzer');
+loadModule(path.join(__dirname, '../src/render/rf_fluid_renderer.js'),   'RFFluidRenderer');
 
 console.log('=== Running RF Fluid & Tri-Band Pipeline Tests ===');
 
