@@ -19,7 +19,7 @@ BioMapping 2.0 is a higher-fidelity successor to that original device.
 
 | Stream | Sensor | Notes |
 |---|---|---|
-| **Galvanic Skin Response (GSR)** | Custom analogue front-end + 16-bit ADC | Skin conductance in nanosiemens (nS) |
+| **Galvanic Skin Response (GSR)** | Transimpedance amplifier + 16-bit ADS1115 ADC | Skin conductance in nanosiemens (nS) |
 | **Location** | u-blox SAM-M10Q GNSS | Sub-meter accuracy, up to 10 Hz (GPS + Galileo + GLONASS + BeiDou) |
 | **Environmental RF** | Flipper SubGHz radio | Band activity at 815 / 868 / 915 MHz |
 
@@ -27,16 +27,23 @@ Everything is logged to `/ext/biomapping/*.csv` at 10 Hz. A Live Stream mode sen
 
 ## How It Compares
 
-The skin-response sensor is built to a research-grade specification and was checked against a grid of precision reference resistors (10 kΩ – 9 MΩ); the full sweep is in [`docs/reference_test_results.csv`](docs/reference_test_results.csv). The closest commercial equivalent is the [Shimmer3 GSR+ unit](https://www.shimmersensing.com/product/shimmer3-gsr-unit/).
+The GSR front-end is built to research-grade specification and measured against a precision metal-film resistor grid (10 kΩ – 9 MΩ), full sweep in [`docs/reference_test_results.csv`](docs/reference_test_results.csv).
 
 | | BioMapping 2.0 | Shimmer3 GSR+ |
 |---|---|---|
 | Method | Constant voltage, 0.5 V | Constant voltage, 0.5 V |
-| Resolution | **< 0.5 nS** | Variable, worse at low conductance |
-| Accuracy (primary range) | **≤ ±0.1%** | ±3% |
-| Accuracy (wide range) | ≤ ±0.5% | ±10% |
+| Resolution | **< 0.5 nS** (16-bit ADC + 100 ms decimation) | Variable (12-bit ADC, worse at low conductance) |
+| Accuracy error (primary range) | **≤ ±0.1%** (47 kΩ – 1 MΩ) | ±3% (22 kΩ – 680 kΩ) |
+| Accuracy error (wide range) | ≤ ±0.5% (22 kΩ – 2.2 MΩ) | ±10% (10 kΩ – 4.7 MΩ) |
+| Accuracy error (extreme range) | ≤ ±1.0% (15 kΩ – 4.7 MΩ) | — |
 
-In practice more than 99% of real-world walking data falls inside the ±0.1% band, and almost all of it inside ±0.5%. Below 100 nS the device reports an open circuit — the electrodes have come loose.
+Accuracy zones by the fraction of real-world track data that falls inside them:
+
+- **≤ ±0.1%** — 47 kΩ – 1 MΩ ($1{,}000$–$21{,}277$ nS): 99.05% of data
+- **≤ ±0.5%** — 22 kΩ – 2.2 MΩ ($455$–$45{,}455$ nS): 99.75%
+- **≤ ±1.0%** — 15 kΩ – 4.7 MΩ ($213$–$66{,}667$ nS): 99.89%
+- Below 100 nS ($>10$ MΩ) the device reports an open circuit (electrodes disconnected / air).
+
 
 ---
 
@@ -46,7 +53,9 @@ The device is a Flipper Zero running the Bio Mapping app, wired to a custom skin
 
 ## Installing the App
 
-Download `biomap.fap` from the [Releases](https://github.com/Softhook/BioMapping/releases) page and copy it to the Flipper. It works with the stock Flipper firmware and the main community firmwares (Momentum, Unleashed, RogueMaster). To build it yourself, run [`ufbt`](https://pypi.org/project/ufbt/) in `firmware/`; `./run_tests.sh` in the same folder runs the tests.
+A Flipper external app (FAP) for stock firmware; also runs on the API-compatible forks (Momentum, Unleashed, RogueMaster). Download `biomap.fap` from the [Releases](https://github.com/Softhook/BioMapping/releases) page, or build from `firmware/` with [`ufbt`](https://pypi.org/project/ufbt/).
+
+Run the host unit tests with `./run_tests.sh` from `firmware/`.
 
 ## Hardware Requirements
 
@@ -179,10 +188,6 @@ Connect three reference resistors to the electrodes in turn; the wizard solves a
 - **Points:** 470 kΩ → 2127.66 nS; 100 kΩ → 10000.0 nS; 47 kΩ → 21276.6 nS.
 - Each step gathers 20 samples over 2 s (min/max discarded) and must pass a range gate; the final fit must hold gain $\in [0.2, 5.0]$, offset $\in [\pm20000]$ nS, $R^2 \ge 0.95$.
 - **OK** saves to `/ext/biomapping/biomap.cal`; **Reset to Default** restores gain 1.0 / offset 0.0.
-
-### Signal integrity note
-
-The piezo speaker shares the 3.3 V rail with the sensor front-end, so on a breadboard build a tone can inject noise. The app keeps tones out of recorded data — zoom clicks are silent while recording, the start chirp settles before the first sample, and the file is closed before the stop chirp. The one exception is the electrode-disconnect warning (those readings are out of range and excluded from analysis anyway).
 
 ## Recordings on the SD Card
 
