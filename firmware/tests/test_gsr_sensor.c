@@ -460,6 +460,88 @@ static void test_autorange_down_on_saturation(void) {
     printf("  -> Pass\n");
 }
 
+// The post-PGA-change settle gate (gsr_sensor.c, PGA_SETTLE_MS). After a
+// config write the ADS1115's conversion register can still hold a sample
+// started under the OLD gain; normalised with the NEW NORM_FACTOR that is a
+// single 2x/0.5x glitch sample. The worker discards conversions until
+// PGA_SETTLE_MS of real elapsed time (furi_get_tick()) has passed. Here
+// furi_get_tick() is the manually-advanced fake clock, so the test pins it
+// inside the window, proves nothing leaks into the ring buffer, then steps
+// it past and proves sampling resumes.
+//
+// Signal held at 3000 counts on PGA 2 (norm 24000; hw-equiv 3000 < the 4096
+// ADS_LOW_THRESH) -> 5 ticks range up to PGA 3, where the same voltage
+// reads 6000 counts (norm still 24000, and 6000 hw-equiv sits in the
+// do-nothing band so autoranging settles there). During the settle window
+// the register still reads the old 3000 count, which on PGA 3 would
+// normalise to 12000 -- half true. That must never reach the buffer.
+static void test_autorange_settle_discards_stale_conversion(void) {
+    printf("Running test_autorange_settle_discards_stale_conversion...\n");
+    furi_hal_i2c_mock_reset();
+    furi_hal_subghz_mock_reset();
+    em_scan_rf_mock_reset();
+    furi_hal_i2c_mock_set_raw16(3000);
+
+    GsrSensor* gsr = gsr_sensor_alloc();
+    assert(gsr != NULL);
+    assert(gsr_sensor_get_pga_index(gsr) == 2);
+
+    wait_for_more_reads(200); // fill the ring buffer at PGA 2
+    gsr_sensor_tick(gsr);
+    int32_t norm_before = gsr_sensor_get_raw_sample_count(gsr);
+    printf("  norm before change = %d (expect ~24000)\n", norm_before);
+    assert(norm_before > 23000 && norm_before < 25000);
+
+    // Baseline BEFORE the trigger — see wait_for_write_count_at_least() and
+    // test_autorange_up_on_low_signal() on why it can't be captured after.
+    int writes_before = furi_hal_i2c_mock_write_count();
+
+    for(int i = 0; i < 5; i++) gsr_sensor_tick(gsr);
+    assert(gsr_sensor_get_pga_index(gsr) == 3); // tick() applies pga_index synchronously
+
+    // The worker applies the CONFIG_REG write and arms the settle gate off
+    // furi_get_tick() immediately after. This helper's poll loop nudges the
+    // fake clock forward only a tick or two; nothing advances it past the
+    // gate deadline afterward, so the worker stays in-settle below.
+    wait_for_write_count_at_least(writes_before + 1);
+
+    // raw16 is still 3000 — the register has not yet produced a new-gain
+    // conversion. On PGA 3 that normalises to 12000, half the true 24000.
+    // Spin on real wall-clock time WITHOUT advancing the fake clock so the
+    // worker stays inside the settle window; the read count still climbs,
+    // proving I2C stays live during settle (the point of gating on elapsed
+    // time rather than a blocking delay).
+    int reads_mark = furi_hal_i2c_mock_read_count();
+    int spun_us = 0;
+    while(furi_hal_i2c_mock_read_count() < reads_mark + 300) {
+        usleep(200);
+        spun_us += 200;
+        assert(spun_us < 5000000); // not a hang
+    }
+
+    gsr_sensor_tick(gsr);
+    int32_t norm_in_settle = gsr_sensor_get_raw_sample_count(gsr);
+    printf("  norm during settle = %d after %d discarded reads (expect ~24000, NOT ~12000)\n",
+           norm_in_settle, furi_hal_i2c_mock_read_count() - reads_mark);
+    assert(norm_in_settle > 23000 && norm_in_settle < 25000);
+
+    // Provide the correct new-gain reading, THEN step the clock past the
+    // deadline (order matters — advancing the clock first would briefly open
+    // the gate onto the still-stale 3000 value).
+    furi_hal_i2c_mock_set_raw16(6000);
+    furi_test_advance_tick(50); // comfortably > PGA_SETTLE_MS
+    wait_for_more_reads(300);   // worker resumes writing to the buffer
+    gsr_sensor_tick(gsr);
+
+    int32_t norm_after = gsr_sensor_get_raw_sample_count(gsr);
+    printf("  norm after settle = %d (expect ~24000)\n", norm_after);
+    assert(norm_after > 23000 && norm_after < 25000);
+    assert(gsr_sensor_get_pga_index(gsr) == 3); // 6000 hw-equiv -> no further autorange
+
+    gsr_sensor_free(gsr);
+    printf("  -> Pass\n");
+}
+
 // tick()-level debounce: 20 consecutive out-of-range (but I2C-valid)
 // readings before connected flips false. Distinct from the worker-level
 // I2C-failure path tested below.
@@ -1293,6 +1375,7 @@ int main(void) {
     test_calibration_applies_gain_offset();
     test_autorange_up_on_low_signal();
     test_autorange_down_on_saturation();
+    test_autorange_settle_discards_stale_conversion();
     test_disconnect_debounce_low_signal();
     test_disconnect_debounce_realistic_open_circuit_noise();
     test_disconnect_debounce_ignores_calibration_offset();

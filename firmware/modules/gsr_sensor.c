@@ -41,13 +41,30 @@ static inline float tia_counts_to_ns(float counts) {
 //    4       ±0.512 V    15.625   0x88
 //    5       ±0.256 V     7.813   0x8A
 //
+// REACHABLE RANGE (3.3 V supply, this front-end)
+//   V_diff into the ADC = 0.5 V × 47 kΩ / (R_skin + 9.4 kΩ) — bias × R_f /
+//   R_safety (see tia_counts_to_ns() and the README schematic).  A dead short
+//   (R_skin → 0) gives 0.5 × 47000 / 9400 = 2.5 V, a hard ceiling the 9.4 kΩ
+//   electrode-safety resistors impose independent of supply.  Consequences:
+//     - pga 0 (±6.144 V) is unreachable: a 1→0 range-down needs ~30 000 counts
+//       on ±4.096 V ≈ 3.75 V, which the input physically cannot produce.
+//     - pga 1 (±4.096 V) tops out near 61 % of range; pga 2 only clips below
+//       R_skin ≈ 2 kΩ (non-physiological).  pga 2 is thus the startup default
+//       and clip guard; the autoranger then climbs toward pga 5.
+//   Effective ladder in normal use is pga 2 → 5.  ADS_PGA_MIN stays 0 — the
+//   state is simply never entered, and keeping it leaves headroom for a
+//   front-end revision with different safety resistors or supply.
+//
 // DELAY AFTER PGA CHANGE
-//   The ADS1115 is a delta-sigma ADC in continuous mode at 860 SPS.  After
-//   writing a new config, the current conversion in the register was started
-//   under the OLD setting (~1.16 ms old).  The worker skips that stale read
-//   and waits 2 ms (> 1.16 ms) so the next iteration reads the first
-//   fully-settled conversion under the new PGA — preventing single-sample
-//   glitches where the signal suddenly halved or doubled.
+//   In continuous mode the config write does not take effect at once: the
+//   in-flight conversion finishes under the OLD gain, THEN one full
+//   conversion runs under the NEW gain (datasheet 7.4.2.2), so the first
+//   valid new-gain result is up to 2 × t_CONV away.  Reading before that
+//   returns an old-gain count scaled by the new NORM_FACTOR — one sample at
+//   exactly 2× or 0.5× the true value.  The worker's read path discards
+//   conversions until PGA_SETTLE_MS of real elapsed time (furi_get_tick(),
+//   not a furi_delay_ms() count) has passed since the write.  See
+//   PGA_SETTLE_MS and the worker's settle-gate comment.
 //
 // SATURATION DETECTION
 //   The ADC clips at exactly ±32 767 (0x7FFF / 0x8000).  We use
@@ -74,6 +91,15 @@ static inline float tia_counts_to_ns(float counts) {
 //     pga 3 (±1.024V, LSB=31.25 µV):    ×4
 //     pga 4 (±0.512V, LSB=15.625 µV):   ×2
 //     pga 5 (±0.256V, LSB=7.8125 µV):   ×1
+//
+//   These exact ratios hold only if the source driving AIN0/AIN1 is
+//   low-impedance against the ADS1115's differential input impedance, which
+//   falls with gain (~4.9 MΩ at ±2.048 V → 710 kΩ at ±0.256 V, datasheet
+//   §5.5).  It is: both pins are op-amp outputs (MCP6002, closed-loop output
+//   impedance in the mΩ–Ω range across the sub-Hz GSR band, nothing in series
+//   to the ADC), so the per-range loading error is sub-ppm.  The precision-
+//   resistor sweep in docs/reference_test_results.csv crosses several pga
+//   steps and stays within the ±0.1 / ±0.5 % spec, confirming this end to end.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #define ADS_PGA_DEFAULT       2
@@ -82,6 +108,14 @@ static inline float tia_counts_to_ns(float counts) {
 #define ADS_SATURATE_THRESH   30000  // 91.5 % of FS → range down immediately
 #define ADS_LOW_THRESH         4096  // 12.5 % of FS → range up candidate
 #define ADS_LOW_COUNT_TICKS       5  // consecutive low ticks before range up
+
+// Post-PGA-change settle window (see "DELAY AFTER PGA CHANGE" above).  The
+// first valid new-gain conversion is up to 2 × t_CONV away; t_CONV = 1/860
+// SPS = 1.163 ms, and the datasheet permits the data rate to run 10 % slow,
+// so the worst case is 2 × 1.292 ≈ 2.58 ms.  4 ms clears that with margin
+// even at the coarsest alignment: with a 1 kHz tick the gate opens 3–4 ms
+// after it is armed, depending on sub-tick phase.
+#define PGA_SETTLE_MS  4
 
 // Target duration of gsr_sensor_tick()'s averaging window. Time-based (see
 // docs/gsr_filtering_analysis.md, Recommendation 1b) rather than a fixed
@@ -300,6 +334,10 @@ static int32_t gsr_sensor_worker(void* context) {
     int16_t  last_hw = 0;
     bool     have_last_hw = false; // no prior read to compare the first one against
     uint32_t last_read_tick = 0;   // paired with have_last_hw — valid whenever it's true
+    // Reads are discarded until furi_get_tick() reaches this — the
+    // post-PGA-change settle gate. Initialised to "now" (open) so no wrap
+    // corner at startup; re-armed on each successful config write.
+    uint32_t pga_settle_until_tick = furi_get_tick();
 
     while(gsr->running) {
         furi_mutex_acquire(gsr->mutex, FuriWaitForever);
@@ -332,12 +370,20 @@ static int32_t gsr_sensor_worker(void* context) {
                 gsr->pga_changed = false;
                 furi_mutex_release(gsr->mutex);
 
-                // Wait for the first fully-settled conversion under the new
-                // PGA.  At 860 SPS conversion takes 1.16 ms; 2 ms guarantees
-                // the next read returns a new-PGA result.
-                furi_delay_ms(2);
+                // Arm the settle gate: the read path discards conversions
+                // until PGA_SETTLE_MS of real elapsed time has passed (see
+                // that #define). Measured from furi_get_tick() rather than
+                // slept through with furi_delay_ms(), for the same reason
+                // em_scan_rf.c's dwell loop and gsr_sensor_set_rf_enabled()'s
+                // disable timeout are: furi_delay_ms(N) is only loosely
+                // >= N ms here. The worker keeps looping through the window,
+                // so I2C failure detection and RF sampling stay live.
+                uint32_t settle_ticks =
+                    (PGA_SETTLE_MS * furi_kernel_get_tick_frequency()) / 1000;
+                pga_settle_until_tick = furi_get_tick() + settle_ticks;
                 current_adc_pga = active_pga;
                 have_last_hw = false; // new gain scale — not comparable to the pre-change code
+                furi_delay_ms(1);     // brief yield before re-looping
             } else {
                 // Config write failed — retry next iteration.
                 furi_delay_ms(1);
@@ -356,15 +402,29 @@ static int32_t gsr_sensor_worker(void* context) {
         uint32_t i2c_read_dur = furi_get_tick() - i2c_read_start;
         furi_hal_i2c_release(&furi_hal_i2c_handle_external);
 
-        // Counts every attempt, success or failure — distinguishes "the
-        // loop genuinely only runs this fast" from "the loop runs fast
-        // but half the reads silently fail" (iter_count alone can't tell
-        // these apart; see docs/gsr_filtering_analysis.md).
+        // Post-PGA-change settle gate: after a config write the conversion
+        // register can still hold a sample started under the old gain (see
+        // PGA_SETTLE_MS). Successful reads are discarded until real elapsed
+        // time clears that window — I2C is still exercised so a disconnect
+        // mid-settle trips the failure path below, but the sample isn't used.
+        bool in_pga_settle = (int32_t)(furi_get_tick() - pga_settle_until_tick) < 0;
+
+        // attempt_count normally counts every read, success or failure — it
+        // distinguishes "the loop genuinely only runs this fast" from "the
+        // loop runs fast but half the reads silently fail" (iter_count alone
+        // can't; see docs/gsr_filtering_analysis.md). The settle window is
+        // excluded from attempt_count (and therefore worker_hz / success
+        // rate): we're deliberately not sampling then, exactly as during the
+        // old furi_delay_ms() gap. i2c_peak_ms still updates — an I2C stall
+        // matters whenever it lands.
         furi_mutex_acquire(gsr->mutex, FuriWaitForever);
-        gsr->attempt_count++;
+        if(!in_pga_settle) gsr->attempt_count++;
         if(i2c_read_dur > gsr->i2c_peak_ms) gsr->i2c_peak_ms = i2c_read_dur;
         furi_mutex_release(gsr->mutex);
 
+        // A successful read means I2C is alive whether or not the sample is
+        // used (the settle gate below may discard it) — clear any failure
+        // streak on every success.
         if(ok) {
             if(consecutive_failures != 0) {
                 consecutive_failures = 0;
@@ -377,6 +437,13 @@ static int32_t gsr_sensor_worker(void* context) {
                 gsr->i2c_working = true;
                 furi_mutex_release(gsr->mutex);
             }
+        }
+
+        // Sample processing proper — skipped during the settle window even on
+        // a good read (the conversion may pre-date the gain change).
+        // have_last_hw stays false through the window, so the first sample
+        // after it is not duplicate-compared against a discarded one.
+        if(ok && !in_pga_settle) {
             int16_t hw = (int16_t)((data[0] << 8) | data[1]);
 
             // Normalise using current_adc_pga (the gain that was active
@@ -412,7 +479,7 @@ static int32_t gsr_sensor_worker(void* context) {
                 }
             }
             furi_mutex_release(gsr->mutex);
-        } else {
+        } else if(!ok) {
             consecutive_failures++;
             furi_mutex_acquire(gsr->mutex, FuriWaitForever);
             gsr->consecutive_failures = consecutive_failures;
