@@ -2,19 +2,19 @@
 
 *Christian Nold, 2026 — a high-fidelity successor to the original Bio Mapping project (2004).*
 
-BioMapping 2.0 records your Galvanic Skin Response, mapped precisely to geographical location, as you walk through a landscape. The visualiser detects skin-conductance response peaks in the recording and groups them into spatial clusters, marking where along the route those events occurred.
+BioMapping 2.0 records your Galvanic Skin Response, mapped precisely to geographical location, as you walk through a landscape. The visualiser detects skin-conductance response peaks and identifies spatial clusters. It can also agregate walks to idetify overall patterns.
 
 It has two parts:
 
-- **[The Firmware](#the-firmware)** — a Flipper Zero app driving a custom biometric sensor circuit, logging to the SD card as CSV.
+- **[Hardware device](#the-firmware)** — a Flipper Zero app driving a custom biometric sensor circuit, logging to the SD card as CSV.
 - **[The Visualiser](#the-visualiser)** — browser pages that turn a recording into a map ([`visualiser/index.html`](visualiser/index.html)), or show the walk live over Bluetooth as it happens ([`visualiser/live.html`](visualiser/live.html)).
 
 ## What It Records
 
 | Stream | Sensor | Notes |
 |---|---|---|
-| **Galvanic Skin Response (GSR)** | Transimpedance amplifier + 16-bit ADS1115 ADC | Constant-voltage (0.5 V bias); logged as skin conductance in nanosiemens (nS) |
-| **Location** | u-blox SAM-M10Q GNSS | Sub-meter accuracy, up to 10 Hz, 4-constellation (GPS + Galileo + GLONASS + BeiDou) |
+| **Galvanic Skin Response (GSR)** | Transimpedance amplifier + 16-bit ADS1115 ADC | Skin conductance in nanosiemens (nS) |
+| **Location** | u-blox SAM-M10Q GNSS | Sub-meter accuracy, up to 10 Hz (GPS + Galileo + GLONASS + BeiDou) |
 | **Environmental RF** | Flipper SubGHz radio | Band activity at 815 / 868 / 915 MHz |
 
 Everything is logged to `/ext/biomapping/*.csv` at 10 Hz. A Live Stream mode sends GPS + GSR over Bluetooth instead of recording.
@@ -27,26 +27,17 @@ The GSR front-end is built to research-grade specification and measured against 
 |---|---|---|
 | Method | Constant voltage, 0.5 V | Constant voltage, 0.5 V |
 | Resolution | **< 0.5 nS** (16-bit ADC + 100 ms decimation) | Variable (12-bit ADC, worse at low conductance) |
-| Accuracy error (primary range) | **≤ ±0.10%** (47 kΩ – 1 MΩ) | ±3% (22 kΩ – 680 kΩ) |
-| Accuracy error (wide range) | ≤ ±0.50% (22 kΩ – 2.2 MΩ) | ±10% (10 kΩ – 4.7 MΩ) |
-| Accuracy error (extreme range) | ≤ ±1.00% (15 kΩ – 4.7 MΩ) | — |
+| Accuracy error (primary range) | **≤ ±0.1%** (47 kΩ – 1 MΩ) | ±3% (22 kΩ – 680 kΩ) |
+| Accuracy error (wide range) | ≤ ±0.5% (22 kΩ – 2.2 MΩ) | ±10% (10 kΩ – 4.7 MΩ) |
+| Accuracy error (extreme range) | ≤ ±1.0% (15 kΩ – 4.7 MΩ) | — |
 
 Accuracy zones by the fraction of real-world track data that falls inside them:
 
-- **≤ ±0.10%** — 47 kΩ – 1 MΩ ($1{,}000$–$21{,}277$ nS): 99.05% of data
-- **≤ ±0.50%** — 22 kΩ – 2.2 MΩ ($455$–$45{,}455$ nS): 99.75%
-- **≤ ±1.00%** — 15 kΩ – 4.7 MΩ ($213$–$66{,}667$ nS): 99.89%
+- **≤ ±0.1%** — 47 kΩ – 1 MΩ ($1{,}000$–$21{,}277$ nS): 99.05% of data
+- **≤ ±0.5%** — 22 kΩ – 2.2 MΩ ($455$–$45{,}455$ nS): 99.75%
+- **≤ ±1.0%** — 15 kΩ – 4.7 MΩ ($213$–$66{,}667$ nS): 99.89%
 - Below 100 nS ($>10$ MΩ) the device reports an open circuit (electrodes disconnected / air).
 
-## Repository
-
-```
-firmware/     Flipper Zero app (ufbt project root)
-visualiser/   browser post-processing + live view (own package.json)
-scripts/      Python analysis helpers for recordings and telemetry logs
-docs/         design notes, investigations, datasheets, CSV schema
-tracks/       local recordings & logs (git-ignored)
-```
 
 ---
 
@@ -64,7 +55,7 @@ Run the host unit tests with `./run_tests.sh` from `firmware/`.
 
 **Core boards**
 * **Flipper Zero**
-* **SparkFun u-blox SAM-M10Q GNSS Breakout** — GPS positioning. Integrated 15×15 mm ceramic patch antenna (no external antenna), boots at 9600 baud, 10 Hz updates.
+* **SparkFun u-blox SAM-M10Q GNSS Breakout** — GPS positioning. Integrated 15×15 mm ceramic patch antenna, 10 Hz updates.
 * **Flipper Zero Prototyping Board** — mounts the ADS1115 and op-amp circuit.
 * **ADS1115 Breakout Board** — 16-bit I²C ADC.
 
@@ -84,8 +75,6 @@ Run the host unit tests with `./run_tests.sh` from `firmware/`.
 ## Wiring Guide
 
 ![BioMapping 2 TIA GSR circuit schematic — power-supply bypass, 0.5 V reference buffer (op-amp B), transimpedance amplifier (op-amp A), and differential connection to the ADS1115 over the Flipper I²C bus.](docs/gsr_circuit.png)
-
-The schematic above is the reference for the three phases below; the editable source is [`docs/gsr_circuit.psd`](docs/gsr_circuit.psd).
 
 ### Phase 1: The I2C Bus
 The SAM-M10Q connects via UART, leaving Pin 15 / Pin 16 free for the ADS1115 I²C bus.
@@ -132,7 +121,7 @@ Pin 4 = GND       Pin 5 = In+ B
 * **Connect electrodes & safety resistors:**
   * Electrode 1 (GND): GND -> **4.7kΩ** -> wire -> foil/finger 1.
   * Electrode 2 (signal): foil/finger 2 -> wire -> **4.7kΩ** -> In- A (pin 2).
-  * *These resistors (9.4 kΩ total) keep skin current safe while holding the TIA output within ADC range across the full span of human skin resistance.*
+  * *These resistors (9.4 kΩ total) keep skin current safe while holding the TIA output within ADC range across the span of human skin resistance.*
 
 * **Differential connection to ADS1115:**
   * **AIN0** -> Out A (pin 1) — the amplified GSR signal.
@@ -147,7 +136,7 @@ Selected from the main menu:
 ```
 ┌─────────────────────────────┐
 │  Bio Mapping                │
-│  ▓ GPS + GSR + RF      ▓   │   ← selected item (inverse bar)
+│  ▓ GPS + GSR + RF      ▓    │   ← selected item (inverse bar)
 │    GPS + GSR                │
 │    GPS + RF                 │
 │    GSR Only                 │
