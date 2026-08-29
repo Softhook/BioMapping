@@ -131,14 +131,11 @@ Debug-only appended columns when enabled:
 
 ## HDOP Gate Design
 
-Two HDOP thresholds exist — **this is intentional:**
+The firmware applies **no** record-time HDOP threshold — every fix the receiver reports is logged, so urban-canyon data is never permanently discarded. HDOP filtering happens only downstream, in the visualiser:
 
 | Context | Value | Location | Purpose |
 |---|---|---|---|
-| Firmware logging gate | `5.0` | `biomap_types.h GPS_HDOP_GATE` | Permissive: log urban canyon data for post-analysis |
-| JS visualiser default | `2.0` | `constants.js GPS_DEFAULT.maxHdop` | Post-processing quality filter (user-adjustable) |
-
-**Rationale:** Logging at 5.0 preserves data that the visualiser can optionally reject. Logging at 2.0 would permanently discard urban canyon fixes.
+| JS visualiser default | `3.0` | `constants.js GPS_DEFAULT.maxHdop` | Post-processing quality filter, user-adjustable, non-destructive |
 
 ---
 

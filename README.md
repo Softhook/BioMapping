@@ -2,7 +2,7 @@
 
 *Christian Nold, 2026 — a high-fidelity successor to the original Bio Mapping project (2004).*
 
-BioMapping 2.0 records your body's physiological arousal, mapped precisely to geographical location, as you walk through a landscape — then visualises the walk as a map **coloured by arousal**: calm stretches read as flat "baseline" ground, while stress and deep relaxation rise into "mountains" and drop into "valleys".
+BioMapping 2.0 records your Galvanic Skin Response, mapped precisely to geographical location, as you walk through a landscape. The visualiser detects skin-conductance response peaks in the recording and groups them into spatial clusters, marking where along the route those events occurred.
 
 It has two parts:
 
@@ -56,19 +56,7 @@ A Flipper Zero app (`biomap.fap`, category GPIO) that drives the sensor circuit 
 
 ## Installing
 
-Targets stock Flipper Zero firmware, currently release `1.4.3` (API 87.1). Uses only public SDK APIs, so it also runs on the API-compatible forks (Momentum, Unleashed, RogueMaster).
-
-**Option A — prebuilt.** Download `biomap.fap` from the [Releases](https://github.com/Softhook/BioMapping/releases) page, copy it to the SD card at `/ext/apps/GPIO/` (drag-and-drop with [qFlipper](https://flipperzero.one/update) or the Flipper mobile app), then open **Apps → GPIO → Bio Mapping** on the Flipper.
-
-**Option B — build from source.** With [`ufbt`](https://pypi.org/project/ufbt/), the micro Flipper Build Tool:
-
-```sh
-python3 -m pip install --upgrade ufbt
-git clone https://github.com/Softhook/BioMapping.git
-cd BioMapping/firmware
-ufbt              # build → firmware/dist/biomap.fap
-ufbt launch       # build, upload to a connected Flipper, and run
-```
+A Flipper external app (FAP) for stock firmware; also runs on the API-compatible forks (Momentum, Unleashed, RogueMaster). Download `biomap.fap` from the [Releases](https://github.com/Softhook/BioMapping/releases) page, or build from `firmware/` with [`ufbt`](https://pypi.org/project/ufbt/).
 
 Run the host unit tests with `./run_tests.sh` from `firmware/`.
 
@@ -94,6 +82,10 @@ Run the host unit tests with `./run_tests.sh` from `firmware/`.
 * GSR finger electrodes — biometric finger clips, or velcro strips with foil / copper tape.
 
 ## Wiring Guide
+
+![BioMapping 2 TIA GSR circuit schematic — power-supply bypass, 0.5 V reference buffer (op-amp B), transimpedance amplifier (op-amp A), and differential connection to the ADS1115 over the Flipper I²C bus.](docs/gsr_circuit.png)
+
+The schematic above is the reference for the three phases below; the editable source is [`docs/gsr_circuit.psd`](docs/gsr_circuit.psd).
 
 ### Phase 1: The I2C Bus
 The SAM-M10Q connects via UART, leaving Pin 15 / Pin 16 free for the ADS1115 I²C bus.
@@ -179,7 +171,7 @@ Diagnostics is reached via **Options → Diagnostics**, not the main menu.
 
 Pick a mode from the main menu and press **OK** to start and stop recording. While recording, the arrow keys scale the on-screen graph (Up/Down = amplitude, Left/Right = time); **Back** stops and returns to the menu.
 
-The graph shows the GSR **derivative** — it spikes up on arousal, dips below centre on relaxation, and sits flat when conductance is steady. GPS + RF modes add a per-band RSSI panel down the left edge. The CSV always stores the **absolute** conductance in nS; the derivative is display-only.
+The graph shows the GSR **rate of change** (the derivative of skin conductance), not the absolute level. The two RF modes (GPS + GSR + RF and GPS + RF) add a per-band RSSI panel down the left edge. The CSV always stores the **absolute** conductance in nS; the derivative is display-only.
 
 The RGB LED gives a once-per-second heartbeat while recording: green = OK, red = electrodes reading open-circuit, solid red = SD/filesystem error (recording stopped). Short tones mark recording start/stop, mode changes, and errors — mute them in **Options → Sound**.
 
@@ -210,19 +202,22 @@ The piezo speaker shares the 3.3 V rail with the sensor front-end, so on a bread
 
 Files are written to `/ext/biomapping/` as `biomap_001.csv` … `biomap_999.csv` (auto-incrementing, wraps at 999). Each row is one 10 Hz tick.
 
-**Header.** Every file starts with `#`-prefixed metadata, then the column header:
+**Header.** Every file starts with `#`-prefixed metadata lines, then the column header:
 
 ```
 # RecordingStartTime:1751204579
+# DeviceName:Clara
 # Band Floors (dBm): 815:-91.5,868:-91.5,915:-91.5
+# GPSChipID:axis slang boast putt chunk
+# GSR Calibration: gain:1.0234,offset:-152.7000
 timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,rssi_815,rssi_868,rssi_915
 0.00,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4523.0,2.4,-91.5,-88.0,-95.0
 0.10,51.5072000,-0.1276000,1.2,1.5,8,3,2.40,185.0,4528.0,2.3,-91.5,-88.0,-95.0
 ```
 
-- `RecordingStartTime` is a Unix epoch (UTC) from the Flipper RTC (`0` if the RTC was never set). Set the RTC to UTC before recording.
+- `RecordingStartTime` and `DeviceName` are always present, in that order. `RecordingStartTime` is a Unix epoch (UTC) from the Flipper RTC (`0` if the RTC was never set — set it to UTC before recording); `DeviceName` is the Flipper's user-visible name, empty if the HAL returns none.
+- The other three lines are conditional: `# Band Floors` when RF is active **and** an RF calibration exists (the visualiser uses it to normalise RSSI); `# GPSChipID` (a 5-word mnemonic for the M10Q's unique ID) in GPS modes once the chip answers the poll, M10Q builds only; `# GSR Calibration` (the `gain`/`offset` nS fit) only when a custom calibration is loaded. Full detail in [`docs/csv_schema.md`](docs/csv_schema.md).
 - `timestamp` is **relative seconds since record start** (0.1 s resolution) — absolute time for a row is `RecordingStartTime + timestamp`.
-- The `# Band Floors` line only appears when RF is active **and** an RF calibration exists; the visualiser uses it to normalise RSSI.
 - When there's no GPS fix on a tick, `lat`/`lon` and the other GPS columns are left empty (e.g. `0.30,,,,,,,,,4519.0,`) so the visualiser reads a gap rather than a `(0,0)` point. `hacc_m` is horizontal accuracy in meters; it stays `99.9` until the module reports an estimate.
 
 **Column count per mode:** GPS + GSR + RF and GPS + RF → 14; GPS + GSR → 11; GSR Only → 2 (`timestamp,gsr_raw`). GPS + RF rows carry `gsr_raw` = `0.0`. [`docs/csv_schema.md`](docs/csv_schema.md) is the canonical, versioned column reference; **Options → Debug Fields** appends further diagnostic columns.
@@ -230,6 +225,8 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,rs
 **Approximate size per hour at 10 Hz:** GPS + GSR ≈ 2.1 MB; GPS + GSR + RF / GPS + RF ≈ 2.8 MB; GSR Only ≈ 0.4 MB. The log file is pre-allocated at record start and trimmed at stop, so free space briefly looks lower during a recording.
 
 ## Circuit Reference
+
+See the [schematic](docs/gsr_circuit.png) in the Wiring Guide for the component layout referenced below.
 
 The filtered, normalised ADC reading (`N`, counts at the ±0.256 V reference) converts to skin conductance in nS:
 
@@ -246,15 +243,23 @@ Derivation: `V_diff = I_skin × R_f = (V_ref / (R_skin + R_safety)) × R_f`; `N 
 
 **On-device signal chain:** the ADS1115 is read at 860 SPS on a background thread with hysteretic PGA auto-ranging; each 10 Hz tick takes a time-based 100 ms mean (cancels 50/60 Hz mains hum), converts to nS, then applies a 3 Hz IIR low-pass. The live graph derives its rate-of-change from an EMA (`0.2 × new + 0.8 × previous`).
 
-## Tuning (firmware)
-
-The GPS logging quality gate is a compile-time constant in `firmware/biomap_types.h`:
-
-```c
-#define GPS_HDOP_GATE   5.0f   // rows with HDOP above this log empty lat/lon
+```mermaid
+flowchart LR
+    E["GSR electrodes"] --> FE["Analogue front-end<br/>TIA + 0.5 V reference buffer"]
+    FE --> ADC["ADS1115<br/>860 SPS, background thread<br/>hysteretic PGA auto-ranging"]
+    ADC --> MEAN["100 ms time-based mean<br/>cancels 50/60 Hz mains hum"]
+    MEAN --> CONV["Convert counts to nS"]
+    CONV --> IIR["3 Hz IIR low-pass"]
+    IIR --> CSV["CSV @ 10 Hz<br/>absolute conductance (nS)"]
+    IIR --> EMA["EMA smoothing<br/>0.2 new + 0.8 previous"]
+    EMA --> GRAPH["Rate-of-change<br/>live on-screen graph"]
 ```
 
-Deliberately permissive — logging up to HDOP 5.0 preserves urban-canyon fixes the visualiser can reject later. Signal-processing constants live alongside it and in `firmware/modules/gsr_sensor.h`.
+## Tuning (firmware)
+
+The firmware applies no record-time GPS quality gate — every fix the receiver reports is logged, HDOP and all, so urban-canyon data is preserved for the visualiser to accept or reject later. Rows with no fix write empty `lat`/`lon`.
+
+Signal-processing and display constants are compile-time `#define`s in `firmware/biomap_types.h` (tick rate, the 3 Hz smoothing IIR coefficients, the display EMA, auto-zoom behaviour) and `firmware/modules/gsr_sensor.h` (ADS1115 address, the open-circuit / rail-saturation nS bounds).
 
 ## Application Metadata
 
@@ -277,21 +282,32 @@ Browser software under [`visualiser/`](visualiser/) — no server, no build step
 [`visualiser/index.html`](visualiser/index.html) — open it directly in a browser and drag one or more `biomap_*.csv` files onto it. It:
 
 1. **Loads** the CSV, honouring the `#` metadata header and relative-seconds `timestamp`, skipping rows with empty `lat`/`lon` (GPS gaps).
-2. **Filters** the GSR signal (median / low-pass) and decomposes it into tonic and phasic components (DWT).
-3. **Detects peaks** with shape-quality scoring to isolate genuine arousal events.
-4. **Maps** the track on a Leaflet base map, **coloured by arousal**.
-5. **Collective mode:** overlays multiple tracks, builds an inverse-distance-weighted (IDW) contour surface, and can enrich against OpenStreetMap features (road class, green space, buildings).
+2. **Filters** the GSR signal (median + low-pass) and decomposes it into tonic and phasic components — low-pass by default, or a Daubechies-db3 DWT.
+3. **Detects peaks** on the phasic signal with trough-to-peak shape-quality scoring (an optional SCR deconvolution mode, Benedek & Kaernbach 2010, replaces this step).
+4. **Maps** the track on a Leaflet base map and places a marker at each detected peak.
+5. **Clusters** the peaks by geographic proximity into boundary blobs styled by peak severity. **Collective mode** does this across multiple overlaid tracks and adds an inverse-distance-weighted (IDW) contour surface, optionally enriched against OpenStreetMap features (road class, green space, buildings).
 
-Both rapid rises **and** rapid drops in GSR read as high arousal — only the magnitude of change matters, not the direction.
+```mermaid
+flowchart LR
+    CSV["biomap_*.csv<br/>(one or more)"] --> LOAD["Load<br/>honour # metadata header<br/>skip empty lat/lon (GPS gaps)"]
+    LOAD --> FILT["Filter GSR<br/>median + low-pass"]
+    FILT --> SPLIT["Tonic / phasic split<br/>low-pass default, or db3 DWT"]
+    SPLIT --> PEAK["Peak detection<br/>trough-to-peak shape scoring"]
+    PEAK --> MAP["Leaflet map<br/>peak markers on the track"]
+    MAP --> CLUST["Spatial peak clusters<br/>proximity-grouped blobs"]
+    CLUST --> Q{"Collective mode?"}
+    Q -->|no| SINGLE["Single-track map"]
+    Q -->|yes| COLL["Overlay multiple tracks<br/>IDW contour surface<br/>enrich vs OpenStreetMap features"]
+```
 
-Filtering, peak detection, and the GPS quality filter are all adjustable in the UI at runtime — no rebuild. The default HDOP filter (2.0) is stricter than the firmware logging gate (5.0).
+Filtering, peak detection, and the GPS quality filter are all adjustable in the UI at runtime — no rebuild. The firmware logs every GPS fix; the HDOP filter (default 3.0) is applied here, at display time, and is non-destructive.
 
 ## Live View
 
 [`visualiser/live.html`](visualiser/live.html) — receives GPS + GSR from the Flipper's **Live Stream** mode over Bluetooth LE in real time, for watching a walk unfold on a laptop or phone as it happens.
 
 - **On the Flipper:** select **Live Stream**. The screen shows BLE status (`Advertising` / `Connected`), the dropped-packet count, and live GSR / GPS readouts. It sends a 45-byte packed binary packet every 300 ms over the stock BLE serial profile. Design notes: [`docs/archive/bluetooth_serial_investigation.md`](docs/archive/bluetooth_serial_investigation.md).
-- **In the browser:** open `live.html`, press **Connect**, and pair with the Flipper. It shows a rolling GSR graph and a Leaflet map coloured by arousal, flags dropped-packet gaps, and can **Export CSV** in the same 11-column GPS + GSR schema as a recorded track.
+- **In the browser:** open `live.html`, press **Connect**, and pair with the Flipper. It shows a rolling GSR graph and a Leaflet map of the track, flags dropped-packet gaps, and can **Export CSV** in the same 11-column GPS + GSR schema as a recorded track.
 - **Browser support:** Web Bluetooth needs desktop Chrome / Edge or Android Chrome / Edge. Safari (any platform) and Firefox are unsupported — there is no iPhone path.
 
 ## CSV Schema

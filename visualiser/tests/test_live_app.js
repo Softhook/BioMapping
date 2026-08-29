@@ -880,9 +880,9 @@ test('exportCsv: a session with no packets still produces just the header (no th
 
 // ==========================================================================
 // updateLiveMap() — GPS quality gating (live.html:861). LIVE_MAX_HDOP is
-// 2.0, tighter than the firmware's permissive 5.0 logging gate; fixType 1
-// (no fix) is rejected; a gap breaks the drawn trail without stopping
-// tracking. Only "first fix zooms" was covered.
+// 2.0; the firmware applies no HDOP gate, so this filters purely at display
+// time. fixType 1 (no fix) is rejected; a gap breaks the drawn trail without
+// stopping tracking. Only "first fix zooms" was covered.
 // ==========================================================================
 
 const FIX = (over = {}) => JSON.stringify({

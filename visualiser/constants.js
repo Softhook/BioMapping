@@ -23,9 +23,9 @@ const GSR_CONST = {
   CONTOUR_MAX_POINTS: 20000,   // Target max points for IDW interpolation
 
   // ── GPS filter defaults ──────────────────────────────────────────────────
-  // NOTE: maxHdop here (2.0) is the post-processing analysis filter, intentionally
-  // stricter than the firmware logging gate (GPS_HDOP_GATE = 5.0 in biomap_types.h).
-  // Firmware logs everything with a plausible fix; the analyser filters for quality.
+  // NOTE: maxHdop here (3.0) is a post-processing analysis filter. The firmware
+  // applies no record-time HDOP gate — it logs everything with a plausible fix,
+  // and the analyser filters for quality non-destructively.
   // See docs/csv_schema.md for the rationale.
   // NOTE: peakLatency default is 2.0s (not 0) — the "Peak Latency Compensation"
   // slider ships with a physiologically-recommended SCR-onset-delay default

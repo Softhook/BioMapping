@@ -1,6 +1,6 @@
 # GPS Pipeline & Filter Architecture
 
-**Written:** 2026-07-15 · **Last checked against code:** 2026-08-28
+**Written:** 2026-07-15 · **Last checked against code:** 2026-08-29
 **Scope:** Complete overview of the GPS processing pipeline, from firmware-level quality gating through to downstream spatial analysis filters.
 **Files:** `firmware/modules/gps_uart.c`, `firmware/biomap_types.h`, `firmware/biomap_session.c`, `visualiser/gps_filter.js`, `visualiser/gps_pipeline.js`, `visualiser/map_match.js`, `visualiser/map.js`
 
@@ -13,13 +13,13 @@
 
 ## 1. Overview & Pipeline Order
 
-The BioMapping GPS pipeline ingests raw NMEA data from the GPS chip (typically Quectel L76K or u-blox M10Q) on the Flipper Zero hardware, performs initial quality filtering, logs it to an SD card, and then applies a multi-stage post-processing filter pipeline in the web-based analyzer.
+The BioMapping GPS pipeline ingests raw NMEA data from the GPS chip (typically Quectel L76K or u-blox M10Q) on the Flipper Zero hardware, performs light validity checking (NaN guards, fix-validity flags), logs every reported fix to an SD card, and then applies a multi-stage post-processing filter pipeline in the web-based analyzer.
 
 The sequence of filters applied to the track data is ordered as follows:
 
 ```mermaid
 graph TD
-    A[Raw GPS CSV Row] --> B[HDOP Gate <br/> maxHdop = 2.0]
+    A[Raw GPS CSV Row] --> B[HDOP Gate <br/> maxHdop = 3.0]
     B --> C[Fix-Type Gate <br/> minFixType = 2]
     C --> D[Stop-Averaging <br/> Stationary Centroid Clamping]
     D --> E[Speed Plausibility Filter <br/> Doppler & Fallback Speed Check]
@@ -40,9 +40,9 @@ graph TD
 - **DOP Safety**: `minmea_tofloat` returns `NaN` for missing fields. During fix acquisition, GSA/GGA sentences may omit DOP. The firmware uses temporary floats and only overwrites coordinates/DOPs if the values are valid (non-NaN) real numbers.
 - **GLL Validity Flag**: The firmware verifies `gll_frame.status == MINMEA_GLL_STATUS_DATA_VALID` before updating coordinates from GLL, preventing void coordinates from overwriting good ones.
 
-### 2.2 Quality Gating (`biomap_types.h` & `biomap_session.c`)
-- **`GPS_HDOP_GATE = 5.0`**: The firmware filters out coordinates with `hdop >= 5.0` at record time. This is a permissive gate designed to allow urban canyon data to be logged for advanced post-processing, while filtering out extreme positional drift.
-- **Empty Rows**: Sub-gate ticks write empty coordinates (`timestamp,,,,,,,,,gsr_raw,`) to maintain column counts and temporal continuity.
+### 2.2 Quality Gating (`biomap_session.c`)
+- **No HDOP gate**: The firmware applies no record-time HDOP threshold. `get_gps_position()` marks a row's coordinates valid on `fix_valid || fix_quality > 0` plus non-NaN lat/lon, and every fix the receiver reports is logged — all quality filtering is left to the visualiser, so urban-canyon data is never permanently discarded.
+- **Empty Rows**: Ticks with no fix write empty coordinates (`timestamp,,,,,,,,,gsr_raw,`) to maintain column counts and temporal continuity.
 
 ### 2.3 CSV Header Layout
 The current CSV log format consists of 11 columns:
@@ -56,7 +56,7 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
 ## 3. Visualiser Processing Pipeline
 
 ### 3.1 Quality Gates (`gps_pipeline.js`)
-1. **HDOP Gate (`applyHdopGate`)**: Rejects points with `hdop > maxHdop` (user-adjustable in UI, default `2.0`). Points lacking HDOP are kept.
+1. **HDOP Gate (`applyHdopGate`)**: Rejects points with `hdop > maxHdop` (user-adjustable in UI, default `3.0`). Points lacking HDOP are kept.
 2. **Fix-Type Gate (`applyFixTypeGate`)**: Filters out points with `fix_type == 1` (no fix). Retains 2D/3D fixes (`fix_type >= 2`).
 
 ### 3.2 Pre-Kalman Cleaning & Smoothing (`gps_filter.js`)

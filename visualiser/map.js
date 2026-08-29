@@ -548,7 +548,7 @@ class GSRMapManager {
    * Only hashes params that affect the GPS pipeline output.
    */
   _hashGpsParams(p) {
-    return `${p.maxHdop || 2.0}|${p.smoothing || 0.5}|${p.kalmanR || 10}|${p.maxSpeed || 3.0}|${p.downsample ? 1 : 0}|${p.rdpTolerance || 0}`;
+    return `${p.maxHdop || 3.0}|${p.smoothing || 0.5}|${p.kalmanR || 10}|${p.maxSpeed || 3.0}|${p.downsample ? 1 : 0}|${p.rdpTolerance || 0}`;
   }
 
   /**
@@ -598,7 +598,7 @@ class GSRMapManager {
       return { gpsPoints: [], drawPoints: [] };
     }
 
-    gpsPoints = GpsPipeline.applyHdopGate(gpsPoints, p.maxHdop || 2.0);
+    gpsPoints = GpsPipeline.applyHdopGate(gpsPoints, p.maxHdop || 3.0);
     gpsPoints = GpsPipeline.applyFixTypeGate(gpsPoints);
 
     const smoothing = p.smoothing || 0.5;
