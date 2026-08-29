@@ -29,7 +29,7 @@ Everything is logged to `/ext/biomapping/*.csv` at 10 Hz. A Live Stream mode sen
 
 The GSR front-end is built to research-grade specification and measured against a precision metal-film resistor grid (10 kΩ – 9 MΩ), full sweep in [`docs/reference_test_results.csv`](docs/reference_test_results.csv).
 
-| | BioMapping 2.0 | Shimmer3 GSR+ |
+| | BioMapping 2.0 | [Shimmer3 GSR+](https://shimmersensing.com/product/shimmer3-gsr-unit/) |
 |---|---|---|
 | Method | Constant voltage, 0.5 V | Constant voltage, 0.5 V |
 | Resolution | **< 0.5 nS** (16-bit ADC + 100 ms decimation) | Variable (12-bit ADC, worse at low conductance) |
@@ -39,10 +39,10 @@ The GSR front-end is built to research-grade specification and measured against 
 
 Accuracy zones by the fraction of real-world track data that falls inside them:
 
-- **≤ ±0.1%** — 47 kΩ – 1 MΩ ($1{,}000$–$21{,}277$ nS): 99.05% of data
-- **≤ ±0.5%** — 22 kΩ – 2.2 MΩ ($455$–$45{,}455$ nS): 99.75%
-- **≤ ±1.0%** — 15 kΩ – 4.7 MΩ ($213$–$66{,}667$ nS): 99.89%
-- Below 100 nS ($>10$ MΩ) the device reports an open circuit (electrodes disconnected / air).
+- **≤ ±0.1%** — 47 kΩ – 1 MΩ (1,000 – 21,277 nS): 99.05% of data
+- **≤ ±0.5%** — 22 kΩ – 2.2 MΩ (455 – 45,455 nS): 99.75%
+- **≤ ±1.0%** — 15 kΩ – 4.7 MΩ (213 – 66,667 nS): 99.89%
+- Below 100 nS (over 10 MΩ) the device reports an open circuit (electrodes disconnected / air).
 
 
 ---
@@ -60,7 +60,7 @@ Run the host unit tests with `./run_tests.sh` from `firmware/`.
 ## Hardware Requirements
 
 **Core boards**
-* **Flipper Zero**
+* **[Flipper Zero](https://flipperzero.one/)**
 * **SparkFun u-blox SAM-M10Q GNSS Breakout** — GPS positioning. Integrated 15×15 mm ceramic patch antenna, 10 Hz updates.
 * **Flipper Zero Prototyping Board** — mounts the ADS1115 and op-amp circuit.
 * **ADS1115 Breakout Board** — 16-bit I²C ADC.
