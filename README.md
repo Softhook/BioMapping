@@ -1,19 +1,25 @@
 # BioMapping 2.0
 
-*Christian Nold, 2026 — a high-fidelity successor to the original Bio Mapping project (2004).*
+*Christian Nold, 2026*
 
-BioMapping 2.0 records your Galvanic Skin Response, mapped precisely to geographical location, as you walk through a landscape. The visualiser detects skin-conductance response peaks and identifies spatial clusters. It can also agregate walks to idetify overall patterns.
+BioMapping 2.0 records your Galvanic Skin Response — a measure of emotional arousal — mapped to your geographical location as you walk through a landscape. The visualiser finds the moments of strongest response and shows where they cluster on a map, either for a single walk or across many walks combined.
 
 It has two parts:
 
-- **[Hardware device](#the-firmware)** — a Flipper Zero app driving a custom biometric sensor circuit, logging to the SD card as CSV.
+- **[The Hardware](#the-hardware)** — a Flipper Zero wired to a custom skin-response sensor and a GPS module, logging to the SD card as CSV.
 - **[The Visualiser](#the-visualiser)** — browser pages that turn a recording into a map ([`visualiser/index.html`](visualiser/index.html)), or show the walk live over Bluetooth as it happens ([`visualiser/live.html`](visualiser/live.html)).
+
+## The Original Bio Mapping
+
+The first Bio Mapping device (Christian Nold, 2004) was used in workshops with thousands of people across sixteen countries. Participants walked through an area wearing the device and then annotated the recorded data together, producing collective emotion maps. Results from those workshops are published online — the [Greenwich Emotion Map](http://emotionmap.net/), the [San Francisco Emotion Map](http://www.sf.biomapping.net/) and the [Stockport Emotion Map](http://stockport.emotionmap.net/) — and the approach is discussed in the book [*Emotional Cartography*](http://www.emotionalcartography.net/).
+
+BioMapping 2.0 is a higher-fidelity successor to that original device.
 
 ## What It Records
 
 | Stream | Sensor | Notes |
 |---|---|---|
-| **Galvanic Skin Response (GSR)** | Transimpedance amplifier + 16-bit ADS1115 ADC | Skin conductance in nanosiemens (nS) |
+| **Galvanic Skin Response (GSR)** | Custom analogue front-end + 16-bit ADC | Skin conductance in nanosiemens (nS) |
 | **Location** | u-blox SAM-M10Q GNSS | Sub-meter accuracy, up to 10 Hz (GPS + Galileo + GLONASS + BeiDou) |
 | **Environmental RF** | Flipper SubGHz radio | Band activity at 815 / 868 / 915 MHz |
 
@@ -21,35 +27,26 @@ Everything is logged to `/ext/biomapping/*.csv` at 10 Hz. A Live Stream mode sen
 
 ## How It Compares
 
-The GSR front-end is built to research-grade specification and measured against a precision metal-film resistor grid (10 kΩ – 9 MΩ), full sweep in [`docs/reference_test_results.csv`](docs/reference_test_results.csv).
+The skin-response sensor is built to a research-grade specification and was checked against a grid of precision reference resistors (10 kΩ – 9 MΩ); the full sweep is in [`docs/reference_test_results.csv`](docs/reference_test_results.csv). The closest commercial equivalent is the [Shimmer3 GSR+ unit](https://www.shimmersensing.com/product/shimmer3-gsr-unit/).
 
 | | BioMapping 2.0 | Shimmer3 GSR+ |
 |---|---|---|
 | Method | Constant voltage, 0.5 V | Constant voltage, 0.5 V |
-| Resolution | **< 0.5 nS** (16-bit ADC + 100 ms decimation) | Variable (12-bit ADC, worse at low conductance) |
-| Accuracy error (primary range) | **≤ ±0.1%** (47 kΩ – 1 MΩ) | ±3% (22 kΩ – 680 kΩ) |
-| Accuracy error (wide range) | ≤ ±0.5% (22 kΩ – 2.2 MΩ) | ±10% (10 kΩ – 4.7 MΩ) |
-| Accuracy error (extreme range) | ≤ ±1.0% (15 kΩ – 4.7 MΩ) | — |
+| Resolution | **< 0.5 nS** | Variable, worse at low conductance |
+| Accuracy (primary range) | **≤ ±0.1%** | ±3% |
+| Accuracy (wide range) | ≤ ±0.5% | ±10% |
 
-Accuracy zones by the fraction of real-world track data that falls inside them:
-
-- **≤ ±0.1%** — 47 kΩ – 1 MΩ ($1{,}000$–$21{,}277$ nS): 99.05% of data
-- **≤ ±0.5%** — 22 kΩ – 2.2 MΩ ($455$–$45{,}455$ nS): 99.75%
-- **≤ ±1.0%** — 15 kΩ – 4.7 MΩ ($213$–$66{,}667$ nS): 99.89%
-- Below 100 nS ($>10$ MΩ) the device reports an open circuit (electrodes disconnected / air).
-
+In practice more than 99% of real-world walking data falls inside the ±0.1% band, and almost all of it inside ±0.5%. Below 100 nS the device reports an open circuit — the electrodes have come loose.
 
 ---
 
-# The Firmware
+# The Hardware
 
-A Flipper Zero app (`biomap.fap`, category GPIO) that drives the sensor circuit and logs to the SD card.
+The device is a Flipper Zero running the Bio Mapping app, wired to a custom skin-response sensor circuit and a GPS module. It records to the Flipper's SD card as CSV.
 
-## Installing
+## Installing the App
 
-A Flipper external app (FAP) for stock firmware; also runs on the API-compatible forks (Momentum, Unleashed, RogueMaster). Download `biomap.fap` from the [Releases](https://github.com/Softhook/BioMapping/releases) page, or build from `firmware/` with [`ufbt`](https://pypi.org/project/ufbt/).
-
-Run the host unit tests with `./run_tests.sh` from `firmware/`.
+Download `biomap.fap` from the [Releases](https://github.com/Softhook/BioMapping/releases) page and copy it to the Flipper. It works with the stock Flipper firmware and the main community firmwares (Momentum, Unleashed, RogueMaster). To build it yourself, run [`ufbt`](https://pypi.org/project/ufbt/) in `firmware/`; `./run_tests.sh` in the same folder runs the tests.
 
 ## Hardware Requirements
 
@@ -149,7 +146,7 @@ Selected from the main menu:
 |---|---|---|
 | **GPS + GSR + RF** | GPS, GSR and RF scanning all active. Each row carries the most recent GPS fix (carried forward, not interpolated). | 14-column CSV @ 10 Hz |
 | **GPS + GSR** | GPS and GSR, RF off. | 11-column CSV @ 10 Hz |
-| **GPS + RF** | GPS and RF, no GSR sensor (`gsr_raw` = `0.0`). Internally `BioMapModeGpsOnly` — despite the name it still scans RF. | 14-column CSV @ 10 Hz |
+| **GPS + RF** | GPS and RF, no GSR sensor (`gsr_raw` = `0.0`). | 14-column CSV @ 10 Hz |
 | **GSR Only** | GSR waveform only, no GPS driver (module put into Software Standby to save power). | 2-column CSV @ 10 Hz |
 | **Live Stream** | GPS + GSR streamed over Bluetooth in real time — **nothing is written to the SD card**. See [Live View](#live-view). | BLE, ~300 ms packets |
 | **Options** | Opens the Options screen. | — |
@@ -185,7 +182,7 @@ Connect three reference resistors to the electrodes in turn; the wizard solves a
 
 ### Signal integrity note
 
-The piezo speaker shares the 3.3 V rail with the sensor front-end, so on a breadboard build a tone can inject noise. The firmware keeps tones out of recorded data — zoom clicks are silent while recording, the start chirp settles before the first sample, and the file is closed before the stop chirp. The one exception is the electrode-disconnect warning (those readings are out of range and excluded from analysis anyway).
+The piezo speaker shares the 3.3 V rail with the sensor front-end, so on a breadboard build a tone can inject noise. The app keeps tones out of recorded data — zoom clicks are silent while recording, the start chirp settles before the first sample, and the file is closed before the stop chirp. The one exception is the electrode-disconnect warning (those readings are out of range and excluded from analysis anyway).
 
 ## Recordings on the SD Card
 
@@ -215,50 +212,19 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,rs
 
 ## Circuit Reference
 
-See the [schematic](docs/gsr_circuit.png) in the Wiring Guide for the component layout referenced below.
-
-The filtered, normalised ADC reading (`N`, counts at the ±0.256 V reference) converts to skin conductance in nS:
-
-$$G_{nS} = \frac{N \times 5{,}000{,}000}{15{,}040{,}000 - N \times 47}$$
+Key component values, matching the [schematic](docs/gsr_circuit.png) in the Wiring Guide:
 
 | Parameter | Value |
 |---|---|
 | V_ref (voltage divider) | 0.5 V = 3.3 V × 10 kΩ / (56 kΩ + 10 kΩ) |
 | R_f (TIA feedback) | 47 kΩ |
 | R_safety (two 4.7 kΩ in series) | 9.4 kΩ |
-| ADC LSB at ±0.256 V | 7.8125 µV = 1/128,000 V |
 
-Derivation: `V_diff = I_skin × R_f = (V_ref / (R_skin + R_safety)) × R_f`; `N = V_diff / 7.8125×10⁻⁶`; so `R_skin = 3,008,000,000 / N − 9,400` and `G_nS = 10⁹ / R_skin`, which simplifies to the equation above. `N ≤ 0` (open circuit) clamps to 0; `N > 319,000` (near the denominator singularity) is clamped to prevent overflow.
+The sensor is read continuously in the background. Each 10 Hz sample written to the CSV is a 100 ms average — which cancels mains hum — converted to skin conductance in nanosiemens. The on-screen graph shows the rate of change of that signal, not its absolute level.
 
-**On-device signal chain:** the ADS1115 is read at 860 SPS on a background thread with hysteretic PGA auto-ranging; each 10 Hz tick takes a time-based 100 ms mean (cancels 50/60 Hz mains hum), converts to nS, then applies a 3 Hz IIR low-pass. The live graph derives its rate-of-change from an EMA (`0.2 × new + 0.8 × previous`).
+## GPS Quality
 
-```mermaid
-flowchart LR
-    E["GSR electrodes"] --> FE["Analogue front-end<br/>TIA + 0.5 V reference buffer"]
-    FE --> ADC["ADS1115<br/>860 SPS, background thread<br/>hysteretic PGA auto-ranging"]
-    ADC --> MEAN["100 ms time-based mean<br/>cancels 50/60 Hz mains hum"]
-    MEAN --> CONV["Convert counts to nS"]
-    CONV --> IIR["3 Hz IIR low-pass"]
-    IIR --> CSV["CSV @ 10 Hz<br/>absolute conductance (nS)"]
-    IIR --> EMA["EMA smoothing<br/>0.2 new + 0.8 previous"]
-    EMA --> GRAPH["Rate-of-change<br/>live on-screen graph"]
-```
-
-## Tuning (firmware)
-
-The firmware applies no record-time GPS quality gate — every fix the receiver reports is logged, HDOP and all, so urban-canyon data is preserved for the visualiser to accept or reject later. Rows with no fix write empty `lat`/`lon`.
-
-Signal-processing and display constants are compile-time `#define`s in `firmware/biomap_types.h` (tick rate, the 3 Hz smoothing IIR coefficients, the display EMA, auto-zoom behaviour) and `firmware/modules/gsr_sensor.h` (ADS1115 address, the open-circuit / rail-saturation nS bounds).
-
-## Application Metadata
-
-| Field | Value |
-|---|---|
-| App ID | `biomap` |
-| Name | Bio Mapping |
-| Type | External FAP, category GPIO |
-| Requires | `gui`, `storage`, `notification`, `expansion`, `bt` |
-| Stack size | 4 KB |
+The device logs every GPS fix the receiver reports, regardless of quality, so nothing is lost in built-up areas. Rows with no fix are written with empty `lat`/`lon`, and the visualiser applies its own quality filter at display time.
 
 ---
 
@@ -271,25 +237,25 @@ Browser software under [`visualiser/`](visualiser/) — no server, no build step
 [`visualiser/index.html`](visualiser/index.html) — open it directly in a browser and drag one or more `biomap_*.csv` files onto it. It:
 
 1. **Loads** the CSV, honouring the `#` metadata header and relative-seconds `timestamp`, skipping rows with empty `lat`/`lon` (GPS gaps).
-2. **Filters** the GSR signal (median + low-pass) and decomposes it into tonic and phasic components — low-pass by default, or a Daubechies-db3 DWT.
-3. **Detects peaks** on the phasic signal with trough-to-peak shape-quality scoring (an optional SCR deconvolution mode, Benedek & Kaernbach 2010, replaces this step).
+2. **Filters** the GSR signal (median + low-pass) and separates the slow-moving baseline from the fast responses — low-pass by default, or a wavelet transform.
+3. **Detects peaks** in the fast responses, scored by shape quality (an optional deconvolution mode can replace this step).
 4. **Maps** the track on a Leaflet base map and places a marker at each detected peak.
-5. **Clusters** the peaks by geographic proximity into boundary blobs styled by peak severity. **Collective mode** does this across multiple overlaid tracks and adds an inverse-distance-weighted (IDW) contour surface, optionally enriched against OpenStreetMap features (road class, green space, buildings).
+5. **Clusters** the peaks by geographic proximity into boundary blobs styled by severity. **Collective mode** does this across multiple overlaid tracks and adds a smooth contour surface, optionally cross-referenced with OpenStreetMap features (road class, green space, buildings).
 
 ```mermaid
 flowchart LR
     CSV["biomap_*.csv<br/>(one or more)"] --> LOAD["Load<br/>honour # metadata header<br/>skip empty lat/lon (GPS gaps)"]
     LOAD --> FILT["Filter GSR<br/>median + low-pass"]
-    FILT --> SPLIT["Tonic / phasic split<br/>low-pass default, or db3 DWT"]
-    SPLIT --> PEAK["Peak detection<br/>trough-to-peak shape scoring"]
+    FILT --> SPLIT["Baseline / response split<br/>low-pass or wavelet"]
+    SPLIT --> PEAK["Peak detection<br/>shape-quality scoring"]
     PEAK --> MAP["Leaflet map<br/>peak markers on the track"]
     MAP --> CLUST["Spatial peak clusters<br/>proximity-grouped blobs"]
     CLUST --> Q{"Collective mode?"}
     Q -->|no| SINGLE["Single-track map"]
-    Q -->|yes| COLL["Overlay multiple tracks<br/>IDW contour surface<br/>enrich vs OpenStreetMap features"]
+    Q -->|yes| COLL["Overlay multiple tracks<br/>contour surface<br/>cross-reference OpenStreetMap features"]
 ```
 
-Filtering, peak detection, and the GPS quality filter are all adjustable in the UI at runtime — no rebuild. The firmware logs every GPS fix; the HDOP filter (default 3.0) is applied here, at display time, and is non-destructive.
+Filtering, peak detection, and the GPS quality filter are all adjustable in the UI at runtime. The device logs every GPS fix; the quality filter (default HDOP 3.0) is applied here, at display time, and is non-destructive.
 
 ## Live View
 
@@ -301,7 +267,7 @@ Filtering, peak detection, and the GPS quality filter are all adjustable in the 
 
 ## CSV Schema
 
-[`docs/csv_schema.md`](docs/csv_schema.md) is the canonical, versioned definition of every column and sentinel value, shared by the firmware writer and both visualiser pages.
+[`docs/csv_schema.md`](docs/csv_schema.md) is the canonical, versioned definition of every column and sentinel value, shared by the device and both visualiser pages.
 
 ## Licence
 
