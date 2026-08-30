@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2026 Christian Nold
+  Licensed under the Bio Mapping Community Licence 1.0.
+  See LICENCE.md in the project root for terms.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bio Mapping 2 — 3D Emotional Landscape</title>
+
+  <!-- Typography & Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <!-- CesiumJS CSS -->
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.120/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+  <!-- BioMapping Global Styles -->
+  <link rel="stylesheet" href="styles.css">
+
+  <style>
+    /* 3D Specific Overrides & Layout */
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #0b0c10;
+      color: #eaeaea;
+      font-family: 'Inter', sans-serif;
+    }
+
+    .globe-app-container {
+      display: flex;
+      flex-direction: column;
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+    }
+
+    /* Top Header */
+    .globe-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 20px;
+      background: rgba(18, 20, 26, 0.88);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      z-index: 100;
+    }
+
+    .globe-logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .globe-logo img {
+      width: 28px;
+      height: 28px;
+    }
+
+    .globe-logo h1 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin: 0;
+      color: #ffffff;
+    }
+
+    .globe-logo .badge-3d {
+      background: linear-gradient(135deg, #005bc4, #00d4ff);
+      color: #fff;
+      font-size: 0.65rem;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .header-links {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .nav-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 6px;
+      color: #cccccc;
+      text-decoration: none;
+      font-size: 0.82rem;
+      font-weight: 500;
+      transition: all 0.2s ease;
+    }
+
+    .nav-pill:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #ffffff;
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    .nav-pill.active {
+      background: #005bc4;
+      border-color: #0070f3;
+      color: #ffffff;
+    }
+
+    /* Main Area Layout */
+    .globe-main-layout {
+      display: flex;
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #cesiumContainer {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+    }
+
+    /* Floating Glass Sidebar */
+    .globe-sidebar {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      width: 340px;
+      max-height: calc(100vh - 100px);
+      background: rgba(18, 20, 26, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow-y: auto;
+      z-index: 50;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+    }
+
+    .globe-panel-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.88rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #00d4ff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .control-label {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #a0a0a0;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .control-label span.val {
+      color: #00d4ff;
+      font-weight: 700;
+    }
+
+    .globe-select, .globe-slider {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 6px;
+      color: #ffffff;
+      padding: 8px 10px;
+      font-size: 0.82rem;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+
+    .globe-select option {
+      background: #181b22;
+      color: #ffffff;
+    }
+
+    .globe-select:focus {
+      border-color: #00d4ff;
+    }
+
+    .globe-slider {
+      padding: 0;
+      height: 6px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: rgba(255, 255, 255, 0.15);
+      cursor: pointer;
+    }
+
+    .globe-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #00d4ff;
+      cursor: pointer;
+      box-shadow: 0 0 8px rgba(0, 212, 255, 0.8);
+    }
+
+    /* Button Grid */
+    .btn-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .globe-btn {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 6px;
+      color: #ffffff;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .globe-btn:hover {
+      background: rgba(255, 255, 255, 0.16);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    .globe-btn.active {
+      background: #005bc4;
+      border-color: #00d4ff;
+      color: #ffffff;
+      box-shadow: 0 0 12px rgba(0, 212, 255, 0.3);
+    }
+
+    .globe-btn-primary {
+      background: linear-gradient(135deg, #005bc4, #008f3c);
+      border: none;
+    }
+
+    .globe-btn-primary:hover {
+      opacity: 0.9;
+    }
+
+    /* Drop Zone */
+    .globe-drop-zone {
+      border: 2px dashed rgba(0, 212, 255, 0.35);
+      background: rgba(0, 212, 255, 0.04);
+      border-radius: 8px;
+      padding: 16px 12px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .globe-drop-zone:hover, .globe-drop-zone.dragover {
+      border-color: #00d4ff;
+      background: rgba(0, 212, 255, 0.1);
+    }
+
+    .globe-drop-zone p {
+      font-size: 0.8rem;
+      color: #cccccc;
+      margin: 6px 0 0 0;
+    }
+
+    /* Floating Legend (Bottom Right) */
+    .globe-legend {
+      position: absolute;
+      bottom: 24px;
+      right: 24px;
+      background: rgba(18, 20, 26, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      padding: 12px 16px;
+      z-index: 50;
+      min-width: 220px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .legend-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #a0a0a0;
+      margin-bottom: 6px;
+    }
+
+    .legend-gradient-bar {
+      height: 10px;
+      border-radius: 5px;
+      background: linear-gradient(90deg, #008f3c 0%, #e59e00 50%, #d10024 100%);
+      margin-bottom: 6px;
+    }
+
+    .legend-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.72rem;
+      color: #888888;
+      font-weight: 600;
+    }
+
+    /* Track Status Pill */
+    .track-status-pill {
+      background: rgba(0, 212, 255, 0.1);
+      border: 1px solid rgba(0, 212, 255, 0.3);
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 0.76rem;
+      line-height: 1.4;
+      color: #eaeaea;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="globe-app-container">
+
+    <!-- Top Navigation Header -->
+    <header class="globe-header">
+      <div class="globe-logo">
+        <img src="assets/biomap_icon.png" alt="Bio Mapping Logo">
+        <h1>Bio Mapping 2</h1>
+        <span class="badge-3d">3D Globe</span>
+      </div>
+
+      <div class="header-links">
+        <a href="index.html" class="nav-pill">
+          <i class="fa-solid fa-map"></i> 2D Workbench
+        </a>
+        <a href="live.html" class="nav-pill">
+          <i class="fa-brands fa-bluetooth-b"></i> Live View
+        </a>
+        <a href="3d.html" class="nav-pill active">
+          <i class="fa-solid fa-cube"></i> 3D Landscape
+        </a>
+      </div>
+    </header>
+
+    <!-- Main 3D Layout -->
+    <div class="globe-main-layout">
+      <!-- Cesium Viewport -->
+      <div id="cesiumContainer"></div>
+
+      <!-- Floating Controls Sidebar -->
+      <aside class="globe-sidebar">
+
+        <!-- 1. Track Import -->
+        <div>
+          <div class="globe-panel-title">
+            <i class="fa-solid fa-file-waveform"></i> Track Source
+          </div>
+          <div class="globe-drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+            <i class="fa-solid fa-cloud-arrow-up" style="font-size: 1.4rem; color: #00d4ff;"></i>
+            <p><strong>Click</strong> or <strong>Drag & Drop</strong> CSV</p>
+            <input type="file" id="fileInput" accept=".csv" style="display: none;">
+          </div>
+
+          <div style="margin-top: 8px;">
+            <label class="control-label" style="margin-bottom: 4px;">Sample Tracks</label>
+            <select class="globe-select" id="sampleTrackSelect">
+              <option value="">Load a sample walk…</option>
+              <option value="../tracks/biomap_001.csv">biomap_001.csv (London)</option>
+              <option value="../tracks/biomap_016.csv">biomap_016.csv (Urban)</option>
+              <option value="../tracks/Newhaven.csv">Newhaven.csv (Coastal)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Track Info Card -->
+        <div id="trackInfoCard" class="track-status-pill" style="display: none;">
+          <div id="trackNameDisplay" style="font-weight: 700; color: #00d4ff; margin-bottom: 2px;">Track Name</div>
+          <div id="trackMetaDisplay">0 samples • 0 peaks</div>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 2px 0;">
+
+        <!-- 2. 3D Visualizer Parameters -->
+        <div class="control-group">
+          <div class="globe-panel-title">
+            <i class="fa-solid fa-sliders"></i> Extrusion & Metrics
+          </div>
+
+          <div class="control-group">
+            <label class="control-label" for="metricSelect">Arousal Metric</label>
+            <select class="globe-select" id="metricSelect">
+              <option value="phasic">Phasic Arousal (SCR Spikes)</option>
+              <option value="gsr">GSR Conductance (Raw nS)</option>
+              <option value="tonic">Tonic Baseline (SCL)</option>
+              <option value="arousalIndex">Combined Arousal Index</option>
+              <option value="peakDensity">Peak Density</option>
+            </select>
+          </div>
+
+          <div class="control-group">
+            <label class="control-label" for="extrusionScale">
+              Wall Height Scale: <span id="extrusionScaleVal" class="val">8.0×</span>
+            </label>
+            <input type="range" class="globe-slider" id="extrusionScale" min="1" max="30" step="0.5" value="8">
+          </div>
+
+          <div class="control-group">
+            <label class="control-label" for="minQualityScale">
+              Min Peak Quality: <span id="minQualityVal" class="val">0.0</span>
+            </label>
+            <input type="range" class="globe-slider" id="minQualityScale" min="0" max="0.9" step="0.1" value="0.0">
+          </div>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 2px 0;">
+
+        <!-- 3. Basemap & Environment -->
+        <div class="control-group">
+          <div class="globe-panel-title">
+            <i class="fa-solid fa-earth-americas"></i> Basemap
+          </div>
+          <select class="globe-select" id="basemapSelect">
+            <option value="satellite">ArcGIS High-Res Satellite</option>
+            <option value="osm">OpenStreetMap Standard</option>
+            <option value="dark">CARTO Dark Matter</option>
+            <option value="positron">CARTO Positron (Light)</option>
+          </select>
+        </div>
+
+        <!-- 4. Camera Actions -->
+        <div class="control-group">
+          <div class="globe-panel-title">
+            <i class="fa-solid fa-video"></i> Camera
+          </div>
+          <div class="btn-row">
+            <button class="globe-btn" id="btnFlyTrack" title="Fly camera to fit active walk">
+              <i class="fa-solid fa-location-crosshairs"></i> Fly to Track
+            </button>
+            <button class="globe-btn" id="btnOrbit" title="Orbit 360 degrees around track">
+              <i class="fa-solid fa-rotate"></i> 360° Orbit
+            </button>
+          </div>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 2px 0;">
+
+        <!-- 5. Export Capabilities -->
+        <div class="control-group">
+          <div class="globe-panel-title">
+            <i class="fa-solid fa-file-export"></i> Export 3D
+          </div>
+          <div class="btn-row">
+            <button class="globe-btn" id="btnExportSnapshot" title="Capture high-resolution PNG screenshot">
+              <i class="fa-solid fa-camera"></i> Snapshot
+            </button>
+            <button class="globe-btn" id="btnExportCzml" title="Export 3D CZML for Cesium/GIS">
+              <i class="fa-solid fa-code"></i> CZML
+            </button>
+            <button class="globe-btn" id="btnExportKml" title="Export 3D KML for Google Earth">
+              <i class="fa-solid fa-earth-europe"></i> KML
+            </button>
+          </div>
+        </div>
+
+      </aside>
+
+      <!-- Bottom Floating Legend -->
+      <div class="globe-legend" id="legendCard">
+        <div class="legend-title" id="legendTitle">Phasic Arousal (SCR)</div>
+        <div class="legend-gradient-bar"></div>
+        <div class="legend-labels">
+          <span id="legendMin">Low Arousal</span>
+          <span id="legendMax">High Arousal</span>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- CesiumJS Engine -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.120/Build/Cesium/Cesium.js"></script>
+
+  <!-- BioMapping Signal & GPS Pipeline Modules -->
+  <script src="config.js"></script>
+  <script src="src/core/constants.js"></script>
+  <script src="src/gps/geo_utils.js"></script>
+  <script src="src/signal/stats_math.js"></script>
+  <script src="src/signal/dwt_filter.js"></script>
+  <script src="src/signal/deconvolution.js"></script>
+  <script src="src/signal/csv_parser.js"></script>
+  <script src="src/signal/analyzer.js"></script>
+  <script src="src/signal/gsr_filter.js"></script>
+  <script src="src/gps/gps_filter.js"></script>
+  <script src="src/map/map_colors.js"></script>
+  <script src="src/gps/gps_pipeline.js"></script>
+
+  <!-- Cesium 3D Globe Manager -->
+  <script src="src/map/globe3d.js"></script>
+
+  <!-- Page Controller Script -->
+  <script>
+    let globeManager = null;
+    let activeAnalyzer = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      // 1. Initialize Globe Manager
+      globeManager = new GSRGlobeManager('cesiumContainer', {
+        metric: 'phasic',
+        extrusionScale: 8.0
+      });
+
+      // 2. Setup Event Listeners
+      const fileInput = document.getElementById('fileInput');
+      const dropZone = document.getElementById('dropZone');
+      const sampleSelect = document.getElementById('sampleTrackSelect');
+      const metricSelect = document.getElementById('metricSelect');
+      const extrusionSlider = document.getElementById('extrusionScale');
+      const extrusionVal = document.getElementById('extrusionScaleVal');
+      const minQualitySlider = document.getElementById('minQualityScale');
+      const minQualityVal = document.getElementById('minQualityVal');
+      const basemapSelect = document.getElementById('basemapSelect');
+      const btnFlyTrack = document.getElementById('btnFlyTrack');
+      const btnOrbit = document.getElementById('btnOrbit');
+      const btnExportSnapshot = document.getElementById('btnExportSnapshot');
+      const btnExportCzml = document.getElementById('btnExportCzml');
+      const btnExportKml = document.getElementById('btnExportKml');
+
+      // Metric change
+      metricSelect.addEventListener('change', (e) => {
+        globeManager.setColoringMetric(e.target.value);
+        document.getElementById('legendTitle').textContent = metricSelect.options[metricSelect.selectedIndex].text;
+      });
+
+      // Extrusion slider
+      extrusionSlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        extrusionVal.textContent = val.toFixed(1) + '×';
+        globeManager.setExtrusionScale(val);
+      });
+
+      // Min quality slider
+      minQualitySlider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        minQualityVal.textContent = val.toFixed(1);
+        globeManager.togglePeaks(true, val);
+      });
+
+      // Basemap selector
+      basemapSelect.addEventListener('change', (e) => {
+        globeManager.setBasemap(e.target.value);
+      });
+
+      // Camera Fly to Track
+      btnFlyTrack.addEventListener('click', () => {
+        globeManager.flyToTrack();
+      });
+
+      // 360 Orbit Toggle
+      btnOrbit.addEventListener('click', () => {
+        const isOrbiting = globeManager.toggleOrbit();
+        btnOrbit.classList.toggle('active', isOrbiting);
+      });
+
+      // Export tools
+      btnExportSnapshot.addEventListener('click', () => {
+        globeManager.exportSnapshot('biomapping_3d_snapshot.png');
+      });
+
+      btnExportCzml.addEventListener('click', () => {
+        globeManager.exportCzml('biomapping_track_3d.czml');
+      });
+
+      btnExportKml.addEventListener('click', () => {
+        globeManager.exportKml('biomapping_track_3d.kml');
+      });
+
+      // File drag-and-drop
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+      });
+
+      dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragover');
+      });
+
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          loadCsvFile(e.dataTransfer.files[0]);
+        }
+      });
+
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+          loadCsvFile(e.target.files[0]);
+        }
+      });
+
+      // Sample track selection
+      sampleSelect.addEventListener('change', async (e) => {
+        const url = e.target.value;
+        if (!url) return;
+        try {
+          const resp = await fetch(url);
+          const text = await resp.text();
+          const filename = url.split('/').pop();
+          processCsvText(text, filename);
+        } catch (err) {
+          alert('Could not fetch sample track (if viewing via file://, please drag & drop the CSV from tracks/ directly): ' + err.message);
+        }
+      });
+
+      // Helper to read File object
+      function loadCsvFile(file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          processCsvText(e.target.result, file.name);
+        };
+        reader.readAsText(file);
+      }
+
+      // Helper to parse and render track
+      function processCsvText(csvText, filename) {
+        try {
+          const analyzer = new GSRAnalyzer();
+          analyzer.parseCSV(csvText);
+
+          if (!analyzer.raw || analyzer.raw.length === 0) {
+            alert('CSV contains no usable rows.');
+            return;
+          }
+
+          const filterParams = analyzer.importedFilterParams || GSR_CONST.GSR_DEFAULT;
+          const gpsParams = analyzer.importedGpsFilterParams || GSR_CONST.GPS_DEFAULT;
+
+          analyzer.analyze(filterParams);
+
+          activeAnalyzer = analyzer;
+
+          // Render in 3D
+          globeManager.renderData(analyzer, gpsParams);
+
+          // Update Info card
+          const trackCard = document.getElementById('trackInfoCard');
+          const nameEl = document.getElementById('trackNameDisplay');
+          const metaEl = document.getElementById('trackMetaDisplay');
+
+          nameEl.textContent = filename || 'Biomap Walk';
+          const peakCount = (analyzer.peaks || []).filter(p => !p.excluded).length;
+          const lastSample = analyzer.raw[analyzer.raw.length - 1];
+          const durationMin = ((lastSample ? lastSample.time : 0) / 60).toFixed(1);
+          metaEl.textContent = `${analyzer.raw.length.toLocaleString()} samples • ${peakCount} peaks • ${durationMin} min`;
+          trackCard.style.display = 'block';
+
+        } catch (err) {
+          console.error(err);
+          alert('Error analyzing track: ' + err.message);
+        }
+      }
+    });
+  </script>
+
+</body>
+</html>
