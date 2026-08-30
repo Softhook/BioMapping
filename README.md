@@ -193,9 +193,10 @@ Connect three reference resistors to the electrodes in turn; the wizard solves a
 
 Files are written to `/ext/biomapping/` as `biomap_001.csv` … `biomap_999.csv` (auto-incrementing, wraps at 999). Each row is one 10 Hz tick.
 
-**Header.** Every file starts with `#`-prefixed metadata lines, then the column header:
+**Header.** Every file starts with the integrity marker, then `#`-prefixed metadata lines, then the column header:
 
 ```
+# Integrity: crc32 v1
 # RecordingStartTime:1751204579
 # DeviceName:Clara
 # Band Floors (dBm): 815:-91.5,868:-91.5,915:-91.5
@@ -214,6 +215,8 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m,rs
 **Column count per mode:** GPS + GSR + RF and GPS + RF → 14; GPS + GSR → 11; GSR Only → 2 (`timestamp,gsr_raw`). GPS + RF rows carry `gsr_raw` = `0.0`. [`docs/csv_schema.md`](docs/csv_schema.md) is the canonical, versioned column reference; **Options → Debug Fields** appends further diagnostic columns.
 
 **Approximate size per hour at 10 Hz:** GPS + GSR ≈ 2.1 MB; GPS + GSR + RF / GPS + RF ≈ 2.8 MB; GSR Only ≈ 0.4 MB. The log file is pre-allocated at record start and trimmed at stop, so free space briefly looks lower during a recording.
+
+**Integrity bracket.** The `# Integrity: crc32 v1` first line and a matching `# End rows:… bytes:… crc32:… overflows:… flush_fails:…` trailer (written when recording stops cleanly) let the visualiser confirm a file is a complete, unaltered recording — it shows a small tick per track, flags a truncated file (no trailer) or one edited after the fact (checksum mismatch), and surfaces any SD-pressure row drops. It's corruption detection, not tamper-proofing — a plain CRC can be recomputed. See [`docs/csv_schema.md`](docs/csv_schema.md).
 
 ## Circuit Reference
 

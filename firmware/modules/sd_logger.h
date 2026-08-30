@@ -17,7 +17,15 @@ SdLogger* sd_logger_alloc(Storage* storage);
 void      sd_logger_free(SdLogger* logger);
 
 bool        sd_logger_start(SdLogger* logger, const char* header);
-void        sd_logger_stop(SdLogger* logger);
+
+// Flush any buffered rows, append the "# Integrity: crc32 v1" file's
+// matching "# End …" trailer (row count, CRC32 over marker+header+rows,
+// continuity counters, and end_time when known), trim the pre-allocated
+// tail, and close. end_epoch is the RTC time at stop in Unix seconds;
+// pass 0 when no reading is available and the end_time token is omitted.
+// A file with no trailer did not stop cleanly; a trailer whose CRC or row
+// count disagrees with the data was truncated or altered after writing.
+void        sd_logger_stop(SdLogger* logger, uint32_t end_epoch);
 
 // GSR batch write API — accumulate formatted rows in memory and flush
 // to SD in a single storage_file_write every FLUSH_INTERVAL seconds.

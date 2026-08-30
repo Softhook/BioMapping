@@ -69,6 +69,57 @@ identity fit (gain 1.0 / offset 0.0), omits the line.
 
 ---
 
+## Integrity Bracket
+
+Every recording is wrapped by two lines so the visualiser (or any external
+tool) can tell a complete, unaltered file from a truncated or corrupted one
+(`modules/sd_logger.c`, `SD_LOGGER_INTEGRITY_LINE` / `sd_logger_write_trailer()`).
+
+**First line of the file** — the marker, always present:
+
+```
+# Integrity: crc32 v1
+```
+
+It announces that a trailer is expected and names the algorithm/version so
+the format can evolve without breaking older parsers.
+
+**Last line of the file** — the trailer, written by `sd_logger_stop()` once
+the final batch has flushed:
+
+```
+# End rows:<n> bytes:<n> crc32:<8 hex digits> [end_time:<unix_epoch_seconds>] overflows:<n> flush_fails:<n>
+```
+
+| Field | Meaning |
+|---|---|
+| `rows` | Number of data rows (`\n` count after the column header). Truncation check. |
+| `bytes` | Byte length of the CRC-covered region: the marker line + metadata header + column header + every data row, i.e. everything from byte 0 up to (not including) this trailer line. |
+| `crc32` | CRC32 (reflected, polynomial `0xEDB88320`, same as `em_scan_cal.c`) over exactly those `bytes` bytes. Lower-case, zero-padded to 8 digits. |
+| `end_time` | Wall-clock time at stop, Unix epoch seconds. **Omitted entirely** (not written as `0`) when the RTC is unset — same convention as `RecordingStartTime`. Pair with `RecordingStartTime` for an authoritative recording duration. |
+| `overflows` | Rows that could not be buffered during the recording (actual data loss under SD pressure). `0` for a healthy recording. |
+| `flush_fails` | SD write/sync failures during the recording, even if a later retry recovered. `> 0` flags a file that hit SD pressure. |
+
+Verification on import:
+
+- **No marker, no trailer** — a pre-integrity file (or one written by other
+  tooling). Nothing to check.
+- **Marker present, no trailer** — the recording never stopped cleanly (flat
+  battery, crash, card pulled mid-write). The rows that are present are
+  still usable; the tail may be missing.
+- **Trailer present, `crc32` / `rows` / `bytes` disagree with the data** —
+  the file was truncated or altered after the Flipper wrote it.
+- **Trailer present and everything matches** — complete and unmodified since
+  the Flipper wrote it. (This is corruption detection, not tamper
+  protection: a plain CRC can be recomputed by whoever edited the file.)
+
+The CRC region is byte-exact: the trailer line is always preceded by a
+`\n` that terminates the last data row (`sd_logger_stop()` inserts one if a
+partial row somehow reached the file), so a consumer can split on the last
+`\n# End ` and CRC everything before that `\n` inclusive.
+
+---
+
 ## Debug Field Toggle
 
 CSV debug columns are controlled by **Options > Debug Fields** on the device
@@ -164,6 +215,7 @@ Defined in `modules/gsr_sensor.h` as `GSR_VALID_MIN_NS` and `GSR_VALID_MAX_NS`.
 | 1.6 | 2026-08-05 | `BIOMAP_DEBUG_FIELDS` compile-time switch replaced with a persisted runtime Options-menu toggle (`BioMapApp::debug_fields_enabled`, Options > Debug Fields), off by default. No column-list changes — same debug columns as 1.5, just switchable per-session without a rebuild. |
 | 1.7 | 2026-08-05 | Added `prealloc_ms` (all three debug variants) alongside `BIOMAP_SD_PREALLOC` — see `docs/archive/gps_rf_mutex_status.md`. Also: the metadata header's old `# BioMapping v1.0` / `# GPS:<module>` lines don't reflect the current format — corrected above to `# RecordingStartTime:` + conditional `# Band Floors` line. |
 | 1.8 | 2026-08-28 | Doc sync, no column changes: documented the `# GSR Calibration: gain:…,offset:…` metadata line (emitted since custom GSR calibration shipped) and corrected the metadata-header order to match `biomap_session.c`. Post-processing enrichment columns (`osm_*`, snapped GPS) are appended by the visualiser, not the firmware writer — see [`environmental_enrichment_plan.md`](environmental_enrichment_plan.md). |
+| 1.9 | 2026-08-30 | Added the **Integrity Bracket** (see section above): a `# Integrity: crc32 v1` marker as the first line of every file and a `# End rows:… bytes:… crc32:… [end_time:…] overflows:… flush_fails:…` trailer written on clean stop. No data-column changes. The visualiser verifies it on import and shows a per-track status tick. |
 
 ---
 

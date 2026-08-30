@@ -179,6 +179,31 @@ const GSRTrackManager = {
     loadNext();
   },
 
+  /**
+   * Small status icon for the CSV integrity bracket (see docs/csv_schema.md
+   * and GSRCSVParser._verifyIntegrity). Returns null for files that carry no
+   * integrity data at all, so pre-integrity tracks show nothing rather than
+   * a scary marker.
+   */
+  _buildIntegrityMark(track) {
+    const info = track.analyzer && track.analyzer.integrity;
+    if (!info || info.status === 'none') return null;
+
+    const SPEC = {
+      verified:   { icon: 'fa-circle-check',         label: 'Integrity verified' },
+      incomplete: { icon: 'fa-triangle-exclamation', label: 'Recording did not end cleanly' },
+      corrupt:    { icon: 'fa-circle-xmark',         label: 'Integrity check failed' },
+    };
+    const spec = SPEC[info.status];
+    if (!spec) return null;
+
+    const mark = document.createElement('span');
+    mark.className = 'track-integrity track-integrity-' + info.status;
+    mark.innerHTML = `<i class="fa-solid ${spec.icon}"></i>`;
+    mark.title = info.detail ? `${spec.label} — ${info.detail}` : spec.label;
+    return mark;
+  },
+
   renderTrackList() {
     const container   = document.getElementById('trackListContainer');
     const listElement = document.getElementById('trackList');
@@ -313,6 +338,8 @@ const GSRTrackManager = {
       li.appendChild(checkbox);
       li.appendChild(badge);
       li.appendChild(details);
+      const integrityMark = GSRTrackManager._buildIntegrityMark(track);
+      if (integrityMark) li.appendChild(integrityMark);
       li.appendChild(actions);
 
       listElement.appendChild(li);

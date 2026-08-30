@@ -59,6 +59,120 @@ class GSRCSVParser {
   }
 
   /**
+   * CRC32 (reflected, polynomial 0xEDB88320 — the zlib/PNG variant) over a
+   * byte sequence. Accepts a string (encoded as UTF-8, matching the bytes
+   * the device wrote to the card) or a Uint8Array. Returns an unsigned
+   * 32-bit integer. Mirrors sd_logger.c's crc32_feed() / em_scan_cal.c.
+   * @param {string|Uint8Array} input
+   * @returns {number}
+   * @private
+   */
+  static _crc32(input) {
+    let table = GSRCSVParser._crc32Table;
+    if (!table) {
+      table = new Uint32Array(256);
+      for (let n = 0; n < 256; n++) {
+        let c = n;
+        for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        table[n] = c >>> 0;
+      }
+      GSRCSVParser._crc32Table = table;
+    }
+    const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input;
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) {
+      crc = (crc >>> 8) ^ table[(crc ^ bytes[i]) & 0xff];
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  /**
+   * Verify the integrity bracket the device writes around a clean recording
+   * (docs/csv_schema.md "Integrity Bracket"): a "# Integrity: crc32 v1"
+   * marker as the first line and a "# End rows:… bytes:… crc32:… …" trailer
+   * as the last. Never throws — returns a status the UI surfaces as a tick.
+   *
+   * @param {string} csvText - Full file contents.
+   * @param {boolean} hasMarker - Whether a "# Integrity:" line was seen.
+   * @param {number} headerLineCount - Lines before the first data row
+   *        (# metadata lines + the column-name line).
+   * @returns {{status:('verified'|'incomplete'|'corrupt'|'none'),
+   *           detail:string, overflows?:number, flushFails?:number,
+   *           endTime?:(number|null)}}
+   * @private
+   */
+  static _verifyIntegrity(csvText, hasMarker, headerLineCount) {
+    const trailerIdx = csvText.lastIndexOf('\n# End ');
+
+    if (!hasMarker && trailerIdx === -1) {
+      return { status: 'none', detail: 'This file carries no integrity data.' };
+    }
+    if (trailerIdx === -1) {
+      return {
+        status: 'incomplete',
+        detail: 'Recording did not stop cleanly — no end marker was written ' +
+                '(flat battery, crash, or card removed mid-write). The rows ' +
+                'that are present are still usable; the tail may be missing.'
+      };
+    }
+
+    // The CRC region is every byte up to and including the '\n' that ends
+    // the last data row — the device guarantees the trailer starts its own
+    // line. Encode as UTF-8 so a non-ASCII device name still hashes to the
+    // same bytes the Flipper wrote.
+    const region = csvText.slice(0, trailerIdx + 1);
+    const regionBytes = new TextEncoder().encode(region);
+
+    let trailerEnd = csvText.indexOf('\n', trailerIdx + 1);
+    if (trailerEnd === -1) trailerEnd = csvText.length;
+    const trailerLine = csvText.slice(trailerIdx + 1, trailerEnd);
+
+    const tok = (name) => {
+      const m = trailerLine.match(new RegExp('(?:^|\\s)' + name + ':([0-9a-fA-F]+)'));
+      return m ? m[1] : null;
+    };
+    const rowsTok = tok('rows'), bytesTok = tok('bytes'), crcTok = tok('crc32');
+    const ovfTok = tok('overflows'), ffTok = tok('flush_fails'), endTok = tok('end_time');
+
+    const overflows = ovfTok !== null ? parseInt(ovfTok, 10) : 0;
+    const flushFails = ffTok !== null ? parseInt(ffTok, 10) : 0;
+    const endTime = endTok !== null ? parseInt(endTok, 10) : null;
+
+    const problems = [];
+    if (crcTok !== null) {
+      const want = parseInt(crcTok, 16) >>> 0;
+      if (want !== GSRCSVParser._crc32(regionBytes)) problems.push('checksum mismatch');
+    }
+    if (bytesTok !== null && parseInt(bytesTok, 10) !== regionBytes.length) {
+      problems.push(`byte count (trailer ${parseInt(bytesTok, 10)}, file ${regionBytes.length})`);
+    }
+    if (rowsTok !== null) {
+      let newlines = 0;
+      for (let i = 0; i < region.length; i++) if (region.charCodeAt(i) === 10) newlines++;
+      const dataRows = newlines - headerLineCount;
+      if (parseInt(rowsTok, 10) !== dataRows) {
+        problems.push(`row count (trailer ${parseInt(rowsTok, 10)}, file ${dataRows})`);
+      }
+    }
+
+    if (problems.length > 0) {
+      return {
+        status: 'corrupt',
+        detail: 'File changed since the Flipper wrote it — ' + problems.join('; ') + '.',
+        overflows, flushFails, endTime
+      };
+    }
+
+    let detail = 'Complete and unmodified since recording.';
+    if (overflows > 0 || flushFails > 0) {
+      detail += ` Recording hit SD pressure (${overflows} dropped row(s), ` +
+                `${flushFails} write retr${flushFails === 1 ? 'y' : 'ies'}) — ` +
+                `some samples may be missing mid-track.`;
+    }
+    return { status: 'verified', detail, overflows, flushFails, endTime };
+  }
+
+  /**
    * Interpolate GPS coordinates across a dense 10 Hz row list where anchors
    * arrive at the GPS fix rate (~1–5 Hz). Mutates rawDataList in-place:
    *
@@ -210,6 +324,7 @@ class GSRCSVParser {
     let importedGpsFilterParams = null;
     let enrichmentRadius = null;
     let bandFloors = null;
+    let hasIntegrityMarker = false;
 
     // Split into lines
     const lines = csvText.split(/\r?\n/);
@@ -247,6 +362,11 @@ class GSRCSVParser {
         if (!isNaN(radVal)) {
           enrichmentRadius = radVal;
         }
+      } else if (line.startsWith('# Integrity:')) {
+        // Marker announcing the "# End" trailer (docs/csv_schema.md
+        // "Integrity Bracket"). Its presence is all we need here — the
+        // trailer itself carries the algorithm token.
+        hasIntegrityMarker = true;
       } else if (line.includes('Band Floors (dBm):')) {
         const parts = line.split('Band Floors (dBm):')[1];
         if (parts) {
@@ -617,6 +737,11 @@ class GSRCSVParser {
       enrichmentRadius = null;
     }
 
+    // Integrity bracket check (docs/csv_schema.md). dataStartLine is the
+    // index of the column-name line, so dataStartLine + 1 lines precede the
+    // first data row.
+    const integrity = GSRCSVParser._verifyIntegrity(csvText, hasIntegrityMarker, dataStartLine + 1);
+
     return {
       raw: rawDataList,
       isResistance: isResistance,
@@ -629,6 +754,7 @@ class GSRCSVParser {
       hasRfData: hasRfData,
       rfPeakIndices: rfPeakIndices,
       isEnriched: isEnriched,
+      integrity: integrity,
       warnings: csvWarnings,
       importedPeakLabels: importedPeakLabels,
       importedPeakExcluded: importedPeakExcluded

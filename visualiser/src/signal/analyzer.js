@@ -337,6 +337,7 @@ class GSRAnalyzer {
     this.hasRfData = result.hasRfData;
     this.rfPeakIndices = result.rfPeakIndices;
     this.isEnriched = result.isEnriched;
+    this.integrity = result.integrity;
     this._csvWarnings = result.warnings;
 
     // Restore imported peak labels/exclusions onto the persistent user-label
