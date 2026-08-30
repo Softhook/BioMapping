@@ -6,6 +6,20 @@
 
 class MarchingSquares {
   /**
+   * Saddle disambiguation: mean of a cell's valid (non-null) corner values,
+   * used to decide which way the two segments connect for the ambiguous
+   * cellIndex 5 / 10 cases. Returns 0 when every corner is masked.
+   */
+  static _saddleMean(vNW, vNE, vSE, vSW, okNW, okNE, okSE, okSW) {
+    let sum = 0, count = 0;
+    if (okNW) { sum += vNW; count++; }
+    if (okNE) { sum += vNE; count++; }
+    if (okSE) { sum += vSE; count++; }
+    if (okSW) { sum += vSW; count++; }
+    return count > 0 ? sum / count : 0;
+  }
+
+  /**
    * Run marching squares on a 2D grid to extract contour line segments.
    *
    * @param {number[][]} grid  — 2D array [rows][cols] of values (or null for masked cells)
@@ -93,12 +107,7 @@ class MarchingSquares {
           case 3:  lines.push([getR(), getL()]); break;
           case 4:  lines.push([getT(), getR()]); break;
           case 5: {
-            let sum = 0, count = 0;
-            if (nwVal) { sum += vNW; count++; }
-            if (neVal) { sum += vNE; count++; }
-            if (seVal) { sum += vSE; count++; }
-            if (swVal) { sum += vSW; count++; }
-            const vCenter = count > 0 ? sum / count : 0;
+            const vCenter = MarchingSquares._saddleMean(vNW, vNE, vSE, vSW, nwVal, neVal, seVal, swVal);
             if (vCenter >= isolevel) {
               lines.push([getT(), getL()]);
               lines.push([getB(), getR()]);
@@ -113,12 +122,7 @@ class MarchingSquares {
           case 8:  lines.push([getL(), getT()]); break;
           case 9:  lines.push([getB(), getT()]); break;
           case 10: {
-            let sum = 0, count = 0;
-            if (nwVal) { sum += vNW; count++; }
-            if (neVal) { sum += vNE; count++; }
-            if (seVal) { sum += vSE; count++; }
-            if (swVal) { sum += vSW; count++; }
-            const vCenter = count > 0 ? sum / count : 0;
+            const vCenter = MarchingSquares._saddleMean(vNW, vNE, vSE, vSW, nwVal, neVal, seVal, swVal);
             if (vCenter >= isolevel) {
               lines.push([getL(), getT()]);
               lines.push([getB(), getR()]);
@@ -246,12 +250,7 @@ class MarchingSquares {
             case 3:  segs.push([getR(), getL()]); break;
             case 4:  segs.push([getT(), getR()]); break;
             case 5: {
-              let sum = 0, count = 0;
-              if (okNW) { sum += vNW; count++; }
-              if (okNE) { sum += vNE; count++; }
-              if (okSE) { sum += vSE; count++; }
-              if (okSW) { sum += vSW; count++; }
-              const vCenter = count > 0 ? sum / count : 0;
+              const vCenter = MarchingSquares._saddleMean(vNW, vNE, vSE, vSW, okNW, okNE, okSE, okSW);
               if (vCenter >= isolevel) {
                 segs.push([getT(), getL()]);
                 segs.push([getB(), getR()]);
@@ -266,12 +265,7 @@ class MarchingSquares {
             case 8:  segs.push([getL(), getT()]); break;
             case 9:  segs.push([getB(), getT()]); break;
             case 10: {
-              let sum = 0, count = 0;
-              if (okNW) { sum += vNW; count++; }
-              if (okNE) { sum += vNE; count++; }
-              if (okSE) { sum += vSE; count++; }
-              if (okSW) { sum += vSW; count++; }
-              const vCenter = count > 0 ? sum / count : 0;
+              const vCenter = MarchingSquares._saddleMean(vNW, vNE, vSE, vSW, okNW, okNE, okSE, okSW);
               if (vCenter >= isolevel) {
                 segs.push([getL(), getT()]);
                 segs.push([getB(), getR()]);

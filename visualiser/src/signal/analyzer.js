@@ -914,18 +914,7 @@ class GSRAnalyzer {
       const metrics = this._calculateShapeMetrics(cleanVals, times, i, onsetIdx, recoveryIdx, noiseHalfWin);
 
       const peak = this._buildPeakObject(i, curr, cleanVals, times,
-        {
-          amplitude: metrics.amplitude,
-          onsetIdx,
-          recoveryIdx,
-          halfRecoveryTime: metrics.halfRecoveryTime,
-          riseTime: metrics.riseTime,
-          onsetSlope: metrics.onsetSlope,
-          decaySlope: metrics.decaySlope,
-          skewnessRatio: metrics.skewnessRatio,
-          fwhm: metrics.fwhm,
-          snr: metrics.snr
-        },
+        { ...metrics, onsetIdx, recoveryIdx },
         oldLabels, oldExcluded, false);
       // Uses the deconvolution-specific quality formula, not
       // _computePeakQuality() — see _computeDeconPeakQuality()'s doc
@@ -1448,18 +1437,7 @@ class GSRAnalyzer {
 
       // ── 10. Build peak object with full shape metrics ──────────────────
       const peak = this._buildPeakObject(i, curr, phasicVals, times,
-        {
-          amplitude: metrics.amplitude,
-          onsetIdx,
-          recoveryIdx,
-          halfRecoveryTime: metrics.halfRecoveryTime,
-          riseTime: metrics.riseTime,
-          onsetSlope: metrics.onsetSlope,
-          decaySlope: metrics.decaySlope,
-          skewnessRatio: metrics.skewnessRatio,
-          fwhm: metrics.fwhm,
-          snr: metrics.snr
-        },
+        { ...metrics, onsetIdx, recoveryIdx },
         oldLabels, oldExcluded, true);
 
       // ── 11. Compute composite quality score ────────────────────────────
