@@ -131,11 +131,22 @@ class GSRGlobeManager {
     const scene = this.viewer.scene;
     const globe = scene.globe;
 
-    // High quality visuals
-    globe.enableLighting = false; // Uniform lighting for clean data visualization
-    globe.depthTestAgainstTerrain = false;
+    // Enable depth testing so solid 3D buildings occlude background geometry properly
+    globe.enableLighting = true;
+    globe.depthTestAgainstTerrain = true;
     scene.fog.enabled = true;
     scene.fog.density = 0.0001;
+
+    // Directional sunlight for 3D architectural facade shading
+    if (typeof Cesium.DirectionalLight !== 'undefined') {
+      try {
+        scene.light = new Cesium.DirectionalLight({
+          direction: new Cesium.Cartesian3(0.6, 0.4, -0.7)
+        });
+      } catch (e) {
+        // Fallback to standard Cesium sun
+      }
+    }
 
     // Optional Cesium Ion Terrain if token provided
     if (Cesium.Ion.defaultAccessToken && typeof Cesium.Terrain !== 'undefined') {
@@ -484,17 +495,20 @@ class GSRGlobeManager {
     // Determine color based on architectural style
     let fillColor, outlineColor;
     if (style === 'glass') {
-      fillColor = Cesium.Color.fromCssColorString('#00d4ff').withAlpha(0.22);
-      outlineColor = Cesium.Color.fromCssColorString('#00d4ff').withAlpha(0.65);
+      fillColor = Cesium.Color.fromCssColorString('#00d4ff').withAlpha(0.28);
+      outlineColor = Cesium.Color.fromCssColorString('#00d4ff').withAlpha(0.75);
     } else if (style === 'dark') {
-      fillColor = Cesium.Color.fromCssColorString('#1a1d26').withAlpha(0.85);
-      outlineColor = Cesium.Color.fromCssColorString('#2e3444').withAlpha(0.9);
+      // 100% Solid opaque matte charcoal (occludes background completely)
+      fillColor = Cesium.Color.fromCssColorString('#1c202a');
+      outlineColor = Cesium.Color.fromCssColorString('#465066');
     } else if (style === 'monochrome') {
-      fillColor = Cesium.Color.fromCssColorString('#e2e4ea').withAlpha(0.7);
-      outlineColor = Cesium.Color.fromCssColorString('#a0a5b5').withAlpha(0.85);
+      // 100% Solid opaque clean architectural plaster
+      fillColor = Cesium.Color.fromCssColorString('#f0f2f6');
+      outlineColor = Cesium.Color.fromCssColorString('#9ba3b4');
     } else {
-      fillColor = Cesium.Color.fromCssColorString('#c8bca8').withAlpha(0.8);
-      outlineColor = Cesium.Color.fromCssColorString('#8b7d6b').withAlpha(0.9);
+      // 100% Solid realistic limestone / masonry
+      fillColor = Cesium.Color.fromCssColorString('#d6cdc0');
+      outlineColor = Cesium.Color.fromCssColorString('#706556');
     }
 
     // Extrude each building footprint into 3D
@@ -527,7 +541,8 @@ class GSRGlobeManager {
           material: fillColor,
           outline: true,
           outlineColor: outlineColor,
-          outlineWidth: 1.0
+          outlineWidth: 1.5,
+          shadows: Cesium.ShadowMode.ENABLED
         }
       });
       this.osmBuildingEntities.push(buildingEntity);
@@ -560,11 +575,11 @@ class GSRGlobeManager {
     if (style === 'glass') {
       colorExpression = "color('rgba(52, 100, 138, 0.45)')";
     } else if (style === 'dark') {
-      colorExpression = "color('rgba(28, 32, 42, 0.75)')";
+      colorExpression = "color('#1c202a', 1.0)";
     } else if (style === 'monochrome') {
-      colorExpression = "color('rgba(220, 225, 230, 0.65)')";
+      colorExpression = "color('#f0f2f6', 1.0)";
     } else {
-      colorExpression = "color('white', 1.0)";
+      colorExpression = "color('#d6cdc0', 1.0)";
     }
 
     this.buildingsTileset.style = new Cesium.Cesium3DTileStyle({
