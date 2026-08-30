@@ -36,7 +36,7 @@ function loadModule(filePath, varName) {
 // deliberately NOT loaded — nothing in this suite calls
 // OSMEnricher.fetchOSMData(), so it's never dereferenced.
 loadModule(__dirname + '/../src/gps/geo_utils.js',      'GeoUtils');
-loadModule(__dirname + '/../src/map/spatial_grid.js',   'SpatialGrid');
+loadModule(__dirname + '/../src/spatial/spatial_grid.js',   'SpatialGrid');
 loadModule(__dirname + '/../src/gps/map_match.js',      'MapMatcher');
 loadModule(__dirname + '/../src/osm/osm_enrichment.js', 'OSMEnricher');
 

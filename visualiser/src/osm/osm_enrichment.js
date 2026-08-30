@@ -691,9 +691,6 @@ const OSMEnricher = {
     // ── Interpolate snappedGps to full timeline ──────────────────────
     if (doSnap && analyzer.snappedGps) {
       this._interpolateSnappedGps(analyzer, raw);
-
-      // Diagnostic summary — check browser console after enrichment
-      this._logSnapDiagnostics(analyzer, raw, computedMetrics.length);
     }
 
     analyzer.isEnriched = true;
@@ -860,70 +857,6 @@ const OSMEnricher = {
     }
 
     return { snapLat: bestSnapLat, snapLon: bestSnapLon, dist: minDist };
-  },
-
-  /**
-   * Log a diagnostic summary of snapping results to the browser console.
-   * Shows alpha distribution, distance distribution, and way-ID coverage.
-   */
-  _logSnapDiagnostics(analyzer, raw, evalCount) {
-    const sg = analyzer.snappedGps;
-    if (!sg) return;
-
-    let pointsWithSnap = 0, pointsTotal = 0;
-    let sumAlpha = 0, maxAlpha = 0;
-    const alphaBuckets = [0, 0, 0, 0, 0]; // 0, 0-0.1, 0.1-0.3, 0.3-0.7, 0.7-1.0
-    let sumDist = 0, minDist = Infinity, maxDist = 0;
-    let distCount = 0;
-    const wayIds = new Set();
-    let lockedCount = 0;
-
-    for (let i = 0; i < sg.length; i++) {
-      const s = sg[i];
-      if (isNaN(s.lat)) continue;
-      pointsTotal++;
-      if (!isNaN(s.alpha) && s.alpha > 0) {
-        pointsWithSnap++;
-        sumAlpha += s.alpha;
-        if (s.alpha > maxAlpha) maxAlpha = s.alpha;
-        if (s.alpha <= 0.1) alphaBuckets[1]++;
-        else if (s.alpha <= 0.3) alphaBuckets[2]++;
-        else if (s.alpha <= 0.7) alphaBuckets[3]++;
-        else alphaBuckets[4]++;
-      } else {
-        alphaBuckets[0]++;
-      }
-      if (!isNaN(s.dist) && s.dist < Infinity) {
-        sumDist += s.dist;
-        distCount++;
-        if (s.dist < minDist) minDist = s.dist;
-        if (s.dist > maxDist) maxDist = s.dist;
-      }
-      if (s.wayId != null) wayIds.add(s.wayId);
-      if (s.alpha >= 1.0) lockedCount++;
-    }
-
-    const header = '━━ Road Snap Diagnostics ━━';
-    console.group(header);
-    console.log('Evaluation points:', evalCount);
-    console.log('Timeline points:',  pointsTotal);
-    console.log('Snapped (>0):',     pointsWithSnap,
-      pointsTotal > 0 ? `(${(100*pointsWithSnap/pointsTotal).toFixed(0)}%)` : '');
-    console.log('Fully locked (α=1):', lockedCount);
-    console.log('Max α:', maxAlpha.toFixed(2), '  Mean α (snapped):',
-      pointsWithSnap > 0 ? (sumAlpha/pointsWithSnap).toFixed(2) : 'n/a');
-    console.log('α buckets:  zero:', alphaBuckets[0],
-      ' 0-0.1:', alphaBuckets[1],
-      ' 0.1-0.3:', alphaBuckets[2],
-      ' 0.3-0.7:', alphaBuckets[3],
-      ' 0.7-1.0:', alphaBuckets[4]);
-    if (distCount > 0) {
-      console.log('Distance to road:  min:', minDist.toFixed(1)+'m',
-        ' max:', maxDist.toFixed(1)+'m',
-        ' mean:', (sumDist/distCount).toFixed(1)+'m');
-    }
-    console.log('Unique ways snapped to:', wayIds.size);
-    console.groupEnd();
   }
 };
 

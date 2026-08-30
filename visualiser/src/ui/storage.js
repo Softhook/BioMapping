@@ -307,52 +307,6 @@ const GSRStorage = {
       }
     }
     return true;
-  },
-
-  /**
-   * Determine whether a track's parameters match standard defaults,
-   * were imported from CSV header metadata, or are custom modified.
-   * Returns: 'standard' | 'imported' | 'custom'
-   */
-  getTrackSettingsStatus(track) {
-    if (!track) return 'standard';
-    if (!track.filterParams || !track.gpsFilterParams) return 'standard';
-
-    const D = GSR_CONST.GSR_DEFAULT;
-    const fp = track.filterParams;
-
-    const isCustomGsr = (
-      fp.medianSize !== D.medianSize ||
-      fp.lpfWindow !== D.lpfWindow ||
-      fp.adaptiveNotch !== D.adaptiveNotch ||
-      fp.tonicMethod !== D.tonicMethod ||
-      fp.tonicWindow !== D.tonicWindow ||
-      Math.abs(fp.peakThreshold - D.peakThreshold) > 0.0001 ||
-      fp.dwtLevel !== D.dwtLevel ||
-      fp.useDeconvolution !== D.useDeconvolution
-    );
-
-    const G = GSR_CONST.GPS_DEFAULT;
-    const gp = track.gpsFilterParams;
-
-    const isCustomGps = (
-      gp.smoothing !== G.smoothing ||
-      gp.kalmanR !== G.kalmanR ||
-      gp.maxHdop !== G.maxHdop ||
-      gp.maxSpeed !== G.maxSpeed ||
-      gp.rdpTolerance !== G.rdpTolerance ||
-      gp.peakLatency !== G.peakLatency
-    );
-
-    if (isCustomGsr || isCustomGps) {
-      return 'custom';
-    }
-
-    if (track.settingsSource === 'imported') {
-      return 'imported';
-    }
-
-    return 'standard';
   }
 };
 

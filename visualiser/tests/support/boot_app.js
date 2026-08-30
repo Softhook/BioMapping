@@ -34,7 +34,7 @@ const APP_DIR = path.join(__dirname, '..', '..');
 // Kept byte-for-byte in sync with index.html by tests/support/test_script_order.js.
 const SCRIPT_ORDER = [
   'src/core/notices.js', 'src/core/app_state.js', 'src/core/layout_manager.js', 'src/core/constants.js',
-  'src/gps/geo_utils.js', 'src/map/spatial_grid.js', 'src/core/file_saver.js',
+  'src/gps/geo_utils.js', 'src/spatial/spatial_grid.js', 'src/core/file_saver.js',
   'src/signal/stats_math.js', 'src/osm/overpass_client.js', 'src/osm/osm_cache.js', 'src/signal/dwt_filter.js', 'src/signal/deconvolution.js',
   'src/signal/csv_parser.js', 'src/signal/analyzer.js', 'src/osm/osm_enrichment.js', 'src/gps/map_match.js', 'src/signal/gsr_filter.js', 'src/render/marching_squares.js',
   'src/map/hillshade.js', 'src/spatial/spatial_clustering.js', 'src/spatial/collective_manager.js', 'src/gps/gps_filter.js', 'src/map/map_colors.js', 'src/gps/gps_pipeline.js',

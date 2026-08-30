@@ -873,9 +873,7 @@ class GSRMapExporter {
     if (!lbl || window.getComputedStyle(lbl).display === 'none') return null;
 
     const ls = window.getComputedStyle(lbl);
-    const tx = lbl.textContent.trim()
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const tx = this._esc(lbl.textContent.trim());
 
     let x = cx;
     let y = cy - 8;

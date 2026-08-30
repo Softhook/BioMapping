@@ -743,6 +743,28 @@ class GSRMapManager {
   }
 
   /**
+   * Remove every layer whose `_gsrKind` is in `kindSet` from the map and from
+   * the track's layerGroup, and drop it from the track's `_ownedLayers`
+   * registry (the surviving layers are kept). Shared by the refresh*()
+   * partial-render methods below, which each strip one kind-family before
+   * re-running a single renderer.
+   */
+  _stripOwnedLayersByKind(track, kindSet) {
+    const keep = [];
+    for (const layer of (track._ownedLayers || [])) {
+      if (kindSet.has(layer._gsrKind)) {
+        if (this.map.hasLayer(layer)) this.map.removeLayer(layer);
+        if (track.layerGroup && track.layerGroup.hasLayer(layer)) {
+          track.layerGroup.removeLayer(layer);
+        }
+      } else {
+        keep.push(layer);
+      }
+    }
+    track._ownedLayers = keep;
+  }
+
+  /**
    * Re-render ONLY the active track's peak markers (+ connector lines +
    * spatial-cluster blobs) instead of the full renderData() path/peak/hotspot
    * rebuild. For changes that only affect peak data — e.g. a label edit,
@@ -792,19 +814,7 @@ class GSRMapManager {
       return;
     }
 
-    const PEAK_KINDS = new Set(['peak', 'connector']);
-    const keep = [];
-    for (const layer of (activeTrack._ownedLayers || [])) {
-      if (PEAK_KINDS.has(layer._gsrKind)) {
-        if (this.map.hasLayer(layer)) this.map.removeLayer(layer);
-        if (activeTrack.layerGroup && activeTrack.layerGroup.hasLayer(layer)) {
-          activeTrack.layerGroup.removeLayer(layer);
-        }
-      } else {
-        keep.push(layer);
-      }
-    }
-    activeTrack._ownedLayers = keep;
+    this._stripOwnedLayersByKind(activeTrack, new Set(['peak', 'connector']));
 
     if (!opts.skipClustering) {
       this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
@@ -845,18 +855,7 @@ class GSRMapManager {
     // the only rendered layers, so there's nothing here to touch either.
     if (drawPoints.length === 0) return;
 
-    const keep = [];
-    for (const layer of (activeTrack._ownedLayers || [])) {
-      if (layer._gsrKind === 'path') {
-        if (this.map.hasLayer(layer)) this.map.removeLayer(layer);
-        if (activeTrack.layerGroup && activeTrack.layerGroup.hasLayer(layer)) {
-          activeTrack.layerGroup.removeLayer(layer);
-        }
-      } else {
-        keep.push(layer);
-      }
-    }
-    activeTrack._ownedLayers = keep;
+    this._stripOwnedLayersByKind(activeTrack, new Set(['path']));
 
     this._renderPathSegments(drawPoints, p.trackWeight || 5, analyzer, activeTrack);
   }
@@ -1845,17 +1844,7 @@ class GSRMapManager {
     const layerGroup = track.layerGroup;
     const trackColor = track.color || '#0ea5e9';
 
-    const PEAK_KINDS = new Set(['collectivePeak', 'collectiveConnector']);
-    const keep = [];
-    for (const layer of (track._ownedLayers || [])) {
-      if (PEAK_KINDS.has(layer._gsrKind)) {
-        if (this.map.hasLayer(layer)) this.map.removeLayer(layer);
-        if (layerGroup.hasLayer(layer)) layerGroup.removeLayer(layer);
-      } else {
-        keep.push(layer);
-      }
-    }
-    track._ownedLayers = keep;
+    this._stripOwnedLayersByKind(track, new Set(['collectivePeak', 'collectiveConnector']));
 
     this._renderCollectiveTrackPeaks(track, layerGroup, trackColor, peakLatency || 0, null);
     this.updateMarkerVisibility();

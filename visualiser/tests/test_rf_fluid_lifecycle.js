@@ -34,7 +34,7 @@ global.window = { devicePixelRatio: 1 };
 // for un-exported classes, rather than editing production source just to
 // add an export hook for a class with no guard either way already.
 const vm = require('vm');
-const spatialGridSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'map', 'spatial_grid.js'), 'utf8');
+const spatialGridSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'spatial', 'spatial_grid.js'), 'utf8');
 vm.runInThisContext(spatialGridSrc.replace('class SpatialGrid', 'global.SpatialGrid = class SpatialGrid'), { filename: 'spatial_grid.js' });
 
 const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'render', 'rf_fluid_renderer.js'), 'utf8');
