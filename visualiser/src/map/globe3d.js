@@ -5,17 +5,105 @@
  *
  * Renders biometric tracks as 3D extruded emotional ribbons/walls and
  * vertical peak spires over 3D terrain and satellite/urban basemaps.
+ *
+ * GSRGlobeManager is a self-contained, embeddable engine: construct it against a
+ * container id, feed it an analysed track via renderData(), and tear it down with
+ * destroy(). It makes no assumptions about owning the whole page — 3d.html is one
+ * host; index.html could be a second (see docs/… integration notes). Page chrome
+ * (sidebar, help pill) lives in the host, never here.
  */
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Module-level tables & helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve the CARTO basemap key the same way map.js / live.html do:
+ * BIOMAP_CONFIG.cartoApiKey, then a localStorage fallback (guarded), then
+ * appended as ?key=<encoded>. Kept identical so all three stay in step —
+ * see tests/test_html_wiring.js.
+ */
+function cartoTileUrl(styleSlug) {
+  let cartoKey = (typeof window !== 'undefined' && window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.cartoApiKey) || '';
+  if (!cartoKey) {
+    try { cartoKey = localStorage.getItem('bioMappingCartoApiKey') || ''; } catch (e) { /* no-op */ }
+  }
+  return `https://{s}.basemaps.cartocdn.com/${styleSlug}/{z}/{x}/{y}.png` +
+    (cartoKey ? '?key=' + encodeURIComponent(cartoKey) : '');
+}
+
+/** basemap id -> factory producing a fresh Cesium imagery provider (no API key required) */
+const BASEMAP_PROVIDERS = {
+  satellite: () => new Cesium.UrlTemplateImageryProvider({
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    maximumLevel: 19,
+    credit: 'Esri, Maxar, Earthstar Geographics'
+  }),
+  sentinel: () => new Cesium.UrlTemplateImageryProvider({
+    url: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',
+    maximumLevel: 16,
+    credit: 'Sentinel-2 cloudless by EOX IT Services GmbH (Contains modified Copernicus Sentinel data)'
+  }),
+  nasa: () => new Cesium.UrlTemplateImageryProvider({
+    url: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg',
+    maximumLevel: 8,
+    credit: 'NASA GIBS / Landsat / Blue Marble'
+  }),
+  osm: () => new Cesium.OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' }),
+  dark: () => new Cesium.UrlTemplateImageryProvider({
+    url: cartoTileUrl('dark_all'), subdomains: ['a', 'b', 'c', 'd'], maximumLevel: 19
+  }),
+  positron: () => new Cesium.UrlTemplateImageryProvider({
+    url: cartoTileUrl('light_all'), subdomains: ['a', 'b', 'c', 'd'], maximumLevel: 19
+  })
+};
+
+/**
+ * Coloring metric -> analyzer per-sample series field. Mirrors DERIVED_METRIC_SERIES
+ * in map.js; anything not listed falls back to the raw GSR series.
+ */
+const SERIES_FIELD = {
+  phasic: 'phasic',
+  tonic: 'tonic',
+  arousalIndex: 'arousalIndex',
+  peakDensity: 'peakDensity',
+  phasicAUC: 'phasicAUC'
+};
+
+/** Unwrap one analyzer series sample ({time,val} | number) to a plain float. */
+const seriesValue = (d) =>
+  (d && typeof d === 'object' && 'val' in d) ? d.val : (typeof d === 'number' ? d : 0);
+
+// Standalone GPS pipeline tuning — 3D forces a downsample and a non-zero RDP
+// tolerance for frame-rate headroom, unlike map.js which honours the UI toggles.
+const STANDALONE_FORCE_DOWNSAMPLE = true;
+const STANDALONE_RDP_TOLERANCE = 0.00002;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GSRGlobeManager
+// ─────────────────────────────────────────────────────────────────────────────
+
 class GSRGlobeManager {
+  /**
+   * @param {string} containerId  DOM id of the element to mount the Cesium viewer in.
+   * @param {object} [options]
+   * @param {string}  [options.metric='phasic']       initial coloring metric
+   * @param {number}  [options.extrusionScale=8.0]    initial wall-height scale
+   * @param {boolean} [options.keyboardFlight=true]   bind window WASD/arrow flight keys
+   * @param {boolean} [options.doubleClickFly=true]   double-click canvas to fly to point
+   */
   constructor(containerId, options = {}) {
     this.containerId = containerId;
     this.viewer = null;
     this.options = options;
 
+    // Embedding contract — a host that shares the page (index.html view tab) turns
+    // keyboardFlight off so the 3D engine's window key listeners don't fight the 2D view.
+    this.keyboardFlight = options.keyboardFlight !== false;
+    this.doubleClickFly = options.doubleClickFly !== false;
+
     // Active track data cache
     this.currentAnalyzer = null;
-    this.currentGpsParams = null;
     this.currentDrawPoints = [];
     this.currentPeaks = [];
 
@@ -26,16 +114,22 @@ class GSRGlobeManager {
     this.showPeaks = true;
     this.minPeakQuality = 0.0;
     this.showGroundPath = true;
-    this.showWall = true;
 
-    // Entity collections
+    // Entity / primitive collections
     this.trackEntities = [];
+    this.wallPrimitive = null;
     this.peakEntities = [];
     this.osmBuildingEntities = [];
     this.scrubEntity = null;
     this.buildingsTileset = null;
     this.buildingPrimitive = null;
     this.cachedOsmJson = null;
+
+    // Teardown bookkeeping — every listener this class adds, so destroy() is exact.
+    this._keyDownHandler = null;
+    this._keyUpHandler = null;
+    this._screenSpaceHandler = null;
+    this._flightTickRemover = null;
 
     // 3D Volumetric RF Expanse settings
     this.showRfVolumetric = false;
@@ -52,55 +146,11 @@ class GSRGlobeManager {
   }
 
   /**
-   * Helper to create reliable, key-free tile imagery providers
+   * Create a reliable, key-free tile imagery provider for a basemap id.
+   * Falls back to OpenStreetMap for an unknown id. See BASEMAP_PROVIDERS.
    */
   _createImageryProvider(type) {
-    if (type === 'satellite') {
-      return new Cesium.UrlTemplateImageryProvider({
-        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        maximumLevel: 19,
-        credit: 'Esri, Maxar, Earthstar Geographics'
-      });
-    } else if (type === 'sentinel') {
-      return new Cesium.UrlTemplateImageryProvider({
-        url: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',
-        maximumLevel: 16,
-        credit: 'Sentinel-2 cloudless by EOX IT Services GmbH (Contains modified Copernicus Sentinel data)'
-      });
-    } else if (type === 'nasa') {
-      return new Cesium.UrlTemplateImageryProvider({
-        url: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg',
-        maximumLevel: 8,
-        credit: 'NASA GIBS / Landsat / Blue Marble'
-      });
-    } else if (type === 'osm') {
-      return new Cesium.OpenStreetMapImageryProvider({
-        url: 'https://tile.openstreetmap.org/'
-      });
-    } else if (type === 'dark') {
-      let cartoKey = (window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.cartoApiKey) || '';
-      const url = cartoKey
-        ? `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png?api_key=${cartoKey}`
-        : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png';
-      return new Cesium.UrlTemplateImageryProvider({
-        url: url,
-        subdomains: ['a', 'b', 'c', 'd'],
-        maximumLevel: 19
-      });
-    } else if (type === 'positron') {
-      let cartoKey = (window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.cartoApiKey) || '';
-      const url = cartoKey
-        ? `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?api_key=${cartoKey}`
-        : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png';
-      return new Cesium.UrlTemplateImageryProvider({
-        url: url,
-        subdomains: ['a', 'b', 'c', 'd'],
-        maximumLevel: 19
-      });
-    }
-    return new Cesium.OpenStreetMapImageryProvider({
-      url: 'https://tile.openstreetmap.org/'
-    });
+    return (BASEMAP_PROVIDERS[type] || BASEMAP_PROVIDERS.osm)();
   }
 
   /**
@@ -225,28 +275,33 @@ class GSRGlobeManager {
       }
     ];
 
-    // 5. Double-Click to fly to point (Google Earth style)
-    const handler = new Cesium.ScreenSpaceEventHandler(scene.canvas);
-    handler.setInputAction((click) => {
-      const ray = this.viewer.camera.getPickRay(click.position);
-      const targetPos = scene.globe.pick(ray, scene);
-      if (targetPos) {
-        const cartographic = Cesium.Cartographic.fromCartesian(targetPos);
-        const curHeight = this.viewer.camera.positionCartographic.height;
-        const targetHeight = Math.max(150.0, curHeight * 0.45);
-        this.viewer.camera.flyTo({
-          destination: Cesium.Cartesian3.fromRadians(
-            cartographic.longitude,
-            cartographic.latitude,
-            targetHeight
-          ),
-          duration: 1.2
-        });
-      }
-    }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+    // 5. Double-Click to fly to point (Google Earth style). Bound to the viewer's
+    // own canvas, never document — kept in _screenSpaceHandler for destroy().
+    if (this.doubleClickFly) {
+      this._screenSpaceHandler = new Cesium.ScreenSpaceEventHandler(scene.canvas);
+      this._screenSpaceHandler.setInputAction((click) => {
+        const ray = this.viewer.camera.getPickRay(click.position);
+        const targetPos = scene.globe.pick(ray, scene);
+        if (targetPos) {
+          const cartographic = Cesium.Cartographic.fromCartesian(targetPos);
+          const curHeight = this.viewer.camera.positionCartographic.height;
+          const targetHeight = Math.max(150.0, curHeight * 0.45);
+          this.viewer.camera.flyTo({
+            destination: Cesium.Cartesian3.fromRadians(
+              cartographic.longitude,
+              cartographic.latitude,
+              targetHeight
+            ),
+            duration: 1.2
+          });
+        }
+      }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+    }
 
-    // 6. Real-time WASD / Arrow Key flying controls
-    this._setupKeyboardFlight();
+    // 6. Real-time WASD / Arrow Key flying controls (opt-out for shared-page hosts)
+    if (this.keyboardFlight) {
+      this._setupKeyboardFlight();
+    }
   }
 
   /**
@@ -293,7 +348,8 @@ class GSRGlobeManager {
       }
     };
 
-    window.addEventListener('keydown', (e) => {
+    // Listeners are stored as instance refs so destroy() can remove them exactly.
+    this._keyDownHandler = (e) => {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
       const flag = getFlagForKey(e.code);
       if (flag) {
@@ -302,18 +358,19 @@ class GSRGlobeManager {
       } else if (e.code === 'KeyN') {
         this.resetNorth();
       }
-    });
-
-    window.addEventListener('keyup', (e) => {
+    };
+    this._keyUpHandler = (e) => {
       const flag = getFlagForKey(e.code);
       if (flag) {
         flags[flag] = false;
         e.preventDefault();
       }
-    });
+    };
+    window.addEventListener('keydown', this._keyDownHandler);
+    window.addEventListener('keyup', this._keyUpHandler);
 
     // Animate camera on each frame
-    this.viewer.clock.onTick.addEventListener(() => {
+    const flightTick = () => {
       const camera = this.viewer.camera;
       const cameraHeight = camera.positionCartographic.height;
       const moveRate = Math.max(2.0, cameraHeight * 0.15);
@@ -327,7 +384,55 @@ class GSRGlobeManager {
       if (flags.moveRight) camera.moveRight(moveRate);
       if (flags.yawLeft) camera.lookLeft(rotateRate);
       if (flags.yawRight) camera.lookRight(rotateRate);
-    });
+    };
+    this._flightTickRemover = this.viewer.clock.onTick.addEventListener(flightTick);
+  }
+
+  /**
+   * Tear down the viewer and every listener/primitive this manager created.
+   * Safe to call more than once. Required by any host that mounts and unmounts
+   * the 3D view repeatedly (e.g. an index.html view tab).
+   */
+  destroy() {
+    this.stopOrbit();
+    this.clearAll();
+
+    if (this._keyDownHandler) {
+      window.removeEventListener('keydown', this._keyDownHandler);
+      this._keyDownHandler = null;
+    }
+    if (this._keyUpHandler) {
+      window.removeEventListener('keyup', this._keyUpHandler);
+      this._keyUpHandler = null;
+    }
+    if (this._flightTickRemover) {
+      this._flightTickRemover();
+      this._flightTickRemover = null;
+    }
+    if (this._screenSpaceHandler && !this._screenSpaceHandler.isDestroyed()) {
+      this._screenSpaceHandler.destroy();
+    }
+    this._screenSpaceHandler = null;
+
+    if (this.viewer && !this.viewer.isDestroyed()) {
+      this.viewer.destroy();
+    }
+    this.viewer = null;
+    this.currentAnalyzer = null;
+    this.currentDrawPoints = [];
+    this.currentPeaks = [];
+  }
+
+  /** Surface a recoverable problem to the user via GSRNotices, falling back to console. */
+  _notifyWarn(message) {
+    if (typeof GSRNotices !== 'undefined') GSRNotices.warn(message, 'globe3d');
+    else console.warn('[globe3d]', message);
+  }
+
+  /** Surface an unexpected error to the user via GSRNotices, falling back to console. */
+  _notifyError(err) {
+    if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'globe3d');
+    else console.error('[globe3d]', err);
   }
 
   /**
@@ -443,9 +548,8 @@ class GSRGlobeManager {
         }
         this.viewer.scene.primitives.add(this.buildingsTileset);
       } catch (err) {
-        console.warn('Could not load Cesium OSM 3D Buildings:', err);
         if (onStatus) onStatus('');
-        alert('Could not load 3D Buildings: ' + err.message);
+        this._notifyError(err);
         this.show3DBuildings = false;
         return;
       }
@@ -835,10 +939,16 @@ class GSRGlobeManager {
   }
 
   /**
-   * Compute filtered GPS anchors and downsampled draw points
-   * matching Leaflet map.js pipeline exactly.
+   * Run the full GPS filter chain for the standalone 3d.html page and return
+   * displayable draw points.
+   *
+   * This mirrors GSRMapManager._getOrBuildDrawPoints() (src/map/map.js) minus its
+   * per-track cache, and is the designated extraction point: a future shared
+   * GpsPipeline.buildDrawPoints(analyzer, params, opts) would replace this body and
+   * let an in-app host feed globe3d the drawPoints it already built for Leaflet
+   * (renderData's `drawPoints` option) instead of re-running the chain here.
    */
-  _computeGpsPoints(analyzer, data, gpsParams) {
+  _computeDrawPointsStandalone(analyzer, data, gpsParams) {
     const p = gpsParams || (typeof GSR_CONST !== 'undefined' ? GSR_CONST.GPS_DEFAULT : {});
     let gpsPoints = [];
     for (let i = 0; i < data.length; i++) {
@@ -847,12 +957,10 @@ class GSRGlobeManager {
       }
     }
 
-    if (gpsPoints.length === 0) {
-      return { gpsPoints: [], drawPoints: [] };
-    }
+    if (gpsPoints.length === 0) return [];
 
     gpsPoints = GpsPipeline.applyHdopGate(gpsPoints, p.maxHdop || 3.0);
-    gpsPoints = GpsPipeline.applyFixTypeGate(gpsPoints, p.minFixType || 2);
+    gpsPoints = GpsPipeline.applyFixTypeGate(gpsPoints); // defaults minFixType = 2, matching map.js
 
     const smoothing = p.smoothing || 0.5;
     const kalmanR   = p.kalmanR || 10;
@@ -882,59 +990,67 @@ class GSRGlobeManager {
       }
     }
 
-    drawPoints = GpsPipeline.downsampleForDisplay(drawPoints, analyzer.sampleRate || 10.0, true, analyzer.rfPeakIndices);
-    drawPoints = GpsFilter.applyRDP(drawPoints, p.rdpTolerance || 0.00002, analyzer.rfPeakIndices);
+    drawPoints = GpsPipeline.downsampleForDisplay(
+      drawPoints, analyzer.sampleRate || 10.0, STANDALONE_FORCE_DOWNSAMPLE, analyzer.rfPeakIndices);
+    drawPoints = GpsFilter.applyRDP(
+      drawPoints, p.rdpTolerance || STANDALONE_RDP_TOLERANCE, analyzer.rfPeakIndices);
 
-    return { gpsPoints, drawPoints };
+    return drawPoints;
   }
 
   /**
-   * Render BioMapping track in 3D
-   * @param {GSRAnalyzer} analyzer - Analyzed track instance
-   * @param {object} gpsParams - Filter parameters
-   * @param {boolean} [isPreview=false]
+   * Render a BioMapping track in 3D.
+   * @param {GSRAnalyzer} analyzer  Analysed track instance.
+   * @param {object} gpsParams      GPS filter parameters (used only when `drawPoints` is omitted).
+   * @param {object} [opts]
+   * @param {Array}   [opts.drawPoints]  Pre-computed draw points from the host; skips the
+   *                                     standalone GPS chain entirely.
+   * @param {boolean} [opts.isPreview=false]  Suppress the initial fly-to-track.
    */
-  renderData(analyzer, gpsParams, isPreview = false) {
+  renderData(analyzer, gpsParams, opts = {}) {
     if (!this.viewer || !analyzer || !analyzer.raw || analyzer.raw.length === 0) return;
 
-    this.currentAnalyzer = analyzer;
-    this.currentGpsParams = gpsParams;
+    // Back-compat: renderData(analyzer, params, true) still means isPreview.
+    if (typeof opts === 'boolean') opts = { isPreview: opts };
+    const { drawPoints: providedDrawPoints, isPreview = false } = opts;
 
-    const { drawPoints } = this._computeGpsPoints(analyzer, analyzer.raw, gpsParams);
+    this.currentAnalyzer = analyzer;
+
+    const drawPoints = providedDrawPoints
+      || this._computeDrawPointsStandalone(analyzer, analyzer.raw, gpsParams);
     this.currentDrawPoints = drawPoints;
 
     if (drawPoints.length < 2) {
-      alert('Track contains insufficient GPS coordinates to render in 3D.');
+      this._notifyWarn('Track contains insufficient GPS coordinates to render in 3D.');
       return;
     }
 
     // Filter peaks by quality threshold
     this.currentPeaks = (analyzer.peaks || []).filter(pk => !pk.excluded);
 
-    // Clear previous entities
+    // Clear everything from any previous track (peaks/RF leaked before)
     this.clearTrackEntities();
+    this.clearPeakEntities();
+    this.clearRfEntities();
 
-    // 2. Render 3D Extruded Wall & Ground Path
     this._render3DWallAndPath(analyzer, drawPoints);
 
-    // 3. Render 3D Peak Spires
     if (this.showPeaks) {
       this._renderPeakSpires(analyzer, this.currentPeaks);
     }
 
-    // 4. Render 3D Volumetric RF Expanse
     if (this.showRfVolumetric) {
       this.render3DRfExpanse(analyzer, drawPoints);
     }
 
-    // 5. Initial Fly to track if first render
     if (!isPreview) {
       this.flyToTrack();
     }
   }
 
   /**
-   * Build 3D wall segments and ground polyline
+   * Build the extruded arousal wall (one batched GPU primitive, one instance per
+   * segment for its own colour) and the clamped ground polyline.
    */
   _render3DWallAndPath(analyzer, drawPoints) {
     if (drawPoints.length < 2) return;
@@ -960,7 +1076,9 @@ class GSRGlobeManager {
       maxVal = 1;
     }
 
-    // Build wall segments (segment-by-segment for continuous vertex coloring)
+    // One GeometryInstance per segment (keeps per-segment colour), collapsed into
+    // a single Primitive / draw call — the shape renderOsm3DBuildings() uses.
+    const wallInstances = [];
     const groundPositions = [];
 
     for (let i = 0; i < drawPoints.length - 1; i++) {
@@ -975,12 +1093,8 @@ class GSRGlobeManager {
       const val2 = series[p2.origIdx] ?? minVal;
       const avgVal = (val1 + val2) / 2;
 
-      // Calculate extruded height above terrain
-      const normalizedVal1 = Math.max(0, val1);
-      const normalizedVal2 = Math.max(0, val2);
-
-      const h1 = this.baseHeight + normalizedVal1 * this.extrusionScale;
-      const h2 = this.baseHeight + normalizedVal2 * this.extrusionScale;
+      const h1 = this.baseHeight + Math.max(0, val1) * this.extrusionScale;
+      const h2 = this.baseHeight + Math.max(0, val2) * this.extrusionScale;
 
       const pos1 = Cesium.Cartesian3.fromDegrees(p1.lon, p1.lat);
       const pos2 = Cesium.Cartesian3.fromDegrees(p2.lon, p2.lat);
@@ -988,22 +1102,35 @@ class GSRGlobeManager {
       groundPositions.push(pos1);
       if (i === drawPoints.length - 2) groundPositions.push(pos2);
 
-      // Color from BioMapping palette
       const hexColor = MapColors.getColorForMetric(metric, avgVal, minVal, maxVal);
       const cesiumColor = Cesium.Color.fromCssColorString(hexColor).withAlpha(0.85);
 
-      // Extruded wall strip
-      const wallEntity = this.viewer.entities.add({
-        name: `Biomap Wall Segment ${i}`,
-        wall: {
-          positions: [pos1, pos2],
-          minimumHeights: [0.0, 0.0],
-          maximumHeights: [h1, h2],
-          material: cesiumColor,
-          outline: false
-        }
+      try {
+        wallInstances.push(new Cesium.GeometryInstance({
+          geometry: new Cesium.WallGeometry({
+            positions: [pos1, pos2],
+            minimumHeights: [0.0, 0.0],
+            maximumHeights: [h1, h2],
+            vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT
+          }),
+          attributes: {
+            color: Cesium.ColorGeometryInstanceAttribute.fromColor(cesiumColor)
+          },
+          id: `biomap-wall-${i}`
+        }));
+      } catch (err) {
+        // Skip degenerate (zero-length) segments cleanly
+      }
+    }
+
+    if (wallInstances.length > 0) {
+      this.wallPrimitive = new Cesium.Primitive({
+        geometryInstances: wallInstances,
+        // flat: match the old unlit `wall.material = color` look (scene lighting is off)
+        appearance: new Cesium.PerInstanceColorAppearance({ flat: true, translucent: true, closed: false }),
+        asynchronous: false
       });
-      this.trackEntities.push(wallEntity);
+      this.viewer.scene.primitives.add(this.wallPrimitive);
     }
 
     // Ground outline track
@@ -1096,23 +1223,14 @@ class GSRGlobeManager {
   }
 
   /**
-   * Helper to retrieve appropriate metric array from analyzer as numeric floats
+   * Retrieve the coloring-metric series from the analyzer as plain floats.
+   * Derived metrics (SERIES_FIELD) come from per-sample analyzer arrays; anything
+   * else falls back to the raw GSR series.
    */
   _getMetricSeries(analyzer, metric) {
-    if (metric === 'phasic' && analyzer.phasic && analyzer.phasic.length > 0) {
-      return analyzer.phasic.map(d => (d && typeof d === 'object' && 'val' in d) ? d.val : (typeof d === 'number' ? d : 0));
-    }
-    if (metric === 'tonic' && analyzer.tonic && analyzer.tonic.length > 0) {
-      return analyzer.tonic.map(d => (d && typeof d === 'object' && 'val' in d) ? d.val : (typeof d === 'number' ? d : 0));
-    }
-    if (metric === 'arousalIndex' && analyzer.arousalIndex && analyzer.arousalIndex.length > 0) {
-      return analyzer.arousalIndex.map(d => (d && typeof d === 'object' && 'val' in d) ? d.val : (typeof d === 'number' ? d : 0));
-    }
-    if (metric === 'peakDensity' && analyzer.peakDensity && analyzer.peakDensity.length > 0) {
-      return analyzer.peakDensity.map(d => (d && typeof d === 'object' && 'val' in d) ? d.val : (typeof d === 'number' ? d : 0));
-    }
-    if (metric === 'phasicAUC' && analyzer.phasicAUC && analyzer.phasicAUC.length > 0) {
-      return analyzer.phasicAUC.map(d => (d && typeof d === 'object' && 'val' in d) ? d.val : (typeof d === 'number' ? d : 0));
+    const field = SERIES_FIELD[metric];
+    if (field && analyzer[field] && analyzer[field].length > 0) {
+      return analyzer[field].map(seriesValue);
     }
     if (analyzer.raw && analyzer.raw.length > 0) {
       return analyzer.raw.map(d => (d.gsr !== undefined ? d.gsr : (d.val !== undefined ? d.val : 0)));
@@ -1120,34 +1238,27 @@ class GSRGlobeManager {
     return [];
   }
 
-  /**
-   * Set active coloring metric and refresh 3D wall
-   */
-  setColoringMetric(metric) {
-    this.activeColoringMetric = metric;
-    if (this.currentAnalyzer && this.currentDrawPoints.length > 0) {
-      this.clearTrackEntities();
-      this._render3DWallAndPath(this.currentAnalyzer, this.currentDrawPoints);
-      if (this.showPeaks) {
-        this.clearPeakEntities();
-        this._renderPeakSpires(this.currentAnalyzer, this.currentPeaks);
-      }
+  /** Re-draw the wall (and, if shown, the peak spires) from the cached track. */
+  _refreshTrack() {
+    if (!this.currentAnalyzer || this.currentDrawPoints.length < 2) return;
+    this.clearTrackEntities();
+    this._render3DWallAndPath(this.currentAnalyzer, this.currentDrawPoints);
+    if (this.showPeaks) {
+      this.clearPeakEntities();
+      this._renderPeakSpires(this.currentAnalyzer, this.currentPeaks);
     }
   }
 
-  /**
-   * Adjust extrusion height scale and refresh
-   */
+  /** Set active coloring metric and refresh. */
+  setColoringMetric(metric) {
+    this.activeColoringMetric = metric;
+    this._refreshTrack();
+  }
+
+  /** Adjust extruded wall-height scale and refresh. */
   setExtrusionScale(scale) {
     this.extrusionScale = scale;
-    if (this.currentAnalyzer && this.currentDrawPoints.length > 0) {
-      this.clearTrackEntities();
-      this._render3DWallAndPath(this.currentAnalyzer, this.currentDrawPoints);
-      if (this.showPeaks) {
-        this.clearPeakEntities();
-        this._renderPeakSpires(this.currentAnalyzer, this.currentPeaks);
-      }
-    }
+    this._refreshTrack();
   }
 
   /**
@@ -1163,9 +1274,13 @@ class GSRGlobeManager {
   }
 
   /**
-   * Clear track wall and path entities
+   * Clear the batched wall primitive and the ground-path entity.
    */
   clearTrackEntities() {
+    if (this.wallPrimitive) {
+      this.viewer.scene.primitives.remove(this.wallPrimitive);
+      this.wallPrimitive = null;
+    }
     this.trackEntities.forEach(ent => this.viewer.entities.remove(ent));
     this.trackEntities = [];
   }
@@ -1287,7 +1402,7 @@ class GSRGlobeManager {
    */
   exportCzml(filename = 'biomap_track_3d.czml') {
     if (!this.currentAnalyzer || this.currentDrawPoints.length === 0) {
-      alert('No active track loaded to export.');
+      this._notifyWarn('No active track loaded to export.');
       return;
     }
 
@@ -1349,7 +1464,7 @@ class GSRGlobeManager {
    */
   exportKml(filename = 'biomap_track_3d.kml') {
     if (!this.currentAnalyzer || this.currentDrawPoints.length === 0) {
-      alert('No active track loaded to export.');
+      this._notifyWarn('No active track loaded to export.');
       return;
     }
 
@@ -1406,7 +1521,7 @@ ${kmlCoords.trim()}
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRGlobeManager };
+  module.exports = { GSRGlobeManager, BASEMAP_PROVIDERS, SERIES_FIELD, seriesValue };
 }
 if (typeof window !== 'undefined') {
   window.GSRGlobeManager = GSRGlobeManager;
