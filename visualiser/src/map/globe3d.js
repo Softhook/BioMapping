@@ -122,7 +122,8 @@ class GSRGlobeManager {
       vrButton: false,
       creditContainer: document.createElement('div'), // Hide default credit container to manage cleanly
       scene3DOnly: true,
-      shadows: false
+      shadows: false,
+      requestRenderMode: false // Smooth continuous flight & orbit
     });
 
     // Set initial ArcGIS satellite basemap immediately
@@ -131,22 +132,11 @@ class GSRGlobeManager {
     const scene = this.viewer.scene;
     const globe = scene.globe;
 
-    // Enable depth testing so solid 3D buildings occlude background geometry properly
-    globe.enableLighting = true;
-    globe.depthTestAgainstTerrain = true;
+    // Fast, lightweight rendering settings
+    globe.enableLighting = false;
+    globe.depthTestAgainstTerrain = false;
     scene.fog.enabled = true;
     scene.fog.density = 0.0001;
-
-    // Directional sunlight for 3D architectural facade shading
-    if (typeof Cesium.DirectionalLight !== 'undefined') {
-      try {
-        scene.light = new Cesium.DirectionalLight({
-          direction: new Cesium.Cartesian3(0.6, 0.4, -0.7)
-        });
-      } catch (e) {
-        // Fallback to standard Cesium sun
-      }
-    }
 
     // Optional Cesium Ion Terrain if token provided
     if (Cesium.Ion.defaultAccessToken && typeof Cesium.Terrain !== 'undefined') {
@@ -462,6 +452,10 @@ class GSRGlobeManager {
    * Extrude 3D building polygons from raw OpenStreetMap Overpass data
    * (100% token-free, no Cesium ion account needed).
    */
+  /**
+   * Extrude 3D building polygons from raw OpenStreetMap Overpass data
+   * (Batched into a single GPU primitive for high 60 FPS performance).
+   */
   renderOsm3DBuildings(osmJson, style = 'glass') {
     this.clearOsmBuildingEntities();
     if (!osmJson || !osmJson.elements) return;
@@ -492,34 +486,30 @@ class GSRGlobeManager {
 
     if (buildingWays.length === 0) return;
 
-    // Determine color based on architectural style
-    let fillColor, outlineColor;
+    // Determine color
+    let fillColor;
     if (style === 'glass') {
-      fillColor = Cesium.Color.fromCssColorString('#00d4ff').withAlpha(0.28);
-      outlineColor = Cesium.Color.fromCssColorString('#00d4ff').withAlpha(0.75);
+      fillColor = Cesium.Color.fromCssColorString('#00d4ff').withAlpha(0.35);
     } else if (style === 'dark') {
-      // 100% Solid opaque matte charcoal (occludes background completely)
-      fillColor = Cesium.Color.fromCssColorString('#1c202a');
-      outlineColor = Cesium.Color.fromCssColorString('#465066');
+      fillColor = Cesium.Color.fromCssColorString('#242833');
     } else if (style === 'monochrome') {
-      // 100% Solid opaque clean architectural plaster
-      fillColor = Cesium.Color.fromCssColorString('#f0f2f6');
-      outlineColor = Cesium.Color.fromCssColorString('#9ba3b4');
+      fillColor = Cesium.Color.fromCssColorString('#e4e7ee');
     } else {
-      // 100% Solid realistic limestone / masonry
-      fillColor = Cesium.Color.fromCssColorString('#d6cdc0');
-      outlineColor = Cesium.Color.fromCssColorString('#706556');
+      fillColor = Cesium.Color.fromCssColorString('#cfc4b4');
     }
 
-    // Extrude each building footprint into 3D
-    buildingWays.forEach((way, i) => {
+    const isTranslucent = (style === 'glass');
+    const instances = [];
+
+    // Build geometry instances into 1 single GPU draw call
+    for (let i = 0; i < buildingWays.length; i++) {
+      const way = buildingWays[i];
       const degreesArray = [];
       for (const pt of way.coordinates) {
         degreesArray.push(pt.lon, pt.lat);
       }
 
-      // Height calculation from OSM tags
-      let heightMeters = 9.0; // Default 3 stories (~9m)
+      let heightMeters = 9.0; // Default 3 stories
       if (way.tags.height) {
         const h = parseFloat(way.tags.height);
         if (!isNaN(h) && h > 0) heightMeters = h;
@@ -532,25 +522,47 @@ class GSRGlobeManager {
         heightMeters = 4.0;
       }
 
-      const buildingEntity = this.viewer.entities.add({
-        name: way.tags.name || `Building ${i + 1}`,
-        polygon: {
-          hierarchy: Cesium.Cartesian3.fromDegreesArray(degreesArray),
-          height: 0,
+      try {
+        const polygonGeometry = new Cesium.PolygonGeometry({
+          polygonHierarchy: new Cesium.PolygonHierarchy(
+            Cesium.Cartesian3.fromDegreesArray(degreesArray)
+          ),
+          height: 0.0,
           extrudedHeight: heightMeters,
-          material: fillColor,
-          outline: true,
-          outlineColor: outlineColor,
-          outlineWidth: 1.5,
-          shadows: Cesium.ShadowMode.ENABLED
-        }
+          vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT
+        });
+
+        instances.push(new Cesium.GeometryInstance({
+          geometry: polygonGeometry,
+          attributes: {
+            color: Cesium.ColorGeometryInstanceAttribute.fromColor(fillColor)
+          },
+          id: `osm-building-${i}`
+        }));
+      } catch (err) {
+        // Skip invalid/degenerate polygons cleanly
+      }
+    }
+
+    if (instances.length > 0) {
+      this.buildingPrimitive = new Cesium.Primitive({
+        geometryInstances: instances,
+        appearance: new Cesium.PerInstanceColorAppearance({
+          translucent: isTranslucent,
+          closed: true
+        }),
+        asynchronous: true
       });
-      this.osmBuildingEntities.push(buildingEntity);
-    });
+      this.viewer.scene.primitives.add(this.buildingPrimitive);
+    }
   }
 
   clearOsmBuildingEntities() {
-    if (this.osmBuildingEntities) {
+    if (this.buildingPrimitive) {
+      this.viewer.scene.primitives.remove(this.buildingPrimitive);
+      this.buildingPrimitive = null;
+    }
+    if (this.osmBuildingEntities && this.osmBuildingEntities.length > 0) {
       this.osmBuildingEntities.forEach(ent => this.viewer.entities.remove(ent));
       this.osmBuildingEntities = [];
     }
@@ -563,7 +575,7 @@ class GSRGlobeManager {
     this.buildingStyle = style;
 
     // Re-render local OSM extruded buildings if active
-    if (this.cachedOsmJson && this.osmBuildingEntities && this.osmBuildingEntities.length > 0) {
+    if (this.cachedOsmJson) {
       this.renderOsm3DBuildings(this.cachedOsmJson, style);
       return;
     }
@@ -782,9 +794,7 @@ class GSRGlobeManager {
           minimumHeights: [0.0, 0.0],
           maximumHeights: [h1, h2],
           material: cesiumColor,
-          outline: true,
-          outlineColor: cesiumColor.brighten(0.3, new Cesium.Color()),
-          outlineWidth: 1.5
+          outline: false
         }
       });
       this.trackEntities.push(wallEntity);
