@@ -53,6 +53,13 @@ const GSRLayoutManager = {
     this.setupPanelFullscreen('btnMapFullscreen', 'mapPanel');
     this.setupPanelFullscreen('btnEventsFullscreen', 'eventsPanel');
     this.setupPanelFullscreen('btnEnvFullscreen', 'environmentalPanel');
+    // Cesium sizes its canvas to the container box — after the panel is moved
+    // into / out of the fullscreen overlay it must be told to re-measure.
+    this.setupPanelFullscreen('btnGlobe3dFullscreen', 'globe3dPanel', () => {
+      if (typeof GSRGlobe3DView !== 'undefined' && GSRGlobe3DView.onResize) {
+        GSRGlobe3DView.onResize();
+      }
+    });
   },
 
   /**

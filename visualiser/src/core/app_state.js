@@ -15,7 +15,8 @@ const AppState = {
 
   // ── Track library ───────────────────────────────────────────────────────────
   activeTrackId: null,
-  viewMode: 'single',       // 'single' | 'collective'
+  viewMode: 'single',       // 'single' | 'collective'  (data scope)
+  surfaceView: 'map',       // 'map' | 'globe'          (render surface — see globe3d_view.js)
 
   // ── Track colour palette (Classic primary-inspired Swiss palette) ───────────
   trackColors: [

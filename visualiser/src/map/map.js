@@ -740,6 +740,10 @@ class GSRMapManager {
         this._lastFitBoundsTrackId = cacheKey;
       }
     }
+
+    // Let the 3D globe (if mounted) pull the fresh drawPoints / metric / legend
+    // range. See src/map/globe3d_view.js.
+    if (typeof AppState !== 'undefined' && AppState.emit) AppState.emit('map:rendered');
   }
 
   /**
@@ -822,6 +826,7 @@ class GSRMapManager {
 
     this._renderPeakMarkers(analyzer, analyzer.raw, p.peakLatency || 0, activeTrack, { skipClustering: !!opts.skipClustering });
     this.updateMarkerVisibility();
+    if (typeof AppState !== 'undefined' && AppState.emit) AppState.emit('map:rendered');
   }
 
   /**
@@ -858,6 +863,7 @@ class GSRMapManager {
     this._stripOwnedLayersByKind(activeTrack, new Set(['path']));
 
     this._renderPathSegments(drawPoints, p.trackWeight || 5, analyzer, activeTrack);
+    if (typeof AppState !== 'undefined' && AppState.emit) AppState.emit('map:rendered');
   }
 
   // ── Pipeline helpers ──────────────────────────────────────────────────────
@@ -1848,6 +1854,7 @@ class GSRMapManager {
 
     this._renderCollectiveTrackPeaks(track, layerGroup, trackColor, peakLatency || 0, null);
     this.updateMarkerVisibility();
+    if (typeof AppState !== 'undefined' && AppState.emit) AppState.emit('map:rendered');
   }
 
   /**
@@ -2300,6 +2307,8 @@ class GSRMapManager {
 
     // Update legend for collective view
     this.updateLegend();
+
+    if (typeof AppState !== 'undefined' && AppState.emit) AppState.emit('map:rendered');
   }
 
   /**

@@ -67,8 +67,18 @@ const SERIES_FIELD = {
   tonic: 'tonic',
   arousalIndex: 'arousalIndex',
   peakDensity: 'peakDensity',
-  phasicAUC: 'phasicAUC'
+  phasicAUC: 'phasicAUC',
+  em_fog: 'em_fog',
+  emFog: 'em_fog'
 };
+
+/**
+ * Metrics whose values are an arousal magnitude and so make sense as a wall
+ * height. Anything outside this set (raw GSR aside) colours the wall but can't
+ * drive its extrusion — the embedded host keeps height on a fixed arousal
+ * series (heightMetric) while colour follows whatever the 2D view is showing.
+ */
+const HEIGHT_CAPABLE_METRICS = new Set(['gsr', 'phasic', 'tonic', 'arousalIndex', 'peakDensity', 'phasicAUC']);
 
 /** Unwrap one analyzer series sample ({time,val} | number) to a plain float. */
 const seriesValue = (d) =>
@@ -91,6 +101,9 @@ class GSRGlobeManager {
    * @param {number}  [options.extrusionScale=8.0]    initial wall-height scale
    * @param {boolean} [options.keyboardFlight=true]   bind window WASD/arrow flight keys
    * @param {boolean} [options.doubleClickFly=true]   double-click canvas to fly to point
+   * @param {boolean} [options.requestRenderMode=false]  render only on scene change /
+   *   explicit requestRender() instead of every frame — big idle-cost win for an
+   *   embedded panel. Standalone 3d.html leaves it off for always-smooth flight.
    */
   constructor(containerId, options = {}) {
     this.containerId = containerId;
@@ -101,6 +114,7 @@ class GSRGlobeManager {
     // keyboardFlight off so the 3D engine's window key listeners don't fight the 2D view.
     this.keyboardFlight = options.keyboardFlight !== false;
     this.doubleClickFly = options.doubleClickFly !== false;
+    this.requestRenderMode = options.requestRenderMode === true;
 
     // Active track data cache
     this.currentAnalyzer = null;
@@ -109,6 +123,14 @@ class GSRGlobeManager {
 
     // Configuration & styling
     this.activeColoringMetric = options.metric || 'phasic'; // 'phasic' | 'gsr' | 'tonic' | 'arousalIndex' | 'peakDensity'
+    // Wall height is driven by this series, independent of the colour metric —
+    // so a host showing a non-magnitude metric (road class, EM fog, HDOP) in 2D
+    // still gets a meaningful extrusion in 3D. See _render3DWallAndPath.
+    this.heightMetric = options.heightMetric || 'phasic';
+    // When the host owns colour normalisation (2D view is the source of truth),
+    // it pushes its legend range in here via renderData({ colorRange }); null
+    // means "compute my own min/max over the drawn points".
+    this.externalColorRange = null;
     this.extrusionScale = options.extrusionScale || 8.0;    // Meters of height per metric unit
     this.baseHeight = 2.0;                                  // Minimum base wall height in meters
     this.showPeaks = true;
@@ -124,6 +146,11 @@ class GSRGlobeManager {
     this.buildingsTileset = null;
     this.buildingPrimitive = null;
     this.cachedOsmJson = null;
+
+    // Peak interaction — the host registers a callback and this class calls it
+    // with the analyzer.peaks index when the user clicks a peak spire, mirroring
+    // the 2D map's peak-marker click. See onPeakClick() / _renderPeakSpires().
+    this._peakClickCb = null;
 
     // Teardown bookkeeping — every listener this class adds, so destroy() is exact.
     this._keyDownHandler = null;
@@ -181,7 +208,10 @@ class GSRGlobeManager {
       creditContainer: document.createElement('div'), // Hide default credit container to manage cleanly
       scene3DOnly: true,
       shadows: false,
-      requestRenderMode: false // Smooth continuous flight & orbit
+      // Render-on-demand for the embedded panel (idle frames cost ~nothing);
+      // standalone 3d.html keeps continuous rendering for always-smooth flight.
+      requestRenderMode: this.requestRenderMode,
+      maximumRenderTimeChange: this.requestRenderMode ? Infinity : 0.0
     });
 
     // Set initial ArcGIS satellite basemap immediately
@@ -195,6 +225,20 @@ class GSRGlobeManager {
     globe.depthTestAgainstTerrain = false;
     scene.fog.enabled = true;
     scene.fog.density = 0.0001;
+
+    // Strip the space scenery — this is a top-down data view, none of it is
+    // useful and each one costs shader passes and slows the first paint.
+    if (scene.skyBox) scene.skyBox.show = false;
+    if (scene.skyAtmosphere) scene.skyAtmosphere.show = false;
+    if (scene.sun) scene.sun.show = false;
+    if (scene.moon) scene.moon.show = false;
+    scene.backgroundColor = Cesium.Color.fromCssColorString('#0b0c10');
+    globe.showGroundAtmosphere = false;
+    // Slightly coarser tiles: fewer/faster imagery requests, no visible loss at
+    // the altitudes this view uses.
+    globe.maximumScreenSpaceError = 2.0;
+    // Cap the tile-cache growth so a long session doesn't balloon GPU memory.
+    globe.tileCacheSize = 100;
 
     // Optional Cesium Ion Terrain if token provided
     if (Cesium.Ion.defaultAccessToken && typeof Cesium.Terrain !== 'undefined') {
@@ -275,10 +319,25 @@ class GSRGlobeManager {
       }
     ];
 
-    // 5. Double-Click to fly to point (Google Earth style). Bound to the viewer's
-    // own canvas, never document — kept in _screenSpaceHandler for destroy().
+    // 5. Canvas click handlers — bound to the viewer's own canvas, never
+    // document — kept in _screenSpaceHandler for destroy().
+    this._screenSpaceHandler = new Cesium.ScreenSpaceEventHandler(scene.canvas);
+
+    // 5a. LEFT_CLICK on a peak spire -> report its analyzer.peaks index to the
+    // host, the 3D equivalent of clicking a peak marker on the 2D map. Only
+    // fires on a click without a meaningful drag, so it doesn't fight camera
+    // rotation. Non-peak clicks are ignored (camera nav still works).
+    this._screenSpaceHandler.setInputAction((click) => {
+      if (!this._peakClickCb) return;
+      const picked = scene.pick(click.position);
+      const idx = picked && picked.id && picked.id._biomapPeakIndex;
+      if (typeof idx === 'number') {
+        this._peakClickCb(idx, { x: click.position.x, y: click.position.y });
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+    // 5b. Double-Click to fly to point (Google Earth style).
     if (this.doubleClickFly) {
-      this._screenSpaceHandler = new Cesium.ScreenSpaceEventHandler(scene.canvas);
       this._screenSpaceHandler.setInputAction((click) => {
         const ray = this.viewer.camera.getPickRay(click.position);
         const targetPos = scene.globe.pick(ray, scene);
@@ -384,6 +443,7 @@ class GSRGlobeManager {
       if (flags.moveRight) camera.moveRight(moveRate);
       if (flags.yawLeft) camera.lookLeft(rotateRate);
       if (flags.yawRight) camera.lookRight(rotateRate);
+      if (this.requestRenderMode) this.viewer.scene.requestRender();
     };
     this._flightTickRemover = this.viewer.clock.onTick.addEventListener(flightTick);
   }
@@ -413,6 +473,7 @@ class GSRGlobeManager {
       this._screenSpaceHandler.destroy();
     }
     this._screenSpaceHandler = null;
+    this._peakClickCb = null;
 
     if (this.viewer && !this.viewer.isDestroyed()) {
       this.viewer.destroy();
@@ -494,6 +555,7 @@ class GSRGlobeManager {
     if (provider) {
       layers.addImageryProvider(provider);
     }
+    this._requestRender();
   }
 
   /**
@@ -557,6 +619,7 @@ class GSRGlobeManager {
 
     this.buildingsTileset.show = true;
     this.apply3DBuildingStyle(style);
+    this._requestRender();
     if (onStatus) onStatus('');
   }
 
@@ -689,6 +752,7 @@ class GSRGlobeManager {
     // Re-render local OSM extruded buildings if active
     if (this.cachedOsmJson) {
       this.renderOsm3DBuildings(this.cachedOsmJson, style);
+      this._requestRender();
       return;
     }
 
@@ -710,6 +774,7 @@ class GSRGlobeManager {
       color: colorExpression,
       show: true
     });
+    this._requestRender();
   }
 
   /**
@@ -729,6 +794,7 @@ class GSRGlobeManager {
     if (show && this.currentAnalyzer && this.currentDrawPoints.length > 0) {
       this.render3DRfExpanse(this.currentAnalyzer, this.currentDrawPoints);
     }
+    this._requestRender();
   }
 
   /**
@@ -939,6 +1005,16 @@ class GSRGlobeManager {
   }
 
   /**
+   * Register a callback fired as (peakIndex, {x, y}) when the user clicks a
+   * peak spire — the 3D counterpart of a peak-marker click on the 2D map.
+   * peakIndex is the index into analyzer.peaks; {x, y} is the click position
+   * within the canvas so the host can place its popup. See globe3d_view.js.
+   */
+  onPeakClick(cb) {
+    this._peakClickCb = (typeof cb === 'function') ? cb : null;
+  }
+
+  /**
    * Run the full GPS filter chain for the standalone 3d.html page and return
    * displayable draw points.
    *
@@ -1003,6 +1079,13 @@ class GSRGlobeManager {
    * @param {GSRAnalyzer} analyzer  Analysed track instance.
    * @param {object} gpsParams      GPS filter parameters (used only when `drawPoints` is omitted).
    * @param {object} [opts]
+   * @param {string}  [opts.colorMetric]  Colour the wall/path by this metric instead of
+   *                                      the manager's own activeColoringMetric — the
+   *                                      embedded host passes the 2D view's active metric
+   *                                      so both surfaces match.
+   * @param {{min:number,max:number}} [opts.colorRange]  Host-owned colour normalisation
+   *                                      range (the 2D legend's min/max). When given, the
+   *                                      wall isn't re-normalised over its own points.
    * @param {Array}   [opts.drawPoints]  Pre-computed draw points from the host; skips the
    *                                     standalone GPS chain entirely.
    * @param {boolean} [opts.isPreview=false]  Suppress the initial fly-to-track.
@@ -1012,7 +1095,11 @@ class GSRGlobeManager {
 
     // Back-compat: renderData(analyzer, params, true) still means isPreview.
     if (typeof opts === 'boolean') opts = { isPreview: opts };
-    const { drawPoints: providedDrawPoints, isPreview = false } = opts;
+    const { drawPoints: providedDrawPoints, isPreview = false, colorMetric, colorRange } = opts;
+
+    if (colorMetric) this.activeColoringMetric = colorMetric;
+    this.externalColorRange =
+      (colorRange && isFinite(colorRange.min) && isFinite(colorRange.max)) ? colorRange : null;
 
     this.currentAnalyzer = analyzer;
 
@@ -1043,8 +1130,21 @@ class GSRGlobeManager {
       this.render3DRfExpanse(analyzer, drawPoints);
     }
 
+    this._requestRender();
+
     if (!isPreview) {
       this.flyToTrack();
+    }
+  }
+
+  /**
+   * Force one repaint when running in requestRenderMode — raw scene.primitives
+   * changes (the arousal wall, RF field, buildings) don't schedule one on their
+   * own the way the Entity API does. No-op in continuous-render mode.
+   */
+  _requestRender() {
+    if (this.requestRenderMode && this.viewer && this.viewer.scene) {
+      this.viewer.scene.requestRender();
     }
   }
 
@@ -1056,18 +1156,30 @@ class GSRGlobeManager {
     if (drawPoints.length < 2) return;
 
     const metric = this.activeColoringMetric;
-    const series = this._getMetricSeries(analyzer, metric);
+    // Colour follows the (possibly host-driven) metric; height follows a fixed
+    // arousal-magnitude series so a non-magnitude colour metric still extrudes.
+    const colorSeries = this._getMetricSeries(analyzer, metric);
+    const heightMetric = HEIGHT_CAPABLE_METRICS.has(metric) ? metric : this.heightMetric;
+    const heightSeries = (heightMetric === metric)
+      ? colorSeries
+      : this._getMetricSeries(analyzer, heightMetric);
 
-    // Calculate metric min and max for color normalization
+    // Colour normalisation range: the host's legend range when it owns it
+    // (2D view is the source of truth), otherwise computed over drawn points.
     let minVal = Infinity;
     let maxVal = -Infinity;
 
-    for (let i = 0; i < drawPoints.length; i++) {
-      const idx = drawPoints[i].origIdx;
-      const v = series[idx];
-      if (v != null && !isNaN(v)) {
-        if (v < minVal) minVal = v;
-        if (v > maxVal) maxVal = v;
+    if (this.externalColorRange) {
+      minVal = this.externalColorRange.min;
+      maxVal = this.externalColorRange.max;
+    } else {
+      for (let i = 0; i < drawPoints.length; i++) {
+        const idx = drawPoints[i].origIdx;
+        const v = colorSeries[idx];
+        if (v != null && !isNaN(v)) {
+          if (v < minVal) minVal = v;
+          if (v > maxVal) maxVal = v;
+        }
       }
     }
 
@@ -1089,12 +1201,14 @@ class GSRGlobeManager {
       const dt = Math.abs(p2.time - p1.time);
       if (dt > 15.0) continue;
 
-      const val1 = series[p1.origIdx] ?? minVal;
-      const val2 = series[p2.origIdx] ?? minVal;
+      const val1 = colorSeries[p1.origIdx] ?? minVal;
+      const val2 = colorSeries[p2.origIdx] ?? minVal;
       const avgVal = (val1 + val2) / 2;
 
-      const h1 = this.baseHeight + Math.max(0, val1) * this.extrusionScale;
-      const h2 = this.baseHeight + Math.max(0, val2) * this.extrusionScale;
+      const hv1 = heightSeries[p1.origIdx] ?? 0;
+      const hv2 = heightSeries[p2.origIdx] ?? 0;
+      const h1 = this.baseHeight + Math.max(0, hv1) * this.extrusionScale;
+      const h2 = this.baseHeight + Math.max(0, hv2) * this.extrusionScale;
 
       const pos1 = Cesium.Cartesian3.fromDegrees(p1.lon, p1.lat);
       const pos2 = Cesium.Cartesian3.fromDegrees(p2.lon, p2.lat);
@@ -1128,7 +1242,10 @@ class GSRGlobeManager {
         geometryInstances: wallInstances,
         // flat: match the old unlit `wall.material = color` look (scene lighting is off)
         appearance: new Cesium.PerInstanceColorAppearance({ flat: true, translucent: true, closed: false }),
-        asynchronous: false
+        // Embedded host: batch geometry off the main thread so a slider drag
+        // doesn't stall the whole page. Standalone keeps it synchronous (no
+        // pop-in) since it isn't sharing the frame with Leaflet + p5.
+        asynchronous: this.requestRenderMode
       });
       this.viewer.scene.primitives.add(this.wallPrimitive);
     }
@@ -1158,10 +1275,18 @@ class GSRGlobeManager {
     if (!peaks || peaks.length === 0) return;
 
     const metric = this.activeColoringMetric;
-    const series = this._getMetricSeries(analyzer, metric);
+    const heightMetric = HEIGHT_CAPABLE_METRICS.has(metric) ? metric : this.heightMetric;
+    const heightSeries = this._getMetricSeries(analyzer, heightMetric);
+
+    const allPeaks = analyzer.peaks || [];
 
     peaks.forEach((peak, i) => {
       if (peak.qualityScore < this.minPeakQuality) return;
+
+      // Index into analyzer.peaks (NOT the filtered `peaks` arg) — this is what
+      // GSRUI.updatePeakLabel()/togglePeakExclusion() expect, and what the
+      // click handler reports via _peakClickCb.
+      const peakIdx = allPeaks.indexOf(peak);
 
       // Peak position
       const coords = analyzer.getCoordinates(peak.index);
@@ -1169,7 +1294,11 @@ class GSRGlobeManager {
       const lat = coords.lat;
       const lon = coords.lon;
 
-      const val = series[peak.index] ?? peak.amplitude;
+      // Only labelled peaks get floating text — an unlabelled peak is just its
+      // spire + beacon (click it to add a label).
+      const labelText = (peak.label && peak.label.trim()) ? peak.label.trim() : '';
+
+      const val = heightSeries[peak.index] ?? peak.amplitude;
       const wallHeight = this.baseHeight + Math.max(0, val) * this.extrusionScale;
       const spireHeight = wallHeight + 15.0; // Spire shoots above wall
 
@@ -1193,31 +1322,34 @@ class GSRGlobeManager {
           })
         }
       });
+      // Cesium's Entity ctor ignores unknown options, so tag after creation.
+      spireEntity._biomapPeakIndex = peakIdx;
       this.peakEntities.push(spireEntity);
 
-      // Glowing Beacon Sphere at top of spire
+      // Glowing Beacon Sphere at top of spire — the main click target.
       const beaconEntity = this.viewer.entities.add({
         position: topPos,
         point: {
-          pixelSize: 10,
+          pixelSize: 12,
           color: spireColor,
           outlineColor: Cesium.Color.WHITE,
           outlineWidth: 2,
           disableDepthTestDistance: Number.POSITIVE_INFINITY
         },
-        label: {
-          text: `Peak ${i + 1}\n+${peak.amplitude.toFixed(1)} nS`,
-          font: '11px Inter, sans-serif',
+        label: labelText ? {
+          text: labelText,
+          font: '600 14px Inter, "Helvetica Neue", Arial, sans-serif',
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
           fillColor: Cesium.Color.WHITE,
-          outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 2,
+          outlineColor: Cesium.Color.fromCssColorString('#0b0c10'),
+          outlineWidth: 3,
           verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          pixelOffset: new Cesium.Cartesian2(0, -12),
+          pixelOffset: new Cesium.Cartesian2(0, -14),
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 5000.0)
-        }
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 6000.0)
+        } : undefined
       });
+      beaconEntity._biomapPeakIndex = peakIdx;
       this.peakEntities.push(beaconEntity);
     });
   }
@@ -1247,6 +1379,7 @@ class GSRGlobeManager {
       this.clearPeakEntities();
       this._renderPeakSpires(this.currentAnalyzer, this.currentPeaks);
     }
+    this._requestRender();
   }
 
   /** Set active coloring metric and refresh. */
@@ -1271,6 +1404,7 @@ class GSRGlobeManager {
     if (visible && this.currentAnalyzer) {
       this._renderPeakSpires(this.currentAnalyzer, this.currentPeaks);
     }
+    this._requestRender();
   }
 
   /**
@@ -1365,6 +1499,9 @@ class GSRGlobeManager {
       );
     };
 
+    // Continuous rendering for the duration of the orbit — render-on-demand
+    // (requestRenderMode) makes a per-tick camera animation visibly steppy.
+    this.viewer.scene.requestRenderMode = false;
     this._orbitRemoveCallback = this.viewer.clock.onTick.addEventListener(orbitStep);
     this._isOrbiting = true;
   }
@@ -1377,6 +1514,8 @@ class GSRGlobeManager {
     }
     this.viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
     this._isOrbiting = false;
+    // Back to render-on-demand (no-op when this host runs continuously anyway).
+    if (this.viewer) this.viewer.scene.requestRenderMode = this.requestRenderMode;
   }
 
   /**
@@ -1521,7 +1660,7 @@ ${kmlCoords.trim()}
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRGlobeManager, BASEMAP_PROVIDERS, SERIES_FIELD, seriesValue };
+  module.exports = { GSRGlobeManager, BASEMAP_PROVIDERS, SERIES_FIELD, HEIGHT_CAPABLE_METRICS, seriesValue };
 }
 if (typeof window !== 'undefined') {
   window.GSRGlobeManager = GSRGlobeManager;

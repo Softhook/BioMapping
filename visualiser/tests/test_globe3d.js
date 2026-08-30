@@ -95,7 +95,7 @@ test('public API the page depends on is present', () => {
     'renderData', 'destroy', 'setColoringMetric', 'setExtrusionScale', 'togglePeaks',
     'setBasemap', 'toggle3DBuildings', 'apply3DBuildingStyle', 'toggle3DRf',
     'flyToTrack', 'toggleOrbit', 'setViewPerspective', 'resetNorth',
-    'exportSnapshot', 'exportCzml', 'exportKml', 'setScrubPosition',
+    'exportSnapshot', 'exportCzml', 'exportKml', 'setScrubPosition', 'onPeakClick',
   ]) {
     assert.strictEqual(typeof proto[method], 'function', `missing ${method}()`);
   }
@@ -154,6 +154,24 @@ test('destroy() removes the window listeners and tears the viewer down', () => {
   assert.strictEqual(viewer.destroyed, true);
   assert.strictEqual(mgr.viewer, null);
   mgr.destroy(); // idempotent
+});
+
+test('requestRenderMode: default off (continuous); opt-in on for an embedded host', () => {
+  freshEnv();
+  let seen = null;
+  const origViewer = global.Cesium.Viewer;
+  global.Cesium.Viewer = function (id, o) { seen = o; return origViewer(id, o); };
+  const { GSRGlobeManager } = loadFresh();
+
+  const a = new GSRGlobeManager('c', { keyboardFlight: false });
+  assert.strictEqual(seen.requestRenderMode, false, 'standalone default: continuous render');
+  a.destroy();
+
+  seen = null;
+  const b = new GSRGlobeManager('c', { keyboardFlight: false, requestRenderMode: true });
+  assert.strictEqual(seen.requestRenderMode, true, 'embedded host: render on demand');
+  assert.strictEqual(seen.maximumRenderTimeChange, Infinity);
+  b.destroy();
 });
 
 test('renderData({ drawPoints }) bypasses the standalone GPS chain', () => {
@@ -223,4 +241,136 @@ test('3d.html loads notices.js before globe3d.js (so GSRNotices exists for it)',
   const notices = html3d.indexOf('src="src/core/notices.js"');
   const globe = html3d.indexOf('src="src/map/globe3d.js"');
   assert.ok(notices !== -1 && globe !== -1 && notices < globe);
+});
+
+// ── Embedded-host contract (index.html is a second host) ───────────────────
+// 2D is the source of truth: colour metric + range come from the host, height
+// is a separate arousal series so a non-magnitude colour metric still extrudes.
+
+/**
+ * Install Cesium/MapColors stubs that record what each wall segment would be
+ * built with. Returns { seg, colors } arrays that fill in when the REAL
+ * _render3DWallAndPath runs (via renderData). No method is monkey-patched.
+ */
+function installWallCapture() {
+  const seg = [];
+  const colors = [];
+  global.Cesium.WallGeometry = function (opts) { this._opts = opts; return this; };
+  global.Cesium.GeometryInstance = function (opts) {
+    seg.push({ maxHeights: opts.geometry._opts.maximumHeights });
+    return opts;
+  };
+  global.Cesium.ColorGeometryInstanceAttribute = { fromColor: (c) => c };
+  global.Cesium.Color = { fromCssColorString: () => ({ withAlpha: () => ({}) }), WHITE: { withAlpha: () => ({}) } };
+  global.MapColors = {
+    getColorForMetric: (metric, avg, min, max) => { colors.push({ metric, avg, min, max }); return '#123456'; },
+  };
+  return { seg, colors };
+}
+
+test('SERIES_FIELD carries em_fog (2D chief can colour by it)', () => {
+  freshEnv();
+  const { SERIES_FIELD } = loadFresh();
+  assert.strictEqual(SERIES_FIELD.em_fog, 'em_fog');
+});
+
+test('renderData({ colorMetric, colorRange }) drives colour from the host, not a local scan', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  mgr.flyToTrack = () => {};
+
+  const analyzer = {
+    raw: [{}, {}],
+    peaks: [],
+    em_fog: [{ val: 10 }, { val: 90 }],
+    phasic: [{ val: 0.2 }, { val: 0.8 }],
+  };
+  const drawPoints = [
+    { lat: 0, lon: 0, time: 0, origIdx: 0 },
+    { lat: 0.001, lon: 0.001, time: 1, origIdx: 1 },
+  ];
+
+  const { colors } = installWallCapture();
+  mgr.renderData(analyzer, {}, { drawPoints, colorMetric: 'em_fog', colorRange: { min: 0, max: 100 } });
+
+  assert.strictEqual(mgr.activeColoringMetric, 'em_fog', 'host metric adopted');
+  assert.deepStrictEqual(mgr.externalColorRange, { min: 0, max: 100 });
+  assert.ok(colors.length > 0, 'a wall segment was coloured');
+  // colour normalised against the HOST range (0..100), not the drawn points (10..90)
+  assert.ok(colors.every((c) => c.min === 0 && c.max === 100));
+  mgr.destroy();
+});
+
+test('wall height uses the arousal heightMetric even when colour is a non-magnitude metric', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false, heightMetric: 'phasic' });
+
+  const analyzer = {
+    raw: [{}, {}],
+    em_fog: [{ val: 0 }, { val: 0 }],      // colour series — flat
+    phasic: [{ val: 1 }, { val: 5 }],      // height series — varies
+  };
+  const drawPoints = [
+    { lat: 0, lon: 0, time: 0, origIdx: 0 },
+    { lat: 0.001, lon: 0.001, time: 1, origIdx: 1 },
+  ];
+  mgr.activeColoringMetric = 'em_fog';
+  mgr.extrusionScale = 10;
+  mgr.baseHeight = 2;
+  mgr.flyToTrack = () => {};
+
+  const { seg } = installWallCapture();
+  mgr.renderData(analyzer, {}, { drawPoints, colorMetric: 'em_fog' });
+  assert.strictEqual(seg.length, 1);
+  // h = baseHeight + phasic * extrusionScale  ->  [2 + 1*10, 2 + 5*10]
+  assert.deepStrictEqual(seg[0].maxHeights, [12, 52]);
+  mgr.destroy();
+});
+
+// ── Peak click (3D counterpart of a 2D peak-marker click) ─────────────────
+
+test('a LEFT_CLICK on a peak spire reports its analyzer.peaks index to onPeakClick', () => {
+  freshEnv();
+
+  // Capture the canvas handler's actions so the test can fire a click.
+  let handler = null;
+  global.Cesium.ScreenSpaceEventHandler = function () {
+    handler = {
+      actions: {}, destroyed: false,
+      setInputAction(fn, type) { this.actions[type] = fn; },
+      removeInputAction(type) { delete this.actions[type]; },
+      isDestroyed() { return this.destroyed; },
+      destroy() { this.destroyed = true; },
+    };
+    return handler;
+  };
+  global.Cesium.ScreenSpaceEventType = { LEFT_CLICK: 'LEFT_CLICK', LEFT_DOUBLE_CLICK: 'LEFT_DOUBLE_CLICK' };
+
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  // scene.pick returns whatever we stashed for the next click
+  let pickResult = null;
+  mgr.viewer.scene.pick = () => pickResult;
+
+  const got = [];
+  mgr.onPeakClick((idx, pos) => got.push([idx, pos]));
+
+  const click = handler.actions.LEFT_CLICK;
+  assert.strictEqual(typeof click, 'function', 'LEFT_CLICK handler is bound');
+
+  pickResult = { id: { _biomapPeakIndex: 4 } };
+  click({ position: { x: 120, y: 55 } });
+  pickResult = { id: {} };            // a non-peak entity
+  click({ position: { x: 0, y: 0 } });
+  pickResult = undefined;             // empty space
+  click({ position: { x: 0, y: 0 } });
+
+  assert.deepStrictEqual(got, [[4, { x: 120, y: 55 }]],
+    'only the peak click reported — analyzer.peaks index + canvas position');
+
+  mgr.destroy();
+  assert.strictEqual(handler.destroyed, true, 'canvas handler torn down with the manager');
 });

@@ -495,6 +495,7 @@ const GSREvents = {
 
     // ── View Switcher ────────────────────────────────────────────────────────
     GSREvents.bindViewSwitcher();
+    GSREvents.bindSurfaceSwitcher();
 
     // ── Contour Settings ─────────────────────────────────────────────────────
     GSREvents.bindContourInputs();
@@ -578,6 +579,7 @@ const GSREvents = {
     GSREvents.bindCollapseButton('btnPeakDetectionCollapse', 'peakDetectionCard');
     GSREvents.bindCollapseButton('btnGpsFilteringCollapse',  'gpsFilteringCard');
     GSREvents.bindCollapseButton('btnMapDisplayCollapse',    'mapDisplayCard');
+    GSREvents.bindCollapseButton('btnGlobe3dSettingsCollapse', 'globe3dSettingsCard');
     GSREvents.bindCollapseButton('btnImportCollapse',        'importCard');
     GSREvents.bindCollapseButton('btnExportCollapse',        'exportCard');
     GSREvents.bindCollapseButton('btnContourCollapse',       'contourSettingsCard');
@@ -594,6 +596,7 @@ const GSREvents = {
       }
     });
     GSREvents.bindCollapseButton('btnMapCollapse',           'mapPanel');
+    GSREvents.bindCollapseButton('btnGlobe3dCollapse',       'globe3dPanel');
     GSREvents.bindCollapseButton('btnOsmEnrichmentCollapse', 'osmEnrichmentCard');
     GSREvents.bindCollapseButton('btnEnvCollapse',           'environmentalPanel');
 
@@ -894,6 +897,54 @@ const GSREvents = {
       if (AppState.mapManager && AppState.mapManager.map) {
         setTimeout(() => AppState.mapManager.map.invalidateSize(), 80);
       }
+    });
+  },
+
+  /**
+   * Surface switcher (2D Map ↔ 3D Globe). Orthogonal to the Single/Collective
+   * scope switcher above: this only swaps which render surface fills the main
+   * region. The 3D globe is a read-only view of the 2D state — see
+   * src/map/globe3d_view.js.
+   */
+  bindSurfaceSwitcher() {
+    const btnMap   = document.getElementById('btnMapSurface');
+    const btnGlobe = document.getElementById('btnGlobeSurface');
+    if (!btnMap || !btnGlobe) return;
+
+    if (typeof GSRGlobe3DView !== 'undefined') GSRGlobe3DView.init();
+
+    const mapPanel   = document.getElementById('mapPanel');
+    const globePanel = document.getElementById('globe3dPanel');
+    const mapCard    = document.getElementById('mapDisplayCard');
+    const globeCard  = document.getElementById('globe3dSettingsCard');
+
+    const show = (el, on) => { if (el) el.style.display = on ? '' : 'none'; };
+
+    btnMap.addEventListener('click', () => {
+      if (AppState.surfaceView === 'map') return;
+      AppState.surfaceView = 'map';
+      btnMap.classList.add('active');
+      btnGlobe.classList.remove('active');
+      show(globePanel, false);
+      show(mapPanel, true);
+      show(globeCard, false);
+      show(mapCard, true);
+      if (typeof GSRGlobe3DView !== 'undefined') GSRGlobe3DView.deactivate();
+      if (AppState.mapManager && AppState.mapManager.map) {
+        setTimeout(() => AppState.mapManager.map.invalidateSize(), 80);
+      }
+    });
+
+    btnGlobe.addEventListener('click', () => {
+      if (AppState.surfaceView === 'globe') return;
+      AppState.surfaceView = 'globe';
+      btnGlobe.classList.add('active');
+      btnMap.classList.remove('active');
+      show(mapPanel, false);
+      show(globePanel, true);
+      show(mapCard, false);
+      show(globeCard, true);
+      if (typeof GSRGlobe3DView !== 'undefined') GSRGlobe3DView.activate();
     });
   },
 
