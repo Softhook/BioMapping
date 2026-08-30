@@ -136,31 +136,42 @@ A schema note: the cache started as a single object store mixing metadata and da
 
 ```
 visualiser/
-├── osm_enrichment.js     - Overpass orchestration, evaluation-point selection,
-│                           per-point feature extraction, CSV column wiring.
-├── overpass_client.js    - Overpass HTTP client: query building, rate-limit
-│                           and retry/backoff handling.
-├── osm_cache.js          - IndexedDB cache for Overpass responses: containment
-│                           reuse, merge-on-overlap, TTL/LRU eviction.
-├── geo_utils.js          - haversine / distance-to-segment / point-in-polygon.
-├── map_match.js          - HMM/Viterbi GPS-to-road snapping (MapMatcher).
-├── map_colors.js         - Color scales / LUTs for all map metrics, incl. osm_*.
-├── constants.js          - GSR_CONST, including SAMPLING_RINGS/POINTS_PER_RING
-│                           and the SNAP tuning block.
-├── index.html            - Sidebar enrichment + GPS-snap cards, map metric
-│                           dropdown, Environmental Analysis dashboard markup.
-├── ui.js                 - enrichTrack() orchestration (incl. cache lookup/
-│                           merge-plan/store wiring), dashboard rendering
-│                           (correlation table, scatter plot, road profile),
-│                           street-view modal.
-├── map.js                - OSM polygon overlay rendering (drawOsmShapes).
-├── analyzer.js            - osm_* column CSV parsing/export, isEnriched state.
+├── src/
+│   ├── osm/
+│   │   ├── osm_enrichment.js     - Overpass orchestration, evaluation-point selection,
+│   │   │                           per-point feature extraction, CSV column wiring.
+│   │   ├── overpass_client.js    - Overpass HTTP client: query building, rate-limit
+│   │   │                           and retry/backoff handling.
+│   │   └── osm_cache.js          - IndexedDB cache for Overpass responses: containment
+│   │                               reuse, merge-on-overlap, TTL/LRU eviction.
+│   ├── gps/
+│   │   ├── geo_utils.js          - haversine / distance-to-segment / point-in-polygon.
+│   │   ├── map_match.js          - HMM/Viterbi GPS-to-road snapping (MapMatcher).
+│   │   ├── gps_filter.js         - Velocity smoothing, stop averaging, Kalman & RTS filter.
+│   │   └── gps_pipeline.js       - Quality gates and GPS pipeline coordinator.
+│   ├── map/
+│   │   ├── map.js                - OSM polygon overlay rendering (drawOsmShapes).
+│   │   └── map_colors.js         - Color scales / LUTs for all map metrics, incl. osm_*.
+│   ├── core/
+│   │   └── constants.js          - GSR_CONST, including SAMPLING_RINGS/POINTS_PER_RING
+│   │                               and the SNAP tuning block.
+│   ├── ui/
+│   │   └── ui.js                 - enrichTrack() orchestration (incl. cache lookup/
+│   │                               merge-plan/store wiring), dashboard rendering
+│   │                               (correlation table, scatter plot, road profile),
+│   │                               street-view modal.
+│   └── signal/
+│       ├── analyzer.js           - osm_* column CSV parsing/export, isEnriched state.
+│       └── stats_math.js         - Pearson correlation and regression math.
+├── index.html                    - Sidebar enrichment + GPS-snap cards, map metric
+│                                   dropdown, Environmental Analysis dashboard markup.
 └── tests/
-    ├── test_osm_enrichment.js - OSMEnricher + MapMatcher regression suite.
-    └── test_osm_cache.js      - OsmCache pure-logic regression suite.
+    ├── test_osm_enrichment.js    - OSMEnricher + MapMatcher regression suite.
+    ├── test_osm_cache.js         - OsmCache pure-logic regression suite.
+    └── test_refactor.js          - GeoUtils regression coverage.
 ```
 
-The original plan didn't list `overpass_client.js`, `geo_utils.js`, `map_match.js`, or `osm_cache.js` as separate files — the actual implementation split the network client and spatial-math primitives out of the main enrichment module, added the map-matching module entirely, and later added the caching module in response to real repeat-fetch behaviour the plan never anticipated.
+The original plan didn't list `overpass_client.js`, `geo_utils.js`, `map_match.js`, or `osm_cache.js` as separate files — the actual implementation split the network client and spatial-math primitives out of the main enrichment module, added the map-matching module entirely, modularized the codebase into `src/`, and added the caching module in response to real repeat-fetch behaviour the plan never anticipated.
 
 ---
 
@@ -192,7 +203,7 @@ Items 1, 2, and 4 from the original version of this list (spatial-math tests, ma
 
 4. **Turn the Street View modal into an automated GVI metric.** The Mapillary/Google Street View viewer (`ui.js: openStreetView`) already fetches street-level imagery per coordinate for manual inspection. A batch mode that samples imagery at the same evaluation points used for OSM enrichment, runs a simple green-pixel-fraction classifier client-side (or via a small serverless function, since CORS/canvas tainting will block pure client-side pixel analysis of most embeds), and writes an `osm_gvi_50m`-style column would complete the plan's original Phase 3 without requiring a new UI surface.
 
-5. **Document the `osm_*` columns (and the cache) in `docs/csv_schema.md`.** The schema doc currently has no mention of the eight enrichment columns, the snapped-GPS fields, or the fact that enrichment results are cached locally; anyone reading it to understand the CSV format won't discover any of this.
+5. **Document the `osm_*` columns (and the cache) in `docs/csv_schema.md`.** (Addressed: `docs/csv_schema.md` v1.8 notes that post-processing enrichment columns and snapped GPS fields are appended by the visualiser upon export rather than by the firmware).
 
 6. **Move the cache from rectangle-union to a true delta fetch, if rectangle bloat becomes a real problem.** Merge-on-overlap reasons about axis-aligned bounding boxes, not actual track shapes — two tracks whose real paths barely overlap (e.g. two long tracks crossing near their midpoints but heading in different directions) can still have bounding rectangles that overlap heavily, causing the merged fetch to cover a lot of area neither track ever visited. The 12 km² cap bounds the worst case, but doesn't eliminate the waste. A true fix means either rectangle-subtraction (fetch only the geometrically uncovered area, then merge OSM elements by their stable global IDs — deduping across fetches turns out to be straightforward since Overpass always returns a way's full geometry, not a bbox-clipped fragment) or a persistent tile-based element cache (grid the world into fixed tiles, track which are fetched, store individual OSM elements once regardless of which fetch brought them in). Both are meaningfully more complex than the current approach and are only worth it if real usage shows the rectangle-union approach fetching noticeably more than needed.
 

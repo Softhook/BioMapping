@@ -212,8 +212,8 @@ Approximate test counts — the exact numbers drift with each addition; run
 |---|---|---|
 | `biomap_pipeline.c` | No | ✅ `tests/test_firmware.c` (~33 tests) |
 | `modules/gps_uart.c` | Yes (`furi_hal_serial_*`) | ✅ `tests/test_gps_uart.c` (~25 tests) |
-| `modules/gsr_sensor.c` | Yes (`furi_hal_i2c_*`, real `FuriThread`) | ✅ `tests/test_gsr_sensor.c` (~31 tests) + a ThreadSanitizer pass |
-| `modules/sd_logger.c` | Yes (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (~20 tests, includes `BIOMAP_SD_PREALLOC`) |
+| `modules/gsr_sensor.c` | Yes (`furi_hal_i2c_*`, real `FuriThread`) | ✅ `tests/test_gsr_sensor.c` (~32 tests) + a ThreadSanitizer pass |
+| `modules/sd_logger.c` | Yes (`Storage`/`File`) | ✅ `tests/test_sd_logger.c` (~24 tests, includes `BIOMAP_SD_PREALLOC` & CRC32 integrity trailer) |
 | `modules/em_scan_cal.c` | No (pure calc + Storage for persist) | ✅ `tests/test_em_scan_cal.c` (~5 tests) |
 | `modules/bt_stream.c` | Yes (`Bt`/`ble_profile_serial_*`) | ✅ `tests/test_bt_stream.c` (~13 tests, BLE mock shims) |
 | `modules/em_scan_rf.c` | Yes (CC1101 SPI) | ❌ (SPI-bound; RF pacing verified on-device — see `archive/gps_rf_mutex_status.md`) |

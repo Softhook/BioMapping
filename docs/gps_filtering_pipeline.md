@@ -1,6 +1,6 @@
 # GPS Pipeline & Filter Architecture
 
-**Written:** 2026-07-15 · **Last checked against code:** 2026-08-29
+**Written:** 2026-07-15 · **Last checked against code:** 2026-08-30
 **Scope:** Complete overview of the GPS processing pipeline, from firmware-level quality gating through to downstream spatial analysis filters.
 **Files:** `firmware/modules/gps_uart.c`, `firmware/biomap_types.h`, `firmware/biomap_session.c`, `visualiser/src/gps/gps_filter.js`, `visualiser/src/gps/gps_pipeline.js`, `visualiser/src/gps/map_match.js`, `visualiser/src/map/map.js`
 
@@ -112,8 +112,8 @@ timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m
 ## 4. CSV Version History
 
 Superseded — the canonical, up-to-date version history and column list live
-in [`csv_schema.md`](csv_schema.md) (currently at v1.8: RF columns, a runtime
-debug-column toggle, and metadata-header lines this section predates). The
+in [`csv_schema.md`](csv_schema.md) (currently at v1.9: RF columns, a runtime
+debug-column toggle, metadata-header lines, and integrity CRC32 brackets). The
 columns this pipeline actually consumes — `lat`, `lon`, `hdop`, `pdop`,
 `fix_type`, `speed_kts`, `course_deg`, `hacc_m` — have been stable since
 schema v1.2.

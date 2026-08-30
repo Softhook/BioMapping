@@ -150,6 +150,27 @@ Debug-only appended columns when enabled:
 - `pga_change_count`, `i2c_consec_fail` (all GSR-bearing modes, including GSR-only)
 - `prealloc_ms` (all three variants) — one-shot SD log-file pre-allocation duration at recording start, session-constant rather than a lifetime-max like the columns above (`BIOMAP_SD_PREALLOC`, see `docs/archive/gps_rf_mutex_status.md`'s "option E" entries)
 
+### Debug Column Definitions
+
+| Column | Type | Unit | Description |
+|---|---|---|---|
+| `tick_dt_ms` | uint32 | ms | Measured wall-clock time between consecutive main loop Tick events (ideal = 100 ms at 10 Hz). |
+| `gps_rx_drops` | uint32 | bytes | Cumulative UART bytes dropped due to RX stream buffer capacity exhaustion. |
+| `nmea_fail` | uint32 | count | Cumulative NMEA sentences that failed checksum verification or parsing. |
+| `gps_reinit_count` | uint32 | count | Cumulative count of full GPS module re-initialization/recovery cycles. |
+| `gsr_hz` | float | Hz | Rolling measured sample rate of the background GSR I2C worker thread (~400–500 Hz). |
+| `i2c_peak_ms` | uint32 | ms | Worst single I2C transaction duration (read or PGA change) recorded this session. |
+| `rf_rssi_peak_ms` | uint32 | ms | Worst single SubGHz RSSI read SPI transaction duration recorded this session. |
+| `rf_retune_peak_ms` | uint32 | ms | Worst single SubGHz band-retune SPI transaction duration recorded this session. |
+| `flush_peak_ms` | uint32 | ms | Worst single SD batch flush (write + sync) duration recorded this session. |
+| `log_fill_bytes` | uint32 | bytes | Current SD logger batch buffer occupancy in memory. |
+| `log_fill_peak_bytes` | uint32 | bytes | Peak high-water mark of SD logger batch buffer memory usage this session. |
+| `log_overflow_count` | uint32 | rows | Cumulative data rows dropped due to batch buffer overflow during SD stalls. |
+| `log_flush_fail_count` | uint32 | count | Cumulative count of failed SD write/sync flush attempts (batch retained for retry). |
+| `pga_change_count` | uint32 | count | Cumulative ADC programmable gain amplifier (PGA) auto-ranging range switch count. |
+| `i2c_consec_fail` | uint32 | count | Current run length of consecutive I2C read failures (0 = healthy; 50 = disconnect trip). |
+| `prealloc_ms` | uint32 | ms | Duration of one-shot SD log file pre-allocation seek/extend at recording start. |
+
 ---
 
 ## Column Definitions
@@ -171,6 +192,29 @@ Debug-only appended columns when enabled:
 | 13 | `rssi_868` | float | dBm | SubGHz 868 MHz instantaneous RSSI peak for most recent dwell on band. |
 | 14 | `rssi_915` | float | dBm | SubGHz 915 MHz instantaneous RSSI peak for most recent dwell on band. |
 
+
+---
+
+## Live Stream BLE Binary Packet Format
+
+In **Live Stream** mode (`BioMapModeLiveStream`), data is streamed in real time over Bluetooth Low Energy using Flipper's stock serial profile rather than logged to SD. Packets are 45 bytes, little-endian, sent every ~300 ms (`BT_STREAM_INTERVAL_MS`).
+
+| Offset | Size (Bytes) | Field | Type | Unit / Description |
+|---|---|---|---|---|
+| 0 | 2 | `magic` | `uint8[2]` | Synchronization bytes: `0x42 0x4D` ("BM"). |
+| 2 | 4 | `timestamp_ms` | `uint32` | Milliseconds since stream start. |
+| 6 | 8 | `lat` | `double` | Latitude in decimal degrees (IEEE 754 float64). |
+| 14 | 8 | `lon` | `double` | Longitude in decimal degrees (IEEE 754 float64). |
+| 22 | 4 | `gsr_raw` | `float` | Conductance in nanosiemens (nS) (IEEE 754 float32). |
+| 26 | 4 | `hdop` | `float` | Horizontal Dilution of Precision (`99.9` = unknown). |
+| 30 | 4 | `pdop` | `float` | Positional Dilution of Precision (`99.9` = unknown). |
+| 34 | 4 | `speed_kts` | `float` | Speed over ground in knots. |
+| 38 | 4 | `course_deg` | `float` | Course over ground in degrees true. |
+| 42 | 1 | `sats` | `uint8` | Satellites tracked count. |
+| 43 | 1 | `fix_type` | `uint8` | GPS fix type: `1` = None, `2` = 2D, `3` = 3D. |
+| 44 | 1 | `valid` | `uint8` | Validity bitmask: `0x01` = GPS fix valid, `0x02` = GSR sensor valid. |
+
+Parsed client-side by `visualiser/src/live/live_binary_parser.js` (`GSRLiveBinaryParser`). The live viewer (`visualiser/live.html`) exports recorded live sessions into canonical CSV matching the 11-column GPS+GSR format above.
 
 ---
 

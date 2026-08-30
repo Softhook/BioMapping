@@ -10,7 +10,7 @@ Loose ideas and unscheduled work. Promote anything real to its own doc under `do
 ## Analysis ideas
 
 - Correlate GSR against the 868 and 915 MHz RF bands.
-- 391 MHz looks like a useful VHF frequency to add to the sweep.
+- **319 MHz band** — useful VHF/UHF frequency for wireless security/garage door sensors. See [rf_319_investigation.md](rf_319_investigation.md).
 
 ## Not priority
 
@@ -23,9 +23,11 @@ Loose ideas and unscheduled work. Promote anything real to its own doc under `do
 
 ## Loose ends from closed investigations
 
-Carried over from `archive/gps_rf_mutex_status.md` when it was archived — the
-mutex bug itself is fixed, these are the leftovers.
+Carried over from archived investigations (`archive/gps_rf_mutex_status.md`, `archive/bluetooth_serial_investigation.md`, `archive/visualizer_architecture_refactor_plan.md`) — the primary objectives are completed, these are the uncompleted optional follow-ups and field tests.
 
+### Firmware & Hardware
+
+- **Live Stream (BLE) on-hardware field validation** (from `archive/bluetooth_serial_investigation.md` §10 Phase 3) — verify battery endurance during active BLE broadcasting, test Android Chrome reconnection when phone display sleeps or goes into a pocket during a walk, and measure packet drop rates.
 - **2 Hz `tick_dt_ms` oscillation** — a ~150–190 ms tick delay on a regular
   5-row (0.5 s) cycle with a compensating dip, self-correcting, no data loss,
   ~1.3% of recording time on a long track. Present only in recordings whose CSV
@@ -48,3 +50,9 @@ mutex bug itself is fixed, these are the leftovers.
 - **`gsr->available` dead code** — set `true` unconditionally at alloc, never set
   `false`; every `if(!gsr->available) return;` guard is unreachable. Removing it
   touches ~20 call sites plus `gsr_sensor_available()` for zero behaviour change.
+
+### Visualiser
+
+- **Visualiser partial-render consolidation audit** (from `archive/visualizer_architecture_refactor_plan.md` Phase 9) — audit whether `refreshPeakMarkers()`, `refreshPath()`, and `refreshCollectivePeakMarkers()` in `src/map/map.js` can share a private helper for strip-by-kind and rebuild without adding unwanted indirection.
+- **Shared spatial cell-window helper audit** — audit whether the bounding cell-window calculation in `src/spatial/spatial_clustering.js` (`getConcaveBlob`) and `src/spatial/collective_manager.js` (`generateContourSurface`) should be extracted into a shared geo-grid utility.
+- **Dense-track label collision profiling** (from `archive/visualizer_rendering_perf_routes.md` §2.3) — profile `computeLabelPositions` on tracks with high peak counts (>100 peaks) to check if spatial partitioning is needed for label collision bounding boxes.

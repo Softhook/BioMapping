@@ -427,15 +427,15 @@ URL, opens on a phone, movable/hostable on its own with no dependency on the res
 into `live.html`'s own inline `<script>` blocks**, each with a provenance comment (source file,
 date/line range), rather than loaded via `<script src>`:
 
-- [`gsr_filter.js`](../visualiser/gsr_filter.js) — pure filter functions (`applyZeroPhaseEMA`,
+- [`gsr_filter.js`](../../visualiser/src/signal/gsr_filter.js) — pure filter functions (`applyZeroPhaseEMA`,
   `applyZeroPhaseMovingAverage`, `applyMedianFilter`, `calculateStats`), zero DOM coupling.
-- [`geo_utils.js`](../visualiser/geo_utils.js) (`GeoUtils`) — same, pure, no DOM references.
-- [`gps_pipeline.js`](../visualiser/gps_pipeline.js) (`GpsPipeline`) — only
+- [`geo_utils.js`](../../visualiser/src/gps/geo_utils.js) (`GeoUtils`) — same, pure, no DOM references.
+- [`gps_pipeline.js`](../../visualiser/src/gps/gps_pipeline.js) (`GpsPipeline`) — only
   `applyHdopGate`/`applyFixTypeGate` (pure); `reconstructFilteredGps*` are not reusable, they
   take a full `analyzer` object.
-- [`map_colors.js`](../visualiser/map_colors.js) (`MapColors`) — `getColorForValue`/
+- [`map_colors.js`](../../visualiser/src/map/map_colors.js) (`MapColors`) — `getColorForValue`/
   `getColorForMetric`, pure, for coloring the live trail by GSR value.
-- [`file_saver.js`](../visualiser/file_saver.js)'s `Blob` + object-URL download pattern, for the
+- [`file_saver.js`](../../visualiser/src/core/file_saver.js)'s `Blob` + object-URL download pattern, for the
   CSV export below.
 
 Leaflet loads from the same CDN URL `index.html` already uses — the one genuinely external
