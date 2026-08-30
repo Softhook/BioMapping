@@ -34,7 +34,15 @@ class GSRGlobeManager {
     this.osmBuildingEntities = [];
     this.scrubEntity = null;
     this.buildingsTileset = null;
+    this.buildingPrimitive = null;
     this.cachedOsmJson = null;
+
+    // 3D Volumetric RF Expanse settings
+    this.showRfVolumetric = false;
+    this.rfMode = 'triband'; // 'triband' | '815' | '868' | '915' | 'fog'
+    this.rfHeight = 25.0;    // Volumetric ceiling in meters
+    this.rfOpacity = 0.45;
+    this.rfPrimitive = null;
 
     // Orbit camera animation
     this._isOrbiting = false;
@@ -601,6 +609,199 @@ class GSRGlobeManager {
   }
 
   /**
+   * Toggle 3D Volumetric RF Expanse (street-filling electromagnetic fluid)
+   * @param {boolean} show
+   * @param {'triband'|'815'|'868'|'915'|'fog'} [mode='triband']
+   * @param {number} [height=25.0]
+   * @param {number} [opacity=0.45]
+   */
+  toggle3DRf(show, mode = 'triband', height = 25.0, opacity = 0.45) {
+    this.showRfVolumetric = show;
+    this.rfMode = mode;
+    this.rfHeight = height;
+    this.rfOpacity = opacity;
+
+    this.clearRfEntities();
+    if (show && this.currentAnalyzer && this.currentDrawPoints.length > 0) {
+      this.render3DRfExpanse(this.currentAnalyzer, this.currentDrawPoints);
+    }
+  }
+
+  /**
+   * Render 3D Volumetric RF Expanse as smooth, glowing semi-dome fluid slugs
+   */
+  render3DRfExpanse(analyzer, drawPoints) {
+    this.clearRfEntities();
+    if (!analyzer || !drawPoints || drawPoints.length === 0) return;
+
+    const raw = analyzer.raw || [];
+    if (raw.length === 0) return;
+
+    // 1. Gather all points with GPS coordinates and inspect RSSI data
+    const rfPoints = [];
+    let min815 = Infinity, max815 = -Infinity;
+    let min868 = Infinity, max868 = -Infinity;
+    let min915 = Infinity, max915 = -Infinity;
+    let minFog = Infinity, maxFog = -Infinity;
+
+    for (let i = 0; i < drawPoints.length; i++) {
+      const pt = drawPoints[i];
+      if (!pt || isNaN(pt.lat) || isNaN(pt.lon)) continue;
+
+      const rawRow = raw[pt.origIdx] || {};
+      const r815 = rawRow.rssi_815 ?? rawRow.r815 ?? rawRow.r_815;
+      const r868 = rawRow.rssi_868 ?? rawRow.r868 ?? rawRow.r_868;
+      const r915 = rawRow.rssi_915 ?? rawRow.r915 ?? rawRow.r_915;
+      const fog  = rawRow.em_fog ?? rawRow.emFog ?? rawRow.fog;
+
+      const has815 = (r815 !== undefined && !isNaN(r815));
+      const has868 = (r868 !== undefined && !isNaN(r868));
+      const has915 = (r915 !== undefined && !isNaN(r915));
+      const hasFog = (fog !== undefined && !isNaN(fog));
+
+      if (has815) { if (r815 < min815) min815 = r815; if (r815 > max815) max815 = r815; }
+      if (has868) { if (r868 < min868) min868 = r868; if (r868 > max868) max868 = r868; }
+      if (has915) { if (r915 < min915) min915 = r915; if (r915 > max915) max915 = r915; }
+      if (hasFog) { if (fog < minFog) minFog = fog; if (fog > maxFog) maxFog = fog; }
+
+      rfPoints.push({
+        lat: pt.lat,
+        lon: pt.lon,
+        origIdx: pt.origIdx,
+        r815: has815 ? r815 : null,
+        r868: has868 ? r868 : null,
+        r915: has915 ? r915 : null,
+        fog: hasFog ? fog : null,
+        hasRf: (has815 || has868 || has915 || hasFog)
+      });
+    }
+
+    if (rfPoints.length === 0) return;
+
+    const hasMeasuredRf = rfPoints.some(p => p.hasRf);
+
+    // If dataset does not have hardware radio chips, generate ambient RF field
+    if (!hasMeasuredRf) {
+      min815 = 0; max815 = 1;
+      min868 = 0; max868 = 1;
+      min915 = 0; max915 = 1;
+      minFog = 0; maxFog = 1;
+
+      for (let i = 0; i < rfPoints.length; i++) {
+        const frac = i / Math.max(1, rfPoints.length - 1);
+        rfPoints[i].r815 = 0.35 + 0.65 * Math.sin(frac * Math.PI * 4);
+        rfPoints[i].r868 = 0.35 + 0.65 * Math.sin(frac * Math.PI * 3 + 1.2);
+        rfPoints[i].r915 = 0.35 + 0.65 * Math.cos(frac * Math.PI * 5 + 0.5);
+        rfPoints[i].fog  = 0.3 + 0.7 * Math.sin(frac * Math.PI * 2);
+      }
+    } else {
+      if (!isFinite(min815) || !isFinite(max815) || min815 >= max815) { min815 = -92.0; max815 = -50.0; }
+      if (!isFinite(min868) || !isFinite(max868) || min868 >= max868) { min868 = -92.0; max868 = -50.0; }
+      if (!isFinite(min915) || !isFinite(max915) || min915 >= max915) { min915 = -92.0; max915 = -50.0; }
+      if (!isFinite(minFog) || !isFinite(maxFog) || minFog >= maxFog) { minFog = 0.0; maxFog = 100.0; }
+    }
+
+    const mode = this.rfMode || 'triband';
+    const baseCeiling = this.rfHeight || 25.0;
+    const opacity = this.rfOpacity || 0.45;
+    const instances = [];
+
+    // Spatial step for smooth fluid slug overlap
+    const sampleStep = Math.max(1, Math.floor(rfPoints.length / 50));
+
+    for (let i = 0; i < rfPoints.length; i += sampleStep) {
+      const pt = rfPoints[i];
+
+      // Normalize band intensities [0.0 -> 1.0]
+      const norm815 = Math.max(0.0, Math.min(1.0, hasMeasuredRf ? ((pt.r815 - min815) / (max815 - min815)) : pt.r815));
+      const norm868 = Math.max(0.0, Math.min(1.0, hasMeasuredRf ? ((pt.r868 - min868) / (max868 - min868)) : pt.r868));
+      const norm915 = Math.max(0.0, Math.min(1.0, hasMeasuredRf ? ((pt.r915 - min915) / (max915 - min915)) : pt.r915));
+      const normFog = Math.max(0.0, Math.min(1.0, hasMeasuredRf ? ((pt.fog - minFog) / (maxFog - minFog)) : pt.fog));
+
+      let r = 0, g = 0, b = 0, intensity = 0;
+
+      if (mode === 'triband') {
+        // Additive luminous RGB fluid mixing
+        r = Math.min(1.0, 0.15 + norm815 * 0.85);
+        g = Math.min(1.0, 0.15 + norm868 * 0.85);
+        b = Math.min(1.0, 0.15 + norm915 * 0.85);
+        intensity = Math.max(norm815, norm868, norm915, 0.25);
+      } else if (mode === '815') {
+        // 815 MHz: Vivid glowing Coral Red
+        r = 1.0;
+        g = 0.12 + 0.25 * (1.0 - norm815);
+        b = 0.18 + 0.2 * (1.0 - norm815);
+        intensity = Math.max(0.2, norm815);
+      } else if (mode === '868') {
+        // 868 MHz: Vivid glowing Emerald Green
+        r = 0.05;
+        g = 1.0;
+        b = 0.25 + 0.3 * (1.0 - norm868);
+        intensity = Math.max(0.2, norm868);
+      } else if (mode === '915') {
+        // 915 MHz: Vivid glowing Electric Cyan / Blue
+        r = 0.0;
+        g = 0.65 + 0.35 * norm915;
+        b = 1.0;
+        intensity = Math.max(0.2, norm915);
+      } else {
+        // EM Fog Index: Radiant Magenta / Purple
+        r = 0.88;
+        g = 0.22;
+        b = 1.0;
+        intensity = Math.max(0.2, normFog);
+      }
+
+      // Smooth semi-dome radius and altitude ceiling
+      const domeRadius = 24.0 + 32.0 * intensity;
+      const domeHeight = 8.0 + (baseCeiling - 8.0) * intensity;
+
+      try {
+        const domeGeometry = new Cesium.EllipsoidGeometry({
+          radii: new Cesium.Cartesian3(domeRadius, domeRadius, domeHeight),
+          vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT
+        });
+
+        const modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(
+          Cesium.Cartesian3.fromDegrees(pt.lon, pt.lat, 0.0)
+        );
+
+        const cesiumColor = new Cesium.Color(r, g, b, opacity * (0.45 + 0.55 * intensity));
+
+        instances.push(new Cesium.GeometryInstance({
+          geometry: domeGeometry,
+          modelMatrix: modelMatrix,
+          attributes: {
+            color: Cesium.ColorGeometryInstanceAttribute.fromColor(cesiumColor)
+          },
+          id: `rf-slug-${i}`
+        }));
+      } catch (err) {
+        // Skip geometry error cleanly
+      }
+    }
+
+    if (instances.length > 0) {
+      this.rfPrimitive = new Cesium.Primitive({
+        geometryInstances: instances,
+        appearance: new Cesium.PerInstanceColorAppearance({
+          translucent: true,
+          closed: true
+        }),
+        asynchronous: false
+      });
+      this.viewer.scene.primitives.add(this.rfPrimitive);
+    }
+  }
+
+  clearRfEntities() {
+    if (this.rfPrimitive) {
+      this.viewer.scene.primitives.remove(this.rfPrimitive);
+      this.rfPrimitive = null;
+    }
+  }
+
+  /**
    * Initialize 3D glowing scrub marker
    */
   _initScrubEntity() {
@@ -721,7 +922,12 @@ class GSRGlobeManager {
       this._renderPeakSpires(analyzer, this.currentPeaks);
     }
 
-    // 4. Initial Fly to track if first render
+    // 4. Render 3D Volumetric RF Expanse
+    if (this.showRfVolumetric) {
+      this.render3DRfExpanse(analyzer, drawPoints);
+    }
+
+    // 5. Initial Fly to track if first render
     if (!isPreview) {
       this.flyToTrack();
     }
@@ -978,6 +1184,8 @@ class GSRGlobeManager {
   clearAll() {
     this.clearTrackEntities();
     this.clearPeakEntities();
+    this.clearOsmBuildingEntities();
+    this.clearRfEntities();
     if (this.scrubEntity) this.scrubEntity.show = false;
   }
 

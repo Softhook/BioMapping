@@ -639,6 +639,40 @@
                 </select>
               </div>
             </div>
+
+            <!-- 3D RF Volumetric Field -->
+            <div style="margin-top: 8px; padding: 10px; background: rgba(255, 60, 100, 0.06); border: 1px solid rgba(255, 60, 100, 0.25); border-radius: 8px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                <label class="control-label" for="chk3DRf" style="font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                  <i class="fa-solid fa-tower-broadcast" style="color: #ff3366;"></i> 3D RF Volumetric Field
+                </label>
+                <input type="checkbox" id="chk3DRf" style="cursor: pointer; width: 16px; height: 16px; accent-color: #ff3366;">
+              </div>
+              <div id="rfControlsRow" style="display: none; margin-top: 8px; display: flex; flex-direction: column; gap: 8px;">
+                <div>
+                  <label class="control-label" for="rfModeSelect" style="margin-bottom: 4px;">Frequency Channel</label>
+                  <select class="globe-select" id="rfModeSelect" style="font-size: 0.78rem; padding: 6px 8px;">
+                    <option value="triband">Tri-Band Fluid (RGB Additive)</option>
+                    <option value="815">815 MHz (Red Band)</option>
+                    <option value="868">868 MHz (Green Band)</option>
+                    <option value="915">915 MHz (Blue Band)</option>
+                    <option value="fog">EM Fog Index (Violet Glow)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="control-label" for="rfHeightSlider">
+                    Ceiling Height: <span id="rfHeightVal" class="val">25m</span>
+                  </label>
+                  <input type="range" class="globe-slider" id="rfHeightSlider" min="5" max="60" step="5" value="25">
+                </div>
+                <div>
+                  <label class="control-label" for="rfOpacitySlider">
+                    Cloud Opacity: <span id="rfOpacityVal" class="val">45%</span>
+                  </label>
+                  <input type="range" class="globe-slider" id="rfOpacitySlider" min="0.1" max="0.9" step="0.05" value="0.45">
+                </div>
+              </div>
+            </div>
           </div>
 
           <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 2px 0;">
@@ -749,6 +783,7 @@
   <script src="src/osm/overpass_client.js"></script>
   <script src="src/osm/osm_cache.js"></script>
   <script src="src/osm/osm_enrichment.js"></script>
+  <script src="src/render/rf_fluid_renderer.js"></script>
 
   <!-- Cesium 3D Globe Manager -->
   <script src="src/map/globe3d.js"></script>
@@ -856,6 +891,35 @@
 
       buildingStyleSelect.addEventListener('change', (e) => {
         globeManager.apply3DBuildingStyle(e.target.value);
+      });
+
+      // 3D RF Volumetric Field
+      const chk3DRf = document.getElementById('chk3DRf');
+      const rfControlsRow = document.getElementById('rfControlsRow');
+      const rfModeSelect = document.getElementById('rfModeSelect');
+      const rfHeightSlider = document.getElementById('rfHeightSlider');
+      const rfHeightVal = document.getElementById('rfHeightVal');
+      const rfOpacitySlider = document.getElementById('rfOpacitySlider');
+      const rfOpacityVal = document.getElementById('rfOpacityVal');
+
+      const update3DRf = () => {
+        const isChecked = chk3DRf.checked;
+        rfControlsRow.style.display = isChecked ? 'flex' : 'none';
+        const mode = rfModeSelect.value;
+        const height = parseFloat(rfHeightSlider.value);
+        const opacity = parseFloat(rfOpacitySlider.value);
+        globeManager.toggle3DRf(isChecked, mode, height, opacity);
+      };
+
+      chk3DRf.addEventListener('change', update3DRf);
+      rfModeSelect.addEventListener('change', update3DRf);
+      rfHeightSlider.addEventListener('input', (e) => {
+        rfHeightVal.textContent = e.target.value + 'm';
+        update3DRf();
+      });
+      rfOpacitySlider.addEventListener('input', (e) => {
+        rfOpacityVal.textContent = Math.round(parseFloat(e.target.value) * 100) + '%';
+        update3DRf();
       });
 
       // Camera Fly to Track
@@ -969,6 +1033,9 @@
           globeManager.renderData(analyzer, gpsParams);
           if (chk3DBuildings.checked) {
             globeManager.toggle3DBuildings(true, buildingStyleSelect.value);
+          }
+          if (chk3DRf.checked) {
+            update3DRf();
           }
 
           // Update Info card
