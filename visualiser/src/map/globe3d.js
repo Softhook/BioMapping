@@ -133,12 +133,217 @@ class GSRGlobeManager {
 
     // Initialize scrub indicator
     this._initScrubEntity();
+
+    // Setup Google Earth style mouse & keyboard flight controls
+    this._setupCameraControls();
   }
 
   /**
-   * Change basemap provider
-   * @param {'satellite'|'osm'|'dark'|'positron'} type
+   * Configure Google Earth style camera interactions & keyboard flight controls
    */
+  _setupCameraControls() {
+    const scene = this.viewer.scene;
+    const controller = scene.screenSpaceCameraController;
+
+    // Enable full 6-DOF controls
+    controller.enableRotate = true;
+    controller.enableTranslate = true;
+    controller.enableZoom = true;
+    controller.enableTilt = true;
+    controller.enableLook = true;
+    controller.enableCollisionDetection = true;
+
+    // Google Earth fluid inertia settings
+    controller.inertiaSpin = 0.85;
+    controller.inertiaTranslate = 0.85;
+    controller.inertiaZoom = 0.8;
+
+    // Zoom ranges: allow zooming right down to street/ground level
+    controller.minimumZoomDistance = 1.0;
+    controller.maximumZoomDistance = 40000000.0;
+
+    // Mouse button mappings (Google Earth standard):
+    // 1. Left Drag -> Pan / Rotate globe
+    controller.rotateEventTypes = [
+      Cesium.CameraEventType.LEFT_DRAG
+    ];
+
+    // 2. Right Drag or Wheel -> Smooth Zoom
+    controller.zoomEventTypes = [
+      Cesium.CameraEventType.RIGHT_DRAG,
+      Cesium.CameraEventType.WHEEL,
+      Cesium.CameraEventType.PINCH
+    ];
+
+    // 3. Middle Click Drag OR Shift+Left Drag OR Ctrl+Left Drag -> 3D Tilt & Orbit
+    controller.tiltEventTypes = [
+      Cesium.CameraEventType.MIDDLE_DRAG,
+      Cesium.CameraEventType.PINCH,
+      {
+        eventType: Cesium.CameraEventType.LEFT_DRAG,
+        modifier: Cesium.KeyboardEventModifier.SHIFT
+      },
+      {
+        eventType: Cesium.CameraEventType.LEFT_DRAG,
+        modifier: Cesium.KeyboardEventModifier.CTRL
+      },
+      {
+        eventType: Cesium.CameraEventType.RIGHT_DRAG,
+        modifier: Cesium.KeyboardEventModifier.CTRL
+      }
+    ];
+
+    // 4. Alt + Left Drag -> Free look
+    controller.lookEventTypes = [
+      {
+        eventType: Cesium.CameraEventType.LEFT_DRAG,
+        modifier: Cesium.KeyboardEventModifier.ALT
+      }
+    ];
+
+    // 5. Double-Click to fly to point (Google Earth style)
+    const handler = new Cesium.ScreenSpaceEventHandler(scene.canvas);
+    handler.setInputAction((click) => {
+      const ray = this.viewer.camera.getPickRay(click.position);
+      const targetPos = scene.globe.pick(ray, scene);
+      if (targetPos) {
+        const cartographic = Cesium.Cartographic.fromCartesian(targetPos);
+        const curHeight = this.viewer.camera.positionCartographic.height;
+        const targetHeight = Math.max(150.0, curHeight * 0.45);
+        this.viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromRadians(
+            cartographic.longitude,
+            cartographic.latitude,
+            targetHeight
+          ),
+          duration: 1.2
+        });
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+
+    // 6. Real-time WASD / Arrow Key flying controls
+    this._setupKeyboardFlight();
+  }
+
+  /**
+   * Smooth WASD / Arrow Keys flight navigation
+   */
+  _setupKeyboardFlight() {
+    const flags = {
+      moveForward: false,
+      moveBackward: false,
+      moveUp: false,
+      moveDown: false,
+      moveLeft: false,
+      moveRight: false,
+      yawLeft: false,
+      yawRight: false
+    };
+
+    const getFlagForKey = (code) => {
+      switch (code) {
+        case 'KeyW':
+        case 'ArrowUp':
+          return 'moveForward';
+        case 'KeyS':
+        case 'ArrowDown':
+          return 'moveBackward';
+        case 'KeyA':
+        case 'ArrowLeft':
+          return 'moveLeft';
+        case 'KeyD':
+        case 'ArrowRight':
+          return 'moveRight';
+        case 'KeyR':
+        case 'PageUp':
+          return 'moveUp';
+        case 'KeyF':
+        case 'PageDown':
+          return 'moveDown';
+        case 'KeyQ':
+          return 'yawLeft';
+        case 'KeyE':
+          return 'yawRight';
+        default:
+          return null;
+      }
+    };
+
+    window.addEventListener('keydown', (e) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+      const flag = getFlagForKey(e.code);
+      if (flag) {
+        flags[flag] = true;
+        e.preventDefault();
+      } else if (e.code === 'KeyN') {
+        this.resetNorth();
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      const flag = getFlagForKey(e.code);
+      if (flag) {
+        flags[flag] = false;
+        e.preventDefault();
+      }
+    });
+
+    // Animate camera on each frame
+    this.viewer.clock.onTick.addEventListener(() => {
+      const camera = this.viewer.camera;
+      const cameraHeight = camera.positionCartographic.height;
+      const moveRate = Math.max(2.0, cameraHeight * 0.15);
+      const rotateRate = 0.02;
+
+      if (flags.moveForward) camera.moveForward(moveRate);
+      if (flags.moveBackward) camera.moveBackward(moveRate);
+      if (flags.moveUp) camera.moveUp(moveRate * 0.8);
+      if (flags.moveDown) camera.moveDown(moveRate * 0.8);
+      if (flags.moveLeft) camera.moveLeft(moveRate);
+      if (flags.moveRight) camera.moveRight(moveRate);
+      if (flags.yawLeft) camera.lookLeft(rotateRate);
+      if (flags.yawRight) camera.lookRight(rotateRate);
+    });
+  }
+
+  /**
+   * Reset camera heading to 0° True North
+   */
+  resetNorth() {
+    if (!this.viewer) return;
+    const camera = this.viewer.camera;
+    camera.flyTo({
+      destination: camera.position,
+      orientation: {
+        heading: 0.0,
+        pitch: camera.pitch,
+        roll: 0.0
+      },
+      duration: 0.8
+    });
+  }
+
+  /**
+   * Switch perspective preset ('3d' | 'top' | 'ground')
+   */
+  setViewPerspective(mode) {
+    if (!this.viewer) return;
+    const camera = this.viewer.camera;
+    let pitchDeg = -45.0;
+    if (mode === 'top') pitchDeg = -89.9; // top-down 2D
+    if (mode === 'ground') pitchDeg = -15.0; // eye-level 3D
+    if (mode === '3d') pitchDeg = -45.0; // isometric 3D
+
+    camera.flyTo({
+      destination: camera.position,
+      orientation: {
+        heading: camera.heading,
+        pitch: Cesium.Math.toRadians(pitchDeg),
+        roll: 0.0
+      },
+      duration: 0.8
+    });
+  }
   setBasemap(type) {
     if (!this.viewer) return;
     const layers = this.viewer.imageryLayers;
