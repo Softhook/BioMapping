@@ -31,7 +31,10 @@ class GSRGlobeManager {
     // Entity collections
     this.trackEntities = [];
     this.peakEntities = [];
+    this.osmBuildingEntities = [];
     this.scrubEntity = null;
+    this.buildingsTileset = null;
+    this.cachedOsmJson = null;
 
     // Orbit camera animation
     this._isOrbiting = false;
@@ -49,6 +52,18 @@ class GSRGlobeManager {
         url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         maximumLevel: 19,
         credit: 'Esri, Maxar, Earthstar Geographics'
+      });
+    } else if (type === 'sentinel') {
+      return new Cesium.UrlTemplateImageryProvider({
+        url: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',
+        maximumLevel: 16,
+        credit: 'Sentinel-2 cloudless by EOX IT Services GmbH (Contains modified Copernicus Sentinel data)'
+      });
+    } else if (type === 'nasa') {
+      return new Cesium.UrlTemplateImageryProvider({
+        url: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg',
+        maximumLevel: 8,
+        credit: 'NASA GIBS / Landsat / Blue Marble'
       });
     } else if (type === 'osm') {
       return new Cesium.OpenStreetMapImageryProvider({
@@ -92,11 +107,8 @@ class GSRGlobeManager {
     // Disable Cesium Ion default key check warning
     Cesium.Ion.defaultAccessToken = (window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.cesiumIonToken) || '';
 
-    // Direct, reliable XYZ tile template
-    const imageryProvider = this._createImageryProvider('satellite');
-
     this.viewer = new Cesium.Viewer(this.containerId, {
-      imageryProvider: imageryProvider,
+      baseLayer: false,
       baseLayerPicker: false,
       geocoder: false,
       homeButton: false,
@@ -112,6 +124,9 @@ class GSRGlobeManager {
       scene3DOnly: true,
       shadows: false
     });
+
+    // Set initial ArcGIS satellite basemap immediately
+    this.setBasemap('satellite');
 
     const scene = this.viewer.scene;
     const globe = scene.globe;
@@ -334,15 +349,28 @@ class GSRGlobeManager {
     if (mode === 'ground') pitchDeg = -15.0; // eye-level 3D
     if (mode === '3d') pitchDeg = -45.0; // isometric 3D
 
-    camera.flyTo({
-      destination: camera.position,
-      orientation: {
-        heading: camera.heading,
-        pitch: Cesium.Math.toRadians(pitchDeg),
-        roll: 0.0
-      },
-      duration: 0.8
-    });
+    if (this.currentDrawPoints && this.currentDrawPoints.length > 0) {
+      const positions = this.currentDrawPoints.map(p => Cesium.Cartesian3.fromDegrees(p.lon, p.lat));
+      const boundingSphere = Cesium.BoundingSphere.fromPoints(positions);
+      const pitch = Cesium.Math.toRadians(pitchDeg);
+      const heading = camera.heading;
+      const range = Math.max(boundingSphere.radius * (mode === 'ground' ? 1.4 : 2.2), 350.0);
+
+      this.viewer.camera.flyToBoundingSphere(boundingSphere, {
+        offset: new Cesium.HeadingPitchRange(heading, pitch, range),
+        duration: 0.8
+      });
+    } else {
+      camera.flyTo({
+        destination: camera.position,
+        orientation: {
+          heading: camera.heading,
+          pitch: Cesium.Math.toRadians(pitchDeg),
+          roll: 0.0
+        },
+        duration: 0.8
+      });
+    }
   }
   setBasemap(type) {
     if (!this.viewer) return;
@@ -352,6 +380,197 @@ class GSRGlobeManager {
     if (provider) {
       layers.addImageryProvider(provider);
     }
+  }
+
+  /**
+   * Toggle 3D Buildings: Uses direct OpenStreetMap Overpass vector extrusion (token-free)
+   * or falls back to Cesium ion 3D Tiles if configured.
+   * @param {boolean} show
+   * @param {'glass'|'dark'|'monochrome'|'realistic'} [style='glass']
+   * @param {Function} [onStatus]
+   */
+  async toggle3DBuildings(show, style = 'glass', onStatus) {
+    this.show3DBuildings = show;
+    this.buildingStyle = style;
+
+    if (!show) {
+      this.clearOsmBuildingEntities();
+      if (this.buildingsTileset) this.buildingsTileset.show = false;
+      return;
+    }
+
+    // 1. Direct OpenStreetMap Overpass extrusion (100% token-free, open data)
+    if (this.cachedOsmJson) {
+      this.renderOsm3DBuildings(this.cachedOsmJson, style);
+      return;
+    }
+
+    if (this.currentDrawPoints && this.currentDrawPoints.length > 0 && typeof OSMEnricher !== 'undefined') {
+      try {
+        if (onStatus) onStatus('Fetching OpenStreetMap 3D buildings…');
+        const rawPoints = this.currentDrawPoints.map(p => ({ lat: p.lat, lon: p.lon }));
+        const bbox = OSMEnricher.calculateBBox(rawPoints, 350);
+        if (bbox) {
+          const osmJson = await OSMEnricher.fetchOSMData(bbox, onStatus);
+          if (osmJson) {
+            this.cachedOsmJson = osmJson;
+            this.renderOsm3DBuildings(osmJson, style);
+            if (onStatus) onStatus('');
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Direct Overpass building fetch failed, checking Cesium ion fallback:', err);
+      }
+    }
+
+    // 2. Fallback to Cesium ion global 3D tiles if token available
+    if (!this.buildingsTileset) {
+      try {
+        if (typeof Cesium.createOsmBuildingsAsync === 'function') {
+          this.buildingsTileset = await Cesium.createOsmBuildingsAsync();
+        } else {
+          this.buildingsTileset = await Cesium.Cesium3DTileset.fromIonAssetId(96188);
+        }
+        this.viewer.scene.primitives.add(this.buildingsTileset);
+      } catch (err) {
+        console.warn('Could not load Cesium OSM 3D Buildings:', err);
+        if (onStatus) onStatus('');
+        alert('Could not load 3D Buildings: ' + err.message);
+        this.show3DBuildings = false;
+        return;
+      }
+    }
+
+    this.buildingsTileset.show = true;
+    this.apply3DBuildingStyle(style);
+    if (onStatus) onStatus('');
+  }
+
+  /**
+   * Extrude 3D building polygons from raw OpenStreetMap Overpass data
+   * (100% token-free, no Cesium ion account needed).
+   */
+  renderOsm3DBuildings(osmJson, style = 'glass') {
+    this.clearOsmBuildingEntities();
+    if (!osmJson || !osmJson.elements) return;
+
+    // Parse nodes and ways from OSM JSON
+    const nodeMap = new Map();
+    const buildingWays = [];
+
+    for (const el of osmJson.elements) {
+      if (el.type === 'node') {
+        nodeMap.set(el.id, { lat: el.lat, lon: el.lon });
+      }
+    }
+
+    for (const el of osmJson.elements) {
+      if (el.type === 'way' && el.tags && el.tags.building) {
+        const coords = [];
+        for (const nid of el.nodes) {
+          const pt = nodeMap.get(nid);
+          if (pt) coords.push(pt);
+        }
+        if (coords.length >= 3) {
+          el.coordinates = coords;
+          buildingWays.push(el);
+        }
+      }
+    }
+
+    if (buildingWays.length === 0) return;
+
+    // Determine color based on architectural style
+    let fillColor, outlineColor;
+    if (style === 'glass') {
+      fillColor = Cesium.Color.fromCssColorString('#00d4ff').withAlpha(0.22);
+      outlineColor = Cesium.Color.fromCssColorString('#00d4ff').withAlpha(0.65);
+    } else if (style === 'dark') {
+      fillColor = Cesium.Color.fromCssColorString('#1a1d26').withAlpha(0.85);
+      outlineColor = Cesium.Color.fromCssColorString('#2e3444').withAlpha(0.9);
+    } else if (style === 'monochrome') {
+      fillColor = Cesium.Color.fromCssColorString('#e2e4ea').withAlpha(0.7);
+      outlineColor = Cesium.Color.fromCssColorString('#a0a5b5').withAlpha(0.85);
+    } else {
+      fillColor = Cesium.Color.fromCssColorString('#c8bca8').withAlpha(0.8);
+      outlineColor = Cesium.Color.fromCssColorString('#8b7d6b').withAlpha(0.9);
+    }
+
+    // Extrude each building footprint into 3D
+    buildingWays.forEach((way, i) => {
+      const degreesArray = [];
+      for (const pt of way.coordinates) {
+        degreesArray.push(pt.lon, pt.lat);
+      }
+
+      // Height calculation from OSM tags
+      let heightMeters = 9.0; // Default 3 stories (~9m)
+      if (way.tags.height) {
+        const h = parseFloat(way.tags.height);
+        if (!isNaN(h) && h > 0) heightMeters = h;
+      } else if (way.tags['building:levels']) {
+        const lvls = parseFloat(way.tags['building:levels']);
+        if (!isNaN(lvls) && lvls > 0) heightMeters = lvls * 3.5;
+      } else if (way.tags.building === 'commercial' || way.tags.building === 'apartments' || way.tags.building === 'office') {
+        heightMeters = 16.0;
+      } else if (way.tags.building === 'shed' || way.tags.building === 'garage') {
+        heightMeters = 4.0;
+      }
+
+      const buildingEntity = this.viewer.entities.add({
+        name: way.tags.name || `Building ${i + 1}`,
+        polygon: {
+          hierarchy: Cesium.Cartesian3.fromDegreesArray(degreesArray),
+          height: 0,
+          extrudedHeight: heightMeters,
+          material: fillColor,
+          outline: true,
+          outlineColor: outlineColor,
+          outlineWidth: 1.0
+        }
+      });
+      this.osmBuildingEntities.push(buildingEntity);
+    });
+  }
+
+  clearOsmBuildingEntities() {
+    if (this.osmBuildingEntities) {
+      this.osmBuildingEntities.forEach(ent => this.viewer.entities.remove(ent));
+      this.osmBuildingEntities = [];
+    }
+  }
+
+  /**
+   * Apply architectural 3D Tile styling
+   */
+  apply3DBuildingStyle(style) {
+    this.buildingStyle = style;
+
+    // Re-render local OSM extruded buildings if active
+    if (this.cachedOsmJson && this.osmBuildingEntities && this.osmBuildingEntities.length > 0) {
+      this.renderOsm3DBuildings(this.cachedOsmJson, style);
+      return;
+    }
+
+    // Otherwise update Cesium 3D Tile style
+    if (!this.buildingsTileset) return;
+
+    let colorExpression;
+    if (style === 'glass') {
+      colorExpression = "color('rgba(52, 100, 138, 0.45)')";
+    } else if (style === 'dark') {
+      colorExpression = "color('rgba(28, 32, 42, 0.75)')";
+    } else if (style === 'monochrome') {
+      colorExpression = "color('rgba(220, 225, 230, 0.65)')";
+    } else {
+      colorExpression = "color('white', 1.0)";
+    }
+
+    this.buildingsTileset.style = new Cesium.Cesium3DTileStyle({
+      color: colorExpression,
+      show: true
+    });
   }
 
   /**
@@ -738,21 +957,26 @@ class GSRGlobeManager {
   }
 
   /**
-   * Fly camera to encompass the entire active track
+   * Fly camera to encompass and perfectly center the entire active track
    */
   flyToTrack() {
     if (!this.viewer || this.currentDrawPoints.length === 0) return;
 
-    const coords = this.currentDrawPoints.map(p => Cesium.Cartographic.fromDegrees(p.lon, p.lat));
-    const rectangle = Cesium.Rectangle.fromCartographicArray(coords);
+    // Convert track points to 3D Cartesian positions
+    const positions = this.currentDrawPoints.map(p => Cesium.Cartesian3.fromDegrees(p.lon, p.lat));
+    
+    // Compute exact 3D bounding sphere encompassing the walk
+    const boundingSphere = Cesium.BoundingSphere.fromPoints(positions);
 
-    this.viewer.camera.flyTo({
-      destination: rectangle,
-      orientation: {
-        heading: Cesium.Math.toRadians(0.0),
-        pitch: Cesium.Math.toRadians(-45.0), // Isometric 45-degree angle for dramatic 3D extrusion view
-        roll: 0.0
-      },
+    // Isometric 45-degree pitch, looking North, with radius-proportional range
+    const pitch = Cesium.Math.toRadians(-45.0);
+    const heading = Cesium.Math.toRadians(0.0);
+    const range = Math.max(boundingSphere.radius * 2.2, 450.0);
+
+    const offset = new Cesium.HeadingPitchRange(heading, pitch, range);
+
+    this.viewer.camera.flyToBoundingSphere(boundingSphere, {
+      offset: offset,
       duration: 1.5
     });
   }

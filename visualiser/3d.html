@@ -604,17 +604,41 @@
 
           <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 2px 0;">
 
-          <!-- 3. Basemap & Environment -->
+          <!-- 3. Basemap & 3D Environment -->
           <div class="control-group">
             <div class="globe-panel-title">
-              <i class="fa-solid fa-earth-americas"></i> Basemap
+              <i class="fa-solid fa-earth-americas"></i> Basemap & 3D Layers
             </div>
-            <select class="globe-select" id="basemapSelect">
-              <option value="satellite">ArcGIS High-Res Satellite</option>
-              <option value="osm">OpenStreetMap Standard</option>
-              <option value="dark">CARTO Dark Matter</option>
-              <option value="positron">CARTO Positron (Light)</option>
-            </select>
+            <div class="control-group">
+              <label class="control-label" for="basemapSelect">Imagery Provider</label>
+              <select class="globe-select" id="basemapSelect">
+                <option value="satellite">ArcGIS High-Res Satellite</option>
+                <option value="sentinel">Copernicus Sentinel-2 (Open Cloudless)</option>
+                <option value="nasa">NASA Blue Marble / Landsat</option>
+                <option value="osm">OpenStreetMap Standard</option>
+                <option value="dark">CARTO Dark Matter</option>
+                <option value="positron">CARTO Positron (Light)</option>
+              </select>
+            </div>
+
+            <!-- 3D Buildings Toggle & Style -->
+            <div style="margin-top: 6px; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                <label class="control-label" for="chk3DBuildings" style="font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                  <i class="fa-solid fa-city" style="color: #00d4ff;"></i> 3D OSM Buildings
+                </label>
+                <input type="checkbox" id="chk3DBuildings" style="cursor: pointer; width: 16px; height: 16px; accent-color: #00d4ff;">
+              </div>
+              <div id="buildingStyleRow" style="display: none; margin-top: 6px;">
+                <label class="control-label" for="buildingStyleSelect" style="margin-bottom: 4px;">Building Style</label>
+                <select class="globe-select" id="buildingStyleSelect" style="font-size: 0.78rem; padding: 6px 8px;">
+                  <option value="glass">Translucent Blueprint (Glass)</option>
+                  <option value="dark">Dark Architectural Matte</option>
+                  <option value="monochrome">Monochrome White Model</option>
+                  <option value="realistic">Realistic Solid</option>
+                </select>
+              </div>
+            </div>
           </div>
 
           <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 2px 0;">
@@ -720,6 +744,12 @@
   <script src="src/map/map_colors.js"></script>
   <script src="src/gps/gps_pipeline.js"></script>
 
+  <!-- OpenStreetMap Overpass & Spatial Enrichment -->
+  <script src="src/spatial/spatial_grid.js"></script>
+  <script src="src/osm/overpass_client.js"></script>
+  <script src="src/osm/osm_cache.js"></script>
+  <script src="src/osm/osm_enrichment.js"></script>
+
   <!-- Cesium 3D Globe Manager -->
   <script src="src/map/globe3d.js"></script>
 
@@ -811,6 +841,21 @@
       // Basemap selector
       basemapSelect.addEventListener('change', (e) => {
         globeManager.setBasemap(e.target.value);
+      });
+
+      // 3D Buildings Toggle & Style
+      const chk3DBuildings = document.getElementById('chk3DBuildings');
+      const buildingStyleSelect = document.getElementById('buildingStyleSelect');
+      const buildingStyleRow = document.getElementById('buildingStyleRow');
+
+      chk3DBuildings.addEventListener('change', async (e) => {
+        const isChecked = e.target.checked;
+        buildingStyleRow.style.display = isChecked ? 'block' : 'none';
+        await globeManager.toggle3DBuildings(isChecked, buildingStyleSelect.value);
+      });
+
+      buildingStyleSelect.addEventListener('change', (e) => {
+        globeManager.apply3DBuildingStyle(e.target.value);
       });
 
       // Camera Fly to Track
@@ -920,7 +965,11 @@
           activeAnalyzer = analyzer;
 
           // Render in 3D
+          globeManager.cachedOsmJson = null;
           globeManager.renderData(analyzer, gpsParams);
+          if (chk3DBuildings.checked) {
+            globeManager.toggle3DBuildings(true, buildingStyleSelect.value);
+          }
 
           // Update Info card
           const trackCard = document.getElementById('trackInfoCard');
