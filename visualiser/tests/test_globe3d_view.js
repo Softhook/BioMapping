@@ -100,6 +100,31 @@ test('_editPeakLabel mounts the map peak popup in the globe container and closes
   assert.strictEqual(window.document.getElementById('globe3dPeakPopup'), null, 'closed');
 });
 
+test('_pushFromMap fits the globe to the track only when the active track changed', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+
+  window.AppState.analyzer = { raw: [{}, {}] };
+  window.AppState.viewMode = 'collective';
+  window.AppState.activeTrackId = 'track-a';
+  window.AppState.mapManager._legendMinVal = 0;
+  window.AppState.mapManager._legendMaxVal = 1;
+
+  const flew = [];
+  V.manager = { renderData: (_a, _p, o) => flew.push(!o.isPreview) };
+  V._lastTrackId = null;
+
+  V._pushFromMap();                 // first sight of track-a → fit
+  V._pushFromMap();                 // same track, e.g. a slider drag → no fit
+  window.AppState.activeTrackId = 'track-b';
+  V._pushFromMap();                 // picked another track in the list → fit
+  V._pushFromMap({ fly: true });    // explicit request (surface opened) → fit
+
+  assert.deepStrictEqual(flew, [true, false, true, true]);
+  V.manager = null;
+});
+
 test('GSRGlobe3DView.init is idempotent and exposes the read-only push API', () => {
   const { window } = bootApp();
   window.setup();

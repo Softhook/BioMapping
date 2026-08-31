@@ -174,6 +174,50 @@ test('requestRenderMode: default off (continuous); opt-in on for an embedded hos
   b.destroy();
 });
 
+test('render-on-demand host: _wakeRenderLoop bursts continuous, then retires to on-demand', async () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false, requestRenderMode: true, idleRenderMs: 20 });
+  const scene = mgr.viewer.scene;
+  scene.requestRenderMode = true;
+
+  mgr._wakeRenderLoop();
+  assert.strictEqual(scene.requestRenderMode, false, 'interaction drops the scene to continuous rendering');
+
+  await new Promise((r) => setTimeout(r, 45));
+  assert.strictEqual(scene.requestRenderMode, true, 'idle timer hands the scene back to render-on-demand');
+  assert.strictEqual(mgr._idleRenderTimer, null);
+  mgr.destroy();
+});
+
+test('_wakeRenderLoop is inert for a continuous host and while a 360° orbit owns the loop', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+
+  const cont = new GSRGlobeManager('c', { keyboardFlight: false }); // requestRenderMode off
+  cont.viewer.scene.requestRenderMode = true;
+  cont._wakeRenderLoop();
+  assert.strictEqual(cont.viewer.scene.requestRenderMode, true, 'continuous host: bridge never touches requestRenderMode');
+  cont.destroy();
+
+  const emb = new GSRGlobeManager('c', { keyboardFlight: false, requestRenderMode: true });
+  emb._isOrbiting = true;
+  emb.viewer.scene.requestRenderMode = true;
+  emb._wakeRenderLoop();
+  assert.strictEqual(emb.viewer.scene.requestRenderMode, true, 'no burst while an orbit is running');
+  emb.destroy();
+});
+
+test('destroy() cancels a pending idle-retire timer', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false, requestRenderMode: true });
+  mgr._wakeRenderLoop();
+  assert.notStrictEqual(mgr._idleRenderTimer, null, 'timer armed by the interaction');
+  mgr.destroy();
+  assert.strictEqual(mgr._idleRenderTimer, null, 'timer cleared on teardown');
+});
+
 test('renderData({ drawPoints }) bypasses the standalone GPS chain', () => {
   freshEnv();
   const { GSRGlobeManager } = loadFresh();

@@ -43,6 +43,11 @@ const GSRGlobe3DView = {
   _cesiumPromise: null,
   els: {},
 
+  // Last track id pushed into the globe. When _pushFromMap sees this change
+  // (the user picked a different track in the left library list), it frames the
+  // new track instead of leaving the camera where it was.
+  _lastTrackId: null,
+
   // ── Init & wiring ──────────────────────────────────────────────────────────
 
   init() {
@@ -438,11 +443,18 @@ const GSRGlobe3DView = {
     const single = AppState.viewMode === 'single';
     const drawPoints = single ? (mm._lastDrawPoints || []) : null;
 
+    // Frame the track when the caller asked (surface first opened) OR when the
+    // active track changed since the last push — picking a different track in
+    // the left library list should pan the globe to fit it, like the 2D map.
+    const trackId = AppState.activeTrackId ?? null;
+    const trackChanged = trackId !== null && trackId !== GSRGlobe3DView._lastTrackId;
+    GSRGlobe3DView._lastTrackId = trackId;
+
     mgr.renderData(AppState.analyzer, gpsParams, {
       drawPoints: (drawPoints && drawPoints.length >= 2) ? drawPoints : undefined,
       colorMetric: metric,
       colorRange,
-      isPreview: !opts.fly
+      isPreview: !(opts.fly || trackChanged)
     });
     GSRGlobe3DView._updateLegend(metric, colorRange);
   },

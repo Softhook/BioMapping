@@ -116,6 +116,18 @@ class GSRGlobeManager {
     this.doubleClickFly = options.doubleClickFly !== false;
     this.requestRenderMode = options.requestRenderMode === true;
 
+    // Smoothness bridge for a render-on-demand host. On-demand rendering idles
+    // cheaply but makes clock-driven motion — inertia glide, wheel-zoom ramp,
+    // camera flights, tile fade-in — visibly steppy, because a frame is only
+    // drawn on a discrete scene change. _wakeRenderLoop() drops the scene to
+    // continuous rendering from the first interaction and holds it there until
+    // ~this long after all camera motion stops, then hands back to on-demand.
+    // No-op for a continuously rendering host (standalone 3d.html).
+    this._idleRenderMs = options.idleRenderMs || 2200;
+    this._idleRenderTimer = null;
+    this._wakeHandlers = null;
+    this._postRenderRemover = null;
+
     // Active track data cache
     this.currentAnalyzer = null;
     this.currentDrawPoints = [];
@@ -361,6 +373,43 @@ class GSRGlobeManager {
     if (this.keyboardFlight) {
       this._setupKeyboardFlight();
     }
+
+    // 7. Render-on-demand smoothness bridge (see _wakeRenderLoop). Pointer/wheel
+    // input on the canvas starts a continuous-render burst; a per-frame camera
+    // watcher keeps it alive for as long as the camera is actually moving
+    // (inertia tail, flyTo, keyboard flight), then the idle timer retires it.
+    if (this.requestRenderMode) {
+      const canvas = scene.canvas;
+      this._wakeHandlers = ['pointerdown', 'wheel'].map((type) => {
+        const h = () => this._wakeRenderLoop();
+        canvas.addEventListener(type, h, { passive: true });
+        return { type, h };
+      });
+      let lastCam = null;
+      this._postRenderRemover = scene.postRender.addEventListener(() => {
+        const p = this.viewer.camera.positionWC;
+        if (lastCam && Cesium.Cartesian3.equalsEpsilon(p, lastCam, 1e-9)) return;
+        lastCam = Cesium.Cartesian3.clone(p, lastCam);
+        this._wakeRenderLoop();
+      });
+    }
+  }
+
+  /**
+   * Drop the scene to continuous rendering and (re)arm the idle timer that hands
+   * it back to render-on-demand once camera motion has settled. No-op unless the
+   * host asked for requestRenderMode, and never fights a running 360° orbit
+   * (which owns the render loop itself). See constructor notes.
+   */
+  _wakeRenderLoop() {
+    if (!this.requestRenderMode || this._isOrbiting || !this.viewer) return;
+    const scene = this.viewer.scene;
+    if (scene.requestRenderMode) scene.requestRenderMode = false;
+    if (this._idleRenderTimer) clearTimeout(this._idleRenderTimer);
+    this._idleRenderTimer = setTimeout(() => {
+      this._idleRenderTimer = null;
+      if (this.viewer && !this._isOrbiting) this.viewer.scene.requestRenderMode = true;
+    }, this._idleRenderMs);
   }
 
   /**
@@ -469,6 +518,19 @@ class GSRGlobeManager {
       this._flightTickRemover();
       this._flightTickRemover = null;
     }
+    if (this._idleRenderTimer) {
+      clearTimeout(this._idleRenderTimer);
+      this._idleRenderTimer = null;
+    }
+    if (this._postRenderRemover) {
+      this._postRenderRemover();
+      this._postRenderRemover = null;
+    }
+    if (this._wakeHandlers && this.viewer && this.viewer.scene && this.viewer.scene.canvas) {
+      const canvas = this.viewer.scene.canvas;
+      this._wakeHandlers.forEach(({ type, h }) => canvas.removeEventListener(type, h));
+    }
+    this._wakeHandlers = null;
     if (this._screenSpaceHandler && !this._screenSpaceHandler.isDestroyed()) {
       this._screenSpaceHandler.destroy();
     }
@@ -501,6 +563,7 @@ class GSRGlobeManager {
    */
   resetNorth() {
     if (!this.viewer) return;
+    this._wakeRenderLoop();
     const camera = this.viewer.camera;
     camera.flyTo({
       destination: camera.position,
@@ -518,6 +581,7 @@ class GSRGlobeManager {
    */
   setViewPerspective(mode) {
     if (!this.viewer) return;
+    this._wakeRenderLoop();
     const camera = this.viewer.camera;
     let pitchDeg = -45.0;
     if (mode === 'top') pitchDeg = -89.9; // top-down 2D
@@ -1443,6 +1507,7 @@ class GSRGlobeManager {
    */
   flyToTrack() {
     if (!this.viewer || this.currentDrawPoints.length === 0) return;
+    this._wakeRenderLoop();
 
     // Convert track points to 3D Cartesian positions
     const positions = this.currentDrawPoints.map(p => Cesium.Cartesian3.fromDegrees(p.lon, p.lat));
@@ -1501,6 +1566,12 @@ class GSRGlobeManager {
 
     // Continuous rendering for the duration of the orbit — render-on-demand
     // (requestRenderMode) makes a per-tick camera animation visibly steppy.
+    // Cancel any pending idle-retire so the smoothness bridge can't flip the
+    // scene back to on-demand mid-orbit.
+    if (this._idleRenderTimer) {
+      clearTimeout(this._idleRenderTimer);
+      this._idleRenderTimer = null;
+    }
     this.viewer.scene.requestRenderMode = false;
     this._orbitRemoveCallback = this.viewer.clock.onTick.addEventListener(orbitStep);
     this._isOrbiting = true;
