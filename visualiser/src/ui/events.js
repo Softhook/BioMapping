@@ -341,18 +341,21 @@ const GSREvents = {
       }
     });
 
-    // ── Leaflet-to-Timeline scrubbing callback ────────────────────────────────
-    GSREvents.updateTimelineScrub = (time) => {
-      if (AppState.analyzer.raw.length === 0) return;
-      AppState.hoveredIndex = AppState.analyzer.findClosestIndex(time);
-      if (AppState.hoveredIndex !== -1) {
-        const sample = AppState.analyzer.raw[AppState.hoveredIndex];
-        if (sample && sample.hasGps && !isNaN(sample.lat) && !isNaN(sample.lon) && AppState.mapManager) {
-          AppState.mapManager.setScrubPosition(sample.lat, sample.lon, false);
-        }
-        redraw();
+    // ── Shared scrub channel: relay to the 2D map ────────────────────────────
+    // The GSR graph (renderer.js handleScrubber) and the 3D globe
+    // (globe3d_view.js) both emit 'scrub' with {lat, lon, index, source} or
+    // {clear:true}. This is the single place the Leaflet scrub dot is driven.
+    // panTo stays on for graph/globe sources so the 2D map keeps its
+    // pan-only-when-off-screen behaviour; a 'map'-sourced scrub never pans.
+    AppState.on('scrub', (p) => {
+      const mm = AppState.mapManager;
+      if (!mm) return;
+      if (!p || p.clear || isNaN(p.lat) || isNaN(p.lon)) {
+        mm.setScrubPosition(NaN, NaN);
+      } else {
+        mm.setScrubPosition(p.lat, p.lon, p.source !== 'map');
       }
-    };
+    });
 
     // ── Canvas Control Buttons ────────────────────────────────────────────────
     document.getElementById('btnZoomIn').addEventListener('click',    () => GSRUI.zoomCanvas(1.5));
@@ -592,7 +595,8 @@ const GSREvents = {
       if (collapsed) {
         AppState.mouseOverCanvas = false;
         AppState.hoveredIndex = -1;
-        if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
+        if (AppState.scrubSource === 'graph') AppState.scrubSource = null;
+        AppState.emit('scrub', { clear: true, source: 'graph' });
       }
     });
     GSREvents.bindCollapseButton('btnMapCollapse',           'mapPanel');
@@ -890,7 +894,8 @@ const GSREvents = {
       // elementFromPoint hit-test is what actually keeps the scrubber inert.)
       AppState.mouseOverCanvas = false;
       AppState.hoveredIndex = -1;
-      if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
+      AppState.scrubSource = null;
+      AppState.emit('scrub', { clear: true });
 
       GSRUI.updateCollectiveMap();
       GSRUI.refreshOsmControls(); // reflects all/none/mixed enrichment across active tracks

@@ -774,56 +774,81 @@ const GSRRenderer = {
     return false;
   },
 
-  handleScrubber(tMin, tMax, yMinU, yMaxU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
-    // Whatever the reason the canvas isn't reachable — collapsed panel
-    // (visibility:hidden), collective view (display:none), the map's
-    // fullscreen overlay sitting on top (z-index 9999) — a real hit-test at
-    // the cursor's screen position is the one check that stays correct
-    // without needing a dedicated AppState flag per hiding mechanism. p5's
-    // own mouseX/mouseY and the mouseenter/mouseleave-driven mouseOverCanvas
-    // flag are computed from the canvas' own layout box, which can go stale
-    // or keep overlapping whatever took its place once the canvas is hidden
-    // by CSS rather than actually moved/removed.
-    if (!AppState.myCanvas || document.elementFromPoint(winMouseX, winMouseY) !== AppState.myCanvas.elt) {
-      AppState.hoveredIndex = -1;
-      if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
-      return;
-    }
+  // Hide every surface's scrub cursor and release graph ownership of it. Used
+  // by handleScrubber()'s early-return branches. The 3D globe and 2D map both
+  // listen on the 'scrub' event (see events.js / globe3d_view.js).
+  _clearScrub() {
+    AppState.hoveredIndex = -1;
+    if (AppState.scrubSource === 'graph') AppState.scrubSource = null;
+    AppState.emit('scrub', { clear: true, source: 'graph' });
+  },
 
-    // Only show scrubber when the mouse is inside the graph's plot area
-    if (mouseX < GSR_CONST.MARGIN.left || mouseX > width - GSR_CONST.MARGIN.right ||
-        mouseY < GSR_CONST.MARGIN.top || mouseY > yBottomL ||
-        AppState.isDragging) {
-      AppState.hoveredIndex = -1;
-      if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
-      return;
+  handleScrubber(tMin, tMax, yMinU, yMaxU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
+    // When the 3D globe owns the cursor (the user is hovering the 3D track),
+    // draw the scrubber from AppState.hoveredIndex directly and skip the mouse
+    // hit-testing below — otherwise this per-frame pass would immediately wipe
+    // the hover the globe just set (the mouse isn't over this canvas).
+    const externalHover = AppState.scrubSource === 'globe' && AppState.hoveredIndex >= 0;
+
+    if (!externalHover) {
+      // Whatever the reason the canvas isn't reachable — collapsed panel
+      // (visibility:hidden), collective view (display:none), the map's
+      // fullscreen overlay sitting on top (z-index 9999) — a real hit-test at
+      // the cursor's screen position is the one check that stays correct
+      // without needing a dedicated AppState flag per hiding mechanism. p5's
+      // own mouseX/mouseY and the mouseenter/mouseleave-driven mouseOverCanvas
+      // flag are computed from the canvas' own layout box, which can go stale
+      // or keep overlapping whatever took its place once the canvas is hidden
+      // by CSS rather than actually moved/removed.
+      if (!AppState.myCanvas || document.elementFromPoint(winMouseX, winMouseY) !== AppState.myCanvas.elt) {
+        this._clearScrub();
+        return;
+      }
+
+      // Only show scrubber when the mouse is inside the graph's plot area
+      if (mouseX < GSR_CONST.MARGIN.left || mouseX > width - GSR_CONST.MARGIN.right ||
+          mouseY < GSR_CONST.MARGIN.top || mouseY > yBottomL ||
+          AppState.isDragging) {
+        this._clearScrub();
+        return;
+      }
     }
 
     if (!AppState.analyzer.raw || AppState.analyzer.raw.length === 0 ||
         !AppState.analyzer.filtered || AppState.analyzer.filtered.length === 0 ||
         !AppState.analyzer.tonic || AppState.analyzer.tonic.length === 0 ||
         !AppState.analyzer.phasic || AppState.analyzer.phasic.length === 0) {
-      AppState.hoveredIndex = -1;
-      if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
+      if (!externalHover) this._clearScrub();
       return;
     }
 
-    const hoverTime = map(mouseX, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right, tMin, tMax);
-    AppState.hoveredIndex = AppState.analyzer.findClosestIndex(hoverTime);
-    if (AppState.hoveredIndex === -1) return;
+    if (!externalHover) {
+      const hoverTime = map(mouseX, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right, tMin, tMax);
+      AppState.hoveredIndex = AppState.analyzer.findClosestIndex(hoverTime);
+      if (AppState.hoveredIndex === -1) return;
+      AppState.scrubSource = 'graph';
+    }
 
     const dRaw = AppState.analyzer.raw[AppState.hoveredIndex];
     if (!dRaw) return;
 
-    if (dRaw.hasGps && !isNaN(dRaw.lat) && !isNaN(dRaw.lon)) {
-      if (AppState.mapManager) AppState.mapManager.setScrubPosition(dRaw.lat, dRaw.lon, true);
-    } else {
-      if (AppState.mapManager) AppState.mapManager.setScrubPosition(NaN, NaN);
+    // A graph hover drives the other surfaces' cursors through the 'scrub'
+    // event. A globe-owned (external) hover already emitted its own 'scrub',
+    // so don't echo it back.
+    if (!externalHover) {
+      if (dRaw.hasGps && !isNaN(dRaw.lat) && !isNaN(dRaw.lon)) {
+        AppState.emit('scrub', { lat: dRaw.lat, lon: dRaw.lon, index: AppState.hoveredIndex, source: 'graph' });
+      } else {
+        AppState.emit('scrub', { clear: true, source: 'graph' });
+      }
     }
 
     const dFilt   = AppState.analyzer.filtered[AppState.hoveredIndex];
     const dTonic  = AppState.analyzer.tonic[AppState.hoveredIndex];
     const dPhasic = AppState.analyzer.phasic[AppState.hoveredIndex];
+    // An external (globe-owned) index can briefly outrun a just-reanalysed
+    // series on a track switch — bail rather than throw on the .val reads.
+    if (!dFilt || !dTonic || !dPhasic) return;
 
     // Lower graph may be showing phasic or one of the continuous alternatives
     // (peak density / phasic AUC / arousal index) — track the scrubber dot
@@ -864,6 +889,11 @@ const GSRRenderer = {
     stroke(colorLower);
     fill(colorLower);
     circle(xScrub, yL, 6);
+
+    // The floating tooltip is anchored to mouseX/mouseY; when the hover is
+    // driven from the 3D globe the mouse is off this canvas, so the scrubber
+    // line + dots + time label above are the readout and the tooltip is skipped.
+    if (externalHover) return;
 
     // Check if hovered index is near a detected peak — show quality info
     let nearPeakInfo = null;

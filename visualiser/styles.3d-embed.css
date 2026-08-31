@@ -11,8 +11,11 @@
 
 /* ── Cesium mount ────────────────────────────────────────────────────────── */
 
-/* Give the globe a bit more room than the default 400px map panel. */
-#globe3dPanel { min-height: 480px; }
+/* #globe3dPanel is a .map-panel — it inherits the 2D map's slot height exactly
+   (min-height: 400px), so the globe reads as the same horizontal band, not a
+   taller box. The container fills that slot symmetrically, which keeps the
+   camera's look-at point (screen centre = container centre) on the vertical
+   centre of the slot. */
 
 /* Mirror #map: a plain 100%-height block inside the flex-column .map-panel,
    NOT a flex child — Cesium sizes its canvas to this element's box, so it has
@@ -28,8 +31,17 @@
   overflow: hidden;
 }
 
+/* Pin Cesium's viewer/widget/canvas as an absolute overlay filling the
+   container. This is what keeps the globe the SAME height as #map: the <canvas>
+   is a replaced element with a large intrinsic (drawing-buffer) height, so left
+   in normal flow it inflates a height:auto container far past #map's 380px.
+   Out of flow, #globe3dContainer collapses to its own min-height, exactly like
+   #map (whose Leaflet panes have no intrinsic size). */
+#globe3dContainer > .cesium-viewer,
 #globe3dContainer .cesium-widget,
 #globe3dContainer .cesium-widget > canvas {
+  position: absolute !important;
+  inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
 }

@@ -137,3 +137,195 @@ test('GSRGlobe3DView.init is idempotent and exposes the read-only push API', () 
   // no manager until the 3D surface is actually opened + Cesium loads
   assert.strictEqual(V.manager, null);
 });
+
+// ── Scrub sync (graph <-> 3D globe) ────────────────────────────────────────
+
+/** A spy stand-in for GSRGlobeManager, enough for the scrub paths. */
+function spyManager() {
+  return {
+    calls: [],
+    setScrubPosition(lat, lon) { this.calls.push(['set', lat, lon]); },
+    followScrub(lat, lon) { this.calls.push(['follow', lat, lon]); },
+    releaseFollowScrub() { this.calls.push(['release']); },
+    _wakeRenderLoop() {},
+    _requestRender() {},
+  };
+}
+
+test('_onScrub: graph source moves the cursor AND drives the follow-cam', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  V.isActive = true;
+  V.manager = spyManager();
+  V._lastScrubKey = null;
+
+  V._onScrub({ lat: 51.5, lon: -0.1, index: 7, source: 'graph' });
+  assert.deepStrictEqual(V.manager.calls, [['set', 51.5, -0.1], ['follow', 51.5, -0.1]]);
+});
+
+test('_onScrub: globe (self) source moves the cursor but never the camera', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  V.isActive = true;
+  V.manager = spyManager();
+  V._lastScrubKey = null;
+
+  V._onScrub({ lat: 51.5, lon: -0.1, index: 7, source: 'globe' });
+  assert.deepStrictEqual(V.manager.calls, [['set', 51.5, -0.1]]);
+});
+
+test('_onScrub: clear hides the cursor and releases the follow-cam', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  V.isActive = true;
+  V.manager = spyManager();
+  V._lastScrubKey = '51.500000,-0.100000'; // a cursor is currently showing
+
+  V._onScrub({ clear: true, source: 'graph' });
+  const kinds = V.manager.calls.map((c) => c[0]);
+  assert.ok(kinds.includes('release'));
+  assert.ok(V.manager.calls.some((c) => c[0] === 'set' && Number.isNaN(c[1])));
+  assert.strictEqual(V._lastScrubKey, null);
+
+  // a second clear with nothing showing is a no-op (no repaint churn)
+  V.manager.calls.length = 0;
+  V._onScrub({ clear: true, source: 'graph' });
+  assert.deepStrictEqual(V.manager.calls, []);
+});
+
+test('_onScrub: inactive surface ignores scrubs; identical non-graph coords dedupe', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  V.manager = spyManager();
+
+  V.isActive = false;
+  V._onScrub({ lat: 1, lon: 2, source: 'graph' });
+  assert.deepStrictEqual(V.manager.calls, [], 'ignored while 2D map is showing');
+
+  V.isActive = true;
+  V._lastScrubKey = null;
+  V._onScrub({ lat: 1, lon: 2, source: 'globe' });
+  V._onScrub({ lat: 1, lon: 2, source: 'globe' }); // same spot, self source -> deduped
+  assert.strictEqual(V.manager.calls.filter((c) => c[0] === 'set').length, 1);
+});
+
+test('_onScrubHover: takes cursor ownership, sets hoveredIndex, emits on the shared channel', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const AppState = window.AppState;
+  V.isActive = true;
+  AppState.viewMode = 'single';
+
+  const seen = [];
+  AppState.on('scrub', (p) => seen.push(p));
+
+  V._onScrubHover(12, { lat: 51.5, lon: -0.1 });
+  assert.strictEqual(AppState.scrubSource, 'globe');
+  assert.strictEqual(AppState.hoveredIndex, 12);
+  // (cross-realm object — compare fields, not deepStrictEqual which checks proto)
+  assert.strictEqual(seen.at(-1).lat, 51.5);
+  assert.strictEqual(seen.at(-1).lon, -0.1);
+  assert.strictEqual(seen.at(-1).index, 12);
+  assert.strictEqual(seen.at(-1).source, 'globe');
+
+  V._onScrubHover(null);
+  assert.strictEqual(AppState.scrubSource, null);
+  assert.strictEqual(AppState.hoveredIndex, -1);
+  assert.strictEqual(seen.at(-1).clear, true);
+});
+
+test('_onScrubHover: no-op outside single-track scope', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const AppState = window.AppState;
+  V.isActive = true;
+  AppState.viewMode = 'collective';
+  AppState.scrubSource = null;
+
+  V._onScrubHover(5, { lat: 1, lon: 2 });
+  assert.strictEqual(AppState.scrubSource, null, 'collective view has no graph to scrub');
+});
+
+test('shared "scrub" event reaches BOTH the 2D map and the 3D globe', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const AppState = window.AppState;
+
+  const mapCalls = [];
+  AppState.mapManager.setScrubPosition = (lat, lon, panTo) => mapCalls.push([lat, lon, panTo]);
+
+  V.isActive = true;
+  V.manager = spyManager();
+  V._lastScrubKey = null;
+
+  AppState.emit('scrub', { lat: 51.5, lon: -0.12, index: 3, source: 'graph' });
+
+  assert.deepStrictEqual(mapCalls, [[51.5, -0.12, true]], '2D map dot moved, panTo on');
+  assert.ok(V.manager.calls.some((c) => c[0] === 'set' && c[1] === 51.5));
+  assert.ok(V.manager.calls.some((c) => c[0] === 'follow'));
+});
+
+test('deactivate() clears the 3D cursor and hands ownership back to the graph', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const AppState = window.AppState;
+
+  V.isActive = true;
+  V.manager = spyManager();
+  AppState.scrubSource = 'globe';
+  AppState.hoveredIndex = 9;
+
+  const seen = [];
+  AppState.on('scrub', (p) => seen.push(p));
+
+  V.deactivate();
+  assert.strictEqual(AppState.scrubSource, null);
+  assert.strictEqual(AppState.hoveredIndex, -1);
+  assert.ok(V.manager.calls.some((c) => c[0] === 'release'));
+  assert.ok(V.manager.calls.some((c) => c[0] === 'set' && Number.isNaN(c[1])));
+  assert.ok(seen.some((p) => p.clear));
+});
+
+test('renderer.handleScrubber does not wipe a globe-owned hover (ownership token)', () => {
+  const { window } = bootApp();
+  window.setup();
+  const AppState = window.AppState;
+
+  // p5 globals the harness omits but handleScrubber's draw path needs
+  window.circle = window.circle || (() => {});
+  window.BOLD = 'bold'; window.NORMAL = 'normal';
+  window.width = 800; window.height = 400;
+
+  const n = 20;
+  const mk = (f) => Array.from({ length: n }, (_, i) => ({ time: i, val: f(i) }));
+  AppState.analyzer = {
+    raw: Array.from({ length: n }, (_, i) => ({ time: i, val: 1, hasGps: true, lat: 51 + i * 1e-4, lon: -0.1 })),
+    filtered: mk(() => 1), tonic: mk(() => 1), phasic: mk(() => 1),
+    peaks: [], sampleRate: 4,
+    findClosestIndex: () => 0,
+  };
+
+  AppState.scrubSource = 'globe';
+  AppState.hoveredIndex = 6;
+
+  const emitted = [];
+  const origEmit = AppState.emit.bind(AppState);
+  AppState.emit = (ev, ...a) => { if (ev === 'scrub') emitted.push(a[0]); return origEmit(ev, ...a); };
+
+  assert.doesNotThrow(() =>
+    window.GSRRenderer.handleScrubber(0, 19, 0, 1, 100, 0, 1, 110, 200));
+
+  assert.strictEqual(AppState.hoveredIndex, 6, 'globe-owned hover survived the per-frame pass');
+  assert.strictEqual(AppState.scrubSource, 'globe');
+  assert.ok(!emitted.some((p) => p && p.clear), 'no spurious clear emitted');
+
+  AppState.emit = origEmit;
+});

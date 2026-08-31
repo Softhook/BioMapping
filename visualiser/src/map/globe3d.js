@@ -164,6 +164,13 @@ class GSRGlobeManager {
     // the 2D map's peak-marker click. See onPeakClick() / _renderPeakSpires().
     this._peakClickCb = null;
 
+    // Scrub-hover interaction — the host registers a callback and this class
+    // calls it as (drawPointOrigIdx, {lat, lon}) while the pointer is over the
+    // 3D track, or (null) when it leaves. The 3D counterpart of hovering the 2D
+    // map path. See onScrubHover() and _setupCameraControls().
+    this._scrubHoverCb = null;
+    this._scrubHoverLeaveHandler = null;
+
     // Teardown bookkeeping — every listener this class adds, so destroy() is exact.
     this._keyDownHandler = null;
     this._keyUpHandler = null;
@@ -180,6 +187,11 @@ class GSRGlobeManager {
     // Orbit camera animation
     this._isOrbiting = false;
     this._orbitRemoveCallback = null;
+
+    // Follow-cam: true while the camera is locked onto the scrub cursor (a
+    // Cesium lookAt transform is active and must be released — see
+    // followScrub() / releaseFollowScrub()).
+    this._followingScrub = false;
 
     this.initViewer();
   }
@@ -369,6 +381,23 @@ class GSRGlobeManager {
       }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
     }
 
+    // 5c. MOUSE_MOVE over the 3D track -> report the nearest drawPoint's series
+    // index to the host, the 3D counterpart of hovering the 2D map path. The
+    // host walks the graph scrubber to that moment (see globe3d_view.js
+    // _onScrubHover). Cheap: an ellipsoid pick plus a linear scan of the drawn
+    // points, gated on a camera-height-scaled radius so a hover only "sticks"
+    // when the pointer is genuinely near the line.
+    this._screenSpaceHandler.setInputAction((movement) => {
+      if (!this._scrubHoverCb) return;
+      const hit = this._pickTrackPoint(movement.endPosition);
+      this._scrubHoverCb(hit ? hit.origIdx : null, hit ? { lat: hit.lat, lon: hit.lon } : undefined);
+    }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+    // The pointer leaving the canvas entirely fires no MOUSE_MOVE — clear the
+    // hover explicitly so the graph scrubber doesn't stick.
+    this._scrubHoverLeaveHandler = () => { if (this._scrubHoverCb) this._scrubHoverCb(null); };
+    scene.canvas.addEventListener('mouseleave', this._scrubHoverLeaveHandler);
+
     // 6. Real-time WASD / Arrow Key flying controls (opt-out for shared-page hosts)
     if (this.keyboardFlight) {
       this._setupKeyboardFlight();
@@ -504,7 +533,14 @@ class GSRGlobeManager {
    */
   destroy() {
     this.stopOrbit();
+    this.releaseFollowScrub();
     this.clearAll();
+
+    if (this._scrubHoverLeaveHandler && this.viewer && this.viewer.scene && this.viewer.scene.canvas) {
+      this.viewer.scene.canvas.removeEventListener('mouseleave', this._scrubHoverLeaveHandler);
+    }
+    this._scrubHoverLeaveHandler = null;
+    this._scrubHoverCb = null;
 
     if (this._keyDownHandler) {
       window.removeEventListener('keydown', this._keyDownHandler);
@@ -1076,6 +1112,76 @@ class GSRGlobeManager {
    */
   onPeakClick(cb) {
     this._peakClickCb = (typeof cb === 'function') ? cb : null;
+  }
+
+  /**
+   * Register a callback fired as (drawPointOrigIdx, {lat, lon}) while the
+   * pointer is over the 3D track, or (null) when it leaves — the 3D
+   * counterpart of hovering the 2D map path. See _setupCameraControls() 5c.
+   */
+  onScrubHover(cb) {
+    this._scrubHoverCb = (typeof cb === 'function') ? cb : null;
+  }
+
+  /**
+   * Ellipsoid-pick at a canvas position, then return the nearest drawn track
+   * point ({origIdx, lat, lon}) when the pointer is within a camera-height
+   * scaled radius of the line, else null.
+   */
+  _pickTrackPoint(windowPos) {
+    if (!this.viewer || !windowPos || this.currentDrawPoints.length === 0) return null;
+    const scene = this.viewer.scene;
+    const cart = this.viewer.camera.pickEllipsoid(windowPos, scene.globe.ellipsoid);
+    if (!cart) return null;
+    const carto = Cesium.Cartographic.fromCartesian(cart);
+    const lat = Cesium.Math.toDegrees(carto.latitude);
+    const lon = Cesium.Math.toDegrees(carto.longitude);
+
+    const R = 6378137;
+    const cosLat = Math.cos(carto.latitude);
+    const deg2rad = Math.PI / 180;
+    let best = null;
+    let bestSq = Infinity;
+    for (let i = 0; i < this.currentDrawPoints.length; i++) {
+      const p = this.currentDrawPoints[i];
+      const dx = (p.lon - lon) * deg2rad * cosLat * R;
+      const dy = (p.lat - lat) * deg2rad * R;
+      const dSq = dx * dx + dy * dy;
+      if (dSq < bestSq) { bestSq = dSq; best = p; }
+    }
+    if (!best) return null;
+
+    const camH = this.viewer.camera.positionCartographic.height || 1000;
+    const thresh = Math.max(15, camH * 0.03);
+    if (bestSq > thresh * thresh) return null;
+    return { origIdx: best.origIdx, lat: best.lat, lon: best.lon };
+  }
+
+  /**
+   * Follow-cam: recentre the camera on the scrub cursor, keeping the user's
+   * current heading, pitch and distance. Driven from a graph hover (see
+   * globe3d_view.js _onScrub). No-op while orbiting — the orbit owns the
+   * camera. lookAt() installs a reference-frame transform that stays until
+   * releaseFollowScrub() clears it, so ordinary mouse-drag rotation is paused
+   * for as long as the graph is being scrubbed.
+   */
+  followScrub(lat, lon) {
+    if (!this.viewer || this._isOrbiting || isNaN(lat) || isNaN(lon)) return;
+    const camera = this.viewer.camera;
+    const target = Cesium.Cartesian3.fromDegrees(lon, lat);
+    const range = Math.max(50, Cesium.Cartesian3.distance(camera.positionWC, target));
+    camera.lookAt(target, new Cesium.HeadingPitchRange(camera.heading, camera.pitch, range));
+    this._followingScrub = true;
+    this._wakeRenderLoop();
+    this._requestRender();
+  }
+
+  /** Release the follow-cam lookAt transform installed by followScrub(). */
+  releaseFollowScrub() {
+    if (!this.viewer || !this._followingScrub) return;
+    this.viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+    this._followingScrub = false;
+    this._requestRender();
   }
 
   /**

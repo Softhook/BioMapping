@@ -418,3 +418,137 @@ test('a LEFT_CLICK on a peak spire reports its analyzer.peaks index to onPeakCli
   mgr.destroy();
   assert.strictEqual(handler.destroyed, true, 'canvas handler torn down with the manager');
 });
+
+// ── Scrub-hover (3D track -> host) + follow-cam ─────────────────────────────
+
+/** freshEnv() + a ScreenSpaceEventHandler spy + real-ish Cesium geo maths. */
+function scrubEnv() {
+  const base = freshEnv();
+  global.Cesium.ScreenSpaceEventHandler = function () {
+    return {
+      actions: {}, destroyed: false,
+      setInputAction(fn, type) { this.actions[type] = fn; },
+      removeInputAction(type) { delete this.actions[type]; },
+      isDestroyed() { return this.destroyed; },
+      destroy() { this.destroyed = true; },
+    };
+  };
+  global.Cesium.ScreenSpaceEventType = {
+    LEFT_CLICK: 'LEFT_CLICK', LEFT_DOUBLE_CLICK: 'LEFT_DOUBLE_CLICK', MOUSE_MOVE: 'MOUSE_MOVE',
+  };
+  global.Cesium.Math = { toDegrees: (r) => r * 180 / Math.PI, toRadians: (d) => d * Math.PI / 180 };
+  global.Cesium.Cartographic = {
+    fromCartesian: (c) => ({ latitude: c.lat * Math.PI / 180, longitude: c.lon * Math.PI / 180 }),
+  };
+  global.Cesium.Cartesian3 = {
+    fromDegrees: (lon, lat) => ({ lon, lat }),
+    distance: () => 500,
+  };
+  global.Cesium.Matrix4 = { IDENTITY: 'IDENTITY' };
+  global.Cesium.HeadingPitchRange = function (h, p, r) { return { h, p, r }; };
+  // A real canvas spy on the (otherwise auto-stubbed) scene so the mouseleave
+  // listener add/remove can be asserted.
+  const canvasListeners = [];
+  base.viewer.scene.canvas = {
+    addEventListener: (t, fn) => canvasListeners.push({ t, fn }),
+    removeEventListener: (t, fn) => {
+      const i = canvasListeners.findIndex((l) => l.t === t && l.fn === fn);
+      if (i !== -1) canvasListeners.splice(i, 1);
+    },
+  };
+  // Nothing reads viewer.camera at construction, so a plain spy is safe.
+  base.viewer.camera = {
+    pickEllipsoid: () => ({ lon: 0, lat: 0 }),   // overridden per test
+    positionCartographic: { height: 1000 },
+    positionWC: {},
+    heading: 0, pitch: -0.6,
+    lookAt() { this._lookAt = true; },
+    lookAtTransform(m) { this._transform = m; },
+  };
+  return { ...base, canvasListeners };
+}
+
+test('onScrubHover registers/clears the callback', () => {
+  scrubEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  const cb = () => {};
+  mgr.onScrubHover(cb);
+  assert.strictEqual(mgr._scrubHoverCb, cb);
+  mgr.onScrubHover('not a function');
+  assert.strictEqual(mgr._scrubHoverCb, null);
+  mgr.destroy();
+});
+
+test('MOUSE_MOVE over the track reports the nearest drawPoint origIdx; a far pointer reports null', () => {
+  scrubEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  const handler = mgr._screenSpaceHandler;
+
+  mgr.currentDrawPoints = [
+    { origIdx: 10, lat: 51.5000, lon: -0.1000 },
+    { origIdx: 11, lat: 51.5010, lon: -0.1000 },
+    { origIdx: 12, lat: 51.5020, lon: -0.1000 },
+  ];
+
+  const got = [];
+  mgr.onScrubHover((idx, ll) => got.push([idx, ll]));
+  const move = handler.actions.MOUSE_MOVE;
+  assert.strictEqual(typeof move, 'function', 'MOUSE_MOVE handler bound');
+
+  // pointer essentially on the middle point -> its origIdx
+  mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1000, lat: 51.5010 });
+  move({ endPosition: { x: 1, y: 1 } });
+
+  // pointer ~1km away from any point -> null
+  mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1000, lat: 51.5100 });
+  move({ endPosition: { x: 2, y: 2 } });
+
+  assert.strictEqual(got.length, 2);
+  assert.strictEqual(got[0][0], 11);
+  assert.deepStrictEqual(got[0][1], { lat: 51.5010, lon: -0.1000 });
+  assert.strictEqual(got[1][0], null);
+  mgr.destroy();
+});
+
+test('followScrub locks onto the point; releaseFollowScrub clears the transform; guards hold', () => {
+  scrubEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  mgr.followScrub(51.5, -0.1);
+  assert.strictEqual(mgr._followingScrub, true);
+  assert.strictEqual(mgr.viewer.camera._lookAt, true);
+
+  mgr.releaseFollowScrub();
+  assert.strictEqual(mgr._followingScrub, false);
+  assert.strictEqual(mgr.viewer.camera._transform, 'IDENTITY');
+
+  // no-op while orbiting
+  mgr._isOrbiting = true;
+  mgr.viewer.camera._lookAt = false;
+  mgr.followScrub(51.5, -0.1);
+  assert.strictEqual(mgr._followingScrub, false, 'orbit owns the camera');
+  assert.strictEqual(mgr.viewer.camera._lookAt, false);
+  mgr._isOrbiting = false;
+
+  // no-op on NaN
+  mgr.followScrub(NaN, NaN);
+  assert.strictEqual(mgr._followingScrub, false);
+  mgr.destroy();
+});
+
+test('destroy() removes the mouseleave listener, releases follow-cam, nulls the scrub callback', () => {
+  const { canvasListeners } = scrubEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  mgr.onScrubHover(() => {});
+  mgr.followScrub(51.5, -0.1);
+  assert.ok(canvasListeners.some((l) => l.t === 'mouseleave'), 'mouseleave bound in setup');
+
+  mgr.destroy();
+  assert.ok(!canvasListeners.some((l) => l.t === 'mouseleave'), 'mouseleave removed');
+  assert.strictEqual(mgr._scrubHoverCb, null);
+  assert.strictEqual(mgr._scrubHoverLeaveHandler, null);
+});

@@ -98,6 +98,12 @@ const AppState = {
   hoveredIndex: -1,
   activePeakIndex: -1,
   mouseOverCanvas: true,
+  // Which surface currently owns the scrub cursor: 'graph' (hovering the GSR
+  // graph), 'globe' (hovering the 3D track) or null (nobody). The ownership
+  // token keeps handleScrubber()'s per-frame mouse hit-test from fighting a
+  // scrub driven from the 3D globe, and vice versa. See renderer.js
+  // handleScrubber(), globe3d_view.js _onScrubHover(), and the 'scrub' event.
+  scrubSource: null,
 
   // ── DOM element cache (populated by cacheDOMElements) ──────────────────────
   sliders: {},

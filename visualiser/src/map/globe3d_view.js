@@ -48,6 +48,9 @@ const GSRGlobe3DView = {
   // new track instead of leaving the camera where it was.
   _lastTrackId: null,
 
+  // Last scrub lat/lon pushed into the globe, for dedupe (see _onScrub).
+  _lastScrubKey: null,
+
   // ── Init & wiring ──────────────────────────────────────────────────────────
 
   init() {
@@ -107,7 +110,71 @@ const GSRGlobe3DView = {
           if (GSRGlobe3DView.isActive) GSRGlobe3DView._pushFromMap();
         }, 250);
       });
+
+      // Graph/map scrub cursor -> 3D globe. The single 'scrub' channel every
+      // surface shares (renderer.js emits it on graph hover, events.js relays
+      // it to the 2D map). A 'graph'-sourced scrub also drives the follow-cam.
+      AppState.on('scrub', (p) => GSRGlobe3DView._onScrub(p));
     }
+  },
+
+  // ── Scrub sync (2D graph <-> 3D globe) ────────────────────────────────────
+
+  /**
+   * A scrub position arrived on the shared channel. Walk the 3D ground cursor
+   * to it (parity with the flat 2D map dot) and, when it came from the graph,
+   * keep the camera centred on it. Ignored unless the 3D surface is showing;
+   * self-sourced ('globe') scrubs never move the camera.
+   */
+  _onScrub(p) {
+    const mgr = GSRGlobe3DView.manager;
+    if (!GSRGlobe3DView.isActive || !mgr) return;
+
+    if (!p || p.clear || isNaN(p.lat) || isNaN(p.lon)) {
+      // 'scrub' clears fire on every idle graph redraw — do nothing (and don't
+      // schedule a repaint) unless a cursor was actually showing.
+      if (GSRGlobe3DView._lastScrubKey === null) return;
+      GSRGlobe3DView._lastScrubKey = null;
+      mgr.setScrubPosition(NaN, NaN);
+      mgr.releaseFollowScrub();
+      mgr._requestRender();
+      return;
+    }
+
+    const key = p.lat.toFixed(6) + ',' + p.lon.toFixed(6);
+    if (key === GSRGlobe3DView._lastScrubKey && p.source !== 'graph') return;
+    GSRGlobe3DView._lastScrubKey = key;
+
+    mgr.setScrubPosition(p.lat, p.lon);
+    if (p.source === 'graph') mgr.followScrub(p.lat, p.lon);
+    mgr._wakeRenderLoop();
+    mgr._requestRender();
+  },
+
+  /**
+   * Pointer moved over (or off) the 3D track — the reverse direction. Walk the
+   * graph scrubber to that moment via the shared channel; AppState.scrubSource
+   * is the ownership token that stops renderer.js's per-frame handleScrubber()
+   * from wiping the hover. Single-track scope only (no graph in collective).
+   */
+  _onScrubHover(idx, ll) {
+    if (!GSRGlobe3DView.isActive || typeof AppState === 'undefined') return;
+    if (AppState.viewMode !== 'single') return;
+
+    if (idx == null || !ll) {
+      if (AppState.scrubSource === 'globe') {
+        AppState.scrubSource = null;
+        AppState.hoveredIndex = -1;
+        AppState.emit('scrub', { clear: true, source: 'globe' });
+        if (typeof redraw === 'function') redraw();
+      }
+      return;
+    }
+
+    AppState.scrubSource = 'globe';
+    AppState.hoveredIndex = idx;
+    AppState.emit('scrub', { lat: ll.lat, lon: ll.lon, index: idx, source: 'globe' });
+    if (typeof redraw === 'function') redraw();
   },
 
   _bindCard(els) {
@@ -353,6 +420,7 @@ const GSRGlobe3DView = {
         extrusionScale: GSRGlobe3DView.els.extrusion ? parseFloat(GSRGlobe3DView.els.extrusion.value) : 8.0
       });
       GSRGlobe3DView.manager.onPeakClick((peakIdx) => GSRGlobe3DView._editPeakLabel(peakIdx));
+      GSRGlobe3DView.manager.onScrubHover((idx, ll) => GSRGlobe3DView._onScrubHover(idx, ll));
       GSRGlobe3DView._watchImageryLoad();
     } else if (GSRGlobe3DView.manager.viewer) {
       GSRGlobe3DView.manager.viewer.useDefaultRenderLoop = true;
@@ -419,7 +487,19 @@ const GSRGlobe3DView = {
   deactivate() {
     GSRGlobe3DView.isActive = false;
     GSRGlobe3DView._closePeakPopup();
+    GSRGlobe3DView._lastScrubKey = null;
     const mgr = GSRGlobe3DView.manager;
+    if (mgr) {
+      mgr.setScrubPosition(NaN, NaN);
+      mgr.releaseFollowScrub();
+    }
+    // Hand cursor ownership back to the graph if the 3D track had it.
+    if (typeof AppState !== 'undefined' && AppState.scrubSource === 'globe') {
+      AppState.scrubSource = null;
+      AppState.hoveredIndex = -1;
+      AppState.emit('scrub', { clear: true, source: 'globe' });
+      if (typeof redraw === 'function') redraw();
+    }
     if (mgr && mgr.viewer) mgr.viewer.useDefaultRenderLoop = false; // keep warm, stop rendering
   },
 
