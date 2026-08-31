@@ -222,6 +222,31 @@ test('destroy() cancels a pending idle-retire timer', () => {
   assert.strictEqual(mgr._idleRenderTimer, null, 'timer cleared on teardown');
 });
 
+// ── HiDPI render resolution ─────────────────────────────────────────────────
+
+test('viewer renders at devicePixelRatio x a constant resolutionScale (default 1.2)', () => {
+  const { viewer } = freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  assert.strictEqual(viewer.useBrowserRecommendedResolution, false, 'honours devicePixelRatio');
+  assert.strictEqual(viewer.resolutionScale, 1.2, 'default supersample factor');
+  mgr.destroy();
+});
+
+test('resolutionScale option overrides the default; it is held constant (no per-frame watcher)', () => {
+  const { viewer } = freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false, resolutionScale: 1 });
+
+  assert.strictEqual(viewer.resolutionScale, 1);
+  // No dynamic-resolution machinery left to leak.
+  assert.strictEqual(mgr._resolutionRemover, undefined);
+  assert.strictEqual(mgr._resInputHandlers, undefined);
+  assert.strictEqual(mgr._resolutionSettleTimer, undefined);
+  mgr.destroy();
+});
+
 test('renderData needs host-supplied drawPoints — it never runs a GPS chain', () => {
   freshEnv();
   const { GSRGlobeManager } = loadFresh();

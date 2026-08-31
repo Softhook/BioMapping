@@ -106,6 +106,8 @@ class GSRGlobeManager {
    * @param {boolean} [options.requestRenderMode=false]  render only on scene change /
    *   explicit requestRender() instead of every frame — big idle-cost win for an
    *   embedded panel.
+   * @param {number}  [options.resolutionScale=1.2]     canvas render-resolution
+   *   multiplier on top of devicePixelRatio (see initViewer).
    */
   constructor(containerId, options = {}) {
     this.containerId = containerId;
@@ -129,6 +131,12 @@ class GSRGlobeManager {
     this._idleRenderTimer = null;
     this._wakeHandlers = null;
     this._postRenderRemover = null;
+
+    // Canvas render resolution — see initViewer. A single constant multiplier:
+    // varying it per-interaction reallocates Cesium's drawing buffer on every
+    // change, and that one-frame stall at the start/end of a gesture read as
+    // clunkier than just holding a fixed resolution.
+    this._resolutionScale = options.resolutionScale > 0 ? options.resolutionScale : 1.2;
 
     // Active track data cache
     this.currentAnalyzer = null;
@@ -275,6 +283,16 @@ class GSRGlobeManager {
       this._notifyError(err);
       return;
     }
+
+    // Retina/HiDPI sharpness. Cesium's default (useBrowserRecommendedResolution
+    // = true) renders the canvas at CSS-pixel size and lets the browser upscale
+    // it, which is soft on a >1x display. false makes it honour
+    // window.devicePixelRatio; resolutionScale is a further multiplier on top
+    // (1.2 = a touch of supersampling over native — crisper walls/labels at a
+    // low fragment cost, snappy in motion). Held constant on purpose: see
+    // constructor.
+    this.viewer.useBrowserRecommendedResolution = false;
+    this.viewer.resolutionScale = this._resolutionScale;
 
     // Set initial ArcGIS satellite basemap immediately
     this.setBasemap('satellite');

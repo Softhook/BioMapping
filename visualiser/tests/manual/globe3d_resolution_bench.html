@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2026 Christian Nold
+  Licensed under the Bio Mapping Community Licence 1.0.
+
+  Manual GPU bench for the 3D globe's HiDPI render resolution
+  (src/map/globe3d.js — useBrowserRecommendedResolution=false + a constant
+  `resolutionScale`, default 1.5). Use it to pick / re-check that constant on
+  your own hardware: the value with an acceptable steady frame time in the
+  "orbit" column is the one to ship.
+
+  WHY THIS IS A BROWSER PAGE, NOT A NODE BENCH
+  Resolution scaling is a pure GPU fill-rate cost — 2x device-pixel density
+  is ~4x the fragment work and framebuffer bandwidth per frame. That only
+  shows up on a real GPU. The Node suites stub Cesium out entirely, so they
+  can prove the *logic* (they do — tests/test_globe3d.js) but never the cost.
+  Open this on the actual machine you care about (your Retina MacBook) and
+  read the numbers off its GPU.
+
+  HOW TO RUN
+    cd visualiser && python3 -m http.server 8000
+    open http://localhost:8000/tests/manual/globe3d_resolution_bench.html
+  then click "Run benchmark". ~1 min. Needs network (satellite tiles).
+
+  WHAT IT DOES
+  Builds a synthetic ~6k-point walk with the real extruded arousal wall, then
+  for each resolutionScale (1.0 … 2.0) drives a fixed camera orbit with the
+  render loop under manual control (viewer.useDefaultRenderLoop = false), so
+  frames are neither clamped to vsync nor Cesium's render-on-demand. Each
+  measured frame is scene.render() + a 1px gl.readPixels() that stalls the CPU
+  until the GPU has drained the frame — so the timing includes the fill-rate
+  work, which scene.render() alone (command submit only) does not. Reports per
+  scale:
+    - drawing-buffer megapixels (CSS size x devicePixelRatio x scale^2)
+    - median drained-frame ms during a "still" hold
+    - median / p95 drained-frame ms during a moving orbit
+    - effective FPS = 1000 / median-orbit-frame, and x vs the 1.0 row
+  A "Stress xN" multiplier issues N extra uncounted drained frames per rAF to
+  amplify the scale-to-scale delta on an overpowered GPU; 2-3 on Apple silicon.
+  Absolute ms are therefore synthetic/pessimistic — read the ratios.
+
+  READING THE TABLE
+    Cost scales ~linearly with drawing-buffer pixels (2.0 is ~4x 1.0), so it is
+    purely fill-rate bound. The app ships whichever row still holds a steady
+    frame time here while looking sharp enough — 1.5 on the benched Mac.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Globe3D resolution bench</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; background: #0b0c10; color: #cdd3dc;
+           font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    header { padding: 14px 18px; border-bottom: 1px solid #1e232b; }
+    h1 { font-size: 15px; margin: 0 0 4px; color: #eef2f7; }
+    .sub { color: #7d8794; }
+    #wrap { display: flex; gap: 18px; padding: 18px; align-items: flex-start;
+            flex-wrap: wrap; }
+    #globe { width: 1280px; height: 800px; max-width: 100%;
+             border: 1px solid #1e232b; background: #000; flex: 0 0 auto; }
+    #side { flex: 1 1 420px; min-width: 360px; }
+    button { font: inherit; background: #1b2733; color: #dbe4ee; cursor: pointer;
+             border: 1px solid #2c3a49; border-radius: 6px; padding: 7px 14px; }
+    button:disabled { opacity: .5; cursor: default; }
+    label { color: #9aa4b1; }
+    input { font: inherit; width: 52px; background: #11161d; color: #dbe4ee;
+            border: 1px solid #2c3a49; border-radius: 4px; padding: 3px 6px; }
+    table { border-collapse: collapse; margin-top: 14px; width: 100%; }
+    th, td { border: 1px solid #232a33; padding: 5px 9px; text-align: right; }
+    th { background: #131922; color: #9aa4b1; font-weight: 600; }
+    td:first-child, th:first-child { text-align: left; }
+    tr.best td { background: #10241a; }
+    tr.heavy td { background: #241414; }
+    #log { white-space: pre-wrap; color: #7d8794; margin-top: 12px; font-size: 12px; }
+    .env { margin-top: 10px; color: #9aa4b1; }
+    code { color: #b9c6d6; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>3D globe — HiDPI resolution cost</h1>
+    <div class="sub">Measures GPU fill-rate cost of <code>viewer.resolutionScale</code> on <em>this</em> machine.
+      See the comment at the top of the file for method &amp; how to read it.</div>
+  </header>
+
+  <div id="wrap">
+    <div id="globe"></div>
+    <div id="side">
+      <div>
+        <button id="run">Run benchmark</button>
+        &nbsp; <label>Stress &times;<input id="stress" type="number" min="0" max="8" value="2" /></label>
+        &nbsp; <label>Orbit s <input id="secs" type="number" min="1" max="10" value="4" /></label>
+      </div>
+      <div class="env" id="env"></div>
+      <table id="tbl" hidden>
+        <thead>
+          <tr><th>resScale</th><th>buffer Mpx</th>
+              <th>still render ms<br>(median)</th>
+              <th>orbit render ms<br>(median / p95)</th>
+              <th>orbit FPS<br>(≈)</th>
+              <th>vs 1.0</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <script>
+    window.CESIUM_BASE_URL = '../../vendor/cesium/';
+  </script>
+  <link rel="stylesheet" href="../../vendor/cesium/Widgets/widgets.css" />
+  <script src="../../vendor/cesium/Cesium.js"></script>
+  <script src="../../src/map/map_colors.js"></script>
+  <script src="../../src/map/globe3d.js"></script>
+
+  <script>
+  (function () {
+    const $ = (id) => document.getElementById(id);
+    const log = (m) => { $('log').textContent += m + '\n'; };
+    const SCALES = [1.0, 1.25, 1.5, 1.75, 2.0];
+    const CSS_W = 1280, CSS_H = 800;
+
+    $('env').innerHTML =
+      `devicePixelRatio <code>${window.devicePixelRatio}</code> &nbsp;·&nbsp; ` +
+      `canvas CSS <code>${CSS_W}×${CSS_H}</code> &nbsp;·&nbsp; ` +
+      `native <code>${window.devicePixelRatio > 1 ? '2.0 = ' + (CSS_W * CSS_H * 4 / 1e6).toFixed(1) + ' Mpx' : '1.0'}</code>`;
+
+    // ── Synthetic track: ~6k points, sine-wander walk near Newhaven, with a
+    //    burst of arousal so the wall has colour + height variation. Shape
+    //    matches what map.js's GPS pipeline feeds the globe (lon/lat/time/origIdx).
+    function syntheticTrack(n) {
+      const raw = [], drawPoints = [];
+      for (let i = 0; i < n; i++) {
+        const lon = -0.0553 + i * 0.0000048 + Math.sin(i / 130) * 0.00095;
+        const lat = 50.7920 + i * 0.0000031 + Math.cos(i / 95) * 0.00072;
+        const gsr = 2 + Math.sin(i / 47) * 1.4 + Math.sin(i / 11) * 0.35
+                      + (i > 2900 && i < 3250 ? 4.2 : 0);
+        raw.push({ gsr });
+        drawPoints.push({ lon, lat, time: i / 10, origIdx: i });
+      }
+      return { analyzer: { raw, peaks: [] }, drawPoints };
+    }
+
+    function median(a) { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; }
+    function pct(a, p) { const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(s.length * p))]; }
+
+    let mgr, scene, camera, centre, gl, syncBuf;
+
+    // scene.render() only *submits* GL commands — the GPU does the fill-rate
+    // work asynchronously, so timing render() alone is blind to resolution
+    // cost. A 1px readPixels right after stalls the CPU until the GPU has
+    // drained the frame, so the measured interval now includes the fill work.
+    function drawAndDrain() {
+      scene.render();
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, syncBuf);
+    }
+
+    function setup() {
+      const t = syntheticTrack(6000);
+      mgr = new GSRGlobeManager('globe', {
+        keyboardFlight: false,
+        doubleClickFly: false,
+        requestRenderMode: false,
+        resolutionScale: 1              // the bench sweeps viewer.resolutionScale by hand
+      });
+      // Isolate the arousal wall + basemap — the dominant fill-rate consumers.
+      mgr.showPeaks = mgr.showLabels = mgr.showHotspots = mgr.showClusters = false;
+      scene = mgr.viewer.scene;
+      camera = mgr.viewer.camera;
+      mgr.renderData(t.analyzer, { trackWeight: 5 }, { drawPoints: t.drawPoints, isPreview: true });
+      gl = scene.context._gl || scene.canvas.getContext('webgl2') || scene.canvas.getContext('webgl');
+      syncBuf = new Uint8Array(4);
+
+      const mid = t.drawPoints[t.drawPoints.length >> 1];
+      centre = Cesium.Cartesian3.fromDegrees(mid.lon, mid.lat, 0);
+    }
+
+    function lookFrom(headingDeg) {
+      camera.lookAt(
+        centre,
+        new Cesium.HeadingPitchRange(
+          Cesium.Math.toRadians(headingDeg),
+          Cesium.Math.toRadians(-32),
+          1400
+        )
+      );
+    }
+
+    // Drive frames ourselves so nothing is clamped to the display's vsync.
+    function phase(ms, stress, moving) {
+      return new Promise((resolve) => {
+        const samples = [];
+        const t0 = performance.now();
+        let heading = 0;
+        function frame() {
+          const now = performance.now();
+          if (moving) { heading += 0.35; lookFrom(heading); }
+          for (let k = 0; k < stress; k++) drawAndDrain();   // uncounted stress
+          const s0 = performance.now();
+          drawAndDrain();
+          samples.push(performance.now() - s0);
+          if (now - t0 < ms) requestAnimationFrame(frame);
+          else resolve(samples.slice(5));                    // drop warm-up frames
+        }
+        requestAnimationFrame(frame);
+      });
+    }
+
+    async function waitForTiles(maxMs) {
+      const t0 = performance.now();
+      lookFrom(0);
+      while (performance.now() - t0 < maxMs) {
+        drawAndDrain();
+        if (scene.globe.tilesLoaded) return;
+        await new Promise((r) => setTimeout(r, 120));
+      }
+    }
+
+    async function run() {
+      $('run').disabled = true;
+      $('tbl').hidden = false;
+      $('rows').innerHTML = '';
+      $('log').textContent = '';
+      const stress = Math.max(0, Math.min(8, +$('stress').value || 0));
+      const secs = Math.max(1, Math.min(10, +$('secs').value || 4));
+
+      if (!mgr) { log('building viewer + synthetic wall…'); setup(); }
+      mgr.viewer.useDefaultRenderLoop = false;
+      log('loading satellite tiles…');
+      await waitForTiles(9000);
+      log(scene.globe.tilesLoaded ? 'tiles ready.\n' : 'tiles still streaming — numbers will be noisier.\n');
+
+      const results = [];
+      for (const scale of SCALES) {
+        mgr.viewer.resolutionScale = scale;
+        lookFrom(0);
+        await phase(500, stress, false);                       // settle
+        const still = await phase(secs * 400, stress, false);
+        const orbit = await phase(secs * 1000, stress, true);
+        const mpx = gl ? (gl.drawingBufferWidth * gl.drawingBufferHeight / 1e6) : NaN;
+        results.push({ scale, mpx, still: median(still), om: median(orbit), op: pct(orbit, 0.95) });
+        log(`scale ${scale.toFixed(2)}  buffer ${mpx.toFixed(1)} Mpx  ` +
+            `still ${median(still).toFixed(2)}  orbit ${median(orbit).toFixed(2)} / ${pct(orbit, 0.95).toFixed(2)} ms`);
+      }
+
+      const base = results[0].om;
+      const fastest = Math.min(...results.map((r) => r.om));
+      const slowest = Math.max(...results.map((r) => r.om));
+      for (const r of results) {
+        const tr = document.createElement('tr');
+        if (r.om === fastest) tr.className = 'best';
+        if (r.om === slowest) tr.className = 'heavy';
+        tr.innerHTML =
+          `<td>${r.scale.toFixed(2)}</td>` +
+          `<td>${r.mpx.toFixed(1)}</td>` +
+          `<td>${r.still.toFixed(2)}</td>` +
+          `<td>${r.om.toFixed(2)} / ${r.op.toFixed(2)}</td>` +
+          `<td>${(1000 / r.om).toFixed(0)}</td>` +
+          `<td>${(r.om / base).toFixed(2)}×</td>`;
+        $('rows').appendChild(tr);
+      }
+      log(`\n2.0 costs ${(results[results.length - 1].om / base).toFixed(2)}× a frame vs 1.0. ` +
+          `Ship the highest row whose orbit ms still reads as smooth on this machine.`);
+      camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+      mgr.viewer.useDefaultRenderLoop = true;
+      $('run').disabled = false;
+    }
+
+    $('run').addEventListener('click', () => { run().catch((e) => log('ERROR: ' + e.message)); });
+  })();
+  </script>
+</body>
+</html>

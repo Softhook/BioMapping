@@ -571,7 +571,11 @@ const GSRGlobe3DView = {
       GSRGlobe3DView.manager = new GSRGlobeManager('globe3dContainer', {
         keyboardFlight: false,
         doubleClickFly: true,
-        requestRenderMode: true, // embedded panel: don't burn frames while idle
+        // Render continuously while the 3D surface is showing — render-on-demand
+        // added a cold first frame on grab that read as sticky. deactivate()
+        // parks the viewer (useDefaultRenderLoop=false) the moment 2D is shown,
+        // so this only costs frames while you're actually looking at the globe.
+        requestRenderMode: false,
         metric: (mm && mm.activeColoringMetric) || 'phasic',
         heightMetric: 'phasic', // fixed — the wall auto-uses a magnitude colour metric, else phasic
         extrusionScale: GSRGlobe3DView.els.extrusion ? parseFloat(GSRGlobe3DView.els.extrusion.value) : 8.0
