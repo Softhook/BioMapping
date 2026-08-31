@@ -726,4 +726,39 @@ test('Tour button in 3D camera controls toggles manager tour and updates UI', ()
   V.isActive = false;
 });
 
+test('_pushFromMap in collective mode resolves drawPoints for active track and renders', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const mm = window.AppState.mapManager;
+
+  window.AppState.viewMode = 'collective';
+  window.AppState.activeTrackId = 'track-1';
+  window.AppState.analyzer = {
+    raw: [{ gsr: 1 }, { gsr: 2 }],
+    peaks: []
+  };
+
+  let renderedPoints = null;
+  V.manager = {
+    renderData: (analyzer, params, opts) => {
+      renderedPoints = opts.drawPoints;
+    },
+    setBasemap: () => {},
+  };
+  V.isActive = true;
+
+  mm._getOrBuildDrawPoints = (id, analyzer, params) => ({
+    drawPoints: [{ lat: 51.5, lon: -0.1 }, { lat: 51.6, lon: -0.2 }]
+  });
+
+  V._pushFromMap();
+  assert.ok(renderedPoints, 'drawPoints passed to 3D manager in collective mode');
+  assert.strictEqual(renderedPoints.length, 2);
+
+  V.manager = null;
+  V.isActive = false;
+});
+
+
 

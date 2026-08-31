@@ -998,14 +998,17 @@ const GSREvents = {
       metric: (mm && mm.activeColoringMetric) || 'phasic',
       extrusionScale: extEl ? parseFloat(extEl.value) : undefined
     };
+    const baseName = (typeof GSRUI !== 'undefined' && typeof GSRUI._exportFilenameBase === 'function')
+      ? GSRUI._exportFilenameBase()
+      : 'biomapping_track';
     if (kind === 'kml') {
       GSRGlobe3DExport.download(
         GSRGlobe3DExport.buildKml(analyzer, drawPoints, opts),
-        'biomapping_track_3d.kml', 'application/vnd.google-earth.kml+xml');
+        `${baseName}_3d.kml`, 'application/vnd.google-earth.kml+xml');
     } else {
       GSRGlobe3DExport.download(
         GSRGlobe3DExport.buildCzml(analyzer, drawPoints, opts),
-        'biomapping_track_3d.czml', 'application/json');
+        `${baseName}_3d.czml`, 'application/json');
     }
   },
 

@@ -1107,4 +1107,29 @@ test('startOrbit, setViewPerspective, and destroy cancel an active tour', () => 
   assert.strictEqual(mgr._isTouring, false);
 });
 
+test('renderData with empty or null analyzer clears all entities and resets state', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  let cleared = 0;
+  mgr.clearAll = () => { cleared++; };
+
+  mgr.currentDrawPoints = [{ lat: 51.5, lon: -0.1 }];
+  mgr.currentPeaks = [{ index: 0 }];
+
+  // Call with empty analyzer
+  mgr.renderData({ raw: [] }, {});
+  assert.strictEqual(cleared, 1, 'clearAll called on empty analyzer');
+  assert.strictEqual(mgr.currentDrawPoints.length, 0);
+  assert.strictEqual(mgr.currentPeaks.length, 0);
+
+  // Call with null analyzer
+  mgr.renderData(null, {});
+  assert.strictEqual(cleared, 2, 'clearAll called on null analyzer');
+
+  mgr.destroy();
+});
+
+
 

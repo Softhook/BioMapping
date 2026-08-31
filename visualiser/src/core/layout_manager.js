@@ -93,6 +93,15 @@ const GSRLayoutManager = {
       this._mapObserver.observe(mapElement);
     }
 
+    const globeElement = document.getElementById('globe3dContainer');
+    if (globeElement) {
+      this._globeObserver = new ResizeObserver((entries) => {
+        const e = entries[entries.length - 1];
+        this._scheduleResize('map', e.contentRect.width, e.contentRect.height);
+      });
+      this._globeObserver.observe(globeElement);
+    }
+
     const regressionContainer = document.querySelector('.regression-chart-container');
     if (regressionContainer) {
       this._regressionObserver = new ResizeObserver(() => {
@@ -118,22 +127,25 @@ const GSRLayoutManager = {
 
     // Defer to the next frame so layout work runs outside the observer's
     // notification cycle (breaks the ResizeObserver loop diagnostic).
-    this._pendingResize = { role, w, h };
+    if (!this._pendingResizes) this._pendingResizes = new Map();
+    this._pendingResizes.set(role, { w, h });
+
     if (this._resizeRaf) return;
     const raf = (typeof requestAnimationFrame === 'function')
       ? requestAnimationFrame
       : (fn) => setTimeout(fn, 0);
     this._resizeRaf = raf(() => {
       this._resizeRaf = null;
-      const pending = this._pendingResize;
-      this._pendingResize = null;
-      if (!pending) return;
-      const { role: r, w: rw, h: rh } = pending;
-      if (r === 'canvas') this.resizeCanvas(rw, rh);
-      else if (r === 'map') this.resizeMap(rw, rh);
-      else if (r === 'regression' && typeof GSRUI !== 'undefined' &&
-               typeof GSRUI.drawRegressionScatterPlot === 'function') {
-        GSRUI.drawRegressionScatterPlot();
+      const pending = this._pendingResizes;
+      this._pendingResizes = new Map();
+      if (!pending || pending.size === 0) return;
+      for (const [r, dims] of pending.entries()) {
+        if (r === 'canvas') this.resizeCanvas(dims.w, dims.h);
+        else if (r === 'map') this.resizeMap(dims.w, dims.h);
+        else if (r === 'regression' && typeof GSRUI !== 'undefined' &&
+                 typeof GSRUI.drawRegressionScatterPlot === 'function') {
+          GSRUI.drawRegressionScatterPlot();
+        }
       }
     });
   },
@@ -150,11 +162,16 @@ const GSRLayoutManager = {
   },
 
   /**
-   * Trigger Leaflet map container layout update.
+   * Trigger Leaflet map container layout update and 3D globe re-measure.
    */
   resizeMap(w, h) {
-    if (w > 0 && h > 0 && AppState.mapManager && AppState.mapManager.map) {
-      AppState.mapManager.map.invalidateSize();
+    if (w > 0 && h > 0) {
+      if (AppState.mapManager && AppState.mapManager.map) {
+        AppState.mapManager.map.invalidateSize();
+      }
+      if (typeof GSRGlobe3DView !== 'undefined' && GSRGlobe3DView.onResize) {
+        GSRGlobe3DView.onResize();
+      }
     }
   },
 

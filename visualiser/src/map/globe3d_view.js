@@ -717,12 +717,17 @@ const GSRGlobe3DView = {
     const gpsParams = (typeof GSRStorage !== 'undefined' && GSRStorage.buildGpsParams)
       ? GSRStorage.buildGpsParams() : {};
 
-    // Reuse the 2D view's exact drawPoints only in single-track scope — in
-    // collective scope _lastDrawPoints is a multi-analyzer merge whose origIdx
-    // values don't map back to AppState.analyzer's series, so let the globe
-    // build its own from the active track instead.
+    // In single-track scope, reuse the 2D view's exact drawPoints. In
+    // collective scope, resolve drawPoints for the active track from the GPS cache
+    // so the active track renders in 3D alongside the collective cluster hulls.
     const single = AppState.viewMode === 'single';
-    const drawPoints = single ? (mm._lastDrawPoints || []) : null;
+    let drawPoints = single ? (mm._lastDrawPoints || []) : null;
+    if (!single && AppState.analyzer && typeof mm._getOrBuildDrawPoints === 'function') {
+      const res = mm._getOrBuildDrawPoints(AppState.activeTrackId || 'collective_active', AppState.analyzer, gpsParams);
+      if (res && Array.isArray(res.drawPoints)) {
+        drawPoints = res.drawPoints;
+      }
+    }
 
     // Hand the 2D map's already-computed spatial-cluster hulls to the globe so
     // its "Clusters" toggle draws the same blobs (see _renderClusterBlobs).

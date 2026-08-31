@@ -1099,7 +1099,15 @@ class GSRGlobeManager {
    * @param {boolean} [opts.isPreview=false]  Suppress the initial fly-to-track.
    */
   renderData(analyzer, gpsParams, opts = {}) {
-    if (!this.viewer || !analyzer || !analyzer.raw || analyzer.raw.length === 0) return;
+    if (!this.viewer) return;
+    if (!analyzer || !analyzer.raw || analyzer.raw.length === 0) {
+      this.clearAll();
+      this.currentAnalyzer = null;
+      this.currentDrawPoints = [];
+      this.currentPeaks = [];
+      this._requestRender();
+      return;
+    }
 
     const { drawPoints: providedDrawPoints, isPreview = false, colorMetric, colorRange, clusterPolygons } = opts;
     this.currentClusterPolygons = Array.isArray(clusterPolygons) ? clusterPolygons : [];

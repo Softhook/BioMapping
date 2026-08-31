@@ -230,6 +230,10 @@ const GSRTrackManager = {
       if (AppState.mapManager) {
         AppState.mapManager.clearAll();
       }
+      if (typeof GSRGlobe3DView !== 'undefined' && GSRGlobe3DView.manager) {
+        GSRGlobe3DView.manager.clearAll();
+        if (GSRGlobe3DView.els.legend) GSRGlobe3DView.els.legend.innerHTML = '';
+      }
 
       GSRTrackManager.setFileStatus('warning', 'No File Loaded');
 
