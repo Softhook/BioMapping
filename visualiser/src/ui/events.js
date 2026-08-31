@@ -506,13 +506,22 @@ const GSREvents = {
     GSREvents.bindContourInputs();
 
     // ── Map Panel Controls ───────────────────────────────────────────────────
+    // One header, two engines: when the 3D globe is the mounted surface the
+    // shared controls dispatch to it instead of / as well as the Leaflet map
+    // (see GSRGlobe3DView.applyToggle / applyRfMode / zoom).
+    const g3d = () => (typeof GSRGlobe3DView !== 'undefined') ? GSRGlobe3DView : null;
+    const onGlobe = () => AppState.surfaceView === 'globe';
+
     document.getElementById('btnMapZoomIn').addEventListener('click', () => {
+      if (onGlobe()) { if (g3d()) g3d().zoom(-1); return; }
       if (AppState.mapManager) AppState.mapManager.zoomIn();
     });
     document.getElementById('btnMapZoomOut').addEventListener('click', () => {
+      if (onGlobe()) { if (g3d()) g3d().zoom(1); return; }
       if (AppState.mapManager) AppState.mapManager.zoomOut();
     });
     document.getElementById('btnMapZoomExtent').addEventListener('click', () => {
+      if (onGlobe()) { if (g3d()) g3d().fitTrack(); return; }
       if (AppState.mapManager) AppState.mapManager.fitToTrack();
     });
     const btnToggleRFFluid = document.getElementById('btnToggleRFFluid');
@@ -520,7 +529,9 @@ const GSREvents = {
       btnToggleRFFluid.addEventListener('click', () => {
         if (btnToggleRFFluid.hasAttribute('disabled')) return;
         btnToggleRFFluid.classList.toggle('active');
-        if (AppState.mapManager) AppState.mapManager.toggleRFFluid(btnToggleRFFluid.classList.contains('active'));
+        const on = btnToggleRFFluid.classList.contains('active');
+        if (AppState.mapManager) AppState.mapManager.toggleRFFluid(on);
+        if (g3d()) g3d().applyToggle('rf', on);
       });
     }
 
@@ -528,32 +539,24 @@ const GSREvents = {
     if (rfFluidMode) {
       rfFluidMode.addEventListener('change', (e) => {
         if (AppState.mapManager) AppState.mapManager.setRFFluidMode(e.target.value);
+        if (g3d()) g3d().applyRfMode(e.target.value);
       });
     }
 
-    const btnToggleMapPeaks = document.getElementById('btnToggleMapPeaks');
-    btnToggleMapPeaks.addEventListener('click', () => {
-      btnToggleMapPeaks.classList.toggle('active');
-      if (AppState.mapManager) AppState.mapManager.togglePeaks(btnToggleMapPeaks.classList.contains('active'));
-    });
-
-    const btnToggleMapHotspots = document.getElementById('btnToggleMapHotspots');
-    btnToggleMapHotspots.addEventListener('click', () => {
-      btnToggleMapHotspots.classList.toggle('active');
-      if (AppState.mapManager) AppState.mapManager.toggleHotspots(btnToggleMapHotspots.classList.contains('active'));
-    });
-
-    const btnToggleMapLabels = document.getElementById('btnToggleMapLabels');
-    btnToggleMapLabels.addEventListener('click', () => {
-      btnToggleMapLabels.classList.toggle('active');
-      if (AppState.mapManager) AppState.mapManager.toggleLabels(btnToggleMapLabels.classList.contains('active'));
-    });
-
-    const btnToggleMapClusters = document.getElementById('btnToggleMapClusters');
-    btnToggleMapClusters.addEventListener('click', () => {
-      btnToggleMapClusters.classList.toggle('active');
-      if (AppState.mapManager) AppState.mapManager.toggleClusters(btnToggleMapClusters.classList.contains('active'));
-    });
+    const bindSharedToggle = (btnId, mmMethod, g3dName) => {
+      const btn = document.getElementById(btnId);
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        btn.classList.toggle('active');
+        const on = btn.classList.contains('active');
+        if (AppState.mapManager) AppState.mapManager[mmMethod](on);
+        if (g3d()) g3d().applyToggle(g3dName, on);
+      });
+    };
+    bindSharedToggle('btnToggleMapPeaks',    'togglePeaks',    'peaks');
+    bindSharedToggle('btnToggleMapHotspots', 'toggleHotspots', 'hotspots');
+    bindSharedToggle('btnToggleMapLabels',   'toggleLabels',   'labels');
+    bindSharedToggle('btnToggleMapClusters', 'toggleClusters', 'clusters');
 
     const btnToggleMapIsolines = document.getElementById('btnToggleMapIsolines');
     btnToggleMapIsolines.addEventListener('click', () => {
@@ -584,7 +587,6 @@ const GSREvents = {
     GSREvents.bindCollapseButton('btnPeakDetectionCollapse', 'peakDetectionCard');
     GSREvents.bindCollapseButton('btnGpsFilteringCollapse',  'gpsFilteringCard');
     GSREvents.bindCollapseButton('btnMapDisplayCollapse',    'mapDisplayCard');
-    GSREvents.bindCollapseButton('btnGlobe3dSettingsCollapse', 'globe3dSettingsCard');
     GSREvents.bindCollapseButton('btnImportCollapse',        'importCard');
     GSREvents.bindCollapseButton('btnExportCollapse',        'exportCard');
     GSREvents.bindCollapseButton('btnContourCollapse',       'contourSettingsCard');
@@ -602,7 +604,6 @@ const GSREvents = {
       }
     });
     GSREvents.bindCollapseButton('btnMapCollapse',           'mapPanel');
-    GSREvents.bindCollapseButton('btnGlobe3dCollapse',       'globe3dPanel');
     GSREvents.bindCollapseButton('btnOsmEnrichmentCollapse', 'osmEnrichmentCard');
     GSREvents.bindCollapseButton('btnEnvCollapse',           'environmentalPanel');
 
@@ -909,23 +910,21 @@ const GSREvents = {
 
   /**
    * Surface switcher (2D Map ↔ 3D Globe). Orthogonal to the Single/Collective
-   * scope switcher above: this only swaps which render surface fills the main
-   * region. The 3D globe is a read-only view of the 2D state — see
-   * src/map/globe3d_view.js.
+   * scope switcher above. Leaflet and Cesium are equivalent display engines
+   * swapped inside the one #mapPanel: this toggles which container div is shown
+   * (#map ⇄ #globe3dContainer) and reveals the 3D-only settings sub-section.
+   * The header controls drive whichever engine is mounted; the globe is still a
+   * read-only view of the 2D state — see src/map/globe3d_view.js.
    */
   bindSurfaceSwitcher() {
-    // Two identical switchers live in the #mapPanel and #globe3dPanel headers
-    // (only one panel is visible at a time). Bind them all by class and route
-    // through data-surface.
     const tabs = Array.from(document.querySelectorAll('.surface-tab'));
     if (!tabs.length) return;
 
     if (typeof GSRGlobe3DView !== 'undefined') GSRGlobe3DView.init();
 
-    const mapPanel   = document.getElementById('mapPanel');
-    const globePanel = document.getElementById('globe3dPanel');
-    const mapCard    = document.getElementById('mapDisplayCard');
-    const globeCard  = document.getElementById('globe3dSettingsCard');
+    const mapEl     = document.getElementById('map');
+    const globeEl   = document.getElementById('globe3dContainer');
+    const settings3d = document.getElementById('mapDisplay3DGroup');
 
     const show = (el, on) => { if (el) el.style.display = on ? '' : 'none'; };
 
@@ -933,30 +932,16 @@ const GSREvents = {
       if (AppState.surfaceView === target) return;
       const toGlobe = target === 'globe';
 
-      // The switcher lives in each panel's header, so it can be clicked while
-      // that panel is in its own fullscreen overlay. Carry the fullscreen over
-      // to the incoming surface instead of dropping out of it: exit the
-      // outgoing panel's fullscreen, do the swap, then re-enter fullscreen on
-      // the new one. (Only the visible surface panel can be fullscreen when
-      // this switcher is reachable, so no other panel needs handling.)
-      const LM = (typeof GSRLayoutManager !== 'undefined') ? GSRLayoutManager : null;
-      const outPanelId = toGlobe ? 'mapPanel' : 'globe3dPanel';
-      const inPanelId  = toGlobe ? 'globe3dPanel' : 'mapPanel';
-      const keepFullscreen = !!(LM && LM.isPanelFullscreen && LM.isPanelFullscreen(outPanelId));
-      if (keepFullscreen) LM.setPanelFullscreen(outPanelId, false);
-
       AppState.surfaceView = target;
       tabs.forEach(t => t.classList.toggle('active', t.dataset.surface === target));
-      show(globePanel, toGlobe);
-      show(mapPanel, !toGlobe);
-      show(globeCard, toGlobe);
-      show(mapCard, !toGlobe);
+      show(mapEl, !toGlobe);
+      show(globeEl, toGlobe);
+      show(settings3d, toGlobe);
+
       if (typeof GSRGlobe3DView !== 'undefined') {
         if (toGlobe) GSRGlobe3DView.activate();
         else GSRGlobe3DView.deactivate();
       }
-
-      if (keepFullscreen) LM.setPanelFullscreen(inPanelId, true);
 
       if (!toGlobe && AppState.mapManager && AppState.mapManager.map) {
         setTimeout(() => AppState.mapManager.map.invalidateSize(), 80);

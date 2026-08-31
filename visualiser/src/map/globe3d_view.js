@@ -3,16 +3,21 @@
  * Copyright (c) 2026 Christian Nold
  * Licensed under the Bio Mapping Community Licence 1.0.
  *
- * Owns the lifecycle of the embedded GSRGlobeManager: lazy-loads CesiumJS the
- * first time the 3D surface is opened, mounts one warm viewer, and keeps it
- * paused (render loop off) while the 2D map is showing.
+ * Leaflet and Cesium are equivalent render engines swapped inside the one
+ * #mapPanel (GSREvents.setSurface toggles #map ⇄ #globe3dContainer). This
+ * controller owns the Cesium half: it lazy-loads CesiumJS the first time the 3D
+ * surface is opened, mounts one warm GSRGlobeManager, and keeps it paused
+ * (render loop off) while the 2D map is showing.
  *
  * The 3D globe is a READ-ONLY view of the 2D state. It never writes back:
  *   - geometry, colour metric and colour range come from GSRMapManager
  *     (_lastDrawPoints / activeColoringMetric / _legendMinVal|_legendMaxVal),
  *     pushed on every 'map:rendered';
- *   - the 3D-only settings card (extrusion, basemap, buildings, RF field,
- *     camera) mutates only this controller's own GSRGlobeManager.
+ *   - the single map-panel header (zoom / RF / Peaks / Hotspots / Labels /
+ *     Clusters / metric) is the 2D map's; events.js dispatches it here via
+ *     applyToggle / applyRfMode / zoom / fitTrack while 3D is mounted;
+ *   - the 3D-only settings sub-section (#mapDisplay3DGroup: extrusion, basemap,
+ *     buildings, RF field, camera) mutates only this controller's manager.
  *
  * One exception: clicking a peak spire opens the peak-label editor and calls
  * GSRUI.updatePeakLabel() — the same path the 2D map's peak popup uses.
@@ -50,22 +55,15 @@ const GSRGlobe3DView = {
     GSRGlobe3DView._initDone = true;
 
     const $ = (id) => document.getElementById(id);
+    // Only the 3D globe's own surface + its 3D-only settings sub-section
+    // (#mapDisplay3DGroup). The shared header controls (zoom / RF / Peaks /
+    // Hotspots / Labels / Clusters / metric) are the 2D map's — src/ui/events.js
+    // dispatches them here via applyToggle / applyRfMode / zoom.
     const els = GSRGlobe3DView.els = {
-      panel:        $('globe3dPanel'),
       container:    $('globe3dContainer'),
       status:       $('globe3dStatus'),
       legend:       $('g3dLegend'),
-      // panel-header controls that mirror the 2D map panel
-      metric:       $('globe3dColoringMetric'),
-      rfModeHeader: $('globe3dRfMode'),
-      btnRf:        $('btnGlobe3dRf'),
-      btnPeaks:     $('btnGlobe3dPeaks'),
-      btnHotspots:  $('btnGlobe3dHotspots'),
-      btnLabels:    $('btnGlobe3dLabels'),
-      btnClusters:  $('btnGlobe3dClusters'),
-      btnZoomIn:    $('btnGlobe3dZoomIn'),
-      btnZoomOut:   $('btnGlobe3dZoomOut'),
-      btnZoomExtent:$('btnGlobe3dZoomExtent'),
+      // 3D-only settings sub-section widgets (#mapDisplay3DGroup)
       extrusion:    $('g3dExtrusionScale'),
       extrusionVal: $('g3dExtrusionScaleVal'),
       heightMetric: $('g3dHeightMetric'),
@@ -89,7 +87,6 @@ const GSRGlobe3DView = {
     };
 
     GSRGlobe3DView._bindCard(els);
-    GSRGlobe3DView._bindHeader(els);
 
     if (typeof AppState !== 'undefined' && AppState.on) {
       // Trailing debounce — a GSR/GPS slider drag fires 'map:rendered' dozens of
@@ -197,12 +194,23 @@ const GSRGlobe3DView = {
       els.buildingStyle.addEventListener('change', (e) => { if (m()) m().apply3DBuildingStyle(e.target.value); });
     }
 
-    // The 3D-settings RF checkbox / band select are just another face of the
-    // shared RF switch — route them through the same _setRf / _setRfMode the
-    // header button uses (which also drives the 2D map). The height/opacity
-    // sliders are 3D-volumetric-only, so they just re-apply the field.
-    if (els.chkRf) els.chkRf.addEventListener('change', () => GSRGlobe3DView._setRf(els.chkRf.checked));
-    if (els.rfMode) els.rfMode.addEventListener('change', () => GSRGlobe3DView._setRfMode(els.rfMode.value));
+    // The 3D-settings RF checkbox / band select are another face of the 2D
+    // map's RF switch (#btnToggleRFFluid + #rfFluidMode are chief). Click-sync
+    // them and let their events.js handlers dispatch back via applyToggle('rf')
+    // / applyRfMode(). The height/opacity sliders are 3D-volumetric-only, so
+    // they just re-apply the field.
+    if (els.chkRf) els.chkRf.addEventListener('change', () => {
+      const b2 = document.getElementById('btnToggleRFFluid');
+      if (b2 && !b2.hasAttribute('disabled') &&
+          b2.classList.contains('active') !== els.chkRf.checked) b2.click();
+    });
+    if (els.rfMode) els.rfMode.addEventListener('change', () => {
+      const m2 = document.getElementById('rfFluidMode');
+      if (m2 && m2.value !== els.rfMode.value) {
+        m2.value = els.rfMode.value;
+        m2.dispatchEvent(new Event('change'));
+      }
+    });
     const applyRfParams = () => {
       if (m() && m().showRfVolumetric) {
         m().toggle3DRf(
@@ -318,122 +326,52 @@ const GSRGlobe3DView = {
     if (pop && pop.parentNode) pop.parentNode.removeChild(pop);
   },
 
-  /**
-   * The layer toggles the 3D header shares with the 2D map header. The 2D map
-   * button is the single source of truth for each (2D is chief) — a 3D click
-   * drives the 2D button, then mirrors the result onto the globe + the 3D
-   * button. _syncFromMap() re-reads all of them on every push so the two
-   * headers can never drift.
-   */
-  _SHARED_TOGGLES: [
-    { key: 'btnPeaks',    btn2d: 'btnToggleMapPeaks',    flag: 'showPeaks',
-      apply: (mgr, on) => mgr.togglePeaks(on, mgr.minPeakQuality || 0) },
-    { key: 'btnHotspots', btn2d: 'btnToggleMapHotspots', flag: 'showHotspots',
-      apply: (mgr, on) => mgr.toggleHotspots(on) },
-    { key: 'btnLabels',   btn2d: 'btnToggleMapLabels',   flag: 'showLabels',
-      apply: (mgr, on) => mgr.toggleLabels(on) },
-    { key: 'btnClusters', btn2d: 'btnToggleMapClusters', flag: 'showClusters',
-      apply: (mgr, on) => mgr.toggleClusters(on) }
-  ],
+  // ── Shared header controls, dispatched from the 2D map (src/ui/events.js) ──
+  //
+  // There is one map-panel header now; Leaflet and Cesium are swapped inside
+  // the panel. The header's zoom / RF / Peaks / Hotspots / Labels / Clusters /
+  // metric controls belong to the 2D map (still "chief"). events.js drives the
+  // 2D map + button state, then calls the methods below to mirror the result
+  // onto the globe whenever it is the mounted surface.
 
   /**
-   * panel-header controls, mirroring the 2D map panel. The metric <select> and
-   * every layer toggle are proxies for the 2D map's own controls — a change
-   * here drives the 2D map (the source of truth), which is then mirrored onto
-   * the globe. See _SHARED_TOGGLES / _syncFromMap.
+   * A shared layer toggle was flipped. events.js has already driven the 2D map
+   * and the button's .active class; mirror it onto the globe. No-op unless the
+   * 3D surface is mounted.
+   * @param {'peaks'|'hotspots'|'labels'|'clusters'|'rf'} name
+   * @param {boolean} on
    */
-  _bindHeader(els) {
-    const m = () => GSRGlobe3DView.manager;
-
-    if (els.metric) {
-      els.metric.addEventListener('change', (e) => {
-        const mapSel = document.getElementById('mapColoringMetric');
-        if (mapSel && mapSel.value !== e.target.value) {
-          mapSel.value = e.target.value;
-          mapSel.dispatchEvent(new Event('change'));
-        }
-      });
-    }
-
-    GSRGlobe3DView._SHARED_TOGGLES.forEach((t) => {
-      const btn = els[t.key];
-      if (!btn) return;
-      btn.addEventListener('click', () => {
-        GSRGlobe3DView._setSharedToggle(t, !btn.classList.contains('active'));
-      });
-    });
-
-    // RF shares its on/off + band with the 2D map's "RF" button + #rfFluidMode
-    // (the 2D fluid raster and the 3D volumetric field are different renders of
-    // the same 3-band data, but one state drives both). The header button and
-    // the 3D-settings checkbox are two faces of that one switch.
-    if (els.btnRf) {
-      els.btnRf.addEventListener('click', () => {
-        GSRGlobe3DView._setRf(!els.btnRf.classList.contains('active'));
-      });
-    }
-    if (els.rfModeHeader) {
-      els.rfModeHeader.addEventListener('change', (e) => GSRGlobe3DView._setRfMode(e.target.value));
-    }
-
-    const zoom = (factor) => {
-      const v = m() && m().viewer;
-      if (!v) return;
-      const h = v.camera.positionCartographic.height;
-      const step = Math.max(20, h * 0.35);
-      if (factor < 0) v.camera.zoomIn(step); else v.camera.zoomOut(step);
-      v.scene.requestRender(); // programmatic camera move needs a nudge in requestRenderMode
-    };
-    if (els.btnZoomIn)  els.btnZoomIn.addEventListener('click', () => zoom(-1));
-    if (els.btnZoomOut) els.btnZoomOut.addEventListener('click', () => zoom(1));
-    if (els.btnZoomExtent) els.btnZoomExtent.addEventListener('click', () => { if (m()) m().flyToTrack(); });
-  },
-
-  // ── Shared 2D⇄3D toggle state ────────────────────────────────────────────
-
-  /**
-   * Flip one shared layer toggle. Drives the 2D map's own button (the source of
-   * truth), then mirrors the result onto the globe manager and the 3D header
-   * button so the two headers always read the same.
-   */
-  _setSharedToggle(t, on) {
-    const b2 = document.getElementById(t.btn2d);
-    if (b2 && b2.classList.contains('active') !== on) b2.click();
-    const btn = GSRGlobe3DView.els[t.key];
-    if (btn) btn.classList.toggle('active', on);
+  applyToggle(name, on) {
     const mgr = GSRGlobe3DView.manager;
-    if (mgr) t.apply(mgr, on);
-  },
-
-  /** RF on/off — shared with the 2D map's "RF" button + the 3D-settings checkbox. */
-  _setRf(on) {
+    if (!GSRGlobe3DView.isActive || !mgr) return;
     const els = GSRGlobe3DView.els;
-    const b2 = document.getElementById('btnToggleRFFluid');
-    if (b2 && b2.hasAttribute('disabled')) return; // active track carries no RF data
-    if (b2 && b2.classList.contains('active') !== on) b2.click();
-    if (els.btnRf) els.btnRf.classList.toggle('active', on);
-    if (els.chkRf && els.chkRf.checked !== on) els.chkRf.checked = on;
-    if (els.rfRow) els.rfRow.style.display = on ? 'flex' : 'none';
-    const mgr = GSRGlobe3DView.manager;
-    if (mgr) {
-      mgr.toggle3DRf(
-        on,
-        els.rfMode ? els.rfMode.value : 'triband',
-        els.rfHeight ? parseFloat(els.rfHeight.value) : 25,
-        els.rfOpacity ? parseFloat(els.rfOpacity.value) : 0.45
-      );
+    switch (name) {
+      case 'peaks':    mgr.togglePeaks(on, mgr.minPeakQuality || 0); break;
+      case 'hotspots': mgr.toggleHotspots(on); break;
+      case 'labels':   mgr.toggleLabels(on); break;
+      case 'clusters': mgr.toggleClusters(on); break;
+      case 'rf':
+        if (els.chkRf && els.chkRf.checked !== on) els.chkRf.checked = on;
+        if (els.rfRow) els.rfRow.style.display = on ? 'flex' : 'none';
+        mgr.toggle3DRf(
+          on,
+          els.rfMode ? els.rfMode.value : 'triband',
+          els.rfHeight ? parseFloat(els.rfHeight.value) : 25,
+          els.rfOpacity ? parseFloat(els.rfOpacity.value) : 0.45
+        );
+        break;
     }
   },
 
-  /** RF band — shared with the 2D map's #rfFluidMode. */
-  _setRfMode(mode) {
+  /**
+   * The 2D map's RF band (#rfFluidMode) changed — mirror it onto the 3D-only
+   * band select and re-apply the volumetric field if it is showing.
+   */
+  applyRfMode(mode) {
     const els = GSRGlobe3DView.els;
-    const m2 = document.getElementById('rfFluidMode');
-    if (m2 && m2.value !== mode) { m2.value = mode; m2.dispatchEvent(new Event('change')); }
-    if (els.rfModeHeader && els.rfModeHeader.value !== mode) els.rfModeHeader.value = mode;
     if (els.rfMode && els.rfMode.value !== mode) els.rfMode.value = mode;
     const mgr = GSRGlobe3DView.manager;
-    if (!mgr) return;
+    if (!GSRGlobe3DView.isActive || !mgr) return;
     if (mgr.showRfVolumetric) {
       mgr.toggle3DRf(true, mode,
         els.rfHeight ? parseFloat(els.rfHeight.value) : 25,
@@ -443,44 +381,52 @@ const GSRGlobe3DView = {
     }
   },
 
+  /** Header zoom in/out (dir < 0 zooms in). Drives the Cesium camera. */
+  zoom(dir) {
+    const v = GSRGlobe3DView.manager && GSRGlobe3DView.manager.viewer;
+    if (!v) return;
+    const h = v.camera.positionCartographic.height;
+    const step = Math.max(20, h * 0.35);
+    if (dir < 0) v.camera.zoomIn(step); else v.camera.zoomOut(step);
+    v.scene.requestRender(); // programmatic camera move needs a nudge in requestRenderMode
+  },
+
+  /** Header "zoom to extent" — frame the whole track. */
+  fitTrack() {
+    if (GSRGlobe3DView.manager) GSRGlobe3DView.manager.flyToTrack();
+  },
+
+  // ── Mirror 2D toggle state onto the globe ────────────────────────────────
+
   /**
-   * Re-read every shared toggle from the 2D map and mirror it onto the 3D
-   * header buttons + the globe manager. Runs on each _pushFromMap so opening
-   * the 3D view (or any 2D re-render) can't leave the two headers out of step.
-   * Sets the manager flags only — the caller's renderData() does the drawing.
+   * Re-read the 2D map's layer-toggle + RF state and mirror it onto the globe
+   * manager (and the 3D-only RF widgets). Runs at the top of every _pushFromMap
+   * so opening the 3D surface — or any 2D re-render — starts from the same
+   * state. Sets manager flags only; the caller's renderData() does the drawing.
    */
-  _syncFromMap() {
+  _mirrorToggleState() {
     const mm = (typeof AppState !== 'undefined') ? AppState.mapManager : null;
     if (!mm) return;
     const els = GSRGlobe3DView.els;
     const mgr = GSRGlobe3DView.manager;
 
-    GSRGlobe3DView._SHARED_TOGGLES.forEach((t) => {
-      const on = !!mm[t.flag];
-      if (els[t.key]) els[t.key].classList.toggle('active', on);
-      if (mgr) {
-        if (t.key === 'btnPeaks')    mgr.showPeaks = on;
-        if (t.key === 'btnHotspots') mgr.showHotspots = on;
-        if (t.key === 'btnLabels')   mgr.showLabels = on;
-        if (t.key === 'btnClusters') mgr.showClusters = on;
-      }
-    });
+    if (mgr) {
+      mgr.showPeaks    = !!mm.showPeaks;
+      mgr.showHotspots = !!mm.showHotspots;
+      mgr.showLabels   = !!mm.showLabels;
+      mgr.showClusters = !!mm.showClusters;
+    }
 
     const rfBtn2d = document.getElementById('btnToggleRFFluid');
     const rfDisabled = rfBtn2d ? rfBtn2d.hasAttribute('disabled') : false;
     const rfOn = !rfDisabled && (rfBtn2d ? rfBtn2d.classList.contains('active') : !!mm.showRFFluid);
     const rfMode2d = document.getElementById('rfFluidMode');
     const rfMode = rfMode2d ? rfMode2d.value : (mgr ? mgr.rfMode : 'triband');
-    if (els.btnRf) {
-      els.btnRf.classList.toggle('active', rfOn);
-      els.btnRf.toggleAttribute('disabled', rfDisabled);
-    }
     if (els.chkRf) {
       if (els.chkRf.checked !== rfOn) els.chkRf.checked = rfOn;
       els.chkRf.toggleAttribute('disabled', rfDisabled);
     }
     if (els.rfRow) els.rfRow.style.display = rfOn ? 'flex' : 'none';
-    if (els.rfModeHeader && els.rfModeHeader.value !== rfMode) els.rfModeHeader.value = rfMode;
     if (els.rfMode && els.rfMode.value !== rfMode) els.rfMode.value = rfMode;
     if (mgr) { mgr.showRfVolumetric = rfOn; mgr.rfMode = rfMode; }
   },
@@ -602,9 +548,9 @@ const GSRGlobe3DView = {
     const mm = AppState.mapManager;
     if (!mm) return;
 
-    // Mirror the 2D map's layer toggles onto the 3D header + manager first, so
-    // the state is right whether or not there's a track to draw yet.
-    GSRGlobe3DView._syncFromMap();
+    // Mirror the 2D map's layer toggles onto the globe manager first, so the
+    // state is right whether or not there's a track to draw yet.
+    GSRGlobe3DView._mirrorToggleState();
     if (!AppState.analyzer) return;
 
     const metric = mm.activeColoringMetric || 'gsr';
@@ -649,12 +595,12 @@ const GSRGlobe3DView = {
       clusterPolygons,
       isPreview: !(opts.fly || trackChanged)
     });
-    GSRGlobe3DView._updateLegend(metric);
+    GSRGlobe3DView._updateLegend();
   },
 
   // ── Small UI bits ────────────────────────────────────────────────────────
 
-  _updateLegend(metric) {
+  _updateLegend() {
     const els = GSRGlobe3DView.els;
     const mm = (typeof AppState !== 'undefined') ? AppState.mapManager : null;
 
@@ -662,12 +608,6 @@ const GSRGlobe3DView = {
     // formatted range, RF sub-legend and all (see GSRMapManager.buildLegendHtml).
     if (els.legend && mm && typeof mm.buildLegendHtml === 'function') {
       els.legend.innerHTML = mm.buildLegendHtml();
-    }
-
-    // keep the panel-header metric picker in step with the 2D map
-    if (els.metric && metric && els.metric.value !== metric) {
-      const has = [...els.metric.options].some((o) => o.value === metric);
-      if (has) els.metric.value = metric;
     }
   },
 

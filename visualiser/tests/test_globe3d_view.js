@@ -1,7 +1,10 @@
 /**
  * Boots the real index.html app (jsdom, Cesium absent) and checks the 2D↔3D
- * surface switcher: it swaps the map panel for the globe panel and shows the
- * matching sidebar card, without throwing when Cesium can't load.
+ * surface switcher: Leaflet and Cesium are swapped inside the one #mapPanel —
+ * the switcher toggles which render container shows (#map ⇄ #globe3dContainer)
+ * and reveals the 3D-only settings sub-section (#mapDisplay3DGroup), without
+ * throwing when Cesium can't load. The single map-panel header's controls
+ * dispatch to whichever engine is mounted (GSRGlobe3DView.applyToggle / etc.).
  *
  * See tests/support/boot_app.js for the harness; src/map/globe3d_view.js and
  * src/ui/events.js (bindSurfaceSwitcher) for the code under test.
@@ -83,122 +86,107 @@ test('export3DTrack: downloads only for a single track with drawPoints', () => {
   assert.strictEqual(downloaded, null, 'collective scope is not exported');
 });
 
-test('surface switcher swaps map/globe panels and their sidebar cards', () => {
+test('surface switcher swaps the render container inside #mapPanel and reveals the 3D settings', () => {
   const { window } = bootApp();
   window.setup();
 
   const btnGlobe = window.document.getElementById('btnGlobeSurface');
   const btnMap = window.document.getElementById('btnMapSurface');
-  assert.ok(btnGlobe && btnMap, 'both surface buttons exist');
+  assert.ok(btnGlobe && btnMap, 'both surface tabs exist');
+
+  // one map panel, one header — the old duplicate globe panel + header are gone
+  assert.strictEqual(window.document.getElementById('globe3dPanel'), null, 'no separate globe panel');
+  assert.strictEqual(window.document.getElementById('globe3dSettingsCard'), null, 'no separate 3D settings card');
+  for (const gone of ['btnGlobe3dFullscreen', 'btnGlobe3dZoomIn', 'btnGlobe3dRf',
+                      'btnGlobe3dPeaks', 'globe3dColoringMetric', 'globe3dRfMode']) {
+    assert.strictEqual(window.document.getElementById(gone), null, `duplicate header control #${gone} removed`);
+  }
+  // the Cesium container now lives inside #mapPanel next to #map
+  const globeC = window.document.getElementById('globe3dContainer');
+  assert.strictEqual(globeC.closest('#mapPanel')?.id, 'mapPanel', '#globe3dContainer is a #mapPanel child');
 
   // starts on the 2D map
   assert.strictEqual(window.AppState.surfaceView, 'map');
-  assert.ok(vis(window, 'mapPanel'));
-  assert.ok(!vis(window, 'globe3dPanel'));
+  assert.ok(vis(window, 'map') && !vis(window, 'globe3dContainer'));
+  assert.ok(!vis(window, 'mapDisplay3DGroup'), '3D settings hidden in 2D');
 
   // → 3D globe
   assert.doesNotThrow(() => btnGlobe.click());
   assert.strictEqual(window.AppState.surfaceView, 'globe');
-  assert.ok(!vis(window, 'mapPanel'), 'map panel hidden in 3D');
-  assert.ok(vis(window, 'globe3dPanel'), 'globe panel shown in 3D');
-  assert.ok(vis(window, 'globe3dSettingsCard'), '3D settings card shown');
-  assert.ok(!vis(window, 'mapDisplayCard'), 'map display card hidden in 3D');
-  assert.ok(btnGlobe.classList.contains('active'));
-
-  // panel-header mirrors the 2D map: zoom + RF + Peaks/Hotspots/Labels/Clusters
-  // + RF-mode + colour-metric + fullscreen
-  for (const id of ['globe3dColoringMetric', 'globe3dRfMode', 'btnGlobe3dFullscreen',
-                    'btnGlobe3dZoomIn', 'btnGlobe3dZoomOut', 'btnGlobe3dZoomExtent',
-                    'btnGlobe3dRf', 'btnGlobe3dPeaks', 'btnGlobe3dHotspots',
-                    'btnGlobe3dLabels', 'btnGlobe3dClusters']) {
-    assert.ok(window.document.getElementById(id), `missing panel-header control #${id}`);
-  }
-
-  // the layer toggles are shared with the 2D map header — a 3D click drives the
-  // matching 2D button, and both classes stay in lock-step.
-  const pairs = [
-    ['btnGlobe3dHotspots', 'btnToggleMapHotspots'],
-    ['btnGlobe3dLabels',   'btnToggleMapLabels'],
-    ['btnGlobe3dClusters', 'btnToggleMapClusters'],
-  ];
-  for (const [id3d, id2d] of pairs) {
-    const b3 = window.document.getElementById(id3d);
-    const b2 = window.document.getElementById(id2d);
-    assert.strictEqual(b3.classList.contains('active'), b2.classList.contains('active'),
-      `#${id3d} starts in step with #${id2d}`);
-    const was = b3.classList.contains('active');
-    assert.doesNotThrow(() => b3.click());
-    assert.strictEqual(b3.classList.contains('active'), !was, `#${id3d} toggled`);
-    assert.strictEqual(b2.classList.contains('active'), !was, `#${id2d} followed`);
-  }
-
-  // the header RF button is shared with the 2D map's #btnToggleRFFluid
-  const btnRf = window.document.getElementById('btnGlobe3dRf');
-  const rf2d = window.document.getElementById('btnToggleRFFluid');
-  assert.strictEqual(btnRf.classList.contains('active'), rf2d.classList.contains('active'),
-    'RF starts in step with the 2D map');
-  const rfWas = btnRf.classList.contains('active');
-  assert.doesNotThrow(() => btnRf.click());
-  assert.strictEqual(btnRf.classList.contains('active'), !rfWas, 'RF button toggled');
-  assert.strictEqual(rf2d.classList.contains('active'), !rfWas, '2D RF button followed');
+  assert.ok(!vis(window, 'map'), '#map hidden in 3D');
+  assert.ok(vis(window, 'globe3dContainer'), '#globe3dContainer shown in 3D');
+  assert.ok(vis(window, 'mapDisplay3DGroup'), '3D settings sub-section shown');
+  assert.ok(vis(window, 'mapDisplayCard'), 'the one Map Display card stays visible');
+  assert.ok(btnGlobe.classList.contains('active') && !btnMap.classList.contains('active'));
 
   // → back to 2D
   assert.doesNotThrow(() => btnMap.click());
   assert.strictEqual(window.AppState.surfaceView, 'map');
-  assert.ok(vis(window, 'mapPanel'));
-  assert.ok(!vis(window, 'globe3dPanel'));
-  assert.ok(vis(window, 'mapDisplayCard'));
-  assert.ok(!vis(window, 'globe3dSettingsCard'));
+  assert.ok(vis(window, 'map') && !vis(window, 'globe3dContainer'));
+  assert.ok(!vis(window, 'mapDisplay3DGroup'));
 });
 
-test('switching surface while fullscreen carries the fullscreen to the other surface', () => {
+test('shared header toggles dispatch to the globe manager while 3D is the mounted surface', () => {
   const { window } = bootApp();
   window.setup();
-  const doc = window.document;
+  const V = window.GSRGlobe3DView;
 
-  const btnGlobe = doc.getElementById('btnGlobeSurface');
-  const btnMap = doc.getElementById('btnMapSurface');
-  const globeFsBtn = doc.getElementById('btnGlobe3dFullscreen');
-  const mapFsBtn = doc.getElementById('btnMapFullscreen');
-  const globePanel = doc.getElementById('globe3dPanel');
-  const mapPanel = doc.getElementById('mapPanel');
-  const globeHome = globePanel.parentNode;
-  const mapHome = mapPanel.parentNode;
+  // stub a manager and mark the 3D surface active (no real Cesium in jsdom)
+  const calls = [];
+  V.manager = {
+    minPeakQuality: 0,
+    togglePeaks: (on) => calls.push(['peaks', on]),
+    toggleHotspots: (on) => calls.push(['hotspots', on]),
+    toggleLabels: (on) => calls.push(['labels', on]),
+    toggleClusters: (on) => calls.push(['clusters', on]),
+    toggle3DRf: (on) => calls.push(['rf', on]),
+  };
+  V.isActive = true;
+  window.AppState.surfaceView = 'globe';
 
-  btnGlobe.click();                         // → 3D globe
-  assert.doesNotThrow(() => globeFsBtn.click()); // → panel fullscreen
-  assert.strictEqual(globePanel.parentNode.className, 'panel-fullscreen-overlay');
-  assert.ok(globeFsBtn.classList.contains('is-fullscreen'));
+  for (const [btnId, name] of [
+    ['btnToggleMapPeaks', 'peaks'],
+    ['btnToggleMapHotspots', 'hotspots'],
+    ['btnToggleMapLabels', 'labels'],
+    ['btnToggleMapClusters', 'clusters'],
+  ]) {
+    const btn = window.document.getElementById(btnId);
+    const want = !btn.classList.contains('active');
+    assert.doesNotThrow(() => btn.click());
+    assert.deepStrictEqual(calls.at(-1), [name, want], `#${btnId} click reached the globe manager`);
+  }
 
-  // clicking "2D Map" from inside the overlay: still fullscreen, now the map
-  assert.doesNotThrow(() => btnMap.click());
-  assert.strictEqual(window.AppState.surfaceView, 'map');
-  assert.strictEqual(globePanel.parentNode, globeHome, 'globe panel returned home');
-  assert.ok(!globeFsBtn.classList.contains('is-fullscreen'), 'globe fullscreen button reset');
-  assert.strictEqual(mapPanel.parentNode.className, 'panel-fullscreen-overlay', 'map panel now fullscreen');
-  assert.ok(mapFsBtn.classList.contains('is-fullscreen'), 'map fullscreen button lit');
-  assert.ok(vis(window, 'mapPanel') && !vis(window, 'globe3dPanel'));
-
-  // and back again — fullscreen stays, now on the globe
-  assert.doesNotThrow(() => btnGlobe.click());
-  assert.strictEqual(mapPanel.parentNode, mapHome, 'map panel returned home');
-  assert.ok(!mapFsBtn.classList.contains('is-fullscreen'), 'map fullscreen button reset');
-  assert.strictEqual(globePanel.parentNode.className, 'panel-fullscreen-overlay', 'globe panel fullscreen again');
-  assert.ok(globeFsBtn.classList.contains('is-fullscreen'));
-
-  // exiting fullscreen from the globe button leaves exactly nothing behind
-  assert.doesNotThrow(() => globeFsBtn.click());
-  assert.strictEqual(doc.querySelector('.panel-fullscreen-overlay'), null, 'no overlay left');
-  assert.strictEqual(globePanel.parentNode, globeHome);
+  V.manager = null;
+  V.isActive = false;
 });
 
-test('switching surface when NOT fullscreen leaves no overlay behind', () => {
+test('switching surface leaves no fullscreen overlay behind', () => {
   const { window } = bootApp();
   window.setup();
   const doc = window.document;
   doc.getElementById('btnGlobeSurface').click();
   doc.getElementById('btnMapSurface').click();
   assert.strictEqual(doc.querySelector('.panel-fullscreen-overlay'), null);
+});
+
+test('#mapPanel fullscreen while 3D is active re-measures the globe', () => {
+  const { window } = bootApp();
+  window.setup();
+  const doc = window.document;
+
+  let resized = 0;
+  const orig = window.GSRGlobe3DView.onResize;
+  window.GSRGlobe3DView.onResize = () => { resized++; };
+
+  doc.getElementById('btnGlobeSurface').click();          // → 3D globe
+  const mapFsBtn = doc.getElementById('btnMapFullscreen');
+  assert.doesNotThrow(() => mapFsBtn.click());            // enter panel fullscreen
+  assert.strictEqual(doc.getElementById('mapPanel').parentNode.className, 'panel-fullscreen-overlay');
+  assert.ok(resized >= 1, 'globe told to re-measure on entering fullscreen');
+  assert.doesNotThrow(() => mapFsBtn.click());            // exit
+  assert.strictEqual(doc.querySelector('.panel-fullscreen-overlay'), null, 'no overlay left');
+
+  window.GSRGlobe3DView.onResize = orig;
 });
 
 test('the 3D globe legend renders the exact same markup as the 2D map legend', () => {
@@ -228,20 +216,32 @@ test('the "Loading 3D engine" / imagery status is gone', () => {
   assert.ok(!/_watchImageryLoad/.test(src), 'the imagery-load watcher is gone');
 });
 
-test('globe panel metric picker proxies #mapColoringMetric', () => {
+test("the 3D settings RF checkbox / band select drive the 2D map's RF controls (chief)", () => {
   const { window } = bootApp();
   window.setup();
-  window.document.getElementById('btnGlobeSurface').click();
+  const doc = window.document;
+  window.GSRGlobe3DView.manager = { showRfVolumetric: false, rfMode: 'triband', toggle3DRf() {} };
+  window.GSRGlobe3DView.isActive = true;
 
-  const g = window.document.getElementById('globe3dColoringMetric');
-  const mapSel = window.document.getElementById('mapColoringMetric');
-  let mapChanges = 0;
-  mapSel.addEventListener('change', () => { mapChanges++; });
+  const rf2d = doc.getElementById('btnToggleRFFluid');
+  rf2d.removeAttribute('disabled');
+  const chk = doc.getElementById('g3dChkRf');
+  const want = !rf2d.classList.contains('active');
+  chk.checked = want;
+  assert.doesNotThrow(() => chk.dispatchEvent(new window.Event('change')));
+  assert.strictEqual(rf2d.classList.contains('active'), want, "#btnToggleRFFluid followed the card checkbox");
 
-  g.value = 'tonic';
-  assert.doesNotThrow(() => g.dispatchEvent(new window.Event('change')));
-  assert.strictEqual(mapSel.value, 'tonic', 'forwarded to the 2D map select');
-  assert.ok(mapChanges >= 1, 'the map select handler ran');
+  const mode2d = doc.getElementById('rfFluidMode');
+  let mapModeChanges = 0;
+  mode2d.addEventListener('change', () => { mapModeChanges++; });
+  const g3dMode = doc.getElementById('g3dRfMode');
+  g3dMode.value = '868';
+  assert.doesNotThrow(() => g3dMode.dispatchEvent(new window.Event('change')));
+  assert.strictEqual(mode2d.value, '868', 'forwarded to #rfFluidMode');
+  assert.ok(mapModeChanges >= 1, 'the 2D RF-mode handler ran');
+
+  window.GSRGlobe3DView.manager = null;
+  window.GSRGlobe3DView.isActive = false;
 });
 
 test('_editPeakLabel mounts the map peak popup in the globe container and closes it', () => {

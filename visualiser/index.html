@@ -400,99 +400,6 @@
           </div>
         </section>
 
-        <!-- 3D Globe Settings — visible only while the 3D surface is active.
-             These are the 3D-only parameters; colour metric / range / geometry
-             all come from the 2D view (see src/map/globe3d_view.js). -->
-        <section class="control-card" id="globe3dSettingsCard" style="display: none;">
-          <h2>
-            <i class="fa-solid fa-cube"></i> 3D Globe Settings
-            <button class="icon-btn collapse-btn" id="btnGlobe3dSettingsCollapse" title="Collapse" style="margin-left: auto;">
-              <i class="fa-solid fa-chevron-down"></i>
-            </button>
-          </h2>
-
-          <div class="card-content">
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>Wall Height Scale</span>
-                <span class="slider-value" id="g3dExtrusionScaleVal">8.0×</span>
-              </div>
-              <input type="range" id="g3dExtrusionScale" min="1" max="30" step="0.5" value="8">
-              <p class="help-text">Metres of wall height per unit of the height metric below.</p>
-            </div>
-
-            <div class="slider-group">
-              <div class="slider-label"><span>Height Metric</span></div>
-              <select id="g3dHeightMetric" class="select-control">
-                <option value="phasic">Phasic Arousal (SCR)</option>
-                <option value="gsr">GSR Conductance</option>
-                <option value="tonic">Tonic Baseline (SCL)</option>
-                <option value="arousalIndex">Combined Arousal Index</option>
-                <option value="peakDensity">Peak Density</option>
-              </select>
-              <p class="help-text">Drives extrusion. Colour always follows the 2D map's metric.</p>
-            </div>
-
-            <div class="slider-group">
-              <div class="slider-label"><span>Basemap Imagery</span></div>
-              <select id="g3dBasemap" class="select-control">
-                <option value="satellite">ArcGIS High-Res Satellite</option>
-                <option value="sentinel">Copernicus Sentinel-2 (Cloudless)</option>
-                <option value="nasa">NASA Blue Marble / Landsat</option>
-                <option value="osm">OpenStreetMap Standard</option>
-                <option value="dark">CARTO Dark Matter</option>
-                <option value="positron">CARTO Positron (Light)</option>
-              </select>
-            </div>
-
-            <div class="control-subgroup-title">3D Layers</div>
-
-            <label class="g3d-check">
-              <input type="checkbox" id="g3dChkBuildings"> <span><i class="fa-solid fa-city"></i> 3D OSM Buildings</span>
-            </label>
-            <div id="g3dBuildingStyleRow" style="display: none; margin: 6px 0 10px;">
-              <select id="g3dBuildingStyle" class="select-control">
-                <option value="glass">Translucent Blueprint (Glass)</option>
-                <option value="dark">Dark Architectural Matte</option>
-                <option value="monochrome">Monochrome White Model</option>
-                <option value="realistic">Realistic Solid</option>
-              </select>
-            </div>
-
-            <label class="g3d-check">
-              <input type="checkbox" id="g3dChkRf"> <span><i class="fa-solid fa-tower-broadcast"></i> 3D RF Volumetric Field</span>
-            </label>
-            <div id="g3dRfControlsRow" style="display: none; flex-direction: column; gap: 8px; margin: 6px 0 10px;">
-              <select id="g3dRfMode" class="select-control">
-                <option value="triband">Tri-Band Fluid (RGB Additive)</option>
-                <option value="815">815 MHz (Red Band)</option>
-                <option value="868">868 MHz (Green Band)</option>
-                <option value="915">915 MHz (Blue Band)</option>
-                <option value="fog">EM Fog Index (Violet Glow)</option>
-              </select>
-              <div class="slider-group">
-                <div class="slider-label"><span>Ceiling Height</span><span class="slider-value" id="g3dRfHeightVal">25m</span></div>
-                <input type="range" id="g3dRfHeight" min="5" max="60" step="5" value="25">
-              </div>
-              <div class="slider-group">
-                <div class="slider-label"><span>Cloud Opacity</span><span class="slider-value" id="g3dRfOpacityVal">45%</span></div>
-                <input type="range" id="g3dRfOpacity" min="0.1" max="0.9" step="0.05" value="0.45">
-              </div>
-            </div>
-
-            <div class="control-subgroup-title">Camera</div>
-            <div class="g3d-btn-grid">
-              <button class="btn btn-outline" id="g3dBtnFit"><i class="fa-solid fa-location-crosshairs"></i> Fit Track</button>
-              <button class="btn btn-outline" id="g3dBtnOrbit"><i class="fa-solid fa-rotate"></i> 360° Orbit</button>
-              <button class="btn btn-outline" id="g3dBtnPersp3D"><i class="fa-solid fa-cube"></i> 3D 45°</button>
-              <button class="btn btn-outline" id="g3dBtnPerspTop"><i class="fa-solid fa-map"></i> Top</button>
-              <button class="btn btn-outline" id="g3dBtnPerspGround"><i class="fa-solid fa-person-walking"></i> Ground</button>
-              <button class="btn btn-outline" id="g3dBtnNorth"><i class="fa-regular fa-compass"></i> North</button>
-            </div>
-            <!-- 3D track export (CZML / KML) lives in the main Export Options card below. -->
-          </div>
-        </section>
-
         <!-- Spatial Data Card -->
         <section class="control-card" id="osmEnrichmentCard">
           <h2>
@@ -579,6 +486,91 @@
               <input type="range" id="gpsPeakLatency" min="0" max="5" step="0.1" value="2.0">
               <div class="slider-rec" style="left:20%; width:40%"></div>
               <p class="help-text">Compensates for physiological SCR delay on the map.</p>
+            </div>
+
+            <!-- 3D-only parameters — shown only while the 3D Globe surface is
+                 active (toggled by GSREvents.setSurface). Colour metric / range /
+                 geometry all come from the 2D view; see src/map/globe3d_view.js. -->
+            <div id="mapDisplay3DGroup" style="display: none;">
+              <div class="control-subgroup-title">3D Globe</div>
+
+              <div class="slider-group">
+                <div class="slider-label">
+                  <span>Wall Height Scale</span>
+                  <span class="slider-value" id="g3dExtrusionScaleVal">8.0×</span>
+                </div>
+                <input type="range" id="g3dExtrusionScale" min="1" max="30" step="0.5" value="8">
+                <p class="help-text">Metres of wall height per unit of the height metric below.</p>
+              </div>
+
+              <div class="slider-group">
+                <div class="slider-label"><span>Height Metric</span></div>
+                <select id="g3dHeightMetric" class="select-control">
+                  <option value="phasic">Phasic Arousal (SCR)</option>
+                  <option value="gsr">GSR Conductance</option>
+                  <option value="tonic">Tonic Baseline (SCL)</option>
+                  <option value="arousalIndex">Combined Arousal Index</option>
+                  <option value="peakDensity">Peak Density</option>
+                </select>
+                <p class="help-text">Drives extrusion. Colour always follows the 2D map's metric.</p>
+              </div>
+
+              <div class="slider-group">
+                <div class="slider-label"><span>Basemap Imagery</span></div>
+                <select id="g3dBasemap" class="select-control">
+                  <option value="satellite">ArcGIS High-Res Satellite</option>
+                  <option value="sentinel">Copernicus Sentinel-2 (Cloudless)</option>
+                  <option value="nasa">NASA Blue Marble / Landsat</option>
+                  <option value="osm">OpenStreetMap Standard</option>
+                  <option value="dark">CARTO Dark Matter</option>
+                  <option value="positron">CARTO Positron (Light)</option>
+                </select>
+              </div>
+
+              <div class="control-subgroup-title">3D Layers</div>
+
+              <label class="g3d-check">
+                <input type="checkbox" id="g3dChkBuildings"> <span><i class="fa-solid fa-city"></i> 3D OSM Buildings</span>
+              </label>
+              <div id="g3dBuildingStyleRow" style="display: none; margin: 6px 0 10px;">
+                <select id="g3dBuildingStyle" class="select-control">
+                  <option value="glass">Translucent Blueprint (Glass)</option>
+                  <option value="dark">Dark Architectural Matte</option>
+                  <option value="monochrome">Monochrome White Model</option>
+                  <option value="realistic">Realistic Solid</option>
+                </select>
+              </div>
+
+              <label class="g3d-check">
+                <input type="checkbox" id="g3dChkRf"> <span><i class="fa-solid fa-tower-broadcast"></i> 3D RF Volumetric Field</span>
+              </label>
+              <div id="g3dRfControlsRow" style="display: none; flex-direction: column; gap: 8px; margin: 6px 0 10px;">
+                <select id="g3dRfMode" class="select-control">
+                  <option value="triband">Tri-Band Fluid (RGB Additive)</option>
+                  <option value="815">815 MHz (Red Band)</option>
+                  <option value="868">868 MHz (Green Band)</option>
+                  <option value="915">915 MHz (Blue Band)</option>
+                  <option value="fog">EM Fog Index (Violet Glow)</option>
+                </select>
+                <div class="slider-group">
+                  <div class="slider-label"><span>Ceiling Height</span><span class="slider-value" id="g3dRfHeightVal">25m</span></div>
+                  <input type="range" id="g3dRfHeight" min="5" max="60" step="5" value="25">
+                </div>
+                <div class="slider-group">
+                  <div class="slider-label"><span>Cloud Opacity</span><span class="slider-value" id="g3dRfOpacityVal">45%</span></div>
+                  <input type="range" id="g3dRfOpacity" min="0.1" max="0.9" step="0.05" value="0.45">
+                </div>
+              </div>
+
+              <div class="control-subgroup-title">Camera</div>
+              <div class="g3d-btn-grid">
+                <button class="btn btn-outline" id="g3dBtnFit"><i class="fa-solid fa-location-crosshairs"></i> Fit Track</button>
+                <button class="btn btn-outline" id="g3dBtnOrbit"><i class="fa-solid fa-rotate"></i> 360° Orbit</button>
+                <button class="btn btn-outline" id="g3dBtnPersp3D"><i class="fa-solid fa-cube"></i> 3D 45°</button>
+                <button class="btn btn-outline" id="g3dBtnPerspTop"><i class="fa-solid fa-map"></i> Top</button>
+                <button class="btn btn-outline" id="g3dBtnPerspGround"><i class="fa-solid fa-person-walking"></i> Ground</button>
+                <button class="btn btn-outline" id="g3dBtnNorth"><i class="fa-regular fa-compass"></i> North</button>
+              </div>
             </div>
           </div>
         </section>
@@ -848,9 +840,9 @@
               <button class="icon-btn collapse-btn" id="btnMapCollapse" title="Collapse Panel">
                 <i class="fa-solid fa-chevron-down"></i>
               </button>
-              <!-- Surface switcher — the active view sits first; clicking the other
-                   swaps in its panel (whose header repeats this switcher, its own
-                   view first), so the two appear to trade places. -->
+              <!-- Surface switcher — swaps the render engine inside this one panel
+                   (Leaflet ⇄ Cesium). The header controls below drive whichever
+                   is mounted; see GSREvents.setSurface / src/map/globe3d_view.js. -->
               <div class="view-switcher surface-switcher" title="Swap the map for the 3D globe (same data)">
                 <button class="view-tab surface-tab active" id="btnMapSurface" data-surface="map">
                   <i class="fa-solid fa-map-location-dot"></i> 2D Map
@@ -909,62 +901,10 @@
               <button class="icon-btn fullscreen-btn" id="btnMapFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>
             </div>
           </div>
+          <!-- Two render engines, one panel. GSREvents.setSurface toggles which
+               is shown; the header above drives whichever is mounted. -->
           <div id="map"></div>
-        </section>
-
-        <!-- 3D Globe Panel — swapped in for #mapPanel by the surface switcher. -->
-        <section class="map-panel" id="globe3dPanel" style="display: none;">
-          <div class="panel-header">
-            <div class="panel-title-group">
-              <button class="icon-btn collapse-btn" id="btnGlobe3dCollapse" title="Collapse Panel">
-                <i class="fa-solid fa-chevron-down"></i>
-              </button>
-              <!-- Same switcher as #mapPanel, 3D Globe first since it is the active view here. -->
-              <div class="view-switcher surface-switcher" title="Swap the map for the 3D globe (same data)">
-                <button class="view-tab surface-tab active" id="btnGlobeSurface2" data-surface="globe">
-                  <i class="fa-solid fa-globe"></i> 3D Globe
-                </button>
-                <button class="view-tab surface-tab" id="btnMapSurface2" data-surface="map">
-                  <i class="fa-solid fa-map-location-dot"></i> 2D Map
-                </button>
-              </div>
-            </div>
-            <div class="canvas-controls">
-              <div class="btn-group">
-                <button class="icon-btn" id="btnGlobe3dZoomIn" title="Zoom In"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
-                <button class="icon-btn" id="btnGlobe3dZoomOut" title="Zoom Out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
-                <button class="icon-btn" id="btnGlobe3dZoomExtent" title="Fit Track"><i class="fa-solid fa-arrows-to-eye"></i></button>
-              </div>
-              <span class="control-divider"></span>
-              <div class="btn-group">
-                <button class="btn btn-outline active" id="btnGlobe3dRf" title="Toggle the RF field (shared on/off + band with the 2D map)">RF</button>
-                <button class="btn btn-outline active" id="btnGlobe3dPeaks" title="Toggle peak spires">Peaks</button>
-                <button class="btn btn-outline active" id="btnGlobe3dHotspots" title="Toggle memorable-event markers">Hotspots</button>
-                <button class="btn btn-outline active" id="btnGlobe3dLabels" title="Toggle peak labels">Labels</button>
-                <button class="btn btn-outline active" id="btnGlobe3dClusters" title="Toggle spatial cluster blobs">Clusters</button>
-              </div>
-              <span class="control-divider"></span>
-              <select id="globe3dRfMode" class="select-control btn btn-outline" style="width: auto; min-width: 100px;" title="3D RF field mode (kept in sync with the 3D settings panel)">
-                <option value="triband" selected>Tri-Band RGB</option>
-                <option value="815">815 MHz (LTE)</option>
-                <option value="868">868 MHz (Grid)</option>
-                <option value="915">915 MHz (ISM)</option>
-                <option value="fog">EM Fog</option>
-              </select>
-              <select id="globe3dColoringMetric" class="select-control btn btn-outline" style="width: auto; min-width: 130px;" title="Colour metric (kept in sync with the 2D map)">
-                <option value="gsr">GSR Arousal</option>
-                <option value="phasic">Phasic</option>
-                <option value="tonic">Tonic</option>
-                <option value="peakDensity">Peak Density</option>
-                <option value="phasicAUC">Phasic AUC</option>
-                <option value="arousalIndex">Arousal Index</option>
-                <option value="em_fog">EM Fog</option>
-              </select>
-              <span class="control-divider"></span>
-              <button class="icon-btn fullscreen-btn" id="btnGlobe3dFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>
-            </div>
-          </div>
-          <div id="globe3dContainer">
+          <div id="globe3dContainer" style="display: none;">
             <div id="globe3dStatus" class="globe3d-status" style="display: none;"></div>
             <!-- Filled by globe3d_view.js with GSRMapManager.buildLegendHtml() so it
                  is identical to the 2D map's legend. -->

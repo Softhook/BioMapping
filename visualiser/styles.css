@@ -1864,9 +1864,9 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border-bottom-color: var(--text-primary);
 }
 
-/* Surface switcher (2D Map / 3D Globe) — lives in the #mapPanel and
-   #globe3dPanel headers in place of the old panel <h3>. Sized to read like a
-   panel title; the active view is listed first and gets the accent underline. */
+/* Surface switcher (2D Map / 3D Globe) — lives in the #mapPanel header in
+   place of the old panel <h3>, swapping the render engine inside the panel.
+   Sized to read like a panel title; the active view gets the accent underline. */
 .surface-switcher .view-tab {
   font-family: var(--font-display);
   font-size: 0.88rem;
@@ -2501,11 +2501,12 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Embedded 3D globe panel
-   Only the bits the 3D surface adds to index.html: the Cesium mount, its
-   floating legend/status, the peak popup, and the "3D Globe Settings" sidebar
-   card widgets. The panel reuses .map-panel chrome (see #globe3dPanel) — page
-   chrome (sidebar, nav header) is the 2D workbench's, never redefined here.
+   Embedded 3D globe surface
+   Only the bits the 3D surface adds to index.html: the Cesium mount (a second
+   render container inside #mapPanel, swapped in for #map), its floating
+   legend/status, the peak popup, and the 3D-only widgets in the Map Display
+   card's #mapDisplay3DGroup. The mount reuses .map-panel chrome — page chrome
+   (sidebar, nav header) is the 2D workbench's, never redefined here.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Cesium mount ────────────────────────────────────────────────────────── */
