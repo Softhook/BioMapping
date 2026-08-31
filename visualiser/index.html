@@ -500,19 +500,7 @@
                   <span class="slider-value" id="g3dExtrusionScaleVal">8.0×</span>
                 </div>
                 <input type="range" id="g3dExtrusionScale" min="1" max="30" step="0.5" value="8">
-                <p class="help-text">Metres of wall height per unit of the height metric below.</p>
-              </div>
-
-              <div class="slider-group">
-                <div class="slider-label"><span>Height Metric</span></div>
-                <select id="g3dHeightMetric" class="select-control">
-                  <option value="phasic">Phasic Arousal (SCR)</option>
-                  <option value="gsr">GSR Conductance</option>
-                  <option value="tonic">Tonic Baseline (SCL)</option>
-                  <option value="arousalIndex">Combined Arousal Index</option>
-                  <option value="peakDensity">Peak Density</option>
-                </select>
-                <p class="help-text">Drives extrusion. Colour always follows the 2D map's metric.</p>
+                <p class="help-text">Metres of wall height per unit of arousal. Colour follows the map's metric; height uses phasic arousal.</p>
               </div>
 
               <div class="slider-group">
@@ -527,31 +515,17 @@
                 </select>
               </div>
 
-              <div class="control-subgroup-title">3D Layers</div>
+              <div class="control-subgroup-title">Building Style</div>
+              <select id="g3dBuildingStyle" class="select-control">
+                <option value="monochrome" selected>Monochrome White Model</option>
+                <option value="glass">Translucent Blueprint (Glass)</option>
+                <option value="dark">Dark Architectural Matte</option>
+                <option value="realistic">Realistic Solid</option>
+              </select>
+              <p class="help-text">Toggle 3D OSM buildings with the <strong>OSM</strong> button in the map header.</p>
 
-              <label class="g3d-check">
-                <input type="checkbox" id="g3dChkBuildings"> <span><i class="fa-solid fa-city"></i> 3D OSM Buildings</span>
-              </label>
-              <div id="g3dBuildingStyleRow" style="display: none; margin: 6px 0 10px;">
-                <select id="g3dBuildingStyle" class="select-control">
-                  <option value="glass">Translucent Blueprint (Glass)</option>
-                  <option value="dark">Dark Architectural Matte</option>
-                  <option value="monochrome">Monochrome White Model</option>
-                  <option value="realistic">Realistic Solid</option>
-                </select>
-              </div>
-
-              <label class="g3d-check">
-                <input type="checkbox" id="g3dChkRf"> <span><i class="fa-solid fa-tower-broadcast"></i> 3D RF Volumetric Field</span>
-              </label>
               <div id="g3dRfControlsRow" style="display: none; flex-direction: column; gap: 8px; margin: 6px 0 10px;">
-                <select id="g3dRfMode" class="select-control">
-                  <option value="triband">Tri-Band Fluid (RGB Additive)</option>
-                  <option value="815">815 MHz (Red Band)</option>
-                  <option value="868">868 MHz (Green Band)</option>
-                  <option value="915">915 MHz (Blue Band)</option>
-                  <option value="fog">EM Fog Index (Violet Glow)</option>
-                </select>
+                <div class="control-subgroup-title">RF Volumetric Field</div>
                 <div class="slider-group">
                   <div class="slider-label"><span>Ceiling Height</span><span class="slider-value" id="g3dRfHeightVal">25m</span></div>
                   <input type="range" id="g3dRfHeight" min="5" max="60" step="5" value="25">
@@ -564,7 +538,6 @@
 
               <div class="control-subgroup-title">Camera</div>
               <div class="g3d-btn-grid">
-                <button class="btn btn-outline" id="g3dBtnFit"><i class="fa-solid fa-location-crosshairs"></i> Fit Track</button>
                 <button class="btn btn-outline" id="g3dBtnOrbit"><i class="fa-solid fa-rotate"></i> 360° Orbit</button>
                 <button class="btn btn-outline" id="g3dBtnPersp3D"><i class="fa-solid fa-cube"></i> 3D 45°</button>
                 <button class="btn btn-outline" id="g3dBtnPerspTop"><i class="fa-solid fa-map"></i> Top</button>
@@ -865,7 +838,7 @@
                 <button class="btn btn-outline active" id="btnToggleMapHotspots">Hotspots</button>
                 <button class="btn btn-outline active" id="btnToggleMapLabels">Labels</button>
                 <button class="btn btn-outline active" id="btnToggleMapClusters">Clusters</button>
-                <button class="btn btn-outline" id="btnToggleOsmShapes" style="display: none;" title="Toggle OSM Layers">OSM</button>
+                <button class="btn btn-outline" id="btnToggleOsmShapes" style="display: none;" title="Toggle OSM layers (2D shapes / 3D buildings)">OSM</button>
                 <!-- Collective-only -->
                 <button class="btn btn-outline active" id="btnToggleMapIsolines" style="display: none;" title="Toggle Isolines">Iso</button>
                 <button class="btn btn-outline active" id="btnToggleMapSurface" style="display: none;" title="Toggle Surface Grid">Surf</button>

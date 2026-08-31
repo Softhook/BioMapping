@@ -13,11 +13,13 @@
  *   - geometry, colour metric and colour range come from GSRMapManager
  *     (_lastDrawPoints / activeColoringMetric / _legendMinVal|_legendMaxVal),
  *     pushed on every 'map:rendered';
- *   - the single map-panel header (zoom / RF / Peaks / Hotspots / Labels /
- *     Clusters / metric) is the 2D map's; events.js dispatches it here via
- *     applyToggle / applyRfMode / zoom / fitTrack while 3D is mounted;
- *   - the 3D-only settings sub-section (#mapDisplay3DGroup: extrusion, basemap,
- *     buildings, RF field, camera) mutates only this controller's manager.
+ *   - the single map-panel header (zoom / RF + band / Peaks / Hotspots /
+ *     Labels / Clusters / metric / the OSM button, which toggles 3D buildings
+ *     here) is the 2D map's; events.js dispatches it via applyToggle /
+ *     applyRfMode / applyBuildings / zoom / fitTrack while 3D is mounted;
+ *   - the 3D-only settings sub-section (#mapDisplay3DGroup: wall-height scale,
+ *     basemap, building style, RF ceiling/opacity, camera) mutates only this
+ *     controller's manager.
  *
  * One exception: clicking a peak spire opens the peak-label editor and calls
  * GSRUI.updatePeakLabel() — the same path the 2D map's peak popup uses.
@@ -56,9 +58,11 @@ const GSRGlobe3DView = {
 
     const $ = (id) => document.getElementById(id);
     // Only the 3D globe's own surface + its 3D-only settings sub-section
-    // (#mapDisplay3DGroup). The shared header controls (zoom / RF / Peaks /
-    // Hotspots / Labels / Clusters / metric) are the 2D map's — src/ui/events.js
-    // dispatches them here via applyToggle / applyRfMode / zoom.
+    // (#mapDisplay3DGroup). The shared header controls (zoom / RF + band /
+    // Peaks / Hotspots / Labels / Clusters / metric / the OSM button, which
+    // toggles 3D buildings while the globe is mounted) are the 2D map's —
+    // src/ui/events.js dispatches them here via applyToggle / applyRfMode /
+    // applyBuildings / zoom.
     const els = GSRGlobe3DView.els = {
       container:    $('globe3dContainer'),
       status:       $('globe3dStatus'),
@@ -66,19 +70,13 @@ const GSRGlobe3DView = {
       // 3D-only settings sub-section widgets (#mapDisplay3DGroup)
       extrusion:    $('g3dExtrusionScale'),
       extrusionVal: $('g3dExtrusionScaleVal'),
-      heightMetric: $('g3dHeightMetric'),
       basemap:      $('g3dBasemap'),
-      chkBuildings: $('g3dChkBuildings'),
-      buildingRow:  $('g3dBuildingStyleRow'),
       buildingStyle:$('g3dBuildingStyle'),
-      chkRf:        $('g3dChkRf'),
       rfRow:        $('g3dRfControlsRow'),
-      rfMode:       $('g3dRfMode'),
       rfHeight:     $('g3dRfHeight'),
       rfHeightVal:  $('g3dRfHeightVal'),
       rfOpacity:    $('g3dRfOpacity'),
       rfOpacityVal: $('g3dRfOpacityVal'),
-      btnFit:       $('g3dBtnFit'),
       btnOrbit:     $('g3dBtnOrbit'),
       btnPersp3D:   $('g3dBtnPersp3D'),
       btnPerspTop:  $('g3dBtnPerspTop'),
@@ -176,46 +174,23 @@ const GSRGlobe3DView = {
         if (m()) m().setExtrusionScale(v);
       });
     }
-    if (els.heightMetric) {
-      els.heightMetric.addEventListener('change', (e) => {
-        if (m()) { m().heightMetric = e.target.value; m()._refreshTrack(); }
-      });
-    }
     if (els.basemap) {
       els.basemap.addEventListener('change', (e) => { if (m()) m().setBasemap(e.target.value); });
     }
-    if (els.chkBuildings) {
-      els.chkBuildings.addEventListener('change', async (e) => {
-        if (els.buildingRow) els.buildingRow.style.display = e.target.checked ? 'block' : 'none';
-        if (m()) await m().toggle3DBuildings(e.target.checked, els.buildingStyle ? els.buildingStyle.value : 'glass');
-      });
-    }
+    // Buildings on/off is the map header's OSM button (see applyBuildings); this
+    // just restyles whatever is showing.
     if (els.buildingStyle) {
       els.buildingStyle.addEventListener('change', (e) => { if (m()) m().apply3DBuildingStyle(e.target.value); });
     }
 
-    // The 3D-settings RF checkbox / band select are another face of the 2D
-    // map's RF switch (#btnToggleRFFluid + #rfFluidMode are chief). Click-sync
-    // them and let their events.js handlers dispatch back via applyToggle('rf')
-    // / applyRfMode(). The height/opacity sliders are 3D-volumetric-only, so
-    // they just re-apply the field.
-    if (els.chkRf) els.chkRf.addEventListener('change', () => {
-      const b2 = document.getElementById('btnToggleRFFluid');
-      if (b2 && !b2.hasAttribute('disabled') &&
-          b2.classList.contains('active') !== els.chkRf.checked) b2.click();
-    });
-    if (els.rfMode) els.rfMode.addEventListener('change', () => {
-      const m2 = document.getElementById('rfFluidMode');
-      if (m2 && m2.value !== els.rfMode.value) {
-        m2.value = els.rfMode.value;
-        m2.dispatchEvent(new Event('change'));
-      }
-    });
+    // The RF ceiling-height / cloud-opacity sliders are 3D-volumetric-only (on/
+    // off + band are the map header's RF button + #rfFluidMode). They just
+    // re-apply the field with the current header band.
     const applyRfParams = () => {
       if (m() && m().showRfVolumetric) {
         m().toggle3DRf(
           true,
-          els.rfMode ? els.rfMode.value : 'triband',
+          GSRGlobe3DView._headerRfMode(),
           els.rfHeight ? parseFloat(els.rfHeight.value) : 25,
           els.rfOpacity ? parseFloat(els.rfOpacity.value) : 0.45
         );
@@ -230,7 +205,6 @@ const GSRGlobe3DView = {
       applyRfParams();
     });
 
-    if (els.btnFit)    els.btnFit.addEventListener('click', () => { if (m()) m().flyToTrack(); });
     if (els.btnOrbit)  els.btnOrbit.addEventListener('click', () => {
       if (m()) els.btnOrbit.classList.toggle('active', m().toggleOrbit());
     });
@@ -329,10 +303,26 @@ const GSRGlobe3DView = {
   // ── Shared header controls, dispatched from the 2D map (src/ui/events.js) ──
   //
   // There is one map-panel header now; Leaflet and Cesium are swapped inside
-  // the panel. The header's zoom / RF / Peaks / Hotspots / Labels / Clusters /
-  // metric controls belong to the 2D map (still "chief"). events.js drives the
-  // 2D map + button state, then calls the methods below to mirror the result
-  // onto the globe whenever it is the mounted surface.
+  // the panel. The header's zoom / RF + band / Peaks / Hotspots / Labels /
+  // Clusters / metric controls (and the OSM button) belong to the 2D map (still
+  // "chief"). events.js drives the 2D map + button state, then calls the
+  // methods below to mirror the result onto the globe whenever it is mounted.
+
+  /** The map header's RF band (#rfFluidMode) — the single band source now. */
+  _headerRfMode() {
+    const sel = document.getElementById('rfFluidMode');
+    return (sel && sel.value) || (GSRGlobe3DView.manager && GSRGlobe3DView.manager.rfMode) || 'triband';
+  },
+
+  _rfHeight() {
+    const s = GSRGlobe3DView.els.rfHeight;
+    return s ? parseFloat(s.value) : 25;
+  },
+
+  _rfOpacity() {
+    const s = GSRGlobe3DView.els.rfOpacity;
+    return s ? parseFloat(s.value) : 0.45;
+  },
 
   /**
    * A shared layer toggle was flipped. events.js has already driven the 2D map
@@ -351,34 +341,38 @@ const GSRGlobe3DView = {
       case 'labels':   mgr.toggleLabels(on); break;
       case 'clusters': mgr.toggleClusters(on); break;
       case 'rf':
-        if (els.chkRf && els.chkRf.checked !== on) els.chkRf.checked = on;
         if (els.rfRow) els.rfRow.style.display = on ? 'flex' : 'none';
-        mgr.toggle3DRf(
-          on,
-          els.rfMode ? els.rfMode.value : 'triband',
-          els.rfHeight ? parseFloat(els.rfHeight.value) : 25,
-          els.rfOpacity ? parseFloat(els.rfOpacity.value) : 0.45
-        );
+        mgr.toggle3DRf(on, GSRGlobe3DView._headerRfMode(),
+          GSRGlobe3DView._rfHeight(), GSRGlobe3DView._rfOpacity());
         break;
     }
   },
 
   /**
-   * The 2D map's RF band (#rfFluidMode) changed — mirror it onto the 3D-only
-   * band select and re-apply the volumetric field if it is showing.
+   * The map header's RF band (#rfFluidMode) changed — re-apply the volumetric
+   * field if it is showing, else just remember the band on the manager.
    */
   applyRfMode(mode) {
-    const els = GSRGlobe3DView.els;
-    if (els.rfMode && els.rfMode.value !== mode) els.rfMode.value = mode;
     const mgr = GSRGlobe3DView.manager;
     if (!GSRGlobe3DView.isActive || !mgr) return;
     if (mgr.showRfVolumetric) {
-      mgr.toggle3DRf(true, mode,
-        els.rfHeight ? parseFloat(els.rfHeight.value) : 25,
-        els.rfOpacity ? parseFloat(els.rfOpacity.value) : 0.45);
+      mgr.toggle3DRf(true, mode, GSRGlobe3DView._rfHeight(), GSRGlobe3DView._rfOpacity());
     } else {
       mgr.rfMode = mode;
     }
+  },
+
+  /**
+   * The map header's OSM button was clicked while the 3D globe is mounted — it
+   * toggles the extruded OSM buildings (the 3D equivalent of the 2D OSM vector
+   * shapes). Style comes from the #g3dBuildingStyle select.
+   */
+  applyBuildings(on) {
+    const mgr = GSRGlobe3DView.manager;
+    if (!GSRGlobe3DView.isActive || !mgr) return;
+    const sel = GSRGlobe3DView.els.buildingStyle;
+    mgr.toggle3DBuildings(on, sel ? sel.value : 'monochrome',
+      (msg) => GSRGlobe3DView._setStatus(msg));
   },
 
   /** Header zoom in/out (dir < 0 zooms in). Drives the Cesium camera. */
@@ -422,12 +416,7 @@ const GSRGlobe3DView = {
     const rfOn = !rfDisabled && (rfBtn2d ? rfBtn2d.classList.contains('active') : !!mm.showRFFluid);
     const rfMode2d = document.getElementById('rfFluidMode');
     const rfMode = rfMode2d ? rfMode2d.value : (mgr ? mgr.rfMode : 'triband');
-    if (els.chkRf) {
-      if (els.chkRf.checked !== rfOn) els.chkRf.checked = rfOn;
-      els.chkRf.toggleAttribute('disabled', rfDisabled);
-    }
     if (els.rfRow) els.rfRow.style.display = rfOn ? 'flex' : 'none';
-    if (els.rfMode && els.rfMode.value !== rfMode) els.rfMode.value = rfMode;
     if (mgr) { mgr.showRfVolumetric = rfOn; mgr.rfMode = rfMode; }
   },
 
@@ -479,7 +468,7 @@ const GSRGlobe3DView = {
         doubleClickFly: true,
         requestRenderMode: true, // embedded panel: don't burn frames while idle
         metric: (mm && mm.activeColoringMetric) || 'phasic',
-        heightMetric: GSRGlobe3DView.els.heightMetric ? GSRGlobe3DView.els.heightMetric.value : 'phasic',
+        heightMetric: 'phasic', // fixed — the wall auto-uses a magnitude colour metric, else phasic
         extrusionScale: GSRGlobe3DView.els.extrusion ? parseFloat(GSRGlobe3DView.els.extrusion.value) : 8.0
       });
       GSRGlobe3DView.manager.onPeakClick((peakIdx) => GSRGlobe3DView._editPeakLabel(peakIdx));

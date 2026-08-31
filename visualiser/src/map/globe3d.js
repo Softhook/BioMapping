@@ -748,10 +748,10 @@ class GSRGlobeManager {
    * Toggle 3D Buildings: Uses direct OpenStreetMap Overpass vector extrusion (token-free)
    * or falls back to Cesium ion 3D Tiles if configured.
    * @param {boolean} show
-   * @param {'glass'|'dark'|'monochrome'|'realistic'} [style='glass']
+   * @param {'monochrome'|'glass'|'dark'|'realistic'} [style='monochrome']
    * @param {Function} [onStatus]
    */
-  async toggle3DBuildings(show, style = 'glass', onStatus) {
+  async toggle3DBuildings(show, style = 'monochrome', onStatus) {
     this.show3DBuildings = show;
     this.buildingStyle = style;
 

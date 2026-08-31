@@ -2623,19 +2623,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 .globe3d-peak-popup .map-popup-card { margin-right: 14px; }
 
-/* ── 3D Globe Settings card widgets ─────────────────────────────────────── */
-
-.g3d-check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-  margin: 8px 0 4px;
-}
-
-.g3d-check input { width: 15px; height: 15px; cursor: pointer; }
+/* ── 3D Globe controls in the Map Display card (#mapDisplay3DGroup) ──────── */
 
 .g3d-btn-grid {
   display: grid;

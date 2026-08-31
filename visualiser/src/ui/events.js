@@ -754,6 +754,9 @@ const GSREvents = {
     btnToggleOsmShapes.addEventListener('click', () => {
       btnToggleOsmShapes.classList.toggle('active');
       const active = btnToggleOsmShapes.classList.contains('active');
+      // On the 3D globe the OSM button toggles the extruded OSM buildings —
+      // the 3D equivalent of the 2D vector shapes.
+      if (onGlobe()) { if (g3d()) g3d().applyBuildings(active); return; }
       if (AppState.mapManager) {
         if (active) {
           // Combines every active track's OSM geometry in collective
@@ -925,6 +928,7 @@ const GSREvents = {
     const mapEl     = document.getElementById('map');
     const globeEl   = document.getElementById('globe3dContainer');
     const settings3d = document.getElementById('mapDisplay3DGroup');
+    const osmBtn    = document.getElementById('btnToggleOsmShapes');
 
     const show = (el, on) => { if (el) el.style.display = on ? '' : 'none'; };
 
@@ -937,6 +941,25 @@ const GSREvents = {
       show(mapEl, !toGlobe);
       show(globeEl, toGlobe);
       show(settings3d, toGlobe);
+
+      // The OSM header button means "2D vector shapes" on the map (shown only
+      // when the active track carries OSM geometry) and "3D OSM buildings" on
+      // the globe (always available). Swap its visibility + reset its state to
+      // match the surface, without disturbing anything else (a full
+      // refreshOsmControls() would also reset the colour metric).
+      if (osmBtn) {
+        osmBtn.classList.remove('active');
+        if (toGlobe) {
+          // drop any 2D OSM vector shapes; the globe starts with buildings off
+          if (AppState.mapManager && AppState.mapManager.clearOsmShapes) AppState.mapManager.clearOsmShapes();
+          osmBtn.style.display = 'inline-block';
+          const mgr = (typeof GSRGlobe3DView !== 'undefined') ? GSRGlobe3DView.manager : null;
+          osmBtn.classList.toggle('active', !!(mgr && mgr.show3DBuildings));
+        } else {
+          const hasOsm = !!(typeof GSRUI !== 'undefined' && GSRUI.getCombinedOsmGeoms && GSRUI.getCombinedOsmGeoms());
+          osmBtn.style.display = hasOsm ? 'inline-block' : 'none';
+        }
+      }
 
       if (typeof GSRGlobe3DView !== 'undefined') {
         if (toGlobe) GSRGlobe3DView.activate();

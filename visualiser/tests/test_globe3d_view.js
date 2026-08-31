@@ -98,8 +98,10 @@ test('surface switcher swaps the render container inside #mapPanel and reveals t
   assert.strictEqual(window.document.getElementById('globe3dPanel'), null, 'no separate globe panel');
   assert.strictEqual(window.document.getElementById('globe3dSettingsCard'), null, 'no separate 3D settings card');
   for (const gone of ['btnGlobe3dFullscreen', 'btnGlobe3dZoomIn', 'btnGlobe3dRf',
-                      'btnGlobe3dPeaks', 'globe3dColoringMetric', 'globe3dRfMode']) {
-    assert.strictEqual(window.document.getElementById(gone), null, `duplicate header control #${gone} removed`);
+                      'btnGlobe3dPeaks', 'globe3dColoringMetric', 'globe3dRfMode',
+                      // 3D sub-section controls now covered by the map header
+                      'g3dHeightMetric', 'g3dChkRf', 'g3dRfMode', 'g3dChkBuildings', 'g3dBtnFit']) {
+    assert.strictEqual(window.document.getElementById(gone), null, `redundant control #${gone} removed`);
   }
   // the Cesium container now lives inside #mapPanel next to #map
   const globeC = window.document.getElementById('globe3dContainer');
@@ -144,17 +146,43 @@ test('shared header toggles dispatch to the globe manager while 3D is the mounte
   V.isActive = true;
   window.AppState.surfaceView = 'globe';
 
+  const rfBtn = window.document.getElementById('btnToggleRFFluid');
+  rfBtn.removeAttribute('disabled');
+
   for (const [btnId, name] of [
     ['btnToggleMapPeaks', 'peaks'],
     ['btnToggleMapHotspots', 'hotspots'],
     ['btnToggleMapLabels', 'labels'],
     ['btnToggleMapClusters', 'clusters'],
+    ['btnToggleRFFluid', 'rf'],
   ]) {
     const btn = window.document.getElementById(btnId);
     const want = !btn.classList.contains('active');
     assert.doesNotThrow(() => btn.click());
     assert.deepStrictEqual(calls.at(-1), [name, want], `#${btnId} click reached the globe manager`);
   }
+
+  V.manager = null;
+  V.isActive = false;
+});
+
+test('the map header OSM button toggles 3D buildings while the globe is mounted', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const doc = window.document;
+
+  const calls = [];
+  V.manager = { show3DBuildings: false, toggle3DBuildings: (on, style) => calls.push([on, style]) };
+  V.isActive = true;
+  window.AppState.surfaceView = 'globe';
+
+  const osm = doc.getElementById('btnToggleOsmShapes');
+  osm.style.display = 'inline-block';
+  assert.doesNotThrow(() => osm.click());
+  assert.deepStrictEqual(calls.at(-1), [true, 'monochrome'], 'buildings on, default white style');
+  assert.doesNotThrow(() => osm.click());
+  assert.strictEqual(calls.at(-1)[0], false, 'second click turns buildings off');
 
   V.manager = null;
   V.isActive = false;
@@ -200,7 +228,7 @@ test('the 3D globe legend renders the exact same markup as the 2D map legend', (
   mm._legendMinVal = 10;
   mm._legendMaxVal = 90;
 
-  window.GSRGlobe3DView._updateLegend('em_fog');
+  window.GSRGlobe3DView._updateLegend();
 
   const g3d = doc.getElementById('g3dLegend').innerHTML;
   assert.strictEqual(g3d, mm.buildLegendHtml(), '3D legend HTML is byte-for-byte the 2D legend');
@@ -216,29 +244,22 @@ test('the "Loading 3D engine" / imagery status is gone', () => {
   assert.ok(!/_watchImageryLoad/.test(src), 'the imagery-load watcher is gone');
 });
 
-test("the 3D settings RF checkbox / band select drive the 2D map's RF controls (chief)", () => {
+test('the map header RF band (#rfFluidMode) re-applies the 3D volumetric field', () => {
   const { window } = bootApp();
   window.setup();
   const doc = window.document;
-  window.GSRGlobe3DView.manager = { showRfVolumetric: false, rfMode: 'triband', toggle3DRf() {} };
+  const calls = [];
+  window.GSRGlobe3DView.manager = {
+    showRfVolumetric: true, rfMode: 'triband',
+    toggle3DRf: (on, mode) => calls.push([on, mode]),
+  };
   window.GSRGlobe3DView.isActive = true;
-
-  const rf2d = doc.getElementById('btnToggleRFFluid');
-  rf2d.removeAttribute('disabled');
-  const chk = doc.getElementById('g3dChkRf');
-  const want = !rf2d.classList.contains('active');
-  chk.checked = want;
-  assert.doesNotThrow(() => chk.dispatchEvent(new window.Event('change')));
-  assert.strictEqual(rf2d.classList.contains('active'), want, "#btnToggleRFFluid followed the card checkbox");
+  window.AppState.surfaceView = 'globe';
 
   const mode2d = doc.getElementById('rfFluidMode');
-  let mapModeChanges = 0;
-  mode2d.addEventListener('change', () => { mapModeChanges++; });
-  const g3dMode = doc.getElementById('g3dRfMode');
-  g3dMode.value = '868';
-  assert.doesNotThrow(() => g3dMode.dispatchEvent(new window.Event('change')));
-  assert.strictEqual(mode2d.value, '868', 'forwarded to #rfFluidMode');
-  assert.ok(mapModeChanges >= 1, 'the 2D RF-mode handler ran');
+  mode2d.value = '868';
+  assert.doesNotThrow(() => mode2d.dispatchEvent(new window.Event('change')));
+  assert.deepStrictEqual(calls.at(-1), [true, '868'], 'globe field re-applied with the header band');
 
   window.GSRGlobe3DView.manager = null;
   window.GSRGlobe3DView.isActive = false;
