@@ -854,6 +854,19 @@ class GSRMapExporter {
   }
 
   static _dotSvg(el, cx, cy, opacity) {
+    // Hotspots render as a red star glyph (.hotspot-star) rather than a dot —
+    // export it as centred text so the marker survives an SVG/PNG export.
+    const star = el.querySelector('.hotspot-star');
+    if (star && window.getComputedStyle(star).display !== 'none') {
+      const ss = window.getComputedStyle(star);
+      return `<text x="${cx}" y="${cy}"` +
+        ` font-size="${this._esc(ss.fontSize || '18px')}"` +
+        ` font-family="${this._esc(ss.fontFamily || 'sans-serif')}"` +
+        ` fill="${this._esc(ss.color || '#ff1744')}"` +
+        ` text-anchor="middle" dominant-baseline="central"` +
+        ` opacity="${opacity}">★</text>`;
+    }
+
     const dot = el.querySelector('.peak-dot') || el.querySelector('.hotspot-dot');
     if (!dot || window.getComputedStyle(dot).display === 'none') return null;
     const s = window.getComputedStyle(dot);

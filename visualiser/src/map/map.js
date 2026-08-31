@@ -1551,11 +1551,14 @@ class GSRMapManager {
    * Build the shared Leaflet divIcon used for every hotspot marker on the
    * map — single-track (_renderHotspotMarkers) and collective/multi-track
    * (renderCollectiveData) both call this, so the two views can never drift
-   * apart visually. Includes the expanding pulse-glow ring (.hotspot-glow-ring,
-   * styles.css) that peak markers originally had — peaks themselves stay
-   * static now (see drawPeakMarkers()'s doc comment in renderer.js for why),
-   * but restoring it here for the much smaller, curated hotspot set is exactly
-   * the "draw the eye to what matters" role that animation used to serve.
+   * apart visually. The glyph is a red star (★, .hotspot-star) — the shared
+   * hotspot marker across the GSR graph, the 2D map and the 3D globe (peaks are
+   * a small circle everywhere; hotspots are a star). Behind it sits the
+   * expanding pulse-glow ring (.hotspot-glow-ring, styles.css) that peak markers
+   * originally had — peaks themselves stay static now (see drawPeakMarkers()'s
+   * doc comment in renderer.js for why), but keeping it for the much smaller,
+   * curated hotspot set is exactly the "draw the eye to what matters" role that
+   * animation used to serve.
    * @private
    */
   static _buildHotspotIcon() {
@@ -1563,7 +1566,7 @@ class GSRMapManager {
       className: '',
       html: '<div class="stress-peak-icon-wrapper" style="position:relative;width:28px;height:28px;">' +
         '<div class="hotspot-glow-ring" style="position:absolute;top:0;left:0;"></div>' +
-        '<div class="hotspot-dot" style="position:absolute;top:8px;left:8px;width:12px;height:12px;"></div>' +
+        '<div class="hotspot-star" style="position:absolute;top:0;left:0;width:28px;height:28px;">★</div>' +
         '</div>',
       iconSize: [28, 28], iconAnchor: [14, 14]
     });

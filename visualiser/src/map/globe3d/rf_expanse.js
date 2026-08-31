@@ -103,23 +103,29 @@ const GSRGlobe3DRf = {
       const norm915 = clamp01(hasMeasuredRf ? ((pt.r915 - min915) / (max915 - min915)) : pt.r915);
       const normFog = clamp01(hasMeasuredRf ? ((pt.fog - minFog) / (maxFog - minFog)) : pt.fog);
 
+      // Colour channels match the 2D RF fluid overlay exactly
+      // (RFFluidRenderer.redraw()): 815 MHz = pure red, 868 MHz = pure green,
+      // 915 MHz = pure blue, tri-band = additive RGB, EM-fog = red<->blue by
+      // fog level. Visibility of a weak slug comes from the `intensity`-scaled
+      // alpha below (the 3D analogue of the 2D alpha ramp), not from tinting
+      // the colour, so the same data reads as the same hue on both surfaces.
       let r = 0, g = 0, b = 0, intensity = 0;
       if (mode === 'triband') {
-        r = Math.min(1.0, 0.15 + norm815 * 0.85);
-        g = Math.min(1.0, 0.15 + norm868 * 0.85);
-        b = Math.min(1.0, 0.15 + norm915 * 0.85);
+        r = norm815;
+        g = norm868;
+        b = norm915;
         intensity = Math.max(norm815, norm868, norm915, 0.25);
       } else if (mode === '815') {
-        r = 1.0; g = 0.12 + 0.25 * (1.0 - norm815); b = 0.18 + 0.2 * (1.0 - norm815);
+        r = 1.0; g = 0.0; b = 0.0;
         intensity = Math.max(0.2, norm815);
       } else if (mode === '868') {
-        r = 0.05; g = 1.0; b = 0.25 + 0.3 * (1.0 - norm868);
+        r = 0.0; g = 1.0; b = 0.0;
         intensity = Math.max(0.2, norm868);
       } else if (mode === '915') {
-        r = 0.0; g = 0.65 + 0.35 * norm915; b = 1.0;
+        r = 0.0; g = 0.0; b = 1.0;
         intensity = Math.max(0.2, norm915);
       } else {
-        r = 0.88; g = 0.22; b = 1.0;
+        r = normFog; g = 0.0; b = 1.0 - normFog;
         intensity = Math.max(0.2, normFog);
       }
 

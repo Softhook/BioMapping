@@ -1359,11 +1359,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 /* Minor/subdued styling to match the graph's resting-state peak dots — small,
-   semi-transparent, no animation. See _renderHotspotMarkers()/hotspot-dot
-   below for the bold counterpart used for the curated hotspot subset. The
-   .peak-glow-ring / .hotspot-glow-ring pulse-animation classes below are kept
-   only for reference/reuse (e.g. via buildLabelledIcon's showGlow option);
-   no current marker markup invokes them. */
+   semi-transparent, no animation. See _renderHotspotMarkers()/.hotspot-star
+   below for the bold counterpart (a red star) used for the curated hotspot
+   subset. The .peak-glow-ring / .hotspot-glow-ring pulse-animation classes
+   below are kept only for reference/reuse (e.g. via buildLabelledIcon's
+   showGlow option); no current marker markup invokes .peak-glow-ring. */
 .peak-dot {
   width: 6px;
   height: 6px;
@@ -1384,18 +1384,23 @@ input[type="range"]::-webkit-slider-thumb:hover {
   animation: pulse-glow 2s infinite ease-in-out;
 }
 
-/* Hotspot (memorable-event) map markers — visually distinct from the minor
-   peak dots, using the hotspot red and a larger, fully-opaque dot, plus the
-   expanding pulse-glow ring peak markers originally had (see .peak-glow-ring
-   below, now unused there — see drawPeakMarkers()'s doc comment in
-   renderer.js for why peaks themselves stay static) so the small, curated
-   set of high-amplitude standout events reads clearly at a glance. */
-.hotspot-dot {
-  width: 12px;
-  height: 12px;
-  background-color: var(--color-hotspot);
-  border: 2px solid white;
-  border-radius: 50%;
+/* Hotspot (memorable-event) map markers — a red star (★), the shared hotspot
+   glyph across the GSR graph, the 2D map and the 3D globe (peaks are a small
+   circle everywhere; hotspots are a star). Behind it sits the expanding
+   pulse-glow ring peak markers originally had (see .peak-glow-ring below, now
+   unused there — see drawPeakMarkers()'s doc comment in renderer.js for why
+   peaks themselves stay static) so the small, curated set of high-amplitude
+   standout events reads clearly at a glance. */
+.hotspot-star {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-hotspot);
+  font-size: 13px;
+  line-height: 1;
+  text-shadow:
+    0 0 3px rgba(0, 0, 0, 0.9),
+    0 1px 2px rgba(0, 0, 0, 0.8);
   position: absolute;
   z-index: 11;
 }
@@ -2495,7 +2500,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: none !important;
 }
 
-#map.hide-map-hotspots .hotspot-dot,
+#map.hide-map-hotspots .hotspot-star,
 #map.hide-map-hotspots .hotspot-glow-ring {
   display: none !important;
 }

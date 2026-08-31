@@ -439,7 +439,7 @@ test('wall height uses the arousal heightMetric even when colour is a non-magnit
 
 // ── Peak click (3D counterpart of a 2D peak-marker click) ─────────────────
 
-test('a LEFT_CLICK on a peak spire reports its analyzer.peaks index to onPeakClick', () => {
+test('a LEFT_CLICK on a peak marker reports its analyzer.peaks index to onPeakClick', () => {
   freshEnv();
 
   // Capture the canvas handler's actions so the test can fire a click.
@@ -514,7 +514,7 @@ test('renderData draws memorable-event hotspots; toggleHotspots(false) clears th
   const { analyzer, drawPoints } = parityTrack();
 
   mgr.renderData(analyzer, {}, { drawPoints, isPreview: true });
-  assert.ok(mgr.hotspotEntities.length > 0, 'a hotspot spire + beacon was built');
+  assert.ok(mgr.hotspotEntities.length > 0, 'a hotspot star was built');
   assert.strictEqual(mgr.hotspotEntities[0]._biomapPeakIndex, 1, 'tagged with the analyzer.peaks index');
 
   mgr.toggleHotspots(false);
@@ -522,6 +522,54 @@ test('renderData draws memorable-event hotspots; toggleHotspots(false) clears th
 
   mgr.toggleHotspots(true);
   assert.ok(mgr.hotspotEntities.length > 0, 'hotspots redrawn from the cached track');
+  mgr.destroy();
+});
+
+test('renderData applies the Track Width slider (gpsParams.trackWeight) to the 3D ground path', () => {
+  freshEnv();
+  installWallCapture();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  mgr.flyToTrack = () => {};
+  const added = [];
+  mgr.viewer.entities.add = (o) => { added.push(o); return {}; };
+  const { analyzer, drawPoints } = parityTrack();
+
+  mgr.renderData(analyzer, { trackWeight: 12 }, { drawPoints, isPreview: true });
+  const ground = added.find((o) => o && o.name === 'Biomap Ground Path');
+  assert.ok(ground, 'ground path entity built');
+  assert.strictEqual(ground.polyline.width, 12, 'ground path width tracks the slider');
+  assert.strictEqual(mgr.trackWidth, 12);
+  mgr.destroy();
+});
+
+test('renderData shifts peak/hotspot markers by the Peak-latency slider (gpsParams.peakLatency)', () => {
+  freshEnv();
+  installWallCapture();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  mgr.flyToTrack = () => {};
+
+  const peaks = [{ index: 5, time: 10, qualityScore: 0.9, amplitude: 1, label: '' }];
+  const seen = [];
+  const analyzer = {
+    raw: new Array(6).fill({}),
+    phasic: new Array(6).fill({ val: 0.5 }),
+    peaks,
+    memorableEvents: [peaks[0]],          // a hotspot IS a peak
+    getCoordinates: (i) => { seen.push(i); return { lat: i * 0.001, lon: i * 0.001 }; },
+    findClosestIndex: (t) => Math.max(0, Math.round(t)),
+  };
+  const drawPoints = [
+    { lat: 0, lon: 0, time: 0, origIdx: 0 },
+    { lat: 0.005, lon: 0.005, time: 10, origIdx: 5 },
+  ];
+
+  mgr.renderData(analyzer, { peakLatency: 3 }, { drawPoints, isPreview: true });
+  assert.strictEqual(mgr.peakLatency, 3);
+  // peak sample at t=10 → marker planted at the GPS fix 3 s earlier:
+  // findClosestIndex(10 - 3) = 7, for the peak spire AND the hotspot star.
+  assert.ok(seen.includes(7), 'marker position resolved at the latency-shifted index');
   mgr.destroy();
 });
 
@@ -546,7 +594,7 @@ test('clusterPolygons handed in by the 2D view render as ground blobs; toggleClu
   mgr.destroy();
 });
 
-test('toggleLabels(true) with spires off keeps only the labelled peaks on screen', () => {
+test('toggleLabels(true) with peaks off keeps only the labelled peaks on screen', () => {
   freshEnv();
   installWallCapture();
   const { GSRGlobeManager } = loadFresh();
@@ -555,15 +603,15 @@ test('toggleLabels(true) with spires off keeps only the labelled peaks on screen
   const { analyzer, drawPoints } = parityTrack();
 
   mgr.renderData(analyzer, {}, { drawPoints, isPreview: true });
-  const bothOn = mgr.peakEntities.length; // 2 peaks × (spire + beacon) = 4
+  const bothOn = mgr.peakEntities.length; // one circle entity per peak = 2
 
   mgr.togglePeaks(false);
-  // labels still on → the one labelled peak survives (spire + beacon = 2)
+  // labels still on → the one labelled peak survives (its circle = 1)
   assert.ok(mgr.peakEntities.length > 0 && mgr.peakEntities.length < bothOn,
     `only labelled peak kept: ${mgr.peakEntities.length} of ${bothOn}`);
 
   mgr.toggleLabels(false);
-  assert.strictEqual(mgr.peakEntities.length, 0, 'spires off + labels off → nothing');
+  assert.strictEqual(mgr.peakEntities.length, 0, 'peaks off + labels off → nothing');
   mgr.destroy();
 });
 

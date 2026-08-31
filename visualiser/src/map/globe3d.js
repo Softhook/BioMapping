@@ -151,6 +151,13 @@ class GSRGlobeManager {
     this.showPeaks = true;
     this.minPeakQuality = 0.0;
     this.showGroundPath = true;
+    // Mirrors of the 2D sidebar sliders, refreshed from the gpsParams the host
+    // passes into renderData(): Track Width (gpsTrackWeight, px) for the ground
+    // path, and Peak latency (gpsPeakLatency, s) for shifting peak/hotspot
+    // markers to the GPS fix that many seconds earlier — see _latencyCoords()
+    // and map.js:_resolveLatencyIndex.
+    this.trackWidth = options.trackWidth || 5;
+    this.peakLatency = 0;
     // Panel-header layer toggles that mirror the 2D map's. Hotspots are
     // analyzer.memorableEvents (same set the flat map dots use); cluster blobs
     // are the 2D map's already-computed concave hulls, handed in via
@@ -1028,10 +1035,14 @@ class GSRGlobeManager {
   /**
    * Render a BioMapping track in 3D.
    * @param {GSRAnalyzer} analyzer  Analysed track instance.
-   * @param {object} [gpsParams]    Unused — kept so the host can pass its GPS
-   *                                params object positionally without a wrapper.
-   *                                This class never runs the GPS chain; the host
-   *                                supplies `opts.drawPoints`.
+   * @param {object} [gpsParams]    The host's GPS params object (from
+   *                                GSRStorage.buildGpsParams). This class never
+   *                                runs the GPS chain — the host supplies
+   *                                `opts.drawPoints` — but two fields are read so
+   *                                the 3D view tracks the 2D sidebar sliders:
+   *                                `trackWeight` (ground-path width, px) and
+   *                                `peakLatency` (peak/hotspot marker time shift,
+   *                                s).
    * @param {object} [opts]
    * @param {string}  [opts.colorMetric]  Colour the wall/path by this metric instead of
    *                                      the manager's own activeColoringMetric — the
@@ -1058,6 +1069,14 @@ class GSRGlobeManager {
     if (colorMetric) this.activeColoringMetric = colorMetric;
     this.externalColorRange =
       (colorRange && isFinite(colorRange.min) && isFinite(colorRange.max)) ? colorRange : null;
+
+    // Track the 2D sidebar sliders the host forwards in gpsParams.
+    if (gpsParams) {
+      const tw = +gpsParams.trackWeight;
+      if (isFinite(tw) && tw > 0) this.trackWidth = tw;
+      const pl = +gpsParams.peakLatency;
+      this.peakLatency = isFinite(pl) && pl > 0 ? pl : 0;
+    }
 
     this.currentAnalyzer = analyzer;
 
@@ -1343,7 +1362,9 @@ class GSRGlobeManager {
         name: 'Biomap Ground Path',
         polyline: {
           positions: groundPositions,
-          width: 3.0,
+          // Track Width slider (gpsTrackWeight) — the 3D counterpart of the 2D
+          // L.polyline weight in map.js:_renderPathSegments.
+          width: this.trackWidth || 3.0,
           material: new Cesium.PolylineGlowMaterialProperty({
             glowPower: 0.25,
             color: Cesium.Color.WHITE.withAlpha(0.7)
@@ -1356,7 +1377,25 @@ class GSRGlobeManager {
   }
 
   /**
-   * Render 3D vertical peak spires and labels
+   * Ground position for a peak/hotspot marker, shifted back by the Peak-latency
+   * slider so the spire lands on the GPS fix `peakLatency` seconds before the
+   * arousal peak — the 3D counterpart of map.js:_resolveLatencyIndex. Height and
+   * value still come from `peak.index` (the actual peak sample), matching the 2D
+   * map, which keeps the amplitude from the peak while planting the marker at the
+   * shifted fix.
+   */
+  _latencyCoords(analyzer, peak) {
+    const lat = this.peakLatency || 0;
+    if (!(lat > 0) || typeof analyzer.findClosestIndex !== 'function') {
+      return analyzer.getCoordinates(peak.index);
+    }
+    const si = analyzer.findClosestIndex(Math.max(0, (peak.time || 0) - lat));
+    return analyzer.getCoordinates(si >= 0 ? si : peak.index);
+  }
+
+  /**
+   * Render the 3D peak markers (a small circle just above the wall top, no
+   * vertical stalk) and their labels.
    */
   _renderPeakSpires(analyzer, peaks) {
     if (!peaks || peaks.length === 0) return;
@@ -1372,10 +1411,10 @@ class GSRGlobeManager {
       if (peak.qualityScore < this.minPeakQuality) return;
 
       // Only labelled peaks get floating text — an unlabelled peak is just its
-      // spire + beacon (click it to add a label).
+      // circle (click it to add a label).
       const labelText = (peak.label && peak.label.trim()) ? peak.label.trim() : '';
 
-      // With spires off, the "Labels" toggle still keeps labelled peaks on
+      // With peaks off, the "Labels" toggle still keeps labelled peaks on
       // screen — the 2D map does the same (a labelled marker survives turning
       // "Peaks" off).
       if (!this.showPeaks && !(this.showLabels && labelText)) return;
@@ -1385,48 +1424,54 @@ class GSRGlobeManager {
       // click handler reports via _peakClickCb.
       const peakIdx = allPeaks.indexOf(peak);
 
-      // Peak position
-      const coords = analyzer.getCoordinates(peak.index);
+      // Peak position — shifted by the Peak-latency slider, like the 2D map.
+      const coords = this._latencyCoords(analyzer, peak);
       if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
       const lat = coords.lat;
       const lon = coords.lon;
 
       const val = heightSeries[peak.index] ?? peak.amplitude;
       const wallHeight = this.baseHeight + Math.max(0, val) * this.extrusionScale;
-      const spireHeight = wallHeight + 15.0; // Spire shoots above wall
+      // Circle sits just above the wall top — no vertical stalk.
+      const markerPos = Cesium.Cartesian3.fromDegrees(lon, lat, wallHeight + 3.0);
 
-      const basePos = Cesium.Cartesian3.fromDegrees(lon, lat, 0);
-      const topPos = Cesium.Cartesian3.fromDegrees(lon, lat, spireHeight);
+      // Uniform peak red (--color-peak) — a peak is a small circle on every
+      // surface; quality is read from the popup, not the marker colour (matches
+      // the 2D map's .peak-dot).
+      const peakColor = Cesium.Color.fromCssColorString('#d10024');
 
-      // Color code by quality score (High = Green, Med = Amber, Low = Red)
-      const qScore = peak.qualityScore || 0.5;
-      const spireColorHex = qScore >= 0.7 ? '#00e575' : (qScore >= 0.4 ? '#ffaa00' : '#ff3344');
-      const spireColor = Cesium.Color.fromCssColorString(spireColorHex);
-
-      // Vertical spire line
-      const spireEntity = this.viewer.entities.add({
-        name: `Peak ${i + 1}`,
-        polyline: {
-          positions: [basePos, topPos],
-          width: 3.0,
-          material: new Cesium.PolylineGlowMaterialProperty({
-            glowPower: 0.4,
-            color: spireColor
-          })
+      // Faint connector from the unshifted peak sample to the latency-shifted
+      // marker — the 3D counterpart of the 2D dashed rose line (map.js).
+      if (this.peakLatency > 0) {
+        const orig = analyzer.getCoordinates(peak.index);
+        if (orig && !isNaN(orig.lat) && !isNaN(orig.lon) &&
+            (orig.lat !== lat || orig.lon !== lon)) {
+          const conn = this.viewer.entities.add({
+            name: `Peak ${i + 1} latency`,
+            polyline: {
+              positions: [
+                Cesium.Cartesian3.fromDegrees(orig.lon, orig.lat, 1.0),
+                Cesium.Cartesian3.fromDegrees(lon, lat, 1.0)
+              ],
+              width: 1.5,
+              material: Cesium.Color.fromCssColorString('#f43f5e').withAlpha(0.35),
+              clampToGround: true
+            }
+          });
+          conn._biomapPeakIndex = peakIdx;
+          this.peakEntities.push(conn);
         }
-      });
-      // Cesium's Entity ctor ignores unknown options, so tag after creation.
-      spireEntity._biomapPeakIndex = peakIdx;
-      this.peakEntities.push(spireEntity);
+      }
 
-      // Glowing Beacon Sphere at top of spire — the main click target.
+      // Small circle marking the peak — the main click target.
       const beaconEntity = this.viewer.entities.add({
-        position: topPos,
+        name: `Peak ${i + 1}`,
+        position: markerPos,
         point: {
-          pixelSize: 12,
-          color: spireColor,
+          pixelSize: 5,
+          color: peakColor,
           outlineColor: Cesium.Color.WHITE,
-          outlineWidth: 2,
+          outlineWidth: 1,
           disableDepthTestDistance: Number.POSITIVE_INFINITY
         },
         label: (labelText && this.showLabels) ? {
@@ -1449,8 +1494,9 @@ class GSRGlobeManager {
 
   /**
    * Render the "memorable event" hotspots — analyzer.memorableEvents, the same
-   * amplitude-selected subset the 2D map draws as distinct red dots. Each gets a
-   * tall red glow spire + beacon that sits above the regular peak spire, and is
+   * amplitude-selected subset the 2D map and the GSR graph mark. Each is drawn
+   * as a single camera-facing red star (★) — the one glyph language shared
+   * across all three surfaces (small circle = peak, red star = hotspot) — and is
    * click-tagged with its analyzer.peaks index so the label popup opens from it
    * too (a hotspot IS a peak).
    */
@@ -1462,43 +1508,34 @@ class GSRGlobeManager {
     const heightMetric = HEIGHT_CAPABLE_METRICS.has(metric) ? metric : this.heightMetric;
     const heightSeries = this._getMetricSeries(analyzer, heightMetric);
     const allPeaks = analyzer.peaks || [];
-    const hotColor = Cesium.Color.fromCssColorString('#ff2d55');
+    const hotColor = Cesium.Color.fromCssColorString('#ff1744'); // --color-hotspot
 
     events.forEach(peak => {
-      const coords = analyzer.getCoordinates(peak.index);
+      const coords = this._latencyCoords(analyzer, peak);
       if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
 
       const peakIdx = allPeaks.indexOf(peak);
       const val = heightSeries[peak.index] ?? peak.amplitude ?? 0;
       const wallHeight = this.baseHeight + Math.max(0, val) * this.extrusionScale;
-      const tipHeight = wallHeight + 26.0; // clears the regular peak beacon
+      const tipHeight = wallHeight + 11.0; // sits above the regular peak circle
 
-      const basePos = Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat, 0);
-      const topPos = Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat, tipHeight);
-
-      const spire = this.viewer.entities.add({
+      const star = this.viewer.entities.add({
         name: 'Hotspot',
-        polyline: {
-          positions: [basePos, topPos],
-          width: 4.0,
-          material: new Cesium.PolylineGlowMaterialProperty({ glowPower: 0.5, color: hotColor })
-        }
-      });
-      spire._biomapPeakIndex = peakIdx;
-      this.hotspotEntities.push(spire);
-
-      const beacon = this.viewer.entities.add({
-        position: topPos,
-        point: {
-          pixelSize: 18,
-          color: hotColor.withAlpha(0.95),
-          outlineColor: Cesium.Color.WHITE,
-          outlineWidth: 3,
+        position: Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat, tipHeight),
+        label: {
+          text: '★',
+          font: '700 14px "Helvetica Neue", Arial, sans-serif',
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          fillColor: hotColor,
+          outlineColor: Cesium.Color.fromCssColorString('#0b0c10'),
+          outlineWidth: 2,
+          verticalOrigin: Cesium.VerticalOrigin.CENTER,
+          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
           disableDepthTestDistance: Number.POSITIVE_INFINITY
         }
       });
-      beacon._biomapPeakIndex = peakIdx;
-      this.hotspotEntities.push(beacon);
+      star._biomapPeakIndex = peakIdx;
+      this.hotspotEntities.push(star);
     });
   }
 
