@@ -655,10 +655,17 @@ const GSRUI = {
    * Helper to refresh UI elements based on track enrichment state.
    */
   refreshOsmControls() {
-    const activeTracks = (AppState.viewMode === 'single')
-      ? (AppState.analyzer && AppState.analyzer.isEnriched ? [{ analyzer: AppState.analyzer }] : [])
-      : AppState.collectiveManager.getActiveTracks().filter(t => t.analyzer && t.analyzer.isEnriched);
-    const isEnriched = activeTracks.length > 0;
+    const analyzers = (AppState.viewMode === 'single')
+      ? (AppState.analyzer ? [AppState.analyzer] : [])
+      : AppState.collectiveManager.getActiveTracks().map(t => t.analyzer).filter(Boolean);
+
+    // Full enrichment (per-point spatial metadata) → OSM colour metrics + the
+    // environmental dashboard. A 3D-buildings download only reconstructs
+    // geometry (analyzer.osmGeoms), which is all the 2D vector-shapes button
+    // needs — so that button tracks osmGeoms, not isEnriched.
+    const enriched = analyzers.filter(a => a.isEnriched);
+    const isEnriched = enriched.length > 0;
+    const hasOsmGeoms = analyzers.some(a => a.osmGeoms);
 
     GSRUI.updateSpatialDataIndicator();
 
@@ -666,18 +673,14 @@ const GSRUI = {
     const btnToggleOsmShapes = document.getElementById('btnToggleOsmShapes');
     const envPanel = document.getElementById('environmentalPanel');
 
-    if (isEnriched) {
-      document.querySelectorAll('.osm-option').forEach(opt => opt.removeAttribute('disabled'));
-      
-      const hasOsmGeoms = activeTracks.some(t => t.analyzer.osmGeoms);
-
+    // The OSM header button is the 3D-buildings toggle while the globe is the
+    // mounted surface — GSREvents.setSurface owns it there, leave it alone.
+    if (AppState.surfaceView !== 'globe') {
       if (hasOsmGeoms) {
         btnToggleOsmShapes.style.display = 'inline-block';
-        // If the layer toggle is already on (e.g. the user just enriched
-        // a second track while looking at the first one's shapes),
-        // redraw immediately with the newly-combined coverage instead of
-        // leaving stale/partial shapes on the map until a manual
-        // toggle-off/toggle-on.
+        // If the layer toggle is already on (e.g. the user just enriched a
+        // second track while looking at the first one's shapes), redraw with
+        // the newly-combined coverage instead of leaving stale shapes.
         if (btnToggleOsmShapes.classList.contains('active') && AppState.mapManager) {
           const geoms = GSRUI.getCombinedOsmGeoms();
           if (geoms) AppState.mapManager.drawOsmShapes(geoms);
@@ -687,12 +690,14 @@ const GSRUI = {
         btnToggleOsmShapes.classList.remove('active');
         if (AppState.mapManager) AppState.mapManager.clearOsmShapes();
       }
+    }
 
+    if (isEnriched) {
+      document.querySelectorAll('.osm-option').forEach(opt => opt.removeAttribute('disabled'));
       envPanel.style.display = 'block';
-      
-      const firstEnriched = activeTracks.find(t => t.analyzer.enrichmentRadius);
-      const rad = firstEnriched ? firstEnriched.analyzer.enrichmentRadius : null;
 
+      const firstEnriched = enriched.find(a => a.enrichmentRadius);
+      const rad = firstEnriched ? firstEnriched.enrichmentRadius : null;
       if (rad) {
         document.getElementById('osmRadius').value = rad;
         document.getElementById('valOsmRadius').innerText = rad + ' m';
@@ -701,13 +706,13 @@ const GSRUI = {
       GSRUI.updateEnvironmentalDashboard();
     } else {
       document.querySelectorAll('.osm-option').forEach(opt => opt.setAttribute('disabled', 'true'));
-      if (select) select.value = 'gsr';
-      if (AppState.mapManager) {
-        AppState.mapManager.activeColoringMetric = 'gsr';
-        AppState.mapManager.clearOsmShapes();
+      // Only fall back to GSR if the current metric is an OSM-only one that just
+      // became unavailable — don't clobber a plain choice like Phasic.
+      const cur = select && select.selectedOptions && select.selectedOptions[0];
+      if (cur && cur.classList.contains('osm-option')) {
+        select.value = 'gsr';
+        if (AppState.mapManager) AppState.mapManager.activeColoringMetric = 'gsr';
       }
-      btnToggleOsmShapes.style.display = 'none';
-      btnToggleOsmShapes.classList.remove('active');
       envPanel.style.display = 'none';
     }
   },

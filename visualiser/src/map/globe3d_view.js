@@ -139,14 +139,49 @@ const GSRGlobe3DView = {
   },
 
   /**
+   * True unless the map/globe panel is in its own panel-fullscreen overlay —
+   * which hides the GSR graph (and the 2D map). Browser fullscreen keeps them
+   * visible, so it doesn't count.
+   */
+  _graphVisible() {
+    const c = GSRGlobe3DView.els.container;
+    return !(c && typeof c.closest === 'function' && c.closest('.panel-fullscreen-overlay'));
+  },
+
+  /**
+   * Panel fullscreen entered / exited (wired from GSRLayoutManager). Entering
+   * hides the GSR graph, so drop any globe-driven scrub cursor and hand the
+   * graph scrubber back — reverse-hover scrubbing resumes on exit.
+   */
+  onPanelFullscreenChange(on) {
+    if (!on) return;
+    const mgr = GSRGlobe3DView.manager;
+    if (mgr) {
+      mgr.setScrubPosition(NaN, NaN);
+      mgr.releaseFollowScrub();
+      if (mgr._requestRender) mgr._requestRender();
+    }
+    GSRGlobe3DView._lastScrubKey = null;
+    if (typeof AppState !== 'undefined' && AppState.scrubSource === 'globe') {
+      AppState.scrubSource = null;
+      AppState.hoveredIndex = -1;
+      AppState.emit('scrub', { clear: true, source: 'globe' });
+      if (typeof redraw === 'function') redraw();
+    }
+  },
+
+  /**
    * Pointer moved over (or off) the 3D track — the reverse direction. Walk the
    * graph scrubber to that moment via the shared channel; AppState.scrubSource
    * is the ownership token that stops renderer.js's per-frame handleScrubber()
    * from wiping the hover. Single-track scope only (no graph in collective).
+   * No-op while the panel is fullscreen — the graph (and its blue ground
+   * cursor) isn't on screen, so there's nothing to scrub.
    */
   _onScrubHover(idx, ll) {
     if (!GSRGlobe3DView.isActive || typeof AppState === 'undefined') return;
     if (AppState.viewMode !== 'single') return;
+    if (!GSRGlobe3DView._graphVisible()) return;
 
     if (idx == null || !ll) {
       if (AppState.scrubSource === 'globe') {
@@ -366,13 +401,83 @@ const GSRGlobe3DView = {
    * The map header's OSM button was clicked while the 3D globe is mounted — it
    * toggles the extruded OSM buildings (the 3D equivalent of the 2D OSM vector
    * shapes). Style comes from the #g3dBuildingStyle select.
+   *
+   * The OSM data is the SAME as the 2D "Spatial Data" enrichment: resolved via
+   * _resolveOsmJson() (reuse analyzer.osmJson → shared OsmCache → one Overpass
+   * fetch that is then stored back), so a 2D enrich and a 3D buildings toggle
+   * never double-download, and either one makes the 2D OSM shapes button live.
    */
   applyBuildings(on) {
     const mgr = GSRGlobe3DView.manager;
     if (!GSRGlobe3DView.isActive || !mgr) return;
-    const sel = GSRGlobe3DView.els.buildingStyle;
-    mgr.toggle3DBuildings(on, sel ? sel.value : 'monochrome',
-      (msg) => GSRGlobe3DView._setStatus(msg));
+    const style = (GSRGlobe3DView.els.buildingStyle && GSRGlobe3DView.els.buildingStyle.value) || 'monochrome';
+
+    if (!on) { mgr.toggle3DBuildings(false, style); return; }
+
+    Promise.resolve(GSRGlobe3DView._resolveOsmJson()).then((osmJson) => {
+      if (!GSRGlobe3DView.isActive || !GSRGlobe3DView.manager) return;
+      if (osmJson) GSRGlobe3DView.manager.cachedOsmJson = osmJson;
+      return GSRGlobe3DView.manager.toggle3DBuildings(true, style, (m) => GSRGlobe3DView._setStatus(m));
+    }).then(() => {
+      // The fetch may have populated analyzer.osmGeoms — let the 2D map's OSM
+      // shapes button pick that up.
+      if (typeof GSRUI !== 'undefined' && GSRUI.refreshOsmControls) GSRUI.refreshOsmControls();
+    }).catch((e) => {
+      console.warn('3D buildings OSM fetch failed:', e);
+      GSRGlobe3DView._setStatus('');
+    });
+  },
+
+  /**
+   * The bbox buffer (metres) the 2D "Spatial Data" enrichment uses —
+   * max(#osmRadius, #gpsSnapRadius) + 50 (see GSRUI.enrichTrack). Matching it
+   * exactly is what makes OsmCache's contains-match hit both ways: whichever of
+   * the 2D enrich / 3D buildings toggle runs first, the other reuses its cache.
+   */
+  _osmBboxBufferM() {
+    const num = (id, dflt) => {
+      const v = parseInt((document.getElementById(id) || {}).value, 10);
+      return Number.isFinite(v) ? v : dflt;
+    };
+    return Math.max(num('osmRadius', 50), num('gpsSnapRadius', 25)) + 50;
+  },
+
+  /**
+   * Resolve the Overpass JSON for the active track's area, sharing every layer
+   * of the 2D enrichment's cache:
+   *   1. analyzer.osmJson (already in memory from a 2D enrich or a prior toggle)
+   *   2. OsmCache.getForBBox (the persistent cross-session cache)
+   *   3. one Overpass fetch via OsmCache.planFetch, then OsmCache.store
+   * On a fresh fetch it also stashes analyzer.osmJson and reconstructs
+   * analyzer.osmGeoms (geometry only — no per-point metadata / no isEnriched),
+   * which is all the 2D OSM vector-shapes button needs.
+   * @returns {Promise<Object|null>}
+   */
+  async _resolveOsmJson() {
+    const analyzer = (typeof AppState !== 'undefined') ? AppState.analyzer : null;
+    if (!analyzer || !analyzer.raw || analyzer.raw.length === 0) return null;
+    if (typeof OSMEnricher === 'undefined') return analyzer.osmJson || null;
+
+    let osmJson = analyzer.osmJson || null;
+    if (!osmJson && typeof OsmCache !== 'undefined') {
+      const bbox = OSMEnricher.calculateBBox(analyzer.raw, GSRGlobe3DView._osmBboxBufferM());
+      if (bbox) {
+        osmJson = await OsmCache.getForBBox(bbox);
+        if (!osmJson) {
+          const plan = await OsmCache.planFetch(bbox);
+          osmJson = await OSMEnricher.fetchOSMData(plan.fetchBBox, (m) => GSRGlobe3DView._setStatus(m));
+          if (osmJson) OsmCache.store(plan.fetchBBox, osmJson, plan.mergeIds);
+        }
+      }
+      if (osmJson) analyzer.osmJson = osmJson; // shared with GSRUI.enrichTrack's in-memory reuse
+    }
+
+    // Reconstruct geometry whenever we have json but no geoms (a cache load or a
+    // fresh fetch) — this is all the 2D OSM vector-shapes button needs.
+    if (osmJson && !analyzer.osmGeoms && typeof OSMEnricher.reconstructGeometries === 'function') {
+      analyzer.osmGeoms = OSMEnricher.reconstructGeometries(osmJson);
+    }
+    return osmJson;
   },
 
   /** Header zoom in/out (dir < 0 zooms in). Drives the Cesium camera. */
@@ -491,6 +596,13 @@ const GSRGlobe3DView = {
       // Guarantee at least one paint even when there's no track to push.
       const v = GSRGlobe3DView.manager && GSRGlobe3DView.manager.viewer;
       if (v && v.scene && typeof v.scene.requestRender === 'function') v.scene.requestRender();
+      // Carry the shared OSM-layer toggle onto the globe: if the map header's
+      // OSM button is on, show the 3D buildings (reusing the shared cache).
+      const osmBtn = document.getElementById('btnToggleOsmShapes');
+      const mgr = GSRGlobe3DView.manager;
+      if (osmBtn && osmBtn.classList.contains('active') && !(mgr && mgr.show3DBuildings)) {
+        GSRGlobe3DView.applyBuildings(true);
+      }
     }));
   },
 

@@ -53,10 +53,11 @@ const GSRLayoutManager = {
     // #mapPanel hosts both render engines (Leaflet + Cesium). Cesium sizes its
     // canvas to the container box, so after the panel moves into / out of the
     // fullscreen overlay the globe must be told to re-measure.
-    this.setupPanelFullscreen('btnMapFullscreen', 'mapPanel', () => {
-      if (typeof GSRGlobe3DView !== 'undefined' && GSRGlobe3DView.onResize) {
-        GSRGlobe3DView.onResize();
-      }
+    this.setupPanelFullscreen('btnMapFullscreen', 'mapPanel', (on) => {
+      if (typeof GSRGlobe3DView === 'undefined') return;
+      if (GSRGlobe3DView.onResize) GSRGlobe3DView.onResize();
+      // Fullscreen hides the GSR graph — stop the globe's reverse-hover scrub.
+      if (GSRGlobe3DView.onPanelFullscreenChange) GSRGlobe3DView.onPanelFullscreenChange(on);
     });
     this.setupPanelFullscreen('btnEventsFullscreen', 'eventsPanel');
     this.setupPanelFullscreen('btnEnvFullscreen', 'environmentalPanel');

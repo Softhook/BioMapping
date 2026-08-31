@@ -166,26 +166,93 @@ test('shared header toggles dispatch to the globe manager while 3D is the mounte
   V.isActive = false;
 });
 
-test('the map header OSM button toggles 3D buildings while the globe is mounted', () => {
+test('the map header OSM button toggles 3D buildings (shared OSM data) while the globe is mounted', async () => {
   const { window } = bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
   const doc = window.document;
 
+  // an analysed track already carrying OSM json → _resolveOsmJson reuses it,
+  // no network, and feeds it to the manager as cachedOsmJson.
+  const osmJson = { elements: [] };
+  window.AppState.analyzer = { raw: [{ lat: 51, lon: -0.1 }], osmJson, osmGeoms: { ways: [], relations: [] } };
+
   const calls = [];
-  V.manager = { show3DBuildings: false, toggle3DBuildings: (on, style) => calls.push([on, style]) };
+  V.manager = {
+    show3DBuildings: false, cachedOsmJson: null,
+    toggle3DBuildings: (on, style) => { calls.push([on, style]); return Promise.resolve(); },
+  };
   V.isActive = true;
   window.AppState.surfaceView = 'globe';
 
   const osm = doc.getElementById('btnToggleOsmShapes');
   osm.style.display = 'inline-block';
-  assert.doesNotThrow(() => osm.click());
+
+  osm.click();
+  await new Promise((r) => setTimeout(r, 0));
   assert.deepStrictEqual(calls.at(-1), [true, 'monochrome'], 'buildings on, default white style');
-  assert.doesNotThrow(() => osm.click());
+  assert.strictEqual(V.manager.cachedOsmJson, osmJson, 'globe got the SAME OSM json as the 2D enrichment');
+
+  osm.click();
+  await new Promise((r) => setTimeout(r, 0));
   assert.strictEqual(calls.at(-1)[0], false, 'second click turns buildings off');
 
   V.manager = null;
   V.isActive = false;
+});
+
+test('_resolveOsmJson reuses analyzer.osmJson and reconstructs osmGeoms for the 2D OSM button', async () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+
+  // no geoms yet, but raw json present (e.g. a stale cache load)
+  const osmJson = { elements: [{ type: 'node', id: 1, lat: 51, lon: -0.1 }] };
+  window.AppState.analyzer = { raw: [{ lat: 51, lon: -0.1 }], osmJson };
+
+  const got = await V._resolveOsmJson();
+  assert.strictEqual(got, osmJson, 'returns the in-memory json without fetching');
+  assert.ok(window.AppState.analyzer.osmGeoms, 'osmGeoms reconstructed so the 2D OSM shapes button can show');
+});
+
+test('_resolveOsmJson requests the SAME bbox buffer as the 2D enrichment (cache hit both ways)', () => {
+  const { window } = bootApp();
+  window.setup();
+  const doc = window.document;
+  doc.getElementById('osmRadius').value = '80';
+  doc.getElementById('gpsSnapRadius').value = '40';
+  // 2D enrichTrack uses max(osmRadius, gpsSnapRadius) + 50
+  assert.strictEqual(window.GSRGlobe3DView._osmBboxBufferM(), 130);
+});
+
+test('the OSM/buildings toggle state persists across a 2D↔3D surface switch', () => {
+  const { window } = bootApp();
+  window.setup();
+  const doc = window.document;
+  const V = window.GSRGlobe3DView;
+
+  // track already carries OSM geometry, so the 2D button is available
+  window.AppState.analyzer = {
+    raw: [{ lat: 51, lon: -0.1 }], isEnriched: false,
+    osmJson: { elements: [] }, osmGeoms: { ways: [], relations: [] },
+  };
+  window.AppState.viewMode = 'single';
+
+  const osm = doc.getElementById('btnToggleOsmShapes');
+  window.GSRUI.refreshOsmControls();
+  assert.notStrictEqual(osm.style.display, 'none', 'button shown for a track with osmGeoms even without full enrichment');
+
+  // turn the OSM layer on in 2D, then go to the globe
+  osm.classList.add('active');
+  doc.getElementById('btnGlobeSurface').click();
+  assert.strictEqual(window.AppState.surfaceView, 'globe');
+  assert.ok(osm.classList.contains('active'), 'toggle stays on when switching to the globe');
+
+  // …and back to the map
+  doc.getElementById('btnMapSurface').click();
+  assert.strictEqual(window.AppState.surfaceView, 'map');
+  assert.ok(osm.classList.contains('active'), 'toggle still on after returning to the 2D map');
+  assert.notStrictEqual(osm.style.display, 'none', 'button still visible');
 });
 
 test('switching surface leaves no fullscreen overlay behind', () => {
@@ -446,6 +513,62 @@ test('_onScrubHover: no-op outside single-track scope', () => {
 
   V._onScrubHover(5, { lat: 1, lon: 2 });
   assert.strictEqual(AppState.scrubSource, null, 'collective view has no graph to scrub');
+});
+
+test('_onScrubHover: no-op while the panel is fullscreen (the graph is hidden)', () => {
+  const { window } = bootApp();
+  window.setup();
+  const doc = window.document;
+  const V = window.GSRGlobe3DView;
+  const AppState = window.AppState;
+  V.isActive = true;
+  AppState.viewMode = 'single';
+  AppState.scrubSource = null;
+
+  // simulate the panel-fullscreen overlay wrapping the globe container
+  const overlay = doc.createElement('div');
+  overlay.className = 'panel-fullscreen-overlay';
+  const mapPanel = doc.getElementById('mapPanel');
+  mapPanel.parentNode.insertBefore(overlay, mapPanel);
+  overlay.appendChild(mapPanel);
+
+  assert.strictEqual(V._graphVisible(), false);
+  V._onScrubHover(5, { lat: 1, lon: 2 });
+  assert.strictEqual(AppState.scrubSource, null, 'no scrub attempt while fullscreen');
+
+  // leaving fullscreen re-enables it
+  mapPanel.parentNode.parentNode.insertBefore(mapPanel, overlay);
+  overlay.remove();
+  V._onScrubHover(5, { lat: 1, lon: 2 });
+  assert.strictEqual(AppState.scrubSource, 'globe', 'reverse-hover scrub works again after exit');
+});
+
+test('onPanelFullscreenChange(true) drops a globe-owned scrub and hands the graph back', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const AppState = window.AppState;
+
+  const mgr = spyManager();
+  V.manager = mgr;
+  V.isActive = true;
+  AppState.scrubSource = 'globe';
+  AppState.hoveredIndex = 12;
+  V._lastScrubKey = '51.000000,-0.100000';
+
+  let scrubEvt = null;
+  AppState.on('scrub', (p) => { scrubEvt = p; });
+
+  V.onPanelFullscreenChange(true);
+
+  assert.ok(mgr.calls.some(c => c[0] === 'set' && Number.isNaN(c[1])), 'globe scrub cursor cleared');
+  assert.ok(mgr.calls.some(c => c[0] === 'release'), 'follow-cam released');
+  assert.strictEqual(AppState.scrubSource, null, 'graph ownership handed back');
+  assert.strictEqual(V._lastScrubKey, null);
+  assert.ok(scrubEvt && scrubEvt.clear === true && scrubEvt.source === 'globe');
+
+  V.manager = null;
+  V.isActive = false;
 });
 
 test('shared "scrub" event reaches BOTH the 2D map and the 3D globe', () => {

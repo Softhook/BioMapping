@@ -942,22 +942,18 @@ const GSREvents = {
       show(globeEl, toGlobe);
       show(settings3d, toGlobe);
 
-      // The OSM header button means "2D vector shapes" on the map (shown only
-      // when the active track carries OSM geometry) and "3D OSM buildings" on
-      // the globe (always available). Swap its visibility + reset its state to
-      // match the surface, without disturbing anything else (a full
-      // refreshOsmControls() would also reset the colour metric).
+      // The OSM header button is ONE shared toggle: "2D vector shapes" on the
+      // map, "3D OSM buildings" on the globe, same OSM data (see
+      // GSRGlobe3DView.applyBuildings). Its .active state persists across the
+      // swap — the incoming surface adopts it, it is not reset.
+      //   → globe: GSRGlobe3DView.activate() shows the buildings if it's on.
+      //   → map:   refreshOsmControls() re-shows the button and redraws the
+      //            vector shapes if it's on.
       if (osmBtn) {
-        osmBtn.classList.remove('active');
         if (toGlobe) {
-          // drop any 2D OSM vector shapes; the globe starts with buildings off
-          if (AppState.mapManager && AppState.mapManager.clearOsmShapes) AppState.mapManager.clearOsmShapes();
           osmBtn.style.display = 'inline-block';
-          const mgr = (typeof GSRGlobe3DView !== 'undefined') ? GSRGlobe3DView.manager : null;
-          osmBtn.classList.toggle('active', !!(mgr && mgr.show3DBuildings));
-        } else {
-          const hasOsm = !!(typeof GSRUI !== 'undefined' && GSRUI.getCombinedOsmGeoms && GSRUI.getCombinedOsmGeoms());
-          osmBtn.style.display = hasOsm ? 'inline-block' : 'none';
+        } else if (typeof GSRUI !== 'undefined' && GSRUI.refreshOsmControls) {
+          GSRUI.refreshOsmControls();
         }
       }
 
