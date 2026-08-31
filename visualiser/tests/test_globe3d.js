@@ -365,6 +365,50 @@ test('the wall colour LUT is bounded (≤30) and reused across a same-range redr
   mgr.destroy();
 });
 
+test('_decimateForWall thins a big track, keeps endpoints / peaks / gap edges, no synthetic gaps', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false, wallMaxSegments: 1000 });
+
+  const n = 8000;
+  const colorSeries = new Array(n);
+  const drawPoints = [];
+  for (let i = 0; i < n; i++) {
+    // mostly a straight, flat, single-colour run (should thin hard)…
+    let t = i * 0.1;
+    if (i >= 4000 && i < 4200) t += 40; // …with a 40 s GPS drop-out at i≈4000
+    colorSeries[i] = (i > 6000) ? Math.sin(i / 3) : 0.5; // busy tail — keep density
+    drawPoints.push({ lat: 51.5 + i * 1e-6, lon: -0.1 + i * 2e-6, time: t, origIdx: i, isRfPeak: (i === 1234 || i === 7777) });
+  }
+  const heightAt = () => 2;
+  const bucketOf = (v) => Math.max(0, Math.min(29, Math.floor(((v - -1) / 2) * 30)));
+
+  const out = mgr._decimateForWall(drawPoints, colorSeries, heightAt, bucketOf, -1);
+
+  assert.ok(out.length < n / 4, `thinned hard: ${out.length} of ${n}`);
+  assert.ok(out.length <= 1000 * 3, `stays near the budget: ${out.length}`);
+  assert.strictEqual(out[0], drawPoints[0], 'first point kept');
+  assert.strictEqual(out[out.length - 1], drawPoints[n - 1], 'last point kept');
+  assert.ok(out.includes(drawPoints[1234]) && out.includes(drawPoints[7777]), 'RF peaks kept');
+
+  // no pair of kept points is > 15 s apart unless it straddles the real drop-out
+  let straddle = 0;
+  for (let i = 1; i < out.length; i++) {
+    const dt = out[i].time - out[i - 1].time;
+    if (dt > 15) { straddle++; assert.ok(out[i - 1].origIdx < 4200 && out[i].origIdx >= 4000, `gap only at the real drop-out (${out[i - 1].origIdx}→${out[i].origIdx})`); }
+  }
+  assert.strictEqual(straddle, 1, 'exactly one >15 s hop — the real drop-out');
+
+  // the busy tail keeps far more density than the flat body
+  const inRange = (lo, hi) => out.filter((p) => p.origIdx >= lo && p.origIdx < hi).length;
+  assert.ok(inRange(6000, 8000) > inRange(1000, 3000), 'busy tail kept denser than the flat body');
+
+  // below budget: identity (no-op)
+  const small = drawPoints.slice(0, 500);
+  assert.strictEqual(mgr._decimateForWall(small, colorSeries, heightAt, bucketOf, -1), small);
+  mgr.destroy();
+});
+
 test('wall height uses the arousal heightMetric even when colour is a non-magnitude metric', () => {
   freshEnv();
   const { GSRGlobeManager } = loadFresh();

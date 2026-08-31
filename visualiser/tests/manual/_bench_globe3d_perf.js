@@ -31,30 +31,30 @@
  * ── RESULTS  (node on macOS, tracks/Newhaven.csv, 14225 drawPoints / 14224 segments) ──
  *
  *   SECTION A — real WallGeometry.createGeometry + PrimitivePipeline.combineGeometry
- *     per-segment (pre-fix):  instances=14224  verts=52844  tris=26422  realize+combine ≈ 78 ms
- *     coalesced   (current):  instances=  407  verts=53312  tris=26656  realize+combine ≈ 41 ms
- *     → coalescing is ~1.9x faster to realize+combine (fewer createGeometry calls
- *       + fewer instances for combineGeometry to merge). It does NOT cut the
- *       vertex/triangle count — that's ~unchanged, so GPU upload + steady-state
- *       draw cost barely move. The earlier stub bench overstated this at 4x.
+ *     per-segment · pos+normal (pre-refactor)  instances=14224  verts=52844  ≈ 79 ms
+ *     per-segment · pos only   (flat format)   instances=14224  verts=52844  ≈ 71 ms
+ *     coalesced   · no thinning                instances=  407  verts=53312  ≈ 39 ms
+ *     coalesced   · thinned    (CURRENT)       instances=  362  verts=18664  ≈ 16 ms
+ *
+ *     → CURRENT is ~4.9x faster to realize+combine than the pre-refactor build,
+ *       and uploads/draws ~2.8x fewer vertices.
+ *         flat vertex format alone : ~1.1x  (free — 1 line, visually identical)
+ *         same-bucket coalescing   : ~1.9x  (fewer createGeometry + combine work)
+ *         wall thinning            : ~2.4x  (14k pts → ~2.5k; also cuts vertices,
+ *                                            so GPU upload + steady-state draw drop)
  *
  *   SECTION B — orchestration (stub Cesium) — our JS loop only
- *     _render3DWallAndPath   ~1.2 ms   GeometryInstance=407  colorParse=0 on redraw
- *     _getMetricSeries x1    ~0.26 ms  (14225-len .map alloc; up to 3x/rebuild — still minor vs 41 ms)
+ *     _render3DWallAndPath   ~0.85 ms  GeometryInstance=362  colorParse=0 on redraw
+ *     _getMetricSeries x1    ~0.29 ms  (14225-len .map alloc; up to 3x/rebuild — minor)
  *     _pickTrackPoint x500   ~11 ms    = 22 us / MOUSE_MOVE on 14k points — rAF-coalesced, ~1/frame
- *     render3DRfExpanse      ~1.4 ms   (cheap — not a target)
+ *     render3DRfExpanse      ~1.1 ms   (cheap — not a target)
  *
- *   TAKEAWAYS
- *     - The real wall-rebuild cost is the geometry pipeline (~41 ms here), not our
- *       JS loop (~1.2 ms). It runs in a worker (asynchronous:true) for the
- *       embedded host, so it delays the wall update rather than stalling the page,
- *       but 41 ms on a 14k-point track is still a lot.
- *     - Biggest remaining wins: (a) a custom lightweight Geometry (position +
- *       per-vertex colour only, 2 tris/segment — skip WallGeometry's normals /
- *       tangents / ST / subdivision), (b) decimate the wall to ~2k segments (the
- *       2D display downsample / RDP the app already has, off by default here).
- *     - Colour-metric change should update per-instance colour attributes, not
- *       rebuild geometry (407 attribute writes vs a 41 ms rebuild).
+ *   STILL ON THE TABLE (not done)
+ *     - custom lightweight Geometry (position + per-vertex colour only, 2 tris/
+ *       segment — skip WallGeometry's subdivision / caps / bounding-sphere and
+ *       the combine step entirely). Ceiling: ~16 ms → ~5 ms.
+ *     - colour-metric change updates per-instance colour attributes instead of
+ *       rebuilding geometry (needs colour-independent coalescing).
  */
 
 const fs = require('fs');
@@ -232,10 +232,10 @@ let minV = colorRange.min, maxV = colorRange.max;
 if (!isFinite(minV) || !isFinite(maxV) || minV === maxV) { minV = 0; maxV = 1; }
 const heightAt = (idx) => baseHeight + Math.max(0, heightSeries[idx] ?? 0) * extrusionScale;
 
-const VF = Cx.PerInstanceColorAppearance.VERTEX_FORMAT;
-
-// (1) pre-refactor: one WallGeometry per segment, per-segment colour parse
-function buildPerSegmentInstances() {
+// (1)/(2) pre-refactor shape: one WallGeometry per segment, per-segment colour
+// parse. `vf` toggles POSITION+NORMAL vs POSITION-only to isolate the flat-format
+// effect.
+function buildPerSegmentInstances(vf) {
   const inst = [];
   for (let i = 0; i < drawPoints.length - 1; i++) {
     const p1 = drawPoints[i], p2 = drawPoints[i + 1];
@@ -247,7 +247,7 @@ function buildPerSegmentInstances() {
       inst.push(new Cx.GeometryInstance({
         geometry: new Cx.WallGeometry({
           positions: [Cx.Cartesian3.fromDegrees(p1.lon, p1.lat), Cx.Cartesian3.fromDegrees(p2.lon, p2.lat)],
-          minimumHeights: [0, 0], maximumHeights: [heightAt(p1.origIdx), heightAt(p2.origIdx)], vertexFormat: VF,
+          minimumHeights: [0, 0], maximumHeights: [heightAt(p1.origIdx), heightAt(p2.origIdx)], vertexFormat: vf,
         }),
         attributes: { color: Cx.ColorGeometryInstanceAttribute.fromColor(color) }, id: `s-${i}`,
       }));
@@ -256,8 +256,9 @@ function buildPerSegmentInstances() {
   return inst;
 }
 
-// (2) current: colour-bucket-coalesced runs — the REAL globe3d code path
-function buildCoalescedInstances() {
+// (3)/(4) the REAL globe3d code path (colour-bucket coalescing + flat format +
+// wall thinning). `wallMaxSegments = Infinity` disables the thinning.
+function buildRealInstances(wallMaxSegments) {
   global.Cesium = Cx;
   global.MapColors = MapColors;
   delete require.cache[require.resolve(GLOBE3D)];
@@ -265,7 +266,7 @@ function buildCoalescedInstances() {
   const mgr = Object.create(GSRGlobeManager.prototype);
   Object.assign(mgr, {
     activeColoringMetric: metric, heightMetric, externalColorRange: { min: minV, max: maxV },
-    baseHeight, extrusionScale, showGroundPath: false, requestRenderMode: false,
+    baseHeight, extrusionScale, wallMaxSegments, showGroundPath: false, requestRenderMode: false,
     _cesiumColorLut: null, _cesiumColorLutKey: null,
     viewer: { scene: { primitives: { add(p) { mgr.__wall = p; } } }, entities: { add: () => ({}) } },
   });
@@ -290,22 +291,30 @@ function totals(realized) {
   return { verts: v, tris: idx / 3 };
 }
 
-console.log('── SECTION A — real geometry realization (WallGeometry.createGeometry + combineGeometry) ──\n');
-for (const [label, build] of [['per-segment (pre-fix)', buildPerSegmentInstances], ['coalesced   (current)', buildCoalescedInstances]]) {
-  const instances = build();
-  const t = totals(realizeAndCombine(instances));
-  const r = bench(label, 2, 12, () => realizeAndCombine(build()));
-  printRow(r, `instances=${String(instances.length).padStart(5)}  verts=${String(t.verts).padStart(7)}  tris=${String(t.tris).padStart(7)}`);
-}
+const VF_NORMAL = Cx.PerInstanceColorAppearance.VERTEX_FORMAT;      // position + normal
+const VF_FLAT = Cx.PerInstanceColorAppearance.FLAT_VERTEX_FORMAT;   // position only
 
-// A/B ratio
+const VARIANTS = [
+  ['per-segment · pos+normal   (pre-refactor)', () => buildPerSegmentInstances(VF_NORMAL)],
+  ['per-segment · pos only     (flat format)',  () => buildPerSegmentInstances(VF_FLAT)],
+  ['coalesced   · no thinning',                 () => buildRealInstances(Infinity)],
+  ['coalesced   · thinned      (current)',      () => buildRealInstances(undefined)],
+];
+
+console.log('── SECTION A — real geometry realization (WallGeometry.createGeometry + combineGeometry) ──\n');
+const resA = [];
+for (const [label, build] of VARIANTS) {
+  const t = totals(realizeAndCombine(build()));
+  const r = bench(label, 2, 12, () => realizeAndCombine(build()));
+  r.instances = build().length; r.verts = t.verts; r.tris = t.tris;
+  resA.push(r);
+  printRow(r, `instances=${String(r.instances).padStart(5)}  verts=${String(t.verts).padStart(7)}  tris=${String(t.tris).padStart(7)}`);
+}
 {
-  const ps = bench('ps', 2, 12, () => realizeAndCombine(buildPerSegmentInstances()));
-  const co = bench('co', 2, 12, () => realizeAndCombine(buildCoalescedInstances()));
-  const psT = totals(realizeAndCombine(buildPerSegmentInstances()));
-  const coT = totals(realizeAndCombine(buildCoalescedInstances()));
-  console.log(`\n  → coalescing: ${(ps.median / co.median).toFixed(1)}x faster to realize+combine, ` +
-    `${(psT.verts / Math.max(1, coT.verts)).toFixed(1)}x fewer vertices\n`);
+  const base = resA[0], cur = resA[resA.length - 1];
+  console.log(`\n  → current is ${(base.median / cur.median).toFixed(1)}x faster to realize+combine than pre-refactor`);
+  console.log(`    (flat format alone: ${(resA[0].median / resA[1].median).toFixed(1)}x · coalescing: ${(resA[1].median / resA[2].median).toFixed(1)}x · thinning: ${(resA[2].median / resA[3].median).toFixed(1)}x)`);
+  console.log(`    vertices ${base.verts} → ${cur.verts}  (${(base.verts / Math.max(1, cur.verts)).toFixed(1)}x fewer to upload / draw)\n`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -339,6 +348,8 @@ function stubCesium() {
   C.GeometryInstance = function (o) { counters.GeometryInstance++; this._o = o; return this; };
   C.Primitive = function (o) { counters.Primitive++; this._o = o; };
   C.PerInstanceColorAppearance = function (o) { this._o = o; };
+  C.PerInstanceColorAppearance.VERTEX_FORMAT = {};
+  C.PerInstanceColorAppearance.FLAT_VERTEX_FORMAT = {};
   C.PolylineGlowMaterialProperty = function (o) { this._o = o; };
   C.Transforms = { eastNorthUpToFixedFrame: () => ({}) };
   C.ScreenSpaceEventHandler = function () { return { setInputAction() {}, removeInputAction() {}, isDestroyed: () => false, destroy() {} }; };

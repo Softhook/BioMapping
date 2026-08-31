@@ -85,6 +85,12 @@ const HEIGHT_CAPABLE_METRICS = new Set(['gsr', 'phasic', 'tonic', 'arousalIndex'
 const seriesValue = (d) =>
   (d && typeof d === 'object' && 'val' in d) ? d.val : (typeof d === 'number' ? d : 0);
 
+// The arousal wall is thinned to at most this many segments before it is built
+// (see _decimateForWall): a walk can carry >10k display points and at the zoom
+// that frames the whole track they are tens of points per pixel. Override per
+// instance with options.wallMaxSegments (Infinity disables thinning).
+const WALL_MAX_SEGMENTS = 2500;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GSRGlobeManager
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,6 +147,7 @@ class GSRGlobeManager {
     this.externalColorRange = null;
     this.extrusionScale = options.extrusionScale || 8.0;    // Meters of height per metric unit
     this.baseHeight = 2.0;                                  // Minimum base wall height in meters
+    this.wallMaxSegments = options.wallMaxSegments || WALL_MAX_SEGMENTS; // wall thinning budget
     this.showPeaks = true;
     this.minPeakQuality = 0.0;
     this.showGroundPath = true;
@@ -1099,15 +1106,77 @@ class GSRGlobeManager {
   }
 
   /**
+   * Thin `drawPoints` for the wall build only (`currentDrawPoints` stays
+   * full-resolution and still drives hover / camera / scrub). Always keeps the
+   * endpoints, both points either side of a >15 s time gap, and RF-peak points;
+   * between those it keeps a point when the path turns (~>4°), the colour bucket
+   * changes, or the extruded height moves >1.5 m — and forces a keep at least
+   * every `maxStride` points and every 10 s so a long straight flat run can't
+   * blow the budget or fake a time gap. Returns a subset of the SAME point
+   * objects. No-op below the budget.
+   */
+  _decimateForWall(drawPoints, colorSeries, heightAt, bucketOf, minVal) {
+    const n = drawPoints.length;
+    const budget = this.wallMaxSegments || WALL_MAX_SEGMENTS;
+    if (!(n > budget + 1)) return drawPoints;
+
+    const maxStride = Math.max(2, Math.ceil((n - 1) / budget));
+    const out = [drawPoints[0]];
+    let kept = 0;
+    let keptBucket = bucketOf(colorSeries[drawPoints[0].origIdx] ?? minVal);
+    let keptH = heightAt(drawPoints[0].origIdx);
+
+    for (let i = 1; i < n - 1; i++) {
+      const p = drawPoints[i];
+      const stride = i - kept;
+      const gapBefore = (p.time - drawPoints[i - 1].time) > 15.0;
+      const gapAfter = (drawPoints[i + 1].time - p.time) > 15.0;
+
+      let keep = p.isRfPeak || gapBefore || gapAfter
+        || stride >= maxStride
+        || (p.time - drawPoints[kept].time) > 10.0;
+
+      if (!keep && stride >= 2) {
+        const b = bucketOf(colorSeries[p.origIdx] ?? minVal);
+        const h = heightAt(p.origIdx);
+        if (b !== keptBucket || Math.abs(h - keptH) > 1.5) {
+          keep = true;
+        } else {
+          const a = drawPoints[kept];
+          const c = drawPoints[i + 1];
+          const x1 = p.lon - a.lon, y1 = p.lat - a.lat;
+          const x2 = c.lon - p.lon, y2 = c.lat - p.lat;
+          if (Math.abs(Math.atan2(x1 * y2 - y1 * x2, x1 * x2 + y1 * y2)) > 0.07) keep = true; // ~4°
+        }
+      }
+
+      if (keep) {
+        out.push(p);
+        kept = i;
+        keptBucket = bucketOf(colorSeries[p.origIdx] ?? minVal);
+        keptH = heightAt(p.origIdx);
+      }
+    }
+    out.push(drawPoints[n - 1]);
+    return out;
+  }
+
+  /**
    * Build the extruded arousal wall and the clamped ground polyline.
    *
-   * The wall is one batched GPU Primitive. Rather than one GeometryInstance per
-   * segment (thousands, each a WallGeometry the main thread must build + combine
-   * every rebuild — the measured bottleneck, see tests/manual/_bench_globe3d_perf.js),
-   * consecutive segments that fall in the same 30-bucket colour band are merged
-   * into ONE multi-vertex WallGeometry. A smooth arousal track collapses to
-   * tens of instances. Colour comes from a bounded Cesium.Color LUT; every
-   * point's ECEF position is computed in a single fromDegreesArray call.
+   * The wall is one batched GPU Primitive. Cost is dominated by Cesium's
+   * geometry pipeline (WallGeometry.createGeometry + combineGeometry), see
+   * tests/manual/_bench_globe3d_perf.js, so three things keep it small:
+   *   1. the display points are thinned to WALL_MAX_SEGMENTS, keeping every
+   *      point that changes the wall's shape / height / colour (a walk has
+   *      >10k points; at the zoom that frames the whole track that's tens of
+   *      points per pixel);
+   *   2. consecutive segments in the same 30-bucket colour band merge into one
+   *      multi-vertex WallGeometry (a smooth track → tens of instances);
+   *   3. the geometry is flat/unlit (POSITION-only vertex format — no normals),
+   *      matching the appearance, so createGeometry skips normal computation.
+   * Colour comes from a bounded Cesium.Color LUT; positions are one
+   * fromDegreesArray call.
    */
   _render3DWallAndPath(analyzer, drawPoints) {
     if (drawPoints.length < 2) return;
@@ -1151,15 +1220,20 @@ class GSRGlobeManager {
       ? Math.max(0, Math.min(NB - 1, Math.floor(((v - minVal) / range) * NB)))
       : (NB >> 1));
     const colorLut = this._getCesiumColorLut(metric, minVal, maxVal);
+    const heightAt = (idx) => this.baseHeight + Math.max(0, heightSeries[idx] ?? 0) * this.extrusionScale;
 
-    // One fromDegreesArray for the whole path — positions[i] ↔ drawPoints[i].
-    const flat = new Array(drawPoints.length * 2);
-    for (let i = 0; i < drawPoints.length; i++) {
-      flat[i * 2] = drawPoints[i].lon;
-      flat[i * 2 + 1] = drawPoints[i].lat;
+    // Thin the path for the wall only (currentDrawPoints stays full-resolution
+    // for hover / camera / scrub). Keeps corners, colour-bucket changes and
+    // >1.5 m height steps; drops straight, flat, same-colour runs.
+    const wallPts = this._decimateForWall(drawPoints, colorSeries, heightAt, bucketOf, minVal);
+
+    // One fromDegreesArray for the whole thinned path — positions[i] ↔ wallPts[i].
+    const flat = new Array(wallPts.length * 2);
+    for (let i = 0; i < wallPts.length; i++) {
+      flat[i * 2] = wallPts[i].lon;
+      flat[i * 2 + 1] = wallPts[i].lat;
     }
     const positions = Cesium.Cartesian3.fromDegreesArray(flat);
-    const heightAt = (idx) => this.baseHeight + Math.max(0, heightSeries[idx] ?? 0) * this.extrusionScale;
 
     const wallInstances = [];
     const groundPositions = [];
@@ -1178,7 +1252,9 @@ class GSRGlobeManager {
             positions: runPos,
             minimumHeights: new Array(runPos.length).fill(0.0),
             maximumHeights: runMax,
-            vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT
+            // POSITION-only: the appearance is flat/unlit, so normals would be
+            // computed and uploaded for nothing.
+            vertexFormat: Cesium.PerInstanceColorAppearance.FLAT_VERTEX_FORMAT
           }),
           attributes: {
             color: Cesium.ColorGeometryInstanceAttribute.fromColor(colorLut[runBucket] || colorLut[0])
@@ -1191,9 +1267,9 @@ class GSRGlobeManager {
       runPos = runMax = null;
     };
 
-    for (let i = 0; i < drawPoints.length - 1; i++) {
-      const p1 = drawPoints[i];
-      const p2 = drawPoints[i + 1];
+    for (let i = 0; i < wallPts.length - 1; i++) {
+      const p1 = wallPts[i];
+      const p2 = wallPts[i + 1];
 
       // Time gap (paused / lost fix > 15 s) breaks both the wall run and the
       // ground line.
@@ -1209,7 +1285,7 @@ class GSRGlobeManager {
       const h2 = heightAt(p2.origIdx);
 
       groundPositions.push(positions[i]);
-      if (i === drawPoints.length - 2) groundPositions.push(positions[i + 1]);
+      if (i === wallPts.length - 2) groundPositions.push(positions[i + 1]);
 
       if (runPos && bucket === runBucket) {
         // extend the current run — positions[i] is already its last vertex
