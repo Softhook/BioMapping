@@ -96,6 +96,7 @@ test('public API the page depends on is present', () => {
   const proto = GSRGlobeManager.prototype;
   for (const method of [
     'renderData', 'destroy', 'setColoringMetric', 'setExtrusionScale', 'togglePeaks',
+    'toggleHotspots', 'toggleLabels', 'toggleClusters',
     'setBasemap', 'toggle3DBuildings', 'apply3DBuildingStyle', 'toggle3DRf',
     'flyToTrack', 'toggleOrbit', 'setViewPerspective', 'resetNorth',
     'setScrubPosition', 'onPeakClick',
@@ -480,6 +481,90 @@ test('a LEFT_CLICK on a peak spire reports its analyzer.peaks index to onPeakCli
 
   mgr.destroy();
   assert.strictEqual(handler.destroyed, true, 'canvas handler torn down with the manager');
+});
+
+// ── Panel-header layer parity with the 2D map (hotspots / labels / clusters) ─
+
+/** A 2-point analysed track with peaks/hotspots at known coords. */
+function parityTrack() {
+  const peaks = [
+    { index: 0, label: 'Church',  qualityScore: 0.9, amplitude: 1 },
+    { index: 1, label: '',        qualityScore: 0.9, amplitude: 2 },
+  ];
+  const analyzer = {
+    raw: [{}, {}],
+    phasic: [{ val: 0.2 }, { val: 0.8 }],
+    peaks,
+    memorableEvents: [peaks[1]], // a hotspot IS a peak (same object, as in analyzer.js)
+    getCoordinates: (i) => ({ lat: i * 0.001, lon: i * 0.001 }),
+  };
+  const drawPoints = [
+    { lat: 0, lon: 0, time: 0, origIdx: 0 },
+    { lat: 0.001, lon: 0.001, time: 1, origIdx: 1 },
+  ];
+  return { analyzer, drawPoints };
+}
+
+test('renderData draws memorable-event hotspots; toggleHotspots(false) clears them', () => {
+  freshEnv();
+  installWallCapture();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  mgr.flyToTrack = () => {};
+  const { analyzer, drawPoints } = parityTrack();
+
+  mgr.renderData(analyzer, {}, { drawPoints, isPreview: true });
+  assert.ok(mgr.hotspotEntities.length > 0, 'a hotspot spire + beacon was built');
+  assert.strictEqual(mgr.hotspotEntities[0]._biomapPeakIndex, 1, 'tagged with the analyzer.peaks index');
+
+  mgr.toggleHotspots(false);
+  assert.strictEqual(mgr.hotspotEntities.length, 0, 'hotspots cleared');
+
+  mgr.toggleHotspots(true);
+  assert.ok(mgr.hotspotEntities.length > 0, 'hotspots redrawn from the cached track');
+  mgr.destroy();
+});
+
+test('clusterPolygons handed in by the 2D view render as ground blobs; toggleClusters(false) clears', () => {
+  freshEnv();
+  installWallCapture();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  mgr.flyToTrack = () => {};
+  const { analyzer, drawPoints } = parityTrack();
+
+  const clusterPolygons = [
+    { ring: [[0, 0], [0, 0.002], [0.002, 0.002], [0.002, 0]], color: '#ff5252', fillOpacity: 0.3 },
+    { ring: [[1, 1]] }, // degenerate — skipped
+  ];
+  mgr.renderData(analyzer, {}, { drawPoints, clusterPolygons, isPreview: true });
+  assert.ok(mgr.clusterEntities.length > 0, 'the valid hull became fill + outline entities');
+  assert.strictEqual(mgr.currentClusterPolygons, clusterPolygons, 'hulls cached for a later toggle');
+
+  mgr.toggleClusters(false);
+  assert.strictEqual(mgr.clusterEntities.length, 0, 'cluster blobs cleared');
+  mgr.destroy();
+});
+
+test('toggleLabels(true) with spires off keeps only the labelled peaks on screen', () => {
+  freshEnv();
+  installWallCapture();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  mgr.flyToTrack = () => {};
+  const { analyzer, drawPoints } = parityTrack();
+
+  mgr.renderData(analyzer, {}, { drawPoints, isPreview: true });
+  const bothOn = mgr.peakEntities.length; // 2 peaks × (spire + beacon) = 4
+
+  mgr.togglePeaks(false);
+  // labels still on → the one labelled peak survives (spire + beacon = 2)
+  assert.ok(mgr.peakEntities.length > 0 && mgr.peakEntities.length < bothOn,
+    `only labelled peak kept: ${mgr.peakEntities.length} of ${bothOn}`);
+
+  mgr.toggleLabels(false);
+  assert.strictEqual(mgr.peakEntities.length, 0, 'spires off + labels off → nothing');
+  mgr.destroy();
 });
 
 // ── Scrub-hover (3D track -> host) + follow-cam ─────────────────────────────

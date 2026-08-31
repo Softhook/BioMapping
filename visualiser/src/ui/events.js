@@ -931,8 +931,21 @@ const GSREvents = {
 
     const setSurface = (target) => {
       if (AppState.surfaceView === target) return;
-      AppState.surfaceView = target;
       const toGlobe = target === 'globe';
+
+      // The switcher lives in each panel's header, so it can be clicked while
+      // that panel is in its own fullscreen overlay. Carry the fullscreen over
+      // to the incoming surface instead of dropping out of it: exit the
+      // outgoing panel's fullscreen, do the swap, then re-enter fullscreen on
+      // the new one. (Only the visible surface panel can be fullscreen when
+      // this switcher is reachable, so no other panel needs handling.)
+      const LM = (typeof GSRLayoutManager !== 'undefined') ? GSRLayoutManager : null;
+      const outPanelId = toGlobe ? 'mapPanel' : 'globe3dPanel';
+      const inPanelId  = toGlobe ? 'globe3dPanel' : 'mapPanel';
+      const keepFullscreen = !!(LM && LM.isPanelFullscreen && LM.isPanelFullscreen(outPanelId));
+      if (keepFullscreen) LM.setPanelFullscreen(outPanelId, false);
+
+      AppState.surfaceView = target;
       tabs.forEach(t => t.classList.toggle('active', t.dataset.surface === target));
       show(globePanel, toGlobe);
       show(mapPanel, !toGlobe);
@@ -942,6 +955,9 @@ const GSREvents = {
         if (toGlobe) GSRGlobe3DView.activate();
         else GSRGlobe3DView.deactivate();
       }
+
+      if (keepFullscreen) LM.setPanelFullscreen(inPanelId, true);
+
       if (!toGlobe && AppState.mapManager && AppState.mapManager.map) {
         setTimeout(() => AppState.mapManager.map.invalidateSize(), 80);
       }

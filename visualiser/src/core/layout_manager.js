@@ -267,6 +267,29 @@ const GSRLayoutManager = {
         exit();
       }
     });
+
+    // Expose enter/exit + live state so the surface switcher can carry a panel
+    // fullscreen across a 2D⇄3D swap (see setPanelFullscreen).
+    this._panelFs = this._panelFs || {};
+    this._panelFs[panelId] = { enter, exit, get active() { return isFs; } };
+  },
+
+  /** True while `panelId` is in its own fullscreen overlay. */
+  isPanelFullscreen(panelId) {
+    return !!(this._panelFs && this._panelFs[panelId] && this._panelFs[panelId].active);
+  },
+
+  /**
+   * Programmatically enter/exit one panel's fullscreen — same effect as its
+   * header expand button. Used by the surface switcher to keep fullscreen when
+   * swapping the 2D map for the 3D globe. No-op if the panel isn't registered
+   * or is already in the requested state.
+   */
+  setPanelFullscreen(panelId, on) {
+    const p = this._panelFs && this._panelFs[panelId];
+    if (!p) return;
+    if (on && !p.active) p.enter();
+    else if (!on && p.active) p.exit();
   },
 
   /**

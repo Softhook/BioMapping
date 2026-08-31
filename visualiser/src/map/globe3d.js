@@ -151,11 +151,21 @@ class GSRGlobeManager {
     this.showPeaks = true;
     this.minPeakQuality = 0.0;
     this.showGroundPath = true;
+    // Panel-header layer toggles that mirror the 2D map's. Hotspots are
+    // analyzer.memorableEvents (same set the flat map dots use); cluster blobs
+    // are the 2D map's already-computed concave hulls, handed in via
+    // renderData({ clusterPolygons }) so the 2D view stays the source of truth.
+    this.showHotspots = true;
+    this.showLabels = true;
+    this.showClusters = true;
+    this.currentClusterPolygons = [];
 
     // Entity / primitive collections
     this.trackEntities = [];
     this.wallPrimitive = null;
     this.peakEntities = [];
+    this.hotspotEntities = [];
+    this.clusterEntities = [];
     this.osmBuildingEntities = [];
     this.scrubEntity = null;
     this.buildingsTileset = null;
@@ -1033,12 +1043,17 @@ class GSRGlobeManager {
    * @param {Array}   [opts.drawPoints]  Display points from the host (the exact
    *                                     array the 2D map drew). Required — at least
    *                                     2 points, or nothing renders.
+   * @param {Array}   [opts.clusterPolygons]  Spatial-cluster hulls the 2D map has
+   *                                     already computed — [{ ring:[[lat,lon],…],
+   *                                     color, fillOpacity }]. Drawn as ground
+   *                                     blobs when the Clusters toggle is on.
    * @param {boolean} [opts.isPreview=false]  Suppress the initial fly-to-track.
    */
   renderData(analyzer, gpsParams, opts = {}) {
     if (!this.viewer || !analyzer || !analyzer.raw || analyzer.raw.length === 0) return;
 
-    const { drawPoints: providedDrawPoints, isPreview = false, colorMetric, colorRange } = opts;
+    const { drawPoints: providedDrawPoints, isPreview = false, colorMetric, colorRange, clusterPolygons } = opts;
+    this.currentClusterPolygons = Array.isArray(clusterPolygons) ? clusterPolygons : [];
 
     if (colorMetric) this.activeColoringMetric = colorMetric;
     this.externalColorRange =
@@ -1060,12 +1075,22 @@ class GSRGlobeManager {
     // Clear everything from any previous track (peaks/RF leaked before)
     this.clearTrackEntities();
     this.clearPeakEntities();
+    this.clearHotspotEntities();
+    this.clearClusterEntities();
     this.clearRfEntities();
 
     this._render3DWallAndPath(analyzer, drawPoints);
 
-    if (this.showPeaks) {
+    if (this.showPeaks || this.showLabels) {
       this._renderPeakSpires(analyzer, this.currentPeaks);
+    }
+
+    if (this.showHotspots) {
+      this._renderHotspots(analyzer);
+    }
+
+    if (this.showClusters) {
+      this._renderClusterBlobs();
     }
 
     if (this.showRfVolumetric) {
@@ -1335,6 +1360,7 @@ class GSRGlobeManager {
    */
   _renderPeakSpires(analyzer, peaks) {
     if (!peaks || peaks.length === 0) return;
+    if (!this.showPeaks && !this.showLabels) return;
 
     const metric = this.activeColoringMetric;
     const heightMetric = HEIGHT_CAPABLE_METRICS.has(metric) ? metric : this.heightMetric;
@@ -1344,6 +1370,15 @@ class GSRGlobeManager {
 
     peaks.forEach((peak, i) => {
       if (peak.qualityScore < this.minPeakQuality) return;
+
+      // Only labelled peaks get floating text — an unlabelled peak is just its
+      // spire + beacon (click it to add a label).
+      const labelText = (peak.label && peak.label.trim()) ? peak.label.trim() : '';
+
+      // With spires off, the "Labels" toggle still keeps labelled peaks on
+      // screen — the 2D map does the same (a labelled marker survives turning
+      // "Peaks" off).
+      if (!this.showPeaks && !(this.showLabels && labelText)) return;
 
       // Index into analyzer.peaks (NOT the filtered `peaks` arg) — this is what
       // GSRUI.updatePeakLabel()/togglePeakExclusion() expect, and what the
@@ -1355,10 +1390,6 @@ class GSRGlobeManager {
       if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
       const lat = coords.lat;
       const lon = coords.lon;
-
-      // Only labelled peaks get floating text — an unlabelled peak is just its
-      // spire + beacon (click it to add a label).
-      const labelText = (peak.label && peak.label.trim()) ? peak.label.trim() : '';
 
       const val = heightSeries[peak.index] ?? peak.amplitude;
       const wallHeight = this.baseHeight + Math.max(0, val) * this.extrusionScale;
@@ -1398,7 +1429,7 @@ class GSRGlobeManager {
           outlineWidth: 2,
           disableDepthTestDistance: Number.POSITIVE_INFINITY
         },
-        label: labelText ? {
+        label: (labelText && this.showLabels) ? {
           text: labelText,
           font: '600 14px Inter, "Helvetica Neue", Arial, sans-serif',
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
@@ -1413,6 +1444,103 @@ class GSRGlobeManager {
       });
       beaconEntity._biomapPeakIndex = peakIdx;
       this.peakEntities.push(beaconEntity);
+    });
+  }
+
+  /**
+   * Render the "memorable event" hotspots — analyzer.memorableEvents, the same
+   * amplitude-selected subset the 2D map draws as distinct red dots. Each gets a
+   * tall red glow spire + beacon that sits above the regular peak spire, and is
+   * click-tagged with its analyzer.peaks index so the label popup opens from it
+   * too (a hotspot IS a peak).
+   */
+  _renderHotspots(analyzer) {
+    const events = analyzer && analyzer.memorableEvents;
+    if (!events || events.length === 0 || !this.viewer) return;
+
+    const metric = this.activeColoringMetric;
+    const heightMetric = HEIGHT_CAPABLE_METRICS.has(metric) ? metric : this.heightMetric;
+    const heightSeries = this._getMetricSeries(analyzer, heightMetric);
+    const allPeaks = analyzer.peaks || [];
+    const hotColor = Cesium.Color.fromCssColorString('#ff2d55');
+
+    events.forEach(peak => {
+      const coords = analyzer.getCoordinates(peak.index);
+      if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
+
+      const peakIdx = allPeaks.indexOf(peak);
+      const val = heightSeries[peak.index] ?? peak.amplitude ?? 0;
+      const wallHeight = this.baseHeight + Math.max(0, val) * this.extrusionScale;
+      const tipHeight = wallHeight + 26.0; // clears the regular peak beacon
+
+      const basePos = Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat, 0);
+      const topPos = Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat, tipHeight);
+
+      const spire = this.viewer.entities.add({
+        name: 'Hotspot',
+        polyline: {
+          positions: [basePos, topPos],
+          width: 4.0,
+          material: new Cesium.PolylineGlowMaterialProperty({ glowPower: 0.5, color: hotColor })
+        }
+      });
+      spire._biomapPeakIndex = peakIdx;
+      this.hotspotEntities.push(spire);
+
+      const beacon = this.viewer.entities.add({
+        position: topPos,
+        point: {
+          pixelSize: 18,
+          color: hotColor.withAlpha(0.95),
+          outlineColor: Cesium.Color.WHITE,
+          outlineWidth: 3,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY
+        }
+      });
+      beacon._biomapPeakIndex = peakIdx;
+      this.hotspotEntities.push(beacon);
+    });
+  }
+
+  /**
+   * Draw the 2D map's spatial-cluster hulls as translucent ground blobs. The
+   * hulls are computed by the 2D view (GSRSpatialClustering, driven by the
+   * sidebar sliders) and handed in via renderData({ clusterPolygons }) so the
+   * two surfaces can't drift — this class only rasterises them.
+   */
+  _renderClusterBlobs() {
+    const polys = this.currentClusterPolygons || [];
+    if (!polys.length || !this.viewer) return;
+
+    polys.forEach(poly => {
+      const ring = (poly && poly.ring) || [];
+      if (ring.length < 3) return;
+
+      const flat = [];
+      for (let i = 0; i < ring.length; i++) { flat.push(ring[i][1], ring[i][0]); } // [lat,lon] -> lon,lat
+      const positions = Cesium.Cartesian3.fromDegreesArray(flat);
+      const baseColor = Cesium.Color.fromCssColorString(poly.color || '#ff5252');
+      const fillAlpha = (poly.fillOpacity != null) ? poly.fillOpacity : 0.25;
+
+      const fillEnt = this.viewer.entities.add({
+        name: 'Stress cluster',
+        polygon: {
+          hierarchy: new Cesium.PolygonHierarchy(positions),
+          material: baseColor.withAlpha(fillAlpha),
+          classificationType: Cesium.ClassificationType.BOTH
+        }
+      });
+      this.clusterEntities.push(fillEnt);
+
+      const outlineEnt = this.viewer.entities.add({
+        polyline: {
+          positions: positions.concat([positions[0]]),
+          width: 2.0,
+          material: new Cesium.PolylineDashMaterialProperty({ color: baseColor.withAlpha(0.9), dashLength: 12.0 }),
+          clampToGround: true
+        }
+      });
+      this.clusterEntities.push(outlineEnt);
     });
   }
 
@@ -1432,15 +1560,19 @@ class GSRGlobeManager {
     return [];
   }
 
-  /** Re-draw the wall (and, if shown, the peak spires) from the cached track. */
+  /** Re-draw the wall + the peak/hotspot/cluster layers from the cached track. */
   _refreshTrack() {
     if (!this.currentAnalyzer || this.currentDrawPoints.length < 2) return;
     this.clearTrackEntities();
+    this.clearPeakEntities();
+    this.clearHotspotEntities();
+    this.clearClusterEntities();
     this._render3DWallAndPath(this.currentAnalyzer, this.currentDrawPoints);
-    if (this.showPeaks) {
-      this.clearPeakEntities();
+    if (this.showPeaks || this.showLabels) {
       this._renderPeakSpires(this.currentAnalyzer, this.currentPeaks);
     }
+    if (this.showHotspots) this._renderHotspots(this.currentAnalyzer);
+    if (this.showClusters) this._renderClusterBlobs();
     this._requestRender();
   }
 
@@ -1463,9 +1595,45 @@ class GSRGlobeManager {
     this.showPeaks = visible;
     this.minPeakQuality = minQuality;
     this.clearPeakEntities();
-    if (visible && this.currentAnalyzer) {
+    if ((this.showPeaks || this.showLabels) && this.currentAnalyzer) {
       this._renderPeakSpires(this.currentAnalyzer, this.currentPeaks);
     }
+    this._requestRender();
+  }
+
+  /**
+   * Toggle the floating peak labels. With spires off, this still keeps the
+   * labelled peaks on screen (same as the 2D map's "Labels" toggle).
+   */
+  toggleLabels(visible) {
+    this.showLabels = visible;
+    this.clearPeakEntities();
+    if ((this.showPeaks || this.showLabels) && this.currentAnalyzer) {
+      this._renderPeakSpires(this.currentAnalyzer, this.currentPeaks);
+    }
+    this._requestRender();
+  }
+
+  /**
+   * Toggle the memorable-event hotspot markers (analyzer.memorableEvents).
+   */
+  toggleHotspots(visible) {
+    this.showHotspots = visible;
+    this.clearHotspotEntities();
+    if (visible && this.currentAnalyzer) {
+      this._renderHotspots(this.currentAnalyzer);
+    }
+    this._requestRender();
+  }
+
+  /**
+   * Toggle the spatial-cluster ground blobs (hulls handed in by the 2D view via
+   * renderData({ clusterPolygons })).
+   */
+  toggleClusters(visible) {
+    this.showClusters = visible;
+    this.clearClusterEntities();
+    if (visible) this._renderClusterBlobs();
     this._requestRender();
   }
 
@@ -1489,12 +1657,28 @@ class GSRGlobeManager {
     this.peakEntities = [];
   }
 
+  /** Clear the memorable-event hotspot entities. */
+  clearHotspotEntities() {
+    if (!this.viewer) return;
+    this.hotspotEntities.forEach(ent => this.viewer.entities.remove(ent));
+    this.hotspotEntities = [];
+  }
+
+  /** Clear the spatial-cluster ground-blob entities. */
+  clearClusterEntities() {
+    if (!this.viewer) return;
+    this.clusterEntities.forEach(ent => this.viewer.entities.remove(ent));
+    this.clusterEntities = [];
+  }
+
   /**
    * Clear all entities
    */
   clearAll() {
     this.clearTrackEntities();
     this.clearPeakEntities();
+    this.clearHotspotEntities();
+    this.clearClusterEntities();
     this.clearOsmBuildingEntities();
     this.clearRfEntities();
     if (this.scrubEntity) this.scrubEntity.show = false;

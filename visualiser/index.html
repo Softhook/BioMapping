@@ -938,9 +938,20 @@
               </div>
               <span class="control-divider"></span>
               <div class="btn-group">
+                <button class="btn btn-outline active" id="btnGlobe3dRf" title="Toggle the RF field (shared on/off + band with the 2D map)">RF</button>
                 <button class="btn btn-outline active" id="btnGlobe3dPeaks" title="Toggle peak spires">Peaks</button>
+                <button class="btn btn-outline active" id="btnGlobe3dHotspots" title="Toggle memorable-event markers">Hotspots</button>
+                <button class="btn btn-outline active" id="btnGlobe3dLabels" title="Toggle peak labels">Labels</button>
+                <button class="btn btn-outline active" id="btnGlobe3dClusters" title="Toggle spatial cluster blobs">Clusters</button>
               </div>
               <span class="control-divider"></span>
+              <select id="globe3dRfMode" class="select-control btn btn-outline" style="width: auto; min-width: 100px;" title="3D RF field mode (kept in sync with the 3D settings panel)">
+                <option value="triband" selected>Tri-Band RGB</option>
+                <option value="815">815 MHz (LTE)</option>
+                <option value="868">868 MHz (Grid)</option>
+                <option value="915">915 MHz (ISM)</option>
+                <option value="fog">EM Fog</option>
+              </select>
               <select id="globe3dColoringMetric" class="select-control btn btn-outline" style="width: auto; min-width: 130px;" title="Colour metric (kept in sync with the 2D map)">
                 <option value="gsr">GSR Arousal</option>
                 <option value="phasic">Phasic</option>

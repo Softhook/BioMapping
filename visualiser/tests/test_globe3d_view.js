@@ -105,11 +105,42 @@ test('surface switcher swaps map/globe panels and their sidebar cards', () => {
   assert.ok(!vis(window, 'mapDisplayCard'), 'map display card hidden in 3D');
   assert.ok(btnGlobe.classList.contains('active'));
 
-  // panel-header mirrors the map: metric picker + fullscreen + zoom + peaks
-  for (const id of ['globe3dColoringMetric', 'btnGlobe3dFullscreen', 'btnGlobe3dZoomIn',
-                    'btnGlobe3dZoomOut', 'btnGlobe3dZoomExtent', 'btnGlobe3dPeaks']) {
+  // panel-header mirrors the 2D map: zoom + RF + Peaks/Hotspots/Labels/Clusters
+  // + RF-mode + colour-metric + fullscreen
+  for (const id of ['globe3dColoringMetric', 'globe3dRfMode', 'btnGlobe3dFullscreen',
+                    'btnGlobe3dZoomIn', 'btnGlobe3dZoomOut', 'btnGlobe3dZoomExtent',
+                    'btnGlobe3dRf', 'btnGlobe3dPeaks', 'btnGlobe3dHotspots',
+                    'btnGlobe3dLabels', 'btnGlobe3dClusters']) {
     assert.ok(window.document.getElementById(id), `missing panel-header control #${id}`);
   }
+
+  // the layer toggles are shared with the 2D map header — a 3D click drives the
+  // matching 2D button, and both classes stay in lock-step.
+  const pairs = [
+    ['btnGlobe3dHotspots', 'btnToggleMapHotspots'],
+    ['btnGlobe3dLabels',   'btnToggleMapLabels'],
+    ['btnGlobe3dClusters', 'btnToggleMapClusters'],
+  ];
+  for (const [id3d, id2d] of pairs) {
+    const b3 = window.document.getElementById(id3d);
+    const b2 = window.document.getElementById(id2d);
+    assert.strictEqual(b3.classList.contains('active'), b2.classList.contains('active'),
+      `#${id3d} starts in step with #${id2d}`);
+    const was = b3.classList.contains('active');
+    assert.doesNotThrow(() => b3.click());
+    assert.strictEqual(b3.classList.contains('active'), !was, `#${id3d} toggled`);
+    assert.strictEqual(b2.classList.contains('active'), !was, `#${id2d} followed`);
+  }
+
+  // the header RF button is shared with the 2D map's #btnToggleRFFluid
+  const btnRf = window.document.getElementById('btnGlobe3dRf');
+  const rf2d = window.document.getElementById('btnToggleRFFluid');
+  assert.strictEqual(btnRf.classList.contains('active'), rf2d.classList.contains('active'),
+    'RF starts in step with the 2D map');
+  const rfWas = btnRf.classList.contains('active');
+  assert.doesNotThrow(() => btnRf.click());
+  assert.strictEqual(btnRf.classList.contains('active'), !rfWas, 'RF button toggled');
+  assert.strictEqual(rf2d.classList.contains('active'), !rfWas, '2D RF button followed');
 
   // → back to 2D
   assert.doesNotThrow(() => btnMap.click());
@@ -118,6 +149,56 @@ test('surface switcher swaps map/globe panels and their sidebar cards', () => {
   assert.ok(!vis(window, 'globe3dPanel'));
   assert.ok(vis(window, 'mapDisplayCard'));
   assert.ok(!vis(window, 'globe3dSettingsCard'));
+});
+
+test('switching surface while fullscreen carries the fullscreen to the other surface', () => {
+  const { window } = bootApp();
+  window.setup();
+  const doc = window.document;
+
+  const btnGlobe = doc.getElementById('btnGlobeSurface');
+  const btnMap = doc.getElementById('btnMapSurface');
+  const globeFsBtn = doc.getElementById('btnGlobe3dFullscreen');
+  const mapFsBtn = doc.getElementById('btnMapFullscreen');
+  const globePanel = doc.getElementById('globe3dPanel');
+  const mapPanel = doc.getElementById('mapPanel');
+  const globeHome = globePanel.parentNode;
+  const mapHome = mapPanel.parentNode;
+
+  btnGlobe.click();                         // → 3D globe
+  assert.doesNotThrow(() => globeFsBtn.click()); // → panel fullscreen
+  assert.strictEqual(globePanel.parentNode.className, 'panel-fullscreen-overlay');
+  assert.ok(globeFsBtn.classList.contains('is-fullscreen'));
+
+  // clicking "2D Map" from inside the overlay: still fullscreen, now the map
+  assert.doesNotThrow(() => btnMap.click());
+  assert.strictEqual(window.AppState.surfaceView, 'map');
+  assert.strictEqual(globePanel.parentNode, globeHome, 'globe panel returned home');
+  assert.ok(!globeFsBtn.classList.contains('is-fullscreen'), 'globe fullscreen button reset');
+  assert.strictEqual(mapPanel.parentNode.className, 'panel-fullscreen-overlay', 'map panel now fullscreen');
+  assert.ok(mapFsBtn.classList.contains('is-fullscreen'), 'map fullscreen button lit');
+  assert.ok(vis(window, 'mapPanel') && !vis(window, 'globe3dPanel'));
+
+  // and back again — fullscreen stays, now on the globe
+  assert.doesNotThrow(() => btnGlobe.click());
+  assert.strictEqual(mapPanel.parentNode, mapHome, 'map panel returned home');
+  assert.ok(!mapFsBtn.classList.contains('is-fullscreen'), 'map fullscreen button reset');
+  assert.strictEqual(globePanel.parentNode.className, 'panel-fullscreen-overlay', 'globe panel fullscreen again');
+  assert.ok(globeFsBtn.classList.contains('is-fullscreen'));
+
+  // exiting fullscreen from the globe button leaves exactly nothing behind
+  assert.doesNotThrow(() => globeFsBtn.click());
+  assert.strictEqual(doc.querySelector('.panel-fullscreen-overlay'), null, 'no overlay left');
+  assert.strictEqual(globePanel.parentNode, globeHome);
+});
+
+test('switching surface when NOT fullscreen leaves no overlay behind', () => {
+  const { window } = bootApp();
+  window.setup();
+  const doc = window.document;
+  doc.getElementById('btnGlobeSurface').click();
+  doc.getElementById('btnMapSurface').click();
+  assert.strictEqual(doc.querySelector('.panel-fullscreen-overlay'), null);
 });
 
 test('globe panel metric picker proxies #mapColoringMetric', () => {
