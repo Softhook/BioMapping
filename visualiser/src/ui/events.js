@@ -914,9 +914,11 @@ const GSREvents = {
    * src/map/globe3d_view.js.
    */
   bindSurfaceSwitcher() {
-    const btnMap   = document.getElementById('btnMapSurface');
-    const btnGlobe = document.getElementById('btnGlobeSurface');
-    if (!btnMap || !btnGlobe) return;
+    // Two identical switchers live in the #mapPanel and #globe3dPanel headers
+    // (only one panel is visible at a time). Bind them all by class and route
+    // through data-surface.
+    const tabs = Array.from(document.querySelectorAll('.surface-tab'));
+    if (!tabs.length) return;
 
     if (typeof GSRGlobe3DView !== 'undefined') GSRGlobe3DView.init();
 
@@ -927,32 +929,25 @@ const GSREvents = {
 
     const show = (el, on) => { if (el) el.style.display = on ? '' : 'none'; };
 
-    btnMap.addEventListener('click', () => {
-      if (AppState.surfaceView === 'map') return;
-      AppState.surfaceView = 'map';
-      btnMap.classList.add('active');
-      btnGlobe.classList.remove('active');
-      show(globePanel, false);
-      show(mapPanel, true);
-      show(globeCard, false);
-      show(mapCard, true);
-      if (typeof GSRGlobe3DView !== 'undefined') GSRGlobe3DView.deactivate();
-      if (AppState.mapManager && AppState.mapManager.map) {
+    const setSurface = (target) => {
+      if (AppState.surfaceView === target) return;
+      AppState.surfaceView = target;
+      const toGlobe = target === 'globe';
+      tabs.forEach(t => t.classList.toggle('active', t.dataset.surface === target));
+      show(globePanel, toGlobe);
+      show(mapPanel, !toGlobe);
+      show(globeCard, toGlobe);
+      show(mapCard, !toGlobe);
+      if (typeof GSRGlobe3DView !== 'undefined') {
+        if (toGlobe) GSRGlobe3DView.activate();
+        else GSRGlobe3DView.deactivate();
+      }
+      if (!toGlobe && AppState.mapManager && AppState.mapManager.map) {
         setTimeout(() => AppState.mapManager.map.invalidateSize(), 80);
       }
-    });
+    };
 
-    btnGlobe.addEventListener('click', () => {
-      if (AppState.surfaceView === 'globe') return;
-      AppState.surfaceView = 'globe';
-      btnGlobe.classList.add('active');
-      btnMap.classList.remove('active');
-      show(mapPanel, false);
-      show(globePanel, true);
-      show(mapCard, false);
-      show(globeCard, true);
-      if (typeof GSRGlobe3DView !== 'undefined') GSRGlobe3DView.activate();
-    });
+    tabs.forEach(t => t.addEventListener('click', () => setSurface(t.dataset.surface)));
   },
 
   /**

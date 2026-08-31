@@ -51,14 +51,6 @@
             <i class="fa-solid fa-layer-group"></i> Collective
           </button>
         </div>
-        <div class="view-switcher" id="surfaceSwitcher" title="Swap the map for the 3D globe (same data)">
-          <button class="view-tab active" id="btnMapSurface">
-            <i class="fa-solid fa-map-location-dot"></i> 2D Map
-          </button>
-          <button class="view-tab" id="btnGlobeSurface">
-            <i class="fa-solid fa-globe"></i> 3D Globe
-          </button>
-        </div>
         <button class="icon-btn fullscreen-btn" id="btnFullscreen" title="Full screen (F)">
           <i class="fa-solid fa-expand"></i>
         </button>
@@ -857,7 +849,17 @@
               <button class="icon-btn collapse-btn" id="btnMapCollapse" title="Collapse Panel">
                 <i class="fa-solid fa-chevron-down"></i>
               </button>
-              <h3><i class="fa-solid fa-map-location-dot"></i> Map Overlay</h3>
+              <!-- Surface switcher — the active view sits first; clicking the other
+                   swaps in its panel (whose header repeats this switcher, its own
+                   view first), so the two appear to trade places. -->
+              <div class="view-switcher surface-switcher" title="Swap the map for the 3D globe (same data)">
+                <button class="view-tab surface-tab active" id="btnMapSurface" data-surface="map">
+                  <i class="fa-solid fa-map-location-dot"></i> 2D Map
+                </button>
+                <button class="view-tab surface-tab" id="btnGlobeSurface" data-surface="globe">
+                  <i class="fa-solid fa-globe"></i> 3D Globe
+                </button>
+              </div>
             </div>
             <div class="canvas-controls">
               <div class="btn-group">
@@ -918,7 +920,15 @@
               <button class="icon-btn collapse-btn" id="btnGlobe3dCollapse" title="Collapse Panel">
                 <i class="fa-solid fa-chevron-down"></i>
               </button>
-              <h3><i class="fa-solid fa-globe"></i> 3D Globe</h3>
+              <!-- Same switcher as #mapPanel, 3D Globe first since it is the active view here. -->
+              <div class="view-switcher surface-switcher" title="Swap the map for the 3D globe (same data)">
+                <button class="view-tab surface-tab active" id="btnGlobeSurface2" data-surface="globe">
+                  <i class="fa-solid fa-globe"></i> 3D Globe
+                </button>
+                <button class="view-tab surface-tab" id="btnMapSurface2" data-surface="map">
+                  <i class="fa-solid fa-map-location-dot"></i> 2D Map
+                </button>
+              </div>
             </div>
             <div class="canvas-controls">
               <div class="btn-group">
