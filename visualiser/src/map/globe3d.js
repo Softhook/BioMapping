@@ -108,6 +108,8 @@ class GSRGlobeManager {
    *   embedded panel.
    * @param {number}  [options.resolutionScale=1.2]     canvas render-resolution
    *   multiplier on top of devicePixelRatio (see initViewer).
+   * @param {number}  [options.orbitResolutionScale=0.85]  render-resolution
+   *   multiplier while the 360° turntable orbit runs (restored on stop).
    */
   constructor(containerId, options = {}) {
     this.containerId = containerId;
@@ -137,6 +139,10 @@ class GSRGlobeManager {
     // change, and that one-frame stall at the start/end of a gesture read as
     // clunkier than just holding a fixed resolution.
     this._resolutionScale = options.resolutionScale > 0 ? options.resolutionScale : 1.2;
+    // The 360° turntable is continuous motion for its whole duration — render it
+    // softer while it runs (restored in stopOrbit). One resolutionScale write
+    // per orbit session, not per frame, so no drawing-buffer thrash.
+    this._orbitResolutionScale = options.orbitResolutionScale > 0 ? options.orbitResolutionScale : 0.85;
 
     // Active track data cache
     this.currentAnalyzer = null;
@@ -1780,6 +1786,10 @@ class GSRGlobeManager {
   startOrbit() {
     if (!this.viewer || this.currentDrawPoints.length === 0 || this._isOrbiting) return;
 
+    // Render the spin a little softer so it stays smooth on slower GPUs;
+    // stopOrbit() puts it back. See _orbitResolutionScale.
+    this.viewer.resolutionScale = this._orbitResolutionScale;
+
     const coords = this.currentDrawPoints.map(p => Cesium.Cartographic.fromDegrees(p.lon, p.lat));
     const rectangle = Cesium.Rectangle.fromCartographicArray(coords);
     const centerCartographic = Cesium.Rectangle.center(rectangle);
@@ -1822,8 +1832,12 @@ class GSRGlobeManager {
     }
     this.viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
     this._isOrbiting = false;
-    // Back to render-on-demand (no-op when this host runs continuously anyway).
-    if (this.viewer) this.viewer.scene.requestRenderMode = this.requestRenderMode;
+    if (this.viewer) {
+      // Back to render-on-demand (no-op when this host runs continuously anyway)
+      // and back to the normal render resolution.
+      this.viewer.scene.requestRenderMode = this.requestRenderMode;
+      this.viewer.resolutionScale = this._resolutionScale;
+    }
   }
 
   // 3D track export (CZML / KML) lives in src/map/globe3d/exporters.js and is

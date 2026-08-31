@@ -247,6 +247,35 @@ test('resolutionScale option overrides the default; it is held constant (no per-
   mgr.destroy();
 });
 
+test('360° orbit lowers render resolution for its duration, restores the normal scale on stop', () => {
+  const { viewer } = freshEnv();
+  // startOrbit does a little geodesy — shim just the bits the auto-stub can't
+  // coerce to a number, leave the rest as stubs.
+  viewer.camera = { heading: 0, lookAt() {}, lookAtTransform() {} };
+  global.Cesium.Cartesian3 = { distance: () => 1000 };
+  global.Cesium.Math = { toRadians: (d) => (d * Math.PI) / 180 };
+  global.Cesium.HeadingPitchRange = function () {};
+
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', {
+    keyboardFlight: false, resolutionScale: 1.2, orbitResolutionScale: 0.8,
+  });
+  mgr.currentDrawPoints = [
+    { lon: 0, lat: 0, time: 0, origIdx: 0 },
+    { lon: 0.01, lat: 0.01, time: 1, origIdx: 1 },
+  ];
+  assert.strictEqual(viewer.resolutionScale, 1.2);
+
+  mgr.startOrbit();
+  assert.strictEqual(mgr._isOrbiting, true);
+  assert.strictEqual(viewer.resolutionScale, 0.8, 'orbit runs at the lower scale');
+
+  mgr.stopOrbit();
+  assert.strictEqual(mgr._isOrbiting, false);
+  assert.strictEqual(viewer.resolutionScale, 1.2, 'normal scale restored on stop');
+  mgr.destroy();
+});
+
 test('renderData needs host-supplied drawPoints — it never runs a GPS chain', () => {
   freshEnv();
   const { GSRGlobeManager } = loadFresh();
