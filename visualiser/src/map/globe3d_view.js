@@ -27,15 +27,6 @@
 // node_modules/cesium/Build/Cesium visualiser/vendor/cesium (drop index.*).
 const CESIUM_BASE = 'vendor/cesium/';
 
-const METRIC_LABELS = {
-  gsr: 'GSR Arousal', phasic: 'Phasic Arousal (SCR)', tonic: 'Tonic Baseline (SCL)',
-  peakDensity: 'Peak Density', phasicAUC: 'Phasic AUC', arousalIndex: 'Arousal Index',
-  em_fog: 'EM Fog Index', hdopQuality: 'GPS Accuracy (HDOP)', roadClass: 'Road Class',
-  distMajorRoad: 'Dist to Road', inPark: 'In Park', greenPct: 'Green Space',
-  buildingDensity: 'Building Density', distWater: 'Dist to Water',
-  treeDensity: 'Tree Density', amenityCount: 'Amenity Count'
-};
-
 const GSRGlobe3DView = {
 
   manager: null,
@@ -63,9 +54,7 @@ const GSRGlobe3DView = {
       panel:        $('globe3dPanel'),
       container:    $('globe3dContainer'),
       status:       $('globe3dStatus'),
-      legendTitle:  $('g3dLegendTitle'),
-      legendMin:    $('g3dLegendMin'),
-      legendMax:    $('g3dLegendMax'),
+      legend:       $('g3dLegend'),
       // panel-header controls that mirror the 2D map panel
       metric:       $('globe3dColoringMetric'),
       rfModeHeader: $('globe3dRfMode'),
@@ -529,7 +518,6 @@ const GSRGlobe3DView = {
 
   async activate() {
     GSRGlobe3DView.isActive = true;
-    GSRGlobe3DView._setStatus('Loading 3D engine…');
 
     try {
       await GSRGlobe3DView._ensureCesium();
@@ -550,7 +538,6 @@ const GSRGlobe3DView = {
       });
       GSRGlobe3DView.manager.onPeakClick((peakIdx) => GSRGlobe3DView._editPeakLabel(peakIdx));
       GSRGlobe3DView.manager.onScrubHover((idx, ll) => GSRGlobe3DView._onScrubHover(idx, ll));
-      GSRGlobe3DView._watchImageryLoad();
     } else if (GSRGlobe3DView.manager.viewer) {
       GSRGlobe3DView.manager.viewer.useDefaultRenderLoop = true;
     }
@@ -570,31 +557,6 @@ const GSRGlobe3DView = {
       const v = GSRGlobe3DView.manager && GSRGlobe3DView.manager.viewer;
       if (v && v.scene && typeof v.scene.requestRender === 'function') v.scene.requestRender();
     }));
-  },
-
-  /**
-   * Keep a "Loading map imagery…" status up until the globe's tile queue first
-   * drains (or a hard 10s cap), so the initial blank/low-res globe reads as
-   * "working" rather than "broken".
-   */
-  _watchImageryLoad() {
-    const v = GSRGlobe3DView.manager && GSRGlobe3DView.manager.viewer;
-    const globe = v && v.scene && v.scene.globe;
-    if (!globe || !globe.tileLoadProgressEvent) { GSRGlobe3DView._setStatus(''); return; }
-
-    GSRGlobe3DView._setStatus('Loading map imagery…');
-    let done = false;
-    let remove = null;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      GSRGlobe3DView._setStatus('');
-      if (typeof remove === 'function') remove();
-    };
-    remove = globe.tileLoadProgressEvent.addEventListener((remaining) => {
-      if (remaining === 0) finish();
-    });
-    setTimeout(finish, 10000);
   },
 
   /**
@@ -687,16 +649,21 @@ const GSRGlobe3DView = {
       clusterPolygons,
       isPreview: !(opts.fly || trackChanged)
     });
-    GSRGlobe3DView._updateLegend(metric, colorRange);
+    GSRGlobe3DView._updateLegend(metric);
   },
 
   // ── Small UI bits ────────────────────────────────────────────────────────
 
-  _updateLegend(metric, range) {
+  _updateLegend(metric) {
     const els = GSRGlobe3DView.els;
-    if (els.legendTitle) els.legendTitle.textContent = METRIC_LABELS[metric] || metric;
-    if (els.legendMin && range && isFinite(range.min)) els.legendMin.textContent = (+range.min).toPrecision(3);
-    if (els.legendMax && range && isFinite(range.max)) els.legendMax.textContent = (+range.max).toPrecision(3);
+    const mm = (typeof AppState !== 'undefined') ? AppState.mapManager : null;
+
+    // Render the exact same legend the 2D map shows — title, gradient/swatches,
+    // formatted range, RF sub-legend and all (see GSRMapManager.buildLegendHtml).
+    if (els.legend && mm && typeof mm.buildLegendHtml === 'function') {
+      els.legend.innerHTML = mm.buildLegendHtml();
+    }
+
     // keep the panel-header metric picker in step with the 2D map
     if (els.metric && metric && els.metric.value !== metric) {
       const has = [...els.metric.options].some((o) => o.value === metric);

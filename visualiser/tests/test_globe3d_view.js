@@ -201,6 +201,33 @@ test('switching surface when NOT fullscreen leaves no overlay behind', () => {
   assert.strictEqual(doc.querySelector('.panel-fullscreen-overlay'), null);
 });
 
+test('the 3D globe legend renders the exact same markup as the 2D map legend', () => {
+  const { window } = bootApp();
+  window.setup();
+  const doc = window.document;
+  const mm = window.AppState.mapManager;
+
+  window.AppState.viewMode = 'single';
+  mm.activeColoringMetric = 'em_fog';
+  mm._legendMinVal = 10;
+  mm._legendMaxVal = 90;
+
+  window.GSRGlobe3DView._updateLegend('em_fog');
+
+  const g3d = doc.getElementById('g3dLegend').innerHTML;
+  assert.strictEqual(g3d, mm.buildLegendHtml(), '3D legend HTML is byte-for-byte the 2D legend');
+  assert.ok(g3d.includes('EM Fog Index (0-100)'), 'same title as the 2D map');
+  assert.ok(g3d.includes('10') && g3d.includes('90'), 'same formatted range');
+  assert.ok(doc.getElementById('g3dLegend').classList.contains('map-legend'), 'uses the 2D legend card style');
+});
+
+test('the "Loading 3D engine" / imagery status is gone', () => {
+  const src = fs.readFileSync(path.join(APP_DIR, 'src/map/globe3d_view.js'), 'utf8');
+  assert.ok(!/Loading 3D engine/.test(src), 'the loading-3D-engine text is gone');
+  assert.ok(!/Loading map imagery/.test(src), 'the loading-imagery text is gone');
+  assert.ok(!/_watchImageryLoad/.test(src), 'the imagery-load watcher is gone');
+});
+
 test('globe panel metric picker proxies #mapColoringMetric', () => {
   const { window } = bootApp();
   window.setup();

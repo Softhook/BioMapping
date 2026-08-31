@@ -151,7 +151,16 @@ class GSRMapManager {
     if (!this._legendControl) return;
     const el = this._legendControl.getContainer();
     if (!el) return;
+    el.innerHTML = this.buildLegendHtml();
+  }
 
+  /**
+   * Build the legend's inner HTML for the current coloring metric / data range /
+   * view mode. Split out of updateLegend() so the 3D globe can render the exact
+   * same legend (see globe3d_view.js _updateLegend).
+   * @returns {string}
+   */
+  buildLegendHtml() {
     const isCollective = (typeof AppState !== 'undefined' && AppState.viewMode === 'collective');
     let html = '';
 
@@ -353,7 +362,7 @@ class GSRMapManager {
       html += rfHtml;
     }
 
-    el.innerHTML = html;
+    return html;
   }
 
   /**

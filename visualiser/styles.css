@@ -2500,4 +2500,152 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: none !important;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   Embedded 3D globe panel
+   Only the bits the 3D surface adds to index.html: the Cesium mount, its
+   floating legend/status, the peak popup, and the "3D Globe Settings" sidebar
+   card widgets. The panel reuses .map-panel chrome (see #globe3dPanel) — page
+   chrome (sidebar, nav header) is the 2D workbench's, never redefined here.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Cesium mount ────────────────────────────────────────────────────────── */
+
+/* Mirror #map: a plain 100%-height block inside the flex-column .map-panel,
+   NOT a flex child — Cesium sizes its canvas to this element's box, so it has
+   to resolve to a real height on its own (a bare flex:1 came up short and only
+   the pole of the globe showed). */
+#globe3dContainer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 380px;
+  background: #0b0c10;
+  border-radius: 0 0 4px 4px;
+  overflow: hidden;
+}
+
+/* Pin Cesium's viewer/widget/canvas as an absolute overlay filling the
+   container. This is what keeps the globe the SAME height as #map: the <canvas>
+   is a replaced element with a large intrinsic (drawing-buffer) height, so left
+   in normal flow it inflates a height:auto container far past #map's 380px.
+   Out of flow, #globe3dContainer collapses to its own min-height, exactly like
+   #map (whose Leaflet panes have no intrinsic size). */
+#globe3dContainer > .cesium-viewer,
+#globe3dContainer .cesium-widget,
+#globe3dContainer .cesium-widget > canvas {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Cesium's own credit/scene-mode chrome clutters a small embedded panel. */
+#globe3dContainer .cesium-viewer-bottom { display: none; }
+
+/* Fill the panel-fullscreen overlay, same as #map does. */
+.panel-fullscreen-overlay #globe3dContainer {
+  min-height: 0 !important;
+  height: 100% !important;
+}
+
+.map-panel.collapsed #globe3dContainer {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+/* ── Floating status + legend over the globe ─────────────────────────────── */
+
+.globe3d-status {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 5;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(20, 22, 30, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* #g3dLegend also carries .map-legend for the white card look — the inner HTML
+   is GSRMapManager.buildLegendHtml(), identical to the 2D map. This rule only
+   parks that card in the globe container's bottom-right corner. */
+.globe3d-legend {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  z-index: 5;
+}
+
+/* ── Peak popup (same card as the 2D map's peak marker popup) ───────────── */
+/* GSRMapManager._buildPeakPopup() returns a .map-popup-card whose chrome
+   normally comes from Leaflet's .leaflet-popup-content-wrapper — reproduce
+   that here since there's no Leaflet popup wrapping it in the 3D view. */
+
+.globe3d-peak-popup {
+  position: absolute;
+  z-index: 6;
+  max-width: 300px;
+  padding: 12px 14px;
+  background: var(--bg-card, #fff);
+  color: var(--text-primary, #1a1a1a);
+  border: 1px solid var(--border-glass, #e0e0e0);
+  border-radius: 6px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+  font-family: var(--font-sans, -apple-system, system-ui, sans-serif);
+}
+
+.globe3d-peak-popup-close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.globe3d-peak-popup-close:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-primary, #1a1a1a);
+}
+
+.globe3d-peak-popup .map-popup-card { margin-right: 14px; }
+
+/* ── 3D Globe Settings card widgets ─────────────────────────────────────── */
+
+.g3d-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin: 8px 0 4px;
+}
+
+.g3d-check input { width: 15px; height: 15px; cursor: pointer; }
+
+.g3d-btn-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.g3d-btn-grid .btn {
+  padding: 6px 4px;
+  font-size: 0.74rem;
+}
+
 
