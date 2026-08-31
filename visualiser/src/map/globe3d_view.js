@@ -78,6 +78,7 @@ const GSRGlobe3DView = {
       rfOpacity:    $('g3dRfOpacity'),
       rfOpacityVal: $('g3dRfOpacityVal'),
       btnOrbit:     $('g3dBtnOrbit'),
+      btnTour:      $('g3dBtnTour'),
       btnPersp3D:   $('g3dBtnPersp3D'),
       btnPerspTop:  $('g3dBtnPerspTop'),
       btnPerspGround: $('g3dBtnPerspGround'),
@@ -241,12 +242,40 @@ const GSRGlobe3DView = {
     });
 
     if (els.btnOrbit)  els.btnOrbit.addEventListener('click', () => {
-      if (m()) els.btnOrbit.classList.toggle('active', m().toggleOrbit());
+      if (m()) {
+        const isOrbiting = m().toggleOrbit();
+        els.btnOrbit.classList.toggle('active', isOrbiting);
+        if (isOrbiting) GSRGlobe3DView._updateTourBtn(false);
+      }
     });
-    if (els.btnPersp3D)     els.btnPersp3D.addEventListener('click', () => { if (m()) m().setViewPerspective('3d'); });
-    if (els.btnPerspTop)    els.btnPerspTop.addEventListener('click', () => { if (m()) m().setViewPerspective('top'); });
-    if (els.btnPerspGround) els.btnPerspGround.addEventListener('click', () => { if (m()) m().setViewPerspective('ground'); });
+    if (els.btnTour) {
+      els.btnTour.addEventListener('click', () => {
+        if (m()) {
+          const isTouring = m().toggleTour();
+          GSRGlobe3DView._updateTourBtn(isTouring);
+          if (isTouring && els.btnOrbit) els.btnOrbit.classList.remove('active');
+        }
+      });
+    }
+    if (els.btnPersp3D)     els.btnPersp3D.addEventListener('click', () => {
+      if (m()) { m().setViewPerspective('3d'); GSRGlobe3DView._updateTourBtn(false); }
+    });
+    if (els.btnPerspTop)    els.btnPerspTop.addEventListener('click', () => {
+      if (m()) { m().setViewPerspective('top'); GSRGlobe3DView._updateTourBtn(false); }
+    });
+    if (els.btnPerspGround) els.btnPerspGround.addEventListener('click', () => {
+      if (m()) { m().setViewPerspective('ground'); GSRGlobe3DView._updateTourBtn(false); }
+    });
     if (els.btnNorth)  els.btnNorth.addEventListener('click', () => { if (m()) m().resetNorth(); });
+  },
+
+  _updateTourBtn(isTouring) {
+    const btn = GSRGlobe3DView.els.btnTour;
+    if (!btn) return;
+    btn.classList.toggle('active', !!isTouring);
+    btn.innerHTML = isTouring
+      ? '<i class="fa-solid fa-pause"></i> Pause'
+      : '<i class="fa-solid fa-route"></i> Tour';
   },
 
   /**
@@ -593,6 +622,18 @@ const GSRGlobe3DView = {
       });
       GSRGlobe3DView.manager.onPeakClick((peakIdx) => GSRGlobe3DView._editPeakLabel(peakIdx));
       GSRGlobe3DView.manager.onScrubHover((idx, ll) => GSRGlobe3DView._onScrubHover(idx, ll));
+      GSRGlobe3DView.manager.onTourStep((stepIdx, totalSteps, wp) => {
+        if (wp) {
+          GSRGlobe3DView._updateTourBtn(true);
+          if (typeof AppState !== 'undefined') {
+            AppState.hoveredIndex = wp.origIdx;
+            AppState.emit('scrub', { lat: wp.lat, lon: wp.lon, index: wp.origIdx, source: 'globe' });
+            if (typeof redraw === 'function') redraw();
+          }
+        } else {
+          GSRGlobe3DView._updateTourBtn(false);
+        }
+      });
     } else if (GSRGlobe3DView.manager.viewer) {
       GSRGlobe3DView.manager.viewer.useDefaultRenderLoop = true;
     }
@@ -643,9 +684,11 @@ const GSRGlobe3DView = {
     GSRGlobe3DView._lastScrubKey = null;
     const mgr = GSRGlobe3DView.manager;
     if (mgr) {
+      if (typeof mgr.stopTour === 'function') mgr.stopTour();
       mgr.setScrubPosition(NaN, NaN);
       mgr.releaseFollowScrub();
     }
+    GSRGlobe3DView._updateTourBtn(false);
     // Hand cursor ownership back to the graph if the 3D track had it.
     if (typeof AppState !== 'undefined' && AppState.scrubSource === 'globe') {
       AppState.scrubSource = null;

@@ -237,6 +237,13 @@ class GSRGlobeManager {
     // followScrub() / releaseFollowScrub()).
     this._followingScrub = false;
 
+    // Automated Track Tour state
+    this._isTouring = false;
+    this._tourStepTimeout = null;
+    this._tourStepIndex = 0;
+    this._tourWaypoints = [];
+    this._tourCallback = null;
+
     this.initViewer();
   }
 
@@ -630,6 +637,7 @@ class GSRGlobeManager {
    * the 3D view repeatedly (e.g. an index.html view tab).
    */
   destroy() {
+    this.stopTour();
     this.stopOrbit();
     this.releaseFollowScrub();
     this.clearAll();
@@ -728,6 +736,7 @@ class GSRGlobeManager {
    */
   setViewPerspective(mode) {
     if (!this.viewer) return;
+    this.stopTour();
     this._wakeRenderLoop();
     const camera = this.viewer.camera;
     let pitchDeg = -45.0;
@@ -1761,8 +1770,9 @@ class GSRGlobeManager {
    * Releases any active follow-cam lookAt transform first — flyToBoundingSphere
    * and a live lookAt fight each other and neither wins cleanly.
    */
-  flyToTrack() {
+  flyToTrack(stopTour = true) {
     if (!this.viewer || this.currentDrawPoints.length === 0) return;
+    if (stopTour) this.stopTour();
     // Drop the graph-scrub follow-cam before flying — a live lookAt transform
     // competes with flyToBoundingSphere and prevents the flight from landing.
     this.releaseFollowScrub();
@@ -1801,6 +1811,7 @@ class GSRGlobeManager {
 
   startOrbit() {
     if (!this.viewer || this.currentDrawPoints.length === 0 || this._isOrbiting) return;
+    this.stopTour();
 
     // Render the spin a little softer so it stays smooth on slower GPUs;
     // stopOrbit() puts it back. See _orbitResolutionScale.
@@ -1853,6 +1864,231 @@ class GSRGlobeManager {
       // and back to the normal render resolution.
       this.viewer.scene.requestRenderMode = this.requestRenderMode;
       this.viewer.resolutionScale = this._resolutionScale;
+    }
+  }
+
+  // ── Automated Sequential Track Tour ────────────────────────────────────────
+
+  /**
+   * Register a progress callback for the automated tour: (stepIndex, totalSteps, waypoint) => void
+   */
+  onTourStep(cb) {
+    this._tourCallback = typeof cb === 'function' ? cb : null;
+  }
+
+  /**
+   * Toggle automated sequential tour along the track
+   */
+  toggleTour() {
+    if (this._isTouring) {
+      this.stopTour();
+    } else {
+      this.startTour();
+    }
+    return this._isTouring;
+  }
+
+  /**
+   * Calculate forward azimuth/bearing (in degrees 0-360) from p1 to p2.
+   */
+  _calculateBearing(p1, p2) {
+    if (!p1 || !p2) return 0;
+    const toRad = (deg) => ((deg || 0) * Math.PI) / 180.0;
+    const toDeg = (rad) => (rad * 180.0) / Math.PI;
+    const lat1 = toRad(p1.lat);
+    const lat2 = toRad(p2.lat);
+    const dLon = toRad(p2.lon - p1.lon);
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+    const brg = toDeg(Math.atan2(y, x));
+    return (brg + 360.0) % 360.0;
+  }
+
+  /**
+   * Compute a sequence of tour waypoints along the track.
+   * Prioritizes track start/end, significant peaks/hotspots, and evenly distributed path steps.
+   */
+  _computeTourWaypoints() {
+    const pts = this.currentDrawPoints;
+    if (!pts || pts.length < 2) return [];
+
+    const heightSeries = this._getMetricSeries(this.currentAnalyzer, this.heightMetric || 'phasic');
+    const extScale = this.extrusionScale || 8.0;
+    const baseH = this.baseHeight || 2.0;
+
+    // Collect candidate indices along the track
+    const candidateIndices = new Set();
+    candidateIndices.add(0);
+    candidateIndices.add(pts.length - 1);
+
+    // Add peak indices
+    if (this.currentPeaks && this.currentPeaks.length > 0) {
+      this.currentPeaks.forEach(pk => {
+        if (pk && typeof pk.index === 'number') {
+          const matchIdx = pts.findIndex(p => p.origIdx === pk.index);
+          if (matchIdx !== -1) candidateIndices.add(matchIdx);
+        }
+      });
+    }
+
+    // Add evenly spaced samples (aiming for ~16-24 waypoints total)
+    const targetSteps = Math.min(24, Math.max(12, Math.floor(pts.length / 20)));
+    const stepSize = Math.max(1, Math.floor(pts.length / targetSteps));
+    for (let i = stepSize; i < pts.length - 1; i += stepSize) {
+      candidateIndices.add(i);
+    }
+
+    const sortedIndices = Array.from(candidateIndices).sort((a, b) => a - b);
+    const waypoints = [];
+
+    for (let i = 0; i < sortedIndices.length; i++) {
+      const idx = sortedIndices[i];
+      const p = pts[idx];
+      const nextIdx = (i < sortedIndices.length - 1) ? sortedIndices[i + 1] : Math.min(pts.length - 1, idx + 1);
+      const nextP = pts[nextIdx] || p;
+
+      // Bearing looking forward
+      let bearingDeg = this._calculateBearing(p, nextP);
+      if (idx === nextIdx && i > 0) {
+        const prevP = pts[sortedIndices[i - 1]];
+        bearingDeg = this._calculateBearing(prevP, p);
+      }
+
+      // GSR arousal height at this point
+      const rawVal = (p.origIdx != null && heightSeries) ? heightSeries[p.origIdx] : 0;
+      const gsrHeight = baseH + Math.max(0, seriesValue(rawVal)) * extScale;
+
+      waypoints.push({
+        index: i,
+        drawPointIndex: idx,
+        origIdx: p.origIdx,
+        lat: p.lat,
+        lon: p.lon,
+        time: p.time,
+        bearingDeg,
+        gsrHeight,
+        isPeak: (this.currentPeaks || []).some(pk => pk.index === p.origIdx)
+      });
+    }
+
+    return waypoints;
+  }
+
+  /**
+   * Start the automated sequential tour.
+   */
+  startTour() {
+    if (!this.viewer || !this.currentDrawPoints || this.currentDrawPoints.length < 2) return;
+    if (this._isOrbiting) this.stopOrbit();
+    this.releaseFollowScrub();
+
+    this._tourWaypoints = this._computeTourWaypoints();
+    if (this._tourWaypoints.length === 0) return;
+
+    this._isTouring = true;
+    this._tourStepIndex = 0;
+    this._wakeRenderLoop();
+
+    this._executeTourStep(0);
+  }
+
+  /**
+   * Execute a single tour step and schedule the next.
+   */
+  _executeTourStep(stepIdx) {
+    if (!this._isTouring || !this.viewer) return;
+    if (stepIdx >= this._tourWaypoints.length) {
+      // Tour reached the end - perform a smooth final overview flight and stop
+      this.flyToTrack(false);
+      this.stopTour();
+      return;
+    }
+
+    this._tourStepIndex = stepIdx;
+    const wp = this._tourWaypoints[stepIdx];
+
+    // Notify listeners (scrub sync / UI)
+    if (this._tourCallback) {
+      this._tourCallback(stepIdx, this._tourWaypoints.length, wp);
+    }
+    this.setScrubPosition(wp.lat, wp.lon);
+
+    // Forward-facing camera configuration:
+    // Placed slightly behind the point looking forward along the direction of travel,
+    // framed so the rising arousal wall is clearly visible.
+    const headingRad = (wp.bearingDeg * Math.PI) / 180.0;
+    const inverseHeadingRad = headingRad + Math.PI;
+
+    // Pitch: angled down (-20°) to capture the ground path and rising ribbon ahead
+    const pitchDeg = -20.0;
+    const pitchRad = (pitchDeg * Math.PI) / 180.0;
+
+    // Altitude & distance: dynamically adapt to the GSR wall height at this waypoint
+    // so high stress spikes are captured in their entirety without clipping.
+    const cameraDistance = Math.max(35.0, wp.gsrHeight * 1.8 + 20.0);
+    const altitudeOffset = Math.max(25.0, wp.gsrHeight * 1.4 + 18.0);
+
+    // Offset backwards along inverse heading in meters: distance * cos(pitch)
+    const backDistMeters = cameraDistance * Math.cos(Math.abs(pitchRad));
+    const latOffsetDeg = (backDistMeters * Math.cos(inverseHeadingRad)) / 111320.0;
+    const latRad = (wp.lat * Math.PI) / 180.0;
+    const lonOffsetDeg = (backDistMeters * Math.sin(inverseHeadingRad)) / (111320.0 * Math.max(0.1, Math.cos(latRad)));
+
+    const camLat = wp.lat + latOffsetDeg;
+    const camLon = wp.lon + lonOffsetDeg;
+
+    let terrainAlt = 0;
+    try {
+      if (this.viewer.scene && this.viewer.scene.globe && typeof this.viewer.scene.globe.getHeight === 'function') {
+        const carto = Cesium.Cartographic.fromDegrees(camLon, camLat);
+        const h = this.viewer.scene.globe.getHeight(carto);
+        if (typeof h === 'number' && isFinite(h)) terrainAlt = Math.max(0, h);
+      }
+    } catch (e) {}
+
+    const targetAltitude = terrainAlt + altitudeOffset;
+    const destination = Cesium.Cartesian3.fromDegrees(camLon, camLat, targetAltitude);
+
+    const flightDuration = stepIdx === 0 ? 1.8 : 1.4;
+
+    this.viewer.camera.flyTo({
+      destination: destination,
+      orientation: {
+        heading: headingRad,
+        pitch: pitchRad,
+        roll: 0.0
+      },
+      duration: flightDuration,
+      complete: () => {
+        if (!this._isTouring) return;
+        // Pause at each waypoint (longer pause on peaks/hotspots so user can observe)
+        const pauseMs = wp.isPeak ? 2200 : 1600;
+        this._tourStepTimeout = setTimeout(() => {
+          if (this._isTouring) {
+            this._executeTourStep(stepIdx + 1);
+          }
+        }, pauseMs);
+      },
+      cancel: () => {
+        if (this._isTouring) {
+          this.stopTour();
+        }
+      }
+    });
+  }
+
+  /**
+   * Stop tour playback and clear timers.
+   */
+  stopTour() {
+    if (this._tourStepTimeout) {
+      clearTimeout(this._tourStepTimeout);
+      this._tourStepTimeout = null;
+    }
+    const wasTouring = this._isTouring;
+    this._isTouring = false;
+    if (wasTouring && this._tourCallback) {
+      this._tourCallback(null, 0, null);
     }
   }
 

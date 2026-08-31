@@ -99,6 +99,7 @@ test('public API the page depends on is present', () => {
     'toggleHotspots', 'toggleLabels', 'toggleClusters',
     'setBasemap', 'toggle3DBuildings', 'apply3DBuildingStyle', 'toggle3DRf',
     'flyToTrack', 'toggleOrbit', 'setViewPerspective', 'resetNorth',
+    'startTour', 'stopTour', 'toggleTour', 'onTourStep',
     'setScrubPosition', 'onPeakClick',
   ]) {
     assert.strictEqual(typeof proto[method], 'function', `missing ${method}()`);
@@ -688,7 +689,14 @@ function scrubEnv() {
   };
   global.Cesium.Math = { toDegrees: (r) => r * 180 / Math.PI, toRadians: (d) => d * Math.PI / 180 };
   global.Cesium.Cartographic = {
-    fromCartesian: (c) => ({ latitude: c.lat * Math.PI / 180, longitude: c.lon * Math.PI / 180 }),
+    fromCartesian: (c) => ({ latitude: (c.lat || 0) * Math.PI / 180, longitude: (c.lon || 0) * Math.PI / 180 }),
+    fromDegrees: (lon, lat) => ({ latitude: (lat || 0) * Math.PI / 180, longitude: (lon || 0) * Math.PI / 180 }),
+    toCartesian: () => ({ x: 0, y: 0, z: 0 }),
+  };
+  global.Cesium.Rectangle = {
+    fromCartographicArray: () => ({}),
+    center: () => ({}),
+    northwest: () => ({}),
   };
   global.Cesium.Cartesian3 = {
     fromDegrees: (lon, lat) => ({ lon, lat }),
@@ -696,6 +704,7 @@ function scrubEnv() {
   };
   global.Cesium.Matrix4 = { IDENTITY: 'IDENTITY' };
   global.Cesium.HeadingPitchRange = function (h, p, r) { return { h, p, r }; };
+  global.Cesium.BoundingSphere = { fromPoints: () => ({ radius: 500 }) };
   // A real canvas spy on the (otherwise auto-stubbed) scene so the mouseleave
   // listener add/remove can be asserted.
   const canvasListeners = [];
@@ -714,6 +723,8 @@ function scrubEnv() {
     heading: 0, pitch: -0.6,
     lookAt() { this._lookAt = true; },
     lookAtTransform(m) { this._transform = m; },
+    flyTo() {},
+    flyToBoundingSphere() {},
   };
   return { ...base, canvasListeners };
 }
@@ -974,4 +985,126 @@ test('double-click fly incorporates terrain elevation', () => {
 
   mgr.destroy();
 });
+
+// ── Automated Track Tour ───────────────────────────────────────────────────
+
+test('tour mode: _computeTourWaypoints extracts sequential waypoints with bearings and GSR heights', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  const n = 50;
+  const drawPoints = [];
+  const phasic = [];
+  for (let i = 0; i < n; i++) {
+    drawPoints.push({ lat: 51.5 + i * 0.001, lon: -0.1 + i * 0.001, time: i * 2, origIdx: i });
+    phasic.push({ val: i % 5 === 0 ? 3.0 : 0.5 });
+  }
+
+  mgr.currentDrawPoints = drawPoints;
+  mgr.currentAnalyzer = { raw: new Array(n).fill({}), phasic, peaks: [{ index: 10 }, { index: 30 }] };
+  mgr.currentPeaks = mgr.currentAnalyzer.peaks;
+  mgr.heightMetric = 'phasic';
+  mgr.extrusionScale = 10;
+  mgr.baseHeight = 2;
+
+  const waypoints = mgr._computeTourWaypoints();
+  assert.ok(waypoints.length >= 10 && waypoints.length <= 30, `waypoint count in expected range (${waypoints.length})`);
+  assert.strictEqual(waypoints[0].drawPointIndex, 0, 'first waypoint is track start');
+  assert.strictEqual(waypoints[waypoints.length - 1].drawPointIndex, n - 1, 'last waypoint is track end');
+
+  // Check bearing calculation (roughly ~45° northeast)
+  assert.ok(waypoints[0].bearingDeg >= 30 && waypoints[0].bearingDeg <= 60, `bearing is forward (${waypoints[0].bearingDeg})`);
+
+  // Check peak detection and GSR height scaling
+  const peakWp = waypoints.find(w => w.origIdx === 10);
+  assert.ok(peakWp, 'peak at index 10 was included as a waypoint');
+  assert.strictEqual(peakWp.isPeak, true);
+  // baseHeight 2 + val 3.0 * scale 10 = 32
+  assert.strictEqual(peakWp.gsrHeight, 32);
+
+  mgr.destroy();
+});
+
+test('startTour / stopTour / toggleTour lifecycle and camera flight', () => {
+  const env = scrubEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  const n = 20;
+  mgr.currentDrawPoints = Array.from({ length: n }, (_, i) => ({
+    lat: 51.5 + i * 0.0005, lon: -0.1, time: i, origIdx: i
+  }));
+  mgr.currentAnalyzer = { raw: new Array(n).fill({}), phasic: new Array(n).fill({ val: 1 }) };
+  mgr.currentPeaks = [];
+
+  let flights = [];
+  mgr.viewer.camera.flyTo = (opts) => { flights.push(opts); };
+
+  let progress = [];
+  mgr.onTourStep((stepIdx, totalSteps, wp) => { progress.push([stepIdx, totalSteps, wp]); });
+
+  let scrubSet = [];
+  mgr.setScrubPosition = (lat, lon) => { scrubSet.push([lat, lon]); };
+
+  assert.strictEqual(mgr._isTouring, false);
+  const active = mgr.toggleTour();
+  assert.strictEqual(active, true);
+  assert.strictEqual(mgr._isTouring, true);
+
+  assert.strictEqual(flights.length, 1, 'camera flight initiated for step 0');
+  assert.strictEqual(progress.length, 1, 'tour step progress emitted');
+  assert.strictEqual(progress[0][0], 0, 'step 0 reported');
+  assert.ok(scrubSet.length >= 1, 'scrub position set to waypoint coordinates');
+
+  // Trigger flight completion -> schedules next step timer
+  flights[0].complete();
+  assert.ok(mgr._tourStepTimeout !== null, 'pause timer armed after flight completion');
+
+  // Stop tour clears state and notifies progress listener with null
+  mgr.stopTour();
+  assert.strictEqual(mgr._isTouring, false);
+  assert.strictEqual(mgr._tourStepTimeout, null);
+  assert.strictEqual(progress.at(-1)[2], null, 'stop reported to listener');
+
+  mgr.destroy();
+});
+
+test('startOrbit, setViewPerspective, and destroy cancel an active tour', () => {
+  const env = scrubEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  mgr.currentDrawPoints = [
+    { lat: 51.5, lon: -0.1, time: 0, origIdx: 0 },
+    { lat: 51.501, lon: -0.1, time: 1, origIdx: 1 },
+    { lat: 51.502, lon: -0.1, time: 2, origIdx: 2 }
+  ];
+  mgr.currentAnalyzer = { raw: [{}, {}, {}], phasic: [{ val: 1 }, { val: 1 }, { val: 1 }] };
+  mgr.currentPeaks = [];
+  mgr.viewer.camera.flyTo = () => {};
+
+  mgr.startTour();
+  assert.strictEqual(mgr._isTouring, true);
+
+  // setViewPerspective stops tour
+  mgr.setViewPerspective('top');
+  assert.strictEqual(mgr._isTouring, false);
+
+  mgr.startTour();
+  assert.strictEqual(mgr._isTouring, true);
+
+  // startOrbit stops tour
+  mgr.startOrbit();
+  assert.strictEqual(mgr._isTouring, false);
+  mgr.stopOrbit();
+
+  mgr.startTour();
+  assert.strictEqual(mgr._isTouring, true);
+
+  // destroy stops tour
+  mgr.destroy();
+  assert.strictEqual(mgr._isTouring, false);
+});
+
 

@@ -410,6 +410,7 @@ function spyManager() {
     setScrubPosition(lat, lon) { this.calls.push(['set', lat, lon]); },
     followScrub(lat, lon) { this.calls.push(['follow', lat, lon]); },
     releaseFollowScrub() { this.calls.push(['release']); },
+    stopTour() { this.calls.push(['stopTour']); },
     _wakeRenderLoop() {},
     _requestRender() {},
   };
@@ -676,4 +677,53 @@ test('applyColorMetric forwards metric to manager and updates the 3D legend', ()
   V.manager = null;
   V.isActive = false;
 });
+
+test('Tour button in 3D camera controls toggles manager tour and updates UI', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const doc = window.document;
+
+  const btnTour = doc.getElementById('g3dBtnTour');
+  assert.ok(btnTour, '#g3dBtnTour button exists in DOM');
+
+  let tourToggled = 0;
+  let isTouring = false;
+  V.manager = {
+    toggleTour: () => {
+      tourToggled++;
+      isTouring = !isTouring;
+      return isTouring;
+    },
+    stopTour: () => {
+      isTouring = false;
+    },
+    setScrubPosition: () => {},
+    releaseFollowScrub: () => {},
+  };
+  V.isActive = true;
+  window.AppState.surfaceView = 'globe';
+
+  // Click 1 -> start tour
+  btnTour.click();
+  assert.strictEqual(tourToggled, 1);
+  assert.ok(btnTour.classList.contains('active'), 'button marked active');
+  assert.match(btnTour.innerHTML, /Pause/, 'button label updated to Pause');
+
+  // Click 2 -> pause / stop tour
+  btnTour.click();
+  assert.strictEqual(tourToggled, 2);
+  assert.strictEqual(btnTour.classList.contains('active'), false, 'button active class removed');
+  assert.match(btnTour.innerHTML, /Tour/, 'button label restored to Tour');
+
+  // Activate tour again then deactivate view -> stops tour
+  btnTour.click();
+  assert.ok(btnTour.classList.contains('active'));
+  V.deactivate();
+  assert.strictEqual(btnTour.classList.contains('active'), false, 'deactivate resets button state');
+
+  V.manager = null;
+  V.isActive = false;
+});
+
 
