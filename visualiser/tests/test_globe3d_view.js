@@ -648,3 +648,32 @@ test('renderer.handleScrubber does not wipe a globe-owned hover (ownership token
 
   AppState.emit = origEmit;
 });
+
+test('applyColorMetric forwards metric to manager and updates the 3D legend', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const doc = window.document;
+  const mm = window.AppState.mapManager;
+
+  window.AppState.viewMode = 'single';
+  mm.activeColoringMetric = 'phasic';
+  mm._legendMinVal = 0;
+  mm._legendMaxVal = 5;
+
+  let metricSet = null;
+  V.manager = {
+    setColoringMetric: (m) => { metricSet = m; },
+  };
+  V.isActive = true;
+  window.AppState.surfaceView = 'globe';
+
+  V.applyColorMetric('phasic');
+  assert.strictEqual(metricSet, 'phasic', 'setColoringMetric called on manager');
+  const g3d = doc.getElementById('g3dLegend').innerHTML;
+  assert.ok(g3d.includes('Phasic (SCR)'), 'legend updated with phasic title');
+
+  V.manager = null;
+  V.isActive = false;
+});
+

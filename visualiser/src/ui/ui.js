@@ -552,26 +552,33 @@ const GSRUI = {
 
     try {
       if (typeof GSRGlobe3DView !== 'undefined' && GSRGlobe3DView.isActive && GSRGlobe3DView.manager?.viewer) {
-        // 3D Globe Mode (Cesium WebGL canvas capture)
+        // 3D Globe Mode (Cesium WebGL canvas capture).
+        // Primitives compiled with asynchronous:true (the wall, RF expanse)
+        // are uploaded to the GPU asynchronously — they first appear in the
+        // frame AFTER render() is called. Wait for scene.postRender so the
+        // snapshot always captures fully-rendered geometry.
         const viewer = GSRGlobe3DView.manager.viewer;
-        viewer.render();
         const canvas = viewer.scene.canvas;
         const baseName = GSRUI._exportFilenameBase();
         const mode = AppState.viewMode || 'single';
         const suggestedName = `${baseName}_globe3d_${mode}_export.png`;
 
-        if (typeof canvas.toBlob === 'function') {
-          await new Promise((resolve) => {
-            canvas.toBlob(async (blob) => {
-              if (blob) {
-                await GSRFileSaver.saveFile(blob, suggestedName);
-              }
+        await new Promise((resolve) => {
+          const remove = viewer.scene.postRender.addEventListener(() => {
+            remove(); // one-shot
+            if (typeof canvas.toBlob === 'function') {
+              canvas.toBlob(async (blob) => {
+                if (blob) await GSRFileSaver.saveFile(blob, suggestedName);
+                resolve();
+              }, 'image/png');
+            } else if (typeof canvas.toDataURL === 'function') {
+              GSRFileSaver.saveFile(canvas.toDataURL('image/png'), suggestedName).then(resolve);
+            } else {
               resolve();
-            }, 'image/png');
+            }
           });
-        } else if (typeof canvas.toDataURL === 'function') {
-          await GSRFileSaver.saveFile(canvas.toDataURL('image/png'), suggestedName);
-        }
+          viewer.render(); // trigger the frame that will compile + upload pending geometry
+        });
       } else if (typeof GSRMapExporter !== 'undefined' && AppState.mapManager) {
         // 2D Map Mode (Native vector SVG rendered to PNG)
         await GSRMapExporter.exportToPng(AppState.mapManager);

@@ -869,3 +869,109 @@ test('WebGL context loss is prevented-default; restore rebuilds the scene; destr
   assert.ok(!canvasListeners.some((l) => l.t === 'webglcontextrestored'), 'restored listener removed');
   assert.strictEqual(mgr._onContextLost, null);
 });
+
+test('_refreshTrack clears and rebuilds the RF volumetric layer when active', () => {
+  freshEnv();
+  installWallCapture();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  mgr.flyToTrack = () => {};
+  const { analyzer, drawPoints } = parityTrack();
+
+  let rfRendered = 0;
+  let rfCleared = 0;
+  mgr.render3DRfExpanse = () => { rfRendered++; };
+  mgr.clearRfEntities = () => { rfCleared++; };
+
+  mgr.currentAnalyzer = analyzer;
+  mgr.currentDrawPoints = drawPoints;
+  mgr.showRfVolumetric = true;
+
+  mgr._refreshTrack();
+  assert.strictEqual(rfCleared, 1, 'clearRfEntities called during refresh');
+  assert.strictEqual(rfRendered, 1, 'render3DRfExpanse rebuilt during refresh');
+
+  mgr.showRfVolumetric = false;
+  mgr._refreshTrack();
+  assert.strictEqual(rfCleared, 2);
+  assert.strictEqual(rfRendered, 1, 'not rendered when showRfVolumetric is false');
+  mgr.destroy();
+});
+
+test('clearTrackEntities, clearPeakEntities, clearRfEntities do not throw when viewer is null', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  mgr.viewer = null;
+  assert.doesNotThrow(() => mgr.clearTrackEntities());
+  assert.doesNotThrow(() => mgr.clearPeakEntities());
+  assert.doesNotThrow(() => mgr.clearRfEntities());
+  assert.doesNotThrow(() => mgr.clearHotspotEntities());
+  assert.doesNotThrow(() => mgr.clearClusterEntities());
+});
+
+test('flyToTrack releases follow-cam scrub before flying', () => {
+  const env = scrubEnv();
+  global.Cesium.BoundingSphere = { fromPoints: () => ({ radius: 500 }) };
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  let released = 0;
+  let flew = 0;
+  mgr.releaseFollowScrub = () => { released++; };
+  mgr.viewer.camera.flyToBoundingSphere = () => { flew++; };
+  mgr.currentDrawPoints = [{ lat: 51.5, lon: -0.1 }, { lat: 51.6, lon: -0.2 }];
+
+  mgr.flyToTrack();
+  assert.strictEqual(released, 1, 'releaseFollowScrub called before flying');
+  assert.strictEqual(flew, 1, 'flyToBoundingSphere called');
+  mgr.destroy();
+});
+
+test('double-click fly incorporates terrain elevation', () => {
+  const base = freshEnv();
+  let handler = null;
+  global.Cesium.ScreenSpaceEventHandler = function () {
+    handler = {
+      actions: {},
+      setInputAction(fn, type) { this.actions[type] = fn; },
+      removeInputAction(type) { delete this.actions[type]; },
+      isDestroyed() { return false; },
+      destroy() {},
+    };
+    return handler;
+  };
+  global.Cesium.ScreenSpaceEventType = { LEFT_DOUBLE_CLICK: 'LEFT_DOUBLE_CLICK' };
+  global.Cesium.Cartographic = {
+    fromCartesian: () => ({ longitude: 0.1, latitude: 0.2, height: 250 }),
+  };
+  global.Cesium.Cartesian3 = {
+    fromRadians: (lon, lat, h) => ({ lon, lat, h }),
+  };
+
+  let flyDestination = null;
+  base.viewer.camera = {
+    getPickRay: () => ({}),
+    positionCartographic: { height: 1000 },
+    flyTo: (opts) => { flyDestination = opts.destination; },
+  };
+  base.viewer.scene.globe.pick = () => ({ x: 1, y: 2, z: 3 });
+
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false, doubleClickFly: true });
+
+  const dblClick = handler.actions.LEFT_DOUBLE_CLICK;
+  assert.strictEqual(typeof dblClick, 'function', 'LEFT_DOUBLE_CLICK handler bound');
+
+  dblClick({ position: { x: 10, y: 10 } });
+  // curHeight * 0.45 = 450, terrainHeight + 150 = 250 + 150 = 400 => max is 450
+  assert.strictEqual(flyDestination.h, 450);
+
+  // If camera was low (e.g. 200m) with 250m terrain: terrainHeight + 150 = 400 > 200*0.45 (90) => 400
+  base.viewer.camera.positionCartographic.height = 200;
+  dblClick({ position: { x: 10, y: 10 } });
+  assert.strictEqual(flyDestination.h, 400, 'targetHeight clamped to terrainHeight + 150m');
+
+  mgr.destroy();
+});
+

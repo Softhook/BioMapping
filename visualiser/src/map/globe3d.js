@@ -429,8 +429,12 @@ class GSRGlobeManager {
         const targetPos = scene.globe.pick(ray, scene);
         if (targetPos) {
           const cartographic = Cesium.Cartographic.fromCartesian(targetPos);
+          // cartographic.height is the terrain elevation at the picked point
+          // (globe.pick hits the terrain surface). Add it so the camera never
+          // lands inside a hillside when zooming into steep terrain.
+          const terrainHeight = cartographic.height || 0;
           const curHeight = this.viewer.camera.positionCartographic.height;
-          const targetHeight = Math.max(150.0, curHeight * 0.45);
+          const targetHeight = Math.max(terrainHeight + 150.0, curHeight * 0.45);
           this.viewer.camera.flyTo({
             destination: Cesium.Cartesian3.fromRadians(
               cartographic.longitude,
@@ -937,6 +941,7 @@ class GSRGlobeManager {
   }
 
   clearRfEntities() {
+    if (!this.viewer) return;
     if (this.rfPrimitive) {
       this.viewer.scene.primitives.remove(this.rfPrimitive);
       this.rfPrimitive = null;
@@ -1373,9 +1378,9 @@ class GSRGlobeManager {
         geometryInstances: wallInstances,
         // flat: match the old unlit `wall.material = color` look (scene lighting is off)
         appearance: new Cesium.PerInstanceColorAppearance({ flat: true, translucent: true, closed: false }),
-        // Embedded host: batch geometry off the main thread so a slider drag
-        // doesn't stall the whole page.
-        asynchronous: this.requestRenderMode
+        // Always async: geometry is compiled off the main thread so a slider drag
+        // doesn't stall the paint (matches buildings.js).
+        asynchronous: true
       });
       this.viewer.scene.primitives.add(this.wallPrimitive);
     }
@@ -1621,19 +1626,23 @@ class GSRGlobeManager {
     return [];
   }
 
-  /** Re-draw the wall + the peak/hotspot/cluster layers from the cached track. */
+  /** Re-draw the wall + the peak/hotspot/cluster/RF layers from the cached track. */
   _refreshTrack() {
     if (!this.currentAnalyzer || this.currentDrawPoints.length < 2) return;
     this.clearTrackEntities();
     this.clearPeakEntities();
     this.clearHotspotEntities();
     this.clearClusterEntities();
+    this.clearRfEntities();
     this._render3DWallAndPath(this.currentAnalyzer, this.currentDrawPoints);
     if (this.showPeaks || this.showLabels) {
       this._renderPeakSpires(this.currentAnalyzer, this.currentPeaks);
     }
     if (this.showHotspots) this._renderHotspots(this.currentAnalyzer);
     if (this.showClusters) this._renderClusterBlobs();
+    // Re-upload the RF volumetric layer — its raw Primitive is lost on context
+    // restore and stale after a slider-driven metric/extrusion change.
+    if (this.showRfVolumetric) this.render3DRfExpanse(this.currentAnalyzer, this.currentDrawPoints);
     this._requestRender();
   }
 
@@ -1702,6 +1711,7 @@ class GSRGlobeManager {
    * Clear the batched wall primitive and the ground-path entity.
    */
   clearTrackEntities() {
+    if (!this.viewer) return;
     if (this.wallPrimitive) {
       this.viewer.scene.primitives.remove(this.wallPrimitive);
       this.wallPrimitive = null;
@@ -1714,6 +1724,7 @@ class GSRGlobeManager {
    * Clear peak spire entities
    */
   clearPeakEntities() {
+    if (!this.viewer) return;
     this.peakEntities.forEach(ent => this.viewer.entities.remove(ent));
     this.peakEntities = [];
   }
@@ -1746,15 +1757,20 @@ class GSRGlobeManager {
   }
 
   /**
-   * Fly camera to encompass and perfectly center the entire active track
+   * Fly camera to encompass and perfectly center the entire active track.
+   * Releases any active follow-cam lookAt transform first — flyToBoundingSphere
+   * and a live lookAt fight each other and neither wins cleanly.
    */
   flyToTrack() {
     if (!this.viewer || this.currentDrawPoints.length === 0) return;
+    // Drop the graph-scrub follow-cam before flying — a live lookAt transform
+    // competes with flyToBoundingSphere and prevents the flight from landing.
+    this.releaseFollowScrub();
     this._wakeRenderLoop();
 
     // Convert track points to 3D Cartesian positions
     const positions = this.currentDrawPoints.map(p => Cesium.Cartesian3.fromDegrees(p.lon, p.lat));
-    
+
     // Compute exact 3D bounding sphere encompassing the walk
     const boundingSphere = Cesium.BoundingSphere.fromPoints(positions);
 

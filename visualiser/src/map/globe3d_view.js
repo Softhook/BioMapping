@@ -398,6 +398,17 @@ const GSRGlobe3DView = {
   },
 
   /**
+   * The active coloring metric changed in the map panel header.
+   * Forward to the globe manager and refresh legend.
+   */
+  applyColorMetric(metric) {
+    const mgr = GSRGlobe3DView.manager;
+    if (!GSRGlobe3DView.isActive || !mgr) return;
+    mgr.setColoringMetric(metric);
+    GSRGlobe3DView._updateLegend();
+  },
+
+  /**
    * The map header's OSM button was clicked while the 3D globe is mounted — it
    * toggles the extruded OSM buildings (the 3D equivalent of the 2D OSM vector
    * shapes). Style comes from the #g3dBuildingStyle select.

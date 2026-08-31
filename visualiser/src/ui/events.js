@@ -748,6 +748,11 @@ const GSREvents = {
           GSRUI.rerenderMap();
         }
       }
+      // Forward the metric change to the 3D globe immediately when it is the
+      // active surface. Without this the globe only updates after the map emits
+      // 'map:rendered' → 250ms debounce → full renderData rebuild. The
+      // setColoringMetric() fast path avoids that wall-primitive teardown.
+      if (g3d()) g3d().applyColorMetric(e.target.value);
     });
 
     const btnToggleOsmShapes = document.getElementById('btnToggleOsmShapes');

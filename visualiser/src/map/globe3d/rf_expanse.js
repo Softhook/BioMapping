@@ -157,7 +157,7 @@ const GSRGlobe3DRf = {
     return new Cesium.Primitive({
       geometryInstances: instances,
       appearance: new Cesium.PerInstanceColorAppearance({ translucent: true, closed: true }),
-      asynchronous: false
+      asynchronous: true
     });
   }
 };
