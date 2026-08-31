@@ -47,7 +47,7 @@ function localRefs(html) {
 function scriptSrcs(html) {
   return [...html.matchAll(/<script\s+src="([^"]+)"><\/script>/g)]
     .map((m) => m[1])
-    .filter((s) => isLocal(s) && !NON_MODULE.has(s));
+    .filter((s) => isLocal(s) && !NON_MODULE.has(s) && !s.startsWith('vendor/'));
 }
 
 test('index.html <script src> order matches boot_app.js SCRIPT_ORDER', () => {

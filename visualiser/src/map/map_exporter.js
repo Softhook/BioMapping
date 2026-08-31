@@ -32,6 +32,18 @@ class GSRMapExporter {
     await this._download(this._render(ctx, layers), AppState.viewMode || 'single');
   }
 
+  static async exportToPng(mgr) {
+    let ctx = this._validate(mgr);
+    if (!ctx) return;
+
+    ctx = this._expandCanvasForIsobands(ctx);
+    await this._ensureTileCoverage(ctx, mgr);
+
+    const layers = await this._gather(ctx);
+    const svgString = this._render(ctx, layers);
+    await this._downloadPng(svgString, ctx.w, ctx.h, AppState.viewMode || 'single');
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   //  Validation & Mercator Projection Setup
   // ═══════════════════════════════════════════════════════════════════
@@ -970,6 +982,47 @@ class GSRMapExporter {
     const suggestedName = `${baseName}_map_${mode}_export.svg`;
     const blob = new Blob([svg], { type: 'image/svg+xml' });
     await GSRFileSaver.saveFile(blob, suggestedName);
+  }
+
+  static async _downloadPng(svg, width, height, mode) {
+    const baseName = (typeof GSRUI !== 'undefined' && typeof GSRUI._exportFilenameBase === 'function')
+      ? GSRUI._exportFilenameBase()
+      : 'biomapping';
+    const suggestedName = `${baseName}_map_${mode}_export.png`;
+
+    const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+    try {
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = (e) => reject(new Error('Failed to rasterize SVG: ' + (e?.message || 'image load error')));
+        img.src = url;
+      });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const c2d = canvas.getContext('2d');
+      if (c2d) {
+        c2d.drawImage(img, 0, 0);
+      }
+
+      if (typeof canvas.toBlob === 'function') {
+        await new Promise((resolve) => {
+          canvas.toBlob(async (blob) => {
+            if (blob) {
+              await GSRFileSaver.saveFile(blob, suggestedName);
+            }
+            resolve();
+          }, 'image/png');
+        });
+      } else if (typeof canvas.toDataURL === 'function') {
+        await GSRFileSaver.saveFile(canvas.toDataURL('image/png'), suggestedName);
+      }
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   }
 }
 

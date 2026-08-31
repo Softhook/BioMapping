@@ -537,46 +537,53 @@ const GSRUI = {
   },
 
   /**
-   * Export Leaflet map as PNG via html2canvas.
+   * Export the active map view (2D Leaflet vector rasterization or 3D Cesium WebGL) as PNG.
    */
   async saveMapImage() {
     if (AppState.analyzer.raw.length === 0) return;
 
-    const mapElement = document.getElementById('map');
-    const btn        = document.getElementById('exportMapBtn');
-    const originalText = btn.innerHTML;
+    const btn = document.getElementById('exportMapBtn');
+    const originalText = btn ? btn.innerHTML : '';
 
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...';
-    btn.setAttribute('disabled', 'true');
+    if (btn) {
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...';
+      btn.setAttribute('disabled', 'true');
+    }
 
-    const baseName = GSRUI._exportFilenameBase();
-    const suggestedName = baseName + '_map.png';
     try {
-      const canvas = await html2canvas(mapElement, {
-        useCORS: true,
-        allowTaint: false,
-        backgroundColor: null,
-        scale: window.devicePixelRatio || 1,
-        logging: false
-      });
-      if (typeof canvas.toBlob === 'function') {
-        await new Promise((resolve) => {
-          canvas.toBlob(async (blob) => {
-            if (blob) {
-              await GSRFileSaver.saveFile(blob, suggestedName);
-            }
-            resolve();
-          }, 'image/png');
-        });
-      } else {
-        await GSRFileSaver.saveFile(canvas.toDataURL("image/png"), suggestedName);
+      if (typeof GSRGlobe3DView !== 'undefined' && GSRGlobe3DView.isActive && GSRGlobe3DView.manager?.viewer) {
+        // 3D Globe Mode (Cesium WebGL canvas capture)
+        const viewer = GSRGlobe3DView.manager.viewer;
+        viewer.render();
+        const canvas = viewer.scene.canvas;
+        const baseName = GSRUI._exportFilenameBase();
+        const mode = AppState.viewMode || 'single';
+        const suggestedName = `${baseName}_globe3d_${mode}_export.png`;
+
+        if (typeof canvas.toBlob === 'function') {
+          await new Promise((resolve) => {
+            canvas.toBlob(async (blob) => {
+              if (blob) {
+                await GSRFileSaver.saveFile(blob, suggestedName);
+              }
+              resolve();
+            }, 'image/png');
+          });
+        } else if (typeof canvas.toDataURL === 'function') {
+          await GSRFileSaver.saveFile(canvas.toDataURL('image/png'), suggestedName);
+        }
+      } else if (typeof GSRMapExporter !== 'undefined' && AppState.mapManager) {
+        // 2D Map Mode (Native vector SVG rendered to PNG)
+        await GSRMapExporter.exportToPng(AppState.mapManager);
       }
     } catch (err) {
       console.error("Error generating map PNG:", err);
-      alert("Could not export map. Some map resources may have failed to load securely (CORS).");
+      alert("Could not export map PNG.");
     } finally {
-      btn.innerHTML = originalText;
-      btn.removeAttribute('disabled');
+      if (btn) {
+        btn.innerHTML = originalText;
+        btn.removeAttribute('disabled');
+      }
     }
   },
 

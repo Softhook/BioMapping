@@ -2,7 +2,7 @@
  * Smoke-test harness: boots the REAL app (real index.html DOM + every real
  * visualiser/*.js source file, unmodified, in the exact order
  * index.html loads them) inside jsdom, with a hand-rolled stand-in for the
- * CDN libraries (Leaflet, p5, JSZip/html2canvas) instead of loading them for
+ * CDN libraries (Leaflet, p5, JSZip) instead of loading them for
  * real.
  *
  * This is deliberately NOT trying to be a faithful Leaflet/p5 reimplementation
@@ -114,7 +114,6 @@ function bootApp() {
     start2 + (stop2 - start2) * ((value - start1) / (stop1 - start1)); // p5's real remap semantics — cheap and worth getting right since it's plain arithmetic
 
   window.JSZip = superMock();
-  window.html2canvas = superMock();
 
   const context = vm.createContext(window);
   for (const file of SCRIPT_ORDER) {
