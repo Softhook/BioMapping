@@ -1,23 +1,21 @@
 /**
- * Unit tests for src/map/globe3d.js (the standalone 3d.html engine).
+ * Unit tests for src/map/globe3d.js (the embedded 3D globe engine).
  *
- * globe3d.js had no coverage; these lock in the refactor that made
- * GSRGlobeManager embeddable — a construct / render / destroy lifecycle with no
- * assumption that it owns the page:
+ * GSRGlobeManager is a construct / render / destroy lifecycle that makes no
+ * assumption it owns the page — index.html's 3D-surface panel is the only host
+ * (see src/map/globe3d_view.js). These lock in:
  *   - the module-level helpers (seriesValue, SERIES_FIELD, BASEMAP_PROVIDERS),
  *   - `keyboardFlight: false` really suppresses the window key listeners,
  *   - destroy() removes every listener the constructor added and tears the viewer down,
- *   - renderData({ drawPoints }) bypasses the standalone GPS chain,
- *   - 3d.html's basemap <select> options all have a BASEMAP_PROVIDERS entry, and
- *   - every local src/href in 3d.html resolves on disk (test_html_wiring.js only
- *     covers index.html / live.html).
+ *   - renderData needs host-supplied drawPoints (this class never runs the GPS chain),
+ *   - the wall colours from a bounded LUT and batches its geodesy,
+ *   - WebGL context-loss recovery.
  *
  * Cesium is replaced by a small auto-stub; no real WebGL viewer is created.
  */
 
 const test = require('node:test');
 const assert = require('node:assert');
-const fs = require('fs');
 const path = require('path');
 
 const APP_DIR = path.join(__dirname, '..');
@@ -42,13 +40,18 @@ function autoStub() {
 /** Fresh window/document spies + Cesium stub for one manager instance. */
 function freshEnv() {
   const listeners = [];
+  const rafQueue = [];
   global.window = {
     addEventListener: (type, fn) => listeners.push({ type, fn }),
     removeEventListener: (type, fn) => {
       const i = listeners.findIndex((l) => l.type === type && l.fn === fn);
       if (i !== -1) listeners.splice(i, 1);
     },
+    // deterministic rAF — the test drives frames via flushRaf()
+    requestAnimationFrame: (fn) => { rafQueue.push(fn); return rafQueue.length; },
+    cancelAnimationFrame: (id) => { if (id) rafQueue[id - 1] = null; },
   };
+  global.window.__flushRaf = () => { const q = rafQueue.splice(0); q.forEach((fn) => fn && fn()); };
   global.document = {
     activeElement: null,
     createElement: () => autoStub(),
@@ -95,7 +98,7 @@ test('public API the page depends on is present', () => {
     'renderData', 'destroy', 'setColoringMetric', 'setExtrusionScale', 'togglePeaks',
     'setBasemap', 'toggle3DBuildings', 'apply3DBuildingStyle', 'toggle3DRf',
     'flyToTrack', 'toggleOrbit', 'setViewPerspective', 'resetNorth',
-    'exportSnapshot', 'exportCzml', 'exportKml', 'setScrubPosition', 'onPeakClick',
+    'setScrubPosition', 'onPeakClick',
   ]) {
     assert.strictEqual(typeof proto[method], 'function', `missing ${method}()`);
   }
@@ -218,98 +221,84 @@ test('destroy() cancels a pending idle-retire timer', () => {
   assert.strictEqual(mgr._idleRenderTimer, null, 'timer cleared on teardown');
 });
 
-test('renderData({ drawPoints }) bypasses the standalone GPS chain', () => {
+test('renderData needs host-supplied drawPoints — it never runs a GPS chain', () => {
   freshEnv();
   const { GSRGlobeManager } = loadFresh();
   const mgr = new GSRGlobeManager('c');
 
-  let standaloneCalls = 0;
-  mgr._computeDrawPointsStandalone = () => { standaloneCalls++; return []; };
   let wallCalls = 0;
   mgr._render3DWallAndPath = () => { wallCalls++; };
   mgr.flyToTrack = () => {};
 
+  // no drawPoints -> warn + bail, nothing drawn
+  let warned = 0;
+  mgr._notifyWarn = () => { warned++; };
+  mgr.renderData({ raw: [{}, {}], peaks: [] }, {}, {});
+  assert.strictEqual(wallCalls, 0, 'nothing rendered without host drawPoints');
+  assert.strictEqual(warned, 1);
+
+  // host drawPoints -> used verbatim
   const drawPoints = [
     { lat: 51.5, lon: -0.1, time: 0, origIdx: 0 },
     { lat: 51.6, lon: -0.2, time: 1, origIdx: 1 },
   ];
   mgr.renderData({ raw: [{}, {}], peaks: [] }, {}, { drawPoints });
-
-  assert.strictEqual(standaloneCalls, 0, 'did not run the standalone GPS pipeline');
   assert.strictEqual(wallCalls, 1);
   assert.strictEqual(mgr.currentDrawPoints, drawPoints);
   mgr.destroy();
 });
 
-test('renderData(analyzer, params, true) still means isPreview (back-compat)', () => {
+test('renderData({ isPreview: true }) suppresses the fly-to', () => {
   freshEnv();
   const { GSRGlobeManager } = loadFresh();
   const mgr = new GSRGlobeManager('c');
   mgr._render3DWallAndPath = () => {};
   let flew = 0;
   mgr.flyToTrack = () => { flew++; };
-  mgr._computeDrawPointsStandalone = () => ([
+  const drawPoints = [
     { lat: 0, lon: 0, time: 0, origIdx: 0 }, { lat: 1, lon: 1, time: 1, origIdx: 1 },
-  ]);
-  mgr.renderData({ raw: [{}, {}], peaks: [] }, {}, true);
+  ];
+  mgr.renderData({ raw: [{}, {}], peaks: [] }, {}, { drawPoints, isPreview: true });
   assert.strictEqual(flew, 0, 'isPreview suppressed the fly-to');
+  mgr.renderData({ raw: [{}, {}], peaks: [] }, {}, { drawPoints });
+  assert.strictEqual(flew, 1, 'a normal render flies to the track');
   mgr.destroy();
 });
 
-// ── 3d.html wiring ─────────────────────────────────────────────────────────
-
-const html3d = fs.readFileSync(path.join(APP_DIR, '3d.html'), 'utf8');
-
-test('every basemap <option> in 3d.html has a BASEMAP_PROVIDERS entry', () => {
-  freshEnv();
-  const { BASEMAP_PROVIDERS } = loadFresh();
-  const selectBlock = html3d.match(/id="basemapSelect"[\s\S]*?<\/select>/);
-  assert.ok(selectBlock, '#basemapSelect not found in 3d.html');
-  const values = [...selectBlock[0].matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]);
-  assert.ok(values.length >= 2, 'expected several basemap options');
-  for (const v of values) {
-    assert.ok(BASEMAP_PROVIDERS[v], `no BASEMAP_PROVIDERS['${v}']`);
-  }
-});
-
-test('every local src/href in 3d.html resolves on disk', () => {
-  const isLocal = (u) =>
-    u && !/^(https?:)?\/\//.test(u) && !/^(data:|mailto:|tel:|javascript:|#)/.test(u);
-  const refs = [...html3d.matchAll(/(?:src|href)="([^"]+)"/g)].map((m) => m[1]).filter(isLocal);
-  assert.ok(refs.includes('src/map/globe3d.js'), 'test is stale — globe3d.js not linked');
-  const missing = refs.filter((rel) => !fs.existsSync(path.resolve(APP_DIR, rel)));
-  assert.deepStrictEqual(missing, [], `3d.html points at missing file(s): ${missing.join(', ')}`);
-});
-
-test('3d.html loads notices.js before globe3d.js (so GSRNotices exists for it)', () => {
-  const notices = html3d.indexOf('src="src/core/notices.js"');
-  const globe = html3d.indexOf('src="src/map/globe3d.js"');
-  assert.ok(notices !== -1 && globe !== -1 && notices < globe);
-});
-
-// ── Embedded-host contract (index.html is a second host) ───────────────────
+// ── Embedded-host contract (index.html is the host) ───────────────────────
 // 2D is the source of truth: colour metric + range come from the host, height
 // is a separate arousal series so a non-magnitude colour metric still extrudes.
 
+const { MapColors: REAL_MAP_COLORS } = require('../src/map/map_colors.js');
+
 /**
- * Install Cesium/MapColors stubs that record what each wall segment would be
- * built with. Returns { seg, colors } arrays that fill in when the REAL
- * _render3DWallAndPath runs (via renderData). No method is monkey-patched.
+ * Install Cesium/MapColors capture around the REAL _render3DWallAndPath.
+ * Returns:
+ *   seg       — one entry per WallGeometry instance built
+ *               { maxHeights, minHeights, nPos, color }
+ *   cssParses — every string passed to Cesium.Color.fromCssColorString (the
+ *               wall's colour LUT — should be ≤ 30, and 0 on a same-range redraw)
+ * The real MapColors is used so getColorLut() works.
  */
 function installWallCapture() {
   const seg = [];
-  const colors = [];
+  const cssParses = [];
   global.Cesium.WallGeometry = function (opts) { this._opts = opts; return this; };
   global.Cesium.GeometryInstance = function (opts) {
-    seg.push({ maxHeights: opts.geometry._opts.maximumHeights });
+    const g = opts.geometry._opts;
+    seg.push({
+      maxHeights: g.maximumHeights, minHeights: g.minimumHeights,
+      nPos: g.positions.length, color: opts.attributes.color,
+    });
     return opts;
   };
   global.Cesium.ColorGeometryInstanceAttribute = { fromColor: (c) => c };
-  global.Cesium.Color = { fromCssColorString: () => ({ withAlpha: () => ({}) }), WHITE: { withAlpha: () => ({}) } };
-  global.MapColors = {
-    getColorForMetric: (metric, avg, min, max) => { colors.push({ metric, avg, min, max }); return '#123456'; },
+  global.Cesium.Color = {
+    fromCssColorString: (s) => { cssParses.push(s); return { _css: s, withAlpha: () => ({ _css: s }) }; },
+    WHITE: { withAlpha: () => ({}) },
   };
-  return { seg, colors };
+  global.MapColors = REAL_MAP_COLORS;
+  return { seg, cssParses };
 }
 
 test('SERIES_FIELD carries em_fog (2D chief can colour by it)', () => {
@@ -335,14 +324,44 @@ test('renderData({ colorMetric, colorRange }) drives colour from the host, not a
     { lat: 0.001, lon: 0.001, time: 1, origIdx: 1 },
   ];
 
-  const { colors } = installWallCapture();
+  const { seg, cssParses } = installWallCapture();
   mgr.renderData(analyzer, {}, { drawPoints, colorMetric: 'em_fog', colorRange: { min: 0, max: 100 } });
 
   assert.strictEqual(mgr.activeColoringMetric, 'em_fog', 'host metric adopted');
   assert.deepStrictEqual(mgr.externalColorRange, { min: 0, max: 100 });
-  assert.ok(colors.length > 0, 'a wall segment was coloured');
-  // colour normalised against the HOST range (0..100), not the drawn points (10..90)
-  assert.ok(colors.every((c) => c.min === 0 && c.max === 100));
+  assert.ok(seg.length > 0, 'a wall segment was built');
+  // colour LUT keyed by the HOST range (0..100), not the drawn points (10..90)
+  assert.strictEqual(mgr._cesiumColorLutKey, 'em_fog|0.0000|100.0000');
+  assert.ok(cssParses.length > 0 && cssParses.length <= 30, `bounded colour LUT (${cssParses.length})`);
+  mgr.destroy();
+});
+
+test('the wall colour LUT is bounded (≤30) and reused across a same-range redraw', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  mgr.flyToTrack = () => {};
+
+  // 400 points sweeping the whole phasic range — a per-segment colour build
+  // would parse ~400 CSS strings; the LUT parses ≤ 30.
+  const n = 400;
+  const phasic = [];
+  const drawPoints = [];
+  for (let i = 0; i < n; i++) {
+    phasic.push({ val: Math.sin(i / 25) });
+    drawPoints.push({ lat: i * 1e-4, lon: i * 1e-4, time: i, origIdx: i });
+  }
+  const analyzer = { raw: new Array(n).fill({}), peaks: [], phasic };
+
+  const { seg, cssParses } = installWallCapture();
+  mgr.renderData(analyzer, {}, { drawPoints, colorMetric: 'phasic' });
+  assert.ok(cssParses.length <= 30, `LUT bounded: ${cssParses.length} parses for ${n - 1} segments`);
+  assert.ok(seg.length < n / 2, `same-bucket runs merged: ${seg.length} instances for ${n - 1} segments`);
+  const afterFirst = cssParses.length;
+
+  // a redraw at the same metric+range must not re-parse anything
+  mgr._render3DWallAndPath(analyzer, drawPoints);
+  assert.strictEqual(cssParses.length, afterFirst, 'colour LUT reused, no re-parse on redraw');
   mgr.destroy();
 });
 
@@ -497,19 +516,57 @@ test('MOUSE_MOVE over the track reports the nearest drawPoint origIdx; a far poi
   const move = handler.actions.MOUSE_MOVE;
   assert.strictEqual(typeof move, 'function', 'MOUSE_MOVE handler bound');
 
-  // pointer essentially on the middle point -> its origIdx
+  // pointer essentially on the middle point -> its origIdx (pick runs on the frame)
   mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1000, lat: 51.5010 });
   move({ endPosition: { x: 1, y: 1 } });
+  window.__flushRaf();
 
   // pointer ~1km away from any point -> null
   mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1000, lat: 51.5100 });
   move({ endPosition: { x: 2, y: 2 } });
+  window.__flushRaf();
 
   assert.strictEqual(got.length, 2);
   assert.strictEqual(got[0][0], 11);
   assert.deepStrictEqual(got[0][1], { lat: 51.5010, lon: -0.1000 });
   assert.strictEqual(got[1][0], null);
   mgr.destroy();
+});
+
+test('MOUSE_MOVE picks are coalesced to one per animation frame (last position wins)', () => {
+  scrubEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  const move = mgr._screenSpaceHandler.actions.MOUSE_MOVE;
+
+  mgr.currentDrawPoints = [
+    { origIdx: 10, lat: 51.5000, lon: -0.1000 },
+    { origIdx: 11, lat: 51.5010, lon: -0.1000 },
+    { origIdx: 12, lat: 51.5020, lon: -0.1000 },
+  ];
+
+  let picks = 0;
+  const realPick = mgr._pickTrackPoint.bind(mgr);
+  mgr._pickTrackPoint = (p) => { picks++; return realPick(p); };
+
+  const got = [];
+  mgr.onScrubHover((idx) => got.push(idx));
+
+  // three moves in one frame — only the last should be picked
+  mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1, lat: 51.5000 });
+  move({ endPosition: { x: 1, y: 1 } });
+  mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1, lat: 51.5010 });
+  move({ endPosition: { x: 2, y: 2 } });
+  mgr.viewer.camera.pickEllipsoid = () => ({ lon: -0.1, lat: 51.5020 });
+  move({ endPosition: { x: 3, y: 3 } });
+  assert.strictEqual(picks, 0, 'nothing picked synchronously');
+
+  window.__flushRaf();
+  assert.strictEqual(picks, 1, 'one pick for the whole frame');
+  assert.deepStrictEqual(got, [12], 'the last pointer position won');
+
+  mgr.destroy();
+  window.__flushRaf(); // any queued frame after teardown is a harmless no-op
 });
 
 test('followScrub locks onto the point; releaseFollowScrub clears the transform; guards hold', () => {
@@ -551,4 +608,33 @@ test('destroy() removes the mouseleave listener, releases follow-cam, nulls the 
   assert.ok(!canvasListeners.some((l) => l.t === 'mouseleave'), 'mouseleave removed');
   assert.strictEqual(mgr._scrubHoverCb, null);
   assert.strictEqual(mgr._scrubHoverLeaveHandler, null);
+});
+
+// ── WebGL context loss / restore ──────────────────────────────────────────
+
+test('WebGL context loss is prevented-default; restore rebuilds the scene; destroy() unbinds', () => {
+  const { canvasListeners } = scrubEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  const lost = canvasListeners.find((l) => l.t === 'webglcontextlost');
+  const restored = canvasListeners.find((l) => l.t === 'webglcontextrestored');
+  assert.ok(lost && restored, 'both context listeners bound on the canvas');
+
+  let prevented = false;
+  lost.fn({ preventDefault: () => { prevented = true; } });
+  assert.ok(prevented, 'lost handler calls preventDefault so the browser can restore');
+
+  let refreshed = 0; let basemapSet = null;
+  mgr._refreshTrack = () => { refreshed++; };
+  mgr.setBasemap = (t) => { basemapSet = t; };
+  mgr._currentBasemap = 'osm';
+  restored.fn();
+  assert.strictEqual(refreshed, 1, 'restore rebuilds the wall/peaks');
+  assert.strictEqual(basemapSet, 'osm', 'restore re-adds the imagery layer');
+
+  mgr.destroy();
+  assert.ok(!canvasListeners.some((l) => l.t === 'webglcontextlost'), 'lost listener removed');
+  assert.ok(!canvasListeners.some((l) => l.t === 'webglcontextrestored'), 'restored listener removed');
+  assert.strictEqual(mgr._onContextLost, null);
 });

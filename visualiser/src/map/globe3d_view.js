@@ -21,10 +21,11 @@
  * no-op when window.Cesium / the manager isn't there.
  */
 
-// jsDelivr's npm mirror — far faster and better-cached than cesium.com's own
-// download server (which was most of the "black screen for ages" on first open).
-const CESIUM_VERSION = '1.120';
-const CESIUM_BASE = `https://cdn.jsdelivr.net/npm/cesium@${CESIUM_VERSION}/Build/Cesium/`;
+// CesiumJS is vendored under visualiser/vendor/cesium/ (the 1.120 release build)
+// so the 3D globe works with no network at all — BioMapping is offline field
+// kit. Refresh it with: npm i --no-save cesium@<ver> && cp -R
+// node_modules/cesium/Build/Cesium visualiser/vendor/cesium (drop index.*).
+const CESIUM_BASE = 'vendor/cesium/';
 
 const METRIC_LABELS = {
   gsr: 'GSR Arousal', phasic: 'Phasic Arousal (SCR)', tonic: 'Tonic Baseline (SCL)',
@@ -90,10 +91,7 @@ const GSRGlobe3DView = {
       btnPersp3D:   $('g3dBtnPersp3D'),
       btnPerspTop:  $('g3dBtnPerspTop'),
       btnPerspGround: $('g3dBtnPerspGround'),
-      btnNorth:     $('g3dBtnNorth'),
-      btnSnapshot:  $('g3dBtnSnapshot'),
-      btnCzml:      $('g3dBtnCzml'),
-      btnKml:       $('g3dBtnKml')
+      btnNorth:     $('g3dBtnNorth')
     };
 
     GSRGlobe3DView._bindCard(els);
@@ -236,9 +234,6 @@ const GSRGlobe3DView = {
     if (els.btnPerspTop)    els.btnPerspTop.addEventListener('click', () => { if (m()) m().setViewPerspective('top'); });
     if (els.btnPerspGround) els.btnPerspGround.addEventListener('click', () => { if (m()) m().setViewPerspective('ground'); });
     if (els.btnNorth)  els.btnNorth.addEventListener('click', () => { if (m()) m().resetNorth(); });
-    if (els.btnSnapshot) els.btnSnapshot.addEventListener('click', () => { if (m()) m().exportSnapshot('biomapping_3d_snapshot.png'); });
-    if (els.btnCzml)  els.btnCzml.addEventListener('click', () => { if (m()) m().exportCzml('biomapping_track_3d.czml'); });
-    if (els.btnKml)   els.btnKml.addEventListener('click', () => { if (m()) m().exportKml('biomapping_track_3d.kml'); });
   },
 
   /**

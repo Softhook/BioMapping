@@ -498,13 +498,7 @@
               <button class="btn btn-outline" id="g3dBtnPerspGround"><i class="fa-solid fa-person-walking"></i> Ground</button>
               <button class="btn btn-outline" id="g3dBtnNorth"><i class="fa-regular fa-compass"></i> North</button>
             </div>
-
-            <div class="control-subgroup-title">Export 3D</div>
-            <div class="g3d-btn-grid">
-              <button class="btn btn-outline" id="g3dBtnSnapshot"><i class="fa-solid fa-camera"></i> Snapshot</button>
-              <button class="btn btn-outline" id="g3dBtnCzml"><i class="fa-solid fa-code"></i> CZML</button>
-              <button class="btn btn-outline" id="g3dBtnKml"><i class="fa-solid fa-earth-europe"></i> KML</button>
-            </div>
+            <!-- 3D track export (CZML / KML) lives in the main Export Options card below. -->
           </div>
         </section>
 
@@ -726,6 +720,12 @@
               </button>
               <button class="btn btn-secondary" id="exportSvgBtn" disabled>
                 <i class="fa-solid fa-file-image"></i> Export SVG Map (Vector)
+              </button>
+              <button class="btn btn-secondary" id="exportCzmlBtn" disabled title="The 3D extruded arousal track as CesiumJS CZML">
+                <i class="fa-solid fa-code"></i> Export 3D Track (CZML)
+              </button>
+              <button class="btn btn-secondary" id="exportKmlBtn" disabled title="The 3D extruded arousal track as KML for Google Earth">
+                <i class="fa-solid fa-earth-europe"></i> Export 3D Track (KML)
               </button>
               <button class="btn btn-secondary" id="exportProjectBtn" disabled title="Bundles every loaded track's processed CSV plus collective view settings into one .zip you can re-import to keep working later">
                 <i class="fa-solid fa-file-zipper"></i> Export Collective Project (.zip)
@@ -1153,6 +1153,9 @@
   <script src="src/map/map_exporter.js"></script>
   <script src="src/render/rf_fluid_renderer.js"></script>
   <script src="src/map/map.js"></script>
+  <script src="src/map/globe3d/exporters.js"></script>
+  <script src="src/map/globe3d/rf_expanse.js"></script>
+  <script src="src/map/globe3d/buildings.js"></script>
   <script src="src/map/globe3d.js"></script>
   <script src="src/map/globe3d_view.js"></script>
   <script src="src/ui/storage.js"></script>

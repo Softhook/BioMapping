@@ -7,10 +7,11 @@
  * vertical peak spires over 3D terrain and satellite/urban basemaps.
  *
  * GSRGlobeManager is a self-contained, embeddable engine: construct it against a
- * container id, feed it an analysed track via renderData(), and tear it down with
- * destroy(). It makes no assumptions about owning the whole page — 3d.html is one
- * host; index.html could be a second (see docs/… integration notes). Page chrome
- * (sidebar, help pill) lives in the host, never here.
+ * container id, feed it an analysed track via renderData({ drawPoints }), and
+ * tear it down with destroy(). It makes no assumptions about owning the whole
+ * page — index.html's 3D-surface panel is the host (see src/map/globe3d_view.js).
+ * Page chrome (sidebar, help pill) lives in the host, never here. The host always
+ * supplies the display points; this class never runs the GPS filter chain.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -84,11 +85,6 @@ const HEIGHT_CAPABLE_METRICS = new Set(['gsr', 'phasic', 'tonic', 'arousalIndex'
 const seriesValue = (d) =>
   (d && typeof d === 'object' && 'val' in d) ? d.val : (typeof d === 'number' ? d : 0);
 
-// Standalone GPS pipeline tuning — 3D forces a downsample and a non-zero RDP
-// tolerance for frame-rate headroom, unlike map.js which honours the UI toggles.
-const STANDALONE_FORCE_DOWNSAMPLE = true;
-const STANDALONE_RDP_TOLERANCE = 0.00002;
-
 // ─────────────────────────────────────────────────────────────────────────────
 // GSRGlobeManager
 // ─────────────────────────────────────────────────────────────────────────────
@@ -103,7 +99,7 @@ class GSRGlobeManager {
    * @param {boolean} [options.doubleClickFly=true]   double-click canvas to fly to point
    * @param {boolean} [options.requestRenderMode=false]  render only on scene change /
    *   explicit requestRender() instead of every frame — big idle-cost win for an
-   *   embedded panel. Standalone 3d.html leaves it off for always-smooth flight.
+   *   embedded panel.
    */
   constructor(containerId, options = {}) {
     this.containerId = containerId;
@@ -122,7 +118,7 @@ class GSRGlobeManager {
     // drawn on a discrete scene change. _wakeRenderLoop() drops the scene to
     // continuous rendering from the first interaction and holds it there until
     // ~this long after all camera motion stops, then hands back to on-demand.
-    // No-op for a continuously rendering host (standalone 3d.html).
+    // No-op for a continuously rendering host.
     this._idleRenderMs = options.idleRenderMs || 2200;
     this._idleRenderTimer = null;
     this._wakeHandlers = null;
@@ -176,6 +172,16 @@ class GSRGlobeManager {
     this._keyUpHandler = null;
     this._screenSpaceHandler = null;
     this._flightTickRemover = null;
+    this._onContextLost = null;
+    this._onContextRestored = null;
+    this._hoverRaf = 0;
+    this._pendingHoverPos = null;
+
+    // Colour LUT cache (Cesium.Color[] mirror of MapColors.getColorLut) + last
+    // basemap id, for _render3DWallAndPath and context-restore.
+    this._cesiumColorLut = null;
+    this._cesiumColorLutKey = null;
+    this._currentBasemap = null;
 
     // 3D Volumetric RF Expanse settings
     this.showRfVolumetric = false;
@@ -216,27 +222,35 @@ class GSRGlobeManager {
     // Disable Cesium Ion default key check warning
     Cesium.Ion.defaultAccessToken = (window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.cesiumIonToken) || '';
 
-    this.viewer = new Cesium.Viewer(this.containerId, {
-      baseLayer: false,
-      baseLayerPicker: false,
-      geocoder: false,
-      homeButton: false,
-      infoBox: false,
-      selectionIndicator: false,
-      timeline: false,
-      animation: false,
-      navigationHelpButton: false,
-      sceneModePicker: false,
-      fullscreenButton: false,
-      vrButton: false,
-      creditContainer: document.createElement('div'), // Hide default credit container to manage cleanly
-      scene3DOnly: true,
-      shadows: false,
-      // Render-on-demand for the embedded panel (idle frames cost ~nothing);
-      // standalone 3d.html keeps continuous rendering for always-smooth flight.
-      requestRenderMode: this.requestRenderMode,
-      maximumRenderTimeChange: this.requestRenderMode ? Infinity : 0.0
-    });
+    try {
+      this.viewer = new Cesium.Viewer(this.containerId, {
+        baseLayer: false,
+        baseLayerPicker: false,
+        geocoder: false,
+        homeButton: false,
+        infoBox: false,
+        selectionIndicator: false,
+        timeline: false,
+        animation: false,
+        navigationHelpButton: false,
+        sceneModePicker: false,
+        fullscreenButton: false,
+        vrButton: false,
+        creditContainer: document.createElement('div'), // Hide default credit container to manage cleanly
+        scene3DOnly: true,
+        shadows: false,
+        // Render-on-demand for the embedded panel — idle frames cost ~nothing.
+        requestRenderMode: this.requestRenderMode,
+        maximumRenderTimeChange: this.requestRenderMode ? Infinity : 0.0
+      });
+    } catch (err) {
+      // WebGL context creation can fail outright (no GPU, blocklisted driver,
+      // too many live contexts). Leave this.viewer null — every method guards
+      // on it and the host (globe3d_view.activate) shows a degrade message.
+      this.viewer = null;
+      this._notifyError(err);
+      return;
+    }
 
     // Set initial ArcGIS satellite basemap immediately
     this.setBasemap('satellite');
@@ -387,10 +401,25 @@ class GSRGlobeManager {
     // _onScrubHover). Cheap: an ellipsoid pick plus a linear scan of the drawn
     // points, gated on a camera-height-scaled radius so a hover only "sticks"
     // when the pointer is genuinely near the line.
+    // The pick is coalesced to one run per animation frame — several MOUSE_MOVEs
+    // can arrive between paints and only the last position matters.
+    this._pendingHoverPos = null;
+    this._hoverRaf = 0;
+    const raf = (typeof window !== 'undefined' && window.requestAnimationFrame)
+      ? window.requestAnimationFrame.bind(window)
+      : (fn) => setTimeout(fn, 16);
+    const runHoverPick = () => {
+      this._hoverRaf = 0;
+      const pos = this._pendingHoverPos;
+      this._pendingHoverPos = null;
+      if (!pos || !this._scrubHoverCb) return;
+      const hit = this._pickTrackPoint(pos);
+      this._scrubHoverCb(hit ? hit.origIdx : null, hit ? { lat: hit.lat, lon: hit.lon } : undefined);
+    };
     this._screenSpaceHandler.setInputAction((movement) => {
       if (!this._scrubHoverCb) return;
-      const hit = this._pickTrackPoint(movement.endPosition);
-      this._scrubHoverCb(hit ? hit.origIdx : null, hit ? { lat: hit.lat, lon: hit.lon } : undefined);
+      this._pendingHoverPos = { x: movement.endPosition.x, y: movement.endPosition.y };
+      if (!this._hoverRaf) this._hoverRaf = raf(runHoverPick);
     }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
     // The pointer leaving the canvas entirely fires no MOUSE_MOVE — clear the
@@ -422,6 +451,23 @@ class GSRGlobeManager {
         this._wakeRenderLoop();
       });
     }
+
+    // 8. WebGL context loss/restore. A long-lived embedded viewer can lose its
+    // GL context (GPU reset, tab backgrounded on some drivers, too many live
+    // contexts). Without this the canvas just freezes black. preventDefault on
+    // 'lost' lets the browser hand the context back; on 'restored' rebuild the
+    // scene contents Cesium can't restore itself (our raw primitives).
+    this._onContextLost = (e) => { if (e && e.preventDefault) e.preventDefault(); };
+    this._onContextRestored = () => {
+      if (!this.viewer) return;
+      try {
+        this.setBasemap(this._currentBasemap || 'satellite');
+        this._refreshTrack();
+        this._requestRender();
+      } catch (err) { this._notifyError(err); }
+    };
+    scene.canvas.addEventListener('webglcontextlost', this._onContextLost, false);
+    scene.canvas.addEventListener('webglcontextrestored', this._onContextRestored, false);
   }
 
   /**
@@ -536,11 +582,24 @@ class GSRGlobeManager {
     this.releaseFollowScrub();
     this.clearAll();
 
-    if (this._scrubHoverLeaveHandler && this.viewer && this.viewer.scene && this.viewer.scene.canvas) {
-      this.viewer.scene.canvas.removeEventListener('mouseleave', this._scrubHoverLeaveHandler);
+    const canvas = this.viewer && this.viewer.scene && this.viewer.scene.canvas;
+    if (this._scrubHoverLeaveHandler && canvas) {
+      canvas.removeEventListener('mouseleave', this._scrubHoverLeaveHandler);
     }
     this._scrubHoverLeaveHandler = null;
     this._scrubHoverCb = null;
+
+    if (canvas) {
+      if (this._onContextLost) canvas.removeEventListener('webglcontextlost', this._onContextLost, false);
+      if (this._onContextRestored) canvas.removeEventListener('webglcontextrestored', this._onContextRestored, false);
+    }
+    this._onContextLost = null;
+    this._onContextRestored = null;
+    if (this._hoverRaf && typeof window !== 'undefined' && window.cancelAnimationFrame) {
+      window.cancelAnimationFrame(this._hoverRaf);
+    }
+    this._hoverRaf = 0;
+    this._pendingHoverPos = null;
 
     if (this._keyDownHandler) {
       window.removeEventListener('keydown', this._keyDownHandler);
@@ -650,10 +709,20 @@ class GSRGlobeManager {
   setBasemap(type) {
     if (!this.viewer) return;
     const layers = this.viewer.imageryLayers;
+    // Build the new provider BEFORE dropping the old layer, so a bad tile URL /
+    // provider ctor throw leaves the current imagery on screen rather than a
+    // blank globe.
+    let provider;
+    try {
+      provider = this._createImageryProvider(type);
+    } catch (err) {
+      this._notifyWarn('Could not switch basemap — keeping the current one.');
+      return;
+    }
     layers.removeAll();
-    const provider = this._createImageryProvider(type);
     if (provider) {
       layers.addImageryProvider(provider);
+      this._currentBasemap = type;
     }
     this._requestRender();
   }
@@ -681,14 +750,20 @@ class GSRGlobeManager {
       return;
     }
 
+    // Guard against a second toggle landing while the Overpass fetch is still
+    // in flight — that raced two primitives (a leak) and two status flickers.
+    if (this._buildingsFetching) return;
+
     if (this.currentDrawPoints && this.currentDrawPoints.length > 0 && typeof OSMEnricher !== 'undefined') {
+      this._buildingsFetching = true;
       try {
         if (onStatus) onStatus('Fetching OpenStreetMap 3D buildings…');
         const rawPoints = this.currentDrawPoints.map(p => ({ lat: p.lat, lon: p.lon }));
         const bbox = OSMEnricher.calculateBBox(rawPoints, 350);
         if (bbox) {
           const osmJson = await OSMEnricher.fetchOSMData(bbox, onStatus);
-          if (osmJson) {
+          // A toggle-off (or teardown) during the await wins — don't draw.
+          if (osmJson && this.show3DBuildings && this.viewer) {
             this.cachedOsmJson = osmJson;
             this.renderOsm3DBuildings(osmJson, style);
             if (onStatus) onStatus('');
@@ -697,8 +772,13 @@ class GSRGlobeManager {
         }
       } catch (err) {
         console.warn('Direct Overpass building fetch failed, checking Cesium ion fallback:', err);
+      } finally {
+        this._buildingsFetching = false;
       }
     }
+
+    // A toggle-off (or teardown) while the Overpass fetch was running wins.
+    if (!this.show3DBuildings || !this.viewer) return;
 
     // 2. Fallback to Cesium ion global 3D tiles if token available
     if (!this.buildingsTileset) {
@@ -724,111 +804,17 @@ class GSRGlobeManager {
   }
 
   /**
-   * Extrude 3D building polygons from raw OpenStreetMap Overpass data
-   * (100% token-free, no Cesium ion account needed).
-   */
-  /**
-   * Extrude 3D building polygons from raw OpenStreetMap Overpass data
-   * (Batched into a single GPU primitive for high 60 FPS performance).
+   * Extrude raw OpenStreetMap Overpass building footprints into one batched GPU
+   * primitive. Geometry build lives in src/map/globe3d/buildings.js; this owns
+   * the scene primitive's lifecycle.
    */
   renderOsm3DBuildings(osmJson, style = 'glass') {
     this.clearOsmBuildingEntities();
-    if (!osmJson || !osmJson.elements) return;
-
-    // Parse nodes and ways from OSM JSON
-    const nodeMap = new Map();
-    const buildingWays = [];
-
-    for (const el of osmJson.elements) {
-      if (el.type === 'node') {
-        nodeMap.set(el.id, { lat: el.lat, lon: el.lon });
-      }
-    }
-
-    for (const el of osmJson.elements) {
-      if (el.type === 'way' && el.tags && el.tags.building) {
-        const coords = [];
-        for (const nid of el.nodes) {
-          const pt = nodeMap.get(nid);
-          if (pt) coords.push(pt);
-        }
-        if (coords.length >= 3) {
-          el.coordinates = coords;
-          buildingWays.push(el);
-        }
-      }
-    }
-
-    if (buildingWays.length === 0) return;
-
-    // Determine color
-    let fillColor;
-    if (style === 'glass') {
-      fillColor = Cesium.Color.fromCssColorString('#00d4ff').withAlpha(0.35);
-    } else if (style === 'dark') {
-      fillColor = Cesium.Color.fromCssColorString('#242833');
-    } else if (style === 'monochrome') {
-      fillColor = Cesium.Color.fromCssColorString('#e4e7ee');
-    } else {
-      fillColor = Cesium.Color.fromCssColorString('#cfc4b4');
-    }
-
-    const isTranslucent = (style === 'glass');
-    const instances = [];
-
-    // Build geometry instances into 1 single GPU draw call
-    for (let i = 0; i < buildingWays.length; i++) {
-      const way = buildingWays[i];
-      const degreesArray = [];
-      for (const pt of way.coordinates) {
-        degreesArray.push(pt.lon, pt.lat);
-      }
-
-      let heightMeters = 9.0; // Default 3 stories
-      if (way.tags.height) {
-        const h = parseFloat(way.tags.height);
-        if (!isNaN(h) && h > 0) heightMeters = h;
-      } else if (way.tags['building:levels']) {
-        const lvls = parseFloat(way.tags['building:levels']);
-        if (!isNaN(lvls) && lvls > 0) heightMeters = lvls * 3.5;
-      } else if (way.tags.building === 'commercial' || way.tags.building === 'apartments' || way.tags.building === 'office') {
-        heightMeters = 16.0;
-      } else if (way.tags.building === 'shed' || way.tags.building === 'garage') {
-        heightMeters = 4.0;
-      }
-
-      try {
-        const polygonGeometry = new Cesium.PolygonGeometry({
-          polygonHierarchy: new Cesium.PolygonHierarchy(
-            Cesium.Cartesian3.fromDegreesArray(degreesArray)
-          ),
-          height: 0.0,
-          extrudedHeight: heightMeters,
-          vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT
-        });
-
-        instances.push(new Cesium.GeometryInstance({
-          geometry: polygonGeometry,
-          attributes: {
-            color: Cesium.ColorGeometryInstanceAttribute.fromColor(fillColor)
-          },
-          id: `osm-building-${i}`
-        }));
-      } catch (err) {
-        // Skip invalid/degenerate polygons cleanly
-      }
-    }
-
-    if (instances.length > 0) {
-      this.buildingPrimitive = new Cesium.Primitive({
-        geometryInstances: instances,
-        appearance: new Cesium.PerInstanceColorAppearance({
-          translucent: isTranslucent,
-          closed: true
-        }),
-        asynchronous: true
-      });
-      this.viewer.scene.primitives.add(this.buildingPrimitive);
+    if (!this.viewer || typeof GSRGlobe3DBuildings === 'undefined') return;
+    const prim = GSRGlobe3DBuildings.buildPrimitive(osmJson, style);
+    if (prim) {
+      this.buildingPrimitive = prim;
+      this.viewer.scene.primitives.add(prim);
     }
   }
 
@@ -856,22 +842,10 @@ class GSRGlobeManager {
       return;
     }
 
-    // Otherwise update Cesium 3D Tile style
+    // Otherwise update the Cesium ion 3D-tiles style.
     if (!this.buildingsTileset) return;
-
-    let colorExpression;
-    if (style === 'glass') {
-      colorExpression = "color('rgba(52, 100, 138, 0.45)')";
-    } else if (style === 'dark') {
-      colorExpression = "color('#1c202a', 1.0)";
-    } else if (style === 'monochrome') {
-      colorExpression = "color('#f0f2f6', 1.0)";
-    } else {
-      colorExpression = "color('#d6cdc0', 1.0)";
-    }
-
     this.buildingsTileset.style = new Cesium.Cesium3DTileStyle({
-      color: colorExpression,
+      color: GSRGlobe3DBuildings.tileStyleExpression(style),
       show: true
     });
     this._requestRender();
@@ -898,169 +872,19 @@ class GSRGlobeManager {
   }
 
   /**
-   * Render 3D Volumetric RF Expanse as smooth, glowing semi-dome fluid slugs
+   * Render the 3D Volumetric RF Expanse (glowing semi-dome fluid slugs). The
+   * geometry build lives in src/map/globe3d/rf_expanse.js; this owns the scene
+   * primitive's lifecycle.
    */
   render3DRfExpanse(analyzer, drawPoints) {
     this.clearRfEntities();
-    if (!analyzer || !drawPoints || drawPoints.length === 0) return;
-
-    const raw = analyzer.raw || [];
-    if (raw.length === 0) return;
-
-    // 1. Gather all points with GPS coordinates and inspect RSSI data
-    const rfPoints = [];
-    let min815 = Infinity, max815 = -Infinity;
-    let min868 = Infinity, max868 = -Infinity;
-    let min915 = Infinity, max915 = -Infinity;
-    let minFog = Infinity, maxFog = -Infinity;
-
-    for (let i = 0; i < drawPoints.length; i++) {
-      const pt = drawPoints[i];
-      if (!pt || isNaN(pt.lat) || isNaN(pt.lon)) continue;
-
-      const rawRow = raw[pt.origIdx] || {};
-      const r815 = rawRow.rssi_815 ?? rawRow.r815 ?? rawRow.r_815;
-      const r868 = rawRow.rssi_868 ?? rawRow.r868 ?? rawRow.r_868;
-      const r915 = rawRow.rssi_915 ?? rawRow.r915 ?? rawRow.r_915;
-      const fog  = rawRow.em_fog ?? rawRow.emFog ?? rawRow.fog;
-
-      const has815 = (r815 !== undefined && !isNaN(r815));
-      const has868 = (r868 !== undefined && !isNaN(r868));
-      const has915 = (r915 !== undefined && !isNaN(r915));
-      const hasFog = (fog !== undefined && !isNaN(fog));
-
-      if (has815) { if (r815 < min815) min815 = r815; if (r815 > max815) max815 = r815; }
-      if (has868) { if (r868 < min868) min868 = r868; if (r868 > max868) max868 = r868; }
-      if (has915) { if (r915 < min915) min915 = r915; if (r915 > max915) max915 = r915; }
-      if (hasFog) { if (fog < minFog) minFog = fog; if (fog > maxFog) maxFog = fog; }
-
-      rfPoints.push({
-        lat: pt.lat,
-        lon: pt.lon,
-        origIdx: pt.origIdx,
-        r815: has815 ? r815 : null,
-        r868: has868 ? r868 : null,
-        r915: has915 ? r915 : null,
-        fog: hasFog ? fog : null,
-        hasRf: (has815 || has868 || has915 || hasFog)
-      });
-    }
-
-    if (rfPoints.length === 0) return;
-
-    const hasMeasuredRf = rfPoints.some(p => p.hasRf);
-
-    // If dataset does not have hardware radio chips, generate ambient RF field
-    if (!hasMeasuredRf) {
-      min815 = 0; max815 = 1;
-      min868 = 0; max868 = 1;
-      min915 = 0; max915 = 1;
-      minFog = 0; maxFog = 1;
-
-      for (let i = 0; i < rfPoints.length; i++) {
-        const frac = i / Math.max(1, rfPoints.length - 1);
-        rfPoints[i].r815 = 0.35 + 0.65 * Math.sin(frac * Math.PI * 4);
-        rfPoints[i].r868 = 0.35 + 0.65 * Math.sin(frac * Math.PI * 3 + 1.2);
-        rfPoints[i].r915 = 0.35 + 0.65 * Math.cos(frac * Math.PI * 5 + 0.5);
-        rfPoints[i].fog  = 0.3 + 0.7 * Math.sin(frac * Math.PI * 2);
-      }
-    } else {
-      if (!isFinite(min815) || !isFinite(max815) || min815 >= max815) { min815 = -92.0; max815 = -50.0; }
-      if (!isFinite(min868) || !isFinite(max868) || min868 >= max868) { min868 = -92.0; max868 = -50.0; }
-      if (!isFinite(min915) || !isFinite(max915) || min915 >= max915) { min915 = -92.0; max915 = -50.0; }
-      if (!isFinite(minFog) || !isFinite(maxFog) || minFog >= maxFog) { minFog = 0.0; maxFog = 100.0; }
-    }
-
-    const mode = this.rfMode || 'triband';
-    const baseCeiling = this.rfHeight || 25.0;
-    const opacity = this.rfOpacity || 0.45;
-    const instances = [];
-
-    // Spatial step for smooth fluid slug overlap
-    const sampleStep = Math.max(1, Math.floor(rfPoints.length / 50));
-
-    for (let i = 0; i < rfPoints.length; i += sampleStep) {
-      const pt = rfPoints[i];
-
-      // Normalize band intensities [0.0 -> 1.0]
-      const norm815 = Math.max(0.0, Math.min(1.0, hasMeasuredRf ? ((pt.r815 - min815) / (max815 - min815)) : pt.r815));
-      const norm868 = Math.max(0.0, Math.min(1.0, hasMeasuredRf ? ((pt.r868 - min868) / (max868 - min868)) : pt.r868));
-      const norm915 = Math.max(0.0, Math.min(1.0, hasMeasuredRf ? ((pt.r915 - min915) / (max915 - min915)) : pt.r915));
-      const normFog = Math.max(0.0, Math.min(1.0, hasMeasuredRf ? ((pt.fog - minFog) / (maxFog - minFog)) : pt.fog));
-
-      let r = 0, g = 0, b = 0, intensity = 0;
-
-      if (mode === 'triband') {
-        // Additive luminous RGB fluid mixing
-        r = Math.min(1.0, 0.15 + norm815 * 0.85);
-        g = Math.min(1.0, 0.15 + norm868 * 0.85);
-        b = Math.min(1.0, 0.15 + norm915 * 0.85);
-        intensity = Math.max(norm815, norm868, norm915, 0.25);
-      } else if (mode === '815') {
-        // 815 MHz: Vivid glowing Coral Red
-        r = 1.0;
-        g = 0.12 + 0.25 * (1.0 - norm815);
-        b = 0.18 + 0.2 * (1.0 - norm815);
-        intensity = Math.max(0.2, norm815);
-      } else if (mode === '868') {
-        // 868 MHz: Vivid glowing Emerald Green
-        r = 0.05;
-        g = 1.0;
-        b = 0.25 + 0.3 * (1.0 - norm868);
-        intensity = Math.max(0.2, norm868);
-      } else if (mode === '915') {
-        // 915 MHz: Vivid glowing Electric Cyan / Blue
-        r = 0.0;
-        g = 0.65 + 0.35 * norm915;
-        b = 1.0;
-        intensity = Math.max(0.2, norm915);
-      } else {
-        // EM Fog Index: Radiant Magenta / Purple
-        r = 0.88;
-        g = 0.22;
-        b = 1.0;
-        intensity = Math.max(0.2, normFog);
-      }
-
-      // Smooth semi-dome radius and altitude ceiling
-      const domeRadius = 24.0 + 32.0 * intensity;
-      const domeHeight = 8.0 + (baseCeiling - 8.0) * intensity;
-
-      try {
-        const domeGeometry = new Cesium.EllipsoidGeometry({
-          radii: new Cesium.Cartesian3(domeRadius, domeRadius, domeHeight),
-          vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT
-        });
-
-        const modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(
-          Cesium.Cartesian3.fromDegrees(pt.lon, pt.lat, 0.0)
-        );
-
-        const cesiumColor = new Cesium.Color(r, g, b, opacity * (0.45 + 0.55 * intensity));
-
-        instances.push(new Cesium.GeometryInstance({
-          geometry: domeGeometry,
-          modelMatrix: modelMatrix,
-          attributes: {
-            color: Cesium.ColorGeometryInstanceAttribute.fromColor(cesiumColor)
-          },
-          id: `rf-slug-${i}`
-        }));
-      } catch (err) {
-        // Skip geometry error cleanly
-      }
-    }
-
-    if (instances.length > 0) {
-      this.rfPrimitive = new Cesium.Primitive({
-        geometryInstances: instances,
-        appearance: new Cesium.PerInstanceColorAppearance({
-          translucent: true,
-          closed: true
-        }),
-        asynchronous: false
-      });
-      this.viewer.scene.primitives.add(this.rfPrimitive);
+    if (!this.viewer || typeof GSRGlobe3DRf === 'undefined') return;
+    const prim = GSRGlobe3DRf.buildPrimitive(analyzer, drawPoints, {
+      mode: this.rfMode, height: this.rfHeight, opacity: this.rfOpacity
+    });
+    if (prim) {
+      this.rfPrimitive = prim;
+      this.viewer.scene.primitives.add(prim);
     }
   }
 
@@ -1185,69 +1009,12 @@ class GSRGlobeManager {
   }
 
   /**
-   * Run the full GPS filter chain for the standalone 3d.html page and return
-   * displayable draw points.
-   *
-   * This mirrors GSRMapManager._getOrBuildDrawPoints() (src/map/map.js) minus its
-   * per-track cache, and is the designated extraction point: a future shared
-   * GpsPipeline.buildDrawPoints(analyzer, params, opts) would replace this body and
-   * let an in-app host feed globe3d the drawPoints it already built for Leaflet
-   * (renderData's `drawPoints` option) instead of re-running the chain here.
-   */
-  _computeDrawPointsStandalone(analyzer, data, gpsParams) {
-    const p = gpsParams || (typeof GSR_CONST !== 'undefined' ? GSR_CONST.GPS_DEFAULT : {});
-    let gpsPoints = [];
-    for (let i = 0; i < data.length; i++) {
-      if (data[i].hasGps && !isNaN(data[i].lat) && !isNaN(data[i].lon)) {
-        gpsPoints.push({ ...data[i], origIdx: i });
-      }
-    }
-
-    if (gpsPoints.length === 0) return [];
-
-    gpsPoints = GpsPipeline.applyHdopGate(gpsPoints, p.maxHdop || 3.0);
-    gpsPoints = GpsPipeline.applyFixTypeGate(gpsPoints); // defaults minFixType = 2, matching map.js
-
-    const smoothing = p.smoothing || 0.5;
-    const kalmanR   = p.kalmanR || 10;
-    gpsPoints = GpsPipeline.applyPreKalmanFilters(gpsPoints, smoothing, p.maxSpeed || 3.0);
-
-    if (analyzer.snappedGps) {
-      gpsPoints = GpsPipeline.applySnapCorrection(gpsPoints, analyzer.snappedGps);
-    }
-
-    gpsPoints = GpsFilter.applyKalman(gpsPoints, smoothing, kalmanR);
-
-    // Reconstruct full 10 Hz filtered GPS path
-    GpsPipeline.reconstructFilteredGpsCached(analyzer, data, gpsPoints);
-
-    const filteredGps = analyzer.filteredGps;
-    let drawPoints = [];
-    for (let i = 0; i < data.length; i++) {
-      const fg = filteredGps[i];
-      if (fg && !isNaN(fg.lat) && !isNaN(fg.lon)) {
-        drawPoints.push({
-          ...data[i],
-          lat: fg.lat,
-          lon: fg.lon,
-          origIdx: i,
-          isRfPeak: !!(analyzer.rfPeakIndices && analyzer.rfPeakIndices.has(i))
-        });
-      }
-    }
-
-    drawPoints = GpsPipeline.downsampleForDisplay(
-      drawPoints, analyzer.sampleRate || 10.0, STANDALONE_FORCE_DOWNSAMPLE, analyzer.rfPeakIndices);
-    drawPoints = GpsFilter.applyRDP(
-      drawPoints, p.rdpTolerance || STANDALONE_RDP_TOLERANCE, analyzer.rfPeakIndices);
-
-    return drawPoints;
-  }
-
-  /**
    * Render a BioMapping track in 3D.
    * @param {GSRAnalyzer} analyzer  Analysed track instance.
-   * @param {object} gpsParams      GPS filter parameters (used only when `drawPoints` is omitted).
+   * @param {object} [gpsParams]    Unused — kept so the host can pass its GPS
+   *                                params object positionally without a wrapper.
+   *                                This class never runs the GPS chain; the host
+   *                                supplies `opts.drawPoints`.
    * @param {object} [opts]
    * @param {string}  [opts.colorMetric]  Colour the wall/path by this metric instead of
    *                                      the manager's own activeColoringMetric — the
@@ -1256,15 +1023,14 @@ class GSRGlobeManager {
    * @param {{min:number,max:number}} [opts.colorRange]  Host-owned colour normalisation
    *                                      range (the 2D legend's min/max). When given, the
    *                                      wall isn't re-normalised over its own points.
-   * @param {Array}   [opts.drawPoints]  Pre-computed draw points from the host; skips the
-   *                                     standalone GPS chain entirely.
+   * @param {Array}   [opts.drawPoints]  Display points from the host (the exact
+   *                                     array the 2D map drew). Required — at least
+   *                                     2 points, or nothing renders.
    * @param {boolean} [opts.isPreview=false]  Suppress the initial fly-to-track.
    */
   renderData(analyzer, gpsParams, opts = {}) {
     if (!this.viewer || !analyzer || !analyzer.raw || analyzer.raw.length === 0) return;
 
-    // Back-compat: renderData(analyzer, params, true) still means isPreview.
-    if (typeof opts === 'boolean') opts = { isPreview: opts };
     const { drawPoints: providedDrawPoints, isPreview = false, colorMetric, colorRange } = opts;
 
     if (colorMetric) this.activeColoringMetric = colorMetric;
@@ -1273,8 +1039,7 @@ class GSRGlobeManager {
 
     this.currentAnalyzer = analyzer;
 
-    const drawPoints = providedDrawPoints
-      || this._computeDrawPointsStandalone(analyzer, analyzer.raw, gpsParams);
+    const drawPoints = Array.isArray(providedDrawPoints) ? providedDrawPoints : [];
     this.currentDrawPoints = drawPoints;
 
     if (drawPoints.length < 2) {
@@ -1319,8 +1084,30 @@ class GSRGlobeManager {
   }
 
   /**
-   * Build the extruded arousal wall (one batched GPU primitive, one instance per
-   * segment for its own colour) and the clamped ground polyline.
+   * A Cesium.Color[] mirror of MapColors.getColorLut(metric, min, max) — the
+   * same 30 bucket-midpoint colours the 2D map uses, parsed to Cesium.Color
+   * once and cached by (metric, range) so a wall rebuild parses ≤ 30 CSS
+   * strings instead of one per segment. See _render3DWallAndPath.
+   */
+  _getCesiumColorLut(metric, minVal, maxVal) {
+    const key = `${metric}|${minVal.toFixed(4)}|${maxVal.toFixed(4)}`;
+    if (this._cesiumColorLutKey === key && this._cesiumColorLut) return this._cesiumColorLut;
+    const hexLut = MapColors.getColorLut(metric, minVal, maxVal);
+    this._cesiumColorLut = hexLut.map((hex) => Cesium.Color.fromCssColorString(hex).withAlpha(0.85));
+    this._cesiumColorLutKey = key;
+    return this._cesiumColorLut;
+  }
+
+  /**
+   * Build the extruded arousal wall and the clamped ground polyline.
+   *
+   * The wall is one batched GPU Primitive. Rather than one GeometryInstance per
+   * segment (thousands, each a WallGeometry the main thread must build + combine
+   * every rebuild — the measured bottleneck, see tests/manual/_bench_globe3d_perf.js),
+   * consecutive segments that fall in the same 30-bucket colour band are merged
+   * into ONE multi-vertex WallGeometry. A smooth arousal track collapses to
+   * tens of instances. Colour comes from a bounded Cesium.Color LUT; every
+   * point's ECEF position is computed in a single fromDegreesArray call.
    */
   _render3DWallAndPath(analyzer, drawPoints) {
     if (drawPoints.length < 2) return;
@@ -1358,54 +1145,84 @@ class GSRGlobeManager {
       maxVal = 1;
     }
 
-    // One GeometryInstance per segment (keeps per-segment colour), collapsed into
-    // a single Primitive / draw call — the shape renderOsm3DBuildings() uses.
+    const NB = 30; // colour-bucket count — matches MapColors.getColorLut()
+    const range = maxVal - minVal;
+    const bucketOf = (v) => (range > 1e-9
+      ? Math.max(0, Math.min(NB - 1, Math.floor(((v - minVal) / range) * NB)))
+      : (NB >> 1));
+    const colorLut = this._getCesiumColorLut(metric, minVal, maxVal);
+
+    // One fromDegreesArray for the whole path — positions[i] ↔ drawPoints[i].
+    const flat = new Array(drawPoints.length * 2);
+    for (let i = 0; i < drawPoints.length; i++) {
+      flat[i * 2] = drawPoints[i].lon;
+      flat[i * 2 + 1] = drawPoints[i].lat;
+    }
+    const positions = Cesium.Cartesian3.fromDegreesArray(flat);
+    const heightAt = (idx) => this.baseHeight + Math.max(0, heightSeries[idx] ?? 0) * this.extrusionScale;
+
     const wallInstances = [];
     const groundPositions = [];
+
+    // Current merge run: same colour bucket, contiguous in time.
+    let runPos = null;      // Cartesian3[]
+    let runMax = null;      // number[] (max wall heights, per vertex)
+    let runBucket = -1;
+    let instanceSeq = 0;
+
+    const flushRun = () => {
+      if (!runPos || runPos.length < 2) { runPos = runMax = null; return; }
+      try {
+        wallInstances.push(new Cesium.GeometryInstance({
+          geometry: new Cesium.WallGeometry({
+            positions: runPos,
+            minimumHeights: new Array(runPos.length).fill(0.0),
+            maximumHeights: runMax,
+            vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT
+          }),
+          attributes: {
+            color: Cesium.ColorGeometryInstanceAttribute.fromColor(colorLut[runBucket] || colorLut[0])
+          },
+          id: `biomap-wall-${instanceSeq++}`
+        }));
+      } catch (err) {
+        // Skip a degenerate run (coincident points) cleanly.
+      }
+      runPos = runMax = null;
+    };
 
     for (let i = 0; i < drawPoints.length - 1; i++) {
       const p1 = drawPoints[i];
       const p2 = drawPoints[i + 1];
 
-      // Time gap check (e.g. paused / lost fix > 15 seconds)
-      const dt = Math.abs(p2.time - p1.time);
-      if (dt > 15.0) continue;
+      // Time gap (paused / lost fix > 15 s) breaks both the wall run and the
+      // ground line.
+      if (Math.abs(p2.time - p1.time) > 15.0) {
+        flushRun();
+        continue;
+      }
 
-      const val1 = colorSeries[p1.origIdx] ?? minVal;
-      const val2 = colorSeries[p2.origIdx] ?? minVal;
-      const avgVal = (val1 + val2) / 2;
+      const v1 = colorSeries[p1.origIdx] ?? minVal;
+      const v2 = colorSeries[p2.origIdx] ?? minVal;
+      const bucket = bucketOf((v1 + v2) / 2);
+      const h1 = heightAt(p1.origIdx);
+      const h2 = heightAt(p2.origIdx);
 
-      const hv1 = heightSeries[p1.origIdx] ?? 0;
-      const hv2 = heightSeries[p2.origIdx] ?? 0;
-      const h1 = this.baseHeight + Math.max(0, hv1) * this.extrusionScale;
-      const h2 = this.baseHeight + Math.max(0, hv2) * this.extrusionScale;
+      groundPositions.push(positions[i]);
+      if (i === drawPoints.length - 2) groundPositions.push(positions[i + 1]);
 
-      const pos1 = Cesium.Cartesian3.fromDegrees(p1.lon, p1.lat);
-      const pos2 = Cesium.Cartesian3.fromDegrees(p2.lon, p2.lat);
-
-      groundPositions.push(pos1);
-      if (i === drawPoints.length - 2) groundPositions.push(pos2);
-
-      const hexColor = MapColors.getColorForMetric(metric, avgVal, minVal, maxVal);
-      const cesiumColor = Cesium.Color.fromCssColorString(hexColor).withAlpha(0.85);
-
-      try {
-        wallInstances.push(new Cesium.GeometryInstance({
-          geometry: new Cesium.WallGeometry({
-            positions: [pos1, pos2],
-            minimumHeights: [0.0, 0.0],
-            maximumHeights: [h1, h2],
-            vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT
-          }),
-          attributes: {
-            color: Cesium.ColorGeometryInstanceAttribute.fromColor(cesiumColor)
-          },
-          id: `biomap-wall-${i}`
-        }));
-      } catch (err) {
-        // Skip degenerate (zero-length) segments cleanly
+      if (runPos && bucket === runBucket) {
+        // extend the current run — positions[i] is already its last vertex
+        runPos.push(positions[i + 1]);
+        runMax.push(h2);
+      } else {
+        flushRun();
+        runPos = [positions[i], positions[i + 1]];
+        runMax = [h1, h2];
+        runBucket = bucket;
       }
     }
+    flushRun();
 
     if (wallInstances.length > 0) {
       this.wallPrimitive = new Cesium.Primitive({
@@ -1413,8 +1230,7 @@ class GSRGlobeManager {
         // flat: match the old unlit `wall.material = color` look (scene lighting is off)
         appearance: new Cesium.PerInstanceColorAppearance({ flat: true, translucent: true, closed: false }),
         // Embedded host: batch geometry off the main thread so a slider drag
-        // doesn't stall the whole page. Standalone keeps it synchronous (no
-        // pop-in) since it isn't sharing the frame with Leaflet + p5.
+        // doesn't stall the whole page.
         asynchronous: this.requestRenderMode
       });
       this.viewer.scene.primitives.add(this.wallPrimitive);
@@ -1695,145 +1511,9 @@ class GSRGlobeManager {
     if (this.viewer) this.viewer.scene.requestRenderMode = this.requestRenderMode;
   }
 
-  /**
-   * Capture high-res screenshot of the 3D globe view (PNG)
-   */
-  exportSnapshot(filename = 'biomap_3d_snapshot.png') {
-    if (!this.viewer) return;
-
-    // Force single frame render before capturing canvas
-    this.viewer.render();
-    const canvas = this.viewer.scene.canvas;
-
-    const link = document.createElement('a');
-    link.download = filename;
-    link.href = canvas.toDataURL('image/png');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }
-
-  /**
-   * Export track as CZML (Cesium 3D JSON format)
-   */
-  exportCzml(filename = 'biomap_track_3d.czml') {
-    if (!this.currentAnalyzer || this.currentDrawPoints.length === 0) {
-      this._notifyWarn('No active track loaded to export.');
-      return;
-    }
-
-    const drawPoints = this.currentDrawPoints;
-    const metric = this.activeColoringMetric;
-    const series = this._getMetricSeries(this.currentAnalyzer, metric);
-
-    const positions = [];
-    const minHeights = [];
-    const maxHeights = [];
-
-    for (let i = 0; i < drawPoints.length; i++) {
-      const pt = drawPoints[i];
-      const val = Math.max(0, series[pt.origIdx] || 0);
-      positions.push(pt.lon, pt.lat, 0);
-      minHeights.push(0);
-      maxHeights.push(this.baseHeight + val * this.extrusionScale);
-    }
-
-    const czml = [
-      {
-        id: 'document',
-        name: 'BioMapping 3D Emotional Topography',
-        version: '1.0'
-      },
-      {
-        id: 'biomap_3d_ribbon',
-        name: 'GSR Emotional Ribbon',
-        wall: {
-          positions: {
-            cartographicDegrees: positions
-          },
-          minimumHeights: minHeights,
-          maximumHeights: maxHeights,
-          material: {
-            solidColor: {
-              color: {
-                rgba: [0, 212, 255, 200]
-              }
-            }
-          }
-        }
-      }
-    ];
-
-    const blob = new Blob([JSON.stringify(czml, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.download = filename;
-    link.href = url;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }
-
-  /**
-   * Export track as 3D KML (with <extrude>1</extrude> for Google Earth)
-   */
-  exportKml(filename = 'biomap_track_3d.kml') {
-    if (!this.currentAnalyzer || this.currentDrawPoints.length === 0) {
-      this._notifyWarn('No active track loaded to export.');
-      return;
-    }
-
-    const drawPoints = this.currentDrawPoints;
-    const metric = this.activeColoringMetric;
-    const series = this._getMetricSeries(this.currentAnalyzer, metric);
-
-    let kmlCoords = '';
-    for (let i = 0; i < drawPoints.length; i++) {
-      const pt = drawPoints[i];
-      const val = Math.max(0, series[pt.origIdx] || 0);
-      const height = this.baseHeight + val * this.extrusionScale;
-      kmlCoords += `${pt.lon},${pt.lat},${height.toFixed(1)}\n`;
-    }
-
-    const kmlContent = `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-  <Document>
-    <name>BioMapping 3D Emotional Landscape</name>
-    <Style id="biomapWallStyle">
-      <LineStyle>
-        <color>ff00ffff</color>
-        <width>3</width>
-      </LineStyle>
-      <PolyStyle>
-        <color>aa00d4ff</color>
-      </PolyStyle>
-    </Style>
-    <Placemark>
-      <name>3D Arousal Ribbon</name>
-      <styleUrl>#biomapWallStyle</styleUrl>
-      <LineString>
-        <extrude>1</extrude>
-        <tessellate>1</tessellate>
-        <altitudeMode>relativeToGround</altitudeMode>
-        <coordinates>
-${kmlCoords.trim()}
-        </coordinates>
-      </LineString>
-    </Placemark>
-  </Document>
-</kml>`;
-
-    const blob = new Blob([kmlContent], { type: 'application/vnd.google-earth.kml+xml' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.download = filename;
-    link.href = url;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }
+  // 3D track export (CZML / KML) lives in src/map/globe3d/exporters.js and is
+  // driven from the main Export Options panel — it needs no live viewer. The 3D
+  // PNG snapshot was dropped: the app's Save Canvas / Bio Map PNG covers it.
 }
 
 if (typeof module !== 'undefined' && module.exports) {

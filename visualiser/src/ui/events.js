@@ -412,6 +412,8 @@ const GSREvents = {
     document.getElementById('exportSvgBtn').addEventListener('click', async () => {
       if (AppState.mapManager) await GSRMapExporter.exportToSvg(AppState.mapManager);
     });
+    document.getElementById('exportCzmlBtn').addEventListener('click', () => GSREvents.export3DTrack('czml'));
+    document.getElementById('exportKmlBtn').addEventListener('click',  () => GSREvents.export3DTrack('kml'));
     document.getElementById('exportProjectBtn').addEventListener('click', () => {
       GSRCollectiveProject.exportProject();
     });
@@ -951,6 +953,40 @@ const GSREvents = {
       show(globeCard, true);
       if (typeof GSRGlobe3DView !== 'undefined') GSRGlobe3DView.activate();
     });
+  },
+
+  /**
+   * Export the active single track as the 3D extruded arousal ribbon (CZML or
+   * KML), driven from the main Export Options panel — no live 3D viewer needed.
+   * Uses the exact display points the 2D map drew (single-track scope only:
+   * collective's merged drawPoints carry cross-analyzer indices), the map's
+   * active colour metric, and the 3D extrusion slider's value.
+   * @param {'czml'|'kml'} kind
+   */
+  export3DTrack(kind) {
+    const analyzer = AppState.analyzer;
+    const mm = AppState.mapManager;
+    const drawPoints = (AppState.viewMode !== 'collective' && mm) ? mm._lastDrawPoints : null;
+    if (!analyzer || !drawPoints || drawPoints.length < 2) {
+      const msg = 'Load a single track with GPS data before exporting the 3D track.';
+      if (typeof GSRNotices !== 'undefined') GSRNotices.warn(msg, 'export3d');
+      else console.warn('[export3d]', msg);
+      return;
+    }
+    const extEl = document.getElementById('g3dExtrusionScale');
+    const opts = {
+      metric: (mm && mm.activeColoringMetric) || 'phasic',
+      extrusionScale: extEl ? parseFloat(extEl.value) : undefined
+    };
+    if (kind === 'kml') {
+      GSRGlobe3DExport.download(
+        GSRGlobe3DExport.buildKml(analyzer, drawPoints, opts),
+        'biomapping_track_3d.kml', 'application/vnd.google-earth.kml+xml');
+    } else {
+      GSRGlobe3DExport.download(
+        GSRGlobe3DExport.buildCzml(analyzer, drawPoints, opts),
+        'biomapping_track_3d.czml', 'application/json');
+    }
   },
 
   /**

@@ -9,7 +9,7 @@ const GSRTrackManager = {
    * one place so renderTrackList()'s empty-state branch and
    * switchActiveTrack() can't drift apart when a button gets added/removed.
    */
-  EXPORT_BUTTON_IDS: ['exportCsvBtn', 'exportImageBtn', 'exportMapBtn', 'exportSvgBtn', 'exportProjectBtn'],
+  EXPORT_BUTTON_IDS: ['exportCsvBtn', 'exportImageBtn', 'exportMapBtn', 'exportSvgBtn', 'exportCzmlBtn', 'exportKmlBtn', 'exportProjectBtn'],
 
   /**
    * Get all enabled tracks — delegates to GSRCollectiveManager.

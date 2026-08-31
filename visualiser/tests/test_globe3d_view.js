@@ -1,7 +1,7 @@
 /**
  * Boots the real index.html app (jsdom, Cesium absent) and checks the 2D↔3D
  * surface switcher: it swaps the map panel for the globe panel and shows the
- * matching sidebar card, without throwing when the Cesium CDN can't load.
+ * matching sidebar card, without throwing when Cesium can't load.
  *
  * See tests/support/boot_app.js for the harness; src/map/globe3d_view.js and
  * src/ui/events.js (bindSurfaceSwitcher) for the code under test.
@@ -9,12 +9,79 @@
 
 const assert = require('assert');
 const test = require('node:test');
+const fs = require('fs');
+const path = require('path');
 const { bootApp } = require('./support/boot_app.js');
+
+const APP_DIR = path.join(__dirname, '..');
+
+// ── Vendored CesiumJS (no runtime CDN — BioMapping runs offline) ────────────
+
+test('CesiumJS is vendored locally and globe3d_view loads it from disk, not a CDN', () => {
+  for (const rel of ['vendor/cesium/Cesium.js', 'vendor/cesium/Widgets/widgets.css']) {
+    assert.ok(fs.existsSync(path.join(APP_DIR, rel)), `missing vendored file: ${rel}`);
+  }
+  const viewSrc = fs.readFileSync(path.join(APP_DIR, 'src/map/globe3d_view.js'), 'utf8');
+  const baseMatch = viewSrc.match(/const CESIUM_BASE\s*=\s*'([^']+)'/);
+  assert.ok(baseMatch, 'CESIUM_BASE constant not found');
+  assert.ok(!/^https?:/.test(baseMatch[1]), `CESIUM_BASE must be a local path, got ${baseMatch[1]}`);
+  assert.ok(!/cdn\.jsdelivr|cesium\.com|unpkg/.test(viewSrc), 'globe3d_view still references a Cesium CDN');
+});
 
 const vis = (window, id) => {
   const el = window.document.getElementById(id);
   return el && el.style.display !== 'none';
 };
+
+// ── 3D track export moved to the main Export Options panel ─────────────────
+
+test('CZML/KML export live in the main Export Options card; the 3D Snapshot is gone', () => {
+  const { window } = bootApp();
+  window.setup();
+  const doc = window.document;
+
+  const card = doc.getElementById('exportCard');
+  assert.ok(card.querySelector('#exportCzmlBtn'), 'CZML button in the main export card');
+  assert.ok(card.querySelector('#exportKmlBtn'), 'KML button in the main export card');
+  for (const gone of ['g3dBtnSnapshot', 'g3dBtnCzml', 'g3dBtnKml']) {
+    assert.strictEqual(doc.getElementById(gone), null, `#${gone} removed from the 3D card`);
+  }
+  // enable/disable with track load
+  assert.ok(window.GSRTrackManager.EXPORT_BUTTON_IDS.includes('exportCzmlBtn'));
+  assert.ok(window.GSRTrackManager.EXPORT_BUTTON_IDS.includes('exportKmlBtn'));
+});
+
+test('export3DTrack: downloads only for a single track with drawPoints', () => {
+  const { window } = bootApp();
+  window.setup();
+  const AppState = window.AppState;
+
+  let downloaded = null;
+  window.GSRGlobe3DExport.download = (text, name) => { downloaded = { text, name }; };
+
+  // no track → no download
+  AppState.analyzer = null;
+  AppState.mapManager._lastDrawPoints = null;
+  window.GSREvents.export3DTrack('czml');
+  assert.strictEqual(downloaded, null, 'nothing to export without a track');
+
+  // single track with drawPoints → CZML download with the wall geometry
+  AppState.viewMode = 'single';
+  AppState.analyzer = { raw: [{ gsr: 1 }, { gsr: 2 }], phasic: [{ val: 1 }, { val: 2 }] };
+  AppState.mapManager._lastDrawPoints = [
+    { lat: 51.5, lon: -0.1, origIdx: 0 }, { lat: 51.6, lon: -0.2, origIdx: 1 },
+  ];
+  AppState.mapManager.activeColoringMetric = 'phasic';
+  window.GSREvents.export3DTrack('czml');
+  assert.ok(downloaded && /\.czml$/.test(downloaded.name), 'czml file downloaded');
+  assert.match(downloaded.text, /"cartographicDegrees"/);
+
+  // collective scope → no download (merged drawPoints don't map to AppState.analyzer)
+  downloaded = null;
+  AppState.viewMode = 'collective';
+  window.GSREvents.export3DTrack('kml');
+  assert.strictEqual(downloaded, null, 'collective scope is not exported');
+});
 
 test('surface switcher swaps map/globe panels and their sidebar cards', () => {
   const { window } = bootApp();
