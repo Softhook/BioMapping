@@ -51,6 +51,8 @@ Accuracy zones by the fraction of real-world track data that falls inside them:
 
 The device is a Flipper Zero running the Bio Mapping app, wired to a custom skin-response sensor circuit and a GPS module. It records to the Flipper's SD card as CSV.
 
+![BioMapping 2 with the prototyping shield and the GSR circuit on the lft and the GPS on the right.](docs/biomapping2.jpg)
+
 ## Installing the App
 
 A Flipper external app (FAP) for stock firmware; also runs on the API-compatible forks (Momentum, Unleashed, RogueMaster). Download `biomap.fap` from the [Releases](https://github.com/Softhook/BioMapping/releases) page, or build from `firmware/` with [`ufbt`](https://pypi.org/project/ufbt/).
