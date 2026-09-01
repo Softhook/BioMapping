@@ -904,6 +904,12 @@ const GSREvents = {
       btnCollectiveView.classList.add('active');
       btnSingleView.classList.remove('active');
 
+      // Collective mode only supports the 2D map. If the 3D globe was active,
+      // revert to the 2D map surface immediately.
+      if (typeof GSREvents.setSurface === 'function') {
+        GSREvents.setSurface('map');
+      }
+
       // Force the next renderCollectiveData() to re-fit — otherwise if the same active
       // track set was already fit once before (e.g. user bounced collective -> single ->
       // collective without changing which tracks are active), the signature check would
@@ -978,6 +984,7 @@ const GSREvents = {
 
     const setSurface = (target) => {
       if (AppState.surfaceView === target) return;
+      if (target === 'globe' && AppState.viewMode === 'collective') return;
       const toGlobe = target === 'globe';
 
       AppState.surfaceView = target;
@@ -1012,6 +1019,7 @@ const GSREvents = {
       }
     };
 
+    GSREvents.setSurface = setSurface;
     tabs.forEach(t => t.addEventListener('click', () => setSurface(t.dataset.surface)));
   },
 

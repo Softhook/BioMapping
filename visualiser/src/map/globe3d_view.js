@@ -91,10 +91,10 @@ const GSRGlobe3DView = {
       // times a second and each push tears down and rebuilds the whole 3D wall
       // primitive. Rebuild once, ~0.25s after the user stops moving.
       AppState.on('map:rendered', () => {
-        if (!GSRGlobe3DView.isActive) return;
+        if (!GSRGlobe3DView.isActive || (typeof AppState !== 'undefined' && AppState.viewMode === 'collective')) return;
         clearTimeout(GSRGlobe3DView._pushTimer);
         GSRGlobe3DView._pushTimer = setTimeout(() => {
-          if (GSRGlobe3DView.isActive) GSRGlobe3DView._pushFromMap();
+          if (GSRGlobe3DView.isActive && (typeof AppState === 'undefined' || AppState.viewMode !== 'collective')) GSRGlobe3DView._pushFromMap();
         }, 250);
       });
 
@@ -617,6 +617,7 @@ const GSRGlobe3DView = {
   // ── Activate / deactivate ────────────────────────────────────────────────
 
   async activate() {
+    if (typeof AppState !== 'undefined' && AppState.viewMode === 'collective') return;
     GSRGlobe3DView.isActive = true;
 
     try {
@@ -733,6 +734,7 @@ const GSRGlobe3DView = {
   _pushFromMap(opts = {}) {
     const mgr = GSRGlobe3DView.manager;
     if (!mgr || typeof AppState === 'undefined') return;
+    if (AppState.viewMode === 'collective') return;
     const mm = AppState.mapManager;
     if (!mm) return;
 
@@ -746,17 +748,8 @@ const GSRGlobe3DView = {
     const gpsParams = (typeof GSRStorage !== 'undefined' && GSRStorage.buildGpsParams)
       ? GSRStorage.buildGpsParams() : {};
 
-    // In single-track scope, reuse the 2D view's exact drawPoints. In
-    // collective scope, resolve drawPoints for the active track from the GPS cache
-    // so the active track renders in 3D alongside the collective cluster hulls.
-    const single = AppState.viewMode === 'single';
-    let drawPoints = single ? (mm._lastDrawPoints || []) : null;
-    if (!single && AppState.analyzer && typeof mm._getOrBuildDrawPoints === 'function') {
-      const res = mm._getOrBuildDrawPoints(AppState.activeTrackId || 'collective_active', AppState.analyzer, gpsParams);
-      if (res && Array.isArray(res.drawPoints)) {
-        drawPoints = res.drawPoints;
-      }
-    }
+    // Single-track scope: reuse the 2D view's exact drawPoints.
+    const drawPoints = mm._lastDrawPoints || [];
 
     // Hand the 2D map's already-computed spatial-cluster hulls to the globe so
     // its "Clusters" toggle draws the same blobs (see _renderClusterBlobs).

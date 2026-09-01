@@ -2232,8 +2232,14 @@ input[type="range"]:focus-visible,
 .main-layout.collective-mode #gsrPanel,
 .main-layout.collective-mode #eventsPanel,
 .main-layout.collective-mode #gsrFilteringCard,
-.main-layout.collective-mode #gpsFilteringCard {
+.main-layout.collective-mode #gpsFilteringCard,
+.main-layout.collective-mode #mapDisplay3DGroup,
+.main-layout.collective-mode .surface-switcher {
   display: none !important;
+}
+
+.main-layout.collective-mode .collective-map-title {
+  display: flex !important;
 }
 
 .main-layout.collective-mode .map-panel:not(.collapsed) {

@@ -408,7 +408,7 @@ test('_pushFromMap fits the globe to the track only when the active track change
   const V = window.GSRGlobe3DView;
 
   window.AppState.analyzer = { raw: [{}, {}] };
-  window.AppState.viewMode = 'collective';
+  window.AppState.viewMode = 'single';
   window.AppState.activeTrackId = 'track-a';
   window.AppState.mapManager._legendMinVal = 0;
   window.AppState.mapManager._legendMaxVal = 1;
@@ -767,38 +767,68 @@ test('Tour button in 3D camera controls toggles manager tour and updates UI', ()
   V.isActive = false;
 });
 
-test('_pushFromMap in collective mode resolves drawPoints for active track and renders', () => {
+test('collective mode switches active 3D globe surface back to 2D map and prevents 3D globe activation', () => {
+  const { window } = bootApp();
+  window.setup();
+  const doc = window.document;
+
+  const btnSingle = doc.getElementById('btnSingleView');
+  const btnCollective = doc.getElementById('btnCollectiveView');
+  const btnGlobe = doc.getElementById('btnGlobeSurface');
+  const btnMap = doc.getElementById('btnMapSurface');
+
+  // Activate 3D globe in single mode
+  btnGlobe.click();
+  assert.strictEqual(window.AppState.surfaceView, 'globe');
+  assert.strictEqual(window.GSRGlobe3DView.isActive, true);
+
+  // Switch to collective mode: should automatically revert surfaceView to 'map'
+  btnCollective.click();
+  assert.strictEqual(window.AppState.viewMode, 'collective');
+  assert.strictEqual(window.AppState.surfaceView, 'map');
+  assert.strictEqual(window.GSRGlobe3DView.isActive, false);
+
+  // Attempting to activate 3D globe while in collective mode is blocked
+  btnGlobe.click();
+  assert.strictEqual(window.AppState.surfaceView, 'map', 'cannot switch to globe in collective mode');
+  assert.strictEqual(window.GSRGlobe3DView.isActive, false);
+
+  if (window.GSREvents.setSurface) {
+    window.GSREvents.setSurface('globe');
+    assert.strictEqual(window.AppState.surfaceView, 'map', 'GSREvents.setSurface(globe) ignored in collective mode');
+  }
+
+  // Returning to single mode restores normal 2D/3D switcher functionality
+  btnSingle.click();
+  assert.strictEqual(window.AppState.viewMode, 'single');
+  btnGlobe.click();
+  assert.strictEqual(window.AppState.surfaceView, 'globe', 'globe switchable again in single mode');
+  assert.strictEqual(window.GSRGlobe3DView.isActive, true);
+
+  // Clean up
+  btnMap.click();
+});
+
+test('GSRGlobe3DView._pushFromMap and activate() are no-ops in collective mode', async () => {
   const { window } = bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
-  const mm = window.AppState.mapManager;
 
   window.AppState.viewMode = 'collective';
-  window.AppState.activeTrackId = 'track-1';
-  window.AppState.analyzer = {
-    raw: [{ gsr: 1 }, { gsr: 2 }],
-    peaks: []
-  };
+  window.AppState.analyzer = { raw: [{ gsr: 1 }, { gsr: 2 }], peaks: [] };
 
-  let renderedPoints = null;
+  let renderCalls = 0;
   V.manager = {
-    renderData: (analyzer, params, opts) => {
-      renderedPoints = opts.drawPoints;
-    },
-    setBasemap: () => {},
+    renderData: () => { renderCalls++; },
   };
-  V.isActive = true;
-
-  mm._getOrBuildDrawPoints = (id, analyzer, params) => ({
-    drawPoints: [{ lat: 51.5, lon: -0.1 }, { lat: 51.6, lon: -0.2 }]
-  });
 
   V._pushFromMap();
-  assert.ok(renderedPoints, 'drawPoints passed to 3D manager in collective mode');
-  assert.strictEqual(renderedPoints.length, 2);
+  assert.strictEqual(renderCalls, 0, '_pushFromMap should not render in collective mode');
+
+  await V.activate();
+  assert.strictEqual(V.isActive, false, 'activate() should not activate 3D view in collective mode');
 
   V.manager = null;
-  V.isActive = false;
 });
 
 test('GSRGlobe3DView.focusOnPeak flies camera and opens 3D popup', () => {

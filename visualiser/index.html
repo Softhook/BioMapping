@@ -817,7 +817,7 @@
               <!-- Surface switcher — swaps the render engine inside this one panel
                    (Leaflet ⇄ Cesium). The header controls below drive whichever
                    is mounted; see GSREvents.setSurface / src/map/globe3d_view.js. -->
-              <div class="view-switcher surface-switcher" title="Swap the map for the 3D globe (same data)">
+              <div class="view-switcher surface-switcher" id="surfaceSwitcher" title="Swap the map for the 3D globe (same data)">
                 <button class="view-tab surface-tab active" id="btnMapSurface" data-surface="map">
                   <i class="fa-solid fa-map-location-dot"></i> 2D
                 </button>
@@ -825,6 +825,7 @@
                   <i class="fa-solid fa-globe"></i> 3D
                 </button>
               </div>
+              <h3 class="panel-title collective-map-title" id="collectiveMapTitle" style="display: none;"><i class="fa-solid fa-map-location-dot"></i> Map</h3>
             </div>
             <div class="canvas-controls">
               <div class="btn-group">
