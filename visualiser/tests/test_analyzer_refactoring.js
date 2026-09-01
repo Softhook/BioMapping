@@ -737,3 +737,22 @@ test('GSRAnalyzer computeTriIndex: empty input returns empty array and default a
   assert.deepStrictEqual(a.computeTriIndex(), []);
 });
 
+test('GSRAnalyzer resolveLatencyIndex: correctly shifts index based on peak latency', () => {
+  const a = new GSRAnalyzer();
+  a.raw = [{ time: 0 }, { time: 5 }, { time: 10 }, { time: 15 }, { time: 20 }];
+  const peak = { index: 3, time: 15 };
+
+  // Zero / negative latency returns peak.index
+  assert.strictEqual(a.resolveLatencyIndex(peak, 0), 3);
+  assert.strictEqual(a.resolveLatencyIndex(peak, -5), 3);
+
+  // Latency of 5s shifts time from 15 to 10 -> index 2
+  assert.strictEqual(a.resolveLatencyIndex(peak, 5), 2);
+
+  // Latency of 10s shifts time from 15 to 5 -> index 1
+  assert.strictEqual(a.resolveLatencyIndex(peak, 10), 1);
+
+  // Latency exceeding time clamps to t=0 -> index 0
+  assert.strictEqual(a.resolveLatencyIndex(peak, 30), 0);
+});
+

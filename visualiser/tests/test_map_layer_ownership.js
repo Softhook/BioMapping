@@ -1188,3 +1188,21 @@ test('updatePeakLabel (ui.js) in collective mode: commits via refreshCollectiveP
   assert.deepStrictEqual(hotspotAfterA, hotspotBeforeA, 'committing a label through the real ui.js path must not rebuild A\'s hotspot layers');
   assert.deepStrictEqual(trackB.layerGroup.getLayers(), beforeB, 'track B must be completely untouched');
 });
+
+test('_refreshTrackLayers helper: correctly strips target kind layers and dispatches renderFn', () => {
+  const { window, mapManager } = bootWithRecordingL();
+  const track = addTrack(window, 'A', 'a.csv', SAMPLE_CSV);
+  mapManager.renderData(track.analyzer, { trackWeight: 5, peakLatency: 0 });
+
+  const initialPeaks = track.layerGroup.getLayers().filter(l => l._gsrKind === 'peak');
+  assert.ok(initialPeaks.length > 0);
+
+  let rendered = false;
+  mapManager._refreshTrackLayers(track, new Set(['peak']), () => {
+    rendered = true;
+  });
+
+  assert.strictEqual(rendered, true);
+  const remainingPeaks = track.layerGroup.getLayers().filter(l => l._gsrKind === 'peak');
+  assert.strictEqual(remainingPeaks.length, 0, 'peak layers were stripped before renderFn');
+});

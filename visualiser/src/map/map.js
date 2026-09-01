@@ -770,6 +770,18 @@ class GSRMapManager {
   }
 
   /**
+   * Helper to strip track layers by kind set, run a render callback, and emit map:rendered.
+   * Consolidates the partial-render pipeline for single-track and collective-track refreshes.
+   * @private
+   */
+  _refreshTrackLayers(track, kindSet, renderFn, updateVisibility = false) {
+    this._stripOwnedLayersByKind(track, kindSet);
+    renderFn();
+    if (updateVisibility) this.updateMarkerVisibility();
+    if (typeof AppState !== 'undefined' && AppState.emit) AppState.emit('map:rendered');
+  }
+
+  /**
    * Re-render ONLY the active track's peak markers (+ connector lines +
    * spatial-cluster blobs) instead of the full renderData() path/peak/hotspot
    * rebuild. For changes that only affect peak data — e.g. a label edit,
@@ -819,15 +831,16 @@ class GSRMapManager {
       return;
     }
 
-    this._stripOwnedLayersByKind(activeTrack, new Set(['peak', 'connector']));
-
     if (!opts.skipClustering) {
       this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
     }
 
-    this._renderPeakMarkers(analyzer, analyzer.raw, p.peakLatency || 0, activeTrack, { skipClustering: !!opts.skipClustering });
-    this.updateMarkerVisibility();
-    if (typeof AppState !== 'undefined' && AppState.emit) AppState.emit('map:rendered');
+    this._refreshTrackLayers(
+      activeTrack,
+      new Set(['peak', 'connector']),
+      () => this._renderPeakMarkers(analyzer, analyzer.raw, p.peakLatency || 0, activeTrack, { skipClustering: !!opts.skipClustering }),
+      true
+    );
   }
 
   /**
@@ -861,10 +874,12 @@ class GSRMapManager {
     // the only rendered layers, so there's nothing here to touch either.
     if (drawPoints.length === 0) return;
 
-    this._stripOwnedLayersByKind(activeTrack, new Set(['path']));
-
-    this._renderPathSegments(drawPoints, p.trackWeight || 5, analyzer, activeTrack);
-    if (typeof AppState !== 'undefined' && AppState.emit) AppState.emit('map:rendered');
+    this._refreshTrackLayers(
+      activeTrack,
+      new Set(['path']),
+      () => this._renderPathSegments(drawPoints, p.trackWeight || 5, analyzer, activeTrack),
+      false
+    );
   }
 
   // ── Pipeline helpers ──────────────────────────────────────────────────────
@@ -1854,11 +1869,12 @@ class GSRMapManager {
     const layerGroup = track.layerGroup;
     const trackColor = track.color || '#0ea5e9';
 
-    this._stripOwnedLayersByKind(track, new Set(['collectivePeak', 'collectiveConnector']));
-
-    this._renderCollectiveTrackPeaks(track, layerGroup, trackColor, peakLatency || 0, null);
-    this.updateMarkerVisibility();
-    if (typeof AppState !== 'undefined' && AppState.emit) AppState.emit('map:rendered');
+    this._refreshTrackLayers(
+      track,
+      new Set(['collectivePeak', 'collectiveConnector']),
+      () => this._renderCollectiveTrackPeaks(track, layerGroup, trackColor, peakLatency || 0, null),
+      true
+    );
   }
 
   /**
@@ -1871,6 +1887,9 @@ class GSRMapManager {
    * @private
    */
   _resolveLatencyIndex(analyzer, peak, peakLatency) {
+    if (analyzer && typeof analyzer.resolveLatencyIndex === 'function') {
+      return analyzer.resolveLatencyIndex(peak, peakLatency);
+    }
     if (!(peakLatency > 0)) return peak.index;
     const shiftedTime = Math.max(0, peak.time - peakLatency);
     const si = analyzer.findClosestIndex(shiftedTime);

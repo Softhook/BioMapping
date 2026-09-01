@@ -6,6 +6,17 @@ const GeoUtils = {
   METERS_PER_DEG_LAT: 111320,
 
   /**
+   * Conversion factors from degrees to meters at a given latitude.
+   *
+   * @param {number} lat - Latitude in degrees.
+   * @returns {{degToMeterLat: number, degToMeterLon: number}} Scaling factors.
+   */
+  getGeodesicScale(lat) {
+    const degToMeterLon = GeoUtils.METERS_PER_DEG_LAT * Math.cos(parseFloat(lat) * Math.PI / 180);
+    return { degToMeterLat: GeoUtils.METERS_PER_DEG_LAT, degToMeterLon };
+  },
+
+  /**
    * Haversine distance between two lat/lon points in metres.
    */
   haversineMeters(lat1, lon1, lat2, lon2) {

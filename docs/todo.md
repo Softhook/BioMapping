@@ -53,6 +53,6 @@ Carried over from archived investigations (`archive/gps_rf_mutex_status.md`, `ar
 
 ### Visualiser
 
-- **Visualiser partial-render consolidation audit** (from `archive/visualizer_architecture_refactor_plan.md` Phase 9) — audit whether `refreshPeakMarkers()`, `refreshPath()`, and `refreshCollectivePeakMarkers()` in `src/map/map.js` can share a private helper for strip-by-kind and rebuild without adding unwanted indirection.
-- **Shared spatial cell-window helper audit** — audit whether the bounding cell-window calculation in `src/spatial/spatial_clustering.js` (`getConcaveBlob`) and `src/spatial/collective_manager.js` (`generateContourSurface`) should be extracted into a shared geo-grid utility.
+- **Visualiser partial-render consolidation audit** (COMPLETED) — unified `refreshPeakMarkers()`, `refreshPath()`, and `refreshCollectivePeakMarkers()` via the shared `_refreshTrackLayers` helper in `src/map/map.js`.
+- **Shared spatial cell-window helper audit** (COMPLETED) — extracted `SpatialGrid.computeCellWindow` and `GeoUtils.getGeodesicScale` as canonical utilities across `spatial_clustering.js` and `collective_manager.js`.
 - **Dense-track label collision profiling** (from `archive/visualizer_rendering_perf_routes.md` §2.3) — profile `computeLabelPositions` on tracks with high peak counts (>100 peaks) to check if spatial partitioning is needed for label collision bounding boxes.

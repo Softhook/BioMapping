@@ -197,8 +197,9 @@ class GSRCollectiveManager {
     // Expand bounds by the isolationRadius buffer (with a 20% margin) to ensure that the
     // contour surface interpolator is not chopped off at the grid margins.
     const tempLatMid = (bounds.minLat + bounds.maxLat) / 2;
-    const mToLat = 111320.0;
-    const mToLon = 111320.0 * Math.cos(tempLatMid * Math.PI / 180);
+    const { degToMeterLat: mToLat, degToMeterLon: mToLon } = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.getGeodesicScale === 'function')
+      ? GeoUtils.getGeodesicScale(tempLatMid)
+      : { degToMeterLat: 111320.0, degToMeterLon: 111320.0 * Math.cos(tempLatMid * Math.PI / 180) };
     const latExpansion = (isolationRadius * 1.2) / mToLat;
     const lonExpansion = (isolationRadius * 1.2) / mToLon;
     bounds.minLat -= latExpansion;
@@ -339,8 +340,9 @@ class GSRCollectiveManager {
     let grid = Array.from({ length: rows }, () => new Array(cols).fill(null));
 
     const latMid = (bounds.minLat + bounds.maxLat) / 2;
-    const DEG_TO_M_LAT = 111320.0;
-    const DEG_TO_M_LON = 111320.0 * Math.cos(latMid * Math.PI / 180);
+    const { degToMeterLat: DEG_TO_M_LAT, degToMeterLon: DEG_TO_M_LON } = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.getGeodesicScale === 'function')
+      ? GeoUtils.getGeodesicScale(latMid)
+      : { degToMeterLat: 111320.0, degToMeterLon: 111320.0 * Math.cos(latMid * Math.PI / 180) };
 
     const getDistanceMeters = (lat1, lon1, lat2, lon2) => {
       const dy = (lat1 - lat2) * DEG_TO_M_LAT;
@@ -367,20 +369,15 @@ class GSRCollectiveManager {
     const gridLatOf = (r) => bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat);
     const gridLonOf = (c) => bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon);
     // Window (in grid rows/cols) that could possibly fall within `meters` of
-    // a point at (lat, lon) — used by both splats below to avoid touching
-    // every cell for every point (see the perf note further down).
-    const cellWindowFor = (lat, lon, meters) => {
-      const radLatDeg = meters / DEG_TO_M_LAT;
-      const radLonDeg = meters / DEG_TO_M_LON;
-      const rRad = latStep > 0 ? Math.max(1, Math.ceil(radLatDeg / latStep)) : rows;
-      const cRad = lonStep > 0 ? Math.max(1, Math.ceil(radLonDeg / lonStep)) : cols;
-      const centerRow = latStep > 0 ? Math.round((lat - bounds.minLat) / latStep) : 0;
-      const centerCol = lonStep > 0 ? Math.round((lon - bounds.minLon) / lonStep) : 0;
-      return {
-        rMin: Math.max(0, centerRow - rRad), rMax: Math.min(rows - 1, centerRow + rRad),
-        cMin: Math.max(0, centerCol - cRad), cMax: Math.min(cols - 1, centerCol + cRad)
-      };
-    };
+    // a point at (lat, lon) — delegates to shared SpatialGrid.computeCellWindow.
+    const cellWindowFor = (lat, lon, meters) => (typeof SpatialGrid !== 'undefined' && typeof SpatialGrid.computeCellWindow === 'function')
+      ? SpatialGrid.computeCellWindow(lat, lon, meters, bounds, rows, cols, DEG_TO_M_LAT, DEG_TO_M_LON)
+      : {
+          rMin: Math.max(0, Math.round((lat - bounds.minLat) / latStep) - Math.max(1, Math.ceil(((meters / DEG_TO_M_LAT) / latStep)))),
+          rMax: Math.min(rows - 1, Math.round((lat - bounds.minLat) / latStep) + Math.max(1, Math.ceil(((meters / DEG_TO_M_LAT) / latStep)))),
+          cMin: Math.max(0, Math.round((lon - bounds.minLon) / lonStep) - Math.max(1, Math.ceil(((meters / DEG_TO_M_LON) / lonStep)))),
+          cMax: Math.min(cols - 1, Math.round((lon - bounds.minLon) / lonStep) + Math.max(1, Math.ceil(((meters / DEG_TO_M_LON) / lonStep))))
+        };
 
     // Boundary mask — is this cell within isolationRadius of ANY (sampled)
     // walk-track point? Splat each sampled point onto its own small window

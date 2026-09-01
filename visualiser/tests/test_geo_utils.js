@@ -270,3 +270,17 @@ test('shoelaceArea: collinear (degenerate, zero-width) points have zero area', (
   const line = [{ lat: 0, lon: 0 }, { lat: 0, lon: 5 }, { lat: 0, lon: 10 }];
   assert.strictEqual(GeoUtils.shoelaceArea(line), 0);
 });
+
+// ---------------------------------------------------------------------------
+// getGeodesicScale
+// ---------------------------------------------------------------------------
+
+test('getGeodesicScale: returns correct meters per degree at equator and poles', () => {
+  const eq = GeoUtils.getGeodesicScale(0);
+  assert.strictEqual(eq.degToMeterLat, 111320);
+  closeTo(eq.degToMeterLon, 111320, 1e-6);
+
+  const lat60 = GeoUtils.getGeodesicScale(60);
+  assert.strictEqual(lat60.degToMeterLat, 111320);
+  closeTo(lat60.degToMeterLon, 111320 * 0.5, 1e-6);
+});

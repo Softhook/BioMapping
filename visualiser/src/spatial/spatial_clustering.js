@@ -11,6 +11,9 @@ class GSRSpatialClustering {
    * @private
    */
   static _getGeodesicScale(lat) {
+    if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.getGeodesicScale === 'function') {
+      return GeoUtils.getGeodesicScale(lat);
+    }
     const DEG_TO_M_LAT = 111320.0;
     const degToMeterLon = DEG_TO_M_LAT * Math.cos(parseFloat(lat) * Math.PI / 180);
     return { degToMeterLat: DEG_TO_M_LAT, degToMeterLon };
@@ -101,9 +104,12 @@ class GSRSpatialClustering {
     const clusterDist = new Float64Array(n * n);
     clusterDist.set(peakDist);
 
-    // Maintain bestCandidate array: for each cluster i, bestCandidate[i] stores the target cluster j
-    // and its merge violation score.
-    const bestCandidate = new Array(n);
+    // Maintain bestTarget and bestScore arrays: for each cluster i, stores the target cluster j
+    // and its merge violation score without per-iteration heap object allocations.
+    const bestTarget = new Int32Array(n);
+    const bestScore  = new Float64Array(n);
+    bestTarget.fill(-1);
+    bestScore.fill(-Infinity);
 
     // Active status tracker (replaces slow Set allocations)
     const active = new Uint8Array(n);
@@ -125,7 +131,8 @@ class GSRSpatialClustering {
           target = j;
         }
       }
-      bestCandidate[i] = { target, score: maxScore };
+      bestTarget[i] = target;
+      bestScore[i]  = maxScore;
     };
 
     // Initially calculate best candidates for all clusters
@@ -140,9 +147,9 @@ class GSRSpatialClustering {
       // Find the cluster with the highest merge violation score
       for (let i = 0; i < n; i++) {
         if (active[i] === 0) continue;
-        const candidate = bestCandidate[i];
-        if (candidate && candidate.score > maxScore) {
-          maxScore = candidate.score;
+        const score = bestScore[i];
+        if (score > maxScore) {
+          maxScore = score;
           mergeI = i;
         }
       }
@@ -152,7 +159,7 @@ class GSRSpatialClustering {
         break;
       }
 
-      const mergeJ = bestCandidate[mergeI].target;
+      const mergeJ = bestTarget[mergeI];
 
       // Merge cluster mergeJ into mergeI
       clusters[mergeI].points.push(...clusters[mergeJ].points);
@@ -187,12 +194,12 @@ class GSRSpatialClustering {
         const threshold = Math.max(limit, rK + rMergeI);
         const score = threshold - clusterDist[k * n + mergeI];
 
-        if (bestCandidate[k].target === mergeI || bestCandidate[k].target === mergeJ) {
-          bestCandidate[k] = { target: mergeI, score };
-        } else {
-          if (score > bestCandidate[k].score) {
-            bestCandidate[k] = { target: mergeI, score };
-          }
+        if (bestTarget[k] === mergeI || bestTarget[k] === mergeJ) {
+          bestTarget[k] = mergeI;
+          bestScore[k]  = score;
+        } else if (score > bestScore[k]) {
+          bestTarget[k] = mergeI;
+          bestScore[k]  = score;
         }
       }
     }
@@ -333,25 +340,20 @@ class GSRSpatialClustering {
     const cutoffMeters = CUTOFF_SIGMA * s;
     const cutoffDSq = cutoffMeters * cutoffMeters;
 
-    const latStep = (bounds.maxLat - bounds.minLat) / (rows - 1);
-    const lonStep = (bounds.maxLon - bounds.minLon) / (cols - 1);
-    const cutoffLatDeg = cutoffMeters / scale.degToMeterLat;
-    const cutoffLonDeg = cutoffMeters / scale.degToMeterLon;
-    const rRadius = Math.max(1, Math.ceil(cutoffLatDeg / latStep));
-    const cRadius = Math.max(1, Math.ceil(cutoffLonDeg / lonStep));
-
     // Calculate density at each grid cell, one peak's window at a time.
     for (let i = 0; i < m; i++) {
       const pk = cluster[i];
       const w = weightForPeak(pk);
       const pkLat = parseFloat(pk.lat);
       const pkLon = parseFloat(pk.lon);
-      const centerRow = Math.round((pkLat - bounds.minLat) / latStep);
-      const centerCol = Math.round((pkLon - bounds.minLon) / lonStep);
-      const rMin = Math.max(0, centerRow - rRadius);
-      const rMax = Math.min(rows - 1, centerRow + rRadius);
-      const cMin = Math.max(0, centerCol - cRadius);
-      const cMax = Math.min(cols - 1, centerCol + cRadius);
+      const { rMin, rMax, cMin, cMax } = (typeof SpatialGrid !== 'undefined' && typeof SpatialGrid.computeCellWindow === 'function')
+        ? SpatialGrid.computeCellWindow(pkLat, pkLon, cutoffMeters, bounds, rows, cols, scale.degToMeterLat, scale.degToMeterLon)
+        : {
+            rMin: Math.max(0, Math.round((pkLat - bounds.minLat) / ((bounds.maxLat - bounds.minLat) / (rows - 1))) - Math.max(1, Math.ceil((cutoffMeters / scale.degToMeterLat) / ((bounds.maxLat - bounds.minLat) / (rows - 1))))),
+            rMax: Math.min(rows - 1, Math.round((pkLat - bounds.minLat) / ((bounds.maxLat - bounds.minLat) / (rows - 1))) + Math.max(1, Math.ceil((cutoffMeters / scale.degToMeterLat) / ((bounds.maxLat - bounds.minLat) / (rows - 1))))),
+            cMin: Math.max(0, Math.round((pkLon - bounds.minLon) / ((bounds.maxLon - bounds.minLon) / (cols - 1))) - Math.max(1, Math.ceil((cutoffMeters / scale.degToMeterLon) / ((bounds.maxLon - bounds.minLon) / (cols - 1))))),
+            cMax: Math.min(cols - 1, Math.round((pkLon - bounds.minLon) / ((bounds.maxLon - bounds.minLon) / (cols - 1))) + Math.max(1, Math.ceil((cutoffMeters / scale.degToMeterLon) / ((bounds.maxLon - bounds.minLon) / (cols - 1)))))
+          };
 
       for (let r = rMin; r <= rMax; r++) {
         const lat = lats[r];

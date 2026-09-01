@@ -210,3 +210,22 @@ test('getColorLut: cache size is capped at 50 entries (oldest evicted first)', (
   }
   assert.ok(MapColors._colorLutCache.size <= 50, `cache size should be capped at 50, got ${MapColors._colorLutCache.size}`);
 });
+
+// ---------------------------------------------------------------------------
+// hslToHex & hslStringToHex
+// ---------------------------------------------------------------------------
+
+test('hslToHex: accurately converts primary and secondary hues', () => {
+  assert.strictEqual(MapColors.hslToHex(0, 100, 50), '#ff0000');   // Red
+  assert.strictEqual(MapColors.hslToHex(120, 100, 50), '#00ff00'); // Green
+  assert.strictEqual(MapColors.hslToHex(240, 100, 50), '#0000ff'); // Blue
+  assert.strictEqual(MapColors.hslToHex(0, 0, 0), '#000000');      // Black
+  assert.strictEqual(MapColors.hslToHex(0, 0, 100), '#ffffff');    // White
+});
+
+test('hslStringToHex: parses and converts hsl() strings to hex', () => {
+  assert.strictEqual(MapColors.hslStringToHex('hsl(0, 100%, 50%)'), '#ff0000');
+  assert.strictEqual(MapColors.hslStringToHex('hsl(120, 100%, 50%)'), '#00ff00');
+  assert.strictEqual(MapColors.hslStringToHex('#123456'), '#123456');
+  assert.strictEqual(MapColors.hslStringToHex(''), '#666666');
+});

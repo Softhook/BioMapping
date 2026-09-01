@@ -96,6 +96,42 @@ class SpatialGrid {
     }
     return result;
   }
+
+  /**
+   * Compute the bounding [rMin, rMax, cMin, cMax] row/column grid window for a point
+   * (lat, lon) and search radius in meters across a uniform grid.
+   *
+   * @param {number} lat - Point latitude.
+   * @param {number} lon - Point longitude.
+   * @param {number} meters - Search radius in meters.
+   * @param {{minLat: number, maxLat: number, minLon: number, maxLon: number}} bounds - Grid bounding box.
+   * @param {number} rows - Number of grid rows.
+   * @param {number} cols - Number of grid columns.
+   * @param {number} [degToMeterLat=111320] - Meters per degree latitude.
+   * @param {number} [degToMeterLon] - Meters per degree longitude at representative latitude.
+   * @returns {{rMin: number, rMax: number, cMin: number, cMax: number, rRadius: number, cRadius: number, centerRow: number, centerCol: number}}
+   */
+  static computeCellWindow(lat, lon, meters, bounds, rows, cols, degToMeterLat = 111320.0, degToMeterLon = null) {
+    const lonScale = (degToMeterLon !== null && degToMeterLon !== undefined)
+      ? degToMeterLon
+      : degToMeterLat * Math.cos(lat * Math.PI / 180);
+    const latStep = rows > 1 ? (bounds.maxLat - bounds.minLat) / (rows - 1) : 0;
+    const lonStep = cols > 1 ? (bounds.maxLon - bounds.minLon) / (cols - 1) : 0;
+    const rRadius = latStep > 0 ? Math.max(1, Math.ceil((meters / degToMeterLat) / latStep)) : rows;
+    const cRadius = lonStep > 0 ? Math.max(1, Math.ceil((meters / lonScale) / lonStep)) : cols;
+    const centerRow = latStep > 0 ? Math.round((lat - bounds.minLat) / latStep) : 0;
+    const centerCol = lonStep > 0 ? Math.round((lon - bounds.minLon) / lonStep) : 0;
+    return {
+      rMin: Math.max(0, centerRow - rRadius),
+      rMax: Math.min(rows - 1, centerRow + rRadius),
+      cMin: Math.max(0, centerCol - cRadius),
+      cMax: Math.min(cols - 1, centerCol + cRadius),
+      rRadius,
+      cRadius,
+      centerRow,
+      centerCol
+    };
+  }
 }
 
 if (typeof module !== 'undefined' && module.exports) {

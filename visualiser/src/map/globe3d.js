@@ -1452,6 +1452,9 @@ class GSRGlobeManager {
    */
   _latencyCoords(analyzer, peak) {
     const lat = this.peakLatency || 0;
+    if (analyzer && typeof analyzer.resolveLatencyIndex === 'function') {
+      return analyzer.getCoordinates(analyzer.resolveLatencyIndex(peak, lat));
+    }
     if (!(lat > 0) || typeof analyzer.findClosestIndex !== 'function') {
       return analyzer.getCoordinates(peak.index);
     }

@@ -29,6 +29,40 @@ const MapColors = {
   },
 
   /**
+   * Convert HSL color values to hex string (#rrggbb).
+   *
+   * @param {number} h - Hue [0, 360).
+   * @param {number} [s=100] - Saturation [0, 100].
+   * @param {number} [l=50] - Lightness [0, 100].
+   * @returns {string} Hex color string.
+   */
+  hslToHex(h, s = 100, l = 50) {
+    const lFrac = l / 100;
+    const a = (s * Math.min(lFrac, 1 - lFrac)) / 100;
+    const f = (n) => {
+      const k = (n + h / 30) % 12;
+      const color = lFrac - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+      return Math.round(255 * color).toString(16).padStart(2, '0');
+    };
+    return `#${f(0)}${f(8)}${f(4)}`;
+  },
+
+  /**
+   * Parse an hsl(...) color string to hex (#rrggbb).
+   *
+   * @param {string} hslStr - HSL string.
+   * @returns {string} Hex string.
+   */
+  hslStringToHex(hslStr) {
+    if (!hslStr || typeof hslStr !== 'string' || !hslStr.startsWith('hsl(')) return hslStr || '#666666';
+    const m = hslStr.match(/hsl\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*\)/);
+    if (m) {
+      return MapColors.hslToHex(parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3]));
+    }
+    return hslStr;
+  },
+
+  /**
    * Map value to HSL color (Green = 120 -> Yellow -> Red = 0)
    */
   getColorForValue(val, minVal, maxVal) {

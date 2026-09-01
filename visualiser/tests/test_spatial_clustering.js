@@ -14,6 +14,7 @@ const test = require('node:test');
 // for most tests, so load the real thing, same pattern as GeoUtils below).
 global.MarchingSquares = require('../src/render/marching_squares.js').MarchingSquares;
 global.GeoUtils = require('../src/gps/geo_utils.js').GeoUtils;
+global.SpatialGrid = require('../src/spatial/spatial_grid.js').SpatialGrid;
 
 const { GSRSpatialClustering } = require('../src/spatial/spatial_clustering.js');
 

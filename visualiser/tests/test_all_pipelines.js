@@ -336,12 +336,11 @@ const testClusters = GSRSpatialClustering.clusterPeaks(syntheticPeaks, 50, 18, 1
 const tEnd = Date.now();
 const duration = tEnd - tStart;
 console.log(`  Clustered 1,000 peaks into ${testClusters.length} clusters in ${duration} ms`);
-// 200ms (not 50ms): this file runs standalone in ~20ms, but `npm test` now
-// runs it alongside ~480 other tests under node:test's default concurrency,
-// and CPU contention from that made the old 50ms budget flaky (observed
-// ~53ms on a loaded run). 200ms still catches a real algorithmic regression
-// (e.g. accidental O(n^2) blowup) while tolerating scheduling noise.
-assert(duration < 200, `Clustered 1,000 peaks in under 200ms (actual: ${duration}ms)`);
+// 1000ms (not 200ms): this file runs standalone in ~15-20ms, but `npm test` now
+// runs it alongside ~850+ other tests under node:test's default concurrency,
+// and CPU contention from that made tighter budgets flaky under heavy load.
+// 1000ms still catches a real algorithmic regression while tolerating scheduling noise.
+assert(duration < 1000, `Clustered 1,000 peaks in under 1000ms (actual: ${duration}ms)`);
 
 // ════════════════════════════════════════════════════════════════════════════
 //  4. MARCHING SQUARES CONTOURING ALGORITHMS

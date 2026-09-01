@@ -1284,15 +1284,27 @@ class GSRAnalyzer {
   }
 
   /**
+   * Resolve the raw-sample index a peak's position should be evaluated
+   * at, applying the GPS-latency shift.
+   *
+   * @param {object} peak - Peak object with { index, time }.
+   * @param {number} peakLatency - Latency shift in seconds.
+   * @returns {number} Raw data index corresponding to latency-shifted time.
+   */
+  resolveLatencyIndex(peak, peakLatency) {
+    if (!(peakLatency > 0)) return (peak && peak.index !== undefined) ? peak.index : 0;
+    const shiftedTime = Math.max(0, (peak && peak.time !== undefined ? peak.time : 0) - peakLatency);
+    const si = this.findClosestIndex(shiftedTime);
+    return si >= 0 ? si : ((peak && peak.index !== undefined) ? peak.index : 0);
+  }
+
+  /**
    * Resolve the raw-sample index a hotspot's position should be evaluated
    * at, applying the same GPS-latency shift the map actually renders
-   * markers with (see GSRMapManager._resolveLatencyIndex() in map.js).
+   * markers with.
    */
   _resolveHotspotIndex(peak, peakLatency) {
-    if (!(peakLatency > 0)) return peak.index;
-    const shiftedTime = Math.max(0, peak.time - peakLatency);
-    const si = this.findClosestIndex(shiftedTime);
-    return si >= 0 ? si : peak.index;
+    return this.resolveLatencyIndex(peak, peakLatency);
   }
 
   /**

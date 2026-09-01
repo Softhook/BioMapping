@@ -184,3 +184,32 @@ test('cell boundary: a point exactly on a cell edge is consistently found by an 
   assert.ok(fromBelow.includes(item), 'getNearby finds a boundary-sitting item when queried from just below the boundary');
   assert.ok(fromAbove.includes(item), 'getNearby finds a boundary-sitting item when queried from just above the boundary');
 });
+
+// ─── computeCellWindow ─────────────────────────────────────────────────────
+
+test('computeCellWindow: correctly bounds row and col window for a point', () => {
+  const bounds = { minLat: 51.50, maxLat: 51.52, minLon: -0.10, maxLon: -0.08 };
+  const rows = 101;
+  const cols = 101;
+  const win = SpatialGrid.computeCellWindow(51.51, -0.09, 50, bounds, rows, cols);
+
+  assert.strictEqual(win.centerRow, 50);
+  assert.strictEqual(win.centerCol, 50);
+  assert.ok(win.rMin < 50 && win.rMax > 50);
+  assert.ok(win.cMin < 50 && win.cMax > 50);
+  assert.ok(win.rMin >= 0 && win.rMax < rows);
+  assert.ok(win.cMin >= 0 && win.cMax < cols);
+});
+
+test('computeCellWindow: clamps at grid boundaries for corner points', () => {
+  const bounds = { minLat: 51.50, maxLat: 51.52, minLon: -0.10, maxLon: -0.08 };
+  const rows = 50;
+  const cols = 50;
+  const winMin = SpatialGrid.computeCellWindow(51.50, -0.10, 100, bounds, rows, cols);
+  assert.strictEqual(winMin.rMin, 0);
+  assert.strictEqual(winMin.cMin, 0);
+
+  const winMax = SpatialGrid.computeCellWindow(51.52, -0.08, 100, bounds, rows, cols);
+  assert.strictEqual(winMax.rMax, rows - 1);
+  assert.strictEqual(winMax.cMax, cols - 1);
+});
