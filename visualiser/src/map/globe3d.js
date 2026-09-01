@@ -1110,9 +1110,58 @@ class GSRGlobeManager {
       return;
     }
 
-    const pos = Cesium.Cartesian3.fromDegrees(lon, lat, Math.max(0, height) + 2.0);
+    let resolvedHeight = height;
+    if ((resolvedHeight == null || resolvedHeight === 0) && this.currentDrawPoints && this.currentDrawPoints.length > 0) {
+      resolvedHeight = this._getTrackHeightAt(lat, lon);
+    }
+
+    let terrainAlt = 0;
+    try {
+      if (this.viewer && this.viewer.scene && this.viewer.scene.globe && typeof this.viewer.scene.globe.getHeight === 'function') {
+        const carto = Cesium.Cartographic.fromDegrees(lon, lat);
+        const h = this.viewer.scene.globe.getHeight(carto);
+        if (typeof h === 'number' && isFinite(h)) terrainAlt = Math.max(0, h);
+      }
+    } catch (e) {}
+
+    const pos = Cesium.Cartesian3.fromDegrees(lon, lat, terrainAlt + Math.max(0, resolvedHeight) + 2.5);
     this.scrubEntity.position = pos;
     this.scrubEntity.show = true;
+  }
+
+  /**
+   * Resolve extrusion wall height at a given lat/lon based on closest drawn track point.
+   */
+  _getTrackHeightAt(lat, lon) {
+    if (!this.currentDrawPoints || this.currentDrawPoints.length === 0) return this.baseHeight || 2.0;
+    let closest = null;
+    let minD = Infinity;
+    for (let i = 0; i < this.currentDrawPoints.length; i++) {
+      const p = this.currentDrawPoints[i];
+      const d = (p.lat - lat) ** 2 + (p.lon - lon) ** 2;
+      if (d < minD) {
+        minD = d;
+        closest = p;
+      }
+    }
+    if (!closest || closest.origIdx == null) return this.baseHeight || 2.0;
+    return this._getPointHeight(closest.origIdx);
+  }
+
+  /**
+   * Calculate 3D wall height for a single sample index.
+   */
+  _getPointHeight(origIdx) {
+    if (origIdx == null || !this.currentAnalyzer) return this.baseHeight || 2.0;
+    const metric = this.activeColoringMetric;
+    const heightMetric = (typeof HEIGHT_CAPABLE_METRICS !== 'undefined' && HEIGHT_CAPABLE_METRICS.has(metric))
+      ? metric
+      : (this.heightMetric || 'phasic');
+    const series = this._getMetricSeries(this.currentAnalyzer, heightMetric);
+    const rawVal = series ? series[origIdx] : 0;
+    const extScale = this.extrusionScale || 8.0;
+    const baseH = this.baseHeight || 2.0;
+    return baseH + Math.max(0, seriesValue(rawVal)) * extScale;
   }
 
   /**
@@ -2090,7 +2139,11 @@ class GSRGlobeManager {
     const pts = this.currentDrawPoints;
     if (!pts || pts.length < 2) return [];
 
-    const heightSeries = this._getMetricSeries(this.currentAnalyzer, this.heightMetric || 'phasic');
+    const metric = this.activeColoringMetric;
+    const heightMetric = (typeof HEIGHT_CAPABLE_METRICS !== 'undefined' && HEIGHT_CAPABLE_METRICS.has(metric))
+      ? metric
+      : (this.heightMetric || 'phasic');
+    const heightSeries = this._getMetricSeries(this.currentAnalyzer, heightMetric);
     const extScale = this.extrusionScale || 8.0;
     const baseH = this.baseHeight || 2.0;
 
@@ -2099,12 +2152,17 @@ class GSRGlobeManager {
     candidateIndices.add(0);
     candidateIndices.add(pts.length - 1);
 
-    // Add peak indices
+    // Add peak indices (both original sample index and latency-shifted index)
     if (this.currentPeaks && this.currentPeaks.length > 0) {
       this.currentPeaks.forEach(pk => {
         if (pk && typeof pk.index === 'number') {
           const matchIdx = pts.findIndex(p => p.origIdx === pk.index);
           if (matchIdx !== -1) candidateIndices.add(matchIdx);
+          if (this.peakLatency > 0 && this.currentAnalyzer && typeof this.currentAnalyzer.resolveLatencyIndex === 'function') {
+            const shiftedOrigIdx = this.currentAnalyzer.resolveLatencyIndex(pk, this.peakLatency);
+            const shiftedMatchIdx = pts.findIndex(p => p.origIdx === shiftedOrigIdx);
+            if (shiftedMatchIdx !== -1) candidateIndices.add(shiftedMatchIdx);
+          }
         }
       });
     }
@@ -2119,22 +2177,58 @@ class GSRGlobeManager {
     const sortedIndices = Array.from(candidateIndices).sort((a, b) => a - b);
     const waypoints = [];
 
+    // Helper to calculate wall height at any draw point
+    const heightAtPoint = (p) => {
+      if (!p || p.origIdx == null || !heightSeries) return baseH;
+      const rawVal = heightSeries[p.origIdx];
+      return baseH + Math.max(0, seriesValue(rawVal)) * extScale;
+    };
+
+    const lookAheadSteps = Math.max(3, Math.min(10, Math.floor(pts.length / 30)));
+
     for (let i = 0; i < sortedIndices.length; i++) {
       const idx = sortedIndices[i];
       const p = pts[idx];
-      const nextIdx = (i < sortedIndices.length - 1) ? sortedIndices[i + 1] : Math.min(pts.length - 1, idx + 1);
-      const nextP = pts[nextIdx] || p;
 
-      // Bearing looking forward
-      let bearingDeg = this._calculateBearing(p, nextP);
-      if (idx === nextIdx && i > 0) {
-        const prevP = pts[sortedIndices[i - 1]];
-        bearingDeg = this._calculateBearing(prevP, p);
+      // Smooth forward bearing by looking ahead along the path
+      let bearingDeg;
+      if (idx < pts.length - 1) {
+        const lookAheadIdx = Math.min(pts.length - 1, idx + lookAheadSteps);
+        bearingDeg = this._calculateBearing(p, pts[lookAheadIdx] || pts[idx + 1]);
+      } else if (idx > 0) {
+        const lookBehindIdx = Math.max(0, idx - lookAheadSteps);
+        bearingDeg = this._calculateBearing(pts[lookBehindIdx] || pts[idx - 1], p);
+      } else {
+        bearingDeg = 0;
       }
 
       // GSR arousal height at this point
-      const rawVal = (p.origIdx != null && heightSeries) ? heightSeries[p.origIdx] : 0;
-      const gsrHeight = baseH + Math.max(0, seriesValue(rawVal)) * extScale;
+      const gsrHeight = heightAtPoint(p);
+
+      // Check if this waypoint is at or near a peak or hotspot
+      const isPeak = (this.currentPeaks || []).some(pk => {
+        if (!pk) return false;
+        if (pk.index === p.origIdx) return true;
+        if (this.peakLatency > 0 && this.currentAnalyzer && typeof this.currentAnalyzer.resolveLatencyIndex === 'function') {
+          return this.currentAnalyzer.resolveLatencyIndex(pk, this.peakLatency) === p.origIdx;
+        }
+        return false;
+      });
+
+      // Find local max height in the upcoming track window (+16 points ahead)
+      const windowStart = Math.max(0, idx - 4);
+      const windowEnd = Math.min(pts.length - 1, idx + 16);
+      let localMaxHeight = gsrHeight;
+      for (let w = windowStart; w <= windowEnd; w++) {
+        const hW = heightAtPoint(pts[w]);
+        if (hW > localMaxHeight) localMaxHeight = hW;
+      }
+
+      // Effective height for camera framing:
+      // Includes local track wall height, headroom for upcoming peaks,
+      // and spire/star/label annotation heights (spire: +3m, hotspot: +11m, label: +15m)
+      const annotationHeadroom = isPeak ? 15.0 : 0.0;
+      const effectiveHeight = Math.max(gsrHeight + annotationHeadroom, localMaxHeight * 0.9 + annotationHeadroom * 0.5, 16.0);
 
       waypoints.push({
         index: i,
@@ -2145,7 +2239,8 @@ class GSRGlobeManager {
         time: p.time,
         bearingDeg,
         gsrHeight,
-        isPeak: (this.currentPeaks || []).some(pk => pk.index === p.origIdx)
+        effectiveHeight,
+        isPeak
       });
     }
 
@@ -2189,25 +2284,29 @@ class GSRGlobeManager {
     if (this._tourCallback) {
       this._tourCallback(stepIdx, this._tourWaypoints.length, wp);
     }
-    this.setScrubPosition(wp.lat, wp.lon);
+    // Explicitly pass gsrHeight so the blue scrub dot is elevated to sit on top of the track
+    this.setScrubPosition(wp.lat, wp.lon, wp.gsrHeight);
 
     // Forward-facing camera configuration:
-    // Placed slightly behind the point looking forward along the direction of travel,
-    // framed so the rising arousal wall is clearly visible.
+    // Placed behind the point looking forward along the direction of travel,
+    // zoomed back and elevated so the track wall, blue scrub dot, and peak spires/annotations
+    // are framed clearly with generous vertical and horizon context.
     const headingRad = (wp.bearingDeg * Math.PI) / 180.0;
     const inverseHeadingRad = headingRad + Math.PI;
 
-    // Pitch: angled down (-20°) to capture the ground path and rising ribbon ahead
-    const pitchDeg = -20.0;
+    // Pitch: angled down (-24°) to capture ground path, rising ribbon, and skyline
+    const pitchDeg = -24.0;
     const pitchRad = (pitchDeg * Math.PI) / 180.0;
 
-    // Altitude & distance: dynamically adapt to the GSR wall height at this waypoint
-    // so high stress spikes are captured in their entirety without clipping.
-    const cameraDistance = Math.max(35.0, wp.gsrHeight * 1.8 + 20.0);
-    const altitudeOffset = Math.max(25.0, wp.gsrHeight * 1.4 + 18.0);
+    // Altitude & distance: dynamically adapt to the effective track height & annotations
+    const effH = wp.effectiveHeight || wp.gsrHeight || 16.0;
+    const backDistMeters = Math.max(85.0, effH * 2.4 + 60.0);
 
-    // Offset backwards along inverse heading in meters: distance * cos(pitch)
-    const backDistMeters = cameraDistance * Math.cos(Math.abs(pitchRad));
+    // Target look-at height centered on the vertical mid-region of the track/spires
+    const targetLookAtHeight = effH * 0.45;
+    const altitudeOffset = targetLookAtHeight + backDistMeters * Math.tan(Math.abs(pitchRad));
+
+    // Offset backwards along inverse heading in meters
     const latOffsetDeg = (backDistMeters * Math.cos(inverseHeadingRad)) / 111320.0;
     const latRad = (wp.lat * Math.PI) / 180.0;
     const lonOffsetDeg = (backDistMeters * Math.sin(inverseHeadingRad)) / (111320.0 * Math.max(0.1, Math.cos(latRad)));
@@ -2218,16 +2317,20 @@ class GSRGlobeManager {
     let terrainAlt = 0;
     try {
       if (this.viewer.scene && this.viewer.scene.globe && typeof this.viewer.scene.globe.getHeight === 'function') {
-        const carto = Cesium.Cartographic.fromDegrees(camLon, camLat);
-        const h = this.viewer.scene.globe.getHeight(carto);
-        if (typeof h === 'number' && isFinite(h)) terrainAlt = Math.max(0, h);
+        const cartoCam = Cesium.Cartographic.fromDegrees(camLon, camLat);
+        const cartoWp = Cesium.Cartographic.fromDegrees(wp.lon, wp.lat);
+        const hCam = this.viewer.scene.globe.getHeight(cartoCam);
+        const hWp = this.viewer.scene.globe.getHeight(cartoWp);
+        const validHCam = (typeof hCam === 'number' && isFinite(hCam)) ? Math.max(0, hCam) : 0;
+        const validHWp = (typeof hWp === 'number' && isFinite(hWp)) ? Math.max(0, hWp) : 0;
+        terrainAlt = Math.max(validHCam, validHWp);
       }
     } catch (e) {}
 
     const targetAltitude = terrainAlt + altitudeOffset;
     const destination = Cesium.Cartesian3.fromDegrees(camLon, camLat, targetAltitude);
 
-    const flightDuration = stepIdx === 0 ? 1.8 : 1.4;
+    const flightDuration = stepIdx === 0 ? 2.0 : 1.6;
 
     this.viewer.camera.flyTo({
       destination: destination,
@@ -2240,7 +2343,7 @@ class GSRGlobeManager {
       complete: () => {
         if (!this._isTouring) return;
         // Pause at each waypoint (longer pause on peaks/hotspots so user can observe)
-        const pauseMs = wp.isPeak ? 2200 : 1600;
+        const pauseMs = wp.isPeak ? 2400 : 1500;
         this._tourStepTimeout = setTimeout(() => {
           if (this._isTouring) {
             this._executeTourStep(stepIdx + 1);

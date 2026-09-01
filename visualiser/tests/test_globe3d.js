@@ -1020,12 +1020,13 @@ test('tour mode: _computeTourWaypoints extracts sequential waypoints with bearin
   // Check bearing calculation (roughly ~45° northeast)
   assert.ok(waypoints[0].bearingDeg >= 30 && waypoints[0].bearingDeg <= 60, `bearing is forward (${waypoints[0].bearingDeg})`);
 
-  // Check peak detection and GSR height scaling
+  // Check peak detection, GSR height scaling, and effectiveHeight headroom
   const peakWp = waypoints.find(w => w.origIdx === 10);
   assert.ok(peakWp, 'peak at index 10 was included as a waypoint');
   assert.strictEqual(peakWp.isPeak, true);
   // baseHeight 2 + val 3.0 * scale 10 = 32
   assert.strictEqual(peakWp.gsrHeight, 32);
+  assert.ok(peakWp.effectiveHeight >= 32 + 15, 'effectiveHeight includes annotation headroom for peaks');
 
   mgr.destroy();
 });
@@ -1049,7 +1050,7 @@ test('startTour / stopTour / toggleTour lifecycle and camera flight', () => {
   mgr.onTourStep((stepIdx, totalSteps, wp) => { progress.push([stepIdx, totalSteps, wp]); });
 
   let scrubSet = [];
-  mgr.setScrubPosition = (lat, lon) => { scrubSet.push([lat, lon]); };
+  mgr.setScrubPosition = (lat, lon, height) => { scrubSet.push([lat, lon, height]); };
 
   assert.strictEqual(mgr._isTouring, false);
   const active = mgr.toggleTour();
@@ -1060,6 +1061,7 @@ test('startTour / stopTour / toggleTour lifecycle and camera flight', () => {
   assert.strictEqual(progress.length, 1, 'tour step progress emitted');
   assert.strictEqual(progress[0][0], 0, 'step 0 reported');
   assert.ok(scrubSet.length >= 1, 'scrub position set to waypoint coordinates');
+  assert.ok(typeof scrubSet[0][2] === 'number', 'scrub position includes track height');
 
   // Trigger flight completion -> schedules next step timer
   flights[0].complete();
@@ -1070,6 +1072,30 @@ test('startTour / stopTour / toggleTour lifecycle and camera flight', () => {
   assert.strictEqual(mgr._isTouring, false);
   assert.strictEqual(mgr._tourStepTimeout, null);
   assert.strictEqual(progress.at(-1)[2], null, 'stop reported to listener');
+
+  mgr.destroy();
+});
+
+test('setScrubPosition auto-resolves height from drawn track when not explicitly provided', () => {
+  freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  mgr.currentDrawPoints = [
+    { lat: 51.5, lon: -0.1, time: 0, origIdx: 0 },
+    { lat: 51.51, lon: -0.11, time: 1, origIdx: 1 }
+  ];
+  mgr.currentAnalyzer = { raw: [{}, {}], phasic: [{ val: 5 }, { val: 10 }] };
+  mgr.extrusionScale = 5;
+  mgr.baseHeight = 2;
+
+  // With explicit height
+  mgr.setScrubPosition(51.5, -0.1, 40);
+  assert.strictEqual(mgr.scrubEntity.show, true);
+
+  // Without explicit height (auto-resolved from nearest draw point origIdx 1: baseHeight 2 + 10 * 5 = 52)
+  mgr.setScrubPosition(51.51, -0.11);
+  assert.strictEqual(mgr.scrubEntity.show, true);
 
   mgr.destroy();
 });
