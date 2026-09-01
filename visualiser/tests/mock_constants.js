@@ -3,7 +3,7 @@
  * Mirrors the real constants.js values used by the tested modules.
  */
 module.exports = {
-  MARGIN: { top: 30, bottom: 16, left: 70, right: 35, gap: 40 },
+  MARGIN: { top: 22, bottom: 10, left: 70, right: 35, gap: 40 },
   GRAPH_UPPER_RATIO: 0.62,
   GRAPH_LOWER_RATIO: 0.38,
   TIMELINE_HEIGHT: 22,

@@ -72,7 +72,7 @@ function draw() {
   // labels. The overview timeline bar is pinned to the bottom, but drops out
   // when the panel is short (halved height) so the plot keeps a usable height.
   const view = AppState.graphView || 'signal';
-  const X_LABEL_STRIP = 18;
+  const X_LABEL_STRIP = 15;
   const showTimeline = height >= 240;
   const timelineHeight = showTimeline ? GSR_CONST.TIMELINE_HEIGHT : 0;
   const timelineGap = showTimeline ? GSR_CONST.TIMELINE_GAP : 0;

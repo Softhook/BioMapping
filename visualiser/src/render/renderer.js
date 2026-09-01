@@ -120,7 +120,7 @@ const GSRRenderer = {
         const s = Math.floor(t % 60);
         label = m + ':' + (s < 10 ? '0' : '') + s;
       }
-      text(label, x, singleGraph ? yUpperBottom + 11 : yUpperBottom + GSR_CONST.MARGIN.gap / 2);
+      text(label, x, singleGraph ? yUpperBottom + 10 : yUpperBottom + GSR_CONST.MARGIN.gap / 2);
       stroke(gridColor);
     }
 
