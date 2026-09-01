@@ -373,37 +373,34 @@ test('GSRAnalyzer _dataVersion: bumped by every mutation path a self-validating 
   assert.strictEqual(a._dataVersion, 3, 'analyze() bumps _dataVersion');
 });
 
-test('GSRAnalyzer computeTemporalPeakDensity: centered sliding window, peaks/min', () => {
+test('GSRAnalyzer computeTemporalPeakDensity: Gaussian KDE scaled by spotlight window, peaks/min', () => {
   const a = new GSRAnalyzer();
   assert.deepStrictEqual(a.computeTemporalPeakDensity(60), []); // empty phasic
 
-  a.phasic = [{ time: 0 }, { time: 30 }, { time: 60 }];
+  a.phasic = [{ time: 0 }, { time: 30 }, { time: 100 }];
   a.peaks = [
-    { time: 10, excluded: false },
-    { time: 20, excluded: false },
-    { time: 50, excluded: false }
+    { time: 28, excluded: false },
+    { time: 32, excluded: false }
   ];
 
   const d = a.computeTemporalPeakDensity(60);
   assert.strictEqual(d.length, 3);
-  // Window ±30s: t=0 counts peaks 10,20 (2); t=30 counts all three (3); t=60 counts peak 50 only (1)
   assert.strictEqual(d[0].time, 0);
-  assert.strictEqual(d[0].val, 2);
-  assert.strictEqual(d[1].val, 3);
-  assert.strictEqual(d[2].val, 1);
+  // All density values are non-negative and continuous floats
+  assert.ok(d.every(pt => pt.val >= 0));
+  // t=30 is centrally situated near the burst at 28s and 32s -> high continuous density
+  assert.ok(d[1].val > d[0].val && d[1].val > d[2].val, 'density peaks at t=30 near the event cluster');
 
   // Excluded peaks are ignored by the count
-  a.peaks.push({ time: 15, excluded: true });
+  const valBefore = d[1].val;
+  a.peaks.push({ time: 30, excluded: true });
   const d2 = a.computeTemporalPeakDensity(60);
-  assert.strictEqual(d2[0].val, 2);
-  assert.strictEqual(d2[1].val, 3);
+  assert.ok(Math.abs(d2[1].val - valBefore) < 1e-9, 'excluded peak does not affect density');
 
-  // Narrower window scales the rate: ±15s, 1 peak in window -> (60/30) = 2 peaks/min
-  const a2 = new GSRAnalyzer();
-  a2.phasic = [{ time: 0 }];
-  a2.peaks = [{ time: 10, excluded: false }, { time: 20, excluded: false }];
-  const d3 = a2.computeTemporalPeakDensity(30);
-  assert.strictEqual(d3[0].val, 2);
+  // Active peak at t=30 increases the continuous density at t=30
+  a.peaks.push({ time: 30, excluded: false });
+  const d3 = a.computeTemporalPeakDensity(60);
+  assert.ok(d3[1].val > valBefore, 'active peak at t=30 increases density');
 });
 
 // ── GSRCSVParser statics: _csvEscape / _detectRfPeakIndices ─────────────────
@@ -715,3 +712,28 @@ test('§B computeCombinedArousalIndex: standalone call (no precomputedAUC) still
   assert.strictEqual(result.length, a.phasic.length);
   assert.ok(isFinite(result[0].val));
 });
+
+test('GSRAnalyzer computeTriIndex: precomputed arrays match fresh standalone computation', () => {
+  const fs = require('fs'), path = require('path');
+  const csvPath = path.join(__dirname, '..', '..', 'tracks', 'biomap_048.csv');
+  if (!fs.existsSync(csvPath)) { return; }
+  const a = new GSRAnalyzer();
+  a.parseCSV(fs.readFileSync(csvPath, 'utf8'));
+  a.analyze(JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT)), 0);
+
+  const fresh = a.computeTriIndex(0.10, 0.45, 0.45, null, null);
+  const reused = a.computeTriIndex(0.10, 0.45, 0.45, a.phasicAUC, a.peakDensity);
+
+  assert.strictEqual(fresh.length, reused.length, 'length mismatch');
+  for (let i = 0; i < fresh.length; i++) {
+    assert.ok(Math.abs(fresh[i].val - reused[i].val) < 1e-9,
+      `index ${i}: fresh=${fresh[i].val} reused=${reused[i].val}`);
+    assert.strictEqual(fresh[i].time, reused[i].time);
+  }
+});
+
+test('GSRAnalyzer computeTriIndex: empty input returns empty array and default args work', () => {
+  const a = new GSRAnalyzer();
+  assert.deepStrictEqual(a.computeTriIndex(), []);
+});
+

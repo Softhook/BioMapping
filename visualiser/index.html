@@ -214,6 +214,16 @@
 
             <div class="slider-group">
               <div class="slider-label">
+                <span>Peak Density Window</span>
+                <span class="slider-value" id="valPeakDensityWindow">60 s</span>
+              </div>
+              <input type="range" id="peakDensityWindow" min="10" max="120" step="5" value="60">
+              <div class="slider-rec" style="left:18.2%; width:54.5%"></div>
+              <p class="help-text">Spotlight time window for peak density with smooth transitions. Lower = localized reaction; Higher = broader trend. <strong>Recommended:</strong> 30–90 s.</p>
+            </div>
+
+            <div class="slider-group">
+              <div class="slider-label">
                 <span>Hotspot Ratio</span>
                 <span class="slider-value" id="valHotspotPercentile">2.0 %</span>
               </div>
@@ -777,6 +787,7 @@
                 <option value="peakDensity">Peak Density</option>
                 <option value="phasicAUC">Phasic AUC</option>
                 <option value="arousalIndex">Arousal Index</option>
+                <option value="triIndex">Tri Index</option>
               </select>
               <span class="control-divider"></span>
               <button class="icon-btn fullscreen-btn" id="btnGsrFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>
@@ -854,6 +865,7 @@
                 <option value="peakDensity">Peak Density</option>
                 <option value="phasicAUC">Phasic AUC</option>
                 <option value="arousalIndex">Arousal Index</option>
+                <option value="triIndex">Tri Index</option>
                 <option value="em_fog">EM Fog</option>
                 <option value="hdopQuality">GPS Accuracy</option>
                 <option value="roadClass" disabled class="osm-option">Road Class</option>

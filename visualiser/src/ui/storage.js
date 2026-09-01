@@ -57,6 +57,7 @@ const GSRStorage = {
       // Optional sliders — fall back to GSR_DEFAULT (correct values for these keys)
       dwtLevel:              sliderVal(S.dwtLevel,             D.dwtLevel,     parseInt),
       minPeakQuality:        sliderVal(S.minPeakQuality,       D.minPeakQuality),
+      peakDensityWindow:     sliderVal(S.peakDensityWindow,    D.peakDensityWindow || 60, parseInt),
       hotspotPercentile:     sliderVal(S.hotspotPercentile,    (D.hotspotPercentile ? D.hotspotPercentile * 100 : 2.0)) / 100.0,
       // Peak shape criteria — fall back to PEAK_SHAPE (literature-validated defaults).
       // Four of these five (all but shapeMinSnr) get locked to a kernel-canonical
@@ -221,6 +222,7 @@ const GSRStorage = {
     if (gsr.peakThreshold !== undefined && S.peakThreshold) S.peakThreshold.value = gsr.peakThreshold;
     if (gsr.dwtLevel !== undefined && S.dwtLevel) S.dwtLevel.value = gsr.dwtLevel;
     if (gsr.minPeakQuality !== undefined && S.minPeakQuality) S.minPeakQuality.value = gsr.minPeakQuality;
+    if (gsr.peakDensityWindow !== undefined && S.peakDensityWindow) S.peakDensityWindow.value = gsr.peakDensityWindow;
     if (gsr.hotspotPercentile !== undefined && S.hotspotPercentile) {
       S.hotspotPercentile.value = gsr.hotspotPercentile > 1.0 ? gsr.hotspotPercentile : gsr.hotspotPercentile * 100.0;
     }

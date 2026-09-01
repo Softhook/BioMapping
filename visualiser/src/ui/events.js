@@ -26,7 +26,7 @@ const GSREvents = {
 
     // Sliders & Selection inputs
     const sliderKeys = [
-      'medianSize', 'lpfWindow', 'tonicWindow', 'tonicMethod', 'peakThreshold', 'minPeakQuality', 'hotspotPercentile', 'dwtLevel',
+      'medianSize', 'lpfWindow', 'tonicWindow', 'tonicMethod', 'peakThreshold', 'minPeakQuality', 'peakDensityWindow', 'hotspotPercentile', 'dwtLevel',
       'shapeMinRiseTime', 'shapeMaxRiseTime', 'shapeMinHalfRecovery', 'shapeMaxHalfRecovery',
       'shapeMinSnr', 'shapeMaxSkewRatio',
       'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsDownsample', 'gpsTrackWeight', 'gpsPeakLatency',
@@ -276,6 +276,7 @@ const GSREvents = {
     GSREvents.bindGsrSlider('tonicWindow',   'valTonicWindow',   ' s');
     GSREvents.bindGsrSlider('peakThreshold',     'valPeakThreshold',     ' μS');
     GSREvents.bindGsrSlider('minPeakQuality',    'valMinPeakQuality',    '');
+    GSREvents.bindGsrSlider('peakDensityWindow', 'valPeakDensityWindow', ' s');
     GSREvents.bindGsrSlider('hotspotPercentile', 'valHotspotPercentile', ' %');
     GSREvents.bindGsrSlider('shapeMinRiseTime',  'valShapeMinRiseTime',  ' s');
     GSREvents.bindGsrSlider('shapeMaxRiseTime',  'valShapeMaxRiseTime',  ' s');
@@ -1136,6 +1137,7 @@ const GSREvents = {
     updateLabel('dwtLevel',      'valDwtLevel',      '');
     updateLabel('peakThreshold',     'valPeakThreshold',     ' μS');
     updateLabel('minPeakQuality',    'valMinPeakQuality',    '');
+    updateLabel('peakDensityWindow', 'valPeakDensityWindow', ' s');
     updateLabel('hotspotPercentile', 'valHotspotPercentile', ' %');
     updateLabel('shapeMinRiseTime',  'valShapeMinRiseTime',  ' s');
     updateLabel('shapeMaxRiseTime',  'valShapeMaxRiseTime',  ' s');

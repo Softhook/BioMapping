@@ -67,6 +67,7 @@ const SERIES_FIELD = {
   phasic: 'phasic',
   tonic: 'tonic',
   arousalIndex: 'arousalIndex',
+  triIndex: 'triIndex',
   peakDensity: 'peakDensity',
   phasicAUC: 'phasicAUC',
   em_fog: 'em_fog',
@@ -79,7 +80,7 @@ const SERIES_FIELD = {
  * drive its extrusion — the embedded host keeps height on a fixed arousal
  * series (heightMetric) while colour follows whatever the 2D view is showing.
  */
-const HEIGHT_CAPABLE_METRICS = new Set(['gsr', 'phasic', 'tonic', 'arousalIndex', 'peakDensity', 'phasicAUC']);
+const HEIGHT_CAPABLE_METRICS = new Set(['gsr', 'phasic', 'tonic', 'arousalIndex', 'triIndex', 'peakDensity', 'phasicAUC']);
 
 /** Unwrap one analyzer series sample ({time,val} | number) to a plain float. */
 const seriesValue = (d) =>

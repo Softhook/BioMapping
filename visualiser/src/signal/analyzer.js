@@ -43,6 +43,7 @@ class GSRAnalyzer {
     this.peakDensity = [];  // Sliding-window NS-SCR frequency: { time, val } — peaks/minute
     this.phasicAUC = [];    // Sliding-window Phasic AUC (ISCR): { time, val } — µS·s
     this.arousalIndex = []; // Combined tonic+phasic z-scored blend: { time, val }
+    this.triIndex = [];     // Tri Index (tonic + phasic AUC + peak density) z-scored blend: { time, val }
 
     // Deconvolution state (Benedek & Kaernbach, 2010).
     this.phasicDriver = [];       // Raw driver signal: { time, val }
@@ -477,12 +478,16 @@ class GSRAnalyzer {
     }
 
     // 6. Continuous, threshold-independent arousal metrics (ISCR/AUC + combined index + EM Fog)
-    this.peakDensity = this.computeTemporalPeakDensity();
+    const densityWin = (params && params.peakDensityWindow != null) ? params.peakDensityWindow : null;
+    this.peakDensity = this.computeTemporalPeakDensity(densityWin);
     this.phasicAUC = this.computePhasicAUC();
     // §B perf fix (2026-08-07): pass the already-computed phasicAUC so
     // computeCombinedArousalIndex() does not re-run computePhasicAUC(30)
     // internally (was an identical O(N) sliding-window recompute, discarded).
-    this.arousalIndex = this.computeCombinedArousalIndex(0.3, 0.7, this.phasicAUC);
+    const aiCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.AROUSAL_INDEX) || { wTonic: 0.3, wPhasic: 0.7 };
+    const triCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.TRI_INDEX) || { wTonic: 0.10, wPhasic: 0.45, wDensity: 0.45 };
+    this.arousalIndex = this.computeCombinedArousalIndex(aiCfg.wTonic, aiCfg.wPhasic, this.phasicAUC);
+    this.triIndex = this.computeTriIndex(triCfg.wTonic, triCfg.wPhasic, triCfg.wDensity, this.phasicAUC, this.peakDensity);
     this.em_fog = this.raw.map(d => ({ time: d.time, val: (d.em_fog !== undefined && !isNaN(d.em_fog)) ? d.em_fog : 0 }));
     this.emFog = this.em_fog;
 
@@ -1000,7 +1005,7 @@ class GSRAnalyzer {
   _buildDisplayCache() {
     // Global Y-range per curve — used when view covers >40 % of data
     this._globalRange = {};
-    for (const key of ['raw', 'filtered', 'tonic', 'phasic', 'peakDensity', 'phasicAUC', 'arousalIndex', 'em_fog']) {
+    for (const key of ['raw', 'filtered', 'tonic', 'phasic', 'peakDensity', 'phasicAUC', 'arousalIndex', 'triIndex', 'em_fog']) {
       const arr = this[key];
       if (!arr || arr.length === 0) continue;
       let mn = Infinity, mx = -Infinity;
@@ -1457,50 +1462,68 @@ class GSRAnalyzer {
   }
 
   /**
-   * Sliding-window temporal peak density (Non-Specific SCR Frequency), in
-   * peaks/minute, using a *centered* window (±windowSizeSec/2) — same
-   * convention as computePhasicAUC, so the two continuous metrics stay
-   * time-aligned with each other.
+   * Continuous Temporal Peak Density (Non-Specific SCR Frequency), in
+   * peaks/minute, computed via 1D Gaussian Kernel Density Estimation (KDE)
+   * where the kernel bandwidth (sigma) is scaled directly by the spotlight window width.
    *
-   * Classic EDA literature (Dawson, Schell & Filion, 2007; Boucsein, 2012)
-   * reports NS-SCR frequency as a single scalar over a fixed epoch (e.g. one
-   * number for a whole baseline/task period), not as a continuous series.
-   * The continuous sliding-window delivery here is an adaptation for spatial
-   * mapping — it IS an established convention in ambulatory/wearable EDA
-   * feature extraction specifically (60 s windows are documented in that
-   * literature), just not how classic lab-based EDA studies report the
-   * metric. peakFrequency in getStats() is the single-scalar, textbook form;
-   * this is the continuous, per-sample companion built for plotting/mapping.
+   * Bandwidth defaults to sigma = windowSizeSec / 4 (e.g. 15 s for the default
+   * 60 s window, encompassing 95.4% of the Gaussian mass within ±30 s).
    *
-   * Two-pointer sliding window over the (time-sorted) active peak list, so
-   * this runs in O(n + peakCount) rather than the O(n × peakCount) naive scan.
+   * Evaluated efficiently in O(n + peakCount) via a two-pointer sliding window (±3.5 sigma).
    *
-   * @param {number} windowSizeSec - Temporal window width in seconds (default: 60)
+   * @param {number|null} windowSizeSec - Spotlight time window in seconds (default: GSR_CONST.TEMPORAL_PEAK_DENSITY.windowSizeSec || 60)
+   * @param {number|null} customSigma - Optional explicit kernel bandwidth in seconds (default: windowSizeSec / 4)
+   * @returns {Array<{time: number, val: number}>}
    */
-  computeTemporalPeakDensity(windowSizeSec = 60) {
+  computeTemporalPeakDensity(windowSizeSec = null, customSigma = null) {
     const n = this.phasic.length;
     if (n === 0) return [];
-
-    const density = new Array(n);
-    const halfWin = windowSizeSec / 2;
 
     const activePeakTimes = this.peaks
       .filter(p => !p.excluded)
       .map(p => p.time);
     const m = activePeakTimes.length;
 
+    // Fast path: no active peaks -> return zero-density series directly
+    if (m === 0) {
+      const emptyDensity = new Array(n);
+      for (let i = 0; i < n; i++) {
+        emptyDensity[i] = { time: this.phasic[i].time, val: 0 };
+      }
+      return emptyDensity;
+    }
+
+    const dCfg = (typeof GSR_CONST !== 'undefined' && (GSR_CONST.TEMPORAL_PEAK_DENSITY || GSR_CONST.TEMPORAL_PEAK_KDE)) || {};
+    const winSec = (windowSizeSec != null && windowSizeSec > 0) ? windowSizeSec : (dCfg.windowSizeSec || 60);
+    const sigmaRatio = dCfg.sigmaRatio || 0.25;
+    const sigma = (customSigma != null && customSigma > 0) ? customSigma : (winSec * sigmaRatio);
+    const cutoffMult = dCfg.cutoffMultiplier || 3.5;
+    const scaleFactor = dCfg.scaleToPerMinute || 60.0;
+
+    const invTwoSigmaSq = 1.0 / (2.0 * sigma * sigma);
+    const maxDist = cutoffMult * sigma;
+    const normFactor = scaleFactor / (Math.sqrt(2.0 * Math.PI) * sigma);
+
+    const density = new Array(n);
     let lo = 0, hi = 0;
+
     for (let i = 0; i < n; i++) {
       const t = this.phasic[i].time;
-      const tStart = t - halfWin;
-      const tEnd = t + halfWin;
+      const tStart = t - maxDist;
+      const tEnd = t + maxDist;
 
       while (lo < m && activePeakTimes[lo] < tStart) lo++;
       while (hi < m && activePeakTimes[hi] <= tEnd) hi++;
 
+      let kernelSum = 0;
+      for (let j = lo; j < hi; j++) {
+        const dt = t - activePeakTimes[j];
+        kernelSum += Math.exp(-(dt * dt) * invTwoSigmaSq);
+      }
+
       density[i] = {
         time: t,
-        val: (hi - lo) * (60 / windowSizeSec)
+        val: kernelSum * normFactor
       };
     }
     return density;
@@ -1622,6 +1645,57 @@ class GSRAnalyzer {
       };
     }
     return arousalIndex;
+  }
+
+  /**
+   * Tri Index — a weighted, per-participant z-scored blend of tonic baseline
+   * (SCL), phasic AUC (ISCR), and temporal peak density (NS-SCR frequency).
+   *
+   * Option B weights (0.10 Tonic / 0.45 Phasic AUC / 0.45 Peak Density)
+   * prioritize acute event volume and sympathetic burst frequency while
+   * anchoring to baseline tone and mitigating slow thermal/sweat drift.
+   *
+   * @param {number} wTonic - Weight for tonic SCL component (default: 0.10)
+   * @param {number} wPhasic - Weight for phasic AUC component (default: 0.45)
+   * @param {number} wDensity - Weight for temporal peak density component (default: 0.45)
+   * @param {Array|null} precomputedAUC - Optional already-computed phasicAUC array
+   * @param {Array|null} precomputedDensity - Optional already-computed peakDensity array
+   * @returns {Array<{time: number, val: number}>}
+   */
+  computeTriIndex(wTonic = 0.10, wPhasic = 0.45, wDensity = 0.45, precomputedAUC = null, precomputedDensity = null) {
+    const n = this.phasic.length;
+    if (n === 0) return [];
+
+    const auc = precomputedAUC || this.computePhasicAUC(30);
+    const density = precomputedDensity || this.computeTemporalPeakDensity();
+
+    let tSum = 0, tSumSq = 0, aSum = 0, aSumSq = 0, dSum = 0, dSumSq = 0;
+    for (let i = 0; i < n; i++) {
+      const tv = this.tonic[i].val;
+      const av = auc[i].val;
+      const dv = density[i].val;
+      tSum += tv; tSumSq += tv * tv;
+      aSum += av; aSumSq += av * av;
+      dSum += dv; dSumSq += dv * dv;
+    }
+    const tMean = tSum / n;
+    const tStd = Math.sqrt(Math.max(0, tSumSq / n - tMean * tMean)) || 1;
+    const aMean = aSum / n;
+    const aStd = Math.sqrt(Math.max(0, aSumSq / n - aMean * aMean)) || 1;
+    const dMean = dSum / n;
+    const dStd = Math.sqrt(Math.max(0, dSumSq / n - dMean * dMean)) || 1;
+
+    const triIndex = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const tZ = (this.tonic[i].val - tMean) / tStd;
+      const aZ = (auc[i].val - aMean) / aStd;
+      const dZ = (density[i].val - dMean) / dStd;
+      triIndex[i] = {
+        time: this.phasic[i].time,
+        val: (wTonic * tZ) + (wPhasic * aZ) + (wDensity * dZ)
+      };
+    }
+    return triIndex;
   }
 
   getStats() {

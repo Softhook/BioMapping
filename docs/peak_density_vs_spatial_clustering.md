@@ -39,7 +39,7 @@ The goal of introducing these advanced metrics and model frameworks is to direct
 | :--- | :--- | :--- |
 | **Domain** | **Spatial Domain** (Geographic) | **Time Domain** (Chronological) |
 | **Input Data** | Coordinate points of discrete stress peaks. | Continuous time sequence of active stress peaks. |
-| **Computation** | Geodesic grouping (DBSCAN/BFS Proximity) & Gaussian Kernel Density Estimation (KDE) over a 2D map grid. | Temporal sliding window count scaled to peaks per minute: $$PPM(t) = \frac{\text{peaks inside } [t - \frac{W}{2}, t + \frac{W}{2}]}{\text{window width in minutes}}$$ |
+| **Computation** | Geodesic grouping (DBSCAN/BFS Proximity) & Gaussian Kernel Density Estimation (KDE) over a 2D map grid. | 1D Gaussian Kernel Density Estimation (KDE) scaled by spotlight window width $W$ ($\sigma = W / 4$): $$\text{PPM}(t) = \frac{60}{\sqrt{2\pi}\sigma} \sum_{k=1}^m \exp\left(-\frac{(t - t_k)^2}{2\sigma^2}\right)$$ |
 | **Core Question** | *"Where in the urban landscape do stress responses concentrate?"* | *"How frequently was the participant's sympathetic nervous system firing at this moment?"* |
 | **Output Format** | Concave boundary polygons (blobs) or continuous density isolines (contours) on the map. | A continuous 1D time-series waveform plotted on the timeline graph. |
 
@@ -92,6 +92,19 @@ $$X_Z(t) = \frac{X(t) - \mu_X}{\sigma_X}$$
 * **Vigilance + Response Fusion:** The index captures both the immediate shock of a localized stressor (e.g., a near-miss traffic conflict) and the background vigilance or physical exhaustion of the walk, merging slow-moving and fast-acting stress elements.
 * **Inter-Subject Compatibility (Comparing Cohorts):** Standardizing both components using individual Z-scores normalizes individual biological differences (e.g., skin thickness, dry/wet skin, sensor contact impedance) and allows files from a large cohort to be compared fairly. 
 * **Identifying Global Urban Stressors:** The goal is to allow researchers to overlay data from dozens of participants to find global environmental stressors. If a street has a mean Arousal Index of $+1.5$ (1.5 standard deviations above average), researchers know it is a universally stressful location, regardless of individual skin conductance baselines.
+
+---
+
+## 4B. Tri Index (Tonic + Phasic AUC + Peak Density)
+
+To incorporate central sympathetic burst frequency (state vigilance) directly alongside cumulative response energy and baseline physiological tone, the **Tri Index** combines three standardized dimensions:
+
+### Mathematical Definition:
+$$\text{Tri Index}(t) = 0.10 \cdot \text{Tonic}_Z(t) + 0.45 \cdot \text{PhasicAUC}_Z(t) + 0.45 \cdot \text{PeakDensity}_Z(t)$$
+
+* **$10\%$ Tonic SCL:** Anchors the reading to background physiological workload while remaining resilient to slow ambient thermal drift.
+* **$45\%$ Phasic AUC:** Measures cumulative sweat response volume over a $30\text{ s}$ centered window, resolving superposition and threshold cliff-edges.
+* **$45\%$ Peak Density:** Captures instantaneous sympathetic firing rate (peaks per minute) over a $60\text{ s}$ centered window, reflecting mental workload and urban navigation complexity.
 
 ---
 
@@ -224,19 +237,20 @@ Mapping ambient electromagnetic fields in cities has emerged as an active area o
 
 ### Feature A: Lower Graph Selector (Timeline Panel)
 * **Concept:** Expose a dropdown in the p5.js canvas header to switch the lower graph's rendering.
-* **Metrics:** Toggle between `Phasic (SCR)`, `Peak Density (PPM)`, `Phasic AUC (ISCR)`, and `Combined Arousal Index`.
+* **Metrics:** Toggle between `Phasic (SCR)`, `Peak Density (PPM)`, `Phasic AUC (ISCR)`, `Combined Arousal Index`, and `Tri Index`.
 * **Visuals:** Style each metric with distinct, curated theme colors:
   * Phasic (SCR) $\rightarrow$ Green (`#008f3c`)
   * Peak Density (PPM) $\rightarrow$ Amber (`#e59e00`)
   * Phasic AUC (ISCR) $\rightarrow$ Teal (`#0099aa`)
   * Combined Arousal Index $\rightarrow$ Purple (`#7b00cc`)
+  * Tri Index $\rightarrow$ Indigo (`#6366f1`)
 * **Scrubber/Tooltip Integration:** The tooltip dynamically scales and displays the active metric's value with its corresponding scientific units (e.g., $\mu\text{S}\cdot\text{s}$, $\text{peaks/min}$, or unitless Z-score).
 * **AI Integration:** When a user hovers or clicks on a peak marker in the visualizer, display a sidebar containing the **AI Stress Event Labeler's** inference regarding the surrounding spatial triggers.
 
 ### Feature B: Continuous Topography Map Contours
-* **Concept:** Expose `auc`, `arousal_index`, and `peak_density` as source options in the map's Contour Surface settings.
+* **Concept:** Expose `auc`, `arousal_index`, `tri_index`, and `peak_density` as source options in the map's Contour Surface settings.
 * **Visuals:** When selected, the collective manager runs Inverse Distance Weighting (IDW) interpolation on the selected continuous timeline array across all active tracks.
-* **Value:** Bypasses peak-counting threshold artifacts to draw smooth, continuous contour maps of cumulative stress (AUC) or relative stress (Arousal Index), complete with dynamic legend units.
+* **Value:** Bypasses peak-counting threshold artifacts to draw smooth, continuous contour maps of cumulative stress (AUC), relative stress (Arousal Index), or tri-component vigilance (Tri Index), complete with dynamic legend units.
 
 ### Feature C: Bivariate Correlation Dashboard (Regression & Profiles)
 * **Concept:** Expose the new continuous metrics as biometric target variables in the correlation analytics.

@@ -29,6 +29,7 @@ module.exports = {
     shapeMinHalfRecovery: 0.65, shapeMaxHalfRecovery: 7.5,
     shapeMinSnr: 3.0, shapeMaxSkewRatio: 4.0,
     minPeakQuality: 0.55,
+    peakDensityWindow: 60,
     hotspotPercentile: 0.02,
     useDeconvolution: false
   },
@@ -76,6 +77,28 @@ module.exports = {
       amplitude: 0.20, riseTime: 0.15, recoveryTime: 0.15,
       skewness: 0.15, onsetSlope: 0.10, snr: 0.15, decaySlope: 0.10
     }
+  },
+
+  AROUSAL_INDEX: {
+    wTonic: 0.3, wPhasic: 0.7, windowAucSec: 30
+  },
+
+  TRI_INDEX: {
+    wTonic: 0.10, wPhasic: 0.45, wDensity: 0.45,
+    windowAucSec: 30, windowDensitySec: 60
+  },
+
+  TOPOGRAPHY_SOURCES: {
+    phasic:        { label: 'Phasic Arousal', unit: ' μS' },
+    tonic:         { label: 'Tonic Baseline (SCL)', unit: ' μS' },
+    peaks:         { label: 'Peak Stress Hotspots', unit: '' },
+    auc:           { label: 'Phasic AUC (ISCR)', unit: ' μS·s' },
+    arousal_index: { label: 'Combined Arousal Index', unit: ' z' },
+    tri_index:     { label: 'Tri Index', unit: ' z' }
+  },
+
+  TEMPORAL_PEAK_DENSITY: {
+    windowSizeSec: 60, sigmaRatio: 0.25, cutoffMultiplier: 3.5, scaleToPerMinute: 60.0
   },
 
   PEAK_KDE: {

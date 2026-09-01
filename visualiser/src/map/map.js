@@ -13,6 +13,7 @@ const DERIVED_METRIC_SERIES = {
   peakDensity: 'peakDensity',
   phasicAUC: 'phasicAUC',
   arousalIndex: 'arousalIndex',
+  triIndex: 'triIndex',
   em_fog: 'em_fog',
   emFog: 'em_fog'
 };
@@ -166,19 +167,9 @@ class GSRMapManager {
 
     if (isCollective) {
       const topoSource = this._collectiveTopographySource || 'phasic';
-      const topoNames = {
-        'phasic':           'Phasic Arousal',
-        'tonic':            'Tonic Baseline (SCL)',
-        'peaks':            'Peak Stress Hotspots',
-        'auc':              'Phasic AUC (ISCR)',
-        'arousal_index':    'Combined Arousal Index'
-      };
-      const title = topoNames[topoSource] || 'Topography';
-
-      const topoUnits = { peaks: '', auc: ' μS·s', arousal_index: ' z' };
-      const unit = topoUnits[topoSource] !== undefined
-        ? topoUnits[topoSource]
-        : ' μS';
+      const topoCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.TOPOGRAPHY_SOURCES && GSR_CONST.TOPOGRAPHY_SOURCES[topoSource]) || null;
+      const title = (topoCfg && topoCfg.label) || 'Topography';
+      const unit = (topoCfg && topoCfg.unit !== undefined) ? topoCfg.unit : ' μS';
 
       const minV = this._legendMinVal;
       const maxV = this._legendMaxVal;
@@ -214,6 +205,7 @@ class GSRMapManager {
         'peakDensity':      'Peak Density (NS-SCR)',
         'phasicAUC':        'Phasic AUC (ISCR)',
         'arousalIndex':     'Combined Arousal Index',
+        'triIndex':         'Tri Index',
         'em_fog':           'EM Fog Index (0-100)',
         'emFog':            'EM Fog Index (0-100)',
         'hdopQuality':      'GPS Accuracy (HDOP)'
@@ -2492,10 +2484,8 @@ class GSRMapManager {
     contours.forEach(c => {
       const color = MapColors.getHslColor(c.ratio, 100, 55);
       const formattedVal = c.level.toFixed(3);
-      const topoUnits = { peaks: '', auc: ' μS·s', arousal_index: ' z' };
-      const unit = topoUnits[contourParams.topographySource] !== undefined
-        ? topoUnits[contourParams.topographySource]
-        : ' μS';
+      const topoCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.TOPOGRAPHY_SOURCES && GSR_CONST.TOPOGRAPHY_SOURCES[contourParams.topographySource]) || null;
+      const unit = (topoCfg && topoCfg.unit !== undefined) ? topoCfg.unit : ' μS';
 
       const stitchedPaths = (typeof GSRSpatialClustering !== 'undefined')
         ? GSRSpatialClustering.stitchSegments(c.segments)

@@ -171,31 +171,40 @@ assertEq(outOfBoundsQuality.length, 0, 'All peak quality scores are between 0.0 
 // ════════════════════════════════════════════════════════════════════════════
 //  2b. CONTINUOUS AROUSAL METRICS (ISCR/AUC + COMBINED AROUSAL INDEX)
 // ════════════════════════════════════════════════════════════════════════════
-console.log('\n── 2b. Continuous Arousal Metrics (Peak Density / Phasic AUC / Arousal Index) ──');
+console.log('\n── 2b. Continuous Arousal Metrics (Peak Density / Phasic AUC / Arousal Index / Tri Index) ──');
 
 // analyze() should have already populated these caches
 assert(analyzer.peakDensity.length === gsrRaw.length, 'peakDensity series matches signal length');
 assert(analyzer.phasicAUC.length === gsrRaw.length, 'phasicAUC series matches signal length');
 assert(analyzer.arousalIndex.length === gsrRaw.length, 'arousalIndex series matches signal length');
+assert(analyzer.triIndex.length === gsrRaw.length, 'triIndex series matches signal length');
 
 // Peak density should be non-negative and bounded by a sane peaks/min ceiling
 const peakDensityVals = analyzer.peakDensity.map(d => d.val);
 assert(peakDensityVals.every(v => v >= 0), 'peakDensity values are non-negative');
 assert(peakDensityVals.every(v => v <= 200), 'peakDensity values stay within a plausible peaks/min ceiling');
 
-// Cross-check peakDensity against a naive O(n·m) brute-force count at a few sample points
+// Cross-check Gaussian KDE peakDensity against a naive brute-force O(n·m) evaluation
 const activePeakTimes = analyzer.peaks.filter(p => !p.excluded).map(p => p.time);
-const densityWindowSec = 60;
+const winSec = (typeof GSR_CONST !== 'undefined' && GSR_CONST.TEMPORAL_PEAK_DENSITY && GSR_CONST.TEMPORAL_PEAK_DENSITY.windowSizeSec) || 60;
+const sigma = winSec / 4.0;
+const twoSigmaSq = 2 * sigma * sigma;
+const normFactor = 60.0 / (Math.sqrt(2 * Math.PI) * sigma);
 const checkIdxs = [0, Math.floor(gsrRaw.length / 3), Math.floor(gsrRaw.length / 2), gsrRaw.length - 1];
 let densityMismatch = 0;
 for (const idx of checkIdxs) {
   const t = analyzer.phasic[idx].time;
-  const half = densityWindowSec / 2;
-  const bruteCount = activePeakTimes.filter(pt => pt >= t - half && pt <= t + half).length;
-  const expected = bruteCount * (60 / densityWindowSec);
+  let bruteSum = 0;
+  for (const pt of activePeakTimes) {
+    const dt = t - pt;
+    if (Math.abs(dt) <= 3.5 * sigma) {
+      bruteSum += Math.exp(-(dt * dt) / twoSigmaSq);
+    }
+  }
+  const expected = bruteSum * normFactor;
   if (Math.abs(analyzer.peakDensity[idx].val - expected) > 1e-6) densityMismatch++;
 }
-assertEq(densityMismatch, 0, 'Two-pointer peakDensity matches brute-force count at sampled indices');
+assertEq(densityMismatch, 0, 'Two-pointer Gaussian KDE peakDensity matches brute-force at sampled indices');
 
 // Phasic AUC should be non-negative (integral of a rectified, ≥0 signal)
 const aucVals = analyzer.phasicAUC.map(d => d.val);
@@ -245,6 +254,19 @@ const phasicHeavyIndex = analyzer.computeCombinedArousalIndex(0.0, 1.0);
 assert(
   tonicHeavyIndex.some((d, i) => Math.abs(d.val - phasicHeavyIndex[i].val) > 1e-6),
   'computeCombinedArousalIndex weighting actually changes the output (tonic-only vs phasic-only differ)'
+);
+
+// Tri Index should be roughly zero-centered (weighted blend of three z-scored series)
+const triVals = analyzer.triIndex.map(d => d.val);
+const triMean = triVals.reduce((a, b) => a + b, 0) / triVals.length;
+assertClose(triMean, 0, 0.5, `triIndex is roughly zero-centered: mean = ${triMean.toFixed(3)}`);
+
+// Tri Index custom weights should alter the blend predictably
+const densityOnlyTri = analyzer.computeTriIndex(0.0, 0.0, 1.0);
+const aucOnlyTri = analyzer.computeTriIndex(0.0, 1.0, 0.0);
+assert(
+  densityOnlyTri.some((d, i) => Math.abs(d.val - aucOnlyTri[i].val) > 1e-6),
+  'computeTriIndex weighting changes output between density-only and auc-only'
 );
 
 console.log(`  meanPhasicAUC (getStats): ${analyzer.getStats().meanPhasicAUC.toFixed(4)} µS·s`);
@@ -369,7 +391,7 @@ const baseContourParams = {
 };
 
 const surfacesBySource = {};
-for (const src of ['phasic', 'tonic', 'peaks', 'auc', 'arousal_index']) {
+for (const src of ['phasic', 'tonic', 'peaks', 'auc', 'arousal_index', 'tri_index']) {
   const surface = collectiveManager.generateContourSurface({ ...baseContourParams, topographySource: src });
   assert(surface && Array.isArray(surface.contours), `generateContourSurface('${src}') returns { contours, grid, ... }`);
   surfacesBySource[src] = surface;
@@ -388,6 +410,13 @@ assert(
   surfacesBySource.arousal_index.minVal !== surfacesBySource.tonic.minVal ||
   surfacesBySource.arousal_index.maxVal !== surfacesBySource.tonic.maxVal,
   `'arousal_index' topography value range differs from 'tonic' (arousal_index: [${surfacesBySource.arousal_index.minVal.toFixed(4)}, ${surfacesBySource.arousal_index.maxVal.toFixed(4)}], tonic: [${surfacesBySource.tonic.minVal.toFixed(4)}, ${surfacesBySource.tonic.maxVal.toFixed(4)}])`
+);
+
+// Tri Index surface should generate successfully and differ from raw phasic
+assert(
+  surfacesBySource.tri_index.minVal !== surfacesBySource.phasic.minVal ||
+  surfacesBySource.tri_index.maxVal !== surfacesBySource.phasic.maxVal,
+  `'tri_index' topography value range differs from 'phasic' (tri_index: [${surfacesBySource.tri_index.minVal.toFixed(4)}, ${surfacesBySource.tri_index.maxVal.toFixed(4)}], phasic: [${surfacesBySource.phasic.minVal.toFixed(4)}, ${surfacesBySource.phasic.maxVal.toFixed(4)}])`
 );
 
 // Combined Arousal Index is allowed to go negative (z-scored blend); AUC and

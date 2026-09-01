@@ -43,7 +43,8 @@ const MapColors = {
     // low=green / high=red gradient — they're all "how aroused" on
     // different scales, so a consistent gradient keeps them comparable.
     if (metric === 'gsr' || metric === 'phasic' || metric === 'tonic' ||
-        metric === 'peakDensity' || metric === 'phasicAUC' || metric === 'arousalIndex') {
+        metric === 'peakDensity' || metric === 'phasicAUC' || metric === 'arousalIndex' ||
+        metric === 'triIndex') {
       return MapColors.getColorForValue(val, minVal, maxVal);
     }
 

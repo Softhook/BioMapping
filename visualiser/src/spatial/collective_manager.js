@@ -243,6 +243,7 @@ class GSRCollectiveManager {
       // toggle — re-normalizing an already-standardized index would just
       // rescale it, not change its cross-participant comparability.
       const arousalIndex = t.analyzer.arousalIndex || [];
+      const triIndex = t.analyzer.triIndex || [];
 
       // Implement O(N) running-sum moving average
       function getSmoothArray(arr, windowSize) {
@@ -293,6 +294,7 @@ class GSRCollectiveManager {
       const smoothTonic = doSmoothing ? getSmoothArray(tonic, windowSize) : null;
       const smoothAUC = doSmoothing ? getSmoothArray(phasicAUC, windowSize) : null;
       const smoothArousal = doSmoothing ? getSmoothArray(arousalIndex, windowSize) : null;
+      const smoothTri = doSmoothing ? getSmoothArray(triIndex, windowSize) : null;
 
       const baseFsStep = Math.max(1, Math.round(Fs));
       const step       = baseFsStep * globalStride;
@@ -307,7 +309,8 @@ class GSRCollectiveManager {
             phasic: doSmoothing ? smoothPhasic[i] : (phasic[i] ? phasic[i].val : 0),
             tonic: doSmoothing ? smoothTonic[i] : (tonic[i] ? tonic[i].val : 0),
             phasicAUC: doSmoothing ? smoothAUC[i] : (phasicAUC[i] ? phasicAUC[i].val : 0),
-            arousalIndex: doSmoothing ? smoothArousal[i] : (arousalIndex[i] ? arousalIndex[i].val : 0)
+            arousalIndex: doSmoothing ? smoothArousal[i] : (arousalIndex[i] ? arousalIndex[i].val : 0),
+            triIndex: doSmoothing ? smoothTri[i] : (triIndex[i] ? triIndex[i].val : 0)
           });
         }
       }
@@ -534,6 +537,7 @@ class GSRCollectiveManager {
         const pointVal = topographySource === 'tonic' ? p.tonic :
                           topographySource === 'auc' ? p.phasicAUC :
                           topographySource === 'arousal_index' ? p.arousalIndex :
+                          (topographySource === 'tri_index' || topographySource === 'triIndex') ? p.triIndex :
                           p.phasic;
         const w = cellWindowFor(p.lat, p.lon, idwRadius);
         for (let r = w.rMin; r <= w.rMax; r++) {
