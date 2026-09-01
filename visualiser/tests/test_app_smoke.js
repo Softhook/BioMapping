@@ -134,17 +134,47 @@ test('deleteTrack removes the track and leaves a clean, consistent AppState', as
   assert.strictEqual(window.AppState.activeTrackId, null);
 });
 
-test('toggling view mode (single <-> collective) via the real wired-up DOM buttons does not throw', () => {
+test('toggling view mode (single <-> collective) via the real wired-up DOM buttons preserves viewport without refitting', async () => {
   const { window, document } = bootApp();
+  installFakeFileReader(window);
   window.setup();
+
+  await new Promise((resolve, reject) => {
+    window.GSRTrackManager.loadFilesSequentially([makeFakeFile('track1.csv', SAMPLE_CSV)]);
+    const start = Date.now();
+    const check = () => {
+      if (window.AppState.collectiveManager.tracks.length > 0) return resolve();
+      if (Date.now() - start > 2000) return reject(new Error('track never loaded within 2s'));
+      setTimeout(check, 10);
+    };
+    check();
+  });
 
   const collectiveBtn = document.getElementById('btnCollectiveView');
   const singleBtn = document.getElementById('btnSingleView');
   assert.ok(collectiveBtn, 'btnCollectiveView should exist in the real index.html markup');
   assert.ok(singleBtn, 'btnSingleView should exist in the real index.html markup');
 
-  assert.doesNotThrow(() => collectiveBtn.dispatchEvent(new window.Event('click', { bubbles: true })));
-  assert.doesNotThrow(() => singleBtn.dispatchEvent(new window.Event('click', { bubbles: true })));
+  let invalidates = 0;
+  let fitCalls = 0;
+  window.AppState.mapManager.map.invalidateSize = (opts) => {
+    invalidates++;
+    assert.strictEqual(opts?.pan, false, 'invalidateSize should be called with pan: false on mode switch');
+  };
+  window.AppState.mapManager.map.flyToBounds = () => { fitCalls++; };
+  window.AppState.mapManager.map.fitBounds = () => { fitCalls++; };
+
+  // Switching to collective mode should NOT refit the viewport (map data stays in place)
+  collectiveBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.strictEqual(window.AppState.viewMode, 'collective');
+  assert.strictEqual(fitCalls, 0, 'Switching to collective mode must not re-fit viewport');
+  assert.ok(invalidates >= 1, 'map.invalidateSize should run synchronously on collective mode switch');
+
+  // Switching back to single mode should NOT refit the viewport
+  singleBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.strictEqual(window.AppState.viewMode, 'single');
+  assert.strictEqual(fitCalls, 0, 'Switching to single mode must not re-fit viewport');
+  assert.ok(invalidates >= 2, 'map.invalidateSize should run synchronously on single mode switch');
 });
 
 test('GSRCollectiveProject.exportProject() with a loaded track completes successfully (regression test for a fixed bug: suggestedName used to be referenced undeclared, crashing every export)', async () => {

@@ -858,13 +858,8 @@ const GSREvents = {
       btnSingleView.classList.add('active');
       btnCollectiveView.classList.remove('active');
 
-      // Force the next renderData() to re-fit the viewport — otherwise the map keeps
-      // whatever framing the collective view left it at (e.g. fit to several tracks) since
-      // the active track's cacheKey hasn't itself changed. See GSRMapManager's
-      // _lastFitBoundsTrackId/_lastFitBoundsTrackSet in map.js.
       if (AppState.mapManager) {
-        AppState.mapManager._lastFitBoundsTrackId = null;
-        AppState.mapManager._lastFitBoundsTrackSet = null;
+        AppState.mapManager.clearCollectiveLayers();
       }
       appMainLayout.classList.remove('collective-mode');
       contourSettingsCard.style.display = 'none';
@@ -876,16 +871,16 @@ const GSREvents = {
       const btnEnrich = document.getElementById('btnEnrichTrack');
       if (btnEnrich) btnEnrich.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Retrieve Spatial Data';
 
-      if (AppState.mapManager) AppState.mapManager.clearCollectiveLayers();
-
       document.getElementById('gsrPanel').style.display = '';
       document.getElementById('eventsPanel').style.display = '';
 
+      // Force synchronous measurement of the new container size without panning the map
+      if (AppState.mapManager && AppState.mapManager.map && typeof AppState.mapManager.map.invalidateSize === 'function') {
+        AppState.mapManager.map.invalidateSize({ pan: false, debounceMoveend: true });
+      }
+
       if (AppState.analyzer && AppState.analyzer.raw.length > 0) {
         windowResized();
-        // No loop() here — the canvas renders on demand via windowResized()'s
-        // resizeCanvas() and runAnalysis()'s own redraw(); see
-        // docs/archive/visualizer_rendering_perf_routes.md §2.5.
         GSRUI.runAnalysis();
       } else {
         noLoop();
@@ -893,9 +888,6 @@ const GSREvents = {
         if (AppState.mapManager) AppState.mapManager.clearMap();
       }
       GSRUI.refreshOsmControls(); // resync OSM Layers button/indicator to the now-active single track
-      if (AppState.mapManager && AppState.mapManager.map) {
-        setTimeout(() => AppState.mapManager.map.invalidateSize(), 80);
-      }
     });
 
     btnCollectiveView.addEventListener('click', () => {
@@ -910,15 +902,6 @@ const GSREvents = {
         GSREvents.setSurface('map');
       }
 
-      // Force the next renderCollectiveData() to re-fit — otherwise if the same active
-      // track set was already fit once before (e.g. user bounced collective -> single ->
-      // collective without changing which tracks are active), the signature check would
-      // wrongly treat it as "unchanged" and leave the map framed to whatever single-track
-      // view was showing instead. See GSRMapManager's _lastFitBoundsTrackId/TrackSet in map.js.
-      if (AppState.mapManager) {
-        AppState.mapManager._lastFitBoundsTrackId = null;
-        AppState.mapManager._lastFitBoundsTrackSet = null;
-      }
       appMainLayout.classList.add('collective-mode');
       contourSettingsCard.style.display = '';
       collectiveOnlyMapBtns.forEach(btn => btn.style.display = '');
@@ -934,22 +917,31 @@ const GSREvents = {
       noLoop();
 
       // No graph to scrub in collective view — drop any scrub indicator left
-      // over from single-track hover immediately (the collective render below
-      // is debounced ~150ms, and handleScrubber no longer runs after noLoop()).
-      // Also clear mouseOverCanvas: hiding gsrPanel via inline style doesn't
-      // move the mouse, so no mouseleave fires on the canvas and the flag
-      // would otherwise stay stuck true, making mouseMoved() (sketch.js) keep
-      // forcing pointless redraws while panning the map. (handleScrubber's own
-      // elementFromPoint hit-test is what actually keeps the scrubber inert.)
+      // over from single-track hover immediately.
       AppState.mouseOverCanvas = false;
       AppState.hoveredIndex = -1;
       AppState.scrubSource = null;
       AppState.emit('scrub', { clear: true });
 
-      GSRUI.updateCollectiveMap();
-      GSRUI.refreshOsmControls(); // reflects all/none/mixed enrichment across active tracks
-      if (AppState.mapManager && AppState.mapManager.map) {
-        setTimeout(() => AppState.mapManager.map.invalidateSize(), 80);
+      // Force synchronous measurement of the new expanded container dimensions without panning the map
+      if (AppState.mapManager && AppState.mapManager.map && typeof AppState.mapManager.map.invalidateSize === 'function') {
+        AppState.mapManager.map.invalidateSize({ pan: false, debounceMoveend: true });
+      }
+
+      // Render collective map immediately without 150ms debounce lag on mode swap
+      if (typeof GSRUI !== 'undefined') {
+        if (GSRUI._collectiveDebounceId) {
+          clearTimeout(GSRUI._collectiveDebounceId);
+          GSRUI._collectiveDebounceId = null;
+        }
+        if (typeof GSRUI._updateCollectiveMapNow === 'function') {
+          GSRUI._updateCollectiveMapNow();
+        } else if (typeof GSRUI.updateCollectiveMap === 'function') {
+          GSRUI.updateCollectiveMap();
+        }
+        if (typeof GSRUI.refreshOsmControls === 'function') {
+          GSRUI.refreshOsmControls();
+        }
       }
     });
   },
@@ -1014,8 +1006,8 @@ const GSREvents = {
         else GSRGlobe3DView.deactivate();
       }
 
-      if (!toGlobe && AppState.mapManager && AppState.mapManager.map) {
-        setTimeout(() => AppState.mapManager.map.invalidateSize(), 80);
+      if (!toGlobe && AppState.mapManager && AppState.mapManager.map && typeof AppState.mapManager.map.invalidateSize === 'function') {
+        AppState.mapManager.map.invalidateSize({ pan: false, debounceMoveend: true });
       }
     };
 

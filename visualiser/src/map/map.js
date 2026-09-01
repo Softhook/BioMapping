@@ -694,8 +694,11 @@ class GSRMapManager {
     const isNewTrack = cacheKey !== this._lastFitBoundsTrackId;
     if (hasPath) {
       if (options.fitBounds || isNewTrack) {
-        this._fitBounds(drawPoints);
+        this._fitBounds(drawPoints, { animate: true, duration: 0.45 });
         this._lastFitBoundsTrackId = cacheKey;
+        if (!this._lastFitBoundsTrackSet && typeof AppState !== 'undefined' && AppState.collectiveManager) {
+          this._lastFitBoundsTrackSet = this._getTrackSetSignature(AppState.collectiveManager);
+        }
       }
       this._lastDrawPoints = drawPoints;
       if (this.rfFluidRenderer) {
@@ -737,7 +740,12 @@ class GSRMapManager {
         .filter(m => m._latlng && !isNaN(m._latlng.lat) && !isNaN(m._latlng.lng))
         .map(m => [m._latlng.lat, m._latlng.lng]);
       if (coords.length > 0) {
-        this.map.fitBounds(coords, { padding: [30, 30] });
+        const fitOpts = { padding: [30, 30], maxZoom: 17, animate: true, duration: 0.45, easeLinearity: 0.25 };
+        if (typeof this.map.flyToBounds === 'function') {
+          this.map.flyToBounds(coords, fitOpts);
+        } else if (typeof this.map.fitBounds === 'function') {
+          this.map.fitBounds(coords, fitOpts);
+        }
         this._lastFitBoundsTrackId = cacheKey;
       }
     }
@@ -917,9 +925,28 @@ class GSRMapManager {
 
 
 
-  _fitBounds(drawPoints) {
+  _getTrackSetSignature(collectiveManager) {
+    if (!collectiveManager) return '';
+    const active = collectiveManager.getActiveTracks ? collectiveManager.getActiveTracks() : [];
+    return active.map(t => t.id).sort().join(',');
+  }
+
+  _fitBounds(drawPoints, opts = {}) {
+    if (!this.map || !drawPoints || drawPoints.length === 0) return;
     const bounds = drawPoints.map(p => [p.lat, p.lon]);
-    this.map.fitBounds(bounds, { padding: [30, 30] });
+    const fitOpts = {
+      padding: [30, 30],
+      maxZoom: 17,
+      animate: true,
+      duration: 0.45,
+      easeLinearity: 0.25,
+      ...opts
+    };
+    if (typeof this.map.flyToBounds === 'function' && fitOpts.fly !== false) {
+      this.map.flyToBounds(bounds, fitOpts);
+    } else if (typeof this.map.fitBounds === 'function') {
+      this.map.fitBounds(bounds, fitOpts);
+    }
   }
 
   /**
@@ -1989,7 +2016,13 @@ class GSRMapManager {
     const paths = this.getRenderLayers().paths;
     if (this.map && paths.length > 0) {
       const group = new L.featureGroup(paths);
-      this.map.fitBounds(group.getBounds(), { padding: [30, 30] });
+      const bounds = group.getBounds();
+      const fitOpts = { padding: [30, 30], maxZoom: 17, animate: true, duration: 0.45, easeLinearity: 0.25 };
+      if (typeof this.map.flyToBounds === 'function') {
+        this.map.flyToBounds(bounds, fitOpts);
+      } else if (typeof this.map.fitBounds === 'function') {
+        this.map.fitBounds(bounds, fitOpts);
+      }
     }
   }
 
@@ -2308,13 +2341,28 @@ class GSRMapManager {
     // slider tweak would reset the zoom the user had picked to inspect a specific area.
     if (trackSetSignature !== this._lastFitBoundsTrackSet) {
       const bounds = collectiveManager.getBounds();
-      if (bounds) {
-        this.map.fitBounds([
+      if (bounds && this.map) {
+        const bbox = [
           [bounds.minLat, bounds.minLon],
           [bounds.maxLat, bounds.maxLon]
-        ], { padding: [40, 40] });
+        ];
+        const fitOpts = {
+          padding: [40, 40],
+          maxZoom: 17,
+          animate: true,
+          duration: 0.45,
+          easeLinearity: 0.25
+        };
+        if (typeof this.map.flyToBounds === 'function') {
+          this.map.flyToBounds(bbox, fitOpts);
+        } else if (typeof this.map.fitBounds === 'function') {
+          this.map.fitBounds(bbox, fitOpts);
+        }
       }
       this._lastFitBoundsTrackSet = trackSetSignature;
+      if (!this._lastFitBoundsTrackId && typeof AppState !== 'undefined' && AppState.activeTrackId) {
+        this._lastFitBoundsTrackId = AppState.activeTrackId;
+      }
     }
 
     // 4. Calculate and render topographic contour lines
