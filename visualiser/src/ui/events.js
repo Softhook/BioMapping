@@ -32,7 +32,7 @@ const GSREvents = {
       'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsDownsample', 'gpsTrackWeight', 'gpsPeakLatency',
       'gpsSnapToRoads', 'gpsSnapRadius',
       'clusterProximity', 'clusterBoundaryRadius',
-      'graphView', 'useDeconvolution', 'adaptiveNotch'
+      'graphView', 'useDeconvolution', 'usePeakProminence', 'adaptiveNotch'
     ];
     for (const key of sliderKeys) {
       AppState.sliders[key] = GSREvents._id(key);
@@ -300,11 +300,27 @@ const GSREvents = {
       GSRUI.runAnalysis();
     });
 
-    // ── SCR Deconvolution toggle ──────────────────────────────────────────────
-    // Triggers full re-analysis because the phasic signal is replaced with the
-    // deconvolved/reconstructed version when enabled.
+    // ── Alternative-detector toggles (Deconvolution / Prominence) ─────────────
+    // Mutually exclusive: analyze() only ever runs one detector, so turning
+    // either alternative ON forces the other OFF (setting .checked in code
+    // does not re-fire 'change', so no loop). Turning one OFF just drops back
+    // to the default trough-to-peak detector. Both re-run the full pipeline
+    // and refresh the shape-slider lock state.
     if (S.useDeconvolution) {
       S.useDeconvolution.addEventListener('change', () => {
+        if (S.useDeconvolution.checked && S.usePeakProminence) {
+          S.usePeakProminence.checked = false;
+        }
+        GSREvents.updateDeconvolutionUIState();
+        GSRUI.runAnalysis();
+      });
+    }
+
+    if (S.usePeakProminence) {
+      S.usePeakProminence.addEventListener('change', () => {
+        if (S.usePeakProminence.checked && S.useDeconvolution) {
+          S.useDeconvolution.checked = false;
+        }
         GSREvents.updateDeconvolutionUIState();
         GSRUI.runAnalysis();
       });
@@ -1213,11 +1229,30 @@ const GSREvents = {
   },
 
   /**
-   * Lock/unlock shape sliders depending on deconvolution state.
+   * Show/hide the morphology shape sliders (rise / half-recovery / skew)
+   * depending on the active detector.
+   *
+   *   - Trough-to-peak (default): all live, all applied as rejection gates.
+   *   - Deconvolution: hidden and pinned to the kernel's canonical shape —
+   *     morphology isn't free to vary once the SCRF kernel is fixed, so
+   *     bounding a reconstructed peak against those numbers is meaningless.
+   *   - Prominence detector: hidden — it identifies peaks by prominence and
+   *     doesn't apply shape criteria at all.
+   *
+   * Min SNR stays live in every mode (a per-peak local-noise property, not a
+   * shape constant) and lives in its own slider outside this list. Min Peak
+   * Quality likewise stays live everywhere.
    */
   updateDeconvolutionUIState() {
     const deconvCheckbox = document.getElementById('useDeconvolution');
     const useDeconv = deconvCheckbox ? deconvCheckbox.checked : false;
+    const promCheckbox = document.getElementById('usePeakProminence');
+    const useProm = promCheckbox ? promCheckbox.checked : false;
+    // Both alternative detectors ignore the morphology sliders; hide them in
+    // either mode. Only deconvolution pins them to canonical values (so a
+    // stale number can't be persisted via readGsrSliderValues()); for the
+    // prominence detector the values are simply never read.
+    const hideShape = useDeconv || useProm;
 
     // Derive canonical shape values analytically from the actual SCRF kernel so
     // they stay in sync with GSR_CONST.SCRF if tauSlow/tauFast ever change,
@@ -1251,14 +1286,14 @@ const GSREvents = {
       const group = slider ? slider.closest('.slider-group') : null;
       
       if (slider) {
-        slider.disabled = useDeconv;
+        slider.disabled = hideShape;
         if (useDeconv) {
           // Cache custom user setting before overwriting
           if (slider.dataset.customValue === undefined) {
             slider.dataset.customValue = slider.value;
           }
           slider.value = s.canonicalValue;
-        } else {
+        } else if (!hideShape) {
           // Restore the cached pre-lock value, or — if there isn't one —
           // fall back to the slider's own declared default (its HTML
           // value="0"/off attribute). Without this fallback, unchecking
@@ -1281,11 +1316,13 @@ const GSREvents = {
         }
       }
       if (group) {
-        group.style.display = useDeconv ? 'none' : '';
+        group.style.display = hideShape ? 'none' : '';
       }
       if (label) {
         if (useDeconv) {
           label.innerText = s.canonical;
+        } else if (useProm) {
+          label.innerText = 'not used';
         } else if (slider) {
           const val = parseFloat(slider.value);
           const step = parseFloat(slider.step) || 0.1;

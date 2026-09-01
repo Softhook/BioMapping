@@ -635,17 +635,33 @@ assert(deconvAnalyzer2.phasicClean.length === phasicRaw.length, 'phasicClean pop
   assert(allAreRealPeaks, 'memorableEvents is a subset of peaks, not a separately-built list');
 
   const activeCount = deconvAnalyzer2.peaks.filter(p => !p.excluded).length;
-  const expectedCount = activeCount > 0 ? Math.max(1, Math.round(activeCount * 0.02)) : 0;
-  assertEq(deconvAnalyzer2.memorableEvents.length, expectedCount, `memorableEvents is the top 2% of active peaks by amplitude (expected ${expectedCount})`);
+  const targetCount = activeCount > 0 ? Math.max(1, Math.round(activeCount * 0.02)) : 0;
+  // Amplitude-ranked, count target = top 2%; spatial spacing
+  // (MEMORABLE_EVENTS.MIN_SEPARATION_M) can pull the realised count below it.
+  assert(deconvAnalyzer2.memorableEvents.length <= targetCount,
+    `memorableEvents is at most the top 2% of active peaks (target ${targetCount}, got ${deconvAnalyzer2.memorableEvents.length})`);
 
   const noneExcluded = deconvAnalyzer2.memorableEvents.every(p => !p.excluded);
   assert(noneExcluded, 'No excluded peak appears in memorableEvents');
 
   let sortedDescending = true;
   for (let i = 1; i < deconvAnalyzer2.memorableEvents.length; i++) {
-    if (deconvAnalyzer2.memorableEvents[i].salienceScore > deconvAnalyzer2.memorableEvents[i - 1].salienceScore) { sortedDescending = false; break; }
+    if (deconvAnalyzer2.memorableEvents[i].amplitude > deconvAnalyzer2.memorableEvents[i - 1].amplitude + 1e-9) { sortedDescending = false; break; }
   }
-  assert(sortedDescending, 'memorableEvents is sorted by descending salienceScore (composite amplitude + steepness)');
+  assert(sortedDescending, 'memorableEvents is sorted by descending amplitude');
+
+  const minSepM = GSR_CONST.MEMORABLE_EVENTS.MIN_SEPARATION_M;
+  const meCoords = deconvAnalyzer2.memorableEvents
+    .map(p => deconvAnalyzer2.getCoordinates(deconvAnalyzer2.resolveLatencyIndex(p, 0)))
+    .filter(Boolean);
+  let meMinPair = Infinity;
+  for (let i = 0; i < meCoords.length; i++) {
+    for (let j = i + 1; j < meCoords.length; j++) {
+      meMinPair = Math.min(meMinPair, deconvAnalyzer2._haversineMeters(meCoords[i].lat, meCoords[i].lon, meCoords[j].lat, meCoords[j].lon));
+    }
+  }
+  assert(meCoords.length < 2 || meMinPair >= minSepM - 1e-6,
+    `no two hotspots closer than ${minSepM} m (closest pair ${isFinite(meMinPair) ? meMinPair.toFixed(1) : 'n/a'} m)`);
 
   // The whole point of switching to a percentile: this must stay a small
   // fraction of the census regardless of how many peaks exist, not scale up

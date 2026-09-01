@@ -126,9 +126,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Smoothing Low-Pass</span>
-                <span class="slider-value" id="valLpfWindow">off</span>
+                <span class="slider-value" id="valLpfWindow">0.5 s</span>
               </div>
-              <input type="range" id="lpfWindow" min="0" max="4" step="0.1" value="0">
+              <input type="range" id="lpfWindow" min="0" max="4" step="0.1" value="0.5">
               <div class="slider-rec" style="left:7.5%; width:17.5%"></div>
               <p class="help-text">Filters high-frequency electrical fuzz. <strong>Recommended:</strong> 0.2–0.5 s (or 1.0–1.2 s to manually cancel walking gait). Set to 0 = off.</p>
             </div>
@@ -196,9 +196,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Min Peak Amplitude</span>
-                <span class="slider-value" id="valPeakThreshold">0.020 μS</span>
+                <span class="slider-value" id="valPeakThreshold">0.015 μS</span>
               </div>
-              <input type="range" id="peakThreshold" min="0.005" max="2.000" step="0.005" value="0.020">
+              <input type="range" id="peakThreshold" min="0.005" max="2.000" step="0.005" value="0.015">
               <div class="slider-rec" style="left:0.25%; width:24.6%"></div>
               <p class="help-text">Threshold for Skin Conductance Responses. <strong>Recommended:</strong> 0.01–0.50 μS.</p>
             </div>
@@ -206,9 +206,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Min Peak Quality</span>
-                <span class="slider-value" id="valMinPeakQuality">0.55</span>
+                <span class="slider-value" id="valMinPeakQuality">0.00</span>
               </div>
-              <input type="range" id="minPeakQuality" min="0.00" max="1.00" step="0.05" value="0.55">
+              <input type="range" id="minPeakQuality" min="0.00" max="1.00" step="0.05" value="0.00">
               <p class="help-text">Filters out peaks with lower shape quality score. 0.00 = no quality filtering.</p>
             </div>
 
@@ -231,9 +231,18 @@
               <p class="help-text">Percentage of top peaks marked as Map Hotspots. <strong>Default:</strong> 2.0 %.</p>
             </div>
 
-            <div class="control-subgroup-title">Deconvolution</div>
+            <div class="control-subgroup-title">Alternative Detectors</div>
 
             <div class="toggle-group">
+              <label class="switch">
+                <input type="checkbox" id="usePeakProminence">
+                <span class="slider round"></span>
+              </label>
+              <span class="toggle-label">Prominence Detector</span>
+            </div>
+            <p class="help-text" style="margin-top:4px;">Recall-first: identifies peaks by topographic prominence and measures amplitude from a trailing baseline, recovering compound SCRs that the default trough-to-peak detector undercounts. Overrides Deconvolution when both are on.</p>
+
+            <div class="toggle-group" style="margin-top:8px;">
               <label class="switch">
                 <input type="checkbox" id="useDeconvolution">
                 <span class="slider round"></span>
@@ -250,9 +259,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Min Rise Time</span>
-                <span class="slider-value" id="valShapeMinRiseTime">0.75 s</span>
+                <span class="slider-value" id="valShapeMinRiseTime">0.30 s</span>
               </div>
-              <input type="range" id="shapeMinRiseTime" min="0" max="3.0" step="0.01" value="0.75">
+              <input type="range" id="shapeMinRiseTime" min="0" max="3.0" step="0.01" value="0.30">
               <div class="slider-rec" style="left:16.7%; width:16.7%"></div>
               <p class="help-text">Fastest plausible SCR rise. Set to 0 = off.</p>
             </div>
@@ -270,9 +279,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Min Half-Recovery</span>
-                <span class="slider-value" id="valShapeMinHalfRecovery">0.65 s</span>
+                <span class="slider-value" id="valShapeMinHalfRecovery">0.00 s</span>
               </div>
-              <input type="range" id="shapeMinHalfRecovery" min="0" max="3.0" step="0.01" value="0.65">
+              <input type="range" id="shapeMinHalfRecovery" min="0" max="3.0" step="0.01" value="0.00">
               <div class="slider-rec" style="left:10%; width:23.3%"></div>
               <p class="help-text">Fastest plausible half-recovery. Set to 0 = off.</p>
             </div>
@@ -290,9 +299,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Min SNR</span>
-                <span class="slider-value" id="valShapeMinSnr">3.0×</span>
+                <span class="slider-value" id="valShapeMinSnr">1.5×</span>
               </div>
-              <input type="range" id="shapeMinSnr" min="0" max="5.0" step="0.1" value="3.0">
+              <input type="range" id="shapeMinSnr" min="0" max="5.0" step="0.1" value="1.5">
               <div class="slider-rec" style="left:40%; width:40%"></div>
               <p class="help-text">Min signal-to-noise ratio. Set to 0 = off.</p>
             </div>
@@ -300,9 +309,9 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Max Skew Ratio</span>
-                <span class="slider-value" id="valShapeMaxSkewRatio">4.0</span>
+                <span class="slider-value" id="valShapeMaxSkewRatio">0.0</span>
               </div>
-              <input type="range" id="shapeMaxSkewRatio" min="0" max="15.0" step="0.1" value="4.0">
+              <input type="range" id="shapeMaxSkewRatio" min="0" max="15.0" step="0.1" value="0.0">
               <div class="slider-rec" style="left:13.3%; width:26.7%"></div>
               <p class="help-text">Max rise/recovery ratio. Classical SCRs rise fast, decay slow. Set to 0 = off.</p>
             </div>

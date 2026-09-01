@@ -112,6 +112,51 @@ test('loading a track while in collective view mode refreshes the collective map
   assert.ok(updateCalls > 0, 'updateCollectiveMap should have been triggered by the trackAdded listener');
 });
 
+test('Deconvolution and Prominence detector toggles are mutually exclusive via the real wired-up DOM', async () => {
+  const { window, document } = bootApp();
+  installFakeFileReader(window);
+  window.setup();
+
+  await new Promise((resolve, reject) => {
+    window.GSRTrackManager.loadFilesSequentially([makeFakeFile('track1.csv', SAMPLE_CSV)]);
+    const start = Date.now();
+    const check = () => {
+      if (window.AppState.collectiveManager.tracks.length > 0) return resolve();
+      if (Date.now() - start > 2000) return reject(new Error('track never loaded within 2s'));
+      setTimeout(check, 10);
+    };
+    check();
+  });
+
+  const decon = document.getElementById('useDeconvolution');
+  const prom = document.getElementById('usePeakProminence');
+  const fireChange = (el) => el.dispatchEvent(new window.Event('change', { bubbles: true }));
+
+  // Turn Deconvolution on.
+  decon.checked = true;
+  assert.doesNotThrow(() => fireChange(decon));
+  assert.strictEqual(decon.checked, true);
+  assert.strictEqual(prom.checked, false);
+
+  // Turn Prominence on — Deconvolution must switch off.
+  prom.checked = true;
+  assert.doesNotThrow(() => fireChange(prom));
+  assert.strictEqual(prom.checked, true);
+  assert.strictEqual(decon.checked, false, 'enabling Prominence disables Deconvolution');
+
+  // Turn Deconvolution back on — Prominence must switch off.
+  decon.checked = true;
+  assert.doesNotThrow(() => fireChange(decon));
+  assert.strictEqual(decon.checked, true);
+  assert.strictEqual(prom.checked, false, 'enabling Deconvolution disables Prominence');
+
+  // Turn Deconvolution off — neither is on (default trough-to-peak).
+  decon.checked = false;
+  assert.doesNotThrow(() => fireChange(decon));
+  assert.strictEqual(decon.checked, false);
+  assert.strictEqual(prom.checked, false);
+});
+
 test('deleteTrack removes the track and leaves a clean, consistent AppState', async () => {
   const { window } = bootApp();
   installFakeFileReader(window);

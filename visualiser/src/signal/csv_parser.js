@@ -619,6 +619,26 @@ class GSRCSVParser {
       warnings.push(`GSR contains rail-saturation values (max ${gsrMax.toFixed(0)} nS). Sensor may have been disconnected.`);
     }
 
+    // Check for a flatlined / stuck signal. A genuine skin-contact recording
+    // always carries some tonic drift and micro-variation; a trace that never
+    // moves (or takes only a handful of distinct values) means the electrode
+    // was not in contact — the tonic/phasic decomposition then yields an
+    // all-zero phasic and no SCR can be detected, so the analysis comes back
+    // empty with no other explanation. Relative std cutoff (0.05 %) separates
+    // a dead trace from a real low-arousal one (real quiet tracks still run
+    // ~1–2 % relative std after electrode contact).
+    let gsrMean = 0;
+    for (const v of gsrVals) gsrMean += v;
+    gsrMean /= gsrVals.length;
+    let gsrSq = 0;
+    for (const v of gsrVals) gsrSq += (v - gsrMean) ** 2;
+    const gsrStd = Math.sqrt(gsrSq / gsrVals.length);
+    const distinctGsr = new Set(gsrVals).size;
+    if (gsrVals.length >= 50 && (distinctGsr <= 3 || (gsrMean > 0 && gsrStd / gsrMean < 5e-4))) {
+      warnings.push(`GSR signal is flat (${distinctGsr} distinct value${distinctGsr === 1 ? '' : 's'}, ` +
+        `std ${gsrStd.toPrecision(2)}). Electrode was likely not in skin contact — no SCR peaks can be detected.`);
+    }
+
     // Check for (0, 0) GPS sentinel values
     const zeroGps = rawDataList.filter(d => !isNaN(d.lat) && !isNaN(d.lon) && d.lat === 0 && d.lon === 0).length;
     if (zeroGps > 0) {

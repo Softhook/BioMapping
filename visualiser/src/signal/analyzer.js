@@ -30,11 +30,12 @@ class GSRAnalyzer {
                             // { time, index, amplitude, onsetIndex, onsetTime, halfRecoveryTime,
                             //   riseTime, onsetSlope, decaySlope, skewnessRatio, fwhm, snr,
                             //   qualityScore, salienceScore, label }
-    this.memorableEvents = []; // Subset of this.peaks likely to be noticed/remembered
-                                // (fast, high-amplitude) — see _computeSalienceScore().
-                                // A different question from qualityScore: "was this real"
-                                // vs "would a person notice this". Not a replacement for
-                                // this.peaks, a companion view over the same list.
+    this.memorableEvents = []; // Curated hotspot subset of this.peaks: the
+                                // highest-amplitude responses, spatially spread
+                                // (>= MEMORABLE_EVENTS.MIN_SEPARATION_M apart) so
+                                // no two crowd one spot on the map. Built in
+                                // analyze() step 5b. A companion view over
+                                // this.peaks, not a replacement for it.
 
     // Continuous, threshold-independent arousal metrics (see
     // docs/environmental_stress_literature_review.md §5-6). These resolve the
@@ -395,16 +396,28 @@ class GSRAnalyzer {
     this.phasicZ = GsrFilter.standardizeSignal(this.phasic);
     this.phasicStd = GsrFilter.calculateStats(phasicVals).std;
 
-    // 5. Phasic Peak Detection.
-    // Either trough-to-peak shape-criteria detection (default), or — when
-    // deconvolution is enabled — a single global SCR deconvolution pass that
-    // replaces this.phasic with a resolved, superposition-free reconstruction
-    // and builds peaks directly from its driver impulses. These are mutually
-    // exclusive: deconvolution supersedes detectPeaks() rather than refining
-    // its output, so there is exactly one pipeline building this.peaks per
-    // analyze() call, and no risk of the two pipelines double-counting the
-    // same SCR from overlapping local windows.
-    if (params.useDeconvolution) {
+    // 5. Phasic Peak Detection. Exactly one of three mutually-exclusive
+    // pipelines builds this.peaks per analyze() call:
+    //   - prominence (params.usePeakProminence): topographic-prominence
+    //     identification + trailing-baseline amplitude — recall-first, built
+    //     to recover the compound-SCR undercount detectPeaks() suffers when
+    //     _findOnsetIndex()'s walk-back stalls on a shallow inter-peak dip.
+    //   - deconvolution (params.useDeconvolution): one global SCR
+    //     deconvolution pass that replaces this.phasic with a resolved,
+    //     superposition-free reconstruction and builds peaks from its driver
+    //     impulses.
+    //   - default: trough-to-peak shape-criteria detection.
+    // Prominence takes precedence over deconvolution if both flags are set.
+    if (params.usePeakProminence) {
+      this.phasicDriver = [];
+      this.phasicClean = [];
+      this.phasicDriverPeaks = [];
+      this.phasicDeconvTruncated = false;
+      this._phasicOrig = null;
+      const { oldLabels, oldExcluded } = this._preserveLabelsAndExclusions();
+      this.peaks = this._detectPeaksByProminence(params, oldLabels, oldExcluded);
+      this._assignLabelsToPeaks(this.peaks);
+    } else if (params.useDeconvolution) {
       this._runDeconvolutionPipeline(phasicVals, params);
     } else {
       this.phasicDriver = [];
@@ -415,67 +428,8 @@ class GSRAnalyzer {
       this.detectPeaks(params.peakThreshold, params);
     }
 
-    // 5b. Memorable-event ("hotspot") view — a curated top slice of
-    // this.peaks by amplitude, as opposed to the full census of every
-    // detected SCR. See _computeSalienceScore()'s doc comment for why this
-    // is a separate metric from qualityScore rather than folded into peak
-    // filtering.
-    //
-    // Selection is percentile-based (top HOTSPOT_PERCENTILE by amplitude,
-    // at least 1 whenever any active peak exists), not a fixed absolute
-    // score threshold — an earlier version used salienceScore >= 0.5, which
-    // scaled with however many peaks a recording happened to have rather
-    // than staying a small, curated set: on track 059 (1395 peaks) it
-    // selected 379, 27% of the census, which reads as "most peaks" rather
-    // than "the standout ones". A percentile keeps the *proportion* small
-    // and predictable regardless of recording length or peak count. 2% was
-    // chosen by checking real yields across all four project tracks: at 2%,
-    // busy/long tracks land in the high tens (28-38 on the 60-minute, ~1400-
-    // 1900-peak track 059) while calm/short tracks still get a handful (3-4
-    // on tracks 048/058, ~150 peaks each) rather than being rounded to zero.
-    // Wider percentiles (5-20%) were also measured and rejected for the same
-    // "too many to read as curated" reason that motivated moving off the
-    // fixed threshold in the first place. Treat 2% as a tunable starting
-    // point, not a validated ideal.
-    //
-    // Excluded (user-hidden) peaks are left out, matching how
-    // computeTemporalPeakDensity() already treats exclusion. Sorted by
-    // descending amplitude so the single biggest event is first.
-    //
-    // HOTSPOT_PERCENTILE lives in GSR_CONST.MEMORABLE_EVENTS (constants.js),
-    // discoverable/tunable alongside every other threshold in this codebase.
-    //
-    // Peaks with no GPS fix (getCoordinates returns null) are skipped
-    // entirely, not auto-included: GSRMapManager._renderHotspotMarkers() /
-    // _renderCollectiveTrackHotspots() (map.js) both bail out with
-    // `if (!coords) return;`, so an unrenderable peak selected here would
-    // silently consume a slot and render nothing — shrinking the visible
-    // hotspot count below targetCount for no reason, when a lower-amplitude
-    // but actually renderable peak was available to take its place instead.
-    const ME = GSR_CONST.MEMORABLE_EVENTS;
-    {
-      const activeSorted = this.peaks.filter(p => !p.excluded).sort((a, b) => {
-        const scoreA = a.salienceScore != null ? a.salienceScore : a.amplitude;
-        const scoreB = b.salienceScore != null ? b.salienceScore : b.amplitude;
-        const diff = scoreB - scoreA;
-        return Math.abs(diff) > 1e-6 ? diff : b.amplitude - a.amplitude;
-      });
-      const percentile = (params && params.hotspotPercentile != null)
-        ? params.hotspotPercentile
-        : ME.HOTSPOT_PERCENTILE;
-      const targetCount = activeSorted.length > 0
-        ? Math.max(1, Math.round(activeSorted.length * percentile))
-        : 0;
-
-      const selected = [];
-      for (const p of activeSorted) {
-        if (selected.length >= targetCount) break;
-        const coords = this.getCoordinates(this._resolveHotspotIndex(p, peakLatency));
-        if (!coords) continue;
-        selected.push(p);
-      }
-      this.memorableEvents = selected;
-    }
+    // 5b. Memorable-event ("hotspot") selection — see _selectMemorableEvents().
+    this.memorableEvents = this._selectMemorableEvents(params, peakLatency);
 
     // 6. Continuous, threshold-independent arousal metrics (ISCR/AUC + combined index + EM Fog)
     const densityWin = (params && params.peakDensityWindow != null) ? params.peakDensityWindow : null;
@@ -929,8 +883,15 @@ class GSRAnalyzer {
       peak.salienceScore = this._computeSalienceScore(peak);
       peaks.push(peak);
 
-      // Enforce minimum gap between peaks, same convention as detectPeaks().
-      i = Math.min(n - 2, i + Math.round(GSR_CONST.PEAK_MIN_GAP * this.sampleRate));
+      // Refractory skip-ahead uses SCRF.minImpulseGapSec (the driver-domain
+      // minimum, ~0.5 s), NOT PEAK_MIN_GAP. PEAK_MIN_GAP is the trough-to-peak
+      // detector's wider refractory, set to suppress tail-ripple that the raw
+      // phasic shows between stacked SCRs — but this curve is the
+      // superposition-resolved reconstruction, which has no such ripple, and
+      // separating genuinely close events is the whole point of running
+      // deconvolution. Forcing the wider gap here just throws away the
+      // resolution the mode exists to provide.
+      i = Math.min(n - 2, i + Math.round(GSR_CONST.SCRF.minImpulseGapSec * this.sampleRate));
     }
 
     // Enforce the same hard SNR cutoff detectPeaks() applies (shape.MIN_SNR,
@@ -1095,94 +1056,111 @@ class GSRAnalyzer {
   }
 
   /**
-   * Compute the local noise floor around an index for SNR estimation.
-   * Uses ±1 s window, excludes the peak region.
+   * Local noise floor around an index, for SNR estimation, via the lag-1
+   * difference (von Neumann) estimator: the standard deviation of successive
+   * sample differences over a ±halfWindow window, divided by √2.
+   *
+   * This is trend-immune — a linear tonic ramp differences to a constant and
+   * contributes nothing to the variance. That matters because on real
+   * ambulatory recordings ~70–80% of SCR onsets sit on a tonic slope steeper
+   * than the actual high-frequency noise in the same window; a plain
+   * std-of-the-window estimate measures that slope rather than the noise,
+   * deflating SNR and rejecting genuine peaks on any moving baseline. A
+   * smooth SCR rise also has small successive differences, so this is far
+   * less contaminated by the response's own shape than an absolute-deviation
+   * estimate over the same samples.
+   *
+   * Uses the filtered signal (median+LPF, pre-decomposition) and indexes
+   * into this.filtered directly rather than mapping it to a plain array
+   * first — called once per candidate peak (hundreds per track) but only
+   * reads a small ±halfWindow slice, so the old full-array .map() re-copied
+   * the entire signal on every call (measured at ~170 ms of a ~210 ms
+   * analyze() on a 35k-row track — see the architecture refactor plan's
+   * Phase 8 note).
    */
   _computeNoiseFloor(idx, halfWindow) {
-    // Use the filtered signal (median+LPF, pre-decomposition) instead of
-    // phasic, so that nearby SCRs don't inflate the noise estimate. Index
-    // directly into this.filtered rather than mapping the whole array to
-    // plain values first — this is called once per candidate peak (hundreds
-    // per track) but only ever reads a small ±halfWindow slice, so the old
-    // full-array .map() re-copied the entire signal (tens of thousands of
-    // samples) on every call for a ~20-sample window. Found via real A/B
-    // benchmarking: this was ~170ms of a ~210ms analyze() call on a real
-    // 35k-row track — the actual dominant cost of every GSR slider drag,
-    // not the filtering pipeline itself (see the architecture refactor
-    // plan's Phase 8 status note).
     const filtered = this.filtered;
-    const start = Math.max(0, idx - halfWindow);
+    const start = Math.max(1, idx - halfWindow);
     const end = Math.min(filtered.length - 1, idx + halfWindow);
-    let sum = 0, count = 0;
+    let sum = 0, sumSq = 0, count = 0;
     for (let j = start; j <= end; j++) {
-      sum += filtered[j].val;
+      const d = filtered[j].val - filtered[j - 1].val;
+      sum += d;
+      sumSq += d * d;
       count++;
     }
+    if (count < 2) return 1e-6;
     const mean = sum / count;
-    let sqSum = 0;
-    for (let j = start; j <= end; j++) {
-      sqSum += (filtered[j].val - mean) ** 2;
-    }
-    return Math.sqrt(sqSum / count);
+    const variance = Math.max(0, sumSq / count - mean * mean);
+    // Floor at a tiny epsilon so an unusually clean segment can't drive SNR
+    // to a divide-by-near-zero rejection of a genuine peak.
+    return Math.max(1e-6, Math.sqrt(variance) / Math.SQRT2);
   }
 
   /**
-   * Compute a quality score (0–1) for a detected peak based on
-   * how well it matches the canonical SCR shape.
+   * Compute a quality score (0–1) for a detected peak from how well its
+   * shape matches a canonical SCR.
+   *
+   * The score is the earned fraction of the *applicable* weight, not of the
+   * full weight total. Recovery time, skewness and decay slope can only be
+   * measured once the response has settled back toward baseline — when the
+   * next SCR starts first (a peak in a cluster) or the recording ends,
+   * _findRecoveryIndex() returns -1 and those three are simply left out of
+   * the denominator rather than scored zero. Otherwise a genuine response
+   * that happens to sit inside a burst lost 0.40 of its possible score for a
+   * reason that has nothing to do with whether it is a real response — the
+   * exact peaks a high Min-Quality setting should keep, not cut.
    */
   _computePeakQuality(peak) {
     const W = GSR_CONST.PEAK_SHAPE.QUALITY_WEIGHTS;
     let score = 0;
+    let applicable = 0;
 
-    // Amplitude: higher is better, saturate at 0.5 µS
-    const ampScore = Math.min(1, peak.amplitude / 0.5);
-    score += ampScore * W.amplitude;
+    // Amplitude — always measurable. Higher is better, saturates at 0.5 µS.
+    applicable += W.amplitude;
+    score += Math.min(1, peak.amplitude / 0.5) * W.amplitude;
 
-    // Rise time: ideal is 0.5–3 s, penalize outside that
-    if (peak.riseTime >= 0.5 && peak.riseTime <= 3.0) {
-      score += W.riseTime;
-    } else if (peak.riseTime > 0 && peak.riseTime <= 5.0) {
-      score += W.riseTime * 0.5;
+    // Rise time — measurable whenever an onset was found. Ideal 0.5–3 s.
+    if (peak.riseTime > 0) {
+      applicable += W.riseTime;
+      if (peak.riseTime >= 0.5 && peak.riseTime <= 3.0) score += W.riseTime;
+      else if (peak.riseTime <= 5.0) score += W.riseTime * 0.5;
     }
 
-    // Recovery time: ideal is 0.5–4 s
-    if (peak.halfRecoveryTime >= 0.5 && peak.halfRecoveryTime <= 4.0) {
-      score += W.recoveryTime;
-    } else if (peak.halfRecoveryTime > 0 && peak.halfRecoveryTime <= 8.0) {
-      score += W.recoveryTime * 0.5;
+    // Onset slope — measurable whenever positive. Steep but not too steep (µS/s).
+    if (peak.onsetSlope > 0) {
+      applicable += W.onsetSlope;
+      if (peak.onsetSlope >= 0.01 && peak.onsetSlope <= 1.0) score += W.onsetSlope;
+      else if (peak.onsetSlope <= 3.0) score += W.onsetSlope * 0.5;
     }
 
-    // Skewness: classic SCR has fast rise, slow recovery (ratio < 1)
-    if (peak.skewnessRatio > 0 && peak.skewnessRatio <= 1.0) {
-      score += W.skewness;
-    } else if (peak.skewnessRatio > 1.0 && peak.skewnessRatio <= 2.0) {
-      score += W.skewness * 0.6;
-    } else if (peak.skewnessRatio > 2.0 && peak.skewnessRatio <= 4.0) {
-      score += W.skewness * 0.3;
+    // SNR — always measurable (noise floor is epsilon-floored).
+    applicable += W.snr;
+    if (peak.snr >= 3.0) score += W.snr;
+    else if (peak.snr >= 2.0) score += W.snr * 0.7;
+    else if (peak.snr >= 1.5) score += W.snr * 0.4;
+
+    // Recovery-dependent trio — only when the response actually settled
+    // (halfRecoveryTime > 0). Skipped, not zeroed, for clustered / end-of-
+    // recording peaks.
+    if (peak.halfRecoveryTime > 0) {
+      applicable += W.recoveryTime + W.skewness + W.decaySlope;
+
+      // Recovery time: ideal 0.5–4 s.
+      if (peak.halfRecoveryTime >= 0.5 && peak.halfRecoveryTime <= 4.0) score += W.recoveryTime;
+      else if (peak.halfRecoveryTime <= 8.0) score += W.recoveryTime * 0.5;
+
+      // Skewness: classic SCR rises fast, recovers slow (ratio <= 1).
+      if (peak.skewnessRatio > 0 && peak.skewnessRatio <= 1.0) score += W.skewness;
+      else if (peak.skewnessRatio > 1.0 && peak.skewnessRatio <= 2.0) score += W.skewness * 0.6;
+      else if (peak.skewnessRatio > 2.0 && peak.skewnessRatio <= 4.0) score += W.skewness * 0.3;
+
+      // Decay slope: recovery limb must be going somewhere (µS/s).
+      if (peak.decaySlope > 0.001) score += W.decaySlope;
     }
 
-    // Onset slope: steep but not too steep (in µS/s)
-    if (peak.onsetSlope >= 0.01 && peak.onsetSlope <= 1.0) {
-      score += W.onsetSlope;
-    } else if (peak.onsetSlope > 0 && peak.onsetSlope <= 3.0) {
-      score += W.onsetSlope * 0.5;
-    }
-
-    // SNR
-    if (peak.snr >= 3.0) {
-      score += W.snr;
-    } else if (peak.snr >= 2.0) {
-      score += W.snr * 0.7;
-    } else if (peak.snr >= 1.5) {
-      score += W.snr * 0.4;
-    }
-
-    // Decay slope: recovery must exist (in µS/s)
-    if (peak.decaySlope > 0.001) {
-      score += W.decaySlope;
-    }
-
-    return Math.min(1, Math.max(0, score));
+    if (applicable <= 0) return 0;
+    return Math.min(1, Math.max(0, score / applicable));
   }
 
   /**
@@ -1305,6 +1283,92 @@ class GSRAnalyzer {
    */
   _resolveHotspotIndex(peak, peakLatency) {
     return this.resolveLatencyIndex(peak, peakLatency);
+  }
+
+  /**
+   * Great-circle distance between two lat/lon points, in metres. Mirrors
+   * GeoUtils.haversineMeters (gps/geo_utils.js) — inlined here so the analyzer
+   * stays loadable on its own, without the GPS-utils bundle (several unit
+   * tests load analyzer.js in isolation). Only used for hotspot spacing.
+   * @private
+   */
+  _haversineMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const toRad = Math.PI / 180;
+    const dLat = (lat2 - lat1) * toRad;
+    const dLon = (lon2 - lon1) * toRad;
+    const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  /**
+   * Build the "hotspot" subset of this.peaks — the biggest SCRs, spread out
+   * on the ground so no two crowd the same spot on the map.
+   *
+   * Ranking is by raw peak AMPLITUDE, descending — the single clearest
+   * "how big was this response" signal, and now well-measured in every
+   * detector path. (An earlier version ranked by salienceScore, a blend of
+   * amplitude 50% / onset-slope 30% / SNR 20%, which let two weaker terms
+   * outvote a genuinely larger response.) salienceScore is still computed
+   * per peak and shown in the peaks table; it just no longer drives this.
+   *
+   * Count target is percentile-based: top HOTSPOT_PERCENTILE of active
+   * (non-excluded) peaks, at least 1. Not a fixed absolute score cutoff — an
+   * early salienceScore >= 0.5 version selected 27% of the census on a busy
+   * track, reading as "most peaks" rather than "the standout ones". A
+   * percentile keeps the proportion small and predictable regardless of
+   * recording length. 2% was picked from real-track yields; treat it as a
+   * tunable starting point, not a validated ideal.
+   *
+   * Spatial spacing: walking the amplitude-ranked list, a candidate is
+   * skipped if it falls within MEMORABLE_EVENTS.MIN_SEPARATION_M of an
+   * already-selected hotspot, measured at the latency-shifted marker
+   * position (the same position the map renders). The biggest response in
+   * any neighbourhood wins its spot; smaller ones nearby are dropped rather
+   * than stacked. A spatially compact recording (a short loop walked
+   * repeatedly) can therefore yield fewer than the percentile target — that
+   * is intended: better a handful of distinct places than twenty markers on
+   * one corner.
+   *
+   * Peaks with no GPS fix (getCoordinates returns null) are skipped entirely,
+   * not auto-included: GSRMapManager._renderHotspotMarkers() /
+   * _renderCollectiveTrackHotspots() (map.js) both bail out with
+   * `if (!coords) return;`, so an unrenderable peak selected here would
+   * silently consume a slot and render nothing.
+   *
+   * @param {object} params - Analysis params (may carry hotspotPercentile).
+   * @param {number} peakLatency - GPS peak-latency shift (s) for marker position.
+   * @returns {Array<object>} Selected peak objects, biggest-amplitude first.
+   * @private
+   */
+  _selectMemorableEvents(params, peakLatency = 0) {
+    const ME = GSR_CONST.MEMORABLE_EVENTS;
+    const activeSorted = this.peaks
+      .filter(p => !p.excluded)
+      .sort((a, b) => (b.amplitude - a.amplitude) || (a.time - b.time));
+    if (activeSorted.length === 0) return [];
+
+    const percentile = (params && params.hotspotPercentile != null)
+      ? params.hotspotPercentile
+      : ME.HOTSPOT_PERCENTILE;
+    const targetCount = Math.max(1, Math.round(activeSorted.length * percentile));
+    const minSepM = ME.MIN_SEPARATION_M != null ? ME.MIN_SEPARATION_M : 0;
+
+    const selected = [];
+    const selectedCoords = [];
+    for (const p of activeSorted) {
+      if (selected.length >= targetCount) break;
+      const coords = this.getCoordinates(this._resolveHotspotIndex(p, peakLatency));
+      if (!coords) continue;
+      if (minSepM > 0 && selectedCoords.some(c =>
+            this._haversineMeters(c.lat, c.lon, coords.lat, coords.lon) < minSepM)) {
+        continue;
+      }
+      selected.push(p);
+      selectedCoords.push(coords);
+    }
+    return selected;
   }
 
   /**
@@ -1471,6 +1535,194 @@ class GSRAnalyzer {
       i = Math.min(n - 2, i + Math.round(GSR_CONST.PEAK_MIN_GAP * this.sampleRate));
     }
     this._assignLabelsToPeaks(this.peaks);
+  }
+
+  /**
+   * Topographic prominence of every sample in `vals`, in O(n log n).
+   *
+   * Prominence of a local maximum is its height above the lowest col on the
+   * path to any higher maximum (and, for the single global maximum, its
+   * height above the signal's own minimum). This replaces an earlier
+   * per-maximum left/right saddle walk that was O(n²) on a monotonic input
+   * (every sample a local max, each walk O(n)).
+   *
+   * Method: activate samples in descending height order, tracking connected
+   * runs with a union-find. Any already-active neighbour was activated at a
+   * height ≥ this one, so when activating sample i merges two runs, the
+   * current height vals[i] is a col between them; the shorter run's tallest
+   * summit is now dominated and its prominence is fixed at (its height −
+   * vals[i]). The one summit that is never dominated is the global maximum.
+   *
+   * @param {Array<number>|Float64Array} vals
+   * @returns {Float64Array} prominence per index (callers only read indices
+   *   they have already confirmed are local maxima).
+   * @private
+   */
+  _topographicProminence(vals) {
+    const n = vals.length;
+    const prom = new Float64Array(n).fill(-1);
+    if (n === 0) return prom;
+
+    const parent = new Int32Array(n);
+    for (let i = 0; i < n; i++) parent[i] = i;
+    const active = new Uint8Array(n);
+    const compMax = new Float64Array(n);   // tallest height in the run (valid at root)
+    const compPeak = new Int32Array(n);    // index of that tallest sample (valid at root)
+
+    const find = (x) => {
+      while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+      return x;
+    };
+
+    let vMin = Infinity;
+    for (let i = 0; i < n; i++) if (vals[i] < vMin) vMin = vals[i];
+
+    const order = new Array(n);
+    for (let i = 0; i < n; i++) order[i] = i;
+    order.sort((a, b) => (vals[b] - vals[a]) || (a - b));
+
+    for (const i of order) {
+      active[i] = 1;
+      compMax[i] = vals[i];
+      compPeak[i] = i;
+      let ri = i;
+      for (let s = 0; s < 2; s++) {
+        const nb = s === 0 ? i - 1 : i + 1;
+        if (nb < 0 || nb >= n || !active[nb]) continue;
+        const rn = find(nb);
+        ri = find(ri);
+        if (rn === ri) continue;
+        const c = vals[i]; // col height between the two runs
+        const lo = compMax[ri] < compMax[rn] ? ri : rn;
+        const hi = lo === ri ? rn : ri;
+        if (prom[compPeak[lo]] < 0) prom[compPeak[lo]] = Math.max(0, compMax[lo] - c);
+        parent[lo] = hi;
+        ri = hi;
+      }
+    }
+
+    // Any summit never dominated (the global max, or ties for it) is measured
+    // to the signal's own minimum.
+    for (let i = 0; i < n; i++) if (prom[i] < 0) prom[i] = Math.max(0, vals[i] - vMin);
+    return prom;
+  }
+
+  /**
+   * Alternative phasic peak detector: topographic prominence for peak
+   * *identity*, trailing-window-minimum baseline for reported *amplitude*.
+   *
+   * Motivation. detectPeaks() measures amplitude as apex − _findOnsetIndex()
+   * result, and that walk-back stops at the first sample where the signal
+   * ticks back up — i.e. the first shallow dip. For an SCR riding the decay
+   * tail of a previous one, that dip sits well above pre-burst baseline, so
+   * the measured amplitude collapses to the small increment above the dip and
+   * routinely falls under peakThreshold. Modelling across real tracks put the
+   * resulting undercount at 30–80% on busy/compound recordings — exactly the
+   * high-arousal stretches where the most SCRs occur.
+   *
+   * Design.
+   *  1. Identity gate = topographic prominence (apex height above the higher
+   *     of its two bounding saddles) ≥ peakThreshold. Prominence is purely
+   *     local, so it is immune to tonic drift and does not depend on the
+   *     signal returning to any baseline. This is what decides whether a bump
+   *     is its own event or just a shoulder on a bigger one.
+   *  2. Reported amplitude = apex − min(phasic over the preceding
+   *     PEAK_PROMINENCE_BASELINE_SEC). This "sees under" a stacked burst to
+   *     the pre-burst level, which is the physiologically meaningful
+   *     amplitude-from-baseline; the step-1 prominence gate is what stops a
+   *     monotonic ramp's shoulders being promoted to peaks by this looser
+   *     measure.
+   *  3. Shape metrics (rise/recovery/skew/FWHM/SNR) are still computed for
+   *     display and scoring, but are NOT used to reject peaks here — matching
+   *     this detector's recall-first intent. shapeMinSnr and minPeakQuality
+   *     still filter the result if the user raises them from 0.
+   *
+   * Complexity: O(n log n) — prominence for every sample comes from one
+   * descending-height union-find sweep (_topographicProminence); the
+   * left-saddle onset walk and the trailing-baseline min are each bounded by
+   * PEAK_PROMINENCE_BASELINE_SEC. No pathological input.
+   *
+   * @param {object} params - Analysis params (peakThreshold, shapeMinSnr, minPeakQuality).
+   * @param {Map} oldLabels - Preserved user labels, keyed by raw index.
+   * @param {Set} oldExcluded - Preserved exclusion flags, keyed by raw index.
+   * @returns {Array<object>} Peak objects, same shape as detectPeaks() output.
+   * @private
+   */
+  _detectPeaksByProminence(params, oldLabels, oldExcluded) {
+    const peaks = [];
+    const n = this.phasic.length;
+    if (n < 3) return peaks;
+
+    const vals = this.phasic.map(d => d.val);
+    const times = this.phasic.map(d => d.time);
+    const sr = this.sampleRate;
+    const threshold = params.peakThreshold;
+    const minGap = Math.max(1, Math.round(GSR_CONST.PEAK_MIN_GAP * sr));
+    const baselineWin = Math.max(1, Math.round((GSR_CONST.PEAK_PROMINENCE_BASELINE_SEC || 8) * sr));
+    const noiseHalfWin = Math.max(1, Math.round(sr));
+
+    // 1. Prominence for every sample in one O(n log n) sweep, then keep the
+    //    local maxima that clear the threshold.
+    const prom = this._topographicProminence(vals);
+    const cand = [];
+    for (let i = 1; i < n - 1; i++) {
+      if (!(vals[i] > vals[i - 1] && vals[i] >= vals[i + 1])) continue;
+      if (vals[i] < 0.001) continue;
+      if (prom[i] < threshold) continue;
+
+      // Onset = the deepest point on the way down to the left (the left
+      // saddle), NOT _findOnsetIndex() — that stops at the first shallow dip,
+      // which for a peak riding a previous SCR's tail lands the onset a few
+      // samples back with a tiny rise time, skewing rise/slope/SNR/quality.
+      // Walk left past dips, tracking the argmin, until the signal rises back
+      // to this apex's height; bounded by the baseline window so a monotone
+      // input can't make this O(n²).
+      let onsetIdx = i, onsetMin = vals[i];
+      for (let l = i - 1, s = 0; l >= 0 && s < baselineWin && vals[l] < vals[i]; l--, s++) {
+        if (vals[l] < onsetMin) { onsetMin = vals[l]; onsetIdx = l; }
+      }
+
+      let mn = vals[i];
+      for (let j = Math.max(0, i - baselineWin); j <= i; j++) {
+        if (vals[j] < mn) mn = vals[j];
+      }
+      cand.push({ i, h: vals[i], prominence: prom[i], onsetIdx, baselineAmp: vals[i] - mn });
+    }
+
+    // 2. Minimum-gap non-max suppression — largest prominence wins, same
+    //    convention as detectPeaks()'s forward skip-ahead.
+    cand.sort((a, b) => b.prominence - a.prominence);
+    const kept = [];
+    for (const c of cand) {
+      if (!kept.some(k => Math.abs(k.i - c.i) < minGap)) kept.push(c);
+    }
+    kept.sort((a, b) => a.i - b.i);
+
+    // 3. Build peak objects. Shape metrics are measured (for the table /
+    //    quality / salience) but not gated.
+    for (const c of kept) {
+      const recoveryIdx = this._findRecoveryIndex(vals, c.i, c.onsetIdx, c.baselineAmp);
+      const metrics = this._calculateShapeMetrics(vals, times, c.i, c.onsetIdx, recoveryIdx, noiseHalfWin);
+      // Report amplitude (and the slope derived from it) against the trailing
+      // baseline, not the immediate saddle _calculateShapeMetrics() used.
+      metrics.amplitude = c.baselineAmp;
+      metrics.onsetSlope = metrics.riseTime > 0 ? c.baselineAmp / metrics.riseTime : 0;
+
+      const peak = this._buildPeakObject(c.i, c.h, vals, times,
+        { ...metrics, onsetIdx: c.onsetIdx, recoveryIdx },
+        oldLabels, oldExcluded, true);
+      peak.prominence = c.prominence;
+      peak.qualityScore = this._computePeakQuality(peak);
+      peak.salienceScore = this._computeSalienceScore(peak);
+      peaks.push(peak);
+    }
+
+    // 4. Optional user-raised filters — same "0 = off" convention as detectPeaks().
+    const minSnr = params && params.shapeMinSnr != null ? params.shapeMinSnr : 0;
+    let result = minSnr > 0 ? peaks.filter(p => p.snr >= minSnr) : peaks;
+    const minQuality = params && params.minPeakQuality != null ? params.minPeakQuality : 0.0;
+    result = result.filter(p => p.qualityScore >= minQuality);
+    return result;
   }
 
   /**

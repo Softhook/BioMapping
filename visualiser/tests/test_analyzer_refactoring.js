@@ -530,8 +530,27 @@ test('GSRAnalyzer _computePeakQuality: ideal peak scores 1, poor peak scores low
     amplitude: 0.25, riseTime: 4.0, halfRecoveryTime: 6.0, skewnessRatio: 1.5,
     onsetSlope: 2.0, snr: 2.5, decaySlope: 0.002
   };
-  // 0.10 + 0.075 + 0.075 + 0.09 + 0.05 + 0.105 + 0.10 = 0.595
+  // 0.10 + 0.075 + 0.075 + 0.09 + 0.05 + 0.105 + 0.10 = 0.595 (all weights applicable)
   near(a._computePeakQuality(partial), 0.595, 'partial peak');
+
+  // A clustered / end-of-recording peak: no measurable recovery
+  // (halfRecoveryTime <= 0). Recovery time, skewness and decay slope are
+  // left OUT of the denominator, not scored zero — an otherwise-ideal peak
+  // still scores 1.0 rather than being docked 0.40 for a hidden recovery.
+  const idealNoRecovery = {
+    amplitude: 0.5, halfRecoveryTime: -1, riseTime: 1.0, skewnessRatio: 0,
+    onsetSlope: 0.5, snr: 5.0, decaySlope: 0
+  };
+  near(a._computePeakQuality(idealNoRecovery), 1.0, 'ideal peak with hidden recovery still scores 1.0');
+
+  // Same idea, mixed credit: amp 0.10/0.20 full-ish, rise half, onset half,
+  // snr 0.7. applicable = 0.20+0.15+0.10+0.15 = 0.60.
+  // score = 0.5*0.20 + 0.5*0.15 + 0.5*0.10 + 0.7*0.15 = 0.1+0.075+0.05+0.105 = 0.33
+  const partialNoRecovery = {
+    amplitude: 0.25, halfRecoveryTime: -1, riseTime: 4.0, skewnessRatio: 0,
+    onsetSlope: 2.0, snr: 2.5, decaySlope: 0
+  };
+  near(a._computePeakQuality(partialNoRecovery), 0.33 / 0.60, 'partial peak with hidden recovery is scored on applicable weight only');
 });
 
 test('GSRAnalyzer _computeSalienceScore: fast, high-amplitude, high-SNR peaks win', () => {
@@ -550,53 +569,67 @@ test('GSRAnalyzer _computeSalienceScore: fast, high-amplitude, high-SNR peaks wi
   near(a._computeSalienceScore({ amplitude: 0.5, onsetSlope: 0.5 }), 0.90, 'no snr default');
 });
 
-// ── _computeNoiseFloor perf fix (2026-08-07) ────────────────────────────────
-// Found via real A/B benchmarking (docs/archive/visualizer_architecture_refactor_plan.md
-// Phase 8): _computeNoiseFloor() used to rebuild `this.filtered.map(d => d.val)`
-// — a full-array copy — on every call, even though it only ever reads a small
-// ±halfWindow slice. Called once per candidate peak inside detectPeaks()'s main
-// loop (hundreds per track), this was ~170ms of a ~210ms analyze() call on a
-// real 35k-row track. Fixed to index directly into this.filtered instead.
-// These tests pin the windowed stdev computation itself (unaffected by the
-// fix — same math, different array access) plus the boundary-clamp behavior
-// the fix's array-length handling depends on getting right.
-test('GSRAnalyzer _computeNoiseFloor: population stdev over the exact ±halfWindow slice', () => {
+// ── _computeNoiseFloor: lag-1 difference (von Neumann) estimator ─────────────
+// _computeNoiseFloor() returns std(successive differences of this.filtered
+// over j ∈ [max(1, idx-hw) .. min(len-1, idx+hw)]) / √2, floored at 1e-6.
+// This is trend-immune: a linear tonic ramp differences to a constant and
+// contributes nothing to the variance — the point being that on real
+// ambulatory data most SCR onsets sit on a tonic slope steeper than the
+// actual noise, which a plain windowed stdev would mis-measure as noise.
+// The direct-index access into this.filtered (no full-array .map() copy) is
+// retained from the earlier perf fix — see the architecture refactor plan's
+// Phase 8 note. These tests pin the estimator math and the boundary clamps.
+const lag1Floor = (vals, lo, hi) => {
+  // vals is the full filtered value array; window is j ∈ [lo..hi], diffs use j-1.
+  const d = [];
+  for (let j = Math.max(1, lo); j <= hi; j++) d.push(vals[j] - vals[j - 1]);
+  if (d.length < 2) return 1e-6;
+  const m = d.reduce((s, v) => s + v, 0) / d.length;
+  const variance = d.reduce((s, v) => s + (v - m) ** 2, 0) / d.length;
+  return Math.max(1e-6, Math.sqrt(variance) / Math.SQRT2);
+};
+
+test('GSRAnalyzer _computeNoiseFloor: lag-1 difference stdev over the exact ±halfWindow slice', () => {
   const a = new GSRAnalyzer();
-  // filtered[3..7] = [1, 2, 3, 4, 5] around idx=5, halfWindow=2 -> window [3..7].
-  a.filtered = [10, 10, 10, 1, 2, 3, 4, 5, 10, 10].map((val, i) => ({ time: i, val }));
-  const windowVals = [1, 2, 3, 4, 5];
-  const mean = windowVals.reduce((s, v) => s + v, 0) / windowVals.length;
-  const expected = Math.sqrt(windowVals.reduce((s, v) => s + (v - mean) ** 2, 0) / windowVals.length);
+  const raw = [10, 10, 10, 1, 4, 2, 5, 3, 10, 10];
+  a.filtered = raw.map((val, i) => ({ time: i, val }));
+  // idx=5, halfWindow=2 -> window j ∈ [3..7], diffs from filtered[j]-filtered[j-1].
+  const expected = lag1Floor(raw, 3, 7);
   const actual = a._computeNoiseFloor(5, 2);
   assert.ok(Math.abs(actual - expected) < 1e-9, `expected ${expected}, got ${actual}`);
 });
 
+test('GSRAnalyzer _computeNoiseFloor: a linear ramp (pure tonic slope) reads as ~zero noise', () => {
+  const a = new GSRAnalyzer();
+  a.filtered = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((val, i) => ({ time: i, val }));
+  // Every successive difference is 1 -> zero variance -> floored to 1e-6.
+  assert.strictEqual(a._computeNoiseFloor(5, 2), 1e-6);
+});
+
 test('GSRAnalyzer _computeNoiseFloor: clamps the window at the start of the array (idx=0)', () => {
   const a = new GSRAnalyzer();
-  a.filtered = [1, 2, 3, 4, 5].map((val, i) => ({ time: i, val }));
-  // idx=0, halfWindow=2 -> window clamps to [0..2] = [1, 2, 3], not [-2..2].
-  const windowVals = [1, 2, 3];
-  const mean = windowVals.reduce((s, v) => s + v, 0) / windowVals.length;
-  const expected = Math.sqrt(windowVals.reduce((s, v) => s + (v - mean) ** 2, 0) / windowVals.length);
+  const raw = [4, 1, 3, 9, 2];
+  a.filtered = raw.map((val, i) => ({ time: i, val }));
+  // idx=0, halfWindow=2 -> j clamps to [1..2] (j-1 never negative).
+  const expected = lag1Floor(raw, 0, 2);
   const actual = a._computeNoiseFloor(0, 2);
   assert.ok(Math.abs(actual - expected) < 1e-9, `expected ${expected}, got ${actual}`);
 });
 
 test('GSRAnalyzer _computeNoiseFloor: clamps the window at the end of the array (idx=length-1)', () => {
   const a = new GSRAnalyzer();
-  a.filtered = [1, 2, 3, 4, 5].map((val, i) => ({ time: i, val }));
-  // idx=4 (last), halfWindow=2 -> window clamps to [2..4] = [3, 4, 5], not [2..6].
-  const windowVals = [3, 4, 5];
-  const mean = windowVals.reduce((s, v) => s + v, 0) / windowVals.length;
-  const expected = Math.sqrt(windowVals.reduce((s, v) => s + (v - mean) ** 2, 0) / windowVals.length);
+  const raw = [4, 1, 3, 9, 2];
+  a.filtered = raw.map((val, i) => ({ time: i, val }));
+  // idx=4 (last), halfWindow=2 -> j clamps to [2..4].
+  const expected = lag1Floor(raw, 2, 4);
   const actual = a._computeNoiseFloor(4, 2);
   assert.ok(Math.abs(actual - expected) < 1e-9, `expected ${expected}, got ${actual}`);
 });
 
-test('GSRAnalyzer _computeNoiseFloor: constant window has zero noise floor', () => {
+test('GSRAnalyzer _computeNoiseFloor: constant window is floored at 1e-6, never 0', () => {
   const a = new GSRAnalyzer();
   a.filtered = [5, 5, 5, 5, 5].map((val, i) => ({ time: i, val }));
-  assert.strictEqual(a._computeNoiseFloor(2, 2), 0);
+  assert.strictEqual(a._computeNoiseFloor(2, 2), 1e-6);
 });
 
 // ── §A perf fix: sliding-window minimum correctness (2026-08-07) ─────────────

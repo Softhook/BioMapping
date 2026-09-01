@@ -182,8 +182,11 @@ assertEq(on.phasicClean.length, off.raw.length,
   let minGap = Infinity;
   for (let i = 1; i < times.length; i++) minGap = Math.min(minGap, times[i] - times[i - 1]);
   console.log(`\n  Min inter-peak gap: ${minGap.toFixed(3)}s`);
-  assert(minGap >= global.GSR_CONST.PEAK_MIN_GAP - 1e-9,
-    `No two peaks closer than PEAK_MIN_GAP (${global.GSR_CONST.PEAK_MIN_GAP}s): min gap = ${minGap.toFixed(3)}s`);
+  // Deconvolution mode's refractory is the driver-domain SCRF.minImpulseGapSec,
+  // not the trough-to-peak detector's wider PEAK_MIN_GAP — see
+  // _detectPeaksFromCurve().
+  assert(minGap >= global.GSR_CONST.SCRF.minImpulseGapSec - 1e-9,
+    `No two peaks closer than SCRF.minImpulseGapSec (${global.GSR_CONST.SCRF.minImpulseGapSec}s): min gap = ${minGap.toFixed(3)}s`);
 }
 
 // ── 7. All peak fields are finite and in valid ranges ────────────────────────
@@ -259,23 +262,34 @@ assertEq(on.phasicClean.length, off.raw.length,
     'onsetValue matches cleanVals at onsetIndex for every peak on track 059');
 }
 
-// ── 11. Memorable events (percentile-based hotspot selection) ─────────────────
+// ── 11. Memorable events (amplitude-ranked, spatially-spread hotspots) ────────
 // Track 059 is the calibration track for the 2% percentile (see analyze()'s
-// memorableEvents doc comment). Post-fix measured at 23 memorable events.
+// memorableEvents doc comment). Count target is top 2%; spatial spacing
+// (MEMORABLE_EVENTS.MIN_SEPARATION_M) can pull the realised count below that.
 {
-  const expectedCount = Math.max(1, Math.round(on.peaks.length * 0.02));
-  assertEq(on.memorableEvents.length, expectedCount,
-    `memorableEvents is top 2% of peaks by amplitude (expected ${expectedCount})`);
-  assert(on.memorableEvents.length > 0,
-    'Track 059 produces at least one memorable event');
+  const targetCount = Math.max(1, Math.round(on.peaks.length * 0.02));
+  assert(on.memorableEvents.length > 0 && on.memorableEvents.length <= targetCount,
+    `memorableEvents is at most top 2% of peaks (target ${targetCount}, got ${on.memorableEvents.length})`);
   const allValid = on.memorableEvents.every(p => on.peaks.includes(p) && !p.excluded);
   assert(allValid, 'All memorableEvents are real, non-excluded peaks');
   let sortedOk = true;
   for (let i = 1; i < on.memorableEvents.length; i++) {
-    if (on.memorableEvents[i].salienceScore > on.memorableEvents[i - 1].salienceScore) { sortedOk = false; break; }
+    if (on.memorableEvents[i].amplitude > on.memorableEvents[i - 1].amplitude + 1e-9) { sortedOk = false; break; }
   }
-  assert(sortedOk, 'memorableEvents is sorted by descending salienceScore');
-  console.log(`\n  Memorable events: ${on.memorableEvents.length}/${on.peaks.length}`);
+  assert(sortedOk, 'memorableEvents is sorted by descending amplitude');
+  const minSep = global.GSR_CONST.MEMORABLE_EVENTS.MIN_SEPARATION_M;
+  const coords = on.memorableEvents
+    .map(p => on.getCoordinates(on.resolveLatencyIndex(p, 0)))
+    .filter(Boolean);
+  let minPair = Infinity;
+  for (let i = 0; i < coords.length; i++) {
+    for (let j = i + 1; j < coords.length; j++) {
+      minPair = Math.min(minPair, on._haversineMeters(coords[i].lat, coords[i].lon, coords[j].lat, coords[j].lon));
+    }
+  }
+  assert(coords.length < 2 || minPair >= minSep - 1e-6,
+    `no two hotspots closer than ${minSep} m (closest pair ${isFinite(minPair) ? minPair.toFixed(1) : 'n/a'} m)`);
+  console.log(`\n  Memorable events: ${on.memorableEvents.length}/${on.peaks.length}, closest pair ${isFinite(minPair) ? minPair.toFixed(0) + 'm' : 'n/a'}`);
 }
 
 // ── 12. Toggle state — no leakage between on/off runs ────────────────────────

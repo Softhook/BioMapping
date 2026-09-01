@@ -69,7 +69,8 @@ const GSRStorage = {
       shapeMaxHalfRecovery:  shapeSliderVal(S.shapeMaxHalfRecovery, PS.MAX_HALF_RECOVERY),
       shapeMinSnr:           sliderVal(S.shapeMinSnr,          PS.MIN_SNR),
       shapeMaxSkewRatio:     shapeSliderVal(S.shapeMaxSkewRatio,    PS.SKEWNESS_RATIO_MAX),
-      useDeconvolution:       (S.useDeconvolution && S.useDeconvolution.checked) || false
+      useDeconvolution:       (S.useDeconvolution && S.useDeconvolution.checked) || false,
+      usePeakProminence:      (S.usePeakProminence && S.usePeakProminence.checked) || false
     };
   },
 
@@ -263,6 +264,14 @@ const GSRStorage = {
 
     if (gsr.useDeconvolution !== undefined && S.useDeconvolution) {
       S.useDeconvolution.checked = !!gsr.useDeconvolution;
+    }
+    if (gsr.usePeakProminence !== undefined && S.usePeakProminence) {
+      S.usePeakProminence.checked = !!gsr.usePeakProminence;
+    }
+    // The two alternative detectors are mutually exclusive; if a stored config
+    // somehow has both, prominence wins (matches analyze()'s precedence).
+    if (S.usePeakProminence && S.usePeakProminence.checked && S.useDeconvolution) {
+      S.useDeconvolution.checked = false;
     }
 
     const isDeconvOn = !!gsr.useDeconvolution;

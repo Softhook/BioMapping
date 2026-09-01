@@ -365,6 +365,12 @@ const GSRTrackManager = {
 
     GSRTrackManager.loadActiveTrackParams(track);
     GSRTrackManager.loadActiveGpsParams(track);
+    // Refresh the shape-slider show/hide state for the new track's detector
+    // (deconvolution / prominence / trough) — loadActiveTrackParams only
+    // writes the values, not the disabled/visible state.
+    if (typeof GSREvents.updateDeconvolutionUIState === 'function') {
+      GSREvents.updateDeconvolutionUIState();
+    }
     GSREvents.initializeLabels();
     GSRUI.resetView();
     GSRUI.runAnalysis();
@@ -479,6 +485,13 @@ const GSRTrackManager = {
 
     if (S.useDeconvolution && params.useDeconvolution !== undefined) {
       S.useDeconvolution.checked = !!params.useDeconvolution;
+    }
+    if (S.usePeakProminence && params.usePeakProminence !== undefined) {
+      S.usePeakProminence.checked = !!params.usePeakProminence;
+    }
+    // Mutually exclusive detectors — prominence wins if a stored config has both.
+    if (S.usePeakProminence && S.usePeakProminence.checked && S.useDeconvolution) {
+      S.useDeconvolution.checked = false;
     }
   },
 

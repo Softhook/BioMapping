@@ -37,18 +37,34 @@ const GSR_CONST = {
   },
 
   // ── GSR filter defaults ──────────────────────────────────────────────────
+  // Shape/quality gates default to recall-oriented values. detectPeaks()'s
+  // gates (amplitude, SNR, min-rise, min-half-recovery, composite quality)
+  // are highly overlapping — each independently removes most small/fast/
+  // compound SCRs — so conservative values on several at once compound into
+  // large undercounts on busy or superposed recordings, precisely where the
+  // most real responses occur. Min half-recovery and max skew ship off (0);
+  // min rise is kept low purely as a fast-artifact guard. Tighten per
+  // recording (via the sliders) when precision matters more than recall.
   GSR_DEFAULT: {
-    medianSize: 0, lpfWindow: 0,
+    // Mild low-pass on by default: raw 10 Hz GSR carries quantisation +
+    // sensor fuzz + low-level motion tremor that an unsmoothed detector reads
+    // as extra peaks with poor shape scores. A 0.5 s moving average clears
+    // that without touching SCR morphology (responses rise over 1–3 s) —
+    // measured across real tracks it lifts median peak quality ~0.10–0.15 and
+    // pulls inter-peak intervals toward physiological values. Raise toward
+    // 1.0–1.2 s to also cancel a walking-gait artefact.
+    medianSize: 0, lpfWindow: 0.5,
     adaptiveNotch: false,
-    tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.020,
+    tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.015,
     dwtLevel: 6,
-    shapeMinRiseTime: 0.75, shapeMaxRiseTime: 4.0,
-    shapeMinHalfRecovery: 0.65, shapeMaxHalfRecovery: 7.5,
-    shapeMinSnr: 3.0, shapeMaxSkewRatio: 4.0,
-    minPeakQuality: 0.55,
+    shapeMinRiseTime: 0.3, shapeMaxRiseTime: 4.0,
+    shapeMinHalfRecovery: 0.0, shapeMaxHalfRecovery: 7.5,
+    shapeMinSnr: 1.5, shapeMaxSkewRatio: 0.0,
+    minPeakQuality: 0.0,
     peakDensityWindow: 60,
     hotspotPercentile: 0.02,
-    useDeconvolution: false
+    useDeconvolution: false,
+    usePeakProminence: false
   },
 
   // ── SCR deconvolution (Benedek & Kaernbach, 2010) ────────────────────────
@@ -137,8 +153,21 @@ const GSR_CONST = {
   MICROSIEMENS_MAX_AVG: 50000,
 
   // ── Peak detection ──────────────────────────────────────────────────────
-  PEAK_MIN_GAP: 1.0,          // Minimum gap after peak (seconds)
+  // Minimum gap between accepted peaks (seconds) — an SCR refractory period.
+  // Boucsein (2012) puts the minimum resolvable inter-SCR interval at ~1–2 s;
+  // 1.3 sits at the recall-leaning end of that while still suppressing the
+  // tail-ripple clustering that a looser 1.0 s lets through on busy tracks
+  // once the amplitude/SNR/quality gates are relaxed (median inter-peak
+  // interval drops well below 2 s there — not physiologically distinct
+  // bursts). Lower it further for maximum sensitivity; raise it for a
+  // stricter NS-SCR census.
+  PEAK_MIN_GAP: 1.3,
   PEAK_RECOVERY_BREAK: 0.1,   // Break threshold for recovery search
+  // Prominence detector (GSR_DEFAULT.usePeakProminence): trailing window (s)
+  // over which the phasic minimum is taken as the amplitude baseline. Long
+  // enough to see under a stacked burst of SCRs to the pre-burst level, short
+  // enough not to reach back to an unrelated earlier trough.
+  PEAK_PROMINENCE_BASELINE_SEC: 8,
 
   // ── Enhanced peak shape & width criteria ──────────────────────────────
   // Rise-time/half-recovery-time *definitions* and the amplitude threshold
@@ -327,7 +356,15 @@ const GSR_CONST = {
   // selection — see that doc comment for the real-track yield numbers behind
   // the 2% choice).
   MEMORABLE_EVENTS: {
-    HOTSPOT_PERCENTILE: 0.02  // Top X% of active (non-excluded) peaks by amplitude
+    HOTSPOT_PERCENTILE: 0.02,  // Count target: top X% of active (non-excluded) peaks
+    // Minimum great-circle spacing (m) between two hotspots. Walking the
+    // amplitude-ranked peak list, a candidate within this distance of an
+    // already-selected hotspot is skipped — the biggest response in any
+    // neighbourhood wins its spot, smaller ones nearby are dropped rather
+    // than stacked into the same map pixel. ~30 m ≈ a building width at urban
+    // walking scale. A spatially compact recording can therefore end up with
+    // fewer hotspots than the percentile target — intended. 0 disables spacing.
+    MIN_SEPARATION_M: 30
   },
 
   // ── Road snapping — map-matcher bearing tuning ───────────────────────────

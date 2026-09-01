@@ -203,24 +203,39 @@ assert(minGap >= global.GSR_CONST.SCRF.minImpulseGapSec - 1e-9,
   assert(rate >= 0.70, `Deconvolution agrees with detectPeaks() on >=70% of unambiguous isolated peaks (got ${(rate * 100).toFixed(1)}%)`);
 }
 
-// Memorable-event ("hotspot") metric on real track data — a separate
-// question from qualityScore, see _computeSalienceScore()'s doc comment.
-// Percentile-based selection (top 2% by amplitude, see the memorableEvents
-// comment in analyze()), not a fixed score threshold.
+// Memorable-event ("hotspot") selection on real track data — biggest SCRs,
+// spatially spread. Amplitude-ranked, count target = top 2% of active peaks,
+// and no two hotspots closer than MEMORABLE_EVENTS.MIN_SEPARATION_M.
 {
   const badField = on.peaks.some(p => p.salienceScore === undefined || !isFinite(p.salienceScore) || p.salienceScore < 0 || p.salienceScore > 1);
   assertEq(badField, false, 'Every peak on track 053 has a valid salienceScore in [0,1]');
   assert(on.memorableEvents.length > 0, 'Track 053 (a busy, eventful real recording) has at least one memorable event');
-  const expectedCount = Math.max(1, Math.round(on.peaks.length * 0.02));
-  assertEq(on.memorableEvents.length, expectedCount, `memorableEvents is the top 2% of peaks by amplitude (expected ${expectedCount})`);
+  const targetCount = Math.max(1, Math.round(on.peaks.length * 0.02));
+  // Spacing can push the count below the percentile target, never above it.
+  assert(on.memorableEvents.length <= targetCount,
+    `memorableEvents is at most the top 2% of peaks (target ${targetCount}, got ${on.memorableEvents.length})`);
   const allValid = on.memorableEvents.every(p => on.peaks.includes(p) && !p.excluded);
   assert(allValid, 'Every memorableEvents entry is a real, non-excluded peak');
   let sortedDescending = true;
   for (let i = 1; i < on.memorableEvents.length; i++) {
-    if (on.memorableEvents[i].salienceScore > on.memorableEvents[i - 1].salienceScore) { sortedDescending = false; break; }
+    if (on.memorableEvents[i].amplitude > on.memorableEvents[i - 1].amplitude + 1e-9) { sortedDescending = false; break; }
   }
-  assert(sortedDescending, 'memorableEvents is sorted by descending salienceScore');
-  console.log(`  Memorable events: ${on.memorableEvents.length}/${on.peaks.length}`);
+  assert(sortedDescending, 'memorableEvents is sorted by descending amplitude');
+  // Spatial spacing: every pair of hotspots with coordinates is at least
+  // MIN_SEPARATION_M apart.
+  const minSep = global.GSR_CONST.MEMORABLE_EVENTS.MIN_SEPARATION_M;
+  const coords = on.memorableEvents
+    .map(p => on.getCoordinates(on.resolveLatencyIndex(p, 0)))
+    .filter(Boolean);
+  let minPair = Infinity;
+  for (let i = 0; i < coords.length; i++) {
+    for (let j = i + 1; j < coords.length; j++) {
+      minPair = Math.min(minPair, on._haversineMeters(coords[i].lat, coords[i].lon, coords[j].lat, coords[j].lon));
+    }
+  }
+  assert(coords.length < 2 || minPair >= minSep - 1e-6,
+    `no two hotspots closer than ${minSep} m (closest pair ${isFinite(minPair) ? minPair.toFixed(1) : 'n/a'} m)`);
+  console.log(`  Memorable events: ${on.memorableEvents.length}/${on.peaks.length}, closest pair ${isFinite(minPair) ? minPair.toFixed(0) + 'm' : 'n/a'}`);
 }
 
 // Toggle-sequence state leakage guard, specifically on real track data.

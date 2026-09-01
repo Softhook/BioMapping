@@ -22,16 +22,17 @@ module.exports = {
   },
 
   GSR_DEFAULT: {
-    medianSize: 0, lpfWindow: 0,
-    tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.020,
+    medianSize: 0, lpfWindow: 0.5,
+    tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.015,
     dwtLevel: 6,
-    shapeMinRiseTime: 0.75, shapeMaxRiseTime: 4.0,
-    shapeMinHalfRecovery: 0.65, shapeMaxHalfRecovery: 7.5,
-    shapeMinSnr: 3.0, shapeMaxSkewRatio: 4.0,
-    minPeakQuality: 0.55,
+    shapeMinRiseTime: 0.3, shapeMaxRiseTime: 4.0,
+    shapeMinHalfRecovery: 0.0, shapeMaxHalfRecovery: 7.5,
+    shapeMinSnr: 1.5, shapeMaxSkewRatio: 0.0,
+    minPeakQuality: 0.0,
     peakDensityWindow: 60,
     hotspotPercentile: 0.02,
-    useDeconvolution: false
+    useDeconvolution: false,
+    usePeakProminence: false
   },
 
   SCRF: {
@@ -58,8 +59,9 @@ module.exports = {
   MICROSIEMENS_MIN_AVG: 100,
   MICROSIEMENS_MAX_AVG: 50000,
 
-  PEAK_MIN_GAP: 1.0,
+  PEAK_MIN_GAP: 1.3,
   PEAK_RECOVERY_BREAK: 0.1,
+  PEAK_PROMINENCE_BASELINE_SEC: 8,
 
   PEAK_SHAPE: {
     MIN_RISE_TIME: 0.5,
@@ -122,7 +124,8 @@ module.exports = {
   },
 
   MEMORABLE_EVENTS: {
-    HOTSPOT_PERCENTILE: 0.02
+    HOTSPOT_PERCENTILE: 0.02,
+    MIN_SEPARATION_M: 30
   },
 
   OSM_METRICS: [
