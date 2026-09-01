@@ -312,3 +312,11 @@ test('GSRNotices.dialog: restores focus to the trigger when it closes', async ()
     dom.window.close();
   }
 });
+
+test('GSRNotices.escapeHtml: safely escapes &, <, >, " and handles null/undefined/numbers', () => {
+  assert.strictEqual(GSRNotices.escapeHtml('hello & world'), 'hello &amp; world');
+  assert.strictEqual(GSRNotices.escapeHtml('<script>alert("xss")</script>'), '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
+  assert.strictEqual(GSRNotices.escapeHtml(null), '');
+  assert.strictEqual(GSRNotices.escapeHtml(undefined), '');
+  assert.strictEqual(GSRNotices.escapeHtml(123.45), '123.45');
+});

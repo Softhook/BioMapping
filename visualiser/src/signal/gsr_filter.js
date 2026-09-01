@@ -348,7 +348,10 @@ const GsrFilter = {
    * Calculates mean and standard deviation of an array of numeric values.
    */
   calculateStats(values) {
-    const n = values.length;
+    if (typeof StatsMath !== 'undefined' && typeof StatsMath.calculateStats === 'function') {
+      return StatsMath.calculateStats(values);
+    }
+    const n = values ? values.length : 0;
     if (n === 0) return { mean: 0, std: 1 };
     
     const mean = values.reduce((sum, v) => sum + v, 0) / n;

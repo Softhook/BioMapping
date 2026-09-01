@@ -222,6 +222,20 @@ class GSRNotices {
     setTimeout(() => toast.remove(), 8000);
     while (container.children.length > 5) container.firstChild.remove();
   }
+
+  /**
+   * Escape HTML special characters (&, <, >, ") for safe inclusion in markup.
+   * @param {*} str - Input to escape.
+   * @returns {string} Escaped string.
+   */
+  static escapeHtml(str) {
+    if (str == null) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
 }
 
 if (typeof window !== 'undefined') {

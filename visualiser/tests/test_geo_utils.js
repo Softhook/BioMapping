@@ -284,3 +284,62 @@ test('getGeodesicScale: returns correct meters per degree at equator and poles',
   assert.strictEqual(lat60.degToMeterLat, 111320);
   closeTo(lat60.degToMeterLon, 111320 * 0.5, 1e-6);
 });
+
+// ---------------------------------------------------------------------------
+// distanceMeters & distanceMetersSq
+// ---------------------------------------------------------------------------
+
+test('distanceMetersSq and distanceMeters: computes accurate Euclidean distances on flat-earth model', () => {
+  const dSq = GeoUtils.distanceMetersSq(0, 0, 0.001, 0.001);
+  const d = GeoUtils.distanceMeters(0, 0, 0.001, 0.001);
+  closeTo(d * d, dSq, 1e-6);
+  closeTo(d, 157.4302, 0.01);
+});
+
+// ---------------------------------------------------------------------------
+// computeBounds & expandBounds
+// ---------------------------------------------------------------------------
+
+test('computeBounds: computes bounding box from objects, arrays, and applies margin padding', () => {
+  assert.strictEqual(GeoUtils.computeBounds([]), null);
+
+  const pts = [{ lat: 51.50, lon: -0.10 }, { lat: 51.60, lon: -0.05 }];
+  const bounds = GeoUtils.computeBounds(pts);
+  assert.strictEqual(bounds.minLat, 51.50);
+  assert.strictEqual(bounds.maxLat, 51.60);
+  assert.strictEqual(bounds.minLon, -0.10);
+  assert.strictEqual(bounds.maxLon, -0.05);
+
+  const padded = GeoUtils.computeBounds(pts, 0.1);
+  closeTo(padded.minLat, 51.49, 1e-6);
+  closeTo(padded.maxLat, 51.61, 1e-6);
+});
+
+test('expandBounds: expands bounds accurately by buffer meters', () => {
+  const bounds = { minLat: 51.50, maxLat: 51.52, minLon: -0.10, maxLon: -0.08 };
+  const expanded = GeoUtils.expandBounds(bounds, 1113.2); // ~0.01 deg lat
+  closeTo(expanded.minLat, 51.49, 1e-4);
+  closeTo(expanded.maxLat, 51.53, 1e-4);
+});
+
+// ---------------------------------------------------------------------------
+// bboxAreaKm2, bboxIntersects & unionBBox
+// ---------------------------------------------------------------------------
+
+test('bboxAreaKm2: computes realistic area in square km', () => {
+  const bbox = { minLat: 0, maxLat: 1, minLon: 0, maxLon: 1 };
+  const area = GeoUtils.bboxAreaKm2(bbox);
+  closeTo(area, 111.32 * 111.32, 1);
+});
+
+test('bboxIntersects and unionBBox: tests overlap and union correctly', () => {
+  const a = { minLat: 0, maxLat: 2, minLon: 0, maxLon: 2 };
+  const b = { minLat: 1, maxLat: 3, minLon: 1, maxLon: 3 };
+  const c = { minLat: 5, maxLat: 6, minLon: 5, maxLon: 6 };
+
+  assert.strictEqual(GeoUtils.bboxIntersects(a, b), true);
+  assert.strictEqual(GeoUtils.bboxIntersects(a, c), false);
+
+  const union = GeoUtils.unionBBox([a, b, c]);
+  assert.deepStrictEqual(union, { minLat: 0, maxLat: 6, minLon: 0, maxLon: 6 });
+});

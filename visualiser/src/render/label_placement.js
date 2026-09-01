@@ -207,7 +207,9 @@ class GSRLabelManager {
     const dotCx = px - cLeft, dotCy = py - cTop;
     const labelL = box.left - cLeft, labelT = box.top - cTop;
 
-    const escapedLabel = labelText.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const escapedLabel = (typeof GSRNotices !== 'undefined' && typeof GSRNotices.escapeHtml === 'function')
+      ? GSRNotices.escapeHtml(labelText)
+      : String(labelText).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
     const html = [
       '<div class="', wrapperClass, '" style="position:relative;width:', cW, 'px;height:', cH, 'px;">',

@@ -972,6 +972,9 @@ class GSRMapExporter {
   }
 
   static _esc(v) {
+    if (typeof GSRNotices !== 'undefined' && typeof GSRNotices.escapeHtml === 'function') {
+      return GSRNotices.escapeHtml(v);
+    }
     if (v == null) return '';
     return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');

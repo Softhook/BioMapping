@@ -24,6 +24,35 @@ const StatsMath = {
     return lo / n;
   },
 
+  /**
+   * Calculates mean and standard deviation of an array of numeric values.
+   *
+   * @param {number[]} values - Array of numeric values.
+   * @returns {{mean: number, std: number, variance: number, min: number, max: number}}
+   */
+  calculateStats(values) {
+    const n = values ? values.length : 0;
+    if (n === 0) return { mean: 0, std: 1, variance: 0, min: 0, max: 0 };
+    let sum = 0;
+    let min = Infinity;
+    let max = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const v = values[i];
+      sum += v;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    const mean = sum / n;
+    let ss = 0;
+    for (let i = 0; i < n; i++) {
+      const diff = values[i] - mean;
+      ss += diff * diff;
+    }
+    const variance = ss / n;
+    const std = Math.sqrt(variance);
+    return { mean, std: std === 0 ? 1 : std, variance, min: min === Infinity ? 0 : min, max: max === -Infinity ? 0 : max };
+  },
+
   _computeSums(x, y) {
     const n = x.length;
     let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;

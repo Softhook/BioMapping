@@ -31,6 +31,9 @@ class GSRSpatialClustering {
    * @private
    */
   static _getDistanceMetersSq(lat1, lon1, lat2, lon2, scale) {
+    if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.distanceMetersSq === 'function') {
+      return GeoUtils.distanceMetersSq(lat1, lon1, lat2, lon2, scale);
+    }
     const dy = (parseFloat(lat1) - parseFloat(lat2)) * scale.degToMeterLat;
     const dx = (parseFloat(lon1) - parseFloat(lon2)) * scale.degToMeterLon;
     return dx * dx + dy * dy;
@@ -271,32 +274,20 @@ class GSRSpatialClustering {
     if (isNaN(rThreshold) || rThreshold <= 0) rThreshold = 18;
 
     // Find bounds of the cluster
-    let minLat = Infinity, maxLat = -Infinity;
-    let minLon = Infinity, maxLon = -Infinity;
-    cluster.forEach(p => {
-      const latVal = parseFloat(p.lat);
-      const lonVal = parseFloat(p.lon);
-      if (latVal < minLat) minLat = latVal;
-      if (latVal > maxLat) maxLat = latVal;
-      if (lonVal < minLon) minLon = lonVal;
-      if (lonVal > maxLon) maxLon = lonVal;
-    });
+    const rawBounds = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.computeBounds === 'function')
+      ? GeoUtils.computeBounds(cluster)
+      : null;
+    if (!rawBounds) return [];
 
-    const latMid = (minLat + maxLat) / 2;
-    const scale = GSRSpatialClustering._getGeodesicScale(latMid);
-    
     // Calculate required padding dynamically to prevent superposition boundary clipping at grid edges
     const peakCount = cluster.length;
     const paddingMeters = Math.sqrt(rThreshold * rThreshold + 2 * s * s * Math.log(Math.max(1, peakCount))) + 15;
-    const padLat = paddingMeters / scale.degToMeterLat;
-    const padLon = paddingMeters / scale.degToMeterLon;
-    
-    const bounds = {
-      minLat: minLat - padLat,
-      maxLat: maxLat + padLat,
-      minLon: minLon - padLon,
-      maxLon: maxLon + padLon
-    };
+    const bounds = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.expandBounds === 'function')
+      ? GeoUtils.expandBounds(rawBounds, paddingMeters)
+      : rawBounds;
+
+    const latMid = (bounds.minLat + bounds.maxLat) / 2;
+    const scale = GSRSpatialClustering._getGeodesicScale(latMid);
 
     const rows = 70;
     const cols = 70;

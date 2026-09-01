@@ -454,7 +454,9 @@ const GSRUI = {
       const qColor = getQualityColor(qScore, '20');
       const { pct: qPct, label: qLabel } = getQualityLabel(qScore);
 
-      const escapedLabel = (p.label || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const escapedLabel = (typeof GSRNotices !== 'undefined' && typeof GSRNotices.escapeHtml === 'function')
+        ? GSRNotices.escapeHtml(p.label || '')
+        : (p.label || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
       rowsHtml += '<tr id="peakRow-' + idx + '" ' + rowAttr + ' onclick="GSRUI.focusOnPeak(' + idx + ', \'table\')">' +
         '<td>' + (idx + 1) + '</td>' +

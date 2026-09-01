@@ -22,21 +22,19 @@ class ContourRingGeometry {
   static toLoop(rawPoints) {
     if (!rawPoints || rawPoints.length === 0) return { points: [], length: 0, diag: 0 };
     let t = 0;
-    let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+    const b = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.computeBounds === 'function')
+      ? GeoUtils.computeBounds(rawPoints)
+      : { minLat: 0, maxLat: 0, minLon: 0, maxLon: 0 };
     const points = rawPoints.map((p, i) => {
       if (i > 0) {
         const prev = rawPoints[i - 1];
         t += Math.hypot(p.lat - prev.lat, p.lon - prev.lon);
       }
-      if (p.lat < minLat) minLat = p.lat;
-      if (p.lat > maxLat) maxLat = p.lat;
-      if (p.lon < minLon) minLon = p.lon;
-      if (p.lon > maxLon) maxLon = p.lon;
       return { ...p, t };
     });
     const first = points[0], last = points[points.length - 1];
     const closingLen = Math.hypot(first.lat - last.lat, first.lon - last.lon);
-    const diag = Math.hypot(maxLat - minLat, maxLon - minLon) || 1e-9;
+    const diag = Math.hypot(b.maxLat - b.minLat, b.maxLon - b.minLon) || 1e-9;
     return { points, length: last.t + closingLen, diag };
   }
 

@@ -107,30 +107,37 @@ const OsmCache = {
 
   /** True if `a` and `b` overlap at all (including one containing the other, or touching). */
   _bboxIntersects(a, b) {
-    return a.minLat <= b.maxLat && a.maxLat >= b.minLat &&
-           a.minLon <= b.maxLon && a.maxLon >= b.minLon;
+    return (typeof GeoUtils !== 'undefined' && typeof GeoUtils.bboxIntersects === 'function')
+      ? GeoUtils.bboxIntersects(a, b)
+      : (a.minLat <= b.maxLat && a.maxLat >= b.minLat && a.minLon <= b.maxLon && a.maxLon >= b.minLon);
   },
 
   /** Smallest bbox that contains every bbox in `bboxes`. */
   _unionBBox(bboxes) {
+    if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.unionBBox === 'function') {
+      return GeoUtils.unionBBox(bboxes);
+    }
+    if (!bboxes || bboxes.length === 0) return null;
     let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
     for (const b of bboxes) {
+      if (!b) continue;
       if (b.minLat < minLat) minLat = b.minLat;
       if (b.maxLat > maxLat) maxLat = b.maxLat;
       if (b.minLon < minLon) minLon = b.minLon;
       if (b.maxLon > maxLon) maxLon = b.maxLon;
     }
-    return { minLat, maxLat, minLon, maxLon };
+    return minLat === Infinity ? null : { minLat, maxLat, minLon, maxLon };
   },
 
   /**
    * Real-world area of a bbox in km² (accounts for longitude convergence
-   * at higher latitudes). Mirrors OSMEnricher.calculateBBoxAreaKm2 exactly
-   * — duplicated here rather than referenced across files because
-   * osm_cache.js loads before osm_enrichment.js and this is only a
-   * four-line formula.
+   * at higher latitudes). Delegates to GeoUtils.bboxAreaKm2.
    */
   _bboxAreaKm2(bbox) {
+    if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.bboxAreaKm2 === 'function') {
+      return GeoUtils.bboxAreaKm2(bbox);
+    }
+    if (!bbox) return 0;
     const METERS_PER_DEG_LAT_KM = 111.32;
     const midLat = (bbox.minLat + bbox.maxLat) / 2;
     const h = (bbox.maxLat - bbox.minLat) * METERS_PER_DEG_LAT_KM;

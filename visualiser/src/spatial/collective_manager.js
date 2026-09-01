@@ -191,21 +191,14 @@ class GSRCollectiveManager {
       ? contourParams.temporalSmoothingWindow
       : (GSR_CONST.COLLECTIVE.temporalSmoothingWindow !== undefined ? GSR_CONST.COLLECTIVE.temporalSmoothingWindow : 0.0);
 
-    const bounds = this.getBounds();
+    let bounds = this.getBounds();
     if (!bounds) return [];
 
     // Expand bounds by the isolationRadius buffer (with a 20% margin) to ensure that the
     // contour surface interpolator is not chopped off at the grid margins.
-    const tempLatMid = (bounds.minLat + bounds.maxLat) / 2;
-    const { degToMeterLat: mToLat, degToMeterLon: mToLon } = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.getGeodesicScale === 'function')
-      ? GeoUtils.getGeodesicScale(tempLatMid)
-      : { degToMeterLat: 111320.0, degToMeterLon: 111320.0 * Math.cos(tempLatMid * Math.PI / 180) };
-    const latExpansion = (isolationRadius * 1.2) / mToLat;
-    const lonExpansion = (isolationRadius * 1.2) / mToLon;
-    bounds.minLat -= latExpansion;
-    bounds.maxLat += latExpansion;
-    bounds.minLon -= lonExpansion;
-    bounds.maxLon += lonExpansion;
+    bounds = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.expandBounds === 'function')
+      ? GeoUtils.expandBounds(bounds, isolationRadius * 1.2)
+      : bounds;
 
     const active = this.getActiveTracks();
     if (active.length === 0) return [];
@@ -344,7 +337,11 @@ class GSRCollectiveManager {
       ? GeoUtils.getGeodesicScale(latMid)
       : { degToMeterLat: 111320.0, degToMeterLon: 111320.0 * Math.cos(latMid * Math.PI / 180) };
 
+    const scale = { degToMeterLat: DEG_TO_M_LAT, degToMeterLon: DEG_TO_M_LON };
     const getDistanceMeters = (lat1, lon1, lat2, lon2) => {
+      if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.distanceMeters === 'function') {
+        return GeoUtils.distanceMeters(lat1, lon1, lat2, lon2, scale);
+      }
       const dy = (lat1 - lat2) * DEG_TO_M_LAT;
       const dx = (lon1 - lon2) * DEG_TO_M_LON;
       return Math.sqrt(dx * dx + dy * dy);

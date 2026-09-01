@@ -192,35 +192,19 @@ const OSMEnricher = {
   },
 
   calculateBBox(rawPoints, bufferMeters = DEFAULT_BBOX_BUFFER_M) {
-    let minLat = Infinity, maxLat = -Infinity;
-    let minLon = Infinity, maxLon = -Infinity;
-    let validCount = 0;
-
-    for (const pt of rawPoints) {
-      if (this._isValidCoord(pt.lat, pt.lon)) {
-        if (pt.lat < minLat) minLat = pt.lat;
-        if (pt.lat > maxLat) maxLat = pt.lat;
-        if (pt.lon < minLon) minLon = pt.lon;
-        if (pt.lon > maxLon) maxLon = pt.lon;
-        validCount++;
-      }
-    }
-
-    if (validCount === 0) return null;
-
-    const latBuf = bufferMeters / METERS_PER_DEG_LAT;
-    const midLat = (minLat + maxLat) / 2;
-    const lonBuf = bufferMeters / (METERS_PER_DEG_LAT * Math.cos(midLat * Math.PI / 180));
-
-    return {
-      minLat: minLat - latBuf,
-      minLon: minLon - lonBuf,
-      maxLat: maxLat + latBuf,
-      maxLon: maxLon + lonBuf
-    };
+    const rawBounds = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.computeBounds === 'function')
+      ? GeoUtils.computeBounds(rawPoints, 0, (pt) => this._isValidCoord(pt.lat, pt.lon))
+      : null;
+    if (!rawBounds) return null;
+    return (typeof GeoUtils.expandBounds === 'function')
+      ? GeoUtils.expandBounds(rawBounds, bufferMeters)
+      : rawBounds;
   },
 
   calculateBBoxAreaKm2(bbox) {
+    if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.bboxAreaKm2 === 'function') {
+      return GeoUtils.bboxAreaKm2(bbox);
+    }
     const midLat = (bbox.minLat + bbox.maxLat) / 2;
     const h = (bbox.maxLat - bbox.minLat) * METERS_PER_DEG_LAT_KM;
     const w = (bbox.maxLon - bbox.minLon) * METERS_PER_DEG_LAT_KM * Math.cos(midLat * Math.PI / 180);

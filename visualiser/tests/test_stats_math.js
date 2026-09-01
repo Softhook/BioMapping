@@ -206,3 +206,30 @@ test('_tTestPValue: p-value is symmetric in the sign of t (two-tailed by constru
   const pNeg = StatsMath._tTestPValue(-2.5, 10);
   closeTo(pPos, pNeg, 1e-9);
 });
+
+// ---------------------------------------------------------------------------
+// calculateStats
+// ---------------------------------------------------------------------------
+
+test('calculateStats: returns documented defaults on empty/null input', () => {
+  assert.deepStrictEqual(StatsMath.calculateStats([]), { mean: 0, std: 1, variance: 0, min: 0, max: 0 });
+  assert.deepStrictEqual(StatsMath.calculateStats(null), { mean: 0, std: 1, variance: 0, min: 0, max: 0 });
+});
+
+test('calculateStats: calculates mean, std, variance, min, max correctly', () => {
+  const stats = StatsMath.calculateStats([2, 4, 4, 4, 5, 5, 7, 9]);
+  assert.strictEqual(stats.mean, 5);
+  assert.strictEqual(stats.variance, 4);
+  assert.strictEqual(stats.std, 2);
+  assert.strictEqual(stats.min, 2);
+  assert.strictEqual(stats.max, 9);
+});
+
+test('calculateStats: single-value array prevents divide-by-zero by returning std=1', () => {
+  const stats = StatsMath.calculateStats([10]);
+  assert.strictEqual(stats.mean, 10);
+  assert.strictEqual(stats.std, 1);
+  assert.strictEqual(stats.variance, 0);
+  assert.strictEqual(stats.min, 10);
+  assert.strictEqual(stats.max, 10);
+});
