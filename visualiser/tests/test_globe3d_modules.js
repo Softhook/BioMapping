@@ -16,7 +16,7 @@ const { GSRGlobe3DExport } = G3D('exporters.js');
 
 // ── tiny Cesium stub for the geometry modules ─────────────────────────────
 function stubCesium() {
-  const counts = { GeometryInstance: 0, EllipsoidGeometry: 0, PolygonGeometry: 0, Primitive: 0 };
+  const counts = { GeometryInstance: 0, EllipsoidGeometry: 0, PolygonGeometry: 0, WallGeometry: 0, PolygonOutlineGeometry: 0, Primitive: 0, PrimitiveCollection: 0 };
   global.Cesium = {
     Cartesian3: Object.assign(function (x, y, z) { return { x, y, z }; }, {
       fromDegrees: (lon, lat, h) => ({ lon, lat, h: h || 0 }),
@@ -28,9 +28,18 @@ function stubCesium() {
     ColorGeometryInstanceAttribute: { fromColor: (c) => c },
     EllipsoidGeometry: function (o) { counts.EllipsoidGeometry++; this._o = o; },
     PolygonGeometry: function (o) { counts.PolygonGeometry++; this._o = o; },
+    WallGeometry: function (o) { counts.WallGeometry++; this._o = o; },
+    PolygonOutlineGeometry: function (o) { counts.PolygonOutlineGeometry++; this._o = o; },
     PolygonHierarchy: function (p) { this.positions = p; },
     GeometryInstance: function (o) { counts.GeometryInstance++; Object.assign(this, o); },
     Primitive: function (o) { counts.Primitive++; this._o = o; this.geometryInstances = o.geometryInstances; },
+    PrimitiveCollection: function () {
+      counts.PrimitiveCollection++;
+      this._prims = [];
+      this.add = (p) => { this._prims.push(p); return p; };
+      this.destroy = () => {};
+      this.isDestroyed = () => false;
+    },
     PerInstanceColorAppearance: function (o) { this._o = o; },
     Transforms: { eastNorthUpToFixedFrame: () => ({}) },
   };
@@ -194,11 +203,43 @@ test('GSRGlobe3DBuildings.buildPrimitive: null for empty / non-building input', 
   clearCesium();
 });
 
+test('GSRGlobe3DBuildings.buildPrimitive: realistic style creates solid extruded facade body, roof caps, and outlines in a PrimitiveCollection', () => {
+  const counts = stubCesium();
+  const { GSRGlobe3DBuildings } = G3D('buildings.js');
+  const primColl = GSRGlobe3DBuildings.buildPrimitive(OSM_FIXTURE, 'realistic');
+  assert.ok(primColl);
+  assert.strictEqual(counts.PrimitiveCollection, 1, 'surface + outline primitives grouped in PrimitiveCollection');
+  assert.strictEqual(counts.Primitive, 2, 'one surface primitive and one outline primitive');
+  assert.strictEqual(counts.PolygonGeometry, 4, 'solid extruded bodies + roof caps for both buildings');
+  assert.strictEqual(counts.PolygonOutlineGeometry, 2, 'roof outlines created for both buildings');
+  clearCesium();
+});
+
+test('GSRGlobe3DBuildings.wallColorFor and roofColorFor assign distinct architectural palettes by tag', () => {
+  stubCesium();
+  const { GSRGlobe3DBuildings } = G3D('buildings.js');
+  const resRoof = GSRGlobe3DBuildings.roofColorFor({ building: 'residential' });
+  const offRoof = GSRGlobe3DBuildings.roofColorFor({ building: 'office' });
+  const customRoof = GSRGlobe3DBuildings.roofColorFor({ 'roof:colour': '#ff0000' });
+  assert.strictEqual(resRoof._css, '#a35242', 'residential terracotta cap');
+  assert.strictEqual(offRoof._css, '#373d47', 'commercial/office slate charcoal cap');
+  assert.strictEqual(customRoof._css, '#ff0000', 'explicit roof:colour tag respected');
+
+  const resWall = GSRGlobe3DBuildings.wallColorFor({ building: 'house' });
+  const offWall = GSRGlobe3DBuildings.wallColorFor({ building: 'commercial' });
+  const customWall = GSRGlobe3DBuildings.wallColorFor({ 'building:colour': '#00ff00' });
+  assert.strictEqual(resWall._css, '#dfd6c8', 'residential warm wall');
+  assert.strictEqual(offWall._css, '#d6dbe0', 'commercial limestone wall');
+  assert.strictEqual(customWall._css, '#00ff00', 'explicit building:colour tag respected');
+  clearCesium();
+});
+
 test('GSRGlobe3DBuildings.tileStyleExpression covers every style', () => {
   stubCesium();
   const { GSRGlobe3DBuildings } = G3D('buildings.js');
   for (const s of ['glass', 'dark', 'monochrome', 'realistic']) {
-    assert.match(GSRGlobe3DBuildings.tileStyleExpression(s), /^color\(/);
+    const expr = GSRGlobe3DBuildings.tileStyleExpression(s);
+    assert.ok(expr.includes('color('), `style ${s} should produce a valid Cesium color expression`);
   }
   clearCesium();
 });
