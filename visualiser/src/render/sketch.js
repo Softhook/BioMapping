@@ -65,19 +65,24 @@ function draw() {
   background(canvasBg);
 
   const innerWidth = width - GSR_CONST.MARGIN.left - GSR_CONST.MARGIN.right;
-  const timelineHeight = GSR_CONST.TIMELINE_HEIGHT;
-  const timelineGap = GSR_CONST.TIMELINE_GAP;
-  const totalHeight = height - GSR_CONST.MARGIN.top - GSR_CONST.MARGIN.bottom - GSR_CONST.MARGIN.gap - timelineHeight - timelineGap;
-  const hUpper = totalHeight * GSR_CONST.GRAPH_UPPER_RATIO;
-  const hLower = totalHeight * GSR_CONST.GRAPH_LOWER_RATIO;
 
-  const yUpperBottom = GSR_CONST.MARGIN.top + hUpper;
-  const yLowerTop = yUpperBottom + GSR_CONST.MARGIN.gap;
-  const yLowerBottom = yLowerTop + hLower;
+  // One full-height plot: 'signal' (Raw/Filtered/Tonic, optionally Phasic) or a
+  // single derived metric ('phasic' / 'phasicAUC' / 'arousalIndex').
+  // X_LABEL_STRIP is the band under the plot that carries the x-axis time
+  // labels. The overview timeline bar is pinned to the bottom, but drops out
+  // when the panel is short (halved height) so the plot keeps a usable height.
+  const view = AppState.graphView || 'signal';
+  const X_LABEL_STRIP = 18;
+  const showTimeline = height >= 240;
+  const timelineHeight = showTimeline ? GSR_CONST.TIMELINE_HEIGHT : 0;
+  const timelineGap = showTimeline ? GSR_CONST.TIMELINE_GAP : 0;
 
-  AppState.yTimelineTop = yLowerBottom + timelineGap;
+  const plotTop = GSR_CONST.MARGIN.top;
+  const plotBottom = height - GSR_CONST.MARGIN.bottom - timelineHeight - timelineGap - X_LABEL_STRIP;
+
+  AppState.yTimelineTop = showTimeline ? (height - GSR_CONST.MARGIN.bottom - timelineHeight) : height;
   AppState.yTimelineBottom = AppState.yTimelineTop + timelineHeight;
-  AppState.yGraphBottom = yLowerBottom;
+  AppState.yGraphBottom = plotBottom;
 
   const viewEndTime = AppState.viewStartTime + AppState.viewDuration;
 
@@ -108,6 +113,12 @@ function draw() {
       yMinUpper = Math.min(yMinUpper, global.tonic.min);
       yMaxUpper = Math.max(yMaxUpper, global.tonic.max);
     }
+    // Phasic overlay rides the same µS axis — pull the floor down so its
+    // (much smaller) values stay on-graph instead of clipping below.
+    if (AppState.showPhasic && view === 'signal' && global.phasic) {
+      yMinUpper = Math.min(yMinUpper, global.phasic.min);
+      yMaxUpper = Math.max(yMaxUpper, global.phasic.max);
+    }
   } else {
     // Scan the visible window (fewer points when zoomed in)
     yMinUpper = Infinity;
@@ -128,6 +139,11 @@ function draw() {
         if (val < yMinUpper) yMinUpper = val;
         if (val > yMaxUpper) yMaxUpper = val;
       }
+      if (AppState.showPhasic && view === 'signal' && AppState.analyzer.phasic[i]) {
+        const val = AppState.analyzer.phasic[i].val;
+        if (val < yMinUpper) yMinUpper = val;
+        if (val > yMaxUpper) yMaxUpper = val;
+      }
     }
   }
 
@@ -139,11 +155,11 @@ function draw() {
   yMinUpper = Math.max(0, yMinUpper - paddingUpper);
   yMaxUpper = yMaxUpper + paddingUpper;
 
-  // Y-scaling for Lower Graph — mode-selectable: phasic (default) / peakDensity /
-  // phasicAUC / arousalIndex. See GSR_CONST.LOWER_GRAPH_MODES.
+  // Y-scaling for a metric view — phasic (default) / phasicAUC / arousalIndex.
+  // See GSR_CONST.LOWER_GRAPH_MODES.
   const lowerMode = AppState.lowerGraphMode || 'phasic';
   const lowerCfg = GSR_CONST.LOWER_GRAPH_MODES[lowerMode] || GSR_CONST.LOWER_GRAPH_MODES.phasic;
-  const lowerSeries = AppState.analyzer[lowerMode] || AppState.analyzer.em_fog || AppState.analyzer.phasic;
+  const lowerSeries = AppState.analyzer[lowerMode] || AppState.analyzer.phasic;
 
   let yMinLower = lowerCfg.allowNegative ? Infinity : 0;
   let yMaxLower;
@@ -173,22 +189,16 @@ function draw() {
   yMaxLower = yMaxLower + paddingLower;
   if (lowerCfg.allowNegative) yMinLower = yMinLower - paddingLower;
 
-  // 1. Grids and Axes
-  GSRRenderer.drawGridX(AppState.viewStartTime, viewEndTime, yUpperBottom, yLowerBottom);
-  GSRRenderer.drawGridY(yMinUpper, yMaxUpper, yUpperBottom, GSR_CONST.MARGIN.top,
-    [[0.2, 0.02], [1.0, 0.1], [3.0, 0.5], [10, 1.0]], 2.0, 2);
-
+  // \u2500\u2500 Render inputs shared by every view \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   const lowerGridPresets = {
+    tonic:        { steps: [[0.2, 0.02], [1.0, 0.1], [3.0, 0.5], [10, 1.0]],       defaultStep: 2.0, decimals: 2, unit: ' \u03bcS' },
     phasic:       { steps: [[0.05, 0.005], [0.15, 0.01], [0.5, 0.05], [1.5, 0.1]], defaultStep: 0.5, decimals: 3, unit: ' \u03bcS' },
     peakDensity:  { steps: [[5, 1], [20, 2], [60, 5], [200, 20]],                  defaultStep: 10,  decimals: 0, unit: ' /min' },
     phasicAUC:    { steps: [[0.5, 0.05], [2, 0.2], [5, 0.5], [20, 2]],             defaultStep: 5,   decimals: 2, unit: ' \u03bcS\u00b7s' },
-    arousalIndex: { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' },
-    emFog:        { steps: [[10, 2], [25, 5], [50, 10], [100, 20]],                defaultStep: 20,  decimals: 1, unit: ' EMF-I' },
-    em_fog:       { steps: [[10, 2], [25, 5], [50, 10], [100, 20]],                defaultStep: 20,  decimals: 1, unit: ' EMF-I' }
+    arousalIndex: { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' }
   };
   const gridPreset = lowerGridPresets[lowerMode] || lowerGridPresets.phasic;
-  GSRRenderer.drawGridY(yMinLower, yMaxLower, yLowerBottom, yLowerBottom - hLower,
-    gridPreset.steps, gridPreset.defaultStep, gridPreset.decimals, gridPreset.unit);
+  const upperGridSteps = [[0.2, 0.02], [1.0, 0.1], [3.0, 0.5], [10, 1.0]];
 
   const colorRaw = GSRRenderer.getThemeColor('--color-raw', '#7c7c76');
   const colorFiltered = GSRRenderer.getThemeColor('--color-filtered', '#005bc4');
@@ -196,75 +206,97 @@ function draw() {
   const colorPeak = GSRRenderer.getThemeColor('--color-peak', '#d10024');
   const colorLower = GSRRenderer.getThemeColor(lowerCfg.colorVar, lowerCfg.colorDefault);
 
-  // 2. Upper Graph Curves
-  if (AppState.showRaw) {
-    GSRRenderer.drawSignalCurve(AppState.analyzer.raw, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, color(colorRaw + '8c'), 1.5); // ~0.55 opacity
-  }
-  // Peak sample indices, forced into curve decimation below so drawn lines
-  // actually reach every marker instead of a stride segment cutting the
-  // corner past it (see _buildCurveContext()'s doc comment in renderer.js).
-  // Only meaningful against the curves peaks are actually plotted on:
-  // Filtered (upper, always) via onsetIndex+index for the shaded region's
-  // edges too, and Phasic (lower, when that's the selected mode) via index.
+  // Peak sample indices, forced into curve decimation so drawn lines actually
+  // reach every marker instead of a stride segment cutting the corner past it
+  // (see _buildCurveContext()'s doc comment in renderer.js). Only meaningful
+  // against the curves peaks are plotted on: Filtered (via onsetIndex+index for
+  // the shaded region's edges too) and Phasic (via index, when it's selected).
   const activePeaks = AppState.analyzer.peaks.filter(p => !p.excluded);
   const filteredForceIndices = [];
   for (const p of activePeaks) { filteredForceIndices.push(p.onsetIndex, p.index); }
-  const phasicForceIndices = lowerMode === 'phasic' ? activePeaks.map(p => p.index) : null;
+  // Every metric view now drops a marker on its curve at each peak's time, so
+  // force those sample indices into the curve so the line actually reaches them.
+  const metricForceIndices = activePeaks.map(p => p.index);
 
-  if (AppState.showFiltered) {
-    GSRRenderer.drawSignalCurve(AppState.analyzer.filtered, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, colorFiltered, 2.2, filteredForceIndices);
-  }
-  if (AppState.showTonic) {
-    GSRRenderer.drawSignalCurve(AppState.analyzer.tonic, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, colorTonic, 2);
-  }
-
-  // 3. Lower Graph (mode-selectable \u2014 Phasic / Peak Density / Phasic AUC / Arousal Index)
-  GSRRenderer.drawPhasicArea(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom, colorLower, phasicForceIndices);
-  GSRRenderer.drawSignalCurve(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, yLowerTop, yLowerBottom, colorLower, 2, phasicForceIndices);
-
-  if (lowerCfg.showPeakOverlay) {
-    // Threshold line on Phasic graph
-    const thresholdVal = parseFloat(AppState.sliders.peakThreshold.value);
-    const thresholdY = map(thresholdVal, yMinLower, yMaxLower, yLowerBottom, yLowerTop);
-    stroke(color(colorPeak + '78')); // ~120 opacity -> hex 78
+  // Dashed horizontal reference line + optional right-edge label \u2014 the Phasic
+  // threshold line and the Arousal-Index zero line, for the single metric view.
+  const drawRefLine = (val, yTop, yBottom, dash, hexAlpha, label) => {
+    const y = map(val, yMinLower, yMaxLower, yBottom, yTop);
+    stroke(color(colorPeak + hexAlpha));
     strokeWeight(1);
-    drawingContext.setLineDash([5, 5]);
-    line(GSR_CONST.MARGIN.left, thresholdY, width - GSR_CONST.MARGIN.right, thresholdY);
+    drawingContext.setLineDash(dash);
+    line(GSR_CONST.MARGIN.left, y, width - GSR_CONST.MARGIN.right, y);
     drawingContext.setLineDash([]);
+    if (label) {
+      fill(color(colorPeak + '96'));
+      noStroke();
+      textSize(9);
+      textAlign(RIGHT, CENTER);
+      text(label, width - GSR_CONST.MARGIN.right - 5, y - 8);
+    }
+  };
 
-    fill(color(colorPeak + '96')); // ~150 opacity -> hex 96
-    noStroke();
-    textSize(9);
-    textAlign(RIGHT, CENTER);
-    text('Threshold (' + thresholdVal.toFixed(3) + ' \u03bcS)', width - GSR_CONST.MARGIN.right - 5, thresholdY - 8);
-  } else if (lowerCfg.allowNegative) {
-    // Zero-line reference for metrics that can go negative (Arousal Index)
-    const zeroY = map(0, yMinLower, yMaxLower, yLowerBottom, yLowerTop);
-    stroke(color(colorPeak + '50'));
-    strokeWeight(1);
-    drawingContext.setLineDash([2, 3]);
-    line(GSR_CONST.MARGIN.left, zeroY, width - GSR_CONST.MARGIN.right, zeroY);
-    drawingContext.setLineDash([]);
+  if (view === 'signal') {
+    // 'Signal' - Raw / Filtered / Tonic (+ optional Phasic overlay), full height (uS)
+    GSRRenderer.drawGridX(AppState.viewStartTime, viewEndTime, plotBottom, plotBottom, true);
+    GSRRenderer.drawGridY(yMinUpper, yMaxUpper, plotBottom, plotTop, upperGridSteps, 2.0, 2);
+
+    if (AppState.showRaw) {
+      GSRRenderer.drawSignalCurve(AppState.analyzer.raw, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, plotTop, plotBottom, color(colorRaw + '8c'), 1.5);
+    }
+    if (AppState.showTonic) {
+      GSRRenderer.drawSignalCurve(AppState.analyzer.tonic, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, plotTop, plotBottom, colorTonic, 2);
+    }
+    // Phasic (SCR) overlaid on the same uS axis - a thin, low-amplitude trace
+    // near the baseline (the axis floor was pulled toward 0 above so it stays
+    // on-graph). Drawn under Filtered so the primary curve stays on top.
+    if (AppState.showPhasic) {
+      const colorPhasic = GSRRenderer.getThemeColor('--color-phasic', '#008f3c');
+      GSRRenderer.drawSignalCurve(AppState.analyzer.phasic, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, plotTop, plotBottom, color(colorPhasic + 'c8'), 1.5, activePeaks.map(pk => pk.index));
+    }
+    if (AppState.showFiltered) {
+      GSRRenderer.drawSignalCurve(AppState.analyzer.filtered, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, plotTop, plotBottom, colorFiltered, 2.2, filteredForceIndices);
+    }
+
+    // Peaks / hotspots on the Filtered curve only - no phasic-scaled lower half
+    // (showUpperMarker=true, showLowerMarker=false).
+    GSRRenderer.drawPeakMarkers(AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, plotTop, plotBottom, 0, 1, plotBottom, plotBottom, false, true);
+    GSRRenderer.drawHotspotMarkers(AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, plotTop, plotBottom, 0, 1, plotBottom, plotBottom, false, true);
+    // L-params = the same uS range so handleScrubber can drop a Phasic dot too.
+    GSRRenderer.handleScrubber(AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, plotBottom, yMinUpper, yMaxUpper, plotTop, plotBottom);
+
+  } else {
+    // \u2500\u2500 Single metric view \u2014 one derived series, full height, own Y axis \u2500\u2500\u2500\u2500
+    GSRRenderer.drawGridX(AppState.viewStartTime, viewEndTime, plotBottom, plotBottom, true);
+    GSRRenderer.drawGridY(yMinLower, yMaxLower, plotBottom, plotTop,
+      gridPreset.steps, gridPreset.defaultStep, gridPreset.decimals, gridPreset.unit);
+
+    GSRRenderer.drawPhasicArea(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, plotTop, plotBottom, colorLower, metricForceIndices);
+    GSRRenderer.drawSignalCurve(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, plotTop, plotBottom, colorLower, 2, metricForceIndices);
+
+    if (lowerCfg.showPeakOverlay) {
+      drawRefLine(parseFloat(AppState.sliders.peakThreshold.value), plotTop, plotBottom, [5, 5], '78',
+        'Threshold (' + parseFloat(AppState.sliders.peakThreshold.value).toFixed(3) + ' \u03bcS)');
+      // Phasic view: peak amplitudes ARE on this axis, so draw the full SCR
+      // treatment (shaded region + onset dot) and skip the missing Filtered
+      // half (showLowerMarker=true, showUpperMarker=false).
+      GSRRenderer.drawPeakMarkers(AppState.viewStartTime, viewEndTime, 0, 1, plotTop, plotBottom, yMinLower, yMaxLower, plotTop, plotBottom, true, false);
+      GSRRenderer.drawHotspotMarkers(AppState.viewStartTime, viewEndTime, 0, 1, plotTop, plotBottom, yMinLower, yMaxLower, plotTop, plotBottom, true, false);
+    } else {
+      if (lowerCfg.allowNegative) drawRefLine(0, plotTop, plotBottom, [2, 3], '50', null);
+      // Tonic / Peak Density / AUC / Arousal: a peak's \u00b5S amplitude means
+      // nothing on a \u00b5S\u00b7s / /min / z axis, so mark each peak (and hotspot) as a
+      // dot on THIS curve at its own time \u2014 markerSeries = the plotted series,
+      // U-axis = this metric's range, no phasic lower half.
+      GSRRenderer.drawPeakMarkers(AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, plotTop, plotBottom, 0, 1, plotBottom, plotBottom, false, true, lowerSeries);
+      GSRRenderer.drawHotspotMarkers(AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, plotTop, plotBottom, 0, 1, plotBottom, plotBottom, false, true, lowerSeries);
+    }
+
+    GSRRenderer.handleScrubber(AppState.viewStartTime, viewEndTime, 0, 1, plotBottom, yMinLower, yMaxLower, plotTop, plotBottom);
   }
 
-  // 4. Peak Markers \u2014 always shown on the upper (Filtered) curve. The extra
-  // phasic-scaled lower-graph half (shaded region, connecting line, onset
-  // dot) only draws when the lower panel is actually showing Phasic, since
-  // that's the only mode whose Y-axis matches those values.
-  GSRRenderer.drawPeakMarkers(AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, yMinLower, yMaxLower, yLowerTop, yLowerBottom, lowerCfg.showPeakOverlay);
-
-  // 4b. Hotspots \u2014 the curated "memorable events" subset, drawn with the
-  // bolder styling peaks used to have (see drawHotspotMarkers()'s doc
-  // comment). Must run after drawPeakMarkers(), which resets and seeds
-  // AppState._peakClickTargets \u2014 this appends to that same list rather than
-  // resetting it again, so both peak and hotspot markers stay clickable.
-  GSRRenderer.drawHotspotMarkers(AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, GSR_CONST.MARGIN.top, yUpperBottom, yMinLower, yMaxLower, yLowerTop, yLowerBottom, lowerCfg.showPeakOverlay);
-
-  // 5. Hover Scrubber
-  GSRRenderer.handleScrubber(AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, yUpperBottom, yMinLower, yMaxLower, yLowerTop, yLowerBottom);
-
-  // 6. Timeline overview
-  GSRRenderer.drawTimelineOverview(innerWidth, timelineHeight);
+  // Overview timeline bar \u2014 pinned to the bottom, unless the panel is too short
+  if (showTimeline) GSRRenderer.drawTimelineOverview(innerWidth, timelineHeight);
 }
 
 function mousePressed() {

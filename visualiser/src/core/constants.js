@@ -168,13 +168,20 @@ const GSR_CONST = {
     }
   },
 
-  // ── Lower graph metric definitions ───────────────────────────────────────
-  // Selectable series for the lower graph panel. 'phasic' (SCR) is the
-  // discrete/thresholded default; the other three are continuous,
-  // threshold-independent alternatives that resolve the "thresholding
-  // dilemma" and "superposition problem" — see
-  // docs/environmental_stress_literature_review.md §5-6.
+  // ── Graph view metric definitions ───────────────────────────────────────
+  // Selectable series for the single-graph view. 'phasic' (SCR) is the
+  // discrete/thresholded default; 'phasicAUC' and 'arousalIndex' are
+  // continuous, threshold-independent alternatives that resolve the
+  // "thresholding dilemma" and "superposition problem" — see
+  // docs/environmental_stress_literature_review.md §5-6. 'tonic' (SCL) and
+  // 'peakDensity' (NS-SCR rate) round out the set. (EM Fog is not offered as a
+  // graph view — the map/globe still colour by it.)
   LOWER_GRAPH_MODES: {
+    tonic: {
+      label: 'Tonic (SCL)', unit: 'μS', decimals: 4,
+      colorVar: '--color-tonic', colorDefault: '#a30091',
+      showPeakOverlay: false, allowNegative: false
+    },
     phasic: {
       label: 'Phasic (SCR)', unit: 'μS', decimals: 4,
       colorVar: '--color-phasic', colorDefault: '#008f3c',
@@ -194,16 +201,6 @@ const GSR_CONST = {
       label: 'Combined Arousal Index', unit: 'z', decimals: 2,
       colorVar: '--color-arousal-index', colorDefault: '#7b00cc',
       showPeakOverlay: false, allowNegative: true
-    },
-    emFog: {
-      label: 'EM Fog Index (EMF-I)', unit: '', decimals: 1,
-      colorVar: '--color-em-fog', colorDefault: '#a855f7',
-      showPeakOverlay: false, allowNegative: false
-    },
-    em_fog: {
-      label: 'EM Fog Index (EMF-I)', unit: '', decimals: 1,
-      colorVar: '--color-em-fog', colorDefault: '#a855f7',
-      showPeakOverlay: false, allowNegative: false
     }
   },
 

@@ -32,7 +32,7 @@ const GSREvents = {
       'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsDownsample', 'gpsTrackWeight', 'gpsPeakLatency',
       'gpsSnapToRoads', 'gpsSnapRadius',
       'clusterProximity', 'clusterBoundaryRadius',
-      'lowerGraphMode', 'useDeconvolution', 'adaptiveNotch'
+      'graphView', 'useDeconvolution', 'adaptiveNotch'
     ];
     for (const key of sliderKeys) {
       AppState.sliders[key] = GSREvents._id(key);
@@ -300,15 +300,25 @@ const GSREvents = {
       });
     }
 
-    // ── Lower graph metric selector ──────────────────────────────────────────
-    // Rendering-only setting (no re-analysis needed) — sync AppState immediately
-    // so it reflects any value restored from localStorage by loadSettings().
-    if (S.lowerGraphMode) {
-      AppState.lowerGraphMode = S.lowerGraphMode.value;
-      S.lowerGraphMode.addEventListener('change', () => {
-        AppState.lowerGraphMode = S.lowerGraphMode.value;
+    // ── Graph view selector ─────────────────────────────────────────────────
+    // Rendering-only setting (no re-analysis needed). One dropdown picks the
+    // whole plot: 'signal' or a single derived metric. Choosing a metric view
+    // also arms it as lowerGraphMode. The Raw/Filtered/Tonic/Phasic curve
+    // toggles are only meaningful in 'signal' view, so hide them otherwise.
+    if (S.graphView) {
+      const applyGraphView = () => {
+        const v = S.graphView.value;
+        AppState.graphView = v;
+        if (v !== 'signal') AppState.lowerGraphMode = v;
+        const showLayerBtns = (v === 'signal');
+        for (const id of ['btnToggleRaw', 'btnToggleFiltered', 'btnToggleTonic', 'btnTogglePhasic']) {
+          const b = document.getElementById(id);
+          if (b) b.style.display = showLayerBtns ? '' : 'none';
+        }
         redraw();
-      });
+      };
+      applyGraphView();
+      S.graphView.addEventListener('change', applyGraphView);
     }
 
     // ── File Upload Handlers ──────────────────────────────────────────────────
@@ -391,6 +401,7 @@ const GSREvents = {
     bindToggle('btnToggleRaw',      'showRaw');
     bindToggle('btnToggleFiltered', 'showFiltered');
     bindToggle('btnToggleTonic',    'showTonic');
+    bindToggle('btnTogglePhasic',   'showPhasic');
     bindToggle('btnTogglePeaks',    'showPeaks');
     bindToggle('btnToggleHotspots', 'showHotspots');
 

@@ -775,16 +775,18 @@
                 <button class="btn btn-outline active" id="btnToggleRaw">Raw</button>
                 <button class="btn btn-outline active" id="btnToggleFiltered">Filtered</button>
                 <button class="btn btn-outline active" id="btnToggleTonic">Tonic</button>
+                <button class="btn btn-outline" id="btnTogglePhasic">Phasic</button>
                 <button class="btn btn-outline active" id="btnTogglePeaks">Peaks</button>
                 <button class="btn btn-outline active" id="btnToggleHotspots">Hotspots</button>
               </div>
               <span class="control-divider"></span>
-              <select id="lowerGraphMode" class="select-control" style="width: auto; min-width: 130px;" title="Lower graph metric">
-                <option value="phasic" selected>Phasic</option>
+              <select id="graphView" class="select-control" style="width: auto; min-width: 130px;" title="Graph view">
+                <option value="signal" selected>Signal</option>
+                <option value="tonic">Tonic (SCL)</option>
+                <option value="phasic">Phasic (SCR)</option>
                 <option value="peakDensity">Peak Density</option>
                 <option value="phasicAUC">Phasic AUC</option>
                 <option value="arousalIndex">Arousal Index</option>
-                <option value="emFog">EM Fog</option>
               </select>
               <span class="control-divider"></span>
               <button class="icon-btn fullscreen-btn" id="btnGsrFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>

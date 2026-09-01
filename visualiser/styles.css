@@ -639,7 +639,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: flex;
   flex-direction: column;
   flex-grow: 1;
-  min-height: 380px;
+  min-height: 190px;
   max-height: 1200px;
   overflow: hidden;
   transition: max-height var(--transition-standard), min-height var(--transition-standard);
@@ -869,7 +869,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   position: relative;
   flex-grow: 1;
   background: rgba(17, 17, 17, 0.03);
-  min-height: 300px;
+  min-height: 150px;
   overflow: hidden;
 }
 

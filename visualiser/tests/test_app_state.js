@@ -122,5 +122,6 @@ test('default state shape: key fields start with documented defaults', () => {
   // above and can't be freshly re-instantiated without re-parsing the file.
   assert.ok(fresh.includes("viewMode: 'single'"));
   assert.ok(fresh.includes('showRaw: true'));
+  assert.ok(fresh.includes("graphView: 'signal'"));
   assert.ok(fresh.includes("lowerGraphMode: 'phasic'"));
 });

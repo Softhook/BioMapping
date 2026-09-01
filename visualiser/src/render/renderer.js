@@ -69,7 +69,12 @@ const GSRRenderer = {
     this.clearPulseRings();
   },
 
-  drawGridX(tMin, tMax, yUpperBottom, yLowerBottom) {
+  /**
+   * @param {boolean} [singleGraph] - When true there is only one plot region
+   *   spanning MARGIN.top..yUpperBottom (yLowerBottom is ignored); time labels
+   *   sit just below the plot instead of in the inter-graph gap.
+   */
+  drawGridX(tMin, tMax, yUpperBottom, yLowerBottom, singleGraph) {
     const span = tMax - tMin;
     let step = 10;
     if (span < 5) step = 0.5;
@@ -98,9 +103,9 @@ const GSRRenderer = {
       if (t < tMin) continue;
       const x = map(t, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
       line(x, GSR_CONST.MARGIN.top, x, yUpperBottom);
-      line(x, yUpperBottom + GSR_CONST.MARGIN.gap, x, yLowerBottom);
+      if (!singleGraph) line(x, yUpperBottom + GSR_CONST.MARGIN.gap, x, yLowerBottom);
 
-      // Time label in the gap between upper (tonic) and lower (phasic) graphs
+      // Time label: in the gap between the two graphs, or just below the single plot
       fill(textColor);
       noStroke();
 
@@ -115,15 +120,17 @@ const GSRRenderer = {
         const s = Math.floor(t % 60);
         label = m + ':' + (s < 10 ? '0' : '') + s;
       }
-      text(label, x, yUpperBottom + GSR_CONST.MARGIN.gap / 2);
+      text(label, x, singleGraph ? yUpperBottom + 11 : yUpperBottom + GSR_CONST.MARGIN.gap / 2);
       stroke(gridColor);
     }
 
     stroke(axisColor);
     line(GSR_CONST.MARGIN.left, GSR_CONST.MARGIN.top, GSR_CONST.MARGIN.left, yUpperBottom);
-    line(GSR_CONST.MARGIN.left, yUpperBottom + GSR_CONST.MARGIN.gap, GSR_CONST.MARGIN.left, yLowerBottom);
     line(GSR_CONST.MARGIN.left, yUpperBottom, width - GSR_CONST.MARGIN.right, yUpperBottom);
-    line(GSR_CONST.MARGIN.left, yLowerBottom, width - GSR_CONST.MARGIN.right, yLowerBottom);
+    if (!singleGraph) {
+      line(GSR_CONST.MARGIN.left, yUpperBottom + GSR_CONST.MARGIN.gap, GSR_CONST.MARGIN.left, yLowerBottom);
+      line(GSR_CONST.MARGIN.left, yLowerBottom, width - GSR_CONST.MARGIN.right, yLowerBottom);
+    }
   },
 
   /**
@@ -369,12 +376,20 @@ const GSRRenderer = {
    * at the same coordinates, just with different styling on top.
    * @private
    */
-  _computePeakScreenPos(p, tMin, scales, yMinU, yBottomU, yMinL, yBottomL, showLowerMarker) {
+  _computePeakScreenPos(p, tMin, scales, yMinU, yBottomU, yMinL, yBottomL, showLowerMarker, showUpperMarker, markerSeries) {
     const xPeak  = GSR_CONST.MARGIN.left + (p.time - tMin) * scales.xScale;
     const xOnset = GSR_CONST.MARGIN.left + (p.onsetTime - tMin) * scales.xScale;
-    const yFilteredPeak = yBottomU + (AppState.analyzer.filtered[p.index].val - yMinU) * scales.yScaleU;
+    // The "upper" marker normally sits on the Filtered curve; in a metric view
+    // it sits on whatever series is plotted (markerSeries), at the peak's time —
+    // the peak's µS amplitude has no meaning on a /min or z axis.
+    const upperSeries = (markerSeries && markerSeries[p.index]) ? markerSeries : AppState.analyzer.filtered;
+    let yFilteredPeak = yBottomU + (upperSeries[p.index].val - yMinU) * scales.yScaleU;
     const yPhasicPeak   = showLowerMarker ? yBottomL + (p.value - yMinL) * scales.yScaleL : yFilteredPeak;
     const yPhasicOnset  = showLowerMarker ? yBottomL + (p.onsetValue - yMinL) * scales.yScaleL : yFilteredPeak;
+    // Single metric view (Phasic): no Filtered curve is drawn, so collapse the
+    // upper marker onto the lower one — its dot/label/connector are suppressed
+    // by the showUpperMarker guards below, this just keeps click/hit math sane.
+    if (showUpperMarker === false) yFilteredPeak = yPhasicPeak;
     return { xPeak, xOnset, yFilteredPeak, yPhasicPeak, yPhasicOnset };
   },
 
@@ -400,13 +415,22 @@ const GSRRenderer = {
    * memorableEvents subset, so visual "loudness" on the graph now tracks
    * salience rather than raw detection count.
    */
-  drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL, showLowerMarker) {
+  drawPeakMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL, showLowerMarker, showUpperMarker, markerSeries) {
     if (showLowerMarker === undefined) showLowerMarker = true;
-    if (!AppState.showPeaks || !AppState.analyzer.peaks || AppState.analyzer.peaks.length === 0) return;
+    // showUpperMarker (default true) draws the marker on the Filtered/upper
+    // curve. Pass false in the single Phasic view, where the lower (phasic)
+    // marker is the only one and there is no Filtered curve to sit on.
+    // markerSeries (optional) overrides which series the upper marker sits on —
+    // used by the Tonic / Peak Density / AUC / Arousal views to drop the marker
+    // onto that curve at the peak's time.
+    const drawUpper = showUpperMarker !== false;
 
-    // Reset click-target list for on-canvas exclude buttons and peaks
+    // Reset before the guards below so a skipped pass (peaks toggle off) still
+    // clears stale targets, and drawHotspotMarkers() appends to a clean list.
     AppState._peakExcludeButtons = [];
     AppState._peakClickTargets = [];
+
+    if (!AppState.showPeaks || !AppState.analyzer.peaks || AppState.analyzer.peaks.length === 0) return;
 
     const scales = this._computeGraphScales(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL);
 
@@ -416,7 +440,7 @@ const GSRRenderer = {
       if (this._peakOutOfView(p, tMin, tMax)) continue;
 
       const { xPeak, xOnset, yFilteredPeak, yPhasicPeak, yPhasicOnset } =
-        this._computePeakScreenPos(p, tMin, scales, yMinU, yBottomU, yMinL, yBottomL, showLowerMarker);
+        this._computePeakScreenPos(p, tMin, scales, yMinU, yBottomU, yMinL, yBottomL, showLowerMarker, showUpperMarker, markerSeries);
 
       const isActive  = (pIdx === AppState.activePeakIndex);
       const isHovered = (AppState.hoveredIndex >= p.onsetIndex && AppState.hoveredIndex <= p.index);
@@ -452,11 +476,13 @@ const GSRRenderer = {
         fill(canvasBg);
         circle(xOnset, yPhasicOnset, 6);
 
-        stroke(isExcluded ? color(lineClr + EXCLUDED_STYLE.lineAlpha) : color(peakColor + '3c'));
-        strokeWeight(1);
-        drawingContext.setLineDash(dashPat);
-        line(xPeak, yFilteredPeak, xPeak, yPhasicPeak);
-        drawingContext.setLineDash([]);
+        if (drawUpper) {
+          stroke(isExcluded ? color(lineClr + EXCLUDED_STYLE.lineAlpha) : color(peakColor + '3c'));
+          strokeWeight(1);
+          drawingContext.setLineDash(dashPat);
+          line(xPeak, yFilteredPeak, xPeak, yPhasicPeak);
+          drawingContext.setLineDash([]);
+        }
       }
 
       if (showLowerMarker) {
@@ -469,13 +495,16 @@ const GSRRenderer = {
         circle(xPeak, yPhasicPeak, isEmphasized ? 7 : 4);
       }
 
-      // Upper-graph marker (on the Filtered curve) always draws, regardless of
-      // what the lower panel is showing. Same minor-resting-state treatment
-      // as the lower marker above.
-      stroke(isEmphasized ? (isExcluded ? color(lineClr) : color(peakColor)) : restStroke);
-      strokeWeight(markerWt);
-      fill(isActive ? (isExcluded ? color(lineClr) : color(peakColor)) : restFill);
-      circle(xPeak, yFilteredPeak, isEmphasized ? 7 : 4);
+      // Upper-graph marker (on the Filtered curve) — drawn in every view that
+      // shows that curve (Signal, Both, and the peak-density/AUC/etc. modes
+      // where peaks only appear up top). Skipped in the single Phasic view,
+      // whose only curve is the phasic one the lower marker already sits on.
+      if (drawUpper) {
+        stroke(isEmphasized ? (isExcluded ? color(lineClr) : color(peakColor)) : restStroke);
+        strokeWeight(markerWt);
+        fill(isActive ? (isExcluded ? color(lineClr) : color(peakColor)) : restFill);
+        circle(xPeak, yFilteredPeak, isEmphasized ? 7 : 4);
+      }
 
       if (xPeak >= GSR_CONST.MARGIN.left && xPeak <= width - GSR_CONST.MARGIN.right) {
         AppState._peakClickTargets.push({
@@ -603,8 +632,9 @@ const GSRRenderer = {
    * hotspot reuses the normal peak focus/selection machinery by looking up
    * that real index — no separate selection state needed.
    */
-  drawHotspotMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL, showLowerMarker) {
+  drawHotspotMarkers(tMin, tMax, yMinU, yMaxU, yTopU, yBottomU, yMinL, yMaxL, yTopL, yBottomL, showLowerMarker, showUpperMarker, markerSeries) {
     if (showLowerMarker === undefined) showLowerMarker = true;
+    const drawUpper = showUpperMarker !== false; // see drawPeakMarkers()
     if (!AppState.showHotspots || !AppState.analyzer.memorableEvents || AppState.analyzer.memorableEvents.length === 0) {
       this.clearPulseRings();
       return;
@@ -627,7 +657,7 @@ const GSRRenderer = {
       if (this._peakOutOfView(p, tMin, tMax)) continue;
 
       const { xPeak, xOnset, yFilteredPeak, yPhasicPeak, yPhasicOnset } =
-        this._computePeakScreenPos(p, tMin, scales, yMinU, yBottomU, yMinL, yBottomL, showLowerMarker);
+        this._computePeakScreenPos(p, tMin, scales, yMinU, yBottomU, yMinL, yBottomL, showLowerMarker, showUpperMarker, markerSeries);
 
       const realIdx = AppState.analyzer.peaks.indexOf(p);
       const isActive = (realIdx !== -1 && realIdx === AppState.activePeakIndex);
@@ -640,11 +670,13 @@ const GSRRenderer = {
         fill(canvasBg);
         circle(xOnset, yPhasicOnset, isActive ? 8 : 5);
 
-        stroke(color(hotspotColor + '78'));
-        strokeWeight(1);
-        drawingContext.setLineDash(NORMAL_DASH);
-        line(xPeak, yFilteredPeak, xPeak, yPhasicPeak);
-        drawingContext.setLineDash([]);
+        if (drawUpper) {
+          stroke(color(hotspotColor + '78'));
+          strokeWeight(1);
+          drawingContext.setLineDash(NORMAL_DASH);
+          line(xPeak, yFilteredPeak, xPeak, yPhasicPeak);
+          drawingContext.setLineDash([]);
+        }
 
         const lowerKey = realIdx + ':lower';
         this._syncPulseRing(lowerKey, xPeak, yPhasicPeak, isActive ? 9 : 6, hotspotColor);
@@ -655,13 +687,15 @@ const GSRRenderer = {
         circle(xPeak, yPhasicPeak, isActive ? 9 : 6);
       }
 
-      const upperKey = realIdx + ':upper';
-      this._syncPulseRing(upperKey, xPeak, yFilteredPeak, isActive ? 9 : 6, hotspotColor);
-      seenPulseKeys.add(upperKey);
-      stroke(hotspotColor);
-      strokeWeight(2);
-      fill(isActive ? color(hotspotColor) : color(canvasBg));
-      circle(xPeak, yFilteredPeak, isActive ? 9 : 6);
+      if (drawUpper) {
+        const upperKey = realIdx + ':upper';
+        this._syncPulseRing(upperKey, xPeak, yFilteredPeak, isActive ? 9 : 6, hotspotColor);
+        seenPulseKeys.add(upperKey);
+        stroke(hotspotColor);
+        strokeWeight(2);
+        fill(isActive ? color(hotspotColor) : color(canvasBg));
+        circle(xPeak, yFilteredPeak, isActive ? 9 : 6);
+      }
 
       if (xPeak >= GSR_CONST.MARGIN.left && xPeak <= width - GSR_CONST.MARGIN.right && realIdx !== -1) {
         AppState._peakClickTargets.push({
@@ -784,6 +818,10 @@ const GSRRenderer = {
   },
 
   handleScrubber(tMin, tMax, yMinU, yMaxU, yBottomU, yMinL, yMaxL, yTopL, yBottomL) {
+    // One full-height plot: the time label goes in the top margin. In 'signal'
+    // view the scrubber shows a Filtered dot (+ a Phasic dot when that overlay
+    // is on); in a metric view it shows the metric's dot.
+    const _view = AppState.graphView || 'signal';
     // When the 3D globe owns the cursor (the user is hovering the 3D track),
     // draw the scrubber from AppState.hoveredIndex directly and skip the mouse
     // hit-testing below — otherwise this per-frame pass would immediately wipe
@@ -869,8 +907,8 @@ const GSRRenderer = {
     strokeWeight(1);
     line(xScrub, GSR_CONST.MARGIN.top, xScrub, yBottomL);
 
-    // Time label on scrubber in the gap between upper and lower graphs
-    const gapCenter = (yBottomU + yTopL) / 2;
+    // Time label on scrubber — in the top margin above the single plot
+    const gapCenter = GSR_CONST.MARGIN.top - 6;
     fill(color(colorFiltered));
     noStroke();
     textSize(10);
@@ -882,13 +920,22 @@ const GSRRenderer = {
     const yU = map(dFilt.val, yMinU, yMaxU, yBottomU, GSR_CONST.MARGIN.top);
     const yL = map(dLower.val, yMinL, yMaxL, yBottomL, yTopL);
 
-    stroke(colorFiltered);
-    fill(colorFiltered);
-    circle(xScrub, yU, 6);
-
-    stroke(colorLower);
-    fill(colorLower);
-    circle(xScrub, yL, 6);
+    if (_view === 'signal') {
+      stroke(colorFiltered);
+      fill(colorFiltered);
+      circle(xScrub, yU, 6);
+      // Phasic dot on the same µS axis, only while that overlay is shown
+      if (AppState.showPhasic && dPhasic) {
+        const cPhasic = this.getThemeColor('--color-phasic', '#008f3c');
+        stroke(cPhasic);
+        fill(cPhasic);
+        circle(xScrub, map(dPhasic.val, yMinU, yMaxU, yBottomU, GSR_CONST.MARGIN.top), 6);
+      }
+    } else {
+      stroke(colorLower);
+      fill(colorLower);
+      circle(xScrub, yL, 6);
+    }
 
     // The floating tooltip is anchored to mouseX/mouseY; when the hover is
     // driven from the 3D globe the mouse is off this canvas, so the scrubber

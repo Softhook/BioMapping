@@ -82,12 +82,22 @@ const AppState = {
   showRaw: true,
   showFiltered: true,
   showTonic: true,
+  showPhasic: false, // Phasic (SCR) overlaid on the Signal graph at the same µS scale
   showPeaks: true,
   showHotspots: true, // "Hotspots" = analyzer.memorableEvents, drawn via drawHotspotMarkers()
 
-  // ── Lower graph metric selector ─────────────────────────────────────────────
-  // 'phasic' | 'peakDensity' | 'phasicAUC' | 'arousalIndex' — see
-  // GSR_CONST.LOWER_GRAPH_MODES for display config of each option.
+  // ── Graph view selector ────────────────────────────────────────────────────
+  // Which single full-height plot the canvas shows:
+  //   'signal'                              — Raw/Filtered/Tonic (+ optional Phasic) overlaid (µS)
+  //   'tonic' | 'phasic' | 'peakDensity' | 'phasicAUC' | 'arousalIndex'
+  //                                         — that one series on its own axis
+  // Picking a metric view also arms it as lowerGraphMode.
+  graphView: 'signal',
+
+  // ── Graph metric selector ──────────────────────────────────────────────────
+  // 'tonic' | 'phasic' | 'peakDensity' | 'phasicAUC' | 'arousalIndex' — see
+  // GSR_CONST.LOWER_GRAPH_MODES for display config. The plotted series when
+  // graphView is a metric view.
   lowerGraphMode: 'phasic',
 
   // ── Interaction state ──────────────────────────────────────────────────────
