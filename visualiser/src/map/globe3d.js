@@ -373,6 +373,20 @@ class GSRGlobeManager {
     controller.minimumZoomDistance = 1.0;
     controller.maximumZoomDistance = 40000000.0;
 
+    // Tilt/orbit pivot: Cesium's tilt3D() picks its centre of rotation two
+    // different ways — the point under the CURSOR when the drag started (its
+    // low-altitude tilt3DOnTerrain path), or the point at the CENTRE OF THE
+    // CANVAS (its high-altitude tilt3DOnEllipsoid path, gated on
+    // minimumCollisionTerrainHeight, 15 km on WGS84). This view always sits well
+    // below 15 km, so the default gave an unpredictable cursor-anchored pivot.
+    // Forcing the gate negative keeps tilt on the canvas-centre pivot at every
+    // altitude — the predictable Google Earth style orbit. Cost: the same
+    // constant also gates terrain collision height-adjustment, so the pivot now
+    // rides the ellipsoid (sea level) rather than the terrain surface;
+    // negligible on the near-flat urban tracks this view shows, and
+    // minimumZoomDistance still stops the camera at the surface.
+    controller.minimumCollisionTerrainHeight = -1;
+
     // Mouse button mappings (Google Earth standard):
     // 1. Left Drag -> Pan / Rotate globe
     controller.rotateEventTypes = [
