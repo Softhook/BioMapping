@@ -13,7 +13,7 @@ window.BIOMAP_CONFIG = {
   //
   // Empty string: tiles still load, but every one carries an
   // "API key required" watermark.
-  cartoApiKey: '',
+  cartoApiKey: 'cb1_2jpj_1_ce521e3440f24660c3372534',
 };
 
 // Local dev only: layer config.local.js (gitignored, never deployed) on top of
