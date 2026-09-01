@@ -58,6 +58,7 @@ module.exports = {
   RESISTANCE_MIN_AVG: 50000,
   MICROSIEMENS_MIN_AVG: 100,
   MICROSIEMENS_MAX_AVG: 50000,
+  MICROSIEMENS_MAX_SCR: 20,   // Artefact ceiling for prominence detector (µS)
 
   PEAK_MIN_GAP: 1.3,
   PEAK_RECOVERY_BREAK: 0.1,

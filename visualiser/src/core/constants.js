@@ -151,6 +151,18 @@ const GSR_CONST = {
   RESISTANCE_MIN_AVG: 50000,  // Average above this → resistance (Ohms)
   MICROSIEMENS_MIN_AVG: 100,  // Average above this but ≤ threshold → µS/1000
   MICROSIEMENS_MAX_AVG: 50000,
+  // Hard ceiling for a single SCR amplitude, used by the prominence detector's
+  // artefact guard (see _detectPeaksByProminence). Real SCRs in even the most
+  // reactive subjects rarely exceed ~5 µS; 20 µS is 4× that and gives
+  // comfortable headroom for unusual recordings without admitting sensor
+  // artefacts. Electrode disconnects, motion artefacts and ADC rail-hits
+  // routinely produce spikes of hundreds of µS — the prominence detector is
+  // uniquely vulnerable to these because it identifies peaks by local shape
+  // (prominence), not absolute level, so a physically massive spike is simply
+  // a very prominent peak. The trough-to-peak detector avoids the problem
+  // because the LPF and peakThreshold clip spikes before detection; prominence
+  // has no such implicit ceiling and requires this explicit hard cap.
+  MICROSIEMENS_MAX_SCR: 20,
 
   // ── Peak detection ──────────────────────────────────────────────────────
   // Minimum gap between accepted peaks (seconds) — an SCR refractory period.

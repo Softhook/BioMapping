@@ -1664,10 +1664,28 @@ class GSRAnalyzer {
     // 1. Prominence for every sample in one O(n log n) sweep, then keep the
     //    local maxima that clear the threshold.
     const prom = this._topographicProminence(vals);
+    // Artefact ceiling: amplitude above this value cannot be a real SCR.
+    // Electrode disconnects, motion artefacts and ADC rail-hits produce spikes
+    // of hundreds of µS; the trough-to-peak detector avoids them because the
+    // LPF and peakThreshold clip them before detection, but the prominence
+    // detector has no implicit scale gate — a massive spike is simply very
+    // prominent. MICROSIEMENS_MAX_SCR (default 20 µS) is well above the
+    // physiological maximum (~5 µS in extreme subjects) and is tested against
+    // baselineAmp (apex minus trailing-window minimum), not the raw apex
+    // height, so it correctly handles artefacts sitting on a raised tonic.
+    const maxScrAmp = GSR_CONST.MICROSIEMENS_MAX_SCR != null
+      ? GSR_CONST.MICROSIEMENS_MAX_SCR : 20;
     const cand = [];
     for (let i = 1; i < n - 1; i++) {
       if (!(vals[i] > vals[i - 1] && vals[i] >= vals[i + 1])) continue;
       if (vals[i] < 0.001) continue;
+      // Fast artefact pre-filter: if the raw apex value already exceeds the
+      // ceiling there is no need to compute baseline amplitude — reject early.
+      // This catches artefact spikes whose local baseline is also elevated
+      // (so baselineAmp would be modest) but whose apex is still physically
+      // impossible as an SCR. The baselineAmp check further below handles the
+      // complementary case: a large-amplitude event riding a near-zero tonic.
+      if (vals[i] > maxScrAmp) continue;
       if (prom[i] < threshold) continue;
 
       // Onset = the deepest point on the way down to the left (the left
@@ -1686,7 +1704,12 @@ class GSRAnalyzer {
       for (let j = Math.max(0, i - baselineWin); j <= i; j++) {
         if (vals[j] < mn) mn = vals[j];
       }
-      cand.push({ i, h: vals[i], prominence: prom[i], onsetIdx, baselineAmp: vals[i] - mn });
+      const baselineAmp = vals[i] - mn;
+      // Apply the artefact ceiling after computing baselineAmp so that a spike
+      // riding a raised tonic baseline is assessed correctly (amplitude from
+      // the pre-burst level, not from zero).
+      if (baselineAmp > maxScrAmp) continue;
+      cand.push({ i, h: vals[i], prominence: prom[i], onsetIdx, baselineAmp });
     }
 
     // 2. Minimum-gap non-max suppression — largest prominence wins, same
