@@ -816,12 +816,14 @@ class GSRGlobeManager {
     if (!show) {
       this.clearOsmBuildingEntities();
       if (this.buildingsTileset) this.buildingsTileset.show = false;
+      if (onStatus) onStatus('');
       return;
     }
 
     // 1. Direct OpenStreetMap Overpass extrusion (100% token-free, open data)
     if (this.cachedOsmJson) {
       this.renderOsm3DBuildings(this.cachedOsmJson, style);
+      if (onStatus) onStatus('');
       return;
     }
 
@@ -853,7 +855,10 @@ class GSRGlobeManager {
     }
 
     // A toggle-off (or teardown) while the Overpass fetch was running wins.
-    if (!this.show3DBuildings || !this.viewer) return;
+    if (!this.show3DBuildings || !this.viewer) {
+      if (onStatus) onStatus('');
+      return;
+    }
 
     // 2. Fallback to Cesium ion global 3D tiles if token available
     if (!this.buildingsTileset) {

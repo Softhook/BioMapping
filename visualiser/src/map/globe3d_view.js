@@ -467,16 +467,24 @@ const GSRGlobe3DView = {
     if (!GSRGlobe3DView.isActive || !mgr) return;
     const style = (GSRGlobe3DView.els.buildingStyle && GSRGlobe3DView.els.buildingStyle.value) || 'monochrome';
 
-    if (!on) { mgr.toggle3DBuildings(false, style); return; }
+    if (!on) {
+      mgr.toggle3DBuildings(false, style, (m) => GSRGlobe3DView._setStatus(m));
+      GSRGlobe3DView._setStatus('');
+      return;
+    }
 
     Promise.resolve(GSRGlobe3DView._resolveOsmJson()).then((osmJson) => {
-      if (!GSRGlobe3DView.isActive || !GSRGlobe3DView.manager) return;
+      if (!GSRGlobe3DView.isActive || !GSRGlobe3DView.manager) {
+        GSRGlobe3DView._setStatus('');
+        return;
+      }
       if (osmJson) GSRGlobe3DView.manager.cachedOsmJson = osmJson;
       return GSRGlobe3DView.manager.toggle3DBuildings(true, style, (m) => GSRGlobe3DView._setStatus(m));
     }).then(() => {
       // The fetch may have populated analyzer.osmGeoms — let the 2D map's OSM
       // shapes button pick that up.
       if (typeof GSRUI !== 'undefined' && GSRUI.refreshOsmControls) GSRUI.refreshOsmControls();
+      GSRGlobe3DView._setStatus('');
     }).catch((e) => {
       console.warn('3D buildings OSM fetch failed:', e);
       GSRGlobe3DView._setStatus('');
@@ -701,12 +709,13 @@ const GSRGlobe3DView = {
   deactivate() {
     GSRGlobe3DView.isActive = false;
     GSRGlobe3DView._closePeakPopup();
+    GSRGlobe3DView._setStatus('');
     GSRGlobe3DView._lastScrubKey = null;
     const mgr = GSRGlobe3DView.manager;
     if (mgr) {
       if (typeof mgr.stopTour === 'function') mgr.stopTour();
-      mgr.setScrubPosition(NaN, NaN);
-      mgr.releaseFollowScrub();
+      if (typeof mgr.setScrubPosition === 'function') mgr.setScrubPosition(NaN, NaN);
+      if (typeof mgr.releaseFollowScrub === 'function') mgr.releaseFollowScrub();
     }
     GSRGlobe3DView._updateTourBtn(false);
     // Hand cursor ownership back to the graph if the 3D track had it.

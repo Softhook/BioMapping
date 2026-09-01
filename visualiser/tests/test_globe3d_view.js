@@ -201,6 +201,42 @@ test('the map header OSM button toggles 3D buildings (shared OSM data) while the
   V.isActive = false;
 });
 
+test('applyBuildings clears status messages (e.g. "Parsing geographical payload...") once completed or deactivated', async () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const doc = window.document;
+
+  const statusEl = doc.getElementById('globe3dStatus');
+  assert.ok(statusEl, 'status element exists');
+
+  V.manager = {
+    show3DBuildings: false, cachedOsmJson: null,
+    toggle3DBuildings: (on, style, onStatus) => {
+      if (on && onStatus) onStatus('Parsing geographical payload...');
+      return Promise.resolve();
+    },
+  };
+  V.isActive = true;
+  window.AppState.surfaceView = 'globe';
+
+  // Toggle on: status may be set during fetch/parse, but must be cleared when done
+  V.applyBuildings(true);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.strictEqual(statusEl.style.display, 'none', 'status element hidden after applyBuildings(true) resolves');
+  assert.strictEqual(statusEl.textContent, '', 'status text cleared after applyBuildings(true) resolves');
+
+  // If a status message was set before deactivation, deactivating clears it
+  V._setStatus('Parsing geographical payload...');
+  assert.strictEqual(statusEl.style.display, 'block');
+  V.deactivate();
+  assert.strictEqual(statusEl.style.display, 'none', 'status element hidden after deactivate()');
+  assert.strictEqual(statusEl.textContent, '', 'status text cleared after deactivate()');
+
+  V.manager = null;
+  V.isActive = false;
+});
+
 test('_resolveOsmJson reuses analyzer.osmJson and reconstructs osmGeoms for the 2D OSM button', async () => {
   const { window } = bootApp();
   window.setup();
