@@ -31,13 +31,29 @@ function setup() {
   AppState.myCanvas.elt.oncontextmenu = (e) => { e.preventDefault(); };
 
   // Track whether mouse is actually over the canvas (stale coordinates otherwise)
-  AppState.myCanvas.elt.addEventListener('mouseenter', () => { AppState.mouseOverCanvas = true; });
+  AppState.myCanvas.elt.addEventListener('mouseenter', () => {
+    AppState.mouseOverCanvas = true;
+    updateCanvasCursor();
+  });
   AppState.myCanvas.elt.addEventListener('mouseleave', () => {
     AppState.mouseOverCanvas = false;
+    if (AppState.myCanvas && AppState.myCanvas.elt) {
+      AppState.myCanvas.elt.style.cursor = 'default';
+    }
     // Without this, the scrubber/tooltip/map-cursor from the last hovered
     // position would stay stuck on screen until some unrelated redraw — see
     // mouseMoved() below for why hovering no longer keeps the loop running.
     redraw();
+  });
+
+  // Global mouseup safety so dragging never gets stuck if released outside the canvas
+  window.addEventListener('mouseup', () => {
+    if (AppState.isDragging || AppState.isDraggingTimeline) {
+      AppState.isDragging = false;
+      AppState.isDraggingTimeline = false;
+      updateCanvasCursor();
+      redraw();
+    }
   });
 
   GSREvents.cacheDOMElements();
@@ -300,14 +316,38 @@ function draw() {
   if (showTimeline) GSRRenderer.drawTimelineOverview(innerWidth, timelineHeight);
 }
 
+function updateCanvasCursor() {
+  if (!AppState.myCanvas || !AppState.myCanvas.elt) return;
+  let cur = 'default';
+  if (AppState.isDragging || AppState.isDraggingTimeline) {
+    cur = 'grabbing';
+  } else if (AppState.mouseOverCanvas && AppState.analyzer && AppState.analyzer.raw && AppState.analyzer.raw.length > 0) {
+    if ((typeof GSRRenderer.isOverExclude === 'function' && GSRRenderer.isOverExclude(mouseX, mouseY)) ||
+        (typeof GSRRenderer.isOverPeak === 'function' && GSRRenderer.isOverPeak(mouseX, mouseY))) {
+      cur = 'pointer';
+    } else if (mouseX >= GSR_CONST.MARGIN.left && mouseX <= width - GSR_CONST.MARGIN.right &&
+               mouseY >= AppState.yTimelineTop && mouseY <= AppState.yTimelineBottom) {
+      cur = 'ew-resize';
+    } else if (mouseX >= GSR_CONST.MARGIN.left && mouseX <= width - GSR_CONST.MARGIN.right &&
+               mouseY >= GSR_CONST.MARGIN.top && mouseY <= AppState.yGraphBottom) {
+      cur = 'crosshair';
+    }
+  }
+  AppState.myCanvas.elt.style.cursor = cur;
+}
+
 function mousePressed() {
   if (AppState.analyzer.raw.length === 0) return;
 
   // Check for click on an on-canvas exclude ✕ / ＋ button — abort drag if hit
-  if (GSRRenderer.checkExcludeHit(mouseX, mouseY)) return;
+  if (GSRRenderer.checkExcludeHit(mouseX, mouseY)) {
+    updateCanvasCursor();
+    return;
+  }
 
   // Check for click on a peak marker or vertical line — select if hit and abort drag
   if (GSRRenderer.checkPeakClick && GSRRenderer.checkPeakClick(mouseX, mouseY)) {
+    updateCanvasCursor();
     redraw();
     return;
   }
@@ -315,6 +355,7 @@ function mousePressed() {
   if (mouseX >= GSR_CONST.MARGIN.left && mouseX <= width - GSR_CONST.MARGIN.right &&
       mouseY >= AppState.yTimelineTop && mouseY <= AppState.yTimelineBottom) {
     AppState.isDraggingTimeline = true;
+    updateCanvasCursor();
     const clickTime = map(mouseX, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right, 0, AppState.totalDuration);
     AppState.viewStartTime = constrain(clickTime - AppState.viewDuration / 2, 0, Math.max(0, AppState.totalDuration - AppState.viewDuration));
     const select = document.getElementById('timeWindowSelect');
@@ -326,16 +367,19 @@ function mousePressed() {
     AppState.isDragging = true;
     AppState.dragStartMouseX = mouseX;
     AppState.dragStartViewStart = AppState.viewStartTime;
+    updateCanvasCursor();
   }
 }
 
 function mouseDragged() {
   if (AppState.isDraggingTimeline && AppState.analyzer.raw.length > 0) {
+    updateCanvasCursor();
     const dragTime = map(mouseX, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right, 0, AppState.totalDuration);
     AppState.viewStartTime = constrain(dragTime - AppState.viewDuration / 2, 0, Math.max(0, AppState.totalDuration - AppState.viewDuration));
     redraw();
   }
   else if (AppState.isDragging && AppState.analyzer.raw.length > 0) {
+    updateCanvasCursor();
     const mouseDx = mouseX - AppState.dragStartMouseX;
     const timePerPixel = AppState.viewDuration / (width - GSR_CONST.MARGIN.left - GSR_CONST.MARGIN.right);
     const timeShift = mouseDx * timePerPixel;
@@ -349,6 +393,7 @@ function mouseDragged() {
 function mouseReleased() {
   AppState.isDragging = false;
   AppState.isDraggingTimeline = false;
+  updateCanvasCursor();
 }
 
 // Restores hover-follow (tooltip / scrubber dot / map cursor sync,
@@ -363,7 +408,10 @@ function mouseReleased() {
 const coalescedHoverRedraw = GSREvents.rafCoalesce(() => redraw());
 
 function mouseMoved() {
-  if (AppState.mouseOverCanvas) coalescedHoverRedraw();
+  if (AppState.mouseOverCanvas) {
+    updateCanvasCursor();
+    coalescedHoverRedraw();
+  }
 }
 
 // Trackpads/mice can fire many wheel ticks per animation frame during a

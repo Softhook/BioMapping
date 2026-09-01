@@ -102,10 +102,12 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 16px;
+  padding: 10px 20px;
   background: var(--bg-card);
-  border: 1px solid var(--border-glass);
-  border-radius: 4px;
+  border-bottom: 1px solid var(--border-glass);
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .header-left {
@@ -556,6 +558,8 @@ input[type="range"]:focus-visible,
   cursor: pointer;
   transition: all 0.15s ease;
   font-family: var(--font-sans);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .btn-primary {
@@ -678,6 +682,8 @@ input[type="range"]:focus-visible,
   min-width: 0;   /* let contents shrink/truncate instead of overflowing into the next card */
   overflow: hidden;
   box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .stat-card:hover {
@@ -758,6 +764,8 @@ input[type="range"]:focus-visible,
   flex-shrink: 0;
   gap: 6px 10px;
   flex-wrap: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .panel-title-group {
@@ -941,6 +949,8 @@ input[type="range"]:focus-visible,
   padding: 4px 8px;
   border-radius: 4px;
   transition: all 0.2s ease;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .icon-btn:hover {
@@ -991,6 +1001,11 @@ input[type="range"]:focus-visible,
   overflow: hidden;
 }
 
+.canvas-container canvas {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 /* Canvas Placeholder when no file is loaded */
 .canvas-placeholder {
   position: absolute;
@@ -1005,6 +1020,8 @@ input[type="range"]:focus-visible,
   padding: 24px;
   text-align: center;
   z-index: 10;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .pulse-icon {
@@ -1043,6 +1060,8 @@ input[type="range"]:focus-visible,
   font-size: 0.75rem;
   background: rgba(17, 17, 17, 0.03);
   border-top: 1px solid var(--border-glass);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .legend {
@@ -1534,6 +1553,7 @@ input[type="range"]:focus-visible,
   border-radius: 50%;
   background: rgba(244, 63, 94, 0.4);
   position: absolute;
+  pointer-events: none !important;
   animation: pulse-glow 2s infinite ease-in-out;
 }
 
@@ -1564,6 +1584,7 @@ input[type="range"]:focus-visible,
   border-radius: 50%;
   background: rgba(255, 23, 68, 0.4); /* matches --color-hotspot (#ff1744) */
   position: absolute;
+  pointer-events: none !important;
   animation: pulse-glow 2s infinite ease-in-out;
 }
 
@@ -1605,9 +1626,11 @@ input[type="range"]:focus-visible,
 }
 
 /* Scrubbing Indicator Marker */
-.scrub-marker-icon {
+.scrub-marker-icon,
+.leaflet-marker-icon.scrub-marker-icon {
   background: transparent;
   border: none;
+  pointer-events: none !important;
 }
 
 .scrub-dot {
@@ -1617,6 +1640,7 @@ input[type="range"]:focus-visible,
   border: 2px solid white;
   border-radius: 50%;
   box-shadow: 0 0 10px var(--accent-primary);
+  pointer-events: none !important;
   animation: scrub-pulse 1s infinite alternate;
 }
 
@@ -2004,6 +2028,8 @@ input[type="range"]:focus-visible,
   gap: 5px;
   transition: color 0.12s ease;
   border-bottom: 2px solid transparent;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .view-tab:hover {
@@ -2042,6 +2068,8 @@ input[type="range"]:focus-visible,
   border-radius: 4px;
   padding: 6px 10px;
   transition: all 0.15s ease;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .track-item:hover {
@@ -2735,6 +2763,9 @@ input[type="range"]:focus-visible,
   inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Cesium's own credit/scene-mode chrome clutters a small embedded panel. */

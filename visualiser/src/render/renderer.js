@@ -755,8 +755,8 @@ const GSRRenderer = {
     text(isExcluded ? '+' : EXCLUDE_BTN.symbol, btnX, btnY);
     textStyle(NORMAL);
 
-    // Store for hit-testing in mousePressed
-    AppState._peakExcludeButtons.push({ idx: peakIdx, x: btnX, y: btnY, r: btnR + 2 });
+    // Store for hit-testing in mousePressed and hover cursor
+    AppState._peakExcludeButtons.push({ idx: peakIdx, x: btnX, y: btnY, r: btnR + 4 });
   },
 
   /**
@@ -774,6 +774,20 @@ const GSRRenderer = {
         GSRUI.togglePeakExclusion(btn.idx);
         return true;
       }
+    }
+    return false;
+  },
+
+  /**
+   * Check if canvas pointer is hovering over any exclude button without triggering a toggle.
+   */
+  isOverExclude(mx, my) {
+    const btns = AppState._peakExcludeButtons;
+    if (!btns || btns.length === 0) return false;
+    for (const btn of btns) {
+      const dx = mx - btn.x;
+      const dy = my - btn.y;
+      if (Math.sqrt(dx * dx + dy * dy) <= btn.r) return true;
     }
     return false;
   },
@@ -804,6 +818,25 @@ const GSRRenderer = {
         GSRUI.focusOnPeak(target.idx, 'graph');
         return true;
       }
+    }
+    return false;
+  },
+
+  /**
+   * Check if canvas pointer is hovering over any peak target without focusing.
+   */
+  isOverPeak(mx, my) {
+    const targets = AppState._peakClickTargets;
+    if (!targets || targets.length === 0) return false;
+    for (const target of targets) {
+      const dx1 = mx - target.x;
+      const dy1 = my - target.yFiltered;
+      if (Math.sqrt(dx1 * dx1 + dy1 * dy1) <= target.r) return true;
+      const dy2 = my - target.yPhasic;
+      if (Math.sqrt(dx1 * dx1 + dy2 * dy2) <= target.r) return true;
+      if (Math.abs(mx - target.x) <= 6 &&
+          my >= Math.min(target.yFiltered, target.yPhasic) - 6 &&
+          my <= Math.max(target.yFiltered, target.yPhasic) + 6) return true;
     }
     return false;
   },

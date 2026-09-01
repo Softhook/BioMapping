@@ -470,15 +470,12 @@ class GSRGlobeManager {
     }
 
     // 5c. MOUSE_MOVE over the 3D track -> report the nearest drawPoint's series
-    // index to the host, the 3D counterpart of hovering the 2D map path. The
-    // host walks the graph scrubber to that moment (see globe3d_view.js
-    // _onScrubHover). Cheap: an ellipsoid pick plus a linear scan of the drawn
-    // points, gated on a camera-height-scaled radius so a hover only "sticks"
-    // when the pointer is genuinely near the line.
-    // The pick is coalesced to one run per animation frame — several MOUSE_MOVEs
-    // can arrive between paints and only the last position matters.
+    // index to the host, the 3D counterpart of hovering the 2D map path, and
+    // dynamically update the cursor when hovering peaks (pointer), the track (crosshair),
+    // or the globe surface (grab / grabbing).
     this._pendingHoverPos = null;
     this._hoverRaf = 0;
+    this._isDraggingGlobe = false;
     const raf = (typeof window !== 'undefined' && window.requestAnimationFrame)
       ? window.requestAnimationFrame.bind(window)
       : (fn) => setTimeout(fn, 16);
@@ -486,20 +483,69 @@ class GSRGlobeManager {
       this._hoverRaf = 0;
       const pos = this._pendingHoverPos;
       this._pendingHoverPos = null;
-      if (!pos || !this._scrubHoverCb) return;
+      if (!pos) return;
+
+      let isPeak = false;
+      try {
+        const picked = scene.pick(pos);
+        isPeak = Boolean(picked && picked.id && typeof picked.id._biomapPeakIndex === 'number');
+      } catch (_) {}
+
       const hit = this._pickTrackPoint(pos);
-      this._scrubHoverCb(hit ? hit.origIdx : null, hit ? { lat: hit.lat, lon: hit.lon } : undefined);
+      if (this._scrubHoverCb) {
+        this._scrubHoverCb(hit ? hit.origIdx : null, hit ? { lat: hit.lat, lon: hit.lon } : undefined);
+      }
+
+      if (scene.canvas && scene.canvas.style) {
+        if (this._isDraggingGlobe) {
+          scene.canvas.style.cursor = 'grabbing';
+        } else if (isPeak) {
+          scene.canvas.style.cursor = 'pointer';
+        } else if (hit) {
+          scene.canvas.style.cursor = 'crosshair';
+        } else {
+          scene.canvas.style.cursor = 'grab';
+        }
+      }
     };
     this._screenSpaceHandler.setInputAction((movement) => {
-      if (!this._scrubHoverCb) return;
       this._pendingHoverPos = { x: movement.endPosition.x, y: movement.endPosition.y };
       if (!this._hoverRaf) this._hoverRaf = raf(runHoverPick);
     }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
+    this._canvasPointerDownHandler = () => {
+      this._isDraggingGlobe = true;
+      if (scene.canvas && scene.canvas.style) scene.canvas.style.cursor = 'grabbing';
+    };
+    this._canvasPointerUpHandler = () => {
+      this._isDraggingGlobe = false;
+      if (scene.canvas && scene.canvas.style) scene.canvas.style.cursor = 'grab';
+    };
+    this._windowPointerUpHandler = () => {
+      if (this._isDraggingGlobe) {
+        this._isDraggingGlobe = false;
+        if (scene.canvas && scene.canvas.style) scene.canvas.style.cursor = 'grab';
+      }
+    };
+
+    if (scene.canvas && typeof scene.canvas.addEventListener === 'function') {
+      scene.canvas.addEventListener('pointerdown', this._canvasPointerDownHandler);
+      scene.canvas.addEventListener('pointerup', this._canvasPointerUpHandler);
+    }
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('pointerup', this._windowPointerUpHandler);
+    }
+
     // The pointer leaving the canvas entirely fires no MOUSE_MOVE — clear the
-    // hover explicitly so the graph scrubber doesn't stick.
-    this._scrubHoverLeaveHandler = () => { if (this._scrubHoverCb) this._scrubHoverCb(null); };
-    scene.canvas.addEventListener('mouseleave', this._scrubHoverLeaveHandler);
+    // hover explicitly so the graph scrubber doesn't stick and restore default cursor.
+    this._scrubHoverLeaveHandler = () => {
+      this._isDraggingGlobe = false;
+      if (scene.canvas && scene.canvas.style) scene.canvas.style.cursor = 'default';
+      if (this._scrubHoverCb) this._scrubHoverCb(null);
+    };
+    if (scene.canvas && typeof scene.canvas.addEventListener === 'function') {
+      scene.canvas.addEventListener('mouseleave', this._scrubHoverLeaveHandler);
+    }
 
     // 6. Real-time WASD / Arrow Key flying controls (opt-out for shared-page hosts)
     if (this.keyboardFlight) {
@@ -669,6 +715,18 @@ class GSRGlobeManager {
     if (this._scrubHoverLeaveHandler && canvas) {
       canvas.removeEventListener('mouseleave', this._scrubHoverLeaveHandler);
     }
+    if (this._canvasPointerDownHandler && canvas) {
+      canvas.removeEventListener('pointerdown', this._canvasPointerDownHandler);
+    }
+    if (this._canvasPointerUpHandler && canvas) {
+      canvas.removeEventListener('pointerup', this._canvasPointerUpHandler);
+    }
+    if (this._windowPointerUpHandler && typeof window !== 'undefined') {
+      window.removeEventListener('pointerup', this._windowPointerUpHandler);
+    }
+    this._canvasPointerDownHandler = null;
+    this._canvasPointerUpHandler = null;
+    this._windowPointerUpHandler = null;
     this._scrubHoverLeaveHandler = null;
     this._scrubHoverCb = null;
 
