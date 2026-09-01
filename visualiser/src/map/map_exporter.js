@@ -801,38 +801,16 @@ class GSRMapExporter {
       }
     }
 
-    if (pts.length < 2) return `M${rawPts[0].x.toFixed(3)} ${rawPts[0].y.toFixed(3)}`;
-    if (pts.length === 2 || !smooth || exact) {
-      let d = `M${pts[0].x.toFixed(3)} ${pts[0].y.toFixed(3)}`;
-      for (let i = 1; i < pts.length; i++) {
-        d += ` L${pts[i].x.toFixed(3)} ${pts[i].y.toFixed(3)}`;
-      }
-      return close ? d + ' Z' : d;
+    const mode = (!smooth || exact) ? 'none' : curveMode;
+    if (typeof BezierSpline !== 'undefined' && typeof BezierSpline.fitPathD === 'function') {
+      return BezierSpline.fitPathD(pts, { curveMode: mode, closed: close, precision: 3 });
     }
 
-    // Curve-fitting math (centripetal Catmull-Rom / non-overshooting B-spline)
-    // lives in BezierSpline — pure {x,y} point math, no SVG concerns. This is
-    // just the SVG-specific half: pick the mode, then format the returned
-    // Bézier segments into a `d` string.
-    //
-    // bsplineToBezier only produces a curve for closed rings with >= 3 unique
-    // points (see its own doc comment for why) — it returns an empty segment
-    // list otherwise, in which case this falls through to Catmull-Rom, same
-    // as the original inline implementation did.
-    let fit = null;
-    if (curveMode === 'bspline') {
-      fit = BezierSpline.bsplineToBezier(pts, close);
-      if (fit.segments.length === 0) fit = null;
+    if (pts.length < 2) return `M${pts[0].x.toFixed(3)} ${pts[0].y.toFixed(3)}`;
+    let d = `M${pts[0].x.toFixed(3)} ${pts[0].y.toFixed(3)}`;
+    for (let i = 1; i < pts.length; i++) {
+      d += ` L${pts[i].x.toFixed(3)} ${pts[i].y.toFixed(3)}`;
     }
-    if (!fit) fit = BezierSpline.catmullRomToBezier(pts, close);
-
-    let d = `M${fit.start.x.toFixed(3)} ${fit.start.y.toFixed(3)}`;
-    fit.segments.forEach(s => {
-      d += ` C${s.c1.x.toFixed(3)} ${s.c1.y.toFixed(3)}, ${s.c2.x.toFixed(3)} ${s.c2.y.toFixed(3)}, ${s.end.x.toFixed(3)} ${s.end.y.toFixed(3)}`;
-    });
-    // bsplineToBezier's segments already wrap back to `fit.start` on their
-    // own (see its doc comment) — Z is a harmless no-op close in that case,
-    // same as it always was for the inline bspline branch.
     return close ? d + ' Z' : d;
   }
 
@@ -943,8 +921,11 @@ class GSRMapExporter {
   }
 
   static _ratioToHex(ratio, lightness = 50) {
+    if (typeof MapColors !== 'undefined' && typeof MapColors.ratioToHex === 'function') {
+      return MapColors.ratioToHex(ratio, lightness);
+    }
     const r = Math.max(0, Math.min(1, ratio));
-    const hue = (1.0 - r) * 120; // 120 = Green, 60 = Yellow, 0 = Red
+    const hue = (1.0 - r) * 120;
     return this._hslToHex(hue, 100, lightness);
   }
 

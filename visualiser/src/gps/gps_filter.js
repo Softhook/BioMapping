@@ -89,14 +89,13 @@ const GpsFilter = {
     if (!Q_m2 || !R_m2 || isNaN(Q_m2) || isNaN(R_m2) || Q_m2 <= 0 || R_m2 <= 0 || points.length < 2) return points;
     const n = points.length;
 
-    // Convert R and Q from metres squared to degrees squared.
-    // Latitude: 1° ≈ 111,320 m (constant).
-    // Longitude: 1° ≈ 111,320 × cos(lat) m — varies with latitude.
-    // Use the mean latitude of the track for a reasonable approximation.
+    // Convert R and Q from metres squared to degrees squared using geodesic scale.
     const meanLat = points.reduce((s, p) => s + p.lat, 0) / n;
-    const cosLat = Math.cos(meanLat * Math.PI / 180);
-    const M_TO_DEG_LAT = 1.0 / GeoUtils.METERS_PER_DEG_LAT;
-    const M_TO_DEG_LON = 1.0 / (GeoUtils.METERS_PER_DEG_LAT * cosLat);
+    const scale = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.getGeodesicScale === 'function')
+      ? GeoUtils.getGeodesicScale(meanLat)
+      : { degToMeterLat: 111320, degToMeterLon: 111320 * Math.cos(meanLat * Math.PI / 180) };
+    const M_TO_DEG_LAT = 1.0 / scale.degToMeterLat;
+    const M_TO_DEG_LON = 1.0 / scale.degToMeterLon;
     const M2_TO_DEG2_LAT = M_TO_DEG_LAT * M_TO_DEG_LAT;
     const M2_TO_DEG2_LON = M_TO_DEG_LON * M_TO_DEG_LON;
 
@@ -134,11 +133,11 @@ const GpsFilter = {
     const getRLat = (pt) => getEffectiveRm2(pt) * M2_TO_DEG2_LAT;
     const getRLon = (pt) => getEffectiveRm2(pt) * M2_TO_DEG2_LON;
 
-    const { forwardLats, forwardLons, fwdCovLat, fwdCovLon } =
+    const { forwardLats, forwardLons, fwdCovLat, fwdCovLon, isOutlier } =
       this._kalmanForwardPass(points, Q_LAT, Q_LON, R_LAT_BASE, R_LON_BASE, getRLat, getRLon);
 
     return this._rtsBackwardPass(
-      points, forwardLats, forwardLons, fwdCovLat, fwdCovLon,
+      points, forwardLats, forwardLons, fwdCovLat, fwdCovLon, isOutlier,
       Q_LAT, Q_LON, R_m2, M_TO_DEG_LAT
     );
   },
@@ -159,7 +158,7 @@ const GpsFilter = {
    * @param {number}   R_LON_BASE  - Base measurement variance, longitude (deg²).
    * @param {Function} getRLat     - Per-point effective R for latitude (deg²).
    * @param {Function} getRLon     - Per-point effective R for longitude (deg²).
-   * @returns {{ forwardLats, forwardLons, fwdCovLat, fwdCovLon }}
+   * @returns {{ forwardLats, forwardLons, fwdCovLat, fwdCovLon, isOutlier }}
    */
   _kalmanForwardPass(points, Q_LAT, Q_LON, R_LAT_BASE, R_LON_BASE, getRLat, getRLon) {
     const n = points.length;
@@ -168,6 +167,7 @@ const GpsFilter = {
     const forwardLons = new Array(n);
     const fwdCovLat   = new Array(n);
     const fwdCovLon   = new Array(n);
+    const isOutlier   = new Uint8Array(n);
 
     let xLat = points[0].lat,  xLon = points[0].lon;
     let PLat = R_LAT_BASE,      PLon = R_LON_BASE;
@@ -209,6 +209,7 @@ const GpsFilter = {
         // Outlier: inflate covariance so the filter can recover.
         // Without inflation, Q·dt (~0.5 m²/s) is too slow to grow P
         // and the filter stays locked out permanently (cascade rejection).
+        isOutlier[i] = 1;
         PLat = pPLat * 5.0;
       }
 
@@ -217,6 +218,7 @@ const GpsFilter = {
         xLon = xLon + kLon * innovLon;
         PLon = (1 - kLon) * pPLon;
       } else {
+        isOutlier[i] = 1;
         PLon = pPLon * 5.0;
       }
 
@@ -224,7 +226,7 @@ const GpsFilter = {
       fwdCovLat[i]   = PLat;  fwdCovLon[i]   = PLon;
     }
 
-    return { forwardLats, forwardLons, fwdCovLat, fwdCovLon };
+    return { forwardLats, forwardLons, fwdCovLat, fwdCovLon, isOutlier };
   },
 
   /**
@@ -240,13 +242,21 @@ const GpsFilter = {
    * @param {Array}    forwardLons - Filtered longitudes from the forward pass.
    * @param {Array}    fwdCovLat   - Forward-pass covariance, latitude.
    * @param {Array}    fwdCovLon   - Forward-pass covariance, longitude.
+   * @param {Uint8Array} isOutlier - Boolean mask of points rejected by chi2 innovation gate.
    * @param {number}   Q_LAT       - Process noise variance, latitude (deg²).
    * @param {number}   Q_LON       - Process noise variance, longitude (deg²).
    * @param {number}   R_m2        - Base measurement noise variance (metres²).
    * @param {number}   M_TO_DEG_LAT - Metres → degrees latitude conversion.
    * @returns {Array} Smoothed GPS point array (same shape as input points).
    */
-  _rtsBackwardPass(points, forwardLats, forwardLons, fwdCovLat, fwdCovLon, Q_LAT, Q_LON, R_m2, M_TO_DEG_LAT) {
+  _rtsBackwardPass(points, forwardLats, forwardLons, fwdCovLat, fwdCovLon, isOutlier, Q_LAT, Q_LON, R_m2, M_TO_DEG_LAT) {
+    if (typeof isOutlier === 'number') {
+      M_TO_DEG_LAT = R_m2;
+      R_m2 = Q_LON;
+      Q_LON = Q_LAT;
+      Q_LAT = isOutlier;
+      isOutlier = null;
+    }
     const n = points.length;
 
     // Per-point displacement clamp: prevents the RTS backward propagation
@@ -387,11 +397,12 @@ const GpsFilter = {
         prevHeadingY = headingY;
         prevHeadingX = headingX;
 
-        const cosLat    = Math.cos(prev.lat * DEG_TO_RAD);
-        const M_TO_DEG_LON = cosLat > 0.001 ? M_TO_DEG_LAT / cosLat : M_TO_DEG_LAT;
+        const scale = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.getGeodesicScale === 'function')
+          ? GeoUtils.getGeodesicScale(prev.lat)
+          : { degToMeterLat: 111320, degToMeterLon: 111320 * Math.cos(prev.lat * DEG_TO_RAD) };
         
-        predLat = prev.lat + speedMs * headingY * dt * M_TO_DEG_LAT;
-        predLon = prev.lon + speedMs * headingX * dt * M_TO_DEG_LON;
+        predLat = prev.lat + (speedMs * headingY * dt) / scale.degToMeterLat;
+        predLon = prev.lon + (speedMs * headingX * dt) / scale.degToMeterLon;
       } else {
         // If stationary or speed is too low, project zero displacement.
         // This acts as a standard position filter and avoids pause wobbles.

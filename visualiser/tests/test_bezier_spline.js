@@ -138,3 +138,30 @@ test('bsplineToBezier vs catmullRomToBezier: B-spline does not pass through the 
   // symmetric square it lands at the edge midpoint, not the corner.
   assert.ok(!pointsClose(bspline.segments[0].end, square[1], 1e-3));
 });
+
+// ── fitPathD ─────────────────────────────────────────────────────────────
+
+test('fitPathD: formats SVG path data for empty, linear, and curved splines', () => {
+  // Empty & single points
+  assert.strictEqual(BezierSpline.fitPathD([]), '');
+  assert.strictEqual(BezierSpline.fitPathD([{ x: 10.5, y: 20.25 }]), 'M10.500 20.250');
+
+  // Straight lines (2 points or curveMode='none')
+  const line = [{ x: 0, y: 0 }, { x: 10, y: 10 }];
+  assert.strictEqual(BezierSpline.fitPathD(line), 'M0.000 0.000 L10.000 10.000');
+  assert.strictEqual(BezierSpline.fitPathD(line, { closed: true }), 'M0.000 0.000 L10.000 10.000 Z');
+
+  // Catmull-Rom curved path
+  const curve = [{ x: 0, y: 0 }, { x: 10, y: 5 }, { x: 20, y: 0 }];
+  const dCurve = BezierSpline.fitPathD(curve, { curveMode: 'catmull-rom' });
+  assert.ok(dCurve.startsWith('M0.000 0.000 C'));
+  assert.ok(dCurve.includes('20.000 0.000'));
+
+  // Closed B-spline path
+  const closedSquare = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }, { x: 0, y: 0 }];
+  const dBSpline = BezierSpline.fitPathD(closedSquare, { curveMode: 'bspline', closed: true });
+  assert.ok(dBSpline.startsWith('M'));
+  assert.ok(dBSpline.endsWith(' Z'));
+  assert.ok(dBSpline.includes(' C'));
+});
+

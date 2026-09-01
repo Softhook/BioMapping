@@ -343,3 +343,32 @@ test('bboxIntersects and unionBBox: tests overlap and union correctly', () => {
   const union = GeoUtils.unionBBox([a, b, c]);
   assert.deepStrictEqual(union, { minLat: 0, maxLat: 6, minLon: 0, maxLon: 6 });
 });
+
+// ---------------------------------------------------------------------------
+// bearingRad & bearingDeg
+// ---------------------------------------------------------------------------
+
+test('bearingDeg and bearingRad: accurately calculate forward azimuth across cardinal and diagonal directions', () => {
+  // Due North
+  closeTo(GeoUtils.bearingDeg(0, 0, 1, 0), 0, 1e-6, 'North bearing');
+  closeTo(GeoUtils.bearingRad(0, 0, 1, 0), 0, 1e-6, 'North bearing rad');
+
+  // Due East along equator
+  closeTo(GeoUtils.bearingDeg(0, 0, 0, 1), 90, 1e-6, 'East bearing');
+  closeTo(GeoUtils.bearingRad(0, 0, 0, 1), Math.PI / 2, 1e-6, 'East bearing rad');
+
+  // Due South
+  closeTo(GeoUtils.bearingDeg(1, 0, 0, 0), 180, 1e-6, 'South bearing');
+  closeTo(GeoUtils.bearingRad(1, 0, 0, 0), Math.PI, 1e-6, 'South bearing rad');
+
+  // Due West along equator
+  closeTo(GeoUtils.bearingDeg(0, 1, 0, 0), 270, 1e-6, 'West bearing');
+  closeTo(GeoUtils.bearingRad(0, 1, 0, 0), -Math.PI / 2, 1e-6, 'West bearing rad');
+
+  // North-East diagonal (at equator)
+  closeTo(GeoUtils.bearingDeg(0, 0, 1, 1), 45, 0.5, 'North-East bearing');
+
+  // South-West diagonal
+  closeTo(GeoUtils.bearingDeg(1, 1, 0, 0), 225, 0.5, 'South-West bearing');
+});
+

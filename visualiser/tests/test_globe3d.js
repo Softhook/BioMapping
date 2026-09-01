@@ -69,6 +69,10 @@ function freshEnv() {
     imageryLayers: { removeAll() {}, addImageryProvider() {} },
   };
   const Cesium = autoStub();
+  Cesium.Math = {
+    toRadians: (deg) => (deg * Math.PI) / 180,
+    toDegrees: (rad) => (rad * 180) / Math.PI,
+  };
   Cesium.Viewer = function () { return viewer; };
   Cesium.Ion = { defaultAccessToken: '' };
   global.Cesium = Cesium;
@@ -1130,6 +1134,55 @@ test('renderData with empty or null analyzer clears all entities and resets stat
 
   mgr.destroy();
 });
+
+test('camera pitch clamping constrains pitch within [-89.9°, -10.0°] and cleans up on destroy', () => {
+  const { viewer } = freshEnv();
+  const { GSRGlobeManager } = loadFresh();
+
+  let setViewArgs = null;
+  viewer.camera.setView = (args) => { setViewArgs = args; };
+  viewer.camera.heading = 1.23;
+
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+  // 1. Pitch level with ground (0.0 rad / 0°) -> clamped to -10.0°
+  viewer.camera.pitch = 0.0;
+  mgr._enforceCameraPitchBounds();
+  assert.ok(setViewArgs, 'setView called when pitch is level with ground');
+  const expectedMaxPitch = Cesium.Math.toRadians(-10.0);
+  assert.ok(Math.abs(setViewArgs.orientation.pitch - expectedMaxPitch) < 1e-6, 'clamped to -10° max pitch');
+  assert.strictEqual(setViewArgs.orientation.heading, 1.23);
+  assert.strictEqual(setViewArgs.orientation.roll, 0.0);
+
+  // 2. Pitch pointing upward (+0.2 rad / sky) -> clamped to -10.0°
+  setViewArgs = null;
+  viewer.camera.pitch = 0.2;
+  mgr._enforceCameraPitchBounds();
+  assert.ok(setViewArgs, 'setView called when pitch is looking at sky');
+  assert.ok(Math.abs(setViewArgs.orientation.pitch - expectedMaxPitch) < 1e-6);
+
+  // 3. Pitch beyond straight down (-1.5708 rad / -90°) -> clamped to -89.9°
+  setViewArgs = null;
+  viewer.camera.pitch = -1.57079632679;
+  mgr._enforceCameraPitchBounds();
+  assert.ok(setViewArgs, 'setView called when pitch is straight down');
+  const expectedMinPitch = Cesium.Math.toRadians(-89.9);
+  assert.ok(Math.abs(setViewArgs.orientation.pitch - expectedMinPitch) < 1e-6);
+
+  // 4. In-bounds pitch (-0.785 rad / -45°) -> no setView call
+  setViewArgs = null;
+  viewer.camera.pitch = Cesium.Math.toRadians(-45.0);
+  mgr._enforceCameraPitchBounds();
+  assert.strictEqual(setViewArgs, null, 'no setView needed when pitch is within safe bounds');
+
+  // 5. destroy unregisters preRender pitch clamp listener
+  let pitchClampRemoved = false;
+  mgr._pitchClampRemover = () => { pitchClampRemoved = true; };
+  mgr.destroy();
+  assert.strictEqual(pitchClampRemoved, true, 'pitch clamp listener cleaned up on destroy');
+  assert.strictEqual(mgr._pitchClampRemover, null);
+});
+
 
 
 

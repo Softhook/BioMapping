@@ -103,6 +103,43 @@ const BezierSpline = {
     }
 
     return { start: first.start, segments };
+  },
+
+  /**
+   * Fit cubic Bézier spline curve(s) to points and format as an SVG path data string (`d`).
+   *
+   * @param {Array<{x:number, y:number}>} points - Screen/pixel coordinates.
+   * @param {object} [options]
+   * @param {'catmull-rom'|'bspline'|'none'} [options.curveMode='catmull-rom'] - Spline interpolation mode.
+   * @param {boolean} [options.closed=false] - Whether to close the path (with 'Z').
+   * @param {number} [options.precision=3] - Floating-point coordinate decimal places.
+   * @returns {string} SVG path `d` attribute string.
+   */
+  fitPathD(points, { curveMode = 'catmull-rom', closed = false, precision = 3 } = {}) {
+    if (!points || points.length === 0) return '';
+    const prec = precision;
+    if (points.length === 1) return `M${points[0].x.toFixed(prec)} ${points[0].y.toFixed(prec)}`;
+    if (curveMode === 'none' || points.length === 2) {
+      let d = `M${points[0].x.toFixed(prec)} ${points[0].y.toFixed(prec)}`;
+      for (let i = 1; i < points.length; i++) {
+        d += ` L${points[i].x.toFixed(prec)} ${points[i].y.toFixed(prec)}`;
+      }
+      return closed ? d + ' Z' : d;
+    }
+
+    let fit = null;
+    if (curveMode === 'bspline') {
+      fit = BezierSpline.bsplineToBezier(points, closed);
+      if (fit.segments.length === 0) fit = null;
+    }
+    if (!fit) fit = BezierSpline.catmullRomToBezier(points, closed);
+
+    let d = `M${fit.start.x.toFixed(prec)} ${fit.start.y.toFixed(prec)}`;
+    for (let i = 0; i < fit.segments.length; i++) {
+      const s = fit.segments[i];
+      d += ` C${s.c1.x.toFixed(prec)} ${s.c1.y.toFixed(prec)}, ${s.c2.x.toFixed(prec)} ${s.c2.y.toFixed(prec)}, ${s.end.x.toFixed(prec)} ${s.end.y.toFixed(prec)}`;
+    }
+    return closed ? d + ' Z' : d;
   }
 };
 

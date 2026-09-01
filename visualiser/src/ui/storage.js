@@ -98,6 +98,40 @@ const GSRStorage = {
   },
 
   /**
+   * Write GPS and spatial clustering slider values to the DOM.
+   * Shared by tracks.js and storage.js.
+   *
+   * @param {object} gps - GPS parameter values.
+   */
+  writeGpsSliderValues(gps) {
+    if (!gps || typeof gps !== 'object') return;
+    const S = AppState.sliders;
+    if (!S) return;
+
+    const gpsMap = {
+      smoothing: 'gpsSmoothing',
+      kalmanR: 'gpsKalmanR',
+      maxHdop: 'gpsMaxHdop',
+      maxSpeed: 'gpsMaxSpeed',
+      rdpTolerance: 'gpsRDP',
+      downsample: 'gpsDownsample',
+      trackWeight: 'gpsTrackWeight',
+      peakLatency: 'gpsPeakLatency',
+      clusterProximity: 'clusterProximity',
+      clusterBoundaryRadius: 'clusterBoundaryRadius'
+    };
+
+    for (const [key, val] of Object.entries(gps)) {
+      if (val === undefined) continue;
+      const sliderKey = gpsMap[key] || ('gps' + key.charAt(0).toUpperCase() + key.slice(1));
+      const slider = S[sliderKey] || S[key];
+      if (slider) {
+        slider.value = val;
+      }
+    }
+  },
+
+  /**
    * Read current Contour map surface slider values into a clean param object.
    */
   readContourSliderValues() {
@@ -246,16 +280,7 @@ const GSRStorage = {
     });
 
     // Restore GPS & Spatial Clustering sliders
-    if (gps.smoothing !== undefined && S.gpsSmoothing) S.gpsSmoothing.value = gps.smoothing;
-    if (gps.kalmanR !== undefined && S.gpsKalmanR) S.gpsKalmanR.value = gps.kalmanR;
-    if (gps.maxHdop !== undefined && S.gpsMaxHdop) S.gpsMaxHdop.value = gps.maxHdop;
-    if (gps.maxSpeed !== undefined && S.gpsMaxSpeed) S.gpsMaxSpeed.value = gps.maxSpeed;
-    if (gps.rdpTolerance !== undefined && S.gpsRDP) S.gpsRDP.value = gps.rdpTolerance;
-    if (gps.downsample !== undefined && S.gpsDownsample) S.gpsDownsample.value = gps.downsample;
-    if (gps.trackWeight !== undefined && S.gpsTrackWeight) S.gpsTrackWeight.value = gps.trackWeight;
-    if (gps.peakLatency !== undefined && S.gpsPeakLatency) S.gpsPeakLatency.value = gps.peakLatency;
-    if (gps.clusterProximity !== undefined && S.clusterProximity) S.clusterProximity.value = gps.clusterProximity;
-    if (gps.clusterBoundaryRadius !== undefined && S.clusterBoundaryRadius) S.clusterBoundaryRadius.value = gps.clusterBoundaryRadius;
+    this.writeGpsSliderValues(gps);
 
     // Restore Contour surface sliders
     const contour = preset.contour;

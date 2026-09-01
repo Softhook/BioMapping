@@ -175,6 +175,39 @@ const GeoUtils = {
   },
 
   /**
+   * Initial bearing (forward azimuth) from point 1 to point 2 in radians (-π..π).
+   *
+   * @param {number} lat1 - Start latitude.
+   * @param {number} lon1 - Start longitude.
+   * @param {number} lat2 - End latitude.
+   * @param {number} lon2 - End longitude.
+   * @returns {number} Bearing in radians.
+   */
+  bearingRad(lat1, lon1, lat2, lon2) {
+    const φ1 = parseFloat(lat1) * Math.PI / 180;
+    const φ2 = parseFloat(lat2) * Math.PI / 180;
+    const Δλ = (parseFloat(lon2) - parseFloat(lon1)) * Math.PI / 180;
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    return Math.atan2(y, x);
+  },
+
+  /**
+   * Initial bearing (forward azimuth) from point 1 to point 2 in degrees [0, 360).
+   *
+   * @param {number} lat1 - Start latitude.
+   * @param {number} lon1 - Start longitude.
+   * @param {number} lat2 - End latitude.
+   * @param {number} lon2 - End longitude.
+   * @returns {number} Compass bearing in degrees [0, 360).
+   */
+  bearingDeg(lat1, lon1, lat2, lon2) {
+    const rad = GeoUtils.bearingRad(lat1, lon1, lat2, lon2);
+    const deg = rad * 180 / Math.PI;
+    return (deg + 360) % 360;
+  },
+
+  /**
    * Haversine distance between two lat/lon points in metres.
    */
   haversineMeters(lat1, lon1, lat2, lon2) {

@@ -542,6 +542,14 @@ class GSRGlobeManager {
     };
     scene.canvas.addEventListener('webglcontextlost', this._onContextLost, false);
     scene.canvas.addEventListener('webglcontextrestored', this._onContextRestored, false);
+
+    // 9. Camera pitch clamping: constrain camera pitch so the view can never tilt
+    // completely level with the ground (0° / horizon) or into the sky (>0°),
+    // which breaks the ground-intersection ray and makes it very difficult to
+    // tilt back down. Clamped between -89.9° (top-down) and -10.0° (low-angle ground).
+    if (scene.preRender && typeof scene.preRender.addEventListener === 'function') {
+      this._pitchClampRemover = scene.preRender.addEventListener(() => this._enforceCameraPitchBounds());
+    }
   }
 
   /**
@@ -696,6 +704,10 @@ class GSRGlobeManager {
       this._postRenderRemover();
       this._postRenderRemover = null;
     }
+    if (this._pitchClampRemover) {
+      this._pitchClampRemover();
+      this._pitchClampRemover = null;
+    }
     if (this._wakeHandlers && this.viewer && this.viewer.scene && this.viewer.scene.canvas) {
       const canvas = this.viewer.scene.canvas;
       this._wakeHandlers.forEach(({ type, h }) => canvas.removeEventListener(type, h));
@@ -726,6 +738,41 @@ class GSRGlobeManager {
   _notifyError(err) {
     if (typeof GSRNotices !== 'undefined') GSRNotices.report(err, 'globe3d');
     else console.error('[globe3d]', err);
+  }
+
+  /**
+   * Constrain camera pitch within [-89.9°, -10.0°] so the view cannot tilt
+   * completely level with the ground (0° / horizon) or into the sky (>0°),
+   * which causes ray intersection with the globe to fail and makes it very
+   * difficult or impossible to tilt back down.
+   */
+  _enforceCameraPitchBounds() {
+    if (!this.viewer || !this.viewer.camera || this._isOrbiting) return;
+    const camera = this.viewer.camera;
+    const pitch = camera.pitch;
+    if (typeof pitch !== 'number' || isNaN(pitch)) return;
+
+    const toRad = (deg) => {
+      if (typeof Cesium !== 'undefined' && Cesium.Math && typeof Cesium.Math.toRadians === 'function') {
+        const val = Cesium.Math.toRadians(deg);
+        if (typeof val === 'number') return val;
+      }
+      return (deg * Math.PI) / 180.0;
+    };
+
+    const MIN_PITCH_RAD = toRad(-89.9);
+    const MAX_PITCH_RAD = toRad(-10.0);
+
+    if (pitch > MAX_PITCH_RAD || pitch < MIN_PITCH_RAD) {
+      const clampedPitch = Math.max(MIN_PITCH_RAD, Math.min(MAX_PITCH_RAD, pitch));
+      camera.setView({
+        orientation: {
+          heading: camera.heading,
+          pitch: clampedPitch,
+          roll: 0.0
+        }
+      });
+    }
   }
 
   /**
@@ -1964,10 +2011,12 @@ class GSRGlobeManager {
    */
   _calculateBearing(p1, p2) {
     if (!p1 || !p2) return 0;
+    if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.bearingDeg === 'function') {
+      return GeoUtils.bearingDeg(p1.lat, p1.lon, p2.lat, p2.lon);
+    }
     const toRad = (deg) => ((deg || 0) * Math.PI) / 180.0;
     const toDeg = (rad) => (rad * 180.0) / Math.PI;
-    const lat1 = toRad(p1.lat);
-    const lat2 = toRad(p2.lat);
+    const lat1 = toRad(p1.lat), lat2 = toRad(p2.lat);
     const dLon = toRad(p2.lon - p1.lon);
     const y = Math.sin(dLon) * Math.cos(lat2);
     const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);

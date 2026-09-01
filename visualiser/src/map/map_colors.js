@@ -54,12 +54,39 @@ const MapColors = {
    * @returns {string} Hex string.
    */
   hslStringToHex(hslStr) {
-    if (!hslStr || typeof hslStr !== 'string' || !hslStr.startsWith('hsl(')) return hslStr || '#666666';
-    const m = hslStr.match(/hsl\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*\)/);
+    if (!hslStr || typeof hslStr !== 'string' || !hslStr.startsWith('hsl(')) return hslStr;
+    const m = hslStr.match(/hsl\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*\)/i);
     if (m) {
       return MapColors.hslToHex(parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3]));
     }
     return hslStr;
+  },
+
+  /**
+   * Convert a normalized [0, 1] ratio to a green-to-red HSL string.
+   *
+   * @param {number} ratio - Normalized ratio [0, 1].
+   * @param {number} [saturation=100] - Saturation percentage.
+   * @param {number} [lightness=50] - Lightness percentage.
+   * @returns {string} HSL string.
+   */
+  ratioToHsl(ratio, saturation = 100, lightness = 50) {
+    const r = Math.max(0, Math.min(1, parseFloat(ratio) || 0));
+    const hue = (1.0 - r) * 120; // 120 = Green, 60 = Yellow, 0 = Red
+    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+  },
+
+  /**
+   * Convert a normalized [0, 1] ratio to a green-to-red hex (#rrggbb) string.
+   *
+   * @param {number} ratio - Normalized ratio [0, 1].
+   * @param {number} [lightness=50] - Lightness percentage.
+   * @returns {string} Hex string.
+   */
+  ratioToHex(ratio, lightness = 50) {
+    const r = Math.max(0, Math.min(1, parseFloat(ratio) || 0));
+    const hue = (1.0 - r) * 120;
+    return MapColors.hslToHex(hue, 100, lightness);
   },
 
   /**

@@ -500,8 +500,13 @@ const GSRTrackManager = {
 
   loadActiveGpsParams(track) {
     if (!track || !track.gpsFilterParams) return;
+    if (typeof GSRStorage !== 'undefined' && typeof GSRStorage.writeGpsSliderValues === 'function') {
+      GSRStorage.writeGpsSliderValues(track.gpsFilterParams);
+      return;
+    }
     const p = track.gpsFilterParams;
     const S = AppState.sliders;
+    if (!S) return;
 
     const gpsMap = {
       smoothing: 'gpsSmoothing',
@@ -511,7 +516,9 @@ const GSRTrackManager = {
       rdpTolerance: 'gpsRDP',
       downsample: 'gpsDownsample',
       trackWeight: 'gpsTrackWeight',
-      peakLatency: 'gpsPeakLatency'
+      peakLatency: 'gpsPeakLatency',
+      clusterProximity: 'clusterProximity',
+      clusterBoundaryRadius: 'clusterBoundaryRadius'
     };
 
     for (const [key, val] of Object.entries(p)) {

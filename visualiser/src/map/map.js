@@ -1234,20 +1234,15 @@ class GSRMapManager {
     }
 
     if (pCurrent && pNext) {
-      const lat1 = pCurrent.lat;
-      const lon1 = pCurrent.lon;
-      const lat2 = pNext.lat;
-      const lon2 = pNext.lon;
-
+      if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.bearingDeg === 'function') {
+        return GeoUtils.bearingDeg(pCurrent.lat, pCurrent.lon, pNext.lat, pNext.lon);
+      }
       const rad = Math.PI / 180;
-      const lat1Rad = lat1 * rad;
-      const lat2Rad = lat2 * rad;
-      const dLonRad = (lon2 - lon1) * rad;
-
+      const lat1Rad = pCurrent.lat * rad, lat2Rad = pNext.lat * rad;
+      const dLonRad = (pNext.lon - pCurrent.lon) * rad;
       const y = Math.sin(dLonRad) * Math.cos(lat2Rad);
       const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
                 Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLonRad);
-
       const brng = Math.atan2(y, x) / rad;
       return (brng + 360) % 360;
     }

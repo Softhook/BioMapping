@@ -561,3 +561,47 @@ test('applyPreset: swallows an error thrown by track.analyzer.analyze() and stil
     assert.strictEqual(ok, true);
   });
 });
+
+// ── GSRStorage.writeGpsSliderValues() ───────────────────────────────────
+
+test('writeGpsSliderValues: sets GPS slider values and handles mapped keys', () => {
+  resetGlobals();
+  const S = {
+    gpsSmoothing: el(0),
+    gpsKalmanR: el(0),
+    gpsMaxHdop: el(0),
+    gpsMaxSpeed: el(0),
+    gpsRDP: el(0),
+    gpsDownsample: el(0),
+    gpsTrackWeight: el(0),
+    gpsPeakLatency: el(0),
+    clusterProximity: el(0),
+    clusterBoundaryRadius: el(0),
+  };
+  global.AppState.sliders = S;
+
+  GSRStorage.writeGpsSliderValues({
+    smoothing: 0.8,
+    kalmanR: 15,
+    maxHdop: 2.5,
+    maxSpeed: 4.5,
+    rdpTolerance: 1.2,
+    downsample: 1,
+    trackWeight: 3,
+    peakLatency: 2.0,
+    clusterProximity: 40,
+    clusterBoundaryRadius: 8
+  });
+
+  assert.strictEqual(S.gpsSmoothing.value, 0.8);
+  assert.strictEqual(S.gpsKalmanR.value, 15);
+  assert.strictEqual(S.gpsMaxHdop.value, 2.5);
+  assert.strictEqual(S.gpsMaxSpeed.value, 4.5);
+  assert.strictEqual(S.gpsRDP.value, 1.2);
+  assert.strictEqual(S.gpsDownsample.value, 1);
+  assert.strictEqual(S.gpsTrackWeight.value, 3);
+  assert.strictEqual(S.gpsPeakLatency.value, 2.0);
+  assert.strictEqual(S.clusterProximity.value, 40);
+  assert.strictEqual(S.clusterBoundaryRadius.value, 8);
+});
+
