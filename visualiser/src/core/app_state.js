@@ -115,6 +115,10 @@ const AppState = {
   // handleScrubber(), globe3d_view.js _onScrubHover(), and the 'scrub' event.
   scrubSource: null,
 
+  // ── SCR Peaks table sort state ─────────────────────────────────────────────
+  peakSortColumn: 'index',  // 'index' | 'label' | 'amplitude' | 'riseTime' | 'quality' | 'excluded'
+  peakSortDirection: 'asc', // 'asc' | 'desc'
+
   // ── DOM element cache (populated by cacheDOMElements) ──────────────────────
   sliders: {},
   statFields: {},

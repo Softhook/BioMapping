@@ -1454,16 +1454,23 @@ class GSRGlobeManager {
   }
 
   /**
+   * Calculate 3D wall extrusion height for a peak sample.
+   */
+  _peakWallHeight(analyzer, peak) {
+    const metric = this.activeColoringMetric;
+    const heightMetric = HEIGHT_CAPABLE_METRICS.has(metric) ? metric : this.heightMetric;
+    const heightSeries = this._getMetricSeries(analyzer, heightMetric);
+    const val = heightSeries ? (heightSeries[peak.index] ?? peak.amplitude ?? 0) : (peak.amplitude ?? 0);
+    return this.baseHeight + Math.max(0, val) * this.extrusionScale;
+  }
+
+  /**
    * Render the 3D peak markers (a small circle just above the wall top, no
    * vertical stalk) and their labels.
    */
   _renderPeakSpires(analyzer, peaks) {
     if (!peaks || peaks.length === 0) return;
     if (!this.showPeaks && !this.showLabels) return;
-
-    const metric = this.activeColoringMetric;
-    const heightMetric = HEIGHT_CAPABLE_METRICS.has(metric) ? metric : this.heightMetric;
-    const heightSeries = this._getMetricSeries(analyzer, heightMetric);
 
     const allPeaks = analyzer.peaks || [];
 
@@ -1490,8 +1497,7 @@ class GSRGlobeManager {
       const lat = coords.lat;
       const lon = coords.lon;
 
-      const val = heightSeries[peak.index] ?? peak.amplitude;
-      const wallHeight = this.baseHeight + Math.max(0, val) * this.extrusionScale;
+      const wallHeight = this._peakWallHeight(analyzer, peak);
       // Circle sits just above the wall top — no vertical stalk.
       const markerPos = Cesium.Cartesian3.fromDegrees(lon, lat, wallHeight + 3.0);
 
@@ -1564,9 +1570,6 @@ class GSRGlobeManager {
     const events = analyzer && analyzer.memorableEvents;
     if (!events || events.length === 0 || !this.viewer) return;
 
-    const metric = this.activeColoringMetric;
-    const heightMetric = HEIGHT_CAPABLE_METRICS.has(metric) ? metric : this.heightMetric;
-    const heightSeries = this._getMetricSeries(analyzer, heightMetric);
     const allPeaks = analyzer.peaks || [];
     const hotColor = Cesium.Color.fromCssColorString('#ff1744'); // --color-hotspot
 
@@ -1575,8 +1578,7 @@ class GSRGlobeManager {
       if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
 
       const peakIdx = allPeaks.indexOf(peak);
-      const val = heightSeries[peak.index] ?? peak.amplitude ?? 0;
-      const wallHeight = this.baseHeight + Math.max(0, val) * this.extrusionScale;
+      const wallHeight = this._peakWallHeight(analyzer, peak);
       const tipHeight = wallHeight + 11.0; // sits above the regular peak circle
 
       const star = this.viewer.entities.add({
@@ -1785,6 +1787,44 @@ class GSRGlobeManager {
     this.clearOsmBuildingEntities();
     this.clearRfEntities();
     if (this.scrubEntity) this.scrubEntity.show = false;
+  }
+
+  /**
+   * Fly camera to focus on a specific peak index.
+   * @param {number} peakIdx  index into analyzer.peaks
+   * @param {GSRAnalyzer} [analyzer]  analyzer reference (defaults to AppState.analyzer)
+   */
+  flyToPeak(peakIdx, analyzer) {
+    if (!this.viewer || typeof Cesium === 'undefined') return;
+    const a = analyzer || (typeof AppState !== 'undefined' ? AppState.analyzer : null);
+    if (!a || !a.peaks || peakIdx < 0 || peakIdx >= a.peaks.length) return;
+
+    const peak = a.peaks[peakIdx];
+    const coords = this._latencyCoords(a, peak);
+    if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
+
+    this.releaseFollowScrub();
+    this.stopTour();
+    if (this._isOrbiting) this.stopOrbit();
+    this._wakeRenderLoop();
+
+    const lat = coords.lat;
+    const lon = coords.lon;
+    const wallHeight = this._peakWallHeight(a, peak);
+
+    // Center on the 3D spire position
+    const targetPos = Cesium.Cartesian3.fromDegrees(lon, lat, wallHeight + 3.0);
+    const boundingSphere = new Cesium.BoundingSphere(targetPos, 25.0);
+
+    const heading = this.viewer.camera.heading;
+    const pitch = Cesium.Math.toRadians(-35.0);
+    const range = Math.max(120.0, wallHeight * 1.5 + 80.0);
+    const offset = new Cesium.HeadingPitchRange(heading, pitch, range);
+
+    this.viewer.camera.flyToBoundingSphere(boundingSphere, {
+      offset: offset,
+      duration: 1.2
+    });
   }
 
   /**

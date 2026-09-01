@@ -279,6 +279,21 @@ const GSRGlobe3DView = {
   },
 
   /**
+   * Focus camera on a peak in 3D and open its interactive popup card.
+   * @param {number} peakIdx  index into AppState.analyzer.peaks
+   */
+  focusOnPeak(peakIdx) {
+    if (!GSRGlobe3DView.isActive) return;
+    const analyzer = (typeof AppState !== 'undefined') ? AppState.analyzer : null;
+    if (!analyzer || !analyzer.peaks || !analyzer.peaks[peakIdx]) return;
+
+    if (GSRGlobe3DView.manager && typeof GSRGlobe3DView.manager.flyToPeak === 'function') {
+      GSRGlobe3DView.manager.flyToPeak(peakIdx, analyzer);
+    }
+    GSRGlobe3DView._editPeakLabel(peakIdx);
+  },
+
+  /**
    * Peak clicked in 3D — open the EXACT same popup the 2D map uses for a peak
    * marker (built by GSRMapManager._buildPeakPopup: editable label textarea,
    * date/time/quality rows, Street View link, exclude button). Its inputs are
@@ -620,7 +635,12 @@ const GSRGlobe3DView = {
         heightMetric: 'phasic', // fixed — the wall auto-uses a magnitude colour metric, else phasic
         extrusionScale: GSRGlobe3DView.els.extrusion ? parseFloat(GSRGlobe3DView.els.extrusion.value) : 8.0
       });
-      GSRGlobe3DView.manager.onPeakClick((peakIdx) => GSRGlobe3DView._editPeakLabel(peakIdx));
+      GSRGlobe3DView.manager.onPeakClick((peakIdx, windowPos) => {
+        if (typeof GSRUI !== 'undefined' && typeof GSRUI.focusOnPeak === 'function') {
+          GSRUI.focusOnPeak(peakIdx, 'map');
+        }
+        GSRGlobe3DView._editPeakLabel(peakIdx, windowPos);
+      });
       GSRGlobe3DView.manager.onScrubHover((idx, ll) => GSRGlobe3DView._onScrubHover(idx, ll));
       GSRGlobe3DView.manager.onTourStep((stepIdx, totalSteps, wp) => {
         if (wp) {

@@ -164,13 +164,19 @@ const GSRUI = {
 
     // 3. Open map marker popup if not clicked from map marker itself and track has GPS
     if (source !== 'map' && hasGps) {
-      // Phase 1 (slice 3): the peakMarkers flat array is gone; resolve the
-      // marker for this peak index from the track layerGroups instead.
-      const peakMarker = (AppState.mapManager && typeof AppState.mapManager.getPeakMarkerByIndex === 'function')
-        ? AppState.mapManager.getPeakMarkerByIndex(idx)
-        : null;
-      if (peakMarker) {
-        setTimeout(() => peakMarker.openPopup(), 100);
+      if (AppState.surfaceView === 'globe' && typeof GSRGlobe3DView !== 'undefined' && GSRGlobe3DView.isActive) {
+        if (typeof GSRGlobe3DView.focusOnPeak === 'function') {
+          GSRGlobe3DView.focusOnPeak(idx);
+        }
+      } else {
+        // Phase 1 (slice 3): the peakMarkers flat array is gone; resolve the
+        // marker for this peak index from the track layerGroups instead.
+        const peakMarker = (AppState.mapManager && typeof AppState.mapManager.getPeakMarkerByIndex === 'function')
+          ? AppState.mapManager.getPeakMarkerByIndex(idx)
+          : null;
+        if (peakMarker) {
+          setTimeout(() => peakMarker.openPopup(), 100);
+        }
       }
     }
   },
@@ -340,24 +346,110 @@ const GSRUI = {
   },
 
   /**
+   * Sort the peaks table by a column key ('index'|'label'|'amplitude'|'riseTime'|'quality'|'excluded').
+   */
+  sortPeaksTable(col) {
+    if (!col) return;
+    if (AppState.peakSortColumn === col) {
+      AppState.peakSortDirection = (AppState.peakSortDirection === 'asc') ? 'desc' : 'asc';
+    } else {
+      AppState.peakSortColumn = col;
+      AppState.peakSortDirection = 'asc';
+    }
+    this.updatePeaksTable();
+  },
+
+  /**
+   * Update header icons and classes according to the active sort state.
+   */
+  updatePeaksTableSortHeaders() {
+    const table = document.getElementById('peaksTable');
+    if (!table) return;
+    const ths = table.querySelectorAll('thead th.sortable');
+    const curCol = AppState.peakSortColumn || 'index';
+    const curDir = AppState.peakSortDirection || 'asc';
+
+    ths.forEach(th => {
+      const col = th.dataset.sort;
+      const icon = th.querySelector('.sort-icon');
+      if (col === curCol) {
+        th.classList.remove('sort-asc', 'sort-desc');
+        th.classList.add(curDir === 'desc' ? 'sort-desc' : 'sort-asc');
+        if (icon) {
+          icon.className = 'fa-solid ' + (curDir === 'desc' ? 'fa-sort-down' : 'fa-sort-up') + ' sort-icon';
+        }
+      } else {
+        th.classList.remove('sort-asc', 'sort-desc');
+        if (icon) {
+          icon.className = 'fa-solid fa-sort sort-icon';
+        }
+      }
+    });
+  },
+
+  /**
    * Populate the peak events table below the graph.
    */
   updatePeaksTable() {
-    const peaks = AppState.analyzer.peaks;
+    const peaks = (AppState.analyzer && AppState.analyzer.peaks) ? AppState.analyzer.peaks : [];
     const tb    = AppState.tableBody;
+
+    if (!tb) return;
 
     if (peaks.length === 0) {
       tb.innerHTML = '<tr class="empty-row"><td colspan="7">No peaks detected. Try reducing the Peak Amplitude threshold.</td></tr>';
+      this.updatePeaksTableSortHeaders();
       return;
     }
 
+    const sortCol = AppState.peakSortColumn || 'index';
+    const sortDir = (AppState.peakSortDirection === 'desc') ? -1 : 1;
+
+    // Create array of { p, idx } pairs to sort without mutating AppState.analyzer.peaks
+    const indexedPeaks = peaks.map((p, idx) => ({ p, idx }));
+    const getRiseTime = (p) => (p.riseTime ?? (p.time - p.onsetTime) ?? 0);
+
+    indexedPeaks.sort((a, b) => {
+      let diff = 0;
+      switch (sortCol) {
+        case 'label': {
+          const lA = (a.p.label || '').trim().toLowerCase();
+          const lB = (b.p.label || '').trim().toLowerCase();
+          if (lA < lB) diff = -1;
+          else if (lA > lB) diff = 1;
+          break;
+        }
+        case 'amplitude':
+          diff = (a.p.amplitude ?? 0) - (b.p.amplitude ?? 0);
+          break;
+        case 'riseTime':
+          diff = getRiseTime(a.p) - getRiseTime(b.p);
+          break;
+        case 'quality':
+          diff = (a.p.qualityScore ?? 0) - (b.p.qualityScore ?? 0);
+          break;
+        case 'excluded':
+          diff = (a.p.excluded ? 1 : 0) - (b.p.excluded ? 1 : 0);
+          break;
+        case 'index':
+        default:
+          diff = a.idx - b.idx;
+          break;
+      }
+
+      if (diff !== 0) {
+        return diff * sortDir;
+      }
+      return a.idx - b.idx; // Stable fallback to chronological index
+    });
+
     let rowsHtml = "";
-    peaks.forEach((p, idx) => {
+    indexedPeaks.forEach(({ p, idx }) => {
       const rowClass = [];
       if (idx === AppState.activePeakIndex) rowClass.push('active-row');
       if (p.excluded) rowClass.push('excluded-row');
       const rowAttr = rowClass.length > 0 ? "class='" + rowClass.join(' ') + "'" : "";
-      const riseTimeStr = (p.riseTime || (p.time - p.onsetTime)).toFixed(2);
+      const riseTimeStr = getRiseTime(p).toFixed(2);
       const qScore = p.qualityScore !== undefined ? p.qualityScore : 0;
       const qColor = getQualityColor(qScore, '20');
       const { pct: qPct, label: qLabel } = getQualityLabel(qScore);
@@ -390,6 +482,9 @@ const GSRUI = {
     });
 
     tb.innerHTML = rowsHtml;
+
+    // Update header sort indicators
+    this.updatePeaksTableSortHeaders();
 
     // Auto-size all rendered textareas
     setTimeout(() => {

@@ -760,5 +760,91 @@ test('_pushFromMap in collective mode resolves drawPoints for active track and r
   V.isActive = false;
 });
 
+test('GSRGlobe3DView.focusOnPeak flies camera and opens 3D popup', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
 
+  window.AppState.analyzer = {
+    raw: [{ lat: 51.5, lon: -0.1, hasGps: true }],
+    peaks: [{ time: 42, label: 'Peak A', index: 0 }],
+    getCoordinates: () => ({ lat: 51.5, lon: -0.1 }),
+  };
 
+  const flyCalls = [];
+  V.manager = {
+    flyToPeak: (idx, a) => flyCalls.push({ idx, a }),
+  };
+  V.isActive = true;
+
+  let popupShown = null;
+  V._editPeakLabel = (idx) => { popupShown = idx; };
+
+  V.focusOnPeak(0);
+
+  assert.strictEqual(flyCalls.length, 1);
+  assert.strictEqual(flyCalls[0].idx, 0);
+  assert.strictEqual(popupShown, 0);
+
+  V.manager = null;
+  V.isActive = false;
+});
+
+test('GSRUI.focusOnPeak routes to GSRGlobe3DView.focusOnPeak when 3D surface is active', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+
+  window.AppState.analyzer = {
+    raw: [{ lat: 51.5, lon: -0.1, hasGps: true }],
+    peaks: [{ time: 42, onsetTime: 40, label: 'Peak A', index: 0 }],
+    getCoordinates: () => ({ lat: 51.5, lon: -0.1 }),
+  };
+  window.AppState.surfaceView = 'globe';
+  V.isActive = true;
+
+  let globeFocused = null;
+  V.focusOnPeak = (idx) => { globeFocused = idx; };
+
+  window.GSRUI.focusOnPeak(0, 'table');
+  assert.strictEqual(globeFocused, 0, 'focus routed to 3D globe');
+
+  V.isActive = false;
+});
+
+test('3D peak click triggers GSRUI.focusOnPeak with source=map and opens popup', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+
+  let registeredClickCb = null;
+  V.manager = {
+    onPeakClick: (cb) => { registeredClickCb = cb; },
+    onScrubHover: () => {},
+    onTourStep: () => {},
+  };
+
+  window.AppState.analyzer = {
+    raw: [{ lat: 51.5, lon: -0.1, hasGps: true }],
+    peaks: [{ time: 42, onsetTime: 40, label: 'Peak 1', index: 0 }],
+    getCoordinates: () => ({ lat: 51.5, lon: -0.1 }),
+  };
+
+  let popupIdx = null;
+  V._editPeakLabel = (idx) => { popupIdx = idx; };
+
+  let uiFocused = null;
+  window.GSRUI.focusOnPeak = (idx, src) => { uiFocused = { idx, src }; };
+
+  // Trigger the click callback as set in activate()
+  const cb = (peakIdx, pos) => {
+    window.GSRUI.focusOnPeak(peakIdx, 'map');
+    V._editPeakLabel(peakIdx, pos);
+  };
+
+  cb(0, { x: 100, y: 150 });
+  assert.deepStrictEqual(uiFocused, { idx: 0, src: 'map' });
+  assert.strictEqual(popupIdx, 0);
+
+  V.manager = null;
+});

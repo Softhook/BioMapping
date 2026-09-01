@@ -80,6 +80,23 @@ const GSREvents = {
     });
   },
 
+  /**
+   * Bind clickable column headers on the SCR Events table for sorting.
+   */
+  bindPeaksTableSort() {
+    const table = document.getElementById('peaksTable');
+    if (!table) return;
+    const ths = table.querySelectorAll('thead th.sortable');
+    ths.forEach(th => {
+      th.addEventListener('click', () => {
+        const col = th.dataset.sort;
+        if (col && typeof GSRUI !== 'undefined' && typeof GSRUI.sortPeaksTable === 'function') {
+          GSRUI.sortPeaksTable(col);
+        }
+      });
+    });
+  },
+
 
 
   /**
@@ -617,6 +634,9 @@ const GSREvents = {
     GSREvents.bindCollapseButton('btnMapCollapse',           'mapPanel');
     GSREvents.bindCollapseButton('btnOsmEnrichmentCollapse', 'osmEnrichmentCard');
     GSREvents.bindCollapseButton('btnEnvCollapse',           'environmentalPanel');
+
+    // ── SCR Events Table Sorting ────────────────────────────────────────────
+    GSREvents.bindPeaksTableSort();
 
     // ── Preset Export / Import Controls ─────────────────────────────────────
     const btnExportPreset = document.getElementById('btnExportPreset');
