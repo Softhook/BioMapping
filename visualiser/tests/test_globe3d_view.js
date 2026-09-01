@@ -111,6 +111,7 @@ test('surface switcher swaps the render container inside #mapPanel and reveals t
   assert.strictEqual(window.AppState.surfaceView, 'map');
   assert.ok(vis(window, 'map') && !vis(window, 'globe3dContainer'));
   assert.ok(!vis(window, 'mapDisplay3DGroup'), '3D settings hidden in 2D');
+  assert.ok(!vis(window, 'g3dBtnOrbit'), '3D camera controls hidden in 2D');
 
   // → 3D globe
   assert.doesNotThrow(() => btnGlobe.click());
@@ -118,6 +119,7 @@ test('surface switcher swaps the render container inside #mapPanel and reveals t
   assert.ok(!vis(window, 'map'), '#map hidden in 3D');
   assert.ok(vis(window, 'globe3dContainer'), '#globe3dContainer shown in 3D');
   assert.ok(vis(window, 'mapDisplay3DGroup'), '3D settings sub-section shown');
+  assert.ok(vis(window, 'g3dBtnOrbit'), '3D camera controls shown in 3D');
   assert.ok(vis(window, 'mapDisplayCard'), 'the one Map Display card stays visible');
   assert.ok(btnGlobe.classList.contains('active') && !btnMap.classList.contains('active'));
 
@@ -126,6 +128,7 @@ test('surface switcher swaps the render container inside #mapPanel and reveals t
   assert.strictEqual(window.AppState.surfaceView, 'map');
   assert.ok(vis(window, 'map') && !vis(window, 'globe3dContainer'));
   assert.ok(!vis(window, 'mapDisplay3DGroup'));
+  assert.ok(!vis(window, 'g3dBtnOrbit'));
 });
 
 test('shared header toggles dispatch to the globe manager while 3D is the mounted surface', () => {
@@ -744,13 +747,15 @@ test('Tour button in 3D camera controls toggles manager tour and updates UI', ()
   btnTour.click();
   assert.strictEqual(tourToggled, 1);
   assert.ok(btnTour.classList.contains('active'), 'button marked active');
-  assert.match(btnTour.innerHTML, /Pause/, 'button label updated to Pause');
+  assert.match(btnTour.innerHTML, /fa-pause/, 'button icon updated to pause');
+  assert.strictEqual(btnTour.title, 'Pause Tour', 'button title updated to Pause Tour');
 
   // Click 2 -> pause / stop tour
   btnTour.click();
   assert.strictEqual(tourToggled, 2);
   assert.strictEqual(btnTour.classList.contains('active'), false, 'button active class removed');
-  assert.match(btnTour.innerHTML, /Tour/, 'button label restored to Tour');
+  assert.match(btnTour.innerHTML, /fa-route/, 'button icon restored to route/tour');
+  assert.strictEqual(btnTour.title, 'Tour', 'button title restored to Tour');
 
   // Activate tour again then deactivate view -> stops tour
   btnTour.click();

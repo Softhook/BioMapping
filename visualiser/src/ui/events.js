@@ -964,6 +964,13 @@ const GSREvents = {
     const mapEl     = document.getElementById('map');
     const globeEl   = document.getElementById('globe3dContainer');
     const settings3d = document.getElementById('mapDisplay3DGroup');
+    const cameraBtns = [
+      document.getElementById('g3dBtnOrbit'),
+      document.getElementById('g3dBtnTour'),
+      document.getElementById('g3dBtnPersp3D'),
+      document.getElementById('g3dBtnPerspTop'),
+      document.getElementById('g3dBtnNorth')
+    ];
     const osmBtn    = document.getElementById('btnToggleOsmShapes');
 
     const show = (el, on) => { if (el) el.style.display = on ? '' : 'none'; };
@@ -977,6 +984,7 @@ const GSREvents = {
       show(mapEl, !toGlobe);
       show(globeEl, toGlobe);
       show(settings3d, toGlobe);
+      cameraBtns.forEach(btn => show(btn, toGlobe));
 
       // The OSM header button is ONE shared toggle: "2D vector shapes" on the
       // map, "3D OSM buildings" on the globe, same OSM data (see

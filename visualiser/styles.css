@@ -656,25 +656,25 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 12px;
-  min-height: 38px;
+  padding: 4px 10px;
+  min-height: 36px;
   border-bottom: 1px solid var(--border-glass);
   box-sizing: border-box;
   flex-shrink: 0;
-  gap: 8px 12px;
-  flex-wrap: wrap;
+  gap: 6px 10px;
+  flex-wrap: nowrap;
 }
 
 .panel-title-group {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
 }
 
 .panel-header h3 {
   font-family: var(--font-display);
-  font-size: 0.88rem;
+  font-size: 0.86rem;
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -691,8 +691,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
   color: var(--text-primary) !important;
   border: 1px solid rgba(255, 255, 255, 0.18) !important;
   border-radius: 5px !important;
-  padding: 2px 8px !important;
-  font-size: 0.76rem !important;
+  padding: 2px 6px !important;
+  font-size: 0.74rem !important;
   font-weight: 500 !important;
   height: 25px !important;
   cursor: pointer;
@@ -708,19 +708,22 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .canvas-controls {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 3px;
+  flex-wrap: nowrap;
+  gap: 3px;
   white-space: nowrap;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .canvas-controls .btn,
 .canvas-controls .btn-outline {
-  font-size: 0.76rem !important;
-  padding: 3px 7px !important;
-  height: 26px !important;
+  font-size: 0.74rem !important;
+  padding: 2px 6px !important;
+  height: 25px !important;
   line-height: 1.2 !important;
   border-radius: 4px !important;
   margin: 0 !important;
+  flex-shrink: 0;
 }
 
 /* Unified Segmented Button Group */
@@ -731,6 +734,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border-radius: 4px;
   overflow: hidden;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  flex-shrink: 0;
 }
 
 .btn-group .btn,
@@ -738,7 +742,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .btn-group .icon-btn {
   border-radius: 0 !important;
   margin: 0 !important;
-  height: 26px !important;
+  height: 25px !important;
   box-sizing: border-box;
 }
 
@@ -755,30 +759,46 @@ input[type="range"]::-webkit-slider-thumb:hover {
 /* Grouped icon buttons style */
 .btn-group .icon-btn {
   background: #ffffff;
-  padding: 0 6px !important;
+  padding: 0 4px !important;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px !important;
+  width: 25px !important;
 }
 
 .btn-group .icon-btn:hover {
   background: #f5f4f0;
 }
 
+.btn-group .icon-btn.active {
+  background: var(--text-primary) !important;
+  color: #ffffff !important;
+  border-color: var(--text-primary) !important;
+}
+
+.btn-group .icon-btn.active:hover {
+  background: var(--text-primary) !important;
+  color: #ffffff !important;
+}
+
 .canvas-controls .select-control {
+  width: auto !important;
+  max-width: 120px;
+  flex: 0 0 auto !important;
+  flex-shrink: 0 !important;
   background: #ffffff !important;
   color: var(--text-primary) !important;
   border: 1px solid var(--border-glass) !important;
   border-radius: 4px !important;
-  padding: 2px 8px !important;
-  font-size: 0.76rem !important;
+  padding: 2px 6px !important;
+  font-size: 0.74rem !important;
   font-weight: 500 !important;
-  height: 26px !important;
+  height: 25px !important;
   line-height: 1.2 !important;
   cursor: pointer;
   outline: none;
   margin: 0 !important;
+  box-sizing: border-box;
 }
 
 .canvas-controls .select-control:hover {
@@ -846,7 +866,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 .control-divider {
   display: inline-block;
-  width: 8px;
+  width: 4px;
   height: 1px;
   background-color: transparent;
   margin: 0;
@@ -1910,7 +1930,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .surface-switcher .view-tab {
   font-family: var(--font-display);
   font-size: 0.88rem;
-  padding: 2px 10px;
+  padding: 2px 8px;
 }
 .surface-switcher .view-tab i {
   font-size: 0.82em;
@@ -2663,18 +2683,5 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 .globe3d-peak-popup .map-popup-card { margin-right: 14px; }
 
-/* ── 3D Globe controls in the Map Display card (#mapDisplay3DGroup) ──────── */
-
-.g3d-btn-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.g3d-btn-grid .btn {
-  padding: 6px 4px;
-  font-size: 0.74rem;
-}
 
 

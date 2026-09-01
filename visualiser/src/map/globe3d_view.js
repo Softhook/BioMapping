@@ -81,7 +81,6 @@ const GSRGlobe3DView = {
       btnTour:      $('g3dBtnTour'),
       btnPersp3D:   $('g3dBtnPersp3D'),
       btnPerspTop:  $('g3dBtnPerspTop'),
-      btnPerspGround: $('g3dBtnPerspGround'),
       btnNorth:     $('g3dBtnNorth')
     };
 
@@ -258,24 +257,22 @@ const GSRGlobe3DView = {
       });
     }
     if (els.btnPersp3D)     els.btnPersp3D.addEventListener('click', () => {
-      if (m()) { m().setViewPerspective('3d'); GSRGlobe3DView._updateTourBtn(false); }
+      if (m()) { m().setViewPerspective('3d'); GSRGlobe3DView._updateTourBtn(false); if (els.btnOrbit) els.btnOrbit.classList.remove('active'); }
     });
     if (els.btnPerspTop)    els.btnPerspTop.addEventListener('click', () => {
-      if (m()) { m().setViewPerspective('top'); GSRGlobe3DView._updateTourBtn(false); }
-    });
-    if (els.btnPerspGround) els.btnPerspGround.addEventListener('click', () => {
-      if (m()) { m().setViewPerspective('ground'); GSRGlobe3DView._updateTourBtn(false); }
+      if (m()) { m().setViewPerspective('top'); GSRGlobe3DView._updateTourBtn(false); if (els.btnOrbit) els.btnOrbit.classList.remove('active'); }
     });
     if (els.btnNorth)  els.btnNorth.addEventListener('click', () => { if (m()) m().resetNorth(); });
   },
 
   _updateTourBtn(isTouring) {
-    const btn = GSRGlobe3DView.els.btnTour;
+    const btn = GSRGlobe3DView.els ? GSRGlobe3DView.els.btnTour : document.getElementById('g3dBtnTour');
     if (!btn) return;
     btn.classList.toggle('active', !!isTouring);
     btn.innerHTML = isTouring
-      ? '<i class="fa-solid fa-pause"></i> Pause'
-      : '<i class="fa-solid fa-route"></i> Tour';
+      ? '<i class="fa-solid fa-pause"></i>'
+      : '<i class="fa-solid fa-route"></i>';
+    btn.title = isTouring ? 'Pause Tour' : 'Tour';
   },
 
   /**
@@ -718,6 +715,9 @@ const GSRGlobe3DView = {
       if (typeof mgr.releaseFollowScrub === 'function') mgr.releaseFollowScrub();
     }
     GSRGlobe3DView._updateTourBtn(false);
+    if (GSRGlobe3DView.els && GSRGlobe3DView.els.btnOrbit) {
+      GSRGlobe3DView.els.btnOrbit.classList.remove('active');
+    }
     // Hand cursor ownership back to the graph if the 3D track had it.
     if (typeof AppState !== 'undefined' && AppState.scrubSource === 'globe') {
       AppState.scrubSource = null;

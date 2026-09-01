@@ -532,16 +532,6 @@
                   <input type="range" id="g3dRfOpacity" min="0.1" max="0.9" step="0.05" value="0.45">
                 </div>
               </div>
-
-              <div class="control-subgroup-title">Camera</div>
-              <div class="g3d-btn-grid">
-                <button class="btn btn-outline" id="g3dBtnOrbit"><i class="fa-solid fa-rotate"></i> 360° Orbit</button>
-                <button class="btn btn-outline" id="g3dBtnTour"><i class="fa-solid fa-route"></i> Tour</button>
-                <button class="btn btn-outline" id="g3dBtnPersp3D"><i class="fa-solid fa-cube"></i> 3D 45°</button>
-                <button class="btn btn-outline" id="g3dBtnPerspTop"><i class="fa-solid fa-map"></i> Top</button>
-                <button class="btn btn-outline" id="g3dBtnPerspGround"><i class="fa-solid fa-person-walking"></i> Ground</button>
-                <button class="btn btn-outline" id="g3dBtnNorth"><i class="fa-regular fa-compass"></i> North</button>
-              </div>
             </div>
           </div>
         </section>
@@ -780,7 +770,7 @@
                 <button class="btn btn-outline active" id="btnToggleHotspots">Hotspots</button>
               </div>
               <span class="control-divider"></span>
-              <select id="graphView" class="select-control" style="width: auto; min-width: 130px;" title="Graph view">
+              <select id="graphView" class="select-control" title="Graph view">
                 <option value="signal" selected>Signal</option>
                 <option value="tonic">Tonic (SCL)</option>
                 <option value="phasic">Phasic (SCR)</option>
@@ -818,10 +808,10 @@
                    is mounted; see GSREvents.setSurface / src/map/globe3d_view.js. -->
               <div class="view-switcher surface-switcher" title="Swap the map for the 3D globe (same data)">
                 <button class="view-tab surface-tab active" id="btnMapSurface" data-surface="map">
-                  <i class="fa-solid fa-map-location-dot"></i> 2D Map
+                  <i class="fa-solid fa-map-location-dot"></i> 2D
                 </button>
                 <button class="view-tab surface-tab" id="btnGlobeSurface" data-surface="globe">
-                  <i class="fa-solid fa-globe"></i> 3D Globe
+                  <i class="fa-solid fa-globe"></i> 3D
                 </button>
               </div>
             </div>
@@ -830,6 +820,11 @@
                 <button class="icon-btn" id="btnMapZoomIn" title="Zoom In"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
                 <button class="icon-btn" id="btnMapZoomOut" title="Zoom Out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
                 <button class="icon-btn" id="btnMapZoomExtent" title="Zoom to Extent"><i class="fa-solid fa-arrows-to-eye"></i></button>
+                <button class="icon-btn" id="g3dBtnOrbit" style="display: none;" title="360° Orbit"><i class="fa-solid fa-rotate"></i></button>
+                <button class="icon-btn" id="g3dBtnTour" style="display: none;" title="Tour"><i class="fa-solid fa-route"></i></button>
+                <button class="icon-btn" id="g3dBtnPersp3D" style="display: none;" title="3D 45° Perspective"><i class="fa-solid fa-cube"></i></button>
+                <button class="icon-btn" id="g3dBtnPerspTop" style="display: none;" title="Top View"><i class="fa-solid fa-map"></i></button>
+                <button class="icon-btn" id="g3dBtnNorth" style="display: none;" title="Reset North"><i class="fa-regular fa-compass"></i></button>
               </div>
               <span class="control-divider"></span>
               <div class="btn-group">
@@ -845,14 +840,14 @@
                 <button class="btn btn-outline active" id="btnToggleMapTracks" style="display: none;" title="Toggle Track Paths">Tracks</button>
               </div>
               <span class="control-divider"></span>
-              <select id="rfFluidMode" class="select-control btn btn-outline" style="width: auto; min-width: 100px;" title="Select RF Fluid visualization mode">
+              <select id="rfFluidMode" class="select-control btn btn-outline" title="Select RF Fluid visualization mode">
                 <option value="triband" selected>Tri-Band RGB</option>
                 <option value="815">815 MHz (LTE)</option>
                 <option value="868">868 MHz (Grid)</option>
                 <option value="915">915 MHz (ISM)</option>
                 <option value="fog">EM Fog</option>
               </select>
-              <select id="mapColoringMetric" class="select-control btn btn-outline" style="width: auto; min-width: 130px;" title="Select Map Metric">
+              <select id="mapColoringMetric" class="select-control btn btn-outline" title="Select Map Metric">
                 <option value="gsr" selected>GSR Arousal</option>
                 <option value="phasic">Phasic</option>
                 <option value="tonic">Tonic</option>
