@@ -759,12 +759,7 @@ class GSRMapManager {
         .filter(m => m._latlng && !isNaN(m._latlng.lat) && !isNaN(m._latlng.lng))
         .map(m => [m._latlng.lat, m._latlng.lng]);
       if (coords.length > 0) {
-        const fitOpts = { padding: [30, 30], maxZoom: 17, animate: true, duration: 0.45, easeLinearity: 0.25 };
-        if (typeof this.map.flyToBounds === 'function') {
-          this.map.flyToBounds(coords, fitOpts);
-        } else if (typeof this.map.fitBounds === 'function') {
-          this.map.fitBounds(coords, fitOpts);
-        }
+        this._flyOrFitBounds(coords);
         this._lastFitBoundsTrackId = cacheKey;
       }
     }
@@ -952,7 +947,16 @@ class GSRMapManager {
 
   _fitBounds(drawPoints, opts = {}) {
     if (!this.map || !drawPoints || drawPoints.length === 0) return;
-    const bounds = drawPoints.map(p => [p.lat, p.lon]);
+    this._flyOrFitBounds(drawPoints.map(p => [p.lat, p.lon]), opts);
+  }
+
+  /**
+   * Animate the map to a bounds (LatLngBounds or a [lat, lon] pair array),
+   * preferring flyToBounds and degrading to fitBounds. Pass `fly: false` in
+   * opts to force fitBounds. Shared by every auto-zoom-to-extent call site.
+   */
+  _flyOrFitBounds(bounds, opts = {}) {
+    if (!this.map || !bounds) return;
     const fitOpts = {
       padding: [30, 30],
       maxZoom: 17,
@@ -2301,13 +2305,7 @@ class GSRMapManager {
     const paths = this.getRenderLayers().paths;
     if (this.map && paths.length > 0) {
       const group = new L.featureGroup(paths);
-      const bounds = group.getBounds();
-      const fitOpts = { padding: [30, 30], maxZoom: 17, animate: true, duration: 0.45, easeLinearity: 0.25 };
-      if (typeof this.map.flyToBounds === 'function') {
-        this.map.flyToBounds(bounds, fitOpts);
-      } else if (typeof this.map.fitBounds === 'function') {
-        this.map.fitBounds(bounds, fitOpts);
-      }
+      this._flyOrFitBounds(group.getBounds());
     }
   }
 
@@ -2631,18 +2629,7 @@ class GSRMapManager {
           [bounds.minLat, bounds.minLon],
           [bounds.maxLat, bounds.maxLon]
         ];
-        const fitOpts = {
-          padding: [40, 40],
-          maxZoom: 17,
-          animate: true,
-          duration: 0.45,
-          easeLinearity: 0.25
-        };
-        if (typeof this.map.flyToBounds === 'function') {
-          this.map.flyToBounds(bbox, fitOpts);
-        } else if (typeof this.map.fitBounds === 'function') {
-          this.map.fitBounds(bbox, fitOpts);
-        }
+        this._flyOrFitBounds(bbox, { padding: [40, 40] });
       }
       this._lastFitBoundsTrackSet = trackSetSignature;
       if (!this._lastFitBoundsTrackId && typeof AppState !== 'undefined' && AppState.activeTrackId) {

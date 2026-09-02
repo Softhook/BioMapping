@@ -55,7 +55,11 @@ global.GSRRenderer = { drawPlaceholder: () => {} };
 // don't care about GPS-param persistence don't need to stub it themselves.
 // Tests that DO care override global.GSRStorage and restore this default
 // afterwards (see defaultGSRStorage below).
-const defaultGSRStorage = { readGsrSliderValues: () => ({}), readGpsSliderValues: () => ({}) };
+const defaultGSRStorage = {
+  readGsrSliderValues: () => ({}),
+  readGpsSliderValues: () => ({}),
+  writeGpsSliderValues: () => {},
+};
 global.GSRStorage = defaultGSRStorage;
 
 /**
@@ -720,67 +724,32 @@ test('saveActiveGpsParams: no-op when there is no active track', () => {
   delete global.AppState;
 });
 
-test('loadActiveGpsParams: maps known GPS keys to their dedicated slider names', () => {
+// loadActiveGpsParams delegates the slider-key mapping to
+// GSRStorage.writeGpsSliderValues (covered directly in test_storage.js); it
+// only owns the guard for an absent/param-less track.
+test('loadActiveGpsParams: forwards gpsFilterParams to GSRStorage.writeGpsSliderValues', () => {
   resetSpies();
   global.AppState = freshAppState();
-  global.AppState.sliders = {
-    gpsSmoothing: { value: null },
-    gpsKalmanR: { value: null },
-    gpsMaxHdop: { value: null },
-    gpsMaxSpeed: { value: null },
-    gpsRDP: { value: null },
-    gpsDownsample: { value: null },
-    gpsTrackWeight: { value: null },
-    gpsPeakLatency: { value: null },
-  };
-  const gpsParams = {
-    smoothing: 0.5, kalmanR: 10, maxHdop: 3.0, maxSpeed: 3.0,
-    rdpTolerance: 1.5, downsample: true, trackWeight: 5, peakLatency: 2.0,
-  };
+  const seen = [];
+  global.GSRStorage = { ...defaultGSRStorage, writeGpsSliderValues: (gps) => seen.push(gps) };
 
+  const gpsParams = { smoothing: 0.5, kalmanR: 10, rdpTolerance: 1.5 };
   GSRTrackManager.loadActiveGpsParams({ gpsFilterParams: gpsParams });
 
-  assert.strictEqual(global.AppState.sliders.gpsSmoothing.value, 0.5);
-  assert.strictEqual(global.AppState.sliders.gpsKalmanR.value, 10);
-  assert.strictEqual(global.AppState.sliders.gpsMaxHdop.value, 3.0);
-  assert.strictEqual(global.AppState.sliders.gpsMaxSpeed.value, 3.0);
-  assert.strictEqual(global.AppState.sliders.gpsRDP.value, 1.5, 'rdpTolerance -> gpsRDP (irregular mapping)');
-  assert.strictEqual(global.AppState.sliders.gpsDownsample.value, true);
-  assert.strictEqual(global.AppState.sliders.gpsTrackWeight.value, 5);
-  assert.strictEqual(global.AppState.sliders.gpsPeakLatency.value, 2.0);
-  delete global.AppState;
-});
-
-test('loadActiveGpsParams: falls back to the computed "gps"+CapKey slider name, then to the bare key', () => {
-  resetSpies();
-  global.AppState = freshAppState();
-  global.AppState.sliders = {
-    gpsFoo: { value: null },   // computed fallback: 'foo' -> 'gpsFoo'
-    bar: { value: null },      // no gpsBar slider exists -> falls back to bare 'bar'
-  };
-
-  GSRTrackManager.loadActiveGpsParams({ gpsFilterParams: { foo: 1, bar: 2, missing: 3 } });
-
-  assert.strictEqual(global.AppState.sliders.gpsFoo.value, 1);
-  assert.strictEqual(global.AppState.sliders.bar.value, 2);
-  // 'missing' has neither gpsMissing nor missing slider -> silently skipped, no throw.
-  delete global.AppState;
-});
-
-test('loadActiveGpsParams: undefined values in gpsFilterParams are skipped, not written as undefined', () => {
-  resetSpies();
-  global.AppState = freshAppState();
-  global.AppState.sliders = { gpsSmoothing: { value: 'sentinel' } };
-  GSRTrackManager.loadActiveGpsParams({ gpsFilterParams: { smoothing: undefined } });
-  assert.strictEqual(global.AppState.sliders.gpsSmoothing.value, 'sentinel');
+  assert.deepStrictEqual(seen, [gpsParams]);
+  global.GSRStorage = defaultGSRStorage;
   delete global.AppState;
 });
 
 test('loadActiveGpsParams: no-op for a null track or a track with no gpsFilterParams', () => {
   resetSpies();
   global.AppState = freshAppState();
+  let calls = 0;
+  global.GSRStorage = { ...defaultGSRStorage, writeGpsSliderValues: () => calls++ };
   assert.doesNotThrow(() => GSRTrackManager.loadActiveGpsParams(null));
   assert.doesNotThrow(() => GSRTrackManager.loadActiveGpsParams({}));
+  assert.strictEqual(calls, 0, 'writeGpsSliderValues not called when there are no params');
+  global.GSRStorage = defaultGSRStorage;
   delete global.AppState;
 });
 

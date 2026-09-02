@@ -1962,10 +1962,9 @@ class GSRAnalyzer {
    * Evaluated efficiently in O(n + peakCount) via a two-pointer sliding window (±3.5 sigma).
    *
    * @param {number|null} windowSizeSec - Spotlight time window in seconds (default: GSR_CONST.TEMPORAL_PEAK_DENSITY.windowSizeSec || 60)
-   * @param {number|null} customSigma - Optional explicit kernel bandwidth in seconds (default: windowSizeSec / 4)
    * @returns {Array<{time: number, val: number}>}
    */
-  computeTemporalPeakDensity(windowSizeSec = null, customSigma = null) {
+  computeTemporalPeakDensity(windowSizeSec = null) {
     const n = this.phasic.length;
     if (n === 0) return [];
 
@@ -1983,10 +1982,10 @@ class GSRAnalyzer {
       return emptyDensity;
     }
 
-    const dCfg = (typeof GSR_CONST !== 'undefined' && (GSR_CONST.TEMPORAL_PEAK_DENSITY || GSR_CONST.TEMPORAL_PEAK_KDE)) || {};
+    const dCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.TEMPORAL_PEAK_DENSITY) || {};
     const winSec = (windowSizeSec != null && windowSizeSec > 0) ? windowSizeSec : (dCfg.windowSizeSec || 60);
     const sigmaRatio = dCfg.sigmaRatio || 0.25;
-    const sigma = (customSigma != null && customSigma > 0) ? customSigma : (winSec * sigmaRatio);
+    const sigma = winSec * sigmaRatio;
     const cutoffMult = dCfg.cutoffMultiplier || 3.5;
     const scaleFactor = dCfg.scaleToPerMinute || 60.0;
 

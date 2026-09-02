@@ -513,35 +513,9 @@ const GSRTrackManager = {
 
   loadActiveGpsParams(track) {
     if (!track || !track.gpsFilterParams) return;
-    if (typeof GSRStorage !== 'undefined' && typeof GSRStorage.writeGpsSliderValues === 'function') {
-      GSRStorage.writeGpsSliderValues(track.gpsFilterParams);
-      return;
-    }
-    const p = track.gpsFilterParams;
-    const S = AppState.sliders;
-    if (!S) return;
-
-    const gpsMap = {
-      smoothing: 'gpsSmoothing',
-      kalmanR: 'gpsKalmanR',
-      maxHdop: 'gpsMaxHdop',
-      maxSpeed: 'gpsMaxSpeed',
-      rdpTolerance: 'gpsRDP',
-      downsample: 'gpsDownsample',
-      trackWeight: 'gpsTrackWeight',
-      peakLatency: 'gpsPeakLatency',
-      clusterProximity: 'clusterProximity',
-      clusterBoundaryRadius: 'clusterBoundaryRadius'
-    };
-
-    for (const [key, val] of Object.entries(p)) {
-      if (val === undefined) continue;
-      const sliderKey = gpsMap[key] || ('gps' + key.charAt(0).toUpperCase() + key.slice(1));
-      const slider = S[sliderKey] || S[key];
-      if (slider) {
-        slider.value = val;
-      }
-    }
+    // Slider-key mapping lives once in GSRStorage.writeGpsSliderValues (its
+    // mirror of saveActiveGpsParams' readGpsSliderValues).
+    GSRStorage.writeGpsSliderValues(track.gpsFilterParams);
   },
 
   /**

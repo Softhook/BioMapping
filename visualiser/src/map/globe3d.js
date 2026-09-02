@@ -810,16 +810,20 @@ class GSRGlobeManager {
     const pitch = camera.pitch;
     if (typeof pitch !== 'number' || isNaN(pitch)) return;
 
-    const toRad = (deg) => {
-      if (typeof Cesium !== 'undefined' && Cesium.Math && typeof Cesium.Math.toRadians === 'function') {
-        const val = Cesium.Math.toRadians(deg);
-        if (typeof val === 'number') return val;
-      }
-      return (deg * Math.PI) / 180.0;
-    };
-
-    const MIN_PITCH_RAD = toRad(-89.9);
-    const MAX_PITCH_RAD = toRad(-10.0);
+    // Runs on every preRender frame — compute the fixed bounds once.
+    if (this._minPitchRad === undefined) {
+      const toRad = (deg) => {
+        if (typeof Cesium !== 'undefined' && Cesium.Math && typeof Cesium.Math.toRadians === 'function') {
+          const val = Cesium.Math.toRadians(deg);
+          if (typeof val === 'number') return val;
+        }
+        return (deg * Math.PI) / 180.0;
+      };
+      this._minPitchRad = toRad(-89.9);
+      this._maxPitchRad = toRad(-10.0);
+    }
+    const MIN_PITCH_RAD = this._minPitchRad;
+    const MAX_PITCH_RAD = this._maxPitchRad;
 
     if (pitch > MAX_PITCH_RAD || pitch < MIN_PITCH_RAD) {
       const clampedPitch = Math.max(MIN_PITCH_RAD, Math.min(MAX_PITCH_RAD, pitch));
@@ -852,24 +856,21 @@ class GSRGlobeManager {
   }
 
   /**
-   * Switch perspective preset ('3d' | 'top' | 'ground')
+   * Switch perspective preset ('3d' | 'top')
    */
   setViewPerspective(mode) {
     if (!this.viewer) return;
     this.stopTour();
     this._wakeRenderLoop();
     const camera = this.viewer.camera;
-    let pitchDeg = -45.0;
-    if (mode === 'top') pitchDeg = -89.9; // top-down 2D
-    if (mode === 'ground') pitchDeg = -15.0; // eye-level 3D
-    if (mode === '3d') pitchDeg = -45.0; // isometric 3D
+    const pitchDeg = mode === 'top' ? -89.9 : -45.0; // top-down 2D vs isometric 3D
 
     if (this.currentDrawPoints && this.currentDrawPoints.length > 0) {
       const positions = this.currentDrawPoints.map(p => Cesium.Cartesian3.fromDegrees(p.lon, p.lat));
       const boundingSphere = Cesium.BoundingSphere.fromPoints(positions);
       const pitch = Cesium.Math.toRadians(pitchDeg);
       const heading = camera.heading;
-      const range = Math.max(boundingSphere.radius * (mode === 'ground' ? 1.4 : 2.2), 350.0);
+      const range = Math.max(boundingSphere.radius * 2.2, 350.0);
 
       this.viewer.camera.flyToBoundingSphere(boundingSphere, {
         offset: new Cesium.HeadingPitchRange(heading, pitch, range),

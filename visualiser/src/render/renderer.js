@@ -760,20 +760,54 @@ const GSRRenderer = {
   },
 
   /**
+   * Return the exclude button under a canvas (mx, my), or null. Pure hit-test
+   * shared by the click handler and the hover-cursor probe.
+   */
+  _hitExcludeButton(mx, my) {
+    const btns = AppState._peakExcludeButtons;
+    if (!btns || btns.length === 0) return null;
+    for (const btn of btns) {
+      const dx = mx - btn.x;
+      const dy = my - btn.y;
+      if (dx * dx + dy * dy <= btn.r * btn.r) return btn;
+    }
+    return null;
+  },
+
+  /**
+   * Return the peak click-target under a canvas (mx, my), or null. A hit is any
+   * of: the upper filtered dot, the lower phasic dot, or the vertical line
+   * joining them (within 6px horizontally, between the two dots). Pure hit-test
+   * shared by the click handler and the hover-cursor probe.
+   */
+  _hitPeakTarget(mx, my) {
+    const targets = AppState._peakClickTargets;
+    if (!targets || targets.length === 0) return null;
+    for (const target of targets) {
+      const dx = mx - target.x;
+      const rSq = target.r * target.r;
+      const dyF = my - target.yFiltered;
+      const dyP = my - target.yPhasic;
+      const isNearLine = Math.abs(dx) <= 6 &&
+                         my >= Math.min(target.yFiltered, target.yPhasic) - 6 &&
+                         my <= Math.max(target.yFiltered, target.yPhasic) + 6;
+      if (dx * dx + dyF * dyF <= rSq || dx * dx + dyP * dyP <= rSq || isNearLine) {
+        return target;
+      }
+    }
+    return null;
+  },
+
+  /**
    * Check if a canvas (mouseX, mouseY) click hits any exclude button.
    * If so, toggle exclusion for that peak and return true.
    * Called from sketch.js mousePressed before starting any drag.
    */
   checkExcludeHit(mx, my) {
-    const btns = AppState._peakExcludeButtons;
-    if (!btns || btns.length === 0) return false;
-    for (const btn of btns) {
-      const dx = mx - btn.x;
-      const dy = my - btn.y;
-      if (Math.sqrt(dx * dx + dy * dy) <= btn.r) {
-        GSRUI.togglePeakExclusion(btn.idx);
-        return true;
-      }
+    const btn = this._hitExcludeButton(mx, my);
+    if (btn) {
+      GSRUI.togglePeakExclusion(btn.idx);
+      return true;
     }
     return false;
   },
@@ -782,14 +816,7 @@ const GSRRenderer = {
    * Check if canvas pointer is hovering over any exclude button without triggering a toggle.
    */
   isOverExclude(mx, my) {
-    const btns = AppState._peakExcludeButtons;
-    if (!btns || btns.length === 0) return false;
-    for (const btn of btns) {
-      const dx = mx - btn.x;
-      const dy = my - btn.y;
-      if (Math.sqrt(dx * dx + dy * dy) <= btn.r) return true;
-    }
-    return false;
+    return this._hitExcludeButton(mx, my) !== null;
   },
 
   /**
@@ -797,27 +824,10 @@ const GSRRenderer = {
    * If so, focus/highlight the peak across all views and return true.
    */
   checkPeakClick(mx, my) {
-    const targets = AppState._peakClickTargets;
-    if (!targets || targets.length === 0) return false;
-    for (const target of targets) {
-      // Check hit for upper filtered circle
-      const dx1 = mx - target.x;
-      const dy1 = my - target.yFiltered;
-      const dist1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
-
-      // Check hit for lower phasic circle
-      const dy2 = my - target.yPhasic;
-      const dist2 = Math.sqrt(dx1 * dx1 + dy2 * dy2);
-
-      // Check hit for vertical line (within 6px horizontally, and between the circles)
-      const isNearLine = Math.abs(mx - target.x) <= 6 &&
-                         my >= Math.min(target.yFiltered, target.yPhasic) - 6 &&
-                         my <= Math.max(target.yFiltered, target.yPhasic) + 6;
-
-      if (dist1 <= target.r || dist2 <= target.r || isNearLine) {
-        GSRUI.focusOnPeak(target.idx, 'graph');
-        return true;
-      }
+    const target = this._hitPeakTarget(mx, my);
+    if (target) {
+      GSRUI.focusOnPeak(target.idx, 'graph');
+      return true;
     }
     return false;
   },
@@ -826,19 +836,7 @@ const GSRRenderer = {
    * Check if canvas pointer is hovering over any peak target without focusing.
    */
   isOverPeak(mx, my) {
-    const targets = AppState._peakClickTargets;
-    if (!targets || targets.length === 0) return false;
-    for (const target of targets) {
-      const dx1 = mx - target.x;
-      const dy1 = my - target.yFiltered;
-      if (Math.sqrt(dx1 * dx1 + dy1 * dy1) <= target.r) return true;
-      const dy2 = my - target.yPhasic;
-      if (Math.sqrt(dx1 * dx1 + dy2 * dy2) <= target.r) return true;
-      if (Math.abs(mx - target.x) <= 6 &&
-          my >= Math.min(target.yFiltered, target.yPhasic) - 6 &&
-          my <= Math.max(target.yFiltered, target.yPhasic) + 6) return true;
-    }
-    return false;
+    return this._hitPeakTarget(mx, my) !== null;
   },
 
   // Hide every surface's scrub cursor and release graph ownership of it. Used

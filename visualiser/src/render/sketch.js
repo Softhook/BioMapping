@@ -215,7 +215,8 @@ function draw() {
     triIndex:     { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' }
   };
   const gridPreset = lowerGridPresets[lowerMode] || lowerGridPresets.phasic;
-  const upperGridSteps = [[0.2, 0.02], [1.0, 0.1], [3.0, 0.5], [10, 1.0]];
+  // The upper (Filtered/Raw/Tonic, µS) plot uses the same grid as the Tonic preset.
+  const upperGridPreset = lowerGridPresets.tonic;
 
   const colorRaw = GSRRenderer.getThemeColor('--color-raw', '#7c7c76');
   const colorFiltered = GSRRenderer.getThemeColor('--color-filtered', '#005bc4');
@@ -256,7 +257,7 @@ function draw() {
   if (view === 'signal') {
     // 'Signal' - Raw / Filtered / Tonic (+ optional Phasic overlay), full height (uS)
     GSRRenderer.drawGridX(AppState.viewStartTime, viewEndTime, plotBottom, plotBottom, true);
-    GSRRenderer.drawGridY(yMinUpper, yMaxUpper, plotBottom, plotTop, upperGridSteps, 2.0, 2);
+    GSRRenderer.drawGridY(yMinUpper, yMaxUpper, plotBottom, plotTop, upperGridPreset.steps, upperGridPreset.defaultStep, upperGridPreset.decimals);
 
     if (AppState.showRaw) {
       GSRRenderer.drawSignalCurve(AppState.analyzer.raw, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, plotTop, plotBottom, color(colorRaw + '8c'), 1.5);
