@@ -43,6 +43,34 @@ The goal of introducing these advanced metrics and model frameworks is to direct
 | **Core Question** | *"Where in the urban landscape do stress responses concentrate?"* | *"How frequently was the participant's sympathetic nervous system firing at this moment?"* |
 | **Output Format** | Concave boundary polygons (blobs) or continuous density isolines (contours) on the map. | A continuous 1D time-series waveform plotted on the timeline graph. |
 
+> **Note (2026-09-02) — for the spatial map, prefer the continuous path.**
+> The spatial peak-clustering column above takes *coordinate points of discrete
+> stress peaks* as input. That is a weak basis for a spatial arousal surface: it
+> discards SCR amplitude (five tiny responses outrank two large ones), carries
+> the §3 threshold cliff into the map, and inherits every peak-detector
+> disagreement (see [`eda_decomposition_analysis.md`](eda_decomposition_analysis.md)
+> §1 — the deconvolution peak list runs 12–34 % phantom markers and up to ~30
+> missed per track). After a tens-of-metres KDE bandwidth those errors largely
+> wash out, and phantoms/misses both cluster near the same big SCRs and partly
+> cancel — so chasing a better peak detector (e.g. the prominence × deconvolution
+> hybrid in that doc's Tier 1½) buys little *for this visualisation*.
+>
+> The higher-leverage build is **Feature B (§8)**: a spatial surface from a
+> continuous, **dwell-normalised** integral of the phasic driver —
+> `∫ max(0, phasic) dt` accumulated per map cell, divided by the time (or path
+> length) spent in that cell, then IDW/KDE-smoothed. It uses response energy and
+> duration, has no threshold, and has no peak detector to be wrong.
+> Deconvolution still feeds this path via the phasic driver.
+>
+> The gaps that actually limit the surface, in order: per-cell **dwell-time
+> normalisation** (raw density tracks where the walker dawdled, not where they
+> were aroused); **GPS spatial registration** (a 10–20 m urban error moves an
+> event to the wrong street segment); **habituation drift** over the walk (early
+> locations over-represented); and **n = 1** with no repeat walk. Keep the
+> discrete prominence markers as the clickable annotation layer (§5A / §8
+> Feature A), where each pin is inspected individually and marker fidelity
+> matters.
+
 ### Core Goals & Advantages of Temporal Peak Density (PPM):
 * **Moving from "Binary Sparks" to "Sustained Stress":** Traditional peak-counting treats stress as a series of isolated, binary events (e.g. *"a peak happened here"*). It ignores the user's overall state of vigilance. Temporal density (PPM) quantifies *state vigilance*—differentiating between a participant who had one isolated spike in a park and one who is in a high-vigilance flurry of spikes (e.g., $>15\text{ PPM}$) in a crowded junction.
 * **Resilience to Travel Speed and Modality:** If a pedestrian walks slowly ($1\text{ m/s}$) and experiences 5 stress spikes over 100 meters, and a cyclist rides quickly ($5\text{ m/s}$) and experiences 5 spikes over the same 100 meters, their spatial density looks totally different. Normalizing to temporal density (peaks per minute) ensures they are compared fairly.

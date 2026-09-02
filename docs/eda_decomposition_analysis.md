@@ -406,7 +406,80 @@ the same per-track visual validation the audit used.
 peaks; A is a one-line policy change once the toggle wiring allows it and is
 worth trying first to see whether the split cases even matter on this data.
 Any of these must be checked track-by-track against the raw phasic before
-shipping — the failure modes here do not show up in aggregate counts.
+shipping — the failure modes here do not show up in aggregate counts. See
+*Precedent* below for how this sits relative to the published methods.
+
+#### Precedent, and how to position it
+
+**Is the hybrid in the literature?** Not as a named method — there is no
+citable "prominence × deconvolution" EDA algorithm. The ingredients are all
+established, so the honest framing is a **detector-assignment policy**, not a
+new algorithm: route each sub-question to the method with the right inductive
+bias — topographic prominence on the phasic for *does an SCR exist here, and
+when* (scale-free, kernel-free, no baseline-return assumption; formally the
+0-dimensional persistence of the signal's sublevel-set filtration),
+constrained deconvolution only for *is this one event or two fused under a
+single envelope*.
+
+**1 — Prominence-on-phasic is the toolbox-standard discrete detector, not an
+exotic choice.** NeuroKit2's default pipeline is `eda_phasic()` →
+`eda_findpeaks()`, whose `neurokit`/SciPy path takes local maxima of the
+phasic gated by minimum prominence, width and inter-peak distance — the
+prominence threshold commonly a fraction of, or one, phasic SD (stated
+outright in recent transformer-based EDA decomposition work,
+`arXiv:2506.06378`). Autonomate (Green et al. 2014) is an earlier unsupervised
+trough-to-peak scorer offered as an automated alternative to model-based
+decomposition. So **Option A is not a new method — it is adopting the
+mainstream discrete detector and declining to read discrete events off the
+driver.** Low-risk framing: "discrete SCR counting is aligned with
+NeuroKit2-style phasic peak detection; deconvolution is retained for the
+continuous driver and for overlap resolution."
+
+**2 — The kernel-mismatch concern, and the "don't auto-fit" conclusion, are
+independently established in calcium-imaging spike inference** — the same
+generative model (sparse non-negative events ∗ fixed biexponential + slow
+drift + noise). Pachitariu, Stringer & Harris (2018, *J. Neurosci.*): simple
+unconstrained non-negative deconvolution is remarkably robust and matches
+supervised CNNs, while **adding constraints and auto-calibrating kernel
+parameters makes performance worse** — direct external support for this
+document's Tier 1 rejection (per-recording τ fitting) and its Tier 2
+conclusion (keep the solver simple; the joint-NNLS refit was a regression).
+Berens et al. (2018, spikefinder) found many methods competitive with no
+single winner. Where that field does treat response-*shape* variability, it is
+with a physiological model carrying an amplitude-dependent decay nonlinearity
+(MLspike, Deneux et al. 2016) — exactly this document's "big SCRs recover
+slower" observation. What that field largely does *not* do is reconcile the
+discrete event list against the raw trace, because it has
+ground-truth-calibrated kernels and far less motion contamination than
+free-walking EDA. That gap is where the hybrid's actual novelty sits.
+
+**3 — Multi-scale deconvolution is the EDA literature's own answer to
+kernel-shape variability.** SparsEDA (Hernando-Gallego et al. 2018, *IEEE
+JBHI*): non-negative sparse deconvolution over an **overcomplete dictionary of
+SCR shapes of different widths**, choosing a width per impulse, joint SCL+SCR.
+It is both a Tier 2 alternative to "one fixed Bateman" and evidence that shape
+mismatch is a recognised problem with an accepted treatment — a dictionary,
+not a τ fit.
+
+**Positioning against the model-based-vs-peak-scoring debate.** Bach (2014)
+found model-based scoring (PsPM/SCRalyze) more sensitive than Ledalab
+peak-scoring *for detecting condition differences given known stimulus
+onsets*. The hybrid does not contradict this: with no onset times and a kernel
+that cannot be fitted on field data, the model's *positional* output degrades
+to reconstruction ripple, so phasic prominence becomes the more robust source
+of event timing — while deconvolution is kept where it still adds unique value
+(splitting fused SCRs, feeding the continuous metrics).
+
+**What could honestly be claimed.** Something modest and engineering-flavoured:
+a **reconciliation layer** (Option B — veto ripple-tiled reconstruction
+markers with no phasic saddle, rescue phasic peaks the reconstruction
+cancelled) plus the **ambulatory-field-data framing**. The deconvolution
+toolboxes were validated on lab recordings with cued stimuli; the contribution
+here is showing, over 64 free-walking recordings, that per-participant τ
+fitting is infeasible and that pure deconvolution's *discrete* output inherits
+kernel-shape mismatch as ripple, then quantifying the fix against a raw-phasic
+audit (12–34 % phantom markers, 0–32 missed per track). That is a methods /
+validation note, not a method paper.
 
 ### Tier 2 — Replace the solver (~450–550 LOC, no external library — see feasibility notes)
 
@@ -484,3 +557,10 @@ multiple recordings from the same participant.
 8. **Amin & Faghih (2022)** — state-space EDA, most comprehensive recent comparison. *PLOS Comput. Biol.* 18:e1010070.
 9. **Boucsein (2012)** — *Electrodermal Activity* (2nd ed.). Springer. ← inter-individual SCRF variability data.
 10. **Mallat & Zhang (1993)** — Matching Pursuit algorithm. *IEEE Trans. Signal Process.* 41:3397–3415.
+11. **Makowski et al. (2021)** — NeuroKit2. *Behav. Res. Methods* 53:1689–1696. ← `eda_phasic` → `eda_findpeaks` prominence/width/distance discrete detector (Tier 1½ Option A).
+12. **Green, Kragel, Fecteau & LaBar (2014)** — Autonomate, unsupervised SCR scoring. *Int. J. Psychophysiol.* 91(3):186–193.
+13. **Hernando-Gallego, Luengo & Artés-Rodríguez (2018)** — SparsEDA: non-negative sparse deconvolution over a multi-width SCR dictionary. *IEEE J. Biomed. Health Inform.* 22(5). ← literature's answer to kernel-shape variability.
+14. **Pachitariu, Stringer & Harris (2018)** — robustness of spike deconvolution; simple NND wins, kernel auto-calibration is counterproductive. *J. Neurosci.* 38(37):7976–7985. ← calcium-imaging analogue of Tiers 1–2.
+15. **Berens et al. (2018)** — spikefinder community benchmark of spike inference. *PLOS Comput. Biol.* 14(5):e1006157.
+16. **Deneux et al. (2016)** — MLspike: physiological model with amplitude-dependent decay nonlinearity. *Nat. Commun.* 7:12190. ← "big SCRs recover slower" as a modelled nonlinearity.
+17. **Transformer-Based Decomposition of Electrodermal Activity** (2025) — *arXiv:2506.06378*. ← phasic peaks via a one-SD prominence threshold.
