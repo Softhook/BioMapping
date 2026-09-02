@@ -62,6 +62,19 @@ The goal of introducing these advanced metrics and model frameworks is to direct
 > duration, has no threshold, and has no peak detector to be wrong.
 > Deconvolution still feeds this path via the phasic driver.
 >
+> **Single-track surface — tried and reverted (2026-09-02).** A short
+> evaluation build scoped the collective contour surface
+> (`generateContourSurface`) to one track and rendered it in single-track view
+> (source = Combined Arousal Index). Verdict: for a single, largely
+> non-self-intersecting walk the surface is close to the path polyline coloured
+> by the same metric, just blurred ~isolation-radius sideways — its real value
+> (many participants' passes combining into one field) needs multiple tracks.
+> Not worth a single-track feature; the collective surface already covers the
+> multi-track case. The code was reverted. Effort moved to making the existing
+> single-track layers **dwell-aware** instead — see `dwell_time_spec.md`
+> (cluster-blob intensity blended with SCR-rate / presence-time; no new map
+> layer).
+>
 > The gaps that actually limit the surface, in order: per-cell **dwell-time
 > normalisation** (raw density tracks where the walker dawdled, not where they
 > were aroused); **GPS spatial registration** (a 10–20 m urban error moves an
