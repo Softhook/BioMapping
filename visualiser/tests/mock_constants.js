@@ -108,6 +108,10 @@ module.exports = {
     sigma: 15, ampWeightMin: 0.55, ampWeightMax: 3.0
   },
 
+  PATH_OVERLAP: {
+    widthFactor: 1.0, maxRadiusM: 60, revisitGapS: 15
+  },
+
   COLLECTIVE: {
     gridResolution: 60, upsampledResolution: 240, blurIterations: 6,
     isolationRadius: 50, contourCount: 10,

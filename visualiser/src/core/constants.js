@@ -303,6 +303,19 @@ const GSR_CONST = {
     ampWeightMax: 3.0    // ceiling so one extreme outlier can't blow out the whole field
   },
 
+  // ── Overlap-aware path colour ─────────────────────────────────────────
+  // Where a walk retraces itself AND the two drawn strokes visually merge at
+  // the current zoom, _renderPathSegments colours that spot by the mean of the
+  // active metric across every nearby point instead of last-visit-wins. The
+  // "same spot" radius is the stroke's on-screen width converted to metres, so
+  // it scales with both the track-width slider and the zoom level.
+  // See docs/dwell_time_spec.md.
+  PATH_OVERLAP: {
+    widthFactor: 1.0,   // overlap radius = trackWeight(px) * metresPerPixel * this
+    maxRadiusM: 60,     // safety cap when zoomed right out (huge radii get slow + meaningless)
+    revisitGapS: 15     // nearby points more than this far apart in time = a distinct visit
+  },
+
   // ── Collective surface defaults ─────────────────────────────────────────
   COLLECTIVE: {
     gridResolution: 40,

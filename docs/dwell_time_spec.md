@@ -1,9 +1,58 @@
 # Dwell-Time Awareness — Implementation Spec
 
-> **Status (2026-09-02) — spec, not yet built.** Grew out of the single-track
-> arousal-surface evaluation (see `peak_density_vs_spatial_clustering.md` §2
-> note): the surface adds little for one track, so the effort moves to making
-> the *existing* single-track layers dwell-aware instead of adding a new one.
+> **Status (2026-09-02) — clusters REVERTED, overlap-path colour BUILT.**
+> Grew out of the single-track arousal-surface evaluation
+> (see `peak_density_vs_spatial_clustering.md` §2 note).
+>
+> A first pass shipped dwell-blended cluster intensity + a calmer stroke +
+> hot-core ring + a "Dwell-normalise clusters" toggle, on a new
+> `dwell_detector.js` (`presenceTime`/`blendRatio`). **The user did not like the
+> cluster changes and asked for them to be reverted** — all of that is gone,
+> the cluster blobs render exactly as before, and `dwell_detector.js` +
+> `GSR_CONST.DWELL` were deleted with it.
+>
+> **What remains / what shipped: overlap-aware path colour only.**
+> Where a walk retraces itself AND the two drawn strokes visually merge at the
+> current zoom, `_renderPathSegments` colours that stretch by the **mean of the
+> active metric over the overlap** instead of last-visit-wins. Non-categorical
+> metrics only; width/opacity unchanged; non-overlapping stretches, categorical
+> metrics and short paths stay byte-identical.
+>
+> Design (three steers → refactored for cost 2026-09-02):
+> - **The radius is VISUAL.** `_overlapRadiusMetres(drawPoints, trackWeight)` =
+>   stroke width (px) → metres at the map's current zoom (`latLngToLayerPoint`
+>   +`layerPointToLatLng`+`distanceTo`), `× widthFactor`, capped at `maxRadiusM`.
+>   "Same spot" == "the drawn lines merge on screen"; scales with width slider
+>   AND zoom.
+> - **Two linear passes, no per-point neighbour search / sort** (was
+>   `O(n·k·log k)` with a `sort` + `near` array per point):
+>   - `_buildOverlapCells` — bin points into `radiusM` cells; walking in time
+>     order, for each point scan its 3×3 block for a "stale" touch (last seen
+>     `> revisitGapS` ago) and flag both that cell and the current one. Time-
+>     based ⇒ boundary wiggle is never a revisit (straddle-safe). 3×3 scan ⇒
+>     adjacent-cell re-walks (GPS noise between visits) still caught. O(9n).
+>   - `_overlapPooledAccessor` — for each revisited cell, value = mean over its
+>     3×3 block (smooth along a re-walked street, not blocky). O(9·C), C = occupied
+>     cells. Accessor keys by location, so a spot reads the same however queried.
+> - **Legend/colour scale uses RAW values**, not pooled — pooling only recolours
+>   the overlapping segments, never rescales the whole path (or on every zoom).
+> - **Zoom re-pool is gated hard, and never jerks.** `_pathRetraces` (pass-1
+>   probe at `maxRadiusM`) runs once per render; if the path can't retrace
+>   itself at any zoom, `_refreshPathOnZoom` returns immediately — zero cost for
+>   the common non-overlapping walk. Otherwise, on `zoomend` it recomputes only
+>   the cheap pooled **fingerprint** (`.sig` on the accessor — a 32-bit hash of
+>   the pooled cell set, no Leaflet work) at the new zoom and rebuilds the path
+>   **only if it differs** from the last render's. Most small zoom steps don't
+>   change which stretches overlap, so no rebuild happens. Runs synchronously
+>   off `zoomend` (no `setTimeout`) so a recolour that does happen lands with
+>   the zoom, not delayed after it. Single-track only; no-op in collective;
+>   wrapped in try/catch so a zoom can never break.
+> - `GSR_CONST.PATH_OVERLAP { widthFactor: 1.0, maxRadiusM: 60, revisitGapS: 15 }`.
+> - map.js gained a guarded `module.exports` so the helpers are unit-testable
+>   (`tests/test_path_overlap_pooling.js`, 11 tests).
+>
+> Everything below this line is the ORIGINAL cluster spec, kept for history —
+> it does NOT describe shipped behaviour any more.
 
 ## Settled decisions
 

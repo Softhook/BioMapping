@@ -63,6 +63,18 @@ class GSRMapManager {
     this._lastFitBoundsTrackId = null;
     this._lastFitBoundsTrackSet = null;
 
+    // Overlap-aware path colour (see _overlapPooledAccessor). _refreshPathOnZoom
+    // uses these to skip the path rebuild on a zoom that can't change the
+    // overlap outcome: whether the last path can retrace itself at all, its
+    // pooled-outcome fingerprint, and the inputs needed to recompute that
+    // fingerprint cheaply at a new zoom.
+    this._pathHasRetrace = false;
+    this._lastPathZoom = null;
+    this._lastPathOverlapSig = 0;
+    this._lastPathTrackWeight = 5;
+    this._lastPathGetVal = null;
+    this._lastPathIsCategorical = false;
+
     this.initMap();
     this._initLegend();
   }
@@ -128,6 +140,13 @@ class GSRMapManager {
     if (typeof RFFluidRenderer !== 'undefined') {
       this.rfFluidRenderer = new RFFluidRenderer(this.map, { visible: true });
     }
+
+    // The overlap-aware path colour keys off how wide the track stroke reads
+    // on screen — which changes with zoom — so re-run the active path renderer
+    // once the zoom settles, keeping a re-walked street's pooled colour in step
+    // with what actually overlaps now. zoomend fires once per gesture; the
+    // handler cheap-outs until a path has been drawn.
+    this.map.on('zoomend', () => this._refreshPathOnZoom());
   }
 
   /**
@@ -1093,6 +1112,235 @@ class GSRMapManager {
     this.osmLayers = [];
   }
 
+  /**
+   * Pass 1 of overlap-aware colour: bin the draw points into a grid of
+   * `radiusM` cells, accumulate each cell's metric sum/count, and — walking the
+   * path in time order — flag the cells where the path RE-ENTERS a place it
+   * had left more than `revisitGapS` seconds ago. For each point the 3×3 block
+   * around its cell is checked for a "stale" touch (last seen > revisitGapS
+   * ago); when found, both the stale cell and the current cell are flagged, so
+   * two passes that run alongside each other in *adjacent* cells (GPS noise
+   * between visits) are still caught, not just pixel-exact re-walks.
+   *
+   * The re-entry test is on *elapsed time*, so a path merely wiggling across a
+   * cell boundary (re-touches milliseconds apart) is never a revisit — no
+   * grid-straddle false positive, and no sorting. One linear pass, 9 map reads
+   * per point, one small object per occupied cell.
+   *
+   * @param {Array<{lat:number, lon:number, time:number}>} drawPoints
+   * @param {(p:object) => number} getVal
+   * @param {number} radiusM  cell edge in metres
+   * @param {number} revisitGapS
+   * @returns {{ cells: Map<string,{cr,cc,sum,count,lastT,revisited}>,
+   *            rLat:number, rLon:number, anyRevisited:boolean } | null}
+   * @private
+   */
+  static _buildOverlapCells(drawPoints, getVal, radiusM, revisitGapS) {
+    if (!Array.isArray(drawPoints) || drawPoints.length < 4 || !(radiusM > 0)) return null;
+    if (typeof GeoUtils === 'undefined' || typeof GeoUtils.getGeodesicScale !== 'function') return null;
+
+    const sc = GeoUtils.getGeodesicScale(drawPoints[drawPoints.length >> 1].lat);
+    const mLat = sc.degToMeterLat || 111320;
+    const mLon = Math.abs(sc.degToMeterLon) > 1 ? Math.abs(sc.degToMeterLon) : 1;
+    const rLat = radiusM / mLat;
+    const rLon = radiusM / mLon;
+
+    const cells = new Map();
+    let anyRevisited = false;
+    for (let i = 0; i < drawPoints.length; i++) {
+      const p = drawPoints[i];
+      const v = getVal(p);
+      if (v === undefined || v === null || (typeof v === 'number' && isNaN(v))) continue;
+      const t = p.time;
+      const cr = Math.floor(p.lat / rLat);
+      const cc = Math.floor(p.lon / rLon);
+      const k = cr + '|' + cc;
+
+      // Re-entry? Scan the 3×3 block (including this cell) for a stale touch.
+      let reentry = false;
+      if (isFinite(t)) {
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            const nb = cells.get((cr + dr) + '|' + (cc + dc));
+            if (nb && isFinite(nb.lastT) && t - nb.lastT > revisitGapS) {
+              nb.revisited = true;
+              reentry = true;
+            }
+          }
+        }
+      }
+
+      let c = cells.get(k);
+      if (!c) { c = { cr, cc, sum: 0, count: 0, lastT: t, revisited: false }; cells.set(k, c); }
+      if (reentry) { c.revisited = true; anyRevisited = true; }
+      if (isFinite(t)) c.lastT = t;
+      c.sum += v;
+      c.count++;
+    }
+    return { cells, rLat, rLon, anyRevisited };
+  }
+
+  /**
+   * Build a metric accessor `(drawPoint) => value` that, where the walk
+   * genuinely retraces itself, returns the mean of the active metric across a
+   * small neighbourhood instead of that point's own value — so a re-walked
+   * street shows one combined colour rather than whichever visit was drawn
+   * last. Elsewhere it falls straight through to `getVal`.
+   *
+   * `radiusM` is the caller's "same spot" distance — the stroke's on-screen
+   * width in metres (see _overlapRadiusMetres) — so a spot counts as
+   * overlapping exactly when the two drawn lines visually merge. Detection and
+   * cell sums come from `_buildOverlapCells` (straddle-safe, sort-free). Each
+   * revisited cell is then coloured by the mean over its 3×3 block, which
+   * keeps the colour smooth along a re-walked street instead of blocky per
+   * cell and softens the ends of the overlap.
+   *
+   * Returns `null` when nothing overlaps (or the path is too short / GeoUtils
+   * absent) so the caller keeps its plain accessor and non-overlapping paths
+   * stay byte-identical.
+   *
+   * @param {Array<{lat:number, lon:number, time:number}>} drawPoints
+   * @param {(p:object) => number} getVal
+   * @param {{radiusM?:number, revisitGapS?:number}|null} [opts]
+   * @returns {((p:object) => number) | null}
+   * @private
+   */
+  static _overlapPooledAccessor(drawPoints, getVal, opts) {
+    const radiusM = (opts && opts.radiusM > 0) ? opts.radiusM : 7;
+    const revisitGapS = (opts && opts.revisitGapS > 0) ? opts.revisitGapS : 15;
+
+    const built = GSRMapManager._buildOverlapCells(drawPoints, getVal, radiusM, revisitGapS);
+    if (!built || !built.anyRevisited) return null;
+
+    const { cells, rLat, rLon } = built;
+    const pooled = new Map(); // "cr|cc" -> mean metric over the 3×3 block
+
+    for (const c of cells.values()) {
+      if (!c.revisited) continue;
+      let sum = 0, count = 0;
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const nb = cells.get((c.cr + dr) + '|' + (c.cc + dc));
+          if (nb) { sum += nb.sum; count += nb.count; }
+        }
+      }
+      if (count > 0) pooled.set(c.cr + '|' + c.cc, sum / count);
+    }
+    if (pooled.size === 0) return null;
+
+    // Order-independent 32-bit fingerprint of the outcome. `_refreshPathOnZoom`
+    // compares it to the last render's so a zoom that doesn't actually change
+    // which stretches overlap (most small zoom steps) skips the path rebuild —
+    // the rebuild is what visually jerks.
+    let sig = pooled.size | 0;
+    for (const [k, v] of pooled) {
+      let h = Math.round(v * 1000) | 0;
+      for (let i = 0; i < k.length; i++) h = (Math.imul(h, 31) + k.charCodeAt(i)) | 0;
+      sig = (sig + h) | 0;
+    }
+
+    const fn = (p) => {
+      if (!p) return getVal(p);
+      const m = pooled.get(Math.floor(p.lat / rLat) + '|' + Math.floor(p.lon / rLon));
+      return (m !== undefined) ? m : getVal(p);
+    };
+    fn.sig = sig;
+    return fn;
+  }
+
+  /**
+   * Cheap gate: does the path ever come back to within `radiusM` of its own
+   * earlier route after a > `revisitGapS` gap? Pass 1 only (no pooling). Used
+   * to decide whether a zoom change could ever create/destroy an overlap — if
+   * not, the zoomend hook can skip re-rendering entirely.
+   * @private
+   */
+  static _pathRetraces(drawPoints, opts) {
+    const radiusM = (opts && opts.radiusM > 0) ? opts.radiusM : 60;
+    const revisitGapS = (opts && opts.revisitGapS > 0) ? opts.revisitGapS : 15;
+    const built = GSRMapManager._buildOverlapCells(drawPoints, () => 1, radiusM, revisitGapS);
+    return !!(built && built.anyRevisited);
+  }
+
+  /**
+   * The ground distance (metres) that the rendered track stroke spans at the
+   * map's current zoom — i.e. the centre-line gap at which two strokes of
+   * `trackWeight` px just touch. This is the "same spot" radius for
+   * overlap-aware colour, so it scales with the width slider and the zoom.
+   * Capped at GSR_CONST.PATH_OVERLAP.maxRadiusM; returns 0 (⇒ pooling skipped)
+   * when the map isn't ready, the path is too short, or the projection maths
+   * can't run.
+   * @private
+   */
+  _overlapRadiusMetres(drawPoints, trackWeight) {
+    if (!this.map || !Array.isArray(drawPoints) || drawPoints.length < 4) return 0;
+    const OV = (typeof GSR_CONST !== 'undefined' && GSR_CONST.PATH_OVERLAP) ? GSR_CONST.PATH_OVERLAP : {};
+    const w = (trackWeight > 0) ? trackWeight : 5;
+    const factor = (OV.widthFactor > 0) ? OV.widthFactor : 1;
+    const mid = drawPoints[drawPoints.length >> 1];
+    try {
+      const a = L.latLng(mid.lat, mid.lon);
+      const ap = this.map.latLngToLayerPoint(a);
+      const b = this.map.layerPointToLatLng(L.point(ap.x + 1, ap.y));
+      const mPerPx = a.distanceTo(b);
+      if (!(mPerPx > 0)) return 0;
+      const cap = (OV.maxRadiusM > 0) ? OV.maxRadiusM : 60;
+      return Math.min(w * mPerPx * factor, cap);
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  /**
+   * zoomend hook. The overlap-aware path colour keys off the stroke's
+   * on-screen width in metres, which changes with zoom — but re-rendering the
+   * path on every zoom step visibly jerks. So this only rebuilds when the
+   * overlap outcome would actually change: it recomputes the cheap pooled
+   * fingerprint (two linear passes, no Leaflet work) at the new zoom and bails
+   * unless it differs from the last render's. Also no-ops in collective view,
+   * before the first render, when the path provably never retraces itself, and
+   * when the zoom level is unchanged. Runs synchronously off `zoomend` (which
+   * already fires after the zoom animation) so any recolour lands with the
+   * zoom, not delayed after it.
+   * @private
+   */
+  _refreshPathOnZoom() {
+    try {
+      if (!this.map || typeof AppState === 'undefined' || typeof AppState.analyzer === 'undefined') return;
+      if (AppState.viewMode === 'collective') return;
+      if (this._pathHasRetrace === false) return;
+      if (!this._lastDrawPoints || this._lastDrawPoints.length === 0) return;
+      if (this._lastPathIsCategorical) return;
+      if (!AppState.analyzer || typeof this._lastPathGetVal !== 'function') return;
+      if (typeof this.map.getZoom !== 'function') return;
+      const z = this.map.getZoom();
+      if (z === this._lastPathZoom) return;
+
+      // Would the overlap colouring actually change at this zoom? Only the
+      // visual radius moved — the path points and metric are unchanged.
+      const OV = (typeof GSR_CONST !== 'undefined' && GSR_CONST.PATH_OVERLAP) ? GSR_CONST.PATH_OVERLAP : {};
+      const radiusM = this._overlapRadiusMetres(this._lastDrawPoints, this._lastPathTrackWeight);
+      let sig = 0;
+      if (radiusM > 0) {
+        const acc = GSRMapManager._overlapPooledAccessor(
+          this._lastDrawPoints, this._lastPathGetVal, { radiusM, revisitGapS: OV.revisitGapS || 15 });
+        sig = acc ? (acc.sig | 0) : 0;
+      }
+      if (sig === this._lastPathOverlapSig) {
+        this._lastPathZoom = z; // accept the new zoom, nothing to redraw
+        return;
+      }
+
+      this._lastPathZoom = z;
+      const params = (typeof GSRStorage !== 'undefined' && typeof GSRStorage.buildGpsParams === 'function')
+        ? GSRStorage.buildGpsParams()
+        : {};
+      this.refreshPath(AppState.analyzer, params);
+    } catch (e) {
+      /* a zoom must never break — worst case the overlap colour lags a step */
+    }
+  }
+
   _renderPathSegments(drawPoints, trackWeight, analyzer, track) {
     const layerGroup = track ? track.layerGroup : null;
     const metric = this.activeColoringMetric || 'gsr';
@@ -1110,7 +1358,44 @@ class GSRMapManager {
       ? (p) => (derivedSeries[p.origIdx] ? derivedSeries[p.origIdx].val : 0)
       : (p) => p[key];
 
+    // Overlap-aware colour: where the walk retraces itself AND the two strokes
+    // visually merge at this zoom, colour that spot by the mean of the active
+    // metric across the overlap rather than last-visit-wins. The "same spot"
+    // radius is the stroke's on-screen width in metres, so it tracks both the
+    // width slider and the zoom (see _refreshPathOnZoom). Skipped for
+    // categorical metrics — averaging category codes is meaningless.
+    let valAt = getVal;
+    let hasRetrace = false;
+    let overlapSig = 0;
+    if (!isCategorical && typeof GSR_CONST !== 'undefined' && GSR_CONST.PATH_OVERLAP) {
+      const OV = GSR_CONST.PATH_OVERLAP;
+      const gapS = OV.revisitGapS || 15;
+      const maxR = OV.maxRadiusM || 60;
+      const radiusM = this._overlapRadiusMetres(drawPoints, trackWeight);
+      if (radiusM > 0) {
+        const pooledAt = GSRMapManager._overlapPooledAccessor(drawPoints, getVal, { radiusM, revisitGapS: gapS });
+        if (pooledAt) { valAt = pooledAt; hasRetrace = true; overlapSig = pooledAt.sig | 0; }
+      }
+      // If nothing pooled at the current radius, is a retrace even geometrically
+      // possible at any zoom? Probe once at the max radius so _refreshPathOnZoom
+      // can skip re-rendering this (common) case for free. A radius already at
+      // the cap that found nothing has already answered "no".
+      if (!hasRetrace) {
+        hasRetrace = !(radiusM > 0 && radiusM >= maxR)
+          && GSRMapManager._pathRetraces(drawPoints, { radiusM: maxR, revisitGapS: gapS });
+      }
+    }
+    this._pathHasRetrace = hasRetrace;
+    this._lastPathOverlapSig = overlapSig;
+    this._lastPathTrackWeight = trackWeight;
+    this._lastPathGetVal = getVal;
+    this._lastPathIsCategorical = isCategorical;
+    this._lastPathZoom = (this.map && typeof this.map.getZoom === 'function') ? this.map.getZoom() : null;
+
     // ── Single pass over drawPoints (already downsampled) for min/max ──
+    // Uses the RAW value, not the pooled one, so the colour scale (and legend)
+    // stay fixed to the real data range — pooling only recolours the
+    // overlapping segments, it never rescales the whole path.
     let minVal = Infinity, maxVal = -Infinity;
     const seen = needsUnique ? new Set() : null;
 
@@ -1160,11 +1445,11 @@ class GSRMapManager {
       let batchStart = 0;
 
       while (batchStart < seg.length - 1) {
-        const startVal = getVal(seg[batchStart]);
+        const startVal = valAt(seg[batchStart]);
 
         let startBucket = 0;
         if (!isCategorical) {
-          const avgVal = (getVal(seg[batchStart]) + getVal(seg[batchStart + 1])) / 2;
+          const avgVal = (valAt(seg[batchStart]) + valAt(seg[batchStart + 1])) / 2;
           startBucket = (avgVal - minVal) * (COLOR_BUCKETS / range);
           startBucket = startBucket < 0 ? 0 : (startBucket >= COLOR_BUCKETS ? COLOR_BUCKETS - 1 : startBucket | 0);
         }
@@ -1172,9 +1457,9 @@ class GSRMapManager {
         let batchEnd = batchStart + 1;
         while (batchEnd < seg.length - 1) {
           if (isCategorical) {
-            if (getVal(seg[batchEnd]) !== startVal) break;
+            if (valAt(seg[batchEnd]) !== startVal) break;
           } else {
-            const val = (getVal(seg[batchEnd]) + getVal(seg[batchEnd + 1])) / 2;
+            const val = (valAt(seg[batchEnd]) + valAt(seg[batchEnd + 1])) / 2;
             const bucket = (val - minVal) * (COLOR_BUCKETS / range);
             const b = bucket < 0 ? 0 : (bucket >= COLOR_BUCKETS ? COLOR_BUCKETS - 1 : bucket | 0);
             if (b !== startBucket) break;
@@ -1193,7 +1478,7 @@ class GSRMapManager {
           color = MapColors.getColorForMetric(metric, startVal, minVal, maxVal);
         } else {
           const midIdx = (batchStart + batchEnd) >> 1;
-          const midBucket = ((getVal(seg[midIdx]) + getVal(seg[midIdx + 1])) / 2 - minVal) * (COLOR_BUCKETS / range);
+          const midBucket = ((valAt(seg[midIdx]) + valAt(seg[midIdx + 1])) / 2 - minVal) * (COLOR_BUCKETS / range);
           const b = midBucket < 0 ? 0 : (midBucket >= COLOR_BUCKETS ? COLOR_BUCKETS - 1 : midBucket | 0);
           color = colorLut[b];
         }
@@ -2618,4 +2903,9 @@ class GSRMapManager {
   }
 }
 
-window.GSRMapManager = GSRMapManager;
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { GSRMapManager, DERIVED_METRIC_SERIES };
+}
+if (typeof window !== 'undefined') {
+  window.GSRMapManager = GSRMapManager;
+}
