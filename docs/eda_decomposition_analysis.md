@@ -198,6 +198,35 @@ deconvolution-mode and trough-to-peak peak counts.
 > the `sum(phasic)/sum(clean)` rescale exists to patch. So MP→ADMM is a
 > "make the model principled and drop the rescale hack" change, not a "fix
 > broken peak output" change.
+>
+> **Revised again (2026-09, visual audit):** the peak output *is* partly
+> broken, but not by "noise atoms". Auditing deconv markers against the raw
+> phasic on biomap_113 / 053 / 059 found **12–34 % of deconv markers have no
+> visible bump in the raw phasic**, and **0–32 clear raw bumps per track have
+> no marker**. Both come from one cause: the fixed canonical kernel is the
+> wrong *shape* for real SCRs, and the decay-rate mismatch **varies
+> event-to-event on the same participant** (big SCRs recover slower). Two
+> concrete windows on biomap_113:
+> - **t≈57–62 s** — one broad SCR with a slow smooth decay in the raw phasic.
+>   The canonical τ_slow=2 s kernel decays faster than the real tail, so after
+>   MP subtracts it a positive residual hump remains; MP tiles the slow decay
+>   with 3–4 successive canonical kernels whose *sum ripples*. Each ripple crest
+>   → a phantom marker. The "shoulder of a bigger SCR" markers (the largest
+>   phantom category) are all this.
+> - **t≈149–151 s** — the raw phasic clearly re-rises 0.20 µS into a second
+>   SCR. Here the canonical kernel decays *slower* than the real prior SCR, so
+>   the big atom's modelled tail stays elevated and *exactly cancels* the small
+>   next atom's rise (MP even placed a 0.15-amplitude atom at t=149.7) — no
+>   local maximum forms in the reconstruction → missed peak.
+>
+> The peak list is read by a naive local-max scan of the reconstruction
+> (`_detectPeaksFromCurve`), which faithfully turns every mismatch ripple into
+> a peak and every mismatch cancellation into a gap. Fixing *amplitudes*
+> (refit, below) cannot touch either — the errors are shape- and
+> extraction-driven. The leverage is to take peak *positions* from the raw
+> phasic (which shows these events correctly) and use deconvolution only to
+> *split* a raw bump that is genuinely ≥ 2 superposed SCRs — inverting the
+> current "trust the reconstruction, sanity-check against the raw" design.
 
 ### 2. No L1 sparsity prior
 
@@ -254,34 +283,181 @@ under-estimated by 20%, remain in those proportions after rescaling.
 >   `gsr_filter.js:394`) and is more drift-robust than the default zero-phase EMA —
 >   relevant context for the Tier 3 "sequential tonic" critique.
 
-### Tier 1 — Within the current architecture (~100 LOC)
+### Tier 1 — Per-recording kernel fitting
 
-**Empirical kernel fitting**: grid-search over `(τ_slow ∈ [1.0, 4.5], τ_fast ∈ [0.3,
-1.3])`, run a short (≤50-iter) MP pass on each pair, pick the pair with minimum
-reconstruction residual (or fewest iterations to `convTol`), then run the full pass.
-~20–25 quick MP passes; expected total cost of 2–3× one full deconvolution.
-Highest-impact single change: addresses the per-participant variability problem that
-CDA was specifically designed to solve, using the τ constants already exposed in
-`GSR_CONST.SCRF`.
+**The idea:** estimate this recording's own `(τ_slow, τ_fast)` and deconvolve
+with the fitted kernel instead of the fixed 2.0 / 0.75 s population defaults, to
+address the per-participant variability problem CDA was designed to solve.
 
-> **Caveat:** field data has no ground-truth τ. Minimising self-reconstruction
-> residual can be gamed by a longer τ_slow that absorbs baseline drift rather
-> than fitting SCR morphology. cvxEDA/CDA fit τ against clean lab SCRs with known
-> onsets; unsupervised fitting on ambulatory data is a weaker signal. Validation
-> must check the *fitted τ distribution is physiologically plausible*
-> (≈1.5–6 s for τ_slow), not just that residual dropped.
+> ## Attempted and rejected (2026-09-02)
+>
+> Two objectives were fully implemented (`SCRDeconvolution.fitKernel` + a
+> `deconvFitKernel` UI toggle) and benchmarked against **all 64 real
+> `biomap_*` recordings**. Neither produced a usable feature; the code was
+> reverted. What was tried, and what it did:
+>
+> **1. Minimise leftover residual** (the original proposal — grid-search
+> `(τ_slow, τ_fast)`, run a short Matching-Pursuit pass per pair, keep the pair
+> with the least unexplained signal).
+> *Result:* degenerate. Leftover residual after a fixed-length MP pass is
+> **monotonically decreasing in both τ_slow and τ_fast** — a wider kernel
+> removes more energy per atom — so the search lands on the largest kernel on
+> the grid regardless of the signal (demo track → τ_slow 4.5, τ_fast 1.3, peak
+> count halved). "Fewest iterations to convergence" as a cheaper proxy has the
+> same bias. Not fixable by adjusting bounds; the objective itself just tracks
+> kernel area.
+>
+> **2. Empirical template fit** — find the track's clean isolated SCRs, average
+> them into a template, grid-search the Bateman shape that matches it by
+> peak-aligned RMSE. Recovers the generating τ *exactly* on synthetic SCRs
+> (single Bateman + noise). On real data:
+>
+> | gating | tracks fitted / 64 | τ behaviour | peak-count change vs default |
+> |---|---|---|---|
+> | loose — fit τ_slow+τ_fast, 4 s isolation, mean template | 30 | τ_fast pinned to the search ceiling on 18/30; τ_slow drifts high (median 3.3 s, several near the 6 s cap) | **median −40 %**, 23/30 move >15 % |
+> | strict — fit τ_slow only (τ_fast fixed), 8 s isolation, median template, RMS reject gate | 1 | sane (τ_slow 3.2 s) | −28 % |
+> | middle — 5–6 s isolation, RMS ≤ 0.10–0.15 | 5 | sane (τ_slow 2.0–3.2 s) | median −17 %, 4/5 move >15 % |
+>
+> There is no setting that fits a useful fraction of tracks *and* leaves the
+> analysis roughly intact:
+> - **Loose gating** admits contaminated templates — an SCR sitting on the
+>   decaying tail of the previous one looks like it has a slower decay, so the
+>   fit drifts to a broad kernel that merges peaks in the reconstruction and
+>   collapses the count. Same failure as objective 1, milder.
+> - **Strict gating** (long isolation window, near-zero pre-onset pedestal
+>   required, RMS reject) fixes the drift — the few fits it produces are
+>   physiologically sane — but only **1 of 64** recordings has enough clean,
+>   isolated, canonical SCRs to pass. The feature becomes inert.
+>
+> **Root cause:** free-walking ambulatory recordings don't contain enough
+> clean, isolated, single SCRs to characterise an individual's response shape.
+> Motion, gait ripple, and overlapping response tails contaminate almost every
+> candidate. This is exactly why Ledalab CDA and cvxEDA fit τ against
+> **controlled recordings with known stimulus onsets**, not field data —
+> and why DCM (Tier 4) uses physiological priors instead of trusting the
+> signal alone.
+>
+> **Conclusion:** per-recording kernel fitting is not viable on this dataset.
+> The fixed population kernel (τ_slow 2.0 s, τ_fast 0.75 s) stands. If
+> inter-individual τ ever needs addressing, it would take either a calibration
+> segment (a few cued deep breaths / startle responses at recording start) or
+> cross-recording empirical Bayes over the same participant — not a fit from a
+> single free walk.
+
+### Tier 1½ — Prominence detector × deconvolution hybrid *(recommended near-term direction)*
+
+The 2026-09 visual audit (§1 "What It Gets Wrong") showed the deconv **peak
+list** is the weak link, not the amplitude estimate: `_detectPeaksFromCurve`
+reads peaks off the reconstruction — a re-render made of fixed-shape kernels —
+so kernel-shape mismatch becomes phantom markers (ripple crests where MP tiled
+a slow real decay with several fast kernels) and missed markers (a real
+re-rise cancelled by a mis-decaying neighbour's modelled tail).
+
+`_detectPeaksByProminence` has the primitive that fixes this:
+`_topographicProminence` measures every bump's height above its bounding
+saddles in one O(n log n) sweep — exactly the "own event vs. shoulder of a
+bigger one" test, computed on the **raw phasic**, immune to tonic drift, no
+baseline-return assumption. On both audited failure cases it does the right
+thing on the raw signal: the t≈57–62 s ripple-shoulders have ~0 prominence
+(smooth decay, no saddle) → rejected; the t≈150.4 s re-rise has prominence
+≥ `peakThreshold` → kept. What it *cannot* do is split a single raw bump that
+is really 2+ fused SCRs with no saddle between them — the one case
+deconvolution is uniquely good at (MP finds residual after subtracting the
+first kernel and places a second atom under the same bump).
+
+Three ways to combine, smallest to largest:
+
+**A. Just use the prominence detector for the discrete peak list.** No new
+algorithm. The audit says it already tracks the raw signal better than
+deconv-mode markers on tracks 113 / 053 / 059. Deconvolution's `phasicClean`
+reconstruction can still feed the continuous metrics (phasic AUC / ISCR /
+arousal index). *Blocker:* `useDeconvolution` and `usePeakProminence` are
+mutually-exclusive toggles today (`events.js:updateDeconvolutionUIState`,
+`analyzer.js:411`), so "prominence peaks + deconvolved continuous signal" is
+not currently expressible — needs a small wiring change to allow both.
+
+**B. Raw-phasic prominence as veto + rescue on the deconv markers** *(~60–100
+LOC; recommended)*. Keep deconv's reconstruction and separation, but after
+`_detectPeaksFromCurve`:
+- **Veto**: drop a reconstruction marker if the *raw* phasic is smooth and
+  monotone through it (no local saddle / rise within ±~1 s) — that is the
+  ripple-tiling signature. Do **not** veto on low raw prominence alone: the
+  second SCR of a correctly-split fused bump legitimately has low raw
+  prominence.
+- **Rescue**: where the raw phasic has a local max with prominence ≥
+  `peakThreshold` and no deconv marker within ±~1 s, add one (recovers the
+  cancellation gaps like t≈150.4 s).
+
+  Leaves amplitude / AUC untouched — it only fixes marker *existence*, which is
+  what the audit flagged. Testable against the audit numbers (12–34 % phantom,
+  0–32 missed per track).
+
+**C. Full hybrid — prominence for positions, deconv driver as a splitter**
+*(~150–250 LOC, new detection path)*. The prominence detector produces the
+peak list; for each peak, if the gated deconv driver placed ≥ 2 well-separated
+significant atoms within its onset→recovery span **and** the bump is wider /
+more asymmetric than one canonical SCR, replace it with one peak per atom.
+*Hard part:* split amplitudes — apportioning one prominence peak's amplitude
+between two sub-SCRs has no clean answer (options: ratio by atom amplitude, or
+height off a 2-atom mini-reconstruction), and it is a fresh heuristic needing
+the same per-track visual validation the audit used.
+
+**Recommendation: B.** C's amplitude ambiguity buys little on a minority of
+peaks; A is a one-line policy change once the toggle wiring allows it and is
+worth trying first to see whether the split cases even matter on this data.
+Any of these must be checked track-by-track against the raw phasic before
+shipping — the failure modes here do not show up in aggregate counts.
 
 ### Tier 2 — Replace the solver (~450–550 LOC, no external library — see feasibility notes)
 
-**Orthogonal Matching Pursuit (OMP)**: after each atom is placed, refits all accepted
-atoms jointly (small ≤k×k NNLS). Much better per-atom amplitude accuracy than plain
-MP. Still O(n·k²) — feasible for k ≤ 300.
+**Orthogonal Matching Pursuit (OMP) / joint amplitude refit**: after MP fixes the
+atom positions, re-solve all the atom amplitudes together by non-negative least
+squares (`min ‖Ka − y‖²  s.t. a ≥ 0`), keeping MP's positions.
+
+> **Attempted and rejected (2026-09).** Implemented as a post-hoc ISRA
+> multiplicative-update NNLS over the MP positions (`refineAmplitudesNNLS`),
+> replacing the global `sum(phasic)/sum(clean)` rescale. It recovers true
+> amplitudes exactly on synthetic overlapping SCRs and the 64-track benchmark
+> showed a near-zero *median* peak-count change — but per-track inspection
+> found it **systematically merges small SCRs into adjacent large ones**.
+> Worked example, biomap_113 @ 692 s: the raw phasic has a clean ~1.2 s
+> rise-and-fall (~0.15 µS prominence) 3 s before a large (~2 µS) SCR. MP places
+> a 0.18-amplitude atom there and the legacy path detects the peak. The joint
+> NNLS crushes that atom to 0.03 — because in global L2 terms the big
+> neighbour's kernel tail "explains" the small bump's energy well enough that
+> zeroing the atom barely moves the residual — so the reconstruction has no
+> bump there and the peak vanishes. Same pattern at 378 s and elsewhere.
+> Root causes, in order of importance:
+> 1. **Wrong thing to fix.** The visible marker errors (§1 above) are
+>    kernel-*shape* mismatch tiled into a rippling reconstruction, then read by
+>    a naive local-max scan. Re-fitting amplitudes touches neither the shape nor
+>    the extractor, so it can't remove a ripple crest or fill a cancellation
+>    gap.
+> 2. **Wrong norm.** Global L2 is dominated by the big-amplitude regions; a
+>    0.15 µS SCR next to a 2 µS one contributes ~1/180 of the squared error, so
+>    the optimiser trades its fidelity away for a negligible gain on the big
+>    one. MP's greedy per-residual-peak placement is scale-free by comparison —
+>    every local bump gets an atom sized to *its own* scale — and a uniform
+>    global rescale preserves that structure. The refit's global fit destroyed
+>    it (0.15 → 0.03 at t≈692 s), completing a cancellation MP had left
+>    half-done.
+> 3. **Removed accidental regularisation.** MP never revisits an atom, so it
+>    can't collapse two atoms into one; the refit can and does. Since
+>    deconvolution mode exists precisely to *separate* overlapping events, a
+>    refit that re-merges them is a regression regardless of aggregate-energy
+>    accuracy.
+>
+> The legacy MP + global-rescale path stands.
 
 **ADMM Non-Negative LASSO** (cvxEDA's phasic component algorithm): replaces
 `deconvolve()` with a proper sparse solver. The ADMM update alternates between a
 ridge-regression step and a soft-threshold step (`max(u − λ/ρ, 0)`). Eliminates
 spurious inter-event atoms by design via the L1 prior. No external library required.
 A principled default for λ is `σ·√(2·log(n))` where σ is the estimated noise std.
+Note the joint-refit result above is a caution here too: an L1/L2 objective that
+is not carefully weighted will merge small SCRs near large ones the same way —
+the sparsity prior would have to be gentle enough to keep sub-threshold-but-real
+atoms.
 
 ### Tier 3 — Joint tonic + phasic optimisation (~500 LOC)
 
