@@ -366,10 +366,10 @@ const GSRTrackManager = {
     GSRTrackManager.loadActiveTrackParams(track);
     GSRTrackManager.loadActiveGpsParams(track);
     // Refresh the shape-slider show/hide state for the new track's detector
-    // (deconvolution / prominence / trough) — loadActiveTrackParams only
+    // (trough-to-peak / combined / deconvolution) — loadActiveTrackParams only
     // writes the values, not the disabled/visible state.
-    if (typeof GSREvents.updateDeconvolutionUIState === 'function') {
-      GSREvents.updateDeconvolutionUIState();
+    if (typeof GSREvents.updateShapeSlidersForDetector === 'function') {
+      GSREvents.updateShapeSlidersForDetector();
     }
     GSREvents.initializeLabels();
     GSRUI.resetView();

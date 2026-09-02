@@ -397,26 +397,30 @@ class GSRAnalyzer {
     this.phasicStd = GsrFilter.calculateStats(phasicVals).std;
 
     // 5. Phasic Peak Detection. Exactly one of three mutually-exclusive
-    // pipelines builds this.peaks per analyze() call:
-    //   - prominence (params.usePeakProminence): topographic-prominence
-    //     identification + trailing-baseline amplitude — recall-first, built
-    //     to recover the compound-SCR undercount detectPeaks() suffers when
-    //     _findOnsetIndex()'s walk-back stalls on a shallow inter-peak dip.
-    //   - deconvolution (params.useDeconvolution): one global SCR
-    //     deconvolution pass that replaces this.phasic with a resolved,
-    //     superposition-free reconstruction and builds peaks from its driver
-    //     impulses.
-    //   - default: trough-to-peak shape-criteria detection.
-    // Prominence takes precedence over deconvolution if both flags are set.
+    // pipelines builds this.peaks per analyze() call. The morphology sliders
+    // (rise / half-recovery / skew) apply in the default mode only; Min SNR and
+    // Min Peak Quality apply in every mode.
+    //   - default: trough-to-peak detection. The morphology sliders are live
+    //     rejection gates.
+    //   - combined (params.usePeakProminence): trough-to-peak as the base, each
+    //     apex snapped to the locally most topographically-prominent maximum,
+    //     plus the prominence detector's compound-SCR rescues the greedy scan
+    //     skipped past. One shared prominence sweep feeds both. Identification
+    //     is prominence + SNR + quality — the morphology sliders are forced off
+    //     (see _detectPeaksCombined()).
+    //   - deconvolution (params.useDeconvolution): one global SCR deconvolution
+    //     pass that replaces this.phasic with a resolved, superposition-free
+    //     reconstruction and builds peaks from its driver impulses. Morphology
+    //     is fixed by the SCRF kernel, so the sliders are pinned to its
+    //     canonical values.
+    // Combined takes precedence over deconvolution if both flags are set.
     if (params.usePeakProminence) {
       this.phasicDriver = [];
       this.phasicClean = [];
       this.phasicDriverPeaks = [];
       this.phasicDeconvTruncated = false;
       this._phasicOrig = null;
-      const { oldLabels, oldExcluded } = this._preserveLabelsAndExclusions();
-      this.peaks = this._detectPeaksByProminence(params, oldLabels, oldExcluded);
-      this._assignLabelsToPeaks(this.peaks);
+      this._detectPeaksCombined(params);
     } else if (params.useDeconvolution) {
       this._runDeconvolutionPipeline(phasicVals, params);
     } else {
@@ -832,7 +836,7 @@ class GSRAnalyzer {
    * Unlike detectPeaks(), this does not apply the rise-time / half-recovery /
    * skewness shape bounds. Those sliders stay locked to the kernel-derived
    * canonical values in the UI whenever deconvolution is on (see
-   * events.js:updateDeconvolutionUIState) — rise/recovery/skew measured off
+   * events.js:updateShapeSlidersForDetector) — rise/recovery/skew measured off
    * a *reconstructed* curve reflect the summed shape of however many atoms
    * landed in one peak, not any single canonical SCR shape, so bounding them
    * against the kernel's own canonical values would be checking a peak
@@ -1661,65 +1665,12 @@ class GSRAnalyzer {
     const baselineWin = Math.max(1, Math.round((GSR_CONST.PEAK_PROMINENCE_BASELINE_SEC || 8) * sr));
     const noiseHalfWin = Math.max(1, Math.round(sr));
 
-    // 1. Prominence for every sample in one O(n log n) sweep, then keep the
-    //    local maxima that clear the threshold.
+    // 1+2. One O(n log n) topographic-prominence sweep, then the above-threshold
+    //      local maxima under minimum-gap non-max suppression (largest
+    //      prominence wins). Extracted to _prominenceNMS() so _detectPeaksCombined()
+    //      can run the identical selection off a single shared sweep.
     const prom = this._topographicProminence(vals);
-    // Artefact ceiling: amplitude above this value cannot be a real SCR.
-    // Electrode disconnects, motion artefacts and ADC rail-hits produce spikes
-    // of hundreds of µS; the trough-to-peak detector avoids them because the
-    // LPF and peakThreshold clip them before detection, but the prominence
-    // detector has no implicit scale gate — a massive spike is simply very
-    // prominent. MICROSIEMENS_MAX_SCR (default 20 µS) is well above the
-    // physiological maximum (~5 µS in extreme subjects) and is tested against
-    // baselineAmp (apex minus trailing-window minimum), not the raw apex
-    // height, so it correctly handles artefacts sitting on a raised tonic.
-    const maxScrAmp = GSR_CONST.MICROSIEMENS_MAX_SCR != null
-      ? GSR_CONST.MICROSIEMENS_MAX_SCR : 20;
-    const cand = [];
-    for (let i = 1; i < n - 1; i++) {
-      if (!(vals[i] > vals[i - 1] && vals[i] >= vals[i + 1])) continue;
-      if (vals[i] < 0.001) continue;
-      // Fast artefact pre-filter: if the raw apex value already exceeds the
-      // ceiling there is no need to compute baseline amplitude — reject early.
-      // This catches artefact spikes whose local baseline is also elevated
-      // (so baselineAmp would be modest) but whose apex is still physically
-      // impossible as an SCR. The baselineAmp check further below handles the
-      // complementary case: a large-amplitude event riding a near-zero tonic.
-      if (vals[i] > maxScrAmp) continue;
-      if (prom[i] < threshold) continue;
-
-      // Onset = the deepest point on the way down to the left (the left
-      // saddle), NOT _findOnsetIndex() — that stops at the first shallow dip,
-      // which for a peak riding a previous SCR's tail lands the onset a few
-      // samples back with a tiny rise time, skewing rise/slope/SNR/quality.
-      // Walk left past dips, tracking the argmin, until the signal rises back
-      // to this apex's height; bounded by the baseline window so a monotone
-      // input can't make this O(n²).
-      let onsetIdx = i, onsetMin = vals[i];
-      for (let l = i - 1, s = 0; l >= 0 && s < baselineWin && vals[l] < vals[i]; l--, s++) {
-        if (vals[l] < onsetMin) { onsetMin = vals[l]; onsetIdx = l; }
-      }
-
-      let mn = vals[i];
-      for (let j = Math.max(0, i - baselineWin); j <= i; j++) {
-        if (vals[j] < mn) mn = vals[j];
-      }
-      const baselineAmp = vals[i] - mn;
-      // Apply the artefact ceiling after computing baselineAmp so that a spike
-      // riding a raised tonic baseline is assessed correctly (amplitude from
-      // the pre-burst level, not from zero).
-      if (baselineAmp > maxScrAmp) continue;
-      cand.push({ i, h: vals[i], prominence: prom[i], onsetIdx, baselineAmp });
-    }
-
-    // 2. Minimum-gap non-max suppression — largest prominence wins, same
-    //    convention as detectPeaks()'s forward skip-ahead.
-    cand.sort((a, b) => b.prominence - a.prominence);
-    const kept = [];
-    for (const c of cand) {
-      if (!kept.some(k => Math.abs(k.i - c.i) < minGap)) kept.push(c);
-    }
-    kept.sort((a, b) => a.i - b.i);
+    const kept = this._prominenceNMS(vals, prom, threshold, minGap, baselineWin);
 
     // 3. Build peak objects. Shape metrics are measured (for the table /
     //    quality / salience) but not gated.
@@ -1746,6 +1697,258 @@ class GSRAnalyzer {
     const minQuality = params && params.minPeakQuality != null ? params.minPeakQuality : 0.0;
     result = result.filter(p => p.qualityScore >= minQuality);
     return result;
+  }
+
+  /**
+   * Above-threshold topographic-prominence local maxima under minimum-gap
+   * non-max suppression. Split out of _detectPeaksByProminence() so
+   * _detectPeaksCombined() runs the identical candidate selection from a
+   * single shared _topographicProminence() sweep instead of a second one.
+   *
+   * @param {Array<number>} vals - phasic signal.
+   * @param {Float64Array} prom - per-sample topographic prominence (from _topographicProminence(vals)).
+   * @param {number} threshold - prominence gate (peakThreshold, µS).
+   * @param {number} minGap - non-max-suppression radius, in samples.
+   * @param {number} baselineWin - trailing/left window for the onset walk and
+   *   the pre-burst minimum, in samples.
+   * @returns {Array<{i:number,h:number,prominence:number,onsetIdx:number,baselineAmp:number}>}
+   *   survivors, ascending by sample index.
+   * @private
+   */
+  _prominenceNMS(vals, prom, threshold, minGap, baselineWin) {
+    const n = vals.length;
+    // Artefact ceiling: amplitude above this cannot be a real SCR. Electrode
+    // disconnects, motion artefacts and ADC rail-hits produce spikes of
+    // hundreds of µS; prominence has no implicit scale gate, so a massive
+    // spike is simply very prominent. MICROSIEMENS_MAX_SCR (default 20 µS) is
+    // well above the physiological maximum (~5 µS in extreme subjects).
+    const maxScrAmp = GSR_CONST.MICROSIEMENS_MAX_SCR != null
+      ? GSR_CONST.MICROSIEMENS_MAX_SCR : 20;
+    const cand = [];
+    for (let i = 1; i < n - 1; i++) {
+      if (!(vals[i] > vals[i - 1] && vals[i] >= vals[i + 1])) continue;
+      if (vals[i] < 0.001) continue;
+      // Fast artefact pre-filter: an apex already over the ceiling is
+      // impossible as an SCR regardless of its local baseline.
+      if (vals[i] > maxScrAmp) continue;
+      if (prom[i] < threshold) continue;
+
+      // Onset = the deepest point on the way down to the left (the left
+      // saddle), NOT _findOnsetIndex() — that stops at the first shallow dip,
+      // which for a peak riding a previous SCR's tail lands the onset a few
+      // samples back with a tiny rise time. Walk left past dips, tracking the
+      // argmin, until the signal rises back to this apex's height; bounded by
+      // the baseline window so a monotone input can't make this O(n²).
+      let onsetIdx = i, onsetMin = vals[i];
+      for (let l = i - 1, s = 0; l >= 0 && s < baselineWin && vals[l] < vals[i]; l--, s++) {
+        if (vals[l] < onsetMin) { onsetMin = vals[l]; onsetIdx = l; }
+      }
+
+      let mn = vals[i];
+      for (let j = Math.max(0, i - baselineWin); j <= i; j++) {
+        if (vals[j] < mn) mn = vals[j];
+      }
+      const baselineAmp = vals[i] - mn;
+      // Ceiling re-checked against baseline amplitude so a large-but-real event
+      // riding a raised tonic is assessed from its pre-burst level, not zero.
+      if (baselineAmp > maxScrAmp) continue;
+      cand.push({ i, h: vals[i], prominence: prom[i], onsetIdx, baselineAmp });
+    }
+
+    // Minimum-gap non-max suppression — largest prominence wins, same
+    // convention as detectPeaks()'s forward skip-ahead.
+    cand.sort((a, b) => b.prominence - a.prominence);
+    const kept = [];
+    for (const c of cand) {
+      if (!kept.some(k => Math.abs(k.i - c.i) < minGap)) kept.push(c);
+    }
+    kept.sort((a, b) => a.i - b.i);
+    return kept;
+  }
+
+  /**
+   * Combined phasic peak detector — the union of trough-to-peak and prominence.
+   *
+   * Runs the default trough-to-peak detectPeaks() as the base list, then uses a
+   * single shared topographic-prominence sweep for two corrections:
+   *
+   *  1. APEX FIX. detectPeaks() scans left→right and accepts the first local
+   *     maximum in a rising cluster that clears its shape gates, then skips
+   *     PEAK_MIN_GAP ahead — so on a compound rise the marker is stranded on a
+   *     shoulder while the true summit, a second later, is never revisited.
+   *     Each base peak is moved to the most topographically-prominent local
+   *     maximum within ±PEAK_MIN_GAP of it (measured across all 64 real tracks:
+   *     ~5% of peaks move, always onto a higher sample; median move 0 s).
+   *
+   *  2. RESCUES. The prominence detector's above-threshold maxima that sit
+   *     more than PEAK_MIN_GAP from every base peak — the compound-burst SCRs
+   *     the greedy scan jumped over (~2% of the final list). Their reported
+   *     shape metrics use the same _findOnsetIndex() saddle measurement as the
+   *     base peaks (one consistent formula across the list), not the
+   *     prominence detector's trailing-baseline amplitude. A rescue is gated
+   *     only by its topographic prominence (>= peakThreshold) and Min Peak
+   *     Quality — NOT by the shape gates or the Min SNR floor, both of which
+   *     assume a trustworthy trough-to-peak amplitude that a compound-burst
+   *     shoulder does not have.
+   *
+   * Cost: detectPeaks() + one _topographicProminence() (O(n log n)) + one
+   * _prominenceNMS() + an O(base + kept) two-pointer reconciliation. The
+   * prominence sweep and the local-maxima scan each run exactly once; per-peak
+   * shape work is paid once for the base (in detectPeaks) and once per rescue
+   * (a few per track) — never twice for the same event.
+   *
+   * @param {object} params - Analysis params (peakThreshold, shape gates, minPeakQuality).
+   * @private
+   */
+  _detectPeaksCombined(params) {
+    // Combined mode identifies peaks by topographic prominence + SNR + quality,
+    // NOT morphology: the rise / half-recovery / skew sliders are hidden for
+    // this mode in the UI (events.js:updateShapeSlidersForDetector). Force them
+    // off for the base trough-to-peak pass too, so a bound left over from
+    // trough-to-peak mode can't have a hidden marginal effect — measured across
+    // all 64 real tracks this changes the output by 0 peaks (the rescue step
+    // re-adds anything a tightened base gate would drop).
+    //
+    // Min SNR and Min Peak Quality DO reach the base pass (via detectPeaks
+    // below), so they still gate the base list; the rescues are held only to
+    // prominence + Min Peak Quality (see step 2). peakThreshold, the always-on
+    // structural checks (onset/decay slope, FWHM, skew floor) and the min-gap
+    // all still apply to the base via detectPeaks().
+    const baseParams = {
+      ...params,
+      shapeMinRiseTime: 0, shapeMaxRiseTime: 0,
+      shapeMinHalfRecovery: 0, shapeMaxHalfRecovery: 0,
+      shapeMaxSkewRatio: 0,
+    };
+    this.detectPeaks(params.peakThreshold, baseParams);
+    const base = this.peaks;
+
+    const n = this.phasic.length;
+    if (n < 3) return;
+
+    const vals = this.phasic.map(d => d.val);
+    const times = this.phasic.map(d => d.time);
+    const sr = this.sampleRate;
+    const threshold = params.peakThreshold;
+    const minGap = Math.max(1, Math.round(GSR_CONST.PEAK_MIN_GAP * sr));
+    const baselineWin = Math.max(1, Math.round((GSR_CONST.PEAK_PROMINENCE_BASELINE_SEC || 8) * sr));
+    const noiseHalfWin = Math.max(1, Math.round(sr));
+    // Shape gates are off in this mode, so the onset walk-back for relocations
+    // and rescues uses the generous canonical MAX_RISE_TIME bound.
+    const maxOnsetSteps = Math.round(GSR_CONST.PEAK_SHAPE.MAX_RISE_TIME * sr);
+
+    // One shared prominence sweep feeds both the apex fix and the rescue search.
+    const prom = this._topographicProminence(vals);
+    const kept = this._prominenceNMS(vals, prom, threshold, minGap, baselineWin);
+    if (kept.length === 0) return; // nothing prominence can add or correct
+
+    // Rebuild the label/exclusion maps from the base list (current indices), so
+    // a relocated or rescued peak still resolves an imported/user label by time.
+    const oldLabels = new Map();
+    const oldExcluded = new Set();
+    for (const p of base) {
+      if (p.label && p.label.trim()) oldLabels.set(p.index, p.label);
+      if (p.excluded) oldExcluded.add(p.index);
+    }
+
+    // ── 1. Apex fix — two-pointer sweep of base (index-sorted) × kept
+    //       (index-sorted). Each kept entry is claimed at most once.
+    const keptUsed = new Uint8Array(kept.length);
+    let lo = 0;
+    for (let bi = 0; bi < base.length; bi++) {
+      const p = base[bi];
+      while (lo < kept.length && kept[lo].i < p.index - minGap) lo++;
+      let bestK = -1;
+      let bestProm = prom[p.index];
+      for (let j = lo; j < kept.length && kept[j].i <= p.index + minGap; j++) {
+        if (keptUsed[j]) continue;
+        if (kept[j].i === p.index) { keptUsed[j] = 1; continue; } // already on the apex
+        if (kept[j].prominence > bestProm) { bestProm = kept[j].prominence; bestK = j; }
+      }
+      if (bestK >= 0) {
+        keptUsed[bestK] = 1;
+        base[bi] = this._rebuildPeakAt(kept[bestK].i, vals, times, prom,
+          maxOnsetSteps, noiseHalfWin, oldLabels, oldExcluded, p);
+      }
+    }
+    // Every peak in the merged list carries its topographic prominence (a base
+    // peak that was not relocated still needs the field for the peaks table).
+    // Base peaks are kept whatever their prominence — the union deliberately
+    // retains the trough-to-peak finds that do not clear the prominence gate.
+    for (const p of base) if (p.prominence == null) p.prominence = prom[p.index] || 0;
+
+    // ── 2. Rescues — un-claimed kept maxima with no base peak within PEAK_MIN_GAP
+    //       of their (post-move) index.
+    const baseIdx = base.map(p => p.index).sort((a, b) => a - b);
+    const nearBase = (idx) => {
+      let a = 0, b = baseIdx.length;
+      while (a < b) { const m = (a + b) >> 1; if (baseIdx[m] < idx) a = m + 1; else b = m; }
+      for (let k = a - 1; k <= a + 1; k++) {
+        if (k >= 0 && k < baseIdx.length && Math.abs(baseIdx[k] - idx) < minGap) return true;
+      }
+      return false;
+    };
+
+    const minQuality = (params && params.minPeakQuality != null) ? params.minPeakQuality : 0.0;
+    const rescues = [];
+    for (let j = 0; j < kept.length; j++) {
+      if (keptUsed[j]) continue;
+      const idx = kept[j].i;
+      if (nearBase(idx)) continue;
+      const rp = this._rebuildPeakAt(idx, vals, times, prom,
+        maxOnsetSteps, noiseHalfWin, oldLabels, oldExcluded, null);
+      // A rescue is identified by topographic prominence >= peakThreshold, so
+      // that is the gate it is held to. The trough-to-peak shape gates and the
+      // Min SNR floor are NOT re-applied: rescues exist precisely because those
+      // checks, fed a shoulder-referenced amplitude, rejected a real event, and
+      // _rebuildPeakAt() measures amplitude the same saddle way — so SNR
+      // (= amplitude / noise) is deflated for exactly these peaks and would
+      // delete the ones the rescue step is there to recover. Min Peak Quality
+      // still applies (off by default); a user who raises it is explicitly
+      // asking for it across the whole list.
+      if (rp.qualityScore < minQuality) continue;
+      rescues.push(rp);
+    }
+
+    // ── 3. Merge, enforce PEAK_MIN_GAP (an apex move can push two base peaks
+    //       together), sort by time, reassign labels.
+    const merged = base.concat(rescues).sort((a, b) => a.index - b.index);
+    const out = [];
+    for (const p of merged) {
+      const last = out[out.length - 1];
+      if (last && p.index - last.index < minGap) {
+        if ((p.prominence || 0) > (last.prominence || 0)) out[out.length - 1] = p;
+      } else {
+        out.push(p);
+      }
+    }
+    out.sort((a, b) => a.time - b.time);
+    this.peaks = out;
+    this._assignLabelsToPeaks(this.peaks);
+  }
+
+  /**
+   * Build a peak object at sample `idx` using the trough-to-peak measurement
+   * (_findOnsetIndex saddle onset + _calculateShapeMetrics), for
+   * _detectPeaksCombined()'s apex relocations and rescues. When `carry` is a
+   * peak object its user label/exclusion are copied onto the result (the move
+   * changes the index key those would otherwise be looked up by).
+   * @private
+   */
+  _rebuildPeakAt(idx, vals, times, prom, maxOnsetSteps, noiseHalfWin, oldLabels, oldExcluded, carry) {
+    const onsetIdx = this._findOnsetIndex(vals, idx, maxOnsetSteps);
+    const recoveryIdx = this._findRecoveryIndex(vals, idx, onsetIdx, vals[idx] - vals[onsetIdx]);
+    const metrics = this._calculateShapeMetrics(vals, times, idx, onsetIdx, recoveryIdx, noiseHalfWin);
+    const peak = this._buildPeakObject(idx, vals[idx], vals, times,
+      { ...metrics, onsetIdx, recoveryIdx }, oldLabels, oldExcluded, true);
+    peak.prominence = prom[idx];
+    peak.qualityScore = this._computePeakQuality(peak);
+    peak.salienceScore = this._computeSalienceScore(peak);
+    if (carry) {
+      if (carry.label) peak.label = carry.label;
+      if (carry.excluded) peak.excluded = true;
+    }
+    return peak;
   }
 
   /**

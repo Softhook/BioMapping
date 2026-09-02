@@ -175,10 +175,12 @@ const GSR_CONST = {
   // stricter NS-SCR census.
   PEAK_MIN_GAP: 1.3,
   PEAK_RECOVERY_BREAK: 0.1,   // Break threshold for recovery search
-  // Prominence detector (GSR_DEFAULT.usePeakProminence): trailing window (s)
-  // over which the phasic minimum is taken as the amplitude baseline. Long
-  // enough to see under a stacked burst of SCRs to the pre-burst level, short
-  // enough not to reach back to an unrelated earlier trough.
+  // Prominence-based selection (_prominenceNMS, used by the standalone
+  // prominence detector and by the combined detector GSR_DEFAULT.usePeakProminence
+  // selects): trailing window (s) over which the phasic minimum is taken as the
+  // amplitude baseline for the left-saddle onset walk. Long enough to see under
+  // a stacked burst of SCRs to the pre-burst level, short enough not to reach
+  // back to an unrelated earlier trough.
   PEAK_PROMINENCE_BASELINE_SEC: 8,
 
   // ── Enhanced peak shape & width criteria ──────────────────────────────

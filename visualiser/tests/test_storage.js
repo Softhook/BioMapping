@@ -509,11 +509,11 @@ test('applyPreset: invokes GSREvents layout/state hooks and syncs slider display
   const calls = [];
   global.GSREvents = {
     updateTonicMethodLayout: () => calls.push('layout'),
-    updateDeconvolutionUIState: () => calls.push('deconv'),
+    updateShapeSlidersForDetector: () => calls.push('shapeSliders'),
     initializeLabels: () => calls.push('labels'),
   };
   GSRStorage.applyPreset({ gsr: {}, gps: {} });
-  assert.deepStrictEqual(calls, ['layout', 'deconv', 'labels']);
+  assert.deepStrictEqual(calls, ['layout', 'shapeSliders', 'labels']);
 });
 
 test('applyPreset: commits parsed sliders to the active track and re-analyzes it', () => {

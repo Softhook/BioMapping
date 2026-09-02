@@ -18,7 +18,7 @@ function sliderVal(el, fallback, fn) {
 }
 
 /**
- * Like sliderVal(), but for the shape sliders updateDeconvolutionUIState()
+ * Like sliderVal(), but for the shape sliders updateShapeSlidersForDetector()
  * (events.js) locks to a kernel-canonical value while deconvolution is
  * enabled. In that state, el.value holds the temporary locked display
  * number, not the user's real underlying preference — reading it directly
@@ -304,13 +304,13 @@ const GSRStorage = {
       if (contour.surfaceOpacity !== undefined && C.surfaceOpacity) C.surfaceOpacity.value = contour.surfaceOpacity;
     }
 
-    // Update layout (DWT vs Tonic Window) and shape slider lock states (Deconvolution ON vs OFF)
+    // Update layout (DWT vs Tonic Window) and shape-slider visibility per detector
     if (typeof GSREvents !== 'undefined') {
       if (typeof GSREvents.updateTonicMethodLayout === 'function') {
         GSREvents.updateTonicMethodLayout();
       }
-      if (typeof GSREvents.updateDeconvolutionUIState === 'function') {
-        GSREvents.updateDeconvolutionUIState();
+      if (typeof GSREvents.updateShapeSlidersForDetector === 'function') {
+        GSREvents.updateShapeSlidersForDetector();
       }
     }
 

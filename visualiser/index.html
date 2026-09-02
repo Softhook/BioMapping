@@ -238,9 +238,9 @@
                 <input type="checkbox" id="usePeakProminence">
                 <span class="slider round"></span>
               </label>
-              <span class="toggle-label">Prominence Detector</span>
+              <span class="toggle-label">Combined Detector</span>
             </div>
-            <p class="help-text" style="margin-top:4px;">Recall-first: identifies peaks by topographic prominence and measures amplitude from a trailing baseline, recovering compound SCRs that the default trough-to-peak detector undercounts. Overrides Deconvolution when both are on.</p>
+            <p class="help-text" style="margin-top:4px;">Union of the two detectors: the default trough-to-peak list, with each apex snapped to its most topographically-prominent point, plus the compound-burst SCRs the greedy scan skips over. Peaks are identified by prominence, SNR and quality — the rise / recovery / skew criteria below do not apply in this mode. Overrides Deconvolution when both are on.</p>
 
             <div class="toggle-group" style="margin-top:8px;">
               <label class="switch">
@@ -255,6 +255,7 @@
             </div>
 
             <div class="control-subgroup-title">Peak Shape &amp; Width Criteria</div>
+            <p class="help-text" style="margin-top:-2px;margin-bottom:6px;">Rise, recovery and skew criteria apply to the default trough-to-peak detector only. Min SNR and Min Peak Quality apply in every mode.</p>
 
             <div class="slider-group">
               <div class="slider-label">
@@ -303,7 +304,7 @@
               </div>
               <input type="range" id="shapeMinSnr" min="0" max="5.0" step="0.1" value="1.5">
               <div class="slider-rec" style="left:40%; width:40%"></div>
-              <p class="help-text">Min signal-to-noise ratio. Set to 0 = off.</p>
+              <p class="help-text">Min peak amplitude / local noise. Mostly matters when the low-pass is low or off; the amplitude threshold already implies a high SNR on filtered data. Not applied to combined-mode rescues. Set to 0 = off.</p>
             </div>
 
             <div class="slider-group">

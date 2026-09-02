@@ -300,18 +300,18 @@ const GSREvents = {
       GSRUI.runAnalysis();
     });
 
-    // ── Alternative-detector toggles (Deconvolution / Prominence) ─────────────
+    // ── Alternative-detector toggles (Combined / Deconvolution) ──────────────
     // Mutually exclusive: analyze() only ever runs one detector, so turning
     // either alternative ON forces the other OFF (setting .checked in code
     // does not re-fire 'change', so no loop). Turning one OFF just drops back
     // to the default trough-to-peak detector. Both re-run the full pipeline
-    // and refresh the shape-slider lock state.
+    // and refresh the shape-slider visibility.
     if (S.useDeconvolution) {
       S.useDeconvolution.addEventListener('change', () => {
         if (S.useDeconvolution.checked && S.usePeakProminence) {
           S.usePeakProminence.checked = false;
         }
-        GSREvents.updateDeconvolutionUIState();
+        GSREvents.updateShapeSlidersForDetector();
         GSRUI.runAnalysis();
       });
     }
@@ -321,7 +321,7 @@ const GSREvents = {
         if (S.usePeakProminence.checked && S.useDeconvolution) {
           S.useDeconvolution.checked = false;
         }
-        GSREvents.updateDeconvolutionUIState();
+        GSREvents.updateShapeSlidersForDetector();
         GSRUI.runAnalysis();
       });
     }
@@ -1224,35 +1224,37 @@ const GSREvents = {
     // Sync dim state for all sliders across all control cards
     document.querySelectorAll('input[type="range"]').forEach(slider => GSREvents.updateFilterDim(slider));
 
-    GSREvents.updateDeconvolutionUIState();
+    GSREvents.updateShapeSlidersForDetector();
     GSREvents.updateAdaptiveNotchUIState();
   },
 
   /**
-   * Show/hide the morphology shape sliders (rise / half-recovery / skew)
-   * depending on the active detector.
+   * Show/hide the morphology shape sliders (rise / half-recovery / skew) to
+   * match the active peak detector. These bounds are meaningful for the
+   * trough-to-peak detector only:
    *
-   *   - Trough-to-peak (default): all live, all applied as rejection gates.
-   *   - Deconvolution: hidden and pinned to the kernel's canonical shape —
-   *     morphology isn't free to vary once the SCRF kernel is fixed, so
-   *     bounding a reconstructed peak against those numbers is meaningless.
-   *   - Prominence detector: hidden — it identifies peaks by prominence and
-   *     doesn't apply shape criteria at all.
+   *   - Trough-to-peak (default): live — applied as rejection gates.
+   *   - Combined (usePeakProminence): hidden. Identification is topographic
+   *     prominence + SNR + quality, not morphology; _detectPeaksCombined()
+   *     forces these bounds off so a hidden slider has no effect.
+   *   - Deconvolution: hidden and pinned to the SCRF kernel's canonical shape —
+   *     once the kernel is fixed, morphology isn't free to vary, so bounding a
+   *     reconstructed peak against those numbers is meaningless.
    *
-   * Min SNR stays live in every mode (a per-peak local-noise property, not a
-   * shape constant) and lives in its own slider outside this list. Min Peak
-   * Quality likewise stays live everywhere.
+   * Min SNR and Min Peak Quality are NOT in this list — they are per-peak
+   * properties, not shape constants, and stay live in every mode.
    */
-  updateDeconvolutionUIState() {
+  updateShapeSlidersForDetector() {
     const deconvCheckbox = document.getElementById('useDeconvolution');
     const useDeconv = deconvCheckbox ? deconvCheckbox.checked : false;
     const promCheckbox = document.getElementById('usePeakProminence');
-    const useProm = promCheckbox ? promCheckbox.checked : false;
-    // Both alternative detectors ignore the morphology sliders; hide them in
-    // either mode. Only deconvolution pins them to canonical values (so a
-    // stale number can't be persisted via readGsrSliderValues()); for the
-    // prominence detector the values are simply never read.
-    const hideShape = useDeconv || useProm;
+    const useCombined = promCheckbox ? promCheckbox.checked : false;
+    // Neither alternative detector uses the morphology sliders — hide them in
+    // both modes. Deconvolution additionally pins them to canonical kernel
+    // values (so a stale number can't be persisted via readGsrSliderValues());
+    // the combined detector forces them off in the analyzer, so its slider
+    // values are simply never read.
+    const hideShape = useDeconv || useCombined;
 
     // Derive canonical shape values analytically from the actual SCRF kernel so
     // they stay in sync with GSR_CONST.SCRF if tauSlow/tauFast ever change,
@@ -1321,7 +1323,7 @@ const GSREvents = {
       if (label) {
         if (useDeconv) {
           label.innerText = s.canonical;
-        } else if (useProm) {
+        } else if (useCombined) {
           label.innerText = 'not used';
         } else if (slider) {
           const val = parseFloat(slider.value);

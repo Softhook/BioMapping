@@ -1,8 +1,8 @@
 /**
- * GSREvents.updateDeconvolutionUIState — the morphology shape sliders
+ * GSREvents.updateShapeSlidersForDetector — the morphology shape sliders
  * (rise / half-recovery / skew) must be shown only for the default
  * trough-to-peak detector, and hidden + disabled for both alternative
- * detectors (deconvolution, prominence). Min SNR stays live in every mode.
+ * detectors (combined, deconvolution). Min SNR stays live in every mode.
  *
  * Run: node visualiser/tests/test_shape_slider_modes.js
  */
@@ -40,7 +40,7 @@ const groupHidden = (id) => $(id).closest('.slider-group').style.display === 'no
 function setMode({ deconv = false, prom = false }) {
   $('useDeconvolution').checked = deconv;
   $('usePeakProminence').checked = prom;
-  global.GSREvents.updateDeconvolutionUIState();
+  global.GSREvents.updateShapeSlidersForDetector();
 }
 
 // ── Default: everything visible & enabled ──────────────────────────────────
@@ -61,17 +61,17 @@ assert(/locked/.test($('valShapeMinRiseTime').innerText), 'deconvolution: label 
 assert(parseFloat($('shapeMinRiseTime').value) > 0.5,
   'deconvolution: shapeMinRiseTime pinned to the kernel canonical value');
 
-// ── Prominence: shape sliders hidden + disabled, values untouched ──────────
+// ── Combined: shape sliders hidden + disabled, values untouched ────────────
 $('useDeconvolution').checked = false;
-global.GSREvents.updateDeconvolutionUIState();      // unlock first (restores cached)
+global.GSREvents.updateShapeSlidersForDetector();      // unlock first (restores cached)
 const preProm = SHAPE.map(id => $(id).value);
 setMode({ prom: true });
 SHAPE.forEach((id, i) => {
-  assert($(id).disabled && groupHidden(id), `prominence: ${id} is hidden & disabled`);
-  assert($(id).value === preProm[i], `prominence: ${id} value left untouched (${$(id).value})`);
+  assert($(id).disabled && groupHidden(id), `combined: ${id} is hidden & disabled`);
+  assert($(id).value === preProm[i], `combined: ${id} value left untouched (${$(id).value})`);
 });
-assert(!$('shapeMinSnr').disabled, 'prominence: Min SNR stays live');
-assert($('valShapeMinRiseTime').innerText === 'not used', 'prominence: label reads "not used"');
+assert(!$('shapeMinSnr').disabled, 'combined: Min SNR stays live');
+assert($('valShapeMinRiseTime').innerText === 'not used', 'combined: label reads "not used"');
 
 // ── Back to default: fully restored ───────────────────────────────────────
 setMode({});
