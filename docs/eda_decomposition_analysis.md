@@ -187,6 +187,18 @@ amplitude rescaling corrects aggregate energy but cannot remove false impulse
 positions. On busy tracks this is the primary source of disagreement between
 deconvolution-mode and trough-to-peak peak counts.
 
+> **Correction (2026-09-02):** severity is bounded by downstream gating. The
+> spurious atoms live in the *driver* signal, but four independent filters sit
+> between the driver and any reported peak — `convTol` (0.002 µS) floors MP
+> itself, `impulseThreshold` (0.005 µS) gates `detectImpulses()`, `resolveApex()`
+> requires a genuine local rise in the *original* phasic near each impulse
+> (`minApexVal`), and the user's `peakThreshold` gates the final peak list
+> (`analyzer.js:694–698`). Most ghost atoms never become peaks. What they do
+> reach is the reconstructed curve's *aggregate energy*, which is exactly what
+> the `sum(phasic)/sum(clean)` rescale exists to patch. So MP→ADMM is a
+> "make the model principled and drop the rescale hack" change, not a "fix
+> broken peak output" change.
+
 ### 2. No L1 sparsity prior
 
 There is nothing stopping MP from fitting residual noise into small atoms. `convTol`
@@ -216,16 +228,50 @@ under-estimated by 20%, remain in those proportions after rescaling.
 
 ## Upgrade Paths
 
+> **Implementation-feasibility notes (2026-09-02).** Verified against the current
+> tree before planning:
+> - **No FFT exists in the codebase.** `dwt_filter.js` is a db3 Daubechies
+>   lifting-scheme wavelet transform — no Cooley-Tukey, no `fft`/`ifft`, nothing
+>   reusable. Any frequency-domain ADMM (Tier 2) must ship its own FFT (~200 LOC
+>   with the real-signal wrapper, zero-padding and linear-convolution boundary
+>   handling) **or** stay in the time domain with a banded Cholesky factor of
+>   `(AᵀA + ρI)` (it is Toeplitz, half-bandwidth ≈ kernel length ≈ 100 samples at
+>   10 Hz) — factor once, cheap back-substitution per iteration. Realistic Tier 2
+>   size is ~450–550 LOC, not 200–350.
+> - **`deconvolve()` does not return the residual** — only
+>   `{ driver, kernel, iterations, impulseLog }`. Tier 1 kernel-fitting must score
+>   candidates by reconstruct-and-diff from `impulseLog`, by the returned
+>   `iterations` count, or by adding a residual return value.
+> - Sample rate is **10 Hz** (`analyzer.js` `this.sampleRate = 10`, auto-detected).
+>   cvxEDA's published α ≈ 8×10⁻⁴ is quoted at 25 Hz; use the
+>   `σ·√(2·log n)` form with a MAD noise estimate rather than a transplanted
+>   constant.
+> - Test suite is **904 tests** (`npm test`, `node --test tests/*.js`). The
+>   deconvolution regression fixtures are `test_deconvolution.js` (38 cases:
+>   synthetic + track 048), `test_deconvolution_053.js`, `test_deconvolution_059.js`.
+>   There is no "65-track benchmark report".
+> - A **DWT-based tonic** already exists as an option (`tonicMethod: 'dwt'`,
+>   `gsr_filter.js:394`) and is more drift-robust than the default zero-phase EMA —
+>   relevant context for the Tier 3 "sequential tonic" critique.
+
 ### Tier 1 — Within the current architecture (~100 LOC)
 
-**Empirical kernel fitting**: grid-search over `(τ_slow ∈ [1.0, 5.0], τ_fast ∈ [0.3,
-1.2])`, run a short MP pass on each pair, pick the pair with minimum reconstruction
-residual, then run the full pass. ~25–50 quick MP passes; expected total cost of 2–3×
-one full deconvolution. Highest-impact single change: addresses the per-participant
-variability problem that CDA was specifically designed to solve, using the τ constants
-already exposed in `GSR_CONST.SCRF`.
+**Empirical kernel fitting**: grid-search over `(τ_slow ∈ [1.0, 4.5], τ_fast ∈ [0.3,
+1.3])`, run a short (≤50-iter) MP pass on each pair, pick the pair with minimum
+reconstruction residual (or fewest iterations to `convTol`), then run the full pass.
+~20–25 quick MP passes; expected total cost of 2–3× one full deconvolution.
+Highest-impact single change: addresses the per-participant variability problem that
+CDA was specifically designed to solve, using the τ constants already exposed in
+`GSR_CONST.SCRF`.
 
-### Tier 2 — Replace the solver (~200–350 LOC, no external library)
+> **Caveat:** field data has no ground-truth τ. Minimising self-reconstruction
+> residual can be gamed by a longer τ_slow that absorbs baseline drift rather
+> than fitting SCR morphology. cvxEDA/CDA fit τ against clean lab SCRs with known
+> onsets; unsupervised fitting on ambulatory data is a weaker signal. Validation
+> must check the *fitted τ distribution is physiologically plausible*
+> (≈1.5–6 s for τ_slow), not just that residual dropped.
+
+### Tier 2 — Replace the solver (~450–550 LOC, no external library — see feasibility notes)
 
 **Orthogonal Matching Pursuit (OMP)**: after each atom is placed, refits all accepted
 atoms jointly (small ≤k×k NNLS). Much better per-atom amplitude accuracy than plain
