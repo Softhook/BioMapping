@@ -25,9 +25,11 @@ const StatsMath = {
   },
 
   /**
-   * Calculates mean and standard deviation of an array of numeric values.
+   * Mean, standard deviation, variance, min and max of a numeric array.
+   * `std` is floored at 1 (divide-by-zero guard for downstream z-scoring);
+   * use `variance` when you need the true, unclamped spread.
    *
-   * @param {number[]} values - Array of numeric values.
+   * @param {number[]} values
    * @returns {{mean: number, std: number, variance: number, min: number, max: number}}
    */
   calculateStats(values) {
@@ -84,61 +86,87 @@ const StatsMath = {
   },
 
   /**
-   * Biased lag-1 autocorrelation of a series (ACF at lag 1: the correlation
-   * between each value and the next, normalised by the full sum of squares).
-   * Returns 0 for series shorter than 3 or with zero variance.
+   * Autocorrelation function for lags 0..maxLag. Biased estimator: each
+   * lag-k autocovariance is normalised by the lag-0 variance, so acf[0] === 1.
+   * All-zero for a constant or near-empty series.
    */
-  lag1Autocorrelation(values) {
+  autocorrelation(values, maxLag) {
     const n = values ? values.length : 0;
-    if (n < 3) return 0;
-    let sum = 0;
-    for (let i = 0; i < n; i++) sum += values[i];
-    const mean = sum / n;
-    let num = 0, den = 0;
-    for (let i = 0; i < n; i++) {
-      const d = values[i] - mean;
-      den += d * d;
-      if (i < n - 1) num += d * (values[i + 1] - mean);
+    const want = Math.max(0, maxLag | 0);
+    const acf = new Array(want + 1).fill(0);   // lags beyond n-1 stay 0
+    if (n < 2) return acf;
+    let mean = 0;
+    for (let i = 0; i < n; i++) mean += values[i];
+    mean /= n;
+    let c0 = 0;
+    for (let i = 0; i < n; i++) { const d = values[i] - mean; c0 += d * d; }
+    if (c0 === 0) return acf;
+    acf[0] = 1;
+    const kMax = Math.min(want, n - 1);
+    for (let k = 1; k <= kMax; k++) {
+      let ck = 0;
+      for (let i = 0; i < n - k; i++) ck += (values[i] - mean) * (values[i + k] - mean);
+      acf[k] = ck / c0;
     }
-    return den === 0 ? 0 : num / den;
+    return acf;
+  },
+
+  /** Lag-1 autocorrelation. 0 for a series shorter than 3 or with no variance. */
+  lag1Autocorrelation(values) {
+    if (!values || values.length < 3) return 0;
+    return this.autocorrelation(values, 1)[1];
   },
 
   /**
-   * Effective sample size of a single autocorrelated series, used to widen
-   * the standard error / CI of its mean. Quenouille / Bayley–Hammersley
-   * lag-1 form: N_eff = N (1 - r1) / (1 + r1). Positive autocorrelation
-   * (the usual case for a slow physiological signal sampled fast) shrinks
-   * N_eff; negative or zero autocorrelation leaves it untouched.
+   * Variance-inflation factor for inference on the mean of, or the
+   * correlation between, serially-correlated series:
+   *   1 + 2 Σ_{k=1..K} (1 - k/n) ρa(k) ρb(k)
+   * (Bartlett 1935 for a single mean; Pyper & Peterman 1998 for a
+   * correlation — pass the same series twice for the single-mean case).
+   * Lags are summed to n/5 and stopped at the first lag where both ACFs sit
+   * inside the ±2/√n white-noise band. Never below 1. Expects a.length === b.length.
+   */
+  _varianceInflationFactor(a, b) {
+    const n = Math.min(a.length, b.length);
+    if (n < 8) return 1;
+    const kMax = Math.max(1, Math.floor(n / 5));
+    const ra = this.autocorrelation(a, kMax);
+    const rb = this.autocorrelation(b, kMax);
+    const noise = 2 / Math.sqrt(n);
+    let sum = 0;
+    for (let k = 1; k <= kMax; k++) {
+      if (Math.abs(ra[k]) < noise && Math.abs(rb[k]) < noise) break;
+      sum += (1 - k / n) * ra[k] * rb[k];
+    }
+    return Math.max(1, 1 + 2 * sum);
+  },
+
+  /**
+   * Effective sample size of a serially-correlated series for inference on
+   * its mean: n / variance-inflation factor, clamped to [2, n]; returned
+   * unchanged for n < 8 or a non-autocorrelated series.
    */
   effectiveSampleSize(values) {
     const n = values ? values.length : 0;
-    if (n < 4) return n;
-    const r1 = this.lag1Autocorrelation(values);
-    if (!(r1 > 0)) return n;
-    const ratio = (1 - r1) / (1 + r1);
-    return Math.max(2, Math.min(n, n * ratio));
+    if (n < 8) return n;
+    return Math.max(2, Math.min(n, n / this._varianceInflationFactor(values, values)));
   },
 
   /**
-   * Effective pair count for a correlation between two autocorrelated
-   * series (Pyper & Peterman 1998, truncated at lag 1):
-   *   N_eff = N (1 - r1x r1y) / (1 + r1x r1y)
-   * This is what the significance test of r should use — r itself is
-   * computed from all N points, but its sampling variance is governed by
-   * the far smaller number of *independent* observations.
+   * Effective pair count for a Pearson correlation between two
+   * serially-correlated series (Pyper & Peterman 1998). r is still estimated
+   * from all n points; only its significance test uses this. Clamped to
+   * [2, n]; returned unchanged for n < 8.
    */
   correlationEffectiveN(x, y) {
     const n = Math.min(x ? x.length : 0, y ? y.length : 0);
-    if (n < 4) return n;
-    const prod = this.lag1Autocorrelation(x) * this.lag1Autocorrelation(y);
-    if (prod <= -1 || !isFinite(prod)) return n;
-    const ratio = (1 - prod) / (1 + prod);
-    return Math.max(2, Math.min(n, n * ratio));
+    if (n < 8) return n;
+    return Math.max(2, Math.min(n, n / this._varianceInflationFactor(x, y)));
   },
 
   /**
-   * Pearson r with a p-value corrected for serial autocorrelation in either
-   * series via the lag-1 effective sample size (see correlationEffectiveN).
+   * Pearson r whose two-tailed p-value is corrected for serial
+   * autocorrelation via the effective pair count (correlationEffectiveN).
    * The point estimate r is unchanged. Returns { r, p, n, nEff }.
    */
   calculateAutocorrCorrelation(x, y) {
@@ -152,6 +180,44 @@ const StatsMath = {
       p = StatsMath._tTestPValue(t, df);
     }
     return { r, p, n, nEff };
+  },
+
+  /**
+   * Random-effects meta-analysis of a Pearson correlation across independent
+   * groups (e.g. separate walks). For each group: r_i = Pearson(x_i, y_i),
+   * Fisher-z z_i = atanh(r_i); then a one-sample t-test of {z_i} vs 0.
+   * This is the right test for "does the effect hold up across recordings",
+   * and it gains power as groups are added — unlike concatenating them.
+   *
+   * @param {{x:number[], y:number[]}[]} groups
+   * @param {number} [minPerGroup=10] minimum usable samples for a group to count
+   * @returns {{r:number, p:number, k:number}} r = tanh(mean z) (typical
+   *   per-group effect), k = groups that contributed. For k < 3 the test is
+   *   not run: p = 1, r = the simple mean of the available r_i.
+   */
+  metaCorrelation(groups, minPerGroup = 10) {
+    const zs = [];
+    let sumR = 0, nR = 0;
+    for (const g of (groups || [])) {
+      const n = Math.min(g.x ? g.x.length : 0, g.y ? g.y.length : 0);
+      if (n < minPerGroup) continue;
+      const x = g.x.slice(0, n), y = g.y.slice(0, n);
+      if (!(this.calculateStats(x).variance > 0) || !(this.calculateStats(y).variance > 0)) continue;
+      const { r } = this.calculatePearsonCorrelation(x, y);
+      if (!isFinite(r)) continue;
+      sumR += r; nR++;
+      const rc = Math.max(-0.9999, Math.min(0.9999, r));
+      zs.push(Math.atanh(rc));
+    }
+    const k = zs.length;
+    if (k < 3) return { r: nR ? sumR / nR : 0, p: 1, k };
+    const mean = zs.reduce((s, v) => s + v, 0) / k;
+    let ss = 0;
+    for (const v of zs) ss += (v - mean) ** 2;
+    const sd = Math.sqrt(ss / (k - 1));
+    if (!(sd > 0)) return { r: Math.tanh(mean), p: mean === 0 ? 1 : 0, k };
+    const t = mean / (sd / Math.sqrt(k));
+    return { r: Math.tanh(mean), p: StatsMath._tTestPValue(t, k - 1), k };
   },
 
   /**
@@ -179,11 +245,10 @@ const StatsMath = {
   },
 
   /**
-   * Welch's unequal-variance two-sample t-test. With useEffectiveN the per
-   * group counts are replaced by their autocorrelation-adjusted effective
-   * sizes (effectiveSampleSize) so a comparison of two stretches of a fast
-   * physiological signal is not massively over-powered.
-   * Returns { t, df, p, meanA, meanB, nA, nB }.
+   * Welch's unequal-variance two-sample t-test. With useEffectiveN each
+   * group's count is replaced by its autocorrelation-adjusted effective size
+   * (effectiveSampleSize), so comparing two stretches of a fast physiological
+   * signal isn't hugely over-powered. Returns { t, df, p, meanA, meanB, nA, nB }.
    */
   welchTTest(sampleA, sampleB, useEffectiveN = false) {
     const rawA = sampleA ? sampleA.length : 0;

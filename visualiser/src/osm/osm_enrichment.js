@@ -531,14 +531,10 @@ const OSMEnricher = {
       const t = span > 0 ? (i - prev.idx) / span : 0;
       const p = prev.metrics, n = next.metrics;
 
-      // Linear interpolation for continuous variables
       const lerp = (a, b) => a + (b - a) * t;
-      // Distance fields carry a SENTINEL_DIST ("no feature within radius")
-      // marker. Lerping across it manufactures meaningless mid-range
-      // distances (e.g. 500 m half-way between "none nearby" and "8 m"),
-      // which then leak into map colouring and the environmental
-      // correlation dashboard as if they were real measurements. Step
-      // instead whenever either endpoint is the sentinel.
+      // Distance fields: step, don't lerp, when either endpoint is the
+      // SENTINEL_DIST "no feature within radius" marker — interpolating it
+      // would invent mid-range distances that never existed.
       const lerpDist = (a, b) =>
         (a === SENTINEL_DIST || b === SENTINEL_DIST) ? ((t >= 0.5) ? b : a) : lerp(a, b);
 

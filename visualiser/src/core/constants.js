@@ -412,19 +412,13 @@ const GSR_CONST = {
     SPEED_GATE: 0.3    // m/s — below this speed, course is unreliable so the heading penalty is skipped
   },
 
-  // The 8 OSM enrichment fields (osm_enrichment.js), and the UI metric key
-  // each is exposed under (map.js's "Map Metric" dropdown, ui.js's
-  // correlation dashboard). Single source of truth for key<->field<->label —
-  // used to live hardcoded in 4 separate places (map.js's legend title map
-  // and _getMetricKey, ui.js's correlation-matrix feature list and
-  // regression-scatter axis labels), which meant adding/renaming/removing a
-  // metric meant editing all 4 by hand with nothing to catch a missed one.
-  // `kind: 'categorical'` metrics (roadClass) render as legend swatches and
-  // are excluded from the correlation/scatter UI; `kind: 'binary'` (inPark)
-  // is a 0/1 field that IS included there (point-biserial correlation is
-  // just Pearson on a 0/1 variable). `unit` (when present) is appended in
-  // parens only where that already happened (ui.js's regression-scatter
-  // axis labels) — every other consumer uses the bare label.
+  // The 8 OSM enrichment fields (osm_enrichment.js) and their UI metric key
+  // — single source of truth for key<->field<->label, shared by map.js's
+  // "Map Metric" dropdown/legend and ui.js's correlation dashboard.
+  //   kind: 'categorical' (roadClass)  — legend swatches; not correlatable.
+  //   kind: 'binary'      (inPark)     — 0/1; correlated as point-biserial r.
+  //   kind: 'continuous'               — correlated and plottable.
+  //   unit                             — appended in parens on scatter axes only.
   OSM_METRICS: [
     { key: 'roadClass',       field: 'osm_road_class',            label: 'Road Class',              kind: 'categorical' },
     { key: 'distMajorRoad',   field: 'osm_dist_major_road',        label: 'Distance to Major Road',  kind: 'continuous', unit: 'm' },

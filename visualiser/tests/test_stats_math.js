@@ -104,9 +104,28 @@ test('calculatePearsonCorrelation: p-value decreases as the correlation strength
 });
 
 // ---------------------------------------------------------------------------
-// Autocorrelation-aware helpers (lag1Autocorrelation, effectiveSampleSize,
-// correlationEffectiveN, calculateAutocorrCorrelation)
+// Autocorrelation-aware helpers (autocorrelation, lag1Autocorrelation,
+// effectiveSampleSize, correlationEffectiveN, calculateAutocorrCorrelation)
 // ---------------------------------------------------------------------------
+
+test('autocorrelation: acf[0] is 1; a monotone ramp stays near 1 for many lags; alternating flips sign each lag', () => {
+  const ramp = [];
+  for (let i = 0; i < 200; i++) ramp.push(i);
+  const acfRamp = StatsMath.autocorrelation(ramp, 10);
+  assert.strictEqual(acfRamp[0], 1);
+  assert.ok(acfRamp[1] > 0.95 && acfRamp[10] > 0.8, 'slow trend -> ACF decays slowly');
+
+  const alt = [];
+  for (let i = 0; i < 200; i++) alt.push(i % 2 === 0 ? 1 : -1);
+  const acfAlt = StatsMath.autocorrelation(alt, 4);
+  closeTo(acfAlt[1], -1, 0.05);
+  closeTo(acfAlt[2], 1, 0.05);
+});
+
+test('autocorrelation: constant or near-empty series returns all zeros', () => {
+  assert.deepStrictEqual(StatsMath.autocorrelation([5, 5, 5, 5], 2), [0, 0, 0]);
+  assert.deepStrictEqual(StatsMath.autocorrelation([1], 3), [0, 0, 0, 0]);
+});
 
 test('lag1Autocorrelation: ~0 for i.i.d.-style alternating data, high for a slow ramp', () => {
   const alternating = [];
@@ -162,6 +181,67 @@ test('calculateAutocorrCorrelation: same r as the plain Pearson, but a larger (m
   assert.ok(corr.nEff < x.length, 'effective N is below raw N');
   assert.ok(corr.p > plain.p, `corrected p (${corr.p}) should exceed the naive p (${plain.p})`);
   assert.ok(Number.isFinite(corr.p) && corr.p >= 0 && corr.p <= 1, 'corrected p is a valid probability');
+});
+
+// ---------------------------------------------------------------------------
+// metaCorrelation (random-effects across independent groups / walks)
+// ---------------------------------------------------------------------------
+
+// Deterministic pseudo-random helper (no lib RNG).
+function lcg(seed) {
+  let s = seed >>> 0;
+  return () => { s = (1664525 * s + 1013904223) >>> 0; return s / 4294967296; };
+}
+
+test('metaCorrelation: fewer than 3 usable groups -> not tested (p = 1), r is the mean of available group rs', () => {
+  const g1 = { x: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], y: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] };      // r = 1
+  const g2 = { x: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], y: [10, 9, 8, 7, 6, 5, 4, 3, 2, 1] };      // r = -1
+  const res = StatsMath.metaCorrelation([g1, g2]);
+  assert.strictEqual(res.k, 2);
+  assert.strictEqual(res.p, 1);
+  closeTo(res.r, 0, 1e-9, 'mean of +1 and -1');
+});
+
+test('metaCorrelation: groups too short, or with no variance, are skipped', () => {
+  const short = { x: [1, 2, 3], y: [1, 2, 3] };
+  const flatX = { x: new Array(20).fill(5), y: Array.from({ length: 20 }, (_, i) => i) };
+  const ok1 = { x: Array.from({ length: 20 }, (_, i) => i), y: Array.from({ length: 20 }, (_, i) => i + (i % 3)) };
+  const ok2 = { x: Array.from({ length: 20 }, (_, i) => i), y: Array.from({ length: 20 }, (_, i) => i * 0.9 - (i % 4)) };
+  const ok3 = { x: Array.from({ length: 20 }, (_, i) => i), y: Array.from({ length: 20 }, (_, i) => i * 1.1 + (i % 2)) };
+  const res = StatsMath.metaCorrelation([short, flatX, ok1, ok2, ok3]);
+  assert.strictEqual(res.k, 3, 'only the 3 usable groups count');
+});
+
+test('metaCorrelation: a consistent per-group effect is detected; gains power as groups are added', () => {
+  const R = lcg(42);
+  const makeGroups = (K, beta) => {
+    const out = [];
+    for (let g = 0; g < K; g++) {
+      const x = [], y = [];
+      for (let i = 0; i < 60; i++) { const xv = R() * 10; x.push(xv); y.push(beta * xv + (R() - 0.5) * 8); }
+      out.push({ x, y });
+    }
+    return out;
+  };
+  const p4 = StatsMath.metaCorrelation(makeGroups(4, 0.5)).p;
+  const p12 = StatsMath.metaCorrelation(makeGroups(12, 0.5)).p;
+  assert.ok(p4 < 0.05, `4 groups with a real effect should be detectable, got p=${p4}`);
+  assert.ok(p12 < p4, `more groups -> smaller p (${p12} < ${p4})`);
+
+  const pNull = StatsMath.metaCorrelation(makeGroups(12, 0)).p;
+  assert.ok(pNull > 0.05, `no real effect -> not significant, got p=${pNull}`);
+});
+
+test('metaCorrelation: identical non-zero r in every group -> t is infinite -> p ~ 0', () => {
+  const groups = [];
+  for (let g = 0; g < 5; g++) {
+    const x = Array.from({ length: 30 }, (_, i) => i);
+    const y = Array.from({ length: 30 }, (_, i) => 2 * i + 1); // r = 1 exactly, same every group
+    groups.push({ x, y });
+  }
+  const res = StatsMath.metaCorrelation(groups);
+  assert.strictEqual(res.k, 5);
+  assert.ok(res.p < 1e-6, `zero between-group variance in a non-zero effect -> tiny p, got ${res.p}`);
 });
 
 // ---------------------------------------------------------------------------

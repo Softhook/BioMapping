@@ -243,6 +243,73 @@ test('updateEnvironmentalDashboard (single mode): recomputes after the active tr
   assert.notStrictEqual(after, before, 're-running analyze() bumped _dataVersion -> dashboard cache recomputed');
 });
 
+test('updateEnvironmentalDashboard (collective mode): method scales with walk count (single / fewWalks / metaProvisional / meta)', () => {
+  const mkTracks = (n) => Array.from({ length: n }, (_, k) => {
+    const a = buildEnrichedAnalyzer();
+    // Each walk a slightly different environment so per-walk correlations differ.
+    a.raw.forEach((pt, i) => { pt.osm_building_density_50m = ((i * 7 + k * 13) % 100) / 100; });
+    return { id: 'trk' + k, analyzer: a };
+  });
+  const run = (n) => {
+    const cm = { getActiveTracks: () => mkTracks(n) };
+    global.AppState = { viewMode: 'collective', collectiveManager: cm };
+    GSRUI.updateEnvironmentalDashboard();
+    return cm._cachedEnvStats.correlationMatrix.filter(r => r.hasVariance);
+  };
+
+  // 2 walks: too few to test -> fewWalks, no q.
+  run(2).forEach(r => {
+    assert.strictEqual(r.mPhasic, 'fewWalks', `${r.key}: 2 walks -> fewWalks`);
+    assert.ok(Number.isNaN(r.pPhasic), `${r.key}: fewWalks carries no p`);
+  });
+
+  // 4 walks: enough to meta-analyse but under the solid threshold -> provisional.
+  run(4).forEach(r => {
+    assert.strictEqual(r.mPhasic, 'metaProvisional', `${r.key}: 4 walks -> metaProvisional`);
+    assert.ok(r.kPhasic >= 3, `${r.key}: 4-walk meta used >= 3 walks`);
+  });
+
+  // 6 walks: a real meta verdict, with a finite p and a q assigned.
+  const six = run(6);
+  assert.ok(six.length >= 3, 'sanity: several varying features at 6 walks');
+  six.forEach(r => {
+    assert.strictEqual(r.mPhasic, 'meta', `${r.key}: 6 walks -> meta`);
+    assert.ok(Number.isFinite(r.pPhasic) && r.pPhasic >= 0 && r.pPhasic <= 1, `${r.key}: valid meta p`);
+    assert.ok(Number.isFinite(r.qPhasic), `${r.key}: meta cell gets an FDR q`);
+  });
+});
+
+test('updateEnvironmentalDashboard (collective mode): only enriched tracks are analysed; un-enriched ones are ignored', () => {
+  const enriched = [0, 1, 2].map(k => {
+    const a = buildEnrichedAnalyzer();
+    a.raw.forEach((pt, i) => { pt.osm_building_density_50m = ((i * 7 + k * 13) % 100) / 100; });
+    return { id: 'trk' + k, analyzer: a };
+  });
+  const bare = new GSRAnalyzer();
+  bare.parseCSV(csvText);
+  bare.analyze(GSR_CONST.GSR_DEFAULT, 0);            // parsed + analysed but NOT enriched
+  const all = [...enriched, { id: 'trkBare', analyzer: bare }];
+
+  const cm = { getActiveTracks: () => all };
+  global.AppState = { viewMode: 'collective', collectiveManager: cm };
+  GSRUI.updateEnvironmentalDashboard();
+
+  const stats = cm._cachedEnvStats;
+  assert.strictEqual(stats.trackCount, 3, 'only the 3 enriched tracks feed the analysis');
+  // The bare track's samples must not appear in allData.
+  assert.ok(stats.allData.every(d => d.trackId !== 'trkBare'), 'un-enriched track contributes no samples');
+});
+
+test('updateEnvironmentalDashboard (single mode): correlation cells use the single-recording method', () => {
+  const a = buildEnrichedAnalyzer();
+  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+  GSRUI.updateEnvironmentalDashboard();
+  a._cachedEnvStats.correlationMatrix.filter(r => r.hasVariance).forEach(r => {
+    assert.strictEqual(r.mPhasic, 'single', `${r.key}: single walk -> 'single' method`);
+    assert.strictEqual(r.featureWalks, 1);
+  });
+});
+
 test('updateEnvironmentalDashboard (collective mode): mutating ONE of several active tracks still invalidates the shared collective cache', () => {
   const trackA = buildEnrichedAnalyzer();
   const trackB = buildEnrichedAnalyzer();

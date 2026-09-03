@@ -894,84 +894,94 @@ const GSRUI = {
       const snapRadius  = parseInt(document.getElementById('gpsSnapRadius')?.value) || 25;
       const maxRadius   = Math.max(radius, snapRadius);
 
-      // Calculate union bounding box using valid raw coordinates
+      // Union bounding box over every valid track's raw coordinates.
+      // (Plain loop, not push(...spread) — that overflows the call stack
+      // once a collection has tens of thousands of points.)
       const combinedRaw = [];
       for (const t of validTracks) {
-        combinedRaw.push(...t.analyzer.raw);
+        const r = t.analyzer.raw;
+        for (let i = 0; i < r.length; i++) combinedRaw.push(r[i]);
       }
+
+      const AREA_CAP_KM2 = 12.0;
+      const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? false;
+      const snapParams = { enabled: snapEnabled, radiusOut: snapRadius };
 
       const unionBBox = OSMEnricher.calculateBBox(combinedRaw, maxRadius + 50);
       if (!unionBBox) {
         throw new Error("Could not calculate bounding box. Track coordinates may be invalid.");
       }
+      const unionArea = OSMEnricher.calculateBBoxAreaKm2(unionBBox);
 
-      const area = OSMEnricher.calculateBBoxAreaKm2(unionBBox);
-      if (area > 12.0) {
-        throw new Error(`The combined tracks' bounding box is too large (${area.toFixed(1)} km²). Maximum size is 12 km² to prevent API overload. Try selecting fewer active tracks.`);
-      }
+      // One shared Overpass fetch when the whole collection fits under the
+      // area cap (the common case: walks in one neighbourhood). When it
+      // doesn't, fetch per track below so a geographically spread-out
+      // collection still enriches every track — each walk's own bbox is small.
+      let sharedJson = null;
+      const singleFetch = unionArea <= AREA_CAP_KM2;
+      const allInMem = !forceFetch && validTracks.every(t => t.analyzer.osmJson);
 
-      // Check if we can reuse cached in-memory OSM data
-      const allCached = !forceFetch && validTracks.every(t => t.analyzer.osmJson);
-
-      if (allCached) {
-        const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? false;
-        validTracks.forEach(t => {
-          OSMEnricher.enrichTrack(t.analyzer, t.analyzer.osmJson, radius,
-            { enabled: snapEnabled, radiusOut: snapRadius }
-          );
-        });
-        GSRUI.refreshOsmControls();
-        GSRUI.rerenderMap();
-        updateProgress('Enrichment complete (using local cache)!', 100);
-        setTimeout(() => { statusContainer.style.display = 'none'; }, 2500);
-        return;
-      }
-
-      // Check persistent storage cache or fetch from Overpass API
-      updateProgress('Checking local cache...', 10);
-      let osmJson = await OsmCache.getForBBox(unionBBox);
-
-      if (osmJson) {
-        updateProgress('Using cached OpenStreetMap data...', 50);
-      } else {
-        const plan = await OsmCache.planFetch(unionBBox);
-        if (plan.mergeIds.length > 0) {
-          updateProgress(`Expanding cached coverage (merging ${plan.mergeIds.length} nearby area${plan.mergeIds.length > 1 ? 's' : ''})...`, 20);
+      if (singleFetch && !allInMem) {
+        updateProgress('Checking local cache…', 10);
+        sharedJson = await OsmCache.getForBBox(unionBBox);
+        if (sharedJson) {
+          updateProgress('Using cached OpenStreetMap data…', 40);
+        } else {
+          const plan = await OsmCache.planFetch(unionBBox);
+          if (plan.mergeIds.length > 0) {
+            updateProgress(`Expanding cached coverage (merging ${plan.mergeIds.length} nearby area${plan.mergeIds.length > 1 ? 's' : ''})…`, 20);
+          }
+          updateProgress('Fetching OpenStreetMap features…', 30);
+          sharedJson = await OSMEnricher.fetchOSMData(plan.fetchBBox, (msg) => updateProgress(msg));
+          OsmCache.store(plan.fetchBBox, sharedJson, plan.mergeIds);
         }
-
-        updateProgress('Fetching OpenStreetMap features for tracks...', 30);
-        osmJson = await OSMEnricher.fetchOSMData(plan.fetchBBox, (msg) => updateProgress(msg));
-        OsmCache.store(plan.fetchBBox, osmJson, plan.mergeIds);
       }
 
-      updateProgress('Processing spatial metrics...', 60);
-      const snapEnabled = document.getElementById('gpsSnapToRoads')?.checked ?? false;
+      // Enrich every valid track. One track failing (bad geometry, an
+      // oversized bbox, an Overpass error) must not abort the rest.
+      let enriched = 0;
+      const failed = [];
+      const tooBig = [];
+      for (let i = 0; i < validTracks.length; i++) {
+        const t = validTracks[i];
+        const label = t.name || t.id || `track ${i + 1}`;
+        const basePct = 45 + Math.round(50 * i / validTracks.length);
+        updateProgress(`[${i + 1}/${validTracks.length}] ${label}…`, basePct);
+        try {
+          let json = sharedJson || ((!forceFetch && t.analyzer.osmJson) ? t.analyzer.osmJson : null);
+          if (!json) {
+            const tb = OSMEnricher.calculateBBox(t.analyzer.raw, maxRadius + 50);
+            if (!tb) { failed.push(label); continue; }
+            if (OSMEnricher.calculateBBoxAreaKm2(tb) > AREA_CAP_KM2) { tooBig.push(label); continue; }
+            json = await OsmCache.getForBBox(tb);
+            if (!json) {
+              const plan = await OsmCache.planFetch(tb);
+              json = await OSMEnricher.fetchOSMData(plan.fetchBBox, (msg) => updateProgress(`[${i + 1}/${validTracks.length}] ${msg}`));
+              OsmCache.store(plan.fetchBBox, json, plan.mergeIds);
+            }
+          }
+          t.analyzer.osmJson = json;
+          OSMEnricher.enrichTrack(t.analyzer, json, radius, snapParams,
+            (msg) => updateProgress(`[${i + 1}/${validTracks.length}] ${msg}`));
+          enriched++;
+        } catch (e) {
+          console.error('OSM enrichment failed for track', t.id, e);
+          failed.push(label);
+        }
+      }
 
-      // Enrich each valid track using OSM JSON
-      validTracks.forEach((t, i) => {
-        t.analyzer.osmJson = osmJson;
-        OSMEnricher.enrichTrack(t.analyzer, osmJson, radius,
-          { enabled: snapEnabled, radiusOut: snapRadius },
-          (msg) => updateProgress(`[Track ${i+1}/${validTracks.length}] ${msg}`)
-        );
-      });
-
-      updateProgress('Redrawing visualizer...', 90);
-      
-      // Update UI displays
+      updateProgress('Redrawing visualiser…', 96);
       GSRUI.refreshOsmControls();
       GSRUI.rerenderMap();
-      
-      const skippedCount = tracksToEnrich.length - validTracks.length;
-      if (skippedCount > 0) {
-        updateProgress(`Enrichment complete! (Skipped ${skippedCount} track${skippedCount > 1 ? 's' : ''} with no GPS fixes)`, 100);
-      } else {
-        updateProgress('Enrichment complete!', 100);
-      }
-      
-      setTimeout(() => {
-        statusContainer.style.display = 'none';
-      }, 3000);
+
+      const noGps = tracksToEnrich.length - validTracks.length;
+      const parts = [`Enriched ${enriched}/${tracksToEnrich.length} walk${tracksToEnrich.length === 1 ? '' : 's'}`];
+      if (noGps > 0) parts.push(`${noGps} without GPS`);
+      if (tooBig.length > 0) parts.push(`${tooBig.length} too spread out (> ${AREA_CAP_KM2} km²)`);
+      if (failed.length > 0) parts.push(`${failed.length} failed`);
+      updateProgress(parts.join(' · '), 100);
+      if (enriched === 0) progressBar.style.backgroundColor = 'var(--danger)';
+      setTimeout(() => { statusContainer.style.display = 'none'; }, (failed.length || tooBig.length) ? 6000 : 3000);
 
     } catch (err) {
       console.error('OSM Enrichment error:', err);
@@ -986,10 +996,9 @@ const GSRUI = {
   },
 
   /**
-   * Helper mathematical routines for statistical correlations.
+   * Paint a scatter of (x, y) points with an OLS trend line and an R² badge
+   * onto `canvas`. Pure drawing — caller supplies the fitted m, c, r2.
    */
-
-
   drawRegressionScatter(canvas, xVals, yVals, m, c, r2, xLabel, yLabel) {
     const ctx = canvas.getContext('2d');
     const width = canvas.width;
@@ -1101,26 +1110,25 @@ const GSRUI = {
   },
 
   updateEnvironmentalDashboard() {
-    // Resolve tracks to aggregate
-    const activeTracks = (AppState.viewMode === 'single') 
-      ? (AppState.analyzer && AppState.analyzer.isEnriched
-          ? [ { id: AppState.activeTrackId, analyzer: AppState.analyzer } ]
-          : [])
-      : AppState.collectiveManager.getActiveTracks().filter(t => t.analyzer && t.analyzer.isEnriched);
+    // Every active track (the walks the user has toggled on), and the
+    // enriched subset the analysis can actually use.
+    const allActive = (AppState.viewMode === 'single')
+      ? (AppState.analyzer ? [{ id: AppState.activeTrackId, analyzer: AppState.analyzer }] : [])
+      : AppState.collectiveManager.getActiveTracks();
+    const activeTracks = allActive.filter(t => t.analyzer && t.analyzer.isEnriched);
+    const totalWalks = allActive.length;
 
     if (activeTracks.length === 0) return;
 
     const latency = parseFloat(document.getElementById('gpsPeakLatency').value) || 2.0;
     const trackIdsStr = activeTracks.map(t => t.id).join(',');
-    // Per-track data-mutation fingerprint (bumped by analyzer.analyze(),
-    // setPeakLabel(), setPeakExcluded(), and OSMEnricher.enrichTrack() —
-    // see analyzer.js's _dataVersion doc comment). Folding this into the
-    // cache key means the cache self-validates against any of those
-    // mutations without a caller having to remember to invalidate it.
+    // Per-track mutation fingerprint (analyzer._dataVersion is bumped by
+    // analyze(), setPeakLabel(), setPeakExcluded(), enrichTrack()). In the
+    // cache key, so the cache self-invalidates on any of them.
     const versionSig = activeTracks.map(t => (t.analyzer && t.analyzer._dataVersion) || 0).join(',');
 
-    // Use a shared cache location: in single mode, store on the analyzer;
-    // in collective mode, store on the collective manager (avoids losing cache when switching active track)
+    // Cache on the analyzer (single mode) or the collective manager
+    // (collective mode — survives active-track switches).
     const cacheTarget = (AppState.viewMode === 'single') ? AppState.analyzer : AppState.collectiveManager;
     const cache = cacheTarget._cachedEnvStats;
     const needsRecalc = !cache ||
@@ -1138,15 +1146,17 @@ const GSRUI = {
         let lastTime = -999;
         for (let i = 0; i < a.raw.length; i++) {
           const pt = a.raw[i];
-          // Sample at 1 Hz intervals to avoid lag
+          // Sample at ~1 Hz (keeps the point set manageable)
           if (pt.time - lastTime >= 1.0) {
             const coords = a.getCoordinates(i);
             if (coords) {
-              // Apply latency offset to find historical spatial context
+              // Environmental context is read `latency` seconds earlier: an
+              // SCR lags its trigger, and the subject has since moved on.
               const envIdx = a.findClosestIndex(Math.max(0, pt.time - latency));
               const envPt = (envIdx !== -1) ? a.raw[envIdx] : pt;
 
-              // Aggregate GSR values over the 1-second window (10 samples at 10 Hz) to capture peak amplitudes correctly
+              // Aggregate arousal over the trailing 1 s (10 samples @ 10 Hz):
+              // mean for level, max for the phasic peak.
               const windowStartIdx = Math.max(0, i - 9);
               let sumVal = 0;
               let sumTonic = 0;
@@ -1182,10 +1192,8 @@ const GSRUI = {
                 osm_dist_water: envPt.osm_dist_water,
                 osm_tree_density_50m: envPt.osm_tree_density_50m,
                 osm_amenity_count_50m: envPt.osm_amenity_count_50m,
-                // EM Fog Index (0-100), latency-shifted like the OSM context
-                // so it aligns with the same "what surrounded me when the
-                // response was triggered" window. NaN when the row carries
-                // no Sub-GHz RSSI; filtered out per-feature below.
+                // EM Fog Index (0-100), latency-shifted like the OSM fields.
+                // NaN when the row has no Sub-GHz RSSI; dropped per-feature below.
                 em_fog: (typeof envPt.em_fog === 'number') ? envPt.em_fog : NaN
               });
               lastTime = pt.time;
@@ -1194,26 +1202,26 @@ const GSRUI = {
         }
       });
 
-      // Correlation-matrix features: the continuous OSM fields plus the
-      // binary "in park" field (point-biserial r is just Pearson on a 0/1
-      // variable). Road Class stays out — it's genuinely multi-level
-      // categorical. From the shared GSR_CONST.OSM_METRICS table.
+      // Correlation features: continuous OSM fields + binary "in park"
+      // (point-biserial r is Pearson on a 0/1 variable). Road Class is
+      // multi-level categorical and stays out.
       const features = GSR_CONST.OSM_METRICS
         .filter(m => m.kind === 'continuous' || m.kind === 'binary')
         .map(m => ({ name: m.label, key: m.field, binary: m.kind === 'binary' }));
 
-      // EM Fog is not an OSM field (it comes from Sub-GHz RSSI, not Overpass)
-      // so it lives outside OSM_METRICS — append it as a correlation feature
-      // only when at least one sample actually carries a reading.
+      // EM Fog comes from Sub-GHz RSSI, not Overpass, so it's not in
+      // OSM_METRICS. Add it only when some sample carries a reading.
       if (allData.some(d => !isNaN(d.em_fog))) {
         features.push({ name: 'EM Fog Index', key: 'em_fog', binary: false });
       }
 
+      // Peak count per sample = number of peaks in its 15 s bin. Same
+      // resolution mismatch as any binned count vs a 1 Hz predictor; the
+      // effective-N correction below absorbs most of the pseudo-replication.
       const peakCounts = [];
       activeTracks.forEach(track => {
         const a = track.analyzer;
         const peaks = a.peaks.filter(p => !p.excluded);
-        // Bin peaks into non-overlapping 15-second windows to avoid double-counting
         const peakBinMap = new Map();
         peaks.forEach(p => {
           const bin = Math.floor(p.time / 15);
@@ -1228,58 +1236,78 @@ const GSRUI = {
       });
 
       const correlationMatrix = features.map(f => {
-        const validX = [];
-        const validPhasic = [];
-        const validTonic = [];
-        const validPeaks = [];
-
+        // Valid samples for this feature, bucketed per track. allData is
+        // track-contiguous. A track is a "walk" — an independent recording.
+        const byTrack = new Map();
+        const validX = []; // pooled, for the variance check
         for (let i = 0; i < allData.length; i++) {
           let x = allData[i][f.key];
           if (f.binary) x = (x === true || x === 1) ? 1 : (x === false || x === 0) ? 0 : NaN;
-          // Exclude arbitrary 999.0 fallback indicator representing out-of-bounds / infinite distance
+          // 999.0 is the "no feature within radius" sentinel — not a distance.
           if (x !== null && x !== undefined && !isNaN(x) && x !== 999.0) {
+            const tid = allData[i].trackId;
+            let b = byTrack.get(tid);
+            if (!b) { b = { x: [], phasic: [], tonic: [], peaks: [] }; byTrack.set(tid, b); }
+            b.x.push(x);
+            b.phasic.push(allData[i].phasic);
+            b.tonic.push(allData[i].tonic);
+            b.peaks.push(peakCounts[i] || 0);
             validX.push(x);
-            validPhasic.push(allData[i].phasic);
-            validTonic.push(allData[i].tonic);
-            validPeaks.push(peakCounts[i] || 0);
           }
         }
+        const walks = [...byTrack.values()];
 
-        // p-values are corrected for serial autocorrelation: 1 Hz EDA
-        // samples are far from independent, so a raw Pearson p over
-        // hundreds of them flags trivial r as "highly significant". The
-        // corrected test uses the lag-1 effective sample size instead.
-        const rpPhasic = StatsMath.calculateAutocorrCorrelation(validX, validPhasic);
-        const rpTonic  = StatsMath.calculateAutocorrCorrelation(validX, validTonic);
-        const rpPeaks  = StatsMath.calculateAutocorrCorrelation(validX, validPeaks);
+        // One method for the whole matrix, by walk count:
+        //  - 1 walk  → pooled r + autocorrelation-adjusted p ('single').
+        //  - 2+ walks → random-effects meta-analysis across walks
+        //    (per-walk r → one-sample t on Fisher-z). Needs >= 3 walks in
+        //    which this factor actually varies; graded by how many:
+        //      >= META_SOLID  → 'meta' (a real significance verdict)
+        //      3..SOLID-1     → 'metaProvisional' (direction only, "N walks")
+        //      < 3            → 'fewWalks' (effect size only, no test)
+        const META_SOLID = 5;
+        const analyse = (ch) => {
+          if (walks.length === 1) {
+            const c = StatsMath.calculateAutocorrCorrelation(walks[0].x, walks[0][ch]);
+            return { r: c.r, p: c.p, method: 'single', k: 1 };
+          }
+          const meta = StatsMath.metaCorrelation(walks.map(w => ({ x: w.x, y: w[ch] })));
+          if (meta.k < 3) return { r: meta.r, p: NaN, method: 'fewWalks', k: meta.k };
+          if (meta.k < META_SOLID) return { r: meta.r, p: meta.p, method: 'metaProvisional', k: meta.k };
+          return { r: meta.r, p: meta.p, method: 'meta', k: meta.k };
+        };
+        const chPhasic = analyse('phasic');
+        const chTonic  = analyse('tonic');
+        const chPeaks  = analyse('peaks');
 
-        // "Has variation" now means the factor genuinely changed along the
-        // route, not merely that interpolation produced two distinct floats.
-        // A constant (or near-constant) factor can't explain any variance in
-        // arousal, so its correlation is meaningless regardless of r.
-        const sx = StatsMath.calculateStats(validX); // note: sx.std is floored at 1, use sx.variance for the true spread
+        // hasVariance = the factor actually changed. A constant predictor
+        // explains no variance in arousal whatever its r. Continuous fields
+        // need a coefficient of variation ≥ 1% (sx.std is floored at 1, so
+        // use the true spread from sx.variance).
+        const sx = StatsMath.calculateStats(validX);
         const trueStd = Math.sqrt(sx.variance);
         const cv = trueStd / (Math.abs(sx.mean) + 1e-9);
         const hasVariance = f.binary
           ? (new Set(validX).size > 1)
           : (validX.length > 2 && trueStd > 0 && cv >= 0.01);
 
-        return { name: f.name, key: f.key, n: validX.length, hasVariance,
-                 nEffPhasic: rpPhasic.nEff, nEffTonic: rpTonic.nEff, nEffPeaks: rpPeaks.nEff,
-                 rPhasic: rpPhasic.r, rTonic: rpTonic.r, rPeaks: rpPeaks.r,
-                 pPhasic: rpPhasic.p, pTonic: rpTonic.p, pPeaks: rpPeaks.p };
+        return { name: f.name, key: f.key, n: validX.length, featureWalks: walks.length, hasVariance,
+                 rPhasic: chPhasic.r, rTonic: chTonic.r, rPeaks: chPeaks.r,
+                 pPhasic: chPhasic.p, pTonic: chTonic.p, pPeaks: chPeaks.p,
+                 mPhasic: chPhasic.method, mTonic: chTonic.method, mPeaks: chPeaks.method,
+                 kPhasic: chPhasic.k, kTonic: chTonic.k, kPeaks: chPeaks.k };
       });
 
-      // Multiple-comparison control: every cell in the matrix is one
-      // hypothesis test (features x {phasic, tonic, peaks}). Adjust the
-      // whole family with Benjamini-Hochberg FDR; the q-values drive the
-      // significance stars and the plain-language interpretation so a
-      // scattered "*" among 20+ cells isn't read as a real finding.
+      // Multiple comparisons: Benjamini–Hochberg FDR over every cell that
+      // carries a real significance verdict ('meta' or 'single'). Cells
+      // shown as effect-size-only ('metaProvisional', 'fewWalks') or with no
+      // variation don't enter the family and get no q.
+      const testable = (row, m) => row.hasVariance && (m === 'meta' || m === 'single');
       const pFamily = [];
       correlationMatrix.forEach(row => {
-        pFamily.push(row.hasVariance ? row.pPhasic : NaN);
-        pFamily.push(row.hasVariance ? row.pTonic  : NaN);
-        pFamily.push(row.hasVariance ? row.pPeaks  : NaN);
+        pFamily.push(testable(row, row.mPhasic) ? row.pPhasic : NaN);
+        pFamily.push(testable(row, row.mTonic)  ? row.pTonic  : NaN);
+        pFamily.push(testable(row, row.mPeaks)  ? row.pPeaks  : NaN);
       });
       const qFamily = StatsMath.benjaminiHochberg(pFamily);
       correlationMatrix.forEach((row, i) => {
@@ -1288,19 +1316,15 @@ const GSRUI = {
         row.qPeaks  = qFamily[i * 3 + 2];
       });
 
-      // Road profiles (mean, std, autocorrelation-adjusted 95% CI, peak rate).
-      // 'unclassified' is OSM's catch-all minor-road tag — it lumps together
-      // roads of wildly different character, so the group mean says nothing
-      // useful; it's dropped. Any class with under 5 s of data is dropped as
-      // noise (this also subsumes the old 'none' special case).
+      // Per-road-class arousal: mean, std, autocorrelation-adjusted 95% CI,
+      // peak rate. 'unclassified' (OSM's mixed-bag minor-road tag) and any
+      // class with under 5 s of data are dropped.
       const ROAD_SKIP = new Set(['unclassified']);
       const roadGroups = new Map();
       allData.forEach(d => {
         const cls = d.osm_road_class || 'none';
-        if (!roadGroups.has(cls)) {
-          roadGroups.set(cls, { phasicVals: [], tonicVals: [], peaks: 0 });
-        }
-        const g = roadGroups.get(cls);
+        let g = roadGroups.get(cls);
+        if (!g) { g = { phasicVals: [], tonicVals: [], peaks: 0 }; roadGroups.set(cls, g); }
         g.phasicVals.push(d.phasic);
         g.tonicVals.push(d.tonic);
       });
@@ -1326,9 +1350,9 @@ const GSRUI = {
         const meanTonic = val.tonicVals.reduce((s, v) => s + v, 0) / n;
         const stdPhasic = Math.sqrt(val.phasicVals.reduce((s, v) => s + (v - meanPhasic) ** 2, 0) / n);
         const stdTonic = Math.sqrt(val.tonicVals.reduce((s, v) => s + (v - meanTonic) ** 2, 0) / n);
-        // CI on the mean uses the autocorrelation-adjusted effective sample
-        // size, not the raw second count — consecutive 1 Hz EDA samples are
-        // highly correlated, so sqrt(n) badly overstates the precision.
+        // CI uses the effective sample size, not the raw second count:
+        // consecutive 1 Hz EDA samples are correlated, so sqrt(n) overstates
+        // precision.
         const nEffPhasic = StatsMath.effectiveSampleSize(val.phasicVals);
         const nEffTonic = StatsMath.effectiveSampleSize(val.tonicVals);
         const ciPhasic = nEffPhasic > 1 ? 1.96 * stdPhasic / Math.sqrt(nEffPhasic) : 0;
@@ -1349,9 +1373,8 @@ const GSRUI = {
       });
       roadProfile.sort((a, b) => b.meanPhasic - a.meanPhasic);
 
-      // Highest vs lowest road class: replace the old "do the 95% CIs
-      // overlap?" eyeball test (which conflates ~p<0.006 for non-overlap
-      // with p<0.05) with a proper Welch t-test on effective sample sizes.
+      // Highest vs lowest road class: a Welch t-test on effective sample
+      // sizes (a CI-overlap check is not a valid significance test).
       let roadComparison = null;
       if (roadProfile.length >= 2) {
         const hi = roadProfile[0];
@@ -1364,9 +1387,8 @@ const GSRUI = {
           t: w.t, df: w.df, p: w.p
         };
       }
-      roadProfile.forEach(p => { delete p._phasicVals; });
+      roadProfile.forEach(p => { delete p._phasicVals; }); // drop raw arrays before caching
 
-      // Save to client-side cache
       cacheTarget._cachedEnvStats = {
         latency,
         trackCount: activeTracks.length,
@@ -1379,29 +1401,22 @@ const GSRUI = {
       };
     }
 
-    // ── Render Components using Cached Data ─────────────────────────────────
+    // ── Render from the cache ─────────────────────────────────────────────
     const cachedStats = cacheTarget._cachedEnvStats;
     const hasEmFog = cachedStats.correlationMatrix.some(r => r.key === 'em_fog');
 
-    // 0. Keep the scatter X-axis picker in step with the metrics that
-    //    actually have data (single source of truth: OSM_METRICS + EM Fog).
+    // enriched-walk count is cached; totalWalks (incl. not-yet-enriched) is live.
     GSRUI.syncScatterEnvOptions(hasEmFog);
-
-    // 1. Render Correlation Matrix
-    GSRUI.renderCorrelationTable(cachedStats.correlationMatrix);
-
-    // 2. Draw Regression Plot
+    GSRUI.renderCorrelationTable(cachedStats.correlationMatrix, cachedStats.trackCount, totalWalks);
     GSRUI.drawRegressionScatterPlot(cachedStats.allData);
-
-    // 3. Render Roads Profile
     GSRUI.renderRoadProfile(cachedStats.roadProfile, cachedStats.roadComparison);
   },
 
   /**
    * Rebuild the #scatterEnvMetric <option> list from GSR_CONST.OSM_METRICS
-   * (continuous + binary) plus EM Fog when present, preserving the current
-   * selection where still valid. Replaces the hand-maintained HTML list that
-   * used to drift out of sync with the correlation-matrix feature set.
+   * (continuous + binary) plus EM Fog when present, keeping it in step with
+   * the correlation-matrix feature set. Preserves the current selection when
+   * still valid; no-ops when the option set is unchanged.
    */
   syncScatterEnvOptions(hasEmFog) {
     const sel = document.getElementById('scatterEnvMetric');
@@ -1420,11 +1435,11 @@ const GSRUI = {
   },
 
   /**
-   * Effect-size band for a correlation coefficient. This — not the p/q-value —
-   * is the primary visual language of the correlation table: with a large n a
-   * negligible r (say -0.05) can be "significant" yet mean nothing, so
-   * magnitude leads and significance is a secondary qualifier.
-   * Bands: |r| < .10 negligible · .10-.20 small · .20-.30 moderate · >.30 strong.
+   * Effect-size band for a correlation coefficient — the primary cue in the
+   * correlation table, since with a large n a negligible r can still be
+   * "significant". Thresholds |r| .10 / .20 / .30 follow Gignac & Szodorai
+   * (2016) for individual-differences research.
+   * negligible <.10 · small .10–.20 · moderate .20–.30 · strong ≥.30.
    */
   correlationBand(r) {
     const a = Math.abs(r);
@@ -1435,12 +1450,48 @@ const GSRUI = {
   },
 
   /**
-   * Render cached Pearson correlation matrix to HTML.
+   * Render the cached correlation matrix to HTML. Effect-size band leads;
+   * significance (or, with too few walks, effect size alone) only qualifies it.
    */
-  renderCorrelationTable(matrix) {
+  renderCorrelationTable(matrix, enrichedWalks, totalWalks) {
     const tbody = document.querySelector('#correlationTable tbody');
     if (!tbody) return;
     tbody.innerHTML = '';
+
+    const used = enrichedWalks || (matrix.length ? matrix[0].featureWalks : 1);
+    const loaded = totalWalks || used;
+    // A cell's method is per channel; 'meta'/'single' carry a real verdict,
+    // 'metaProvisional'/'fewWalks' are effect-size-only.
+    const isTested = (m) => m === 'meta' || m === 'single';
+
+    const noteEl = document.getElementById('correlationMethodNote');
+    if (noteEl) {
+      const anyMeta = matrix.some(r => r.mPhasic === 'meta' || r.mTonic === 'meta' || r.mPeaks === 'meta');
+      // How many of the used walks each varying factor actually varied in.
+      const ks = matrix.filter(r => r.hasVariance)
+        .map(r => Math.max(r.kPhasic || 0, r.kTonic || 0, r.kPeaks || 0));
+      const kLo = ks.length ? Math.min(...ks) : 0;
+      const kHi = ks.length ? Math.max(...ks) : 0;
+      const kRange = kLo === kHi ? `${kHi}` : `${kLo}–${kHi}`;
+
+      const notEnriched = loaded > used
+        ? `<strong>${used} of your ${loaded} walks are OSM-enriched</strong> — the analysis uses those ${used}; enrich the rest from the OSM panel to include them. `
+        : '';
+
+      if (used === 1) {
+        noteEl.innerHTML = notEnriched + 'Single walk: <em>r</em> and <em>q</em> come from one recording, corrected for serial autocorrelation. Add walks to test whether an effect replicates.';
+      } else if (anyMeta) {
+        noteEl.innerHTML = notEnriched +
+          `<strong>${used} walks analysed.</strong> <em>q</em> tests whether an effect is <strong>consistent across walks</strong> ` +
+          `(random-effects meta-analysis — per-walk <em>r</em>, one-sample <em>t</em> on Fisher-<em>z</em>). <em>r</em> is the typical per-walk value. ` +
+          `A "<em>k / ${used}</em>" tag means the factor varied enough to correlate in only <em>k</em> of the ${used} — need 5 for a verdict.`;
+      } else {
+        noteEl.innerHTML = notEnriched +
+          `<strong>${used} walks analysed</strong>, but each factor varied enough to correlate in only <strong>${kRange} of ${used}</strong> ` +
+          `(the "<em>k / ${used}</em>" tag) — need 5 for a consistency test, so no <em>q</em> yet. <em>r</em> is the typical per-walk value. ` +
+          `A walk only counts toward a factor if that factor changes during it — short walks, and walks that stay in one kind of place, don't.`;
+      }
+    }
 
     const formatP = (p) => {
       if (p < 0.001) return '<0.001';
@@ -1448,52 +1499,83 @@ const GSRUI = {
       return p.toFixed(3);
     };
 
-    // Significance is judged on the FDR-adjusted q-value, not the raw p.
-    // Interpretation leads with the effect-size word so a reliable-but-tiny
-    // correlation reads as "negligible", never as a finding.
+    const cap = (s) => s[0].toUpperCase() + s.slice(1);
+    const dirWord = (r) => (r > 0 ? 'higher' : 'lower');
+
+    // Leads with the effect-size word so a reliable-but-tiny correlation
+    // reads as "negligible", not as a finding.
     const getInterpretation = (row) => {
       if (!row.hasVariance) return 'Not enough variation to measure — this factor barely changes along the route';
       const chans = [
-        { q: row.qPhasic, r: row.rPhasic, name: 'momentary arousal' },
-        { q: row.qPeaks,  r: row.rPeaks,  name: 'arousal-response rate' },
-        { q: row.qTonic,  r: row.rTonic,  name: 'baseline arousal' },
-      ].filter(c => typeof c.q === 'number' && isFinite(c.q) && c.q < 0.05);
-      if (chans.length === 0) return 'No statistically reliable link to arousal';
-      chans.sort((a, b) => Math.abs(b.r) - Math.abs(a.r));
-      const top = chans[0];
-      const band = GSRUI.correlationBand(top.r);
-      if (band.key === 'negligible') {
-        return `Reliable but negligible (r ≈ ${top.r.toFixed(2)}) — detectable statistically, too small to matter`;
+        { q: row.qPhasic, p: row.pPhasic, r: row.rPhasic, m: row.mPhasic, k: row.kPhasic, name: 'momentary arousal' },
+        { q: row.qPeaks,  p: row.pPeaks,  r: row.rPeaks,  m: row.mPeaks,  k: row.kPeaks,  name: 'arousal-response rate' },
+        { q: row.qTonic,  p: row.pTonic,  r: row.rTonic,  m: row.mTonic,  k: row.kTonic,  name: 'baseline arousal' },
+      ];
+      const byEffect = (a, b) => Math.abs(b.r) - Math.abs(a.r);
+
+      const sig = chans.filter(c => isTested(c.m) && typeof c.q === 'number' && isFinite(c.q) && c.q < 0.05).sort(byEffect);
+      if (sig.length > 0) {
+        const top = sig[0];
+        const band = GSRUI.correlationBand(top.r);
+        if (band.key === 'negligible') return `Reliable but negligible (r ≈ ${top.r.toFixed(2)}) — detectable, too small to matter`;
+        const how = top.m === 'meta' ? `consistent across your ${top.k} walks` : 'statistically reliable';
+        return `${cap(band.label)} link to ${dirWord(top.r)} ${top.name} (r = ${top.r.toFixed(2)}), ${how}`;
       }
-      const dir = top.r > 0 ? 'higher' : 'lower';
-      return `${band.label[0].toUpperCase()}${band.label.slice(1)} association with ${dir} ${top.name} (r = ${top.r.toFixed(2)})`;
+
+      const best = chans.slice().sort(byEffect)[0];
+      const bestBand = GSRUI.correlationBand(best.r);
+      if (bestBand.key === 'negligible') return 'No link to arousal — effect sizes are negligible';
+
+      if (best.m === 'meta') {
+        // Raw meta p < .05 but q ≥ .05 → real-looking, just doesn't clear the
+        // multiple-comparison bar. Worth flagging as suggestive, not "nothing".
+        const rawSig = typeof best.p === 'number' && isFinite(best.p) && best.p < 0.05;
+        if (rawSig) {
+          return `Suggestive ${bestBand.label} link to ${dirWord(best.r)} ${best.name} ` +
+                 `(r = ${best.r.toFixed(2)}, p = ${formatP(best.p)} before correction) — doesn't survive correction for testing every factor; more walks may confirm`;
+        }
+        return `Apparent ${bestBand.label} link to ${dirWord(best.r)} ${best.name} (r = ${best.r.toFixed(2)}) — inconsistent across the ${best.k} walks it varied in`;
+      }
+      if (best.m === 'metaProvisional' || best.m === 'fewWalks') {
+        return `${cap(bestBand.label)} link to ${dirWord(best.r)} ${best.name} (r = ${best.r.toFixed(2)}) — but this factor varied in only ${best.k} of ${used} walks; need 5 to test consistency`;
+      }
+      return `Apparent ${bestBand.label} link to ${dirWord(best.r)} ${best.name} (r = ${best.r.toFixed(2)}) — not statistically reliable from this data`;
     };
 
     matrix.forEach(row => {
       const tr = document.createElement('tr');
-      // Each r cell: number coloured by direction + an effect-size chip as the
-      // dominant cue. A non-varying row shows no band ("—"); a varying but
-      // non-significant one keeps the band but muted, tagged "n.s.".
-      const cell = (r, q) => {
+      // r cell = number (coloured by direction) + a chip: "no variation" for a
+      // constant factor; else the effect-size band, tagged with the verdict
+      // ("· n.s." when tested and q ≥ .05) or, when there aren't enough walks
+      // to test, "· k/N" (varied in k of the N analysed walks).
+      const cell = (r, q, m, k) => {
         const dir = Math.abs(r) < 0.10 ? 'dir-none' : (r >= 0 ? 'dir-pos' : 'dir-neg');
         let chip;
         if (!row.hasVariance) {
           chip = '<span class="mag-chip mag-negligible mag-ns">no variation</span>';
         } else {
           const band = GSRUI.correlationBand(r);
-          const isSig = typeof q === 'number' && isFinite(q) && q < 0.05;
-          chip = `<span class="mag-chip mag-${band.key}${isSig ? '' : ' mag-ns'}">${band.label}${isSig ? '' : ' · n.s.'}</span>`;
+          let tag = '';
+          if (isTested(m)) {
+            const isSig = typeof q === 'number' && isFinite(q) && q < 0.05;
+            tag = isSig ? '' : ' · n.s.';
+          } else {
+            tag = ` · ${k}/${used}`;
+          }
+          const muted = tag ? ' mag-ns' : '';
+          chip = `<span class="mag-chip mag-${band.key}${muted}">${band.label}${tag}</span>`;
         }
         return `<td class="corr-cell"><span class="corr-num ${dir}">${r.toFixed(3)}</span>${chip}</td>`;
       };
-      const qCell = (q) => (row.hasVariance && typeof q === 'number' && isFinite(q)) ? formatP(q) : '—';
+      const qCell = (q, m) => (row.hasVariance && isTested(m) && typeof q === 'number' && isFinite(q)) ? formatP(q) : '—';
       tr.innerHTML = `
         <td><strong>${row.name}</strong></td>
-        ${cell(row.rPhasic, row.qPhasic)}
-        ${cell(row.rTonic, row.qTonic)}
-        ${cell(row.rPeaks, row.qPeaks)}
-        <td>${qCell(row.qPhasic)}</td>
-        <td>${qCell(row.qTonic)}</td>
+        ${cell(row.rPhasic, row.qPhasic, row.mPhasic, row.kPhasic)}
+        ${cell(row.rTonic, row.qTonic, row.mTonic, row.kTonic)}
+        ${cell(row.rPeaks, row.qPeaks, row.mPeaks, row.kPeaks)}
+        <td>${qCell(row.qPhasic, row.mPhasic)}</td>
+        <td>${qCell(row.qTonic, row.mTonic)}</td>
+        <td>${qCell(row.qPeaks, row.mPeaks)}</td>
         <td>${getInterpretation(row)}</td>
       `;
       tbody.appendChild(tr);
@@ -1548,7 +1630,7 @@ const GSRUI = {
       const highest = sorted[0];
       const lowest = sorted[sorted.length - 1];
 
-      // Identify small-sample roads (wide CI = unreliable)
+      // Wide CI relative to the mean = unreliable estimate.
       const unreliable = profile.filter(p => p.ciPhasic > p.meanPhasic * 0.5);
       const reliable = profile.filter(p => p.ciPhasic <= p.meanPhasic * 0.3);
 
@@ -1562,9 +1644,7 @@ const GSRUI = {
           `than ${lowest.name} roads (${lowest.meanPhasic.toFixed(3)} μS).`);
       }
 
-      // Formal test: Welch's t-test on effective (autocorrelation-adjusted)
-      // sample sizes, replacing the old "do the 95% CIs visually overlap?"
-      // heuristic.
+      // Welch t-test (effective sample sizes) for the highest-vs-lowest gap.
       if (comparison && isFinite(comparison.p)) {
         const pTxt = comparison.p < 0.001 ? 'p &lt; 0.001' : 'p = ' + comparison.p.toFixed(3);
         if (comparison.p < 0.05) {
@@ -1579,12 +1659,12 @@ const GSRUI = {
       // Reliability notes
       if (unreliable.length > 0) {
         lines.push(`⚠️ <strong>Low confidence:</strong> ${unreliable.map(p =>
-          `${p.name} (only ${p.timeSpent}s, CI ±${p.ciPhasic.toFixed(3)})`
+          `${p.name} (~${p.effSamples} independent samples, CI ±${p.ciPhasic.toFixed(3)})`
         ).join(', ')} — treat these numbers as rough estimates.`);
       }
       if (reliable.length > 0) {
-        const best = reliable.sort((a, b) => b.timeSpent - a.timeSpent)[0];
-        lines.push(`✅ <strong>Most reliable:</strong> ${best.name} roads (${best.timeSpent}s of data, CI ±${best.ciPhasic.toFixed(3)}) — the most trustworthy comparison point.`);
+        const best = reliable.slice().sort((a, b) => b.effSamples - a.effSamples)[0];
+        lines.push(`✅ <strong>Most reliable:</strong> ${best.name} roads (~${best.effSamples} independent samples, CI ±${best.ciPhasic.toFixed(3)}) — the most trustworthy comparison point.`);
       }
 
       // Consistency notes
@@ -1609,12 +1689,13 @@ const GSRUI = {
     }
 
     if (profile.length === 0) {
-      roadBody.innerHTML = '<tr><td colspan="8" class="empty-row">No road profile data found. Enriched track has missing classes.</td></tr>';
+      roadBody.innerHTML = '<tr><td colspan="8" class="empty-row">No road classes with enough data to profile.</td></tr>';
     }
   },
 
   /**
-   * Dynamically resizes the canvas drawing buffer and draws the regression scatter plot.
+   * Resize the canvas to its CSS box and draw the regression scatter plot
+   * for the currently selected environmental factor vs arousal metric.
    */
   drawRegressionScatterPlot(allData) {
     const canvas = document.getElementById('regressionCanvas');
@@ -1647,7 +1728,7 @@ const GSRUI = {
       let x = d[scatterXMetric];
       if (isBinaryX) x = (x === true || x === 1) ? 1 : (x === false || x === 0) ? 0 : NaN;
       const y = scatterYMetric === 'phasic' ? d.phasic : d.tonic;
-      // Exclude arbitrary 999.0 fallback indicator representing out-of-bounds / infinite distance
+      // 999.0 is the "no feature within radius" sentinel — not a distance.
       if (x !== null && x !== undefined && !isNaN(x) && x !== 999.0 && y !== null && y !== undefined && !isNaN(y)) {
         xVals.push(x);
         yVals.push(y);
@@ -1656,9 +1737,8 @@ const GSRUI = {
 
     const { m, c, r2 } = StatsMath.calculateLinearRegression(xVals, yVals);
 
-    // Axis labels from the shared GSR_CONST.OSM_METRICS table (constants.js)
-    // — continuous + binary fields, unit appended in parens where present —
-    // plus EM Fog (a non-OSM, Sub-GHz-RSSI-derived factor, 0-100).
+    // Axis labels from GSR_CONST.OSM_METRICS (continuous + binary, unit in
+    // parens where present) plus EM Fog.
     const xLabels = {};
     GSR_CONST.OSM_METRICS
       .filter(m => m.kind === 'continuous' || m.kind === 'binary')
