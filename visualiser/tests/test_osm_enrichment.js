@@ -278,6 +278,20 @@ console.log('\n── OSMEnricher: _selectEvaluationPoints / _thinPoints ──'
 // ════════════════════════════════════════════════════════════════════════
 console.log('\n── OSMEnricher: _evaluatePosition ──');
 
+// 4b. Green-space sampling grid: the outer ring must reach the *full* search
+// radius, not 2/3 of it (SAMPLING_RINGS / POINTS_PER_RING were off by one so
+// the nominal outer ring produced zero points and coverage stopped at ~33 m
+// of a 50 m radius).
+{
+  const grid = global._buildSamplingGrid(51.5, -0.1, 50);
+  let maxD = 0;
+  for (const p of grid) {
+    maxD = Math.max(maxD, GeoUtils.haversineMeters(51.5, -0.1, p.lat, p.lon));
+  }
+  assert(grid.length === 25, `_buildSamplingGrid — 1 centre + 8 + 16 = 25 points (got ${grid.length})`);
+  assertClose(maxD, 50, 2, `_buildSamplingGrid — outer ring reaches the full radius (max dist ${maxD.toFixed(1)} m, expected ~50)`);
+}
+
 const roadGeom = {
   type: 'way', id: 'road', tags: { highway: 'motorway' },
   coordinates: [{ lat: 51.5000, lon: -0.1000 }, { lat: 51.5010, lon: -0.1000 }]
@@ -347,6 +361,35 @@ const allGeoms = [roadGeom, buildingGeom, waterGeom, treeGeom, cafeGeom, parkGeo
   assert(mCafe.amenityCount >= 1, '_evaluatePosition — amenity counted at its own coordinate');
 }
 
+// 5e. A close motor-traffic road (<=25 m) takes the road-class label over a
+//     closer footway; a road further off does not relabel where you are; a
+//     footway alone still shows.
+{
+  const footway = {
+    type: 'way', id: 'fw', tags: { highway: 'footway' },
+    coordinates: [{ lat: 51.49990, lon: -0.09996 }, { lat: 51.50010, lon: -0.09996 }]  // ~4 m E
+  };
+  const closeRes = {                                                                    // ~13 m E
+    type: 'way', id: 'res', tags: { highway: 'residential' },
+    coordinates: [{ lat: 51.49990, lon: -0.09988 }, { lat: 51.50010, lon: -0.09988 }]
+  };
+  const near = OSMEnricher._evaluatePosition(51.5000, -0.1000, [footway, closeRes], 50);
+  assertEq(near.roadClass, 'residential',
+    '_evaluatePosition — a close (<=25 m) vehicular road wins the class label over a nearer footway');
+
+  const footOnly = OSMEnricher._evaluatePosition(51.5000, -0.1000, [footway], 50);
+  assertEq(footOnly.roadClass, 'footway',
+    '_evaluatePosition — footway still labelled when it is the only highway in range');
+
+  const midRes = {                                                                      // ~28 m E
+    type: 'way', id: 'res2', tags: { highway: 'residential' },
+    coordinates: [{ lat: 51.49990, lon: -0.09975 }, { lat: 51.50010, lon: -0.09975 }]
+  };
+  const mid = OSMEnricher._evaluatePosition(51.5000, -0.1000, [footway, midRes], 50);
+  assertEq(mid.roadClass, 'footway',
+    '_evaluatePosition — a vehicular road >25 m off does not relabel a location on a footway');
+}
+
 // 5d. No nearby geometries at all → sentinel distances, zero counts
 {
   const m = OSMEnricher._evaluatePosition(0, 0, [], 50);
@@ -380,16 +423,27 @@ console.log('\n── OSMEnricher: _projectToTimeline ──');
   assertClose(raw[0].osm_dist_major_road, 100, 1e-9, '_projectToTimeline — first anchor continuous value exact');
   assertClose(raw[10].osm_dist_major_road, 0, 1e-9, '_projectToTimeline — last anchor continuous value exact');
 
-  // Midpoint: continuous values linearly interpolated; categorical steps at t>=0.5
-  assertClose(raw[5].osm_dist_major_road, 50, 1e-9, '_projectToTimeline — midpoint lerp of continuous value');
+  // Midpoint: truly continuous values (distance, green %) linearly interpolated;
+  // categorical + discrete-count fields step at t>=0.5.
+  assertClose(raw[5].osm_dist_major_road, 50, 1e-9, '_projectToTimeline — midpoint lerp of continuous distance');
+  assertClose(raw[5].osm_green_pct_50m, 50, 1e-9, '_projectToTimeline — midpoint lerp of green %');
   assertEq(raw[5].osm_road_class, 'primary', '_projectToTimeline — categorical switches at t>=0.5');
   assertEq(raw[4].osm_road_class, 'residential', '_projectToTimeline — categorical stays prev value at t<0.5');
+  // Discrete counts step (no fractional buildings/trees/amenities).
+  assertEq(raw[4].osm_building_density_50m, 1, '_projectToTimeline — count field holds prev value at t<0.5');
+  assertEq(raw[5].osm_building_density_50m, 5, '_projectToTimeline — count field steps to next at t>=0.5');
+  assertEq(raw[4].osm_tree_density_50m, 0, '_projectToTimeline — tree count steps, not lerps (t<0.5)');
+  assertEq(raw[6].osm_tree_density_50m, 3, '_projectToTimeline — tree count steps, not lerps (t>=0.5)');
+  assertEq(raw[4].osm_amenity_count_50m, 0, '_projectToTimeline — amenity count steps, not lerps (t<0.5)');
+  assertEq(raw[6].osm_amenity_count_50m, 2, '_projectToTimeline — amenity count steps, not lerps (t>=0.5)');
 }
 
 // 6a-sentinel. Distance fields must NOT lerp across the SENTINEL_DIST marker
 // ("no feature within radius" = 999) — a lerp would manufacture bogus
-// mid-range distances that leak into map colouring and the correlation
-// dashboard. Step (nearest anchor) instead; non-distance fields still lerp.
+// mid-range distances. When exactly one endpoint is the sentinel, hold the
+// *real* endpoint's value across the whole segment (stepping to the sentinel
+// at the midpoint would silently drop half the transition from every consumer
+// that filters === 999). Both endpoints sentinel → sentinel. Green % still lerps.
 {
   const computedMetrics = [
     { idx: 0,  metrics: { roadClass: 'residential', inPark: 0, distMajorRoad: 999, greenSpacePct: 0,
@@ -400,12 +454,25 @@ console.log('\n── OSMEnricher: _projectToTimeline ──');
   const raw = Array.from({ length: 11 }, () => ({}));
   OSMEnricher._projectToTimeline(raw, computedMetrics);
 
-  assertClose(raw[3].osm_dist_major_road, 999, 1e-9, '_projectToTimeline — dist stays at sentinel while t<0.5 (no lerp shadow)');
-  assertClose(raw[7].osm_dist_major_road, 8,   1e-9, '_projectToTimeline — dist steps to real value once t>=0.5');
-  assertClose(raw[3].osm_dist_water,      999, 1e-9, '_projectToTimeline — water dist stays at sentinel while t<0.5');
-  assertClose(raw[7].osm_dist_water,      12,  1e-9, '_projectToTimeline — water dist steps to real value once t>=0.5');
-  // Non-distance continuous fields are unaffected — still linearly interpolated.
+  assertClose(raw[3].osm_dist_major_road, 8, 1e-9, '_projectToTimeline — sentinel prev endpoint: real value held across the segment (t<0.5)');
+  assertClose(raw[7].osm_dist_major_road, 8, 1e-9, '_projectToTimeline — sentinel prev endpoint: real value held across the segment (t>=0.5)');
+  assertClose(raw[3].osm_dist_water,      12, 1e-9, '_projectToTimeline — water dist: real value held past a sentinel endpoint (t<0.5)');
+  assertClose(raw[7].osm_dist_water,      12, 1e-9, '_projectToTimeline — water dist: real value held past a sentinel endpoint (t>=0.5)');
   assertClose(raw[5].osm_green_pct_50m,   50,  1e-9, '_projectToTimeline — green % still lerps normally alongside a sentinel distance');
+}
+
+// 6a-sentinel-both. Both endpoints sentinel → the whole segment is sentinel.
+{
+  const computedMetrics = [
+    { idx: 0,  metrics: { roadClass: 'none', inPark: 0, distMajorRoad: 999, greenSpacePct: 0,
+                           buildingDensity: 0, distWater: 999, treeDensity: 0, amenityCount: 0 } },
+    { idx: 10, metrics: { roadClass: 'none', inPark: 0, distMajorRoad: 999, greenSpacePct: 0,
+                           buildingDensity: 0, distWater: 999, treeDensity: 0, amenityCount: 0 } },
+  ];
+  const raw = Array.from({ length: 11 }, () => ({}));
+  OSMEnricher._projectToTimeline(raw, computedMetrics);
+  assertClose(raw[5].osm_dist_major_road, 999, 1e-9, '_projectToTimeline — both endpoints sentinel → segment stays sentinel');
+  assertClose(raw[5].osm_dist_water,      999, 1e-9, '_projectToTimeline — both endpoints sentinel (water) → segment stays sentinel');
 }
 
 // 6b. Single evaluation point → broadcast to entire timeline

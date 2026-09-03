@@ -244,6 +244,60 @@ test('metaCorrelation: identical non-zero r in every group -> t is infinite -> p
   assert.ok(res.p < 1e-6, `zero between-group variance in a non-zero effect -> tiny p, got ${res.p}`);
 });
 
+test('metaCorrelation: inverse-variance weighting — long walks outweigh a short uninformative one (equal-weighting would not)', () => {
+  const R = lcg(5);
+  const walk = (n, beta) => {
+    const x = [], y = [];
+    for (let i = 0; i < n; i++) { const xv = R() * 10; x.push(xv); y.push(beta * xv + (R() - 0.5) * 6); }
+    return { x, y };
+  };
+  // Two long walks with a clear effect + one short, uninformative walk (no
+  // effect, n=11). Equal-weighting (old behaviour) would average all three
+  // Fisher-z's and drag the pooled r down toward ~0.47; inverse-variance
+  // weighting keeps it near the two long walks' value (~0.60).
+  const res = StatsMath.metaCorrelation([walk(150, 0.5), walk(150, 0.5), walk(11, 0)]);
+  assert.strictEqual(res.k, 3);
+  assert.ok(res.r > 0.55, `long walks dominate the short uninformative one: pooled r=${res.r.toFixed(3)}`);
+});
+
+test('metaCorrelation: operating characteristics — FPR at/below nominal, power scales with K (trimmed simulation)', () => {
+  // Fuller sweep in scratchpad/meta_sim.js; recorded in the project memory.
+  // Slow AR(1) predictor crossed once per walk + AR(1) noise — the real
+  // single-walk regime. This trimmed run just guards against a regression to
+  // false-positive inflation or a total loss of power.
+  const S = lcg(918273);
+  const gauss = () => {
+    let u = 0, v = 0;
+    while (u === 0) u = S();
+    while (v === 0) v = S();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  };
+  const makeWalk = (nSec, beta) => {
+    const bi = beta + 0.1 * gauss();
+    const x = [], y = [];
+    let xp = 0, ep = 0;
+    for (let i = 0; i < nSec; i++) {
+      xp = 0.98 * xp + Math.sqrt(1 - 0.98 * 0.98) * gauss();
+      ep = 0.98 * ep + Math.sqrt(1 - 0.98 * 0.98) * gauss();
+      x.push(xp); y.push(bi * xp + ep);
+    }
+    return { x, y };
+  };
+  const rejRate = (K, beta, iters) => {
+    let rej = 0;
+    for (let it = 0; it < iters; it++) {
+      const g = [];
+      for (let j = 0; j < K; j++) g.push(makeWalk(600, beta));
+      if (StatsMath.metaCorrelation(g).p < 0.05) rej++;
+    }
+    return rej / iters;
+  };
+  const fpr = rejRate(10, 0, 150);
+  assert.ok(fpr <= 0.13, `null FPR at K=10 should sit near/below nominal 0.05, got ${fpr.toFixed(3)}`);
+  const power = rejRate(10, 0.5, 80);
+  assert.ok(power > 0.6, `a strong consistent effect at K=10 should be detected most of the time, got ${power.toFixed(2)}`);
+});
+
 // ---------------------------------------------------------------------------
 // benjaminiHochberg (FDR adjustment)
 // ---------------------------------------------------------------------------
@@ -309,6 +363,20 @@ test('welchTTest: samples smaller than 2 return the neutral non-result', () => {
   const r = StatsMath.welchTTest([1], [1, 2, 3]);
   assert.strictEqual(r.p, 1);
   assert.strictEqual(r.t, 0);
+});
+
+test('welchTTest: an explicit effN overrides the internal effectiveSampleSize and is clamped to [2, rawN]', () => {
+  const a = [], b = [];
+  for (let i = 0; i < 300; i++) { a.push(Math.sin(i / 15)); b.push(0.5 + Math.sin(i / 15)); }
+  const internal = StatsMath.welchTTest(a, b, true);                       // computes eff N over the joined series
+  const supplied = StatsMath.welchTTest(a, b, true, { a: 40, b: 40 });     // caller-supplied (e.g. per-walk sum)
+  assert.ok(Math.abs(supplied.nA - 40) < 1e-9 && Math.abs(supplied.nB - 40) < 1e-9, 'uses the supplied effective sizes');
+  assert.notStrictEqual(supplied.p, internal.p, 'a different effective N gives a different p');
+  // Clamped: can never exceed the raw count or drop below 2.
+  const clampedHi = StatsMath.welchTTest(a, b, true, { a: 99999, b: 99999 });
+  assert.ok(clampedHi.nA <= a.length && clampedHi.nB <= b.length, 'effN cannot exceed the raw sample size');
+  const clampedLo = StatsMath.welchTTest(a, b, true, { a: 0.1, b: 0.1 });
+  assert.ok(clampedLo.nA >= 2 && clampedLo.nB >= 2, 'effN floored at 2');
 });
 
 // ---------------------------------------------------------------------------

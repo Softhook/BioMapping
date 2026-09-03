@@ -130,13 +130,30 @@ const StatsMath = {
     const n = Math.min(a.length, b.length);
     if (n < 8) return 1;
     const kMax = Math.max(1, Math.floor(n / 5));
-    const ra = this.autocorrelation(a, kMax);
-    const rb = this.autocorrelation(b, kMax);
+    // Lag-by-lag rather than autocorrelation(a, kMax) up front: the white-noise
+    // break below then actually saves the O(n) work for every skipped lag, so
+    // a series that decorrelates by lag ~40 costs O(n·40), not O(n·n/5). Result
+    // is identical to the array form.
+    let ma = 0, mb = 0;
+    for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; }
+    ma /= n; mb /= n;
+    let c0a = 0, c0b = 0;
+    for (let i = 0; i < n; i++) {
+      const da = a[i] - ma, db = b[i] - mb;
+      c0a += da * da; c0b += db * db;
+    }
+    if (c0a === 0 || c0b === 0) return 1;
     const noise = 2 / Math.sqrt(n);
     let sum = 0;
     for (let k = 1; k <= kMax; k++) {
-      if (Math.abs(ra[k]) < noise && Math.abs(rb[k]) < noise) break;
-      sum += (1 - k / n) * ra[k] * rb[k];
+      let cka = 0, ckb = 0;
+      for (let i = 0; i < n - k; i++) {
+        cka += (a[i] - ma) * (a[i + k] - ma);
+        ckb += (b[i] - mb) * (b[i + k] - mb);
+      }
+      const ra = cka / c0a, rb = ckb / c0b;
+      if (Math.abs(ra) < noise && Math.abs(rb) < noise) break;
+      sum += (1 - k / n) * ra * rb;
     }
     return Math.max(1, 1 + 2 * sum);
   },
@@ -185,18 +202,22 @@ const StatsMath = {
   /**
    * Random-effects meta-analysis of a Pearson correlation across independent
    * groups (e.g. separate walks). For each group: r_i = Pearson(x_i, y_i),
-   * Fisher-z z_i = atanh(r_i); then a one-sample t-test of {z_i} vs 0.
-   * This is the right test for "does the effect hold up across recordings",
-   * and it gains power as groups are added — unlike concatenating them.
+   * Fisher-z z_i = atanh(r_i) with variance 1/(nEff_i - 3), where nEff_i is
+   * the autocorrelation-adjusted effective pair count — so a long, slowly
+   * varying walk contributes its real information, not one point per second.
+   * Groups are pooled by inverse variance; between-walk heterogeneity is the
+   * DerSimonian–Laird tau^2; the test statistic uses the modified
+   * Knapp–Hartung standard error (t on k-1 df), which keeps the false-positive
+   * rate near nominal for the small group counts a walk collection has.
    *
    * @param {{x:number[], y:number[]}[]} groups
    * @param {number} [minPerGroup=10] minimum usable samples for a group to count
-   * @returns {{r:number, p:number, k:number}} r = tanh(mean z) (typical
+   * @returns {{r:number, p:number, k:number}} r = tanh(pooled z) (typical
    *   per-group effect), k = groups that contributed. For k < 3 the test is
    *   not run: p = 1, r = the simple mean of the available r_i.
    */
   metaCorrelation(groups, minPerGroup = 10) {
-    const zs = [];
+    const entries = [];   // { z, v } per usable group
     let sumR = 0, nR = 0;
     for (const g of (groups || [])) {
       const n = Math.min(g.x ? g.x.length : 0, g.y ? g.y.length : 0);
@@ -205,19 +226,53 @@ const StatsMath = {
       if (!(this.calculateStats(x).variance > 0) || !(this.calculateStats(y).variance > 0)) continue;
       const { r } = this.calculatePearsonCorrelation(x, y);
       if (!isFinite(r)) continue;
+      const nEff = this.correlationEffectiveN(x, y);
+      // A walk whose predictor barely varies, or varies as one slow ramp, has
+      // an effective pair count near the Fisher-z floor of 3 — it can't give an
+      // independent read of the effect, so drop it rather than let a
+      // high-leverage r_i in on a near-singular weight.
+      if (nEff < 4) continue;
       sumR += r; nR++;
       const rc = Math.max(-0.9999, Math.min(0.9999, r));
-      zs.push(Math.atanh(rc));
+      const v = 1 / (nEff - 3);   // var(Fisher-z)
+      entries.push({ z: Math.atanh(rc), v });
     }
-    const k = zs.length;
+    const k = entries.length;
     if (k < 3) return { r: nR ? sumR / nR : 0, p: 1, k };
-    const mean = zs.reduce((s, v) => s + v, 0) / k;
-    let ss = 0;
-    for (const v of zs) ss += (v - mean) ** 2;
-    const sd = Math.sqrt(ss / (k - 1));
-    if (!(sd > 0)) return { r: Math.tanh(mean), p: mean === 0 ? 1 : 0, k };
-    const t = mean / (sd / Math.sqrt(k));
-    return { r: Math.tanh(mean), p: StatsMath._tTestPValue(t, k - 1), k };
+
+    // Fixed-effect (inverse-variance) pooled z, then Cochran's Q.
+    let sw = 0, swz = 0, sw2 = 0;
+    for (const e of entries) { const w = 1 / e.v; sw += w; swz += w * e.z; sw2 += w * w; }
+    const zFixed = swz / sw;
+    let Q = 0;
+    for (const e of entries) Q += (1 / e.v) * (e.z - zFixed) ** 2;
+
+    // DerSimonian–Laird between-walk variance.
+    const df = k - 1;
+    const C = sw - sw2 / sw;
+    const tau2 = C > 0 ? Math.max(0, (Q - df) / C) : 0;
+
+    // Random-effects pooled z with tau^2 folded into every weight.
+    let swr = 0, swrz = 0;
+    for (const e of entries) { const w = 1 / (e.v + tau2); swr += w; swrz += w * e.z; }
+    const zRE = swrz / swr;
+
+    // Weighted residual dispersion for the Knapp–Hartung scale.
+    let hk = 0;
+    for (const e of entries) hk += (1 / (e.v + tau2)) * (e.z - zRE) ** 2;
+    if (!(hk > 0)) {
+      // Every walk gave the same z — no observable between-walk dispersion.
+      // Keep the "perfectly consistent non-zero effect ⇒ ~0" degenerate case.
+      return { r: Math.tanh(zRE), p: zRE === 0 ? 1 : 0, k };
+    }
+    // Modified Knapp–Hartung: the KH standard error can only widen, never
+    // narrow, the plain random-effects interval (the standard safeguard
+    // against its occasional anti-conservative case).
+    const seRE = Math.sqrt(1 / swr);
+    const seHK = Math.sqrt(hk / (df * swr));
+    const se = Math.max(seRE, seHK);
+    const t = zRE / se;
+    return { r: Math.tanh(zRE), p: StatsMath._tTestPValue(t, df), k };
   },
 
   /**
@@ -248,9 +303,12 @@ const StatsMath = {
    * Welch's unequal-variance two-sample t-test. With useEffectiveN each
    * group's count is replaced by its autocorrelation-adjusted effective size
    * (effectiveSampleSize), so comparing two stretches of a fast physiological
-   * signal isn't hugely over-powered. Returns { t, df, p, meanA, meanB, nA, nB }.
+   * signal isn't hugely over-powered. Pass effN = { a, b } to supply those
+   * effective sizes directly — e.g. a sum of per-recording estimates, so the
+   * autocorrelation isn't measured across the joins between concatenated
+   * recordings. Returns { t, df, p, meanA, meanB, nA, nB }.
    */
-  welchTTest(sampleA, sampleB, useEffectiveN = false) {
+  welchTTest(sampleA, sampleB, useEffectiveN = false, effN = null) {
     const rawA = sampleA ? sampleA.length : 0;
     const rawB = sampleB ? sampleB.length : 0;
     if (rawA < 2 || rawB < 2) {
@@ -268,8 +326,14 @@ const StatsMath = {
     };
     const mA = meanOf(sampleA), mB = meanOf(sampleB);
     const vA = sampleVarOf(sampleA, mA), vB = sampleVarOf(sampleB, mB);
-    const nA = useEffectiveN ? this.effectiveSampleSize(sampleA) : rawA;
-    const nB = useEffectiveN ? this.effectiveSampleSize(sampleB) : rawB;
+    let nA, nB;
+    if (effN && Number.isFinite(effN.a) && Number.isFinite(effN.b)) {
+      nA = Math.max(2, Math.min(rawA, effN.a));
+      nB = Math.max(2, Math.min(rawB, effN.b));
+    } else {
+      nA = useEffectiveN ? this.effectiveSampleSize(sampleA) : rawA;
+      nB = useEffectiveN ? this.effectiveSampleSize(sampleB) : rawB;
+    }
     const seA = vA / nA, seB = vB / nB;
     const se = Math.sqrt(seA + seB);
     if (!(se > 0)) return { t: 0, df: nA + nB - 2, p: 1, meanA: mA, meanB: mB, nA, nB };

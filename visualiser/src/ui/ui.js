@@ -996,20 +996,56 @@ const GSRUI = {
   },
 
   /**
+   * Percentile of a value within an unsorted numeric array (linear interp
+   * between order statistics). Used to clip scatter axes to a robust range.
+   */
+  _percentile(arr, p) {
+    if (!arr || arr.length === 0) return 0;
+    return GSRUI._percentileSorted([...arr].sort((a, b) => a - b), p);
+  },
+
+  /** Percentile of an already-ascending-sorted array (no copy, no re-sort). */
+  _percentileSorted(s, p) {
+    if (!s || s.length === 0) return 0;
+    if (s.length === 1) return s[0];
+    const idx = (s.length - 1) * p;
+    const lo = Math.floor(idx), hi = Math.ceil(idx);
+    return s[lo] + (s[hi] - s[lo]) * (idx - lo);
+  },
+
+  /**
    * Paint a scatter of (x, y) points with an OLS trend line and an R² badge
    * onto `canvas`. Pure drawing — caller supplies the fitted m, c, r2.
+   *
+   * Axes are clipped to the 2nd–98th percentile of each variable so a handful
+   * of arousal spikes can't flatten the whole cloud; out-of-range points are
+   * drawn clamped to the frame edge. Point opacity and radius scale down as
+   * the sample grows, so a dense collective-mode cloud shows a density
+   * gradient instead of a solid blob. When X is binary the OLS line (which is
+   * just a difference of two means dressed up as a slope) is replaced by a
+   * box-and-whisker per group.
    */
-  drawRegressionScatter(canvas, xVals, yVals, m, c, r2, xLabel, yLabel) {
+  drawRegressionScatter(canvas, xVals, yVals, m, c, r2, xLabel, yLabel, isBinaryX = false) {
     const ctx = canvas.getContext('2d');
     const width = canvas.width;
     const height = canvas.height;
 
-    // White background
-    ctx.fillStyle = '#ffffff';
+    const css = (typeof window !== 'undefined' && window.getComputedStyle)
+      ? window.getComputedStyle(document.documentElement) : null;
+    const themeColor = (name, fallback) => {
+      const v = css ? css.getPropertyValue(name).trim() : '';
+      return v || fallback;
+    };
+    const bg     = themeColor('--canvas-bg', '#ffffff');
+    const axisC  = themeColor('--text-primary', '#111111');
+    const textC  = themeColor('--canvas-text', '#444444');
+    const trendC = themeColor('--primary-color', '#0055cc');
+
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, width, height);
 
     if (xVals.length === 0) {
-      ctx.fillStyle = '#888888';
+      ctx.fillStyle = textC;
       ctx.font = '12px Inter, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('No data available', width / 2, height / 2);
@@ -1021,19 +1057,28 @@ const GSRUI = {
     const padT = 15;
     const padB = 30;
 
-    let minX = Math.min(...xVals);
-    let maxX = Math.max(...xVals);
-    let minY = Math.min(...yVals);
-    let maxY = Math.max(...yVals);
+    // Robust axis bounds: clip to the 2nd–98th percentile (binary X keeps its
+    // true 0..1 range). Points outside are clamped to the frame when plotted.
+    const ySorted = [...yVals].sort((a, b) => a - b);
+    let minX, maxX;
+    if (isBinaryX) {
+      minX = -0.5; maxX = 1.5;
+    } else {
+      const xSorted = [...xVals].sort((a, b) => a - b);
+      minX = GSRUI._percentileSorted(xSorted, 0.02);
+      maxX = GSRUI._percentileSorted(xSorted, 0.98);
+    }
+    let minY = GSRUI._percentileSorted(ySorted, 0.02);
+    let maxY = GSRUI._percentileSorted(ySorted, 0.98);
 
-    if (maxX === minX) maxX = minX + 1;
-    if (maxY === minY) maxY = minY + 1;
-    
+    if (maxX <= minX) maxX = minX + 1;
+    if (maxY <= minY) maxY = minY + 1;
+
     const rangeX = maxX - minX;
     const rangeY = maxY - minY;
 
     // Draw axis frame
-    ctx.strokeStyle = '#000000';
+    ctx.strokeStyle = axisC;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(padL, padT);
@@ -1041,34 +1086,69 @@ const GSRUI = {
     ctx.lineTo(width - padR, height - padB);
     ctx.stroke();
 
-    const mapX = (x) => padL + ((x - minX) / rangeX) * (width - padL - padR);
-    const mapY = (y) => height - padB - ((y - minY) / rangeY) * (height - padB - padT);
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const plotL = padL, plotR = width - padR, plotT = padT, plotBt = height - padB;
+    const mapX = (x) => clamp(padL + ((x - minX) / rangeX) * (plotR - plotL), plotL, plotR);
+    const mapY = (y) => clamp(plotBt - ((y - minY) / rangeY) * (plotBt - plotT), plotT, plotBt);
 
-    // Draw coordinates as orange dots
-    ctx.fillStyle = 'rgba(255, 123, 0, 0.6)';
-    for (let i = 0; i < xVals.length; i++) {
-      const cx = mapX(xVals[i]);
+    // Density-aware point style: with tens of thousands of samples a solid
+    // fill hides all structure, so fade and shrink as n grows.
+    const n = xVals.length;
+    const alpha = Math.max(0.04, Math.min(0.6, 35 / Math.sqrt(n)));
+    const radius = n > 8000 ? 1.4 : (n > 2000 ? 1.9 : 2.5);
+    const jitterAmp = isBinaryX ? 0.16 : 0;
+
+    ctx.fillStyle = `rgba(255, 123, 0, ${alpha.toFixed(3)})`;
+    for (let i = 0; i < n; i++) {
+      // Deterministic per-point jitter (index hash) so binary columns don't
+      // shimmer when the plot is redrawn on resize / tab switch.
+      const jit = jitterAmp ? (((i * 2654435761) % 1000) / 1000 - 0.5) * 2 * jitterAmp : 0;
+      const cx = mapX(xVals[i] + jit);
       const cy = mapY(yVals[i]);
       ctx.beginPath();
-      ctx.arc(cx, cy, 2.5, 0, 2 * Math.PI);
+      ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
       ctx.fill();
     }
 
-    // Draw trendline (dark blue for contrast on white)
-    const x1 = minX;
-    const y1 = m * x1 + c;
-    const x2 = maxX;
-    const y2 = m * x2 + c;
-
-    ctx.strokeStyle = '#0055cc';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(mapX(x1), mapY(y1));
-    ctx.lineTo(mapX(x2), mapY(y2));
-    ctx.stroke();
+    if (isBinaryX) {
+      // Box-and-whisker per group (median, IQR box, 10–90th-pct whiskers).
+      const boxHalf = Math.min(26, (mapX(1) - mapX(0)) * 0.28);
+      for (const g of [0, 1]) {
+        const col = [];
+        for (let i = 0; i < n; i++) if (xVals[i] === g) col.push(yVals[i]);
+        if (col.length < 3) continue;
+        col.sort((a, b) => a - b);
+        const q1 = GSRUI._percentileSorted(col, 0.25);
+        const md = GSRUI._percentileSorted(col, 0.50);
+        const q3 = GSRUI._percentileSorted(col, 0.75);
+        const w1 = GSRUI._percentileSorted(col, 0.10);
+        const w2 = GSRUI._percentileSorted(col, 0.90);
+        const cx = mapX(g);
+        ctx.strokeStyle = trendC;
+        ctx.fillStyle = 'rgba(0, 85, 204, 0.10)';
+        ctx.lineWidth = 1.5;
+        ctx.fillRect(cx - boxHalf, mapY(q3), boxHalf * 2, mapY(q1) - mapY(q3));
+        ctx.strokeRect(cx - boxHalf, mapY(q3), boxHalf * 2, mapY(q1) - mapY(q3));
+        ctx.beginPath();                              // median
+        ctx.moveTo(cx - boxHalf, mapY(md)); ctx.lineTo(cx + boxHalf, mapY(md));
+        ctx.moveTo(cx, mapY(q3)); ctx.lineTo(cx, mapY(w2));   // whiskers
+        ctx.moveTo(cx, mapY(q1)); ctx.lineTo(cx, mapY(w1));
+        ctx.moveTo(cx - boxHalf * 0.5, mapY(w2)); ctx.lineTo(cx + boxHalf * 0.5, mapY(w2));
+        ctx.moveTo(cx - boxHalf * 0.5, mapY(w1)); ctx.lineTo(cx + boxHalf * 0.5, mapY(w1));
+        ctx.stroke();
+      }
+    } else {
+      // OLS trendline across the visible X range (clipped to the frame in Y)
+      ctx.strokeStyle = trendC;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(mapX(minX), mapY(m * minX + c));
+      ctx.lineTo(mapX(maxX), mapY(m * maxX + c));
+      ctx.stroke();
+    }
 
     // Text labels
-    ctx.fillStyle = '#333333';
+    ctx.fillStyle = textC;
     ctx.font = '9px Inter, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(xLabel, padL + (width - padL - padR)/2, height - 6);
@@ -1078,35 +1158,34 @@ const GSRUI = {
     ctx.rotate(-Math.PI/2);
     ctx.fillText(yLabel, 0, 0);
     ctx.restore();
-    
-    ctx.fillStyle = '#555555';
+
+    ctx.fillStyle = textC;
     ctx.font = '8px Inter, sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(minX.toFixed(1), padL, height - padB + 10);
+    ctx.fillText(isBinaryX ? 'no' : minX.toFixed(1), padL, height - padB + 10);
     ctx.textAlign = 'right';
-    ctx.fillText(maxX.toFixed(1), width - padR, height - padB + 10);
+    ctx.fillText(isBinaryX ? 'yes' : maxX.toFixed(1), width - padR, height - padB + 10);
 
     ctx.textAlign = 'right';
     ctx.fillText(minY.toFixed(2), padL - 5, height - padB);
     ctx.fillText(maxY.toFixed(2), padL - 5, padT + 5);
 
-    // R² badge in top-right corner
-    ctx.fillStyle = '#0055cc';
+    // Fit badge in top-right corner: R² for a continuous X, |r| for a binary
+    // one (there R² is just the squared point-biserial correlation).
     ctx.font = 'bold 10px Inter, sans-serif';
     ctx.textAlign = 'right';
-    const r2Text = 'R² = ' + r2.toFixed(3);
-    const r2Width = ctx.measureText(r2Text).width;
-    // Draw background box
+    const badgeText = isBinaryX
+      ? 'r = ' + (Math.sign(m) * Math.sqrt(Math.max(0, Math.min(1, r2)))).toFixed(3)
+      : 'R² = ' + r2.toFixed(3);
+    const bw = ctx.measureText(badgeText).width;
     ctx.fillStyle = 'rgba(0, 85, 204, 0.08)';
-    ctx.fillRect(width - padR - r2Width - 10, padT + 2, r2Width + 14, 18);
+    ctx.fillRect(width - padR - bw - 10, padT + 2, bw + 14, 18);
     ctx.strokeStyle = 'rgba(0, 85, 204, 0.25)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(width - padR - r2Width - 10, padT + 2, r2Width + 14, 18);
-    // Draw text
-    ctx.fillStyle = '#0055cc';
-    ctx.font = 'bold 10px Inter, sans-serif';
+    ctx.strokeRect(width - padR - bw - 10, padT + 2, bw + 14, 18);
+    ctx.fillStyle = trendC;
     ctx.textAlign = 'right';
-    ctx.fillText(r2Text, width - padR - 3, padT + 15);
+    ctx.fillText(badgeText, width - padR - 3, padT + 15);
   },
 
   updateEnvironmentalDashboard() {
@@ -1121,6 +1200,10 @@ const GSRUI = {
     if (activeTracks.length === 0) return;
 
     const latency = parseFloat(document.getElementById('gpsPeakLatency').value) || 2.0;
+    // SCL (tonic) follows its driver several times more slowly than an SCR, so
+    // its environment is read further back than the phasic/peaks latency —
+    // scaled from the same knob (×4, capped at 30 s ≈ ~40 m at walking pace).
+    const tonicLatency = Math.min(30, latency * 4);
     const trackIdsStr = activeTracks.map(t => t.id).join(',');
     // Per-track mutation fingerprint (analyzer._dataVersion is bumped by
     // analyze(), setPeakLabel(), setPeakExcluded(), enrichTrack()). In the
@@ -1150,10 +1233,14 @@ const GSRUI = {
           if (pt.time - lastTime >= 1.0) {
             const coords = a.getCoordinates(i);
             if (coords) {
-              // Environmental context is read `latency` seconds earlier: an
-              // SCR lags its trigger, and the subject has since moved on.
+              // Phasic + peaks: environment read `latency` seconds earlier —
+              // an SCR lags its trigger and the subject has since moved on.
+              // Tonic: read `tonicLatency` (a larger lag) earlier — SCL tracks
+              // its driver over a slower time course (envPtTonic below).
               const envIdx = a.findClosestIndex(Math.max(0, pt.time - latency));
               const envPt = (envIdx !== -1) ? a.raw[envIdx] : pt;
+              const envIdxT = a.findClosestIndex(Math.max(0, pt.time - tonicLatency));
+              const envPtTonic = (envIdxT !== -1) ? a.raw[envIdxT] : pt;
 
               // Aggregate arousal over the trailing 1 s (10 samples @ 10 Hz):
               // mean for level, max for the phasic peak.
@@ -1194,7 +1281,19 @@ const GSRUI = {
                 osm_amenity_count_50m: envPt.osm_amenity_count_50m,
                 // EM Fog Index (0-100), latency-shifted like the OSM fields.
                 // NaN when the row has no Sub-GHz RSSI; dropped per-feature below.
-                em_fog: (typeof envPt.em_fog === 'number') ? envPt.em_fog : NaN
+                em_fog: (typeof envPt.em_fog === 'number') ? envPt.em_fog : NaN,
+                // Environment for the tonic channel, read `tonicLatency` s back.
+                tonicEnv: {
+                  osm_road_class: envPtTonic.osm_road_class,
+                  osm_dist_major_road: envPtTonic.osm_dist_major_road,
+                  osm_in_park: envPtTonic.osm_in_park,
+                  osm_green_pct_50m: envPtTonic.osm_green_pct_50m,
+                  osm_building_density_50m: envPtTonic.osm_building_density_50m,
+                  osm_dist_water: envPtTonic.osm_dist_water,
+                  osm_tree_density_50m: envPtTonic.osm_tree_density_50m,
+                  osm_amenity_count_50m: envPtTonic.osm_amenity_count_50m,
+                  em_fog: (typeof envPtTonic.em_fog === 'number') ? envPtTonic.em_fog : NaN
+                }
               });
               lastTime = pt.time;
             }
@@ -1215,9 +1314,10 @@ const GSRUI = {
         features.push({ name: 'EM Fog Index', key: 'em_fog', binary: false });
       }
 
-      // Peak count per sample = number of peaks in its 15 s bin. Same
-      // resolution mismatch as any binned count vs a 1 Hz predictor; the
-      // effective-N correction below absorbs most of the pseudo-replication.
+      // Peak count per sample = number of peaks in its 15 s bin. The Peaks
+      // channel doesn't correlate this per-1-Hz-sample (that duplicates each
+      // count ~15×); instead each walk's Peaks series is re-aggregated to one
+      // point per 15 s bin in the feature loop below.
       const peakCounts = [];
       activeTracks.forEach(track => {
         const a = track.analyzer;
@@ -1235,50 +1335,82 @@ const GSRUI = {
         });
       });
 
+      // 999.0 is the "no feature within radius" sentinel — not a distance.
+      const validNum = (v) => v !== null && v !== undefined && !isNaN(v) && v !== 999.0;
+      const coerceBin = (v) => (v === true || v === 1) ? 1 : (v === false || v === 0) ? 0 : NaN;
+
       const correlationMatrix = features.map(f => {
         // Valid samples for this feature, bucketed per track. allData is
         // track-contiguous. A track is a "walk" — an independent recording.
+        //  - xPhasic / phasic : short-lag environment vs momentary arousal
+        //  - xTonic  / tonic  : long-lag environment vs baseline arousal
+        //  - peakBinX / peakBinY : one point per 15 s bin (mean feature vs
+        //    peak count) — no per-second duplication of the binned count
         const byTrack = new Map();
-        const validX = []; // pooled, for the variance check
+        const validX = []; // pooled latency-shifted values, for the variance check
         for (let i = 0; i < allData.length; i++) {
-          let x = allData[i][f.key];
-          if (f.binary) x = (x === true || x === 1) ? 1 : (x === false || x === 0) ? 0 : NaN;
-          // 999.0 is the "no feature within radius" sentinel — not a distance.
-          if (x !== null && x !== undefined && !isNaN(x) && x !== 999.0) {
-            const tid = allData[i].trackId;
-            let b = byTrack.get(tid);
-            if (!b) { b = { x: [], phasic: [], tonic: [], peaks: [] }; byTrack.set(tid, b); }
-            b.x.push(x);
-            b.phasic.push(allData[i].phasic);
-            b.tonic.push(allData[i].tonic);
-            b.peaks.push(peakCounts[i] || 0);
-            validX.push(x);
+          const row = allData[i];
+          const tid = row.trackId;
+          let b = byTrack.get(tid);
+          if (!b) {
+            b = { xPhasic: [], phasic: [], xTonic: [], tonic: [], binX: new Map(), binPk: new Map() };
+            byTrack.set(tid, b);
+          }
+          let xP = f.binary ? coerceBin(row[f.key]) : row[f.key];
+          const tEnv = row.tonicEnv || row;
+          let xT = f.binary ? coerceBin(tEnv[f.key]) : tEnv[f.key];
+
+          if (validNum(xP)) {
+            b.xPhasic.push(xP);
+            b.phasic.push(row.phasic);
+            validX.push(xP);
+            const bin = Math.floor(row.time / 15);
+            let bx = b.binX.get(bin);
+            if (!bx) { bx = []; b.binX.set(bin, bx); }
+            bx.push(xP);
+            b.binPk.set(bin, peakCounts[i] || 0);
+          }
+          if (validNum(xT)) {
+            b.xTonic.push(xT);
+            b.tonic.push(row.tonic);
           }
         }
         const walks = [...byTrack.values()];
+        // Collapse each walk's binned Peaks data to one (mean x, count) pair
+        // per 15 s bin.
+        for (const b of walks) {
+          b.peakBinX = []; b.peakBinY = [];
+          for (const [bin, xs] of b.binX) {
+            let s = 0;
+            for (const v of xs) s += v;
+            b.peakBinX.push(s / xs.length);
+            b.peakBinY.push(b.binPk.get(bin) || 0);
+          }
+        }
 
         // One method for the whole matrix, by walk count:
         //  - 1 walk  → pooled r + autocorrelation-adjusted p ('single').
         //  - 2+ walks → random-effects meta-analysis across walks
-        //    (per-walk r → one-sample t on Fisher-z). Needs >= 3 walks in
-        //    which this factor actually varies; graded by how many:
+        //    (inverse-variance per-walk r via effective N, DerSimonian–Laird
+        //    heterogeneity, Knapp–Hartung t). Needs >= 3 walks in which this
+        //    factor actually varies; graded by how many:
         //      >= META_SOLID  → 'meta' (a real significance verdict)
         //      3..SOLID-1     → 'metaProvisional' (direction only, "N walks")
         //      < 3            → 'fewWalks' (effect size only, no test)
         const META_SOLID = 5;
-        const analyse = (ch) => {
+        const analyse = (getX, getY) => {
           if (walks.length === 1) {
-            const c = StatsMath.calculateAutocorrCorrelation(walks[0].x, walks[0][ch]);
+            const c = StatsMath.calculateAutocorrCorrelation(getX(walks[0]), getY(walks[0]));
             return { r: c.r, p: c.p, method: 'single', k: 1 };
           }
-          const meta = StatsMath.metaCorrelation(walks.map(w => ({ x: w.x, y: w[ch] })));
+          const meta = StatsMath.metaCorrelation(walks.map(w => ({ x: getX(w), y: getY(w) })));
           if (meta.k < 3) return { r: meta.r, p: NaN, method: 'fewWalks', k: meta.k };
           if (meta.k < META_SOLID) return { r: meta.r, p: meta.p, method: 'metaProvisional', k: meta.k };
           return { r: meta.r, p: meta.p, method: 'meta', k: meta.k };
         };
-        const chPhasic = analyse('phasic');
-        const chTonic  = analyse('tonic');
-        const chPeaks  = analyse('peaks');
+        const chPhasic = analyse(w => w.xPhasic,  w => w.phasic);
+        const chTonic  = analyse(w => w.xTonic,   w => w.tonic);
+        const chPeaks  = analyse(w => w.peakBinX, w => w.peakBinY);
 
         // hasVariance = the factor actually changed. A constant predictor
         // explains no variance in arousal whatever its r. Continuous fields
@@ -1298,23 +1430,24 @@ const GSRUI = {
                  kPhasic: chPhasic.k, kTonic: chTonic.k, kPeaks: chPeaks.k };
       });
 
-      // Multiple comparisons: Benjamini–Hochberg FDR over every cell that
-      // carries a real significance verdict ('meta' or 'single'). Cells
-      // shown as effect-size-only ('metaProvisional', 'fewWalks') or with no
-      // variation don't enter the family and get no q.
+      // Multiple comparisons: Benjamini–Hochberg FDR, one family PER arousal
+      // channel (phasic, tonic, peaks). Phasic / tonic / peaks are three
+      // correlated views of the same arousal, not three independent
+      // discoveries, so pooling them into one 3×features family both
+      // over-counts the tests and mixes hypotheses. Within a channel the
+      // family is "which environmental factors relate to THIS measure" — the
+      // features are the real multiple comparisons. Only cells carrying a
+      // significance verdict ('meta'/'single') and real variation enter;
+      // effect-size-only cells ('metaProvisional', 'fewWalks') get no q.
       const testable = (row, m) => row.hasVariance && (m === 'meta' || m === 'single');
-      const pFamily = [];
-      correlationMatrix.forEach(row => {
-        pFamily.push(testable(row, row.mPhasic) ? row.pPhasic : NaN);
-        pFamily.push(testable(row, row.mTonic)  ? row.pTonic  : NaN);
-        pFamily.push(testable(row, row.mPeaks)  ? row.pPeaks  : NaN);
-      });
-      const qFamily = StatsMath.benjaminiHochberg(pFamily);
-      correlationMatrix.forEach((row, i) => {
-        row.qPhasic = qFamily[i * 3];
-        row.qTonic  = qFamily[i * 3 + 1];
-        row.qPeaks  = qFamily[i * 3 + 2];
-      });
+      const adjustChannel = (mKey, pKey, qKey) => {
+        const fam = correlationMatrix.map(row => testable(row, row[mKey]) ? row[pKey] : NaN);
+        const q = StatsMath.benjaminiHochberg(fam);
+        correlationMatrix.forEach((row, i) => { row[qKey] = q[i]; });
+      };
+      adjustChannel('mPhasic', 'pPhasic', 'qPhasic');
+      adjustChannel('mTonic',  'pTonic',  'qTonic');
+      adjustChannel('mPeaks',  'pPeaks',  'qPeaks');
 
       // Per-road-class arousal: mean, std, autocorrelation-adjusted 95% CI,
       // peak rate. 'unclassified' (OSM's mixed-bag minor-road tag) and any
@@ -1324,9 +1457,17 @@ const GSRUI = {
       allData.forEach(d => {
         const cls = d.osm_road_class || 'none';
         let g = roadGroups.get(cls);
-        if (!g) { g = { phasicVals: [], tonicVals: [], peaks: 0 }; roadGroups.set(cls, g); }
+        if (!g) { g = { phasicVals: [], tonicVals: [], byWalk: new Map(), peaks: 0 }; roadGroups.set(cls, g); }
         g.phasicVals.push(d.phasic);
         g.tonicVals.push(d.tonic);
+        // Also keep per-walk sub-arrays: the CI's effective sample size must be
+        // estimated *within* each walk and summed, never off the walks stitched
+        // end to end (that autocorrelation runs across recording boundaries and
+        // is meaningless).
+        let w = g.byWalk.get(d.trackId);
+        if (!w) { w = { phasicVals: [], tonicVals: [] }; g.byWalk.set(d.trackId, w); }
+        w.phasicVals.push(d.phasic);
+        w.tonicVals.push(d.tonic);
       });
 
       activeTracks.forEach(track => {
@@ -1352,9 +1493,11 @@ const GSRUI = {
         const stdTonic = Math.sqrt(val.tonicVals.reduce((s, v) => s + (v - meanTonic) ** 2, 0) / n);
         // CI uses the effective sample size, not the raw second count:
         // consecutive 1 Hz EDA samples are correlated, so sqrt(n) overstates
-        // precision.
-        const nEffPhasic = StatsMath.effectiveSampleSize(val.phasicVals);
-        const nEffTonic = StatsMath.effectiveSampleSize(val.tonicVals);
+        // precision. Effective N is summed over per-walk estimates so the
+        // autocorrelation is measured within a recording, not across the join.
+        const walkArrs = [...val.byWalk.values()];
+        const nEffPhasic = walkArrs.reduce((s, w) => s + StatsMath.effectiveSampleSize(w.phasicVals), 0);
+        const nEffTonic  = walkArrs.reduce((s, w) => s + StatsMath.effectiveSampleSize(w.tonicVals), 0);
         const ciPhasic = nEffPhasic > 1 ? 1.96 * stdPhasic / Math.sqrt(nEffPhasic) : 0;
         const ciTonic = nEffTonic > 1 ? 1.96 * stdTonic / Math.sqrt(nEffTonic) : 0;
         roadProfile.push({
@@ -1368,26 +1511,37 @@ const GSRUI = {
           ciPhasic,
           ciTonic,
           peakRate: (val.peaks / (n / 60)),
-          _phasicVals: val.phasicVals
+          _phasicVals: val.phasicVals,
+          _nEffPhasic: nEffPhasic
         });
       });
       roadProfile.sort((a, b) => b.meanPhasic - a.meanPhasic);
 
       // Highest vs lowest road class: a Welch t-test on effective sample
-      // sizes (a CI-overlap check is not a valid significance test).
+      // sizes (a CI-overlap check is not a valid significance test), using the
+      // per-walk-summed effective N so the autocorrelation isn't measured
+      // across the joins between walks. hi and lo are the extremes of
+      // `roadProfile.length` group means, picked *after* seeing the data —
+      // testing that gap as if it were pre-specified inflates the false-positive
+      // rate, so Bonferroni-adjust the p by the number of pairwise contrasts
+      // that could have been the widest (k choose 2).
       let roadComparison = null;
       if (roadProfile.length >= 2) {
         const hi = roadProfile[0];
         const lo = roadProfile[roadProfile.length - 1];
-        const w = StatsMath.welchTTest(hi._phasicVals, lo._phasicVals, true);
+        const w = StatsMath.welchTTest(hi._phasicVals, lo._phasicVals, true,
+                                       { a: hi._nEffPhasic, b: lo._nEffPhasic });
+        const nPairs = roadProfile.length * (roadProfile.length - 1) / 2;
         roadComparison = {
           highName: hi.name, lowName: lo.name,
           highMean: hi.meanPhasic, lowMean: lo.meanPhasic,
           diffPct: lo.meanPhasic !== 0 ? (hi.meanPhasic - lo.meanPhasic) / lo.meanPhasic * 100 : 0,
-          t: w.t, df: w.df, p: w.p
+          t: w.t, df: w.df, p: w.p,
+          pAdj: Number.isFinite(w.p) ? Math.min(1, w.p * nPairs) : w.p,
+          nGroups: roadProfile.length
         };
       }
-      roadProfile.forEach(p => { delete p._phasicVals; }); // drop raw arrays before caching
+      roadProfile.forEach(p => { delete p._phasicVals; delete p._nEffPhasic; }); // drop internals before caching
 
       cacheTarget._cachedEnvStats = {
         latency,
@@ -1483,7 +1637,7 @@ const GSRUI = {
       } else if (anyMeta) {
         noteEl.innerHTML = notEnriched +
           `<strong>${used} walks analysed.</strong> <em>q</em> tests whether an effect is <strong>consistent across walks</strong> ` +
-          `(random-effects meta-analysis — per-walk <em>r</em>, one-sample <em>t</em> on Fisher-<em>z</em>). <em>r</em> is the typical per-walk value. ` +
+          `(random-effects meta-analysis — per-walk <em>r</em> weighted by its effective sample size, DerSimonian–Laird heterogeneity). <em>r</em> is the typical per-walk value. ` +
           `A "<em>k / ${used}</em>" tag means the factor varied enough to correlate in only <em>k</em> of the ${used} — need 5 for a verdict.`;
       } else {
         noteEl.innerHTML = notEnriched +
@@ -1645,14 +1799,21 @@ const GSRUI = {
       }
 
       // Welch t-test (effective sample sizes) for the highest-vs-lowest gap.
-      if (comparison && isFinite(comparison.p)) {
-        const pTxt = comparison.p < 0.001 ? 'p &lt; 0.001' : 'p = ' + comparison.p.toFixed(3);
-        if (comparison.p < 0.05) {
-          lines.push(`A Welch <em>t</em>-test confirms this gap is <strong>statistically reliable</strong> ` +
-            `(${pTxt}, t = ${comparison.t.toFixed(2)}, df ≈ ${comparison.df.toFixed(0)}) — a genuine physiological difference, not sampling noise.`);
+      // This is the widest gap among `nGroups` road classes, picked after
+      // seeing the means, so the verdict uses the selection-corrected pAdj
+      // (Bonferroni over the k-choose-2 contrasts), with the raw p shown too.
+      if (comparison && isFinite(comparison.pAdj)) {
+        const fmtP = (v) => v < 0.001 ? 'p &lt; 0.001' : 'p = ' + v.toFixed(3);
+        const selNote = (comparison.nGroups > 2)
+          ? ` (widest gap among ${comparison.nGroups} road classes, so corrected for that choice; raw ${fmtP(comparison.p)})`
+          : '';
+        if (comparison.pAdj < 0.05) {
+          lines.push(`A Welch <em>t</em>-test says this gap is <strong>statistically reliable</strong> ` +
+            `(${fmtP(comparison.pAdj)}, t = ${comparison.t.toFixed(2)}, df ≈ ${comparison.df.toFixed(0)})${selNote} — ` +
+            `unlikely to be sampling noise, though this is one walk in one set of places, not a controlled comparison.`);
         } else {
           lines.push(`A Welch <em>t</em>-test says this gap is <strong>not statistically reliable</strong> ` +
-            `(${pTxt}) — it could easily be sampling noise, so treat the ordering with caution.`);
+            `(${fmtP(comparison.pAdj)})${selNote} — it could easily be sampling noise, so treat the ordering with caution.`);
         }
       }
 
@@ -1724,10 +1885,14 @@ const GSRUI = {
       }
     }
     const isBinaryX = GSR_CONST.OSM_METRICS.some(m => m.field === scatterXMetric && m.kind === 'binary');
+    const yIsTonic = scatterYMetric !== 'phasic';
     dataSrc.forEach(d => {
-      let x = d[scatterXMetric];
+      // Tonic uses the longer-lag environment, phasic the shorter-lag one —
+      // same split as the correlation table.
+      const src = (yIsTonic && d.tonicEnv) ? d.tonicEnv : d;
+      let x = src[scatterXMetric];
       if (isBinaryX) x = (x === true || x === 1) ? 1 : (x === false || x === 0) ? 0 : NaN;
-      const y = scatterYMetric === 'phasic' ? d.phasic : d.tonic;
+      const y = yIsTonic ? d.tonic : d.phasic;
       // 999.0 is the "no feature within radius" sentinel — not a distance.
       if (x !== null && x !== undefined && !isNaN(x) && x !== 999.0 && y !== null && y !== undefined && !isNaN(y)) {
         xVals.push(x);
@@ -1750,7 +1915,7 @@ const GSRUI = {
       'tonic': 'Tonic (baseline arousal)'
     };
 
-    GSRUI.drawRegressionScatter(canvas, xVals, yVals, m, c, r2, xLabels[scatterXMetric], yLabels[scatterYMetric]);
+    GSRUI.drawRegressionScatter(canvas, xVals, yVals, m, c, r2, xLabels[scatterXMetric], yLabels[scatterYMetric], isBinaryX);
   },
 
   /**

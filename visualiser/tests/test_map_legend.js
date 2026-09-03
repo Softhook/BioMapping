@@ -132,3 +132,62 @@ test('GSRUI.drawRegressionScatterPlot: data source resolution matches viewMode',
   assert.strictEqual(lastX[1], 50);
   assert.strictEqual(lastX[2], 60);
 });
+
+test('GSRUI._percentile: robust axis-clip bounds used by the regression scatter', () => {
+  const { window } = bootApp();
+  const P = window.GSRUI._percentile;
+
+  assert.strictEqual(P([], 0.5), 0, 'empty array → 0');
+  assert.strictEqual(P([7], 0.5), 7, 'singleton → the value');
+
+  const asc = Array.from({ length: 101 }, (_, i) => i); // 0..100
+  assert.strictEqual(P(asc, 0), 0, '0th percentile is the min');
+  assert.strictEqual(P(asc, 1), 100, '100th percentile is the max');
+  assert.strictEqual(P(asc, 0.5), 50, 'median of 0..100 is 50');
+  assert.strictEqual(P(asc, 0.02), 2, '2nd percentile clips low outliers');
+  assert.strictEqual(P(asc, 0.98), 98, '98th percentile clips high outliers');
+
+  // Unsorted input must not be mutated.
+  const src = [9, 1, 5, 3, 7];
+  const copy = [...src];
+  P(src, 0.5);
+  assert.deepStrictEqual(src, copy, 'input array left unsorted');
+
+  // _percentileSorted takes an already-sorted array and does not re-sort/copy.
+  const PS = window.GSRUI._percentileSorted;
+  assert.strictEqual(PS([10, 20, 30, 40], 0.5), 25, 'sorted median by interpolation');
+  assert.strictEqual(PS([], 0.5), 0, 'empty → 0');
+});
+
+test('GSRUI.drawRegressionScatter: renders continuous and binary X without throwing (fake 2D context)', () => {
+  const { window } = bootApp();
+  // jsdom has no real canvas 2D context — record calls on a permissive stub so
+  // the drawing logic (percentile clip, density loop, binary box-and-whisker
+  // branch, badge) is exercised end to end.
+  const calls = [];
+  const ctx = new Proxy({}, {
+    get: (_t, prop) => {
+      if (prop === 'measureText') return () => ({ width: 20 });
+      if (prop === 'canvas') return { width: 300, height: 200 };
+      return (...args) => { calls.push([prop, ...args]); };
+    },
+    set: () => true
+  });
+  const canvas = { width: 300, height: 200, getContext: () => ctx };
+
+  const xCont = Array.from({ length: 500 }, (_, i) => (i % 97) + (i > 480 ? 5000 : 0)); // + a few spikes
+  const yCont = Array.from({ length: 500 }, (_, i) => Math.sin(i / 11) + (i % 5) * 0.2);
+  assert.doesNotThrow(() =>
+    window.GSRUI.drawRegressionScatter(canvas, xCont, yCont, 0.01, 1, 0.04, 'X', 'Y', false),
+    'continuous X path');
+
+  const xBin = Array.from({ length: 400 }, (_, i) => (i % 3 === 0 ? 1 : 0));
+  const yBin = Array.from({ length: 400 }, (_, i) => (i % 3 === 0 ? 2 + (i % 7) * 0.1 : 1 + (i % 7) * 0.1));
+  assert.doesNotThrow(() =>
+    window.GSRUI.drawRegressionScatter(canvas, xBin, yBin, 0.9, 1, 0.2, 'In Park', 'Phasic', true),
+    'binary X path (box-and-whisker branch)');
+
+  assert.doesNotThrow(() =>
+    window.GSRUI.drawRegressionScatter(canvas, [], [], 0, 0, 0, 'X', 'Y', false),
+    'empty data path');
+});

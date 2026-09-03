@@ -29,12 +29,24 @@ const _geomsCache = new WeakMap();
 const _spatialIndexCache = new WeakMap();
 
 // -- Green-space sampling grid ---------------------------------------------
-const SAMPLING_RINGS      = 3;              // concentric rings
-const POINTS_PER_RING     = [1, 8, 16];     // centre, ring 1, ring 2
+// Two concentric rings at 1/2 and the full search radius, plus the centre
+// point (added separately). POINTS_PER_RING is indexed by ring number 1..N,
+// so entry [0] is the centre count and never read in the ring loop.
+const SAMPLING_RINGS      = 2;              // concentric rings (excl. centre)
+const POINTS_PER_RING     = [1, 8, 16];     // centre, ring 1 (½r), ring 2 (r)
 
 // -- OSM tag sets ----------------------------------------------------------
 const MAJOR_ROAD_CLASSES = new Set([
   'motorway', 'trunk', 'primary', 'secondary'
+]);
+// Carriageways that carry motor traffic — the "road you're near" for an
+// arousal-by-road-type analysis. A footway/path/cycleway 2 m away shouldn't
+// mask a residential or primary road 15 m away, so these win the road-class
+// label whenever one is within the search radius.
+const VEHICULAR_ROAD_CLASSES = new Set([
+  'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified',
+  'residential', 'living_street', 'service',
+  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link'
 ]);
 const AMENITY_TYPES = new Set([
   'cafe', 'restaurant', 'pub', 'fast_food', 'bar',
@@ -396,6 +408,7 @@ const OSMEnricher = {
     const pipFn  = this.pointInPolygon.bind(this);
 
     let minRoadDist = Infinity, nearestRoadClass = 'none', minMajorRoadDist = Infinity;
+    let minVehRoadDist = Infinity, nearestVehRoadClass = null;
     let inPark = 0, minWaterDist = Infinity;
     let buildingCount = 0, treeCount = 0, amenityCount = 0;
 
@@ -413,6 +426,10 @@ const OSMEnricher = {
         if (d < minRoadDist) {
           minRoadDist = d;
           nearestRoadClass = _classifyRoad(geom);
+        }
+        if (VEHICULAR_ROAD_CLASSES.has(tags.highway) && d < minVehRoadDist) {
+          minVehRoadDist = d;
+          nearestVehRoadClass = tags.highway;
         }
         if (MAJOR_ROAD_CLASSES.has(tags.highway) && d < minMajorRoadDist) {
           minMajorRoadDist = d;
@@ -470,6 +487,16 @@ const OSMEnricher = {
           }
         }
       }
+    }
+
+    // Prefer the nearest motor-traffic carriageway when one is close by
+    // (within the radius, and no more than 25 m away): otherwise a park footway
+    // a couple of metres off hides the residential/primary road just beyond it
+    // and the road-class profile fills with 'footway'/'path' rows. A road
+    // further than 25 m doesn't relabel where you are — the literal nearest way
+    // stands.
+    if (nearestVehRoadClass && minVehRoadDist <= Math.min(radiusMeters, 25)) {
+      nearestRoadClass = nearestVehRoadClass;
     }
 
     // Sanitize distances
@@ -532,20 +559,35 @@ const OSMEnricher = {
       const p = prev.metrics, n = next.metrics;
 
       const lerp = (a, b) => a + (b - a) * t;
-      // Distance fields: step, don't lerp, when either endpoint is the
-      // SENTINEL_DIST "no feature within radius" marker — interpolating it
-      // would invent mid-range distances that never existed.
-      const lerpDist = (a, b) =>
-        (a === SENTINEL_DIST || b === SENTINEL_DIST) ? ((t >= 0.5) ? b : a) : lerp(a, b);
+      const step = (a, b) => (t >= 0.5 ? b : a);
+      // Distance fields: when one endpoint is the SENTINEL_DIST "no feature
+      // within radius" marker we can't interpolate — a lerp would invent
+      // mid-range distances. Hold the *real* endpoint's value across the whole
+      // segment rather than stepping to the sentinel at the midpoint: the
+      // sentinel half is silently dropped by every consumer that filters
+      // === 999 (map colour, correlation matrix, scatter), so stepping to it
+      // biases distance stats toward "feature nearby" samples. Both endpoints
+      // sentinel → sentinel.
+      const lerpDist = (a, b) => {
+        if (a === SENTINEL_DIST && b === SENTINEL_DIST) return SENTINEL_DIST;
+        if (a === SENTINEL_DIST) return b;
+        if (b === SENTINEL_DIST) return a;
+        return lerp(a, b);
+      };
 
-      raw[i].osm_road_class          = (t >= 0.5) ? n.roadClass      : p.roadClass;
-      raw[i].osm_in_park             = (t >= 0.5) ? n.inPark         : p.inPark;
+      raw[i].osm_road_class          = step(p.roadClass, n.roadClass);
+      raw[i].osm_in_park             = step(p.inPark, n.inPark);
       raw[i].osm_dist_major_road     = lerpDist(p.distMajorRoad,  n.distMajorRoad);
       raw[i].osm_green_pct_50m       = lerp(p.greenSpacePct,  n.greenSpacePct);
-      raw[i].osm_building_density_50m = lerp(p.buildingDensity, n.buildingDensity);
+      // Discrete counts: step to the nearest evaluation point. Interpolating
+      // them manufactures fractional buildings / trees / amenities that never
+      // existed and over-smooths the predictor — which inflates its serial
+      // autocorrelation, exactly what the dashboard then has to correct back
+      // out when it down-weights the effective sample size.
+      raw[i].osm_building_density_50m = step(p.buildingDensity, n.buildingDensity);
       raw[i].osm_dist_water          = lerpDist(p.distWater,       n.distWater);
-      raw[i].osm_tree_density_50m    = lerp(p.treeDensity,     n.treeDensity);
-      raw[i].osm_amenity_count_50m   = lerp(p.amenityCount,    n.amenityCount);
+      raw[i].osm_tree_density_50m    = step(p.treeDensity,     n.treeDensity);
+      raw[i].osm_amenity_count_50m   = step(p.amenityCount,    n.amenityCount);
     }
   },
 

@@ -188,6 +188,20 @@ test('updateEnvironmentalDashboard (single mode): correlation matrix carries FDR
     'per-group raw sample arrays are stripped before caching');
 });
 
+test('updateEnvironmentalDashboard (single mode): the highest-vs-lowest road gap is Bonferroni-corrected for being the widest of N classes', () => {
+  const a = buildEnrichedAnalyzer(); // default fixture stamps 3 road classes
+  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+
+  GSRUI.updateEnvironmentalDashboard();
+  const rc = a._cachedEnvStats.roadComparison;
+
+  assert.ok(rc, 'roadComparison present with 3+ road classes');
+  assert.ok(rc.nGroups >= 3, `nGroups records the class count (${rc.nGroups})`);
+  assert.ok(Number.isFinite(rc.pAdj), 'pAdj is finite');
+  assert.ok(rc.pAdj >= rc.p - 1e-12, `selection-corrected pAdj (${rc.pAdj}) is not smaller than the raw p (${rc.p})`);
+  assert.ok(rc.pAdj <= 1, 'pAdj is capped at 1');
+});
+
 test('updateEnvironmentalDashboard (single mode): a factor that never changes along the route is flagged as no-variance and left unstarred', () => {
   const a = buildEnrichedAnalyzer();
   a.raw.forEach(pt => { pt.osm_green_pct_50m = 42; }); // constant everywhere
@@ -276,6 +290,47 @@ test('updateEnvironmentalDashboard (collective mode): method scales with walk co
     assert.strictEqual(r.mPhasic, 'meta', `${r.key}: 6 walks -> meta`);
     assert.ok(Number.isFinite(r.pPhasic) && r.pPhasic >= 0 && r.pPhasic <= 1, `${r.key}: valid meta p`);
     assert.ok(Number.isFinite(r.qPhasic), `${r.key}: meta cell gets an FDR q`);
+  });
+});
+
+test('updateEnvironmentalDashboard: tonic gets its own longer-lag environment, Peaks is aggregated to 15 s bins, FDR is per channel', () => {
+  const mkTracks = (n) => Array.from({ length: n }, (_, k) => {
+    const a = buildEnrichedAnalyzer();
+    a.raw.forEach((pt, i) => { pt.osm_building_density_50m = ((i * 7 + k * 13) % 100) / 100; });
+    return { id: 'trk' + k, analyzer: a };
+  });
+  const cm = { getActiveTracks: () => mkTracks(6) };
+  global.AppState = { viewMode: 'collective', collectiveManager: cm };
+  GSRUI.updateEnvironmentalDashboard();
+  const stats = cm._cachedEnvStats;
+
+  // Every sampled row carries a separate environment snapshot for the tonic
+  // channel (read at a longer lag than the phasic/peaks one).
+  assert.ok(stats.allData.length > 0);
+  stats.allData.forEach(d => {
+    assert.ok(d.tonicEnv && typeof d.tonicEnv === 'object', 'row has tonicEnv');
+    assert.ok('osm_green_pct_50m' in d.tonicEnv && 'osm_road_class' in d.tonicEnv && 'em_fog' in d.tonicEnv,
+      'tonicEnv carries the OSM fields + em_fog');
+  });
+
+  // Peaks are correlated at 15 s resolution, so a walk needs ~150 s of usable
+  // coverage to count for that channel vs ~10 s for phasic — the count of
+  // contributing walks can only be lower, never higher.
+  stats.correlationMatrix.filter(r => r.hasVariance).forEach(r => {
+    assert.ok(r.kPeaks <= r.kPhasic, `${r.key}: kPeaks (${r.kPeaks}) <= kPhasic (${r.kPhasic})`);
+  });
+
+  // FDR is now one family per channel: each row's qPhasic must equal
+  // benjaminiHochberg() run over ONLY the testable phasic p-values.
+  const isTested = (m) => m === 'meta' || m === 'single';
+  const phasicFam = stats.correlationMatrix.map(r =>
+    (r.hasVariance && isTested(r.mPhasic)) ? r.pPhasic : NaN);
+  const expectedQ = StatsMath.benjaminiHochberg(phasicFam);
+  stats.correlationMatrix.forEach((r, i) => {
+    if (Number.isFinite(expectedQ[i])) {
+      assert.ok(Math.abs(r.qPhasic - expectedQ[i]) < 1e-12,
+        `${r.key}: qPhasic from a phasic-only BH family (${r.qPhasic} vs ${expectedQ[i]})`);
+    }
   });
 });
 
