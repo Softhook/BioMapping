@@ -147,232 +147,10 @@ class GSRMapManager {
     this.map.on('zoomend', () => this._refreshPathOnZoom());
   }
 
-  /**
-   * Initialise the Leaflet legend control in the bottom-right corner.
-   */
-  _initLegend() {
-    const LegendControl = L.Control.extend({
-      onAdd: () => {
-        const div = L.DomUtil.create('div', 'map-legend');
-        div.innerHTML = '<div class="legend-title">GSR Arousal</div><div class="legend-scale"><div class="legend-gradient" style="background: linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%));"></div><div class="legend-labels"><span>Low</span><span>High</span></div></div>';
-        return div;
-      }
-    });
-    this._legendControl = new LegendControl({ position: 'bottomright' });
-    this._legendControl.addTo(this.map);
-  }
-
-  /**
-   * Update the legend to reflect the current colouring metric and data range.
-   */
-  updateLegend() {
-    if (!this._legendControl) return;
-    const el = this._legendControl.getContainer();
-    if (!el) return;
-    el.innerHTML = this.buildLegendHtml();
-  }
-
-  /**
-   * Build the legend's inner HTML for the current colouring metric / data range /
-   * view mode. Split out of updateLegend() so the 3D globe can render the exact
-   * same legend (see globe3d_view.js _updateLegend).
-   * @returns {string}
-   */
-  buildLegendHtml() {
-    const isCollective = (typeof AppState !== 'undefined' && AppState.viewMode === 'collective');
-    let html = '';
-
-    if (isCollective) {
-      const topoSource = this._collectiveTopographySource || 'phasic';
-      const topoCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.TOPOGRAPHY_SOURCES && GSR_CONST.TOPOGRAPHY_SOURCES[topoSource]) || null;
-      const title = (topoCfg && topoCfg.label) || 'Topography';
-      const unit = (topoCfg && topoCfg.unit !== undefined) ? topoCfg.unit : ' μS';
-
-      const minV = this._legendMinVal;
-      const maxV = this._legendMaxVal;
-
-      const gradient = 'linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%))';
-
-      const fmt = (v) => {
-        if (v >= 100) return v.toFixed(0);
-        if (v >= 1) return v.toFixed(1);
-        return v.toFixed(3);
-      };
-
-      const leftLabel  = fmt(minV) + unit;
-      const rightLabel = fmt(maxV) + unit;
-
-      html = `
-        <div class="legend-title">${title}</div>
-        <div class="legend-scale">
-          <div class="legend-gradient" style="background:${gradient}"></div>
-          <div class="legend-labels"><span>${leftLabel}</span><span>${rightLabel}</span></div>
-        </div>`;
-    } else {
-      const metric = this.activeColoringMetric || 'gsr';
-
-      // OSM entries (roadClass..amenityCount) come from the shared
-      // GSR_CONST.OSM_METRICS table (constants.js) — single source of truth
-      // for the key<->field<->label mapping, also used by _getMetricKey()
-      // below and ui.js's correlation dashboard.
-      const metricNames = {
-        'gsr':              'GSR Arousal (Raw)',
-        'phasic':           'Phasic (SCR)',
-        'tonic':            'Tonic Baseline (SCL)',
-        'peakDensity':      'Peak Density (NS-SCR)',
-        'phasicAUC':        'Phasic AUC (ISCR)',
-        'arousalIndex':     'Combined Arousal Index',
-        'triIndex':         'Tri Index',
-        'em_fog':           'EM Fog Index (0-100)',
-        'emFog':            'EM Fog Index (0-100)',
-        'hdopQuality':      'GPS Accuracy (HDOP)'
-      };
-      GSR_CONST.OSM_METRICS.forEach(m => { metricNames[m.key] = m.label; });
-
-      const title = metricNames[metric] || metric;
-
-      if (metric === 'roadClass') {
-        const allRoadLabels = MapColors.ROAD_COLORS;
-        html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
-        let count = 0;
-        for (const [name, color] of Object.entries(allRoadLabels)) {
-          if (this._legendUniqueVals && !this._legendUniqueVals.has(name)) continue;
-          html += `<div class="legend-swatch-row"><span class="legend-swatch" style="background:${color}"></span>${name}</div>`;
-          count++;
-        }
-        if (count === 0) html += '<div class="legend-swatch-row" style="color:#999">No data</div>';
-        html += '</div>';
-      } else if (metric === 'inPark') {
-        const hasYes = this._legendUniqueVals && this._legendUniqueVals.has(1);
-        const hasNo  = this._legendUniqueVals && this._legendUniqueVals.has(0);
-        html = `<div class="legend-title">${title}</div><div class="legend-swatches">`;
-        if (hasYes) html += '<div class="legend-swatch-row"><span class="legend-swatch" style="background:#00e575"></span>Yes</div>';
-        if (hasNo)  html += '<div class="legend-swatch-row"><span class="legend-swatch" style="background:#666666"></span>No</div>';
-        if (!hasYes && !hasNo) html += '<div class="legend-swatch-row" style="color:#999">No data</div>';
-        html += '</div>';
-      } else {
-        // Continuous metrics — build gradient bar
-        const minV = this._legendMinVal;
-        const maxV = this._legendMaxVal;
-
-        let gradient;
-        switch (metric) {
-          case 'greenPct':
-            gradient = 'linear-gradient(90deg, hsl(30,80%,45%), hsl(130,80%,45%))';
-            break;
-          case 'buildingDensity':
-            gradient = 'linear-gradient(90deg, hsl(120,85%,50%), hsl(60,85%,50%), hsl(0,85%,50%))';
-            break;
-          case 'distMajorRoad':
-            gradient = 'linear-gradient(90deg, hsl(0,85%,50%), hsl(60,85%,50%), hsl(120,85%,50%))';
-            break;
-          case 'distWater':
-            gradient = 'linear-gradient(90deg, hsl(200,80%,45%), hsl(100,80%,45%), hsl(30,80%,45%))';
-            break;
-          case 'treeDensity':
-            gradient = 'linear-gradient(90deg, hsl(60,30%,45%), hsl(140,90%,45%))';
-            break;
-          case 'amenityCount':
-            gradient = 'linear-gradient(90deg, hsl(240,85%,55%), hsl(120,85%,55%), hsl(0,85%,55%))';
-            break;
-          case 'em_fog':
-          case 'emFog':
-            gradient = 'linear-gradient(90deg, hsl(220,90%,55%), hsl(300,90%,55%))';
-            break;
-          case 'hdopQuality':
-            // Gradient left = best accuracy (green), right = worst (red)
-            gradient = 'linear-gradient(90deg, hsl(120,90%,45%), hsl(60,90%,45%), hsl(0,90%,45%))';
-            break;
-          default: // gsr
-            gradient = 'linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%))';
-            break;
-        }
-
-        // Format min/max nicely
-        const fmt = (v) => {
-          if (v >= 100) return v.toFixed(0);
-          if (v >= 1) return v.toFixed(1);
-          return v.toFixed(3);
-        };
-
-        const leftLabel  = metric === 'hdopQuality' ? `HDOP ${fmt(minV)} (best)` : fmt(minV);
-        const rightLabel = metric === 'hdopQuality' ? `HDOP ${fmt(maxV)} (worst)` : fmt(maxV);
-
-        html = `
-          <div class="legend-title">${title}</div>
-          <div class="legend-scale">
-            <div class="legend-gradient" style="background:${gradient}"></div>
-            <div class="legend-labels"><span>${leftLabel}</span><span>${rightLabel}</span></div>
-          </div>`;
-      }
-    }
-
-    // Append RF Fluid Legend if active and active track has RF data:
-    if (this.showRFFluid && this.rfFluidRenderer && this.hasRfData) {
-      const rfMode = this.rfFluidRenderer.options.mode;
-      let rfHtml = '';
-      if (rfMode === 'triband') {
-        rfHtml = `
-          <hr style="margin: 8px 0; border: 0; border-top: 1px dashed #ccc;" />
-          <div class="legend-title" style="margin-bottom: 6px;">RF Fluid (Tri-Band)</div>
-          <div class="legend-swatches">
-            <div class="legend-swatch-row">
-              <span class="legend-swatch" style="background:#ff0000; border-radius:3px;"></span>
-              815 MHz (LTE)
-            </div>
-            <div class="legend-swatch-row">
-              <span class="legend-swatch" style="background:#00ff00; border-radius:3px;"></span>
-              868 MHz (Grid)
-            </div>
-            <div class="legend-swatch-row">
-              <span class="legend-swatch" style="background:#0000ff; border-radius:3px;"></span>
-              915 MHz (ISM)
-            </div>
-          </div>`;
-      } else if (rfMode === '815') {
-        rfHtml = `
-          <hr style="margin: 8px 0; border: 0; border-top: 1px dashed #ccc;" />
-          <div class="legend-title" style="margin-bottom: 6px;">RF Fluid (815 MHz)</div>
-          <div class="legend-swatches">
-            <div class="legend-swatch-row">
-              <span class="legend-swatch" style="background:#ff0000; border-radius:3px;"></span>
-              815 MHz Active
-            </div>
-          </div>`;
-      } else if (rfMode === '868') {
-        rfHtml = `
-          <hr style="margin: 8px 0; border: 0; border-top: 1px dashed #ccc;" />
-          <div class="legend-title" style="margin-bottom: 6px;">RF Fluid (868 MHz)</div>
-          <div class="legend-swatches">
-            <div class="legend-swatch-row">
-              <span class="legend-swatch" style="background:#00ff00; border-radius:3px;"></span>
-              868 MHz Active
-            </div>
-          </div>`;
-      } else if (rfMode === '915') {
-        rfHtml = `
-          <hr style="margin: 8px 0; border: 0; border-top: 1px dashed #ccc;" />
-          <div class="legend-title" style="margin-bottom: 6px;">RF Fluid (915 MHz)</div>
-          <div class="legend-swatches">
-            <div class="legend-swatch-row">
-              <span class="legend-swatch" style="background:#0000ff; border-radius:3px;"></span>
-              915 MHz Active
-            </div>
-          </div>`;
-      } else if (rfMode === 'fog') {
-        rfHtml = `
-          <hr style="margin: 8px 0; border: 0; border-top: 1px dashed #ccc;" />
-          <div class="legend-title" style="margin-bottom: 6px;">EM Fog Intensity</div>
-          <div class="legend-scale">
-            <div class="legend-gradient" style="background: linear-gradient(90deg, #0000ff, #ff0000);"></div>
-            <div class="legend-labels"><span>Low</span><span>High</span></div>
-          </div>`;
-      }
-      html += rfHtml;
-    }
-
-    return html;
-  }
+  // The map legend (_initLegend / updateLegend / buildLegendHtml) is split out
+  // into map_manager_legend.js — a prototype augment loaded right after this
+  // file. buildLegendHtml() is also called by globe3d_view.js so the 3D globe
+  // shows the identical legend.
 
   /**
    * Remove all layers in the array from the map and clear the array.
@@ -381,26 +159,6 @@ class GSRMapManager {
     if (!this.map) return;
     if (arr) arr.forEach(item => this.map.removeLayer(item));
     return [];
-  }
-
-  /**
-   * Clear the RF fluid canvas — shared by clearMap() and clearCollectiveLayers()
-   * so the two "which layers am I clearing" branches can't drift apart and
-   * leave one of them holding stale RF data (see clearAll()).
-   *
-   * Uses clear() rather than setData([], null): clearMap()/clearCollectiveLayers()
-   * run at the START of every render pass (renderData()/renderCollectiveData()),
-   * which then immediately calls setData()/setDataForTracks() again with the real
-   * per-track data a few lines later in the same synchronous pass. setData([], null)
-   * would prune RFFluidRenderer's per-track fan-cast cache (Phase 5) via that empty
-   * call's own active-track-set bookkeeping, forcing every track to recompute right
-   * after — defeating the cache on every single re-render. clear() only blanks the
-   * visible canvas; the fan cache survives until the real setData call right after.
-   */
-  _clearRfFluid() {
-    if (this.rfFluidRenderer) {
-      this.rfFluidRenderer.clear();
-    }
   }
 
   /**
@@ -806,82 +564,10 @@ class GSRMapManager {
     );
   }
 
-  _getTrackSetSignature(collectiveManager) {
-    if (!collectiveManager) return '';
-    const active = collectiveManager.getActiveTracks ? collectiveManager.getActiveTracks() : [];
-    return active.map(t => t.id).sort().join(',');
-  }
-
-  _fitBounds(drawPoints, opts = {}) {
-    if (!this.map || !drawPoints || drawPoints.length === 0) return;
-    this._flyOrFitBounds(drawPoints.map(p => [p.lat, p.lon]), opts);
-  }
-
-  /**
-   * Animate the map to a bounds (LatLngBounds or a [lat, lon] pair array),
-   * preferring flyToBounds and degrading to fitBounds. Pass `fly: false` in
-   * opts to force fitBounds. Shared by every auto-zoom-to-extent call site.
-   */
-  _flyOrFitBounds(bounds, opts = {}) {
-    if (!this.map || !bounds) return;
-    const fitOpts = {
-      padding: [30, 30],
-      maxZoom: 17,
-      animate: true,
-      duration: 0.45,
-      easeLinearity: 0.25,
-      ...opts
-    };
-    if (typeof this.map.flyToBounds === 'function' && fitOpts.fly !== false) {
-      this.map.flyToBounds(bounds, fitOpts);
-    } else if (typeof this.map.fitBounds === 'function') {
-      this.map.fitBounds(bounds, fitOpts);
-    }
-  }
-
-  /**
-   * Enable/disable the RF Fluid toggle button + mode select for the active
-   * view (single-track or collective). Shared so collective mode doesn't
-   * leave the button stuck disabled from whatever the last single-track
-   * render happened to set it to.
-   */
-  _updateRfFluidButtonState(hasRf) {
-    this.hasRfData = hasRf;
-    const btnToggleRFFluid = document.getElementById('btnToggleRFFluid');
-    const rfFluidMode = document.getElementById('rfFluidMode');
-    if (btnToggleRFFluid) {
-      if (!hasRf) {
-        btnToggleRFFluid.classList.remove('active');
-        btnToggleRFFluid.setAttribute('disabled', 'disabled');
-        btnToggleRFFluid.title = "No radio frequency data in active track";
-      } else {
-        btnToggleRFFluid.removeAttribute('disabled');
-        btnToggleRFFluid.title = "Toggle static ray-casted 3-frequency RF fluid background";
-        // Re-sync the button's pressed state (and the renderer's visibility)
-        // to the real RF-fluid toggle. Without this, a no-RF track earlier
-        // cleared the button's 'active' class while showRFFluid stayed true
-        // (and the renderer stayed visible), so a later RF render — e.g. a
-        // collective view where one track has RF data — drew the fluid behind
-        // an "unpressed" button with no way to turn it off.
-        btnToggleRFFluid.classList.toggle('active', !!this.showRFFluid);
-        if (this.rfFluidRenderer) {
-          this.rfFluidRenderer.setVisible(!!this.showRFFluid);
-        }
-      }
-    }
-    if (rfFluidMode) {
-      if (!hasRf) {
-        rfFluidMode.setAttribute('disabled', 'disabled');
-      } else {
-        rfFluidMode.removeAttribute('disabled');
-      }
-    }
-  }
-
   _getMetricKey(metric) {
     // OSM entries (roadClass..amenityCount) come from the shared
-    // GSR_CONST.OSM_METRICS table (constants.js) — see the legend's
-    // metricNames above for the other consumer of that same table.
+    // GSR_CONST.OSM_METRICS table (constants.js) — map_manager_legend.js's
+    // metricNames is the other consumer of that same table.
     const keys = {
       'gsr': 'val',
       'hdopQuality': 'hdop',
@@ -898,90 +584,8 @@ class GSRMapManager {
     return keys[metric] || 'val';
   }
 
-
-
-  /**
-   * Draw OSM vector geometry overlays (parks, water, buildings) on the map.
-   * Accepts pre-built geoms (from analyzer.osmGeoms) to avoid redundant
-   * geometry reconstruction.
-   */
-  drawOsmShapes(geoms) {
-    this.clearOsmShapes();
-    if (!geoms || !geoms.ways || !this.map) return;
-    
-    let points = this._lastDrawPoints || [];
-    if ((!points || points.length === 0) && typeof AppState !== 'undefined' && AppState.viewMode === 'collective' && AppState.collectiveManager) {
-      const activeTracks = AppState.collectiveManager.getActiveTracks();
-      const combinedPoints = [];
-      activeTracks.forEach(t => {
-        const p = t.gpsFilterParams || {};
-        const { drawPoints } = this._getOrBuildDrawPoints(t.id, t.analyzer, p);
-        if (drawPoints) combinedPoints.push(...drawPoints);
-      });
-      if (combinedPoints.length > 0) {
-        points = combinedPoints;
-        this._lastDrawPoints = combinedPoints;
-      }
-    }
-
-    if (this.rfFluidRenderer) {
-      this.rfFluidRenderer.setData(points, geoms);
-    }
-
-    this.osmLayers = [];
-
-    // Group same-style shapes into a single ring array per category, instead
-    // of one Leaflet Path layer per feature. Areas with dense OSM building
-    // coverage can hand back thousands of ways/relations; each one used to
-    // become its own L.polygon (own layer registration, own onAdd/_project
-    // pass, own entry in the map's layer table). Rings within a category
-    // never overlap each other (they're distinct real-world buildings/parks/
-    // water bodies), so a single multi-ring L.polygon per category renders
-    // pixel-identical output — canvas/SVG fill and stroke both treat each
-    // disjoint ring independently regardless of winding — while cutting the
-    // layer count from N features down to at most 3 (park/water/building).
-    const ringsByCategory = { park: [], water: [], building: [] };
-    const STYLES = {
-      park:     { color: '#2d6a4f', fillColor: '#52b788', fillOpacity: 0.15, weight: 1 },
-      water:    { color: '#0077b6', fillColor: '#90e0ef', fillOpacity: 0.25, weight: 1 },
-      building: { color: '#4a4e69', fillColor: '#9a8c98', fillOpacity: 0.1,  weight: 1 }
-    };
-
-    geoms.ways.concat(geoms.relations).forEach(geom => {
-      const tags = geom.tags;
-      if (!tags) return;
-
-      const isPark = tags.leisure === 'park' || tags.leisure === 'garden' || tags.leisure === 'nature_reserve' || tags.leisure === 'playground' || tags.landuse === 'grass' || tags.landuse === 'forest' || tags.landuse === 'meadow' || tags.landuse === 'recreation_ground' || tags.landuse === 'village_green' || tags.natural === 'wood' || tags.natural === 'scrub' || tags.natural === 'grassland' || tags.natural === 'heath';
-      const isWater = tags.natural === 'water' || tags.natural === 'wetland' || tags.waterway === 'river' || tags.waterway === 'canal' || tags.waterway === 'stream' || tags.waterway === 'drain' || tags.waterway === 'ditch' || tags.landuse === 'basin' || tags.landuse === 'reservoir';
-      const isBuilding = !!tags.building;
-
-      const category = isPark ? 'park' : (isWater ? 'water' : (isBuilding ? 'building' : null));
-      if (!category) return;
-
-      const rings = ringsByCategory[category];
-      if (geom.type === 'way' && geom.coordinates.length > 2) {
-        rings.push(geom.coordinates.map(pt => [pt.lat, pt.lon]));
-      } else if (geom.type === 'relation' && geom.outerWays) {
-        geom.outerWays.forEach(way => {
-          rings.push(way.coordinates.map(pt => [pt.lat, pt.lon]));
-        });
-      }
-    });
-
-    for (const category of Object.keys(ringsByCategory)) {
-      const rings = ringsByCategory[category];
-      if (rings.length === 0) continue;
-      const poly = L.polygon(rings, STYLES[category]).addTo(this.map);
-      this.osmLayers.push(poly);
-    }
-  }
-
-  clearOsmShapes() {
-    if (this.osmLayers) {
-      this.osmLayers.forEach(layer => this.map.removeLayer(layer));
-    }
-    this.osmLayers = [];
-  }
+  // OSM vector overlays (drawOsmShapes / clearOsmShapes) are split out into
+  // map_manager_osm.js — a prototype augment loaded right after this file.
 
   /**
    * Pass 1 of overlap-aware colour: bin the draw points into a grid of
@@ -1947,63 +1551,10 @@ class GSRMapManager {
     };
   }
 
-  /**
-   * Zoom the map in by one level.
-   */
-  zoomIn() {
-    if (this.map) {
-      this.map.zoomIn();
-    }
-  }
-
-  /**
-   * Zoom the map out by one level.
-   */
-  zoomOut() {
-    if (this.map) {
-      this.map.zoomOut();
-    }
-  }
-
-  /**
-   * Zoom and pan the map to fit the current polyline track extent.
-   */
-  fitToTrack() {
-    const paths = this.getRenderLayers().paths;
-    if (this.map && paths.length > 0) {
-      const group = new L.featureGroup(paths);
-      this._flyOrFitBounds(group.getBounds());
-    }
-  }
-
   // Layer visibility toggles (togglePeaks / toggleLabels / toggleHotspots /
   // updateMarkerVisibility / _toggleLayer / toggleClusters / toggleIsolines /
   // toggleSurface / toggleTracks) live in map_manager_toggles.js, which
   // prototype-augments GSRMapManager right after this file loads.
-
-  /**
-   * Set scrubbing indicator dot position
-   */
-  setScrubPosition(lat, lon, panTo = false) {
-    if (isNaN(lat) || isNaN(lon)) {
-      if (this.map.hasLayer(this.scrubMarker)) {
-        this.map.removeLayer(this.scrubMarker);
-      }
-      return;
-    }
-
-    this.scrubMarker.setLatLng([lat, lon]);
-    if (!this.map.hasLayer(this.scrubMarker)) {
-      this.scrubMarker.addTo(this.map);
-    }
-
-    if (panTo) {
-      const pos = [lat, lon];
-      if (!this.map.getBounds().contains(pos)) {
-        this.map.panTo(pos);
-      }
-    }
-  }
 
   /**
    * Remove all collective track paths and peak markers from the map.
@@ -2381,33 +1932,10 @@ class GSRMapManager {
     });
   }
 
-  toggleRFFluid(show) {
-    this.showRFFluid = (show !== undefined) ? show : !this.showRFFluid;
-    if (this.rfFluidRenderer) {
-      this.rfFluidRenderer.setVisible(this.showRFFluid);
-    }
-    this.updateLegend();
-    return this.showRFFluid;
-  }
-
-  setRFFluidMode(mode) {
-    if (this.rfFluidRenderer) {
-      this.rfFluidRenderer.setMode(mode);
-    }
-    this.updateLegend();
-  }
-
-  setRFFluidOpacity(opacity) {
-    if (this.rfFluidRenderer) {
-      this.rfFluidRenderer.setOpacity(opacity);
-    }
-  }
-
-  setRFFluidRadius(radius) {
-    if (this.rfFluidRenderer) {
-      this.rfFluidRenderer.setRadius(radius);
-    }
-  }
+  // RF Fluid overlay control (_clearRfFluid / _updateRfFluidButtonState /
+  // toggleRFFluid / setRFFluidMode / setRFFluidOpacity / setRFFluidRadius) is
+  // split out into map_manager_rf_fluid.js — a prototype augment loaded right
+  // after this file.
 }
 
 if (typeof module !== 'undefined' && module.exports) {
