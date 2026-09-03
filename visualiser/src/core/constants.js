@@ -152,7 +152,7 @@ const GSR_CONST = {
   MICROSIEMENS_MIN_AVG: 100,  // Average above this but ≤ threshold → µS/1000
   MICROSIEMENS_MAX_AVG: 50000,
   // Hard ceiling for a single SCR amplitude, used by the prominence detector's
-  // artefact guard (see _detectPeaksByProminence). Real SCRs in even the most
+  // artefact guard (see _prominenceNMS). Real SCRs in even the most
   // reactive subjects rarely exceed ~5 µS; 20 µS is 4× that and gives
   // comfortable headroom for unusual recordings without admitting sensor
   // artefacts. Electrode disconnects, motion artefacts and ADC rail-hits

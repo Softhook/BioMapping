@@ -92,7 +92,7 @@ const GSRUI = {
    */
   handleLiveLabelInput(idx, value, trackId) {
     const { track, analyzer } = this._resolveTrackAndAnalyzer(trackId);
-    let peaksArr = GSRUI._getPeaksArray(trackId);
+    const peaksArr = analyzer ? analyzer.peaks : null;
     if (!peaksArr || idx >= peaksArr.length) return;
     
     // Update in-memory model (avoid trim during typing to allow trailing spaces)
@@ -179,17 +179,6 @@ const GSRUI = {
         }
       }
     }
-  },
-
-  /**
-   * Resolve the correct peaks array for a given trackId (or active track).
-   */
-  _getPeaksArray(trackId) {
-    if (trackId) {
-      const track = AppState.collectiveManager.getTrack(trackId);
-      return (track && track.analyzer) ? track.analyzer.peaks : null;
-    }
-    return (AppState.analyzer) ? AppState.analyzer.peaks : null;
   },
 
   /**

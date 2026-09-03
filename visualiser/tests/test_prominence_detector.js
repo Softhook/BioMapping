@@ -20,9 +20,6 @@
  *   - the shared _topographicProminence sweep runs once (perf guard)
  *   - it does not touch deconvolution state
  *
- * The standalone _detectPeaksByProminence()/_prominenceNMS() primitives are
- * still exercised directly here too.
- *
  * Run: node visualiser/tests/test_prominence_detector.js
  */
 'use strict';
@@ -192,17 +189,6 @@ const tiny = new GSRAnalyzer();
 tiny.parseCSV('timestamp,gsr_raw\n0,1.0\n0.1,1.0\n');
 tiny.analyze({ ...global.GSR_CONST.GSR_DEFAULT, usePeakProminence: true });
 assert(Array.isArray(tiny.peaks) && tiny.peaks.length === 0, 'n<3 signal yields an empty peak list, no throw');
-
-// ── Standalone primitive: _detectPeaksByProminence still works on its own ────
-const stA = new GSRAnalyzer();
-stA.parseCSV(csvText);
-stA.analyze({ ...global.GSR_CONST.GSR_DEFAULT, ...GATES_OFF });
-const promOnly = stA._detectPeaksByProminence(
-  { ...global.GSR_CONST.GSR_DEFAULT, ...GATES_OFF }, new Map(), new Set());
-assert(Array.isArray(promOnly) && promOnly.length > 0,
-  '_detectPeaksByProminence returns a non-empty list when called directly');
-assert(promOnly.every(p => p.prominence >= global.GSR_CONST.GSR_DEFAULT.peakThreshold - 1e-9),
-  'standalone prominence peaks each clear peakThreshold in prominence');
 
 console.log('\n============================================================');
 console.log(`Combined detector suite: ${passed} passed, ${failed} failed`);

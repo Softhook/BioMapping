@@ -1513,106 +1513,16 @@ class GSRAnalyzer {
   }
 
   /**
-   * Alternative phasic peak detector: topographic prominence for peak
-   * *identity*, trailing-window-minimum baseline for reported *amplitude*.
-   *
-   * Motivation. detectPeaks() measures amplitude as apex − _findOnsetIndex()
-   * result, and that walk-back stops at the first sample where the signal
-   * ticks back up — i.e. the first shallow dip. For an SCR riding the decay
-   * tail of a previous one, that dip sits well above pre-burst baseline, so
-   * the measured amplitude collapses to the small increment above the dip and
-   * routinely falls under peakThreshold. Modelling across real tracks put the
-   * resulting undercount at 30–80% on busy/compound recordings — exactly the
-   * high-arousal stretches where the most SCRs occur.
-   *
-   * Design.
-   *  1. Identity gate = topographic prominence (apex height above the higher
-   *     of its two bounding saddles) ≥ peakThreshold. Prominence is purely
-   *     local, so it is immune to tonic drift and does not depend on the
-   *     signal returning to any baseline. This is what decides whether a bump
-   *     is its own event or just a shoulder on a bigger one.
-   *  2. Reported amplitude = apex − min(phasic over the preceding
-   *     PEAK_PROMINENCE_BASELINE_SEC). This "sees under" a stacked burst to
-   *     the pre-burst level, which is the physiologically meaningful
-   *     amplitude-from-baseline; the step-1 prominence gate is what stops a
-   *     monotonic ramp's shoulders being promoted to peaks by this looser
-   *     measure.
-   *  3. Shape metrics (rise/recovery/skew/FWHM/SNR) are still computed for
-   *     display and scoring, but are NOT used to reject peaks here — matching
-   *     this detector's recall-first intent. shapeMinSnr and minPeakQuality
-   *     still filter the result if the user raises them from 0.
-   *
-   * Complexity: O(n log n) — prominence for every sample comes from one
-   * descending-height union-find sweep (_topographicProminence); the
-   * left-saddle onset walk and the trailing-baseline min are each bounded by
-   * PEAK_PROMINENCE_BASELINE_SEC. No pathological input.
-   *
-   * @param {object} params - Analysis params (peakThreshold, shapeMinSnr, minPeakQuality).
-   * @param {Map} oldLabels - Preserved user labels, keyed by raw index.
-   * @param {Set} oldExcluded - Preserved exclusion flags, keyed by raw index.
-   * @returns {Array<object>} Peak objects, same shape as detectPeaks() output.
-   * @private
-   */
-  _detectPeaksByProminence(params, oldLabels, oldExcluded) {
-    const peaks = [];
-    const n = this.phasic.length;
-    if (n < 3) return peaks;
-
-    const vals = this.phasic.map(d => d.val);
-    const times = this.phasic.map(d => d.time);
-    const sr = this.sampleRate;
-    const threshold = params.peakThreshold;
-    const minGap = Math.max(1, Math.round(GSR_CONST.PEAK_MIN_GAP * sr));
-    const baselineWin = Math.max(1, Math.round((GSR_CONST.PEAK_PROMINENCE_BASELINE_SEC || 8) * sr));
-    const noiseHalfWin = Math.max(1, Math.round(sr));
-
-    // 1+2. One O(n log n) topographic-prominence sweep, then the above-threshold
-    //      local maxima under minimum-gap non-max suppression (largest
-    //      prominence wins). Extracted to _prominenceNMS() so _detectPeaksCombined()
-    //      can run the identical selection off a single shared sweep.
-    const prom = this._topographicProminence(vals);
-    const kept = this._prominenceNMS(vals, prom, threshold, minGap, baselineWin);
-
-    // 3. Build peak objects. Shape metrics are measured (for the table /
-    //    quality / salience) but not gated.
-    for (const c of kept) {
-      const recoveryIdx = this._findRecoveryIndex(vals, c.i, c.onsetIdx, c.baselineAmp);
-      const metrics = this._calculateShapeMetrics(vals, times, c.i, c.onsetIdx, recoveryIdx, noiseHalfWin);
-      // Report amplitude (and the slope derived from it) against the trailing
-      // baseline, not the immediate saddle _calculateShapeMetrics() used.
-      metrics.amplitude = c.baselineAmp;
-      metrics.onsetSlope = metrics.riseTime > 0 ? c.baselineAmp / metrics.riseTime : 0;
-
-      const peak = this._buildPeakObject(c.i, c.h, vals, times,
-        { ...metrics, onsetIdx: c.onsetIdx, recoveryIdx },
-        oldLabels, oldExcluded, true);
-      peak.prominence = c.prominence;
-      peak.qualityScore = this._computePeakQuality(peak);
-      peak.salienceScore = this._computeSalienceScore(peak);
-      peaks.push(peak);
-    }
-
-    // 4. Optional user-raised filters — same "0 = off" convention as detectPeaks().
-    const minSnr = params && params.shapeMinSnr != null ? params.shapeMinSnr : 0;
-    let result = minSnr > 0 ? peaks.filter(p => p.snr >= minSnr) : peaks;
-    const minQuality = params && params.minPeakQuality != null ? params.minPeakQuality : 0.0;
-    result = result.filter(p => p.qualityScore >= minQuality);
-    return result;
-  }
-
-  /**
    * Above-threshold topographic-prominence local maxima under minimum-gap
-   * non-max suppression. Split out of _detectPeaksByProminence() so
-   * _detectPeaksCombined() runs the identical candidate selection from a
-   * single shared _topographicProminence() sweep instead of a second one.
+   * non-max suppression. Feeds _detectPeaksCombined()'s apex-fix and rescue
+   * steps from a single shared _topographicProminence() sweep.
    *
    * @param {Array<number>} vals - phasic signal.
    * @param {Float64Array} prom - per-sample topographic prominence (from _topographicProminence(vals)).
    * @param {number} threshold - prominence gate (peakThreshold, µS).
    * @param {number} minGap - non-max-suppression radius, in samples.
-   * @param {number} baselineWin - trailing/left window for the onset walk and
-   *   the pre-burst minimum, in samples.
-   * @returns {Array<{i:number,h:number,prominence:number,onsetIdx:number,baselineAmp:number}>}
+   * @param {number} baselineWin - trailing window for the pre-burst minimum, in samples.
+   * @returns {Array<{i:number,prominence:number,baselineAmp:number}>}
    *   survivors, ascending by sample index.
    * @private
    */
@@ -1634,17 +1544,9 @@ class GSRAnalyzer {
       if (vals[i] > maxScrAmp) continue;
       if (prom[i] < threshold) continue;
 
-      // Onset = the deepest point on the way down to the left (the left
-      // saddle), NOT _findOnsetIndex() — that stops at the first shallow dip,
-      // which for a peak riding a previous SCR's tail lands the onset a few
-      // samples back with a tiny rise time. Walk left past dips, tracking the
-      // argmin, until the signal rises back to this apex's height; bounded by
-      // the baseline window so a monotone input can't make this O(n²).
-      let onsetIdx = i, onsetMin = vals[i];
-      for (let l = i - 1, s = 0; l >= 0 && s < baselineWin && vals[l] < vals[i]; l--, s++) {
-        if (vals[l] < onsetMin) { onsetMin = vals[l]; onsetIdx = l; }
-      }
-
+      // Amplitude above the trailing pre-burst minimum ("sees under" a stacked
+      // burst to pre-burst level). Bounded by baselineWin so a monotone input
+      // can't make this O(n²).
       let mn = vals[i];
       for (let j = Math.max(0, i - baselineWin); j <= i; j++) {
         if (vals[j] < mn) mn = vals[j];
@@ -1653,7 +1555,7 @@ class GSRAnalyzer {
       // Ceiling re-checked against baseline amplitude so a large-but-real event
       // riding a raised tonic is assessed from its pre-burst level, not zero.
       if (baselineAmp > maxScrAmp) continue;
-      cand.push({ i, h: vals[i], prominence: prom[i], onsetIdx, baselineAmp });
+      cand.push({ i, prominence: prom[i], baselineAmp });
     }
 
     // Minimum-gap non-max suppression — largest prominence wins, same
