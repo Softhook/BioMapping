@@ -1649,24 +1649,6 @@ input[type="range"]:focus-visible,
   to { transform: scale(1.2); }
 }
 
-/* SCR Events table "go to location" locator dot */
-.peak-focus-marker-icon,
-.leaflet-marker-icon.peak-focus-marker-icon {
-  background: transparent;
-  border: none;
-  pointer-events: none !important;
-}
-
-.peak-focus-dot {
-  width: 14px;
-  height: 14px;
-  background-color: #000;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
-  pointer-events: none !important;
-}
-
 /* Override Leaflet Popup Styling to match Theme */
 .leaflet-popup-content-wrapper {
   background: var(--bg-card) !important;

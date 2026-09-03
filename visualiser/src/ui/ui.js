@@ -164,8 +164,8 @@ const GSRUI = {
 
     // 3. Navigate the active map surface to the peak.
     if (source === 'table' && hasGps) {
-      // SCR Events table: jump straight to the spot with a black locator dot
-      // and no popup — works even when the peak-marker layer is hidden.
+      // SCR Events table: jump straight to the spot with the scrub dot as the
+      // locator and no popup — works even when the peak-marker layer is hidden.
       if (AppState.surfaceView === 'globe' && typeof GSRGlobe3DView !== 'undefined' && GSRGlobe3DView.isActive) {
         if (typeof GSRGlobe3DView.focusOnPeakLocation === 'function') {
           GSRGlobe3DView.focusOnPeakLocation(idx);

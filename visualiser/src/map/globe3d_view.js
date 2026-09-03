@@ -291,7 +291,7 @@ const GSRGlobe3DView = {
   },
 
   /**
-   * Fly to a peak's location and show a black locator dot, with no popup — the
+   * Fly to a peak's location and park the scrub dot there, with no popup — the
    * 3D counterpart of GSRMapManager.focusOnPeakLocation, driven by the SCR
    * Events table.
    * @param {number} peakIdx  index into AppState.analyzer.peaks

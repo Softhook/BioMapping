@@ -75,11 +75,11 @@ Object.assign(GSRMapManager.prototype, {
   },
 
   /**
-   * Jump the map straight to a peak's location and drop a persistent black
-   * locator dot there. Driven by the SCR Events table: a row click takes the
-   * user directly to the spot, with no popup. The dot is its own marker (not
-   * the peak-marker layer) so it shows even when peaks are hidden. A bad
-   * index / NaN coords leaves the dot where it was.
+   * Jump the map straight to a peak's location and park the scrub dot there.
+   * Driven by the SCR Events table: a row click takes the user directly to the
+   * spot, with no popup. Reuses the graph-scrub marker as the single "you are
+   * here" indicator, so it shows even when the peak-marker layer is hidden (the
+   * next graph hover repositions it). A bad index / NaN coords is a no-op.
    */
   focusOnPeakLocation(peakIdx, analyzer, gpsParams) {
     if (!this.map || !analyzer || !analyzer.peaks) return;
@@ -89,24 +89,7 @@ Object.assign(GSRMapManager.prototype, {
     const coords = analyzer.getCoordinates(this._resolveLatencyIndex(analyzer, peak, peakLatency));
     if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
 
-    const latlng = [coords.lat, coords.lon];
-    if (!this._peakFocusMarker) {
-      this._peakFocusMarker = L.marker(latlng, {
-        icon: L.divIcon({
-          className: 'peak-focus-marker-icon',
-          html: '<div class="peak-focus-dot"></div>',
-          iconSize: [14, 14],
-          iconAnchor: [7, 7]
-        }),
-        interactive: false,
-        zIndexOffset: 1200
-      });
-    } else {
-      this._peakFocusMarker.setLatLng(latlng);
-    }
-    if (!this.map.hasLayer(this._peakFocusMarker)) {
-      this._peakFocusMarker.addTo(this.map);
-    }
+    this.setScrubPosition(coords.lat, coords.lon, false);
 
     // Pan at the current zoom rather than flyTo(): a pure pan moves _mapPane by
     // one CSS transform, carrying every pane (base tiles, GSR path, and the RF
@@ -114,6 +97,7 @@ Object.assign(GSRMapManager.prototype, {
     // drives a per-frame _move() loop that never fires zoomanim/moveend, so the
     // RF surface — which only re-anchors on those — visibly lags the track and
     // snaps into place at the end.
+    const latlng = [coords.lat, coords.lon];
     if (typeof this.map.panTo === 'function') {
       this.map.panTo(latlng, { animate: true, duration: 0.6, easeLinearity: 0.25 });
     } else {

@@ -190,7 +190,6 @@ class GSRGlobeManager {
     this.clusterEntities = [];
     this.osmBuildingEntities = [];
     this.scrubEntity = null;
-    this.peakFocusEntity = null;
     this.buildingsTileset = null;
     this.buildingPrimitive = null;
     this.cachedOsmJson = null;
@@ -1085,16 +1084,27 @@ class GSRGlobeManager {
   }
 
   /**
-   * Initialize 3D glowing scrub marker
+   * Initialize the 3D scrub marker — a black dot with a white ring, matching
+   * the 2D map's .scrub-dot (--accent-primary #111111), including its
+   * `scrub-pulse` animation: an eased scale 0.8<->1.2 bounce, 1s each way.
    */
   _initScrubEntity() {
+    const basePx = 12;
     this.scrubEntity = this.viewer.entities.add({
       id: 'biomap-scrub-marker',
       show: false,
       position: Cesium.Cartesian3.ZERO,
       point: {
-        pixelSize: 12,
-        color: Cesium.Color.fromCssColorString('#00d4ff'),
+        // CSS: `animation: scrub-pulse 1s infinite alternate` over
+        // scale(0.8)..scale(1.2). Rebuilt here as a wall-clock triangle wave
+        // (2s period) with a smoothstep ease to match the default CSS easing.
+        pixelSize: new Cesium.CallbackProperty(() => {
+          const t = (Date.now() % 2000) / 2000;          // 0..1 over 2s
+          const tri = t < 0.5 ? t * 2 : (1 - t) * 2;      // 0..1..0
+          const eased = tri * tri * (3 - 2 * tri);        // smoothstep
+          return basePx * (0.8 + eased * 0.4);            // 0.8x..1.2x
+        }, false),
+        color: Cesium.Color.fromCssColorString('#111111'),
         outlineColor: Cesium.Color.WHITE,
         outlineWidth: 2,
         disableDepthTestDistance: Number.POSITIVE_INFINITY
@@ -1925,6 +1935,9 @@ class GSRGlobeManager {
     if (!this.viewer) return;
     this.peakEntities.forEach(ent => this.viewer.entities.remove(ent));
     this.peakEntities = [];
+    // The focus-hidden circle (focusOnPeakLocation) is one of the entities just
+    // removed — drop the stale ref so the next focus doesn't touch it.
+    this._focusHiddenPeakPoint = null;
   }
 
   /** Clear the memorable-event hotspot entities. */
@@ -1952,7 +1965,6 @@ class GSRGlobeManager {
     this.clearOsmBuildingEntities();
     this.clearRfEntities();
     if (this.scrubEntity) this.scrubEntity.show = false;
-    if (this.peakFocusEntity) this.peakFocusEntity.show = false;
   }
 
   /**
@@ -1994,10 +2006,11 @@ class GSRGlobeManager {
   }
 
   /**
-   * Show a persistent black locator dot at a peak's position and fly to it,
-   * with no popup. The 3D counterpart of GSRMapManager.focusOnPeakLocation,
-   * driven by the SCR Events table — the dot is its own entity so it shows
-   * even when the peak spires are hidden.
+   * Park the scrub dot at a peak's position and fly to it, with no popup. The
+   * 3D counterpart of GSRMapManager.focusOnPeakLocation, driven by the SCR
+   * Events table. Reuses the graph-scrub marker as the single "you are here"
+   * indicator, so it shows even when the peak spires are hidden (the next graph
+   * hover repositions it).
    * @param {number} peakIdx  index into analyzer.peaks
    * @param {GSRAnalyzer} [analyzer]  analyzer reference (defaults to AppState.analyzer)
    */
@@ -2010,34 +2023,37 @@ class GSRGlobeManager {
     const coords = this._latencyCoords(a, peak);
     if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
 
-    const wallHeight = this._peakWallHeight(a, peak);
-    let terrainAlt = 0;
-    try {
-      const carto = Cesium.Cartographic.fromDegrees(coords.lon, coords.lat);
-      const h = this.viewer.scene.globe.getHeight(carto);
-      if (typeof h === 'number' && isFinite(h)) terrainAlt = Math.max(0, h);
-    } catch (e) {}
-    const pos = Cesium.Cartesian3.fromDegrees(
-      coords.lon, coords.lat, terrainAlt + Math.max(0, wallHeight) + 3.0
-    );
-
-    if (!this.peakFocusEntity) {
-      this.peakFocusEntity = this.viewer.entities.add({
-        id: 'biomap-peak-focus-marker',
-        position: pos,
-        point: {
-          pixelSize: 11,
-          color: Cesium.Color.BLACK,
-          outlineColor: Cesium.Color.WHITE,
-          outlineWidth: 2,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY
-        }
-      });
-    } else {
-      this.peakFocusEntity.position = pos;
-      this.peakFocusEntity.show = true;
+    // Restore a peak circle hidden by a previous focus call.
+    if (this._focusHiddenPeakPoint) {
+      this._focusHiddenPeakPoint.show = true;
+      this._focusHiddenPeakPoint = null;
     }
 
+    // Hide THIS peak's own red circle while the locator dot marks it — two
+    // coincident Cesium points can't be made to reliably draw one-over-the-
+    // other (a sub-metre altitude nudge is sub-pixel at fly-to range and the
+    // depth-sort tie still lets the red circle bleed through as a ring). The
+    // next full re-render (clearPeakEntities) brings every circle back; a
+    // later focus restores this one explicitly via _focusHiddenPeakPoint.
+    if (Array.isArray(this.peakEntities)) {
+      for (const ent of this.peakEntities) {
+        if (ent && ent.point && ent._biomapPeakIndex === peakIdx) {
+          ent.point.show = false;
+          this._focusHiddenPeakPoint = ent.point;
+          break;
+        }
+      }
+    }
+
+    // Sit the dot on the exact peak-beacon position — _renderPeakSpires uses
+    // wallHeight + 3.0 (ellipsoid-relative, no terrain add), whereas
+    // setScrubPosition() adds the terrain altitude on top, which floated the
+    // dot well above the circle over any non-flat ground.
+    if (this.scrubEntity) {
+      const wallHeight = this._peakWallHeight(a, peak);
+      this.scrubEntity.position = Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat, wallHeight + 3.0);
+      this.scrubEntity.show = true;
+    }
     this.flyToPeak(peakIdx, a);
   }
 
