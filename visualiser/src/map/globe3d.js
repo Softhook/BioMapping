@@ -190,6 +190,7 @@ class GSRGlobeManager {
     this.clusterEntities = [];
     this.osmBuildingEntities = [];
     this.scrubEntity = null;
+    this.peakFocusEntity = null;
     this.buildingsTileset = null;
     this.buildingPrimitive = null;
     this.cachedOsmJson = null;
@@ -1951,6 +1952,7 @@ class GSRGlobeManager {
     this.clearOsmBuildingEntities();
     this.clearRfEntities();
     if (this.scrubEntity) this.scrubEntity.show = false;
+    if (this.peakFocusEntity) this.peakFocusEntity.show = false;
   }
 
   /**
@@ -1989,6 +1991,54 @@ class GSRGlobeManager {
       offset: offset,
       duration: 1.2
     });
+  }
+
+  /**
+   * Show a persistent black locator dot at a peak's position and fly to it,
+   * with no popup. The 3D counterpart of GSRMapManager.focusOnPeakLocation,
+   * driven by the SCR Events table — the dot is its own entity so it shows
+   * even when the peak spires are hidden.
+   * @param {number} peakIdx  index into analyzer.peaks
+   * @param {GSRAnalyzer} [analyzer]  analyzer reference (defaults to AppState.analyzer)
+   */
+  focusOnPeakLocation(peakIdx, analyzer) {
+    if (!this.viewer || typeof Cesium === 'undefined') return;
+    const a = analyzer || (typeof AppState !== 'undefined' ? AppState.analyzer : null);
+    if (!a || !a.peaks || peakIdx < 0 || peakIdx >= a.peaks.length) return;
+
+    const peak = a.peaks[peakIdx];
+    const coords = this._latencyCoords(a, peak);
+    if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
+
+    const wallHeight = this._peakWallHeight(a, peak);
+    let terrainAlt = 0;
+    try {
+      const carto = Cesium.Cartographic.fromDegrees(coords.lon, coords.lat);
+      const h = this.viewer.scene.globe.getHeight(carto);
+      if (typeof h === 'number' && isFinite(h)) terrainAlt = Math.max(0, h);
+    } catch (e) {}
+    const pos = Cesium.Cartesian3.fromDegrees(
+      coords.lon, coords.lat, terrainAlt + Math.max(0, wallHeight) + 3.0
+    );
+
+    if (!this.peakFocusEntity) {
+      this.peakFocusEntity = this.viewer.entities.add({
+        id: 'biomap-peak-focus-marker',
+        position: pos,
+        point: {
+          pixelSize: 11,
+          color: Cesium.Color.BLACK,
+          outlineColor: Cesium.Color.WHITE,
+          outlineWidth: 2,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY
+        }
+      });
+    } else {
+      this.peakFocusEntity.position = pos;
+      this.peakFocusEntity.show = true;
+    }
+
+    this.flyToPeak(peakIdx, a);
   }
 
   /**

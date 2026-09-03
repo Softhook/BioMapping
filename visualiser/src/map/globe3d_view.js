@@ -291,6 +291,21 @@ const GSRGlobe3DView = {
   },
 
   /**
+   * Fly to a peak's location and show a black locator dot, with no popup — the
+   * 3D counterpart of GSRMapManager.focusOnPeakLocation, driven by the SCR
+   * Events table.
+   * @param {number} peakIdx  index into AppState.analyzer.peaks
+   */
+  focusOnPeakLocation(peakIdx) {
+    if (!GSRGlobe3DView.isActive) return;
+    const analyzer = (typeof AppState !== 'undefined') ? AppState.analyzer : null;
+    if (!analyzer || !analyzer.peaks || !analyzer.peaks[peakIdx]) return;
+    if (GSRGlobe3DView.manager && typeof GSRGlobe3DView.manager.focusOnPeakLocation === 'function') {
+      GSRGlobe3DView.manager.focusOnPeakLocation(peakIdx, analyzer);
+    }
+  },
+
+  /**
    * Peak clicked in 3D — open the EXACT same popup the 2D map uses for a peak
    * marker (MapPopups.buildPeakPopup: editable label textarea, date/time/quality
    * rows, Street View link, exclude button). Its inputs are already wired to

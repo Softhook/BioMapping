@@ -861,7 +861,7 @@ test('GSRGlobe3DView.focusOnPeak flies camera and opens 3D popup', () => {
   V.isActive = false;
 });
 
-test('GSRUI.focusOnPeak routes to GSRGlobe3DView.focusOnPeak when 3D surface is active', () => {
+test('GSRUI.focusOnPeak from the SCR table routes to GSRGlobe3DView.focusOnPeakLocation (no popup) when 3D is active', () => {
   const { window } = bootApp();
   window.setup();
   const V = window.GSRGlobe3DView;
@@ -874,11 +874,14 @@ test('GSRUI.focusOnPeak routes to GSRGlobe3DView.focusOnPeak when 3D surface is 
   window.AppState.surfaceView = 'globe';
   V.isActive = true;
 
-  let globeFocused = null;
-  V.focusOnPeak = (idx) => { globeFocused = idx; };
+  let locationFocused = null;
+  let popupFocused = null;
+  V.focusOnPeakLocation = (idx) => { locationFocused = idx; };
+  V.focusOnPeak = (idx) => { popupFocused = idx; };
 
   window.GSRUI.focusOnPeak(0, 'table');
-  assert.strictEqual(globeFocused, 0, 'focus routed to 3D globe');
+  assert.strictEqual(locationFocused, 0, 'table click jumps to the location on the 3D globe');
+  assert.strictEqual(popupFocused, null, 'table click does not open the 3D popup');
 
   V.isActive = false;
 });

@@ -75,6 +75,53 @@ Object.assign(GSRMapManager.prototype, {
   },
 
   /**
+   * Jump the map straight to a peak's location and drop a persistent black
+   * locator dot there. Driven by the SCR Events table: a row click takes the
+   * user directly to the spot, with no popup. The dot is its own marker (not
+   * the peak-marker layer) so it shows even when peaks are hidden. A bad
+   * index / NaN coords leaves the dot where it was.
+   */
+  focusOnPeakLocation(peakIdx, analyzer, gpsParams) {
+    if (!this.map || !analyzer || !analyzer.peaks) return;
+    const peak = analyzer.peaks[peakIdx];
+    if (!peak) return;
+    const peakLatency = (gpsParams && gpsParams.peakLatency) || 0;
+    const coords = analyzer.getCoordinates(this._resolveLatencyIndex(analyzer, peak, peakLatency));
+    if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
+
+    const latlng = [coords.lat, coords.lon];
+    if (!this._peakFocusMarker) {
+      this._peakFocusMarker = L.marker(latlng, {
+        icon: L.divIcon({
+          className: 'peak-focus-marker-icon',
+          html: '<div class="peak-focus-dot"></div>',
+          iconSize: [14, 14],
+          iconAnchor: [7, 7]
+        }),
+        interactive: false,
+        zIndexOffset: 1200
+      });
+    } else {
+      this._peakFocusMarker.setLatLng(latlng);
+    }
+    if (!this.map.hasLayer(this._peakFocusMarker)) {
+      this._peakFocusMarker.addTo(this.map);
+    }
+
+    // Pan at the current zoom rather than flyTo(): a pure pan moves _mapPane by
+    // one CSS transform, carrying every pane (base tiles, GSR path, and the RF
+    // fluid canvas in rfFluidPane) in lockstep. flyTo()'s zoom-flight animation
+    // drives a per-frame _move() loop that never fires zoomanim/moveend, so the
+    // RF surface — which only re-anchors on those — visibly lags the track and
+    // snaps into place at the end.
+    if (typeof this.map.panTo === 'function') {
+      this.map.panTo(latlng, { animate: true, duration: 0.6, easeLinearity: 0.25 });
+    } else {
+      this.map.setView(latlng, this.map.getZoom());
+    }
+  },
+
+  /**
    * Set scrubbing indicator dot position
    */
   setScrubPosition(lat, lon, panTo = false) {

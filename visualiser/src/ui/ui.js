@@ -162,8 +162,19 @@ const GSRUI = {
       }, source === 'map' ? 100 : 0);
     }
 
-    // 3. Open map marker popup if not clicked from map marker itself and track has GPS
-    if (source !== 'map' && hasGps) {
+    // 3. Navigate the active map surface to the peak.
+    if (source === 'table' && hasGps) {
+      // SCR Events table: jump straight to the spot with a black locator dot
+      // and no popup — works even when the peak-marker layer is hidden.
+      if (AppState.surfaceView === 'globe' && typeof GSRGlobe3DView !== 'undefined' && GSRGlobe3DView.isActive) {
+        if (typeof GSRGlobe3DView.focusOnPeakLocation === 'function') {
+          GSRGlobe3DView.focusOnPeakLocation(idx);
+        }
+      } else if (AppState.mapManager && typeof AppState.mapManager.focusOnPeakLocation === 'function') {
+        AppState.mapManager.focusOnPeakLocation(idx, AppState.analyzer, GSRStorage.buildGpsParams());
+      }
+    } else if (source !== 'map' && hasGps) {
+      // Graph click: fly to the peak and open its popup.
       if (AppState.surfaceView === 'globe' && typeof GSRGlobe3DView !== 'undefined' && GSRGlobe3DView.isActive) {
         if (typeof GSRGlobe3DView.focusOnPeak === 'function') {
           GSRGlobe3DView.focusOnPeak(idx);

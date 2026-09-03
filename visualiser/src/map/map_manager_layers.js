@@ -174,6 +174,12 @@ Object.assign(GSRMapManager.prototype, {
       this.map.removeLayer(this.scrubMarker);
     }
 
+    // The SCR-table locator dot (focusOnPeakLocation) is placed straight on
+    // the map, outside any track group — drop it on a rebuild like scrubMarker.
+    if (this._peakFocusMarker && this.map.hasLayer(this._peakFocusMarker)) {
+      this.map.removeLayer(this._peakFocusMarker);
+    }
+
     this._clearRfFluid();
 
     // Reset legend
