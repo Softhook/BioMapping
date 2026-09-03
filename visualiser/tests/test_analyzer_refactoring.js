@@ -29,6 +29,7 @@ loadModule(path.join(__dirname, '../src/gps/gps_pipeline.js'),       'GpsPipelin
 loadModule(path.join(__dirname, '../src/signal/dwt_filter.js'),         'DWT');
 loadModule(path.join(__dirname, '../src/signal/gsr_filter.js'),         'GsrFilter');
 loadModule(path.join(__dirname, '../src/signal/deconvolution.js'),      'SCRDeconvolution');
+loadModule(path.join(__dirname, '../src/signal/analyzer_time_format.js'), 'AnalyzerTimeFormat');
 
 const { GSRAnalyzer } = require('../src/signal/analyzer.js');
 const { GSRCSVParser } = require('../src/signal/csv_parser.js');

@@ -215,108 +215,27 @@ class GSRAnalyzer {
     return null;
   }
 
-  /**
-   * Whether to display session-relative time rather than absolute wall-clock
-   * time — true when no real recording start clock time was restored from the
-   * CSV (recordingStartTime is 0 or not a real date).
-   * @returns {boolean}
-   * @private
-   */
-  _isRelativeTime() {
-    return !this.recordingStartTime || this.recordingStartTime < 86400;
-  }
+  // Time/date formatting implementations live in AnalyzerTimeFormat
+  // (analyzer_time_format.js); these wrappers just pass recordingStartTime.
 
-  /**
-   * Shared clock formatter used by both formatClockTime() and formatTimeOnly().
-   * In relative mode returns "M:SS" (or "H:MM:SS" over an hour); in absolute
-   * mode returns UTC "HH:MM:SS" derived from recordingStartTime.
-   * @param {number} relativeSeconds - Seconds from recording start
-   * @returns {string}
-   * @private
-   */
-  _formatClockTime(relativeSeconds) {
-    if (this._isRelativeTime()) {
-      const totalSec = Math.round(relativeSeconds);
-      const h = Math.floor(totalSec / 3600);
-      const m = Math.floor((totalSec % 3600) / 60);
-      const s = totalSec % 60;
-      return h > 0
-        ? h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0')
-        : m + ':' + String(s).padStart(2, '0');
-    }
-
-    const d = new Date((this.recordingStartTime + relativeSeconds) * 1000);
-    return String(d.getUTCHours()).padStart(2, '0') + ':' +
-           String(d.getUTCMinutes()).padStart(2, '0') + ':' +
-           String(d.getUTCSeconds()).padStart(2, '0');
-  }
-
-  /**
-   * Ordinal suffix for a day-of-month (1 -> "st", 2 -> "nd", 3 -> "rd", else "th"),
-   * skipping the English teens (11/12/13).
-   * @param {number} day - Day of month, 1-31
-   * @returns {string}
-   * @private
-   */
-  _ordinalSuffix(day) {
-    if (day % 10 === 1 && day !== 11) return 'st';
-    if (day % 10 === 2 && day !== 12) return 'nd';
-    if (day % 10 === 3 && day !== 13) return 'rd';
-    return 'th';
-  }
-
-  /**
-   * Format a relative time (seconds from recording start) as a clock time string.
-   * If recordingStartTime is set (real timestamps were in the CSV), returns
-   * a formatted time like "14:32:05".
-   * Falls back to relative seconds display when no real clock time is available.
-   */
+  /** Clock time for `relativeSeconds`, e.g. "14:32:05" (relative "M:SS" fallback). */
   formatClockTime(relativeSeconds) {
-    return this._formatClockTime(relativeSeconds);
+    return AnalyzerTimeFormat.clockTime(this.recordingStartTime, relativeSeconds);
   }
 
-  /**
-   * Returns just the formatted clock time, e.g. "14:32:05".
-   * Falls back to relative seconds when no real clock time is available.
-   */
+  /** Alias of formatClockTime — kept for call-site clarity. */
   formatTimeOnly(relativeSeconds) {
-    return this.formatClockTime(relativeSeconds);
+    return AnalyzerTimeFormat.clockTime(this.recordingStartTime, relativeSeconds);
   }
 
-  /**
-   * Returns a UK-formatted date string, e.g. "30th Dec 2026".
-   * Falls back to relative seconds display when no real clock time is available.
-   */
+  /** UK-formatted date, e.g. "30th Dec 2026" (relative clock fallback). */
   formatDateUK(relativeSeconds) {
-    if (this._isRelativeTime()) {
-      return this.formatClockTime(relativeSeconds);
-    }
-
-    const d = new Date((this.recordingStartTime + relativeSeconds) * 1000);
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const day = d.getUTCDate();
-    const month = months[d.getUTCMonth()];
-    const year = d.getUTCFullYear();
-
-    return day + this._ordinalSuffix(day) + ' ' + month + ' ' + year;
+    return AnalyzerTimeFormat.dateUK(this.recordingStartTime, relativeSeconds);
   }
 
-  /**
-   * Returns a short numeric date string, e.g. "30.12.2026".
-   * Falls back to relative seconds display when no real clock time is available.
-   */
+  /** Short numeric date, e.g. "30.12.2026" (relative clock fallback). */
   formatDateShort(relativeSeconds) {
-    if (this._isRelativeTime()) {
-      return this.formatClockTime(relativeSeconds);
-    }
-
-    const d = new Date((this.recordingStartTime + relativeSeconds) * 1000);
-    const day = String(d.getUTCDate()).padStart(2, '0');
-    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const year = d.getUTCFullYear();
-
-    return day + '.' + month + '.' + year;
+    return AnalyzerTimeFormat.dateShort(this.recordingStartTime, relativeSeconds);
   }
 
   /**
