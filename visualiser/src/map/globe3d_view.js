@@ -292,23 +292,22 @@ const GSRGlobe3DView = {
 
   /**
    * Peak clicked in 3D — open the EXACT same popup the 2D map uses for a peak
-   * marker (built by GSRMapManager._buildPeakPopup: editable label textarea,
-   * date/time/quality rows, Street View link, exclude button). Its inputs are
-   * already wired to GSRUI.handleLiveLabelInput / updatePeakLabel /
-   * togglePeakExclusion, so the label persists and both surfaces update.
+   * marker (MapPopups.buildPeakPopup: editable label textarea, date/time/quality
+   * rows, Street View link, exclude button). Its inputs are already wired to
+   * GSRUI.handleLiveLabelInput / updatePeakLabel / togglePeakExclusion, so the
+   * label persists and both surfaces update.
    * @param {number} peakIdx    index into AppState.analyzer.peaks
    * @param {{x:number,y:number}} [windowPos]  click position within the canvas
    */
   _editPeakLabel(peakIdx, windowPos) {
     const analyzer = (typeof AppState !== 'undefined') ? AppState.analyzer : null;
-    const mm = (typeof AppState !== 'undefined') ? AppState.mapManager : null;
     const peak = analyzer && analyzer.peaks && analyzer.peaks[peakIdx];
-    if (!peak || !mm || typeof mm._buildPeakPopup !== 'function') return;
+    if (!peak || typeof MapPopups === 'undefined' || typeof MapPopups.buildPeakPopup !== 'function') return;
 
     const coords = (analyzer.getCoordinates && analyzer.getCoordinates(peak.index)) || {};
     const trackId = (AppState.viewMode === 'collective') ? AppState.activeTrackId : undefined;
 
-    const card = mm._buildPeakPopup({
+    const card = MapPopups.buildPeakPopup({
       heading: peak.label || ('Peak #' + (peakIdx + 1)),
       analyzerRef: analyzer,
       peak,

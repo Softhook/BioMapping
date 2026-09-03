@@ -376,13 +376,13 @@ test('_editPeakLabel mounts the map peak popup in the globe container and closes
   window.setup();
   const V = window.GSRGlobe3DView;
 
-  // one analysed peak + a stub _buildPeakPopup that returns a real node
+  // one analysed peak + a stub MapPopups.buildPeakPopup that returns a real node
   window.AppState.analyzer = {
     peaks: [{ time: 42, label: '', index: 3 }],
     getCoordinates: () => ({ lat: 51.5, lon: -0.1 }),
   };
   let built = null;
-  window.AppState.mapManager._buildPeakPopup = (opts) => {
+  window.MapPopups.buildPeakPopup = (opts) => {
     built = opts;
     const el = window.document.createElement('div');
     el.className = 'map-popup-card';
@@ -393,7 +393,7 @@ test('_editPeakLabel mounts the map peak popup in the globe container and closes
   window.document.getElementById('btnGlobeSurface').click(); // 3D active, els.container cached
 
   assert.doesNotThrow(() => V._editPeakLabel(0, { x: 30, y: 20 }));
-  assert.strictEqual(built.index, 0, '_buildPeakPopup got the analyzer.peaks index');
+  assert.strictEqual(built.index, 0, 'MapPopups.buildPeakPopup got the analyzer.peaks index');
   const pop = window.document.getElementById('globe3dPeakPopup');
   assert.ok(pop && pop.querySelector('.map-popup-card'), 'popup mounted with the map card');
   assert.ok(pop.querySelector('.globe3d-peak-popup-close'), 'has a close button');
