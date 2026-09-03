@@ -1087,23 +1087,31 @@ class GSRGlobeManager {
    * Initialize the 3D scrub marker — a black dot with a white ring, matching
    * the 2D map's .scrub-dot (--accent-primary #111111), including its
    * `scrub-pulse` animation: an eased scale 0.8<->1.2 bounce, 1s each way.
+   *
+   * Cost: the pixelSize CallbackProperty is a handful of float ops, run once
+   * per frame ONLY while this entity is showing and the scene is rendering.
+   * In-app the scene already renders continuously while the globe is visible
+   * (requestRenderMode:false) and deactivate() parks the render loop
+   * (useDefaultRenderLoop=false) the moment the 2D map is shown — so this adds
+   * no frames and nothing at all when the globe is hidden. Cesium's
+   * PointVisualizer skips hidden entities, so it's also free whenever the
+   * scrub dot itself is not on screen.
    */
   _initScrubEntity() {
     const basePx = 12;
+    const pulse = () => {
+      const t = (Date.now() % 2000) / 2000;        // 0..1 over 2s
+      const tri = t < 0.5 ? t * 2 : (1 - t) * 2;   // 0..1..0
+      const eased = tri * tri * (3 - 2 * tri);      // smoothstep, ~CSS ease
+      return basePx * (0.8 + eased * 0.4);          // 0.8x..1.2x
+    };
     this.scrubEntity = this.viewer.entities.add({
       id: 'biomap-scrub-marker',
       show: false,
       position: Cesium.Cartesian3.ZERO,
       point: {
-        // CSS: `animation: scrub-pulse 1s infinite alternate` over
-        // scale(0.8)..scale(1.2). Rebuilt here as a wall-clock triangle wave
-        // (2s period) with a smoothstep ease to match the default CSS easing.
-        pixelSize: new Cesium.CallbackProperty(() => {
-          const t = (Date.now() % 2000) / 2000;          // 0..1 over 2s
-          const tri = t < 0.5 ? t * 2 : (1 - t) * 2;      // 0..1..0
-          const eased = tri * tri * (3 - 2 * tri);        // smoothstep
-          return basePx * (0.8 + eased * 0.4);            // 0.8x..1.2x
-        }, false),
+        // CSS equivalent: `animation: scrub-pulse 1s infinite alternate`.
+        pixelSize: new Cesium.CallbackProperty(pulse, false),
         color: Cesium.Color.fromCssColorString('#111111'),
         outlineColor: Cesium.Color.WHITE,
         outlineWidth: 2,
