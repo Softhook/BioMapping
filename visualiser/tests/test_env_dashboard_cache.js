@@ -339,3 +339,49 @@ test('updateEnvironmentalDashboard (collective mode): mutating ONE of several ac
   const after = collectiveManager._cachedEnvStats;
   assert.notStrictEqual(after, first, 'mutating track B alone still invalidates the joined collective cache');
 });
+
+test('renderCorrelationTable: interpretation distinguishes "suggestive" (raw p<.05, q≥.05) from negligible and from significant', () => {
+  const savedDoc = global.document;
+  const savedRAF = global.requestAnimationFrame;
+  const cells = [];
+  const noteSink = {};
+  global.document = {
+    querySelector: (s) => s.includes('correlationTable')
+      ? { set innerHTML(_) {}, appendChild(el) { cells.push(el.__html); } }
+      : null,
+    getElementById: (id) => id === 'correlationMethodNote'
+      ? { set innerHTML(v) { noteSink.v = v; }, set textContent(v) { noteSink.v = v; } }
+      : null,
+    createElement: () => ({ set innerHTML(v) { this.__html = v; } }),
+  };
+  try {
+    const meta = (name, rT, pT, qT) => ({
+      name, featureWalks: 20, hasVariance: true,
+      rPhasic: 0.02, rTonic: rT, rPeaks: 0.01,
+      pPhasic: 0.9, pTonic: pT, pPeaks: 0.9,
+      qPhasic: 0.9, qTonic: qT, qPeaks: 0.9,
+      mPhasic: 'meta', mTonic: 'meta', mPeaks: 'meta',
+      kPhasic: 20, kTonic: 20, kPeaks: 20,
+    });
+    GSRUI.renderCorrelationTable([
+      meta('Green Space %', -0.16, 0.02, 0.24),   // suggestive: raw p<.05, q≥.05, small band
+      meta('Building Density', 0.04, 0.6, 0.8),   // negligible: |r|<.10
+      meta('Distance to Road', -0.28, 0.4, 0.9),  // moderate but raw p high -> inconsistent
+    ], 20, 20);
+
+    const interp = cells.map(h => {
+      const parts = h.split('</td>');
+      return parts[parts.length - 2].replace(/[\s\S]*<td>/, '').trim();
+    });
+    assert.match(interp[0], /^Suggestive small link to lower baseline arousal .*p = 0\.020 before correction/);
+    assert.strictEqual(interp[1], 'No link to arousal — effect sizes are negligible');
+    assert.match(interp[2], /inconsistent across the 20 walks it varied in$/);
+
+    // Every row now renders 3 q columns (Phasic, Tonic, Peaks) + interpretation.
+    const tdCount = (cells[0].match(/<td>/g) || []).length; // the plain <td> for q's + interp + name
+    assert.ok(tdCount >= 4, `row should have the name + 3 q columns + interpretation, got ${tdCount} plain <td>`);
+  } finally {
+    global.document = savedDoc;
+    global.requestAnimationFrame = savedRAF;
+  }
+});
