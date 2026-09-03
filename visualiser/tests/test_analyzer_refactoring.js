@@ -790,3 +790,109 @@ test('GSRAnalyzer resolveLatencyIndex: correctly shifts index based on peak late
   assert.strictEqual(a.resolveLatencyIndex(peak, 30), 0);
 });
 
+// ── Reused per-sample series buffers (perf, 2026-09-03) ──────────────────────
+// analyze() no longer rebuilds the {time,val} arrays behind
+// .filtered/.tonic/.phasic/.tonicZ/.phasicZ/.em_fog with raw.map() every call —
+// _ensureSeriesPool() allocates them once per loaded track (keyed on this.raw
+// identity) and _fillSeries() overwrites .val in place, recording each curve's
+// global Y-range in the same pass so _buildDisplayCache() no longer re-scans it.
+// These tests pin the output-identical guarantee and the pool's lifecycle.
+
+const FIX_CSV = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'default_processed.csv'), 'utf8');
+const P = () => JSON.parse(JSON.stringify(GSR_CONST.GSR_DEFAULT));
+
+function seriesSnapshot(a) {
+  const ser = k => (a[k] || []).map(d => `${d.time}:${d.val.toFixed(10)}`).join('|');
+  return {
+    filtered: ser('filtered'), tonic: ser('tonic'), phasic: ser('phasic'),
+    tonicZ: ser('tonicZ'), phasicZ: ser('phasicZ'), em_fog: ser('em_fog'),
+    peakDensity: ser('peakDensity'), phasicAUC: ser('phasicAUC'),
+    arousalIndex: ser('arousalIndex'), triIndex: ser('triIndex'),
+    peaks: (a.peaks || []).map(p => `${p.index}:${(p.amplitude || 0).toFixed(10)}:${!!p.excluded}`).join('|'),
+    memorable: (a.memorableEvents || []).map(p => p.index).join('|'),
+    globalRange: JSON.stringify(a._globalRange),
+    timelinePoints: (a._timelinePoints || []).length,
+    timelinePeakPct: (a._timelinePeakPct || []).map(x => x.toFixed(10)).join('|'),
+    phasicStd: (+a.phasicStd).toFixed(10),
+  };
+}
+
+test('series pool: a reused analyzer instance matches fresh instances across mode switches', () => {
+  const modes = [
+    P(),
+    { ...P(), useDeconvolution: true },
+    P(),
+    { ...P(), usePeakProminence: true },
+    { ...P(), tonicMethod: 'median', tonicWindow: 30 },
+    { ...P(), useDeconvolution: true },
+    { ...P(), peakThreshold: 0.05 },
+    P(),
+  ];
+  const reused = new GSRAnalyzer();
+  reused.parseCSV(FIX_CSV);
+
+  modes.forEach((params, i) => {
+    reused.analyze(params, 0.5);
+    const fresh = new GSRAnalyzer();
+    fresh.parseCSV(FIX_CSV);
+    fresh.analyze(params, 0.5);
+    assert.deepStrictEqual(seriesSnapshot(reused), seriesSnapshot(fresh),
+      `reused-instance output diverged from a fresh instance at step ${i}`);
+  });
+});
+
+test('series pool: buffers are reused by reference across analyze() calls on the same raw data', () => {
+  const a = new GSRAnalyzer();
+  a.parseCSV(FIX_CSV);
+  a.analyze(P(), 0);
+  const refs = {
+    filtered: a.filtered, tonic: a.tonic, phasic: a.phasic,
+    tonicZ: a.tonicZ, phasicZ: a.phasicZ, em_fog: a.em_fog,
+  };
+  a.analyze({ ...P(), peakThreshold: 0.05 }, 0); // a detection-only change
+
+  for (const k of Object.keys(refs)) {
+    assert.strictEqual(a[k], refs[k], `${k} array should be reused, not reallocated`);
+    assert.strictEqual(a[k].length, a.raw.length, `${k} length should track raw`);
+  }
+});
+
+test('series pool: re-parsing new raw data rebuilds the pool (no stale buffer reuse)', () => {
+  const a = new GSRAnalyzer();
+  a.parseCSV(FIX_CSV);
+  a.analyze(P(), 0);
+  const oldFiltered = a.filtered;
+  const oldLen = a.raw.length;
+
+  // Re-parse the same text: parseCSV assigns a brand-new this.raw array, so the
+  // pool must be discarded even though the length is unchanged.
+  a.parseCSV(FIX_CSV);
+  a.analyze(P(), 0);
+  assert.notStrictEqual(a.filtered, oldFiltered, 'pool must rebuild when this.raw identity changes');
+  assert.strictEqual(a.filtered.length, oldLen);
+});
+
+test('series pool: _globalRange for pooled curves matches a direct scan (incl. deconvolution phasic)', () => {
+  const scan = arr => {
+    let mn = Infinity, mx = -Infinity;
+    for (const d of arr) { if (d.val < mn) mn = d.val; if (d.val > mx) mx = d.val; }
+    return { min: mn, max: mx };
+  };
+
+  // Default mode: filtered/tonic/phasic/em_fog ranges come from the fill loop.
+  const a = new GSRAnalyzer();
+  a.parseCSV(FIX_CSV);
+  a.analyze(P(), 0);
+  for (const k of ['raw', 'filtered', 'tonic', 'phasic', 'em_fog']) {
+    assert.deepStrictEqual(a._globalRange[k], scan(a[k]), `${k} global range mismatch`);
+  }
+
+  // Deconvolution replaces this.phasic with the reconstructed curve after the
+  // fill loop ran on the pristine one — the cached range must follow.
+  const d = new GSRAnalyzer();
+  d.parseCSV(FIX_CSV);
+  d.analyze({ ...P(), useDeconvolution: true }, 0);
+  assert.deepStrictEqual(d._globalRange.phasic, scan(d.phasic),
+    'deconvolution-mode phasic global range must reflect the reconstructed curve');
+});
+

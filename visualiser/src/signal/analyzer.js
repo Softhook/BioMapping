@@ -68,6 +68,79 @@ class GSRAnalyzer {
     // dashboard) key their cache on this instead of relying on being told
     // to invalidate — see docs/archive/visualizer_architecture_refactor_plan.md Phase 2.
     this._dataVersion = 0;
+
+    // ── Reused per-sample series buffers (perf) ──────────────────────────────
+    // analyze() reruns on every settled slider-drag frame. Rebuilding the six
+    // {time,val} arrays behind .filtered/.tonic/.phasic/.tonicZ/.phasicZ/.em_fog
+    // with raw.map() every call was ~50 ms of allocation + GC on a 40k-row
+    // track. _ensureSeriesPool() allocates them once per loaded track (keyed on
+    // this.raw identity); analyze() refills .val in place. Each fill also
+    // records the curve's global Y-range, folding a re-scan out of
+    // _buildDisplayCache().
+    this._seriesPool = null;
+    this._seriesPoolRaw = null;
+    this._rawValsPool = null;
+    this._seriesRange = {};
+    this._rawGlobalRange = null;
+    this._timelinePointsCache = null;
+  }
+
+  /**
+   * Ensure the reused per-sample series buffers exist and match the current
+   * raw data. Rebuilds them — plus the raw-only display caches (raw Y-range,
+   * timeline waveform sub-sample) — only when this.raw is a different array
+   * than last seen, i.e. once per loaded track rather than once per analyze().
+   * @private
+   */
+  _ensureSeriesPool(raw, n) {
+    if (this._seriesPoolRaw === raw && this._rawValsPool && this._rawValsPool.length === n) {
+      return;
+    }
+    const rawVals = new Array(n);
+    let mn = Infinity, mx = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const v = raw[i].val;
+      rawVals[i] = v;
+      if (v < mn) mn = v;
+      if (v > mx) mx = v;
+    }
+    this._rawValsPool = rawVals;
+    this._rawGlobalRange = { min: mn, max: mx };
+
+    this._seriesPool = {};
+    for (const key of ['filtered', 'tonic', 'phasic', 'tonicZ', 'phasicZ', 'em_fog']) {
+      const arr = new Array(n);
+      for (let i = 0; i < n; i++) arr[i] = { time: raw[i].time, val: 0 };
+      this._seriesPool[key] = arr;
+    }
+
+    // Timeline waveform: sub-sample raw to ~300 points (depends only on raw).
+    const tl = [];
+    if (n > 0) {
+      const step = Math.max(1, Math.floor(n / 300));
+      for (let i = 0; i < n; i += step) tl.push(raw[i]);
+    }
+    this._timelinePointsCache = tl;
+
+    this._seriesPoolRaw = raw;
+  }
+
+  /**
+   * Overwrite the reused series buffer for `key` from a parallel value array,
+   * recording its min/max in this._seriesRange[key] in the same pass.
+   * @private
+   */
+  _fillSeries(key, vals) {
+    const arr = this._seriesPool[key];
+    let mn = Infinity, mx = -Infinity;
+    for (let i = 0; i < arr.length; i++) {
+      const v = vals[i];
+      arr[i].val = v;
+      if (v < mn) mn = v;
+      if (v > mx) mx = v;
+    }
+    this[key] = arr;
+    this._seriesRange[key] = { min: mn, max: mx };
   }
 
   /**
@@ -284,10 +357,11 @@ class GSRAnalyzer {
     if (this.raw.length === 0) return;
 
     const n = this.raw.length;
+    this._ensureSeriesPool(this.raw, n);
 
     // 1. Noise Median Filtering
     const medWindowSize = Math.max(1, Math.round(params.medianSize * this.sampleRate));
-    let afterMedian = GsrFilter.applyMedianFilter(this.raw.map(d => d.val), medWindowSize);
+    let afterMedian = GsrFilter.applyMedianFilter(this._rawValsPool, medWindowSize);
 
     // 2. Low-Pass Filter
     let afterLPF;
@@ -300,19 +374,19 @@ class GSRAnalyzer {
       afterLPF = GsrFilter.applyZeroPhaseMovingAverage(afterMedian, lpfWinSize);
     }
 
-    this.filtered = this.raw.map((d, i) => ({ time: d.time, val: afterLPF[i] }));
+    this._fillSeries('filtered', afterLPF);
 
     // 3. Tonic/Phasic Decomposition
     const decomp = GsrFilter.decomposeTonicPhasic(afterLPF, this.sampleRate, params);
     const tonicVals = decomp.tonic;
     const phasicVals = decomp.phasic;
 
-    this.tonic = this.raw.map((d, i) => ({ time: d.time, val: tonicVals[i] }));
-    this.phasic = this.raw.map((d, i) => ({ time: d.time, val: phasicVals[i] }));
+    this._fillSeries('tonic', tonicVals);
+    this._fillSeries('phasic', phasicVals);
 
     // Compute Z-Scores and cache standard deviation of phasic values for peak scaling
-    this.tonicZ = GsrFilter.standardizeSignal(this.tonic);
-    this.phasicZ = GsrFilter.standardizeSignal(this.phasic);
+    this.tonicZ = GsrFilter.standardizeSignal(this.tonic, this._seriesPool.tonicZ);
+    this.phasicZ = GsrFilter.standardizeSignal(this.phasic, this._seriesPool.phasicZ);
     this.phasicStd = GsrFilter.calculateStats(phasicVals).std;
 
     // 5. Phasic Peak Detection. Exactly one of three mutually-exclusive
@@ -364,8 +438,18 @@ class GSRAnalyzer {
     const triCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.TRI_INDEX) || { wTonic: 0.10, wPhasic: 0.45, wDensity: 0.45 };
     this.arousalIndex = this.computeCombinedArousalIndex(aiCfg.wTonic, aiCfg.wPhasic, this.phasicAUC);
     this.triIndex = this.computeTriIndex(triCfg.wTonic, triCfg.wPhasic, triCfg.wDensity, this.phasicAUC, this.peakDensity);
-    this.em_fog = this.raw.map(d => ({ time: d.time, val: (d.em_fog !== undefined && !isNaN(d.em_fog)) ? d.em_fog : 0 }));
-    this.emFog = this.em_fog;
+    const efArr = this._seriesPool.em_fog;
+    let efMn = Infinity, efMx = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const e = this.raw[i].em_fog;
+      const v = (e !== undefined && !isNaN(e)) ? e : 0;
+      efArr[i].val = v;
+      if (v < efMn) efMn = v;
+      if (v > efMx) efMx = v;
+    }
+    this.em_fog = efArr;
+    this.emFog = efArr;
+    this._seriesRange.em_fog = { min: efMn, max: efMx };
 
     // 7. Build display cache for fast rendering (Y-range pyramid, timeline)
     this._buildDisplayCache();
@@ -638,8 +722,19 @@ class GSRAnalyzer {
     }
     this._phasicOrig = this.phasic;
     this.phasic = this.phasicClean;
-    this.phasicZ = GsrFilter.standardizeSignal(this.phasic);
+    this.phasicZ = GsrFilter.standardizeSignal(this.phasic, this._seriesPool && this._seriesPool.phasicZ);
     this.phasicStd = GsrFilter.calculateStats(cleanVals).std;
+    // this.phasic is now the reconstructed curve, not the pooled pristine one
+    // _fillSeries() ranged in analyze() — refresh its cached Y-range so
+    // _buildDisplayCache() (and the plot's global-range fast path) match what
+    // deconvolution mode actually draws.
+    let phMn = Infinity, phMx = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const v = cleanVals[i];
+      if (v < phMn) phMn = v;
+      if (v > phMx) phMx = v;
+    }
+    this._seriesRange.phasic = { min: phMn, max: phMx };
 
     // Build the final, displayed peak list by scanning the reconstructed
     // curve for local maxima — see _detectPeaksFromCurve()'s doc comment for
@@ -797,9 +892,19 @@ class GSRAnalyzer {
    * Pre-compute global Y-ranges
    */
   _buildDisplayCache() {
-    // Global Y-range per curve — used when view covers >40 % of data
+    // Global Y-range per curve — used when view covers >40 % of data.
+    // raw, and the six pooled series (filtered/tonic/phasic/em_fog etc.), had
+    // their range computed as a by-product of the fill loop in
+    // _ensureSeriesPool() / _fillSeries(); only the threshold-dependent metric
+    // curves, rebuilt fresh every analyze() by their own functions, are
+    // scanned here.
     this._globalRange = {};
-    for (const key of ['raw', 'filtered', 'tonic', 'phasic', 'peakDensity', 'phasicAUC', 'arousalIndex', 'triIndex', 'em_fog']) {
+    if (this._rawGlobalRange) this._globalRange.raw = this._rawGlobalRange;
+    for (const key of ['filtered', 'tonic', 'phasic']) {
+      const r = this._seriesRange[key];
+      if (r) this._globalRange[key] = r;
+    }
+    for (const key of ['peakDensity', 'phasicAUC', 'arousalIndex', 'triIndex']) {
       const arr = this[key];
       if (!arr || arr.length === 0) continue;
       let mn = Infinity, mx = -Infinity;
@@ -810,18 +915,13 @@ class GSRAnalyzer {
       }
       this._globalRange[key] = { min: mn, max: mx };
     }
+    if (this._seriesRange.em_fog) this._globalRange.em_fog = this._seriesRange.em_fog;
 
     // Reset per-redraw cache (recomputed once by draw())
     this.rawMinMaxCached = null;
 
-    // Timeline waveform: sub-sample to ~300 points
-    this._timelinePoints = [];
-    if (this.raw.length > 0) {
-      const step = Math.max(1, Math.floor(this.raw.length / 300));
-      for (let i = 0; i < this.raw.length; i += step) {
-        this._timelinePoints.push(this.raw[i]);
-      }
-    }
+    // Timeline waveform: sub-sampled from raw in _ensureSeriesPool() (raw-only).
+    this._timelinePoints = this._timelinePointsCache || [];
 
     // Timeline peak positions as fraction of total duration (exclude excluded peaks)
     this._timelinePeakPct = [];

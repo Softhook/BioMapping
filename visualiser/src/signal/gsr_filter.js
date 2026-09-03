@@ -364,9 +364,20 @@ const GsrFilter = {
   /**
    * Standardizes a signal array of { time, val } objects using Z-score.
    */
-  standardizeSignal(signal) {
+  standardizeSignal(signal, out = null) {
     const vals = signal.map(d => d.val);
     const stats = this.calculateStats(vals);
+    const n = signal.length;
+    // Reuse the caller's {time,val} array when one of the right length is
+    // passed (analyzer.js pools tonicZ/phasicZ across analyze() calls) rather
+    // than allocating a fresh n-object array every call.
+    if (out && out.length === n) {
+      for (let i = 0; i < n; i++) {
+        out[i].time = signal[i].time;
+        out[i].val = (signal[i].val - stats.mean) / stats.std;
+      }
+      return out;
+    }
     return signal.map(d => ({
       time: d.time,
       val: (d.val - stats.mean) / stats.std

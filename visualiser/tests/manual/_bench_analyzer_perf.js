@@ -96,11 +96,16 @@ for (const file of FILES) {
 }
 
 console.log(`
-  This runs once per settled frame of ANY of the 12 GSR sliders
-  (events.js's bindGsrSlider(), rafCoalesced but not cached/skipped for
-  any of them) — there is no caching layer above analyze() the way
-  map.js's _getOrBuildDrawPoints() caches the GPS pipeline. A large real
-  track's per-drag-frame cost is what this number represents.
+  This runs once per settled frame of ANY of the GSR sliders
+  (events.js's bindGsrSlider(), rafCoalesced but still a full recompute —
+  there is no memoised skip the way §2 of the perf-routes doc's declined
+  candidate would add). The 2026-09-03 pass cut the constant per-call cost
+  instead: analyze() now reuses the {time,val} arrays behind
+  .filtered/.tonic/.phasic/.tonicZ/.phasicZ/.em_fog across calls rather than
+  rebuilding six ~n-length arrays with raw.map() every time (~50 ms of
+  allocation + GC on a 40k-row track), and folds those curves' Y-range
+  scan into the fill loop. A large real track's per-drag-frame cost is what
+  this number represents.
 `);
 
 // ── §A A/B Bench: Monotonic Deque vs Nested Loop Window Min ──────────────────
