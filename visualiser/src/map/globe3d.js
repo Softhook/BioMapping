@@ -60,7 +60,7 @@ const BASEMAP_PROVIDERS = {
 };
 
 /**
- * Coloring metric -> analyzer per-sample series field. Mirrors DERIVED_METRIC_SERIES
+ * Colouring metric -> analyzer per-sample series field. Mirrors DERIVED_METRIC_SERIES
  * in map.js; anything not listed falls back to the raw GSR series.
  */
 const SERIES_FIELD = {
@@ -100,7 +100,7 @@ class GSRGlobeManager {
   /**
    * @param {string} containerId  DOM id of the element to mount the Cesium viewer in.
    * @param {object} [options]
-   * @param {string}  [options.metric='phasic']       initial coloring metric
+   * @param {string}  [options.metric='phasic']       initial colouring metric
    * @param {number}  [options.extrusionScale=8.0]    initial wall-height scale
    * @param {boolean} [options.keyboardFlight=true]   bind window WASD/arrow flight keys
    * @param {boolean} [options.doubleClickFly=true]   double-click canvas to fly to point
@@ -1808,7 +1808,7 @@ class GSRGlobeManager {
   }
 
   /**
-   * Retrieve the coloring-metric series from the analyzer as plain floats.
+   * Retrieve the colouring-metric series from the analyzer as plain floats.
    * Derived metrics (SERIES_FIELD) come from per-sample analyzer arrays; anything
    * else falls back to the raw GSR series.
    */
@@ -1843,7 +1843,7 @@ class GSRGlobeManager {
     this._requestRender();
   }
 
-  /** Set active coloring metric and refresh. */
+  /** Set active colouring metric and refresh. */
   setColoringMetric(metric) {
     this.activeColoringMetric = metric;
     this._refreshTrack();
@@ -2303,7 +2303,7 @@ class GSRGlobeManager {
     const effH = wp.effectiveHeight || wp.gsrHeight || 16.0;
     const backDistMeters = Math.max(85.0, effH * 2.4 + 60.0);
 
-    // Target look-at height centered on the vertical mid-region of the track/spires
+    // Target look-at height centred on the vertical mid-region of the track/spires
     const targetLookAtHeight = effH * 0.45;
     const altitudeOffset = targetLookAtHeight + backDistMeters * Math.tan(Math.abs(pitchRad));
 

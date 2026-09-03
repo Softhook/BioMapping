@@ -327,7 +327,7 @@ const GSRStorage = {
           const pl = (track.gpsFilterParams && track.gpsFilterParams.peakLatency) || 0;
           track.analyzer.analyze(track.filterParams, pl);
         } catch (e) {
-          console.warn(`Re-analyzing active track failed after loading preset:`, e);
+          console.warn(`Re-analysing active track failed after loading preset:`, e);
         }
         if (typeof GSRTrackManager !== 'undefined') {
           GSRTrackManager.renderTrackList();

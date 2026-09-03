@@ -403,7 +403,7 @@ const GSRRenderer = {
    * without being mis-plotted against the wrong axis below.
    *
    * Deliberately minor/understated in its resting state — small, visibly
-   * quality-colored dots (filled, not invisible) but with no onset marker or
+   * quality-coloured dots (filled, not invisible) but with no onset marker or
    * connector line until hovered or active. This is the full NS-SCR census
    * (every detected peak, now genuinely one-per-distinguishable-event since
    * the chain-merge consolidation bug was fixed), which on a busy real
@@ -456,7 +456,7 @@ const GSRRenderer = {
       const dotWt      = isExcluded ? EXCLUDED_STYLE.dotWeight : 1.2;
       const markerWt   = isExcluded ? EXCLUDED_STYLE.weight : (isEmphasized ? 1.5 : 1);
 
-      // Resting-state dot fill/stroke: a visibly-colored (not fully
+      // Resting-state dot fill/stroke: a visibly-coloured (not fully
       // transparent) small dot so the full peak census reads as present at a
       // glance, while staying clearly lighter-weight than a hotspot (which
       // is solid-filled, larger, and carries a shaded region + connector).
@@ -486,9 +486,9 @@ const GSRRenderer = {
       }
 
       if (showLowerMarker) {
-        // Minor resting dot: small, visibly-colored fill; solid + larger
+        // Minor resting dot: small, visibly-coloured fill; solid + larger
         // only when hovered/active (exclusion state stays legible via its
-        // own gray hollow treatment even at rest).
+        // own grey hollow treatment even at rest).
         stroke(isEmphasized ? (isExcluded ? color(lineClr) : color(peakColor)) : restStroke);
         strokeWeight(markerWt);
         fill(isActive ? (isExcluded ? color(lineClr) : color(peakColor)) : restFill);
@@ -719,7 +719,7 @@ const GSRRenderer = {
         // in — that number; -20 clears a 10px BOLD label with a few px to
         // spare. Previously both drew at -8, so the star and the peak number
         // stacked into the same few pixels — a hotspot could look completely
-        // unlabeled, or an unreadable smudge, even though it was being drawn.
+        // unlabelled, or an unreadable smudge, even though it was being drawn.
         text('★', xPeak, yFilteredPeak - 20); // small star marks it as a hotspot, not a plain peak
         textStyle(NORMAL);
       }
@@ -997,7 +997,7 @@ const GSRRenderer = {
   },
 
   /**
-   * Draw a labeled value row inside the tooltip: left-aligned label, right-aligned value.
+   * Draw a labelled value row inside the tooltip: left-aligned label, right-aligned value.
    */
   _drawTooltipRow(label, color, valueStr, boxX, boxW, pad, startY, spacing, row) {
     const y = startY + row * spacing;

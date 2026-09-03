@@ -256,7 +256,7 @@ class GSRSpatialClustering {
    *   scaled by its amplitude relative to this reference, so a cluster of severe reactions
    *   grows a larger boundary than a cluster of equally-numerous mild ones. When omitted
    *   (default), every peak contributes equally — this preserves the original unweighted
-   *   behavior for existing callers.
+   *   behaviour for existing callers.
    * @returns {Array<Array<{lat: number, lon: number}>>} Array of paths (closed loops).
    */
   static getConcaveBlob(cluster, sigma = 15, thresholdRadius = 18, refAmplitude = null) {

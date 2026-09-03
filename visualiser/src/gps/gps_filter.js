@@ -386,7 +386,7 @@ const GpsFilter = {
           const beta = Math.max(0.2, Math.min(0.95, 0.7 - Math.log(safeAlpha) * 0.15));
           headingY = beta * prevHeadingY + (1 - beta) * headingY;
           headingX = beta * prevHeadingX + (1 - beta) * headingX;
-          // Re-normalize to unit length
+          // Re-normalise to unit length
           const len = Math.sqrt(headingY * headingY + headingX * headingX);
           if (len > 0.001) {
             headingY /= len;

@@ -63,9 +63,9 @@ const MapColors = {
   },
 
   /**
-   * Convert a normalized [0, 1] ratio to a green-to-red HSL string.
+   * Convert a normalised [0, 1] ratio to a green-to-red HSL string.
    *
-   * @param {number} ratio - Normalized ratio [0, 1].
+   * @param {number} ratio - Normalised ratio [0, 1].
    * @param {number} [saturation=100] - Saturation percentage.
    * @param {number} [lightness=50] - Lightness percentage.
    * @returns {string} HSL string.
@@ -77,9 +77,9 @@ const MapColors = {
   },
 
   /**
-   * Convert a normalized [0, 1] ratio to a green-to-red hex (#rrggbb) string.
+   * Convert a normalised [0, 1] ratio to a green-to-red hex (#rrggbb) string.
    *
-   * @param {number} ratio - Normalized ratio [0, 1].
+   * @param {number} ratio - Normalised ratio [0, 1].
    * @param {number} [lightness=50] - Lightness percentage.
    * @returns {string} Hex string.
    */
@@ -127,7 +127,7 @@ const MapColors = {
 
     if (metric === 'hdopQuality') {
       // Low HDOP = good accuracy (green), high HDOP = poor accuracy (red).
-      // Sentinel 99.9 (no data) rendered gray.
+      // Sentinel 99.9 (no data) rendered grey.
       if (isNaN(val) || val >= 50) return '#888888';
       let ratio = 0;
       if (maxVal !== minVal) ratio = (val - minVal) / (maxVal - minVal);
@@ -161,20 +161,20 @@ const MapColors = {
     }
     
     if (metric === 'distWater') {
-      // Close (Cyan/Blue) to Far (Brown/Gray)
+      // Close (Cyan/Blue) to Far (Brown/Grey)
       const hue = 200 - ratio * 170;
       return `hsl(${hue}, 80%, 45%)`;
     }
     
     if (metric === 'treeDensity') {
-      // None (Gray) to Many (Emerald Green)
+      // None (Grey) to Many (Emerald Green)
       const hue = 60 + ratio * 80;
       const sat = 30 + ratio * 60;
       return `hsl(${hue}, ${sat}%, 45%)`;
     }
     
     if (metric === 'amenityCount') {
-      // None (Gray) to Many (Purple/Red)
+      // None (Grey) to Many (Purple/Red)
       const hue = 240 - ratio * 240;
       return `hsl(${hue}, 85%, 55%)`;
     }

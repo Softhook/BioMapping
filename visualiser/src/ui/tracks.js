@@ -397,14 +397,14 @@ const GSRTrackManager = {
    * the active-track pointer, and the map's rendered layers. Used by
    * GSRCollectiveProject.importProject() to clear the deck before restoring
    * tracks from a project zip; unlike deleteTrack() in a loop, this skips the
-   * per-track teardown work (switching active track, re-analyzing, etc.)
+   * per-track teardown work (switching active track, re-analysing, etc.)
    * since the caller is about to rebuild everything from scratch anyway.
    */
   clearAllTracks() {
     AppState.collectiveManager.tracks = [];
     AppState.activeTrackId = null;
     AppState.analyzer = new GSRAnalyzer();
-    AppState.trackColorIndex = 0; // restart the color palette, matching a fresh page load
+    AppState.trackColorIndex = 0; // restart the colour palette, matching a fresh page load
 
     if (AppState.mapManager) {
       AppState.mapManager.clearAll();

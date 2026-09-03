@@ -325,7 +325,7 @@
                 <span class="slider-value" id="valClusterProximity">35 m</span>
               </div>
               <input type="range" id="clusterProximity" min="5" max="150" step="5" value="35">
-              <p class="help-text">Proximity threshold in meters to group nearby stress hotspots into a single cluster.</p>
+              <p class="help-text">Proximity threshold in metres to group nearby stress hotspots into a single cluster.</p>
             </div>
 
             <div class="slider-group">
@@ -334,7 +334,7 @@
                 <span class="slider-value" id="valClusterBoundaryRadius">5 m</span>
               </div>
               <input type="range" id="clusterBoundaryRadius" min="1" max="80" step="1" value="5">
-              <p class="help-text">Radius of influence in meters around individual peaks that defines the outer cluster boundary shape.</p>
+              <p class="help-text">Radius of influence in metres around individual peaks that defines the outer cluster boundary shape.</p>
             </div>
           </div>
         </section>
@@ -568,10 +568,10 @@
           <div class="card-content">
             <div class="slider-group">
               <div class="slider-label" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-                <span>Normalize Tracks (Z-Score)</span>
+                <span>Normalise Tracks (Z-Score)</span>
                 <input type="checkbox" id="normalizeZScore" class="track-checkbox" checked>
               </div>
-              <p class="help-text">Standardizes arousal range per participant to allow fair comparison of relative stress. On by default so one participant's baseline doesn't outweigh another's genuine peak.</p>
+              <p class="help-text">Standardises arousal range per participant to allow fair comparison of relative stress. On by default so one participant's baseline doesn't outweigh another's genuine peak.</p>
             </div>
 
             <div class="slider-group">
@@ -808,7 +808,7 @@
             <!-- p5.js canvas is injected here -->
             <div class="canvas-placeholder" id="canvasPlaceholder">
               <i class="fa-solid fa-wave-square pulse-icon"></i>
-              <h3>Ready to analyze bio-sensor data</h3>
+              <h3>Ready to analyse bio-sensor data</h3>
               <button class="btn btn-primary" id="loadDemoBtn">
                 <i class="fa-solid fa-flask"></i> Load Demo Data
               </button>
@@ -1019,7 +1019,7 @@
           <!-- Tab 3: Roads Profile -->
           <div class="env-tab-content" id="envTabRoads" style="display: none; padding: 16px;">
             <div style="display: flex; flex-direction: column; gap: 12px; min-width: 0;">
-              <p class="help-text" style="margin-bottom: 12px;">Average arousal by street type, using OpenStreetMap road classification. Peak rate is normalized to spikes per minute.</p>
+              <p class="help-text" style="margin-bottom: 12px;">Average arousal by street type, using OpenStreetMap road classification. Peak rate is normalised to spikes per minute.</p>
               <div class="table-container">
                 <table class="peaks-table" id="roadArousalTable">
                   <thead>

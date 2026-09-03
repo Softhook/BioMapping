@@ -7,10 +7,10 @@ const BezierSpline = {
   /**
    * Centripetal Catmull-Rom spline, converted to cubic Bézier segments.
    *
-   * Knot spacing is parameterized by distance^0.5 (centripetal) rather than
+   * Knot spacing is parameterised by distance^0.5 (centripetal) rather than
    * uniform spacing — uniform Catmull-Rom assumes evenly-spaced points, which
    * traced/smoothed contour paths never are, and it overshoots/loops exactly
-   * where spacing is uneven. Centripetal parameterization is the standard fix
+   * where spacing is uneven. Centripetal parameterisation is the standard fix
    * and is well-behaved even on pathological point sets.
    *
    * @param {Array<{x:number,y:number}>} points

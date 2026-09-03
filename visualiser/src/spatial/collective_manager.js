@@ -9,7 +9,7 @@ class GSRCollectiveManager {
   }
 
   addTrack(track) {
-    // Phase 1 (slice 1): normalize tracks that predate the layerGroup field so
+    // Phase 1 (slice 1): normalise tracks that predate the layerGroup field so
     // GSRMapManager can always rely on it being present (null = owns nothing).
     if (track && track.layerGroup === undefined) track.layerGroup = null;
     this.tracks.push(track);
@@ -58,9 +58,9 @@ class GSRCollectiveManager {
    * Upsamples a 2D value grid (e.g. the coarse gridResolution×gridResolution
    * surface generateContourSurface interpolates) to a higher target
    * resolution, for smoother Marching Squares tracing than the raw grid
-   * would allow. Bicubic where a cell's full 4x4 neighborhood is valid
+   * would allow. Bicubic where a cell's full 4x4 neighbourhood is valid
    * (non-null) data; bilinear (weighted by whichever corners are valid) as a
-   * fallback at masked/boundary cells, where a full bicubic neighborhood
+   * fallback at masked/boundary cells, where a full bicubic neighbourhood
    * isn't available.
    *
    * The `sumWt > 1e-6` threshold below (rather than e.g. requiring majority
@@ -93,7 +93,7 @@ class GSRCollectiveManager {
         const c0 = Math.floor(srcC);
         const dc = srcC - c0;
 
-        // Check if we can perform bicubic interpolation (4x4 neighborhood must be fully in-bounds and non-null)
+        // Check if we can perform bicubic interpolation (4x4 neighbourhood must be fully in-bounds and non-null)
         let useBicubic = false;
         if (r0 - 1 >= 0 && r0 + 2 < rows && c0 - 1 >= 0 && c0 + 2 < cols) {
           useBicubic = true;
@@ -175,7 +175,7 @@ class GSRCollectiveManager {
     const coverageWeighting = contourParams.coverageWeighting !== undefined ? contourParams.coverageWeighting : GSR_CONST.COLLECTIVE.coverageWeighting;
     // Defaults to true — the "Standardize arousal range" checkbox ships checked (see
     // index.html), so a caller that omits this entirely should get the same on-by-default
-    // behavior as the UI, not silently fall back to unnormalized.
+    // behaviour as the UI, not silently fall back to unnormalized.
     const useNormalization = contourParams.normalizeZScore !== undefined ? contourParams.normalizeZScore : true;
 
     const blurIterations = contourParams.blurIterations !== undefined
@@ -222,7 +222,7 @@ class GSRCollectiveManager {
 
       // Phasic AUC (ISCR) — continuous, threshold-independent alternative to
       // discrete peak counting (see docs/environmental_stress_literature_review.md
-      // §5B/§5D). Z-score it per-track when normalizing, same convention as
+      // §5B/§5D). Z-score it per-track when normalising, same convention as
       // phasic/tonic above, so cross-participant comparison stays fair.
       const aucRaw = t.analyzer.phasicAUC || [];
       let phasicAUC = aucRaw;
@@ -234,7 +234,7 @@ class GSRCollectiveManager {
       // Combined Arousal Index is already a per-participant z-scored blend of
       // tonic + phasic AUC at computation time (computeCombinedArousalIndex in
       // analyzer.js), so it's used as-is regardless of the normalizeZScore
-      // toggle — re-normalizing an already-standardized index would just
+      // toggle — re-normalising an already-standardised index would just
       // rescale it, not change its cross-participant comparability.
       const arousalIndex = t.analyzer.arousalIndex || [];
       const triIndex = t.analyzer.triIndex || [];
@@ -312,8 +312,8 @@ class GSRCollectiveManager {
         trackPointRanges.push({ start: trackStartIdx, end: points.length });
       }
 
-      // If normalizing, scale peak amplitudes by the cached standard deviation of the participant's phasic values.
-      // This is a standard psychophysiological normalization (SCR amplitude in units of background variance).
+      // If normalising, scale peak amplitudes by the cached standard deviation of the participant's phasic values.
+      // This is a standard psychophysiological normalisation (SCR amplitude in units of background variance).
       const phasicStd = useNormalization ? (t.analyzer.phasicStd || 1) : 1;
 
       t.analyzer.peaks.forEach(pk => {
@@ -577,7 +577,7 @@ class GSRCollectiveManager {
           // Peak count is typically far smaller than the point set above
           // (dozens-to-hundreds vs up to 20,000) — left as a direct scan,
           // not restructured; see this phase's status note for why this
-          // branch wasn't prioritized.
+          // branch wasn't prioritised.
           let density = 0;
           for (const pk of peaks) {
             const d = getDistanceMeters(gridLat, gridLon, pk.lat, pk.lon);
@@ -593,7 +593,7 @@ class GSRCollectiveManager {
           const weightedMean = sumWeightedVal[idx] / sumWeight[idx];
           // Blend the smooth IDW mean with the local peak envelope (the highest single
           // value recorded nearby) so a lone transient spike survives the merge instead
-          // of being averaged down toward its calmer neighborhood — pure IDW mean was
+          // of being averaged down toward its calmer neighbourhood — pure IDW mean was
           // the main reason isolated peaks disappeared from the surface entirely.
           grid[r][c] = (1 - alpha) * weightedMean + alpha * localMaxArr[idx];
         } else {
@@ -610,7 +610,7 @@ class GSRCollectiveManager {
 
     if (minVal === Infinity || maxVal === -Infinity) return [];
 
-    // Masked blur — smooths pure grid-quantization noise (the single-cell "wiggle" Marching
+    // Masked blur — smooths pure grid-quantisation noise (the single-cell "wiggle" Marching
     // Squares traces literally, cell edge by cell edge) directly in the source field, before
     // any contour is extracted.
     let currentGrid = grid;
@@ -631,7 +631,7 @@ class GSRCollectiveManager {
               if (cc < 0 || cc >= cols) continue;
               const v = currentGrid[rr][cc];
               if (v === null || isNaN(v)) continue;
-              // Tent-shaped 3x3 kernel ([1,2,1;2,4,2;1,2,1]/16 when all 9 neighbors are
+              // Tent-shaped 3x3 kernel ([1,2,1;2,4,2;1,2,1]/16 when all 9 neighbours are
               // valid) — a mild blur that reduces single-cell noise without washing out
               // real hotspot shape spanning multiple cells.
               const w = (dr === 0 && dc === 0) ? 4 : ((dr === 0 || dc === 0) ? 2 : 1);
@@ -647,7 +647,7 @@ class GSRCollectiveManager {
     grid = currentGrid;
 
     // minVal/maxVal above were measured on the pre-blur grid; a weighted average can only
-    // pull values toward their neighbors, never past the original extremes, but recompute
+    // pull values toward their neighbours, never past the original extremes, but recompute
     // from the blurred grid anyway so the returned range (and the percentile levels below,
     // which read straight from `grid`) matches what's actually drawn.
     minVal = Infinity; maxVal = -Infinity;
@@ -671,7 +671,7 @@ class GSRCollectiveManager {
     const upsampledCols = upsampledGrid[0].length;
 
     // Collect every valid (non-masked) grid value to build percentile-based contour levels.
-    // Equal-interval levels (old behavior: minVal + k * (maxVal-minVal)/(n+1)) waste most of
+    // Equal-interval levels (old behaviour: minVal + k * (maxVal-minVal)/(n+1)) waste most of
     // their resolution on the flat low-arousal majority whenever a handful of hotspots pull
     // maxVal far above the rest of the surface — nine of ten lines end up bunched on top of
     // each other describing baseline, and the actual peak area gets one or two lines total.

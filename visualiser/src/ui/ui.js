@@ -263,7 +263,7 @@ const GSRUI = {
    * #deconvTruncationWarning). phasicDeconvTruncated is set by
    * _runDeconvolutionPipeline() (analyzer.js) whenever matching pursuit hits
    * maxIter before the residual actually converges — a real, possible
-   * failure mode (some genuine SCRs left unmodeled with no other visible
+   * failure mode (some genuine SCRs left unmodelled with no other visible
    * sign) that previously had no indication anywhere in the UI; the flag
    * existed but only tests ever read it.
    */
@@ -325,7 +325,7 @@ const GSRUI = {
       allEnriched = !!(AppState.analyzer && AppState.analyzer.isEnriched);
     }
 
-    el.innerText = '●'; // ● — a plain colored dot, no wording needed
+    el.innerText = '●'; // ● — a plain coloured dot, no wording needed
     el.style.color = allEnriched ? 'var(--success)' : 'var(--text-muted)';
 
     const tooltip = allEnriched
@@ -570,7 +570,7 @@ const GSRUI = {
   },
 
   /**
-   * Get a sanitized filename base from the active track name.
+   * Get a sanitised filename base from the active track name.
    */
   _exportFilenameBase() {
     const track = AppState.activeTrackId
@@ -634,7 +634,7 @@ const GSRUI = {
   },
 
   /**
-   * Export the active map view (2D Leaflet vector rasterization or 3D Cesium WebGL) as PNG.
+   * Export the active map view (2D Leaflet vector rasterisation or 3D Cesium WebGL) as PNG.
    */
   async saveMapImage() {
     if (AppState.analyzer.raw.length === 0) return;
@@ -1579,7 +1579,7 @@ const GSRUI = {
     // Set Mapillary external link
     mapillaryExtLink.href = 'https://www.mapillary.com/app/?lat=' + lat + '&lng=' + lon + '&z=18';
 
-    // Show the modal first so that the browser does not pause/optimize away the iframe loading
+    // Show the modal first so that the browser does not pause/optimise away the iframe loading
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
 

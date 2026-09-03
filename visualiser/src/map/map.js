@@ -1,7 +1,7 @@
 // Leaflet.js Map Manager for GSR + GPS Visualisation
 // Handles path rendering, arousal color-coding, and peak marker overlays.
 
-// Map-coloring metrics backed by a per-sample analyzer array (analyzer.phasic[i],
+// Map-colouring metrics backed by a per-sample analyzer array (analyzer.phasic[i],
 // analyzer.tonic[i], etc.) rather than a static field already present on the
 // drawPoint objects. Looked up live at render time via origIdx — see
 // _renderPathSegments — rather than baked into the GPS-cached drawPoints,
@@ -141,11 +141,9 @@ class GSRMapManager {
       this.rfFluidRenderer = new RFFluidRenderer(this.map, { visible: true });
     }
 
-    // The overlap-aware path colour keys off how wide the track stroke reads
-    // on screen — which changes with zoom — so re-run the active path renderer
-    // once the zoom settles, keeping a re-walked street's pooled colour in step
-    // with what actually overlaps now. zoomend fires once per gesture; the
-    // handler cheap-outs until a path has been drawn.
+    // Overlap-aware path colour depends on the on-screen stroke width, which
+    // changes with zoom — re-run the path renderer once the zoom settles (see
+    // _refreshPathOnZoom, which cheap-outs when the outcome can't have changed).
     this.map.on('zoomend', () => this._refreshPathOnZoom());
   }
 
@@ -165,7 +163,7 @@ class GSRMapManager {
   }
 
   /**
-   * Update the legend to reflect the current coloring metric and data range.
+   * Update the legend to reflect the current colouring metric and data range.
    */
   updateLegend() {
     if (!this._legendControl) return;
@@ -175,7 +173,7 @@ class GSRMapManager {
   }
 
   /**
-   * Build the legend's inner HTML for the current coloring metric / data range /
+   * Build the legend's inner HTML for the current colouring metric / data range /
    * view mode. Split out of updateLegend() so the 3D globe can render the exact
    * same legend (see globe3d_view.js _updateLegend).
    * @returns {string}
@@ -867,7 +865,7 @@ class GSRMapManager {
 
   /**
    * Re-render ONLY the active track's path segments — used by the map-
-   * coloring-metric dropdown, which changes how the path is colored but
+   * colouring-metric dropdown, which changes how the path is coloured but
    * leaves peak/hotspot positions and popups untouched (see
    * docs/archive/visualizer_rendering_perf_routes.md §2.2). Same shape as
    * refreshPeakMarkers(): remove just the 'path' layers from the track's
@@ -1750,7 +1748,7 @@ class GSRMapManager {
           marker = L.marker([coords.lat, coords.lon], {
             icon: GSRLabelManager.buildLabelledIcon(px, py, displayLabel, dirResult, { showGlow: false, dotPx: 6 })
           });
-          // Bump labeled markers above unlabeled markers and path layers
+          // Bump labelled markers above unlabelled markers and path layers
           marker.setZIndexOffset(1000);
           marker.hasLabel = true;
         } else {
@@ -1866,17 +1864,15 @@ class GSRMapManager {
   }
 
   /**
-   * Build the shared Leaflet divIcon used for every hotspot marker on the
-   * map — single-track (_renderHotspotMarkers) and collective/multi-track
-   * (renderCollectiveData) both call this, so the two views can never drift
-   * apart visually. The glyph is a red star (★, .hotspot-star) — the shared
-   * hotspot marker across the GSR graph, the 2D map and the 3D globe (peaks are
-   * a small circle everywhere; hotspots are a star). Behind it sits the
-   * expanding pulse-glow ring (.hotspot-glow-ring, styles.css) that peak markers
-   * originally had — peaks themselves stay static now (see drawPeakMarkers()'s
-   * doc comment in renderer.js for why), but keeping it for the much smaller,
-   * curated hotspot set is exactly the "draw the eye to what matters" role that
-   * animation used to serve.
+   * Build the shared Leaflet divIcon for every hotspot marker on the map —
+   * single-track (_renderHotspotMarkers) and collective/multi-track
+   * (renderCollectiveData) both call it, so the two views can't drift apart
+   * visually. The glyph is a red star (★, .hotspot-star), consistent across the
+   * GSR graph, the 2D map and the 3D globe (peaks are a small circle
+   * everywhere; hotspots are a star). Behind it sits the expanding pulse-glow
+   * ring (.hotspot-glow-ring, styles.css): peak markers are static (see
+   * drawPeakMarkers() in renderer.js), so the animation is reserved for the
+   * small curated hotspot set, to draw the eye to what matters.
    * @private
    */
   static _buildHotspotIcon() {
@@ -1891,15 +1887,12 @@ class GSRMapManager {
   }
 
   /**
-   * Build the shared Leaflet divIcon used for every unlabeled, non-hotspot
-   * peak marker — single-track (_renderPeakMarkers) and collective/multi-track
-   * (renderCollectiveData) both call this, so a peak looks identical on both
-   * views: small, quality-neutral --color-peak red dot, no track color, no
-   * animation. Track color used to distinguish which track a collective-view
-   * peak belonged to; that's dropped here in favor of matching the
-   * single-track view exactly, per an explicit request to make the two
-   * consistent — clicking a marker (its popup shows the track name) is now
-   * how you tell tracks apart in collective view, not dot color.
+   * Build the shared Leaflet divIcon for every unlabelled, non-hotspot peak
+   * marker — single-track (_renderPeakMarkers) and collective/multi-track
+   * (renderCollectiveData) both call it, so a peak looks identical on both
+   * views: small, quality-neutral --color-peak red dot, no per-track colour, no
+   * animation. In collective view you tell tracks apart by clicking a marker
+   * (the popup shows the track name), not by dot colour.
    * @private
    */
   static _buildPeakIcon() {
@@ -1946,7 +1939,7 @@ class GSRMapManager {
   }
 
   /**
-   * Internal helper to construct and initialize a Leaflet hotspot marker.
+   * Internal helper to construct and initialise a Leaflet hotspot marker.
    * @private
    */
   _createHotspotMarker(analyzer, peak, peakLatency, popupCallback, clickCallback, track) {
@@ -2075,11 +2068,10 @@ class GSRMapManager {
     // 360° collision avoidance for collective labels
     const collectivePositions = GSRLabelManager.computeLabelPositions(collectiveLabelCandidates);
 
-    // Compact dot-only icon for unlabeled peaks — same shared icon
+    // Compact dot-only icon for unlabelled peaks — the same shared icon
     // single-track peaks use (GSRMapManager._buildPeakIcon()), not
-    // track-colored, so a peak looks identical regardless of which view
-    // it's shown in (see that method's doc comment for why track color
-    // was dropped here).
+    // per-track-coloured, so a peak looks identical regardless of which view
+    // it's shown in.
     const collectiveSimpleIcon = GSRMapManager._buildPeakIcon();
 
     collectiveAllPeaks.forEach(({ peak, index, lat, lon, px, py }) => {
@@ -2093,7 +2085,7 @@ class GSRMapManager {
           marker = L.marker([lat, lon], {
             icon: GSRLabelManager.buildLabelledIcon(px, py, displayLabel, dirResult, { showGlow: false, dotPx: 6 })
           });
-          // Bump labeled markers above everything else on the map
+          // Bump labelled markers above everything else on the map
           marker.setZIndexOffset(1000);
           marker.hasLabel = true;
         } else {
@@ -2193,8 +2185,7 @@ class GSRMapManager {
    * the optional GPS-latency shift (find the GPS fix at peak.time -
    * peakLatency instead of peak.time itself, falling back to peak.index if
    * nothing is found there). Shared by _renderPeakMarkers(),
-   * _renderHotspotMarkers(), and _renderCollectiveTrackHotspots() — all
-   * three used to each carry their own copy of this exact logic.
+   * _renderHotspotMarkers() and _renderCollectiveTrackHotspots().
    * @private
    */
   _resolveLatencyIndex(analyzer, peak, peakLatency) {
@@ -2594,7 +2585,7 @@ class GSRMapManager {
 
       // Hotspot markers for this track — same shared icon/styling as the
       // single-track view (_renderHotspotMarkers), deliberately NOT
-      // track-colored like the regular collective peak dots above: a
+      // track-coloured like the regular collective peak dots above: a
       // hotspot's whole point is to stand out as "one of the biggest events,
       // in any track," so it keeps the fixed hotspot-red across every track
       // rather than blending into that track's own color scheme.
@@ -2757,9 +2748,9 @@ class GSRMapManager {
       // above. That canvas is intentionally small and gets stretched with smooth
       // interpolation (bicubic-upsampled, blurred) so the color gradient looks continuous —
       // exactly the wrong scaling mode for a crisp overlay pattern, which would blur into
-      // gray mush at most zoom levels if it shared that canvas. Instead this draws its own
+      // grey mush at most zoom levels if it shared that canvas. Instead this draws its own
       // raster at a finer resolution, and .collective-coverage-hatch (styles.css) forces
-      // nearest-neighbor scaling on just this layer, so the lines stay crisp at any zoom
+      // nearest-neighbour scaling on just this layer, so the lines stay crisp at any zoom
       // while the color layer underneath keeps its smooth blur.
       //
       // Diagonal lines, not a checkerboard: a checkerboard's alternating cells read via

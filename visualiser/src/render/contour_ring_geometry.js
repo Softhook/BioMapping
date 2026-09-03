@@ -125,7 +125,7 @@ class ContourRingGeometry {
    * Corner-cuts a closed sequence of {lat, lon, val, normal} points the same
    * way GeoUtils.chaikinSmooth does, but also blends `val` and `normal` along
    * with position (chaikinSmooth only knows about lat/lon and would silently
-   * drop them). This prevents staircase raster artifacts on mask boundaries.
+   * drop them). This prevents staircase raster artefacts on mask boundaries.
    */
   static smoothLoopPoints(points, iterations = 2) {
     if (!points || points.length < 3) return points || [];

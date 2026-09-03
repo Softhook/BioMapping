@@ -203,7 +203,7 @@ class GSRMapExporter {
 
     const { w, h, project } = ctx;
     // A little extra breathing room beyond the measured extent, so a stroked
-    // outline (which sits centered on the fill's edge) doesn't get shaved by
+    // outline (which sits centred on the fill's edge) doesn't get shaved by
     // sub-pixel rounding at the new canvas edge.
     const SAFETY = 4;
     const marginLeft   = Math.max(0, Math.ceil(-minX + SAFETY));
@@ -417,7 +417,7 @@ class GSRMapExporter {
     // additively with each other (and with each other's bands) — that part
     // is correct and wanted. But without a stacking-context boundary, that
     // same screen blend also reaches through RF_Fluid_Field to whatever's
-    // painted underneath it: Base_Map_Tiles. This basemap is a LIGHT-colored
+    // painted underneath it: Base_Map_Tiles. This basemap is a LIGHT-coloured
     // style (CartoDB "light_all") — screen(a, near-white) collapses to
     // near-white for any `a`, so wherever tiles were visible, the entire RF
     // field washed out to a flat white shape (reported bug — confirmed by
@@ -480,7 +480,7 @@ class GSRMapExporter {
   }
 
   /**
-   * Generates cell-by-cell vector mesh polygons, each colored by its exact
+   * Generates cell-by-cell vector mesh polygons, each coloured by its exact
    * percentile rank and — matching the live raster surface (map.js
    * renderContours()) — relief-shaded via the shared Hillshade primitives, at
    * whatever hillshadeStrength was last set on the map (so the export

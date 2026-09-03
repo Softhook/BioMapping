@@ -9,7 +9,7 @@
  * (_buildSegmentGrid/_queryNearbySegments) — same Map-of-buckets/floor-
  * division-cell-key mechanics, duplicated. Each caller keeps its own
  * padding/dedup policy on top (osm_enrichment.js pads inserts by one cell
- * and dedupes a point query's 3x3 neighborhood by `${type}_${id}`;
+ * and dedupes a point query's 3x3 neighbourhood by `${type}_${id}`;
  * rf_fluid_renderer.js inserts unpadded and dedupes an explicit-bbox query
  * by a per-item query-id stamp) — those policies are preserved as thin
  * wrappers around this shared bucket mechanism, not folded together, since
@@ -75,7 +75,7 @@ class SpatialGrid {
   }
 
   /**
-   * 3x3 neighborhood of cells around the cell containing (lat, lon),
+   * 3x3 neighbourhood of cells around the cell containing (lat, lon),
    * deduped by `idFn(item)` (defaults to identity — dedup by reference).
    */
   getNearby(lat, lon, idFn) {

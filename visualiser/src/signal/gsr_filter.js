@@ -81,7 +81,7 @@ const GsrFilter = {
 
   /**
    * Zero-phase moving average (forward + backward) — smooths without phase lag.
-   * Uses centered sliding window with correct edge handling.
+   * Uses centred sliding window with correct edge handling.
    */
   applyZeroPhaseMovingAverage(arr, windowSize) {
     if (!windowSize || isNaN(windowSize) || windowSize <= 1) return [...arr];

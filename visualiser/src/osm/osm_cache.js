@@ -236,7 +236,7 @@ const OsmCache = {
         const db = req.result;
         // v1 stored one record per entry with metadata and the (large)
         // data blob mixed together in a single store, which forced every
-        // cache-matching decision to deserialize every cached payload
+        // cache-matching decision to deserialise every cached payload
         // just to read a few small fields. Dropping it and starting
         // clean is safe here — this is a cache, not a data store; losing
         // old entries only costs a few extra network fetches later, never

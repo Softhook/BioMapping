@@ -439,7 +439,7 @@ const GSRGlobe3DView = {
   },
 
   /**
-   * The active coloring metric changed in the map panel header.
+   * The active colouring metric changed in the map panel header.
    * Forward to the globe manager and refresh legend.
    */
   applyColorMetric(metric) {

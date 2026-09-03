@@ -723,7 +723,7 @@ const GSREvents = {
             const pl = (track.gpsFilterParams && track.gpsFilterParams.peakLatency) || 0;
             track.analyzer.analyze(track.filterParams, pl);
           } catch (e) {
-            console.warn(`Re-analyzing track "${track.name}" failed:`, e);
+            console.warn(`Re-analysing track "${track.name}" failed:`, e);
           }
         });
 
@@ -783,7 +783,7 @@ const GSREvents = {
     document.getElementById('mapColoringMetric').addEventListener('change', (e) => {
       if (AppState.mapManager) {
         AppState.mapManager.activeColoringMetric = e.target.value;
-        // Only the path's color changes here — a full rerenderMap() also
+        // Only the path's colour changes here — a full rerenderMap() also
         // destroys/rebuilds peak+hotspot markers for no reason (perf-routes
         // doc §2.2). Single-track view has a scoped path-only refresh;
         // collective mode still does the full rebuild (out of scope for

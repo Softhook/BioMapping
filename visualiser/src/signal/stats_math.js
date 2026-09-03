@@ -5,7 +5,7 @@ const StatsMath = {
   /**
    * Percentile rank of `value` within a pre-sorted (ascending) array, via binary search.
    * Returns the fraction (0..1) of entries at or below `value`. Used to map a grid value to
-   * a color ratio based on where it sits in the *distribution* of the surface's values,
+   * a colour ratio based on where it sits in the *distribution* of the surface's values,
    * rather than a linear (value - min) / (max - min) ratio which gets dominated by a long
    * flat baseline whenever a small number of values spike far above the rest.
    *

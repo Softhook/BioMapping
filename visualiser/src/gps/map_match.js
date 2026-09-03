@@ -280,7 +280,7 @@ const MapMatcher = {
             this._angularDiff(courseRad, segBearing),
             this._angularDiff(courseRad, segBearing + Math.PI)
           );
-          // Scale bearing penalty (headingW weight * normalized difference * 25m radius)
+          // Scale bearing penalty (headingW weight * normalised difference * 25m radius)
           effDist += headingW * (bearingDiffRad / Math.PI) * 25;
         }
 

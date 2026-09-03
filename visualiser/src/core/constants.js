@@ -43,7 +43,7 @@ const GSR_CONST = {
   // compound SCRs — so conservative values on several at once compound into
   // large undercounts on busy or superposed recordings, precisely where the
   // most real responses occur. Min half-recovery and max skew ship off (0);
-  // min rise is kept low purely as a fast-artifact guard. Tighten per
+  // min rise is kept low purely as a fast-artefact guard. Tighten per
   // recording (via the sliders) when precision matters more than recall.
   GSR_DEFAULT: {
     // Mild low-pass on by default: raw 10 Hz GSR carries quantisation +
@@ -120,7 +120,7 @@ const GSR_CONST = {
     minImpulseGapSec: 0.5,    // Min gap between impulses (s)
     // Minimum resolved-apex value (µS) for a gated impulse to be treated as
     // a genuine local rise in the original phasic signal, not just a
-    // driver-domain artifact — see _runDeconvolutionPipeline()'s gating
+    // driver-domain artefact — see _runDeconvolutionPipeline()'s gating
     // comment in analyzer.js. Deliberately far below impulseThreshold; this
     // only rejects near-zero apexes, not small-but-real ones.
     minApexVal: 0.001
@@ -340,7 +340,7 @@ const GSR_CONST = {
     // a cell gets checkerboarded in map.js's renderContours() — how many distinct
     // participant tracks actually passed near that cell, relative to how well-covered the
     // rest of the loaded dataset is (not an absolute headcount). 0 = nothing checkered,
-    // every cell renders as-is regardless of foot traffic (old behavior). 1 = only the
+    // every cell renders as-is regardless of foot traffic (old behaviour). 1 = only the
     // single best-covered cell escapes the pattern, so a single passerby's reading gets
     // visibly flagged as thin evidence rather than reading as confidently as a place many
     // people corroborated.
@@ -355,14 +355,14 @@ const GSR_CONST = {
   // Relief-shades the same grid COLLECTIVE.gridResolution interpolates,
   // treating value (not elevation) as height. Since the values are z-scored
   // arousal/phasic metrics (not meters), the height field is
-  // normalized to [0, 1] and re-scaled by `exaggeration` (in grid-cell
+  // normalised to [0, 1] and re-scaled by `exaggeration` (in grid-cell
   // widths) before shading, rather than using real-world cell spacing —
   // that keeps the relief's visual intensity consistent across tracks
   // regardless of grid resolution or the metric's raw unit scale.
   HILLSHADE: {
     azimuthDeg: 315,   // simulated sun direction, true compass bearing (0=N, 90=E, 180=S, 270=W); 315 = NW (top-left on a north-up map), casting shadow toward SE (bottom-right)
     altitudeDeg: 35,   // sun elevation above the horizon — lower angle = longer, more dramatic shadows
-    exaggeration: 6.0, // full 0..1 normalized value range mapped to this many grid-cell widths of "height"
+    exaggeration: 6.0, // full 0..1 normalised value range mapped to this many grid-cell widths of "height"
     // minLightness/maxLightness are deliberately NOT symmetric around the 50%
     // baseline. Flat (unsloped) cells always render at cos(altitudeDeg) —
     // here cos(35deg) = 0.82 — regardless of exaggeration, so a naive

@@ -285,7 +285,7 @@ const OSMEnricher = {
   /**
    * Thin wrapper over the shared SpatialGrid (spatial_grid.js): computes each
    * geom's own lat/lon bbox, then inserts it padded by one extra cell in
-   * every direction. Combined with getNearby()'s own 3x3-neighborhood query
+   * every direction. Combined with getNearby()'s own 3x3-neighbourhood query
    * below, a geom is reachable from up to ~2 cells away (~222m at
    * CELL_SIZE_DEG=0.001) — deliberately wider than the single-cell reach
    * either padding alone would give, since enrichment search radii can

@@ -6,7 +6,7 @@ const GeoUtils = {
   METERS_PER_DEG_LAT: 111320,
 
   /**
-   * Conversion factors from degrees to meters at a given latitude.
+   * Conversion factors from degrees to metres at a given latitude.
    *
    * @param {number} lat - Latitude in degrees.
    * @returns {{degToMeterLat: number, degToMeterLon: number}} Scaling factors.
@@ -17,14 +17,14 @@ const GeoUtils = {
   },
 
   /**
-   * Fast flat-earth squared distance in meters given scale factors.
+   * Fast flat-earth squared distance in metres given scale factors.
    *
    * @param {number} lat1 - Point 1 latitude.
    * @param {number} lon1 - Point 1 longitude.
    * @param {number} lat2 - Point 2 latitude.
    * @param {number} lon2 - Point 2 longitude.
    * @param {{degToMeterLat: number, degToMeterLon: number}} [scale] - Scale factors.
-   * @returns {number} Squared distance in meters.
+   * @returns {number} Squared distance in metres.
    */
   distanceMetersSq(lat1, lon1, lat2, lon2, scale) {
     const sc = scale || GeoUtils.getGeodesicScale((parseFloat(lat1) + parseFloat(lat2)) / 2);
@@ -34,24 +34,24 @@ const GeoUtils = {
   },
 
   /**
-   * Fast flat-earth distance in meters given scale factors.
+   * Fast flat-earth distance in metres given scale factors.
    *
    * @param {number} lat1 - Point 1 latitude.
    * @param {number} lon1 - Point 1 longitude.
    * @param {number} lat2 - Point 2 latitude.
    * @param {number} lon2 - Point 2 longitude.
    * @param {{degToMeterLat: number, degToMeterLon: number}} [scale] - Scale factors.
-   * @returns {number} Distance in meters.
+   * @returns {number} Distance in metres.
    */
   distanceMeters(lat1, lon1, lat2, lon2, scale) {
     return Math.sqrt(GeoUtils.distanceMetersSq(lat1, lon1, lat2, lon2, scale));
   },
 
   /**
-   * Extract standardized {lat, lon} numbers from various point representations.
+   * Extract standardised {lat, lon} numbers from various point representations.
    *
    * @param {object|Array} p - Point representation ({lat, lon}, {lat, lng}, [lat, lon], etc.)
-   * @returns {{lat: number, lon: number}|null} Standardized coordinate pair or null.
+   * @returns {{lat: number, lon: number}|null} Standardised coordinate pair or null.
    */
   extractCoord(p) {
     if (!p) return null;
@@ -106,10 +106,10 @@ const GeoUtils = {
   },
 
   /**
-   * Expand a bounding box by a buffer distance in meters.
+   * Expand a bounding box by a buffer distance in metres.
    *
    * @param {{minLat: number, maxLat: number, minLon: number, maxLon: number}} bounds
-   * @param {number} marginMeters - Buffer in meters.
+   * @param {number} marginMeters - Buffer in metres.
    * @returns {{minLat: number, maxLat: number, minLon: number, maxLon: number}} Expanded bounds.
    */
   expandBounds(bounds, marginMeters) {
