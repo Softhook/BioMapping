@@ -23,7 +23,7 @@ Object.assign(GSRMapManager.prototype, {
     const LegendControl = L.Control.extend({
       onAdd: () => {
         const div = L.DomUtil.create('div', 'map-legend');
-        div.innerHTML = '<div class="legend-title">GSR Arousal</div><div class="legend-scale"><div class="legend-gradient" style="background: linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%));"></div><div class="legend-labels"><span>Low</span><span>High</span></div></div>';
+        div.innerHTML = '<div class="legend-title">GSR Signal</div><div class="legend-scale"><div class="legend-gradient" style="background: linear-gradient(90deg, hsl(120,90%,50%), hsl(60,90%,50%), hsl(0,90%,50%));"></div><div class="legend-labels"><span>Low</span><span>High</span></div></div>';
         return div;
       }
     });
@@ -85,7 +85,7 @@ Object.assign(GSRMapManager.prototype, {
       // for the key<->field<->label mapping, also used by map.js's
       // _getMetricKey() and ui.js's correlation dashboard.
       const metricNames = {
-        'gsr':              'GSR Arousal (Raw)',
+        'gsr':              'GSR Signal (Raw)',
         'phasic':           'Phasic (SCR)',
         'tonic':            'Tonic Baseline (SCL)',
         'peakDensity':      'Peak Density (NS-SCR)',

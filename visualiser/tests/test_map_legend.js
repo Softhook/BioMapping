@@ -26,7 +26,7 @@ test('Map Legend: single mode - default gsr metric', () => {
   window.AppState.mapManager.updateLegend();
   
   const html = legendDiv.innerHTML;
-  assert.ok(html.includes('GSR Arousal (Raw)'), 'Should contain GSR Arousal title');
+  assert.ok(html.includes('GSR Signal (Raw)'), 'Should contain GSR Signal title');
   assert.ok(html.includes('1.2'), 'Should display min value');
   assert.ok(html.includes('4.8'), 'Should display max value');
   assert.ok(html.includes('hsl(120,90%,50%)'), 'Should use correct HSL green');
