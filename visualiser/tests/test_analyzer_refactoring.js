@@ -896,3 +896,66 @@ test('series pool: _globalRange for pooled curves matches a direct scan (incl. d
     'deconvolution-mode phasic global range must reflect the reconstructed curve');
 });
 
+// ── Filter/decomposition prefix memoisation (#2, 2026-09-03) ────────────────
+// Stages 1–3 (median filter, low-pass, tonic/phasic decomposition) are cached
+// on the six params that feed them. A slider that only affects peak detection /
+// hotspots / metric windows reuses the cached prefix; one of the six busts it.
+
+test('prefix cache: a detection-only param change skips stages 1–3 (decomposeTonicPhasic not re-called)', () => {
+  const a = new GSRAnalyzer();
+  a.parseCSV(FIX_CSV);
+  a.analyze(P(), 0);
+
+  const realDecompose = GsrFilter.decomposeTonicPhasic;
+  let calls = 0;
+  GsrFilter.decomposeTonicPhasic = function (...args) { calls++; return realDecompose.apply(this, args); };
+  try {
+    a.analyze({ ...P(), peakThreshold: 0.05, hotspotPercentile: 0.5, minPeakQuality: 0.4 }, 0);
+    assert.strictEqual(calls, 0, 'stages 1–3 should be memoised for a detection-only change');
+
+    a.analyze({ ...P(), lpfWindow: P().lpfWindow + 0.5 }, 0);
+    assert.strictEqual(calls, 1, 'changing one of the six prefix params must recompute the prefix');
+  } finally {
+    GsrFilter.decomposeTonicPhasic = realDecompose;
+  }
+});
+
+test('prefix cache: cached-prefix results match a from-scratch analyze() (incl. after a deconvolution run)', () => {
+  const scratch = params => {
+    const f = new GSRAnalyzer(); f.parseCSV(FIX_CSV); f.analyze(params, 0.5);
+    return seriesSnapshot(f);
+  };
+  const a = new GSRAnalyzer();
+  a.parseCSV(FIX_CSV);
+
+  a.analyze(P(), 0.5);
+  // Same prefix, deconvolution on — mutates this.phasic / phasicZ / phasicStd.
+  a.analyze({ ...P(), useDeconvolution: true }, 0.5);
+  assert.deepStrictEqual(seriesSnapshot(a), scratch({ ...P(), useDeconvolution: true }),
+    'cache-hit deconvolution run diverged from scratch');
+  // Same prefix again, back to default — the pooled phasic side must be
+  // restored to the pristine decomposition, not left holding deconv values.
+  a.analyze({ ...P(), peakThreshold: 0.04 }, 0.5);
+  assert.deepStrictEqual(seriesSnapshot(a), scratch({ ...P(), peakThreshold: 0.04 }),
+    'cache-hit after a deconvolution run did not restore the pristine phasic prefix');
+});
+
+test('prefix cache: re-parsing new raw data invalidates the cached prefix', () => {
+  const a = new GSRAnalyzer();
+  a.parseCSV(FIX_CSV);
+  a.analyze(P(), 0);
+  assert.ok(a._prefixCache, 'prefix cache should be populated after analyze()');
+
+  a.parseCSV(FIX_CSV); // brand-new this.raw array
+
+  const realDecompose = GsrFilter.decomposeTonicPhasic;
+  let calls = 0;
+  GsrFilter.decomposeTonicPhasic = function (...args) { calls++; return realDecompose.apply(this, args); };
+  try {
+    a.analyze(P(), 0); // identical params, but raw changed
+    assert.strictEqual(calls, 1, 'the prefix must be recomputed against the new raw data');
+  } finally {
+    GsrFilter.decomposeTonicPhasic = realDecompose;
+  }
+});
+

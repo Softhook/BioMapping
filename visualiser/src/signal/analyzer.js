@@ -83,6 +83,10 @@ class GSRAnalyzer {
     this._seriesRange = {};
     this._rawGlobalRange = null;
     this._timelinePointsCache = null;
+    // Memoised stages 1–3 output (filter + decomposition), keyed on the six
+    // params that feed it; see analyze(). Nulled whenever the series pool is
+    // rebuilt (raw data changed).
+    this._prefixCache = null;
   }
 
   /**
@@ -121,6 +125,7 @@ class GSRAnalyzer {
       for (let i = 0; i < n; i += step) tl.push(raw[i]);
     }
     this._timelinePointsCache = tl;
+    this._prefixCache = null; // pooled prefix result is tied to this raw data
 
     this._seriesPoolRaw = raw;
   }
@@ -359,35 +364,67 @@ class GSRAnalyzer {
     const n = this.raw.length;
     this._ensureSeriesPool(this.raw, n);
 
-    // 1. Noise Median Filtering
-    const medWindowSize = Math.max(1, Math.round(params.medianSize * this.sampleRate));
-    let afterMedian = GsrFilter.applyMedianFilter(this._rawValsPool, medWindowSize);
+    // ── Stages 1–3: median filter → low-pass → tonic/phasic decomposition ──
+    // Only six params feed this prefix; the ~9 peak-detection / hotspot /
+    // metric-window sliders don't. When none of the six changed since the last
+    // analyze(), the pooled .filtered/.tonic/.phasic arrays (and their cached
+    // Y-ranges) are still correct — skip ~25 ms of filtering + decomposition on
+    // a 40k-row track and reuse them. Keyed alongside this.raw identity, which
+    // _ensureSeriesPool() nulls the cache on.
+    const prefixKey = params.medianSize + '|' + params.lpfWindow + '|' + !!params.adaptiveNotch +
+      '|' + params.tonicWindow + '|' + params.tonicMethod + '|' + params.dwtLevel;
 
-    // 2. Low-Pass Filter
-    let afterLPF;
-    if (params.adaptiveNotch) {
-      const defaultWinSize = params.lpfWindow * this.sampleRate;
-      const windowSizes = GsrFilter.estimateGaitPeriods(afterMedian, this.sampleRate, defaultWinSize);
-      afterLPF = GsrFilter.applyAdaptiveZeroPhaseMovingAverage(afterMedian, windowSizes);
+    let phasicVals;
+    if (this._prefixCache && this._prefixCache.key === prefixKey) {
+      phasicVals = this._prefixCache.phasicVals;
+      // .filtered / .tonic and their ranges are untouched between calls; the
+      // phasic side may have been swapped out by a deconvolution run, so
+      // restore it from the pristine prefix result.
+      this.filtered = this._seriesPool.filtered;
+      this.tonic = this._seriesPool.tonic;
+      this.phasic = this._seriesPool.phasic;
+      this._seriesRange.phasic = this._prefixCache.phasicRange;
+      this.phasicStd = this._prefixCache.phasicStd;
+      this.tonicZ = GsrFilter.standardizeSignal(this.tonic, this._seriesPool.tonicZ);
+      this.phasicZ = GsrFilter.standardizeSignal(this.phasic, this._seriesPool.phasicZ);
     } else {
-      const lpfWinSize = params.lpfWindow * this.sampleRate;
-      afterLPF = GsrFilter.applyZeroPhaseMovingAverage(afterMedian, lpfWinSize);
+      // 1. Noise Median Filtering
+      const medWindowSize = Math.max(1, Math.round(params.medianSize * this.sampleRate));
+      let afterMedian = GsrFilter.applyMedianFilter(this._rawValsPool, medWindowSize);
+
+      // 2. Low-Pass Filter
+      let afterLPF;
+      if (params.adaptiveNotch) {
+        const defaultWinSize = params.lpfWindow * this.sampleRate;
+        const windowSizes = GsrFilter.estimateGaitPeriods(afterMedian, this.sampleRate, defaultWinSize);
+        afterLPF = GsrFilter.applyAdaptiveZeroPhaseMovingAverage(afterMedian, windowSizes);
+      } else {
+        const lpfWinSize = params.lpfWindow * this.sampleRate;
+        afterLPF = GsrFilter.applyZeroPhaseMovingAverage(afterMedian, lpfWinSize);
+      }
+
+      this._fillSeries('filtered', afterLPF);
+
+      // 3. Tonic/Phasic Decomposition
+      const decomp = GsrFilter.decomposeTonicPhasic(afterLPF, this.sampleRate, params);
+      const tonicVals = decomp.tonic;
+      phasicVals = decomp.phasic;
+
+      this._fillSeries('tonic', tonicVals);
+      this._fillSeries('phasic', phasicVals);
+
+      // Compute Z-Scores and cache standard deviation of phasic values for peak scaling
+      this.tonicZ = GsrFilter.standardizeSignal(this.tonic, this._seriesPool.tonicZ);
+      this.phasicZ = GsrFilter.standardizeSignal(this.phasic, this._seriesPool.phasicZ);
+      this.phasicStd = GsrFilter.calculateStats(phasicVals).std;
+
+      this._prefixCache = {
+        key: prefixKey,
+        phasicVals,
+        phasicStd: this.phasicStd,
+        phasicRange: this._seriesRange.phasic,
+      };
     }
-
-    this._fillSeries('filtered', afterLPF);
-
-    // 3. Tonic/Phasic Decomposition
-    const decomp = GsrFilter.decomposeTonicPhasic(afterLPF, this.sampleRate, params);
-    const tonicVals = decomp.tonic;
-    const phasicVals = decomp.phasic;
-
-    this._fillSeries('tonic', tonicVals);
-    this._fillSeries('phasic', phasicVals);
-
-    // Compute Z-Scores and cache standard deviation of phasic values for peak scaling
-    this.tonicZ = GsrFilter.standardizeSignal(this.tonic, this._seriesPool.tonicZ);
-    this.phasicZ = GsrFilter.standardizeSignal(this.phasic, this._seriesPool.phasicZ);
-    this.phasicStd = GsrFilter.calculateStats(phasicVals).std;
 
     // 5. Phasic Peak Detection. Exactly one of three mutually-exclusive
     // pipelines builds this.peaks per analyze() call. The morphology sliders

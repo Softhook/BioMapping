@@ -84,28 +84,44 @@ function loadTrack(filename) {
 
 const FILES = ['biomap_048.csv', 'biomap_019.csv', 'biomap_016.csv'];
 
-console.log('── analyze() on real tracks: full pipeline, dominated (pre-fix) by _computeNoiseFloor() ──\n');
+console.log('── analyze() on real tracks: cache-HIT (peak-slider drag) vs cache-MISS (filter-slider drag) ──\n');
+console.log('  Track                   rows   peaks   HIT median    MISS median');
+console.log('  ' + '-'.repeat(66));
 
 for (const file of FILES) {
   const { analyzer, filterParams } = loadTrack(file);
-  const result = bench(() => analyzer.analyze(filterParams, 0), 3, 8);
+
+  // HIT: same six filter params every call, so stages 1–3 (median + LPF +
+  // decomposition) are memoised and only peak detection / metrics rerun.
+  // This is what dragging peakThreshold / a shape slider / hotspot % costs.
+  const hit = bench(() => analyzer.analyze(filterParams, 0), 3, 12);
+
+  // MISS: nudge lpfWindow every call so the prefix key changes and the full
+  // filter + decomposition pipeline reruns — a medianSize / lpfWindow /
+  // tonicWindow / tonicMethod drag.
+  let k = 0;
+  const miss = bench(() => {
+    analyzer.analyze({ ...filterParams, lpfWindow: filterParams.lpfWindow + (k++ % 5) * 1e-3 }, 0);
+  }, 3, 12);
+
   console.log(
-    `  ${file.padEnd(22)} rows=${String(analyzer.raw.length).padStart(6)}  peaks=${String(analyzer.peaks.length).padStart(5)}` +
-    `  median=${result.median.toFixed(2).padStart(8)}ms  min=${result.min.toFixed(2).padStart(7)}ms  max=${result.max.toFixed(2).padStart(7)}ms`
+    `  ${file.padEnd(22)} ${String(analyzer.raw.length).padStart(6)}  ${String(analyzer.peaks.length).padStart(5)}` +
+    `   ${hit.median.toFixed(2).padStart(8)}ms   ${miss.median.toFixed(2).padStart(9)}ms`
   );
 }
 
 console.log(`
-  This runs once per settled frame of ANY of the GSR sliders
-  (events.js's bindGsrSlider(), rafCoalesced but still a full recompute —
-  there is no memoised skip the way §2 of the perf-routes doc's declined
-  candidate would add). The 2026-09-03 pass cut the constant per-call cost
-  instead: analyze() now reuses the {time,val} arrays behind
-  .filtered/.tonic/.phasic/.tonicZ/.phasicZ/.em_fog across calls rather than
-  rebuilding six ~n-length arrays with raw.map() every time (~50 ms of
-  allocation + GC on a 40k-row track), and folds those curves' Y-range
-  scan into the fill loop. A large real track's per-drag-frame cost is what
-  this number represents.
+  analyze() runs once per settled frame of any GSR slider (events.js's
+  bindGsrSlider(), rafCoalesced). Two paths since 2026-09-03:
+   - The six params feeding stages 1–3 (medianSize, lpfWindow, adaptiveNotch,
+     tonicWindow, tonicMethod, dwtLevel) are memoised (analyzer.js's
+     _prefixCache). Dragging any OTHER slider is a cache HIT: median filter +
+     low-pass + tonic/phasic decomposition are skipped, only peak detection
+     and the continuous metrics rerun.
+   - Dragging one of those six is a MISS — full recompute — but even that no
+     longer rebuilds the six {time,val} series arrays with raw.map() every
+     call (they're pooled and refilled in place; ~50 ms of alloc + GC saved
+     on a 40k-row track), and folds the per-curve Y-range scan into the fill.
 `);
 
 // ── §A A/B Bench: Monotonic Deque vs Nested Loop Window Min ──────────────────
