@@ -1024,6 +1024,11 @@ const GSREvents = {
 
       if (!toGlobe && AppState.mapManager && AppState.mapManager.map && typeof AppState.mapManager.map.invalidateSize === 'function') {
         AppState.mapManager.map.invalidateSize({ pan: false, debounceMoveend: true });
+        // A track loaded while the globe was up left its auto-fit deferred (the
+        // hidden map can't be flown to) — frame it now that 2D is back.
+        if (typeof AppState.mapManager._applyPendingFit === 'function') {
+          AppState.mapManager._applyPendingFit();
+        }
       }
     };
 

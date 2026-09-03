@@ -27,9 +27,21 @@ Object.assign(GSRMapManager.prototype, {
    * Animate the map to a bounds (LatLngBounds or a [lat, lon] pair array),
    * preferring flyToBounds and degrading to fitBounds. Pass `fly: false` in
    * opts to force fitBounds. Shared by every auto-zoom-to-extent call site.
+   *
+   * When the map container isn't laid out — it's display:none because the 3D
+   * globe surface is showing — getSize() reads (0,0), and Leaflet's
+   * getBoundsZoom() turns that into a NaN zoom and then a LatLng(NaN, NaN) it
+   * throws on ("Invalid LatLng object"). Stash the request instead and replay
+   * it from _applyPendingFit() once the 2D surface is visible again.
    */
   _flyOrFitBounds(bounds, opts = {}) {
     if (!this.map || !bounds) return;
+    const size = (typeof this.map.getSize === 'function') ? this.map.getSize() : null;
+    if (size && (!size.x || !size.y)) {
+      this._pendingFit = { bounds, opts };
+      return;
+    }
+    this._pendingFit = null;
     const fitOpts = {
       padding: [30, 30],
       maxZoom: 17,
@@ -43,6 +55,21 @@ Object.assign(GSRMapManager.prototype, {
     } else if (typeof this.map.fitBounds === 'function') {
       this.map.fitBounds(bounds, fitOpts);
     }
+  },
+
+  /**
+   * Replay a fit that _flyOrFitBounds() deferred because the map was hidden
+   * (3D globe surface showing). Call after invalidateSize() once the 2D map is
+   * back on screen — e.g. a track loaded while the globe was up still frames
+   * itself on return. No-op when nothing is pending or the map is still hidden.
+   */
+  _applyPendingFit() {
+    const pending = this._pendingFit;
+    if (!pending || !this.map) return;
+    const size = (typeof this.map.getSize === 'function') ? this.map.getSize() : null;
+    if (size && (!size.x || !size.y)) return;
+    this._pendingFit = null;
+    this._flyOrFitBounds(pending.bounds, { ...pending.opts, fly: false });
   },
 
   /**
