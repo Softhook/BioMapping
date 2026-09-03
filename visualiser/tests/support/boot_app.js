@@ -38,7 +38,7 @@ const SCRIPT_ORDER = [
   'src/signal/stats_math.js', 'src/osm/overpass_client.js', 'src/osm/osm_cache.js', 'src/signal/dwt_filter.js', 'src/signal/deconvolution.js',
   'src/signal/csv_parser.js', 'src/signal/analyzer_time_format.js', 'src/signal/analyzer.js', 'src/osm/osm_enrichment.js', 'src/gps/map_match.js', 'src/signal/gsr_filter.js', 'src/render/marching_squares.js',
   'src/map/hillshade.js', 'src/spatial/spatial_clustering.js', 'src/spatial/collective_manager.js', 'src/gps/gps_filter.js', 'src/map/map_colors.js', 'src/gps/gps_pipeline.js',
-  'src/render/label_placement.js', 'src/render/bezier_spline.js', 'src/render/contour_ring_geometry.js', 'src/map/map_exporter.js', 'src/render/rf_fluid_renderer.js', 'src/map/map_popups.js', 'src/map/map.js', 'src/map/map_manager_process.js', 'src/map/map_manager_legend.js', 'src/map/map_manager_osm.js', 'src/map/map_manager_rf_fluid.js', 'src/map/map_manager_viewport.js', 'src/map/map_manager_toggles.js',
+  'src/render/label_placement.js', 'src/render/bezier_spline.js', 'src/render/contour_ring_geometry.js', 'src/map/map_exporter.js', 'src/render/rf_fluid_renderer.js', 'src/map/map_popups.js', 'src/map/map.js', 'src/map/map_manager_process.js', 'src/map/map_manager_legend.js', 'src/map/map_manager_osm.js', 'src/map/map_manager_rf_fluid.js', 'src/map/map_manager_viewport.js', 'src/map/map_manager_peaks.js', 'src/map/map_manager_collective.js', 'src/map/map_manager_toggles.js',
   'src/map/globe3d/exporters.js', 'src/map/globe3d/rf_expanse.js', 'src/map/globe3d/buildings.js',
   'src/map/globe3d.js', 'src/map/globe3d_view.js', 'src/ui/storage.js',
   'src/ui/events.js', 'src/ui/tracks.js', 'src/spatial/collective_project.js', 'src/ui/ui.js', 'src/render/renderer.js', 'src/render/sketch.js',
