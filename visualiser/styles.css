@@ -2595,12 +2595,31 @@ input[type="range"]:focus-visible,
   color: var(--text-primary);
 }
 
-/* Heatmap correlations cells styling (high-contrast WCAG-compliant on light backgrounds) */
-.corr-pos-strong { background-color: rgba(229, 115, 0, 0.18) !important; color: #b45309 !important; font-weight: 700; }
-.corr-pos-mod { background-color: rgba(229, 115, 0, 0.08) !important; color: #92400e !important; font-weight: 600; }
-.corr-neg-strong { background-color: rgba(0, 91, 196, 0.18) !important; color: #005bc4 !important; font-weight: 700; }
-.corr-neg-mod { background-color: rgba(0, 91, 196, 0.08) !important; color: #0284c7 !important; font-weight: 600; }
-.corr-weak { color: var(--text-muted) !important; }
+/* Correlation-matrix cells. The effect-size chip is the primary cue; the
+   number's colour only carries direction; significance is a secondary,
+   muted qualifier ("n.s." on the chip) — never stars on the number. */
+.corr-cell { white-space: nowrap; }
+.corr-num { font-variant-numeric: tabular-nums; font-weight: 600; }
+.corr-num.dir-pos  { color: #b45309; }   /* toward higher arousal */
+.corr-num.dir-neg  { color: #005bc4; }   /* toward lower arousal  */
+.corr-num.dir-none { color: var(--text-muted); font-weight: 400; }
+
+.mag-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+/* grey -> amber intensity ramp = "how big", independent of direction */
+.mag-chip.mag-negligible { background: #eceff1; color: #607d8b; }
+.mag-chip.mag-small      { background: #fff1de; color: #a1621a; }
+.mag-chip.mag-moderate   { background: #ffe0b2; color: #b45309; }
+.mag-chip.mag-strong     { background: #ffcc80; color: #7c2d12; }
+.mag-chip.mag-ns         { opacity: 0.5; font-weight: 500; }
 
 /* Allow environmental panel to grow taller and fill space when available */
 #environmentalPanel {

@@ -958,7 +958,7 @@
 
           <!-- Tab 1: Correlation Matrix -->
           <div class="env-tab-content active" id="envTabCorrelation" style="padding: 16px;">
-            <p class="help-text" style="margin-bottom: 12px; font-size: 0.85rem;">Pearson correlation (<em>r</em>) between environmental features and physiological arousal. Stars indicate statistical significance.</p>
+            <p class="help-text" style="margin-bottom: 12px; font-size: 0.85rem;">Pearson correlation (<em>r</em>) between environmental features and physiological arousal. Read the <strong>effect-size chip first</strong> — <span class="mag-chip mag-negligible">negligible</span> |r|&lt;0.10 · <span class="mag-chip mag-small">small</span> 0.10–0.20 · <span class="mag-chip mag-moderate">moderate</span> 0.20–0.30 · <span class="mag-chip mag-strong">strong</span> &gt;0.30. A chip marked <em>n.s.</em> did not pass the significance test (adjusted <em>q</em>&nbsp;≥&nbsp;0.05) — treat it as no effect regardless of the number.</p>
             <div class="table-container">
               <table class="peaks-table" id="correlationTable">
                 <thead>
@@ -967,8 +967,8 @@
                     <th>Phasic <em>r</em></th>
                     <th>Tonic <em>r</em></th>
                     <th>Peaks <em>r</em></th>
-                    <th>p (Phasic)</th>
-                    <th>p (Tonic)</th>
+                    <th title="p-value adjusted for serial autocorrelation (effective sample size) and multiple comparisons (Benjamini–Hochberg FDR)"><em>q</em> (Phasic)</th>
+                    <th title="p-value adjusted for serial autocorrelation (effective sample size) and multiple comparisons (Benjamini–Hochberg FDR)"><em>q</em> (Tonic)</th>
                     <th>Interpretation</th>
                   </tr>
                 </thead>
@@ -977,6 +977,9 @@
                 </tbody>
               </table>
             </div>
+            <p class="help-text" style="margin-top: 10px; font-size: 0.78rem; color: var(--text-muted);">
+              <strong>Magnitude, not significance, is the headline</strong>: with this many samples even a trivially small <em>r</em> can be "significant", so the effect-size band leads and <em>q</em> only qualifies it. <em>q</em>-values are corrected for <strong>serial autocorrelation</strong> (1&nbsp;Hz samples aren't independent — the test uses the lag-1 effective sample size) and for <strong>multiple comparisons</strong> (Benjamini–Hochberg FDR across every cell). Rows whose factor barely changes along the route show "not enough variation".
+            </p>
           </div>
 
           <!-- Tab 2: Regression Plot -->
@@ -984,13 +987,11 @@
             <div style="display: flex; flex-direction: column; gap: 12px;">
               <div style="display: flex; gap: 12px; align-items: center;">
                 <label for="scatterEnvMetric" style="font-size: 0.85rem; font-weight: 500;">Environmental factor:</label>
+                <!-- Options populated by GSRUI.syncScatterEnvOptions() from
+                     GSR_CONST.OSM_METRICS (+ EM Fog when present) — single
+                     source of truth, kept in step with the correlation matrix. -->
                 <select id="scatterEnvMetric" class="select-control" style="width: auto;">
-                  <option value="osm_green_pct_50m">Green Space</option>
-                  <option value="osm_building_density_50m">Building Density</option>
-                  <option value="osm_dist_major_road">Distance to Major Road (m)</option>
-                  <option value="osm_dist_water">Distance to Water (m)</option>
-                  <option value="osm_tree_density_50m">Tree Density</option>
-                  <option value="osm_amenity_count_50m">Amenity Count</option>
+                  <option value="osm_green_pct_50m">Green Space %</option>
                 </select>
               </div>
               <div style="display: flex; gap: 12px; align-items: center;">
@@ -1001,14 +1002,14 @@
                 </select>
               </div>
               <div class="r2-legend" style="font-size: 0.8rem; background: rgba(0,85,204,0.06); border-left: 3px solid #0055cc; padding: 10px 14px; border-radius: 3px; margin-top: 4px;">
-                <strong style="color:#0055cc;">R² (coefficient of determination)</strong>
+                <strong style="color:#0055cc;">R² = fraction of arousal variance the line explains</strong>
                 <ul style="margin: 6px 0 0 16px; padding: 0; color: var(--text-secondary); line-height: 1.6;">
-                  <li><strong>0.00–0.04</strong> — No relationship. The factor doesn't predict arousal.</li>
-                  <li><strong>0.05–0.14</strong> — Weak. Small effect.</li>
-                  <li><strong>0.15–0.35</strong> — Moderate. Clear trend.</li>
-                  <li><strong>0.35+</strong> — Strong. The factor explains much of the variation.</li>
+                  <li><strong>&lt;0.01</strong> (|r|&lt;0.10) — negligible. The factor doesn't predict arousal.</li>
+                  <li><strong>0.01–0.04</strong> (|r| 0.10–0.20) — small.</li>
+                  <li><strong>0.04–0.09</strong> (|r| 0.20–0.30) — moderate.</li>
+                  <li><strong>&gt;0.09</strong> (|r|&gt;0.30) — relatively strong for this kind of noisy field data.</li>
                 </ul>
-                <p style="margin: 4px 0 0 0; color: var(--text-muted); font-size: 0.75rem;">Each dot is one second of recording. The line shows the linear trend.</p>
+                <p style="margin: 4px 0 0 0; color: var(--text-muted); font-size: 0.75rem;">Each dot is one second of recording. The line shows the linear trend. Bands match the correlation table's effect-size chips.</p>
               </div>
             </div>
             
@@ -1020,7 +1021,7 @@
           <!-- Tab 3: Roads Profile -->
           <div class="env-tab-content" id="envTabRoads" style="display: none; padding: 16px;">
             <div style="display: flex; flex-direction: column; gap: 12px; min-width: 0;">
-              <p class="help-text" style="margin-bottom: 12px;">Average arousal by street type, using OpenStreetMap road classification. Peak rate is normalised to spikes per minute.</p>
+              <p class="help-text" style="margin-bottom: 12px;">Average arousal by street type, using OpenStreetMap road classification. Peak rate is normalised to spikes per minute. The 95% CI uses the autocorrelation-adjusted effective sample size (shown in brackets after the time), so it reflects how much <em>independent</em> data each street type really has. "unclassified" roads are omitted.</p>
               <div class="table-container">
                 <table class="peaks-table" id="roadArousalTable">
                   <thead>

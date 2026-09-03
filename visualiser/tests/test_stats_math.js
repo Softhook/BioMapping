@@ -104,6 +104,134 @@ test('calculatePearsonCorrelation: p-value decreases as the correlation strength
 });
 
 // ---------------------------------------------------------------------------
+// Autocorrelation-aware helpers (lag1Autocorrelation, effectiveSampleSize,
+// correlationEffectiveN, calculateAutocorrCorrelation)
+// ---------------------------------------------------------------------------
+
+test('lag1Autocorrelation: ~0 for i.i.d.-style alternating data, high for a slow ramp', () => {
+  const alternating = [];
+  for (let i = 0; i < 200; i++) alternating.push(i % 2 === 0 ? 1 : -1);
+  closeTo(StatsMath.lag1Autocorrelation(alternating), -1, 0.05, 'strict alternation -> r1 ~= -1');
+
+  const ramp = [];
+  for (let i = 0; i < 200; i++) ramp.push(i);
+  assert.ok(StatsMath.lag1Autocorrelation(ramp) > 0.95, 'monotone ramp -> r1 near 1');
+});
+
+test('lag1Autocorrelation: short or constant series returns 0', () => {
+  assert.strictEqual(StatsMath.lag1Autocorrelation([1, 2]), 0);
+  assert.strictEqual(StatsMath.lag1Autocorrelation([5, 5, 5, 5]), 0);
+});
+
+test('effectiveSampleSize: heavy positive autocorrelation shrinks N; white noise leaves it ~unchanged', () => {
+  const ramp = [];
+  for (let i = 0; i < 300; i++) ramp.push(i + Math.sin(i / 10));
+  const nEff = StatsMath.effectiveSampleSize(ramp);
+  assert.ok(nEff < 60, `strong autocorrelation should collapse 300 -> well under 60, got ${nEff}`);
+
+  // Deterministic pseudo-white sequence (no lib RNG): low |r1|.
+  const white = [];
+  let s = 12345;
+  for (let i = 0; i < 300; i++) { s = (1103515245 * s + 12345) & 0x7fffffff; white.push(s / 0x7fffffff); }
+  const nEffWhite = StatsMath.effectiveSampleSize(white);
+  assert.ok(nEffWhite > 240, `near-white noise should keep most of N=300, got ${nEffWhite}`);
+});
+
+test('correlationEffectiveN: never exceeds the raw pair count and drops with shared autocorrelation', () => {
+  const a = [];
+  const b = [];
+  for (let i = 0; i < 400; i++) { a.push(i + Math.sin(i / 7)); b.push(i * 0.8 + Math.cos(i / 9)); }
+  const nEff = StatsMath.correlationEffectiveN(a, b);
+  assert.ok(nEff <= 400, 'nEff cannot exceed N');
+  assert.ok(nEff < 80, `two smooth ramps share strong autocorrelation -> big reduction, got ${nEff}`);
+});
+
+test('calculateAutocorrCorrelation: same r as the plain Pearson, but a larger (more honest) p-value under autocorrelation', () => {
+  // A faint linear trend buried in a smooth wave: plain Pearson over 600
+  // autocorrelated points calls this "significant"; the corrected test
+  // should not be so sure.
+  const x = [];
+  const y = [];
+  for (let i = 0; i < 600; i++) {
+    x.push(i);
+    y.push(0.02 * i + 30 * Math.sin(i / 15));
+  }
+  const plain = StatsMath.calculatePearsonCorrelation(x, y);
+  const corr = StatsMath.calculateAutocorrCorrelation(x, y);
+  closeTo(corr.r, plain.r, 1e-12, 'point estimate r is unchanged');
+  assert.ok(corr.nEff < x.length, 'effective N is below raw N');
+  assert.ok(corr.p > plain.p, `corrected p (${corr.p}) should exceed the naive p (${plain.p})`);
+  assert.ok(Number.isFinite(corr.p) && corr.p >= 0 && corr.p <= 1, 'corrected p is a valid probability');
+});
+
+// ---------------------------------------------------------------------------
+// benjaminiHochberg (FDR adjustment)
+// ---------------------------------------------------------------------------
+
+test('benjaminiHochberg: q-values are >= their raw p, monotone with rank, and clamped to <= 1', () => {
+  const p = [0.001, 0.008, 0.02, 0.04, 0.9];
+  const q = StatsMath.benjaminiHochberg(p);
+  for (let i = 0; i < p.length; i++) {
+    assert.ok(q[i] >= p[i] - 1e-12, `q[${i}]=${q[i]} should be >= p[${i}]=${p[i]}`);
+    assert.ok(q[i] <= 1, 'q clamped to 1');
+  }
+  // Classic BH worked example: q_1 = 0.001*5/1, q_2 = 0.008*5/2, ...
+  closeTo(q[0], 0.005, 1e-9);
+  closeTo(q[1], 0.02, 1e-9);
+});
+
+test('benjaminiHochberg: non-finite entries pass through as NaN and do not join the ranking', () => {
+  const q = StatsMath.benjaminiHochberg([0.01, NaN, 0.04]);
+  assert.ok(Number.isNaN(q[1]), 'NaN in -> NaN out');
+  // m = 2 (only the finite cells), so q_1 = 0.01*2/1 = 0.02, q_2 = 0.04*2/2 = 0.04
+  closeTo(q[0], 0.02, 1e-9);
+  closeTo(q[2], 0.04, 1e-9);
+});
+
+test('benjaminiHochberg: all-NaN family returns all NaN without throwing', () => {
+  assert.deepStrictEqual(StatsMath.benjaminiHochberg([NaN, NaN]), [NaN, NaN]);
+});
+
+// ---------------------------------------------------------------------------
+// welchTTest
+// ---------------------------------------------------------------------------
+
+test('welchTTest: two clearly separated samples give a small p; identical samples give p ~= 1', () => {
+  const lo = Array.from({ length: 40 }, (_, i) => 1 + (i % 5) * 0.1);
+  const hi = Array.from({ length: 40 }, (_, i) => 3 + (i % 5) * 0.1);
+  const sep = StatsMath.welchTTest(lo, hi);
+  assert.ok(sep.p < 1e-6, `well-separated means -> tiny p, got ${sep.p}`);
+  closeTo(sep.meanA, 1.2, 1e-9);
+
+  const same = StatsMath.welchTTest(lo, lo.slice());
+  closeTo(same.p, 1, 1e-9);
+  assert.strictEqual(same.t, 0);
+});
+
+test('welchTTest: unequal variances — df lands between the smaller (n-1) and the pooled value', () => {
+  const tight = Array.from({ length: 30 }, (_, i) => 5 + (i % 3) * 0.01);
+  const loose = Array.from({ length: 30 }, (_, i) => 5 + (i % 7) * 2.0);
+  const { df } = StatsMath.welchTTest(tight, loose);
+  assert.ok(df > 0 && df < 58, `Welch df should be well under the pooled 58, got ${df}`);
+});
+
+test('welchTTest: useEffectiveN widens the test (bigger p) when the samples are autocorrelated', () => {
+  const a = [];
+  const b = [];
+  for (let i = 0; i < 200; i++) { a.push(Math.sin(i / 12)); b.push(0.4 + Math.sin(i / 12)); }
+  const raw = StatsMath.welchTTest(a, b, false);
+  const eff = StatsMath.welchTTest(a, b, true);
+  assert.ok(eff.nA < a.length, 'effective N below raw N');
+  assert.ok(eff.p > raw.p, `effective-N Welch should be less certain (${eff.p} > ${raw.p})`);
+});
+
+test('welchTTest: samples smaller than 2 return the neutral non-result', () => {
+  const r = StatsMath.welchTTest([1], [1, 2, 3]);
+  assert.strictEqual(r.p, 1);
+  assert.strictEqual(r.t, 0);
+});
+
+// ---------------------------------------------------------------------------
 // calculateLinearRegression
 // ---------------------------------------------------------------------------
 
@@ -173,10 +301,16 @@ test('_logBeta: a,b >= 1 branch matches the closed-form B(2,3) = 1/12', () => {
   closeTo(StatsMath._logBeta(2, 3), Math.log(1 / 12), 1e-6);
 });
 
-test('_logBeta: a<1 branch (Stirling approximation) is in the right ballpark for B(0.5,0.5)=pi', () => {
-  // This code path uses an approximation, not the exact Lanczos formula, so
-  // only assert it lands close to the true value ln(pi) ~= 1.1447.
-  closeTo(StatsMath._logBeta(0.5, 0.5), Math.log(Math.PI), 0.05);
+test('_logBeta: B(0.5,0.5)=pi via log-gamma (single code path, no small-parameter approximation)', () => {
+  closeTo(StatsMath._logBeta(0.5, 0.5), Math.log(Math.PI), 1e-6);
+});
+
+test('_logBeta: stays finite for a large first parameter (regression — the old small-parameter branch overflowed to NaN here)', () => {
+  // df/2 = 1000 with b = 0.5 is exactly what _tTestPValue feeds for an
+  // n ~= 2002 sample. Math.pow(1000, 999.5) is Infinity; the log-gamma
+  // path must not be.
+  const v = StatsMath._logBeta(1000, 0.5);
+  assert.ok(Number.isFinite(v), `expected a finite log-beta, got ${v}`);
 });
 
 test('_regIncompleteBeta: x<=0 returns 0 and x>=1 returns 1 (boundary shortcuts)', () => {
@@ -205,6 +339,27 @@ test('_tTestPValue: p-value is symmetric in the sign of t (two-tailed by constru
   const pPos = StatsMath._tTestPValue(2.5, 10);
   const pNeg = StatsMath._tTestPValue(-2.5, 10);
   closeTo(pPos, pNeg, 1e-9);
+});
+
+test('_tTestPValue: matches reference values across a wide df range, including the large-n regime the env dashboard runs in', () => {
+  // Reference values from R: 2 * pt(-abs(t), df).
+  closeTo(StatsMath._tTestPValue(2.0, 10), 0.073388, 1e-4, 't=2, df=10');
+  closeTo(StatsMath._tTestPValue(2.228, 10), 0.05004, 1e-4, 't=2.228, df=10');
+  closeTo(StatsMath._tTestPValue(1.0, 100), 0.319724, 1e-4, 't=1, df=100');
+  closeTo(StatsMath._tTestPValue(3.0, 500), 0.002827, 1e-4, 't=3, df=500 (was NaN before the log-beta fix)');
+  closeTo(StatsMath._tTestPValue(2.0, 2000), 0.045637, 1e-4, 't=2, df=2000 (was NaN before the log-beta fix)');
+});
+
+test('calculatePearsonCorrelation: large autocorrelation-free sample returns a finite p-value (regression for the log-beta overflow)', () => {
+  const x = [];
+  const y = [];
+  for (let i = 0; i < 1500; i++) {
+    x.push(i);
+    y.push(0.01 * i + Math.sin(i * 1.7) * 8); // faint trend under noise
+  }
+  const { r, p } = StatsMath.calculatePearsonCorrelation(x, y);
+  assert.ok(Number.isFinite(r) && Number.isFinite(p), `r and p must be finite, got r=${r} p=${p}`);
+  assert.ok(p >= 0 && p <= 1, `p must be in [0,1], got ${p}`);
 });
 
 // ---------------------------------------------------------------------------

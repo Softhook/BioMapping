@@ -37,12 +37,15 @@ test('OSM_METRICS has exactly 8 entries, matching the 8 osm_* fields written by 
   assert.strictEqual(GSR_CONST.OSM_METRICS.length, 8);
 });
 
-test('OSM_METRICS has exactly 2 categorical entries (roadClass, inPark) and 6 continuous', () => {
+test('OSM_METRICS kinds: roadClass is categorical, inPark is binary, the other 6 are continuous', () => {
   const categorical = GSR_CONST.OSM_METRICS.filter(m => m.kind === 'categorical');
+  const binary = GSR_CONST.OSM_METRICS.filter(m => m.kind === 'binary');
   const continuous = GSR_CONST.OSM_METRICS.filter(m => m.kind === 'continuous');
-  assert.strictEqual(categorical.length, 2, 'exactly roadClass + inPark are categorical');
-  assert.deepStrictEqual(categorical.map(m => m.key).sort(), ['inPark', 'roadClass']);
-  assert.strictEqual(continuous.length, 6, 'the other 6 fields are continuous — this is what ui.js\'s correlation/scatter feature lists filter on');
+  assert.deepStrictEqual(categorical.map(m => m.key), ['roadClass'], 'only roadClass is multi-level categorical (excluded from the correlation UI)');
+  assert.deepStrictEqual(binary.map(m => m.key), ['inPark'], 'inPark is a 0/1 field — point-biserial-correlatable, so it IS in the correlation/scatter UI');
+  assert.strictEqual(continuous.length, 6, 'the other 6 fields are continuous');
+  // ui.js's correlation/scatter feature lists filter on continuous || binary.
+  assert.strictEqual(continuous.length + binary.length, 7);
 });
 
 test('every entry has a non-empty key, field, label, and a valid kind', () => {
@@ -51,7 +54,7 @@ test('every entry has a non-empty key, field, label, and a valid kind', () => {
     assert.ok(m.field && typeof m.field === 'string', `entry ${m.key} missing a string field`);
     assert.ok(m.field.startsWith('osm_'), `entry ${m.key}'s field "${m.field}" should start with osm_`);
     assert.ok(m.label && typeof m.label === 'string', `entry ${m.key} missing a string label`);
-    assert.ok(m.kind === 'categorical' || m.kind === 'continuous', `entry ${m.key} has an unrecognised kind: ${m.kind}`);
+    assert.ok(['categorical', 'binary', 'continuous'].includes(m.kind), `entry ${m.key} has an unrecognised kind: ${m.kind}`);
   }
 });
 

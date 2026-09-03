@@ -87,6 +87,7 @@ function buildEnrichedAnalyzer() {
     pt.osm_dist_water = 100 + (i % 200);
     pt.osm_tree_density_50m = ((i * 3) % 100) / 100;
     pt.osm_amenity_count_50m = i % 5;
+    pt.em_fog = 20 + (i % 40); // varying EM Fog Index so the correlation row is meaningful
   });
   a.isEnriched = true;
   a.enrichmentRadius = 50;
@@ -105,6 +106,20 @@ global.document = {
   querySelector() { return null; },
 };
 
+test('GSRUI.correlationBand: |r| bands are negligible <.10, small <.20, moderate <.30, strong otherwise (sign-independent)', () => {
+  const band = (r) => GSRUI.correlationBand(r).key;
+  assert.strictEqual(band(0), 'negligible');
+  assert.strictEqual(band(0.099), 'negligible');
+  assert.strictEqual(band(-0.099), 'negligible');
+  assert.strictEqual(band(0.10), 'small');
+  assert.strictEqual(band(-0.19), 'small');
+  assert.strictEqual(band(0.20), 'moderate');
+  assert.strictEqual(band(-0.29), 'moderate');
+  assert.strictEqual(band(0.30), 'strong');
+  assert.strictEqual(band(-0.85), 'strong');
+  assert.strictEqual(band(NaN), 'negligible'); // guarded: NaN -> negligible, never throws
+});
+
 test('updateEnvironmentalDashboard (single mode): cache reused across repeated calls when nothing changed', () => {
   const a = buildEnrichedAnalyzer();
   global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
@@ -116,6 +131,72 @@ test('updateEnvironmentalDashboard (single mode): cache reused across repeated c
 
   GSRUI.updateEnvironmentalDashboard();
   assert.strictEqual(a._cachedEnvStats, first, 'no mutation occurred -> cache object reused, not recomputed');
+});
+
+test('updateEnvironmentalDashboard (single mode): EM Fog is included as a correlation feature when the track carries readings', () => {
+  const a = buildEnrichedAnalyzer();
+  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+
+  GSRUI.updateEnvironmentalDashboard();
+  const rows = a._cachedEnvStats.correlationMatrix;
+  const emRow = rows.find(r => r.key === 'em_fog');
+  assert.ok(emRow, 'EM Fog Index row present in the correlation matrix');
+  assert.ok(emRow.n > 0, 'EM Fog row has valid paired samples');
+  assert.ok(Number.isFinite(emRow.rPhasic) && Number.isFinite(emRow.pPhasic),
+    'EM Fog phasic r and p are finite numbers');
+
+  // And absent when no sample carries a reading.
+  const b = buildEnrichedAnalyzer();
+  b.raw.forEach(pt => { pt.em_fog = NaN; });
+  global.AppState = { viewMode: 'single', analyzer: b, activeTrackId: 'trkB' };
+  GSRUI.updateEnvironmentalDashboard();
+  assert.ok(!b._cachedEnvStats.correlationMatrix.some(r => r.key === 'em_fog'),
+    'EM Fog row omitted when every reading is NaN');
+});
+
+test('updateEnvironmentalDashboard (single mode): correlation matrix carries FDR q-values, "in park" is a feature, and road profile drops "unclassified"', () => {
+  const a = buildEnrichedAnalyzer();
+  // Re-stamp road class so one bucket is the OSM catch-all "unclassified".
+  a.raw.forEach((pt, i) => { pt.osm_road_class = ['residential', 'unclassified', 'primary'][i % 3]; });
+  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+
+  GSRUI.updateEnvironmentalDashboard();
+  const stats = a._cachedEnvStats;
+
+  // FDR q-values attached to every row.
+  stats.correlationMatrix.forEach(row => {
+    assert.ok('qPhasic' in row && 'qTonic' in row && 'qPeaks' in row,
+      `row ${row.key} should carry q-values`);
+  });
+
+  // Binary "in park" is now correlated (point-biserial), not dropped as categorical.
+  assert.ok(stats.correlationMatrix.some(r => r.key === 'osm_in_park'),
+    'osm_in_park present as a correlation feature');
+  // Road Class stays out (genuinely multi-level categorical).
+  assert.ok(!stats.correlationMatrix.some(r => r.key === 'osm_road_class'),
+    'osm_road_class still excluded');
+
+  // "unclassified" road bucket is omitted from the profile.
+  assert.ok(!stats.roadProfile.some(p => p.name === 'unclassified'),
+    'unclassified road type dropped from the road profile');
+  assert.ok(stats.roadProfile.length >= 2, 'other road types still profiled');
+
+  // Highest-vs-lowest comparison is a Welch test result, not a CI-overlap flag.
+  assert.ok(stats.roadComparison && Number.isFinite(stats.roadComparison.p),
+    'roadComparison holds a finite Welch p-value');
+  assert.ok(!('_phasicVals' in stats.roadProfile[0]),
+    'per-group raw sample arrays are stripped before caching');
+});
+
+test('updateEnvironmentalDashboard (single mode): a factor that never changes along the route is flagged as no-variance and left unstarred', () => {
+  const a = buildEnrichedAnalyzer();
+  a.raw.forEach(pt => { pt.osm_green_pct_50m = 42; }); // constant everywhere
+  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+
+  GSRUI.updateEnvironmentalDashboard();
+  const row = a._cachedEnvStats.correlationMatrix.find(r => r.key === 'osm_green_pct_50m');
+  assert.ok(row && row.hasVariance === false,
+    'a constant environmental factor has hasVariance === false');
 });
 
 test('updateEnvironmentalDashboard (single mode): recomputes after setPeakLabel edits the active track', () => {

@@ -1181,7 +1181,12 @@ const GSRUI = {
                 osm_building_density_50m: envPt.osm_building_density_50m,
                 osm_dist_water: envPt.osm_dist_water,
                 osm_tree_density_50m: envPt.osm_tree_density_50m,
-                osm_amenity_count_50m: envPt.osm_amenity_count_50m
+                osm_amenity_count_50m: envPt.osm_amenity_count_50m,
+                // EM Fog Index (0-100), latency-shifted like the OSM context
+                // so it aligns with the same "what surrounded me when the
+                // response was triggered" window. NaN when the row carries
+                // no Sub-GHz RSSI; filtered out per-feature below.
+                em_fog: (typeof envPt.em_fog === 'number') ? envPt.em_fog : NaN
               });
               lastTime = pt.time;
             }
@@ -1189,16 +1194,21 @@ const GSRUI = {
         }
       });
 
-      // Calculate Pearson correlation matrix rows — continuous OSM fields
-      // only (roadClass/inPark are categorical, not correlatable), from the
-      // shared GSR_CONST.OSM_METRICS table (constants.js).
+      // Correlation-matrix features: the continuous OSM fields plus the
+      // binary "in park" field (point-biserial r is just Pearson on a 0/1
+      // variable). Road Class stays out — it's genuinely multi-level
+      // categorical. From the shared GSR_CONST.OSM_METRICS table.
       const features = GSR_CONST.OSM_METRICS
-        .filter(m => m.kind === 'continuous')
-        .map(m => ({ name: m.label, key: m.field }));
+        .filter(m => m.kind === 'continuous' || m.kind === 'binary')
+        .map(m => ({ name: m.label, key: m.field, binary: m.kind === 'binary' }));
 
-      const phasicVals = allData.map(d => d.phasic);
-      const tonicVals = allData.map(d => d.tonic);
-      
+      // EM Fog is not an OSM field (it comes from Sub-GHz RSSI, not Overpass)
+      // so it lives outside OSM_METRICS — append it as a correlation feature
+      // only when at least one sample actually carries a reading.
+      if (allData.some(d => !isNaN(d.em_fog))) {
+        features.push({ name: 'EM Fog Index', key: 'em_fog', binary: false });
+      }
+
       const peakCounts = [];
       activeTracks.forEach(track => {
         const a = track.analyzer;
@@ -1222,9 +1232,10 @@ const GSRUI = {
         const validPhasic = [];
         const validTonic = [];
         const validPeaks = [];
-        
+
         for (let i = 0; i < allData.length; i++) {
-          const x = allData[i][f.key];
+          let x = allData[i][f.key];
+          if (f.binary) x = (x === true || x === 1) ? 1 : (x === false || x === 0) ? 0 : NaN;
           // Exclude arbitrary 999.0 fallback indicator representing out-of-bounds / infinite distance
           if (x !== null && x !== undefined && !isNaN(x) && x !== 999.0) {
             validX.push(x);
@@ -1234,16 +1245,55 @@ const GSRUI = {
           }
         }
 
-        const rpPhasic = StatsMath.calculatePearsonCorrelation(validX, validPhasic);
-        const rpTonic = StatsMath.calculatePearsonCorrelation(validX, validTonic);
-        const rpPeaks = StatsMath.calculatePearsonCorrelation(validX, validPeaks);
-        const hasVariance = validX.length > 1 && new Set(validX).size > 1;
+        // p-values are corrected for serial autocorrelation: 1 Hz EDA
+        // samples are far from independent, so a raw Pearson p over
+        // hundreds of them flags trivial r as "highly significant". The
+        // corrected test uses the lag-1 effective sample size instead.
+        const rpPhasic = StatsMath.calculateAutocorrCorrelation(validX, validPhasic);
+        const rpTonic  = StatsMath.calculateAutocorrCorrelation(validX, validTonic);
+        const rpPeaks  = StatsMath.calculateAutocorrCorrelation(validX, validPeaks);
+
+        // "Has variation" now means the factor genuinely changed along the
+        // route, not merely that interpolation produced two distinct floats.
+        // A constant (or near-constant) factor can't explain any variance in
+        // arousal, so its correlation is meaningless regardless of r.
+        const sx = StatsMath.calculateStats(validX); // note: sx.std is floored at 1, use sx.variance for the true spread
+        const trueStd = Math.sqrt(sx.variance);
+        const cv = trueStd / (Math.abs(sx.mean) + 1e-9);
+        const hasVariance = f.binary
+          ? (new Set(validX).size > 1)
+          : (validX.length > 2 && trueStd > 0 && cv >= 0.01);
+
         return { name: f.name, key: f.key, n: validX.length, hasVariance,
+                 nEffPhasic: rpPhasic.nEff, nEffTonic: rpTonic.nEff, nEffPeaks: rpPeaks.nEff,
                  rPhasic: rpPhasic.r, rTonic: rpTonic.r, rPeaks: rpPeaks.r,
                  pPhasic: rpPhasic.p, pTonic: rpTonic.p, pPeaks: rpPeaks.p };
       });
 
-      // Calculate Road profiles (with std dev and 95% CI)
+      // Multiple-comparison control: every cell in the matrix is one
+      // hypothesis test (features x {phasic, tonic, peaks}). Adjust the
+      // whole family with Benjamini-Hochberg FDR; the q-values drive the
+      // significance stars and the plain-language interpretation so a
+      // scattered "*" among 20+ cells isn't read as a real finding.
+      const pFamily = [];
+      correlationMatrix.forEach(row => {
+        pFamily.push(row.hasVariance ? row.pPhasic : NaN);
+        pFamily.push(row.hasVariance ? row.pTonic  : NaN);
+        pFamily.push(row.hasVariance ? row.pPeaks  : NaN);
+      });
+      const qFamily = StatsMath.benjaminiHochberg(pFamily);
+      correlationMatrix.forEach((row, i) => {
+        row.qPhasic = qFamily[i * 3];
+        row.qTonic  = qFamily[i * 3 + 1];
+        row.qPeaks  = qFamily[i * 3 + 2];
+      });
+
+      // Road profiles (mean, std, autocorrelation-adjusted 95% CI, peak rate).
+      // 'unclassified' is OSM's catch-all minor-road tag — it lumps together
+      // roads of wildly different character, so the group mean says nothing
+      // useful; it's dropped. Any class with under 5 s of data is dropped as
+      // noise (this also subsumes the old 'none' special case).
+      const ROAD_SKIP = new Set(['unclassified']);
       const roadGroups = new Map();
       allData.forEach(d => {
         const cls = d.osm_road_class || 'none';
@@ -1269,27 +1319,52 @@ const GSRUI = {
 
       const roadProfile = [];
       roadGroups.forEach((val, key) => {
-        if (key === 'none' && val.phasicVals.length < 5) return;
+        if (ROAD_SKIP.has(key)) return;
         const n = val.phasicVals.length;
+        if (n < 5) return;
         const meanPhasic = val.phasicVals.reduce((s, v) => s + v, 0) / n;
         const meanTonic = val.tonicVals.reduce((s, v) => s + v, 0) / n;
         const stdPhasic = Math.sqrt(val.phasicVals.reduce((s, v) => s + (v - meanPhasic) ** 2, 0) / n);
         const stdTonic = Math.sqrt(val.tonicVals.reduce((s, v) => s + (v - meanTonic) ** 2, 0) / n);
-        const ciPhasic = n > 1 ? 1.96 * stdPhasic / Math.sqrt(n) : 0;
-        const ciTonic = n > 1 ? 1.96 * stdTonic / Math.sqrt(n) : 0;
+        // CI on the mean uses the autocorrelation-adjusted effective sample
+        // size, not the raw second count — consecutive 1 Hz EDA samples are
+        // highly correlated, so sqrt(n) badly overstates the precision.
+        const nEffPhasic = StatsMath.effectiveSampleSize(val.phasicVals);
+        const nEffTonic = StatsMath.effectiveSampleSize(val.tonicVals);
+        const ciPhasic = nEffPhasic > 1 ? 1.96 * stdPhasic / Math.sqrt(nEffPhasic) : 0;
+        const ciTonic = nEffTonic > 1 ? 1.96 * stdTonic / Math.sqrt(nEffTonic) : 0;
         roadProfile.push({
           name: key,
           timeSpent: n,
+          effSamples: Math.round(nEffPhasic),
           meanPhasic,
           meanTonic,
           stdPhasic,
           stdTonic,
           ciPhasic,
           ciTonic,
-          peakRate: (val.peaks / (n / 60))
+          peakRate: (val.peaks / (n / 60)),
+          _phasicVals: val.phasicVals
         });
       });
       roadProfile.sort((a, b) => b.meanPhasic - a.meanPhasic);
+
+      // Highest vs lowest road class: replace the old "do the 95% CIs
+      // overlap?" eyeball test (which conflates ~p<0.006 for non-overlap
+      // with p<0.05) with a proper Welch t-test on effective sample sizes.
+      let roadComparison = null;
+      if (roadProfile.length >= 2) {
+        const hi = roadProfile[0];
+        const lo = roadProfile[roadProfile.length - 1];
+        const w = StatsMath.welchTTest(hi._phasicVals, lo._phasicVals, true);
+        roadComparison = {
+          highName: hi.name, lowName: lo.name,
+          highMean: hi.meanPhasic, lowMean: lo.meanPhasic,
+          diffPct: lo.meanPhasic !== 0 ? (hi.meanPhasic - lo.meanPhasic) / lo.meanPhasic * 100 : 0,
+          t: w.t, df: w.df, p: w.p
+        };
+      }
+      roadProfile.forEach(p => { delete p._phasicVals; });
 
       // Save to client-side cache
       cacheTarget._cachedEnvStats = {
@@ -1299,12 +1374,18 @@ const GSRUI = {
         versionSig,
         allData,
         correlationMatrix,
-        roadProfile
+        roadProfile,
+        roadComparison
       };
     }
 
     // ── Render Components using Cached Data ─────────────────────────────────
     const cachedStats = cacheTarget._cachedEnvStats;
+    const hasEmFog = cachedStats.correlationMatrix.some(r => r.key === 'em_fog');
+
+    // 0. Keep the scatter X-axis picker in step with the metrics that
+    //    actually have data (single source of truth: OSM_METRICS + EM Fog).
+    GSRUI.syncScatterEnvOptions(hasEmFog);
 
     // 1. Render Correlation Matrix
     GSRUI.renderCorrelationTable(cachedStats.correlationMatrix);
@@ -1313,7 +1394,44 @@ const GSRUI = {
     GSRUI.drawRegressionScatterPlot(cachedStats.allData);
 
     // 3. Render Roads Profile
-    GSRUI.renderRoadProfile(cachedStats.roadProfile);
+    GSRUI.renderRoadProfile(cachedStats.roadProfile, cachedStats.roadComparison);
+  },
+
+  /**
+   * Rebuild the #scatterEnvMetric <option> list from GSR_CONST.OSM_METRICS
+   * (continuous + binary) plus EM Fog when present, preserving the current
+   * selection where still valid. Replaces the hand-maintained HTML list that
+   * used to drift out of sync with the correlation-matrix feature set.
+   */
+  syncScatterEnvOptions(hasEmFog) {
+    const sel = document.getElementById('scatterEnvMetric');
+    if (!sel) return;
+    const opts = GSR_CONST.OSM_METRICS
+      .filter(m => m.kind === 'continuous' || m.kind === 'binary')
+      .map(m => ({ value: m.field, label: m.unit ? `${m.label} (${m.unit})` : m.label }));
+    if (hasEmFog) opts.push({ value: 'em_fog', label: 'EM Fog Index (0-100)' });
+
+    const signature = opts.map(o => o.value).join(',');
+    if (sel.dataset.optionSig === signature) return; // already current
+    const prev = sel.value;
+    sel.innerHTML = opts.map(o => `<option value="${o.value}">${o.label}</option>`).join('');
+    sel.value = opts.some(o => o.value === prev) ? prev : opts[0].value;
+    sel.dataset.optionSig = signature;
+  },
+
+  /**
+   * Effect-size band for a correlation coefficient. This — not the p/q-value —
+   * is the primary visual language of the correlation table: with a large n a
+   * negligible r (say -0.05) can be "significant" yet mean nothing, so
+   * magnitude leads and significance is a secondary qualifier.
+   * Bands: |r| < .10 negligible · .10-.20 small · .20-.30 moderate · >.30 strong.
+   */
+  correlationBand(r) {
+    const a = Math.abs(r);
+    if (!(a >= 0.10)) return { key: 'negligible', label: 'negligible' };
+    if (a < 0.20) return { key: 'small', label: 'small' };
+    if (a < 0.30) return { key: 'moderate', label: 'moderate' };
+    return { key: 'strong', label: 'strong' };
   },
 
   /**
@@ -1324,47 +1442,58 @@ const GSRUI = {
     if (!tbody) return;
     tbody.innerHTML = '';
 
-    const getCorrClass = (r) => {
-      if (r > 0.35) return 'corr-pos-strong';
-      if (r > 0.15) return 'corr-pos-mod';
-      if (r < -0.35) return 'corr-neg-strong';
-      if (r < -0.15) return 'corr-neg-mod';
-      return 'corr-weak';
-    };
-
     const formatP = (p) => {
       if (p < 0.001) return '<0.001';
       if (p < 0.01) return p.toFixed(4);
       return p.toFixed(3);
     };
 
-    const getSigStars = (p) => {
-      if (p < 0.001) return '***';
-      if (p < 0.01) return '**';
-      if (p < 0.05) return '*';
-      return '';
-    };
-
+    // Significance is judged on the FDR-adjusted q-value, not the raw p.
+    // Interpretation leads with the effect-size word so a reliable-but-tiny
+    // correlation reads as "negligible", never as a finding.
     const getInterpretation = (row) => {
-      const rPh = row.rPhasic, rTo = row.rTonic, pPh = row.pPhasic, pTo = row.pTonic;
-      if (!row.hasVariance) return 'Not enough variation to measure — same value at every point on this route';
-      if (pPh >= 0.05 && pTo >= 0.05) return 'No detectable link to arousal — likely random variation';
-      if (rPh > 0.25 && pPh < 0.05) return 'Higher momentary arousal (potential stressor)';
-      if (rPh < -0.25 && pPh < 0.05) return 'Lower momentary arousal (potential restorative effect)';
-      if (rTo < -0.25 && pTo < 0.05) return 'Lower baseline arousal (calming context)';
-      if (rTo > 0.25 && pTo < 0.05) return 'Higher baseline arousal (activating context)';
-      return 'Weak but statistically reliable — too small to be practically meaningful';
+      if (!row.hasVariance) return 'Not enough variation to measure — this factor barely changes along the route';
+      const chans = [
+        { q: row.qPhasic, r: row.rPhasic, name: 'momentary arousal' },
+        { q: row.qPeaks,  r: row.rPeaks,  name: 'arousal-response rate' },
+        { q: row.qTonic,  r: row.rTonic,  name: 'baseline arousal' },
+      ].filter(c => typeof c.q === 'number' && isFinite(c.q) && c.q < 0.05);
+      if (chans.length === 0) return 'No statistically reliable link to arousal';
+      chans.sort((a, b) => Math.abs(b.r) - Math.abs(a.r));
+      const top = chans[0];
+      const band = GSRUI.correlationBand(top.r);
+      if (band.key === 'negligible') {
+        return `Reliable but negligible (r ≈ ${top.r.toFixed(2)}) — detectable statistically, too small to matter`;
+      }
+      const dir = top.r > 0 ? 'higher' : 'lower';
+      return `${band.label[0].toUpperCase()}${band.label.slice(1)} association with ${dir} ${top.name} (r = ${top.r.toFixed(2)})`;
     };
 
     matrix.forEach(row => {
       const tr = document.createElement('tr');
+      // Each r cell: number coloured by direction + an effect-size chip as the
+      // dominant cue. A non-varying row shows no band ("—"); a varying but
+      // non-significant one keeps the band but muted, tagged "n.s.".
+      const cell = (r, q) => {
+        const dir = Math.abs(r) < 0.10 ? 'dir-none' : (r >= 0 ? 'dir-pos' : 'dir-neg');
+        let chip;
+        if (!row.hasVariance) {
+          chip = '<span class="mag-chip mag-negligible mag-ns">no variation</span>';
+        } else {
+          const band = GSRUI.correlationBand(r);
+          const isSig = typeof q === 'number' && isFinite(q) && q < 0.05;
+          chip = `<span class="mag-chip mag-${band.key}${isSig ? '' : ' mag-ns'}">${band.label}${isSig ? '' : ' · n.s.'}</span>`;
+        }
+        return `<td class="corr-cell"><span class="corr-num ${dir}">${r.toFixed(3)}</span>${chip}</td>`;
+      };
+      const qCell = (q) => (row.hasVariance && typeof q === 'number' && isFinite(q)) ? formatP(q) : '—';
       tr.innerHTML = `
         <td><strong>${row.name}</strong></td>
-        <td class="${getCorrClass(row.rPhasic)}">${row.rPhasic.toFixed(3)}${getSigStars(row.pPhasic)}</td>
-        <td class="${getCorrClass(row.rTonic)}">${row.rTonic.toFixed(3)}${getSigStars(row.pTonic)}</td>
-        <td class="${getCorrClass(row.rPeaks)}">${row.rPeaks.toFixed(3)}${getSigStars(row.pPeaks)}</td>
-        <td>${formatP(row.pPhasic)}</td>
-        <td>${formatP(row.pTonic)}</td>
+        ${cell(row.rPhasic, row.qPhasic)}
+        ${cell(row.rTonic, row.qTonic)}
+        ${cell(row.rPeaks, row.qPeaks)}
+        <td>${qCell(row.qPhasic)}</td>
+        <td>${qCell(row.qTonic)}</td>
         <td>${getInterpretation(row)}</td>
       `;
       tbody.appendChild(tr);
@@ -1374,7 +1503,7 @@ const GSRUI = {
   /**
    * Render cached road profile stats to HTML.
    */
-  renderRoadProfile(profile) {
+  renderRoadProfile(profile, comparison) {
     const roadBody = document.querySelector('#roadArousalTable tbody');
     const roadChart = document.getElementById('roadBarChartContainer');
     if (!roadBody || !roadChart) return;
@@ -1389,7 +1518,7 @@ const GSRUI = {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><span style="font-family: monospace; font-size: 0.8rem;">${p.name}</span></td>
-        <td>${p.timeSpent} s</td>
+        <td>${p.timeSpent} s <span style="color: var(--text-muted); font-size: 0.78rem;">(~${p.effSamples} eff.)</span></td>
         <td>${fmt(p.meanPhasic)} μS</td>
         <td>${fmt(p.stdPhasic)} μS</td>
         <td>± ${fmt(p.ciPhasic)} μS</td>
@@ -1423,9 +1552,6 @@ const GSRUI = {
       const unreliable = profile.filter(p => p.ciPhasic > p.meanPhasic * 0.5);
       const reliable = profile.filter(p => p.ciPhasic <= p.meanPhasic * 0.3);
 
-      // Check CI overlap between highest and lowest
-      const hiLowOverlap = (highest.meanPhasic - highest.ciPhasic) <= (lowest.meanPhasic + lowest.ciPhasic);
-
       const lines = [];
 
       // Main comparison
@@ -1436,11 +1562,18 @@ const GSRUI = {
           `than ${lowest.name} roads (${lowest.meanPhasic.toFixed(3)} μS).`);
       }
 
-      // CI overlap assessment
-      if (hiLowOverlap) {
-        lines.push(`However, the confidence intervals <strong>overlap</strong> — this difference may not be statistically reliable.`);
-      } else {
-        lines.push(`The confidence intervals <strong>do not overlap</strong>, suggesting this is a genuine physiological difference.`);
+      // Formal test: Welch's t-test on effective (autocorrelation-adjusted)
+      // sample sizes, replacing the old "do the 95% CIs visually overlap?"
+      // heuristic.
+      if (comparison && isFinite(comparison.p)) {
+        const pTxt = comparison.p < 0.001 ? 'p &lt; 0.001' : 'p = ' + comparison.p.toFixed(3);
+        if (comparison.p < 0.05) {
+          lines.push(`A Welch <em>t</em>-test confirms this gap is <strong>statistically reliable</strong> ` +
+            `(${pTxt}, t = ${comparison.t.toFixed(2)}, df ≈ ${comparison.df.toFixed(0)}) — a genuine physiological difference, not sampling noise.`);
+        } else {
+          lines.push(`A Welch <em>t</em>-test says this gap is <strong>not statistically reliable</strong> ` +
+            `(${pTxt}) — it could easily be sampling noise, so treat the ordering with caution.`);
+        }
       }
 
       // Reliability notes
@@ -1509,8 +1642,10 @@ const GSRUI = {
         dataSrc = [];
       }
     }
+    const isBinaryX = GSR_CONST.OSM_METRICS.some(m => m.field === scatterXMetric && m.kind === 'binary');
     dataSrc.forEach(d => {
-      const x = d[scatterXMetric];
+      let x = d[scatterXMetric];
+      if (isBinaryX) x = (x === true || x === 1) ? 1 : (x === false || x === 0) ? 0 : NaN;
       const y = scatterYMetric === 'phasic' ? d.phasic : d.tonic;
       // Exclude arbitrary 999.0 fallback indicator representing out-of-bounds / infinite distance
       if (x !== null && x !== undefined && !isNaN(x) && x !== 999.0 && y !== null && y !== undefined && !isNaN(y)) {
@@ -1520,15 +1655,15 @@ const GSRUI = {
     });
 
     const { m, c, r2 } = StatsMath.calculateLinearRegression(xVals, yVals);
-    
-    // Continuous OSM fields, from the shared GSR_CONST.OSM_METRICS table
-    // (constants.js) — unit (when present) appended in parens, matching
-    // this axis-label context's existing "(m)" suffix on the two distance
-    // fields; every other OSM_METRICS consumer uses the bare label.
+
+    // Axis labels from the shared GSR_CONST.OSM_METRICS table (constants.js)
+    // — continuous + binary fields, unit appended in parens where present —
+    // plus EM Fog (a non-OSM, Sub-GHz-RSSI-derived factor, 0-100).
     const xLabels = {};
-    GSR_CONST.OSM_METRICS.filter(m => m.kind === 'continuous').forEach(m => {
-      xLabels[m.field] = m.unit ? `${m.label} (${m.unit})` : m.label;
-    });
+    GSR_CONST.OSM_METRICS
+      .filter(m => m.kind === 'continuous' || m.kind === 'binary')
+      .forEach(m => { xLabels[m.field] = m.unit ? `${m.label} (${m.unit})` : m.label; });
+    xLabels['em_fog'] = 'EM Fog Index (0-100)';
     
     const yLabels = {
       'phasic': 'Phasic (momentary arousal)',

@@ -136,7 +136,7 @@ module.exports = {
   OSM_METRICS: [
     { key: 'roadClass',       field: 'osm_road_class',            label: 'Road Class',              kind: 'categorical' },
     { key: 'distMajorRoad',   field: 'osm_dist_major_road',        label: 'Distance to Major Road',  kind: 'continuous', unit: 'm' },
-    { key: 'inPark',          field: 'osm_in_park',                label: 'In Park / Green Space',   kind: 'categorical' },
+    { key: 'inPark',          field: 'osm_in_park',                label: 'In Park / Green Space',   kind: 'binary' },
     { key: 'greenPct',        field: 'osm_green_pct_50m',          label: 'Green Space %',           kind: 'continuous' },
     { key: 'buildingDensity', field: 'osm_building_density_50m',   label: 'Building Density',        kind: 'continuous' },
     { key: 'distWater',       field: 'osm_dist_water',             label: 'Distance to Water',       kind: 'continuous', unit: 'm' },

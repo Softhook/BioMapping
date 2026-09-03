@@ -533,13 +533,21 @@ const OSMEnricher = {
 
       // Linear interpolation for continuous variables
       const lerp = (a, b) => a + (b - a) * t;
+      // Distance fields carry a SENTINEL_DIST ("no feature within radius")
+      // marker. Lerping across it manufactures meaningless mid-range
+      // distances (e.g. 500 m half-way between "none nearby" and "8 m"),
+      // which then leak into map colouring and the environmental
+      // correlation dashboard as if they were real measurements. Step
+      // instead whenever either endpoint is the sentinel.
+      const lerpDist = (a, b) =>
+        (a === SENTINEL_DIST || b === SENTINEL_DIST) ? ((t >= 0.5) ? b : a) : lerp(a, b);
 
       raw[i].osm_road_class          = (t >= 0.5) ? n.roadClass      : p.roadClass;
       raw[i].osm_in_park             = (t >= 0.5) ? n.inPark         : p.inPark;
-      raw[i].osm_dist_major_road     = lerp(p.distMajorRoad,  n.distMajorRoad);
+      raw[i].osm_dist_major_road     = lerpDist(p.distMajorRoad,  n.distMajorRoad);
       raw[i].osm_green_pct_50m       = lerp(p.greenSpacePct,  n.greenSpacePct);
       raw[i].osm_building_density_50m = lerp(p.buildingDensity, n.buildingDensity);
-      raw[i].osm_dist_water          = lerp(p.distWater,       n.distWater);
+      raw[i].osm_dist_water          = lerpDist(p.distWater,       n.distWater);
       raw[i].osm_tree_density_50m    = lerp(p.treeDensity,     n.treeDensity);
       raw[i].osm_amenity_count_50m   = lerp(p.amenityCount,    n.amenityCount);
     }

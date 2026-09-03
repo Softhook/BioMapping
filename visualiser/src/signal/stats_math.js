@@ -83,6 +83,137 @@ const StatsMath = {
     return { r, p };
   },
 
+  /**
+   * Biased lag-1 autocorrelation of a series (ACF at lag 1: the correlation
+   * between each value and the next, normalised by the full sum of squares).
+   * Returns 0 for series shorter than 3 or with zero variance.
+   */
+  lag1Autocorrelation(values) {
+    const n = values ? values.length : 0;
+    if (n < 3) return 0;
+    let sum = 0;
+    for (let i = 0; i < n; i++) sum += values[i];
+    const mean = sum / n;
+    let num = 0, den = 0;
+    for (let i = 0; i < n; i++) {
+      const d = values[i] - mean;
+      den += d * d;
+      if (i < n - 1) num += d * (values[i + 1] - mean);
+    }
+    return den === 0 ? 0 : num / den;
+  },
+
+  /**
+   * Effective sample size of a single autocorrelated series, used to widen
+   * the standard error / CI of its mean. Quenouille / Bayley–Hammersley
+   * lag-1 form: N_eff = N (1 - r1) / (1 + r1). Positive autocorrelation
+   * (the usual case for a slow physiological signal sampled fast) shrinks
+   * N_eff; negative or zero autocorrelation leaves it untouched.
+   */
+  effectiveSampleSize(values) {
+    const n = values ? values.length : 0;
+    if (n < 4) return n;
+    const r1 = this.lag1Autocorrelation(values);
+    if (!(r1 > 0)) return n;
+    const ratio = (1 - r1) / (1 + r1);
+    return Math.max(2, Math.min(n, n * ratio));
+  },
+
+  /**
+   * Effective pair count for a correlation between two autocorrelated
+   * series (Pyper & Peterman 1998, truncated at lag 1):
+   *   N_eff = N (1 - r1x r1y) / (1 + r1x r1y)
+   * This is what the significance test of r should use — r itself is
+   * computed from all N points, but its sampling variance is governed by
+   * the far smaller number of *independent* observations.
+   */
+  correlationEffectiveN(x, y) {
+    const n = Math.min(x ? x.length : 0, y ? y.length : 0);
+    if (n < 4) return n;
+    const prod = this.lag1Autocorrelation(x) * this.lag1Autocorrelation(y);
+    if (prod <= -1 || !isFinite(prod)) return n;
+    const ratio = (1 - prod) / (1 + prod);
+    return Math.max(2, Math.min(n, n * ratio));
+  },
+
+  /**
+   * Pearson r with a p-value corrected for serial autocorrelation in either
+   * series via the lag-1 effective sample size (see correlationEffectiveN).
+   * The point estimate r is unchanged. Returns { r, p, n, nEff }.
+   */
+  calculateAutocorrCorrelation(x, y) {
+    const n = Math.min(x ? x.length : 0, y ? y.length : 0);
+    const { r } = this.calculatePearsonCorrelation(x, y);
+    const nEff = this.correlationEffectiveN(x, y);
+    let p = 1;
+    if (nEff > 3 && Math.abs(r) < 1) {
+      const df = nEff - 2;
+      const t = r * Math.sqrt(df / (1 - r * r));
+      p = StatsMath._tTestPValue(t, df);
+    }
+    return { r, p, n, nEff };
+  },
+
+  /**
+   * Benjamini–Hochberg false-discovery-rate adjustment. Returns q-values in
+   * the input order; non-finite inputs pass through as NaN and are excluded
+   * from the ranking (so a family with some untestable cells still adjusts
+   * correctly over the cells that were tested).
+   */
+  benjaminiHochberg(pValues) {
+    const q = new Array(pValues.length).fill(NaN);
+    const idx = [];
+    for (let i = 0; i < pValues.length; i++) {
+      if (typeof pValues[i] === 'number' && isFinite(pValues[i])) idx.push(i);
+    }
+    const m = idx.length;
+    if (m === 0) return q;
+    idx.sort((a, b) => pValues[a] - pValues[b]);
+    let running = 1;
+    for (let k = m - 1; k >= 0; k--) {
+      const i = idx[k];
+      running = Math.min(running, (pValues[i] * m) / (k + 1));
+      q[i] = Math.min(1, running);
+    }
+    return q;
+  },
+
+  /**
+   * Welch's unequal-variance two-sample t-test. With useEffectiveN the per
+   * group counts are replaced by their autocorrelation-adjusted effective
+   * sizes (effectiveSampleSize) so a comparison of two stretches of a fast
+   * physiological signal is not massively over-powered.
+   * Returns { t, df, p, meanA, meanB, nA, nB }.
+   */
+  welchTTest(sampleA, sampleB, useEffectiveN = false) {
+    const rawA = sampleA ? sampleA.length : 0;
+    const rawB = sampleB ? sampleB.length : 0;
+    if (rawA < 2 || rawB < 2) {
+      return { t: 0, df: 0, p: 1, meanA: NaN, meanB: NaN, nA: rawA, nB: rawB };
+    }
+    const meanOf = (arr) => {
+      let s = 0;
+      for (let i = 0; i < arr.length; i++) s += arr[i];
+      return s / arr.length;
+    };
+    const sampleVarOf = (arr, m) => {
+      let s = 0;
+      for (let i = 0; i < arr.length; i++) { const d = arr[i] - m; s += d * d; }
+      return s / (arr.length - 1);
+    };
+    const mA = meanOf(sampleA), mB = meanOf(sampleB);
+    const vA = sampleVarOf(sampleA, mA), vB = sampleVarOf(sampleB, mB);
+    const nA = useEffectiveN ? this.effectiveSampleSize(sampleA) : rawA;
+    const nB = useEffectiveN ? this.effectiveSampleSize(sampleB) : rawB;
+    const seA = vA / nA, seB = vB / nB;
+    const se = Math.sqrt(seA + seB);
+    if (!(se > 0)) return { t: 0, df: nA + nB - 2, p: 1, meanA: mA, meanB: mB, nA, nB };
+    const t = (mA - mB) / se;
+    const df = (seA + seB) ** 2 / ((seA ** 2) / (nA - 1) + (seB ** 2) / (nB - 1));
+    const p = StatsMath._tTestPValue(t, df);
+    return { t, df, p, meanA: mA, meanB: mB, nA, nB };
+  },
+
   calculateLinearRegression(x, y) {
     const n = x.length;
     if (n === 0) return { m: 0, c: 0, r2: 0 };
@@ -155,11 +286,12 @@ const StatsMath = {
   },
 
   _logBeta(a, b) {
-    if (a < 1 || b < 1) {
-      return Math.log(Math.pow(a, a - 0.5) * Math.pow(b, b - 0.5) /
-             Math.pow(a + b, a + b - 0.5) * Math.sqrt(2 * Math.PI)) +
-             (1 / 12) * (1 / a + 1 / b - 1 / (a + b));
-    }
+    // Always via log-gamma. An earlier small-parameter (a<1||b<1) branch
+    // computed the gamma ratio in linear space; with b fixed at 0.5 that
+    // branch was always taken, and for the large `a` the environmental
+    // dashboard produces (a = df/2, df = n-2, n in the hundreds/thousands)
+    // Math.pow(a, a-0.5) overflows to Infinity, so every p-value came back
+    // NaN. _logGamma (Lanczos) stays finite for all a, b > 0.
     return StatsMath._logGamma(a) + StatsMath._logGamma(b) - StatsMath._logGamma(a + b);
   },
 

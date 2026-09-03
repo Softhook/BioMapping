@@ -386,6 +386,28 @@ console.log('\n── OSMEnricher: _projectToTimeline ──');
   assertEq(raw[4].osm_road_class, 'residential', '_projectToTimeline — categorical stays prev value at t<0.5');
 }
 
+// 6a-sentinel. Distance fields must NOT lerp across the SENTINEL_DIST marker
+// ("no feature within radius" = 999) — a lerp would manufacture bogus
+// mid-range distances that leak into map colouring and the correlation
+// dashboard. Step (nearest anchor) instead; non-distance fields still lerp.
+{
+  const computedMetrics = [
+    { idx: 0,  metrics: { roadClass: 'residential', inPark: 0, distMajorRoad: 999, greenSpacePct: 0,
+                           buildingDensity: 1, distWater: 999, treeDensity: 0, amenityCount: 0 } },
+    { idx: 10, metrics: { roadClass: 'primary', inPark: 1, distMajorRoad: 8, greenSpacePct: 100,
+                           buildingDensity: 5, distWater: 12, treeDensity: 3, amenityCount: 2 } },
+  ];
+  const raw = Array.from({ length: 11 }, () => ({}));
+  OSMEnricher._projectToTimeline(raw, computedMetrics);
+
+  assertClose(raw[3].osm_dist_major_road, 999, 1e-9, '_projectToTimeline — dist stays at sentinel while t<0.5 (no lerp shadow)');
+  assertClose(raw[7].osm_dist_major_road, 8,   1e-9, '_projectToTimeline — dist steps to real value once t>=0.5');
+  assertClose(raw[3].osm_dist_water,      999, 1e-9, '_projectToTimeline — water dist stays at sentinel while t<0.5');
+  assertClose(raw[7].osm_dist_water,      12,  1e-9, '_projectToTimeline — water dist steps to real value once t>=0.5');
+  // Non-distance continuous fields are unaffected — still linearly interpolated.
+  assertClose(raw[5].osm_green_pct_50m,   50,  1e-9, '_projectToTimeline — green % still lerps normally alongside a sentinel distance');
+}
+
 // 6b. Single evaluation point → broadcast to entire timeline
 {
   const computedMetrics = [
