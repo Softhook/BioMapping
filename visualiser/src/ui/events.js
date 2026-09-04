@@ -849,11 +849,11 @@ const GSREvents = {
       if (defaultBadge) defaultBadge.style.display = hasId ? 'none' : 'inline-block';
     };
 
-    if (copernicusInstanceInput && typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function') {
-      const savedInstance = localStorage.getItem('copernicus_instance_id');
-      if (savedInstance) copernicusInstanceInput.value = savedInstance;
+    if (copernicusInstanceInput) {
+      const activeId = typeof NDVISampler !== 'undefined' ? NDVISampler.getInstanceId() : '';
+      if (activeId) copernicusInstanceInput.value = activeId;
       copernicusInstanceInput.addEventListener('change', () => {
-        if (typeof localStorage.setItem === 'function') {
+        if (typeof localStorage !== 'undefined' && typeof localStorage.setItem === 'function') {
           localStorage.setItem('copernicus_instance_id', copernicusInstanceInput.value.trim());
         }
         syncCopernicusBadges();
@@ -862,11 +862,11 @@ const GSREvents = {
         }
       });
     }
-    if (copernicusLayerInput && typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function') {
-      const savedLayer = localStorage.getItem('copernicus_layer_id');
-      if (savedLayer) copernicusLayerInput.value = savedLayer;
+    if (copernicusLayerInput) {
+      const activeLayer = typeof NDVISampler !== 'undefined' ? NDVISampler.getLayerId() : 'VEGETATION_INDEX';
+      if (activeLayer) copernicusLayerInput.value = activeLayer;
       copernicusLayerInput.addEventListener('change', () => {
-        if (typeof localStorage.setItem === 'function') {
+        if (typeof localStorage !== 'undefined' && typeof localStorage.setItem === 'function') {
           localStorage.setItem('copernicus_layer_id', copernicusLayerInput.value.trim());
         }
         if (AppState.mapManager && AppState.mapManager.ndviTileLayer) {
@@ -874,11 +874,11 @@ const GSREvents = {
         }
       });
     }
-    if (copernicusTimeInput && typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function') {
-      const savedTime = localStorage.getItem('copernicus_time_range');
-      if (savedTime) copernicusTimeInput.value = savedTime;
+    if (copernicusTimeInput) {
+      const activeTime = typeof NDVISampler !== 'undefined' ? NDVISampler.getTimeRange() : '2024-05-01/2024-09-30';
+      if (activeTime) copernicusTimeInput.value = activeTime;
       copernicusTimeInput.addEventListener('change', () => {
-        if (typeof localStorage.setItem === 'function') {
+        if (typeof localStorage !== 'undefined' && typeof localStorage.setItem === 'function') {
           localStorage.setItem('copernicus_time_range', copernicusTimeInput.value.trim());
         }
         if (AppState.mapManager && AppState.mapManager.ndviTileLayer) {

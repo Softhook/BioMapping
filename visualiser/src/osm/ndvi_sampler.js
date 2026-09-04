@@ -28,11 +28,14 @@ const NDVISampler = {
       const stored = localStorage.getItem('copernicus_instance_id');
       if (stored && stored.trim()) return stored.trim();
     }
+    if (typeof window !== 'undefined' && window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.copernicusInstanceId) {
+      return String(window.BIOMAP_CONFIG.copernicusInstanceId).trim();
+    }
     return this.DEFAULT_INSTANCE_ID;
   },
 
   /**
-   * Read the active Copernicus Layer ID from localStorage (or fallback default).
+   * Read the active Copernicus Layer ID from localStorage or BIOMAP_CONFIG (or fallback default).
    * @returns {string}
    */
   getLayerId() {
@@ -40,17 +43,23 @@ const NDVISampler = {
       const stored = localStorage.getItem('copernicus_layer_id');
       if (stored && stored.trim()) return stored.trim();
     }
+    if (typeof window !== 'undefined' && window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.copernicusLayerId) {
+      return String(window.BIOMAP_CONFIG.copernicusLayerId).trim();
+    }
     return this.DEFAULT_LAYER_ID;
   },
 
   /**
-   * Read the active Copernicus Time Range from localStorage (or fallback default).
+   * Read the active Copernicus Time Range from localStorage or BIOMAP_CONFIG (or fallback default).
    * @returns {string}
    */
   getTimeRange() {
     if (typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function') {
       const stored = localStorage.getItem('copernicus_time_range');
       if (stored && stored.trim()) return stored.trim();
+    }
+    if (typeof window !== 'undefined' && window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.copernicusTimeRange) {
+      return String(window.BIOMAP_CONFIG.copernicusTimeRange).trim();
     }
     return this.DEFAULT_TIME_RANGE;
   },
