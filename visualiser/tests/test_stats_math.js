@@ -242,6 +242,35 @@ test('metaCorrelation: identical non-zero r in every group -> t is infinite -> p
   const res = StatsMath.metaCorrelation(groups);
   assert.strictEqual(res.k, 5);
   assert.ok(res.p < 1e-6, `zero between-group variance in a non-zero effect -> tiny p, got ${res.p}`);
+  assert.ok(res.i2 <= 1, `groups agree perfectly -> I2 should be ~0%, got ${res.i2}`);
+});
+
+test('metaCorrelation: fewer than 3 usable groups reports tau2/i2 as NaN — not enough groups to assess heterogeneity', () => {
+  const g1 = { x: [1, 2, 3, 4, 5], y: [1, 2, 3, 4, 5] };
+  const g2 = { x: [5, 4, 3, 2, 1], y: [1, 2, 3, 4, 5] };
+  const res = StatsMath.metaCorrelation([g1, g2]);
+  assert.strictEqual(res.k, 0); // both groups below the default minPerGroup=10
+  assert.ok(isNaN(res.tau2));
+  assert.ok(isNaN(res.i2));
+});
+
+test('metaCorrelation: groups that disagree in direction report high I2 — a null pooled r is not the same as a consistent null', () => {
+  const R = lcg(7);
+  const walk = (beta) => {
+    const x = [], y = [];
+    for (let i = 0; i < 60; i++) { const xv = R() * 10; x.push(xv); y.push(beta * xv + (R() - 0.5) * 2); }
+    return { x, y };
+  };
+  // Half the walks show a strong positive relationship, half an equally
+  // strong negative one — real per-walk effects that cancel out on average.
+  const disagreeing = StatsMath.metaCorrelation([walk(0.8), walk(-0.8), walk(0.8), walk(-0.8), walk(0.8), walk(-0.8)]);
+  assert.ok(Math.abs(disagreeing.r) < 0.1, `pooled r should be near zero, got ${disagreeing.r.toFixed(3)}`);
+  assert.ok(disagreeing.i2 > 50, `walks actively disagree -> I2 should be high, got ${disagreeing.i2.toFixed(1)}%`);
+
+  // Contrast: the same number of walks, all agreeing there's nothing there.
+  const agreeing = StatsMath.metaCorrelation([walk(0), walk(0), walk(0), walk(0), walk(0), walk(0)]);
+  assert.ok(Math.abs(agreeing.r) < 0.1, `pooled r should also be near zero, got ${agreeing.r.toFixed(3)}`);
+  assert.ok(agreeing.i2 < disagreeing.i2, `walks that agree on "nothing" should show lower I2 than walks that disagree, got agreeing=${agreeing.i2.toFixed(1)}% vs disagreeing=${disagreeing.i2.toFixed(1)}%`);
 });
 
 test('metaCorrelation: inverse-variance weighting — long walks outweigh a short uninformative one (equal-weighting would not)', () => {

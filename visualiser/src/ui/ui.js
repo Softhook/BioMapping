@@ -974,19 +974,34 @@ const GSRUI = {
       const singleFetch = unionArea <= AREA_CAP_KM2;
       const allInMem = !forceFetch && validTracks.every(t => t.analyzer.osmJson);
 
+      let sharedFetchFailed = false;
       if (singleFetch && !allInMem) {
         updateProgress('Checking local cache…', 10);
         sharedJson = await OsmCache.getForBBox(unionBBox);
         if (sharedJson) {
           updateProgress('Using cached OpenStreetMap data…', 40);
         } else {
-          const plan = await OsmCache.planFetch(unionBBox);
-          if (plan.mergeIds.length > 0) {
-            updateProgress(`Expanding cached coverage (merging ${plan.mergeIds.length} nearby area${plan.mergeIds.length > 1 ? 's' : ''})…`, 20);
+          try {
+            const plan = await OsmCache.planFetch(unionBBox);
+            if (plan.mergeIds.length > 0) {
+              updateProgress(`Expanding cached coverage (merging ${plan.mergeIds.length} nearby area${plan.mergeIds.length > 1 ? 's' : ''})…`, 20);
+            }
+            updateProgress('Fetching OpenStreetMap features…', 30);
+            sharedJson = await OSMEnricher.fetchOSMData(plan.fetchBBox, (msg) => updateProgress(msg));
+            OsmCache.store(plan.fetchBBox, sharedJson, plan.mergeIds);
+          } catch (sharedErr) {
+            // The combined bbox fitting under the area cap doesn't mean the
+            // query is cheap — many walks clustered in one dense city area
+            // can still time out fetching every building/amenity/tree in
+            // the whole union rectangle at once. Previously this aborted
+            // enrichment for all N tracks even though each one's own bbox
+            // (below) is far smaller and fetches fine individually — fall
+            // back to that instead of throwing the batch away.
+            console.warn('Shared OSM fetch failed, falling back to per-track fetches:', sharedErr);
+            updateProgress('Combined-area fetch timed out — falling back to per-track requests…', 40);
+            sharedJson = null;
+            sharedFetchFailed = true;
           }
-          updateProgress('Fetching OpenStreetMap features…', 30);
-          sharedJson = await OSMEnricher.fetchOSMData(plan.fetchBBox, (msg) => updateProgress(msg));
-          OsmCache.store(plan.fetchBBox, sharedJson, plan.mergeIds);
         }
       }
 
@@ -1029,6 +1044,7 @@ const GSRUI = {
 
       const noGps = tracksToEnrich.length - validTracks.length;
       const parts = [`Enriched ${enriched}/${tracksToEnrich.length} walk${tracksToEnrich.length === 1 ? '' : 's'}`];
+      if (sharedFetchFailed) parts.push('combined fetch timed out, used per-track fallback');
       if (noGps > 0) parts.push(`${noGps} without GPS`);
       if (tooBig.length > 0) parts.push(`${tooBig.length} too spread out (> ${AREA_CAP_KM2} km²)`);
       if (failed.length > 0) parts.push(`${failed.length} failed`);
@@ -1088,9 +1104,16 @@ const GSRUI = {
       if (res.tooBigCount > 0) parts.push(`${res.tooBigCount} too spread out`);
       if (res.failedCount > 0) parts.push(`${res.failedCount} failed`);
 
+      // When every walk failed the same way (near-certain given they all hit
+      // the same Copernicus instance/layer), show the actual reason instead
+      // of just a count — otherwise diagnosing it means opening devtools.
+      if (res.failedCount > 0 && Array.isArray(res.failedTracks) && res.failedTracks.length > 0) {
+        parts.push(res.failedTracks[0].error);
+      }
+
       const statusColor = (res.failedCount > 0 && res.enrichedCount === 0) ? 'var(--danger)' : '#2d6a4f';
       this.setSpatialProgress(true, parts.join(' · '), 100, statusColor);
-      setTimeout(() => { this.setSpatialProgress(false); }, (res.failedCount || res.tooBigCount) ? 6000 : 3000);
+      setTimeout(() => { this.setSpatialProgress(false); }, (res.failedCount || res.tooBigCount) ? 12000 : 3000);
     } catch (err) {
       console.error("NDVI Sampling error:", err);
       if (!silent) alert("NDVI Sampling failed: " + err.message);
@@ -1541,12 +1564,12 @@ const GSRUI = {
         const analyse = (getX, getY) => {
           if (walks.length === 1) {
             const c = StatsMath.calculateAutocorrCorrelation(getX(walks[0]), getY(walks[0]));
-            return { r: c.r, p: c.p, method: 'single', k: 1 };
+            return { r: c.r, p: c.p, method: 'single', k: 1, i2: NaN };
           }
           const meta = StatsMath.metaCorrelation(walks.map(w => ({ x: getX(w), y: getY(w) })));
-          if (meta.k < 3) return { r: meta.r, p: NaN, method: 'fewWalks', k: meta.k };
-          if (meta.k < META_SOLID) return { r: meta.r, p: meta.p, method: 'metaProvisional', k: meta.k };
-          return { r: meta.r, p: meta.p, method: 'meta', k: meta.k };
+          if (meta.k < 3) return { r: meta.r, p: NaN, method: 'fewWalks', k: meta.k, i2: NaN };
+          if (meta.k < META_SOLID) return { r: meta.r, p: meta.p, method: 'metaProvisional', k: meta.k, i2: meta.i2 };
+          return { r: meta.r, p: meta.p, method: 'meta', k: meta.k, i2: meta.i2 };
         };
         const chPhasic = analyse(w => w.xPhasic,  w => w.phasic);
         const chTonic  = analyse(w => w.xTonic,   w => w.tonic);
@@ -1591,7 +1614,8 @@ const GSRUI = {
                  rTonicSpeedAdj: chTonicSpeed.r, pTonicSpeedAdj: chTonicSpeed.p, mTonicSpeedAdj: chTonicSpeed.method,
                  pPhasic: chPhasic.p, pTonic: chTonic.p, pPeaks: chPeaks.p,
                  mPhasic: chPhasic.method, mTonic: chTonic.method, mPeaks: chPeaks.method,
-                 kPhasic: chPhasic.k, kTonic: chTonic.k, kPeaks: chPeaks.k };
+                 kPhasic: chPhasic.k, kTonic: chTonic.k, kPeaks: chPeaks.k,
+                 i2Phasic: chPhasic.i2, i2Tonic: chTonic.i2, i2Peaks: chPeaks.i2 };
       });
 
       // Multiple comparisons: Benjamini–Hochberg FDR, one family PER arousal
@@ -1826,7 +1850,8 @@ const GSRUI = {
         noteEl.innerHTML = notEnriched +
           `<strong>${used} walks analysed.</strong> <em>q</em> tests whether an effect is <strong>consistent across walks</strong> ` +
           `(random-effects meta-analysis — per-walk <em>r</em> weighted by its effective sample size, DerSimonian–Laird heterogeneity). <em>r</em> is the typical per-walk value. ` +
-          `A "<em>k / ${used}</em>" tag means the factor varied enough to correlate in only <em>k</em> of the ${used} — need 5 for a verdict.`;
+          `A "<em>k / ${used}</em>" tag means the factor varied enough to correlate in only <em>k</em> of the ${used} — need 5 for a verdict. ` +
+          `A "<em>· mixed</em>" tag (hover any chip for the exact I² %) means the walks actively <strong>disagree</strong> in size or direction — a small pooled <em>r</em> there isn't the same finding as walks that quietly agree there's nothing.`;
       } else {
         noteEl.innerHTML = notEnriched +
           `<strong>${used} walks analysed</strong>, but each factor varied enough to correlate in only <strong>${kRange} of ${used}</strong> ` +
@@ -1849,9 +1874,9 @@ const GSRUI = {
     const getInterpretation = (row) => {
       if (!row.hasVariance) return 'Not enough variation to measure — this factor barely changes along the route';
       const chans = [
-        { q: row.qPhasic, p: row.pPhasic, r: row.rPhasic, m: row.mPhasic, k: row.kPhasic, name: 'momentary arousal' },
-        { q: row.qPeaks,  p: row.pPeaks,  r: row.rPeaks,  m: row.mPeaks,  k: row.kPeaks,  name: 'arousal-response rate' },
-        { q: row.qTonic,  p: row.pTonic,  r: row.rTonic,  m: row.mTonic,  k: row.kTonic,  name: 'baseline arousal' },
+        { q: row.qPhasic, p: row.pPhasic, r: row.rPhasic, m: row.mPhasic, k: row.kPhasic, i2: row.i2Phasic, name: 'momentary arousal' },
+        { q: row.qPeaks,  p: row.pPeaks,  r: row.rPeaks,  m: row.mPeaks,  k: row.kPeaks,  i2: row.i2Peaks,  name: 'arousal-response rate' },
+        { q: row.qTonic,  p: row.pTonic,  r: row.rTonic,  m: row.mTonic,  k: row.kTonic,  i2: row.i2Tonic,  name: 'baseline arousal' },
       ];
       const byEffect = (a, b) => Math.abs(b.r) - Math.abs(a.r);
 
@@ -1866,7 +1891,21 @@ const GSRUI = {
 
       const best = chans.slice().sort(byEffect)[0];
       const bestBand = GSRUI.correlationBand(best.r);
-      if (bestBand.key === 'negligible') return 'No link to arousal — effect sizes are negligible';
+      if (bestBand.key === 'negligible') {
+        // A negligible *pooled* effect can hide real per-walk effects that
+        // just don't agree in size/direction — high I² means "walks
+        // disagree", not "nothing happening in any of them". Check every
+        // channel, not just the largest-|r| one: heterogeneity and effect
+        // size are independent, so the channel worth flagging may not be
+        // the one with the biggest (still-negligible) pooled r.
+        const heterogeneous = chans
+          .filter(c => (c.m === 'meta' || c.m === 'metaProvisional') && typeof c.i2 === 'number' && isFinite(c.i2) && c.i2 >= 50)
+          .sort((a, b) => b.i2 - a.i2)[0];
+        if (heterogeneous) {
+          return `Inconsistent across walks (I² = ${Math.round(heterogeneous.i2)}% for ${heterogeneous.name}) — effects vary too much in size or direction to average into one signal; not necessarily "no effect" in any single walk`;
+        }
+        return 'No link to arousal — effect sizes are negligible';
+      }
 
       let speedNote = '';
       if (row.hasVariance && typeof row.rTonicSpeedAdj === 'number' && isFinite(row.rTonicSpeedAdj)) {
@@ -1901,7 +1940,7 @@ const GSRUI = {
       // to test, "· k/N" (varied in k of the N analysed walks).
       // If speedAdjR is provided (Tonic channel), shows the walking-speed-adjusted
       // partial correlation beneath it.
-      const cell = (r, q, m, k, speedAdjR) => {
+      const cell = (r, q, m, k, i2, speedAdjR) => {
         const dir = Math.abs(r) < 0.10 ? 'dir-none' : (r >= 0 ? 'dir-pos' : 'dir-neg');
         let chip;
         if (!row.hasVariance) {
@@ -1915,8 +1954,20 @@ const GSRUI = {
           } else {
             tag = ` · ${k}/${used}`;
           }
-          const muted = tag ? ' mag-ns' : '';
-          chip = `<span class="mag-chip mag-${band.key}${muted}">${band.label}${tag}</span>`;
+          // I² = share of across-walk variation that's real disagreement
+          // between walks rather than each walk's own sampling noise
+          // (Higgins & Thompson 2002). Only meaningful once a meta-analysis
+          // actually ran (k >= 3). Flagged inline at I² >= 50% ("walks
+          // substantially disagree"); always in the tooltip when available,
+          // so a small pooled r can be told apart from a genuinely
+          // consistent null.
+          const hasHet = (m === 'meta' || m === 'metaProvisional') && typeof i2 === 'number' && isFinite(i2);
+          const hetTag = (hasHet && i2 >= 50) ? ' · mixed' : '';
+          const hetTitle = hasHet
+            ? ` title="Between-walk consistency (I²): ${Math.round(i2)}% — ${i2 < 30 ? 'walks broadly agree' : i2 < 50 ? 'some disagreement between walks' : 'walks disagree substantially in size or direction'}"`
+            : '';
+          const muted = (tag || hetTag) ? ' mag-ns' : '';
+          chip = `<span class="mag-chip mag-${band.key}${muted}"${hetTitle}>${band.label}${tag}${hetTag}</span>`;
         }
         let speedInfo = '';
         if (row.hasVariance && typeof speedAdjR === 'number' && isFinite(speedAdjR) && Math.abs(speedAdjR - r) >= 0.02) {
@@ -1930,9 +1981,9 @@ const GSRUI = {
       const qCell = (q, m) => (row.hasVariance && isTested(m) && typeof q === 'number' && isFinite(q)) ? formatP(q) : '—';
       tr.innerHTML = `
         <td><strong>${row.name}</strong></td>
-        ${cell(row.rPhasic, row.qPhasic, row.mPhasic, row.kPhasic)}
-        ${cell(row.rTonic, row.qTonic, row.mTonic, row.kTonic, row.rTonicSpeedAdj)}
-        ${cell(row.rPeaks, row.qPeaks, row.mPeaks, row.kPeaks)}
+        ${cell(row.rPhasic, row.qPhasic, row.mPhasic, row.kPhasic, row.i2Phasic)}
+        ${cell(row.rTonic, row.qTonic, row.mTonic, row.kTonic, row.i2Tonic, row.rTonicSpeedAdj)}
+        ${cell(row.rPeaks, row.qPeaks, row.mPeaks, row.kPeaks, row.i2Peaks)}
         <td>${qCell(row.qPhasic, row.mPhasic)}</td>
         <td>${qCell(row.qTonic, row.mTonic)}</td>
         <td>${qCell(row.qPeaks, row.mPeaks)}</td>

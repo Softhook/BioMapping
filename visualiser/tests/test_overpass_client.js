@@ -305,6 +305,56 @@ test('fetchOSMData: a non-AbortError thrown by fetch propagates immediately with
   assert.strictEqual(attempt, 1, 'should not retry on a generic (non-Abort) network error');
 });
 
+// ── Mirror fallback (ENDPOINTS) ──────────────────────────────────────────
+
+test('fetchOSMData: a connection-level failure (TypeError) on the primary falls through to the mirror', async () => {
+  resetClient();
+  assert.ok(OverpassClient.ENDPOINTS.length >= 2, 'test assumes at least one fallback mirror is configured');
+  const [primary, mirror] = OverpassClient.ENDPOINTS;
+  const payload = { elements: [] };
+  const urlsHit = [];
+
+  global.fetch = async (url) => {
+    urlsHit.push(url);
+    if (url === primary) throw new TypeError('Failed to fetch');
+    if (url === mirror) return { ok: true, status: 200, json: async () => payload };
+    throw new Error(`unexpected endpoint: ${url}`);
+  };
+
+  const progress = [];
+  const result = await OverpassClient.fetchOSMData(BBOX, (m) => progress.push(m));
+
+  assert.deepStrictEqual(result, payload);
+  assert.deepStrictEqual(urlsHit, [primary, mirror], 'tries the primary, then falls through to the mirror');
+  assert.ok(progress.some(m => /unreachable.*mirror/i.test(m)), 'reports the fallback to the user');
+});
+
+test('fetchOSMData: a real HTTP error from the primary is reported immediately, never tried on the mirror', async () => {
+  resetClient();
+  const [primary] = OverpassClient.ENDPOINTS;
+  const urlsHit = [];
+
+  global.fetch = async (url) => {
+    urlsHit.push(url);
+    return { ok: false, status: 400, headers: { get: () => null } };
+  };
+
+  await assert.rejects(() => OverpassClient.fetchOSMData(BBOX), /malformed/i);
+  assert.deepStrictEqual(urlsHit, [primary], 'a real HTTP error is a live-server response — every mirror would give the same one, so it is reported, not retried elsewhere');
+});
+
+test('fetchOSMData: every endpoint unreachable throws the last connection error, having tried them all', async () => {
+  resetClient();
+  const urlsHit = [];
+  global.fetch = async (url) => {
+    urlsHit.push(url);
+    throw new TypeError('Failed to fetch');
+  };
+
+  await assert.rejects(() => OverpassClient.fetchOSMData(BBOX), /Failed to fetch/);
+  assert.deepStrictEqual(urlsHit, OverpassClient.ENDPOINTS, 'tried every configured endpoint before giving up');
+});
+
 test('fetchOSMData: honours an existing rate-limit cooldown before issuing the first fetch', async () => {
   resetClient();
   OverpassClient._nextAllowedCallTime = Date.now() + 60;

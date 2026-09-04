@@ -742,15 +742,52 @@ const NDVISampler = {
         return null;
       }
 
-      // 400/404/other client errors: not retryable — almost always a bad
-      // instance ID or a raw layer that doesn't exist yet.
+      // Other client errors: not retryable — retrying a request Sentinel Hub
+      // has already rejected wastes time and, for a quota error, only digs
+      // the hole deeper. Read the response body (Sentinel Hub returns a
+      // JSON {error:{message}} payload) so the real reason is visible
+      // instead of us guessing at one.
+      const serverDetail = await this._readErrorDetail(response);
+      let hint;
+      if (response.status === 401 || response.status === 403) {
+        hint = 'likely an authorisation or quota/plan-limit problem on the Copernicus account behind this instance ID';
+      } else if (response.status === 400 || response.status === 404) {
+        hint = `likely a missing/misspelled raw layer — check that layer "${this.getRawLayerId()}" exists on the configured Copernicus instance (Satellite & NDVI Settings)`;
+      } else {
+        hint = 'unexpected response from the Copernicus WMS endpoint';
+      }
       throw new Error(
-        `NDVI raw layer request failed (HTTP ${response.status}) — check that layer "${this.getRawLayerId()}" ` +
-        `exists on the configured Copernicus instance (Satellite & NDVI Settings).`
+        `NDVI raw layer request failed (HTTP ${response.status}) — ${hint}.` +
+        (serverDetail ? ` Server said: ${serverDetail}` : '')
       );
     }
 
     return null;
+  },
+
+  /**
+   * Best-effort extraction of a short human-readable message from a failed
+   * WMS response body (Sentinel Hub typically returns JSON {error:{message}}
+   * or an XML ServiceException). Never throws — diagnostic only.
+   * @private
+   */
+  async _readErrorDetail(response) {
+    try {
+      const text = await response.clone().text();
+      if (!text) return '';
+      try {
+        const json = JSON.parse(text);
+        const msg = json?.error?.message || json?.message;
+        if (msg) return String(msg).slice(0, 300);
+      } catch (jsonErr) {
+        // Not JSON — fall through to XML/plain-text handling below.
+      }
+      const xmlMatch = text.match(/<ServiceException[^>]*>([\s\S]*?)<\/ServiceException>/i);
+      if (xmlMatch) return xmlMatch[1].trim().slice(0, 300);
+      return text.trim().slice(0, 300);
+    } catch (readErr) {
+      return '';
+    }
   },
 
   /**

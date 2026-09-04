@@ -258,9 +258,16 @@ const StatsMath = {
    *
    * @param {{x:number[], y:number[]}[]} groups
    * @param {number} [minPerGroup=10] minimum usable samples for a group to count
-   * @returns {{r:number, p:number, k:number}} r = tanh(pooled z) (typical
-   *   per-group effect), k = groups that contributed. For k < 3 the test is
-   *   not run: p = 1, r = the simple mean of the available r_i.
+   * @returns {{r:number, p:number, k:number, tau2:number, i2:number}} r = tanh(pooled z)
+   *   (typical per-group effect), k = groups that contributed. `i2` is the
+   *   percentage of total across-walk variation attributable to real
+   *   between-walk heterogeneity rather than each walk's own sampling noise
+   *   (Higgins & Thompson 2002: 0% = walks agree, up to 100% = they actively
+   *   disagree in direction/magnitude) — a null pooled `r` with a *high* `i2`
+   *   means "walks don't agree with each other", not "nothing is happening
+   *   in any of them". `tau2` is the underlying DerSimonian–Laird variance
+   *   it's derived from. Both are `NaN` when k < 3 (too few groups to assess
+   *   heterogeneity at all).
    */
   metaCorrelation(groups, minPerGroup = 10) {
     const entries = [];   // { z, v } per usable group
@@ -284,7 +291,7 @@ const StatsMath = {
       entries.push({ z: Math.atanh(rc), v });
     }
     const k = entries.length;
-    if (k < 3) return { r: nR ? sumR / nR : 0, p: 1, k };
+    if (k < 3) return { r: nR ? sumR / nR : 0, p: 1, k, tau2: NaN, i2: NaN };
 
     // Fixed-effect (inverse-variance) pooled z, then Cochran's Q.
     let sw = 0, swz = 0, sw2 = 0;
@@ -293,10 +300,12 @@ const StatsMath = {
     let Q = 0;
     for (const e of entries) Q += (1 / e.v) * (e.z - zFixed) ** 2;
 
-    // DerSimonian–Laird between-walk variance.
+    // DerSimonian–Laird between-walk variance, and Higgins & Thompson's I² —
+    // the share of Q not explained by each walk's own sampling error alone.
     const df = k - 1;
     const C = sw - sw2 / sw;
     const tau2 = C > 0 ? Math.max(0, (Q - df) / C) : 0;
+    const i2 = Q > 0 ? Math.max(0, (Q - df) / Q) * 100 : 0;
 
     // Random-effects pooled z with tau^2 folded into every weight.
     let swr = 0, swrz = 0;
@@ -309,7 +318,7 @@ const StatsMath = {
     if (!(hk > 0)) {
       // Every walk gave the same z — no observable between-walk dispersion.
       // Keep the "perfectly consistent non-zero effect ⇒ ~0" degenerate case.
-      return { r: Math.tanh(zRE), p: zRE === 0 ? 1 : 0, k };
+      return { r: Math.tanh(zRE), p: zRE === 0 ? 1 : 0, k, tau2, i2 };
     }
     // Modified Knapp–Hartung: the KH standard error can only widen, never
     // narrow, the plain random-effects interval (the standard safeguard
@@ -318,7 +327,7 @@ const StatsMath = {
     const seHK = Math.sqrt(hk / (df * swr));
     const se = Math.max(seRE, seHK);
     const t = zRE / se;
-    return { r: Math.tanh(zRE), p: StatsMath._tTestPValue(t, df), k };
+    return { r: Math.tanh(zRE), p: StatsMath._tTestPValue(t, df), k, tau2, i2 };
   },
 
   /**

@@ -116,6 +116,45 @@ test('enrichTrack (collective): one failing track does not stop the others', asy
   );
 });
 
+test('enrichTrack (collective): a shared fetch that times out falls back to per-track fetches instead of aborting everything', async () => {
+  installDom();
+  // Union area is 8 km² (under the 12 cap) -> singleFetch is attempted, but
+  // the shared OSMEnricher.fetchOSMData call throws (simulating the 504 a
+  // dense combined-area query can hit even under the area cap). Every
+  // track's own bbox is small and should still be fetched individually.
+  let fetchCalls = 0;
+  const calls = [];
+  global.OsmCache = {
+    async getForBBox() { return null; },     // cache miss on both the shared and per-track paths
+    async planFetch(bbox) { return { fetchBBox: bbox, mergeIds: [] }; },
+    async store() {},
+  };
+  global.OSMEnricher = {
+    _isValidCoord: (lat, lon) => lat != null && !isNaN(lat),
+    calculateBBox: () => ({ minLat: 0, minLon: 0, maxLat: 0.01, maxLon: 0.01 }),
+    calculateBBoxAreaKm2: () => 8.0,
+    async fetchOSMData() {
+      fetchCalls++;
+      if (fetchCalls === 1) throw new Error('Overpass API timed out after 4 attempts.');
+      return { elements: [] };
+    },
+    enrichTrack(analyzer) { calls.push(analyzer.__name); analyzer.isEnriched = true; },
+  };
+  const tracks = ['X', 'Y', 'Z'].map(fakeTrack);
+  global.AppState = {
+    viewMode: 'collective',
+    collectiveManager: { getActiveTracks: () => tracks },
+  };
+  GSRUI.refreshOsmControls = () => {};
+  GSRUI.rerenderMap = () => {};
+
+  await GSRUI.enrichTrack(true);
+
+  assert.strictEqual(fetchCalls, 4, '1 failed shared fetch + 3 successful per-track fetches');
+  assert.deepStrictEqual(calls, ['X', 'Y', 'Z'], 'every track still enriched via the per-track fallback');
+  assert.ok(tracks.every(t => t.analyzer.isEnriched), 'the shared-fetch failure did not abort the whole batch');
+});
+
 test('enrichTrack (collective): a spread-out collection (union over the area cap) still enriches every track', async () => {
   installDom();
   // Union bbox reports 40 km² (> 12 cap) so the single-fetch path is skipped;

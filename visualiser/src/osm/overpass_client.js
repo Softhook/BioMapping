@@ -1,11 +1,26 @@
 /**
  * Overpass API Client for Bio Mapping.
- * Handles rate limits, backoffs, retries, and network queries.
+ * Handles rate limits, backoffs, retries, mirror fallback, and network queries.
  */
 const OverpassClient = {
-  overpassEndpoint: 'https://overpass-api.de/api/interpreter',
+  // Tried in order. Only a connection-level failure (the host itself
+  // unreachable — DNS/TCP/CORS, surfaced by fetch() as a thrown TypeError,
+  // never an HTTP status) falls through to the next one; a real HTTP error
+  // from a live server (rate limit exhausted, malformed query, area too
+  // large) would fail identically on every mirror, so it's reported
+  // immediately instead of silently retried elsewhere.
+  ENDPOINTS: [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+  ],
+  // Kept for anything (tests, callers) that still reads the single-endpoint
+  // shape; always the primary.
+  get overpassEndpoint() { return OverpassClient.ENDPOINTS[0]; },
 
-  // Rate-limit tracker
+  // Rate-limit tracker. Shared across mirrors rather than per-endpoint —
+  // simpler, and a conservative choice: many Overpass rate limits are
+  // enforced by client IP rather than by which mirror you hit, so a 429 from
+  // one is a reasonable (if imperfect) signal to also hold off on the other.
   _nextAllowedCallTime: null,
 
   buildQuery(bbox) {
@@ -78,10 +93,41 @@ out skel qt;`;
     return fallbackMs;
   },
 
+  /**
+   * Fetch OSM data, trying each of ENDPOINTS in turn. A connection-level
+   * failure (the host itself unreachable, or persistently timing out even
+   * after its own retries — never a real HTTP response) moves on to the
+   * next mirror; any interpretable HTTP status from a live server is
+   * reported immediately, since it would fail the same way everywhere.
+   */
   async fetchOSMData(bbox, onProgress) {
-    if (onProgress) onProgress('Connecting to Overpass API...');
-
     const query = OverpassClient.buildQuery(bbox);
+    let lastErr = null;
+
+    for (let i = 0; i < OverpassClient.ENDPOINTS.length; i++) {
+      const endpoint = OverpassClient.ENDPOINTS[i];
+      const isLastEndpoint = i === OverpassClient.ENDPOINTS.length - 1;
+      try {
+        return await OverpassClient._fetchFromEndpoint(endpoint, query, onProgress);
+      } catch (err) {
+        lastErr = err;
+        const isConnectionFailure = (err instanceof TypeError) || err.name === 'AbortError';
+        if (!isConnectionFailure || isLastEndpoint) throw err;
+        const host = endpoint.split('/')[2];
+        if (onProgress) onProgress(`${host} unreachable — trying a mirror…`);
+      }
+    }
+    throw lastErr;
+  },
+
+  /**
+   * Query a single Overpass endpoint, with rate-limit/backoff/retry on that
+   * endpoint alone. Extracted from fetchOSMData so mirror fallback (above)
+   * can call it once per candidate host.
+   * @private
+   */
+  async _fetchFromEndpoint(endpoint, query, onProgress) {
+    if (onProgress) onProgress('Connecting to Overpass API...');
 
     // Honour global rate-limit cooldown before we even start
     await OverpassClient._enforceRateLimit(onProgress);
@@ -95,7 +141,7 @@ out skel qt;`;
         const timeoutMs = 200000;                       // 200 s network timeout
         timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-        const response = await fetch(OverpassClient.overpassEndpoint, {
+        const response = await fetch(endpoint, {
           method: 'POST',
           body: 'data=' + encodeURIComponent(query),
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
