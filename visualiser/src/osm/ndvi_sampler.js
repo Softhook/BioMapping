@@ -427,6 +427,10 @@ const NDVISampler = {
   // 5. Pixel Decoding & Thematic Shading
   // ---------------------------------------------------------------------------
 
+  _clampAndRoundNdvi(v) {
+    return Math.max(-0.2, Math.min(1.0, Math.round(v * 1000) / 1000));
+  },
+
   /**
    * Decode an RGBA pixel into a Normalized Difference Vegetation Index (NDVI) float in [-0.2, 1.0].
    * Supports:
@@ -447,14 +451,12 @@ const NDVISampler = {
     // Check for greyscale tile (R == G == B)
     if (Math.abs(r - g) <= 4 && Math.abs(g - b) <= 4) {
       // 0 -> -0.2 (water), 42 -> 0.0 (bare soil), 255 -> 1.0 (dense canopy)
-      const val = (g / 255.0) * 1.2 - 0.2;
-      return Math.max(-0.2, Math.min(1.0, Math.round(val * 1000) / 1000));
+      return this._clampAndRoundNdvi((g / 255.0) * 1.2 - 0.2);
     }
 
     // Water detection: strong blue dominance
     if (b > r + 20 && b > g + 15) {
-      const waterVal = -0.15 - Math.min(0.05, (b - g) / 500);
-      return Math.round(waterVal * 1000) / 1000;
+      return this._clampAndRoundNdvi(-0.15 - Math.min(0.05, (b - g) / 500));
     }
 
     // Snow / Ice detection: very high brightness across all bands with blue/cyan tint
@@ -485,35 +487,81 @@ const NDVISampler = {
       ndvi = 0.14 - redDominance * 0.10;
     }
 
-    const clamped = Math.max(-0.2, Math.min(1.0, ndvi));
-    return Math.round(clamped * 1000) / 1000;
+    return this._clampAndRoundNdvi(ndvi);
   },
 
   /**
-   * Map an NDVI value in [-0.2, 1.0] to an RGBA color for thematic false-color vegetation rendering:
-   *   val < 0.00: Water (soft translucent blue)
-   *   0.00 - 0.12: Built environment / pavement / asphalt / bare ground (muted translucent slate-grey)
-   *   0.12 - 0.25: Low vegetation / sparse lawns / verges (warm yellow-green)
-   *   0.25 - 0.45: Moderate vegetation / tree canopy / parks (bright leaf green)
-   *   >= 0.45: Dense healthy canopy / deep woodland (vivid deep emerald green)
+   * Write false-color thematic vegetation RGBA values directly into a target buffer.
+   * Zero heap allocations.
+   * 
+   * @param {number} val - NDVI float
+   * @param {Uint8ClampedArray|Array<number>} targetArray - Target array to write into
+   * @param {number} offset - Byte/index offset
+   */
+  writeThematicRgba(val, targetArray, offset) {
+    if (isNaN(val) || val < 0.0) {
+      targetArray[offset]     = 60;
+      targetArray[offset + 1] = 130;
+      targetArray[offset + 2] = 200;
+      targetArray[offset + 3] = 45; // Water (soft translucent blue)
+      return;
+    }
+    if (val < 0.12) {
+      targetArray[offset]     = 160;
+      targetArray[offset + 1] = 160;
+      targetArray[offset + 2] = 155;
+      targetArray[offset + 3] = 35; // Urban / asphalt (translucent so labels show through)
+      return;
+    }
+    if (val < 0.25) {
+      targetArray[offset]     = 195;
+      targetArray[offset + 1] = 215;
+      targetArray[offset + 2] = 65;
+      targetArray[offset + 3] = 175; // Low vegetation / grass
+      return;
+    }
+    if (val < 0.45) {
+      targetArray[offset]     = 90;
+      targetArray[offset + 1] = 195;
+      targetArray[offset + 2] = 55;
+      targetArray[offset + 3] = 210; // Moderate canopy / parks
+      return;
+    }
+    targetArray[offset]     = 15;
+    targetArray[offset + 1] = 140;
+    targetArray[offset + 2] = 30;
+    targetArray[offset + 3] = 235; // Dense canopy / woodland
+  },
+
+  /**
+   * Directly transforms an ImageData RGBA buffer into thematic false-color NDVI in-place.
+   * Eliminates 260k+ heap allocations per tile for smooth 60fps tile rendering during pan/zoom.
+   * 
+   * @param {ImageData} imgData - Canvas ImageData (256x256)
+   */
+  shadeImageData(imgData) {
+    if (!imgData || !imgData.data) return;
+    const d = imgData.data;
+    const len = d.length;
+    for (let i = 0; i < len; i += 4) {
+      const a = d[i + 3];
+      if (a < 128) continue;
+      const val = this.decodePixel(d[i], d[i + 1], d[i + 2], a);
+      this.writeThematicRgba(val, d, i);
+    }
+  },
+
+  /**
+   * Map an NDVI value in [-0.2, 1.0] to an RGBA color for thematic false-color vegetation rendering.
+   * Delegates to writeThematicRgba for consistency.
    * 
    * @param {number} val - NDVI float
    * @returns {[number, number, number, number]} [r, g, b, a]
    */
   ndviToThematicRgba(val) {
-    if (isNaN(val) || val < 0.0) {
-      return [60, 130, 200, 45]; // Water
-    }
-    if (val < 0.12) {
-      return [160, 160, 155, 35]; // Urban / asphalt (translucent so base map street labels show through)
-    }
-    if (val < 0.25) {
-      return [195, 215, 65, 175]; // Low vegetation / grass
-    }
-    if (val < 0.45) {
-      return [90, 195, 55, 210]; // Moderate green canopy
-    }
-    return [15, 140, 30, 235]; // Dense canopy
+    const out = [0, 0, 0, 0];
+    this.writeThematicRgba(val, out, 0);
+    return out;
   },
 
   /**
@@ -563,20 +611,83 @@ const NDVISampler = {
   },
 
   // ---------------------------------------------------------------------------
-  // 6. Network Concurrency Pool & Bounded Fetching
+  // 6. Network Concurrency Pool, Rate Limiting & Exponential Backoff
   // ---------------------------------------------------------------------------
 
+  // Provider rate-limit tracker (mirroring OverpassClient)
+  _providerRateLimits: new Map(),
+
   /**
-   * Fetch a single tile with timeout and automatic retry on network failure.
+   * Compute exponential backoff with random jitter (mirroring OverpassClient._backoffMs).
+   * @param {number} attempt - Zero-based attempt count
+   * @param {number} [baseMs=500] - Base delay in ms
+   * @returns {number} Backoff time in ms
+   */
+  _backoffMs(attempt, baseMs = 500) {
+    const linear = baseMs * Math.pow(2, attempt);
+    const jitter = 0.75 + Math.random() * 0.5; // 0.75 – 1.25 jitter
+    return Math.round(linear * jitter);
+  },
+
+  /**
+   * Parse Retry-After header if present, or return fallback.
+   * @param {Response} response
+   * @param {number} fallbackMs
+   * @returns {number}
+   */
+  _retryAfterMs(response, fallbackMs = 5000) {
+    if (!response || !response.headers || typeof response.headers.get !== 'function') return fallbackMs;
+    const val = response.headers.get('Retry-After');
+    if (!val) return fallbackMs;
+    const sec = parseInt(val, 10);
+    if (!isNaN(sec) && sec > 0) return sec * 1000;
+    return fallbackMs;
+  },
+
+  /**
+   * Enforce rate limit cooldown for a provider before firing requests.
+   * @param {string} providerId
+   */
+  async _enforceRateLimit(providerId) {
+    const nextAllowed = this._providerRateLimits.get(providerId);
+    if (nextAllowed && Date.now() < nextAllowed) {
+      const wait = nextAllowed - Date.now();
+      await new Promise(r => setTimeout(r, wait));
+    }
+  },
+
+  /**
+   * Helper to convert an image Blob into an HTMLImageElement safely.
    * @private
    */
-  _fetchWithTimeoutAndRetry(url, ctx, destX, destY, timeoutMs = 8000) {
+  _blobToImage(blob) {
+    return new Promise((resolve) => {
+      if (typeof Image === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+        return resolve(null);
+      }
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(blob);
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(img);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(null);
+      };
+      img.src = objectUrl;
+    });
+  },
+
+  /**
+   * Fallback to load a tile via new Image() element with timeout.
+   * @private
+   */
+  _fetchViaImage(url, ctx, destX, destY, timeoutMs = 8000) {
     return new Promise((resolve) => {
       if (!ctx || typeof Image === 'undefined') {
-        // Headless / test environment fallback
         return resolve(false);
       }
-
       let timer = null;
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -605,33 +716,7 @@ const NDVISampler = {
 
       img.onerror = () => {
         cleanup();
-        // One retry after 250ms backoff
-        setTimeout(() => {
-          if (typeof Image === 'undefined') return resolve(false);
-          const retryImg = new Image();
-          retryImg.crossOrigin = 'anonymous';
-          let retryTimer = setTimeout(() => {
-            retryImg.onload = null;
-            retryImg.onerror = null;
-            resolve(false);
-          }, timeoutMs);
-
-          retryImg.onload = () => {
-            clearTimeout(retryTimer);
-            try {
-              ctx.drawImage(retryImg, destX, destY, 256, 256);
-              this._putTileCache(url, retryImg);
-              resolve(true);
-            } catch (e) {
-              resolve(false);
-            }
-          };
-          retryImg.onerror = () => {
-            clearTimeout(retryTimer);
-            resolve(false);
-          };
-          retryImg.src = url;
-        }, 250);
+        resolve(false);
       };
 
       img.src = url;
@@ -639,8 +724,128 @@ const NDVISampler = {
   },
 
   /**
+   * Fetch a single satellite tile with rate limit enforcement, exponential backoff,
+   * status code inspection, and automatic retries.
+   * 
+   * @param {string} url - Tile URL
+   * @param {CanvasRenderingContext2D|null} ctx - Offscreen canvas context
+   * @param {number} destX - Destination X on canvas
+   * @param {number} destY - Destination Y on canvas
+   * @param {Object} [options={}] - { providerId, maxRetries, timeoutMs, signal, onRetry }
+   * @returns {Promise<boolean>} True if loaded and drawn, false otherwise
+   */
+  async _fetchTileWithBackoff(url, ctx, destX, destY, options = {}) {
+    if (!ctx) return false;
+    const providerId = options.providerId || 'default';
+    const maxRetries = (typeof options.maxRetries === 'number') ? options.maxRetries : 3;
+    const timeoutMs = options.timeoutMs || 8000;
+    const signal = options.signal || null;
+    const onRetry = options.onRetry || (() => {});
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      if (signal && signal.aborted) return false;
+
+      // 1. Honour provider rate limits
+      await this._enforceRateLimit(providerId);
+
+      try {
+        // 2. Try modern fetch path (gives HTTP status, headers, and avoids canvas tainting)
+        if (typeof fetch === 'function') {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+          let response;
+          try {
+            response = await fetch(url, {
+              mode: 'cors',
+              signal: controller.signal
+            });
+          } finally {
+            clearTimeout(timer);
+          }
+
+          if (response.ok) {
+            const blob = await response.blob();
+            let imgSource = null;
+            if (typeof createImageBitmap === 'function') {
+              try {
+                imgSource = await createImageBitmap(blob);
+              } catch (bmpErr) {
+                imgSource = null;
+              }
+            }
+            if (!imgSource && typeof Image !== 'undefined') {
+              imgSource = await this._blobToImage(blob);
+            }
+
+            if (imgSource) {
+              try {
+                ctx.drawImage(imgSource, destX, destY, 256, 256);
+                this._putTileCache(url, imgSource);
+                return true;
+              } catch (drawErr) {
+                // Drawing failed (e.g. invalid bitmap); fall through to retry
+              }
+            }
+          }
+
+          // Rate-limiting (HTTP 429 or 509)
+          if (response.status === 429 || response.status === 509) {
+            const retryAfter = this._retryAfterMs(response, 5000 * Math.pow(2, attempt));
+            this._providerRateLimits.set(providerId, Date.now() + retryAfter);
+            if (attempt < maxRetries) {
+              onRetry(attempt + 1, retryAfter, `Rate limited (HTTP ${response.status})`);
+              await new Promise(r => setTimeout(r, retryAfter));
+              continue;
+            }
+            return false;
+          }
+
+          // Permanent client errors (HTTP 400, 404) -> do not waste retries
+          if (response.status === 400 || response.status === 404) {
+            return false;
+          }
+
+          // Server error (HTTP 500, 502, 503, 504) -> back off and retry
+          if (response.status >= 500) {
+            if (attempt < maxRetries) {
+              const waitMs = this._backoffMs(attempt, 500);
+              onRetry(attempt + 1, waitMs, `Server error (HTTP ${response.status})`);
+              await new Promise(r => setTimeout(r, waitMs));
+              continue;
+            }
+            return false;
+          }
+        }
+
+        // 3. Fallback to Image element if fetch failed or is not available
+        const imgSuccess = await this._fetchViaImage(url, ctx, destX, destY, timeoutMs);
+        if (imgSuccess) return true;
+
+        if (attempt < maxRetries) {
+          const waitMs = this._backoffMs(attempt, 400);
+          onRetry(attempt + 1, waitMs, 'Image load failed');
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
+        }
+
+      } catch (err) {
+        // Network timeout / connection reset
+        if (attempt < maxRetries) {
+          const waitMs = this._backoffMs(attempt, 400);
+          onRetry(attempt + 1, waitMs, err.message || 'Network error');
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
+        }
+      }
+    }
+
+    return false;
+  },
+
+  /**
    * Helper to load a tile image and draw it onto the offscreen canvas context.
-   * Leverages in-memory cache and retry logic.
+   * Leverages in-memory cache and exponential backoff retry logic.
    * @private
    */
   _fetchAndDrawTile(url, ctx, destX, destY) {
@@ -653,23 +858,26 @@ const NDVISampler = {
         // Fall back to fetch below
       }
     }
-    return this._fetchWithTimeoutAndRetry(url, ctx, destX, destY, 8000);
+    return this._fetchTileWithBackoff(url, ctx, destX, destY, { maxRetries: 3, timeoutMs: 8000 });
   },
 
   /**
-   * Execute tile downloads through a worker pool with bounded concurrency.
+   * Execute tile downloads through a worker pool with bounded concurrency and backoff.
    * @private
    */
   async _fetchTilePool(tasks, ctx, options = {}) {
     const concurrency = Math.max(1, options.concurrency || 6);
     const timeoutMs = options.timeoutMs || 8000;
-    const onTileProgress = options.onTileProgress || (() => {});
+    const onTileProgress = options.onTileProgress || options.onProgress || (() => {});
     const signal = options.signal || null;
+    const providerId = options.providerId || 'default';
+    const maxRetries = (typeof options.maxRetries === 'number') ? options.maxRetries : 3;
 
     let nextIdx = 0;
     let completed = 0;
     let loaded = 0;
     let cached = 0;
+    let failed = 0;
     const total = tasks.length;
 
     const worker = async () => {
@@ -694,15 +902,20 @@ const NDVISampler = {
           }
         }
 
-        let success = false;
-        try {
-          success = await this._fetchWithTimeoutAndRetry(task.url, ctx, task.destX, task.destY, timeoutMs);
-        } catch (e) {
-          success = false;
-        }
+        const success = await this._fetchTileWithBackoff(task.url, ctx, task.destX, task.destY, {
+          timeoutMs,
+          signal,
+          providerId,
+          maxRetries,
+          onRetry: (attempt, waitMs, reason) => {
+            onTileProgress(completed, total, false, `Tile retry (${attempt}/${maxRetries}): ${reason}`);
+          }
+        });
 
         if (success) {
           loaded++;
+        } else {
+          failed++;
         }
         completed++;
         onTileProgress(completed, total, false);
@@ -716,7 +929,7 @@ const NDVISampler = {
     }
 
     await Promise.all(workers);
-    return { loaded, cached, total };
+    return { loaded, cached, failed, total };
   },
 
   // ---------------------------------------------------------------------------
@@ -724,37 +937,222 @@ const NDVISampler = {
   // ---------------------------------------------------------------------------
 
   /**
+   * Compute a buffered geographical bounding box for an array of points.
+   * Unifies bounding box calculation across OSM and NDVI pipelines.
+   * 
+   * @param {Array<Object>} rawPoints - Points array ({lat, lon})
+   * @param {number} [bufferMeters=100] - Padding in meters
+   * @returns {{ minLat: number, maxLat: number, minLon: number, maxLon: number }|null}
+   */
+  calculateBBox(rawPoints, bufferMeters = 100) {
+    if (!rawPoints || rawPoints.length === 0) return null;
+    if (typeof OSMEnricher !== 'undefined' && typeof OSMEnricher.calculateBBox === 'function') {
+      const osmBbox = OSMEnricher.calculateBBox(rawPoints, bufferMeters);
+      if (osmBbox) return osmBbox;
+    }
+    const rawBounds = (typeof GeoUtils !== 'undefined' && typeof GeoUtils.computeBounds === 'function')
+      ? GeoUtils.computeBounds(rawPoints, 0, (pt) => this._isValidCoord(pt.lat, pt.lon))
+      : null;
+    if (rawBounds && typeof GeoUtils.expandBounds === 'function') {
+      return GeoUtils.expandBounds(rawBounds, bufferMeters);
+    }
+    // Standalone fallback
+    let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180, count = 0;
+    for (let i = 0; i < rawPoints.length; i++) {
+      const p = rawPoints[i];
+      if (p && this._isValidCoord(p.lat, p.lon)) {
+        count++;
+        if (p.lat < minLat) minLat = p.lat;
+        if (p.lat > maxLat) maxLat = p.lat;
+        if (p.lon < minLon) minLon = p.lon;
+        if (p.lon > maxLon) maxLon = p.lon;
+      }
+    }
+    if (count === 0) return null;
+    const latBuf = bufferMeters / 111320;
+    const lonBuf = bufferMeters / (111320 * Math.cos((minLat * Math.PI) / 180));
+    return {
+      minLat: minLat - latBuf,
+      maxLat: maxLat + latBuf,
+      minLon: minLon - lonBuf,
+      maxLon: maxLon + lonBuf
+    };
+  },
+
+  /**
+   * Calculate bounding box area in square kilometers.
+   * @param {{ minLat: number, maxLat: number, minLon: number, maxLon: number }} bbox
+   * @returns {number}
+   */
+  calculateBBoxAreaKm2(bbox) {
+    if (!bbox) return 0;
+    if (typeof OSMEnricher !== 'undefined' && typeof OSMEnricher.calculateBBoxAreaKm2 === 'function') {
+      return OSMEnricher.calculateBBoxAreaKm2(bbox);
+    }
+    if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.bboxAreaKm2 === 'function') {
+      return GeoUtils.bboxAreaKm2(bbox);
+    }
+    const midLat = (bbox.minLat + bbox.maxLat) / 2;
+    const h = (bbox.maxLat - bbox.minLat) * 111.32;
+    const w = (bbox.maxLon - bbox.minLon) * 111.32 * Math.cos((midLat * Math.PI) / 180);
+    return Math.abs(h * w);
+  },
+
+  /**
+   * Compute Mercator tile coordinate bounds and total tile count with optional adaptive zoom.
+   * @private
+   */
+  _calculateTileBounds(bbox, zoom, maxTiles = 64, adaptiveZoom = true) {
+    let currentZoom = zoom;
+    let p1 = this.latLonToTile(bbox.maxLat, bbox.minLon, currentZoom);
+    let p2 = this.latLonToTile(bbox.minLat, bbox.maxLon, currentZoom);
+    let startTileX = Math.min(p1.tileX, p2.tileX);
+    let endTileX   = Math.max(p1.tileX, p2.tileX);
+    let startTileY = Math.min(p1.tileY, p2.tileY);
+    let endTileY   = Math.max(p1.tileY, p2.tileY);
+    let tilesAcross = endTileX - startTileX + 1;
+    let tilesDown   = endTileY - startTileY + 1;
+    let totalTiles  = tilesAcross * tilesDown;
+
+    if (adaptiveZoom && totalTiles > maxTiles) {
+      while (totalTiles > maxTiles && currentZoom > 12) {
+        currentZoom--;
+        p1 = this.latLonToTile(bbox.maxLat, bbox.minLon, currentZoom);
+        p2 = this.latLonToTile(bbox.minLat, bbox.maxLon, currentZoom);
+        startTileX = Math.min(p1.tileX, p2.tileX);
+        endTileX   = Math.max(p1.tileX, p2.tileX);
+        startTileY = Math.min(p1.tileY, p2.tileY);
+        endTileY   = Math.max(p1.tileY, p2.tileY);
+        tilesAcross = endTileX - startTileX + 1;
+        tilesDown   = endTileY - startTileY + 1;
+        totalTiles  = tilesAcross * tilesDown;
+      }
+    }
+
+    return {
+      zoom: currentZoom,
+      startTileX,
+      endTileX,
+      startTileY,
+      endTileY,
+      tilesAcross,
+      tilesDown,
+      totalTiles,
+      wasAdapted: currentZoom !== zoom
+    };
+  },
+
+  /**
+   * Core sampling loop: extracts Point NDVI and radial buffer NDVI from an offscreen canvas.
+   * @private
+   */
+  _samplePointsOnCanvas(raw, validPoints, imgData, canvasWidth, canvasHeight, startTileX, startTileY, zoom, radiusM) {
+    let sumNdvi = 0;
+    let sumNdvi50m = 0;
+    let enrichedCount = 0;
+
+    for (let i = 0; i < validPoints.length; i++) {
+      const pt = validPoints[i].pt || validPoints[i];
+      const coords = this.latLonToTile(pt.lat, pt.lon, zoom);
+      // Sub-pixel continuous coordinates on canvas for maximum spatial precision
+      const canvasX = coords.worldX - (startTileX * 256);
+      const canvasY = coords.worldY - (startTileY * 256);
+      const radiusPx = this.metersToPixels(radiusM, pt.lat, zoom);
+
+      let pNdvi = NaN;
+      let bNdvi = NaN;
+
+      if (imgData) {
+        const cX = Math.max(0, Math.min(canvasWidth - 1, Math.round(canvasX)));
+        const cY = Math.max(0, Math.min(canvasHeight - 1, Math.round(canvasY)));
+        const pIdx = (cY * canvasWidth + cX) * 4;
+        pNdvi = this.decodePixel(imgData.data[pIdx], imgData.data[pIdx + 1], imgData.data[pIdx + 2], imgData.data[pIdx + 3]);
+        bNdvi = this.sampleBuffer(imgData.data, canvasWidth, canvasHeight, canvasX, canvasY, radiusPx);
+      }
+
+      // Fallback if tiles could not be decoded (e.g. offline or test stub)
+      if (isNaN(pNdvi)) {
+        const osmGreen = typeof pt.osm_green_pct_50m === 'number' && !isNaN(pt.osm_green_pct_50m) ? pt.osm_green_pct_50m / 100 : 0.2;
+        pNdvi = Math.round((osmGreen * 0.6 + 0.1) * 1000) / 1000;
+      }
+      if (isNaN(bNdvi)) {
+        const osmCanopy = typeof pt.osm_canopy_pct_50m === 'number' && !isNaN(pt.osm_canopy_pct_50m) ? pt.osm_canopy_pct_50m / 100 : 0.25;
+        bNdvi = Math.round((osmCanopy * 0.6 + 0.15) * 1000) / 1000;
+      }
+
+      pt.ndvi = pNdvi;
+      pt.ndvi_50m = bNdvi;
+
+      sumNdvi += pNdvi;
+      sumNdvi50m += bNdvi;
+      enrichedCount++;
+    }
+
+    // Propagate to non-GPS rows via forward step-hold
+    this._stepHoldValues(raw, ['ndvi', 'ndvi_50m']);
+
+    return {
+      sampleCount: validPoints.length,
+      enrichedCount,
+      meanNdvi: enrichedCount > 0 ? (sumNdvi / enrichedCount) : 0,
+      meanNdvi50m: enrichedCount > 0 ? (sumNdvi50m / enrichedCount) : 0
+    };
+  },
+
+  /**
+   * Propagate scalar values to non-GPS or null rows via forward step-hold.
+   * @param {Array<Object>} raw - Array of track row objects
+   * @param {Array<string>} fields - Field names to step-hold
+   */
+  _stepHoldValues(raw, fields) {
+    if (!raw || !fields || fields.length === 0) return;
+    const lastVals = {};
+    for (let f = 0; f < fields.length; f++) {
+      lastVals[fields[f]] = NaN;
+    }
+    for (let i = 0; i < raw.length; i++) {
+      const row = raw[i];
+      if (!row) continue;
+      for (let f = 0; f < fields.length; f++) {
+        const field = fields[f];
+        if (typeof row[field] === 'number' && !isNaN(row[field])) {
+          lastVals[field] = row[field];
+        } else if (!isNaN(lastVals[field])) {
+          row[field] = lastVals[field];
+        }
+      }
+    }
+  },
+
+  /**
    * Sample Point NDVI and 50m Buffer Mean NDVI for all GPS fixes in a track.
    * Fetches intersecting satellite tiles via concurrency pool and extracts
    * pixel vegetation metrics via offscreen canvas.
    * 
    * @param {Object} track - Track object with track.analyzer
-   * @param {Object} [options={}] - Options { zoom, radiusM, provider, tileUrl, onProgress, signal }
+   * @param {Object} [options={}] - Options { zoom, radiusM, provider, tileUrl, onProgress, signal, maxTiles, adaptiveZoom }
    * @returns {Promise<{ sampleCount: number, enrichedCount: number, meanNdvi: number, meanNdvi50m: number }>}
    */
   async sampleTrack(track, options = {}) {
-    if (!track || !track.analyzer || !track.analyzer.raw || track.analyzer.raw.length === 0) {
+    const analyzer = track?.analyzer || track;
+    if (!analyzer || !analyzer.raw || analyzer.raw.length === 0) {
       throw new Error("Track has no raw data points to sample.");
     }
 
-    const raw = track.analyzer.raw;
-    const zoom = options.zoom || 15;
+    const raw = analyzer.raw;
+    const requestedZoom = options.zoom || 15;
     const radiusM = options.radiusM || 50;
     const onProgress = options.onProgress || (() => {});
     const signal = options.signal || null;
+    const maxTiles = options.maxTiles || 64;
+    const adaptiveZoom = options.adaptiveZoom !== false;
 
-    // Filter valid GPS coordinates using unified OSM-aligned criteria
+    // Filter valid GPS coordinates using unified criteria
     const validPoints = [];
-    let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
-
     for (let i = 0; i < raw.length; i++) {
       const pt = raw[i];
       if (pt && this._isValidCoord(pt.lat, pt.lon)) {
         validPoints.push({ index: i, pt });
-        if (pt.lat < minLat) minLat = pt.lat;
-        if (pt.lat > maxLat) maxLat = pt.lat;
-        if (pt.lon < minLon) minLon = pt.lon;
-        if (pt.lon > maxLon) maxLon = pt.lon;
       }
     }
 
@@ -765,37 +1163,20 @@ const NDVISampler = {
     onProgress(10, "Determining satellite tile coverage...");
 
     // Buffer bounding box to cover the radius around outer fixes
-    const bufferDistanceM = radiusM + 50; // extra margin for tile coverage
-    let bboxMinLat, bboxMaxLat, bboxMinLon, bboxMaxLon;
-
-    if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.computeBounds === 'function' && typeof GeoUtils.expandBounds === 'function') {
-      const bounds = GeoUtils.computeBounds(validPoints.map(v => v.pt));
-      const expanded = GeoUtils.expandBounds(bounds, bufferDistanceM);
-      bboxMinLat = expanded.minLat;
-      bboxMaxLat = expanded.maxLat;
-      bboxMinLon = expanded.minLon;
-      bboxMaxLon = expanded.maxLon;
-    } else {
-      const latBuf = bufferDistanceM / 111320;
-      const lonBuf = bufferDistanceM / (111320 * Math.cos((minLat * Math.PI) / 180));
-      bboxMinLat = minLat - latBuf;
-      bboxMaxLat = maxLat + latBuf;
-      bboxMinLon = minLon - lonBuf;
-      bboxMaxLon = maxLon + lonBuf;
+    const bufferDistanceM = radiusM + 50;
+    const bbox = this.calculateBBox(raw, bufferDistanceM);
+    if (!bbox) {
+      throw new Error("No valid GPS fixes found in track.");
     }
 
-    // Tile coordinate bounds
-    const p1 = this.latLonToTile(bboxMaxLat, bboxMinLon, zoom); // Top-left
-    const p2 = this.latLonToTile(bboxMinLat, bboxMaxLon, zoom); // Bottom-right
+    // Tile coordinate bounds with adaptive zoom safeguard
+    const bounds = this._calculateTileBounds(bbox, requestedZoom, maxTiles, adaptiveZoom);
+    const zoom = bounds.zoom;
+    const { startTileX, endTileX, startTileY, endTileY, tilesAcross, tilesDown, totalTiles } = bounds;
 
-    const startTileX = Math.min(p1.tileX, p2.tileX);
-    const endTileX   = Math.max(p1.tileX, p2.tileX);
-    const startTileY = Math.min(p1.tileY, p2.tileY);
-    const endTileY   = Math.max(p1.tileY, p2.tileY);
-
-    const tilesAcross = endTileX - startTileX + 1;
-    const tilesDown   = endTileY - startTileY + 1;
-    const totalTiles  = tilesAcross * tilesDown;
+    if (bounds.wasAdapted) {
+      onProgress(12, `Large track area: scaled zoom to ${zoom} (${totalTiles} tiles) for performance...`);
+    }
 
     const canvasWidth  = tilesAcross * 256;
     const canvasHeight = tilesDown * 256;
@@ -826,14 +1207,17 @@ const NDVISampler = {
     }
 
     try {
-      // Execute through concurrency pool (concurrency: 6)
+      // Execute through concurrency pool (concurrency: 6) with exponential backoff & rate limiting
       await this._fetchTilePool(tileTasks, ctx, {
         concurrency: 6,
         timeoutMs: 8000,
+        providerId: activeProvider.id,
+        maxRetries: 3,
         signal,
-        onTileProgress: (completed, total, wasCached) => {
+        onTileProgress: (completed, total, wasCached, retryMsg) => {
           const pct = Math.round(15 + (completed / total) * 45);
-          onProgress(pct, `Streaming satellite tiles: ${completed}/${total}${wasCached ? ' (cached)' : ''}...`);
+          const detail = retryMsg ? ` [${retryMsg}]` : (wasCached ? ' (cached)' : '');
+          onProgress(pct, `Streaming satellite tiles: ${completed}/${total}${detail}...`);
         }
       });
 
@@ -848,71 +1232,17 @@ const NDVISampler = {
         }
       }
 
-      let sumNdvi = 0;
-      let sumNdvi50m = 0;
-      let enrichedCount = 0;
+      const results = this._samplePointsOnCanvas(
+        raw, validPoints, imgData, canvasWidth, canvasHeight, startTileX, startTileY, zoom, radiusM
+      );
 
-      for (let i = 0; i < validPoints.length; i++) {
-        const { pt } = validPoints[i];
-        const coords = this.latLonToTile(pt.lat, pt.lon, zoom);
-        const canvasX = (coords.tileX - startTileX) * 256 + coords.pixelX;
-        const canvasY = (coords.tileY - startTileY) * 256 + coords.pixelY;
-        const radiusPx = this.metersToPixels(radiusM, pt.lat, zoom);
+      analyzer.isEnriched = true;
+      analyzer.hasNdvi = true;
+      analyzer._dataVersion = (analyzer._dataVersion || 0) + 1;
 
-        let pNdvi = NaN;
-        let bNdvi = NaN;
+      onProgress(100, `Successfully sampled NDVI across ${results.enrichedCount} GPS fixes.`);
 
-        if (imgData) {
-          const cX = Math.max(0, Math.min(canvasWidth - 1, Math.round(canvasX)));
-          const cY = Math.max(0, Math.min(canvasHeight - 1, Math.round(canvasY)));
-          const pIdx = (cY * canvasWidth + cX) * 4;
-          pNdvi = this.decodePixel(imgData.data[pIdx], imgData.data[pIdx + 1], imgData.data[pIdx + 2], imgData.data[pIdx + 3]);
-          bNdvi = this.sampleBuffer(imgData.data, canvasWidth, canvasHeight, canvasX, canvasY, radiusPx);
-        }
-
-        // Fallback if tiles could not be decoded (e.g. offline or test stub)
-        if (isNaN(pNdvi)) {
-          const osmGreen = typeof pt.osm_green_pct_50m === 'number' && !isNaN(pt.osm_green_pct_50m) ? pt.osm_green_pct_50m / 100 : 0.2;
-          pNdvi = Math.round((osmGreen * 0.6 + 0.1) * 1000) / 1000;
-        }
-        if (isNaN(bNdvi)) {
-          const osmCanopy = typeof pt.osm_canopy_pct_50m === 'number' && !isNaN(pt.osm_canopy_pct_50m) ? pt.osm_canopy_pct_50m / 100 : 0.25;
-          bNdvi = Math.round((osmCanopy * 0.6 + 0.15) * 1000) / 1000;
-        }
-
-        pt.ndvi = pNdvi;
-        pt.ndvi_50m = bNdvi;
-
-        sumNdvi += pNdvi;
-        sumNdvi50m += bNdvi;
-        enrichedCount++;
-      }
-
-      // Propagate to non-GPS rows via forward step-hold
-      let lastNdvi = NaN;
-      let lastNdvi50m = NaN;
-      for (let i = 0; i < raw.length; i++) {
-        if (typeof raw[i].ndvi === 'number' && !isNaN(raw[i].ndvi)) {
-          lastNdvi = raw[i].ndvi;
-          lastNdvi50m = raw[i].ndvi_50m;
-        } else if (!isNaN(lastNdvi)) {
-          raw[i].ndvi = lastNdvi;
-          raw[i].ndvi_50m = lastNdvi50m;
-        }
-      }
-
-      track.analyzer.isEnriched = true;
-      track.analyzer.hasNdvi = true;
-      track.analyzer._dataVersion = (track.analyzer._dataVersion || 0) + 1;
-
-      onProgress(100, `Successfully sampled NDVI across ${enrichedCount} GPS fixes.`);
-
-      return {
-        sampleCount: validPoints.length,
-        enrichedCount,
-        meanNdvi: enrichedCount > 0 ? (sumNdvi / enrichedCount) : 0,
-        meanNdvi50m: enrichedCount > 0 ? (sumNdvi50m / enrichedCount) : 0
-      };
+      return results;
     } finally {
       // Reclaim graphics memory immediately to avoid offscreen canvas backing store leaks
       if (canvas) {
@@ -922,6 +1252,213 @@ const NDVISampler = {
         ctx = null;
       }
     }
+  },
+
+  /**
+   * Sample NDVI across a batch of tracks (Collective View).
+   * Automatically selects Unified Mosaic Mode when walks are co-located (e.g. in the same
+   * neighbourhood or under 16 km²), downloading and rendering satellite tiles ONCE for all
+   * tracks. Falls back to per-track mode with fault isolation for dispersed walks.
+   * 
+   * @param {Array<Object>} tracks - Array of track objects ({ analyzer, name, id })
+   * @param {Object} [options={}] - Options { zoom, radiusM, provider, tileUrl, onProgress, signal, maxMosaicAreaKm2, maxMosaicTiles }
+   * @returns {Promise<{ mode: string, totalCount: number, enrichedCount: number, failedCount: number, tooBigCount: number, failedTracks: Array }>}
+   */
+  async sampleTracks(tracks, options = {}) {
+    if (!tracks || tracks.length === 0) {
+      return { mode: 'none', totalCount: 0, enrichedCount: 0, failedCount: 0, tooBigCount: 0, failedTracks: [] };
+    }
+
+    const onProgress = options.onProgress || (() => {});
+    const signal = options.signal || null;
+    const requestedZoom = options.zoom || 15;
+    const radiusM = options.radiusM || 50;
+    const maxMosaicAreaKm2 = options.maxMosaicAreaKm2 || 16.0;
+    const maxMosaicTiles = options.maxMosaicTiles || 64;
+
+    // Filter tracks with valid raw data points
+    const validTracks = tracks.filter(t => {
+      const a = t?.analyzer || t;
+      return a && Array.isArray(a.raw) && a.raw.some(pt => pt && this._isValidCoord(pt.lat, pt.lon));
+    });
+
+    if (validTracks.length === 0) {
+      return { mode: 'none', totalCount: tracks.length, enrichedCount: 0, failedCount: 0, tooBigCount: 0, failedTracks: [] };
+    }
+
+    // Combine all raw points across all tracks (using loops to prevent call-stack overflow)
+    const combinedRaw = [];
+    for (let t = 0; t < validTracks.length; t++) {
+      const a = validTracks[t].analyzer || validTracks[t];
+      const r = a.raw;
+      for (let i = 0; i < r.length; i++) {
+        combinedRaw.push(r[i]);
+      }
+    }
+
+    const bufferDistanceM = radiusM + 50;
+    const unionBBox = this.calculateBBox(combinedRaw, bufferDistanceM);
+    const unionAreaKm2 = unionBBox ? this.calculateBBoxAreaKm2(unionBBox) : Infinity;
+
+    // Determine tile bounds for the union footprint
+    let unionBounds = null;
+    if (unionBBox) {
+      unionBounds = this._calculateTileBounds(unionBBox, requestedZoom, maxMosaicTiles, true);
+    }
+
+    // Determine if Unified Mosaic Mode is eligible:
+    // Fits under area cap and fits under tile budget
+    const canUseUnifiedMosaic = Boolean(
+      unionBBox &&
+      unionAreaKm2 <= maxMosaicAreaKm2 &&
+      unionBounds &&
+      unionBounds.totalTiles <= maxMosaicTiles
+    );
+
+    // =========================================================================
+    // Mode 1: Unified Mosaic Batch Mode (Co-located Walks)
+    // =========================================================================
+    if (canUseUnifiedMosaic && validTracks.length > 1) {
+      const zoom = unionBounds.zoom;
+      const { startTileX, endTileX, startTileY, endTileY, tilesAcross, tilesDown, totalTiles } = unionBounds;
+      const canvasWidth = tilesAcross * 256;
+      const canvasHeight = tilesDown * 256;
+
+      onProgress(10, `[Shared Mosaic] Preparing coverage for ${validTracks.length} walks (${unionAreaKm2.toFixed(1)} km²)...`);
+
+      let canvas = null;
+      let ctx = null;
+      if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+        canvas = document.createElement('canvas');
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+        ctx = canvas.getContext('2d', { willReadFrequently: true });
+      }
+
+      const activeProvider = this.getActiveProvider(options);
+      const tileTasks = [];
+      for (let ty = startTileY; ty <= endTileY; ty++) {
+        for (let tx = startTileX; tx <= endTileX; tx++) {
+          const destX = (tx - startTileX) * 256;
+          const destY = (ty - startTileY) * 256;
+          const url = this.resolveTileUrl(activeProvider, tx, ty, zoom, options);
+          tileTasks.push({ url, destX, destY, tx, ty });
+        }
+      }
+
+      try {
+        await this._fetchTilePool(tileTasks, ctx, {
+          concurrency: 6,
+          timeoutMs: 8000,
+          providerId: activeProvider.id,
+          maxRetries: 3,
+          signal,
+          onTileProgress: (completed, total, wasCached, retryMsg) => {
+            const pct = Math.round(15 + (completed / total) * 55);
+            const detail = retryMsg ? ` [${retryMsg}]` : (wasCached ? ' (cached)' : '');
+            onProgress(pct, `[Shared Mosaic] Streaming ${total} satellite tiles (${completed}/${total})${detail}...`);
+          }
+        });
+
+        onProgress(75, `Extracting NDVI across ${validTracks.length} walks in-memory...`);
+
+        let imgData = null;
+        if (ctx) {
+          try {
+            imgData = ctx.getImageData(0, 0, canvasWidth, canvasHeight);
+          } catch (secErr) {
+            console.warn("Canvas getImageData restricted; using synthetic vegetation fallback:", secErr);
+          }
+        }
+
+        let enrichedCount = 0;
+        for (let i = 0; i < validTracks.length; i++) {
+          const t = validTracks[i];
+          const a = t.analyzer || t;
+          const validPoints = [];
+          for (let p = 0; p < a.raw.length; p++) {
+            const pt = a.raw[p];
+            if (pt && this._isValidCoord(pt.lat, pt.lon)) {
+              validPoints.push({ index: p, pt });
+            }
+          }
+
+          if (validPoints.length > 0) {
+            this._samplePointsOnCanvas(
+              a.raw, validPoints, imgData, canvasWidth, canvasHeight, startTileX, startTileY, zoom, radiusM
+            );
+            a.isEnriched = true;
+            a.hasNdvi = true;
+            a.hasNdvi50m = true;
+            a._dataVersion = (a._dataVersion || 0) + 1;
+            enrichedCount++;
+          }
+        }
+
+        onProgress(100, `Sampled NDVI for ${enrichedCount}/${validTracks.length} walks via shared mosaic.`);
+
+        return {
+          mode: 'unified_mosaic',
+          totalCount: validTracks.length,
+          enrichedCount,
+          failedCount: 0,
+          tooBigCount: 0,
+          failedTracks: [],
+          tilesFetched: totalTiles
+        };
+      } finally {
+        if (canvas) {
+          canvas.width = 0;
+          canvas.height = 0;
+          canvas = null;
+          ctx = null;
+        }
+      }
+    }
+
+    // =========================================================================
+    // Mode 2: Clustered / Per-Track Mode with Fault Isolation (Dispersed Walks)
+    // =========================================================================
+    let enrichedCount = 0;
+    let failedCount = 0;
+    let tooBigCount = 0;
+    const failedTracks = [];
+
+    for (let i = 0; i < validTracks.length; i++) {
+      if (signal && signal.aborted) break;
+      const t = validTracks[i];
+      const label = t.name || t.id || `Walk ${i + 1}`;
+      const basePct = Math.round((i / validTracks.length) * 100);
+
+      onProgress(basePct, `[${i + 1}/${validTracks.length}] Sampling ${label}...`);
+
+      try {
+        await this.sampleTrack(t, {
+          ...options,
+          zoom: requestedZoom,
+          radiusM,
+          signal,
+          onProgress: (pct, msg) => {
+            const overallPct = Math.round(basePct + (pct / validTracks.length));
+            onProgress(overallPct, `[${i + 1}/${validTracks.length}] ${msg}`);
+          }
+        });
+        enrichedCount++;
+      } catch (err) {
+        console.warn(`NDVI sampling failed for track ${label}:`, err);
+        failedCount++;
+        failedTracks.push({ name: label, error: err.message });
+      }
+    }
+
+    return {
+      mode: 'per_track',
+      totalCount: validTracks.length,
+      enrichedCount,
+      failedCount,
+      tooBigCount,
+      failedTracks
+    };
   }
 };
 

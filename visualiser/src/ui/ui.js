@@ -829,42 +829,98 @@ const GSRUI = {
   },
 
   /**
-   * Orchestrates bounding box computation, Overpass fetching, and spatial enrichment.
+   * Resolve active tracks with valid GPS fixes for environmental/spatial processing.
+   * Shared by OpenStreetMap enrichment and satellite NDVI sampling.
+   * 
+   * @param {Object} [options={}] - { silent: boolean, featureLabel: string }
+   * @returns {{ allTracks: Array<Object>, validTracks: Array<Object> }}
    */
-  async enrichTrack(forceFetch = false) {
-    if (GSRUI._enriching) return;
-    
+  getSpatialTracks(options = {}) {
+    const silent = Boolean(options.silent);
+    const featureLabel = options.featureLabel || "spatial data retrieval";
     const isCollective = (AppState.viewMode === 'collective');
-    
-    // Get tracks to enrich
-    let tracksToEnrich = [];
+
+    let allTracks = [];
     if (isCollective) {
-      if (!AppState.collectiveManager) return;
-      tracksToEnrich = AppState.collectiveManager.getActiveTracks();
+      if (!AppState.collectiveManager) return { allTracks: [], validTracks: [] };
+      allTracks = AppState.collectiveManager.getActiveTracks() || [];
     } else {
-      if (AppState.analyzer && AppState.analyzer.raw.length > 0) {
-        tracksToEnrich = [{
+      if (AppState.analyzer && AppState.analyzer.raw && AppState.analyzer.raw.length > 0) {
+        const trackObj = (AppState.collectiveManager && AppState.activeTrackId)
+          ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
+          : null;
+        allTracks = [{
           id: AppState.activeTrackId,
+          name: trackObj?.name || 'Walk',
           analyzer: AppState.analyzer
         }];
       }
     }
 
-    if (tracksToEnrich.length === 0) {
-      alert("Please load or select active track files first.");
-      return;
+    if (allTracks.length === 0) {
+      if (!silent) alert("Please load or select active track files first.");
+      return { allTracks: [], validTracks: [] };
     }
 
-    // Filter to tracks that contain at least one valid GPS coordinate fix
-    const validTracks = tracksToEnrich.filter(t => {
+    const isValid = (lat, lon) => {
+      if (typeof NDVISampler !== 'undefined' && typeof NDVISampler._isValidCoord === 'function') {
+        return NDVISampler._isValidCoord(lat, lon);
+      }
+      if (typeof OSMEnricher !== 'undefined' && typeof OSMEnricher._isValidCoord === 'function') {
+        return OSMEnricher._isValidCoord(lat, lon);
+      }
+      return lat != null && lon != null && !isNaN(lat) && !isNaN(lon) && Math.abs(lat) > 0.001 && Math.abs(lon) > 0.001;
+    };
+
+    const validTracks = allTracks.filter(t => {
       if (!t || !t.analyzer || !t.analyzer.raw) return false;
-      return t.analyzer.raw.some(pt => pt && OSMEnricher._isValidCoord(pt.lat, pt.lon));
+      return t.analyzer.raw.some(pt => pt && isValid(pt.lat, pt.lon));
     });
 
     if (validTracks.length === 0) {
-      alert("No valid GPS coordinates found in the selected track(s). OpenStreetMap spatial data retrieval requires GPS location fixes.");
-      return;
+      if (!silent) alert(`No valid GPS coordinates found in the selected track(s). ${featureLabel} requires GPS location fixes.`);
+      return { allTracks, validTracks: [] };
     }
+
+    return { allTracks, validTracks };
+  },
+
+  getValidTracksForSpatialAnalysis(options = {}) {
+    return this.getSpatialTracks(options).validTracks;
+  },
+
+  /**
+   * Update the spatial processing status container and progress bar.
+   * @param {boolean} visible
+   * @param {string} [message='']
+   * @param {number} [percent=0]
+   * @param {string} [color='#ff7b00']
+   */
+  setSpatialProgress(visible, message = '', percent = 0, color = '#ff7b00') {
+    const container = document.getElementById('osmStatusContainer');
+    const msgEl = document.getElementById('osmStatusMessage');
+    const barEl = document.getElementById('osmProgressBar');
+
+    if (container) container.style.display = visible ? 'block' : 'none';
+    if (msgEl && message) msgEl.innerText = message;
+    if (barEl) {
+      barEl.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+      if (color) barEl.style.backgroundColor = color;
+    }
+  },
+
+  /**
+   * Orchestrates bounding box computation, Overpass fetching, and spatial enrichment.
+   */
+  async enrichTrack(forceFetch = false) {
+    if (GSRUI._enriching) return;
+
+    const { allTracks, validTracks } = this.getSpatialTracks({
+      silent: false,
+      featureLabel: "OpenStreetMap spatial data retrieval"
+    });
+    if (validTracks.length === 0) return;
+    const tracksToEnrich = allTracks;
 
     const btn = document.getElementById('btnEnrichTrack');
     const statusContainer = document.getElementById('osmStatusContainer');
@@ -880,13 +936,10 @@ const GSRUI = {
     btn.setAttribute('disabled', 'true');
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enriching...';
     
-    statusContainer.style.display = 'block';
-    progressBar.style.width = '0%';
-    progressBar.style.backgroundColor = '#ff7b00';
+    this.setSpatialProgress(true, 'Initiating OpenStreetMap enrichment...', 0, '#ff7b00');
     
     const updateProgress = (msg, pct) => {
-      statusMsg.innerText = msg;
-      if (pct !== undefined) progressBar.style.width = pct + '%';
+      this.setSpatialProgress(true, msg, pct, '#ff7b00');
     };
 
     try {
@@ -1001,45 +1054,11 @@ const GSRUI = {
   async sampleNdviTrack(silent = false) {
     if (GSRUI._samplingNdvi) return;
 
-    const isCollective = (AppState.viewMode === 'collective');
-    let tracksToSample = [];
-    if (isCollective) {
-      if (!AppState.collectiveManager) return;
-      tracksToSample = AppState.collectiveManager.getActiveTracks();
-    } else {
-      if (AppState.analyzer && AppState.analyzer.raw && AppState.analyzer.raw.length > 0) {
-        const trackObj = (AppState.collectiveManager && AppState.activeTrackId)
-          ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
-          : null;
-        tracksToSample = [{
-          id: AppState.activeTrackId,
-          name: trackObj?.name || 'Walk',
-          analyzer: AppState.analyzer
-        }];
-      }
-    }
-
-    if (tracksToSample.length === 0) {
-      if (!silent) alert("Please load or select an active track file first.");
-      return;
-    }
-
-    const isValid = (lat, lon) => {
-      if (typeof OSMEnricher !== 'undefined' && typeof OSMEnricher._isValidCoord === 'function') {
-        return OSMEnricher._isValidCoord(lat, lon);
-      }
-      return lat != null && lon != null && !isNaN(lat) && !isNaN(lon) && Math.abs(lat) > 0.001 && Math.abs(lon) > 0.001;
-    };
-
-    const validTracks = tracksToSample.filter(t => {
-      if (!t || !t.analyzer || !t.analyzer.raw) return false;
-      return t.analyzer.raw.some(pt => pt && isValid(pt.lat, pt.lon));
+    const validTracks = this.getValidTracksForSpatialAnalysis({
+      silent,
+      featureLabel: "satellite NDVI sampling"
     });
-
-    if (validTracks.length === 0) {
-      if (!silent) alert("No valid GPS fixes found in the selected walk(s) to sample satellite NDVI.");
-      return;
-    }
+    if (validTracks.length === 0) return;
 
     GSRUI._samplingNdvi = true;
 
@@ -1050,40 +1069,32 @@ const GSRUI = {
       btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sampling NDVI...';
     }
 
-    const statusContainer = document.getElementById('osmStatusContainer');
-    const statusMsg = document.getElementById('osmStatusMessage');
-    const progressBar = document.getElementById('osmProgressBar');
-
-    if (statusContainer) statusContainer.style.display = 'block';
-    if (progressBar) {
-      progressBar.style.width = '0%';
-      progressBar.style.backgroundColor = '#2d6a4f';
-    }
+    this.setSpatialProgress(true, 'Determining satellite coverage...', 0, '#2d6a4f');
 
     try {
-      for (let i = 0; i < validTracks.length; i++) {
-        const t = validTracks[i];
-        if (statusMsg) statusMsg.innerText = `[${i + 1}/${validTracks.length}] Streaming satellite tiles for ${t.name || 'walk'}...`;
-        await NDVISampler.sampleTrack(t, {
-          zoom: 15,
-          radiusM: 50,
-          onProgress: (pct, msg) => {
-            if (progressBar) progressBar.style.width = `${pct}%`;
-            if (statusMsg) statusMsg.innerText = `[${i + 1}/${validTracks.length}] ${msg}`;
-          }
-        });
-      }
+      const res = await NDVISampler.sampleTracks(validTracks, {
+        zoom: 15,
+        radiusM: 50,
+        onProgress: (pct, msg) => {
+          this.setSpatialProgress(true, msg, pct, '#2d6a4f');
+        }
+      });
 
       GSRUI.refreshOsmControls();
       GSRUI.rerenderMap();
-      if (statusMsg) statusMsg.innerText = `Sampled NDVI for ${validTracks.length} walk${validTracks.length === 1 ? '' : 's'}.`;
-      if (progressBar) progressBar.style.width = '100%';
-      setTimeout(() => { if (statusContainer) statusContainer.style.display = 'none'; }, 3000);
+
+      const parts = [`Sampled NDVI for ${res.enrichedCount}/${res.totalCount} walk${res.totalCount === 1 ? '' : 's'}`];
+      if (res.mode === 'unified_mosaic') parts[0] += ' (shared mosaic)';
+      if (res.tooBigCount > 0) parts.push(`${res.tooBigCount} too spread out`);
+      if (res.failedCount > 0) parts.push(`${res.failedCount} failed`);
+
+      const statusColor = (res.failedCount > 0 && res.enrichedCount === 0) ? 'var(--danger)' : '#2d6a4f';
+      this.setSpatialProgress(true, parts.join(' · '), 100, statusColor);
+      setTimeout(() => { this.setSpatialProgress(false); }, (res.failedCount || res.tooBigCount) ? 6000 : 3000);
     } catch (err) {
       console.error("NDVI Sampling error:", err);
       if (!silent) alert("NDVI Sampling failed: " + err.message);
-      if (statusMsg) statusMsg.innerText = "Error: " + err.message;
-      if (progressBar) progressBar.style.backgroundColor = "var(--danger)";
+      this.setSpatialProgress(true, "Error: " + err.message, 100, "var(--danger)");
     } finally {
       GSRUI._samplingNdvi = false;
       if (btn) {

@@ -533,5 +533,281 @@ test('sampleTrack: integrates cleanly with GeoUtils bounding box expansion', asy
   assert.ok(track.analyzer.raw[0].ndvi_50m > 0);
 });
 
+// ---------------------------------------------------------------------------
+// 13. High-Performance In-Place Shading
+// ---------------------------------------------------------------------------
+
+test('writeThematicRgba and shadeImageData: transforms ImageData in-place without heap allocations', () => {
+  const width = 2;
+  const height = 2;
+  const data = new Uint8ClampedArray(width * height * 4);
+
+  // Pixel 0: Water (pure blue dominant)
+  data[0] = 20; data[1] = 40; data[2] = 140; data[3] = 255;
+  // Pixel 1: Asphalt / built (stronger red/earth dominance so NDVI < 0.12)
+  data[4] = 160; data[5] = 100; data[6] = 80; data[7] = 255;
+  // Pixel 2: Dense canopy (green dominant)
+  data[8] = 20; data[9] = 160; data[10] = 30; data[11] = 255;
+  // Pixel 3: Transparent nodata
+  data[12] = 0; data[13] = 0; data[14] = 0; data[15] = 0;
+
+  const mockImgData = { data, width, height };
+  NDVISampler.shadeImageData(mockImgData);
+
+  // Pixel 0 should have water color (blue dominant: 60, 130, 200)
+  assert.strictEqual(data[0], 60);
+  assert.strictEqual(data[1], 130);
+  assert.strictEqual(data[2], 200);
+
+  // Pixel 1 should have urban color (slate grey: 160, 160, 155)
+  assert.strictEqual(data[4], 160);
+  assert.strictEqual(data[5], 160);
+  assert.strictEqual(data[6], 155);
+
+  // Pixel 2 should have dense canopy color (emerald: 15, 140, 30)
+  assert.strictEqual(data[8], 15);
+  assert.strictEqual(data[9], 140);
+  assert.strictEqual(data[10], 30);
+
+  // Pixel 3 should remain untouched (alpha 0)
+  assert.strictEqual(data[15], 0);
+});
+
+// ---------------------------------------------------------------------------
+// 14. calculateBBox Unification Tests
+// ---------------------------------------------------------------------------
+
+test('calculateBBox: computes correctly buffered bounding box', () => {
+  const points = [
+    { lat: 51.500, lon: -0.100 },
+    { lat: 51.510, lon: -0.090 }
+  ];
+
+  const bbox = NDVISampler.calculateBBox(points, 100);
+  assert.ok(bbox !== null);
+  assert.ok(bbox.minLat < 51.500, 'minLat expanded south');
+  assert.ok(bbox.maxLat > 51.510, 'maxLat expanded north');
+  assert.ok(bbox.minLon < -0.100, 'minLon expanded west');
+  assert.ok(bbox.maxLon > -0.090, 'maxLon expanded east');
+
+  // Empty or invalid points returns null
+  assert.strictEqual(NDVISampler.calculateBBox([]), null);
+  assert.strictEqual(NDVISampler.calculateBBox([{ lat: NaN, lon: NaN }]), null);
+});
+
+// ---------------------------------------------------------------------------
+// 15. _stepHoldValues Forward Propagation Tests
+// ---------------------------------------------------------------------------
+
+test('_stepHoldValues: cleanly propagates values across non-GPS rows', () => {
+  const rows = [
+    { time: 0, ndvi: 0.5, ndvi_50m: 0.6 },
+    { time: 1, ndvi: NaN, ndvi_50m: NaN },
+    { time: 2, ndvi: null, ndvi_50m: undefined },
+    { time: 3, ndvi: 0.8, ndvi_50m: 0.85 },
+    { time: 4, ndvi: NaN, ndvi_50m: NaN }
+  ];
+
+  NDVISampler._stepHoldValues(rows, ['ndvi', 'ndvi_50m']);
+
+  assert.strictEqual(rows[1].ndvi, 0.5);
+  assert.strictEqual(rows[1].ndvi_50m, 0.6);
+  assert.strictEqual(rows[2].ndvi, 0.5);
+  assert.strictEqual(rows[2].ndvi_50m, 0.6);
+  assert.strictEqual(rows[3].ndvi, 0.8);
+  assert.strictEqual(rows[3].ndvi_50m, 0.85);
+  assert.strictEqual(rows[4].ndvi, 0.8);
+  assert.strictEqual(rows[4].ndvi_50m, 0.85);
+});
+
+// ---------------------------------------------------------------------------
+// 16. Network Resilience & Exponential Backoff
+// ---------------------------------------------------------------------------
+
+test('_backoffMs: computes exponential backoff with jitter within expected bounds', () => {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const baseMs = 500;
+    const linear = baseMs * Math.pow(2, attempt);
+    const minBound = Math.floor(linear * 0.75);
+    const maxBound = Math.ceil(linear * 1.25);
+
+    for (let sample = 0; sample < 10; sample++) {
+      const wait = NDVISampler._backoffMs(attempt, baseMs);
+      assert.ok(
+        wait >= minBound && wait <= maxBound,
+        `attempt ${attempt} delay ${wait}ms should be between ${minBound} and ${maxBound}`
+      );
+    }
+  }
+});
+
+test('_retryAfterMs: parses Retry-After header in seconds or uses fallback', () => {
+  const respWithSec = {
+    headers: {
+      get: (h) => (h === 'Retry-After' ? '12' : null)
+    }
+  };
+  assert.strictEqual(NDVISampler._retryAfterMs(respWithSec, 3000), 12000);
+
+  const respNoHeader = {
+    headers: {
+      get: () => null
+    }
+  };
+  assert.strictEqual(NDVISampler._retryAfterMs(respNoHeader, 4500), 4500);
+
+  assert.strictEqual(NDVISampler._retryAfterMs(null, 5000), 5000);
+});
+
+test('_fetchTileWithBackoff: respects 429 rate limit and retries with backoff', async () => {
+  const origFetch = global.fetch;
+  let fetchAttempts = 0;
+  const retryEvents = [];
+
+  global.fetch = async (url) => {
+    fetchAttempts++;
+    if (fetchAttempts < 3) {
+      return {
+        ok: false,
+        status: 429,
+        headers: { get: (h) => (h === 'Retry-After' ? '0.01' : null) }
+      };
+    }
+    return {
+      ok: false,
+      status: 404, // 404 immediately terminates
+      headers: { get: () => null }
+    };
+  };
+
+  try {
+    const mockCtx = { drawImage: () => {} };
+    const success = await NDVISampler._fetchTileWithBackoff(
+      'https://test-tiles.com/tile.png',
+      mockCtx, 0, 0,
+      {
+        providerId: 'test_provider_rl',
+        maxRetries: 3,
+        timeoutMs: 100,
+        onRetry: (att, delay, reason) => {
+          retryEvents.push({ att, delay, reason });
+        }
+      }
+    );
+
+    assert.strictEqual(success, false);
+    assert.strictEqual(fetchAttempts, 3);
+    assert.strictEqual(retryEvents.length, 2);
+    assert.ok(retryEvents[0].reason.includes('Rate limited'));
+  } finally {
+    global.fetch = origFetch;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 17. Collective Batch Processing, Shared Mosaic & Fault Isolation
+// ---------------------------------------------------------------------------
+
+test('calculateBBoxAreaKm2: computes non-zero geographic area', () => {
+  const bbox = { minLat: 51.500, maxLat: 51.510, minLon: -0.100, maxLon: -0.090 };
+  const area = NDVISampler.calculateBBoxAreaKm2(bbox);
+  assert.ok(area > 0.5 && area < 2.0, `area should be ~0.8 km², got ${area}`);
+  assert.strictEqual(NDVISampler.calculateBBoxAreaKm2(null), 0);
+});
+
+test('_calculateTileBounds: automatically steps down zoom when tile count exceeds budget', () => {
+  // A wide bounding box (~30 km across)
+  const wideBBox = { minLat: 51.300, maxLat: 51.600, minLon: -0.300, maxLon: 0.100 };
+  const bounds = NDVISampler._calculateTileBounds(wideBBox, 15, 64, true);
+
+  assert.ok(bounds.wasAdapted, 'adaptive zoom should trigger on wide box');
+  assert.ok(bounds.zoom < 15, `zoom should step down below 15, got ${bounds.zoom}`);
+  assert.ok(bounds.totalTiles <= 64, `totalTiles ${bounds.totalTiles} should stay within budget`);
+});
+
+test('sampleTracks: processes co-located walks via Unified Mosaic Mode', async () => {
+  const trackA = {
+    id: 'walk_a',
+    name: 'Walk A - Park Path',
+    analyzer: {
+      raw: [
+        { time: 0, lat: 51.501, lon: -0.141, osm_green_pct_50m: 80, osm_canopy_pct_50m: 75 },
+        { time: 1, lat: 51.502, lon: -0.142, osm_green_pct_50m: 70, osm_canopy_pct_50m: 65 }
+      ],
+      isEnriched: false
+    }
+  };
+
+  const trackB = {
+    id: 'walk_b',
+    name: 'Walk B - Nearby Avenue',
+    analyzer: {
+      raw: [
+        { time: 0, lat: 51.503, lon: -0.143, osm_green_pct_50m: 30, osm_canopy_pct_50m: 20 },
+        { time: 1, lat: 51.504, lon: -0.144, osm_green_pct_50m: 40, osm_canopy_pct_50m: 25 }
+      ],
+      isEnriched: false
+    }
+  };
+
+  const res = await NDVISampler.sampleTracks([trackA, trackB], {
+    zoom: 15,
+    radiusM: 50,
+    maxMosaicAreaKm2: 16.0,
+    maxMosaicTiles: 64
+  });
+
+  assert.strictEqual(res.mode, 'unified_mosaic');
+  assert.strictEqual(res.totalCount, 2);
+  assert.strictEqual(res.enrichedCount, 2);
+  assert.strictEqual(res.failedCount, 0);
+
+  // Verify both tracks are enriched and have NDVI fields
+  assert.strictEqual(trackA.analyzer.isEnriched, true);
+  assert.strictEqual(trackB.analyzer.isEnriched, true);
+  assert.ok(trackA.analyzer.raw[0].ndvi > 0);
+  assert.ok(trackB.analyzer.raw[0].ndvi > 0);
+});
+
+test('sampleTracks: handles dispersed walks and isolates failures cleanly', async () => {
+  const normalTrack = {
+    id: 'walk_london',
+    name: 'London Walk',
+    analyzer: {
+      raw: [
+        { time: 0, lat: 51.501, lon: -0.141, osm_green_pct_50m: 80, osm_canopy_pct_50m: 75 }
+      ],
+      isEnriched: false
+    }
+  };
+
+  const failingTrack = {
+    id: 'walk_corrupt',
+    name: 'Corrupted Track',
+    analyzer: {
+      raw: [
+        { time: 0, lat: 48.856, lon: 2.352 } // Far away (Paris) -> forces per-track mode
+      ],
+      get isEnriched() { return false; },
+      set isEnriched(v) { throw new Error('Storage write lock failure'); }
+    }
+  };
+
+  const res = await NDVISampler.sampleTracks([normalTrack, failingTrack], {
+    zoom: 15,
+    maxMosaicAreaKm2: 16.0
+  });
+
+  assert.strictEqual(res.mode, 'per_track', 'dispersed tracks fall back to per-track mode');
+  assert.strictEqual(res.totalCount, 2);
+  assert.strictEqual(res.enrichedCount, 1, 'normal track succeeded');
+  assert.strictEqual(res.failedCount, 1, 'corrupted track was isolated without halting batch');
+  assert.strictEqual(res.failedTracks.length, 1);
+  assert.strictEqual(res.failedTracks[0].name, 'Corrupted Track');
+});
+
+
+
+
 
 

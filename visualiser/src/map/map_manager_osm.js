@@ -178,14 +178,8 @@ Object.assign(GSRMapManager.prototype, {
               try {
                 ctx.drawImage(imgSource, 0, 0);
                 const imgData = ctx.getImageData(0, 0, 256, 256);
-                const d = imgData.data;
-                for (let i = 0; i < d.length; i += 4) {
-                  const val = hasSampler ? NDVISampler.decodePixel(d[i], d[i+1], d[i+2], d[i+3]) : 0;
-                  const col = hasSampler ? NDVISampler.ndviToThematicRgba(val) : [80, 180, 60, 180];
-                  d[i] = col[0];
-                  d[i+1] = col[1];
-                  d[i+2] = col[2];
-                  d[i+3] = col[3];
+                if (hasSampler && typeof NDVISampler.shadeImageData === 'function') {
+                  NDVISampler.shadeImageData(imgData);
                 }
                 ctx.putImageData(imgData, 0, 0);
                 done(null, tile);
