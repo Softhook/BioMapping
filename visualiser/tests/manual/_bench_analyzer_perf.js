@@ -91,7 +91,7 @@ console.log('  ' + '-'.repeat(66));
 for (const file of FILES) {
   const { analyzer, filterParams } = loadTrack(file);
 
-  // HIT: same six filter params every call, so stages 1–3 (median + LPF +
+  // HIT: same five filter params every call, so stages 1–3 (median + LPF +
   // decomposition) are memoised and only peak detection / metrics rerun.
   // This is what dragging peakThreshold / a shape slider / hotspot % costs.
   const hit = bench(() => analyzer.analyze(filterParams, 0), 3, 12);
@@ -113,12 +113,12 @@ for (const file of FILES) {
 console.log(`
   analyze() runs once per settled frame of any GSR slider (events.js's
   bindGsrSlider(), rafCoalesced). Two paths since 2026-09-03:
-   - The six params feeding stages 1–3 (medianSize, lpfWindow, adaptiveNotch,
+   - The five params feeding stages 1–3 (medianSize, lpfWindow,
      tonicWindow, tonicMethod, dwtLevel) are memoised (analyzer.js's
      _prefixCache). Dragging any OTHER slider is a cache HIT: median filter +
      low-pass + tonic/phasic decomposition are skipped, only peak detection
      and the continuous metrics rerun.
-   - Dragging one of those six is a MISS — full recompute — but even that no
+   - Dragging one of those five is a MISS — full recompute — but even that no
      longer rebuilds the six {time,val} series arrays with raw.map() every
      call (they're pooled and refilled in place; ~50 ms of alloc + GC saved
      on a 40k-row track), and folds the per-curve Y-range scan into the fill.

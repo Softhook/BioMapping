@@ -365,13 +365,13 @@ class GSRAnalyzer {
     this._ensureSeriesPool(this.raw, n);
 
     // ── Stages 1–3: median filter → low-pass → tonic/phasic decomposition ──
-    // Only six params feed this prefix; the ~9 peak-detection / hotspot /
-    // metric-window sliders don't. When none of the six changed since the last
+    // Only five params feed this prefix; the ~9 peak-detection / hotspot /
+    // metric-window sliders don't. When none of the five changed since the last
     // analyze(), the pooled .filtered/.tonic/.phasic arrays (and their cached
     // Y-ranges) are still correct — skip ~25 ms of filtering + decomposition on
     // a 40k-row track and reuse them. Keyed alongside this.raw identity, which
     // _ensureSeriesPool() nulls the cache on.
-    const prefixKey = params.medianSize + '|' + params.lpfWindow + '|' + !!params.adaptiveNotch +
+    const prefixKey = params.medianSize + '|' + params.lpfWindow +
       '|' + params.tonicWindow + '|' + params.tonicMethod + '|' + params.dwtLevel;
 
     let phasicVals;
@@ -393,15 +393,8 @@ class GSRAnalyzer {
       let afterMedian = GsrFilter.applyMedianFilter(this._rawValsPool, medWindowSize);
 
       // 2. Low-Pass Filter
-      let afterLPF;
-      if (params.adaptiveNotch) {
-        const defaultWinSize = params.lpfWindow * this.sampleRate;
-        const windowSizes = GsrFilter.estimateGaitPeriods(afterMedian, this.sampleRate, defaultWinSize);
-        afterLPF = GsrFilter.applyAdaptiveZeroPhaseMovingAverage(afterMedian, windowSizes);
-      } else {
-        const lpfWinSize = params.lpfWindow * this.sampleRate;
-        afterLPF = GsrFilter.applyZeroPhaseMovingAverage(afterMedian, lpfWinSize);
-      }
+      const lpfWinSize = params.lpfWindow * this.sampleRate;
+      let afterLPF = GsrFilter.applyZeroPhaseMovingAverage(afterMedian, lpfWinSize);
 
       this._fillSeries('filtered', afterLPF);
 

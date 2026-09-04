@@ -50,7 +50,6 @@ const GSRStorage = {
     return {
       medianSize:    parseFloat(S.medianSize.value),
       lpfWindow:     parseFloat(S.lpfWindow.value),
-      adaptiveNotch: (S.adaptiveNotch && S.adaptiveNotch.checked) || false,
       tonicMethod:   S.tonicMethod.value,
       tonicWindow:   parseInt(S.tonicWindow.value),
       peakThreshold: parseFloat(S.peakThreshold.value),
@@ -251,7 +250,6 @@ const GSRStorage = {
     // Restore GSR sliders
     if (gsr.medianSize !== undefined && S.medianSize) S.medianSize.value = gsr.medianSize;
     if (gsr.lpfWindow !== undefined && S.lpfWindow) S.lpfWindow.value = gsr.lpfWindow;
-    if (gsr.adaptiveNotch !== undefined && S.adaptiveNotch) S.adaptiveNotch.checked = !!gsr.adaptiveNotch;
     if (gsr.tonicMethod !== undefined && S.tonicMethod) S.tonicMethod.value = gsr.tonicMethod;
     if (gsr.tonicWindow !== undefined && S.tonicWindow) S.tonicWindow.value = gsr.tonicWindow;
     if (gsr.peakThreshold !== undefined && S.peakThreshold) S.peakThreshold.value = gsr.peakThreshold;

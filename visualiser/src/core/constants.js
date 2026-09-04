@@ -54,7 +54,6 @@ const GSR_CONST = {
     // pulls inter-peak intervals toward physiological values. Raise toward
     // 1.0–1.2 s to also cancel a walking-gait artefact.
     medianSize: 0, lpfWindow: 0.5,
-    adaptiveNotch: false,
     tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.015,
     dwtLevel: 6,
     shapeMinRiseTime: 0.3, shapeMaxRiseTime: 4.0,
