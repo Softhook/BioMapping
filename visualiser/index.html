@@ -1072,36 +1072,39 @@
 
           <!-- Tab 3: Roads Profile -->
           <div class="env-tab-content" id="envTabRoads" style="display: none; padding: 16px;">
-            <div style="display: flex; flex-direction: column; gap: 12px; min-width: 0;">
-              <p class="help-text" style="margin-bottom: 12px;">Average arousal by OpenStreetMap road class; peak rate in spikes per minute. The 95% CI is based on the effective sample size (in brackets after the time) — how much <em>independent</em> data each class has, not raw seconds, estimated within each walk and summed. It still reflects only within-walk sampling, not differences between walks. "unclassified" roads and classes with under 5&nbsp;s are omitted.</p>
-              <div class="table-container">
-                <table class="peaks-table" id="roadArousalTable">
-                  <thead>
-                    <tr>
-                      <th class="sortable" data-sort="name" title="Sort by Road Class">Road Type <i class="fa-solid fa-sort sort-icon"></i></th>
-                      <th class="sortable" data-sort="timeSpent" title="Sort by Time Spent">Time Spent <i class="fa-solid fa-sort sort-icon"></i></th>
-                      <th class="sortable sort-desc" data-sort="meanPhasic" title="Sort by Mean Phasic Arousal">Mean Phasic (μS) <i class="fa-solid fa-sort-down sort-icon"></i></th>
-                      <th class="sortable" data-sort="stdPhasic" title="Sort by Standard Deviation">Std Dev (μS) <i class="fa-solid fa-sort sort-icon"></i></th>
-                      <th class="sortable" data-sort="ciPhasic" title="Sort by 95% Confidence Interval">95% CI <i class="fa-solid fa-sort sort-icon"></i></th>
-                      <th class="sortable" data-sort="meanTonic" title="Sort by Mean Tonic Arousal">Mean Tonic (μS) <i class="fa-solid fa-sort sort-icon"></i></th>
-                      <th class="sortable" data-sort="ciTonic" title="Sort by 95% Confidence Interval">95% CI <i class="fa-solid fa-sort sort-icon"></i></th>
-                      <th class="sortable" data-sort="peakRate" title="Sort by Peak Rate">Peak Rate (per min) <i class="fa-solid fa-sort sort-icon"></i></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <!-- Populated dynamically in JavaScript -->
-                  </tbody>
-                </table>
-              </div>
-              <div class="r2-legend" id="roadProfileInterpretation" style="font-size: 0.78rem; background: rgba(0,85,204,0.06); border-left: 3px solid #0055cc; padding: 10px 14px; border-radius: 3px;">
-                <strong style="color:#0055cc;">What this means for your walk</strong>
-                <div style="margin: 6px 0 0 0; color: var(--text-secondary); line-height: 1.6;">
-                  <p id="roadInterpretationText" style="margin: 0;">Loading interpretation…</p>
-                </div>
+            <p class="help-text" style="margin: 0 0 12px 0;">Average arousal by OpenStreetMap road class; peak rate in spikes per minute. The 95% CI is based on the effective sample size (in brackets after the time) — how much <em>independent</em> data each class has, not raw seconds, estimated within each walk and summed. It still reflects only within-walk sampling, not differences between walks. "unclassified" roads and classes with under 5&nbsp;s are omitted.</p>
+            <div class="table-container">
+              <table class="peaks-table" id="roadArousalTable">
+                <thead>
+                  <tr>
+                    <th class="sortable" data-sort="name" title="Sort by Road Class">Road Type <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="timeSpent" title="Sort by Time Spent">Time Spent <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable sort-desc" data-sort="meanPhasic" title="Sort by Mean Phasic Arousal">Mean Phasic (μS) <i class="fa-solid fa-sort-down sort-icon"></i></th>
+                    <th class="sortable" data-sort="stdPhasic" title="Sort by Standard Deviation">Std Dev (μS) <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="ciPhasic" title="Sort by 95% Confidence Interval">95% CI <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="meanTonic" title="Sort by Mean Tonic Arousal">Mean Tonic (μS) <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="ciTonic" title="Sort by 95% Confidence Interval">95% CI <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="peakRate" title="Sort by Peak Rate">Peak Rate (per min) <i class="fa-solid fa-sort sort-icon"></i></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- Populated dynamically in JavaScript -->
+                </tbody>
+              </table>
+            </div>
+            <div class="r2-legend" id="roadProfileInterpretation" style="font-size: 0.8rem; background: rgba(0,85,204,0.05); border: 1px solid rgba(0,85,204,0.18); border-left: 4px solid #0055cc; padding: 12px 16px; border-radius: 4px;">
+              <strong style="color: #0055cc; font-size: 0.84rem; display: flex; align-items: center; gap: 6px;">
+                <i class="fa-solid fa-circle-info"></i> What this means for your walk
+              </strong>
+              <div style="margin: 8px 0 0 0; color: var(--text-secondary); line-height: 1.6;">
+                <p id="roadInterpretationText" style="margin: 0;">Loading interpretation…</p>
               </div>
             </div>
             
             <div class="road-chart-container">
+              <div style="font-weight: 600; font-size: 0.84rem; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+                <i class="fa-solid fa-chart-simple" style="color: #b45309;"></i> Relative Mean Phasic Arousal by Road Class
+              </div>
               <div id="roadBarChartContainer">
                 <!-- Bar chart populated dynamically -->
               </div>

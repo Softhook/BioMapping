@@ -1849,8 +1849,7 @@ input[type="range"]:focus-visible,
 }
 
 /* Ensure active tabs are flex-row by default but wrap and scroll when screen space is tight */
-.panel-fullscreen-overlay #environmentalPanel #envTabScatter.active,
-.panel-fullscreen-overlay #environmentalPanel #envTabRoads.active {
+.panel-fullscreen-overlay #environmentalPanel #envTabScatter.active {
   display: flex !important;
   flex-direction: row !important;
   flex-wrap: wrap !important; /* Allow wrapping to scroll when height is constrained */
@@ -1858,6 +1857,16 @@ input[type="range"]:focus-visible,
   gap: 20px !important;
   min-height: 0 !important;
   height: auto !important;
+}
+
+.panel-fullscreen-overlay #environmentalPanel #envTabRoads.active {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 20px !important;
+  min-height: 0 !important;
+  height: calc(100% - 50px) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
 }
 
 /* Make wrappers expand vertically to fill the panel height or maintain healthy min-height */
@@ -1869,8 +1878,8 @@ input[type="range"]:focus-visible,
 }
 
 .panel-fullscreen-overlay #environmentalPanel .road-chart-container {
-  flex: 0.8 1 280px !important;
-  min-height: 280px !important;
+  width: 100% !important;
+  max-width: 950px !important;
   display: flex !important;
   flex-direction: column !important;
 }
@@ -1878,10 +1887,6 @@ input[type="range"]:focus-visible,
 /* Specific side-by-side flex properties for controls vs charts in fullscreen */
 .panel-fullscreen-overlay #environmentalPanel #envTabScatter > div:first-child {
   flex: 1 1 300px !important;
-}
-.panel-fullscreen-overlay #environmentalPanel #envTabRoads > div:first-child {
-  flex: 1.2 1 320px !important;
-  min-height: 0 !important;
 }
 
 .panel-fullscreen-overlay #environmentalPanel #roadBarChartContainer {
@@ -2594,10 +2599,24 @@ input[type="range"]:focus-visible,
   word-break: normal;
 }
 
+#environmentalPanel #roadArousalTable {
+  width: 100%;
+  table-layout: auto;
+}
+
 #environmentalPanel #roadArousalTable th,
 #environmentalPanel #roadArousalTable td {
-  padding: 6px 8px;
-  font-size: 0.78rem;
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+#environmentalPanel #roadArousalTable td:first-child {
+  font-weight: 600;
+}
+
+#environmentalPanel #roadArousalTable td:nth-child(n+2) {
+  font-variant-numeric: tabular-nums;
 }
 
 #environmentalPanel .env-tab-content .help-text {
@@ -2659,9 +2678,8 @@ input[type="range"]:focus-visible,
   margin-bottom: 0;
 }
 
-/* Responsive side-by-side layout in both normal and fullscreen views */
-#environmentalPanel #envTabScatter.active,
-#environmentalPanel #envTabRoads.active {
+/* Tab 2 Regression Plot: Responsive side-by-side layout (controls on left, canvas on right) */
+#environmentalPanel #envTabScatter.active {
   display: flex !important;
   flex-direction: row;
   flex-wrap: wrap;
@@ -2676,10 +2694,15 @@ input[type="range"]:focus-visible,
   min-width: 260px;
 }
 
-#environmentalPanel #envTabRoads > div:first-child {
-  flex: 1.2 1 340px;
-  min-width: 280px;
+/* Tab 3 Roads Profile: Clean full-width vertical layout with smooth section scrolling */
+#environmentalPanel #envTabRoads.active {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 16px;
   min-height: 0;
+  height: calc(100% - 45px) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
 }
 
 /* Chart container styling — subtle card borders matching application */
@@ -2687,7 +2710,7 @@ input[type="range"]:focus-visible,
 .road-chart-container {
   background: #ffffff;
   border-radius: 6px;
-  padding: 16px;
+  padding: 16px 20px;
   border: 1px solid var(--border-glass, #e0e0e0);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   position: relative;
@@ -2710,16 +2733,16 @@ input[type="range"]:focus-visible,
 }
 
 .road-chart-container {
-  flex: 1 1 280px;
-  min-width: 260px;
-  min-height: 240px;
+  width: 100%;
+  max-width: 950px;
+  min-height: 0;
   justify-content: flex-start;
 }
 
 .road-bar-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   font-size: 0.82rem;
   margin-bottom: 8px;
 }
@@ -2731,10 +2754,12 @@ input[type="range"]:focus-visible,
   white-space: nowrap;
   font-weight: 600;
   color: var(--text-secondary);
+  text-align: right;
 }
 
 .road-bar-track {
   flex: 1;
+  max-width: 500px;
   background: #f0f0f0;
   height: 14px;
   border-radius: 7px;
@@ -2751,10 +2776,11 @@ input[type="range"]:focus-visible,
 }
 
 .road-bar-val {
-  width: 60px;
+  width: 70px;
   text-align: right;
   font-weight: 700;
   color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Correlation-matrix cells. The effect-size chip is the primary cue; the
