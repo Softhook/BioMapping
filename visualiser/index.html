@@ -431,6 +431,41 @@
             <button class="btn btn-primary" id="btnEnrichTrack" style="width: 100%;">
               <i class="fa-solid fa-wand-magic-sparkles"></i> Retrieve Spatial Data
             </button>
+            <button class="btn btn-outline" id="btnSampleNdvi" style="width: 100%; margin-top: 8px;" title="Stream satellite imagery tiles and extract Point NDVI and 50m Buffer Mean NDVI">
+              <i class="fa-solid fa-satellite"></i> Sample Satellite NDVI
+            </button>
+
+            <!-- Copernicus Sentinel-2 Band 8 (NIR) Configuration (Collapsed by default) -->
+            <details id="copernicusConfigDetails" class="ndvi-settings-details" style="margin-top: 10px; font-size: 0.78rem;">
+              <summary style="cursor: pointer; color: var(--text-muted, #888); font-size: 0.75rem; user-select: none; display: flex; align-items: center; gap: 6px; padding: 4px 0;">
+                <i class="fa-solid fa-sliders"></i>
+                <span>Satellite &amp; NDVI Settings</span>
+                <span id="copernicusActiveBadge" class="badge" style="margin-left: auto; font-size: 0.65rem; background: #2e7d32; color: #fff; padding: 1px 6px; border-radius: 3px; display: none;">NIR Active</span>
+                <span id="copernicusDefaultBadge" class="badge" style="margin-left: auto; font-size: 0.65rem; background: rgba(255,255,255,0.1); color: var(--text-muted, #aaa); padding: 1px 6px; border-radius: 3px;">Open Thematic</span>
+              </summary>
+              <div id="copernicusConfigSection" style="margin-top: 8px; padding: 10px; border-radius: 6px; background: rgba(46, 125, 50, 0.08); border: 1px solid rgba(46, 125, 50, 0.25);">
+                <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.78rem; font-weight: 600; color: #81c784; margin-bottom: 6px;">
+                  <span><i class="fa-solid fa-satellite-dish"></i> Sentinel-2 Band 8 (NIR)</span>
+                  <span style="font-size: 0.68rem; color: #81c784;">Copernicus WMS</span>
+                </div>
+                <div style="font-size: 0.72rem; color: var(--text-secondary, #aaa); margin-bottom: 2px;">Instance ID:</div>
+                <input type="text" id="copernicusInstanceId" class="text-input" style="width: 100%; font-size: 0.72rem; padding: 4px 6px; font-family: monospace;" value="" placeholder="Paste Copernicus Instance ID..." title="Copernicus Sentinel Hub Instance ID">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; margin-bottom: 2px;">
+                  <span style="font-size: 0.72rem; color: var(--text-secondary, #aaa);">Layer ID:</span>
+                  <span style="font-size: 0.68rem; color: #81c784;">Multispectral B08/B04</span>
+                </div>
+                <input type="text" id="copernicusLayerId" class="text-input" style="width: 100%; font-size: 0.72rem; padding: 4px 6px; font-family: monospace;" value="VEGETATION_INDEX" placeholder="VEGETATION_INDEX" title="Copernicus WMS Layer ID">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; margin-bottom: 2px;">
+                  <span style="font-size: 0.72rem; color: var(--text-secondary, #aaa);">Date Range (Cloudless):</span>
+                  <span style="font-size: 0.68rem; color: #81c784;">Summer Window</span>
+                </div>
+                <input type="text" id="copernicusTimeRange" class="text-input" style="width: 100%; font-size: 0.72rem; padding: 4px 6px; font-family: monospace;" value="2024-05-01/2024-09-30" title="Copernicus Date Range (e.g. 2024-05-01/2024-09-30)">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 0.68rem; color: var(--text-muted, #888);">
+                  <span><i class="fa-solid fa-shield-halved"></i> Stored locally in browser</span>
+                  <button type="button" class="btn btn-outline" id="btnClearCopernicusCreds" style="font-size: 0.68rem; padding: 2px 6px;" title="Remove Copernicus credentials from local storage">Clear</button>
+                </div>
+              </div>
+            </details>
 
             <!-- Progress & status -->
             <div id="osmStatusContainer" style="display: none; margin-top: 12px; font-size: 0.8rem; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 4px; border-left: 3px solid #ff7b00;">
@@ -856,6 +891,7 @@
                 <button class="btn btn-outline active" id="btnToggleMapLabels">Labels</button>
                 <button class="btn btn-outline active" id="btnToggleMapClusters">Clusters</button>
                 <button class="btn btn-outline" id="btnToggleOsmShapes" style="display: none;" title="Toggle OSM layers (2D shapes / 3D buildings)">OSM</button>
+                <button class="btn btn-outline" id="btnToggleNdviLayer" title="Toggle Sentinel-2 NDVI satellite tile layer">NDVI</button>
                 <!-- Collective-only -->
                 <button class="btn btn-outline active" id="btnToggleMapIsolines" style="display: none;" title="Toggle Isolines">Iso</button>
                 <button class="btn btn-outline active" id="btnToggleMapSurface" style="display: none;" title="Toggle Surface Grid">Surf</button>
@@ -885,6 +921,8 @@
                 <option value="greenPct" disabled class="osm-option">Green Space</option>
                 <option value="distGreen" disabled class="osm-option">Dist to Green</option>
                 <option value="canopyPct" disabled class="osm-option">Tree Canopy</option>
+                <option value="ndvi_50m" disabled class="osm-option">NDVI (50m Buffer)</option>
+                <option value="ndvi" disabled class="osm-option">Point NDVI</option>
                 <option value="buildingDensity" disabled class="osm-option">Building Density</option>
                 <option value="distWater" disabled class="osm-option">Dist to Water</option>
                 <option value="treeDensity" disabled class="osm-option">Tree Density</option>
@@ -1093,6 +1131,7 @@
   <script src="src/signal/analyzer_time_format.js"></script>
   <script src="src/signal/analyzer.js"></script>
   <script src="src/osm/osm_enrichment.js"></script>
+  <script src="src/osm/ndvi_sampler.js"></script>
   <script src="src/gps/map_match.js"></script>
   <script src="src/signal/gsr_filter.js"></script>
   <script src="src/render/marching_squares.js"></script>

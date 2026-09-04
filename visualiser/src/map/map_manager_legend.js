@@ -96,6 +96,9 @@ Object.assign(GSRMapManager.prototype, {
         'hdopQuality':      'GPS Accuracy (HDOP)'
       };
       GSR_CONST.OSM_METRICS.forEach(m => { metricNames[m.key] = m.label; });
+      if (GSR_CONST.SATELLITE_METRICS) {
+        GSR_CONST.SATELLITE_METRICS.forEach(m => { metricNames[m.key] = m.label; });
+      }
 
       const title = metricNames[metric] || metric;
 
@@ -145,6 +148,10 @@ Object.assign(GSRMapManager.prototype, {
             break;
           case 'em_fog':
             gradient = 'linear-gradient(90deg, hsl(220,90%,55%), hsl(300,90%,55%))';
+            break;
+          case 'ndvi':
+          case 'ndvi_50m':
+            gradient = 'linear-gradient(90deg, hsl(35,50%,50%), hsl(75,65%,45%), hsl(130,85%,35%))';
             break;
           case 'hdopQuality':
             // Gradient left = best accuracy (green), right = worst (red)

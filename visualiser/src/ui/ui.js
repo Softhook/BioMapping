@@ -314,7 +314,7 @@ const GSRUI = {
    * lags behind the actual analyzer.isEnriched state(s).
    */
   updateSpatialDataIndicator() {
-    const el = AppState.statFields.spatialData;
+    const el = AppState.statFields?.spatialData;
     if (!el) return;
 
     let allEnriched;
@@ -996,6 +996,104 @@ const GSRUI = {
   },
 
   /**
+   * Sample Point NDVI and 50m Buffer Mean NDVI across active tracks via offscreen canvas streaming.
+   */
+  async sampleNdviTrack(silent = false) {
+    if (GSRUI._samplingNdvi) return;
+
+    const isCollective = (AppState.viewMode === 'collective');
+    let tracksToSample = [];
+    if (isCollective) {
+      if (!AppState.collectiveManager) return;
+      tracksToSample = AppState.collectiveManager.getActiveTracks();
+    } else {
+      if (AppState.analyzer && AppState.analyzer.raw && AppState.analyzer.raw.length > 0) {
+        const trackObj = (AppState.collectiveManager && AppState.activeTrackId)
+          ? AppState.collectiveManager.getTrack(AppState.activeTrackId)
+          : null;
+        tracksToSample = [{
+          id: AppState.activeTrackId,
+          name: trackObj?.name || 'Walk',
+          analyzer: AppState.analyzer
+        }];
+      }
+    }
+
+    if (tracksToSample.length === 0) {
+      if (!silent) alert("Please load or select an active track file first.");
+      return;
+    }
+
+    const isValid = (lat, lon) => {
+      if (typeof OSMEnricher !== 'undefined' && typeof OSMEnricher._isValidCoord === 'function') {
+        return OSMEnricher._isValidCoord(lat, lon);
+      }
+      return lat != null && lon != null && !isNaN(lat) && !isNaN(lon) && Math.abs(lat) > 0.001 && Math.abs(lon) > 0.001;
+    };
+
+    const validTracks = tracksToSample.filter(t => {
+      if (!t || !t.analyzer || !t.analyzer.raw) return false;
+      return t.analyzer.raw.some(pt => pt && isValid(pt.lat, pt.lon));
+    });
+
+    if (validTracks.length === 0) {
+      if (!silent) alert("No valid GPS fixes found in the selected walk(s) to sample satellite NDVI.");
+      return;
+    }
+
+    GSRUI._samplingNdvi = true;
+
+    const btn = document.getElementById('btnSampleNdvi');
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.setAttribute('disabled', 'true');
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sampling NDVI...';
+    }
+
+    const statusContainer = document.getElementById('osmStatusContainer');
+    const statusMsg = document.getElementById('osmStatusMessage');
+    const progressBar = document.getElementById('osmProgressBar');
+
+    if (statusContainer) statusContainer.style.display = 'block';
+    if (progressBar) {
+      progressBar.style.width = '0%';
+      progressBar.style.backgroundColor = '#2d6a4f';
+    }
+
+    try {
+      for (let i = 0; i < validTracks.length; i++) {
+        const t = validTracks[i];
+        if (statusMsg) statusMsg.innerText = `[${i + 1}/${validTracks.length}] Streaming satellite tiles for ${t.name || 'walk'}...`;
+        await NDVISampler.sampleTrack(t, {
+          zoom: 15,
+          radiusM: 50,
+          onProgress: (pct, msg) => {
+            if (progressBar) progressBar.style.width = `${pct}%`;
+            if (statusMsg) statusMsg.innerText = `[${i + 1}/${validTracks.length}] ${msg}`;
+          }
+        });
+      }
+
+      GSRUI.refreshOsmControls();
+      GSRUI.rerenderMap();
+      if (statusMsg) statusMsg.innerText = `Sampled NDVI for ${validTracks.length} walk${validTracks.length === 1 ? '' : 's'}.`;
+      if (progressBar) progressBar.style.width = '100%';
+      setTimeout(() => { if (statusContainer) statusContainer.style.display = 'none'; }, 3000);
+    } catch (err) {
+      console.error("NDVI Sampling error:", err);
+      if (!silent) alert("NDVI Sampling failed: " + err.message);
+      if (statusMsg) statusMsg.innerText = "Error: " + err.message;
+      if (progressBar) progressBar.style.backgroundColor = "var(--danger)";
+    } finally {
+      GSRUI._samplingNdvi = false;
+      if (btn) {
+        btn.removeAttribute('disabled');
+        btn.innerHTML = originalText;
+      }
+    }
+  },
+
+  /**
    * Percentile of a value within an unsorted numeric array (linear interp
    * between order statistics). Used to clip scatter axes to a robust range.
    */
@@ -1026,7 +1124,9 @@ const GSRUI = {
    * box-and-whisker per group.
    */
   drawRegressionScatter(canvas, xVals, yVals, m, c, r2, xLabel, yLabel, isBinaryX = false) {
+    if (!canvas || typeof canvas.getContext !== 'function') return;
     const ctx = canvas.getContext('2d');
+    if (!ctx) return;
     const width = canvas.width;
     const height = canvas.height;
 
@@ -1291,6 +1391,8 @@ const GSRUI = {
                 osm_dist_water: envPt.osm_dist_water,
                 osm_tree_density_50m: envPt.osm_tree_density_50m,
                 osm_amenity_count_50m: envPt.osm_amenity_count_50m,
+                ndvi: (typeof envPt.ndvi === 'number') ? envPt.ndvi : NaN,
+                ndvi_50m: (typeof envPt.ndvi_50m === 'number') ? envPt.ndvi_50m : NaN,
                 // EM Fog Index (0-100), latency-shifted like the OSM fields.
                 // NaN when the row has no Sub-GHz RSSI; dropped per-feature below.
                 em_fog: (typeof envPt.em_fog === 'number') ? envPt.em_fog : NaN,
@@ -1307,6 +1409,8 @@ const GSRUI = {
                   osm_dist_water: envPtTonic.osm_dist_water,
                   osm_tree_density_50m: envPtTonic.osm_tree_density_50m,
                   osm_amenity_count_50m: envPtTonic.osm_amenity_count_50m,
+                  ndvi: (typeof envPtTonic.ndvi === 'number') ? envPtTonic.ndvi : NaN,
+                  ndvi_50m: (typeof envPtTonic.ndvi_50m === 'number') ? envPtTonic.ndvi_50m : NaN,
                   em_fog: (typeof envPtTonic.em_fog === 'number') ? envPtTonic.em_fog : NaN
                 }
               });
@@ -1322,6 +1426,14 @@ const GSRUI = {
       const features = GSR_CONST.OSM_METRICS
         .filter(m => m.kind === 'continuous' || m.kind === 'binary')
         .map(m => ({ name: m.label, key: m.field, binary: m.kind === 'binary' }));
+
+      // Satellite remote-sensing metrics (NDVI) — add when some sample carries a reading
+      if (allData.some(d => !isNaN(d.ndvi_50m))) {
+        features.push({ name: 'NDVI (50m Buffer)', key: 'ndvi_50m', binary: false });
+      }
+      if (allData.some(d => !isNaN(d.ndvi))) {
+        features.push({ name: 'Point NDVI', key: 'ndvi', binary: false });
+      }
 
       // EM Fog comes from Sub-GHz RSSI, not Overpass, so it's not in
       // OSM_METRICS. Add it only when some sample carries a reading.
@@ -1617,9 +1729,10 @@ const GSRUI = {
     const cachedStats = cacheTarget._cachedEnvStats;
     const hasEmFog = cachedStats.correlationMatrix.some(r => r.key === 'em_fog');
     const hasSpeed = (cachedStats.allData || []).some(d => typeof d.speed === 'number' && d.speed > 0);
+    const hasNdvi = (cachedStats.allData || []).some(d => !isNaN(d.ndvi) || !isNaN(d.ndvi_50m));
 
     // enriched-walk count is cached; totalWalks (incl. not-yet-enriched) is live.
-    GSRUI.syncScatterEnvOptions(hasEmFog, hasSpeed);
+    GSRUI.syncScatterEnvOptions(hasEmFog, hasSpeed, hasNdvi);
     GSRUI.renderCorrelationTable(cachedStats.correlationMatrix, cachedStats.trackCount, totalWalks);
     GSRUI.drawRegressionScatterPlot(cachedStats.allData);
     GSRUI.renderRoadProfile(cachedStats.roadProfile, cachedStats.roadComparison);
@@ -1627,25 +1740,29 @@ const GSRUI = {
 
   /**
    * Rebuild the #scatterEnvMetric <option> list from GSR_CONST.OSM_METRICS
-   * (continuous + binary) plus EM Fog and Walking Speed when present, keeping
+   * (continuous + binary) plus NDVI, EM Fog and Walking Speed when present, keeping
    * it in step with the correlation-matrix feature set. Preserves the current
    * selection when still valid; no-ops when the option set is unchanged.
    */
-  syncScatterEnvOptions(hasEmFog, hasSpeed = false) {
+  syncScatterEnvOptions(hasEmFog, hasSpeed = false, hasNdvi = false) {
     const sel = document.getElementById('scatterEnvMetric');
     if (!sel) return;
     const opts = GSR_CONST.OSM_METRICS
       .filter(m => m.kind === 'continuous' || m.kind === 'binary')
       .map(m => ({ value: m.field, label: m.unit ? `${m.label} (${m.unit})` : m.label }));
+    if (hasNdvi) {
+      opts.push({ value: 'ndvi_50m', label: 'NDVI (50m Buffer)' });
+      opts.push({ value: 'ndvi', label: 'Point NDVI' });
+    }
     if (hasEmFog) opts.push({ value: 'em_fog', label: 'EM Fog Index (0-100)' });
     if (hasSpeed) opts.push({ value: 'speed', label: 'Walking Speed (m/s)' });
 
     const signature = opts.map(o => o.value).join(',');
-    if (sel.dataset.optionSig === signature) return; // already current
+    if (sel.dataset && sel.dataset.optionSig === signature) return; // already current
     const prev = sel.value;
     sel.innerHTML = opts.map(o => `<option value="${o.value}">${o.label}</option>`).join('');
     sel.value = opts.some(o => o.value === prev) ? prev : opts[0].value;
-    sel.dataset.optionSig = signature;
+    if (sel.dataset) sel.dataset.optionSig = signature;
   },
 
   /**
@@ -1988,6 +2105,8 @@ const GSRUI = {
       .forEach(m => { xLabels[m.field] = m.unit ? `${m.label} (${m.unit})` : m.label; });
     xLabels['em_fog'] = 'EM Fog Index (0-100)';
     xLabels['speed'] = 'Walking Speed (m/s)';
+    xLabels['ndvi_50m'] = 'NDVI (50m Buffer)';
+    xLabels['ndvi'] = 'Point NDVI';
     
     const yLabels = {
       'phasic': 'Phasic (momentary arousal)',

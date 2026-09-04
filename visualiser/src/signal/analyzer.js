@@ -2115,6 +2115,7 @@ class GSRAnalyzer {
     const hasEmFog   = this.raw.some(d => !isNaN(d.em_fog));
 
     const hasRf = hasRssi300 || hasRssi315 || hasRssi434 || hasRssi446 || hasRssi815 || hasRssi868 || hasRssi915 || hasEmFog;
+    const hasNdvi = this.raw.some(d => (typeof d.ndvi === 'number' && !isNaN(d.ndvi)) || (typeof d.ndvi_50m === 'number' && !isNaN(d.ndvi_50m)));
 
     // Preserve recording start time and configurations for re-import
     let csv = `# RecordingStartTime:${this.recordingStartTime}\n`;
@@ -2151,6 +2152,9 @@ class GSRAnalyzer {
     }
     if (isEnriched) {
       csv += ",osm_road_class,osm_dist_major_road,osm_in_park,osm_green_pct_50m,osm_dist_green,osm_canopy_pct_50m,osm_building_density_50m,osm_dist_water,osm_tree_density_50m,osm_amenity_count_50m";
+    }
+    if (hasNdvi) {
+      csv += ",ndvi,ndvi_50m";
     }
     csv += "\n";
 
@@ -2251,6 +2255,11 @@ class GSRAnalyzer {
         const amCountStr = (this.raw[i].osm_amenity_count_50m !== null && !isNaN(this.raw[i].osm_amenity_count_50m)) ? this.raw[i].osm_amenity_count_50m.toFixed(1) : "";
 
         csv += `,${roadClassStr},${distMajorStr},${inParkStr},${greenPctStr},${distGreenStr},${canopyPctStr},${bldDensityStr},${distWaterStr},${treeDensStr},${amCountStr}`;
+      }
+      if (hasNdvi) {
+        const ndviStr = (this.raw[i].ndvi !== null && !isNaN(this.raw[i].ndvi)) ? this.raw[i].ndvi.toFixed(3) : "";
+        const ndvi50mStr = (this.raw[i].ndvi_50m !== null && !isNaN(this.raw[i].ndvi_50m)) ? this.raw[i].ndvi_50m.toFixed(3) : "";
+        csv += `,${ndviStr},${ndvi50mStr}`;
       }
       csv += "\n";
     }

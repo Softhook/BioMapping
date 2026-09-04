@@ -98,6 +98,147 @@ Object.assign(GSRMapManager.prototype, {
       this.osmLayers.forEach(layer => this.map.removeLayer(layer));
     }
     this.osmLayers = [];
+  },
+
+  /**
+   * Show streaming Sentinel-2 / satellite NDVI tile layer.
+   * @param {string} [urlTemplate] - XYZ or WMS tile URL template
+   * @param {Object} [options={}] - Layer options (opacity, maxZoom, etc.)
+   */
+  showNdviLayer(urlTemplate, options = {}) {
+    if (!this.map) return;
+    this.hideNdviLayer();
+
+    const instanceId = options.instanceId 
+      || (typeof NDVISampler !== 'undefined' ? NDVISampler.getInstanceId() : (typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function' ? (localStorage.getItem('copernicus_instance_id') || '').trim() : ''));
+    const layerId = options.layerId 
+      || (typeof NDVISampler !== 'undefined' ? NDVISampler.getLayerId() : 'VEGETATION_INDEX');
+    const timeRange = options.time 
+      || (typeof NDVISampler !== 'undefined' ? NDVISampler.getTimeRange() : '2024-05-01/2024-09-30');
+    const maxcc = (typeof options.maxcc === 'number') ? options.maxcc : 50;
+
+    const url = urlTemplate || (typeof NDVISampler !== 'undefined' ? NDVISampler.DEFAULT_TILE_URL : 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg');
+    const opacity = typeof options.opacity === 'number' ? options.opacity : 0.65;
+    const isThematic = options.mode !== 'satellite';
+
+    // Ensure dedicated pane exists with zIndex 250 (between base map and vector layers)
+    if (!this.map.getPane('ndviPane')) {
+      const pane = this.map.createPane('ndviPane');
+      pane.style.zIndex = 250;
+      pane.style.pointerEvents = 'none';
+    }
+
+    // 1. Direct Copernicus Sentinel-2 Band 8 NIR WMS tile stream (when configured)
+    if (!urlTemplate && instanceId && typeof L !== 'undefined' && typeof L.tileLayer.wms === 'function') {
+      const wmsBase = (typeof NDVISampler !== 'undefined' && NDVISampler.COPERNICUS_BASE_URL)
+        ? NDVISampler.COPERNICUS_BASE_URL
+        : 'https://sh.dataspace.copernicus.eu/ogc/wms';
+
+      this.ndviTileLayer = L.tileLayer.wms(`${wmsBase}/${instanceId}`, {
+        pane: 'ndviPane',
+        layers: layerId,
+        format: 'image/png',
+        transparent: true,
+        version: '1.3.0',
+        maxZoom: 19,
+        opacity: opacity,
+        time: timeRange,
+        maxcc: maxcc,
+        attribution: 'Sentinel-2 Band 8 (NIR) NDVI © Copernicus / ESA',
+        crossOrigin: 'Anonymous'
+      }).addTo(this.map);
+      return;
+    }
+
+    const layerOpts = {
+      pane: 'ndviPane',
+      opacity: opacity,
+      maxZoom: 19,
+      maxNativeZoom: 16,
+      attribution: isThematic
+        ? 'Vegetation Index (NDVI) © <a href="https://s2maps.eu" target="_blank">Sentinel-2 / EOX</a>'
+        : 'NDVI & Imagery © <a href="https://s2maps.eu" target="_blank">Sentinel-2 cloudless / EOX</a>',
+      crossOrigin: 'Anonymous'
+    };
+
+    if (isThematic && typeof L !== 'undefined' && L.TileLayer && typeof L.TileLayer.extend === 'function' && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+      try {
+        const ThematicNdviLayer = L.TileLayer.extend({
+          createTile: function(coords, done) {
+            const tile = document.createElement('canvas');
+            tile.width = 256;
+            tile.height = 256;
+            const ctx = tile.getContext('2d');
+            const img = new Image();
+            img.crossOrigin = 'Anonymous';
+            img.onload = () => {
+              try {
+                ctx.drawImage(img, 0, 0);
+                const imgData = ctx.getImageData(0, 0, 256, 256);
+                const d = imgData.data;
+                const hasSampler = typeof NDVISampler !== 'undefined';
+                for (let i = 0; i < d.length; i += 4) {
+                  const val = hasSampler ? NDVISampler.decodePixel(d[i], d[i+1], d[i+2], d[i+3]) : 0;
+                  const col = hasSampler ? NDVISampler.ndviToThematicRgba(val) : [80, 180, 60, 180];
+                  d[i] = col[0];
+                  d[i+1] = col[1];
+                  d[i+2] = col[2];
+                  d[i+3] = col[3];
+                }
+                ctx.putImageData(imgData, 0, 0);
+                done(null, tile);
+              } catch (e) {
+                done(null, img);
+              }
+            };
+            img.onerror = (err) => done(err, tile);
+            img.src = this.getTileUrl(coords);
+            return tile;
+          }
+        });
+        this.ndviTileLayer = new ThematicNdviLayer(url, layerOpts).addTo(this.map);
+        return;
+      } catch (e) {
+        // Fall back to standard tile layer below
+      }
+    }
+
+    this.ndviTileLayer = L.tileLayer(url, layerOpts).addTo(this.map);
+  },
+
+  /**
+   * Remove NDVI tile layer from map.
+   */
+  hideNdviLayer() {
+    if (this.ndviTileLayer && this.map) {
+      this.map.removeLayer(this.ndviTileLayer);
+    }
+    this.ndviTileLayer = null;
+  },
+
+  /**
+   * Adjust NDVI tile layer opacity.
+   * @param {number} opacity - 0.0 to 1.0
+   */
+  setNdviOpacity(opacity) {
+    if (this.ndviTileLayer) {
+      this.ndviTileLayer.setOpacity(opacity);
+    }
+  },
+
+  /**
+   * Toggle NDVI tile layer on or off.
+   * @param {boolean} [show] - Explicit state, or toggles if undefined
+   * @param {Object} [options={}]
+   */
+  toggleNdviLayer(show, options = {}) {
+    const shouldShow = (show !== undefined) ? show : !this.ndviTileLayer;
+    if (shouldShow) {
+      this.showNdviLayer(options.urlTemplate, options);
+    } else {
+      this.hideNdviLayer();
+    }
+    return shouldShow;
   }
 
 });

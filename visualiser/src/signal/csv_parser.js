@@ -459,6 +459,8 @@ class GSRCSVParser {
     let osmDistWaterColIdx = headers.indexOf('osm_dist_water');
     let osmTreeDensityColIdx = headers.indexOf('osm_tree_density_50m');
     let osmAmenityCountColIdx = headers.indexOf('osm_amenity_count_50m');
+    let ndviColIdx = headers.indexOf('ndvi');
+    let ndvi50mColIdx = headers.indexOf('ndvi_50m');
 
     // RF column detection (300, 315, 434, 446, 815, 868, 915 MHz RSSI & EM fog)
     // EM fog has a legacy alias (subghz_em_fog) so it's handled separately.
@@ -560,6 +562,8 @@ class GSRCSVParser {
       let osm_dist_water = osmDistWaterColIdx !== -1 && cols[osmDistWaterColIdx] ? parseFloat(cols[osmDistWaterColIdx]) : NaN;
       let osm_tree_density_50m = osmTreeDensityColIdx !== -1 && cols[osmTreeDensityColIdx] ? parseFloat(cols[osmTreeDensityColIdx]) : NaN;
       let osm_amenity_count_50m = osmAmenityCountColIdx !== -1 && cols[osmAmenityCountColIdx] ? parseFloat(cols[osmAmenityCountColIdx]) : NaN;
+      let ndviVal = ndviColIdx !== -1 && cols[ndviColIdx] ? parseFloat(cols[ndviColIdx]) : NaN;
+      let ndvi50mVal = ndvi50mColIdx !== -1 && cols[ndvi50mColIdx] ? parseFloat(cols[ndvi50mColIdx]) : NaN;
 
       rawDataList.push({
         time: timeVal,
@@ -594,7 +598,9 @@ class GSRCSVParser {
         osm_building_density_50m: osm_building_density_50m,
         osm_dist_water: osm_dist_water,
         osm_tree_density_50m: osm_tree_density_50m,
-        osm_amenity_count_50m: osm_amenity_count_50m
+        osm_amenity_count_50m: osm_amenity_count_50m,
+        ndvi: ndviVal,
+        ndvi_50m: ndvi50mVal
       });
     }
 
@@ -755,7 +761,7 @@ class GSRCSVParser {
 
     // Check if imported CSV is already enriched
     let isEnriched = false;
-    if (osmRoadClassColIdx !== -1 || osmGreenPctColIdx !== -1) {
+    if (osmRoadClassColIdx !== -1 || osmGreenPctColIdx !== -1 || ndviColIdx !== -1 || ndvi50mColIdx !== -1) {
       isEnriched = true;
       if (!enrichmentRadius) enrichmentRadius = 50; // fallback default
     } else {

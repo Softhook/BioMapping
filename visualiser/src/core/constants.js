@@ -430,5 +430,11 @@ const GSR_CONST = {
     { key: 'distWater',       field: 'osm_dist_water',             label: 'Distance to Water',       kind: 'continuous', unit: 'm' },
     { key: 'treeDensity',     field: 'osm_tree_density_50m',       label: 'Tree Density',            kind: 'continuous' },
     { key: 'amenityCount',    field: 'osm_amenity_count_50m',      label: 'Amenity Count',           kind: 'continuous' }
+  ],
+
+  // Satellite remote-sensing vegetation metrics (NDVISampler)
+  SATELLITE_METRICS: [
+    { key: 'ndvi_50m', field: 'ndvi_50m', label: 'NDVI (50m Buffer)', kind: 'continuous', unit: 'index' },
+    { key: 'ndvi',     field: 'ndvi',     label: 'Point NDVI',        kind: 'continuous', unit: 'index' }
   ]
 };

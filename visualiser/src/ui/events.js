@@ -822,6 +822,87 @@ const GSREvents = {
       }
     });
 
+    const btnToggleNdviLayer = document.getElementById('btnToggleNdviLayer');
+    if (btnToggleNdviLayer) {
+      btnToggleNdviLayer.addEventListener('click', () => {
+        btnToggleNdviLayer.classList.toggle('active');
+        const active = btnToggleNdviLayer.classList.contains('active');
+        if (AppState.mapManager) {
+          AppState.mapManager.toggleNdviLayer(active);
+        }
+      });
+    }
+
+    const btnSampleNdvi = document.getElementById('btnSampleNdvi');
+    if (btnSampleNdvi) {
+      btnSampleNdvi.addEventListener('click', () => GSRUI.sampleNdviTrack());
+    }
+
+    const copernicusInstanceInput = document.getElementById('copernicusInstanceId');
+    const copernicusLayerInput = document.getElementById('copernicusLayerId');
+    const copernicusTimeInput = document.getElementById('copernicusTimeRange');
+    const syncCopernicusBadges = () => {
+      const activeBadge = document.getElementById('copernicusActiveBadge');
+      const defaultBadge = document.getElementById('copernicusDefaultBadge');
+      const hasId = typeof NDVISampler !== 'undefined' ? NDVISampler.hasCopernicusConfig() : false;
+      if (activeBadge) activeBadge.style.display = hasId ? 'inline-block' : 'none';
+      if (defaultBadge) defaultBadge.style.display = hasId ? 'none' : 'inline-block';
+    };
+
+    if (copernicusInstanceInput && typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function') {
+      const savedInstance = localStorage.getItem('copernicus_instance_id');
+      if (savedInstance) copernicusInstanceInput.value = savedInstance;
+      copernicusInstanceInput.addEventListener('change', () => {
+        if (typeof localStorage.setItem === 'function') {
+          localStorage.setItem('copernicus_instance_id', copernicusInstanceInput.value.trim());
+        }
+        syncCopernicusBadges();
+        if (AppState.mapManager && AppState.mapManager.ndviTileLayer) {
+          AppState.mapManager.showNdviLayer();
+        }
+      });
+    }
+    if (copernicusLayerInput && typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function') {
+      const savedLayer = localStorage.getItem('copernicus_layer_id');
+      if (savedLayer) copernicusLayerInput.value = savedLayer;
+      copernicusLayerInput.addEventListener('change', () => {
+        if (typeof localStorage.setItem === 'function') {
+          localStorage.setItem('copernicus_layer_id', copernicusLayerInput.value.trim());
+        }
+        if (AppState.mapManager && AppState.mapManager.ndviTileLayer) {
+          AppState.mapManager.showNdviLayer();
+        }
+      });
+    }
+    if (copernicusTimeInput && typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function') {
+      const savedTime = localStorage.getItem('copernicus_time_range');
+      if (savedTime) copernicusTimeInput.value = savedTime;
+      copernicusTimeInput.addEventListener('change', () => {
+        if (typeof localStorage.setItem === 'function') {
+          localStorage.setItem('copernicus_time_range', copernicusTimeInput.value.trim());
+        }
+        if (AppState.mapManager && AppState.mapManager.ndviTileLayer) {
+          AppState.mapManager.showNdviLayer();
+        }
+      });
+    }
+
+    const btnClearCreds = document.getElementById('btnClearCopernicusCreds');
+    if (btnClearCreds) {
+      btnClearCreds.addEventListener('click', () => {
+        if (typeof NDVISampler !== 'undefined') NDVISampler.clearCredentials();
+        if (copernicusInstanceInput) copernicusInstanceInput.value = '';
+        if (copernicusLayerInput) copernicusLayerInput.value = 'VEGETATION_INDEX';
+        if (copernicusTimeInput) copernicusTimeInput.value = '2024-05-01/2024-09-30';
+        syncCopernicusBadges();
+        if (AppState.mapManager && AppState.mapManager.ndviTileLayer) {
+          AppState.mapManager.showNdviLayer();
+        }
+      });
+    }
+
+    syncCopernicusBadges();
+
     // Dashboard Tab Switcher
     const bindEnvTab = (btnId, panelId) => {
       const btn = document.getElementById(btnId);

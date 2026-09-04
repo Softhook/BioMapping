@@ -193,6 +193,14 @@ const MapColors = {
       const hue = 240 - ratio * 240;
       return `hsl(${hue}, 85%, 55%)`;
     }
+
+    if (metric === 'ndvi' || metric === 'ndvi_50m' || metric === 'ndvi50m') {
+      // Barren / built (earthy tan) to lush vegetation (deep canopy green)
+      const hue = 35 + ratio * 95;
+      const sat = 50 + ratio * 35;
+      const light = 50 - ratio * 15;
+      return `hsl(${hue}, ${sat}%, ${light}%)`;
+    }
     
     return '#666666';
   },

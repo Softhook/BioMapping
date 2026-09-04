@@ -147,6 +147,9 @@ class GSRMapManager {
       // param also changing.
     };
     GSR_CONST.OSM_METRICS.forEach(m => { keys[m.key] = m.field; });
+    if (GSR_CONST.SATELLITE_METRICS) {
+      GSR_CONST.SATELLITE_METRICS.forEach(m => { keys[m.key] = m.field; });
+    }
     return keys[metric] || 'val';
   }
 
