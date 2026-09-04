@@ -1863,7 +1863,7 @@ input[type="range"]:focus-visible,
 /* Make wrappers expand vertically to fill the panel height or maintain healthy min-height */
 .panel-fullscreen-overlay #environmentalPanel .regression-chart-container {
   flex: 2 1 400px !important;
-  min-height: 280px !important;
+  min-height: 320px !important;
   display: flex !important;
   flex-direction: column !important;
 }
@@ -1885,9 +1885,16 @@ input[type="range"]:focus-visible,
 }
 
 .panel-fullscreen-overlay #environmentalPanel #roadBarChartContainer {
-  flex-grow: 1 !important;
-  overflow-y: auto !important;
+  flex-grow: 0 !important;
+  overflow-y: visible !important;
   max-height: none !important;
+}
+
+.panel-fullscreen-overlay #environmentalPanel .env-tab-content .table-container {
+  overflow-y: visible !important;
+  max-height: none !important;
+  height: auto !important;
+  flex-grow: 0 !important;
 }
 
 /* ─────────────────────────────────────────────────────────────────── */
@@ -2541,7 +2548,7 @@ input[type="range"]:focus-visible,
   animation: fadeIn 0.3s ease;
   display: flex;
   flex-direction: column;
-  height: calc(100% - 45px); /* Force height boundary to trigger scrollbars */
+  height: calc(100% - 45px); /* Bounded to panel height so whole section scrolls */
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
@@ -2552,6 +2559,161 @@ input[type="range"]:focus-visible,
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* Whole-section scrolling: eliminate trapped inner scrollbars on table rows & bar items */
+#environmentalPanel .env-tab-content .table-container {
+  overflow-y: visible !important;
+  overflow-x: auto;
+  flex-grow: 0 !important;
+  flex-shrink: 0 !important;
+  max-height: none !important;
+  height: auto !important;
+}
+
+#environmentalPanel #roadBarChartContainer {
+  overflow-y: visible !important;
+  height: auto !important;
+  max-height: none !important;
+  flex-grow: 0 !important;
+}
+
+/* Wide-text fitting: compact cell sizing & interpretation text wrapping */
+#environmentalPanel #correlationTable th,
+#environmentalPanel #correlationTable td {
+  padding: 6px 10px;
+  font-size: 0.8rem;
+}
+
+#environmentalPanel #correlationTable td:last-child {
+  max-width: 320px;
+  min-width: 180px;
+  white-space: normal;
+  line-height: 1.35;
+  font-size: 0.78rem;
+  word-break: normal;
+}
+
+#environmentalPanel #roadArousalTable th,
+#environmentalPanel #roadArousalTable td {
+  padding: 6px 8px;
+  font-size: 0.78rem;
+}
+
+#environmentalPanel .env-tab-content .help-text {
+  max-width: 950px;
+  line-height: 1.5;
+}
+
+/* Collapsible methodological guidance box */
+.env-guidance-details {
+  margin-top: 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border-glass, #e0e0e0);
+  background: rgba(0, 85, 204, 0.03);
+  max-width: 950px;
+  overflow: hidden;
+}
+
+.env-guidance-details summary {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: rgba(0, 85, 204, 0.05);
+  transition: background 0.15s ease;
+}
+
+.env-guidance-details summary:hover {
+  background: rgba(0, 85, 204, 0.09);
+}
+
+.env-guidance-details summary .details-chevron {
+  margin-left: auto;
+  font-size: 0.72rem;
+  opacity: 0.6;
+  transition: transform 0.2s ease;
+}
+
+.env-guidance-details[open] summary .details-chevron {
+  transform: rotate(180deg);
+}
+
+.env-guidance-content {
+  padding: 12px 14px;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.env-guidance-content p {
+  margin: 0 0 8px 0;
+}
+
+.env-guidance-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* Responsive side-by-side layout in both normal and fullscreen views */
+#environmentalPanel #envTabScatter.active,
+#environmentalPanel #envTabRoads.active {
+  display: flex !important;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 16px;
+  min-height: 0;
+  height: auto;
+}
+
+#environmentalPanel #envTabScatter > div:first-child {
+  flex: 1 1 300px;
+  min-width: 260px;
+}
+
+#environmentalPanel #envTabRoads > div:first-child {
+  flex: 1.2 1 340px;
+  min-width: 280px;
+  min-height: 0;
+}
+
+/* Chart container styling — subtle card borders matching application */
+.regression-chart-container,
+.road-chart-container {
+  background: #ffffff;
+  border-radius: 6px;
+  padding: 16px;
+  border: 1px solid var(--border-glass, #e0e0e0);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.regression-chart-container {
+  flex: 1.8 1 380px;
+  min-width: 300px;
+  min-height: 280px;
+}
+
+.regression-chart-container canvas {
+  width: 100%;
+  height: 100%;
+  min-height: 260px;
+  display: block;
+}
+
+.road-chart-container {
+  flex: 1 1 280px;
+  min-width: 260px;
+  min-height: 240px;
+  justify-content: flex-start;
 }
 
 .road-bar-row {
@@ -2598,7 +2760,26 @@ input[type="range"]:focus-visible,
 /* Correlation-matrix cells. The effect-size chip is the primary cue; the
    number's colour only carries direction; significance is a secondary,
    muted qualifier ("n.s." on the chip) — never stars on the number. */
-.corr-cell { white-space: nowrap; }
+.corr-cell {
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+.corr-val-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.corr-val-stack .mag-chip {
+  margin-left: 0;
+  margin-top: 1px;
+  font-size: 0.68rem;
+  padding: 1px 6px;
+  line-height: 1.3;
+}
+
 .corr-num { font-variant-numeric: tabular-nums; font-weight: 600; }
 .corr-num.dir-pos  { color: #b45309; }   /* toward higher arousal */
 .corr-num.dir-neg  { color: #005bc4; }   /* toward lower arousal  */
@@ -2621,9 +2802,46 @@ input[type="range"]:focus-visible,
 .mag-chip.mag-strong     { background: #ffcc80; color: #7c2d12; }
 .mag-chip.mag-ns         { opacity: 0.5; font-weight: 500; }
 
-/* Allow environmental panel to grow taller and fill space when available */
+/* Correlation table layout & column sizing */
+#environmentalPanel #correlationTable {
+  width: 100%;
+  table-layout: auto;
+}
+
+#environmentalPanel #correlationTable th:nth-child(2),
+#environmentalPanel #correlationTable th:nth-child(3),
+#environmentalPanel #correlationTable th:nth-child(4) {
+  width: 100px;
+  white-space: nowrap;
+}
+
+#environmentalPanel #correlationTable th:nth-child(5),
+#environmentalPanel #correlationTable th:nth-child(6),
+#environmentalPanel #correlationTable th:nth-child(7) {
+  width: 75px;
+  white-space: nowrap;
+}
+
+#environmentalPanel #correlationTable td:nth-child(5),
+#environmentalPanel #correlationTable td:nth-child(6),
+#environmentalPanel #correlationTable td:nth-child(7) {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+/* Allow environmental panel to grow and fill available space */
 #environmentalPanel {
-  max-height: 500px;
+  min-height: 280px;
+  max-height: calc(100vh - 140px);
+  flex-grow: 1;
+}
+
+/* Dynamic max-height when preceding panels are collapsed */
+#gsrPanel.collapsed ~ #mapPanel.collapsed ~ #eventsPanel.collapsed ~ #environmentalPanel:not(.collapsed) {
+  max-height: calc(100vh - 140px);
+  min-height: 480px;
 }
 
 #environmentalPanel .panel-header {

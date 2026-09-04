@@ -504,3 +504,110 @@ test('updateEnvironmentalDashboard (single mode): computes speed-adjusted partia
   assert.ok(Number.isFinite(row.rTonicSpeedAdj), `rTonicSpeedAdj is a finite number, got ${row.rTonicSpeedAdj}`);
   assert.ok('pTonicSpeedAdj' in row, 'pTonicSpeedAdj is present on correlation row');
 });
+
+test('sortCorrelationTable: toggles sort direction and sorts matrix rows accordingly', () => {
+  const savedDoc = global.document;
+  const renderedNames = [];
+  global.document = {
+    querySelector: (s) => s.includes('correlationTable')
+      ? { set innerHTML(_) {}, appendChild(el) { renderedNames.push(el.__html); } }
+      : null,
+    getElementById: (id) => id === 'correlationMethodNote'
+      ? { set innerHTML(_) {}, set textContent(_) {} }
+      : (id === 'correlationTable') ? { querySelectorAll: () => [] } : null,
+    createElement: () => ({ set innerHTML(v) { this.__html = v; } }),
+  };
+  try {
+    const matrix = [
+      { name: 'Green Space %', rPhasic: 0.15, rTonic: 0.05, rPeaks: 0.02, hasVariance: true, mPhasic: 'single' },
+      { name: 'Amenity Count', rPhasic: 0.35, rTonic: 0.20, rPeaks: 0.10, hasVariance: true, mPhasic: 'single' },
+      { name: 'Building Density', rPhasic: -0.10, rTonic: -0.05, rPeaks: 0.00, hasVariance: true, mPhasic: 'single' },
+    ];
+    global.AppState.corrSortColumn = null;
+    global.AppState.corrSortDirection = 'asc';
+
+    // Default: preserves order
+    GSRUI.renderCorrelationTable(matrix, 1, 1);
+    assert.match(renderedNames[0], /Green Space %/);
+    assert.match(renderedNames[1], /Amenity Count/);
+    assert.match(renderedNames[2], /Building Density/);
+
+    // Sort by name asc
+    global.AppState.corrSortColumn = 'name';
+    global.AppState.corrSortDirection = 'asc';
+    renderedNames.length = 0;
+    GSRUI.renderCorrelationTable(matrix, 1, 1);
+    assert.match(renderedNames[0], /Amenity Count/);
+    assert.match(renderedNames[1], /Building Density/);
+    assert.match(renderedNames[2], /Green Space %/);
+
+    // Sort by rPhasic desc (highest correlation first)
+    global.AppState.corrSortColumn = 'rPhasic';
+    global.AppState.corrSortDirection = 'desc';
+    renderedNames.length = 0;
+    GSRUI.renderCorrelationTable(matrix, 1, 1);
+    assert.match(renderedNames[0], /Amenity Count/);   // 0.35
+    assert.match(renderedNames[1], /Green Space %/);    // 0.15
+    assert.match(renderedNames[2], /Building Density/); // -0.10
+
+    // Clicking same column toggles direction
+    GSRUI.sortCorrelationTable('rPhasic');
+    assert.strictEqual(global.AppState.corrSortDirection, 'asc');
+    GSRUI.sortCorrelationTable('rPhasic');
+    assert.strictEqual(global.AppState.corrSortDirection, 'desc');
+  } finally {
+    global.document = savedDoc;
+  }
+});
+
+test('sortRoadArousalTable: toggles sort direction and sorts road profile rows', () => {
+  const savedDoc = global.document;
+  const renderedRoads = [];
+  const renderedBars = [];
+  global.document = {
+    querySelector: (s) => s.includes('roadArousalTable')
+      ? { set innerHTML(_) {}, appendChild(el) { renderedRoads.push(el.__html); } }
+      : null,
+    getElementById: (id) => {
+      if (id === 'roadBarChartContainer') return { set innerHTML(_) {}, appendChild(el) { renderedBars.push(el.__html); } };
+      if (id === 'roadArousalTable') return { querySelectorAll: () => [] };
+      return null;
+    },
+    createElement: () => ({ set innerHTML(v) { this.__html = v; } }),
+  };
+  try {
+    const profile = [
+      { name: 'residential', timeSpent: 120, effSamples: 30, meanPhasic: 0.12, stdPhasic: 0.05, ciPhasic: 0.02, meanTonic: 2.1, ciTonic: 0.1, peakRate: 1.5 },
+      { name: 'footway', timeSpent: 300, effSamples: 80, meanPhasic: 0.35, stdPhasic: 0.10, ciPhasic: 0.03, meanTonic: 1.8, ciTonic: 0.2, peakRate: 3.2 },
+      { name: 'primary', timeSpent: 50, effSamples: 15, meanPhasic: 0.08, stdPhasic: 0.04, ciPhasic: 0.02, meanTonic: 2.5, ciTonic: 0.1, peakRate: 0.8 },
+    ];
+
+    // Default sort by meanPhasic desc
+    global.AppState.roadSortColumn = 'meanPhasic';
+    global.AppState.roadSortDirection = 'desc';
+    GSRUI.renderRoadProfile(profile, null);
+
+    assert.match(renderedRoads[0], /footway/);     // 0.35
+    assert.match(renderedRoads[1], /residential/); // 0.12
+    assert.match(renderedRoads[2], /primary/);     // 0.08
+
+    // Sort by name asc
+    global.AppState.roadSortColumn = 'name';
+    global.AppState.roadSortDirection = 'asc';
+    renderedRoads.length = 0;
+    GSRUI.renderRoadProfile(profile, null);
+
+    assert.match(renderedRoads[0], /footway/);
+    assert.match(renderedRoads[1], /primary/);
+    assert.match(renderedRoads[2], /residential/);
+
+    // Toggle direction
+    GSRUI.sortRoadArousalTable('name');
+    assert.strictEqual(global.AppState.roadSortDirection, 'desc');
+    GSRUI.sortRoadArousalTable('name');
+    assert.strictEqual(global.AppState.roadSortDirection, 'asc');
+  } finally {
+    global.document = savedDoc;
+  }
+});
+

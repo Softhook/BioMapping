@@ -1816,6 +1816,56 @@ const GSRUI = {
   },
 
   /**
+   * Sort the Correlation Matrix table by a column key ('name'|'rPhasic'|'rTonic'|'rPeaks'|'qPhasic'|'qTonic'|'qPeaks'|'interpretation').
+   */
+  sortCorrelationTable(col) {
+    if (!col) return;
+    if (AppState.corrSortColumn === col) {
+      AppState.corrSortDirection = (AppState.corrSortDirection === 'asc') ? 'desc' : 'asc';
+    } else {
+      AppState.corrSortColumn = col;
+      AppState.corrSortDirection = (col === 'rPhasic' || col === 'rTonic' || col === 'rPeaks') ? 'desc' : 'asc';
+    }
+    const cacheTarget = (AppState.viewMode === 'single') ? AppState.analyzer : AppState.collectiveManager;
+    if (cacheTarget && cacheTarget._cachedEnvStats) {
+      const stats = cacheTarget._cachedEnvStats;
+      const allActive = (AppState.viewMode === 'single')
+        ? (AppState.analyzer ? [{ id: AppState.activeTrackId, analyzer: AppState.analyzer }] : [])
+        : (AppState.collectiveManager ? AppState.collectiveManager.getActiveTracks() : []);
+      this.renderCorrelationTable(stats.correlationMatrix, stats.trackCount, allActive.length);
+    }
+  },
+
+  /**
+   * Update header icons and classes on correlationTable according to active sort state.
+   */
+  updateCorrelationTableSortHeaders() {
+    if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return;
+    const table = document.getElementById('correlationTable');
+    if (!table || typeof table.querySelectorAll !== 'function') return;
+    const ths = table.querySelectorAll('thead th.sortable');
+    const curCol = AppState.corrSortColumn;
+    const curDir = AppState.corrSortDirection || 'asc';
+
+    ths.forEach(th => {
+      const col = th.dataset.sort;
+      const icon = th.querySelector('.sort-icon');
+      if (col === curCol) {
+        th.classList.remove('sort-asc', 'sort-desc');
+        th.classList.add(curDir === 'desc' ? 'sort-desc' : 'sort-asc');
+        if (icon) {
+          icon.className = 'fa-solid ' + (curDir === 'desc' ? 'fa-sort-down' : 'fa-sort-up') + ' sort-icon';
+        }
+      } else {
+        th.classList.remove('sort-asc', 'sort-desc');
+        if (icon) {
+          icon.className = 'fa-solid fa-sort sort-icon';
+        }
+      }
+    });
+  },
+
+  /**
    * Render the cached correlation matrix to HTML. Effect-size band leads;
    * significance (or, with too few walks, effect size alone) only qualifies it.
    */
@@ -1932,7 +1982,31 @@ const GSRUI = {
       return `Apparent ${bestBand.label} link to ${dirWord(best.r)} ${best.name} (r = ${best.r.toFixed(2)}) — not statistically reliable from this data${speedNote}`;
     };
 
-    matrix.forEach(row => {
+    let displayMatrix = matrix.slice();
+    if (AppState.corrSortColumn) {
+      const col = AppState.corrSortColumn;
+      const dir = (AppState.corrSortDirection === 'desc') ? -1 : 1;
+      displayMatrix.sort((a, b) => {
+        if (col === 'name') {
+          return dir * (a.name || '').localeCompare(b.name || '');
+        } else if (col === 'interpretation') {
+          const interpA = getInterpretation(a) || '';
+          const interpB = getInterpretation(b) || '';
+          return dir * interpA.localeCompare(interpB);
+        } else {
+          const valA = a[col];
+          const valB = b[col];
+          const hasA = (typeof valA === 'number' && !isNaN(valA));
+          const hasB = (typeof valB === 'number' && !isNaN(valB));
+          if (!hasA && !hasB) return 0;
+          if (!hasA) return 1;
+          if (!hasB) return -1;
+          return dir * (valA - valB);
+        }
+      });
+    }
+
+    displayMatrix.forEach(row => {
       const tr = document.createElement('tr');
       // r cell = number (coloured by direction) + a chip: "no variation" for a
       // constant factor; else the effect-size band, tagged with the verdict
@@ -1976,7 +2050,7 @@ const GSRUI = {
           const style = moved ? 'color: #e67e22; font-weight: 500;' : 'color: var(--text-muted);';
           speedInfo = `<div class="corr-speed-adj" style="font-size: 0.72rem; ${style} margin-top: 2px;" title="Partial correlation controlling for walking speed (m/s)">spd-adj: ${speedAdjR.toFixed(2)} (${adjBand.label})</div>`;
         }
-        return `<td class="corr-cell"><span class="corr-num ${dir}">${r.toFixed(3)}</span>${chip}${speedInfo}</td>`;
+        return `<td class="corr-cell"><div class="corr-val-stack"><span class="corr-num ${dir}">${r.toFixed(3)}</span>${chip}${speedInfo}</div></td>`;
       };
       const qCell = (q, m) => (row.hasVariance && isTested(m) && typeof q === 'number' && isFinite(q)) ? formatP(q) : '—';
       tr.innerHTML = `
@@ -1991,6 +2065,55 @@ const GSRUI = {
       `;
       tbody.appendChild(tr);
     });
+
+    this.updateCorrelationTableSortHeaders();
+  },
+
+  /**
+   * Sort the Road Arousal table by a column key ('name'|'timeSpent'|'meanPhasic'|'stdPhasic'|'ciPhasic'|'meanTonic'|'ciTonic'|'peakRate').
+   */
+  sortRoadArousalTable(col) {
+    if (!col) return;
+    if (AppState.roadSortColumn === col) {
+      AppState.roadSortDirection = (AppState.roadSortDirection === 'asc') ? 'desc' : 'asc';
+    } else {
+      AppState.roadSortColumn = col;
+      AppState.roadSortDirection = (col === 'name') ? 'asc' : 'desc';
+    }
+    const cacheTarget = (AppState.viewMode === 'single') ? AppState.analyzer : AppState.collectiveManager;
+    if (cacheTarget && cacheTarget._cachedEnvStats) {
+      const stats = cacheTarget._cachedEnvStats;
+      this.renderRoadProfile(stats.roadProfile, stats.roadComparison);
+    }
+  },
+
+  /**
+   * Update header icons and classes on roadArousalTable according to active sort state.
+   */
+  updateRoadArousalTableSortHeaders() {
+    if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return;
+    const table = document.getElementById('roadArousalTable');
+    if (!table || typeof table.querySelectorAll !== 'function') return;
+    const ths = table.querySelectorAll('thead th.sortable');
+    const curCol = AppState.roadSortColumn || 'meanPhasic';
+    const curDir = AppState.roadSortDirection || 'desc';
+
+    ths.forEach(th => {
+      const col = th.dataset.sort;
+      const icon = th.querySelector('.sort-icon');
+      if (col === curCol) {
+        th.classList.remove('sort-asc', 'sort-desc');
+        th.classList.add(curDir === 'desc' ? 'sort-desc' : 'sort-asc');
+        if (icon) {
+          icon.className = 'fa-solid ' + (curDir === 'desc' ? 'fa-sort-down' : 'fa-sort-up') + ' sort-icon';
+        }
+      } else {
+        th.classList.remove('sort-asc', 'sort-desc');
+        if (icon) {
+          icon.className = 'fa-solid fa-sort sort-icon';
+        }
+      }
+    });
   },
 
   /**
@@ -2004,9 +2127,23 @@ const GSRUI = {
     roadBody.innerHTML = '';
     roadChart.innerHTML = '';
 
-    const maxPhasicVal = profile.length > 0 ? Math.max(...profile.map(p => p.meanPhasic)) : 1.0;
+    let displayProfile = profile.slice();
+    if (AppState.roadSortColumn) {
+      const col = AppState.roadSortColumn;
+      const dir = (AppState.roadSortDirection === 'desc') ? -1 : 1;
+      displayProfile.sort((a, b) => {
+        if (col === 'name') {
+          return dir * (a.name || '').localeCompare(b.name || '');
+        }
+        const valA = a[col] ?? 0;
+        const valB = b[col] ?? 0;
+        return dir * (valA - valB);
+      });
+    }
 
-    profile.forEach(p => {
+    const maxPhasicVal = displayProfile.length > 0 ? Math.max(...displayProfile.map(p => p.meanPhasic)) : 1.0;
+
+    displayProfile.forEach(p => {
       const fmt = (v) => v.toFixed(3);
       const tr = document.createElement('tr');
       tr.innerHTML = `
@@ -2033,6 +2170,8 @@ const GSRUI = {
       `;
       roadChart.appendChild(barRow);
     });
+
+    this.updateRoadArousalTableSortHeaders();
     
     // ── Dynamic interpretation of actual data ───────────────────────────
     const interpretEl = document.getElementById('roadInterpretationText');

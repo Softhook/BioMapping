@@ -97,6 +97,40 @@ const GSREvents = {
     });
   },
 
+  /**
+   * Bind clickable column headers on the Correlation Matrix table for sorting.
+   */
+  bindCorrelationTableSort() {
+    const table = document.getElementById('correlationTable');
+    if (!table) return;
+    const ths = table.querySelectorAll('thead th.sortable');
+    ths.forEach(th => {
+      th.addEventListener('click', () => {
+        const col = th.dataset.sort;
+        if (col && typeof GSRUI !== 'undefined' && typeof GSRUI.sortCorrelationTable === 'function') {
+          GSRUI.sortCorrelationTable(col);
+        }
+      });
+    });
+  },
+
+  /**
+   * Bind clickable column headers on the Road Arousal table for sorting.
+   */
+  bindRoadArousalTableSort() {
+    const table = document.getElementById('roadArousalTable');
+    if (!table) return;
+    const ths = table.querySelectorAll('thead th.sortable');
+    ths.forEach(th => {
+      th.addEventListener('click', () => {
+        const col = th.dataset.sort;
+        if (col && typeof GSRUI !== 'undefined' && typeof GSRUI.sortRoadArousalTable === 'function') {
+          GSRUI.sortRoadArousalTable(col);
+        }
+      });
+    });
+  },
+
 
 
   /**
@@ -652,8 +686,10 @@ const GSREvents = {
     GSREvents.bindCollapseButton('btnOsmEnrichmentCollapse', 'osmEnrichmentCard');
     GSREvents.bindCollapseButton('btnEnvCollapse',           'environmentalPanel');
 
-    // ── SCR Events Table Sorting ────────────────────────────────────────────
+    // ── Table Column Sorting ────────────────────────────────────────────────
     GSREvents.bindPeaksTableSort();
+    GSREvents.bindCorrelationTableSort();
+    GSREvents.bindRoadArousalTableSort();
 
     // ── Preset Export / Import Controls ─────────────────────────────────────
     const btnExportPreset = document.getElementById('btnExportPreset');

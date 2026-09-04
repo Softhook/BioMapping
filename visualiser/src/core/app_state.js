@@ -119,6 +119,12 @@ const AppState = {
   peakSortColumn: 'index',  // 'index' | 'label' | 'amplitude' | 'riseTime' | 'quality' | 'excluded'
   peakSortDirection: 'asc', // 'asc' | 'desc'
 
+  // ── Environmental tables sorting ───────────────────────────────────────────
+  corrSortColumn: null, // null preserves default order; or 'name'|'rPhasic'|'rTonic'|'rPeaks'|'qPhasic'|'qTonic'|'qPeaks'|'interpretation'
+  corrSortDirection: 'asc',
+  roadSortColumn: 'meanPhasic',
+  roadSortDirection: 'desc',
+
   // ── DOM element cache (populated by cacheDOMElements) ──────────────────────
   sliders: {},
   statFields: {},

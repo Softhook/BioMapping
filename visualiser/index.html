@@ -1004,14 +1004,14 @@
               <table class="peaks-table" id="correlationTable">
                 <thead>
                   <tr>
-                    <th>Feature</th>
-                    <th>Phasic <em>r</em></th>
-                    <th>Tonic <em>r</em></th>
-                    <th>Peaks <em>r</em></th>
-                    <th title="q = significance test p-value, adjusted for multiple comparisons (Benjamini–Hochberg FDR across the environmental factors, computed separately for this arousal channel)"><em>q</em> (Phasic)</th>
-                    <th title="q = significance test p-value, adjusted for multiple comparisons (Benjamini–Hochberg FDR across the environmental factors, computed separately for this arousal channel)"><em>q</em> (Tonic)</th>
-                    <th title="q = significance test p-value, adjusted for multiple comparisons (Benjamini–Hochberg FDR across the environmental factors, computed separately for this arousal channel)"><em>q</em> (Peaks)</th>
-                    <th>Interpretation</th>
+                    <th class="sortable" data-sort="name" title="Sort by Feature Name">Feature <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="rPhasic" title="Sort by Phasic r (momentary arousal correlation)">Phasic <em>r</em> <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="rTonic" title="Sort by Tonic r (baseline arousal correlation)">Tonic <em>r</em> <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="rPeaks" title="Sort by Peaks r (stress peak rate correlation)">Peaks <em>r</em> <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="qPhasic" title="q = significance test p-value, adjusted for multiple comparisons (Benjamini–Hochberg FDR across the environmental factors, computed separately for this arousal channel)"><em>q</em> (Phasic) <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="qTonic" title="q = significance test p-value, adjusted for multiple comparisons (Benjamini–Hochberg FDR across the environmental factors, computed separately for this arousal channel)"><em>q</em> (Tonic) <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="qPeaks" title="q = significance test p-value, adjusted for multiple comparisons (Benjamini–Hochberg FDR across the environmental factors, computed separately for this arousal channel)"><em>q</em> (Peaks) <i class="fa-solid fa-sort sort-icon"></i></th>
+                    <th class="sortable" data-sort="interpretation" title="Sort by Interpretation">Interpretation <i class="fa-solid fa-sort sort-icon"></i></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1019,12 +1019,19 @@
                 </tbody>
               </table>
             </div>
-            <p class="help-text" style="margin-top: 10px; font-size: 0.78rem; color: var(--text-muted);">
-              <strong>Magnitude is the headline, not significance</strong>: with this much data a trivially small <em>r</em> can still be "significant". Every <em>q</em> is also corrected for <strong>multiple comparisons</strong> (Benjamini–Hochberg FDR across the environmental factors, one family per arousal channel). A factor that barely changes along the route shows "no variation".
-              <br><strong>Walking speed control (spd-adj)</strong>: when walking speed varies, Tonic SCL shows both the raw correlation and the speed-adjusted partial correlation. A green-space link that disappears under speed control indicates gait slowing (resting or walking slower) rather than autonomic restoration alone.
-              <br><strong>These are your own walks, not an experiment</strong>: environmental factors travel together (a busy road is also louder, sunnier, and walked faster), and skin response outdoors is driven partly by temperature and exertion. Read a link as "arousal tended to be higher/lower here", not "this place caused it".
-              <br><strong>Tree Density and Building Density depend on how completely the area is mapped in OpenStreetMap</strong>, which varies a lot between places — a null result for these is uninformative and a positive one may partly reflect mapping effort.
-            </p>
+            <details class="env-guidance-details">
+              <summary>
+                <i class="fa-solid fa-circle-info"></i>
+                <span>Methodological guidance &amp; how to read this data</span>
+                <i class="fa-solid fa-chevron-down details-chevron"></i>
+              </summary>
+              <div class="env-guidance-content">
+                <p><strong>Magnitude is the headline, not significance</strong>: with this much data a trivially small <em>r</em> can still be "significant". Every <em>q</em> is also corrected for <strong>multiple comparisons</strong> (Benjamini–Hochberg FDR across the environmental factors, one family per arousal channel). A factor that barely changes along the route shows "no variation".</p>
+                <p><strong>Walking speed control (spd-adj)</strong>: when walking speed varies, Tonic SCL shows both the raw correlation and the speed-adjusted partial correlation. A green-space link that disappears under speed control indicates gait slowing (resting or walking slower) rather than autonomic restoration alone.</p>
+                <p><strong>These are your own walks, not an experiment</strong>: environmental factors travel together (a busy road is also louder, sunnier, and walked faster), and skin response outdoors is driven partly by temperature and exertion. Read a link as "arousal tended to be higher/lower here", not "this place caused it".</p>
+                <p><strong>Tree Density and Building Density depend on how completely the area is mapped in OpenStreetMap</strong>, which varies a lot between places — a null result for these is uninformative and a positive one may partly reflect mapping effort.</p>
+              </div>
+            </details>
           </div>
 
           <!-- Tab 2: Regression Plot -->
@@ -1058,8 +1065,8 @@
               </div>
             </div>
             
-            <div class="regression-chart-container" style="background: #ffffff; border-radius: 6px; padding: 16px; border: 2px solid #000000; position: relative; min-height: 240px; display: flex; flex-direction: column;">
-              <canvas id="regressionCanvas" style="width: 100%; height: 100%; display: block;"></canvas>
+            <div class="regression-chart-container">
+              <canvas id="regressionCanvas"></canvas>
             </div>
           </div>
 
@@ -1071,14 +1078,14 @@
                 <table class="peaks-table" id="roadArousalTable">
                   <thead>
                     <tr>
-                      <th>Road Type</th>
-                      <th>Time Spent</th>
-                      <th>Mean Phasic (μS)</th>
-                      <th>Std Dev (μS)</th>
-                      <th>95% CI</th>
-                      <th>Mean Tonic (μS)</th>
-                      <th>95% CI</th>
-                      <th>Peak Rate (per min)</th>
+                      <th class="sortable" data-sort="name" title="Sort by Road Class">Road Type <i class="fa-solid fa-sort sort-icon"></i></th>
+                      <th class="sortable" data-sort="timeSpent" title="Sort by Time Spent">Time Spent <i class="fa-solid fa-sort sort-icon"></i></th>
+                      <th class="sortable sort-desc" data-sort="meanPhasic" title="Sort by Mean Phasic Arousal">Mean Phasic (μS) <i class="fa-solid fa-sort-down sort-icon"></i></th>
+                      <th class="sortable" data-sort="stdPhasic" title="Sort by Standard Deviation">Std Dev (μS) <i class="fa-solid fa-sort sort-icon"></i></th>
+                      <th class="sortable" data-sort="ciPhasic" title="Sort by 95% Confidence Interval">95% CI <i class="fa-solid fa-sort sort-icon"></i></th>
+                      <th class="sortable" data-sort="meanTonic" title="Sort by Mean Tonic Arousal">Mean Tonic (μS) <i class="fa-solid fa-sort sort-icon"></i></th>
+                      <th class="sortable" data-sort="ciTonic" title="Sort by 95% Confidence Interval">95% CI <i class="fa-solid fa-sort sort-icon"></i></th>
+                      <th class="sortable" data-sort="peakRate" title="Sort by Peak Rate">Peak Rate (per min) <i class="fa-solid fa-sort sort-icon"></i></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1094,8 +1101,8 @@
               </div>
             </div>
             
-            <div class="road-chart-container" style="background: #ffffff; border-radius: 6px; padding: 16px; border: 2px solid #000000; min-height: 240px; display: flex; flex-direction: column; justify-content: center;">
-              <div id="roadBarChartContainer" style="display: flex; flex-direction: column; gap: 10px; overflow-y: auto; height: 100%;">
+            <div class="road-chart-container">
+              <div id="roadBarChartContainer">
                 <!-- Bar chart populated dynamically -->
               </div>
             </div>
