@@ -101,8 +101,16 @@ Object.assign(GSRMapManager.prototype, {
   },
 
   /**
-   * Show streaming Sentinel-2 / satellite NDVI tile layer.
-   * @param {string} [urlTemplate] - XYZ or WMS tile URL template
+   * Show the satellite/vegetation map overlay. When a Copernicus instance is
+   * configured, this renders the *same raw NDVI raster* NDVISampler samples
+   * from — each tile is fetched as a FLOAT32 TIFF and painted as greyscale
+   * (`NDVISampler.paintGreyscaleTile`: low NDVI = black, high = white) — so
+   * the picture and the sampled `ndvi`/`ndvi_50m` numbers are provably the
+   * same data, not two independent server-side computations that could
+   * disagree. Without a configured instance there is no raw raster to show,
+   * so this falls back to a plain imagery tile layer (EOX cloudless, NASA
+   * GIBS, or a custom XYZ template) shown as-is, for visual reference only.
+   * @param {string} [urlTemplate] - XYZ tile URL template override (forces the fallback imagery path)
    * @param {Object} [options={}] - Layer options (opacity, maxZoom, etc.)
    */
   showNdviLayer(urlTemplate, options = {}) {
@@ -110,19 +118,8 @@ Object.assign(GSRMapManager.prototype, {
     this.hideNdviLayer();
 
     const hasSampler = (typeof NDVISampler !== 'undefined');
-    const activeProvider = hasSampler ? NDVISampler.getActiveProvider(options) : null;
-
-    const instanceId = options.instanceId 
-      || (hasSampler ? NDVISampler.getInstanceId() : (typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function' ? (localStorage.getItem('copernicus_instance_id') || '').trim() : ''));
-    const layerId = options.layerId 
-      || (hasSampler ? NDVISampler.getLayerId() : 'VEGETATION_INDEX');
-    const timeRange = options.time 
-      || (hasSampler ? NDVISampler.getTimeRange() : '2024-05-01/2024-09-30');
-    const maxcc = (typeof options.maxcc === 'number') ? options.maxcc : 50;
-
-    const url = urlTemplate || (hasSampler ? (activeProvider?.urlTemplate || NDVISampler.DEFAULT_TILE_URL) : 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg');
+    const hasCopernicus = hasSampler && NDVISampler.hasCopernicusConfig();
     const opacity = typeof options.opacity === 'number' ? options.opacity : 0.65;
-    const isThematic = options.mode !== 'satellite';
 
     // Ensure dedicated pane exists with zIndex 250 (between base map and vector layers)
     if (!this.map.getPane('ndviPane')) {
@@ -131,98 +128,84 @@ Object.assign(GSRMapManager.prototype, {
       pane.style.pointerEvents = 'none';
     }
 
-    // 1. Direct Copernicus Sentinel-2 Band 8 NIR WMS tile stream (when configured)
-    if (!urlTemplate && instanceId && typeof L !== 'undefined' && typeof L.tileLayer.wms === 'function') {
-      const wmsBase = (hasSampler && NDVISampler.COPERNICUS_BASE_URL)
-        ? NDVISampler.COPERNICUS_BASE_URL
-        : 'https://sh.dataspace.copernicus.eu/ogc/wms';
+    // 1. Real NDVI raster, rendered client-side as greyscale directly from
+    // the same raw data used for sampling (when Copernicus is configured).
+    if (!urlTemplate && hasCopernicus && typeof L !== 'undefined' && L.TileLayer && typeof L.TileLayer.extend === 'function'
+        && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+      const RawNdviLayer = L.TileLayer.extend({
+        createTile: function(coords, done) {
+          const tile = document.createElement('canvas');
+          tile.width = 256;
+          tile.height = 256;
+          const ctx = tile.getContext('2d');
+          const url = NDVISampler.buildRawTileUrl(coords.x, coords.y, coords.z, options);
 
-      this.ndviTileLayer = L.tileLayer.wms(`${wmsBase}/${instanceId}`, {
+          const paintAndFinish = (rasterTile) => {
+            try {
+              NDVISampler.paintGreyscaleTile(rasterTile, ctx);
+              done(null, tile);
+            } catch (e) {
+              done(e, tile);
+            }
+          };
+
+          const cached = NDVISampler._getTileCache(url);
+          if (cached) {
+            // Must not call `done` synchronously here: Leaflet's _addTile
+            // only stores this tile in its internal _tiles map *after*
+            // createTile() returns. Calling done() (== _tileReady) before
+            // that means its lookup finds nothing and silently no-ops —
+            // the pixels are painted correctly, but the tile never gets its
+            // "loaded" class and stays at opacity:0 forever. Deferring one
+            // microtask runs this after _addTile has finished. (This is why
+            // the layer worked on first show — a genuine async fetch — but
+            // not after toggling off/on once its tiles were cached.)
+            Promise.resolve().then(() => paintAndFinish(cached));
+            return tile;
+          }
+
+          fetch(url)
+            .then(r => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`HTTP ${r.status}`))))
+            .then(buf => NDVISampler.parseFloat32Tiff(buf))
+            .then(rasterTile => {
+              NDVISampler._putTileCache(url, rasterTile);
+              paintAndFinish(rasterTile);
+            })
+            .catch(err => done(err, tile));
+
+          return tile;
+        }
+      });
+
+      this.ndviTileLayer = new RawNdviLayer('', {
         pane: 'ndviPane',
-        layers: layerId,
-        format: 'image/png',
-        transparent: true,
-        version: '1.3.0',
+        opacity,
         maxZoom: 19,
-        opacity: opacity,
-        time: timeRange,
-        maxcc: maxcc,
-        attribution: 'Sentinel-2 Band 8 (NIR) NDVI © Copernicus / ESA',
-        crossOrigin: 'Anonymous'
+        maxNativeZoom: 16,
+        attribution: 'NDVI (Sentinel-2, live) © Copernicus / ESA — rendered client-side from the same raster used for sampling'
       }).addTo(this.map);
+      this.ndviTileLayer.on('tileunload', (e) => {
+        if (e && e.tile && e.tile.tagName === 'CANVAS') {
+          e.tile.width = 0;
+          e.tile.height = 0;
+        }
+      });
       return;
     }
 
+    // 2. No Copernicus configured (or an explicit urlTemplate override): a
+    // plain imagery tile layer (EOX cloudless / NASA GIBS / custom), shown
+    // as-is for visual reference only — see file docstring.
+    const activeProvider = hasSampler ? NDVISampler.getActiveProvider(options) : null;
+    const url = urlTemplate || (hasSampler ? (activeProvider?.urlTemplate || NDVISampler.DEFAULT_TILE_URL) : 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg');
     const layerOpts = {
       pane: 'ndviPane',
       opacity: opacity,
       maxZoom: 19,
       maxNativeZoom: 16,
-      attribution: isThematic
-        ? (activeProvider?.thematicAttribution || 'Vegetation Index (NDVI) © <a href="https://s2maps.eu" target="_blank">Sentinel-2 / EOX</a>')
-        : (activeProvider?.attribution || 'NDVI & Imagery © <a href="https://s2maps.eu" target="_blank">Sentinel-2 cloudless / EOX</a>'),
+      attribution: activeProvider?.attribution || 'Satellite imagery © <a href="https://s2maps.eu" target="_blank">Sentinel-2 cloudless / EOX</a>',
       crossOrigin: 'Anonymous'
     };
-
-    if (isThematic && typeof L !== 'undefined' && L.TileLayer && typeof L.TileLayer.extend === 'function' && typeof document !== 'undefined' && typeof document.createElement === 'function') {
-      try {
-        const ThematicNdviLayer = L.TileLayer.extend({
-          createTile: function(coords, done) {
-            const tile = document.createElement('canvas');
-            tile.width = 256;
-            tile.height = 256;
-            const ctx = tile.getContext('2d');
-            const tileUrl = this.getTileUrl(coords);
-
-            const processImage = (imgSource) => {
-              try {
-                ctx.drawImage(imgSource, 0, 0);
-                const imgData = ctx.getImageData(0, 0, 256, 256);
-                if (hasSampler && typeof NDVISampler.shadeImageData === 'function') {
-                  NDVISampler.shadeImageData(imgData);
-                }
-                ctx.putImageData(imgData, 0, 0);
-                done(null, tile);
-              } catch (e) {
-                done(null, imgSource);
-              }
-            };
-
-            // Check NDVISampler tile cache for instant reuse
-            if (hasSampler) {
-              const cached = NDVISampler._getTileCache(tileUrl);
-              if (cached) {
-                processImage(cached);
-                return tile;
-              }
-            }
-
-            const img = new Image();
-            img.crossOrigin = 'Anonymous';
-            img.onload = () => {
-              if (hasSampler) {
-                NDVISampler._putTileCache(tileUrl, img);
-              }
-              processImage(img);
-            };
-            img.onerror = (err) => done(err, tile);
-            img.src = tileUrl;
-            return tile;
-          }
-        });
-        this.ndviTileLayer = new ThematicNdviLayer(url, layerOpts).addTo(this.map);
-        // Free GPU canvas memory when tiles are pruned by Leaflet
-        this.ndviTileLayer.on('tileunload', (e) => {
-          if (e && e.tile && e.tile.tagName === 'CANVAS') {
-            e.tile.width = 0;
-            e.tile.height = 0;
-          }
-        });
-        return;
-      } catch (e) {
-        // Fall back to standard tile layer below
-      }
-    }
 
     this.ndviTileLayer = L.tileLayer(url, layerOpts).addTo(this.map);
   },

@@ -431,7 +431,7 @@
             <button class="btn btn-primary" id="btnEnrichTrack" style="width: 100%;">
               <i class="fa-solid fa-wand-magic-sparkles"></i> Retrieve Spatial Data
             </button>
-            <button class="btn btn-outline" id="btnSampleNdvi" style="width: 100%; margin-top: 8px;" title="Stream satellite imagery tiles and extract Point NDVI and 50m Buffer Mean NDVI">
+            <button class="btn btn-outline" id="btnSampleNdvi" style="width: 100%; margin-top: 8px;" title="Sample real Sentinel-2 NDVI ((B08-B04)/(B08+B04)) at each GPS fix from the raw Copernicus layer below — requires Satellite &amp; NDVI Settings to be configured">
               <i class="fa-solid fa-satellite"></i> Sample Satellite NDVI
             </button>
 
@@ -440,8 +440,8 @@
               <summary style="cursor: pointer; color: var(--text-muted, #888); font-size: 0.75rem; user-select: none; display: flex; align-items: center; gap: 6px; padding: 4px 0;">
                 <i class="fa-solid fa-sliders"></i>
                 <span>Satellite &amp; NDVI Settings</span>
-                <span id="copernicusActiveBadge" class="badge" style="margin-left: auto; font-size: 0.65rem; background: #2e7d32; color: #fff; padding: 1px 6px; border-radius: 3px; display: none;">NIR Active</span>
-                <span id="copernicusDefaultBadge" class="badge" style="margin-left: auto; font-size: 0.65rem; background: rgba(255,255,255,0.1); color: var(--text-muted, #aaa); padding: 1px 6px; border-radius: 3px;">Open Thematic</span>
+                <span id="copernicusActiveBadge" class="badge" style="margin-left: auto; font-size: 0.65rem; background: #2e7d32; color: #fff; padding: 1px 6px; border-radius: 3px; display: none;">Raw NDVI Active</span>
+                <span id="copernicusDefaultBadge" class="badge" style="margin-left: auto; font-size: 0.65rem; background: rgba(255,255,255,0.1); color: var(--text-muted, #aaa); padding: 1px 6px; border-radius: 3px;">Imagery Fallback</span>
               </summary>
               <div id="copernicusConfigSection" style="margin-top: 8px; padding: 10px; border-radius: 6px; background: rgba(46, 125, 50, 0.08); border: 1px solid rgba(46, 125, 50, 0.25);">
                 <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.78rem; font-weight: 600; color: #81c784; margin-bottom: 6px;">
@@ -451,10 +451,10 @@
                 <div style="font-size: 0.72rem; color: var(--text-secondary, #aaa); margin-bottom: 2px;">Instance ID:</div>
                 <input type="text" id="copernicusInstanceId" class="text-input" style="width: 100%; font-size: 0.72rem; padding: 4px 6px; font-family: monospace;" value="" placeholder="Paste Copernicus Instance ID..." title="Copernicus Sentinel Hub Instance ID">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; margin-bottom: 2px;">
-                  <span style="font-size: 0.72rem; color: var(--text-secondary, #aaa);">Layer ID:</span>
-                  <span style="font-size: 0.68rem; color: #81c784;">Multispectral B08/B04</span>
+                  <span style="font-size: 0.72rem; color: var(--text-secondary, #aaa);">Raw Layer ID:</span>
+                  <span style="font-size: 0.68rem; color: #81c784;">FLOAT32 evalscript</span>
                 </div>
-                <input type="text" id="copernicusLayerId" class="text-input" style="width: 100%; font-size: 0.72rem; padding: 4px 6px; font-family: monospace;" value="VEGETATION_INDEX" placeholder="VEGETATION_INDEX" title="Copernicus WMS Layer ID">
+                <input type="text" id="copernicusRawLayerId" class="text-input" style="width: 100%; font-size: 0.72rem; padding: 4px 6px; font-family: monospace;" value="NDVI_RAW" placeholder="NDVI_RAW" title="Custom evalscript layer outputting single-band FLOAT32 NDVI — used for both &quot;Sample Satellite NDVI&quot; and the on-map NDVI overlay. See docs/environmental_enrichment_plan.md §2E for the evalscript.">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; margin-bottom: 2px;">
                   <span style="font-size: 0.72rem; color: var(--text-secondary, #aaa);">Date Range (Cloudless):</span>
                   <span style="font-size: 0.68rem; color: #81c784;">Summer Window</span>

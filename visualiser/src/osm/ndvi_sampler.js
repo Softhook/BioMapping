@@ -1,63 +1,74 @@
 /**
- * NDVISampler — Automated Satellite Tile Streaming & High-Performance Raster Extraction
- * 
- * Provides client-side raster sampling for Normalized Difference Vegetation Index (NDVI).
- * Integrates directly with BioMapping's Web Mercator and OSM geospatial pipeline:
- *   - Point NDVI (`ndvi`): Exact pixel value directly underfoot.
- *   - 50m Buffer Mean NDVI (`ndvi_50m`): Circular radial average capturing ambient greenery.
- * 
- * Performance & Architecture Features:
- *   - LRU In-Memory Tile Cache (`_tileCache`) for instant multi-track and re-sampling.
- *   - Bounded Network Concurrency Pool (`_fetchTilePool`) to avoid HTTP socket exhaustion and 429 rate limits.
- *   - Pre-computed Circular Pixel Offset Masks (`_getCircularPixelOffsets`) for fast radial buffer extraction.
- *   - Expandable Provider Registry (`PROVIDERS`) unifying Copernicus WMS, Sentinel-2 Cloudless, NASA GIBS, and Custom XYZ.
- *   - Strict Credential Isolation: Zero secrets committed to git (stored in localStorage or config.local.js).
- *   - Coordinated Canvas Memory Management to prevent graphics heap leaks.
+ * NDVISampler — Satellite NDVI Sampling via Copernicus Sentinel Hub
+ *
+ * Samples the real Sentinel-2 vegetation index — (B08-B04)/(B08+B04) — at
+ * each GPS fix in a track, by requesting a single-band FLOAT32 GeoTIFF from
+ * a *custom evalscript layer* on a Copernicus Data Space Sentinel Hub
+ * instance (WMS, FORMAT=image/tiff;depth=32f) and decoding the float grid
+ * directly. There is no colour-based inference anywhere in this path — the
+ * stock Sentinel Hub `VEGETATION_INDEX` layer only ever returns a *rendered*
+ * colour-ramp visualisation (regardless of requested format), which cannot
+ * be reversed back into a real index value, so sampling requires its own raw
+ * layer (see getRawLayerId(), default 'NDVI_RAW'; the evalscript and setup
+ * steps are in docs/environmental_enrichment_plan.md §2E). Sampling refuses
+ * to run without a configured Copernicus instance — it does not fall back to
+ * guessing a value from someone else's rendered image.
+ *
+ *   - Point NDVI (`ndvi`): the raster pixel directly underfoot.
+ *   - 50m Buffer Mean NDVI (`ndvi_50m`): circular mean over a buffer radius.
+ *
+ * A point with no usable pixel (cloud-masked, tile fetch failure, no data
+ * this far from tracked coverage) is left as NaN and step-held from the
+ * previous genuine reading — never fabricated from an unrelated column.
+ *
+ * The optional on-map NDVI overlay (map_manager_osm.js: showNdviLayer) is
+ * rendered directly from this same raw raster — paintGreyscaleTile() maps
+ * each decoded float to a grey pixel (low NDVI = black, high = white) — so
+ * the picture and the sampled numbers are provably the same data, not two
+ * independent server-side computations that could disagree. There is no
+ * separate "rendered NDVI" layer any more. Without a Copernicus instance
+ * configured at all, the map overlay falls back to plain imagery (EOX
+ * cloudless, NASA GIBS, a custom XYZ template) shown as-is for visual
+ * reference only — none of those feed the `ndvi`/`ndvi_50m` columns.
+ *
+ * Performance & reliability:
+ *   - LRU in-memory tile cache (`_tileCache`) for instant multi-track and
+ *     re-sampling reuse.
+ *   - Bounded network concurrency pool (`_fetchRawTilePool`) with per-
+ *     provider rate-limit tracking and exponential backoff, to avoid socket
+ *     exhaustion and 429s.
+ *   - Pre-computed circular pixel-offset masks (`_getCircularPixelOffsets`)
+ *     for fast radial buffer extraction.
+ *   - Credentials (instance ID / raw layer ID) live in localStorage or
+ *     config.local.js only — never committed to git.
  */
 
 const NDVISampler = {
   // Earth equatorial circumference in meters (EPSG:3857)
   EARTH_CIRCUMFERENCE_M: 40075016.686,
 
-  // Fallback / legacy defaults
+  // Imagery providers for the optional visual map overlay (map_manager_osm.js).
+  // None of these feed the ndvi/ndvi_50m sampling columns — see file docstring.
   DEFAULT_TILE_URL: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',
   COPERNICUS_BASE_URL: 'https://sh.dataspace.copernicus.eu/ogc/wms',
   NASA_GIBS_URL: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_NDVI_8Day/default/default/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png',
   DEFAULT_INSTANCE_ID: '', // Kept empty in codebase; stored strictly in user's browser localStorage
-  DEFAULT_LAYER_ID: 'VEGETATION_INDEX',
+  DEFAULT_RAW_LAYER_ID: 'NDVI_RAW',           // Raw FLOAT32 evalscript layer (sampling + map overlay)
   DEFAULT_TIME_RANGE: '2024-05-01/2024-09-30',
   DEFAULT_MAXCC: 50,
 
   // ---------------------------------------------------------------------------
-  // 1. Expandable Satellite Provider Registry
+  // 1. Imagery Provider Registry — visual map overlay fallback ONLY, used when
+  // no Copernicus instance is configured at all (so there's no raw raster to
+  // render). None of these feed the ndvi/ndvi_50m sampling columns.
   // ---------------------------------------------------------------------------
   PROVIDERS: {
-    copernicus: {
-      id: 'copernicus',
-      name: 'Copernicus Sentinel-2 Band 8 (NIR)',
-      type: 'wms',
-      baseUrl: 'https://sh.dataspace.copernicus.eu/ogc/wms',
-      defaultLayer: 'VEGETATION_INDEX',
-      defaultTime: '2024-05-01/2024-09-30',
-      defaultMaxcc: 50,
-      attribution: 'Sentinel-2 Band 8 (NIR) NDVI © Copernicus / ESA',
-      buildUrl: (bbox, options = {}) => {
-        const instanceId = options.instanceId || NDVISampler.getInstanceId();
-        const layerId = options.layerId || options.layer || NDVISampler.getLayerId();
-        const timeRange = options.time || options.timeRange || NDVISampler.getTimeRange();
-        const maxcc = (typeof options.maxcc === 'number') ? options.maxcc : NDVISampler.DEFAULT_MAXCC;
-        const baseUrl = options.baseUrl || NDVISampler.COPERNICUS_BASE_URL;
-        return `${baseUrl}/${instanceId}?SERVICE=WMS&REQUEST=GetMap&LAYERS=${encodeURIComponent(layerId)}&FORMAT=image/png&TRANSPARENT=true&VERSION=1.3.0&CRS=EPSG:3857&BBOX=${bbox.join(',')}&WIDTH=256&HEIGHT=256&TIME=${encodeURIComponent(timeRange)}&MAXCC=${maxcc}`;
-      }
-    },
     sentinel2_cloudless: {
       id: 'sentinel2_cloudless',
-      name: 'Sentinel-2 Cloudless Mosaic (EOX)',
+      name: 'Sentinel-2 Cloudless Mosaic (EOX) — true colour imagery',
       type: 'xyz',
       urlTemplate: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',
-      attribution: 'NDVI & Imagery © <a href="https://s2maps.eu" target="_blank">Sentinel-2 cloudless / EOX</a>',
-      thematicAttribution: 'Vegetation Index (NDVI) © <a href="https://s2maps.eu" target="_blank">Sentinel-2 / EOX</a>',
-      isThematicEligible: true,
+      attribution: 'Satellite imagery (true colour) © <a href="https://s2maps.eu" target="_blank">Sentinel-2 cloudless / EOX</a> — not a vegetation index',
       buildUrl: (tileX, tileY, zoom, options = {}) => {
         const tmpl = options.urlTemplate || NDVISampler.DEFAULT_TILE_URL;
         return tmpl.replace('{z}', zoom).replace('{x}', tileX).replace('{y}', tileY).replace('{s}', 'a');
@@ -65,11 +76,10 @@ const NDVISampler = {
     },
     nasa_gibs: {
       id: 'nasa_gibs',
-      name: 'NASA GIBS MODIS NDVI',
+      name: 'NASA GIBS MODIS NDVI (rendered, ~250m/8-day, real vegetation product)',
       type: 'xyz',
       urlTemplate: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_NDVI_8Day/default/default/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png',
-      attribution: 'NASA GIBS / Earthdata MODIS NDVI',
-      isThematicEligible: false,
+      attribution: 'NASA GIBS / Earthdata MODIS NDVI — coarse-resolution visualisation, not sampled',
       buildUrl: (tileX, tileY, zoom, options = {}) => {
         const tmpl = options.urlTemplate || NDVISampler.NASA_GIBS_URL;
         return tmpl.replace('{z}', zoom).replace('{x}', tileX).replace('{y}', tileY);
@@ -97,7 +107,7 @@ const NDVISampler = {
   },
 
   /**
-   * Register or override a satellite provider.
+   * Register or override a satellite provider (visual overlay only).
    * @param {string} id
    * @param {Object} definition
    * @returns {boolean}
@@ -116,7 +126,10 @@ const NDVISampler = {
   },
 
   /**
-   * Determine the active provider based on configuration and options.
+   * Determine the active *fallback imagery* provider for the visual map
+   * overlay — only consulted when no Copernicus instance is configured, in
+   * which case there's no raw raster to render and showNdviLayer falls back
+   * to showing one of these as-is (see file docstring).
    * @param {Object} [options={}]
    * @returns {Object}
    */
@@ -127,14 +140,11 @@ const NDVISampler = {
     if (options.tileUrl || options.urlTemplate) {
       return this.PROVIDERS.custom;
     }
-    if (this.hasCopernicusConfig()) {
-      return this.PROVIDERS.copernicus;
-    }
     return this.PROVIDERS.sentinel2_cloudless;
   },
 
   /**
-   * Resolve tile request URL using the provider registry.
+   * Resolve a visual-overlay tile request URL using the provider registry.
    * @param {string|Object} providerOrId
    * @param {number} tileX
    * @param {number} tileY
@@ -182,18 +192,21 @@ const NDVISampler = {
   },
 
   /**
-   * Read the active Copernicus Layer ID from localStorage or BIOMAP_CONFIG.
+   * Read the active raw-sampling layer ID — a custom evalscript layer that
+   * outputs single-band FLOAT32 NDVI (see docs/environmental_enrichment_plan.md
+   * §2E for the evalscript). Used for both sampling and the map overlay —
+   * see file docstring.
    * @returns {string}
    */
-  getLayerId() {
+  getRawLayerId() {
     if (typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function') {
-      const stored = localStorage.getItem('copernicus_layer_id');
+      const stored = localStorage.getItem('copernicus_raw_layer_id');
       if (stored && stored.trim()) return stored.trim();
     }
-    if (typeof window !== 'undefined' && window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.copernicusLayerId) {
-      return String(window.BIOMAP_CONFIG.copernicusLayerId).trim();
+    if (typeof window !== 'undefined' && window.BIOMAP_CONFIG && window.BIOMAP_CONFIG.copernicusRawLayerId) {
+      return String(window.BIOMAP_CONFIG.copernicusRawLayerId).trim();
     }
-    return this.DEFAULT_LAYER_ID;
+    return this.DEFAULT_RAW_LAYER_ID;
   },
 
   /**
@@ -225,20 +238,30 @@ const NDVISampler = {
   clearCredentials() {
     if (typeof localStorage !== 'undefined' && typeof localStorage.removeItem === 'function') {
       localStorage.removeItem('copernicus_instance_id');
-      localStorage.removeItem('copernicus_layer_id');
+      localStorage.removeItem('copernicus_raw_layer_id');
       localStorage.removeItem('copernicus_time_range');
     }
   },
 
   /**
-   * Build a Copernicus WMS tile request URL for a given bounding box.
-   * Delegates to the copernicus provider definition.
-   * @param {[string|number, string|number, string|number, string|number]} bbox - [minX, minY, maxX, maxY] in EPSG:3857
+   * Build a Copernicus WMS request URL for the *raw* single-band FLOAT32 NDVI
+   * layer (see getRawLayerId()). This is what sampleTrack/sampleTracks fetch.
+   * @param {number} tileX
+   * @param {number} tileY
+   * @param {number} zoom
    * @param {Object} [options={}]
    * @returns {string}
    */
-  buildCopernicusWmsUrl(bbox, options = {}) {
-    return this.PROVIDERS.copernicus.buildUrl(bbox, options);
+  buildRawTileUrl(tileX, tileY, zoom, options = {}) {
+    const bbox = this.tileToBbox(tileX, tileY, zoom);
+    const instanceId = options.instanceId || this.getInstanceId();
+    const layerId = options.rawLayerId || this.getRawLayerId();
+    const timeRange = options.time || options.timeRange || this.getTimeRange();
+    const maxcc = (typeof options.maxcc === 'number') ? options.maxcc : this.DEFAULT_MAXCC;
+    const baseUrl = options.baseUrl || this.COPERNICUS_BASE_URL;
+    return `${baseUrl}/${instanceId}?SERVICE=WMS&REQUEST=GetMap&LAYERS=${encodeURIComponent(layerId)}` +
+      `&FORMAT=${encodeURIComponent('image/tiff;depth=32f')}&VERSION=1.3.0&CRS=EPSG:3857` +
+      `&BBOX=${bbox.join(',')}&WIDTH=256&HEIGHT=256&TIME=${encodeURIComponent(timeRange)}&MAXCC=${maxcc}`;
   },
 
   // ---------------------------------------------------------------------------
@@ -249,7 +272,8 @@ const NDVISampler = {
   MAX_CACHE_TILES: 100,
 
   /**
-   * Clear all cached satellite tile images and radial offset lookup tables.
+   * Clear all cached satellite tiles (raw float grids and visual images)
+   * and radial offset lookup tables.
    */
   clearCache() {
     this._tileCache.clear();
@@ -291,7 +315,7 @@ const NDVISampler = {
    * Pre-compute and memoize relative [dx, dy] pixel offsets within a circular disk.
    * Replaces repeated floating-point distance formulas in the inner loop with
    * direct integer offset traversal.
-   * 
+   *
    * @param {number} radiusPx - Search radius in pixels
    * @returns {Int16Array} Flat array of [dx0, dy0, dx1, dy1, ...] within dx^2 + dy^2 <= r^2
    */
@@ -352,7 +376,7 @@ const NDVISampler = {
     const n = Math.pow(2, zoom);
     const x = ((lon + 180) / 360) * n;
     const y = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
-    
+
     const tileX = Math.floor(x);
     const tileY = Math.floor(y);
     const pixelX = Math.floor((x - tileX) * 256);
@@ -424,190 +448,184 @@ const NDVISampler = {
   },
 
   // ---------------------------------------------------------------------------
-  // 5. Pixel Decoding & Thematic Shading
+  // 5. Raw NDVI Raster Decoding (single-band FLOAT32 TIFF)
   // ---------------------------------------------------------------------------
 
-  _clampAndRoundNdvi(v) {
-    return Math.max(-0.2, Math.min(1.0, Math.round(v * 1000) / 1000));
+  // Sentinel Hub nodata sentinel emitted by the NDVI_RAW evalscript (see file
+  // docstring) for cloud/no-coverage pixels. Real NDVI is bounded [-1, 1].
+  NODATA_SENTINEL_THRESHOLD: -1.5,
+
+  /**
+   * Whether a decoded raster value is a genuine NDVI reading rather than the
+   * evalscript's nodata sentinel or a NaN from a missing/failed tile.
+   * @param {number} v
+   * @returns {boolean}
+   */
+  _isValidNdvi(v) {
+    return typeof v === 'number' && !isNaN(v) && v > this.NODATA_SENTINEL_THRESHOLD;
   },
 
   /**
-   * Decode an RGBA pixel into a Normalized Difference Vegetation Index (NDVI) float in [-0.2, 1.0].
-   * Supports:
-   * 1. Greyscale encoded NDVI: V / 255 scaled to [-0.2, 1.0].
-   * 2. Visible Atmospheric Resistance Index (VARI) for true-color satellite imagery:
-   *    VARI = (Green - Red) / (Green + Red - Blue), highly correlated with NDVI.
-   * 3. Spectral color ramp encoding (NASA GIBS / Copernicus NDVI).
-   * 
-   * @param {number} r - Red (0-255)
-   * @param {number} g - Green (0-255)
-   * @param {number} b - Blue (0-255)
-   * @param {number} [a=255] - Alpha (0-255)
-   * @returns {number} NDVI value in [-0.2, 1.0], or NaN if invalid/transparent
+   * Read a single TIFF IFD entry's value(s), following the offset pointer
+   * when the value doesn't fit inline (TIFF 6.0 §2, "Value/Offset").
+   * @private
    */
-  decodePixel(r, g, b, a = 255) {
-    if (a < 128) return NaN; // nodata / transparent
+  _readTiffValue(view, entryOffset, little) {
+    const TYPE_SIZES = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8 };
+    const type = view.getUint16(entryOffset + 2, little);
+    const count = view.getUint32(entryOffset + 4, little);
+    const elemSize = TYPE_SIZES[type] || 1;
+    const totalSize = elemSize * count;
+    const valueFieldOffset = entryOffset + 8;
+    const dataOffset = totalSize <= 4 ? valueFieldOffset : view.getUint32(valueFieldOffset, little);
 
-    // Check for greyscale tile (R == G == B)
-    if (Math.abs(r - g) <= 4 && Math.abs(g - b) <= 4) {
-      // 0 -> -0.2 (water), 42 -> 0.0 (bare soil), 255 -> 1.0 (dense canopy)
-      return this._clampAndRoundNdvi((g / 255.0) * 1.2 - 0.2);
-    }
-
-    // Water detection: strong blue dominance
-    if (b > r + 20 && b > g + 15) {
-      return this._clampAndRoundNdvi(-0.15 - Math.min(0.05, (b - g) / 500));
-    }
-
-    // Snow / Ice detection: very high brightness across all bands with blue/cyan tint
-    if (r > 220 && g > 220 && b > 230) {
-      return -0.10;
-    }
-
-    // RGB Vegetation Index (VARI): (Green - Red) / (Green + Red - Blue)
-    const denom = g + r - b;
-    let vari = 0;
-    if (Math.abs(denom) > 1e-4) {
-      vari = (g - r) / denom;
-    }
-
-    let ndvi;
-    if (g >= r) {
-      // Vegetation presence: Green >= Red
-      // Calibrate VARI (typically 0.0 to 0.6) to NDVI (0.20 to 0.95)
-      ndvi = 0.20 + vari * 1.1;
-      if (g > b) {
-        const excessGreen = (2 * g - r - b) / 255.0;
-        ndvi += excessGreen * 0.30;
+    const readOne = (off) => {
+      switch (type) {
+        case 1: case 6: case 7: return view.getUint8(off);
+        case 3: case 8: return view.getUint16(off, little);
+        case 4: case 9: return view.getUint32(off, little);
+        case 11: return view.getFloat32(off, little);
+        case 12: return view.getFloat64(off, little);
+        default: return view.getUint32(off, little);
       }
-    } else {
-      // Soil / rock / pavement / built environment: Red > Green
-      // Real ground NDVI for dry soil/pavement is +0.03 to +0.18
-      const redDominance = (r - g) / Math.max(1, r + g);
-      ndvi = 0.14 - redDominance * 0.10;
-    }
+    };
 
-    return this._clampAndRoundNdvi(ndvi);
+    const vals = [];
+    for (let i = 0; i < count; i++) vals.push(readOne(dataOffset + i * elemSize));
+    return count === 1 ? vals[0] : vals;
   },
 
   /**
-   * Write false-color thematic vegetation RGBA values directly into a target buffer.
-   * Zero heap allocations.
-   * 
-   * @param {number} val - NDVI float
-   * @param {Uint8ClampedArray|Array<number>} targetArray - Target array to write into
-   * @param {number} offset - Byte/index offset
+   * Inflate a zlib/Deflate-compressed byte range using the platform's native
+   * Streams API — no vendored decompression library needed.
+   * @private
+   * @param {ArrayBuffer} bytes
+   * @returns {Promise<ArrayBuffer>}
    */
-  writeThematicRgba(val, targetArray, offset) {
-    if (isNaN(val) || val < 0.0) {
-      targetArray[offset]     = 60;
-      targetArray[offset + 1] = 130;
-      targetArray[offset + 2] = 200;
-      targetArray[offset + 3] = 45; // Water (soft translucent blue)
-      return;
+  async _inflate(bytes) {
+    if (typeof DecompressionStream === 'undefined') {
+      throw new Error('This browser has no DecompressionStream support, needed to decode the compressed NDVI raster.');
     }
-    if (val < 0.12) {
-      targetArray[offset]     = 160;
-      targetArray[offset + 1] = 160;
-      targetArray[offset + 2] = 155;
-      targetArray[offset + 3] = 35; // Urban / asphalt (translucent so labels show through)
-      return;
-    }
-    if (val < 0.25) {
-      targetArray[offset]     = 195;
-      targetArray[offset + 1] = 215;
-      targetArray[offset + 2] = 65;
-      targetArray[offset + 3] = 175; // Low vegetation / grass
-      return;
-    }
-    if (val < 0.45) {
-      targetArray[offset]     = 90;
-      targetArray[offset + 1] = 195;
-      targetArray[offset + 2] = 55;
-      targetArray[offset + 3] = 210; // Moderate canopy / parks
-      return;
-    }
-    targetArray[offset]     = 15;
-    targetArray[offset + 1] = 140;
-    targetArray[offset + 2] = 30;
-    targetArray[offset + 3] = 235; // Dense canopy / woodland
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'));
+    return await new Response(stream).arrayBuffer();
   },
 
   /**
-   * Directly transforms an ImageData RGBA buffer into thematic false-color NDVI in-place.
-   * Eliminates 260k+ heap allocations per tile for smooth 60fps tile rendering during pan/zoom.
-   * 
-   * @param {ImageData} imgData - Canvas ImageData (256x256)
+   * Parse a baseline-TIFF byte buffer into a single-band FLOAT32 pixel grid.
+   * Handles exactly what a Sentinel Hub WMS request with
+   * FORMAT=image/tiff;depth=32f against a { bands: 1, sampleType: "FLOAT32" }
+   * evalscript can produce: one IFD, strip-organised (not tiled) samples,
+   * either uncompressed or Deflate/Adobe-Deflate compressed strips, either
+   * byte order. This is not a general-purpose TIFF/GeoTIFF reader.
+   *
+   * @param {ArrayBuffer} buffer
+   * @returns {Promise<{ width: number, height: number, data: Float32Array }>}
    */
-  shadeImageData(imgData) {
-    if (!imgData || !imgData.data) return;
-    const d = imgData.data;
-    const len = d.length;
-    for (let i = 0; i < len; i += 4) {
-      const a = d[i + 3];
-      if (a < 128) continue;
-      const val = this.decodePixel(d[i], d[i + 1], d[i + 2], a);
-      this.writeThematicRgba(val, d, i);
+  async parseFloat32Tiff(buffer) {
+    const view = new DataView(buffer);
+    const bom = view.getUint16(0, false);
+    if (bom !== 0x4949 && bom !== 0x4D4D) {
+      throw new Error('NDVI raster response is not a TIFF (bad byte-order marker) — check the raw layer ID and FORMAT.');
     }
-  },
+    const little = bom === 0x4949;
+    if (view.getUint16(2, little) !== 42) {
+      throw new Error('NDVI raster response is not a TIFF (bad magic number).');
+    }
 
-  /**
-   * Map an NDVI value in [-0.2, 1.0] to an RGBA color for thematic false-color vegetation rendering.
-   * Delegates to writeThematicRgba for consistency.
-   * 
-   * @param {number} val - NDVI float
-   * @returns {[number, number, number, number]} [r, g, b, a]
-   */
-  ndviToThematicRgba(val) {
-    const out = [0, 0, 0, 0];
-    this.writeThematicRgba(val, out, 0);
-    return out;
-  },
+    const ifdOffset = view.getUint32(4, little);
+    const numEntries = view.getUint16(ifdOffset, little);
+    const tags = {};
+    for (let i = 0; i < numEntries; i++) {
+      const entryOffset = ifdOffset + 2 + i * 12;
+      const tagId = view.getUint16(entryOffset, little);
+      tags[tagId] = this._readTiffValue(view, entryOffset, little);
+    }
 
-  /**
-   * Sample pixels within a circular buffer radius on an ImageData surface.
-   * High-performance traversal using pre-computed integer circular offsets.
-   * 
-   * @param {Uint8ClampedArray} data - RGBA pixel array
-   * @param {number} width - Canvas width in pixels
-   * @param {number} height - Canvas height in pixels
-   * @param {number} cx - Center pixel X
-   * @param {number} cy - Center pixel Y
-   * @param {number} radiusPx - Buffer radius in pixels
-   * @returns {number} Mean NDVI within the circular buffer
-   */
-  sampleBuffer(data, width, height, cx, cy, radiusPx) {
-    const r = Math.max(1, Math.round(radiusPx));
-    const offsets = this._getCircularPixelOffsets(r);
-    const intCx = Math.round(cx);
-    const intCy = Math.round(cy);
+    const width = tags[256];
+    const height = tags[257];
+    const bitsPerSample = Array.isArray(tags[258]) ? tags[258][0] : tags[258];
+    const compression = tags[259] || 1;
+    const samplesPerPixel = tags[277] || 1;
+    const rowsPerStrip = tags[278] || height;
+    const stripOffsets = Array.isArray(tags[273]) ? tags[273] : [tags[273]];
+    const stripByteCounts = Array.isArray(tags[279]) ? tags[279] : [tags[279]];
+    const sampleFormat = tags[339] ? (Array.isArray(tags[339]) ? tags[339][0] : tags[339]) : 1;
 
-    let sum = 0;
-    let count = 0;
+    if (!width || !height) {
+      throw new Error('NDVI raster response has no usable image dimensions.');
+    }
+    if (samplesPerPixel !== 1 || bitsPerSample !== 32 || sampleFormat !== 3) {
+      throw new Error(
+        `NDVI raw layer returned an unexpected raster format (samples=${samplesPerPixel}, bits=${bitsPerSample}, ` +
+        `sampleFormat=${sampleFormat}) — expected single-band FLOAT32. Check the evalscript on layer "${this.getRawLayerId()}".`
+      );
+    }
 
-    for (let i = 0; i < offsets.length; i += 2) {
-      const x = intCx + offsets[i];
-      const y = intCy + offsets[i + 1];
-      if (x >= 0 && x < width && y >= 0 && y < height) {
-        const idx = (y * width + x) * 4;
-        const val = this.decodePixel(data[idx], data[idx + 1], data[idx + 2], data[idx + 3]);
-        if (!isNaN(val)) {
-          sum += val;
-          count++;
-        }
+    // Decode each strip (Compression 1 = none, 5 = LZW unsupported here, 8/32946 = Deflate),
+    // then concatenate into one contiguous pixel-data buffer.
+    const pixelBytes = new Uint8Array(width * height * 4);
+    let writeOffset = 0;
+    for (let s = 0; s < stripOffsets.length; s++) {
+      const raw = buffer.slice(stripOffsets[s], stripOffsets[s] + stripByteCounts[s]);
+      let decoded;
+      if (compression === 1) {
+        decoded = raw;
+      } else if (compression === 8 || compression === 32946) {
+        decoded = await this._inflate(raw);
+      } else {
+        throw new Error(`NDVI raster uses unsupported TIFF compression ${compression} (only none/Deflate are handled).`);
       }
+      pixelBytes.set(new Uint8Array(decoded), writeOffset);
+      writeOffset += decoded.byteLength;
     }
 
-    if (count === 0) {
-      // Fallback to center pixel if clamped bounds had no count
-      const cX = Math.max(0, Math.min(width - 1, intCx));
-      const cY = Math.max(0, Math.min(height - 1, intCy));
-      const cIdx = (cY * width + cX) * 4;
-      const cVal = this.decodePixel(data[cIdx], data[cIdx + 1], data[cIdx + 2], data[cIdx + 3]);
-      return isNaN(cVal) ? 0.15 : cVal;
+    const pixelView = new DataView(pixelBytes.buffer);
+    const data = new Float32Array(width * height);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = pixelView.getFloat32(i * 4, little);
     }
 
-    return Math.round((sum / count) * 1000) / 1000;
+    return { width, height, data };
+  },
+
+  // Real-world NDVI over land rarely goes much below -0.2 (water/snow) or
+  // above ~0.9 (densest canopy); [-1, 1] is the full theoretical range.
+  NDVI_GREYSCALE_MIN: -1,
+  NDVI_GREYSCALE_MAX: 1,
+
+  /**
+   * Render a decoded raw NDVI tile as a greyscale ImageData-equivalent
+   * directly on a canvas context — an exact forward mapping of the same
+   * float value used for sampling (low NDVI = black, high = white), not a
+   * reconstruction or guess. Used by the map's NDVI overlay so the picture
+   * and the sampled numbers are provably the same data (see file docstring).
+   * Nodata/sentinel pixels are rendered fully transparent.
+   *
+   * @param {{width:number, height:number, data:Float32Array}} rasterTile
+   * @param {CanvasRenderingContext2D} ctx
+   */
+  paintGreyscaleTile(rasterTile, ctx) {
+    const { width, height, data } = rasterTile;
+    const imgData = ctx.createImageData(width, height);
+    const out = imgData.data;
+    const range = this.NDVI_GREYSCALE_MAX - this.NDVI_GREYSCALE_MIN;
+
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i];
+      const o = i * 4;
+      if (!this._isValidNdvi(v)) {
+        out[o + 3] = 0; // transparent nodata
+        continue;
+      }
+      const clamped = Math.max(this.NDVI_GREYSCALE_MIN, Math.min(this.NDVI_GREYSCALE_MAX, v));
+      const grey = Math.round(((clamped - this.NDVI_GREYSCALE_MIN) / range) * 255);
+      out[o] = grey;
+      out[o + 1] = grey;
+      out[o + 2] = grey;
+      out[o + 3] = 255;
+    }
+
+    ctx.putImageData(imgData, 0, 0);
   },
 
   // ---------------------------------------------------------------------------
@@ -657,220 +675,108 @@ const NDVISampler = {
   },
 
   /**
-   * Helper to convert an image Blob into an HTMLImageElement safely.
-   * @private
-   */
-  _blobToImage(blob) {
-    return new Promise((resolve) => {
-      if (typeof Image === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
-        return resolve(null);
-      }
-      const img = new Image();
-      const objectUrl = URL.createObjectURL(blob);
-      img.onload = () => {
-        URL.revokeObjectURL(objectUrl);
-        resolve(img);
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(objectUrl);
-        resolve(null);
-      };
-      img.src = objectUrl;
-    });
-  },
-
-  /**
-   * Fallback to load a tile via new Image() element with timeout.
-   * @private
-   */
-  _fetchViaImage(url, ctx, destX, destY, timeoutMs = 8000) {
-    return new Promise((resolve) => {
-      if (!ctx || typeof Image === 'undefined') {
-        return resolve(false);
-      }
-      let timer = null;
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-
-      const cleanup = () => {
-        if (timer) clearTimeout(timer);
-        img.onload = null;
-        img.onerror = null;
-      };
-
-      timer = setTimeout(() => {
-        cleanup();
-        resolve(false);
-      }, timeoutMs);
-
-      img.onload = () => {
-        cleanup();
-        try {
-          ctx.drawImage(img, destX, destY, 256, 256);
-          this._putTileCache(url, img);
-          resolve(true);
-        } catch (e) {
-          resolve(false);
-        }
-      };
-
-      img.onerror = () => {
-        cleanup();
-        resolve(false);
-      };
-
-      img.src = url;
-    });
-  },
-
-  /**
-   * Fetch a single satellite tile with rate limit enforcement, exponential backoff,
-   * status code inspection, and automatic retries.
-   * 
-   * @param {string} url - Tile URL
-   * @param {CanvasRenderingContext2D|null} ctx - Offscreen canvas context
-   * @param {number} destX - Destination X on canvas
-   * @param {number} destY - Destination Y on canvas
+   * Fetch and decode one raw NDVI raster tile, with rate-limit enforcement,
+   * exponential backoff, and status-code-aware retry. A malformed/unexpected
+   * raster (wrong band count, bad TIFF, etc.) is a configuration problem, not
+   * a transient failure, so it throws immediately rather than retrying.
+   *
+   * @param {string} url
    * @param {Object} [options={}] - { providerId, maxRetries, timeoutMs, signal, onRetry }
-   * @returns {Promise<boolean>} True if loaded and drawn, false otherwise
+   * @returns {Promise<{width:number,height:number,data:Float32Array}|null>} null = exhausted retries on a transient failure
    */
-  async _fetchTileWithBackoff(url, ctx, destX, destY, options = {}) {
-    if (!ctx) return false;
-    const providerId = options.providerId || 'default';
+  async _fetchRawTileWithBackoff(url, options = {}) {
+    const providerId = options.providerId || 'copernicus_raw';
     const maxRetries = (typeof options.maxRetries === 'number') ? options.maxRetries : 3;
     const timeoutMs = options.timeoutMs || 8000;
     const signal = options.signal || null;
     const onRetry = options.onRetry || (() => {});
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      if (signal && signal.aborted) return false;
-
-      // 1. Honour provider rate limits
+      if (signal && signal.aborted) return null;
       await this._enforceRateLimit(providerId);
 
+      let response;
       try {
-        // 2. Try modern fetch path (gives HTTP status, headers, and avoids canvas tainting)
-        if (typeof fetch === 'function') {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-          let response;
-          try {
-            response = await fetch(url, {
-              mode: 'cors',
-              signal: controller.signal
-            });
-          } finally {
-            clearTimeout(timer);
-          }
-
-          if (response.ok) {
-            const blob = await response.blob();
-            let imgSource = null;
-            if (typeof createImageBitmap === 'function') {
-              try {
-                imgSource = await createImageBitmap(blob);
-              } catch (bmpErr) {
-                imgSource = null;
-              }
-            }
-            if (!imgSource && typeof Image !== 'undefined') {
-              imgSource = await this._blobToImage(blob);
-            }
-
-            if (imgSource) {
-              try {
-                ctx.drawImage(imgSource, destX, destY, 256, 256);
-                this._putTileCache(url, imgSource);
-                return true;
-              } catch (drawErr) {
-                // Drawing failed (e.g. invalid bitmap); fall through to retry
-              }
-            }
-          }
-
-          // Rate-limiting (HTTP 429 or 509)
-          if (response.status === 429 || response.status === 509) {
-            const retryAfter = this._retryAfterMs(response, 5000 * Math.pow(2, attempt));
-            this._providerRateLimits.set(providerId, Date.now() + retryAfter);
-            if (attempt < maxRetries) {
-              onRetry(attempt + 1, retryAfter, `Rate limited (HTTP ${response.status})`);
-              await new Promise(r => setTimeout(r, retryAfter));
-              continue;
-            }
-            return false;
-          }
-
-          // Permanent client errors (HTTP 400, 404) -> do not waste retries
-          if (response.status === 400 || response.status === 404) {
-            return false;
-          }
-
-          // Server error (HTTP 500, 502, 503, 504) -> back off and retry
-          if (response.status >= 500) {
-            if (attempt < maxRetries) {
-              const waitMs = this._backoffMs(attempt, 500);
-              onRetry(attempt + 1, waitMs, `Server error (HTTP ${response.status})`);
-              await new Promise(r => setTimeout(r, waitMs));
-              continue;
-            }
-            return false;
-          }
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          response = await fetch(url, { mode: 'cors', signal: controller.signal });
+        } finally {
+          clearTimeout(timer);
         }
-
-        // 3. Fallback to Image element if fetch failed or is not available
-        const imgSuccess = await this._fetchViaImage(url, ctx, destX, destY, timeoutMs);
-        if (imgSuccess) return true;
-
+      } catch (networkErr) {
         if (attempt < maxRetries) {
           const waitMs = this._backoffMs(attempt, 400);
-          onRetry(attempt + 1, waitMs, 'Image load failed');
+          onRetry(attempt + 1, waitMs, networkErr.message || 'Network error');
           await new Promise(r => setTimeout(r, waitMs));
           continue;
         }
+        throw new Error(`Could not reach the Copernicus WMS endpoint: ${networkErr.message || networkErr}`);
+      }
 
-      } catch (err) {
-        // Network timeout / connection reset
+      if (response.ok) {
+        const buf = await response.arrayBuffer();
+        // Format/config errors propagate straight to the caller — retrying
+        // won't fix a missing or misconfigured evalscript layer.
+        return await this.parseFloat32Tiff(buf);
+      }
+
+      if (response.status === 429 || response.status === 509) {
+        const retryAfter = this._retryAfterMs(response, 5000 * Math.pow(2, attempt));
+        this._providerRateLimits.set(providerId, Date.now() + retryAfter);
         if (attempt < maxRetries) {
-          const waitMs = this._backoffMs(attempt, 400);
-          onRetry(attempt + 1, waitMs, err.message || 'Network error');
+          onRetry(attempt + 1, retryAfter, `Rate limited (HTTP ${response.status})`);
+          await new Promise(r => setTimeout(r, retryAfter));
+          continue;
+        }
+        return null;
+      }
+
+      if (response.status >= 500) {
+        if (attempt < maxRetries) {
+          const waitMs = this._backoffMs(attempt, 500);
+          onRetry(attempt + 1, waitMs, `Server error (HTTP ${response.status})`);
           await new Promise(r => setTimeout(r, waitMs));
           continue;
         }
+        return null;
       }
+
+      // 400/404/other client errors: not retryable — almost always a bad
+      // instance ID or a raw layer that doesn't exist yet.
+      throw new Error(
+        `NDVI raw layer request failed (HTTP ${response.status}) — check that layer "${this.getRawLayerId()}" ` +
+        `exists on the configured Copernicus instance (Satellite & NDVI Settings).`
+      );
     }
 
-    return false;
+    return null;
   },
 
   /**
-   * Helper to load a tile image and draw it onto the offscreen canvas context.
-   * Leverages in-memory cache and exponential backoff retry logic.
+   * Copy a decoded tile's float grid into its place in a larger mosaic grid.
    * @private
    */
-  _fetchAndDrawTile(url, ctx, destX, destY) {
-    const cached = this._getTileCache(url);
-    if (cached && ctx) {
-      try {
-        ctx.drawImage(cached, destX, destY, 256, 256);
-        return Promise.resolve(true);
-      } catch (e) {
-        // Fall back to fetch below
-      }
+  _writeTileIntoMosaic(tile, mosaic, mosaicWidth, destX, destY) {
+    const { width, height, data } = tile;
+    for (let y = 0; y < height; y++) {
+      const srcStart = y * width;
+      const dstStart = (destY + y) * mosaicWidth + destX;
+      mosaic.set(data.subarray(srcStart, srcStart + width), dstStart);
     }
-    return this._fetchTileWithBackoff(url, ctx, destX, destY, { maxRetries: 3, timeoutMs: 8000 });
   },
 
   /**
-   * Execute tile downloads through a worker pool with bounded concurrency and backoff.
+   * Execute raw-tile downloads through a worker pool with bounded concurrency
+   * and backoff, writing each decoded tile directly into a shared mosaic grid.
    * @private
    */
-  async _fetchTilePool(tasks, ctx, options = {}) {
+  async _fetchRawTilePool(tasks, mosaic, mosaicWidth, options = {}) {
     const concurrency = Math.max(1, options.concurrency || 6);
     const timeoutMs = options.timeoutMs || 8000;
     const onTileProgress = options.onTileProgress || options.onProgress || (() => {});
     const signal = options.signal || null;
-    const providerId = options.providerId || 'default';
+    const providerId = options.providerId || 'copernicus_raw';
     const maxRetries = (typeof options.maxRetries === 'number') ? options.maxRetries : 3;
 
     let nextIdx = 0;
@@ -882,27 +788,21 @@ const NDVISampler = {
 
     const worker = async () => {
       while (nextIdx < total) {
-        if (signal && signal.aborted) {
-          break;
-        }
+        if (signal && signal.aborted) break;
         const current = nextIdx++;
         const task = tasks[current];
         const cachedTile = this._getTileCache(task.url);
 
-        if (cachedTile && ctx) {
-          try {
-            ctx.drawImage(cachedTile, task.destX, task.destY, 256, 256);
-            cached++;
-            loaded++;
-            completed++;
-            onTileProgress(completed, total, true);
-            continue;
-          } catch (err) {
-            // Re-fetch on draw error
-          }
+        if (cachedTile) {
+          this._writeTileIntoMosaic(cachedTile, mosaic, mosaicWidth, task.destX, task.destY);
+          cached++;
+          loaded++;
+          completed++;
+          onTileProgress(completed, total, true);
+          continue;
         }
 
-        const success = await this._fetchTileWithBackoff(task.url, ctx, task.destX, task.destY, {
+        const tile = await this._fetchRawTileWithBackoff(task.url, {
           timeoutMs,
           signal,
           providerId,
@@ -912,7 +812,9 @@ const NDVISampler = {
           }
         });
 
-        if (success) {
+        if (tile) {
+          this._putTileCache(task.url, tile);
+          this._writeTileIntoMosaic(tile, mosaic, mosaicWidth, task.destX, task.destY);
           loaded++;
         } else {
           failed++;
@@ -939,7 +841,7 @@ const NDVISampler = {
   /**
    * Compute a buffered geographical bounding box for an array of points.
    * Unifies bounding box calculation across OSM and NDVI pipelines.
-   * 
+   *
    * @param {Array<Object>} rawPoints - Points array ({lat, lon})
    * @param {number} [bufferMeters=100] - Padding in meters
    * @returns {{ minLat: number, maxLat: number, minLon: number, maxLon: number }|null}
@@ -1043,49 +945,84 @@ const NDVISampler = {
   },
 
   /**
-   * Core sampling loop: extracts Point NDVI and radial buffer NDVI from an offscreen canvas.
+   * Sample pixels within a circular buffer radius on a float NDVI grid.
+   * High-performance traversal using pre-computed integer circular offsets.
+   *
+   * @param {Float32Array} data - NDVI grid values, row-major
+   * @param {number} width - Grid width in pixels
+   * @param {number} height - Grid height in pixels
+   * @param {number} cx - Center pixel X
+   * @param {number} cy - Center pixel Y
+   * @param {number} radiusPx - Buffer radius in pixels
+   * @returns {number} Mean NDVI within the circular buffer, or NaN if nothing valid was in range
+   */
+  sampleBuffer(data, width, height, cx, cy, radiusPx) {
+    const r = Math.max(1, Math.round(radiusPx));
+    const offsets = this._getCircularPixelOffsets(r);
+    const intCx = Math.round(cx);
+    const intCy = Math.round(cy);
+
+    let sum = 0;
+    let count = 0;
+
+    for (let i = 0; i < offsets.length; i += 2) {
+      const x = intCx + offsets[i];
+      const y = intCy + offsets[i + 1];
+      if (x >= 0 && x < width && y >= 0 && y < height) {
+        const val = data[y * width + x];
+        if (this._isValidNdvi(val)) {
+          sum += val;
+          count++;
+        }
+      }
+    }
+
+    if (count === 0) {
+      const cX = Math.max(0, Math.min(width - 1, intCx));
+      const cY = Math.max(0, Math.min(height - 1, intCy));
+      const cVal = data[cY * width + cX];
+      return this._isValidNdvi(cVal) ? Math.round(cVal * 1000) / 1000 : NaN;
+    }
+
+    return Math.round((sum / count) * 1000) / 1000;
+  },
+
+  /**
+   * Core sampling loop: extracts Point NDVI and radial buffer NDVI from a
+   * decoded float grid. A point whose pixel is nodata/missing is left as NaN
+   * — never fabricated from an unrelated column — and picked up later by
+   * step-hold from the previous genuine reading.
    * @private
    */
-  _samplePointsOnCanvas(raw, validPoints, imgData, canvasWidth, canvasHeight, startTileX, startTileY, zoom, radiusM) {
+  _samplePointsOnGrid(raw, validPoints, grid, gridWidth, gridHeight, startTileX, startTileY, zoom, radiusM) {
     let sumNdvi = 0;
     let sumNdvi50m = 0;
-    let enrichedCount = 0;
+    let pointCount = 0;
+    let bufferCount = 0;
 
     for (let i = 0; i < validPoints.length; i++) {
       const pt = validPoints[i].pt || validPoints[i];
       const coords = this.latLonToTile(pt.lat, pt.lon, zoom);
-      // Sub-pixel continuous coordinates on canvas for maximum spatial precision
-      const canvasX = coords.worldX - (startTileX * 256);
-      const canvasY = coords.worldY - (startTileY * 256);
+      const gridX = coords.worldX - (startTileX * 256);
+      const gridY = coords.worldY - (startTileY * 256);
       const radiusPx = this.metersToPixels(radiusM, pt.lat, zoom);
 
       let pNdvi = NaN;
       let bNdvi = NaN;
 
-      if (imgData) {
-        const cX = Math.max(0, Math.min(canvasWidth - 1, Math.round(canvasX)));
-        const cY = Math.max(0, Math.min(canvasHeight - 1, Math.round(canvasY)));
-        const pIdx = (cY * canvasWidth + cX) * 4;
-        pNdvi = this.decodePixel(imgData.data[pIdx], imgData.data[pIdx + 1], imgData.data[pIdx + 2], imgData.data[pIdx + 3]);
-        bNdvi = this.sampleBuffer(imgData.data, canvasWidth, canvasHeight, canvasX, canvasY, radiusPx);
-      }
-
-      // Fallback if tiles could not be decoded (e.g. offline or test stub)
-      if (isNaN(pNdvi)) {
-        const osmGreen = typeof pt.osm_green_pct_50m === 'number' && !isNaN(pt.osm_green_pct_50m) ? pt.osm_green_pct_50m / 100 : 0.2;
-        pNdvi = Math.round((osmGreen * 0.6 + 0.1) * 1000) / 1000;
-      }
-      if (isNaN(bNdvi)) {
-        const osmCanopy = typeof pt.osm_canopy_pct_50m === 'number' && !isNaN(pt.osm_canopy_pct_50m) ? pt.osm_canopy_pct_50m / 100 : 0.25;
-        bNdvi = Math.round((osmCanopy * 0.6 + 0.15) * 1000) / 1000;
+      if (grid) {
+        const cX = Math.max(0, Math.min(gridWidth - 1, Math.round(gridX)));
+        const cY = Math.max(0, Math.min(gridHeight - 1, Math.round(gridY)));
+        const pointVal = grid[cY * gridWidth + cX];
+        pNdvi = this._isValidNdvi(pointVal) ? Math.round(pointVal * 1000) / 1000 : NaN;
+        bNdvi = this.sampleBuffer(grid, gridWidth, gridHeight, gridX, gridY, radiusPx);
       }
 
       pt.ndvi = pNdvi;
       pt.ndvi_50m = bNdvi;
 
-      sumNdvi += pNdvi;
-      sumNdvi50m += bNdvi;
-      enrichedCount++;
+      if (!isNaN(pNdvi)) { sumNdvi += pNdvi; pointCount++; }
+      if (!isNaN(bNdvi)) { sumNdvi50m += bNdvi; bufferCount++; }
     }
 
     // Propagate to non-GPS rows via forward step-hold
@@ -1093,9 +1030,9 @@ const NDVISampler = {
 
     return {
       sampleCount: validPoints.length,
-      enrichedCount,
-      meanNdvi: enrichedCount > 0 ? (sumNdvi / enrichedCount) : 0,
-      meanNdvi50m: enrichedCount > 0 ? (sumNdvi50m / enrichedCount) : 0
+      enrichedCount: pointCount,
+      meanNdvi: pointCount > 0 ? (sumNdvi / pointCount) : 0,
+      meanNdvi50m: bufferCount > 0 ? (sumNdvi50m / bufferCount) : 0
     };
   },
 
@@ -1125,15 +1062,23 @@ const NDVISampler = {
   },
 
   /**
-   * Sample Point NDVI and 50m Buffer Mean NDVI for all GPS fixes in a track.
-   * Fetches intersecting satellite tiles via concurrency pool and extracts
-   * pixel vegetation metrics via offscreen canvas.
-   * 
+   * Sample Point NDVI and 50m Buffer Mean NDVI for all GPS fixes in a track,
+   * from the real NDVI raster (see file docstring). Requires a configured
+   * Copernicus instance with a working raw layer — throws otherwise rather
+   * than guessing from a rendered image.
+   *
    * @param {Object} track - Track object with track.analyzer
-   * @param {Object} [options={}] - Options { zoom, radiusM, provider, tileUrl, onProgress, signal, maxTiles, adaptiveZoom }
+   * @param {Object} [options={}] - Options { zoom, radiusM, onProgress, signal, maxTiles, adaptiveZoom, rawLayerId }
    * @returns {Promise<{ sampleCount: number, enrichedCount: number, meanNdvi: number, meanNdvi50m: number }>}
    */
   async sampleTrack(track, options = {}) {
+    if (!this.hasCopernicusConfig()) {
+      throw new Error(
+        'Satellite NDVI sampling needs a Copernicus Sentinel Hub instance ID with a raw NDVI layer configured ' +
+        '(Satellite & NDVI Settings) — see docs/environmental_enrichment_plan.md §2E for the evalscript and setup steps.'
+      );
+    }
+
     const analyzer = track?.analyzer || track;
     if (!analyzer || !analyzer.raw || analyzer.raw.length === 0) {
       throw new Error("Track has no raw data points to sample.");
@@ -1178,95 +1123,72 @@ const NDVISampler = {
       onProgress(12, `Large track area: scaled zoom to ${zoom} (${totalTiles} tiles) for performance...`);
     }
 
-    const canvasWidth  = tilesAcross * 256;
-    const canvasHeight = tilesDown * 256;
+    const gridWidth = tilesAcross * 256;
+    const gridHeight = tilesDown * 256;
+    const grid = new Float32Array(gridWidth * gridHeight).fill(NaN);
 
-    onProgress(15, `Fetching ${totalTiles} satellite tiles (${tilesAcross}×${tilesDown})...`);
+    onProgress(15, `Fetching ${totalTiles} NDVI raster tiles (${tilesAcross}×${tilesDown})...`);
 
-    // Create offscreen canvas
-    let canvas = null;
-    let ctx = null;
-    if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
-      canvas = document.createElement('canvas');
-      canvas.width = canvasWidth;
-      canvas.height = canvasHeight;
-      ctx = canvas.getContext('2d', { willReadFrequently: true });
-    }
-
-    const activeProvider = this.getActiveProvider(options);
-
-    // Build tile task list
     const tileTasks = [];
     for (let ty = startTileY; ty <= endTileY; ty++) {
       for (let tx = startTileX; tx <= endTileX; tx++) {
         const destX = (tx - startTileX) * 256;
         const destY = (ty - startTileY) * 256;
-        const url = this.resolveTileUrl(activeProvider, tx, ty, zoom, options);
-        tileTasks.push({ url, destX, destY, tx, ty });
+        const url = this.buildRawTileUrl(tx, ty, zoom, options);
+        tileTasks.push({ url, destX, destY });
       }
     }
 
-    try {
-      // Execute through concurrency pool (concurrency: 6) with exponential backoff & rate limiting
-      await this._fetchTilePool(tileTasks, ctx, {
-        concurrency: 6,
-        timeoutMs: 8000,
-        providerId: activeProvider.id,
-        maxRetries: 3,
-        signal,
-        onTileProgress: (completed, total, wasCached, retryMsg) => {
-          const pct = Math.round(15 + (completed / total) * 45);
-          const detail = retryMsg ? ` [${retryMsg}]` : (wasCached ? ' (cached)' : '');
-          onProgress(pct, `Streaming satellite tiles: ${completed}/${total}${detail}...`);
-        }
-      });
-
-      onProgress(60, "Extracting Point NDVI and 50m buffer values...");
-
-      let imgData = null;
-      if (ctx) {
-        try {
-          imgData = ctx.getImageData(0, 0, canvasWidth, canvasHeight);
-        } catch (secErr) {
-          console.warn("Canvas getImageData restricted (tainted by CORS); using synthetic vegetation fallback:", secErr);
-        }
+    // Execute through concurrency pool (concurrency: 6) with exponential backoff & rate limiting
+    await this._fetchRawTilePool(tileTasks, grid, gridWidth, {
+      concurrency: 6,
+      timeoutMs: 8000,
+      providerId: 'copernicus_raw',
+      maxRetries: 3,
+      signal,
+      onTileProgress: (completed, total, wasCached, retryMsg) => {
+        const pct = Math.round(15 + (completed / total) * 45);
+        const detail = retryMsg ? ` [${retryMsg}]` : (wasCached ? ' (cached)' : '');
+        onProgress(pct, `Streaming NDVI raster tiles: ${completed}/${total}${detail}...`);
       }
+    });
 
-      const results = this._samplePointsOnCanvas(
-        raw, validPoints, imgData, canvasWidth, canvasHeight, startTileX, startTileY, zoom, radiusM
-      );
+    onProgress(60, "Extracting Point NDVI and 50m buffer values...");
 
-      analyzer.isEnriched = true;
-      analyzer.hasNdvi = true;
-      analyzer._dataVersion = (analyzer._dataVersion || 0) + 1;
+    const results = this._samplePointsOnGrid(
+      raw, validPoints, grid, gridWidth, gridHeight, startTileX, startTileY, zoom, radiusM
+    );
 
-      onProgress(100, `Successfully sampled NDVI across ${results.enrichedCount} GPS fixes.`);
+    analyzer.isEnriched = true;
+    analyzer.hasNdvi = true;
+    analyzer.hasNdvi50m = true;
+    analyzer._dataVersion = (analyzer._dataVersion || 0) + 1;
 
-      return results;
-    } finally {
-      // Reclaim graphics memory immediately to avoid offscreen canvas backing store leaks
-      if (canvas) {
-        canvas.width = 0;
-        canvas.height = 0;
-        canvas = null;
-        ctx = null;
-      }
-    }
+    onProgress(100, `Successfully sampled NDVI across ${results.enrichedCount} GPS fixes.`);
+
+    return results;
   },
 
   /**
    * Sample NDVI across a batch of tracks (Collective View).
    * Automatically selects Unified Mosaic Mode when walks are co-located (e.g. in the same
-   * neighbourhood or under 16 km²), downloading and rendering satellite tiles ONCE for all
+   * neighbourhood or under 16 km²), downloading and decoding satellite tiles ONCE for all
    * tracks. Falls back to per-track mode with fault isolation for dispersed walks.
-   * 
+   *
    * @param {Array<Object>} tracks - Array of track objects ({ analyzer, name, id })
-   * @param {Object} [options={}] - Options { zoom, radiusM, provider, tileUrl, onProgress, signal, maxMosaicAreaKm2, maxMosaicTiles }
+   * @param {Object} [options={}] - Options { zoom, radiusM, onProgress, signal, maxMosaicAreaKm2, maxMosaicTiles }
    * @returns {Promise<{ mode: string, totalCount: number, enrichedCount: number, failedCount: number, tooBigCount: number, failedTracks: Array }>}
    */
   async sampleTracks(tracks, options = {}) {
     if (!tracks || tracks.length === 0) {
       return { mode: 'none', totalCount: 0, enrichedCount: 0, failedCount: 0, tooBigCount: 0, failedTracks: [] };
+    }
+
+    if (!this.hasCopernicusConfig()) {
+      throw new Error(
+        'Satellite NDVI sampling needs a Copernicus Sentinel Hub instance ID with a raw NDVI layer configured ' +
+        '(Satellite & NDVI Settings) — see docs/environmental_enrichment_plan.md §2E for the evalscript and setup steps.'
+      );
     }
 
     const onProgress = options.onProgress || (() => {});
@@ -1321,99 +1243,72 @@ const NDVISampler = {
     if (canUseUnifiedMosaic && validTracks.length > 1) {
       const zoom = unionBounds.zoom;
       const { startTileX, endTileX, startTileY, endTileY, tilesAcross, tilesDown, totalTiles } = unionBounds;
-      const canvasWidth = tilesAcross * 256;
-      const canvasHeight = tilesDown * 256;
+      const gridWidth = tilesAcross * 256;
+      const gridHeight = tilesDown * 256;
+      const grid = new Float32Array(gridWidth * gridHeight).fill(NaN);
 
       onProgress(10, `[Shared Mosaic] Preparing coverage for ${validTracks.length} walks (${unionAreaKm2.toFixed(1)} km²)...`);
 
-      let canvas = null;
-      let ctx = null;
-      if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
-        canvas = document.createElement('canvas');
-        canvas.width = canvasWidth;
-        canvas.height = canvasHeight;
-        ctx = canvas.getContext('2d', { willReadFrequently: true });
-      }
-
-      const activeProvider = this.getActiveProvider(options);
       const tileTasks = [];
       for (let ty = startTileY; ty <= endTileY; ty++) {
         for (let tx = startTileX; tx <= endTileX; tx++) {
           const destX = (tx - startTileX) * 256;
           const destY = (ty - startTileY) * 256;
-          const url = this.resolveTileUrl(activeProvider, tx, ty, zoom, options);
-          tileTasks.push({ url, destX, destY, tx, ty });
+          const url = this.buildRawTileUrl(tx, ty, zoom, options);
+          tileTasks.push({ url, destX, destY });
         }
       }
 
-      try {
-        await this._fetchTilePool(tileTasks, ctx, {
-          concurrency: 6,
-          timeoutMs: 8000,
-          providerId: activeProvider.id,
-          maxRetries: 3,
-          signal,
-          onTileProgress: (completed, total, wasCached, retryMsg) => {
-            const pct = Math.round(15 + (completed / total) * 55);
-            const detail = retryMsg ? ` [${retryMsg}]` : (wasCached ? ' (cached)' : '');
-            onProgress(pct, `[Shared Mosaic] Streaming ${total} satellite tiles (${completed}/${total})${detail}...`);
-          }
-        });
+      await this._fetchRawTilePool(tileTasks, grid, gridWidth, {
+        concurrency: 6,
+        timeoutMs: 8000,
+        providerId: 'copernicus_raw',
+        maxRetries: 3,
+        signal,
+        onTileProgress: (completed, total, wasCached, retryMsg) => {
+          const pct = Math.round(15 + (completed / total) * 55);
+          const detail = retryMsg ? ` [${retryMsg}]` : (wasCached ? ' (cached)' : '');
+          onProgress(pct, `[Shared Mosaic] Streaming ${total} NDVI raster tiles (${completed}/${total})${detail}...`);
+        }
+      });
 
-        onProgress(75, `Extracting NDVI across ${validTracks.length} walks in-memory...`);
+      onProgress(75, `Extracting NDVI across ${validTracks.length} walks in-memory...`);
 
-        let imgData = null;
-        if (ctx) {
-          try {
-            imgData = ctx.getImageData(0, 0, canvasWidth, canvasHeight);
-          } catch (secErr) {
-            console.warn("Canvas getImageData restricted; using synthetic vegetation fallback:", secErr);
+      let enrichedCount = 0;
+      for (let i = 0; i < validTracks.length; i++) {
+        const t = validTracks[i];
+        const a = t.analyzer || t;
+        const validPoints = [];
+        for (let p = 0; p < a.raw.length; p++) {
+          const pt = a.raw[p];
+          if (pt && this._isValidCoord(pt.lat, pt.lon)) {
+            validPoints.push({ index: p, pt });
           }
         }
 
-        let enrichedCount = 0;
-        for (let i = 0; i < validTracks.length; i++) {
-          const t = validTracks[i];
-          const a = t.analyzer || t;
-          const validPoints = [];
-          for (let p = 0; p < a.raw.length; p++) {
-            const pt = a.raw[p];
-            if (pt && this._isValidCoord(pt.lat, pt.lon)) {
-              validPoints.push({ index: p, pt });
-            }
-          }
-
-          if (validPoints.length > 0) {
-            this._samplePointsOnCanvas(
-              a.raw, validPoints, imgData, canvasWidth, canvasHeight, startTileX, startTileY, zoom, radiusM
-            );
-            a.isEnriched = true;
-            a.hasNdvi = true;
-            a.hasNdvi50m = true;
-            a._dataVersion = (a._dataVersion || 0) + 1;
-            enrichedCount++;
-          }
-        }
-
-        onProgress(100, `Sampled NDVI for ${enrichedCount}/${validTracks.length} walks via shared mosaic.`);
-
-        return {
-          mode: 'unified_mosaic',
-          totalCount: validTracks.length,
-          enrichedCount,
-          failedCount: 0,
-          tooBigCount: 0,
-          failedTracks: [],
-          tilesFetched: totalTiles
-        };
-      } finally {
-        if (canvas) {
-          canvas.width = 0;
-          canvas.height = 0;
-          canvas = null;
-          ctx = null;
+        if (validPoints.length > 0) {
+          this._samplePointsOnGrid(
+            a.raw, validPoints, grid, gridWidth, gridHeight, startTileX, startTileY, zoom, radiusM
+          );
+          a.isEnriched = true;
+          a.hasNdvi = true;
+          a.hasNdvi50m = true;
+          a._dataVersion = (a._dataVersion || 0) + 1;
+          enrichedCount++;
         }
       }
+
+      onProgress(100, `Sampled NDVI for ${enrichedCount}/${validTracks.length} walks via shared mosaic.`);
+
+      return {
+        mode: 'unified_mosaic',
+        totalCount: validTracks.length,
+        enrichedCount,
+        failedCount: 0,
+        tooBigCount: 0,
+        failedTracks: [],
+        tilesFetched: totalTiles
+      };
     }
 
     // =========================================================================

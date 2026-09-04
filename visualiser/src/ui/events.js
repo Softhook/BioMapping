@@ -842,7 +842,7 @@ const GSREvents = {
     }
 
     const copernicusInstanceInput = document.getElementById('copernicusInstanceId');
-    const copernicusLayerInput = document.getElementById('copernicusLayerId');
+    const copernicusRawLayerInput = document.getElementById('copernicusRawLayerId');
     const copernicusTimeInput = document.getElementById('copernicusTimeRange');
     const syncCopernicusBadges = () => {
       const activeBadge = document.getElementById('copernicusActiveBadge');
@@ -865,13 +865,15 @@ const GSREvents = {
         }
       });
     }
-    if (copernicusLayerInput) {
-      const activeLayer = typeof NDVISampler !== 'undefined' ? NDVISampler.getLayerId() : 'VEGETATION_INDEX';
-      if (activeLayer) copernicusLayerInput.value = activeLayer;
-      copernicusLayerInput.addEventListener('change', () => {
+    if (copernicusRawLayerInput) {
+      const activeRawLayer = typeof NDVISampler !== 'undefined' ? NDVISampler.getRawLayerId() : 'NDVI_RAW';
+      if (activeRawLayer) copernicusRawLayerInput.value = activeRawLayer;
+      copernicusRawLayerInput.addEventListener('change', () => {
         if (typeof localStorage !== 'undefined' && typeof localStorage.setItem === 'function') {
-          localStorage.setItem('copernicus_layer_id', copernicusLayerInput.value.trim());
+          localStorage.setItem('copernicus_raw_layer_id', copernicusRawLayerInput.value.trim());
         }
+        // The map overlay renders this same raw layer directly (see
+        // map_manager_osm.js: showNdviLayer) — re-render it if visible.
         if (AppState.mapManager && AppState.mapManager.ndviTileLayer) {
           AppState.mapManager.showNdviLayer();
         }
@@ -895,7 +897,7 @@ const GSREvents = {
       btnClearCreds.addEventListener('click', () => {
         if (typeof NDVISampler !== 'undefined') NDVISampler.clearCredentials();
         if (copernicusInstanceInput) copernicusInstanceInput.value = '';
-        if (copernicusLayerInput) copernicusLayerInput.value = 'VEGETATION_INDEX';
+        if (copernicusRawLayerInput) copernicusRawLayerInput.value = 'NDVI_RAW';
         if (copernicusTimeInput) copernicusTimeInput.value = '2024-05-01/2024-09-30';
         syncCopernicusBadges();
         if (AppState.mapManager && AppState.mapManager.ndviTileLayer) {

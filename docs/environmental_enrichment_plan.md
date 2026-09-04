@@ -1,6 +1,6 @@
 # Environmental Enrichment & Analysis — Implementation Reference
 
-This document describes the environmental-enrichment system as it is actually implemented in the Bio Mapping GSR map visualiser (`visualiser/`), and lists concrete suggestions for extending it. It replaces an earlier forward-looking plan; that plan's Phase 1 (native OSM integration) shipped, was extended with a GPS road-snapping system that was never in the original plan, and Phases 2–3 (satellite NDVI/LiDAR, automated Street View greenery index) were not built.
+This document describes the environmental-enrichment system as it is actually implemented in the Bio Mapping GSR map visualiser (`visualiser/`), and lists concrete suggestions for extending it. It replaces an earlier forward-looking plan; that plan's Phase 1 (native OSM integration) shipped, was extended with a GPS road-snapping system that was never in the original plan. Phase 2 (satellite NDVI) shipped 2026-09-04 as a live raster sampler against a custom Sentinel Hub evalscript layer, rather than the plan's offline-raster script — see §2E for what actually got built (including a same-day correction: the first cut decoded NDVI from a rendered colour image via heuristics before being rebuilt to decode the real float raster instead). Phase 3 (automated Street View greenery index) was not built.
 
 ---
 
@@ -80,6 +80,33 @@ The map panel's "Map Metric" dropdown recolors the track by any of the ten `osm_
 - A "Clear Cached Map Data" button in the sidebar wipes the cache manually.
 
 See §3D for the storage architecture and §7 for known limitations of the rectangle-union approach.
+
+### E. Satellite NDVI sampling (shipped 2026-09-04; rebuilt same day on real raster data, not colour heuristics)
+
+`ndvi_sampler.js` (`NDVISampler`, ~1050 lines) streams the actual Sentinel-2 NDVI raster and appends two columns per GPS fix: `ndvi` (the pixel directly underfoot) and `ndvi_50m` (mean over a circular buffer, radius from the same search-radius slider as the OSM columns). Triggered by the "Sample Satellite NDVI" button; registered in `OSM_METRICS` alongside the `osm_*` columns so it lights up the Map Metric dropdown, the regression scatter, and the correlation matrix the same way.
+
+**What changed from the first cut.** The initial version (same day) requested the stock Copernicus `VEGETATION_INDEX` layer, which — confirmed live — only ever returns a *rendered colour-ramp visualisation* regardless of requested format (`image/tiff;depth=32f` came back as the identical 8-bit RGBA bytes as the PNG); a client-side heuristic then tried to reverse-engineer a number from the colours and clipped 25% of vegetated pixels to the ceiling of 1.0 on a real test tile. That heuristic (`decodePixel`, the VARI-style formula, the thematic canvas reshading) has been removed entirely, along with the silent fallback that fabricated `ndvi`/`ndvi_50m` from `osm_green_pct_50m`/`osm_canopy_pct_50m` when a tile failed to decode.
+
+**How it works now — a real raster, not a picture.** Sampling requires a **second, custom layer** on the Copernicus Sentinel Hub instance (`getRawLayerId()`, default layer ID `NDVI_RAW`) built from this evalscript, which outputs the actual `(B08-B04)/(B08+B04)` value as a single 32-bit float band instead of a colour:
+```js
+//VERSION=3
+function setup() {
+  return { input: [{ bands: ["B04", "B08", "dataMask"] }], output: { bands: 1, sampleType: "FLOAT32" } };
+}
+function evaluatePixel(sample) {
+  if (sample.dataMask === 0) return [-9999]; // nodata sentinel
+  return [(sample.B08 - sample.B04) / (sample.B08 + sample.B04)];
+}
+```
+Add it once via `https://shapps.dataspace.copernicus.eu/dashboard/#/configurations` (find the configuration matching your `copernicusInstanceId`, add a Custom-script layer with this script, save it under a Layer ID, and enter that ID in the sidebar's "Raw Layer ID" field). The dashboard's own "Preview" button always renders as PNG regardless of the evalscript and will report `Format image/png does not support sample type FLOAT32` — that's the preview tool, not the layer; save anyway.
+
+`NDVISampler` requests that layer via WMS `FORMAT=image/tiff;depth=32f`, decodes the response with a small baseline-TIFF reader written for exactly this shape of output (`parseFloat32Tiff` — one IFD, strip-organised single-band float32 samples, Deflate or uncompressed, either byte order; not a general-purpose TIFF/GeoTIFF library), using the browser's native `DecompressionStream('deflate')` for the Deflate case rather than a vendored library. The decoded tiles are stitched into an in-memory `Float32Array` mosaic and sampled directly — no canvas, no `getImageData()`, and consequently no CORS-taint failure mode either (fetched as raw bytes via `fetch().arrayBuffer()`, never drawn to a canvas). `sampleTrack`/`sampleTracks` refuse to run at all without a configured Copernicus instance — there is no other provider that can produce real data, so there is no heuristic fallback to fall back to. A point whose pixel is nodata (cloud-masked) or whose tile genuinely can't be fetched is left as `NaN` and step-held from the previous genuine reading, exactly like every other "no fix this tick" field in this codebase (§3B) — never fabricated from an unrelated column.
+
+**The map's NDVI *visual* overlay renders the same raster, not a second one.** An even earlier version of this fix kept the stock Copernicus `VEGETATION_INDEX` *rendered* layer around for the on-map picture, fetched via a separate "Layer ID" setting — two independent server-side computations that could (in principle) disagree, and confusing in practice (a rendered colour picture next to a "raw" numeric setting invites the question "which one is actually being sampled?"). That's gone: `showNdviLayer` (`map_manager_osm.js`) now fetches the *same* `NDVI_RAW` raster used for sampling and renders it client-side as greyscale (`NDVISampler.paintGreyscaleTile`: low NDVI → black, high → white, nodata → transparent) — an exact forward mapping of the decoded float, not a reconstruction. The "Layer ID" setting and the `VEGETATION_INDEX` WMS branch are gone entirely; only "Raw Layer ID" remains. Without a Copernicus instance configured at all (so no raster exists to render), the overlay falls back to plain EOX cloudless / NASA GIBS / a custom XYZ layer shown as-is, for visual reference only — never touching `ndvi`/`ndvi_50m`.
+
+**Batching & performance.** `sampleTracks` auto-selects a "Unified Mosaic" mode for co-located walks (combined bounding box ≤ 16 km² and ≤ 64 tiles at the requested zoom): tiles are fetched and decoded once and shared across all tracks, rather than once per track. Dispersed walks fall back to per-track sampling with fault isolation (one track's failure doesn't abort the batch). Adaptive zoom steps down (to a floor of z12) when a track's bounding box would need more than the tile budget.
+
+Tests: `tests/test_ndvi_sampler.js` (41 tests) cover the Web Mercator math, the TIFF parser (round-tripped against synthetic uncompressed and Deflate/multi-strip rasters built in-test, plus its rejection of a non-TIFF buffer and of an unexpected band/sample-format response), the tile cache/LRU, circular-buffer sampling on a float grid (including nodata-sentinel exclusion), the retry/backoff/rate-limit state machine, mosaic-mode batching, and — unlike the first cut — that sampling refuses to run without a configured raw layer and that an unreachable tile is left as `NaN` rather than fabricated. What's still only manually verified: an actual configured `NDVI_RAW` layer against the live Copernicus WMS endpoint (the test suite mocks `fetch`), and browser support for `DecompressionStream('deflate')` (broadly supported in current Chrome/Edge/Firefox/Safari 16.4+, not polyfilled here).
 
 ---
 
@@ -165,8 +192,13 @@ visualiser/
 │   │   │                           per-point feature extraction, CSV column wiring.
 │   │   ├── overpass_client.js    - Overpass HTTP client: query building, rate-limit
 │   │   │                           and retry/backoff handling.
-│   │   └── osm_cache.js          - IndexedDB cache for Overpass responses: containment
-│   │                               reuse, merge-on-overlap, TTL/LRU eviction.
+│   │   ├── osm_cache.js          - IndexedDB cache for Overpass responses: containment
+│   │   │                           reuse, merge-on-overlap, TTL/LRU eviction.
+│   │   └── ndvi_sampler.js       - Real NDVI raster sampling: fetches a custom Copernicus
+│   │                               evalscript layer as FLOAT32 TIFF, a baseline-TIFF parser
+│   │                               (parseFloat32Tiff), circular-buffer sampling on the
+│   │                               decoded float grid, mosaic batching (§2E). EOX/NASA
+│   │                               GIBS/custom XYZ registered for the visual overlay only.
 │   ├── gps/
 │   │   ├── geo_utils.js          - haversine / distance-to-segment / point-in-polygon.
 │   │   ├── map_match.js          - HMM/Viterbi GPS-to-road snapping (MapMatcher).
@@ -216,7 +248,14 @@ visualiser/
     │                                    operating-characteristics (FPR / power) sim.
     ├── test_map_legend.js             - drawRegressionScatter + _percentile helpers.
     ├── test_geo_utils.js / test_refactor.js - GeoUtils regression coverage.
-    └── test_map_match.js              - HMM/Viterbi snapping.
+    ├── test_map_match.js              - HMM/Viterbi snapping.
+    └── test_ndvi_sampler.js           - tile math, the baseline-TIFF float32 parser
+                                          (round-tripped against synthetic rasters),
+                                          cache/LRU, float-grid circular-buffer sampling,
+                                          retry/backoff, mosaic batching, and the
+                                          no-Copernicus-config / unreachable-tile refusal
+                                          paths (§2E). Live endpoint not exercised — fetch
+                                          is mocked throughout.
 ```
 
 The original plan didn't list `overpass_client.js`, `geo_utils.js`, `map_match.js`, or `osm_cache.js` as separate files — the actual implementation split the network client and spatial-math primitives out of the main enrichment module, added the map-matching module entirely, modularized the codebase into `src/`, and added the caching module in response to real repeat-fetch behaviour the plan never anticipated.
@@ -260,7 +299,7 @@ Spatial-math tests, map-matcher tests, Overpass response caching, and the latenc
 
 3. **Extend `_evaluatePosition` with acoustic / traffic proxies.** The "Traffic & Acoustic Stress" dimension is currently approximated only by `osm_road_class`/`osm_dist_major_road`. OSM has `maxspeed`, `lanes`, and `traffic_signals` tags already present in the fetched way data that aren't extracted — cheap additions that would sharpen the traffic-stress signal without a new data source.
 
-4. **Revisit Phase 2 (NDVI/canopy) as a real offline path.** Rather than the plan's original Google Earth Engine/Sentinel Hub script, consider a one-time bulk export (e.g. clipped Sentinel-2 NDVI tiles for the region) that a small Node script in `scratch/` samples at track coordinates and appends as CSV columns the existing `analyzer.js` column-detection logic (`headers.indexOf('osm_...')`) can already pick up with minimal changes — the CSV-column plumbing for "optional enrichment columns that light up the map dropdown when present" already exists and generalizes to any future column prefix.
+4. **Make `ndvi`/`ndvi_50m` measure actual vegetation, not rendered colour — SHIPPED & FIXED (2026-09-04).** The first cut of §2E's `NDVISampler` decoded NDVI from the *rendered visualisation* of the Copernicus `VEGETATION_INDEX` layer via colour heuristics, not the underlying `(B8-B4)/(B8+B4)` value — verified to clip ~25% of vegetated pixels to the 1.0 ceiling on a real tile. Same-day fix: a custom evalscript layer (`NDVI_RAW` by default; the evalscript is in §2E) now outputs the raw float value directly, decoded via a small baseline-TIFF parser — no colour heuristics anywhere in the path. The fabricated-fallback path that used to fill `NaN` samples from `osm_green_pct_50m`/`osm_canopy_pct_50m` was removed rather than flagged — a missing/nodata reading is now left `NaN` and step-held, never invented. Open item: this depends on the custom evalscript layer actually being configured on the Sentinel Hub instance and being manually verified against the live endpoint (the test suite mocks `fetch` — see §2E).
 
 5. **Turn the Street View modal into an automated GVI metric.** The Mapillary/Google Street View viewer (`ui.js: openStreetView`) already fetches street-level imagery per coordinate for manual inspection. A batch mode that samples imagery at the same evaluation points used for OSM enrichment, runs a simple green-pixel-fraction classifier client-side (or via a small serverless function, since CORS/canvas tainting will block pure client-side pixel analysis of most embeds), and writes an `osm_gvi_50m`-style column would complete the plan's original Phase 3 without requiring a new UI surface.
 
@@ -288,7 +327,7 @@ Spatial-math tests, map-matcher tests, Overpass response caching, and the latenc
 
     - **A — `osm_canopy_pct_50m` — SHIPPED.** Fraction of the 25-point sampling grid under a `natural=wood` / `landuse=forest` polygon, OR within `CANOPY_BUFFER_M` (10 m) of a `natural=tree_row` way or `natural=tree` node. `way`/`relation` `["natural"="tree_row"]` added to the Overpass query (`QUERY_VERSION` 1 → 2). Lerps like `green_pct` in `_projectToTimeline`. Registered in `OSM_METRICS` (`canopyPct`), so it appears in the correlation matrix, the regression scatter, the Map Metric dropdown (`map_colors.js` gives it a pale→deep-forest ramp), and the CSV export/import — the green dimension is now four weakly-correlated channels: `in_park` / `green_pct` / `dist_green` / `canopy_pct`. Still OSM-completeness-limited (an unmapped avenue reads 0), but far less so than the `natural=tree` node tally.
 
-    - **B — NDVI / canopy raster (the real fix, a few days + a per-region manual step).** One-time bulk export of a greenness or canopy layer for the study area (ESA WorldCover 10 m, a national LiDAR canopy-height model, or a Sentinel-2 NDVI summer composite), clipped to the region. A small `scratch/` Node script samples it at each track's evaluation-point coordinates and appends `ndvi` / `canopy_m` CSV columns. The visualiser's `headers.indexOf(...)` column-detection already generalises — a new prefixed column lights up the map dropdown, and one `OSM_METRICS`-style registration entry puts it in the correlation matrix. This is the *only* option that measures actual vegetation rather than OSM tagging behaviour, and it quality-subsumes `green_pct` too.
+    - **B — NDVI / canopy raster (the real fix — SHIPPED 2026-09-04, live raster not offline export; see §2E).** The originally proposed *offline* path — a one-time bulk export of a greenness/canopy layer clipped to the region, sampled by a small `scratch/` Node script — was not what got built. What shipped instead (`ndvi_sampler.js`) streams the real Sentinel-2 NDVI raster live from a custom Copernicus Sentinel Hub evalscript layer (§2E) — a same-day correction after a first attempt that decoded NDVI from rendered colours and clipped badly. `canopy_m` (an actual canopy-height channel, vs. NDVI's greenness) is not built; NDVI now measures real vegetation, canopy height would need a LiDAR CHM specifically.
 
     - **C — Green View Index from street-level imagery (highest fidelity to "what they saw", most infrastructure).** Batch-sample Mapillary/Street View at the evaluation points and run a green-pixel-fraction classifier; CORS/canvas-tainting forces a small serverless function. Same idea as item 5's GVI proposal, applied to the canopy question.
 
