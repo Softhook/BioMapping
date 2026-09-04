@@ -13,20 +13,27 @@ const OverpassClient = {
     // area filter "(${b})" on all 20 clauses below) is the form Overpass QL
     // itself recommends for this shape of query — smaller request body, and
     // the server only has to resolve the bounding box once instead of once
-    // per clause. Semantically identical result set to the old per-clause
-    // filters, so no OsmCache.QUERY_VERSION bump is needed.
+    // per clause.
+    //
+    // No OsmCache.QUERY_VERSION bump for the green-tag edits either: `wetland`
+    // was already fetched by the water clause, and `playground` polygons are
+    // the only thing a stale cache now carries that fresh data would not —
+    // and nothing consumes them any more (neither _isGreenSpace nor the OSM
+    // overlay), so an old cached payload yields byte-identical enrichment.
+    // Re-running "Retrieve Spatial Data" re-scores from whatever OSM JSON is
+    // cached, which is all the green-tag change needs.
     const b = `${bbox.minLat.toFixed(6)},${bbox.minLon.toFixed(6)},${bbox.maxLat.toFixed(6)},${bbox.maxLon.toFixed(6)}`;
     return `[out:json][timeout:180][maxsize:536870912][bbox:${b}];
 (
   way["highway"];
   way["building"];
   relation["building"];
-  way["leisure"~"park|garden|nature_reserve|playground"];
+  way["leisure"~"park|garden|nature_reserve"];
   way["landuse"~"grass|forest|meadow|recreation_ground|village_green|orchard"];
-  way["natural"~"wood|scrub|grassland|heath"];
-  relation["leisure"~"park|garden|nature_reserve|playground"];
+  way["natural"~"wood|scrub|grassland|heath|wetland"];
+  relation["leisure"~"park|garden|nature_reserve"];
   relation["landuse"~"grass|forest|meadow|recreation_ground|village_green|orchard"];
-  relation["natural"~"wood|scrub|grassland|heath"];
+  relation["natural"~"wood|scrub|grassland|heath|wetland"];
   way["natural"~"water|wetland"];
   way["waterway"];
   relation["natural"~"water|wetland"];
@@ -37,6 +44,8 @@ const OverpassClient = {
   way["shop"];
   node["highway"="bus_stop"];
   node["natural"="tree"];
+  way["natural"="tree_row"];
+  relation["natural"="tree_row"];
 );
 out body;
 >;

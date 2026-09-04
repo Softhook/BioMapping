@@ -1,7 +1,15 @@
 # Environmental Stress & Physiological Mapping: A Literature Review and System Audit
 
-**Date:** 2026-07-17
+**Date:** 2026-07-17 · **Revised:** 2026-09-04
 **Topic:** Synthesis of mobile biosensing (GSR/EDA + GPS) literature, psychophysiological metrics, OpenStreetMap feature proxies, external vegetation/acoustic/thermal databases, and mathematical validation of the BioMapping analysis dashboards.
+
+> **Companion documents.** This is the *scholarly survey*. For **what the code
+> currently does**, see [`environmental_enrichment_plan.md`](environmental_enrichment_plan.md);
+> for **why the current design choices and what to build next** (roadmap sketches),
+> see [`environmental_enrichment_research.md`](environmental_enrichment_research.md).
+> The 2026-09-04 revision adds "implemented since" notes where the pipeline has
+> caught up with a recommendation below, and rewrites §8 — the original system
+> audit predated ~12 rounds of statistical hardening of the dashboard.
 
 ---
 
@@ -129,25 +137,26 @@ Mobile biosensing in uncontrolled real-world environments introduces physiologic
 
 ## 3. Mapping Literature Features to OpenStreetMap Tags
 
-To evaluate these stressors in a computational pipeline, specific OpenStreetMap (OSM) vector features serve as spatial proxies:
+To evaluate these stressors in a computational pipeline, specific OpenStreetMap (OSM) vector features serve as spatial proxies. **Status column:** ✅ shipped · 🟡 partial · ⬜ proposed. See [`environmental_enrichment_plan.md`](environmental_enrichment_plan.md) §2A for the exact columns as built.
 
-| Literature Concept | Target Variable | OSM Tags / Query Logic | Metric Computation |
-| :--- | :--- | :--- | :--- |
-| **Traffic Noise & Danger** | Distance to Major Road | `way["highway"~"motorway\|trunk\|primary\|secondary"]` | Shortest orthogonal distance (m) to nearest matching segment. |
-| | Road Category Stress | `way["highway"]` | Category of nearest segment (e.g. `residential`, `pedestrian`, `primary`). |
-| | Road Design Stressors | `way["maxspeed"]`, `way["surface"]` | Posted speed limit and surface material of nearest segment — both shown to independently affect acute stress response ([Building and Environment, 2025](https://www.sciencedirect.com/science/article/pii/S0360132325004032)). |
-| **Green Space Restoration** | In Park Indicator | `way/relation["leisure"="park"]`, `way/relation["landuse"="grass"\|"forest"\|"meadow"]`, `way/relation["natural"="wood"]` | Binary (1 = inside polygon, 0 = outside) using ray-casting. |
-| | Green Space Density | Same as above | Concentric grid sampling (25 points in 50m radius) testing polygon containment. |
-| | Green Space Sub-Type | `landuse="forest"` vs. `leisure="park"` vs. `landuse="grass"` | Categorical sub-type, since forest-type exposure shows a stronger physiological effect than manicured parks ([Voss et al., 2024](https://airjournal.org/article/quantifying-the-impact-of-urban-green-spaces-on-mental-well-being-using-wearable-sensors-and-gis-y2x23/)). |
-| **Water Restorative Buffer** | Distance to Water | `way/relation["natural"="water"]`, `way["waterway"]` | Shortest distance (m) to nearest water boundary or river line. |
-| | Water Context (Natural vs. Urban) | `way/relation["natural"="water"]` + surrounding `landuse` | Classify nearest water body by surrounding land use (e.g. `landuse=forest`/`natural=wood` vs. `landuse=commercial`) since natural-context blue space shows a larger sympathetic reduction than urban-embanked blue space ([Yin et al., 2023](https://www.sciencedirect.com/science/article/abs/pii/S1618866723002376)). |
-| **Built Enclosure** | Building Density | `way/relation["building"]` | Sum of building areas or count of centroid distances within 50m. |
-| **Social Activity Arousal** | Amenity Count | `node/way["amenity"~"cafe\|restaurant\|pub\|fast_food\|bank\|post_office"]`, `node/way["shop"]` | Count of point/polygon entities within 50m. |
-| | Transport Node Proximity | `node["highway"="bus_stop"]`, `node["railway"="station"]` | Count of transport nodes within 50m. |
-| **Micro-greenery** | Tree Density | `node["natural"="tree"]`, `way["natural"="tree_row"]` | Count of individual tree elements within 50m. |
-| **Thermal Exposure Proxy** | Shade Availability | `way["natural"="tree_row"]`, building shadow polygons, `way["covered"="yes"]` | Presence of shading structures within 10m of the track, as a low-fidelity proxy for solar exposure absent direct UTCI sensing. |
-| **Air Quality Proxy** | Industrial/Heavy-Traffic Adjacency | `way["landuse"="industrial"]`, `way["highway"~"motorway\|trunk"]` | Distance to nearest industrial polygon or high-volume road, as a coarse proxy absent a modeled PM2.5 raster (see Section 4.F). |
-| **Aircraft Noise Proxy (Partial)** | Distance to Airport | `way/relation["aeroway"="aerodrome"]`, `way["aeroway"="runway"]` | Distance to nearest aerodrome polygon or runway centerline. Only a coarse, ground-footprint proxy — it cannot capture overflight corridors extending well beyond the airport boundary; a real DNL/Ldn noise-contour or ADS-B overflight layer (Section 4.D) is required for accurate exposure. |
+| Literature Concept | Target Variable | OSM Tags / Query Logic | Metric Computation | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **Traffic Noise & Danger** | Distance to Major Road | `way["highway"~"motorway\|trunk\|primary\|secondary"]` | Shortest orthogonal distance (m) to nearest matching segment. | ✅ `osm_dist_major_road` |
+| | Road Category Stress | `way["highway"]` | Category of nearest segment (e.g. `residential`, `pedestrian`, `primary`). Non-road `highway=*` values (`bus_stop`, signals, `construction`, `platform`, …) excluded. | ✅ `osm_road_class` |
+| | Road Design Stressors | `way["maxspeed"]`, `way["surface"]`, `way["lanes"]` | Posted speed limit / surface / lane count of nearest segment — all shown to independently affect acute stress response ([Building and Environment, 2025](https://www.sciencedirect.com/science/article/pii/S0360132325004032)). | ⬜ [enrichment_research §4.2](environmental_enrichment_research.md) |
+| **Green Space Restoration** | In Park Indicator | `way/relation["leisure"~"park\|garden\|nature_reserve"]` (**not** `playground`), `landuse~"grass\|forest\|meadow\|recreation_ground\|village_green\|orchard"`, `natural~"wood\|scrub\|grassland\|heath\|wetland"` | Binary (1 = inside polygon, 0 = outside) using ray-casting. `natural=wetland` counts as **both** green and blue. | ✅ `osm_in_park` |
+| | Green Space Density | Same as above | Concentric grid sampling (25 points to the search radius) testing polygon containment. | ✅ `osm_green_pct_50m` |
+| | Distance to Green Space | Same as above | Shortest distance (m) to nearest green polygon boundary; 0 when inside; `999` sentinel. The visual-perception channel ("can I see a park across the street"). | ✅ `osm_dist_green` |
+| | Green Space Sub-Type | `landuse="forest"` vs. `leisure="park"` vs. `landuse="grass"` | Categorical sub-type, since forest-type exposure shows a stronger physiological effect than manicured parks ([Voss et al., 2024](https://airjournal.org/article/quantifying-the-impact-of-urban-green-spaces-on-mental-well-being-using-wearable-sensors-and-gis-y2x23/)). | 🟡 partly via `osm_canopy_pct_50m` (see Micro-greenery row) |
+| **Water Restorative Buffer** | Distance to Water | `way/relation["natural"="water\|wetland"]`, `way["waterway"]` | Shortest distance (m) to nearest water boundary or river line. | ✅ `osm_dist_water` |
+| | Water Context (Natural vs. Urban) | `way/relation["natural"="water"]` + surrounding `landuse` | Classify nearest water body by surrounding land use (e.g. `landuse=forest`/`natural=wood` vs. `landuse=commercial`) since natural-context blue space shows a larger sympathetic reduction than urban-embanked blue space ([Yin et al., 2023](https://www.sciencedirect.com/science/article/abs/pii/S1618866723002376)). | ⬜ proposed |
+| **Built Enclosure** | Building Density | `way/relation["building"]` | Count of buildings (ways **and** multipolygon relations) with any footprint **edge** within the radius (nearest-edge, not centroid). | ✅ `osm_building_density_50m` |
+| **Social Activity Arousal** | Amenity Count | `node/way["amenity"~"cafe\|restaurant\|pub\|fast_food\|bar\|school\|…"]`, `node/way["shop"]`, `node["highway"="bus_stop"]` | Count of point/polygon entities within the radius (nodes by point distance, ways by centroid). | ✅ `osm_amenity_count_50m` |
+| | Transport Node Proximity | `node["highway"="bus_stop"]`, `node["railway"="station"]` | `bus_stop` folded into the amenity count; `railway=station` not yet separated. | 🟡 partial |
+| **Micro-greenery** | Tree Canopy | `natural=wood`/`landuse=forest` polygons; `way["natural"="tree_row"]`; `node["natural"="tree"]` | Fraction of the 25-point grid under a wood/forest polygon OR within 10 m of a tree_row way / tree node. Replaces the earlier raw `natural=tree` node count, which missed woods and avenues. | ✅ `osm_canopy_pct_50m` (raw node count `osm_tree_density_50m` also still emitted) |
+| **Thermal Exposure Proxy** | Shade Availability | `way["natural"="tree_row"]`, building shadow polygons, `way["covered"="yes"]` | Presence of shading structures within 10m of the track, as a low-fidelity proxy for solar exposure absent direct UTCI sensing. `canopy_pct` is a partial stand-in. | 🟡 partial |
+| **Air Quality Proxy** | Industrial/Heavy-Traffic Adjacency | `way["landuse"="industrial"]`, `way["highway"~"motorway\|trunk"]` | Distance to nearest industrial polygon or high-volume road, as a coarse proxy absent a modeled PM2.5 raster (see Section 4.F). | ⬜ proposed |
+| **Aircraft Noise Proxy (Partial)** | Distance to Airport | `way/relation["aeroway"="aerodrome"]`, `way["aeroway"="runway"]` | Distance to nearest aerodrome polygon or runway centerline. Only a coarse, ground-footprint proxy — it cannot capture overflight corridors extending well beyond the airport boundary; a real DNL/Ldn noise-contour or ADS-B overflight layer (Section 4.D) is required for accurate exposure. | ⬜ proposed |
 
 ---
 
@@ -174,8 +183,10 @@ flowchart LR
 
 ### A. NDVI (Normalized Difference Vegetation Index)
 - **Concept**: A satellite-derived index (from Sentinel-2 or Landsat) indicating live green vegetation based on near-infrared and red light reflectance, computed as `NDVI = (NIR − Red) / (NIR + Red)`.
-- **Scientific Value**: Captures private gardens, agricultural land, and minor lawns that are missing from vector databases.
-- **Integration**: Extracted along the coordinate path via python scripting (`rasterio`, Google Earth Engine's Python API), exporting 10m-resolution GeoTIFFs and sampling values at each GPS point to append as a custom spatial column in the CSV. [Voss et al. (2024)](https://airjournal.org/article/quantifying-the-impact-of-urban-green-spaces-on-mental-well-being-using-wearable-sensors-and-gis-y2x23/) demonstrate exactly this pipeline in practice — 10m-resolution cloud-free Sentinel-2 NDVI composites sampled at each GPS point alongside LiDAR-derived canopy density, joined to wearable EDA/HRV streams via a mixed-effects model (see Section 7.D).
+- **Scientific Value**: Captures private gardens, agricultural land, and minor lawns that are missing from vector databases. Its limitation — it misses *eye-level* greenness and shows weak links to some mental-health outcomes (§4.C, §7.B) — means it **complements** the OSM green channels rather than replacing them; report all of them.
+- **Integration (analysis column)**: Extracted along the coordinate path via python/Node scripting (`rasterio`, Google Earth Engine's Python API), exporting 10m-resolution GeoTIFFs and sampling values at each GPS point to append as a custom spatial column in the CSV. [Voss et al. (2024)](https://airjournal.org/article/quantifying-the-impact-of-urban-green-spaces-on-mental-well-being-using-wearable-sensors-and-gis-y2x23/) demonstrate exactly this pipeline in practice — 10m-resolution cloud-free Sentinel-2 NDVI composites sampled at each GPS point alongside LiDAR-derived canopy density, joined to wearable EDA/HRV streams via a mixed-effects model (see Section 7.D). BioMapping's `headers.indexOf(...)` column detection already generalises to a new `ndvi` column; one `OSM_METRICS`-style registration entry then lights it up in the correlation matrix, scatter, and Map Metric dropdown.
+- **Integration (visible map layer) — chosen approach: a single pre-rendered `L.imageOverlay` PNG.** Offline: `gdalwarp` clip → `gdaldem color-relief` (green ramp, transparent nodata) → downsample to a ~2000–4000 px PNG + a sidecar bounds JSON; ship under `visualiser/assets/`; add a `showNdviLayer()` mixin beside `map_manager_osm.js`'s `drawOsmShapes` and a toggle next to "OSM Layers". ~40 lines, no runtime dependency, keeps the client-side/no-server property. A client-side GeoTIFF render (live opacity/threshold controls, same raster also feeding the `ndvi` column) is a heavier follow-up; a WMS layer (Sentinel Hub / GIBS) is rejected as it needs a key + network. Detail in [`environmental_enrichment_research.md`](environmental_enrichment_research.md) §4.3.
+- **Interim stopgap (shipped 2026-09):** `osm_canopy_pct_50m` — an OSM-only approximation of tree canopy from `natural=wood`/`landuse=forest` polygons + a 10 m buffer around `tree_row`/`tree` features. Far better than the old `natural=tree` node count but still mapping-effort-limited; NDVI/GVI remain the real fix.
 
 ### B. LiDAR Tree Canopy Maps (1m High-Resolution)
 - **Concept**: Laser-scanned 3D datasets detailing vegetation canopy height and density.
@@ -212,6 +223,13 @@ flowchart LR
 ---
 
 ## 5. GSR Analysis Methodology & Psychophysiological Metrics
+
+> **Implemented (2026-08).** All three metrics below, and the Section 6
+> blueprints, have since shipped in `analyzer.js` — `computeTemporalPeakDensity`,
+> `computePhasicAUC`, `computeCombinedArousalIndex`, plus a `computeTriIndex`
+> three-way blend (tonic + phasic AUC + peak density). They are exposed via the
+> GSR panel's `#graphView` dropdown and the collective map's topography-source
+> selector. Section 6's code is retained as the design spec.
 
 Mobile biosensing studies in GIS have moved away from simple trough-to-peak counting of raw signal excursions due to environmental noise and overlapping signals. The literature relies on three core metrics:
 
@@ -260,6 +278,11 @@ If the threshold is set to $0.02\ \mu\text{S}$, a response of size $0.021\ \mu\t
 ---
 
 ## 6. Concrete GSR Implementation Blueprint in BioMapping
+
+> **Status: shipped.** The functions below were added to `GSRAnalyzer`
+> essentially as written (with perf refinements — the phasic-AUC pass is shared
+> between the combined and tri indices rather than recomputed). Kept here as the
+> reference spec and rationale.
 
 To add these features to the codebase, they can be implemented directly within the data pipeline in the following components:
 
@@ -386,6 +409,16 @@ Running standard bivariate correlations (e.g. Pearson $r$) on mobile coordinate 
 ### A. Violation of i.i.d. (Spatial Autocorrelation)
 Tobler's First Law of Geography states: *"Everything is related to everything else, but near things are more related than distant things."* Physiological variables (like SCL) and spatial variables (like distance to parks) exhibit high spatial autocorrelation. This violates the assumption of Independent and Identically Distributed (i.i.d.) observations, inflating degrees of freedom and artificially exaggerating the statistical significance ($p$-values) of correlation matrices.
 
+> **Implemented (2026-09).** The visualiser's Environmental dashboard now corrects
+> for this directly rather than via GWR/Moran's I: correlation $p$-values use an
+> **autocorrelation-adjusted effective sample size** (multi-lag Bartlett /
+> Pyper–Peterman variance-inflation factor), q-values from Benjamini–Hochberg FDR
+> run **one family per arousal channel**, the Roads Profile uses a Welch
+> $t$-test on per-walk-summed effective N with a Bonferroni correction for the
+> after-the-fact hi-vs-lo class choice, and the table leads with **effect-size
+> bands** (Gignac & Szodorai 2016) rather than significance stars. See
+> [`environmental_enrichment_plan.md`](environmental_enrichment_plan.md) §2C.
+
 ### B. Advanced Correlation Methods
 To evaluate green space restorative relationships accurately, mobile studies utilize:
 1. **Geographically Weighted Regression (GWR)**: Standard OLS assumes a global relationship. GWR allows the local relationship between physiological arousal and green space distance to vary spatially, capturing local environmental microclimates. A 2026 *Sustainability* study, "Urban Oases: The Critical Role of Green and Blue Spaces in Mental Well-Being" ([DOI](https://doi.org/10.3390/su18020642)), applies this exact OLS-vs-GWR comparison at the population scale — assessing urban green *and* blue space exposure against Frequent Mental Distress across major US cities — echoing its potential use here at the individual-track scale.
@@ -402,18 +435,36 @@ To evaluate green space restorative relationships accurately, mobile studies uti
 ### D. Participant-Level Modeling: Mixed-Effects as an Alternative to Simple Z-Scoring
 BioMapping's current Combined Arousal Index (Section 5.C) standardizes each participant's Tonic and Phasic streams independently before applying fixed weights ($w_{\text{tonic}}$, $w_{\text{phasic}}$) — an appropriate approach for a *single* track, but it discards information when aggregating across many participants in `GSRCollectiveManager`. [Voss et al. (2024)](https://airjournal.org/article/quantifying-the-impact-of-urban-green-spaces-on-mental-well-being-using-wearable-sensors-and-gis-y2x23/) instead fit **linear mixed-effects models (LMMs)** across 120 participants with a random intercept per participant and a random slope for time-in-green-space, which lets each person's own baseline reactivity be estimated rather than assumed uniform. For BioMapping's collective/multi-track heatmaps, an analogous approach — random intercepts per `participant_id` when running the OLS regression described in Section 8.1, or when aggregating the Roads Profile in Section 8.2 — would prevent a small number of highly reactive individuals from dominating the pooled trendline, and is a natural extension once multiple participants' CSVs are merged.
 
+> **Partly implemented (2026-09).** The collective correlation matrix now runs a
+> **random-effects meta-analysis across walks** (per-walk Fisher-*z*,
+> inverse-variance weighting by each walk's autocorrelation-adjusted effective N,
+> DerSimonian–Laird between-walk variance, modified Knapp–Hartung *t*) — the walk
+> is the unit of inference, so a few reactive walks no longer dominate. This is
+> the random-*intercept* half of the recommendation; the Roads Profile
+> hi-vs-lo test and the CI are still pooled-with-within-walk-effective-N (no
+> between-walk term), and a full random-*slope* LMM per participant is not yet
+> built.
+
 ---
 
 ## 8. Visualizer Dashboard Evaluation & System Audit
 
-This section provides a critical scientific and mathematical evaluation of the **Regression Plot** and **Roads Profile** components in the GSR Map Visualizer.
+This section audits the arithmetic of the **Regression Plot** and **Roads Profile** components.
+
+> **This audit predates ~12 rounds of statistical hardening (2026-08 → 2026-09).**
+> The OLS and mean-aggregation *formulas* below remain exactly as audited and are
+> still correct. But the **inference layer around them has been rebuilt**, and
+> §8.1.A's "large *n* + low *p* = publishable" framing is precisely the stance the
+> dashboard has since moved *away from*. The current spec is in
+> [`environmental_enrichment_plan.md`](environmental_enrichment_plan.md) §2C;
+> §8.3 below summarises what changed.
 
 ### 8.1 Regression Plot (Ordinary Least Squares Linear Regression)
 
 The regression dashboard models the relationship between an independent spatial variable ($x$) and a dependent physiological metric ($y$, representing either Phasic GSR or Tonic SCL).
 
-#### A. Academic Context
-In environmental biosensing studies, $R^2$ values are typically low (often under 0.05). Human stress is multi-sensory and influenced by thermoregulation, internal thoughts, and visual complexity. In neuro-urbanism literature, an $R^2 = 0.02$ is considered statistically significant and publishable provided the sample size is large and the p-value is low.
+#### A. Academic Context — and why the dashboard no longer relies on it
+In environmental biosensing studies, $R^2$ values are typically low (often under 0.05) — human stress is multisensory, and much of the variance is internal. It is *conventionally* said that an $R^2 = 0.02$ can be "significant and publishable" given a large $n$ and a low $p$. **The dashboard deliberately rejects this reasoning for this data**, because on a single autocorrelated walk a large raw $n$ is an illusion: the effective sample size collapses to ~10–30 (§8.3), so the low $p$ that framing depends on is an artefact of counting correlated samples as independent. The correlation table therefore leads with an **effect-size band** (negligible / small / moderate / strong at |r| .10/.20/.30, Gignac & Szodorai 2016); autocorrelation-corrected significance only *qualifies* the band; and genuine inference is reserved for collective mode, where the walk — not the sample — is the unit (§7.D, §8.3).
 
 #### B. Mathematical Implementation Audit
 The Ordinary Least Squares (OLS) regression parameters are calculated in `ui.js`:
@@ -455,9 +506,8 @@ The Ordinary Least Squares (OLS) regression parameters are calculated in `ui.js`
    ```
    *Evaluation*: **Correct.** Correctly projects the coordinates linearly onto the drawing canvas width and height, accounting for padding borders.
 
-4. **Outlier Filtering**:
-   *Audit Finding*: Previously, if a track had no water nearby, the distance to water registered as `999.0` meters for every point. Drawing a trendline to a cluster of points at `x = 999.0` flattened the regression line and made the chart illegible.
-   *Fix Applied*: The data loader loop now filters out these `999.0` indicators, ensuring that the chart only plots active spatial ranges.
+4. **Sentinel handling** (`999.0` = "no feature within reach"):
+   The regression/scatter loaders skip rows where the distance field equals the `999.0` sentinel, so a cluster of pseudo-points at `x = 999` cannot flatten the trendline. This has since been hardened upstream too: `_projectToTimeline` no longer linearly interpolates *across* a sentinel endpoint (which manufactured fake mid-range distances) — it holds the real endpoint's value across the whole segment, so the sentinel/real boundary isn't silently smeared. Applies to `osm_dist_major_road`, `osm_dist_water`, and `osm_dist_green`. *Evaluation:* **Correct.**
 
 ---
 
@@ -473,15 +523,15 @@ In urban design, street typologies (e.g. primary, residential, path) represent c
 1. **Arousal Aggregation**:
    $$\text{Mean Phasic} = \frac{\sum \text{Phasic Levels}}{\text{Seconds Spent}}$$
    $$\text{Mean Tonic} = \frac{\sum \text{Tonic SCL}}{\text{Seconds Spent}}$$
-   *Evaluation*: **Correct.** Because data is downsampled at 1 Hz intervals, each point represents exactly 1 second, meaning the sample count equates to the exact duration spent on that road class.
+   *Evaluation*: **Correct** for the point estimate — data is downsampled at ~1 Hz, so the sample count is the seconds spent on that class. Two refinements since: the **tonic** column is grouped by the road class at the *tonic* lag (`latency × 4`), not the phasic lag (they differ near a class boundary); and the CI around each mean now uses an **autocorrelation-adjusted effective N summed per walk** (not $\sqrt{n}$ over concatenated walks), with `unclassified` and any class under 5 s dropped.
 
 2. **Peak Rate Normalization**:
    $$\text{Peak Rate (peaks/minute)} = \frac{\text{Peaks Count}}{\left(\frac{\text{Duration (seconds)}}{60}\right)}$$
    *Code Implementation*:
    ```javascript
-   peakRate: (val.peaks / (val.count / 60))
+   peakRate: (val.peaks / (n / 60))   // n = seconds on this road class
    ```
-   *Evaluation*: **Correct.** Correctly normalizes the raw peak counts to a standard rate of peaks per minute, which is the standard reporting index in electrodermal activity literature.
+   *Evaluation*: **Correct.** Standard peaks-per-minute normalisation.
 
 3. **Physiological Latency Compensation**:
    *Code Implementation*:
@@ -489,7 +539,48 @@ In urban design, street typologies (e.g. primary, residential, path) represent c
    const idx = a.findClosestIndex(Math.max(0, p.time - latency));
    const rc = (idx !== -1 && a.raw[idx].osm_road_class) ? a.raw[idx].osm_road_class : 'none';
    ```
-   *Evaluation*: **Correct.** To identify which road class caused a stress peak, the algorithm queries the road class at time $t - \text{latency}$ (where latency is the unified slider setting, typically 1.5 - 3.0 seconds). This properly accounts for the physical sympathetic delay between encountering a spatial stressor and registering a sweat gland response.
+   *Evaluation*: **Correct.** The road class that caused a peak is read at $t - \text{latency}$ (slider, default 2.0 s), accounting for the sympathetic delay (§8.2.B unchanged; road classification itself now prefers the nearest motor-traffic carriageway within ≤ 25 m and excludes non-road `highway=*` values).
+
+4. **Hi-vs-lo class difference**:
+   The "strongest vs weakest road class" gap is tested with a **Welch $t$-test** on the per-walk-summed effective N (not a CI-overlap eyeball), and because the two classes are chosen *after* seeing the means the $p$ is **Bonferroni-adjusted** by the number of pairwise contrasts. Still pooled across walks (no between-walk random term — disclosed in the UI).
+
+---
+
+### 8.3 Statistical hardening since this audit (2026-08 → 2026-09)
+
+The dashboard's inference layer was rebuilt across ~12 rounds. Headline changes,
+all in [`environmental_enrichment_plan.md`](environmental_enrichment_plan.md) §2C
+and the round log in the project memory:
+
+- **Effective sample size** for every correlation $p$ — multi-lag Bartlett /
+  Pyper–Peterman variance-inflation factor; on a single walk this collapses
+  $n \approx 1{,}200 \to 10$–$30$, so a moderate $r$ correctly reads n.s.
+- **Random-effects meta-analysis across walks** (`metaCorrelation`) for collective
+  mode — Fisher-*z*, inverse-variance by per-walk effective N, DerSimonian–Laird
+  $\tau^2$, modified Knapp–Hartung *t*. The walk is the unit of inference; graded
+  `meta` (≥ 5 walks) / `metaProvisional` (3–4) / `fewWalks` (< 3).
+- **Benjamini–Hochberg FDR**, one family **per arousal channel** (phasic / tonic /
+  peaks) over the environmental factors — q-values, not p-values, drive the verdict.
+- **Effect-size bands** (Gignac & Szodorai 2016, |r| .10/.20/.30) are the primary
+  visual cue; no significance stars; direction shown by colour only.
+- **Welch $t$-test + Bonferroni** for the Roads Profile hi-vs-lo gap (§8.2.B.4).
+- **Peaks channel** re-aggregated to one point per 15 s bin before correlating
+  (was ~15× pseudo-replicated).
+- **Latency decoupled**: phasic/peaks read the environment at `latency`; tonic at
+  `min(30 s, latency × 4)` — a second `tonicEnv` snapshot per row.
+- **`_logBeta` overflow fixed** — for df ≳ 340 (the dashboard's normal regime) the
+  old small-parameter branch returned `Infinity` → every p-value was `NaN`.
+- **New green channels**: `osm_dist_green` (visual-perception proxy) and
+  `osm_canopy_pct_50m` (tree canopy from wood/forest polygons + `tree_row`/`tree`
+  buffers) — see §3, §4.A and [`environmental_enrichment_research.md`](environmental_enrichment_research.md) §2.
+- **EM Fog caveat**: its near-white-noise autocorrelation *dodges* the
+  effective-N correction, so it can clear significance for a statistical, not
+- **Walking-speed covariate**: Partial correlation $r_{XY \cdot Z}$ implemented (2026-09)
+  for Tonic SCL to de-confound gait slowing from autonomic calming (see [`environmental_enrichment_research.md`](environmental_enrichment_research.md) §4.1).
+
+Still open (see [`environmental_enrichment_research.md`](environmental_enrichment_research.md) §4):
+ambient temperature covariate for the thermal+exertion confound; a full
+between-walk random term for the Roads Profile; the NDVI and GVI columns/layers.
 
 ---
 

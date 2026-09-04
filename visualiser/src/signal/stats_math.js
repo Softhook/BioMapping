@@ -200,6 +200,52 @@ const StatsMath = {
   },
 
   /**
+   * Partial correlation r_{xy·z} between x and y controlling for covariate z
+   * (e.g. environmental feature x and physiological arousal y controlling for
+   * walking speed z). Residualises x and y on z via OLS linear regression and
+   * correlates the residuals with autocorrelation correction (Pyper & Peterman 1998).
+   *
+   * @param {number[]} x - Predictor variable (e.g. environmental feature)
+   * @param {number[]} y - Response variable (e.g. baseline or momentary arousal)
+   * @param {number[]} z - Covariate to partial out (e.g. walking speed in m/s)
+   * @returns {{ r: number, p: number, n: number, nEff: number, rawR: number }}
+   */
+  partialCorrelation(x, y, z) {
+    const n = Math.min(x ? x.length : 0, y ? y.length : 0, z ? z.length : 0);
+    if (n < 4) return { r: 0, p: 1, n, nEff: n, rawR: 0 };
+
+    const statZ = this.calculateStats(z.slice(0, n));
+    const raw = this.calculateAutocorrCorrelation(x.slice(0, n), y.slice(0, n));
+    if (!(statZ.variance > 1e-12)) {
+      // Covariate has negligible variance (stationary or constant speed) — cannot residualise
+      return { r: raw.r, p: raw.p, n, nEff: raw.nEff, rawR: raw.r };
+    }
+
+    const xSlice = x.slice(0, n);
+    const ySlice = y.slice(0, n);
+    const zSlice = z.slice(0, n);
+
+    const regX = this.calculateLinearRegression(zSlice, xSlice);
+    const regY = this.calculateLinearRegression(zSlice, ySlice);
+
+    const resX = new Array(n);
+    const resY = new Array(n);
+    for (let i = 0; i < n; i++) {
+      resX[i] = xSlice[i] - (regX.m * zSlice[i] + regX.c);
+      resY[i] = ySlice[i] - (regY.m * zSlice[i] + regY.c);
+    }
+
+    const resCorr = this.calculateAutocorrCorrelation(resX, resY);
+    return {
+      r: resCorr.r,
+      p: resCorr.p,
+      n,
+      nEff: resCorr.nEff,
+      rawR: raw.r
+    };
+  },
+
+  /**
    * Random-effects meta-analysis of a Pearson correlation across independent
    * groups (e.g. separate walks). For each group: r_i = Pearson(x_i, y_i),
    * Fisher-z z_i = atanh(r_i) with variance 1/(nEff_i - 3), where nEff_i is

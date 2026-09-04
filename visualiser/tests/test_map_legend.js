@@ -159,7 +159,7 @@ test('GSRUI._percentile: robust axis-clip bounds used by the regression scatter'
   assert.strictEqual(PS([], 0.5), 0, 'empty → 0');
 });
 
-test('GSRUI.drawRegressionScatter: renders continuous and binary X without throwing (fake 2D context)', () => {
+test('GSRUI.drawRegressionScatter: continuous X plots points + trend + badge, binary X draws per-group boxes, empty data plots nothing (fake 2D context)', () => {
   const { window } = bootApp();
   // jsdom has no real canvas 2D context — record calls on a permissive stub so
   // the drawing logic (percentile clip, density loop, binary box-and-whisker
@@ -175,19 +175,25 @@ test('GSRUI.drawRegressionScatter: renders continuous and binary X without throw
   });
   const canvas = { width: 300, height: 200, getContext: () => ctx };
 
+  const opsFor = (fn) => { calls.length = 0; fn(); return calls.map(c => c[0]); };
+
   const xCont = Array.from({ length: 500 }, (_, i) => (i % 97) + (i > 480 ? 5000 : 0)); // + a few spikes
   const yCont = Array.from({ length: 500 }, (_, i) => Math.sin(i / 11) + (i % 5) * 0.2);
-  assert.doesNotThrow(() =>
-    window.GSRUI.drawRegressionScatter(canvas, xCont, yCont, 0.01, 1, 0.04, 'X', 'Y', false),
-    'continuous X path');
+  const contOps = opsFor(() =>
+    window.GSRUI.drawRegressionScatter(canvas, xCont, yCont, 0.01, 1, 0.04, 'X', 'Y', false));
+  assert.ok(contOps.includes('arc'), 'continuous path plots point markers (ctx.arc)');
+  assert.ok(contOps.includes('fillText'), 'continuous path draws axis labels / R² badge (ctx.fillText)');
+  assert.ok(contOps.includes('stroke') || contOps.includes('lineTo'), 'continuous path draws the OLS trend line');
 
   const xBin = Array.from({ length: 400 }, (_, i) => (i % 3 === 0 ? 1 : 0));
   const yBin = Array.from({ length: 400 }, (_, i) => (i % 3 === 0 ? 2 + (i % 7) * 0.1 : 1 + (i % 7) * 0.1));
-  assert.doesNotThrow(() =>
-    window.GSRUI.drawRegressionScatter(canvas, xBin, yBin, 0.9, 1, 0.2, 'In Park', 'Phasic', true),
-    'binary X path (box-and-whisker branch)');
+  const binOps = opsFor(() =>
+    window.GSRUI.drawRegressionScatter(canvas, xBin, yBin, 0.9, 1, 0.2, 'In Park', 'Phasic', true));
+  assert.ok(binOps.filter(o => o === 'rect' || o === 'fillRect' || o === 'strokeRect').length >= 2,
+    'binary path draws a box-and-whisker box per group (>= 2 rect ops)');
+  assert.ok(binOps.includes('fillText'), 'binary path still draws the point-biserial r badge');
 
-  assert.doesNotThrow(() =>
-    window.GSRUI.drawRegressionScatter(canvas, [], [], 0, 0, 0, 'X', 'Y', false),
-    'empty data path');
+  const emptyOps = opsFor(() =>
+    window.GSRUI.drawRegressionScatter(canvas, [], [], 0, 0, 0, 'X', 'Y', false));
+  assert.ok(!emptyOps.includes('arc'), 'empty data path plots no point markers');
 });

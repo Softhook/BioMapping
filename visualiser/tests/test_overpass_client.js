@@ -62,12 +62,31 @@ test('buildQuery: requests highway/building/leisure/natural/amenity/shop feature
   const q = OverpassClient.buildQuery(BBOX);
   for (const clause of [
     'way["highway"]', 'way["building"]', 'relation["building"]',
-    'way["leisure"~"park|garden|nature_reserve|playground"]',
+    'way["leisure"~"park|garden|nature_reserve"]',
+    'way["natural"~"wood|scrub|grassland|heath|wetland"]',
     'way["natural"~"water|wetland"]', 'way["waterway"]',
     'node["amenity"]', 'way["shop"]', 'node["highway"="bus_stop"]', 'node["natural"="tree"]',
+    'way["natural"="tree_row"]',
   ]) {
     assert.ok(q.includes(clause), `query should include ${clause}`);
   }
+});
+
+test('buildQuery: fetches natural=tree_row (ways + relations) — needed for osm_canopy_pct', () => {
+  const q = OverpassClient.buildQuery(BBOX);
+  assert.ok(q.includes('way["natural"="tree_row"]'), 'tree_row ways fetched');
+  assert.ok(q.includes('relation["natural"="tree_row"]'), 'tree_row relations fetched');
+});
+
+test('buildQuery: does NOT request leisure=playground — it is not green space (matches _isGreenSpace / GREEN_LEISURE)', () => {
+  const q = OverpassClient.buildQuery(BBOX);
+  assert.ok(!q.includes('playground'), 'playground must not appear in any query clause');
+});
+
+test('buildQuery: fetches natural=wetland via BOTH the green and the water clause (wetland is blue and green)', () => {
+  const q = OverpassClient.buildQuery(BBOX);
+  assert.ok(q.includes('way["natural"~"wood|scrub|grassland|heath|wetland"]'), 'wetland is in the green natural clause');
+  assert.ok(q.includes('way["natural"~"water|wetland"]'), 'wetland is still in the water natural clause');
 });
 
 test('buildQuery: ends with the standard "out body; >; out skel qt;" recursion idiom', () => {

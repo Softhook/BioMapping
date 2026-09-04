@@ -305,6 +305,46 @@ time,gsr,osm_road_class
   assert.ok(Math.abs(res.sampleRate - 10) < 1e-5, `expected sampleRate ~10, got ${res.sampleRate}`);
 });
 
+test('OSM enrichment columns survive a CSV export -> re-import round-trip (incl. osm_dist_green and its 999 sentinel)', () => {
+  const a = new GSRAnalyzer();
+  a.parseCSV([
+    'Time (s),Raw Conductance (uS),Latitude,Longitude',
+    '0.00,5.10,51.5000,-0.1000',
+    '0.10,5.12,51.5001,-0.1000',
+    '0.20,5.11,51.5002,-0.1000',
+  ].join('\n'));
+  a.analyze(GSR_CONST.GSR_DEFAULT);
+  a.isEnriched = true;
+  a.enrichmentRadius = 50;
+  // Row 0: standing in green. Row 1: green nearby. Row 2: no green in range.
+  Object.assign(a.raw[0], {
+    osm_road_class: 'residential', osm_dist_major_road: 12.5, osm_in_park: 1,
+    osm_green_pct_50m: 100, osm_dist_green: 0, osm_canopy_pct_50m: 88, osm_building_density_50m: 3,
+    osm_dist_water: 40, osm_tree_density_50m: 2, osm_amenity_count_50m: 1,
+  });
+  a.raw[1].osm_road_class = 'primary';
+  a.raw[1].osm_dist_green = 27.3;
+  a.raw[1].osm_canopy_pct_50m = 0;
+  a.raw[2].osm_road_class = 'primary';
+  a.raw[2].osm_dist_green = 999;
+  a.raw[2].osm_canopy_pct_50m = 24;
+
+  const csv = a.exportToCSV();
+  assert.ok(csv.includes('osm_dist_green'), 'exported header carries osm_dist_green');
+  assert.ok(csv.includes('osm_canopy_pct_50m'), 'exported header carries osm_canopy_pct_50m');
+
+  const b = new GSRAnalyzer();
+  b.parseCSV(csv);
+  assert.strictEqual(b.isEnriched, true, 're-imported CSV is recognised as enriched');
+  assert.strictEqual(b.raw[0].osm_dist_green, 0, 'dist_green 0 (standing in green) round-trips');
+  assert.ok(Math.abs(b.raw[1].osm_dist_green - 27.3) < 0.01, 'dist_green 27.3 round-trips to 2 dp');
+  assert.strictEqual(b.raw[2].osm_dist_green, 999, 'dist_green 999 "no green in range" sentinel round-trips');
+  assert.ok(Math.abs(b.raw[0].osm_canopy_pct_50m - 88) < 0.05, 'canopy_pct round-trips');
+  assert.strictEqual(b.raw[1].osm_canopy_pct_50m, 0, 'canopy_pct 0 round-trips (not lost as an empty cell)');
+  // A sibling column still works alongside the new ones.
+  assert.ok(Math.abs(b.raw[0].osm_dist_water - 40) < 0.01, 'osm_dist_water still round-trips');
+});
+
 // ── Analyzer helpers: findClosestIndex / getMatchingLabel / peak density ────
 
 test('GSRAnalyzer findClosestIndex: binary search over raw timestamps', () => {

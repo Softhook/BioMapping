@@ -147,6 +147,21 @@ const MapColors = {
       const hue = 30 + ratio * 100;
       return `hsl(${hue}, 80%, 45%)`;
     }
+
+    if (metric === 'distGreen') {
+      // In / next to green space (vivid green) → far from any green (muted brown).
+      const hue = 130 - ratio * 95;
+      const sat = 70 - ratio * 40;
+      return `hsl(${hue}, ${sat}%, 45%)`;
+    }
+
+    if (metric === 'canopyPct') {
+      // Open sky (pale) → dense tree canopy (deep forest green).
+      const hue = 95 + ratio * 40;
+      const sat = 25 + ratio * 55;
+      const light = 55 - ratio * 22;
+      return `hsl(${hue}, ${sat}%, ${light}%)`;
+    }
     
     if (metric === 'buildingDensity') {
       // Green (low density) to Red (high density)

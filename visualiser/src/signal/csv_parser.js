@@ -453,6 +453,8 @@ class GSRCSVParser {
     let osmDistMajorRoadColIdx = headers.indexOf('osm_dist_major_road');
     let osmInParkColIdx = headers.indexOf('osm_in_park');
     let osmGreenPctColIdx = headers.indexOf('osm_green_pct_50m');
+    let osmDistGreenColIdx = headers.indexOf('osm_dist_green');
+    let osmCanopyPctColIdx = headers.indexOf('osm_canopy_pct_50m');
     let osmBldDensityColIdx = headers.indexOf('osm_building_density_50m');
     let osmDistWaterColIdx = headers.indexOf('osm_dist_water');
     let osmTreeDensityColIdx = headers.indexOf('osm_tree_density_50m');
@@ -552,6 +554,8 @@ class GSRCSVParser {
       let osm_dist_major_road = osmDistMajorRoadColIdx !== -1 && cols[osmDistMajorRoadColIdx] ? parseFloat(cols[osmDistMajorRoadColIdx]) : NaN;
       let osm_in_park = osmInParkColIdx !== -1 && cols[osmInParkColIdx] ? parseInt(cols[osmInParkColIdx]) : NaN;
       let osm_green_pct_50m = osmGreenPctColIdx !== -1 && cols[osmGreenPctColIdx] ? parseFloat(cols[osmGreenPctColIdx]) : NaN;
+      let osm_dist_green = osmDistGreenColIdx !== -1 && cols[osmDistGreenColIdx] ? parseFloat(cols[osmDistGreenColIdx]) : NaN;
+      let osm_canopy_pct_50m = osmCanopyPctColIdx !== -1 && cols[osmCanopyPctColIdx] ? parseFloat(cols[osmCanopyPctColIdx]) : NaN;
       let osm_building_density_50m = osmBldDensityColIdx !== -1 && cols[osmBldDensityColIdx] ? parseFloat(cols[osmBldDensityColIdx]) : NaN;
       let osm_dist_water = osmDistWaterColIdx !== -1 && cols[osmDistWaterColIdx] ? parseFloat(cols[osmDistWaterColIdx]) : NaN;
       let osm_tree_density_50m = osmTreeDensityColIdx !== -1 && cols[osmTreeDensityColIdx] ? parseFloat(cols[osmTreeDensityColIdx]) : NaN;
@@ -585,6 +589,8 @@ class GSRCSVParser {
         osm_dist_major_road: osm_dist_major_road,
         osm_in_park: osm_in_park,
         osm_green_pct_50m: osm_green_pct_50m,
+        osm_dist_green: osm_dist_green,
+        osm_canopy_pct_50m: osm_canopy_pct_50m,
         osm_building_density_50m: osm_building_density_50m,
         osm_dist_water: osm_dist_water,
         osm_tree_density_50m: osm_tree_density_50m,

@@ -2150,7 +2150,7 @@ class GSRAnalyzer {
       if (hasEmFog)   csv += ",em_fog";
     }
     if (isEnriched) {
-      csv += ",osm_road_class,osm_dist_major_road,osm_in_park,osm_green_pct_50m,osm_building_density_50m,osm_dist_water,osm_tree_density_50m,osm_amenity_count_50m";
+      csv += ",osm_road_class,osm_dist_major_road,osm_in_park,osm_green_pct_50m,osm_dist_green,osm_canopy_pct_50m,osm_building_density_50m,osm_dist_water,osm_tree_density_50m,osm_amenity_count_50m";
     }
     csv += "\n";
 
@@ -2243,12 +2243,14 @@ class GSRAnalyzer {
         const distMajorStr = (this.raw[i].osm_dist_major_road !== null && !isNaN(this.raw[i].osm_dist_major_road)) ? this.raw[i].osm_dist_major_road.toFixed(2) : "";
         const inParkStr = (this.raw[i].osm_in_park !== null && !isNaN(this.raw[i].osm_in_park)) ? this.raw[i].osm_in_park.toString() : "";
         const greenPctStr = (this.raw[i].osm_green_pct_50m !== null && !isNaN(this.raw[i].osm_green_pct_50m)) ? this.raw[i].osm_green_pct_50m.toFixed(1) : "";
+        const distGreenStr = (this.raw[i].osm_dist_green !== null && !isNaN(this.raw[i].osm_dist_green)) ? this.raw[i].osm_dist_green.toFixed(2) : "";
+        const canopyPctStr = (this.raw[i].osm_canopy_pct_50m !== null && !isNaN(this.raw[i].osm_canopy_pct_50m)) ? this.raw[i].osm_canopy_pct_50m.toFixed(1) : "";
         const bldDensityStr = (this.raw[i].osm_building_density_50m !== null && !isNaN(this.raw[i].osm_building_density_50m)) ? this.raw[i].osm_building_density_50m.toFixed(1) : "";
         const distWaterStr = (this.raw[i].osm_dist_water !== null && !isNaN(this.raw[i].osm_dist_water)) ? this.raw[i].osm_dist_water.toFixed(2) : "";
         const treeDensStr = (this.raw[i].osm_tree_density_50m !== null && !isNaN(this.raw[i].osm_tree_density_50m)) ? this.raw[i].osm_tree_density_50m.toFixed(1) : "";
         const amCountStr = (this.raw[i].osm_amenity_count_50m !== null && !isNaN(this.raw[i].osm_amenity_count_50m)) ? this.raw[i].osm_amenity_count_50m.toFixed(1) : "";
 
-        csv += `,${roadClassStr},${distMajorStr},${inParkStr},${greenPctStr},${bldDensityStr},${distWaterStr},${treeDensStr},${amCountStr}`;
+        csv += `,${roadClassStr},${distMajorStr},${inParkStr},${greenPctStr},${distGreenStr},${canopyPctStr},${bldDensityStr},${distWaterStr},${treeDensStr},${amCountStr}`;
       }
       csv += "\n";
     }

@@ -536,3 +536,69 @@ test('calculateStats: single-value array prevents divide-by-zero by returning st
   assert.strictEqual(stats.min, 10);
   assert.strictEqual(stats.max, 10);
 });
+
+// ---------------------------------------------------------------------------
+// partialCorrelation
+// ---------------------------------------------------------------------------
+
+test('partialCorrelation: empty/short inputs return documented default', () => {
+  const res = StatsMath.partialCorrelation([], [], []);
+  assert.strictEqual(res.r, 0);
+  assert.strictEqual(res.p, 1);
+  assert.strictEqual(res.rawR, 0);
+
+  const resShort = StatsMath.partialCorrelation([1, 2], [3, 4], [5, 6]);
+  assert.strictEqual(resShort.r, 0);
+  assert.strictEqual(resShort.p, 1);
+});
+
+test('partialCorrelation: constant covariate falls back to raw correlation without error', () => {
+  const x = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const y = [2, 4, 5, 8, 10, 12, 14, 16, 17, 20];
+  const z = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3]; // zero variance
+  const res = StatsMath.partialCorrelation(x, y, z);
+  const raw = StatsMath.calculateAutocorrCorrelation(x, y);
+  closeTo(res.r, raw.r, 1e-6, 'partial r should match raw r when covariate has no variance');
+  assert.strictEqual(res.rawR, raw.r);
+});
+
+test('partialCorrelation: spurious correlation driven entirely by covariate collapses to ~0', () => {
+  // Let z be walking speed (1..100).
+  // x and y are both driven by z with independent random jitter.
+  const n = 120;
+  const x = new Array(n);
+  const y = new Array(n);
+  const z = new Array(n);
+  for (let i = 0; i < n; i++) {
+    z[i] = 0.5 + (i / n) * 1.5; // speed 0.5 .. 2.0 m/s
+    // x and y both correlate with speed, but their residuals are independent
+    x[i] = 10 * z[i] + Math.sin(i * 3.7) * 2;
+    y[i] = 15 * z[i] + Math.cos(i * 5.1) * 2;
+  }
+
+  const raw = StatsMath.calculatePearsonCorrelation(x, y);
+  assert.ok(raw.r > 0.85, `raw correlation between x and y should be high (got ${raw.r})`);
+
+  const partial = StatsMath.partialCorrelation(x, y, z);
+  assert.ok(Math.abs(partial.r) < 0.15,
+    `partial correlation should collapse toward 0 after controlling for z (got ${partial.r})`);
+  assert.ok(Number.isFinite(partial.p), 'p-value must be finite');
+  assert.ok(partial.nEff > 0, 'effective N must be positive');
+});
+
+test('partialCorrelation: direct relationship independent of covariate is preserved', () => {
+  const n = 100;
+  const x = new Array(n);
+  const y = new Array(n);
+  const z = new Array(n);
+  for (let i = 0; i < n; i++) {
+    z[i] = Math.sin(i * 1.1); // independent oscillating covariate
+    x[i] = i;
+    y[i] = 2 * i + Math.cos(i * 2.3) * 3; // strong linear link between x and y
+  }
+
+  const raw = StatsMath.calculatePearsonCorrelation(x, y);
+  const partial = StatsMath.partialCorrelation(x, y, z);
+  assert.ok(raw.r > 0.95, `raw correlation is strong (got ${raw.r})`);
+  assert.ok(partial.r > 0.90, `partial correlation remains strong (got ${partial.r})`);
+});

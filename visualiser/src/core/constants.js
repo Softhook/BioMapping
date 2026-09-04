@@ -412,7 +412,7 @@ const GSR_CONST = {
     SPEED_GATE: 0.3    // m/s — below this speed, course is unreliable so the heading penalty is skipped
   },
 
-  // The 8 OSM enrichment fields (osm_enrichment.js) and their UI metric key
+  // The 10 OSM enrichment fields (osm_enrichment.js) and their UI metric key
   // — single source of truth for key<->field<->label, shared by map.js's
   // "Map Metric" dropdown/legend and ui.js's correlation dashboard.
   //   kind: 'categorical' (roadClass)  — legend swatches; not correlatable.
@@ -424,6 +424,8 @@ const GSR_CONST = {
     { key: 'distMajorRoad',   field: 'osm_dist_major_road',        label: 'Distance to Major Road',  kind: 'continuous', unit: 'm' },
     { key: 'inPark',          field: 'osm_in_park',                label: 'In Park / Green Space',   kind: 'binary' },
     { key: 'greenPct',        field: 'osm_green_pct_50m',          label: 'Green Space %',           kind: 'continuous' },
+    { key: 'distGreen',       field: 'osm_dist_green',             label: 'Distance to Green Space', kind: 'continuous', unit: 'm' },
+    { key: 'canopyPct',       field: 'osm_canopy_pct_50m',         label: 'Tree Canopy %',          kind: 'continuous' },
     { key: 'buildingDensity', field: 'osm_building_density_50m',   label: 'Building Density',        kind: 'continuous' },
     { key: 'distWater',       field: 'osm_dist_water',             label: 'Distance to Water',       kind: 'continuous', unit: 'm' },
     { key: 'treeDensity',     field: 'osm_tree_density_50m',       label: 'Tree Density',            kind: 'continuous' },

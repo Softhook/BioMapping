@@ -64,8 +64,12 @@ Object.assign(GSRMapManager.prototype, {
       const tags = geom.tags;
       if (!tags) return;
 
-      const isPark = tags.leisure === 'park' || tags.leisure === 'garden' || tags.leisure === 'nature_reserve' || tags.leisure === 'playground' || tags.landuse === 'grass' || tags.landuse === 'forest' || tags.landuse === 'meadow' || tags.landuse === 'recreation_ground' || tags.landuse === 'village_green' || tags.natural === 'wood' || tags.natural === 'scrub' || tags.natural === 'grassland' || tags.natural === 'heath';
-      const isWater = tags.natural === 'water' || tags.natural === 'wetland' || tags.waterway === 'river' || tags.waterway === 'canal' || tags.waterway === 'stream' || tags.waterway === 'drain' || tags.waterway === 'ditch' || tags.landuse === 'basin' || tags.landuse === 'reservoir';
+      // Same green / water classification the enrichment metrics use, so the
+      // drawn overlay can never disagree with green_pct / in_park / dist_water.
+      // A wetland satisfies both predicates (blue AND green); the overlay can
+      // only paint one colour, and green wins here.
+      const isPark = OSMEnricher.isGreenSpace(geom);
+      const isWater = OSMEnricher.isWaterSpace(geom);
       const isBuilding = !!tags.building;
 
       const category = isPark ? 'park' : (isWater ? 'water' : (isBuilding ? 'building' : null));

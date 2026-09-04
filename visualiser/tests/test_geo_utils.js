@@ -89,6 +89,37 @@ test('distanceToSegmentMeters: zero-length segment (both endpoints identical) de
 });
 
 // ---------------------------------------------------------------------------
+// projectPointToSegment — the snap primitive road-matching is built on. Only
+// tested transitively before (via _projectToWay comparing itself to it); these
+// are direct known-answer checks on the returned foot-of-perpendicular.
+// ---------------------------------------------------------------------------
+
+test('projectPointToSegment: interior point snaps to the foot of the perpendicular', () => {
+  // Segment A(0,0)–B(0,1) runs due east along the equator; P sits 0.001° north
+  // of its midpoint, so the closest point is (0, 0.5) and the distance is the
+  // pure latitude offset.
+  const r = GeoUtils.projectPointToSegment(0.001, 0.5, 0, 0, 0, 1);
+  closeTo(r.lat, 0, 1e-9, 'snapped lat is on the segment');
+  closeTo(r.lon, 0.5, 1e-6, 'snapped lon is the midpoint');
+  closeTo(r.distance, 0.001 * GeoUtils.METERS_PER_DEG_LAT, 0.05, 'distance = latitude offset');
+});
+
+test('projectPointToSegment: a point past an endpoint clamps to that endpoint (t in [0,1])', () => {
+  const past = GeoUtils.projectPointToSegment(0, 2, 0, 0, 0, 1);   // beyond B
+  closeTo(past.lat, 0, 1e-9);
+  closeTo(past.lon, 1, 1e-9, 'clamps to endpoint B, not the infinite line');
+
+  const before = GeoUtils.projectPointToSegment(0, -3, 0, 0, 0, 1); // behind A
+  closeTo(before.lon, 0, 1e-9, 'clamps to endpoint A');
+});
+
+test('projectPointToSegment: a point already on the segment has ~zero distance and snaps to itself', () => {
+  const r = GeoUtils.projectPointToSegment(0, 0.25, 0, 0, 0, 1);
+  closeTo(r.distance, 0, 1e-6);
+  closeTo(r.lon, 0.25, 1e-9);
+});
+
+// ---------------------------------------------------------------------------
 // chaikinSmooth
 // ---------------------------------------------------------------------------
 

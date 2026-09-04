@@ -883,6 +883,8 @@
                 <option value="distMajorRoad" disabled class="osm-option">Dist to Road</option>
                 <option value="inPark" disabled class="osm-option">In Park</option>
                 <option value="greenPct" disabled class="osm-option">Green Space</option>
+                <option value="distGreen" disabled class="osm-option">Dist to Green</option>
+                <option value="canopyPct" disabled class="osm-option">Tree Canopy</option>
                 <option value="buildingDensity" disabled class="osm-option">Building Density</option>
                 <option value="distWater" disabled class="osm-option">Dist to Water</option>
                 <option value="treeDensity" disabled class="osm-option">Tree Density</option>
@@ -981,6 +983,7 @@
             </div>
             <p class="help-text" style="margin-top: 10px; font-size: 0.78rem; color: var(--text-muted);">
               <strong>Magnitude is the headline, not significance</strong>: with this much data a trivially small <em>r</em> can still be "significant". Every <em>q</em> is also corrected for <strong>multiple comparisons</strong> (Benjamini–Hochberg FDR across the environmental factors, one family per arousal channel). A factor that barely changes along the route shows "no variation".
+              <br><strong>Walking speed control (spd-adj)</strong>: when walking speed varies, Tonic SCL shows both the raw correlation and the speed-adjusted partial correlation. A green-space link that disappears under speed control indicates gait slowing (resting or walking slower) rather than autonomic restoration alone.
               <br><strong>These are your own walks, not an experiment</strong>: environmental factors travel together (a busy road is also louder, sunnier, and walked faster), and skin response outdoors is driven partly by temperature and exertion. Read a link as "arousal tended to be higher/lower here", not "this place caused it".
               <br><strong>Tree Density and Building Density depend on how completely the area is mapped in OpenStreetMap</strong>, which varies a lot between places — a null result for these is uninformative and a positive one may partly reflect mapping effort.
             </p>

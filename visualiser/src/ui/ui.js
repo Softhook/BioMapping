@@ -1243,11 +1243,13 @@ const GSRUI = {
               const envPtTonic = (envIdxT !== -1) ? a.raw[envIdxT] : pt;
 
               // Aggregate arousal over the trailing 1 s (10 samples @ 10 Hz):
-              // mean for level, max for the phasic peak.
+              // mean for level, max for the phasic peak, mean for walking speed.
               const windowStartIdx = Math.max(0, i - 9);
               let sumVal = 0;
               let sumTonic = 0;
               let maxPhasic = 0;
+              let sumSpeed = 0;
+              let speedCount = 0;
               let count = 0;
               for (let j = windowStartIdx; j <= i; j++) {
                 if (a.raw[j]) {
@@ -1258,12 +1260,19 @@ const GSRUI = {
                   if (a.phasic && a.phasic[j]) {
                     maxPhasic = Math.max(maxPhasic, a.phasic[j].val || 0);
                   }
+                  const rawSpd = a.raw[j].speedKts;
+                  if (typeof rawSpd === 'number' && !isNaN(rawSpd)) {
+                    sumSpeed += rawSpd * 0.514444; // knots -> m/s
+                    speedCount++;
+                  }
                   count++;
                 }
               }
               const avgVal = count > 0 ? sumVal / count : pt.val;
               const avgTonic = (count > 0 && a.tonic) ? sumTonic / count : 0;
               const finalPhasic = a.phasic ? maxPhasic : 0;
+              const avgSpeed = speedCount > 0 ? sumSpeed / speedCount : ((typeof pt.speedKts === 'number' && !isNaN(pt.speedKts)) ? pt.speedKts * 0.514444 : 0);
+              const tonicSpeedMs = (envPtTonic && typeof envPtTonic.speedKts === 'number' && !isNaN(envPtTonic.speedKts)) ? envPtTonic.speedKts * 0.514444 : avgSpeed;
 
               allData.push({
                 trackId: track.id,
@@ -1271,10 +1280,13 @@ const GSRUI = {
                 val: avgVal,
                 phasic: finalPhasic,
                 tonic: avgTonic,
+                speed: avgSpeed,
                 osm_road_class: envPt.osm_road_class,
                 osm_dist_major_road: envPt.osm_dist_major_road,
                 osm_in_park: envPt.osm_in_park,
                 osm_green_pct_50m: envPt.osm_green_pct_50m,
+                osm_dist_green: envPt.osm_dist_green,
+                osm_canopy_pct_50m: envPt.osm_canopy_pct_50m,
                 osm_building_density_50m: envPt.osm_building_density_50m,
                 osm_dist_water: envPt.osm_dist_water,
                 osm_tree_density_50m: envPt.osm_tree_density_50m,
@@ -1284,10 +1296,13 @@ const GSRUI = {
                 em_fog: (typeof envPt.em_fog === 'number') ? envPt.em_fog : NaN,
                 // Environment for the tonic channel, read `tonicLatency` s back.
                 tonicEnv: {
+                  speed: tonicSpeedMs,
                   osm_road_class: envPtTonic.osm_road_class,
                   osm_dist_major_road: envPtTonic.osm_dist_major_road,
                   osm_in_park: envPtTonic.osm_in_park,
                   osm_green_pct_50m: envPtTonic.osm_green_pct_50m,
+                  osm_dist_green: envPtTonic.osm_dist_green,
+                  osm_canopy_pct_50m: envPtTonic.osm_canopy_pct_50m,
                   osm_building_density_50m: envPtTonic.osm_building_density_50m,
                   osm_dist_water: envPtTonic.osm_dist_water,
                   osm_tree_density_50m: envPtTonic.osm_tree_density_50m,
@@ -1353,7 +1368,7 @@ const GSRUI = {
           const tid = row.trackId;
           let b = byTrack.get(tid);
           if (!b) {
-            b = { xPhasic: [], phasic: [], xTonic: [], tonic: [], binX: new Map(), binPk: new Map() };
+            b = { xPhasic: [], phasic: [], xTonic: [], tonic: [], speedTonic: [], binX: new Map(), binPk: new Map() };
             byTrack.set(tid, b);
           }
           let xP = f.binary ? coerceBin(row[f.key]) : row[f.key];
@@ -1373,6 +1388,8 @@ const GSRUI = {
           if (validNum(xT)) {
             b.xTonic.push(xT);
             b.tonic.push(row.tonic);
+            const spd = (tEnv && typeof tEnv.speed === 'number' && !isNaN(tEnv.speed)) ? tEnv.speed : (row.speed || 0);
+            b.speedTonic.push(spd);
           }
         }
         const walks = [...byTrack.values()];
@@ -1412,6 +1429,29 @@ const GSRUI = {
         const chTonic  = analyse(w => w.xTonic,   w => w.tonic);
         const chPeaks  = analyse(w => w.peakBinX, w => w.peakBinY);
 
+        // Speed-adjusted partial correlation for the tonic channel
+        let chTonicSpeed;
+        if (walks.length === 1) {
+          const w = walks[0];
+          const pc = StatsMath.partialCorrelation(w.xTonic, w.tonic, w.speedTonic);
+          chTonicSpeed = { r: pc.r, p: pc.p, method: 'single', k: 1 };
+        } else {
+          const metaSpeed = StatsMath.metaCorrelation(walks.map(w => {
+            const statZ = StatsMath.calculateStats(w.speedTonic);
+            if (statZ.variance > 1e-12) {
+              const regX = StatsMath.calculateLinearRegression(w.speedTonic, w.xTonic);
+              const regY = StatsMath.calculateLinearRegression(w.speedTonic, w.tonic);
+              const resX = w.xTonic.map((v, i) => v - (regX.m * w.speedTonic[i] + regX.c));
+              const resY = w.tonic.map((v, i) => v - (regY.m * w.speedTonic[i] + regY.c));
+              return { x: resX, y: resY };
+            }
+            return { x: w.xTonic, y: w.tonic };
+          }));
+          if (metaSpeed.k < 3) chTonicSpeed = { r: metaSpeed.r, p: NaN, method: 'fewWalks', k: metaSpeed.k };
+          else if (metaSpeed.k < META_SOLID) chTonicSpeed = { r: metaSpeed.r, p: metaSpeed.p, method: 'metaProvisional', k: metaSpeed.k };
+          else chTonicSpeed = { r: metaSpeed.r, p: metaSpeed.p, method: 'meta', k: metaSpeed.k };
+        }
+
         // hasVariance = the factor actually changed. A constant predictor
         // explains no variance in arousal whatever its r. Continuous fields
         // need a coefficient of variation ≥ 1% (sx.std is floored at 1, so
@@ -1425,6 +1465,7 @@ const GSRUI = {
 
         return { name: f.name, key: f.key, n: validX.length, featureWalks: walks.length, hasVariance,
                  rPhasic: chPhasic.r, rTonic: chTonic.r, rPeaks: chPeaks.r,
+                 rTonicSpeedAdj: chTonicSpeed.r, pTonicSpeedAdj: chTonicSpeed.p, mTonicSpeedAdj: chTonicSpeed.method,
                  pPhasic: chPhasic.p, pTonic: chTonic.p, pPeaks: chPeaks.p,
                  mPhasic: chPhasic.method, mTonic: chTonic.method, mPeaks: chPeaks.method,
                  kPhasic: chPhasic.k, kTonic: chTonic.k, kPeaks: chPeaks.k };
@@ -1454,19 +1495,33 @@ const GSRUI = {
       // class with under 5 s of data are dropped.
       const ROAD_SKIP = new Set(['unclassified']);
       const roadGroups = new Map();
+      // Pass 1 — phasic arousal + the group structure, keyed by the
+      // phasic-lagged road class (env read `latency` s back). Per-walk
+      // sub-arrays: the CI's effective sample size must be estimated *within*
+      // each walk and summed, never off the walks stitched end to end (that
+      // autocorrelation runs across recording boundaries and is meaningless).
       allData.forEach(d => {
         const cls = d.osm_road_class || 'none';
         let g = roadGroups.get(cls);
         if (!g) { g = { phasicVals: [], tonicVals: [], byWalk: new Map(), peaks: 0 }; roadGroups.set(cls, g); }
         g.phasicVals.push(d.phasic);
-        g.tonicVals.push(d.tonic);
-        // Also keep per-walk sub-arrays: the CI's effective sample size must be
-        // estimated *within* each walk and summed, never off the walks stitched
-        // end to end (that autocorrelation runs across recording boundaries and
-        // is meaningless).
         let w = g.byWalk.get(d.trackId);
         if (!w) { w = { phasicVals: [], tonicVals: [] }; g.byWalk.set(d.trackId, w); }
         w.phasicVals.push(d.phasic);
+      });
+      // Pass 2 — tonic (SCL) arousal, keyed by the *tonic*-lagged road class
+      // (env read `tonicLatency` s back, a longer lag). This differs from the
+      // phasic class only where a class boundary falls between the two lags —
+      // a few metres of path — but pairing baseline arousal with the wrong-lag
+      // class is still a lag mismatch. Falls back to the phasic-lagged group
+      // when the tonic class has no group of its own, so no sample is dropped.
+      allData.forEach(d => {
+        const clsT = (d.tonicEnv && d.tonicEnv.osm_road_class) || d.osm_road_class || 'none';
+        const g = roadGroups.get(clsT) || roadGroups.get(d.osm_road_class || 'none');
+        if (!g) return;
+        g.tonicVals.push(d.tonic);
+        let w = g.byWalk.get(d.trackId);
+        if (!w) { w = { phasicVals: [], tonicVals: [] }; g.byWalk.set(d.trackId, w); }
         w.tonicVals.push(d.tonic);
       });
 
@@ -1487,10 +1542,13 @@ const GSRUI = {
         if (ROAD_SKIP.has(key)) return;
         const n = val.phasicVals.length;
         if (n < 5) return;
+        // Tonic count can differ from n by a handful of samples now it's routed
+        // by its own lag (pass 2 above) — divide each moment by its own count.
+        const nT = val.tonicVals.length;
         const meanPhasic = val.phasicVals.reduce((s, v) => s + v, 0) / n;
-        const meanTonic = val.tonicVals.reduce((s, v) => s + v, 0) / n;
+        const meanTonic = nT > 0 ? val.tonicVals.reduce((s, v) => s + v, 0) / nT : 0;
         const stdPhasic = Math.sqrt(val.phasicVals.reduce((s, v) => s + (v - meanPhasic) ** 2, 0) / n);
-        const stdTonic = Math.sqrt(val.tonicVals.reduce((s, v) => s + (v - meanTonic) ** 2, 0) / n);
+        const stdTonic = nT > 0 ? Math.sqrt(val.tonicVals.reduce((s, v) => s + (v - meanTonic) ** 2, 0) / nT) : 0;
         // CI uses the effective sample size, not the raw second count:
         // consecutive 1 Hz EDA samples are correlated, so sqrt(n) overstates
         // precision. Effective N is summed over per-walk estimates so the
@@ -1558,9 +1616,10 @@ const GSRUI = {
     // ── Render from the cache ─────────────────────────────────────────────
     const cachedStats = cacheTarget._cachedEnvStats;
     const hasEmFog = cachedStats.correlationMatrix.some(r => r.key === 'em_fog');
+    const hasSpeed = (cachedStats.allData || []).some(d => typeof d.speed === 'number' && d.speed > 0);
 
     // enriched-walk count is cached; totalWalks (incl. not-yet-enriched) is live.
-    GSRUI.syncScatterEnvOptions(hasEmFog);
+    GSRUI.syncScatterEnvOptions(hasEmFog, hasSpeed);
     GSRUI.renderCorrelationTable(cachedStats.correlationMatrix, cachedStats.trackCount, totalWalks);
     GSRUI.drawRegressionScatterPlot(cachedStats.allData);
     GSRUI.renderRoadProfile(cachedStats.roadProfile, cachedStats.roadComparison);
@@ -1568,17 +1627,18 @@ const GSRUI = {
 
   /**
    * Rebuild the #scatterEnvMetric <option> list from GSR_CONST.OSM_METRICS
-   * (continuous + binary) plus EM Fog when present, keeping it in step with
-   * the correlation-matrix feature set. Preserves the current selection when
-   * still valid; no-ops when the option set is unchanged.
+   * (continuous + binary) plus EM Fog and Walking Speed when present, keeping
+   * it in step with the correlation-matrix feature set. Preserves the current
+   * selection when still valid; no-ops when the option set is unchanged.
    */
-  syncScatterEnvOptions(hasEmFog) {
+  syncScatterEnvOptions(hasEmFog, hasSpeed = false) {
     const sel = document.getElementById('scatterEnvMetric');
     if (!sel) return;
     const opts = GSR_CONST.OSM_METRICS
       .filter(m => m.kind === 'continuous' || m.kind === 'binary')
       .map(m => ({ value: m.field, label: m.unit ? `${m.label} (${m.unit})` : m.label }));
     if (hasEmFog) opts.push({ value: 'em_fog', label: 'EM Fog Index (0-100)' });
+    if (hasSpeed) opts.push({ value: 'speed', label: 'Walking Speed (m/s)' });
 
     const signature = opts.map(o => o.value).join(',');
     if (sel.dataset.optionSig === signature) return; // already current
@@ -1680,20 +1740,29 @@ const GSRUI = {
       const bestBand = GSRUI.correlationBand(best.r);
       if (bestBand.key === 'negligible') return 'No link to arousal — effect sizes are negligible';
 
+      let speedNote = '';
+      if (row.hasVariance && typeof row.rTonicSpeedAdj === 'number' && isFinite(row.rTonicSpeedAdj)) {
+        const rawBand = GSRUI.correlationBand(row.rTonic);
+        const adjBand = GSRUI.correlationBand(row.rTonicSpeedAdj);
+        if (rawBand.key !== 'negligible' && adjBand.key === 'negligible') {
+          speedNote = ' (tonic link becomes negligible after controlling for walking speed)';
+        }
+      }
+
       if (best.m === 'meta') {
         // Raw meta p < .05 but q ≥ .05 → real-looking, just doesn't clear the
         // multiple-comparison bar. Worth flagging as suggestive, not "nothing".
         const rawSig = typeof best.p === 'number' && isFinite(best.p) && best.p < 0.05;
         if (rawSig) {
           return `Suggestive ${bestBand.label} link to ${dirWord(best.r)} ${best.name} ` +
-                 `(r = ${best.r.toFixed(2)}, p = ${formatP(best.p)} before correction) — doesn't survive correction for testing every factor; more walks may confirm`;
+                 `(r = ${best.r.toFixed(2)}, p = ${formatP(best.p)} before correction) — doesn't survive correction for testing every factor; more walks may confirm${speedNote}`;
         }
-        return `Apparent ${bestBand.label} link to ${dirWord(best.r)} ${best.name} (r = ${best.r.toFixed(2)}) — inconsistent across the ${best.k} walks it varied in`;
+        return `Apparent ${bestBand.label} link to ${dirWord(best.r)} ${best.name} (r = ${best.r.toFixed(2)}) — inconsistent across the ${best.k} walks it varied in${speedNote}`;
       }
       if (best.m === 'metaProvisional' || best.m === 'fewWalks') {
-        return `${cap(bestBand.label)} link to ${dirWord(best.r)} ${best.name} (r = ${best.r.toFixed(2)}) — but this factor varied in only ${best.k} of ${used} walks; need 5 to test consistency`;
+        return `${cap(bestBand.label)} link to ${dirWord(best.r)} ${best.name} (r = ${best.r.toFixed(2)}) — but this factor varied in only ${best.k} of ${used} walks; need 5 to test consistency${speedNote}`;
       }
-      return `Apparent ${bestBand.label} link to ${dirWord(best.r)} ${best.name} (r = ${best.r.toFixed(2)}) — not statistically reliable from this data`;
+      return `Apparent ${bestBand.label} link to ${dirWord(best.r)} ${best.name} (r = ${best.r.toFixed(2)}) — not statistically reliable from this data${speedNote}`;
     };
 
     matrix.forEach(row => {
@@ -1702,7 +1771,9 @@ const GSRUI = {
       // constant factor; else the effect-size band, tagged with the verdict
       // ("· n.s." when tested and q ≥ .05) or, when there aren't enough walks
       // to test, "· k/N" (varied in k of the N analysed walks).
-      const cell = (r, q, m, k) => {
+      // If speedAdjR is provided (Tonic channel), shows the walking-speed-adjusted
+      // partial correlation beneath it.
+      const cell = (r, q, m, k, speedAdjR) => {
         const dir = Math.abs(r) < 0.10 ? 'dir-none' : (r >= 0 ? 'dir-pos' : 'dir-neg');
         let chip;
         if (!row.hasVariance) {
@@ -1719,13 +1790,20 @@ const GSRUI = {
           const muted = tag ? ' mag-ns' : '';
           chip = `<span class="mag-chip mag-${band.key}${muted}">${band.label}${tag}</span>`;
         }
-        return `<td class="corr-cell"><span class="corr-num ${dir}">${r.toFixed(3)}</span>${chip}</td>`;
+        let speedInfo = '';
+        if (row.hasVariance && typeof speedAdjR === 'number' && isFinite(speedAdjR) && Math.abs(speedAdjR - r) >= 0.02) {
+          const adjBand = GSRUI.correlationBand(speedAdjR);
+          const moved = adjBand.key !== GSRUI.correlationBand(r).key;
+          const style = moved ? 'color: #e67e22; font-weight: 500;' : 'color: var(--text-muted);';
+          speedInfo = `<div class="corr-speed-adj" style="font-size: 0.72rem; ${style} margin-top: 2px;" title="Partial correlation controlling for walking speed (m/s)">spd-adj: ${speedAdjR.toFixed(2)} (${adjBand.label})</div>`;
+        }
+        return `<td class="corr-cell"><span class="corr-num ${dir}">${r.toFixed(3)}</span>${chip}${speedInfo}</td>`;
       };
       const qCell = (q, m) => (row.hasVariance && isTested(m) && typeof q === 'number' && isFinite(q)) ? formatP(q) : '—';
       tr.innerHTML = `
         <td><strong>${row.name}</strong></td>
         ${cell(row.rPhasic, row.qPhasic, row.mPhasic, row.kPhasic)}
-        ${cell(row.rTonic, row.qTonic, row.mTonic, row.kTonic)}
+        ${cell(row.rTonic, row.qTonic, row.mTonic, row.kTonic, row.rTonicSpeedAdj)}
         ${cell(row.rPeaks, row.qPeaks, row.mPeaks, row.kPeaks)}
         <td>${qCell(row.qPhasic, row.mPhasic)}</td>
         <td>${qCell(row.qTonic, row.mTonic)}</td>
@@ -1909,6 +1987,7 @@ const GSRUI = {
       .filter(m => m.kind === 'continuous' || m.kind === 'binary')
       .forEach(m => { xLabels[m.field] = m.unit ? `${m.label} (${m.unit})` : m.label; });
     xLabels['em_fog'] = 'EM Fog Index (0-100)';
+    xLabels['speed'] = 'Walking Speed (m/s)';
     
     const yLabels = {
       'phasic': 'Phasic (momentary arousal)',

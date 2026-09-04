@@ -83,6 +83,8 @@ function buildEnrichedAnalyzer() {
     pt.osm_dist_major_road = 20 + (i % 50);
     pt.osm_in_park = (i % 5 === 0);
     pt.osm_green_pct_50m = (i % 100) / 100;
+    pt.osm_dist_green = (i % 7 === 0) ? 999 : (i % 60);   // some "no green in range", rest a real distance
+    pt.osm_canopy_pct_50m = (i % 50) * 2;                 // 0..98 %
     pt.osm_building_density_50m = ((i * 7) % 100) / 100;
     pt.osm_dist_water = 100 + (i % 200);
     pt.osm_tree_density_50m = ((i * 3) % 100) / 100;
@@ -172,6 +174,12 @@ test('updateEnvironmentalDashboard (single mode): correlation matrix carries FDR
   // Binary "in park" is now correlated (point-biserial), not dropped as categorical.
   assert.ok(stats.correlationMatrix.some(r => r.key === 'osm_in_park'),
     'osm_in_park present as a correlation feature');
+  // Distance-to-green-space (the visual-perception channel) and tree-canopy %
+  // are continuous features, picked up from OSM_METRICS automatically.
+  assert.ok(stats.correlationMatrix.some(r => r.key === 'osm_dist_green'),
+    'osm_dist_green present as a correlation feature');
+  assert.ok(stats.correlationMatrix.some(r => r.key === 'osm_canopy_pct_50m'),
+    'osm_canopy_pct_50m present as a correlation feature');
   // Road Class stays out (genuinely multi-level categorical).
   assert.ok(!stats.correlationMatrix.some(r => r.key === 'osm_road_class'),
     'osm_road_class still excluded');
@@ -309,8 +317,8 @@ test('updateEnvironmentalDashboard: tonic gets its own longer-lag environment, P
   assert.ok(stats.allData.length > 0);
   stats.allData.forEach(d => {
     assert.ok(d.tonicEnv && typeof d.tonicEnv === 'object', 'row has tonicEnv');
-    assert.ok('osm_green_pct_50m' in d.tonicEnv && 'osm_road_class' in d.tonicEnv && 'em_fog' in d.tonicEnv,
-      'tonicEnv carries the OSM fields + em_fog');
+    assert.ok('osm_green_pct_50m' in d.tonicEnv && 'osm_dist_green' in d.tonicEnv && 'osm_canopy_pct_50m' in d.tonicEnv && 'osm_road_class' in d.tonicEnv && 'em_fog' in d.tonicEnv,
+      'tonicEnv carries the OSM fields (incl. dist_green + canopy_pct) + em_fog');
   });
 
   // Peaks are correlated at 15 s resolution, so a walk needs ~150 s of usable
@@ -332,6 +340,41 @@ test('updateEnvironmentalDashboard: tonic gets its own longer-lag environment, P
         `${r.key}: qPhasic from a phasic-only BH family (${r.qPhasic} vs ${expectedQ[i]})`);
     }
   });
+});
+
+test('updateEnvironmentalDashboard: the road profile groups tonic arousal by the tonic-lagged road class, not the phasic-lagged one', () => {
+  const a = buildEnrichedAnalyzer();
+
+  // Latency 2 s (phasic) vs 8 s (tonic, ×4). Flip the road class every 6 s so
+  // that for a given sample the class 2 s back and the class 8 s back are one
+  // block apart — i.e. always the *opposite* class.
+  a.raw.forEach((pt) => {
+    pt.osm_road_class = (Math.floor(pt.time / 6) % 2 === 0) ? 'service' : 'primary';
+  });
+  // Make the tonic signal a step function keyed to the class 8 s earlier: high
+  // (100) when the tonic-lag class is 'service', low (1) when it is 'primary'.
+  a.raw.forEach((pt, i) => {
+    if (!a.tonic || !a.tonic[i]) return;
+    const tonicClassIsService = (Math.floor((pt.time - 8) / 6) % 2 === 0);
+    a.tonic[i].val = tonicClassIsService ? 100 : 1;
+  });
+
+  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+  GSRUI.updateEnvironmentalDashboard();
+  const prof = a._cachedEnvStats.roadProfile;
+  const service = prof.find(p => p.name === 'service');
+  const primary = prof.find(p => p.name === 'primary');
+  assert.ok(service && primary, 'both road classes profiled');
+  assert.ok(service.timeSpent >= 10 && primary.timeSpent >= 10,
+    `sanity: the fixture gave each class enough samples to profile (service ${service.timeSpent}s, primary ${primary.timeSpent}s)`);
+
+  // Correct (tonic-lag) routing: 'service' collects the high-tonic samples,
+  // 'primary' the low ones. Phasic-lag routing (the old bug) would swap them,
+  // because a sample whose phasic class is 'service' has tonic class 'primary'.
+  assert.ok(service.meanTonic > 60,
+    `'service' meanTonic (${service.meanTonic.toFixed(1)}) reflects tonic-lag routing (≈100), not phasic-lag (≈1)`);
+  assert.ok(primary.meanTonic < 40,
+    `'primary' meanTonic (${primary.meanTonic.toFixed(1)}) reflects tonic-lag routing (≈1), not phasic-lag (≈100)`);
 });
 
 test('updateEnvironmentalDashboard (collective mode): only enriched tracks are analysed; un-enriched ones are ignored', () => {
@@ -439,4 +482,25 @@ test('renderCorrelationTable: interpretation distinguishes "suggestive" (raw p<.
     global.document = savedDoc;
     global.requestAnimationFrame = savedRAF;
   }
+});
+
+test('updateEnvironmentalDashboard (single mode): computes speed-adjusted partial correlation on tonic channel', () => {
+  const a = buildEnrichedAnalyzer();
+  // Stamp speed values (knots) with variation on the raw track
+  a.raw.forEach((pt, i) => {
+    pt.speedKts = 1.0 + (i % 20) * 0.1; // varying speed
+  });
+  global.AppState = { viewMode: 'single', analyzer: a, activeTrackId: 'trkA' };
+
+  GSRUI.updateEnvironmentalDashboard();
+  const stats = a._cachedEnvStats;
+
+  assert.ok(stats.allData.some(d => typeof d.speed === 'number' && d.speed > 0),
+    'allData contains positive walking speed in m/s');
+
+  const row = stats.correlationMatrix.find(r => r.key === 'osm_green_pct_50m');
+  assert.ok(row, 'osm_green_pct_50m row present');
+  assert.ok('rTonicSpeedAdj' in row, 'rTonicSpeedAdj is present on correlation row');
+  assert.ok(Number.isFinite(row.rTonicSpeedAdj), `rTonicSpeedAdj is a finite number, got ${row.rTonicSpeedAdj}`);
+  assert.ok('pTonicSpeedAdj' in row, 'pTonicSpeedAdj is present on correlation row');
 });

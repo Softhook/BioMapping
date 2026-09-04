@@ -186,6 +186,33 @@ console.log('\n── OSMEnricher: reconstructGeometries ──');
   assert(third !== first, 'reconstructGeometries — a different osmJson object (even with identical content) is rebuilt fresh, not cache-hit by content');
 }
 
+// 2d. Multipolygon relation with a hole: role:'inner' members resolve into
+// innerWays, role:'outer' (and anything else) into outerWays.
+{
+  const osmJson = {
+    elements: [
+      { type: 'node', id: 40, lat: 51.500, lon: -0.100 },
+      { type: 'node', id: 41, lat: 51.500, lon: -0.090 },
+      { type: 'node', id: 42, lat: 51.510, lon: -0.090 },
+      { type: 'node', id: 43, lat: 51.510, lon: -0.100 },
+      { type: 'node', id: 50, lat: 51.503, lon: -0.097 },
+      { type: 'node', id: 51, lat: 51.503, lon: -0.093 },
+      { type: 'node', id: 52, lat: 51.507, lon: -0.093 },
+      { type: 'node', id: 53, lat: 51.507, lon: -0.097 },
+      { type: 'way', id: 400, nodes: [40, 41, 42, 43, 40] },   // outer ring
+      { type: 'way', id: 401, nodes: [50, 51, 52, 53, 50] },   // inner ring (hole)
+      { type: 'relation', id: 500, tags: { leisure: 'park' }, members: [
+        { type: 'way', ref: 400, role: 'outer' },
+        { type: 'way', ref: 401, role: 'inner' },
+      ] },
+    ]
+  };
+  const geoms = OSMEnricher.reconstructGeometries(osmJson);
+  assertEq(geoms.relations[0].outerWays.length, 1, 'reconstructGeometries — outer member → outerWays');
+  assertEq(geoms.relations[0].innerWays.length, 1, 'reconstructGeometries — inner member → innerWays (hole)');
+  assertEq(geoms.relations[0].innerWays[0].coordinates.length, 5, 'reconstructGeometries — inner ring geometry resolved');
+}
+
 // ════════════════════════════════════════════════════════════════════════
 //  3. OSMEnricher — spatial hash index
 // ════════════════════════════════════════════════════════════════════════
@@ -349,16 +376,17 @@ const allGeoms = [roadGeom, buildingGeom, waterGeom, treeGeom, cafeGeom, parkGeo
   assertEq(m.greenSpacePct, 0, '_evaluatePosition — sampling grid entirely outside park → 0%');
 }
 
-// 5c. Querying exactly at each feature's own coordinate (distance ≈ 0) counts it
+// 5c. Querying on/at each feature (distance ≈ 0) counts it — exactly once,
+//     since allGeoms holds a single building / tree / amenity.
 {
-  const mBuilding = OSMEnricher._evaluatePosition(51.5002, -0.1009, allGeoms, 50); // building centroid
-  assert(mBuilding.buildingDensity >= 1, '_evaluatePosition — building counted at its own centroid');
+  const mBuilding = OSMEnricher._evaluatePosition(51.5002, -0.1009, allGeoms, 50); // on the footprint
+  assertEq(mBuilding.buildingDensity, 1, '_evaluatePosition — the one building is counted (once) when the query point is on it');
 
   const mTree = OSMEnricher._evaluatePosition(treeGeom.lat, treeGeom.lon, allGeoms, 50);
-  assert(mTree.treeDensity >= 1, '_evaluatePosition — tree counted at its own coordinate');
+  assertEq(mTree.treeDensity, 1, '_evaluatePosition — the one tree is counted (once) at its own coordinate');
 
   const mCafe = OSMEnricher._evaluatePosition(cafeGeom.lat, cafeGeom.lon, allGeoms, 50);
-  assert(mCafe.amenityCount >= 1, '_evaluatePosition — amenity counted at its own coordinate');
+  assertEq(mCafe.amenityCount, 1, '_evaluatePosition — the one amenity is counted (once) at its own coordinate');
 }
 
 // 5e. A close motor-traffic road (<=25 m) takes the road-class label over a
@@ -390,6 +418,313 @@ const allGeoms = [roadGeom, buildingGeom, waterGeom, treeGeom, cafeGeom, parkGeo
     '_evaluatePosition — a vehicular road >25 m off does not relabel a location on a footway');
 }
 
+// 5f. Non-road `highway=*` values (point features, lifecycle tags) are ignored
+//     for road classification — the unfiltered `way["highway"]` query pulls
+//     them in but they must not win the class label or seed a Roads Profile row.
+{
+  const construction = {
+    type: 'way', id: 'con', tags: { highway: 'construction' },
+    coordinates: [{ lat: 51.49995, lon: -0.10000 }, { lat: 51.50005, lon: -0.10000 }]  // ~0 m
+  };
+  const platform = {
+    type: 'way', id: 'plat', tags: { highway: 'platform' },
+    coordinates: [{ lat: 51.49995, lon: -0.09999 }, { lat: 51.50005, lon: -0.09999 }]  // ~1 m
+  };
+  const onlyJunk = OSMEnricher._evaluatePosition(51.5000, -0.1000, [construction, platform], 50);
+  assertEq(onlyJunk.roadClass, 'none',
+    '_evaluatePosition — construction / platform highways do not become the road class');
+
+  const residential = {
+    type: 'way', id: 'res3', tags: { highway: 'residential' },
+    coordinates: [{ lat: 51.49990, lon: -0.09980 }, { lat: 51.50010, lon: -0.09980 }]  // ~14 m
+  };
+  const mix = OSMEnricher._evaluatePosition(51.5000, -0.1000, [construction, residential], 50);
+  assertEq(mix.roadClass, 'residential',
+    '_evaluatePosition — a real road wins even when a closer highway is a lifecycle/non-road tag');
+}
+
+// 5g. Buildings are counted by nearest footprint edge (not centroid) and
+//     multipolygon `relation["building"]` footprints count too.
+{
+  const bigBldg = {
+    type: 'way', id: 'big', tags: { building: 'commercial' },
+    coordinates: [
+      { lat: 51.50010, lon: -0.10000 },   // near edge ~11 m N of the query point
+      { lat: 51.50010, lon: -0.09800 },   // footprint extends ~140 m east
+      { lat: 51.50200, lon: -0.09800 },
+      { lat: 51.50200, lon: -0.10000 },
+      { lat: 51.50010, lon: -0.10000 }
+    ]
+  };
+  const mBig = OSMEnricher._evaluatePosition(51.5000, -0.1000, [bigBldg], 50);
+  assertEq(mBig.buildingDensity, 1,
+    '_evaluatePosition — large building counted by its near edge though its centroid is >50 m away');
+
+  const bldgRelation = {
+    type: 'relation', id: 'br1', tags: { building: 'yes' },
+    outerWays: [{ coordinates: [
+      { lat: 51.50005, lon: -0.10005 }, { lat: 51.50005, lon: -0.09995 },
+      { lat: 51.50015, lon: -0.09995 }, { lat: 51.50015, lon: -0.10005 },
+      { lat: 51.50005, lon: -0.10005 }
+    ] }]
+  };
+  const mRel = OSMEnricher._evaluatePosition(51.5000, -0.1000, [bldgRelation], 50);
+  assertEq(mRel.buildingDensity, 1,
+    '_evaluatePosition — a multipolygon relation building is counted');
+
+  const farRel = {
+    type: 'relation', id: 'br2', tags: { building: 'yes' },
+    outerWays: [{ coordinates: [
+      { lat: 51.50300, lon: -0.10300 }, { lat: 51.50300, lon: -0.10290 },
+      { lat: 51.50310, lon: -0.10290 }, { lat: 51.50310, lon: -0.10300 },
+      { lat: 51.50300, lon: -0.10300 }
+    ] }]
+  };
+  const mFarRel = OSMEnricher._evaluatePosition(51.5000, -0.1000, [farRel], 50);
+  assertEq(mFarRel.buildingDensity, 0,
+    '_evaluatePosition — a relation building well outside the radius is not counted');
+}
+
+// 5h. Roads nearby but none of them a major road → the nearest way still sets
+//     roadClass, but distMajorRoad stays at the 999 "none" sentinel.
+{
+  const residential = {
+    type: 'way', id: 'r-only', tags: { highway: 'residential' },
+    coordinates: [{ lat: 51.49990, lon: -0.10000 }, { lat: 51.50010, lon: -0.10000 }]
+  };
+  const m = OSMEnricher._evaluatePosition(51.5000, -0.10010, [residential], 50);
+  assertEq(m.roadClass, 'residential',
+    '_evaluatePosition — nearest non-major road still classifies the location');
+  assertEq(m.distMajorRoad, 999,
+    '_evaluatePosition — no motorway/trunk/primary/secondary nearby → distMajorRoad sentinel 999');
+}
+
+// 5i. Water distance is also computed for multipolygon `relation` water bodies
+//     (a lake mapped as natural=water on a relation), not just `way` water.
+{
+  const lakeRelation = {
+    type: 'relation', id: 'lake', tags: { natural: 'water' },
+    outerWays: [{ coordinates: [
+      { lat: 51.50030, lon: -0.10030 }, { lat: 51.50030, lon: -0.09970 },
+      { lat: 51.50070, lon: -0.09970 }, { lat: 51.50070, lon: -0.10030 },
+      { lat: 51.50030, lon: -0.10030 }
+    ] }]
+  };
+  const m = OSMEnricher._evaluatePosition(51.5000, -0.1000, [lakeRelation], 80);
+  const nearestEdge = GeoUtils.distanceToSegmentMeters(
+    51.5000, -0.1000, 51.50030, -0.10030, 51.50030, -0.09970);
+  assert(m.distWater < 999,
+    '_evaluatePosition — a relation water body produces a real distance, not the sentinel');
+  assertClose(m.distWater, nearestEdge, 1.5,
+    '_evaluatePosition — relation water distance matches the nearest outer-ring edge');
+}
+
+// 5j. Amenity count spans shops (any `shop=*`), bus stops (`highway=bus_stop`),
+//     and way-mapped amenities (counted at their centroid); an `amenity=*`
+//     value not in AMENITY_TYPES does not count.
+{
+  const shopNode  = { type: 'node', id: 's1', tags: { shop: 'bakery' },       lat: 51.50010, lon: -0.1000 };
+  const busStop   = { type: 'node', id: 'b1', tags: { highway: 'bus_stop' },  lat: 51.50000, lon: -0.10015 };
+  const benchNode = { type: 'node', id: 'x1', tags: { amenity: 'bench' },     lat: 51.50005, lon: -0.1000 };
+  const cafeWay   = {
+    type: 'way', id: 'w1', tags: { amenity: 'cafe' },
+    coordinates: [
+      { lat: 51.49995, lon: -0.09990 }, { lat: 51.49995, lon: -0.09985 },
+      { lat: 51.50005, lon: -0.09985 }, { lat: 51.50005, lon: -0.09990 }
+    ]
+  };
+  const m = OSMEnricher._evaluatePosition(51.5000, -0.1000, [shopNode, busStop, benchNode, cafeWay], 50);
+  assertEq(m.amenityCount, 3,
+    '_evaluatePosition — shop + bus stop + way-mapped cafe counted; amenity=bench (not in AMENITY_TYPES) excluded');
+}
+
+// 5k. Green space is recognised via `landuse` and `natural` tags too (not only
+//     `leisure`), and a multipolygon relation's inner ring (a hole) is excluded
+//     from the "in park" test.
+{
+  const forestWay = {
+    type: 'way', id: 'forest', tags: { landuse: 'forest' },
+    coordinates: [
+      { lat: 51.49990, lon: -0.10010 }, { lat: 51.49990, lon: -0.09990 },
+      { lat: 51.50010, lon: -0.09990 }, { lat: 51.50010, lon: -0.10010 },
+      { lat: 51.49990, lon: -0.10010 }
+    ]
+  };
+  assertEq(OSMEnricher._evaluatePosition(51.5000, -0.1000, [forestWay], 20).inPark, 1,
+    '_evaluatePosition — landuse=forest counts as green space');
+
+  const heathWay = {
+    type: 'way', id: 'heath', tags: { natural: 'heath' },
+    coordinates: forestWay.coordinates.map(c => ({ ...c }))
+  };
+  assertEq(OSMEnricher._evaluatePosition(51.5000, -0.1000, [heathWay], 20).inPark, 1,
+    '_evaluatePosition — natural=heath counts as green space');
+
+  const parkWithHole = {
+    type: 'relation', id: 'ph', tags: { leisure: 'park' },
+    outerWays: [{ coordinates: [
+      { lat: 51.4990, lon: -0.1010 }, { lat: 51.4990, lon: -0.0990 },
+      { lat: 51.5010, lon: -0.0990 }, { lat: 51.5010, lon: -0.1010 },
+      { lat: 51.4990, lon: -0.1010 }
+    ] }],
+    innerWays: [{ coordinates: [
+      { lat: 51.4998, lon: -0.1002 }, { lat: 51.4998, lon: -0.0998 },
+      { lat: 51.5002, lon: -0.0998 }, { lat: 51.5002, lon: -0.1002 },
+      { lat: 51.4998, lon: -0.1002 }
+    ] }]
+  };
+  assertEq(OSMEnricher._evaluatePosition(51.5000, -0.1000, [parkWithHole], 20).inPark, 0,
+    '_evaluatePosition — a point inside the relation\'s inner ring (hole) is NOT in the park');
+  assertEq(OSMEnricher._evaluatePosition(51.5006, -0.1000, [parkWithHole], 20).inPark, 1,
+    '_evaluatePosition — inside the outer ring but outside the hole → in the park');
+}
+
+// 5l. natural=wetland is BOTH blue and green: it counts toward dist_water AND
+//     toward in_park / green_pct from the one feature. leisure=playground is
+//     NOT green (rubber surfacing + steel, not vegetated nature).
+{
+  const wetlandWay = {
+    type: 'way', id: 'marsh', tags: { natural: 'wetland' },
+    coordinates: [
+      { lat: 51.4995, lon: -0.1005 }, { lat: 51.4995, lon: -0.0995 },
+      { lat: 51.5005, lon: -0.0995 }, { lat: 51.5005, lon: -0.1005 },
+      { lat: 51.4995, lon: -0.1005 }
+    ]
+  };
+  assert(OSMEnricher.isGreenSpace(wetlandWay), 'isGreenSpace(natural=wetland) → true');
+  assert(OSMEnricher.isWaterSpace(wetlandWay), 'isWaterSpace(natural=wetland) → true (still blue)');
+
+  const m = OSMEnricher._evaluatePosition(51.5000, -0.1000, [wetlandWay], 20);
+  assertEq(m.inPark, 1, '_evaluatePosition — inside a wetland → in_park = 1 (wetland is green)');
+  assertEq(m.greenSpacePct, 100, '_evaluatePosition — sampling grid inside the wetland → 100% green');
+  assertEq(m.distGreen, 0, '_evaluatePosition — standing in the wetland → dist_green = 0');
+  const expWater = GeoUtils.distanceToSegmentMeters(51.5000, -0.1000, 51.4995, -0.0995, 51.5005, -0.0995);
+  assert(m.distWater < 999, '_evaluatePosition — the same wetland also produces a real dist_water (still blue)');
+  assertClose(m.distWater, expWater, 0.5, '_evaluatePosition — wetland dist_water is the distance to its nearest edge');
+
+  const playgroundWay = {
+    type: 'way', id: 'pg', tags: { leisure: 'playground' },
+    coordinates: [
+      { lat: 51.4998, lon: -0.1002 }, { lat: 51.4998, lon: -0.0998 },
+      { lat: 51.5002, lon: -0.0998 }, { lat: 51.5002, lon: -0.1002 },
+      { lat: 51.4998, lon: -0.1002 }
+    ]
+  };
+  assert(!OSMEnricher.isGreenSpace(playgroundWay), 'isGreenSpace(leisure=playground) → false');
+  const mp = OSMEnricher._evaluatePosition(51.5000, -0.1000, [playgroundWay], 15);
+  assertEq(mp.inPark, 0, '_evaluatePosition — standing on a playground → in_park = 0 (not green space)');
+  assertEq(mp.greenSpacePct, 0, '_evaluatePosition — playground contributes 0% green coverage');
+  assertEq(mp.distGreen, 999, '_evaluatePosition — a playground is not green, so it does not set dist_green');
+}
+
+// 5m. osm_dist_green — the "you can see the park from here" channel: 0 inside a
+//     green space, the edge distance when outside it, and for a green space
+//     with a hole, the distance to the *nearest* boundary (inner hole edge
+//     included), not the far outer ring.
+{
+  const park = {
+    type: 'way', id: 'park5m', tags: { leisure: 'park' },
+    coordinates: [
+      { lat: 51.5010, lon: -0.1010 }, { lat: 51.5010, lon: -0.0990 },
+      { lat: 51.5030, lon: -0.0990 }, { lat: 51.5030, lon: -0.1010 },
+      { lat: 51.5010, lon: -0.1010 }
+    ]
+  };
+  // A point ~55 m south of the park's southern edge (lat 51.5010).
+  const outside = OSMEnricher._evaluatePosition(51.5005, -0.1000, [park], 50);
+  assertEq(outside.inPark, 0, '_evaluatePosition — point is outside the park');
+  const expEdge = GeoUtils.distanceToSegmentMeters(51.5005, -0.1000, 51.5010, -0.1010, 51.5010, -0.0990);
+  assertClose(outside.distGreen, expEdge, 0.5,
+    '_evaluatePosition — dist_green outside a park is the distance to its nearest edge');
+  assert(outside.distGreen > 0 && outside.distGreen < 999,
+    '_evaluatePosition — a nearby-but-not-entered park gives a real dist_green, not 0 and not the sentinel');
+
+  // Inside the same park → 0.
+  assertEq(OSMEnricher._evaluatePosition(51.5020, -0.1000, [park], 30).distGreen, 0,
+    '_evaluatePosition — inside the park → dist_green = 0');
+
+  // No green anywhere in range → sentinel.
+  assertEq(OSMEnricher._evaluatePosition(51.5005, -0.1000, [], 50).distGreen, 999,
+    '_evaluatePosition — no green space in range → dist_green sentinel 999');
+
+  // Green space with a hole: standing in the hole is NOT in the park, and the
+  // nearest green boundary is the inner (hole) ring, not the distant outer ring.
+  const parkWithHole = {
+    type: 'relation', id: 'phole', tags: { leisure: 'park' },
+    outerWays: [{ coordinates: [
+      { lat: 51.4980, lon: -0.1040 }, { lat: 51.4980, lon: -0.0960 },
+      { lat: 51.5020, lon: -0.0960 }, { lat: 51.5020, lon: -0.1040 },
+      { lat: 51.4980, lon: -0.1040 }
+    ] }],
+    innerWays: [{ coordinates: [
+      { lat: 51.4998, lon: -0.1004 }, { lat: 51.4998, lon: -0.0996 },
+      { lat: 51.5002, lon: -0.0996 }, { lat: 51.5002, lon: -0.1004 },
+      { lat: 51.4998, lon: -0.1004 }
+    ] }]
+  };
+  const inHole = OSMEnricher._evaluatePosition(51.5000, -0.1000, [parkWithHole], 40);
+  assertEq(inHole.inPark, 0, '_evaluatePosition — a point inside the hole is not in the park');
+  const expInner = GeoUtils.distanceToSegmentMeters(51.5000, -0.1000, 51.5002, -0.0996, 51.5002, -0.1004);
+  assertClose(inHole.distGreen, expInner, 1.0,
+    '_evaluatePosition — dist_green from inside a hole is the distance to the inner (hole) ring, not the far outer ring');
+  assert(inHole.distGreen < 60,
+    '_evaluatePosition — the hole edge (~22 m) is much nearer than the outer ring (~220 m)');
+}
+
+// 5n. osm_canopy_pct_50m — "am I under / among trees", the other half of
+//     perceived green: wood/forest polygons, plus a ~10 m buffer around
+//     natural=tree_row ways and natural=tree nodes. Independent of green_pct
+//     (a grass park has green_pct high, canopy_pct 0).
+{
+  // A wood polygon big enough to contain the whole 20 m sampling grid.
+  const wood = {
+    type: 'way', id: 'wood5n', tags: { natural: 'wood' },
+    coordinates: [
+      { lat: 51.4990, lon: -0.1010 }, { lat: 51.4990, lon: -0.0990 },
+      { lat: 51.5010, lon: -0.0990 }, { lat: 51.5010, lon: -0.1010 },
+      { lat: 51.4990, lon: -0.1010 }
+    ]
+  };
+  assertEq(OSMEnricher._evaluatePosition(51.5000, -0.1000, [wood], 20).canopyPct, 100,
+    '_evaluatePosition — sampling grid inside a natural=wood polygon → canopy 100%');
+
+  const forest = { ...wood, id: 'forest5n', tags: { landuse: 'forest' } };
+  assertEq(OSMEnricher._evaluatePosition(51.5000, -0.1000, [forest], 20).canopyPct, 100,
+    '_evaluatePosition — landuse=forest polygon counts as canopy too');
+
+  // A grass park — green, but no trees.
+  const grassPark = { ...wood, id: 'grass5n', tags: { leisure: 'park' } };
+  const gp = OSMEnricher._evaluatePosition(51.5000, -0.1000, [grassPark], 20);
+  assertEq(gp.greenSpacePct, 100, '_evaluatePosition — grass park is green');
+  assertEq(gp.canopyPct, 0, '_evaluatePosition — grass park has no canopy (canopy_pct decoupled from green_pct)');
+
+  // A tree_row way ~2 m from the query point: the centre + nearby grid points
+  // fall inside its ~10 m buffer, so canopy is > 0 but < 100.
+  const treeRow = {
+    type: 'way', id: 'row5n', tags: { natural: 'tree_row' },
+    coordinates: [{ lat: 51.49990, lon: -0.09997 }, { lat: 51.50010, lon: -0.09997 }]  // ~2 m east, N-S
+  };
+  const rowM = OSMEnricher._evaluatePosition(51.5000, -0.1000, [treeRow], 20);
+  assert(rowM.canopyPct > 0 && rowM.canopyPct < 100,
+    `_evaluatePosition — a nearby tree_row gives partial canopy (got ${rowM.canopyPct}%)`);
+
+  // Same tree_row moved ~40 m away → outside every sample point's 10 m buffer.
+  const farRow = {
+    type: 'way', id: 'farrow5n', tags: { natural: 'tree_row' },
+    coordinates: [{ lat: 51.49990, lon: -0.09943 }, { lat: 51.50010, lon: -0.09943 }]
+  };
+  assertEq(OSMEnricher._evaluatePosition(51.5000, -0.1000, [farRow], 20).canopyPct, 0,
+    '_evaluatePosition — a tree_row well beyond the crown buffer contributes no canopy');
+
+  // A single natural=tree node ~3 m away → the centre sample point is under it.
+  const treeNode = { type: 'node', id: 'tree5n', tags: { natural: 'tree' }, lat: 51.50003, lon: -0.1000 };
+  assert(OSMEnricher._evaluatePosition(51.5000, -0.1000, [treeNode], 20).canopyPct > 0,
+    '_evaluatePosition — a natural=tree node within the crown buffer adds canopy');
+
+  assertEq(OSMEnricher._evaluatePosition(51.5000, -0.1000, [], 20).canopyPct, 0,
+    '_evaluatePosition — no canopy features → canopy_pct 0');
+}
+
 // 5d. No nearby geometries at all → sentinel distances, zero counts
 {
   const m = OSMEnricher._evaluatePosition(0, 0, [], 50);
@@ -398,6 +733,8 @@ const allGeoms = [roadGeom, buildingGeom, waterGeom, treeGeom, cafeGeom, parkGeo
   assertEq(m.distWater, 999, '_evaluatePosition — no water → sentinel 999');
   assertEq(m.inPark, 0, '_evaluatePosition — no parks → inPark=0');
   assertEq(m.greenSpacePct, 0, '_evaluatePosition — no parks → greenSpacePct=0');
+  assertEq(m.canopyPct, 0, '_evaluatePosition — no trees → canopyPct=0');
+  assertEq(m.distGreen, 999, '_evaluatePosition — no green space → dist_green sentinel 999');
   assertEq(m.buildingDensity, 0, '_evaluatePosition — no buildings → 0');
   assertEq(m.treeDensity, 0, '_evaluatePosition — no trees → 0');
   assertEq(m.amenityCount, 0, '_evaluatePosition — no amenities → 0');
@@ -410,14 +747,16 @@ console.log('\n── OSMEnricher: _projectToTimeline ──');
 
 {
   const computedMetrics = [
-    { idx: 0,  metrics: { roadClass: 'residential', inPark: 0, distMajorRoad: 100, greenSpacePct: 0,
+    { idx: 0,  metrics: { roadClass: 'residential', inPark: 0, distMajorRoad: 100, greenSpacePct: 0, distGreen: 40, canopyPct: 0,
                            buildingDensity: 1, distWater: 200, treeDensity: 0, amenityCount: 0 } },
-    { idx: 10, metrics: { roadClass: 'primary', inPark: 1, distMajorRoad: 0, greenSpacePct: 100,
+    { idx: 10, metrics: { roadClass: 'primary', inPark: 1, distMajorRoad: 0, greenSpacePct: 100, distGreen: 0, canopyPct: 80,
                            buildingDensity: 5, distWater: 0, treeDensity: 3, amenityCount: 2 } },
   ];
   const raw = Array.from({ length: 11 }, () => ({}));
   OSMEnricher._projectToTimeline(raw, computedMetrics);
 
+  assertClose(raw[5].osm_dist_green, 20, 1e-9, '_projectToTimeline — dist_green lerps like the other distance fields (40 → 0 at the midpoint)');
+  assertClose(raw[5].osm_canopy_pct_50m, 40, 1e-9, '_projectToTimeline — canopy_pct lerps like green_pct (0 → 80 at the midpoint)');
   assertEq(raw[0].osm_road_class, 'residential', '_projectToTimeline — first anchor exact');
   assertEq(raw[10].osm_road_class, 'primary', '_projectToTimeline — last anchor exact');
   assertClose(raw[0].osm_dist_major_road, 100, 1e-9, '_projectToTimeline — first anchor continuous value exact');
@@ -446,14 +785,16 @@ console.log('\n── OSMEnricher: _projectToTimeline ──');
 // that filters === 999). Both endpoints sentinel → sentinel. Green % still lerps.
 {
   const computedMetrics = [
-    { idx: 0,  metrics: { roadClass: 'residential', inPark: 0, distMajorRoad: 999, greenSpacePct: 0,
+    { idx: 0,  metrics: { roadClass: 'residential', inPark: 0, distMajorRoad: 999, greenSpacePct: 0, distGreen: 999, canopyPct: 0,
                            buildingDensity: 1, distWater: 999, treeDensity: 0, amenityCount: 0 } },
-    { idx: 10, metrics: { roadClass: 'primary', inPark: 1, distMajorRoad: 8, greenSpacePct: 100,
+    { idx: 10, metrics: { roadClass: 'primary', inPark: 1, distMajorRoad: 8, greenSpacePct: 100, distGreen: 15, canopyPct: 50,
                            buildingDensity: 5, distWater: 12, treeDensity: 3, amenityCount: 2 } },
   ];
   const raw = Array.from({ length: 11 }, () => ({}));
   OSMEnricher._projectToTimeline(raw, computedMetrics);
 
+  assertClose(raw[3].osm_dist_green, 15, 1e-9, '_projectToTimeline — dist_green: real endpoint held past a sentinel (t<0.5)');
+  assertClose(raw[7].osm_dist_green, 15, 1e-9, '_projectToTimeline — dist_green: real endpoint held past a sentinel (t>=0.5)');
   assertClose(raw[3].osm_dist_major_road, 8, 1e-9, '_projectToTimeline — sentinel prev endpoint: real value held across the segment (t<0.5)');
   assertClose(raw[7].osm_dist_major_road, 8, 1e-9, '_projectToTimeline — sentinel prev endpoint: real value held across the segment (t>=0.5)');
   assertClose(raw[3].osm_dist_water,      12, 1e-9, '_projectToTimeline — water dist: real value held past a sentinel endpoint (t<0.5)');
@@ -464,21 +805,22 @@ console.log('\n── OSMEnricher: _projectToTimeline ──');
 // 6a-sentinel-both. Both endpoints sentinel → the whole segment is sentinel.
 {
   const computedMetrics = [
-    { idx: 0,  metrics: { roadClass: 'none', inPark: 0, distMajorRoad: 999, greenSpacePct: 0,
+    { idx: 0,  metrics: { roadClass: 'none', inPark: 0, distMajorRoad: 999, greenSpacePct: 0, distGreen: 999, canopyPct: 0,
                            buildingDensity: 0, distWater: 999, treeDensity: 0, amenityCount: 0 } },
-    { idx: 10, metrics: { roadClass: 'none', inPark: 0, distMajorRoad: 999, greenSpacePct: 0,
+    { idx: 10, metrics: { roadClass: 'none', inPark: 0, distMajorRoad: 999, greenSpacePct: 0, distGreen: 999, canopyPct: 0,
                            buildingDensity: 0, distWater: 999, treeDensity: 0, amenityCount: 0 } },
   ];
   const raw = Array.from({ length: 11 }, () => ({}));
   OSMEnricher._projectToTimeline(raw, computedMetrics);
   assertClose(raw[5].osm_dist_major_road, 999, 1e-9, '_projectToTimeline — both endpoints sentinel → segment stays sentinel');
   assertClose(raw[5].osm_dist_water,      999, 1e-9, '_projectToTimeline — both endpoints sentinel (water) → segment stays sentinel');
+  assertClose(raw[5].osm_dist_green,      999, 1e-9, '_projectToTimeline — both endpoints sentinel (green) → segment stays sentinel');
 }
 
 // 6b. Single evaluation point → broadcast to entire timeline
 {
   const computedMetrics = [
-    { idx: 1, metrics: { roadClass: 'path', inPark: 1, distMajorRoad: 5, greenSpacePct: 80,
+    { idx: 1, metrics: { roadClass: 'path', inPark: 1, distMajorRoad: 5, greenSpacePct: 80, distGreen: 0, canopyPct: 65,
                           buildingDensity: 2, distWater: 10, treeDensity: 1, amenityCount: 1 } }
   ];
   const raw = Array.from({ length: 3 }, () => ({}));
@@ -486,6 +828,8 @@ console.log('\n── OSMEnricher: _projectToTimeline ──');
   for (let i = 0; i < 3; i++) {
     assertEq(raw[i].osm_road_class, 'path', `_projectToTimeline — single-eval broadcast row ${i}`);
     assertClose(raw[i].osm_dist_major_road, 5, 1e-9, `_projectToTimeline — single-eval broadcast continuous row ${i}`);
+    assertEq(raw[i].osm_dist_green, 0, `_projectToTimeline — single-eval broadcast dist_green row ${i}`);
+    assertEq(raw[i].osm_canopy_pct_50m, 65, `_projectToTimeline — single-eval broadcast canopy_pct row ${i}`);
   }
 }
 
@@ -524,6 +868,23 @@ console.log('\n── OSMEnricher: enrichTrack (integration, no snapping) ──
   for (let i = 0; i < raw.length; i++) {
     assertEq(raw[i].osm_road_class, 'residential', `enrichTrack — row ${i} classified as residential road`);
   }
+  // Every osm_* column is populated end-to-end, not just road class — a
+  // regression that dropped a field from _projectToTimeline would leave it
+  // undefined on every row and only this catches it.
+  for (const f of ['osm_dist_major_road', 'osm_in_park', 'osm_green_pct_50m', 'osm_dist_green', 'osm_canopy_pct_50m',
+                   'osm_building_density_50m', 'osm_dist_water',
+                   'osm_tree_density_50m', 'osm_amenity_count_50m']) {
+    assert(raw.every(r => typeof r[f] === 'number' && !Number.isNaN(r[f])),
+      `enrichTrack — every row has a defined numeric ${f}`);
+  }
+  // The fixture has only a residential road — no major road, water, park or
+  // buildings — so those resolve to their sentinels / zero.
+  assertEq(raw[2].osm_dist_major_road, 999, 'enrichTrack — residential-only fixture → distMajorRoad sentinel 999');
+  assertEq(raw[2].osm_dist_water, 999, 'enrichTrack — no water in fixture → distWater sentinel 999');
+  assertEq(raw[2].osm_in_park, 0, 'enrichTrack — no park in fixture → inPark 0');
+  assertEq(raw[2].osm_dist_green, 999, 'enrichTrack — no green space in fixture → distGreen sentinel 999');
+  assertEq(raw[2].osm_canopy_pct_50m, 0, 'enrichTrack — no trees in fixture → canopy_pct 0');
+  assertEq(raw[2].osm_building_density_50m, 0, 'enrichTrack — no buildings in fixture → building density 0');
 }
 
 // 7b. enrichTrack throws a clear error when the track has no valid GPS
@@ -570,6 +931,55 @@ console.log('\n── OSMEnricher: enrichTrack (integration, no snapping) ──
   OSMEnricher.enrichTrack(analyzerA, osmJson, 50);
   OSMEnricher.enrichTrack(analyzerB, osmJson, 50);
   assert(analyzerA.osmGeoms === analyzerB.osmGeoms, 'enrichTrack — two tracks sharing the same osmJson reference end up with the identical (===) osmGeoms object');
+}
+
+// 7d. enrichTrack with snapParams.enabled runs the HMM-Viterbi snap branch:
+// it populates analyzer.snappedGps for the full timeline AND still stamps the
+// osm_* fields; a subsequent non-snap run clears snappedGps back to null.
+{
+  const osmJson = {
+    elements: [
+      { type: 'node', id: 1, lat: 51.5000, lon: -0.1000 },
+      { type: 'node', id: 2, lat: 51.5010, lon: -0.1000 },
+      { type: 'node', id: 3, lat: 51.5020, lon: -0.1000 },
+      { type: 'way', id: 100, nodes: [1, 2, 3], tags: { highway: 'residential' } },
+    ]
+  };
+  const raw = [];
+  const offset = 3 / 111320; // ~3 m east of the N-S road
+  for (let i = 0; i < 8; i++) {
+    raw.push({ time: i, lat: 51.5000 + i * 0.00025, lon: -0.1000 + offset });
+  }
+  const analyzer = {
+    raw,
+    getCoordinates(i) {
+      const r = this.raw[i];
+      return { lat: r.lat, lon: r.lon };
+    }
+  };
+
+  OSMEnricher.enrichTrack(analyzer, osmJson, 50, { enabled: true, radiusOut: 40 });
+
+  assert(analyzer.isEnriched === true, 'enrichTrack (snap) — sets isEnriched');
+  assert(Array.isArray(analyzer.snappedGps) && analyzer.snappedGps.length === raw.length,
+    'enrichTrack (snap) — snappedGps populated across the whole raw timeline');
+  const validSnaps = analyzer.snappedGps.filter(s => s && !isNaN(s.lat) && !isNaN(s.lon));
+  assert(validSnaps.length === raw.length,
+    'enrichTrack (snap) — every row got a real snapped coordinate (gap-fill covers the whole timeline)');
+  // The raw track runs ~3 m EAST of an exactly-N-S road at lon -0.1000, so a
+  // correct snap must pull every blended position WEST (toward the road) —
+  // strictly between the road and the raw fix. A garbage/no-op snap would not.
+  for (let i = 0; i < raw.length; i++) {
+    const s = analyzer.snappedGps[i];
+    assert(s.lon < raw[i].lon && s.lon >= -0.1000 - 1e-9,
+      `enrichTrack (snap) — row ${i} pulled toward the road (snapped lon ${s.lon} between road -0.1000 and raw ${raw[i].lon})`);
+  }
+  for (let i = 0; i < raw.length; i++) {
+    assertEq(raw[i].osm_road_class, 'residential', `enrichTrack (snap) — row ${i} still stamped with the road class`);
+  }
+
+  OSMEnricher.enrichTrack(analyzer, osmJson, 50); // no snapParams
+  assertEq(analyzer.snappedGps, null, 'enrichTrack (no snap) — clears any stale snappedGps to null');
 }
 
 // ════════════════════════════════════════════════════════════════════════

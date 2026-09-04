@@ -76,7 +76,9 @@ const OsmCache = {
 
   // Bump this if overpass_client.js's buildQuery() tag set ever changes —
   // stale entries fetched under an older query shape won't be reused.
-  QUERY_VERSION: 1,
+  //   1 → 2: added way/relation ["natural"="tree_row"] for osm_canopy_pct
+  //          (old payloads lack tree_row, so canopy_pct would under-count).
+  QUERY_VERSION: 2,
 
   _dbPromise: null,
 

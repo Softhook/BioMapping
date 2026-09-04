@@ -48,6 +48,18 @@ const VEHICULAR_ROAD_CLASSES = new Set([
   'residential', 'living_street', 'service',
   'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link'
 ]);
+// `highway=*` values that aren't a road or path a walker travels *along*:
+// point features (stops, signals, street furniture, junction markers) and
+// not-currently-a-way lifecycle tags. The unfiltered `way["highway"]` query
+// pulls these in, and without this guard they can win the `osm_road_class`
+// label and seed junk rows in the Roads Profile.
+const NON_ROAD_HIGHWAY = new Set([
+  'bus_stop', 'platform', 'street_lamp', 'traffic_signals', 'crossing',
+  'stop', 'give_way', 'milestone', 'speed_camera', 'passing_place',
+  'turning_circle', 'turning_loop', 'mini_roundabout', 'motorway_junction',
+  'elevator', 'emergency_bay', 'rest_area', 'services',
+  'proposed', 'construction', 'planned', 'razed', 'dismantled', 'abandoned'
+]);
 const AMENITY_TYPES = new Set([
   'cafe', 'restaurant', 'pub', 'fast_food', 'bar',
   'school', 'university', 'hospital', 'clinic',
@@ -55,13 +67,31 @@ const AMENITY_TYPES = new Set([
   'parking', 'fuel'
 ]);
 
-const GREEN_LEISURE = new Set(['park', 'garden', 'nature_reserve', 'playground']);
+// A `leisure=playground` is typically rubber safety surfacing and steel
+// equipment, not vegetated nature — it is deliberately NOT green space.
+const GREEN_LEISURE = new Set(['park', 'garden', 'nature_reserve']);
 const GREEN_LANDUSE = new Set(['grass', 'forest', 'meadow', 'recreation_ground', 'village_green', 'orchard']);
-const GREEN_NATURAL = new Set(['wood', 'scrub', 'grassland', 'heath']);
+// `natural=wetland` is BOTH blue and green: it is a water feature for
+// `dist_water` (see WATER_NATURAL below) AND vegetated nature for `green_pct`
+// / `in_park`. A wetland geom therefore matches both _isGreenSpace and
+// _isWaterSpace, and the green / water branches of _evaluatePosition run
+// independently (not else-if), so it contributes to both metrics.
+const GREEN_NATURAL = new Set(['wood', 'scrub', 'grassland', 'heath', 'wetland']);
 
 const WATER_NATURAL  = new Set(['water', 'wetland']);
 const WATER_WATERWAY = new Set(['river', 'canal', 'stream', 'drain', 'ditch']);
 const WATER_LANDUSE  = new Set(['basin', 'reservoir']);
+
+// -- Tree canopy ---------------------------------------------------------
+// "Am I under / among trees" — the other half of perceived green, distinct
+// from green *spaces*. `osm_tree_density_50m` (a raw count of natural=tree
+// NODES) misses almost all real canopy: woodland is polygons with no tree
+// nodes inside, tree-lined streets are one natural=tree_row way. So canopy_pct
+// = fraction of the sampling grid that is inside a wood/forest polygon OR
+// within CANOPY_BUFFER_M of a tree_row way / tree node.
+const CANOPY_NATURAL_AREA = new Set(['wood']);      // polygon
+const CANOPY_LANDUSE_AREA  = new Set(['forest']);   // polygon
+const CANOPY_BUFFER_M     = 10;                     // crown reach around a tree_row / tree node
 
 // -- Module-level helpers --------------------------------------------------
 
@@ -72,6 +102,18 @@ function _isGreenSpace(geom) {
   return GREEN_LEISURE.has(t.leisure)  ||
          GREEN_LANDUSE.has(t.landuse)  ||
          GREEN_NATURAL.has(t.natural);
+}
+
+/**
+ * True when geom contributes tree canopy: a wood/forest polygon, a
+ * natural=tree_row way, or a natural=tree node.
+ */
+function _isCanopy(geom) {
+  const t = geom.tags;
+  if (!t) return false;
+  if (t.natural === 'tree')     return geom.type === 'node';
+  if (t.natural === 'tree_row') return true;
+  return CANOPY_NATURAL_AREA.has(t.natural) || CANOPY_LANDUSE_AREA.has(t.landuse);
 }
 
 /** True when geom represents any kind of water body or waterway. */
@@ -182,6 +224,15 @@ const OSMEnricher = {
   pointInPolygon(lat, lon, poly) {
     return GeoUtils.pointInPolygon(lat, lon, poly);
   },
+
+  /* ======================================================================
+     Feature classification — the single source of truth for "what counts as
+     green / water", shared with map_manager_osm.js's OSM-layer overlay so the
+     drawn polygons and the enrichment metrics can never disagree.
+     ====================================================================== */
+
+  isGreenSpace(geom) { return _isGreenSpace(geom); },
+  isWaterSpace(geom) { return _isWaterSpace(geom); },
 
   /* ======================================================================
      Bounding box & query building
@@ -409,19 +460,19 @@ const OSMEnricher = {
 
     let minRoadDist = Infinity, nearestRoadClass = 'none', minMajorRoadDist = Infinity;
     let minVehRoadDist = Infinity, nearestVehRoadClass = null;
-    let inPark = 0, minWaterDist = Infinity;
+    let inPark = 0, minWaterDist = Infinity, minGreenDist = Infinity;
     let buildingCount = 0, treeCount = 0, amenityCount = 0;
 
-    // Sampling grid for green-space coverage
+    // Sampling grid — shared by green-space coverage and tree-canopy coverage
     const samplingPoints = _buildSamplingGrid(lat, lon, radiusMeters);
-    let greenHits = 0;
+    let greenHits = 0, canopyHits = 0;
 
     for (const geom of nearby) {
       const tags = geom.tags;
       if (!tags) continue;
 
       // -- Roads --
-      if (geom.type === 'way' && tags.highway) {
+      if (geom.type === 'way' && tags.highway && !NON_ROAD_HIGHWAY.has(tags.highway)) {
         const d = _minDistanceToWay(lat, lon, geom, distFn);
         if (d < minRoadDist) {
           minRoadDist = d;
@@ -436,12 +487,24 @@ const OSMEnricher = {
         }
       }
 
-      // -- Buildings --
-      if (geom.type === 'way' && tags.building && geom.coordinates) {
-        const c = _centroidOf(geom.coordinates);
-        if (havFn(lat, lon, c.lat, c.lon) <= radiusMeters) {
-          buildingCount++;
+      // -- Buildings (nearest footprint edge, ways + multipolygon relations) --
+      // Centroid distance under-counts a large footprint whose wall is metres
+      // away but whose centre is far — exactly the buildings that create the
+      // "enclosure" this metric is meant to capture — and `relation["building"]`
+      // multipolygons (fetched by the query, reconstructed into outerWays) were
+      // not counted at all.
+      if (tags.building) {
+        let d = Infinity;
+        if (geom.type === 'way' && geom.coordinates && geom.coordinates.length > 1) {
+          d = _minDistanceToWay(lat, lon, geom, distFn);
+        } else if (geom.type === 'relation' && geom.outerWays) {
+          for (const way of geom.outerWays) {
+            if (way.coordinates && way.coordinates.length > 1) {
+              d = Math.min(d, _minDistanceToWay(lat, lon, way, distFn));
+            }
+          }
         }
+        if (d <= radiusMeters) buildingCount++;
       }
 
       // -- Water --
@@ -474,10 +537,34 @@ const OSMEnricher = {
         if (d <= radiusMeters) amenityCount++;
       }
 
-      // -- Green space (point-in-polygon) --
+      // -- Green space --
       if (_isGreenSpace(geom)) {
-        // exact query point
-        if (_isPointInGreenSpace(geom, lat, lon, pipFn)) inPark = 1;
+        const insideThis = _isPointInGreenSpace(geom, lat, lon, pipFn);
+        if (insideThis) inPark = 1;
+
+        // Distance to this green space — 0 when standing in it, otherwise the
+        // distance to its nearest boundary (outer ring, or an inner-ring
+        // "hole" edge — the edge of a clearing/pond inside a wood is still a
+        // green boundary). This is the *visual-perception* channel: a park
+        // across the street is part of the view even though the GPS point is
+        // not inside its polygon. `in_park` is the 0/1 special case of this.
+        let gd;
+        if (insideThis) {
+          gd = 0;
+        } else {
+          gd = Infinity;
+          if (geom.type === 'way' && geom.coordinates && geom.coordinates.length > 1) {
+            gd = _minDistanceToWay(lat, lon, geom, distFn);
+          } else if (geom.type === 'relation') {
+            for (const w of (geom.outerWays || [])) {
+              if (w.coordinates && w.coordinates.length > 1) gd = Math.min(gd, _minDistanceToWay(lat, lon, w, distFn));
+            }
+            for (const w of (geom.innerWays || [])) {
+              if (w.coordinates && w.coordinates.length > 1) gd = Math.min(gd, _minDistanceToWay(lat, lon, w, distFn));
+            }
+          }
+        }
+        if (gd < minGreenDist) minGreenDist = gd;
 
         // sampling grid density
         for (const sPt of samplingPoints) {
@@ -485,6 +572,27 @@ const OSMEnricher = {
             sPt._hit = true;
             greenHits++;
           }
+        }
+      }
+
+      // -- Tree canopy --
+      // Fraction of the sampling grid under a wood/forest polygon, or within
+      // CANOPY_BUFFER_M of a natural=tree_row way / natural=tree node.
+      if (_isCanopy(geom)) {
+        const isNode   = geom.type === 'node';                 // natural=tree
+        const isLinear = geom.tags.natural === 'tree_row';     // linear way
+        for (const sPt of samplingPoints) {
+          if (sPt._canopyHit) continue;
+          let hit = false;
+          if (isNode) {
+            hit = havFn(sPt.lat, sPt.lon, geom.lat, geom.lon) <= CANOPY_BUFFER_M;
+          } else if (isLinear) {
+            hit = geom.coordinates && geom.coordinates.length > 1 &&
+                  _minDistanceToWay(sPt.lat, sPt.lon, geom, distFn) <= CANOPY_BUFFER_M;
+          } else {
+            hit = _isPointInGreenSpace(geom, sPt.lat, sPt.lon, pipFn); // wood / forest polygon
+          }
+          if (hit) { sPt._canopyHit = true; canopyHits++; }
         }
       }
     }
@@ -503,15 +611,19 @@ const OSMEnricher = {
     if (minRoadDist === Infinity)      minRoadDist = SENTINEL_DIST;
     if (minMajorRoadDist === Infinity) minMajorRoadDist = SENTINEL_DIST;
     if (minWaterDist === Infinity)     minWaterDist = SENTINEL_DIST;
+    if (minGreenDist === Infinity)     minGreenDist = SENTINEL_DIST;
 
-    // Green-space percentage (float — rounding deferred to display layer)
+    // Green-space and tree-canopy coverage (float — rounding deferred to display)
     const greenPct = (greenHits / samplingPoints.length) * 100;
+    const canopyPct = (canopyHits / samplingPoints.length) * 100;
 
     return {
       roadClass: nearestRoadClass,
       distMajorRoad: minMajorRoadDist,
       inPark,
       greenSpacePct: greenPct,
+      distGreen: minGreenDist,
+      canopyPct,
       buildingDensity: buildingCount,
       distWater: minWaterDist,
       treeDensity: treeCount,
@@ -535,6 +647,8 @@ const OSMEnricher = {
         raw[i].osm_in_park             = m.inPark;
         raw[i].osm_dist_major_road     = m.distMajorRoad;
         raw[i].osm_green_pct_50m       = m.greenSpacePct;
+        raw[i].osm_dist_green          = m.distGreen;
+        raw[i].osm_canopy_pct_50m     = m.canopyPct;
         raw[i].osm_building_density_50m = m.buildingDensity;
         raw[i].osm_dist_water          = m.distWater;
         raw[i].osm_tree_density_50m    = m.treeDensity;
@@ -579,6 +693,8 @@ const OSMEnricher = {
       raw[i].osm_in_park             = step(p.inPark, n.inPark);
       raw[i].osm_dist_major_road     = lerpDist(p.distMajorRoad,  n.distMajorRoad);
       raw[i].osm_green_pct_50m       = lerp(p.greenSpacePct,  n.greenSpacePct);
+      raw[i].osm_dist_green          = lerpDist(p.distGreen,      n.distGreen);
+      raw[i].osm_canopy_pct_50m     = lerp(p.canopyPct,      n.canopyPct);
       // Discrete counts: step to the nearest evaluation point. Interpolating
       // them manufactures fractional buildings / trees / amenities that never
       // existed and over-smooths the predictor — which inflates its serial

@@ -33,19 +33,30 @@ const GSR_CONST = global.__REAL_GSR_CONST__;
 
 const MOCK_GSR_CONST = require('./mock_constants.js');
 
-test('OSM_METRICS has exactly 8 entries, matching the 8 osm_* fields written by osm_enrichment.js', () => {
-  assert.strictEqual(GSR_CONST.OSM_METRICS.length, 8);
+test('OSM_METRICS has exactly 10 entries, matching the 10 osm_* fields written by osm_enrichment.js', () => {
+  assert.strictEqual(GSR_CONST.OSM_METRICS.length, 10);
 });
 
-test('OSM_METRICS kinds: roadClass is categorical, inPark is binary, the other 6 are continuous', () => {
+test('OSM_METRICS kinds: roadClass is categorical, inPark is binary, the other 8 are continuous', () => {
   const categorical = GSR_CONST.OSM_METRICS.filter(m => m.kind === 'categorical');
   const binary = GSR_CONST.OSM_METRICS.filter(m => m.kind === 'binary');
   const continuous = GSR_CONST.OSM_METRICS.filter(m => m.kind === 'continuous');
   assert.deepStrictEqual(categorical.map(m => m.key), ['roadClass'], 'only roadClass is multi-level categorical (excluded from the correlation UI)');
   assert.deepStrictEqual(binary.map(m => m.key), ['inPark'], 'inPark is a 0/1 field — point-biserial-correlatable, so it IS in the correlation/scatter UI');
-  assert.strictEqual(continuous.length, 6, 'the other 6 fields are continuous');
+  assert.strictEqual(continuous.length, 8, 'the other 8 fields are continuous');
   // ui.js's correlation/scatter feature lists filter on continuous || binary.
-  assert.strictEqual(continuous.length + binary.length, 7);
+  assert.strictEqual(continuous.length + binary.length, 9);
+});
+
+test('OSM_METRICS.field names are exactly the osm_* columns osm_enrichment.js writes (_projectToTimeline)', () => {
+  // If a field is renamed in _projectToTimeline without updating this table
+  // (or vice versa), the map dropdown / correlation matrix / scatter silently
+  // read `undefined`. startsWith("osm_") is not enough to catch that.
+  const written = [
+    'osm_road_class', 'osm_dist_major_road', 'osm_in_park', 'osm_green_pct_50m', 'osm_dist_green', 'osm_canopy_pct_50m',
+    'osm_building_density_50m', 'osm_dist_water', 'osm_tree_density_50m', 'osm_amenity_count_50m',
+  ].sort();
+  assert.deepStrictEqual(GSR_CONST.OSM_METRICS.map(m => m.field).sort(), written);
 });
 
 test('every entry has a non-empty key, field, label, and a valid kind', () => {
@@ -58,9 +69,9 @@ test('every entry has a non-empty key, field, label, and a valid kind', () => {
   }
 });
 
-test('only distMajorRoad and distWater carry a unit (both "m") — the two fields ui.js\'s scatter axis labels append "(m)" to', () => {
+test('only the distance metrics carry a unit (all "m") — the fields ui.js\'s scatter axis labels append "(m)" to', () => {
   const withUnit = GSR_CONST.OSM_METRICS.filter(m => m.unit);
-  assert.deepStrictEqual(withUnit.map(m => m.key).sort(), ['distMajorRoad', 'distWater']);
+  assert.deepStrictEqual(withUnit.map(m => m.key).sort(), ['distGreen', 'distMajorRoad', 'distWater']);
   for (const m of withUnit) assert.strictEqual(m.unit, 'm');
 });
 
