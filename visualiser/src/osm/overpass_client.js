@@ -12,16 +12,25 @@ const OverpassClient = {
   ENDPOINTS: [
     'https://overpass-api.de/api/interpreter',
     'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter',
   ],
   // Kept for anything (tests, callers) that still reads the single-endpoint
   // shape; always the primary.
   get overpassEndpoint() { return OverpassClient.ENDPOINTS[0]; },
 
-  // Rate-limit tracker. Shared across mirrors rather than per-endpoint —
-  // simpler, and a conservative choice: many Overpass rate limits are
-  // enforced by client IP rather than by which mirror you hit, so a 429 from
-  // one is a reasonable (if imperfect) signal to also hold off on the other.
-  _nextAllowedCallTime: null,
+  // Rate-limit tracker per endpoint (with backwards-compatible getter/setter)
+  _endpointCooldowns: new Map(),
+
+  get _nextAllowedCallTime() {
+    return OverpassClient._endpointCooldowns.get(OverpassClient.overpassEndpoint) || null;
+  },
+  set _nextAllowedCallTime(val) {
+    if (val == null) {
+      OverpassClient._endpointCooldowns.clear();
+    } else {
+      OverpassClient._endpointCooldowns.set(OverpassClient.overpassEndpoint, val);
+    }
+  },
 
   buildQuery(bbox) {
     // A single global [bbox:...] setting (rather than repeating the same
@@ -67,13 +76,21 @@ out body;
 out skel qt;`;
   },
 
-  async _enforceRateLimit(onProgress) {
+  async _enforceRateLimit(endpointOrProgress, onProgress) {
+    let endpoint = OverpassClient.overpassEndpoint;
+    let cb = onProgress;
+    if (typeof endpointOrProgress === 'function') {
+      cb = endpointOrProgress;
+    } else if (typeof endpointOrProgress === 'string') {
+      endpoint = endpointOrProgress;
+    }
     const now = Date.now();
-    if (OverpassClient._nextAllowedCallTime && now < OverpassClient._nextAllowedCallTime) {
-      const wait = OverpassClient._nextAllowedCallTime - now;
-      if (onProgress) {
+    const nextAllowed = OverpassClient._endpointCooldowns.get(endpoint);
+    if (nextAllowed && now < nextAllowed) {
+      const wait = nextAllowed - now;
+      if (cb) {
         const sec = Math.ceil(wait / 1000);
-        onProgress(`Rate-limited. Waiting ${sec}s before next request…`);
+        cb(`Rate-limited. Waiting ${sec}s before next request…`);
       }
       await new Promise(r => setTimeout(r, wait));
     }
@@ -88,17 +105,30 @@ out skel qt;`;
   _retryAfterMs(response, fallbackMs) {
     const val = response.headers.get('Retry-After');
     if (!val) return fallbackMs;
-    const sec = parseInt(val, 10);
-    if (!isNaN(sec) && sec > 0) return sec * 1000;
+    const sec = parseFloat(val);
+    if (!isNaN(sec) && sec > 0) return Math.round(sec * 1000);
     return fallbackMs;
   },
 
   /**
-   * Fetch OSM data, trying each of ENDPOINTS in turn. A connection-level
-   * failure (the host itself unreachable, or persistently timing out even
-   * after its own retries — never a real HTTP response) moves on to the
-   * next mirror; any interpretable HTTP status from a live server is
-   * reported immediately, since it would fail the same way everywhere.
+   * Determine if an error is a permanent query/client error that should fail fast
+   * without trying other mirrors (e.g. malformed query syntax, body too large).
+   * Server errors (502/503/504), rate limits (429), timeouts, stream truncations,
+   * and connection drops are all server-specific and should fall through to a mirror.
+   * @private
+   */
+  _isNonRetryableError(err) {
+    if (!err || !err.message) return false;
+    if (/malformed/i.test(err.message)) return true;
+    if (/Access denied/i.test(err.message)) return true;
+    if (/Request entity too large/i.test(err.message)) return true;
+    return false;
+  },
+
+  /**
+   * Fetch OSM data, trying each of ENDPOINTS in turn. Transient server failures,
+   * timeouts, rate-limits, stream truncations, or connection failures fall through
+   * to the next mirror; only permanent client errors (syntax/size) abort immediately.
    */
   async fetchOSMData(bbox, onProgress) {
     const query = OverpassClient.buildQuery(bbox);
@@ -111,10 +141,13 @@ out skel qt;`;
         return await OverpassClient._fetchFromEndpoint(endpoint, query, onProgress);
       } catch (err) {
         lastErr = err;
-        const isConnectionFailure = (err instanceof TypeError) || err.name === 'AbortError';
-        if (!isConnectionFailure || isLastEndpoint) throw err;
+        if (OverpassClient._isNonRetryableError(err) || isLastEndpoint) {
+          throw err;
+        }
         const host = endpoint.split('/')[2];
-        if (onProgress) onProgress(`${host} unreachable — trying a mirror…`);
+        if (onProgress) {
+          onProgress(`${host} unreachable — trying a mirror…`);
+        }
       }
     }
     throw lastErr;
@@ -129,8 +162,8 @@ out skel qt;`;
   async _fetchFromEndpoint(endpoint, query, onProgress) {
     if (onProgress) onProgress('Connecting to Overpass API...');
 
-    // Honour global rate-limit cooldown before we even start
-    await OverpassClient._enforceRateLimit(onProgress);
+    // Honour endpoint-specific rate-limit cooldown before we even start
+    await OverpassClient._enforceRateLimit(endpoint, onProgress);
 
     const maxRetries = 3;
 
@@ -150,12 +183,21 @@ out skel qt;`;
 
         if (response.ok) {
           if (onProgress) onProgress('Parsing geographical payload...');
-          return response.json();
+          let json;
+          try {
+            json = await response.json();
+          } catch (jsonErr) {
+            throw new Error(`Invalid or truncated JSON response: ${jsonErr.message}`);
+          }
+          if (json && json.remark && /runtime error/i.test(json.remark)) {
+            throw new Error(`Overpass server runtime error: ${json.remark}`);
+          }
+          return json;
         }
 
         if (response.status === 429 || response.status === 509) {
           const retryAfterMs = OverpassClient._retryAfterMs(response, 30000);
-          OverpassClient._nextAllowedCallTime = Date.now() + retryAfterMs;
+          OverpassClient._endpointCooldowns.set(endpoint, Date.now() + retryAfterMs);
 
           if (attempt < maxRetries) {
             const msg = `Overpass API rate-limited (HTTP ${response.status}). ` +
@@ -191,12 +233,25 @@ out skel qt;`;
           );
         }
 
+        if (response.status === 502 || response.status === 503) {
+          if (attempt < maxRetries) {
+            const waitMs = OverpassClient._backoffMs(attempt, 2000);
+            if (onProgress) {
+              onProgress(
+                `Overpass API unavailable (HTTP ${response.status}). Retrying in ${Math.ceil(waitMs / 1000)}s… ` +
+                `(attempt ${attempt + 1}/${maxRetries})`
+              );
+            }
+            await new Promise(r => setTimeout(r, waitMs));
+            continue;
+          }
+          throw new Error(`Overpass API is temporarily unavailable (maintenance or overload). Try again later.`);
+        }
+
         const hints = {
           400: 'The Overpass query was malformed. This is a bug — please report it.',
           403: 'Access denied by the Overpass API.',
           413: 'Request entity too large. Try a shorter track or smaller radius.',
-          502: 'Overpass API gateway error. Try again later.',
-          503: 'Overpass API is temporarily unavailable (maintenance or overload). Try again later.',
         };
         const hint = hints[response.status] ||
           `Unexpected HTTP ${response.status} from the Overpass API.`;

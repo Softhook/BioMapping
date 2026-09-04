@@ -216,7 +216,7 @@ test('fetchOSMData: 429 exhausting all retries throws a descriptive rate-limit e
     () => OverpassClient.fetchOSMData(BBOX),
     /rate-limited/i
   );
-  assert.strictEqual(attempts, 4, 'initial attempt + 3 retries = 4 total fetch calls');
+  assert.strictEqual(attempts, OverpassClient.ENDPOINTS.length * 4, 'initial attempt + 3 retries across all configured endpoints');
 });
 
 test('fetchOSMData: 509 is treated the same as 429 (rate-limited retry path)', async () => {
@@ -294,7 +294,7 @@ test('fetchOSMData: AbortError (timeout) is retried then can succeed', async () 
   assert.ok(progress.some(m => /Request timed out\. Retrying/.test(m)));
 });
 
-test('fetchOSMData: a non-AbortError thrown by fetch propagates immediately without retrying', async () => {
+test('fetchOSMData: a non-AbortError thrown by fetch tries mirrors before giving up', async () => {
   resetClient();
   let attempt = 0;
   global.fetch = async () => {
@@ -302,7 +302,7 @@ test('fetchOSMData: a non-AbortError thrown by fetch propagates immediately with
     throw new Error('network down');
   };
   await assert.rejects(() => OverpassClient.fetchOSMData(BBOX), /network down/);
-  assert.strictEqual(attempt, 1, 'should not retry on a generic (non-Abort) network error');
+  assert.strictEqual(attempt, OverpassClient.ENDPOINTS.length, 'should try each mirror once on network error');
 });
 
 // ── Mirror fallback (ENDPOINTS) ──────────────────────────────────────────
@@ -329,7 +329,52 @@ test('fetchOSMData: a connection-level failure (TypeError) on the primary falls 
   assert.ok(progress.some(m => /unreachable.*mirror/i.test(m)), 'reports the fallback to the user');
 });
 
-test('fetchOSMData: a real HTTP error from the primary is reported immediately, never tried on the mirror', async () => {
+test('fetchOSMData: a 504 gateway timeout on the primary falls through to the mirror', async () => {
+  resetClient();
+  const [primary, mirror] = OverpassClient.ENDPOINTS;
+  const payload = { elements: [{ type: 'node', id: 99 }] };
+  const urlsHit = [];
+
+  global.fetch = async (url) => {
+    urlsHit.push(url);
+    if (url === primary) return { ok: false, status: 504, headers: { get: () => null } };
+    if (url === mirror) return { ok: true, status: 200, json: async () => payload };
+    throw new Error(`unexpected endpoint: ${url}`);
+  };
+
+  const progress = [];
+  const result = await OverpassClient.fetchOSMData(BBOX, (m) => progress.push(m));
+
+  assert.deepStrictEqual(result, payload);
+  assert.deepStrictEqual(urlsHit, [primary, primary, primary, primary, mirror], 'exhausts retries on primary then falls through to mirror');
+  assert.ok(progress.some(m => /trying a mirror/i.test(m)));
+});
+
+test('fetchOSMData: an in-payload Overpass remark runtime error on primary falls through to mirror', async () => {
+  resetClient();
+  const [primary, mirror] = OverpassClient.ENDPOINTS;
+  const payload = { elements: [{ type: 'way', id: 42 }] };
+  const urlsHit = [];
+
+  global.fetch = async (url) => {
+    urlsHit.push(url);
+    if (url === primary) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ version: 0.6, remark: 'runtime error: Query run out of memory', elements: [] })
+      };
+    }
+    if (url === mirror) return { ok: true, status: 200, json: async () => payload };
+    throw new Error(`unexpected endpoint: ${url}`);
+  };
+
+  const result = await OverpassClient.fetchOSMData(BBOX);
+  assert.deepStrictEqual(result, payload);
+  assert.deepStrictEqual(urlsHit, [primary, mirror]);
+});
+
+test('fetchOSMData: a malformed query (HTTP 400) from the primary is reported immediately, never tried on the mirror', async () => {
   resetClient();
   const [primary] = OverpassClient.ENDPOINTS;
   const urlsHit = [];

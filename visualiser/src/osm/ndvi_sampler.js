@@ -522,9 +522,28 @@ const NDVISampler = {
    * @returns {Promise<{ width: number, height: number, data: Float32Array }>}
    */
   async parseFloat32Tiff(buffer) {
+    if (!buffer || buffer.byteLength < 4) {
+      throw new Error('NDVI raster response is too short to be a valid TIFF.');
+    }
     const view = new DataView(buffer);
     const bom = view.getUint16(0, false);
     if (bom !== 0x4949 && bom !== 0x4D4D) {
+      try {
+        const text = new TextDecoder().decode(buffer.slice(0, 1024));
+        const xmlMatch = text.match(/<ServiceException[^>]*>([\s\S]*?)<\/ServiceException>/i);
+        if (xmlMatch) {
+          throw new Error(`Copernicus WMS error: ${xmlMatch[1].trim()}`);
+        }
+        if (text.trim().startsWith('{')) {
+          const json = JSON.parse(text);
+          const msg = json?.error?.message || json?.message;
+          if (msg) throw new Error(`Copernicus error: ${msg}`);
+        }
+      } catch (decodeErr) {
+        if (decodeErr.message && (decodeErr.message.startsWith('Copernicus WMS error') || decodeErr.message.startsWith('Copernicus error'))) {
+          throw decodeErr;
+        }
+      }
       throw new Error('NDVI raster response is not a TIFF (bad byte-order marker) — check the raw layer ID and FORMAT.');
     }
     const little = bom === 0x4949;
@@ -657,8 +676,8 @@ const NDVISampler = {
     if (!response || !response.headers || typeof response.headers.get !== 'function') return fallbackMs;
     const val = response.headers.get('Retry-After');
     if (!val) return fallbackMs;
-    const sec = parseInt(val, 10);
-    if (!isNaN(sec) && sec > 0) return sec * 1000;
+    const sec = parseFloat(val);
+    if (!isNaN(sec) && sec > 0) return Math.round(sec * 1000);
     return fallbackMs;
   },
 
@@ -711,7 +730,7 @@ const NDVISampler = {
           await new Promise(r => setTimeout(r, waitMs));
           continue;
         }
-        throw new Error(`Could not reach the Copernicus WMS endpoint: ${networkErr.message || networkErr}`);
+        return null;
       }
 
       if (response.ok) {
