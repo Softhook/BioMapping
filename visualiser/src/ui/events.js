@@ -773,7 +773,10 @@ const GSREvents = {
       if (proceed !== 'clear') return;
       try {
         await OsmCache.clear();
-        alert('OSM cache cleared.');
+        if (typeof NDVISampler !== 'undefined' && typeof NDVISampler.clearCache === 'function') {
+          NDVISampler.clearCache();
+        }
+        alert('OSM and satellite tile cache cleared.');
       } catch (err) {
         console.error('OsmCache.clear failed:', err);
         alert('Could not clear the OSM cache: ' + err.message);

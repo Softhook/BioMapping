@@ -109,15 +109,18 @@ Object.assign(GSRMapManager.prototype, {
     if (!this.map) return;
     this.hideNdviLayer();
 
+    const hasSampler = (typeof NDVISampler !== 'undefined');
+    const activeProvider = hasSampler ? NDVISampler.getActiveProvider(options) : null;
+
     const instanceId = options.instanceId 
-      || (typeof NDVISampler !== 'undefined' ? NDVISampler.getInstanceId() : (typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function' ? (localStorage.getItem('copernicus_instance_id') || '').trim() : ''));
+      || (hasSampler ? NDVISampler.getInstanceId() : (typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function' ? (localStorage.getItem('copernicus_instance_id') || '').trim() : ''));
     const layerId = options.layerId 
-      || (typeof NDVISampler !== 'undefined' ? NDVISampler.getLayerId() : 'VEGETATION_INDEX');
+      || (hasSampler ? NDVISampler.getLayerId() : 'VEGETATION_INDEX');
     const timeRange = options.time 
-      || (typeof NDVISampler !== 'undefined' ? NDVISampler.getTimeRange() : '2024-05-01/2024-09-30');
+      || (hasSampler ? NDVISampler.getTimeRange() : '2024-05-01/2024-09-30');
     const maxcc = (typeof options.maxcc === 'number') ? options.maxcc : 50;
 
-    const url = urlTemplate || (typeof NDVISampler !== 'undefined' ? NDVISampler.DEFAULT_TILE_URL : 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg');
+    const url = urlTemplate || (hasSampler ? (activeProvider?.urlTemplate || NDVISampler.DEFAULT_TILE_URL) : 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg');
     const opacity = typeof options.opacity === 'number' ? options.opacity : 0.65;
     const isThematic = options.mode !== 'satellite';
 
@@ -130,7 +133,7 @@ Object.assign(GSRMapManager.prototype, {
 
     // 1. Direct Copernicus Sentinel-2 Band 8 NIR WMS tile stream (when configured)
     if (!urlTemplate && instanceId && typeof L !== 'undefined' && typeof L.tileLayer.wms === 'function') {
-      const wmsBase = (typeof NDVISampler !== 'undefined' && NDVISampler.COPERNICUS_BASE_URL)
+      const wmsBase = (hasSampler && NDVISampler.COPERNICUS_BASE_URL)
         ? NDVISampler.COPERNICUS_BASE_URL
         : 'https://sh.dataspace.copernicus.eu/ogc/wms';
 
@@ -156,8 +159,8 @@ Object.assign(GSRMapManager.prototype, {
       maxZoom: 19,
       maxNativeZoom: 16,
       attribution: isThematic
-        ? 'Vegetation Index (NDVI) © <a href="https://s2maps.eu" target="_blank">Sentinel-2 / EOX</a>'
-        : 'NDVI & Imagery © <a href="https://s2maps.eu" target="_blank">Sentinel-2 cloudless / EOX</a>',
+        ? (activeProvider?.thematicAttribution || 'Vegetation Index (NDVI) © <a href="https://s2maps.eu" target="_blank">Sentinel-2 / EOX</a>')
+        : (activeProvider?.attribution || 'NDVI & Imagery © <a href="https://s2maps.eu" target="_blank">Sentinel-2 cloudless / EOX</a>'),
       crossOrigin: 'Anonymous'
     };
 
@@ -169,14 +172,13 @@ Object.assign(GSRMapManager.prototype, {
             tile.width = 256;
             tile.height = 256;
             const ctx = tile.getContext('2d');
-            const img = new Image();
-            img.crossOrigin = 'Anonymous';
-            img.onload = () => {
+            const tileUrl = this.getTileUrl(coords);
+
+            const processImage = (imgSource) => {
               try {
-                ctx.drawImage(img, 0, 0);
+                ctx.drawImage(imgSource, 0, 0);
                 const imgData = ctx.getImageData(0, 0, 256, 256);
                 const d = imgData.data;
-                const hasSampler = typeof NDVISampler !== 'undefined';
                 for (let i = 0; i < d.length; i += 4) {
                   const val = hasSampler ? NDVISampler.decodePixel(d[i], d[i+1], d[i+2], d[i+3]) : 0;
                   const col = hasSampler ? NDVISampler.ndviToThematicRgba(val) : [80, 180, 60, 180];
@@ -188,15 +190,40 @@ Object.assign(GSRMapManager.prototype, {
                 ctx.putImageData(imgData, 0, 0);
                 done(null, tile);
               } catch (e) {
-                done(null, img);
+                done(null, imgSource);
               }
             };
+
+            // Check NDVISampler tile cache for instant reuse
+            if (hasSampler) {
+              const cached = NDVISampler._getTileCache(tileUrl);
+              if (cached) {
+                processImage(cached);
+                return tile;
+              }
+            }
+
+            const img = new Image();
+            img.crossOrigin = 'Anonymous';
+            img.onload = () => {
+              if (hasSampler) {
+                NDVISampler._putTileCache(tileUrl, img);
+              }
+              processImage(img);
+            };
             img.onerror = (err) => done(err, tile);
-            img.src = this.getTileUrl(coords);
+            img.src = tileUrl;
             return tile;
           }
         });
         this.ndviTileLayer = new ThematicNdviLayer(url, layerOpts).addTo(this.map);
+        // Free GPU canvas memory when tiles are pruned by Leaflet
+        this.ndviTileLayer.on('tileunload', (e) => {
+          if (e && e.tile && e.tile.tagName === 'CANVAS') {
+            e.tile.width = 0;
+            e.tile.height = 0;
+          }
+        });
         return;
       } catch (e) {
         // Fall back to standard tile layer below

@@ -342,4 +342,196 @@ test('GSRUI.sampleNdviTrack: successfully resolves single-mode track without fal
   assert.ok(typeof rawPoints[0].ndvi_50m === 'number' && !isNaN(rawPoints[0].ndvi_50m));
 });
 
+// ---------------------------------------------------------------------------
+// 8. Provider Registry & Resolution Tests
+// ---------------------------------------------------------------------------
+
+test('PROVIDERS: registry contains standard satellite providers and handles resolution', () => {
+  assert.ok(NDVISampler.PROVIDERS.copernicus, 'copernicus provider exists');
+  assert.ok(NDVISampler.PROVIDERS.sentinel2_cloudless, 'sentinel2_cloudless provider exists');
+  assert.ok(NDVISampler.PROVIDERS.nasa_gibs, 'nasa_gibs provider exists');
+  assert.ok(NDVISampler.PROVIDERS.custom, 'custom provider exists');
+
+  const s2 = NDVISampler.getProvider('sentinel2_cloudless');
+  assert.strictEqual(s2.type, 'xyz');
+  const resolvedS2 = NDVISampler.resolveTileUrl(s2, 10, 20, 5);
+  assert.ok(resolvedS2.includes('/5/20/10.jpg'));
+
+  const nasa = NDVISampler.getProvider('nasa_gibs');
+  assert.strictEqual(nasa.type, 'xyz');
+  const resolvedNasa = NDVISampler.resolveTileUrl(nasa, 5, 10, 4);
+  assert.ok(resolvedNasa.includes('/4/10/5.png'));
+
+  // Custom provider registration
+  const registered = NDVISampler.registerProvider('test_landsat', {
+    name: 'Landsat 8 NDVI',
+    type: 'xyz',
+    urlTemplate: 'https://tiles.example.com/{z}/{x}/{y}.png'
+  });
+  assert.strictEqual(registered, true);
+  const resolvedCustom = NDVISampler.resolveTileUrl('test_landsat', 1, 2, 3);
+  assert.strictEqual(resolvedCustom, 'https://tiles.example.com/3/1/2.png');
+});
+
+test('getActiveProvider: selects copernicus when credentials present, otherwise open sentinel-2', () => {
+  // Without credentials -> open Sentinel-2 cloudless
+  const provDefault = NDVISampler.getActiveProvider({});
+  assert.strictEqual(provDefault.id, 'sentinel2_cloudless');
+
+  // Explicit tileUrl -> custom
+  const provCustom = NDVISampler.getActiveProvider({ tileUrl: 'https://foo/{z}/{x}/{y}.png' });
+  assert.strictEqual(provCustom.id, 'custom');
+});
+
+// ---------------------------------------------------------------------------
+// 9. Radial Pixel Mask Pre-computation & Offset Cache
+// ---------------------------------------------------------------------------
+
+test('_getCircularPixelOffsets: generates correct integer offsets within disk', () => {
+  NDVISampler.clearCache();
+  const offsets1 = NDVISampler._getCircularPixelOffsets(1);
+  assert.ok(offsets1 instanceof Int16Array);
+
+  // For r=1, disk contains (0,0), (0,1), (0,-1), (1,0), (-1,0) => 5 points = 10 coordinates
+  assert.strictEqual(offsets1.length, 10);
+
+  // Offsets are memoized
+  const statsBefore = NDVISampler.getCacheStats();
+  assert.strictEqual(statsBefore.offsetRadiiCached, 1);
+  const offsets1Again = NDVISampler._getCircularPixelOffsets(1);
+  assert.strictEqual(offsets1, offsets1Again, 'returns cached Int16Array reference');
+
+  // Verify all returned offsets mathematically satisfy dx^2 + dy^2 <= r^2
+  const r = 5;
+  const offsets5 = NDVISampler._getCircularPixelOffsets(r);
+  for (let i = 0; i < offsets5.length; i += 2) {
+    const dx = offsets5[i];
+    const dy = offsets5[i + 1];
+    assert.ok(dx * dx + dy * dy <= r * r, `point (${dx}, ${dy}) must be within disk radius ${r}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 10. Tile Cache & LRU Eviction Tests
+// ---------------------------------------------------------------------------
+
+test('_tileCache: stores, retrieves, refreshes LRU, and clears', () => {
+  NDVISampler.clearCache();
+  assert.strictEqual(NDVISampler.getCacheStats().tileCount, 0);
+
+  NDVISampler._putTileCache('tile_1', { data: 'img1' });
+  NDVISampler._putTileCache('tile_2', { data: 'img2' });
+
+  assert.strictEqual(NDVISampler.getCacheStats().tileCount, 2);
+  assert.deepStrictEqual(NDVISampler._getTileCache('tile_1'), { data: 'img1' });
+  assert.strictEqual(NDVISampler._getTileCache('non_existent'), null);
+
+  // Clearing cache
+  NDVISampler.clearCache();
+  assert.strictEqual(NDVISampler.getCacheStats().tileCount, 0);
+  assert.strictEqual(NDVISampler.getCacheStats().offsetRadiiCached, 0);
+  assert.strictEqual(NDVISampler._getTileCache('tile_1'), null);
+});
+
+test('_tileCache: LRU eviction drops oldest entry when capacity exceeded', () => {
+  NDVISampler.clearCache();
+  const origMax = NDVISampler.MAX_CACHE_TILES;
+  try {
+    NDVISampler.MAX_CACHE_TILES = 3;
+    NDVISampler._putTileCache('t1', { id: 1 });
+    NDVISampler._putTileCache('t2', { id: 2 });
+    NDVISampler._putTileCache('t3', { id: 3 });
+
+    // Touch t1 so t2 becomes the oldest
+    NDVISampler._getTileCache('t1');
+
+    // Add t4 -> should evict t2
+    NDVISampler._putTileCache('t4', { id: 4 });
+
+    assert.strictEqual(NDVISampler.getCacheStats().tileCount, 3);
+    assert.ok(NDVISampler._getTileCache('t1') !== null, 't1 retained because touched');
+    assert.ok(NDVISampler._getTileCache('t2') === null, 't2 evicted as oldest');
+    assert.ok(NDVISampler._getTileCache('t3') !== null, 't3 retained');
+    assert.ok(NDVISampler._getTileCache('t4') !== null, 't4 retained');
+  } finally {
+    NDVISampler.MAX_CACHE_TILES = origMax;
+    NDVISampler.clearCache();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 11. Network Concurrency Pool & Worker Queue
+// ---------------------------------------------------------------------------
+
+test('_fetchTilePool: streams batch of tile tasks with bounded concurrency and progress', async () => {
+  const tasks = [
+    { url: 'tile_a', destX: 0, destY: 0, tx: 0, ty: 0 },
+    { url: 'tile_b', destX: 256, destY: 0, tx: 1, ty: 0 },
+    { url: 'tile_c', destX: 0, destY: 256, tx: 0, ty: 1 },
+    { url: 'tile_d', destX: 256, destY: 256, tx: 1, ty: 1 }
+  ];
+
+  let progressCalls = 0;
+  const res = await NDVISampler._fetchTilePool(tasks, null, {
+    concurrency: 2,
+    timeoutMs: 1000,
+    onTileProgress: (completed, total, wasCached) => {
+      progressCalls++;
+      assert.strictEqual(total, 4);
+      assert.ok(completed >= 1 && completed <= 4);
+    }
+  });
+
+  assert.strictEqual(res.total, 4);
+  assert.strictEqual(progressCalls, 4);
+});
+
+test('_fetchTilePool: honors abort signal', async () => {
+  const controller = new AbortController();
+  const tasks = [
+    { url: 'tile_1', destX: 0, destY: 0, tx: 0, ty: 0 },
+    { url: 'tile_2', destX: 0, destY: 0, tx: 0, ty: 0 }
+  ];
+
+  controller.abort(); // pre-aborted
+  const res = await NDVISampler._fetchTilePool(tasks, null, {
+    concurrency: 1,
+    signal: controller.signal
+  });
+
+  // Should break immediately without hanging
+  assert.strictEqual(res.total, 2);
+});
+
+// ---------------------------------------------------------------------------
+// 12. GeoUtils Bounding Box Integration
+// ---------------------------------------------------------------------------
+
+test('sampleTrack: integrates cleanly with GeoUtils bounding box expansion', async () => {
+  // Load GeoUtils into global environment
+  global.GeoUtils = require('../src/gps/geo_utils.js').GeoUtils || require('../src/gps/geo_utils.js');
+
+  const rawPoints = [
+    { time: 0.0, lat: 51.505, lon: -0.09, osm_green_pct_50m: 60, osm_canopy_pct_50m: 50 },
+    { time: 1.0, lat: 51.506, lon: -0.091, osm_green_pct_50m: 65, osm_canopy_pct_50m: 55 }
+  ];
+
+  const track = {
+    id: 'geoutils_test_track',
+    name: 'GeoUtils Integration Walk',
+    analyzer: {
+      raw: rawPoints,
+      isEnriched: false,
+      _dataVersion: 1
+    }
+  };
+
+  const res = await NDVISampler.sampleTrack(track, { zoom: 15, radiusM: 50 });
+  assert.strictEqual(res.sampleCount, 2);
+  assert.strictEqual(track.analyzer.isEnriched, true);
+  assert.ok(track.analyzer.raw[0].ndvi > 0);
+  assert.ok(track.analyzer.raw[0].ndvi_50m > 0);
+});
+
+
 
