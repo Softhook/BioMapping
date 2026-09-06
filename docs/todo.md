@@ -18,8 +18,10 @@ Loose ideas and unscheduled work. Promote anything real to its own doc under `do
   link). The Flipper → browser half already exists as Live Stream / `live.html`;
   this is only the onward upload.
 - **Physical form factor** — 3D-printed case.
-- **Calibration age** — store a date with the GSR/RF calibration and prompt the
-  user to recalibrate once it is more than a month old.
+- **Calibration age** — done: `BioMapCalibration` v3 stores a save timestamp
+  (RF's `EmScanCal` already had one), and both the GSR and RF "Show Current"
+  screens display "Age: N d" (`draw_calibration_age()` in biomap_render.c).
+  Deliberately no staleness flag and no recalibrate prompt — just the readout.
 
 ## Loose ends from closed investigations
 

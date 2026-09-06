@@ -560,7 +560,7 @@ void run_calibration_wizard(BioMapApp* app) {
 
         if(w.step == WizardStepSuccess) {
             biomap_sound_confirm(app->sound_enabled);
-            biomap_save_calibration(app, w.gain, w.offset);
+            biomap_save_calibration(app, w.gain, w.offset, w.r_squared);
             break;
         }
 

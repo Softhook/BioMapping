@@ -5,6 +5,12 @@
 // Bio Mapping — app entry, GPS hot-start, and timestamp formatting.
 #include "biomap.h"
 
+uint32_t biomap_rtc_now_epoch(void) {
+    DateTime dt;
+    furi_hal_rtc_get_datetime(&dt);
+    return pipeline_unix_epoch(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
+}
+
 void run_gps_hot_start(BioMapApp* app) {
     GpsUart* g = gps_uart_alloc(app->event_queue, app->notifications, app->nav_model);
     bool ok = g && gps_uart_is_ready(g);
@@ -51,6 +57,8 @@ int32_t biomap_app(void* p) {
         .cal_active = false,
         .cal_gain = 1.0f,
         .cal_offset = 0.0f,
+        .cal_timestamp = 0,
+        .cal_r_squared = 0.0f,
         .debug_fields_enabled = false,
     };
 
@@ -150,10 +158,14 @@ bool biomap_load_calibration(BioMapApp* app) {
                             app->cal_active = true;
                             app->cal_gain = cal.gain;
                             app->cal_offset = cal.offset;
+                            app->cal_timestamp = cal.timestamp;
+                            app->cal_r_squared = cal.r_squared;
                             furi_mutex_release(app->mutex);
                             success = true;
-                            FURI_LOG_I("BioMap", "Loaded calibration v%lu: gain=%.4f offset=%.1f",
-                                       (unsigned long)cal.version, (double)cal.gain, (double)cal.offset);
+                            FURI_LOG_I("BioMap",
+                                       "Loaded calibration v%lu: gain=%.4f offset=%.1f timestamp=%lu r2=%.4f",
+                                       (unsigned long)cal.version, (double)cal.gain, (double)cal.offset,
+                                       (unsigned long)cal.timestamp, (double)cal.r_squared);
                         } else {
                             FURI_LOG_W("BioMap", "Calibration values out of bounds!");
                         }
@@ -179,13 +191,20 @@ bool biomap_load_calibration(BioMapApp* app) {
     return success;
 }
 
-void biomap_save_calibration(BioMapApp* app, float gain, float offset) {
+void biomap_save_calibration(BioMapApp* app, float gain, float offset, float r_squared) {
     furi_check(app, "BioMapApp: NULL app pointer");
-    
+
+    // Stamp the save time (0 if the RTC is unset — same sentinel the CSV
+    // header's RecordingStartTime uses). Recorded so show_current_
+    // calibration_render() and the next load can report the calibration's age.
+    uint32_t timestamp = biomap_rtc_now_epoch();
+
     furi_mutex_acquire(app->mutex, FuriWaitForever);
     app->cal_active = true;
     app->cal_gain = gain;
     app->cal_offset = offset;
+    app->cal_timestamp = timestamp;
+    app->cal_r_squared = r_squared;
     furi_mutex_release(app->mutex);
 
     File* file = storage_file_alloc(app->storage);
@@ -201,8 +220,10 @@ void biomap_save_calibration(BioMapApp* app, float gain, float offset) {
         cal.version = BIOMAP_CAL_VERSION;
         cal.gain    = gain;
         cal.offset  = offset;
+        cal.timestamp = timestamp;
+        cal.r_squared = r_squared;
         cal.checksum = cal_checksum(&cal);
-        
+
         uint16_t written = storage_file_write(file, &cal, sizeof(BioMapCalibration));
         storage_file_close(file);
 
@@ -211,8 +232,10 @@ void biomap_save_calibration(BioMapApp* app, float gain, float offset) {
             FS_Error err = storage_common_rename(app->storage,
                 BIOMAP_CAL_PATH_TMP, BIOMAP_CAL_PATH);
             if(err == FSE_OK) {
-                FURI_LOG_I("BioMap", "Saved calibration v%d: gain=%.4f offset=%.1f",
-                           BIOMAP_CAL_VERSION, (double)gain, (double)offset);
+                FURI_LOG_I("BioMap",
+                           "Saved calibration v%d: gain=%.4f offset=%.1f timestamp=%lu r2=%.4f",
+                           BIOMAP_CAL_VERSION, (double)gain, (double)offset,
+                           (unsigned long)timestamp, (double)r_squared);
             } else {
                 FURI_LOG_E("BioMap", "Rename failed (%d) — calibration saved to .tmp", (int)err);
             }
@@ -241,6 +264,8 @@ void biomap_reset_calibration(BioMapApp* app) {
     app->cal_active = false;
     app->cal_gain = 1.0f;
     app->cal_offset = 0.0f;
+    app->cal_timestamp = 0;
+    app->cal_r_squared = 0.0f;
     furi_mutex_release(app->mutex);
 
     FURI_LOG_I("BioMap", "Deleted calibration file");

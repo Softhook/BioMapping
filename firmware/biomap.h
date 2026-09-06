@@ -116,6 +116,14 @@ typedef struct BioMapApp {
     bool               cal_active;
     float              cal_gain;
     float              cal_offset;
+    // Unix epoch (RTC) at which the active GSR calibration was saved; 0 when
+    // none is active, or when the RTC was unset at save time. Loaded from
+    // BioMapCalibration::timestamp, surfaced by show_current_calibration_render().
+    uint32_t           cal_timestamp;
+    // Least-squares fit R² from the calibration wizard that produced the
+    // active custom cal; 0 when none is active. Loaded from
+    // BioMapCalibration::r_squared, surfaced by show_current_calibration_render().
+    float              cal_r_squared;
     EmScanCal          rf_cal_data;     // RF Faraday calibration (em_scan_cal.h)
     bool               rf_calibrated;
     // Options > Debug Fields — runtime, persisted toggle for the diagnostic
@@ -181,7 +189,12 @@ typedef struct {
 } CalSubmenuContext;
 
 #define BIOMAP_CAL_MAGIC   0x424D4341
-#define BIOMAP_CAL_VERSION 2
+// v3 added the `timestamp` (Unix epoch at save) and `r_squared` (wizard fit
+// goodness) fields. A v2 file fails the version gate in
+// biomap_load_calibration() and is ignored — GSR falls back to the default
+// 1.0/0.0 transform until the wizard is re-run, same as any other format
+// change (see the version-mismatch branch there).
+#define BIOMAP_CAL_VERSION 3
 #define BIOMAP_CAL_PATH    "/ext/biomapping/biomap.cal"
 #define BIOMAP_CAL_PATH_TMP "/ext/biomapping/biomap.cal.tmp"
 #define CAL_POINTS         3
@@ -225,6 +238,8 @@ typedef struct {
     uint32_t version;
     float    gain;
     float    offset;
+    uint32_t timestamp;  // Unix epoch (RTC) when saved; 0 if the RTC was unset
+    float    r_squared;  // wizard least-squares fit goodness (0..1); 0 if unknown
     uint32_t checksum;
 } BioMapCalibration;
 
@@ -301,6 +316,11 @@ typedef struct {
 
 // ── App-level function declarations ────────────────────────────────────
 
+// Current wall-clock time as Unix epoch seconds, or 0 if the RTC is unset
+// (pipeline_unix_epoch()'s year<2020 sentinel). Shared by the GSR
+// calibration save/load timestamp handling and the "Show Current" age readout.
+uint32_t biomap_rtc_now_epoch(void);
+
 void run_gps_hot_start(BioMapApp* app);
 // Claims/releases the backlight enforce_on lock according to
 // app->backlight_on, keeping app->backlight_enforced in sync so the pair
@@ -314,7 +334,7 @@ void run_options_screen(BioMapApp* app);
 void run_calibration_menu(BioMapApp* app);
 void run_calibration_wizard(BioMapApp* app);
 bool biomap_load_calibration(BioMapApp* app);
-void biomap_save_calibration(BioMapApp* app, float gain, float offset);
+void biomap_save_calibration(BioMapApp* app, float gain, float offset, float r_squared);
 void biomap_reset_calibration(BioMapApp* app);
 
 bool biomap_load_settings(BioMapApp* app);

@@ -769,6 +769,19 @@ void calibration_wizard_render(Canvas* c, void* ctx) {
     }
 }
 
+// Draw an "Age: N d" / "Age: unknown" line for a calibration saved at
+// `saved_epoch` (Unix epoch; 0 = RTC was unset at save). "unknown" also
+// covers an unset RTC now, or a clock that has gone backwards since the
+// save. Shared by the GSR and RF "Show Current" screens.
+static void draw_calibration_age(Canvas* c, int x, int y, uint32_t saved_epoch) {
+    uint32_t now = saved_epoch ? biomap_rtc_now_epoch() : 0;
+    if(saved_epoch == 0 || now == 0 || now < saved_epoch) {
+        canvas_draw_str(c, x, y, "Age: unknown");
+    } else {
+        draw_fmt(c, x, y, "Age: %lu d", (unsigned long)((now - saved_epoch) / 86400UL));
+    }
+}
+
 void show_current_calibration_render(Canvas* c, void* ctx) {
     BioMapApp* app = (BioMapApp*)ctx;
     canvas_clear(c);
@@ -780,11 +793,22 @@ void show_current_calibration_render(Canvas* c, void* ctx) {
     bool active = app->cal_active;
     float gain = app->cal_gain;
     float offset = app->cal_offset;
+    uint32_t timestamp = app->cal_timestamp;
+    float r_squared = app->cal_r_squared;
     furi_mutex_release(app->mutex);
 
     draw_fmt(c, 0, 23, "Active %s Cal:", active ? "Custom" : "Default");
-    draw_fmt(c, 0, 35, "Gain: %.3fx", (double)gain);
+    // Fit R² rides on the Gain line for a custom cal (same pairing as the
+    // wizard's fit-fail screen); the default transform has no fit.
+    if(active) {
+        draw_fmt(c, 0, 35, "Gain: %.3fx  R\xb2: %.3f", (double)gain, (double)r_squared);
+    } else {
+        draw_fmt(c, 0, 35, "Gain: %.3fx", (double)gain);
+    }
     draw_fmt(c, 0, 47, "Offset: %.0f nS", (double)offset);
+
+    // Calibration age — custom cal only (the default transform has no save).
+    if(active) draw_calibration_age(c, 0, 59, timestamp);
 }
 
 // ==========================================================================
@@ -920,13 +944,16 @@ void rf_show_current_calibration_render(Canvas* c, void* ctx) {
     if(!calibrated) {
         canvas_draw_str(c, 0, 24, "Not calibrated.");
     } else {
+        // No "Band Floors (dBm):" header row — the three "(std ..)" lines
+        // plus the screen title make the units clear, and dropping it leaves
+        // vertical room for the age line below.
         int y = 24;
-        y = draw_fmt(c, 0, y, "Band Floors (dBm):");
         for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
             y = draw_fmt(c, 0, y, "%s: %.1f  (std %.2f)",
                          em_scan_freq_label[i],
                          (double)cal.noise_floor_dbm[i],
                          (double)cal.noise_std_dev_db[i]);
         }
+        draw_calibration_age(c, 0, y + 2, cal.timestamp);
     }
 }

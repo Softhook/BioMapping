@@ -781,18 +781,22 @@ void test_nmea_parsing() {
 
 // ── Calibration persistence constants (mirrored from biomap.h) ──────
 #define CAL_MAGIC    0x424D4341u
-#define CAL_VERSION  2
+#define CAL_VERSION  3
 #define CAL_POINTS   3
 
 #define CAL_TARGET_470K  2127.66f
 #define CAL_TARGET_100K  10000.0f
 #define CAL_TARGET_47K   21276.6f
 
+// Mirrors BioMapCalibration (biomap.h): v3 added `timestamp` and `r_squared`
+// before the checksum, so cal_checksum() below folds both in via offsetof().
 typedef struct {
     uint32_t magic;
     uint32_t version;
     float    gain;
     float    offset;
+    uint32_t timestamp;
+    float    r_squared;
     uint32_t checksum;
 } CalFile;
 
@@ -1046,7 +1050,7 @@ void test_calibration_bounds_check() {
 
 void test_cal_checksum_deterministic() {
     printf("Running test_cal_checksum_deterministic...\n");
-    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.234f, -56.7f, 0 };
+    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.234f, -56.7f, 1700000000u, 0.997f, 0 };
     cal.checksum = cal_checksum(&cal);
 
     // Same inputs → same checksum
@@ -1059,7 +1063,7 @@ void test_cal_checksum_deterministic() {
 
 void test_cal_checksum_detects_bit_flips() {
     printf("Running test_cal_checksum_detects_bit_flips...\n");
-    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 0 };
+    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 1700000000u, 0.997f, 0 };
     cal.checksum = cal_checksum(&cal);
 
     // Flip magic — checksum must change
@@ -1085,6 +1089,18 @@ void test_cal_checksum_detects_bit_flips() {
     bad.version = 99;
     bad_cs = cal_checksum(&bad);
     assert(bad_cs != cal.checksum);
+
+    // Flip timestamp — checksum must change (v3 folds it in)
+    bad = cal;
+    bad.timestamp = 1234567890u;
+    bad_cs = cal_checksum(&bad);
+    assert(bad_cs != cal.checksum);
+
+    // Flip r_squared — checksum must change (v3 folds it in)
+    bad = cal;
+    bad.r_squared = 0.5f;
+    bad_cs = cal_checksum(&bad);
+    assert(bad_cs != cal.checksum);
     printf("  -> Pass\n");
 }
 
@@ -1096,6 +1112,8 @@ void test_cal_serialization_roundtrip() {
     orig.version  = CAL_VERSION;
     orig.gain     = 1.05f;
     orig.offset   = -123.4f;
+    orig.timestamp = 1700000000u;
+    orig.r_squared = 0.9873f;
     orig.checksum = cal_checksum(&orig);
 
     // "Write" to a byte buffer
@@ -1107,11 +1125,13 @@ void test_cal_serialization_roundtrip() {
     memcpy(&restored, buf, sizeof(CalFile));
 
     // All fields must survive the roundtrip
-    assert(restored.magic    == orig.magic);
-    assert(restored.version  == orig.version);
-    assert(restored.gain     == orig.gain);
-    assert(restored.offset   == orig.offset);
-    assert(restored.checksum == orig.checksum);
+    assert(restored.magic     == orig.magic);
+    assert(restored.version   == orig.version);
+    assert(restored.gain      == orig.gain);
+    assert(restored.offset    == orig.offset);
+    assert(restored.timestamp == orig.timestamp);
+    assert(restored.r_squared == orig.r_squared);
+    assert(restored.checksum  == orig.checksum);
 
     // Checksum must validate after roundtrip
     assert(cal_checksum(&restored) == restored.checksum);
@@ -1121,7 +1141,7 @@ void test_cal_serialization_roundtrip() {
 
 void test_cal_validation_magic() {
     printf("Running test_cal_validation_magic...\n");
-    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 0 };
+    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 1700000000u, 0.997f, 0 };
     cal.checksum = cal_checksum(&cal);
 
     // Correct magic → passes
@@ -1136,7 +1156,7 @@ void test_cal_validation_magic() {
 
 void test_cal_validation_version() {
     printf("Running test_cal_validation_version...\n");
-    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 0 };
+    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 1700000000u, 0.997f, 0 };
     cal.checksum = cal_checksum(&cal);
 
     // Correct version → passes
@@ -1151,7 +1171,7 @@ void test_cal_validation_version() {
 
 void test_cal_validation_checksum() {
     printf("Running test_cal_validation_checksum...\n");
-    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 0 };
+    CalFile cal = { CAL_MAGIC, CAL_VERSION, 1.0f, 0.0f, 1700000000u, 0.997f, 0 };
     cal.checksum = cal_checksum(&cal);
 
     // Matching checksum → passes
@@ -1198,6 +1218,8 @@ void test_cal_full_validation_chain() {
     cal.version = CAL_VERSION;
     cal.gain    = 0.98f;
     cal.offset  = 200.0f;
+    cal.timestamp = 1700000000u;
+    cal.r_squared = 0.991f;
     cal.checksum = cal_checksum(&cal);
 
     bool valid = (cal.magic == CAL_MAGIC)
