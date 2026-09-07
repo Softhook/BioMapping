@@ -97,7 +97,9 @@ module.exports = {
     peaks:         { label: 'Peak Stress Hotspots', unit: '' },
     auc:           { label: 'Phasic AUC (ISCR)', unit: ' μS·s' },
     arousal_index: { label: 'Combined Arousal Index', unit: ' z' },
-    tri_index:     { label: 'Tri Index', unit: ' z' }
+    tri_index:     { label: 'Tri Index', unit: ' z' },
+    gsr:           { label: 'GSR Signal', unit: ' μS' },
+    peak_density:  { label: 'Peak Density', unit: ' /min' }
   },
 
   TEMPORAL_PEAK_DENSITY: {
@@ -116,7 +118,10 @@ module.exports = {
     gridResolution: 60, upsampledResolution: 240, blurIterations: 6,
     isolationRadius: 50, contourCount: 10,
     idwExponent: 2, surfaceOpacity: 0.40, peakPreservation: 0.0, softening: 25.0,
-    coverageWeighting: 0.5, temporalSmoothingWindow: 0.0
+    // Matches production constants.js so the moving-average pass in
+    // generateContourSurface() is exercised. Tests that need a raw, unsmoothed
+    // surface pass temporalSmoothingWindow: 0 explicitly in their contourParams.
+    coverageWeighting: 0.5, temporalSmoothingWindow: 20.0
   },
 
   HILLSHADE: {

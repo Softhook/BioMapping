@@ -390,7 +390,7 @@ const baseContourParams = {
 };
 
 const surfacesBySource = {};
-for (const src of ['phasic', 'tonic', 'peaks', 'auc', 'arousal_index', 'tri_index']) {
+for (const src of ['phasic', 'tonic', 'peaks', 'auc', 'arousal_index', 'tri_index', 'gsr', 'peak_density']) {
   const surface = collectiveManager.generateContourSurface({ ...baseContourParams, topographySource: src });
   assert(surface && Array.isArray(surface.contours), `generateContourSurface('${src}') returns { contours, grid, ... }`);
   surfacesBySource[src] = surface;
@@ -429,6 +429,59 @@ assert(aucNormSurface && Array.isArray(aucNormSurface.contours), "generateContou
 
 console.log(`  auc range: [${surfacesBySource.auc.minVal.toFixed(4)}, ${surfacesBySource.auc.maxVal.toFixed(4)}] μS·s`);
 console.log(`  arousal_index range: [${surfacesBySource.arousal_index.minVal.toFixed(4)}, ${surfacesBySource.arousal_index.maxVal.toFixed(4)}]`);
+
+// New raw-scale sources (GSR signal, temporal peak density): route to their own
+// series (not silently through to phasic), stay finite, and keep physical sign
+// when not normalised.
+for (const src of ['gsr', 'peak_density']) {
+  const s = surfacesBySource[src];
+  assert(
+    s.minVal !== surfacesBySource.phasic.minVal || s.maxVal !== surfacesBySource.phasic.maxVal,
+    `'${src}' surface range differs from 'phasic' (source routing works, not a fall-through)`
+  );
+  assert(s.minVal >= -1e-9, `'${src}' non-normalized surface stays non-negative`);
+  let finite = true;
+  for (const row of s.grid) for (const v of row) if (v !== null && !Number.isFinite(v)) finite = false;
+  assert(finite, `'${src}' grid has no NaN/Infinity`);
+}
+
+// Normalising a raw-scale source (gsr / auc / peak_density) z-scores it per
+// track: the surface must straddle zero and sit on a z-score scale.
+for (const src of ['gsr', 'auc', 'peak_density']) {
+  const s = collectiveManager.generateContourSurface({ ...baseContourParams, topographySource: src, normalizeZScore: true });
+  assert(s.minVal < 0 && s.maxVal > 0, `normalized '${src}' surface straddles zero (min ${s.minVal.toFixed(3)}, max ${s.maxVal.toFixed(3)})`);
+  assert(s.minVal > -8 && s.maxVal < 8, `normalized '${src}' surface stays on a z-score scale`);
+}
+
+// Refactor guard: perTrackNorm applies (v - mean) / std at sample time instead
+// of building a standardised copy of the series. Because standardisation is
+// linear it commutes with the moving-average smooth, so the result must be
+// cell-identical to the old path — reproduced here by feeding a pre-standardised
+// series in with normalizeZScore:false.
+{
+  const SERIES = { gsr: 'filtered', auc: 'phasicAUC', peak_density: 'peakDensity' };
+  for (const [src, key] of Object.entries(SERIES)) {
+    const rawSeries = analyzer[key];
+    const st = GsrFilter.calculateStats(rawSeries.map(d => d.val));
+    const std = st.std || 1;
+    const clone = Object.create(Object.getPrototypeOf(analyzer));
+    Object.assign(clone, analyzer);
+    clone[key] = rawSeries.map(d => ({ time: d.time, val: (d.val - st.mean) / std }));
+    const oldMgr = new GSRCollectiveManager();
+    oldMgr.addTrack({ id: 'old', name: 'old', color: '#000', enabled: true, analyzer: clone });
+    const oldSurf = oldMgr.generateContourSurface({ ...baseContourParams, topographySource: src, normalizeZScore: false });
+    const newSurf = collectiveManager.generateContourSurface({ ...baseContourParams, topographySource: src, normalizeZScore: true });
+    let maxAbs = 0, cmp = 0;
+    for (let r = 0; r < oldSurf.grid.length; r++) {
+      for (let c = 0; c < oldSurf.grid[r].length; c++) {
+        const a = oldSurf.grid[r][c], b = newSurf.grid[r][c];
+        if (a != null && b != null) { maxAbs = Math.max(maxAbs, Math.abs(a - b)); cmp++; }
+      }
+    }
+    assert(cmp > 20 && maxAbs < 1e-9,
+      `'${src}': normalize path is cell-identical to the old pre-standardised-copy path (max|Δ|=${maxAbs.toExponential(2)} over ${cmp} cells)`);
+  }
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  6. SCR DECONVOLUTION (Benedek & Kaernbach, 2010)

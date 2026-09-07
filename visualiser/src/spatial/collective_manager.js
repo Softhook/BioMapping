@@ -217,6 +217,23 @@ class GSRCollectiveManager {
 
     const isPeaks = topographySource === 'peaks';
 
+    // Raw-scale series (GSR signal, Phasic AUC, Peak Density) are standardised
+    // per track when "Normalise Tracks" is on, so one participant's baseline
+    // range can't dominate the shared surface. phasic/tonic have precomputed
+    // *Z series and the arousal/tri indices arrive already standardised, so
+    // they don't route through here. Standardisation is linear and so commutes
+    // with the moving-average smooth below — we take {mean, std} once here and
+    // apply (v - mean) / std at sample time, avoiding a full standardised copy
+    // of the series.
+    const perTrackNorm = (raw) => {
+      if (!useNormalization || !raw || raw.length === 0) return null;
+      const statsFn = (typeof GsrFilter !== 'undefined' && GsrFilter.calculateStats)
+        ? GsrFilter.calculateStats
+        : ((typeof StatsMath !== 'undefined' && StatsMath.calculateStats) ? StatsMath.calculateStats : null);
+      const s = statsFn ? statsFn(raw.map(d => d.val)) : { mean: 0, std: 1 };
+      return { mean: s.mean, std: s.std || 1 };
+    };
+
     for (const t of active) {
       const rawData = t.analyzer.raw;
       const Fs = t.analyzer.sampleRate || 10.0;
@@ -279,23 +296,22 @@ class GSRCollectiveManager {
           }
         }
       } else {
-        // Continuous topography: resolve and smooth ONLY the active metric
+        // Continuous topography: resolve and smooth ONLY the active metric.
+        // `norm` is set (to { mean, std }) only for the raw-scale sources that
+        // need per-track standardisation; it is applied after smoothing below.
         let activeSeries;
+        let norm = null;
         if (topographySource === 'tonic') {
           activeSeries = useNormalization ? (t.analyzer.tonicZ || []) : (t.analyzer.tonic || []);
         } else if (topographySource === 'auc') {
-          const aucRaw = t.analyzer.phasicAUC || [];
-          if (useNormalization && aucRaw.length > 0) {
-            // Both return a { mean, std } shape (GsrFilter.calculateStats just
-            // wraps StatsMath.calculateStats with a std===0 → 1 guard).
-            const statsFn = (typeof GsrFilter !== 'undefined' && GsrFilter.calculateStats)
-              ? GsrFilter.calculateStats
-              : ((typeof StatsMath !== 'undefined' && StatsMath.calculateStats) ? StatsMath.calculateStats : null);
-            const aucStats = statsFn ? statsFn(aucRaw.map(d => d.val)) : { mean: 0, std: 1 };
-            activeSeries = aucRaw.map(d => ({ time: d.time, val: (d.val - aucStats.mean) / (aucStats.std || 1) }));
-          } else {
-            activeSeries = aucRaw;
-          }
+          activeSeries = t.analyzer.phasicAUC || [];
+          norm = perTrackNorm(activeSeries);
+        } else if (topographySource === 'gsr') {
+          activeSeries = t.analyzer.filtered || [];
+          norm = perTrackNorm(activeSeries);
+        } else if (topographySource === 'peak_density') {
+          activeSeries = t.analyzer.peakDensity || [];
+          norm = perTrackNorm(activeSeries);
         } else if (topographySource === 'arousal_index') {
           activeSeries = t.analyzer.arousalIndex || [];
         } else if (topographySource === 'tri_index' || topographySource === 'triIndex') {
@@ -309,7 +325,8 @@ class GSRCollectiveManager {
         for (let i = 0; i < rawData.length; i += step) {
           const coords = t.analyzer.getCoordinates(i);
           if (coords) {
-            const v = doSmoothing ? smoothVals[i] : (activeSeries[i] ? activeSeries[i].val : 0);
+            let v = doSmoothing ? smoothVals[i] : (activeSeries[i] ? activeSeries[i].val : 0);
+            if (norm) v = (v - norm.mean) / norm.std;
             points.push({ lat: coords.lat, lon: coords.lon, val: v });
           }
         }

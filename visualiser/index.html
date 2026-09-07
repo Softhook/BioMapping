@@ -914,11 +914,16 @@
                    view. Kept id/options so contourControls, collective_project
                    persistence and _updateCollectiveMapNow read it unchanged. -->
               <select id="topoSource" class="select-control btn btn-outline" title="Topography Source — the metric the collective contour surface is built from" style="display: none;">
+                <!-- Order mirrors #mapColoringMetric (the single-track map dropdown);
+                     'peaks' has no single-track equivalent and sits next to Peak Density. -->
+                <option value="gsr">GSR Signal (SCL + SCR)</option>
                 <option value="phasic" selected>Phasic Arousal (Transient)</option>
                 <option value="tonic">Tonic Baseline (SCL)</option>
+                <option value="peak_density">Peak Density (SCR frequency)</option>
                 <option value="peaks">Peak Stress Hotspots</option>
                 <option value="auc">Phasic AUC (ISCR)</option>
                 <option value="arousal_index">Combined Arousal Index</option>
+                <option value="tri_index">Tri Index (Tonic + AUC + Density)</option>
               </select>
               <span class="control-divider"></span>
               <button class="icon-btn fullscreen-btn" id="btnMapFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>

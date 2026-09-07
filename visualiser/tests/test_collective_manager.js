@@ -437,7 +437,10 @@ test('generateContourSurface: IDW grid matches an independent brute-force refere
   const result = mgr.generateContourSurface({
     gridResolution, contourCount: 3, isolationRadius, idwExponent,
     topographySource: 'phasic', normalizeZScore: false,
-    blurIterations: 1, peakPreservation: 0.5, softening: 0.0
+    blurIterations: 1, peakPreservation: 0.5, softening: 0.0,
+    // The brute-force reference below interpolates the raw per-point values;
+    // disable the moving-average pass so the real path does too.
+    temporalSmoothingWindow: 0
   });
 
   const rawExpected = bruteForceIdwGrid(pts, result.bounds, gridResolution, gridResolution, isolationRadius, idwExponent);

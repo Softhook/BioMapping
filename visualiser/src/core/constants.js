@@ -274,7 +274,9 @@ const GSR_CONST = {
     peaks:         { label: 'Peak Stress Hotspots', unit: '' },
     auc:           { label: 'Phasic AUC (ISCR)', unit: ' μS·s' },
     arousal_index: { label: 'Combined Arousal Index', unit: ' z' },
-    tri_index:     { label: 'Tri Index', unit: ' z' }
+    tri_index:     { label: 'Tri Index', unit: ' z' },
+    gsr:           { label: 'GSR Signal', unit: ' μS' },
+    peak_density:  { label: 'Peak Density', unit: ' /min' }
   },
 
   // ── Continuous temporal peak-density Gaussian KDE ────────────────────────

@@ -32,6 +32,8 @@ function makeMockTrack(id, n = 36) {
   const phasicAUC = [];
   const arousalIndex = [];
   const triIndex = [];
+  const filtered = [];
+  const peakDensity = [];
   const peaks = [];
 
   for (let i = 0; i < n; i++) {
@@ -45,6 +47,8 @@ function makeMockTrack(id, n = 36) {
     phasicAUC.push({ time: i, val: (r * c + 1) * 0.1 });
     arousalIndex.push({ time: i, val: (r - c) * 0.3 });
     triIndex.push({ time: i, val: (r + c) * 0.2 });
+    filtered.push({ time: i, val: 4.0 + (r + 1) * 0.5 });
+    peakDensity.push({ time: i, val: (r + c) * 0.4 });
   }
   peaks.push({ index: 5, amplitude: 2.0, excluded: false });
   peaks.push({ index: 15, amplitude: 1.0, excluded: true });
@@ -58,6 +62,7 @@ function makeMockTrack(id, n = 36) {
       sampleRate: 1,
       getCoordinates: (i) => points[i] || null,
       phasic, phasicZ, tonic, tonicZ, phasicAUC, arousalIndex, triIndex,
+      filtered, peakDensity,
       phasicStd: 0.5,
       peaks,
     }
@@ -69,7 +74,7 @@ test('generateContourSurface: runs across all topography sources without error a
   mgr.addTrack(makeMockTrack('t1'));
   mgr.addTrack(makeMockTrack('t2'));
 
-  const sources = ['peaks', 'phasic', 'tonic', 'auc', 'arousal_index', 'tri_index', 'triIndex', 'unknown_fallback'];
+  const sources = ['peaks', 'phasic', 'tonic', 'auc', 'arousal_index', 'tri_index', 'triIndex', 'gsr', 'peak_density', 'unknown_fallback'];
   for (const src of sources) {
     for (const norm of [false, true]) {
       const res = mgr.generateContourSurface({
@@ -131,6 +136,9 @@ function makeConstTrack(id, consts, n = 36) {
 const FLAT_PARAMS = {
   gridResolution: 10, contourCount: 3, isolationRadius: 500,
   peakPreservation: 0, softening: 0, blurIterations: 0,
+  // These tests pin the surface value to the raw series value per sample, so
+  // the moving-average anti-alias pass (on by default) must be disabled.
+  temporalSmoothingWindow: 0,
 };
 
 const CONSTS = {
