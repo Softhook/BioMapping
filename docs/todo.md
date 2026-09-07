@@ -52,6 +52,17 @@ Carried over from archived investigations (`archive/gps_rf_mutex_status.md`, `ar
 - **`gsr->available` dead code** — set `true` unconditionally at alloc, never set
   `false`; every `if(!gsr->available) return;` guard is unreachable. Removing it
   touches ~20 call sites plus `gsr_sensor_available()` for zero behaviour change.
+- **SD write-failure ride-out — buffer-limit vs streak-limit** — the flush
+  block in `run_recording_session()` rides out transient SD failures (buffers
+  rows, retries up to `SD_FLUSH_FAIL_STREAK_LIMIT` = 6). In GSR modes (~10
+  rows/s) the 24 KB batch buffer fills after ~1.5–2 flush intervals, so
+  `!batch_ok` ends the ride-out at streak ≈ 2, not 6 — the streak limit only
+  really bites in GPS-only mode. Not a bug (buffer-full is a clean early stop);
+  the `SD_FLUSH_FAIL_STREAK_LIMIT` comment in `biomap_types.h` is just
+  optimistic about the window for the common mode. Partial writes during the
+  ride-out no longer duplicate rows — `sd_logger_batch_flush()` commits only
+  the bytes the card took — so files stay CRC-consistent (`flush_fails:>0` in
+  the `# End` trailer is the only mark).
 
 ### Visualiser
 

@@ -444,15 +444,19 @@ void sd_logger_stop(SdLogger* l, uint32_t end_epoch) {
 // Flush the internal batch buffer to SD in one write.
 // Returns: >0 bytes flushed, 0 if buffer was empty, -1 on error.
 //
-// On error the buffer is left untouched (NOT cleared) so a subsequent call
-// retries the exact same bytes rather than silently discarding data the SD
-// card never actually received — the caller decides whether to retry or
-// give up. A partial write (0 < written < flushed) is treated the same as
-// a total failure: the whole batch is retried next time, which may
-// duplicate the already-written prefix on a genuine partial write. That's
-// a deliberate simplification — FatFs writes at this size (<=4 KB) are
-// effectively atomic in practice, so tracking a partial-write remainder
-// with a memmove isn't worth the complexity for an edge case this rare.
+// On a total failure (written == 0) the buffer is left untouched (NOT
+// cleared) so a subsequent call retries the exact same bytes rather than
+// silently discarding data the SD card never received — the caller decides
+// whether to retry or give up.
+//
+// On a partial write (0 < written < flushed — a card that dies mid-transfer)
+// the bytes the card DID take are folded into the integrity counters and
+// only the unwritten tail is kept for the retry, so a later successful
+// flush never re-writes the already-stored prefix. That keeps the "# End"
+// trailer's crc32/bytes/rows an exact description of the file even across a
+// flush failure a later flush recovers from — the write-failure ride-out in
+// biomap_session.c relies on it, so such a file re-imports as "hit SD
+// pressure" (flagged by flush_fails>0), not as corrupt.
 int sd_logger_batch_flush(SdLogger* l) {
     furi_check(l, "SdLogger: NULL in batch_flush()");
     if(!l->active) return 0;
@@ -481,6 +485,24 @@ int sd_logger_batch_flush(SdLogger* l) {
         uint32_t flush_dur = furi_get_tick() - flush_start;
         if(flush_dur > l->flush_peak_ms) l->flush_peak_ms = flush_dur;
         l->flush_fail_count++;
+
+        // Partial write: `written` bytes reached the card before it failed.
+        // Commit exactly those to the CRC / byte / row counters and drop
+        // them from the buffer, leaving only the unwritten tail for the
+        // retry — the enclosing `!=` guarantees 0 < written < flushed here.
+        // (written == 0 is the common total-failure case: nothing committed,
+        // the whole batch is retried unchanged.)
+        if(written > 0) {
+            l->crc = crc32_feed(l->crc, l->gsr_batch, written);
+            l->crc_bytes += written;
+            for(uint16_t i = 0; i < written; i++) {
+                if(l->gsr_batch[i] == '\n') l->row_count++;
+            }
+            l->last_byte_newline = (l->gsr_batch[written - 1] == '\n');
+            memmove(l->gsr_batch, l->gsr_batch + written,
+                    (size_t)flushed - written);
+            l->gsr_batch_len = flushed - (int)written;
+        }
         return -1;
     }
 

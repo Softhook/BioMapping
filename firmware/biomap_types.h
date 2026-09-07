@@ -49,6 +49,13 @@
 #define MANUAL_ZOOM_TIMEOUT 30    // ticks before auto-zoom re-engages after manual zoom (3 s)
 #define FLUSH_INTERVAL    10      // seconds between SD batch flushes (LED blinks at 1 Hz)
 
+// Consecutive failed sd_logger_batch_flush() calls tolerated before a
+// recording is ended as unrecoverable (see run_recording_session's flush
+// block). Flush attempts are ~FLUSH_INTERVAL seconds apart, so ~6 is about a
+// minute of retrying while the batch buffer holds the un-flushed rows in RAM
+// — a batch buffer that fills first ends it sooner regardless.
+#define SD_FLUSH_FAIL_STREAK_LIMIT 6
+
 // ── Sub-structs (owned by BioMapApp) ───────────────────────────────────
 
 typedef struct {
@@ -93,6 +100,25 @@ typedef struct {
     // run_recording_session(), regardless of recording.active.
     uint32_t last_tick_wall_ms; // bookkeeping only — previous furi_get_tick() reading
     uint32_t tick_dt_ms;        // real elapsed ms since the previous Tick event; 0 on the first tick
+
+    // ── SD write-failure ride-out (run_recording_session's flush block) ────
+    // A failed batch flush no longer ends the recording immediately:
+    // sd_logger_batch_flush() keeps the un-flushed rows in its buffer and new
+    // rows keep appending onto them, so the next successful flush writes the
+    // accumulated old + new rows in one go (one storage_file_write, CRC folds
+    // exactly the confirmed bytes — no corruption).
+    //   flush_fail_streak — consecutive failed flushes; 0 = healthy. >0 while
+    //     riding out a failure (batch buffer holds un-flushed rows); reset to
+    //     0 on the first success. The renderer blinks the recording indicator
+    //     while this is >0 and `active`.
+    //   write_stopped — latched true when the recording was terminated by an
+    //     unrecoverable SD failure (streak reached SD_FLUSH_FAIL_STREAK_LIMIT,
+    //     or the batch buffer filled while still failing) rather than a normal
+    //     user stop. Kept set after `active` clears so the renderer holds the
+    //     "REC STOPPED - SD ERROR" banner up. session_init() zeroes both per
+    //     session; key_toggle_recording()'s start path clears both on restart.
+    uint32_t flush_fail_streak;
+    bool     write_stopped;
 } RecordingState;
 
 // Extracted GPS position snapshot (returned by value from get_gps_position).

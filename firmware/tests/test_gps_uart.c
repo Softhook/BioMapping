@@ -677,6 +677,52 @@ static void test_rx_stream_drop_counter(void) {
     printf("  -> Pass\n");
 }
 
+// The SD write-failure ride-out (biomap_session.c / modules/sd_logger.c)
+// blocks the single event-loop thread inside sd_logger_batch_flush() while
+// it retries a failing card, and that same thread is what drains this UART.
+// A realistic worst case is a few hundred ms of stall (a normal flush is
+// 20-60 ms; a marginal-card retry or the ~2x-size recovery write pushes
+// into the low hundreds). At 115200 8N1 the ISR can deliver at most
+// ~14.4 KB/s, and rx_stream holds GPS_RX_BUF_SIZE (5 KB) — ~355 ms of
+// line-saturated headroom, and well over a second at the M10Q's real NMEA
+// rate. So a ride-out stall must cost zero GPS bytes: fill most of the
+// buffer without draining, then confirm nothing was dropped and the
+// retained sentences still parse. (test_rx_stream_drop_counter covers the
+// opposite end — a multi-second stall, which the ride-out's streak limit
+// ends the recording long before reaching.)
+static void test_rx_stream_survives_sd_flush_ride_out_stall(void) {
+    printf("Running test_rx_stream_survives_sd_flush_ride_out_stall...\n");
+    FuriMessageQueue queue = {0};
+    GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
+    assert(g != NULL);
+    assert(gps_uart_get_rx_drop_count(g) == 0);
+
+    // ~4.8 KB of valid GGA — just under the 5 KB stream buffer, i.e. more
+    // than a full line-saturated second of UART with the drain thread stuck.
+    const size_t stall_bytes = 4800;
+    size_t fed = 0;
+    int lines_fed = 0;
+    while(fed + strlen(GGA_LINE) <= stall_bytes) {
+        furi_hal_mock_feed_string(GGA_LINE);
+        fed += strlen(GGA_LINE);
+        lines_fed++;
+    }
+    printf("  fed %d GGA lines (%zu bytes) with the drain thread \"stalled\"\n", lines_fed, fed);
+    assert(gps_uart_get_rx_drop_count(g) == 0);   // nothing lost while stalled
+
+    // Drain resumes once the flush returns.
+    for(int i = 0; i < 60 && gps_uart_get_status(g).satellites_tracked != 16; i++) {
+        gps_uart_process_rx(g);
+    }
+    GpsStatus s = gps_uart_get_status(g);
+    assert(fabs(s.latitude - 51.5557397) < 1e-6);   // retained bytes parsed fine
+    assert(s.satellites_tracked == 16);
+    assert(gps_uart_get_rx_drop_count(g) == 0);      // still zero after catch-up
+
+    gps_uart_free(g);
+    printf("  -> Pass\n");
+}
+
 // Backlog should be drained across multiple process_rx() calls, not all in
 // one monopolizing pass. Feed many malformed lines at once and verify the
 // first call parses only a subset, with later calls finishing the rest.
@@ -814,6 +860,7 @@ int main(void) {
     test_pubx_hacc_parsing();
     test_nmea_fail_counter();
     test_rx_stream_drop_counter();
+    test_rx_stream_survives_sd_flush_ride_out_stall();
     test_rx_drain_is_chunked_not_monolithic();
     test_scheduler_mock_with_real_uart_drain_feedback();
 

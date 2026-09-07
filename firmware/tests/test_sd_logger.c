@@ -723,6 +723,462 @@ static void test_sd_logger_trailer_reports_flush_fails(void) {
     printf("  -> Pass\n");
 }
 
+// A partial write (card dies mid-transfer) must leave the buffer holding
+// ONLY the bytes that didn't reach the card — never re-write the prefix on
+// the retry. Regression target: without the partial-write handling in
+// sd_logger_batch_flush(), the retry re-writes the whole batch and the file
+// ends up with a duplicated prefix + a trailer whose crc32/bytes no longer
+// match, which a re-import reads as tampered-with rather than "hit SD
+// pressure".
+static void test_sd_logger_partial_write_keeps_only_unwritten_tail(void) {
+    printf("Running test_sd_logger_partial_write_keeps_only_unwritten_tail...\n");
+    Storage* storage = storage_mock_alloc();
+    SdLogger* l = sd_logger_alloc(storage);
+    assert(sd_logger_start(l, "H\n"));
+
+    assert(sd_logger_batch_append(l, "row1\n", 5));
+    assert(sd_logger_batch_append(l, "row2\n", 5));
+
+    // Next write stops 6 bytes in — "row1\nr" reaches the card, "ow2\n" does not.
+    storage_mock_set_next_write_short(storage, 6);
+    assert(sd_logger_batch_flush(l) == -1);
+
+    // More data arrives while riding out the failure — it must append onto
+    // the 4-byte remainder, not onto a still-full 10-byte buffer.
+    assert(sd_logger_batch_append(l, "row3\n", 5));
+
+    // Recovery: writes exactly the un-written tail + the new row ("ow2\nrow3\n").
+    assert(sd_logger_batch_flush(l) == 9);
+
+    sd_logger_stop(l, 0);
+
+    size_t len;
+    const uint8_t* contents = storage_mock_get_file_contents(
+        storage, "/ext/biomapping/biomap_001.csv", &len);
+
+    // Every row appears exactly once — no duplicated "row1\n".
+    size_t dlen;
+    const uint8_t* d = data_region(contents, len, &dlen);
+    assert(dlen == strlen("H\nrow1\nrow2\nrow3\n"));
+    assert(memcmp(d, "H\nrow1\nrow2\nrow3\n", dlen) == 0);
+
+    // Trailer still describes the file exactly: byte count, CRC and row
+    // count all reconcile against an independent pass over the region.
+    char trailer[192];
+    get_trailer(contents, len, trailer, sizeof(trailer));
+    size_t rlen = crc_region_len(contents, len);
+    unsigned long rows = 0, bytes = 0, crc = 0, ovf = 99, ff = 99;
+    assert(sscanf(trailer, "# End rows:%lu bytes:%lu crc32:%lx overflows:%lu flush_fails:%lu",
+                  &rows, &bytes, &crc, &ovf, &ff) == 5);
+    assert(rows == 3);
+    assert(bytes == rlen);
+    assert(crc == crc32_ref(contents, rlen));
+    assert(ff == 1);   // the partial write counts as one flush failure
+
+    sd_logger_free(l);
+    storage_mock_free(storage);
+    printf("  -> Pass\n");
+}
+
+// The write-failure ride-out shape: several flushes, two of them partial,
+// interleaved with new rows, then a clean recovery. The finished file must
+// contain each row once and carry a trailer that verifies — the whole point
+// of the ride-out is that a transient card blip costs some latency, not a
+// file that looks corrupted.
+static void test_sd_logger_partial_write_ride_out_trailer_verifies(void) {
+    printf("Running test_sd_logger_partial_write_ride_out_trailer_verifies...\n");
+    Storage* storage = storage_mock_alloc();
+    SdLogger* l = sd_logger_alloc(storage);
+    assert(sd_logger_start(l, "timestamp,gsr_raw\n"));
+
+    char expected[256];
+    size_t exp_len = (size_t)snprintf(expected, sizeof(expected), "timestamp,gsr_raw\n");
+
+    // 9 rows total, flushed in bursts; writes 3 and 6 land mid-transfer.
+    for(int i = 0; i < 9; i++) {
+        int n = sd_logger_batch_printf(l, "%d,%d\n", i, 100 + i);
+        assert(n > 0);
+        exp_len += (size_t)snprintf(expected + exp_len, sizeof(expected) - exp_len, "%d,%d\n", i, 100 + i);
+
+        if(i == 2) {
+            assert(sd_logger_batch_flush(l) > 0);           // clean
+        } else if(i == 5) {
+            storage_mock_set_next_write_short(storage, 5);   // dies mid-batch
+            assert(sd_logger_batch_flush(l) == -1);
+        } else if(i == 7) {
+            storage_mock_set_next_write_short(storage, 3);   // dies again, different offset
+            assert(sd_logger_batch_flush(l) == -1);
+        }
+    }
+    assert(sd_logger_batch_flush(l) > 0);                    // final recovery
+
+    sd_logger_stop(l, 1000000000UL);
+
+    size_t len;
+    const uint8_t* contents = storage_mock_get_file_contents(
+        storage, "/ext/biomapping/biomap_001.csv", &len);
+
+    size_t dlen;
+    const uint8_t* d = data_region(contents, len, &dlen);
+    assert(dlen == exp_len);
+    assert(memcmp(d, expected, dlen) == 0);                  // no duplicated rows
+
+    char trailer[192];
+    get_trailer(contents, len, trailer, sizeof(trailer));
+    size_t rlen = crc_region_len(contents, len);
+    unsigned long rows = 0, bytes = 0, crc = 0, endt = 0, ovf = 99, ff = 99;
+    assert(sscanf(trailer,
+        "# End rows:%lu bytes:%lu crc32:%lx end_time:%lu overflows:%lu flush_fails:%lu",
+        &rows, &bytes, &crc, &endt, &ovf, &ff) == 6);
+    assert(rows == 9);
+    assert(bytes == rlen);
+    assert(crc == crc32_ref(contents, rlen));               // verifies clean
+    assert(ovf == 0);
+    assert(ff == 2);
+
+    sd_logger_free(l);
+    storage_mock_free(storage);
+    printf("  -> Pass\n");
+}
+
+// A partial write that stops exactly on a row boundary ('\n' as its last
+// committed byte) must not desync the row count or inject a separator: the
+// committed prefix is whole rows, the tail is whole rows, and the trailer's
+// rows:/crc32: still reconcile.
+static void test_sd_logger_partial_write_on_row_boundary(void) {
+    printf("Running test_sd_logger_partial_write_on_row_boundary...\n");
+    Storage* storage = storage_mock_alloc();
+    SdLogger* l = sd_logger_alloc(storage);
+    assert(sd_logger_start(l, "H\n"));
+
+    assert(sd_logger_batch_append(l, "aa\n", 3));
+    assert(sd_logger_batch_append(l, "bb\n", 3));
+    assert(sd_logger_batch_append(l, "cc\n", 3));
+
+    // 6 bytes = "aa\nbb\n" exactly — the cut lands on a newline.
+    storage_mock_set_next_write_short(storage, 6);
+    assert(sd_logger_batch_flush(l) == -1);
+
+    assert(sd_logger_batch_append(l, "dd\n", 3));
+    assert(sd_logger_batch_flush(l) == 6);   // "cc\ndd\n"
+
+    sd_logger_stop(l, 0);
+
+    size_t len;
+    const uint8_t* contents = storage_mock_get_file_contents(
+        storage, "/ext/biomapping/biomap_001.csv", &len);
+
+    size_t dlen;
+    const uint8_t* d = data_region(contents, len, &dlen);
+    assert(dlen == strlen("H\naa\nbb\ncc\ndd\n"));
+    assert(memcmp(d, "H\naa\nbb\ncc\ndd\n", dlen) == 0);
+
+    char trailer[192];
+    get_trailer(contents, len, trailer, sizeof(trailer));
+    size_t rlen = crc_region_len(contents, len);
+    unsigned long rows = 0, bytes = 0, crc = 0, ovf = 99, ff = 99;
+    assert(sscanf(trailer, "# End rows:%lu bytes:%lu crc32:%lx overflows:%lu flush_fails:%lu",
+                  &rows, &bytes, &crc, &ovf, &ff) == 5);
+    assert(rows == 4);
+    assert(bytes == rlen);
+    assert(crc == crc32_ref(contents, rlen));
+    assert(ff == 1);
+
+    sd_logger_free(l);
+    storage_mock_free(storage);
+    printf("  -> Pass\n");
+}
+
+// ── Fault-injection stress harness ───────────────────────────────────────
+// A deterministic xorshift PRNG so any failing run reprints the exact seed
+// that produced it.
+static uint32_t g_rng;
+static uint32_t rng_next(void) {
+    uint32_t x = g_rng;
+    x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+    return (g_rng = x);
+}
+
+// Full post-mortem on a stopped file: the data region must be byte-identical
+// to `expected` (no duplicated, dropped, or reordered rows), and the "# End"
+// trailer's bytes / crc32 / rows / overflows / flush_fails must all
+// reconcile against an independent pass over the file. `want_fails` is the
+// number of flush failures the run injected — sd_logger must have counted
+// exactly that many.
+static void assert_file_verifies(Storage* storage, const char* expected, size_t expected_len,
+                                 unsigned long want_rows, unsigned long want_fails) {
+    size_t len;
+    const uint8_t* contents = storage_mock_get_file_contents(
+        storage, "/ext/biomapping/biomap_001.csv", &len);
+    assert(contents != NULL);
+
+    size_t dlen;
+    const uint8_t* d = data_region(contents, len, &dlen);
+    assert(dlen == expected_len);
+    assert(memcmp(d, expected, dlen) == 0);
+
+    char trailer[192];
+    get_trailer(contents, len, trailer, sizeof(trailer));
+    size_t rlen = crc_region_len(contents, len);
+
+    unsigned long rows = 0, bytes = 0, crc = 0, endt = 0, ovf = 999, ff = 999;
+    int matched = sscanf(trailer,
+        "# End rows:%lu bytes:%lu crc32:%lx end_time:%lu overflows:%lu flush_fails:%lu",
+        &rows, &bytes, &crc, &endt, &ovf, &ff);
+    if(matched != 6) {
+        matched = sscanf(trailer,
+            "# End rows:%lu bytes:%lu crc32:%lx overflows:%lu flush_fails:%lu",
+            &rows, &bytes, &crc, &ovf, &ff);
+        assert(matched == 5);
+    }
+    assert(rows == want_rows);
+    assert(bytes == rlen);
+    assert(crc == crc32_ref(contents, rlen));
+    assert(ovf == 0);
+    assert(ff == want_fails);
+}
+
+// One randomised run: emit TOTAL_ROWS known rows in bursts, and before each
+// flush inject either nothing, a total write failure, or a partial write
+// that dies at a random offset inside the pending buffer. Whatever the
+// card does, the finished file must reconstruct exactly and its trailer
+// must verify (assert_file_verifies). `pending` mirrors sd_logger's
+// internal gsr_batch_len so the test can pick a partial-cut offset.
+static void stress_run(uint32_t seed) {
+    g_rng = seed ? seed : 1u;
+    Storage* storage = storage_mock_alloc();
+    SdLogger* l = sd_logger_alloc(storage);
+    assert(sd_logger_start(l, "timestamp,gsr_raw\n"));
+
+    static char expected[16384];
+    size_t exp_len = (size_t)snprintf(expected, sizeof(expected), "timestamp,gsr_raw\n");
+
+    const int TOTAL_ROWS = 240;
+    int emitted = 0;
+    unsigned long injected_fails = 0;
+    size_t pending = 0;   // bytes appended but not yet durably on the card
+
+    while(emitted < TOTAL_ROWS) {
+        int burst = 1 + (int)(rng_next() % 12);
+        for(int b = 0; b < burst && emitted < TOTAL_ROWS; b++) {
+            char row[48];
+            int n = (rng_next() % 3 == 0)
+                ? snprintf(row, sizeof(row), "%d,%d.%03d\n", emitted, 1000 + emitted, (int)(rng_next() % 1000))
+                : snprintf(row, sizeof(row), "%d,%d\n", emitted, 1000 + emitted);
+            assert(n > 0 && (size_t)n < sizeof(row));
+            assert(sd_logger_batch_append(l, row, (size_t)n));
+            assert(exp_len + (size_t)n < sizeof(expected));
+            memcpy(expected + exp_len, row, (size_t)n);
+            exp_len += (size_t)n;
+            pending += (size_t)n;
+            emitted++;
+        }
+
+        if(pending == 0) { assert(sd_logger_batch_flush(l) == 0); continue; }
+
+        switch(rng_next() % 4) {
+        case 0:   // clean flush
+        case 1:
+            assert(sd_logger_batch_flush(l) > 0);
+            pending = 0;
+            break;
+        case 2:   // total write failure — nothing reaches the card
+            storage_mock_fail_writes(storage, true);
+            assert(sd_logger_batch_flush(l) == -1);
+            storage_mock_fail_writes(storage, false);
+            injected_fails++;
+            break;
+        case 3:   // partial write — card dies mid-transfer at a random offset
+            if(pending >= 2) {
+                size_t cap = 1 + (rng_next() % (pending - 1));   // 1 .. pending-1
+                storage_mock_set_next_write_short(storage, cap);
+                assert(sd_logger_batch_flush(l) == -1);
+                injected_fails++;
+                pending -= cap;
+            } else {
+                assert(sd_logger_batch_flush(l) > 0);
+                pending = 0;
+            }
+            break;
+        }
+    }
+
+    // sd_logger_stop() drains whatever is still buffered (writes are enabled
+    // again) and writes the trailer.
+    sd_logger_stop(l, 1000000000UL);
+    assert_file_verifies(storage, expected, exp_len, (unsigned long)TOTAL_ROWS, injected_fails);
+
+    sd_logger_free(l);
+    storage_mock_free(storage);
+}
+
+// 600 randomised fault-injection runs. Any corruption — a duplicated prefix,
+// a dropped row, a trailer that stops matching the file — trips an assert
+// and prints the seed to replay.
+static void test_sd_logger_partial_write_fuzz(void) {
+    printf("Running test_sd_logger_partial_write_fuzz...\n");
+    for(uint32_t seed = 1; seed <= 600; seed++) {
+        stress_run(seed);
+        if(seed % 100 == 0) printf("  seed %u ok\n", seed);
+    }
+    printf("  -> Pass\n");
+}
+
+// Exhaustive: a fixed 3-row batch, with the first flush cut short at EVERY
+// possible byte offset 0..len. Every mid-transfer death point must still
+// reconstruct exactly and verify after recovery.
+static void test_sd_logger_partial_write_every_offset(void) {
+    printf("Running test_sd_logger_partial_write_every_offset...\n");
+    const char* rows = "10,1001\n11,1002.5\n12,1003\n";
+    const size_t rlen = strlen(rows);
+
+    for(size_t cut = 0; cut <= rlen; cut++) {
+        Storage* storage = storage_mock_alloc();
+        SdLogger* l = sd_logger_alloc(storage);
+        assert(sd_logger_start(l, "H\n"));
+
+        assert(sd_logger_batch_append(l, rows, rlen));
+
+        unsigned long fails = 0;
+        if(cut == 0) {
+            storage_mock_fail_writes(storage, true);
+            assert(sd_logger_batch_flush(l) == -1);
+            storage_mock_fail_writes(storage, false);
+            fails = 1;
+        } else if(cut < rlen) {
+            storage_mock_set_next_write_short(storage, cut);
+            assert(sd_logger_batch_flush(l) == -1);
+            fails = 1;
+        } else {
+            assert(sd_logger_batch_flush(l) > 0);   // cut == rlen: full write
+        }
+
+        // A follow-up row lands on whatever tail is left, then a clean flush.
+        assert(sd_logger_batch_append(l, "13,1004\n", 8));
+        assert(sd_logger_batch_flush(l) > 0);
+
+        sd_logger_stop(l, 0);
+
+        char expected[64];
+        size_t exp_len = (size_t)snprintf(expected, sizeof(expected), "H\n%s13,1004\n", rows);
+        assert_file_verifies(storage, expected, exp_len, 4, fails);
+
+        sd_logger_free(l);
+        storage_mock_free(storage);
+    }
+    printf("  -> Pass\n");
+}
+
+// The unrecoverable path: writes fail for good partway through. The file
+// must degrade to a clean PREFIX of the data with no "# End" trailer (a
+// re-import reads that as "incomplete", never "corrupt") — never a
+// duplicated or garbled tail.
+static void test_sd_logger_permanent_write_failure_leaves_clean_prefix(void) {
+    printf("Running test_sd_logger_permanent_write_failure_leaves_clean_prefix...\n");
+    Storage* storage = storage_mock_alloc();
+    SdLogger* l = sd_logger_alloc(storage);
+    assert(sd_logger_start(l, "H\n"));
+
+    // 10 rows land cleanly.
+    for(int i = 0; i < 10; i++) {
+        char row[16];
+        int n = snprintf(row, sizeof(row), "r%02d\n", i);
+        assert(sd_logger_batch_append(l, row, (size_t)n));
+    }
+    assert(sd_logger_batch_flush(l) > 0);
+
+    // A partial write commits 2 more full rows ("r10\nr11\n" = 8 bytes) then
+    // the card is gone for good.
+    for(int i = 10; i < 15; i++) {
+        char row[16];
+        int n = snprintf(row, sizeof(row), "r%02d\n", i);
+        assert(sd_logger_batch_append(l, row, (size_t)n));
+    }
+    storage_mock_set_next_write_short(storage, 8);
+    assert(sd_logger_batch_flush(l) == -1);
+    storage_mock_fail_writes(storage, true);
+    assert(sd_logger_batch_flush(l) == -1);
+
+    sd_logger_stop(l, 0);   // its final flush + trailer write also fail
+
+    size_t len;
+    const uint8_t* contents = storage_mock_get_file_contents(
+        storage, "/ext/biomapping/biomap_001.csv", &len);
+
+    // Whatever is on the card is exactly the integrity line + a prefix of
+    // the rows, and there is no trailer.
+    const char* want = INTEGRITY_LINE "H\nr00\nr01\nr02\nr03\nr04\nr05\nr06\nr07\nr08\nr09\nr10\nr11\n";
+    assert(len == strlen(want));
+    assert(memcmp(contents, want, len) == 0);
+    int has_trailer = 0;
+    for(size_t i = 0; i + 5 <= len; i++)
+        if(memcmp(contents + i, "# End", 5) == 0) { has_trailer = 1; break; }
+    assert(!has_trailer);
+
+    sd_logger_free(l);
+    storage_mock_free(storage);
+    printf("  -> Pass\n");
+}
+
+// The write-failure ride-out runs on the same single event-loop thread that
+// also drains the GPS UART and emits GSR/RF rows (biomap_session.c's Tick
+// handler). So the only cost it imposes on the rest of the firmware is the
+// tick-thread time each sd_logger_batch_flush() holds — and flush_peak_ms,
+// which lands in the once-a-second telemetry row on hardware, must capture
+// the worst of it, including on the *failed* retries (not just the eventual
+// recovery write). This pins that down: three failed flushes each stalling
+// 300 ticks, then a cheap recovery — the peak stays 300, and the whole
+// backlog goes out in ONE write, not one-per-row.
+static void test_sd_logger_ride_out_stall_is_measured(void) {
+    printf("Running test_sd_logger_ride_out_stall_is_measured...\n");
+    Storage* storage = storage_mock_alloc();
+    SdLogger* l = sd_logger_alloc(storage);
+    assert(sd_logger_start(l, "timestamp,gsr_raw\n"));
+    assert(sd_logger_get_flush_peak_ms(l) == 0);
+
+    char expected[8192];
+    size_t exp_len = (size_t)snprintf(expected, sizeof(expected), "timestamp,gsr_raw\n");
+
+    int total = 0;
+    for(int cycle = 0; cycle < 3; cycle++) {
+        for(int i = 0; i < 100; i++) {
+            assert(sd_logger_batch_printf(l, "%d,%d\n", total, 1000 + total) > 0);
+            exp_len += (size_t)snprintf(expected + exp_len, sizeof(expected) - exp_len,
+                                        "%d,%d\n", total, 1000 + total);
+            total++;
+        }
+        // A marginal card that times out on the write, then reports failure.
+        storage_mock_set_next_write_delay_ticks(storage, 300);
+        storage_mock_fail_writes(storage, true);
+        assert(sd_logger_batch_flush(l) == -1);
+        storage_mock_fail_writes(storage, false);
+    }
+
+    // Worst tick-thread stall so far is a *failed* retry — 300 ticks — even
+    // though nothing has reached the card yet. This is the number the
+    // telemetry row would show on hardware.
+    assert(sd_logger_get_flush_peak_ms(l) == 300);
+
+    // Recovery: the whole 300-row backlog flushed in a single write. Make it
+    // cheap so the assertion below proves the peak still reflects the
+    // ride-out, not this call.
+    storage_mock_set_next_write_delay_ticks(storage, 50);
+    int flushed = sd_logger_batch_flush(l);
+    assert(flushed >= 300 * (int)strlen("0,1000\n"));   // one write, not 300
+    assert(flushed <= SD_LOGGER_BATCH_CAP);
+    assert(sd_logger_get_flush_peak_ms(l) == 300);
+
+    sd_logger_stop(l, 0);
+
+    // The stall cost latency, not integrity — the file still verifies, with
+    // flush_fails:3 as the only mark.
+    assert_file_verifies(storage, expected, exp_len, (unsigned long)total, 3);
+
+    sd_logger_free(l);
+    storage_mock_free(storage);
+    printf("  -> Pass\n");
+}
+
 static void test_sd_logger_free_while_active_stops_cleanly(void) {
     printf("Running test_sd_logger_free_while_active_stops_cleanly...\n");
     Storage* storage = storage_mock_alloc();
@@ -764,8 +1220,15 @@ int main(void) {
     test_sd_logger_trailer_matches_data();
     test_sd_logger_trailer_omits_end_time_when_epoch_zero();
     test_sd_logger_trailer_reports_flush_fails();
+    test_sd_logger_partial_write_keeps_only_unwritten_tail();
+    test_sd_logger_partial_write_ride_out_trailer_verifies();
+    test_sd_logger_partial_write_on_row_boundary();
+    test_sd_logger_partial_write_fuzz();
+    test_sd_logger_partial_write_every_offset();
+    test_sd_logger_permanent_write_failure_leaves_clean_prefix();
+    test_sd_logger_ride_out_stall_is_measured();
     test_sd_logger_free_while_active_stops_cleanly();
 
-    printf("\nAll 24 sd_logger host tests passed successfully!\n");
+    printf("\nAll 31 sd_logger host tests passed successfully!\n");
     return 0;
 }

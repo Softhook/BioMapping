@@ -128,6 +128,13 @@ void storage_mock_fail_next_open(Storage* storage, bool fail);
 // requested length (simulates a failed/full SD write).
 void storage_mock_fail_writes(Storage* storage, bool fail);
 
+// Makes the NEXT storage_file_write() a short/partial write: it copies at
+// most `max_bytes` of the requested length and returns that count — a
+// stand-in for an SD card that dies mid-transfer. Auto-clears after one
+// use, same convention as the fail_next_* hooks above. (fail_writes still
+// wins if also set.)
+void storage_mock_set_next_write_short(Storage* storage, size_t max_bytes);
+
 // Makes the next storage_file_write() call advance the shared fake clock
 // (tests/shims/furi.h's furi_test_advance_tick()) by `ticks` before it
 // copies any bytes — a stand-in for a real SD card occasionally taking far

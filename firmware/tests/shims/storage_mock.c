@@ -33,6 +33,8 @@ struct Storage {
     bool     fail_next_dir_open;
     bool     fail_next_open;
     bool     fail_writes;
+    bool     next_write_short;
+    size_t   next_write_short_cap;
     uint32_t next_write_delay_ticks;
     uint32_t next_seek_extend_delay_ticks;
     size_t   capacity_limit; // 0 = unlimited
@@ -104,6 +106,11 @@ bool storage_mock_file_exists(Storage* storage, const char* path) {
 void storage_mock_fail_next_dir_open(Storage* storage, bool fail) { storage->fail_next_dir_open = fail; }
 void storage_mock_fail_next_open(Storage* storage, bool fail) { storage->fail_next_open = fail; }
 void storage_mock_fail_writes(Storage* storage, bool fail) { storage->fail_writes = fail; }
+
+void storage_mock_set_next_write_short(Storage* storage, size_t max_bytes) {
+    storage->next_write_short = true;
+    storage->next_write_short_cap = max_bytes;
+}
 
 void storage_mock_set_next_write_delay_ticks(Storage* storage, uint32_t ticks) {
     storage->next_write_delay_ticks = ticks;
@@ -195,6 +202,14 @@ size_t storage_file_write(File* file, const void* buff, size_t bytes_to_write) {
         s->next_write_delay_ticks = 0;
     }
     if(s->fail_writes) return 0;
+
+    // One-shot short write: truncate this call to next_write_short_cap bytes
+    // (an SD card that dies mid-transfer). The bytes up to the cap are still
+    // really written; the caller sees a return value < bytes_to_write.
+    if(s->next_write_short) {
+        s->next_write_short = false;
+        if(s->next_write_short_cap < bytes_to_write) bytes_to_write = s->next_write_short_cap;
+    }
 
     // Writes at the current position, not always at size's end -- matters
     // once storage_file_seek() has been used (pre-allocation). Every

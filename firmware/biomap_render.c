@@ -575,9 +575,28 @@ void biomap_render_callback(Canvas* c, void* ctx) {
         canvas_draw_str(c, 0, 20, "GPS unavailable");
     }
 
-    // Recording indicator — shared across all modes
+    // Recording indicator — shared across all modes. Steady box normally;
+    // blinks at ~1 Hz while riding out an SD write failure (flush_fail_streak
+    // > 0), so a degraded recording reads as different from a healthy one
+    // without disturbing the per-mode live-data layout.
     if(a->session.recording.active) {
-        canvas_draw_box(c, 118, 1, 8, 8);
+        bool blink_gap = a->session.recording.flush_fail_streak > 0 &&
+                         ((a->session.recording.total_ticks / 5) % 2);
+        if(!blink_gap) canvas_draw_box(c, 118, 1, 8, 8);
+    }
+
+    // Persistent banner once an unrecoverable SD failure has ended the
+    // recording (write_stopped stays latched after recording.active clears).
+    // Drawn last so it overrides whatever the mode renderer put at the top —
+    // the recording is over, so covering the top strip of the now-stale live
+    // view is the right trade. Same filled-box + inverted-text idiom as
+    // draw_selection_list().
+    if(a->session.recording.write_stopped) {
+        canvas_set_font(c, FontSecondary);
+        canvas_draw_box(c, 0, 0, 128, 11);
+        canvas_invert_color(c);
+        canvas_draw_str(c, 2, 9, "REC STOPPED - SD ERROR");
+        canvas_invert_color(c);
     }
 
     furi_mutex_release(a->mutex);
