@@ -319,7 +319,8 @@ class GSRMapManager {
   //   map_manager_viewport.js  — fit/zoom/scrub navigation
   //   map_manager_render.js    — renderData / refreshPath / refreshPeakMarkers
   //   map_manager_path.js      — colour-coded path segment rendering
-  //   map_manager_peaks.js     — peak / hotspot / cluster marker rendering
+  //   map_manager_peaks.js     — peak / hotspot marker rendering
+  //   map_manager_arousal_places.js — the Arousal Places layer (cluster → ranked places)
   //   map_manager_collective.js— collective / multi-track view + contours
   //   map_manager_toggles.js   — layer visibility toggles
   // The overlap-pooling primitives (_buildOverlapCells / _overlapPooledAccessor /

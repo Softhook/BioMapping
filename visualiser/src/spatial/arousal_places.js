@@ -16,7 +16,7 @@
 class GSRArousalPlaces {
   /**
    * @param {Array<Array<object>>} clusters - Output of
-   *   GSRSpatialClustering.clusterPeaks(): each entry an array of member peak
+   *   GSRSpatialClustering.compactClusters(): each entry an array of member peak
    *   objects carrying at least { lat, lon, amplitude }, and ideally
    *   { trackId, time } so cross-track agreement and first-visit time work.
    * @param {Array<object>} tracks - Contributing walks, each:

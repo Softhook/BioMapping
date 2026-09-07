@@ -140,29 +140,17 @@ Object.assign(GSRMapManager.prototype, {
     }
     this._updateRfFluidButtonState(activeTracks.some(t => t.analyzer && t.analyzer.hasRfData));
 
-    // Render collective Arousal Places across all active tracks
-    if (allActivePeaksAcrossTracks.length > 0
-        && typeof GSRSpatialClustering !== 'undefined'
-        && typeof GSRArousalPlaces !== 'undefined') {
-      const { mergeM, sigma, blobRadius, separationFactor, drawGapFactor } = this._getClusteringParams();
-      const refAmplitude = this._meanAmplitude(allActivePeaksAcrossTracks);
-
-      const scoreTracks = activeTracks.map(t => ({
+    // Collective Arousal Places across every active track (map_manager_arousal_places.js).
+    this._renderArousalPlacesFor(
+      allActivePeaksAcrossTracks,
+      activeTracks.map(t => ({
         id: t.id,
         sampleRate: t.analyzer && t.analyzer.sampleRate,
         raw: t.analyzer && t.analyzer.raw,
         phasic: t.analyzer && t.analyzer.phasic
-      }));
-
-      const clusters = GSRSpatialClustering.compactClusters(allActivePeaksAcrossTracks, mergeM, separationFactor);
-      const places = GSRArousalPlaces.buildPlaces(
-        clusters, scoreTracks,
-        (typeof GSR_CONST !== 'undefined' ? GSR_CONST.AROUSAL_PLACES : {})
-      );
-      this._renderArousalPlaces(places, {
-        collective: true, activeTrackCount: activeTracks.length, refAmplitude, sigma, blobRadius, drawGapFactor
-      });
-    }
+      })),
+      { collective: true, activeTrackCount: activeTracks.length }
+    );
 
     // 3. Zoom and Pan Map to fit collective bounding envelope — but only when the active
     // track set actually changed (tracks added/removed/toggled). Re-fitting on every contour

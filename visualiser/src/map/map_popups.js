@@ -207,7 +207,7 @@ const MapPopups = {
   },
 
   /**
-   * Popup for an Arousal Place (map_manager_peaks.js _renderArousalPlaces). Shows
+   * Popup for an Arousal Place (map_manager_arousal_places.js _renderArousalPlaces). Shows
    * the dwell-normalised score plus the aggregates behind it and, when OSM
    * enrichment has run, the street context at the place centroid.
    * @param {Object} place - Record from GSRArousalPlaces.buildPlaces().
