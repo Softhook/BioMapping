@@ -246,6 +246,16 @@ static void draw_rf_panel_left(Canvas* c, BioMapApp* a, const float rssi_dbm[EM_
     const int bar_h = 6; // thin enough to leave a 1px gap above the label in a 15px row
     const int bar_max_w = 41 - panel_x; // 40px — bar spans nearly the full panel width
 
+    // Full band designations ("815 MHz" …) — the bands are sub-GHz CC1101
+    // channels (0.815/0.868/0.915 GHz), so MHz is the correct unit; GHz
+    // would be three orders of magnitude off. Constant strings: format once
+    // and reuse, rather than snprintf-ing three of them on every frame.
+    static char band_label[EM_SCAN_NUM_FREQS][16];
+    if(band_label[0][0] == '\0') {
+        for(int k = 0; k < EM_SCAN_NUM_FREQS; k++)
+            snprintf(band_label[k], sizeof(band_label[k]), "%s MHz", em_scan_freq_label[k]);
+    }
+
     canvas_set_font(c, FontSecondary);
     for(int i = 0; i < EM_SCAN_NUM_FREQS; i++) {
         int row_top = 16 + i * (row_h + row_gap); // 16 / 32 / 48
@@ -262,13 +272,7 @@ static void draw_rf_panel_left(Canvas* c, BioMapApp* a, const float rssi_dbm[EM_
         int w = (int)(frac * bar_max_w + 0.5f);
         if(w > 0) canvas_draw_box(c, panel_x, row_top, w, bar_h);
 
-        // Label under the bar at the bottom of the row — full designation
-        // ("815 MHz"), not just the bare band number. The bands are sub-GHz
-        // CC1101 channels (0.815/0.868/0.915 GHz), so MHz is the correct
-        // unit; GHz would be three orders of magnitude off.
-        char label[16];
-        snprintf(label, sizeof(label), "%s MHz", em_scan_freq_label[i]);
-        canvas_draw_str(c, panel_x, row_top + row_h - 1, label);
+        canvas_draw_str(c, panel_x, row_top + row_h - 1, band_label[i]);
     }
 }
 
@@ -338,7 +342,10 @@ static int render_gps_badge(Canvas* c, BioMapApp* a) {
         strcpy(badge, "3D Fix");
     }
     canvas_draw_str(c, 1, 10, badge);
-    return 1 + canvas_string_width(c, "No fix");
+    // Fixed worst-case edge — constant string, measure once.
+    static int no_fix_w = 0;
+    if(no_fix_w == 0) no_fix_w = canvas_string_width(c, "No fix");
+    return 1 + no_fix_w;
 }
 
 // ── Time-span label, top-left (GSR-only mode) ─────────────────────────
@@ -352,7 +359,10 @@ static int render_time_span(Canvas* c, BioMapApp* a) {
         snprintf(buf, sizeof(buf), "%ds", t_span);
     }
     canvas_draw_str(c, 1, 10, buf);
-    return 1 + canvas_string_width(c, "59m59s");
+    // Fixed worst-case edge — constant string, measure once.
+    static int worst_case_w = 0;
+    if(worst_case_w == 0) worst_case_w = canvas_string_width(c, "59m59s");
+    return 1 + worst_case_w;
 }
 
 // ── Elapsed recording time (centred, all GSR modes) ───────────────────
@@ -718,12 +728,8 @@ static void draw_cal_submenu(Canvas* c, void* ctx, const char* title) {
     const char* options[] = { "Start Wizard", "Reset to Default", "Show Current" };
     for(int i = 0; i < 3; i++) {
         int y = 25 + i * 12;
-        if(i == sel) {
-            canvas_draw_str(c, 0, y, "> ");
-            canvas_draw_str(c, 10, y, options[i]);
-        } else {
-            canvas_draw_str(c, 10, y, options[i]);
-        }
+        if(i == sel) canvas_draw_str(c, 0, y, ">");
+        canvas_draw_str(c, 10, y, options[i]);
     }
     furi_mutex_release(sm->app->mutex);
 }

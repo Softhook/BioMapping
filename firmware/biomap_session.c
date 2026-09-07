@@ -64,22 +64,17 @@ static uint32_t session_stop_epoch(void) {
 // ==========================================================================
 
 void session_init(Session* s, BioMapMode mode, bool zoom_enabled, bool debug_fields_enabled) {
+    // Compound-literal assignment zero-inits every field not named here
+    // (the display/graph filter state, all of .recording, .timer/.vp/module
+    // pointers), so only the non-zero seeds need spelling out.
     *s = (Session){
-        .mode       = mode,
-        .pipeline   = {.display = {.smooth_iir = 0.0f, .smooth_iir_primed = false,
-                                   .smoothed = 0.0f, .primed = false,
-                                   .last_displayed = 0, .raw_sample_ns = 0.0f,
-                                   .filtered_ns = 0.0f, .refresh_counter = 0},
-                       .graph   = {.head = 0, .tick_counter = 0,
-                                   .last_smoothed = 0.0f, .scroll_divider = 1},
-                       .zoom    = {.level = 1.0f, .peak = 1.0f, .enabled = zoom_enabled,
-                                   .manual_timeout = 0}},
-        .recording  = {.active = false, .tick_counter = 0, .flush_counter = 0},
-        .running    = true,
-        .ns_label_last = -1.0f,  // sentinel — forces format on first frame (nS ≥ 0 always)
+        .mode                 = mode,
+        .pipeline.zoom        = {.level = 1.0f, .peak = 1.0f, .enabled = zoom_enabled},
+        .pipeline.graph       = {.scroll_divider = 1},
+        .running              = true,
+        .ns_label_last        = -1.0f,  // sentinel — forces format on first frame (nS ≥ 0 always)
         .debug_fields_enabled = debug_fields_enabled,
     };
-    memset(s->pipeline.graph.buf, 0, sizeof(s->pipeline.graph.buf));
 }
 
 void session_deinit(Session* s, BioMapApp* app) {
@@ -201,13 +196,15 @@ static inline GpsPosition get_gps_position(const Session* s) {
 }
 
 // ── Contention-diagnostic snapshot ─────────────────────────────────────
-// Cheap accessor reads only — the debug_fields_enabled toggle decides
-// whether the result is written to the CSV (in batch_csv_row() below), not
-// whether it's gathered. Null-guards s->gps/s->gsr/s->logger: the callers
-// all guarantee non-NULL in practice via the has_gps()/has_rf() gating in
+// Returns a zeroed RowDiag when debug_fields_enabled is off (the default),
+// so callers never pay the accessor reads — some acquire gsr->mutex/
+// gsr->rf_mutex — on the 10 Hz tick path unless the columns will be
+// written. Null-guards s->gps/s->gsr/s->logger: the callers all guarantee
+// non-NULL in practice via the has_gps()/has_rf() gating in
 // run_recording_session(), but this stays defensive.
 static inline RowDiag get_row_diag(const Session* s) {
     RowDiag d = {0};
+    if(!s->debug_fields_enabled) return d;
     d.tick_dt_ms   = s->recording.tick_dt_ms;
     d.gps_rx_drops = s->gps ? gps_uart_get_rx_drop_count(s->gps) : 0;
     d.nmea_fail    = s->gps ? gps_uart_get_nmea_fail_count(s->gps) : 0;
@@ -269,12 +266,7 @@ static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
     if(!s->recording.active || !has_gsr(s->mode)) return true;
 
     double rel = pipeline_rel_seconds(s->recording.total_ticks);
-    // get_row_diag() reads several gsr_sensor_get_*()/gps_uart_get_*()
-    // accessors, some of which acquire gsr->mutex/gsr->rf_mutex — real
-    // (if brief) cost on the 10 Hz tick path. Only pay it when the result
-    // will actually be written to the CSV; a zeroed RowDiag keeps this call
-    // free when the toggle is off (the default).
-    RowDiag diag = s->debug_fields_enabled ? get_row_diag(s) : (RowDiag){0};
+    RowDiag diag = get_row_diag(s);  // zeroed unless debug_fields_enabled
 
     if(s->mode == BioMapModeGsrOnly) {
         int ret = s->debug_fields_enabled
@@ -702,9 +694,7 @@ static bool handle_recording_tick(Session* s, const float* rf_rssi) {
     if(!has_gsr(s->mode) && has_gps(s->mode) && s->recording.active) {
         if(is_gps_row_tick(s)) {
             GpsPosition pos = get_gps_position(s);
-            // See batch_csv_row's matching comment — only pay get_row_diag()'s
-            // mutex-touching accessor reads when the result is actually used.
-            RowDiag diag = s->debug_fields_enabled ? get_row_diag(s) : (RowDiag){0};
+            RowDiag diag = get_row_diag(s);  // zeroed unless debug_fields_enabled
             return append_gps_csv_row(s, &pos, pipeline_rel_seconds(s->recording.total_ticks), 0.0f,
                                       rf_rssi, &diag);
         }

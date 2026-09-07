@@ -339,6 +339,11 @@ static int32_t gsr_sensor_worker(void* context) {
     // corner at startup; re-armed on each successful config write.
     uint32_t pga_settle_until_tick = furi_get_tick();
 
+    // RF sweep pacing interval in ticks — both operands are constant for the
+    // life of the thread, so compute it once rather than every iteration.
+    const uint32_t rf_sample_ticks =
+        (RF_SAMPLE_INTERVAL_MS * furi_kernel_get_tick_frequency()) / 1000;
+
     while(gsr->running) {
         furi_mutex_acquire(gsr->mutex, FuriWaitForever);
         uint8_t active_pga = gsr->pga_index;
@@ -535,11 +540,10 @@ static int32_t gsr_sensor_worker(void* context) {
         // iteration — not a hold across anything slow.
         if(gsr->rf_enabled) {
             uint32_t now_tick = furi_get_tick();
-            uint32_t sample_ticks = (RF_SAMPLE_INTERVAL_MS * furi_kernel_get_tick_frequency()) / 1000;
 
             furi_mutex_acquire(gsr->rf_mutex, FuriWaitForever);
             bool should_sample = gsr->rf_enabled &&
-                (now_tick - gsr->rf_last_sample_tick >= sample_ticks);
+                (now_tick - gsr->rf_last_sample_tick >= rf_sample_ticks);
             if(should_sample) {
                 gsr->rf_last_sample_tick = now_tick;
                 gsr->rf_spi_busy = true;

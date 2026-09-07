@@ -15,7 +15,7 @@
 // ── Constants ──────────────────────────────────────────────────────────
 
 #define GRAPH_N          126
-#define GRAPH_HALF       63    // GRAPH_N / 2, precomputed
+#define GRAPH_HALF       (GRAPH_N / 2)
 #define TICK_HZ          10
 #define EVENT_QUEUE_DEPTH 64   // FuriMessageQueue capacity
 #define ZOOM_FACTOR      1.5f    // multiplicative step for manual Up/Down zoom
@@ -28,9 +28,9 @@
 // fix.  With L76K at 5 Hz, odd ticks repeat the previous fix — harmless.
 #define GPS_CSV_HZ       10
 #define SMOOTH_IIR_A     0.848f  // α for 3 Hz post-decimation smoothing IIR at 10 Hz
-#define SMOOTH_IIR_B     0.152f  // 1 - α, precomputed
+#define SMOOTH_IIR_B     (1.0f - SMOOTH_IIR_A)
 #define DISPLAY_EMA_A    0.2f
-#define DISPLAY_EMA_B    0.8f   // (1.0f - DISPLAY_EMA_A), precomputed
+#define DISPLAY_EMA_B    (1.0f - DISPLAY_EMA_A)
 
 // Live Stream (BLE) send cadence — docs/archive/bluetooth_serial_investigation.md
 // §3/§10 Phase 3: real hardware may show 300ms is too aggressive, in which

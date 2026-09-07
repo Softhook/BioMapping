@@ -349,6 +349,21 @@ bool sd_logger_start(SdLogger* l, const char* header) {
     return ok;
 }
 
+// Fold `n` bytes just committed to the file into the integrity counters the
+// "# End" trailer reports: the running CRC, the byte total, the row count
+// (one per '\n'), and the trailing-newline flag. Call once per confirmed
+// write of real file content — the partial-write path, the confirmed-flush
+// path, and the trailer's line separator all share this exact bookkeeping.
+static void fold_committed(SdLogger* l, const char* data, size_t n) {
+    if(n == 0) return;
+    l->crc = crc32_feed(l->crc, data, n);
+    l->crc_bytes += (uint32_t)n;
+    for(size_t i = 0; i < n; i++) {
+        if(data[i] == '\n') l->row_count++;
+    }
+    l->last_byte_newline = (data[n - 1] == '\n');
+}
+
 // Append the "# End" integrity trailer (SD_LOGGER_INTEGRITY_LINE) — the
 // last line of a cleanly-stopped recording. Called from sd_logger_stop()
 // after the final batch flush and before any pre-allocation trim, so it
@@ -365,10 +380,7 @@ static void sd_logger_write_trailer(SdLogger* l, uint32_t end_epoch) {
     // is about to report.
     if(!l->last_byte_newline) {
         if(storage_file_write(l->file, "\n", 1) == 1) {
-            l->crc = crc32_feed(l->crc, "\n", 1);
-            l->crc_bytes += 1;
-            l->row_count += 1;
-            l->last_byte_newline = true;
+            fold_committed(l, "\n", 1);
         }
     }
 
@@ -493,12 +505,7 @@ int sd_logger_batch_flush(SdLogger* l) {
         // (written == 0 is the common total-failure case: nothing committed,
         // the whole batch is retried unchanged.)
         if(written > 0) {
-            l->crc = crc32_feed(l->crc, l->gsr_batch, written);
-            l->crc_bytes += written;
-            for(uint16_t i = 0; i < written; i++) {
-                if(l->gsr_batch[i] == '\n') l->row_count++;
-            }
-            l->last_byte_newline = (l->gsr_batch[written - 1] == '\n');
+            fold_committed(l, l->gsr_batch, written);
             memmove(l->gsr_batch, l->gsr_batch + written,
                     (size_t)flushed - written);
             l->gsr_batch_len = flushed - (int)written;
@@ -513,12 +520,7 @@ int sd_logger_batch_flush(SdLogger* l) {
     // whole batch and would CRC the duplicated prefix — but that path also
     // bumps flush_fail_count, which the trailer reports, so the file is
     // flagged regardless.
-    l->crc = crc32_feed(l->crc, l->gsr_batch, (size_t)flushed);
-    l->crc_bytes += (uint32_t)flushed;
-    for(int i = 0; i < flushed; i++) {
-        if(l->gsr_batch[i] == '\n') l->row_count++;
-    }
-    if(flushed > 0) l->last_byte_newline = (l->gsr_batch[flushed - 1] == '\n');
+    fold_committed(l, l->gsr_batch, (size_t)flushed);
 
     l->gsr_batch_len = 0;
 
