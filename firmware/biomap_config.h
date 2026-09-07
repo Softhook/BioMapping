@@ -60,10 +60,25 @@ typedef enum {
     GpsNavModelCount,          // sentinel — number of valid GpsNavModel values, not a real mode
 } GpsNavModel;
 
+// ── GSR calibration fit ──────────────────────────────────────────────
+// Used by biomap_format.c's calibration_wizard_compute_fit() (SDK-free, so
+// these can't live in biomap.h) and by biomap_load_calibration() in
+// biomap.c. CAL_TARGET_*/gate constants stay in biomap.h — only the wizard
+// (full SDK) reads those.
+#define CAL_POINTS       3        // resistors measured: 470k, 100k, 47k
+
+// Valid-range bounds for a computed or loaded gain/offset — a wizard fit or
+// a loaded calibration file failing either of these is rejected.
+#define CAL_GAIN_MIN     0.2f
+#define CAL_GAIN_MAX     5.0f
+#define CAL_OFFSET_MIN  -20000.0f
+#define CAL_OFFSET_MAX   20000.0f
+
 // ── CSV column headers ────────────────────────────────────────────────
-// Must stay in sync with the printf format strings in format_gps_csv_row()
-// (biomap_session.c). Changing column order here requires matching changes
-// to the "%.2f,%.7f,..." format strings.
+// Must stay in sync with the printf format strings in biomap_format_gps_row()
+// (biomap_format.c). Changing column order here requires matching changes
+// to the "%.2f,%.7f,..." format strings. test_csv_header_matches_row_column_count
+// (tests/test_firmware.c) links the real formatter and asserts the counts agree.
 //
 // The _DEBUG schemas add contention/continuity diagnostics — see RowDiag's
 // doc comment (biomap_types.h) and docs/archive/gps_rf_mutex_status.md for what each

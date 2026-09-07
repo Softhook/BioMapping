@@ -75,7 +75,10 @@ if [ "$RUN_TSAN" != "yes" ] && [ "$RUN_TSAN" != "no" ]; then
 fi
 
 echo "== test_firmware (pipeline / CSV / calibration) =="
-gcc -Wall -Wextra -I . -I vendor/minmea -o build/test_firmware biomap_pipeline.c tests/test_firmware.c -lm
+# biomap_format.c's only SDK dependency is FURI_LOG_W; -I tests/shims resolves
+# <furi.h> to the no-op shim, same as the other module tests below.
+gcc -Wall -Wextra -I . -I vendor/minmea -I tests/shims -o build/test_firmware \
+    biomap_pipeline.c biomap_format.c tests/test_firmware.c -lm
 ./build/test_firmware
 
 echo

@@ -139,7 +139,7 @@ typedef struct {
 // Per-row contention diagnostics (GPS/RF mutex investigation — see
 // docs/archive/gps_rf_mutex_status.md). Built by the caller (biomap_session.c) from
 // real, measured sources — never inferred — and threaded into
-// format_gps_csv_row() alongside GpsPosition so a track can answer "was the
+// biomap_format_gps_row() alongside GpsPosition so a track can answer "was the
 // main loop or the GPS UART actually stalled" directly rather than by
 // inference from GPS accuracy after the fact.
 //

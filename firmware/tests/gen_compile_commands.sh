@@ -16,7 +16,8 @@ OUT="$ROOT/tests/compile_commands.json"
 
 # each row: <source path relative to firmware/>|<extra flags beyond -I.>
 ENTRIES="
-tests/test_firmware.c|-Ivendor/minmea
+tests/test_firmware.c|-Ivendor/minmea -Itests/shims
+biomap_format.c|-Itests/shims
 tests/test_gps_uart.c|-Imodules -Ivendor/minmea -Itests/shims
 tests/test_gsr_sensor.c|-pthread -Imodules -Itests/shims
 tests/test_sd_logger.c|-Imodules -Itests/shims

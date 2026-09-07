@@ -59,17 +59,8 @@ void drain_stale_events(FuriMessageQueue* q) {
     while(furi_message_queue_get(q, &ev, 0) == FuriStatusOk);
 }
 
-// Move a list selection by one step with wraparound: Up on the first item
-// jumps to the last, Down on the last item jumps back to the first — used
-// by the main menu, Options screen, and GSR Calibration submenu so all
-// three list screens navigate the same way.
-int32_t cycle_selection(int32_t sel, int32_t count, bool down) {
-    if(down) {
-        return (sel + 1 >= count) ? 0 : sel + 1;
-    } else {
-        return (sel - 1 < 0) ? count - 1 : sel - 1;
-    }
-}
+// cycle_selection() moved to biomap_format.c (SDK-free, linked by
+// tests/test_firmware.c instead of mirrored).
 
 // Cycle *selection under app->mutex (the render callback reads it from
 // another thread) and play the nav click — shared Up/Down handling for the
@@ -398,69 +389,9 @@ static bool calibration_wizard_measure(GsrSensor* gsr, int resistor_idx, const f
     }
 }
 
-// Computes the fit and ALWAYS writes *out_gain / *out_offset / *out_r_squared,
-// even when validation fails — the fit-fail screen (calibration_wizard_render,
-// step 10) displays these values so the user can see how far out of range
-// their device is, rather than a fixed 0.000x placeholder. The return value
-// is the sole validity signal; callers must not treat a false return as
-// "outputs are undefined".
-static bool calibration_wizard_compute_fit(const float measured[CAL_POINTS], const float targets[CAL_POINTS], float* out_gain, float* out_offset, float* out_r_squared) {
-    // Three-point linear least-squares:  y = gain * x + offset
-    // Σx, Σy, Σxx, Σxy  where x = measured, y = target
-    float sx = 0, sy = 0, sxx = 0, sxy = 0;
-    for(int i = 0; i < CAL_POINTS; i++) {
-        float xi = measured[i];
-        float yi = targets[i];
-        sx  += xi;
-        sy  += yi;
-        sxx += xi * xi;
-        sxy += xi * yi;
-    }
-    float n     = (float)CAL_POINTS;
-    float denom = n * sxx - sx * sx;
-    if(denom <= 1e-9f) {
-        // Degenerate fit (measurements collinear/identical) — no meaningful
-        // gain/offset/R² exist. Report neutral defaults rather than leaving
-        // the caller's variables untouched.
-        *out_gain = 1.0f;
-        *out_offset = 0.0f;
-        *out_r_squared = 0.0f;
-        FURI_LOG_W("BioMap", "Calibration fit degenerate (measurements not distinct)");
-        return false;
-    }
-
-    float gain   = (n * sxy - sx * sy) / denom;
-    float offset = (sy - gain * sx) / n;
-
-    // R² goodness-of-fit
-    float y_mean = sy / n;
-    float ss_res = 0, ss_tot = 0;
-    for(int i = 0; i < CAL_POINTS; i++) {
-        float yi     = targets[i];
-        float y_pred = gain * measured[i] + offset;
-        float res    = yi - y_pred;
-        ss_res += res * res;
-        float dev    = yi - y_mean;
-        ss_tot += dev * dev;
-    }
-    float r_squared = (ss_tot > 1e-9f) ? (1.0f - ss_res / ss_tot) : 1.0f;
-
-    // Always publish the computed fit so the caller (and the fit-fail
-    // screen) can show the user what was actually measured.
-    *out_gain = gain;
-    *out_offset = offset;
-    *out_r_squared = r_squared;
-
-    // Validate bounds (nS domain) and linearity (R² ≥ 0.95)
-    bool ok = gain >= CAL_GAIN_MIN && gain <= CAL_GAIN_MAX &&
-              offset >= CAL_OFFSET_MIN && offset <= CAL_OFFSET_MAX &&
-              r_squared >= 0.95f;
-    if(!ok) {
-        FURI_LOG_W("BioMap", "Calibration out of bounds: gain=%.4f off=%.1f R²=%.4f",
-                   (double)gain, (double)offset, (double)r_squared);
-    }
-    return ok;
-}
+// calibration_wizard_compute_fit() moved to biomap_format.c (SDK-free,
+// linked by tests/test_firmware.c instead of mirrored). Declared in
+// biomap_format.h.
 
 // Wizard step values — mirrors the numeric cases calibration_wizard_render()
 // (biomap_render.c) switches on; keep both in sync if steps change. 6 and 7

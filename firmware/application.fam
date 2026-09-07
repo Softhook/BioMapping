@@ -14,6 +14,7 @@ App(
         "biomap_session.c",
         "biomap_render.c",
         "biomap_pipeline.c",
+        "biomap_format.c",
         "biomap_rf_cal.c",
         "vendor/minmea/minmea.c",
         "modules/gps_uart.c",

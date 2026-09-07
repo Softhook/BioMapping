@@ -10,6 +10,8 @@
 #include "biomap_types.h"
 // ── Pure math pipeline (platform-independent GSR signal processing) ────
 #include "biomap_pipeline.h"
+// ── Host-testable CSV row formatter + pure numeric helpers ────────────
+#include "biomap_format.h"
 
 // ── Event types shared between biomap.c and modules/gps_uart.c ─────────
 #include "biomap_events.h"
@@ -197,7 +199,10 @@ typedef struct {
 #define BIOMAP_CAL_VERSION 3
 #define BIOMAP_CAL_PATH    "/ext/biomapping/biomap.cal"
 #define BIOMAP_CAL_PATH_TMP "/ext/biomapping/biomap.cal.tmp"
-#define CAL_POINTS         3
+
+// CAL_POINTS and the CAL_GAIN_*/CAL_OFFSET_* fit bounds live in
+// biomap_config.h — biomap_format.c's calibration_wizard_compute_fit()
+// needs them and is SDK-free.
 
 // Calibration targets — true physical skin conductance (nanosiemens).
 // These are 1/R for each calibration resistor: 1e9 / R_ohms.
@@ -224,14 +229,6 @@ typedef struct {
 #define CAL_MID_GATE_HI  25000.0f
 #define CAL_LO_GATE_47K   5000.0f
 #define CAL_HI_GATE      45000.0f
-
-// Valid-range bounds for a computed or loaded gain/offset — a wizard fit
-// (biomap_gui.c's calibration_wizard_compute_fit) or a loaded calibration
-// file (biomap_load_calibration below) failing either of these is rejected.
-#define CAL_GAIN_MIN     0.2f
-#define CAL_GAIN_MAX     5.0f
-#define CAL_OFFSET_MIN  -20000.0f
-#define CAL_OFFSET_MAX   20000.0f
 
 typedef struct {
     uint32_t magic;
@@ -356,7 +353,7 @@ int32_t biomap_gui_show_menu(BioMapApp* app);
 ViewPort* vp_push(BioMapApp* app, ViewPortDrawCallback draw, void* ctx);
 void      vp_pop(BioMapApp* app, ViewPort* vp);
 void      drain_stale_events(FuriMessageQueue* q);
-int32_t   cycle_selection(int32_t sel, int32_t count, bool down);
+// cycle_selection() is declared in biomap_format.h (SDK-free, host-tested).
 
 // One of a submenu's fixed actions (start wizard / reset / show current) —
 // see run_cal_submenu below.

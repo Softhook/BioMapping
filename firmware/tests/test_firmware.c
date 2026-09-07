@@ -8,6 +8,7 @@
 #include <stdarg.h>
 
 #include "biomap_pipeline.h"
+#include "biomap_format.h"
 
 #include "minmea.h"
 #define timegm mock_timegm
@@ -23,10 +24,10 @@ typedef struct {
 } Session;
 
 // --- Mock Logger ---
-// Sized to match (with margin) format_gps_csv_row()'s own row[300] stack
-// buffer (biomap_session.c) -- strcpy() below has no bound check of its
-// own, so this must stay >= the longest row that function can produce or a
-// wide-enough debug row silently overflows this global.
+// Holds the last row produced by the format_gps_csv_row() adapter or by
+// sd_logger_batch_printf(), both below. Sized with margin over
+// biomap_format_gps_row()'s 300-byte production cap; the adapter copies at
+// most that many bytes, and vsprintf() below is fed only short GSR-only rows.
 char mock_logger_buf[320];
 int sd_logger_batch_printf(void* logger, const char* format, ...) {
     (void)logger;
@@ -39,20 +40,10 @@ int sd_logger_batch_printf(void* logger, const char* format, ...) {
 
 // --- Functions Under Test ---
 
-// These are now in biomap_pipeline.h/.c — the test links against biomap_pipeline.o.
-// We keep only the functions that haven't been extracted yet.
-
-// Mirrors cycle_selection() in biomap_gui.c: moves a list selection by one
-// step with wraparound — Up on the first item jumps to the last, Down on
-// the last item jumps back to the first. Shared by the main menu, Options
-// screen, and GSR Calibration submenu.
-static int32_t cycle_selection(int32_t sel, int32_t count, bool down) {
-    if(down) {
-        return (sel + 1 >= count) ? 0 : sel + 1;
-    } else {
-        return (sel - 1 < 0) ? count - 1 : sel - 1;
-    }
-}
+// The pure functions are linked, not mirrored: pipeline_* from
+// biomap_pipeline.c, and cycle_selection() / biomap_format_gps_row() /
+// calibration_wizard_compute_fit() from biomap_format.c. Only host-only
+// glue (mock logger, the Session shim) lives here.
 
 static void rescale_graph_buf(Session* s, bool zoom_out) {
     pipeline_rescale_graph(&s->pipeline, zoom_out);
@@ -76,61 +67,18 @@ static inline double minmea_tocoord_double(const struct minmea_float* f) {
     return (double)deg + (double)min / ((double)f->scale * 60);
 }
 
+// Thin adapter over the REAL formatter (biomap_format.c) so the existing
+// golden-string assertions below exercise shipping code. Writes the row
+// into mock_logger_buf exactly as the production caller
+// (append_gps_csv_row in biomap_session.c) would hand it to the SD batch.
 static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
-                                double rel, float raw,
-                                const float* rf_rssi, const RowDiag* diag) {
-    bool gps_ok = pos->valid;
-
-    char row[300];
-    int n;
-    if(gps_ok) {
-        bool has_vel = !isnan(pos->speed_kts) && !isnan(pos->course_deg);
-        if(has_vel) {
-            n = snprintf(row, sizeof(row),
-                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f",
-                rel, pos->lat, pos->lon,
-                (double)pos->hdop, (double)pos->pdop,
-                pos->sats, pos->fix_type,
-                (double)pos->speed_kts, (double)pos->course_deg, (double)raw,
-                (double)pos->hacc);
-        } else {
-            n = snprintf(row, sizeof(row),
-                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,,,%.1f,%.1f",
-                rel, pos->lat, pos->lon,
-                (double)pos->hdop, (double)pos->pdop,
-                pos->sats, pos->fix_type, (double)raw, (double)pos->hacc);
-        }
-    } else {
-        n = snprintf(row, sizeof(row), "%.2f,,,,,,,,,%.1f,",
-                     rel, (double)raw);
-    }
-    if(n <= 0 || (size_t)n >= sizeof(row)) return false;
-
-    int n2 = rf_rssi
-        ? snprintf(row + n, sizeof(row) - (size_t)n,
-                   ",%.1f,%.1f,%.1f",
-                   (double)rf_rssi[0], (double)rf_rssi[1], (double)rf_rssi[2])
-        : 0;
-    if(n2 < 0 || (size_t)(n + n2) >= sizeof(row)) return false;
-    n += n2;
-
-    int nd = s->debug_fields_enabled
-        ? snprintf(row + n, sizeof(row) - (size_t)n,
-                   ",%u,%u,%u,%u,%.1f,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",
-                   (unsigned)diag->tick_dt_ms, (unsigned)diag->gps_rx_drops,
-                   (unsigned)diag->nmea_fail, (unsigned)diag->gps_reinit_count,
-                   (double)diag->gsr_hz,
-                   (unsigned)diag->i2c_peak_ms, (unsigned)diag->rf_rssi_peak_ms,
-                   (unsigned)diag->rf_retune_peak_ms, (unsigned)diag->flush_peak_ms,
-                   (unsigned)diag->log_fill_bytes, (unsigned)diag->log_fill_peak_bytes,
-                   (unsigned)diag->log_overflow_count, (unsigned)diag->log_flush_fail_count,
-                   (unsigned)diag->pga_change_count, (unsigned)diag->i2c_consec_fail,
-                   (unsigned)diag->prealloc_ms)
-        : snprintf(row + n, sizeof(row) - (size_t)n, "\n");
-    if(nd <= 0 || (size_t)(n + nd) >= sizeof(row)) return false;
-    n += nd;
-
-    strcpy(mock_logger_buf, row);
+                               double rel, float raw,
+                               const float* rf_rssi, const RowDiag* diag) {
+    char row[300];  // same cap as append_gps_csv_row()'s buffer in production
+    int n = biomap_format_gps_row(row, sizeof(row), s->debug_fields_enabled,
+                                  pos, rel, raw, rf_rssi, diag);
+    if(n < 0) return false;
+    memcpy(mock_logger_buf, row, (size_t)n + 1);  // include the NUL
     return true;
 }
 
@@ -687,6 +635,58 @@ static void test_csv_header_matches_row_column_count(void) {
     printf("  -> Pass\n");
 }
 
+// biomap_format_gps_row() must return -1 (never a truncated row) when the
+// output buffer is too small, and never write past `cap`. append_gps_csv_row()
+// in biomap_session.c turns that -1 into a false return so the caller can
+// count it as a batch overflow instead of committing a half-built row. The
+// three overflow guards (base row / RF suffix / debug columns) are checked
+// by shrinking `cap` to just below the length each stage needs.
+static void test_csv_row_overflow_returns_negative(void) {
+    printf("Running test_csv_row_overflow_returns_negative...\n");
+    GpsPosition pos = {0};
+    pos.valid = true;
+    pos.lat = 51.5557397; pos.lon = -0.0714595;
+    pos.hdop = 0.9f; pos.pdop = 1.3f; pos.sats = 16; pos.fix_type = 3;
+    pos.speed_kts = 5.25f; pos.course_deg = 330.2f; pos.hacc = 2.4f;
+    RowDiag diag = {.tick_dt_ms = 100, .gsr_hz = 987.6f, .prealloc_ms = 14};
+    float rf_rssi[3] = {-91.5f, -88.0f, -90.5f};
+
+    char big[512];
+
+    // For each variant: measure the exact content length with a roomy
+    // buffer, then a buffer of exactly that many bytes must fail (no room
+    // for the NUL) and one byte more must succeed.
+    struct { bool debug; const float* rf; const char* label; } cases[] = {
+        {false, NULL,    "base"},
+        {true,  NULL,    "base+debug"},
+        {false, rf_rssi, "base+rf"},
+        {true,  rf_rssi, "base+rf+debug"},
+    };
+    for(size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        int len = biomap_format_gps_row(big, sizeof(big), cases[i].debug,
+                                        &pos, 1.25, 8345.3f, cases[i].rf, &diag);
+        assert(len > 0 && (size_t)len < sizeof(big));
+
+        char tight[512];
+        memset(tight, 0x7f, sizeof(tight));  // sentinel to catch any over-write
+        assert(biomap_format_gps_row(tight, (size_t)len, cases[i].debug,
+                                     &pos, 1.25, 8345.3f, cases[i].rf, &diag) == -1);
+        assert(tight[len] == 0x7f);  // nothing written at or past cap
+
+        assert(biomap_format_gps_row(tight, (size_t)len + 1, cases[i].debug,
+                                     &pos, 1.25, 8345.3f, cases[i].rf, &diag) == len);
+        printf("  %-14s len=%d: cap=%d -> -1, cap=%d -> %d\n",
+               cases[i].label, len, len, len + 1, len);
+    }
+
+    // Degenerate: a buffer far too small even for the first snprintf.
+    char tiny[8];
+    assert(biomap_format_gps_row(tiny, sizeof(tiny), false,
+                                 &pos, 1.25, 8345.3f, NULL, &diag) == -1);
+
+    printf("  -> Pass\n");
+}
+
 
 
 // Mirrors the FIXED sd_logger_batch_printf() in modules/sd_logger.c: on a
@@ -780,9 +780,10 @@ void test_nmea_parsing() {
 }
 
 // ── Calibration persistence constants (mirrored from biomap.h) ──────
+// CAL_POINTS comes from biomap_config.h now (via biomap_format.h) — the
+// fit engine that uses it is linked, not mirrored.
 #define CAL_MAGIC    0x424D4341u
 #define CAL_VERSION  3
-#define CAL_POINTS   3
 
 #define CAL_TARGET_470K  2127.66f
 #define CAL_TARGET_100K  10000.0f
@@ -812,89 +813,13 @@ static uint32_t cal_checksum(const CalFile* cal) {
     return h;
 }
 
-// ── Calibration fit engine (matches run_calibration_wizard in biomap_gui.c)
-// Returns gain, offset, r_squared.  Caller sets measured[] before calling.
+// Void-returning wrapper over the REAL fit (biomap_format.c) for the
+// correctness tests below that only care about gain/offset/r², not the
+// validity gate. Routes through shipping code instead of a copy.
 static void cal_fit(const float measured[CAL_POINTS],
                     const float targets[CAL_POINTS],
                     float* gain, float* offset, float* r2) {
-    float sx = 0, sy = 0, sxx = 0, sxy = 0;
-    for(int i = 0; i < CAL_POINTS; i++) {
-        float xi = measured[i];
-        float yi = targets[i];
-        sx  += xi;
-        sy  += yi;
-        sxx += xi * xi;
-        sxy += xi * yi;
-    }
-    float n     = (float)CAL_POINTS;
-    float denom = n * sxx - sx * sx;
-    if(denom <= 1e-9f) {
-        *gain   = 1.0f;
-        *offset = 0.0f;
-        *r2     = 0.0f;
-        return;
-    }
-    *gain   = (n * sxy - sx * sy) / denom;
-    *offset = (sy - *gain * sx) / n;
-
-    // R²
-    float y_mean = sy / n;
-    float ss_res = 0, ss_tot = 0;
-    for(int i = 0; i < CAL_POINTS; i++) {
-        float yi     = targets[i];
-        float y_pred = *gain * measured[i] + *offset;
-        float res    = yi - y_pred;
-        ss_res += res * res;
-        float dev    = yi - y_mean;
-        ss_tot += dev * dev;
-    }
-    *r2 = (ss_tot > 1e-9f) ? (1.0f - ss_res / ss_tot) : 1.0f;
-}
-
-// Mirrors the FIXED calibration_wizard_compute_fit() in biomap_gui.c: a
-// bool-returning variant that gates validity (bounds + R^2) but must ALWAYS
-// write *out_gain/*out_offset/*out_r_squared, even when it returns false.
-// The fit-fail screen (calibration_wizard_render, step 10) displays these
-// values so the user can see how far out of range their device is — prior
-// to the fix, the out-of-bounds branch left the outputs untouched, so the
-// screen always showed a stale "Gain: 0.000x R²: 0.0000" instead.
-static bool calibration_wizard_compute_fit_ref(const float measured[CAL_POINTS],
-                                                const float targets[CAL_POINTS],
-                                                float* out_gain, float* out_offset,
-                                                float* out_r_squared) {
-    float sx = 0, sy = 0, sxx = 0, sxy = 0;
-    for(int i = 0; i < CAL_POINTS; i++) {
-        sx  += measured[i];
-        sy  += targets[i];
-        sxx += measured[i] * measured[i];
-        sxy += measured[i] * targets[i];
-    }
-    float n     = (float)CAL_POINTS;
-    float denom = n * sxx - sx * sx;
-    if(denom <= 1e-9f) {
-        *out_gain = 1.0f;
-        *out_offset = 0.0f;
-        *out_r_squared = 0.0f;
-        return false;
-    }
-    float gain   = (n * sxy - sx * sy) / denom;
-    float offset = (sy - gain * sx) / n;
-    float y_mean = sy / n;
-    float ss_res = 0, ss_tot = 0;
-    for(int i = 0; i < CAL_POINTS; i++) {
-        float y_pred = gain * measured[i] + offset;
-        float res    = targets[i] - y_pred;
-        ss_res += res * res;
-        float dev    = targets[i] - y_mean;
-        ss_tot += dev * dev;
-    }
-    float r_squared = (ss_tot > 1e-9f) ? (1.0f - ss_res / ss_tot) : 1.0f;
-    *out_gain = gain;
-    *out_offset = offset;
-    *out_r_squared = r_squared;
-    return gain >= 0.2f && gain <= 5.0f &&
-           offset >= -20000.0f && offset <= 20000.0f &&
-           r_squared >= 0.95f;
+    (void)calibration_wizard_compute_fit(measured, targets, gain, offset, r2);
 }
 
 void test_calibration_fit_reports_values_on_bounds_failure() {
@@ -907,7 +832,7 @@ void test_calibration_fit_reports_values_on_bounds_failure() {
 
     // Poison the outputs first, like uninitialised/stale WizardState fields.
     float gain = -999.0f, offset = -999.0f, r2 = -999.0f;
-    bool ok = calibration_wizard_compute_fit_ref(measured, targets, &gain, &offset, &r2);
+    bool ok = calibration_wizard_compute_fit(measured, targets, &gain, &offset, &r2);
 
     assert(ok == false);               // correctly rejected (gain ~6.0x > 5.0x)
     assert(gain > 5.0f);               // real computed gain, not left at -999
@@ -1321,9 +1246,10 @@ int main() {
     printf("========================================\n");
     test_csv_formatting();
     test_csv_header_matches_row_column_count();
+    test_csv_row_overflow_returns_negative();
     test_batch_printf_rollback_on_truncation();
     test_nmea_parsing();
 
-    printf("\nAll 33 firmware unit tests passed successfully!\n");
+    printf("\nAll 34 firmware unit tests passed successfully!\n");
     return 0;
 }

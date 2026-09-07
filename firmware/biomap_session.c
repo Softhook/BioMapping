@@ -227,19 +227,9 @@ static inline RowDiag get_row_diag(const Session* s) {
     return d;
 }
 
-// ── Shared GPS CSV row formatter ───────────────────────────────────────────
-// Formats an 11-column GPS row into the SD batch buffer with an explicit GSR
-// value and trailing hacc_m (horizontal accuracy in metres, PUBX 00;
-// 99.9 = unknown). Used by both GPS+GSR mode (via batch_csv_row with the
-// live GSR reading) and GPS-only mode (via handle_recording_tick with
-// raw=0). When the fix is absent or HDOP is too high, GPS columns are left
-// empty so the analyser treats the row as a gap rather than noise.
-//
-// rf_rssi is NULL when RF scanning isn't active for this session, otherwise
-// a fresh EM_SCAN_NUM_FREQS-element snapshot — appended as 3 extra columns:
-// rssi_815,rssi_868,rssi_915 (raw per-band peak from the last dwell).
-//
-// The whole row is built into a local buffer and appended with ONE
+// ── Shared GPS CSV row: format + append ────────────────────────────────────
+// Builds one row via biomap_format_gps_row() (biomap_format.c — the pure,
+// host-tested formatter) and appends it to the SD batch with ONE
 // sd_logger_batch_append() call, never two batch_printf() calls into the
 // shared buffer. Each batch_printf() is individually atomic, but a pair is
 // not: if the GPS/GSR columns land and the RF suffix then fails because the
@@ -248,75 +238,26 @@ static inline RowDiag get_row_diag(const Session* s) {
 // of a fully-built row keeps it atomic — batch_append() checks capacity
 // before writing any bytes (see modules/sd_logger.c).
 //
-// diag carries the RowDiag contention columns (biomap_types.h), written only
-// when s->debug_fields_enabled (Options > Debug Fields). This is the one
-// place that reads s->gps/s->gsr directly, keeping the function a pure
-// formatter (mirrored, not linked, by tests/test_firmware.c).
+// Used by GPS+GSR mode (via batch_csv_row, live GSR reading) and GPS-only
+// mode (via handle_recording_tick, raw=0). diag carries the RowDiag
+// contention columns, written only when s->debug_fields_enabled.
 // Returns true on success, false on buffer overflow.
-static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
-                                double rel, float raw,
-                                const float* rf_rssi, const RowDiag* diag) {
-    bool gps_ok = pos->valid;
+static bool append_gps_csv_row(Session* s, const GpsPosition* pos,
+                               double rel, float raw,
+                               const float* rf_rssi, const RowDiag* diag) {
     // static, not a stack local: keeps 300 bytes off the main app thread's
     // stack on the tick path, where it runs alongside the GPS/GSR/RF worker
-    // call chains. Safe as static — this function is never reentrant or
-    // called concurrently, always one call at a time from the tick handler.
+    // call chains. Safe as static — never reentrant or called concurrently,
+    // always one call at a time from the tick handler.
     static char row[300];
-    int n;
-    if(gps_ok) {
-        bool has_vel = !isnan(pos->speed_kts) && !isnan(pos->course_deg);
-        if(has_vel) {
-            n = snprintf(row, sizeof(row),
-                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f",
-                rel, pos->lat, pos->lon,
-                (double)pos->hdop, (double)pos->pdop,
-                pos->sats, pos->fix_type,
-                (double)pos->speed_kts, (double)pos->course_deg, (double)raw,
-                (double)pos->hacc);
-        } else {
-            n = snprintf(row, sizeof(row),
-                "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,,,%.1f,%.1f",
-                rel, pos->lat, pos->lon,
-                (double)pos->hdop, (double)pos->pdop,
-                pos->sats, pos->fix_type, (double)raw, (double)pos->hacc);
-        }
-    } else {
-        n = snprintf(row, sizeof(row), "%.2f,,,,,,,,,%.1f,",
-                     rel, (double)raw);
-    }
-    if(n <= 0 || (size_t)n >= sizeof(row)) return false;
-
-    // Optional RF columns (raw per-band RSSI).
-    int n2 = rf_rssi
-        ? snprintf(row + n, sizeof(row) - (size_t)n, ",%.1f,%.1f,%.1f",
-                   (double)rf_rssi[0], (double)rf_rssi[1], (double)rf_rssi[2])
-        : 0;
-    if(n2 < 0 || (size_t)(n + n2) >= sizeof(row)) return false;
-    n += n2;
-
-    // Debug columns are always appended at the very end so production
-    // columns stay contiguous and easy to consume.
-    int nd = s->debug_fields_enabled
-        ? snprintf(row + n, sizeof(row) - (size_t)n,
-                   ",%u,%u,%u,%u,%.1f,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",
-                   (unsigned)diag->tick_dt_ms, (unsigned)diag->gps_rx_drops,
-                   (unsigned)diag->nmea_fail, (unsigned)diag->gps_reinit_count,
-                   (double)diag->gsr_hz,
-                   (unsigned)diag->i2c_peak_ms, (unsigned)diag->rf_rssi_peak_ms,
-                   (unsigned)diag->rf_retune_peak_ms, (unsigned)diag->flush_peak_ms,
-                   (unsigned)diag->log_fill_bytes, (unsigned)diag->log_fill_peak_bytes,
-                   (unsigned)diag->log_overflow_count, (unsigned)diag->log_flush_fail_count,
-                   (unsigned)diag->pga_change_count, (unsigned)diag->i2c_consec_fail,
-                   (unsigned)diag->prealloc_ms)
-        : snprintf(row + n, sizeof(row) - (size_t)n, "\n");
-    if(nd <= 0 || (size_t)(n + nd) >= sizeof(row)) return false;
-    n += nd;
-
+    int n = biomap_format_gps_row(row, sizeof(row), s->debug_fields_enabled,
+                                  pos, rel, raw, rf_rssi, diag);
+    if(n < 0) return false;
     return sd_logger_batch_append(s->logger, row, (size_t)n);
 }
 
 // ── Batch CSV row construction ─────────────────────────────────────────────
-// Dispatches to format_gps_csv_row for GPS+GSR mode; handles GSR-only
+// Dispatches to append_gps_csv_row for GPS+GSR mode; handles GSR-only
 // and GPS-skip ticks directly. Rows are flushed at the 1-second boundary
 // by handle_second_boundary().
 //
@@ -360,7 +301,7 @@ static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
     // On the GPS tick boundary, include a fresh fix; otherwise preserve
     // GSR data with empty GPS columns (a GPS-skip tick).
     GpsPosition pos = is_gps_row_tick(s) ? get_gps_position(s) : (GpsPosition){0};
-    return format_gps_csv_row(s, &pos, rel, raw, rf_rssi, &diag);
+    return append_gps_csv_row(s, &pos, rel, raw, rf_rssi, &diag);
 }
 
 
@@ -764,8 +705,8 @@ static bool handle_recording_tick(Session* s, const float* rf_rssi) {
             // See batch_csv_row's matching comment — only pay get_row_diag()'s
             // mutex-touching accessor reads when the result is actually used.
             RowDiag diag = s->debug_fields_enabled ? get_row_diag(s) : (RowDiag){0};
-            return format_gps_csv_row(s, &pos, pipeline_rel_seconds(s->recording.total_ticks), 0.0f,
-                                       rf_rssi, &diag);
+            return append_gps_csv_row(s, &pos, pipeline_rel_seconds(s->recording.total_ticks), 0.0f,
+                                      rf_rssi, &diag);
         }
         return true;
     }
