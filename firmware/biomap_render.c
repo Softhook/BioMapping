@@ -158,13 +158,12 @@ static void render_zoom_label(Canvas* c, BioMapApp* a, int x) {
 // All RF modes (GPS+GSR+RF and GPS+RF) now use draw_rf_panel_left — the
 // larger labelled left-side panel with per-band calibrated floors.
 #define RF_VIZ_FLOOR_DBM  (-90.0f) // ambient-noise reference — matches em_scan_cal_max_floor_dbm; real-world idle (tracks/biomap_111.csv) sits -92.5..-90.5 dBm
-#define RF_VIZ_CEIL_DBM   (-72.0f) // "strong signal" reference — real-world elevated peaks (tracks/biomap_111.csv) top out around -72.5 dBm
 
 // Full-scale window (dB) above a band's floor for the left RF panel in
 // GPS+GSR+RF mode. Each bar maps this span of "dB above that band's
 // floor" onto its full length; the floor itself is the per-band
-// Faraday-calibrated noise floor (see draw_rf_panel_left). Kept at 18 dB
-// to match the old RF_VIZ_FLOOR..RF_VIZ_CEIL window width.
+// Faraday-calibrated noise floor (see draw_rf_panel_left). 18 dB spans
+// real-world idle noise up to the strongest elevated peaks seen in tracks.
 #define RF_VIZ_SPAN_DB       18.0f
 
 // Width in px of the left RF band panel in BioMapModeGpsGsrRf — the GSR
@@ -473,16 +472,15 @@ static void render_diagnostics(Canvas* c, BioMapApp* a) {
                      (unsigned long)gsr_sensor_get_consecutive_failures(a->session.gsr));
 
         uint32_t dup_gap = gsr_sensor_get_duplicate_gap_min_ticks(a->session.gsr);
+        char dg[12];
         if(dup_gap == UINT32_MAX) {
-            draw_fmt(c, 0, y, "Dup:%.0f%% Stl:%.0f%% DG:-",
-                     (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
-                     (double)gsr_sensor_get_stale_rate(a->session.gsr));
+            strcpy(dg, "-");
         } else {
-            draw_fmt(c, 0, y, "Dup:%.0f%% Stl:%.0f%% DG:%lu",
-                     (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
-                     (double)gsr_sensor_get_stale_rate(a->session.gsr),
-                     (unsigned long)dup_gap);
+            snprintf(dg, sizeof(dg), "%lu", (unsigned long)dup_gap);
         }
+        draw_fmt(c, 0, y, "Dup:%.0f%% Stl:%.0f%% DG:%s",
+                 (double)gsr_sensor_get_duplicate_rate(a->session.gsr),
+                 (double)gsr_sensor_get_stale_rate(a->session.gsr), dg);
     } else {
         canvas_draw_str(c, 0, 8, "GSR: --");
     }
@@ -621,12 +619,8 @@ void biomap_render_callback(Canvas* c, void* ctx) {
 // pass over the same rows — the two must agree or the toggle-state text
 // lands on the wrong row.
 static int scroll_window_top(int sel, int count, int max_visible) {
-    int top = 0;
-    if(count > max_visible) {
-        if(sel >= top + max_visible) top = sel - max_visible + 1;
-        if(sel < top) top = sel;
-    }
-    return top;
+    if(count > max_visible && sel >= max_visible) return sel - max_visible + 1;
+    return 0;
 }
 
 static void draw_selection_list(Canvas* c, int sel, int count,

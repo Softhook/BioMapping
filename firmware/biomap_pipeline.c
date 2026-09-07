@@ -41,7 +41,7 @@ uint32_t pipeline_unix_epoch(uint16_t year, uint8_t month, uint8_t day,
 }
 
 double pipeline_rel_seconds(uint32_t total_ticks) {
-    return (double)total_ticks / 10;
+    return (double)total_ticks / TICK_HZ;
 }
 
 // ==========================================================================
