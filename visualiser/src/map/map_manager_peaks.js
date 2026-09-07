@@ -169,15 +169,15 @@ Object.assign(GSRMapManager.prototype, {
           sampleIndex: ap.peak.index
         }));
 
-        const { mergeM, sigma, blobRadius } = this._getClusteringParams();
+        const { mergeM, sigma, blobRadius, separationFactor, drawGapFactor } = this._getClusteringParams();
 
         // Reference amplitude only feeds the cosmetic concave-outline weighting
         // in getConcaveBlob(); the place score itself is dwell-normalised energy.
         const refAmplitude = this._meanAmplitude(ptsForClustering);
 
-        // Compact (non-chaining) grouping — see compactClusters() for why
-        // single-linkage was wrong here.
-        const clusters = GSRSpatialClustering.compactClusters(ptsForClustering, mergeM);
+        // Compact, non-chaining, non-overlapping grouping — see compactClusters()
+        // for why single-linkage was wrong here and what separationFactor buys.
+        const clusters = GSRSpatialClustering.compactClusters(ptsForClustering, mergeM, separationFactor);
         const places = GSRStressPlaces.buildPlaces(
           clusters,
           [{ id: trackId, sampleRate: analyzer.sampleRate, raw: analyzer.raw, phasic: analyzer.phasic }],
@@ -185,7 +185,7 @@ Object.assign(GSRMapManager.prototype, {
         );
 
         this._renderStressPlaces(places, {
-          collective: false, activeTrackCount: 1, refAmplitude, sigma, blobRadius
+          collective: false, activeTrackCount: 1, refAmplitude, sigma, blobRadius, drawGapFactor
         });
       }
     }
@@ -197,6 +197,14 @@ Object.assign(GSRMapManager.prototype, {
    * affordance) plus a numbered P1..Pn badge at the centroid. Both carry the
    * same tooltip and open MapPopups.buildStressPlacePopup() on click.
    *
+   * Two places must never visually overlap. compactClusters()'s seed separation
+   * spaces the centroids out; on top of that each blob is scaled toward its own
+   * centroid so its farthest vertex sits no further than
+   * `drawGapFactor * (distance to the nearest other place)` — so two footprints
+   * can kiss but never cross. The badges are screen-space, so a separate
+   * zoom-aware pass (_declutterStressPlaceBadges) folds any that would still
+   * collide into the top-ranked one with a "+N" count.
+   *
    * Everything is pushed to this.clusterLayers (not a new array) so the
    * globe3d handoff (globe3d_view.js reads mm.clusterLayers) and the existing
    * clear paths (map_manager_render.js, clearMap/clearCollectiveLayers) both
@@ -204,16 +212,18 @@ Object.assign(GSRMapManager.prototype, {
    *
    * @param {Array<object>} places - Ranked place records.
    * @param {{collective:boolean, activeTrackCount:number, refAmplitude:number,
-   *   sigma:number, blobRadius:number}} ctx - Render context.
+   *   sigma:number, blobRadius:number, drawGapFactor:number}} ctx - Render context.
    * @private
    */
   _renderStressPlaces(places, ctx) {
+    this._stressPlaceBadges = [];
     if (!Array.isArray(places) || places.length === 0) return;
 
     const rates = places.map(p => p.rate).filter(r => isFinite(r));
     const rateMin = rates.length ? Math.min(...rates) : 0;
     const rateMax = rates.length ? Math.max(...rates) : 1;
     const lastIdx = Math.max(1, places.length - 1);
+    const drawCaps = this._stressPlaceDrawCaps(places, ctx.drawGapFactor || 0.46);
 
     places.forEach((place, i) => {
       const style = this._placeStyle(place, ctx, rateMin, rateMax);
@@ -230,7 +240,8 @@ Object.assign(GSRMapManager.prototype, {
         place.cluster, ctx.sigma, ctx.blobRadius, ctx.refAmplitude
       );
       paths.forEach(path => {
-        const latlngs = path.map(p => [p.lat, p.lon]);
+        const clipped = this._clipRingToRadius(path, place.lat, place.lon, drawCaps[i]);
+        const latlngs = clipped.map(p => [p.lat, p.lon]);
         const poly = L.polygon(latlngs, {
           color: style.color,
           weight: style.weight,
@@ -261,6 +272,140 @@ Object.assign(GSRMapManager.prototype, {
       badge._gsrKind = 'stressPlace';
       if (this.showClusters) badge.addTo(this.map);
       this.clusterLayers.push(badge);
+
+      this._stressPlaceBadges.push({
+        marker: badge, lat: place.lat, lon: place.lon,
+        px: badgePx, color: badgeColor, fontRem: badgeFontRem,
+        label: place.label, tooltip: style.tooltip
+      });
+    });
+
+    this._declutterStressPlaceBadges();
+  },
+
+  /**
+   * Per-place cap (metres) on how far a drawn outline may reach from its own
+   * centroid: `gapFactor` times the distance to the nearest other place. Since
+   * gapFactor <= 0.5, cap(i) + cap(j) < dist(i, j) for every pair, so no two
+   * clipped outlines can overlap. O(n^2) over the <= maxPlaces records.
+   * @private
+   */
+  _stressPlaceDrawCaps(places, gapFactor) {
+    const n = places.length;
+    const caps = new Array(n).fill(Infinity);
+    if (n < 2) return caps;
+    const haveGeo = typeof GeoUtils !== 'undefined'
+      && typeof GeoUtils.getGeodesicScale === 'function'
+      && typeof GeoUtils.distanceMetersSq === 'function';
+    for (let i = 0; i < n; i++) {
+      const scale = haveGeo ? GeoUtils.getGeodesicScale(places[i].lat) : null;
+      let nnSq = Infinity;
+      for (let j = 0; j < n; j++) {
+        if (j === i) continue;
+        const dSq = haveGeo
+          ? GeoUtils.distanceMetersSq(places[i].lat, places[i].lon, places[j].lat, places[j].lon, scale)
+          : this._flatMetresSq(places[i].lat, places[i].lon, places[j].lat, places[j].lon);
+        if (dSq < nnSq) nnSq = dSq;
+      }
+      caps[i] = Math.sqrt(nnSq) * gapFactor;
+    }
+    return caps;
+  },
+
+  /**
+   * Scale a closed lat/lon ring uniformly toward (centreLat, centreLon) so its
+   * farthest vertex sits at most `capM` metres out. Uniform (not per-vertex)
+   * so the blob keeps its shape, just shrinks. Returns the input untouched when
+   * it already fits or capM isn't finite.
+   * @private
+   */
+  _clipRingToRadius(path, centreLat, centreLon, capM) {
+    if (!Array.isArray(path) || path.length === 0 || !(capM > 0) || !isFinite(capM)) return path;
+    const haveGeo = typeof GeoUtils !== 'undefined'
+      && typeof GeoUtils.getGeodesicScale === 'function'
+      && typeof GeoUtils.distanceMetersSq === 'function';
+    const scale = haveGeo ? GeoUtils.getGeodesicScale(centreLat) : null;
+    let maxSq = 0;
+    for (const p of path) {
+      const dSq = haveGeo
+        ? GeoUtils.distanceMetersSq(centreLat, centreLon, p.lat, p.lon, scale)
+        : this._flatMetresSq(centreLat, centreLon, p.lat, p.lon);
+      if (dSq > maxSq) maxSq = dSq;
+    }
+    const maxD = Math.sqrt(maxSq);
+    if (maxD <= capM) return path;
+    const k = capM / maxD;
+    return path.map(p => ({
+      lat: centreLat + (p.lat - centreLat) * k,
+      lon: centreLon + (p.lon - centreLon) * k
+    }));
+  },
+
+  /** Flat-earth squared metres — GeoUtils-free fallback for the helpers above. @private */
+  _flatMetresSq(lat1, lon1, lat2, lon2) {
+    const dy = (lat1 - lat2) * 111320;
+    const dx = (lon1 - lon2) * 111320 * Math.cos(lat1 * Math.PI / 180);
+    return dx * dx + dy * dy;
+  },
+
+  /**
+   * Fold Stress Place badges that would visually collide at the current zoom
+   * into the highest-ranked badge of each colliding group, which then shows a
+   * "+N" count and lists the folded places in its tooltip. Re-run on every
+   * zoomend (map.js) and whenever the layer is toggled back on, so the badges
+   * separate again as the user zooms in. Purely a screen-space presentation
+   * pass — the outlines and this.clusterLayers membership are untouched.
+   * @private
+   */
+  _declutterStressPlaceBadges() {
+    const badges = this._stressPlaceBadges;
+    if (!badges || badges.length === 0 || !this.map || !this.showClusters) return;
+    if (typeof this.map.latLngToContainerPoint !== 'function') return;
+
+    let pts;
+    try {
+      pts = badges.map(b => this.map.latLngToContainerPoint([b.lat, b.lon]));
+    } catch (e) { return; }
+
+    // Greedy, best-rank-first (badges are already in P1..Pn order): each badge
+    // either survives or folds into the first earlier survivor whose icon it
+    // would touch.
+    const foldInto = new Array(badges.length).fill(-1);
+    const survivors = [];
+    for (let i = 0; i < badges.length; i++) {
+      const pi = pts[i];
+      let host = -1;
+      for (const s of survivors) {
+        const ps = pts[s];
+        const need = (badges[i].px + badges[s].px) / 2 + 2;
+        const dx = pi.x - ps.x, dy = pi.y - ps.y;
+        if (dx * dx + dy * dy < need * need) { host = s; break; }
+      }
+      if (host === -1) survivors.push(i);
+      else foldInto[i] = host;
+    }
+
+    const membersOf = new Map(survivors.map(s => [s, [s]]));
+    for (let i = 0; i < badges.length; i++) {
+      if (foldInto[i] !== -1) membersOf.get(foldInto[i]).push(i);
+    }
+
+    badges.forEach((b, i) => this._toggleLayer(b.marker, foldInto[i] === -1));
+
+    survivors.forEach(s => {
+      const mem = membersOf.get(s);
+      const b = badges[s];
+      const extra = mem.length - 1;
+      const text = extra > 0 ? `${b.label}<sup>+${extra}</sup>` : b.label;
+      b.marker.setIcon(L.divIcon({
+        className: 'stress-place-badge-wrap',
+        html: `<span class="stress-place-badge${extra > 0 ? ' merged' : ''}" style="--place-color:${b.color};width:${b.px}px;height:${b.px}px;font-size:${b.fontRem}rem">${text}</span>`,
+        iconSize: [b.px, b.px],
+        iconAnchor: [b.px / 2, b.px / 2]
+      }));
+      b.marker.setTooltipContent(extra > 0
+        ? `${mem.map(k => badges[k].label).join(', ')} · ${mem.length} places here — zoom in to separate`
+        : b.tooltip);
     });
   },
 
@@ -607,7 +752,9 @@ Object.assign(GSRMapManager.prototype, {
     return {
       mergeM,
       sigma: mergeM * 0.35,
-      blobRadius: mergeM * 0.5
+      blobRadius: mergeM * 0.5,
+      separationFactor: C.seedSeparationFactor || 1.8,
+      drawGapFactor: C.drawGapFactor || 0.46
     };
   }
 

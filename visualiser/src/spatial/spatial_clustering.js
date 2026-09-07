@@ -49,22 +49,36 @@ class GSRSpatialClustering {
    * each still-unassigned peak seeds a place and claims every still-unassigned
    * peak within `radiusMeters` of it.
    *
-   * Unlike clusterPeaks()'s single-linkage, this CANNOT chain: a place spans at
-   * most one `radiusMeters` ball (diameter <= 2 * radiusMeters), so a long
-   * dense corridor walked by many tracks breaks into a row of compact
-   * radius-sized "beads" instead of collapsing into one monster cluster whose
-   * centroid lands off every path. That centroid-off-the-path failure was what
-   * made large clusters score zero dwell/energy in stress_places.js.
+   * Unlike clusterPeaks()'s single-linkage, this CANNOT chain: a long dense
+   * corridor walked by many tracks breaks into a row of compact "beads" instead
+   * of collapsing into one monster cluster whose centroid lands off every path.
+   * That centroid-off-the-path failure was what made large clusters score zero
+   * dwell/energy in stress_places.js.
+   *
+   * `separationFactor` keeps those beads from overlapping each other on the map:
+   * a peak may only seed a NEW bead when it is at least `separationFactor *
+   * radiusMeters` from every bead already seeded. A peak that is closer than
+   * that to an existing seed but was not claimed by its `radiusMeters` ball
+   * (the "ring" between R and separationFactor*R) is absorbed by the nearest
+   * existing bead rather than spawning an overlapping neighbour. So bead centres
+   * are provably >= separationFactor*R apart, and a bead spans at most
+   * 2*separationFactor*R.
    *
    * @param {Array<{lat: number, lon: number}>} peaks
    * @param {number} radiusMeters - Neighbourhood radius (the UI merge distance).
+   * @param {number} [separationFactor=1.8] - Minimum centre-to-centre spacing
+   *   between beads, as a multiple of radiusMeters. Values < 1 are clamped to 1
+   *   (seeds at least one ball apart); NaN falls back to the default.
    * @returns {Array<Array<object>>} Clusters of the original peak objects.
    */
-  static compactClusters(peaks, radiusMeters = 35) {
+  static compactClusters(peaks, radiusMeters = 35, separationFactor = 1.8) {
     if (!peaks || peaks.length === 0) return [];
     const n = peaks.length;
     const R = (isNaN(parseFloat(radiusMeters)) || parseFloat(radiusMeters) <= 0)
       ? 35 : parseFloat(radiusMeters);
+    const SEP = isNaN(parseFloat(separationFactor))
+      ? 1.8 : Math.max(1, parseFloat(separationFactor));
+    const sepR2 = (R * SEP) * (R * SEP);
 
     // Project to a local metric plane (metres) centred on the mean position.
     let latSum = 0, lonSum = 0;
@@ -121,16 +135,41 @@ class GSRSpatialClustering {
 
     const assigned = new Uint8Array(n);
     const clusters = [];
+    const seedX = [];
+    const seedY = [];
+    const seedMembers = [];   // same array refs as `clusters`, so absorbing a
+                              // ring peak below also grows the emitted cluster
     for (let o = 0; o < n; o++) {
       const seed = order[o];
       if (assigned[seed]) continue;
+
+      // Too close to a bead we already seeded? Absorb this peak into the
+      // nearest one rather than seeding an overlapping neighbour.
+      let nearestSeed = -1, nearestD2 = Infinity;
+      for (let s = 0; s < seedX.length; s++) {
+        const dx = x[seed] - seedX[s];
+        const dy = y[seed] - seedY[s];
+        const d2 = dx * dx + dy * dy;
+        if (d2 < nearestD2) { nearestD2 = d2; nearestSeed = s; }
+      }
+      if (nearestSeed !== -1 && nearestD2 <= sepR2) {
+        assigned[seed] = 1;
+        seedMembers[nearestSeed].push(peaks[seed]);
+        continue;
+      }
+
+      // New bead: claim every still-unassigned peak within R. `seed` itself is
+      // always in neigh[seed] (dx=dy=0), so `members` is never empty.
       const members = [];
       const cand = neigh[seed];
       for (let c = 0; c < cand.length; c++) {
         const j = cand[c];
         if (!assigned[j]) { assigned[j] = 1; members.push(peaks[j]); }
       }
-      if (members.length) clusters.push(members);
+      seedX.push(x[seed]);
+      seedY.push(y[seed]);
+      seedMembers.push(members);
+      clusters.push(members);
     }
     return clusters;
   }

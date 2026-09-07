@@ -2246,6 +2246,17 @@ input[type="range"]:focus-visible,
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
   cursor: pointer;
 }
+/* A badge standing in for several collided places (see _declutterStressPlaceBadges) */
+.stress-place-badge.merged {
+  border-style: double;
+  border-width: 3px;
+}
+.stress-place-badge sup {
+  font-size: 0.62em;
+  font-weight: 700;
+  line-height: 0;
+  margin-left: 0.05em;
+}
 
 .map-popup-card .popup-subhead {
   margin-top: 8px;

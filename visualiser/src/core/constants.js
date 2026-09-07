@@ -316,6 +316,12 @@ const GSR_CONST = {
     mergeM: 35,               // default grouping radius in metres (compactClusters leader radius)
     minMergeM: 10,            // slider bounds
     maxMergeM: 120,
+    seedSeparationFactor: 1.8,// compactClusters: two place centres must be >= this * mergeM apart;
+                             // peaks in the mergeM..(this*mergeM) ring are absorbed by the nearest
+                             // existing place rather than seeding an overlapping neighbour
+    drawGapFactor: 0.46,     // _renderStressPlaces: a place's drawn outline is capped at this *
+                             // (distance to its nearest neighbour), so two footprints can kiss
+                             // but never overlap (belt-and-braces on top of seedSeparationFactor)
     footprintPadM: 10,        // per-member-peak dwell footprint radius = mergeM/2 + this
     dwellFloorS: 5,           // floor on dwell seconds so a near-zero dwell can't blow up the rate
     provisionalMaxTracks: 1,  // collective: a place with <= this many contributing walks renders faint/dashed

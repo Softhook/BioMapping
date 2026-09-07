@@ -166,19 +166,40 @@ test('compactClusters: every peak is assigned exactly once (partition)', () => {
 
 test('compactClusters: a long dense corridor does NOT chain into one cluster', () => {
   // 120 peaks over ~600 m at 5 m spacing — single-linkage welds this into one
-  // chain; compactClusters must break it into compact beads, each spanning at
-  // most ~2x the radius.
+  // chain; compactClusters must break it into beads. With seed separation each
+  // bead absorbs the peaks in its R..SEP*R ring, so a bead spans at most
+  // 2*SEP*R (not 2R), and no two bead centroids sit closer than SEP*R.
   const R = 35;
+  const SEP = 1.8;
   const peaks = [];
   for (let i = 0; i < 120; i++) peaks.push({ lat: (i * 5) / METERS_PER_DEG_LAT, lon: 0 });
-  const clusters = GSRSpatialClustering.compactClusters(peaks, R);
+  const clusters = GSRSpatialClustering.compactClusters(peaks, R, SEP);
 
-  assert.ok(clusters.length >= 5, `expected several beads, got ${clusters.length}`);
+  assert.ok(clusters.length >= 3, `expected several beads, got ${clusters.length}`);
+  const centroids = [];
   for (const c of clusters) {
-    let min = Infinity, max = -Infinity;
-    for (const p of c) { const m = p.lat * METERS_PER_DEG_LAT; if (m < min) min = m; if (m > max) max = m; }
-    assert.ok(max - min <= 2 * R + 1e-6, `bead spans ${(max - min).toFixed(1)} m, > 2R`);
+    let min = Infinity, max = -Infinity, sum = 0;
+    for (const p of c) { const m = p.lat * METERS_PER_DEG_LAT; if (m < min) min = m; if (m > max) max = m; sum += m; }
+    assert.ok(max - min <= 2 * SEP * R + 1e-6, `bead spans ${(max - min).toFixed(1)} m, > 2*SEP*R`);
+    centroids.push(sum / c.length);
   }
+  centroids.sort((a, b) => a - b);
+  for (let i = 1; i < centroids.length; i++) {
+    assert.ok(centroids[i] - centroids[i - 1] >= R, // seed gap >= SEP*R; centroids drift a little inward
+      `bead centroids only ${(centroids[i] - centroids[i - 1]).toFixed(1)} m apart`);
+  }
+});
+
+test('compactClusters: two dense knots one merge-radius apart do NOT seed overlapping beads', () => {
+  // Root cause of the old overlap: a second dense spot just past R from the
+  // first would seed its own bead R away, and the two footprints overlapped.
+  // It must now be absorbed by the first (it is inside the SEP*R ring).
+  const R = 35;
+  const peaks = [];
+  for (let i = 0; i < 6; i++) peaks.push({ lat: (i % 2) / METERS_PER_DEG_LAT, lon: (i % 3) / METERS_PER_DEG_LAT });
+  for (let i = 0; i < 6; i++) peaks.push({ lat: (45 + (i % 2)) / METERS_PER_DEG_LAT, lon: (i % 3) / METERS_PER_DEG_LAT });
+  const clusters = GSRSpatialClustering.compactClusters(peaks, R, 1.8);
+  assert.strictEqual(clusters.length, 1);
 });
 
 test('compactClusters: deterministic — same input gives the same partition', () => {
@@ -187,6 +208,17 @@ test('compactClusters: deterministic — same input gives the same partition', (
   const a = GSRSpatialClustering.compactClusters(peaks, 35).map(c => c.length);
   const b = GSRSpatialClustering.compactClusters(peaks, 35).map(c => c.length);
   assert.deepStrictEqual(a, b);
+});
+
+test('compactClusters: separationFactor defaults to 1.8 and NaN/sub-1 values are handled', () => {
+  const R = 35;
+  // Two knots ~55 m apart: absorbed at the 1.8 default (55 < 63), split at 1.0.
+  const peaks = [];
+  for (let i = 0; i < 5; i++) peaks.push({ lat: (i % 2) / METERS_PER_DEG_LAT, lon: 0 });
+  for (let i = 0; i < 5; i++) peaks.push({ lat: (55 + i % 2) / METERS_PER_DEG_LAT, lon: 0 });
+  assert.strictEqual(GSRSpatialClustering.compactClusters(peaks, R).length, 1, 'default 1.8 absorbs');
+  assert.strictEqual(GSRSpatialClustering.compactClusters(peaks, R, NaN).length, 1, 'NaN falls back to default');
+  assert.strictEqual(GSRSpatialClustering.compactClusters(peaks, R, 0.2).length, 2, 'sub-1 clamps to 1 (one ball apart) → split');
 });
 
 test('compactClusters: does not mutate the input peak objects', () => {

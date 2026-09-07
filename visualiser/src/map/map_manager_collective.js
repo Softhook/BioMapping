@@ -144,7 +144,7 @@ Object.assign(GSRMapManager.prototype, {
     if (allActivePeaksAcrossTracks.length > 0
         && typeof GSRSpatialClustering !== 'undefined'
         && typeof GSRStressPlaces !== 'undefined') {
-      const { mergeM, sigma, blobRadius } = this._getClusteringParams();
+      const { mergeM, sigma, blobRadius, separationFactor, drawGapFactor } = this._getClusteringParams();
       const refAmplitude = this._meanAmplitude(allActivePeaksAcrossTracks);
 
       const scoreTracks = activeTracks.map(t => ({
@@ -154,13 +154,13 @@ Object.assign(GSRMapManager.prototype, {
         phasic: t.analyzer && t.analyzer.phasic
       }));
 
-      const clusters = GSRSpatialClustering.compactClusters(allActivePeaksAcrossTracks, mergeM);
+      const clusters = GSRSpatialClustering.compactClusters(allActivePeaksAcrossTracks, mergeM, separationFactor);
       const places = GSRStressPlaces.buildPlaces(
         clusters, scoreTracks,
         (typeof GSR_CONST !== 'undefined' ? GSR_CONST.STRESS_PLACES : {})
       );
       this._renderStressPlaces(places, {
-        collective: true, activeTrackCount: activeTracks.length, refAmplitude, sigma, blobRadius
+        collective: true, activeTrackCount: activeTracks.length, refAmplitude, sigma, blobRadius, drawGapFactor
       });
     }
 

@@ -113,6 +113,11 @@ Object.assign(GSRMapManager.prototype, {
   toggleClusters(visible) {
     this.showClusters = visible;
     this.clusterLayers.forEach(m => this._toggleLayer(m, visible));
+    // Re-apply badge de-clutter: the loop above re-added every badge, including
+    // ones a previous pass had folded away.
+    if (visible && typeof this._declutterStressPlaceBadges === 'function') {
+      this._declutterStressPlaceBadges();
+    }
   },
 
   /**

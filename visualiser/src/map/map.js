@@ -128,6 +128,12 @@ class GSRMapManager {
     // changes with zoom — re-run the path renderer once the zoom settles (see
     // _refreshPathOnZoom, which cheap-outs when the outcome can't have changed).
     this.map.on('zoomend', () => this._refreshPathOnZoom());
+
+    // Stress Place badges are screen-space — re-fold/unfold colliding ones once
+    // the new zoom settles (see _declutterStressPlaceBadges).
+    this.map.on('zoomend', () => {
+      try { this._declutterStressPlaceBadges(); } catch (e) { /* a zoom must never break */ }
+    });
   }
 
   _getMetricKey(metric) {
