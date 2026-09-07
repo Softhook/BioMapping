@@ -134,44 +134,35 @@ class GSRSpatialClustering {
       .sort((a, b) => (density[b] - density[a]) || (a - b));
 
     const assigned = new Uint8Array(n);
-    const clusters = [];
-    const seedX = [];
-    const seedY = [];
-    const seedMembers = [];   // same array refs as `clusters`, so absorbing a
-                              // ring peak below also grows the emitted cluster
+    const seeds = []; // { x, y, members }
     for (let o = 0; o < n; o++) {
       const seed = order[o];
       if (assigned[seed]) continue;
 
-      // Too close to a bead we already seeded? Absorb this peak into the
-      // nearest one rather than seeding an overlapping neighbour.
-      let nearestSeed = -1, nearestD2 = Infinity;
-      for (let s = 0; s < seedX.length; s++) {
-        const dx = x[seed] - seedX[s];
-        const dy = y[seed] - seedY[s];
+      // Nearest bead we have already seeded.
+      let near = null, nearD2 = Infinity;
+      for (const s of seeds) {
+        const dx = x[seed] - s.x, dy = y[seed] - s.y;
         const d2 = dx * dx + dy * dy;
-        if (d2 < nearestD2) { nearestD2 = d2; nearestSeed = s; }
+        if (d2 < nearD2) { nearD2 = d2; near = s; }
       }
-      if (nearestSeed !== -1 && nearestD2 <= sepR2) {
+
+      if (near && nearD2 <= sepR2) {
+        // Inside the R..SEP*R ring — absorb rather than seed an overlapping bead.
         assigned[seed] = 1;
-        seedMembers[nearestSeed].push(peaks[seed]);
+        near.members.push(peaks[seed]);
         continue;
       }
 
       // New bead: claim every still-unassigned peak within R. `seed` itself is
       // always in neigh[seed] (dx=dy=0), so `members` is never empty.
       const members = [];
-      const cand = neigh[seed];
-      for (let c = 0; c < cand.length; c++) {
-        const j = cand[c];
+      for (const j of neigh[seed]) {
         if (!assigned[j]) { assigned[j] = 1; members.push(peaks[j]); }
       }
-      seedX.push(x[seed]);
-      seedY.push(y[seed]);
-      seedMembers.push(members);
-      clusters.push(members);
+      seeds.push({ x: x[seed], y: y[seed], members });
     }
-    return clusters;
+    return seeds.map(s => s.members);
   }
 
   /**
