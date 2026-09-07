@@ -121,7 +121,51 @@ const GpsPipeline = {
   },
 
   /**
-   * Downsample points for Leaflet display.
+   * Pick the positions [0, count) that survive display decimation: every `step`-th
+   * position, always the last, plus any position whose origIdx is in forceIndexSet.
+   * Shared by downsampleForDisplay() (operates on built point objects) and
+   * buildDrawPoints() (operates on the raw valid-index list) so the stride /
+   * trailing-point / forced-merge rule lives in exactly one place.
+   *
+   * @param {number} count - number of candidate positions
+   * @param {number} step - decimation stride (1 = keep everything)
+   * @param {function(number): number} origIdxAt - maps a position to its raw row index
+   * @param {Set<number>} [forceIndexSet] - raw row indices that must survive the stride
+   * @returns {number[]} chosen positions, ascending by origIdx
+   */
+  _pickDownsampleIndices(count, step, origIdxAt, forceIndexSet) {
+    const picked = [];
+    const included = new Set();
+    for (let i = 0; i < count; i += step) {
+      picked.push(i);
+      included.add(i);
+    }
+    if (count > 0 && (count - 1) % step !== 0) {
+      picked.push(count - 1);
+      included.add(count - 1);
+    }
+
+    if (forceIndexSet && forceIndexSet.size > 0) {
+      let addedForced = false;
+      for (let i = 0; i < count; i++) {
+        if (included.has(i)) continue;
+        if (forceIndexSet.has(origIdxAt(i))) {
+          picked.push(i);
+          addedForced = true;
+        }
+      }
+      if (addedForced) picked.sort((a, b) => origIdxAt(a) - origIdxAt(b));
+    }
+
+    return picked;
+  },
+
+  /**
+   * Downsample already-built point objects for Leaflet display.
+   *
+   * The live 2D-map path uses buildDrawPoints() instead — the fused variant that
+   * builds and decimates in one pass from raw rows. This form is kept for callers
+   * that already hold a full point array (globe3d, e2e/unit tests).
    *
    * @param {Set<number>} [forceIndexSet] - analyzer.raw row indices (matched
    *   against each point's .origIdx) that must survive the stride even when
@@ -129,29 +173,57 @@ const GpsPipeline = {
    */
   downsampleForDisplay(gpsPoints, sampleRate, doDownsample, forceIndexSet) {
     const step = doDownsample ? Math.max(1, Math.round(sampleRate)) : 1;
-    const draw = [];
-    const includedIdx = new Set();
-    for (let i = 0; i < gpsPoints.length; i += step) {
-      draw.push({ ...gpsPoints[i] });
-      includedIdx.add(i);
-    }
-    if (gpsPoints.length > 0 && (gpsPoints.length - 1) % step !== 0) {
-      draw.push({ ...gpsPoints[gpsPoints.length - 1] });
-      includedIdx.add(gpsPoints.length - 1);
-    }
+    const positions = GpsPipeline._pickDownsampleIndices(
+      gpsPoints.length, step, i => gpsPoints[i].origIdx, forceIndexSet
+    );
+    return positions.map(i => ({ ...gpsPoints[i] }));
+  },
 
-    if (forceIndexSet && forceIndexSet.size > 0) {
-      let addedForced = false;
-      for (let i = 0; i < gpsPoints.length; i++) {
-        if (includedIdx.has(i)) continue;
-        const p = gpsPoints[i];
-        if (forceIndexSet.has(p.origIdx)) {
-          draw.push({ ...p });
-          includedIdx.add(i);
-          addedForced = true;
-        }
-      }
-      if (addedForced) draw.sort((a, b) => a.origIdx - b.origIdx);
+  /**
+   * Build drawPoints directly from raw data and the 10 Hz filteredGps array,
+   * selecting downsampled indices first so only surviving points are constructed
+   * with the full field set. Equivalent to building all valid points and then
+   * calling downsampleForDisplay(), but avoids allocating and copying thousands
+   * of full-width objects that are immediately thrown away.
+   *
+   * @param {Array<object>} data - raw CSV row objects
+   * @param {Array<{lat: number, lon: number}>} filteredGps - reconstructed GPS coords
+   * @param {number} sampleRate - decimation rate (caller supplies the fallback, e.g. `analyzer.sampleRate || 10.0`)
+   * @param {boolean} doDownsample - whether downsampling is active
+   * @param {Set<number>} [forceIndexSet] - indices forced to survive downsampling (RF peaks)
+   * @returns {Array<object>} drawPoints
+   */
+  buildDrawPoints(data, filteredGps, sampleRate, doDownsample, forceIndexSet) {
+    if (!data || data.length === 0 || !filteredGps || filteredGps.length === 0) return [];
+
+    const validIndices = [];
+    for (let i = 0; i < data.length; i++) {
+      const fg = filteredGps[i];
+      if (fg && !isNaN(fg.lat) && !isNaN(fg.lon)) validIndices.push(i);
+    }
+    const totalValid = validIndices.length;
+    if (totalValid === 0) return [];
+
+    const step = doDownsample ? Math.max(1, Math.round(sampleRate)) : 1;
+    const positions = GpsPipeline._pickDownsampleIndices(
+      totalValid, step, i => validIndices[i], forceIndexSet
+    );
+
+    const draw = new Array(positions.length);
+    for (let j = 0; j < positions.length; j++) {
+      const rawIdx = validIndices[positions[j]];
+      const fg = filteredGps[rawIdx];
+      draw[j] = {
+        ...data[rawIdx],
+        lat: fg.lat,
+        lon: fg.lon,
+        origIdx: rawIdx,
+        // isRfPeak is tagged on the point (not looked up by origIdx downstream)
+        // so it survives collective mode's concatenation of multiple tracks'
+        // drawPoints, where origIdx collides across tracks — see
+        // RFFluidRenderer._precalculateSpatialFans().
+        isRfPeak: !!(forceIndexSet && forceIndexSet.has(rawIdx))
+      };
     }
 
     return draw;
