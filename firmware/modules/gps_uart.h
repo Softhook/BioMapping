@@ -19,11 +19,9 @@
 typedef struct GpsStatus {
     double latitude;            // NaN = no fix yet (double for sub-metre precision)
     double longitude;
-    float altitude;
     float speed;                // knots (RMC)
     float course;               // degrees true
     float hdop;                 // Horizontal Dilution of Precision (GGA/GSA)
-    float vdop;                 // Vertical Dilution of Precision (GSA)
     float hacc;                 // Estimated horizontal accuracy in metres (PUBX 00); 99.9 = unknown
     int   fix_quality;          // 0=none, 1=GPS, 2=DGPS (GGA)
     int   fix_type;             // 1=none, 2=2D, 3=3D (GSA)
@@ -31,8 +29,6 @@ typedef struct GpsStatus {
     bool  fix_valid;            // from RMC
     bool  sbas_active;          // true when any GSA PRN >= 120 (SBAS satellite in use)
     float pdop;                 // Position Dilution of Precision from GSA (chip-computed, all constellations); 99.9 = unknown
-    int8_t sat_elevation[512];  // elevation per PRN (constellation-offset), 0 = no data
-    bool  gsv_fresh;            // complete GSV cycle received since last GSA
     int   active_prns[32];      // PRNs from current epoch's GSA sentences (constellation-offset)
     int   active_prn_count;     // number of active PRNs
     int   gsv_total_sats;       // sum of GSV total_sats across all constellations (real sat count)

@@ -103,7 +103,9 @@ static inline double minmea_tocoord_double(const struct minmea_float* f) {
     return (double)deg + (double)min / ((double)f->scale * 60);
 }
 
-// ── Constellation offset helper: maps a talker ID + raw PRN to the internal elevation array index ─────
+// ── Constellation offset helper: maps a talker ID + raw PRN to a
+// constellation-unique PRN index, so PRNs that collide across
+// constellations stay distinct in the active_prns dedup set ─────
 static int gps_get_constellation_offset(const char* talker_id, int prn) {
     // GPS / SBAS / QZSS: GP talker (spec Table 2)
     // QZSS always uses GP talker with PRNs 193-197 (Table 16)
@@ -141,8 +143,7 @@ static int gps_get_constellation_offset(const char* talker_id, int prn) {
 
 // ── PDOP helper: store GSA's chip-computed Position DOP. ───────────────
 // PDOP comes from the GSA sentence and is computed by the M10Q firmware
-// from ALL active satellites across ALL constellations — unlike our old
-// computed DOP which only had GPS elevation data from GSV.
+// from ALL active satellites across ALL constellations.
 static void gps_store_pdop(GpsUart* g, float pdop) {
     if(!isnan(pdop)) {
         g->status.pdop = pdop;
@@ -235,7 +236,6 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             if(frame.fix_quality > 0) {
                 g->status.latitude  = minmea_tocoord_double(&frame.latitude);
                 g->status.longitude = minmea_tocoord_double(&frame.longitude);
-                g->status.altitude  = minmea_tofloat(&frame.altitude);
             }
             g->status.satellites_tracked = frame.satellites_tracked;
             g->status.fix_quality        = frame.fix_quality;
@@ -267,16 +267,14 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
                 FURI_LOG_I("GpsUart", "First GSA talker: %c%c SystemID=%d",
                            line[1], line[2], frame.system_id);
             }
-            // GSA gives the authoritative DOP values and distinguishes
+            // GSA gives the authoritative HDOP/PDOP values and distinguishes
             // 2D (fix_type=2) from 3D (fix_type=3).  GGA HDOP is kept
             // as primary when GSA hasn't arrived yet; GSA overwrites only
             // when the field is present (non-NaN) to avoid clobbering a
             // good reading from a previous sentence.
             g->status.fix_type = frame.fix_type;
             float gsa_hdop = minmea_tofloat(&frame.hdop);
-            float gsa_vdop = minmea_tofloat(&frame.vdop);
             if(!isnan(gsa_hdop)) g->status.hdop = gsa_hdop;
-            if(!isnan(gsa_vdop)) g->status.vdop = gsa_vdop;
             g->last_valid_nmea_tick = furi_get_tick();
 
             // Check if any tracked satellite is an SBAS bird (PRN >= 120).
@@ -295,7 +293,8 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             // QZSS (SystemID=5) uses GP talker with PRNs 193-197 — same offset as GPS.
             // IMPORTANT: Galileo PRNs (1-36) overlap GPS PRNs (1-32). Without the
             // explicit system_id==3 branch, GN-talker fallback would map Galileo
-            // satellites to GPS offset 0, silently corrupting sat_elevation.
+            // satellites to GPS offset 0, silently merging them into the GPS
+            // PRNs in the active_prns dedup set.
             char talker_id[2];
             if(frame.system_id == 2) {
                 talker_id[0] = 'G'; talker_id[1] = 'L'; // GLONASS
@@ -340,7 +339,7 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
     } break;
 
     case MINMEA_SENTENCE_GSV: {
-        // ── Parse GSV for per-satellite elevation angles ──────────────
+        // ── Parse GSV for the per-constellation satellite-in-view count ──
         struct minmea_sentence_gsv frame;
         if(minmea_parse_gsv(&frame, line)) {
             // Log the GSV talker prefix on first sighting so we can
@@ -353,7 +352,6 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
             }
             g->last_valid_nmea_tick = furi_get_tick();
 
-            // Determine constellation offset. Uses talker prefix and PRN range.
             char talker_id[2] = {line[1], line[2]};
 
             // Accumulate per-constellation total_sats on the first message
@@ -396,24 +394,6 @@ static void gps_uart_parse_line(GpsUart* g, char* line) {
                         g->gsv_contributed_count++;
                     }
                 }
-            }
-
-            for(int i = 0; i < 4; i++) {
-                int prn = frame.sats[i].nr;
-                if(prn > 0) {
-                    int offset = gps_get_constellation_offset(talker_id, prn);
-                    int idx = offset + prn;
-                    if(idx >= 0 && idx < 512) {
-                        g->status.sat_elevation[idx] =
-                            (int8_t)frame.sats[i].elevation;
-                    }
-                }
-            }
-
-            // When the GSV cycle completes, mark elevation data as fresh.
-            // PDOP now comes directly from GSA — no WDOP recompute needed.
-            if(frame.msg_nr == frame.total_msgs) {
-                g->status.gsv_fresh = true;
             }
         }
     } break;
@@ -933,11 +913,9 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
     g->status = (GpsStatus){
         .latitude           = NAN,
         .longitude          = NAN,
-        .altitude           = 0.0f,
         .speed              = NAN,
         .course             = NAN,
         .hdop               = 99.9f,
-        .vdop               = 99.9f,
         .hacc               = 99.9f,
         .fix_quality        = 0,
         .fix_type           = 1,
@@ -945,13 +923,11 @@ GpsUart* gps_uart_alloc(FuriMessageQueue* event_queue, NotificationApp* notifica
         .fix_valid          = false,
         .sbas_active        = false,
         .pdop               = 99.9f,
-        .gsv_fresh          = false,
         .active_prn_count   = 0,
         .gsv_total_sats     = 0,
         .time               = {0},
         .date               = {0},
     };
-    memset(g->status.sat_elevation, 0, sizeof(g->status.sat_elevation));
     memset(g->status.active_prns, 0, sizeof(g->status.active_prns));
     // Arm watchdog at alloc so a botched initial baud-rate switch
     // triggers a one-shot recovery after 5 s instead of silently

@@ -69,10 +69,8 @@ static const char* GSA_LINE =
 static const char* GSA_SBAS_LINE =
     "$GNGSA,A,3,120,13,15,20,,,,,,,,,2.5,2.0,1.5,1*07\r\n";
 
-// Single-message GSV (total_msgs=1, msg_nr=1) so it satisfies both the
-// msg_nr==1 total_sats-accumulation branch AND the msg_nr==total_msgs
-// gsv_fresh branch in one sentence. 4 sats: (nr=3,el=3) (nr=4,el=15)
-// (nr=6,el=1) (nr=13,el=6). Talker GP -> constellation offset 0.
+// Single-message GSV (total_msgs=1, msg_nr=1) so it exercises the
+// msg_nr==1 total_sats-accumulation branch. total_sats=4. Talker GP.
 static const char* GSV_LINE =
     "$GPGSV,1,1,4,03,03,111,00,04,15,270,00,06,01,010,00,13,06,292,00*42\r\n";
 
@@ -183,12 +181,11 @@ static void test_gsa_updates_status(void) {
     gps_uart_process_rx(g);
 
     GpsStatus s = gps_uart_get_status(g);
-    printf("  fix_type=%d hdop=%.2f vdop=%.2f pdop=%.2f sbas=%d prn_count=%d\n",
-           s.fix_type, (double)s.hdop, (double)s.vdop, (double)s.pdop,
+    printf("  fix_type=%d hdop=%.2f pdop=%.2f sbas=%d prn_count=%d\n",
+           s.fix_type, (double)s.hdop, (double)s.pdop,
            s.sbas_active, s.active_prn_count);
     assert(s.fix_type == 3);
     assert(fabs((double)s.hdop - 2.0) < 1e-3);
-    assert(fabs((double)s.vdop - 1.5) < 1e-3);
     assert(fabs((double)s.pdop - 2.5) < 1e-3);
     assert(s.sbas_active == false);
     assert(s.active_prn_count == 4);
@@ -216,8 +213,8 @@ static void test_gsa_sbas_detection(void) {
     printf("  -> Pass\n");
 }
 
-static void test_gsv_elevation_and_fresh(void) {
-    printf("Running test_gsv_elevation_and_fresh...\n");
+static void test_gsv_total_sats(void) {
+    printf("Running test_gsv_total_sats...\n");
     FuriMessageQueue queue = {0};
     GpsUart* g = gps_uart_alloc(&queue, NULL, GpsNavModelPedestrian);
     assert(g != NULL);
@@ -226,14 +223,8 @@ static void test_gsv_elevation_and_fresh(void) {
     gps_uart_process_rx(g);
 
     GpsStatus s = gps_uart_get_status(g);
-    printf("  gsv_fresh=%d gsv_total_sats=%d elevation[3]=%d elevation[13]=%d\n",
-           s.gsv_fresh, s.gsv_total_sats, s.sat_elevation[3], s.sat_elevation[13]);
-    assert(s.gsv_fresh == true);         // msg_nr(1) == total_msgs(1)
+    printf("  gsv_total_sats=%d\n", s.gsv_total_sats);
     assert(s.gsv_total_sats == 4);       // accumulated on msg_nr==1
-    assert(s.sat_elevation[3] == 3);     // PRN 3, GP talker -> offset 0
-    assert(s.sat_elevation[4] == 15);
-    assert(s.sat_elevation[6] == 1);
-    assert(s.sat_elevation[13] == 6);
 
     gps_uart_free(g);
     printf("  -> Pass\n");
@@ -844,7 +835,7 @@ int main(void) {
     test_rmc_updates_status();
     test_gsa_updates_status();
     test_gsa_sbas_detection();
-    test_gsv_elevation_and_fresh();
+    test_gsv_total_sats();
     test_gsv_duplicate_within_window_not_doubled();
     test_gsv_multi_constellation_within_window_sums();
     test_gsv_recounts_after_window_reset();
