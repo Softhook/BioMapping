@@ -10,7 +10,36 @@ Loose ideas and unscheduled work. Promote anything real to its own doc under `do
 ## Analysis ideas
 
 - Correlate GSR against the 868 and 915 MHz RF bands.
-- **319 MHz band** — useful VHF/UHF frequency for wireless security/garage door sensors. See [rf_319_investigation.md](rf_319_investigation.md).
+- **Fourth RF band — which frequency?** The sweep is fixed at 815 / 868 /
+  915 MHz (`EM_SCAN_NUM_FREQS == 3`).
+  [rf_319_investigation.md](rf_319_investigation.md) works through the
+  mechanical cost of a 4th slot but assumes the band is 319 MHz — a
+  North-American security-sensor frequency that would mostly read the noise
+  floor on UK/EU walks. That choice was never tested against alternatives.
+  How to pick it properly:
+  - **Fix the regulatory domain first — this decides most of it.** EU walks →
+    433.92 MHz ISM (key fobs, TPMS, weather stations, garage remotes, cheap
+    telemetry) is the obvious prime candidate; 868 is already covered. Other
+    EU options: 446 MHz PMR446, 380–400 MHz TETRA (emergency services, strong
+    in cities), ~466 MHz POCSAG paging. US walks → 315 / 319 MHz.
+  - **Wideband recon, no firmware change.** RTL-SDR + `rtl_power` sweep across
+    ~300–928 MHz for an hour at 3–4 representative spots on a normal route
+    (home, busy road, park, station). The spectrogram shows which bands
+    actually light up locally and vary between locations.
+  - **Shortlist 2–3 fixed frequencies** from where the recon shows real,
+    location-varying activity — not a band pinned at the noise floor
+    everywhere.
+  - **Survey build (optional).** Temporarily swap the 3 fixed bands for the
+    shortlist (or add a 4th slot) and log 3–5 real walks.
+  - **Score each candidate offline:** dynamic range (p95−p5 of RSSI); spatial
+    clustering (real hotspots vs white noise); correlation with the existing
+    3 bands (want something *orthogonal*, not a copy of 868); and
+    correlation / mutual information with GSR — the actual research question.
+    Weigh against the sub-400 MHz hardware penalty: antenna mismatch raises
+    the noise floor (~-76 vs -91 dBm) and forces the relaxed calibration
+    ceiling noted in the 319 doc.
+  - **Then** bump `EM_SCAN_NUM_FREQS` and follow the change-list in
+    rf_319_investigation.md — it is frequency-agnostic apart from that ceiling.
 
 ## Not priority
 
