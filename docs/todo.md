@@ -18,54 +18,54 @@ Loose ideas and unscheduled work. Promote anything real to its own doc under `do
   link). The Flipper → browser half already exists as Live Stream / `live.html`;
   this is only the onward upload.
 - **Physical form factor** — 3D-printed case.
-- **Calibration age** — done: `BioMapCalibration` v3 stores a save timestamp
-  (RF's `EmScanCal` already had one), and both the GSR and RF "Show Current"
-  screens display "Age: N d" (`draw_calibration_age()` in biomap_render.c).
-  Deliberately no staleness flag and no recalibrate prompt — just the readout.
+- **Typographic long annotations (visualiser)** — peak labels can now hold long,
+  sentence-length notes, but the display paths still assume a short tag: the
+  graph renderer hard-truncates to 22 chars + "…"
+  (`src/render/renderer.js` ~L523), the map label caps text width at 160 px on a
+  single unwrapped line (`GSRLabelManager.textWidth` in
+  `src/render/label_placement.js`), and the 3D globe label
+  (`src/map/globe3d.js` ~L1727) and map-popup editor
+  (`src/map/map_popups.js`) are single-line too. Render long notes as
+  properly set, wrapped blocks of text — sensible measure, hyphenation/wrap,
+  max width and line count — instead of one very long line or an arbitrary
+  character cut.
 
 ## Loose ends from closed investigations
 
-Carried over from archived investigations (`archive/gps_rf_mutex_status.md`, `archive/bluetooth_serial_investigation.md`, `archive/visualizer_architecture_refactor_plan.md`) — the primary objectives are completed, these are the uncompleted optional follow-ups and field tests.
+Carried over from archived investigations (`archive/gps_rf_mutex_status.md`,
+`archive/bluetooth_serial_investigation.md`,
+`archive/visualizer_architecture_refactor_plan.md`) — primary objectives are
+done; these are the optional follow-ups still worth doing.
 
-### Firmware & Hardware
+### Firmware
 
-- **Live Stream (BLE) on-hardware field validation** (from `archive/bluetooth_serial_investigation.md` §10 Phase 3) — verify battery endurance during active BLE broadcasting, test Android Chrome reconnection when phone display sleeps or goes into a pocket during a walk, and measure packet drop rates.
-- **2 Hz `tick_dt_ms` oscillation** — a ~150–190 ms tick delay on a regular
-  5-row (0.5 s) cycle with a compensating dip, self-correcting, no data loss,
-  ~1.3% of recording time on a long track. Present only in recordings whose CSV
-  carries the `flush_peak_ms` debug column; independent of `BIOMAP_SD_PREALLOC`.
-  Not root-caused — candidates are `view_port_update()`'s 2 Hz redraw pacing or
-  heavier per-tick debug-column formatting. Would need a same-card,
-  debug-fields-on-vs-off A/B walk to tell them apart.
-- **`WizardState` mutex fix has no test coverage** — the GSR-calibration-wizard
-  cross-thread fix in `biomap_gui.c`/`biomap_render.c` was verified by review
-  only; the host harness can't mock `Canvas`/`ViewPort`.
-- **RF/GSR race not formally proven absent** — the TOCTOU stress test raises
-  confidence but doesn't prove it. A deterministic proof needs a test-only
-  sync hook inside `gsr_sensor_worker()` (to pause it exactly between reading
-  `rf_enabled` and setting `rf_spi_busy`) — production instrumentation purely
-  for testability, so it needs a deliberate decision before adding.
-- **No test for the reverse direction (slow I2C blocking RF's snapshot read)** —
-  only the RF-blocks-I2C direction is covered. Low priority: I2C was never part
-  of the reported bug and isn't protected by any RF mutex anyway, so this is a
-  coverage gap, not a suspected defect.
-- **`gsr->available` dead code** — set `true` unconditionally at alloc, never set
-  `false`; every `if(!gsr->available) return;` guard is unreachable. Removing it
-  touches ~20 call sites plus `gsr_sensor_available()` for zero behaviour change.
-- **SD write-failure ride-out — buffer-limit vs streak-limit** — the flush
-  block in `run_recording_session()` rides out transient SD failures (buffers
-  rows, retries up to `SD_FLUSH_FAIL_STREAK_LIMIT` = 6). In GSR modes (~10
-  rows/s) the 24 KB batch buffer fills after ~1.5–2 flush intervals, so
-  `!batch_ok` ends the ride-out at streak ≈ 2, not 6 — the streak limit only
-  really bites in GPS-only mode. Not a bug (buffer-full is a clean early stop);
-  the `SD_FLUSH_FAIL_STREAK_LIMIT` comment in `biomap_types.h` is just
-  optimistic about the window for the common mode. Partial writes during the
-  ride-out no longer duplicate rows — `sd_logger_batch_flush()` commits only
-  the bytes the card took — so files stay CRC-consistent (`flush_fails:>0` in
-  the `# End` trailer is the only mark).
+- **Live Stream (BLE) on-hardware field validation** (from
+  `archive/bluetooth_serial_investigation.md` §10 Phase 3) — the only Live
+  Stream phase left. On a real walk: battery endurance during active BLE
+  broadcasting, Android Chrome reconnection when the phone display sleeps or
+  goes in a pocket mid-walk, and packet-drop rates (`bt_telemetry` debug line
+  already logs `bt_tx_peak_ms` / `bt_drop`).
+- **`gsr->available` dead code** — set `true` unconditionally at alloc, never
+  set `false`; every `if(!gsr->available) return;` guard in
+  `modules/gsr_sensor.c` is unreachable. Removing it touches ~20 accessor
+  call sites plus `gsr_sensor_available()` for zero behaviour change. Purely a
+  tidy-up, doable any time.
+- **RF/GSR concurrency — test-coverage gaps** (from
+  `archive/gps_rf_mutex_status.md`). Both low priority, no suspected defect:
+  - The RF-vs-GSR TOCTOU is covered by a stress test that raises confidence
+    but isn't a deterministic proof. A proof needs a test-only sync hook
+    inside `gsr_sensor_worker()` to pause it exactly between reading
+    `rf_enabled` and setting `rf_spi_busy` — production instrumentation purely
+    for testability, so it needs a deliberate decision before adding.
+  - No test for the reverse direction (a slow I2C read blocking RF's snapshot
+    read). Writable without new hooks; I2C was never part of the reported bug
+    and isn't under any RF mutex anyway, so it's a coverage gap only.
 
 ### Visualiser
 
-- **Visualiser partial-render consolidation audit** (COMPLETED) — unified `refreshPeakMarkers()`, `refreshPath()`, and `refreshCollectivePeakMarkers()` via the shared `_refreshTrackLayers` helper in `src/map/map.js`.
-- **Shared spatial cell-window helper audit** (COMPLETED) — extracted `SpatialGrid.computeCellWindow` and `GeoUtils.getGeodesicScale` as canonical utilities across `spatial_clustering.js` and `collective_manager.js`.
-- **Dense-track label collision profiling** (from `archive/visualizer_rendering_perf_routes.md` §2.3) — profile `computeLabelPositions` on tracks with high peak counts (>100 peaks) to check if spatial partitioning is needed for label collision bounding boxes.
+- **Dense-track label collision profiling** (from
+  `archive/visualizer_rendering_perf_routes.md` §2.3) — `computeLabelPositions`
+  in `src/render/label_placement.js` runs an O(N²) simulated-annealing pass
+  (`ITERS = max(300, N*30)`, each iteration scanning all N boxes twice).
+  Profile it on tracks with >100 peaks to decide whether the overlap checks
+  need spatial partitioning.
