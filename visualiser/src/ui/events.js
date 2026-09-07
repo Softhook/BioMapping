@@ -982,6 +982,17 @@ const GSREvents = {
       document.getElementById('btnToggleMapTracks')
     ].filter(Boolean);
 
+    // The map-header metric dropdown has no per-track path colouring to drive
+    // in collective view, so it is swapped there for #topoSource (the contour
+    // surface's Topography Source). Exactly one of the two is visible per mode.
+    const mapColoringMetric = document.getElementById('mapColoringMetric');
+    const topoSourceSelect = document.getElementById('topoSource');
+    const setHeaderMetricControl = (mode) => {
+      if (mapColoringMetric) mapColoringMetric.style.display = mode === 'collective' ? 'none' : '';
+      if (topoSourceSelect) topoSourceSelect.style.display = mode === 'collective' ? '' : 'none';
+    };
+    setHeaderMetricControl(AppState.viewMode);
+
     btnSingleView.addEventListener('click', () => {
       if (AppState.viewMode === 'single') return;
       AppState.viewMode = 'single';
@@ -994,6 +1005,7 @@ const GSREvents = {
       appMainLayout.classList.remove('collective-mode');
       contourSettingsCard.style.display = 'none';
       collectiveOnlyMapBtns.forEach(btn => btn.style.display = 'none');
+      setHeaderMetricControl('single');
 
       const peakCard = document.getElementById('peakDetectionCard');
       if (peakCard) peakCard.style.display = '';
@@ -1035,6 +1047,7 @@ const GSREvents = {
       appMainLayout.classList.add('collective-mode');
       contourSettingsCard.style.display = '';
       collectiveOnlyMapBtns.forEach(btn => btn.style.display = '');
+      setHeaderMetricControl('collective');
 
       const peakCard = document.getElementById('peakDetectionCard');
       if (peakCard) peakCard.style.display = 'none';

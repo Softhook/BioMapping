@@ -603,20 +603,6 @@
 
             <div class="slider-group">
               <div class="slider-label">
-                <span>Topography Source</span>
-              </div>
-              <select id="topoSource" class="select-control">
-                <option value="phasic" selected>Phasic Arousal (Transient)</option>
-                <option value="tonic">Tonic Baseline (SCL)</option>
-                <option value="peaks">Peak Stress Hotspots</option>
-                <option value="auc">Phasic AUC (ISCR)</option>
-                <option value="arousal_index">Combined Arousal Index</option>
-              </select>
-              <p class="help-text">AUC and Arousal Index are continuous, threshold-independent surfaces — they don't rely on discrete peak detection, so overlapping/superposed responses are captured proportionally instead of being undercounted.</p>
-            </div>
-
-            <div class="slider-group">
-              <div class="slider-label">
                 <span>Grid Resolution</span>
                 <span class="slider-value" id="valGridResolution">40 x 40</span>
               </div>
@@ -896,6 +882,10 @@
                 <option value="915">915 MHz (ISM)</option>
                 <option value="fog">EM Fog</option>
               </select>
+              <!-- Collective view has no per-track path colouring, so in that mode
+                   this control is hidden and #topoSource (below) drives the
+                   contour surface's Topography Source instead. GSREvents.bindViewSwitcher
+                   swaps which of the two is visible. -->
               <select id="mapColoringMetric" class="select-control btn btn-outline" title="Select Map Metric">
                 <option value="gsr" selected>GSR Signal</option>
                 <option value="phasic">Phasic</option>
@@ -918,6 +908,17 @@
                 <option value="distWater" disabled class="osm-option">Dist to Water</option>
                 <option value="treeDensity" disabled class="osm-option">Tree Density</option>
                 <option value="amenityCount" disabled class="osm-option">Amenity Count</option>
+              </select>
+              <!-- Collective-only: the metric the shared contour surface is built
+                   from. Shown in place of #mapColoringMetric while in collective
+                   view. Kept id/options so contourControls, collective_project
+                   persistence and _updateCollectiveMapNow read it unchanged. -->
+              <select id="topoSource" class="select-control btn btn-outline" title="Topography Source — the metric the collective contour surface is built from" style="display: none;">
+                <option value="phasic" selected>Phasic Arousal (Transient)</option>
+                <option value="tonic">Tonic Baseline (SCL)</option>
+                <option value="peaks">Peak Stress Hotspots</option>
+                <option value="auc">Phasic AUC (ISCR)</option>
+                <option value="arousal_index">Combined Arousal Index</option>
               </select>
               <span class="control-divider"></span>
               <button class="icon-btn fullscreen-btn" id="btnMapFullscreen" title="Full screen"><i class="fa-solid fa-expand"></i></button>

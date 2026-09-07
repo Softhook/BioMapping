@@ -4,9 +4,6 @@ Loose ideas and unscheduled work. Promote anything real to its own doc under `do
 
 ## Priority
 
-- **Topography** — 
-change the collective map dropdown to show the Topography Source surface layers instead of the track colouring which are not shown in collective mode. Then remove the Topography Source section from the left panel.
-
 - sound annotations -
 Allow people to record little audio snippets attached to peaks and hotspots. Investigate how they could be saved on the server and then played back. Maybe these could be from an audio file recorded at the same time and then timestamped to correlate, or they could be simply looking at the map, pressing a record button over the hotspot 
 
