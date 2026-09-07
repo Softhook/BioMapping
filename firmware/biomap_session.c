@@ -49,16 +49,6 @@ static bool flush_before_stop(SdLogger* logger) {
     return false;
 }
 
-// Current wall-clock time as Unix seconds, for the CSV integrity trailer's
-// end_time token (sd_logger_stop). Returns 0 if the RTC is unset — same
-// convention as the header's RecordingStartTime — which tells sd_logger to
-// omit the token rather than write a misleading 0.
-static uint32_t session_stop_epoch(void) {
-    DateTime dt;
-    furi_hal_rtc_get_datetime(&dt);
-    return pipeline_unix_epoch(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
-}
-
 // ==========================================================================
 // Session lifecycle
 // ==========================================================================
@@ -127,7 +117,7 @@ void session_deinit(Session* s, BioMapApp* app) {
         // in case a future exit path ever reaches here with recording
         // still active.
         if(!flush_before_stop(logger)) biomap_sound_warning(app->sound_enabled);
-        sd_logger_stop(logger, session_stop_epoch());
+        sd_logger_stop(logger, biomap_rtc_now_epoch());
     }
     if(logger) {
         sd_logger_free(logger);
@@ -315,7 +305,7 @@ static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
 // mutex. The caller releases app->mutex first, then plays the tone from
 // this return value.
 static bool handle_write_failure(Session* s, NotificationApp* notifications) {
-    if(s->logger) sd_logger_stop(s->logger, session_stop_epoch());
+    if(s->logger) sd_logger_stop(s->logger, biomap_rtc_now_epoch());
     s->recording.active = false;
     s->recording.write_stopped = true;    // latched — drives the renderer banner
     s->recording.flush_fail_streak = 0;   // recording's over — keep "not active ⇒ streak 0"
@@ -407,10 +397,7 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
 
     if(start) {
         // Build header: recording-start metadata line + column names.
-        DateTime dt;
-        furi_hal_rtc_get_datetime(&dt);
-        uint32_t epoch = pipeline_unix_epoch(dt.year, dt.month, dt.day,
-                                              dt.hour, dt.minute, dt.second);
+        uint32_t epoch = biomap_rtc_now_epoch();
         if(epoch == 0) {
             FURI_LOG_W("BioMap", "RTC not set — recording epoch will be 0 in CSV header");
         }
@@ -511,7 +498,7 @@ static bool key_toggle_recording(Session* s, FuriMutex* mutex,
         s->recording.flush_fail_streak = 0; // "not active ⇒ streak 0" invariant
         bool flush_ok = flush_before_stop(s->logger);
         furi_mutex_release(mutex);
-        sd_logger_stop(s->logger, session_stop_epoch());
+        sd_logger_stop(s->logger, biomap_rtc_now_epoch());
         notification_message(notifications, &sequence_blink_stop);
         // Recording is fully stopped (flag cleared, file closed) above —
         // only now is it safe to play the tone. A failed final flush means
@@ -593,7 +580,7 @@ static bool handle_recording_key(PluginEvent* ev, Session* s,
         furi_mutex_release(mutex);
 
         if(was_recording) {
-            sd_logger_stop(s->logger, session_stop_epoch()); // close the file BEFORE the tone
+            sd_logger_stop(s->logger, biomap_rtc_now_epoch()); // close the file BEFORE the tone
             // session_deinit()'s own stop-on-active check is now a no-op
             // (recording.active is already false), so this is the only
             // place that closes the file for this path.

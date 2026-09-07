@@ -314,8 +314,10 @@ typedef struct {
 // ── App-level function declarations ────────────────────────────────────
 
 // Current wall-clock time as Unix epoch seconds, or 0 if the RTC is unset
-// (pipeline_unix_epoch()'s year<2020 sentinel). Shared by the GSR
-// calibration save/load timestamp handling and the "Show Current" age readout.
+// (pipeline_unix_epoch()'s year<2020 sentinel). The 0 sentinel is deliberate:
+// callers writing it into a file (CSV RecordingStartTime header, integrity
+// trailer end_time, RF/GSR calibration timestamp) rely on the reader/logger
+// omitting the token rather than recording a misleading 1970 date.
 uint32_t biomap_rtc_now_epoch(void);
 
 void run_gps_hot_start(BioMapApp* app);

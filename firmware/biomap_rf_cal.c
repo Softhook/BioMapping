@@ -184,9 +184,7 @@ void run_rf_calibration_wizard(BioMapApp* app) {
         if(ev.input.key == InputKeyOk && w.passed) {
             EmScanCal cal;
             memset(&cal, 0, sizeof(cal));
-            DateTime dt;
-            furi_hal_rtc_get_datetime(&dt);
-            cal.timestamp = pipeline_unix_epoch(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
+            cal.timestamp = biomap_rtc_now_epoch();
             memcpy(cal.noise_floor_dbm, w.computed_floors, sizeof(cal.noise_floor_dbm));
             memcpy(cal.noise_std_dev_db, w.computed_std_devs, sizeof(cal.noise_std_dev_db));
             cal.sample_count = w.sweep_count;
