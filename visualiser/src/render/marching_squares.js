@@ -36,30 +36,36 @@ class MarchingSquares {
     const minLon = bounds.minLon;
     const maxLon = bounds.maxLon;
 
-    const getLatLng = (r, c) => {
-      const lat = minLat + (r / (rows - 1)) * (maxLat - minLat);
-      const lon = minLon + (c / (cols - 1)) * (maxLon - minLon);
-      return { lat, lon };
-    };
+    // Pre-compute coordinate lookup arrays (same optimisation as getContourLinesMulti)
+    // — avoids per-call arithmetic and {lat,lon} object allocation on every interpolated edge.
+    const latGrid = new Float64Array(rows);
+    const lonGrid = new Float64Array(cols);
+    const latSpan = maxLat - minLat;
+    const lonSpan = maxLon - minLon;
+    const rowsM1 = rows - 1;
+    const colsM1 = cols - 1;
+    for (let r = 0; r < rows; r++) latGrid[r] = minLat + (r / rowsM1) * latSpan;
+    for (let c = 0; c < cols; c++) lonGrid[c] = minLon + (c / colsM1) * lonSpan;
 
-    // Linear interpolation on cell edges for precision positioning
+    // Linear interpolation on cell edges — reads from precomputed arrays instead of
+    // recomputing lat/lon from scratch every call.
     const interpolate = (r1, c1, r2, c2) => {
       const v1 = grid[r1][c1];
       const v2 = grid[r2][c2];
-      const p1 = getLatLng(r1, c1);
-      const p2 = getLatLng(r2, c2);
+      const lat1 = latGrid[r1], lon1 = lonGrid[c1];
+      const lat2 = latGrid[r2], lon2 = lonGrid[c2];
 
       const isVal1 = v1 !== null && !isNaN(v1);
       const isVal2 = v2 !== null && !isNaN(v2);
 
-      if (!isVal1 && !isVal2) return p1;
-      if (!isVal1 || !isVal2) return { lat: (p1.lat + p2.lat) / 2, lon: (p1.lon + p2.lon) / 2 };
-      if (Math.abs(v1 - v2) < 1e-9) return p1;
+      if (!isVal1 && !isVal2) return { lat: lat1, lon: lon1 };
+      if (!isVal1 || !isVal2) return { lat: (lat1 + lat2) / 2, lon: (lon1 + lon2) / 2 };
+      if (Math.abs(v1 - v2) < 1e-9) return { lat: lat1, lon: lon1 };
 
       const t = Math.max(0, Math.min(1, (isolevel - v1) / (v2 - v1)));
       return {
-        lat: p1.lat + t * (p2.lat - p1.lat),
-        lon: p1.lon + t * (p2.lon - p1.lon)
+        lat: lat1 + t * (lat2 - lat1),
+        lon: lon1 + t * (lon2 - lon1)
       };
     };
 

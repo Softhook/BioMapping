@@ -3,6 +3,71 @@
  * Extracted from map.js to separate Leaflet rendering from layout computations.
  */
 
+/**
+ * Uniform 1-D spatial index for equal-height axis-aligned boxes.
+ *
+ * Every box handed in is exactly `bandHeight` tall, so filing it under the
+ * single key `floor(box.top / bandHeight)` is enough for overlap queries: two
+ * boxes of that height that overlap vertically have their tops within
+ * `bandHeight` of each other, so their keys differ by at most one. A query
+ * therefore scans keys k-1..k+1 and sees every stored box that could overlap,
+ * each exactly once (every box lives in exactly one band). No multi-band
+ * membership, no de-duplication.
+ *
+ * add / remove are O(1); a query is O(boxes in the three scanned bands), which
+ * for non-degenerate label layouts is a small constant.
+ */
+class YBandIndex {
+  constructor(bandHeight, overlapFn) {
+    this._h = bandHeight;
+    this._overlap = overlapFn;
+    this._bands = new Map(); // key:int → Set<box>
+  }
+
+  _key(box) { return Math.floor(box.top / this._h); }
+
+  add(box) {
+    const k = this._key(box);
+    let band = this._bands.get(k);
+    if (!band) { band = new Set(); this._bands.set(k, band); }
+    band.add(box);
+  }
+
+  remove(box) {
+    const band = this._bands.get(this._key(box));
+    if (band) band.delete(box);
+  }
+
+  clear() { this._bands.clear(); }
+
+  /** Count stored boxes that overlap `box`, ignoring the identical `skipBox`. */
+  countOverlaps(box, skipBox) {
+    const k = this._key(box);
+    let n = 0;
+    for (let dk = -1; dk <= 1; dk++) {
+      const band = this._bands.get(k + dk);
+      if (!band) continue;
+      for (const other of band) {
+        if (other !== skipBox && this._overlap(box, other)) n++;
+      }
+    }
+    return n;
+  }
+
+  /** True as soon as any stored box overlaps `box`. */
+  hasOverlap(box) {
+    const k = this._key(box);
+    for (let dk = -1; dk <= 1; dk++) {
+      const band = this._bands.get(k + dk);
+      if (!band) continue;
+      for (const other of band) {
+        if (this._overlap(box, other)) return true;
+      }
+    }
+    return false;
+  }
+}
+
 class GSRLabelManager {
   /**
    * Estimate pixel width of label text at font-size 10px (Inter proportionals).
@@ -70,16 +135,21 @@ class GSRLabelManager {
       return { idx: p.idx, px: p.px, py: p.py, candidates };
     });
 
+    // Index the placed label boxes by vertical band so overlap tests scan only
+    // a few nearby boxes, not all of them. Every candidate box is exactly H
+    // tall, which is what lets YBandIndex file each box under a single key and
+    // still answer overlap queries exactly (see its doc comment).
+    const yIndex = new YBandIndex(H, overlap);
+
     // ── Initialise via fast greedy pass ───────────────────────────────────
     const state = [];          // [{ item, candIdx, cand }]
-    const placed = [];
     const unplaced = new Set(items.map((_, i) => i));
 
     while (unplaced.size > 0) {
       let bestI = -1, bestC = null, bestD = Infinity;
       for (const i of unplaced) {
         for (const c of items[i].candidates) {
-          if (!placed.some(p => overlap(c.box, p))) {
+          if (!yIndex.hasOverlap(c.box)) {
             if (c.dist < bestD) { bestD = c.dist; bestI = i; bestC = c; }
             break;
           }
@@ -88,17 +158,18 @@ class GSRLabelManager {
       if (bestI < 0) break;
       const idx = items[bestI].candidates.indexOf(bestC);
       state.push({ item: items[bestI], candIdx: idx, cand: bestC });
-      placed.push(bestC.box);
+      yIndex.add(bestC.box);
       unplaced.delete(bestI);
     }
     // Any remaining items get their first candidate (will be penalised)
     for (const i of unplaced) {
       state.push({ item: items[i], candIdx: 0, cand: items[i].candidates[0] });
+      yIndex.add(items[i].candidates[0].box);
     }
 
     // ── Simulated annealing ───────────────────────────────────────────────
+    // The live placement is state[si].cand plus its matching box in yIndex.
     const N = state.length;
-    let boxes = state.map(s => s.cand.box);
 
     const ITERS = Math.max(300, N * 30);
     let T = 50;
@@ -106,54 +177,45 @@ class GSRLabelManager {
     for (let k = 0; k < ITERS; k++) {
       const si = Math.floor(Math.random() * N);
       const st = state[si];
-      const oldIdx = st.candIdx;
-      const old = st.cand;
-      const oldBox = boxes[si];
-      let oldOverlapCount = 0;
-      for (let j = 0; j < N; j++) {
-        if (j !== si && overlap(oldBox, boxes[j])) {
-          oldOverlapCount++;
-        }
-      }
-      const oldScore = st.cand.dist * DIST_FACTOR + oldOverlapCount * OVERLAP_PENALTY;
+      const oldBox = st.cand.box;
+
+      // Overlap counts come from the band index — a few nearby boxes, not all N.
+      // oldBox is in the index, so skip it; cand.box is not yet in, so nothing
+      // to skip there beyond oldBox (this label's current entry).
+      const oldScore = st.cand.dist * DIST_FACTOR
+        + yIndex.countOverlaps(oldBox, oldBox) * OVERLAP_PENALTY;
 
       // Pick a random different candidate
       const newIdx = (st.candIdx + 1 + Math.floor(Math.random() * (st.item.candidates.length - 1)))
                      % st.item.candidates.length;
       const cand = st.item.candidates[newIdx];
-      boxes[si] = cand.box;
 
-      let newOverlapCount = 0;
-      for (let j = 0; j < N; j++) {
-        if (j !== si && overlap(cand.box, boxes[j])) {
-          newOverlapCount++;
-        }
-      }
-      const newScorePart = cand.dist * DIST_FACTOR + newOverlapCount * OVERLAP_PENALTY;
+      const newScore = cand.dist * DIST_FACTOR
+        + yIndex.countOverlaps(cand.box, oldBox) * OVERLAP_PENALTY;
 
-      const delta = newScorePart - oldScore;
+      const delta = newScore - oldScore;
 
       if (delta < 0 || Math.random() < Math.exp(-delta / T)) {
-        // Accept
+        // Accept — swap this label's box in the index
+        yIndex.remove(oldBox);
+        yIndex.add(cand.box);
         st.candIdx = newIdx;
         st.cand = cand;
-      } else {
-        // Reject
-        boxes[si] = oldBox;
       }
 
       T *= 0.995;
       if (T < 0.01) T = 50; // reheat if stuck
     }
 
-    // ── Build result: greedy pack to keep max labels ──────────────────────
-    const resultBoxes = [];
+    // ── Build result: greedy-pack by distance to keep the most labels ─────
+    // Reuse the index, rebuilt from the kept boxes only, as the running
+    // "already placed" set for the overlap filter.
+    yIndex.clear();
     const results = new Map();
     const ranked = [...state].sort((a, b) => a.cand.dist - b.cand.dist);
-
     for (const st of ranked) {
-      if (!resultBoxes.some(p => overlap(st.cand.box, p))) {
-        resultBoxes.push(st.cand.box);
+      if (!yIndex.hasOverlap(st.cand.box)) {
+        yIndex.add(st.cand.box);
         results.set(st.item.idx, st.cand);
       }
     }

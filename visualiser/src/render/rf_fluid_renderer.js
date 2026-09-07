@@ -606,7 +606,6 @@ class RFFluidRenderer {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     if (!this.cachedNodes || this.cachedNodes.length === 0) return;
-    if (!this.cachedNodes.some(n => n.hasRf)) return;
 
     const bounds = this.map.getBounds().pad(0.3);
     const visibleNodes = [];

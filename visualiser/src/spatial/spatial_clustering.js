@@ -415,16 +415,20 @@ class GSRSpatialClustering {
 
     const rows = 70;
     const cols = 70;
-    const grid = Array.from({ length: rows }, () => new Array(cols).fill(0));
+
+    // Flat Float64Array instead of 70 separate JS arrays — better cache locality,
+    // lower allocation/GC cost, and faster index arithmetic in the KDE inner loop.
+    // Access: flatGrid[r * cols + c]  ≡  oldGrid[r][c]
+    const flatGrid = new Float64Array(rows * cols); // zero-initialised
 
     // Precompute row latitudes and column longitudes to avoid arithmetic inside nested loops
-    const lats = [];
+    const lats = new Float64Array(rows);
     for (let r = 0; r < rows; r++) {
-      lats.push(bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat));
+      lats[r] = bounds.minLat + (r / (rows - 1)) * (bounds.maxLat - bounds.minLat);
     }
-    const lons = [];
+    const lons = new Float64Array(cols);
     for (let c = 0; c < cols; c++) {
-      lons.push(bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon));
+      lons[c] = bounds.minLon + (c / (cols - 1)) * (bounds.maxLon - bounds.minLon);
     }
 
     const twoSigmaSq = 2 * s * s;
@@ -472,11 +476,11 @@ class GSRSpatialClustering {
 
       for (let r = rMin; r <= rMax; r++) {
         const lat = lats[r];
-        const gridRow = grid[r];
+        const rowOffset = r * cols;
         for (let c = cMin; c <= cMax; c++) {
           const dSq = GSRSpatialClustering._getDistanceMetersSq(lat, lons[c], pk.lat, pk.lon, scale);
           if (dSq > cutoffDSq) continue;
-          gridRow[c] += w * Math.exp(-dSq / twoSigmaSq);
+          flatGrid[rowOffset + c] += w * Math.exp(-dSq / twoSigmaSq);
         }
       }
     }
@@ -484,13 +488,20 @@ class GSRSpatialClustering {
     // Solve for isolevel: where density = Math.exp(-rThreshold^2 / (2 * s * s))
     const isolevel = Math.exp(-(rThreshold * rThreshold) / (twoSigmaSq));
 
-    // Run marching squares to extract contour lines
+    // Run marching squares to extract contour lines.
+    // MarchingSquares.getContourLines expects grid[r][c] semantics — build a
+    // lightweight row-accessor array that reads from the flat buffer without
+    // copying data. Each element is a Float64Array view over its own row slice.
     if (typeof MarchingSquares === 'undefined') {
       console.warn("MarchingSquares is not defined. Cannot generate concave blobs.");
       return [];
     }
-    const segments = MarchingSquares.getContourLines(grid, rows, cols, bounds, isolevel);
-    
+    const gridRows = [];
+    for (let r = 0; r < rows; r++) {
+      gridRows.push(flatGrid.subarray(r * cols, r * cols + cols));
+    }
+    const segments = MarchingSquares.getContourLines(gridRows, rows, cols, bounds, isolevel);
+
     // Stitch segments into continuous paths
     const paths = GSRSpatialClustering.stitchSegments(segments);
 
@@ -502,66 +513,104 @@ class GSRSpatialClustering {
   }
 
   /**
-   * Stitch short line segments from Marching Squares into continuous closed/open paths.
+   * Stitch short Marching-Squares line segments into continuous closed/open paths.
+   *
+   * Two-phase, O(S):
+   *   1. Resolve every segment endpoint to a shared node id. Points within EPS
+   *      (~10 cm) collapse to one node; a spatial hash keyed on EPS-sized cells
+   *      keeps the lookup O(1) per endpoint (probe the 3×3 cell neighbourhood so
+   *      a pair straddling a cell edge still merges) instead of O(S) pairwise.
+   *   2. Walk the resulting node/edge graph: each still-unused segment seeds a
+   *      path that is extended from its tail, then its head, following any
+   *      unused incident edge until none remain.
+   *
+   * The graph is used only to decide connectivity; the emitted vertices are the
+   * original endpoint objects, so for any input without a genuine >2-way node
+   * the output matches the previous pairwise-scan implementation exactly (the
+   * two disagree only in how they partition segments at a true junction, where
+   * neither order is canonical).
    */
   static stitchSegments(segments) {
     if (!segments || segments.length === 0) return [];
-    
-    const remaining = [...segments];
-    const paths = [];
-    const EPS = 1e-6; // lat/lon tolerance (roughly ~10cm)
-    
-    const distance = (p1, p2) => Math.hypot(p1.lat - p2.lat, p1.lon - p2.lon);
-    
-    while (remaining.length > 0) {
-      let current = remaining.shift();
-      let path = [current[0], current[1]];
-      let added = true;
-      
-      while (added) {
-        added = false;
-        const endPoint = path[path.length - 1];
-        
-        for (let i = 0; i < remaining.length; i++) {
-          const seg = remaining[i];
-          if (distance(endPoint, seg[0]) < EPS) {
-            path.push(seg[1]);
-            remaining.splice(i, 1);
-            added = true;
-            break;
-          } else if (distance(endPoint, seg[1]) < EPS) {
-            path.push(seg[0]);
-            remaining.splice(i, 1);
-            added = true;
-            break;
-          }
-        }
-        
-        if (!added) {
-          // Try matching at the start
-          const startPoint = path[0];
-          for (let i = 0; i < remaining.length; i++) {
-            const seg = remaining[i];
-            if (distance(startPoint, seg[0]) < EPS) {
-              path.unshift(seg[1]);
-              remaining.splice(i, 1);
-              added = true;
-              break;
-            } else if (distance(startPoint, seg[1]) < EPS) {
-              path.unshift(seg[0]);
-              remaining.splice(i, 1);
-              added = true;
-              break;
-            }
+
+    const EPS = 1e-6;              // lat/lon coincidence tolerance (~10 cm)
+    const EPS_SQ = EPS * EPS;
+    const cellOf = (v) => Math.floor(v / EPS);
+
+    // ── Phase 1: endpoints → node ids ──────────────────────────────────────
+    const nodePos = [];           // nodeId → { lat, lon } of the first endpoint seen there
+    const cellNodes = new Map();  // "cx,cy" → nodeId[]
+
+    const nodeIdFor = (p) => {
+      const cx = cellOf(p.lon), cy = cellOf(p.lat);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const ids = cellNodes.get((cx + dx) + ',' + (cy + dy));
+          if (!ids) continue;
+          for (let n = 0; n < ids.length; n++) {
+            const q = nodePos[ids[n]];
+            const dLat = p.lat - q.lat, dLon = p.lon - q.lon;
+            if (dLat * dLat + dLon * dLon < EPS_SQ) return ids[n];
           }
         }
       }
-      
-      // Filter out degenerate paths (must have at least 3 points to form a polygon)
-      if (path.length >= 3) {
-        paths.push(path);
-      }
+      const id = nodePos.length;
+      nodePos.push(p);
+      const key = cx + ',' + cy;
+      let ids = cellNodes.get(key);
+      if (!ids) { ids = []; cellNodes.set(key, ids); }
+      ids.push(id);
+      return id;
+    };
+
+    const segEnds = new Array(segments.length); // segIdx → [nodeA, nodeB]
+    const incident = [];                        // nodeId → segIdx[]
+    for (let i = 0; i < segments.length; i++) {
+      const a = nodeIdFor(segments[i][0]);
+      const b = nodeIdFor(segments[i][1]);
+      segEnds[i] = [a, b];
+      (incident[a] || (incident[a] = [])).push(i);
+      (incident[b] || (incident[b] = [])).push(i);
     }
+
+    // ── Phase 2: walk edges into polylines ────────────────────────────────
+    const usedSeg = new Uint8Array(segments.length);
+    const nextFrom = (node) => {
+      const inc = incident[node];
+      if (inc) {
+        for (let k = 0; k < inc.length; k++) {
+          if (!usedSeg[inc[k]]) return inc[k];
+        }
+      }
+      return -1;
+    };
+
+    const paths = [];
+    for (let i = 0; i < segments.length; i++) {
+      if (usedSeg[i]) continue;
+      usedSeg[i] = 1;
+
+      let headNode = segEnds[i][0], tailNode = segEnds[i][1];
+      const pts = [segments[i][0], segments[i][1]]; // original endpoint objects
+
+      for (let e = nextFrom(tailNode); e !== -1; e = nextFrom(tailNode)) {
+        usedSeg[e] = 1;
+        const [a, b] = segEnds[e];
+        const far = a === tailNode ? 1 : 0; // endpoint of e away from the join
+        tailNode = a === tailNode ? b : a;
+        pts.push(segments[e][far]);
+      }
+      for (let e = nextFrom(headNode); e !== -1; e = nextFrom(headNode)) {
+        usedSeg[e] = 1;
+        const [a, b] = segEnds[e];
+        const far = a === headNode ? 1 : 0;
+        headNode = a === headNode ? b : a;
+        pts.unshift(segments[e][far]);
+      }
+
+      if (pts.length >= 3) paths.push(pts);
+    }
+
     return paths;
   }
 }

@@ -94,20 +94,24 @@ const GSRRenderer = {
     const textColor = this.getThemeColor('--canvas-text', '#444444');
     const axisColor = this.getThemeColor('--canvas-axis', 'rgba(17, 17, 17, 0.15)');
 
+    // ── Pass 1: all vertical grid lines (one stroke() call for the whole pass) ──
     stroke(gridColor);
     strokeWeight(1);
-    textAlign(CENTER, CENTER);
-    textSize(10);
-
     for (let t = firstGridTime; t <= tMax; t += step) {
       if (t < tMin) continue;
       const x = map(t, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
       line(x, GSR_CONST.MARGIN.top, x, yUpperBottom);
       if (!singleGraph) line(x, yUpperBottom + GSR_CONST.MARGIN.gap, x, yLowerBottom);
+    }
 
-      // Time label: in the gap between the two graphs, or just below the single plot
-      fill(textColor);
-      noStroke();
+    // ── Pass 2: all time labels (noStroke set once, fill set once) ──────────
+    noStroke();
+    fill(textColor);
+    textAlign(CENTER, CENTER);
+    textSize(10);
+    for (let t = firstGridTime; t <= tMax; t += step) {
+      if (t < tMin) continue;
+      const x = map(t, tMin, tMax, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right);
 
       let label = t.toFixed(t % 1 !== 0 ? 1 : 0) + 's';
       if (t >= 3600) {
@@ -121,7 +125,6 @@ const GSRRenderer = {
         label = m + ':' + (s < 10 ? '0' : '') + s;
       }
       text(label, x, singleGraph ? yUpperBottom + 10 : yUpperBottom + GSR_CONST.MARGIN.gap / 2);
-      stroke(gridColor);
     }
 
     stroke(axisColor);
@@ -156,24 +159,30 @@ const GSRRenderer = {
     const gridColor = this.getThemeColor('--canvas-grid', 'rgba(17, 17, 17, 0.06)');
     const textColor = this.getThemeColor('--canvas-text', '#444444');
 
-    stroke(gridColor);
-    textAlign(RIGHT, CENTER);
-    textSize(10);
-
     const labelHeight = 14;
-    let lastLabelY = null;
 
+    // Two passes over the same tick range so p5 stroke/fill state is set once
+    // per pass instead of toggled per-tick — no per-frame array buffering.
+
+    // ── Pass 1: horizontal grid lines ────────────────────────────────────
+    stroke(gridColor);
     for (let val = firstGridVal; val <= yMax; val += step) {
       if (val < yMin) continue;
       const y = map(val, yMin, yMax, yBottom, yTop);
       line(GSR_CONST.MARGIN.left, y, width - GSR_CONST.MARGIN.right, y);
+    }
 
+    // ── Pass 2: Y-axis labels, thinned so they never crowd ───────────────
+    noStroke();
+    fill(textColor);
+    textAlign(RIGHT, CENTER);
+    textSize(10);
+    let lastLabelY = null;
+    for (let val = firstGridVal; val <= yMax; val += step) {
+      if (val < yMin) continue;
+      const y = map(val, yMin, yMax, yBottom, yTop);
       if (lastLabelY !== null && Math.abs(y - lastLabelY) < labelHeight) continue;
-
-      noStroke();
-      fill(textColor);
       text(val.toFixed(decimals) + unit, GSR_CONST.MARGIN.left - 8, y);
-      stroke(gridColor);
       lastLabelY = y;
     }
   },
@@ -648,6 +657,27 @@ const GSRRenderer = {
   },
 
   /**
+   * peak object → its index in analyzer.peaks, memoised on the analyzer.
+   *
+   * Rebuilt only when the peaks array *reference* changes. analyzer.peaks is
+   * always reassigned wholesale on a re-analysis and never spliced/sorted/
+   * emptied in place (see analyzer.js), so identity is a sound cache key. Lets
+   * drawHotspotMarkers() resolve memorableEvents entries — which are direct
+   * peak object references — without a per-frame O(n) indexOf scan.
+   */
+  _peakIndexByObject(analyzer) {
+    if (analyzer._peakIndexMap && analyzer._peakIndexMapRef === analyzer.peaks) {
+      return analyzer._peakIndexMap;
+    }
+    const map = new Map();
+    const peaks = analyzer.peaks;
+    for (let i = 0; i < peaks.length; i++) map.set(peaks[i], i);
+    analyzer._peakIndexMap = map;
+    analyzer._peakIndexMapRef = peaks;
+    return map;
+  },
+
+  /**
    * Draw "Hotspots" — analyzer.memorableEvents, the curated subset of peaks
    * likely to actually be noticed/remembered (fast, high-amplitude; see
    * _computeSalienceScore()'s doc comment in analyzer.js). Deliberately
@@ -684,13 +714,17 @@ const GSRRenderer = {
     // track switched) get pruned at the end of this pass.
     const seenPulseKeys = new Set();
 
+    // peak object → peaks[] index, so the per-hotspot realIdx lookup below is
+    // O(1) instead of a per-frame indexOf scan (see _peakIndexByObject()).
+    const peakIndexMap = this._peakIndexByObject(AppState.analyzer);
+
     for (const p of AppState.analyzer.memorableEvents) {
       if (this._peakOutOfView(p, tMin, tMax)) continue;
 
       const { xPeak, xOnset, yFilteredPeak, yPhasicPeak, yPhasicOnset } =
         this._computePeakScreenPos(p, tMin, scales, yMinU, yBottomU, yMinL, yBottomL, showLowerMarker, showUpperMarker, markerSeries);
 
-      const realIdx = AppState.analyzer.peaks.indexOf(p);
+      const realIdx = peakIndexMap.has(p) ? peakIndexMap.get(p) : -1;
       const isActive = (realIdx !== -1 && realIdx === AppState.activePeakIndex);
 
       if (showLowerMarker) {

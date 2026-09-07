@@ -319,6 +319,131 @@ test('stitchSegments: endpoints farther apart than EPS remain unstitched (separa
   assert.deepStrictEqual(paths, []);
 });
 
+test('stitchSegments: graph walk reproduces the original O(S^2) pairwise scan (exact on clean rings, structural + within-EPS on real contour input)', () => {
+  // Faithful copy of the pre-refactor stitcher, kept here as an oracle.
+  const stitchRef = (segments) => {
+    if (!segments || segments.length === 0) return [];
+    const remaining = segments.map(s => [s[0], s[1]]);
+    const paths = [];
+    const EPS = 1e-6;
+    const d = (p, q) => Math.hypot(p.lat - q.lat, p.lon - q.lon);
+    while (remaining.length > 0) {
+      const cur = remaining.shift();
+      const path = [cur[0], cur[1]];
+      let added = true;
+      while (added) {
+        added = false;
+        const end = path[path.length - 1];
+        for (let i = 0; i < remaining.length; i++) {
+          const s = remaining[i];
+          if (d(end, s[0]) < EPS) { path.push(s[1]); remaining.splice(i, 1); added = true; break; }
+          if (d(end, s[1]) < EPS) { path.push(s[0]); remaining.splice(i, 1); added = true; break; }
+        }
+        if (!added) {
+          const start = path[0];
+          for (let i = 0; i < remaining.length; i++) {
+            const s = remaining[i];
+            if (d(start, s[0]) < EPS) { path.unshift(s[1]); remaining.splice(i, 1); added = true; break; }
+            if (d(start, s[1]) < EPS) { path.unshift(s[0]); remaining.splice(i, 1); added = true; break; }
+          }
+        }
+      }
+      if (path.length >= 3) paths.push(path);
+    }
+    return paths;
+  };
+
+  // Signature invariant under path rotation / direction / ordering: for each
+  // path, the sorted multiset of its point keys; then the sorted list of those.
+  const sig = (paths) => paths
+    .map(p => p.map(pt => pt.lat.toFixed(9) + ',' + pt.lon.toFixed(9)).sort().join('|'))
+    .sort();
+
+  const ring = (n, cx, cy, rad) => {
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      pts.push({ lat: cy + Math.sin(a) * rad, lon: cx + Math.cos(a) * rad });
+    }
+    return Array.from({ length: n }, (_, i) => [pts[i], pts[(i + 1) % n]]);
+  };
+  // deterministic LCG shuffle
+  let seed = 42;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const shuffle = (a) => {
+    const b = a.slice();
+    for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; }
+    return b;
+  };
+
+  const cases = [
+    ring(12, 0.1, 51.5, 0.01),
+    shuffle(ring(20, -0.1, 51.5, 0.005)),
+    [...ring(8, 0.1, 51.5, 0.01), ...ring(10, 0.5, 40.0, 0.02)],
+    shuffle([...ring(6, 0, 0, 0.01), ...ring(7, 5, 5, 0.01), ...ring(9, -5, -5, 0.02)]),
+  ];
+
+  for (const segs of cases) {
+    const mine = GSRSpatialClustering.stitchSegments(segs.map(s => s.slice()));
+    const ref = stitchRef(segs.map(s => s.slice()));
+    assert.deepStrictEqual(sig(mine), sig(ref),
+      'new stitcher must produce the same point-partition as the reference');
+  }
+
+  // On the segment sets that getConcaveBlob() actually feeds it — real Marching
+  // Squares output over a KDE grid — the stitcher must reproduce the previous
+  // pairwise-scan implementation's structure: same number of polylines, same
+  // vertex-count per polyline, and every vertex within EPS of the reference's.
+  // (The two may pick a different one of several within-EPS endpoint coordinates
+  // to represent a shared >2-way junction, so an exact string compare would be
+  // over-strict; anything beyond that — a moved or dropped vertex, a different
+  // partition — must still fail.)
+  const captured = [];
+  const realStitch = GSRSpatialClustering.stitchSegments;
+  GSRSpatialClustering.stitchSegments = function (segs) {
+    captured.push(segs.map(s => s.slice()));
+    return realStitch.call(this, segs);
+  };
+  try {
+    let seed2 = 20260907;
+    const rr = () => (seed2 = (seed2 * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    for (let t = 0; t < 8; t++) {
+      const cx = -0.12 + rr() * 0.03, cy = 51.5 + rr() * 0.02;
+      const cluster = [];
+      const n = 4 + Math.floor(rr() * 18);
+      for (let i = 0; i < n; i++) {
+        cluster.push({ lat: cy + (rr() - 0.5) * 0.004, lon: cx + (rr() - 0.5) * 0.004, amplitude: 0.3 + rr() * 2 });
+      }
+      GSRSpatialClustering.getConcaveBlob(cluster, 15 + rr() * 25, 12 + rr() * 22);
+    }
+  } finally {
+    GSRSpatialClustering.stitchSegments = realStitch;
+  }
+
+  const EPS = 1e-6;
+  let checked = 0;
+  for (const segs of captured) {
+    if (!segs.length) continue;
+    checked++;
+    const mine = realStitch.call(GSRSpatialClustering, segs.map(s => s.slice()));
+    const ref = stitchRef(segs.map(s => s.slice()));
+
+    const lens = (ps) => ps.map(p => p.length).sort((a, b) => a - b);
+    assert.deepStrictEqual(lens(mine), lens(ref),
+      'same polyline count and per-polyline vertex count as the pairwise-scan reference');
+
+    const mineVerts = [];
+    for (const p of mine) for (const pt of p) mineVerts.push(pt);
+    for (const p of ref) {
+      for (const pt of p) {
+        const near = mineVerts.some(m => Math.abs(m.lat - pt.lat) < EPS && Math.abs(m.lon - pt.lon) < EPS);
+        assert.ok(near, `reference vertex ${pt.lat},${pt.lon} has no within-EPS match in the new stitcher output`);
+      }
+    }
+  }
+  assert.ok(checked > 0, 'expected getConcaveBlob to exercise stitchSegments at least once');
+});
+
 // ─── getConcaveBlob ───────────────────────────────────────────────────────
 
 function maxDistFromPeak(peak, paths) {

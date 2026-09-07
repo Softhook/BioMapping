@@ -98,6 +98,40 @@ test('computeLabelPositions: crowded cluster never returns more placements than 
   }
 });
 
+test('computeLabelPositions: a long horizontal row of peaks (all sharing Y bands) places every label without overlap', () => {
+  // Exercises the Y-band overlap index at its worst case — every candidate box
+  // sits in the same one or two vertical bands, so a naive band scan would meet
+  // each neighbour in several bands. Spacing is generous enough that all fit.
+  const peaks = [];
+  for (let i = 0; i < 16; i++) {
+    peaks.push({ idx: i, px: i * 90, py: 200, text: `P${i}` });
+  }
+  const result = GSRLabelManager.computeLabelPositions(peaks);
+  assert.strictEqual(result.size, peaks.length, 'every peak in the row should be placed');
+
+  const boxes = [...result.values()].map(r => r.box);
+  const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      assert.ok(!overlaps(boxes[i], boxes[j]), `boxes ${i} and ${j} must not overlap`);
+    }
+  }
+});
+
+test('computeLabelPositions: result never contains an overlapping pair, even for a dense grid', () => {
+  const peaks = [];
+  for (let i = 0; i < 40; i++) {
+    peaks.push({ idx: i, px: (i % 8) * 22, py: Math.floor(i / 8) * 16, text: `Peak ${i}` });
+  }
+  const boxes = [...GSRLabelManager.computeLabelPositions(peaks).values()].map(r => r.box);
+  const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      assert.ok(!overlaps(boxes[i], boxes[j]), `kept boxes ${i} and ${j} overlap — greedy pack filter failed`);
+    }
+  }
+});
+
 test('buildLabelledIcon: returns a Leaflet divIcon config with correct icon anchor/size', () => {
   const dirResult = { dir: 'N', box: { left: 90, top: 60, right: 150, bottom: 78 } };
   const icon = GSRLabelManager.buildLabelledIcon(100, 100, 'Stress 12.3', dirResult);
