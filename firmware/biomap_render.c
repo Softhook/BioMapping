@@ -267,8 +267,7 @@ static void draw_rf_panel_left(Canvas* c, BioMapApp* a, const float rssi_dbm[EM_
         float floor_dbm = RF_VIZ_FLOOR_DBM;
         if(a->rf_calibrated) floor_dbm = a->rf_cal_data.noise_floor_dbm[i];
 
-        float frac = (rssi_dbm[i] - floor_dbm) / RF_VIZ_SPAN_DB;
-        frac = fmaxf(0.0f, fminf(1.0f, frac));
+        float frac = clampf((rssi_dbm[i] - floor_dbm) / RF_VIZ_SPAN_DB, 0.0f, 1.0f);
         int w = (int)(frac * bar_max_w + 0.5f);
         if(w > 0) canvas_draw_box(c, panel_x, row_top, w, bar_h);
 

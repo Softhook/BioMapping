@@ -145,7 +145,7 @@ void pipeline_update_graph(Pipeline* p) {
 
     if(auto_active && p->zoom.peak >= ZOOM_PEAK_FLOOR) {
         float target = ZOOM_TARGET_DIV / p->zoom.peak;
-        target = fmaxf(ZOOM_MIN, fminf(ZOOM_MAX, target));
+        target = clampf(target, ZOOM_MIN, ZOOM_MAX);
         p->zoom.level += (target - p->zoom.level) * ZOOM_LERP_RATE;
     }
 }

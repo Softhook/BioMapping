@@ -364,6 +364,19 @@ static void fold_committed(SdLogger* l, const char* data, size_t n) {
     l->last_byte_newline = (data[n - 1] == '\n');
 }
 
+// Raise the lifetime high-water mark after the batch buffer has grown.
+static void note_batch_fill(SdLogger* l) {
+    if((uint32_t)l->gsr_batch_len > l->batch_fill_peak_bytes) {
+        l->batch_fill_peak_bytes = (uint32_t)l->gsr_batch_len;
+    }
+}
+
+// Fold one completed flush (write+sync) into the worst-case duration peak.
+static void note_flush_duration(SdLogger* l, uint32_t start_tick) {
+    uint32_t dur = furi_get_tick() - start_tick;
+    if(dur > l->flush_peak_ms) l->flush_peak_ms = dur;
+}
+
 // Append the "# End" integrity trailer (SD_LOGGER_INTEGRITY_LINE) — the
 // last line of a cleanly-stopped recording. Called from sd_logger_stop()
 // after the final batch flush and before any pre-allocation trim, so it
@@ -384,25 +397,19 @@ static void sd_logger_write_trailer(SdLogger* l, uint32_t end_epoch) {
         }
     }
 
-    char trailer[192];
-    int n;
+    // end_time token only when the RTC gave a real epoch; otherwise it drops
+    // out entirely rather than being written as a misleading 0.
+    char end_time_tok[32] = "";
     if(end_epoch != 0) {
-        n = snprintf(trailer, sizeof(trailer),
-                     "# End rows:%lu bytes:%lu crc32:%08lx end_time:%lu "
-                     "overflows:%lu flush_fails:%lu\n",
-                     (unsigned long)l->row_count, (unsigned long)l->crc_bytes,
-                     (unsigned long)(~l->crc), (unsigned long)end_epoch,
-                     (unsigned long)l->overflow_count,
-                     (unsigned long)l->flush_fail_count);
-    } else {
-        n = snprintf(trailer, sizeof(trailer),
-                     "# End rows:%lu bytes:%lu crc32:%08lx "
-                     "overflows:%lu flush_fails:%lu\n",
-                     (unsigned long)l->row_count, (unsigned long)l->crc_bytes,
-                     (unsigned long)(~l->crc),
-                     (unsigned long)l->overflow_count,
-                     (unsigned long)l->flush_fail_count);
+        snprintf(end_time_tok, sizeof(end_time_tok), "end_time:%lu ", (unsigned long)end_epoch);
     }
+    char trailer[192];
+    int n = snprintf(trailer, sizeof(trailer),
+                     "# End rows:%lu bytes:%lu crc32:%08lx %soverflows:%lu flush_fails:%lu\n",
+                     (unsigned long)l->row_count, (unsigned long)l->crc_bytes,
+                     (unsigned long)(~l->crc), end_time_tok,
+                     (unsigned long)l->overflow_count,
+                     (unsigned long)l->flush_fail_count);
     if(n <= 0 || (size_t)n >= sizeof(trailer)) {
         SD_LOG_W("SdLogger", "Trailer format failed — file left without integrity trailer");
         return;
@@ -494,8 +501,7 @@ int sd_logger_batch_flush(SdLogger* l) {
     if(written != (uint16_t)flushed) {
         SD_LOG_E("SdLogger", "Batch flush error: %d/%d",
                  written, flushed);
-        uint32_t flush_dur = furi_get_tick() - flush_start;
-        if(flush_dur > l->flush_peak_ms) l->flush_peak_ms = flush_dur;
+        note_flush_duration(l, flush_start);
         l->flush_fail_count++;
 
         // Partial write: `written` bytes reached the card before it failed.
@@ -530,9 +536,7 @@ int sd_logger_batch_flush(SdLogger* l) {
         l->flush_fail_count++;
     }
 
-    uint32_t flush_dur = furi_get_tick() - flush_start;
-    if(flush_dur > l->flush_peak_ms) l->flush_peak_ms = flush_dur;
-
+    note_flush_duration(l, flush_start);
     return flushed;
 #endif
 }
@@ -550,9 +554,7 @@ bool sd_logger_batch_append(SdLogger* l, const char* data, size_t len) {
     }
     memcpy(l->gsr_batch + l->gsr_batch_len, data, len);
     l->gsr_batch_len += (int)len;
-    if((uint32_t)l->gsr_batch_len > l->batch_fill_peak_bytes) {
-        l->batch_fill_peak_bytes = (uint32_t)l->gsr_batch_len;
-    }
+    note_batch_fill(l);
     return true;
 }
 
@@ -591,9 +593,7 @@ int sd_logger_batch_printf(SdLogger* l, const char* fmt, ...) {
         return 0;
     }
     l->gsr_batch_len += n;
-    if((uint32_t)l->gsr_batch_len > l->batch_fill_peak_bytes) {
-        l->batch_fill_peak_bytes = (uint32_t)l->gsr_batch_len;
-    }
+    note_batch_fill(l);
     return n;
 }
 
