@@ -971,3 +971,139 @@ test('updateLiveMap: an invalid / NaN-position sample is a no-op — no marker, 
   assert.strictEqual(segLatLngs(context).length, 0);
   assert.deepStrictEqual(runJSON(context, 'liveLastLatLng'), before);
 });
+
+// ==========================================================================
+// drawGraph() — the rolling GSR canvas (live.html:402). Three properties
+// with no coverage until now:
+//  1. the smoothing pass is bounded to the visible window + warm-up padding,
+//     NOT the whole accumulated session (the exact perf regression the
+//     live-app critical review found and fixed — see GRAPH_PAD_S's comment:
+//     re-running zero-phase EMA + tonic/phasic decomposition over every
+//     packet on each ~300ms redraw grew per-frame cost linearly across a
+//     ~90-minute, ~18k-packet walk);
+//  2. a gap packet lifts the pen in the plotted curve, so the line never
+//     bridges a dropout (the graph-side counterpart of the updateLiveMap
+//     gap test above);
+//  3. the phasic-only toggle switches the plotted series, the value
+//     readout, the label, and the button state together.
+// The canvas 2D context is a fixed no-op stub in boot_live.js; tests that
+// need to see what was drawn install their own recording context first.
+// ==========================================================================
+
+function recordCanvas(window) {
+  const calls = [];
+  const rec = (name) => (...args) => { calls.push({ name, args }); };
+  window.HTMLCanvasElement.prototype.getContext = () => ({
+    setTransform: rec('setTransform'), clearRect: rec('clearRect'),
+    beginPath: rec('beginPath'), closePath: rec('closePath'),
+    moveTo: rec('moveTo'), lineTo: rec('lineTo'), stroke: rec('stroke'),
+    fill: rec('fill'), fillText: rec('fillText'),
+    createLinearGradient: () => ({ addColorStop: () => {} }),
+    save: () => {}, restore: () => {},
+    strokeStyle: '', fillStyle: '', lineWidth: 1, font: '', textAlign: '', textBaseline: '',
+  });
+  return calls;
+}
+
+test('drawGraph: regression — the zero-phase smoothing pass is bounded to the visible window + warm-up padding, never the whole accumulated session', () => {
+  const { context } = bootLive();
+
+  // 4000 packets at the 0.3s cadence == 1200s of history, ~8x
+  // (GRAPH_WINDOW_S 120 + GRAPH_PAD_S 30). Flat-ish signal — the point is
+  // the array LENGTH handed to the filter, not its values.
+  run(context, `
+    for (let i = 0; i < 4000; i++) {
+      LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12, gsrRaw: 1000 + (i % 40),
+        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
+    }
+  `);
+
+  // Spy on the smoothing entry point drawGraph() feeds the packet buffer
+  // into — both its direct call (live.html:429) and the one inside
+  // decomposeTonicPhasic() go through here, and both get the padded slice.
+  run(context, `
+    globalThis.__emaInputLens = [];
+    const __origEMA = GsrFilter.applyZeroPhaseEMA.bind(GsrFilter);
+    GsrFilter.applyZeroPhaseEMA = (arr, alpha) => { globalThis.__emaInputLens.push(arr.length); return __origEMA(arr, alpha); };
+  `);
+
+  run(context, 'drawGraph()');
+
+  const lens = runJSON(context, 'globalThis.__emaInputLens');
+  assert.ok(lens.length > 0, 'drawGraph ran its smoothing pass');
+  const worst = Math.max(...lens);
+  // (GRAPH_WINDOW_S + GRAPH_PAD_S) / STREAM_INTERVAL_S == (120 + 30) / 0.3
+  // == 500 samples; a couple extra for the boundary-inclusive index walk.
+  // The pre-fix behaviour would put ~4000 here.
+  assert.ok(worst <= 520, `smoothing input stayed bounded (got ${worst}; unbounded would be ~4000)`);
+  assert.ok(worst >= 480, `smoothing input still spans the full padded window (got ${worst})`);
+});
+
+test('drawGraph: regression — a gap packet lifts the pen in the plotted curve, so the line never bridges a dropout', () => {
+  const { window, context } = bootLive();
+  const calls = recordCanvas(window);
+
+  // 30 packets at the 0.3s cadence with a single +10s discontinuity at
+  // i=15 — only that one packet crosses 2x the interval, so exactly one gap.
+  run(context, `
+    for (let i = 0; i < 30; i++) {
+      LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12, gsrRaw: 1000,
+        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3,
+        timestamp: i < 15 ? i * 0.3 : i * 0.3 + 10 });
+    }
+  `);
+  assert.strictEqual(run(context, 'LiveState.packets.filter(p => p.gap).length'), 1, 'exactly one gap packet');
+
+  calls.length = 0;
+  run(context, 'drawGraph()');
+
+  // The GSR curve is the final beginPath()...stroke() pair (live.html
+  // ~534-546); everything after it is just text. Within it: one initial
+  // pen-down (moveTo) plus one more where the gap forces the pen up == 2.
+  // Without the `|| visiblePkts[i].gap` branch every point after the first
+  // is a lineTo and this would be 1.
+  const names = calls.map((c) => c.name);
+  const curveStart = names.lastIndexOf('beginPath');
+  const curveEnd = names.indexOf('stroke', curveStart);
+  assert.ok(curveStart !== -1 && curveEnd !== -1, 'found the curve draw');
+  const moveTos = calls.slice(curveStart, curveEnd).filter((c) => c.name === 'moveTo').length;
+  assert.strictEqual(moveTos, 2, 'initial pen-down + exactly one gap-forced pen-up');
+});
+
+test('togglePhasicBtn: switches the graph between full GSR and phasic-only — series, value readout, label text, and button state move together', () => {
+  const { window, context } = bootLive();
+
+  // A step up partway so tonic/phasic decomposition has a real, non-zero
+  // phasic residual to show rather than a flat signal.
+  run(context, `
+    for (let i = 0; i < 60; i++) {
+      LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
+        gsrRaw: i < 20 ? 1000 : 1600,
+        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
+    }
+    drawGraph();
+  `);
+
+  // Default: full GSR — readout is the latest RAW value, label is plain.
+  assert.strictEqual(run(context, 'LiveState.showPhasicOnly'), false);
+  assert.strictEqual(window.document.getElementById('graphValue').textContent, '1600 nS');
+  assert.match(window.document.getElementById('graphLabel').textContent, /^GSR \(nS\) —/);
+  assert.ok(!window.document.getElementById('togglePhasicBtn').classList.contains('active'));
+
+  window.document.getElementById('togglePhasicBtn').click();
+
+  assert.strictEqual(run(context, 'LiveState.showPhasicOnly'), true);
+  assert.strictEqual(window.document.getElementById('togglePhasicBtn').textContent, 'Show Full GSR (P)');
+  assert.ok(window.document.getElementById('togglePhasicBtn').classList.contains('active'));
+  assert.match(window.document.getElementById('graphLabel').textContent, /Phasic/);
+  // The readout is now the settled phasic estimate: clamped >= 0, and well
+  // under the raw 1600 (it's the fast residual once the tonic baseline has
+  // begun catching up to the step).
+  const phasicVal = Number(window.document.getElementById('graphValue').textContent.replace(' nS', ''));
+  assert.ok(Number.isFinite(phasicVal) && phasicVal >= 0 && phasicVal < 1600, `phasic readout is a bounded residual, got ${phasicVal}`);
+
+  window.document.getElementById('togglePhasicBtn').click();
+  assert.strictEqual(run(context, 'LiveState.showPhasicOnly'), false);
+  assert.strictEqual(window.document.getElementById('graphValue').textContent, '1600 nS');
+  assert.strictEqual(window.document.getElementById('togglePhasicBtn').textContent, 'Show Phasic (P)');
+});
