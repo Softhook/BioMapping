@@ -212,17 +212,48 @@ const GSRRenderer = {
     // indices are given or none fall in the visible range, so curves drawn
     // without peaks (raw/tonic/etc.) do exactly the same work as before.
     let indices = null;
-    if (forceIndices && forceIndices.length > 0) {
+    if (forceIndices && forceIndices.length > 0 && step > 1) {
       const forced = [];
-      for (const idx of forceIndices) {
+      for (let i = 0; i < forceIndices.length; i++) {
+        const idx = forceIndices[i];
         if (idx >= startIdx && idx <= endIdx) forced.push(idx);
       }
       if (forced.length > 0) {
-        const merged = new Set();
-        for (let i = startIdx; i <= endIdx; i += step) merged.add(i);
-        merged.add(endIdx);
-        for (const idx of forced) merged.add(idx);
-        indices = Array.from(merged).sort((a, b) => a - b);
+        forced.sort((a, b) => a - b);
+        const result = [];
+        let s = startIdx;
+        let f = 0;
+        while (s <= endIdx && f < forced.length) {
+          const fVal = forced[f];
+          if (s < fVal) {
+            result.push(s);
+            s += step;
+          } else if (s === fVal) {
+            result.push(s);
+            s += step;
+            f++;
+          } else {
+            if (result.length === 0 || result[result.length - 1] !== fVal) {
+              result.push(fVal);
+            }
+            f++;
+          }
+        }
+        while (s <= endIdx) {
+          result.push(s);
+          s += step;
+        }
+        while (f < forced.length) {
+          const fVal = forced[f];
+          if (result.length === 0 || result[result.length - 1] !== fVal) {
+            result.push(fVal);
+          }
+          f++;
+        }
+        if (result[result.length - 1] !== endIdx) {
+          result.push(endIdx);
+        }
+        indices = result;
       }
     }
 
@@ -1132,16 +1163,20 @@ const GSRRenderer = {
 
     let minRaw = Infinity;
     let maxRaw = -Infinity;
-    if (!AppState.analyzer.rawMinMaxCached) {
+    const globalRaw = AppState.analyzer && AppState.analyzer._rawGlobalRange;
+    if (globalRaw && globalRaw.min !== undefined && globalRaw.max !== undefined) {
+      minRaw = globalRaw.min;
+      maxRaw = globalRaw.max;
+    } else if (AppState.analyzer && AppState.analyzer.rawMinMaxCached) {
+      minRaw = AppState.analyzer.rawMinMaxCached.minVal;
+      maxRaw = AppState.analyzer.rawMinMaxCached.maxVal;
+    } else if (AppState.analyzer && AppState.analyzer.raw) {
       for (let i = 0; i < AppState.analyzer.raw.length; i++) {
         const val = AppState.analyzer.raw[i].val;
         if (val < minRaw) minRaw = val;
         if (val > maxRaw) maxRaw = val;
       }
       AppState.analyzer.rawMinMaxCached = { minVal: minRaw, maxVal: maxRaw };
-    } else {
-      minRaw = AppState.analyzer.rawMinMaxCached.minVal;
-      maxRaw = AppState.analyzer.rawMinMaxCached.maxVal;
     }
 
     if (minRaw === maxRaw) maxRaw = minRaw + 0.5;

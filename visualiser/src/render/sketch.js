@@ -1,7 +1,9 @@
-/**
- * Central Controller & p5.js Sketch Loop.
- * All shared state is accessed through AppState.
- */
+let _cachedPeakAnalyzer = null;
+let _cachedPeakList = null;
+let _cachedPeakDataVersion = null;
+let _cachedActivePeaks = [];
+let _cachedFilteredForce = [];
+let _cachedMetricForce = [];
 
 function setup() {
   AppState.collectiveManager = new GSRCollectiveManager();
@@ -226,15 +228,30 @@ function draw() {
 
   // Peak sample indices, forced into curve decimation so drawn lines actually
   // reach every marker instead of a stride segment cutting the corner past it
-  // (see _buildCurveContext()'s doc comment in renderer.js). Only meaningful
-  // against the curves peaks are plotted on: Filtered (via onsetIndex+index for
-  // the shaded region's edges too) and Phasic (via index, when it's selected).
-  const activePeaks = AppState.analyzer.peaks.filter(p => !p.excluded);
-  const filteredForceIndices = [];
-  for (const p of activePeaks) { filteredForceIndices.push(p.onsetIndex, p.index); }
-  // Every metric view now drops a marker on its curve at each peak's time, so
-  // force those sample indices into the curve so the line actually reaches them.
-  const metricForceIndices = activePeaks.map(p => p.index);
+  // (see _buildCurveContext()'s doc comment in renderer.js). Cached across
+  // animation frames (pan/zoom/scrub) and invalidated only on peak revisions.
+  if (
+    !_cachedPeakAnalyzer ||
+    _cachedPeakAnalyzer !== AppState.analyzer ||
+    _cachedPeakList !== AppState.analyzer.peaks ||
+    _cachedPeakDataVersion !== AppState.analyzer._dataVersion
+  ) {
+    _cachedPeakAnalyzer = AppState.analyzer;
+    _cachedPeakList = AppState.analyzer ? AppState.analyzer.peaks : null;
+    _cachedPeakDataVersion = AppState.analyzer ? AppState.analyzer._dataVersion : 0;
+    _cachedActivePeaks = (AppState.analyzer && AppState.analyzer.peaks)
+      ? AppState.analyzer.peaks.filter(p => !p.excluded)
+      : [];
+    _cachedFilteredForce = [];
+    for (let i = 0; i < _cachedActivePeaks.length; i++) {
+      const p = _cachedActivePeaks[i];
+      _cachedFilteredForce.push(p.onsetIndex, p.index);
+    }
+    _cachedMetricForce = _cachedActivePeaks.map(p => p.index);
+  }
+  const activePeaks = _cachedActivePeaks;
+  const filteredForceIndices = _cachedFilteredForce;
+  const metricForceIndices = _cachedMetricForce;
 
   // Dashed horizontal reference line + optional right-edge label \u2014 the Phasic
   // threshold line and the Arousal-Index zero line, for the single metric view.
@@ -270,7 +287,7 @@ function draw() {
     // on-graph). Drawn under Filtered so the primary curve stays on top.
     if (AppState.showPhasic) {
       const colorPhasic = GSRRenderer.getThemeColor('--color-phasic', '#008f3c');
-      GSRRenderer.drawSignalCurve(AppState.analyzer.phasic, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, plotTop, plotBottom, color(colorPhasic + 'c8'), 1.5, activePeaks.map(pk => pk.index));
+      GSRRenderer.drawSignalCurve(AppState.analyzer.phasic, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, plotTop, plotBottom, color(colorPhasic + 'c8'), 1.5, metricForceIndices);
     }
     if (AppState.showFiltered) {
       GSRRenderer.drawSignalCurve(AppState.analyzer.filtered, AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, plotTop, plotBottom, colorFiltered, 2.2, filteredForceIndices);

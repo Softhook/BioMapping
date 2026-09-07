@@ -215,39 +215,24 @@ class GSRCollectiveManager {
     // boundaries — a track contributed no points is simply omitted.
     const trackPointRanges = [];
 
+    const isPeaks = topographySource === 'peaks';
+
     for (const t of active) {
-      const rawData    = t.analyzer.raw;
-      const phasic     = useNormalization ? (t.analyzer.phasicZ || []) : (t.analyzer.phasic || []);
-      const tonic      = useNormalization ? (t.analyzer.tonicZ  || []) : (t.analyzer.tonic  || []);
-
-      // Phasic AUC (ISCR) — continuous, threshold-independent alternative to
-      // discrete peak counting (see docs/environmental_stress_literature_review.md
-      // §5B/§5D). Z-score it per-track when normalising, same convention as
-      // phasic/tonic above, so cross-participant comparison stays fair.
-      const aucRaw = t.analyzer.phasicAUC || [];
-      let phasicAUC = aucRaw;
-      if (useNormalization && aucRaw.length > 0) {
-        const aucStats = GsrFilter.calculateStats(aucRaw.map(d => d.val));
-        phasicAUC = aucRaw.map(d => ({ time: d.time, val: (d.val - aucStats.mean) / aucStats.std }));
-      }
-
-      // Combined Arousal Index is already a per-participant z-scored blend of
-      // tonic + phasic AUC at computation time (computeCombinedArousalIndex in
-      // analyzer.js), so it's used as-is regardless of the normalizeZScore
-      // toggle — re-normalising an already-standardised index would just
-      // rescale it, not change its cross-participant comparability.
-      const arousalIndex = t.analyzer.arousalIndex || [];
-      const triIndex = t.analyzer.triIndex || [];
+      const rawData = t.analyzer.raw;
+      const Fs = t.analyzer.sampleRate || 10.0;
+      const windowSize = Math.round(Fs * temporalSmoothingWindow);
+      const doSmoothing = windowSize > 1;
+      const baseFsStep = Math.max(1, Math.round(Fs));
+      const step       = baseFsStep * globalStride;
 
       // Implement O(N) running-sum moving average
-      function getSmoothArray(arr, windowSize) {
+      function getSmoothArray(arr, winSize) {
         if (!arr || arr.length === 0) return new Float64Array(0);
         const result = new Float64Array(arr.length);
-        const half = Math.floor(windowSize / 2);
+        const half = Math.floor(winSize / 2);
         let sum = 0;
         let count = 0;
         
-        // Initialize sum for initial window [0, half - 1]
         for (let j = 0; j < Math.min(arr.length, half); j++) {
           const v = arr[j] ? arr[j].val : null;
           if (v !== null && !isNaN(v)) {
@@ -257,7 +242,6 @@ class GSRCollectiveManager {
         }
         
         for (let j = 0; j < arr.length; j++) {
-          // Add element entering window on the right
           const rightIdx = j + half;
           if (rightIdx < arr.length) {
             const v = arr[rightIdx] ? arr[rightIdx].val : null;
@@ -266,7 +250,6 @@ class GSRCollectiveManager {
               count++;
             }
           }
-          // Remove element leaving window on the left
           const leftIdx = j - half - 1;
           if (leftIdx >= 0) {
             const v = arr[leftIdx] ? arr[leftIdx].val : null;
@@ -280,34 +263,58 @@ class GSRCollectiveManager {
         return result;
       }
 
-      const Fs = t.analyzer.sampleRate || 10.0;
-      const windowSize = Math.round(Fs * temporalSmoothingWindow);
-      const doSmoothing = windowSize > 1;
-
-      const smoothPhasic = doSmoothing ? getSmoothArray(phasic, windowSize) : null;
-      const smoothTonic = doSmoothing ? getSmoothArray(tonic, windowSize) : null;
-      const smoothAUC = doSmoothing ? getSmoothArray(phasicAUC, windowSize) : null;
-      const smoothArousal = doSmoothing ? getSmoothArray(arousalIndex, windowSize) : null;
-      const smoothTri = doSmoothing ? getSmoothArray(triIndex, windowSize) : null;
-
-      const baseFsStep = Math.max(1, Math.round(Fs));
-      const step       = baseFsStep * globalStride;
-
       const trackStartIdx = points.length;
-      for (let i = 0; i < rawData.length; i += step) {
-        const coords = t.analyzer.getCoordinates(i);
-        if (coords) {
-          points.push({
-            lat: coords.lat,
-            lon: coords.lon,
-            phasic: doSmoothing ? smoothPhasic[i] : (phasic[i] ? phasic[i].val : 0),
-            tonic: doSmoothing ? smoothTonic[i] : (tonic[i] ? tonic[i].val : 0),
-            phasicAUC: doSmoothing ? smoothAUC[i] : (phasicAUC[i] ? phasicAUC[i].val : 0),
-            arousalIndex: doSmoothing ? smoothArousal[i] : (arousalIndex[i] ? arousalIndex[i].val : 0),
-            triIndex: doSmoothing ? smoothTri[i] : (triIndex[i] ? triIndex[i].val : 0)
-          });
+
+      if (isPeaks) {
+        // Peaks mode only uses lat/lon for corridor masking and coverage calculation.
+        // Skipping all continuous series smoothing drops ~90% of prep overhead.
+        for (let i = 0; i < rawData.length; i += step) {
+          const coords = t.analyzer.getCoordinates(i);
+          if (coords) {
+            points.push({
+              lat: coords.lat,
+              lon: coords.lon,
+              val: 0
+            });
+          }
+        }
+      } else {
+        // Continuous topography: resolve and smooth ONLY the active metric
+        let activeSeries;
+        if (topographySource === 'tonic') {
+          activeSeries = useNormalization ? (t.analyzer.tonicZ || []) : (t.analyzer.tonic || []);
+        } else if (topographySource === 'auc') {
+          const aucRaw = t.analyzer.phasicAUC || [];
+          if (useNormalization && aucRaw.length > 0) {
+            // Both return a { mean, std } shape (GsrFilter.calculateStats just
+            // wraps StatsMath.calculateStats with a std===0 → 1 guard).
+            const statsFn = (typeof GsrFilter !== 'undefined' && GsrFilter.calculateStats)
+              ? GsrFilter.calculateStats
+              : ((typeof StatsMath !== 'undefined' && StatsMath.calculateStats) ? StatsMath.calculateStats : null);
+            const aucStats = statsFn ? statsFn(aucRaw.map(d => d.val)) : { mean: 0, std: 1 };
+            activeSeries = aucRaw.map(d => ({ time: d.time, val: (d.val - aucStats.mean) / (aucStats.std || 1) }));
+          } else {
+            activeSeries = aucRaw;
+          }
+        } else if (topographySource === 'arousal_index') {
+          activeSeries = t.analyzer.arousalIndex || [];
+        } else if (topographySource === 'tri_index' || topographySource === 'triIndex') {
+          activeSeries = t.analyzer.triIndex || [];
+        } else {
+          activeSeries = useNormalization ? (t.analyzer.phasicZ || []) : (t.analyzer.phasic || []);
+        }
+
+        const smoothVals = doSmoothing ? getSmoothArray(activeSeries, windowSize) : null;
+
+        for (let i = 0; i < rawData.length; i += step) {
+          const coords = t.analyzer.getCoordinates(i);
+          if (coords) {
+            const v = doSmoothing ? smoothVals[i] : (activeSeries[i] ? activeSeries[i].val : 0);
+            points.push({ lat: coords.lat, lon: coords.lon, val: v });
+          }
         }
       }
+
       if (points.length > trackStartIdx) {
         trackPointRanges.push({ start: trackStartIdx, end: points.length });
       }
@@ -528,11 +535,10 @@ class GSRCollectiveManager {
       const twoEnvSigmaSq = 2 * envelopeSigma * envelopeSigma;
       for (let i = 0; i < points.length; i++) {
         const p = points[i];
-        const pointVal = topographySource === 'tonic' ? p.tonic :
-                          topographySource === 'auc' ? p.phasicAUC :
-                          topographySource === 'arousal_index' ? p.arousalIndex :
-                          (topographySource === 'tri_index' || topographySource === 'triIndex') ? p.triIndex :
-                          p.phasic;
+        // Every point carries the already-resolved active-metric value in .val
+        // (the branch above picks the series for `topographySource` once per
+        // track); this loop is gated out entirely for 'peaks'.
+        const pointVal = p.val;
         const w = cellWindowFor(p.lat, p.lon, idwRadius);
         for (let r = w.rMin; r <= w.rMax; r++) {
           const gridLat = gridLatOf(r);

@@ -81,6 +81,12 @@ class GSRAnalyzer {
     this._seriesPoolRaw = null;
     this._rawValsPool = null;
     this._seriesRange = {};
+    // True while the pooled phasicZ buffer and the cached phasicAUC / arousalIndex
+    // ranges still reflect a deconvolution run rather than the pristine stage 1–3
+    // prefix. Set by _runDeconvolutionPipeline(); cleared the moment those are
+    // rebuilt from pristine data (prefix-cache hit restore, prefix-cache miss, or
+    // a fresh series pool).
+    this._wasDeconv = false;
     this._rawGlobalRange = null;
     this._timelinePointsCache = null;
     // Memoised stages 1–3 output (filter + decomposition), keyed on the six
@@ -126,6 +132,7 @@ class GSRAnalyzer {
     }
     this._timelinePointsCache = tl;
     this._prefixCache = null; // pooled prefix result is tied to this raw data
+    this._wasDeconv = false;  // fresh zeroed pool buffers — no deconvolution state to carry
 
     this._seriesPoolRaw = raw;
   }
@@ -385,8 +392,13 @@ class GSRAnalyzer {
       this.phasic = this._seriesPool.phasic;
       this._seriesRange.phasic = this._prefixCache.phasicRange;
       this.phasicStd = this._prefixCache.phasicStd;
-      this.tonicZ = GsrFilter.standardizeSignal(this.tonic, this._seriesPool.tonicZ);
-      this.phasicZ = GsrFilter.standardizeSignal(this.phasic, this._seriesPool.phasicZ);
+      this.tonicZ = this._seriesPool.tonicZ;
+      if (this._wasDeconv) {
+        this.phasicZ = GsrFilter.standardizeSignal(this.phasic, this._seriesPool.phasicZ);
+        this._wasDeconv = false;
+      } else {
+        this.phasicZ = this._seriesPool.phasicZ;
+      }
     } else {
       // 1. Noise Median Filtering
       const medWindowSize = Math.max(1, Math.round(params.medianSize * this.sampleRate));
@@ -410,12 +422,39 @@ class GSRAnalyzer {
       this.tonicZ = GsrFilter.standardizeSignal(this.tonic, this._seriesPool.tonicZ);
       this.phasicZ = GsrFilter.standardizeSignal(this.phasic, this._seriesPool.phasicZ);
       this.phasicStd = GsrFilter.calculateStats(phasicVals).std;
+      // The pooled phasicZ buffer and the pristine ranges below are now rebuilt
+      // from pristine data; any lingering deconvolution state is stale. (If this
+      // analyze() is itself a deconvolution run, _runDeconvolutionPipeline() sets
+      // the flag again straight after.)
+      this._wasDeconv = false;
+
+      // Pre-compute continuous metrics that depend only on tonic / phasic:
+      const pristineAUC = this.computePhasicAUC();
+      const aiCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.AROUSAL_INDEX) || { wTonic: 0.3, wPhasic: 0.7 };
+      const pristineArousal = this.computeCombinedArousalIndex(aiCfg.wTonic, aiCfg.wPhasic, pristineAUC);
+
+      let aucMn = Infinity, aucMx = -Infinity;
+      for (let i = 0; i < pristineAUC.length; i++) {
+        const v = pristineAUC[i].val;
+        if (v < aucMn) aucMn = v;
+        if (v > aucMx) aucMx = v;
+      }
+      let aiMn = Infinity, aiMx = -Infinity;
+      for (let i = 0; i < pristineArousal.length; i++) {
+        const v = pristineArousal[i].val;
+        if (v < aiMn) aiMn = v;
+        if (v > aiMx) aiMx = v;
+      }
 
       this._prefixCache = {
         key: prefixKey,
         phasicVals,
         phasicStd: this.phasicStd,
         phasicRange: this._seriesRange.phasic,
+        phasicAUC: pristineAUC,
+        arousalIndex: pristineArousal,
+        aucRange: { min: aucMn, max: aucMx },
+        aiRange: { min: aiMn, max: aiMx },
       };
     }
 
@@ -461,12 +500,17 @@ class GSRAnalyzer {
     // 6. Continuous, threshold-independent arousal metrics (ISCR/AUC + combined index + EM Fog)
     const densityWin = (params && params.peakDensityWindow != null) ? params.peakDensityWindow : null;
     this.peakDensity = this.computeTemporalPeakDensity(densityWin);
-    this.phasicAUC = this.computePhasicAUC();
-    // Pass the already-computed phasicAUC so computeCombinedArousalIndex() and
-    // computeTriIndex() don't each re-run the identical O(N) computePhasicAUC(30).
+
     const aiCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.AROUSAL_INDEX) || { wTonic: 0.3, wPhasic: 0.7 };
     const triCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.TRI_INDEX) || { wTonic: 0.10, wPhasic: 0.45, wDensity: 0.45 };
-    this.arousalIndex = this.computeCombinedArousalIndex(aiCfg.wTonic, aiCfg.wPhasic, this.phasicAUC);
+
+    if (params.useDeconvolution) {
+      this.phasicAUC = this.computePhasicAUC();
+      this.arousalIndex = this.computeCombinedArousalIndex(aiCfg.wTonic, aiCfg.wPhasic, this.phasicAUC);
+    } else {
+      this.phasicAUC = this._prefixCache.phasicAUC;
+      this.arousalIndex = this._prefixCache.arousalIndex;
+    }
     this.triIndex = this.computeTriIndex(triCfg.wTonic, triCfg.wPhasic, triCfg.wDensity, this.phasicAUC, this.peakDensity);
     const efArr = this._seriesPool.em_fog;
     let efMn = Infinity, efMx = -Infinity;
@@ -552,6 +596,7 @@ class GSRAnalyzer {
     this.phasicDriver = [];
     this.phasicClean = [];
     this.phasicDriverPeaks = [];
+    this._wasDeconv = true;
     if (n === 0) { this.peaks = []; return; }
 
     const { oldLabels, oldExcluded } = this._preserveLabelsAndExclusions();
@@ -934,7 +979,7 @@ class GSRAnalyzer {
       const r = this._seriesRange[key];
       if (r) this._globalRange[key] = r;
     }
-    for (const key of ['peakDensity', 'phasicAUC', 'arousalIndex', 'triIndex']) {
+    for (const key of ['peakDensity', 'triIndex']) {
       const arr = this[key];
       if (!arr || arr.length === 0) continue;
       let mn = Infinity, mx = -Infinity;
@@ -944,6 +989,22 @@ class GSRAnalyzer {
         if (v > mx) mx = v;
       }
       this._globalRange[key] = { min: mn, max: mx };
+    }
+    if (this._wasDeconv) {
+      for (const key of ['phasicAUC', 'arousalIndex']) {
+        const arr = this[key];
+        if (!arr || arr.length === 0) continue;
+        let mn = Infinity, mx = -Infinity;
+        for (let i = 0; i < arr.length; i++) {
+          const v = arr[i].val;
+          if (v < mn) mn = v;
+          if (v > mx) mx = v;
+        }
+        this._globalRange[key] = { min: mn, max: mx };
+      }
+    } else if (this._prefixCache) {
+      if (this._prefixCache.aucRange) this._globalRange.phasicAUC = this._prefixCache.aucRange;
+      if (this._prefixCache.aiRange) this._globalRange.arousalIndex = this._prefixCache.aiRange;
     }
     if (this._seriesRange.em_fog) this._globalRange.em_fog = this._seriesRange.em_fog;
 
