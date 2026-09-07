@@ -285,17 +285,6 @@
               <div class="slider-rec" style="left:13.3%; width:26.7%"></div>
               <p class="help-text">Max rise/recovery ratio. Classical SCRs rise fast, decay slow. Set to 0 = off.</p>
             </div>
-
-            <div class="control-subgroup-title">Stress Places</div>
-
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>Place Merge Distance</span>
-                <span class="slider-value" id="valPlaceMergeDistance">35 m</span>
-              </div>
-              <input type="range" id="placeMergeDistance" min="10" max="120" step="5" value="35">
-              <p class="help-text">Group stress responses into one place when they fall within this distance of each other. Each place is scored by response energy per unit dwell time; in the collective view it is styled by how many walks agree.</p>
-            </div>
           </div>
         </section>
 
@@ -489,6 +478,17 @@
               <input type="range" id="gpsPeakLatency" min="0" max="5" step="0.1" value="2.0">
               <div class="slider-rec" style="left:20%; width:40%"></div>
               <p class="help-text">Reads environmental context this many seconds before each peak / momentary-arousal sample, since an SCR lags its trigger. Baseline (tonic) arousal uses a longer lag (×4 of this), as skin-conductance level follows its driver more slowly.</p>
+            </div>
+
+            <div class="control-subgroup-title">Arousal Places</div>
+
+            <div class="slider-group">
+              <div class="slider-label">
+                <span>Place Merge Distance</span>
+                <span class="slider-value" id="valPlaceMergeDistance">35 m</span>
+              </div>
+              <input type="range" id="placeMergeDistance" min="10" max="120" step="5" value="35">
+              <p class="help-text">Group arousal responses into one place when they fall within this distance of each other. Each place is scored by response energy per unit dwell time; in the collective view it is styled by how many walks agree.</p>
             </div>
 
             <!-- 3D-only parameters — shown only while the 3D Globe surface is
@@ -1103,7 +1103,7 @@
   <script src="src/render/marching_squares.js"></script>
   <script src="src/map/hillshade.js"></script>
   <script src="src/spatial/spatial_clustering.js"></script>
-  <script src="src/spatial/stress_places.js"></script>
+  <script src="src/spatial/arousal_places.js"></script>
   <script src="src/spatial/collective_manager.js"></script>
   <script src="src/gps/gps_filter.js"></script>
   <script src="src/map/map_colors.js"></script>

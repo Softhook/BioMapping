@@ -42,7 +42,7 @@ class GSRSpatialClustering {
 
 
   /**
-   * Compact spatial clustering for the Stress Places layer.
+   * Compact spatial clustering for the Arousal Places layer.
    *
    * Density-ordered leader assignment: every peak's local density (neighbours
    * within `radiusMeters`) is computed, then peaks are visited densest-first —
@@ -53,7 +53,7 @@ class GSRSpatialClustering {
    * corridor walked by many tracks breaks into a row of compact "beads" instead
    * of collapsing into one monster cluster whose centroid lands off every path.
    * That centroid-off-the-path failure was what made large clusters score zero
-   * dwell/energy in stress_places.js.
+   * dwell/energy in arousal_places.js.
    *
    * `separationFactor` keeps those beads from overlapping each other on the map:
    * a peak may only seed a NEW bead when it is at least `separationFactor *

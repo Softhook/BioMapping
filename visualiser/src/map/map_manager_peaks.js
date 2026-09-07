@@ -6,12 +6,12 @@
  *
  * Covers the single-track peak dots + labels + latency connectors
  * (_renderPeakMarkers), the memorable-event hotspot stars
- * (_renderHotspotMarkers / _createHotspotMarker), the Stress Places layer
- * (_renderStressPlaces + _getClusteringParams / _meanAmplitude / _placeStyle,
- * scoring in stress_places.js), and the collective/multi-track counterparts
+ * (_renderHotspotMarkers / _createHotspotMarker), the Arousal Places layer
+ * (_renderArousalPlaces + _getClusteringParams / _meanAmplitude / _placeStyle,
+ * scoring in arousal_places.js), and the collective/multi-track counterparts
  * (_renderCollectiveTrackPeaks / _renderCollectiveTrackHotspots /
  * refreshCollectivePeakMarkers). renderCollectiveData() (still in map.js) drives
- * the collective ones and the shared Stress Places pass through the prototype.
+ * the collective ones and the shared Arousal Places pass through the prototype.
  *
  * Cartographic label placement + HTML builders live in GSRLabelManager
  * (label_placement.js); peak-popup DOM builders in MapPopups (map_popups.js).
@@ -158,7 +158,7 @@ Object.assign(GSRMapManager.prototype, {
     // skipClustering for the label-edit call site, not the exclusion one.
     if (!options.skipClustering) {
       const activePeaks = allPeaks.filter(ap => !ap.peak.excluded);
-      if (activePeaks.length > 0 && typeof GSRSpatialClustering !== 'undefined' && typeof GSRStressPlaces !== 'undefined') {
+      if (activePeaks.length > 0 && typeof GSRSpatialClustering !== 'undefined' && typeof GSRArousalPlaces !== 'undefined') {
         const trackId = track ? track.id : 'single';
         const ptsForClustering = activePeaks.map(ap => ({
           lat: ap.coords.lat,
@@ -178,13 +178,13 @@ Object.assign(GSRMapManager.prototype, {
         // Compact, non-chaining, non-overlapping grouping — see compactClusters()
         // for why single-linkage was wrong here and what separationFactor buys.
         const clusters = GSRSpatialClustering.compactClusters(ptsForClustering, mergeM, separationFactor);
-        const places = GSRStressPlaces.buildPlaces(
+        const places = GSRArousalPlaces.buildPlaces(
           clusters,
           [{ id: trackId, sampleRate: analyzer.sampleRate, raw: analyzer.raw, phasic: analyzer.phasic }],
-          (typeof GSR_CONST !== 'undefined' ? GSR_CONST.STRESS_PLACES : {})
+          (typeof GSR_CONST !== 'undefined' ? GSR_CONST.AROUSAL_PLACES : {})
         );
 
-        this._renderStressPlaces(places, {
+        this._renderArousalPlaces(places, {
           collective: false, activeTrackCount: 1, refAmplitude, sigma, blobRadius, drawGapFactor
         });
       }
@@ -192,16 +192,16 @@ Object.assign(GSRMapManager.prototype, {
   },
 
   /**
-   * Render the Stress Places layer: for each ranked place record from
-   * GSRStressPlaces.buildPlaces(), a thin concave outline (cosmetic selection
+   * Render the Arousal Places layer: for each ranked place record from
+   * GSRArousalPlaces.buildPlaces(), a thin concave outline (cosmetic selection
    * affordance) plus a numbered P1..Pn badge at the centroid. Both carry the
-   * same tooltip and open MapPopups.buildStressPlacePopup() on click.
+   * same tooltip and open MapPopups.buildArousalPlacePopup() on click.
    *
    * No two places may visually overlap. compactClusters()'s seed separation
    * spaces the centroids out; on top of that each blob is scaled toward its own
    * centroid so its farthest vertex stays within `drawGapFactor` (<= 0.5) of the
    * distance to the nearest other place — so two footprints can kiss but never
-   * cross. Badges are screen-space, so _declutterStressPlaceBadges folds any
+   * cross. Badges are screen-space, so _declutterArousalPlaceBadges folds any
    * that would still collide into the top-ranked one with a "+N" count.
    *
    * Everything is pushed to this.clusterLayers (not a new array) so the globe3d
@@ -213,8 +213,8 @@ Object.assign(GSRMapManager.prototype, {
    *   sigma:number, blobRadius:number, drawGapFactor:number}} ctx - Render context.
    * @private
    */
-  _renderStressPlaces(places, ctx) {
-    this._stressPlaceBadges = [];
+  _renderArousalPlaces(places, ctx) {
+    this._arousalPlaceBadges = [];
     if (!Array.isArray(places) || places.length === 0) return;
 
     const rates = places.map(p => p.rate).filter(r => isFinite(r));
@@ -251,35 +251,35 @@ Object.assign(GSRMapManager.prototype, {
           lineJoin: 'round'
         });
         poly.bindTooltip(style.tooltip, { sticky: true, className: 'contour-tooltip-label' });
-        poly.bindPopup(() => MapPopups.buildStressPlacePopup(place, ctx));
-        poly._gsrKind = 'stressPlace';
+        poly.bindPopup(() => MapPopups.buildArousalPlacePopup(place, ctx));
+        poly._gsrKind = 'arousalPlace';
         if (this.showClusters) poly.addTo(this.map);
         this.clusterLayers.push(poly);
       });
 
       const badge = L.marker([place.lat, place.lon], {
         icon: L.divIcon({
-          className: 'stress-place-badge-wrap',
-          html: `<span class="stress-place-badge" style="--place-color:${badgeColor};width:${badgePx}px;height:${badgePx}px;font-size:${badgeFontRem}rem">${place.label}</span>`,
+          className: 'arousal-place-badge-wrap',
+          html: `<span class="arousal-place-badge" style="--place-color:${badgeColor};width:${badgePx}px;height:${badgePx}px;font-size:${badgeFontRem}rem">${place.label}</span>`,
           iconSize: [badgePx, badgePx],
           iconAnchor: [badgePx / 2, badgePx / 2]
         })
       });
       badge.setZIndexOffset(1200 + Math.round(rankRatio * 100));
       badge.bindTooltip(style.tooltip, { sticky: true, className: 'contour-tooltip-label' });
-      badge.bindPopup(() => MapPopups.buildStressPlacePopup(place, ctx));
-      badge._gsrKind = 'stressPlace';
+      badge.bindPopup(() => MapPopups.buildArousalPlacePopup(place, ctx));
+      badge._gsrKind = 'arousalPlace';
       if (this.showClusters) badge.addTo(this.map);
       this.clusterLayers.push(badge);
 
-      this._stressPlaceBadges.push({
+      this._arousalPlaceBadges.push({
         marker: badge, lat: place.lat, lon: place.lon,
         px: badgePx, color: badgeColor, fontRem: badgeFontRem,
         label: place.label, tooltip: style.tooltip
       });
     });
 
-    this._declutterStressPlaceBadges();
+    this._declutterArousalPlaceBadges();
   },
 
   /**
@@ -322,15 +322,15 @@ Object.assign(GSRMapManager.prototype, {
   },
 
   /**
-   * Fold Stress Place badges that would visually collide at the current zoom
+   * Fold Arousal Place badges that would visually collide at the current zoom
    * into the top-ranked badge of each colliding group, which then shows a "+N"
    * count and lists the folded places in its tooltip. Re-run on zoomend (map.js)
    * and when the layer is toggled back on, so badges separate again on zoom-in.
    * Screen-space presentation only — the outlines and clusterLayers are untouched.
    * @private
    */
-  _declutterStressPlaceBadges() {
-    const badges = this._stressPlaceBadges;
+  _declutterArousalPlaceBadges() {
+    const badges = this._arousalPlaceBadges;
     if (!badges || !badges.length || !this.map || !this.showClusters
         || typeof this.map.latLngToContainerPoint !== 'function') return;
 
@@ -356,8 +356,8 @@ Object.assign(GSRMapManager.prototype, {
       const b = badges[i];
       const n = folded.length;
       b.marker.setIcon(L.divIcon({
-        className: 'stress-place-badge-wrap',
-        html: `<span class="stress-place-badge${n ? ' merged' : ''}" style="--place-color:${b.color};width:${b.px}px;height:${b.px}px;font-size:${b.fontRem}rem">${b.label}${n ? `<sup>+${n}</sup>` : ''}</span>`,
+        className: 'arousal-place-badge-wrap',
+        html: `<span class="arousal-place-badge${n ? ' merged' : ''}" style="--place-color:${b.color};width:${b.px}px;height:${b.px}px;font-size:${b.fontRem}rem">${b.label}${n ? `<sup>+${n}</sup>` : ''}</span>`,
         iconSize: [b.px, b.px],
         iconAnchor: [b.px / 2, b.px / 2]
       }));
@@ -652,8 +652,8 @@ Object.assign(GSRMapManager.prototype, {
   },
 
   /**
-   * Outline style for one Stress Place (the numbered badge is styled separately
-   * by rank in _renderStressPlaces).
+   * Outline style for one Arousal Place (the numbered badge is styled separately
+   * by rank in _renderArousalPlaces).
    *
    * Collective view (2+ active tracks): the ramp is driven by inter-track
    * *agreement* — trackCount / activeTrackCount — so a spot several independent
@@ -700,7 +700,7 @@ Object.assign(GSRMapManager.prototype, {
    * @private
    */
   _getClusteringParams() {
-    const C = (typeof GSR_CONST !== 'undefined' && GSR_CONST.STRESS_PLACES) ? GSR_CONST.STRESS_PLACES : {};
+    const C = (typeof GSR_CONST !== 'undefined' && GSR_CONST.AROUSAL_PLACES) ? GSR_CONST.AROUSAL_PLACES : {};
     const fallback = C.mergeM || 35;
     let mergeM = AppState.sliders.placeMergeDistance
       ? parseFloat(AppState.sliders.placeMergeDistance.value)

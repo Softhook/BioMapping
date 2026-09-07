@@ -129,10 +129,10 @@ class GSRMapManager {
     // _refreshPathOnZoom, which cheap-outs when the outcome can't have changed).
     this.map.on('zoomend', () => this._refreshPathOnZoom());
 
-    // Stress Place badges are screen-space — re-fold/unfold colliding ones once
-    // the new zoom settles (see _declutterStressPlaceBadges).
+    // Arousal Place badges are screen-space — re-fold/unfold colliding ones once
+    // the new zoom settles (see _declutterArousalPlaceBadges).
     this.map.on('zoomend', () => {
-      try { this._declutterStressPlaceBadges(); } catch (e) { /* a zoom must never break */ }
+      try { this._declutterArousalPlaceBadges(); } catch (e) { /* a zoom must never break */ }
     });
   }
 

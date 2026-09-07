@@ -1805,7 +1805,7 @@ class GSRGlobeManager {
       const fillAlpha = (poly.fillOpacity != null) ? poly.fillOpacity : 0.25;
 
       const fillEnt = this.viewer.entities.add({
-        name: 'Stress cluster',
+        name: 'Arousal place',
         polygon: {
           hierarchy: new Cesium.PolygonHierarchy(positions),
           material: baseColor.withAlpha(fillAlpha),

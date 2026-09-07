@@ -84,10 +84,10 @@ The goal of introducing these advanced metrics and model frameworks is to direct
 > Feature A), where each pin is inspected individually and marker fidelity
 > matters.
 >
-> **Update (2026-09-07) — the cluster-blob layer became "Stress Places".** The
+> **Update (2026-09-07) — the cluster-blob layer became "Arousal Places".** The
 > old decorative concave blob (two abstract sliders, severity = loudest member
 > peak vs mean) was redesigned into a discrete, clickable place layer that acts
-> on this section's own recommendation: `src/spatial/stress_places.js`
+> on this section's own recommendation: `src/spatial/arousal_places.js`
 > `buildPlaces()` scores each place by **dwell-normalised rectified
 > phasic-driver energy** — Σ max(0, phasic) dt accumulated by the contributing
 > walk(s) within a small footprint of any member peak, ÷ time spent there, ×60

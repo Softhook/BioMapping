@@ -207,13 +207,13 @@ const MapPopups = {
   },
 
   /**
-   * Popup for a Stress Place (map_manager_peaks.js _renderStressPlaces). Shows
+   * Popup for an Arousal Place (map_manager_peaks.js _renderArousalPlaces). Shows
    * the dwell-normalised score plus the aggregates behind it and, when OSM
    * enrichment has run, the street context at the place centroid.
-   * @param {Object} place - Record from GSRStressPlaces.buildPlaces().
+   * @param {Object} place - Record from GSRArousalPlaces.buildPlaces().
    * @param {{collective:boolean, activeTrackCount:number}} ctx
    */
-  buildStressPlacePopup(place, ctx) {
+  buildArousalPlacePopup(place, ctx) {
     const multiTrack = ctx && ctx.collective && ctx.activeTrackCount > 1;
 
     const container = L.DomUtil.create('div');

@@ -1,15 +1,15 @@
 /**
- * Unit tests for stress_places.js (GSRStressPlaces.buildPlaces) — pure
- * dwell-normalised scoring of stress-peak clusters, no DOM/Leaflet.
+ * Unit tests for arousal_places.js (GSRArousalPlaces.buildPlaces) — pure
+ * dwell-normalised scoring of arousal-peak clusters, no DOM/Leaflet.
  *
- * Run: node --test tests/test_stress_places.js  (or `npm test` for the whole suite)
+ * Run: node --test tests/test_arousal_places.js  (or `npm test` for the whole suite)
  */
 
 const assert = require('assert');
 const test = require('node:test');
 
 global.GeoUtils = require('../src/gps/geo_utils.js').GeoUtils;
-const { GSRStressPlaces } = require('../src/spatial/stress_places.js');
+const { GSRArousalPlaces } = require('../src/spatial/arousal_places.js');
 
 const M_PER_DEG = 111320.0;
 // Most tests care about scoring, not the noise filter — keep minMembers low and
@@ -39,8 +39,8 @@ function peak(trackId, dLat, dLon, amplitude, time) {
 // ─────────────────────────────────────────────────────────────────────────
 
 test('buildPlaces: empty / non-array clusters return []', () => {
-  assert.deepStrictEqual(GSRStressPlaces.buildPlaces([], [], OPTS), []);
-  assert.deepStrictEqual(GSRStressPlaces.buildPlaces(null, [], OPTS), []);
+  assert.deepStrictEqual(GSRArousalPlaces.buildPlaces([], [], OPTS), []);
+  assert.deepStrictEqual(GSRArousalPlaces.buildPlaces(null, [], OPTS), []);
 });
 
 test('buildPlaces: single-track place — dwell, energy and rate from in-footprint samples', () => {
@@ -57,7 +57,7 @@ test('buildPlaces: single-track place — dwell, energy and rate from in-footpri
     peak('A', NEAR, NEAR, 0.6, 3)
   ]];
 
-  const [p] = GSRStressPlaces.buildPlaces(clusters, [t], OPTS);
+  const [p] = GSRArousalPlaces.buildPlaces(clusters, [t], OPTS);
   assert.strictEqual(p.label, 'P1');
   assert.strictEqual(p.memberCount, 3);
   assert.strictEqual(p.trackCount, 1);
@@ -82,7 +82,7 @@ test('buildPlaces: an elongated cluster still gets non-zero dwell (regression: t
     members.push(peak('A', dLat, 0, 0.3, i));
     samples.push({ t: i, lat: dLat, lon: 0, ph: 1 });
   }
-  const [p] = GSRStressPlaces.buildPlaces([members], [track('A', samples)], OPTS);
+  const [p] = GSRArousalPlaces.buildPlaces([members], [track('A', samples)], OPTS);
   assert.ok(p.dwellSeconds >= 8, `expected ~9 s dwell along the line, got ${p.dwellSeconds}`);
   assert.ok(p.energy >= 8, `expected ~9 µS·s energy, got ${p.energy}`);
   assert.ok(p.rate > 0);
@@ -94,7 +94,7 @@ test('buildPlaces: negative phasic does not subtract from energy (rectified)', (
     { t: 1, lat: NEAR, lon: 0, ph: -9 },
     { t: 2, lat: NEAR, lon: 0, ph: 1 }
   ]);
-  const [p] = GSRStressPlaces.buildPlaces([[peak('A', NEAR, 0, 0.3, 0)]], [t], OPTS);
+  const [p] = GSRArousalPlaces.buildPlaces([[peak('A', NEAR, 0, 0.3, 0)]], [t], OPTS);
   assert.ok(Math.abs(p.energy - 3) < 1e-9, `energy ${p.energy}`);
   assert.ok(Math.abs(p.dwellSeconds - 3) < 1e-9);
 });
@@ -109,7 +109,7 @@ test('buildPlaces: places are ranked by rate and relabelled P1..Pn', () => {
     [peak('M', NEAR, 0, 0.1, 0)],
     [peak('H', NEAR, 0, 0.1, 0)]
   ];
-  const places = GSRStressPlaces.buildPlaces(clusters, [tHot, tMild], OPTS);
+  const places = GSRArousalPlaces.buildPlaces(clusters, [tHot, tMild], OPTS);
   assert.strictEqual(places[0].label, 'P1');
   assert.strictEqual(places[0].trackIds[0], 'H');
   assert.strictEqual(places[1].label, 'P2');
@@ -130,7 +130,7 @@ test('buildPlaces: a cluster spanning two tracks sums dwell + energy and is not 
     peak('A', NEAR, 0, 0.3, 5),
     peak('B', 0, NEAR, 0.5, 2)
   ]];
-  const [p] = GSRStressPlaces.buildPlaces(clusters, [tA, tB], OPTS);
+  const [p] = GSRArousalPlaces.buildPlaces(clusters, [tA, tB], OPTS);
   assert.strictEqual(p.trackCount, 2);
   assert.deepStrictEqual(p.trackIds.slice().sort(), ['A', 'B']);
   assert.strictEqual(p.provisional, false);
@@ -145,7 +145,7 @@ test('buildPlaces: OSM context comes from the nearest enriched in-footprint samp
     { t: 1, lat: 1e-7, lon: 1e-7, ph: 1, road: 'primary', green: 42, canopy: 12 },
     { t: 2, lat: FAR,  lon: 0,    ph: 1, road: 'motorway', green: 0, canopy: 0 }
   ]);
-  const [p] = GSRStressPlaces.buildPlaces([[peak('A', 0, 0, 0.3, 0)]], [t], OPTS);
+  const [p] = GSRArousalPlaces.buildPlaces([[peak('A', 0, 0, 0.3, 0)]], [t], OPTS);
   assert.ok(p.osm);
   assert.strictEqual(p.osm.roadClass, 'primary');
   assert.strictEqual(p.osm.distGreen, 42);
@@ -154,7 +154,7 @@ test('buildPlaces: OSM context comes from the nearest enriched in-footprint samp
 
 test('buildPlaces: no enrichment fields -> osm is null', () => {
   const t = track('A', [{ t: 0, lat: NEAR, lon: 0, ph: 1 }]);
-  const [p] = GSRStressPlaces.buildPlaces([[peak('A', NEAR, 0, 0.3, 0)]], [t], OPTS);
+  const [p] = GSRArousalPlaces.buildPlaces([[peak('A', NEAR, 0, 0.3, 0)]], [t], OPTS);
   assert.strictEqual(p.osm, null);
 });
 
@@ -163,13 +163,13 @@ test('buildPlaces: samples with hasGps === false are excluded from dwell', () =>
     { t: 0, lat: NEAR, lon: 0, ph: 1, hasGps: false },
     { t: 1, lat: NEAR, lon: 0, ph: 1 }
   ]);
-  const [p] = GSRStressPlaces.buildPlaces([[peak('A', NEAR, 0, 0.3, 0)]], [t], OPTS);
+  const [p] = GSRArousalPlaces.buildPlaces([[peak('A', NEAR, 0, 0.3, 0)]], [t], OPTS);
   assert.ok(Math.abs(p.dwellSeconds - 1) < 1e-9, `dwell ${p.dwellSeconds}`);
   assert.ok(Math.abs(p.energy - 1) < 1e-9);
 });
 
 test('buildPlaces: a cluster whose track has no samples still yields a record (zero dwell/energy)', () => {
-  const [p] = GSRStressPlaces.buildPlaces([[peak('A', 0, 0, 0.3, 0)]], [], OPTS);
+  const [p] = GSRArousalPlaces.buildPlaces([[peak('A', 0, 0, 0.3, 0)]], [], OPTS);
   assert.strictEqual(p.label, 'P1');
   assert.strictEqual(p.dwellSeconds, 0);
   assert.strictEqual(p.energy, 0);
@@ -187,7 +187,7 @@ test('buildPlaces: single-walk clusters below minMembers are dropped; multi-walk
   const agreed = [peak('A', 0, NEAR, 0.3, 0), peak('B', 0, NEAR, 0.3, 1)];   // 2 members, 2 walks -> kept
   const big = [peak('A', NEAR, 0, 0.3, 0), peak('A', NEAR, 0, 0.3, 1), peak('A', NEAR, 0, 0.3, 2)]; // 3 members -> kept
 
-  const places = GSRStressPlaces.buildPlaces([speck, agreed, big], [t, tB], opts);
+  const places = GSRArousalPlaces.buildPlaces([speck, agreed, big], [t, tB], opts);
   assert.strictEqual(places.length, 2);
   assert.ok(places.every(p => p.memberCount >= 3 || p.trackCount >= 2));
 });
@@ -197,7 +197,7 @@ test('buildPlaces: output is capped to maxPlaces, keeping the highest-rate ones'
   const opts = { ...OPTS, minMembers: 1, maxPlaces: 5 };
   // 12 identical 1-member clusters -> all same rate; cap still applies.
   const clusters = Array.from({ length: 12 }, () => [peak('A', NEAR, 0, 0.3, 0)]);
-  const places = GSRStressPlaces.buildPlaces(clusters, [t], opts);
+  const places = GSRArousalPlaces.buildPlaces(clusters, [t], opts);
   assert.strictEqual(places.length, 5);
   assert.deepStrictEqual(places.map(p => p.label), ['P1', 'P2', 'P3', 'P4', 'P5']);
 });

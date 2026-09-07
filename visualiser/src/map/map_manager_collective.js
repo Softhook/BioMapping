@@ -140,10 +140,10 @@ Object.assign(GSRMapManager.prototype, {
     }
     this._updateRfFluidButtonState(activeTracks.some(t => t.analyzer && t.analyzer.hasRfData));
 
-    // Render collective Stress Places across all active tracks
+    // Render collective Arousal Places across all active tracks
     if (allActivePeaksAcrossTracks.length > 0
         && typeof GSRSpatialClustering !== 'undefined'
-        && typeof GSRStressPlaces !== 'undefined') {
+        && typeof GSRArousalPlaces !== 'undefined') {
       const { mergeM, sigma, blobRadius, separationFactor, drawGapFactor } = this._getClusteringParams();
       const refAmplitude = this._meanAmplitude(allActivePeaksAcrossTracks);
 
@@ -155,11 +155,11 @@ Object.assign(GSRMapManager.prototype, {
       }));
 
       const clusters = GSRSpatialClustering.compactClusters(allActivePeaksAcrossTracks, mergeM, separationFactor);
-      const places = GSRStressPlaces.buildPlaces(
+      const places = GSRArousalPlaces.buildPlaces(
         clusters, scoreTracks,
-        (typeof GSR_CONST !== 'undefined' ? GSR_CONST.STRESS_PLACES : {})
+        (typeof GSR_CONST !== 'undefined' ? GSR_CONST.AROUSAL_PLACES : {})
       );
-      this._renderStressPlaces(places, {
+      this._renderArousalPlaces(places, {
         collective: true, activeTrackCount: activeTracks.length, refAmplitude, sigma, blobRadius, drawGapFactor
       });
     }

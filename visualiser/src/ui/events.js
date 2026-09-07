@@ -501,7 +501,7 @@ const GSREvents = {
     GSREvents.bindGpsSlider('gpsRDP',         'valGpsRDP',         v => v === 0 ? 'off' : `${v} m`);
     GSREvents.bindGpsSlider('gpsTrackWeight', 'valGpsTrackWeight', v => `${v} px`);
 
-    // ── Stress Places slider binding ───────────────────────────────────────
+    // ── Arousal Places slider binding ───────────────────────────────────────
     GSREvents.bindGpsSlider('placeMergeDistance', 'valPlaceMergeDistance', v => `${v} m`);
 
     // ── Snap radius slider ───────────────────────────────────────────────────

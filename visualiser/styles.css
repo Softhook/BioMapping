@@ -2227,9 +2227,9 @@ input[type="range"]:focus-visible,
   cursor: help;
 }
 
-/* Stress Place numbered badges (map_manager_peaks.js _renderStressPlaces) */
-.stress-place-badge-wrap { background: none; border: none; }
-.stress-place-badge {
+/* Arousal Place numbered badges (map_manager_peaks.js _renderArousalPlaces) */
+.arousal-place-badge-wrap { background: none; border: none; }
+.arousal-place-badge {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2246,12 +2246,12 @@ input[type="range"]:focus-visible,
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
   cursor: pointer;
 }
-/* A badge standing in for several collided places (see _declutterStressPlaceBadges) */
-.stress-place-badge.merged {
+/* A badge standing in for several collided places (see _declutterArousalPlaceBadges) */
+.arousal-place-badge.merged {
   border-style: double;
   border-width: 3px;
 }
-.stress-place-badge sup {
+.arousal-place-badge sup {
   font-size: 0.62em;
   font-weight: 700;
   line-height: 0;

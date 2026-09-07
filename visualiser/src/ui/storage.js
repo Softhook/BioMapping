@@ -91,7 +91,7 @@ const GSRStorage = {
       downsample:            parseInt(S.gpsDownsample ? S.gpsDownsample.value : (D.downsample ? 1 : 0)),
       trackWeight:           parseInt(S.gpsTrackWeight ? S.gpsTrackWeight.value : D.trackWeight),
       peakLatency:           parseFloat(S.gpsPeakLatency ? S.gpsPeakLatency.value : D.peakLatency),
-      placeMergeDistance:    parseFloat(S.placeMergeDistance ? S.placeMergeDistance.value : (GSR_CONST.STRESS_PLACES ? GSR_CONST.STRESS_PLACES.mergeM : 35))
+      placeMergeDistance:    parseFloat(S.placeMergeDistance ? S.placeMergeDistance.value : (GSR_CONST.AROUSAL_PLACES ? GSR_CONST.AROUSAL_PLACES.mergeM : 35))
     };
   },
 

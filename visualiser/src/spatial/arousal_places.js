@@ -1,5 +1,5 @@
 /**
- * Stress Places — turns proximity clusters of stress peaks into ranked,
+ * Arousal Places — turns proximity clusters of arousal peaks into ranked,
  * inspectable *place* records for the map's discrete "where did responses
  * concentrate" layer.
  *
@@ -13,7 +13,7 @@
  * Pure module: no DOM, no Leaflet. GeoUtils is the only dependency and is
  * typeof-guarded so host tests can run without it.
  */
-class GSRStressPlaces {
+class GSRArousalPlaces {
   /**
    * @param {Array<Array<object>>} clusters - Output of
    *   GSRSpatialClustering.clusterPeaks(): each entry an array of member peak
@@ -23,7 +23,7 @@ class GSRStressPlaces {
    *   { id, sampleRate, raw: [{ time, lat, lon, hasGps, osm_road_class?,
    *     osm_dist_green?, osm_canopy_pct_50m? }], phasic: [{ time, val }] }.
    *   raw[i] and phasic[i] are assumed sample-aligned.
-   * @param {object} [opts] - GSR_CONST.STRESS_PLACES shape:
+   * @param {object} [opts] - GSR_CONST.AROUSAL_PLACES shape:
    *   { mergeM, footprintPadM, dwellFloorS, provisionalMaxTracks }.
    * @returns {Array<object>} Place records sorted by `rate` descending, each:
    *   { label, cluster, lat, lon, memberCount, trackIds, trackCount,
@@ -188,8 +188,8 @@ function distSq(lat1, lon1, lat2, lon2, scale) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRStressPlaces };
+  module.exports = { GSRArousalPlaces };
 }
 if (typeof window !== 'undefined') {
-  window.GSRStressPlaces = GSRStressPlaces;
+  window.GSRArousalPlaces = GSRArousalPlaces;
 }

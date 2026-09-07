@@ -109,8 +109,9 @@ module.exports = {
     sigma: 15, ampWeightMin: 0.55, ampWeightMax: 3.0
   },
 
-  STRESS_PLACES: {
+  AROUSAL_PLACES: {
     mergeM: 35, minMergeM: 10, maxMergeM: 120,
+    seedSeparationFactor: 1.8, drawGapFactor: 0.46,
     footprintPadM: 10, dwellFloorS: 5, provisionalMaxTracks: 1,
     minMembers: 3, maxPlaces: 20
   },
