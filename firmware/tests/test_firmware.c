@@ -82,6 +82,18 @@ static bool format_gps_csv_row(Session* s, const GpsPosition* pos,
     return true;
 }
 
+// Same adapter over the REAL GSR-only formatter (biomap_format.c), matching
+// how batch_csv_row() in biomap_session.c hands the row to the SD batch.
+static bool format_gsr_csv_row(Session* s, double rel, float raw,
+                               const RowDiag* diag) {
+    char row[128];  // same cap as batch_csv_row()'s GSR-only buffer in production
+    int n = biomap_format_gsr_row(row, sizeof(row), s->debug_fields_enabled,
+                                  rel, raw, diag);
+    if(n < 0) return false;
+    memcpy(mock_logger_buf, row, (size_t)n + 1);  // include the NUL
+    return true;
+}
+
 
 // --- Test Suites ---
 
@@ -550,6 +562,38 @@ void test_csv_formatting() {
     printf("  -> Pass\n");
 }
 
+// GSR-only mode (BioMapModeGsrOnly) has no GPS/RF pipeline, so its row is
+// biomap_format_gsr_row(): two columns (timestamp,gsr_raw), plus the seven
+// SD/I2C contention columns when Debug Fields is on. Golden strings for both
+// states — the debug column values are the same distinct RowDiag markers
+// test_csv_formatting() uses, so a wrong-order emit fails the match.
+void test_gsr_csv_formatting() {
+    printf("Running test_gsr_csv_formatting...\n");
+    Session s = {0};
+    RowDiag diag = {.tick_dt_ms = 100, .gps_rx_drops = 2, .nmea_fail = 1,
+                     .gps_reinit_count = 11, .gsr_hz = 987.6f,
+                     .i2c_peak_ms = 3, .rf_rssi_peak_ms = 4, .rf_retune_peak_ms = 5,
+                     .flush_peak_ms = 6, .log_fill_bytes = 7, .log_fill_peak_bytes = 8,
+                     .log_overflow_count = 9, .log_flush_fail_count = 10,
+                     .pga_change_count = 12, .i2c_consec_fail = 13, .prealloc_ms = 14};
+
+    s.debug_fields_enabled = true;
+    mock_logger_buf[0] = '\0';
+    format_gsr_csv_row(&s, 1.25, 8345.3f, &diag);
+    assert(strcmp(mock_logger_buf, "1.25,8345.3,7,8,9,10,12,13,14\n") == 0);
+
+    s.debug_fields_enabled = false;
+    mock_logger_buf[0] = '\0';
+    format_gsr_csv_row(&s, 2.50, 8350.0f, &diag);
+    assert(strcmp(mock_logger_buf, "2.50,8350.0\n") == 0);
+
+    // Buffer too small -> -1, never a truncated row.
+    char tiny[8];
+    assert(biomap_format_gsr_row(tiny, sizeof(tiny), true, 1.25, 8345.3f, &diag) == -1);
+
+    printf("  -> Pass\n");
+}
+
 // Counts comma-separated fields in a CSV header or row string — works for
 // either since both end in a trailing '\n' this simply doesn't count as a
 // field separator. `n` fields means `n-1` commas, so this returns
@@ -624,13 +668,18 @@ static void test_csv_header_matches_row_column_count(void) {
         assert(header_cols_rf == row_cols_rf);
     }
 
-    int header_cols_gsr_only_debug = count_csv_columns(BIOMAP_CSV_COLS_GSR_ONLY_DEBUG);
-    printf("  GSR_ONLY_DEBUG: header=%d expected=9\n", header_cols_gsr_only_debug);
-    assert(header_cols_gsr_only_debug == 9);
-
-    int header_cols_gsr_only_prod = count_csv_columns(BIOMAP_CSV_COLS_GSR_ONLY_PROD);
-    printf("  GSR_ONLY_PROD: header=%d expected=2\n", header_cols_gsr_only_prod);
-    assert(header_cols_gsr_only_prod == 2);
+    // GSR-only mode: same "header promises exactly as many fields as a row
+    // delivers" property, against a row this test just generated.
+    for(int debug = 0; debug <= 1; debug++) {
+        s.debug_fields_enabled = (bool)debug;
+        mock_logger_buf[0] = '\0';
+        format_gsr_csv_row(&s, 1.25, 8345.3f, &diag);
+        int row_cols = count_csv_columns(mock_logger_buf);
+        int header_cols = count_csv_columns(
+            debug ? BIOMAP_CSV_COLS_GSR_ONLY_DEBUG : BIOMAP_CSV_COLS_GSR_ONLY_PROD);
+        printf("  GSR_ONLY (debug=%d): header=%d row=%d\n", debug, header_cols, row_cols);
+        assert(header_cols == row_cols);
+    }
 
     printf("  -> Pass\n");
 }
@@ -1245,11 +1294,12 @@ int main() {
     printf("CSV / NMEA\n");
     printf("========================================\n");
     test_csv_formatting();
+    test_gsr_csv_formatting();
     test_csv_header_matches_row_column_count();
     test_csv_row_overflow_returns_negative();
     test_batch_printf_rollback_on_truncation();
     test_nmea_parsing();
 
-    printf("\nAll 34 firmware unit tests passed successfully!\n");
+    printf("\nAll 35 firmware unit tests passed successfully!\n");
     return 0;
 }

@@ -67,6 +67,20 @@ int biomap_format_gps_row(char* out, size_t cap, bool debug_fields,
     return n;
 }
 
+int biomap_format_gsr_row(char* out, size_t cap, bool debug_fields,
+                          double rel, float raw, const RowDiag* diag) {
+    int n = debug_fields
+        ? snprintf(out, cap, "%.2f,%.1f,%u,%u,%u,%u,%u,%u,%u\n",
+                   rel, (double)raw,
+                   (unsigned)diag->log_fill_bytes, (unsigned)diag->log_fill_peak_bytes,
+                   (unsigned)diag->log_overflow_count, (unsigned)diag->log_flush_fail_count,
+                   (unsigned)diag->pga_change_count, (unsigned)diag->i2c_consec_fail,
+                   (unsigned)diag->prealloc_ms)
+        : snprintf(out, cap, "%.2f,%.1f\n", rel, (double)raw);
+    if(n <= 0 || (size_t)n >= cap) return -1;
+    return n;
+}
+
 int32_t cycle_selection(int32_t sel, int32_t count, bool down) {
     if(down) {
         return (sel + 1 >= count) ? 0 : sel + 1;

@@ -214,6 +214,52 @@ static inline RowDiag get_row_diag(const Session* s) {
     return d;
 }
 
+// ── Once-a-second serial diagnostics ──────────────────────────────────────
+// heartbeat (heap/stack) and telemetry (RowDiag contention columns) are
+// snapshotted under app->mutex by the tick handler, then logged by these
+// helpers AFTER the mutex is released: FURI_LOG_I must never run under
+// app->mutex — biomap_render_callback() waits only 10 ms for the same mutex
+// before skipping its redraw, and a serial line can outlast that.
+typedef struct {
+    uint32_t heap_free, heap_min, stack_main, stack_gsr;
+} HeartbeatDiag;
+
+static void log_heartbeat(const HeartbeatDiag* h) {
+    FURI_LOG_I("BioMap", "heartbeat heap:free=%u min=%u stack:main=%u gsr=%u sd_dry=%u",
+               (unsigned)h->heap_free, (unsigned)h->heap_min,
+               (unsigned)h->stack_main, (unsigned)h->stack_gsr,
+               (unsigned)BIOMAP_SD_DRY_RUN);
+}
+
+static void log_telemetry(const RowDiag* d) {
+    FURI_LOG_I(
+        "BioMap",
+        "telemetry tick_dt=%u gps_drop=%u nmea_fail=%u gps_reinit=%u gsr_hz=%.1f i2c=%u rf=%u ret=%u flush_peak=%u fill=%u peak=%u over=%u flfail=%u pga=%u i2c_consec=%u",
+        (unsigned)d->tick_dt_ms, (unsigned)d->gps_rx_drops, (unsigned)d->nmea_fail,
+        (unsigned)d->gps_reinit_count, (double)d->gsr_hz, (unsigned)d->i2c_peak_ms,
+        (unsigned)d->rf_rssi_peak_ms, (unsigned)d->rf_retune_peak_ms,
+        (unsigned)d->flush_peak_ms, (unsigned)d->log_fill_bytes,
+        (unsigned)d->log_fill_peak_bytes, (unsigned)d->log_overflow_count,
+        (unsigned)d->log_flush_fail_count, (unsigned)d->pga_change_count,
+        (unsigned)d->i2c_consec_fail);
+}
+
+// Live Stream's own once-a-second line (§10 Phase 3 / §11's bt_tx_peak_ms
+// bullet): the RowDiag telemetry above is gated on s->recording.active,
+// which this mode never sets (no CSV to toggle recording for — §6), so it
+// would otherwise never fire here. The same-row tick_dt_ms/bt_tx_peak_ms
+// pairing is the signature this project has used to attribute every previous
+// tick stall to its cause (SD flush, I2C, RF retune) — this is that tool for
+// BLE TX.
+typedef struct {
+    uint32_t tick_dt_ms, tx_peak_ms, drop_count;
+} BtStreamDiag;
+
+static void log_bt_telemetry(const BtStreamDiag* b) {
+    FURI_LOG_I("BioMap", "bt_telemetry tick_dt=%u bt_tx_peak_ms=%u bt_drop=%u",
+               (unsigned)b->tick_dt_ms, (unsigned)b->tx_peak_ms, (unsigned)b->drop_count);
+}
+
 // ── Shared GPS CSV row: format + append ────────────────────────────────────
 // Builds one row via biomap_format_gps_row() (biomap_format.c — the pure,
 // host-tested formatter) and appends it to the SD batch with ONE
@@ -259,25 +305,16 @@ static bool batch_csv_row(Session* s, float raw, const float* rf_rssi) {
     RowDiag diag = get_row_diag(s);  // zeroed unless debug_fields_enabled
 
     if(s->mode == BioMapModeGsrOnly) {
-        int ret = s->debug_fields_enabled
-            ? sd_logger_batch_printf(
-                  s->logger,
-                  "%.2f,%.1f,%u,%u,%u,%u,%u,%u,%u\n",
-                  rel,
-                  (double)raw,
-                  (unsigned)diag.log_fill_bytes,
-                  (unsigned)diag.log_fill_peak_bytes,
-                  (unsigned)diag.log_overflow_count,
-                  (unsigned)diag.log_flush_fail_count,
-                  (unsigned)diag.pga_change_count,
-                  (unsigned)diag.i2c_consec_fail,
-                  (unsigned)diag.prealloc_ms)
-            : sd_logger_batch_printf(
-                  s->logger,
-                  "%.2f,%.1f\n",
-                  rel,
-                  (double)raw);
-        return ret > 0;
+        // Same build-then-append discipline as append_gps_csv_row: one
+        // fully-formed row, one sd_logger_batch_append(). Two columns, or
+        // nine with debug fields — the widest realistic debug row is ~65
+        // bytes, so 128 keeps the same comfortable margin the 300-byte GPS
+        // buffer has; small enough to leave on the stack (unlike that one).
+        char row[128];
+        int n = biomap_format_gsr_row(row, sizeof(row), s->debug_fields_enabled,
+                                      rel, raw, &diag);
+        if(n < 0) return false;
+        return sd_logger_batch_append(s->logger, row, (size_t)n);
     }
 
     // On the GPS tick boundary, include a fresh fix; otherwise preserve
@@ -894,75 +931,38 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
             bool emit_heartbeat = false;
             bool emit_telemetry = false;
             bool emit_bt_telemetry = false;
-            uint32_t hb_heap_free = 0;
-            uint32_t hb_heap_min = 0;
-            uint32_t hb_stack_main = 0;
-            uint32_t hb_stack_gsr = 0;
-            uint32_t tm_tick_dt = 0;
-            uint32_t tm_gps_drop = 0;
-            uint32_t tm_nmea_fail = 0;
-            uint32_t tm_gps_reinit = 0;
-            float tm_gsr_hz = 0.0f;
-            uint32_t tm_i2c = 0;
-            uint32_t tm_rf = 0;
-            uint32_t tm_ret = 0;
-            uint32_t tm_flush_peak = 0;
-            uint32_t tm_fill = 0;
-            uint32_t tm_peak = 0;
-            uint32_t tm_over = 0;
-            uint32_t tm_flfail = 0;
-            uint32_t tm_pga = 0;
-            uint32_t tm_i2c_consec = 0;
-            uint32_t tm_bt_tick_dt = 0;
-            uint32_t tm_bt_tx_peak = 0;
-            uint32_t tm_bt_drop = 0;
+            HeartbeatDiag hb = {0};
+            RowDiag tm = {0};
+            BtStreamDiag btm = {0};
             if(++s->recording.tick_counter >= TICK_HZ) {
                 // Heartbeat (heap/stack) and telemetry (RowDiag) are both
                 // gated on debug_fields_enabled: with it off, no heap/stack
                 // introspection, no gsr->mutex/gsr->rf_mutex touches, and no
                 // serial log line, once a second, for every recording tick.
+                // The snapshots are logged after the mutex release below —
+                // see log_heartbeat()/log_telemetry()/log_bt_telemetry().
                 if(s->debug_fields_enabled) {
                     emit_heartbeat = true;
-                    hb_heap_free = memmgr_get_free_heap();
-                    hb_heap_min = memmgr_get_minimum_free_heap();
-                    hb_stack_main = furi_thread_get_stack_space(furi_thread_get_id(furi_thread_get_current()));
-                    hb_stack_gsr = s->gsr ? gsr_sensor_get_stack_space(s->gsr) : 0;
+                    hb.heap_free = memmgr_get_free_heap();
+                    hb.heap_min = memmgr_get_minimum_free_heap();
+                    hb.stack_main = furi_thread_get_stack_space(furi_thread_get_id(furi_thread_get_current()));
+                    hb.stack_gsr = s->gsr ? gsr_sensor_get_stack_space(s->gsr) : 0;
                 }
 
                 if(s->recording.active && s->debug_fields_enabled) {
-                    RowDiag diag = get_row_diag(s);
                     emit_telemetry = true;
-                    tm_tick_dt = diag.tick_dt_ms;
-                    tm_gps_drop = diag.gps_rx_drops;
-                    tm_nmea_fail = diag.nmea_fail;
-                    tm_gps_reinit = diag.gps_reinit_count;
-                    tm_gsr_hz = diag.gsr_hz;
-                    tm_i2c = diag.i2c_peak_ms;
-                    tm_rf = diag.rf_rssi_peak_ms;
-                    tm_ret = diag.rf_retune_peak_ms;
-                    tm_flush_peak = diag.flush_peak_ms;
-                    tm_fill = diag.log_fill_bytes;
-                    tm_peak = diag.log_fill_peak_bytes;
-                    tm_over = diag.log_overflow_count;
-                    tm_flfail = diag.log_flush_fail_count;
-                    tm_pga = diag.pga_change_count;
-                    tm_i2c_consec = diag.i2c_consec_fail;
+                    tm = get_row_diag(s);
                 }
 
-                // Live Stream's own once-a-second diagnostic line (§10 Phase
-                // 3 / §11's bt_tx_peak_ms bullet): the RowDiag-based
-                // telemetry above is gated on s->recording.active, which
-                // this mode never sets (there's no CSV to toggle recording
-                // for — §6), so it would otherwise never fire here at all.
-                // Same-row tick_dt_ms/bt_tx_peak_ms pairing is exactly the
-                // signature this project has used to attribute every
-                // previous tick stall to its real cause (SD flush, I2C, RF
-                // retune) — this is that tool for BLE TX.
+                // LiveStream's own telemetry line: the RowDiag telemetry
+                // above is gated on s->recording.active, which this mode
+                // never sets, so it would never fire here — see
+                // log_bt_telemetry() for the full rationale.
                 if(s->mode == BioMapModeLiveStream && s->debug_fields_enabled && s->bt_stream) {
                     emit_bt_telemetry = true;
-                    tm_bt_tick_dt = s->recording.tick_dt_ms;
-                    tm_bt_tx_peak = bt_stream_get_tx_peak_ms(s->bt_stream);
-                    tm_bt_drop = bt_stream_get_drop_count(s->bt_stream);
+                    btm.tick_dt_ms = s->recording.tick_dt_ms;
+                    btm.tx_peak_ms = bt_stream_get_tx_peak_ms(s->bt_stream);
+                    btm.drop_count = bt_stream_get_drop_count(s->bt_stream);
                 }
 
                 handle_second_boundary(s, app->notifications);
@@ -982,36 +982,9 @@ void run_recording_session(BioMapApp* app, BioMapMode mode) {
                 bt_stream_tx_batch(s->bt_stream, live_stream_packet, sizeof(live_stream_packet));
             }
 
-            if(emit_heartbeat) {
-                FURI_LOG_I("BioMap", "heartbeat heap:free=%u min=%u stack:main=%u gsr=%u sd_dry=%u",
-                           (unsigned)hb_heap_free, (unsigned)hb_heap_min,
-                           (unsigned)hb_stack_main, (unsigned)hb_stack_gsr,
-                           (unsigned)BIOMAP_SD_DRY_RUN);
-            }
-            if(emit_bt_telemetry) {
-                FURI_LOG_I("BioMap", "bt_telemetry tick_dt=%u bt_tx_peak_ms=%u bt_drop=%u",
-                           (unsigned)tm_bt_tick_dt, (unsigned)tm_bt_tx_peak, (unsigned)tm_bt_drop);
-            }
-            if(emit_telemetry) {
-                FURI_LOG_I(
-                    "BioMap",
-                    "telemetry tick_dt=%u gps_drop=%u nmea_fail=%u gps_reinit=%u gsr_hz=%.1f i2c=%u rf=%u ret=%u flush_peak=%u fill=%u peak=%u over=%u flfail=%u pga=%u i2c_consec=%u",
-                    (unsigned)tm_tick_dt,
-                    (unsigned)tm_gps_drop,
-                    (unsigned)tm_nmea_fail,
-                    (unsigned)tm_gps_reinit,
-                    (double)tm_gsr_hz,
-                    (unsigned)tm_i2c,
-                    (unsigned)tm_rf,
-                    (unsigned)tm_ret,
-                    (unsigned)tm_flush_peak,
-                    (unsigned)tm_fill,
-                    (unsigned)tm_peak,
-                    (unsigned)tm_over,
-                    (unsigned)tm_flfail,
-                    (unsigned)tm_pga,
-                    (unsigned)tm_i2c_consec);
-            }
+            if(emit_heartbeat) log_heartbeat(&hb);
+            if(emit_bt_telemetry) log_bt_telemetry(&btm);
+            if(emit_telemetry) log_telemetry(&tm);
 
             // SD card batch flush is performed AFTER releasing app->mutex!
             // storage_file_write() and storage_file_sync() block for ~20-60 ms.

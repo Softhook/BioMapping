@@ -39,6 +39,25 @@ int biomap_format_gps_row(char* out, size_t cap, bool debug_fields,
                           const GpsPosition* pos, double rel, float raw,
                           const float* rf_rssi, const RowDiag* diag);
 
+// Format one GSR-only CSV row into `out` (NUL-terminated, trailing '\n'
+// included). Returns the byte count written (excluding the NUL), or -1 if
+// the row would not fit in `cap`.
+//
+// The row is two columns (timestamp,gsr_raw). With debug_fields it appends
+// the seven SD/I2C contention columns the GSR-only schema carries
+// (BIOMAP_CSV_COLS_GSR_ONLY_DEBUG) — a subset of the RowDiag fields, since
+// this mode has no GPS or RF pipeline to report on.
+//
+//   debug_fields  append the RowDiag contention columns (Options > Debug Fields)
+//   rel           relative timestamp in seconds — the first column
+//   raw           GSR value in nS for the gsr_raw column
+//   diag          RowDiag contention columns; only read when debug_fields
+//
+// Pure formatter: the caller writes `out` with ONE sd_logger_batch_append()
+// (see batch_csv_row() in biomap_session.c).
+int biomap_format_gsr_row(char* out, size_t cap, bool debug_fields,
+                          double rel, float raw, const RowDiag* diag);
+
 // Move a list selection by one step with wraparound: Up on the first item
 // jumps to the last, Down on the last item jumps back to the first — used
 // by the main menu, Options screen, and GSR/RF calibration submenus so all
