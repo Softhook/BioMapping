@@ -135,17 +135,19 @@ const GpsPipeline = {
    */
   _pickDownsampleIndices(count, step, origIdxAt, forceIndexSet) {
     const picked = [];
-    const included = new Set();
+    const hasForced = !!(forceIndexSet && forceIndexSet.size > 0);
+    const included = hasForced ? new Set() : null;
+
     for (let i = 0; i < count; i += step) {
       picked.push(i);
-      included.add(i);
+      if (hasForced) included.add(i);
     }
     if (count > 0 && (count - 1) % step !== 0) {
       picked.push(count - 1);
-      included.add(count - 1);
+      if (hasForced) included.add(count - 1);
     }
 
-    if (forceIndexSet && forceIndexSet.size > 0) {
+    if (hasForced) {
       let addedForced = false;
       for (let i = 0; i < count; i++) {
         if (included.has(i)) continue;

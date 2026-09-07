@@ -372,12 +372,19 @@ function mousePressed() {
   }
 }
 
+// Mouse and trackpad drags can fire events faster than the display refresh rate
+// (e.g. 120Hz-1000Hz gaming mice / high-precision trackpads). Synchronous redraw()
+// on every tick stacks up full canvas repaints faster than the browser can paint,
+// reading as a stutter during graph or timeline panning. Coalesce redraws to one
+// per animation frame — same GSREvents.rafCoalesce() pattern as zoom/hover/sliders.
+const coalescedDragRedraw = GSREvents.rafCoalesce(() => redraw());
+
 function mouseDragged() {
   if (AppState.isDraggingTimeline && AppState.analyzer.raw.length > 0) {
     updateCanvasCursor();
     const dragTime = map(mouseX, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right, 0, AppState.totalDuration);
     AppState.viewStartTime = constrain(dragTime - AppState.viewDuration / 2, 0, Math.max(0, AppState.totalDuration - AppState.viewDuration));
-    redraw();
+    coalescedDragRedraw();
   }
   else if (AppState.isDragging && AppState.analyzer.raw.length > 0) {
     updateCanvasCursor();
@@ -387,7 +394,7 @@ function mouseDragged() {
 
     AppState.viewStartTime = AppState.dragStartViewStart - timeShift;
     AppState.viewStartTime = constrain(AppState.viewStartTime, 0, Math.max(0, AppState.totalDuration - AppState.viewDuration));
-    redraw();
+    coalescedDragRedraw();
   }
 }
 
