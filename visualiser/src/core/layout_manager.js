@@ -54,16 +54,16 @@ const GSRLayoutManager = {
     // canvas to the container box, so after the panel moves into / out of the
     // fullscreen overlay the globe must be told to re-measure.
     this.setupPanelFullscreen('btnMapFullscreen', 'mapPanel', (on) => {
-      // The collective-mode rule that hides the 2D/3D surface switcher keys off
-      // `.main-layout.collective-mode` — an ancestor the panel loses once it is
-      // lifted into the fullscreen overlay. Keep it hidden explicitly: there is
-      // no collective 3D globe view. On exit, clear the inline style so the
-      // stylesheet resumes control.
-      const surfaceSwitcher = document.getElementById('surfaceSwitcher');
-      if (surfaceSwitcher) {
-        surfaceSwitcher.style.display =
-          (on && AppState.viewMode === 'collective') ? 'none' : '';
-      }
+      // In collective mode the surface switcher is replaced by a plain "Map"
+      // title — there is no collective 3D globe view. Both swaps key off the
+      // `.main-layout.collective-mode` ancestor, which the panel loses once it
+      // is lifted into the fullscreen overlay, so reproduce them inline here.
+      // On exit, clear the inline styles so the stylesheet resumes control.
+      const collective = on && AppState.viewMode === 'collective';
+      const switcher = document.getElementById('surfaceSwitcher');
+      const mapTitle = document.getElementById('collectiveMapTitle');
+      if (switcher) switcher.style.display = collective ? 'none' : '';
+      if (mapTitle) mapTitle.style.display = collective ? 'flex' : 'none';
 
       if (typeof GSRGlobe3DView === 'undefined') return;
       if (GSRGlobe3DView.onResize) GSRGlobe3DView.onResize();
