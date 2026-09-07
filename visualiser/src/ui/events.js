@@ -26,10 +26,10 @@ const GSREvents = {
 
     // Sliders & Selection inputs
     const sliderKeys = [
-      'medianSize', 'lpfWindow', 'tonicWindow', 'tonicMethod', 'peakThreshold', 'minPeakQuality', 'peakDensityWindow', 'hotspotPercentile', 'dwtLevel',
+      'medianSize', 'lpfWindow', 'tonicWindow', 'tonicMethod', 'peakThreshold', 'minPeakQuality', 'hotspotPercentile',
       'shapeMinRiseTime', 'shapeMaxRiseTime', 'shapeMinHalfRecovery', 'shapeMaxHalfRecovery',
       'shapeMinSnr', 'shapeMaxSkewRatio',
-      'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsDownsample', 'gpsTrackWeight', 'gpsPeakLatency',
+      'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsTrackWeight', 'gpsPeakLatency',
       'gpsSnapToRoads', 'gpsSnapRadius',
       'clusterProximity', 'clusterBoundaryRadius',
       'graphView', 'useDeconvolution', 'usePeakProminence'
@@ -177,6 +177,26 @@ const GSREvents = {
   },
 
   /**
+   * Format the Max Speed slider value with a human travel mode.
+   * Thresholds follow the slider's help text: Walk ≈ 3 m/s, Run ≈ 5 m/s,
+   * Bike ≈ 10 m/s.
+   */
+  fmtMaxSpeed(v) {
+    const mode = v <= 3.5 ? 'Walk' : v <= 6.5 ? 'Run' : 'Bike';
+    return `${v.toFixed(1)} m/s (${mode})`;
+  },
+
+  /**
+   * Show the Snap Radius slider only while "Snap to Roads & Trails" is checked.
+   * Called on setup, from the toggle handler, and after settings restore.
+   */
+  updateSnapRadiusVisibility() {
+    const toggle = document.getElementById('gpsSnapToRoads');
+    const group  = document.getElementById('snapRadiusGroup');
+    if (group) group.style.display = (toggle && toggle.checked) ? '' : 'none';
+  },
+
+  /**
    * Bind a GSR slider: update label immediately, re-run analysis, save settings.
    * Shows "off" when value is 0 and dims the slider group.
    */
@@ -241,60 +261,52 @@ const GSREvents = {
   },
 
   /**
-   * Update the Tonic Baseline Window slider configuration and DWT visibility
-   * dynamically based on the selected baseline method.
+   * Reconfigure the Tonic Baseline Window slider (range, default, help text)
+   * for the selected baseline method.
    */
   updateTonicMethodLayout(isInitial = false) {
     const S = AppState.sliders;
     if (!S || !S.tonicMethod) return;
 
     const method = S.tonicMethod.value;
-    const dwtGroup = document.getElementById('dwtLevelGroup');
-    const twGroup = document.getElementById('tonicWindowGroup');
-    
-    if (dwtGroup) dwtGroup.style.display = method === 'dwt' ? '' : 'none';
-    if (twGroup) twGroup.style.display = method === 'dwt' ? 'none' : '';
+    const slider = document.getElementById('tonicWindow');
+    const rec = document.getElementById('tonicWindowRec');
+    const help = document.getElementById('tonicWindowHelp');
+    const label = document.getElementById('valTonicWindow');
 
-    if (method !== 'dwt') {
-      const slider = document.getElementById('tonicWindow');
-      const rec = document.getElementById('tonicWindowRec');
-      const help = document.getElementById('tonicWindowHelp');
-      const label = document.getElementById('valTonicWindow');
+    let min, max, defVal, recLeft, recWidth, helpText;
 
-      let min, max, defVal, recLeft, recWidth, helpText;
+    if (method === 'percentile') {
+      min = 5; max = 45; defVal = 15;
+      recLeft = '12.5%'; recWidth = '50%';
+      helpText = 'Wider windows isolate baseline from peaks. <strong>Recommended:</strong> 10–30 s.';
+    } else if (method === 'median') {
+      min = 10; max = 60; defVal = 30;
+      recLeft = '20%'; recWidth = '50%';
+      helpText = 'Robust median window to exclude peaks. <strong>Recommended:</strong> 20–45 s.';
+    } else { // 'lpf' / 'ema'
+      min = 15; max = 90; defVal = 45;
+      recLeft = '20%'; recWidth = '40%';
+      helpText = 'Low-pass equivalent window for EMA smoothing. <strong>Recommended:</strong> 30–60 s.';
+    }
 
-      if (method === 'percentile') {
-        min = 5; max = 45; defVal = 15;
-        recLeft = '12.5%'; recWidth = '50%';
-        helpText = 'Wider windows isolate baseline from peaks. <strong>Recommended:</strong> 10–30 s.';
-      } else if (method === 'median') {
-        min = 10; max = 60; defVal = 30;
-        recLeft = '20%'; recWidth = '50%';
-        helpText = 'Robust median window to exclude peaks. <strong>Recommended:</strong> 20–45 s.';
-      } else if (method === 'lpf') {
-        min = 15; max = 90; defVal = 45;
-        recLeft = '20%'; recWidth = '40%';
-        helpText = 'Low-pass equivalent window for EMA smoothing. <strong>Recommended:</strong> 30–60 s.';
+    if (slider) {
+      slider.min = min;
+      slider.max = max;
+      const currVal = parseFloat(slider.value);
+      if (!isInitial || isNaN(currVal) || currVal < min || currVal > max) {
+        slider.value = defVal;
       }
-
-      if (slider) {
-        slider.min = min;
-        slider.max = max;
-        const currVal = parseFloat(slider.value);
-        if (!isInitial || isNaN(currVal) || currVal < min || currVal > max) {
-          slider.value = defVal;
-        }
-        if (label) {
-          label.innerText = parseFloat(slider.value).toFixed(1) + ' s';
-        }
+      if (label) {
+        label.innerText = parseFloat(slider.value).toFixed(1) + ' s';
       }
-      if (rec) {
-        rec.style.left = recLeft;
-        rec.style.width = recWidth;
-      }
-      if (help) {
-        help.innerHTML = helpText;
-      }
+    }
+    if (rec) {
+      rec.style.left = recLeft;
+      rec.style.width = recWidth;
+    }
+    if (help) {
+      help.innerHTML = helpText;
     }
   },
 
@@ -310,7 +322,6 @@ const GSREvents = {
     GSREvents.bindGsrSlider('tonicWindow',   'valTonicWindow',   ' s');
     GSREvents.bindGsrSlider('peakThreshold',     'valPeakThreshold',     ' μS');
     GSREvents.bindGsrSlider('minPeakQuality',    'valMinPeakQuality',    '');
-    GSREvents.bindGsrSlider('peakDensityWindow', 'valPeakDensityWindow', ' s');
     GSREvents.bindGsrSlider('hotspotPercentile', 'valHotspotPercentile', ' %');
     GSREvents.bindGsrSlider('shapeMinRiseTime',  'valShapeMinRiseTime',  ' s');
     GSREvents.bindGsrSlider('shapeMaxRiseTime',  'valShapeMaxRiseTime',  ' s');
@@ -318,16 +329,6 @@ const GSREvents = {
     GSREvents.bindGsrSlider('shapeMaxHalfRecovery', 'valShapeMaxHalfRecovery', ' s');
     GSREvents.bindGsrSlider('shapeMinSnr',       'valShapeMinSnr',       '×');
     GSREvents.bindGsrSlider('shapeMaxSkewRatio', 'valShapeMaxSkewRatio', '');
-
-    // DWT level — custom binding (integer display)
-    if (S.dwtLevel) {
-      const runHeavyWork = GSREvents.rafCoalesce(() => GSRUI.runAnalysis());
-      S.dwtLevel.addEventListener('input', () => {
-        const level = parseInt(S.dwtLevel.value);
-        document.getElementById('valDwtLevel').innerText = level;
-        runHeavyWork();
-      });
-    }
 
     S.tonicMethod.addEventListener('change', () => {
       GSREvents.updateTonicMethodLayout(false);
@@ -496,9 +497,8 @@ const GSREvents = {
     GSREvents.bindGpsSlider('gpsSmoothing',   'valGpsSmoothing',   v => v.toFixed(2));
     GSREvents.bindGpsSlider('gpsKalmanR',     'valGpsKalmanR',     v => `${v} m²`);
     GSREvents.bindGpsSlider('gpsMaxHdop',     'valGpsMaxHdop',     v => `≤ ${v.toFixed(1)}`);
-    GSREvents.bindGpsSlider('gpsMaxSpeed',    'valGpsMaxSpeed',    v => `${v.toFixed(1)} m/s`);
+    GSREvents.bindGpsSlider('gpsMaxSpeed',    'valGpsMaxSpeed',    GSREvents.fmtMaxSpeed);
     GSREvents.bindGpsSlider('gpsRDP',         'valGpsRDP',         v => v === 0 ? 'off' : `${v} m`);
-    GSREvents.bindGpsSlider('gpsDownsample',  'valGpsDownsample',  v => v === 0 ? 'off' : '1 Hz');
     GSREvents.bindGpsSlider('gpsTrackWeight', 'valGpsTrackWeight', v => `${v} px`);
 
     // ── Spatial Clustering slider bindings ──────────────────────────────────
@@ -533,7 +533,9 @@ const GSREvents = {
     {
       const snapToggle = document.getElementById('gpsSnapToRoads');
       if (snapToggle) {
+        GSREvents.updateSnapRadiusVisibility();
         snapToggle.addEventListener('change', () => {
+          GSREvents.updateSnapRadiusVisibility();
           if (AppState.analyzer && AppState.analyzer.osmJson) {
             // OSM data already loaded — re-run enrichment locally
             GSRUI.enrichTrack(false);
@@ -1282,10 +1284,8 @@ const GSREvents = {
     updateLabel('medianSize',    'valMedianSize',    ' s');
     updateLabel('lpfWindow',     'valLpfWindow',     ' s');
     updateLabel('tonicWindow',   'valTonicWindow',   ' s');
-    updateLabel('dwtLevel',      'valDwtLevel',      '');
     updateLabel('peakThreshold',     'valPeakThreshold',     ' μS');
     updateLabel('minPeakQuality',    'valMinPeakQuality',    '');
-    updateLabel('peakDensityWindow', 'valPeakDensityWindow', ' s');
     updateLabel('hotspotPercentile', 'valHotspotPercentile', ' %');
     updateLabel('shapeMinRiseTime',  'valShapeMinRiseTime',  ' s');
     updateLabel('shapeMaxRiseTime',  'valShapeMaxRiseTime',  ' s');
@@ -1308,9 +1308,8 @@ const GSREvents = {
       gpsSmoothing:   v => v.toFixed(2),
       gpsKalmanR:     v => `${v} m²`,
       gpsMaxHdop:     v => `≤ ${v.toFixed(1)}`,
-      gpsMaxSpeed:    v => `${v.toFixed(1)} m/s`,
+      gpsMaxSpeed:    GSREvents.fmtMaxSpeed,
       gpsRDP:         v => v === 0 ? 'off' : `${v} m`,
-      gpsDownsample:  v => v === 0 ? 'off' : '1 Hz',
       gpsTrackWeight: v => `${v} px`,
       gpsPeakLatency: v => `${v.toFixed(1)} s`,
       gpsSnapRadius:  v => `${v} m`,
@@ -1326,6 +1325,9 @@ const GSREvents = {
         label.innerText = fmt(parseFloat(slider.value));
       }
     }
+
+    // Snap Radius slider is only shown while road-snapping is enabled
+    GSREvents.updateSnapRadiusVisibility();
 
     // Contour Settings Labels & Visibility Setup
     const C = AppState.contourControls;

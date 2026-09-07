@@ -113,8 +113,8 @@ for (const file of FILES) {
 console.log(`
   analyze() runs once per settled frame of any GSR slider (events.js's
   bindGsrSlider(), rafCoalesced). Two paths since 2026-09-03:
-   - The five params feeding stages 1–3 (medianSize, lpfWindow,
-     tonicWindow, tonicMethod, dwtLevel) are memoised (analyzer.js's
+   - The four params feeding stages 1–3 (medianSize, lpfWindow,
+     tonicWindow, tonicMethod) are memoised (analyzer.js's
      _prefixCache). Dragging any OTHER slider is a cache HIT: median filter +
      low-pass + tonic/phasic decomposition are skipped, only peak detection
      and the continuous metrics rerun.

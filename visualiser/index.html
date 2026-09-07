@@ -144,7 +144,6 @@
                 <option value="percentile">Trough Tracker (10th Percentile)</option>
                 <option value="median">Moving Median (Robust)</option>
                 <option value="lpf" selected>Ultra Low-Pass (EMA)</option>
-                <option value="dwt">Wavelet db3 (DWT)</option>
               </select>
             </div>
 
@@ -158,18 +157,6 @@
               <p class="help-text" id="tonicWindowHelp">Low-pass equivalent window for EMA smoothing. <strong>Recommended:</strong> 30–60 s.</p>
             </div>
 
-            <div class="slider-group" id="dwtLevelGroup">
-              <div class="slider-label">
-                <span>DWT Decomposition Level</span>
-                <span class="slider-value" id="valDwtLevel">6</span>
-              </div>
-              <input type="range" id="dwtLevel" min="4" max="7" step="1" value="6">
-              <div class="slider-rec" style="left:33.3%; width:66.7%"></div>
-              <p class="help-text">
-                Higher level = slower tonic (purer SCL) but more signal goes into phasic.
-                Level 5–7 all work. <strong>Recommended:</strong> Level 6 (0–0.08 Hz).
-              </p>
-            </div>
           </div>
         </section>
 
@@ -202,16 +189,6 @@
               </div>
               <input type="range" id="minPeakQuality" min="0.00" max="1.00" step="0.05" value="0.00">
               <p class="help-text">Filters out peaks with lower shape quality score. 0.00 = no quality filtering.</p>
-            </div>
-
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>Peak Density Window</span>
-                <span class="slider-value" id="valPeakDensityWindow">60 s</span>
-              </div>
-              <input type="range" id="peakDensityWindow" min="10" max="120" step="5" value="60">
-              <div class="slider-rec" style="left:18.2%; width:54.5%"></div>
-              <p class="help-text">Spotlight time window for peak density with smooth transitions. Lower = localized reaction; Higher = broader trend. <strong>Recommended:</strong> 30–90 s.</p>
             </div>
 
             <div class="slider-group">
@@ -379,11 +356,11 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Max Speed</span>
-                <span class="slider-value" id="valGpsMaxSpeed">3.0 m/s</span>
+                <span class="slider-value" id="valGpsMaxSpeed">3.0 m/s (Walk)</span>
               </div>
               <input type="range" id="gpsMaxSpeed" min="1.0" max="12.0" step="0.5" value="3.0">
               <div class="slider-rec" style="left:17%; width:25%"></div>
-              <p class="help-text">Rejects GPS jumps that imply impossible speeds. <strong>3</strong> = walking, <strong>5</strong> = running, <strong>10</strong> = cycling.</p>
+              <p class="help-text">Rejects GPS jumps that imply impossible speeds. <strong>Walk</strong> ≈ 3 m/s, <strong>Run</strong> ≈ 5 m/s, <strong>Bike</strong> ≈ 10 m/s.</p>
             </div>
 
             <div class="control-subgroup-title">Display</div>
@@ -395,15 +372,6 @@
               </div>
               <input type="range" id="gpsRDP" min="0" max="20" step="0.5" value="0">
               <p class="help-text">Path simplification (metres). 2–5 m preserves walking-path shape. 0 = off.</p>
-            </div>
-
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>Downsample Path</span>
-                <span class="slider-value" id="valGpsDownsample">off</span>
-              </div>
-              <input type="range" id="gpsDownsample" min="0" max="1" step="1" value="0">
-              <p class="help-text">Downsample to 1 Hz for performance on large tracks. 0 = off, 1 = on.</p>
             </div>
 
           </div>
@@ -492,7 +460,7 @@
               <span class="toggle-label">Snap to Roads &amp; Trails</span>
             </div>
 
-            <div class="slider-group" id="snapRadiusGroup">
+            <div class="slider-group" id="snapRadiusGroup" style="display:none;">
               <div class="slider-label">
                 <span>Snap Radius</span>
                 <span class="slider-value" id="valGpsSnapRadius">25 m</span>

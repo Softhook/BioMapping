@@ -89,7 +89,7 @@ class GSRAnalyzer {
     this._wasDeconv = false;
     this._rawGlobalRange = null;
     this._timelinePointsCache = null;
-    // Memoised stages 1–3 output (filter + decomposition), keyed on the six
+    // Memoised stages 1–3 output (filter + decomposition), keyed on the four
     // params that feed it; see analyze(). Nulled whenever the series pool is
     // rebuilt (raw data changed).
     this._prefixCache = null;
@@ -372,14 +372,14 @@ class GSRAnalyzer {
     this._ensureSeriesPool(this.raw, n);
 
     // ── Stages 1–3: median filter → low-pass → tonic/phasic decomposition ──
-    // Only five params feed this prefix; the ~9 peak-detection / hotspot /
-    // metric-window sliders don't. When none of the five changed since the last
+    // Only four params feed this prefix; the ~9 peak-detection / hotspot /
+    // metric-window sliders don't. When none of the four changed since the last
     // analyze(), the pooled .filtered/.tonic/.phasic arrays (and their cached
     // Y-ranges) are still correct — skip ~25 ms of filtering + decomposition on
     // a 40k-row track and reuse them. Keyed alongside this.raw identity, which
     // _ensureSeriesPool() nulls the cache on.
     const prefixKey = params.medianSize + '|' + params.lpfWindow +
-      '|' + params.tonicWindow + '|' + params.tonicMethod + '|' + params.dwtLevel;
+      '|' + params.tonicWindow + '|' + params.tonicMethod;
 
     let phasicVals;
     if (this._prefixCache && this._prefixCache.key === prefixKey) {

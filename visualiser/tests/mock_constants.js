@@ -24,12 +24,11 @@ module.exports = {
   GSR_DEFAULT: {
     medianSize: 0, lpfWindow: 0.5,
     tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.015,
-    dwtLevel: 6,
     shapeMinRiseTime: 0.3, shapeMaxRiseTime: 4.0,
     shapeMinHalfRecovery: 0.0, shapeMaxHalfRecovery: 7.5,
     shapeMinSnr: 1.5, shapeMaxSkewRatio: 0.0,
     minPeakQuality: 0.0,
-    peakDensityWindow: 60,
+    peakDensityWindow: 10,
     hotspotPercentile: 0.02,
     useDeconvolution: false,
     usePeakProminence: false
@@ -103,7 +102,7 @@ module.exports = {
   },
 
   TEMPORAL_PEAK_DENSITY: {
-    windowSizeSec: 60, sigmaRatio: 0.25, cutoffMultiplier: 3.5, scaleToPerMinute: 60.0
+    windowSizeSec: 10, sigmaRatio: 0.25, cutoffMultiplier: 3.5, scaleToPerMinute: 60.0
   },
 
   PEAK_KDE: {

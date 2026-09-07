@@ -4,7 +4,13 @@ Loose ideas and unscheduled work. Promote anything real to its own doc under `do
 
 ## Priority
 
-- check that the topography surfaces are created correctly. what are the assumtipns. is the z score doen properly?
+
+remove slider 
+GPS Precision (#gpsKalmanR, 0.5–150 m²)
+
+
+
+
 
 - sound annotations -
 Allow people to record little audio snippets attached to peaks and hotspots. Investigate how they could be saved on the server and then played back. Maybe these could be from an audio file recorded at the same time and then timestamped to correlate, or they could be simply looking at the map, pressing a record button over the hotspot 

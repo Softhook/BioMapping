@@ -90,7 +90,7 @@ console.log(`  Parsed ${analyzer.raw.length} samples at ${analyzer.sampleRate.to
 // ════════════════════════════════════════════════════════════════════════════
 //  1. GSR FILTERS & TONIC/PHASIC DECOMPOSITION
 // ════════════════════════════════════════════════════════════════════════════
-console.log('\n── 1. GSR Filter & DWT Decomposition ──');
+console.log('\n── 1. GSR Filter & Tonic/Phasic Decomposition ──');
 
 const gsrRaw = analyzer.raw.map(d => d.val).filter(v => !isNaN(v));
 assert(gsrRaw.length > 100, 'Track contains sufficient raw GSR points');
@@ -108,11 +108,10 @@ assertEq(medResult.length, gsrRaw.length, 'applyMedianFilter preserves length');
 const smoothResult = GsrFilter.applyZeroPhaseMovingAverage(gsrRaw, 10);
 assertEq(smoothResult.length, gsrRaw.length, 'applyZeroPhaseMovingAverage preserves length');
 
-// Run full analysis pipeline with DWT
+// Run full analysis pipeline (percentile baseline)
 const analyzeParams = {
   ...GSR_CONST.GSR_DEFAULT,
-  tonicMethod: 'dwt',
-  dwtLevel: 6,
+  tonicMethod: 'percentile',
   peakThreshold: 0.05
 };
 analyzer.analyze(analyzeParams);
@@ -530,8 +529,7 @@ for (let i = 0; i < Math.min(kernel.length, convResult.length); i++) {
 // 6d. Run full deconvolution on phasic data (without analyze — just the raw deconv)
 const deconvParams = {
   ...GSR_CONST.GSR_DEFAULT,
-  tonicMethod: 'dwt',
-  dwtLevel: 6,
+  tonicMethod: 'percentile',
   peakThreshold: 0.05,
   useDeconvolution: false  // first run without to get phasicVals
 };
@@ -564,8 +562,8 @@ assert(Array.isArray(impulses), 'detectImpulses returns an array');
 console.log(`  Detected ${impulses.length} driver impulses (threshold=0.005 µS, minGap=0.5s)`);
 
 // Impulses should be distributed across the recording, not all clustered
-// at the start (forward-only deconvolution bias).  At least 20 % of
-// impulses must fall in the second half of the recording.
+// at the start (forward-only deconvolution bias).  At least 20 % of impulses
+// must fall in the second half of the recording.
 if (impulses.length >= 4) {
   const halfN = Math.floor(phasicRaw.length / 2);
   const inSecondHalf = impulses.filter(imp => imp.index >= halfN).length;
@@ -601,8 +599,7 @@ deconvAnalyzer2.parseCSV(csvText);
 const deconvPeakThreshold = 0.05;
 const deconvParams2 = {
   ...GSR_CONST.GSR_DEFAULT,
-  tonicMethod: 'dwt',
-  dwtLevel: 6,
+  tonicMethod: 'percentile',
   peakThreshold: deconvPeakThreshold,
   useDeconvolution: true
 };
@@ -726,7 +723,7 @@ assert(deconvAnalyzer2.phasicClean.length === phasicRaw.length, 'phasicClean pop
   // isn't available yet here — check the plain shape-based analyzer instead).
   const shapeAnalyzer = new GSRAnalyzer();
   shapeAnalyzer.parseCSV(csvText);
-  shapeAnalyzer.analyze({ ...GSR_CONST.GSR_DEFAULT, tonicMethod: 'dwt', dwtLevel: 6, peakThreshold: deconvPeakThreshold, useDeconvolution: false });
+  shapeAnalyzer.analyze({ ...GSR_CONST.GSR_DEFAULT, tonicMethod: 'percentile', peakThreshold: deconvPeakThreshold, useDeconvolution: false });
   const badFieldShape = shapeAnalyzer.peaks.some(p => p.salienceScore === undefined || !isFinite(p.salienceScore));
   assertEq(badFieldShape, false, 'Every non-deconvolution peak also has a valid salienceScore (shared method, both modes)');
   console.log(`  Memorable events: ${deconvAnalyzer2.memorableEvents.length}/${deconvAnalyzer2.peaks.length} (decon), ${shapeAnalyzer.memorableEvents.length}/${shapeAnalyzer.peaks.length} (shape-based)`);
@@ -740,8 +737,7 @@ assertEq(deconvAnalyzer2.phasic.length, deconvAnalyzer2.phasicClean.length, 'thi
 // Toggling deconvolution back off should reset driver/clean state to empty.
 const analyzeNoDeconv = {
   ...GSR_CONST.GSR_DEFAULT,
-  tonicMethod: 'dwt',
-  dwtLevel: 6,
+  tonicMethod: 'percentile',
   peakThreshold: deconvPeakThreshold,
   useDeconvolution: false
 };
@@ -771,8 +767,7 @@ function snapshotAnalyzer(a) {
 function paramsFor(decon) {
   return {
     ...GSR_CONST.GSR_DEFAULT,
-    tonicMethod: 'dwt',
-    dwtLevel: 6,
+    tonicMethod: 'percentile',
     peakThreshold: deconvPeakThreshold,
     useDeconvolution: decon,
     minPeakQuality: 0.0,

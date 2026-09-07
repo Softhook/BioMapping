@@ -54,9 +54,8 @@ const GSRStorage = {
       tonicWindow:   parseInt(S.tonicWindow.value),
       peakThreshold: parseFloat(S.peakThreshold.value),
       // Optional sliders — fall back to GSR_DEFAULT (correct values for these keys)
-      dwtLevel:              sliderVal(S.dwtLevel,             D.dwtLevel,     parseInt),
       minPeakQuality:        sliderVal(S.minPeakQuality,       D.minPeakQuality),
-      peakDensityWindow:     sliderVal(S.peakDensityWindow,    D.peakDensityWindow || 60, parseInt),
+      peakDensityWindow:     sliderVal(S.peakDensityWindow,    D.peakDensityWindow || 10, parseInt),
       hotspotPercentile:     sliderVal(S.hotspotPercentile,    (D.hotspotPercentile ? D.hotspotPercentile * 100 : 2.0)) / 100.0,
       // Peak shape criteria — fall back to PEAK_SHAPE (literature-validated defaults).
       // Four of these five (all but shapeMinSnr) get locked to a kernel-canonical
@@ -250,10 +249,14 @@ const GSRStorage = {
     // Restore GSR sliders
     if (gsr.medianSize !== undefined && S.medianSize) S.medianSize.value = gsr.medianSize;
     if (gsr.lpfWindow !== undefined && S.lpfWindow) S.lpfWindow.value = gsr.lpfWindow;
-    if (gsr.tonicMethod !== undefined && S.tonicMethod) S.tonicMethod.value = gsr.tonicMethod;
+    // A retired baseline method (e.g. a preset saved with 'dwt') would be an
+    // invalid <select> value — a DOM no-op that leaves a stale label; ignore it.
+    if (gsr.tonicMethod !== undefined && S.tonicMethod &&
+        ['percentile', 'median', 'lpf'].includes(gsr.tonicMethod)) {
+      S.tonicMethod.value = gsr.tonicMethod;
+    }
     if (gsr.tonicWindow !== undefined && S.tonicWindow) S.tonicWindow.value = gsr.tonicWindow;
     if (gsr.peakThreshold !== undefined && S.peakThreshold) S.peakThreshold.value = gsr.peakThreshold;
-    if (gsr.dwtLevel !== undefined && S.dwtLevel) S.dwtLevel.value = gsr.dwtLevel;
     if (gsr.minPeakQuality !== undefined && S.minPeakQuality) S.minPeakQuality.value = gsr.minPeakQuality;
     if (gsr.peakDensityWindow !== undefined && S.peakDensityWindow) S.peakDensityWindow.value = gsr.peakDensityWindow;
     if (gsr.hotspotPercentile !== undefined && S.hotspotPercentile) {
@@ -302,7 +305,8 @@ const GSRStorage = {
       if (contour.surfaceOpacity !== undefined && C.surfaceOpacity) C.surfaceOpacity.value = contour.surfaceOpacity;
     }
 
-    // Update layout (DWT vs Tonic Window) and shape-slider visibility per detector
+    // Refresh dependent layout: tonic-window slider config + shape-slider
+    // visibility per detector.
     if (typeof GSREvents !== 'undefined') {
       if (typeof GSREvents.updateTonicMethodLayout === 'function') {
         GSREvents.updateTonicMethodLayout();

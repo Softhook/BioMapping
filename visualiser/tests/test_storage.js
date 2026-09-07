@@ -110,7 +110,6 @@ test('readGsrSliderValues: parses mandatory sliders and falls back to GSR_DEFAUL
   assert.strictEqual(result.peakThreshold, 0.02);
 
   // Optional sliders absent -> fall back to GSR_DEFAULT / PEAK_SHAPE.
-  assert.strictEqual(result.dwtLevel, D.dwtLevel);
   assert.strictEqual(result.minPeakQuality, D.minPeakQuality);
   assert.strictEqual(result.hotspotPercentile, D.hotspotPercentile);
   assert.strictEqual(result.shapeMinRiseTime, PS.MIN_RISE_TIME);
@@ -423,7 +422,7 @@ test('applyPreset: writes GSR/GPS/contour values onto the matching slider elemen
   resetGlobals();
   const S = {
     medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'), tonicWindow: el(0),
-    peakThreshold: el(0), dwtLevel: el(0), minPeakQuality: el(0), hotspotPercentile: el(0),
+    peakThreshold: el(0), minPeakQuality: el(0), hotspotPercentile: el(0),
     gpsSmoothing: el(0), gpsKalmanR: el(0),
   };
   const C = { gridResolution: el(0), contourCount: el(0) };
@@ -431,7 +430,7 @@ test('applyPreset: writes GSR/GPS/contour values onto the matching slider elemen
   global.AppState.contourControls = C;
 
   const preset = {
-    gsr: { medianSize: 5, lpfWindow: 0.3, tonicMethod: 'dwt', dwtLevel: 4, hotspotPercentile: 0.03 },
+    gsr: { medianSize: 5, lpfWindow: 0.3, tonicMethod: 'median', hotspotPercentile: 0.03 },
     gps: { smoothing: 0.8, kalmanR: 15 },
     contour: { gridResolution: 30, contourCount: 6 },
   };
@@ -440,8 +439,7 @@ test('applyPreset: writes GSR/GPS/contour values onto the matching slider elemen
   assert.strictEqual(ok, true);
   assert.strictEqual(S.medianSize.value, 5);
   assert.strictEqual(S.lpfWindow.value, 0.3);
-  assert.strictEqual(S.tonicMethod.value, 'dwt');
-  assert.strictEqual(S.dwtLevel.value, 4);
+  assert.strictEqual(S.tonicMethod.value, 'median');
   // hotspotPercentile <= 1.0 -> treated as a fraction, scaled *100 for display
   assert.strictEqual(S.hotspotPercentile.value, 3);
   assert.strictEqual(S.gpsSmoothing.value, 0.8);

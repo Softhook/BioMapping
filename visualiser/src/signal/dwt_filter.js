@@ -1,31 +1,23 @@
 /**
  * Discrete Wavelet Transform (DWT) — Daubechies db3
  * ====================================================
- * Used for tonic/phasic decomposition of GSR signals.
+ * db3 (Daubechies 6-tap wavelet) decomposes a signal into frequency-dyadic
+ * sub-bands.  At each level k:
+ *   Approximation A_k  =  0 … Fs/2^(k+1) Hz   (slow)
+ *   Detail      D_k    =  Fs/2^(k+1) … Fs/2^k Hz  (fast)
  *
- * Theory:
- *   db3 (Daubechies 6-tap wavelet) decomposes a signal into
- *   frequency-dyadic sub-bands.  At each level k:
- *     Approximation A_k  =  0 … Fs/2^(k+1) Hz   (slow / tonic)
- *     Detail      D_k    =  Fs/2^(k+1) … Fs/2^k Hz  (fast / phasic)
+ * A self-contained wavelet library. NOT currently wired into the analysis
+ * pipeline — kept for reuse. `denoise()` is translation-invariant wavelet
+ * shrinkage: soft-thresholding the noise-dominated detail bands suppresses
+ * broadband noise while leaving the approximation band (a signal's slow body)
+ * untouched, so it disturbs sharp edges less than a wider linear low-pass
+ * would. `decompose()` / `reconstructFull()` are the forward / inverse
+ * transform on a mirror-padded, power-of-2 length; round-trip with all bands
+ * recovers the original to machine precision.
  *
- *   For a 10 Hz GSR recording (default level 6):
- *     A₆ = 0–0.078 Hz   →  Tonic SCL
- *     D₂+…+D₆ = 0.078–2.5 Hz  →  Phasic SCRs  (D₁ noise excluded)
- *
- * Strategy for clean GSR decomposition:
- *   The DWT is used ONLY for the tonic estimate (reconstructed from the
- *   approximation coefficients at the deepest level).  The phasic is then
- *   derived by subtraction:  phasic = signal − tonic.
- *
- *   This avoids the wavelet reconstruction ringing that contaminates a
- *   detail-only reconstruction, while still giving a vastly superior tonic
- *   baseline (no phase lag, no SCR bleed-through) compared to sliding-window
- *   methods.
- *
- * Boundary handling: periodic (wrap-around) at the nearest power-of-2 length.
- * This guarantees perfect reconstruction:  decompose → reconstruct (with all
- * components) yields the original signal to machine precision.
+ * A/B tested against the plain 0.5 s moving-average low-pass on the real GSR
+ * track corpus (2026-09): no measurable benefit for SCR peak detection, so it
+ * was not adopted as a pipeline stage.
  */
 
 const DWT = (() => {
@@ -251,89 +243,140 @@ const DWT = (() => {
     return { approximation: current, details, originalLen, padLeft, padRight };
   }
 
+
+  // ── Wavelet-shrinkage denoise (translation-invariant via cycle-spinning) ──
+
+  function _median(arr) {
+    if (arr.length === 0) return 0;
+    const s = Array.prototype.slice.call(arr).sort((a, b) => a - b);
+    const m = s.length >>> 1;
+    return (s.length & 1) ? s[m] : 0.5 * (s[m - 1] + s[m]);
+  }
+
+  /** Robust noise sigma from a detail band: MAD / 0.6745. */
+  function _madSigma(detail) {
+    const abs = new Array(detail.length);
+    for (let i = 0; i < detail.length; i++) abs[i] = Math.abs(detail[i]);
+    return _median(abs) / 0.6745;
+  }
+
+  /** Soft (shrinkage) threshold: pull toward zero by T, clamp at zero. */
+  function _soft(x, T) {
+    const a = Math.abs(x) - T;
+    return a > 0 ? (x < 0 ? -a : a) : 0;
+  }
+
+  /** Circular shift: out[i] = a[(i - k) mod n]  (k > 0 shifts right). */
+  function _roll(a, k) {
+    const n = a.length;
+    if (n === 0) return [];
+    const s = ((k % n) + n) % n;
+    if (s === 0) return Array.prototype.slice.call(a);
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) out[i] = a[(i - s + n) % n];
+    return out;
+  }
+
   /**
-   * Reconstruct from approximation only (all details zeroed), then trim
-   * the mirror padding to return the original-length signal.
+   * BayesShrink threshold for one detail band given the global noise sigma:
+   *   T = σ² / σ_x ,  σ_x = sqrt(max(0, var(detail) − σ²))
+   * A band whose variance does not exceed the noise floor carries no signal
+   * and is killed outright (threshold above every coefficient).
+   */
+  function _bayesShrinkT(detail, sigma) {
+    const n = detail.length;
+    if (n === 0) return 0;
+    let mean = 0;
+    for (let i = 0; i < n; i++) mean += detail[i];
+    mean /= n;
+    let varSum = 0;
+    for (let i = 0; i < n; i++) { const d = detail[i] - mean; varSum += d * d; }
+    const s2 = sigma * sigma;
+    const sigX2 = (varSum / n) - s2;
+    if (sigX2 <= 1e-12) {
+      let mx = 0;
+      for (let i = 0; i < n; i++) { const av = Math.abs(detail[i]); if (av > mx) mx = av; }
+      return mx;
+    }
+    return s2 / Math.sqrt(sigX2);
+  }
+
+  /**
+   * Multi-level inverse: feeds the (possibly thresholded) detail bands back
+   * through _inversePass, then trims the mirror padding. Full inverse of
+   * decompose() — with unmodified coeffs it round-trips to machine precision.
    *
-   * @param {object} coeffs  result of decompose()
+   * @param {object} coeffs  result of decompose() (details may be modified)
    * @param {number} levels
-   * @returns {number[]}  reconstructed signal, length = coeffs.originalLen
+   * @returns {number[]}  length = coeffs.originalLen
    */
-  function reconstructFromApproximation(coeffs, levels) {
+  function reconstructFull(coeffs, levels) {
     let result = coeffs.approximation.slice();
-
     for (let level = levels - 1; level >= 0; level--) {
-      const det = new Array(coeffs.details[level].length).fill(0);
       const lenHere = result.length * 2;
-      result = _inversePass(result, det, lenHere);
+      result = _inversePass(result, coeffs.details[level], lenHere);
     }
-
-    // Trim mirror padding (may be asymmetric when original n was odd)
     const start = coeffs.padLeft;
-    const end = start + coeffs.originalLen;
-    return result.slice(start, end);
+    return result.slice(start, start + coeffs.originalLen);
   }
 
   /**
-   * GSR-specific tonic/phasic decomposition using DWT.
+   * Translation-invariant wavelet-shrinkage denoise (db3, soft threshold,
+   * per-band BayesShrink, cycle-spinning for shift-invariance).
    *
-   * Strategy:
-   *   Tonic  = reconstruct from approximation at deepest level only
-   *   Phasic = signal − tonic    (subtraction, NOT detail-only reconstruction)
+   * The approximation band (≤ ~0.3 Hz at 10 Hz — the SCR body + baseline) is
+   * never touched, which keeps peak amplitudes intact; only the
+   * noise-dominated detail bands are shrunk. 'light' shrinks D1–D2
+   * (≥ ~1.25 Hz), 'strong' shrinks D1–D4 (≥ ~0.3 Hz) with heavier shrinkage
+   * on D1–D2.
    *
-   * This avoids wavelet ringing while giving a vastly superior tonic
-   * baseline compared to sliding-window methods (no phase lag, no SCR
-   * bleed-through, frequency-based separation).
-   *
-   * @param {number[]} signal  GSR values at 10 Hz (µS)
-   * @param {number}   [levels=4]
-   * @returns {{ tonic: number[], phasic: number[] }}
+   * @param {number[]} signal
+   * @param {{sampleRate?: number, mode?: 'off'|'light'|'strong', shifts?: number}} [opts]
+   * @returns {number[]}  same length as signal
    */
-  function analyzeGSR(signal, levels) {
-    if (!levels || levels < 1) levels = 6;
-
-    const minLen = 1 << levels;  // 2^levels
-    if (!signal || signal.length < minLen) {
-      return {
-        tonic: signal ? [...signal] : [],
-        phasic: signal ? new Array(signal.length).fill(0) : []
-      };
+  function denoise(signal, opts) {
+    opts = opts || {};
+    const mode = opts.mode || 'off';
+    const sampleRate = opts.sampleRate || 10;
+    const n = signal ? signal.length : 0;
+    if ((mode !== 'light' && mode !== 'strong') || n === 0) {
+      return signal ? Array.prototype.slice.call(signal) : [];
     }
 
-    const n = signal.length;
-    const coeffs = decompose(signal, levels);
-    const tonic = reconstructFromApproximation(coeffs, levels);
+    // Frequency-anchor the depth so band edges stay fixed in Hz across sample
+    // rates: the deepest detail band bottoms out near ~0.3 Hz. At 10 Hz → 4.
+    const levels = Math.max(3, Math.min(6, Math.round(Math.log2(sampleRate / 0.6))));
+    if (n < (1 << levels)) return Array.prototype.slice.call(signal);
 
-    const phasic = new Array(n);
-    for (let i = 0; i < n; i++) {
-      // Phasic conductance cannot physically be negative — clamp to zero.
-      // DWT subtraction may occasionally dip below zero near sharp transients
-      // or at boundaries; this enforces the physiological constraint.
-      phasic[i] = Math.max(0, signal[i] - tonic[i]);
+    const cfg = (mode === 'strong')
+      ? { bands: [1, 2, 3, 4], mult: (j) => (j <= 2 ? 1.6 : 1.0) }
+      : { bands: [1, 2],       mult: () => 1.0 };
+
+    const K = Math.max(1, (opts.shifts != null ? opts.shifts : 8) | 0);
+
+    // Noise sigma: MAD of the finest detail band from the unshifted transform.
+    const sigma = _madSigma(decompose(signal, levels).details[0]);
+    if (!(sigma > 0)) return Array.prototype.slice.call(signal);
+
+    const acc = new Float64Array(n);
+    for (let s = 0; s < K; s++) {
+      const c = decompose(_roll(signal, s), levels);
+      for (let b = 0; b < cfg.bands.length; b++) {
+        const j = cfg.bands[b];
+        const d = c.details[j - 1];
+        if (!d) continue;
+        const T = _bayesShrinkT(d, sigma) * cfg.mult(j);
+        for (let i = 0; i < d.length; i++) d[i] = _soft(d[i], T);
+      }
+      const rec = _roll(reconstructFull(c, levels), -s);
+      for (let i = 0; i < n; i++) acc[i] += rec[i];
     }
-
-    return { tonic, phasic };
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) out[i] = acc[i] / K;
+    return out;
   }
 
-  /**
-   * Frequency band labels for display / tooltips.
-   */
-  function levelLabels(sampleRateHz, levels) {
-    const labels = [];
-    for (let k = 1; k <= levels; k++) {
-      const lo = sampleRateHz / Math.pow(2, k + 1);
-      const hi = sampleRateHz / Math.pow(2, k);
-      labels.push({
-        level: k,
-        approxBand: `0–${lo.toFixed(2)} Hz`,
-        detailBand: `${lo.toFixed(2)}–${hi.toFixed(2)} Hz`,
-        isNoise: k === 1
-      });
-    }
-    return labels;
-  }
-
-  return { decompose, reconstructFromApproximation, analyzeGSR, levelLabels };
+  return { decompose, reconstructFull, denoise };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {
