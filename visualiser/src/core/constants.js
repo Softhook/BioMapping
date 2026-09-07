@@ -305,6 +305,24 @@ const GSR_CONST = {
     ampWeightMax: 3.0    // ceiling so one extreme outlier can't blow out the whole field
   },
 
+  // ── Stress Places ──────────────────────────────────────────────────────
+  // The map's discrete, clickable "where did responses concentrate" layer
+  // (stress_places.js buildPlaces + map_manager_peaks.js _renderStressPlaces).
+  // A place is a proximity cluster of stress peaks, scored by dwell-normalised
+  // phasic-response energy so "lots of peaks because the walker dawdled here"
+  // doesn't outrank a genuinely arousing spot. mergeM is the single UI slider
+  // (#placeMergeDistance); everything else is derived or fixed.
+  STRESS_PLACES: {
+    mergeM: 35,               // default grouping radius in metres (compactClusters leader radius)
+    minMergeM: 10,            // slider bounds
+    maxMergeM: 120,
+    footprintPadM: 10,        // per-member-peak dwell footprint radius = mergeM/2 + this
+    dwellFloorS: 5,           // floor on dwell seconds so a near-zero dwell can't blow up the rate
+    provisionalMaxTracks: 1,  // collective: a place with <= this many contributing walks renders faint/dashed
+    minMembers: 3,            // drop single-walk clusters smaller than this (kept if >=2 walks agree)
+    maxPlaces: 20             // cap the map to the top-N places by rate
+  },
+
   // ── Overlap-aware path colour ─────────────────────────────────────────
   // Where a walk retraces itself AND the two drawn strokes visually merge at
   // the current zoom, _renderPathSegments colours that spot by the mean of the

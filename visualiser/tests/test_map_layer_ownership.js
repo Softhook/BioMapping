@@ -54,6 +54,20 @@ const SAMPLE_CSV = [
   })
 ].join('\n');
 
+// Four SCRs packed into a ~20 m radius — enough member peaks for one Stress
+// Place to survive GSR_CONST.STRESS_PLACES.minMembers. GPS barely moves
+// (0.00002 deg/sample ≈ 2 m) so compactClusters() groups them all.
+const CLUSTER_GSR_RAW = [].concat(SAMPLE_GSR_RAW, SAMPLE_GSR_RAW, SAMPLE_GSR_RAW, SAMPLE_GSR_RAW);
+const CLUSTER_CSV = [
+  'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m',
+  ...CLUSTER_GSR_RAW.map((g, i) => {
+    const t = (i * 0.1).toFixed(2);
+    const lat = (51.5074 + i * 0.00002).toFixed(6);
+    const lon = (-0.1278 + i * 0.00002).toFixed(6);
+    return `${t},${lat},${lon},1.0,1.5,8,3,0.5,90,${g},3.0`;
+  })
+].join('\n');
+
 const RENDER_KINDS = ['path', 'peak', 'connector', 'hotspot', 'collectivePath', 'collectivePeak', 'collectiveConnector'];
 
 // ── Recording Leaflet mock ─────────────────────────────────────────────────
@@ -965,38 +979,38 @@ test('togglePeakExclusion (ui.js): commits via refreshPeakMarkers, not a full re
 // bootWithRecordingL() (which nulls GSRSpatialClustering out of scope for
 // every other test in this file).
 
-test('updatePeakLabel (ui.js): a label edit leaves existing cluster blob layers untouched by reference', () => {
+test('updatePeakLabel (ui.js): a label edit leaves existing Stress Place layers untouched by reference', () => {
   const { window, mapManager } = bootWithRecordingLClusteringOn();
-  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+  const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
   window.AppState.viewMode = 'single';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
   const clustersBefore = mapManager.clusterLayers.slice();
-  assert.ok(clustersBefore.length > 0, 'fixture renders at least one cluster blob');
+  assert.ok(clustersBefore.length > 0, 'fixture renders at least one Stress Place layer');
 
   window.GSRUI.updatePeakLabel(0, 'Interesting spot');
 
   assert.strictEqual(track.analyzer.peaks[0].label, 'Interesting spot', 'label was actually committed');
   assert.deepStrictEqual(mapManager.clusterLayers, clustersBefore,
-    'a label edit must not recompute cluster blobs — clusterPeaks() input (lat/lon/amplitude) is unaffected by a label');
+    'a label edit must not recompute Stress Places — the clusterer input (lat/lon/amplitude) is unaffected by a label');
 });
 
-test('togglePeakExclusion (ui.js): an exclusion toggle DOES recompute cluster blob layers (clusterPeaks() input changed)', () => {
+test('togglePeakExclusion (ui.js): an exclusion toggle DOES recompute Stress Place layers (clusterer input changed)', () => {
   const { window, mapManager } = bootWithRecordingLClusteringOn();
-  const track = addTrack(window, 't1', 't1.csv', SAMPLE_CSV);
+  const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
   window.AppState.viewMode = 'single';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
   const clustersBefore = mapManager.clusterLayers.slice();
-  assert.ok(clustersBefore.length > 0, 'fixture renders at least one cluster blob');
+  assert.ok(clustersBefore.length > 0, 'fixture renders at least one Stress Place layer');
 
   window.GSRUI.togglePeakExclusion(0);
 
-  // The fixture's one peak just became excluded, so activePeaks is now
-  // empty and no cluster blobs should remain — the important assertion is
-  // that the array was actually touched (recomputed), not left as-is.
+  // Excluding a peak changes the active-peak set that feeds the clusterer, so
+  // the layers must be rebuilt — assert the array was actually touched
+  // (new instances), not reused by reference like the label-edit path.
   assert.notDeepStrictEqual(mapManager.clusterLayers, clustersBefore,
-    'toggling exclusion must recompute cluster blobs, unlike a label edit');
+    'toggling exclusion must recompute Stress Places, unlike a label edit');
 });
 
 test('refreshPeakMarkers({ skipClustering: true }): replaces peak/connector layers exactly like the default call, only clustering differs', () => {

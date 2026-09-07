@@ -91,8 +91,7 @@ const GSRStorage = {
       downsample:            parseInt(S.gpsDownsample ? S.gpsDownsample.value : (D.downsample ? 1 : 0)),
       trackWeight:           parseInt(S.gpsTrackWeight ? S.gpsTrackWeight.value : D.trackWeight),
       peakLatency:           parseFloat(S.gpsPeakLatency ? S.gpsPeakLatency.value : D.peakLatency),
-      clusterProximity:      parseFloat(S.clusterProximity ? S.clusterProximity.value : 35),
-      clusterBoundaryRadius: parseFloat(S.clusterBoundaryRadius ? S.clusterBoundaryRadius.value : 5)
+      placeMergeDistance:    parseFloat(S.placeMergeDistance ? S.placeMergeDistance.value : (GSR_CONST.STRESS_PLACES ? GSR_CONST.STRESS_PLACES.mergeM : 35))
     };
   },
 
@@ -116,8 +115,7 @@ const GSRStorage = {
       downsample: 'gpsDownsample',
       trackWeight: 'gpsTrackWeight',
       peakLatency: 'gpsPeakLatency',
-      clusterProximity: 'clusterProximity',
-      clusterBoundaryRadius: 'clusterBoundaryRadius'
+      placeMergeDistance: 'placeMergeDistance'
     };
 
     for (const [key, val] of Object.entries(gps)) {

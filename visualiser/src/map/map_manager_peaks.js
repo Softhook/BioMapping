@@ -6,12 +6,12 @@
  *
  * Covers the single-track peak dots + labels + latency connectors
  * (_renderPeakMarkers), the memorable-event hotspot stars
- * (_renderHotspotMarkers / _createHotspotMarker), the spatial-cluster blobs
- * (_renderClusters + _getClusteringParams / _meanAmplitude /
- * _severityStyleForCluster), and the collective/multi-track counterparts
+ * (_renderHotspotMarkers / _createHotspotMarker), the Stress Places layer
+ * (_renderStressPlaces + _getClusteringParams / _meanAmplitude / _placeStyle,
+ * scoring in stress_places.js), and the collective/multi-track counterparts
  * (_renderCollectiveTrackPeaks / _renderCollectiveTrackHotspots /
  * refreshCollectivePeakMarkers). renderCollectiveData() (still in map.js) drives
- * the collective ones and the shared clustering pass through the prototype.
+ * the collective ones and the shared Stress Places pass through the prototype.
  *
  * Cartographic label placement + HTML builders live in GSRLabelManager
  * (label_placement.js); peak-popup DOM builders in MapPopups (map_popups.js).
@@ -158,46 +158,77 @@ Object.assign(GSRMapManager.prototype, {
     // skipClustering for the label-edit call site, not the exclusion one.
     if (!options.skipClustering) {
       const activePeaks = allPeaks.filter(ap => !ap.peak.excluded);
-      if (activePeaks.length > 0 && typeof GSRSpatialClustering !== 'undefined') {
+      if (activePeaks.length > 0 && typeof GSRSpatialClustering !== 'undefined' && typeof GSRStressPlaces !== 'undefined') {
+        const trackId = track ? track.id : 'single';
         const ptsForClustering = activePeaks.map(ap => ({
           lat: ap.coords.lat,
           lon: ap.coords.lon,
-          amplitude: ap.peak.amplitude
+          amplitude: ap.peak.amplitude,
+          trackId,
+          time: ap.peak.time,
+          sampleIndex: ap.peak.index
         }));
 
-        // Retrieve dynamic clustering parameters from UI sliders
-        const { boundaryRadius, sigma, effectiveProximity } = this._getClusteringParams();
+        const { mergeM, sigma, blobRadius } = this._getClusteringParams();
 
-        // Mean peak amplitude across this track's active peaks — the reference point that
-        // "severe" and "mild" are measured against, so blob size/color reflect intensity
-        // rather than every cluster looking identical regardless of how bad it was.
+        // Reference amplitude only feeds the cosmetic concave-outline weighting
+        // in getConcaveBlob(); the place score itself is dwell-normalised energy.
         const refAmplitude = this._meanAmplitude(ptsForClustering);
 
-        // Group peaks within selected proximity limit and boundary constraints
-        const clusters = GSRSpatialClustering.clusterPeaks(ptsForClustering, effectiveProximity, boundaryRadius, sigma);
+        // Compact (non-chaining) grouping — see compactClusters() for why
+        // single-linkage was wrong here.
+        const clusters = GSRSpatialClustering.compactClusters(ptsForClustering, mergeM);
+        const places = GSRStressPlaces.buildPlaces(
+          clusters,
+          [{ id: trackId, sampleRate: analyzer.sampleRate, raw: analyzer.raw, phasic: analyzer.phasic }],
+          (typeof GSR_CONST !== 'undefined' ? GSR_CONST.STRESS_PLACES : {})
+        );
 
-        this._renderClusters(clusters, refAmplitude, sigma, boundaryRadius);
+        this._renderStressPlaces(places, {
+          collective: false, activeTrackCount: 1, refAmplitude, sigma, blobRadius
+        });
       }
     }
   },
 
   /**
-   * Render the "hotspot" (memorable-event) marker layer on the map — the small,
-   * amplitude-selected subset of peaks in analyzer.memorableEvents (see
-   * analyzer.js's analyze() "Memorable-event view" section and the graph-panel
-   * equivalent, GSRRenderer.drawHotspotMarkers()).
+   * Render the Stress Places layer: for each ranked place record from
+   * GSRStressPlaces.buildPlaces(), a thin concave outline (cosmetic selection
+   * affordance) plus a numbered P1..Pn badge at the centroid. Both carry the
+   * same tooltip and open MapPopups.buildStressPlacePopup() on click.
    *
-   * Deliberately simpler than _renderPeakMarkers: no text labels, no spatial
-   * clustering, no latency connector lines — just a distinct hotspot-red dot
-   * per hotspot, click-to-focus, and the same popup used for regular peak
-   * markers (since a hotspot IS a peak — analyzer.peaks.indexOf(peak) recovers
-   * its real index for label-editing/exclusion/focus wiring).
+   * Everything is pushed to this.clusterLayers (not a new array) so the
+   * globe3d handoff (globe3d_view.js reads mm.clusterLayers) and the existing
+   * clear paths (map_manager_render.js, clearMap/clearCollectiveLayers) both
+   * keep covering it. Honours this.showClusters exactly as the old blob layer.
+   *
+   * @param {Array<object>} places - Ranked place records.
+   * @param {{collective:boolean, activeTrackCount:number, refAmplitude:number,
+   *   sigma:number, blobRadius:number}} ctx - Render context.
    * @private
    */
-  _renderClusters(clusters, refAmplitude, sigma, boundaryRadius) {
-    clusters.forEach(cluster => {
-      const paths = GSRSpatialClustering.getConcaveBlob(cluster, sigma, boundaryRadius, refAmplitude);
-      const style = this._severityStyleForCluster(cluster, refAmplitude);
+  _renderStressPlaces(places, ctx) {
+    if (!Array.isArray(places) || places.length === 0) return;
+
+    const rates = places.map(p => p.rate).filter(r => isFinite(r));
+    const rateMin = rates.length ? Math.min(...rates) : 0;
+    const rateMax = rates.length ? Math.max(...rates) : 1;
+    const lastIdx = Math.max(1, places.length - 1);
+
+    places.forEach((place, i) => {
+      const style = this._placeStyle(place, ctx, rateMin, rateMax);
+
+      // The badge encodes RANK (P1 = biggest/darkest) — a channel separate from
+      // the outline, which encodes inter-track agreement (collective) or rate
+      // (single). places is already sorted best-first.
+      const rankRatio = 1 - i / lastIdx;               // 1 at P1 -> 0 at Pn
+      const badgePx = Math.round(18 + rankRatio * 12); // 18..30 px
+      const badgeColor = `hsl(${18 - rankRatio * 18}, ${55 + rankRatio * 35}%, ${58 - rankRatio * 22}%)`;
+      const badgeFontRem = (0.6 + rankRatio * 0.18).toFixed(2);
+
+      const paths = GSRSpatialClustering.getConcaveBlob(
+        place.cluster, ctx.sigma, ctx.blobRadius, ctx.refAmplitude
+      );
       paths.forEach(path => {
         const latlngs = path.map(p => [p.lat, p.lon]);
         const poly = L.polygon(latlngs, {
@@ -205,14 +236,31 @@ Object.assign(GSRMapManager.prototype, {
           weight: style.weight,
           fillColor: style.color,
           fillOpacity: style.fillOpacity,
-          dashArray: '4, 6',
+          dashArray: style.dashArray,
           lineCap: 'round',
           lineJoin: 'round'
         });
         poly.bindTooltip(style.tooltip, { sticky: true, className: 'contour-tooltip-label' });
+        poly.bindPopup(() => MapPopups.buildStressPlacePopup(place, ctx));
+        poly._gsrKind = 'stressPlace';
         if (this.showClusters) poly.addTo(this.map);
         this.clusterLayers.push(poly);
       });
+
+      const badge = L.marker([place.lat, place.lon], {
+        icon: L.divIcon({
+          className: 'stress-place-badge-wrap',
+          html: `<span class="stress-place-badge" style="--place-color:${badgeColor};width:${badgePx}px;height:${badgePx}px;font-size:${badgeFontRem}rem">${place.label}</span>`,
+          iconSize: [badgePx, badgePx],
+          iconAnchor: [badgePx / 2, badgePx / 2]
+        })
+      });
+      badge.setZIndexOffset(1200 + Math.round(rankRatio * 100));
+      badge.bindTooltip(style.tooltip, { sticky: true, className: 'contour-tooltip-label' });
+      badge.bindPopup(() => MapPopups.buildStressPlacePopup(place, ctx));
+      badge._gsrKind = 'stressPlace';
+      if (this.showClusters) badge.addTo(this.map);
+      this.clusterLayers.push(badge);
     });
   },
 
@@ -337,7 +385,10 @@ Object.assign(GSRMapManager.prototype, {
           activePeaksSink.push({
             lat: coords.lat,
             lon: coords.lon,
-            amplitude: peak.amplitude
+            amplitude: peak.amplitude,
+            trackId: track.id,
+            time: peak.time,
+            sampleIndex: peak.index
           });
         }
       }
@@ -498,54 +549,65 @@ Object.assign(GSRMapManager.prototype, {
   },
 
   /**
-   * Derive a visual style for a cluster blob based on how severe its peaks are relative to
-   * the dataset's typical (mean) peak amplitude. Mild clusters render as small, faint amber
-   * outlines; severe clusters render as bold, saturated deep-red outlines — so a glance at
-   * the map distinguishes "notable" from "genuinely alarming" instead of every cluster
-   * looking the same regardless of intensity.
+   * Outline style for one Stress Place (the numbered badge is styled separately
+   * by rank in _renderStressPlaces).
+   *
+   * Collective view (2+ active tracks): the ramp is driven by inter-track
+   * *agreement* — trackCount / activeTrackCount — so a spot several independent
+   * walkers reacted to reads as strong, and a one-walker place renders faint
+   * and dashed ("provisional").
+   *
+   * Single-track view (or a lone collective track): the ramp is the
+   * dwell-normalised `rate`, min→max-normalised across the places in this
+   * render, amber → red.
    * @private
    */
-  _severityStyleForCluster(cluster, refAmplitude) {
-    const amps = cluster.map(p => p.amplitude || 0);
-    const maxAmp = amps.length ? Math.max(...amps) : 0;
-    let relMax = null;
-    let ratio = 0.5; // fallback mid-intensity styling if no reference amplitude available
-    if (refAmplitude > 0) {
-      relMax = maxAmp / refAmplitude;
-      // Map relative severity (~0.3x-3x the dataset average peak) onto a 0..1 visual band.
-      ratio = Math.max(0, Math.min(1, (relMax - 0.3) / (3 - 0.3)));
+  _placeStyle(place, ctx, rateMin, rateMax) {
+    const multiTrack = ctx.collective && ctx.activeTrackCount > 1;
+    let ratio;
+    if (multiTrack) {
+      ratio = Math.max(0, Math.min(1, place.trackCount / ctx.activeTrackCount));
+    } else {
+      const span = rateMax - rateMin;
+      ratio = span > 1e-9 ? Math.max(0, Math.min(1, (place.rate - rateMin) / span)) : 0.5;
     }
 
-    const hue = 40 - ratio * 40;     // 40° amber  -> 0° red
-    const sat = 75 + ratio * 20;     // 75%        -> 95%
-    const light = 58 - ratio * 15;   // 58% (pale) -> 43% (deep)
+    const provisional = multiTrack && place.provisional;
+    const hue = 40 - ratio * 40;     // amber -> red
+    const sat = 75 + ratio * 20;
+    const light = 58 - ratio * 15;
     const color = `hsl(${hue}, ${sat}%, ${light}%)`;
-    const fillOpacity = 0.08 + ratio * 0.42;
-    const weight = 1.5 + ratio * 2.5;
-    const peakWord = cluster.length === 1 ? 'peak' : 'peaks';
-    const severityLabel = relMax === null ? '' : ` · ${relMax.toFixed(2)}x avg severity`;
-    const tooltip = `${cluster.length} ${peakWord}${severityLabel}`;
+    const fillOpacity = provisional ? 0.05 : 0.10 + ratio * 0.35;
+    const weight = provisional ? 1 : 1.5 + ratio * 2.5;
+    const dashArray = provisional ? '2, 6' : '4, 6';
 
-    return { color, fillOpacity, weight, tooltip, ratio };
+    const responses = `${place.memberCount} ${place.memberCount === 1 ? 'response' : 'responses'}`;
+    const walks = multiTrack ? ` · ${place.trackCount}/${ctx.activeTrackCount} walks` : '';
+    const prov = provisional ? ' · provisional' : '';
+    const tooltip = `${place.label}${walks} · ${responses} · ${place.rate.toFixed(2)} µS·s/min${prov}`;
+
+    return { color, fillOpacity, weight, dashArray, tooltip, ratio };
   },
 
   /**
-   * Helper to retrieve validated clustering configuration parameters from sliders.
-   * Ensures the proximity is mathematically constrained by the boundary radius to prevent visual overlaps.
-   *
+   * Read the single "Place Merge Distance" slider (#placeMergeDistance) and
+   * derive the cosmetic outline params. mergeM is the single-linkage grouping
+   * epsilon; sigma / blobRadius only shape the concave outline in
+   * getConcaveBlob(), not the place score.
    * @private
    */
   _getClusteringParams() {
-    let proximity = AppState.sliders.clusterProximity ? parseFloat(AppState.sliders.clusterProximity.value) : 35;
-    if (isNaN(proximity)) proximity = 35;
-    let boundaryRadius = AppState.sliders.clusterBoundaryRadius ? parseFloat(AppState.sliders.clusterBoundaryRadius.value) : 5;
-    if (isNaN(boundaryRadius)) boundaryRadius = 5;
+    const C = (typeof GSR_CONST !== 'undefined' && GSR_CONST.STRESS_PLACES) ? GSR_CONST.STRESS_PLACES : {};
+    const fallback = C.mergeM || 35;
+    let mergeM = AppState.sliders.placeMergeDistance
+      ? parseFloat(AppState.sliders.placeMergeDistance.value)
+      : fallback;
+    if (isNaN(mergeM)) mergeM = fallback;
 
     return {
-      proximity,
-      boundaryRadius,
-      sigma: boundaryRadius * 0.83,
-      effectiveProximity: proximity
+      mergeM,
+      sigma: mergeM * 0.35,
+      blobRadius: mergeM * 0.5
     };
   }
 

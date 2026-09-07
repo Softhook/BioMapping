@@ -42,6 +42,100 @@ class GSRSpatialClustering {
 
 
   /**
+   * Compact spatial clustering for the Stress Places layer.
+   *
+   * Density-ordered leader assignment: every peak's local density (neighbours
+   * within `radiusMeters`) is computed, then peaks are visited densest-first —
+   * each still-unassigned peak seeds a place and claims every still-unassigned
+   * peak within `radiusMeters` of it.
+   *
+   * Unlike clusterPeaks()'s single-linkage, this CANNOT chain: a place spans at
+   * most one `radiusMeters` ball (diameter <= 2 * radiusMeters), so a long
+   * dense corridor walked by many tracks breaks into a row of compact
+   * radius-sized "beads" instead of collapsing into one monster cluster whose
+   * centroid lands off every path. That centroid-off-the-path failure was what
+   * made large clusters score zero dwell/energy in stress_places.js.
+   *
+   * @param {Array<{lat: number, lon: number}>} peaks
+   * @param {number} radiusMeters - Neighbourhood radius (the UI merge distance).
+   * @returns {Array<Array<object>>} Clusters of the original peak objects.
+   */
+  static compactClusters(peaks, radiusMeters = 35) {
+    if (!peaks || peaks.length === 0) return [];
+    const n = peaks.length;
+    const R = (isNaN(parseFloat(radiusMeters)) || parseFloat(radiusMeters) <= 0)
+      ? 35 : parseFloat(radiusMeters);
+
+    // Project to a local metric plane (metres) centred on the mean position.
+    let latSum = 0, lonSum = 0;
+    for (let i = 0; i < n; i++) { latSum += parseFloat(peaks[i].lat); lonSum += parseFloat(peaks[i].lon); }
+    const latMid = latSum / n;
+    const lonMid = lonSum / n;
+    const scale = GSRSpatialClustering._getGeodesicScale(latMid);
+
+    const x = new Float64Array(n);
+    const y = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      x[i] = (parseFloat(peaks[i].lon) - lonMid) * scale.degToMeterLon;
+      y[i] = (parseFloat(peaks[i].lat) - latMid) * scale.degToMeterLat;
+    }
+
+    // Uniform grid index, cell = R, so a neighbour query only scans a 3x3 block.
+    const cell = R;
+    const grid = new Map();
+    for (let i = 0; i < n; i++) {
+      const k = Math.floor(x[i] / cell) + '|' + Math.floor(y[i] / cell);
+      let arr = grid.get(k);
+      if (!arr) { arr = []; grid.set(k, arr); }
+      arr.push(i);
+    }
+    const R2 = R * R;
+    const neighbours = (i) => {
+      const cx = Math.floor(x[i] / cell);
+      const cy = Math.floor(y[i] / cell);
+      const out = [];
+      for (let gx = cx - 1; gx <= cx + 1; gx++) {
+        for (let gy = cy - 1; gy <= cy + 1; gy++) {
+          const arr = grid.get(gx + '|' + gy);
+          if (!arr) continue;
+          for (let a = 0; a < arr.length; a++) {
+            const j = arr[a];
+            const dx = x[j] - x[i];
+            const dy = y[j] - y[i];
+            if (dx * dx + dy * dy <= R2) out.push(j);
+          }
+        }
+      }
+      return out;
+    };
+
+    const density = new Int32Array(n);
+    const neigh = new Array(n);
+    for (let i = 0; i < n; i++) {
+      neigh[i] = neighbours(i);
+      density[i] = neigh[i].length;
+    }
+
+    const order = Array.from({ length: n }, (_, i) => i)
+      .sort((a, b) => (density[b] - density[a]) || (a - b));
+
+    const assigned = new Uint8Array(n);
+    const clusters = [];
+    for (let o = 0; o < n; o++) {
+      const seed = order[o];
+      if (assigned[seed]) continue;
+      const members = [];
+      const cand = neigh[seed];
+      for (let c = 0; c < cand.length; c++) {
+        const j = cand[c];
+        if (!assigned[j]) { assigned[j] = 1; members.push(peaks[j]); }
+      }
+      if (members.length) clusters.push(members);
+    }
+    return clusters;
+  }
+
+  /**
    * Group peaks into clusters based on proximity.
    * Any two peaks within `maxDistanceMeters` of each other will be in the same cluster.
    *

@@ -122,6 +122,80 @@ test('clusterPeaks: does not mutate the input peak objects', () => {
   assert.deepStrictEqual(peaks, snapshot);
 });
 
+// ─── compactClusters ─────────────────────────────────────────────────────
+
+test('compactClusters: empty / null input returns []', () => {
+  assert.deepStrictEqual(GSRSpatialClustering.compactClusters([]), []);
+  assert.deepStrictEqual(GSRSpatialClustering.compactClusters(null), []);
+});
+
+test('compactClusters: a single point is its own cluster', () => {
+  const clusters = GSRSpatialClustering.compactClusters([{ lat: 51.5, lon: -0.1 }], 35);
+  assert.strictEqual(clusters.length, 1);
+  assert.strictEqual(clusters[0].length, 1);
+});
+
+test('compactClusters: points within the radius group; points beyond it split', () => {
+  const near = [
+    { lat: 0, lon: 0 },
+    { lat: 20 / METERS_PER_DEG_LAT, lon: 0 },
+    { lat: 30 / METERS_PER_DEG_LAT, lon: 0 }
+  ];
+  assert.strictEqual(GSRSpatialClustering.compactClusters(near, 35).length, 1);
+
+  const far = [
+    { lat: 0, lon: 0 },
+    { lat: 500 / METERS_PER_DEG_LAT, lon: 0 }
+  ];
+  assert.strictEqual(GSRSpatialClustering.compactClusters(far, 35).length, 2);
+});
+
+test('compactClusters: every peak is assigned exactly once (partition)', () => {
+  const peaks = [];
+  for (let i = 0; i < 60; i++) {
+    peaks.push({ lat: (i * 12) / METERS_PER_DEG_LAT, lon: ((i % 5) * 8) / METERS_PER_DEG_LAT, id: i });
+  }
+  const clusters = GSRSpatialClustering.compactClusters(peaks, 35);
+  const seen = new Set();
+  for (const c of clusters) for (const p of c) {
+    assert.ok(!seen.has(p.id), `peak ${p.id} appears in two clusters`);
+    seen.add(p.id);
+  }
+  assert.strictEqual(seen.size, peaks.length);
+});
+
+test('compactClusters: a long dense corridor does NOT chain into one cluster', () => {
+  // 120 peaks over ~600 m at 5 m spacing — single-linkage welds this into one
+  // chain; compactClusters must break it into compact beads, each spanning at
+  // most ~2x the radius.
+  const R = 35;
+  const peaks = [];
+  for (let i = 0; i < 120; i++) peaks.push({ lat: (i * 5) / METERS_PER_DEG_LAT, lon: 0 });
+  const clusters = GSRSpatialClustering.compactClusters(peaks, R);
+
+  assert.ok(clusters.length >= 5, `expected several beads, got ${clusters.length}`);
+  for (const c of clusters) {
+    let min = Infinity, max = -Infinity;
+    for (const p of c) { const m = p.lat * METERS_PER_DEG_LAT; if (m < min) min = m; if (m > max) max = m; }
+    assert.ok(max - min <= 2 * R + 1e-6, `bead spans ${(max - min).toFixed(1)} m, > 2R`);
+  }
+});
+
+test('compactClusters: deterministic — same input gives the same partition', () => {
+  const peaks = [];
+  for (let i = 0; i < 40; i++) peaks.push({ lat: (i * 9) / METERS_PER_DEG_LAT, lon: ((i * 7) % 30) / METERS_PER_DEG_LAT });
+  const a = GSRSpatialClustering.compactClusters(peaks, 35).map(c => c.length);
+  const b = GSRSpatialClustering.compactClusters(peaks, 35).map(c => c.length);
+  assert.deepStrictEqual(a, b);
+});
+
+test('compactClusters: does not mutate the input peak objects', () => {
+  const peaks = [{ lat: 51.5, lon: -0.1, amplitude: 2 }, { lat: 51.50001, lon: -0.1, amplitude: 3 }];
+  const snapshot = JSON.parse(JSON.stringify(peaks));
+  GSRSpatialClustering.compactClusters(peaks, 35);
+  assert.deepStrictEqual(peaks, snapshot);
+});
+
 // ─── relativeAmplitudeWeight ─────────────────────────────────────────────
 
 test('relativeAmplitudeWeight: missing/non-positive refAmplitude returns unweighted 1', () => {

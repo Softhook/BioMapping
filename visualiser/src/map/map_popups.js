@@ -204,8 +204,66 @@ const MapPopups = {
       trackId:     track.id,
       extraClass:  'compact'
     });
+  },
+
+  /**
+   * Popup for a Stress Place (map_manager_peaks.js _renderStressPlaces). Shows
+   * the dwell-normalised score plus the aggregates behind it and, when OSM
+   * enrichment has run, the street context at the place centroid.
+   * @param {Object} place - Record from GSRStressPlaces.buildPlaces().
+   * @param {{collective:boolean, activeTrackCount:number}} ctx
+   */
+  buildStressPlacePopup(place, ctx) {
+    const multiTrack = ctx && ctx.collective && ctx.activeTrackCount > 1;
+
+    const container = L.DomUtil.create('div');
+    container.className = 'map-popup-card compact';
+
+    const headerRow = L.DomUtil.create('div', 'popup-header-row', container);
+    L.DomUtil.create('h4', '', headerRow).textContent =
+      `${place.label} — ${place.memberCount} ${place.memberCount === 1 ? 'response' : 'responses'}`;
+
+    const table = L.DomUtil.create('table', 'popup-table', container);
+    const row = (k, v) => {
+      const tr = L.DomUtil.create('tr', '', table);
+      L.DomUtil.create('td', '', tr).textContent = k;
+      L.DomUtil.create('td', '', tr).textContent = v;
+    };
+
+    if (multiTrack) {
+      row('Walks:', `${place.trackCount} of ${ctx.activeTrackCount}${place.provisional ? ' (provisional)' : ''}`);
+    }
+    row('Arousal rate:', `${place.rate.toFixed(2)} µS·s/min`);
+    row('Response energy:', `${place.energy.toFixed(2)} µS·s`);
+    row('Dwell:', formatMMSS(place.dwellSeconds));
+    row('Peak amplitude:', `${place.meanAmp.toFixed(3)} µS mean / ${place.maxAmp.toFixed(3)} µS max`);
+    if (place.firstTime != null) row('First visit:', formatMMSS(place.firstTime));
+
+    if (place.osm) {
+      L.DomUtil.create('div', 'popup-subhead', container).textContent = 'Street context';
+      const t2 = L.DomUtil.create('table', 'popup-table', container);
+      const row2 = (k, v) => {
+        const tr = L.DomUtil.create('tr', '', t2);
+        L.DomUtil.create('td', '', tr).textContent = k;
+        L.DomUtil.create('td', '', tr).textContent = v;
+      };
+      if (place.osm.roadClass != null) row2('Road class:', String(place.osm.roadClass));
+      if (place.osm.distGreen != null) row2('Dist. to green:', `${Math.round(place.osm.distGreen)} m`);
+      if (place.osm.canopyPct != null) row2('Tree canopy:', `${place.osm.canopyPct.toFixed(0)} %`);
+    } else {
+      L.DomUtil.create('div', 'popup-note', container).textContent =
+        'Run OSM enrichment for street context.';
+    }
+
+    return container;
   }
 };
+
+function formatMMSS(seconds) {
+  const s = Math.max(0, Math.round(Number(seconds) || 0));
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, '0')}`;
+}
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { MapPopups };

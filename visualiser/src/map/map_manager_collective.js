@@ -140,14 +140,28 @@ Object.assign(GSRMapManager.prototype, {
     }
     this._updateRfFluidButtonState(activeTracks.some(t => t.analyzer && t.analyzer.hasRfData));
 
-    // Render collective global clusters across all active tracks
-    if (allActivePeaksAcrossTracks.length > 0 && typeof GSRSpatialClustering !== 'undefined') {
-      // Retrieve dynamic clustering parameters from UI sliders
-      const { boundaryRadius, sigma, effectiveProximity } = this._getClusteringParams();
-
+    // Render collective Stress Places across all active tracks
+    if (allActivePeaksAcrossTracks.length > 0
+        && typeof GSRSpatialClustering !== 'undefined'
+        && typeof GSRStressPlaces !== 'undefined') {
+      const { mergeM, sigma, blobRadius } = this._getClusteringParams();
       const refAmplitude = this._meanAmplitude(allActivePeaksAcrossTracks);
-      const clusters = GSRSpatialClustering.clusterPeaks(allActivePeaksAcrossTracks, effectiveProximity, boundaryRadius, sigma);
-      this._renderClusters(clusters, refAmplitude, sigma, boundaryRadius);
+
+      const scoreTracks = activeTracks.map(t => ({
+        id: t.id,
+        sampleRate: t.analyzer && t.analyzer.sampleRate,
+        raw: t.analyzer && t.analyzer.raw,
+        phasic: t.analyzer && t.analyzer.phasic
+      }));
+
+      const clusters = GSRSpatialClustering.compactClusters(allActivePeaksAcrossTracks, mergeM);
+      const places = GSRStressPlaces.buildPlaces(
+        clusters, scoreTracks,
+        (typeof GSR_CONST !== 'undefined' ? GSR_CONST.STRESS_PLACES : {})
+      );
+      this._renderStressPlaces(places, {
+        collective: true, activeTrackCount: activeTracks.length, refAmplitude, sigma, blobRadius
+      });
     }
 
     // 3. Zoom and Pan Map to fit collective bounding envelope — but only when the active

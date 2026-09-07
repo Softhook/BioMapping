@@ -286,24 +286,15 @@
               <p class="help-text">Max rise/recovery ratio. Classical SCRs rise fast, decay slow. Set to 0 = off.</p>
             </div>
 
-            <div class="control-subgroup-title">Spatial Clustering</div>
+            <div class="control-subgroup-title">Stress Places</div>
 
             <div class="slider-group">
               <div class="slider-label">
-                <span>Cluster Proximity Limit</span>
-                <span class="slider-value" id="valClusterProximity">35 m</span>
+                <span>Place Merge Distance</span>
+                <span class="slider-value" id="valPlaceMergeDistance">35 m</span>
               </div>
-              <input type="range" id="clusterProximity" min="5" max="150" step="5" value="35">
-              <p class="help-text">Proximity threshold in metres to group nearby stress hotspots into a single cluster.</p>
-            </div>
-
-            <div class="slider-group">
-              <div class="slider-label">
-                <span>Cluster Boundary Radius</span>
-                <span class="slider-value" id="valClusterBoundaryRadius">5 m</span>
-              </div>
-              <input type="range" id="clusterBoundaryRadius" min="1" max="80" step="1" value="5">
-              <p class="help-text">Radius of influence in metres around individual peaks that defines the outer cluster boundary shape.</p>
+              <input type="range" id="placeMergeDistance" min="10" max="120" step="5" value="35">
+              <p class="help-text">Group stress responses into one place when they fall within this distance of each other. Each place is scored by response energy per unit dwell time; in the collective view it is styled by how many walks agree.</p>
             </div>
           </div>
         </section>
@@ -834,7 +825,7 @@
                 <button class="btn btn-outline active" id="btnToggleMapPeaks">Peaks</button>
                 <button class="btn btn-outline active" id="btnToggleMapHotspots">Hotspots</button>
                 <button class="btn btn-outline active" id="btnToggleMapLabels">Labels</button>
-                <button class="btn btn-outline active" id="btnToggleMapClusters">Clusters</button>
+                <button class="btn btn-outline active" id="btnToggleMapClusters">Places</button>
                 <button class="btn btn-outline" id="btnToggleOsmShapes" style="display: none;" title="Toggle OSM layers (2D shapes / 3D buildings)">OSM</button>
                 <button class="btn btn-outline" id="btnToggleNdviLayer" title="Toggle Sentinel-2 NDVI satellite tile layer">NDVI</button>
                 <!-- Collective-only -->
@@ -1112,6 +1103,7 @@
   <script src="src/render/marching_squares.js"></script>
   <script src="src/map/hillshade.js"></script>
   <script src="src/spatial/spatial_clustering.js"></script>
+  <script src="src/spatial/stress_places.js"></script>
   <script src="src/spatial/collective_manager.js"></script>
   <script src="src/gps/gps_filter.js"></script>
   <script src="src/map/map_colors.js"></script>

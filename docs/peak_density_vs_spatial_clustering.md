@@ -83,6 +83,27 @@ The goal of introducing these advanced metrics and model frameworks is to direct
 > discrete prominence markers as the clickable annotation layer (§5A / §8
 > Feature A), where each pin is inspected individually and marker fidelity
 > matters.
+>
+> **Update (2026-09-07) — the cluster-blob layer became "Stress Places".** The
+> old decorative concave blob (two abstract sliders, severity = loudest member
+> peak vs mean) was redesigned into a discrete, clickable place layer that acts
+> on this section's own recommendation: `src/spatial/stress_places.js`
+> `buildPlaces()` scores each place by **dwell-normalised rectified
+> phasic-driver energy** — Σ max(0, phasic) dt accumulated by the contributing
+> walk(s) within a small footprint of any member peak, ÷ time spent there, ×60
+> (µS·s/min). Places are ranked by that rate → `P1..Pn` (P1 = highest); the map
+> is capped to the top 20 and single-walk clusters below 3 peaks are dropped as
+> detector noise (kept if ≥2 walks agree). In the collective view the outline is
+> styled by **inter-track agreement**; a one-walk place renders faint and dashed
+> ("provisional"); the badge encodes rank.
+>
+> Grouping is `GSRSpatialClustering.compactClusters()` — density-ordered leader
+> assignment at one radius (`#placeMergeDistance`), **not** single-linkage. The
+> first cut used single-linkage and it chained: 11 overlapping urban walks
+> welded the shared corridor into one 2000-peak cluster whose centroid landed
+> off every path, so the (then centroid-circle) dwell/energy scan returned zero
+> and the monster sorted last. `compactClusters` caps a place at one radius-ball
+> (diameter ≤ 2·radius), so a corridor becomes a row of compact "beads" instead.
 
 ### Core Goals & Advantages of Temporal Peak Density (PPM):
 * **Moving from "Binary Sparks" to "Sustained Stress":** Traditional peak-counting treats stress as a series of isolated, binary events (e.g. *"a peak happened here"*). It ignores the user's overall state of vigilance. Temporal density (PPM) quantifies *state vigilance*—differentiating between a participant who had one isolated spike in a park and one who is in a high-vigilance flurry of spikes (e.g., $>15\text{ PPM}$) in a crowded junction.

@@ -31,7 +31,7 @@ const GSREvents = {
       'shapeMinSnr', 'shapeMaxSkewRatio',
       'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsTrackWeight', 'gpsPeakLatency',
       'gpsSnapToRoads', 'gpsSnapRadius',
-      'clusterProximity', 'clusterBoundaryRadius',
+      'placeMergeDistance',
       'graphView', 'useDeconvolution', 'usePeakProminence'
     ];
     for (const key of sliderKeys) {
@@ -501,9 +501,8 @@ const GSREvents = {
     GSREvents.bindGpsSlider('gpsRDP',         'valGpsRDP',         v => v === 0 ? 'off' : `${v} m`);
     GSREvents.bindGpsSlider('gpsTrackWeight', 'valGpsTrackWeight', v => `${v} px`);
 
-    // ── Spatial Clustering slider bindings ──────────────────────────────────
-    GSREvents.bindGpsSlider('clusterProximity', 'valClusterProximity', v => `${v} m`);
-    GSREvents.bindGpsSlider('clusterBoundaryRadius', 'valClusterBoundaryRadius', v => `${v} m`);
+    // ── Stress Places slider binding ───────────────────────────────────────
+    GSREvents.bindGpsSlider('placeMergeDistance', 'valPlaceMergeDistance', v => `${v} m`);
 
     // ── Snap radius slider ───────────────────────────────────────────────────
     // Re-evaluates road snapping locally from cached OSM data when released.
@@ -1313,8 +1312,7 @@ const GSREvents = {
       gpsTrackWeight: v => `${v} px`,
       gpsPeakLatency: v => `${v.toFixed(1)} s`,
       gpsSnapRadius:  v => `${v} m`,
-      clusterProximity: v => `${v} m`,
-      clusterBoundaryRadius: v => `${v} m`
+      placeMergeDistance: v => `${v} m`
     };
 
     for (const [id, fmt] of Object.entries(gpsFormatters)) {

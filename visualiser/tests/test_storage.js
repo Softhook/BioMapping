@@ -179,8 +179,7 @@ test('readGpsSliderValues: falls back to GPS_DEFAULT for every field when slider
   assert.strictEqual(result.downsample, D.downsample ? 1 : 0);
   assert.strictEqual(result.trackWeight, D.trackWeight);
   assert.strictEqual(result.peakLatency, D.peakLatency);
-  assert.strictEqual(result.clusterProximity, 35);
-  assert.strictEqual(result.clusterBoundaryRadius, 5);
+  assert.strictEqual(result.placeMergeDistance, 35);
 });
 
 test('readGpsSliderValues: reads values from present sliders', () => {
@@ -189,7 +188,7 @@ test('readGpsSliderValues: reads values from present sliders', () => {
     gpsSmoothing: el(0.9), gpsKalmanR: el(20), gpsMaxHdop: el(5),
     gpsMaxSpeed: el(4), gpsRDP: el(1.5), gpsDownsample: el(1),
     gpsTrackWeight: el(8), gpsPeakLatency: el(3),
-    clusterProximity: el(50), clusterBoundaryRadius: el(10),
+    placeMergeDistance: el(50),
   };
   const result = GSRStorage.readGpsSliderValues();
   assert.strictEqual(result.smoothing, 0.9);
@@ -200,8 +199,7 @@ test('readGpsSliderValues: reads values from present sliders', () => {
   assert.strictEqual(result.downsample, 1);
   assert.strictEqual(result.trackWeight, 8);
   assert.strictEqual(result.peakLatency, 3);
-  assert.strictEqual(result.clusterProximity, 50);
-  assert.strictEqual(result.clusterBoundaryRadius, 10);
+  assert.strictEqual(result.placeMergeDistance, 50);
 });
 
 // ── GSRStorage.readContourSliderValues() ────────────────────────────────
@@ -573,8 +571,7 @@ test('writeGpsSliderValues: sets GPS slider values and handles mapped keys', () 
     gpsDownsample: el(0),
     gpsTrackWeight: el(0),
     gpsPeakLatency: el(0),
-    clusterProximity: el(0),
-    clusterBoundaryRadius: el(0),
+    placeMergeDistance: el(0),
   };
   global.AppState.sliders = S;
 
@@ -587,8 +584,7 @@ test('writeGpsSliderValues: sets GPS slider values and handles mapped keys', () 
     downsample: 1,
     trackWeight: 3,
     peakLatency: 2.0,
-    clusterProximity: 40,
-    clusterBoundaryRadius: 8
+    placeMergeDistance: 40
   });
 
   assert.strictEqual(S.gpsSmoothing.value, 0.8);
@@ -599,7 +595,6 @@ test('writeGpsSliderValues: sets GPS slider values and handles mapped keys', () 
   assert.strictEqual(S.gpsDownsample.value, 1);
   assert.strictEqual(S.gpsTrackWeight.value, 3);
   assert.strictEqual(S.gpsPeakLatency.value, 2.0);
-  assert.strictEqual(S.clusterProximity.value, 40);
-  assert.strictEqual(S.clusterBoundaryRadius.value, 8);
+  assert.strictEqual(S.placeMergeDistance.value, 40);
 });
 

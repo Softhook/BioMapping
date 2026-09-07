@@ -109,6 +109,12 @@ module.exports = {
     sigma: 15, ampWeightMin: 0.55, ampWeightMax: 3.0
   },
 
+  STRESS_PLACES: {
+    mergeM: 35, minMergeM: 10, maxMergeM: 120,
+    footprintPadM: 10, dwellFloorS: 5, provisionalMaxTracks: 1,
+    minMembers: 3, maxPlaces: 20
+  },
+
   PATH_OVERLAP: {
     widthFactor: 1.0, maxRadiusM: 60, revisitGapS: 15
   },

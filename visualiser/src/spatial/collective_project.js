@@ -42,7 +42,7 @@ const GSRCollectiveProject = {
   // track's GSR/GPS processing — safe to restore globally without
   // conflicting with each track's own per-track filterParams/gpsFilterParams
   // (which travel with that track's CSV instead, per the doc comment above).
-  COLLECTIVE_SLIDER_KEYS: ['gpsPeakLatency', 'clusterProximity', 'clusterBoundaryRadius'],
+  COLLECTIVE_SLIDER_KEYS: ['gpsPeakLatency', 'placeMergeDistance'],
   CONTOUR_KEYS: [
     'gridResolution', 'contourCount', 'isolationRadius', 'idwExponent', 'peakPreservation',
     'coverageWeighting', 'topoSource', 'showShadedSurface', 'normalizeZScore', 'surfaceOpacity',

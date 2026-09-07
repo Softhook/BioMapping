@@ -2227,6 +2227,42 @@ input[type="range"]:focus-visible,
   cursor: help;
 }
 
+/* Stress Place numbered badges (map_manager_peaks.js _renderStressPlaces) */
+.stress-place-badge-wrap { background: none; border: none; }
+.stress-place-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--place-color, #e59e00);
+  color: #0b0f17;
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+
+.map-popup-card .popup-subhead {
+  margin-top: 8px;
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+.map-popup-card .popup-note {
+  margin-top: 8px;
+  font-size: 0.72rem;
+  font-style: italic;
+  opacity: 0.7;
+}
+
 /* Contour Lines Tooltips */
 .contour-tooltip-label {
   background: rgba(9, 13, 22, 0.9) !important;
