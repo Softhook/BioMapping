@@ -3116,13 +3116,48 @@ input[type="range"]:focus-visible,
 }
 
 /* #g3dLegend also carries .map-legend for the white card look — the inner HTML
-   is GSRMapManager.buildLegendHtml(), identical to the 2D map. This rule only
-   parks that card in the globe container's bottom-right corner. */
+   is GSRMapManager.buildLegendHtml(), identical to the 2D map. This rule parks
+   that card above the attribution line in the bottom-right corner. */
 .globe3d-legend {
   position: absolute;
-  bottom: 14px;
-  right: 14px;
+  bottom: 24px;
+  right: 10px;
   z-index: 5;
+}
+
+/* Attribution in 3D view: exact same text size, font, and appearance as 2D Leaflet map */
+.globe3d-attribution {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  z-index: 5;
+  background: #fff;
+  background: rgba(255, 255, 255, 0.8);
+  margin: 0;
+  padding: 0 5px;
+  color: #333;
+  line-height: 1.4;
+  font-family: var(--font-sans, "Helvetica Neue", Arial, Helvetica, sans-serif);
+  font-size: 12px;
+  font-size: 0.75rem;
+  border-top-left-radius: 2px;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  max-width: calc(100% - 20px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.globe3d-attribution a {
+  color: #0078A8;
+  text-decoration: none;
+}
+
+.globe3d-attribution a:hover,
+.globe3d-attribution a:focus {
+  text-decoration: underline;
 }
 
 /* ── Peak popup (same card as the 2D map's peak marker popup) ───────────── */

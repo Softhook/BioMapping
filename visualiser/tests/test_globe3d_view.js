@@ -922,3 +922,62 @@ test('3D peak click triggers GSRUI.focusOnPeak with source=map and opens popup',
 
   V.manager = null;
 });
+
+test('the 3D globe attribution displays dynamic attribution based on basemap and buildings', () => {
+  const { window } = bootApp();
+  window.setup();
+  const V = window.GSRGlobe3DView;
+  const doc = window.document;
+
+  const attrEl = doc.getElementById('g3dAttribution');
+  assert.ok(attrEl, '#g3dAttribution element exists in DOM');
+  assert.ok(attrEl.classList.contains('globe3d-attribution'), 'has .globe3d-attribution class');
+
+  // Default basemap is satellite (Esri) - only legally required data providers
+  assert.ok(attrEl.innerHTML.includes('Esri'), 'initial satellite basemap credits Esri');
+  assert.ok(!attrEl.innerHTML.includes('Cesium'), 'does not credit software engine Cesium');
+
+  // Switch to Sentinel
+  const selBasemap = doc.getElementById('g3dBasemap');
+  selBasemap.value = 'sentinel';
+  selBasemap.dispatchEvent(new window.Event('change'));
+  assert.ok(attrEl.innerHTML.includes('Sentinel-2'), 'credits Sentinel-2');
+  assert.ok(attrEl.innerHTML.includes('EOX'), 'credits EOX');
+  assert.ok(!attrEl.innerHTML.includes('Esri'), 'no longer credits Esri');
+
+  // Switch to NASA (public domain — no attribution shown)
+  selBasemap.value = 'nasa';
+  selBasemap.dispatchEvent(new window.Event('change'));
+  assert.strictEqual(attrEl.innerHTML, '', 'NASA requires no attribution; html is empty');
+  assert.strictEqual(attrEl.style.display, 'none', 'attribution element is hidden when empty');
+
+  // Switch to CARTO Positron
+  selBasemap.value = 'positron';
+  selBasemap.dispatchEvent(new window.Event('change'));
+  assert.ok(attrEl.innerHTML.includes('OpenStreetMap'), 'credits OpenStreetMap');
+  assert.ok(attrEl.innerHTML.includes('CARTO'), 'credits CARTO');
+  assert.strictEqual(attrEl.style.display, 'block', 'attribution element is shown');
+
+  // Toggling 3D buildings adds OSM attribution
+  selBasemap.value = 'satellite';
+  selBasemap.dispatchEvent(new window.Event('change'));
+  assert.ok(!attrEl.innerHTML.includes('Buildings'), 'no buildings credit when buildings are off');
+
+  V.manager = { show3DBuildings: true, _currentBasemap: 'satellite' };
+  V._updateAttribution();
+  assert.ok(attrEl.innerHTML.includes('Buildings © <a href="https://www.openstreetmap.org/copyright"'), 'adds buildings OSM attribution');
+
+  // NASA with 3D buildings shows only buildings attribution
+  V.manager = { show3DBuildings: true, _currentBasemap: 'nasa' };
+  selBasemap.value = 'nasa';
+  V._updateAttribution();
+  assert.ok(attrEl.innerHTML.includes('Buildings © <a href="https://www.openstreetmap.org/copyright"'), 'shows buildings credit on NASA');
+  assert.ok(!attrEl.innerHTML.startsWith(' | '), 'no leading separator when basemap credit is empty');
+  assert.strictEqual(attrEl.style.display, 'block', 'attribution is visible when buildings are on');
+
+  V.manager.show3DBuildings = false;
+  V._updateAttribution();
+  assert.strictEqual(attrEl.innerHTML, '', 'removes buildings credit and returns to empty for NASA');
+  assert.strictEqual(attrEl.style.display, 'none', 'hidden again');
+});
+

@@ -943,6 +943,9 @@ class GSRGlobeManager {
       this._currentBasemap = type;
     }
     this._requestRender();
+    if (typeof this.onBasemapChange === 'function') {
+      try { this.onBasemapChange(type); } catch (e) { /* ignore */ }
+    }
   }
 
   /**
@@ -955,6 +958,9 @@ class GSRGlobeManager {
   async toggle3DBuildings(show, style = 'monochrome', onStatus) {
     this.show3DBuildings = show;
     this.buildingStyle = style;
+    if (typeof this.onBuildingsChange === 'function') {
+      try { this.onBuildingsChange(show); } catch (e) { /* ignore */ }
+    }
 
     if (!show) {
       this.clearOsmBuildingEntities();

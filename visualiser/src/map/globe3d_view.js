@@ -67,6 +67,7 @@ const GSRGlobe3DView = {
       container:    $('globe3dContainer'),
       status:       $('globe3dStatus'),
       legend:       $('g3dLegend'),
+      attribution:  $('g3dAttribution'),
       // 3D-only settings sub-section widgets (#mapDisplay3DGroup)
       extrusion:    $('g3dExtrusionScale'),
       extrusionVal: $('g3dExtrusionScaleVal'),
@@ -85,6 +86,7 @@ const GSRGlobe3DView = {
     };
 
     GSRGlobe3DView._bindCard(els);
+    GSRGlobe3DView._updateAttribution();
 
     if (typeof AppState !== 'undefined' && AppState.on) {
       // Trailing debounce — a GSR/GPS slider drag fires 'map:rendered' dozens of
@@ -210,7 +212,10 @@ const GSRGlobe3DView = {
       });
     }
     if (els.basemap) {
-      els.basemap.addEventListener('change', (e) => { if (m()) m().setBasemap(e.target.value); });
+      els.basemap.addEventListener('change', (e) => {
+        if (m()) m().setBasemap(e.target.value);
+        GSRGlobe3DView._updateAttribution();
+      });
     }
     // Buildings on/off is the map header's OSM button (see applyBuildings); this
     // just restyles whatever is showing.
@@ -481,6 +486,7 @@ const GSRGlobe3DView = {
     if (!on) {
       mgr.toggle3DBuildings(false, style, (m) => GSRGlobe3DView._setStatus(m));
       GSRGlobe3DView._setStatus('');
+      GSRGlobe3DView._updateAttribution();
       return;
     }
 
@@ -496,9 +502,11 @@ const GSRGlobe3DView = {
       // shapes button pick that up.
       if (typeof GSRUI !== 'undefined' && GSRUI.refreshOsmControls) GSRUI.refreshOsmControls();
       GSRGlobe3DView._setStatus('');
+      GSRGlobe3DView._updateAttribution();
     }).catch((e) => {
       console.warn('3D buildings OSM fetch failed:', e);
       GSRGlobe3DView._setStatus('');
+      GSRGlobe3DView._updateAttribution();
     });
   },
 
@@ -662,6 +670,8 @@ const GSRGlobe3DView = {
         GSRGlobe3DView._editPeakLabel(peakIdx, windowPos);
       });
       GSRGlobe3DView.manager.onScrubHover((idx, ll) => GSRGlobe3DView._onScrubHover(idx, ll));
+      GSRGlobe3DView.manager.onBasemapChange = () => GSRGlobe3DView._updateAttribution();
+      GSRGlobe3DView.manager.onBuildingsChange = () => GSRGlobe3DView._updateAttribution();
       GSRGlobe3DView.manager.onTourStep((stepIdx, totalSteps, wp) => {
         if (wp) {
           GSRGlobe3DView._updateTourBtn(true);
@@ -689,6 +699,7 @@ const GSRGlobe3DView = {
       if (!GSRGlobe3DView.isActive) return;
       GSRGlobe3DView.onResize();
       GSRGlobe3DView._pushFromMap({ fly: true });
+      GSRGlobe3DView._updateAttribution();
       // Guarantee at least one paint even when there's no track to push.
       const v = GSRGlobe3DView.manager && GSRGlobe3DView.manager.viewer;
       if (v && v.scene && typeof v.scene.requestRender === 'function') v.scene.requestRender();
@@ -809,6 +820,53 @@ const GSRGlobe3DView = {
     if (els.legend && mm && typeof mm.buildLegendHtml === 'function') {
       els.legend.innerHTML = mm.buildLegendHtml();
     }
+  },
+
+  _updateAttribution() {
+    const el = GSRGlobe3DView.els && GSRGlobe3DView.els.attribution;
+    if (!el) return;
+    const html = GSRGlobe3DView.buildAttributionHtml();
+    el.innerHTML = html;
+    el.style.display = html ? 'block' : 'none';
+  },
+
+  buildAttributionHtml() {
+    const basemapType = (GSRGlobe3DView.els && GSRGlobe3DView.els.basemap && GSRGlobe3DView.els.basemap.value) ||
+      (GSRGlobe3DView.manager && GSRGlobe3DView.manager._currentBasemap) || 'satellite';
+    const mgr = GSRGlobe3DView.manager;
+    const hasBuildings = !!(mgr && mgr.show3DBuildings);
+
+    let basemapCredit = '';
+    switch (basemapType) {
+      case 'satellite':
+        basemapCredit = '© <a href="https://www.esri.com/" target="_blank" rel="noopener">Esri</a>, Maxar';
+        break;
+      case 'sentinel':
+        basemapCredit = '© <a href="https://s2maps.eu/" target="_blank" rel="noopener">Sentinel-2 cloudless / EOX</a>';
+        break;
+      case 'nasa':
+        // NASA is US Public Domain (17 U.S.C. § 105) — no legal attribution required
+        basemapCredit = '';
+        break;
+      case 'osm':
+        basemapCredit = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
+        break;
+      case 'dark':
+      case 'positron':
+      default:
+        basemapCredit = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
+        break;
+    }
+
+    let buildingsCredit = '';
+    if (hasBuildings) {
+      if (!basemapCredit.includes('OpenStreetMap')) {
+        const prefix = basemapCredit ? ' | ' : '';
+        buildingsCredit = `${prefix}Buildings © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>`;
+      }
+    }
+
+    return basemapCredit + buildingsCredit;
   },
 
   _setStatus(msg) {
