@@ -335,7 +335,7 @@ for (const [label, build] of VARIANTS) {
 // SECTION B — orchestration cost (stub Cesium) — JS loop cost + counts
 // ─────────────────────────────────────────────────────────────────────────────
 delete global.Cesium; delete global.MapColors;
-const counters = { fromDegrees: 0, colorParse: 0, GeometryInstance: 0, WallGeometry: 0, EllipsoidGeometry: 0, Primitive: 0, entityAdd: 0, entityRemove: 0 };
+const counters = { fromDegrees: 0, colorParse: 0, GeometryInstance: 0, WallGeometry: 0, EllipsoidGeometry: 0, Primitive: 0, entityAdd: 0, entityRemove: 0, pointAdd: 0, labelAdd: 0 };
 const reset = () => { for (const k in counters) counters[k] = 0; };
 
 function autoStub() {
@@ -348,6 +348,7 @@ function stubCesium() {
   C.Cartesian3.ZERO = { x: 0, y: 0, z: 0 };
   C.Cartesian3.fromDegrees = (lon, lat) => { counters.fromDegrees++; return { lon, lat }; };
   C.Cartesian3.fromDegreesArray = (a) => { const o = []; for (let i = 0; i < a.length; i += 2) { counters.fromDegrees++; o.push({ lon: a[i], lat: a[i + 1] }); } return o; };
+  C.Cartesian3.fromDegreesArrayHeights = (a) => { const o = []; for (let i = 0; i < a.length; i += 3) { counters.fromDegrees++; o.push({ x: a[i], y: a[i + 1], z: a[i + 2] }); } return o; };
   C.Cartographic = { fromCartesian: () => ({ latitude: 0, longitude: 0 }) };
   C.Math = { toRadians: (d) => d * Math.PI / 180, toDegrees: (r) => r * 180 / Math.PI };
   const Color = function (r, g, b, a) { return { r, g, b, a, withAlpha(x) { return { r, g, b, a: x }; } }; };
@@ -369,7 +370,19 @@ function stubCesium() {
   C.ScreenSpaceEventHandler = function () { return { setInputAction() {}, removeInputAction() {}, isDestroyed: () => false, destroy() {} }; };
   C.ScreenSpaceEventType = {}; C.CameraEventType = {}; C.KeyboardEventModifier = {};
   C.Ion = { defaultAccessToken: '' };
-  const scene = { requestRenderMode: false, canvas: { addEventListener() {}, removeEventListener() {} }, screenSpaceCameraController: {}, globe: { ellipsoid: {} }, fog: {}, skyBox: {}, skyAtmosphere: {}, sun: {}, moon: {}, primitives: { add() {}, remove() {} }, postRender: { addEventListener: () => () => {} }, requestRender() {}, pick: () => null };
+  C.PointPrimitiveCollection = function () {
+    return {
+      add: (o) => { counters.pointAdd++; return o || {}; },
+      removeAll: () => {},
+    };
+  };
+  C.LabelCollection = function () {
+    return {
+      add: (o) => { counters.labelAdd++; return o || {}; },
+      removeAll: () => {},
+    };
+  };
+  const scene = { requestRenderMode: false, canvas: { addEventListener() {}, removeEventListener() {} }, screenSpaceCameraController: {}, globe: { ellipsoid: {} }, fog: {}, skyBox: {}, skyAtmosphere: {}, sun: {}, moon: {}, primitives: { add: (p) => p, remove: () => {} }, postRender: { addEventListener: () => () => {} }, requestRender() {}, pick: () => null };
   const camera = { positionWC: {}, positionCartographic: { height: 1200 }, heading: 0, pitch: -0.6, pickEllipsoid: () => ({}), flyTo() {}, flyToBoundingSphere() {}, lookAt() {}, lookAtTransform() {}, getPickRay: () => ({}) };
   const entities = {
     add: (o) => { counters.entityAdd++; return o || {}; },
@@ -414,7 +427,7 @@ console.log('── SECTION B — main-thread JS per rebuild (stub Cesium) ─�
     mgr.clearPeakEntities();
     reset();
     mgr._renderPeakSpires(analyzer, mgr.currentPeaks);
-    spireCounts = `renderedPeaks≈${counters.entityAdd}  fromDegrees=${counters.fromDegrees}  colorParse=${counters.colorParse}`;
+    spireCounts = `points=${counters.pointAdd}  labels=${counters.labelAdd}  entityAdd=${counters.entityAdd}  fromDegrees=${counters.fromDegrees}`;
   });
   printRow(rS, `${mgr.currentPeaks.length} candidate peaks · ${spireCounts}`);
 
@@ -423,7 +436,7 @@ console.log('── SECTION B — main-thread JS per rebuild (stub Cesium) ─�
     mgr.clearHotspotEntities();
     reset();
     mgr._renderHotspots(analyzer);
-    hotCounts = `entityAdd=${counters.entityAdd}  fromDegrees=${counters.fromDegrees}`;
+    hotCounts = `hotspots=${counters.labelAdd}  entityAdd=${counters.entityAdd}  fromDegrees=${counters.fromDegrees}`;
   });
   printRow(rH, `${(analyzer.memorableEvents || []).length} memorable events · ${hotCounts}`);
 

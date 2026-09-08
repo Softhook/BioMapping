@@ -197,6 +197,11 @@ class GSRGlobeManager {
     this.buildingPrimitive = null;
     this.cachedOsmJson = null;
 
+    // Batched Primitive Collections for high-performance markers
+    this._peakPoints = null;
+    this._peakLabels = null;
+    this._hotspotLabels = null;
+
     // Peak interaction — the host registers a callback and this class calls it
     // with the analyzer.peaks index when the user clicks a peak spire, mirroring
     // the 2D map's peak-marker click. See onPeakClick() / _renderPeakSpires().
@@ -323,6 +328,16 @@ class GSRGlobeManager {
     globe.depthTestAgainstTerrain = false;
     scene.fog.enabled = true;
     scene.fog.density = 0.0001;
+
+    // Peak circles / labels / hotspot stars flicker against the extruded wall
+    // whenever the camera moves (360° orbit, fly-to, drag) with Cesium's
+    // logarithmic depth buffer on: the billboard's eye-space depth is recomputed
+    // each frame at reduced precision and its position relative to the wall keeps
+    // crossing the resolution threshold, so it winks in and out even though
+    // disableDepthTestDistance is Infinity. This is a low-altitude urban view —
+    // nothing of interest sits beyond a few km — so the plain depth buffer has
+    // ample precision and holds the markers rock-steady in motion.
+    scene.logarithmicDepthBuffer = false;
 
     // Strip the space scenery — this is a top-down data view, none of it is
     // useful and each one costs shader passes and slows the first paint.
@@ -784,8 +799,20 @@ class GSRGlobeManager {
     this._peakClickCb = null;
 
     if (this.viewer && !this.viewer.isDestroyed()) {
+      if (this._peakPoints && this.viewer.scene && this.viewer.scene.primitives) {
+        this.viewer.scene.primitives.remove(this._peakPoints);
+      }
+      if (this._peakLabels && this.viewer.scene && this.viewer.scene.primitives) {
+        this.viewer.scene.primitives.remove(this._peakLabels);
+      }
+      if (this._hotspotLabels && this.viewer.scene && this.viewer.scene.primitives) {
+        this.viewer.scene.primitives.remove(this._hotspotLabels);
+      }
       this.viewer.destroy();
     }
+    this._peakPoints = null;
+    this._peakLabels = null;
+    this._hotspotLabels = null;
     this.viewer = null;
     this.currentAnalyzer = null;
     this.currentDrawPoints = [];
@@ -1652,7 +1679,15 @@ class GSRGlobeManager {
         labelOutline: Cesium.Color.fromCssColorString('#0b0c10'),
         hotspotRed:   Cesium.Color.fromCssColorString('#ff1744'),
         labelOffset:  new Cesium.Cartesian2(0, -14),
-        labelDDC:     new Cesium.DistanceDisplayCondition(0.0, 6000.0)
+        labelDDC:     new Cesium.DistanceDisplayCondition(0.0, 6000.0),
+        // Pull every label ~10 m toward the camera in eye space. Labels keep
+        // disableDepthTestDistance (never occluded by geometry), but Cesium
+        // still distance-sorts the no-depth-test overlay back-to-front, so a
+        // label 3 m above its wall could tie and let the translucent wall wash
+        // over it as the camera orbits. A small constant eye-offset makes the
+        // label win that sort every frame; at any real viewing distance the
+        // size change is well under a pixel, so it does not "breathe".
+        labelEyeOffset: new Cesium.Cartesian3(0.0, 0.0, -10.0)
       };
     }
     return this._mc;
@@ -1673,6 +1708,23 @@ class GSRGlobeManager {
   }
 
   /**
+   * Lazily initialize batched primitive collections for peak markers and hotspots.
+   * @private
+   */
+  _ensureMarkerCollections() {
+    if (!this.viewer || !this.viewer.scene || !this.viewer.scene.primitives) return;
+    if (!this._peakPoints && typeof Cesium.PointPrimitiveCollection === 'function') {
+      this._peakPoints = this.viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+    }
+    if (!this._peakLabels && typeof Cesium.LabelCollection === 'function') {
+      this._peakLabels = this.viewer.scene.primitives.add(new Cesium.LabelCollection());
+    }
+    if (!this._hotspotLabels && typeof Cesium.LabelCollection === 'function') {
+      this._hotspotLabels = this.viewer.scene.primitives.add(new Cesium.LabelCollection());
+    }
+  }
+
+  /**
    * Render the 3D peak markers (a small circle just above the wall top, no
    * vertical stalk) and their labels.
    */
@@ -1680,8 +1732,10 @@ class GSRGlobeManager {
     if (!peaks || peaks.length === 0) return;
     if (!this.showPeaks && !this.showLabels) return;
 
+    this._ensureMarkerCollections();
     const peakIndexOf = this._peakIndexMap(analyzer);
     const C = this._markerConst();
+    const usePrimitives = Boolean(this._peakPoints && typeof this._peakPoints.add === 'function');
 
     peaks.forEach((peak, i) => {
       if (peak.qualityScore < this.minPeakQuality) return;
@@ -1712,7 +1766,7 @@ class GSRGlobeManager {
 
       // Faint connector from the unshifted peak sample to the latency-shifted
       // marker — the 3D counterpart of the 2D dashed rose line (map.js).
-      if (this.peakLatency > 0) {
+      if (this.peakLatency > 0 && this.viewer && this.viewer.entities) {
         const orig = analyzer.getCoordinates(peak.index);
         if (orig && !isNaN(orig.lat) && !isNaN(orig.lon) &&
             (orig.lat !== lat || orig.lon !== lon)) {
@@ -1733,32 +1787,77 @@ class GSRGlobeManager {
         }
       }
 
-      // Small circle marking the peak — the main click target.
-      const beaconEntity = this.viewer.entities.add({
-        name: `Peak ${i + 1}`,
-        position: markerPos,
-        point: {
+      // Small circle marking the peak — the main click target. Depth-tested
+      // (no disableDepthTestDistance): the circle occludes correctly behind
+      // walls/terrain AND, crucially, stays out of Cesium's "always on top"
+      // billboard overlay so it can never be drawn over a peak label. The
+      // label is the strict top layer; the circle is not.
+      if (usePrimitives) {
+        const pt = this._peakPoints.add({
+          position: markerPos,
           pixelSize: 5,
           color: C.peakRed,
           outlineColor: Cesium.Color.WHITE,
           outlineWidth: 1,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY
-        },
-        label: (labelText && this.showLabels) ? {
-          text: labelText,
-          font: '600 14px Inter, "Helvetica Neue", Arial, sans-serif',
-          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          fillColor: Cesium.Color.WHITE,
-          outlineColor: C.labelOutline,
-          outlineWidth: 3,
-          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          pixelOffset: C.labelOffset,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          distanceDisplayCondition: C.labelDDC
-        } : undefined
-      });
-      beaconEntity._biomapPeakIndex = peakIdx;
-      this.peakEntities.push(beaconEntity);
+          id: { _biomapPeakIndex: peakIdx }
+        });
+        pt._biomapPeakIndex = peakIdx;
+        // Marks this entry as the batched circle primitive (not a latency
+        // connector entity) for clearPeakEntities() and focusOnPeakLocation().
+        pt._isPeakPointPrimitive = true;
+        this.peakEntities.push(pt);
+      } else if (this.viewer && this.viewer.entities) {
+        const beaconEntity = this.viewer.entities.add({
+          name: `Peak ${i + 1}`,
+          position: markerPos,
+          point: {
+            pixelSize: 5,
+            color: C.peakRed,
+            outlineColor: Cesium.Color.WHITE,
+            outlineWidth: 1
+          }
+        });
+        beaconEntity._biomapPeakIndex = peakIdx;
+        this.peakEntities.push(beaconEntity);
+      }
+
+      if (labelText && this.showLabels) {
+        if (this._peakLabels && typeof this._peakLabels.add === 'function') {
+          this._peakLabels.add({
+            position: markerPos,
+            text: labelText,
+            font: '600 14px Inter, "Helvetica Neue", Arial, sans-serif',
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            fillColor: Cesium.Color.WHITE,
+            outlineColor: C.labelOutline,
+            outlineWidth: 3,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            pixelOffset: C.labelOffset,
+            eyeOffset: C.labelEyeOffset,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            distanceDisplayCondition: C.labelDDC,
+            id: { _biomapPeakIndex: peakIdx }
+          });
+        } else if (this.viewer && this.viewer.entities) {
+          this.viewer.entities.add({
+            name: `Peak ${i + 1} label`,
+            position: markerPos,
+            label: {
+              text: labelText,
+              font: '600 14px Inter, "Helvetica Neue", Arial, sans-serif',
+              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+              fillColor: Cesium.Color.WHITE,
+              outlineColor: C.labelOutline,
+              outlineWidth: 3,
+              verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+              pixelOffset: C.labelOffset,
+              eyeOffset: C.labelEyeOffset,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+              distanceDisplayCondition: C.labelDDC
+            }
+          });
+        }
+      }
     });
   }
 
@@ -1774,8 +1873,10 @@ class GSRGlobeManager {
     const events = analyzer && analyzer.memorableEvents;
     if (!events || events.length === 0 || !this.viewer) return;
 
+    this._ensureMarkerCollections();
     const peakIndexOf = this._peakIndexMap(analyzer);
     const C = this._markerConst();
+    const useLabels = Boolean(this._hotspotLabels && typeof this._hotspotLabels.add === 'function');
 
     events.forEach(peak => {
       const coords = this._latencyCoords(analyzer, peak);
@@ -1785,10 +1886,9 @@ class GSRGlobeManager {
       const wallHeight = this._peakWallHeight(analyzer, peak);
       const tipHeight = wallHeight + 11.0; // sits above the regular peak circle
 
-      const star = this.viewer.entities.add({
-        name: 'Hotspot',
-        position: Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat, tipHeight),
-        label: {
+      if (useLabels) {
+        const star = this._hotspotLabels.add({
+          position: Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat, tipHeight),
           text: '★',
           font: '700 14px "Helvetica Neue", Arial, sans-serif',
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
@@ -1797,11 +1897,33 @@ class GSRGlobeManager {
           outlineWidth: 2,
           verticalOrigin: Cesium.VerticalOrigin.CENTER,
           horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY
-        }
-      });
-      star._biomapPeakIndex = peakIdx;
-      this.hotspotEntities.push(star);
+          eyeOffset: C.labelEyeOffset,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          id: { _biomapPeakIndex: peakIdx }
+        });
+        star._biomapPeakIndex = peakIdx;
+        star._isHotspotLabelPrimitive = true; // batched label, not an entity
+        this.hotspotEntities.push(star);
+      } else if (this.viewer && this.viewer.entities) {
+        const star = this.viewer.entities.add({
+          name: 'Hotspot',
+          position: Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat, tipHeight),
+          label: {
+            text: '★',
+            font: '700 14px "Helvetica Neue", Arial, sans-serif',
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            fillColor: C.hotspotRed,
+            outlineColor: C.labelOutline,
+            outlineWidth: 2,
+            verticalOrigin: Cesium.VerticalOrigin.CENTER,
+            horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+            eyeOffset: C.labelEyeOffset,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
+          }
+        });
+        star._biomapPeakIndex = peakIdx;
+        this.hotspotEntities.push(star);
+      }
     });
   }
 
@@ -2003,7 +2125,25 @@ class GSRGlobeManager {
       // a slider-driven metric/extrusion change, so re-upload it here.
       if (this.showRfVolumetric) this.render3DRfExpanse(this.currentAnalyzer, this.currentDrawPoints);
     });
+    this._raiseMarkerCollections();
     this._requestRender();
+  }
+
+  /**
+   * Keep the batched peak/hotspot marker collections at the top of the scene's
+   * primitive list. They are added once (lazily, on the first render) and then
+   * persist, but the arousal wall primitive is removed and re-added on every
+   * rebuild, so after the first rebuild the wall sits ABOVE them in primitive
+   * order. The wall is translucent (85% alpha), and for near-equal depths that
+   * primitive order is what decides overdraw — leaving the markers underneath
+   * lets the wall wash over them from some camera angles. @private
+   */
+  _raiseMarkerCollections() {
+    const prims = this.viewer && this.viewer.scene && this.viewer.scene.primitives;
+    if (!prims || typeof prims.raiseToTop !== 'function') return;
+    if (this._peakPoints) prims.raiseToTop(this._peakPoints);
+    if (this._peakLabels) prims.raiseToTop(this._peakLabels);
+    if (this._hotspotLabels) prims.raiseToTop(this._hotspotLabels);
   }
 
   /** Re-draw the wall + the peak/hotspot/cluster/RF layers from the cached track. */
@@ -2105,8 +2245,19 @@ class GSRGlobeManager {
    * Clear peak spire entities
    */
   clearPeakEntities() {
-    if (!this.viewer) return;
-    this.peakEntities.forEach(ent => this.viewer.entities.remove(ent));
+    if (this._peakPoints && typeof this._peakPoints.removeAll === 'function') {
+      this._peakPoints.removeAll();
+    }
+    if (this._peakLabels && typeof this._peakLabels.removeAll === 'function') {
+      this._peakLabels.removeAll();
+    }
+    if (this.viewer && this.viewer.entities && typeof this.viewer.entities.remove === 'function') {
+      this.peakEntities.forEach(ent => {
+        // The batched circle primitives are already gone via removeAll() above;
+        // only the latency-connector entities need an explicit entity remove.
+        if (ent && !ent._isPeakPointPrimitive) this.viewer.entities.remove(ent);
+      });
+    }
     this.peakEntities = [];
     // The focus-hidden circle (focusOnPeakLocation) is one of the entities just
     // removed — drop the stale ref so the next focus doesn't touch it.
@@ -2115,8 +2266,16 @@ class GSRGlobeManager {
 
   /** Clear the memorable-event hotspot entities. */
   clearHotspotEntities() {
-    if (!this.viewer) return;
-    this.hotspotEntities.forEach(ent => this.viewer.entities.remove(ent));
+    if (this._hotspotLabels && typeof this._hotspotLabels.removeAll === 'function') {
+      this._hotspotLabels.removeAll();
+    }
+    if (this.viewer && this.viewer.entities && typeof this.viewer.entities.remove === 'function') {
+      this.hotspotEntities.forEach(ent => {
+        // Batched star labels are gone via removeAll() above; nothing else is
+        // pushed here today, but guard the same way for the entity fallback.
+        if (ent && !ent._isHotspotLabelPrimitive) this.viewer.entities.remove(ent);
+      });
+    }
     this.hotspotEntities = [];
   }
 
@@ -2211,11 +2370,16 @@ class GSRGlobeManager {
     // later focus restores this one explicitly via _focusHiddenPeakPoint.
     if (Array.isArray(this.peakEntities)) {
       for (const ent of this.peakEntities) {
-        if (ent && ent.point && ent._biomapPeakIndex === peakIdx) {
-          ent.point.show = false;
-          this._focusHiddenPeakPoint = ent.point;
-          break;
-        }
+        if (!ent || ent._biomapPeakIndex !== peakIdx) continue;
+        // The circle is either the batched PointPrimitive itself or, in the
+        // entity fallback, the beacon entity's point graphic. A latency-
+        // connector entity shares the same _biomapPeakIndex but is the rose
+        // line, not the circle (no point graphic) — skip it.
+        const pt = ent._isPeakPointPrimitive ? ent : (ent.point && !ent.polyline ? ent.point : null);
+        if (!pt) continue;
+        pt.show = false;
+        this._focusHiddenPeakPoint = pt;
+        break;
       }
     }
 

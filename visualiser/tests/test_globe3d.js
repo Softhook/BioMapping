@@ -675,6 +675,40 @@ test('toggleLabels(true) with peaks off keeps only the labelled peaks on screen'
   mgr.destroy();
 });
 
+test('focusOnPeakLocation hides the peak circle, not the latency-connector line', () => {
+  freshEnv();
+  installWallCapture();
+  const { GSRGlobeManager } = loadFresh();
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  mgr.flyToTrack = () => {};
+  mgr.flyToPeak = () => {};
+
+  // Peak latency > 0 with a shifted fix → _renderPeakSpires builds BOTH a rose
+  // connector entity and the circle, each tagged with _biomapPeakIndex 0.
+  const peaks = [{ index: 5, time: 10, qualityScore: 0.9, amplitude: 1, label: 'Bridge' }];
+  const analyzer = {
+    raw: new Array(6).fill({}),
+    phasic: new Array(6).fill({ val: 0.5 }),
+    peaks,
+    memorableEvents: [],
+    getCoordinates: (i) => ({ lat: i * 0.001, lon: i * 0.001 }),
+    findClosestIndex: (t) => Math.max(0, Math.round(t)),
+  };
+  const drawPoints = [
+    { lat: 0, lon: 0, time: 0, origIdx: 0 },
+    { lat: 0.005, lon: 0.005, time: 10, origIdx: 5 },
+  ];
+
+  mgr.renderData(analyzer, { peakLatency: 3 }, { drawPoints, isPreview: true });
+  assert.ok(mgr.peakEntities.length >= 2, 'connector entity + circle primitive both present');
+
+  mgr.focusOnPeakLocation(0, analyzer);
+  assert.ok(mgr._focusHiddenPeakPoint, 'a peak circle was hidden for the locator dot');
+  assert.strictEqual(mgr._focusHiddenPeakPoint._isPeakPointPrimitive, true,
+    'the hidden element is the circle primitive, not the rose latency line');
+  mgr.destroy();
+});
+
 // ── Scrub-hover (3D track -> host) + follow-cam ─────────────────────────────
 
 /** freshEnv() + a ScreenSpaceEventHandler spy + real-ish Cesium geo maths. */
