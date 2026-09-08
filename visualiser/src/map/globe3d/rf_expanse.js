@@ -3,16 +3,27 @@
  * Copyright (c) 2026 Christian Nold
  * Licensed under the Bio Mapping Community Licence 1.0.
  *
- * Builds the street-filling "electromagnetic fluid" — a batch of glowing
- * semi-dome slugs along the track, coloured by band intensity. Pure geometry:
+ * Builds the street-filling "electromagnetic fluid" — the track resampled to an
+ * even pitch and laid with wide, low, overlapping slugs that merge into one
+ * continuous glowing corridor, coloured by band intensity. Pure geometry:
  * buildPrimitive() returns one Cesium.Primitive (or null); GSRGlobeManager owns
  * adding/removing it from the scene. Extracted from globe3d.js to keep the core
  * class focused on the arousal wall + camera.
  */
 
 const GSRGlobe3DRf = {
-  /** How many slugs to lay down along the track, regardless of point count. */
-  SLUG_COUNT: 50,
+  /**
+   * Target along-track spacing between slugs, in metres. The track is
+   * resampled to this pitch (by arc length, so walking speed and GPS
+   * cadence don't matter), and each slug below is sized wider than it — so
+   * consecutive slugs overlap into one continuous fluid corridor rather
+   * than a string of separate domes. The 3D analogue of the 2D fluid ribbon.
+   */
+  SLUG_SPACING_M: 6.0,
+  /** Hard cap on slug count — a long track widens the spacing to stay under it. */
+  MAX_SLUGS: 400,
+  /** Horizontal radius as a multiple of spacing (>1 → neighbours interpenetrate). */
+  SLUG_OVERLAP: 1.9,
 
   /**
    * @param {object} analyzer    analysed track (needs .raw with rssi_* / em_fog)
@@ -115,16 +126,45 @@ const GSRGlobe3DRf = {
       if (mode === '915' && !active915) return null;
     }
 
+    // 2. Resample the track by arc length onto an even pitch, so slugs are
+    //    spaced by distance walked rather than by GPS sample index (a pause
+    //    would otherwise pile slugs up in one spot and thin them out
+    //    elsewhere).
+    const cum = [0];
+    for (let i = 1; i < rfPoints.length; i++) {
+      cum[i] = cum[i - 1] + haversineM(
+        rfPoints[i - 1].lat, rfPoints[i - 1].lon, rfPoints[i].lat, rfPoints[i].lon);
+    }
+    const totalLen = cum[cum.length - 1];
+
+    let spacing = this.SLUG_SPACING_M;
+    let count = Math.floor(totalLen / spacing) + 1;
+    if (count > this.MAX_SLUGS) { count = this.MAX_SLUGS; spacing = totalLen / (count - 1); }
+    if (count < 2) count = Math.min(rfPoints.length, 2);
+
     const instances = [];
-    const sampleStep = Math.max(1, Math.floor(rfPoints.length / this.SLUG_COUNT));
+    let seg = 0; // monotonic cursor into cum[]
 
-    for (let i = 0; i < rfPoints.length; i += sampleStep) {
-      const pt = rfPoints[i];
+    for (let k = 0; k < count; k++) {
+      const target = Math.min(k * spacing, totalLen);
+      while (seg < rfPoints.length - 2 && cum[seg + 1] < target) seg++;
+      const segLen = cum[seg + 1] - cum[seg];
+      const f = segLen > 0 ? clamp01((target - cum[seg]) / segLen) : 0;
+      const p0 = rfPoints[seg];
+      const p1 = rfPoints[seg + 1] || p0;
 
-      const norm815 = hasMeasuredRf ? normDbm(pt.r815, min815, max815, active815) : clamp01(pt.r815);
-      const norm868 = hasMeasuredRf ? normDbm(pt.r868, min868, max868, active868) : clamp01(pt.r868);
-      const norm915 = hasMeasuredRf ? normDbm(pt.r915, min915, max915, active915) : clamp01(pt.r915);
-      const normFog = clamp01(hasMeasuredRf ? ((pt.fog - minFog) / (maxFog - minFog)) : pt.fog);
+      const lat = p0.lat + (p1.lat - p0.lat) * f;
+      const lon = p0.lon + (p1.lon - p0.lon) * f;
+      const v815 = lerpRf(p0.r815, p1.r815, f);
+      const v868 = lerpRf(p0.r868, p1.r868, f);
+      const v915 = lerpRf(p0.r915, p1.r915, f);
+      const vFog = lerpRf(p0.fog,  p1.fog,  f);
+
+      const norm815 = hasMeasuredRf ? normDbm(v815, min815, max815, active815) : clamp01(v815 ?? 0);
+      const norm868 = hasMeasuredRf ? normDbm(v868, min868, max868, active868) : clamp01(v868 ?? 0);
+      const norm915 = hasMeasuredRf ? normDbm(v915, min915, max915, active915) : clamp01(v915 ?? 0);
+      const normFog = clamp01(hasMeasuredRf
+        ? (((vFog ?? minFog) - minFog) / (maxFog - minFog)) : (vFog ?? 0));
 
       // Colour channels match the 2D RF fluid overlay exactly
       // (RFFluidRenderer.redraw()): 815 MHz = pure red, 868 MHz = pure green,
@@ -156,23 +196,31 @@ const GSRGlobe3DRf = {
       // EM-fog keeps its ambient floor): no slug, matching the 2D overlay.
       if (hasMeasuredRf && mode !== 'fog' && intensity <= 0.0) continue;
 
-      const domeRadius = 24.0 + 32.0 * intensity;
-      const domeHeight = 8.0 + (baseCeiling - 8.0) * intensity;
+      // Wide + low: horizontal radius is a multiple of the spacing so
+      // neighbours merge into a sheet; a hot spot swells it further and
+      // lifts the volumetric ceiling. Vertical radius stays modest so the
+      // fluid hugs the street the way the 2D overlay does.
+      const horiz = spacing * this.SLUG_OVERLAP * (0.75 + 0.45 * intensity);
+      const vert  = 4.0 + (baseCeiling - 4.0) * intensity;
 
       try {
         instances.push(new Cesium.GeometryInstance({
           geometry: new Cesium.EllipsoidGeometry({
-            radii: new Cesium.Cartesian3(domeRadius, domeRadius, domeHeight),
+            radii: new Cesium.Cartesian3(horiz, horiz, vert),
+            // Modest tessellation: the slugs blur together, so a smooth
+            // 64×64 sphere (Cesium's default) would be wasted triangles.
+            stackPartitions: 12,
+            slicePartitions: 12,
             vertexFormat: Cesium.PerInstanceColorAppearance.VERTEX_FORMAT
           }),
           modelMatrix: Cesium.Transforms.eastNorthUpToFixedFrame(
-            Cesium.Cartesian3.fromDegrees(pt.lon, pt.lat, 0.0)
+            Cesium.Cartesian3.fromDegrees(lon, lat, 0.0)
           ),
           attributes: {
             color: Cesium.ColorGeometryInstanceAttribute.fromColor(
-              new Cesium.Color(r, g, b, opacity * (0.45 + 0.55 * intensity)))
+              new Cesium.Color(r, g, b, opacity * (0.34 + 0.5 * intensity)))
           },
-          id: `rf-slug-${i}`
+          id: `rf-slug-${k}`
         }));
       } catch (err) {
         // Skip a geometry error cleanly.
@@ -190,6 +238,31 @@ const GSRGlobe3DRf = {
 };
 
 function clamp01(v) { return Math.max(0.0, Math.min(1.0, v)); }
+
+/** Great-circle distance in metres between two lat/lon points. */
+function haversineM(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * toRad;
+  const dLon = (lon2 - lon1) * toRad;
+  const s = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+}
+
+/**
+ * Linear-interpolate an RF reading across a resampled segment. A null (band
+ * absent at an endpoint) falls back to the other endpoint; both null -> null,
+ * so the band simply contributes nothing at that slug.
+ */
+function lerpRf(x, y, f) {
+  const xn = (x === null || x === undefined || isNaN(x));
+  const yn = (y === null || y === undefined || isNaN(y));
+  if (xn && yn) return null;
+  if (xn) return y;
+  if (yn) return x;
+  return x + (y - x) * f;
+}
 
 /**
  * Mirrors RFFluidRenderer._calculateRssiStats()'s active-signal test: the

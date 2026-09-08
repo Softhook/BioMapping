@@ -119,10 +119,12 @@ test('download(): builds a Blob anchor and clicks it, then revokes the URL', () 
 
 // ── rf_expanse.js ─────────────────────────────────────────────────────────
 
-test('GSRGlobe3DRf.buildPrimitive: one Primitive of ≤SLUG_COUNT dome instances', () => {
+test('GSRGlobe3DRf.buildPrimitive: one Primitive, slug count capped at MAX_SLUGS', () => {
   const counts = stubCesium();
   const { GSRGlobe3DRf } = G3D('rf_expanse.js');
 
+  // ~6.6 km synthetic track (600 pts × ~11 m) — far more than MAX_SLUGS
+  // slots at the 6 m pitch, so the spacing must widen to fit the cap.
   const n = 600;
   const raw = [];
   const drawPoints = [];
@@ -133,9 +135,37 @@ test('GSRGlobe3DRf.buildPrimitive: one Primitive of ≤SLUG_COUNT dome instances
   const prim = GSRGlobe3DRf.buildPrimitive({ raw }, drawPoints, { mode: 'triband', height: 25, opacity: 0.4 });
   assert.ok(prim, 'a primitive was built');
   assert.strictEqual(counts.Primitive, 1);
-  assert.ok(counts.EllipsoidGeometry <= GSRGlobe3DRf.SLUG_COUNT && counts.EllipsoidGeometry > 0,
-    `${counts.EllipsoidGeometry} slugs (cap ${GSRGlobe3DRf.SLUG_COUNT})`);
+  assert.ok(counts.EllipsoidGeometry <= GSRGlobe3DRf.MAX_SLUGS && counts.EllipsoidGeometry > GSRGlobe3DRf.MAX_SLUGS / 2,
+    `${counts.EllipsoidGeometry} slugs (cap ${GSRGlobe3DRf.MAX_SLUGS})`);
   assert.strictEqual(counts.GeometryInstance, counts.EllipsoidGeometry);
+  clearCesium();
+});
+
+test('GSRGlobe3DRf.buildPrimitive: slug pitch tracks distance, not sample count', () => {
+  stubCesium();
+  const { GSRGlobe3DRf } = G3D('rf_expanse.js');
+
+  // A ~216 m leg described by only 40 points, then 400 near-duplicate
+  // points crammed into ~0 m at the end (a "pause"). Index-based sampling
+  // would put ~90% of slugs in the pause; arc-length sampling must not.
+  const raw = [];
+  const drawPoints = [];
+  for (let i = 0; i < 40; i++) {
+    raw.push({ rssi_815: -75 + i * 0.5 });                 // ramps -75 -> -55.5
+    drawPoints.push({ lat: 51.5 + i * 5e-5, lon: -0.1, origIdx: raw.length - 1 });
+  }
+  const lastLat = 51.5 + 39 * 5e-5;
+  for (let i = 0; i < 400; i++) {
+    raw.push({ rssi_815: -55.5 });
+    drawPoints.push({ lat: lastLat + i * 5e-8, lon: -0.1, origIdx: raw.length - 1 });
+  }
+
+  const prim = GSRGlobe3DRf.buildPrimitive({ raw }, drawPoints, { mode: '815' });
+  assert.ok(prim, 'a primitive was built');
+  // ~216 m / 6 m ≈ 37 slots, minus a few noise-floor ones at the cold end
+  // of the ramp — tens of evenly-spaced slugs, nothing like the 440 points.
+  const slugs = prim.geometryInstances.length;
+  assert.ok(slugs > 15 && slugs < 70, `${slugs} evenly-spaced slugs (not ~440)`);
   clearCesium();
 });
 
