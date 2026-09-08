@@ -711,16 +711,22 @@ class GSRCSVParser {
       });
     }
 
-    // Build imported peak label and exclusion lookup (time→label/excluded, after offset)
+    // Build imported peak label and exclusion lookup (time→label/excluded, after offset).
+    // Rebuild each row without the _import* scratch keys rather than `delete`-ing
+    // them: `delete` forces the object into V8 dictionary mode for the rest of
+    // its life, and these rows are hot — nearly every render path iterates
+    // analyzer.raw. The map's GPS pipeline alone spreads every row into a
+    // drawPoint on each slider frame; a dictionary-mode spread is ~10x slower
+    // than a fast-property one (~125ms vs ~12ms on a 35k-row track), and making
+    // the rows fast-mode also sped up analyze(), buildPlaces() and the collective
+    // render measurably (tests/manual/bench).
     const importedPeakLabels = new Map();
     const importedPeakExcluded = new Map();
-    for (const d of rawDataList) {
-      if (d._importLabel) {
-        importedPeakLabels.set(d.time, d._importLabel);
-      }
-      if (d._importExcluded) importedPeakExcluded.set(d.time, true);
-      delete d._importLabel;
-      delete d._importExcluded;
+    for (let i = 0; i < rawDataList.length; i++) {
+      const { _importLabel, _importExcluded, ...clean } = rawDataList[i];
+      if (_importLabel) importedPeakLabels.set(clean.time, _importLabel);
+      if (_importExcluded) importedPeakExcluded.set(clean.time, true);
+      rawDataList[i] = clean;
     }
 
     // Auto-detect sample rate
