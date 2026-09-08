@@ -165,7 +165,10 @@ class GSRGlobeManager {
     this.wallMaxSegments = options.wallMaxSegments || WALL_MAX_SEGMENTS; // wall thinning budget
     this.showPeaks = true;
     this.minPeakQuality = 0.0;
-    this.showGroundPath = true;
+    // The flat clamp-to-ground polyline tracing the walk. Off by default — the
+    // 3D view is the extruded wall; the ground trace duplicates it and adds
+    // z-fighting shimmer over terrain. Opt in with `{ showGroundPath: true }`.
+    this.showGroundPath = options.showGroundPath === true;
     // Mirrors of the 2D sidebar sliders, refreshed from the gpsParams the host
     // passes into renderData(): Track Width (gpsTrackWeight, px) for the ground
     // path, and Peak latency (gpsPeakLatency, s) for shifting peak/hotspot
@@ -789,6 +792,7 @@ class GSRGlobeManager {
     this.currentPeaks = [];
     if (this._metricSeriesCache) this._metricSeriesCache.clear();
     this._mc = null;
+    this._clusterBlobSig = null;
   }
 
   /** Surface a recoverable problem to the user via GSRNotices, falling back to console. */
@@ -1339,30 +1343,31 @@ class GSRGlobeManager {
     // Filter peaks by quality threshold
     this.currentPeaks = (analyzer.peaks || []).filter(pk => !pk.excluded);
 
-    // Clear everything from any previous track (peaks/RF leaked before)
-    this.clearTrackEntities();
-    this.clearPeakEntities();
-    this.clearHotspotEntities();
-    this.clearClusterEntities();
-    this.clearRfEntities();
+    // Clear everything from any previous track (peaks/RF leaked before), then
+    // rebuild — all inside one entity-collection batch so the Cesium
+    // Visualizers diff the ~2×(peaks+hotspots) add/remove once, not per entity.
+    this._withEntityBatch(() => {
+      this.clearTrackEntities();
+      this.clearPeakEntities();
+      this.clearHotspotEntities();
+      this.clearRfEntities();
 
-    this._render3DWallAndPath(analyzer, drawPoints);
+      this._render3DWallAndPath(analyzer, drawPoints);
 
-    if (this.showPeaks || this.showLabels) {
-      this._renderPeakSpires(analyzer, this.currentPeaks);
-    }
-
-    if (this.showHotspots) {
-      this._renderHotspots(analyzer);
-    }
-
-    if (this.showClusters) {
-      this._renderClusterBlobs();
-    }
-
-    if (this.showRfVolumetric) {
-      this.render3DRfExpanse(analyzer, drawPoints);
-    }
+      if (this.showPeaks || this.showLabels) {
+        this._renderPeakSpires(analyzer, this.currentPeaks);
+      }
+      if (this.showHotspots) {
+        this._renderHotspots(analyzer);
+      }
+      // Ground blobs only when the hulls / visibility actually changed — a
+      // GSR/GPS slider push doesn't touch them, so rebuilding them every push
+      // was pure flicker (clamp-to-ground primitives blink on remove+add).
+      this._syncClusterBlobs();
+      if (this.showRfVolumetric) {
+        this.render3DRfExpanse(analyzer, drawPoints);
+      }
+    });
 
     this._requestRender();
 
@@ -1818,6 +1823,41 @@ class GSRGlobeManager {
   }
 
   /**
+   * Cheap content fingerprint of the current cluster hulls + their visibility.
+   * `_pushFromMap` rebuilds `clusterPolygons` (a fresh array, fresh rings) on
+   * every 2D `map:rendered`, but the hulls themselves only change when the merge
+   * slider or the active-peak set moves — so the fingerprint, not array
+   * identity, decides whether the ground blobs need rebuilding. @private
+   */
+  _clusterBlobSignature() {
+    const polys = this.currentClusterPolygons || [];
+    if (!polys.length) return this.showClusters ? 'empty' : 'off';
+    let s = (this.showClusters ? 'on:' : 'off:') + polys.length;
+    for (const p of polys) {
+      const ring = (p && p.ring) || [];
+      s += '|' + ring.length + ',' + (p.color || '') + ',' + (p.fillOpacity == null ? '' : p.fillOpacity);
+      if (ring.length) {
+        const a = ring[0], m = ring[ring.length >> 1];
+        s += ',' + (+a[0]).toFixed(5) + ',' + (+a[1]).toFixed(5) + ',' + (+m[0]).toFixed(5) + ',' + (+m[1]).toFixed(5);
+      }
+    }
+    return s;
+  }
+
+  /**
+   * Rebuild the ground blobs only when the hulls or the Clusters toggle changed
+   * since the last sync — otherwise the existing clamp-to-ground entities stay
+   * put (no remove+add blink). @private
+   */
+  _syncClusterBlobs() {
+    const sig = this._clusterBlobSignature();
+    if (sig === this._clusterBlobSig) return;
+    this.clearClusterEntities();
+    if (this.showClusters) this._renderClusterBlobs();
+    this._clusterBlobSig = sig;
+  }
+
+  /**
    * Draw the 2D map's spatial-cluster hulls as translucent ground blobs. The
    * hulls are computed by the 2D view (GSRSpatialClustering, driven by the
    * sidebar sliders) and handed in via renderData({ clusterPolygons }) so the
@@ -1832,7 +1872,12 @@ class GSRGlobeManager {
       if (ring.length < 3) return;
 
       const flat = [];
-      for (let i = 0; i < ring.length; i++) { flat.push(ring[i][1], ring[i][0]); } // [lat,lon] -> lon,lat
+      let sumLat = 0, sumLon = 0;
+      for (let i = 0; i < ring.length; i++) {
+        flat.push(ring[i][1], ring[i][0]); // [lat,lon] -> lon,lat
+        sumLat += ring[i][0];
+        sumLon += ring[i][1];
+      }
       const positions = Cesium.Cartesian3.fromDegreesArray(flat);
       const baseColor = Cesium.Color.fromCssColorString(poly.color || '#ff5252');
       const fillAlpha = (poly.fillOpacity != null) ? poly.fillOpacity : 0.25;
@@ -1847,16 +1892,40 @@ class GSRGlobeManager {
       });
       this.clusterEntities.push(fillEnt);
 
+      // The dashed outline is NOT clamp-to-ground: a ground polyline and the
+      // ClassificationType fill resolve depth in different passes and shimmer
+      // where they coincide. Lift it a few cm above the surface instead — over
+      // the sampled terrain height when Cesium World Terrain is on, else 0
+      // (the flat ellipsoid the rest of the 3D scene is built against).
+      const groundH = this._groundHeightAt(sumLat / ring.length, sumLon / ring.length);
+      const outH = groundH + 0.3;
+      const outFlat = [];
+      for (let i = 0; i < ring.length; i++) { outFlat.push(ring[i][1], ring[i][0], outH); }
+      outFlat.push(ring[0][1], ring[0][0], outH); // close the ring
       const outlineEnt = this.viewer.entities.add({
         polyline: {
-          positions: positions.concat([positions[0]]),
+          positions: Cesium.Cartesian3.fromDegreesArrayHeights(outFlat),
           width: 2.0,
-          material: new Cesium.PolylineDashMaterialProperty({ color: baseColor.withAlpha(0.9), dashLength: 12.0 }),
-          clampToGround: true
+          material: new Cesium.PolylineDashMaterialProperty({ color: baseColor.withAlpha(0.9), dashLength: 12.0 })
         }
       });
       this.clusterEntities.push(outlineEnt);
     });
+  }
+
+  /**
+   * Terrain elevation (m) at lat/lon, or 0 when terrain isn't loaded / the tile
+   * isn't ready. Mirrors setScrubPosition()'s sampling. @private
+   */
+  _groundHeightAt(lat, lon) {
+    try {
+      const globe = this.viewer && this.viewer.scene && this.viewer.scene.globe;
+      if (globe && typeof globe.getHeight === 'function') {
+        const h = globe.getHeight(Cesium.Cartographic.fromDegrees(lon, lat));
+        if (typeof h === 'number' && isFinite(h)) return h;
+      }
+    } catch (e) { /* terrain not ready */ }
+    return 0;
   }
 
   /**
@@ -1898,26 +1967,49 @@ class GSRGlobeManager {
     if (this._metricSeriesCache) this._metricSeriesCache.clear();
   }
 
+  /**
+   * Run `fn` (a clear + rebuild of the entity layers) inside one
+   * EntityCollection event batch, so Cesium's Visualizers process the whole
+   * add/remove churn in a single diff instead of once per entity. `fn` only
+   * ever `entities.add`s / `entities.remove`s and pushes to our own arrays, so
+   * deferring the collection events is safe. suspendEvents is refcounted —
+   * the finally guarantees the pairing even if a rebuild throws.
+   * @private
+   */
+  _withEntityBatch(fn) {
+    const ents = this.viewer && this.viewer.entities;
+    const batch = ents && typeof ents.suspendEvents === 'function';
+    if (batch) ents.suspendEvents();
+    try {
+      fn();
+    } finally {
+      if (batch) ents.resumeEvents();
+    }
+  }
+
   /** Re-draw the wall + the peak/hotspot/cluster/RF layers from the cached track. */
   _refreshTrack() {
     // May run a frame late now (setExtrusionScale coalesces via rAF), so guard
     // the viewer explicitly in case a destroy()/context-loss landed in between.
     if (!this.viewer || !this.currentAnalyzer || this.currentDrawPoints.length < 2) return;
     this._invalidateMetricSeriesCache();
-    this.clearTrackEntities();
-    this.clearPeakEntities();
-    this.clearHotspotEntities();
-    this.clearClusterEntities();
-    this.clearRfEntities();
-    this._render3DWallAndPath(this.currentAnalyzer, this.currentDrawPoints);
-    if (this.showPeaks || this.showLabels) {
-      this._renderPeakSpires(this.currentAnalyzer, this.currentPeaks);
-    }
-    if (this.showHotspots) this._renderHotspots(this.currentAnalyzer);
-    if (this.showClusters) this._renderClusterBlobs();
-    // Re-upload the RF volumetric layer — its raw Primitive is lost on context
-    // restore and stale after a slider-driven metric/extrusion change.
-    if (this.showRfVolumetric) this.render3DRfExpanse(this.currentAnalyzer, this.currentDrawPoints);
+    this._withEntityBatch(() => {
+      this.clearTrackEntities();
+      this.clearPeakEntities();
+      this.clearHotspotEntities();
+      this.clearRfEntities();
+      this._render3DWallAndPath(this.currentAnalyzer, this.currentDrawPoints);
+      if (this.showPeaks || this.showLabels) {
+        this._renderPeakSpires(this.currentAnalyzer, this.currentPeaks);
+      }
+      if (this.showHotspots) this._renderHotspots(this.currentAnalyzer);
+      // Extrusion / metric / RF-param changes never touch the cluster hulls —
+      // leave the ground blobs in place (see _syncClusterBlobs).
+      this._syncClusterBlobs();
+      // Re-upload the RF volumetric layer — its raw Primitive is lost on context
+      // restore and stale after a slider-driven metric/extrusion change.
+      if (this.showRfVolumetric) this.render3DRfExpanse(this.currentAnalyzer, this.currentDrawPoints);
+    });
     this._requestRender();
   }
 
@@ -1991,6 +2083,7 @@ class GSRGlobeManager {
     this.showClusters = visible;
     this.clearClusterEntities();
     if (visible) this._renderClusterBlobs();
+    this._clusterBlobSig = this._clusterBlobSignature(); // keep _syncClusterBlobs in step
     this._requestRender();
   }
 
@@ -2043,6 +2136,7 @@ class GSRGlobeManager {
     this.clearClusterEntities();
     this.clearOsmBuildingEntities();
     this.clearRfEntities();
+    this._clusterBlobSig = null; // force the next _syncClusterBlobs to rebuild
     if (this.scrubEntity) this.scrubEntity.show = false;
   }
 

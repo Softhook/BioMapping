@@ -65,7 +65,7 @@ function freshEnv() {
     scene: autoStub(),
     camera: autoStub(),
     clock: { onTick: { addEventListener: () => () => {} } },
-    entities: { add: () => ({}), remove: () => {} },
+    entities: { add: () => ({}), remove: () => {}, suspendEvents() {}, resumeEvents() {} },
     imageryLayers: { removeAll() {}, addImageryProvider() {} },
   };
   const Cesium = autoStub();
@@ -588,7 +588,8 @@ test('renderData applies the Track Width slider (gpsParams.trackWeight) to the 3
   freshEnv();
   installWallCapture();
   const { GSRGlobeManager } = loadFresh();
-  const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+  // Ground path is opt-in (off by default — the 3D view is the extruded wall).
+  const mgr = new GSRGlobeManager('c', { keyboardFlight: false, showGroundPath: true });
   mgr.flyToTrack = () => {};
   const added = [];
   mgr.viewer.entities.add = (o) => { added.push(o); return {}; };
