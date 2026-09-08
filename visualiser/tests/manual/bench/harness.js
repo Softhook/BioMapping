@@ -90,6 +90,7 @@ const TRACK_SETS = {
  * Empty / undefined → `default`.
  */
 function resolveTracks(spec) {
+  const isDefault = !spec || spec === 'default';
   const raw = (spec || 'default').split(',').map(s => s.trim()).filter(Boolean);
   const onDisk = new Set(listTracks());
   const out = [];
@@ -101,20 +102,41 @@ function resolveTracks(spec) {
     if (onDisk.has(fn)) add(fn);
     else console.warn(`  ! skipping unknown track/set: "${tok}"`);
   }
-  return out.length ? out : [...TRACK_SETS.default];
+  return out.length ? out : (isDefault ? [...TRACK_SETS.default] : []);
 }
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 function parseArgs(argv) {
-  const args = { areas: null, tracks: 'default', iters: null, warmup: null, json: false, list: false };
-  for (const a of argv) {
-    if (a === '--list' || a === '-l') args.list = true;
-    else if (a === '--json') args.json = true;
-    else if (a.startsWith('--tracks=')) args.tracks = a.slice(9);
-    else if (a.startsWith('--areas=')) args.areas = a.slice(8).split(',').map(s => s.trim()).filter(Boolean);
-    else if (a.startsWith('--iters=')) args.iters = parseInt(a.slice(8), 10);
-    else if (a.startsWith('--warmup=')) args.warmup = parseInt(a.slice(9), 10);
-    else if (!a.startsWith('-')) (args.areas = args.areas || []).push(a); // bare word = area name
+  const args = { areas: null, tracks: 'default', iters: null, warmup: null, json: false, list: false, help: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--help' || a === '-h') {
+      args.help = true;
+    } else if (a === '--list' || a === '-l') {
+      args.list = true;
+    } else if (a === '--json') {
+      args.json = true;
+    } else if (a.startsWith('--tracks=')) {
+      args.tracks = a.slice(9);
+    } else if (a === '--tracks' && i + 1 < argv.length) {
+      args.tracks = argv[++i];
+    } else if (a.startsWith('--areas=')) {
+      const parsed = a.slice(8).split(',').map(s => s.trim()).filter(Boolean);
+      args.areas = (args.areas || []).concat(parsed);
+    } else if (a === '--areas' && i + 1 < argv.length) {
+      const parsed = argv[++i].split(',').map(s => s.trim()).filter(Boolean);
+      args.areas = (args.areas || []).concat(parsed);
+    } else if (a.startsWith('--iters=')) {
+      args.iters = Math.max(1, parseInt(a.slice(8), 10) || 1);
+    } else if (a === '--iters' && i + 1 < argv.length) {
+      args.iters = Math.max(1, parseInt(argv[++i], 10) || 1);
+    } else if (a.startsWith('--warmup=')) {
+      args.warmup = Math.max(0, parseInt(a.slice(9), 10) || 0);
+    } else if (a === '--warmup' && i + 1 < argv.length) {
+      args.warmup = Math.max(0, parseInt(argv[++i], 10) || 0);
+    } else if (!a.startsWith('-')) {
+      (args.areas = args.areas || []).push(a); // bare word = area name
+    }
   }
   return args;
 }

@@ -259,20 +259,29 @@ const renderCollective = {
     // Time buildPlaces() inside the cold render without leaving the wrapper installed.
     const AP = vm.runInContext('GSRArousalPlaces', context);
     const orig = AP.buildPlaces.bind(AP);
-    let buildMs = 0, buildN = 0;
-    AP.buildPlaces = (...a) => { const t0 = process.hrtime.bigint(); const r = orig(...a); buildMs += Number(process.hrtime.bigint() - t0) / 1e6; buildN++; return r; };
+    const bCfg = B(opts, { iters: 6 });
+    const buildSamples = [];
+    AP.buildPlaces = (...a) => {
+      const t0 = process.hrtime.bigint();
+      const r = orig(...a);
+      buildSamples.push(Number(process.hrtime.bigint() - t0) / 1e6);
+      return r;
+    };
     let cold;
     try {
       cold = h.bench(() => {
         mapManager._arousalPlacesCache = null;              // keep it a COLD measurement
         mapManager.renderCollectiveData(window.AppState.collectiveManager, contourParams, 0);
-      }, B(opts, { iters: 6 }));
+      }, bCfg);
     } finally { AP.buildPlaces = orig; }
+
+    const timedBuilds = buildSamples.slice(bCfg.warmup);
+    const buildMedian = timedBuilds.length ? h.median(timedBuilds) : 0;
 
     return [{
       track: `${tracks.length}-track set`, tracks: tracks.length,
       totalPeaks: tracks.reduce((s, t) => s + t.peaks, 0),
-      coldMs: cold.median, buildMs: buildN ? buildMs / buildN : 0,
+      coldMs: cold.median, buildMs: buildMedian,
     }];
   },
 };

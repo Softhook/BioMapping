@@ -38,6 +38,28 @@ function log(...a) { process.stderr.write(a.join(' ') + '\n'); }
 function main(argv) {
   const args = h.parseArgs(argv);
 
+  if (args.help) {
+    console.log(`Usage: node tests/manual/bench/run.js [area ...] [options]
+
+Areas (omit to run all):
+${AREAS.map(a => '  ' + a.name.padEnd(18) + ' ' + a.title).join('\n')}
+
+Options:
+  --tracks=<spec>       track set name or comma list of CSV filenames (default: "default")
+  --areas=a,b           comma list of area names (alternative to positional arguments)
+  --iters=N             override per-area iteration count
+  --warmup=N            override per-area warmup count
+  --json                emit machine-readable JSON on stdout (progress to stderr)
+  --list, -l            print available areas + track sets and exit
+  --help, -h            show this help message and exit
+
+Track sets:
+${Object.entries(h.TRACK_SETS).map(([k, v]) => '  ' + k.padEnd(10) + ' ' + v.join(', ')).join('\n')}
+  all        every non-empty track CSV on disk (${h.listTracks().length} tracks)
+`);
+    return;
+  }
+
   if (args.list) {
     console.log('areas:');
     for (const a of AREAS) console.log(`  ${a.name.padEnd(18)} ${a.title}`);
@@ -53,6 +75,7 @@ function main(argv) {
   if (!wanted.length) { log(`no matching areas for: ${(args.areas || []).join(', ')}`); process.exit(1); }
 
   const files = h.resolveTracks(args.tracks);
+  if (!files.length) { log(`no matching tracks found for: "${args.tracks}"`); process.exit(1); }
   const opts = {};
   if (args.iters) opts.iters = args.iters;
   if (args.warmup) opts.warmup = args.warmup;
@@ -90,6 +113,7 @@ function main(argv) {
     } catch (e) {
       log(`  ! ${area.name} failed: ${e && e.stack || e}`);
       results.areas[area.name] = { error: String(e && e.message || e) };
+      process.exitCode = 1;
       continue;
     }
     results.areas[area.name] = { title: area.title, columns: area.columns, rows };

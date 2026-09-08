@@ -7,6 +7,8 @@ and a single-track headline number hides that.
 
 ```
 node tests/manual/bench/run.js [area ...] [options]
+# or:
+npm run bench -- [area ...] [options]
 ```
 
 Nothing here runs in `npm test`. Every number is a measurement, not an assertion.
@@ -19,7 +21,8 @@ Nothing here runs in `npm test`. Every number is a measurement, not an assertion
 | `--areas=a,b` | same as positional area names |
 | `--iters=N` / `--warmup=N` | override per-area loop counts |
 | `--json` | machine-readable results on stdout (progress on stderr) — diff two runs to catch regressions |
-| `--list` | print areas + track sets, exit |
+| `--list`, `-l` | print areas + track sets, exit |
+| `--help`, `-h` | print usage and options, exit |
 
 ### Track sets
 
