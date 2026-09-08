@@ -58,11 +58,13 @@ function freshEnv() {
     body: { appendChild() {}, removeChild() {} },
   };
 
+  const scene = autoStub();
+  scene.globe = autoStub();
   const viewer = {
     destroyed: false,
     isDestroyed() { return this.destroyed; },
     destroy() { this.destroyed = true; },
-    scene: autoStub(),
+    scene,
     camera: autoStub(),
     clock: { onTick: { addEventListener: () => () => {} } },
     entities: { add: () => ({}), remove: () => {}, suspendEvents() {}, resumeEvents() {} },
@@ -237,6 +239,28 @@ test('viewer renders at devicePixelRatio x a constant resolutionScale (default 1
   assert.strictEqual(viewer.useBrowserRecommendedResolution, false, 'honours devicePixelRatio');
   assert.strictEqual(viewer.resolutionScale, 1.2, 'default supersample factor');
   mgr.destroy();
+});
+
+test('globe.tileCacheSize defaults to 500 with preloadSiblings enabled, and accepts custom option', () => {
+  {
+    const { viewer } = freshEnv();
+    const { GSRGlobeManager } = loadFresh();
+    const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
+
+    assert.strictEqual(mgr.tileCacheSize, 500, 'default tileCacheSize is 500');
+    assert.strictEqual(viewer.scene.globe.tileCacheSize, 500, 'assigned to Cesium globe');
+    assert.strictEqual(viewer.scene.globe.preloadSiblings, true, 'preloadSiblings is enabled');
+    mgr.destroy();
+  }
+  {
+    const { viewer } = freshEnv();
+    const { GSRGlobeManager } = loadFresh();
+    const mgr = new GSRGlobeManager('c', { keyboardFlight: false, tileCacheSize: 350 });
+
+    assert.strictEqual(mgr.tileCacheSize, 350, 'custom tileCacheSize honored');
+    assert.strictEqual(viewer.scene.globe.tileCacheSize, 350, 'custom value assigned to Cesium globe');
+    mgr.destroy();
+  }
 });
 
 test('resolutionScale option overrides the default; it is held constant (no per-frame watcher)', () => {

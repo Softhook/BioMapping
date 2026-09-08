@@ -145,6 +145,10 @@ class GSRGlobeManager {
     // per orbit session, not per frame, so no drawing-buffer thrash.
     this._orbitResolutionScale = options.orbitResolutionScale > 0 ? options.orbitResolutionScale : 0.85;
 
+    // Retain cached tiles in memory across pan/orbit gestures to prevent thrashing
+    // and eliminate satellite tile reload pop-in when rotating the view.
+    this.tileCacheSize = options.tileCacheSize > 0 ? options.tileCacheSize : 500;
+
     // Active track data cache
     this.currentAnalyzer = null;
     this.currentDrawPoints = [];
@@ -350,8 +354,10 @@ class GSRGlobeManager {
     // Slightly coarser tiles: fewer/faster imagery requests, no visible loss at
     // the altitudes this view uses.
     globe.maximumScreenSpaceError = 2.0;
-    // Cap the tile-cache growth so a long session doesn't balloon GPU memory.
-    globe.tileCacheSize = 100;
+    // Cache tiles in memory across pan/orbit gestures to prevent network thrashing
+    // and eliminate satellite tile reload pop-in when rotating the view.
+    globe.tileCacheSize = this.tileCacheSize;
+    globe.preloadSiblings = true;
 
     // Optional Cesium Ion Terrain if token provided
     if (Cesium.Ion.defaultAccessToken && typeof Cesium.Terrain !== 'undefined') {
