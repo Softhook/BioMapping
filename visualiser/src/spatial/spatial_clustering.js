@@ -298,11 +298,17 @@ class GSRSpatialClustering {
             cMax: Math.min(cols - 1, Math.round((pkLon - bounds.minLon) / ((bounds.maxLon - bounds.minLon) / (cols - 1))) + Math.max(1, Math.ceil((cutoffMeters / scale.degToMeterLon) / ((bounds.maxLon - bounds.minLon) / (cols - 1)))))
           };
 
+      const degLat = scale.degToMeterLat;
+      const degLon = scale.degToMeterLon;
+
       for (let r = rMin; r <= rMax; r++) {
-        const lat = lats[r];
+        const dy = (lats[r] - pkLat) * degLat;
+        const dy2 = dy * dy;
+        if (dy2 > cutoffDSq) continue;
         const rowOffset = r * cols;
         for (let c = cMin; c <= cMax; c++) {
-          const dSq = GSRSpatialClustering._getDistanceMetersSq(lat, lons[c], pk.lat, pk.lon, scale);
+          const dx = (lons[c] - pkLon) * degLon;
+          const dSq = dy2 + dx * dx;
           if (dSq > cutoffDSq) continue;
           flatGrid[rowOffset + c] += w * Math.exp(-dSq / twoSigmaSq);
         }

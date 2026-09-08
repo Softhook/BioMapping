@@ -48,75 +48,129 @@ class GSRArousalPlaces {
 
     const trackList = Array.isArray(tracks) ? tracks : [];
     const trackById = new Map();
-    for (const t of trackList) if (t && t.id != null) trackById.set(t.id, t);
+    for (const trk of trackList) {
+      if (!trk || trk.id == null || !Array.isArray(trk.raw)) continue;
+      const raw = trk.raw;
+      const n = raw.length;
+      let flat = trk._fastCoords;
+      if (!flat || flat.len !== n || flat.rawRef !== raw) {
+        const lats = new Float64Array(n);
+        const lons = new Float64Array(n);
+        const phasicVals = new Float64Array(n);
+        const flags = new Uint8Array(n); // 1 = valid GPS sample
+        const phasic = Array.isArray(trk.phasic) ? trk.phasic : null;
+        for (let i = 0; i < n; i++) {
+          const s = raw[i];
+          if (s && s.hasGps !== false && s.lat != null && s.lon != null) {
+            const lat = +s.lat, lon = +s.lon;
+            if (isFinite(lat) && isFinite(lon)) {
+              lats[i] = lat;
+              lons[i] = lon;
+              flags[i] = 1;
+            }
+          }
+          if (phasic && i < phasic.length) {
+            const v = +phasic[i].val;
+            if (v > 0) phasicVals[i] = v;
+          }
+        }
+        flat = { lats, lons, phasicVals, flags, len: n, rawRef: raw };
+        trk._fastCoords = flat;
+      }
+      trackById.set(trk.id, { trk, flat });
+    }
 
-    let places = clusters.map(cluster => {
+    // Pre-filter: drop single-walk specks (a 1-2 peak cluster from one track is
+    // more likely detector noise than a place), but keep small clusters that >=2
+    // independent walks agree on. This avoids running the O(cluster × samples)
+    // dwell/energy scan on clusters that will immediately be discarded.
+    const candidateClusters = [];
+    for (let cIdx = 0; cIdx < clusters.length; cIdx++) {
+      const cluster = clusters[cIdx];
       const members = Array.isArray(cluster) ? cluster : [];
+      const trackIds = [];
+      for (let i = 0; i < members.length; i++) {
+        const tid = members[i].trackId != null ? members[i].trackId : 'single';
+        if (!trackIds.includes(tid)) trackIds.push(tid);
+      }
+      if (members.length < minMembers && trackIds.length < 2) continue;
+      candidateClusters.push({ cluster, members, trackIds });
+    }
+
+    let places = candidateClusters.map(({ cluster, members, trackIds }) => {
       const n = members.length || 1;
 
       let sumLat = 0, sumLon = 0, sumAmp = 0, maxAmp = 0, firstTime = Infinity;
       let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
-      const trackIds = [];
-      const memberPts = [];
-      for (const pk of members) {
-        const lat = parseFloat(pk.lat), lon = parseFloat(pk.lon);
+      const mCount = members.length;
+      const memberLats = new Float64Array(mCount);
+      const memberLons = new Float64Array(mCount);
+      for (let i = 0; i < mCount; i++) {
+        const pk = members[i];
+        const lat = +pk.lat, lon = +pk.lon;
+        memberLats[i] = lat;
+        memberLons[i] = lon;
         sumLat += lat; sumLon += lon;
         if (lat < minLat) minLat = lat;
         if (lat > maxLat) maxLat = lat;
         if (lon < minLon) minLon = lon;
         if (lon > maxLon) maxLon = lon;
-        memberPts.push({ lat, lon });
         const a = Number(pk.amplitude) || 0;
         sumAmp += a;
         if (a > maxAmp) maxAmp = a;
         if (typeof pk.time === 'number' && pk.time < firstTime) firstTime = pk.time;
-        const tid = pk.trackId != null ? pk.trackId : 'single';
-        if (!trackIds.includes(tid)) trackIds.push(tid);
       }
       const centroidLat = sumLat / n;
       const centroidLon = sumLon / n;
       const scale = geoScale(centroidLat);
+      const degLat = scale.degToMeterLat;
+      const degLon = scale.degToMeterLon;
 
-      // Bounding box of the member peaks, expanded by the footprint radius —
-      // an O(1) reject for the vast majority of walk samples before the
-      // per-member-peak distance loop.
-      const padLat = footprintRadiusM / scale.degToMeterLat;
-      const padLon = footprintRadiusM / scale.degToMeterLon;
+      const padLat = footprintRadiusM / degLat;
+      const padLon = footprintRadiusM / degLon;
       const bMinLat = minLat - padLat, bMaxLat = maxLat + padLat;
       const bMinLon = minLon - padLon, bMaxLon = maxLon + padLon;
 
       let energy = 0, dwellSeconds = 0;
       let osm = null, osmBestDsq = Infinity;
 
-      for (const tid of trackIds) {
-        const trk = trackById.get(tid);
-        if (!trk || !Array.isArray(trk.raw)) continue;
+      for (let tIdx = 0; tIdx < trackIds.length; tIdx++) {
+        const tid = trackIds[tIdx];
+        const entry = trackById.get(tid);
+        if (!entry) continue;
+        const { trk, flat } = entry;
         const sr = num(trk.sampleRate, 10);
         const dt = sr > 0 ? 1 / sr : 0.1;
-        const phasic = Array.isArray(trk.phasic) ? trk.phasic : null;
+        const { lats, lons, phasicVals, flags, len } = flat;
         const raw = trk.raw;
-        for (let i = 0; i < raw.length; i++) {
-          const s = raw[i];
-          if (!s || s.hasGps === false) continue;
-          const sLat = parseFloat(s.lat), sLon = parseFloat(s.lon);
-          if (!isFinite(sLat) || !isFinite(sLon)) continue;
-          if (sLat < bMinLat || sLat > bMaxLat || sLon < bMinLon || sLon > bMaxLon) continue;
+
+        for (let i = 0; i < len; i++) {
+          if (flags[i] === 0) continue;
+          const sLat = lats[i];
+          if (sLat < bMinLat || sLat > bMaxLat) continue;
+          const sLon = lons[i];
+          if (sLon < bMinLon || sLon > bMaxLon) continue;
 
           let nearDsq = Infinity;
-          for (let m = 0; m < memberPts.length; m++) {
-            const d = distSq(sLat, sLon, memberPts[m].lat, memberPts[m].lon, scale);
+          for (let m = 0; m < mCount; m++) {
+            const dy = (sLat - memberLats[m]) * degLat;
+            if (dy * dy > footSq) continue;
+            const dx = (sLon - memberLons[m]) * degLon;
+            const d = dx * dx + dy * dy;
             if (d < nearDsq) nearDsq = d;
             if (nearDsq <= footSq) break;
           }
           if (nearDsq > footSq) continue;
 
           dwellSeconds += dt;
-          if (phasic && i < phasic.length) {
-            const v = Number(phasic[i].val) || 0;
-            if (v > 0) energy += v * dt;
-          }
-          if (s.osm_road_class != null) {
-            const dc = distSq(centroidLat, centroidLon, sLat, sLon, scale);
+          const pv = phasicVals[i];
+          if (pv > 0) energy += pv * dt;
+
+          const s = raw[i];
+          if (s && s.osm_road_class != null) {
+            const dyc = (centroidLat - sLat) * degLat;
+            const dxc = (centroidLon - sLon) * degLon;
+            const dc = dxc * dxc + dyc * dyc;
             if (dc < osmBestDsq) {
               osmBestDsq = dc;
               osm = {
@@ -150,10 +204,6 @@ class GSRArousalPlaces {
       };
     });
 
-    // Drop single-walk specks (a 1-2 peak cluster from one track is more likely
-    // detector noise than a place), but keep small clusters that >=2 independent
-    // walks agree on. Then rank by dwell-normalised rate, cap, and label.
-    places = places.filter(p => p.memberCount >= minMembers || p.trackCount >= 2);
     places.sort((a, b) => b.rate - a.rate);
     if (places.length > maxPlaces) places = places.slice(0, maxPlaces);
     places.forEach((p, i) => { p.label = `P${i + 1}`; });
