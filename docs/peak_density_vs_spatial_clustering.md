@@ -110,6 +110,47 @@ The goal of introducing these advanced metrics and model frameworks is to direct
 * **Resilience to Travel Speed and Modality:** If a pedestrian walks slowly ($1\text{ m/s}$) and experiences 5 stress spikes over 100 meters, and a cyclist rides quickly ($5\text{ m/s}$) and experiences 5 spikes over the same 100 meters, their spatial density looks totally different. Normalizing to temporal density (peaks per minute) ensures they are compared fairly.
 * **Continuous Signal Alignment:** Because it is a continuous array of $\{time, val\}$, it can be mapped, correlated, and aligned with other 1 Hz time-series datasets (such as GPS velocity, heart rate, or air quality).
 
+### 2A. Does "Arousal Places" dwell-normalised energy hold up? (literature check, 2026-09-08)
+
+The **Arousal Places** score (`src/spatial/arousal_places.js` `buildPlaces()`) is:
+
+$$\text{rate} = \frac{\sum_i \max(0,\ \text{phasic}_i)\ \Delta t}{\sum_i \Delta t}\times 60 \qquad \text{(sum over walk samples inside the place footprint)}$$
+
+reported as $\mu\text{S}\cdot\text{s}/\text{min}$ and used to rank places $P1..Pn$.
+
+**What it reduces to.** The numerator is a spatially-windowed **ISCR** (§3) — area under the rectified phasic driver, $\mu\text{S}\cdot\text{s}$. Dividing by dwell collapses the whole expression to $\text{mean}(\max(0,\text{phasic}))$ over the in-footprint samples, $\times 60$. Dimensionally $\mu\text{S}\cdot\text{s}/\text{min} = \mu\text{S}/60$; P8's 22.44 $\mu\text{S}\cdot\text{s}/\text{min}$ *is* a 0.374 $\mu\text{S}$ mean phasic level. It reads like an accumulating flux quantity but it is a **time-average intensity**.
+
+**Precedent — each half is standard, the combination is close to novel.**
+
+* **ISCR ÷ window duration.** Benedek & Kaehr (2010), the deconvolution behind Ledalab's continuous decomposition, define ISCR as the phasic-driver AUC over a response window ($\mu\text{S}\cdot\text{s}$) and note that because ISCR scales with window length you divide by duration to compare unequal windows. Arousal Places is exactly "ISCR per unit window", with a spatial footprint replacing the post-stimulus interval — the textbook normalisation, not an ad hoc one.
+* **Per-minute EDA rates.** The canonical tonic-arousal index (Boucsein, *Electrodermal Activity*, 2012) is NS-SCR frequency in "SCRs per minute" (~1–5/min at rest, >20/min high arousal). Per-minute normalisation of EDA is orthodox; this metric is its continuous-energy analogue.
+* **Stay-points / dwell time.** Standard trajectory mining — segment a track by where the subject lingered.
+* **Time-weighted average exposure.** Occupational/environmental science: integrated exposure = intensity $\times$ time; TWA = that $\div$ duration. `energy ÷ dwell` is structurally a TWA of arousal.
+
+**What the spatial-physiology field does instead.**
+
+* **Urban Emotions** (Kyriakou, Resch, Zeile et al. — *Detecting Moments of Stress*, Sensors 2019; *Spatial Analysis of Moments of Stress*, 2019): rule-based **event** detection (GSR↑ + skin-temp↓) → point events. They explicitly warn plain kernel-density hotspot maps mislead, and propose a **"MOS ratio"** — normalising detected events by the **number of passes / measurements** at a location. Same worry as ours (raw counts reward being-there-more), but they divide by *sampling effort*, not seconds, and count *events*, not integrated energy.
+* **Nold, Bio Mapping / Emotion Maps** (this project's lineage): deliberately **not** reduced to a scalar — arousal shown along the track, meaning supplied by the walker's narrative annotation.
+* **Fixed-window field/VR studies** (e.g. *Stressful urban walks*, Virtual Reality 2025): Ledalab CDA → nSCR, AmpSum, PhasicMax over a **fixed** exposure window, so dwell never needs dividing out. Uncontrolled walks have no such fixed window — which is *why* the normaliser is needed here.
+* **Osborne & Jones** (migrant urban walks): find *lower* arousal in familiar / frequently-visited places — see the habituation point below.
+
+**Where the logic is sound.** Raw `energy` and raw peak-count both grow ~linearly with time-in-footprint, so a scalar meant to rank *places* not *visits* must divide time out. AUC-of-driver is a better base quantity than a peak count — continuous, threshold-free, robust to overlapping SCRs (§3). Per-minute framing is legible to psychophysiology readers.
+
+**Where it is shaky — worth stress-testing against real tracks.**
+
+1. **It is a mean wearing a flux costume.** $P1$ vs $P8$ ranks *average phasic amplitude in the footprint*, nothing more exotic. Either report it as mean phasic ($\mu\text{S}$) or keep the rate label but describe it honestly.
+2. **Habituation runs the wrong way.** EDA orienting responses habituate strongly with continued exposure (and Osborne finds lower arousal in familiar places). If a place is engaging enough that people **stop and stay**, the first ~20–30 s carries the big orienting response and the rest of the dwell averages in a habituated tail → longer dwell drags the mean *down*. A compelling linger-spot can score *below* a corner someone hurried past with one traffic startle — arguably the opposite of "where did arousal concentrate". A peak-rate or "energy in first N s of dwell" metric would not invert like this.
+3. **Short dwells dominate the top of the ranking.** With `dwellFloor = 5 s`, a drive-by clipping ~6–10 s of samples and catching one 0.5 $\mu\text{S}$ SCR is divided by a tiny denominator and rockets up the list. Fixes: raise the floor to a real minimum stop (~20–30 s), or add **shrinkage** — score $(\text{energy} + k\,\mu_{\text{global}}) / (\text{dwell} + k)$ so sparsely-sampled places are pulled toward the global mean rate until they have earned enough dwell. Standard empirical-Bayes treatment for rates over small denominators.
+4. **The headline and "N peaks" tell different stories.** `energy` integrates *all* positive phasic driver, including rolling elevation between detected peaks. High energy + 2 peaks (sustained) and 8 peaks + modest energy (spiky) get similar headers. The member peaks drive the footprint geometry and the `minMembers` gate, not the score. Consider showing peak-rate (peaks/min) as its own popup row so the two are visibly distinct.
+5. **Cross-walk pooling hides disagreement.** Multi-track: `energy` and `dwell` both sum over walks → the rate is pooled mean phasic across all visits. One very aroused pass + three flat passes ≈ four mild passes. The collective outline encodes inter-track *agreement* separately, which mitigates it, but the scalar cannot tell "consistently mild" from "polarising".
+6. **Footprint includes transit, not just stops.** Radius = `mergeM/2 + footprintPadM` (~27.5 m default), so approach/departure samples count toward dwell. For a walker passing straight through, "dwell" is really "time within 27.5 m" (~20–40 s at walking pace) whether or not they stopped.
+
+**Verdict.** Defensible, with real lineage (ISCR ÷ window duration; NS-SCR/min; TWA exposure; the MOS-ratio's normalise-by-effort instinct). Dividing time out is the right move for ranking places rather than visits. But it reduces to mean phasic amplitude in the footprint (name it honestly); habituation can rank linger-spots below drive-by startles (possibly opposite the intent); tiny dwells + a 5 s floor let barely-visited places top the list (add shrinkage or a bigger floor); and continuous `energy` and the `peaks` count should stay visibly separate since only the former drives the score. For "where is average sympathetic arousal highest per unit time spent" the metric is right; for "where did the strongest / most arousal happen" a peak-energy or peak-rate metric is less prone to the habituation inversion.
+
+**Suggested follow-ups.** (a) Rank the real places three ways — `energy/dwell`, raw `energy`, peak count — and see how much the top 10 reshuffles; if it barely moves the normalisation is not earning its complexity, if the top flips check whether the newly-promoted places are just short dwells. (b) Prototype the shrinkage estimator in (3). (c) Add a peaks/min row to the popup per (4).
+
+**UI wording changed 2026-09-08.** Popup header and map tooltip now say "N peaks" (was "N responses"); the "Response energy" row is now "Arousal energy" — aligning with the "Arousal rate" label above it and the `energy` field's actual definition (integrated phasic driver, not a peak tally). `place.memberCount` / `cluster` / `energy` field names unchanged.
+
 ---
 
 ## 3. Integrated Skin Conductance Response (ISCR / Phasic AUC)

@@ -221,7 +221,7 @@ const MapPopups = {
 
     const headerRow = L.DomUtil.create('div', 'popup-header-row', container);
     L.DomUtil.create('h4', '', headerRow).textContent =
-      `${place.label} — ${place.memberCount} ${place.memberCount === 1 ? 'response' : 'responses'}`;
+      `${place.label} — ${place.memberCount} ${place.memberCount === 1 ? 'peak' : 'peaks'}`;
 
     const table = L.DomUtil.create('table', 'popup-table', container);
     const row = (k, v) => {
@@ -234,7 +234,7 @@ const MapPopups = {
       row('Walks:', `${place.trackCount} of ${ctx.activeTrackCount}${place.provisional ? ' (provisional)' : ''}`);
     }
     row('Arousal rate:', `${place.rate.toFixed(2)} µS·s/min`);
-    row('Response energy:', `${place.energy.toFixed(2)} µS·s`);
+    row('Arousal energy:', `${place.energy.toFixed(2)} µS·s`);
     row('Dwell:', formatMMSS(place.dwellSeconds));
     row('Peak amplitude:', `${place.meanAmp.toFixed(3)} µS mean / ${place.maxAmp.toFixed(3)} µS max`);
     if (place.firstTime != null) row('First visit:', formatMMSS(place.firstTime));

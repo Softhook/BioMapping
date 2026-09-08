@@ -309,10 +309,10 @@ Object.assign(GSRMapManager.prototype, {
     const weight = provisional ? 1 : 1.5 + ratio * 2.5;
     const dashArray = provisional ? '2, 6' : '4, 6';
 
-    const responses = `${place.memberCount} ${place.memberCount === 1 ? 'response' : 'responses'}`;
+    const peaks = `${place.memberCount} ${place.memberCount === 1 ? 'peak' : 'peaks'}`;
     const walks = multiTrack ? ` · ${place.trackCount}/${ctx.activeTrackCount} walks` : '';
     const prov = provisional ? ' · provisional' : '';
-    const tooltip = `${place.label}${walks} · ${responses} · ${place.rate.toFixed(2)} µS·s/min${prov}`;
+    const tooltip = `${place.label}${walks} · ${peaks} · ${place.rate.toFixed(2)} µS·s/min${prov}`;
 
     return { color, fillOpacity, weight, dashArray, tooltip, ratio };
   },
