@@ -82,7 +82,7 @@ function loadTrack(filename) {
   return { analyzer, filterParams };
 }
 
-const FILES = ['biomap_048.csv', 'biomap_019.csv', 'biomap_016.csv'];
+const FILES = ['biomap_113.csv', 'biomap_048.csv', 'biomap_019.csv', 'biomap_016.csv'];
 
 console.log('── analyze() on real tracks: cache-HIT (peak-slider drag) vs cache-MISS (filter-slider drag) ──\n');
 console.log('  Track                   rows   peaks   HIT median    MISS median');
