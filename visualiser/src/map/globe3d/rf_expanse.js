@@ -39,6 +39,10 @@ const GSRGlobe3DRf = {
     let min868 = Infinity, max868 = -Infinity;
     let min915 = Infinity, max915 = -Infinity;
     let minFog = Infinity, maxFog = -Infinity;
+    // Per-band "is there a real signal here" flags — set from the measured
+    // dBm spread below. Default true so the synthetic-field path (no radio
+    // hardware in the file) is left exactly as it was.
+    let active815 = true, active868 = true, active915 = true;
 
     for (let i = 0; i < drawPoints.length; i++) {
       const pt = drawPoints[i];
@@ -86,10 +90,29 @@ const GSRGlobe3DRf = {
         rfPoints[i].fog  = 0.3 + 0.7 * Math.sin(frac * Math.PI * 2);
       }
     } else {
+      // Squelch, mirroring RFFluidRenderer._calculateRssiStats(): a band
+      // only counts as "active" if its peak clears the -90 dBm hardware
+      // noise floor AND spans at least 3 dB. Without this the raw min/max
+      // stretch below blows 1-2 dB of noise-floor jitter up to full
+      // intensity and paints a dead band solid (e.g. 915 MHz on a track
+      // with no 915 source) — where the 2D overlay correctly draws
+      // nothing. Read the real extremes here, before the degenerate-range
+      // fallback on the next lines overwrites them.
+      active815 = bandHasActiveSignal(min815, max815);
+      active868 = bandHasActiveSignal(min868, max868);
+      active915 = bandHasActiveSignal(min915, max915);
       if (!isFinite(min815) || !isFinite(max815) || min815 >= max815) { min815 = -92.0; max815 = -50.0; }
       if (!isFinite(min868) || !isFinite(max868) || min868 >= max868) { min868 = -92.0; max868 = -50.0; }
       if (!isFinite(min915) || !isFinite(max915) || min915 >= max915) { min915 = -92.0; max915 = -50.0; }
       if (!isFinite(minFog) || !isFinite(maxFog) || minFog >= maxFog) { minFog = 0.0; maxFog = 100.0; }
+    }
+
+    // A single-band mode over a squelched band has nothing to show — same
+    // as the 2D overlay, which renders an empty layer in that case.
+    if (hasMeasuredRf) {
+      if (mode === '815' && !active815) return null;
+      if (mode === '868' && !active868) return null;
+      if (mode === '915' && !active915) return null;
     }
 
     const instances = [];
@@ -98,9 +121,9 @@ const GSRGlobe3DRf = {
     for (let i = 0; i < rfPoints.length; i += sampleStep) {
       const pt = rfPoints[i];
 
-      const norm815 = clamp01(hasMeasuredRf ? ((pt.r815 - min815) / (max815 - min815)) : pt.r815);
-      const norm868 = clamp01(hasMeasuredRf ? ((pt.r868 - min868) / (max868 - min868)) : pt.r868);
-      const norm915 = clamp01(hasMeasuredRf ? ((pt.r915 - min915) / (max915 - min915)) : pt.r915);
+      const norm815 = hasMeasuredRf ? normDbm(pt.r815, min815, max815, active815) : clamp01(pt.r815);
+      const norm868 = hasMeasuredRf ? normDbm(pt.r868, min868, max868, active868) : clamp01(pt.r868);
+      const norm915 = hasMeasuredRf ? normDbm(pt.r915, min915, max915, active915) : clamp01(pt.r915);
       const normFog = clamp01(hasMeasuredRf ? ((pt.fog - minFog) / (maxFog - minFog)) : pt.fog);
 
       // Colour channels match the 2D RF fluid overlay exactly
@@ -114,20 +137,24 @@ const GSRGlobe3DRf = {
         r = norm815;
         g = norm868;
         b = norm915;
-        intensity = Math.max(norm815, norm868, norm915, 0.25);
+        intensity = Math.max(norm815, norm868, norm915);
       } else if (mode === '815') {
         r = 1.0; g = 0.0; b = 0.0;
-        intensity = Math.max(0.2, norm815);
+        intensity = norm815;
       } else if (mode === '868') {
         r = 0.0; g = 1.0; b = 0.0;
-        intensity = Math.max(0.2, norm868);
+        intensity = norm868;
       } else if (mode === '915') {
         r = 0.0; g = 0.0; b = 1.0;
-        intensity = Math.max(0.2, norm915);
+        intensity = norm915;
       } else {
         r = normFog; g = 0.0; b = 1.0 - normFog;
         intensity = Math.max(0.2, normFog);
       }
+
+      // Nothing above the noise floor at this point (RSSI modes only —
+      // EM-fog keeps its ambient floor): no slug, matching the 2D overlay.
+      if (hasMeasuredRf && mode !== 'fog' && intensity <= 0.0) continue;
 
       const domeRadius = 24.0 + 32.0 * intensity;
       const domeHeight = 8.0 + (baseCeiling - 8.0) * intensity;
@@ -163,6 +190,30 @@ const GSRGlobe3DRf = {
 };
 
 function clamp01(v) { return Math.max(0.0, Math.min(1.0, v)); }
+
+/**
+ * Mirrors RFFluidRenderer._calculateRssiStats()'s active-signal test: the
+ * band peak must clear the -90 dBm hardware noise floor AND the band must
+ * span at least 3 dB. `mn`/`mx` are the raw per-band RSSI extremes in dBm.
+ */
+function bandHasActiveSignal(mn, mx) {
+  return isFinite(mn) && isFinite(mx) && (mx > -90.0) && ((mx - mn) >= 3.0);
+}
+
+/**
+ * Mirrors RFFluidRenderer._normDbm(): 0 for an inactive band or any sample
+ * at/below the local threshold (the greater of -90 dBm and floor + 3 dB);
+ * a gamma-boosted 0..1 ramp from there up to the band peak. Keeps the 3D
+ * expanse and the 2D overlay squelching identical data identically.
+ */
+function normDbm(val, mn, mx, active) {
+  if (val === null || val === undefined || isNaN(val) || !active) return 0.0;
+  const threshold = Math.max(-90.0, mn + 3.0);
+  if (val <= threshold) return 0.0;
+  const activeRange = Math.max(5.0, mx - threshold);
+  const norm = clamp01((val - threshold) / activeRange);
+  return clamp01(Math.pow(norm, 0.75) * 1.15);
+}
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { GSRGlobe3DRf };

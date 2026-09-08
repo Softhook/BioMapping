@@ -148,6 +148,40 @@ test('GSRGlobe3DRf.buildPrimitive: null when there is nothing to draw', () => {
   clearCesium();
 });
 
+test('GSRGlobe3DRf.buildPrimitive: a dead band is squelched, matching the 2D overlay', () => {
+  stubCesium();
+  const { GSRGlobe3DRf } = G3D('rf_expanse.js');
+
+  // 815 MHz has a real spike; 915 MHz sits in the noise floor the whole
+  // track (-93..-91.5, peak never clears -90). The 2D overlay renders
+  // nothing for 915 here — the 3D expanse must not either.
+  const n = 300;
+  const raw = [];
+  const drawPoints = [];
+  for (let i = 0; i < n; i++) {
+    raw.push({
+      rssi_815: (i > 120 && i < 180) ? -55 : -91.5,
+      rssi_868: -91.5,
+      rssi_915: -92 + ((i % 3) * 0.5),   // -92 / -91.5 / -91 jitter, all sub-floor
+    });
+    drawPoints.push({ lat: 51.5 + i * 1e-4, lon: -0.1, origIdx: i });
+  }
+
+  // Single-band 915 mode: nothing to draw at all.
+  assert.strictEqual(
+    GSRGlobe3DRf.buildPrimitive({ raw }, drawPoints, { mode: '915' }), null,
+    '915-only over a noise-floor band builds no primitive');
+
+  // Tri-band: 815 slugs are drawn, but no slug carries any blue.
+  clearCesium();
+  const c2 = stubCesium();
+  const prim = GSRGlobe3DRf.buildPrimitive({ raw }, drawPoints, { mode: 'triband' });
+  assert.ok(prim && c2.EllipsoidGeometry > 0, '815 spike still produces slugs');
+  const maxBlue = Math.max(...prim.geometryInstances.map((gi) => gi.attributes.color.b));
+  assert.strictEqual(maxBlue, 0, 'dead 915 band contributes zero blue in tri-band');
+  clearCesium();
+});
+
 test('GSRGlobe3DRf.buildPrimitive: no hardware RF -> synthesises an ambient field', () => {
   const counts = stubCesium();
   const { GSRGlobe3DRf } = G3D('rf_expanse.js');
