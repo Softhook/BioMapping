@@ -168,6 +168,10 @@ Object.assign(GSRMapManager.prototype, {
     // Aggregates (spatial clusters, OSM shapes) + RF fluid + legend are
     // map-level, owned by GSRMapManager rather than any single track.
     this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
+    // The Arousal Places compute cache survives (fingerprint-guarded), but the
+    // last input reference must not — refreshArousalPlaces() would otherwise
+    // replay places for a track that's no longer rendered.
+    this._lastArousalInput = null;
     this.clearOsmShapes();
 
     if (this.map.hasLayer(this.scrubMarker)) {

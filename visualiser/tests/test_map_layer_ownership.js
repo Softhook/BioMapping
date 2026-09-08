@@ -1031,6 +1031,134 @@ test('refreshPeakMarkers({ skipClustering: true }): replaces peak/connector laye
   peakAfter.forEach(l => assert.ok(map.hasLayer(l), 'new peak/connector layer is on the map via the track group'));
 });
 
+// ── Arousal Places compute cache (perf-routes doc §2.4 follow-up) ──────────────
+// _renderArousalPlacesFor() memoises compactClusters() + buildPlaces() +
+// getConcaveBlob() on a fingerprint of every input they read. A GSR/GPS slider
+// frame that doesn't change the clusterer's inputs must hit the cache and skip
+// ~35ms of the ~36ms refresh; a change to the active peak set (exclusion) or the
+// merge distance must miss it. The Leaflet layers are always rebuilt fresh — only
+// the geometry compute is cached.
+
+function spyOnArousalCompute(window) {
+  const SC = window.GSRSpatialClustering, AP = window.GSRArousalPlaces;
+  const orig = {
+    compactClusters: SC.compactClusters,
+    buildPlaces: AP.buildPlaces,
+    getConcaveBlob: SC.getConcaveBlob
+  };
+  const counts = { compactClusters: 0, buildPlaces: 0, getConcaveBlob: 0 };
+  SC.compactClusters = (...a) => { counts.compactClusters++; return orig.compactClusters.apply(SC, a); };
+  AP.buildPlaces     = (...a) => { counts.buildPlaces++;     return orig.buildPlaces.apply(AP, a); };
+  SC.getConcaveBlob  = (...a) => { counts.getConcaveBlob++;  return orig.getConcaveBlob.apply(SC, a); };
+  return {
+    counts,
+    restore() {
+      SC.compactClusters = orig.compactClusters;
+      AP.buildPlaces = orig.buildPlaces;
+      SC.getConcaveBlob = orig.getConcaveBlob;
+    }
+  };
+}
+
+test('_renderArousalPlacesFor: an unchanged re-render reuses the cache (no re-cluster / re-score / re-blob)', () => {
+  const { window, mapManager } = bootWithRecordingLClusteringOn();
+  const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
+  window.AppState.viewMode = 'single';
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  const clustersFirst = mapManager.clusterLayers.slice();
+  assert.ok(clustersFirst.length > 0, 'fixture renders at least one Arousal Place layer');
+
+  const spy = spyOnArousalCompute(window);
+  try {
+    mapManager.renderData(track.analyzer, track.gpsFilterParams);
+  } finally {
+    spy.restore();
+  }
+
+  assert.strictEqual(spy.counts.compactClusters, 0, 'compactClusters not re-run on an unchanged render');
+  assert.strictEqual(spy.counts.buildPlaces, 0, 'buildPlaces not re-run on an unchanged render');
+  assert.strictEqual(spy.counts.getConcaveBlob, 0, 'getConcaveBlob not re-run on an unchanged render');
+  assert.strictEqual(mapManager.clusterLayers.length, clustersFirst.length,
+    'the same number of Arousal Place layers is rebuilt from the cached geometry');
+  assert.ok(clustersFirst.every(l => !mapManager.clusterLayers.includes(l)),
+    'a cache hit still yields fresh Leaflet layer instances (clearMap removed the old ones)');
+});
+
+test('_renderArousalPlacesFor: toggling peak exclusion misses the cache (active-peak set changed)', () => {
+  const { window, mapManager } = bootWithRecordingLClusteringOn();
+  const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
+  window.AppState.viewMode = 'single';
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  const spy = spyOnArousalCompute(window);
+  try {
+    window.GSRUI.togglePeakExclusion(0);
+  } finally {
+    spy.restore();
+  }
+  assert.strictEqual(spy.counts.buildPlaces, 1, 'an exclusion toggle forces exactly one re-score');
+  assert.strictEqual(spy.counts.compactClusters, 1, 'an exclusion toggle forces exactly one re-cluster');
+});
+
+test('refreshArousalPlaces(): rebuilds only the Arousal Place layers, leaving path/peak/hotspot untouched', () => {
+  const { window, map, mapManager } = bootWithRecordingLClusteringOn();
+  const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
+  window.AppState.viewMode = 'single';
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  const byKind = (layers, kinds) => layers.filter(l => kinds.includes(l._gsrKind));
+  const before = track.layerGroup.getLayers();
+  const pathBefore = byKind(before, ['path']);
+  const peakBefore = byKind(before, ['peak', 'connector']);
+  const hotspotBefore = byKind(before, ['hotspot']);
+  const clustersBefore = mapManager.clusterLayers.slice();
+  assert.ok(clustersBefore.length > 0, 'fixture renders at least one Arousal Place layer');
+
+  mapManager.refreshArousalPlaces();
+
+  const after = track.layerGroup.getLayers();
+  assert.deepStrictEqual(byKind(after, ['path']), pathBefore, 'path layers untouched by reference');
+  assert.deepStrictEqual(byKind(after, ['peak', 'connector']), peakBefore, 'peak/connector layers untouched by reference');
+  assert.deepStrictEqual(byKind(after, ['hotspot']), hotspotBefore, 'hotspot layers untouched by reference');
+  assert.ok(clustersBefore.every(l => !map.hasLayer(l)), 'old Arousal Place layers removed from the map');
+  assert.ok(mapManager.clusterLayers.length > 0
+    && mapManager.clusterLayers.every(l => !clustersBefore.includes(l)),
+    'Arousal Place layers rebuilt as fresh instances');
+});
+
+test('refreshArousalPlaces(): a changed merge distance re-runs clustering (cache miss on P.mergeM)', () => {
+  const { window, mapManager } = bootWithRecordingLClusteringOn();
+  const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
+  window.AppState.viewMode = 'single';
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);
+
+  const slider = window.AppState.sliders.placeMergeDistance;
+  assert.ok(slider, 'merge-distance slider is cached in AppState.sliders');
+  slider.value = String(parseFloat(slider.value) + 20);
+
+  const spy = spyOnArousalCompute(window);
+  try {
+    mapManager.refreshArousalPlaces();
+  } finally {
+    spy.restore();
+  }
+  assert.strictEqual(spy.counts.compactClusters, 1, 'a new merge distance forces exactly one re-cluster');
+});
+
+test('refreshArousalPlaces(): falls back to a full rerenderMap() when nothing has rendered yet', () => {
+  const { window, mapManager } = bootWithRecordingLClusteringOn();
+  let rerendered = 0;
+  const orig = window.GSRUI.rerenderMap;
+  window.GSRUI.rerenderMap = () => { rerendered++; };
+  try {
+    mapManager.refreshArousalPlaces();
+  } finally {
+    window.GSRUI.rerenderMap = orig;
+  }
+  assert.strictEqual(rerendered, 1, 'no cached Arousal Places input → defer to the full render path');
+});
+
 // ── refreshPath (docs/archive/visualizer_rendering_perf_routes.md §2.2) ────────────
 // The map-coloring-metric dropdown only changes how the path is colored;
 // refreshPath() exists so that no longer costs a full renderData() rebuild of

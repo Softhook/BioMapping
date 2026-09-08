@@ -21,6 +21,17 @@ Object.assign(GSRMapManager.prototype, {
    * them. Renders nothing when the clustering libs aren't loaded or `peaks` is
    * empty.
    *
+   * The expensive part — compactClusters() + GSRArousalPlaces.buildPlaces()'s
+   * O(places x raw samples) dwell/energy scan + one getConcaveBlob() KDE per
+   * place — is memoised on `this._arousalPlacesCache`, keyed by a fingerprint of
+   * every input it reads (active peak set, per-track raw/phasic identity, the
+   * merge-distance params, view mode). renderData()/renderCollectiveData() re-run
+   * this on every GSR/GPS slider frame; when nothing the clusterer sees has
+   * changed (the common case — a GPS smoothing nudge, a non-arousal panel
+   * toggle), the cache hit skips ~35 ms of the ~36 ms cost and only the cheap
+   * Leaflet layer rebuild runs. Mirrors _getOrBuildDrawPoints()'s _gpsCache
+   * pattern (map_manager_process.js).
+   *
    * @param {Array<{lat,lon,amplitude,trackId,time}>} peaks
    * @param {Array<{id,sampleRate,raw,phasic}>} scoreTracks - Tracks buildPlaces()
    *   scans for dwell/energy: one entry single-track, N in collective.
@@ -33,20 +44,125 @@ Object.assign(GSRMapManager.prototype, {
         || typeof GSRArousalPlaces === 'undefined') return;
 
     const P = this._arousalPlaceParams();
-    const clusters = GSRSpatialClustering.compactClusters(peaks, P.mergeM, P.separationFactor);
-    const places = GSRArousalPlaces.buildPlaces(
-      clusters, scoreTracks,
-      (typeof GSR_CONST !== 'undefined' ? GSR_CONST.AROUSAL_PLACES : {})
-    );
 
-    this._renderArousalPlaces(places, {
+    // Remember the last input so refreshArousalPlaces() (the #placeMergeDistance
+    // scoped refresh) can re-run without re-deriving peak coordinates — a merge
+    // change touches P only, never `peaks`/`scoreTracks`.
+    this._lastArousalInput = { peaks, scoreTracks, view };
+
+    const fp = this._arousalPlacesFingerprint(peaks, scoreTracks, view, P);
+    const cache = this._arousalPlacesCache;
+    let places, blobRings, refAmplitude;
+    if (cache && cache.fp === fp) {
+      ({ places, blobRings, refAmplitude } = cache);
+    } else {
+      const clusters = GSRSpatialClustering.compactClusters(peaks, P.mergeM, P.separationFactor);
+      places = GSRArousalPlaces.buildPlaces(
+        clusters, scoreTracks,
+        (typeof GSR_CONST !== 'undefined' ? GSR_CONST.AROUSAL_PLACES : {})
+      );
+      refAmplitude = this._meanAmplitude(peaks);
+      blobRings = places.map(place =>
+        GSRSpatialClustering.getConcaveBlob(place.cluster, P.sigma, P.blobRadius, refAmplitude)
+      );
+      this._arousalPlacesCache = { fp, places, blobRings, refAmplitude };
+    }
+
+    this._renderArousalPlaces(places, blobRings, {
       collective: view.collective,
       activeTrackCount: view.activeTrackCount,
-      refAmplitude: this._meanAmplitude(peaks),
-      sigma: P.sigma,
-      blobRadius: P.blobRadius,
+      refAmplitude,
       drawGapFactor: P.drawGapFactor
     });
+  },
+
+  /**
+   * Re-render ONLY the Arousal Places layer — the scoped refresh for the
+   * "Place Merge Distance" slider (#placeMergeDistance), which reshapes places
+   * but leaves the path, peak, hotspot and (collective) contour layers it never
+   * touches. A full rerenderMap() rebuilt all of those for nothing (perf-routes
+   * doc SS2.2); this strips just `this.clusterLayers` and replays
+   * _renderArousalPlacesFor() with the last input, so the fingerprint misses
+   * (P.mergeM changed) and the places recompute — but nothing else does.
+   *
+   * Falls back to GSRUI.rerenderMap() when there is no cached input yet (no
+   * track rendered, or the last render produced no places).
+   */
+  refreshArousalPlaces() {
+    if (!this.map || !this._lastArousalInput) {
+      if (typeof GSRUI !== 'undefined' && typeof GSRUI.rerenderMap === 'function') GSRUI.rerenderMap();
+      return;
+    }
+    this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
+    const { peaks, scoreTracks, view } = this._lastArousalInput;
+    this._renderArousalPlacesFor(peaks, scoreTracks, view);
+    if (typeof AppState !== 'undefined' && AppState.emit) AppState.emit('map:rendered');
+  },
+
+  /**
+   * Fingerprint every input _renderArousalPlacesFor()'s memoised computation
+   * reads, so the cache invalidates exactly when the rendered places would
+   * differ and never when they wouldn't. Cheap: one rolling FNV-1a hash, an
+   * O(peaks) fold plus a full O(phasic) fold per track (phasic drives
+   * buildPlaces()'s energy term and analyze() refills it in a pooled buffer, so
+   * reference identity can't be trusted — the values must be read).
+   * @private
+   */
+  _arousalPlacesFingerprint(peaks, scoreTracks, view, P) {
+    if (!this._apFpF64) {
+      this._apFpF64 = new Float64Array(1);
+      this._apFpU32 = new Uint32Array(this._apFpF64.buffer);
+    }
+    const f64 = this._apFpF64, u32 = this._apFpU32;
+    let h = 0x811c9dc5 | 0;
+    const mixF = (x) => {
+      f64[0] = +x || 0;
+      h = Math.imul(h ^ u32[0], 0x01000193);
+      h = Math.imul(h ^ u32[1], 0x01000193);
+    };
+    const mixS = (s) => {
+      s = s == null ? '' : String(s);
+      for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+    };
+
+    // Active peak set — the exact input to compactClusters()/buildPlaces().
+    // Captures GPS filtering (peak coords move), re-detection and exclusion
+    // (peaks is already the non-excluded set) in one O(peaks) pass.
+    mixF(peaks.length);
+    for (let i = 0; i < peaks.length; i++) {
+      const pk = peaks[i];
+      mixF(pk.lat); mixF(pk.lon); mixF(pk.amplitude); mixF(pk.time);
+      if (typeof pk.trackId === 'number') mixF(pk.trackId); else mixS(pk.trackId);
+    }
+
+    // Per-track dwell/energy inputs. raw lat/lon are immutable after CSV load
+    // (OSM enrichment only ADDS fields), so raw.length + an osm_road_class
+    // sample is enough for the raw side; phasic is folded in full.
+    for (let t = 0; t < scoreTracks.length; t++) {
+      const trk = scoreTracks[t] || {};
+      const raw = Array.isArray(trk.raw) ? trk.raw : [];
+      const phasic = Array.isArray(trk.phasic) ? trk.phasic : [];
+      mixS(trk.id);
+      mixF(trk.sampleRate || 0);
+      mixF(raw.length);
+      const rn = raw.length;
+      for (const k of [0, rn >> 1, rn - 1]) {
+        const s = raw[k];
+        mixS(s && s.osm_road_class != null ? String(s.osm_road_class) : '-');
+      }
+      mixF(phasic.length);
+      for (let i = 0; i < phasic.length; i++) {
+        const v = phasic[i];
+        mixF(v && typeof v.val === 'number' ? v.val : 0);
+      }
+    }
+
+    mixF(P.mergeM); mixF(P.separationFactor); mixF(P.sigma);
+    mixF(P.blobRadius); mixF(P.drawGapFactor);
+    mixF(view.collective ? 1 : 0);
+    mixF(view.activeTrackCount || 0);
+
+    return (h >>> 0).toString(36);
   },
 
   /**
@@ -95,11 +211,14 @@ Object.assign(GSRMapManager.prototype, {
    * clear paths) and honour this.showClusters.
    *
    * @param {Array<object>} places - Ranked place records, best-first.
+   * @param {Array<Array<Array<{lat,lon}>>>} blobRings - Per-place getConcaveBlob()
+   *   output (array of closed rings), parallel to `places`. Precomputed and
+   *   memoised by _renderArousalPlacesFor() so a cache hit skips the KDE passes.
    * @param {{collective:boolean, activeTrackCount:number, refAmplitude:number,
-   *   sigma:number, blobRadius:number, drawGapFactor:number}} ctx
+   *   drawGapFactor:number}} ctx
    * @private
    */
-  _renderArousalPlaces(places, ctx) {
+  _renderArousalPlaces(places, blobRings, ctx) {
     this._arousalPlaceBadges = [];
     if (!Array.isArray(places) || places.length === 0) return;
 
@@ -124,7 +243,7 @@ Object.assign(GSRMapManager.prototype, {
       };
 
       const capM = this._nearestPlaceGap(places, i) * gapFactor;
-      GSRSpatialClustering.getConcaveBlob(place.cluster, ctx.sigma, ctx.blobRadius, ctx.refAmplitude)
+      ((blobRings && blobRings[i]) || [])
         .forEach(path => {
           const clipped = this._clipRingToRadius(path, place.lat, place.lon, capM);
           const poly = L.polygon(clipped.map(p => [p.lat, p.lon]), {

@@ -32,6 +32,14 @@ class GSRMapManager {
     // GPS filter cache: trackId -> { paramsHash, snapFingerprint, gpsPoints, drawPoints }
     this._gpsCache = new Map();
 
+    // Arousal Places cache: { fp, places, blobRings, refAmplitude } — lets a
+    // GSR/GPS slider frame that doesn't change the clusterer's inputs skip
+    // compactClusters()/buildPlaces()/getConcaveBlob() (see
+    // _renderArousalPlacesFor). _lastArousalInput is the last (peaks,
+    // scoreTracks, view) so refreshArousalPlaces() can replay it.
+    this._arousalPlacesCache = null;
+    this._lastArousalInput = null;
+
     // Phase 1 (slice 2): the set of track layerGroups THIS manager has rendered
     // (trackId -> track). Clearing iterates this set rather than re-reading
     // AppState.collectiveManager.tracks, so a track removed from the manager

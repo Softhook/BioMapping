@@ -261,6 +261,42 @@ const GSREvents = {
   },
 
   /**
+   * Bind the "Place Merge Distance" slider (#placeMergeDistance). Unlike the
+   * generic GPS sliders it does NOT trigger a full rerenderMap() — the merge
+   * distance only reshapes the Arousal Places layer, so a scoped
+   * mapManager.refreshArousalPlaces() rebuilds just that (perf-routes doc
+   * SS2.2), leaving path/peak/hotspot/contour layers alone. Still persists the
+   * value via saveActiveGpsParams() (it rides in gpsFilterParams / the project
+   * file). Falls back to rerenderMap() if the scoped method is unavailable.
+   */
+  bindArousalPlacesSlider(id, labelId, fmt) {
+    const slider = document.getElementById(id);
+    const label  = document.getElementById(labelId);
+    if (!slider) return;
+    const updateDim = () => GSREvents.updateFilterDim(slider);
+    updateDim();
+
+    const runRefresh = GSREvents.rafCoalesce(() => {
+      if (typeof GSRTrackManager !== 'undefined') {
+        GSRTrackManager.saveActiveGpsParams();
+        GSRTrackManager.renderTrackList();
+      }
+      const mm = AppState.mapManager;
+      if (mm && typeof mm.refreshArousalPlaces === 'function') {
+        mm.refreshArousalPlaces();
+      } else {
+        GSRUI.rerenderMap();
+      }
+    });
+
+    slider.addEventListener('input', () => {
+      if (label) label.innerText = fmt(parseFloat(slider.value));
+      updateDim();
+      runRefresh();
+    });
+  },
+
+  /**
    * Reconfigure the Tonic Baseline Window slider (range, default, help text)
    * for the selected baseline method.
    */
@@ -502,7 +538,8 @@ const GSREvents = {
     GSREvents.bindGpsSlider('gpsTrackWeight', 'valGpsTrackWeight', v => `${v} px`);
 
     // ── Arousal Places slider binding ───────────────────────────────────────
-    GSREvents.bindGpsSlider('placeMergeDistance', 'valPlaceMergeDistance', v => `${v} m`);
+    // Scoped refresh (Arousal Places layer only), not a full rerenderMap().
+    GSREvents.bindArousalPlacesSlider('placeMergeDistance', 'valPlaceMergeDistance', v => `${v} m`);
 
     // ── Snap radius slider ───────────────────────────────────────────────────
     // Re-evaluates road snapping locally from cached OSM data when released.

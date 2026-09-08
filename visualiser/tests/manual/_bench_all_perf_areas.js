@@ -236,7 +236,8 @@ console.log(`  GPS Fixes:      ${gpsFixes113.length.toLocaleString()} fixes`);
 // Profile 0: End-to-End Production Map Render (Realistic Baseline)
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('\n[0] End-to-End Production Map Marker Refresh: refreshPeakMarkers()');
-console.log('    Comparing full refresh (clustering + arousal places) vs skipClustering (label-edit fast path).');
+console.log('    Full refresh with a WARM Arousal Places cache (repeat call, no input change)');
+console.log('    vs a forced cache MISS (peak amplitude nudged) vs skipClustering (label-edit path).');
 
 window.AppState.collectiveManager = new window.GSRCollectiveManager();
 window.AppState.collectiveManager.addTrack(track113.track);
@@ -247,17 +248,33 @@ window.AppState.analyzer = track113.analyzer;
 // Initial render to mount layers into the map
 window.AppState.mapManager.renderData(track113.analyzer, {});
 
-const bRefreshFull = bench(2, 6, () => {
+// WARM: inputs unchanged between calls → _arousalPlacesCache hits, so
+// compactClusters/buildPlaces/getConcaveBlob are all skipped (only the Leaflet
+// layer rebuild runs). This is the common interactive case (any slider that
+// isn't a peak slider or #placeMergeDistance).
+const bRefreshWarm = bench(2, 6, () => {
   window.AppState.mapManager.refreshPeakMarkers(track113.analyzer, {}, { skipClustering: false });
 });
+
+// MISS: perturb a peak amplitude each call so the fingerprint changes and the
+// full compactClusters + buildPlaces + getConcaveBlob pipeline reruns. This is
+// the cost of a peak-threshold/quality/shape-slider frame or an exclusion toggle.
+let ampToggle = 0;
+const firstActivePeak = track113.analyzer.peaks.find(p => !p.excluded);
+const bRefreshMiss = bench(2, 6, () => {
+  firstActivePeak.amplitude += (ampToggle++ % 2 === 0) ? 1e-4 : -1e-4;
+  window.AppState.mapManager.refreshPeakMarkers(track113.analyzer, {}, { skipClustering: false });
+});
+
 const bRefreshNoCluster = bench(2, 6, () => {
   window.AppState.mapManager.refreshPeakMarkers(track113.analyzer, {}, { skipClustering: true });
 });
 
-console.log(`    Track 113 refreshPeakMarkers (with clustering):   median=${bRefreshFull.median.toFixed(2)}ms`);
-console.log(`    Track 113 with { skipClustering: true }:          median=${bRefreshNoCluster.median.toFixed(2)}ms`);
-console.log(`    Time spent purely in clustering/arousal places:   ${(bRefreshFull.median - bRefreshNoCluster.median).toFixed(2)}ms (${(((bRefreshFull.median - bRefreshNoCluster.median) / bRefreshFull.median) * 100).toFixed(1)}% of total refresh)`);
-console.log(`    Speedup when clustering is skipped:               ${(bRefreshFull.median / bRefreshNoCluster.median).toFixed(1)}x`);
+console.log(`    refreshPeakMarkers, cache WARM (unchanged inputs):   median=${bRefreshWarm.median.toFixed(2)}ms`);
+console.log(`    refreshPeakMarkers, cache MISS (peak set changed):   median=${bRefreshMiss.median.toFixed(2)}ms`);
+console.log(`    refreshPeakMarkers, { skipClustering: true }:        median=${bRefreshNoCluster.median.toFixed(2)}ms`);
+console.log(`    Arousal Places compute avoided by a cache hit:       ${(bRefreshMiss.median - bRefreshWarm.median).toFixed(2)}ms`);
+console.log(`    Warm-cache speedup vs a cold miss:                   ${(bRefreshMiss.median / Math.max(bRefreshWarm.median, 1e-3)).toFixed(1)}x`);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Profile 1: Arousal Places Scoring (GSRArousalPlaces.buildPlaces)

@@ -26,6 +26,7 @@ Object.assign(GSRMapManager.prototype, {
     // can't leave a stale group behind.
     this._clearRenderedTrackGroups();
     this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
+    this._lastArousalInput = null;
     this.clearContours();
     this._clearRfFluid();
     // There is no graph to scrub in collective view — drop any scrub indicator
