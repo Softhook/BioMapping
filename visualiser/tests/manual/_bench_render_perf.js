@@ -334,8 +334,8 @@ function benchSingleTrackPeakRefresh() {
   };
   // The actual call ui.js's updatePeakLabel() makes today (perf-routes §2.4,
   // now landed): passes skipClustering so a label edit — which can't affect
-  // clusterPeaks()'s lat/lon/amplitude input — doesn't recompute cluster
-  // blobs on every keystroke-commit.
+  // the Arousal Places clusterer's lat/lon/amplitude input — doesn't recompute
+  // the places on every keystroke-commit.
   const editAndScopedRefreshSkipClustering = () => {
     track.analyzer.peaks[i % track.analyzer.peaks.length].label = `Label ${i++}`;
     mapManager.refreshPeakMarkers(track.analyzer, gpsParams, { skipClustering: true });
@@ -347,8 +347,10 @@ function benchSingleTrackPeakRefresh() {
   printRow(fullResult);
   printRow(scopedNoSkipResult);
   printRow(scopedResult);
-  console.log(`  → skipClustering alone is ${(scopedNoSkipResult.median / scopedResult.median).toFixed(1)}x faster than the`);
-  console.log(`    same call without it (isolates §2.4's fix from the path/hotspot skip §2.2 already landed)`);
+  console.log(`  → skipClustering vs not: ${(scopedNoSkipResult.median / scopedResult.median).toFixed(1)}x`);
+  console.log(`    (was ~30x pre-2026-09-08; the Arousal Places compute cache now makes the`);
+  console.log(`     no-skip path a cache HIT for a label edit too, so skipClustering only`);
+  console.log(`     saves the fingerprint hash + the arousal layer rebuild now)`);
   printSpeedup(fullResult, scopedResult);
 }
 
@@ -390,17 +392,21 @@ function benchCollectiveTrackPeakRefresh() {
   printSpeedup(fullResult, scopedResult);
 }
 
-// ── Bench 4: cold collective render — getConcaveBlob() + generateContourSurface() cost ──
+// ── Bench 4: cold collective render — buildPlaces() + getConcaveBlob() + generateContourSurface() ──
 // Unlike bench 3 (a label edit on an ALREADY-rendered collective view), this
 // times the full renderCollectiveData() cost itself — what pays every time
-// collective mode is entered, a track is added/removed, or a contour
-// parameter changes. Both GSRSpatialClustering.getConcaveBlob() (cluster
-// boundary blobs) and GSRCollectiveManager.generateContourSurface() (the
-// IDW topography surface) used to scan every (grid cell, peak-or-point)
-// pair unconditionally; both are now point-major splats that only touch
-// cells within actual range. See docs/archive/visualizer_architecture_refactor_plan.md
-// Phase 7 for the full before/after (verified via git stash on this exact
-// fixture: ~101ms -> ~36ms, 2.8x, for the full renderCollectiveData() call).
+// collective mode is entered, a track is added/removed, a peak set changes, or
+// (post-2026-09-08 compute cache) the #placeMergeDistance slider moves.
+//
+// HISTORY: Phase 7 (docs/archive/visualizer_architecture_refactor_plan.md) got
+// getConcaveBlob() + generateContourSurface() from ~101ms -> ~36ms via
+// point-major splatting. Then the 2026-09-07 Arousal Places redesign added
+// GSRArousalPlaces.buildPlaces() — an O(clusters × every active track's raw
+// samples) dwell/energy scan — into this same path, and nothing benched it:
+// on this 4-track / ~1900-peak fixture it is now ~270ms/call, ~65% of a ~415ms
+// cold render. The 2026-09-08 fingerprint cache spares the REPEAT cost (contour
+// slider drags etc.) but not this cold one. buildPlaces() needs a raw-sample
+// spatial index — see the perf notes.
 function benchCollectiveColdRender() {
   console.log('── Bench 4: cold collective render — getConcaveBlob()/generateContourSurface() cost ──');
   console.log('   (spatial_clustering.js + collective_manager.js, Phase 7; fixture: 4 real same-city tracks)\n');
@@ -415,17 +421,28 @@ function benchCollectiveColdRender() {
   const collectiveManager = window.AppState.collectiveManager;
 
   const GSRSpatialClustering = vm.runInContext('GSRSpatialClustering', context);
-  let blobMs = 0, blobN = 0, surfaceMs = 0, surfaceN = 0;
+  const GSRArousalPlaces = vm.runInContext('GSRArousalPlaces', context);
+  let blobMs = 0, blobN = 0, surfaceMs = 0, surfaceN = 0, buildMs = 0, buildN = 0;
   const origBlob = GSRSpatialClustering.getConcaveBlob.bind(GSRSpatialClustering);
   GSRSpatialClustering.getConcaveBlob = (...a) => { const t0 = process.hrtime.bigint(); const r = origBlob(...a); blobMs += Number(process.hrtime.bigint() - t0) / 1e6; blobN++; return r; };
   const origSurface = collectiveManager.generateContourSurface.bind(collectiveManager);
   collectiveManager.generateContourSurface = (...a) => { const t0 = process.hrtime.bigint(); const r = origSurface(...a); surfaceMs += Number(process.hrtime.bigint() - t0) / 1e6; surfaceN++; return r; };
+  // buildPlaces(): the O(clusters × every active track's raw samples) dwell/energy
+  // scan — the collective Arousal Places cost that scales with track count.
+  const origBuild = GSRArousalPlaces.buildPlaces.bind(GSRArousalPlaces);
+  GSRArousalPlaces.buildPlaces = (...a) => { const t0 = process.hrtime.bigint(); const r = origBuild(...a); buildMs += Number(process.hrtime.bigint() - t0) / 1e6; buildN++; return r; };
 
-  const fullResult = bench('renderCollectiveData() [current]', 3, 12, () => {
+  // Null the Arousal Places compute cache each iteration so this stays a COLD
+  // render measurement — otherwise buildPlaces()/getConcaveBlob() would be
+  // fingerprint-cached after the first call and the loop would under-report
+  // what entering collective mode / adding a track actually costs.
+  const fullResult = bench('renderCollectiveData() [cold, cache busted]', 3, 12, () => {
+    mapManager._arousalPlacesCache = null;
     mapManager.renderCollectiveData(collectiveManager, contourParams, 0);
   });
   printRow(fullResult);
   console.log(`  getConcaveBlob:          avg=${(blobMs / blobN).toFixed(3)}ms/call over ${blobN} calls`);
+  console.log(`  buildPlaces:             avg=${(buildMs / Math.max(1, buildN)).toFixed(3)}ms/call over ${buildN} calls (Arousal Places dwell/energy scan)`);
   console.log(`  generateContourSurface:  avg=${(surfaceMs / surfaceN).toFixed(3)}ms/call over ${surfaceN} calls`);
   console.log('  (compare against this phase\'s documented pre-fix numbers — see the plan doc)\n');
 }

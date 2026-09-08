@@ -970,11 +970,11 @@ test('togglePeakExclusion (ui.js): commits via refreshPeakMarkers, not a full re
 
 // ── refreshPeakMarkers skipClustering (docs/archive/visualizer_rendering_perf_routes.md §2.4) ──
 // Found via real A/B benchmarking: refreshPeakMarkers() unconditionally
-// recomputed spatial-cluster blobs even for a label-only edit, which
-// clusterPeaks() can't be affected by (it only reads lat/lon/amplitude per
-// non-excluded peak). updatePeakLabel() now passes { skipClustering: true };
-// togglePeakExclusion() must NOT, since excluding a peak changes
-// clusterPeaks()'s input set. These tests need real cluster layers, so they
+// recomputed the Arousal Places layer even for a label-only edit, which the
+// clusterer can't be affected by (it only reads lat/lon/amplitude per
+// non-excluded peak, plus phasic). updatePeakLabel() now passes
+// { skipClustering: true }; togglePeakExclusion() must NOT, since excluding a
+// peak changes the active-peak set. These tests need real cluster layers, so they
 // use bootWithRecordingLClusteringOn() instead of the suite's usual
 // bootWithRecordingL() (which nulls GSRSpatialClustering out of scope for
 // every other test in this file).

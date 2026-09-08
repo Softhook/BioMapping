@@ -1,17 +1,33 @@
 'use strict';
 /**
- * Comprehensive profiling script covering all identified visualizer performance bottlenecks,
- * benchmarked against Track 113 (biomap_113.csv, 11,298 rows, 332 peaks, 11,204 GPS fixes):
+ * SUPERSEDED for most areas by bench/run.js — the track-parametrised runner
+ * (`node tests/manual/bench/run.js --list`). Use that to see how a bottleneck
+ * scales across tiny→large real walks. This file is kept for the few one-off,
+ * NOT-track-parametrised findings it still uniquely holds: [5] per-frame object
+ * allocation COUNT, [6] `_snapFingerprint` string-alloc, [7] DOM `L.marker` vs
+ * canvas `L.circleMarker` construction (an architecture comparison, not a hot
+ * path), plus the git-stash before/after narrative in each section.
  *
- * [0] End-to-End Map Render: renderData() with vs without spatial clustering / arousal places
- * [1] Arousal Places Scoring: O(places × N) raw sample scan in GSRArousalPlaces.buildPlaces()
- * [2] Arousal Places Outlines: Sequential Marching Squares KDE calls (getConcaveBlob) in _renderArousalPlaces()
- * [3] Spatial Clustering: Dense N×N distance matrix allocation & computation in clusterPeaks()
- * [4] Collective Topography: 'peaks' KDE cell-major scan in generateContourSurface()
- * [5] Signal Pipeline: Unpooled {time, val} object allocations (45k objects per slider drag on Track 113)
- * [6] GPS Pipeline: Object.keys() allocation on cache probe & RTS smoothing math on real fixes
- * [7] Map Marker Creation: DOM L.marker vs Canvas L.circleMarker creation cost
- * [8] Canvas Graph: Full draw() pipeline cost on mouse hover with Track 113 active
+ * ── original header ──
+ * Comprehensive profiling script covering all identified visualizer performance bottlenecks.
+ * Primary subject Track 113 (biomap_113.csv, 11,298 rows, 332 peaks, 11,204 GPS fixes) — a
+ * MID-SIZED track. [2b] repeats the Arousal Places chain against biomap_016.csv (35,467 rows,
+ * 888 peaks, 19 clusters), the real worst case, so the headline numbers aren't optimistic.
+ *
+ * [0]  refreshPeakMarkers(): warm Arousal Places cache vs forced miss vs skipClustering
+ * [1]  Arousal Places Scoring: O(places × N) raw sample scan in GSRArousalPlaces.buildPlaces()
+ * [2]  Arousal Places Outlines: sequential Marching Squares KDE calls (getConcaveBlob)
+ * [2b] Arousal Places WORST CASE: full compactClusters + buildPlaces + all blobs on biomap_016
+ * [3]  Spatial Clustering: compactClusters() scaling (the live clusterer; grid leader-assignment)
+ * [4]  Collective Topography: 'peaks' KDE cell-major scan in generateContourSurface()
+ * [5]  Signal Pipeline: Unpooled {time, val} object allocations (45k objects per slider drag on Track 113)
+ * [6]  GPS Pipeline: Object.keys() allocation on cache probe & RTS smoothing math on real fixes
+ * [7]  Map Marker Creation: DOM L.marker vs Canvas L.circleMarker creation cost
+ * [8]  Canvas Graph: Full draw() pipeline cost on mouse hover with Track 113 active
+ *
+ * NOTE: this runs under a RECORDING MOCK Leaflet (no real DOM). Pure-compute numbers
+ * ([1]/[2]/[2b]/[3]/[5]/[6]) are faithful; anything that builds map layers ([0], [7])
+ * understates a real browser — [7] is the isolated per-marker DOM cost to add back.
  *
  * Run manually:
  *   node tests/manual/_bench_all_perf_areas.js
@@ -215,7 +231,7 @@ function loadRealTrack(id, filename) {
 
 console.log('='.repeat(78));
 console.log('PROFILING SUITE: ALL VISUALIZER PERFORMANCE BOTTLENECKS');
-console.log('Primary Subject: Track 113 (biomap_113.csv)');
+console.log('Primary subject: Track 113 (biomap_113.csv, mid-sized) — worst case [2b]: biomap_016.csv');
 console.log('='.repeat(78));
 
 const track113 = loadRealTrack('trk113', 'biomap_113.csv');
@@ -275,6 +291,8 @@ console.log(`    refreshPeakMarkers, cache MISS (peak set changed):   median=${b
 console.log(`    refreshPeakMarkers, { skipClustering: true }:        median=${bRefreshNoCluster.median.toFixed(2)}ms`);
 console.log(`    Arousal Places compute avoided by a cache hit:       ${(bRefreshMiss.median - bRefreshWarm.median).toFixed(2)}ms`);
 console.log(`    Warm-cache speedup vs a cold miss:                   ${(bRefreshMiss.median / Math.max(bRefreshWarm.median, 1e-3)).toFixed(1)}x`);
+console.log(`    NB: mock Leaflet — the WARM/skipClustering figures are compute-only; a real`);
+console.log(`        browser adds the marker/polygon layer rebuild (see [7] for the DOM cost).`);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Profile 1: Arousal Places Scoring (GSRArousalPlaces.buildPlaces)
@@ -321,30 +339,65 @@ console.log(`    Single place getConcaveBlob():                   median=${singl
 console.log(`    All ${places113.length} places getConcaveBlob() loop:           median=${allBlobsBench.median.toFixed(2)}ms total`);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Profile 3: Dense N×N Distance Matrix in clusterPeaks()
+// Profile 2b: WORST-CASE single track — the full Arousal Places recompute chain
+// (compactClusters + buildPlaces + every getConcaveBlob) that a peak-slider drag
+// frame or a #placeMergeDistance drag frame pays, on the largest real track.
 // ─────────────────────────────────────────────────────────────────────────────
-console.log('\n[3] Spatial Clustering: clusterPeaks() N×N Matrix Memory & Compute');
-console.log('    Problem: Allocates 2× Float64Array(N×N) + O(N²) square roots.');
+console.log('\n[2b] Arousal Places WORST CASE (biomap_016.csv): full recompute chain');
 
-// Real track 113 peak count
-const mem113Mb = ((peaks113.length * peaks113.length * 8 * 2) / (1024 * 1024)).toFixed(2);
-const time113Res = bench(2, 6, () => {
-  window.GSRSpatialClustering.clusterPeaks(peaks113, 35, 18, 15);
+const validPeaks016 = track016.analyzer.peaks.filter(p => !p.excluded);
+const peaks016 = validPeaks016.map(pk => {
+  const c = track016.analyzer.getCoordinates(pk.index) || { lat: 51.5, lon: -0.1 };
+  return { lat: c.lat, lon: c.lon, amplitude: pk.amplitude, time: pk.time, trackId: 'trk016' };
 });
-console.log(`    Track 113 (N=${peaks113.length} peaks) | Memory: ${mem113Mb} MB | Time: median=${time113Res.median.toFixed(2)}ms`);
+const scoreTracks016 = [{
+  id: 'trk016',
+  sampleRate: track016.analyzer.sampleRate,
+  raw: track016.analyzer.raw,
+  phasic: track016.analyzer.phasic
+}];
+const meanAmp016 = peaks016.reduce((s, p) => s + p.amplitude, 0) / Math.max(1, peaks016.length);
 
-// Multi-track collective scaling
-for (const count of [500, 1000, 2000]) {
-  const combinedPts = [...peaks113];
-  while (combinedPts.length < count) {
-    combinedPts.push(...peaks113.map(p => ({ ...p, lat: p.lat + 0.001 * Math.random(), lon: p.lon + 0.001 * Math.random() })));
+let clusters016;
+const bCluster016 = bench(2, 10, () => { clusters016 = window.GSRSpatialClustering.compactClusters(peaks016, 35, 1.8); });
+const bBuild016 = bench(2, 8, () => {
+  window.GSRArousalPlaces.buildPlaces(clusters016, scoreTracks016, window.GSR_CONST.AROUSAL_PLACES);
+});
+const places016 = window.GSRArousalPlaces.buildPlaces(clusters016, scoreTracks016, window.GSR_CONST.AROUSAL_PLACES);
+const bBlobs016 = bench(1, 6, () => {
+  for (let i = 0; i < places016.length; i++) {
+    window.GSRSpatialClustering.getConcaveBlob(places016[i].cluster, 12.25, 17.5, meanAmp016);
   }
-  const pts = combinedPts.slice(0, count);
-  const memoryMb = ((count * count * 8 * 2) / (1024 * 1024)).toFixed(2);
-  const timeRes = bench(2, 5, () => {
-    window.GSRSpatialClustering.clusterPeaks(pts, 35, 18, 15);
+});
+const total016 = bCluster016.median + bBuild016.median + bBlobs016.median;
+console.log(`    ${track016.analyzer.raw.length.toLocaleString()} rows, ${peaks016.length} peaks → ${clusters016.length} clusters (${places016.length} places after cap)`);
+console.log(`    compactClusters():   median=${bCluster016.median.toFixed(2)}ms`);
+console.log(`    buildPlaces():        median=${bBuild016.median.toFixed(2)}ms   (vs ${resBuildPlaces.median.toFixed(2)}ms on track 113)`);
+console.log(`    all getConcaveBlob(): median=${bBlobs016.median.toFixed(2)}ms   (vs ${allBlobsBench.median.toFixed(2)}ms on track 113)`);
+console.log(`    → full recompute ≈ ${total016.toFixed(1)}ms/frame  (track 113 ≈ ${bRefreshMiss.median.toFixed(1)}ms)`);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Profile 3: compactClusters() scaling — the LIVE Arousal Places clusterer
+// (grid leader-assignment, O(N); replaced the removed N×N-matrix clusterPeaks()).
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n[3] Spatial Clustering: compactClusters() scaling (grid leader-assignment, O(N))');
+
+const bCompact113 = bench(3, 20, () => {
+  window.GSRSpatialClustering.compactClusters(peaks113, 35, 1.8);
+});
+console.log(`    Track 113 (N=${peaks113.length} peaks): median=${bCompact113.median.toFixed(3)}ms`);
+
+// Multi-track collective scaling — jittered duplicates of track 113's peaks.
+for (const count of [1000, 2000, 4000]) {
+  const pts = [...peaks113];
+  while (pts.length < count) {
+    pts.push(...peaks113.map(p => ({ ...p, lat: p.lat + 0.002 * Math.random(), lon: p.lon + 0.002 * Math.random() })));
+  }
+  const slice = pts.slice(0, count);
+  const res = bench(3, 12, () => {
+    window.GSRSpatialClustering.compactClusters(slice, 35, 1.8);
   });
-  console.log(`    Collective N=${count.toString().padEnd(4)} peaks | Memory: ${memoryMb.padStart(6)} MB | Time: median=${timeRes.median.toFixed(2)}ms`);
+  console.log(`    Collective N=${count.toString().padEnd(4)} peaks: median=${res.median.toFixed(3)}ms`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -472,5 +525,5 @@ console.log(`    Full draw() execution time: median=${bFullDraw.median.toFixed(2
 console.log(`    Frame budget at 60fps is 16.6ms -> draw() consumes ${(bFullDraw.median / 16.6 * 100).toFixed(1)}% of frame budget.`);
 
 console.log('\n' + '='.repeat(78));
-console.log('PROFILING COMPLETE (TRACK 113)');
+console.log('PROFILING COMPLETE');
 console.log('='.repeat(78));

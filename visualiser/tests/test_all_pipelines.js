@@ -296,9 +296,9 @@ console.log(`  Map-matched peaks with lat/lon coordinates: ${spatialPeaks.length
 
 // Run spatial clustering
 const maxDistanceMeters = 50; // group peaks within 50 meters
-const clusters = GSRSpatialClustering.clusterPeaks(spatialPeaks, maxDistanceMeters);
+const clusters = GSRSpatialClustering.compactClusters(spatialPeaks, maxDistanceMeters);
 
-assert(Array.isArray(clusters), 'GSRSpatialClustering.clusterPeaks returns an array of clusters');
+assert(Array.isArray(clusters), 'GSRSpatialClustering.compactClusters returns an array of clusters');
 console.log(`  Grouped peaks into ${clusters.length} spatial clusters`);
 
 if (clusters.length > 0) {
@@ -331,7 +331,7 @@ for (let i = 0; i < 1000; i++) {
   });
 }
 const tStart = Date.now();
-const testClusters = GSRSpatialClustering.clusterPeaks(syntheticPeaks, 50, 18, 15);
+const testClusters = GSRSpatialClustering.compactClusters(syntheticPeaks, 50);
 const tEnd = Date.now();
 const duration = tEnd - tStart;
 console.log(`  Clustered 1,000 peaks into ${testClusters.length} clusters in ${duration} ms`);

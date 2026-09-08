@@ -173,16 +173,18 @@ Object.assign(GSRMapManager.prototype, {
    * — same reasoning as leaving path/hotspot layers alone.
    *
    * @param {object} [options] – { skipClustering: bool }. Pass true only
-   *   when the caller's change is provably invisible to
-   *   GSRSpatialClustering.clusterPeaks() (lat/lon/amplitude per non-excluded
-   *   peak — see _renderPeakMarkers()'s own doc comment) — a label edit
-   *   qualifies (ui.js: updatePeakLabel()), an exclusion toggle does NOT
-   *   (ui.js: togglePeakExclusion() must omit this / pass false, since
-   *   excluding a peak changes clusterPeaks()'s input set). Found and added
-   *   via real A/B benchmarking (docs/archive/visualizer_rendering_perf_routes.md
-   *   §2.4) — clustering was ~33ms of a ~36ms single-track refresh, the
-   *   reason this method was only ~1.1x faster than a full renderData()
-   *   rebuild for a label edit despite already skipping path/hotspot work.
+   *   when the caller's change is provably invisible to the Arousal Places
+   *   clusterer (GSRSpatialClustering.compactClusters() + GSRArousalPlaces
+   *   .buildPlaces() — lat/lon/amplitude per non-excluded peak plus phasic,
+   *   see _renderArousalPlacesFor()) — a label edit qualifies (ui.js:
+   *   updatePeakLabel()), an exclusion toggle does NOT (ui.js:
+   *   togglePeakExclusion() must omit this / pass false, since excluding a
+   *   peak changes the active-peak set). Found and added via real A/B
+   *   benchmarking (docs/archive/visualizer_rendering_perf_routes.md §2.4) —
+   *   clustering was ~33ms of a ~36ms single-track refresh, the reason this
+   *   method was only ~1.1x faster than a full renderData() rebuild for a
+   *   label edit despite already skipping path/hotspot work. (The compute is
+   *   now also fingerprint-cached — see _renderArousalPlacesFor.)
    */
   refreshPeakMarkers(analyzer, gpsParams, options) {
     if (!this.map || !analyzer) return;
