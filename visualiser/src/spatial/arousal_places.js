@@ -228,15 +228,6 @@ function geoScale(lat) {
   const DEG_TO_M_LAT = 111320.0;
   return { degToMeterLat: DEG_TO_M_LAT, degToMeterLon: DEG_TO_M_LAT * Math.cos(lat * Math.PI / 180) };
 }
-function distSq(lat1, lon1, lat2, lon2, scale) {
-  if (typeof GeoUtils !== 'undefined' && typeof GeoUtils.distanceMetersSq === 'function') {
-    return GeoUtils.distanceMetersSq(lat1, lon1, lat2, lon2, scale);
-  }
-  const dy = (lat1 - lat2) * scale.degToMeterLat;
-  const dx = (lon1 - lon2) * scale.degToMeterLon;
-  return dx * dx + dy * dy;
-}
-
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { GSRArousalPlaces };
 }

@@ -1343,33 +1343,9 @@ class GSRGlobeManager {
     // Filter peaks by quality threshold
     this.currentPeaks = (analyzer.peaks || []).filter(pk => !pk.excluded);
 
-    // Clear everything from any previous track (peaks/RF leaked before), then
-    // rebuild — all inside one entity-collection batch so the Cesium
-    // Visualizers diff the ~2×(peaks+hotspots) add/remove once, not per entity.
-    this._withEntityBatch(() => {
-      this.clearTrackEntities();
-      this.clearPeakEntities();
-      this.clearHotspotEntities();
-      this.clearRfEntities();
-
-      this._render3DWallAndPath(analyzer, drawPoints);
-
-      if (this.showPeaks || this.showLabels) {
-        this._renderPeakSpires(analyzer, this.currentPeaks);
-      }
-      if (this.showHotspots) {
-        this._renderHotspots(analyzer);
-      }
-      // Ground blobs only when the hulls / visibility actually changed — a
-      // GSR/GPS slider push doesn't touch them, so rebuilding them every push
-      // was pure flicker (clamp-to-ground primitives blink on remove+add).
-      this._syncClusterBlobs();
-      if (this.showRfVolumetric) {
-        this.render3DRfExpanse(analyzer, drawPoints);
-      }
-    });
-
-    this._requestRender();
+    // Clear every layer from any previous track (peaks/RF leaked before) and
+    // rebuild from the now-cached track — see _rebuildLayers().
+    this._rebuildLayers();
 
     if (!isPreview) {
       this.flyToTrack();
@@ -1683,6 +1659,20 @@ class GSRGlobeManager {
   }
 
   /**
+   * `peak object -> its index in analyzer.peaks`. Peak and hotspot markers are
+   * click-tagged with this index (NOT the filtered render list's) — it's what
+   * GSRUI.updatePeakLabel()/togglePeakExclusion() and _peakClickCb expect. Built
+   * as a Map because `indexOf` per rendered peak was O(peaks²), ~800k scans on a
+   * 900-peak walk. @private
+   */
+  _peakIndexMap(analyzer) {
+    const allPeaks = (analyzer && analyzer.peaks) || [];
+    const m = new Map();
+    for (let k = 0; k < allPeaks.length; k++) m.set(allPeaks[k], k);
+    return m;
+  }
+
+  /**
    * Render the 3D peak markers (a small circle just above the wall top, no
    * vertical stalk) and their labels.
    */
@@ -1690,12 +1680,7 @@ class GSRGlobeManager {
     if (!peaks || peaks.length === 0) return;
     if (!this.showPeaks && !this.showLabels) return;
 
-    // peak object -> its index in analyzer.peaks, built once per render.
-    // `indexOf` per rendered peak made this O(peaks²) — ~800k scans on a
-    // 900-peak walk.
-    const allPeaks = analyzer.peaks || [];
-    const peakIndexOf = new Map();
-    for (let k = 0; k < allPeaks.length; k++) peakIndexOf.set(allPeaks[k], k);
+    const peakIndexOf = this._peakIndexMap(analyzer);
     const C = this._markerConst();
 
     peaks.forEach((peak, i) => {
@@ -1789,9 +1774,7 @@ class GSRGlobeManager {
     const events = analyzer && analyzer.memorableEvents;
     if (!events || events.length === 0 || !this.viewer) return;
 
-    const allPeaks = analyzer.peaks || [];
-    const peakIndexOf = new Map();
-    for (let k = 0; k < allPeaks.length; k++) peakIndexOf.set(allPeaks[k], k);
+    const peakIndexOf = this._peakIndexMap(analyzer);
     const C = this._markerConst();
 
     events.forEach(peak => {
@@ -1987,11 +1970,20 @@ class GSRGlobeManager {
     }
   }
 
-  /** Re-draw the wall + the peak/hotspot/cluster/RF layers from the cached track. */
-  _refreshTrack() {
-    // May run a frame late now (setExtrusionScale coalesces via rAF), so guard
-    // the viewer explicitly in case a destroy()/context-loss landed in between.
-    if (!this.viewer || !this.currentAnalyzer || this.currentDrawPoints.length < 2) return;
+  /**
+   * Clear and rebuild every 3D layer (wall + path, peak spires, hotspots,
+   * cluster ground-blobs, RF volume) from the cached track, all inside one
+   * EntityCollection batch so the Cesium Visualizers diff the add/remove churn
+   * once rather than per entity.
+   *
+   * Shared by renderData() (a fresh track — currentAnalyzer/currentDrawPoints/
+   * currentPeaks are assigned just before the call) and _refreshTrack() (a
+   * slider-driven refresh from the same cached track). Both had grown a
+   * byte-identical copy of this sequence, so a fix to one — the batch, the
+   * clear order, _syncClusterBlobs — had to be mirrored into the other by hand.
+   * @private
+   */
+  _rebuildLayers() {
     this._invalidateMetricSeriesCache();
     this._withEntityBatch(() => {
       this.clearTrackEntities();
@@ -2003,14 +1995,23 @@ class GSRGlobeManager {
         this._renderPeakSpires(this.currentAnalyzer, this.currentPeaks);
       }
       if (this.showHotspots) this._renderHotspots(this.currentAnalyzer);
-      // Extrusion / metric / RF-param changes never touch the cluster hulls —
-      // leave the ground blobs in place (see _syncClusterBlobs).
+      // Ground blobs only when the hulls / Clusters toggle actually changed — a
+      // GSR/GPS/extrusion/metric slider push never touches them, and
+      // clamp-to-ground primitives blink on remove+add (see _syncClusterBlobs).
       this._syncClusterBlobs();
-      // Re-upload the RF volumetric layer — its raw Primitive is lost on context
-      // restore and stale after a slider-driven metric/extrusion change.
+      // RF volume: its raw Primitive is lost on context restore and stale after
+      // a slider-driven metric/extrusion change, so re-upload it here.
       if (this.showRfVolumetric) this.render3DRfExpanse(this.currentAnalyzer, this.currentDrawPoints);
     });
     this._requestRender();
+  }
+
+  /** Re-draw the wall + the peak/hotspot/cluster/RF layers from the cached track. */
+  _refreshTrack() {
+    // May run a frame late now (setExtrusionScale coalesces via rAF), so guard
+    // the viewer explicitly in case a destroy()/context-loss landed in between.
+    if (!this.viewer || !this.currentAnalyzer || this.currentDrawPoints.length < 2) return;
+    this._rebuildLayers();
   }
 
   /** Set active colouring metric and refresh. */
