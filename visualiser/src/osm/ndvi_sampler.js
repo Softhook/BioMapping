@@ -68,7 +68,7 @@ const NDVISampler = {
       name: 'Sentinel-2 Cloudless Mosaic (EOX) — true colour imagery',
       type: 'xyz',
       urlTemplate: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',
-      attribution: 'Satellite imagery (true colour) © <a href="https://s2maps.eu" target="_blank">Sentinel-2 cloudless / EOX</a> — not a vegetation index',
+      attribution: 'Satellite imagery © <a href="https://s2maps.eu" target="_blank">Sentinel-2 / EOX</a>',
       buildUrl: (tileX, tileY, zoom, options = {}) => {
         const tmpl = options.urlTemplate || NDVISampler.DEFAULT_TILE_URL;
         return tmpl.replace('{z}', zoom).replace('{x}', tileX).replace('{y}', tileY).replace('{s}', 'a');
@@ -79,7 +79,7 @@ const NDVISampler = {
       name: 'NASA GIBS MODIS NDVI (rendered, ~250m/8-day, real vegetation product)',
       type: 'xyz',
       urlTemplate: 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_NDVI_8Day/default/default/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png',
-      attribution: 'NASA GIBS / Earthdata MODIS NDVI — coarse-resolution visualisation, not sampled',
+      attribution: 'NASA GIBS / MODIS NDVI',
       buildUrl: (tileX, tileY, zoom, options = {}) => {
         const tmpl = options.urlTemplate || NDVISampler.NASA_GIBS_URL;
         return tmpl.replace('{z}', zoom).replace('{x}', tileX).replace('{y}', tileY);

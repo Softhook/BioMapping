@@ -182,7 +182,7 @@ Object.assign(GSRMapManager.prototype, {
         opacity,
         maxZoom: 19,
         maxNativeZoom: 16,
-        attribution: 'NDVI (Sentinel-2, live) © Copernicus / ESA — rendered client-side from the same raster used for sampling'
+        attribution: 'NDVI © Copernicus / ESA'
       }).addTo(this.map);
       this.ndviTileLayer.on('tileunload', (e) => {
         if (e && e.tile && e.tile.tagName === 'CANVAS') {
