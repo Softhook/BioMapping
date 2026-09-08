@@ -215,6 +215,7 @@ class GSRGlobeManager {
     this._onContextRestored = null;
     this._hoverRaf = 0;
     this._pendingHoverPos = null;
+    this._extrusionRaf = 0;
 
     // Colour LUT cache (Cesium.Color[] mirror of MapColors.getColorLut) + last
     // basemap id, for _render3DWallAndPath and context-restore.
@@ -736,10 +737,12 @@ class GSRGlobeManager {
     }
     this._onContextLost = null;
     this._onContextRestored = null;
-    if (this._hoverRaf && typeof window !== 'undefined' && window.cancelAnimationFrame) {
-      window.cancelAnimationFrame(this._hoverRaf);
+    if (typeof window !== 'undefined' && window.cancelAnimationFrame) {
+      if (this._hoverRaf) window.cancelAnimationFrame(this._hoverRaf);
+      if (this._extrusionRaf) window.cancelAnimationFrame(this._extrusionRaf);
     }
     this._hoverRaf = 0;
+    this._extrusionRaf = 0;
     this._pendingHoverPos = null;
 
     if (this._keyDownHandler) {
@@ -784,6 +787,8 @@ class GSRGlobeManager {
     this.currentAnalyzer = null;
     this.currentDrawPoints = [];
     this.currentPeaks = [];
+    if (this._metricSeriesCache) this._metricSeriesCache.clear();
+    this._mc = null;
   }
 
   /** Surface a recoverable problem to the user via GSRNotices, falling back to console. */
@@ -1294,6 +1299,9 @@ class GSRGlobeManager {
    */
   renderData(analyzer, gpsParams, opts = {}) {
     if (!this.viewer) return;
+    // analyze() may have refilled the analyzer's series buffers in place since
+    // the last render — drop the memo so this rebuild reads fresh values.
+    this._invalidateMetricSeriesCache();
     if (!analyzer || !analyzer.raw || analyzer.raw.length === 0) {
       this.clearAll();
       this.currentAnalyzer = null;
@@ -1648,6 +1656,28 @@ class GSRGlobeManager {
   }
 
   /**
+   * Cesium constants reused for every peak/hotspot marker — parsed once, not
+   * once per marker (a 900-peak rebuild was re-parsing the same three CSS
+   * colours 900 times). Cesium treats these as constant property values, so
+   * sharing one instance across entities is safe. Rebuilt lazily so the tests'
+   * per-instance Cesium stub is honoured.
+   * @private
+   */
+  _markerConst() {
+    if (!this._mc) {
+      this._mc = {
+        peakRed:      Cesium.Color.fromCssColorString('#d10024'),
+        latencyRose:  Cesium.Color.fromCssColorString('#f43f5e').withAlpha(0.35),
+        labelOutline: Cesium.Color.fromCssColorString('#0b0c10'),
+        hotspotRed:   Cesium.Color.fromCssColorString('#ff1744'),
+        labelOffset:  new Cesium.Cartesian2(0, -14),
+        labelDDC:     new Cesium.DistanceDisplayCondition(0.0, 6000.0)
+      };
+    }
+    return this._mc;
+  }
+
+  /**
    * Render the 3D peak markers (a small circle just above the wall top, no
    * vertical stalk) and their labels.
    */
@@ -1655,7 +1685,13 @@ class GSRGlobeManager {
     if (!peaks || peaks.length === 0) return;
     if (!this.showPeaks && !this.showLabels) return;
 
+    // peak object -> its index in analyzer.peaks, built once per render.
+    // `indexOf` per rendered peak made this O(peaks²) — ~800k scans on a
+    // 900-peak walk.
     const allPeaks = analyzer.peaks || [];
+    const peakIndexOf = new Map();
+    for (let k = 0; k < allPeaks.length; k++) peakIndexOf.set(allPeaks[k], k);
+    const C = this._markerConst();
 
     peaks.forEach((peak, i) => {
       if (peak.qualityScore < this.minPeakQuality) return;
@@ -1672,7 +1708,7 @@ class GSRGlobeManager {
       // Index into analyzer.peaks (NOT the filtered `peaks` arg) — this is what
       // GSRUI.updatePeakLabel()/togglePeakExclusion() expect, and what the
       // click handler reports via _peakClickCb.
-      const peakIdx = allPeaks.indexOf(peak);
+      const peakIdx = peakIndexOf.has(peak) ? peakIndexOf.get(peak) : -1;
 
       // Peak position — shifted by the Peak-latency slider, like the 2D map.
       const coords = this._latencyCoords(analyzer, peak);
@@ -1683,11 +1719,6 @@ class GSRGlobeManager {
       const wallHeight = this._peakWallHeight(analyzer, peak);
       // Circle sits just above the wall top — no vertical stalk.
       const markerPos = Cesium.Cartesian3.fromDegrees(lon, lat, wallHeight + 3.0);
-
-      // Uniform peak red (--color-peak) — a peak is a small circle on every
-      // surface; quality is read from the popup, not the marker colour (matches
-      // the 2D map's .peak-dot).
-      const peakColor = Cesium.Color.fromCssColorString('#d10024');
 
       // Faint connector from the unshifted peak sample to the latency-shifted
       // marker — the 3D counterpart of the 2D dashed rose line (map.js).
@@ -1703,7 +1734,7 @@ class GSRGlobeManager {
                 Cesium.Cartesian3.fromDegrees(lon, lat, 1.0)
               ],
               width: 1.5,
-              material: Cesium.Color.fromCssColorString('#f43f5e').withAlpha(0.35),
+              material: C.latencyRose,
               clampToGround: true
             }
           });
@@ -1718,7 +1749,7 @@ class GSRGlobeManager {
         position: markerPos,
         point: {
           pixelSize: 5,
-          color: peakColor,
+          color: C.peakRed,
           outlineColor: Cesium.Color.WHITE,
           outlineWidth: 1,
           disableDepthTestDistance: Number.POSITIVE_INFINITY
@@ -1728,12 +1759,12 @@ class GSRGlobeManager {
           font: '600 14px Inter, "Helvetica Neue", Arial, sans-serif',
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
           fillColor: Cesium.Color.WHITE,
-          outlineColor: Cesium.Color.fromCssColorString('#0b0c10'),
+          outlineColor: C.labelOutline,
           outlineWidth: 3,
           verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          pixelOffset: new Cesium.Cartesian2(0, -14),
+          pixelOffset: C.labelOffset,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 6000.0)
+          distanceDisplayCondition: C.labelDDC
         } : undefined
       });
       beaconEntity._biomapPeakIndex = peakIdx;
@@ -1754,13 +1785,15 @@ class GSRGlobeManager {
     if (!events || events.length === 0 || !this.viewer) return;
 
     const allPeaks = analyzer.peaks || [];
-    const hotColor = Cesium.Color.fromCssColorString('#ff1744'); // --color-hotspot
+    const peakIndexOf = new Map();
+    for (let k = 0; k < allPeaks.length; k++) peakIndexOf.set(allPeaks[k], k);
+    const C = this._markerConst();
 
     events.forEach(peak => {
       const coords = this._latencyCoords(analyzer, peak);
       if (!coords || isNaN(coords.lat) || isNaN(coords.lon)) return;
 
-      const peakIdx = allPeaks.indexOf(peak);
+      const peakIdx = peakIndexOf.has(peak) ? peakIndexOf.get(peak) : -1;
       const wallHeight = this._peakWallHeight(analyzer, peak);
       const tipHeight = wallHeight + 11.0; // sits above the regular peak circle
 
@@ -1771,8 +1804,8 @@ class GSRGlobeManager {
           text: '★',
           font: '700 14px "Helvetica Neue", Arial, sans-serif',
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          fillColor: hotColor,
-          outlineColor: Cesium.Color.fromCssColorString('#0b0c10'),
+          fillColor: C.hotspotRed,
+          outlineColor: C.labelOutline,
           outlineWidth: 2,
           verticalOrigin: Cesium.VerticalOrigin.CENTER,
           horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
@@ -1830,21 +1863,47 @@ class GSRGlobeManager {
    * Retrieve the colouring-metric series from the analyzer as plain floats.
    * Derived metrics (SERIES_FIELD) come from per-sample analyzer arrays; anything
    * else falls back to the raw GSR series.
+   *
+   * Memoised per render: `_renderPeakSpires` / `_renderHotspots` ask for the
+   * height series once per peak, and each miss was a full `.map()` over the
+   * whole ~35k-sample track — ~320 ms of a rebuild on a 900-peak walk. The
+   * cache is keyed by field and by the source array's identity, and is dropped
+   * outright at the top of `renderData` / `_refreshTrack` because `analyze()`
+   * refills the analyzer's series buffers in place (same array ref, new values).
    */
   _getMetricSeries(analyzer, metric) {
     const field = SERIES_FIELD[metric];
-    if (field && analyzer[field] && analyzer[field].length > 0) {
-      return analyzer[field].map(seriesValue);
+    const useDerived = !!(field && analyzer[field] && analyzer[field].length > 0);
+    const src = useDerived ? analyzer[field] : (analyzer.raw || null);
+    const key = useDerived ? field : '__raw__';
+
+    const cache = this._metricSeriesCache || (this._metricSeriesCache = new Map());
+    const hit = cache.get(key);
+    if (hit && hit.src === src) return hit.out;
+
+    let out;
+    if (useDerived) {
+      out = src.map(seriesValue);
+    } else if (src && src.length > 0) {
+      out = src.map(d => (d.gsr !== undefined ? d.gsr : (d.val !== undefined ? d.val : 0)));
+    } else {
+      out = [];
     }
-    if (analyzer.raw && analyzer.raw.length > 0) {
-      return analyzer.raw.map(d => (d.gsr !== undefined ? d.gsr : (d.val !== undefined ? d.val : 0)));
-    }
-    return [];
+    cache.set(key, { src, out });
+    return out;
+  }
+
+  /** Drop the per-render metric-series memo (see _getMetricSeries). @private */
+  _invalidateMetricSeriesCache() {
+    if (this._metricSeriesCache) this._metricSeriesCache.clear();
   }
 
   /** Re-draw the wall + the peak/hotspot/cluster/RF layers from the cached track. */
   _refreshTrack() {
-    if (!this.currentAnalyzer || this.currentDrawPoints.length < 2) return;
+    // May run a frame late now (setExtrusionScale coalesces via rAF), so guard
+    // the viewer explicitly in case a destroy()/context-loss landed in between.
+    if (!this.viewer || !this.currentAnalyzer || this.currentDrawPoints.length < 2) return;
+    this._invalidateMetricSeriesCache();
     this.clearTrackEntities();
     this.clearPeakEntities();
     this.clearHotspotEntities();
@@ -1868,10 +1927,22 @@ class GSRGlobeManager {
     this._refreshTrack();
   }
 
-  /** Adjust extruded wall-height scale and refresh. */
+  /**
+   * Adjust extruded wall-height scale and refresh. The scale changes on every
+   * `input` event of a slider drag — faster than a wall rebuild — so the
+   * rebuild is coalesced to at most one per animation frame with the latest
+   * value. The number in the UI still updates live (the host owns that label).
+   */
   setExtrusionScale(scale) {
     this.extrusionScale = scale;
-    this._refreshTrack();
+    if (this._extrusionRaf) return;
+    const raf = (typeof window !== 'undefined' && window.requestAnimationFrame)
+      ? window.requestAnimationFrame.bind(window)
+      : (fn) => setTimeout(fn, 16);
+    this._extrusionRaf = raf(() => {
+      this._extrusionRaf = 0;
+      this._refreshTrack();
+    });
   }
 
   /**

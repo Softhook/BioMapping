@@ -1,60 +1,74 @@
 'use strict';
 /**
- * Profiling harness for the 3D-globe arousal wall — the one hot path the
- * profile found (globe3d.js `_render3DWallAndPath`, rebuilt on every settled
- * GSR/GPS slider drag, metric change and extrusion change).
+ * Profiling harness for a 3D-globe track rebuild — everything that reruns on a
+ * settled GSR/GPS slider drag, a colour-metric change or an extrusion change
+ * (globe3d.js `_render3DWallAndPath` + `_renderPeakSpires` + `_renderHotspots`).
  *
- * Two layers, because the earlier version of this bench stubbed out the part
- * that actually costs:
+ * Three layers, because different parts cost in different places:
  *
- *   SECTION A — geometry realization (the real bottleneck). Uses the REAL
- *   vendored CesiumJS geometry pipeline: WallGeometry.createGeometry (edge
- *   subdivision + triangulation + per-vertex normals/tangents) and
+ *   SECTION A — wall geometry realization. Uses the REAL vendored CesiumJS
+ *   geometry pipeline: WallGeometry.createGeometry (edge subdivision +
+ *   triangulation + per-vertex normals/tangents) and
  *   PrimitivePipeline.combineGeometry (merge every instance into one buffer
- *   set) both run headless in Node. A/B: the pre-refactor per-segment
- *   instances vs the post-refactor colour-bucket-coalesced instances that
- *   production now builds.
+ *   set), both run headless in Node. NOTE: in the app the wall Primitive is
+ *   built with `asynchronous: true`, so this work runs on a Cesium worker, NOT
+ *   the main thread — it does not stall the drag. What it costs is worker CPU,
+ *   latency-to-visible and battery. A/B: pre-refactor per-segment instances vs
+ *   the colour-bucket-coalesced + thinned instances production builds now.
  *
- *   SECTION B — orchestration cost (our JS loops), cheap Cesium stub, so the
- *   construction counts (GeometryInstance / colorParse / fromDegrees) stay
- *   visible and the sub-0.1 ms paths (metric series, hover scan, RF) are
- *   re-confirmed on real data.
+ *   SECTION B — main-thread JS per rebuild (stub Cesium). Our own loops in
+ *   `_render3DWallAndPath`, `_renderPeakSpires`, `_renderHotspots`, plus the
+ *   entity add/remove counts. This is what actually competes with the frame.
+ *   Cesium's own per-entity Visualizer diffing is NOT measurable headless — the
+ *   entity COUNTS here are the proxy for it (fewer entities added == less work
+ *   for Cesium on the next frame).
  *
- * Fixture: the real tracks/Newhaven.csv (~14 k rows) run through the actual 2D
- * map GPS pipeline, so `drawPoints` is byte-for-byte what feeds the globe in
- * the app.
+ *   SECTION C — hover scan (`_pickTrackPoint`), rAF-coalesced to ~1/frame.
+ *
+ * Fixture: a real track run through the actual 2D map GPS pipeline, so
+ * `drawPoints` is byte-for-byte what feeds the globe in the app. Default
+ * tracks/Newhaven.csv (~14 k rows); set BENCH_TRACK=biomap_016.csv for a
+ * large (35 k-row / ~900-peak) track — SECTION B costs that scale with point
+ * or peak count roughly triple there.
  *
  * Run:
  *   npm i --no-save cesium@1.120        # dev-only; not committed, not in `npm test`
  *   node tests/manual/_bench_globe3d_perf.js
+ *   BENCH_TRACK=biomap_016.csv node tests/manual/_bench_globe3d_perf.js
  *
- * ── RESULTS  (node on macOS, tracks/Newhaven.csv, 14225 drawPoints / 14224 segments) ──
+ * ── RESULTS  (node on macOS) ──
  *
- *   SECTION A — real WallGeometry.createGeometry + PrimitivePipeline.combineGeometry
- *     per-segment · pos+normal (pre-refactor)  instances=14224  verts=52844  ≈ 79 ms
- *     per-segment · pos only   (flat format)   instances=14224  verts=52844  ≈ 71 ms
- *     coalesced   · no thinning                instances=  407  verts=53312  ≈ 39 ms
- *     coalesced   · thinned    (CURRENT)       instances=  362  verts=18664  ≈ 16 ms
+ *   SECTION A — real WallGeometry.createGeometry + combineGeometry (WORKER, not main thread)
+ *     Newhaven.csv (14225 drawPoints):   per-segment pre-refactor ≈ 77 ms → coalesced+thinned ≈ 15 ms
+ *     biomap_016.csv (35466 drawPoints): per-segment pre-refactor ≈ 261 ms → coalesced+thinned ≈ 36 ms
+ *     → ~5–7x faster to realize+combine; ~2.8x fewer vertices. Async (asynchronous:true),
+ *       so it runs on a Cesium worker and never stalls the drag — left as-is.
  *
- *     → CURRENT is ~4.9x faster to realize+combine than the pre-refactor build,
- *       and uploads/draws ~2.8x fewer vertices.
- *         flat vertex format alone : ~1.1x  (free — 1 line, visually identical)
- *         same-bucket coalescing   : ~1.9x  (fewer createGeometry + combine work)
- *         wall thinning            : ~2.4x  (14k pts → ~2.5k; also cuts vertices,
- *                                            so GPU upload + steady-state draw drop)
+ *   SECTION B — main-thread JS per rebuild (stub Cesium)   [Newhaven 196 peaks / biomap_016 888 peaks]
+ *     BEFORE the 2026-09-08 spire pass:
+ *       _renderPeakSpires                  19 ms  /  320 ms      ← _getMetricSeries did a full
+ *       full rebuild (wall+spires+hotspots) 20 ms  /  329 ms        analyzer[field].map() ONCE PER
+ *                                                                    PEAK, and allPeaks.indexOf(peak)
+ *                                                                    made the loop O(peaks²).
+ *     AFTER: _getMetricSeries memoised per render (dropped at renderData/_refreshTrack),
+ *            peak→index Map instead of indexOf, marker Cesium.Color/Cartesian2/DDC hoisted:
+ *       _renderPeakSpires                  0.04 ms / 0.17 ms
+ *       _render3DWallAndPath               0.5 ms  / 1.1 ms   GeometryInstance 362 / 789
+ *       _renderHotspots                    0.01 ms / 0.03 ms
+ *       full rebuild (wall+spires+hotspots) 0.5 ms / 1.3 ms   ← ~250x on the big track
+ *       _getMetricSeries (cold)            <0.1 ms / 0.35 ms  now 1x/render, was Nx (N=peaks)
+ *     Extrusion-slider drags also coalesce _refreshTrack to 1x/frame (setExtrusionScale rAF).
  *
- *   SECTION B — orchestration (stub Cesium) — our JS loop only
- *     _render3DWallAndPath   ~0.85 ms  GeometryInstance=362  colorParse=0 on redraw
- *     _getMetricSeries x1    ~0.29 ms  (14225-len .map alloc; up to 3x/rebuild — minor)
- *     _pickTrackPoint x500   ~11 ms    = 22 us / MOUSE_MOVE on 14k points — rAF-coalesced, ~1/frame
- *     render3DRfExpanse      ~1.1 ms   (cheap — not a target)
+ *   SECTION C — _pickTrackPoint  ~22 µs/call (14k) · ~55 µs/call (35k) — rAF-coalesced, fine.
  *
  *   STILL ON THE TABLE (not done)
- *     - custom lightweight Geometry (position + per-vertex colour only, 2 tris/
- *       segment — skip WallGeometry's subdivision / caps / bounding-sphere and
- *       the combine step entirely). Ceiling: ~16 ms → ~5 ms.
+ *     - peak spires / hotspots as one batched PointPrimitiveCollection +
+ *       LabelCollection instead of one Entity each (cuts Cesium-side Visualizer
+ *       diffing, not visible in this bench — see the entity counts).
  *     - colour-metric change updates per-instance colour attributes instead of
  *       rebuilding geometry (needs colour-independent coalescing).
+ *     - custom lightweight wall Geometry (skip WallGeometry subdivision/caps +
+ *       the combine step). Worker-side only; ceiling ~15 ms → ~5 ms.
  */
 
 const fs = require('fs');
@@ -321,7 +335,7 @@ for (const [label, build] of VARIANTS) {
 // SECTION B — orchestration cost (stub Cesium) — JS loop cost + counts
 // ─────────────────────────────────────────────────────────────────────────────
 delete global.Cesium; delete global.MapColors;
-const counters = { fromDegrees: 0, colorParse: 0, GeometryInstance: 0, WallGeometry: 0, EllipsoidGeometry: 0, Primitive: 0 };
+const counters = { fromDegrees: 0, colorParse: 0, GeometryInstance: 0, WallGeometry: 0, EllipsoidGeometry: 0, Primitive: 0, entityAdd: 0, entityRemove: 0 };
 const reset = () => { for (const k in counters) counters[k] = 0; };
 
 function autoStub() {
@@ -357,7 +371,13 @@ function stubCesium() {
   C.Ion = { defaultAccessToken: '' };
   const scene = { requestRenderMode: false, canvas: { addEventListener() {}, removeEventListener() {} }, screenSpaceCameraController: {}, globe: { ellipsoid: {} }, fog: {}, skyBox: {}, skyAtmosphere: {}, sun: {}, moon: {}, primitives: { add() {}, remove() {} }, postRender: { addEventListener: () => () => {} }, requestRender() {}, pick: () => null };
   const camera = { positionWC: {}, positionCartographic: { height: 1200 }, heading: 0, pitch: -0.6, pickEllipsoid: () => ({}), flyTo() {}, flyToBoundingSphere() {}, lookAt() {}, lookAtTransform() {}, getPickRay: () => ({}) };
-  C.Viewer = function () { return { scene, camera, clock: { onTick: { addEventListener: () => () => {} } }, entities: { add: () => ({}), remove() {} }, imageryLayers: { removeAll() {}, addImageryProvider() {} }, isDestroyed: () => false, destroy() {} }; };
+  const entities = {
+    add: (o) => { counters.entityAdd++; return o || {}; },
+    remove: () => { counters.entityRemove++; },
+    removeById() {}, getById: () => null,
+    suspendEvents() {}, resumeEvents() {},
+  };
+  C.Viewer = function () { return { scene, camera, clock: { onTick: { addEventListener: () => () => {} } }, entities, imageryLayers: { removeAll() {}, addImageryProvider() {} }, isDestroyed: () => false, destroy() {} }; };
   return C;
 }
 
@@ -368,33 +388,77 @@ global.MapColors = require(MAP_COLORS).MapColors;
 delete require.cache[require.resolve(GLOBE3D)];
 const { GSRGlobeManager } = require(GLOBE3D);
 
-console.log('── SECTION B — orchestration cost (stub Cesium) — our JS loop only ──\n');
+console.log('── SECTION B — main-thread JS per rebuild (stub Cesium) ──\n');
 {
   const mgr = new GSRGlobeManager('c', { keyboardFlight: false });
   mgr.activeColoringMetric = metric;
   mgr.externalColorRange = { min: minV, max: maxV };
   mgr.currentAnalyzer = analyzer;
   mgr.currentDrawPoints = drawPoints;
+  mgr.currentPeaks = (analyzer.peaks || []).filter((p) => !p.excluded);
+  mgr.showPeaks = true;
+  mgr.showLabels = true;
+  mgr.showHotspots = true;
+
   let counts = '';
   const r = bench('_render3DWallAndPath', 3, 40, () => {
     mgr.clearTrackEntities();
     reset();
     mgr._render3DWallAndPath(analyzer, drawPoints);
-    counts = `GeometryInstance=${counters.GeometryInstance}  colorParse=${counters.colorParse}  WallGeometry=${counters.WallGeometry}`;
+    counts = `GeometryInstance=${counters.GeometryInstance}  colorParse=${counters.colorParse}  WallGeometry=${counters.WallGeometry}  entityAdd=${counters.entityAdd}`;
   });
   printRow(r, counts + '  (colorParse 0 on redraw = LUT reused; ≤30 on a metric/range change)');
 
-  const r2 = bench('_getMetricSeries x1', 5, 200, () => mgr._getMetricSeries(analyzer, metric));
-  printRow(r2, `series length ${(analyzer[metric] || analyzer.raw).length} — cheap, not a target`);
+  let spireCounts = '';
+  const rS = bench('_renderPeakSpires', 3, 40, () => {
+    mgr.clearPeakEntities();
+    reset();
+    mgr._renderPeakSpires(analyzer, mgr.currentPeaks);
+    spireCounts = `renderedPeaks≈${counters.entityAdd}  fromDegrees=${counters.fromDegrees}  colorParse=${counters.colorParse}`;
+  });
+  printRow(rS, `${mgr.currentPeaks.length} candidate peaks · ${spireCounts}`);
 
-  mgr.currentDrawPoints = drawPoints;
-  const r3 = bench('_pickTrackPoint x500', 3, 20, () => { for (let k = 0; k < 500; k++) mgr._pickTrackPoint({ x: k, y: k }); });
-  printRow(r3, `${drawPoints.length}-point scan/call — cheap, not a target`);
+  let hotCounts = '';
+  const rH = bench('_renderHotspots', 3, 40, () => {
+    mgr.clearHotspotEntities();
+    reset();
+    mgr._renderHotspots(analyzer);
+    hotCounts = `entityAdd=${counters.entityAdd}  fromDegrees=${counters.fromDegrees}`;
+  });
+  printRow(rH, `${(analyzer.memorableEvents || []).length} memorable events · ${hotCounts}`);
+
+  // The whole main-thread JS a settled slider / metric / extrusion change reruns.
+  const rAll = bench('full rebuild (wall+spires+hotspots)', 3, 30, () => {
+    mgr.clearTrackEntities();
+    mgr.clearPeakEntities();
+    mgr.clearHotspotEntities();
+    mgr._render3DWallAndPath(analyzer, drawPoints);
+    mgr._renderPeakSpires(analyzer, mgr.currentPeaks);
+    mgr._renderHotspots(analyzer);
+  });
+  printRow(rAll, 'wall geometry realize/upload is async (SECTION A) — not in this number');
+
+  // Cold (memo dropped) — this is the once-per-render cost now; before the
+  // 2026-09-08 spire pass it was paid once PER PEAK inside _peakWallHeight.
+  const r2 = bench('_getMetricSeries x1 (cold)', 5, 200, () => {
+    mgr._invalidateMetricSeriesCache();
+    mgr._getMetricSeries(analyzer, metric);
+  });
+  printRow(r2, `series length ${(analyzer[SERIES_FIELD_GUESS(metric)] || analyzer.raw).length} — memoised; 1x/render`);
 
   mgr.rfMode = 'triband';
   global.GSRGlobe3DRf = require(path.join(APP_DIR, 'src', 'map', 'globe3d', 'rf_expanse.js')).GSRGlobe3DRf;
   const r4 = bench('render3DRfExpanse', 3, 40, () => { mgr.clearRfEntities(); mgr.render3DRfExpanse(analyzer, drawPoints); });
   printRow(r4, 'cheap, not a target');
+
+  console.log('\n── SECTION C — hover scan ──\n');
+  mgr.currentDrawPoints = drawPoints;
+  const r3 = bench('_pickTrackPoint x500', 3, 20, () => { for (let k = 0; k < 500; k++) mgr._pickTrackPoint({ x: k, y: k }); });
+  printRow(r3, `${drawPoints.length}-point scan/call, rAF-coalesced to ~1/frame`);
   mgr.destroy();
+}
+
+function SERIES_FIELD_GUESS(m) {
+  return { phasic: 'phasic', tonic: 'tonic', arousalIndex: 'arousalIndex', triIndex: 'triIndex', peakDensity: 'peakDensity', phasicAUC: 'phasicAUC', em_fog: 'em_fog', emFog: 'em_fog' }[m] || 'raw';
 }
 console.log('');
