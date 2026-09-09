@@ -184,6 +184,54 @@ const both = analyze({ usePeakProminence: true, useDeconvolution: true });
 assert(both.phasicDriverPeaks.length === 0,
   'usePeakProminence overrides useDeconvolution when both are on');
 
+// ── An apex relocation revises a peak; it must not re-measure the onset ────
+// The apex-fix moves a stranded marker forward onto the true summit of a rise.
+// The response — and its onset — is the one the base pass already found, so the
+// rebuilt peak inherits the base onset. Re-deriving the onset from the moved
+// apex walks back only to the nearest lower sample: on a crest carrying a small
+// multi-modal wiggle it stops in the notch between the sub-peaks and trough-to-
+// peak amplitude collapses to the notch depth (a multi-µS response reading as a
+// few hundredths), dropping the event out of SNR / quality / salience and, on
+// the demo track, out of the hotspot set. Regression for the demo-track "P1".
+{
+  const demoCsv = fs.readFileSync(path.join(__dirname, '../fixtures/default_processed.csv'), 'utf8');
+  const off = new GSRAnalyzer(); off.parseCSV(demoCsv);
+  off.analyze({ ...global.GSR_CONST.GSR_DEFAULT, usePeakProminence: false }, 0);
+  const on = new GSRAnalyzer(); on.parseCSV(demoCsv);
+  on.analyze({ ...global.GSR_CONST.GSR_DEFAULT, usePeakProminence: true }, 0);
+
+  const biggestOff = off.peaks.reduce((a, b) => (b.amplitude > a.amplitude ? b : a));
+  const matchOn = on.peaks
+    .filter(p => Math.abs(p.time - biggestOff.time) <= global.GSR_CONST.PEAK_MIN_GAP)
+    .sort((a, b) => b.amplitude - a.amplitude)[0];
+
+  assert(matchOn != null,
+    `the biggest trough-to-peak SCR (t=${biggestOff.time.toFixed(1)}s) survives into the combined list`);
+  // The relocated apex sits at or above the base apex, so inheriting the base
+  // onset gives an amplitude no smaller than the trough-to-peak measurement.
+  assert(matchOn && matchOn.amplitude >= biggestOff.amplitude * 0.98,
+    `the relocation keeps the response's amplitude ` +
+    `(combined ${matchOn && matchOn.amplitude.toFixed(3)} vs trough ${biggestOff.amplitude.toFixed(3)})`);
+  assert(matchOn && on.memorableEvents.includes(matchOn),
+    'and the track\'s single largest response is still selected as a hotspot in combined mode');
+
+  // Corpus-style: the bug mismeasured ~70% of relocations, not just P1. Pair
+  // each combined peak with the nearest base peak within PEAK_MIN_GAP; a pair
+  // whose apex index moved is a relocation, and none may lose its amplitude.
+  const gap = global.GSR_CONST.PEAK_MIN_GAP;
+  let relocations = 0, collapsed = 0;
+  for (const cp of on.peaks) {
+    const bp = off.peaks.find(p => Math.abs(p.time - cp.time) <= gap);
+    if (!bp || cp.index === bp.index) continue;
+    relocations++;
+    if (cp.amplitude < bp.amplitude * 0.5) collapsed++;
+  }
+  assert(relocations >= 10, `the demo track exercises the relocation path (${relocations} relocations)`);
+  assert(collapsed === 0, `no relocation collapses its amplitude (${collapsed}/${relocations} did)`);
+  assert(on.peaks.every(p => p.onsetIndex <= p.index && p.amplitude > 0),
+    'every combined peak keeps onset <= apex and a positive amplitude');
+}
+
 // Short-signal guard.
 const tiny = new GSRAnalyzer();
 tiny.parseCSV('timestamp,gsr_raw\n0,1.0\n0.1,1.0\n');

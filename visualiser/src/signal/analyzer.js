@@ -1690,8 +1690,14 @@ class GSRAnalyzer {
    *     PEAK_MIN_GAP ahead — so on a compound rise the marker is stranded on a
    *     shoulder while the true summit, a second later, is never revisited.
    *     Each base peak is moved to the most topographically-prominent local
-   *     maximum within ±PEAK_MIN_GAP of it (measured across all 64 real tracks:
-   *     ~5% of peaks move, always onto a higher sample; median move 0 s).
+   *     maximum that lies within +PEAK_MIN_GAP of it AND is no lower than it —
+   *     the summit of the peak's own rise, never an earlier or lower maximum
+   *     belonging to a different response (~4% of peaks move; median move 0 s;
+   *     measured over the 63-track corpus). The move re-measures everything from
+   *     the new apex onward (apex value, half-recovery, decay, FWHM tail) but
+   *     KEEPS the base peak's onset: it is the same response, and re-deriving
+   *     the onset from the moved apex collapses trough-to-peak amplitude at a
+   *     multi-modal crest (see the relocation call site).
    *
    *  2. RESCUES. The prominence detector's above-threshold maxima that sit
    *     more than PEAK_MIN_GAP from every base peak — the compound-burst SCRs
@@ -1776,12 +1782,27 @@ class GSRAnalyzer {
       for (let j = lo; j < kept.length && kept[j].i <= p.index + minGap; j++) {
         if (keptUsed[j]) continue;
         if (kept[j].i === p.index) { keptUsed[j] = 1; continue; } // already on the apex
+        // A relocation resolves the TRUE SUMMIT of this peak's own rise, which
+        // is forward of the shoulder the greedy left→right scan stranded it on
+        // (everything earlier was already visited) and no lower than it. A
+        // more-prominent maximum that is earlier or lower belongs to a
+        // different response — don't pull the marker onto it. (Over the
+        // 63-track corpus only 4 near-noise peaks ever pointed at a lower
+        // sample; all 320 real relocations already ran forwards.)
+        if (kept[j].i < p.index || vals[kept[j].i] < vals[p.index]) continue;
         if (kept[j].prominence > bestProm) { bestProm = kept[j].prominence; bestK = j; }
       }
       if (bestK >= 0) {
         keptUsed[bestK] = 1;
-        base[bi] = this._rebuildPeakAt(kept[bestK].i, vals, times, prom,
-          maxOnsetSteps, noiseHalfWin, oldLabels, oldExcluded, p);
+        // The move re-measures the apex and everything after it, but KEEPS the
+        // base peak's onset: it is the same response the base pass already
+        // characterised. Re-deriving the onset from the moved apex would walk
+        // back only to the nearest lower sample, so on a multi-modal crest it
+        // stops in the notch between sub-peaks and trough-to-peak amplitude
+        // collapses to the notch depth — that mismeasured ~70% of relocations
+        // before the fix (the demo track's largest SCR, "P1", among them).
+        base[bi] = this._rebuildPeakAt(kept[bestK].i, p.onsetIndex, vals, times,
+          prom, noiseHalfWin, oldLabels, oldExcluded, p);
       }
     }
     // Every peak in the merged list carries its topographic prominence (a base
@@ -1808,8 +1829,12 @@ class GSRAnalyzer {
       if (keptUsed[j]) continue;
       const idx = kept[j].i;
       if (nearBase(idx)) continue;
-      const rp = this._rebuildPeakAt(idx, vals, times, prom,
-        maxOnsetSteps, noiseHalfWin, oldLabels, oldExcluded, null);
+      // A rescue has no base measurement — discover its onset the same saddle
+      // way the base pass does (its amplitude is saddle-referenced by design,
+      // which is why the rescue is gated on prominence, not SNR; see below).
+      const onsetIdx = this._findOnsetIndex(vals, idx, maxOnsetSteps);
+      const rp = this._rebuildPeakAt(idx, onsetIdx, vals, times, prom,
+        noiseHalfWin, oldLabels, oldExcluded, null);
       // A rescue is identified by topographic prominence >= peakThreshold, so
       // that is the gate it is held to. The trough-to-peak shape gates and the
       // Min SNR floor are NOT re-applied: rescues exist precisely because those
@@ -1841,15 +1866,19 @@ class GSRAnalyzer {
   }
 
   /**
-   * Build a peak object at sample `idx` using the trough-to-peak measurement
-   * (_findOnsetIndex saddle onset + _calculateShapeMetrics), for
-   * _detectPeaksCombined()'s apex relocations and rescues. When `carry` is a
-   * peak object its user label/exclusion are copied onto the result (the move
-   * changes the index key those would otherwise be looked up by).
+   * Build a peak object at apex sample `idx` with onset fixed at `onsetIdx`,
+   * measuring recovery/decay/FWHM/SNR/quality from that pair — for
+   * _detectPeaksCombined()'s apex relocations and rescues. The onset is supplied
+   * by the caller, not searched here, because the two callers source it
+   * differently: a relocation inherits the base peak's onset (the response is
+   * the one the base pass already characterised — only its apex moves), a
+   * rescue discovers one via the saddle walk-back (a standalone compound-burst
+   * apex with no base measurement). When `carry` is a peak object its user
+   * label/exclusion are copied onto the result (the move changes the index key
+   * those would otherwise be looked up by).
    * @private
    */
-  _rebuildPeakAt(idx, vals, times, prom, maxOnsetSteps, noiseHalfWin, oldLabels, oldExcluded, carry) {
-    const onsetIdx = this._findOnsetIndex(vals, idx, maxOnsetSteps);
+  _rebuildPeakAt(idx, onsetIdx, vals, times, prom, noiseHalfWin, oldLabels, oldExcluded, carry) {
     const recoveryIdx = this._findRecoveryIndex(vals, idx, onsetIdx, vals[idx] - vals[onsetIdx]);
     const metrics = this._calculateShapeMetrics(vals, times, idx, onsetIdx, recoveryIdx, noiseHalfWin);
     const peak = this._buildPeakObject(idx, vals[idx], vals, times,
