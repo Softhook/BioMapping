@@ -570,14 +570,12 @@ const GSREvents = {
     }
 
 
-    // Peak latency — re-render map only (no analysis needed), highlight when active
+    // Peak latency — re-render map only (no analysis needed)
     {
       const slider = document.getElementById('gpsPeakLatency');
       const label  = document.getElementById('valGpsPeakLatency');
-      const group  = slider.closest('.slider-group');
       const updateDim = () => {
         GSREvents.updateFilterDim(slider);
-        if (group) group.classList.toggle('latency-active', parseFloat(slider.value) > 0);
       };
       updateDim();
       const runHeavyWork = GSREvents.rafCoalesce(() => {
