@@ -19,7 +19,7 @@ class GSRMapManager {
     this.showIsolines = true;
     this.showSurface = true;
     this.showTracks = true;
-    this.showRFFluid = true;
+    this.showRFFluid = false;
     this.hasRfData = false;
     this.clusterLayers = [];
     this.activeColoringMetric = 'gsr';
@@ -129,7 +129,7 @@ class GSRMapManager {
 
     // Initialise static RF Fluid background renderer layer
     if (typeof RFFluidRenderer !== 'undefined') {
-      this.rfFluidRenderer = new RFFluidRenderer(this.map, { visible: true });
+      this.rfFluidRenderer = new RFFluidRenderer(this.map, { visible: false });
     }
 
     // Overlap-aware path colour depends on the on-screen stroke width, which

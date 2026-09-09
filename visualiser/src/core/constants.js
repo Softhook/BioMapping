@@ -62,7 +62,7 @@ const GSR_CONST = {
     peakDensityWindow: 10,
     hotspotPercentile: 0.02,
     useDeconvolution: false,
-    usePeakProminence: false
+    usePeakProminence: true
   },
 
   // ── SCR deconvolution (Benedek & Kaernbach, 2010) ────────────────────────

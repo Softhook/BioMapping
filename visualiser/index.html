@@ -103,7 +103,7 @@
         </section>
 
         <!-- GSR Signal Filtering -->
-        <section class="control-card" id="gsrFilteringCard">
+        <section class="control-card collapsed" id="gsrFilteringCard">
           <h2>
             <i class="fa-solid fa-wave-square"></i> GSR Filtering
             <button class="icon-btn collapse-btn" id="btnGsrFilteringCollapse" title="Collapse" style="margin-left: auto;">
@@ -161,7 +161,7 @@
         </section>
 
         <!-- Peak Detection (SCR) Settings -->
-        <section class="control-card" id="peakDetectionCard">
+        <section class="control-card collapsed" id="peakDetectionCard">
           <h2>
             <i class="fa-solid fa-arrow-trend-up"></i> Peak Detection (SCR)
             <button class="icon-btn collapse-btn" id="btnPeakDetectionCollapse" title="Collapse" style="margin-left: auto;">
@@ -204,7 +204,7 @@
 
             <div class="toggle-group">
               <label class="switch">
-                <input type="checkbox" id="usePeakProminence">
+                <input type="checkbox" id="usePeakProminence" checked>
                 <span class="slider round"></span>
               </label>
               <span class="toggle-label">Combined Detector</span>
@@ -289,7 +289,7 @@
         </section>
 
         <!-- GPS Map Filtering -->
-        <section class="control-card" id="gpsFilteringCard">
+        <section class="control-card collapsed" id="gpsFilteringCard">
           <h2>
             <i class="fa-solid fa-satellite-dish"></i> GPS Filtering
             <button class="icon-btn collapse-btn" id="btnGpsFilteringCollapse" title="Collapse" style="margin-left: auto;">
@@ -358,7 +358,7 @@
         </section>
 
         <!-- Spatial Data Card -->
-        <section class="control-card" id="osmEnrichmentCard">
+        <section class="control-card collapsed" id="osmEnrichmentCard">
           <h2>
             <i class="fa-solid fa-earth-americas"></i> Spatial Data
             <button class="icon-btn collapse-btn" id="btnOsmEnrichmentCollapse" title="Collapse" style="margin-left: auto;">
@@ -635,7 +635,7 @@
         </section>
 
         <!-- Export controls -->
-        <section class="control-card export-section" id="exportCard">
+        <section class="control-card export-section collapsed" id="exportCard">
           <h2>
             <i class="fa-solid fa-download"></i> Export Options
             <button class="icon-btn collapse-btn" id="btnExportCollapse" title="Collapse" style="margin-left: auto;">
@@ -821,7 +821,7 @@
               </div>
               <span class="control-divider"></span>
               <div class="btn-group">
-                <button class="btn btn-outline active" id="btnToggleRFFluid" title="Toggle static ray-casted 3-frequency RF fluid background">RF</button>
+                <button class="btn btn-outline" id="btnToggleRFFluid" title="Toggle static ray-casted 3-frequency RF fluid background">RF</button>
                 <button class="btn btn-outline active" id="btnToggleMapPeaks">Peaks</button>
                 <button class="btn btn-outline active" id="btnToggleMapHotspots">Hotspots</button>
                 <button class="btn btn-outline active" id="btnToggleMapLabels">Labels</button>

@@ -489,7 +489,12 @@ const GSRTrackManager = {
           S[key].dataset.customValue = params[key];
         } else {
           delete S[key].dataset.customValue;
-          S[key].value = params[key];
+          // hotspotPercentile is stored as a 0–1 fraction but its slider is in
+          // percent (0.5–10) — convert, or a default 0.02 clamps to the 0.5 min.
+          // Mirrors GSRStorage.applyPreset().
+          S[key].value = (key === 'hotspotPercentile' && params[key] <= 1.0)
+            ? params[key] * 100.0
+            : params[key];
         }
       }
     }

@@ -804,9 +804,12 @@ test('slice3: RF Fluid button stays in sync with showRFFluid across no-RF→RF r
   const btn = window.document.getElementById('btnToggleRFFluid');
   assert.ok(btn, 'RF Fluid button should exist in the booted DOM');
 
-  // Default: button pressed (HTML starts with 'active') and fluid on.
-  assert.ok(mapManager.showRFFluid, 'precondition: showRFFluid starts true');
-  assert.ok(btn.classList.contains('active'), 'precondition: button starts pressed');
+  // RF fluid ships OFF by default; this regression is about the button + renderer
+  // re-syncing to showRFFluid, so put them into the "fluid on" state first.
+  mapManager.showRFFluid = true;
+  btn.classList.add('active');
+  assert.ok(mapManager.showRFFluid, 'precondition: showRFFluid is true');
+  assert.ok(btn.classList.contains('active'), 'precondition: button is pressed');
 
   // 1. Render a no-RF track → button disabled + unpressed, but showRFFluid stays true.
   mapManager._updateRfFluidButtonState(false);

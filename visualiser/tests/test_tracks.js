@@ -687,6 +687,24 @@ test('loadActiveTrackParams: clears a stale dataset.customValue when useDeconvol
   delete global.AppState;
 });
 
+test('loadActiveTrackParams: hotspotPercentile fraction (0-1) is scaled to the slider percent units', () => {
+  resetSpies();
+  global.AppState = freshAppState();
+  global.AppState.sliders = {
+    hotspotPercentile: { value: null, dataset: {} },
+    useDeconvolution: { checked: false, dataset: {} },
+  };
+  // GSR_DEFAULT stores this as a 0.02 fraction; the slider min is 0.5 (%), so a
+  // raw assignment would clamp to 0.5. It must land on 2, not 0.02.
+  GSRTrackManager.loadActiveTrackParams({ filterParams: { hotspotPercentile: 0.02, useDeconvolution: false } });
+  assert.strictEqual(global.AppState.sliders.hotspotPercentile.value, 2);
+
+  // A value already in percent units (> 1) is passed through untouched.
+  GSRTrackManager.loadActiveTrackParams({ filterParams: { hotspotPercentile: 3.5, useDeconvolution: false } });
+  assert.strictEqual(global.AppState.sliders.hotspotPercentile.value, 3.5);
+  delete global.AppState;
+});
+
 test('loadActiveTrackParams: no-op for a null track or a track with no filterParams', () => {
   resetSpies();
   global.AppState = freshAppState();
