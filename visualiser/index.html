@@ -170,7 +170,31 @@
           </h2>
 
           <div class="card-content">
-            <div class="control-subgroup-title">Thresholding</div>
+            <div class="control-subgroup-title">Peak Detector</div>
+            <p class="help-text" style="margin-top:-2px;margin-bottom:6px;"><strong>Default:</strong> the trough-to-peak criterion — a response rose at least the Min Peak Amplitude from its onset — tested against <em>every</em> local maximum, one per refractory window. Keeps responses that ride the rising edge of a larger one. Gates: Min Peak Amplitude, Min SNR, Min Peak Quality. The alternatives below replace it while enabled.</p>
+
+            <div class="toggle-group">
+              <label class="switch">
+                <input type="checkbox" id="usePeakProminence">
+                <span class="slider round"></span>
+              </label>
+              <span class="toggle-label">Prominence Detector</span>
+            </div>
+            <p class="help-text" style="margin-top:4px;">Marks a response wherever skin conductance rises at least the Min Peak Amplitude above the level it last recovered to (topographic prominence). One pass — sits on the true summit of each rise and separates a response stacked on a larger one by the real dip between them. Min SNR does not apply in this mode; Min Peak Quality does. Takes precedence over Deconvolution when both are on.</p>
+
+            <div class="toggle-group" style="margin-top:8px;">
+              <label class="switch">
+                <input type="checkbox" id="useDeconvolution">
+                <span class="slider round"></span>
+              </label>
+              <span class="toggle-label">SCR Deconvolution</span>
+            </div>
+            <p class="help-text" style="margin-top:4px;">Improves peak separation for compound SCR (Benedek &amp; Kaernbach, 2010), but distorts the temporal resolution of the signal.</p>
+            <div class="deconv-truncation-warning" id="deconvTruncationWarning" style="display:none; margin-top:6px; padding:7px 10px; border-radius:6px; background:rgba(229,158,0,0.15); border:1px solid rgba(229,158,0,0.4); color:#e59e00; font-size:0.78rem; line-height:1.4;">
+              <i class="fa-solid fa-triangle-exclamation"></i> Matching pursuit hit its iteration cap before fully converging on this track — some real SCRs may be left unmodeled. Results are still usable but may be undercounted; consider this track a candidate for a longer maxIter budget.
+            </div>
+
+            <div class="control-subgroup-title" style="margin-top:16px;">Thresholding</div>
 
             <div class="slider-group">
               <div class="slider-label">
@@ -208,30 +232,6 @@
               </div>
               <input type="range" id="hotspotPercentile" min="0.5" max="10.0" step="0.5" value="2.0">
               <p class="help-text">Percentage of top peaks marked as Map Hotspots. <strong>Default:</strong> 2.0 %.</p>
-            </div>
-
-            <div class="control-subgroup-title">Peak Detector</div>
-            <p class="help-text" style="margin-top:-2px;margin-bottom:6px;"><strong>Default:</strong> the trough-to-peak criterion — a response rose at least the Min Peak Amplitude from its onset — tested against <em>every</em> local maximum, one per refractory window. Keeps responses that ride the rising edge of a larger one. Gates: Min Peak Amplitude, Min SNR, Min Peak Quality. The alternatives below replace it while enabled.</p>
-
-            <div class="toggle-group">
-              <label class="switch">
-                <input type="checkbox" id="usePeakProminence">
-                <span class="slider round"></span>
-              </label>
-              <span class="toggle-label">Prominence Detector</span>
-            </div>
-            <p class="help-text" style="margin-top:4px;">Marks a response wherever skin conductance rises at least the Min Peak Amplitude above the level it last recovered to (topographic prominence). One pass — sits on the true summit of each rise and separates a response stacked on a larger one by the real dip between them. Min SNR does not apply in this mode; Min Peak Quality does. Takes precedence over Deconvolution when both are on.</p>
-
-            <div class="toggle-group" style="margin-top:8px;">
-              <label class="switch">
-                <input type="checkbox" id="useDeconvolution">
-                <span class="slider round"></span>
-              </label>
-              <span class="toggle-label">SCR Deconvolution</span>
-            </div>
-            <p class="help-text" style="margin-top:4px;">Improves peak separation for compound SCR (Benedek &amp; Kaernbach, 2010), but distorts the temporal resolution of the signal.</p>
-            <div class="deconv-truncation-warning" id="deconvTruncationWarning" style="display:none; margin-top:6px; padding:7px 10px; border-radius:6px; background:rgba(229,158,0,0.15); border:1px solid rgba(229,158,0,0.4); color:#e59e00; font-size:0.78rem; line-height:1.4;">
-              <i class="fa-solid fa-triangle-exclamation"></i> Matching pursuit hit its iteration cap before fully converging on this track — some real SCRs may be left unmodeled. Results are still usable but may be undercounted; consider this track a candidate for a longer maxIter budget.
             </div>
           </div>
         </section>
