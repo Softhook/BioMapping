@@ -181,6 +181,23 @@ const deconvWins = analyze({ useDeconvolution: true });
 assert(deconvWins.phasicDriverPeaks.length > 0,
   'useDeconvolution runs the deconvolution pipeline, not the default');
 
+// ── Hotspot ranking uses trough-to-peak AMPLITUDE, not the stamped prominence
+//    field. Full-scan stamps `prominence` for reporting, but a large real SCR
+//    can have near-zero topographic prominence (a crest micro-wiggle splits its
+//    apex — the demo-track "P1" at ~1067 s, ~4.5 µS, prominence ~0.01). Ranking
+//    hotspots by prominence would bury it; ranking by amplitude keeps it #1. ──
+{
+  const demoCsv = fs.readFileSync(path.join(__dirname, '../fixtures/default_processed.csv'), 'utf8');
+  const dFull = new GSRAnalyzer(); dFull.parseCSV(demoCsv); dFull.analyze({ ...D }, 0);
+  const biggest = dFull.peaks.reduce((a, b) => (b.amplitude > a.amplitude ? b : a));
+  assert((biggest.prominence || 0) < 0.1,
+    `the demo track's largest SCR has a near-zero stamped prominence (${(biggest.prominence || 0).toFixed(3)})`);
+  assert(dFull.memorableEvents.includes(biggest),
+    `it is still selected as a hotspot in full-scan mode (amplitude ranking, not prominence)`);
+  assert(dFull.memorableEvents[0] === biggest,
+    `and it is the top hotspot (largest amplitude wins)`);
+}
+
 // ── Determinism. ──
 const again = analyze({});
 assert(JSON.stringify(dflt.peaks.map(p => [p.index, +p.amplitude.toFixed(6)])) ===

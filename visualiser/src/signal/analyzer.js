@@ -1354,13 +1354,20 @@ class GSRAnalyzer {
    * Build the "hotspot" subset of this.peaks — the biggest SCRs, spread out
    * on the ground so no two crowd the same spot on the map.
    *
-   * Ranking is by response magnitude, descending. That is topographic
-   * PROMINENCE when the peak carries it — the default full-scan detector and
-   * the prominence detector both stamp it (comparable across isolated and
-   * stacked responses alike) — and trough-to-peak AMPLITUDE otherwise (the
-   * deconvolution path, which doesn't set a prominence field). salienceScore
-   * (amplitude/slope/SNR blend) is still computed per peak for the peaks table
-   * but does not drive this.
+   * Ranking is by response magnitude, descending — and magnitude means whatever
+   * the active detector selected peaks by:
+   *   - Prominence detector: topographic PROMINENCE. Every kept peak cleared a
+   *     prominence gate, so prominence is the comparable size metric and the
+   *     one that mode identifies peaks on.
+   *   - Full-scan (default) and deconvolution: trough-to-peak AMPLITUDE. These
+   *     select by amplitude, and a large real SCR can have near-zero
+   *     topographic prominence (a crest micro-wiggle splits its apex; it rides
+   *     the up-slope of a bigger later response; it sits on an elevated busy
+   *     stretch). Full-scan DOES stamp a `prominence` field, but only as a
+   *     reported "isolated vs part of a burst" hint — ranking by it would sink
+   *     exactly the big rising-edge / compound events full-scan exists to keep.
+   * salienceScore (amplitude/slope/SNR blend) is still computed per peak for
+   * the peaks table but does not drive this.
    *
    * Count target is percentile-based: top HOTSPOT_PERCENTILE of active
    * (non-excluded) peaks, at least 1 — not a fixed score cutoff, which scales
@@ -1388,7 +1395,15 @@ class GSRAnalyzer {
    */
   _selectMemorableEvents(params, peakLatency = 0) {
     const ME = GSR_CONST.MEMORABLE_EVENTS;
-    const magnitude = p => (p.prominence != null ? p.prominence : p.amplitude);
+    // Rank by the metric the active detector actually selects peaks on:
+    // prominence only in prominence mode, trough-to-peak amplitude otherwise
+    // (full-scan default + deconvolution). Full-scan stamps `prominence` as a
+    // reported field, so keying off its mere presence would rank by it too —
+    // and drop large, low-prominence SCRs (crest wiggle, rising-edge, burst
+    // summits) out of the hotspot set.
+    const magnitude = (params && params.usePeakProminence)
+      ? p => (p.prominence != null ? p.prominence : p.amplitude)
+      : p => p.amplitude;
     const activeSorted = this.peaks
       .filter(p => !p.excluded)
       .sort((a, b) => (magnitude(b) - magnitude(a)) || (a.time - b.time));
@@ -1599,9 +1614,10 @@ class GSRAnalyzer {
    * single burst's crest ripple is not counted as several responses; within
    * that window the more prominent maximum wins.
    *
-   * Every peak carries BOTH numbers: `prominence` (the size metric, and what
-   * hotspot ranking uses — see _selectMemorableEvents) and trough-to-peak
-   * `amplitude` (the rise you would read straight off the trace), measured from
+   * Every peak carries BOTH numbers: `prominence` (the size metric this mode
+   * selects on, and what hotspot ranking uses in this mode — see
+   * _selectMemorableEvents) and trough-to-peak `amplitude` (the rise you would
+   * read straight off the trace), measured from
    * a threshold-aware saddle onset — _findOnsetIndex walked with minDip =
    * peakThreshold, so a sub-threshold crest wiggle can't strand the onset in
    * the notch and collapse the amplitude.
