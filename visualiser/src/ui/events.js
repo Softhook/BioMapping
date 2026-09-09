@@ -1380,9 +1380,9 @@ const GSREvents = {
    * trough-to-peak detector only:
    *
    *   - Trough-to-peak (default): live — applied as rejection gates.
-   *   - Combined (usePeakProminence): hidden. Identification is topographic
-   *     prominence + SNR + quality, not morphology; _detectPeaksCombined()
-   *     forces these bounds off so a hidden slider has no effect.
+   *   - Prominence (usePeakProminence): hidden. Detection is topographic
+   *     prominence >= peakThreshold; the only per-peak gate is Min Peak Quality
+   *     (_detectPeaksByProminence()), so these bounds have no effect.
    *   - Deconvolution: hidden and pinned to the SCRF kernel's canonical shape —
    *     once the kernel is fixed, morphology isn't free to vary, so bounding a
    *     reconstructed peak against those numbers is meaningless.
@@ -1394,13 +1394,13 @@ const GSREvents = {
     const deconvCheckbox = document.getElementById('useDeconvolution');
     const useDeconv = deconvCheckbox ? deconvCheckbox.checked : false;
     const promCheckbox = document.getElementById('usePeakProminence');
-    const useCombined = promCheckbox ? promCheckbox.checked : false;
+    const useProminenceMode = promCheckbox ? promCheckbox.checked : false;
     // Neither alternative detector uses the morphology sliders — hide them in
     // both modes. Deconvolution additionally pins them to canonical kernel
     // values (so a stale number can't be persisted via readGsrSliderValues());
-    // the combined detector forces them off in the analyzer, so its slider
-    // values are simply never read.
-    const hideShape = useDeconv || useCombined;
+    // the prominence detector never reads them (Min Peak Quality is its only
+    // per-peak gate).
+    const hideShape = useDeconv || useProminenceMode;
 
     // Derive canonical shape values analytically from the actual SCRF kernel so
     // they stay in sync with GSR_CONST.SCRF if tauSlow/tauFast ever change,
@@ -1469,7 +1469,7 @@ const GSREvents = {
       if (label) {
         if (useDeconv) {
           label.innerText = s.canonical;
-        } else if (useCombined) {
+        } else if (useProminenceMode) {
           label.innerText = 'not used';
         } else if (slider) {
           const val = parseFloat(slider.value);

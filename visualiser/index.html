@@ -207,9 +207,9 @@
                 <input type="checkbox" id="usePeakProminence" checked>
                 <span class="slider round"></span>
               </label>
-              <span class="toggle-label">Combined Detector</span>
+              <span class="toggle-label">Prominence Detector</span>
             </div>
-            <p class="help-text" style="margin-top:4px;">Union of the two detectors: the default trough-to-peak list, with each apex snapped to its most topographically-prominent point, plus the compound-burst SCRs the greedy scan skips over. Peaks are identified by prominence, SNR and quality — the rise / recovery / skew criteria below do not apply in this mode. Overrides Deconvolution when both are on.</p>
+            <p class="help-text" style="margin-top:4px;">Marks a response wherever skin conductance rises at least the Min Peak Amplitude above the level it last recovered to (topographic prominence). One pass — sits on the true summit of each rise and separates a response stacked on a larger one by the real dip between them, not by a fixed spacing. The rise / recovery / skew criteria and Min SNR below do not apply in this mode; Min Peak Quality does. Overrides Deconvolution when both are on.</p>
 
             <div class="toggle-group" style="margin-top:8px;">
               <label class="switch">
