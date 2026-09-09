@@ -189,7 +189,7 @@ const GSR_CONST = {
   // literals, not these constants.
   PEAK_SHAPE: {
     MAX_RISE_TIME: 5.0,          // Max onset→peak (s) — onset walk-back search bound
-    MIN_SNR: 2.0,               // Min signal-to-noise ratio fallback — internal heuristic (NOT from NeuroKit2, which has no built-in EDA signal-quality/SNR criterion)
+    MIN_SNR: 1.5,               // Min signal-to-noise ratio fallback — matches GSR_DEFAULT.shapeMinSnr
     QUALITY_WEIGHTS: {           // For composite quality score (0–1)
       amplitude: 0.20,           // Higher amplitude = more confident
       riseTime: 0.15,            // Rise time in ideal range

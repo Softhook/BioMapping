@@ -90,7 +90,6 @@ assert(dflt.peaks.length > 0, 'default detector finds peaks on track 053');
   const dDef  = new GSRAnalyzer(); dDef.parseCSV(demoCsv);  dDef.analyze({ ...D }, 0);
   const dProm = new GSRAnalyzer(); dProm.parseCSV(demoCsv); dProm.analyze({ ...D, usePeakProminence: true }, 0);
   const promT = dProm.peaks.map(p => p.time);
-  const defT  = dDef.peaks.map(p => p.time);
   const bigDropped = dProm.peaks.length && dDef.peaks.filter(p =>
     p.amplitude >= 0.2 && (p.qualityScore || 0) >= 0.75 &&
     !promT.some(t => Math.abs(t - p.time) <= GAP)).length;
@@ -102,7 +101,6 @@ assert(dflt.peaks.length > 0, 'default detector finds peaks on track 053');
     p.index <= 0 || p.index >= dpv.length - 1 ||
     (dpv[p.index] >= dpv[p.index - 1] && dpv[p.index] >= dpv[p.index + 1])),
     'demo: every default marker sits on a phasic local maximum');
-  void defT;
 }
 
 // ── No double-counting: consecutive peaks must not share an onset that sits

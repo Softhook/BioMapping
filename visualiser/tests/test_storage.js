@@ -123,6 +123,16 @@ test('readGsrSliderValues: useDeconvolution reflects checkbox .checked state', (
   assert.strictEqual(GSRStorage.readGsrSliderValues().useDeconvolution, true);
 });
 
+test('readGsrSliderValues: usePeakProminence reflects checkbox .checked state', () => {
+  resetGlobals();
+  global.AppState.sliders = {
+    medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'),
+    tonicWindow: el(45), peakThreshold: el(0.02),
+    usePeakProminence: { checked: true },
+  };
+  assert.strictEqual(GSRStorage.readGsrSliderValues().usePeakProminence, true);
+});
+
 test('readGsrSliderValues: shapeMinSnr is read straight from the slider value', () => {
   resetGlobals();
   global.AppState.sliders = {
@@ -447,6 +457,21 @@ test('applyPreset: shapeMinSnr writes straight to the slider value', () => {
   assert.strictEqual(S.useDeconvolution.checked, true);
   assert.strictEqual(S.shapeMinSnr.value, 5.5);
   assert.strictEqual(S.shapeMinSnr.dataset.customValue, undefined);
+});
+
+test('applyPreset: usePeakProminence overrides useDeconvolution when both are enabled', () => {
+  resetGlobals();
+  const S = {
+    medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'), tonicWindow: el(0), peakThreshold: el(0),
+    useDeconvolution: { checked: false },
+    usePeakProminence: { checked: false },
+  };
+  global.AppState.sliders = S;
+
+  GSRStorage.applyPreset({ gsr: { useDeconvolution: true, usePeakProminence: true }, gps: {} });
+
+  assert.strictEqual(S.usePeakProminence.checked, true);
+  assert.strictEqual(S.useDeconvolution.checked, false);
 });
 
 test('applyPreset: invokes GSREvents layout hook and syncs slider displays', () => {

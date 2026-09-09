@@ -477,6 +477,7 @@ const GSRTrackManager = {
     const S = AppState.sliders;
 
     for (const key of Object.keys(params)) {
+      if (key === 'useDeconvolution' || key === 'usePeakProminence') continue;
       if (S[key]) {
         // hotspotPercentile is stored as a 0–1 fraction but its slider is in
         // percent (0.5–10) — convert, or a default 0.02 clamps to the 0.5 min.
@@ -487,10 +488,10 @@ const GSRTrackManager = {
       }
     }
 
-    if (S.useDeconvolution && params.useDeconvolution !== undefined) {
+    if (S.useDeconvolution) {
       S.useDeconvolution.checked = !!params.useDeconvolution;
     }
-    if (S.usePeakProminence && params.usePeakProminence !== undefined) {
+    if (S.usePeakProminence) {
       S.usePeakProminence.checked = !!params.usePeakProminence;
     }
     // Mutually exclusive detectors — prominence wins if a stored config has both.

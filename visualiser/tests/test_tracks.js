@@ -648,16 +648,18 @@ test('loadActiveTrackParams + saveActiveTrackParams round-trip a params object t
   delete global.AppState;
 });
 
-test('loadActiveTrackParams: writes every matching key straight to the slider value', () => {
+test('loadActiveTrackParams: writes matching keys to slider values and sets detector checkbox checked states', () => {
   resetSpies();
   global.AppState = freshAppState();
   global.AppState.sliders = {
     shapeMinSnr: { value: 1, dataset: {} },
     peakThreshold: { value: 1, dataset: {} },
-    useDeconvolution: { checked: false, dataset: {} },
+    useDeconvolution: { checked: true, value: 'on', dataset: {} },
+    usePeakProminence: { checked: false, value: 'on', dataset: {} },
   };
   const params = {
-    useDeconvolution: true,
+    usePeakProminence: true,
+    useDeconvolution: false,
     shapeMinSnr: 4.0,
     peakThreshold: 0.09,
   };
@@ -666,7 +668,11 @@ test('loadActiveTrackParams: writes every matching key straight to the slider va
 
   assert.strictEqual(global.AppState.sliders.shapeMinSnr.value, 4.0);
   assert.strictEqual(global.AppState.sliders.peakThreshold.value, 0.09);
-  assert.strictEqual(global.AppState.sliders.useDeconvolution.checked, true);
+  assert.strictEqual(global.AppState.sliders.usePeakProminence.checked, true);
+  assert.strictEqual(global.AppState.sliders.useDeconvolution.checked, false);
+  // Checkbox .value attributes should not be overwritten with boolean values
+  assert.strictEqual(global.AppState.sliders.usePeakProminence.value, 'on');
+  assert.strictEqual(global.AppState.sliders.useDeconvolution.value, 'on');
   delete global.AppState;
 });
 

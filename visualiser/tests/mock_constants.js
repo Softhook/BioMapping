@@ -63,7 +63,7 @@ module.exports = {
 
   PEAK_SHAPE: {
     MAX_RISE_TIME: 5.0,
-    MIN_SNR: 2.0,
+    MIN_SNR: 1.5,
     QUALITY_WEIGHTS: {
       amplitude: 0.20, riseTime: 0.15, recoveryTime: 0.15,
       skewness: 0.15, onsetSlope: 0.10, snr: 0.15, decaySlope: 0.10

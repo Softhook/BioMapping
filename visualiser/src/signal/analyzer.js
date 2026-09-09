@@ -29,7 +29,7 @@ class GSRAnalyzer {
     this.peaks = [];        // Detected peaks with shape metrics:
                             // { time, index, amplitude, onsetIndex, onsetTime, halfRecoveryTime,
                             //   riseTime, onsetSlope, decaySlope, skewnessRatio, snr,
-                            //   qualityScore, salienceScore, label }
+                            //   qualityScore, salienceScore, prominence, label }
     this.memorableEvents = []; // Curated hotspot subset of this.peaks: the
                                 // highest-amplitude responses, spatially spread
                                 // (>= MEMORABLE_EVENTS.MIN_SEPARATION_M apart) so
@@ -478,20 +478,12 @@ class GSRAnalyzer {
     // Precedence when several flags are set: prominence > deconvolution >
     // full-scan (default).
     if (params.usePeakProminence) {
-      this.phasicDriver = [];
-      this.phasicClean = [];
-      this.phasicDriverPeaks = [];
-      this.phasicDeconvTruncated = false;
-      this._phasicOrig = null;
+      this._clearDeconvState();
       this._detectPeaksByProminence(params);
     } else if (params.useDeconvolution) {
       this._runDeconvolutionPipeline(phasicVals, params);
     } else {
-      this.phasicDriver = [];
-      this.phasicClean = [];
-      this.phasicDriverPeaks = [];
-      this.phasicDeconvTruncated = false;
-      this._phasicOrig = null; // clear stale backup from a prior deconvolution run
+      this._clearDeconvState();
       this._detectPeaksFullScan(params);
     }
 
@@ -532,6 +524,18 @@ class GSRAnalyzer {
     // Bump so any cache keyed on this analyzer's data (e.g. the environmental
     // dashboard's _cachedEnvStats) recomputes instead of trusting stale stats.
     this._dataVersion++;
+  }
+
+  /**
+   * Reset SCR deconvolution state when running a non-deconvolution detector.
+   * @private
+   */
+  _clearDeconvState() {
+    this.phasicDriver = [];
+    this.phasicClean = [];
+    this.phasicDriverPeaks = [];
+    this.phasicDeconvTruncated = false;
+    this._phasicOrig = null;
   }
 
   /**
@@ -1047,7 +1051,7 @@ class GSRAnalyzer {
     let onsetSteps = 0;
     while (onsetIdx > 0 && vals[onsetIdx] > 0 && onsetSteps < maxOnsetSteps) {
       if (minDip <= 0) {
-        // Legacy: stop at the first local minimum, however shallow.
+        // Standard trough-to-peak: stop at the first preceding local minimum, however shallow.
         if (onsetIdx < i && vals[onsetIdx] < vals[onsetIdx - 1]) break;
       } else if (onsetIdx < i && vals[onsetIdx] >= vals[minIdx] + minDip) {
         // Threshold-aware: the walk has climbed a full `minDip` back above the
@@ -1574,7 +1578,7 @@ class GSRAnalyzer {
 
     // Minimum-gap non-max suppression — largest prominence wins, same
     // convention as _detectPeaksFullScan()'s refractory skip-ahead.
-    cand.sort((a, b) => b.prominence - a.prominence);
+    cand.sort((a, b) => (b.prominence - a.prominence) || (a.i - b.i));
     const kept = [];
     for (const c of cand) {
       if (!kept.some(k => Math.abs(k.i - c.i) < minGap)) kept.push(c);
@@ -1652,7 +1656,7 @@ class GSRAnalyzer {
       // from its true onset (matches the "a real recovery is >= threshold" bar
       // the prominence gate itself uses).
       const onsetIdx = this._findOnsetIndex(vals, idx, maxOnsetSteps, threshold);
-      const peak = this._prominencePeakAt(idx, onsetIdx, vals, times, prom,
+      const peak = this._buildPeakWithMetrics(idx, onsetIdx, vals, times, prom,
         noiseHalfWin, oldLabels, oldExcluded);
       if (peak.qualityScore >= minQuality) this.peaks.push(peak);
     }
@@ -1666,7 +1670,7 @@ class GSRAnalyzer {
    * Shared by _detectPeaksByProminence() and _detectPeaksFullScan().
    * @private
    */
-  _prominencePeakAt(idx, onsetIdx, vals, times, prom, noiseHalfWin, oldLabels, oldExcluded) {
+  _buildPeakWithMetrics(idx, onsetIdx, vals, times, prom, noiseHalfWin, oldLabels, oldExcluded) {
     const recoveryIdx = this._findRecoveryIndex(vals, idx, onsetIdx, vals[idx] - vals[onsetIdx]);
     const metrics = this._calculateShapeMetrics(vals, times, idx, onsetIdx, recoveryIdx, noiseHalfWin);
     const peak = this._buildPeakObject(idx, vals[idx], vals, times,
@@ -1675,6 +1679,14 @@ class GSRAnalyzer {
     peak.qualityScore = this._computePeakQuality(peak);
     peak.salienceScore = this._computeSalienceScore(peak);
     return peak;
+  }
+
+  /**
+   * Backwards-compatibility alias for _buildPeakWithMetrics().
+   * @private
+   */
+  _prominencePeakAt(...args) {
+    return this._buildPeakWithMetrics(...args);
   }
 
   /**
@@ -1739,7 +1751,7 @@ class GSRAnalyzer {
     }
 
     // Refractory-period NMS — largest rise from its own onset wins its window.
-    cand.sort((a, b) => b.amplitude - a.amplitude);
+    cand.sort((a, b) => (b.amplitude - a.amplitude) || (a.i - b.i));
     const kept = [];
     for (const c of cand) {
       if (!kept.some(k => Math.abs(k.i - c.i) < minGap)) kept.push(c);
@@ -1747,7 +1759,7 @@ class GSRAnalyzer {
     kept.sort((a, b) => a.i - b.i);
 
     for (const c of kept) {
-      const peak = this._prominencePeakAt(c.i, c.onsetIdx, vals, times, prom,
+      const peak = this._buildPeakWithMetrics(c.i, c.onsetIdx, vals, times, prom,
         noiseHalfWin, oldLabels, oldExcluded);
       if (peak.qualityScore >= minQuality) this.peaks.push(peak);
     }
