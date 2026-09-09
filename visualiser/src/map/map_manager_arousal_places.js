@@ -55,6 +55,17 @@ Object.assign(GSRMapManager.prototype, {
     let places, blobRings, refAmplitude;
     if (cache && cache.fp === fp) {
       ({ places, blobRings, refAmplitude } = cache);
+    } else if (cache && this._arousalInteracting()) {
+      // Mid-drag: the inputs changed, but recomputing compactClusters +
+      // buildPlaces + every getConcaveBlob KDE (~20-60 ms) on each of the many
+      // frames of a GPS-smoothing / merge-distance / GSR-filter slider drag is
+      // what makes the slider lurch (peak positions or the phasic energy term
+      // move every frame → fingerprint miss every frame). Redraw the last
+      // computed places from cache and schedule ONE real recompute for when the
+      // drag settles. The first frame of a drag still recomputes (calls are
+      // spaced out then), so the grab gives immediate feedback.
+      ({ places, blobRings, refAmplitude } = cache);
+      this._scheduleArousalSettle();
     } else {
       const clusters = GSRSpatialClustering.compactClusters(peaks, P.mergeM, P.separationFactor);
       places = GSRArousalPlaces.buildPlaces(
@@ -63,10 +74,12 @@ Object.assign(GSRMapManager.prototype, {
       );
       refAmplitude = this._meanAmplitude(peaks);
       blobRings = places.map(place =>
-        GSRSpatialClustering.getConcaveBlob(place.cluster, P.sigma, P.blobRadius, refAmplitude)
+        this._concaveBlobFor(place.cluster, P.sigma, P.blobRadius, refAmplitude)
       );
       this._arousalPlacesCache = { fp, places, blobRings, refAmplitude };
     }
+
+    this._arousalLastRenderTs = Date.now();
 
     this._renderArousalPlaces(places, blobRings, {
       collective: view.collective,
@@ -74,6 +87,32 @@ Object.assign(GSRMapManager.prototype, {
       refAmplitude,
       drawGapFactor: P.drawGapFactor
     });
+  },
+
+  /**
+   * True when _renderArousalPlacesFor was last called very recently — i.e. a
+   * slider drag is feeding it frame after frame. Used to defer the expensive
+   * recompute until the drag settles. `Date.now()` (epoch ms) rather than
+   * `performance.now()` so setting `_arousalLastRenderTs = 0` in a test reliably
+   * reads as "not interacting". @private
+   */
+  _arousalInteracting() {
+    return (Date.now() - (this._arousalLastRenderTs || 0)) < 140;
+  },
+
+  /**
+   * (Re)arm a trailing timer that does one real Arousal Places recompute +
+   * redraw once a drag stops feeding _renderArousalPlacesFor. Re-armed on every
+   * deferred frame, so it only fires after motion settles. @private
+   */
+  _scheduleArousalSettle() {
+    if (this._arousalSettleTimer) clearTimeout(this._arousalSettleTimer);
+    this._arousalSettleTimer = setTimeout(() => {
+      this._arousalSettleTimer = null;
+      if (!this.map || !this._lastArousalInput) return;
+      this._arousalLastRenderTs = 0; // defeat _arousalInteracting() for this run
+      this.refreshArousalPlaces();    // strips clusterLayers, replays with current input
+    }, 180);
   },
 
   /**
@@ -186,6 +225,43 @@ Object.assign(GSRMapManager.prototype, {
       separationFactor: C.seedSeparationFactor || 1.8,
       drawGapFactor: C.drawGapFactor || 0.46
     };
+  },
+
+  /**
+   * getConcaveBlob() with a per-cluster memo. The 70x70 KDE splat inside
+   * getConcaveBlob is the single dominant cost of an Arousal Places rebuild
+   * (bench: 3-17 ms vs ~2 ms for compactClusters + buildPlaces combined), and it
+   * is recomputed on every GSR/GPS-slider frame because the outer fingerprint
+   * folds the full phasic array. But the blob geometry depends ONLY on the
+   * member peaks' positions and their clamped amplitude-vs-mean weight
+   * (getConcaveBlob → relativeAmplitudeWeight) — not on phasic. So key the memo
+   * on member lat/lon at full precision plus the amplitude ratio in 5 % buckets:
+   * a tonic/LPF/median-window drag leaves positions fixed and moves every
+   * amplitude and the mean together, so the bucketed ratio (hence the key)
+   * usually holds and the KDE is skipped entirely. A real geometry change
+   * (GPS filtering, merge distance, a large amplitude shift) misses and
+   * recomputes. Bounded at 256 entries.
+   * @private
+   */
+  _concaveBlobFor(members, sigma, blobRadius, refAmplitude) {
+    if (!members || members.length === 0) return [];
+    if (!this._blobRingCache) this._blobRingCache = new Map();
+
+    const ref = (typeof refAmplitude === 'number' && refAmplitude > 0) ? refAmplitude : 0;
+    let key = `${(+sigma || 0).toFixed(2)}|${(+blobRadius || 0).toFixed(2)}`;
+    for (let i = 0; i < members.length; i++) {
+      const m = members[i];
+      const ratioBucket = ref > 0 ? Math.round(((+m.amplitude || 0) / ref) * 20) : 0;
+      key += `|${(+m.lat || 0).toFixed(6)},${(+m.lon || 0).toFixed(6)},${ratioBucket}`;
+    }
+
+    let ring = this._blobRingCache.get(key);
+    if (!ring) {
+      ring = GSRSpatialClustering.getConcaveBlob(members, sigma, blobRadius, refAmplitude);
+      if (this._blobRingCache.size >= 256) this._blobRingCache.clear();
+      this._blobRingCache.set(key, ring);
+    }
+    return ring;
   },
 
   /** Mean amplitude across {amplitude} peak objects — the getConcaveBlob() severity reference. @private */

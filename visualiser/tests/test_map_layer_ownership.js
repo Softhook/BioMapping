@@ -1091,6 +1091,7 @@ test('_renderArousalPlacesFor: toggling peak exclusion misses the cache (active-
   window.AppState.viewMode = 'single';
   mapManager.renderData(track.analyzer, track.gpsFilterParams);
 
+  mapManager._arousalLastRenderTs = 0; // a deliberate toggle after idle, not a drag frame
   const spy = spyOnArousalCompute(window);
   try {
     window.GSRUI.togglePeakExclusion(0);
@@ -1137,6 +1138,7 @@ test('refreshArousalPlaces(): a changed merge distance re-runs clustering (cache
   assert.ok(slider, 'merge-distance slider is cached in AppState.sliders');
   slider.value = String(parseFloat(slider.value) + 20);
 
+  mapManager._arousalLastRenderTs = 0; // settled value, not a mid-drag frame
   const spy = spyOnArousalCompute(window);
   try {
     mapManager.refreshArousalPlaces();
@@ -1144,6 +1146,31 @@ test('refreshArousalPlaces(): a changed merge distance re-runs clustering (cache
     spy.restore();
   }
   assert.strictEqual(spy.counts.compactClusters, 1, 'a new merge distance forces exactly one re-cluster');
+});
+
+test('_renderArousalPlacesFor: a rapid drag defers recompute, then the settle timer runs it once', async () => {
+  const { window, mapManager } = bootWithRecordingLClusteringOn();
+  const track = addTrack(window, 't1', 't1.csv', CLUSTER_CSV);
+  window.AppState.viewMode = 'single';
+  mapManager.renderData(track.analyzer, track.gpsFilterParams);   // primes the cache
+
+  const slider = window.AppState.sliders.placeMergeDistance;
+  const spy = spyOnArousalCompute(window);
+  try {
+    // three back-to-back frames (mid-drag): each changes mergeM, none may recompute
+    for (let i = 0; i < 3; i++) {
+      slider.value = String(parseFloat(slider.value) + 5);
+      mapManager.refreshArousalPlaces();
+    }
+    assert.strictEqual(spy.counts.compactClusters, 0, 'mid-drag frames redraw from cache, no recompute');
+    assert.ok(mapManager.clusterLayers.length > 0, 'places still on the map during the drag');
+    assert.ok(mapManager._arousalSettleTimer, 'a settle recompute is scheduled');
+
+    await new Promise(r => setTimeout(r, 240));   // let the 180 ms settle timer fire
+    assert.strictEqual(spy.counts.compactClusters, 1, 'exactly one recompute once the drag settles');
+  } finally {
+    spy.restore();
+  }
 });
 
 test('refreshArousalPlaces(): falls back to a full rerenderMap() when nothing has rendered yet', () => {

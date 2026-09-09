@@ -814,11 +814,17 @@ const GSRUI = {
 
       if (AppState.surfaceView === 'globe') {
         if (mm) mm.clearOsmShapes(); // the 2D layer must not linger under the globe
-        // Drive the extruded buildings on a state change only — applyBuildings
-        // runs its own async resolve; _rebuildLayers re-asserts them after a
-        // teardown, so a plain `show3DBuildings` compare is enough here.
-        const shown = !!(g3d && g3d.manager && g3d.manager.show3DBuildings);
-        if (g3d && shown !== on) g3d.applyBuildings(on);
+        // Drive the extruded buildings on a state change — applyBuildings runs
+        // its own async resolve; _rebuildLayers re-asserts them after a teardown.
+        // Also rebuild when the active track's OSM json has been replaced (a 2D
+        // re-enrich / radius change while the globe is mounted) so the buildings
+        // don't keep an area's stale coverage.
+        const mgr = g3d && g3d.manager;
+        const shown = !!(mgr && mgr.show3DBuildings);
+        const staleJson = !!(on && shown && mgr && AppState.analyzer &&
+          AppState.analyzer.osmJson && mgr.cachedOsmJson &&
+          mgr.cachedOsmJson !== AppState.analyzer.osmJson);
+        if (g3d && (shown !== on || staleJson)) g3d.applyBuildings(on);
         return;
       }
 

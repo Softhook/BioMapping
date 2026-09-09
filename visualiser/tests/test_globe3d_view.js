@@ -1050,6 +1050,22 @@ test('OSM overlay: setOsmOverlay + syncOsmOverlay keep 2D⇄3D in lock-step both
     AppState.surfaceView = 'globe';
     GSRUI.syncOsmOverlay();                 // re-entering the globe
     assert.strictEqual(buildings.at(-1), false, 'no stale buildings on re-entry');
+
+    // a 2D re-enrich replaces analyzer.osmJson while the globe is mounted →
+    // syncOsmOverlay must rebuild the buildings even though on/shown both stay true
+    await GSRUI.setOsmOverlay(true);
+    AppState.surfaceView = 'globe';
+    GSRUI.syncOsmOverlay();
+    assert.strictEqual(buildings.at(-1), true);
+    const sameJson = { elements: ['coverage'] };
+    V.manager.cachedOsmJson = sameJson;
+    AppState.analyzer.osmJson = sameJson;
+    const before = buildings.length;
+    GSRUI.syncOsmOverlay();                 // json ref unchanged → no rebuild
+    assert.strictEqual(buildings.length, before, 'unchanged json → no rebuild');
+    AppState.analyzer.osmJson = { elements: ['new-coverage'] };  // a 2D re-enrich
+    GSRUI.syncOsmOverlay();                 // json ref changed → rebuild
+    assert.strictEqual(buildings.length, before + 1, 're-enrich → buildings rebuilt');
   } finally {
     V.applyBuildings = realApply;
     V.manager = null;
