@@ -55,6 +55,7 @@ class GSRAnalyzer {
 
     this.sampleRate = 10;   // In Hz, auto-detected
     this.isResistance = false; // Whether original CSV was resistance (Ohms)
+    this.hasGpsData = false;   // Whether raw signal contains valid GPS coordinates
     this.filteredGps = [];
     this._userPeakLabels = new Map(); // Persistent time-indexed store: timestamp (sec) -> label string
 
@@ -300,6 +301,25 @@ class GSRAnalyzer {
     return null;
   }
 
+  /**
+   * Whether this track contains valid GPS / geographic spatial data.
+   * @returns {boolean}
+   */
+  get hasSpatialData() {
+    if (this.hasGpsData !== undefined && typeof this.hasGpsData === 'boolean') {
+      return this.hasGpsData;
+    }
+    return !!(this.raw && this.raw.some(d => d.hasGps || (!isNaN(d.lat) && !isNaN(d.lon) && (Math.abs(d.lat) > 0.0001 || Math.abs(d.lon) > 0.0001))));
+  }
+
+  /**
+   * Alias for hasSpatialData.
+   * @returns {boolean}
+   */
+  get hasGps() {
+    return this.hasSpatialData;
+  }
+
   // Time/date formatting implementations live in AnalyzerTimeFormat
   // (analyzer_time_format.js); these wrappers just pass recordingStartTime.
 
@@ -342,6 +362,7 @@ class GSRAnalyzer {
     this.sampleRate = result.sampleRate;
     this.hasRfData = result.hasRfData;
     this.rfPeakIndices = result.rfPeakIndices;
+    this.hasGpsData = result.hasGpsData;
     this.isEnriched = result.isEnriched;
     this.integrity = result.integrity;
     this._csvWarnings = result.warnings;

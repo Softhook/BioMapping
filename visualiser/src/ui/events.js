@@ -696,7 +696,19 @@ const GSREvents = {
         AppState.emit('scrub', { clear: true, source: 'graph' });
       }
     });
-    GSREvents.bindCollapseButton('btnMapCollapse',           'mapPanel');
+    GSREvents.bindCollapseButton('btnMapCollapse',           'mapPanel', (collapsed) => {
+      const mapPanel = document.getElementById('mapPanel');
+      if (mapPanel) {
+        delete mapPanel.dataset.autoCollapsedNoSpatial;
+        if (!collapsed && AppState.mapManager && AppState.mapManager.map && typeof AppState.mapManager.map.invalidateSize === 'function') {
+          AppState.mapManager.map.invalidateSize({ pan: false, debounceMoveend: true });
+        }
+      }
+      if (typeof windowResized === 'function') {
+        requestAnimationFrame(() => windowResized());
+        setTimeout(() => windowResized(), 220);
+      }
+    });
     GSREvents.bindCollapseButton('btnOsmEnrichmentCollapse', 'osmEnrichmentCard');
     GSREvents.bindCollapseButton('btnEnvCollapse',           'environmentalPanel');
 

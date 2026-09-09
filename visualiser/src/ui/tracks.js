@@ -375,6 +375,7 @@ const GSRTrackManager = {
     GSRUI.resetView();
     GSRUI.runAnalysis();
     GSRUI.refreshOsmControls();
+    GSRTrackManager.syncMapPanelForSpatialData(track);
 
     GSRTrackManager.EXPORT_BUTTON_IDS.forEach(id => {
       const el = document.getElementById(id);
@@ -521,6 +522,18 @@ const GSRTrackManager = {
     // Slider-key mapping lives once in GSRStorage.writeGpsSliderValues (its
     // mirror of saveActiveGpsParams' readGpsSliderValues).
     GSRStorage.writeGpsSliderValues(track.gpsFilterParams);
+  },
+
+  /**
+   * Sync map window collapse state based on active track's spatial data.
+   * Delegates to GSRUI.syncMapPanelForSpatialData if available.
+   *
+   * @param {object} [track]
+   */
+  syncMapPanelForSpatialData(track) {
+    if (typeof GSRUI !== 'undefined' && typeof GSRUI.syncMapPanelForSpatialData === 'function') {
+      GSRUI.syncMapPanelForSpatialData(track);
+    }
   },
 
   /**

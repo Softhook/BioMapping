@@ -508,3 +508,79 @@ test('GSRAnalyzer peak detection helpers work correctly', () => {
   closeTo(metrics.onsetSlope, 0.7 / 0.4, 1e-6);
   closeTo(metrics.decaySlope, (0.8 - 0.4) / 0.1, 1e-6);
 });
+
+test('GSRAnalyzer.hasSpatialData correctly identifies tracks with and without GPS', () => {
+  const a27 = new GSRAnalyzer();
+  const track27Path = path.join(__dirname, '../../tracks/biomap_027.csv');
+  if (fs.existsSync(track27Path)) {
+    const csv27 = fs.readFileSync(track27Path, 'utf8');
+    a27.parseCSV(csv27);
+    assert.strictEqual(a27.hasSpatialData, false, 'track 27 has no spatial data');
+    assert.strictEqual(a27.hasGps, false, 'hasGps alias matches hasSpatialData');
+  }
+
+  const aDemo = new GSRAnalyzer();
+  const demoCsv = fs.readFileSync(path.join(__dirname, '../fixtures/default_processed.csv'), 'utf8');
+  aDemo.parseCSV(demoCsv);
+  assert.strictEqual(aDemo.hasSpatialData, true, 'demo track has spatial data');
+  assert.strictEqual(aDemo.hasGps, true, 'hasGps alias is true for demo track');
+});
+
+test('GSRUI.syncMapPanelForSpatialData collapses map window for tracks with no spatial data and restores when auto-collapsed', () => {
+  const classListSet = new Set();
+  const dataset = {};
+  const mockMapPanel = {
+    classList: {
+      contains: (cls) => classListSet.has(cls),
+      add: (cls) => classListSet.add(cls),
+      remove: (cls) => classListSet.delete(cls),
+      toggle: (cls, force) => {
+        if (force === undefined) force = !classListSet.has(cls);
+        if (force) classListSet.add(cls); else classListSet.delete(cls);
+        return classListSet.has(cls);
+      }
+    },
+    dataset
+  };
+
+  const origDocument = global.document;
+  global.document = {
+    getElementById: (id) => id === 'mapPanel' ? mockMapPanel : null
+  };
+
+  try {
+    const nonSpatialTrack = {
+      analyzer: { hasSpatialData: false, raw: [{ val: 1, hasGps: false }] }
+    };
+    const spatialTrack = {
+      analyzer: { hasSpatialData: true, raw: [{ val: 1, hasGps: true }] }
+    };
+
+    // 1. Initially open -> non-spatial track collapses map window
+    assert.strictEqual(mockMapPanel.classList.contains('collapsed'), false);
+    GSRUI.syncMapPanelForSpatialData(nonSpatialTrack);
+    assert.strictEqual(mockMapPanel.classList.contains('collapsed'), true);
+    assert.strictEqual(mockMapPanel.dataset.autoCollapsedNoSpatial, 'true');
+
+    // 2. Switching to spatial track restores auto-collapsed map window
+    GSRUI.syncMapPanelForSpatialData(spatialTrack);
+    assert.strictEqual(mockMapPanel.classList.contains('collapsed'), false);
+    assert.strictEqual(mockMapPanel.dataset.autoCollapsedNoSpatial, undefined);
+
+    // 3. User manually collapses map (no autoCollapsedNoSpatial flag)
+    mockMapPanel.classList.add('collapsed');
+    assert.strictEqual(mockMapPanel.dataset.autoCollapsedNoSpatial, undefined);
+
+    // 4. Switching to spatial track preserves manual collapse
+    GSRUI.syncMapPanelForSpatialData(spatialTrack);
+    assert.strictEqual(mockMapPanel.classList.contains('collapsed'), true);
+
+    // 5. Switching back to non-spatial track marks it auto-collapsed
+    GSRUI.syncMapPanelForSpatialData(nonSpatialTrack);
+    assert.strictEqual(mockMapPanel.classList.contains('collapsed'), true);
+    assert.strictEqual(mockMapPanel.dataset.autoCollapsedNoSpatial, 'true');
+  } finally {
+    global.document = origDocument;
+  }
+});
+

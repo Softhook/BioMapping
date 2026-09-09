@@ -764,6 +764,7 @@ class GSRCSVParser {
 
     const hasRfData = rawDataList.some(r => !isNaN(r.rssi_300) || !isNaN(r.rssi_315) || !isNaN(r.rssi_434) || !isNaN(r.rssi_446) || !isNaN(r.rssi_815) || !isNaN(r.rssi_868) || !isNaN(r.rssi_915) || !isNaN(r.em_fog));
     const rfPeakIndices = hasRfData ? GSRCSVParser._detectRfPeakIndices(rawDataList) : new Set();
+    const hasGpsData = rawDataList.some(r => r.hasGps);
 
     // Check if imported CSV is already enriched
     let isEnriched = false;
@@ -791,6 +792,7 @@ class GSRCSVParser {
       sampleRate: sampleRate,
       hasRfData: hasRfData,
       rfPeakIndices: rfPeakIndices,
+      hasGpsData: hasGpsData,
       isEnriched: isEnriched,
       integrity: integrity,
       warnings: csvWarnings,

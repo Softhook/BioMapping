@@ -252,6 +252,7 @@ const GSRUI = {
       GSRUI.updateStatsPanel();
       GSRUI.updatePeaksTable();
       GSRUI.updateDeconvTruncationWarning();
+      GSRUI.syncMapPanelForSpatialData();
       redraw();
     } catch (err) {
       console.error("Analysis error:", err);
@@ -343,6 +344,54 @@ const GSRUI = {
       card.title = tooltip;
     } else {
       el.title = tooltip; // fallback if the card element isn't wired up
+    }
+  },
+
+  /**
+   * Automatically manage the map window (#mapPanel) collapsed state based on
+   * whether the active track (or collective tracks) have spatial data.
+   * Tracks with no spatial data (like track 27) collapse the map window to free
+   * vertical layout space. Switching to a track with spatial data restores it
+   * if it was auto-collapsed.
+   *
+   * @param {object} [track] - Optional track object.
+   */
+  syncMapPanelForSpatialData(track) {
+    const mapPanel = document.getElementById('mapPanel');
+    if (!mapPanel) return;
+
+    let hasSpatial = false;
+    const isCollective = typeof AppState !== 'undefined' && AppState.viewMode === 'collective';
+    if (isCollective) {
+      const activeTracks = (AppState.collectiveManager && typeof AppState.collectiveManager.getActiveTracks === 'function')
+        ? AppState.collectiveManager.getActiveTracks()
+        : [];
+      hasSpatial = activeTracks.some(t => t.analyzer && (t.analyzer.hasSpatialData || (t.analyzer.raw && t.analyzer.raw.some(d => d.hasGps))));
+    } else {
+      const targetTrack = track || (typeof AppState !== 'undefined' && AppState.collectiveManager && AppState.activeTrackId ? AppState.collectiveManager.getTrack(AppState.activeTrackId) : null);
+      const analyzer = targetTrack ? targetTrack.analyzer : (typeof AppState !== 'undefined' ? AppState.analyzer : null);
+      hasSpatial = !!(analyzer && (analyzer.hasSpatialData || (analyzer.raw && analyzer.raw.some(d => d.hasGps))));
+    }
+
+    if (!hasSpatial) {
+      mapPanel.dataset.autoCollapsedNoSpatial = 'true';
+      if (!mapPanel.classList.contains('collapsed')) {
+        mapPanel.classList.add('collapsed');
+        if (typeof windowResized === 'function') {
+          requestAnimationFrame(() => windowResized());
+          setTimeout(() => windowResized(), 220);
+        }
+      }
+    } else if (mapPanel.dataset.autoCollapsedNoSpatial === 'true') {
+      mapPanel.classList.remove('collapsed');
+      delete mapPanel.dataset.autoCollapsedNoSpatial;
+      if (typeof AppState !== 'undefined' && AppState.mapManager && AppState.mapManager.map && typeof AppState.mapManager.map.invalidateSize === 'function') {
+        AppState.mapManager.map.invalidateSize({ pan: false, debounceMoveend: true });
+      }
+      if (typeof windowResized === 'function') {
+        requestAnimationFrame(() => windowResized());
+        setTimeout(() => windowResized(), 220);
+      }
     }
   },
 

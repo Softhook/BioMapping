@@ -1049,3 +1049,37 @@ test('loadDefaultTrack: a CSV parse failure alerts with the "Error parsing demo 
   delete global.fetch;
   delete global.AppState;
 });
+
+test('switchActiveTrack: calls syncMapPanelForSpatialData to reconcile map window collapse state', () => {
+  resetSpies();
+  global.AppState = freshAppState();
+  const t1 = makeTrack('t1');
+  global.AppState.collectiveManager.addTrack(t1);
+
+  let syncedTrack = null;
+  const origSync = global.GSRUI.syncMapPanelForSpatialData;
+  global.GSRUI.syncMapPanelForSpatialData = (trk) => { syncedTrack = trk; };
+
+  try {
+    GSRTrackManager.switchActiveTrack('t1');
+    assert.strictEqual(syncedTrack, t1, 'syncMapPanelForSpatialData was called with active track');
+  } finally {
+    global.GSRUI.syncMapPanelForSpatialData = origSync;
+    delete global.AppState;
+  }
+});
+
+test('GSRTrackManager.syncMapPanelForSpatialData: delegates to GSRUI.syncMapPanelForSpatialData', () => {
+  let calledWith = null;
+  const origSync = global.GSRUI.syncMapPanelForSpatialData;
+  global.GSRUI.syncMapPanelForSpatialData = (trk) => { calledWith = trk; };
+
+  try {
+    const dummyTrack = { id: 'dummy' };
+    GSRTrackManager.syncMapPanelForSpatialData(dummyTrack);
+    assert.strictEqual(calledWith, dummyTrack);
+  } finally {
+    global.GSRUI.syncMapPanelForSpatialData = origSync;
+  }
+});
+
