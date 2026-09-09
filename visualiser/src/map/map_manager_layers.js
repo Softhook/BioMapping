@@ -165,14 +165,23 @@ Object.assign(GSRMapManager.prototype, {
     // Removal = map.removeLayer(track.layerGroup), one call.
     this._clearRenderedTrackGroups();
 
-    // Aggregates (spatial clusters, OSM shapes) + RF fluid + legend are
-    // map-level, owned by GSRMapManager rather than any single track.
+    // Aggregates (spatial clusters) + RF fluid + legend are map-level, owned by
+    // GSRMapManager rather than any single track.
     this.clusterLayers = this._clearLayerGroup(this.clusterLayers);
     // The Arousal Places compute cache survives (fingerprint-guarded), but the
     // last input reference must not — refreshArousalPlaces() would otherwise
     // replay places for a track that's no longer rendered.
     this._lastArousalInput = null;
-    this.clearOsmShapes();
+
+    // NOTE: the OSM vector overlay is deliberately NOT cleared here. It is
+    // area-scoped, not path-scoped — a GSR/GPS slider re-render doesn't change
+    // which buildings exist — and clearing+rebuilding thousands of rings on
+    // every full renderData() was both wasted work and a source of the overlay
+    // silently vanishing on a param change. renderData()/renderCollectiveData()
+    // end by calling GSRUI.syncOsmOverlay(), which redraws it only when the
+    // geometry actually changed (track switch) and clears it when the intent is
+    // off or no track is loaded. The genuine "show nothing" paths (tracks.js:
+    // last track removed) call syncOsmOverlay() themselves.
 
     if (this.map.hasLayer(this.scrubMarker)) {
       this.map.removeLayer(this.scrubMarker);

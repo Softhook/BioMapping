@@ -763,6 +763,142 @@ const GSRUI = {
     return { ways: Array.from(wayMap.values()), relations: Array.from(relationMap.values()) };
   },
 
+  /* ==========================================================================
+     OSM overlay — the single control point.
+
+     The map-panel header's "OSM" button is one shared toggle with ONE meaning
+     ("show OpenStreetMap building / park / water context"), rendered two ways:
+     L.polygon vector shapes on the 2D Leaflet map, extruded buildings on the
+     3D Cesium globe. Its on/off intent lives in GSRUI._osmOverlayOn; the
+     button's `.active` class is only a visual mirror of it.
+
+     Two entry points, deliberately split:
+
+       setOsmOverlay(on)  — async, the header button's handler ONLY. Records the
+                            intent, then (turning on, 2D, no geometry cached)
+                            fetches it once via ensureOsmGeoms. Ends by calling
+                            syncOsmOverlay.
+
+       syncOsmOverlay()   — synchronous, never fetches, never throws. Reconciles
+                            the button + renders/clears on whichever surface is
+                            mounted RIGHT NOW, from geometry already in memory.
+                            Called on every real change: GSREvents.setSurface,
+                            GSRGlobe3DView.activate, refreshOsmControls (track
+                            switch / enrichment), the "no tracks" reset.
+
+     It is NOT called from the render loop: clearMap() deliberately leaves the
+     OSM layer alone (it is area-scoped, not path-scoped), so a GSR/GPS slider
+     re-render never disturbs it and needs no redraw. Because syncOsmOverlay
+     re-reads AppState.surfaceView every call, switching 2D⇄3D mid-fetch can't
+     leave the overlay on the wrong surface. Nothing else may call drawOsmShapes
+     / clearOsmShapes / GSRGlobe3DView.applyBuildings for the toggle.
+     ========================================================================== */
+
+  _osmOverlayOn: false,
+  _osmFetching: false,
+
+  /**
+   * Reconcile the OSM overlay with the CURRENT intent (GSRUI._osmOverlayOn) and
+   * the CURRENT render surface, using only geometry already in memory. Pure
+   * reconcile — synchronous, no network, swallows its own errors so it is safe
+   * to call fire-and-forget from any sync path.
+   */
+  syncOsmOverlay() {
+    try {
+      const on = GSRUI._osmOverlayOn;
+      const mm = AppState.mapManager;
+      const g3d = (typeof GSRGlobe3DView !== 'undefined') ? GSRGlobe3DView : null;
+
+      const btn = document.getElementById('btnToggleOsmShapes');
+      if (btn && btn.classList) btn.classList[on ? 'add' : 'remove']('active');
+
+      if (AppState.surfaceView === 'globe') {
+        if (mm) mm.clearOsmShapes(); // the 2D layer must not linger under the globe
+        // Drive the extruded buildings on a state change only — applyBuildings
+        // runs its own async resolve; _rebuildLayers re-asserts them after a
+        // teardown, so a plain `show3DBuildings` compare is enough here.
+        const shown = !!(g3d && g3d.manager && g3d.manager.show3DBuildings);
+        if (g3d && shown !== on) g3d.applyBuildings(on);
+        return;
+      }
+
+      if (!mm) return;
+      const geoms = on ? GSRUI.getCombinedOsmGeoms() : null;
+      if (geoms) mm.drawOsmShapes(geoms); // drawOsmShapes clears first — safe to repeat
+      else mm.clearOsmShapes();
+    } catch (e) {
+      console.warn('syncOsmOverlay failed:', e);
+    }
+  },
+
+  /**
+   * The header OSM button's handler. Sets the on/off intent and reconciles; on
+   * a 2D turn-on with nothing cached, fetches the geometry once (shared
+   * OsmCache, see ensureOsmGeoms) with button spinner + progress, then
+   * reconciles again. The globe path needs no fetch here — applyBuildings()
+   * resolves the same cache itself.
+   *
+   * @param {boolean} on
+   */
+  async setOsmOverlay(on) {
+    on = !!on;
+    GSRUI._osmOverlayOn = on;
+
+    // Outer guard: this is invoked fire-and-forget from a DOM click handler, so
+    // nothing below may surface as an unhandled rejection.
+    try {
+      GSRUI.syncOsmOverlay();
+
+      if (!on) return;
+      if (AppState.surfaceView === 'globe') return; // applyBuildings self-resolves
+      if (GSRUI.getCombinedOsmGeoms()) return;      // syncOsmOverlay already drew it
+      if (GSRUI._osmFetching) return;               // a fetch is already running
+
+      GSRUI._osmFetching = true;
+      const btn = document.getElementById('btnToggleOsmShapes');
+      const label = btn ? btn.innerHTML : '';
+      if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+      GSRUI.setSpatialProgress(true, 'Retrieving OpenStreetMap shapes…', 15, '#ff7b00');
+
+      let res;
+      try {
+        res = await GSRUI.ensureOsmGeoms((msg) => GSRUI.setSpatialProgress(true, msg, 55, '#ff7b00'));
+      } catch (e) {
+        console.warn('OSM overlay fetch failed:', e);
+        res = { ok: false };
+      } finally {
+        GSRUI._osmFetching = false;
+        if (btn) btn.innerHTML = label;
+      }
+
+      // The user toggled the overlay back off (or it was turned off elsewhere)
+      // while the fetch was in flight — honour that, don't force it back on.
+      if (!GSRUI._osmOverlayOn) return;
+
+      if (!res || !res.ok) {
+        GSRUI._osmOverlayOn = false;
+        GSRUI.syncOsmOverlay();
+        const msg = res && res.reason === 'no-gps'
+          ? 'No GPS fixes in this track — no OpenStreetMap shapes to fetch.'
+          : (res && res.tooBig ? 'Track area too large (> 12 km²) to fetch OpenStreetMap shapes.'
+                               : 'Could not retrieve OpenStreetMap data.');
+        GSRUI.setSpatialProgress(true, msg, 100, 'var(--danger)');
+        setTimeout(() => GSRUI.setSpatialProgress(false), 6000);
+        return;
+      }
+
+      GSRUI.setSpatialProgress(true, res.fetched ? 'OpenStreetMap shapes fetched.' : 'OpenStreetMap shapes loaded from cache.', 100, '#2d6a4f');
+      setTimeout(() => GSRUI.setSpatialProgress(false), 3000);
+
+      // Unlock the OSM colour-metric options / env dashboard that key off geoms;
+      // refreshOsmControls ends by calling syncOsmOverlay, which draws.
+      GSRUI.refreshOsmControls();
+    } catch (e) {
+      GSRUI._osmFetching = false;
+      console.warn('setOsmOverlay failed:', e);
+    }
+  },
+
   /**
    * Helper to refresh UI elements based on track enrichment state.
    */
@@ -771,38 +907,22 @@ const GSRUI = {
       ? (AppState.analyzer ? [AppState.analyzer] : [])
       : AppState.collectiveManager.getActiveTracks().map(t => t.analyzer).filter(Boolean);
 
-    // Full enrichment (per-point spatial metadata) → OSM colour metrics + the
-    // environmental dashboard. A 3D-buildings download only reconstructs
-    // geometry (analyzer.osmGeoms), which is all the 2D vector-shapes button
-    // needs — so that button tracks osmGeoms, not isEnriched.
+    // Full enrichment (per-point spatial metadata) is what gates the OSM colour
+    // metrics + the environmental dashboard below. The OSM overlay itself only
+    // needs reconstructed geometry (analyzer.osmGeoms), fetched on demand — it
+    // is driven entirely by GSRUI.setOsmOverlay / syncOsmOverlay, not isEnriched.
     const enriched = analyzers.filter(a => a.isEnriched);
     const isEnriched = enriched.length > 0;
-    const hasOsmGeoms = analyzers.some(a => a.osmGeoms);
 
     GSRUI.updateSpatialDataIndicator();
 
     const select = document.getElementById('mapColoringMetric');
-    const btnToggleOsmShapes = document.getElementById('btnToggleOsmShapes');
     const envPanel = document.getElementById('environmentalPanel');
 
-    // The OSM header button is the 3D-buildings toggle while the globe is the
-    // mounted surface — GSREvents.setSurface owns it there, leave it alone.
-    if (AppState.surfaceView !== 'globe') {
-      if (hasOsmGeoms) {
-        btnToggleOsmShapes.style.display = 'inline-block';
-        // If the layer toggle is already on (e.g. the user just enriched a
-        // second track while looking at the first one's shapes), redraw with
-        // the newly-combined coverage instead of leaving stale shapes.
-        if (btnToggleOsmShapes.classList.contains('active') && AppState.mapManager) {
-          const geoms = GSRUI.getCombinedOsmGeoms();
-          if (geoms) AppState.mapManager.drawOsmShapes(geoms);
-        }
-      } else {
-        btnToggleOsmShapes.style.display = 'none';
-        btnToggleOsmShapes.classList.remove('active');
-        if (AppState.mapManager) AppState.mapManager.clearOsmShapes();
-      }
-    }
+    // Re-render the shared OSM overlay for the now-active track(s) / surface.
+    // syncOsmOverlay is a pure synchronous reconcile — no fetch, no throw — so
+    // this is safe on every track switch / enrichment. See GSRUI.setOsmOverlay.
+    GSRUI.syncOsmOverlay();
 
     if (isEnriched) {
       document.querySelectorAll('.osm-option').forEach(opt => opt.removeAttribute('disabled'));
@@ -908,6 +1028,75 @@ const GSRUI = {
       barEl.style.width = `${Math.max(0, Math.min(100, percent))}%`;
       if (color) barEl.style.backgroundColor = color;
     }
+  },
+
+  /**
+   * Ensure every active track has `analyzer.osmGeoms` (the reconstructed OSM
+   * vector geometry the 2D "OSM Shapes" overlay draws), fetching it on demand
+   * if it isn't already in memory.
+   *
+   * This is the lightweight cousin of enrichTrack(): it reconstructs geometry
+   * only — no per-position spatial metadata, no `isEnriched`, no environmental
+   * dashboard — so the user can see building/park/water outlines without
+   * committing to a full spatial-data retrieval. It shares every layer of that
+   * retrieval's cache (analyzer.osmJson in memory → OsmCache.getForBBox →
+   * one Overpass fetch via OsmCache.planFetch, then OsmCache.store), using the
+   * same bbox buffer (max(osmRadius, gpsSnapRadius) + 50) so whichever runs
+   * first, the other reuses its cache and nothing double-downloads.
+   *
+   * @param {(msg: string) => void} [onProgress]
+   * @returns {Promise<{ok: boolean, reason?: string, fetched: number,
+   *   cached: number, failed: number, tooBig: number}>}
+   */
+  async ensureOsmGeoms(onProgress) {
+    const report = (typeof onProgress === 'function') ? onProgress : () => {};
+    if (typeof OSMEnricher === 'undefined' || typeof OsmCache === 'undefined') {
+      return { ok: false, reason: 'unavailable', fetched: 0, cached: 0, failed: 0, tooBig: 0 };
+    }
+
+    const { validTracks } = this.getSpatialTracks({ silent: true, featureLabel: 'OSM shapes' });
+    if (validTracks.length === 0) {
+      return { ok: false, reason: 'no-gps', fetched: 0, cached: 0, failed: 0, tooBig: 0 };
+    }
+
+    const osmRadius = parseInt(document.getElementById('osmRadius')?.value, 10) || 50;
+    const snapRadius = parseInt(document.getElementById('gpsSnapRadius')?.value, 10) || 25;
+    const bufferM = Math.max(osmRadius, snapRadius) + 50;
+    const AREA_CAP_KM2 = 12.0;
+
+    let fetched = 0, cached = 0, failed = 0, tooBig = 0;
+    for (const t of validTracks) {
+      const analyzer = t.analyzer;
+      if (analyzer.osmGeoms) { cached++; continue; }
+      try {
+        let json = analyzer.osmJson || null;
+        if (!json) {
+          const bbox = OSMEnricher.calculateBBox(analyzer.raw, bufferM);
+          if (!bbox) { failed++; continue; }
+          if (OSMEnricher.calculateBBoxAreaKm2(bbox) > AREA_CAP_KM2) { tooBig++; continue; }
+          report('Checking local cache…');
+          json = await OsmCache.getForBBox(bbox);
+          if (json) {
+            report('Using cached OpenStreetMap data…');
+          } else {
+            const plan = await OsmCache.planFetch(bbox);
+            report('Fetching OpenStreetMap features…');
+            json = await OSMEnricher.fetchOSMData(plan.fetchBBox, (m) => report(m));
+            if (json) OsmCache.store(plan.fetchBBox, json, plan.mergeIds);
+            fetched++;
+          }
+        }
+        if (!json) { failed++; continue; }
+        analyzer.osmJson = json; // shared with enrichTrack's in-memory reuse
+        analyzer.osmGeoms = OSMEnricher.reconstructGeometries(json);
+      } catch (e) {
+        console.warn('ensureOsmGeoms: fetch failed for track', t.id, e);
+        failed++;
+      }
+    }
+
+    const ok = validTracks.some(t => t.analyzer && t.analyzer.osmGeoms);
+    return { ok, fetched, cached, failed, tooBig };
   },
 
   /**

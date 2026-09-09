@@ -872,23 +872,13 @@ const GSREvents = {
       if (g3d()) g3d().applyColorMetric(e.target.value);
     });
 
+    // The OSM overlay (2D vector shapes / 3D extruded buildings) is one shared
+    // toggle. The click only flips the intent — GSRUI.setOsmOverlay records it,
+    // fetches the geometry on demand the first time (shared OsmCache), and
+    // GSRUI.syncOsmOverlay renders it on whichever surface is mounted.
     const btnToggleOsmShapes = document.getElementById('btnToggleOsmShapes');
     btnToggleOsmShapes.addEventListener('click', () => {
-      btnToggleOsmShapes.classList.toggle('active');
-      const active = btnToggleOsmShapes.classList.contains('active');
-      // On the 3D globe the OSM button toggles the extruded OSM buildings —
-      // the 3D equivalent of the 2D vector shapes.
-      if (onGlobe()) { if (g3d()) g3d().applyBuildings(active); return; }
-      if (AppState.mapManager) {
-        if (active) {
-          // Combines every active track's OSM geometry in collective
-          // mode (not just AppState.analyzer's) — see getCombinedOsmGeoms.
-          const geoms = GSRUI.getCombinedOsmGeoms();
-          if (geoms) AppState.mapManager.drawOsmShapes(geoms);
-        } else {
-          AppState.mapManager.clearOsmShapes();
-        }
-      }
+      GSRUI.setOsmOverlay(!GSRUI._osmOverlayOn);
     });
 
     const btnToggleNdviLayer = document.getElementById('btnToggleNdviLayer');
@@ -1151,8 +1141,6 @@ const GSREvents = {
       document.getElementById('g3dBtnPerspTop'),
       document.getElementById('g3dBtnNorth')
     ];
-    const osmBtn    = document.getElementById('btnToggleOsmShapes');
-
     const show = (el, on) => { if (el) el.style.display = on ? '' : 'none'; };
 
     const setSurface = (target) => {
@@ -1167,25 +1155,15 @@ const GSREvents = {
       show(settings3d, toGlobe);
       cameraBtns.forEach(btn => show(btn, toGlobe));
 
-      // The OSM header button is ONE shared toggle: "2D vector shapes" on the
-      // map, "3D OSM buildings" on the globe, same OSM data (see
-      // GSRGlobe3DView.applyBuildings). Its .active state persists across the
-      // swap — the incoming surface adopts it, it is not reset.
-      //   → globe: GSRGlobe3DView.activate() shows the buildings if it's on.
-      //   → map:   refreshOsmControls() re-shows the button and redraws the
-      //            vector shapes if it's on.
-      if (osmBtn) {
-        if (toGlobe) {
-          osmBtn.style.display = 'inline-block';
-        } else if (typeof GSRUI !== 'undefined' && GSRUI.refreshOsmControls) {
-          GSRUI.refreshOsmControls();
-        }
-      }
-
       if (typeof GSRGlobe3DView !== 'undefined') {
         if (toGlobe) GSRGlobe3DView.activate();
         else GSRGlobe3DView.deactivate();
       }
+
+      // Re-render the shared OSM overlay on the now-mounted surface. 2D takes
+      // effect immediately; the globe re-syncs from GSRGlobe3DView.activate()
+      // once its manager is built (its manager isn't ready yet here).
+      if (typeof GSRUI !== 'undefined' && GSRUI.syncOsmOverlay) GSRUI.syncOsmOverlay();
 
       if (!toGlobe && AppState.mapManager && AppState.mapManager.map && typeof AppState.mapManager.map.invalidateSize === 'function') {
         AppState.mapManager.map.invalidateSize({ pan: false, debounceMoveend: true });

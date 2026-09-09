@@ -183,7 +183,8 @@ test('the map header OSM button toggles 3D buildings (shared OSM data) while the
   const calls = [];
   V.manager = {
     show3DBuildings: false, cachedOsmJson: null,
-    toggle3DBuildings: (on, style) => { calls.push([on, style]); return Promise.resolve(); },
+    // mirrors the real GSRGlobeManager: the flag flips synchronously (globe3d.js)
+    toggle3DBuildings: function (on, style) { this.show3DBuildings = on; calls.push([on, style]); return Promise.resolve(); },
   };
   V.isActive = true;
   window.AppState.surfaceView = 'globe';
@@ -281,8 +282,10 @@ test('the OSM/buildings toggle state persists across a 2D↔3D surface switch', 
   window.GSRUI.refreshOsmControls();
   assert.notStrictEqual(osm.style.display, 'none', 'button shown for a track with osmGeoms even without full enrichment');
 
-  // turn the OSM layer on in 2D, then go to the globe
-  osm.classList.add('active');
+  // turn the OSM layer on in 2D (through the one control point), then go to the globe
+  osm.click();
+  assert.strictEqual(window.GSRUI._osmOverlayOn, true, 'intent recorded centrally');
+  assert.ok(osm.classList.contains('active'));
   doc.getElementById('btnGlobeSurface').click();
   assert.strictEqual(window.AppState.surfaceView, 'globe');
   assert.ok(osm.classList.contains('active'), 'toggle stays on when switching to the globe');
@@ -979,5 +982,154 @@ test('the 3D globe attribution displays dynamic attribution based on basemap and
   V._updateAttribution();
   assert.strictEqual(attrEl.innerHTML, '', 'removes buildings credit and returns to empty for NASA');
   assert.strictEqual(attrEl.style.display, 'none', 'hidden again');
+});
+
+test('OSM overlay: setOsmOverlay + syncOsmOverlay keep 2D⇄3D in lock-step both ways', async () => {
+  const { window } = bootApp();
+  window.setup();
+  const doc = window.document;
+  const V = window.GSRGlobe3DView;
+  const GSRUI = window.GSRUI;
+  const AppState = window.AppState;
+  const osm = doc.getElementById('btnToggleOsmShapes');
+
+  AppState.analyzer = {
+    raw: [{ lat: 51, lon: -0.1 }], isEnriched: false,
+    osmJson: { elements: [] }, osmGeoms: { ways: [], relations: [] },
+  };
+  AppState.viewMode = 'single';
+
+  const drawn = [];
+  const buildings = [];
+  AppState.mapManager.drawOsmShapes = () => drawn.push('draw');
+  AppState.mapManager.clearOsmShapes = () => drawn.push('clear');
+  V.isActive = true;
+  V.manager = { show3DBuildings: false };
+  const realApply = V.applyBuildings;
+  // Realistic stub: applyBuildings flips the manager flag syncOsmOverlay diffs against.
+  V.applyBuildings = (on) => { buildings.push(on); V.manager.show3DBuildings = on; return Promise.resolve(); };
+
+  try {
+    // switch on in 2D (geometry already cached -> no fetch)
+    await GSRUI.setOsmOverlay(true);
+    assert.strictEqual(GSRUI._osmOverlayOn, true);
+    assert.ok(osm.classList.contains('active'));
+    assert.strictEqual(drawn.at(-1), 'draw', '2D vector shapes drawn');
+
+    // go to the globe — same intent, now rendered as buildings
+    AppState.surfaceView = 'globe';
+    GSRUI.syncOsmOverlay();               // what setSurface / activate() call
+    assert.strictEqual(buildings.at(-1), true, 'buildings shown to match the on intent');
+
+    // re-sync while nothing changed -> no redundant applyBuildings call
+    GSRUI.syncOsmOverlay();
+    assert.strictEqual(buildings.length, 1, 'idempotent: applyBuildings only called on a state change');
+
+    // switch OFF while on the globe
+    await GSRUI.setOsmOverlay(false);
+    assert.strictEqual(GSRUI._osmOverlayOn, false);
+    assert.ok(!osm.classList.contains('active'));
+    assert.strictEqual(buildings.at(-1), false, 'buildings hidden');
+
+    // back to 2D — still off, stale shapes cleared, button still off
+    AppState.surfaceView = 'map';
+    GSRUI.syncOsmOverlay();
+    assert.strictEqual(drawn.at(-1), 'clear');
+    assert.ok(!osm.classList.contains('active'));
+
+    // desync guard: ON in 2D → globe → OFF in 2D → back to globe must NOT
+    // resurrect the warm manager's stale tileset
+    await GSRUI.setOsmOverlay(true);        // on (2D)
+    AppState.surfaceView = 'globe';
+    GSRUI.syncOsmOverlay();                 // buildings on
+    assert.strictEqual(buildings.at(-1), true);
+    AppState.surfaceView = 'map';
+    GSRUI.syncOsmOverlay();
+    await GSRUI.setOsmOverlay(false);       // off (2D) — globe not mounted
+    assert.strictEqual(GSRUI._osmOverlayOn, false);
+    AppState.surfaceView = 'globe';
+    GSRUI.syncOsmOverlay();                 // re-entering the globe
+    assert.strictEqual(buildings.at(-1), false, 'no stale buildings on re-entry');
+  } finally {
+    V.applyBuildings = realApply;
+    V.manager = null;
+    V.isActive = false;
+  }
+});
+
+test('OSM overlay: a 2D turn-on with no cached geometry fetches once, then draws', async () => {
+  const { window } = bootApp();
+  window.setup();
+  const GSRUI = window.GSRUI;
+  const AppState = window.AppState;
+
+  AppState.analyzer = { raw: [{ lat: 51, lon: -0.1 }], isEnriched: false };
+  AppState.viewMode = 'single';
+  AppState.surfaceView = 'map';
+
+  const drawn = [];
+  AppState.mapManager.drawOsmShapes = () => drawn.push('draw');
+  AppState.mapManager.clearOsmShapes = () => drawn.push('clear');
+
+  let fetchCalls = 0;
+  const realEnsure = GSRUI.ensureOsmGeoms;
+  GSRUI.ensureOsmGeoms = async () => {
+    fetchCalls++;
+    AppState.analyzer.osmGeoms = { ways: [], relations: [] }; // what a real fetch leaves behind
+    return { ok: true, fetched: 1, cached: 0, failed: 0, tooBig: 0 };
+  };
+
+  try {
+    await GSRUI.setOsmOverlay(true);
+    assert.strictEqual(fetchCalls, 1, 'fetched exactly once');
+    assert.strictEqual(drawn.at(-1), 'draw', 'drawn after the fetch resolved');
+    assert.ok(GSRUI._osmOverlayOn);
+
+    // second turn-on (now cached) must not fetch again
+    await GSRUI.setOsmOverlay(false);
+    await GSRUI.setOsmOverlay(true);
+    assert.strictEqual(fetchCalls, 1, 'no re-fetch once geometry is in memory');
+  } finally {
+    GSRUI.ensureOsmGeoms = realEnsure;
+  }
+});
+
+test('OSM overlay: toggled back off mid-fetch is honoured (no forced-on)', async () => {
+  const { window } = bootApp();
+  window.setup();
+  const GSRUI = window.GSRUI;
+  const AppState = window.AppState;
+
+  AppState.analyzer = { raw: [{ lat: 51, lon: -0.1 }], isEnriched: false };
+  AppState.viewMode = 'single';
+  AppState.surfaceView = 'map';
+
+  const drawn = [];
+  AppState.mapManager.drawOsmShapes = () => drawn.push('draw');
+  AppState.mapManager.clearOsmShapes = () => drawn.push('clear');
+
+  let release;
+  const realEnsure = GSRUI.ensureOsmGeoms;
+  GSRUI.ensureOsmGeoms = () => new Promise((r) => { release = () => {
+    AppState.analyzer.osmGeoms = { ways: [], relations: [] };
+    r({ ok: true, fetched: 1, cached: 0, failed: 0, tooBig: 0 });
+  }; });
+
+  try {
+    const p = GSRUI.setOsmOverlay(true);      // starts the fetch, awaits release
+    await Promise.resolve();
+    assert.ok(GSRUI._osmFetching, 'fetch in flight');
+
+    await GSRUI.setOsmOverlay(false);         // user changes their mind
+    assert.strictEqual(GSRUI._osmOverlayOn, false);
+    assert.strictEqual(drawn.at(-1), 'clear');
+
+    release();                                // fetch now resolves
+    await p;
+    assert.strictEqual(GSRUI._osmOverlayOn, false, 'stale fetch did not force the overlay back on');
+    assert.strictEqual(drawn.at(-1), 'clear', 'and did not draw');
+  } finally {
+    GSRUI.ensureOsmGeoms = realEnsure;
+  }
 });
 

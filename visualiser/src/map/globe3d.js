@@ -2136,6 +2136,15 @@ class GSRGlobeManager {
       // RF volume: its raw Primitive is lost on context restore and stale after
       // a slider-driven metric/extrusion change, so re-upload it here.
       if (this.showRfVolumetric) this.render3DRfExpanse(this.currentAnalyzer, this.currentDrawPoints);
+
+      // OSM buildings: clearAll() (a track being removed, or a context loss)
+      // drops the extruded primitive but leaves show3DBuildings set. Re-assert
+      // it here, but ONLY when it is genuinely gone — present buildings are
+      // left alone so a slider drag doesn't blink them.
+      if (this.show3DBuildings && this.cachedOsmJson && !this.buildingPrimitive &&
+          !(this.buildingsTileset && this.buildingsTileset.show) && !this._buildingsFetching) {
+        this.renderOsm3DBuildings(this.cachedOsmJson, this.buildingStyle || 'monochrome');
+      }
     });
     this._raiseMarkerCollections();
     this._requestRender();

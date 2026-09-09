@@ -480,17 +480,16 @@ const GSRGlobe3DView = {
    */
   applyBuildings(on) {
     const mgr = GSRGlobe3DView.manager;
-    if (!GSRGlobe3DView.isActive || !mgr) return;
+    if (!GSRGlobe3DView.isActive || !mgr) return Promise.resolve();
     const style = (GSRGlobe3DView.els.buildingStyle && GSRGlobe3DView.els.buildingStyle.value) || 'monochrome';
 
     if (!on) {
-      mgr.toggle3DBuildings(false, style, (m) => GSRGlobe3DView._setStatus(m));
-      GSRGlobe3DView._setStatus('');
-      GSRGlobe3DView._updateAttribution();
-      return;
+      return Promise.resolve(mgr.toggle3DBuildings(false, style, (m) => GSRGlobe3DView._setStatus(m)))
+        .then(() => { GSRGlobe3DView._setStatus(''); GSRGlobe3DView._updateAttribution(); })
+        .catch(() => { GSRGlobe3DView._setStatus(''); GSRGlobe3DView._updateAttribution(); });
     }
 
-    Promise.resolve(GSRGlobe3DView._resolveOsmJson()).then((osmJson) => {
+    return Promise.resolve(GSRGlobe3DView._resolveOsmJson()).then((osmJson) => {
       if (!GSRGlobe3DView.isActive || !GSRGlobe3DView.manager) {
         GSRGlobe3DView._setStatus('');
         return;
@@ -498,9 +497,6 @@ const GSRGlobe3DView = {
       if (osmJson) GSRGlobe3DView.manager.cachedOsmJson = osmJson;
       return GSRGlobe3DView.manager.toggle3DBuildings(true, style, (m) => GSRGlobe3DView._setStatus(m));
     }).then(() => {
-      // The fetch may have populated analyzer.osmGeoms — let the 2D map's OSM
-      // shapes button pick that up.
-      if (typeof GSRUI !== 'undefined' && GSRUI.refreshOsmControls) GSRUI.refreshOsmControls();
       GSRGlobe3DView._setStatus('');
       GSRGlobe3DView._updateAttribution();
     }).catch((e) => {
@@ -703,13 +699,13 @@ const GSRGlobe3DView = {
       // Guarantee at least one paint even when there's no track to push.
       const v = GSRGlobe3DView.manager && GSRGlobe3DView.manager.viewer;
       if (v && v.scene && typeof v.scene.requestRender === 'function') v.scene.requestRender();
-      // Carry the shared OSM-layer toggle onto the globe: if the map header's
-      // OSM button is on, show the 3D buildings (reusing the shared cache).
-      const osmBtn = document.getElementById('btnToggleOsmShapes');
-      const mgr = GSRGlobe3DView.manager;
-      if (osmBtn && osmBtn.classList.contains('active') && !(mgr && mgr.show3DBuildings)) {
-        GSRGlobe3DView.applyBuildings(true);
-      }
+
+      // The globe manager is now built — re-sync the shared OSM overlay so the
+      // 3D buildings match the toggle. setSurface's own syncOsmOverlay() call
+      // ran before this (manager didn't exist yet), so this is the one that
+      // actually takes effect on a 2D→3D switch. Handles both directions: an
+      // overlay turned off in 2D hides the warm manager's stale tileset here.
+      if (typeof GSRUI !== 'undefined' && GSRUI.syncOsmOverlay) GSRUI.syncOsmOverlay();
     }));
   },
 

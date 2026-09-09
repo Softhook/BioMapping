@@ -234,6 +234,12 @@ const GSRTrackManager = {
         GSRGlobe3DView.manager.clearAll();
         if (GSRGlobe3DView.els.legend) GSRGlobe3DView.els.legend.innerHTML = '';
       }
+      // Nothing is loaded — clearMap() no longer drops the OSM overlay, so
+      // reset the toggle and clear it explicitly.
+      if (typeof GSRUI !== 'undefined' && GSRUI.syncOsmOverlay) {
+        GSRUI._osmOverlayOn = false;
+        GSRUI.syncOsmOverlay();
+      }
 
       GSRTrackManager.setFileStatus('warning', 'No File Loaded');
 
@@ -408,6 +414,11 @@ const GSRTrackManager = {
 
     if (AppState.mapManager) {
       AppState.mapManager.clearAll();
+    }
+    // clearMap() no longer drops the OSM overlay — reset + clear it here.
+    if (typeof GSRUI !== 'undefined' && GSRUI.syncOsmOverlay) {
+      GSRUI._osmOverlayOn = false;
+      GSRUI.syncOsmOverlay();
     }
   },
 
