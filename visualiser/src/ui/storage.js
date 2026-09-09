@@ -17,25 +17,6 @@ function sliderVal(el, fallback, fn) {
   return el ? fn(el.value) : (typeof fallback === 'string' ? fn(fallback) : fallback);
 }
 
-/**
- * Like sliderVal(), but for the shape sliders updateShapeSlidersForDetector()
- * (events.js) locks to a kernel-canonical value while deconvolution is
- * enabled. In that state, el.value holds the temporary locked display
- * number, not the user's real underlying preference — reading it directly
- * would persist that decoy into track.filterParams / exported CSVs, and
- * later restoring it (e.g. via loadActiveTrackParams()) leaves the slider
- * permanently stuck at the locked value even after deconvolution is turned
- * back off, since there'd be nothing left to distinguish it from a genuine
- * custom setting. Prefer the cached pre-lock value (dataset.customValue)
- * whenever it's present, so persisted state always reflects what the user
- * actually chose.
- */
-function shapeSliderVal(el, fallback) {
-  if (!el) return fallback;
-  if (el.dataset.customValue !== undefined) return parseFloat(el.dataset.customValue);
-  return sliderVal(el, fallback);
-}
-
 const GSRStorage = {
   /**
    * Read current GSR slider values into a clean param object.
@@ -57,19 +38,10 @@ const GSRStorage = {
       minPeakQuality:        sliderVal(S.minPeakQuality,       D.minPeakQuality),
       peakDensityWindow:     sliderVal(S.peakDensityWindow,    D.peakDensityWindow || 10, parseInt),
       hotspotPercentile:     sliderVal(S.hotspotPercentile,    (D.hotspotPercentile ? D.hotspotPercentile * 100 : 2.0)) / 100.0,
-      // Peak shape criteria — fall back to PEAK_SHAPE (literature-validated defaults).
-      // Four of these five (all but shapeMinSnr) get locked to a kernel-canonical
-      // value while deconvolution is on — read via shapeSliderVal() so a locked
-      // display number never gets persisted as if it were the user's real setting.
-      shapeMinRiseTime:      shapeSliderVal(S.shapeMinRiseTime,     PS.MIN_RISE_TIME),
-      shapeMaxRiseTime:      shapeSliderVal(S.shapeMaxRiseTime,     PS.MAX_RISE_TIME),
-      shapeMinHalfRecovery:  shapeSliderVal(S.shapeMinHalfRecovery, PS.MIN_HALF_RECOVERY),
-      shapeMaxHalfRecovery:  shapeSliderVal(S.shapeMaxHalfRecovery, PS.MAX_HALF_RECOVERY),
+      // Min SNR — the only shape gate the live detectors use (default + deconvolution).
       shapeMinSnr:           sliderVal(S.shapeMinSnr,          PS.MIN_SNR),
-      shapeMaxSkewRatio:     shapeSliderVal(S.shapeMaxSkewRatio,    PS.SKEWNESS_RATIO_MAX),
       useDeconvolution:       (S.useDeconvolution && S.useDeconvolution.checked) || false,
-      usePeakProminence:      (S.usePeakProminence && S.usePeakProminence.checked) || false,
-      useFullScanDetector:    (S.useFullScanDetector && S.useFullScanDetector.checked) || false
+      usePeakProminence:      (S.usePeakProminence && S.usePeakProminence.checked) || false
     };
   },
 
@@ -268,32 +240,14 @@ const GSRStorage = {
     if (gsr.usePeakProminence !== undefined && S.usePeakProminence) {
       S.usePeakProminence.checked = !!gsr.usePeakProminence;
     }
-    if (gsr.useFullScanDetector !== undefined && S.useFullScanDetector) {
-      S.useFullScanDetector.checked = !!gsr.useFullScanDetector;
-    }
     // The alternative detectors are mutually exclusive; if a stored config
-    // somehow has more than one, keep the highest-precedence one
-    // (prominence > full-scan > deconvolution, matching analyze()).
-    if (S.usePeakProminence && S.usePeakProminence.checked) {
-      if (S.useFullScanDetector) S.useFullScanDetector.checked = false;
-      if (S.useDeconvolution) S.useDeconvolution.checked = false;
-    } else if (S.useFullScanDetector && S.useFullScanDetector.checked) {
-      if (S.useDeconvolution) S.useDeconvolution.checked = false;
+    // somehow has both, keep the higher-precedence one (prominence >
+    // deconvolution, matching analyze()).
+    if (S.usePeakProminence && S.usePeakProminence.checked && S.useDeconvolution) {
+      S.useDeconvolution.checked = false;
     }
 
-    const isDeconvOn = !!gsr.useDeconvolution;
-
-    const shapeKeys = ['shapeMinRiseTime', 'shapeMaxRiseTime', 'shapeMinHalfRecovery', 'shapeMaxHalfRecovery', 'shapeMinSnr', 'shapeMaxSkewRatio'];
-    shapeKeys.forEach(k => {
-      if (gsr[k] !== undefined && S[k]) {
-        if (isDeconvOn && k !== 'shapeMinSnr') {
-          S[k].dataset.customValue = gsr[k];
-        } else {
-          delete S[k].dataset.customValue;
-          S[k].value = gsr[k];
-        }
-      }
-    });
+    if (gsr.shapeMinSnr !== undefined && S.shapeMinSnr) S.shapeMinSnr.value = gsr.shapeMinSnr;
 
     // Restore GPS & Spatial Clustering sliders
     this.writeGpsSliderValues(gps);
@@ -311,15 +265,9 @@ const GSRStorage = {
       if (contour.surfaceOpacity !== undefined && C.surfaceOpacity) C.surfaceOpacity.value = contour.surfaceOpacity;
     }
 
-    // Refresh dependent layout: tonic-window slider config + shape-slider
-    // visibility per detector.
-    if (typeof GSREvents !== 'undefined') {
-      if (typeof GSREvents.updateTonicMethodLayout === 'function') {
-        GSREvents.updateTonicMethodLayout();
-      }
-      if (typeof GSREvents.updateShapeSlidersForDetector === 'function') {
-        GSREvents.updateShapeSlidersForDetector();
-      }
+    // Refresh dependent layout: tonic-window slider config.
+    if (typeof GSREvents !== 'undefined' && typeof GSREvents.updateTonicMethodLayout === 'function') {
+      GSREvents.updateTonicMethodLayout();
     }
 
     // Dispatch input events on all sliders so on-screen text labels & dimmed states update immediately!
@@ -355,7 +303,7 @@ const GSRStorage = {
 };
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GSRStorage, sliderVal, shapeSliderVal };
+  module.exports = { GSRStorage, sliderVal };
 }
 if (typeof window !== 'undefined') {
   window.GSRStorage = GSRStorage;

@@ -354,7 +354,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Red recommended-value range on shape sliders */
+/* Red recommended-value range marker on a slider track */
 .slider-rec {
   position: absolute;
   top: 28px;               /* same vertical position as the slider track */

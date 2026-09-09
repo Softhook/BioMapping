@@ -37,14 +37,12 @@ const GSR_CONST = {
   },
 
   // ── GSR filter defaults ──────────────────────────────────────────────────
-  // Shape/quality gates default to recall-oriented values. detectPeaks()'s
-  // gates (amplitude, SNR, min-rise, min-half-recovery, composite quality)
-  // are highly overlapping — each independently removes most small/fast/
-  // compound SCRs — so conservative values on several at once compound into
-  // large undercounts on busy or superposed recordings, precisely where the
-  // most real responses occur. Min half-recovery and max skew ship off (0);
-  // min rise is kept low purely as a fast-artefact guard. Tighten per
-  // recording (via the sliders) when precision matters more than recall.
+  // The default detector (full-scan trough-to-peak) gates on amplitude
+  // (peakThreshold), Min SNR (shapeMinSnr) and composite quality
+  // (minPeakQuality) only — the literature SCR criteria. Both extra gates ship
+  // at recall-oriented values: Min SNR 1.5 is a light noise guard that mostly
+  // matters when the LPF is lowered/off, and Min Peak Quality ships off (0).
+  // Raise either per recording when precision matters more than recall.
   GSR_DEFAULT: {
     // Mild low-pass on by default: raw 10 Hz GSR carries quantisation +
     // sensor fuzz + low-level motion tremor that an unsmoothed detector reads
@@ -55,15 +53,12 @@ const GSR_CONST = {
     // 1.0–1.2 s to also cancel a walking-gait artefact.
     medianSize: 0, lpfWindow: 0.5,
     tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.015,
-    shapeMinRiseTime: 0.3, shapeMaxRiseTime: 4.0,
-    shapeMinHalfRecovery: 0.0, shapeMaxHalfRecovery: 7.5,
-    shapeMinSnr: 1.5, shapeMaxSkewRatio: 0.0,
+    shapeMinSnr: 1.5,
     minPeakQuality: 0.0,
     peakDensityWindow: 10,
     hotspotPercentile: 0.02,
     useDeconvolution: false,
-    usePeakProminence: true,
-    useFullScanDetector: false
+    usePeakProminence: false
   },
 
   // ── SCR deconvolution (Benedek & Kaernbach, 2010) ────────────────────────
@@ -71,7 +66,7 @@ const GSR_CONST = {
   // enabled, GSRAnalyzer._runDeconvolutionPipeline() runs ONE global
   // nonnegative deconvolution of the whole phasic trace against this kernel,
   // recovering a sparse driver signal. Each driver impulse becomes a peak
-  // directly (bypassing detectPeaks() entirely for that analysis run), with
+  // directly (replacing the default detector for that analysis run), with
   // shape metrics (rise time, half-recovery, skew, FWHM) derived analytically
   // from the kernel rather than measured per-event — this is intentional and
   // matches the published method: fixing one canonical response shape per
@@ -110,7 +105,7 @@ const GSR_CONST = {
     // [impulseThreshold, convTol) band, silently capping sensitivity below
     // what impulseThreshold (and, transitively, the user's peakThreshold
     // slider) implies is achievable — an unannounced, mode-dependent
-    // asymmetry versus detectPeaks(), where the same slider isn't limited
+    // asymmetry versus the raw detectors, where the same slider isn't limited
     // this way. Set comfortably below impulseThreshold, not just under it,
     // so genuine impulses right at the threshold aren't clipped by residual
     // noise sitting near the boundary.
@@ -181,24 +176,20 @@ const GSR_CONST = {
   // earlier trough.
   PEAK_PROMINENCE_BASELINE_SEC: 8,
 
-  // ── Enhanced peak shape & width criteria ──────────────────────────────
-  // Rise-time/half-recovery-time *definitions* and the amplitude threshold
-  // range (0.01-0.05 µS) follow established GSR literature (Boucsein, 2012;
-  // Dawson, Schell & Filion, 2007; see also https://edaguidelines.github.io).
-  // The specific numeric bounds below are tuned/loosened beyond lab-reported
-  // ranges to tolerate ambulatory/field-recording noise — see per-field notes.
+  // ── Peak shape constants ─────────────────────────────────────────────────
+  // The rise/half-recovery/skew *rejection bounds* that the retired greedy
+  // detector applied were removed (2026-09-09) — the shape-audit found they
+  // preferentially dropped the compound-burst and rising-edge SCRs the
+  // default full-scan detector exists to recover, and the skew ratio was
+  // miscalibrated for LPF'd ambulatory data. What remains is used by the live
+  // detectors: MAX_RISE_TIME bounds the onset walk-back in full-scan /
+  // prominence / the deconvolution curve scan; MIN_SNR is the Min SNR
+  // fallback; QUALITY_WEIGHTS feed the composite quality score
+  // (_computePeakQuality), whose own ideal-range breakpoints are inline
+  // literals, not these constants.
   PEAK_SHAPE: {
-    MIN_RISE_TIME: 0.5,          // Min onset→peak (s) — lab convention is ~1 s min; loosened for ambulatory data
-    MAX_RISE_TIME: 5.0,          // Max onset→peak (s) — slower = tonic drift
-    MIN_HALF_RECOVERY: 0.3,      // Min half-recovery (s) — internal default; no single literature minimum is well established for this parameter
-    MAX_HALF_RECOVERY: 10.0,     // Max half-recovery (s) — too slow for SCR
-    MIN_ONSET_SLOPE: 0.01,       // Min slope (µS/s) — converted to physical units
-    MAX_ONSET_SLOPE: 5.0,        // Max slope (µS/s) — converted to physical units
-    MIN_DECAY_SLOPE: 0.0001,     // Min decay (µS/s) — converted to physical units
-    MAX_PEAK_WIDTH: 8.0,        // Max total peak width (s)
-    MIN_SNR: 2.0,               // Min signal-to-noise ratio — internal heuristic threshold (NOT from NeuroKit2, which has no built-in EDA signal-quality/SNR criterion)
-    SKEWNESS_RATIO_MIN: 0.2,    // Min rise/recovery ratio (asymmetric shape)
-    SKEWNESS_RATIO_MAX: 6.0,    // Max rise/recovery ratio
+    MAX_RISE_TIME: 5.0,          // Max onset→peak (s) — onset walk-back search bound
+    MIN_SNR: 2.0,               // Min signal-to-noise ratio fallback — internal heuristic (NOT from NeuroKit2, which has no built-in EDA signal-quality/SNR criterion)
     QUALITY_WEIGHTS: {           // For composite quality score (0–1)
       amplitude: 0.20,           // Higher amplitude = more confident
       riseTime: 0.15,            // Rise time in ideal range

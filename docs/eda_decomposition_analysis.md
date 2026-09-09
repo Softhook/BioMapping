@@ -346,6 +346,19 @@ address the per-participant variability problem CDA was designed to solve.
 
 ### Tier 1½ — Prominence detector × deconvolution hybrid *(recommended near-term direction)*
 
+> **Detector line-up as shipped (2026-09-09).** The greedy left→right
+> trough-to-peak detector was **retired**. The **default** discrete detector is
+> now **Full-Scan** (`_detectPeaksFullScan`) — the same trough-to-peak amplitude
+> criterion tested non-greedily against every local maximum, gated by amplitude
+> + Min SNR + Min Peak Quality (the rise/half-recovery/skew shape sliders were
+> removed: a corpus audit showed they preferentially dropped the compound-burst
+> and rising-edge SCRs Full-Scan exists to recover, and the skew ratio was
+> miscalibrated for LPF'd ambulatory data). **Prominence**
+> (`_detectPeaksByProminence`) and **SCR Deconvolution** remain as opt-in
+> alternatives; precedence is prominence > deconvolution > full-scan. The
+> hybrid options below (still unbuilt) would combine deconvolution with one of
+> the two raw detectors.
+
 The 2026-09 visual audit (§1 "What It Gets Wrong") showed the deconv **peak
 list** is the weak link, not the amplitude estimate: `_detectPeaksFromCurve`
 reads peaks off the reconstruction — a re-render made of fixed-shape kernels —
@@ -371,10 +384,10 @@ Three ways to combine, smallest to largest:
 algorithm. The audit says it already tracks the raw signal better than
 deconv-mode markers on tracks 113 / 053 / 059. Deconvolution's `phasicClean`
 reconstruction can still feed the continuous metrics (phasic AUC / ISCR /
-arousal index). *Blocker:* `useDeconvolution` and `usePeakProminence` are
-mutually-exclusive toggles today (`events.js:updateDeconvolutionUIState`,
-`analyzer.js:411`), so "prominence peaks + deconvolved continuous signal" is
-not currently expressible — needs a small wiring change to allow both.
+arousal index). *Blocker:* the detector toggles are mutually exclusive
+(`events.js` `detectorToggles`; the `if/else if` chain in `analyzer.js`
+`analyze()`), so "prominence peaks + deconvolved continuous signal" is not
+currently expressible — needs a small wiring change to allow both.
 
 **B. Raw-phasic prominence as veto + rescue on the deconv markers** *(~60–100
 LOC; recommended)*. Keep deconv's reconstruction and separation, but after
@@ -423,17 +436,39 @@ single envelope*.
 
 **1 — Prominence-on-phasic is the toolbox-standard discrete detector, not an
 exotic choice.** NeuroKit2's default pipeline is `eda_phasic()` →
-`eda_findpeaks()`, whose `neurokit`/SciPy path takes local maxima of the
-phasic gated by minimum prominence, width and inter-peak distance — the
-prominence threshold commonly a fraction of, or one, phasic SD (stated
-outright in recent transformer-based EDA decomposition work,
-`arXiv:2506.06378`). Autonomate (Green et al. 2014) is an earlier unsupervised
-trough-to-peak scorer offered as an automated alternative to model-based
-decomposition. So **Option A is not a new method — it is adopting the
-mainstream discrete detector and declining to read discrete events off the
-driver.** Low-risk framing: "discrete SCR counting is aligned with
-NeuroKit2-style phasic peak detection; deconvolution is retained for the
-continuous driver and for overlap resolution."
+`eda_peaks(method="neurokit")`, which calls `eda_findpeaks()` →
+`signal_findpeaks(eda_phasic, relative_height_min=0.1, relative_max=True)`.
+`signal_findpeaks` scores every local maximum by its **topographic prominence**
+(via SciPy `peak_prominences`) and width (`peak_widths`); the default EDA
+method's only active gate is prominence **≥ 0.1 × the largest prominence in the
+signal** (i.e. relative to the signal's own maximum, *not* to its SD, and not a
+fixed µS value). Width and inter-peak-distance filters exist in
+`signal_findpeaks` but are **not enabled** by the default EDA path. Autonomate
+(Green et al. 2014) is an earlier unsupervised trough-to-peak scorer offered as
+an automated alternative to model-based decomposition. So **Option A is not a
+new method — it is adopting the mainstream discrete detector (prominence-gated
+phasic local maxima) and declining to read discrete events off the driver.**
+Low-risk framing: "discrete SCR counting is aligned with NeuroKit2-style phasic
+peak detection; deconvolution is retained for the continuous driver and for
+overlap resolution."
+
+> **Factual-accuracy note (2026-09-09).** An earlier version of this paragraph
+> said NeuroKit2's default gates on "prominence, width and inter-peak distance"
+> and that the prominence threshold is "commonly a fraction of, or one, phasic
+> SD, stated outright in `arXiv:2506.06378`." Checked against source: (a) the
+> default `method="neurokit"` path passes only `relative_height_min` — width and
+> distance are available but off by default; (b) the threshold is relative to
+> the signal's **maximum** prominence, not its SD; (c) `arXiv:2506.06378`
+> (Tsirmpas et al., now *Sensors* 25:4406, 2025) only states it used "the
+> NeuroKit2 peak detection algorithm with default parameters" — it does **not**
+> state an SD-based prominence threshold. A one-SD (or fraction-of-SD)
+> prominence criterion does appear elsewhere in EDA practice, but that citation
+> does not support it. The load-bearing claim — prominence-gated phasic local
+> maxima is the mainstream discrete detector — stands; the specifics above were
+> wrong and are corrected here. BioMapping's own `_detectPeaksByProminence`
+> gates on an **absolute** prominence threshold (`peakThreshold`, µS) plus a
+> refractory-distance NMS and the composite Min Peak Quality score — closer to
+> NeuroKit's structure than to its exact relative-to-max default.
 
 **2 — The kernel-mismatch concern, and the "don't auto-fit" conclusion, are
 independently established in calcium-imaging spike inference** — the same
@@ -464,7 +499,15 @@ not a τ fit.
 **Positioning against the model-based-vs-peak-scoring debate.** Bach (2014)
 found model-based scoring (PsPM/SCRalyze) more sensitive than Ledalab
 peak-scoring *for detecting condition differences given known stimulus
-onsets*. The hybrid does not contradict this: with no onset times and a kernel
+onsets*. Kuhn et al. (2022, *Psychophysiology*) — the most comprehensive
+independent comparison to date (7 quantification approaches, two fear-
+conditioning datasets) — reached a more cautious verdict: **no single approach
+is universally "best"**, effect sizes are broadly comparable, and trough-to-peak
+scoring remains competitive. So the framing here is *not* "trough-to-peak is
+obsolete" (an overstatement this project's other docs occasionally lean toward)
+— it is that the discrete detectors differ mostly at the margins, and the
+prominence detector is the one with the clearest mainstream-toolbox lineage. The
+hybrid does not contradict Bach (2014) either: with no onset times and a kernel
 that cannot be fitted on field data, the model's *positional* output degrades
 to reconstruction ripple, so phasic prominence becomes the more robust source
 of event timing — while deconvolution is kept where it still adds unique value
@@ -557,10 +600,11 @@ multiple recordings from the same participant.
 8. **Amin & Faghih (2022)** — state-space EDA, most comprehensive recent comparison. *PLOS Comput. Biol.* 18:e1010070.
 9. **Boucsein (2012)** — *Electrodermal Activity* (2nd ed.). Springer. ← inter-individual SCRF variability data.
 10. **Mallat & Zhang (1993)** — Matching Pursuit algorithm. *IEEE Trans. Signal Process.* 41:3397–3415.
-11. **Makowski et al. (2021)** — NeuroKit2. *Behav. Res. Methods* 53:1689–1696. ← `eda_phasic` → `eda_findpeaks` prominence/width/distance discrete detector (Tier 1½ Option A).
+11. **Makowski et al. (2021)** — NeuroKit2. *Behav. Res. Methods* 53:1689–1696. ← `eda_phasic` → `eda_peaks(method="neurokit")` → `signal_findpeaks` prominence-gated (relative-to-max) phasic-local-maximum detector (Tier 1½ Option A).
 12. **Green, Kragel, Fecteau & LaBar (2014)** — Autonomate, unsupervised SCR scoring. *Int. J. Psychophysiol.* 91(3):186–193.
 13. **Hernando-Gallego, Luengo & Artés-Rodríguez (2018)** — SparsEDA: non-negative sparse deconvolution over a multi-width SCR dictionary. *IEEE J. Biomed. Health Inform.* 22(5). ← literature's answer to kernel-shape variability.
 14. **Pachitariu, Stringer & Harris (2018)** — robustness of spike deconvolution; simple NND wins, kernel auto-calibration is counterproductive. *J. Neurosci.* 38(37):7976–7985. ← calcium-imaging analogue of Tiers 1–2.
 15. **Berens et al. (2018)** — spikefinder community benchmark of spike inference. *PLOS Comput. Biol.* 14(5):e1006157.
 16. **Deneux et al. (2016)** — MLspike: physiological model with amplitude-dependent decay nonlinearity. *Nat. Commun.* 7:12190. ← "big SCRs recover slower" as a modelled nonlinearity.
-17. **Transformer-Based Decomposition of Electrodermal Activity** (2025) — *arXiv:2506.06378*. ← phasic peaks via a one-SD prominence threshold.
+17. **Tsirmpas et al. (2025)** — Transformer-Based Decomposition of Electrodermal Activity. *arXiv:2506.06378* / *Sensors* 25:4406. ← evaluates SCR frequency with "NeuroKit2 peak detection, default parameters"; does *not* itself specify an SD-based prominence threshold (see 2026-09-09 accuracy note in Tier 1½).
+18. **Kuhn et al. (2022)** — Navigating the manyverse of SCR quantification: trough-to-peak vs baseline-correction vs model-based (Ledalab, PsPM). *Psychophysiology* 59:e14058. ← independent 7-approach comparison; no single approach universally best, trough-to-peak remains competitive.

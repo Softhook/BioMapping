@@ -71,12 +71,7 @@ const BASE_PARAMS = {
   tonicWindow:    15,
   peakThreshold:  0.020,
   minPeakQuality: 0.0,
-  shapeMinRiseTime: 0,
-  shapeMaxRiseTime: 0,
-  shapeMinHalfRecovery: 0,
-  shapeMaxHalfRecovery: 0,
-  shapeMinSnr: 0,
-  shapeMaxSkewRatio: 0
+  shapeMinSnr: 0
 };
 
 function runAnalysis(useDeconvolution) {
@@ -245,7 +240,7 @@ assertEq(on.phasicClean.length, off.raw.length,
   assert(isolated.length >= 30,
     `Enough isolated peaks for a meaningful check (${isolated.length} >= 30)`);
   assert(rate >= 0.70,
-    `Decon agrees with detectPeaks() on >=70% of isolated peaks (got ${(rate * 100).toFixed(1)}%)`);
+    `Decon agrees with the default detector on >=70% of isolated peaks (got ${(rate * 100).toFixed(1)}%)`);
 }
 
 // ── 10. onsetValue matches cleanVals at onsetIndex ───────────────────────────

@@ -10,7 +10,7 @@
  *   node tests/manual/_bench_analyzer_perf.js
  *
  * Found via this same approach (docs/archive/visualizer_architecture_refactor_plan.md
- * Phase 8): analyze() -> detectPeaks() -> _calculateShapeMetrics() ->
+ * Phase 8): analyze() -> the phasic detector -> _calculateShapeMetrics() ->
  * _computeNoiseFloor() used to rebuild `this.filtered.map(d => d.val)` — a
  * full-array copy of the WHOLE track — on every call, despite only reading a
  * small +/-halfWindow slice. Called once per candidate peak (hundreds per
@@ -93,7 +93,7 @@ for (const file of FILES) {
 
   // HIT: same five filter params every call, so stages 1–3 (median + LPF +
   // decomposition) are memoised and only peak detection / metrics rerun.
-  // This is what dragging peakThreshold / a shape slider / hotspot % costs.
+  // This is what dragging peakThreshold / Min SNR / Min Peak Quality / hotspot % costs.
   const hit = bench(() => analyzer.analyze(filterParams, 0), 3, 12);
 
   // MISS: nudge lpfWindow every call so the prefix key changes and the full

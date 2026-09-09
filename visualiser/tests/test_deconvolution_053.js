@@ -61,9 +61,7 @@ function analyzeTrack(decon) {
     ...global.GSR_CONST.GSR_DEFAULT,
     tonicMethod: 'percentile', tonicWindow: 15,
     peakThreshold: 0.020, minPeakQuality: 0.0,
-    shapeMinRiseTime: 0, shapeMaxRiseTime: 0,
-    shapeMinHalfRecovery: 0, shapeMaxHalfRecovery: 0,
-    shapeMinSnr: 0, shapeMaxSkewRatio: 0,
+    shapeMinSnr: 0,
     useDeconvolution: decon
   });
   return a;
@@ -200,7 +198,7 @@ assert(minGap >= global.GSR_CONST.SCRF.minImpulseGapSec - 1e-9,
   // is set below the newly-measured ~75-80% range with headroom so legitimate
   // tuning shifts don't cause spurious failures, while a regression back to
   // the 62%-era over-merging bug would still fail immediately.
-  assert(rate >= 0.70, `Deconvolution agrees with detectPeaks() on >=70% of unambiguous isolated peaks (got ${(rate * 100).toFixed(1)}%)`);
+  assert(rate >= 0.70, `Deconvolution agrees with the default detector on >=70% of unambiguous isolated peaks (got ${(rate * 100).toFixed(1)}%)`);
 }
 
 // Memorable-event ("hotspot") selection on real track data — biggest SCRs,
@@ -246,9 +244,7 @@ assert(minGap >= global.GSR_CONST.SCRF.minImpulseGapSec - 1e-9,
     ...global.GSR_CONST.GSR_DEFAULT,
     tonicMethod: 'percentile', tonicWindow: 15,
     peakThreshold: 0.020, minPeakQuality: 0.0,
-    shapeMinRiseTime: 0, shapeMaxRiseTime: 0,
-    shapeMinHalfRecovery: 0, shapeMaxHalfRecovery: 0,
-    shapeMinSnr: 0, shapeMaxSkewRatio: 0,
+    shapeMinSnr: 0,
     useDeconvolution: false
   };
   const paramsOn  = { ...paramsOff, useDeconvolution: true };

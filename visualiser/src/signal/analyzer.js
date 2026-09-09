@@ -372,7 +372,7 @@ class GSRAnalyzer {
     this._ensureSeriesPool(this.raw, n);
 
     // ── Stages 1–3: median filter → low-pass → tonic/phasic decomposition ──
-    // Only four params feed this prefix; the ~9 peak-detection / hotspot /
+    // Only four params feed this prefix; the peak-detection / hotspot /
     // metric-window sliders don't. When none of the four changed since the last
     // analyze(), the pooled .filtered/.tonic/.phasic arrays (and their cached
     // Y-ranges) are still correct — skip ~25 ms of filtering + decomposition on
@@ -458,29 +458,25 @@ class GSRAnalyzer {
       };
     }
 
-    // 5. Phasic Peak Detection. Exactly one of four mutually-exclusive
-    // pipelines builds this.peaks per analyze() call. The morphology sliders
-    // (rise / half-recovery / skew) apply in the default mode only; Min Peak
-    // Quality applies in every mode.
-    //   - default: trough-to-peak detection. Greedy left→right scan; the
-    //     morphology sliders and Min SNR are live rejection gates.
+    // 5. Phasic Peak Detection. Exactly one of three mutually-exclusive
+    // pipelines builds this.peaks per analyze() call. Min Peak Quality applies
+    // in every mode; Min SNR in every mode except prominence.
+    //   - full-scan (default, no flag): the trough-to-peak amplitude criterion
+    //     applied non-greedily — every local maximum that rose >= peakThreshold
+    //     from its saddle onset, plus Min SNR and Min Peak Quality, one per
+    //     refractory window. Keeps SCRs that ride the rising edge of a larger
+    //     response (no valley → zero prominence) (see _detectPeaksFullScan()).
     //   - prominence (params.usePeakProminence): one non-greedy pass — every
     //     local maximum whose topographic prominence >= peakThreshold, i.e.
     //     conductance rose that much above the level it last recovered to.
     //     Resolves shoulders in one step; the only per-peak gate is Min Peak
     //     Quality (see _detectPeaksByProminence()).
-    //   - full-scan (params.useFullScanDetector): the trough-to-peak amplitude
-    //     criterion applied non-greedily — every local maximum that rose
-    //     >= peakThreshold from its saddle onset, plus Min SNR and Min Peak
-    //     Quality, one per refractory window. Unlike prominence it keeps SCRs
-    //     that ride the rising edge of a larger response (no valley → zero
-    //     prominence) (see _detectPeaksFullScan()).
     //   - deconvolution (params.useDeconvolution): one global SCR deconvolution
     //     pass that replaces this.phasic with a resolved, superposition-free
     //     reconstruction and builds peaks from its driver impulses. Morphology
-    //     is fixed by the SCRF kernel, so the sliders are pinned to its
-    //     canonical values.
-    // Precedence when several flags are set: prominence > full-scan > deconv.
+    //     is fixed by the SCRF kernel.
+    // Precedence when several flags are set: prominence > deconvolution >
+    // full-scan (default).
     if (params.usePeakProminence) {
       this.phasicDriver = [];
       this.phasicClean = [];
@@ -488,13 +484,6 @@ class GSRAnalyzer {
       this.phasicDeconvTruncated = false;
       this._phasicOrig = null;
       this._detectPeaksByProminence(params);
-    } else if (params.useFullScanDetector) {
-      this.phasicDriver = [];
-      this.phasicClean = [];
-      this.phasicDriverPeaks = [];
-      this.phasicDeconvTruncated = false;
-      this._phasicOrig = null;
-      this._detectPeaksFullScan(params);
     } else if (params.useDeconvolution) {
       this._runDeconvolutionPipeline(phasicVals, params);
     } else {
@@ -503,7 +492,7 @@ class GSRAnalyzer {
       this.phasicDriverPeaks = [];
       this.phasicDeconvTruncated = false;
       this._phasicOrig = null; // clear stale backup from a prior deconvolution run
-      this.detectPeaks(params.peakThreshold, params);
+      this._detectPeaksFullScan(params);
     }
 
     // 5b. Memorable-event ("hotspot") selection — see _selectMemorableEvents().
@@ -681,7 +670,7 @@ class GSRAnalyzer {
     // kernel-predicted position — the canonical kernel is only an approximation
     // of any real SCR, so the actual maximum can sit a little either side of
     // kPeakIdx samples after onset. The ±0.5 s window is deliberate; ±0.75 s
-    // was tried and slightly hurt both apex accuracy and detectPeaks()
+    // was tried and slightly hurt both apex accuracy and raw-detector
     // agreement (it snaps onto neighbouring peaks). resolveApex() here only
     // gates which raw impulses feed the reconstruction; the final peak
     // positions come from _detectPeaksFromCurve() scanning the reconstructed
@@ -704,14 +693,14 @@ class GSRAnalyzer {
       return { apexIdx: bestIdx, apexVal: bestVal };
     };
 
-    // Gate which raw impulses feed the reconstruction: the amplitude threshold
-    // detectPeaks() applies, plus a check that each impulse matches a genuine
-    // local rise in the *original* signal at its resolved apex, not just a
-    // driver-domain artefact (mitigates noise-detected-as-SCR). This is the
-    // only pre-reconstruction filter — SNR and quality judge individual
+    // Gate which raw impulses feed the reconstruction: the same amplitude
+    // threshold (peakThreshold), plus a check that each impulse matches a
+    // genuine local rise in the *original* signal at its resolved apex, not
+    // just a driver-domain artefact (mitigates noise-detected-as-SCR). This is
+    // the only pre-reconstruction filter — SNR and quality judge individual
     // reported events, not whether a piece of signal is real, so they run
-    // later against the peaks built from the reconstructed curve, matching
-    // detectPeaks()'s own order (amplitude gates candidacy; SNR/quality filter
+    // later against the peaks built from the reconstructed curve, matching the
+    // raw detectors' order (amplitude gates candidacy; SNR/quality filter
     // the finished peak objects). resolveApex() is predicted from the TRUE
     // (possibly negative) onset via dominantTrueIndex(), not imp.index's
     // clamped position — a boundary impulse's clamp shift (up to kPeakIdx
@@ -833,9 +822,10 @@ class GSRAnalyzer {
   /**
    * Build the final discrete deconvolution-mode peak list by scanning the
    * reconstructed, superposition-resolved phasicClean curve for local
-   * maxima — the same simple approach detectPeaks() already uses on the raw
-   * signal in non-deconvolution mode — rather than working at the level of
-   * individual matching-pursuit atoms and guessing which ones to merge.
+   * maxima — the same simple local-maximum + trough-to-peak amplitude approach
+   * the default detector (_detectPeaksFullScan) uses on the raw signal —
+   * rather than working at the level of individual matching-pursuit atoms and
+   * guessing which ones to merge.
    *
    * Scanning the reconstructed curve directly sidesteps the "how many atoms is
    * too many to merge" question: two atoms whose summed kernels show one local
@@ -846,14 +836,11 @@ class GSRAnalyzer {
    * sequence of individually-legal steps could span far beyond the cap and
    * collapse several genuinely separate large events into one.
    *
-   * Unlike detectPeaks(), this does not apply the rise-time / half-recovery /
-   * skewness shape bounds: those sliders stay locked to the kernel's canonical
-   * values while deconvolution is on (see
-   * events.js:updateShapeSlidersForDetector), and rise/recovery/skew measured
-   * off a reconstructed curve reflect the summed shape of however many atoms
-   * landed in one peak, not any single canonical SCR. Amplitude
-   * (peakThreshold), SNR (shapeMinSnr) and composite quality (minPeakQuality)
-   * still apply.
+   * This applies no rise-time / half-recovery / skewness shape bounds (there
+   * are none in any current detector): rise/recovery/skew measured off a
+   * reconstructed curve reflect the summed shape of however many atoms landed
+   * in one peak, not any single canonical SCR. Amplitude (peakThreshold), SNR
+   * (shapeMinSnr) and composite quality (minPeakQuality) still apply.
    *
    * @param {Float64Array} cleanVals - Reconstructed phasic values (>= 0).
    * @param {Array<number>} times - Timestamps parallel to cleanVals.
@@ -869,10 +856,9 @@ class GSRAnalyzer {
 
     const defaults = GSR_CONST.PEAK_SHAPE;
     const threshold = params.peakThreshold;
-    // Backward onset-search bound only — not a shape filter (those stay
-    // locked/inapplicable in decon mode, see doc comment above). Reuses the
-    // same default search limit detectPeaks() falls back to when its own
-    // slider is off, purely to stop the walk-back at a sane point.
+    // Backward onset-search bound only — not a shape filter. The generous
+    // canonical MAX_RISE_TIME, same bound _detectPeaksFullScan and
+    // _detectPeaksByProminence use, purely to stop the walk-back at a sane point.
     const maxOnsetSteps = Math.round(defaults.MAX_RISE_TIME * this.sampleRate);
     const noiseHalfWin = Math.max(1, Math.round(this.sampleRate));
 
@@ -909,16 +895,13 @@ class GSRAnalyzer {
       i = Math.min(n - 2, i + Math.round(GSR_CONST.SCRF.minImpulseGapSec * this.sampleRate));
     }
 
-    // Enforce the same hard SNR cutoff detectPeaks() applies (shape.MIN_SNR,
-    // "0 = off"). shapeMinSnr stays live/editable in the UI when
-    // deconvolution is on — unlike rise time/half-recovery/skew, SNR isn't a
-    // property fixed by the kernel shape, it depends on each peak's local
-    // noise floor regardless of detection mode.
+    // Same hard SNR cutoff the default detector applies (shapeMinSnr, "0 = off").
+    // SNR depends on each peak's local noise floor regardless of detection mode.
     const minSnr = params && params.shapeMinSnr != null ? params.shapeMinSnr : defaults.MIN_SNR;
     let result = minSnr > 0 ? peaks.filter(pk => pk.snr >= minSnr) : peaks;
 
-    // Same "0 = off" convention as detectPeaks() — no hardcoded floor here;
-    // a hardcoded minimum would silently override an explicit user choice.
+    // "0 = off" convention — no hardcoded floor here; a hardcoded minimum
+    // would silently override an explicit user choice.
     const minQuality = params.minPeakQuality != null ? params.minPeakQuality : 0.0;
     result = result.filter(pk => pk.qualityScore >= minQuality);
 
@@ -939,8 +922,8 @@ class GSRAnalyzer {
    * @param {Map}     oldLabels             - Index→label map from pre-analysis peaks.
    * @param {Set}     oldExcluded           - Index set of excluded pre-analysis peaks.
    * @param {boolean} [checkImportedExcluded=false]
-   *   When true also checks this._importedPeakExcluded by *time* (detectPeaks
-   *   mode, where the imported-CSV exclusion map exists). False in
+   *   When true also checks this._importedPeakExcluded by *time* (the raw
+   *   detectors, where the imported-CSV exclusion map exists). False in
    *   _detectPeaksFromCurve mode, which only sees the index-keyed oldExcluded.
    * @returns {object} Peak object (qualityScore and salienceScore NOT yet set).
    * @private
@@ -1372,10 +1355,10 @@ class GSRAnalyzer {
    * on the ground so no two crowd the same spot on the map.
    *
    * Ranking is by response magnitude, descending. That is topographic
-   * PROMINENCE when the peak carries it (the prominence detector — comparable
-   * across isolated and stacked responses alike, and the metric that mode
-   * identifies peaks on) and trough-to-peak AMPLITUDE otherwise (trough-to-peak
-   * and deconvolution, which don't set a prominence field). salienceScore
+   * PROMINENCE when the peak carries it — the default full-scan detector and
+   * the prominence detector both stamp it (comparable across isolated and
+   * stacked responses alike) — and trough-to-peak AMPLITUDE otherwise (the
+   * deconvolution path, which doesn't set a prominence field). salienceScore
    * (amplitude/slope/SNR blend) is still computed per peak for the peaks table
    * but does not drive this.
    *
@@ -1384,7 +1367,7 @@ class GSRAnalyzer {
    * with peak count rather than staying a small curated set. 2% was picked
    * from real-track yields; treat it as a tunable starting point.
    *
-   * Spatial spacing: walking the amplitude-ranked list, a candidate is skipped
+   * Spatial spacing: walking the magnitude-ranked list, a candidate is skipped
    * if it falls within MEMORABLE_EVENTS.MIN_SEPARATION_M of an already-selected
    * hotspot, measured at the latency-shifted marker position (the same one the
    * map renders). The biggest response in any neighbourhood wins its spot. A
@@ -1436,8 +1419,9 @@ class GSRAnalyzer {
   /**
    * Snapshot any user-set labels and exclusion flags from the current peak list
    * so they survive re-analysis. Also merges labels/exclusions imported from a
-   * re-loaded processed CSV (matched by time). Called at the top of both
-   * detectPeaks() and _runDeconvolutionPipeline() before this.peaks is cleared.
+   * re-loaded processed CSV (matched by time). Called at the top of every
+   * detector (_detectPeaksFullScan / _detectPeaksByProminence /
+   * _runDeconvolutionPipeline) before this.peaks is cleared.
    *
    * @returns {{ oldLabels: Map<number,string>, oldExcluded: Set<number> }}
    * @private
@@ -1466,146 +1450,6 @@ class GSRAnalyzer {
       }
     }
     return { oldLabels, oldExcluded };
-  }
-
-  detectPeaks(threshold, params) {
-    const { oldLabels, oldExcluded } = this._preserveLabelsAndExclusions();
-    this.peaks = [];
-    const n = this.phasic.length;
-    if (n < 3) return;
-
-    const phasicVals = this.phasic.map(d => d.val);
-    const times = this.phasic.map(d => d.time);
-    const defaults = GSR_CONST.PEAK_SHAPE;
-
-    // Use dynamic slider values when available, fall back to defaults
-    const shape = {
-      MIN_RISE_TIME:     params && params.shapeMinRiseTime     != null ? params.shapeMinRiseTime     : defaults.MIN_RISE_TIME,
-      MAX_RISE_TIME:     params && params.shapeMaxRiseTime     != null ? params.shapeMaxRiseTime     : defaults.MAX_RISE_TIME,
-      MIN_HALF_RECOVERY: params && params.shapeMinHalfRecovery != null ? params.shapeMinHalfRecovery : defaults.MIN_HALF_RECOVERY,
-      MAX_HALF_RECOVERY: params && params.shapeMaxHalfRecovery != null ? params.shapeMaxHalfRecovery : defaults.MAX_HALF_RECOVERY,
-      MIN_ONSET_SLOPE:   defaults.MIN_ONSET_SLOPE,
-      MAX_ONSET_SLOPE:   defaults.MAX_ONSET_SLOPE,
-      MIN_DECAY_SLOPE:   defaults.MIN_DECAY_SLOPE,
-      MAX_PEAK_WIDTH:    defaults.MAX_PEAK_WIDTH,
-      MIN_SNR:           params && params.shapeMinSnr          != null ? params.shapeMinSnr          : defaults.MIN_SNR,
-      SKEWNESS_RATIO_MIN: defaults.SKEWNESS_RATIO_MIN,
-      SKEWNESS_RATIO_MAX: params && params.shapeMaxSkewRatio   != null ? params.shapeMaxSkewRatio   : defaults.SKEWNESS_RATIO_MAX,
-      QUALITY_WEIGHTS:   defaults.QUALITY_WEIGHTS
-    };
-
-    for (let i = 1; i < n - 1; i++) {
-      const prev = phasicVals[i - 1];
-      const curr = phasicVals[i];
-      const next = phasicVals[i + 1];
-
-      // ── 1. Local maximum check ──────────────────────────────────────────
-      if (!(curr > prev && curr >= next)) continue;
-      if (curr < 0.001) continue; // Noise floor check to skip flat/zero regions
-
-      // ── 2. Find onset ──────────────────────────────
-      // Plain saddle walk-back: the first local minimum, however shallow, is
-      // this response's onset. NOT the threshold-aware walk the prominence
-      // detector uses — in trough-to-peak mode a compound burst's leading and
-      // trailing sub-peaks are BOTH kept as separate peaks, so walking the
-      // trailing one's onset back through a sub-threshold inter-bump dip lands
-      // it before the leading peak and its amplitude then double-counts the
-      // shared rise (measured: inflated the trailing peak of ~370 compound
-      // bursts corpus-wide). The individual-SCR amplitude is trough-to-peak
-      // from the nearest dip.
-      const maxRiseLimit = shape.MAX_RISE_TIME > 0 ? shape.MAX_RISE_TIME : defaults.MAX_RISE_TIME;
-      const maxOnsetSteps = Math.round(maxRiseLimit * this.sampleRate);
-      const onsetIdx = this._findOnsetIndex(phasicVals, i, maxOnsetSteps);
-
-      const amplitude = curr - phasicVals[onsetIdx];
-      if (amplitude < threshold) continue;
-
-      // ── 3. Rise time ────────────────────────────
-      const riseTime = times[i] - times[onsetIdx];
-      const onsetSlope = riseTime > 0 ? amplitude / riseTime : 0;
-
-      // Rise time bounds
-      if (shape.MIN_RISE_TIME > 0 && riseTime < shape.MIN_RISE_TIME) {
-        i = Math.min(n - 2, i + 1);
-        continue;
-      }
-      if (shape.MAX_RISE_TIME > 0 && riseTime > shape.MAX_RISE_TIME) {
-        i = Math.min(n - 2, i + 1);
-        continue;
-      }
-      if (onsetSlope < shape.MIN_ONSET_SLOPE || onsetSlope > shape.MAX_ONSET_SLOPE) {
-        i = Math.min(n - 2, i + 1);
-        continue;
-      }
-
-      // ── 5. Half-recovery search ─────────────────────────────────────────
-      const recoveryIdx = this._findRecoveryIndex(phasicVals, i, onsetIdx, amplitude);
-      const halfRecoveryTime = recoveryIdx !== -1 ? times[recoveryIdx] - times[i] : -1;
-
-      // ── 6. Decay / recovery metrics ─────────────────────────────────────
-      const decaySlope = halfRecoveryTime > 0
-        ? (phasicVals[i] - phasicVals[recoveryIdx]) / halfRecoveryTime
-        : 0;
-      const skewnessRatio = halfRecoveryTime > 0
-        ? riseTime / halfRecoveryTime
-        : 0;
-
-      // Shape checks that require a valid half-recovery
-      if (halfRecoveryTime >= 0) {
-        if (shape.MIN_HALF_RECOVERY > 0 && halfRecoveryTime < shape.MIN_HALF_RECOVERY) {
-          i = Math.min(n - 2, i + 1);
-          continue;
-        }
-        if (shape.MAX_HALF_RECOVERY > 0 && halfRecoveryTime > shape.MAX_HALF_RECOVERY) {
-          i = Math.min(n - 2, i + 1);
-          continue;
-        }
-        if (decaySlope < shape.MIN_DECAY_SLOPE) {
-          i = Math.min(n - 2, i + 1);
-          continue;
-        }
-        if (skewnessRatio < shape.SKEWNESS_RATIO_MIN) {
-          i = Math.min(n - 2, i + 1);
-          continue;
-        }
-        if (shape.SKEWNESS_RATIO_MAX > 0 && skewnessRatio > shape.SKEWNESS_RATIO_MAX) {
-          i = Math.min(n - 2, i + 1);
-          continue;
-        }
-      }
-
-      // Compute FWHM and SNR using helper
-      const noiseHalfWin = Math.max(1, Math.round(this.sampleRate));
-      const metrics = this._calculateShapeMetrics(phasicVals, times, i, onsetIdx, recoveryIdx, noiseHalfWin);
-
-      if (metrics.fwhm > 0 && metrics.fwhm > shape.MAX_PEAK_WIDTH) {
-        i = Math.min(n - 2, i + 1);
-        continue;
-      }
-
-      if (shape.MIN_SNR > 0 && metrics.snr < shape.MIN_SNR) {
-        i = Math.min(n - 2, i + 1);
-        continue;
-      }
-
-      // ── 10. Build peak object with full shape metrics ──────────────────
-      const peak = this._buildPeakObject(i, curr, phasicVals, times,
-        { ...metrics, onsetIdx, recoveryIdx },
-        oldLabels, oldExcluded, true);
-
-      // ── 11. Compute composite quality score ────────────────────────────
-      peak.qualityScore = this._computePeakQuality(peak);
-      peak.salienceScore = this._computeSalienceScore(peak);
-
-      const minQuality = params && params.minPeakQuality != null ? params.minPeakQuality : 0.0;
-      if (peak.qualityScore >= minQuality) {
-        this.peaks.push(peak);
-      }
-
-      // Skip ahead to enforce minimum gap between peaks
-      i = Math.min(n - 2, i + Math.round(GSR_CONST.PEAK_MIN_GAP * this.sampleRate));
-    }
-    this._assignLabelsToPeaks(this.peaks);
   }
 
   /**
@@ -1725,7 +1569,7 @@ class GSRAnalyzer {
     }
 
     // Minimum-gap non-max suppression — largest prominence wins, same
-    // convention as detectPeaks()'s forward skip-ahead.
+    // convention as _detectPeaksFullScan()'s refractory skip-ahead.
     cand.sort((a, b) => b.prominence - a.prominence);
     const kept = [];
     for (const c of cand) {
@@ -1762,9 +1606,7 @@ class GSRAnalyzer {
    * peakThreshold, so a sub-threshold crest wiggle can't strand the onset in
    * the notch and collapse the amplitude.
    *
-   * The rise / half-recovery / skew morphology criteria do NOT gate this mode
-   * (they are hidden in the UI, events.js:updateShapeSlidersForDetector); the
-   * only per-peak gate is Min Peak Quality. Min SNR is not applied: a stacked
+   * The only per-peak gate is Min Peak Quality. Min SNR is not applied: a stacked
    * peak's amplitude is saddle-referenced, so its SNR is deflated by
    * construction and would reject exactly the peaks this detector exists to
    * find. peakThreshold and the artefact ceiling (_prominenceNMS) always apply.
@@ -1831,15 +1673,16 @@ class GSRAnalyzer {
   }
 
   /**
-   * Full-scan phasic peak detector (params.useFullScanDetector).
+   * Full-scan phasic peak detector — the DEFAULT (no params flag; the else
+   * branch of analyze()'s detector selection).
    *
    * The standard trough-to-peak SCR criterion — a response is a local maximum
    * that rose at least peakThreshold above its onset (the nearest preceding
    * dip) — applied NON-GREEDILY: every local maximum is tested on its own
-   * merit, not just the first one the left→right scan reaches before it skips a
-   * refractory period ahead. That single change recovers two classes the greedy
-   * default drops:
-   *   - the true summit of a compound rise (the greedy scan strands the marker
+   * merit, not just the first one a left→right scan reaches before it skips a
+   * refractory period ahead. Scanning non-greedily recovers two classes a
+   * greedy left→right scan drops:
+   *   - the true summit of a compound rise (a greedy scan strands the marker
    *     on the first shoulder and never revisits);
    *   - an SCR riding the rising edge of a larger later response — it has a real
    *     >= peakThreshold rise from its own onset but ZERO topographic prominence
@@ -1848,12 +1691,11 @@ class GSRAnalyzer {
    *     ~86% of them independently confirmed by deconvolution.
    *
    * Gates: peakThreshold (amplitude), Min SNR and Min Peak Quality — the
-   * literature SCR criteria, per peak. NOT the rise / half-recovery / skew
-   * morphology bounds (hidden for this mode, like the other alternatives).
-   * Refractory-period non-max suppression (PEAK_MIN_GAP): within one window the
-   * response that rose most from its own onset wins. Topographic prominence is
-   * still computed and stamped on every peak as a reported field (isolated vs
-   * part of a burst) but is not a detection gate.
+   * literature SCR criteria, per peak. Refractory-period non-max suppression
+   * (PEAK_MIN_GAP): within one window the response that rose most from its own
+   * onset wins. Topographic prominence is still computed and stamped on every
+   * peak as a reported field (isolated vs part of a burst) but is not a
+   * detection gate.
    *
    * @param {object} params - Analysis params (peakThreshold, shapeMinSnr, minPeakQuality).
    * @private

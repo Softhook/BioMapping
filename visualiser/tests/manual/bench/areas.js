@@ -36,7 +36,7 @@ function peakPixels(map, analyzer) {
 // ───────────────────────────────────────────────────────────────────────────
 const analyze = {
   name: 'analyze',
-  title: 'analyze() — recompute per settled GSR-slider frame (HIT = peak/shape slider · MISS = filter slider)',
+  title: 'analyze() — recompute per settled GSR-slider frame (HIT = peak slider · MISS = filter slider)',
   perTrack: true,
   columns: [
     { key: 'rows', label: 'rows' }, { key: 'peaks', label: 'peaks' },

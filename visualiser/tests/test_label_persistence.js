@@ -59,8 +59,8 @@ firstPeak.label = 'Test Event Alpha';
 
 console.log(`Labeled peak at t=${targetTime.toFixed(2)}s with "Test Event Alpha"`);
 
-// 1. Re-analyze with slight parameter change (shape filter change)
-params.shapeMinRiseTime = 0.2;
+// 1. Re-analyze with a slight detection-parameter change
+params.minPeakQuality = 0.05;
 analyzer.analyze(params);
 
 const reanalyzedPeak = analyzer.peaks.find(p => Math.abs(p.time - targetTime) <= 0.5);

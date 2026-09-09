@@ -24,9 +24,7 @@ module.exports = {
   GSR_DEFAULT: {
     medianSize: 0, lpfWindow: 0.5,
     tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.015,
-    shapeMinRiseTime: 0.3, shapeMaxRiseTime: 4.0,
-    shapeMinHalfRecovery: 0.0, shapeMaxHalfRecovery: 7.5,
-    shapeMinSnr: 1.5, shapeMaxSkewRatio: 0.0,
+    shapeMinSnr: 1.5,
     minPeakQuality: 0.0,
     peakDensityWindow: 10,
     hotspotPercentile: 0.02,
@@ -64,17 +62,8 @@ module.exports = {
   PEAK_PROMINENCE_BASELINE_SEC: 8,
 
   PEAK_SHAPE: {
-    MIN_RISE_TIME: 0.5,
     MAX_RISE_TIME: 5.0,
-    MIN_HALF_RECOVERY: 0.3,
-    MAX_HALF_RECOVERY: 10.0,
-    MIN_ONSET_SLOPE: 0.01,
-    MAX_ONSET_SLOPE: 5.0,
-    MIN_DECAY_SLOPE: 0.0001,
-    MAX_PEAK_WIDTH: 8.0,
     MIN_SNR: 2.0,
-    SKEWNESS_RATIO_MIN: 0.2,
-    SKEWNESS_RATIO_MAX: 6.0,
     QUALITY_WEIGHTS: {
       amplitude: 0.20, riseTime: 0.15, recoveryTime: 0.15,
       skewness: 0.15, onsetSlope: 0.10, snr: 0.15, decaySlope: 0.10

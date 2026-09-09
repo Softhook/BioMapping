@@ -371,12 +371,6 @@ const GSRTrackManager = {
 
     GSRTrackManager.loadActiveTrackParams(track);
     GSRTrackManager.loadActiveGpsParams(track);
-    // Refresh the shape-slider show/hide state for the new track's detector
-    // (trough-to-peak / combined / deconvolution) — loadActiveTrackParams only
-    // writes the values, not the disabled/visible state.
-    if (typeof GSREvents.updateShapeSlidersForDetector === 'function') {
-      GSREvents.updateShapeSlidersForDetector();
-    }
     GSREvents.initializeLabels();
     GSRUI.resetView();
     GSRUI.runAnalysis();
@@ -481,21 +475,15 @@ const GSRTrackManager = {
     if (!track || !track.filterParams) return;
     const params = track.filterParams;
     const S = AppState.sliders;
-    const isDeconvOn = !!params.useDeconvolution;
 
     for (const key of Object.keys(params)) {
       if (S[key]) {
-        if (isDeconvOn && key.startsWith('shape') && key !== 'shapeMinSnr') {
-          S[key].dataset.customValue = params[key];
-        } else {
-          delete S[key].dataset.customValue;
-          // hotspotPercentile is stored as a 0–1 fraction but its slider is in
-          // percent (0.5–10) — convert, or a default 0.02 clamps to the 0.5 min.
-          // Mirrors GSRStorage.applyPreset().
-          S[key].value = (key === 'hotspotPercentile' && params[key] <= 1.0)
-            ? params[key] * 100.0
-            : params[key];
-        }
+        // hotspotPercentile is stored as a 0–1 fraction but its slider is in
+        // percent (0.5–10) — convert, or a default 0.02 clamps to the 0.5 min.
+        // Mirrors GSRStorage.applyPreset().
+        S[key].value = (key === 'hotspotPercentile' && params[key] <= 1.0)
+          ? params[key] * 100.0
+          : params[key];
       }
     }
 

@@ -27,12 +27,11 @@ const GSREvents = {
     // Sliders & Selection inputs
     const sliderKeys = [
       'medianSize', 'lpfWindow', 'tonicWindow', 'tonicMethod', 'peakThreshold', 'minPeakQuality', 'hotspotPercentile',
-      'shapeMinRiseTime', 'shapeMaxRiseTime', 'shapeMinHalfRecovery', 'shapeMaxHalfRecovery',
-      'shapeMinSnr', 'shapeMaxSkewRatio',
+      'shapeMinSnr',
       'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsTrackWeight', 'gpsPeakLatency',
       'gpsSnapToRoads', 'gpsSnapRadius',
       'placeMergeDistance',
-      'graphView', 'useDeconvolution', 'usePeakProminence', 'useFullScanDetector'
+      'graphView', 'useDeconvolution', 'usePeakProminence'
     ];
     for (const key of sliderKeys) {
       AppState.sliders[key] = GSREvents._id(key);
@@ -359,25 +358,19 @@ const GSREvents = {
     GSREvents.bindGsrSlider('peakThreshold',     'valPeakThreshold',     ' μS');
     GSREvents.bindGsrSlider('minPeakQuality',    'valMinPeakQuality',    '');
     GSREvents.bindGsrSlider('hotspotPercentile', 'valHotspotPercentile', ' %');
-    GSREvents.bindGsrSlider('shapeMinRiseTime',  'valShapeMinRiseTime',  ' s');
-    GSREvents.bindGsrSlider('shapeMaxRiseTime',  'valShapeMaxRiseTime',  ' s');
-    GSREvents.bindGsrSlider('shapeMinHalfRecovery', 'valShapeMinHalfRecovery', ' s');
-    GSREvents.bindGsrSlider('shapeMaxHalfRecovery', 'valShapeMaxHalfRecovery', ' s');
     GSREvents.bindGsrSlider('shapeMinSnr',       'valShapeMinSnr',       '×');
-    GSREvents.bindGsrSlider('shapeMaxSkewRatio', 'valShapeMaxSkewRatio', '');
 
     S.tonicMethod.addEventListener('change', () => {
       GSREvents.updateTonicMethodLayout(false);
       GSRUI.runAnalysis();
     });
 
-    // ── Alternative-detector toggles (Prominence / Full-Scan / Deconvolution) ─
-    // Mutually exclusive: analyze() only ever runs one detector, so turning any
-    // alternative ON forces the other two OFF (setting .checked in code does
-    // not re-fire 'change', so no loop). Turning one OFF drops back to the
-    // default trough-to-peak detector. Each re-runs the full pipeline and
-    // refreshes the shape-slider visibility.
-    const detectorToggles = ['usePeakProminence', 'useFullScanDetector', 'useDeconvolution'];
+    // ── Alternative-detector toggles (Prominence / Deconvolution) ────────────
+    // Mutually exclusive: analyze() only ever runs one detector, so turning one
+    // alternative ON forces the other OFF (setting .checked in code does not
+    // re-fire 'change', so no loop). Turning both OFF drops back to the default
+    // full-scan detector. Each re-runs the full pipeline.
+    const detectorToggles = ['usePeakProminence', 'useDeconvolution'];
     detectorToggles.forEach(id => {
       if (!S[id]) return;
       S[id].addEventListener('change', () => {
@@ -386,7 +379,6 @@ const GSREvents = {
             if (other !== id && S[other]) S[other].checked = false;
           });
         }
-        GSREvents.updateShapeSlidersForDetector();
         GSRUI.runAnalysis();
       });
     });
@@ -1295,10 +1287,6 @@ const GSREvents = {
     updateLabel('peakThreshold',     'valPeakThreshold',     ' μS');
     updateLabel('minPeakQuality',    'valMinPeakQuality',    '');
     updateLabel('hotspotPercentile', 'valHotspotPercentile', ' %');
-    updateLabel('shapeMinRiseTime',  'valShapeMinRiseTime',  ' s');
-    updateLabel('shapeMaxRiseTime',  'valShapeMaxRiseTime',  ' s');
-    updateLabel('shapeMinHalfRecovery', 'valShapeMinHalfRecovery', ' s');
-    updateLabel('shapeMaxHalfRecovery', 'valShapeMaxHalfRecovery', ' s');
     // SNR: custom formatting with × suffix (show off when 0)
     const snrSlider = document.getElementById('shapeMinSnr');
     const snrLabel  = document.getElementById('valShapeMinSnr');
@@ -1306,7 +1294,6 @@ const GSREvents = {
       const val = parseFloat(snrSlider.value);
       snrLabel.innerText = val === 0 ? 'off' : val.toFixed(1) + '\u00d7';
     }
-    updateLabel('shapeMaxSkewRatio', 'valShapeMaxSkewRatio', '');
 
     // Initial tonic method layout and visibility setup (preserving saved settings value)
     GSREvents.updateTonicMethodLayout(true);
@@ -1364,122 +1351,6 @@ const GSREvents = {
 
     // Sync dim state for all sliders across all control cards
     document.querySelectorAll('input[type="range"]').forEach(slider => GSREvents.updateFilterDim(slider));
-
-    GSREvents.updateShapeSlidersForDetector();
-  },
-
-  /**
-   * Show/hide the morphology shape sliders (rise / half-recovery / skew) to
-   * match the active peak detector. These bounds are meaningful for the
-   * trough-to-peak detector only:
-   *
-   *   - Trough-to-peak (default): live — applied as rejection gates.
-   *   - Prominence (usePeakProminence): hidden. Detection is topographic
-   *     prominence >= peakThreshold; the only per-peak gate is Min Peak Quality
-   *     (_detectPeaksByProminence()), so these bounds have no effect.
-   *   - Full-scan (useFullScanDetector): hidden. Detection is trough-to-peak
-   *     amplitude >= peakThreshold applied to every local maximum; gates are
-   *     Min SNR + Min Peak Quality only (_detectPeaksFullScan()).
-   *   - Deconvolution: hidden and pinned to the SCRF kernel's canonical shape —
-   *     once the kernel is fixed, morphology isn't free to vary, so bounding a
-   *     reconstructed peak against those numbers is meaningless.
-   *
-   * Min SNR and Min Peak Quality are NOT in this list — they are per-peak
-   * properties, not shape constants. Min SNR stays live in the default and
-   * full-scan modes; Min Peak Quality in every mode.
-   */
-  updateShapeSlidersForDetector() {
-    const deconvCheckbox = document.getElementById('useDeconvolution');
-    const useDeconv = deconvCheckbox ? deconvCheckbox.checked : false;
-    const promCheckbox = document.getElementById('usePeakProminence');
-    const useProminenceMode = promCheckbox ? promCheckbox.checked : false;
-    const fullScanCheckbox = document.getElementById('useFullScanDetector');
-    const useFullScanMode = fullScanCheckbox ? fullScanCheckbox.checked : false;
-    // No alternative detector uses the rise / half-recovery / skew morphology
-    // sliders — hide them in every alternative mode. Deconvolution additionally
-    // pins them to canonical kernel values (so a stale number can't be
-    // persisted via readGsrSliderValues()); prominence and full-scan just never
-    // read them. Min SNR (not a shape slider) stays live and IS applied by
-    // full-scan and the default detector.
-    const hideShape = useDeconv || useProminenceMode || useFullScanMode;
-
-    // Derive canonical shape values analytically from the actual SCRF kernel so
-    // they stay in sync with GSR_CONST.SCRF if tauSlow/tauFast ever change,
-    // rather than being hand-typed numbers that can drift.
-    const scf = (typeof GSR_CONST !== 'undefined') ? GSR_CONST.SCRF : null;
-    let canonRise = 1.2, canonHalf = 2.2, canonSkew = 0.55;
-    if (scf && typeof SCRDeconvolution !== 'undefined') {
-      const sampleRate = 10; // Kernel metrics are rate-independent at this resolution
-      const k = SCRDeconvolution.buildSCRFKernel(sampleRate, scf.tauSlow, scf.tauFast, scf.kernelSec);
-      const dt = 1.0 / sampleRate;
-      let kPeakIdx = 0;
-      for (let i = 1; i < k.length; i++) { if (k[i] > k[kPeakIdx]) kPeakIdx = i; }
-      let kHalfIdx = kPeakIdx;
-      for (let i = kPeakIdx; i < k.length; i++) { if (k[i] <= 0.5) { kHalfIdx = i; break; } }
-      canonRise = parseFloat((kPeakIdx * dt).toFixed(2));
-      canonHalf = parseFloat(((kHalfIdx - kPeakIdx) * dt).toFixed(2));
-      canonSkew = canonHalf > 0 ? parseFloat((canonRise / canonHalf).toFixed(2)) : 0;
-    }
-
-    const shapeSliders = [
-      { id: 'shapeMinRiseTime',      labelId: 'valShapeMinRiseTime',      canonical: `${canonRise} s (locked)`,  canonicalValue: canonRise, suffix: ' s' },
-      { id: 'shapeMaxRiseTime',      labelId: 'valShapeMaxRiseTime',      canonical: `${canonRise} s (locked)`,  canonicalValue: canonRise, suffix: ' s' },
-      { id: 'shapeMinHalfRecovery',  labelId: 'valShapeMinHalfRecovery',  canonical: `${canonHalf} s (locked)`,  canonicalValue: canonHalf, suffix: ' s' },
-      { id: 'shapeMaxHalfRecovery',  labelId: 'valShapeMaxHalfRecovery',  canonical: `${canonHalf} s (locked)`,  canonicalValue: canonHalf, suffix: ' s' },
-      { id: 'shapeMaxSkewRatio',     labelId: 'valShapeMaxSkewRatio',     canonical: `${canonSkew} (locked)`,    canonicalValue: canonSkew, suffix: '' }
-    ];
-
-    shapeSliders.forEach(s => {
-      const slider = document.getElementById(s.id);
-      const label = document.getElementById(s.labelId);
-      const group = slider ? slider.closest('.slider-group') : null;
-      
-      if (slider) {
-        slider.disabled = hideShape;
-        if (useDeconv) {
-          // Cache custom user setting before overwriting
-          if (slider.dataset.customValue === undefined) {
-            slider.dataset.customValue = slider.value;
-          }
-          slider.value = s.canonicalValue;
-        } else if (!hideShape) {
-          // Restore the cached pre-lock value, or — if there isn't one —
-          // fall back to the slider's own declared default (its HTML
-          // value="0"/off attribute). Without this fallback, unchecking
-          // deconvolution when no genuine "before" state was ever cached
-          // (e.g. the checkbox was already checked on page load via browser
-          // form-state restoration, or loadActiveTrackParams() just cleared
-          // the cache when switching tracks) silently leaves the slider at
-          // whatever locked canonical number it was showing. That's a real
-          // problem specifically for the min/max pairs (rise time, half-
-          // recovery): both ends of the pair get locked to the SAME
-          // canonical value, so a stuck slider means min === max — a
-          // razor-thin range that rejects almost every peak — not a merely
-          // suboptimal one. Falling back to the shipped default (0 = off,
-          // matching GSR_DEFAULT) guarantees the slider always lands back in
-          // a sane, usable state rather than an accidental leftover lock.
-          if (slider.dataset.customValue !== undefined) {
-            slider.value = slider.dataset.customValue;
-            delete slider.dataset.customValue;
-          }
-        }
-      }
-      if (group) {
-        group.style.display = hideShape ? 'none' : '';
-      }
-      if (label) {
-        if (useDeconv) {
-          label.innerText = s.canonical;
-        } else if (useProminenceMode || useFullScanMode) {
-          label.innerText = 'not used';
-        } else if (slider) {
-          const val = parseFloat(slider.value);
-          const step = parseFloat(slider.step) || 0.1;
-          const decimals = step < 0.1 ? 2 : 1;
-          label.innerText = val === 0 ? 'off' : val.toFixed(decimals) + (s.suffix || '');
-        }
-      }
-    });
   },
 
 };

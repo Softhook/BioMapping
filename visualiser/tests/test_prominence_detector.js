@@ -11,7 +11,7 @@
  *
  * These tests pin:
  *   - every peak clears the prominence gate and sits on a local maximum
- *   - well-formed peak objects (full detectPeaks() field set + numeric prominence)
+ *   - well-formed peak objects (full default-detector field set + numeric prominence)
  *   - structural invariants (onset <= apex, recovery > apex, amplitude > 0)
  *   - PEAK_MIN_GAP respected; peak rate physiologically plausible
  *   - morphology sliders and Min SNR do not change the output; Min Peak Quality does
@@ -65,15 +65,15 @@ function analyze(patch) {
 }
 
 console.log('Loading track biomap_053.csv...');
-const trough = analyze({ usePeakProminence: false });
+const trough = analyze({ usePeakProminence: false });   // the default (full-scan) detector
 const prom   = analyze({ usePeakProminence: true });
 const durMin = (prom.raw[prom.raw.length - 1].time - prom.raw[0].time) / 60;
-console.log(`\n── LPF ${D.lpfWindow}s   trough: ${trough.peaks.length}   prominence: ${prom.peaks.length} (${(prom.peaks.length / durMin).toFixed(1)}/min)`);
+console.log(`\n── LPF ${D.lpfWindow}s   default: ${trough.peaks.length}   prominence: ${prom.peaks.length} (${(prom.peaks.length / durMin).toFixed(1)}/min)`);
 
 assert(prom.peaks.length > 0, 'prominence detector finds peaks on track 053');
 
-// It is a re-derivation of the same signal, not a superset: shoulders fold into
-// their summits (fewer), a few stacked SCRs the greedy scan skipped are added.
+// It is a re-derivation of the same signal, not a superset of the default
+// trough-to-peak detector: shoulders fold into their summits (fewer overall).
 const ratio = prom.peaks.length / trough.peaks.length;
 assert(ratio > 0.7 && ratio < 1.2,
   `count stays within a sane band of trough-to-peak (ratio ${ratio.toFixed(2)})`);
@@ -95,21 +95,22 @@ const keptBig = isolatedBig.filter(p => pT.some(t => Math.abs(t - p.time) <= GAP
 assert(isolatedBig.length > 0 && keptBig === isolatedBig.length,
   `every isolated large SCR is retained (${keptBig}/${isolatedBig.length})`);
 
-// Morphology sliders (rise / half-recovery / skew) and Min SNR do not gate this
-// mode; only Min Peak Quality does.
+// Min SNR does not gate this mode; only Min Peak Quality does. (The rise /
+// half-recovery / skew morphology params were removed with the greedy detector;
+// passing them here also confirms unknown params are ignored, not applied.)
 const tightShape = analyze({
   usePeakProminence: true,
   shapeMinRiseTime: 1.0, shapeMaxRiseTime: 3.0, shapeMaxHalfRecovery: 4.0,
   shapeMaxSkewRatio: 0.8, shapeMinSnr: 4.0,
 });
 assert(tightShape.peaks.length === prom.peaks.length,
-  `shape sliders + Min SNR do not change the output (${tightShape.peaks.length} === ${prom.peaks.length})`);
+  `Min SNR + stale morphology params do not change the output (${tightShape.peaks.length} === ${prom.peaks.length})`);
 const highQ = analyze({ usePeakProminence: true, minPeakQuality: 0.7 });
 assert(highQ.peaks.length < prom.peaks.length,
   `Min Peak Quality does gate (${highQ.peaks.length} < ${prom.peaks.length})`);
 assert(highQ.peaks.every(p => p.qualityScore >= 0.7), 'and it is actually applied per peak');
 
-// Peak-object shape parity with detectPeaks().
+// Peak-object shape parity with the default detector.
 const keys = ['index', 'time', 'value', 'amplitude', 'onsetIndex', 'onsetTime',
               'recoveryIndex', 'halfRecoveryTime', 'riseTime', 'onsetSlope',
               'decaySlope', 'skewnessRatio', 'fwhm', 'snr', 'label', 'excluded',

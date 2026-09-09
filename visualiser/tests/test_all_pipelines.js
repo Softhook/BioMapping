@@ -673,7 +673,7 @@ assert(deconvAnalyzer2.phasicClean.length === phasicRaw.length, 'phasicClean pop
 // qualityScore (see _computeSalienceScore()'s doc comment): not "is this a
 // real SCR" but "would a person notice/remember this moment" (high
 // amplitude). Checked in both modes since _computeSalienceScore() is shared
-// by detectPeaks() and _detectPeaksFromCurve(). Selection is percentile-based
+// by the default detector and _detectPeaksFromCurve(). Selection is percentile-based
 // (top 2% by amplitude, see the memorableEvents comment in analyze()) — an
 // earlier absolute-score-threshold version selected too many peaks in
 // practice (27% of the census on a real busy track) to read as curated.
@@ -771,12 +771,7 @@ function paramsFor(decon) {
     peakThreshold: deconvPeakThreshold,
     useDeconvolution: decon,
     minPeakQuality: 0.0,
-    shapeMinRiseTime: 0,
-    shapeMaxRiseTime: 0,
-    shapeMinHalfRecovery: 0,
-    shapeMaxHalfRecovery: 0,
-    shapeMinSnr: 0,
-    shapeMaxSkewRatio: 0
+    shapeMinSnr: 0
   };
 }
 
@@ -797,16 +792,16 @@ toggler.analyze(paramsFor(true));
 assertEq(JSON.stringify(snapshotAnalyzer(toggler)), JSON.stringify(freshOnSnap), 'Toggle step 4 (on again) matches fresh on-only instance');
 
 // 6i. Non-deconvolution path parity: with useDeconvolution:false, peak
-// detection must be byte-identical to the plain detectPeaks() path (the
-// deconvolution feature must not have altered this.detectPeaks() itself —
+// detection must be byte-identical to the plain default-detector path (the
+// deconvolution feature must not have altered the default detector itself —
 // confirmed against pre-deconvolution-feature analyzer.js on real track data
 // during review; this guards it going forward on the test fixture too).
 assertEq(freshOffSnap.phasicDriverLen, 0, 'Non-deconvolution path: phasicDriver stays empty');
 assertEq(freshOffSnap.phasicCleanLen, 0, 'Non-deconvolution path: phasicClean stays empty');
 assertEq(freshOffSnap.hasPhasicOrig, false, 'Non-deconvolution path: no _phasicOrig backup');
 
-// 6j. Agreement-rate regression guard: for "isolated" detectPeaks() peaks
-// (>=3s from any other detectPeaks() peak — no superposition ambiguity, so
+// 6j. Agreement-rate regression guard: for "isolated" default-detector peaks
+// (>=3s from any other default-detector peak — no superposition ambiguity, so
 // both detectors should find the same event), deconvolution mode must find
 // a matching peak nearby most of the time.
 //
@@ -856,7 +851,7 @@ assertEq(freshOffSnap.hasPhasicOrig, false, 'Non-deconvolution path: no _phasicO
     const rate = matched / isolatedPeaks.length;
     console.log(`  Agreement on isolated peaks: ${matched}/${isolatedPeaks.length} (${(rate * 100).toFixed(0)}%)`);
     assert(rate >= 0.55,
-      `Deconvolution finds >=55% of detectPeaks()'s unambiguous isolated peaks (got ${(rate * 100).toFixed(0)}%)`);
+      `Deconvolution finds >=55% of the default detector's unambiguous isolated peaks (got ${(rate * 100).toFixed(0)}%)`);
   }
 }
 

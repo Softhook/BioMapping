@@ -42,7 +42,7 @@ Filenames may omit `.csv`.
 
 | area | what it times | trigger in the app |
 |---|---|---|
-| `analyze` | `GSRAnalyzer.analyze()` HIT (peak/shape slider) vs MISS (filter slider) | every settled GSR-slider frame |
+| `analyze` | `GSRAnalyzer.analyze()` HIT (peak slider) vs MISS (filter slider) | every settled GSR-slider frame |
 | `signal-metrics` | peakDensity + phasicAUC + arousalIndex + triIndex | graphView change |
 | `arousal-places` | `compactClusters` + `buildPlaces` + every `getConcaveBlob`, split out | peak/merge slider, exclusion toggle |
 | `label-placement` | `GSRLabelManager.computeLabelPositions` at 25 / 100 / all peaks labelled | every peak-marker render |

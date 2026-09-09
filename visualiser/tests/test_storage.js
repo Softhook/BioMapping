@@ -1,7 +1,7 @@
 /**
- * Unit tests for storage.js (GSRStorage, sliderVal, shapeSliderVal) —
- * settings management, localStorage-adjacent preset import/export, and
- * slider-value parsing/fallback logic.
+ * Unit tests for storage.js (GSRStorage, sliderVal) — settings management,
+ * localStorage-adjacent preset import/export, and slider-value
+ * parsing/fallback logic.
  *
  * Run: node --test tests/test_storage.js  (or `npm test` for the whole suite)
  */
@@ -25,7 +25,7 @@ global.localStorage = {
   removeItem: () => {},
 };
 
-const { GSRStorage, sliderVal, shapeSliderVal } = require('../src/ui/storage.js');
+const { GSRStorage, sliderVal } = require('../src/ui/storage.js');
 
 function el(value) {
   return { value: String(value) };
@@ -60,21 +60,6 @@ test('sliderVal: uses custom parser fn (parseInt) when supplied', () => {
   assert.strictEqual(sliderVal(el('9.9'), 0, parseInt), 9);
 });
 
-// ── shapeSliderVal() ─────────────────────────────────────────────────────
-
-test('shapeSliderVal: returns fallback when el is null', () => {
-  assert.strictEqual(shapeSliderVal(null, 1.23), 1.23);
-});
-
-test('shapeSliderVal: prefers dataset.customValue over el.value when present', () => {
-  const lockedEl = { value: '999', dataset: { customValue: '4.5' } };
-  assert.strictEqual(shapeSliderVal(lockedEl, 0), 4.5);
-});
-
-test('shapeSliderVal: falls back to el.value via sliderVal when dataset.customValue is absent', () => {
-  const plainEl = { value: '6.5', dataset: {} };
-  assert.strictEqual(shapeSliderVal(plainEl, 0), 6.5);
-});
 
 // ── GSRStorage.readGsrSliderValues() ────────────────────────────────────
 
@@ -112,13 +97,9 @@ test('readGsrSliderValues: parses mandatory sliders and falls back to GSR_DEFAUL
   // Optional sliders absent -> fall back to GSR_DEFAULT / PEAK_SHAPE.
   assert.strictEqual(result.minPeakQuality, D.minPeakQuality);
   assert.strictEqual(result.hotspotPercentile, D.hotspotPercentile);
-  assert.strictEqual(result.shapeMinRiseTime, PS.MIN_RISE_TIME);
-  assert.strictEqual(result.shapeMaxRiseTime, PS.MAX_RISE_TIME);
-  assert.strictEqual(result.shapeMinHalfRecovery, PS.MIN_HALF_RECOVERY);
-  assert.strictEqual(result.shapeMaxHalfRecovery, PS.MAX_HALF_RECOVERY);
   assert.strictEqual(result.shapeMinSnr, PS.MIN_SNR);
-  assert.strictEqual(result.shapeMaxSkewRatio, PS.SKEWNESS_RATIO_MAX);
   assert.strictEqual(result.useDeconvolution, false);
+  assert.strictEqual(result.usePeakProminence, false);
 });
 
 test('readGsrSliderValues: hotspotPercentile is divided by 100 when read from the (0-100) slider', () => {
@@ -142,16 +123,14 @@ test('readGsrSliderValues: useDeconvolution reflects checkbox .checked state', (
   assert.strictEqual(GSRStorage.readGsrSliderValues().useDeconvolution, true);
 });
 
-test('readGsrSliderValues: shape sliders read the locked dataset.customValue when present', () => {
+test('readGsrSliderValues: shapeMinSnr is read straight from the slider value', () => {
   resetGlobals();
   global.AppState.sliders = {
     medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'),
     tonicWindow: el(45), peakThreshold: el(0.02),
-    shapeMinRiseTime: { value: '999', dataset: { customValue: '1.1' } },
-    shapeMinSnr: { value: '2.2', dataset: {} }, // shapeMinSnr never locks — uses sliderVal directly
+    shapeMinSnr: { value: '2.2', dataset: {} },
   };
   const result = GSRStorage.readGsrSliderValues();
-  assert.strictEqual(result.shapeMinRiseTime, 1.1);
   assert.strictEqual(result.shapeMinSnr, 2.2);
 });
 
@@ -454,62 +433,32 @@ test('applyPreset: hotspotPercentile > 1.0 is treated as already being a percent
   assert.strictEqual(S.hotspotPercentile.value, 4);
 });
 
-test('applyPreset: shape sliders lock to dataset.customValue while useDeconvolution is on (except shapeMinSnr)', () => {
+test('applyPreset: shapeMinSnr writes straight to the slider value', () => {
   resetGlobals();
   const S = {
     medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'), tonicWindow: el(0), peakThreshold: el(0),
     useDeconvolution: { checked: false },
-    shapeMinRiseTime: { value: '0', dataset: {} }, shapeMaxRiseTime: { value: '0', dataset: {} },
-    shapeMinHalfRecovery: { value: '0', dataset: {} }, shapeMaxHalfRecovery: { value: '0', dataset: {} },
-    shapeMinSnr: { value: '0', dataset: {} }, shapeMaxSkewRatio: { value: '0', dataset: {} },
+    shapeMinSnr: { value: '0', dataset: {} },
   };
   global.AppState.sliders = S;
 
-  GSRStorage.applyPreset({
-    gsr: {
-      useDeconvolution: true,
-      shapeMinRiseTime: 1.1, shapeMaxRiseTime: 2.2, shapeMinHalfRecovery: 3.3,
-      shapeMaxHalfRecovery: 4.4, shapeMinSnr: 5.5, shapeMaxSkewRatio: 6.6,
-    },
-    gps: {},
-  });
+  GSRStorage.applyPreset({ gsr: { useDeconvolution: true, shapeMinSnr: 5.5 }, gps: {} });
 
   assert.strictEqual(S.useDeconvolution.checked, true);
-  assert.strictEqual(S.shapeMinRiseTime.dataset.customValue, 1.1);
-  assert.strictEqual(S.shapeMaxRiseTime.dataset.customValue, 2.2);
-  assert.strictEqual(S.shapeMinHalfRecovery.dataset.customValue, 3.3);
-  assert.strictEqual(S.shapeMaxHalfRecovery.dataset.customValue, 4.4);
-  assert.strictEqual(S.shapeMaxSkewRatio.dataset.customValue, 6.6);
-  // shapeMinSnr is never locked — always written straight to .value
   assert.strictEqual(S.shapeMinSnr.value, 5.5);
   assert.strictEqual(S.shapeMinSnr.dataset.customValue, undefined);
 });
 
-test('applyPreset: shape sliders write directly to .value and clear any stale dataset.customValue when useDeconvolution is off', () => {
-  resetGlobals();
-  const S = {
-    medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'), tonicWindow: el(0), peakThreshold: el(0),
-    shapeMinRiseTime: { value: '0', dataset: { customValue: '999' } },
-  };
-  global.AppState.sliders = S;
-
-  GSRStorage.applyPreset({ gsr: { useDeconvolution: false, shapeMinRiseTime: 1.5 }, gps: {} });
-
-  assert.strictEqual(S.shapeMinRiseTime.value, 1.5);
-  assert.strictEqual(S.shapeMinRiseTime.dataset.customValue, undefined);
-});
-
-test('applyPreset: invokes GSREvents layout/state hooks and syncs slider displays', () => {
+test('applyPreset: invokes GSREvents layout hook and syncs slider displays', () => {
   resetGlobals();
   global.AppState.sliders = { medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'), tonicWindow: el(0), peakThreshold: el(0) };
   const calls = [];
   global.GSREvents = {
     updateTonicMethodLayout: () => calls.push('layout'),
-    updateShapeSlidersForDetector: () => calls.push('shapeSliders'),
     initializeLabels: () => calls.push('labels'),
   };
   GSRStorage.applyPreset({ gsr: {}, gps: {} });
-  assert.deepStrictEqual(calls, ['layout', 'shapeSliders', 'labels']);
+  assert.deepStrictEqual(calls, ['layout', 'labels']);
 });
 
 test('applyPreset: commits parsed sliders to the active track and re-analyzes it', () => {

@@ -648,42 +648,25 @@ test('loadActiveTrackParams + saveActiveTrackParams round-trip a params object t
   delete global.AppState;
 });
 
-test('loadActiveTrackParams: when useDeconvolution is on, shape* keys (except shapeMinSnr) go to dataset.customValue instead of .value', () => {
+test('loadActiveTrackParams: writes every matching key straight to the slider value', () => {
   resetSpies();
   global.AppState = freshAppState();
   global.AppState.sliders = {
-    shapeMinRiseTime: { value: 1, dataset: {} },
     shapeMinSnr: { value: 1, dataset: {} },
     peakThreshold: { value: 1, dataset: {} },
     useDeconvolution: { checked: false, dataset: {} },
   };
   const params = {
     useDeconvolution: true,
-    shapeMinRiseTime: 2.5,
     shapeMinSnr: 4.0,
     peakThreshold: 0.09,
   };
 
   GSRTrackManager.loadActiveTrackParams({ filterParams: params });
 
-  assert.strictEqual(global.AppState.sliders.shapeMinRiseTime.dataset.customValue, 2.5, 'shape* -> dataset.customValue');
-  assert.strictEqual(global.AppState.sliders.shapeMinRiseTime.value, 1, '.value left untouched');
-  assert.strictEqual(global.AppState.sliders.shapeMinSnr.value, 4.0, 'shapeMinSnr is excluded from the dataset-only rule');
-  assert.strictEqual(global.AppState.sliders.shapeMinSnr.dataset.customValue, undefined);
-  assert.strictEqual(global.AppState.sliders.peakThreshold.value, 0.09, 'non-shape keys always go to .value');
+  assert.strictEqual(global.AppState.sliders.shapeMinSnr.value, 4.0);
+  assert.strictEqual(global.AppState.sliders.peakThreshold.value, 0.09);
   assert.strictEqual(global.AppState.sliders.useDeconvolution.checked, true);
-  delete global.AppState;
-});
-
-test('loadActiveTrackParams: clears a stale dataset.customValue when useDeconvolution is off', () => {
-  resetSpies();
-  global.AppState = freshAppState();
-  global.AppState.sliders = {
-    shapeMinRiseTime: { value: 1, dataset: { customValue: 9.9 } },
-  };
-  GSRTrackManager.loadActiveTrackParams({ filterParams: { shapeMinRiseTime: 3.0, useDeconvolution: false } });
-  assert.strictEqual(global.AppState.sliders.shapeMinRiseTime.value, 3.0);
-  assert.strictEqual('customValue' in global.AppState.sliders.shapeMinRiseTime.dataset, false);
   delete global.AppState;
 });
 
