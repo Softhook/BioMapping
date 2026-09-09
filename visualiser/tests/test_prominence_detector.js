@@ -113,7 +113,7 @@ assert(highQ.peaks.every(p => p.qualityScore >= 0.7), 'and it is actually applie
 // Peak-object shape parity with the default detector.
 const keys = ['index', 'time', 'value', 'amplitude', 'onsetIndex', 'onsetTime',
               'recoveryIndex', 'halfRecoveryTime', 'riseTime', 'onsetSlope',
-              'decaySlope', 'skewnessRatio', 'fwhm', 'snr', 'label', 'excluded',
+              'decaySlope', 'skewnessRatio', 'snr', 'label', 'excluded',
               'qualityScore', 'salienceScore', 'prominence'];
 assert(keys.every(k => k in prom.peaks[0]), 'peak objects carry the full field set + prominence');
 

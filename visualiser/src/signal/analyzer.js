@@ -28,7 +28,7 @@ class GSRAnalyzer {
     this.phasicStd = 1;     // Standard deviation of phasic component for Z-scaling peaks
     this.peaks = [];        // Detected peaks with shape metrics:
                             // { time, index, amplitude, onsetIndex, onsetTime, halfRecoveryTime,
-                            //   riseTime, onsetSlope, decaySlope, skewnessRatio, fwhm, snr,
+                            //   riseTime, onsetSlope, decaySlope, skewnessRatio, snr,
                             //   qualityScore, salienceScore, label }
     this.memorableEvents = []; // Curated hotspot subset of this.peaks: the
                                 // highest-amplitude responses, spatially spread
@@ -918,7 +918,7 @@ class GSRAnalyzer {
    * @param {Array}   times                 - Timestamps parallel to vals.
    * @param {object}  shape                 - Pre-computed shape metrics:
    *   { amplitude, onsetIdx, recoveryIdx, halfRecoveryTime, riseTime,
-   *     onsetSlope, decaySlope, skewnessRatio, fwhm, snr }
+   *     onsetSlope, decaySlope, skewnessRatio, snr }
    * @param {Map}     oldLabels             - Index→label map from pre-analysis peaks.
    * @param {Set}     oldExcluded           - Index set of excluded pre-analysis peaks.
    * @param {boolean} [checkImportedExcluded=false]
@@ -930,7 +930,7 @@ class GSRAnalyzer {
    */
   _buildPeakObject(i, currVal, vals, times, shape, oldLabels, oldExcluded, checkImportedExcluded = false) {
     const { amplitude, onsetIdx, recoveryIdx, halfRecoveryTime,
-            riseTime, onsetSlope, decaySlope, skewnessRatio, fwhm, snr } = shape;
+            riseTime, onsetSlope, decaySlope, skewnessRatio, snr } = shape;
     return {
       index: i,
       time: times[i],
@@ -945,7 +945,6 @@ class GSRAnalyzer {
       onsetSlope,
       decaySlope,
       skewnessRatio,
-      fwhm,
       snr,
       label: oldLabels.get(i) ||
              this.getMatchingLabel(times[i]) ||
@@ -1083,13 +1082,6 @@ class GSRAnalyzer {
     const decaySlope = halfRecoveryTime > 0 ? (vals[i] - vals[recoveryIdx]) / halfRecoveryTime : 0;
     const skewnessRatio = halfRecoveryTime > 0 ? riseTime / halfRecoveryTime : 0;
 
-    const halfDecayVal = vals[onsetIdx] + amplitude * 0.5;
-    let fwhmStart = onsetIdx;
-    for (let j = onsetIdx; j <= i; j++) {
-      if (vals[j] >= halfDecayVal) { fwhmStart = j; break; }
-    }
-    const fwhm = recoveryIdx !== -1 ? times[recoveryIdx] - times[fwhmStart] : -1;
-
     const noiseFloor = this._computeNoiseFloor(onsetIdx, noiseHalfWin);
     const snr = noiseFloor > 0 ? amplitude / noiseFloor : 0;
 
@@ -1100,7 +1092,6 @@ class GSRAnalyzer {
       halfRecoveryTime,
       decaySlope,
       skewnessRatio,
-      fwhm,
       snr
     };
   }
@@ -1220,7 +1211,7 @@ class GSRAnalyzer {
    *
    * Under the fixed-kernel SCRF model (Benedek & Kaernbach, 2010 — see the
    * SCRF class comment in constants.js), every deconvolution peak shares the
-   * exact same riseTime, halfRecoveryTime, skewnessRatio and fwhm by
+   * exact same riseTime, halfRecoveryTime and skewnessRatio by
    * construction: they're derived once from the kernel, not measured per
    * peak. Verified empirically on track 053: all 205 peaks have exactly one
    * distinct riseTime/halfRecoveryTime/skewnessRatio value between them,
@@ -1547,8 +1538,7 @@ class GSRAnalyzer {
    * @param {number} threshold - prominence gate (peakThreshold, µS).
    * @param {number} minGap - non-max-suppression radius, in samples.
    * @param {number} baselineWin - trailing window for the pre-burst minimum, in samples.
-   * @returns {Array<{i:number,prominence:number,baselineAmp:number}>}
-   *   survivors, ascending by sample index.
+   * @returns {number[]} apex sample indices of survivors, ascending.
    * @private
    */
   _prominenceNMS(vals, prom, threshold, minGap, baselineWin) {
@@ -1576,11 +1566,10 @@ class GSRAnalyzer {
       for (let j = Math.max(0, i - baselineWin); j <= i; j++) {
         if (vals[j] < mn) mn = vals[j];
       }
-      const baselineAmp = vals[i] - mn;
       // Ceiling re-checked against baseline amplitude so a large-but-real event
       // riding a raised tonic is assessed from its pre-burst level, not zero.
-      if (baselineAmp > maxScrAmp) continue;
-      cand.push({ i, prominence: prom[i], baselineAmp });
+      if (vals[i] - mn > maxScrAmp) continue;
+      cand.push({ i, prominence: prom[i] });
     }
 
     // Minimum-gap non-max suppression — largest prominence wins, same
@@ -1591,7 +1580,7 @@ class GSRAnalyzer {
       if (!kept.some(k => Math.abs(k.i - c.i) < minGap)) kept.push(c);
     }
     kept.sort((a, b) => a.i - b.i);
-    return kept;
+    return kept.map(c => c.i);
   }
 
   /**
@@ -1657,13 +1646,13 @@ class GSRAnalyzer {
     // by sample index == ascending by time.
     const kept = this._prominenceNMS(vals, prom, threshold, minGap, baselineWin);
 
-    for (const c of kept) {
+    for (const idx of kept) {
       // Onset walk-back ignores notches shallower than peakThreshold, so a
       // response whose crest carries a sub-threshold wiggle is still measured
       // from its true onset (matches the "a real recovery is >= threshold" bar
       // the prominence gate itself uses).
-      const onsetIdx = this._findOnsetIndex(vals, c.i, maxOnsetSteps, threshold);
-      const peak = this._prominencePeakAt(c.i, onsetIdx, vals, times, prom,
+      const onsetIdx = this._findOnsetIndex(vals, idx, maxOnsetSteps, threshold);
+      const peak = this._prominencePeakAt(idx, onsetIdx, vals, times, prom,
         noiseHalfWin, oldLabels, oldExcluded);
       if (peak.qualityScore >= minQuality) this.peaks.push(peak);
     }

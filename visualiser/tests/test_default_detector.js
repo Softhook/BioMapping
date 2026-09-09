@@ -132,7 +132,7 @@ assert(dflt.peaks.every(p =>
   'every marker sits on a phasic local maximum');
 const keys = ['index', 'time', 'value', 'amplitude', 'onsetIndex', 'onsetTime', 'recoveryIndex',
               'halfRecoveryTime', 'riseTime', 'onsetSlope', 'decaySlope', 'skewnessRatio',
-              'fwhm', 'snr', 'label', 'excluded', 'qualityScore', 'salienceScore', 'prominence'];
+              'snr', 'label', 'excluded', 'qualityScore', 'salienceScore', 'prominence'];
 assert(keys.every(k => k in dflt.peaks[0]), 'peak objects carry the full field set');
 
 // ── Refractory gap + rate. The contract is round(PEAK_MIN_GAP * sampleRate)
