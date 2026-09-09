@@ -32,7 +32,7 @@ const GSREvents = {
       'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsTrackWeight', 'gpsPeakLatency',
       'gpsSnapToRoads', 'gpsSnapRadius',
       'placeMergeDistance',
-      'graphView', 'useDeconvolution', 'usePeakProminence'
+      'graphView', 'useDeconvolution', 'usePeakProminence', 'useFullScanDetector'
     ];
     for (const key of sliderKeys) {
       AppState.sliders[key] = GSREvents._id(key);
@@ -371,31 +371,25 @@ const GSREvents = {
       GSRUI.runAnalysis();
     });
 
-    // ── Alternative-detector toggles (Combined / Deconvolution) ──────────────
-    // Mutually exclusive: analyze() only ever runs one detector, so turning
-    // either alternative ON forces the other OFF (setting .checked in code
-    // does not re-fire 'change', so no loop). Turning one OFF just drops back
-    // to the default trough-to-peak detector. Both re-run the full pipeline
-    // and refresh the shape-slider visibility.
-    if (S.useDeconvolution) {
-      S.useDeconvolution.addEventListener('change', () => {
-        if (S.useDeconvolution.checked && S.usePeakProminence) {
-          S.usePeakProminence.checked = false;
+    // ── Alternative-detector toggles (Prominence / Full-Scan / Deconvolution) ─
+    // Mutually exclusive: analyze() only ever runs one detector, so turning any
+    // alternative ON forces the other two OFF (setting .checked in code does
+    // not re-fire 'change', so no loop). Turning one OFF drops back to the
+    // default trough-to-peak detector. Each re-runs the full pipeline and
+    // refreshes the shape-slider visibility.
+    const detectorToggles = ['usePeakProminence', 'useFullScanDetector', 'useDeconvolution'];
+    detectorToggles.forEach(id => {
+      if (!S[id]) return;
+      S[id].addEventListener('change', () => {
+        if (S[id].checked) {
+          detectorToggles.forEach(other => {
+            if (other !== id && S[other]) S[other].checked = false;
+          });
         }
         GSREvents.updateShapeSlidersForDetector();
         GSRUI.runAnalysis();
       });
-    }
-
-    if (S.usePeakProminence) {
-      S.usePeakProminence.addEventListener('change', () => {
-        if (S.usePeakProminence.checked && S.useDeconvolution) {
-          S.useDeconvolution.checked = false;
-        }
-        GSREvents.updateShapeSlidersForDetector();
-        GSRUI.runAnalysis();
-      });
-    }
+    });
 
     // ── Graph view selector ─────────────────────────────────────────────────
     // Rendering-only setting (no re-analysis needed). One dropdown picks the
@@ -1383,24 +1377,31 @@ const GSREvents = {
    *   - Prominence (usePeakProminence): hidden. Detection is topographic
    *     prominence >= peakThreshold; the only per-peak gate is Min Peak Quality
    *     (_detectPeaksByProminence()), so these bounds have no effect.
+   *   - Full-scan (useFullScanDetector): hidden. Detection is trough-to-peak
+   *     amplitude >= peakThreshold applied to every local maximum; gates are
+   *     Min SNR + Min Peak Quality only (_detectPeaksFullScan()).
    *   - Deconvolution: hidden and pinned to the SCRF kernel's canonical shape —
    *     once the kernel is fixed, morphology isn't free to vary, so bounding a
    *     reconstructed peak against those numbers is meaningless.
    *
    * Min SNR and Min Peak Quality are NOT in this list — they are per-peak
-   * properties, not shape constants, and stay live in every mode.
+   * properties, not shape constants. Min SNR stays live in the default and
+   * full-scan modes; Min Peak Quality in every mode.
    */
   updateShapeSlidersForDetector() {
     const deconvCheckbox = document.getElementById('useDeconvolution');
     const useDeconv = deconvCheckbox ? deconvCheckbox.checked : false;
     const promCheckbox = document.getElementById('usePeakProminence');
     const useProminenceMode = promCheckbox ? promCheckbox.checked : false;
-    // Neither alternative detector uses the morphology sliders — hide them in
-    // both modes. Deconvolution additionally pins them to canonical kernel
-    // values (so a stale number can't be persisted via readGsrSliderValues());
-    // the prominence detector never reads them (Min Peak Quality is its only
-    // per-peak gate).
-    const hideShape = useDeconv || useProminenceMode;
+    const fullScanCheckbox = document.getElementById('useFullScanDetector');
+    const useFullScanMode = fullScanCheckbox ? fullScanCheckbox.checked : false;
+    // No alternative detector uses the rise / half-recovery / skew morphology
+    // sliders — hide them in every alternative mode. Deconvolution additionally
+    // pins them to canonical kernel values (so a stale number can't be
+    // persisted via readGsrSliderValues()); prominence and full-scan just never
+    // read them. Min SNR (not a shape slider) stays live and IS applied by
+    // full-scan and the default detector.
+    const hideShape = useDeconv || useProminenceMode || useFullScanMode;
 
     // Derive canonical shape values analytically from the actual SCRF kernel so
     // they stay in sync with GSR_CONST.SCRF if tauSlow/tauFast ever change,
@@ -1469,7 +1470,7 @@ const GSREvents = {
       if (label) {
         if (useDeconv) {
           label.innerText = s.canonical;
-        } else if (useProminenceMode) {
+        } else if (useProminenceMode || useFullScanMode) {
           label.innerText = 'not used';
         } else if (slider) {
           const val = parseFloat(slider.value);

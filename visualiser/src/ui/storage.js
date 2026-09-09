@@ -68,7 +68,8 @@ const GSRStorage = {
       shapeMinSnr:           sliderVal(S.shapeMinSnr,          PS.MIN_SNR),
       shapeMaxSkewRatio:     shapeSliderVal(S.shapeMaxSkewRatio,    PS.SKEWNESS_RATIO_MAX),
       useDeconvolution:       (S.useDeconvolution && S.useDeconvolution.checked) || false,
-      usePeakProminence:      (S.usePeakProminence && S.usePeakProminence.checked) || false
+      usePeakProminence:      (S.usePeakProminence && S.usePeakProminence.checked) || false,
+      useFullScanDetector:    (S.useFullScanDetector && S.useFullScanDetector.checked) || false
     };
   },
 
@@ -267,10 +268,17 @@ const GSRStorage = {
     if (gsr.usePeakProminence !== undefined && S.usePeakProminence) {
       S.usePeakProminence.checked = !!gsr.usePeakProminence;
     }
-    // The two alternative detectors are mutually exclusive; if a stored config
-    // somehow has both, prominence wins (matches analyze()'s precedence).
-    if (S.usePeakProminence && S.usePeakProminence.checked && S.useDeconvolution) {
-      S.useDeconvolution.checked = false;
+    if (gsr.useFullScanDetector !== undefined && S.useFullScanDetector) {
+      S.useFullScanDetector.checked = !!gsr.useFullScanDetector;
+    }
+    // The alternative detectors are mutually exclusive; if a stored config
+    // somehow has more than one, keep the highest-precedence one
+    // (prominence > full-scan > deconvolution, matching analyze()).
+    if (S.usePeakProminence && S.usePeakProminence.checked) {
+      if (S.useFullScanDetector) S.useFullScanDetector.checked = false;
+      if (S.useDeconvolution) S.useDeconvolution.checked = false;
+    } else if (S.useFullScanDetector && S.useFullScanDetector.checked) {
+      if (S.useDeconvolution) S.useDeconvolution.checked = false;
     }
 
     const isDeconvOn = !!gsr.useDeconvolution;

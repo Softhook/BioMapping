@@ -209,7 +209,16 @@
               </label>
               <span class="toggle-label">Prominence Detector</span>
             </div>
-            <p class="help-text" style="margin-top:4px;">Marks a response wherever skin conductance rises at least the Min Peak Amplitude above the level it last recovered to (topographic prominence). One pass — sits on the true summit of each rise and separates a response stacked on a larger one by the real dip between them, not by a fixed spacing. The rise / recovery / skew criteria and Min SNR below do not apply in this mode; Min Peak Quality does. Overrides Deconvolution when both are on.</p>
+            <p class="help-text" style="margin-top:4px;">Marks a response wherever skin conductance rises at least the Min Peak Amplitude above the level it last recovered to (topographic prominence). One pass — sits on the true summit of each rise and separates a response stacked on a larger one by the real dip between them, not by a fixed spacing. The rise / recovery / skew criteria and Min SNR below do not apply in this mode; Min Peak Quality does. Takes precedence over the others when more than one is on.</p>
+
+            <div class="toggle-group" style="margin-top:8px;">
+              <label class="switch">
+                <input type="checkbox" id="useFullScanDetector">
+                <span class="slider round"></span>
+              </label>
+              <span class="toggle-label">Full-Scan Detector</span>
+            </div>
+            <p class="help-text" style="margin-top:4px;">The standard trough-to-peak criterion — a response rose at least the Min Peak Amplitude from its onset — checked against <em>every</em> local maximum, not just the first the left-to-right scan reaches. Keeps responses that ride the rising edge of a larger one (which have no dip, so the Prominence detector misses them). Gates: Min Peak Amplitude, Min SNR, Min Peak Quality; rise / recovery / skew do not apply.</p>
 
             <div class="toggle-group" style="margin-top:8px;">
               <label class="switch">

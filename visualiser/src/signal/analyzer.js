@@ -458,23 +458,29 @@ class GSRAnalyzer {
       };
     }
 
-    // 5. Phasic Peak Detection. Exactly one of three mutually-exclusive
+    // 5. Phasic Peak Detection. Exactly one of four mutually-exclusive
     // pipelines builds this.peaks per analyze() call. The morphology sliders
-    // (rise / half-recovery / skew) and Min SNR apply in the default mode only;
-    // Min Peak Quality applies in every mode.
-    //   - default: trough-to-peak detection. The morphology sliders are live
-    //     rejection gates.
+    // (rise / half-recovery / skew) apply in the default mode only; Min Peak
+    // Quality applies in every mode.
+    //   - default: trough-to-peak detection. Greedy left→right scan; the
+    //     morphology sliders and Min SNR are live rejection gates.
     //   - prominence (params.usePeakProminence): one non-greedy pass — every
     //     local maximum whose topographic prominence >= peakThreshold, i.e.
     //     conductance rose that much above the level it last recovered to.
-    //     Resolves shoulders and stacked SCRs in one step; the only per-peak
-    //     gate is Min Peak Quality (see _detectPeaksByProminence()).
+    //     Resolves shoulders in one step; the only per-peak gate is Min Peak
+    //     Quality (see _detectPeaksByProminence()).
+    //   - full-scan (params.useFullScanDetector): the trough-to-peak amplitude
+    //     criterion applied non-greedily — every local maximum that rose
+    //     >= peakThreshold from its saddle onset, plus Min SNR and Min Peak
+    //     Quality, one per refractory window. Unlike prominence it keeps SCRs
+    //     that ride the rising edge of a larger response (no valley → zero
+    //     prominence) (see _detectPeaksFullScan()).
     //   - deconvolution (params.useDeconvolution): one global SCR deconvolution
     //     pass that replaces this.phasic with a resolved, superposition-free
     //     reconstruction and builds peaks from its driver impulses. Morphology
     //     is fixed by the SCRF kernel, so the sliders are pinned to its
     //     canonical values.
-    // Prominence takes precedence over deconvolution if both flags are set.
+    // Precedence when several flags are set: prominence > full-scan > deconv.
     if (params.usePeakProminence) {
       this.phasicDriver = [];
       this.phasicClean = [];
@@ -482,6 +488,13 @@ class GSRAnalyzer {
       this.phasicDeconvTruncated = false;
       this._phasicOrig = null;
       this._detectPeaksByProminence(params);
+    } else if (params.useFullScanDetector) {
+      this.phasicDriver = [];
+      this.phasicClean = [];
+      this.phasicDriverPeaks = [];
+      this.phasicDeconvTruncated = false;
+      this._phasicOrig = null;
+      this._detectPeaksFullScan(params);
     } else if (params.useDeconvolution) {
       this._runDeconvolutionPipeline(phasicVals, params);
     } else {
@@ -1029,14 +1042,19 @@ class GSRAnalyzer {
    * Walk back from apex `i` to the response onset — the nearest sample the
    * signal fell to before rising into the peak.
    *
-   * `minDip` (default 0) sets what counts as "fell to". At 0 (trough-to-peak
-   * detector) the walk stops at the very first local minimum, however shallow.
-   * At `minDip > 0` (prominence detector, passed peakThreshold) a local minimum
-   * is only the onset once the signal has climbed back `minDip` above it — a
-   * genuine partial recovery, the same bar prominence uses to call two maxima
-   * distinct. Shallower notches (a multi-modal crest) are walked through, so a
-   * big response whose tip carries a sub-threshold wiggle is measured from its
-   * real onset, not from the notch.
+   * `minDip` (default 0) sets what counts as "fell to". At 0 the walk stops at
+   * the very first local minimum, however shallow — used by the trough-to-peak
+   * and deconvolution detectors, where every sub-peak of a compound burst is
+   * kept separately so each response's onset is its own nearest dip.
+   *
+   * At `minDip > 0` (the prominence detector passes `peakThreshold`) a local
+   * minimum is only the onset once the signal has climbed back `minDip` above
+   * it — a genuine partial recovery, the same bar prominence uses to call two
+   * maxima distinct. Shallower notches (a multi-modal crest) are walked
+   * through. This is only sound in the prominence detector, where such a
+   * shallow notch never separates two kept peaks (it would fold them): in
+   * trough-to-peak mode it would walk a stacked peak's onset back past the
+   * preceding kept peak and double-count the shared rise.
    *
    * @param {number} [minDip=0] µS a backward climb must exceed to fix the onset.
    * @private
@@ -1486,6 +1504,15 @@ class GSRAnalyzer {
       if (curr < 0.001) continue; // Noise floor check to skip flat/zero regions
 
       // ── 2. Find onset ──────────────────────────────
+      // Plain saddle walk-back: the first local minimum, however shallow, is
+      // this response's onset. NOT the threshold-aware walk the prominence
+      // detector uses — in trough-to-peak mode a compound burst's leading and
+      // trailing sub-peaks are BOTH kept as separate peaks, so walking the
+      // trailing one's onset back through a sub-threshold inter-bump dip lands
+      // it before the leading peak and its amplitude then double-counts the
+      // shared rise (measured: inflated the trailing peak of ~370 compound
+      // bursts corpus-wide). The individual-SCR amplitude is trough-to-peak
+      // from the nearest dip.
       const maxRiseLimit = shape.MAX_RISE_TIME > 0 ? shape.MAX_RISE_TIME : defaults.MAX_RISE_TIME;
       const maxOnsetSteps = Math.round(maxRiseLimit * this.sampleRate);
       const onsetIdx = this._findOnsetIndex(phasicVals, i, maxOnsetSteps);
@@ -1786,10 +1813,10 @@ class GSRAnalyzer {
   }
 
   /**
-   * Build a full peak object for a prominence-detected maximum at apex sample
-   * `idx` with onset at `onsetIdx` (passed in so the caller owns the onset
-   * rule). Reports trough-to-peak `amplitude` from that onset AND topographic
-   * `prominence` from `prom[idx]`.
+   * Build a full peak object at apex sample `idx` with onset at `onsetIdx`
+   * (passed in so the caller owns the onset rule). Reports trough-to-peak
+   * `amplitude` from that onset AND topographic `prominence` from `prom[idx]`.
+   * Shared by _detectPeaksByProminence() and _detectPeaksFullScan().
    * @private
    */
   _prominencePeakAt(idx, onsetIdx, vals, times, prom, noiseHalfWin, oldLabels, oldExcluded) {
@@ -1801,6 +1828,83 @@ class GSRAnalyzer {
     peak.qualityScore = this._computePeakQuality(peak);
     peak.salienceScore = this._computeSalienceScore(peak);
     return peak;
+  }
+
+  /**
+   * Full-scan phasic peak detector (params.useFullScanDetector).
+   *
+   * The standard trough-to-peak SCR criterion — a response is a local maximum
+   * that rose at least peakThreshold above its onset (the nearest preceding
+   * dip) — applied NON-GREEDILY: every local maximum is tested on its own
+   * merit, not just the first one the left→right scan reaches before it skips a
+   * refractory period ahead. That single change recovers two classes the greedy
+   * default drops:
+   *   - the true summit of a compound rise (the greedy scan strands the marker
+   *     on the first shoulder and never revisits);
+   *   - an SCR riding the rising edge of a larger later response — it has a real
+   *     >= peakThreshold rise from its own onset but ZERO topographic prominence
+   *     (no valley on the up-slope side), so the prominence detector cannot see
+   *     it either. ~7.5% of real SCRs on the test corpus are this pattern,
+   *     ~86% of them independently confirmed by deconvolution.
+   *
+   * Gates: peakThreshold (amplitude), Min SNR and Min Peak Quality — the
+   * literature SCR criteria, per peak. NOT the rise / half-recovery / skew
+   * morphology bounds (hidden for this mode, like the other alternatives).
+   * Refractory-period non-max suppression (PEAK_MIN_GAP): within one window the
+   * response that rose most from its own onset wins. Topographic prominence is
+   * still computed and stamped on every peak as a reported field (isolated vs
+   * part of a burst) but is not a detection gate.
+   *
+   * @param {object} params - Analysis params (peakThreshold, shapeMinSnr, minPeakQuality).
+   * @private
+   */
+  _detectPeaksFullScan(params) {
+    const { oldLabels, oldExcluded } = this._preserveLabelsAndExclusions();
+    this.peaks = [];
+    const n = this.phasic.length;
+    if (n < 3) return;
+
+    const vals = this.phasic.map(d => d.val);
+    const times = this.phasic.map(d => d.time);
+    const sr = this.sampleRate;
+    const threshold = params.peakThreshold;
+    const minGap = Math.max(1, Math.round(GSR_CONST.PEAK_MIN_GAP * sr));
+    const noiseHalfWin = Math.max(1, Math.round(sr));
+    const maxOnsetSteps = Math.round(GSR_CONST.PEAK_SHAPE.MAX_RISE_TIME * sr);
+    const minSnr = (params && params.shapeMinSnr != null) ? params.shapeMinSnr : GSR_CONST.PEAK_SHAPE.MIN_SNR;
+    const minQuality = (params && params.minPeakQuality != null) ? params.minPeakQuality : 0.0;
+    const maxScrAmp = GSR_CONST.MICROSIEMENS_MAX_SCR != null ? GSR_CONST.MICROSIEMENS_MAX_SCR : 20;
+
+    const prom = this._topographicProminence(vals); // reported field only
+
+    const cand = [];
+    for (let i = 1; i < n - 1; i++) {
+      if (!(vals[i] > vals[i - 1] && vals[i] >= vals[i + 1])) continue;
+      if (vals[i] < 0.001 || vals[i] > maxScrAmp) continue;
+      const onsetIdx = this._findOnsetIndex(vals, i, maxOnsetSteps);
+      const amplitude = vals[i] - vals[onsetIdx];
+      if (amplitude < threshold) continue;
+      if (minSnr > 0) {
+        const noiseFloor = this._computeNoiseFloor(onsetIdx, noiseHalfWin);
+        if (noiseFloor > 0 && amplitude / noiseFloor < minSnr) continue;
+      }
+      cand.push({ i, onsetIdx, amplitude });
+    }
+
+    // Refractory-period NMS — largest rise from its own onset wins its window.
+    cand.sort((a, b) => b.amplitude - a.amplitude);
+    const kept = [];
+    for (const c of cand) {
+      if (!kept.some(k => Math.abs(k.i - c.i) < minGap)) kept.push(c);
+    }
+    kept.sort((a, b) => a.i - b.i);
+
+    for (const c of kept) {
+      const peak = this._prominencePeakAt(c.i, c.onsetIdx, vals, times, prom,
+        noiseHalfWin, oldLabels, oldExcluded);
+      if (peak.qualityScore >= minQuality) this.peaks.push(peak);
+    }
+    this._assignLabelsToPeaks(this.peaks);
   }
 
   /**

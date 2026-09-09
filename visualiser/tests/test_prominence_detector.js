@@ -209,6 +209,24 @@ assert(both.phasicDriverPeaks.length === 0, 'usePeakProminence overrides useDeco
     'minDip=0 keeps the original behaviour (stops at the first local minimum)');
 }
 
+// The threshold-aware onset (minDip) is prominence-mode only. The trough-to-peak
+// detector keeps the plain saddle walk: in that mode both sub-peaks of a
+// compound burst are separate peaks, so walking the trailing one's onset
+// through a sub-threshold dip would land it before the leading peak and
+// double-count the shared rise.
+{
+  const demoCsv = fs.readFileSync(path.join(__dirname, '../fixtures/default_processed.csv'), 'utf8');
+  const t = new GSRAnalyzer(); t.parseCSV(demoCsv);
+  t.analyze({ ...D, usePeakProminence: false }, 0);
+  // Around 238–240 s the demo track has a two-sub-peak burst; the trailing
+  // peak's onset must not be shared with the leading peak's onset.
+  const burst = t.peaks.filter(p => p.time > 237 && p.time < 241).sort((a, b) => a.time - b.time);
+  if (burst.length >= 2) {
+    assert(burst[1].onsetIndex > burst[0].index - 3,
+      `trailing burst peak keeps its own onset, not the leading peak's (onset idx ${burst[1].onsetIndex} vs leading apex ${burst[0].index})`);
+  }
+}
+
 // Short-signal guard.
 const tiny = new GSRAnalyzer();
 tiny.parseCSV('timestamp,gsr_raw\n0,1.0\n0.1,1.0\n');
