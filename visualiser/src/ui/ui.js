@@ -272,7 +272,15 @@ const GSRUI = {
   updateDeconvTruncationWarning() {
     const el = document.getElementById('deconvTruncationWarning');
     if (!el) return;
-    const truncated = !!(AppState.analyzer && AppState.analyzer.phasicDeconvTruncated);
+    // Collective mode runs the same detector on every active track, so any one
+    // of them hitting its iteration cap is worth surfacing — not just the one
+    // AppState.analyzer currently points at.
+    const analyzers = (AppState.viewMode === 'single')
+      ? (AppState.analyzer ? [AppState.analyzer] : [])
+      : (AppState.collectiveManager
+          ? AppState.collectiveManager.getActiveTracks().map(t => t.analyzer).filter(Boolean)
+          : []);
+    const truncated = analyzers.some(a => a.phasicDeconvTruncated);
     el.style.display = truncated ? '' : 'none';
   },
 

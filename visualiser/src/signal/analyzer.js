@@ -706,15 +706,18 @@ class GSRAnalyzer {
       const scVals = new Float64Array(n);
       for (let i = 0; i < n; i++) scVals[i] = this.filtered[i].val;
 
-      // Bateman taus come from the CVXEDA config block (reference defaults
-      // tau0=2.0 / tau1=0.7), not SCRF's fixed-kernel pair.
+      // Every cvxEDA knob comes from the CVXEDA config block — there are no
+      // per-recording sliders for these (as with SCRF's deconvolution
+      // constants). Bateman taus default to the reference tau0=2.0 / tau1=0.7,
+      // not SCRF's fixed-kernel pair. decompose() fills any missing key from
+      // its own reference defaults.
       const cvxCfg = GSR_CONST.CVXEDA || {};
       const res = CVXEDA.decompose(scVals, this.sampleRate, {
         tauSlow: cvxCfg.tauSlow ?? scf.tauSlow,
         tauFast: cvxCfg.tauFast ?? scf.tauFast,
-        alpha: params.cvxAlpha,
-        gamma: params.cvxGamma,
-        maxIter: params.cvxMaxIter
+        alpha: cvxCfg.alpha,
+        gamma: cvxCfg.gamma,
+        maxIter: cvxCfg.maxIter
       });
       const cleanVals = res.phasic;
 
