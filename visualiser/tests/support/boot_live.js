@@ -6,16 +6,17 @@
  * fetch, canvas 2D, Wake Lock, Fullscreen), then run the real script text
  * in that DOM's context.
  *
- * live.html's own logic is a single inline block (its only <script src>
- * deps are gsr_filter.js and live_binary_parser.js), so unlike boot_app.js
- * there's no SCRIPT_ORDER — the two deps then the inline block are
- * extracted and run in order. Its top-level `const`/`class`/`function`
- * declarations (LiveState, GSRLiveBluetoothManager, resetSession,
- * goToLatLon, normalizeTileCacheUrl, ...) are NOT copied onto `window`
- * (plain classic-script `let`/`const` never is) — reach them through the
- * returned `context` with vm.runInContext('someName', context), the same
- * pattern test_map_layer_ownership.js already uses against boot_app.js's
- * context to null out bindings before boot.
+ * live.html loads a handful of real src/ files in its <head> and then has
+ * one inline <script> block for the page wire-up. headSrcScripts() below
+ * reads the <head>'s <script src="src/..."> list straight from the file
+ * (so it can't drift) and bootLive() runs each of those, in order, then
+ * the inline block — the lightweight equivalent of boot_app.js's
+ * SCRIPT_ORDER. Top-level `const`/`class`/`function` declarations
+ * (LiveState, GSRLiveBluetoothManager, resetSession, goToLatLon,
+ * normalizeTileCacheUrl, ...) live in the shared vm-context lexical scope,
+ * not on `window` — reach them through the returned `context` with
+ * vm.runInContext('someName', context), the same pattern
+ * test_map_layer_ownership.js uses against boot_app.js's context.
  *
  * Scope, matching docs/archive/visualizer_test_coverage_plan.md's philosophy for
  * boot_app.js: this is for exercising real logic (gap detection, session
@@ -32,20 +33,34 @@ const path = require('path');
 const vm = require('vm');
 const { JSDOM } = require('jsdom');
 
-const LIVE_HTML_PATH = path.join(__dirname, '..', '..', 'live.html');
-// live.html's <head> loads this via <script src="gsr_filter.js"> before its
-// own inline <script> block runs — drawGraph() calls GsrFilter.* assuming
-// it's already a page-level global by the time it executes. gsr_filter.js
-// has no module.exports/window.X dual-export (unlike map_colors.js/
-// gps_pipeline.js/live_binary_parser.js — it's only ever loaded as a
-// classic <script>), so it can't be require()'d; running its real source
-// in this same vm context first reproduces that real load order exactly.
-const GSR_FILTER_PATH = path.join(__dirname, '..', '..', 'src', 'signal', 'gsr_filter.js');
-// Also loaded via <script src> in live.html's <head>, before the inline
-// block — the inline script does `new GSRLiveBinaryParser(...)` assuming
-// it's already a page-level global. Run its real source in the vm context
-// first, same as gsr_filter.js, to reproduce that load order.
-const LIVE_BINARY_PARSER_PATH = path.join(__dirname, '..', '..', 'src', 'live', 'live_binary_parser.js');
+const APP_DIR = path.join(__dirname, '..', '..');
+const LIVE_HTML_PATH = path.join(APP_DIR, 'live.html');
+
+// live.html's <head> loads several real src/ files as classic <script>s
+// before its own inline block runs — gsr_filter.js (GsrFilter.*),
+// map_colors.js (MapColors), gps_pipeline.js (GpsPipeline),
+// live_binary_parser.js (GSRLiveBinaryParser), live_state.js (LiveState),
+// live_bluetooth.js (GSRLiveBluetoothManager). The inline script assumes
+// every one of those is already a page-level global. jsdom's
+// runScripts:'outside-only' won't execute the page's own <script src>, so
+// bootLive() runs each real file's source in the vm context first, in the
+// exact order the <head> lists them — reproducing that load order rather
+// than hard-coding it here (which drifted the last time a file was added).
+// vendor/ scripts (Leaflet) are mocked, not run; config.js is skipped (the
+// inline code reads window.BIOMAP_CONFIG defensively) because its
+// local-origin document.write('config.local.js') branch has no place in a
+// headless boot.
+function headSrcScripts(html) {
+  const headEnd = html.indexOf('</head>');
+  const head = headEnd === -1 ? html : html.slice(0, headEnd);
+  const out = [];
+  const re = /<script\s+src="([^"]+)"><\/script>/g;
+  let m;
+  while ((m = re.exec(head)) !== null) {
+    if (m[1].startsWith('src/')) out.push(path.join(APP_DIR, m[1]));
+  }
+  return out;
+}
 
 function makeLeafletMock() {
   class Layer {
@@ -226,8 +241,9 @@ function bootLive() {
   if (!inlineScriptMatch) throw new Error('live.html: could not find its inline <script> block');
 
   const context = vm.createContext(window);
-  vm.runInContext(fs.readFileSync(GSR_FILTER_PATH, 'utf8'), context, { filename: 'gsr_filter.js' });
-  vm.runInContext(fs.readFileSync(LIVE_BINARY_PARSER_PATH, 'utf8'), context, { filename: 'live_binary_parser.js' });
+  for (const scriptPath of headSrcScripts(html)) {
+    vm.runInContext(fs.readFileSync(scriptPath, 'utf8'), context, { filename: path.basename(scriptPath) });
+  }
   vm.runInContext(inlineScriptMatch[1], context, { filename: 'live.html (inline script)' });
 
   return { window, document: window.document, context };

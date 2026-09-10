@@ -1107,3 +1107,158 @@ test('togglePhasicBtn: switches the graph between full GSR and phasic-only — s
   assert.strictEqual(window.document.getElementById('graphValue').textContent, '1600 nS');
   assert.strictEqual(window.document.getElementById('togglePhasicBtn').textContent, 'Show Phasic (P)');
 });
+
+// ==========================================================================
+// Wire-up characterisation (renderStatus / the animation loop / keyboard
+// shortcuts / setMapVisible / the geolocation "My Location" button).
+//
+// These sit at live.html's DOM-binding layer — top-level getElementById
+// bindings, window-level keydown/resize/visibilitychange listeners, and the
+// requestAnimationFrame loop. That layer is exactly what the planned
+// integration into index.html has to restructure (globals -> a
+// container-scoped view controller), so pin its observable behaviour now:
+// same status labels, same loop start/stop gating, same key handling, same
+// map-visibility bookkeeping.
+// ==========================================================================
+
+test('renderStatus: maps each connection status to its badge label and modifier class', () => {
+  const { window, context } = bootLive();
+  const badge = window.document.getElementById('statusBadge');
+
+  run(context, "renderStatus('connecting')");
+  assert.strictEqual(badge.textContent, 'Connecting…');
+  assert.strictEqual(badge.className, 'badge');
+
+  run(context, "renderStatus('connected')");
+  assert.strictEqual(badge.textContent, 'Live');
+  assert.strictEqual(badge.className, 'badge live');
+
+  run(context, "renderStatus('reconnecting')");
+  assert.strictEqual(badge.textContent, 'Reconnecting…');
+  assert.strictEqual(badge.className, 'badge warn');
+
+  run(context, "renderStatus('disconnected')");
+  assert.strictEqual(badge.textContent, 'Disconnected');
+  assert.strictEqual(badge.className, 'badge bad');
+
+  // Unknown / initial state falls back to the neutral "Not connected".
+  run(context, "renderStatus('something-else')");
+  assert.strictEqual(badge.textContent, 'Not connected');
+  assert.strictEqual(badge.className, 'badge');
+});
+
+test('the animation loop starts only while connected/reconnecting and stops (with one final redraw) otherwise', (t) => {
+  const { context } = bootLive();
+  stopLoopAfter(t, context);
+
+  assert.strictEqual(run(context, 'animationFrameId'), null, 'idle on load');
+
+  run(context, "LiveState.setStatus('connected')");
+  assert.notStrictEqual(run(context, 'animationFrameId'), null, 'connected -> loop running');
+
+  run(context, "LiveState.setStatus('disconnected')");
+  assert.strictEqual(run(context, 'animationFrameId'), null, 'disconnected -> loop stopped');
+
+  run(context, "LiveState.setStatus('reconnecting')");
+  assert.notStrictEqual(run(context, 'animationFrameId'), null, 'reconnecting also keeps the loop running');
+
+  run(context, "LiveState.setStatus('disconnected')");
+  assert.strictEqual(run(context, 'animationFrameId'), null);
+});
+
+test('keyboard: "m" toggles the map exactly like the Show/Hide Map button', () => {
+  const { window, context } = bootLive();
+  const fire = (key, target) =>
+    (target || window).dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true }));
+
+  assert.ok(window.document.getElementById('app').classList.contains('no-map'));
+
+  fire('m');
+  assert.ok(!window.document.getElementById('app').classList.contains('no-map'), 'm shows the map');
+  assert.strictEqual(run(context, 'mapVisible'), true);
+  assert.strictEqual(window.document.getElementById('toggleMapBtn').textContent, 'Hide Map (M)');
+
+  fire('M'); // capital works too
+  assert.ok(window.document.getElementById('app').classList.contains('no-map'), 'M hides it again');
+  assert.strictEqual(run(context, 'mapVisible'), false);
+});
+
+test('keyboard: "p" toggles phasic-only once the toggle is enabled, and is inert while it is disabled', () => {
+  const { window, context } = bootLive();
+  const fire = (key) => window.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true }));
+
+  // Disabled on a fresh load (no packets yet) — the shortcut must not flip state.
+  assert.strictEqual(window.document.getElementById('togglePhasicBtn').disabled, true);
+  fire('p');
+  assert.strictEqual(run(context, 'LiveState.showPhasicOnly'), false, 'p is inert while the toggle is disabled');
+
+  window.document.getElementById('togglePhasicBtn').disabled = false;
+  fire('p');
+  assert.strictEqual(run(context, 'LiveState.showPhasicOnly'), true);
+  fire('p');
+  assert.strictEqual(run(context, 'LiveState.showPhasicOnly'), false);
+});
+
+test('keyboard: shortcuts are suppressed while the user is typing in the lat/lon coordinate inputs', () => {
+  const { window, context } = bootLive();
+  window.document.getElementById('togglePhasicBtn').disabled = false;
+  const latInput = window.document.getElementById('latInput');
+
+  latInput.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'p', bubbles: true }));
+  latInput.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'm', bubbles: true }));
+
+  assert.strictEqual(run(context, 'LiveState.showPhasicOnly'), false, 'typing "p" into a coord field does not toggle phasic');
+  assert.ok(window.document.getElementById('app').classList.contains('no-map'), 'typing "m" into a coord field does not toggle the map');
+});
+
+test('setMapVisible: keeps mapVisible, the button label, and the #app.no-map class in sync across repeated calls', () => {
+  const { window, context } = bootLive();
+  const app = window.document.getElementById('app');
+  const btn = window.document.getElementById('toggleMapBtn');
+
+  run(context, 'setMapVisible(true)');
+  assert.strictEqual(run(context, 'mapVisible'), true);
+  assert.ok(!app.classList.contains('no-map'));
+  assert.strictEqual(btn.textContent, 'Hide Map (M)');
+  assert.ok(btn.classList.contains('active'));
+
+  run(context, 'setMapVisible(true)'); // idempotent
+  assert.strictEqual(run(context, 'mapVisible'), true);
+  assert.ok(!app.classList.contains('no-map'));
+
+  run(context, 'setMapVisible(false)');
+  assert.strictEqual(run(context, 'mapVisible'), false);
+  assert.ok(app.classList.contains('no-map'));
+  assert.strictEqual(btn.textContent, 'Show Map (M)');
+  assert.ok(!btn.classList.contains('active'));
+});
+
+test('My Location: a successful geolocation fix fills the coord inputs and pans the map there', () => {
+  const { window, context } = bootLive();
+  // boot_live.js stubs getCurrentPosition to succeed at 51.5074 / -0.1278.
+  window.document.getElementById('myLocationBtn').click();
+
+  assert.strictEqual(window.document.getElementById('latInput').value, '51.5074');
+  assert.strictEqual(window.document.getElementById('lonInput').value, '-0.1278');
+  assert.ok(!window.document.getElementById('app').classList.contains('no-map'), 'the map is shown');
+  const center = run(context, 'liveMap.getCenter()');
+  assert.strictEqual(center.lat, 51.5074);
+  assert.strictEqual(center.lng, -0.1278);
+});
+
+test('My Location: a browser with no geolocation alerts instead of throwing', () => {
+  const { window } = bootLive();
+  let alerted = null;
+  window.alert = (m) => { alerted = m; };
+  window.navigator.geolocation = undefined;
+
+  assert.doesNotThrow(() => window.document.getElementById('myLocationBtn').click());
+  assert.match(alerted || '', /[Gg]eolocation/);
+});
+
+test('on load the map/phasic toggle buttons render their initial (map hidden, full-GSR) labels', () => {
+  const { window } = bootLive();
+  assert.strictEqual(window.document.getElementById('toggleMapBtn').textContent, 'Show Map (M)');
+  assert.strictEqual(window.document.getElementById('togglePhasicBtn').textContent, 'Show Phasic (P)');
+  assert.strictEqual(window.document.getElementById('statusBadge').textContent, 'Disconnected');
+});

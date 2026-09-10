@@ -15,7 +15,11 @@
 <!-- Runtime config: window.BIOMAP_CONFIG. Committed; on a local origin it also pulls in the optional gitignored config.local.js. See config.local.example.js -->
 <script src="config.js"></script>
 <script src="src/signal/gsr_filter.js"></script>
+<script src="src/map/map_colors.js"></script>
+<script src="src/gps/gps_pipeline.js"></script>
 <script src="src/live/live_binary_parser.js"></script>
+<script src="src/live/live_state.js"></script>
+<script src="src/live/live_bluetooth.js"></script>
 <style>
   :root {
     --bg: #0b0e11;
@@ -167,218 +171,20 @@
 
 
 // ==========================================================================
-// MapColors (subset) — copied from visualiser/map_colors.js:24-35.
+// Shared modules loaded from <head> as classic <script>s (globals):
+//   MapColors                 src/map/map_colors.js       (getColorForValue)
+//   GpsPipeline               src/gps/gps_pipeline.js      (applyHdopGate / applyFixTypeGate)
+//   GSRLiveBinaryParser       src/live/live_binary_parser.js  (§5 45-byte decoder)
+//   LiveState                 src/live/live_state.js       (status + packet bus)
+//   GSRLiveBluetoothManager   src/live/live_bluetooth.js   (§8 Web Bluetooth transport)
+//     + BLE_SERVICE_UUID / BLE_RX_CHAR_UUID (still UNVERIFIED against real hardware)
+// Each has its own require()-able tests; this file only wires them together.
 // ==========================================================================
-const MapColors = {
-  getHslColor(ratio, saturation = 100, lightness = 50) {
-    const r = Math.max(0, Math.min(1, ratio));
-    const hue = (1.0 - r) * 120;
-    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-  },
-  getColorForValue(val, minVal, maxVal) {
-    if (maxVal === minVal) return 'hsl(120, 90%, 50%)';
-    const ratio = (val - minVal) / (maxVal - minVal);
-    return MapColors.getHslColor(ratio, 90, 50);
-  },
-};
 
-// ==========================================================================
-// GpsPipeline (subset) — copied from visualiser/gps_pipeline.js:10-21.
-// ==========================================================================
-const GpsPipeline = {
-  applyHdopGate(pts, maxHdop = 3.0) {
-    return pts.filter(d => isNaN(d.hdop) || d.hdop <= maxHdop);
-  },
-  applyFixTypeGate(pts, minFixType = 2) {
-    if (minFixType < 2) return pts;
-    return pts.filter(d => d.fixType == null || d.fixType === 0 || d.fixType >= minFixType);
-  },
-};
-
-// visualiser/constants.js's GPS_DEFAULT.maxHdop (docs/csv_schema.md's "HDOP
+// src/core/constants.js's GPS_DEFAULT.maxHdop (docs/csv_schema.md's "HDOP
 // Gate Design" — 2.0 is the post-processing quality filter, distinct from
 // the firmware's permissive 5.0 logging gate).
 const LIVE_MAX_HDOP = 2.0;
-
-// GSRLiveBinaryParser (the 45-byte packet decoder from
-// docs/archive/bluetooth_serial_investigation.md §5) is loaded from
-// visualiser/live_binary_parser.js in the <head> — its own tests cover it
-// directly, see visualiser/tests/test_live_binary_parser.js.
-
-// ==========================================================================
-// LiveState — connection status + accumulated packets + a listener/emit()
-// pattern matching visualiser/app_state.js:115-121 (same shape, not the
-// same object — this page has no dependency on app_state.js).
-// ==========================================================================
-const LiveState = {
-  status: 'disconnected', // 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
-  packets: [],
-  gapCount: 0,
-  showPhasicOnly: false,
-
-  // docs/archive/bluetooth_serial_investigation.md §3's BT_STREAM_INTERVAL_MS
-  // (biomap_types.h) — kept in sync manually; a real send-interval change
-  // on the firmware side needs the same number updated here.
-  STREAM_INTERVAL_S: 0.3,
-
-  _listeners: {},
-  on(event, fn) { (LiveState._listeners[event] = LiveState._listeners[event] || []).push(fn); },
-  emit(event, ...args) { (LiveState._listeners[event] || []).forEach(fn => fn(...args)); },
-
-  setStatus(status) {
-    this.status = status;
-    this.emit('status', status);
-  },
-
-  addPacket(pkt) {
-    const prev = this.packets[this.packets.length - 1];
-    // pkt.timestamp is device-uptime ms, not wall-clock — a new device (or
-    // the same one power-cycled) restarts it near 0, so a plain ">" delta
-    // check misses that case (negative delta never exceeds the threshold).
-    // Treat any non-increasing timestamp as a gap too.
-    pkt.gap = !!prev && (pkt.timestamp <= prev.timestamp || (pkt.timestamp - prev.timestamp) > 2 * this.STREAM_INTERVAL_S);
-    if (pkt.gap) this.gapCount++;
-    this.packets.push(pkt);
-    this.emit('packet', pkt);
-  },
-};
-
-// ==========================================================================
-// GSRLiveBluetoothManager — docs/archive/bluetooth_serial_investigation.md §8.
-//
-// SERVICE_UUID/TX_CHAR_UUID/RX_CHAR_UUID are UNVERIFIED against real
-// hardware (§8's own caveat) — Flipper's stock BLE serial service's GATT
-// table isn't part of the public app SDK headers this project builds
-// against (checked: no UUID appears anywhere under
-// ~/.ufbt/current/sdk_headers), so these can only be confirmed by a live
-// GATT scan against a real Flipper running Live Stream mode. If
-// getPrimaryService() fails with this UUID, _logDiscoveredServices() below
-// enumerates whatever the connected device actually advertises so the
-// real UUID can be read off the page instead of guessed at again.
-// ==========================================================================
-const BLE_SERVICE_UUID = '8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000';
-const BLE_RX_CHAR_UUID = '19ed82ae-ed21-4c9d-4145-228e61fe0000'; // Flipper TX / host notify
-
-class GSRLiveBluetoothManager {
-  constructor(onStatusText) {
-    this.device = null;
-    this.characteristic = null;
-    this.onStatusText = onStatusText || (() => {});
-    this.parser = new GSRLiveBinaryParser((pkt) => LiveState.addPacket(pkt));
-    this._reconnecting = false;
-    // Bound once so _subscribe() can removeEventListener the previous
-    // subscription before re-adding on a reconnect (see there).
-    this._onCharValue = (e) => this.parser.append(new Uint8Array(e.target.value.buffer));
-  }
-
-  // Show every nearby BLE device instead of filtering by namePrefix:'Flipper'
-  // (§1.4 — the advertised name follows the Flipper's configured device name,
-  // which a user can change in Settings > System > Device Name; using
-  // acceptAllDevices: true allows connecting to a renamed Flipper Zero).
-  async connect() {
-    this.device = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: [BLE_SERVICE_UUID]
-    });
-    this.device.addEventListener('gattserverdisconnected', () => this._handleDisconnect());
-    await this._subscribe();
-    LiveState.setStatus('connected');
-  }
-
-  async _subscribe() {
-    const server = await this.device.gatt.connect();
-    let service;
-    try {
-      service = await server.getPrimaryService(BLE_SERVICE_UUID);
-    } catch (e) {
-      await this._logDiscoveredServices(server);
-      throw e;
-    }
-    // Drop the listener from whatever we were subscribed to before re-adding
-    // it. On a reconnect getCharacteristic() hands back the SAME object, so
-    // without this each reconnect would stack another live listener and every
-    // notification would be parsed once per listener — duplicate packets, and
-    // (identical timestamp) bogus gaps. this._onCharValue is bound once in the
-    // constructor precisely so this remove/add pair can match.
-    if (this.characteristic) {
-      this.characteristic.removeEventListener('characteristicvaluechanged', this._onCharValue);
-    }
-    this.characteristic = await service.getCharacteristic(BLE_RX_CHAR_UUID);
-    this.characteristic.addEventListener('characteristicvaluechanged', this._onCharValue);
-    await this.characteristic.startNotifications();
-  }
-
-  // Best-effort discovery aid — not a functional fallback (a specific
-  // characteristic is still required to subscribe), just surfaces what the
-  // real hardware actually advertises so BLE_SERVICE_UUID above can be
-  // corrected without a separate BLE inspector tool.
-  async _logDiscoveredServices(server) {
-    try {
-      const services = await server.getPrimaryServices();
-      const uuids = services.map(s => s.uuid);
-      console.warn('Live: expected service UUID not found. Discovered:', uuids);
-      this.onStatusText('Service UUID mismatch — see console for discovered UUIDs');
-    } catch (e2) {
-      console.warn('Live: service discovery also failed', e2);
-    }
-  }
-
-  // Bounded exponential backoff, capped attempts — §1.10/§8: unbounded
-  // retry loops are a documented way to make requestDevice() itself stop
-  // responding afterward, so this must give up and fall back to a manual
-  // Reconnect button rather than retrying forever.
-  //
-  // This whole path assumes the SAME BLE peripheral session is still
-  // reachable (device.gatt.connect() on the cached BluetoothDevice) — the
-  // right model for a transient link drop (phone walks out of range). It
-  // is NOT the right model for the Flipper exiting and re-entering Live
-  // Stream mode: bt_stream_stop()/bt_stream_start() call
-  // bt_profile_restore_default()/bt_profile_start(), which the SDK's own
-  // doc comment says restarts the BLE co-processor's second core — a much
-  // bigger discontinuity than a link drop, and (per the stale-bond issue
-  // hit earlier the same session) plausibly enough to invalidate the
-  // cached device/bond. When every attempt here fails, onStatusText
-  // surfaces the real error so that's distinguishable from "still out of
-  // range" — and the caller (wire-up code) offers "New Connection" (a
-  // fresh requestDevice()) as the real fix for that case, not more
-  // retries against a reference that may no longer be usable.
-  async _handleDisconnect() {
-    if (this._reconnecting) return;
-    this._reconnecting = true;
-    LiveState.setStatus('reconnecting');
-    let lastError = null;
-    for (let attempt = 0, delay = 500; attempt < 6; attempt++, delay = Math.min(delay * 2, 8000)) {
-      await new Promise(r => setTimeout(r, delay));
-      try {
-        await this._subscribe();
-        LiveState.setStatus('connected');
-        this._reconnecting = false;
-        return;
-      } catch (e) {
-        lastError = e; // keep retrying within the cap
-      }
-    }
-    this._reconnecting = false;
-    LiveState.setStatus('disconnected');
-    const msg = (lastError && lastError.message) ? lastError.message : String(lastError);
-    console.error('Live: auto-reconnect exhausted —', lastError);
-    this.onStatusText(`Auto-reconnect failed: ${msg}`);
-  }
-
-  async manualReconnect() {
-    if (!this.device) return;
-    LiveState.setStatus('reconnecting');
-    try {
-      await this._subscribe();
-      LiveState.setStatus('connected');
-    } catch (e) {
-      LiveState.setStatus('disconnected');
-      const msg = (e && e.message) ? e.message : String(e);
-      console.error('Live: manual reconnect failed —', e);
-      this.onStatusText(`Reconnect failed: ${msg}`);
-    }
-  }
-}
 
 // ==========================================================================
 // Rolling graph — plain <canvas> 2D, redrawn only on each packet arrival

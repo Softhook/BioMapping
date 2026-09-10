@@ -54,10 +54,17 @@ test('index.html <script src> order matches boot_app.js SCRIPT_ORDER', () => {
   assert.deepStrictEqual(scriptSrcs(readApp('index.html')), SCRIPT_ORDER);
 });
 
-test('live.html loads exactly the two shared src/ modules it depends on', () => {
+test('live.html loads exactly the shared src/ modules its inline wire-up depends on', () => {
+  // These are page-level globals the inline <script> assumes exist. Keep in
+  // sync with tests/support/boot_live.js, which runs this same list before
+  // the inline block. Order is load order.
   assert.deepStrictEqual(scriptSrcs(readApp('live.html')), [
-    'src/signal/gsr_filter.js',
-    'src/live/live_binary_parser.js',
+    'src/signal/gsr_filter.js',    // GsrFilter
+    'src/map/map_colors.js',       // MapColors
+    'src/gps/gps_pipeline.js',     // GpsPipeline
+    'src/live/live_binary_parser.js', // GSRLiveBinaryParser
+    'src/live/live_state.js',      // LiveState
+    'src/live/live_bluetooth.js',  // GSRLiveBluetoothManager (+ BLE_*_UUID)
   ]);
 });
 
