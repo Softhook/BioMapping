@@ -249,7 +249,9 @@ const GSR_CONST = {
       showPeakOverlay: false, allowNegative: false
     },
     phasicAUC: {
-      label: 'Phasic AUC (ISCR)', unit: 'μS·s', decimals: 3,
+      // Base label; ' (ISCR)' is appended at render time when the series
+      // integrated the deconvolved driver (analyzer.phasicAUCIsISCR).
+      label: 'Phasic AUC', unit: 'μS·s', decimals: 3,
       colorVar: '--color-phasic-auc', colorDefault: '#0099aa',
       showPeakOverlay: false, allowNegative: false
     },

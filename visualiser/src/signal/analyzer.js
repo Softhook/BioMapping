@@ -45,7 +45,11 @@ class GSRAnalyzer {
     // "thresholding dilemma" and "superposition problem" inherent to discrete
     // peak counting by integrating the phasic signal rather than gating it.
     this.peakDensity = [];  // Sliding-window NS-SCR frequency: { time, val } — peaks/minute
-    this.phasicAUC = [];    // Sliding-window Phasic AUC (ISCR): { time, val } — µS·s
+    this.phasicAUC = [];    // Sliding-window phasic integral: { time, val } — µS·s. In a
+                            // deconvolution/cvxEDA run this integrates the phasic DRIVER
+                            // (Benedek & Kaernbach's ISCR quantity); otherwise the
+                            // tonic-subtracted phasic response (ISCR-inspired).
+    this.phasicAUCIsISCR = false; // true when phasicAUC integrated the driver (see above)
     this.arousalIndex = []; // Combined tonic+phasic z-scored blend: { time, val }
     this.triIndex = [];     // Tri Index (tonic + phasic AUC + peak density) z-scored blend: { time, val }
 
@@ -575,11 +579,13 @@ class GSRAnalyzer {
     const triCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.TRI_INDEX) || { wTonic: 0.10, wPhasic: 0.45, wDensity: 0.45 };
 
     if (params.useDeconvolution || params.useCvxEDA) {
-      this.phasicAUC = this.computePhasicAUC();
+      this.phasicAUC = this.computePhasicAUC(); // integrates the driver → sets phasicAUCIsISCR
       this.arousalIndex = this.computeCombinedArousalIndex(aiCfg.wTonic, aiCfg.wPhasic, this.phasicAUC);
     } else {
+      // Cached AUC is always the pristine phasic-response integral.
       this.phasicAUC = this._prefixCache.phasicAUC;
       this.arousalIndex = this._prefixCache.arousalIndex;
+      this.phasicAUCIsISCR = false;
     }
     this.triIndex = this.computeTriIndex(triCfg.wTonic, triCfg.wPhasic, triCfg.wDensity, this.phasicAUC, this.peakDensity);
     const efArr = this._seriesPool.em_fog;
@@ -1991,16 +1997,22 @@ class GSRAnalyzer {
   }
 
   /**
-   * Sliding-window Phasic Area Under the Curve, in µS·s — an ISCR-*inspired*
-   * continuous metric, not a reproduction of Benedek & Kaernbach's (2010)
-   * published Integrated Skin Conductance Response. Their ISCR integrates a
-   * deconvolved "phasic driver" signal (nonnegative deconvolution against a
-   * canonical bi-exponential SCR kernel), which is what properly separates
-   * overlapping/superposed SCRs. This integrates the simpler tonic-subtracted
-   * phasic signal produced by analyze() instead — no deconvolution — so it
-   * meaningfully softens (but doesn't fully solve, the way true deconvolution
-   * would) the "superposition problem" and the amplitude-threshold cliff-edge
-   * described in docs/environmental_stress_literature_review.md §5B/§5D.
+   * Sliding-window phasic integral, in µS·s.
+   *
+   * Source depends on the run:
+   *  - Deconvolution / cvxEDA mode (this._wasDeconv, phasicDriver populated):
+   *    integrates the non-negative phasic DRIVER — Benedek & Kaernbach's (2010)
+   *    Integrated Skin Conductance Response (ISCR). The driver is the
+   *    superposition-free impulse train (nonnegative deconvolution / convex
+   *    solve against the bi-exponential SCR kernel), so this is the genuine
+   *    published quantity.
+   *  - Otherwise: integrates the tonic-subtracted phasic RESPONSE. No
+   *    deconvolution, so overlapping SCRs and their decay tails are not
+   *    separated — an ISCR-*inspired* metric that softens but doesn't solve the
+   *    "superposition problem" / amplitude-threshold cliff-edge
+   *    (docs/environmental_stress_literature_review.md §5B/§5D).
+   *
+   * Sets this.phasicAUCIsISCR to say which path was taken (drives the UI label).
    *
    * Uses a *centred* window (±windowSizeSec/2), matching
    * computeTemporalPeakDensity's convention, so the two continuous metrics
@@ -2013,7 +2025,14 @@ class GSRAnalyzer {
    */
   computePhasicAUC(windowSizeSec = 30) {
     const n = this.phasic.length;
-    if (n === 0) return [];
+    if (n === 0) { this.phasicAUCIsISCR = false; return []; }
+
+    // True ISCR integrates the deconvolved driver; fall back to the phasic
+    // response when no driver is available (non-deconvolution runs).
+    const useDriver = !!this._wasDeconv && Array.isArray(this.phasicDriver) &&
+                      this.phasicDriver.length === n;
+    this.phasicAUCIsISCR = useDriver;
+    const src = useDriver ? this.phasicDriver : this.phasic;
 
     const auc = new Array(n);
     const halfWin = windowSizeSec / 2;
@@ -2022,21 +2041,21 @@ class GSRAnalyzer {
     let runningSum = 0;
 
     for (let i = 0; i < n; i++) {
-      const t = this.phasic[i].time;
+      const t = src[i].time;
       const tStart = t - halfWin;
       const tEnd = t + halfWin;
 
       // Advance the trailing edge to include samples entering the window.
-      // this.phasic is already clamped to ≥0 during decomposition (see
-      // analyze()), but re-clamp defensively in case this is called against
-      // externally-supplied phasic data.
-      while (hi < n && this.phasic[hi].time <= tEnd) {
-        runningSum += Math.max(0, this.phasic[hi].val);
+      // Re-clamp to ≥0 defensively: the phasic response is clamped during
+      // decomposition and the driver is non-negative by construction, but the
+      // cvxEDA driver can dip slightly negative at the active-set boundary.
+      while (hi < n && src[hi].time <= tEnd) {
+        runningSum += Math.max(0, src[hi].val);
         hi++;
       }
       // Advance the leading edge to drop samples that have fallen out of the window.
-      while (lo < n && this.phasic[lo].time < tStart) {
-        runningSum -= Math.max(0, this.phasic[lo].val);
+      while (lo < n && src[lo].time < tStart) {
+        runningSum -= Math.max(0, src[lo].val);
         lo++;
       }
 

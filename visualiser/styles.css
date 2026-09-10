@@ -350,6 +350,17 @@ body {
   opacity: 0.35;
 }
 
+/* ctrl-inert also covers a dropdown-based control (Baseline Method while
+   cvxEDA owns the tonic estimate). */
+.slider-group.ctrl-inert .select-control {
+  opacity: 0.45;
+}
+
+.select-control:disabled,
+.slider-group.ctrl-inert .select-control {
+  cursor: not-allowed;
+}
+
 .slider-label {
   display: flex;
   justify-content: space-between;

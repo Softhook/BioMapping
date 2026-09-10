@@ -146,7 +146,7 @@
 
             <div class="control-subgroup-title">Tonic/Phasic Split</div>
 
-            <div class="slider-group">
+            <div class="slider-group" id="tonicMethodGroup">
               <div class="slider-label">
                 <span>Baseline Method</span>
               </div>
@@ -155,6 +155,7 @@
                 <option value="median">Moving Median (Robust)</option>
                 <option value="lpf" selected>Ultra Low-Pass (EMA)</option>
               </select>
+              <p class="help-text" id="tonicMethodHelp" hidden>cvxEDA estimates the tonic baseline jointly with the phasic fit — this setting has no effect while cvxEDA is the active detector.</p>
             </div>
 
             <div class="slider-group" id="tonicWindowGroup">

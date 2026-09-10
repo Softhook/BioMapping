@@ -380,6 +380,32 @@ const GSREvents = {
   },
 
   /**
+   * cvxEDA re-estimates the tonic baseline jointly with the phasic fit and
+   * overwrites whatever the Baseline Method produced, so that dropdown and the
+   * Tonic Baseline Window slider are inert while cvxEDA is the active detector.
+   * Grey them out (and disable interaction) to say so; every other mode —
+   * including the matching-pursuit deconvolution path, which still subtracts
+   * this baseline — leaves them live.
+   */
+  syncTonicBaselineControls() {
+    const S = AppState.sliders;
+    if (!S || !S.tonicMethod) return;
+    const cvx = !!(S.useCvxEDA && S.useCvxEDA.checked);
+
+    S.tonicMethod.disabled = cvx;
+    const win = document.getElementById('tonicWindow');
+    if (win) win.disabled = cvx;
+
+    const methodGroup = document.getElementById('tonicMethodGroup');
+    const winGroup = document.getElementById('tonicWindowGroup');
+    if (methodGroup) methodGroup.classList.toggle('ctrl-inert', cvx);
+    if (winGroup) winGroup.classList.toggle('ctrl-inert', cvx);
+
+    const note = document.getElementById('tonicMethodHelp');
+    if (note) note.hidden = !cvx;
+  },
+
+  /**
    * Wire up all UI event listeners (sliders, file drop, buttons, toggles, panels).
    */
   setupEventListeners() {
@@ -407,9 +433,11 @@ const GSREvents = {
             if (other !== id && S[other]) S[other].checked = false;
           });
         }
+        GSREvents.syncTonicBaselineControls();
         GSRUI.runAnalysis();
       });
     });
+    GSREvents.syncTonicBaselineControls(); // initial state
 
     // ── Graph view selector ─────────────────────────────────────────────────
     // Rendering-only setting (no re-analysis needed). One dropdown picks the

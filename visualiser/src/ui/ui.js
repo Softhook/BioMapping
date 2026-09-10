@@ -250,6 +250,8 @@ const GSRUI = {
       GSRUI.updateStatsPanel();
       GSRUI.updatePeaksTable();
       GSRUI.updateDeconvTruncationWarning();
+      GSREvents.syncTonicBaselineControls();
+      GSRUI.syncPhasicAUCLabels();
       GSRUI.syncMapPanelForSpatialData();
       redraw();
     } catch (err) {
@@ -272,6 +274,21 @@ const GSRUI = {
     if (!el) return;
     const truncated = !!(AppState.analyzer && AppState.analyzer.phasicDeconvTruncated);
     el.style.display = truncated ? '' : 'none';
+  },
+
+  /**
+   * The Phasic AUC metric is true ISCR only when it integrated the deconvolved
+   * driver (analyzer.phasicAUCIsISCR — deconvolution / cvxEDA runs). Reflect
+   * that in the graph-view and map-metric dropdown labels; in every other mode
+   * it's the phasic-response integral and stays plain "Phasic AUC".
+   */
+  syncPhasicAUCLabels() {
+    const txt = 'Phasic AUC' +
+      ((AppState.analyzer && AppState.analyzer.phasicAUCIsISCR) ? ' (ISCR)' : '');
+    for (const selId of ['graphView', 'mapColoringMetric']) {
+      const opt = document.querySelector('#' + selId + ' option[value="phasicAUC"]');
+      if (opt) opt.textContent = txt;
+    }
   },
 
   /**

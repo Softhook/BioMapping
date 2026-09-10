@@ -1052,8 +1052,12 @@ const GSRRenderer = {
 
     // Only attach an extra tooltip row when the lower graph isn't showing
     // plain Phasic — the Phasic row already covers that case below.
+    // 'Phasic AUC' becomes 'Phasic AUC (ISCR)' when the series integrated the
+    // deconvolved driver (see analyzer.computePhasicAUC).
+    const lowerLabel = lowerCfg.label +
+      (lowerMode === 'phasicAUC' && AppState.analyzer.phasicAUCIsISCR ? ' (ISCR)' : '');
     const extraMetric = (lowerMode !== 'phasic') ? {
-      label: lowerCfg.label + ':',
+      label: lowerLabel + ':',
       color: colorLower,
       valueStr: dLower.val.toFixed(lowerCfg.decimals) + ' ' + lowerCfg.unit
     } : null;

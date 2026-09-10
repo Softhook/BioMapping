@@ -89,7 +89,7 @@ Object.assign(GSRMapManager.prototype, {
         'phasic':           'Phasic (SCR)',
         'tonic':            'Tonic Baseline (SCL)',
         'peakDensity':      'Peak Density (NS-SCR)',
-        'phasicAUC':        'Phasic AUC (ISCR)',
+        'phasicAUC':        'Phasic AUC' + ((typeof AppState !== 'undefined' && AppState.analyzer && AppState.analyzer.phasicAUCIsISCR) ? ' (ISCR)' : ''),
         'arousalIndex':     'Combined Arousal Index',
         'triIndex':         'Tri Index',
         'em_fog':           'EM Fog Index (0-100)',
