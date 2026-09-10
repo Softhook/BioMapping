@@ -2521,7 +2521,12 @@ input[type="range"]:focus-visible,
 }
 .live-view *, .live-view *::before, .live-view *::after { box-sizing: border-box; }
 
-.live-view #app { display: flex; flex-direction: column; height: 100%; }
+/* width:100% + flex:1 1 auto so #app fills its host in both hosts: standalone
+   live.html gives it a plain block #liveRoot, but in index.html it's a flex
+   item of #livePanel (a row flexbox once .live-mode makes it display:flex) and
+   would otherwise shrink to its toolbar's content width — leaving the graph and
+   map in a narrow left strip on a widescreen. */
+.live-view #app { display: flex; flex-direction: column; height: 100%; width: 100%; flex: 1 1 auto; min-width: 0; }
 
 .live-view header {
   display: flex; align-items: center; gap: 10px;
