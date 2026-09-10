@@ -1130,6 +1130,7 @@ const GSREvents = {
     const mapEl     = document.getElementById('map');
     const globeEl   = document.getElementById('globe3dContainer');
     const settings3d = document.getElementById('mapDisplay3DGroup');
+    const mapDisplayCard = document.getElementById('mapDisplayCard');
     const cameraBtns = [
       document.getElementById('g3dBtnOrbit'),
       document.getElementById('g3dBtnTour'),
@@ -1150,6 +1151,11 @@ const GSREvents = {
       show(globeEl, toGlobe);
       show(settings3d, toGlobe);
       cameraBtns.forEach(btn => show(btn, toGlobe));
+
+      // The Map Display card ships collapsed; switching to the globe reveals the
+      // 3D-only settings inside it, so expand it once so they aren't stranded
+      // behind a collapsed header. Never auto-recollapses — the user's call.
+      if (toGlobe && mapDisplayCard) mapDisplayCard.classList.remove('collapsed');
 
       if (typeof GSRGlobe3DView !== 'undefined') {
         if (toGlobe) GSRGlobe3DView.activate();

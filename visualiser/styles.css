@@ -68,25 +68,35 @@ body {
   height: 100vh;
 }
 
-/* Scrollbar customization — fixed 10px, no size change on interaction */
+/* Scrollbar customization — a 12px reserved lane (never overlays content; the
+   scroll containers pair this with scrollbar-gutter: stable), a visible thumb,
+   and a 2px transparent inset so the painted thumb reads as ~8px. */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 ::-webkit-scrollbar-track {
   background: rgba(17, 17, 17, 0.04);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(17, 17, 17, 0.2);
-  border-radius: 5px;
+  background: rgba(17, 17, 17, 0.4);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  min-height: 48px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(17, 17, 17, 0.35);
+  background: rgba(17, 17, 17, 0.55);
+  background-clip: padding-box;
 }
-/* Firefox */
+::-webkit-scrollbar-thumb:active {
+  background: rgba(17, 17, 17, 0.7);
+  background-clip: padding-box;
+}
+/* Firefox — reserves its own lane too; matching contrast */
 * {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(17, 17, 17, 0.2) rgba(17, 17, 17, 0.04);
+  scrollbar-width: auto;
+  scrollbar-color: rgba(17, 17, 17, 0.4) rgba(17, 17, 17, 0.04);
 }
 
 .app-container {
@@ -179,7 +189,7 @@ body {
 /* Layout Grid */
 .main-layout {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 280px 1fr;
   gap: 8px;
   flex-grow: 1;
   min-height: 0;
@@ -195,8 +205,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  overflow-y: scroll;
+  overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding-right: 10px;
   transition: opacity 0.25s ease, transform var(--transition-standard);
 }
@@ -638,7 +650,8 @@ input[type="range"]:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 8px;
-  overflow-y: scroll;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   padding-right: 10px;
   min-height: 0;
   height: 100%;
@@ -1131,6 +1144,8 @@ input[type="range"]:focus-visible,
 
 .table-container {
   overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   flex-grow: 1;
   min-height: 0;
   min-width: 0;
