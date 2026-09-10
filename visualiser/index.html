@@ -1019,16 +1019,12 @@
           </div>
         </section>
 
-        <!-- Live Stream (BLE) — the standalone live.html receiver embedded as an
-             isolated frame. Shown only in the "Live" view; its src is set lazily
-             on first activation so Web Bluetooth / geolocation aren't spun up
-             until the user asks for them. Once loaded it stays loaded, so an
-             active BLE session survives switching tabs away and back. -->
-        <section class="live-panel" id="livePanel">
-          <iframe id="liveFrame" title="Bio Mapping Live"
-                  allow="bluetooth; geolocation"
-                  data-src="live.html"></iframe>
-        </section>
+        <!-- Live Stream (BLE) receiver. The whole UI is built into this
+             container by GSRLiveView.mount() (src/live/live_view.js) — the
+             same code path standalone live.html uses — on first activation
+             of the "Live" view tab, then left mounted so an active BLE
+             session survives switching tabs away and back. -->
+        <section class="live-panel" id="livePanel"></section>
 
       </main>
 
@@ -1070,6 +1066,14 @@
   <script src="src/gps/gps_filter.js"></script>
   <script src="src/map/map_colors.js"></script>
   <script src="src/gps/gps_pipeline.js"></script>
+  <!-- Live Stream (BLE) view — depends on gsr_filter / map_colors / gps_pipeline
+       above and Leaflet; consumed by events.js's view switcher below. -->
+  <script src="src/live/live_binary_parser.js"></script>
+  <script src="src/live/live_state.js"></script>
+  <script src="src/live/live_bluetooth.js"></script>
+  <script src="src/live/live_csv.js"></script>
+  <script src="src/live/live_tile_cache.js"></script>
+  <script src="src/live/live_view.js"></script>
   <script src="src/render/label_placement.js"></script>
   <script src="src/render/bezier_spline.js"></script>
   <script src="src/render/contour_ring_geometry.js"></script>

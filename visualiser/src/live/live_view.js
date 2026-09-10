@@ -716,6 +716,10 @@ const GSRLiveView = {
     if (this._mounted) return;
     this._mounted = true;
 
+    // .live-view scopes every rule in styles.css's "Live Stream (BLE) view"
+    // section to this subtree — so the live UI's bare header/footer/button
+    // selectors never leak into the host page.
+    container.classList.add('live-view');
     container.innerHTML = LIVE_VIEW_MARKUP;
 
     statusBadge      = document.getElementById('statusBadge');

@@ -2372,9 +2372,15 @@ input[type="range"]:focus-visible,
   height: 100% !important;
 }
 
-/* Live view — the embedded live.html frame takes the whole content area.
-   Sidebar and every other main-content section are hidden; the grid drops to a
-   single column so the frame is full-bleed. */
+/* ─────────────────────────────────────────────────────────────────────────────
+   Live Stream (BLE) view
+   GSRLiveView.mount() builds its UI into a container and tags it .live-view —
+   #livePanel here, or #liveRoot in standalone live.html, which <link>s this
+   file. Everything below is scoped to .live-view so the live UI's bare
+   header/footer/button/.badge/.active selectors never touch the rest of the
+   app. Re-themed from live.html's original dark palette onto the main app's
+   light tokens (christian's call — the standalone page changes with it).
+   ───────────────────────────────────────────────────────────────────────────── */
 .live-panel {
   display: none;
   flex: 1 1 auto;
@@ -2382,13 +2388,6 @@ input[type="range"]:focus-visible,
   border: 1px solid var(--border-glass);
   border-radius: 4px;
   overflow: hidden;
-}
-
-.live-panel #liveFrame {
-  width: 100%;
-  height: 100%;
-  border: 0;
-  display: block;
 }
 
 .main-layout.live-mode {
@@ -2407,6 +2406,105 @@ input[type="range"]:focus-visible,
 
 .main-layout.live-mode #livePanel {
   display: flex;
+}
+
+.live-view {
+  /* Local palette — live.html's original var names, remapped to app tokens. */
+  --lv-bg: var(--bg-app);
+  --lv-panel: var(--bg-sidebar);
+  --lv-border: var(--border-glass);
+  --lv-text: var(--text-primary);
+  --lv-muted: var(--text-muted);
+  --lv-accent: var(--success);
+  --lv-warn: var(--warning);
+  --lv-bad: var(--danger);
+
+  position: relative;   /* contains #connectOverlay */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--lv-bg);
+  color: var(--lv-text);
+  font-family: var(--font-sans);
+}
+.live-view *, .live-view *::before, .live-view *::after { box-sizing: border-box; }
+
+.live-view #app { display: flex; flex-direction: column; height: 100%; }
+
+.live-view header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; background: var(--lv-panel); border-bottom: 1px solid var(--lv-border);
+  flex-wrap: wrap;
+}
+.live-view header h1 { font-size: 15px; margin: 0; font-weight: 600; flex: 1 1 auto; min-width: 0; }
+.live-view .badge {
+  font-size: 12px; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--lv-border); color: var(--lv-muted); white-space: nowrap;
+}
+.live-view .badge.live { color: var(--lv-accent); border-color: var(--lv-accent); }
+.live-view .badge.warn { color: var(--lv-warn); border-color: var(--lv-warn); }
+.live-view .badge.bad  { color: var(--lv-bad);  border-color: var(--lv-bad); }
+
+.live-view button {
+  font-size: 13px; padding: 6px 12px; border-radius: 6px;
+  border: 1px solid var(--lv-border); background: var(--bg-card); color: var(--lv-text);
+  cursor: pointer; touch-action: manipulation;
+}
+.live-view button:disabled { opacity: 0.4; cursor: default; }
+.live-view button.primary { background: var(--lv-accent); color: #fff; border-color: var(--lv-accent); font-weight: 600; }
+.live-view button.active { background: var(--lv-warn); color: #fff; border-color: var(--lv-warn); font-weight: 600; }
+
+.live-view #graphWrap { position: relative; background: var(--bg-card); border-bottom: 1px solid var(--lv-border); flex: 0 0 34%; min-height: 120px; }
+.live-view #graph { width: 100%; height: 100%; display: block; }
+.live-view #graphLabel {
+  position: absolute; top: 6px; left: 10px; font-size: 11px; color: var(--lv-muted);
+  pointer-events: none;
+}
+.live-view #graphValue {
+  position: absolute; top: 6px; right: 10px; font-size: 13px; color: var(--lv-text); font-weight: 600;
+  pointer-events: none;
+}
+
+.live-view #liveMap { flex: 1 1 auto; min-height: 0; background: var(--bg-card); }
+.live-view #app.no-map #liveMap { display: none; }
+.live-view #app.no-map #graphWrap { flex: 1 1 auto; border-bottom: none; }
+.live-view #app.no-map #locationBar { display: none; }
+
+.live-view #locationBar {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: var(--lv-panel); border-bottom: 1px solid var(--lv-border); flex-wrap: wrap;
+}
+.live-view #locationBar input {
+  font-size: 13px; padding: 6px 8px; border-radius: 6px; width: 130px;
+  border: 1px solid var(--lv-border); background: var(--bg-card); color: var(--lv-text);
+}
+
+.live-view footer {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  background: var(--lv-panel); border-top: 1px solid var(--lv-border); font-size: 12px; color: var(--lv-muted);
+  flex-wrap: wrap;
+}
+.live-view footer .stat { white-space: nowrap; }
+.live-view footer .spacer { flex: 1 1 auto; }
+
+.live-view #connectOverlay {
+  position: absolute; inset: 0; background: rgba(252, 251, 249, 0.94);
+  display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px;
+  text-align: center; padding: 24px;
+  /* Leaflet's panes/controls reach z-index 1000; sit well above them. */
+  z-index: 10000;
+}
+.live-view #connectOverlay.hidden { display: none; }
+.live-view #connectOverlay p { color: var(--lv-muted); max-width: 320px; font-size: 13px; margin: 0; }
+.live-view #connectOverlay .err { color: var(--lv-bad); font-size: 12px; max-width: 320px; }
+.live-view #reconnectErr { color: var(--lv-bad); font-size: 11px; flex-basis: 100%; }
+
+@media (max-width: 480px) {
+  .live-view header { padding: 6px 8px; gap: 6px; }
+  .live-view header h1 { font-size: 13px; }
+  .live-view .badge { font-size: 11px; padding: 2px 6px; }
+  .live-view button { font-size: 11px; padding: 4px 8px; }
+  .live-view footer { padding: 4px 8px; font-size: 10px; }
 }
 
 /* Compact drag drop zone when tracks are loaded */

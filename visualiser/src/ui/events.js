@@ -1017,7 +1017,7 @@ const GSREvents = {
     const btnSingleView      = document.getElementById('btnSingleView');
     const btnCollectiveView  = document.getElementById('btnCollectiveView');
     const btnLiveView        = document.getElementById('btnLiveView');
-    const liveFrame          = document.getElementById('liveFrame');
+    const livePanel          = document.getElementById('livePanel');
     const appMainLayout      = document.querySelector('.main-layout');
     const contourSettingsCard = document.getElementById('contourSettingsCard');
 
@@ -1152,10 +1152,11 @@ const GSREvents = {
         btnSingleView.classList.remove('active');
         btnCollectiveView.classList.remove('active');
 
-        // Lazy first load — Web Bluetooth / geolocation stay dormant until the
-        // user actually opens the Live view.
-        if (liveFrame && !liveFrame.src && liveFrame.dataset.src) {
-          liveFrame.src = liveFrame.dataset.src;
+        // Build the live UI into #livePanel on first open (idempotent) — its
+        // BLE / geolocation code stays dormant until the user acts inside it.
+        // Left mounted afterwards so an active session survives a tab switch.
+        if (livePanel && typeof GSRLiveView !== 'undefined') {
+          GSRLiveView.mount(livePanel);
         }
 
         appMainLayout.classList.remove('collective-mode');
@@ -1163,7 +1164,7 @@ const GSREvents = {
         contourSettingsCard.style.display = 'none';
         collectiveOnlyMapBtns.forEach(btn => btn.style.display = 'none');
 
-        // Nothing on the main canvas to draw while the frame owns the view.
+        // Nothing on the main canvas to draw while the live view owns the area.
         noLoop();
       });
     }

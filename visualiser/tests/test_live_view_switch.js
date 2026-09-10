@@ -1,18 +1,16 @@
 /**
- * Characterisation tests for the "Live" view tab in the MAIN app (index.html).
+ * The "Live" view tab in the MAIN app (index.html).
  *
- * The Live receiver (live.html) is currently embedded in index.html as an
- * isolated <iframe> that the third header tab (Single Track / Collective /
- * Live) shows. These tests pin that view-switch contract down BEFORE the
- * planned full integration (live.html's logic moving into shared src/live/*
- * modules and a real in-page panel), so the switch behaviour — which tab is
- * active, the .main-layout mode class, lazy frame loading, and clean
- * teardown back to single/collective — is a regression net the integration
- * work has to keep satisfying.
+ * The Live receiver is now built straight into #livePanel by
+ * GSRLiveView.mount() (src/live/live_view.js) — the same code path
+ * standalone live.html uses — the first time the third header tab
+ * (Single Track / Collective / Live) is opened, then left mounted so an
+ * active BLE session survives a tab round-trip. These tests pin that
+ * view-switch contract: which tab is active, the .main-layout mode class,
+ * mount-once, and clean teardown back to single/collective.
  *
- * Boots the real index.html via tests/support/boot_app.js (same harness as
- * test_app_smoke.js). No track data is needed — the Live tab is independent
- * of the analysed-track pipeline.
+ * Boots the real index.html via tests/support/boot_app.js. No track data
+ * needed — the Live tab is independent of the analysed-track pipeline.
  *
  * Run: node --test tests/test_live_view_switch.js  (or `npm test` for all)
  */
@@ -32,7 +30,7 @@ function boot() {
     btnSingle: document.getElementById('btnSingleView'),
     btnCollective: document.getElementById('btnCollectiveView'),
     btnLive: document.getElementById('btnLiveView'),
-    frame: document.getElementById('liveFrame'),
+    livePanel: document.getElementById('livePanel'),
     click: (el) => el.dispatchEvent(new window.Event('click', { bubbles: true })),
   };
 }
@@ -45,15 +43,15 @@ test('the Live tab exists in the real index.html markup, alongside Single Track 
   assert.match(btnLive.textContent.trim(), /Live/);
 });
 
-test('the embedded live frame ships with no src (deferred) and a data-src pointing at live.html', () => {
-  const { frame } = boot();
-  assert.ok(frame, '#liveFrame present');
-  assert.strictEqual(frame.getAttribute('src'), null, 'no src until the tab is first opened');
-  assert.strictEqual(frame.getAttribute('data-src'), 'live.html');
+test('#livePanel starts empty — the live UI is not built until the tab is first opened', () => {
+  const { window, livePanel } = boot();
+  assert.ok(livePanel, '#livePanel present');
+  assert.strictEqual(livePanel.children.length, 0, 'no live DOM yet');
+  assert.ok(!window.GSRLiveView._mounted, 'GSRLiveView not mounted on load');
 });
 
-test('clicking Live switches viewMode, adds the live-mode layout class, and moves the active tab', () => {
-  const { window, layout, btnSingle, btnCollective, btnLive, frame, click } = boot();
+test('clicking Live switches viewMode, adds the live-mode class, moves the active tab, and mounts the live UI', () => {
+  const { window, layout, btnSingle, btnCollective, btnLive, livePanel, click } = boot();
   assert.strictEqual(window.AppState.viewMode, 'single');
 
   click(btnLive);
@@ -63,7 +61,9 @@ test('clicking Live switches viewMode, adds the live-mode layout class, and move
   assert.ok(btnLive.classList.contains('active'), 'Live tab is active');
   assert.ok(!btnSingle.classList.contains('active'), 'Single tab no longer active');
   assert.ok(!btnCollective.classList.contains('active'), 'Collective tab not active');
-  assert.ok(frame.src && /live\.html$/.test(frame.src), 'frame src is lazily set on first open');
+  assert.ok(window.GSRLiveView._mounted, 'GSRLiveView.mount ran');
+  assert.ok(livePanel.classList.contains('live-view'), 'panel tagged .live-view for scoped styles');
+  assert.ok(livePanel.querySelector('#statusBadge'), 'the live UI was built into the panel');
 });
 
 test('clicking Live twice is a no-op the second time (guarded on viewMode)', () => {
@@ -97,16 +97,16 @@ test('switching Live -> Collective tears down live-mode and enters collective-mo
   assert.ok(!btnLive.classList.contains('active'), 'Live tab deactivated');
 });
 
-test('the live frame stays loaded once opened — Live -> Collective -> Live does not reset its src', () => {
-  const { window, btnCollective, btnLive, frame, click } = boot();
+test('the live UI stays mounted once built — Live -> Collective -> Live does not rebuild it', () => {
+  const { window, btnCollective, btnLive, livePanel, click } = boot();
   click(btnLive);
-  const srcAfterFirstOpen = frame.src;
-  assert.ok(srcAfterFirstOpen, 'src set on first open');
+  const badge = livePanel.querySelector('#statusBadge');
+  assert.ok(badge, 'built on first open');
 
   click(btnCollective);
   click(btnLive);
 
-  assert.strictEqual(frame.src, srcAfterFirstOpen, 'src unchanged — an active BLE session survives a tab round-trip');
+  assert.strictEqual(livePanel.querySelector('#statusBadge'), badge, 'same element — not re-mounted');
   assert.strictEqual(window.AppState.viewMode, 'live');
 });
 
