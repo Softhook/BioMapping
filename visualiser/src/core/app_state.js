@@ -17,6 +17,13 @@ const AppState = {
   activeTrackId: null,
   viewMode: 'single',       // 'single' | 'collective'  (data scope)
   surfaceView: 'map',       // 'map' | 'globe'          (render surface — see globe3d_view.js)
+  isDisplayMode: false,
+  get isTotalFullscreen() {
+    return this.isDisplayMode;
+  },
+  set isTotalFullscreen(v) {
+    this.isDisplayMode = !!v;
+  },
 
   // ── Track colour palette (Classic primary-inspired Swiss palette) ───────────
   trackColors: [

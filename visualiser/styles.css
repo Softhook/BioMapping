@@ -1894,6 +1894,52 @@ input[type="range"]:focus-visible,
   flex-grow: 0 !important;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Total Fullscreen / Display Mode (Borderless Clean Screen)
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+.panel-fullscreen-overlay.total-fullscreen {
+  padding: 0 !important;
+  background: #000 !important;
+}
+
+.panel-fullscreen-overlay.total-fullscreen > section {
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  margin: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-height: none !important;
+}
+
+.panel-fullscreen-overlay.total-fullscreen .panel-header {
+  display: none !important;
+}
+
+.panel-fullscreen-overlay.total-fullscreen #map,
+.panel-fullscreen-overlay.total-fullscreen #globe3dContainer,
+.panel-fullscreen-overlay.total-fullscreen .canvas-container {
+  border-radius: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 100vh !important;
+}
+
+/* In display mode, hide all legends, copyright/attribution notices, zoom controls, and status badges */
+.panel-fullscreen-overlay.total-fullscreen .map-legend,
+.panel-fullscreen-overlay.total-fullscreen .globe3d-legend,
+.panel-fullscreen-overlay.total-fullscreen #g3dLegend,
+.panel-fullscreen-overlay.total-fullscreen .leaflet-control-attribution,
+.panel-fullscreen-overlay.total-fullscreen .globe3d-attribution,
+.panel-fullscreen-overlay.total-fullscreen #g3dAttribution,
+.panel-fullscreen-overlay.total-fullscreen .leaflet-control-zoom,
+.panel-fullscreen-overlay.total-fullscreen .leaflet-control-container,
+.panel-fullscreen-overlay.total-fullscreen .globe3d-status,
+.panel-fullscreen-overlay.total-fullscreen .cesium-widget-credits {
+  display: none !important;
+}
+
 /* ─────────────────────────────────────────────────────────────────── */
 
 .control-subgroup-title {

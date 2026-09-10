@@ -5,6 +5,9 @@
 const GSRLayoutManager = {
   // Active panel-fullscreen exit callbacks
   _activePanelExits: new Set(),
+  // Currently active fullscreen panel descriptor: { panelId, panel, overlay, exit }
+  _activeFullscreenPanel: null,
+  _shortcutsBound: false,
   _canvasObserver: null,
   _mapObserver: null,
   _regressionObserver: null,
@@ -44,11 +47,12 @@ const GSRLayoutManager = {
   },
 
   /**
-   * Initialize layout observers and event listeners.
+   * Initialize layout observers, keyboard shortcuts, and fullscreen managers.
    */
   init() {
     this.setupResizeObservers();
     this.setupBrowserFullscreen();
+    this.setupKeyboardShortcuts();
     this.setupPanelFullscreen('btnGsrFullscreen', 'gsrPanel');
     // #mapPanel hosts both render engines (Leaflet + Cesium). Cesium sizes its
     // canvas to the container box, so after the panel moves into / out of the
@@ -187,6 +191,99 @@ const GSRLayoutManager = {
   },
 
   /**
+   * Whether the app is currently in edge-to-edge display mode.
+   */
+  get isDisplayMode() {
+    return !!AppState.isDisplayMode;
+  },
+
+  /**
+   * Enter borderless display mode on the currently active fullscreen panel.
+   */
+  enterDisplayMode() {
+    const active = this._activeFullscreenPanel;
+    if (!active || !active.overlay) return;
+
+    AppState.isDisplayMode = true;
+    active.overlay.classList.add('display-mode', 'total-fullscreen');
+
+    if (!this.Fullscreen.active) {
+      this.Fullscreen.request(active.overlay);
+    }
+
+    this._triggerPanelResize(active.panelId, active.overlay);
+  },
+
+  /**
+   * Exit display mode and restore headers/chrome on the fullscreen panel.
+   */
+  exitDisplayMode() {
+    const active = this._activeFullscreenPanel;
+    AppState.isDisplayMode = false;
+
+    if (active && active.overlay) {
+      active.overlay.classList.remove('display-mode', 'total-fullscreen');
+      this._triggerPanelResize(active.panelId, active.overlay);
+    }
+  },
+
+  /**
+   * Toggle borderless display mode on the active fullscreen panel.
+   */
+  toggleDisplayMode() {
+    if (this.isDisplayMode) {
+      this.exitDisplayMode();
+    } else {
+      this.enterDisplayMode();
+    }
+  },
+
+  /**
+   * Trigger immediate resize for map or GSR canvas in fullscreen overlay.
+   * @private
+   */
+  _triggerPanelResize(panelId, overlay) {
+    const w = (overlay && overlay.clientWidth) || window.innerWidth || document.documentElement.clientWidth;
+    const h = (overlay && overlay.clientHeight) || window.innerHeight || document.documentElement.clientHeight;
+
+    if (panelId === 'mapPanel') {
+      this.resizeMap(w, h);
+    } else if (panelId === 'gsrPanel') {
+      this.resizeCanvas(w, h);
+    }
+  },
+
+  /**
+   * Centralized keyboard shortcut management for layout and display modes.
+   */
+  setupKeyboardShortcuts() {
+    if (this._shortcutsBound) return;
+    this._shortcutsBound = true;
+
+    document.addEventListener('keydown', (e) => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        if (this._activeFullscreenPanel) {
+          this.toggleDisplayMode();
+        } else {
+          const btn = document.getElementById('btnFullscreen');
+          if (btn) btn.click();
+        }
+      } else if (e.key === 'Escape') {
+        if (this.isDisplayMode) {
+          e.preventDefault();
+          this.exitDisplayMode();
+        } else if (this._activeFullscreenPanel) {
+          e.preventDefault();
+          this._activeFullscreenPanel.exit();
+        }
+      }
+    });
+  },
+
+  /**
    * Bind browser fullscreen button triggers.
    */
   setupBrowserFullscreen() {
@@ -212,15 +309,6 @@ const GSRLayoutManager = {
     });
 
     this.Fullscreen.onChange(() => toggleIcon(this.Fullscreen.active));
-
-    // Keyboard shortcut F/f to toggle browser fullscreen
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'f' || e.key === 'F') {
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-        e.preventDefault();
-        btn.click();
-      }
-    });
   },
 
   /**
@@ -259,12 +347,18 @@ const GSRLayoutManager = {
       overlay.appendChild(panel);
       getOverlayParent().appendChild(overlay);
 
+      this._activeFullscreenPanel = { panelId, panel, overlay, exit };
       this._activePanelExits.add(exit);
       if (onStateChange) onStateChange(true);
     };
 
     const exit = () => {
       if (!isFs) return;
+
+      if (this.isDisplayMode) {
+        this.exitDisplayMode();
+      }
+
       isFs = false;
       btn.classList.remove('is-fullscreen');
       const icon = btn.querySelector('i');
@@ -281,6 +375,10 @@ const GSRLayoutManager = {
         overlay = null;
       }
 
+      if (this._activeFullscreenPanel && this._activeFullscreenPanel.exit === exit) {
+        this._activeFullscreenPanel = null;
+      }
+
       this._activePanelExits.delete(exit);
       if (onStateChange) onStateChange(false);
     };
@@ -288,13 +386,6 @@ const GSRLayoutManager = {
     btn.addEventListener('click', () => {
       if (isFs) exit();
       else enter();
-    });
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && isFs) {
-        e.preventDefault();
-        exit();
-      }
     });
   },
 
