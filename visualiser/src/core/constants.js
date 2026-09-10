@@ -136,7 +136,9 @@ const GSR_CONST = {
     // fewer ripples, lower it to keep more small SCRs.
     alpha: 2e-3,
     gamma: 1e-2,        // L2 weight on tonic spline smoothness
-    maxIter: 600,       // ADMM iteration cap (residual tolerance usually hits first)
+    maxIter: 1200,      // ADMM iteration cap. Realistic tracks converge in ~100–300;
+                        // the plateau-escape catches asymptoted stiff tracks well
+                        // before this. Only a genuinely non-converging solve binds it.
     tol: 3e-4,          // Scaled primal/dual residual tolerance (Boyd §3.3)
     rho: 0.3,           // Initial ADMM penalty (adapts to balance residuals)
   },

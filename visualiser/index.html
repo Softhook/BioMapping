@@ -201,7 +201,7 @@
             </div>
             <p class="help-text" style="margin-top:4px;">Improves peak separation for compound SCR (Benedek &amp; Kaernbach, 2010), but distorts the temporal resolution of the signal.</p>
             <div class="deconv-truncation-warning" id="deconvTruncationWarning" style="display:none; margin-top:6px; padding:7px 10px; border-radius:6px; background:rgba(229,158,0,0.15); border:1px solid rgba(229,158,0,0.4); color:#e59e00; font-size:0.78rem; line-height:1.4;">
-              <i class="fa-solid fa-triangle-exclamation"></i> Matching pursuit hit its iteration cap before fully converging on this track — some real SCRs may be left unmodeled. Results are still usable but may be undercounted; consider this track a candidate for a longer maxIter budget.
+              <i class="fa-solid fa-triangle-exclamation"></i> The SCR decomposition hit its iteration cap before fully converging on this track — some low-amplitude SCRs may be left unmodelled. The tonic baseline and larger responses are unaffected; peak counts for this track may be slightly low.
             </div>
 
             <div class="toggle-group" style="margin-top:8px;">

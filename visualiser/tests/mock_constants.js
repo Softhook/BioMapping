@@ -52,7 +52,7 @@ module.exports = {
     deltaKnotSec: 10.0,
     alpha: 2e-3,
     gamma: 1e-2,
-    maxIter: 600,
+    maxIter: 1200,
     tol: 3e-4,
     rho: 0.3,
   },

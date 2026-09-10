@@ -484,12 +484,12 @@ const CVXEDA = {
 
       // Plateau escape: ADMM converges linearly, so on a badly-conditioned
       // track the residuals can level off just above the tolerance. Once the
-      // combined residual stops moving (< 0.05 %/iter for 30 iterations) the
+      // combined residual stops moving (< 0.1 %/iter for 25 iterations) the
       // iterate is effectively fixed — accept it as converged rather than
       // spin out the iteration budget.
       const resid = rPrim + rDual;
-      if (Math.abs(prevResid - resid) < 5e-4 * resid) {
-        if (++plateau >= 30) { converged = true; break; }
+      if (Math.abs(prevResid - resid) < 1e-3 * resid) {
+        if (++plateau >= 25) { converged = true; break; }
       } else {
         plateau = 0;
       }
