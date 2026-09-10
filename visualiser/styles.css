@@ -2451,14 +2451,26 @@ input[type="range"]:focus-visible,
 .live-view .badge.warn { color: var(--lv-warn); border-color: var(--lv-warn); }
 .live-view .badge.bad  { color: var(--lv-bad);  border-color: var(--lv-bad); }
 
+/* Match the app's .btn-outline (size) and .btn-outline.active / .btn-primary
+   (fill) so the live toolbar reads as the same control set as the rest of
+   the app rather than its own dialect. */
 .live-view button {
-  font-size: 13px; padding: 6px 12px; border-radius: 6px;
+  font-size: 0.76rem; padding: 4px 10px; border-radius: 4px;
   border: 1px solid var(--lv-border); background: var(--bg-card); color: var(--lv-text);
   cursor: pointer; touch-action: manipulation;
 }
 .live-view button:disabled { opacity: 0.4; cursor: default; }
-.live-view button.primary { background: var(--lv-accent); color: #fff; border-color: var(--lv-accent); font-weight: 600; }
-.live-view button.active { background: var(--lv-warn); color: #fff; border-color: var(--lv-warn); font-weight: 600; }
+.live-view button.primary { background: var(--text-primary); color: #fff; border-color: var(--text-primary); font-weight: 600; }
+.live-view button.active { background: var(--text-primary); color: #fff; border-color: var(--text-primary); font-weight: 600; }
+
+/* The fullscreen button is the app's borderless .icon-btn.fullscreen-btn —
+   .live-view button (above) would otherwise give it a box + fill. */
+.live-view .fullscreen-btn {
+  background: transparent; border: none; padding: 4px 8px;
+  color: var(--text-muted); font-size: 0.9rem;
+}
+.live-view .fullscreen-btn:hover { background: rgba(17, 17, 17, 0.06); color: var(--text-primary); }
+.live-view .fullscreen-btn.is-fullscreen { background: transparent; color: var(--accent-primary); }
 
 .live-view #graphWrap { position: relative; background: var(--bg-card); border-bottom: 1px solid var(--lv-border); flex: 0 0 34%; min-height: 120px; }
 .live-view #graph { width: 100%; height: 100%; display: block; }

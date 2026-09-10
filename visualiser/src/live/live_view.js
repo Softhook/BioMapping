@@ -42,13 +42,13 @@ const LIVE_VIEW_MARKUP = `
     <button id="togglePhasicBtn" disabled>Show Phasic (P)</button>
     <button id="toggleMapBtn">Show Map (M)</button>
     <button id="cacheMapBtn" disabled>Cache Map (C)</button>
-    <button id="toggleFullscreenBtn">Fullscreen (F)</button>
+    <button id="toggleFullscreenBtn" class="icon-btn fullscreen-btn" title="Full screen (F)"><i class="fa-solid fa-expand"></i></button>
     <span id="reconnectErr"></span>
   </header>
 
   <div id="graphWrap">
     <canvas id="graph"></canvas>
-    <span id="graphLabel">GSR (nS) — last 2 min</span>
+    <span id="graphLabel">GSR (μS) — last 2 min</span>
     <span id="graphValue">--</span>
   </div>
 
@@ -102,6 +102,17 @@ const GRAPH_PAD_S = 30;
 // scaled down for this compact panel.
 const GRAPH_MARGIN = { top: 12, right: 12, bottom: 20, left: 58 };
 
+// The live wire format carries GSR in nanosiemens (firmware
+// gsr_sensor_get_raw — docs/csv_schema.md); the rest of the app works in
+// microsiemens, and GSRCSVParser divides logged nS by 1000 on import
+// (src/signal/csv_parser.js "Auto-detect Units"). Match that here so the
+// live readout, its axis and the single-track "Signal" view are one scale.
+const NS_TO_US = 1 / 1000;
+// Two decimals + " µS", matching the single-track signal graph's Y axis
+// (src/render/sketch.js's `tonic` grid preset drives the upper region).
+const GSR_UNIT = ' μS';
+const GSR_DECIMALS = 2;
+
 // Pull the single-track GSR view's own theme tokens (src/render/renderer.js
 // reads the same custom properties via getThemeColor) so the two graphs
 // stay visually identical. Falls back to the light-theme defaults when no
@@ -117,7 +128,7 @@ function graphThemeColor(name, fallback) {
 
 // A "1 / 2 / 5 × 10ⁿ" gridline step giving ~5 divisions across `span` — the
 // same shape as renderer.js's drawGridY step presets, computed rather than
-// table-driven since live GSR (nS) has no fixed range.
+// table-driven since a live session's GSR (µS) has no fixed range.
 function niceStep(span) {
   if (!(span > 0)) return 1;
   const rough = span / 5;
@@ -153,7 +164,10 @@ function drawGraph() {
   let padStartIdx = pkts.length - 1;
   while (padStartIdx > 0 && pkts[padStartIdx - 1].timestamp >= padT0) padStartIdx--;
   const paddedPkts = pkts.slice(padStartIdx);
-  const paddedSmoothed = GsrFilter.applyZeroPhaseEMA(paddedPkts.map(p => p.gsrRaw), GRAPH_EMA_ALPHA);
+  // nS → µS at the point it enters the plotting/decomposition maths, so
+  // everything downstream (tonic/phasic split, min/max, axis, readout) is
+  // already in the app's unit. The raw packet objects stay in nS.
+  const paddedSmoothed = GsrFilter.applyZeroPhaseEMA(paddedPkts.map(p => p.gsrRaw * NS_TO_US), GRAPH_EMA_ALPHA);
 
   // Compute Tonic/Phasic baseline dynamically using a slow EMA (approx 45s window equivalent)
   const sampleRate = 1.0 / LiveState.STREAM_INTERVAL_S;
@@ -180,7 +194,7 @@ function drawGraph() {
   if (visible.length === 0) return;
 
   let minV = Math.min(...visible), maxV = Math.max(...visible);
-  if (maxV - minV < 1) { maxV += 0.5; minV -= 0.5; }
+  if (maxV - minV < 0.2) { maxV += 0.1; minV -= 0.1; }
   const pad = (maxV - minV) * 0.1;
   minV -= pad; maxV += pad;
 
@@ -222,7 +236,7 @@ function drawGraph() {
   for (let v = yStart; v <= maxV; v += yStep) {
     const y = yForV(v);
     if (lastLabelY !== null && Math.abs(y - lastLabelY) < 14) continue; // thin so labels never crowd
-    ctx.fillText(v.toFixed(0) + ' nS', plotL - 8, y);
+    ctx.fillText(v.toFixed(GSR_DECIMALS) + GSR_UNIT, plotL - 8, y);
     lastLabelY = y;
   }
 
@@ -281,10 +295,10 @@ function drawGraph() {
   const lastPhasic = Math.max(0, lastSmoothed - lastTonic);
 
   document.getElementById('graphValue').textContent =
-    (LiveState.showPhasicOnly ? lastPhasic : pkts[pkts.length - 1].gsrRaw).toFixed(0) + ' nS';
+    (LiveState.showPhasicOnly ? lastPhasic : pkts[pkts.length - 1].gsrRaw * NS_TO_US).toFixed(GSR_DECIMALS) + GSR_UNIT;
 
   document.getElementById('graphLabel').textContent =
-    LiveState.showPhasicOnly ? 'GSR (nS, Phasic) — last 2 min' : 'GSR (nS) — last 2 min';
+    LiveState.showPhasicOnly ? 'GSR (μS, Phasic) — last 2 min' : 'GSR (μS) — last 2 min';
 }
 
 // ==========================================================================
@@ -307,6 +321,16 @@ let gsrMin = Infinity, gsrMax = -Infinity;
 let phasicMax = 0;
 const pendingPhasicSegments = []; // FIFO of { pkt, line } awaiting a settled pkt.phasic
 const PHASIC_COLOR_LAG_S = 8; // matches decomposeTonicPhasic's ±6s local-floor window + margin
+// Hard cap on the recolour backlog. It normally drains within
+// PHASIC_COLOR_LAG_S (~27 entries) as drawGraph() runs — but drawGraph() is
+// paused whenever the Live view isn't the one on screen (activate() /
+// deactivate()), while updateLiveMap() keeps drawing segments from the
+// still-live BLE feed. Without a cap the queue, and the Leaflet polylines
+// each entry pins, would grow for the entire time the user is on another
+// view. Past the cap the oldest segment simply keeps its provisional
+// raw-GSR colour — the same outcome resetSession() and an abrupt session
+// end already accept.
+const PENDING_PHASIC_MAX = 1200; // ~6 min at STREAM_INTERVAL_S
 
 // decomposeTonicPhasic() is a zero-phase/batch filter (a backward EMA pass,
 // then a ±6s look-ahead "local floor" correction) — a sample's phasic value
@@ -526,6 +550,7 @@ function updateLiveMap(pkt) {
       // with the more meaningful phasic value once that's settled.
       const line = L.polyline([liveLastLatLng, latlng], { color, weight: 3 }).addTo(liveMap);
       pendingPhasicSegments.push({ pkt, line });
+      if (pendingPhasicSegments.length > PENDING_PHASIC_MAX) pendingPhasicSegments.shift();
     }
 
     if (!liveMarker) {
@@ -768,6 +793,14 @@ const GSRLiveView = {
     connectBtn       = document.getElementById('connectBtn');
     connectErr       = document.getElementById('connectErr');
     reconnectErr     = document.getElementById('reconnectErr');
+    // Standalone live.html owns its own fullscreen affordance (the toolbar
+    // button + the F key). Inside index.html the app's top-bar
+    // #btnFullscreen and GSRLayoutManager's F shortcut already cover the
+    // whole app, this panel included — so the panel's own button is hidden
+    // and its key/connect fullscreen calls are skipped, leaving exactly one
+    // handler rather than two racing to fullscreen different elements.
+    const embedded = typeof AppState !== 'undefined';
+
     cacheMapBtn      = document.getElementById('cacheMapBtn');
     toggleMapBtn     = document.getElementById('toggleMapBtn');
     toggleFullscreenBtn = document.getElementById('toggleFullscreenBtn');
@@ -811,7 +844,9 @@ const GSRLiveView = {
 
     connectBtn.addEventListener('click', () => {
       attemptConnect();
-      if (document.documentElement.requestFullscreen) {
+      // Standalone only — go fullscreen for the walk. In-app this would
+      // fight the main app's own .app-container fullscreen convention.
+      if (!embedded && document.documentElement.requestFullscreen) {
         document.documentElement.requestFullscreen().catch(() => {});
       }
     });
@@ -870,24 +905,27 @@ const GSRLiveView = {
       );
     });
 
-    toggleFullscreenBtn.addEventListener('click', toggleFullscreen);
-
-    document.addEventListener('fullscreenchange', () => {
-      if (document.fullscreenElement) {
-        toggleFullscreenBtn.textContent = 'Exit Fullscreen (F)';
-        toggleFullscreenBtn.classList.add('active');
-      } else {
-        toggleFullscreenBtn.textContent = 'Fullscreen (F)';
-        toggleFullscreenBtn.classList.remove('active');
-      }
-    });
+    if (embedded) {
+      // The main app's top-bar Full screen button already covers this panel.
+      toggleFullscreenBtn.hidden = true;
+    } else {
+      toggleFullscreenBtn.addEventListener('click', toggleFullscreen);
+      document.addEventListener('fullscreenchange', () => {
+        const on = !!document.fullscreenElement;
+        toggleFullscreenBtn.classList.toggle('is-fullscreen', on);
+        const ic = toggleFullscreenBtn.querySelector('i');
+        if (ic) ic.className = on ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
+        toggleFullscreenBtn.title = on ? 'Exit full screen (F)' : 'Full screen (F)';
+      });
+    }
 
     window.addEventListener('keydown', (e) => {
       // Inside index.html these listeners outlive the Live tab (mount is
-      // once, no unmount) — only claim the p/m/c/f shortcuts while the Live
-      // view is actually the one on screen, so f in particular doesn't also
-      // fire here on top of the main app's own fullscreen key. Standalone
-      // live.html has no AppState, so the shortcuts are always live there.
+      // once, no unmount) — only claim the p/m/c shortcuts while the Live
+      // view is actually the one on screen. f is skipped entirely in-app
+      // (see `embedded` above): GSRLayoutManager owns it for the whole app.
+      // Standalone live.html has no AppState, so the shortcuts are always
+      // live there and f falls through to toggleFullscreen() below.
       if (typeof AppState !== 'undefined' && AppState.viewMode !== 'live') return;
       // Don't hijack keys while the user is typing coordinates.
       if (e.target === latInput || e.target === lonInput) return;
@@ -903,7 +941,8 @@ const GSRLiveView = {
       if ((e.key === 'c' || e.key === 'C') && !cacheMapBtn.disabled) {
         cacheCurrentMapArea();
       }
-      if (e.key === 'f' || e.key === 'F') {
+      // In-app, GSRLayoutManager owns the F shortcut for the whole app.
+      if (!embedded && (e.key === 'f' || e.key === 'F')) {
         toggleFullscreen();
       }
     });

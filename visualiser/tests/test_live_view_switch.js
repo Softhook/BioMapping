@@ -138,6 +138,28 @@ test('the live view keyboard shortcuts only fire while Live is the active view',
   assert.notStrictEqual(mapBtn.textContent, labelWhileLive, '"m" toggles the map again once Live is active');
 });
 
+test('in-app the live panel hides its own fullscreen button — the top-bar Full screen button covers it', () => {
+  const { btnLive, livePanel, click } = boot();
+  click(btnLive);
+  const btn = livePanel.querySelector('#toggleFullscreenBtn');
+  assert.ok(btn, 'the button is still in the shared markup');
+  assert.strictEqual(btn.hidden, true, 'but hidden in-app (embedded === true)');
+});
+
+test('in-app the F key runs only the global fullscreen path, not the live view\'s own', () => {
+  const { window, document, btnLive, click } = boot();
+  const appContainer = document.querySelector('.app-container');
+  let appReqs = 0, docElReqs = 0;
+  appContainer.requestFullscreen = () => { appReqs++; return Promise.resolve(); };
+  document.documentElement.requestFullscreen = () => { docElReqs++; return Promise.resolve(); };
+
+  click(btnLive);
+  document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'f', bubbles: true }));
+
+  assert.strictEqual(appReqs, 1, 'GSRLayoutManager fullscreened .app-container');
+  assert.strictEqual(docElReqs, 0, "the live view's own documentElement fullscreen did not also fire");
+});
+
 test('entering Live mode stops the p5 draw loop (noLoop), leaving the canvas idle', () => {
   const { window, btnLive, click } = boot();
   let noLoopCalls = 0;

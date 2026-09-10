@@ -632,7 +632,8 @@ test('attemptConnect: a real BLE notification flows through the parser to LiveSt
   );
 
   run(context, "drawGraph(); LiveState.setStatus('disconnected')"); // render once, then stop the RAF loop
-  assert.match(window.document.getElementById('graphValue').textContent, /-?\d+ nS$/);
+  // Readout is in µS (raw nS ÷ 1000), matching the single-track view.
+  assert.match(window.document.getElementById('graphValue').textContent, /-?\d+\.\d{2} μS$/);
 });
 
 test('attemptConnect: an invalid (no-fix) notification still counts as a packet and updates stats, but draws nothing on the map', async (t) => {
@@ -1084,10 +1085,10 @@ test('togglePhasicBtn: switches the graph between full GSR and phasic-only — s
     drawGraph();
   `);
 
-  // Default: full GSR — readout is the latest RAW value, label is plain.
+  // Default: full GSR — readout is the latest RAW value in µS (1600 nS ÷ 1000).
   assert.strictEqual(run(context, 'LiveState.showPhasicOnly'), false);
-  assert.strictEqual(window.document.getElementById('graphValue').textContent, '1600 nS');
-  assert.match(window.document.getElementById('graphLabel').textContent, /^GSR \(nS\) —/);
+  assert.strictEqual(window.document.getElementById('graphValue').textContent, '1.60 μS');
+  assert.match(window.document.getElementById('graphLabel').textContent, /^GSR \(μS\) —/);
   assert.ok(!window.document.getElementById('togglePhasicBtn').classList.contains('active'));
 
   window.document.getElementById('togglePhasicBtn').click();
@@ -1097,14 +1098,14 @@ test('togglePhasicBtn: switches the graph between full GSR and phasic-only — s
   assert.ok(window.document.getElementById('togglePhasicBtn').classList.contains('active'));
   assert.match(window.document.getElementById('graphLabel').textContent, /Phasic/);
   // The readout is now the settled phasic estimate: clamped >= 0, and well
-  // under the raw 1600 (it's the fast residual once the tonic baseline has
+  // under the raw 1.6 µS (it's the fast residual once the tonic baseline has
   // begun catching up to the step).
-  const phasicVal = Number(window.document.getElementById('graphValue').textContent.replace(' nS', ''));
-  assert.ok(Number.isFinite(phasicVal) && phasicVal >= 0 && phasicVal < 1600, `phasic readout is a bounded residual, got ${phasicVal}`);
+  const phasicVal = Number(window.document.getElementById('graphValue').textContent.replace(' μS', ''));
+  assert.ok(Number.isFinite(phasicVal) && phasicVal >= 0 && phasicVal < 1.6, `phasic readout is a bounded residual, got ${phasicVal}`);
 
   window.document.getElementById('togglePhasicBtn').click();
   assert.strictEqual(run(context, 'LiveState.showPhasicOnly'), false);
-  assert.strictEqual(window.document.getElementById('graphValue').textContent, '1600 nS');
+  assert.strictEqual(window.document.getElementById('graphValue').textContent, '1.60 μS');
   assert.strictEqual(window.document.getElementById('togglePhasicBtn').textContent, 'Show Phasic (P)');
 });
 
@@ -1404,4 +1405,56 @@ test('niceStep: yields 1/2/5 x 10^n steps giving roughly five divisions', () => 
   assert.strictEqual(step(9000), 1000);// rough 1800 -> 1e3
   assert.strictEqual(step(0), 1);      // degenerate span
   assert.strictEqual(step(-5), 1);
+});
+
+// ==========================================================================
+// Fullscreen control. Standalone live.html (no AppState) keeps its own
+// toolbar button + F key; in-app both are suppressed so the app's top-bar
+// button / GSRLayoutManager shortcut are the single handler (that side is
+// pinned in test_live_view_switch.js). Here: the standalone side.
+// ==========================================================================
+
+test('standalone: #toggleFullscreenBtn is the app-style icon button, visible, and toggles documentElement fullscreen', () => {
+  const { window } = bootLive();
+  const btn = window.document.getElementById('toggleFullscreenBtn');
+  assert.ok(btn, 'button present');
+  assert.strictEqual(btn.hidden, false, 'shown in standalone (no AppState)');
+  assert.ok(btn.classList.contains('icon-btn') && btn.classList.contains('fullscreen-btn'),
+    'carries the app .icon-btn.fullscreen-btn classes, not a bespoke text button');
+  assert.ok(btn.querySelector('i.fa-expand'), 'shows the expand glyph');
+
+  let reqs = 0;
+  window.document.documentElement.requestFullscreen = () => { reqs++; return Promise.resolve(); };
+  btn.dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.strictEqual(reqs, 1, 'click requests fullscreen on documentElement');
+});
+
+test('standalone: the F key still toggles fullscreen (no AppState means the shortcut stays live)', () => {
+  const { window } = bootLive();
+  let reqs = 0;
+  window.document.documentElement.requestFullscreen = () => { reqs++; return Promise.resolve(); };
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'f' }));
+  assert.strictEqual(reqs, 1, 'f requests fullscreen');
+});
+
+// ==========================================================================
+// Recolour backlog cap (PENDING_PHASIC_MAX). drawGraph() drains
+// pendingPhasicSegments, but it is paused while the Live view is off-screen
+// in-app — updateLiveMap() must not let the queue (and the Leaflet
+// polylines it pins) grow without bound in the meantime.
+// ==========================================================================
+
+test('pendingPhasicSegments is capped even when drawGraph() never runs to drain it', () => {
+  const { window, context } = bootLive();
+  run(context, 'showMap()');
+  // Feed far more consecutive fixes than the cap, never calling drawGraph().
+  run(context, `
+    for (let i = 0; i < 3000; i++) {
+      updateLiveMap({ valid: true, lat: 51.5 + i * 1e-5, lon: -0.12 + i * 1e-5,
+        gsrRaw: 1000 + (i % 50), hdop: 1.0, pdop: 1.5, fixType: 3, sats: 9, gap: false });
+    }
+  `);
+  const queued = run(context, 'pendingPhasicSegments.length');
+  const cap = run(context, 'PENDING_PHASIC_MAX');
+  assert.ok(queued <= cap, `queue (${queued}) stays within the cap (${cap})`);
 });
