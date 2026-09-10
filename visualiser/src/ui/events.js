@@ -1021,11 +1021,16 @@ const GSREvents = {
     const appMainLayout      = document.querySelector('.main-layout');
     const contourSettingsCard = document.getElementById('contourSettingsCard');
 
-    // Leaving the Live view: drop the layout class and the tab highlight. The
-    // <iframe> keeps its src once set, so an active BLE session is untouched.
+    // Leaving the Live view: drop the layout class and the tab highlight, and
+    // let the live controller stand down (pause its redraw loop). It stays
+    // mounted — an active BLE session and the accumulated packets are
+    // untouched — so re-entering just resumes.
     const exitLiveView = () => {
       appMainLayout.classList.remove('live-mode');
       if (btnLiveView) btnLiveView.classList.remove('active');
+      if (typeof GSRLiveView !== 'undefined' && GSRLiveView._mounted) {
+        GSRLiveView.deactivate();
+      }
     };
 
     // Collective-only map toggle buttons (multi-track contour surface) —
@@ -1152,17 +1157,21 @@ const GSREvents = {
         btnSingleView.classList.remove('active');
         btnCollectiveView.classList.remove('active');
 
-        // Build the live UI into #livePanel on first open (idempotent) — its
-        // BLE / geolocation code stays dormant until the user acts inside it.
-        // Left mounted afterwards so an active session survives a tab switch.
-        if (livePanel && typeof GSRLiveView !== 'undefined') {
-          GSRLiveView.mount(livePanel);
-        }
-
         appMainLayout.classList.remove('collective-mode');
         appMainLayout.classList.add('live-mode');
         contourSettingsCard.style.display = 'none';
         collectiveOnlyMapBtns.forEach(btn => btn.style.display = 'none');
+
+        // Build the live UI into #livePanel on first open (idempotent) — its
+        // BLE / geolocation code stays dormant until the user acts inside it —
+        // then activate() every time: resume the redraw loop if a session is
+        // live and re-measure the Leaflet map, which may have been sized while
+        // the panel was hidden. mount() must run after the panel is displayed
+        // (live-mode class above) so that measurement is correct on first open.
+        if (livePanel && typeof GSRLiveView !== 'undefined') {
+          GSRLiveView.mount(livePanel);
+          GSRLiveView.activate();
+        }
 
         // Nothing on the main canvas to draw while the live view owns the area.
         noLoop();

@@ -1262,3 +1262,72 @@ test('on load the map/phasic toggle buttons render their initial (map hidden, fu
   assert.strictEqual(window.document.getElementById('togglePhasicBtn').textContent, 'Show Phasic (P)');
   assert.strictEqual(window.document.getElementById('statusBadge').textContent, 'Disconnected');
 });
+
+// ==========================================================================
+// GSRLiveView.activate() / deactivate() — the lifecycle hooks index.html's
+// view switcher calls when the Live tab gains / loses the screen. Standalone
+// live.html never calls them (viewActive stays true from load). deactivate()
+// only pauses the redraw loop; nothing is torn down.
+// ==========================================================================
+
+test('deactivate: pauses the redraw loop and clears viewActive; activate: restores it', (t) => {
+  const { context } = bootLive();
+  stopLoopAfter(t, context);
+
+  assert.strictEqual(run(context, 'viewActive'), true, 'active by default (standalone semantics)');
+
+  run(context, "LiveState.setStatus('connected')"); // starts the RAF loop
+  assert.notStrictEqual(run(context, 'animationFrameId'), null, 'loop running while connected');
+
+  run(context, 'GSRLiveView.deactivate()');
+  assert.strictEqual(run(context, 'viewActive'), false);
+  assert.strictEqual(run(context, 'animationFrameId'), null, 'deactivate stops the loop');
+
+  run(context, 'GSRLiveView.activate()');
+  assert.strictEqual(run(context, 'viewActive'), true);
+  assert.notStrictEqual(run(context, 'animationFrameId'), null, 'activate resumes the loop (still connected)');
+});
+
+test('activate: does not start the loop when no session is live', (t) => {
+  const { context } = bootLive();
+  stopLoopAfter(t, context);
+
+  run(context, 'GSRLiveView.deactivate()');
+  run(context, 'GSRLiveView.activate()'); // status is still "disconnected"
+
+  assert.strictEqual(run(context, 'animationFrameId'), null, 'nothing to animate while disconnected');
+});
+
+test('activate: re-measures the Leaflet map (invalidateSize) — it may have been sized while the panel was hidden', () => {
+  const { context } = bootLive();
+  run(context, 'showMap()'); // builds liveMap
+  const before = run(context, 'liveMap.calls.invalidateSize');
+
+  run(context, 'GSRLiveView.deactivate()');
+  run(context, 'GSRLiveView.activate()');
+
+  assert.ok(run(context, 'liveMap.calls.invalidateSize') > before, 'activate() calls liveMap.invalidateSize()');
+});
+
+test('activate: is a safe no-op before any map exists', () => {
+  const { context } = bootLive();
+  assert.strictEqual(run(context, 'liveMap'), null);
+  assert.doesNotThrow(() => run(context, 'GSRLiveView.deactivate(); GSRLiveView.activate()'));
+});
+
+test('a status change while deactivated arms the loop, but no frame draws until re-activated', (t) => {
+  const { window, context } = bootLive();
+  stopLoopAfter(t, context);
+  const calls = recordCanvas(window);
+
+  run(context, 'GSRLiveView.deactivate()');
+  calls.length = 0;
+  run(context, "LiveState.setStatus('connected')"); // status handler re-arms startAnimationLoop()
+
+  // The RAF callback fires on the next tick; give it a moment.
+  return new Promise((resolve) => setTimeout(() => {
+    const drewWhileHidden = calls.some((c) => c.name === 'clearRect' || c.name === 'stroke');
+    assert.ok(!drewWhileHidden, 'the frame() guard skips drawGraph while viewActive is false');
+    resolve();
+  }, 30));
+});

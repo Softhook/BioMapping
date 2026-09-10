@@ -539,6 +539,10 @@ let lastPacketArrivalTime = 0;
 let animationFrameId = null;
 let wakeLock = null;
 let mapVisible = false;
+// Whether the live view is the one on screen. Always true for standalone
+// live.html; index.html's view switcher flips it via activate()/deactivate()
+// so the redraw loop doesn't run against a hidden panel.
+let viewActive = true;
 
 const MANUAL_LOCATION_ZOOM = 15;
 
@@ -565,7 +569,7 @@ function releaseWakeLock() {
 function startAnimationLoop() {
   if (animationFrameId) return;
   function frame() {
-    if (LiveState.status === 'connected' || LiveState.status === 'reconnecting') {
+    if (viewActive && (LiveState.status === 'connected' || LiveState.status === 'reconnecting')) {
       drawGraph();
     }
     animationFrameId = requestAnimationFrame(frame);
@@ -879,6 +883,29 @@ const GSRLiveView = {
     // Map visibility/init is a manual toggle (toggleMapBtn), not tied to GPS —
     // see showMap()/hideMap() above.
     renderStatus('disconnected');
+  },
+
+  // Called by index.html's view switcher when the Live tab becomes / stops
+  // being the visible view. No-ops for standalone live.html, which never
+  // calls them (viewActive stays true from load). deactivate() only pauses
+  // the redraw loop — nothing is torn down, so activate() just resumes.
+  activate() {
+    viewActive = true;
+    // The Leaflet map may have been created / last sized while #livePanel was
+    // display:none; re-measure now that it's visible, then redraw the graph
+    // at its real dimensions.
+    if (liveMap && typeof liveMap.invalidateSize === 'function') {
+      liveMap.invalidateSize();
+    }
+    drawGraph();
+    if (LiveState.status === 'connected' || LiveState.status === 'reconnecting') {
+      startAnimationLoop();
+    }
+  },
+
+  deactivate() {
+    viewActive = false;
+    stopAnimationLoop();
   },
 };
 

@@ -2408,6 +2408,12 @@ input[type="range"]:focus-visible,
   display: flex;
 }
 
+/* In-app the main header already says "Bio Mapping 2" — drop the live view's
+   own title so the toolbar row has room. Standalone live.html keeps it. */
+.main-layout.live-mode #livePanel header h1 {
+  display: none;
+}
+
 .live-view {
   /* Local palette — live.html's original var names, remapped to app tokens. */
   --lv-bg: var(--bg-app);
