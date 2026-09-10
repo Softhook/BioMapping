@@ -4,6 +4,51 @@
  */
 
 /**
+ * Slider value-label descriptors — the single source of truth for how each
+ * slider's live value is rendered next to it. Consumed both by the bind*
+ * handlers (label updates during a drag) and by initializeLabels() (initial
+ * paint + post-preset resync), so the two can never drift apart.
+ *
+ * GSR sliders share one formatting rule (see GSREvents._gsrLabelText); GPS and
+ * contour sliders each carry an explicit `fmt(value) -> string`.
+ */
+const GSR_SLIDER_DEFS = [
+  { id: 'medianSize',        labelId: 'valMedianSize',        suffix: ' s' },
+  { id: 'lpfWindow',         labelId: 'valLpfWindow',         suffix: ' s' },
+  { id: 'tonicWindow',       labelId: 'valTonicWindow',       suffix: ' s' },
+  { id: 'peakThreshold',     labelId: 'valPeakThreshold',     suffix: ' μS' },
+  { id: 'minPeakQuality',    labelId: 'valMinPeakQuality',    suffix: '' },
+  { id: 'hotspotPercentile', labelId: 'valHotspotPercentile', suffix: ' %' },
+  { id: 'shapeMinSnr',       labelId: 'valShapeMinSnr',       suffix: '×' },
+];
+
+// `bindGps: true` entries are wired by bindGpsSlider() in setupEventListeners();
+// the rest (peak latency, snap radius, place-merge distance) keep bespoke event
+// wiring elsewhere but still take their formatter from here.
+const GPS_SLIDER_DEFS = [
+  { id: 'gpsSmoothing',       labelId: 'valGpsSmoothing',       fmt: v => v.toFixed(2),                bindGps: true },
+  { id: 'gpsKalmanR',         labelId: 'valGpsKalmanR',         fmt: v => `${v} m²`,                   bindGps: true },
+  { id: 'gpsMaxHdop',         labelId: 'valGpsMaxHdop',         fmt: v => `≤ ${v.toFixed(1)}`,         bindGps: true },
+  { id: 'gpsMaxSpeed',        labelId: 'valGpsMaxSpeed',        fmt: v => GSREvents.fmtMaxSpeed(v),    bindGps: true },
+  { id: 'gpsRDP',             labelId: 'valGpsRDP',             fmt: v => v === 0 ? 'off' : `${v} m`,  bindGps: true },
+  { id: 'gpsTrackWeight',     labelId: 'valGpsTrackWeight',     fmt: v => `${v} px`,                   bindGps: true },
+  { id: 'gpsPeakLatency',     labelId: 'valGpsPeakLatency',     fmt: v => `${v.toFixed(1)} s` },
+  { id: 'gpsSnapRadius',      labelId: 'valGpsSnapRadius',      fmt: v => `${v} m` },
+  { id: 'placeMergeDistance', labelId: 'valPlaceMergeDistance', fmt: v => `${v} m` },
+];
+
+const CONTOUR_SLIDER_DEFS = [
+  { id: 'gridResolution',    labelId: 'valGridResolution',    fmt: v => `${v} x ${v}` },
+  { id: 'contourCount',      labelId: 'valContourCount',      fmt: v => `${v} lines` },
+  { id: 'isolationRadius',   labelId: 'valIsolationRadius',   fmt: v => `${v} m` },
+  { id: 'idwExponent',       labelId: 'valIdwExponent',       fmt: v => v.toFixed(1) },
+  { id: 'peakPreservation',  labelId: 'valPeakPreservation',  fmt: v => `${Math.round(v * 100)}%` },
+  { id: 'coverageWeighting', labelId: 'valCoverageWeighting', fmt: v => `${Math.round(v * 100)}%` },
+  { id: 'surfaceOpacity',    labelId: 'valSurfaceOpacity',    fmt: v => `${Math.round(v * 100)}%` },
+  { id: 'hillshadeStrength', labelId: 'valHillshadeStrength', fmt: v => `${Math.round(v * 100)}%` },
+];
+
+/**
  * Safe DOM lookup — warns on missing elements without crashing.
  */
 const GSREvents = {
@@ -80,51 +125,18 @@ const GSREvents = {
   },
 
   /**
-   * Bind clickable column headers on the SCR Events table for sorting.
+   * Bind clickable `<th class="sortable">` headers on a results table to the
+   * matching GSRUI sort handler. Used by the SCR Events, Correlation Matrix and
+   * Road Arousal tables — identical wiring, only the table id and handler differ.
    */
-  bindPeaksTableSort() {
-    const table = document.getElementById('peaksTable');
+  bindTableSort(tableId, sortMethod) {
+    const table = document.getElementById(tableId);
     if (!table) return;
-    const ths = table.querySelectorAll('thead th.sortable');
-    ths.forEach(th => {
+    table.querySelectorAll('thead th.sortable').forEach(th => {
       th.addEventListener('click', () => {
         const col = th.dataset.sort;
-        if (col && typeof GSRUI !== 'undefined' && typeof GSRUI.sortPeaksTable === 'function') {
-          GSRUI.sortPeaksTable(col);
-        }
-      });
-    });
-  },
-
-  /**
-   * Bind clickable column headers on the Correlation Matrix table for sorting.
-   */
-  bindCorrelationTableSort() {
-    const table = document.getElementById('correlationTable');
-    if (!table) return;
-    const ths = table.querySelectorAll('thead th.sortable');
-    ths.forEach(th => {
-      th.addEventListener('click', () => {
-        const col = th.dataset.sort;
-        if (col && typeof GSRUI !== 'undefined' && typeof GSRUI.sortCorrelationTable === 'function') {
-          GSRUI.sortCorrelationTable(col);
-        }
-      });
-    });
-  },
-
-  /**
-   * Bind clickable column headers on the Road Arousal table for sorting.
-   */
-  bindRoadArousalTableSort() {
-    const table = document.getElementById('roadArousalTable');
-    if (!table) return;
-    const ths = table.querySelectorAll('thead th.sortable');
-    ths.forEach(th => {
-      th.addEventListener('click', () => {
-        const col = th.dataset.sort;
-        if (col && typeof GSRUI !== 'undefined' && typeof GSRUI.sortRoadArousalTable === 'function') {
-          GSRUI.sortRoadArousalTable(col);
+        if (col && typeof GSRUI !== 'undefined' && typeof GSRUI[sortMethod] === 'function') {
+          GSRUI[sortMethod](col);
         }
       });
     });
@@ -196,6 +208,31 @@ const GSREvents = {
   },
 
   /**
+   * Look up a slider descriptor by element id across the GSR / GPS / contour
+   * tables. Lets the few bespoke binding blocks (snap radius, peak latency,
+   * arousal-places merge) pull their formatter from the same source as
+   * initializeLabels() instead of re-declaring it inline.
+   */
+  _sliderDef(id) {
+    return GSR_SLIDER_DEFS.find(d => d.id === id)
+      || GPS_SLIDER_DEFS.find(d => d.id === id)
+      || CONTOUR_SLIDER_DEFS.find(d => d.id === id);
+  },
+
+  /**
+   * Render a GSR slider's value label: "off" at 0, otherwise the value with its
+   * unit suffix. Decimal places follow the slider's own step — a sub-0.1 step
+   * gets 2 dp, a μS slider 3 dp, everything else 1 dp. Shared by bindGsrSlider
+   * (live drag) and initializeLabels (initial / post-preset) so they agree.
+   */
+  _gsrLabelText(slider, suffix) {
+    const val = parseFloat(slider.value);
+    const step = parseFloat(slider.step) || 0.1;
+    const decimals = step < 0.1 ? 2 : (suffix.includes('μS') ? 3 : 1);
+    return val === 0 ? 'off' : val.toFixed(decimals) + suffix;
+  },
+
+  /**
    * Bind a GSR slider: update label immediately, re-run analysis, save settings.
    * Shows "off" when value is 0 and dims the slider group.
    */
@@ -216,10 +253,7 @@ const GSREvents = {
     });
 
     slider.addEventListener('input', () => {
-      const val = parseFloat(slider.value);
-      const step = parseFloat(slider.step) || 0.1;
-      const decimals = step < 0.1 ? 2 : (suffix.includes('μS') ? 3 : 1);
-      label.innerText = val === 0 ? 'off' : val.toFixed(decimals) + suffix;
+      label.innerText = GSREvents._gsrLabelText(slider, suffix);
       updateDim();
       runHeavyWork();
     });
@@ -352,13 +386,7 @@ const GSREvents = {
     const S = AppState.sliders;
 
     // ── GSR slider bindings ──────────────────────────────────────────────────
-    GSREvents.bindGsrSlider('medianSize',    'valMedianSize',    ' s');
-    GSREvents.bindGsrSlider('lpfWindow',     'valLpfWindow',     ' s');
-    GSREvents.bindGsrSlider('tonicWindow',   'valTonicWindow',   ' s');
-    GSREvents.bindGsrSlider('peakThreshold',     'valPeakThreshold',     ' μS');
-    GSREvents.bindGsrSlider('minPeakQuality',    'valMinPeakQuality',    '');
-    GSREvents.bindGsrSlider('hotspotPercentile', 'valHotspotPercentile', ' %');
-    GSREvents.bindGsrSlider('shapeMinSnr',       'valShapeMinSnr',       '×');
+    GSR_SLIDER_DEFS.forEach(d => GSREvents.bindGsrSlider(d.id, d.labelId, d.suffix));
 
     S.tonicMethod.addEventListener('change', () => {
       GSREvents.updateTonicMethodLayout(false);
@@ -455,23 +483,6 @@ const GSREvents = {
     document.getElementById('btnZoomOut').addEventListener('click',   () => GSRUI.zoomCanvas(0.67));
     document.getElementById('btnResetView').addEventListener('click', GSRUI.resetView);
 
-    const timeWindowSelect = document.getElementById('timeWindowSelect');
-    if (timeWindowSelect) {
-      timeWindowSelect.addEventListener('change', () => {
-        const val = timeWindowSelect.value;
-        if (val === 'fit') {
-          GSRUI.resetView();
-        } else if (val !== 'custom') {
-          const windowSec = parseFloat(val);
-          AppState.viewDuration = Math.min(windowSec, AppState.totalDuration);
-          AppState.viewStartTime = constrain(AppState.viewStartTime, 0,
-            Math.max(0, AppState.totalDuration - AppState.viewDuration));
-          AppState.zoomFactor = AppState.totalDuration / AppState.viewDuration;
-          redraw();
-        }
-      });
-    }
-
     // ── Curve Toggle Buttons ──────────────────────────────────────────────────
     const bindToggle = (btnId, prop) => {
       const btn = document.getElementById(btnId);
@@ -516,16 +527,15 @@ const GSREvents = {
     document.getElementById('loadDemoBtn').addEventListener('click', GSRTrackManager.loadDefaultTrack);
 
     // ── GPS slider bindings ──────────────────────────────────────────────────
-    GSREvents.bindGpsSlider('gpsSmoothing',   'valGpsSmoothing',   v => v.toFixed(2));
-    GSREvents.bindGpsSlider('gpsKalmanR',     'valGpsKalmanR',     v => `${v} m²`);
-    GSREvents.bindGpsSlider('gpsMaxHdop',     'valGpsMaxHdop',     v => `≤ ${v.toFixed(1)}`);
-    GSREvents.bindGpsSlider('gpsMaxSpeed',    'valGpsMaxSpeed',    GSREvents.fmtMaxSpeed);
-    GSREvents.bindGpsSlider('gpsRDP',         'valGpsRDP',         v => v === 0 ? 'off' : `${v} m`);
-    GSREvents.bindGpsSlider('gpsTrackWeight', 'valGpsTrackWeight', v => `${v} px`);
+    GPS_SLIDER_DEFS.filter(d => d.bindGps)
+      .forEach(d => GSREvents.bindGpsSlider(d.id, d.labelId, d.fmt));
 
     // ── Arousal Places slider binding ───────────────────────────────────────
     // Scoped refresh (Arousal Places layer only), not a full rerenderMap().
-    GSREvents.bindArousalPlacesSlider('placeMergeDistance', 'valPlaceMergeDistance', v => `${v} m`);
+    {
+      const d = GSREvents._sliderDef('placeMergeDistance');
+      GSREvents.bindArousalPlacesSlider(d.id, d.labelId, d.fmt);
+    }
 
     // ── Snap radius slider ───────────────────────────────────────────────────
     // Re-evaluates road snapping locally from cached OSM data when released.
@@ -533,10 +543,11 @@ const GSREvents = {
       const slider = document.getElementById('gpsSnapRadius');
       const label  = document.getElementById('valGpsSnapRadius');
       if (slider && label) {
+        const fmt = GSREvents._sliderDef('gpsSnapRadius').fmt;
         const updateDim = () => GSREvents.updateFilterDim(slider);
         updateDim();
         slider.addEventListener('input', () => {
-          label.innerText = `${parseInt(slider.value)} m`;
+          label.innerText = fmt(parseFloat(slider.value));
           updateDim();
         });
         slider.addEventListener('change', () => {
@@ -574,6 +585,7 @@ const GSREvents = {
     {
       const slider = document.getElementById('gpsPeakLatency');
       const label  = document.getElementById('valGpsPeakLatency');
+      const fmt = GSREvents._sliderDef('gpsPeakLatency').fmt;
       const updateDim = () => {
         GSREvents.updateFilterDim(slider);
       };
@@ -585,7 +597,7 @@ const GSREvents = {
         }
       });
       slider.addEventListener('input', () => {
-        label.innerText = parseFloat(slider.value).toFixed(1) + ' s';
+        label.innerText = fmt(parseFloat(slider.value));
         updateDim();
         runHeavyWork();
       });
@@ -722,9 +734,9 @@ const GSREvents = {
     GSREvents.bindCollapseButton('btnEnvCollapse',           'environmentalPanel');
 
     // ── Table Column Sorting ────────────────────────────────────────────────
-    GSREvents.bindPeaksTableSort();
-    GSREvents.bindCorrelationTableSort();
-    GSREvents.bindRoadArousalTableSort();
+    GSREvents.bindTableSort('peaksTable',       'sortPeaksTable');
+    GSREvents.bindTableSort('correlationTable', 'sortCorrelationTable');
+    GSREvents.bindTableSort('roadArousalTable', 'sortRoadArousalTable');
 
     // ── Preset Export / Import Controls ─────────────────────────────────────
     const btnExportPreset = document.getElementById('btnExportPreset');
@@ -1256,14 +1268,7 @@ const GSREvents = {
       });
     };
 
-    bindCi('gridResolution',  'valGridResolution',  v => `${v} x ${v}`);
-    bindCi('contourCount',    'valContourCount',    v => `${v} lines`);
-    bindCi('isolationRadius', 'valIsolationRadius', v => `${v} m`);
-    bindCi('idwExponent',     'valIdwExponent',     v => v.toFixed(1));
-    bindCi('peakPreservation', 'valPeakPreservation', v => `${Math.round(v * 100)}%`);
-    bindCi('coverageWeighting', 'valCoverageWeighting', v => `${Math.round(v * 100)}%`);
-    bindCi('surfaceOpacity',  'valSurfaceOpacity',  v => `${Math.round(v * 100)}%`);
-    bindCi('hillshadeStrength', 'valHillshadeStrength', v => `${Math.round(v * 100)}%`);
+    CONTOUR_SLIDER_DEFS.forEach(d => bindCi(d.id, d.labelId, d.fmt));
 
     const topoSource = document.getElementById('topoSource');
     topoSource.addEventListener('change', () => {
@@ -1295,54 +1300,21 @@ const GSREvents = {
    * Initialize control labels to match current slider values.
    */
   initializeLabels() {
-    // GSR Labels (show "off" when value is 0)
-    const updateLabel = (id, labelId, suffix) => {
-      const slider = document.getElementById(id);
-      const label  = document.getElementById(labelId);
-      if (slider && label) {
-        const val = parseFloat(slider.value);
-        const step = parseFloat(slider.step) || 0.1;
-        const decimals = step < 0.1 ? 2 : (suffix.includes('μS') ? 3 : 1);
-        label.innerText = val === 0 ? 'off' : val.toFixed(decimals) + suffix;
-      }
-    };
-    updateLabel('medianSize',    'valMedianSize',    ' s');
-    updateLabel('lpfWindow',     'valLpfWindow',     ' s');
-    updateLabel('tonicWindow',   'valTonicWindow',   ' s');
-    updateLabel('peakThreshold',     'valPeakThreshold',     ' μS');
-    updateLabel('minPeakQuality',    'valMinPeakQuality',    '');
-    updateLabel('hotspotPercentile', 'valHotspotPercentile', ' %');
-    // SNR: custom formatting with × suffix (show off when 0)
-    const snrSlider = document.getElementById('shapeMinSnr');
-    const snrLabel  = document.getElementById('valShapeMinSnr');
-    if (snrSlider && snrLabel) {
-      const val = parseFloat(snrSlider.value);
-      snrLabel.innerText = val === 0 ? 'off' : val.toFixed(1) + '\u00d7';
+    // GSR value labels (shared "off"/decimals/suffix rule — see _gsrLabelText).
+    for (const d of GSR_SLIDER_DEFS) {
+      const slider = document.getElementById(d.id);
+      const label  = document.getElementById(d.labelId);
+      if (slider && label) label.innerText = GSREvents._gsrLabelText(slider, d.suffix);
     }
 
     // Initial tonic method layout and visibility setup (preserving saved settings value)
     GSREvents.updateTonicMethodLayout(true);
 
-    // GPS Labels
-    const gpsFormatters = {
-      gpsSmoothing:   v => v.toFixed(2),
-      gpsKalmanR:     v => `${v} m²`,
-      gpsMaxHdop:     v => `≤ ${v.toFixed(1)}`,
-      gpsMaxSpeed:    GSREvents.fmtMaxSpeed,
-      gpsRDP:         v => v === 0 ? 'off' : `${v} m`,
-      gpsTrackWeight: v => `${v} px`,
-      gpsPeakLatency: v => `${v.toFixed(1)} s`,
-      gpsSnapRadius:  v => `${v} m`,
-      placeMergeDistance: v => `${v} m`
-    };
-
-    for (const [id, fmt] of Object.entries(gpsFormatters)) {
-      const slider = document.getElementById(id);
-      const labelId = 'val' + id.charAt(0).toUpperCase() + id.slice(1);
-      const label = document.getElementById(labelId);
-      if (slider && label) {
-        label.innerText = fmt(parseFloat(slider.value));
-      }
+    // GPS value labels (per-slider formatter from GPS_SLIDER_DEFS).
+    for (const d of GPS_SLIDER_DEFS) {
+      const slider = document.getElementById(d.id);
+      const label  = document.getElementById(d.labelId);
+      if (slider && label) label.innerText = d.fmt(parseFloat(slider.value));
     }
 
     // Snap Radius slider is only shown while road-snapping is enabled
@@ -1351,19 +1323,12 @@ const GSREvents = {
     // Contour Settings Labels & Visibility Setup
     const C = AppState.contourControls;
     if (C && C.gridResolution) {
-      const updateCLabel = (id, labelId, fmt) => {
-        const input = document.getElementById(id);
-        const label = document.getElementById(labelId);
-        if (input && label) label.innerText = fmt(parseFloat(input.value));
+      const updateCLabel = (d) => {
+        const input = document.getElementById(d.id);
+        const label = document.getElementById(d.labelId);
+        if (input && label) label.innerText = d.fmt(parseFloat(input.value));
       };
-      updateCLabel('gridResolution',  'valGridResolution',  v => `${v} x ${v}`);
-      updateCLabel('contourCount',    'valContourCount',    v => `${v} lines`);
-      updateCLabel('isolationRadius', 'valIsolationRadius', v => `${v} m`);
-      updateCLabel('idwExponent',     'valIdwExponent',     v => v.toFixed(1));
-      updateCLabel('peakPreservation', 'valPeakPreservation', v => `${Math.round(v * 100)}%`);
-      updateCLabel('coverageWeighting', 'valCoverageWeighting', v => `${Math.round(v * 100)}%`);
-      updateCLabel('surfaceOpacity',  'valSurfaceOpacity',  v => `${Math.round(v * 100)}%`);
-      updateCLabel('hillshadeStrength', 'valHillshadeStrength', v => `${Math.round(v * 100)}%`);
+      CONTOUR_SLIDER_DEFS.forEach(updateCLabel);
 
       const btnToggleMapSurface = document.getElementById('btnToggleMapSurface');
       const opacityGroup = document.getElementById('surfaceOpacityGroup');

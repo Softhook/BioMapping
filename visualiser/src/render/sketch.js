@@ -376,8 +376,6 @@ function mousePressed() {
     updateCanvasCursor();
     const clickTime = map(mouseX, GSR_CONST.MARGIN.left, width - GSR_CONST.MARGIN.right, 0, AppState.totalDuration);
     AppState.viewStartTime = constrain(clickTime - AppState.viewDuration / 2, 0, Math.max(0, AppState.totalDuration - AppState.viewDuration));
-    const select = document.getElementById('timeWindowSelect');
-    if (select) select.value = 'custom';
     redraw();
   }
   else if (mouseX >= GSR_CONST.MARGIN.left && mouseX <= width - GSR_CONST.MARGIN.right &&
@@ -462,9 +460,6 @@ function mouseWheel(event) {
 
     AppState.viewStartTime = mouseTime - (mouseX - GSR_CONST.MARGIN.left) * (AppState.viewDuration / (width - GSR_CONST.MARGIN.left - GSR_CONST.MARGIN.right));
     AppState.viewStartTime = constrain(AppState.viewStartTime, 0, Math.max(0, AppState.totalDuration - AppState.viewDuration));
-
-    const select = document.getElementById('timeWindowSelect');
-    if (select) select.value = 'custom';
 
     coalescedZoomRedraw();
     return false;

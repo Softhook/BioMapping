@@ -134,8 +134,6 @@ const GSRUI = {
     AppState.viewStartTime = Math.max(0, peak.onsetTime - 2);
     AppState.viewDuration = Math.min((peak.time - peak.onsetTime) + 5, AppState.totalDuration);
     AppState.zoomFactor = AppState.totalDuration / AppState.viewDuration;
-    const select = document.getElementById('timeWindowSelect');
-    if (select) select.value = 'custom';
     document.querySelectorAll('#peaksTable tbody tr').forEach(r => r.classList.remove('active-row'));
     const row = document.getElementById('peakRow-' + idx);
     if (row) row.classList.add('active-row');
@@ -755,9 +753,6 @@ const GSRUI = {
     AppState.viewStartTime = centerTime - AppState.viewDuration / 2;
     AppState.viewStartTime = constrain(AppState.viewStartTime, 0, Math.max(0, AppState.totalDuration - AppState.viewDuration));
 
-    const select = document.getElementById('timeWindowSelect');
-    if (select) select.value = 'custom';
-
     redraw();
   },
 
@@ -770,9 +765,6 @@ const GSRUI = {
     AppState.viewDuration = AppState.totalDuration;
     AppState.zoomFactor = 1.0;
     AppState.activePeakIndex = -1;
-
-    const select = document.getElementById('timeWindowSelect');
-    if (select) select.value = 'fit';
 
     document.querySelectorAll('#peaksTable tbody tr').forEach(r => { r.classList.remove('active-row'); });
 
