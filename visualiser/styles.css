@@ -1469,8 +1469,8 @@ input[type="range"]:focus-visible,
  * ──────────────────────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   /* Header wraps rather than crushing the view tabs off-screen; the tabs get
-     real tap targets. The top-level fullscreen button is dropped here — the
-     Live view carries its own, and F-key fullscreen is a desktop affordance. */
+     real tap targets. #btnFullscreen stays — in the Live view it is the only
+     fullscreen affordance (the panel's own button is hidden in-app). */
   .app-header { padding: 8px 12px; flex-wrap: wrap; gap: 6px 10px; }
   /* On its own wrapped row the tab strip gets the full phone width, so the
      three tabs sit side by side with comfortable tap targets. */
@@ -1478,7 +1478,6 @@ input[type="range"]:focus-visible,
   .view-switcher { flex-wrap: wrap; }
   .header-logo h1 { font-size: 1rem; }
   .view-tab { padding: 8px 10px; font-size: 0.8rem; }
-  #btnFullscreen { display: none; }
 
   /* :not([hidden]) so events.js can hide it in the Live view by setting the
      `hidden` property (this app ships no [hidden]{display:none} reset). */
@@ -2528,6 +2527,14 @@ input[type="range"]:focus-visible,
   display: flex; align-items: center; gap: 10px;
   padding: 10px 12px; background: var(--lv-panel); border-bottom: 1px solid var(--lv-border);
   flex-wrap: wrap;
+  /* Keep the toolbar buttons clear of the phone status bar / camera cutout
+     when the page draws edge-to-edge: standalone live.html sets
+     viewport-fit=cover, and in-app display mode (F) / browser fullscreen can
+     reach the cutout too. env() resolves to 0 with no cutout, so this is a
+     no-op on desktop and within the browser's normal chrome. */
+  padding-top: max(10px, env(safe-area-inset-top));
+  padding-left: max(12px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
 }
 .live-view header h1 { font-size: 15px; margin: 0; font-weight: 600; flex: 1 1 auto; min-width: 0; }
 .live-view .badge {
@@ -2578,6 +2585,9 @@ input[type="range"]:focus-visible,
 .live-view #locationBar {
   display: flex; align-items: center; gap: 8px; padding: 8px 12px;
   background: var(--lv-panel); border-bottom: 1px solid var(--lv-border); flex-wrap: wrap;
+  /* Clear a landscape cutout on the leading edge. */
+  padding-left: max(12px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
 }
 .live-view #locationBar input {
   font-size: 13px; padding: 6px 8px; border-radius: 6px; width: 130px;
@@ -2588,6 +2598,10 @@ input[type="range"]:focus-visible,
   display: flex; align-items: center; gap: 10px; padding: 8px 12px;
   background: var(--lv-panel); border-top: 1px solid var(--lv-border); font-size: 12px; color: var(--lv-muted);
   flex-wrap: wrap;
+  /* Clear the home indicator / a landscape cutout when edge-to-edge. */
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  padding-left: max(12px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
 }
 .live-view footer .stat { white-space: nowrap; }
 .live-view footer .spacer { flex: 1 1 auto; }
@@ -2605,11 +2619,23 @@ input[type="range"]:focus-visible,
 .live-view #reconnectErr { color: var(--lv-bad); font-size: 11px; flex-basis: 100%; }
 
 @media (max-width: 480px) {
-  .live-view header { padding: 6px 8px; gap: 6px; }
+  /* Re-declare the safe-area longhands — a `padding` shorthand here would
+     otherwise reset the cutout offsets set on the base rules above. */
+  .live-view header {
+    padding: 6px 8px; gap: 6px;
+    padding-top: max(6px, env(safe-area-inset-top));
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+  }
   .live-view header h1 { font-size: 13px; }
   .live-view .badge { font-size: 11px; padding: 2px 6px; }
   .live-view button { font-size: 11px; padding: 4px 8px; }
-  .live-view footer { padding: 4px 8px; font-size: 10px; }
+  .live-view footer {
+    padding: 4px 8px; font-size: 10px;
+    padding-bottom: max(4px, env(safe-area-inset-bottom));
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+  }
 }
 
 /* Compact drag drop zone when tracks are loaded */
