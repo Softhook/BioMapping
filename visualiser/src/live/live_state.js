@@ -15,7 +15,6 @@ const LiveState = {
   status: 'disconnected', // 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
   packets: [],
   gapCount: 0,
-  showPhasicOnly: false,
 
   // docs/archive/bluetooth_serial_investigation.md §3's BT_STREAM_INTERVAL_MS
   // (biomap_types.h) — kept in sync manually; a real send-interval change

@@ -20,7 +20,17 @@
 <script src="vendor/leaflet/leaflet.js"></script>
 <!-- Runtime config: window.BIOMAP_CONFIG. Committed; on a local origin it also pulls in the optional gitignored config.local.js. See config.local.example.js -->
 <script src="config.js"></script>
+<!-- Shared GSR analysis engine — the live graph runs the same
+     GSRAnalyzer.analyze() pipeline as the main visualiser (Filtered/Tonic/
+     Phasic, peak detection, the derived-metric views) on its growing packet
+     buffer. constants.js first (GSR_CONST); analyzer.js's csv_parser dep is
+     not needed here (the live view feeds analyzer.raw directly, never
+     parseCSV()). index.html already loads all of these before live_view.js. -->
+<script src="src/core/constants.js"></script>
 <script src="src/signal/gsr_filter.js"></script>
+<script src="src/signal/deconvolution.js"></script>
+<script src="src/signal/analyzer_time_format.js"></script>
+<script src="src/signal/analyzer.js"></script>
 <script src="src/map/map_colors.js"></script>
 <script src="src/gps/gps_pipeline.js"></script>
 <!-- Shared OS "Save location" dialog helper — used by the Export CSV button

@@ -101,12 +101,54 @@ class GSRAnalyzer {
    * raw data. Rebuilds them — plus the raw-only display caches (raw Y-range,
    * timeline waveform sub-sample) — only when this.raw is a different array
    * than last seen, i.e. once per loaded track rather than once per analyze().
+   *
+   * Incremental-growth fast path: when this.raw is the SAME array that has only
+   * had rows appended (the live receiver pushes one packet at a time onto a
+   * persistent buffer), the seven pooled arrays are extended in place instead
+   * of reallocated and rescanned end-to-end — that saves the per-call realloc
+   * + full raw rescan (growing adds ~6 objects/call instead). It does NOT make
+   * analyze() cheap on a long session: the filter / decomposition / peak /
+   * metric stages still re-process the whole buffer, so per-call cost stays
+   * linear in row count. The live view keeps that in check by throttling how
+   * often it calls analyze(), not by shrinking the buffer.
    * @private
    */
   _ensureSeriesPool(raw, n) {
     if (this._seriesPoolRaw === raw && this._rawValsPool && this._rawValsPool.length === n) {
       return;
     }
+
+    if (
+      this._seriesPoolRaw === raw &&
+      this._rawValsPool &&
+      this._rawValsPool.length > 0 &&
+      this._rawValsPool.length < n
+    ) {
+      const oldN = this._rawValsPool.length;
+      let mn = this._rawGlobalRange.min, mx = this._rawGlobalRange.max;
+      for (let i = oldN; i < n; i++) {
+        const v = raw[i].val;
+        this._rawValsPool.push(v);
+        if (v < mn) mn = v;
+        if (v > mx) mx = v;
+      }
+      this._rawGlobalRange = { min: mn, max: mx };
+      for (const key of ['filtered', 'tonic', 'phasic', 'tonicZ', 'phasicZ', 'em_fog']) {
+        const arr = this._seriesPool[key];
+        for (let i = oldN; i < n; i++) arr.push({ time: raw[i].time, val: 0 });
+      }
+      // Sub-sample depends on the full length; ~300 pushes, redo it wholesale.
+      const tl = [];
+      const step = Math.max(1, Math.floor(n / 300));
+      for (let i = 0; i < n; i += step) tl.push(raw[i]);
+      this._timelinePointsCache = tl;
+      // The appended rows haven't been filtered yet — the pristine prefix
+      // result no longer spans the whole buffer, so stages 1–3 must re-run.
+      this._prefixCache = null;
+      this._wasDeconv = false;
+      return;
+    }
+
     const rawVals = new Array(n);
     let mn = Infinity, mx = -Infinity;
     for (let i = 0; i < n; i++) {

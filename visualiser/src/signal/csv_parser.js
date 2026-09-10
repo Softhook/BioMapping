@@ -102,6 +102,17 @@ class GSRCSVParser {
    * @private
    */
   static _verifyIntegrity(csvText, hasMarker, headerLineCount) {
+    // The firmware's SD logger (and buildLiveCsv) only ever write bare "\n"
+    // line endings and no byte-order mark. A file that has since been through
+    // a text editor, a spreadsheet round-trip, or a CRLF-converting transfer
+    // (email / some cloud-sync clients / copying to a Windows share) comes
+    // back with "\r\n" and/or a leading UTF-8 BOM — a transport-layer rewrite
+    // that leaves the actual samples untouched. Undo it before hashing so the
+    // CRC / byte count / row count describe the bytes the device wrote;
+    // genuine content edits still fail the check. parse() already reads the
+    // data itself newline-agnostically (it splits on /\r?\n/).
+    csvText = csvText.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+
     const trailerIdx = csvText.lastIndexOf('\n# End ');
 
     if (!hasMarker && trailerIdx === -1) {

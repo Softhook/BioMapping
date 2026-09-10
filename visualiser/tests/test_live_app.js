@@ -237,14 +237,18 @@ test('resetSession: clears accumulated packets/gaps/position/color-range state',
   assert.strictEqual(run(context, 'lastPacketArrivalTime'), 0);
 });
 
-test('resetSession: puts the footer stats and export/phasic buttons back to their pre-connection state', () => {
+test('resetSession: puts the footer stats and export button back to their pre-connection state, and empties the analyser buffer', () => {
   const { window, context } = bootLive();
   window.document.getElementById('exportBtn').disabled = false;
-  window.document.getElementById('togglePhasicBtn').disabled = false;
   window.document.getElementById('statPackets').textContent = 'Packets: 42';
   window.document.getElementById('statGaps').textContent = 'Gaps: 3';
   window.document.getElementById('statGps').textContent = 'GPS: 3D (9 sat)';
   window.document.getElementById('statLastSeen').textContent = 'Last: 12.3s';
+  // Give the analyser a non-empty buffer so we can prove reset drops it.
+  run(context, "LiveState.addPacket({ timestamp: 0.0, gsrRaw: 10, valid: false });"
+    + "LiveState.addPacket({ timestamp: 0.3, gsrRaw: 12, valid: false });"
+    + "feedLiveAnalyzer();");
+  assert.ok(run(context, 'liveAnalyzer && liveAnalyzer.raw.length') > 0, 'analyser has rows before reset');
 
   run(context, 'resetSession()');
 
@@ -253,7 +257,7 @@ test('resetSession: puts the footer stats and export/phasic buttons back to thei
   assert.strictEqual(window.document.getElementById('statGps').textContent, 'GPS: --');
   assert.strictEqual(window.document.getElementById('statLastSeen').textContent, '--');
   assert.strictEqual(window.document.getElementById('exportBtn').disabled, true);
-  assert.strictEqual(window.document.getElementById('togglePhasicBtn').disabled, true);
+  assert.strictEqual(run(context, 'liveAnalyzer.raw.length'), 0);
 });
 
 test('attemptConnect: resets session state as soon as a device is requested, so a "New Connection" after a previous session never carries its packets over — even if the new connection attempt itself then fails', async () => {
@@ -993,19 +997,20 @@ test('updateLiveMap: an invalid / NaN-position sample is a no-op — no marker, 
 });
 
 // ==========================================================================
-// drawGraph() — the rolling GSR canvas (live.html:402). Three properties
-// with no coverage until now:
-//  1. the smoothing pass is bounded to the visible window + warm-up padding,
-//     NOT the whole accumulated session (the exact perf regression the
-//     live-app critical review found and fixed — see GRAPH_PAD_S's comment:
-//     re-running zero-phase EMA + tonic/phasic decomposition over every
-//     packet on each ~300ms redraw grew per-frame cost linearly across a
-//     ~90-minute, ~18k-packet walk);
-//  2. a gap packet lifts the pen in the plotted curve, so the line never
-//     bridges a dropout (the graph-side counterpart of the updateLiveMap
-//     gap test above);
-//  3. the phasic-only toggle switches the plotted series, the value
-//     readout, the label, and the button state together.
+// drawGraph() — the rolling GSR canvas. Since the GSRAnalyzer integration it
+// is a PURE renderer: it reads liveAnalyzer.filtered/.tonic/.phasic/.peaks/…
+// (populated once per packet by feedLiveAnalyzer(), off the draw path) and
+// plots the selected #liveGraphView within the last GRAPH_WINDOW_S seconds.
+// Covered here:
+//  1. drawGraph() itself runs NO analysis — no analyze(), no
+//     decomposeTonicPhasic() — so the 60fps loop cost is independent of
+//     session length;
+//  2. feedLiveAnalyzer() throttles to every 2nd packet past
+//     LIVE_ANALYZE_THROTTLE_ROWS so per-packet cost stays flat on a long walk;
+//  3. a gap packet lifts the pen in the plotted curve, so the line never
+//     bridges a dropout;
+//  4. the layer toggles + view dropdown switch the plotted series, the value
+//     readout and the label together.
 // The canvas 2D context is a fixed no-op stub in boot_live.js; tests that
 // need to see what was drawn install their own recording context first.
 // ==========================================================================
@@ -1016,7 +1021,7 @@ function recordCanvas(window) {
   window.HTMLCanvasElement.prototype.getContext = () => ({
     setTransform: rec('setTransform'), clearRect: rec('clearRect'),
     beginPath: rec('beginPath'), closePath: rec('closePath'),
-    moveTo: rec('moveTo'), lineTo: rec('lineTo'), stroke: rec('stroke'),
+    moveTo: rec('moveTo'), lineTo: rec('lineTo'), arc: rec('arc'), stroke: rec('stroke'),
     fill: rec('fill'), fillText: rec('fillText'),
     createLinearGradient: () => ({ addColorStop: () => {} }),
     save: () => {}, restore: () => {},
@@ -1025,38 +1030,75 @@ function recordCanvas(window) {
   return calls;
 }
 
-test('drawGraph: regression — the zero-phase smoothing pass is bounded to the visible window + warm-up padding, never the whole accumulated session', () => {
+test('drawGraph: runs no analysis on the draw path — analyze() and decomposeTonicPhasic() are never called from a redraw', () => {
   const { context } = bootLive();
-
-  // 4000 packets at the 0.3s cadence == 1200s of history, ~8x
-  // (GRAPH_WINDOW_S 120 + GRAPH_PAD_S 30). Flat-ish signal — the point is
-  // the array LENGTH handed to the filter, not its values.
   run(context, `
-    for (let i = 0; i < 4000; i++) {
+    for (let i = 0; i < 200; i++) {
       LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12, gsrRaw: 1000 + (i % 40),
         hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
     }
   `);
-
-  // Spy on the smoothing entry point drawGraph() feeds the packet buffer
-  // into — both its direct call (live.html:429) and the one inside
-  // decomposeTonicPhasic() go through here, and both get the padded slice.
+  // Spy AFTER the packet feed, so only draw-path calls are counted.
   run(context, `
-    globalThis.__emaInputLens = [];
-    const __origEMA = GsrFilter.applyZeroPhaseEMA.bind(GsrFilter);
-    GsrFilter.applyZeroPhaseEMA = (arr, alpha) => { globalThis.__emaInputLens.push(arr.length); return __origEMA(arr, alpha); };
+    globalThis.__calls = { analyze: 0, decomp: 0 };
+    const __origAnalyze = liveAnalyzer.analyze.bind(liveAnalyzer);
+    liveAnalyzer.analyze = (...a) => { globalThis.__calls.analyze++; return __origAnalyze(...a); };
+    const __origDecomp = GsrFilter.decomposeTonicPhasic.bind(GsrFilter);
+    GsrFilter.decomposeTonicPhasic = (...a) => { globalThis.__calls.decomp++; return __origDecomp(...a); };
   `);
 
-  run(context, 'drawGraph()');
+  run(context, 'drawGraph(); drawGraph(); drawGraph();');
 
-  const lens = runJSON(context, 'globalThis.__emaInputLens');
-  assert.ok(lens.length > 0, 'drawGraph ran its smoothing pass');
-  const worst = Math.max(...lens);
-  // (GRAPH_WINDOW_S + GRAPH_PAD_S) / STREAM_INTERVAL_S == (120 + 30) / 0.3
-  // == 500 samples; a couple extra for the boundary-inclusive index walk.
-  // The pre-fix behaviour would put ~4000 here.
-  assert.ok(worst <= 520, `smoothing input stayed bounded (got ${worst}; unbounded would be ~4000)`);
-  assert.ok(worst >= 480, `smoothing input still spans the full padded window (got ${worst})`);
+  const calls = runJSON(context, 'globalThis.__calls');
+  assert.strictEqual(calls.analyze, 0, 'drawGraph() must not run analyze()');
+  assert.strictEqual(calls.decomp, 0, 'drawGraph() must not run decomposeTonicPhasic()');
+});
+
+test('feedLiveAnalyzer: analyses every packet through the warmup, then wall-clock-throttles', () => {
+  const { context } = bootLive();
+  // Shrink the warmup so the test stays fast: 20 rows instead of 400.
+  run(context, 'LIVE_ANALYZE_WARMUP_ROWS = 20;');
+  run(context, `
+    globalThis.__n = 0;
+    const __orig = GSRAnalyzer.prototype.analyze;
+    GSRAnalyzer.prototype.analyze = function (...a) { globalThis.__n++; return __orig.apply(this, a); };
+    for (let i = 0; i < 60; i++) {
+      LiveState.addPacket({ valid: false, gsrRaw: 1000 + (i % 30), timestamp: i * 0.3 });
+    }
+  `);
+  // The 60 packets arrive in one synchronous burst, so Date.now() never
+  // advances past LIVE_ANALYZE_MIN_INTERVAL_MS: the first 20 (warmup) each
+  // analyse, the remaining 40 are all inside one throttle window → 0 more.
+  assert.strictEqual(run(context, 'globalThis.__n'), 20);
+});
+
+test('feedLiveAnalyzer: a new analyze() runs once the throttle interval has elapsed', () => {
+  const { context } = bootLive();
+  run(context, 'LIVE_ANALYZE_WARMUP_ROWS = 5; LIVE_ANALYZE_MIN_INTERVAL_MS = 1000;');
+  run(context, `
+    globalThis.__n = 0;
+    const __orig = GSRAnalyzer.prototype.analyze;
+    GSRAnalyzer.prototype.analyze = function (...a) { globalThis.__n++; return __orig.apply(this, a); };
+    globalThis.__now = 10000;
+    globalThis.__realNow = Date.now;
+    Date.now = () => globalThis.__now;
+    for (let i = 0; i < 5; i++) LiveState.addPacket({ valid: false, gsrRaw: 1000 + i, timestamp: i * 0.3 });
+  `);
+  assert.strictEqual(run(context, 'globalThis.__n'), 5, 'warmup: one analyze per packet');
+
+  // Two more packets in the same throttle window → no new analyze.
+  run(context, `
+    for (let i = 5; i < 7; i++) LiveState.addPacket({ valid: false, gsrRaw: 1000 + i, timestamp: i * 0.3 });
+  `);
+  assert.strictEqual(run(context, 'globalThis.__n'), 5, 'throttled inside the interval');
+
+  // Advance the clock past the interval → the next packet analyses.
+  run(context, `
+    globalThis.__now += 1200;
+    LiveState.addPacket({ valid: false, gsrRaw: 2000, timestamp: 7 * 0.3 });
+    Date.now = globalThis.__realNow;
+  `);
+  assert.strictEqual(run(context, 'globalThis.__n'), 6, 'one more analyze after the interval elapsed');
 });
 
 test('drawGraph: regression — a gap packet lifts the pen in the plotted curve, so the line never bridges a dropout', () => {
@@ -1090,7 +1132,18 @@ test('drawGraph: regression — a gap packet lifts the pen in the plotted curve,
   assert.strictEqual(moveTos, 2, 'initial pen-down + exactly one gap-forced pen-up');
 });
 
-test('togglePhasicBtn: switches the graph between full GSR and phasic-only — series, value readout, label text, and button state move together', () => {
+test('GSR controls: the view dropdown offers only Signal / Tonic / Phasic — no session-normalised metric views', () => {
+  const { window, context } = bootLive();
+  const opts = [...window.document.getElementById('liveGraphView').options].map((o) => o.value);
+  assert.deepStrictEqual(opts, ['signal', 'tonic', 'phasic']);
+  // LIVE_GRAPH_VIEWS is the matching lookup — same three keys, nothing else.
+  assert.deepStrictEqual(
+    runJSON(context, 'Object.keys(LIVE_GRAPH_VIEWS).sort()'),
+    ['phasic', 'signal', 'tonic'],
+  );
+});
+
+test('GSR controls: the view dropdown switches the plotted series, the value readout and the label together', () => {
   const { window, context } = bootLive();
 
   // A step up partway so tonic/phasic decomposition has a real, non-zero
@@ -1104,28 +1157,31 @@ test('togglePhasicBtn: switches the graph between full GSR and phasic-only — s
     drawGraph();
   `);
 
-  // Default: full GSR — readout is the latest RAW value in µS (1600 nS ÷ 1000).
-  assert.strictEqual(run(context, 'LiveState.showPhasicOnly'), false);
+  // Default 'signal' view — readout is the latest RAW value in µS (1600 nS ÷ 1000).
+  assert.strictEqual(run(context, 'liveGsrView.graphView'), 'signal');
   assert.strictEqual(window.document.getElementById('graphValue').textContent, '1.60 μS');
   assert.match(window.document.getElementById('graphLabel').textContent, /^GSR \(μS\) —/);
-  assert.ok(!window.document.getElementById('togglePhasicBtn').classList.contains('active'));
 
-  window.document.getElementById('togglePhasicBtn').click();
+  // Switch to the Phasic (SCR) view via the dropdown.
+  const sel = window.document.getElementById('liveGraphView');
+  sel.value = 'phasic';
+  sel.dispatchEvent(new window.Event('change'));
 
-  assert.strictEqual(run(context, 'LiveState.showPhasicOnly'), true);
-  assert.strictEqual(window.document.getElementById('togglePhasicBtn').textContent, 'Show Full GSR (P)');
-  assert.ok(window.document.getElementById('togglePhasicBtn').classList.contains('active'));
-  assert.match(window.document.getElementById('graphLabel').textContent, /Phasic/);
-  // The readout is now the settled phasic estimate: clamped >= 0, and well
-  // under the raw 1.6 µS (it's the fast residual once the tonic baseline has
-  // begun catching up to the step).
+  assert.strictEqual(run(context, 'liveGsrView.graphView'), 'phasic');
+  assert.match(window.document.getElementById('graphLabel').textContent, /^Phasic \(SCR\) —/);
+  // Readout is now the latest phasic value: clamped >= 0 and well under the
+  // raw 1.6 µS (the fast residual once tonic has begun catching the step).
   const phasicVal = Number(window.document.getElementById('graphValue').textContent.replace(' μS', ''));
   assert.ok(Number.isFinite(phasicVal) && phasicVal >= 0 && phasicVal < 1.6, `phasic readout is a bounded residual, got ${phasicVal}`);
 
-  window.document.getElementById('togglePhasicBtn').click();
-  assert.strictEqual(run(context, 'LiveState.showPhasicOnly'), false);
-  assert.strictEqual(window.document.getElementById('graphValue').textContent, '1.60 μS');
-  assert.strictEqual(window.document.getElementById('togglePhasicBtn').textContent, 'Show Phasic (P)');
+  // The Phasic layer toggle (and its P shortcut) flips the overlay flag on the
+  // 'signal' view without touching the dropdown.
+  sel.value = 'signal';
+  sel.dispatchEvent(new window.Event('change'));
+  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), false);
+  window.document.getElementById('liveBtnTogglePhasic').click();
+  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), true);
+  assert.ok(window.document.getElementById('liveBtnTogglePhasic').classList.contains('active'));
 });
 
 // ==========================================================================
@@ -1203,31 +1259,26 @@ test('keyboard: "m" toggles the map exactly like the Show/Hide Map button', () =
   assert.strictEqual(run(context, 'mapVisible'), false);
 });
 
-test('keyboard: "p" toggles phasic-only once the toggle is enabled, and is inert while it is disabled', () => {
+test('keyboard: "p" toggles the Phasic overlay layer via its button', () => {
   const { window, context } = bootLive();
   const fire = (key) => window.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true }));
 
-  // Disabled on a fresh load (no packets yet) — the shortcut must not flip state.
-  assert.strictEqual(window.document.getElementById('togglePhasicBtn').disabled, true);
+  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), false);
   fire('p');
-  assert.strictEqual(run(context, 'LiveState.showPhasicOnly'), false, 'p is inert while the toggle is disabled');
-
-  window.document.getElementById('togglePhasicBtn').disabled = false;
-  fire('p');
-  assert.strictEqual(run(context, 'LiveState.showPhasicOnly'), true);
-  fire('p');
-  assert.strictEqual(run(context, 'LiveState.showPhasicOnly'), false);
+  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), true);
+  assert.ok(window.document.getElementById('liveBtnTogglePhasic').classList.contains('active'));
+  fire('P'); // capital works too
+  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), false);
 });
 
 test('keyboard: shortcuts are suppressed while the user is typing in the lat/lon coordinate inputs', () => {
   const { window, context } = bootLive();
-  window.document.getElementById('togglePhasicBtn').disabled = false;
   const latInput = window.document.getElementById('latInput');
 
   latInput.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'p', bubbles: true }));
   latInput.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'm', bubbles: true }));
 
-  assert.strictEqual(run(context, 'LiveState.showPhasicOnly'), false, 'typing "p" into a coord field does not toggle phasic');
+  assert.strictEqual(run(context, 'liveGsrView.showPhasic'), false, 'typing "p" into a coord field does not toggle the Phasic layer');
   assert.ok(window.document.getElementById('app').classList.contains('no-map'), 'typing "m" into a coord field does not toggle the map');
 });
 
@@ -1276,11 +1327,19 @@ test('My Location: a browser with no geolocation alerts instead of throwing', ()
   assert.match(alerted || '', /[Gg]eolocation/);
 });
 
-test('on load the map/phasic toggle buttons render their initial (map hidden, full-GSR) labels', () => {
-  const { window } = bootLive();
+test('on load the toolbar renders its initial state — map hidden, GSR layer toggles at their defaults, disconnected', () => {
+  const { window, context } = bootLive();
   assert.strictEqual(window.document.getElementById('toggleMapBtn').textContent, 'Show Map (M)');
-  assert.strictEqual(window.document.getElementById('togglePhasicBtn').textContent, 'Show Phasic (P)');
   assert.strictEqual(window.document.getElementById('statusBadge').textContent, 'Disconnected');
+  // Raw/Filtered/Tonic/Peaks/Hotspots start active, Phasic off — matching
+  // index.html's #gsrPanel header; the view dropdown starts on 'signal'.
+  for (const id of ['liveBtnToggleRaw', 'liveBtnToggleFiltered', 'liveBtnToggleTonic',
+                    'liveBtnTogglePeaks', 'liveBtnToggleHotspots']) {
+    assert.ok(window.document.getElementById(id).classList.contains('active'), `${id} starts active`);
+  }
+  assert.ok(!window.document.getElementById('liveBtnTogglePhasic').classList.contains('active'), 'Phasic starts off');
+  assert.strictEqual(window.document.getElementById('liveGraphView').value, 'signal');
+  assert.strictEqual(run(context, 'liveGsrView.graphView'), 'signal');
 });
 
 // ==========================================================================
@@ -1434,7 +1493,7 @@ function recordStrokes(window) {
   const strokes = [];
   const ctx = {
     setTransform() {}, clearRect() {}, beginPath() {}, closePath() {},
-    moveTo() {}, lineTo() {}, fill() {}, fillText() {},
+    moveTo() {}, lineTo() {}, arc() {}, fill() {}, fillText() {},
     createLinearGradient: () => ({ addColorStop() {} }), save() {}, restore() {},
     stroke() { strokes.push({ strokeStyle: this.strokeStyle, lineWidth: this.lineWidth }); },
     strokeStyle: '', fillStyle: '', lineWidth: 1, lineJoin: '', font: '', textAlign: '', textBaseline: '',
@@ -1443,34 +1502,72 @@ function recordStrokes(window) {
   return strokes;
 }
 
-test('drawGraph: the GSR trace is the app\'s --color-filtered blue at weight 2.2 (single-view "Signal" styling)', () => {
+test('drawGraph: the primary GSR trace is the app\'s --color-filtered blue at weight 2.2 (single-view "Signal" styling)', () => {
   const { window, context } = bootLive();
   const strokes = recordStrokes(window);
+  // A monotonic ramp — no SCR peaks, so no peak/hotspot dot strokes; the
+  // Filtered layer is the last stroke() (drawn on top of Raw + Tonic).
   run(context, `
     for (let i = 0; i < 40; i++) LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
       gsrRaw: 1000 + i * 5, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
     drawGraph();
   `);
 
-  // The trace is the last stroke() (grid + axis are drawn before it).
   const trace = strokes[strokes.length - 1];
   assert.strictEqual(trace.strokeStyle, '#005bc4', 'trace uses --color-filtered');
   assert.strictEqual(trace.lineWidth, 2.2);
 });
 
-test('drawGraph: phasic-only mode draws the trace in --color-phasic green at weight 2', () => {
+test('drawGraph: the Phasic (SCR) view draws its trace in --color-phasic green at weight 2', () => {
   const { window, context } = bootLive();
   const strokes = recordStrokes(window);
   run(context, `
-    LiveState.showPhasicOnly = true;
     for (let i = 0; i < 60; i++) LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
-      gsrRaw: i < 20 ? 1000 : 1600, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
+      gsrRaw: i < 20 ? 1000 : 1000 + i * 3, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
+    liveGsrView.graphView = 'phasic';
     drawGraph();
   `);
 
   const trace = strokes[strokes.length - 1];
   assert.strictEqual(trace.strokeStyle, '#008f3c', 'trace uses --color-phasic');
   assert.strictEqual(trace.lineWidth, 2);
+});
+
+test('drawGraph: a hotspot renders as a hollow --color-hotspot ring (weight 2) with a ★, matching the single-track graph', () => {
+  const { window, context } = bootLive();
+  const rec = { strokes: [], texts: [] };
+  const ctx = {
+    setTransform() {}, clearRect() {}, beginPath() {}, closePath() {},
+    moveTo() {}, lineTo() {}, arc() {}, fill() {},
+    fillText(t) { rec.texts.push(t); },
+    createLinearGradient: () => ({ addColorStop() {} }), save() {}, restore() {},
+    stroke() { rec.strokes.push({ strokeStyle: this.strokeStyle, lineWidth: this.lineWidth }); },
+    strokeStyle: '', fillStyle: '', lineWidth: 1, lineJoin: '', font: '', textAlign: '', textBaseline: '',
+  };
+  window.HTMLCanvasElement.prototype.getContext = () => ctx;
+
+  // A flat baseline then one sharp SCR (rise from ~t6s, slow decay) → one
+  // detected peak; HOTSPOT_PERCENTILE's "at least 1" makes that peak a
+  // memorable event. It sits well before the 8s unsettled tail.
+  run(context, `
+    for (let i = 0; i < 140; i++) {
+      const t = i * 0.3;
+      let us = 5;
+      const d = t - 6;
+      if (d > 0) us += 1.2 * Math.exp(-d / 4) * (1 - Math.exp(-d / 0.6));
+      LiveState.addPacket({ valid: true, lat: 51.5 + i * 1e-5, lon: -0.12 + i * 1e-5,
+        gsrRaw: us * 1000, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, sats: 9, fixType: 3, timestamp: t });
+    }
+    drawGraph();
+  `);
+
+  assert.ok(run(context, 'liveAnalyzer.memorableEvents.length') > 0, 'the SCR was picked as a hotspot');
+  const ring = rec.strokes.find((s) => s.strokeStyle === '#ff1744' && s.lineWidth === 2);
+  assert.ok(ring, 'hotspot ring is stroked in --color-hotspot at weight 2');
+  assert.ok(rec.texts.includes('★'), 'hotspot is marked with a ★ glyph');
+  // Plain peaks stay the small --color-peak dot — no peak-red ring stroke.
+  assert.ok(!rec.strokes.some((s) => s.strokeStyle === '#d10024'),
+    'plain peaks are filled dots, not stroked rings');
 });
 
 test('drawGraph: renders the grid + L-shaped axis before the trace (>= 3 stroke passes)', () => {

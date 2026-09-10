@@ -66,6 +66,27 @@ test('a well-formed bracket verifies', () => {
   assert.strictEqual(r.flushFails, 0);
 });
 
+test('CRLF line endings still verify — a line-ending rewrite is not corruption', () => {
+  // A saved live/recorded track that has been through an editor, a
+  // spreadsheet, or a CRLF-converting transfer comes back with "\r\n". The
+  // device only ever wrote "\n", so _verifyIntegrity normalises before
+  // hashing: the samples are untouched, so it must still read "verified"
+  // (previously this reported "corrupt — checksum mismatch" and the track
+  // list showed no green tick).
+  const crlf = trailer().replace(/\n/g, '\r\n');
+  assert.strictEqual(verify(crlf).status, 'verified');
+});
+
+test('a leading UTF-8 BOM still verifies', () => {
+  const bom = '\uFEFF' + trailer();
+  assert.strictEqual(verify(bom).status, 'verified');
+});
+
+test('CRLF + a real content edit is still caught as corrupt', () => {
+  const crlf = trailer().replace('0.1,101', '0.1,999').replace(/\n/g, '\r\n');
+  assert.strictEqual(verify(crlf).status, 'corrupt');
+});
+
 test('a flipped data byte is caught as corrupt (checksum)', () => {
   const good = trailer();
   const bad = good.replace('0.1,101', '0.1,999');

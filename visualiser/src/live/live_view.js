@@ -7,7 +7,9 @@
  *
  * Depends on these page-level globals (loaded as classic <script>s before
  * this file — see live.html's <head> and index.html's script list):
+ *   GSR_CONST                 src/core/constants.js       (analysis params + view presets)
  *   GsrFilter                 src/signal/gsr_filter.js
+ *   GSRAnalyzer               src/signal/analyzer.js      (the graph's analysis engine)
  *   MapColors                 src/map/map_colors.js
  *   GpsPipeline               src/gps/gps_pipeline.js
  *   GSRFileSaver              src/core/file_saver.js
@@ -40,12 +42,32 @@ const LIVE_VIEW_MARKUP = `
     <button id="reconnectBtn" style="display:none;">Reconnect</button>
     <button id="newConnectionBtn" style="display:none;">New Connection</button>
     <button id="exportBtn" disabled>Export CSV</button>
-    <button id="togglePhasicBtn" disabled>Show Phasic (P)</button>
     <button id="toggleMapBtn">Show Map (M)</button>
     <button id="cacheMapBtn" disabled>Cache Map (C)</button>
     <button id="toggleFullscreenBtn" class="icon-btn fullscreen-btn" title="Full screen (F)"><i class="fa-solid fa-expand"></i></button>
     <span id="reconnectErr"></span>
   </header>
+
+  <!-- GSR graph controls — the same layer toggles + view dropdown as
+       index.html's #gsrPanel header, on their own horizontally-scrollable
+       strip (no left sidebar / sliders in the live view). ids are prefixed
+       so they never collide with index.html's own #graphView etc. when this
+       UI is mounted inside the main app. -->
+  <div id="gsrControls" class="live-gsr-controls">
+    <div class="btn-group">
+      <button class="btn btn-outline active" id="liveBtnToggleRaw">Raw</button>
+      <button class="btn btn-outline active" id="liveBtnToggleFiltered">Filtered</button>
+      <button class="btn btn-outline active" id="liveBtnToggleTonic">Tonic</button>
+      <button class="btn btn-outline" id="liveBtnTogglePhasic">Phasic</button>
+      <button class="btn btn-outline active" id="liveBtnTogglePeaks">Peaks</button>
+      <button class="btn btn-outline active" id="liveBtnToggleHotspots">Hotspots</button>
+    </div>
+    <select id="liveGraphView" class="select-control" title="Graph view">
+      <option value="signal" selected>Signal</option>
+      <option value="tonic">Tonic (SCL)</option>
+      <option value="phasic">Phasic (SCR)</option>
+    </select>
+  </div>
 
   <div id="graphWrap">
     <canvas id="graph"></canvas>
@@ -80,23 +102,13 @@ const LIVE_VIEW_MARKUP = `
 `;
 
 // ==========================================================================
-// Rolling graph — plain <canvas> 2D, redrawn only on each packet arrival
-// (docs/archive/bluetooth_serial_investigation.md §8 — matches the desktop app's
-// noLoop()+manual-redraw() convention rather than a continuous animation
-// loop; there's no zoom/pan/timeline-drag here, just "show the last N
-// seconds of a growing session").
+// Rolling graph — plain <canvas> 2D, showing the last GRAPH_WINDOW_S seconds
+// of the session. Data comes from the shared GSRAnalyzer (see
+// feedLiveAnalyzer() above); this file just plots the selected series +
+// markers. No zoom/pan/timeline-drag — it's a live rolling window, not the
+// main app's interactive track view.
 // ==========================================================================
 const GRAPH_WINDOW_S = 120;
-const GRAPH_EMA_ALPHA = 0.25;
-// Extra history included in the smoothing pass beyond the visible window,
-// so the EMA isn't starting cold right at the window's left edge (a zero-
-// phase filter needs some run-up on both sides to be accurate near its
-// boundaries). Bounds the smoothing pass to a fixed size regardless of
-// total session length — re-running EMA over the WHOLE accumulated buffer
-// on every ~300ms redraw (the original approach here) made per-packet
-// cost grow linearly across a long walk instead of staying flat; a full
-// ~90-minute session at this cadence is ~18,000 packets by the end.
-const GRAPH_PAD_S = 30;
 
 // Plot inset — room for the left Y-axis value labels and the bottom time
 // labels, echoing src/core/constants.js's GSR_CONST.MARGIN (70/35/22/10)
@@ -109,10 +121,123 @@ const GRAPH_MARGIN = { top: 12, right: 12, bottom: 20, left: 58 };
 // (src/signal/csv_parser.js "Auto-detect Units"). Match that here so the
 // live readout, its axis and the single-track "Signal" view are one scale.
 const NS_TO_US = 1 / 1000;
-// Two decimals + " µS", matching the single-track signal graph's Y axis
-// (src/render/sketch.js's `tonic` grid preset drives the upper region).
-const GSR_UNIT = ' μS';
-const GSR_DECIMALS = 2;
+
+// ==========================================================================
+// GSR analysis for the live view — the same GSRAnalyzer.analyze() pipeline
+// the main visualiser runs (Filtered/Tonic/Phasic decomposition, full-scan
+// SCR peak detection, hotspots), fed one packet at a time onto a persistent
+// buffer. Runs from the packet handler — NOT on the 60fps draw path, which
+// just reads the cached series.
+//
+// The graph only offers the Signal / Tonic / Phasic views (the whole-session
+// derived-metric views — Peak Density / AUC / Arousal / Tri — are index.html
+// only; a live rolling window is the wrong place for a session-normalised
+// score). analyze() still computes them, they're just not plotted here.
+//
+// analyze() re-walks the WHOLE buffer each call, so its cost grows with the
+// session: order 1ms/call in the first minutes, tens of ms an hour in (it is
+// linear in row count, not flat). feedLiveAnalyzer() throttles it to at most
+// one call per LIVE_ANALYZE_MIN_INTERVAL_MS after a short warmup — the graph
+// is a 2-minute rolling window and doesn't need more.
+// ==========================================================================
+
+// The app's shipped GSR defaults, no slider UI. Deconvolution and prominence
+// stay off: full-scan trough-to-peak is O(n) and the only detector that
+// stays real-time safe on a continuously growing buffer.
+const LIVE_ANALYZE_PARAMS = (typeof GSR_CONST !== 'undefined' && GSR_CONST.GSR_DEFAULT)
+  ? Object.assign({}, GSR_CONST.GSR_DEFAULT, { useDeconvolution: false, usePeakProminence: false })
+  : {
+      medianSize: 0, lpfWindow: 0.5, tonicMethod: 'lpf', tonicWindow: 45,
+      peakThreshold: 0.015, shapeMinSnr: 1.5, minPeakQuality: 0,
+      peakDensityWindow: 10, hotspotPercentile: 0.02,
+      useDeconvolution: false, usePeakProminence: false,
+    };
+
+// analyze() walks the WHOLE (growing) packet buffer every call, so its cost
+// climbs linearly with session length — a per-packet run is ~1ms early on but
+// tens of ms an hour in, and that's the live view's single most expensive
+// thing. A row-parity throttle only halves the call rate; it doesn't bound
+// the cost. So: for the first LIVE_ANALYZE_WARMUP_ROWS packets run every one
+// (the graph is still filling and each call is cheap), then fall back to at
+// most one analyze() per LIVE_ANALYZE_MIN_INTERVAL_MS of wall-clock. That
+// caps per-session CPU flat regardless of walk length. Nothing on screen
+// needs faster: the trace still redraws at 60fps from the last computed
+// series and markers are withheld for the last LIVE_SETTLE_TAIL_S anyway.
+// `let` so tests can retune both without feeding thousands of packets or
+// waiting on a real clock.
+let LIVE_ANALYZE_WARMUP_ROWS = 400;      // ~2 min at STREAM_INTERVAL_S
+let LIVE_ANALYZE_MIN_INTERVAL_MS = 1500;
+let lastLiveAnalyzeAt = 0;               // Date.now() of the last analyze(); reset per session
+
+// Trailing seconds of the analysed buffer whose tonic/phasic/peaks are still
+// provisional — decomposeTonicPhasic is zero-phase and has a ±6s look-ahead
+// local-floor pass, so the newest samples haven't settled. Matches
+// PHASIC_COLOR_LAG_S. Peak / hotspot markers are not drawn inside this tail.
+const LIVE_SETTLE_TAIL_S = 8;
+
+// Per-view axis metadata for the Signal / Tonic / Phasic views (the subset
+// of index.html's #graphView that makes sense on a live rolling window —
+// no session-normalised metric views). `key` is the GSRAnalyzer series
+// property; 'signal' has none (it is the multi-layer Raw/Filtered/Tonic view).
+const LIVE_GRAPH_VIEWS = {
+  signal: { label: 'GSR (μS)',      decimals: 2, unit: ' μS', allowNeg: false },
+  tonic:  { key: 'tonic',  label: 'Tonic (SCL)',  decimals: 2, unit: ' μS', allowNeg: false },
+  phasic: { key: 'phasic', label: 'Phasic (SCR)', decimals: 3, unit: ' μS', allowNeg: false },
+};
+
+// Top-of-panel control state — the six layer toggles + the view dropdown.
+// Initial on/off mirrors index.html's #gsrPanel header (Raw/Filtered/Tonic/
+// Peaks/Hotspots active, Phasic off).
+const liveGsrView = {
+  showRaw: true, showFiltered: true, showTonic: true,
+  showPhasic: false, showPeaks: true, showHotspots: true,
+  graphView: 'signal',
+};
+
+// Persistent analyser + buffer, grown one packet per LiveState 'packet'.
+let liveAnalyzer = null;
+
+// Push any packets not yet mirrored onto liveAnalyzer.raw, then re-run the
+// full pipeline (subject to the wall-clock throttle above). Also refreshes
+// the map's delayed phasic recolour from the same decomposition.
+function feedLiveAnalyzer() {
+  if (typeof GSRAnalyzer === 'undefined') return; // analysis deps not on the page
+  if (!liveAnalyzer) {
+    liveAnalyzer = new GSRAnalyzer();
+    liveAnalyzer.raw = [];
+    liveAnalyzer.sampleRate = 1 / LiveState.STREAM_INTERVAL_S;
+  }
+  const A = liveAnalyzer;
+  const pkts = LiveState.packets;
+  for (let i = A.raw.length; i < pkts.length; i++) {
+    const p = pkts[i];
+    A.raw.push({
+      time: p.timestamp,
+      val: p.gsrRaw * NS_TO_US,
+      lat: p.lat, lon: p.lon, hdop: p.hdop,
+      sats: p.sats, fixType: p.fixType, hasGps: !!p.valid,
+    });
+  }
+  if (A.raw.length === 0) return;
+
+  // Wall-clock throttle (see LIVE_ANALYZE_MIN_INTERVAL_MS): every packet
+  // through the warmup, then no more than one analyze() per interval.
+  if (A.raw.length > LIVE_ANALYZE_WARMUP_ROWS &&
+      Date.now() - lastLiveAnalyzeAt < LIVE_ANALYZE_MIN_INTERVAL_MS) {
+    return;
+  }
+  lastLiveAnalyzeAt = Date.now();
+
+  A.analyze(LIVE_ANALYZE_PARAMS, 0);
+
+  // Mirror settled phasic values onto the packet objects so the live map's
+  // delayed track recolour can pick them up. Only the recent tail can still
+  // be unsettled; earlier packets kept the value set on a previous call.
+  const ph = A.phasic;
+  const start = Math.max(0, Math.min(pkts.length, ph.length) - 300);
+  for (let i = start; i < pkts.length && i < ph.length; i++) pkts[i].phasic = ph[i].val;
+  recolorPhasicSegments();
+}
 
 // Pull the single-track GSR view's own theme tokens (src/render/renderer.js
 // reads the same custom properties via getThemeColor) so the two graphs
@@ -151,63 +276,64 @@ function drawGraph() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
 
+  const A = liveAnalyzer;
   const pkts = LiveState.packets;
-  if (pkts.length === 0) return;
+  if (!A || !A.raw || A.raw.length === 0) return;
 
-  // Smooth time progression between packets to enable 60fps graph scrolling.
-  // Only advance the "now" edge while packets are actually arriving — once
-  // the session is disconnected (e.g. the user left the Live view, which
-  // drops the BLE link but keeps the buffer) the trace would otherwise
-  // scroll off the left edge and leave an empty graph. Freeze it instead so
-  // the last two minutes stay visible until a reconnect.
+  // Rolling "now" edge — advance between packets for 60fps scrolling while
+  // streaming; freeze once disconnected (the user left the Live view, which
+  // drops the BLE link but keeps the buffer) so the last two minutes stay
+  // visible instead of scrolling off the left edge.
   const streaming = LiveState.status === 'connected' || LiveState.status === 'reconnecting';
   const elapsed = (lastPacketArrivalTime && streaming) ? (Date.now() - lastPacketArrivalTime) / 1000 : 0;
-  const lastT = (lastPacketTimestamp || pkts[pkts.length - 1].timestamp) + elapsed;
+  const lastT = (lastPacketTimestamp || A.raw[A.raw.length - 1].time) + elapsed;
   const t0 = lastT - GRAPH_WINDOW_S;
-  const padT0 = t0 - GRAPH_PAD_S;
 
-  // Bound the smoothing pass to [padT0, lastT] — visible window plus
-  // warm-up padding — not the whole accumulated session (see GRAPH_PAD_S).
-  let padStartIdx = pkts.length - 1;
-  while (padStartIdx > 0 && pkts[padStartIdx - 1].timestamp >= padT0) padStartIdx--;
-  const paddedPkts = pkts.slice(padStartIdx);
-  // nS → µS at the point it enters the plotting/decomposition maths, so
-  // everything downstream (tonic/phasic split, min/max, axis, readout) is
-  // already in the app's unit. The raw packet objects stay in nS.
-  const paddedSmoothed = GsrFilter.applyZeroPhaseEMA(paddedPkts.map(p => p.gsrRaw * NS_TO_US), GRAPH_EMA_ALPHA);
+  const view = liveGsrView.graphView;
+  const cfg = LIVE_GRAPH_VIEWS[view] || LIVE_GRAPH_VIEWS.signal;
 
-  // Compute Tonic/Phasic baseline dynamically using a slow EMA (approx 45s window equivalent)
-  const sampleRate = 1.0 / LiveState.STREAM_INTERVAL_S;
-  const decomp = GsrFilter.decomposeTonicPhasic(paddedSmoothed, sampleRate, { tonicMethod: 'lpf', tonicWindow: 45 });
-  const paddedTonic = decomp.tonic;
-  const paddedPhasic = decomp.phasic;
-
-  // Byproduct of this same recompute: stash each packet's current phasic
-  // estimate on the packet object itself, and let the live map's delayed
-  // track recoloring pick up any that have now settled — see
-  // recolorPhasicSegments()'s doc comment for why "settled" isn't
-  // "just computed". Reuses this exact decomposition instead of running a
-  // second one just for the map.
-  for (let i = 0; i < paddedPkts.length; i++) {
-    paddedPkts[i].phasic = paddedPhasic[i];
+  // Series to plot, back-to-front. For 'signal' the primary Filtered trace is
+  // drawn last (on top of Raw/Tonic/Phasic), matching src/render/sketch.js.
+  const layers = [];
+  if (view === 'signal') {
+    if (liveGsrView.showRaw && A.raw.length)
+      layers.push({ data: A.raw, col: graphThemeColor('--color-raw', '#7c7c76') + '8c', w: 1.5 });
+    if (liveGsrView.showTonic && A.tonic && A.tonic.length)
+      layers.push({ data: A.tonic, col: graphThemeColor('--color-tonic', '#a30091'), w: 2 });
+    if (liveGsrView.showPhasic && A.phasic && A.phasic.length)
+      layers.push({ data: A.phasic, col: graphThemeColor('--color-phasic', '#008f3c') + 'c8', w: 1.5 });
+    if (liveGsrView.showFiltered && A.filtered && A.filtered.length)
+      layers.push({ data: A.filtered, col: graphThemeColor('--color-filtered', '#005bc4'), w: 2.2, primary: true });
+  } else {
+    const series = A[cfg.key];
+    if (series && series.length)
+      layers.push({
+        data: series,
+        col: graphThemeColor(view === 'phasic' ? '--color-phasic' : '--color-filtered',
+                             view === 'phasic' ? '#008f3c' : '#005bc4'),
+        w: 2, primary: true,
+      });
   }
-  recolorPhasicSegments();
+  if (layers.length === 0) return;
 
-  let startIdx = paddedPkts.length - 1;
-  while (startIdx > 0 && paddedPkts[startIdx - 1].timestamp >= t0) startIdx--;
+  // ── Y-range across the visible slice of every drawn layer ────────────────
+  let minV = Infinity, maxV = -Infinity;
+  for (const L of layers) {
+    const d = L.data;
+    for (let i = d.length - 1; i >= 0 && d[i].time >= t0; i--) {
+      const v = d[i].val;
+      if (v < minV) minV = v;
+      if (v > maxV) maxV = v;
+    }
+  }
+  if (!(minV <= maxV)) return;
+  const floorSpan = cfg.unit === ' μS' ? 0.2 : Math.max(1e-6, Math.abs(maxV) * 0.02);
+  if (maxV - minV < floorSpan) { maxV += floorSpan / 2; minV -= floorSpan / 2; }
+  const padV = (maxV - minV) * 0.1;
+  minV -= padV; maxV += padV;
+  if (!cfg.allowNeg && minV < 0) minV = 0;
 
-  const visible = (LiveState.showPhasicOnly ? paddedPhasic : paddedSmoothed).slice(startIdx);
-  const visiblePkts = paddedPkts.slice(startIdx);
-  if (visible.length === 0) return;
-
-  let minV = Math.min(...visible), maxV = Math.max(...visible);
-  if (maxV - minV < 0.2) { maxV += 0.1; minV -= 0.1; }
-  const pad = (maxV - minV) * 0.1;
-  minV -= pad; maxV += pad;
-
-  // ── Plot region (matches the single-track GSR view: white ground, a faint
-  //    grid, a thin L-shaped axis, one primary trace — see
-  //    src/render/renderer.js drawGridX/drawGridY/drawSignalCurve). ────────
+  // ── Plot region (matches the single-track GSR view) ─────────────────────
   const plotL = GRAPH_MARGIN.left;
   const plotR = w - GRAPH_MARGIN.right;
   const plotT = GRAPH_MARGIN.top;
@@ -223,7 +349,7 @@ function drawGraph() {
   const xForT = (t) => plotL + ((t - t0) / GRAPH_WINDOW_S) * plotW;
   const yForV = (v) => plotT + (1 - (v - minV) / (maxV - minV)) * plotH;
 
-  // ── Y grid + right-aligned value labels (mirrors renderer.drawGridY) ──
+  // ── Y grid + right-aligned value labels (mirrors renderer.drawGridY) ────
   const yStep = niceStep(maxV - minV);
   const yStart = Math.ceil(minV / yStep) * yStep;
   ctx.strokeStyle = gridCol;
@@ -243,12 +369,11 @@ function drawGraph() {
   for (let v = yStart; v <= maxV; v += yStep) {
     const y = yForV(v);
     if (lastLabelY !== null && Math.abs(y - lastLabelY) < 14) continue; // thin so labels never crowd
-    ctx.fillText(v.toFixed(GSR_DECIMALS) + GSR_UNIT, plotL - 8, y);
+    ctx.fillText(v.toFixed(cfg.decimals) + cfg.unit, plotL - 8, y);
     lastLabelY = y;
   }
 
-  // ── X grid + time labels. This is a rolling window, so labels stay
-  //    relative to the present ("now", "-20s", …) rather than absolute. ──
+  // ── X grid + rolling time labels ("now", "-20s", …) ────────────────────
   ctx.strokeStyle = gridCol;
   ctx.beginPath();
   for (let offset = 0; offset <= GRAPH_WINDOW_S; offset += 20) {
@@ -266,7 +391,7 @@ function drawGraph() {
     ctx.fillText(offset === 0 ? 'now' : `-${offset}s`, x, plotB + 5);
   }
 
-  // ── Axis frame: left + bottom, like the single view's L-shaped axis ──
+  // ── Axis frame: left + bottom, like the single view's L-shaped axis ────
   ctx.strokeStyle = axisCol;
   ctx.beginPath();
   ctx.moveTo(plotL + 0.5, plotT);
@@ -274,38 +399,96 @@ function drawGraph() {
   ctx.lineTo(plotR, plotB + 0.5);
   ctx.stroke();
 
-  // ── GSR trace — Filtered blue (or Phasic green), the same colours and
-  //    weights renderer.drawSignalCurve() uses for those two series. MUST
-  //    stay the final beginPath…stroke pair: test_live_app.js's gap
-  //    regression keys off names.lastIndexOf('beginPath'). ──────────────
-  ctx.strokeStyle = LiveState.showPhasicOnly
-    ? graphThemeColor('--color-phasic', '#008f3c')
-    : graphThemeColor('--color-filtered', '#005bc4');
-  ctx.lineWidth = LiveState.showPhasicOnly ? 2 : 2.2;
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  let penDown = false;
-  for (let i = 0; i < visiblePkts.length; i++) {
-    const x = xForT(visiblePkts[i].timestamp);
-    const y = yForV(visible[i]);
-    if (!penDown || visiblePkts[i].gap) {
-      ctx.moveTo(x, y);
-      penDown = true;
-    } else {
-      ctx.lineTo(x, y);
+  // ── Peak + hotspot markers. Drawn BEFORE the traces so the primary GSR
+  //    curve stays the final beginPath…stroke pair (test_live_app.js's gap
+  //    regression keys off names.lastIndexOf('beginPath')). Nothing is drawn
+  //    inside the unsettled tail — decomposeTonicPhasic's zero-phase +
+  //    ±6s look-ahead means the newest peaks aren't trustworthy yet
+  //    (LIVE_SETTLE_TAIL_S, same idea as the map's PHASIC_COLOR_LAG_S).
+  //
+  //    Styling mirrors the single-track GSR graph (src/render/renderer.js's
+  //    drawPeakMarkers / drawHotspotMarkers): a plain peak is a small filled
+  //    --color-peak dot; a hotspot is a larger hollow --color-hotspot ring
+  //    (a hotspot IS a peak, just the curated memorableEvents subset) with a
+  //    ★ above it. The renderer's hover-only shaded region / onset dot /
+  //    connector and its DOM pulse-ring aren't carried over — this is a
+  //    non-interactive rolling window, not the zoomable track view. ─────────
+  const markerSeries = (view === 'signal')
+    ? (A.filtered && A.filtered.length ? A.filtered : A.raw)
+    : layers[0].data;
+  const settledBefore = lastT - LIVE_SETTLE_TAIL_S;
+  const peakCol = graphThemeColor('--color-peak', '#d10024');
+  const hotspotCol = graphThemeColor('--color-hotspot', '#ff1744');
+  const canvasBg = graphThemeColor('--canvas-bg', '#ffffff');
+  const drawPeakDot = (list) => {
+    if (!list) return;
+    ctx.fillStyle = peakCol;
+    for (let k = 0; k < list.length; k++) {
+      const p = list[k];
+      if (p.excluded) continue;
+      if (p.time < t0 || p.time > settledBefore) continue;
+      const s = markerSeries[p.index];
+      if (!s) continue;
+      ctx.beginPath();
+      ctx.arc(xForT(p.time), yForV(s.val), 3.2, 0, Math.PI * 2);
+      ctx.fill();
     }
+  };
+  const drawHotspot = (list) => {
+    if (!list) return;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = '700 11px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    for (let k = 0; k < list.length; k++) {
+      const p = list[k];
+      if (p.excluded) continue;
+      if (p.time < t0 || p.time > settledBefore) continue;
+      const s = markerSeries[p.index];
+      if (!s) continue;
+      const x = xForT(p.time), y = yForV(s.val);
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = canvasBg;
+      ctx.fill();
+      ctx.strokeStyle = hotspotCol;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = hotspotCol;
+      ctx.fillText('★', x, y - 11);
+    }
+  };
+  // Peaks first so a hotspot's bolder ring + star sit on top where they overlap.
+  if (liveGsrView.showPeaks) drawPeakDot(A.peaks);
+  if (liveGsrView.showHotspots) drawHotspot(A.memorableEvents);
+
+  // ── Traces. gap flag comes from the index-aligned LiveState.packets[i]
+  //    (one analyzer.raw row is pushed per packet). ────────────────────────
+  for (const L of layers) {
+    ctx.strokeStyle = L.col;
+    ctx.lineWidth = L.w;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    const d = L.data;
+    let s = d.length - 1;
+    while (s > 0 && d[s - 1].time >= t0) s--;
+    let penDown = false;
+    for (let i = s; i < d.length; i++) {
+      const gap = pkts[i] && pkts[i].gap;
+      const x = xForT(d[i].time), y = yForV(d[i].val);
+      if (!penDown || gap) { ctx.moveTo(x, y); penDown = true; }
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
   }
-  ctx.stroke();
 
-  const lastSmoothed = paddedSmoothed[paddedSmoothed.length - 1];
-  const lastTonic = paddedTonic[paddedTonic.length - 1];
-  const lastPhasic = Math.max(0, lastSmoothed - lastTonic);
-
-  document.getElementById('graphValue').textContent =
-    (LiveState.showPhasicOnly ? lastPhasic : pkts[pkts.length - 1].gsrRaw * NS_TO_US).toFixed(GSR_DECIMALS) + GSR_UNIT;
-
-  document.getElementById('graphLabel').textContent =
-    LiveState.showPhasicOnly ? 'GSR (μS, Phasic) — last 2 min' : 'GSR (μS) — last 2 min';
+  // ── Readouts. 'signal' shows the latest raw GSR reading; a metric view
+  //    shows that metric's latest value. ──────────────────────────────────
+  const primary = layers.find(L => L.primary) || layers[layers.length - 1];
+  const readVal = (view === 'signal' && pkts.length)
+    ? pkts[pkts.length - 1].gsrRaw * NS_TO_US
+    : primary.data[primary.data.length - 1].val;
+  document.getElementById('graphValue').textContent = readVal.toFixed(cfg.decimals) + cfg.unit;
+  document.getElementById('graphLabel').textContent = cfg.label + ' — last 2 min';
 }
 
 // ==========================================================================
@@ -328,25 +511,26 @@ let gsrMin = Infinity, gsrMax = -Infinity;
 let phasicMax = 0;
 const pendingPhasicSegments = []; // FIFO of { pkt, line } awaiting a settled pkt.phasic
 const PHASIC_COLOR_LAG_S = 8; // matches decomposeTonicPhasic's ±6s local-floor window + margin
-// Hard cap on the recolour backlog. It normally drains within
-// PHASIC_COLOR_LAG_S (~27 entries) as drawGraph() runs — but drawGraph() is
-// paused whenever the Live view isn't the one on screen (activate() /
-// deactivate()), while updateLiveMap() keeps drawing segments from the
-// still-live BLE feed. Without a cap the queue, and the Leaflet polylines
-// each entry pins, would grow for the entire time the user is on another
-// view. Past the cap the oldest segment simply keeps its provisional
-// raw-GSR colour — the same outcome resetSession() and an abrupt session
-// end already accept.
+// Hard cap on the recolour backlog. recolorPhasicSegments() runs from
+// feedLiveAnalyzer() (i.e. only when analyze() actually ran — every packet
+// through the warmup, then once per LIVE_ANALYZE_MIN_INTERVAL_MS), and it
+// only drains an entry once that packet's phasic value has both been
+// computed AND settled (PHASIC_COLOR_LAG_S). If analyse() is being skipped
+// for a stretch, or the newest packets haven't settled, the queue keeps
+// growing while updateLiveMap() adds a segment per fix. Without a cap the
+// queue — and the Leaflet polylines each entry pins — would grow unbounded.
+// Past the cap the oldest segment simply keeps its provisional raw-GSR
+// colour — the same outcome resetSession() and an abrupt session end accept.
 const PENDING_PHASIC_MAX = 1200; // ~6 min at STREAM_INTERVAL_S
 
 // decomposeTonicPhasic() is a zero-phase/batch filter (a backward EMA pass,
 // then a ±6s look-ahead "local floor" correction) — a sample's phasic value
-// isn't trustworthy the instant drawGraph() first computes it; it needs a
-// few seconds of FUTURE packets behind it to stabilize (see GRAPH_PAD_S's
-// comment for the same "zero-phase needs run-up" idea, applied here to
-// look-ahead instead). This repaints already-drawn segments once that's
-// true, using the exact decomposition drawGraph() already runs — not a
-// second, cheaper approximation. A session that ends abruptly leaves its
+// isn't trustworthy the instant feedLiveAnalyzer() first computes it; it
+// needs a few seconds of FUTURE packets behind it to stabilize (the same
+// reason drawGraph() withholds peak markers inside LIVE_SETTLE_TAIL_S). This
+// repaints already-drawn segments once that's true, using the exact
+// decomposition the analyser already ran — not a second, cheaper
+// approximation. A session that ends abruptly leaves its
 // last ~8s of segments in their initial raw-GSR color; resetSession()
 // clears this queue so a stale entry from a prior session can never block
 // it (pkt.phasic would otherwise never be set again once LiveState.packets
@@ -531,6 +715,15 @@ function hideMap() {
 // longer, less relevant stretch of the walk.
 const LIVE_ZOOM = 18;
 
+// Recentre the follow-map on the walker at most this often. panTo() with
+// animation re-renders every track polyline on every frame of the tween, so
+// firing it per packet (~3/s) against a session-long pile of segments was a
+// near-continuous full-layer redraw. The walker's dot still moves every
+// packet (liveMarker.setLatLng below) — only the map's recentre lags, by at
+// most this interval, which at walking pace is a few metres of drift.
+const LIVE_PAN_MIN_INTERVAL_MS = 900;
+let lastLivePanAt = 0;
+
 function updateLiveMap(pkt) {
   if (!pkt.valid || isNaN(pkt.lat) || isNaN(pkt.lon)) return;
   const gated = GpsPipeline.applyFixTypeGate(
@@ -553,8 +746,8 @@ function updateLiveMap(pkt) {
     } else {
       // Per-segment coloring: one short polyline per new point, colored
       // provisionally from that point's raw GSR value for instant feedback
-      // — recolorPhasicSegments() (called from drawGraph()) repaints it
-      // with the more meaningful phasic value once that's settled.
+      // — recolorPhasicSegments() (called from feedLiveAnalyzer()) repaints
+      // it with the more meaningful phasic value once that's settled.
       const line = L.polyline([liveLastLatLng, latlng], { color, weight: 3 }).addTo(liveMap);
       pendingPhasicSegments.push({ pkt, line });
       if (pendingPhasicSegments.length > PENDING_PHASIC_MAX) pendingPhasicSegments.shift();
@@ -566,7 +759,11 @@ function updateLiveMap(pkt) {
       liveMarker.setLatLng(latlng);
       liveMarker.setStyle({ fillColor: color });
     }
-    liveMap.panTo(latlng, { animate: true, duration: 0.3 });
+    const nowMs = Date.now();
+    if (nowMs - lastLivePanAt >= LIVE_PAN_MIN_INTERVAL_MS) {
+      lastLivePanAt = nowMs;
+      liveMap.panTo(latlng, { animate: true, duration: 0.3 });
+    }
   }
   liveLastLatLng = latlng;
 }
@@ -587,7 +784,7 @@ function exportCsv() {
 // ==========================================================================
 // Wire-up state — element refs and session bookkeeping, assigned by mount().
 // ==========================================================================
-let statusBadge, reconnectBtn, newConnectionBtn, exportBtn, togglePhasicBtn,
+let statusBadge, reconnectBtn, newConnectionBtn, exportBtn,
     connectOverlay, connectBtn, connectErr, reconnectErr,
     cacheMapBtn, toggleMapBtn, toggleFullscreenBtn, latInput, lonInput;
 
@@ -686,12 +883,16 @@ function resetSession() {
   pendingPhasicSegments.length = 0;
   lastPacketTimestamp = 0;
   lastPacketArrivalTime = 0;
+  // Drop the analyser's buffer too — a fresh array so _ensureSeriesPool()
+  // fully rebuilds rather than trying to grow off the old session's rows.
+  if (liveAnalyzer) liveAnalyzer.raw = [];
+  lastLiveAnalyzeAt = 0;
+  lastLivePanAt = 0;
   document.getElementById('statPackets').textContent = 'Packets: 0';
   document.getElementById('statGaps').textContent = 'Gaps: 0';
   document.getElementById('statGps').textContent = 'GPS: --';
   document.getElementById('statLastSeen').textContent = '--';
   exportBtn.disabled = true;
-  togglePhasicBtn.disabled = true;
   drawGraph();
 }
 
@@ -721,13 +922,37 @@ async function attemptConnect() {
   }
 }
 
-function updateTogglePhasicBtn() {
-  if (LiveState.showPhasicOnly) {
-    togglePhasicBtn.textContent = 'Show Full GSR (P)';
-    togglePhasicBtn.classList.add('active');
-  } else {
-    togglePhasicBtn.textContent = 'Show Phasic (P)';
-    togglePhasicBtn.classList.remove('active');
+// The six GSR layer toggles (Raw/Filtered/Tonic/Phasic/Peaks/Hotspots) and
+// the view dropdown — index.html's #gsrPanel header controls, minus the
+// left-sidebar sliders. Each just flips a liveGsrView flag and redraws;
+// analysis itself always runs with the app's shipped GSR_DEFAULT params.
+const LIVE_GSR_TOGGLES = [
+  ['liveBtnToggleRaw', 'showRaw'],
+  ['liveBtnToggleFiltered', 'showFiltered'],
+  ['liveBtnToggleTonic', 'showTonic'],
+  ['liveBtnTogglePhasic', 'showPhasic'],
+  ['liveBtnTogglePeaks', 'showPeaks'],
+  ['liveBtnToggleHotspots', 'showHotspots'],
+];
+
+function bindLiveGsrControls() {
+  for (const [id, key] of LIVE_GSR_TOGGLES) {
+    const btn = document.getElementById(id);
+    if (!btn) continue;
+    btn.classList.toggle('active', !!liveGsrView[key]);
+    btn.addEventListener('click', () => {
+      liveGsrView[key] = !liveGsrView[key];
+      btn.classList.toggle('active', liveGsrView[key]);
+      drawGraph();
+    });
+  }
+  const sel = document.getElementById('liveGraphView');
+  if (sel) {
+    sel.value = liveGsrView.graphView;
+    sel.addEventListener('change', () => {
+      liveGsrView.graphView = sel.value;
+      drawGraph();
+    });
   }
 }
 
@@ -788,7 +1013,6 @@ const GSRLiveView = {
     reconnectBtn     = document.getElementById('reconnectBtn');
     newConnectionBtn = document.getElementById('newConnectionBtn');
     exportBtn        = document.getElementById('exportBtn');
-    togglePhasicBtn  = document.getElementById('togglePhasicBtn');
     connectOverlay   = document.getElementById('connectOverlay');
     connectBtn       = document.getElementById('connectBtn');
     connectErr       = document.getElementById('connectErr');
@@ -838,8 +1062,11 @@ const GSRLiveView = {
       lastPacketArrivalTime = Date.now();
 
       exportBtn.disabled = false;
-      togglePhasicBtn.disabled = false;
       updateLiveMap(pkt);
+      // Grow the analyser buffer + re-run the pipeline (off the 60fps draw
+      // path). drawGraph() then reads .filtered/.tonic/.phasic/.peaks/… on
+      // the next animation frame.
+      feedLiveAnalyzer();
     });
 
     connectBtn.addEventListener('click', () => {
@@ -873,11 +1100,7 @@ const GSRLiveView = {
 
     exportBtn.addEventListener('click', exportCsv);
 
-    togglePhasicBtn.addEventListener('click', () => {
-      LiveState.showPhasicOnly = !LiveState.showPhasicOnly;
-      updateTogglePhasicBtn();
-      drawGraph();
-    });
+    bindLiveGsrControls();
 
     cacheMapBtn.addEventListener('click', cacheCurrentMapArea);
 
@@ -930,10 +1153,9 @@ const GSRLiveView = {
       // Don't hijack keys while the user is typing coordinates.
       if (e.target === latInput || e.target === lonInput) return;
 
-      if ((e.key === 'p' || e.key === 'P') && !togglePhasicBtn.disabled) {
-        LiveState.showPhasicOnly = !LiveState.showPhasicOnly;
-        updateTogglePhasicBtn();
-        drawGraph();
+      if (e.key === 'p' || e.key === 'P') {
+        const b = document.getElementById('liveBtnTogglePhasic');
+        if (b) b.click();
       }
       if (e.key === 'm' || e.key === 'M') {
         toggleMapBtn.click();
@@ -949,7 +1171,6 @@ const GSRLiveView = {
 
     window.addEventListener('resize', drawGraph);
 
-    updateTogglePhasicBtn();
     updateToggleMapBtn();
 
     // Map visibility/init is a manual toggle (toggleMapBtn), not tied to GPS —

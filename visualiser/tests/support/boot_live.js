@@ -205,7 +205,7 @@ function installCanvas2DStub(window) {
   const noop = () => {};
   window.HTMLCanvasElement.prototype.getContext = () => ({
     setTransform: noop, clearRect: noop, beginPath: noop, closePath: noop,
-    moveTo: noop, lineTo: noop, stroke: noop, fill: noop, fillText: noop,
+    moveTo: noop, lineTo: noop, arc: noop, stroke: noop, fill: noop, fillText: noop,
     createLinearGradient: () => ({ addColorStop: noop }),
     save: noop, restore: noop,
     strokeStyle: '', fillStyle: '', lineWidth: 1, font: '', textAlign: '', textBaseline: '',

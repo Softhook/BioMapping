@@ -60,7 +60,11 @@ test('live.html loads exactly the shared src/ modules its inline wire-up depends
   // sync with tests/support/boot_live.js, which runs this same list before
   // the inline block. Order is load order.
   assert.deepStrictEqual(scriptSrcs(readApp('live.html')), [
+    'src/core/constants.js',       // GSR_CONST (analysis params + view presets)
     'src/signal/gsr_filter.js',    // GsrFilter
+    'src/signal/deconvolution.js', // SCRDeconvolution (analyzer.js dep, unused path)
+    'src/signal/analyzer_time_format.js', // AnalyzerTimeFormat (analyzer.js dep)
+    'src/signal/analyzer.js',      // GSRAnalyzer — the live graph's analysis engine
     'src/map/map_colors.js',       // MapColors
     'src/gps/gps_pipeline.js',     // GpsPipeline
     'src/core/file_saver.js',      // GSRFileSaver (Export CSV save dialog)

@@ -912,6 +912,45 @@ test('series pool: re-parsing new raw data rebuilds the pool (no stale buffer re
   assert.strictEqual(a.filtered.length, oldLen);
 });
 
+test('series pool: incremental growth (same raw array, rows appended) matches a fresh full analyze()', () => {
+  // The live receiver pushes one packet at a time onto a persistent this.raw
+  // buffer. _ensureSeriesPool()'s growth fast path must extend the pooled
+  // arrays in place AND re-run stages 1-3 over the appended tail, so the
+  // result is bit-identical to analysing the whole buffer from scratch.
+  const full = new GSRAnalyzer();
+  full.parseCSV(FIX_CSV);
+  const allRows = full.raw.slice(0, 1200);
+  const sr = full.sampleRate;
+
+  const grow = new GSRAnalyzer();
+  grow.raw = [];
+  grow.sampleRate = sr;
+
+  const poolRefs = {};
+  for (let cut = 400; cut <= allRows.length; cut += 200) {
+    while (grow.raw.length < cut) grow.raw.push(allRows[grow.raw.length]);
+    grow.analyze(P(), 0);
+
+    if (!poolRefs.filtered) {
+      poolRefs.filtered = grow.filtered;
+      poolRefs.tonic = grow.tonic;
+      poolRefs.phasic = grow.phasic;
+    } else {
+      assert.strictEqual(grow.filtered, poolRefs.filtered, 'filtered buffer reallocated during growth');
+      assert.strictEqual(grow.tonic, poolRefs.tonic, 'tonic buffer reallocated during growth');
+      assert.strictEqual(grow.phasic, poolRefs.phasic, 'phasic buffer reallocated during growth');
+    }
+    assert.strictEqual(grow.filtered.length, cut, 'filtered length tracks the grown raw');
+
+    const fresh = new GSRAnalyzer();
+    fresh.raw = allRows.slice(0, cut);
+    fresh.sampleRate = sr;
+    fresh.analyze(P(), 0);
+    assert.deepStrictEqual(seriesSnapshot(grow), seriesSnapshot(fresh),
+      `grown analyzer diverged from a fresh full analyze() at ${cut} rows`);
+  }
+});
+
 test('series pool: _globalRange for pooled curves matches a direct scan (incl. deconvolution phasic)', () => {
   const scan = arr => {
     let mn = Infinity, mx = -Infinity;
