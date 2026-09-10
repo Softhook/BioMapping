@@ -266,19 +266,6 @@ const GSRTrackManager = {
       li.className = `track-item ${isEditing ? 'active' : ''}`;
       li.dataset.trackId = track.id;
 
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.className = 'track-checkbox';
-      checkbox.checked = track.enabled;
-      checkbox.title = 'Include in Collective Surface';
-      checkbox.addEventListener('change', (e) => {
-        track.enabled = e.target.checked;
-        if (AppState.viewMode === 'collective') {
-          GSRUI.updateCollectiveMap();
-          GSRUI.refreshOsmControls();
-        }
-      });
-
       const badge = document.createElement('span');
       badge.className = 'track-color-badge';
       badge.style.backgroundColor = track.color;
@@ -345,7 +332,6 @@ const GSRTrackManager = {
       actions.appendChild(editBtn);
       actions.appendChild(deleteBtn);
 
-      li.appendChild(checkbox);
       li.appendChild(badge);
       li.appendChild(details);
       const integrityMark = GSRTrackManager._buildIntegrityMark(track);
