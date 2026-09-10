@@ -191,6 +191,37 @@ test('leaving the Live view stands the live controller down (deactivate)', () =>
   assert.strictEqual(deactivated, 1, 'the view switcher calls GSRLiveView.deactivate() on the way out');
 });
 
+test('the mobile hamburger toggles the .sidebar-open drawer class and its aria-expanded state', () => {
+  const { document, layout, click } = boot();
+  const toggle = document.getElementById('btnSidebarToggle');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  assert.ok(toggle, '#btnSidebarToggle present in the markup');
+  assert.ok(backdrop, '#sidebarBackdrop present in the markup');
+  assert.ok(!layout.classList.contains('sidebar-open'), 'drawer starts closed');
+
+  click(toggle);
+  assert.ok(layout.classList.contains('sidebar-open'), 'first tap opens the drawer');
+  assert.strictEqual(toggle.getAttribute('aria-expanded'), 'true');
+
+  click(backdrop);
+  assert.ok(!layout.classList.contains('sidebar-open'), 'tapping the scrim closes it');
+  assert.strictEqual(toggle.getAttribute('aria-expanded'), 'false');
+});
+
+test('entering Live hides the mobile hamburger and closes the drawer; leaving restores it', () => {
+  const { document, layout, btnSingle, btnLive, click } = boot();
+  const toggle = document.getElementById('btnSidebarToggle');
+  click(toggle); // open the drawer first
+  assert.ok(layout.classList.contains('sidebar-open'));
+
+  click(btnLive);
+  assert.strictEqual(toggle.hidden, true, 'hamburger hidden in Live (sidebar is display:none there)');
+  assert.ok(!layout.classList.contains('sidebar-open'), 'drawer force-closed on entering Live');
+
+  click(btnSingle);
+  assert.strictEqual(toggle.hidden, false, 'hamburger restored when controls are reachable again');
+});
+
 test('entering Live mode stops the p5 draw loop (noLoop), leaving the canvas idle', () => {
   const { window, btnLive, click } = boot();
   let noLoopCalls = 0;

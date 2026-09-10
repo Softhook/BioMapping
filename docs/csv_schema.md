@@ -2,6 +2,12 @@
 
 > **Canonical reference.** Update this file whenever the column list changes.
 > Referenced from: `biomap_session.c`, `sd_logger.h`, `analyzer.js`, `scripts/analyze_track.py`.
+>
+> The live receiver's CSV export (`visualiser/src/live/live_csv.js`) and wire
+> decoder (`visualiser/src/live/live_binary_parser.js`) are locked to the
+> firmware save format by `visualiser/tests/test_firmware_csv_contract.js`,
+> which reads the firmware source directly and fails on any drift — run
+> `npm test` in `visualiser/` after changing the format on either side.
 
 ---
 

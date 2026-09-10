@@ -80,6 +80,10 @@ typedef enum {
 // to the "%.2f,%.7f,..." format strings. test_csv_header_matches_row_column_count
 // (tests/test_firmware.c) links the real formatter and asserts the counts agree.
 //
+// The visualiser's Live Stream CSV export mirrors this GPS+GSR schema; its
+// test_firmware_csv_contract.js reads this header directly, so a column
+// change here also turns the visualiser suite red until live_csv.js follows.
+//
 // The _DEBUG schemas add contention/continuity diagnostics — see RowDiag's
 // doc comment (biomap_types.h) and docs/archive/gps_rf_mutex_status.md for what each
 // column measures and why. tick_dt_ms and the peak-ms columns appear in

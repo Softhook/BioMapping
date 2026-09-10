@@ -219,6 +219,12 @@ body {
   transform: translateX(-12px);
 }
 
+/* Mobile sidebar drawer — the hamburger toggle and its scrim are inert on
+   desktop; the @media (max-width: 768px) block below turns the sidebar into
+   an off-canvas drawer these two drive. */
+.sidebar-toggle-btn { display: none; }
+.sidebar-backdrop { display: none; }
+
 .control-card {
   background: var(--bg-card);
   border: 1px solid var(--border-glass);
@@ -1452,6 +1458,75 @@ input[type="range"]:focus-visible,
   }
   .main-content {
     overflow-y: visible;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Mobile phones (≤768px): the sidebar becomes an off-canvas drawer so the
+ * map / graph / Live view own the screen instead of being pushed below a
+ * full-height control column. Driven by #btnSidebarToggle + #sidebarBackdrop
+ * (markup) and GSREvents.bindMobileSidebar() (the .sidebar-open class).
+ * ──────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Header wraps rather than crushing the view tabs off-screen; the tabs get
+     real tap targets. The top-level fullscreen button is dropped here — the
+     Live view carries its own, and F-key fullscreen is a desktop affordance. */
+  .app-header { padding: 8px 12px; flex-wrap: wrap; gap: 6px 10px; }
+  /* On its own wrapped row the tab strip gets the full phone width, so the
+     three tabs sit side by side with comfortable tap targets. */
+  .header-right { width: 100%; margin-left: 0; justify-content: flex-start; gap: 2px; }
+  .view-switcher { flex-wrap: wrap; }
+  .header-logo h1 { font-size: 1rem; }
+  .view-tab { padding: 8px 10px; font-size: 0.8rem; }
+  #btnFullscreen { display: none; }
+
+  /* :not([hidden]) so events.js can hide it in the Live view by setting the
+     `hidden` property (this app ships no [hidden]{display:none} reset). */
+  .sidebar-toggle-btn:not([hidden]) {
+    display: inline-flex;
+    align-items: center;
+    font-size: 1.1rem;
+  }
+
+  /* Undo the ≤1024px "stack everything and let the page scroll" rules: the
+     drawer is out of flow now, so the container keeps the viewport height and
+     the Live panel (flex:1) can fill it. */
+  .app-container { height: 100vh; height: 100dvh; overflow: hidden; }
+  .main-layout { grid-template-columns: 1fr; }
+  .main-content { overflow-y: auto; }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 1200;
+    width: min(86vw, 340px);
+    padding: 12px;
+    background: var(--bg-app);
+    box-shadow: 2px 0 18px rgba(0, 0, 0, 0.22);
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    pointer-events: none;
+  }
+  .main-layout.sidebar-open .sidebar {
+    transform: translateX(0);
+    pointer-events: auto;
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 1150;
+    background: rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+  .main-layout.sidebar-open .sidebar-backdrop {
+    opacity: 1;
+    pointer-events: auto;
   }
 }
 

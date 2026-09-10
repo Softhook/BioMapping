@@ -606,6 +606,7 @@ const GSREvents = {
     // ── View Switcher ────────────────────────────────────────────────────────
     GSREvents.bindViewSwitcher();
     GSREvents.bindSurfaceSwitcher();
+    GSREvents.bindMobileSidebar();
 
     // ── Contour Settings ─────────────────────────────────────────────────────
     GSREvents.bindContourInputs();
@@ -1028,6 +1029,9 @@ const GSREvents = {
     const exitLiveView = () => {
       appMainLayout.classList.remove('live-mode');
       if (btnLiveView) btnLiveView.classList.remove('active');
+      // Restore the mobile hamburger — there are controls to reach again.
+      const sbToggle = document.getElementById('btnSidebarToggle');
+      if (sbToggle) sbToggle.hidden = false;
       // Drop the edge-to-edge display mode (F) if it was left on.
       if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager._liveDisplayModeActive &&
           GSRLayoutManager._liveDisplayModeActive()) {
@@ -1169,6 +1173,15 @@ const GSREvents = {
         contourSettingsCard.style.display = 'none';
         collectiveOnlyMapBtns.forEach(btn => btn.style.display = 'none');
 
+        // Live mode hides the sidebar entirely, so close the mobile drawer and
+        // hide its hamburger — there is nothing behind it to open.
+        appMainLayout.classList.remove('sidebar-open');
+        const sbToggle = document.getElementById('btnSidebarToggle');
+        if (sbToggle) {
+          sbToggle.hidden = true;
+          sbToggle.setAttribute('aria-expanded', 'false');
+        }
+
         // Build the live UI into #livePanel on first open (idempotent) — its
         // BLE / geolocation code stays dormant until the user acts inside it —
         // then activate() every time: resume the redraw loop if a session is
@@ -1184,6 +1197,38 @@ const GSREvents = {
         noLoop();
       });
     }
+  },
+
+  /**
+   * Mobile sidebar drawer. On phones (≤768px, see styles.css) the control
+   * sidebar is an off-canvas drawer instead of a full-height column that
+   * shoves the map / Live view off the bottom of the page. This wires the
+   * hamburger (#btnSidebarToggle) and the scrim (#sidebarBackdrop) to the
+   * `.sidebar-open` class on `.main-layout`. The CSS is a no-op on desktop,
+   * so these listeners are harmless there.
+   */
+  bindMobileSidebar() {
+    const btn      = document.getElementById('btnSidebarToggle');
+    const layout   = document.querySelector('.main-layout');
+    const backdrop = document.getElementById('sidebarBackdrop');
+    if (!btn || !layout) return;
+
+    const setOpen = (open) => {
+      layout.classList.toggle('sidebar-open', open);
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    };
+
+    btn.addEventListener('click', () => {
+      setOpen(!layout.classList.contains('sidebar-open'));
+    });
+    if (backdrop) backdrop.addEventListener('click', () => setOpen(false));
+
+    // Esc closes the drawer, matching the app's other overlays.
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && layout.classList.contains('sidebar-open')) {
+        setOpen(false);
+      }
+    });
   },
 
   /**

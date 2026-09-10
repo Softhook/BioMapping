@@ -34,6 +34,13 @@
     <header class="app-header">
       <div class="header-left">
 
+        <!-- Mobile-only: toggles the sidebar drawer. Hidden on desktop via CSS,
+             hidden in the Live view (nothing to open) via events.js. -->
+        <button class="icon-btn sidebar-toggle-btn" id="btnSidebarToggle"
+                title="Controls" aria-label="Toggle controls" aria-expanded="false">
+          <i class="fa-solid fa-bars"></i>
+        </button>
+
         <div class="header-logo">
           <img src="assets/biomap_icon.png" alt="Bio Mapping Logo" class="logo-image">
           <h1>Bio Mapping 2</h1>
@@ -621,6 +628,10 @@
         </section>
 
       </aside>
+
+      <!-- Scrim behind the mobile sidebar drawer — tap to close. Inert on
+           desktop (CSS keeps it display:none). -->
+      <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
       <!-- Main Panel (Right) -->
       <main class="main-content">
