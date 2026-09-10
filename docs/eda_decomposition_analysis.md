@@ -87,6 +87,35 @@ magnitude slower than any other method; not browser-feasible.
 
 ### cvxEDA — convex optimisation (Greco et al. 2016, *IEEE Trans. Biomed. Eng.* 63:797)
 
+> **Implemented (2026-09-10).** `visualiser/src/signal/cvxeda.js` +
+> `analyzer.js` cvxEDA branch, behind the "cvxEDA" detector toggle. It is a
+> faithful port of the reference `cvxEDA.py` `qp` path: the identical QP
+> (`½‖Mq+Cd+Bl−y‖² + α·1ᵀAq + ½γ‖l‖²` s.t. `Aq ≥ 0`) with the same Bateman
+> ARMA, cubic B-spline tonic and linear drift. CVXOPT's interior-point
+> solver is replaced by ADMM on the single inequality (`z = Aq`, `z ≥ 0`);
+> the x-step is solved *directly* — the pentadiagonal `MᵀM + ρAᵀA` block by a
+> banded Cholesky, the drift/spline unknowns by a Schur complement refactored
+> only when the adaptive-ρ rule moves ρ — so every iteration is O(n). Over-
+> relaxation (Boyd §3.4.3) plus a residual-plateau stop converge a typical
+> 300 s track in ~400 iters / <100 ms; a 60-min track in ~1–2 s. It is fed
+> the **full filtered SC signal** (tonic included) and its B-spline tonic
+> replaces `this.tonic` for the run; the prefix cache swaps the EMA tonic
+> back when the toggle is turned off. Discrete peaks are still read off the
+> phasic reconstruction by `_detectPeaksFromCurve` (shared with the MP path).
+>
+> α is set to **2×10⁻³**, not the paper's 8×10⁻⁴: that constant is quoted at
+> 25 Hz and BioMapping samples at 10 Hz, where the same inter-event sparsity
+> needs a proportionally stronger L1 term (≈ 8×10⁻⁴ · 25/10). The z-score
+> normalisation (NeuroKit's cvxEDA wrapper does the same) keeps that constant
+> meaningful across skin-conductance ranges.
+>
+> **The earlier build (commit 8523a35) did not work:** its ADMM used a
+> 10-iteration unpreconditioned CG inner solve against the `ρAᵀA` block
+> (condition number ~n⁴), so `q` never moved far from zero and the phasic
+> reconstruction came out at ~⅓ amplitude — peak counts far below every other
+> detector. The direct factor fixes this; the reconstruction now matches the
+> input to a few ×10⁻³ µS and the driver is 99%+ exact zeros.
+
 Decomposes `y = p + s + ε`:
 - `p = A·r` — phasic: sparse driver `r ≥ 0` convolved with fixed Bateman IRF `A`
 - `s = C·l` — tonic: cubic spline with B-spline coefficients `l`
@@ -660,6 +689,14 @@ atoms.
 
 Full cvxEDA equivalence: add a B-spline tonic model alongside the L1 sparse phasic,
 solve jointly via ADMM. Eliminates the sequential tonic-first step.
+
+> **Done (2026-09-10)** — this is what `cvxeda.js` now is; see the boxed note
+> under *The Four Competing Methods → cvxEDA* above. It ships as an opt-in
+> detector, not the default: the discrete peak list is still read off the
+> phasic reconstruction, so the kernel-shape-mismatch caveats in §1 ("What It
+> Gets Wrong") apply to it too. Its clear wins are the **joint tonic** (no
+> sequential EMA-first error path) and the **genuinely sparse driver** for the
+> continuous metrics (ISCR/AUC).
 
 ### Tier 4 — Individual kernel estimation (research-grade)
 

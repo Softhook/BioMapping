@@ -55,6 +55,7 @@ class GSRAnalyzer {
     this.phasicDriverPeaks = [];  // Driver impulse list
     this.phasicDeconvTruncated = false; // True if matching pursuit hit maxIter before converging
     this._phasicOrig = null;      // Pre-deconvolution phasic backup (only set when deconvolution is on)
+    this._tonicOrig = null;       // Pre-cvxEDA tonic backup (cvxEDA re-estimates tonic jointly)
 
     this.sampleRate = 10;   // In Hz, auto-detected
     this.isResistance = false; // Whether original CSV was resistance (Ohms)
@@ -462,6 +463,11 @@ class GSRAnalyzer {
       this.tonicZ = this._seriesPool.tonicZ;
       if (this._wasDeconv) {
         this.phasicZ = GsrFilter.standardizeSignal(this.phasic, this._seriesPool.phasicZ);
+        // cvxEDA mode replaces this.tonic with its own joint estimate; the
+        // pooled buffer is left pristine, so restoring it here (plus its
+        // cached range) undoes the swap on the next non-cvxEDA run.
+        this._seriesRange.tonic = this._prefixCache.tonicRange;
+        this._tonicOrig = null;
         this._wasDeconv = false;
       } else {
         this.phasicZ = this._seriesPool.phasicZ;
@@ -516,6 +522,8 @@ class GSRAnalyzer {
       this._prefixCache = {
         key: prefixKey,
         phasicVals,
+        tonicVals,
+        tonicRange: this._seriesRange.tonic,
         phasicStd: this.phasicStd,
         phasicRange: this._seriesRange.phasic,
         phasicAUC: pristineAUC,
@@ -605,6 +613,7 @@ class GSRAnalyzer {
     this.phasicDriverPeaks = [];
     this.phasicDeconvTruncated = false;
     this._phasicOrig = null;
+    this._tonicOrig = null;
   }
 
   /**
@@ -682,7 +691,16 @@ class GSRAnalyzer {
     // Opt-in cvxEDA convex optimization algorithm (Greco et al., 2016)
     const algorithm = params.deconvAlgorithm || scf.deconvAlgorithm || 'matching_pursuit';
     if (algorithm === 'cvxeda' && typeof CVXEDA !== 'undefined') {
-      const res = CVXEDA.decompose(phasicVals, this.sampleRate, {
+      // cvxEDA models tonic and phasic jointly, so it is fed the full filtered
+      // skin-conductance signal (tonic still present), NOT the EMA
+      // tonic-subtracted phasic the matching-pursuit path uses. Its B-spline
+      // tonic estimate then replaces this.tonic for the rest of this run
+      // (the pooled buffer is left pristine; the prefix-cache restore in
+      // analyze() swaps the EMA tonic back on the next non-cvxEDA call).
+      const scVals = new Float64Array(n);
+      for (let i = 0; i < n; i++) scVals[i] = this.filtered[i].val;
+
+      const res = CVXEDA.decompose(scVals, this.sampleRate, {
         tauSlow: scf.tauSlow,
         tauFast: scf.tauFast,
         alpha: params.cvxAlpha,
@@ -690,6 +708,21 @@ class GSRAnalyzer {
         maxIter: params.cvxMaxIter
       });
       const cleanVals = res.phasic;
+
+      // Joint tonic estimate → this.tonic (fresh array; pool stays pristine).
+      this._tonicOrig = this.tonic;
+      const tonicClean = new Array(n);
+      let toMn = Infinity, toMx = -Infinity;
+      for (let i = 0; i < n; i++) {
+        const v = res.tonic[i];
+        tonicClean[i] = { time: times[i], val: v };
+        if (v < toMn) toMn = v;
+        if (v > toMx) toMx = v;
+      }
+      this.tonic = tonicClean;
+      this._seriesRange.tonic = { min: toMn, max: toMx };
+      this.tonicZ = GsrFilter.standardizeSignal(this.tonic, null);
+
       this.phasicDriver = new Array(n);
       for (let i = 0; i < n; i++) {
         this.phasicDriver[i] = { time: times[i], val: res.driver[i] };
@@ -706,7 +739,11 @@ class GSRAnalyzer {
           }
         }
       }
-      this.phasicDeconvTruncated = false;
+      // cvxEDA solves the convex problem to a residual tolerance; a run that
+      // hits its iteration cap first is flagged the same way a truncated
+      // matching-pursuit run is (drives the same "results may be undercounted"
+      // UI warning).
+      this.phasicDeconvTruncated = !res.converged;
       this.phasicClean = new Array(n);
       for (let i = 0; i < n; i++) {
         this.phasicClean[i] = { time: times[i], val: cleanVals[i] };

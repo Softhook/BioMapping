@@ -123,14 +123,22 @@ const GSR_CONST = {
   },
 
   // ── cvxEDA Convex Optimization Decomposition (Greco, Citi et al., 2016) ─
+  // Faithful port of the reference cvxEDA.py `qp` path: the identical QP
+  // (½‖Mq+Cd+Bl−y‖² + α·1ᵀAq + ½γ‖l‖²  s.t. Aq ≥ 0) solved by ADMM on the
+  // single inequality, with a direct banded/Schur factor for the x-step.
   CVXEDA: {
-    tauSlow: 2.0,       // Slow decay time constant (s) (default 2.0)
-    tauFast: 0.75,      // Fast rise time constant (s) (default 0.75)
-    deltaKnotSec: 10.0, // Equidistant knot spacing for tonic cubic B-spline (s)
-    alpha: 8e-4,        // Driver L1 sparsity penalization
-    gamma: 1e-2,        // Tonic spline L2 smoothness penalization
-    maxIter: 60,        // Max ADMM iterations
-    rho: 0.1,           // ADMM penalty parameter
+    tauSlow: 2.0,       // Bateman slow decay τ (s)
+    tauFast: 0.75,      // Bateman fast rise τ (s)
+    deltaKnotSec: 10.0, // Tonic cubic B-spline knot spacing (s)
+    // L1 weight on the driver. The paper quotes α ≈ 8e-4 at 25 Hz; BioMapping
+    // samples at 10 Hz, where the same inter-event sparsity needs a
+    // proportionally stronger penalty (≈ 8e-4 · 25/10). Raise it to merge
+    // fewer ripples, lower it to keep more small SCRs.
+    alpha: 2e-3,
+    gamma: 1e-2,        // L2 weight on tonic spline smoothness
+    maxIter: 600,       // ADMM iteration cap (residual tolerance usually hits first)
+    tol: 3e-4,          // Scaled primal/dual residual tolerance (Boyd §3.3)
+    rho: 0.3,           // Initial ADMM penalty (adapts to balance residuals)
   },
 
   // ── CSV parsing keywords ─────────────────────────────────────────────────
