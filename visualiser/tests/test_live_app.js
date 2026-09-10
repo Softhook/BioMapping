@@ -1101,6 +1101,56 @@ test('feedLiveAnalyzer: a new analyze() runs once the throttle interval has elap
   assert.strictEqual(run(context, 'globalThis.__n'), 6, 'one more analyze after the interval elapsed');
 });
 
+test('feedLiveAnalyzer: analyses only a trailing LIVE_ANALYZE_WINDOW_S slice, not the whole session', () => {
+  const { context } = bootLive();
+  run(context, 'LIVE_ANALYZE_WARMUP_ROWS = 100000;'); // disable the throttle so every feed re-windows
+  run(context, `
+    for (let i = 0; i < 1600; i++) {
+      LiveState.addPacket({ valid: false, gsrRaw: 1000 + (i % 50), timestamp: i * 0.3 });
+    }
+  `);
+  const winS   = run(context, 'LIVE_ANALYZE_WINDOW_S');           // 300
+  const rawLen = run(context, 'liveAnalyzer.raw.length');
+  const base   = run(context, 'liveAnalyzerBase');
+  const pktLen = run(context, 'LiveState.packets.length');
+  const expectRows = Math.round(winS / 0.3);                       // ~1000
+
+  assert.strictEqual(pktLen, 1600, 'every packet is retained in LiveState (Export CSV needs them)');
+  assert.ok(Math.abs(rawLen - expectRows) <= 2, `analyser buffer ~${expectRows} rows, got ${rawLen}`);
+  assert.ok(rawLen < pktLen, 'analyser works on a slice, not the whole session');
+  assert.ok(Math.abs(base - (pktLen - rawLen)) <= 1, `liveAnalyzerBase points at raw[0]'s packet, got ${base}`);
+  // The pooled series match the windowed buffer, not the session.
+  assert.strictEqual(run(context, 'liveAnalyzer.filtered.length'), rawLen);
+});
+
+test('drawGraph: a gap still breaks the trace after the analysis window has slid past the session start', () => {
+  const { window, context } = bootLive();
+  const calls = recordCanvas(window);
+  run(context, 'LIVE_ANALYZE_WARMUP_ROWS = 100000;');
+  // ~1500 packets (~450s) so the 300s window no longer starts at packet 0;
+  // a single +10s discontinuity at i=1450, inside the visible 120s window.
+  run(context, `
+    for (let i = 0; i < 1500; i++) {
+      const t = i < 1450 ? i * 0.3 : i * 0.3 + 10;
+      LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12, gsrRaw: 1000,
+        hdop: 1.0, pdop: 1.5, speedKts: 2, courseDeg: 90, sats: 9, fixType: 3, timestamp: t });
+    }
+  `);
+  assert.ok(run(context, 'liveAnalyzerBase') > 0, 'window has slid past the session start');
+
+  calls.length = 0;
+  run(context, 'drawGraph()');
+
+  const names = calls.map((c) => c.name);
+  const curveStart = names.lastIndexOf('beginPath');
+  const curveEnd = names.indexOf('stroke', curveStart);
+  assert.ok(curveStart !== -1 && curveEnd !== -1, 'found the curve draw');
+  const moveTos = calls.slice(curveStart, curveEnd).filter((c) => c.name === 'moveTo').length;
+  // 2 == initial pen-down + one gap-forced pen-up. Would be 1 if the gap
+  // lookup used the raw analyser index instead of liveAnalyzerBase + i.
+  assert.strictEqual(moveTos, 2, 'the base offset is applied to the gap lookup');
+});
+
 test('drawGraph: regression — a gap packet lifts the pen in the plotted curve, so the line never bridges a dropout', () => {
   const { window, context } = bootLive();
   const calls = recordCanvas(window);
@@ -1595,33 +1645,19 @@ test('niceStep: yields 1/2/5 x 10^n steps giving roughly five divisions', () => 
 });
 
 // ==========================================================================
-// Fullscreen control. Standalone live.html (no AppState) keeps its own
-// toolbar button + F key; in-app both are suppressed so the app's top-bar
-// button / GSRLayoutManager shortcut are the single handler (that side is
-// pinned in test_live_view_switch.js). Here: the standalone side.
+// The live view has no self-fullscreen affordance: in-app GSRLayoutManager
+// owns the F key / display mode for the whole app (pinned in
+// test_live_view_switch.js), and standalone live.html no longer ships a
+// toolbar button or an F shortcut of its own.
 // ==========================================================================
 
-test('standalone: #toggleFullscreenBtn is the app-style icon button, visible, and toggles documentElement fullscreen', () => {
+test('the live view binds no fullscreen control — no #toggleFullscreenBtn, and F does nothing here', () => {
   const { window } = bootLive();
-  const btn = window.document.getElementById('toggleFullscreenBtn');
-  assert.ok(btn, 'button present');
-  assert.strictEqual(btn.hidden, false, 'shown in standalone (no AppState)');
-  assert.ok(btn.classList.contains('icon-btn') && btn.classList.contains('fullscreen-btn'),
-    'carries the app .icon-btn.fullscreen-btn classes, not a bespoke text button');
-  assert.ok(btn.querySelector('i.fa-expand'), 'shows the expand glyph');
-
-  let reqs = 0;
-  window.document.documentElement.requestFullscreen = () => { reqs++; return Promise.resolve(); };
-  btn.dispatchEvent(new window.Event('click', { bubbles: true }));
-  assert.strictEqual(reqs, 1, 'click requests fullscreen on documentElement');
-});
-
-test('standalone: the F key still toggles fullscreen (no AppState means the shortcut stays live)', () => {
-  const { window } = bootLive();
+  assert.strictEqual(window.document.getElementById('toggleFullscreenBtn'), null, 'no fullscreen button');
   let reqs = 0;
   window.document.documentElement.requestFullscreen = () => { reqs++; return Promise.resolve(); };
   window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'f' }));
-  assert.strictEqual(reqs, 1, 'f requests fullscreen');
+  assert.strictEqual(reqs, 0, 'F is not wired to fullscreen in the live view');
 });
 
 // ==========================================================================

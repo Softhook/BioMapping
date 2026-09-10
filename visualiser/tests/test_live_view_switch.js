@@ -138,12 +138,10 @@ test('the live view keyboard shortcuts only fire while Live is the active view',
   assert.notStrictEqual(mapBtn.textContent, labelWhileLive, '"m" toggles the map again once Live is active');
 });
 
-test('in-app the live panel hides its own fullscreen button — the top-bar Full screen button covers it', () => {
+test('the live panel ships no fullscreen button of its own — the top-bar Full screen button / GSRLayoutManager cover it', () => {
   const { btnLive, livePanel, click } = boot();
   click(btnLive);
-  const btn = livePanel.querySelector('#toggleFullscreenBtn');
-  assert.ok(btn, 'the button is still in the shared markup');
-  assert.strictEqual(btn.hidden, true, 'but hidden in-app (embedded === true)');
+  assert.strictEqual(livePanel.querySelector('#toggleFullscreenBtn'), null);
 });
 
 test('in-app the F key puts the Live view into edge-to-edge display mode (header hidden + .app-container fullscreen)', () => {

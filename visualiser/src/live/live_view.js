@@ -36,25 +36,28 @@ const LIVE_MAX_HDOP = 2.0;
 // ==========================================================================
 const LIVE_VIEW_MARKUP = `
 <div id="app" class="no-map">
+  <!-- Everything on one wrapping row: the toolbar action strip, the graph
+       layer-toggle strip and the view dropdown all live in <header> so they
+       sit on a single line when there's room and only break onto a second
+       line when there isn't (styles.css .live-view header { flex-wrap: wrap }).
+       Both control clusters use the app's .btn-group segmented style.
+       The reconnect buttons' inline display:none is spelled with a space
+       after the colon so the .btn-group border-collapse selectors (which
+       match [style*="display: none"]) treat them as hidden even before
+       renderStatus() first runs. Toggle/select ids are prefixed 'live' so
+       they never collide with index.html's own #graphView etc. -->
   <header>
     <h1>Bio Mapping — Live</h1>
     <span id="statusBadge" class="badge">Not connected</span>
-    <button id="reconnectBtn" style="display:none;">Reconnect</button>
-    <button id="newConnectionBtn" style="display:none;">New Connection</button>
-    <button id="exportBtn" disabled>Export CSV</button>
-    <button id="toggleMapBtn">Show Map (M)</button>
-    <button id="cacheMapBtn" disabled>Cache Map (C)</button>
-    <button id="toggleFullscreenBtn" class="icon-btn fullscreen-btn" title="Full screen (F)"><i class="fa-solid fa-expand"></i></button>
     <span id="reconnectErr"></span>
-  </header>
-
-  <!-- GSR graph controls — the same layer toggles + view dropdown as
-       index.html's #gsrPanel header, on their own horizontally-scrollable
-       strip (no left sidebar / sliders in the live view). ids are prefixed
-       so they never collide with index.html's own #graphView etc. when this
-       UI is mounted inside the main app. -->
-  <div id="gsrControls" class="live-gsr-controls">
     <div class="btn-group">
+      <button class="btn btn-outline" id="reconnectBtn" style="display: none;">Reconnect</button>
+      <button class="btn btn-outline" id="newConnectionBtn" style="display: none;">New Connection</button>
+      <button class="btn btn-outline" id="exportBtn" disabled>Export CSV</button>
+      <button class="btn btn-outline" id="toggleMapBtn">Show Map (M)</button>
+      <button class="btn btn-outline" id="cacheMapBtn" disabled>Cache Map (C)</button>
+    </div>
+    <div class="btn-group" id="gsrControls">
       <button class="btn btn-outline active" id="liveBtnToggleRaw">Raw</button>
       <button class="btn btn-outline active" id="liveBtnToggleFiltered">Filtered</button>
       <button class="btn btn-outline active" id="liveBtnToggleTonic">Tonic</button>
@@ -67,7 +70,7 @@ const LIVE_VIEW_MARKUP = `
       <option value="tonic">Tonic (SCL)</option>
       <option value="phasic">Phasic (SCR)</option>
     </select>
-  </div>
+  </header>
 
   <div id="graphWrap">
     <canvas id="graph"></canvas>
@@ -153,19 +156,27 @@ const LIVE_ANALYZE_PARAMS = (typeof GSR_CONST !== 'undefined' && GSR_CONST.GSR_D
       useDeconvolution: false, usePeakProminence: false,
     };
 
-// analyze() walks the WHOLE (growing) packet buffer every call, so its cost
-// climbs linearly with session length — a per-packet run is ~1ms early on but
-// tens of ms an hour in, and that's the live view's single most expensive
-// thing. A row-parity throttle only halves the call rate; it doesn't bound
-// the cost. So: for the first LIVE_ANALYZE_WARMUP_ROWS packets run every one
-// (the graph is still filling and each call is cheap), then fall back to at
-// most one analyze() per LIVE_ANALYZE_MIN_INTERVAL_MS of wall-clock. That
-// caps per-session CPU flat regardless of walk length. Nothing on screen
-// needs faster: the trace still redraws at 60fps from the last computed
-// series and markers are withheld for the last LIVE_SETTLE_TAIL_S anyway.
-// `let` so tests can retune both without feeding thousands of packets or
-// waiting on a real clock.
-let LIVE_ANALYZE_WARMUP_ROWS = 400;      // ~2 min at STREAM_INTERVAL_S
+// analyze() cost is linear in the number of rows it's handed. feedLiveAnalyzer()
+// keeps that flat two ways:
+//
+//  1. Trailing window (LIVE_ANALYZE_WINDOW_S). Only the last few minutes are
+//     analysed — enough for the visible GRAPH_WINDOW_S plus lead-in for
+//     decomposeTonicPhasic's zero-phase tonic EMA (tonicWindow 45s, ~4 time
+//     constants to settle) and its ±6s local-floor pass. Older rows change
+//     nothing that's drawn. The full recording still lives in
+//     LiveState.packets — that's what Export CSV serialises.
+//
+//  2. Wall-clock throttle. Through the first LIVE_ANALYZE_WARMUP_ROWS packets
+//     analyse on every one (the graph is still filling); after that, at most
+//     one analyze() per LIVE_ANALYZE_MIN_INTERVAL_MS, to keep the per-call
+//     window rebuild + GC churn off the packet path. The trace still redraws
+//     at 60fps from the last computed series; markers are withheld for the
+//     last LIVE_SETTLE_TAIL_S regardless.
+//
+// `let` on the tunables so tests can retune without feeding thousands of
+// packets or waiting on a real clock.
+const LIVE_ANALYZE_WINDOW_S = 300;       // trailing slice handed to analyze()
+let LIVE_ANALYZE_WARMUP_ROWS = 400;      // ~2 min of session at STREAM_INTERVAL_S
 let LIVE_ANALYZE_MIN_INTERVAL_MS = 1500;
 let lastLiveAnalyzeAt = 0;               // Date.now() of the last analyze(); reset per session
 
@@ -194,12 +205,18 @@ const liveGsrView = {
   graphView: 'signal',
 };
 
-// Persistent analyser + buffer, grown one packet per LiveState 'packet'.
+// The analyser runs on a TRAILING WINDOW of LiveState.packets, not a
+// persistent grown-forever buffer. liveAnalyzerBase is the index in
+// LiveState.packets of liveAnalyzer.raw[0], so an analyser-local row / peak
+// index `i` maps to packet `liveAnalyzerBase + i` (drawGraph()'s gap lookup
+// and the phasic mirror below both rely on that). Reset per session.
 let liveAnalyzer = null;
+let liveAnalyzerBase = 0;
 
-// Push any packets not yet mirrored onto liveAnalyzer.raw, then re-run the
-// full pipeline (subject to the wall-clock throttle above). Also refreshes
-// the map's delayed phasic recolour from the same decomposition.
+// Rebuild the analyser's trailing-window buffer from the newest
+// LIVE_ANALYZE_WINDOW_S of LiveState.packets, then re-run the pipeline
+// (subject to the wall-clock throttle above) and refresh the map's delayed
+// phasic recolour from the same decomposition.
 function feedLiveAnalyzer() {
   if (typeof GSRAnalyzer === 'undefined') return; // analysis deps not on the page
   if (!liveAnalyzer) {
@@ -209,33 +226,45 @@ function feedLiveAnalyzer() {
   }
   const A = liveAnalyzer;
   const pkts = LiveState.packets;
-  for (let i = A.raw.length; i < pkts.length; i++) {
-    const p = pkts[i];
-    A.raw.push({
-      time: p.timestamp,
-      val: p.gsrRaw * NS_TO_US,
-      lat: p.lat, lon: p.lon, hdop: p.hdop,
-      sats: p.sats, fixType: p.fixType, hasGps: !!p.valid,
-    });
-  }
-  if (A.raw.length === 0) return;
+  if (pkts.length === 0) return;
 
   // Wall-clock throttle (see LIVE_ANALYZE_MIN_INTERVAL_MS): every packet
-  // through the warmup, then no more than one analyze() per interval.
-  if (A.raw.length > LIVE_ANALYZE_WARMUP_ROWS &&
+  // through the warmup (gated on session length, not window size), then no
+  // more than one analyze() per interval.
+  if (pkts.length > LIVE_ANALYZE_WARMUP_ROWS &&
       Date.now() - lastLiveAnalyzeAt < LIVE_ANALYZE_MIN_INTERVAL_MS) {
     return;
   }
   lastLiveAnalyzeAt = Date.now();
 
+  // Trailing window: first packet at or after (now - LIVE_ANALYZE_WINDOW_S).
+  // Scanned back from the end — it's a bounded number of packets.
+  const cutoff = pkts[pkts.length - 1].timestamp - LIVE_ANALYZE_WINDOW_S;
+  let w0 = pkts.length;
+  while (w0 > 0 && pkts[w0 - 1].timestamp >= cutoff) w0--;
+  liveAnalyzerBase = w0;
+
+  // Fresh array each call so GSRAnalyzer._ensureSeriesPool() does a clean
+  // rebuild off it — the window is bounded (~LIVE_ANALYZE_WINDOW_S /
+  // STREAM_INTERVAL_S rows), so that's a flat ~1ms regardless of walk length.
+  const raw = new Array(pkts.length - w0);
+  for (let i = w0; i < pkts.length; i++) {
+    const p = pkts[i];
+    raw[i - w0] = {
+      time: p.timestamp,
+      val: p.gsrRaw * NS_TO_US,
+      lat: p.lat, lon: p.lon, hdop: p.hdop,
+      sats: p.sats, fixType: p.fixType, hasGps: !!p.valid,
+    };
+  }
+  A.raw = raw;
+
   A.analyze(LIVE_ANALYZE_PARAMS, 0);
 
-  // Mirror settled phasic values onto the packet objects so the live map's
-  // delayed track recolour can pick them up. Only the recent tail can still
-  // be unsettled; earlier packets kept the value set on a previous call.
+  // Mirror the window's phasic values back onto their LiveState.packets
+  // entries so the live map's delayed track recolour can pick them up.
   const ph = A.phasic;
-  const start = Math.max(0, Math.min(pkts.length, ph.length) - 300);
-  for (let i = start; i < pkts.length && i < ph.length; i++) pkts[i].phasic = ph[i].val;
+  for (let i = 0; i < ph.length; i++) pkts[liveAnalyzerBase + i].phasic = ph[i].val;
   recolorPhasicSegments();
 }
 
@@ -461,8 +490,8 @@ function drawGraph() {
   if (liveGsrView.showPeaks) drawPeakDot(A.peaks);
   if (liveGsrView.showHotspots) drawHotspot(A.memorableEvents);
 
-  // ── Traces. gap flag comes from the index-aligned LiveState.packets[i]
-  //    (one analyzer.raw row is pushed per packet). ────────────────────────
+  // ── Traces. gap flag comes from the matching LiveState.packets entry —
+  //    analyser row i is packet liveAnalyzerBase + i (trailing window). ────
   for (const L of layers) {
     ctx.strokeStyle = L.col;
     ctx.lineWidth = L.w;
@@ -473,7 +502,8 @@ function drawGraph() {
     while (s > 0 && d[s - 1].time >= t0) s--;
     let penDown = false;
     for (let i = s; i < d.length; i++) {
-      const gap = pkts[i] && pkts[i].gap;
+      const gp = pkts[liveAnalyzerBase + i];
+      const gap = gp && gp.gap;
       const x = xForT(d[i].time), y = yForV(d[i].val);
       if (!penDown || gap) { ctx.moveTo(x, y); penDown = true; }
       else ctx.lineTo(x, y);
@@ -786,7 +816,7 @@ function exportCsv() {
 // ==========================================================================
 let statusBadge, reconnectBtn, newConnectionBtn, exportBtn,
     connectOverlay, connectBtn, connectErr, reconnectErr,
-    cacheMapBtn, toggleMapBtn, toggleFullscreenBtn, latInput, lonInput;
+    cacheMapBtn, toggleMapBtn, latInput, lonInput;
 
 let bleManager = null;
 let lastPacketTimestamp = 0;
@@ -883,9 +913,9 @@ function resetSession() {
   pendingPhasicSegments.length = 0;
   lastPacketTimestamp = 0;
   lastPacketArrivalTime = 0;
-  // Drop the analyser's buffer too — a fresh array so _ensureSeriesPool()
-  // fully rebuilds rather than trying to grow off the old session's rows.
+  // Drop the analyser's trailing-window buffer too, and its base offset.
   if (liveAnalyzer) liveAnalyzer.raw = [];
+  liveAnalyzerBase = 0;
   lastLiveAnalyzeAt = 0;
   lastLivePanAt = 0;
   document.getElementById('statPackets').textContent = 'Packets: 0';
@@ -980,18 +1010,6 @@ function goToLatLon(lat, lon, zoom) {
   liveMap.setView([lat, lon], zoom);
 }
 
-function toggleFullscreen() {
-  if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen().catch((err) => {
-      console.warn('Fullscreen request failed:', err);
-    });
-  } else {
-    if (document.exitFullscreen) {
-      document.exitFullscreen();
-    }
-  }
-}
-
 // ==========================================================================
 // GSRLiveView — build the DOM into `container` and bind everything. Call
 // once. Idempotent (a second call is a no-op).
@@ -1017,17 +1035,8 @@ const GSRLiveView = {
     connectBtn       = document.getElementById('connectBtn');
     connectErr       = document.getElementById('connectErr');
     reconnectErr     = document.getElementById('reconnectErr');
-    // Standalone live.html owns its own fullscreen affordance (the toolbar
-    // button + the F key). Inside index.html the app's top-bar
-    // #btnFullscreen and GSRLayoutManager's F shortcut already cover the
-    // whole app, this panel included — so the panel's own button is hidden
-    // and its key/connect fullscreen calls are skipped, leaving exactly one
-    // handler rather than two racing to fullscreen different elements.
-    const embedded = typeof AppState !== 'undefined';
-
     cacheMapBtn      = document.getElementById('cacheMapBtn');
     toggleMapBtn     = document.getElementById('toggleMapBtn');
-    toggleFullscreenBtn = document.getElementById('toggleFullscreenBtn');
     latInput         = document.getElementById('latInput');
     lonInput         = document.getElementById('lonInput');
 
@@ -1069,14 +1078,7 @@ const GSRLiveView = {
       feedLiveAnalyzer();
     });
 
-    connectBtn.addEventListener('click', () => {
-      attemptConnect();
-      // Standalone only — go fullscreen for the walk. In-app this would
-      // fight the main app's own .app-container fullscreen convention.
-      if (!embedded && document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen().catch(() => {});
-      }
-    });
+    connectBtn.addEventListener('click', attemptConnect);
 
     // Lets the map be shown, panned, and cached before (or without)
     // connecting to a device — the whole reason toggleMapBtn/locationBar
@@ -1128,27 +1130,12 @@ const GSRLiveView = {
       );
     });
 
-    if (embedded) {
-      // The main app's top-bar Full screen button already covers this panel.
-      toggleFullscreenBtn.hidden = true;
-    } else {
-      toggleFullscreenBtn.addEventListener('click', toggleFullscreen);
-      document.addEventListener('fullscreenchange', () => {
-        const on = !!document.fullscreenElement;
-        toggleFullscreenBtn.classList.toggle('is-fullscreen', on);
-        const ic = toggleFullscreenBtn.querySelector('i');
-        if (ic) ic.className = on ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
-        toggleFullscreenBtn.title = on ? 'Exit full screen (F)' : 'Full screen (F)';
-      });
-    }
-
     window.addEventListener('keydown', (e) => {
       // Inside index.html these listeners outlive the Live tab (mount is
       // once, no unmount) — only claim the p/m/c shortcuts while the Live
-      // view is actually the one on screen. f is skipped entirely in-app
-      // (see `embedded` above): GSRLayoutManager owns it for the whole app.
-      // Standalone live.html has no AppState, so the shortcuts are always
-      // live there and f falls through to toggleFullscreen() below.
+      // view is actually the one on screen. (There is no live-view fullscreen
+      // shortcut: in-app GSRLayoutManager owns F for the whole app; standalone
+      // live.html has no self-fullscreen affordance.)
       if (typeof AppState !== 'undefined' && AppState.viewMode !== 'live') return;
       // Don't hijack keys while the user is typing coordinates.
       if (e.target === latInput || e.target === lonInput) return;
@@ -1162,10 +1149,6 @@ const GSRLiveView = {
       }
       if ((e.key === 'c' || e.key === 'C') && !cacheMapBtn.disabled) {
         cacheCurrentMapArea();
-      }
-      // In-app, GSRLayoutManager owns the F shortcut for the whole app.
-      if (!embedded && (e.key === 'f' || e.key === 'F')) {
-        toggleFullscreen();
       }
     });
 

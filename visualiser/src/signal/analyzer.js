@@ -103,14 +103,15 @@ class GSRAnalyzer {
    * than last seen, i.e. once per loaded track rather than once per analyze().
    *
    * Incremental-growth fast path: when this.raw is the SAME array that has only
-   * had rows appended (the live receiver pushes one packet at a time onto a
-   * persistent buffer), the seven pooled arrays are extended in place instead
-   * of reallocated and rescanned end-to-end — that saves the per-call realloc
-   * + full raw rescan (growing adds ~6 objects/call instead). It does NOT make
-   * analyze() cheap on a long session: the filter / decomposition / peak /
-   * metric stages still re-process the whole buffer, so per-call cost stays
-   * linear in row count. The live view keeps that in check by throttling how
-   * often it calls analyze(), not by shrinking the buffer.
+   * had rows appended, the seven pooled arrays are extended in place instead of
+   * reallocated and rescanned end-to-end. This is for a caller that streams
+   * onto one persistent buffer; the live receiver used to, but now hands
+   * analyze() a fresh trailing-window slice each call (bounded, so a clean
+   * rebuild is cheap) and no longer hits this branch. Kept because it's correct
+   * and self-contained — a future streaming caller would want it. Note it only
+   * saves the realloc + raw rescan: the filter / decomposition / peak / metric
+   * stages still re-process the whole buffer, so it never makes a long buffer
+   * cheap — bounding the row count is the only thing that does.
    * @private
    */
   _ensureSeriesPool(raw, n) {
