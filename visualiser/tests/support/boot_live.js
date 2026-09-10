@@ -1,22 +1,23 @@
 /**
- * Boots the REAL live.html (real DOM + its one inline <script> block,
- * unmodified) inside jsdom, mirroring tests/support/boot_app.js's approach
- * for index.html: parse the real file, stub the browser/hardware APIs it
- * can't have in Node (Leaflet, Web Bluetooth, Geolocation, Cache Storage,
- * fetch, canvas 2D, Wake Lock, Fullscreen), then run the real script text
- * in that DOM's context.
+ * Boots the REAL live.html unchanged inside jsdom, mirroring
+ * tests/support/boot_app.js's approach for index.html: parse the real file,
+ * stub the browser/hardware APIs it can't have in Node (Leaflet, Web
+ * Bluetooth, Geolocation, Cache Storage, fetch, canvas 2D, Wake Lock,
+ * Fullscreen), then run the real script text in that DOM's context.
  *
- * live.html loads a handful of real src/ files in its <head> and then has
- * one inline <script> block for the page wire-up. headSrcScripts() below
- * reads the <head>'s <script src="src/..."> list straight from the file
- * (so it can't drift) and bootLive() runs each of those, in order, then
- * the inline block — the lightweight equivalent of boot_app.js's
- * SCRIPT_ORDER. Top-level `const`/`class`/`function` declarations
- * (LiveState, GSRLiveBluetoothManager, resetSession, goToLatLon,
- * normalizeTileCacheUrl, ...) live in the shared vm-context lexical scope,
- * not on `window` — reach them through the returned `context` with
- * vm.runInContext('someName', context), the same pattern
- * test_map_layer_ownership.js uses against boot_app.js's context.
+ * live.html is now a thin shell: it loads the src/live/* modules in its
+ * <head> and its one inline <script> is just
+ * `GSRLiveView.mount(#liveRoot)`, which builds the whole live UI and wires
+ * it. headSrcScripts() below reads the <head>'s <script src="src/..."> list
+ * straight from the file (so it can't drift) and bootLive() runs each of
+ * those, in order, then the inline mount() call — the lightweight
+ * equivalent of boot_app.js's SCRIPT_ORDER. src/live/live_view.js's
+ * top-level `const`/`function` declarations (drawGraph, liveMap,
+ * resetSession, goToLatLon, renderStatus, …) and the other modules' globals
+ * (LiveState, GSRLiveBluetoothManager, normalizeTileCacheUrl, …) all live
+ * in the shared vm-context lexical scope, not on `window` — reach them
+ * through the returned `context` with vm.runInContext('someName', context),
+ * the same pattern test_map_layer_ownership.js uses against boot_app.js.
  *
  * Scope, matching docs/archive/visualizer_test_coverage_plan.md's philosophy for
  * boot_app.js: this is for exercising real logic (gap detection, session
