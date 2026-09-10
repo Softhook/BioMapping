@@ -252,6 +252,7 @@ const GSRUI = {
       GSRUI.updateDeconvTruncationWarning();
       GSREvents.syncTonicBaselineControls();
       GSRUI.syncPhasicAUCLabels();
+      GSRUI.syncGraphViewDetectorOptions();
       GSRUI.syncMapPanelForSpatialData();
       redraw();
     } catch (err) {
@@ -296,6 +297,28 @@ const GSRUI = {
     for (const selId of ['graphView', 'mapColoringMetric']) {
       const opt = document.querySelector('#' + selId + ' option[value="phasicAUC"]');
       if (opt) opt.textContent = txt;
+    }
+  },
+
+  /**
+   * The 'phasicDriver' graph view plots analyzer.phasicDriver, which is only
+   * populated while a deconvolution or cvxEDA detector is active. Enable the
+   * dropdown option only in those modes; if it is the current selection when
+   * the user switches to a non-deconvolution detector, drop back to 'signal'
+   * so the plot never has to render an empty series. Called from runAnalysis()
+   * (after each analyze()) and once at startup.
+   */
+  syncGraphViewDetectorOptions() {
+    const sel = AppState.sliders && AppState.sliders.graphView;
+    if (!sel) return;
+    const opt = sel.querySelector('option[value="phasicDriver"]');
+    if (!opt) return;
+    const hasDriver = !!(AppState.analyzer && AppState.analyzer.phasicDriver &&
+      AppState.analyzer.phasicDriver.length > 0);
+    opt.disabled = !hasDriver;
+    if (!hasDriver && sel.value === 'phasicDriver') {
+      sel.value = 'signal';
+      GSREvents.applyGraphView();
     }
   },
 

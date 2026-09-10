@@ -1155,7 +1155,7 @@ class GSRAnalyzer {
       this._globalRange[key] = { min: mn, max: mx };
     }
     if (this._wasDeconv) {
-      for (const key of ['phasicAUC', 'arousalIndex']) {
+      for (const key of ['phasicAUC', 'arousalIndex', 'phasicDriver']) {
         const arr = this[key];
         if (!arr || arr.length === 0) continue;
         let mn = Infinity, mx = -Infinity;

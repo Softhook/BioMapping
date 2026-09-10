@@ -157,6 +157,48 @@ test('Deconvolution and Prominence detector toggles are mutually exclusive via t
   assert.strictEqual(prom.checked, false);
 });
 
+test('the "Driver (ISCR)" graph view is enabled only while a deconvolution/cvxEDA detector is active', async () => {
+  const { window, document } = bootApp();
+  installFakeFileReader(window);
+  window.setup();
+
+  await new Promise((resolve, reject) => {
+    window.GSRTrackManager.loadFilesSequentially([makeFakeFile('track1.csv', SAMPLE_CSV)]);
+    const start = Date.now();
+    const check = () => {
+      if (window.AppState.collectiveManager.tracks.length > 0) return resolve();
+      if (Date.now() - start > 2000) return reject(new Error('track never loaded within 2s'));
+      setTimeout(check, 10);
+    };
+    check();
+  });
+
+  const graphView = document.getElementById('graphView');
+  const driverOpt = graphView.querySelector('option[value="phasicDriver"]');
+  const decon = document.getElementById('useDeconvolution');
+  const fireChange = (el) => el.dispatchEvent(new window.Event('change', { bubbles: true }));
+
+  assert.ok(driverOpt, 'the #graphView dropdown has a phasicDriver option');
+  assert.strictEqual(driverOpt.disabled, true, 'disabled by default (no deconvolution driver yet)');
+
+  // Enable deconvolution → a driver series is produced → the option unlocks.
+  decon.checked = true;
+  fireChange(decon);
+  assert.strictEqual(driverOpt.disabled, false, 'enabled once deconvolution populates analyzer.phasicDriver');
+
+  // Select it, then turn the detector back off: the view must fall back to
+  // 'signal' rather than plotting an empty series, and the option re-locks.
+  graphView.value = 'phasicDriver';
+  fireChange(graphView);
+  assert.strictEqual(window.AppState.graphView, 'phasicDriver');
+
+  decon.checked = false;
+  fireChange(decon);
+  assert.strictEqual(driverOpt.disabled, true, 're-locked when no detector produces a driver');
+  assert.strictEqual(graphView.value, 'signal', 'selection dropped back to Signal');
+  assert.strictEqual(window.AppState.graphView, 'signal');
+});
+
 test('deleteTrack removes the track and leaves a clean, consistent AppState', async () => {
   const { window } = bootApp();
   installFakeFileReader(window);

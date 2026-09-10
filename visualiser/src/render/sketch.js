@@ -199,7 +199,8 @@ function draw() {
     if (yMaxLower === -Infinity) yMaxLower = 1;
   } else {
     if (yMaxLower === -Infinity || yMaxLower <= 0) {
-      yMaxLower = lowerMode === 'phasic' ? parseFloat(AppState.sliders.peakThreshold.value) * 2 : 100;
+      yMaxLower = (lowerMode === 'phasic' || lowerMode === 'phasicDriver')
+        ? parseFloat(AppState.sliders.peakThreshold.value) * 2 : 100;
     }
   }
   const lowerSpan = yMaxLower - yMinLower;
@@ -213,6 +214,7 @@ function draw() {
     phasic:       { steps: [[0.05, 0.005], [0.15, 0.01], [0.5, 0.05], [1.5, 0.1]], defaultStep: 0.5, decimals: 3, unit: ' \u03bcS' },
     peakDensity:  { steps: [[5, 1], [20, 2], [60, 5], [200, 20]],                  defaultStep: 10,  decimals: 0, unit: ' /min' },
     phasicAUC:    { steps: [[0.5, 0.05], [2, 0.2], [5, 0.5], [20, 2]],             defaultStep: 5,   decimals: 2, unit: ' \u03bcS\u00b7s' },
+    phasicDriver: { steps: [[0.05, 0.005], [0.15, 0.01], [0.5, 0.05], [1.5, 0.1]], defaultStep: 0.5, decimals: 3, unit: ' \u03bcS' },
     arousalIndex: { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' },
     triIndex:     { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' }
   };

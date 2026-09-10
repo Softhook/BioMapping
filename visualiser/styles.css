@@ -31,6 +31,7 @@
   --color-hotspot: #ff1744; /* Hotspot / memorable-event red — distinct from --color-peak (#d10024, the "Low quality" shade peaks use) */
   --color-peak-density: #e59e00; /* Peak density (NS-SCR) amber */
   --color-phasic-auc: #0099aa; /* Phasic AUC (ISCR) teal */
+  --color-phasic-driver: #c2410c; /* Sudomotor driver (ISCR) burnt orange */
   --color-arousal-index: #7b00cc; /* Combined arousal index deep purple */
   --color-tri-index: #6366f1; /* Tri Index vibrant indigo */
   --color-em-fog: #a855f7; /* EM Fog Index (EMF-I) glowing purple/violet */

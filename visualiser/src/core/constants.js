@@ -230,8 +230,9 @@ const GSR_CONST = {
   // continuous, threshold-independent alternatives that resolve the
   // "thresholding dilemma" and "superposition problem" — see
   // docs/environmental_stress_literature_review.md §5-6. 'tonic' (SCL) and
-  // 'peakDensity' (NS-SCR rate) round out the set. (EM Fog is not offered as a
-  // graph view — the map/globe still colour by it.)
+  // 'peakDensity' (NS-SCR rate) round out the set. 'phasicDriver' is
+  // detector-dependent (deconvolution / cvxEDA only). (EM Fog is not offered as
+  // a graph view — the map/globe still colour by it.)
   LOWER_GRAPH_MODES: {
     tonic: {
       label: 'Tonic (SCL)', unit: 'μS', decimals: 4,
@@ -253,6 +254,20 @@ const GSR_CONST = {
       // integrated the deconvolved driver (analyzer.phasicAUCIsISCR).
       label: 'Phasic AUC', unit: 'μS·s', decimals: 3,
       colorVar: '--color-phasic-auc', colorDefault: '#0099aa',
+      showPeakOverlay: false, allowNegative: false
+    },
+    // The sparse sudomotor driver (analyzer.phasicDriver) — the burst signal
+    // the deconvolution / cvxEDA models recover *before* the SCRF shape smears
+    // each impulse into a response, and the series computePhasicAUC integrates
+    // to produce Phasic AUC (ISCR). Only populated while a deconvolution or
+    // cvxEDA detector is active; GSRUI.syncGraphViewDetectorOptions() disables
+    // the dropdown option (and falls back to 'signal') in the other modes, so
+    // the plot never has to handle an empty series here. Peaks are marked as
+    // dots on the curve at their own time (showPeakOverlay:false) — each dot is
+    // one SCR's originating impulse.
+    phasicDriver: {
+      label: 'Sudomotor Driver (ISCR)', unit: 'μS', decimals: 4,
+      colorVar: '--color-phasic-driver', colorDefault: '#c2410c',
       showPeakOverlay: false, allowNegative: false
     },
     arousalIndex: {

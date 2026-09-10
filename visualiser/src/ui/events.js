@@ -406,6 +406,28 @@ const GSREvents = {
   },
 
   /**
+   * Apply the current #graphView selection: mirror it into AppState.graphView
+   * (and arm it as lowerGraphMode when it's a metric view), show the
+   * Raw/Filtered/Tonic/Phasic layer buttons only in 'signal' view, and redraw.
+   * Called on 'change', once at wire-up, and by
+   * GSRUI.syncGraphViewDetectorOptions() when it forces the selection back to
+   * 'signal' after the driver series goes away.
+   */
+  applyGraphView() {
+    const S = AppState.sliders;
+    if (!S || !S.graphView) return;
+    const v = S.graphView.value;
+    AppState.graphView = v;
+    if (v !== 'signal') AppState.lowerGraphMode = v;
+    const showLayerBtns = (v === 'signal');
+    for (const id of ['btnToggleRaw', 'btnToggleFiltered', 'btnToggleTonic', 'btnTogglePhasic']) {
+      const b = document.getElementById(id);
+      if (b) b.style.display = showLayerBtns ? '' : 'none';
+    }
+    redraw();
+  },
+
+  /**
    * Wire up all UI event listeners (sliders, file drop, buttons, toggles, panels).
    */
   setupEventListeners() {
@@ -445,19 +467,8 @@ const GSREvents = {
     // also arms it as lowerGraphMode. The Raw/Filtered/Tonic/Phasic curve
     // toggles are only meaningful in 'signal' view, so hide them otherwise.
     if (S.graphView) {
-      const applyGraphView = () => {
-        const v = S.graphView.value;
-        AppState.graphView = v;
-        if (v !== 'signal') AppState.lowerGraphMode = v;
-        const showLayerBtns = (v === 'signal');
-        for (const id of ['btnToggleRaw', 'btnToggleFiltered', 'btnToggleTonic', 'btnTogglePhasic']) {
-          const b = document.getElementById(id);
-          if (b) b.style.display = showLayerBtns ? '' : 'none';
-        }
-        redraw();
-      };
-      applyGraphView();
-      S.graphView.addEventListener('change', applyGraphView);
+      GSREvents.applyGraphView();
+      S.graphView.addEventListener('change', () => GSREvents.applyGraphView());
     }
 
     // ── File Upload Handlers ──────────────────────────────────────────────────
