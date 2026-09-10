@@ -2372,6 +2372,43 @@ input[type="range"]:focus-visible,
   height: 100% !important;
 }
 
+/* Live view — the embedded live.html frame takes the whole content area.
+   Sidebar and every other main-content section are hidden; the grid drops to a
+   single column so the frame is full-bleed. */
+.live-panel {
+  display: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  border: 1px solid var(--border-glass);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.live-panel #liveFrame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+.main-layout.live-mode {
+  grid-template-columns: 1fr;
+}
+
+.main-layout.live-mode .sidebar,
+.main-layout.live-mode .main-content > section:not(#livePanel) {
+  display: none !important;
+}
+
+.main-layout.live-mode .main-content {
+  padding-right: 0;
+  overflow: hidden;
+}
+
+.main-layout.live-mode #livePanel {
+  display: flex;
+}
+
 /* Compact drag drop zone when tracks are loaded */
 .drag-drop-zone.compact {
   padding: 8px 12px !important;

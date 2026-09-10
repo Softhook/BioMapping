@@ -47,6 +47,9 @@
           <button class="view-tab" id="btnCollectiveView">
             <i class="fa-solid fa-layer-group"></i> Collective
           </button>
+          <button class="view-tab" id="btnLiveView">
+            <i class="fa-solid fa-satellite-dish"></i> Live
+          </button>
         </div>
         <button class="icon-btn fullscreen-btn" id="btnFullscreen" title="Full screen (F)">
           <i class="fa-solid fa-expand"></i>
@@ -1014,6 +1017,17 @@
               </div>
             </div>
           </div>
+        </section>
+
+        <!-- Live Stream (BLE) — the standalone live.html receiver embedded as an
+             isolated frame. Shown only in the "Live" view; its src is set lazily
+             on first activation so Web Bluetooth / geolocation aren't spun up
+             until the user asks for them. Once loaded it stays loaded, so an
+             active BLE session survives switching tabs away and back. -->
+        <section class="live-panel" id="livePanel">
+          <iframe id="liveFrame" title="Bio Mapping Live"
+                  allow="bluetooth; geolocation"
+                  data-src="live.html"></iframe>
         </section>
 
       </main>

@@ -1016,8 +1016,17 @@ const GSREvents = {
   bindViewSwitcher() {
     const btnSingleView      = document.getElementById('btnSingleView');
     const btnCollectiveView  = document.getElementById('btnCollectiveView');
+    const btnLiveView        = document.getElementById('btnLiveView');
+    const liveFrame          = document.getElementById('liveFrame');
     const appMainLayout      = document.querySelector('.main-layout');
     const contourSettingsCard = document.getElementById('contourSettingsCard');
+
+    // Leaving the Live view: drop the layout class and the tab highlight. The
+    // <iframe> keeps its src once set, so an active BLE session is untouched.
+    const exitLiveView = () => {
+      appMainLayout.classList.remove('live-mode');
+      if (btnLiveView) btnLiveView.classList.remove('active');
+    };
 
     // Collective-only map toggle buttons (multi-track contour surface) —
     // meaningless in single-track view, so hidden there. See index.html.
@@ -1041,6 +1050,7 @@ const GSREvents = {
     btnSingleView.addEventListener('click', () => {
       if (AppState.viewMode === 'single') return;
       AppState.viewMode = 'single';
+      exitLiveView();
       btnSingleView.classList.add('active');
       btnCollectiveView.classList.remove('active');
 
@@ -1080,6 +1090,7 @@ const GSREvents = {
     btnCollectiveView.addEventListener('click', () => {
       if (AppState.viewMode === 'collective') return;
       AppState.viewMode = 'collective';
+      exitLiveView();
       btnCollectiveView.classList.add('active');
       btnSingleView.classList.remove('active');
 
@@ -1132,6 +1143,30 @@ const GSREvents = {
         }
       }
     });
+
+    if (btnLiveView) {
+      btnLiveView.addEventListener('click', () => {
+        if (AppState.viewMode === 'live') return;
+        AppState.viewMode = 'live';
+        btnLiveView.classList.add('active');
+        btnSingleView.classList.remove('active');
+        btnCollectiveView.classList.remove('active');
+
+        // Lazy first load — Web Bluetooth / geolocation stay dormant until the
+        // user actually opens the Live view.
+        if (liveFrame && !liveFrame.src && liveFrame.dataset.src) {
+          liveFrame.src = liveFrame.dataset.src;
+        }
+
+        appMainLayout.classList.remove('collective-mode');
+        appMainLayout.classList.add('live-mode');
+        contourSettingsCard.style.display = 'none';
+        collectiveOnlyMapBtns.forEach(btn => btn.style.display = 'none');
+
+        // Nothing on the main canvas to draw while the frame owns the view.
+        noLoop();
+      });
+    }
   },
 
   /**
