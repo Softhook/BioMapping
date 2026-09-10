@@ -253,6 +253,87 @@ The global scalar `sum(phasic)/sum(clean)` removes mean inflation but preserves
 relative per-peak errors. Two adjacent peaks, one over-estimated by 30% and one
 under-estimated by 20%, remain in those proportions after rescaling.
 
+### 6. Phasic AUC integrates the convolved curve, not the deconvolved driver (ISCR divergence)
+
+The code header in `deconvolution.js` and literature review in
+`environmental_stress_literature_review.md` §5.B / `peak_density_vs_spatial_clustering.md` §3
+claim to implement the **Integrated Skin Conductance Response (ISCR)** from
+**Benedek & Kaernbach (2010b)** (*J. Neurosci. Methods* 190:80–91).
+
+However, in the paper, ISCR is explicitly defined as the **time-integral of the
+deconvolved phasic driver signal**:
+
+$$\text{ISCR} = \int_{\text{window}} driver_{\text{phasic}}(t) \, dt$$
+
+In BioMapping (`analyzer.js:computePhasicAUC`):
+- In non-deconvolution modes, it integrates the raw tonic-subtracted phasic signal
+  $SC_{\text{phasic}}(t)$.
+- In deconvolution mode (`useDeconvolution: true`), it deconvolves to find
+  `phasicDriver`, but then reconstructs the smooth convolved phasic signal
+  `phasicClean` ($driver * IRF$) and integrates *that* curve instead.
+- The docstring in `analyzer.js:1900-1911` admits this is an *"ISCR-inspired
+  continuous metric, not a reproduction of Benedek & Kaernbach's (2010) published
+  Integrated Skin Conductance Response"*, even while project documentation and UI
+  legends cite it as true ISCR.
+
+#### Empirical Evaluation: Does a True Phasic Driver ISCR Add Anything Meaningful?
+
+To investigate whether integrating the driver rather than the convolved curve produces
+meaningful differences, we benchmarked sliding-window integrals across three real
+recordings (`biomap_113`, `biomap_053`, `biomap_059`):
+
+| Recording | Window | Clean Phasic AUC (µS·s) | Driver ISCR (µS) | Ratio (AUC / Driver) | Pearson $r$ |
+|---|---|---|---|---|---|
+| **biomap_113** (busy walk, 11k samples) | 30s | Mean 12.83, Max 48.68 | Mean 0.36, Max 1.42 | **3.56s** | **0.9667** |
+| | 10s | — | — | 3.56s | **0.8869** |
+| | 5s  | — | — | 3.56s | **0.7797** |
+| **biomap_053** (moderate walk, 9k samples) | 30s | Mean 2.12, Max 6.49 | Mean 0.06, Max 0.19 | **3.38s** | **0.9555** |
+| | 10s | — | — | 3.35s | **0.8866** |
+| | 5s  | — | — | 3.35s | **0.7649** |
+| **biomap_059** (long 61m walk, 36k samples) | 30s | Mean 6.27, Max 29.29 | Mean 0.18, Max 0.87 | **3.54s** | **0.9677** |
+| | 10s | — | — | 3.54s | **0.8703** |
+| | 5s  | — | — | 3.54s | **0.7229** |
+
+#### Key Takeaways:
+
+1. **Analytical Scale Factor ($\approx 3.55\text{ s}$):**
+   The ratio between Clean Phasic AUC and Driver ISCR is mathematically fixed at
+   $\approx 3.55\text{ s}$. This is not an artifact; it is the exact analytical area
+   under the normalized Bateman kernel:
+   $$\int_0^\infty IRF(t) \, dt \approx 3.55\text{ s} \quad (\text{for } \tau_{\text{slow}}=2.0\text{s}, \tau_{\text{fast}}=0.75\text{s})$$
+   Because each driver impulse of height $A$ produces a response of total integrated
+   area $3.55 \times A$, integrating the convolved curve inflates the total energy by
+   $\approx 3.55\times$ relative to the impulse sum.
+
+2. **At a 30s Sliding Window: Driver ISCR Adds Very Little ($r \approx 0.97$):**
+   When using a 30-second moving window, the window is so much wider than the
+   kernel decay tail (~5–7s) that the sliding box absorbs almost all tail energy
+   regardless. Phasic AUC and Driver ISCR are almost perfectly collinear ($r = 0.956\text{--}0.968$).
+   For large-scale spatial heatmaps or regression against environmental features,
+   a 30s driver ISCR is practically identical to a rescaled Phasic AUC.
+
+3. **At Tighter Windows (5s–10s) and Spatial Attribution: Meaningful Difference ($r \approx 0.72\text{--}0.88$):**
+   Where the driver genuinely adds value is **spatial precision**:
+   - At a typical walking speed of $1.4\text{ m/s}$, an SCR's 5–7 second recovery
+     tail creates **7 to 10 meters of forward "spatial smear"** along the pedestrian track.
+     Phasic AUC attributes stress to the sidewalk several meters *after* an intersection
+     as the sweat slowly reabsorbs.
+   - Driver ISCR concentrates the arousal at the exact onset of the event, eliminating
+     the spatial drag.
+   - For short dwell-time calculations (e.g. 5–10s pause at a pedestrian crossing) or
+     short stimulus response windows, the two metrics diverge significantly ($r \approx 0.72$).
+
+4. **Boundary Behavior (Extensive AUC vs. Intensive Rate):**
+   `computePhasicAUC` computes a cumulative time integral $\int_{t-15}^{t+15} phasic(\tau) d\tau$.
+   At the boundaries of a recording (the first and last 15s), the window naturally contains
+   fewer observed seconds because no data exists outside $[0, T]$.
+   Attempting to "normalize" this by scaling by $\frac{30}{\Delta t_{\text{eff}}}$ (e.g. $2\times$ at $t=0$)
+   treats AUC as an intensive mean rate rather than an extensive cumulative sum: if an acute
+   SCR peak occurs within the first 15 seconds (e.g. at $t=3\text{s}$), multiplying by $2\times$
+   assumes the event lasted twice as long and artificially doubles its energy, causing the AUC curve
+   to shoot up dramatically at track ends. Zero-padded window integration (the current unscaled code)
+   is the mathematically standard behavior for moving integrals of finite-duration recordings.
+
 ---
 
 ## Upgrade Paths
