@@ -153,8 +153,14 @@ function drawGraph() {
   const pkts = LiveState.packets;
   if (pkts.length === 0) return;
 
-  // Smooth time progression between packets to enable 60fps graph scrolling
-  const elapsed = lastPacketArrivalTime ? (Date.now() - lastPacketArrivalTime) / 1000 : 0;
+  // Smooth time progression between packets to enable 60fps graph scrolling.
+  // Only advance the "now" edge while packets are actually arriving — once
+  // the session is disconnected (e.g. the user left the Live view, which
+  // drops the BLE link but keeps the buffer) the trace would otherwise
+  // scroll off the left edge and leave an empty graph. Freeze it instead so
+  // the last two minutes stay visible until a reconnect.
+  const streaming = LiveState.status === 'connected' || LiveState.status === 'reconnecting';
+  const elapsed = (lastPacketArrivalTime && streaming) ? (Date.now() - lastPacketArrivalTime) / 1000 : 0;
   const lastT = (lastPacketTimestamp || pkts[pkts.length - 1].timestamp) + elapsed;
   const t0 = lastT - GRAPH_WINDOW_S;
   const padT0 = t0 - GRAPH_PAD_S;
@@ -959,8 +965,7 @@ const GSRLiveView = {
 
   // Called by index.html's view switcher when the Live tab becomes / stops
   // being the visible view. No-ops for standalone live.html, which never
-  // calls them (viewActive stays true from load). deactivate() only pauses
-  // the redraw loop — nothing is torn down, so activate() just resumes.
+  // calls them (viewActive stays true from load).
   activate() {
     viewActive = true;
     // The Leaflet map may have been created / last sized while #livePanel was
@@ -975,9 +980,36 @@ const GSRLiveView = {
     }
   },
 
+  // Leaving the Live view drops the BLE link — a walk isn't a background
+  // activity, and holding the radio + screen wake lock open on an unseen
+  // panel (while updateLiveMap() keeps drawing segments off the live feed
+  // and pendingPhasicSegments grows) is just waste. The accumulated packets,
+  // the drawn track and the Export button are all kept: renderStatus() then
+  // shows "Reconnect" (resume this same session via the retained device
+  // reference) alongside "New Connection" (a fresh requestDevice(), which
+  // resets). Nothing else is torn down, so a later activate() just resumes.
   deactivate() {
     viewActive = false;
     stopAnimationLoop();
+    if (bleManager) bleManager.disconnect();
+    releaseWakeLock();
+    // Fires renderStatus() (Reconnect / New Connection buttons) + a final
+    // drawGraph(), now frozen at the last packet — see drawGraph()'s
+    // `streaming` gate. A no-op if we were already disconnected.
+    if (LiveState.status === 'connected' || LiveState.status === 'reconnecting') {
+      LiveState.setStatus('disconnected');
+    }
+  },
+
+  // The in-app F-key "display mode" (GSRLayoutManager) hides the app header
+  // and goes edge-to-edge; the live Leaflet map isn't under any
+  // ResizeObserver, so it must be told to re-measure. drawGraph() picks up
+  // the graph canvas's new size on the same pass.
+  onDisplayModeChange() {
+    if (liveMap && typeof liveMap.invalidateSize === 'function') {
+      liveMap.invalidateSize();
+    }
+    drawGraph();
   },
 };
 

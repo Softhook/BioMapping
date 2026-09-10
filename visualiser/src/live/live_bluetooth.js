@@ -30,6 +30,12 @@ class GSRLiveBluetoothManager {
     this.onStatusText = onStatusText || (() => {});
     this.parser = new GSRLiveBinaryParser((pkt) => LiveState.addPacket(pkt));
     this._reconnecting = false;
+    // Set by disconnect() just before it tears the GATT link down on purpose
+    // (e.g. the user leaving the Live view), so the 'gattserverdisconnected'
+    // event that fires as a result doesn't kick off _handleDisconnect()'s
+    // auto-reconnect backoff. Cleared again on the next successful _subscribe()
+    // so a later genuine link drop still recovers on its own.
+    this._intentionalClose = false;
     // Bound once so _subscribe() can removeEventListener the previous
     // subscription before re-adding on a reconnect (see there).
     this._onCharValue = (e) => this.parser.append(new Uint8Array(e.target.value.buffer));
@@ -70,6 +76,28 @@ class GSRLiveBluetoothManager {
     this.characteristic = await service.getCharacteristic(BLE_RX_CHAR_UUID);
     this.characteristic.addEventListener('characteristicvaluechanged', this._onCharValue);
     await this.characteristic.startNotifications();
+    // A live link again — arm auto-reconnect for the next unexpected drop.
+    this._intentionalClose = false;
+  }
+
+  // Deliberate teardown — the user navigated away from the Live view. Drops
+  // the notification listener and closes the GATT link, but keeps the
+  // BluetoothDevice reference so manualReconnect() can resume the SAME
+  // session (its packet buffer, drawn track and Export button are untouched
+  // by this). _intentionalClose suppresses the auto-reconnect that the
+  // resulting 'gattserverdisconnected' event would otherwise trigger.
+  disconnect() {
+    this._intentionalClose = true;
+    try {
+      if (this.characteristic) {
+        this.characteristic.removeEventListener('characteristicvaluechanged', this._onCharValue);
+      }
+      if (this.device && this.device.gatt && this.device.gatt.connected) {
+        this.device.gatt.disconnect();
+      }
+    } catch (e) {
+      /* link already down — nothing to close */
+    }
   }
 
   // Best-effort discovery aid — not a functional fallback (a specific
@@ -107,6 +135,12 @@ class GSRLiveBluetoothManager {
   // fresh requestDevice()) as the real fix for that case, not more
   // retries against a reference that may no longer be usable.
   async _handleDisconnect() {
+    // disconnect() closed the link on purpose — don't fight it with a
+    // reconnect loop. Re-arm for the next real drop.
+    if (this._intentionalClose) {
+      this._intentionalClose = false;
+      return;
+    }
     if (this._reconnecting) return;
     this._reconnecting = true;
     LiveState.setStatus('reconnecting');

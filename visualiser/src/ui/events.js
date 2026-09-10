@@ -1028,6 +1028,13 @@ const GSREvents = {
     const exitLiveView = () => {
       appMainLayout.classList.remove('live-mode');
       if (btnLiveView) btnLiveView.classList.remove('active');
+      // Drop the edge-to-edge display mode (F) if it was left on.
+      if (typeof GSRLayoutManager !== 'undefined' && GSRLayoutManager._liveDisplayModeActive &&
+          GSRLayoutManager._liveDisplayModeActive()) {
+        GSRLayoutManager.exitLiveDisplayMode();
+      }
+      // deactivate() now also drops the BLE link (keeping the session buffer)
+      // — see GSRLiveView.deactivate()'s doc comment.
       if (typeof GSRLiveView !== 'undefined' && GSRLiveView._mounted) {
         GSRLiveView.deactivate();
       }

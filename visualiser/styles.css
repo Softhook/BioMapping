@@ -2394,6 +2394,18 @@ input[type="range"]:focus-visible,
   grid-template-columns: 1fr;
 }
 
+/* Live view "display mode" (F key) — edge-to-edge: .live-mode already hides
+   the sidebar and every non-live section, so this only has to drop the app
+   header and the container's own padding. Pairs with browser fullscreen. */
+.app-container.live-display-mode {
+  padding: 0;
+  gap: 0;
+}
+
+.app-container.live-display-mode .app-header {
+  display: none;
+}
+
 .main-layout.live-mode .sidebar,
 .main-layout.live-mode .main-content > section:not(#livePanel) {
   display: none !important;

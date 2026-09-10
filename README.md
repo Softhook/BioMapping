@@ -272,7 +272,8 @@ Filtering, peak detection, and the GPS quality filter are all adjustable in the 
 [`visualiser/live.html`](visualiser/live.html) — receives GPS + GSR from the Flipper's **Live Stream** mode over Bluetooth LE in real time, for watching a walk unfold on a laptop or phone as it happens. The same view is built into `index.html` under the **Live** tab of the top-right view switcher (Single Track / Collective / Live); `live.html` is just the standalone host for it (shared code in [`visualiser/src/live/`](visualiser/src/live/)).
 
 - **On the Flipper:** select **Live Stream**. The screen shows BLE status (`Advertising` / `Connected`), the dropped-packet count, and live GSR / GPS readouts. It sends a 45-byte packed binary packet every 300 ms over the stock BLE serial profile. Design notes: [`docs/archive/bluetooth_serial_investigation.md`](docs/archive/bluetooth_serial_investigation.md).
-- **In the browser:** open `live.html`, press **Connect**, and pair with the Flipper. It shows a rolling GSR graph and a Leaflet map of the track, flags dropped-packet gaps, and can **Export CSV** in the same 11-column GPS + GSR schema as a recorded track.
+- **In the browser:** open `live.html`, press **Connect**, and pair with the Flipper. It shows a rolling GSR graph and a Leaflet map of the track, flags dropped-packet gaps, and can **Export CSV** in the same 11-column GPS + GSR schema as a recorded track. `M` toggles the map, `P` the phasic-only trace, `C` caches the current map area offline, `F` goes edge-to-edge full screen.
+- **Leaving the Live tab** (in `index.html`) disconnects Bluetooth. The received packets, the drawn track and **Export CSV** stay available; use **Reconnect** to resume the same session or **New Connection** to start fresh.
 - **Browser support:** Web Bluetooth needs desktop Chrome / Edge or Android Chrome / Edge. Safari (any platform) and Firefox are unsupported — there is no iPhone path.
 
 ## Basemap tiles

@@ -146,7 +146,7 @@ test('in-app the live panel hides its own fullscreen button — the top-bar Full
   assert.strictEqual(btn.hidden, true, 'but hidden in-app (embedded === true)');
 });
 
-test('in-app the F key runs only the global fullscreen path, not the live view\'s own', () => {
+test('in-app the F key puts the Live view into edge-to-edge display mode (header hidden + .app-container fullscreen)', () => {
   const { window, document, btnLive, click } = boot();
   const appContainer = document.querySelector('.app-container');
   let appReqs = 0, docElReqs = 0;
@@ -156,8 +156,39 @@ test('in-app the F key runs only the global fullscreen path, not the live view\'
   click(btnLive);
   document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'f', bubbles: true }));
 
+  assert.ok(appContainer.classList.contains('live-display-mode'), 'the header-hiding class is applied');
   assert.strictEqual(appReqs, 1, 'GSRLayoutManager fullscreened .app-container');
   assert.strictEqual(docElReqs, 0, "the live view's own documentElement fullscreen did not also fire");
+
+  // F again toggles it back off.
+  document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'f', bubbles: true }));
+  assert.ok(!appContainer.classList.contains('live-display-mode'), 'F again exits display mode');
+});
+
+test('leaving the Live view clears live display mode', () => {
+  const { window, document, btnSingle, btnLive, click } = boot();
+  const appContainer = document.querySelector('.app-container');
+  appContainer.requestFullscreen = () => Promise.resolve();
+  document.exitFullscreen = () => Promise.resolve();
+
+  click(btnLive);
+  document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'f', bubbles: true }));
+  assert.ok(appContainer.classList.contains('live-display-mode'));
+
+  click(btnSingle);
+  assert.ok(!appContainer.classList.contains('live-display-mode'), 'display mode does not leak into Single view');
+});
+
+test('leaving the Live view stands the live controller down (deactivate)', () => {
+  const { window, btnSingle, btnLive, click } = boot();
+  click(btnLive);
+  window.GSRLiveView.activate();
+  let deactivated = 0;
+  const real = window.GSRLiveView.deactivate;
+  window.GSRLiveView.deactivate = (...a) => { deactivated++; return real.apply(window.GSRLiveView, a); };
+
+  click(btnSingle);
+  assert.strictEqual(deactivated, 1, 'the view switcher calls GSRLiveView.deactivate() on the way out');
 });
 
 test('entering Live mode stops the p5 draw loop (noLoop), leaving the canvas idle', () => {

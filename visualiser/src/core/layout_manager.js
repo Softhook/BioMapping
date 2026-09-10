@@ -238,6 +238,49 @@ const GSRLayoutManager = {
     }
   },
 
+  /** @private Whether the Live view tab is the one on screen. */
+  _isLiveView() {
+    return typeof AppState !== 'undefined' && AppState.viewMode === 'live';
+  },
+
+  /** @private Whether Live display mode is currently on. */
+  _liveDisplayModeActive() {
+    const app = document.querySelector('.app-container');
+    return !!(app && app.classList.contains('live-display-mode'));
+  },
+
+  /**
+   * Live view's equivalent of enter/exitDisplayMode: no fullscreen-panel
+   * overlay exists for it (the sidebar and every non-live section are
+   * already hidden by .main-layout.live-mode), so this just hides the app
+   * header via a class on .app-container and goes browser-fullscreen.
+   */
+  toggleLiveDisplayMode() {
+    if (this._liveDisplayModeActive()) this.exitLiveDisplayMode();
+    else this.enterLiveDisplayMode();
+  },
+
+  enterLiveDisplayMode() {
+    const app = document.querySelector('.app-container');
+    if (!app) return;
+    app.classList.add('live-display-mode');
+    AppState.isDisplayMode = true;
+    if (!this.Fullscreen.active) this.Fullscreen.request(app);
+    if (typeof GSRLiveView !== 'undefined' && GSRLiveView.onDisplayModeChange) {
+      GSRLiveView.onDisplayModeChange(true);
+    }
+  },
+
+  exitLiveDisplayMode() {
+    const app = document.querySelector('.app-container');
+    if (app) app.classList.remove('live-display-mode');
+    AppState.isDisplayMode = false;
+    if (this.Fullscreen.active) this.Fullscreen.exit();
+    if (typeof GSRLiveView !== 'undefined' && GSRLiveView.onDisplayModeChange) {
+      GSRLiveView.onDisplayModeChange(false);
+    }
+  },
+
   /**
    * Trigger immediate resize for map or GSR canvas in fullscreen overlay.
    * @private
@@ -265,14 +308,22 @@ const GSRLayoutManager = {
 
       if (e.key === 'f' || e.key === 'F') {
         e.preventDefault();
-        if (this._activeFullscreenPanel) {
+        if (this._isLiveView()) {
+          // Live view has no fullscreen panel to toggle — go straight to
+          // edge-to-edge display mode on the whole app (header hidden,
+          // browser fullscreen).
+          this.toggleLiveDisplayMode();
+        } else if (this._activeFullscreenPanel) {
           this.toggleDisplayMode();
         } else {
           const btn = document.getElementById('btnFullscreen');
           if (btn) btn.click();
         }
       } else if (e.key === 'Escape') {
-        if (this.isDisplayMode) {
+        if (this._liveDisplayModeActive()) {
+          e.preventDefault();
+          this.exitLiveDisplayMode();
+        } else if (this.isDisplayMode) {
           e.preventDefault();
           this.exitDisplayMode();
         } else if (this._activeFullscreenPanel) {
@@ -308,7 +359,22 @@ const GSRLayoutManager = {
       }
     });
 
-    this.Fullscreen.onChange(() => toggleIcon(this.Fullscreen.active));
+    this.Fullscreen.onChange(() => {
+      const active = this.Fullscreen.active;
+      toggleIcon(active);
+      // The browser can drop fullscreen on its own (Esc, F11) — don't leave
+      // Live display mode's header-hiding class stranded when it does.
+      if (!active && this._liveDisplayModeActive()) {
+        el.classList.remove('live-display-mode');
+        AppState.isDisplayMode = false;
+      }
+      // #liveMap is under no ResizeObserver — re-measure it now that the
+      // viewport has actually changed size (the request()/exit() call that
+      // started this is async; the size only settles here).
+      if (this._isLiveView() && typeof GSRLiveView !== 'undefined' && GSRLiveView.onDisplayModeChange) {
+        GSRLiveView.onDisplayModeChange(active);
+      }
+    });
   },
 
   /**

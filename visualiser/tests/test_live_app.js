@@ -117,8 +117,20 @@ function makeFakeBle(context, {
     },
     async getPrimaryServices() { return [{ uuid: 'aaaa1111-0000-1000-8000-00805f9b34fb' }]; },
   };
+  let disconnectCalls = 0;
   const device = {
-    gatt: { async connect() { return server; } },
+    gatt: {
+      connected: false,
+      async connect() { this.connected = true; return server; },
+      // Real Web Bluetooth fires 'gattserverdisconnected' as a result of an
+      // explicit disconnect() too — reproduce that so the manager's
+      // _intentionalClose guard is exercised.
+      disconnect() {
+        disconnectCalls++;
+        this.connected = false;
+        if (deviceHandlers.gattserverdisconnected) deviceHandlers.gattserverdisconnected();
+      },
+    },
     addEventListener(type, fn) { deviceHandlers[type] = fn; },
   };
   return {
@@ -128,6 +140,7 @@ function makeFakeBle(context, {
         return device;
       },
     },
+    gattDisconnectCallCount: () => disconnectCalls,
     fireNotification(byteArray) {
       const value = bytesToDataView(byteArray);
       charHandlers.forEach((fn) => fn({ target: { value } }));
@@ -1268,10 +1281,12 @@ test('on load the map/phasic toggle buttons render their initial (map hidden, fu
 // GSRLiveView.activate() / deactivate() — the lifecycle hooks index.html's
 // view switcher calls when the Live tab gains / loses the screen. Standalone
 // live.html never calls them (viewActive stays true from load). deactivate()
-// only pauses the redraw loop; nothing is torn down.
+// stops the redraw loop AND drops the BLE link (a walk isn't a background
+// activity) — but keeps the accumulated packet buffer so Reconnect can
+// resume the same session and Export CSV still works.
 // ==========================================================================
 
-test('deactivate: pauses the redraw loop and clears viewActive; activate: restores it', (t) => {
+test('deactivate: stops the redraw loop, clears viewActive, and drops to "disconnected"', (t) => {
   const { context } = bootLive();
   stopLoopAfter(t, context);
 
@@ -1283,10 +1298,79 @@ test('deactivate: pauses the redraw loop and clears viewActive; activate: restor
   run(context, 'GSRLiveView.deactivate()');
   assert.strictEqual(run(context, 'viewActive'), false);
   assert.strictEqual(run(context, 'animationFrameId'), null, 'deactivate stops the loop');
+  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected', 'deactivate drops the link');
 
   run(context, 'GSRLiveView.activate()');
   assert.strictEqual(run(context, 'viewActive'), true);
-  assert.notStrictEqual(run(context, 'animationFrameId'), null, 'activate resumes the loop (still connected)');
+  assert.strictEqual(run(context, 'animationFrameId'), null, 'activate does not resume a loop for a now-disconnected session');
+});
+
+test('deactivate: disconnects the BLE radio but keeps the session buffer (Reconnect can resume it)', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context);
+  window.navigator.bluetooth = ble.bluetooth;
+  run(context, 'showMap()');
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+
+  ble.fireNotification(buildPacket({ timestampMs: 300, lat: 51.5074, lon: -0.1278, gsrRaw: 1000, sats: 9, fixType: 3 }));
+  ble.fireNotification(buildPacket({ timestampMs: 600, lat: 51.5076, lon: -0.1276, gsrRaw: 1200, sats: 9, fixType: 3 }));
+  assert.strictEqual(run(context, 'LiveState.packets.length'), 2);
+
+  run(context, 'GSRLiveView.deactivate()');
+
+  assert.strictEqual(ble.gattDisconnectCallCount(), 1, 'the GATT link was closed');
+  assert.strictEqual(ble.notificationHandlerCount(), 0, 'the characteristic listener was removed');
+  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
+  assert.strictEqual(run(context, 'LiveState.packets.length'), 2, 'the packet buffer is kept');
+  assert.strictEqual(run(context, 'bleManager') === null, false, 'the manager/device reference is kept for Reconnect');
+  assert.strictEqual(window.document.getElementById('exportBtn').disabled, false, 'Export CSV stays usable');
+
+  // A further notification off a now-dead link must not accumulate.
+  ble.fireNotification(buildPacket({ timestampMs: 900, lat: 51.5078, lon: -0.1274, gsrRaw: 1300, sats: 9, fixType: 3 }));
+  assert.strictEqual(run(context, 'LiveState.packets.length'), 2, 'no packets arrive after disconnect');
+});
+
+test('deactivate: the intentional disconnect does not trigger the auto-reconnect backoff', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context);
+  window.navigator.bluetooth = ble.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+  assert.strictEqual(ble.subscribeCallCount(), 1);
+
+  run(context, 'GSRLiveView.deactivate()'); // fires gattserverdisconnected via gatt.disconnect()
+  await new Promise((r) => setImmediate(r));
+
+  assert.strictEqual(run(context, 'bleManager._reconnecting'), false, 'no reconnect loop started');
+  assert.strictEqual(ble.subscribeCallCount(), 1, 'no re-subscribe attempt');
+  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
+});
+
+test('after an intentional disconnect, Reconnect resumes the same session and re-arms auto-reconnect', async (t) => {
+  const { window, context } = bootLive();
+  const ble = makeFakeBle(context);
+  window.navigator.bluetooth = ble.bluetooth;
+  await run(context, 'attemptConnect()');
+  stopLoopAfter(t, context);
+
+  run(context, 'GSRLiveView.deactivate()');
+  await new Promise((r) => setImmediate(r));
+  // The guard is consumed synchronously by the gattserverdisconnected event
+  // that disconnect() itself fires — its job is done by the time we get here.
+  assert.strictEqual(run(context, 'bleManager._intentionalClose'), false);
+  assert.strictEqual(run(context, 'LiveState.status'), 'disconnected');
+
+  await run(context, 'bleManager.manualReconnect()');
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'the same manager reconnected');
+
+  // A genuine drop now must still auto-recover — the intentional-close path
+  // didn't leave the guard stuck.
+  const timers = recordingTimers(window);
+  await run(context, 'bleManager._handleDisconnect()');
+  timers.restore();
+  assert.strictEqual(run(context, 'LiveState.status'), 'connected', 'auto-reconnect ran and recovered');
+  assert.ok(ble.subscribeCallCount() >= 3, 'a re-subscribe attempt was made');
 });
 
 test('activate: does not start the loop when no session is live', (t) => {
