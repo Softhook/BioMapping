@@ -464,7 +464,7 @@ const GSRTrackManager = {
     const S = AppState.sliders;
 
     for (const key of Object.keys(params)) {
-      if (key === 'useDeconvolution' || key === 'usePeakProminence') continue;
+      if (key === 'useDeconvolution' || key === 'usePeakProminence' || key === 'useCvxEDA') continue;
       if (S[key]) {
         // hotspotPercentile is stored as a 0–1 fraction but its slider is in
         // percent (0.5–10) — convert, or a default 0.02 clamps to the 0.5 min.
@@ -481,9 +481,15 @@ const GSRTrackManager = {
     if (S.usePeakProminence) {
       S.usePeakProminence.checked = !!params.usePeakProminence;
     }
-    // Mutually exclusive detectors — prominence wins if a stored config has both.
-    if (S.usePeakProminence && S.usePeakProminence.checked && S.useDeconvolution) {
-      S.useDeconvolution.checked = false;
+    if (S.useCvxEDA) {
+      S.useCvxEDA.checked = !!params.useCvxEDA;
+    }
+    // Mutually exclusive detectors — prominence > cvxEDA > deconvolution.
+    if (S.usePeakProminence && S.usePeakProminence.checked) {
+      if (S.useDeconvolution) S.useDeconvolution.checked = false;
+      if (S.useCvxEDA) S.useCvxEDA.checked = false;
+    } else if (S.useCvxEDA && S.useCvxEDA.checked) {
+      if (S.useDeconvolution) S.useDeconvolution.checked = false;
     }
   },
 

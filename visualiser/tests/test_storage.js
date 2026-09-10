@@ -474,6 +474,22 @@ test('applyPreset: usePeakProminence overrides useDeconvolution when both are en
   assert.strictEqual(S.useDeconvolution.checked, false);
 });
 
+test('applyPreset: useCvxEDA enables cvxEDA and turns off deconvolution', () => {
+  resetGlobals();
+  const S = {
+    medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'), tonicWindow: el(0), peakThreshold: el(0),
+    useDeconvolution: { checked: true },
+    usePeakProminence: { checked: false },
+    useCvxEDA: { checked: false },
+  };
+  global.AppState.sliders = S;
+
+  GSRStorage.applyPreset({ gsr: { useDeconvolution: true, useCvxEDA: true }, gps: {} });
+
+  assert.strictEqual(S.useCvxEDA.checked, true);
+  assert.strictEqual(S.useDeconvolution.checked, false);
+});
+
 test('applyPreset: invokes GSREvents layout hook and syncs slider displays', () => {
   resetGlobals();
   global.AppState.sliders = { medianSize: el(0), lpfWindow: el(0), tonicMethod: el('lpf'), tonicWindow: el(0), peakThreshold: el(0) };

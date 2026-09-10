@@ -204,6 +204,15 @@
               <i class="fa-solid fa-triangle-exclamation"></i> Matching pursuit hit its iteration cap before fully converging on this track — some real SCRs may be left unmodeled. Results are still usable but may be undercounted; consider this track a candidate for a longer maxIter budget.
             </div>
 
+            <div class="toggle-group" style="margin-top:8px;">
+              <label class="switch">
+                <input type="checkbox" id="useCvxEDA">
+                <span class="slider round"></span>
+              </label>
+              <span class="toggle-label">cvxEDA (Convex Optimization)</span>
+            </div>
+            <p class="help-text" style="margin-top:4px;">Decomposes EDA via convex optimization (Greco et al., 2016). Jointly models tonic baseline with cubic B-splines and estimates an L1-sparse sudomotor driver, eliminating multi-atom ripple.</p>
+
             <div class="control-subgroup-title" style="margin-top:16px;">Thresholding</div>
 
             <div class="slider-group">
@@ -1062,6 +1071,7 @@
   <script src="src/osm/osm_cache.js"></script>
   <script src="src/signal/dwt_filter.js"></script>
   <script src="src/signal/deconvolution.js"></script>
+  <script src="src/signal/cvxeda.js"></script>
   <script src="src/signal/csv_parser.js"></script>
   <script src="src/signal/analyzer_time_format.js"></script>
   <script src="src/signal/analyzer.js"></script>

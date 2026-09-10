@@ -656,9 +656,11 @@ test('loadActiveTrackParams: writes matching keys to slider values and sets dete
     peakThreshold: { value: 1, dataset: {} },
     useDeconvolution: { checked: true, value: 'on', dataset: {} },
     usePeakProminence: { checked: false, value: 'on', dataset: {} },
+    useCvxEDA: { checked: false, value: 'on', dataset: {} },
   };
   const params = {
-    usePeakProminence: true,
+    useCvxEDA: true,
+    usePeakProminence: false,
     useDeconvolution: false,
     shapeMinSnr: 4.0,
     peakThreshold: 0.09,
@@ -668,9 +670,11 @@ test('loadActiveTrackParams: writes matching keys to slider values and sets dete
 
   assert.strictEqual(global.AppState.sliders.shapeMinSnr.value, 4.0);
   assert.strictEqual(global.AppState.sliders.peakThreshold.value, 0.09);
-  assert.strictEqual(global.AppState.sliders.usePeakProminence.checked, true);
+  assert.strictEqual(global.AppState.sliders.useCvxEDA.checked, true);
   assert.strictEqual(global.AppState.sliders.useDeconvolution.checked, false);
+  assert.strictEqual(global.AppState.sliders.usePeakProminence.checked, false);
   // Checkbox .value attributes should not be overwritten with boolean values
+  assert.strictEqual(global.AppState.sliders.useCvxEDA.value, 'on');
   assert.strictEqual(global.AppState.sliders.usePeakProminence.value, 'on');
   assert.strictEqual(global.AppState.sliders.useDeconvolution.value, 'on');
   delete global.AppState;

@@ -76,7 +76,7 @@ const GSREvents = {
       'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsTrackWeight', 'gpsPeakLatency',
       'gpsSnapToRoads', 'gpsSnapRadius',
       'placeMergeDistance',
-      'graphView', 'useDeconvolution', 'usePeakProminence'
+      'graphView', 'useDeconvolution', 'usePeakProminence', 'useCvxEDA'
     ];
     for (const key of sliderKeys) {
       AppState.sliders[key] = GSREvents._id(key);
@@ -393,12 +393,12 @@ const GSREvents = {
       GSRUI.runAnalysis();
     });
 
-    // ── Alternative-detector toggles (Prominence / Deconvolution) ────────────
+    // ── Alternative-detector toggles (Prominence / Deconv / cvxEDA) ─────────
     // Mutually exclusive: analyze() only ever runs one detector, so turning one
-    // alternative ON forces the other OFF (setting .checked in code does not
-    // re-fire 'change', so no loop). Turning both OFF drops back to the default
+    // alternative ON forces the others OFF (setting .checked in code does not
+    // re-fire 'change', so no loop). Turning all OFF drops back to the default
     // full-scan detector. Each re-runs the full pipeline.
-    const detectorToggles = ['usePeakProminence', 'useDeconvolution'];
+    const detectorToggles = ['usePeakProminence', 'useDeconvolution', 'useCvxEDA'];
     detectorToggles.forEach(id => {
       if (!S[id]) return;
       S[id].addEventListener('change', () => {

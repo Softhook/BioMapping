@@ -29,7 +29,8 @@ module.exports = {
     peakDensityWindow: 10,
     hotspotPercentile: 0.02,
     useDeconvolution: false,
-    usePeakProminence: false
+    usePeakProminence: false,
+    useCvxEDA: false
   },
 
   SCRF: {
@@ -41,7 +42,18 @@ module.exports = {
     convTol: 0.002,
     impulseThreshold: 0.005,
     minImpulseGapSec: 0.5,
-    minApexVal: 0.001
+    minApexVal: 0.001,
+    deconvAlgorithm: 'matching_pursuit'
+  },
+
+  CVXEDA: {
+    tauSlow: 2.0,
+    tauFast: 0.75,
+    deltaKnotSec: 10.0,
+    alpha: 8e-4,
+    gamma: 1e-2,
+    maxIter: 60,
+    rho: 0.1,
   },
 
   TIME_KEYWORDS: ['time', 'sec', 'timestamp', 'millis', 'ms'],

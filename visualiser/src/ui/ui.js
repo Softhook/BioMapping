@@ -2713,9 +2713,10 @@ const GSRUI = {
     if (summary && typeof GSRStorage !== 'undefined') {
       const gsr = GSRStorage.readGsrSliderValues() || {};
       const gps = GSRStorage.readGpsSliderValues() || {};
+      const detectorStr = gsr.useCvxEDA ? 'cvxEDA' : (gsr.useDeconvolution ? 'Deconv' : (gsr.usePeakProminence ? 'Prominence' : 'Default'));
       summary.innerHTML = `
         <strong>Active Preset Parameters to Export:</strong><br>
-        • <strong>GSR:</strong> Median size=${gsr.medianSize}s, LPF window=${gsr.lpfWindow}s, Baseline=${gsr.tonicMethod} (${gsr.tonicWindow}s), Peak threshold=${gsr.peakThreshold}μS, Deconv=${gsr.useDeconvolution ? 'ON' : 'OFF'}<br>
+        • <strong>GSR:</strong> Median size=${gsr.medianSize}s, LPF window=${gsr.lpfWindow}s, Baseline=${gsr.tonicMethod} (${gsr.tonicWindow}s), Peak threshold=${gsr.peakThreshold}μS, Detector=${detectorStr}<br>
         • <strong>GPS:</strong> Smoothing=${gps.smoothing}, Kalman R=${gps.kalmanR}, Max HDOP=${gps.maxHdop}, Peak latency=${gps.peakLatency}s
       `;
     }

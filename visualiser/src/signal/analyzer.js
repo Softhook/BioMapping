@@ -15,6 +15,9 @@
 //    require() path below does the same so the bare reference resolves.
 if (typeof module !== 'undefined' && module.exports) {
   global.GSRCSVParser = require('./csv_parser.js').GSRCSVParser;
+  if (typeof global.CVXEDA === 'undefined') {
+    try { global.CVXEDA = require('./cvxeda.js'); } catch (_) {}
+  }
 }
 
 class GSRAnalyzer {
@@ -539,11 +542,13 @@ class GSRAnalyzer {
     //     pass that replaces this.phasic with a resolved, superposition-free
     //     reconstruction and builds peaks from its driver impulses. Morphology
     //     is fixed by the SCRF kernel.
-    // Precedence when several flags are set: prominence > deconvolution >
-    // full-scan (default).
+    // Precedence when several flags are set: prominence > cvxEDA >
+    // deconvolution > full-scan (default).
     if (params.usePeakProminence) {
       this._clearDeconvState();
       this._detectPeaksByProminence(params);
+    } else if (params.useCvxEDA) {
+      this._runDeconvolutionPipeline(phasicVals, { ...params, deconvAlgorithm: 'cvxeda' });
     } else if (params.useDeconvolution) {
       this._runDeconvolutionPipeline(phasicVals, params);
     } else {
@@ -561,7 +566,7 @@ class GSRAnalyzer {
     const aiCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.AROUSAL_INDEX) || { wTonic: 0.3, wPhasic: 0.7 };
     const triCfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.TRI_INDEX) || { wTonic: 0.10, wPhasic: 0.45, wDensity: 0.45 };
 
-    if (params.useDeconvolution) {
+    if (params.useDeconvolution || params.useCvxEDA) {
       this.phasicAUC = this.computePhasicAUC();
       this.arousalIndex = this.computeCombinedArousalIndex(aiCfg.wTonic, aiCfg.wPhasic, this.phasicAUC);
     } else {
@@ -673,6 +678,54 @@ class GSRAnalyzer {
     const scf = GSR_CONST.SCRF;
     const times = this.phasic.map(d => d.time);
     const phasicArr = new Float64Array(phasicVals);
+
+    // Opt-in cvxEDA convex optimization algorithm (Greco et al., 2016)
+    const algorithm = params.deconvAlgorithm || scf.deconvAlgorithm || 'matching_pursuit';
+    if (algorithm === 'cvxeda' && typeof CVXEDA !== 'undefined') {
+      const res = CVXEDA.decompose(phasicVals, this.sampleRate, {
+        tauSlow: scf.tauSlow,
+        tauFast: scf.tauFast,
+        alpha: params.cvxAlpha,
+        gamma: params.cvxGamma,
+        maxIter: params.cvxMaxIter
+      });
+      const cleanVals = res.phasic;
+      this.phasicDriver = new Array(n);
+      for (let i = 0; i < n; i++) {
+        this.phasicDriver[i] = { time: times[i], val: res.driver[i] };
+      }
+      this.phasicDriverPeaks = [];
+      const thresh = scf.impulseThreshold ?? 0.005;
+      const minGap = Math.max(1, Math.round((scf.minImpulseGapSec ?? 0.5) * this.sampleRate));
+      let lastPIdx = -minGap;
+      for (let i = 1; i < n - 1; i++) {
+        if (res.driver[i] >= thresh && res.driver[i] >= res.driver[i - 1] && res.driver[i] >= res.driver[i + 1]) {
+          if (i - lastPIdx >= minGap) {
+            this.phasicDriverPeaks.push({ index: i, time: times[i], amplitude: res.driver[i] });
+            lastPIdx = i;
+          }
+        }
+      }
+      this.phasicDeconvTruncated = false;
+      this.phasicClean = new Array(n);
+      for (let i = 0; i < n; i++) {
+        this.phasicClean[i] = { time: times[i], val: cleanVals[i] };
+      }
+      this._phasicOrig = this.phasic;
+      this.phasic = this.phasicClean;
+      this.phasicZ = GsrFilter.standardizeSignal(this.phasic, this._seriesPool && this._seriesPool.phasicZ);
+      this.phasicStd = GsrFilter.calculateStats(cleanVals).std;
+      let phMn = Infinity, phMx = -Infinity;
+      for (let i = 0; i < n; i++) {
+        const v = cleanVals[i];
+        if (v < phMn) phMn = v;
+        if (v > phMx) phMx = v;
+      }
+      this._seriesRange.phasic = { min: phMn, max: phMx };
+      this.peaks = this._detectPeaksFromCurve(cleanVals, times, params, oldLabels, oldExcluded);
+      this._assignLabelsToPeaks(this.peaks);
+      return;
+    }
 
     const result = SCRDeconvolution.deconvolve(phasicArr, this.sampleRate, {
       tauSlow: scf.tauSlow, tauFast: scf.tauFast, kernelSec: scf.kernelSec,

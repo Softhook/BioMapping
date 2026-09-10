@@ -58,7 +58,8 @@ const GSR_CONST = {
     peakDensityWindow: 10,
     hotspotPercentile: 0.02,
     useDeconvolution: false,
-    usePeakProminence: false
+    usePeakProminence: false,
+    useCvxEDA: false
   },
 
   // ── SCR deconvolution (Benedek & Kaernbach, 2010) ────────────────────────
@@ -117,7 +118,19 @@ const GSR_CONST = {
     // driver-domain artefact — see _runDeconvolutionPipeline()'s gating
     // comment in analyzer.js. Deliberately far below impulseThreshold; this
     // only rejects near-zero apexes, not small-but-real ones.
-    minApexVal: 0.001
+    minApexVal: 0.001,
+    deconvAlgorithm: 'matching_pursuit' // 'matching_pursuit' | 'cvxeda'
+  },
+
+  // ── cvxEDA Convex Optimization Decomposition (Greco, Citi et al., 2016) ─
+  CVXEDA: {
+    tauSlow: 2.0,       // Slow decay time constant (s) (default 2.0)
+    tauFast: 0.75,      // Fast rise time constant (s) (default 0.75)
+    deltaKnotSec: 10.0, // Equidistant knot spacing for tonic cubic B-spline (s)
+    alpha: 8e-4,        // Driver L1 sparsity penalization
+    gamma: 1e-2,        // Tonic spline L2 smoothness penalization
+    maxIter: 60,        // Max ADMM iterations
+    rho: 0.1,           // ADMM penalty parameter
   },
 
   // ── CSV parsing keywords ─────────────────────────────────────────────────
