@@ -21,6 +21,17 @@ const { bootApp } = require('./support/boot_app.js');
 
 function boot() {
   const { window } = bootApp();
+  // boot_app.js stubs p5 but not a raw 2D canvas context; the live view's
+  // drawGraph() needs one the moment its map is shown. Minimal no-op stub,
+  // same shape boot_live.js installs.
+  const noop = () => {};
+  window.HTMLCanvasElement.prototype.getContext = () => ({
+    setTransform: noop, clearRect: noop, beginPath: noop, closePath: noop,
+    moveTo: noop, lineTo: noop, stroke: noop, fill: noop, fillText: noop,
+    createLinearGradient: () => ({ addColorStop: noop }),
+    save: noop, restore: noop,
+    strokeStyle: '', fillStyle: '', lineWidth: 1, font: '', textAlign: '', textBaseline: '',
+  });
   window.setup();
   const document = window.document;
   return {
@@ -108,6 +119,23 @@ test('the live UI stays mounted once built — Live -> Collective -> Live does n
 
   assert.strictEqual(livePanel.querySelector('#statusBadge'), badge, 'same element — not re-mounted');
   assert.strictEqual(window.AppState.viewMode, 'live');
+});
+
+test('the live view keyboard shortcuts only fire while Live is the active view', () => {
+  const { window, document, btnSingle, btnLive, livePanel, click } = boot();
+  const key = (k) => window.dispatchEvent(new window.KeyboardEvent('keydown', { key: k, bubbles: true }));
+
+  click(btnLive); // mounts + Live is active
+  const mapBtn = livePanel.querySelector('#toggleMapBtn');
+  const labelWhileLive = mapBtn.textContent;
+
+  click(btnSingle); // Live listeners persist (mount-once), but must now stand down
+  key('m');
+  assert.strictEqual(mapBtn.textContent, labelWhileLive, '"m" is inert while Single is the active view');
+
+  click(btnLive);
+  key('m');
+  assert.notStrictEqual(mapBtn.textContent, labelWhileLive, '"m" toggles the map again once Live is active');
 });
 
 test('entering Live mode stops the p5 draw loop (noLoop), leaving the canvas idle', () => {

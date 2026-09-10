@@ -846,6 +846,12 @@ const GSRLiveView = {
     });
 
     window.addEventListener('keydown', (e) => {
+      // Inside index.html these listeners outlive the Live tab (mount is
+      // once, no unmount) — only claim the p/m/c/f shortcuts while the Live
+      // view is actually the one on screen, so f in particular doesn't also
+      // fire here on top of the main app's own fullscreen key. Standalone
+      // live.html has no AppState, so the shortcuts are always live there.
+      if (typeof AppState !== 'undefined' && AppState.viewMode !== 'live') return;
       // Don't hijack keys while the user is typing coordinates.
       if (e.target === latInput || e.target === lonInput) return;
 
