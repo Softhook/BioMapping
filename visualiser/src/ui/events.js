@@ -675,7 +675,22 @@ const GSREvents = {
     });
 
     // ── Panel Collapse Toggles (DRY via bindCollapseButton) ──────────────────
-    GSREvents.bindCollapseButton('btnEventsCollapse',        'eventsPanel');
+    // The map panel's height now also tracks whether the GSR graph and events
+    // table are collapsed: with the graph gone the map flex-grows to fill the
+    // freed vertical space (see `#gsrPanel.collapsed ~ #mapPanel` in styles.css).
+    // Collapsing a panel fires no resize event, so nudge Leaflet and the p5
+    // canvas once the CSS max-height transition has settled.
+    const refreshMapAfterPanelResize = () => {
+      if (AppState.mapManager && AppState.mapManager.map && typeof AppState.mapManager.map.invalidateSize === 'function') {
+        AppState.mapManager.map.invalidateSize({ pan: false, debounceMoveend: true });
+      }
+      if (typeof windowResized === 'function') {
+        requestAnimationFrame(() => windowResized());
+        setTimeout(() => windowResized(), 320);
+      }
+    };
+
+    GSREvents.bindCollapseButton('btnEventsCollapse',        'eventsPanel', refreshMapAfterPanelResize);
     GSREvents.bindCollapseButton('btnGsrFilteringCollapse',  'gsrFilteringCard');
     GSREvents.bindCollapseButton('btnPeakDetectionCollapse', 'peakDetectionCard');
     GSREvents.bindCollapseButton('btnGpsFilteringCollapse',  'gpsFilteringCard');
@@ -695,19 +710,13 @@ const GSREvents = {
         if (AppState.scrubSource === 'graph') AppState.scrubSource = null;
         AppState.emit('scrub', { clear: true, source: 'graph' });
       }
+      // Collapsing/expanding the graph resizes the map (see the CSS rule above).
+      refreshMapAfterPanelResize();
     });
-    GSREvents.bindCollapseButton('btnMapCollapse',           'mapPanel', (collapsed) => {
+    GSREvents.bindCollapseButton('btnMapCollapse',           'mapPanel', () => {
       const mapPanel = document.getElementById('mapPanel');
-      if (mapPanel) {
-        delete mapPanel.dataset.autoCollapsedNoSpatial;
-        if (!collapsed && AppState.mapManager && AppState.mapManager.map && typeof AppState.mapManager.map.invalidateSize === 'function') {
-          AppState.mapManager.map.invalidateSize({ pan: false, debounceMoveend: true });
-        }
-      }
-      if (typeof windowResized === 'function') {
-        requestAnimationFrame(() => windowResized());
-        setTimeout(() => windowResized(), 220);
-      }
+      if (mapPanel) delete mapPanel.dataset.autoCollapsedNoSpatial;
+      refreshMapAfterPanelResize();
     });
     GSREvents.bindCollapseButton('btnOsmEnrichmentCollapse', 'osmEnrichmentCard');
     GSREvents.bindCollapseButton('btnEnvCollapse',           'environmentalPanel');

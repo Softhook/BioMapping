@@ -1142,6 +1142,19 @@ input[type="range"]:focus-visible,
   max-height: calc(100vh - 184px);
 }
 
+/* When the GSR Graph is collapsed, the map takes over as the central column's
+   primary panel and grows to fill every bit of freed vertical space — with the
+   graph gone there is no other expanded panel to absorb it (the events table is
+   capped, see the rules above), so without this the map would sit at its fixed
+   height and leave dead space below. Mirrors the collective-mode rule further
+   down. While the graph is expanded the map keeps its fixed size and the graph
+   absorbs the slack, as before. */
+#gsrPanel.collapsed ~ #mapPanel:not(.collapsed) {
+  flex-grow: 1;
+  flex-shrink: 1;
+  max-height: 100vh;
+}
+
 .table-container {
   overflow: auto;
   overscroll-behavior: contain;
