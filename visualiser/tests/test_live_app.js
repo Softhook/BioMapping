@@ -1331,3 +1331,77 @@ test('a status change while deactivated arms the loop, but no frame draws until 
     resolve();
   }, 30));
 });
+
+// ==========================================================================
+// drawGraph() styling — the live graph is meant to read like the
+// single-track GSR view (src/render/renderer.js): one primary trace in the
+// app's --color-filtered blue, or --color-phasic green in phasic-only mode,
+// over a faint grid. Capture the stroke state at each stroke() call.
+// ==========================================================================
+
+function recordStrokes(window) {
+  const strokes = [];
+  const ctx = {
+    setTransform() {}, clearRect() {}, beginPath() {}, closePath() {},
+    moveTo() {}, lineTo() {}, fill() {}, fillText() {},
+    createLinearGradient: () => ({ addColorStop() {} }), save() {}, restore() {},
+    stroke() { strokes.push({ strokeStyle: this.strokeStyle, lineWidth: this.lineWidth }); },
+    strokeStyle: '', fillStyle: '', lineWidth: 1, lineJoin: '', font: '', textAlign: '', textBaseline: '',
+  };
+  window.HTMLCanvasElement.prototype.getContext = () => ctx;
+  return strokes;
+}
+
+test('drawGraph: the GSR trace is the app\'s --color-filtered blue at weight 2.2 (single-view "Signal" styling)', () => {
+  const { window, context } = bootLive();
+  const strokes = recordStrokes(window);
+  run(context, `
+    for (let i = 0; i < 40; i++) LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
+      gsrRaw: 1000 + i * 5, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
+    drawGraph();
+  `);
+
+  // The trace is the last stroke() (grid + axis are drawn before it).
+  const trace = strokes[strokes.length - 1];
+  assert.strictEqual(trace.strokeStyle, '#005bc4', 'trace uses --color-filtered');
+  assert.strictEqual(trace.lineWidth, 2.2);
+});
+
+test('drawGraph: phasic-only mode draws the trace in --color-phasic green at weight 2', () => {
+  const { window, context } = bootLive();
+  const strokes = recordStrokes(window);
+  run(context, `
+    LiveState.showPhasicOnly = true;
+    for (let i = 0; i < 60; i++) LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
+      gsrRaw: i < 20 ? 1000 : 1600, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
+    drawGraph();
+  `);
+
+  const trace = strokes[strokes.length - 1];
+  assert.strictEqual(trace.strokeStyle, '#008f3c', 'trace uses --color-phasic');
+  assert.strictEqual(trace.lineWidth, 2);
+});
+
+test('drawGraph: renders the grid + L-shaped axis before the trace (>= 3 stroke passes)', () => {
+  const { window, context } = bootLive();
+  const strokes = recordStrokes(window);
+  run(context, `
+    for (let i = 0; i < 40; i++) LiveState.addPacket({ valid: true, lat: 51.5, lon: -0.12,
+      gsrRaw: 1000 + i * 5, hdop: 1, pdop: 1, speedKts: 1, courseDeg: 90, sats: 9, fixType: 3, timestamp: i * 0.3 });
+    drawGraph();
+  `);
+  // Y grid, X grid, axis frame, trace — four separate stroke() passes.
+  assert.ok(strokes.length >= 4, `expected grid+axis+trace passes, got ${strokes.length}`);
+});
+
+test('niceStep: yields 1/2/5 x 10^n steps giving roughly five divisions', () => {
+  const { context } = bootLive();
+  const step = (span) => run(context, `niceStep(${span})`);
+  assert.strictEqual(step(10), 2);     // rough 2  -> 2
+  assert.strictEqual(step(50), 10);    // rough 10 -> 10
+  assert.strictEqual(step(1000), 200); // rough 200 -> 2e2
+  assert.strictEqual(step(2500), 500); // rough 500 -> 5e2
+  assert.strictEqual(step(9000), 1000);// rough 1800 -> 1e3
+  assert.strictEqual(step(0), 1);      // degenerate span
+  assert.strictEqual(step(-5), 1);
+});
