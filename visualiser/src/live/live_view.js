@@ -97,6 +97,35 @@ const GRAPH_EMA_ALPHA = 0.25;
 // ~90-minute session at this cadence is ~18,000 packets by the end.
 const GRAPH_PAD_S = 30;
 
+// Plot inset — room for the left Y-axis value labels and the bottom time
+// labels, echoing src/core/constants.js's GSR_CONST.MARGIN (70/35/22/10)
+// scaled down for this compact panel.
+const GRAPH_MARGIN = { top: 12, right: 12, bottom: 20, left: 58 };
+
+// Pull the single-track GSR view's own theme tokens (src/render/renderer.js
+// reads the same custom properties via getThemeColor) so the two graphs
+// stay visually identical. Falls back to the light-theme defaults when no
+// stylesheet is in scope (the unit-test jsdom).
+function graphThemeColor(name, fallback) {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+
+// A "1 / 2 / 5 × 10ⁿ" gridline step giving ~5 divisions across `span` — the
+// same shape as renderer.js's drawGridY step presets, computed rather than
+// table-driven since live GSR (nS) has no fixed range.
+function niceStep(span) {
+  if (!(span > 0)) return 1;
+  const rough = span / 5;
+  const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  const norm = rough / mag;
+  return (norm >= 5 ? 5 : norm >= 2 ? 2 : 1) * mag;
+}
+
 function drawGraph() {
   const canvas = document.getElementById('graph');
   const wrap = document.getElementById('graphWrap');
@@ -155,80 +184,84 @@ function drawGraph() {
   const pad = (maxV - minV) * 0.1;
   minV -= pad; maxV += pad;
 
-  const xForT = (t) => ((t - t0) / GRAPH_WINDOW_S) * w;
-  const yForV = (v) => 8 + (1 - (v - minV) / (maxV - minV)) * (h - 28);
+  // ── Plot region (matches the single-track GSR view: white ground, a faint
+  //    grid, a thin L-shaped axis, one primary trace — see
+  //    src/render/renderer.js drawGridX/drawGridY/drawSignalCurve). ────────
+  const plotL = GRAPH_MARGIN.left;
+  const plotR = w - GRAPH_MARGIN.right;
+  const plotT = GRAPH_MARGIN.top;
+  const plotB = h - GRAPH_MARGIN.bottom;
+  const plotW = Math.max(1, plotR - plotL);
+  const plotH = Math.max(1, plotB - plotT);
 
-  // Draw subtle horizontal grid lines
-  ctx.strokeStyle = 'rgba(124, 136, 148, 0.05)';
+  const gridCol = graphThemeColor('--canvas-grid', 'rgba(17, 17, 17, 0.06)');
+  const axisCol = graphThemeColor('--canvas-axis', 'rgba(17, 17, 17, 0.15)');
+  const textCol = graphThemeColor('--canvas-text', '#444444');
+  const AXIS_FONT = '10px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+  const xForT = (t) => plotL + ((t - t0) / GRAPH_WINDOW_S) * plotW;
+  const yForV = (v) => plotT + (1 - (v - minV) / (maxV - minV)) * plotH;
+
+  // ── Y grid + right-aligned value labels (mirrors renderer.drawGridY) ──
+  const yStep = niceStep(maxV - minV);
+  const yStart = Math.ceil(minV / yStep) * yStep;
+  ctx.strokeStyle = gridCol;
   ctx.lineWidth = 1;
   ctx.beginPath();
-  for (let fraction of [0.25, 0.5, 0.75]) {
-    const y = 8 + fraction * (h - 28);
-    ctx.moveTo(0, y);
-    ctx.lineTo(w, y);
+  for (let v = yStart; v <= maxV; v += yStep) {
+    const y = Math.round(yForV(v)) + 0.5;
+    ctx.moveTo(plotL, y);
+    ctx.lineTo(plotR, y);
   }
   ctx.stroke();
-
-  // Draw subtle vertical grid lines (time increments relative to present time)
-  ctx.strokeStyle = 'rgba(124, 136, 148, 0.06)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-
-  const step = 20; // 20s increments are clean and readable for a 120s window
-
-  ctx.fillStyle = '#7c8894';
-  ctx.font = '9px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.textAlign = 'center';
+  ctx.fillStyle = textCol;
+  ctx.font = AXIS_FONT;
+  ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
+  let lastLabelY = null;
+  for (let v = yStart; v <= maxV; v += yStep) {
+    const y = yForV(v);
+    if (lastLabelY !== null && Math.abs(y - lastLabelY) < 14) continue; // thin so labels never crowd
+    ctx.fillText(v.toFixed(0) + ' nS', plotL - 8, y);
+    lastLabelY = y;
+  }
 
-  for (let offset = 0; offset <= GRAPH_WINDOW_S; offset += step) {
-    const x = w - (offset / GRAPH_WINDOW_S) * w;
-    if (x > 15 && x < w - 15) {
-      // Draw grid line
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h - 20);
-
-      // Draw label relative to now (e.g. -20s, -40s...)
-      const label = offset === 0 ? 'now' : `-${offset}s`;
-      ctx.fillText(label, x, h - 10);
-    }
+  // ── X grid + time labels. This is a rolling window, so labels stay
+  //    relative to the present ("now", "-20s", …) rather than absolute. ──
+  ctx.strokeStyle = gridCol;
+  ctx.beginPath();
+  for (let offset = 0; offset <= GRAPH_WINDOW_S; offset += 20) {
+    const x = Math.round(plotR - (offset / GRAPH_WINDOW_S) * plotW) + 0.5;
+    ctx.moveTo(x, plotT);
+    ctx.lineTo(x, plotB);
   }
   ctx.stroke();
-
-  const colorCurve = LiveState.showPhasicOnly ? '#ff9f00' : '#00e5a0';
-  const colorFillStart = LiveState.showPhasicOnly ? 'rgba(255, 159, 0, 0.15)' : 'rgba(0, 229, 160, 0.12)';
-  const colorFillEnd = LiveState.showPhasicOnly ? 'rgba(255, 159, 0, 0.0)' : 'rgba(0, 229, 160, 0.0)';
-
-  // Draw area under the curve with a subtle gradient
-  if (visiblePkts.length > 0) {
-    const grad = ctx.createLinearGradient(0, 8, 0, h - 20);
-    grad.addColorStop(0, colorFillStart);
-    grad.addColorStop(1, colorFillEnd);
-    ctx.fillStyle = grad;
-
-    let segmentStartIdx = 0;
-    for (let i = 0; i <= visiblePkts.length; i++) {
-      const isGap = i === visiblePkts.length || (i > 0 && visiblePkts[i].gap);
-      if (isGap) {
-        if (i > segmentStartIdx) {
-          ctx.beginPath();
-          ctx.moveTo(xForT(visiblePkts[segmentStartIdx].timestamp), yForV(visible[segmentStartIdx]));
-          for (let j = segmentStartIdx + 1; j < i; j++) {
-            ctx.lineTo(xForT(visiblePkts[j].timestamp), yForV(visible[j]));
-          }
-          ctx.lineTo(xForT(visiblePkts[i - 1].timestamp), h - 20);
-          ctx.lineTo(xForT(visiblePkts[segmentStartIdx].timestamp), h - 20);
-          ctx.closePath();
-          ctx.fill();
-        }
-        segmentStartIdx = i;
-      }
-    }
+  ctx.fillStyle = textCol;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (let offset = 0; offset <= GRAPH_WINDOW_S; offset += 20) {
+    const x = plotR - (offset / GRAPH_WINDOW_S) * plotW;
+    if (x < plotL + 4 || x > plotR - 4) continue;
+    ctx.fillText(offset === 0 ? 'now' : `-${offset}s`, x, plotB + 5);
   }
 
-  // Draw GSR curve
-  ctx.strokeStyle = colorCurve;
-  ctx.lineWidth = 1.5;
+  // ── Axis frame: left + bottom, like the single view's L-shaped axis ──
+  ctx.strokeStyle = axisCol;
+  ctx.beginPath();
+  ctx.moveTo(plotL + 0.5, plotT);
+  ctx.lineTo(plotL + 0.5, plotB + 0.5);
+  ctx.lineTo(plotR, plotB + 0.5);
+  ctx.stroke();
+
+  // ── GSR trace — Filtered blue (or Phasic green), the same colours and
+  //    weights renderer.drawSignalCurve() uses for those two series. MUST
+  //    stay the final beginPath…stroke pair: test_live_app.js's gap
+  //    regression keys off names.lastIndexOf('beginPath'). ──────────────
+  ctx.strokeStyle = LiveState.showPhasicOnly
+    ? graphThemeColor('--color-phasic', '#008f3c')
+    : graphThemeColor('--color-filtered', '#005bc4');
+  ctx.lineWidth = LiveState.showPhasicOnly ? 2 : 2.2;
+  ctx.lineJoin = 'round';
   ctx.beginPath();
   let penDown = false;
   for (let i = 0; i < visiblePkts.length; i++) {
