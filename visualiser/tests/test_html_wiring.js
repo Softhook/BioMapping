@@ -65,6 +65,8 @@ test('live.html loads exactly the shared src/ modules its inline wire-up depends
     'src/live/live_binary_parser.js', // GSRLiveBinaryParser
     'src/live/live_state.js',      // LiveState
     'src/live/live_bluetooth.js',  // GSRLiveBluetoothManager (+ BLE_*_UUID)
+    'src/live/live_csv.js',        // buildLiveCsv
+    'src/live/live_tile_cache.js', // L.tileLayer.cache + tile URL helpers
   ]);
 });
 

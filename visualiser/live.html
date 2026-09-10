@@ -20,6 +20,8 @@
 <script src="src/live/live_binary_parser.js"></script>
 <script src="src/live/live_state.js"></script>
 <script src="src/live/live_bluetooth.js"></script>
+<script src="src/live/live_csv.js"></script>
+<script src="src/live/live_tile_cache.js"></script>
 <style>
   :root {
     --bg: #0b0e11;
@@ -408,126 +410,10 @@ function recolorPhasicSegments() {
   }
 }
 
+// Offline tile caching — the L.TileLayer.cache subclass and the
+// normalizeTileCacheUrl / buildTileUrl / latLngToTileCoords helpers live in
+// src/live/live_tile_cache.js (loaded in <head>, after Leaflet).
 // ==========================================================================
-// Custom Leaflet TileLayer subclass with Cache Storage API backend
-// Normalizes subdomain to 'a' to maximize cache reuse and minimize downloads.
-// ==========================================================================
-function normalizeTileCacheUrl(url) {
-  // Fold the CDN subdomain and drop the query string (the CARTO ?key=...), so
-  // every subdomain — and any key rotation — maps to one cache entry per tile.
-  return url
-    .replace(/https:\/\/[a-d]\.basemaps\.cartocdn\.com/, 'https://a.basemaps.cartocdn.com')
-    .replace(/\?.*$/, '');
-}
-
-// Builds a tile URL for an arbitrary z/x/y directly from the layer's raw URL
-// template, rather than through Leaflet's own TileLayer.getTileUrl(coords).
-// That matters here specifically: real Leaflet's getTileUrl() IGNORES
-// coords.z and substitutes the layer's own currently-displayed zoom instead
-// (TileLayer.js's _getZoomForUrl() reads this._tileZoom, never the argument)
-// — harmless during normal panning (Leaflet only ever asks for tiles at the
-// zoom it's actually showing, so coords.z and _tileZoom always agree), but
-// cacheCurrentMapArea() deliberately asks for zoom levels ABOVE the current
-// one to pre-fetch detail for offline zooming-in. Going through getTileUrl()
-// there would stamp every one of those requests with the CURRENT zoom's `z`
-// while keeping the target zoom's x/y — a mismatched, invalid tile request
-// the CDN 400s (and, lacking CORS headers on that error response, the
-// browser reports as a blocked-by-CORS failure instead of the real cause).
-function buildTileUrl(urlTemplate, x, y, z) {
-  const retina = ((window.devicePixelRatio || 1) > 1) ? '@2x' : '';
-  return urlTemplate
-    .replace('{s}', 'a') // any subdomain serves identical tiles; cache keys are normalized to 'a' anyway
-    .replace('{z}', z)
-    .replace('{x}', x)
-    .replace('{y}', y)
-    .replace('{r}', retina);
-}
-
-const L_TileLayer_Cache = L.TileLayer.extend({
-  createTile: function (coords, done) {
-    const tile = document.createElement('img');
-    L.DomEvent.on(tile, 'load', L.Util.bind(this._tileOnLoad, this, done, tile));
-    L.DomEvent.on(tile, 'error', L.Util.bind(this._tileOnError, this, done, tile));
-
-    if (this.options.crossOrigin || this.options.crossOrigin === '') {
-      tile.crossOrigin = this.options.crossOrigin === true ? '' : this.options.crossOrigin;
-    }
-
-    tile.alt = '';
-    tile.setAttribute('role', 'presentation');
-    // Set initial source to a transparent 1x1 GIF to prevent flashing a broken image placeholder
-    tile.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-
-    const url = this.getTileUrl(coords);
-    const cacheUrl = normalizeTileCacheUrl(url);
-
-    if (typeof caches !== 'undefined') {
-      const cacheName = 'leaflet-map-tiles';
-      caches.open(cacheName).then((cache) => {
-        cache.match(cacheUrl).then((response) => {
-          if (response) {
-            response.blob().then((blob) => {
-              const objUrl = URL.createObjectURL(blob);
-              tile.src = objUrl;
-              tile._objUrl = objUrl;
-            });
-          } else {
-            fetch(url).then((netResponse) => {
-              if (netResponse.ok) {
-                cache.put(cacheUrl, netResponse.clone());
-                netResponse.blob().then((blob) => {
-                  const objUrl = URL.createObjectURL(blob);
-                  tile.src = objUrl;
-                  tile._objUrl = objUrl;
-                });
-              } else {
-                tile.src = url;
-              }
-            }).catch(() => {
-              tile.src = url;
-            });
-          }
-        }).catch(() => {
-          tile.src = url;
-        });
-      }).catch(() => {
-        tile.src = url;
-      });
-    } else {
-      tile.src = url;
-    }
-
-    return tile;
-  },
-
-  _cleanTile: function (tile) {
-    if (tile._objUrl) {
-      URL.revokeObjectURL(tile._objUrl);
-      delete tile._objUrl;
-    }
-  },
-
-  _removeTile: function (id) {
-    const tile = this._tiles[id];
-    if (tile) {
-      this._cleanTile(tile.el);
-    }
-    L.TileLayer.prototype._removeTile.call(this, id);
-  }
-});
-
-L.tileLayer.cache = function (url, options) {
-  return new L_TileLayer_Cache(url, options);
-};
-
-function latLngToTileCoords(latlng, zoom) {
-  const lat = latlng.lat;
-  const lon = latlng.lng;
-  const x = Math.floor((lon + 180) / 360 * Math.pow(2, zoom));
-  const y = Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom));
-  return { x, y };
-}
-
 async function cacheCurrentMapArea() {
   if (!liveMap) return;
   const bounds = liveMap.getBounds();
@@ -732,28 +618,15 @@ function updateLiveMap(pkt) {
 }
 
 // ==========================================================================
-// CSV export — docs/csv_schema.md's canonical GPS+GSR schema (11 columns).
-// hacc_m is always empty: the wire packet (§5) never carries it, so this
-// is honestly "not measured" rather than a guessed value. Blob +
-// object-URL download, the same primitive visualiser/file_saver.js uses
-// for its own fallback path (file_saver.js:96-106) — not the full
-// GSRFileSaver object (its File-System-Access-API picker isn't needed for
-// a single-purpose export button).
+// CSV export. buildLiveCsv() (src/live/live_csv.js) does the schema
+// serialisation (docs/csv_schema.md's canonical 11-column GPS+GSR schema);
+// this keeps only the Blob + object-URL download — the same primitive
+// visualiser/file_saver.js uses for its own fallback path
+// (file_saver.js:96-106), not the full GSRFileSaver object (its
+// File-System-Access-API picker isn't needed for a single-purpose button).
 // ==========================================================================
 function exportCsv() {
-  const rows = ['timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m'];
-  const startEpoch = Math.floor(Date.now() / 1000) - Math.floor(LiveState.packets.at(-1)?.timestamp || 0);
-  for (const p of LiveState.packets) {
-    const lat = p.valid ? p.lat.toFixed(7) : '';
-    const lon = p.valid ? p.lon.toFixed(7) : '';
-    rows.push([
-      p.timestamp.toFixed(2), lat, lon,
-      p.hdop.toFixed(1), p.pdop.toFixed(1), p.sats, p.fixType,
-      p.speedKts.toFixed(1), p.courseDeg.toFixed(1), p.gsrRaw.toFixed(1), '',
-    ].join(','));
-  }
-  const header = `# RecordingStartTime:${startEpoch}\n# DeviceName:LiveStream\n`;
-  const blob = new Blob([header + rows.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' });
+  const blob = new Blob([buildLiveCsv(LiveState.packets, Date.now())], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
