@@ -48,7 +48,7 @@ module.exports = {
 
   CVXEDA: {
     tauSlow: 2.0,
-    tauFast: 0.75,
+    tauFast: 0.7,
     deltaKnotSec: 10.0,
     alpha: 2e-3,
     gamma: 1e-2,

@@ -54,7 +54,7 @@ const CVXEDA = {
    * @param {number} sampleRate           - Sampling rate in Hz.
    * @param {object} [options={}]
    * @param {number} [options.tauSlow=2.0]      - Bateman slow decay τ (s).
-   * @param {number} [options.tauFast=0.75]     - Bateman fast rise τ (s).
+   * @param {number} [options.tauFast=0.7]      - Bateman fast rise τ (s).
    * @param {number} [options.deltaKnotSec=10]  - Tonic B-spline knot spacing (s).
    * @param {number} [options.alpha=8e-4]       - L1 weight on the driver.
    * @param {number} [options.gamma=1e-2]       - L2 weight on tonic smoothness.
@@ -81,7 +81,7 @@ const CVXEDA = {
 
     const cfg = (typeof GSR_CONST !== 'undefined' && GSR_CONST.CVXEDA) || {};
     const tauSlow = options.tauSlow ?? cfg.tauSlow ?? 2.0;
-    const tauFast = options.tauFast ?? cfg.tauFast ?? 0.75;
+    const tauFast = options.tauFast ?? cfg.tauFast ?? 0.7;
     const deltaKnotSec = options.deltaKnotSec ?? cfg.deltaKnotSec ?? 10.0;
     const alpha = options.alpha ?? cfg.alpha ?? 8e-4;
     const gamma = options.gamma ?? cfg.gamma ?? 1e-2;
@@ -115,18 +115,25 @@ const CVXEDA = {
     const ar0 = ((a1 * delta + 2.0) * (a0 * delta + 2.0)) / den;
     const ar1 = (2.0 * a1 * a0 * delta * delta - 8.0) / den;
     const ar2 = ((a1 * delta - 2.0) * (a0 * delta - 2.0)) / den;
-    // MA numerator is [1, 2, 1]. Both operators act on rows i ≥ 2 only
-    // (reference: i = arange(2, n)); rows 0 and 1 are identically zero.
+    // MA numerator is [1, 2, 1]. Both operators are square lower-triangular
+    // banded matrices exactly as the reference builds them: the main diagonal
+    // spans every row, the first sub-diagonal rows 1..n-1, the second rows
+    // 2..n-1. So row 0 keeps only the diagonal tap and row 1 the diagonal +
+    // first sub-diagonal tap (reference: i = concatenate(rangen, rangen[1:],
+    // rangen[2:])).
 
     // A·x  (banded, causal 3-tap)
     const applyA = (x, out) => {
-      out[0] = 0; out[1] = 0;
+      out[0] = ar0 * x[0];
+      out[1] = ar1 * x[0] + ar0 * x[1];
       for (let i = 2; i < n; i++) out[i] = ar0 * x[i] + ar1 * x[i - 1] + ar2 * x[i - 2];
       return out;
     };
     // Aᵀ·x  (transpose: row j of A scatters to out[j], out[j-1], out[j-2])
     const applyAT = (x, out) => {
       out.fill(0);
+      out[0] += ar0 * x[0];
+      out[0] += ar1 * x[1]; out[1] += ar0 * x[1];
       for (let j = 2; j < n; j++) {
         const xj = x[j];
         out[j] += ar0 * xj; out[j - 1] += ar1 * xj; out[j - 2] += ar2 * xj;
@@ -134,12 +141,15 @@ const CVXEDA = {
       return out;
     };
     const applyM = (x, out) => {
-      out[0] = 0; out[1] = 0;
+      out[0] = x[0];
+      out[1] = 2.0 * x[0] + x[1];
       for (let i = 2; i < n; i++) out[i] = x[i] + 2.0 * x[i - 1] + x[i - 2];
       return out;
     };
     const applyMT = (x, out) => {
       out.fill(0);
+      out[0] += x[0];
+      out[0] += 2.0 * x[1]; out[1] += x[1];
       for (let j = 2; j < n; j++) {
         const xj = x[j];
         out[j] += xj; out[j - 1] += 2.0 * xj; out[j - 2] += xj;
@@ -305,9 +315,10 @@ const CVXEDA = {
       kd0.fill(0); kd1.fill(0); kd2.fill(0);
       const mTap = [1.0, 2.0, 1.0];
       const aTap = [ar2, ar1, ar0]; // taps at columns [i-2, i-1, i]
-      for (let i = 2; i < n; i++) {
+      for (let i = 0; i < n; i++) {
         const idx = [i - 2, i - 1, i];
-        for (let p = 0; p < 3; p++) {
+        const pLo = i < 2 ? 2 - i : 0; // rows 0,1 have fewer taps (columns clipped at 0)
+        for (let p = pLo; p < 3; p++) {
           for (let q = p; q < 3; q++) {
             const val = mTap[p] * mTap[q] + rho * aTap[p] * aTap[q];
             const off = idx[q] - idx[p];
@@ -317,7 +328,7 @@ const CVXEDA = {
           }
         }
       }
-      for (let i = 0; i < n; i++) kd0[i] += 1e-9; // strict SPD guard
+      for (let i = 0; i < n; i++) kd0[i] += 1e-9; // SPD insurance (MᵀM is already full rank)
     };
 
     const factorKqq = () => {
@@ -423,7 +434,7 @@ const CVXEDA = {
 
     let iterations = 0, converged = false, rPrim = 0, rDual = 0;
     let refactors = 0;
-    const MAX_REFACTORS = 8;
+    const MAX_REFACTORS = 16;
     const sqrtN = Math.sqrt(n);
     let prevResid = Infinity, plateau = 0;
 
@@ -473,25 +484,25 @@ const CVXEDA = {
 
       // Plateau escape: ADMM converges linearly, so on a badly-conditioned
       // track the residuals can level off just above the tolerance. Once the
-      // combined residual stops moving (< 0.1 %/iter for 15 iterations) the
+      // combined residual stops moving (< 0.05 %/iter for 30 iterations) the
       // iterate is effectively fixed — accept it as converged rather than
       // spin out the iteration budget.
       const resid = rPrim + rDual;
-      if (Math.abs(prevResid - resid) < 2e-3 * resid) {
-        if (++plateau >= 20) { converged = true; break; }
+      if (Math.abs(prevResid - resid) < 5e-4 * resid) {
+        if (++plateau >= 30) { converged = true; break; }
       } else {
         plateau = 0;
       }
       prevResid = resid;
 
       // adaptive ρ (Boyd et al. 2011, §3.4.1): keep the primal and dual
-      // residuals within 10× of each other. ρ changes Kqq, so each move costs
-      // one refactorisation — capped, and never in the last stretch where it
-      // would only disturb a nearly-converged iterate.
-      if (refactors < MAX_REFACTORS && it > 4 && it < maxIter - 20 && (it % 3) === 0) {
-        if (rPrim > 4 * rDual) {
+      // residuals within 3× of each other. ρ changes Kqq, so each move costs
+      // one refactorisation — capped, and held off only in the final few
+      // iterations where it would just disturb a nearly-converged iterate.
+      if (refactors < MAX_REFACTORS && it > 4 && it < maxIter - 8 && (it % 3) === 0) {
+        if (rPrim > 3 * rDual) {
           rho *= 2; for (let i = 0; i < n; i++) u[i] *= 0.5; refactor(); refactors++;
-        } else if (rDual > 4 * rPrim) {
+        } else if (rDual > 3 * rPrim) {
           rho *= 0.5; for (let i = 0; i < n; i++) u[i] *= 2; refactor(); refactors++;
         }
       }
@@ -503,14 +514,20 @@ const CVXEDA = {
     const driver = new Float64Array(n);
     const bl = new Float64Array(n);
 
-    applyM(q, phasic);
+    applyM(q, phasic);  // r = M·q  (reference)
+    applyA(q, driver);  // p = A·q  (reference)
     applyB(s.subarray(2), bl);
     for (let i = 0; i < n; i++) {
       const t = bl[i] + s[0] + s[1] * cRamp[i];
-      const ph = phasic[i] > 0 ? phasic[i] : 0;   // negative phasic is unphysical
-      phasic[i] = normalize ? ph * std : ph;
+      // Driver is A·q exactly as the reference returns it, but restricted to
+      // the ADMM active set: where the constraint bites (z == 0) interior-point
+      // complementary slackness would pin p to zero, so we do too — this keeps
+      // the driver sparse between events despite the looser ADMM tolerance,
+      // while reporting the true A·q amplitude on the support.
+      const p = z[i] > 0 ? driver[i] : 0;
+      phasic[i] = normalize ? phasic[i] * std : phasic[i];  // unclamped (reference r = M·q)
       tonic[i] = normalize ? t * std + mean : t;
-      driver[i] = normalize ? z[i] * std : z[i];  // z holds the exact-zero-between-events driver
+      driver[i] = normalize ? p * std : p;
     }
 
     return { phasic, tonic, driver, iterations, converged, rPrim, rDual };

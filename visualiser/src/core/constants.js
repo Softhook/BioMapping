@@ -127,8 +127,8 @@ const GSR_CONST = {
   // (½‖Mq+Cd+Bl−y‖² + α·1ᵀAq + ½γ‖l‖²  s.t. Aq ≥ 0) solved by ADMM on the
   // single inequality, with a direct banded/Schur factor for the x-step.
   CVXEDA: {
-    tauSlow: 2.0,       // Bateman slow decay τ (s)
-    tauFast: 0.75,      // Bateman fast rise τ (s)
+    tauSlow: 2.0,       // Bateman slow decay τ (s) — reference default tau0
+    tauFast: 0.7,       // Bateman fast rise τ (s) — reference default tau1 (Greco et al. 2016 / NeuroKit)
     deltaKnotSec: 10.0, // Tonic cubic B-spline knot spacing (s)
     // L1 weight on the driver. The paper quotes α ≈ 8e-4 at 25 Hz; BioMapping
     // samples at 10 Hz, where the same inter-event sparsity needs a

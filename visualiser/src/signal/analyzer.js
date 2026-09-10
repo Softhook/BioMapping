@@ -700,9 +700,12 @@ class GSRAnalyzer {
       const scVals = new Float64Array(n);
       for (let i = 0; i < n; i++) scVals[i] = this.filtered[i].val;
 
+      // Bateman taus come from the CVXEDA config block (reference defaults
+      // tau0=2.0 / tau1=0.7), not SCRF's fixed-kernel pair.
+      const cvxCfg = GSR_CONST.CVXEDA || {};
       const res = CVXEDA.decompose(scVals, this.sampleRate, {
-        tauSlow: scf.tauSlow,
-        tauFast: scf.tauFast,
+        tauSlow: cvxCfg.tauSlow ?? scf.tauSlow,
+        tauFast: cvxCfg.tauFast ?? scf.tauFast,
         alpha: params.cvxAlpha,
         gamma: params.cvxGamma,
         maxIter: params.cvxMaxIter
