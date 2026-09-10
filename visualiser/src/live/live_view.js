@@ -10,6 +10,7 @@
  *   GsrFilter                 src/signal/gsr_filter.js
  *   MapColors                 src/map/map_colors.js
  *   GpsPipeline               src/gps/gps_pipeline.js
+ *   GSRFileSaver              src/core/file_saver.js
  *   GSRLiveBinaryParser       src/live/live_binary_parser.js
  *   LiveState                 src/live/live_state.js
  *   GSRLiveBluetoothManager   src/live/live_bluetooth.js
@@ -572,22 +573,15 @@ function updateLiveMap(pkt) {
 
 // ==========================================================================
 // CSV export. buildLiveCsv() (src/live/live_csv.js) does the schema
-// serialisation (docs/csv_schema.md's canonical 11-column GPS+GSR schema);
-// this keeps only the Blob + object-URL download — the same primitive
-// visualiser/file_saver.js uses for its own fallback path
-// (file_saver.js:96-106), not the full GSRFileSaver object (its
-// File-System-Access-API picker isn't needed for a single-purpose button).
+// serialisation (docs/csv_schema.md's canonical 11-column GPS+GSR schema +
+// the firmware's integrity bracket); GSRFileSaver.saveFile() (src/core/
+// file_saver.js) puts up the same OS "Save location" dialog the rest of the
+// app's exports use, with the plain-download fallback when the File System
+// Access API isn't available.
 // ==========================================================================
 function exportCsv() {
-  const blob = new Blob([buildLiveCsv(LiveState.packets, Date.now())], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `biomap_live_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const name = `biomap_live_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+  return GSRFileSaver.saveFile(buildLiveCsv(LiveState.packets, Date.now()), name);
 }
 
 // ==========================================================================

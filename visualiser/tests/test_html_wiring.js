@@ -63,6 +63,7 @@ test('live.html loads exactly the shared src/ modules its inline wire-up depends
     'src/signal/gsr_filter.js',    // GsrFilter
     'src/map/map_colors.js',       // MapColors
     'src/gps/gps_pipeline.js',     // GpsPipeline
+    'src/core/file_saver.js',      // GSRFileSaver (Export CSV save dialog)
     'src/live/live_binary_parser.js', // GSRLiveBinaryParser
     'src/live/live_state.js',      // LiveState
     'src/live/live_bluetooth.js',  // GSRLiveBluetoothManager (+ BLE_*_UUID)

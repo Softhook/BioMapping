@@ -828,24 +828,31 @@ test('_handleDisconnect: after a successful auto-reconnect, one BLE notification
 });
 
 // ==========================================================================
-// exportCsv() — the "Export CSV" button. Must emit docs/csv_schema.md's
-// canonical 11-column GPS+GSR schema with the two mandatory metadata lines,
-// and use the sentinel-correct empty string (not "NaN") for lat/lon on a
-// no-fix sample. Nothing covered this.
+// exportCsv() — the "Export CSV" button. Must go through GSRFileSaver (the
+// same OS "Save location" dialog the rest of the app uses) and hand it a file
+// byte-compatible with a firmware-written track: the `# Integrity: crc32 v1`
+// marker, biomap_format.c's per-row number formatting, and a `# End …`
+// trailer with a real CRC32. buildLiveCsv() itself is covered in depth by
+// test_live_csv.js — these pin the wiring.
 // ==========================================================================
 
-// Captures the text exportCsv() hands to `new Blob([...])` and stops the
-// synthetic <a> click from reaching jsdom's unimplemented navigation.
-function captureCsvExport(window) {
-  const box = { text: null };
-  window.Blob = class { constructor(parts) { box.text = parts.join(''); } };
-  window.HTMLAnchorElement.prototype.click = () => {};
-  return box;
+// Intercepts GSRFileSaver.saveFile(content, name) and records its arguments,
+// so a test sees exactly the text/filename the Export button would save
+// without jsdom needing showSaveFilePicker or a real <a download>.
+function captureCsvExport(context) {
+  vm.runInContext(
+    'GSRFileSaver.saveFile = (content, name) => { globalThis.__savedCsv = { text: content, name }; return Promise.resolve(true); };',
+    context,
+  );
+  return {
+    get text() { return run(context, 'globalThis.__savedCsv && globalThis.__savedCsv.text'); },
+    get name() { return run(context, 'globalThis.__savedCsv && globalThis.__savedCsv.name'); },
+  };
 }
 
-test('exportCsv: emits the canonical 11-column schema, both metadata lines, and sentinel-correct rows', () => {
-  const { window, context } = bootLive();
-  const csv = captureCsvExport(window);
+test('exportCsv: hands GSRFileSaver a .csv name and the full buildLiveCsv text (integrity bracket included)', () => {
+  const { context } = bootLive();
+  const csv = captureCsvExport(context);
   run(context, 'Date.now = () => 1700000123456'); // -> epoch seconds 1700000123
 
   run(context, `
@@ -860,48 +867,47 @@ test('exportCsv: emits the canonical 11-column schema, both metadata lines, and 
   run(context, 'exportCsv()');
   const lines = csv.text.split('\n');
 
-  // docs/csv_schema.md §"Column Definitions" — GPS+GSR is exactly these 11.
-  assert.strictEqual(lines[0], '# RecordingStartTime:1700000111'); // 1700000123 - floor(12.60)
-  assert.strictEqual(lines[1], '# DeviceName:LiveStream');
-  assert.strictEqual(lines[2], 'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m');
+  assert.match(csv.name, /^biomap_live_.*\.csv$/, 'saved with a .csv filename');
+  // firmware/modules/sd_logger.c SD_LOGGER_INTEGRITY_LINE is the file's first line.
+  assert.strictEqual(lines[0], '# Integrity: crc32 v1');
+  assert.strictEqual(lines[1], '# RecordingStartTime:1700000111'); // 1700000123 - floor(12.60)
+  assert.strictEqual(lines[2], '# DeviceName:LiveStream');
+  assert.strictEqual(lines[3], 'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m');
 
-  // Valid fix: lat/lon to 7dp, DOP/speed/course/gsr to 1dp, sats+fix as ints,
-  // hacc_m always the trailing empty field (the wire packet never carries it).
-  assert.strictEqual(lines[3], '0.30,51.5074000,-0.1278000,1.2,1.8,9,3,3.4,270.0,1234.5,');
-  // No-fix sample: lat AND lon are the empty string, never "NaN"; every other
-  // column still present (docs/csv_schema.md §"GPS Column Sentinel Behaviour").
-  assert.strictEqual(lines[4], '12.60,,,99.9,99.9,0,1,0.0,0.0,800.0,');
+  // Valid fix: biomap_format_gps_row() "%.2f,%.7f,%.7f,%.1f,%.1f,%d,%d,%.2f,%.1f,%.1f,%.1f"
+  // — speed_kts is 2 dp; hacc_m (final field) is empty on the wire.
+  assert.strictEqual(lines[4], '0.30,51.5074000,-0.1278000,1.2,1.8,9,3,3.40,270.0,1234.5,');
+  // No-fix sample: firmware's "%.2f,,,,,,,,,%.1f," branch — every GPS column
+  // empty, only timestamp + gsr_raw carry a value.
+  assert.strictEqual(lines[5], '12.60,,,,,,,,,800.0,');
 
-  // Trailing newline, and every data row carries exactly 11 fields (10 commas).
-  assert.strictEqual(lines[5], '');
-  for (const row of [lines[3], lines[4]]) {
-    assert.strictEqual(row.split(',').length, 11, `row has 11 fields: ${row}`);
-  }
+  // Trailer last, with sd_logger_write_trailer()'s token layout (overflows /
+  // flush_fails are a truthful 0 for a card-less live session).
+  assert.match(csv.text, /\n# End rows:2 bytes:\d+ crc32:[0-9a-f]{8} end_time:1700000123 overflows:0 flush_fails:0\n$/);
 });
 
 test('exportCsv: RecordingStartTime is wall-clock-now minus the last packet\'s device uptime, floored', () => {
-  const { window, context } = bootLive();
-  const csv = captureCsvExport(window);
+  const { context } = bootLive();
+  const csv = captureCsvExport(context);
   run(context, 'Date.now = () => 1_699_999_999_000'); // epoch seconds 1699999999
   run(context, 'LiveState.packets = [{ timestamp: 100.9, valid: false, lat: NaN, lon: NaN, hdop: 99.9, pdop: 99.9, sats: 0, fixType: 0, speedKts: 0, courseDeg: 0, gsrRaw: 1 }]');
 
   run(context, 'exportCsv()');
 
   // 1699999999 - floor(100.9) == 1699999899
-  assert.match(csv.text, /^# RecordingStartTime:1699999899\n/);
+  assert.match(csv.text, /^# Integrity: crc32 v1\n# RecordingStartTime:1699999899\n/);
 });
 
-test('exportCsv: a session with no packets still produces just the header (no throw, no rows)', () => {
-  const { window, context } = bootLive();
-  const csv = captureCsvExport(window);
+test('exportCsv: a session with no packets still produces a valid file (header + zero-row trailer)', () => {
+  const { context } = bootLive();
+  const csv = captureCsvExport(context);
   run(context, 'Date.now = () => 1700000000000');
 
   run(context, 'exportCsv()');
 
-  assert.strictEqual(
+  assert.match(
     csv.text,
-    '# RecordingStartTime:1700000000\n# DeviceName:LiveStream\n'
-    + 'timestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m\n',
+    /^# Integrity: crc32 v1\n# RecordingStartTime:1700000000\n# DeviceName:LiveStream\ntimestamp,lat,lon,hdop,pdop,sats,fix_type,speed_kts,course_deg,gsr_raw,hacc_m\n# End rows:0 bytes:\d+ crc32:[0-9a-f]{8} end_time:1700000000 overflows:0 flush_fails:0\n$/,
   );
 });
 
