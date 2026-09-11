@@ -790,15 +790,33 @@ class GSRAnalyzer {
     }
 
     this._driverAlgorithm = algorithm === 'sparseda' ? 'sparseda' : 'matching_pursuit';
-    const result = SCRDeconvolution.deconvolve(phasicArr, this.sampleRate, {
+    const deconvInput = (algorithm === 'sparseda')
+      ? Float64Array.from(this.filtered, d => d.val)
+      : phasicArr;
+    const result = SCRDeconvolution.deconvolve(deconvInput, this.sampleRate, {
       tauSlow: scf.tauSlow, tauFast: scf.tauFast, kernelSec: scf.kernelSec,
-      maxIter: scf.maxIter, lr: scf.lr, convTol: scf.convTol,
+      maxIter: algorithm === 'sparseda' ? (scf.sparsedaKmax ?? 40) : scf.maxIter,
+      lr: scf.lr, convTol: scf.convTol,
       minImpulseGapSec: scf.minImpulseGapSec,
       epsilon: scf.sparsedaEpsilon,
       dminSec: scf.sparsedaDminSec,
       rho: scf.sparsedaRho,
       algorithm: algorithm
     });
+    if (algorithm === 'sparseda' && result.tonic && result.tonic.length === n) {
+      this._tonicOrig = this.tonic;
+      const tonicClean = new Array(n);
+      let toMn = Infinity, toMx = -Infinity;
+      for (let i = 0; i < n; i++) {
+        const v = result.tonic[i];
+        tonicClean[i] = { time: times[i], val: v };
+        if (v < toMn) toMn = v;
+        if (v > toMx) toMx = v;
+      }
+      this.tonic = tonicClean;
+      this._seriesRange.tonic = { min: toMn, max: toMx };
+      this.tonicZ = GsrFilter.standardizeSignal(this.tonic, null);
+    }
 
     // Diagnostic: whether matching pursuit converged (residual < convTol)
     // before exhausting its iteration budget, or was truncated by maxIter.
@@ -2453,4 +2471,3 @@ if (typeof module !== 'undefined' && module.exports) {
 } else {
   window.GSRAnalyzer = GSRAnalyzer;
 }
-

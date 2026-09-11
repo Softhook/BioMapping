@@ -318,8 +318,12 @@ const SCRDeconvolution = {
       iterations++;
       const updated = this._updateChol(RI, columns, activeSet, idx, zeroTol);
       RI = updated.RI;
-      activeSet.push(idx);
-      activationHist.push(idx);
+      if (updated.flag) {
+        collinear.add(idx);
+      } else {
+        activeSet.push(idx);
+        activationHist.push(idx);
+      }
     }
 
     const res = Float64Array.from(s);
@@ -336,7 +340,8 @@ const SCRDeconvolution = {
           iterations++;
           const updated = this._updateChol(RI, columns, activeSet, idx, zeroTol);
           RI = updated.RI;
-          activeSet.push(idx);
+          if (updated.flag) collinear.add(idx);
+          else activeSet.push(idx);
         }
         activationHist.push(...activeSet);
       } else {

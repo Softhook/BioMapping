@@ -123,6 +123,7 @@ const GSR_CONST = {
     // dmin=1.25*sr, rho=0.025. These are only used when
     // deconvAlgorithm === 'sparseda'; the matching-pursuit path continues to
     // use the MP-specific maxIter/convTol/minImpulseGapSec knobs above.
+    sparsedaKmax: 40,
     sparsedaEpsilon: 1.0,
     sparsedaDminSec: 1.25,
     sparsedaRho: 0.025,
