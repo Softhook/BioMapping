@@ -119,6 +119,13 @@ const GSR_CONST = {
     // comment in analyzer.js. Deliberately far below impulseThreshold; this
     // only rejects near-zero apexes, not small-but-real ones.
     minApexVal: 0.001,
+    // Official SparsEDA reference defaults: epsilon=1, Kmax=40,
+    // dmin=1.25*sr, rho=0.025. These are only used when
+    // deconvAlgorithm === 'sparseda'; the matching-pursuit path continues to
+    // use the MP-specific maxIter/convTol/minImpulseGapSec knobs above.
+    sparsedaEpsilon: 1.0,
+    sparsedaDminSec: 1.25,
+    sparsedaRho: 0.025,
     deconvAlgorithm: 'sparseda' // 'sparseda' | 'matching_pursuit' | 'cvxeda'
   },
 

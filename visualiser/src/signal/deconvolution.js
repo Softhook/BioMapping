@@ -12,23 +12,13 @@
  *   3. Greco, A., Valenza, G., Lanata, A., Scilingo, E. P., & Citi, L. (2016).
  *      cvxEDA: A Convex Optimization Approach to Electrodermal Activity Processing.
  *
- * The Bateman (bi-exponential) SCRF kernel:
- *   SCRF(t) = exp(−t/τ_slow) − exp(−t/τ_fast)
- *
- * Default dictionary atoms:
- *   - Fast:     τ_slow = 1.5 s, τ_fast = 0.40 s  (sharp, acute response)
- *   - Standard: τ_slow = 2.0 s, τ_fast = 0.75 s  (canonical Benedek & Kaernbach default)
- *   - Slow:     τ_slow = 3.5 s, τ_fast = 1.20 s  (broad / prolonged recovery)
- *
  * Sparse Non-negative Deconvolution (SparsEDA):
- *   Solves the sparse recovery problem:
- *     minimise ½·‖y − ∑_k D_k * x_k‖²  subject to x_k ≥ 0
- *   using dictionary-matched impulse selection and active-set local coordinate
- *   descent refinement. Unlike greedy single-kernel matching pursuit (which
- *   overestimates energy in overlapping responses by 60–70% and requires
- *   post-hoc heuristics), this joint refinement decouples overlapping atoms,
- *   preserves physical energy scaling naturally, and adapts to varying SCR
- *   morphologies without generating false peaks or ringing.
+ *   This module's `algorithm: 'sparseda'` path is a direct JS port of the
+ *   official reference implementation (`fhernandogallego/sparsEDA`): the same
+ *   70 s overlap-save windows, 5-scale SCR dictionary, 6-column tonic basis,
+ *   non-negative LARS/LASSO inner solver, and the same post-processing
+ *   (`dmin` spacing + `rho` relative-amplitude threshold). The legacy
+ *   `matching_pursuit` path is retained separately for backward compatibility.
  */
 
 const SCRDeconvolution = {
@@ -125,6 +115,296 @@ const SCRDeconvolution = {
     return out;
   },
 
+  _norm2(vec, start = 0, end = vec.length) {
+    let sum = 0;
+    for (let i = start; i < end; i++) sum += vec[i] * vec[i];
+    return Math.sqrt(sum);
+  },
+
+  _dot(a, b) {
+    let sum = 0;
+    for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
+    return sum;
+  },
+
+  _solveUpperTriangular(U, b, transpose = false) {
+    const n = b.length;
+    const x = new Float64Array(n);
+    if (transpose) {
+      for (let i = 0; i < n; i++) {
+        let sum = b[i];
+        for (let k = 0; k < i; k++) sum -= U[k][i] * x[k];
+        x[i] = sum / U[i][i];
+      }
+      return x;
+    }
+    for (let i = n - 1; i >= 0; i--) {
+      let sum = b[i];
+      for (let k = i + 1; k < n; k++) sum -= U[i][k] * x[k];
+      x[i] = sum / U[i][i];
+    }
+    return x;
+  },
+
+  _updateChol(RI, columns, activeSet, newIndex, zeroTol) {
+    const newVec = columns[newIndex];
+    if (activeSet.length === 0) {
+      return { RI: [Float64Array.from([Math.sqrt(this._dot(newVec, newVec))])], flag: 0 };
+    }
+
+    const rhs = new Float64Array(activeSet.length);
+    for (let i = 0; i < activeSet.length; i++) {
+      rhs[i] = this._dot(columns[activeSet[i]], newVec);
+    }
+    const p = this._solveUpperTriangular(RI, rhs, true);
+    let q = this._dot(newVec, newVec);
+    for (let i = 0; i < p.length; i++) q -= p[i] * p[i];
+    if (q <= zeroTol) return { RI, flag: 1 };
+
+    const m = RI.length;
+    const next = new Array(m + 1);
+    for (let r = 0; r < m; r++) {
+      const row = new Float64Array(m + 1);
+      row.set(RI[r], 0);
+      row[m] = p[r];
+      next[r] = row;
+    }
+    const last = new Float64Array(m + 1);
+    last[m] = Math.sqrt(q);
+    next[m] = last;
+    return { RI: next, flag: 0 };
+  },
+
+  _buildReferenceDictionary(sampleRate) {
+    const durationR = 70;
+    const Lreg = Math.round(20 * sampleRate * 3);
+    const N = Math.round(durationR * sampleRate);
+    const T = 6;
+    const columns = new Array(T + 5 * Lreg);
+    const srFactors = [0.5, 0.75, 1.0, 1.25, 1.5];
+
+    for (let band = 0; band < srFactors.length; band++) {
+      const srF = sampleRate * srFactors[band];
+      const rf = [];
+      for (let t = 0; t <= 10 + 1e-12; t += 1 / srF) {
+        rf.push(Math.exp(-t / 2) - Math.exp(-t / 0.5));
+      }
+      let rfNorm = 0;
+      for (let i = 0; i < rf.length; i++) rfNorm += rf[i] * rf[i];
+      rfNorm = Math.sqrt(rfNorm);
+      for (let i = 0; i < rf.length; i++) rf[i] /= rfNorm;
+
+      const base = T + band * Lreg;
+      for (let c = 0; c < Lreg; c++) {
+        const col = new Float64Array(N);
+        const limit = Math.min(rf.length, N - c);
+        for (let k = 0; k < limit; k++) col[c + k] = rf[k];
+        columns[base + c] = col;
+      }
+    }
+
+    const c0 = new Float64Array(N);
+    const c1 = new Float64Array(N);
+    const c2 = new Float64Array(N);
+    const c3 = new Float64Array(N);
+    const c4 = new Float64Array(N);
+    const c5 = new Float64Array(N);
+    for (let i = 0; i < Lreg; i++) {
+      const frac = Lreg > 1 ? i / (Lreg - 1) : 0;
+      c0[i] = frac;
+      c1[i] = -frac;
+    }
+    const start2 = Math.floor(Lreg / 3);
+    const len2 = Lreg - start2;
+    for (let i = 0; i < len2; i++) {
+      const frac = len2 > 1 ? i / (len2 - 1) : 0;
+      c2[start2 + i] = (2 / 3) * frac;
+      c3[start2 + i] = -(2 / 3) * frac;
+    }
+    const start4 = Math.floor((2 * Lreg) / 3);
+    const len4 = Lreg - start4;
+    for (let i = 0; i < len4; i++) {
+      const frac = len4 > 1 ? i / (len4 - 1) : 0;
+      c4[start4 + i] = (1 / 3) * frac;
+      c5[start4 + i] = -(1 / 3) * frac;
+    }
+    let cte = 0;
+    for (let i = 0; i < N; i++) cte += c0[i] * c0[i];
+    const sclScale = Math.sqrt(cte);
+    for (const col of [c0, c1, c2, c3, c4, c5]) {
+      for (let i = 0; i < N; i++) col[i] /= sclScale;
+    }
+    columns[0] = c0;
+    columns[1] = c1;
+    columns[2] = c2;
+    columns[3] = c3;
+    columns[4] = c4;
+    columns[5] = c5;
+
+    return { columns, Lreg, N, T };
+  },
+
+  _linearResampleTo(signal, sampleRate, targetRate) {
+    if (!(sampleRate > targetRate)) {
+      return { values: Float64Array.from(signal), outputLength: signal.length, rate: sampleRate };
+    }
+    const outputLength = Math.max(1, Math.floor(targetRate * signal.length / sampleRate));
+    const out = new Float64Array(outputLength);
+    const scale = sampleRate / targetRate;
+    for (let i = 0; i < outputLength; i++) {
+      const src = i * scale;
+      const lo = Math.floor(src);
+      const hi = Math.min(signal.length - 1, lo + 1);
+      const frac = src - lo;
+      out[i] = signal[lo] * (1 - frac) + signal[hi] * frac;
+    }
+    return { values: out, outputLength, rate: targetRate };
+  },
+
+  _linearResampleBack(signal, inputRate, targetLength, targetRate) {
+    if (signal.length === targetLength && inputRate === targetRate) return Float64Array.from(signal);
+    const out = new Float64Array(targetLength);
+    const scale = inputRate / targetRate;
+    for (let i = 0; i < targetLength; i++) {
+      const src = i * scale;
+      const lo = Math.max(0, Math.min(signal.length - 1, Math.floor(src)));
+      const hi = Math.max(0, Math.min(signal.length - 1, lo + 1));
+      const frac = src - lo;
+      out[i] = signal[lo] * (1 - frac) + signal[hi] * frac;
+    }
+    return out;
+  },
+
+  _runReferenceLasso(columns, s, sampleRate, maxIter, epsilon) {
+    const W = columns.length;
+    const zeroTol = 1e-5;
+    const optTol = -10;
+    const resStop2 = 0.0005;
+    const lambdaStop = 0;
+
+    const x = new Float64Array(W);
+    const xOld = new Float64Array(W);
+    let iterations = 0;
+
+    const c = new Float64Array(W);
+    let lambda = -Infinity;
+    for (let j = 0; j < W; j++) {
+      const val = this._dot(columns[j], s);
+      c[j] = val;
+      if (val > lambda) lambda = val;
+    }
+    if (lambda < 0) throw new Error('y is not expressible as a non-negative linear combination of the dictionary');
+
+    let newIndices = [];
+    for (let j = 0; j < W; j++) if (Math.abs(c[j] - lambda) < zeroTol) newIndices.push(j);
+    const collinear = new Set();
+    const activeSet = [];
+    const activationHist = [];
+    let RI = null;
+    for (const idx of newIndices) {
+      iterations++;
+      const updated = this._updateChol(RI, columns, activeSet, idx, zeroTol);
+      RI = updated.RI;
+      activeSet.push(idx);
+      activationHist.push(idx);
+    }
+
+    const res = Float64Array.from(s);
+    let done = false;
+    while (!done) {
+      if (activationHist.length === 4) {
+        lambda = -Infinity;
+        newIndices = [];
+        for (let j = 0; j < W; j++) if (c[j] > lambda) lambda = c[j];
+        for (let j = 0; j < W; j++) if (Math.abs(c[j] - lambda) < zeroTol) newIndices.push(j);
+        activeSet.length = 0;
+        RI = null;
+        for (const idx of newIndices) {
+          iterations++;
+          const updated = this._updateChol(RI, columns, activeSet, idx, zeroTol);
+          RI = updated.RI;
+          activeSet.push(idx);
+        }
+        activationHist.push(...activeSet);
+      } else {
+        lambda = c[activeSet[0]];
+      }
+
+      const activeSigns = new Float64Array(activeSet.length);
+      for (let i = 0; i < activeSet.length; i++) activeSigns[i] = Math.sign(c[activeSet[i]]);
+      const z = this._solveUpperTriangular(RI, activeSigns, true);
+      const dxActive = this._solveUpperTriangular(RI, z, false);
+      const dx = new Float64Array(W);
+      for (let i = 0; i < activeSet.length; i++) dx[activeSet[i]] = dxActive[i];
+
+      const v = new Float64Array(s.length);
+      for (let i = 0; i < activeSet.length; i++) {
+        const coeff = dxActive[i];
+        if (coeff === 0) continue;
+        const col = columns[activeSet[i]];
+        for (let r = 0; r < s.length; r++) v[r] += coeff * col[r];
+      }
+
+      const ATv = new Float64Array(W);
+      for (let j = 0; j < W; j++) ATv[j] = this._dot(columns[j], v);
+
+      let gammaIc = 1;
+      newIndices = [];
+      {
+        let best = Infinity;
+        for (let j = 0; j < W; j++) {
+          if (activeSet.includes(j) || collinear.has(j)) continue;
+          const gamma = (lambda - c[j]) / (1 - ATv[j] + 1e-12);
+          if (gamma < zeroTol) continue;
+          if (gamma < best - zeroTol) {
+            best = gamma;
+            newIndices = [j];
+          } else if (Math.abs(gamma - best) < zeroTol) {
+            newIndices.push(j);
+          }
+        }
+        if (newIndices.length > 0) gammaIc = best;
+      }
+
+      const gammaMin = gammaIc;
+      for (let j = 0; j < W; j++) x[j] += gammaMin * dx[j];
+      for (let i = 0; i < res.length; i++) res[i] -= gammaMin * v[i];
+      for (let j = 0; j < W; j++) c[j] -= gammaMin * ATv[j];
+
+      if ((lambda - gammaMin) < optTol || (lambdaStop > 0 && lambda <= lambdaStop) || (epsilon > 0 && this._norm2(res) <= epsilon)) {
+        newIndices = [];
+        done = true;
+      }
+      if (this._norm2(res, 0, Math.min(res.length, Math.round(sampleRate * 20))) <= resStop2) done = true;
+
+      for (const idx of newIndices) {
+        iterations++;
+        const updated = this._updateChol(RI, columns, activeSet, idx, zeroTol);
+        RI = updated.RI;
+        if (updated.flag) {
+          collinear.add(idx);
+        } else {
+          activeSet.push(idx);
+          activationHist.push(idx);
+        }
+      }
+      if (iterations >= maxIter) done = true;
+
+      let hasNegative = false;
+      for (let j = 0; j < W; j++) {
+        if (x[j] < 0) { hasNegative = true; break; }
+      }
+      if (hasNegative) {
+        x.set(xOld);
+        done = true;
+      } else {
+        xOld.set(x);
+      }
+    }
+
+    return { beta: x, iterations, activationHist, lambda, residual: res };
+  },
+
   /**
    * Sparse Nonnegative Deconvolution (SparsEDA) / Matching Pursuit.
    *
@@ -139,20 +419,23 @@ const SCRDeconvolution = {
    * @param {number} [opts.tauSlow=2.0]           - Canonical SCRF decay constant (s).
    * @param {number} [opts.tauFast=0.75]          - Canonical SCRF rise constant (s).
    * @param {number} [opts.kernelSec=5.0]         - Canonical kernel duration (s).
-   * @param {number} [opts.maxIter=100]           - Max iterations budget.
+   * @param {number} [opts.maxIter=100]           - Max iterations budget (MP) or Kmax (SparsEDA).
    * @param {number} [opts.lr=1.0]                - Atom amplitude scale (for MP).
-   * @param {number} [opts.convTol=0.001]         - Residual convergence threshold (µS).
-   * @param {number} [opts.minImpulseGapSec=0.5]  - Refractory gap between driver activations (s).
+   * @param {number} [opts.convTol=0.001]         - Residual convergence threshold (µS, MP).
+   * @param {number} [opts.minImpulseGapSec=0.5]  - Refractory gap between driver activations (s, MP).
+   * @param {number} [opts.epsilon=1.0]           - Residual stop threshold (official SparsEDA).
+   * @param {number} [opts.dminSec=1.25]          - Minimum spacing between kept driver events (official SparsEDA).
+   * @param {number} [opts.rho=0.025]             - Relative post-pruning threshold (official SparsEDA).
    * @param {string} [opts.algorithm='sparseda']  - 'sparseda' | 'matching_pursuit'.
-   * @param {boolean} [opts.useDictionary=true]   - Whether to use multi-atom dictionary.
-   * @param {Array<object>} [opts.dictionary]     - Custom dictionary if provided.
    * @returns {{
    *   driver: Float64Array,
    *   clean: Float64Array,
+   *   tonic?: Float64Array,
    *   kernel: Float64Array,
    *   iterations: number,
    *   impulseLog: Array<{clampedIndex: number, trueIndex: number, amplitude: number, atomName?: string, atomIdx?: number}>,
-   *   converged: boolean
+   *   converged: boolean,
+   *   applyRescale?: boolean
    * }}
    */
   deconvolve(phasic, sampleRate, opts = {}) {
@@ -164,7 +447,9 @@ const SCRDeconvolution = {
     const lr        = opts.lr        ?? 1.0;
     const convTol   = opts.convTol   ?? 0.001;
     const minGapSec = opts.minImpulseGapSec ?? 0.5;
-    const minGapSamples = Math.max(1, Math.round(minGapSec * sampleRate));
+    const epsilon = opts.epsilon ?? 1.0;
+    const dminSec = opts.dminSec ?? 1.25;
+    const rho = opts.rho ?? 0.025;
 
     const canonicalKernel = this.buildSCRFKernel(sampleRate, tauSlow, tauFast, kernelSec);
 
@@ -203,192 +488,196 @@ const SCRDeconvolution = {
       return this._deconvolveMP(phasic, sampleRate, canonicalKernel, maxIter, lr, convTol);
     }
 
-    // SparsEDA path: multi-atom dictionary or single specified atom
-    let dict;
-    if (opts.dictionary) {
-      dict = opts.dictionary;
-    } else if (opts.useDictionary === false) {
-      let pIdx = 0;
-      for (let i = 1; i < canonicalKernel.length; i++) {
-        if (canonicalKernel[i] > canonicalKernel[pIdx]) pIdx = i;
-      }
-      dict = [{ id: 0, name: 'standard', tauSlow, tauFast, kernelSec, kernel: canonicalKernel, peakIdx: pIdx }];
-    } else {
-      dict = this.buildDictionary(sampleRate, [
-        { name: 'fast',     tauSlow: 1.5, tauFast: 0.40, kernelSec: 5.0 },
-        { name: 'standard', tauSlow: tauSlow, tauFast: tauFast, kernelSec: kernelSec },
-        { name: 'slow',     tauSlow: 3.5, tauFast: 1.20, kernelSec: Math.max(6.0, kernelSec) }
-      ]);
-    }
-
-    return this._deconvolveSparsEDA(phasic, sampleRate, dict, canonicalKernel, maxIter, convTol, minGapSamples);
+    return this._deconvolveSparsEDA(phasic, sampleRate, canonicalKernel, maxIter, epsilon, dminSec, rho);
   },
 
   /**
-   * Core SparsEDA implementation: dictionary cross-correlation and active-set
-   * coordinate descent refinement to resolve overlapping responses.
+   * Core SparsEDA implementation: port of the official reference solver.
    * @private
    */
-  _deconvolveSparsEDA(phasic, sampleRate, dict, canonicalKernel, maxIter, convTol, minGapSamples) {
+  _deconvolveSparsEDA(phasic, sampleRate, canonicalKernel, maxIter, epsilon, dminSec, rho) {
     const n = phasic.length;
-    const residual = new Float64Array(n);
-    let hasPositive = false;
-    for (let i = 0; i < n; i++) {
-      const v = phasic[i];
-      if (v > convTol) hasPositive = true;
-      residual[i] = v > 0 ? v : 0;
+    if (n === 0) {
+      return {
+        driver: new Float64Array(0),
+        clean: new Float64Array(0),
+        tonic: new Float64Array(0),
+        kernel: canonicalKernel,
+        iterations: 0,
+        impulseLog: [],
+        converged: true,
+        applyRescale: false
+      };
     }
 
+    let hasPositive = false;
+    for (let i = 0; i < n; i++) {
+      if (phasic[i] > 0) { hasPositive = true; break; }
+    }
     if (!hasPositive) {
       return {
         driver: new Float64Array(n),
         clean: new Float64Array(n),
+        tonic: new Float64Array(n),
         kernel: canonicalKernel,
         iterations: 0,
         impulseLog: [],
-        converged: true
+        converged: true,
+        applyRescale: false
       };
     }
 
-    const activeImpulses = [];
-    let iterations = 0;
+    const targetRate = sampleRate > 8 ? 8 : sampleRate;
+    const resampled = this._linearResampleTo(phasic, sampleRate, targetRate);
+    const workSignal = resampled.values;
+    const workRate = resampled.rate;
 
-    for (let iter = 0; iter < maxIter; iter++) {
-      let maxVal = 0, maxIdx = -1;
-      for (let i = 0; i < n; i++) {
-        if (residual[i] > maxVal) { maxVal = residual[i]; maxIdx = i; }
-      }
-      if (maxVal < convTol || maxIdx < 0) break;
-      iterations++;
+    const padStart = Math.round(20 * workRate);
+    const padEnd = Math.round(60 * workRate);
+    const signalAdd = new Float64Array(workSignal.length + padStart + padEnd);
+    for (let i = 0; i < padStart; i++) signalAdd[i] = workSignal[0];
+    signalAdd.set(workSignal, padStart);
+    for (let i = 0; i < padEnd; i++) signalAdd[padStart + workSignal.length + i] = workSignal[workSignal.length - 1];
 
-      // Evaluate candidate atoms from dictionary on positive residual
-      let bestScore = -Infinity;
-      let bestAtomIdx = dict.length > 1 ? 1 : 0;
-      let bestOnset = maxIdx - dict[bestAtomIdx].peakIdx;
+    const pointerS = padStart;
+    const pointerE = pointerS + workSignal.length;
+    const { columns, Lreg, N, T } = this._buildReferenceDictionary(workRate);
+    const Ns = signalAdd.length;
+    const sclAux = new Float64Array(Ns);
+    const cleanAux = new Float64Array(Ns);
+    const driverAux = new Float64Array(Ns);
+    const resAux = new Float64Array(Ns);
+    let cutS = 0;
+    let cutE = N;
+    let b0 = 0;
+    let totalIterations = 0;
+    let truncated = false;
 
-      for (let d = 0; d < dict.length; d++) {
-        const atom = dict[d];
-        const kLen = atom.kernel.length;
-        const candOnset = maxIdx - atom.peakIdx;
+    while (cutE < Ns) {
+      const signalCut = signalAdd.subarray(cutS, cutE);
+      if (b0 === 0) b0 = signalCut[0];
 
-        let corr = 0, normSq = 0;
-        const startK = candOnset < 0 ? -candOnset : 0;
-        const endK = Math.min(kLen, n - candOnset);
-        for (let k = startK; k < endK; k++) {
-          const rVal = Math.max(0, residual[candOnset + k]);
-          const kVal = atom.kernel[k];
-          corr += rVal * kVal;
-          normSq += kVal * kVal;
-        }
+      const centered = new Float64Array(signalCut.length);
+      for (let i = 0; i < signalCut.length; i++) centered[i] = signalCut[i] - b0;
+      const lasso = this._runReferenceLasso(columns, centered, workRate, maxIter, epsilon);
+      totalIterations += lasso.iterations;
+      if (lasso.iterations >= maxIter) truncated = true;
+      const beta = lasso.beta;
 
-        if (normSq > 1e-9) {
-          const score = (corr * corr) / normSq;
-          if (score > bestScore) {
-            bestScore = score;
-            bestAtomIdx = d;
-            bestOnset = candOnset;
-          }
-        }
-      }
-
-      const atom = dict[bestAtomIdx];
-      const bestAmp = maxVal;
-
-      let existing = null;
-      for (let i = 0; i < activeImpulses.length; i++) {
-        if (activeImpulses[i].onsetIdx === bestOnset && activeImpulses[i].atomIdx === bestAtomIdx) {
-          existing = activeImpulses[i];
-          break;
-        }
-      }
-      if (existing) {
-        existing.amplitude += bestAmp;
-      } else {
-        activeImpulses.push({ onsetIdx: bestOnset, atomIdx: bestAtomIdx, amplitude: bestAmp });
+      const signalEst = new Float64Array(N);
+      for (let i = 0; i < N; i++) signalEst[i] = b0;
+      for (let j = 0; j < columns.length; j++) {
+        const coeff = beta[j];
+        if (coeff === 0) continue;
+        const col = columns[j];
+        for (let i = 0; i < N; i++) signalEst[i] += coeff * col[i];
       }
 
-      const startK = bestOnset < 0 ? -bestOnset : 0;
-      const endK = Math.min(atom.kernel.length, n - bestOnset);
-      for (let k = startK; k < endK; k++) {
-        residual[bestOnset + k] -= bestAmp * atom.kernel[k];
+      const remAout = new Float64Array(N);
+      for (let i = 0; i < N; i++) {
+        const diff = signalCut[i] - signalEst[i];
+        remAout[i] = diff * diff;
+      }
+      let res2 = 0, res3 = 0;
+      for (let i = Math.round(20 * workRate); i < Math.round(40 * workRate); i++) res2 += remAout[i];
+      for (let i = Math.round(40 * workRate); i < Math.round(60 * workRate); i++) res3 += remAout[i];
+
+      let jump = 1;
+      if (res2 < 1) {
+        jump = 2;
+        if (res3 < 1) jump = 3;
+      }
+
+      const scl = new Float64Array(N);
+      for (let i = 0; i < N; i++) scl[i] = b0;
+      for (let j = 0; j < T; j++) {
+        const coeff = beta[j];
+        if (coeff === 0) continue;
+        const col = columns[j];
+        for (let i = 0; i < N; i++) scl[i] += coeff * col[i];
+      }
+      const cleanChunk = new Float64Array(N);
+      for (let i = 0; i < N; i++) cleanChunk[i] = signalEst[i] - scl[i];
+
+      const driverChunk = new Float64Array(Lreg);
+      for (let offset = 0; offset < Lreg; offset++) {
+        let sum = 0;
+        for (let band = 0; band < 5; band++) sum += beta[T + band * Lreg + offset];
+        driverChunk[offset] = sum;
+      }
+
+      const chunkLen = jump * Math.round(20 * workRate);
+      const b0Row = chunkLen - 1;
+      let nextB0 = b0;
+      for (let j = 0; j < T; j++) nextB0 += columns[j][b0Row] * beta[j];
+      b0 = nextB0;
+
+      driverAux.set(driverChunk.subarray(0, chunkLen), cutS);
+      sclAux.set(scl.subarray(0, chunkLen), cutS);
+      cleanAux.set(cleanChunk.subarray(0, chunkLen), cutS);
+      resAux.set(remAout.subarray(0, chunkLen), cutS);
+      cutS += chunkLen;
+      cutE = cutS + N;
+    }
+
+    const driverWorkRaw = driverAux.slice(pointerS, pointerE);
+    const tonicWork = sclAux.slice(pointerS, pointerE);
+    const mseWork = resAux.slice(pointerS, pointerE);
+    const cleanWork = cleanAux.slice(pointerS, pointerE);
+    const minGapSamples = Math.max(1, Math.round(dminSec * workRate));
+
+    const candidates = [];
+    for (let i = 0; i < driverWorkRaw.length; i++) {
+      if (driverWorkRaw[i] > 0) candidates.push(i);
+    }
+    candidates.sort((a, b) => driverWorkRaw[b] - driverWorkRaw[a]);
+    const kept = [];
+    for (const idx of candidates) {
+      let farEnough = true;
+      for (const prev of kept) {
+        if (Math.abs(idx - prev) < minGapSamples) { farEnough = false; break; }
+      }
+      if (farEnough) kept.push(idx);
+    }
+
+    const driverWork = new Float64Array(driverWorkRaw.length);
+    let maxKept = 0;
+    for (const idx of kept) {
+      driverWork[idx] = driverWorkRaw[idx];
+      if (driverWork[idx] > maxKept) maxKept = driverWork[idx];
+    }
+    const threshold = rho * maxKept;
+    if (threshold > 0) {
+      for (let i = 0; i < driverWork.length; i++) {
+        if (driverWork[i] < threshold) driverWork[i] = 0;
       }
     }
 
-    // Coordinate descent refinement on active impulses to eliminate overlap inflation
-    if (activeImpulses.length > 1) {
-      // Recompute exact full residual: r = phasic - sum(a_i * k_i)
-      const cleanRec = new Float64Array(n);
-      for (const imp of activeImpulses) {
-        const a = dict[imp.atomIdx];
-        const sK = imp.onsetIdx < 0 ? -imp.onsetIdx : 0;
-        const eK = Math.min(a.kernel.length, n - imp.onsetIdx);
-        for (let k = sK; k < eK; k++) cleanRec[imp.onsetIdx + k] += imp.amplitude * a.kernel[k];
-      }
-      for (let i = 0; i < n; i++) residual[i] = phasic[i] - cleanRec[i];
-
-      for (let pass = 0; pass < 5; pass++) {
-        let maxChange = 0;
-        for (let i = 0; i < activeImpulses.length; i++) {
-          const cur = activeImpulses[i];
-          const a = dict[cur.atomIdx];
-          const sK = cur.onsetIdx < 0 ? -cur.onsetIdx : 0;
-          const eK = Math.min(a.kernel.length, n - cur.onsetIdx);
-
-          let corr = 0, normSq = 0;
-          for (let k = sK; k < eK; k++) {
-            corr += residual[cur.onsetIdx + k] * a.kernel[k];
-            normSq += a.kernel[k] * a.kernel[k];
-          }
-          if (normSq > 1e-9) {
-            const delta = corr / normSq;
-            const newAmp = Math.max(0, cur.amplitude + delta);
-            const actualDelta = newAmp - cur.amplitude;
-            if (Math.abs(actualDelta) > 1e-5) {
-              cur.amplitude = newAmp;
-              maxChange = Math.max(maxChange, Math.abs(actualDelta));
-              for (let k = sK; k < eK; k++) {
-                residual[cur.onsetIdx + k] -= actualDelta * a.kernel[k];
-              }
-            }
-          }
-        }
-        if (maxChange < 1e-4) break;
-      }
-    }
-
-    const finalImpulses = activeImpulses.filter(imp => imp.amplitude >= convTol);
-    finalImpulses.sort((a, b) => a.onsetIdx - b.onsetIdx);
-
-    const clean = new Float64Array(n);
-    const driver = new Float64Array(n);
+    const driver = this._linearResampleBack(driverWork, workRate, n, sampleRate);
+    const clean = this._linearResampleBack(cleanWork, workRate, n, sampleRate);
+    const tonic = this._linearResampleBack(tonicWork, workRate, n, sampleRate);
+    const mse = this._linearResampleBack(mseWork, workRate, n, sampleRate);
     const impulseLog = [];
-
-    for (const imp of finalImpulses) {
-      const atom = dict[imp.atomIdx];
-      const clamped = Math.max(0, imp.onsetIdx);
-      driver[clamped] += imp.amplitude;
-      impulseLog.push({
-        clampedIndex: clamped,
-        trueIndex: imp.onsetIdx,
-        amplitude: imp.amplitude,
-        atomName: atom.name,
-        atomIdx: imp.atomIdx
-      });
-      const startK = imp.onsetIdx < 0 ? -imp.onsetIdx : 0;
-      const endK = Math.min(atom.kernel.length, n - imp.onsetIdx);
-      for (let k = startK; k < endK; k++) {
-        clean[imp.onsetIdx + k] += imp.amplitude * atom.kernel[k];
+    for (let i = 0; i < driver.length; i++) {
+      if (driver[i] > 0) {
+        impulseLog.push({
+          clampedIndex: i,
+          trueIndex: i,
+          amplitude: driver[i]
+        });
       }
     }
 
     return {
       driver,
       clean,
+      tonic,
+      mse,
       kernel: canonicalKernel,
-      iterations,
+      iterations: totalIterations,
       impulseLog,
-      impulses: finalImpulses,
-      converged: iterations < maxIter
+      converged: !truncated,
+      applyRescale: false
     };
   },
 

@@ -794,6 +794,9 @@ class GSRAnalyzer {
       tauSlow: scf.tauSlow, tauFast: scf.tauFast, kernelSec: scf.kernelSec,
       maxIter: scf.maxIter, lr: scf.lr, convTol: scf.convTol,
       minImpulseGapSec: scf.minImpulseGapSec,
+      epsilon: scf.sparsedaEpsilon,
+      dminSec: scf.sparsedaDminSec,
+      rho: scf.sparsedaRho,
       algorithm: algorithm
     });
 
@@ -802,7 +805,7 @@ class GSRAnalyzer {
     // A truncated run means real SCRs may have been left unmodelled with no
     // visible sign in the results — check this if peak counts look low for
     // a long/busy recording.
-    this.phasicDeconvTruncated = result.iterations >= scf.maxIter;
+    this.phasicDeconvTruncated = !result.converged;
 
     this.phasicDriver = new Array(n);
     for (let i = 0; i < n; i++) {
@@ -960,8 +963,9 @@ class GSRAnalyzer {
     //
     // Guard: if cleanValsRaw sums to zero (no impulses passed the gate, e.g.
     // a recording with no detectable SCRs), skip the rescaling to avoid ÷0.
+    const shouldRescale = result.applyRescale !== false;
     let rescaleAmplitudes = 1.0;
-    {
+    if (shouldRescale) {
       let sumClean = 0, sumPhasic = 0;
       for (let i = 0; i < n; i++) { sumClean += cleanValsRaw[i]; sumPhasic += phasicVals[i]; }
       if (sumClean > 0) rescaleAmplitudes = sumPhasic / sumClean;
@@ -2449,5 +2453,4 @@ if (typeof module !== 'undefined' && module.exports) {
 } else {
   window.GSRAnalyzer = GSRAnalyzer;
 }
-
 
