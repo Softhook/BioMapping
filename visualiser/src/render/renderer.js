@@ -43,16 +43,17 @@ const EXCLUDE_BTN = {
 
 const GSRRenderer = {
   _styleCache: null,
-  _cachedOsmAnalyzer: null,
-  _cachedOsmDataVersion: null,
-  _cachedOsmSegments: null,
   // Boundary-digitising slack for "is this footpath in the park" — see
   // _classifyOsmContext's doc comment.
   PARK_EDGE_TOLERANCE_M: 15,
-  _cachedNdviAnalyzer: null,
-  _cachedNdviDataVersion: null,
-  _cachedNdviSegments: null,
-  _cachedNdviRange: null,
+  // One cache slot per background-band overlay (OSM context, NDVI) —
+  // {analyzer, dataVersion, segments, ...} — invalidated the same way for
+  // both: a fresh RLE pass only when the analyzer instance or its
+  // _dataVersion has changed since the last call. See _getBandSegments.
+  _bandCache: {
+    osm:  { analyzer: null, dataVersion: null, segments: null },
+    ndvi: { analyzer: null, dataVersion: null, segments: null, range: null }
+  },
 
   /**
    * Helper to retrieve CSS variable values from document stylesheet.
@@ -121,79 +122,65 @@ const GSRRenderer = {
   },
 
   /**
-   * Pre-compute and cache contiguous environmental segments across the entire track.
-   * Runs once when a track is loaded or re-enriched, keeping per-frame draw cost near zero.
+   * Cache-checked entry point for a background-band overlay's segments.
+   * `cache` is one of this._bandCache's per-overlay slots; `build(raw,
+   * cache)` does the actual work (and may stash extra state onto `cache`,
+   * e.g. NDVI's value range) — only called when `analyzer` or its
+   * `_dataVersion` has actually changed since the last call, so repeated
+   * per-frame draws stay O(1).
    */
-  _getOsmContextSegments(analyzer) {
+  _getBandSegments(cache, analyzer, build) {
     if (!analyzer || !analyzer.raw || analyzer.raw.length === 0) return null;
 
     const dataVersion = analyzer._dataVersion || 0;
-    if (this._cachedOsmAnalyzer === analyzer &&
-        this._cachedOsmDataVersion === dataVersion &&
-        this._cachedOsmSegments !== null) {
-      return this._cachedOsmSegments;
+    if (cache.analyzer === analyzer && cache.dataVersion === dataVersion && cache.segments !== null) {
+      return cache.segments;
     }
 
-    const raw = analyzer.raw;
+    cache.analyzer = analyzer;
+    cache.dataVersion = dataVersion;
+    cache.segments = build(analyzer.raw, cache);
+    return cache.segments;
+  },
+
+  /**
+   * Run-length-encode classify(sample) across `raw` into contiguous
+   * {cls, tStart, tEnd} segments — a background band is always "classify
+   * every sample, merge consecutive runs of the same key"; only what
+   * classify() returns (colour, label, ...) differs per overlay. `classify`
+   * returns null for "no band here" (a gap), or an object with at least a
+   * `key` used to detect a run boundary.
+   */
+  _rleSegments(raw, classify) {
     const n = raw.length;
-
-    // Fast check: verify first 50 samples to confirm OSM enrichment exists
-    let hasOsm = false;
-    const probeCount = Math.min(n, 50);
-    for (let i = 0; i < probeCount; i++) {
-      if (raw[i].osm_road_class !== undefined || raw[i].osm_in_park !== undefined) {
-        hasOsm = true;
-        break;
-      }
-    }
-    if (!hasOsm) {
-      this._cachedOsmAnalyzer = analyzer;
-      this._cachedOsmDataVersion = dataVersion;
-      this._cachedOsmSegments = [];
-      return this._cachedOsmSegments;
-    }
-
-    // Linear single-pass run-length encoding across the whole track
     const segments = [];
-    let curClass = this._classifyOsmContext(raw[0]);
-    let curKey = curClass ? curClass.key : null;
+    let curCls = classify(raw[0]);
+    let curKey = curCls ? curCls.key : null;
     let segStart = raw[0].time;
 
     for (let i = 1; i < n; i++) {
-      const cls = this._classifyOsmContext(raw[i]);
+      const cls = classify(raw[i]);
       const key = cls ? cls.key : null;
       if (key !== curKey) {
-        if (curClass) {
-          segments.push({
-            cls: curClass,
-            tStart: segStart,
-            tEnd: raw[i].time
-          });
-        }
-        curClass = cls;
+        if (curCls) segments.push({ cls: curCls, tStart: segStart, tEnd: raw[i].time });
+        curCls = cls;
         curKey = key;
         segStart = raw[i].time;
       }
     }
-    if (curClass) {
-      segments.push({
-        cls: curClass,
-        tStart: segStart,
-        tEnd: raw[n - 1].time
-      });
-    }
-
-    this._cachedOsmAnalyzer = analyzer;
-    this._cachedOsmDataVersion = dataVersion;
-    this._cachedOsmSegments = segments;
+    if (curCls) segments.push({ cls: curCls, tStart: segStart, tEnd: raw[n - 1].time });
     return segments;
   },
 
   /**
-   * Draw OpenStreetMap environmental context background bands behind the GSR signal curves.
-   * Iterates through pre-computed cached segments, skips out-of-view intervals in O(1),
-   * and renders subtle colored bands with boundary edges and optional top labels.
+   * Pre-compute and cache contiguous environmental segments across the entire track.
+   * Runs once when a track is loaded or re-enriched, keeping per-frame draw cost near zero.
    */
+  _getOsmContextSegments(analyzer) {
+    return this._getBandSegments(this._bandCache.osm, analyzer,
+      (raw) => this._rleSegments(raw, (s) => this._classifyOsmContext(s)));
+  },
+
   /**
    * Shared x-axis mapping for the background band renderers (OSM context,
    * NDVI) — both need the identical time→pixel math, only the per-segment
@@ -209,15 +196,17 @@ const GSRRenderer = {
     return { xLeftMargin, xRightMargin, xScale };
   },
 
-  drawOsmContextBands(tMin, tMax, yTop, yBottom) {
-    if (!AppState.analyzer) return;
-    const segments = this._getOsmContextSegments(AppState.analyzer);
+  /**
+   * Shared per-segment walk for the background-band overlays: viewport
+   * setup, out-of-view culling, and x1/x2/w pixel math are identical for
+   * every band renderer. `paint(seg, x1, x2, w)` is called for each visible
+   * segment and owns everything about how it actually looks.
+   */
+  _drawBandSegments(segments, tMin, tMax, paint) {
     if (!segments || segments.length === 0) return;
-
     const vp = this._bandViewport(tMin, tMax);
     if (!vp) return;
     const { xLeftMargin, xRightMargin, xScale } = vp;
-    const bandHeight = yBottom - yTop;
 
     for (let s = 0; s < segments.length; s++) {
       const seg = segments[s];
@@ -229,6 +218,20 @@ const GSRRenderer = {
       const w = x2 - x1;
       if (w < 0.5) continue;
 
+      paint(seg, x1, x2, w);
+    }
+  },
+
+  /**
+   * Draw OpenStreetMap environmental context background bands behind the GSR signal curves.
+   * Renders subtle colored bands with boundary edges and optional top labels.
+   */
+  drawOsmContextBands(tMin, tMax, yTop, yBottom) {
+    if (!AppState.analyzer) return;
+    const segments = this._getOsmContextSegments(AppState.analyzer);
+    const bandHeight = yBottom - yTop;
+
+    this._drawBandSegments(segments, tMin, tMax, (seg, x1, x2, w) => {
       // Fill band rectangle
       noStroke();
       fill(MapColors.hexToRgba(seg.cls.color, 0.12));
@@ -252,12 +255,13 @@ const GSRRenderer = {
         text(seg.cls.label, x1 + 4, yTop + 3);
         textStyle(NORMAL);
       }
-    }
+    });
   },
 
   /**
    * Pre-compute and cache contiguous NDVI colour-bucket segments across the
-   * whole track — the continuous-metric analogue of _getOsmContextSegments.
+   * whole track — the continuous-metric analogue of _getOsmContextSegments,
+   * sharing the same _getBandSegments cache and _rleSegments RLE core.
    * NDVI has no fixed categories, so it reuses the exact same 30-bucket LUT
    * (MapColors.getColorLut) and track-wide min/max normalisation the map's
    * path colouring already uses for 'ndvi_50m' (map_manager_path.js), rather
@@ -266,68 +270,35 @@ const GSRRenderer = {
    * are typically many samples long, keeping the RLE segment count small.
    */
   _getNdviContextSegments(analyzer) {
-    if (!analyzer || !analyzer.raw || analyzer.raw.length === 0) return null;
-
-    const dataVersion = analyzer._dataVersion || 0;
-    if (this._cachedNdviAnalyzer === analyzer &&
-        this._cachedNdviDataVersion === dataVersion &&
-        this._cachedNdviSegments !== null) {
-      return this._cachedNdviSegments;
-    }
-
-    const raw = analyzer.raw;
-    const n = raw.length;
-
-    let minVal = Infinity, maxVal = -Infinity;
-    for (let i = 0; i < n; i++) {
-      const v = raw[i].ndvi_50m;
-      if (typeof v === 'number' && !isNaN(v)) {
-        if (v < minVal) minVal = v;
-        if (v > maxVal) maxVal = v;
-      }
-    }
-
-    this._cachedNdviAnalyzer = analyzer;
-    this._cachedNdviDataVersion = dataVersion;
-
-    if (minVal === Infinity) {
-      // No NDVI sampled on this track yet.
-      this._cachedNdviSegments = [];
-      this._cachedNdviRange = null;
-      return this._cachedNdviSegments;
-    }
-    if (maxVal === minVal) maxVal = minVal + 1;
-    this._cachedNdviRange = { minVal, maxVal };
-
-    const lut = MapColors.getColorLut('ndvi_50m', minVal, maxVal);
-    const buckets = lut.length;
-    const range = maxVal - minVal;
-    const bucketOf = (v) => {
-      if (typeof v !== 'number' || isNaN(v)) return -1;
-      const b = ((v - minVal) * buckets) / range;
-      return b < 0 ? 0 : (b >= buckets ? buckets - 1 : b | 0);
-    };
-
-    const segments = [];
-    let curBucket = bucketOf(raw[0].ndvi_50m);
-    let segStart = raw[0].time;
-
-    for (let i = 1; i < n; i++) {
-      const b = bucketOf(raw[i].ndvi_50m);
-      if (b !== curBucket) {
-        if (curBucket !== -1) {
-          segments.push({ hsl: lut[curBucket], tStart: segStart, tEnd: raw[i].time });
+    return this._getBandSegments(this._bandCache.ndvi, analyzer, (raw, cache) => {
+      let minVal = Infinity, maxVal = -Infinity;
+      for (let i = 0; i < raw.length; i++) {
+        const v = raw[i].ndvi_50m;
+        if (typeof v === 'number' && !isNaN(v)) {
+          if (v < minVal) minVal = v;
+          if (v > maxVal) maxVal = v;
         }
-        curBucket = b;
-        segStart = raw[i].time;
       }
-    }
-    if (curBucket !== -1) {
-      segments.push({ hsl: lut[curBucket], tStart: segStart, tEnd: raw[n - 1].time });
-    }
+      if (minVal === Infinity) {
+        // No NDVI sampled on this track yet.
+        cache.range = null;
+        return [];
+      }
+      if (maxVal === minVal) maxVal = minVal + 1;
+      cache.range = { minVal, maxVal };
 
-    this._cachedNdviSegments = segments;
-    return segments;
+      const lut = MapColors.getColorLut('ndvi_50m', minVal, maxVal);
+      const buckets = lut.length;
+      const span = maxVal - minVal;
+
+      return this._rleSegments(raw, (s) => {
+        const v = s.ndvi_50m;
+        if (typeof v !== 'number' || isNaN(v)) return null;
+        const b = ((v - minVal) * buckets) / span;
+        const bucket = b < 0 ? 0 : (b >= buckets ? buckets - 1 : b | 0);
+        return { key: bucket, hsl: lut[bucket] };
+      });
+    });
   },
 
   /**
@@ -339,26 +310,13 @@ const GSRRenderer = {
   drawNdviContextBands(tMin, tMax, yTop, yBottom) {
     if (!AppState.analyzer) return;
     const segments = this._getNdviContextSegments(AppState.analyzer);
-    if (!segments || segments.length === 0) return;
-
-    const vp = this._bandViewport(tMin, tMax);
-    if (!vp) return;
-    const { xLeftMargin, xRightMargin, xScale } = vp;
     const bandHeight = yBottom - yTop;
 
     noStroke();
-    for (let s = 0; s < segments.length; s++) {
-      const seg = segments[s];
-      if (seg.tEnd <= tMin || seg.tStart >= tMax) continue;
-
-      const x1 = Math.max(xLeftMargin, xLeftMargin + (seg.tStart - tMin) * xScale);
-      const x2 = Math.min(xRightMargin, xLeftMargin + (seg.tEnd - tMin) * xScale);
-      const w = x2 - x1;
-      if (w < 0.5) continue;
-
-      fill(MapColors.hexToRgba(MapColors.hslStringToHex(seg.hsl), 0.4));
+    this._drawBandSegments(segments, tMin, tMax, (seg, x1, x2, w) => {
+      fill(MapColors.hexToRgba(MapColors.hslStringToHex(seg.cls.hsl), 0.4));
       rect(x1, yTop, w, bandHeight);
-    }
+    });
   },
 
   /**
@@ -372,8 +330,8 @@ const GSRRenderer = {
     if (!sample) return null;
     const v = sample.ndvi_50m;
     if (typeof v !== 'number' || isNaN(v)) return null;
-    this._getNdviContextSegments(analyzer); // ensures _cachedNdviRange is fresh
-    const range = this._cachedNdviRange;
+    this._getNdviContextSegments(analyzer); // ensures the range cache is fresh
+    const range = this._bandCache.ndvi.range;
     if (!range) return null;
     const lut = MapColors.getColorLut('ndvi_50m', range.minVal, range.maxVal);
     const span = range.maxVal - range.minVal;

@@ -69,12 +69,12 @@ test('_getNdviContextSegments: low vs high NDVI bucket into different, ordered c
   const analyzer = makeAnalyzer(raw);
   const segments = GSRRenderer._getNdviContextSegments(analyzer);
   assert.strictEqual(segments.length, 2, 'a clean step in NDVI should RLE into exactly two segments');
-  assert.notStrictEqual(segments[0].hsl, segments[1].hsl);
+  assert.notStrictEqual(segments[0].cls.hsl, segments[1].cls.hsl);
 
   // Matches MapColors' own low->high NDVI ramp (barren tan -> lush green).
   const lut = MapColors.getColorLut('ndvi_50m', 0.05, 0.85);
-  assert.strictEqual(segments[0].hsl, lut[0]);
-  assert.strictEqual(segments[1].hsl, lut[lut.length - 1]);
+  assert.strictEqual(segments[0].cls.hsl, lut[0]);
+  assert.strictEqual(segments[1].cls.hsl, lut[lut.length - 1]);
 });
 
 test('_getNdviContextSegments: NaN gaps (unsampled / step-hold-before-first-fix) are skipped, not drawn', () => {
