@@ -602,7 +602,8 @@ const deconvParams2 = {
   ...GSR_CONST.GSR_DEFAULT,
   tonicMethod: 'percentile',
   peakThreshold: deconvPeakThreshold,
-  useDeconvolution: true
+  useDeconvolution: true,
+  deconvAlgorithm: 'matching_pursuit'
 };
 deconvAnalyzer2.analyze(deconvParams2);
 console.log(`  Deconv pipeline: ${deconvAnalyzer2.phasicDriverPeaks.length} driver impulses → ${deconvAnalyzer2.peaks.length} detected peaks`);

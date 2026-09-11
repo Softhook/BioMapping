@@ -119,14 +119,15 @@ const GSR_CONST = {
     // comment in analyzer.js. Deliberately far below impulseThreshold; this
     // only rejects near-zero apexes, not small-but-real ones.
     minApexVal: 0.001,
-    // SparsEDA-specific defaults. Kmax, dmin and rho follow the reference
-    // implementation; epsilon is kept lower here because, unlike the upstream
-    // code, BioMapping's port honors the configured residual stop threshold.
+    // SparsEDA-specific defaults. Kmax, epsilon, dmin and rho follow the
+    // reference implementation. The analyzer still defaults to matching
+    // pursuit until the SparsEDA solver has a bounded fast path for long
+    // recordings.
     sparsedaKmax: 40,
-    sparsedaEpsilon: 0.01,
+    sparsedaEpsilon: 1.0,
     sparsedaDminSec: 1.25,
     sparsedaRho: 0.025,
-    deconvAlgorithm: 'sparseda' // 'sparseda' | 'matching_pursuit' | 'cvxeda'
+    deconvAlgorithm: 'matching_pursuit' // 'sparseda' | 'matching_pursuit' | 'cvxeda'
   },
 
   // ── cvxEDA Convex Optimization Decomposition (Greco, Citi et al., 2016) ─

@@ -44,7 +44,7 @@ module.exports = {
     minImpulseGapSec: 0.5,
     minApexVal: 0.001,
     sparsedaKmax: 40,
-    sparsedaEpsilon: 0.01,
+    sparsedaEpsilon: 1.0,
     sparsedaDminSec: 1.25,
     sparsedaRho: 0.025,
     deconvAlgorithm: 'matching_pursuit'

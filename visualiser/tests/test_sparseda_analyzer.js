@@ -65,5 +65,10 @@ test('GSRAnalyzer uses the reference SparsEDA path on a synthetic track', () => 
   assert.strictEqual(analyzer.phasicClean.length, analyzer.raw.length);
   assert.strictEqual(typeof analyzer.phasicDeconvTruncated, 'boolean');
   assert.ok(analyzer.phasicDriver.some(d => d.val > 0), 'SparsEDA should produce sparse driver activity');
+  assert.strictEqual(
+    analyzer.phasicDriverPeaks.length,
+    analyzer.phasicDriver.filter(d => d.val > 0).length,
+    'SparsEDA analyzer should preserve the solver-kept driver events'
+  );
   assert.ok(analyzer.peaks.length >= 3, `expected at least 3 detected peaks, got ${analyzer.peaks.length}`);
 });

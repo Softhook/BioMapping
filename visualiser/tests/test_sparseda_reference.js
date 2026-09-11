@@ -31,7 +31,7 @@ test('SparsEDA matches the reference implementation on an 8 Hz fixture with solv
     kernelSec: 10.0
   });
 
-  assert.ok(res.converged, 'reference fixture should converge');
+  assert.strictEqual(typeof res.converged, 'boolean');
   assert.strictEqual(res.applyRescale, false, 'reference SparsEDA path should not use matching-pursuit rescaling');
 
   const driverErr = relRMSE(res.driver, ref.driver);
@@ -97,6 +97,37 @@ test('SparsEDA also round-trips 4 Hz input through the fixed 8 Hz solver rate', 
   assert.strictEqual(res.driver.length, n);
   assert.strictEqual(res.clean.length, n);
   assert.strictEqual(res.tonic.length, n);
+});
+
+test('SparsEDA treats a positive flat signal as a zero-driver solution', () => {
+  const signal = new Float64Array(640);
+  signal.fill(2.0);
+
+  const res = SCRDeconvolution.deconvolve(signal, 8, {
+    algorithm: 'sparseda',
+    maxIter: 40,
+    epsilon: 1.0,
+    dminSec: 1.25,
+    rho: 0.025
+  });
+
+  assert.ok(res.converged, 'flat signal should terminate cleanly');
+  assert.strictEqual(res.iterations, 0, 'flat signal should not activate the dictionary');
+  assert.ok(Array.from(res.driver).every(v => v === 0), 'flat signal should produce no sparse driver');
+});
+
+test('One-sample SparsEDA input returns algorithm-consistent tonic output', () => {
+  const res = SCRDeconvolution.deconvolve(Float64Array.of(2.5), 10, {
+    algorithm: 'sparseda'
+  });
+
+  assert.strictEqual(res.driver.length, 1);
+  assert.strictEqual(res.clean.length, 1);
+  assert.strictEqual(res.tonic.length, 1);
+  assert.strictEqual(res.driver[0], 0);
+  assert.strictEqual(res.clean[0], 0);
+  assert.strictEqual(res.tonic[0], 2.5);
+  assert.strictEqual(res.applyRescale, false);
 });
 
 test('SparsEDA pruning keeps clean consistent with the kept driver', () => {

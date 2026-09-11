@@ -246,11 +246,63 @@ const SCRDeconvolution = {
     return { columns, Lreg, N, T, bandKernels };
   },
 
+  _gcd(a, b) {
+    let x = Math.abs(Math.round(a));
+    let y = Math.abs(Math.round(b));
+    while (y !== 0) {
+      const t = x % y;
+      x = y;
+      y = t;
+    }
+    return x || 1;
+  },
+
+  _resampledLength(inputLength, sampleRate, targetRate) {
+    if (sampleRate === targetRate) return inputLength;
+    return Math.max(1, Math.round(targetRate * inputLength / sampleRate));
+  },
+
+  _polyphaseResample(signal, upFactor, downFactor) {
+    const maxRate = Math.max(upFactor, downFactor);
+    const halfLen = 10 * maxRate;
+    const taps = new Float64Array(2 * halfLen + 1);
+    const cutoff = 1 / maxRate;
+    for (let i = 0; i < taps.length; i++) {
+      const n = i - halfLen;
+      const base = (n === 0)
+        ? cutoff
+        : Math.sin(Math.PI * cutoff * n) / (Math.PI * n);
+      const window = 0.54 + 0.46 * Math.cos(Math.PI * n / halfLen);
+      taps[i] = upFactor * base * window;
+    }
+
+    const outputLength = Math.max(1, Math.round(signal.length * upFactor / downFactor));
+    const out = new Float64Array(outputLength);
+    for (let i = 0; i < outputLength; i++) {
+      const center = i * downFactor;
+      const srcStart = Math.max(0, Math.ceil((center - halfLen) / upFactor));
+      const srcEnd = Math.min(signal.length - 1, Math.floor((center + halfLen) / upFactor));
+      let sum = 0;
+      for (let j = srcStart; j <= srcEnd; j++) {
+        sum += signal[j] * taps[center - j * upFactor + halfLen];
+      }
+      out[i] = sum;
+    }
+    return out;
+  },
+
   _linearResampleTo(signal, sampleRate, targetRate) {
     if (sampleRate === targetRate) {
       return { values: Float64Array.from(signal), outputLength: signal.length, rate: sampleRate };
     }
-    const outputLength = Math.max(1, Math.round(targetRate * signal.length / sampleRate));
+    if (sampleRate > targetRate) {
+      const gcd = this._gcd(sampleRate, targetRate);
+      const upFactor = Math.round(targetRate / gcd);
+      const downFactor = Math.round(sampleRate / gcd);
+      const out = this._polyphaseResample(signal, upFactor, downFactor);
+      return { values: out, outputLength: out.length, rate: targetRate };
+    }
+    const outputLength = this._resampledLength(signal.length, sampleRate, targetRate);
     const out = new Float64Array(outputLength);
     const scale = sampleRate / targetRate;
     for (let i = 0; i < outputLength; i++) {
@@ -309,6 +361,9 @@ const SCRDeconvolution = {
       if (val > lambda) lambda = val;
     }
     if (lambda < 0) throw new Error('y is not expressible as a non-negative linear combination of the dictionary');
+    if (lambda <= zeroTol) {
+      return { beta: x, iterations, activationHist: [], lambda, residual: Float64Array.from(s), converged: true };
+    }
 
     let newIndices = [];
     for (let j = 0; j < W; j++) if (Math.abs(c[j] - lambda) < zeroTol) newIndices.push(j);
@@ -330,6 +385,8 @@ const SCRDeconvolution = {
 
     const res = Float64Array.from(s);
     let done = false;
+    let hitIterCap = false;
+    let rolledBack = false;
     while (!done) {
       if (activationHist.length === 4) {
         lambda = -Infinity;
@@ -409,7 +466,10 @@ const SCRDeconvolution = {
           activationHist.push(idx);
         }
       }
-      if (iterations >= maxIter) done = true;
+      if (iterations >= maxIter) {
+        hitIterCap = true;
+        done = true;
+      }
 
       let hasNegative = false;
       for (let j = 0; j < W; j++) {
@@ -417,13 +477,14 @@ const SCRDeconvolution = {
       }
       if (hasNegative) {
         x.set(xOld);
+        rolledBack = true;
         done = true;
       } else {
         xOld.set(x);
       }
     }
 
-    return { beta: x, iterations, activationHist, lambda, residual: res };
+    return { beta: x, iterations, activationHist, lambda, residual: res, converged: !(hitIterCap || rolledBack) };
   },
 
   /**
@@ -434,7 +495,11 @@ const SCRDeconvolution = {
    * refinement (SparsEDA) to prevent the overestimation of overlapping responses
    * and resolve variable SCR morphologies.
    *
-   * @param {Float64Array|Array<number>} phasic   - Tonic-subtracted phasic (≥ 0).
+   * @param {Float64Array|Array<number>} phasic   - Input signal: tonic-subtracted
+   *                                                phasic (≥ 0) for matching
+   *                                                pursuit, or the full filtered
+   *                                                skin-conductance signal for
+   *                                                SparsEDA's joint tonic solve.
    * @param {number} sampleRate                   - Sampling rate in Hz.
    * @param {object} [opts]                       - Optional overrides.
    * @param {number} [opts.tauSlow=2.0]           - SCRF decay constant (MP, or SparsEDA when explicitly overridden).
@@ -468,6 +533,7 @@ const SCRDeconvolution = {
     const epsilon = opts.epsilon ?? 1.0;
     const dminSec = opts.dminSec ?? 1.25;
     const rho = opts.rho ?? 0.025;
+    const algorithm = opts.algorithm === 'matching_pursuit' ? 'matching_pursuit' : 'sparseda';
 
     if (n === 0) {
       return {
@@ -480,31 +546,29 @@ const SCRDeconvolution = {
       };
     }
 
-    if (n === 1) {
-      const driver = new Float64Array(1);
-      const clean = new Float64Array(1);
-      const val = phasic[0];
-      const hasAmp = val > convTol;
-      if (hasAmp) {
-        driver[0] = val;
-        clean[0] = val;
-      }
-      return {
-        driver,
-        clean,
-        kernel: this.buildSCRFKernel(sampleRate, 2.0, 0.75, 5.0),
-        iterations: hasAmp ? 1 : 0,
-        impulseLog: hasAmp ? [{ clampedIndex: 0, trueIndex: 0, amplitude: val, atomIdx: 0, atomName: 'standard' }] : [],
-        converged: true
-      };
-    }
-
-    // Legacy matching pursuit path if explicitly requested
-    if (opts.algorithm === 'matching_pursuit') {
+    if (algorithm === 'matching_pursuit') {
       const tauSlow   = opts.tauSlow   ?? 2.0;
       const tauFast   = opts.tauFast   ?? 0.75;
       const kernelSec = opts.kernelSec ?? 5.0;
       const canonicalKernel = this.buildSCRFKernel(sampleRate, tauSlow, tauFast, kernelSec);
+      if (n === 1) {
+        const driver = new Float64Array(1);
+        const clean = new Float64Array(1);
+        const val = phasic[0];
+        const hasAmp = val > convTol;
+        if (hasAmp) {
+          driver[0] = val;
+          clean[0] = val;
+        }
+        return {
+          driver,
+          clean,
+          kernel: canonicalKernel,
+          iterations: hasAmp ? 1 : 0,
+          impulseLog: hasAmp ? [{ clampedIndex: 0, trueIndex: 0, amplitude: val, atomIdx: 0, atomName: 'standard' }] : [],
+          converged: true
+        };
+      }
       return this._deconvolveMP(phasic, sampleRate, canonicalKernel, maxIter, lr, convTol);
     }
 
@@ -512,6 +576,23 @@ const SCRDeconvolution = {
     const tauFast   = opts.tauFast   ?? 0.5;
     const kernelSec = opts.kernelSec ?? 10.0;
     const referenceKernel = this.buildSCRFKernel(sampleRate, tauSlow, tauFast, kernelSec);
+    if (n === 1) {
+      const driver = new Float64Array(1);
+      const clean = new Float64Array(1);
+      const tonic = new Float64Array(1);
+      tonic[0] = phasic[0];
+      return {
+        driver,
+        clean,
+        tonic,
+        kernel: referenceKernel,
+        iterations: 0,
+        impulseLog: [],
+        converged: true,
+        applyRescale: false
+      };
+    }
+
     return this._deconvolveSparsEDA(phasic, sampleRate, referenceKernel, maxIter, epsilon, dminSec, rho, tauSlow, tauFast, kernelSec);
   },
 
@@ -552,19 +633,19 @@ const SCRDeconvolution = {
     }
 
     const targetRate = 8;
-    const resampled = this._linearResampleTo(phasic, sampleRate, targetRate);
-    const workSignal = resampled.values;
+    const padStartOrig = Math.round(20 * sampleRate);
+    const padEndOrig = Math.round(60 * sampleRate);
+    const signalAddOrig = new Float64Array(n + padStartOrig + padEndOrig);
+    for (let i = 0; i < padStartOrig; i++) signalAddOrig[i] = phasic[0];
+    signalAddOrig.set(phasic, padStartOrig);
+    for (let i = 0; i < padEndOrig; i++) signalAddOrig[padStartOrig + n + i] = phasic[n - 1];
+
+    const resampled = this._linearResampleTo(signalAddOrig, sampleRate, targetRate);
+    const signalAdd = resampled.values;
     const workRate = resampled.rate;
-
-    const padStart = Math.round(20 * workRate);
-    const padEnd = Math.round(60 * workRate);
-    const signalAdd = new Float64Array(workSignal.length + padStart + padEnd);
-    for (let i = 0; i < padStart; i++) signalAdd[i] = workSignal[0];
-    signalAdd.set(workSignal, padStart);
-    for (let i = 0; i < padEnd; i++) signalAdd[padStart + workSignal.length + i] = workSignal[workSignal.length - 1];
-
-    const pointerS = padStart;
-    const pointerE = pointerS + workSignal.length;
+    const workSignalLength = this._resampledLength(n, sampleRate, targetRate);
+    const pointerS = this._resampledLength(padStartOrig, sampleRate, targetRate);
+    const pointerE = pointerS + workSignalLength;
     const { columns, Lreg, N, T, bandKernels } = this._buildReferenceDictionary(workRate, tauSlow, tauFast, kernelSec);
     const Ns = signalAdd.length;
     const sclAux = new Float64Array(Ns);
@@ -589,7 +670,7 @@ const SCRDeconvolution = {
       for (let i = 0; i < signalCut.length; i++) centered[i] = signalCut[i] - b0;
       const lasso = this._runReferenceLasso(columns, centered, workRate, maxIter, epsilon);
       totalIterations += lasso.iterations;
-      if (lasso.iterations >= maxIter) truncated = true;
+      if (!lasso.converged) truncated = true;
       const beta = lasso.beta;
 
       const signalEst = new Float64Array(N);
