@@ -15,6 +15,11 @@
  * 11. Tiny n (4-10 samples), just above the n<4 early-return guard.
  * 12. alpha/gamma sensitivity: higher alpha sparsifies the driver, higher
  *     gamma smooths the tonic.
+ * 13. Non-converged solve degrades gracefully through the analyzer (finite
+ *     output, phasicDeconvTruncated set, no crash) -- not just at the
+ *     CVXEDA.decompose() level.
+ * 14. pivotFires: fires and self-corrects under a deliberately forced
+ *     past-convergence solve; stays 0 on every normal solve elsewhere.
  *
  * See also test_cvxeda_reference.js for cross-validation against real
  * cvxopt output.
@@ -387,6 +392,52 @@ test('cvxEDA integration: toggling cvxEDA off restores the EMA tonic (prefix-cac
   assert.ok(Math.abs(a.tonic[100].val - cvxT100) < 1e-9, 'cvxEDA re-run should be deterministic');
 });
 
+test('cvxEDA integration: a non-converged solve degrades gracefully — phasicDeconvTruncated set, no crash, finite output', () => {
+  const kernel = batemanKernel(120);
+  const rows = ['time,gsr'];
+  for (let i = 0; i < 1500; i++) {
+    const t = i / SR;
+    let g = 3.0 + 0.5 * Math.sin(t / 30) + 0.003 * t;
+    for (const [o, amp] of [[30, 0.4], [80, 0.3], [120, 0.5]]) {
+      const dt = i - o * SR;
+      if (dt >= 0 && dt < 120) g += amp * kernel[dt];
+    }
+    rows.push(`${t.toFixed(3)},${g.toFixed(6)}`);
+  }
+  const csv = rows.join('\n');
+  const base = { ...global.GSR_CONST.GSR_DEFAULT, tonicMethod: 'lpf', peakThreshold: 0.015 };
+
+  // The analyzer doesn't expose a per-call tol/maxIter override for cvxEDA
+  // (it reads GSR_CONST.CVXEDA.maxIter directly) -- mutate the shared mock
+  // config for the duration of this test to force non-convergence through
+  // the actual analyzer code path, not just CVXEDA.decompose() directly.
+  const originalMaxIter = global.GSR_CONST.CVXEDA.maxIter;
+  global.GSR_CONST.CVXEDA.maxIter = 2;
+  try {
+    const a = new GSRAnalyzer();
+    a.parseCSV(csv);
+    a.analyze({ ...base, useCvxEDA: true });
+
+    assert.strictEqual(a.phasicDeconvTruncated, true,
+      'a 2-iteration cap should be reported as truncated, not silently accepted');
+    // Graceful degradation: the analyzer should still produce a usable,
+    // correctly-shaped, finite result from the partial iterate -- not crash
+    // or leave stale/garbage data behind.
+    assert.strictEqual(a.phasicClean.length, 1500);
+    assert.strictEqual(a.phasicDriver.length, 1500);
+    assert.strictEqual(a.tonic.length, 1500);
+    for (let i = 0; i < 1500; i += 50) {
+      assert.ok(Number.isFinite(a.phasicClean[i].val), `phasicClean[${i}] should be finite`);
+      assert.ok(Number.isFinite(a.tonic[i].val), `tonic[${i}] should be finite`);
+      assert.ok(Number.isFinite(a.phasicDriver[i].val) && a.phasicDriver[i].val >= 0,
+        `phasicDriver[${i}] should be finite & non-negative`);
+    }
+    assert.ok(Array.isArray(a.peaks), 'peaks array should still be produced (even if under-detected)');
+  } finally {
+    global.GSR_CONST.CVXEDA.maxIter = originalMaxIter;
+  }
+});
+
 test('cvxEDA performance: 3,300-sample track solves to convergence in < 600ms', () => {
   const n = 3300;
   const input = new Float64Array(n);
@@ -411,6 +462,38 @@ test('cvxEDA: iteration cap is reported as non-convergence, not a silent stop', 
 
   const full = CVXEDA.decompose(input, SR);
   assert.ok(full.converged, 'the same signal converges with the default budget');
+});
+
+test('cvxEDA: pivotFires counts and self-corrects when a solve is forced far past its natural stopping point', () => {
+  // Every realistic track, flat signal, noisy signal and tiny-n case never
+  // needs the Cholesky pivot floor (see the other tests' pivotFires === 0
+  // assertions). The only reproduction found is deliberately pushing tol far
+  // tighter than any sane default -- into the regime where z/s weights blow
+  // past 1e9 -- which also naturally fails maxIter, so this exercises
+  // pivotFires as a diagnostic without the solver ever silently misreporting
+  // convergence.
+  const n = 1500, sr = 10;
+  const y = new Float64Array(n);
+  for (let i = 0; i < n; i++) y[i] = 2.5 + 0.5 * Math.sin(i / 150) + 0.15 * (i / n);
+  for (const [t0, amp] of [[50, 1.0], [200, 0.6], [450, 1.5], [460, 0.5], [800, 0.3], [1100, 1.1]]) {
+    for (let i = t0; i < Math.min(n, t0 + 200); i++) {
+      const tt = (i - t0) / sr;
+      y[i] += amp * (Math.exp(-tt / 2.0) - Math.exp(-tt / 0.7));
+    }
+  }
+
+  const forced = CVXEDA.decompose(y, sr, { tol: 1e-16, maxIter: 60 });
+  assert.strictEqual(forced.converged, false, 'forcing tol=1e-16 should exhaust the iteration budget');
+  assert.ok(forced.pivotFires > 0, `expected at least one pivot-floor fire, got ${forced.pivotFires}`);
+  for (let i = 0; i < n; i++) {
+    assert.ok(Number.isFinite(forced.phasic[i]) && Number.isFinite(forced.tonic[i]) && Number.isFinite(forced.driver[i]),
+      `sample ${i} should stay finite despite the pivot clamp firing`);
+  }
+
+  // The same signal with sane defaults never needs the fallback.
+  const normal = CVXEDA.decompose(y, sr);
+  assert.ok(normal.converged, 'the same signal converges cleanly with the default budget');
+  assert.strictEqual(normal.pivotFires, 0, 'a normal converged solve should never need the pivot floor');
 });
 
 test('cvxEDA: normalize:false solves directly in native units', () => {

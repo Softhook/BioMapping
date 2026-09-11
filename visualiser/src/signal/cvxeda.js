@@ -40,10 +40,12 @@
  * unknowns (dimension 2 + nB, ~n/100) are eliminated by a Schur complement,
  * rebuilt every Newton step since w changes every step. Convex QP + KKT
  * residuals → 0 is a global-optimality certificate, so this converges to the
- * same point CVXOPT does (validated to ~1e-6 relative RMSE against real
- * `cvxopt` output — see cvxEDA_ref cross-checks), typically in 10–25 Newton
- * iterations against CVXOPT's own similar count, and far fewer than the
- * hundreds an ADMM (first-order) solver needed for comparable accuracy.
+ * same point CVXOPT does — cross-checked against real `cvxopt` output in
+ * tests/test_cvxeda_reference.js (relRMSE ~1e-6 observed; the committed
+ * assertion is a looser 1e-4 to leave margin against a legitimate future
+ * tuning pass) — typically in 10–25 Newton iterations against CVXOPT's own
+ * similar count, and far fewer than the hundreds an ADMM (first-order)
+ * solver needed for comparable accuracy.
  */
 
 'use strict';
@@ -78,6 +80,11 @@ const CVXEDA = {
    *   the objective value (eq. 15) evaluated in the internal solve space
    *   (normalized, when normalize=true) — l/d/e/obj mirror the reference's
    *   `l, d, e, obj` return values for direct comparison against it.
+   *   rPrim/rDual are the terminal KKT residual norms (Boyd's primal/dual
+   *   naming) — rPrim is the slack-feasibility gap ‖s − A·q‖, rDual is the
+   *   *combined* stationarity residual ‖∇_q L‖ and ‖∇_{d,l} L‖ (both KKT
+   *   blocks together, not just the q-block). Both are ~0 at convergence;
+   *   nonzero at maxIter signals how far off a non-converged solve landed.
    *   pivotFires counts Cholesky pivots that hit the numerical floor during
    *   the solve — 0 on any well-conditioned run; nonzero means at least one
    *   Newton direction was computed against a nudged factorisation (rare,

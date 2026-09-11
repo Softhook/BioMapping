@@ -40,7 +40,7 @@ function relRMSE(a, b) {
   return Math.sqrt(num / Math.max(den, 1e-30));
 }
 
-test('cvxEDA vs real cvxopt reference: phasic/tonic/driver/l/d/obj all match to well within 1e-2 relative', () => {
+test('cvxEDA vs real cvxopt reference: phasic/tonic/driver/l/d/obj all match to well within 1e-4 relative', () => {
   // ref.y_z is already zscored (population std, matching normalize:true's
   // convention) -- feed with normalize:false for an apples-to-apples
   // comparison in the same space the reference itself solved in. Also pin
@@ -60,16 +60,18 @@ test('cvxEDA vs real cvxopt reference: phasic/tonic/driver/l/d/obj all match to 
   const driverErr = relRMSE(res.driver, ref.p);
   const lErr = relRMSE(res.l, ref.l);
 
-  // Thresholds are set an order of magnitude (or more) above what's actually
-  // observed (~1e-5 to 1e-7) -- tight enough to catch a real regression in
-  // the solver, loose enough not to flake on a legitimate future tuning pass.
-  assert.ok(phasicErr < 1e-3, `phasic relRMSE vs real cvxopt should be < 1e-3, got ${phasicErr.toExponential(2)}`);
-  assert.ok(tonicErr < 1e-3, `tonic relRMSE vs real cvxopt should be < 1e-3, got ${tonicErr.toExponential(2)}`);
-  assert.ok(driverErr < 1e-2, `driver relRMSE vs real cvxopt should be < 1e-2, got ${driverErr.toExponential(2)}`);
-  assert.ok(lErr < 1e-3, `spline coeff relRMSE vs real cvxopt should be < 1e-3, got ${lErr.toExponential(2)}`);
+  // Thresholds sit ~1-2 orders of magnitude above what's actually observed
+  // (phasic/tonic/l ~1e-6 to 1e-7, driver ~3e-5) -- tight enough to catch a
+  // real regression, loose enough not to flake on a legitimate future
+  // tuning pass. This is what backs the file header's "~1e-6 relRMSE,
+  // committed assertion 1e-4" claim -- keep the two in sync if either changes.
+  assert.ok(phasicErr < 1e-4, `phasic relRMSE vs real cvxopt should be < 1e-4, got ${phasicErr.toExponential(2)}`);
+  assert.ok(tonicErr < 1e-4, `tonic relRMSE vs real cvxopt should be < 1e-4, got ${tonicErr.toExponential(2)}`);
+  assert.ok(driverErr < 1e-3, `driver relRMSE vs real cvxopt should be < 1e-3, got ${driverErr.toExponential(2)}`);
+  assert.ok(lErr < 1e-4, `spline coeff relRMSE vs real cvxopt should be < 1e-4, got ${lErr.toExponential(2)}`);
 
-  assert.ok(Math.abs(res.d[0] - ref.d[0]) < 1e-2, `drift offset ${res.d[0]} should match reference ${ref.d[0]}`);
-  assert.ok(Math.abs(res.d[1] - ref.d[1]) < 1e-2, `drift slope ${res.d[1]} should match reference ${ref.d[1]}`);
+  assert.ok(Math.abs(res.d[0] - ref.d[0]) < 1e-3, `drift offset ${res.d[0]} should match reference ${ref.d[0]}`);
+  assert.ok(Math.abs(res.d[1] - ref.d[1]) < 1e-3, `drift slope ${res.d[1]} should match reference ${ref.d[1]}`);
   const objErr = Math.abs(res.obj - ref.obj) / Math.abs(ref.obj);
-  assert.ok(objErr < 1e-3, `objective value should match reference within 1e-3 relative, got ${objErr.toExponential(2)}`);
+  assert.ok(objErr < 1e-4, `objective value should match reference within 1e-4 relative, got ${objErr.toExponential(2)}`);
 });
