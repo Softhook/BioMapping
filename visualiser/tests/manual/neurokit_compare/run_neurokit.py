@@ -22,9 +22,34 @@ import pandas as pd
 import neurokit2 as nk
 
 
+# Mirrors GSRCSVParser's auto unit-detection in
+# visualiser/src/signal/csv_parser.js (~line 755-769): our own analyzer never
+# sees the bare gsr_raw column value - it converts to microsiemens first,
+# picking resistance-to-conductance or a /1000 rescale based on the average
+# magnitude. Skipping this here would feed NeuroKit2 raw ADC-scale values
+# (thousands, not the single-digit-to-low-double-digit uS BioMapping tracks
+# actually carry), silently invalidating amplitude-based comparisons like
+# eda_peaks's amplitude_min=0.1uS and cvxEDA's alpha/gamma penalty weights,
+# both of which assume real uS scale.
+RESISTANCE_MIN_AVG = 50000
+MICROSIEMENS_MIN_AVG = 100
+MICROSIEMENS_MAX_AVG = 50000
+
+
+def to_microsiemens(raw_vals, header_name):
+    avg_val = raw_vals.mean()
+    header_lower = (header_name or '').lower()
+    is_resistance_header = 'resistance' in header_lower or 'ohms' in header_lower
+    if is_resistance_header or avg_val > RESISTANCE_MIN_AVG:
+        return raw_vals.apply(lambda v: (1000000.0 / v) if v > 0 else 0.0)
+    if MICROSIEMENS_MIN_AVG < avg_val <= MICROSIEMENS_MAX_AVG:
+        return raw_vals / 1000.0
+    return raw_vals
+
+
 def process(csv_path):
     df = pd.read_csv(csv_path, comment='#')
-    eda = df['gsr_raw'].astype(float)
+    eda = to_microsiemens(df['gsr_raw'].astype(float), 'gsr_raw')
     ts = df['timestamp'].values
 
     dt = pd.Series(ts).diff()
