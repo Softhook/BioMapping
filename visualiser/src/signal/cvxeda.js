@@ -72,11 +72,17 @@ const CVXEDA = {
    * @returns {{
    *   phasic: Float64Array, tonic: Float64Array, driver: Float64Array,
    *   l: Float64Array, d: Float64Array, e: Float64Array, obj: number,
-   *   iterations: number, converged: boolean, rPrim: number, rDual: number
+   *   iterations: number, converged: boolean, rPrim: number, rDual: number,
+   *   pivotFires: number
    * }} phasic/tonic/driver/l/d/e are in the caller's native y units; obj is
    *   the objective value (eq. 15) evaluated in the internal solve space
    *   (normalized, when normalize=true) — l/d/e/obj mirror the reference's
    *   `l, d, e, obj` return values for direct comparison against it.
+   *   pivotFires counts Cholesky pivots that hit the numerical floor during
+   *   the solve — 0 on any well-conditioned run; nonzero means at least one
+   *   Newton direction was computed against a nudged factorisation (rare,
+   *   and self-corrects on the next iteration's fresh residuals, but worth
+   *   surfacing to a caller that wants to gate on solve quality).
    */
   decompose(yRaw, sampleRate, options = {}) {
     const n = yRaw.length;
@@ -86,7 +92,7 @@ const CVXEDA = {
         tonic: Float64Array.from(yRaw),
         driver: new Float64Array(n),
         l: new Float64Array(0), d: new Float64Array([0, 0]), e: new Float64Array(n), obj: 0,
-        iterations: 0, converged: true, rPrim: 0, rDual: 0
+        iterations: 0, converged: true, rPrim: 0, rDual: 0, pivotFires: 0
       };
     }
 
@@ -245,18 +251,18 @@ const CVXEDA = {
         const hi = Math.min(n, st + len);
         qsBStart[j] = lo;
         qsBLen[j] = hi - lo;
-        const w = new Float64Array(hi - lo);
-        for (let s = 0; s < hi - lo; s++) w[s] = tmpN[lo + s];
-        qsBVal[j] = w;
+        const bv = new Float64Array(hi - lo);
+        for (let s = 0; s < hi - lo; s++) bv[s] = tmpN[lo + s];
+        qsBVal[j] = bv;
       }
     }
     // dot(Kqs[:,r], vec) for an s-space column r
     const qsDot = (r, vec) => {
       if (r === 0) { let a = 0; for (let i = 0; i < n; i++) a += qsC0[i] * vec[i]; return a; }
       if (r === 1) { let a = 0; for (let i = 0; i < n; i++) a += qsC1[i] * vec[i]; return a; }
-      const j = r - 2, st = qsBStart[j], w = qsBVal[j], len = qsBLen[j];
+      const j = r - 2, st = qsBStart[j], bv = qsBVal[j], len = qsBLen[j];
       let a = 0;
-      for (let s = 0; s < len; s++) a += w[s] * vec[st + s];
+      for (let s = 0; s < len; s++) a += bv[s] * vec[st + s];
       return a;
     };
     // out += Kqs · s   (accumulate the x-step coupling term)
@@ -265,8 +271,8 @@ const CVXEDA = {
       for (let i = 0; i < n; i++) out[i] += s0 * qsC0[i] + s1 * qsC1[i];
       for (let j = 0; j < nB; j++) {
         const sj = s[2 + j]; if (sj === 0) continue;
-        const st = qsBStart[j], w = qsBVal[j], len = qsBLen[j];
-        for (let s2 = 0; s2 < len; s2++) out[st + s2] += sj * w[s2];
+        const st = qsBStart[j], bv = qsBVal[j], len = qsBLen[j];
+        for (let s2 = 0; s2 < len; s2++) out[st + s2] += sj * bv[s2];
       }
       return out;
     };
@@ -313,22 +319,27 @@ const CVXEDA = {
     // Banded Cholesky factor L (lower, 2 sub-diagonals): lb0[i]=L[i][i],
     // lb1[i]=L[i][i-1], lb2[i]=L[i][i-2].
     const lb0 = new Float64Array(n), lb1 = new Float64Array(n), lb2 = new Float64Array(n);
+    // Counts how often a Cholesky pivot needed the numerical-floor fallback
+    // below (factorKqq's `dj`, buildSchur's `sum`) — should be 0 on any
+    // well-conditioned solve; a nonzero count flags a Newton direction that
+    // was computed against a slightly perturbed factorisation.
+    let pivotFires = 0;
 
     const buildKqq = (w) => {
       kd0.fill(0); kd1.fill(0); kd2.fill(0);
       const mTap = [1.0, 2.0, 1.0];
       const aTap = [ar2, ar1, ar0]; // taps at columns [i-2, i-1, i]
       for (let i = 0; i < n; i++) {
-        const idx = [i - 2, i - 1, i];
         const pLo = i < 2 ? 2 - i : 0; // rows 0,1 have fewer taps (columns clipped at 0)
         const wi = w[i];
         for (let p = pLo; p < 3; p++) {
+          const rowIdx = i - 2 + p; // idx[p] would be i-2+p; off = idx[q]-idx[p] = q-p
           for (let q = p; q < 3; q++) {
             const val = mTap[p] * mTap[q] + wi * aTap[p] * aTap[q];
-            const off = idx[q] - idx[p];
-            if (off === 0) kd0[idx[p]] += val;
-            else if (off === 1) kd1[idx[p]] += val;
-            else kd2[idx[p]] += val;
+            const off = q - p;
+            if (off === 0) kd0[rowIdx] += val;
+            else if (off === 1) kd1[rowIdx] += val;
+            else kd2[rowIdx] += val;
           }
         }
       }
@@ -341,7 +352,7 @@ const CVXEDA = {
         let dj = kd0[j];
         if (j >= 1) dj -= lb1[j] * lb1[j];
         if (j >= 2) dj -= lb2[j] * lb2[j];
-        if (dj <= 0) dj = 1e-12;
+        if (dj <= 0) { dj = 1e-12; pivotFires++; }
         const ljj = Math.sqrt(dj);
         lb0[j] = ljj;
         if (j + 1 < n) {
@@ -387,8 +398,8 @@ const CVXEDA = {
         if (c === 0) kqsCol.set(qsC0);
         else if (c === 1) kqsCol.set(qsC1);
         else {
-          const j = c - 2, st = qsBStart[j], w = qsBVal[j], len = qsBLen[j];
-          for (let s = 0; s < len; s++) kqsCol[st + s] = w[s];
+          const j = c - 2, st = qsBStart[j], bv = qsBVal[j], len = qsBLen[j];
+          for (let s = 0; s < len; s++) kqsCol[st + s] = bv[s];
         }
         solveKqq(kqsCol, wCol);
         for (let r = 0; r <= c; r++) {
@@ -403,8 +414,12 @@ const CVXEDA = {
         for (let j = 0; j <= i; j++) {
           let sum = S[i * m + j];
           for (let k = 0; k < j; k++) sum -= Schol[i * m + k] * Schol[j * m + k];
-          if (i === j) Schol[i * m + j] = Math.sqrt(sum > 0 ? sum : 1e-12);
-          else Schol[i * m + j] = sum / Schol[j * m + j];
+          if (i === j) {
+            if (!(sum > 0)) pivotFires++;
+            Schol[i * m + j] = Math.sqrt(sum > 0 ? sum : 1e-12);
+          } else {
+            Schol[i * m + j] = sum / Schol[j * m + j];
+          }
         }
       }
     };
@@ -510,7 +525,8 @@ const CVXEDA = {
       let mu = 0; for (let i = 0; i < n; i++) mu += sk[i] * zk[i]; mu /= n;
       let rpN = 0, rdqN = 0;
       for (let i = 0; i < n; i++) { rpN += rp[i] * rp[i]; rdqN += rdq[i] * rdq[i]; }
-      rPrim = Math.sqrt(rpN); rDual = Math.sqrt(rdqN);
+      let rdsN = 0; for (let r = 0; r < m; r++) rdsN += rds[r] * rds[r]; // drift/spline block of ∇_x L
+      rPrim = Math.sqrt(rpN); rDual = Math.sqrt(rdqN + rdsN); // full stationarity residual, both blocks
 
       // mu < tol is the binding criterion in practice (Newton's quadratic
       // convergence drives it to noise floor fast); rp/rd already converge
@@ -589,7 +605,7 @@ const CVXEDA = {
     const l = new Float64Array(nB);
     for (let j = 0; j < nB; j++) l[j] = normalize ? xs[2 + j] * std : xs[2 + j];
 
-    return { phasic, tonic, driver, l, d, e, obj, iterations, converged, rPrim, rDual };
+    return { phasic, tonic, driver, l, d, e, obj, iterations, converged, rPrim, rDual, pivotFires };
   }
 };
 

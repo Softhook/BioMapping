@@ -11,6 +11,13 @@
  *  7. Full GSRAnalyzer integration: analyze({ useDeconvolution: true, deconvAlgorithm: 'cvxeda' }).
  *  8. Determinism: identical outputs across multiple runs.
  *  9. Performance guard: completes 330s recording in < 350 ms.
+ * 10. normalize:false path (caller pre-zscores, or passes raw units through).
+ * 11. Tiny n (4-10 samples), just above the n<4 early-return guard.
+ * 12. alpha/gamma sensitivity: higher alpha sparsifies the driver, higher
+ *     gamma smooths the tonic.
+ *
+ * See also test_cvxeda_reference.js for cross-validation against real
+ * cvxopt output.
  *
  * Run: node --test tests/test_cvxeda.js
  */
@@ -404,4 +411,75 @@ test('cvxEDA: iteration cap is reported as non-convergence, not a silent stop', 
 
   const full = CVXEDA.decompose(input, SR);
   assert.ok(full.converged, 'the same signal converges with the default budget');
+});
+
+test('cvxEDA: normalize:false solves directly in native units', () => {
+  const n = 600;
+  const y = new Float64Array(n);
+  for (let i = 0; i < n; i++) y[i] = 2.0 + 0.3 * Math.sin(i / 50);
+  const kernel = batemanKernel(120);
+  for (let i = 0; i < 120 && 200 + i < n; i++) y[200 + i] += 0.4 * kernel[i];
+
+  const res = CVXEDA.decompose(y, SR, { normalize: false });
+  assert.ok(res.converged, 'should converge when solving directly in native units');
+  for (let i = 0; i < n; i++) assert.ok(res.driver[i] >= 0, `driver[${i}] should be >= 0`);
+
+  let recErr = 0;
+  for (let i = 20; i < n - 20; i++) recErr = Math.max(recErr, Math.abs(y[i] - res.tonic[i] - res.phasic[i]));
+  assert.ok(recErr < 0.05, `reconstruction error should be small, got ${recErr.toFixed(4)}`);
+
+  // No rescale step under normalize:false -- e (residual) is the plain
+  // y - phasic - tonic, without the mean/std bookkeeping the default path uses.
+  let maxE = 0;
+  for (let i = 0; i < n; i++) maxE = Math.max(maxE, Math.abs(res.e[i] - (y[i] - res.phasic[i] - res.tonic[i])));
+  assert.ok(maxE < 1e-9, `e should equal y - phasic - tonic exactly, max diff ${maxE.toExponential(2)}`);
+});
+
+test('cvxEDA: tiny n (4-10 samples, just above the n<4 guard) does not crash or diverge', () => {
+  for (const n of [4, 5, 6, 7, 8, 10]) {
+    const y = new Float64Array(n);
+    for (let i = 0; i < n; i++) y[i] = 2.0 + 0.1 * i + (i % 2 === 0 ? 0.15 : -0.1);
+    const res = CVXEDA.decompose(y, SR);
+    assert.strictEqual(res.phasic.length, n, `n=${n}: phasic length`);
+    assert.strictEqual(res.tonic.length, n, `n=${n}: tonic length`);
+    assert.strictEqual(res.driver.length, n, `n=${n}: driver length`);
+    for (let i = 0; i < n; i++) {
+      assert.ok(Number.isFinite(res.phasic[i]), `n=${n}: phasic[${i}] should be finite`);
+      assert.ok(Number.isFinite(res.tonic[i]), `n=${n}: tonic[${i}] should be finite`);
+      assert.ok(Number.isFinite(res.driver[i]) && res.driver[i] >= 0, `n=${n}: driver[${i}] should be finite & >= 0`);
+    }
+    assert.ok(res.converged, `n=${n}: should converge`);
+    assert.strictEqual(res.pivotFires, 0, `n=${n}: a clean tiny solve should never need the pivot floor`);
+  }
+});
+
+test('cvxEDA: alpha/gamma sensitivity — alpha controls driver sparsity, gamma controls tonic smoothness', () => {
+  const n = 2000;
+  const y = new Float64Array(n);
+  for (let i = 0; i < n; i++) y[i] = 3.0 + 0.4 * Math.sin(i / 30); // wiggly baseline
+  const kernel = batemanKernel(120);
+  for (const o of [20, 60, 100, 140, 180]) {
+    const samp = o * SR;
+    for (let i = 0; i < 120 && samp + i < n; i++) y[samp + i] += 0.3 * kernel[i];
+  }
+
+  // Higher alpha (L1 weight on the driver) should shrink its total mass --
+  // that's the sparsity penalty doing its job.
+  const lowAlpha = CVXEDA.decompose(y, SR, { alpha: 2e-4 });
+  const highAlpha = CVXEDA.decompose(y, SR, { alpha: 2e-2 });
+  const l1 = (d) => d.reduce((s, v) => s + v, 0);
+  assert.ok(l1(highAlpha.driver) < l1(lowAlpha.driver),
+    `higher alpha should shrink total driver mass (${l1(highAlpha.driver).toFixed(3)} vs ${l1(lowAlpha.driver).toFixed(3)})`);
+
+  // Higher gamma (L2 weight on the spline coefficients) should smooth the
+  // tonic -- measure smoothness as summed squared second difference.
+  const lowGamma = CVXEDA.decompose(y, SR, { gamma: 1e-4 });
+  const highGamma = CVXEDA.decompose(y, SR, { gamma: 10 });
+  const curvature = (t) => {
+    let s = 0;
+    for (let i = 1; i < t.length - 1; i++) { const d2 = t[i + 1] - 2 * t[i] + t[i - 1]; s += d2 * d2; }
+    return s;
+  };
+  assert.ok(curvature(highGamma.tonic) < curvature(lowGamma.tonic),
+    `higher gamma should smooth the tonic (curvature ${curvature(highGamma.tonic).toExponential(2)} vs ${curvature(lowGamma.tonic).toExponential(2)})`);
 });
