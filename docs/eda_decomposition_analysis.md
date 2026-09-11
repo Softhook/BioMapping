@@ -213,6 +213,69 @@ actually a choice rather than a floor — worth a conscious decision (keep
 2e-3 for the sample-rate-compensation reasoning, or revisit it) rather than
 something to silently tune away.
 
+## Peak-Detection Algorithm Comparison vs NeuroKit2 (2026-09-11) — bug found and fixed
+
+Last stage: does our **Prominence** detector's peak-picking logic
+(`_detectPeaksByProminence`, gated on `_topographicProminence()`) agree with
+NeuroKit2's default peak detector? Its own docs' factual-accuracy note
+(above, "Precedent" section) already established the exact algorithm:
+`eda_findpeaks(method='neurokit')` → `signal_findpeaks(eda_phasic,
+relative_height_min=0.1, relative_max=True)` — every local maximum scored by
+**topographic prominence** (SciPy's `peak_prominences`), gated at 10% of the
+single largest prominence *in that recording* (relative to the track's own
+max, not an absolute µS value or an SD-based threshold — an earlier
+in-session comparison that read NeuroKit2's `amplitude_min=0.1` as an
+absolute 0.1µS floor was wrong on this point).
+
+Since both sides use the same underlying concept (topographic prominence),
+`check_prominence_agreement.{py,js,sh}` isolates the computation itself:
+dump our phasic curve, run *both* our `_topographicProminence()` and
+NeuroKit2's `signal_findpeaks()` (ungated) on the identical array, and diff
+the raw prominence value at every local maximum — no thresholding, no
+decomposition differences, just "is this one number right".
+
+**First run found a real, narrow bug.** All 4 tracks found the exact same
+set of local maxima (680/680, 39/39, 396/396, 1494/1494 — index-for-index
+match), and the vast majority of prominence values agreed almost exactly
+(r=1.000, 0.998, 1.000 on three tracks) — but biomap_053 scored r=0.854,
+dragged down by exactly 2 of its 396 points with large absolute errors
+(0.84µS and 0.045µS). Traced to source: both were peaks where **one side
+never encounters a taller point before running out of signal** — the
+track's single global maximum (nothing taller anywhere), and a small bump
+14 samples from the very start (nothing taller in `[0,13]`). The correct
+convention (SciPy's, and the textbook definition) measures such a peak
+against the *higher* of its two one-sided floors; `_topographicProminence()`
+instead fell back to the **entire recording's global minimum** for these
+points — always ≤ the correct reference, so it silently **overstated**
+prominence for any peak sitting near a track boundary or the track's own
+peak. Practically low-stakes (it can only inflate, never suppress, and
+these are already the recording's most extreme points, so they'd clear a
+threshold either way) but a genuine deviation from the standard, not a
+design choice — worth aligning.
+
+**Fix**, applied directly in `_topographicProminence()`: after the existing
+union-find sweep (correct for the interior-peak case, confirmed by the
+existing near-1.0 agreement), a second O(n) pass computes prefix/suffix
+running max+min once, identifies exactly the affected samples — any peak
+where one or both sides never meet a taller point — and replaces their
+value with `max(their true one-sided floor, whatever the sweep found on the
+other side)`, matching SciPy's definition exactly. Verified against a
+from-scratch reimplementation before touching production code, then
+confirmed through the real fixed source:
+
+| track | prominence r (before) | prominence r (after) |
+|---|---|---|
+| biomap_019 | 1.000000 | 1.000000 |
+| biomap_027 | 0.995432 | 1.000000 |
+| biomap_053 | 0.853583 | 1.000000 |
+| biomap_059 | 0.998423 | 1.000000 |
+
+All 4 tracks now match NeuroKit2's own computation **exactly** (r=1.000000,
+zero difference, bit-for-bit on every local maximum). Full test suite
+(`npm test`, 1217 tests) still green after the change — the fix only ever
+touches boundary/global-max points, which no existing test hardcodes exact
+prominence values for.
+
 ---
 
 ## The Four Competing Methods

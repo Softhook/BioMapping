@@ -43,11 +43,12 @@ loadModule(path.join(SRC, 'gsr_filter.js'),    'GsrFilter');
 // Plain require(), not loadModule(): cvxeda.js already exports via
 // module.exports (see its own tail), and it must be set as global.CVXEDA
 // BEFORE analyzer.js loads below - analyzer.js's cvxEDA branch is gated on
-// `typeof CVXEDA !== 'undefined'`, and its own require('./cvxeda.js')
-// fallback silently no-ops here (vm.runInThisContext code has no `require`
-// in scope, so that try/catch always falls through). Skipping this line
-// means every "cvxEDA" run below silently degrades to matching-pursuit
-// deconvolution instead - which is what happened here previously.
+// `typeof CVXEDA !== 'undefined'`, and its own internal fallback (a require
+// call of the same module, guarded by try/catch) silently no-ops here
+// (vm.runInThisContext code has no `require` in scope, so that try/catch
+// always falls through). Skipping this line means every "cvxEDA" run below
+// silently degrades to matching-pursuit deconvolution instead - which is
+// what happened here previously.
 global.CVXEDA = require(path.join(SRC, 'cvxeda.js'));
 loadModule(path.join(SRC, 'deconvolution.js'), 'SCRDeconvolution');
 loadModule(path.join(SRC, 'csv_parser.js'),    'GSRCSVParser');

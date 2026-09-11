@@ -1690,18 +1690,37 @@ class GSRAnalyzer {
   /**
    * Topographic prominence of every sample in `vals`, in O(n log n).
    *
-   * Prominence of a local maximum is its height above the lowest col on the
-   * path to any higher maximum (and, for the single global maximum, its
-   * height above the signal's own minimum). This replaces an earlier
-   * per-maximum left/right saddle walk that was O(n²) on a monotonic input
-   * (every sample a local max, each walk O(n)).
+   * Standard definition (matches SciPy's peak_prominences, which NeuroKit2's
+   * default EDA peak detector gates on — cross-checked directly in
+   * tests/manual/neurokit_compare/check_prominence_agreement.sh, exact match
+   * on all sample tracks after the boundary correction below): a local
+   * maximum's prominence is its height above the HIGHER of its two one-sided
+   * bases — the lowest point reached scanning left, and separately right,
+   * until either a taller point or the signal's edge is hit. This replaces
+   * an earlier per-maximum left/right saddle walk that was O(n²) on a
+   * monotonic input (every sample a local max, each walk O(n)).
    *
    * Method: activate samples in descending height order, tracking connected
    * runs with a union-find. Any already-active neighbour was activated at a
    * height ≥ this one, so when activating sample i merges two runs, the
    * current height vals[i] is a col between them; the shorter run's tallest
-   * summit is now dominated and its prominence is fixed at (its height −
-   * vals[i]). The one summit that is never dominated is the global maximum.
+   * summit is now dominated and its prominence is (provisionally) fixed at
+   * (its height − vals[i]).
+   *
+   * That provisional value is exactly right whenever both of the summit's
+   * sides eventually meet a taller point — the merge col is the true base on
+   * whichever side triggered it, and by construction no lower path exists.
+   * It UNDERSTATES the true base (so overstates prominence) whenever at
+   * least one side never finds a taller point before running off the array
+   * edge: the sweep still eventually merges that summit into whatever
+   * happens to be next door once the threshold drops far enough — often the
+   * signal's baseline floor, arbitrarily lower than the true one-sided base a
+   * bounded scan would have stopped at. The boundary-correction pass below
+   * patches exactly those samples (found directly from prefix/suffix running
+   * extrema, not by trusting which side the sweep merged from) up to
+   * max(their own true one-sided floor, whatever the sweep found) — the
+   * single global maximum (no taller point on either side) is the special
+   * case of both sides needing this.
    *
    * @param {Array<number>|Float64Array} vals
    * @returns {Float64Array} prominence per index (callers only read indices
@@ -1751,9 +1770,50 @@ class GSRAnalyzer {
       }
     }
 
-    // Any summit never dominated (the global max, or ties for it) is measured
-    // to the signal's own minimum.
+    // Any summit never dominated (the global max, or ties for it) starts from
+    // the signal's own minimum; the boundary correction below replaces this
+    // with the correct per-side floor.
     for (let i = 0; i < n; i++) if (prom[i] < 0) prom[i] = Math.max(0, vals[i] - vMin);
+
+    // Boundary correction — see doc comment above. One-sided running
+    // extrema, computed once in O(n): prefixMax/suffixMax find whether a
+    // taller point exists on each side at all; prefixMin/suffixMin give the
+    // true one-sided floor to fall back to when it doesn't.
+    const prefixMax = new Float64Array(n), prefixMin = new Float64Array(n);
+    let curMax = -Infinity, curMin = Infinity;
+    for (let i = 0; i < n; i++) {
+      prefixMax[i] = curMax;   // strictly left of i (-Inf when i === 0)
+      prefixMin[i] = curMin;
+      if (vals[i] > curMax) curMax = vals[i];
+      if (vals[i] < curMin) curMin = vals[i];
+    }
+    const suffixMax = new Float64Array(n), suffixMin = new Float64Array(n);
+    curMax = -Infinity; curMin = Infinity;
+    for (let i = n - 1; i >= 0; i--) {
+      suffixMax[i] = curMax;   // strictly right of i (-Inf when i === n-1)
+      suffixMin[i] = curMin;
+      if (vals[i] > curMax) curMax = vals[i];
+      if (vals[i] < curMin) curMin = vals[i];
+    }
+    for (let i = 0; i < n; i++) {
+      const noLeftBarrier = prefixMax[i] <= vals[i];
+      const noRightBarrier = suffixMax[i] <= vals[i];
+      if (!noLeftBarrier && !noRightBarrier) continue; // interior peak - sweep result already exact
+      const leftFloor = i === 0 ? -Infinity : prefixMin[i];
+      const rightFloor = i === n - 1 ? -Infinity : suffixMin[i];
+      let reference;
+      if (noLeftBarrier && noRightBarrier) {
+        reference = Math.max(leftFloor, rightFloor); // global maximum (or an exact tie)
+      } else if (noLeftBarrier) {
+        // Right side genuinely dominated at some col (recovered via
+        // vals[i] - prom[i]); left is boundary-limited.
+        reference = Math.max(leftFloor, vals[i] - prom[i]);
+      } else {
+        reference = Math.max(rightFloor, vals[i] - prom[i]);
+      }
+      prom[i] = Math.max(0, vals[i] - reference);
+    }
+
     return prom;
   }
 
