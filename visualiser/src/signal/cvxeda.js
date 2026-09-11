@@ -65,8 +65,12 @@ const CVXEDA = {
    *   (NeuroKit-compatible; keeps the published α = 8e-4 meaningful).
    * @returns {{
    *   phasic: Float64Array, tonic: Float64Array, driver: Float64Array,
+   *   l: Float64Array, d: Float64Array, e: Float64Array, obj: number,
    *   iterations: number, converged: boolean, rPrim: number, rDual: number
-   * }}
+   * }} phasic/tonic/driver/l/d/e are in the caller's native y units; obj is
+   *   the objective value (eq. 15) evaluated in the internal solve space
+   *   (normalized, when normalize=true) — l/d/e/obj mirror the reference's
+   *   `l, d, e, obj` return values for direct comparison against it.
    */
   decompose(yRaw, sampleRate, options = {}) {
     const n = yRaw.length;
@@ -75,6 +79,7 @@ const CVXEDA = {
         phasic: new Float64Array(n),
         tonic: Float64Array.from(yRaw),
         driver: new Float64Array(n),
+        l: new Float64Array(0), d: new Float64Array([0, 0]), e: new Float64Array(n), obj: 0,
         iterations: 0, converged: true, rPrim: 0, rDual: 0
       };
     }
@@ -158,9 +163,11 @@ const CVXEDA = {
     };
 
     // ── 2. Cubic B-spline basis B (sparse, local support) ─────────────────
+    // Knot count matches the reference exactly: np.arange(0, n + delta_knot_s
+    // // 2, delta_knot_s) — the floor division matters when knotStep is odd.
     const knotStep = Math.max(1, Math.round(deltaKnotSec / delta));
     const knots = [];
-    for (let k = 0; k < n + knotStep / 2; k += knotStep) knots.push(k);
+    for (let k = 0; k < n + Math.floor(knotStep / 2); k += knotStep) knots.push(k);
     const nB = knots.length;
 
     // order-1 triangle ⊛ triangle → order-3 spline, normalised to unit peak
@@ -517,20 +524,44 @@ const CVXEDA = {
     applyM(q, phasic);  // r = M·q  (reference)
     applyA(q, driver);  // p = A·q  (reference)
     applyB(s.subarray(2), bl);
+
+    // Objective (reference eq. 15) and residual accumulate in the internal
+    // solve space — i.e. the normalized y when normalize=true, matching what
+    // the reference gets when the caller follows its own "pre-zscore y"
+    // recommendation. alphaSum uses the raw (unthresholded) driver, exactly
+    // as the reference's linear term alpha·1ᵀ(A·q) does.
+    let resid2 = 0, alphaSum = 0;
     for (let i = 0; i < n; i++) {
       const t = bl[i] + s[0] + s[1] * cRamp[i];
+      const rRaw = phasic[i], pRaw = driver[i];
+      const resid = rRaw + t - y[i];
+      resid2 += resid * resid;
+      alphaSum += pRaw;
+
       // Driver is A·q exactly as the reference returns it, but restricted to
       // the ADMM active set: where the constraint bites (z == 0) interior-point
       // complementary slackness would pin p to zero, so we do too — this keeps
       // the driver sparse between events despite the looser ADMM tolerance,
       // while reporting the true A·q amplitude on the support.
-      const p = z[i] > 0 ? driver[i] : 0;
-      phasic[i] = normalize ? phasic[i] * std : phasic[i];  // unclamped (reference r = M·q)
+      const p = z[i] > 0 ? pRaw : 0;
+      phasic[i] = normalize ? rRaw * std : rRaw;  // unclamped (reference r = M·q)
       tonic[i] = normalize ? t * std + mean : t;
       driver[i] = normalize ? p * std : p;
     }
+    let gammaTerm = 0;
+    for (let j = 0; j < nB; j++) gammaTerm += s[2 + j] * s[2 + j];
+    const obj = 0.5 * resid2 + alpha * alphaSum + 0.5 * gamma * gammaTerm;
 
-    return { phasic, tonic, driver, iterations, converged, rPrim, rDual };
+    const e = new Float64Array(n);
+    for (let i = 0; i < n; i++) e[i] = yRaw[i] - phasic[i] - tonic[i];
+
+    // d, l rescaled to native units so d0 + d1·cRamp + B·l reproduces tonic
+    // (mirrors how phasic/tonic/driver are already rescaled above).
+    const d = normalize ? new Float64Array([s[0] * std + mean, s[1] * std]) : new Float64Array([s[0], s[1]]);
+    const l = new Float64Array(nB);
+    for (let j = 0; j < nB; j++) l[j] = normalize ? s[2 + j] * std : s[2 + j];
+
+    return { phasic, tonic, driver, l, d, e, obj, iterations, converged, rPrim, rDual };
   }
 };
 
