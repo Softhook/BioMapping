@@ -361,6 +361,37 @@ Spot-checked 680 peaks (biomap_019) against NeuroKit2's formula directly:
 0 mismatches. Since onset-finding is already validated above, this isn't a
 separate algorithm to isolate — it follows directly.
 
+## Prominence Detector: NeuroKit2's Actual Threshold Rule (2026-09-11)
+
+An earlier pass in this investigation swept our `peakThreshold` to `0.1` to
+"match" NeuroKit2's `amplitude_min=0.1` — before this document's own
+"Precedent" section (and `check_prominence_agreement.sh`) established that
+NeuroKit2's gate is **relative to the largest prominence in that specific
+recording** (10% of it), not an absolute µS value. That earlier sweep
+compared the wrong kind of number. `check_relative_threshold.{js,sh}` redoes
+it properly: per track, find our own max topographic prominence (now
+computed byte-identical to NeuroKit2's, see the Prominence fix above), gate
+at 10% of *that*, and compare against NeuroKit2's real peak set the way
+`compare.js` already does for the fixed-threshold production run.
+
+| | recall | extra (4 tracks) | mean timing offset |
+|---|---|---|---|
+| Production (`peakThreshold=0.015µS`, absolute) | 90.5% (268/296) | 1121 | 0.139s |
+| NeuroKit2's actual rule (10% of track's own max) | 49.3% (146/296) | **27** | 0.121s |
+
+Applying NeuroKit2's real gating rule to our own decomposition **collapses
+"extra" peaks 41× (1121→27)** — near-total agreement on false positives —
+but **recall drops to under half** (90.5%→49.3%): we'd miss the majority of
+the real SCRs NeuroKit2 itself counts. This is now a *measured* result, not
+an argument: the relative-to-track-max convention is fundamentally fragile
+against a recording's own dynamic range — one dramatically large event (a
+strong stress spike) sets a proportionally strict bar for everything else in
+that same recording, so genuinely real, smaller SCRs elsewhere in the track
+fail to clear it. That fragility is precisely the failure mode BioMapping's
+absolute-threshold, recall-oriented default (documented in `constants.js`)
+exists to avoid. No change made — this is direct, quantified support for
+the current design choice, not a discrepancy to fix.
+
 ## SparsEDA vs NeuroKit2 (2026-09-11) — open question, not resolved this session
 
 SparsEDA (Hernando-Gallego et al. 2017) is the other decomposition method
