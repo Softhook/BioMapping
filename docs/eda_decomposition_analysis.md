@@ -315,6 +315,99 @@ non-bug causes:
 No fix applied — this was a validation pass, and it passed with the
 mismatches explained rather than mysterious.
 
+## Recovery-Time Comparison vs NeuroKit2 (2026-09-11) — bug found, but in NeuroKit2 itself
+
+Same isolation pattern (`check_recovery_agreement.{py,js,sh}`): identical
+phasic curve, identical peaks/onsets/amplitudes fed to both algorithms, so
+only the recovery-finding LOGIC differs. Ours (`_findRecoveryIndex`) scans
+forward from the peak for the first sample at or below the half-decay
+value. NeuroKit2 (`eda_peaks.py::_eda_peaks_getfeatures`) segments the curve
+from this peak to the next, truncates the segment at its own minimum, then
+finds the segment value closest to (but not above) the half-decay target.
+
+**Whenever both sides found a recovery point, they agreed exactly — 100%
+of the time, on every track (432/432, 26/26, 245/245, 943/943).** But there
+was a large, entirely one-directional gap: ours found a recovery NeuroKit2
+missed in 8–275 cases per track (up to 24% of peaks); NeuroKit2 found one
+we missed in **zero** cases, on every track, without exception. That
+one-sidedness pointed at an exclusion bug rather than a real disagreement —
+excluding a sample can only ever cause a miss, never a spurious extra
+match — and tracing one failing case (biomap_019, peak at sample 22275)
+confirmed it precisely:
+
+```
+segment (peak to next peak): [...0.4103, 0.3972, 0.3925, 0.4015, 0.4305...]
+                                                  ^ argmin, index 16
+recovery target: 0.39598
+```
+
+NeuroKit2's own code truncates with `segment = segment[0 : np.argmin(segment)]`
+— Python's half-open slice **excludes** the sample at the minimum itself.
+Here that excluded sample (0.3925) is exactly the one that crosses the
+recovery target; the truncated segment's lowest remaining value (0.3972)
+never reaches it, so NeuroKit2 reports "no recovery" for a completely
+ordinary, clean decay. This is a genuine off-by-one bug in NeuroKit2's own
+reference implementation (should almost certainly be
+`segment[0 : np.argmin(segment) + 1]`), not something to align our code to
+— ours is already correct, and this result validates it rather than
+flagging a gap. No change made on our side; worth reporting upstream to the
+NeuroKit2 project if that's ever useful, but out of scope here.
+
+**Amplitude formula, for completeness:** NeuroKit2's `SCR_Amplitude =
+SCR_Height − eda_phasic[onset]` (`SCR_Height` is just the raw phasic value
+at the peak) reduces to the identical trough-to-peak formula our
+`_calculateShapeMetrics` already uses (`amplitude = peakValue − onsetValue`).
+Spot-checked 680 peaks (biomap_019) against NeuroKit2's formula directly:
+0 mismatches. Since onset-finding is already validated above, this isn't a
+separate algorithm to isolate — it follows directly.
+
+## SparsEDA vs NeuroKit2 (2026-09-11) — open question, not resolved this session
+
+SparsEDA (Hernando-Gallego et al. 2017) is the other decomposition method
+both projects independently implement (`deconvolution.js`'s
+`algorithm: 'sparseda'` path; NeuroKit2's `eda_phasic(method='sparse')`).
+Unlike cvxEDA, this comparison did not reach a clean resolution and is
+logged here as an open lead rather than a finding, so the next attempt
+doesn't have to re-derive it from scratch.
+
+**NeuroKit2's own SparsEDA port is unstable**, consistent with its own docs'
+disclaimer ("sometimes it errors for unclear reasons... help needed"): it
+crashed outright on biomap_019 (`ValueError: could not broadcast input array
+from shape (6,) into shape (1,)`), and ran on the other 3 tracks.
+
+**Where it did run, agreement was poor** — phasic r = 0.20, 0.25, 0.37 across
+biomap_027/053/059 (contrast cvxEDA's r ≥ 0.98 once standardization was
+fixed), and one track (biomap_027 tonic) showed essentially **zero**
+correlation (r = −0.009), not just a loose relationship — pointing at
+something more structural than a tuning mismatch (dictionary construction,
+windowing, or kernel differences between the two ports), not yet isolated.
+
+**One concrete, useful finding despite the inconclusive result:** recent
+git history on this file shows `sparsedaEpsilon` oscillating between `0.01`
+and `1.0` across several commits, with a comment claiming `epsilon=1` is
+"the official reference default" — but NeuroKit2's own literal default is
+`epsilon=0.0001` (`eda_phasic.py::_eda_phasic_sparsEDA`), and both ports
+confirmed to resample to the same fixed 8Hz internally (so, unlike cvxEDA's
+alpha, there's no sample-rate-scaling justification for the discrepancy
+either). Testing both values directly against our own solver: **byte-
+identical output** — `epsilon` isn't the active stopping criterion at all on
+these tracks, since every run reports `converged: false`, meaning `Kmax`
+(the iteration cap, 40 on both sides) is what actually terminates the solve.
+Whatever the past epsilon tuning commits were chasing, it likely wasn't
+epsilon itself — worth keeping in mind before adjusting that constant again.
+
+**Not pursued further per user decision (2026-09-11)** — flagged as
+messier than the other checks in this document, given NeuroKit2's own
+implementation is admittedly shaky and this project's SparsEDA already went
+through several independent validation rounds (see git log on
+`deconvolution.js`/`constants.js`) that didn't rely on comparing against
+NeuroKit2's specific port. Revisit with `check_prominence_agreement.js`'s
+"dump→compare on identical input" pattern as a template if this becomes a
+priority again — start by comparing the design-matrix/dictionary
+construction (`_buildReferenceDictionary` vs NeuroKit2's `R` matrix) in
+isolation before the full decomposition, since that is the most likely
+place a structural (non-parameter) difference would live.
+
 ---
 
 ## The Four Competing Methods
