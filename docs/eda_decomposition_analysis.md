@@ -43,6 +43,83 @@ that paper's validation scope.
 
 ---
 
+## Cleaning-Stage Comparison vs NeuroKit2 (2026-09-11)
+
+Before comparing decomposition/peak-detection algorithms at all, it's worth
+confirming the two sides even agree on the signal they're decomposing. A new
+reproducible harness at `visualiser/tests/manual/neurokit_compare/` checks
+this incrementally, one pipeline stage at a time, rather than jumping
+straight to comparing detected peaks:
+
+1. `check_signal_loading.*` — the raw µS signal, before any filtering.
+   **Exact agreement** (r=1.000000, zero diff) across all 4 test tracks,
+   once both sides applied the same raw→µS auto-unit-conversion
+   (`GSRCSVParser`'s conversion rule was missing on the Python side; it's
+   now ported into `run_neurokit.py::to_microsiemens()`).
+2. `check_cleaning_agreement.*` — our 0.5s zero-phase box-average low-pass
+   (`GSR_DEFAULT.lpfWindow`, `medianSize=0` by default) vs NeuroKit2's
+   `eda_clean(method='neurokit')` (4th-order 3Hz Butterworth, zero-phase
+   `sosfiltfilt`). **r≈0.9999–1.0000, RMSE 0.006–0.021µS** across all 4
+   tracks — different filter designs, nearly identical real-world output.
+
+### Why they agree despite being different filter designs
+
+Computed frequency response directly, not just inferred from the 4 tracks
+tested (which could simply be lucky):
+
+| freq | ours (0.5s box) | NeuroKit2 (Butterworth, 3Hz) |
+|---|---|---|
+| 1 Hz | 64% passes | ~100% passes |
+| 1.5 Hz | 30% passes | ~100% passes |
+| 2 Hz | 0% (exact null) | 96% passes |
+| 3 Hz | 21% passes (sidelobe) | 71% (its cutoff, −3dB) |
+| 4 Hz | 0% (exact null) | 30% passes |
+| 5 Hz (Nyquist @ 10Hz) | 9% passes | 16% passes |
+
+These are tuned for different problems, neither strictly better:
+
+- **Ours** is a targeted notch aimed at the 1–3Hz band the project already
+  flags as a walking-gait/tremor artifact range (see the `lpfWindow`
+  comment in `constants.js` — "raise toward 1.0–1.2s to also cancel a
+  walking-gait artefact"). NeuroKit's filter is essentially transparent in
+  that same band (~100% passes at 1–1.5Hz) — it wouldn't touch a gait
+  artifact at all.
+- **NeuroKit2's** is a clean, monotonic broadband lowpass with no
+  sidelobes — better protection against genuine high-frequency noise
+  (electrical interference, ADC glitches) above ~4Hz, where our box
+  filter's sidelobes let 9–21% back through instead of continuing to fall
+  off.
+
+The empirical r≈0.9999 match says BioMapping's actual field recordings
+don't carry much energy in the 3–5Hz band where the two filters would
+disagree — consistent with EDA being physiologically a low-frequency
+signal. It's not evidence the sidelobe weakness never matters, only that
+it hasn't shown up on the 4 tracks tested so far.
+
+### The existing "Artifact Median Filter" already covers the gap, if enabled
+
+The theoretical weak spot above — brief high-frequency contamination (a
+loose-electrode spike, an RF blip) leaking through the box filter's
+sidelobes — is exactly what a median filter is for, and BioMapping already
+ships one: the **"Artifact Median Filter"** slider in the UI
+(`GSR_DEFAULT.medianSize`, `GsrFilter.applyMedianFilter`), **off by default**
+(`medianSize: 0`). Unlike a linear lowpass (box or Butterworth alike), a
+median filter is nonlinear and rank-based — it removes short impulsive
+spikes cleanly instead of smearing/ringing them across the window, which is
+precisely the case a Butterworth-style filter *also* wouldn't handle well
+for a 1–2 sample spike. If a track ever surfaces genuine high-frequency
+contamination that the LPF's sidelobes let through, enabling the median
+filter (it already runs first in the pipeline — median → LPF →
+tonic/phasic) is the more targeted fix, not swapping the LPF for a
+Butterworth design.
+
+No pipeline change is recommended purely on the theoretical analysis above —
+worth revisiting if a specific track ever shows the sidelobe leakage
+actually mattering. Re-run the comparison on new tracks with
+`visualiser/tests/manual/neurokit_compare/check_cleaning_agreement.sh`.
+
+---
+
 ## The Four Competing Methods
 
 All share the same generative model: `y(t) = [x(t) ∗ h(t)] + tonic(t)`, where
