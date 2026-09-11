@@ -179,6 +179,16 @@ function draw() {
   const lowerCfg = GSR_CONST.LOWER_GRAPH_MODES[lowerMode] || GSR_CONST.LOWER_GRAPH_MODES.phasic;
   const lowerSeries = AppState.analyzer[lowerMode] || AppState.analyzer.phasic;
 
+  // 'phasicDriver' has no single static display config: matching pursuit's
+  // driver and cvxEDA's driver are different physical quantities (µS vs
+  // µS/s — see GSR_CONST.DRIVER_UNIT_BY_ALGORITHM's comment), so pick it by
+  // whichever detector actually produced the currently-plotted series.
+  const driverCfg = (lowerMode === 'phasicDriver')
+    ? ((GSR_CONST.DRIVER_UNIT_BY_ALGORITHM &&
+        GSR_CONST.DRIVER_UNIT_BY_ALGORITHM[AppState.analyzer._driverAlgorithm]) ||
+       GSR_CONST.DRIVER_UNIT_BY_ALGORITHM.matching_pursuit)
+    : null;
+
   let yMinLower = lowerCfg.allowNegative ? Infinity : 0;
   let yMaxLower;
   if (viewCoversMost && global && global[lowerMode]) {
@@ -199,8 +209,9 @@ function draw() {
     if (yMaxLower === -Infinity) yMaxLower = 1;
   } else {
     if (yMaxLower === -Infinity || yMaxLower <= 0) {
-      yMaxLower = (lowerMode === 'phasic' || lowerMode === 'phasicDriver')
-        ? parseFloat(AppState.sliders.peakThreshold.value) * 2 : 100;
+      if (lowerMode === 'phasic') yMaxLower = parseFloat(AppState.sliders.peakThreshold.value) * 2;
+      else if (lowerMode === 'phasicDriver') yMaxLower = driverCfg.gridDefaultStep * 2;
+      else yMaxLower = 100;
     }
   }
   const lowerSpan = yMaxLower - yMinLower;
@@ -214,10 +225,15 @@ function draw() {
     phasic:       { steps: [[0.05, 0.005], [0.15, 0.01], [0.5, 0.05], [1.5, 0.1]], defaultStep: 0.5, decimals: 3, unit: ' \u03bcS' },
     peakDensity:  { steps: [[5, 1], [20, 2], [60, 5], [200, 20]],                  defaultStep: 10,  decimals: 0, unit: ' /min' },
     phasicAUC:    { steps: [[0.5, 0.05], [2, 0.2], [5, 0.5], [20, 2]],             defaultStep: 5,   decimals: 2, unit: ' \u03bcS\u00b7s' },
-    phasicDriver: { steps: [[0.05, 0.005], [0.15, 0.01], [0.5, 0.05], [1.5, 0.1]], defaultStep: 0.5, decimals: 3, unit: ' \u03bcS' },
     arousalIndex: { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' },
     triIndex:     { steps: [[1, 0.2], [3, 0.5], [6, 1], [12, 2]],                  defaultStep: 1,   decimals: 1, unit: ' z' }
   };
+  if (driverCfg) {
+    lowerGridPresets.phasicDriver = {
+      steps: driverCfg.gridSteps, defaultStep: driverCfg.gridDefaultStep,
+      decimals: driverCfg.decimals, unit: ' ' + driverCfg.unit
+    };
+  }
   const gridPreset = lowerGridPresets[lowerMode] || lowerGridPresets.phasic;
   // The upper (Filtered/Raw/Tonic, µS) plot uses the same grid as the Tonic preset.
   const upperGridPreset = lowerGridPresets.tonic;

@@ -254,6 +254,8 @@ test('cvxEDA integration: GSRAnalyzer with deconvAlgorithm=cvxeda', () => {
   assert.ok(a.phasicClean.length === 600, 'phasicClean should be populated');
   assert.ok(a.phasicDriver.length === 600, 'phasicDriver should be populated');
   assert.ok(a.peaks.length >= 1, `should detect peaks, got ${a.peaks.length}`);
+  assert.strictEqual(a._driverAlgorithm, 'cvxeda',
+    'tags the driver with its producing algorithm, for GSR_CONST.DRIVER_UNIT_BY_ALGORITHM to pick the right unit (µS/s, not µS)');
 });
 
 test('cvxEDA integration: GSRAnalyzer with useCvxEDA: true toggle', () => {
@@ -279,6 +281,28 @@ test('cvxEDA integration: GSRAnalyzer with useCvxEDA: true toggle', () => {
   assert.ok(a.phasicClean.length === 600, 'phasicClean should be populated');
   assert.ok(a.phasicDriver.length === 600, 'phasicDriver should be populated');
   assert.ok(a.peaks.length >= 1, `should detect peaks, got ${a.peaks.length}`);
+  assert.strictEqual(a._driverAlgorithm, 'cvxeda');
+});
+
+test('driver algorithm tag: matching-pursuit deconvolution is tagged distinctly from cvxEDA, and clears on a non-deconvolution run', () => {
+  const rows = ['time,gsr'];
+  for (let i = 0; i < 600; i++) {
+    const t = i / SR;
+    let gsr = 2.0;
+    if (t >= 20 && t < 30) gsr += 0.3 * (Math.exp(-(t - 20) / 2.0) - Math.exp(-(t - 20) / 0.75));
+    rows.push(`${t.toFixed(3)},${gsr.toFixed(6)}`);
+  }
+
+  const a = new GSRAnalyzer();
+  a.parseCSV(rows.join('\n'));
+  a.analyze({ ...global.GSR_CONST.GSR_DEFAULT, tonicMethod: 'percentile', peakThreshold: 0.020, useDeconvolution: true });
+  assert.strictEqual(a._driverAlgorithm, 'matching_pursuit');
+
+  // Switching to the default full-scan detector clears the tag along with
+  // the rest of the deconvolution state.
+  a.analyze({ ...global.GSR_CONST.GSR_DEFAULT, tonicMethod: 'percentile', peakThreshold: 0.020 });
+  assert.strictEqual(a._driverAlgorithm, null);
+  assert.strictEqual(a.phasicDriver.length, 0);
 });
 
 test('cvxEDA integration: peak count is in the same ballpark as the other detectors (regression: it was far lower)', () => {

@@ -988,8 +988,17 @@ const GSRRenderer = {
     // (peak density / phasic AUC / arousal index) — track the scrubber dot
     // and tooltip row against whichever series is actually plotted.
     const lowerMode = (GSR_CONST.LOWER_GRAPH_MODES && AppState.lowerGraphMode) || 'phasic';
-    const lowerCfg = (GSR_CONST.LOWER_GRAPH_MODES && GSR_CONST.LOWER_GRAPH_MODES[lowerMode]) ||
+    let lowerCfg = (GSR_CONST.LOWER_GRAPH_MODES && GSR_CONST.LOWER_GRAPH_MODES[lowerMode]) ||
                      { label: 'Phasic (SCR)', unit: 'μS', decimals: 4, colorVar: '--color-phasic', colorDefault: '#008f3c' };
+    // Matching pursuit's driver and cvxEDA's driver are different physical
+    // quantities (µS vs µS/s — see GSR_CONST.DRIVER_UNIT_BY_ALGORITHM's
+    // comment); pick the tooltip's unit/decimals by whichever detector
+    // actually produced the currently-plotted series.
+    if (lowerMode === 'phasicDriver' && GSR_CONST.DRIVER_UNIT_BY_ALGORITHM) {
+      const driverCfg = GSR_CONST.DRIVER_UNIT_BY_ALGORITHM[AppState.analyzer._driverAlgorithm] ||
+        GSR_CONST.DRIVER_UNIT_BY_ALGORITHM.matching_pursuit;
+      lowerCfg = { ...lowerCfg, unit: driverCfg.unit, decimals: driverCfg.decimals };
+    }
     const lowerSeries = AppState.analyzer[lowerMode] || AppState.analyzer.phasic;
     const dLower = lowerSeries[AppState.hoveredIndex] || dPhasic;
 

@@ -265,6 +265,14 @@ const GSR_CONST = {
     // the plot never has to handle an empty series here. Peaks are marked as
     // dots on the curve at their own time (showPeakOverlay:false) — each dot is
     // one SCR's originating impulse.
+    //
+    // unit/decimals below are the matching-pursuit default (µS — matching-
+    // pursuit amplitude-matches its atoms directly to the phasic curve, so its
+    // driver really is µS, sample-rate-independent) and are a fallback only.
+    // The two detectors' drivers are NOT the same physical quantity — see
+    // DRIVER_UNIT_BY_ALGORITHM below — so the renderer picks the display unit
+    // from analyzer._driverAlgorithm at draw time rather than trusting this
+    // static value blindly.
     phasicDriver: {
       label: 'Sudomotor Driver (ISCR)', unit: 'μS', decimals: 4,
       colorVar: '--color-phasic-driver', colorDefault: '#c2410c',
@@ -279,6 +287,35 @@ const GSR_CONST = {
       label: 'Tri Index', unit: 'z', decimals: 2,
       colorVar: '--color-tri-index', colorDefault: '#6366f1',
       showPeakOverlay: false, allowNegative: true
+    }
+  },
+
+  // Display unit for the 'phasicDriver' graph view, keyed by
+  // analyzer._driverAlgorithm — the two detectors' "driver" arrays are not
+  // the same physical quantity, so one shared label would misrepresent one
+  // of them. Matching pursuit fits atoms whose peak height is amplitude-
+  // matched directly to the phasic curve, so its driver is µS and sample-
+  // rate-independent, same convention as Phasic.
+  //
+  // cvxEDA's driver is p = A·q — the coefficient of the discretised Bateman
+  // ARMA's A operator (cvxeda.js), whose bilinear-transform coefficients
+  // carry a built-in ~1/Δt gain (Δt = 1/sampleRate) that the phasic-
+  // producing M operator doesn't. Confirmed empirically: resampling the same
+  // event at 5/10/20 Hz scales the driver peak almost exactly linearly with
+  // sample rate (driver/sampleRate stays ~constant), which is what a
+  // discretised *rate* does, not an amplitude — the same normalisation
+  // computePhasicAUC() already applies (runningSum / sampleRate) to turn it
+  // into µS·s. So µS/s is the honest unit, not µS; grid steps sized ~25x
+  // matching-pursuit's (the empirical gain for this app's fixed SR=10Hz /
+  // τ_fast=0.7 / τ_slow=2.0 — see docs/eda_decomposition_analysis.md).
+  DRIVER_UNIT_BY_ALGORITHM: {
+    matching_pursuit: {
+      unit: 'μS', decimals: 4,
+      gridSteps: [[0.05, 0.005], [0.15, 0.01], [0.5, 0.05], [1.5, 0.1]], gridDefaultStep: 0.5
+    },
+    cvxeda: {
+      unit: 'μS/s', decimals: 2,
+      gridSteps: [[1, 0.1], [4, 0.5], [12, 1], [40, 5]], gridDefaultStep: 10
     }
   },
 

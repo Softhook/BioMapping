@@ -60,6 +60,17 @@ class GSRAnalyzer {
     this.phasicDeconvTruncated = false; // True if matching pursuit hit maxIter before converging
     this._phasicOrig = null;      // Pre-deconvolution phasic backup (only set when deconvolution is on)
     this._tonicOrig = null;       // Pre-cvxEDA tonic backup (cvxEDA re-estimates tonic jointly)
+    // Which algorithm produced this.phasicDriver — the two are not the same
+    // physical quantity. Matching pursuit's driver is amplitude-matched to the
+    // phasic curve it explains (µS, sample-rate-independent). cvxEDA's driver
+    // is the coefficient of the discretised Bateman ARMA's A operator, which
+    // carries a built-in ~1/Δt gain (its coefficients are built from delta in
+    // the denominator — see cvxeda.js's applyA) — confirmed empirically: at a
+    // fixed input amplitude, driver scales linearly with sample rate (5/10/20
+    // Hz → driver ≈ 0.81–0.84 × sampleRate). So it's a rate (µS/s), not an
+    // amplitude — GSR_CONST.DRIVER_UNIT_BY_ALGORITHM carries the display unit
+    // for each. Null when no driver is populated.
+    this._driverAlgorithm = null;
 
     this.sampleRate = 10;   // In Hz, auto-detected
     this.isResistance = false; // Whether original CSV was resistance (Ohms)
@@ -620,6 +631,7 @@ class GSRAnalyzer {
     this.phasicDeconvTruncated = false;
     this._phasicOrig = null;
     this._tonicOrig = null;
+    this._driverAlgorithm = null;
   }
 
   /**
@@ -697,6 +709,7 @@ class GSRAnalyzer {
     // Opt-in cvxEDA convex optimization algorithm (Greco et al., 2016)
     const algorithm = params.deconvAlgorithm || scf.deconvAlgorithm || 'matching_pursuit';
     if (algorithm === 'cvxeda' && typeof CVXEDA !== 'undefined') {
+      this._driverAlgorithm = 'cvxeda';
       // cvxEDA models tonic and phasic jointly, so it is fed the full filtered
       // skin-conductance signal (tonic still present), NOT the EMA
       // tonic-subtracted phasic the matching-pursuit path uses. Its B-spline
@@ -776,6 +789,7 @@ class GSRAnalyzer {
       return;
     }
 
+    this._driverAlgorithm = 'matching_pursuit';
     const result = SCRDeconvolution.deconvolve(phasicArr, this.sampleRate, {
       tauSlow: scf.tauSlow, tauFast: scf.tauFast, kernelSec: scf.kernelSec,
       maxIter: scf.maxIter, lr: scf.lr, convTol: scf.convTol
