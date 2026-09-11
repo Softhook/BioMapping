@@ -392,6 +392,83 @@ absolute-threshold, recall-oriented default (documented in `constants.js`)
 exists to avoid. No change made — this is direct, quantified support for
 the current design choice, not a discrepancy to fix.
 
+## Ground-Truth Detector Race (2026-09-11)
+
+Every comparison above asks "does ours agree with NeuroKit2's" — informative
+for finding bugs, but unable to answer "which one is actually right".
+`generate_ground_truth.py` + `check_ground_truth.{js,sh}` close that gap
+using NeuroKit2's own canonical SCR generator (`_eda_simulate_scr`, Bach et
+al. 2010's response function — the same one `nk.eda_simulate()` uses)
+rather than a from-scratch synthetic signal, so the ground truth stays
+independent of both projects' own detection assumptions. `eda_simulate()`
+itself doesn't return where it placed each SCR, so this inlines its
+generation loop (same waveform, same additive superposition via
+`signal_merge`, same drift/noise model via `signal_distort`) to track the
+true peak time of every injected response.
+
+**A real bug surfaced immediately, in the test generator itself, not either
+pipeline.** `_eda_simulate_scr()`'s shape formula runs an internal time axis
+spanning a fixed 0–90 range regardless of the `sampling_rate` argument, but
+only allocates `9 * sampling_rate` samples to resolve it — fine at
+NeuroKit2's own default (1000Hz → 9000 samples), badly under-resolved when
+called directly at BioMapping's real hardware rate (10Hz → only 90 samples
+across that same range). Calling it at 10Hz produced synthetic "SCRs" that
+didn't resemble one at all — confirmed because *every* detector on both
+sides, including NeuroKit2's own, scored near 0% recall against it. Fixed
+by generating at 100Hz (which NeuroKit2's formula is actually designed to
+resolve) and downsampling to 10Hz afterward, the way a real acquisition
+pipeline would. A second, subtler issue: the true peak position is not
+`start_time + time_peak` — the same 0–90-vs-real-time mismatch, compounded
+by a convolution with a one-sided decay kernel that shifts the rendered
+peak further still, with no simple closed form. Fixed by measuring each
+SCR's true peak position directly off its own generated waveform
+(`argmax`) rather than computing it analytically.
+
+**Results, once the generator was actually correct** (4 scenarios spanning
+sparse/dense × clean/noisy, 6–40 known SCRs each):
+
+| scenario | method | recall | precision | mean timing error |
+|---|---|---|---|---|
+| dense, clean (noise=0.01) | Full-Scan / Prominence | 100% | 85–87% | 0.168s |
+| | cvxEDA | 100% | 53% | 0.386s |
+| | **NeuroKit2** | 100% | **100%** | **0.040s** |
+| dense, noisy (noise=0.05) | Full-Scan / Prominence | 100% | 24–26% | 0.169s |
+| | cvxEDA | 100% | 24% | 0.388s |
+| | **NeuroKit2** | 100% | **71%** | **0.037s** |
+| sparse, clean | Full-Scan / Prominence | 100% | 100% | 0.168s |
+| | cvxEDA | 100% | 40% | 0.442s |
+| | NeuroKit2 | 100% | 100% | 0.035s |
+| sparse, noisy | Full-Scan / Prominence | 100% | 9–10% | 0.188s |
+| | cvxEDA | 100% | 19% | 0.535s |
+| | **NeuroKit2** | 100% | **67%** | **0.032s** |
+
+Every method found every real injected SCR (100% recall everywhere) — a
+useful sanity check on its own. The decisive differences:
+
+- **Timing precision**: NeuroKit2 lands within ~0.03–0.04s of the true peak,
+  consistently ~5× tighter than Full-Scan/Prominence (0.17–0.19s) and
+  ~10× tighter than cvxEDA (0.39–0.54s). Consistent enough across scenarios
+  to be a real, systematic effect — plausibly the 0.5s box LPF shifting the
+  apparent peak sample on this particular (fairly narrow) canonical SCR
+  shape — not yet root-caused, worth a closer look separately.
+- **Noise robustness**: this is the sharper result. At low noise, our
+  absolute-threshold detectors already show real false positives (85–87%
+  precision, not 100%) that NeuroKit2 avoids entirely. As noise rises, ours
+  **collapses** (9–26% precision) while NeuroKit2 degrades gracefully
+  (67–71%). This is the first *direct, controlled* evidence (not just an
+  argument from design philosophy) that BioMapping's absolute-threshold
+  default genuinely mistakes noise fluctuations for peaks once SNR drops,
+  in a way a relative-to-recording-max threshold structurally resists —
+  complementing (not contradicting) the earlier finding that the relative
+  threshold sacrifices recall on real field data's varying dynamic range.
+  Neither result cancels the other out: they describe the same trade-off
+  from two different angles (real-data dynamic range vs. controlled noise).
+
+No pipeline change made — this is new evidence to weigh in the
+recall/precision design conversation, not a bug to fix. Re-run with
+`./check_ground_truth.sh`; extend `SCENARIOS` in `generate_ground_truth.py`
+for more/different synthetic conditions.
+
 ## SparsEDA vs NeuroKit2 (2026-09-11) — open question, not resolved this session
 
 SparsEDA (Hernando-Gallego et al. 2017) is the other decomposition method
