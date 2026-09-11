@@ -551,7 +551,7 @@ const SCRDeconvolution = {
       };
     }
 
-    const targetRate = sampleRate > 8 ? 8 : sampleRate;
+    const targetRate = 8;
     const resampled = this._linearResampleTo(phasic, sampleRate, targetRate);
     const workSignal = resampled.values;
     const workRate = resampled.rate;
@@ -705,16 +705,11 @@ const SCRDeconvolution = {
     const clean = this._linearResampleBack(cleanWork, workRate, n, sampleRate);
     const tonic = this._linearResampleBack(tonicWork, workRate, n, sampleRate);
     const mse = this._linearResampleBack(mseWork, workRate, n, sampleRate);
-    const impulseLog = [];
-    for (let i = 0; i < driver.length; i++) {
-      if (driver[i] > 0) {
-        impulseLog.push({
-          clampedIndex: i,
-          trueIndex: i,
-          amplitude: driver[i]
-        });
-      }
-    }
+    const impulseLog = Array.from(driver).map((amp, i) => amp > 0 ? {
+      clampedIndex: i,
+      trueIndex: i,
+      amplitude: amp
+    } : null).filter(Boolean);
 
     return {
       driver,
