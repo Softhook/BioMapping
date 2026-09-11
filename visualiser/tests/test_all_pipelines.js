@@ -539,7 +539,8 @@ assert(phasicRaw.length === gsrRaw.length, 'Phasic data ready for deconvolution 
 
 // Run deconvolution with matching pursuit
 const deconvResult = SCRDeconvolution.deconvolve(phasicRaw, deconvAnalyzer.sampleRate, {
-  tauSlow: 2.0, tauFast: 0.75, maxIter: 50, lr: 1.0, convTol: 0.01
+  tauSlow: 2.0, tauFast: 0.75, maxIter: 50, lr: 1.0, convTol: 0.01,
+  algorithm: 'matching_pursuit'
 });
 assert(deconvResult.driver instanceof Float64Array, 'Deconvolution returns a driver Float64Array');
 assertEq(deconvResult.driver.length, phasicRaw.length, 'Driver signal has same length as phasic input');
@@ -601,7 +602,8 @@ const deconvParams2 = {
   ...GSR_CONST.GSR_DEFAULT,
   tonicMethod: 'percentile',
   peakThreshold: deconvPeakThreshold,
-  useDeconvolution: true
+  useDeconvolution: true,
+  deconvAlgorithm: 'matching_pursuit'
 };
 deconvAnalyzer2.analyze(deconvParams2);
 console.log(`  Deconv pipeline: ${deconvAnalyzer2.phasicDriverPeaks.length} driver impulses → ${deconvAnalyzer2.peaks.length} detected peaks`);

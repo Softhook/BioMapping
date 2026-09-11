@@ -43,6 +43,10 @@ module.exports = {
     impulseThreshold: 0.005,
     minImpulseGapSec: 0.5,
     minApexVal: 0.001,
+    sparsedaKmax: 40,
+    sparsedaEpsilon: 1.0,
+    sparsedaDminSec: 1.25,
+    sparsedaRho: 0.025,
     deconvAlgorithm: 'matching_pursuit'
   },
 

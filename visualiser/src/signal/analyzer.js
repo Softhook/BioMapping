@@ -790,136 +790,175 @@ class GSRAnalyzer {
     }
 
     this._driverAlgorithm = algorithm === 'sparseda' ? 'sparseda' : 'matching_pursuit';
-    const result = SCRDeconvolution.deconvolve(phasicArr, this.sampleRate, {
-      tauSlow: scf.tauSlow, tauFast: scf.tauFast, kernelSec: scf.kernelSec,
-      maxIter: scf.maxIter, lr: scf.lr, convTol: scf.convTol,
-      minImpulseGapSec: scf.minImpulseGapSec,
-      algorithm: algorithm
-    });
+    const deconvInput = (algorithm === 'sparseda')
+      ? Float64Array.from(this.filtered, d => d.val)
+      : phasicArr;
+    const deconvOpts = (algorithm === 'sparseda')
+      ? {
+          maxIter: scf.sparsedaKmax ?? 40,
+          epsilon: scf.sparsedaEpsilon,
+          dminSec: scf.sparsedaDminSec,
+          rho: scf.sparsedaRho,
+          algorithm: algorithm
+        }
+      : {
+          tauSlow: scf.tauSlow, tauFast: scf.tauFast, kernelSec: scf.kernelSec,
+          maxIter: scf.maxIter, lr: scf.lr, convTol: scf.convTol,
+          minImpulseGapSec: scf.minImpulseGapSec,
+          algorithm: algorithm
+        };
+    const result = SCRDeconvolution.deconvolve(deconvInput, this.sampleRate, deconvOpts);
+    if (algorithm === 'sparseda' && result.tonic && result.tonic.length === n) {
+      this._tonicOrig = this.tonic;
+      const tonicClean = new Array(n);
+      let toMn = Infinity, toMx = -Infinity;
+      for (let i = 0; i < n; i++) {
+        const v = result.tonic[i];
+        tonicClean[i] = { time: times[i], val: v };
+        if (v < toMn) toMn = v;
+        if (v > toMx) toMx = v;
+      }
+      this.tonic = tonicClean;
+      this._seriesRange.tonic = { min: toMn, max: toMx };
+      this.tonicZ = GsrFilter.standardizeSignal(this.tonic, null);
+    }
 
-    // Diagnostic: whether matching pursuit converged (residual < convTol)
-    // before exhausting its iteration budget, or was truncated by maxIter.
-    // A truncated run means real SCRs may have been left unmodelled with no
-    // visible sign in the results — check this if peak counts look low for
-    // a long/busy recording.
-    this.phasicDeconvTruncated = result.iterations >= scf.maxIter;
+    // Diagnostic: whether the selected deconvolution path converged before
+    // exhausting its iteration budget. A truncated run means real SCRs may
+    // have been left unmodelled with no visible sign in the results — check
+    // this if peak counts look low for a long/busy recording.
+    this.phasicDeconvTruncated = !result.converged;
 
     this.phasicDriver = new Array(n);
     for (let i = 0; i < n; i++) {
       this.phasicDriver[i] = { time: times[i], val: result.driver[i] };
     }
-
-    // Global impulse detection: minImpulseGapSec is enforced exactly once,
-    // across the whole track, so no two accepted impulses can be closer than
-    // that regardless of how many original peaks would once have generated
-    // overlapping local windows around them.
-    const rawImpulses = SCRDeconvolution.detectImpulses(
-      result.driver, this.sampleRate, scf.impulseThreshold, scf.minImpulseGapSec
-    );
-
-    const kPeakIdx = this._kernelPeakOffset(result.kernel);
-
-    // Map each clamped driver-array position back to the individual
-    // matching-pursuit atom(s) that were combined into it — usually exactly
-    // one, but multiple whenever two+ atoms independently clamp to the same
-    // position, which in practice only happens right at the recording
-    // boundary (see deconvolve()'s clampedImpIdx comment). rawImpulses
-    // below (from detectImpulses(), which only sees the already-collapsed
-    // `driver` array) only knows the CLAMPED position; resolving/
-    // reconstructing a boundary impulse from that clamped position instead
-    // of its true (possibly negative) one reproduces a mistimed, reshaped
-    // bump — verified empirically (see deconvolve()'s impulseLog doc
-    // comment: true apex at sample 4 reconstructed at sample ~kPeakIdx=12).
-    const logByClampedIndex = new Map();
-    for (const entry of result.impulseLog) {
-      if (!logByClampedIndex.has(entry.clampedIndex)) logByClampedIndex.set(entry.clampedIndex, []);
-      logByClampedIndex.get(entry.clampedIndex).push(entry);
-    }
-    // For the apex-prediction sanity check below, use the single largest
-    // contributor's true position when multiple atoms share a clamped slot
-    // — a coarse "is there really a rise near here" gate doesn't need every
-    // contributor, just the dominant one's true position.
-    const dominantTrueIndex = (clampedIndex) => {
-      const entries = logByClampedIndex.get(clampedIndex);
-      if (!entries || entries.length === 0) return clampedIndex; // shouldn't happen; safe fallback
-      let best = entries[0];
-      for (const e of entries) if (e.amplitude > best.amplitude) best = e;
-      return best.trueIndex;
-    };
-
-    // imp.index from detectImpulses() is the driver-domain ONSET position, not
-    // the SCR's apex: deconvolve() places each impulse at maxIdx - kPeakIdx so
-    // that convolving it with the kernel puts the bump's own peak back at
-    // maxIdx, i.e. the true apex is imp.index + kPeakIdx.
-    //
-    // Resolve the true apex by searching the *original* phasic signal near the
-    // kernel-predicted position — the canonical kernel is only an approximation
-    // of any real SCR, so the actual maximum can sit a little either side of
-    // kPeakIdx samples after onset. The ±0.5 s window is deliberate; ±0.75 s
-    // was tried and slightly hurt both apex accuracy and raw-detector
-    // agreement (it snaps onto neighbouring peaks). resolveApex() here only
-    // gates which raw impulses feed the reconstruction; the final peak
-    // positions come from _detectPeaksFromCurve() scanning the reconstructed
-    // curve.
-    const apexSearchHalfWin = Math.max(1, Math.round(0.5 * this.sampleRate));
-    const resolveApex = (onsetIdx) => {
-      const predicted = Math.min(n - 1, onsetIdx + kPeakIdx);
-      // Clamp the search window's lower bound to onsetIdx itself, not just
-      // predicted-halfWin: near the end of a recording, `predicted` gets
-      // clamped down to n-1, which can pull predicted-halfWin below onsetIdx
-      // — without this, the search could return an apex earlier than its own
-      // onset, which is physically nonsensical and breaks anything iterating
-      // the [onsetIndex, index] range (e.g. renderer.js's shaded-region draw).
-      const lo = Math.max(0, onsetIdx, predicted - apexSearchHalfWin);
-      const hi = Math.min(n - 1, predicted + apexSearchHalfWin);
-      let bestIdx = Math.max(onsetIdx, predicted), bestVal = phasicVals[bestIdx] || 0;
-      for (let i = lo; i <= hi; i++) {
-        if (phasicVals[i] > bestVal) { bestVal = phasicVals[i]; bestIdx = i; }
+    let reconstructionImpulses;
+    let cleanValsRaw;
+    if (algorithm === 'sparseda') {
+      this.phasicDriverPeaks = [];
+      for (let i = 0; i < n; i++) {
+        if (result.driver[i] > 0) {
+          this.phasicDriverPeaks.push({ index: i, time: times[i], amplitude: result.driver[i] });
+        }
       }
-      return { apexIdx: bestIdx, apexVal: bestVal };
-    };
+      reconstructionImpulses = this.phasicDriverPeaks.map(({ index, amplitude }) => ({ index, amplitude }));
+      cleanValsRaw = (result.clean && result.clean.length === n)
+        ? new Float64Array(result.clean)
+        : SCRDeconvolution.reconstructPhasic(reconstructionImpulses, n, result.kernel);
+    } else {
+      // Global impulse detection: minImpulseGapSec is enforced exactly once,
+      // across the whole track, so no two accepted impulses can be closer than
+      // that regardless of how many original peaks would once have generated
+      // overlapping local windows around them.
+      const rawImpulses = SCRDeconvolution.detectImpulses(
+        result.driver, this.sampleRate, scf.impulseThreshold, scf.minImpulseGapSec
+      );
 
-    // Gate which raw impulses feed the reconstruction: the same amplitude
-    // threshold (peakThreshold), plus a check that each impulse matches a
-    // genuine local rise in the *original* signal at its resolved apex, not
-    // just a driver-domain artefact (mitigates noise-detected-as-SCR). This is
-    // the only pre-reconstruction filter — SNR and quality judge individual
-    // reported events, not whether a piece of signal is real, so they run
-    // later against the peaks built from the reconstructed curve, matching the
-    // raw detectors' order (amplitude gates candidacy; SNR/quality filter
-    // the finished peak objects). resolveApex() is predicted from the TRUE
-    // (possibly negative) onset via dominantTrueIndex(), not imp.index's
-    // clamped position — a boundary impulse's clamp shift (up to kPeakIdx
-    // samples) would otherwise push the real apex outside the search window.
-    const threshold = params.peakThreshold;
-    const minApexVal = scf.minApexVal ?? 0.001;
-    const impulses = rawImpulses
-      .map(imp => ({ imp, ...resolveApex(dominantTrueIndex(imp.index)) }))
-      .filter(({ imp, apexVal }) => imp.amplitude >= threshold && apexVal >= minApexVal);
-    this.phasicDriverPeaks = impulses.map(({ imp }) => imp);
+      const kPeakIdx = this._kernelPeakOffset(result.kernel);
 
-    // Reconstruct the clean, superposition-resolved phasic signal from every
-    // impulse that passed the gate above, at each atom's TRUE (possibly
-    // negative) onset position — reconstructPhasic() treats impulse "index"
-    // as the ONSET position (the kernel is convolved starting there), not
-    // the apex, and needs the true position to correctly reproduce only the
-    // visible tail of a kernel whose modelled onset predates t=0 (see that
-    // function's doc comment). Falls back to the clamped position/amplitude
-    // if a gated impulse's clamped index has no logged entry (shouldn't
-    // happen — every driver-array impulse originates from an impulseLog
-    // entry — but degrades safely rather than dropping the impulse).
-    const reconstructionImpulses = [];
-    for (const { imp } of impulses) {
-      const entries = logByClampedIndex.get(imp.index);
-      if (entries && entries.length > 0) {
-        for (const e of entries) reconstructionImpulses.push({ index: e.trueIndex, amplitude: e.amplitude });
-      } else {
-        reconstructionImpulses.push({ index: imp.index, amplitude: imp.amplitude });
+      // Map each clamped driver-array position back to the individual
+      // matching-pursuit atom(s) that were combined into it — usually exactly
+      // one, but multiple whenever two+ atoms independently clamp to the same
+      // position, which in practice only happens right at the recording
+      // boundary (see deconvolve()'s clampedImpIdx comment). rawImpulses
+      // below (from detectImpulses(), which only sees the already-collapsed
+      // `driver` array) only knows the CLAMPED position; resolving/
+      // reconstructing a boundary impulse from that clamped position instead
+      // of its true (possibly negative) one reproduces a mistimed, reshaped
+      // bump — verified empirically (see deconvolve()'s impulseLog doc
+      // comment: true apex at sample 4 reconstructed at sample ~kPeakIdx=12).
+      const logByClampedIndex = new Map();
+      for (const entry of result.impulseLog) {
+        if (!logByClampedIndex.has(entry.clampedIndex)) logByClampedIndex.set(entry.clampedIndex, []);
+        logByClampedIndex.get(entry.clampedIndex).push(entry);
       }
+      // For the apex-prediction sanity check below, use the single largest
+      // contributor's true position when multiple atoms share a clamped slot
+      // — a coarse "is there really a rise near here" gate doesn't need every
+      // contributor, just the dominant one's true position.
+      const dominantTrueIndex = (clampedIndex) => {
+        const entries = logByClampedIndex.get(clampedIndex);
+        if (!entries || entries.length === 0) return clampedIndex; // shouldn't happen; safe fallback
+        let best = entries[0];
+        for (const e of entries) if (e.amplitude > best.amplitude) best = e;
+        return best.trueIndex;
+      };
+
+      // imp.index from detectImpulses() is the driver-domain ONSET position, not
+      // the SCR's apex: deconvolve() places each impulse at maxIdx - kPeakIdx so
+      // that convolving it with the kernel puts the bump's own peak back at
+      // maxIdx, i.e. the true apex is imp.index + kPeakIdx.
+      //
+      // Resolve the true apex by searching the *original* phasic signal near the
+      // kernel-predicted position — the canonical kernel is only an approximation
+      // of any real SCR, so the actual maximum can sit a little either side of
+      // kPeakIdx samples after onset. The ±0.5 s window is deliberate; ±0.75 s
+      // was tried and slightly hurt both apex accuracy and raw-detector
+      // agreement (it snaps onto neighbouring peaks). resolveApex() here only
+      // gates which raw impulses feed the reconstruction; the final peak
+      // positions come from _detectPeaksFromCurve() scanning the reconstructed
+      // curve.
+      const apexSearchHalfWin = Math.max(1, Math.round(0.5 * this.sampleRate));
+      const resolveApex = (onsetIdx) => {
+        const predicted = Math.min(n - 1, onsetIdx + kPeakIdx);
+        // Clamp the search window's lower bound to onsetIdx itself, not just
+        // predicted-halfWin: near the end of a recording, `predicted` gets
+        // clamped down to n-1, which can pull predicted-halfWin below onsetIdx
+        // — without this, the search could return an apex earlier than its own
+        // onset, which is physically nonsensical and breaks anything iterating
+        // the [onsetIndex, index] range (e.g. renderer.js's shaded-region draw).
+        const lo = Math.max(0, onsetIdx, predicted - apexSearchHalfWin);
+        const hi = Math.min(n - 1, predicted + apexSearchHalfWin);
+        let bestIdx = Math.max(onsetIdx, predicted), bestVal = phasicVals[bestIdx] || 0;
+        for (let i = lo; i <= hi; i++) {
+          if (phasicVals[i] > bestVal) { bestVal = phasicVals[i]; bestIdx = i; }
+        }
+        return { apexIdx: bestIdx, apexVal: bestVal };
+      };
+
+      // Gate which raw impulses feed the reconstruction: the same amplitude
+      // threshold (peakThreshold), plus a check that each impulse matches a
+      // genuine local rise in the *original* signal at its resolved apex, not
+      // just a driver-domain artefact (mitigates noise-detected-as-SCR). This is
+      // the only pre-reconstruction filter — SNR and quality judge individual
+      // reported events, not whether a piece of signal is real, so they run
+      // later against the peaks built from the reconstructed curve, matching the
+      // raw detectors' order (amplitude gates candidacy; SNR/quality filter
+      // the finished peak objects). resolveApex() is predicted from the TRUE
+      // (possibly negative) onset via dominantTrueIndex(), not imp.index's
+      // clamped position — a boundary impulse's clamp shift (up to kPeakIdx
+      // samples) would otherwise push the real apex outside the search window.
+      const threshold = params.peakThreshold;
+      const minApexVal = scf.minApexVal ?? 0.001;
+      const impulses = rawImpulses
+        .map(imp => ({ imp, ...resolveApex(dominantTrueIndex(imp.index)) }))
+        .filter(({ imp, apexVal }) => imp.amplitude >= threshold && apexVal >= minApexVal);
+      this.phasicDriverPeaks = impulses.map(({ imp }) => imp);
+
+      // Reconstruct the clean, superposition-resolved phasic signal from every
+      // impulse that passed the gate above, at each atom's TRUE (possibly
+      // negative) onset position — reconstructPhasic() treats impulse "index"
+      // as the ONSET position (the kernel is convolved starting there), not
+      // the apex, and needs the true position to correctly reproduce only the
+      // visible tail of a kernel whose modelled onset predates t=0 (see that
+      // function's doc comment). Falls back to the clamped position/amplitude
+      // if a gated impulse's clamped index has no logged entry (shouldn't
+      // happen — every driver-array impulse originates from an impulseLog
+      // entry — but degrades safely rather than dropping the impulse).
+      reconstructionImpulses = [];
+      for (const { imp } of impulses) {
+        const entries = logByClampedIndex.get(imp.index);
+        if (entries && entries.length > 0) {
+          for (const e of entries) reconstructionImpulses.push({ index: e.trueIndex, amplitude: e.amplitude });
+        } else {
+          reconstructionImpulses.push({ index: imp.index, amplitude: imp.amplitude });
+        }
+      }
+      cleanValsRaw = (result.clean && result.clean.length === n)
+        ? new Float64Array(result.clean)
+        : SCRDeconvolution.reconstructPhasic(reconstructionImpulses, n, result.kernel);
     }
-    const cleanValsRaw = (result.clean && result.clean.length === n)
-      ? new Float64Array(result.clean)
-      : SCRDeconvolution.reconstructPhasic(reconstructionImpulses, n, result.kernel);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // CRITICAL: the rescaling below must operate on the EXACT SAME impulse set
@@ -960,8 +999,9 @@ class GSRAnalyzer {
     //
     // Guard: if cleanValsRaw sums to zero (no impulses passed the gate, e.g.
     // a recording with no detectable SCRs), skip the rescaling to avoid ÷0.
+    const shouldRescale = result.applyRescale !== false;
     let rescaleAmplitudes = 1.0;
-    {
+    if (shouldRescale) {
       let sumClean = 0, sumPhasic = 0;
       for (let i = 0; i < n; i++) { sumClean += cleanValsRaw[i]; sumPhasic += phasicVals[i]; }
       if (sumClean > 0) rescaleAmplitudes = sumPhasic / sumClean;
@@ -2449,5 +2489,3 @@ if (typeof module !== 'undefined' && module.exports) {
 } else {
   window.GSRAnalyzer = GSRAnalyzer;
 }
-
-

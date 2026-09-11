@@ -20,6 +20,7 @@ const test = require('node:test');
 const SCRDeconvolution = require('../src/signal/deconvolution.js');
 
 const SR = 10; // Hz, matches the project's standard GSR sample rate
+const MP = { algorithm: 'matching_pursuit' };
 
 // ═════════════════════════════════════════════════════════════════════════
 // buildSCRFKernel()
@@ -138,14 +139,14 @@ test('convolve: is additive across two well-separated impulses (superposition)',
 
 test('deconvolve: all-zero phasic converges immediately with zero iterations and an all-zero driver', () => {
   const phasic = new Float64Array(50);
-  const result = SCRDeconvolution.deconvolve(phasic, SR);
+  const result = SCRDeconvolution.deconvolve(phasic, SR, MP);
   assert.strictEqual(result.iterations, 0);
   assert.ok(Array.from(result.driver).every(v => v === 0));
   assert.strictEqual(result.impulseLog.length, 0);
 });
 
 test('deconvolve: empty phasic array does not throw and returns empty structures', () => {
-  const result = SCRDeconvolution.deconvolve(new Float64Array(0), SR);
+  const result = SCRDeconvolution.deconvolve(new Float64Array(0), SR, MP);
   assert.strictEqual(result.driver.length, 0);
   assert.strictEqual(result.iterations, 0);
   assert.strictEqual(result.impulseLog.length, 0);
@@ -158,7 +159,7 @@ test('deconvolve: recovers the true position and amplitude of a single isolated 
   const kernel = SCRDeconvolution.buildSCRFKernel(SR, 2.0, 0.75, 5.0);
   const phasic = SCRDeconvolution.convolve(trueDriver, kernel);
 
-  const result = SCRDeconvolution.deconvolve(phasic, SR, { maxIter: 20 });
+  const result = SCRDeconvolution.deconvolve(phasic, SR, { ...MP, maxIter: 20 });
   assert.strictEqual(result.iterations, 1, 'a single clean isolated atom should converge in one MP iteration');
   assert.strictEqual(result.impulseLog.length, 1);
   assert.strictEqual(result.impulseLog[0].trueIndex, 30);
@@ -175,7 +176,7 @@ test('deconvolve: negative-index onsets (SCR apex within kPeakIdx samples of t=0
   const n = 60;
   const phasic = new Float64Array(n);
   phasic[0] = 5.0;
-  const result = SCRDeconvolution.deconvolve(phasic, SR, { maxIter: 3 });
+  const result = SCRDeconvolution.deconvolve(phasic, SR, { ...MP, maxIter: 3 });
   assert.strictEqual(result.impulseLog.length, 1);
   assert.ok(result.impulseLog[0].trueIndex < 0, 'true onset should be modeled as predating the recording');
   assert.strictEqual(result.impulseLog[0].clampedIndex, 0, 'driver storage position must be clamped to 0');
@@ -193,7 +194,7 @@ test('deconvolve: respects the maxIter budget on a signal that would otherwise n
   const n = 500;
   const phasic = new Float64Array(n);
   for (let i = 10; i < n; i += 10) phasic[i] = 0.5; // 49 separated spikes
-  const result = SCRDeconvolution.deconvolve(phasic, SR, { maxIter: 5, convTol: 0.001 });
+  const result = SCRDeconvolution.deconvolve(phasic, SR, { ...MP, maxIter: 5, convTol: 0.001 });
   assert.strictEqual(result.iterations, 5, 'maxIter=5 with 49 available spikes should use the full budget');
 });
 
@@ -201,7 +202,7 @@ test('deconvolve: convTol stops iteration once the residual max falls below thre
   const n = 60;
   const phasic = new Float64Array(n);
   phasic[20] = 0.0005; // below a convTol of 0.001
-  const result = SCRDeconvolution.deconvolve(phasic, SR, { convTol: 0.001, maxIter: 50 });
+  const result = SCRDeconvolution.deconvolve(phasic, SR, { ...MP, convTol: 0.001, maxIter: 50 });
   assert.strictEqual(result.iterations, 0, 'a residual entirely below convTol should never place an atom');
 });
 
@@ -218,21 +219,21 @@ test('deconvolve: driver stays non-negative throughout (nonnegative deconvolutio
   trueDriver[150] = 1.3;
   const kernel = SCRDeconvolution.buildSCRFKernel(SR);
   const phasic = SCRDeconvolution.convolve(trueDriver, kernel);
-  const result = SCRDeconvolution.deconvolve(phasic, SR, { maxIter: 50 });
+  const result = SCRDeconvolution.deconvolve(phasic, SR, { ...MP, maxIter: 50 });
   assert.ok(Array.from(result.driver).every(v => v >= 0), 'driver must be nonnegative everywhere');
 });
 
 test('deconvolve: returns the same kernel buildSCRFKernel would produce for the given options', () => {
   const phasic = new Float64Array(30);
   const opts = { tauSlow: 1.5, tauFast: 0.5, kernelSec: 3.0 };
-  const result = SCRDeconvolution.deconvolve(phasic, SR, opts);
+  const result = SCRDeconvolution.deconvolve(phasic, SR, { ...opts, ...MP });
   const expectedKernel = SCRDeconvolution.buildSCRFKernel(SR, opts.tauSlow, opts.tauFast, opts.kernelSec);
   assert.deepStrictEqual(Array.from(result.kernel), Array.from(expectedKernel));
 });
 
 test('deconvolve: single-sample phasic array does not throw', () => {
   assert.doesNotThrow(() => {
-    const result = SCRDeconvolution.deconvolve(new Float64Array([0.5]), SR, { maxIter: 5 });
+    const result = SCRDeconvolution.deconvolve(new Float64Array([0.5]), SR, { ...MP, maxIter: 5 });
     assert.strictEqual(result.driver.length, 1);
   });
 });
@@ -247,7 +248,7 @@ test('deconvolve: a signal with no positive samples places zero impulses', () =>
   // yields no impulses, which holds either way.
   const phasic = new Float64Array(30);
   phasic[10] = -3.0; // physically invalid input
-  const result = SCRDeconvolution.deconvolve(phasic, SR, { maxIter: 10 });
+  const result = SCRDeconvolution.deconvolve(phasic, SR, { ...MP, maxIter: 10 });
   assert.strictEqual(result.iterations, 0, 'an entirely-negative-or-zero phasic should never place an atom');
 });
 
@@ -409,7 +410,7 @@ test('round trip: deconvolve + reconstructPhasic (using trueIndex) recovers a cl
   const kernel = SCRDeconvolution.buildSCRFKernel(SR, 2.0, 0.75, 5.0);
   const phasic = SCRDeconvolution.convolve(trueDriver, kernel);
 
-  const result = SCRDeconvolution.deconvolve(phasic, SR, { maxIter: 20 });
+  const result = SCRDeconvolution.deconvolve(phasic, SR, { ...MP, maxIter: 20 });
   const impulses = result.impulseLog.map(l => ({ index: l.trueIndex, amplitude: l.amplitude }));
   const clean = SCRDeconvolution.reconstructPhasic(impulses, n, result.kernel);
 
