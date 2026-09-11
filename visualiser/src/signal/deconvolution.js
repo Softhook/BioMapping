@@ -175,24 +175,26 @@ const SCRDeconvolution = {
     return { RI: next, flag: 0 };
   },
 
-  _buildReferenceDictionary(sampleRate) {
+  _buildReferenceDictionary(sampleRate, tauSlow = 2.0, tauFast = 0.5, kernelSec = 10.0) {
     const durationR = 70;
     const Lreg = Math.round(20 * sampleRate * 3);
     const N = Math.round(durationR * sampleRate);
     const T = 6;
     const columns = new Array(T + 5 * Lreg);
+    const bandKernels = [];
     const srFactors = [0.5, 0.75, 1.0, 1.25, 1.5];
 
     for (let band = 0; band < srFactors.length; band++) {
       const srF = sampleRate * srFactors[band];
       const rf = [];
-      for (let t = 0; t <= 10 + 1e-12; t += 1 / srF) {
-        rf.push(Math.exp(-t / 2) - Math.exp(-t / 0.5));
+      for (let t = 0; t <= kernelSec + 1e-12; t += 1 / srF) {
+        rf.push(Math.exp(-t / tauSlow) - Math.exp(-t / tauFast));
       }
       let rfNorm = 0;
       for (let i = 0; i < rf.length; i++) rfNorm += rf[i] * rf[i];
       rfNorm = Math.sqrt(rfNorm);
       for (let i = 0; i < rf.length; i++) rf[i] /= rfNorm;
+      bandKernels.push(Float64Array.from(rf));
 
       const base = T + band * Lreg;
       for (let c = 0; c < Lreg; c++) {
@@ -241,11 +243,11 @@ const SCRDeconvolution = {
     columns[4] = c4;
     columns[5] = c5;
 
-    return { columns, Lreg, N, T };
+    return { columns, Lreg, N, T, bandKernels };
   },
 
   _linearResampleTo(signal, sampleRate, targetRate) {
-    if (!(sampleRate > targetRate)) {
+    if (sampleRate === targetRate) {
       return { values: Float64Array.from(signal), outputLength: signal.length, rate: sampleRate };
     }
     const outputLength = Math.max(1, Math.round(targetRate * signal.length / sampleRate));
@@ -370,10 +372,10 @@ const SCRDeconvolution = {
       newIndices = [];
       {
         let best = Infinity;
+        const denomEps = 1e-12;
         for (let j = 0; j < W; j++) {
           if (activeSet.includes(j) || collinear.has(j)) continue;
-          epsilon = 1e-12;
-          const gamma = (lambda - c[j]) / (1 - ATv[j] + epsilon);
+          const gamma = (lambda - c[j]) / (1 - ATv[j] + denomEps);
           if (gamma < zeroTol) continue;
           if (gamma < best - zeroTol) {
             best = gamma;
@@ -435,9 +437,9 @@ const SCRDeconvolution = {
    * @param {Float64Array|Array<number>} phasic   - Tonic-subtracted phasic (≥ 0).
    * @param {number} sampleRate                   - Sampling rate in Hz.
    * @param {object} [opts]                       - Optional overrides.
-   * @param {number} [opts.tauSlow=2.0]           - Canonical SCRF decay constant (s).
-   * @param {number} [opts.tauFast=0.75]          - Canonical SCRF rise constant (s).
-   * @param {number} [opts.kernelSec=5.0]         - Canonical kernel duration (s).
+   * @param {number} [opts.tauSlow=2.0]           - SCRF decay constant (MP, or SparsEDA when explicitly overridden).
+   * @param {number} [opts.tauFast]               - SCRF rise constant (0.75 for MP defaults, 0.5 for SparsEDA defaults).
+   * @param {number} [opts.kernelSec]             - Kernel duration (5 s for MP defaults, 10 s for SparsEDA defaults).
    * @param {number} [opts.maxIter=100]           - Max iterations budget (MP) or Kmax (SparsEDA).
    * @param {number} [opts.lr=1.0]                - Atom amplitude scale (for MP).
    * @param {number} [opts.convTol=0.001]         - Residual convergence threshold (µS, MP).
@@ -459,9 +461,6 @@ const SCRDeconvolution = {
    */
   deconvolve(phasic, sampleRate, opts = {}) {
     const n = phasic.length;
-    const tauSlow   = opts.tauSlow   ?? 2.0;
-    const tauFast   = opts.tauFast   ?? 0.75;
-    const kernelSec = opts.kernelSec ?? 5.0;
     const maxIter   = opts.maxIter   ?? 100;
     const lr        = opts.lr        ?? 1.0;
     const convTol   = opts.convTol   ?? 0.001;
@@ -470,13 +469,11 @@ const SCRDeconvolution = {
     const dminSec = opts.dminSec ?? 1.25;
     const rho = opts.rho ?? 0.025;
 
-    const canonicalKernel = this.buildSCRFKernel(sampleRate, tauSlow, tauFast, kernelSec);
-
     if (n === 0) {
       return {
         driver: new Float64Array(0),
         clean: new Float64Array(0),
-        kernel: canonicalKernel,
+        kernel: new Float64Array(0),
         iterations: 0,
         impulseLog: [],
         converged: true
@@ -495,7 +492,7 @@ const SCRDeconvolution = {
       return {
         driver,
         clean,
-        kernel: canonicalKernel,
+        kernel: this.buildSCRFKernel(sampleRate, 2.0, 0.75, 5.0),
         iterations: hasAmp ? 1 : 0,
         impulseLog: hasAmp ? [{ clampedIndex: 0, trueIndex: 0, amplitude: val, atomIdx: 0, atomName: 'standard' }] : [],
         converged: true
@@ -504,17 +501,25 @@ const SCRDeconvolution = {
 
     // Legacy matching pursuit path if explicitly requested
     if (opts.algorithm === 'matching_pursuit') {
+      const tauSlow   = opts.tauSlow   ?? 2.0;
+      const tauFast   = opts.tauFast   ?? 0.75;
+      const kernelSec = opts.kernelSec ?? 5.0;
+      const canonicalKernel = this.buildSCRFKernel(sampleRate, tauSlow, tauFast, kernelSec);
       return this._deconvolveMP(phasic, sampleRate, canonicalKernel, maxIter, lr, convTol);
     }
 
-    return this._deconvolveSparsEDA(phasic, sampleRate, canonicalKernel, maxIter, epsilon, dminSec, rho);
+    const tauSlow   = opts.tauSlow   ?? 2.0;
+    const tauFast   = opts.tauFast   ?? 0.5;
+    const kernelSec = opts.kernelSec ?? 10.0;
+    const referenceKernel = this.buildSCRFKernel(sampleRate, tauSlow, tauFast, kernelSec);
+    return this._deconvolveSparsEDA(phasic, sampleRate, referenceKernel, maxIter, epsilon, dminSec, rho, tauSlow, tauFast, kernelSec);
   },
 
   /**
    * Core SparsEDA implementation: port of the official reference solver.
    * @private
    */
-  _deconvolveSparsEDA(phasic, sampleRate, canonicalKernel, maxIter, epsilon, dminSec, rho) {
+  _deconvolveSparsEDA(phasic, sampleRate, canonicalKernel, maxIter, epsilon, dminSec, rho, tauSlow = 2.0, tauFast = 0.5, kernelSec = 10.0) {
     const n = phasic.length;
     if (n === 0) {
       return {
@@ -560,11 +565,11 @@ const SCRDeconvolution = {
 
     const pointerS = padStart;
     const pointerE = pointerS + workSignal.length;
-    const { columns, Lreg, N, T } = this._buildReferenceDictionary(workRate);
+    const { columns, Lreg, N, T, bandKernels } = this._buildReferenceDictionary(workRate, tauSlow, tauFast, kernelSec);
     const Ns = signalAdd.length;
     const sclAux = new Float64Array(Ns);
-    const cleanAux = new Float64Array(Ns);
     const driverAux = new Float64Array(Ns);
+    const bandAux = Array.from({ length: 5 }, () => new Float64Array(Ns));
     const resAux = new Float64Array(Ns);
     let cutS = 0;
     let cutE = N;
@@ -619,13 +624,15 @@ const SCRDeconvolution = {
         const col = columns[j];
         for (let i = 0; i < N; i++) scl[i] += coeff * col[i];
       }
-      const cleanChunk = new Float64Array(N);
-      for (let i = 0; i < N; i++) cleanChunk[i] = signalEst[i] - scl[i];
-
       const driverChunk = new Float64Array(Lreg);
+      const bandChunks = Array.from({ length: 5 }, () => new Float64Array(Lreg));
       for (let offset = 0; offset < Lreg; offset++) {
         let sum = 0;
-        for (let band = 0; band < 5; band++) sum += beta[T + band * Lreg + offset];
+        for (let band = 0; band < 5; band++) {
+          const coeff = beta[T + band * Lreg + offset];
+          bandChunks[band][offset] = coeff;
+          sum += coeff;
+        }
         driverChunk[offset] = sum;
       }
 
@@ -638,7 +645,7 @@ const SCRDeconvolution = {
 
       driverAux.set(driverChunk.subarray(0, chunkLen), start);
       sclAux.set(scl.subarray(0, chunkLen), start);
-      cleanAux.set(cleanChunk.subarray(0, chunkLen), start);
+      for (let band = 0; band < 5; band++) bandAux[band].set(bandChunks[band].subarray(0, chunkLen), start);
       resAux.set(remAout.subarray(0, chunkLen), start);
       return chunkLen;
     };
@@ -652,7 +659,7 @@ const SCRDeconvolution = {
     const driverWorkRaw = driverAux.slice(pointerS, pointerE);
     const tonicWork = sclAux.slice(pointerS, pointerE);
     const mseWork = resAux.slice(pointerS, pointerE);
-    const cleanWork = cleanAux.slice(pointerS, pointerE);
+    const bandWorkRaw = bandAux.map(arr => arr.slice(pointerS, pointerE));
     const minGapSamples = Math.max(1, Math.round(dminSec * workRate));
 
     const candidates = [];
@@ -679,6 +686,18 @@ const SCRDeconvolution = {
     if (threshold > 0) {
       for (let i = 0; i < driverWork.length; i++) {
         if (driverWork[i] < threshold) driverWork[i] = 0;
+      }
+    }
+
+    const cleanWork = new Float64Array(driverWork.length);
+    for (let idx = 0; idx < driverWork.length; idx++) {
+      if (driverWork[idx] <= 0) continue;
+      for (let band = 0; band < 5; band++) {
+        const amp = bandWorkRaw[band][idx];
+        if (amp <= 0) continue;
+        const kernel = bandKernels[band];
+        const limit = Math.min(kernel.length, cleanWork.length - idx);
+        for (let k = 0; k < limit; k++) cleanWork[idx + k] += amp * kernel[k];
       }
     }
 

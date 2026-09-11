@@ -793,16 +793,21 @@ class GSRAnalyzer {
     const deconvInput = (algorithm === 'sparseda')
       ? Float64Array.from(this.filtered, d => d.val)
       : phasicArr;
-    const result = SCRDeconvolution.deconvolve(deconvInput, this.sampleRate, {
-      tauSlow: scf.tauSlow, tauFast: scf.tauFast, kernelSec: scf.kernelSec,
-      maxIter: algorithm === 'sparseda' ? (scf.sparsedaKmax ?? 40) : scf.maxIter,
-      lr: scf.lr, convTol: scf.convTol,
-      minImpulseGapSec: scf.minImpulseGapSec,
-      epsilon: scf.sparsedaEpsilon,
-      dminSec: scf.sparsedaDminSec,
-      rho: scf.sparsedaRho,
-      algorithm: algorithm
-    });
+    const deconvOpts = (algorithm === 'sparseda')
+      ? {
+          maxIter: scf.sparsedaKmax ?? 40,
+          epsilon: scf.sparsedaEpsilon,
+          dminSec: scf.sparsedaDminSec,
+          rho: scf.sparsedaRho,
+          algorithm: algorithm
+        }
+      : {
+          tauSlow: scf.tauSlow, tauFast: scf.tauFast, kernelSec: scf.kernelSec,
+          maxIter: scf.maxIter, lr: scf.lr, convTol: scf.convTol,
+          minImpulseGapSec: scf.minImpulseGapSec,
+          algorithm: algorithm
+        };
+    const result = SCRDeconvolution.deconvolve(deconvInput, this.sampleRate, deconvOpts);
     if (algorithm === 'sparseda' && result.tonic && result.tonic.length === n) {
       this._tonicOrig = this.tonic;
       const tonicClean = new Array(n);

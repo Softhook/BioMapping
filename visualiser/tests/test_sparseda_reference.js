@@ -19,15 +19,15 @@ function relRMSE(a, b) {
   return Math.sqrt(num / Math.max(den, 1e-30));
 }
 
-test('SparsEDA matches the reference implementation on an 8 Hz fixture', () => {
+test('SparsEDA matches the reference implementation on an 8 Hz fixture with solver-aligned parameters', () => {
   const res = SCRDeconvolution.deconvolve(Float64Array.from(ref.signal), ref.sr, {
     algorithm: 'sparseda',
     maxIter: 40,
-    epsilon: 1.0,
+    epsilon: 0.01,
     dminSec: 1.25,
     rho: 0.025,
     tauSlow: 2.0,
-    tauFast: 0.75,
+    tauFast: 0.5,
     kernelSec: 10.0
   });
 
@@ -67,16 +67,77 @@ test('SparsEDA keeps original array length when internally resampling 10 Hz inpu
   const res = SCRDeconvolution.deconvolve(signal, sr, {
     algorithm: 'sparseda',
     maxIter: 40,
-    epsilon: 1.0,
+    epsilon: 0.01,
     dminSec: 1.25,
     rho: 0.025,
-    tauSlow: 2.0,
-    tauFast: 0.75,
-    kernelSec: 10.0
   });
 
   assert.strictEqual(res.driver.length, n);
   assert.strictEqual(res.clean.length, n);
   assert.strictEqual(res.tonic.length, n);
   assert.ok(Array.from(res.driver).some(v => v > 0), 'resampled 10 Hz input should still produce sparse driver events');
+});
+
+test('SparsEDA also round-trips 4 Hz input through the fixed 8 Hz solver rate', () => {
+  const n = 480;
+  const sr = 4;
+  const signal = new Float64Array(n);
+  for (let i = 0; i < n; i++) signal[i] = 2.0 + 0.05 * Math.sin(i / 9);
+  signal[80] += 0.30;
+  signal[240] += 0.20;
+
+  const res = SCRDeconvolution.deconvolve(signal, sr, {
+    algorithm: 'sparseda',
+    maxIter: 40,
+    epsilon: 0.01,
+    dminSec: 1.25,
+    rho: 0.025
+  });
+
+  assert.strictEqual(res.driver.length, n);
+  assert.strictEqual(res.clean.length, n);
+  assert.strictEqual(res.tonic.length, n);
+});
+
+test('SparsEDA pruning keeps clean consistent with the kept driver', () => {
+  const res = SCRDeconvolution.deconvolve(Float64Array.from(ref.signal), ref.sr, {
+    algorithm: 'sparseda',
+    maxIter: 40,
+    epsilon: 0.01,
+    dminSec: 1.25,
+    rho: 2.0,
+    tauSlow: 2.0,
+    tauFast: 0.5,
+    kernelSec: 10.0
+  });
+
+  const nonzeroDriver = Array.from(res.driver).filter(v => v > 0).length;
+  const maxClean = Math.max(...Array.from(res.clean));
+  assert.strictEqual(nonzeroDriver, 0, 'sanity check: rho=2 should prune every driver event');
+  assert.strictEqual(maxClean, 0, 'clean reconstruction should also drop to zero when no driver event is kept');
+});
+
+test('SparsEDA epsilon remains an active stop threshold', () => {
+  const strict = SCRDeconvolution.deconvolve(Float64Array.from(ref.signal), ref.sr, {
+    algorithm: 'sparseda',
+    maxIter: 40,
+    epsilon: 0.01,
+    dminSec: 1.25,
+    rho: 0.025,
+    tauSlow: 2.0,
+    tauFast: 0.5,
+    kernelSec: 10.0
+  });
+  const loose = SCRDeconvolution.deconvolve(Float64Array.from(ref.signal), ref.sr, {
+    algorithm: 'sparseda',
+    maxIter: 40,
+    epsilon: 1e6,
+    dminSec: 1.25,
+    rho: 0.025,
+    tauSlow: 2.0,
+    tauFast: 0.5,
+    kernelSec: 10.0
+  });
+
+  assert.ok(loose.iterations < strict.iterations, `looser epsilon should stop earlier (${loose.iterations} < ${strict.iterations})`);
 });
