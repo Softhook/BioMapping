@@ -276,6 +276,45 @@ zero difference, bit-for-bit on every local maximum). Full test suite
 touches boundary/global-max points, which no existing test hardcodes exact
 prominence values for.
 
+## Onset-Detection Comparison vs NeuroKit2 (2026-09-11) — no bug, one point in our favour
+
+Same isolation pattern (`check_onset_agreement.{py,js,sh}`): same phasic
+curve, does our Full-Scan onset walk (`_findOnsetIndex(vals, i,
+maxOnsetSteps, minDip=0)` — "stop at the first preceding local minimum,
+however shallow", bounded to `MAX_RISE_TIME=5s` and to `vals > 0`) agree
+with NeuroKit2's own onset convention (`signal_findpeaks`'s `"Onsets"`
+field: run `scipy.signal.find_peaks(-signal)` once for every strict local
+minimum in the whole curve, then for each peak take the closest one with a
+strictly smaller index)?
+
+**Result: 99.5–100% exact index match on all 4 tracks** (677/680, 39/39,
+394/396, 1490/1494). Every mismatch traces to one of three understood,
+non-bug causes:
+
+1. **Our `MAX_RISE_TIME` cap (5s) bites, NeuroKit's unbounded search doesn't**
+   — the large majority of mismatches, always a small (0.2–0.7s) difference
+   since by definition the true onset is just past our search bound.
+2. **The very first candidate peak in a recording** has no strictly-smaller-
+   index trough at all for NeuroKit's convention to return — nothing to
+   compare against, not a disagreement (1 case, biomap_053).
+3. **One genuinely interesting case (biomap_019, peak at t=2161.2s):**
+   NeuroKit reported an onset **1447 seconds** earlier (t=709.2s). Root
+   cause: `scipy.signal.find_peaks` collapses an entire flat plateau into a
+   single reported extremum (its documented plateau-handling behaviour) —
+   and BioMapping's phasic curve is clipped to exactly 0 between real SCRs
+   (`phasic = max(0, signal − tonic)`), so a long quiet stretch registers as
+   *one* trough for the whole quiet period, wherever scipy happens to place
+   it, rather than not counting as a trough or being handled locally per
+   peak. Any peak following a long quiet stretch before the next real
+   trough then inherits that single, arbitrarily distant point as its
+   "nearest" one. Our bounded, floor-aware walk (`vals[onsetIdx] > 0`, capped
+   at 5s) never exhibits this failure mode — it's a case where our approach
+   is more robust for this specific clipped-at-zero signal shape, not
+   something to align to NeuroKit's convention.
+
+No fix applied — this was a validation pass, and it passed with the
+mismatches explained rather than mysterious.
+
 ---
 
 ## The Four Competing Methods
