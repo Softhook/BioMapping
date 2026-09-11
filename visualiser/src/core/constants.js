@@ -119,7 +119,7 @@ const GSR_CONST = {
     // comment in analyzer.js. Deliberately far below impulseThreshold; this
     // only rejects near-zero apexes, not small-but-real ones.
     minApexVal: 0.001,
-    deconvAlgorithm: 'matching_pursuit' // 'matching_pursuit' | 'cvxeda'
+    deconvAlgorithm: 'sparseda' // 'sparseda' | 'matching_pursuit' | 'cvxeda'
   },
 
   // ── cvxEDA Convex Optimization Decomposition (Greco, Citi et al., 2016) ─
@@ -310,6 +310,10 @@ const GSR_CONST = {
   // matching-pursuit's (the empirical gain for this app's fixed SR=10Hz /
   // τ_fast=0.7 / τ_slow=2.0 — see docs/eda_decomposition_analysis.md).
   DRIVER_UNIT_BY_ALGORITHM: {
+    sparseda: {
+      unit: 'μS', decimals: 4,
+      gridSteps: [[0.05, 0.005], [0.15, 0.01], [0.5, 0.05], [1.5, 0.1]], gridDefaultStep: 0.5
+    },
     matching_pursuit: {
       unit: 'μS', decimals: 4,
       gridSteps: [[0.05, 0.005], [0.15, 0.01], [0.5, 0.05], [1.5, 0.1]], gridDefaultStep: 0.5

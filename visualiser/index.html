@@ -198,9 +198,9 @@
                 <input type="checkbox" id="useDeconvolution">
                 <span class="slider round"></span>
               </label>
-              <span class="toggle-label">SCR Deconvolution</span>
+              <span class="toggle-label">SCR Deconvolution (SparsEDA)</span>
             </div>
-            <p class="help-text" style="margin-top:4px;">Improves peak separation for compound SCR (Benedek &amp; Kaernbach, 2010), but distorts the temporal resolution of the signal.</p>
+            <p class="help-text" style="margin-top:4px;">Decomposes overlapping compound SCRs via Sparse EDA with multi-kernel dictionary pursuit and active-set refinement (Benedek &amp; Kaernbach, 2010; SparsEDA).</p>
             <div class="deconv-truncation-warning" id="deconvTruncationWarning" style="display:none; margin-top:6px; padding:7px 10px; border-radius:6px; background:rgba(229,158,0,0.15); border:1px solid rgba(229,158,0,0.4); color:#e59e00; font-size:0.78rem; line-height:1.4;">
               <i class="fa-solid fa-triangle-exclamation"></i> The SCR decomposition hit its iteration cap before fully converging on this track — some low-amplitude SCRs may be left unmodelled. The tonic baseline and larger responses are unaffected; peak counts for this track may be slightly low.
             </div>
@@ -436,6 +436,15 @@
               <span class="toggle-label">Show NDVI on GSR</span>
             </div>
             <p class="help-text">Renders sampled NDVI (barren tan → lush green) as a background gradient behind the signal. Requires <strong>Sample Satellite NDVI</strong> above.</p>
+
+            <div class="toggle-group">
+              <label class="switch">
+                <input type="checkbox" id="showEmFogGraphBands">
+                <span class="slider round"></span>
+              </label>
+              <span class="toggle-label">Show EM Fog on GSR</span>
+            </div>
+            <p class="help-text">Renders recorded EM Fog (blue → magenta) as a background gradient behind the signal.</p>
           </div>
         </section>
 

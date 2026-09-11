@@ -49,6 +49,18 @@ const CONTOUR_SLIDER_DEFS = [
 ];
 
 /**
+ * Graph background-band overlay toggles (OSM context, NDVI, EM Fog, ...) —
+ * checkbox id + the AppState flag it mirrors. One shared table so wiring
+ * (bindLabelsAndListeners) and the post-preset resync (initializeLabels)
+ * can't drift apart, and a new overlay is just one more entry here.
+ */
+const GRAPH_BAND_TOGGLE_DEFS = [
+  { id: 'showOsmGraphBands',   stateKey: 'showOsmContext' },
+  { id: 'showNdviGraphBands',  stateKey: 'showNdviContext' },
+  { id: 'showEmFogGraphBands', stateKey: 'showEmFogContext' },
+];
+
+/**
  * Safe DOM lookup — warns on missing elements without crashing.
  */
 const GSREvents = {
@@ -619,28 +631,15 @@ const GSREvents = {
       }
     }
 
-    // ── OSM graph background bands toggle ────────────────────────────────────
-    {
-      const osmBandsToggle = document.getElementById('showOsmGraphBands');
-      if (osmBandsToggle) {
-        osmBandsToggle.checked = !!AppState.showOsmContext;
-        osmBandsToggle.addEventListener('change', () => {
-          AppState.showOsmContext = osmBandsToggle.checked;
-          if (typeof redraw === 'function') redraw();
-        });
-      }
-    }
-
-    // ── NDVI graph background bands toggle ───────────────────────────────────
-    {
-      const ndviBandsToggle = document.getElementById('showNdviGraphBands');
-      if (ndviBandsToggle) {
-        ndviBandsToggle.checked = !!AppState.showNdviContext;
-        ndviBandsToggle.addEventListener('change', () => {
-          AppState.showNdviContext = ndviBandsToggle.checked;
-          if (typeof redraw === 'function') redraw();
-        });
-      }
+    // ── Graph background-band overlay toggles (OSM context, NDVI, EM Fog) ───
+    for (const { id, stateKey } of GRAPH_BAND_TOGGLE_DEFS) {
+      const toggle = document.getElementById(id);
+      if (!toggle) continue;
+      toggle.checked = !!AppState[stateKey];
+      toggle.addEventListener('change', () => {
+        AppState[stateKey] = toggle.checked;
+        if (typeof redraw === 'function') redraw();
+      });
     }
 
 
@@ -1480,11 +1479,11 @@ const GSREvents = {
     // Snap Radius slider is only shown while road-snapping is enabled
     GSREvents.updateSnapRadiusVisibility();
 
-    // Sync OSM / NDVI graph background overlay checkboxes
-    const osmBandsToggle = document.getElementById('showOsmGraphBands');
-    if (osmBandsToggle) osmBandsToggle.checked = !!AppState.showOsmContext;
-    const ndviBandsToggle = document.getElementById('showNdviGraphBands');
-    if (ndviBandsToggle) ndviBandsToggle.checked = !!AppState.showNdviContext;
+    // Sync graph background-band overlay checkboxes (OSM context, NDVI, EM Fog)
+    for (const { id, stateKey } of GRAPH_BAND_TOGGLE_DEFS) {
+      const toggle = document.getElementById(id);
+      if (toggle) toggle.checked = !!AppState[stateKey];
+    }
 
     // Contour Settings Labels & Visibility Setup
     const C = AppState.contourControls;

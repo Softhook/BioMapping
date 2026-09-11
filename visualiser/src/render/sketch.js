@@ -325,14 +325,19 @@ function draw() {
     }
   };
 
+  // Background context bands, drawn behind whichever graph is showing —
+  // each overlay reads its own AppState toggle and no-ops when off. Called
+  // identically from both the 'signal' and single-metric branches below
+  // (same plotTop/plotBottom either way), so a new overlay is one more line
+  // here instead of one more line in each branch.
+  const drawContextBands = () => {
+    if (AppState.showOsmContext)   GSRRenderer.drawOsmContextBands(AppState.viewStartTime, viewEndTime, plotTop, plotBottom);
+    if (AppState.showNdviContext)  GSRRenderer.drawNdviContextBands(AppState.viewStartTime, viewEndTime, plotTop, plotBottom);
+    if (AppState.showEmFogContext) GSRRenderer.drawEmFogContextBands(AppState.viewStartTime, viewEndTime, plotTop, plotBottom);
+  };
+
   if (view === 'signal') {
-    // Background environmental bands (road hierarchy / parks)
-    if (AppState.showOsmContext) {
-      GSRRenderer.drawOsmContextBands(AppState.viewStartTime, viewEndTime, plotTop, plotBottom);
-    }
-    if (AppState.showNdviContext) {
-      GSRRenderer.drawNdviContextBands(AppState.viewStartTime, viewEndTime, plotTop, plotBottom);
-    }
+    drawContextBands();
 
     // 'Signal' - Raw / Filtered / Tonic (+ optional Phasic overlay), full height (uS)
     GSRRenderer.drawGridX(AppState.viewStartTime, viewEndTime, plotBottom, plotBottom, true);
@@ -364,12 +369,7 @@ function draw() {
 
   } else {
     // ── Single metric view — one derived series, full height, own Y axis ────
-    if (AppState.showOsmContext) {
-      GSRRenderer.drawOsmContextBands(AppState.viewStartTime, viewEndTime, plotTop, plotBottom);
-    }
-    if (AppState.showNdviContext) {
-      GSRRenderer.drawNdviContextBands(AppState.viewStartTime, viewEndTime, plotTop, plotBottom);
-    }
+    drawContextBands();
 
     GSRRenderer.drawGridX(AppState.viewStartTime, viewEndTime, plotBottom, plotBottom, true);
     GSRRenderer.drawGridY(yMinLower, yMaxLower, plotBottom, plotTop,

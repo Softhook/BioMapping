@@ -51,8 +51,9 @@ const GSRRenderer = {
   // both: a fresh RLE pass only when the analyzer instance or its
   // _dataVersion has changed since the last call. See _getBandSegments.
   _bandCache: {
-    osm:  { analyzer: null, dataVersion: null, segments: null },
-    ndvi: { analyzer: null, dataVersion: null, segments: null, range: null }
+    osm:   { analyzer: null, dataVersion: null, segments: null },
+    ndvi:  { analyzer: null, dataVersion: null, segments: null, range: null },
+    emFog: { analyzer: null, dataVersion: null, segments: null, range: null }
   },
 
   /**
@@ -258,41 +259,47 @@ const GSRRenderer = {
     });
   },
 
+  // Fill alpha for every continuous-gradient band (NDVI, EM Fog, ...).
+  CONTINUOUS_BAND_ALPHA: 0.4,
+
   /**
-   * Pre-compute and cache contiguous NDVI colour-bucket segments across the
-   * whole track — the continuous-metric analogue of _getOsmContextSegments,
-   * sharing the same _getBandSegments cache and _rleSegments RLE core.
-   * NDVI has no fixed categories, so it reuses the exact same 30-bucket LUT
-   * (MapColors.getColorLut) and track-wide min/max normalisation the map's
-   * path colouring already uses for 'ndvi_50m' (map_manager_path.js), rather
-   * than inventing a second gradient. Falls step-held between real satellite
-   * samples (ndvi_sampler.js's _stepHoldValues), so runs of the same bucket
-   * are typically many samples long, keeping the RLE segment count small.
+   * Pre-compute and cache contiguous colour-bucket segments for a continuous
+   * per-sample metric across the whole track — the continuous-metric
+   * analogue of _getOsmContextSegments, sharing the same _getBandSegments
+   * cache and _rleSegments RLE core. `metric` doubles as both the raw
+   * sample field to read (raw[i][metric]) and the MapColors metric key, so
+   * it reuses the exact same 30-bucket LUT (MapColors.getColorLut) and
+   * track-wide min/max normalisation the map's own path colouring uses for
+   * that metric (map_manager_path.js) — one shared gradient definition per
+   * metric, not a second one invented for the graph. Real-world continuous
+   * fields (NDVI, EM Fog) are typically step-held between sparse real
+   * samples, so runs of the same bucket are usually many samples long,
+   * keeping the RLE segment count small.
    */
-  _getNdviContextSegments(analyzer) {
-    return this._getBandSegments(this._bandCache.ndvi, analyzer, (raw, cache) => {
+  _getContinuousBandSegments(cache, analyzer, metric) {
+    return this._getBandSegments(cache, analyzer, (raw) => {
       let minVal = Infinity, maxVal = -Infinity;
       for (let i = 0; i < raw.length; i++) {
-        const v = raw[i].ndvi_50m;
+        const v = raw[i][metric];
         if (typeof v === 'number' && !isNaN(v)) {
           if (v < minVal) minVal = v;
           if (v > maxVal) maxVal = v;
         }
       }
       if (minVal === Infinity) {
-        // No NDVI sampled on this track yet.
+        // No data for this metric on this track yet.
         cache.range = null;
         return [];
       }
       if (maxVal === minVal) maxVal = minVal + 1;
       cache.range = { minVal, maxVal };
 
-      const lut = MapColors.getColorLut('ndvi_50m', minVal, maxVal);
+      const lut = MapColors.getColorLut(metric, minVal, maxVal);
       const buckets = lut.length;
       const span = maxVal - minVal;
 
       return this._rleSegments(raw, (s) => {
-        const v = s.ndvi_50m;
+        const v = s[metric];
         if (typeof v !== 'number' || isNaN(v)) return null;
         const b = ((v - minVal) * buckets) / span;
         const bucket = b < 0 ? 0 : (b >= buckets ? buckets - 1 : b | 0);
@@ -302,42 +309,67 @@ const GSRRenderer = {
   },
 
   /**
-   * Draw the NDVI background gradient behind the GSR signal curves — same
-   * viewport/culling mechanics as drawOsmContextBands, but a continuous
-   * colour ramp (no boundary strokes or text labels, since bucket edges
-   * aren't meaningful category boundaries the way a road/park change is).
+   * Draw a continuous-gradient background band behind the GSR signal curves
+   * — same viewport/culling mechanics as drawOsmContextBands, but a
+   * continuous colour ramp (no boundary strokes or text labels, since
+   * bucket edges aren't meaningful category boundaries the way a road/park
+   * change is).
    */
-  drawNdviContextBands(tMin, tMax, yTop, yBottom) {
-    if (!AppState.analyzer) return;
-    const segments = this._getNdviContextSegments(AppState.analyzer);
+  _drawContinuousBand(segments, tMin, tMax, yTop, yBottom) {
     const bandHeight = yBottom - yTop;
-
     noStroke();
     this._drawBandSegments(segments, tMin, tMax, (seg, x1, x2, w) => {
-      fill(MapColors.hexToRgba(MapColors.hslStringToHex(seg.cls.hsl), 0.4));
+      fill(MapColors.hexToRgba(MapColors.hslStringToHex(seg.cls.hsl), this.CONTINUOUS_BAND_ALPHA));
       rect(x1, yTop, w, bandHeight);
     });
   },
 
   /**
-   * NDVI value + swatch colour at one raw sample, for the hover tooltip.
-   * Reuses the exact bucket/LUT the bands were drawn with (via the same
-   * _getNdviContextSegments cache) so the tooltip swatch always matches
-   * what's on screen. Returns null when there's no NDVI data at all, or the
-   * sample itself has none (still step-holding before the first real fix).
+   * Continuous-metric value + swatch colour at one raw sample, for the
+   * hover tooltip. Reuses the exact bucket/LUT the bands were drawn with
+   * (via the same cache _getContinuousBandSegments populated) so the
+   * tooltip swatch always matches what's on screen. Returns null when
+   * there's no data for this metric at all, or this sample has none (still
+   * step-holding before the first real fix).
    */
-  _ndviColorAt(analyzer, sample) {
+  _continuousColorAt(cache, analyzer, metric, sample) {
     if (!sample) return null;
-    const v = sample.ndvi_50m;
+    const v = sample[metric];
     if (typeof v !== 'number' || isNaN(v)) return null;
-    this._getNdviContextSegments(analyzer); // ensures the range cache is fresh
-    const range = this._bandCache.ndvi.range;
+    this._getContinuousBandSegments(cache, analyzer, metric); // ensures cache.range is fresh
+    const range = cache.range;
     if (!range) return null;
-    const lut = MapColors.getColorLut('ndvi_50m', range.minVal, range.maxVal);
+    const lut = MapColors.getColorLut(metric, range.minVal, range.maxVal);
     const span = range.maxVal - range.minVal;
     let b = span > 0 ? ((v - range.minVal) * lut.length) / span : lut.length / 2;
     b = b < 0 ? 0 : (b >= lut.length ? lut.length - 1 : b | 0);
     return { value: v, color: MapColors.hslStringToHex(lut[b]) };
+  },
+
+  _getNdviContextSegments(analyzer) {
+    return this._getContinuousBandSegments(this._bandCache.ndvi, analyzer, 'ndvi_50m');
+  },
+
+  drawNdviContextBands(tMin, tMax, yTop, yBottom) {
+    if (!AppState.analyzer) return;
+    this._drawContinuousBand(this._getNdviContextSegments(AppState.analyzer), tMin, tMax, yTop, yBottom);
+  },
+
+  _ndviColorAt(analyzer, sample) {
+    return this._continuousColorAt(this._bandCache.ndvi, analyzer, 'ndvi_50m', sample);
+  },
+
+  _getEmFogContextSegments(analyzer) {
+    return this._getContinuousBandSegments(this._bandCache.emFog, analyzer, 'em_fog');
+  },
+
+  drawEmFogContextBands(tMin, tMax, yTop, yBottom) {
+    if (!AppState.analyzer) return;
+    this._drawContinuousBand(this._getEmFogContextSegments(AppState.analyzer), tMin, tMax, yTop, yBottom);
+  },
+
+  _emFogColorAt(analyzer, sample) {
+    return this._continuousColorAt(this._bandCache.emFog, analyzer, 'em_fog', sample);
   },
 
   /**
@@ -1342,24 +1374,26 @@ const GSRRenderer = {
       valueStr: dLower.val.toFixed(lowerCfg.decimals) + ' ' + lowerCfg.unit
     } : null;
 
-    // Check for OSM context at hovered position
-    let osmContext = null;
+    // Extra tooltip rows for whichever background-band overlays are on —
+    // one {label, color, valueStr} entry each, in display order. Drawing a
+    // new overlay's row is just pushing another entry here; drawTooltip()
+    // itself doesn't need to know how many there are or what they mean.
+    const extraRows = [];
+    if (extraMetric) extraRows.push(extraMetric);
     if (AppState.showOsmContext && dRaw) {
       const osmClass = this._classifyOsmContext(dRaw);
-      if (osmClass) {
-        osmContext = { label: osmClass.label, color: osmClass.color, key: osmClass.key };
-      }
+      if (osmClass) extraRows.push({ label: 'Context:', color: osmClass.color, valueStr: osmClass.label });
     }
-
-    let ndviContext = null;
     if (AppState.showNdviContext && dRaw) {
       const ndvi = this._ndviColorAt(AppState.analyzer, dRaw);
-      if (ndvi) {
-        ndviContext = { label: 'NDVI:', color: ndvi.color, valueStr: ndvi.value.toFixed(2) };
-      }
+      if (ndvi) extraRows.push({ label: 'NDVI:', color: ndvi.color, valueStr: ndvi.value.toFixed(2) });
+    }
+    if (AppState.showEmFogContext && dRaw) {
+      const emFog = this._emFogColorAt(AppState.analyzer, dRaw);
+      if (emFog) extraRows.push({ label: 'EM Fog:', color: emFog.color, valueStr: emFog.value.toFixed(1) });
     }
 
-    GSRRenderer.drawTooltip(dRaw.time, dRaw.val, dFilt.val, dTonic.val, dPhasic.val, nearPeakInfo, extraMetric, osmContext, ndviContext);
+    GSRRenderer.drawTooltip(dRaw.time, dRaw.val, dFilt.val, dTonic.val, dPhasic.val, nearPeakInfo, extraRows);
   },
 
   /**
@@ -1374,13 +1408,13 @@ const GSRRenderer = {
     text(valueStr, boxX + boxW - pad, y);
   },
 
-  drawTooltip(time, rawVal, filtVal, tonicVal, phasicVal, nearPeak, extraMetric, osmContext, ndviContext) {
+  drawTooltip(time, rawVal, filtVal, tonicVal, phasicVal, nearPeak, extraRows) {
     const pad = 12;
     const hasPeakInfo = nearPeak && nearPeak.qualityScore !== undefined;
-    const extraRows = (extraMetric ? 1 : 0) + (osmContext ? 1 : 0) + (ndviContext ? 1 : 0);
+    const rows = extraRows || [];
     // Extra width for peak quality details
     const boxW = hasPeakInfo ? 240 : 200;
-    const boxH = (hasPeakInfo ? 200 : 120) + extraRows * 18;
+    const boxH = (hasPeakInfo ? 200 : 120) + rows.length * 18;
 
     let boxX = mouseX + 15;
     if (boxX + boxW > width - GSR_CONST.MARGIN.right) {
@@ -1422,18 +1456,11 @@ const GSRRenderer = {
     this._drawTooltipRow('Tonic (SCL):', colorTonic, tonicVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, rowIdx++);
     this._drawTooltipRow('Phasic (SCR):', colorPhasic, phasicVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, rowIdx++);
 
-    // Extra row for the active lower-graph metric when it isn't plain Phasic
-    // (peak density / phasic AUC / arousal index).
-    if (extraMetric) {
-      this._drawTooltipRow(extraMetric.label, extraMetric.color, extraMetric.valueStr, boxX, boxW, pad, startY, spacing, rowIdx++);
-    }
-
-    if (osmContext) {
-      this._drawTooltipRow('Context:', osmContext.color, osmContext.label, boxX, boxW, pad, startY, spacing, rowIdx++);
-    }
-
-    if (ndviContext) {
-      this._drawTooltipRow(ndviContext.label, ndviContext.color, ndviContext.valueStr, boxX, boxW, pad, startY, spacing, rowIdx++);
+    // One row per active extra metric/overlay (lower-graph metric, OSM
+    // context, NDVI, EM Fog, ...) — see the extraRows build-up at the call
+    // site for what can land here.
+    for (const row of rows) {
+      this._drawTooltipRow(row.label, row.color, row.valueStr, boxX, boxW, pad, startY, spacing, rowIdx++);
     }
 
     // Peak shape quality info (when hovering near a detected peak)

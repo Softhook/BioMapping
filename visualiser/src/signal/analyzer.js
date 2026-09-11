@@ -789,10 +789,12 @@ class GSRAnalyzer {
       return;
     }
 
-    this._driverAlgorithm = 'matching_pursuit';
+    this._driverAlgorithm = algorithm === 'sparseda' ? 'sparseda' : 'matching_pursuit';
     const result = SCRDeconvolution.deconvolve(phasicArr, this.sampleRate, {
       tauSlow: scf.tauSlow, tauFast: scf.tauFast, kernelSec: scf.kernelSec,
-      maxIter: scf.maxIter, lr: scf.lr, convTol: scf.convTol
+      maxIter: scf.maxIter, lr: scf.lr, convTol: scf.convTol,
+      minImpulseGapSec: scf.minImpulseGapSec,
+      algorithm: algorithm
     });
 
     // Diagnostic: whether matching pursuit converged (residual < convTol)
@@ -915,7 +917,9 @@ class GSRAnalyzer {
         reconstructionImpulses.push({ index: imp.index, amplitude: imp.amplitude });
       }
     }
-    const cleanValsRaw = SCRDeconvolution.reconstructPhasic(reconstructionImpulses, n, result.kernel);
+    const cleanValsRaw = (result.clean && result.clean.length === n)
+      ? new Float64Array(result.clean)
+      : SCRDeconvolution.reconstructPhasic(reconstructionImpulses, n, result.kernel);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // CRITICAL: the rescaling below must operate on the EXACT SAME impulse set
@@ -974,7 +978,8 @@ class GSRAnalyzer {
       for (const imp of this.phasicDriverPeaks)  imp.amplitude *= rescaleAmplitudes;
       // Rescale the driver array in-place so phasicDriver display is consistent.
       for (let i = 0; i < n; i++) this.phasicDriver[i].val *= rescaleAmplitudes;
-      cleanVals = SCRDeconvolution.reconstructPhasic(reconstructionImpulses, n, result.kernel);
+      cleanVals = new Float64Array(n);
+      for (let i = 0; i < n; i++) cleanVals[i] = cleanValsRaw[i] * rescaleAmplitudes;
     }
     this.phasicClean = new Array(n);
     for (let i = 0; i < n; i++) {
