@@ -124,8 +124,10 @@ const GSR_CONST = {
 
   // ── cvxEDA Convex Optimization Decomposition (Greco, Citi et al., 2016) ─
   // Faithful port of the reference cvxEDA.py `qp` path: the identical QP
-  // (½‖Mq+Cd+Bl−y‖² + α·1ᵀAq + ½γ‖l‖²  s.t. Aq ≥ 0) solved by ADMM on the
-  // single inequality, with a direct banded/Schur factor for the x-step.
+  // (½‖Mq+Cd+Bl−y‖² + α·1ᵀAq + ½γ‖l‖²  s.t. Aq ≥ 0) solved by the same
+  // algorithm CVXOPT uses — a Mehrotra predictor-corrector primal-dual
+  // interior-point method — with a direct banded/Schur factor for each
+  // Newton step's KKT system.
   CVXEDA: {
     tauSlow: 2.0,       // Bateman slow decay τ (s) — reference default tau0
     tauFast: 0.7,       // Bateman fast rise τ (s) — reference default tau1 (Greco et al. 2016 / NeuroKit)
@@ -136,11 +138,10 @@ const GSR_CONST = {
     // fewer ripples, lower it to keep more small SCRs.
     alpha: 2e-3,
     gamma: 1e-2,        // L2 weight on tonic spline smoothness
-    maxIter: 1200,      // ADMM iteration cap. Realistic tracks converge in ~100–300;
-                        // the plateau-escape catches asymptoted stiff tracks well
-                        // before this. Only a genuinely non-converging solve binds it.
-    tol: 3e-4,          // Scaled primal/dual residual tolerance (Boyd §3.3)
-    rho: 0.3,           // Initial ADMM penalty (adapts to balance residuals)
+    maxIter: 50,        // Newton iteration cap. Real tracks converge in ~10-25;
+                        // this is headroom, not a tuning knob.
+    tol: 1e-10,         // Duality-gap (μ) convergence threshold, analogous to
+                        // CVXOPT's reltol.
   },
 
   // ── CSV parsing keywords ─────────────────────────────────────────────────

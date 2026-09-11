@@ -52,9 +52,8 @@ module.exports = {
     deltaKnotSec: 10.0,
     alpha: 2e-3,
     gamma: 1e-2,
-    maxIter: 1200,
-    tol: 3e-4,
-    rho: 0.3,
+    maxIter: 50,
+    tol: 1e-10,
   },
 
   TIME_KEYWORDS: ['time', 'sec', 'timestamp', 'millis', 'ms'],
