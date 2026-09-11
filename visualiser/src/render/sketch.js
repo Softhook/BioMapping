@@ -4,6 +4,7 @@ let _cachedPeakDataVersion = null;
 let _cachedActivePeaks = [];
 let _cachedFilteredForce = [];
 let _cachedMetricForce = [];
+let _cachedDriverForce = [];  // Driver spike apex indices — forced into decimation stride so spikes survive zoom-out
 
 function setup() {
   AppState.collectiveManager = new GSRCollectiveManager();
@@ -266,10 +267,37 @@ function draw() {
       _cachedFilteredForce.push(p.onsetIndex, p.index);
     }
     _cachedMetricForce = _cachedActivePeaks.map(p => p.index);
+
+    // Driver spike apex indices — so narrow spikes (often 1–3 samples wide)
+    // are never skipped by the uniform decimation stride when zoomed out.
+    // phasicDriverPeaks stores { index, time, amplitude } for every impulse
+    // the deconvolution / matching-pursuit step detected.
+    // Force apex-1, apex, apex+1 for each driver spike so the rendered line
+    // captures both zero-crossing shoulders, not just the peak tip. Without
+    // the neighbours the stride interpolates a fabricated triangle whose rise
+    // and fall slopes depend on whichever stride samples happen to bracket the
+    // apex — the height is right but the shape is wrong. Clamped to [0, n-1]
+    // so boundary spikes don't produce out-of-range indices.
+    if (AppState.analyzer && AppState.analyzer.phasicDriverPeaks &&
+        AppState.analyzer.phasicDriverPeaks.length > 0) {
+      const driverLen = AppState.analyzer.phasicDriver
+        ? AppState.analyzer.phasicDriver.length - 1 : Infinity;
+      const df = [];
+      for (const pk of AppState.analyzer.phasicDriverPeaks) {
+        const idx = pk.index;
+        if (idx > 0)          df.push(idx - 1);
+                              df.push(idx);
+        if (idx < driverLen)  df.push(idx + 1);
+      }
+      _cachedDriverForce = df;
+    } else {
+      _cachedDriverForce = [];
+    }
   }
   const activePeaks = _cachedActivePeaks;
   const filteredForceIndices = _cachedFilteredForce;
   const metricForceIndices = _cachedMetricForce;
+  const driverForceIndices = _cachedDriverForce;
 
   // Dashed horizontal reference line + optional right-edge label \u2014 the Phasic
   // threshold line and the Arousal-Index zero line, for the single metric view.
@@ -324,8 +352,13 @@ function draw() {
     GSRRenderer.drawGridY(yMinLower, yMaxLower, plotBottom, plotTop,
       gridPreset.steps, gridPreset.defaultStep, gridPreset.decimals, gridPreset.unit);
 
-    GSRRenderer.drawPhasicArea(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, plotTop, plotBottom, colorLower, metricForceIndices);
-    GSRRenderer.drawSignalCurve(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, plotTop, plotBottom, colorLower, 2, metricForceIndices);
+    // Driver view: use driver spike apices as forced vertices so narrow impulses
+    // (often 1–3 samples wide) are never swallowed by the uniform decimation
+    // stride when zoomed out. All other metric views use SCR peak positions.
+    const lowerForceIndices = (lowerMode === 'phasicDriver') ? driverForceIndices : metricForceIndices;
+
+    GSRRenderer.drawPhasicArea(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, plotTop, plotBottom, colorLower, lowerForceIndices);
+    GSRRenderer.drawSignalCurve(lowerSeries, AppState.viewStartTime, viewEndTime, yMinLower, yMaxLower, plotTop, plotBottom, colorLower, 2, lowerForceIndices);
 
     if (lowerCfg.showPeakOverlay) {
       drawRefLine(parseFloat(AppState.sliders.peakThreshold.value), plotTop, plotBottom, [5, 5], '78',
