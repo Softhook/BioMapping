@@ -248,7 +248,7 @@ const SCRDeconvolution = {
     if (!(sampleRate > targetRate)) {
       return { values: Float64Array.from(signal), outputLength: signal.length, rate: sampleRate };
     }
-    const outputLength = Math.max(1, Math.floor(targetRate * signal.length / sampleRate));
+    const outputLength = Math.max(1, Math.round(targetRate * signal.length / sampleRate));
     const out = new Float64Array(outputLength);
     const scale = sampleRate / targetRate;
     for (let i = 0; i < outputLength; i++) {
@@ -572,8 +572,12 @@ const SCRDeconvolution = {
     let totalIterations = 0;
     let truncated = false;
 
-    while (cutE < Ns) {
-      const signalCut = signalAdd.subarray(cutS, cutE);
+    const processWindow = (start, copyLen) => {
+      const signalCut = new Float64Array(N);
+      const available = Math.min(N, Ns - start);
+      signalCut.set(signalAdd.subarray(start, start + available), 0);
+      const fill = available > 0 ? signalCut[available - 1] : (start > 0 ? signalAdd[start - 1] : signalAdd[0]);
+      for (let i = available; i < N; i++) signalCut[i] = fill;
       if (b0 === 0) b0 = signalCut[0];
 
       const centered = new Float64Array(signalCut.length);
@@ -625,19 +629,25 @@ const SCRDeconvolution = {
         driverChunk[offset] = sum;
       }
 
-      const chunkLen = jump * Math.round(20 * workRate);
-      const b0Row = chunkLen - 1;
+      const naturalChunkLen = jump * Math.round(20 * workRate);
+      const chunkLen = Math.min(copyLen, naturalChunkLen);
+      const b0Row = Math.max(0, Math.min(N - 1, naturalChunkLen - 1));
       let nextB0 = b0;
       for (let j = 0; j < T; j++) nextB0 += columns[j][b0Row] * beta[j];
       b0 = nextB0;
 
-      driverAux.set(driverChunk.subarray(0, chunkLen), cutS);
-      sclAux.set(scl.subarray(0, chunkLen), cutS);
-      cleanAux.set(cleanChunk.subarray(0, chunkLen), cutS);
-      resAux.set(remAout.subarray(0, chunkLen), cutS);
-      cutS += chunkLen;
+      driverAux.set(driverChunk.subarray(0, chunkLen), start);
+      sclAux.set(scl.subarray(0, chunkLen), start);
+      cleanAux.set(cleanChunk.subarray(0, chunkLen), start);
+      resAux.set(remAout.subarray(0, chunkLen), start);
+      return chunkLen;
+    };
+
+    while (cutE < Ns) {
+      cutS += processWindow(cutS, Ns - cutS);
       cutE = cutS + N;
     }
+    if (cutS < Ns) processWindow(cutS, Ns - cutS);
 
     const driverWorkRaw = driverAux.slice(pointerS, pointerE);
     const tonicWork = sclAux.slice(pointerS, pointerE);
