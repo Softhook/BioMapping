@@ -92,6 +92,7 @@ const AppState = {
   showPhasic: false, // Phasic (SCR) overlaid on the Signal graph at the same µS scale
   showPeaks: true,
   showHotspots: true, // "Hotspots" = analyzer.memorableEvents, drawn via drawHotspotMarkers()
+  showOsmContext: false, // Background environmental bands (road hierarchy / parks) behind GSR graph
 
   // ── Graph view selector ────────────────────────────────────────────────────
   // Which single full-height plot the canvas shows:

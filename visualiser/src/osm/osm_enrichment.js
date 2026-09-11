@@ -233,6 +233,11 @@ const OSMEnricher = {
 
   isGreenSpace(geom) { return _isGreenSpace(geom); },
   isWaterSpace(geom) { return _isWaterSpace(geom); },
+  // True for a carriageway a vehicle drives on (vs. a footway/path/cycleway/
+  // steps a pedestrian walks). Shared with the GSR graph's context bands
+  // (renderer.js) so a footpath inside a park reads as park there too,
+  // rather than re-deriving its own notion of "which roads count".
+  isVehicularRoad(highwayClass) { return VEHICULAR_ROAD_CLASSES.has(highwayClass); },
 
   /* ======================================================================
      Bounding box & query building

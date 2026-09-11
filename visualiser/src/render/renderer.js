@@ -43,12 +43,19 @@ const EXCLUDE_BTN = {
 
 const GSRRenderer = {
   _styleCache: null,
+  _cachedOsmAnalyzer: null,
+  _cachedOsmDataVersion: null,
+  _cachedOsmSegments: null,
+  // Boundary-digitising slack for "is this footpath in the park" — see
+  // _classifyOsmContext's doc comment.
+  PARK_EDGE_TOLERANCE_M: 15,
 
   /**
    * Helper to retrieve CSS variable values from document stylesheet.
    * Caches styles locally during a drawing pass to avoid heavy DOM reads.
    */
   getThemeColor(varName, defaultVal) {
+    if (typeof window === 'undefined' || !window.getComputedStyle) return defaultVal;
     if (!this._styleCache) {
       this._styleCache = window.getComputedStyle(document.documentElement);
     }
@@ -67,6 +74,171 @@ const GSRRenderer = {
     const bg = this.getThemeColor('--canvas-bg', '#ffffff');
     background(bg);
     this.clearPulseRings();
+  },
+
+  /**
+   * Environmental classification for background bands and tooltip context.
+   * Reuses MapColors' existing roadClass/inPark colouring (same lookup the
+   * map's "Road Class" layer and legend use) so the graph bands never drift
+   * from the map's colours.
+   *
+   * Priority: a vehicular road (OSMEnricher.isVehicularRoad — motorway down
+   * to residential/service) always wins, since crossing traffic through a
+   * park is still a distinct exposure. Below that, park wins over a bare
+   * pedestrian/cycle path — a footway *inside* a park is park context, not
+   * indistinguishable from the same footway tag on a grey urban street.
+   *
+   * "In park" itself isn't just the strict osm_in_park point-in-polygon
+   * flag: a park's boundary and the footpaths through it are almost always
+   * digitised in separate OSM edits, so a path frequently sits a few metres
+   * outside the polygon it visually/physically runs through — the same
+   * boundary-noise osm_dist_green exists to paper over elsewhere (see its
+   * doc comment in osm_enrichment.js). A short edge tolerance on that
+   * distance catches those paths without also pulling in "there's a park
+   * somewhere down the street".
+   */
+  _classifyOsmContext(sample) {
+    if (!sample) return null;
+    const rc = sample.osm_road_class ? sample.osm_road_class.toLowerCase() : null;
+    const road = rc ? {
+      key: rc,
+      label: rc.replace(/_/g, ' ').toUpperCase(),
+      color: MapColors.getColorForMetric('roadClass', rc, 0, 1)
+    } : null;
+
+    if (road && OSMEnricher.isVehicularRoad(rc)) return road;
+
+    const inPark = sample.osm_in_park === 1 || sample.osm_in_park === true ||
+      (typeof sample.osm_dist_green === 'number' && sample.osm_dist_green <= GSRRenderer.PARK_EDGE_TOLERANCE_M);
+    if (inPark) {
+      return { key: 'park', label: 'PARK', color: MapColors.getColorForMetric('inPark', 1, 0, 1) };
+    }
+    return road;
+  },
+
+  /**
+   * Pre-compute and cache contiguous environmental segments across the entire track.
+   * Runs once when a track is loaded or re-enriched, keeping per-frame draw cost near zero.
+   */
+  _getOsmContextSegments(analyzer) {
+    if (!analyzer || !analyzer.raw || analyzer.raw.length === 0) return null;
+
+    const dataVersion = analyzer._dataVersion || 0;
+    if (this._cachedOsmAnalyzer === analyzer &&
+        this._cachedOsmDataVersion === dataVersion &&
+        this._cachedOsmSegments !== null) {
+      return this._cachedOsmSegments;
+    }
+
+    const raw = analyzer.raw;
+    const n = raw.length;
+
+    // Fast check: verify first 50 samples to confirm OSM enrichment exists
+    let hasOsm = false;
+    const probeCount = Math.min(n, 50);
+    for (let i = 0; i < probeCount; i++) {
+      if (raw[i].osm_road_class !== undefined || raw[i].osm_in_park !== undefined) {
+        hasOsm = true;
+        break;
+      }
+    }
+    if (!hasOsm) {
+      this._cachedOsmAnalyzer = analyzer;
+      this._cachedOsmDataVersion = dataVersion;
+      this._cachedOsmSegments = [];
+      return this._cachedOsmSegments;
+    }
+
+    // Linear single-pass run-length encoding across the whole track
+    const segments = [];
+    let curClass = this._classifyOsmContext(raw[0]);
+    let curKey = curClass ? curClass.key : null;
+    let segStart = raw[0].time;
+
+    for (let i = 1; i < n; i++) {
+      const cls = this._classifyOsmContext(raw[i]);
+      const key = cls ? cls.key : null;
+      if (key !== curKey) {
+        if (curClass) {
+          segments.push({
+            cls: curClass,
+            tStart: segStart,
+            tEnd: raw[i].time
+          });
+        }
+        curClass = cls;
+        curKey = key;
+        segStart = raw[i].time;
+      }
+    }
+    if (curClass) {
+      segments.push({
+        cls: curClass,
+        tStart: segStart,
+        tEnd: raw[n - 1].time
+      });
+    }
+
+    this._cachedOsmAnalyzer = analyzer;
+    this._cachedOsmDataVersion = dataVersion;
+    this._cachedOsmSegments = segments;
+    return segments;
+  },
+
+  /**
+   * Draw OpenStreetMap environmental context background bands behind the GSR signal curves.
+   * Iterates through pre-computed cached segments, skips out-of-view intervals in O(1),
+   * and renders subtle colored bands with boundary edges and optional top labels.
+   */
+  drawOsmContextBands(tMin, tMax, yTop, yBottom) {
+    if (!AppState.analyzer) return;
+    const segments = this._getOsmContextSegments(AppState.analyzer);
+    if (!segments || segments.length === 0) return;
+
+    const tSpan = tMax - tMin;
+    if (tSpan <= 0) return;
+    const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
+    const xScale = xSpan / tSpan;
+    if (xScale <= 0) return;
+
+    const xLeftMargin = GSR_CONST.MARGIN.left;
+    const xRightMargin = width - GSR_CONST.MARGIN.right;
+    const bandHeight = yBottom - yTop;
+
+    for (let s = 0; s < segments.length; s++) {
+      const seg = segments[s];
+      // Skip segments outside current viewport
+      if (seg.tEnd <= tMin || seg.tStart >= tMax) continue;
+
+      const x1 = Math.max(xLeftMargin, xLeftMargin + (seg.tStart - tMin) * xScale);
+      const x2 = Math.min(xRightMargin, xLeftMargin + (seg.tEnd - tMin) * xScale);
+      const w = x2 - x1;
+      if (w < 0.5) continue;
+
+      // Fill band rectangle
+      noStroke();
+      fill(MapColors.hexToRgba(seg.cls.color, 0.12));
+      rect(x1, yTop, w, bandHeight);
+
+      // Subtle vertical boundary lines on borders
+      if (w >= 3) {
+        stroke(MapColors.hexToRgba(seg.cls.color, 0.3));
+        strokeWeight(1);
+        line(x1, yTop, x1, yBottom);
+        line(x2, yTop, x2, yBottom);
+      }
+
+      // Small category label at top of wide bands
+      if (w >= 45) {
+        noStroke();
+        fill(this.getThemeColor('--canvas-text', '#444444') + '66');
+        textAlign(LEFT, TOP);
+        textSize(8);
+        textStyle(BOLD);
+        text(seg.cls.label, x1 + 4, yTop + 3);
+        textStyle(NORMAL);
+      }
+    }
   },
 
   /**
@@ -1071,7 +1243,16 @@ const GSRRenderer = {
       valueStr: dLower.val.toFixed(lowerCfg.decimals) + ' ' + lowerCfg.unit
     } : null;
 
-    GSRRenderer.drawTooltip(dRaw.time, dRaw.val, dFilt.val, dTonic.val, dPhasic.val, nearPeakInfo, extraMetric);
+    // Check for OSM context at hovered position
+    let osmContext = null;
+    if (AppState.showOsmContext && dRaw) {
+      const osmClass = this._classifyOsmContext(dRaw);
+      if (osmClass) {
+        osmContext = { label: osmClass.label, color: osmClass.color, key: osmClass.key };
+      }
+    }
+
+    GSRRenderer.drawTooltip(dRaw.time, dRaw.val, dFilt.val, dTonic.val, dPhasic.val, nearPeakInfo, extraMetric, osmContext);
   },
 
   /**
@@ -1086,10 +1267,10 @@ const GSRRenderer = {
     text(valueStr, boxX + boxW - pad, y);
   },
 
-  drawTooltip(time, rawVal, filtVal, tonicVal, phasicVal, nearPeak, extraMetric) {
+  drawTooltip(time, rawVal, filtVal, tonicVal, phasicVal, nearPeak, extraMetric, osmContext) {
     const pad = 12;
     const hasPeakInfo = nearPeak && nearPeak.qualityScore !== undefined;
-    const extraRows = extraMetric ? 1 : 0;
+    const extraRows = (extraMetric ? 1 : 0) + (osmContext ? 1 : 0);
     // Extra width for peak quality details
     const boxW = hasPeakInfo ? 240 : 200;
     const boxH = (hasPeakInfo ? 200 : 120) + extraRows * 18;
@@ -1128,15 +1309,20 @@ const GSRRenderer = {
     const startY = boxY + pad + 18;
     const spacing = 18;
 
-    this._drawTooltipRow('Raw:', textSec, rawVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, 0);
-    this._drawTooltipRow('Filtered:', colorFiltered, filtVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, 1);
-    this._drawTooltipRow('Tonic (SCL):', colorTonic, tonicVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, 2);
-    this._drawTooltipRow('Phasic (SCR):', colorPhasic, phasicVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, 3);
+    let rowIdx = 0;
+    this._drawTooltipRow('Raw:', textSec, rawVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, rowIdx++);
+    this._drawTooltipRow('Filtered:', colorFiltered, filtVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, rowIdx++);
+    this._drawTooltipRow('Tonic (SCL):', colorTonic, tonicVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, rowIdx++);
+    this._drawTooltipRow('Phasic (SCR):', colorPhasic, phasicVal.toFixed(4) + ' \u03bcS', boxX, boxW, pad, startY, spacing, rowIdx++);
 
     // Extra row for the active lower-graph metric when it isn't plain Phasic
     // (peak density / phasic AUC / arousal index).
     if (extraMetric) {
-      this._drawTooltipRow(extraMetric.label, extraMetric.color, extraMetric.valueStr, boxX, boxW, pad, startY, spacing, 4);
+      this._drawTooltipRow(extraMetric.label, extraMetric.color, extraMetric.valueStr, boxX, boxW, pad, startY, spacing, rowIdx++);
+    }
+
+    if (osmContext) {
+      this._drawTooltipRow('Context:', osmContext.color, osmContext.label, boxX, boxW, pad, startY, spacing, rowIdx++);
     }
 
     // Peak shape quality info (when hovering near a detected peak)
@@ -1145,7 +1331,7 @@ const GSRRenderer = {
       const qColor = getQualityColor(qScore);
       const { pct: qPct, label: qLabel } = getQualityLabel(qScore);
 
-      const peakY = startY + (4 + extraRows) * spacing + 6;
+      const peakY = startY + rowIdx * spacing + 6;
       stroke(axisColor);
       strokeWeight(0.5);
       line(boxX + pad, peakY - 3, boxX + boxW - pad, peakY - 3);

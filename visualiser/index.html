@@ -416,6 +416,17 @@
               <input type="range" id="gpsSnapRadius" min="10" max="60" step="5" value="25">
               <p class="help-text">Max distance to snap toward roads <strong>10–15&thinsp;m</strong> = tight (only near curbs). <strong>25&thinsp;m</strong> = moderate (default). <strong>40–60&thinsp;m</strong> = aggressive (urban canyons).</p>
             </div>
+
+            <div class="control-subgroup-title">Graph Overlay</div>
+
+            <div class="toggle-group">
+              <label class="switch">
+                <input type="checkbox" id="showOsmGraphBands">
+                <span class="slider round"></span>
+              </label>
+              <span class="toggle-label">Show Context Bands on GSR</span>
+            </div>
+            <p class="help-text">Renders road hierarchy (coral/amber) and parks (green) as background bands behind the signal.</p>
           </div>
         </section>
 

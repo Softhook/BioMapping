@@ -619,6 +619,18 @@ const GSREvents = {
       }
     }
 
+    // ── OSM graph background bands toggle ────────────────────────────────────
+    {
+      const osmBandsToggle = document.getElementById('showOsmGraphBands');
+      if (osmBandsToggle) {
+        osmBandsToggle.checked = !!AppState.showOsmContext;
+        osmBandsToggle.addEventListener('change', () => {
+          AppState.showOsmContext = osmBandsToggle.checked;
+          if (typeof redraw === 'function') redraw();
+        });
+      }
+    }
+
 
     // Peak latency — re-render map only (no analysis needed)
     {
@@ -1455,6 +1467,10 @@ const GSREvents = {
 
     // Snap Radius slider is only shown while road-snapping is enabled
     GSREvents.updateSnapRadiusVisibility();
+
+    // Sync OSM graph background overlay checkbox
+    const osmBandsToggle = document.getElementById('showOsmGraphBands');
+    if (osmBandsToggle) osmBandsToggle.checked = !!AppState.showOsmContext;
 
     // Contour Settings Labels & Visibility Setup
     const C = AppState.contourControls;

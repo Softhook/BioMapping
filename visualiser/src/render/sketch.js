@@ -6,6 +6,14 @@ let _cachedFilteredForce = [];
 let _cachedMetricForce = [];
 let _cachedDriverForce = [];  // Driver spike apex indices — forced into decimation stride so spikes survive zoom-out
 
+// Coalesced redraw functions for high-frequency input events (drag, hover, wheel).
+// Initialized at module scope before setup() so hoisted p5 event callbacks (e.g. mouseMoved)
+// never hit a Temporal Dead Zone (TDZ) ReferenceError if p5 fires an event during page load.
+const _safeRedraw = () => { if (typeof redraw === 'function') redraw(); };
+let coalescedDragRedraw  = (typeof GSREvents !== 'undefined' && GSREvents.rafCoalesce) ? GSREvents.rafCoalesce(_safeRedraw) : _safeRedraw;
+let coalescedHoverRedraw = (typeof GSREvents !== 'undefined' && GSREvents.rafCoalesce) ? GSREvents.rafCoalesce(_safeRedraw) : _safeRedraw;
+let coalescedZoomRedraw  = (typeof GSREvents !== 'undefined' && GSREvents.rafCoalesce) ? GSREvents.rafCoalesce(_safeRedraw) : _safeRedraw;
+
 function setup() {
   AppState.collectiveManager = new GSRCollectiveManager();
   AppState.analyzer = new GSRAnalyzer();
@@ -318,6 +326,11 @@ function draw() {
   };
 
   if (view === 'signal') {
+    // Background environmental bands (road hierarchy / parks)
+    if (AppState.showOsmContext) {
+      GSRRenderer.drawOsmContextBands(AppState.viewStartTime, viewEndTime, plotTop, plotBottom);
+    }
+
     // 'Signal' - Raw / Filtered / Tonic (+ optional Phasic overlay), full height (uS)
     GSRRenderer.drawGridX(AppState.viewStartTime, viewEndTime, plotBottom, plotBottom, true);
     GSRRenderer.drawGridY(yMinUpper, yMaxUpper, plotBottom, plotTop, upperGridPreset.steps, upperGridPreset.defaultStep, upperGridPreset.decimals);
@@ -347,7 +360,11 @@ function draw() {
     GSRRenderer.handleScrubber(AppState.viewStartTime, viewEndTime, yMinUpper, yMaxUpper, plotBottom, yMinUpper, yMaxUpper, plotTop, plotBottom);
 
   } else {
-    // \u2500\u2500 Single metric view \u2014 one derived series, full height, own Y axis \u2500\u2500\u2500\u2500
+    // ── Single metric view — one derived series, full height, own Y axis ────
+    if (AppState.showOsmContext) {
+      GSRRenderer.drawOsmContextBands(AppState.viewStartTime, viewEndTime, plotTop, plotBottom);
+    }
+
     GSRRenderer.drawGridX(AppState.viewStartTime, viewEndTime, plotBottom, plotBottom, true);
     GSRRenderer.drawGridY(yMinLower, yMaxLower, plotBottom, plotTop,
       gridPreset.steps, gridPreset.defaultStep, gridPreset.decimals, gridPreset.unit);
@@ -438,13 +455,6 @@ function mousePressed() {
   }
 }
 
-// Mouse and trackpad drags can fire events faster than the display refresh rate
-// (e.g. 120Hz-1000Hz gaming mice / high-precision trackpads). Synchronous redraw()
-// on every tick stacks up full canvas repaints faster than the browser can paint,
-// reading as a stutter during graph or timeline panning. Coalesce redraws to one
-// per animation frame — same GSREvents.rafCoalesce() pattern as zoom/hover/sliders.
-const coalescedDragRedraw = GSREvents.rafCoalesce(() => redraw());
-
 function mouseDragged() {
   if (AppState.isDraggingTimeline && AppState.analyzer.raw.length > 0) {
     updateCanvasCursor();
@@ -470,32 +480,12 @@ function mouseReleased() {
   updateCanvasCursor();
 }
 
-// Restores hover-follow (tooltip / scrubber dot / map cursor sync,
-// GSRRenderer.handleScrubber()) now that draw() no longer runs continuously
-// for the life of a track view (see tracks.js/events.js — loop() used to be
-// left running uncapped just so hover updates kept landing every frame; see
-// docs/archive/visualizer_rendering_perf_routes.md §2.5). p5 only calls this while
-// no mouse button is held (mouseDragged() covers the held case above), so
-// this is purely the passive-hover path. rAF-coalesced like the other
-// high-frequency inputs (GSREvents.rafCoalesce) since native mousemove can
-// still fire faster than the screen repaints.
-const coalescedHoverRedraw = GSREvents.rafCoalesce(() => redraw());
-
 function mouseMoved() {
   if (AppState.mouseOverCanvas) {
     updateCanvasCursor();
     coalescedHoverRedraw();
   }
 }
-
-// Trackpads/mice can fire many wheel ticks per animation frame during a
-// zoom gesture; redraw() runs draw() synchronously (noLoop() mode), so
-// calling it once per tick stacks up full canvas repaints faster than the
-// browser can paint them, reading as a stutter/freeze. Cap it to once per
-// frame — same GSREvents.rafCoalesce() pattern already used for the GSR/GPS
-// sliders (events.js). mouseWheel's state updates below stay synchronous
-// (cheap arithmetic), only the expensive repaint is coalesced.
-const coalescedZoomRedraw = GSREvents.rafCoalesce(() => redraw());
 
 function mouseWheel(event) {
   if (mouseX >= GSR_CONST.MARGIN.left && mouseX <= width - GSR_CONST.MARGIN.right &&

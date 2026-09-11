@@ -22,6 +22,16 @@ const MapColors = {
     'steps':          '#cc9966'
   },
 
+  /**
+   * Convert a #rrggbb hex color to an rgba(...) string at the given alpha.
+   */
+  hexToRgba(hex, alpha) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  },
+
   getHslColor(ratio, saturation = 100, lightness = 50) {
     const r = Math.max(0, Math.min(1, ratio));
     const hue = (1.0 - r) * 120;

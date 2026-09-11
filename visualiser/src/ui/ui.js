@@ -1326,6 +1326,11 @@ const GSRUI = {
       updateProgress('Redrawing visualiser…', 96);
       GSRUI.refreshOsmControls();
       GSRUI.rerenderMap();
+      // rerenderMap() only touches the Leaflet map — the p5 GSR graph (whose
+      // context bands read the same osm_road_class/osm_in_park fields this
+      // pass just rewrote, e.g. after a "Snap to Roads" reclassification)
+      // otherwise stays stale until the next unrelated interaction redraws it.
+      if (typeof redraw === 'function') redraw();
 
       const noGps = tracksToEnrich.length - validTracks.length;
       const parts = [`Enriched ${enriched}/${tracksToEnrich.length} walk${tracksToEnrich.length === 1 ? '' : 's'}`];
