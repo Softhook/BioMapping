@@ -47,6 +47,36 @@ def to_microsiemens(raw_vals, header_name):
     return raw_vals
 
 
+# NeuroKit2's eda_phasic(method='cvxeda') does NOT standardize its input
+# itself - its own docs' worked example calls it as
+# eda_phasic(nk.standardize(eda_signal), ...), i.e. standardizing is on the
+# caller. cvxEDA's alpha (L1 driver sparsity) and gamma (L2 tonic-spline
+# smoothness) are ABSOLUTE penalty weights, calibrated in the reference paper
+# for a unit-variance signal - feed it raw microsiemens-scale data instead
+# and the same nominal alpha/gamma bite harder or softer depending on the
+# track's actual signal std, purely as a side effect of scale.
+#
+# Our own cvxeda.js always z-scores internally before solving (its
+# `normalize` option, default true - see that file's docstring: "keeps the
+# published alpha=8e-4 meaningful"), so comparing it against an
+# unstandardized NeuroKit2 run isn't apples-to-apples. This was found via
+# check_decomposition_agreement.sh: cvxEDA-family phasic correlation ranged
+# from 0.86 to 0.999 across 4 tracks, tracking each track's raw signal std
+# (further from 1uS -> worse agreement) rather than anything track-length- or
+# solver-quality-related. Standardizing first (mirroring cvxeda.js's own
+# convention) closed most of that gap in direct testing.
+def eda_phasic_cvxeda_standardized(cleaned, sampling_rate):
+    mean = cleaned.mean()
+    std = cleaned.std()
+    if not (std > 1e-8):
+        std = 1.0
+    cleaned_z = (cleaned - mean) / std
+    phasic_df = nk.eda_phasic(cleaned_z, sampling_rate=sampling_rate, method='cvxeda')
+    phasic_df['EDA_Tonic'] = phasic_df['EDA_Tonic'] * std + mean
+    phasic_df['EDA_Phasic'] = phasic_df['EDA_Phasic'] * std
+    return phasic_df
+
+
 def process(csv_path):
     df = pd.read_csv(csv_path, comment='#')
     eda = to_microsiemens(df['gsr_raw'].astype(float), 'gsr_raw')
@@ -78,7 +108,7 @@ def process(csv_path):
     cvxeda_peak_times = []
     try:
         cleaned = nk.eda_clean(eda, sampling_rate=sampling_rate)
-        phasic_df = nk.eda_phasic(cleaned, sampling_rate=sampling_rate, method='cvxeda')
+        phasic_df = eda_phasic_cvxeda_standardized(cleaned, sampling_rate)
         _, cvx_info = nk.eda_peaks(phasic_df['EDA_Phasic'].values, sampling_rate=sampling_rate)
         cvx_idx = [i for i in cvx_info.get('SCR_Peaks', []) if 0 <= i < len(ts)]
         cvxeda_peak_times = [float(ts[i]) for i in cvx_idx]

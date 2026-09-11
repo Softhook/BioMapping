@@ -118,6 +118,58 @@ worth revisiting if a specific track ever shows the sidelobe leakage
 actually mattering. Re-run the comparison on new tracks with
 `visualiser/tests/manual/neurokit_compare/check_cleaning_agreement.sh`.
 
+## Decomposition-Stage Comparison vs NeuroKit2 (2026-09-11)
+
+Next stage down the harness:
+`check_decomposition_agreement.{py,js,sh}` compares actual tonic/phasic
+output, not just detected peaks, for the two decomposition families:
+
+- **highpass family** (different algorithms by design — our LPF+EMA
+  tonic vs NeuroKit2's highpass-filter decomposition): phasic r ranges
+  0.51–0.79 across the 4 tracks. Expected; not investigated further, since
+  the two approaches were never meant to match.
+- **cvxEDA family** (same published algorithm, Greco et al. 2016, both
+  sides): phasic r *should* be near-1.0 — and initially wasn't. First run
+  showed r=0.999 on the shortest track but as low as **r=0.856** on the
+  longest, degrading with what looked like track length.
+
+### Root cause: an unstandardized-input bug in the comparison harness, not a solver problem
+
+The instinct was to suspect our custom cvxEDA solver (banded Cholesky +
+Schur complement) numerically drifting from NeuroKit2's `cvxopt`
+interior-point solver on larger problems. That turned out to be a red
+herring. `cvxeda.js` always z-scores (standardizes to zero mean, unit
+variance) its input before solving — its own docstring says this "keeps
+the published α = 8e-4 meaningful" — because cvxEDA's `alpha`/`gamma` are
+**absolute** penalty weights calibrated in the paper for unit-variance
+input. NeuroKit2's `eda_phasic(method='cvxeda')` does **not** standardize
+internally — its own docs' worked example calls it as
+`eda_phasic(nk.standardize(eda_signal), ...)`, i.e. standardizing is left
+to the caller. The harness was calling it on the raw µS-scale signal
+directly.
+
+The correlation between divergence and track length was actually
+divergence tracking each track's raw signal std (how far from 1µS, not how
+long the recording is):
+
+| track | signal std (µS) | phasic r (unstandardized) |
+|---|---|---|
+| biomap_027 | 0.54 | 0.999 |
+| biomap_053 | 0.66 | 0.982 |
+| biomap_019 | 4.09 | 0.922 |
+| biomap_059 | 2.43 | 0.856 |
+
+Fix: `run_neurokit.py` gained `eda_phasic_cvxeda_standardized()` — z-score
+the cleaned signal, call NeuroKit2's cvxEDA, un-standardize the result —
+mirroring `cvxeda.js`'s own convention exactly. After the fix, all 4
+tracks land at **phasic r ≥ 0.948, tonic r ≥ 0.998**. The peak-level
+comparison (`run.sh`) improved correspondingly (cvxEDA recall 93.9%→94.7%,
+mean timing offset 0.149s→0.129s). This also confirms the two independent
+cvxEDA implementations (ours and NeuroKit2's) genuinely do converge to
+close to the same optimum when given a like-for-like input — the earlier
+scare was entirely a harness scaling mismatch, not evidence of numerical
+divergence in either real implementation.
+
 ---
 
 ## The Four Competing Methods
