@@ -8,9 +8,16 @@
 # Requires a Python env with neurokit2 + pandas + cvxopt (default:
 # ~/neurokit/.venv, override with NEUROKIT_PYTHON=/path/to/python).
 #
+# Set CVXEDA_ALPHA=8e-4 to run the cvxEDA-family comparison with our alpha
+# matched to NeuroKit2/the paper's default, instead of BioMapping's tuned
+# production value (2e-3) - an implementation-fidelity check ("do the two
+# solvers converge to the same point") separate from "does production config
+# match the reference". See check_decomposition_agreement.js for why.
+#
 # Usage:
 #   ./check_decomposition_agreement.sh                      # default tracks
 #   ./check_decomposition_agreement.sh biomap_019 biomap_105 # explicit tracks
+#   CVXEDA_ALPHA=8e-4 ./check_decomposition_agreement.sh     # fidelity mode
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

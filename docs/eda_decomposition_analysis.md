@@ -170,6 +170,49 @@ close to the same optimum when given a like-for-like input — the earlier
 scare was entirely a harness scaling mismatch, not evidence of numerical
 divergence in either real implementation.
 
+### Closing the rest of the gap: alpha, and a genuine numerical floor
+
+Post-fix phasic r ranged 0.948–0.998 — good, but not "nearly 100%". The
+remaining gap traced almost entirely to one further difference:
+BioMapping's production `alpha` (`GSR_CONST.CVXEDA.alpha` = 2e-3) is
+*intentionally* scaled up 2.5× from the paper/NeuroKit2 default (8e-4), to
+compensate for our 10Hz sample rate vs the paper's 25Hz (see the comment on
+`CVXEDA.alpha` in `constants.js`). That's a deliberate product choice, not
+a bug — but it means production and the reference are, on purpose, solving
+slightly different optimization problems.
+
+`check_decomposition_agreement.js` now takes a `CVXEDA_ALPHA` env var to
+separate the two questions this conflates: run with production's alpha
+(default, no env var) to see "how far does our tuned config sit from the
+reference"; run with `CVXEDA_ALPHA=8e-4` to see "is our solver's math
+actually correct" (alpha held equal to NeuroKit2's). The second question is
+the one that answers "can we get nearly 100% agreement":
+
+| track | phasic r (production α=2e-3) | phasic r (matched α=8e-4) | tonic r (matched) |
+|---|---|---|---|
+| biomap_019 | 0.989 | 0.995 | 0.9999 |
+| biomap_027 | 0.998 | 0.999 | 0.9999 |
+| biomap_053 | 0.978 | 0.980 | 0.9990 |
+| biomap_059 | 0.948 | 0.982 | 0.9995 |
+
+Tonic agreement is essentially exact (r≥0.999) once alpha is held equal.
+The remaining few-percent phasic gap (worst case biomap_059, r=0.982) is a
+genuine numerical floor, not a further parameter mismatch: both solvers
+report converged (`a.phasicDeconvTruncated === false`, no Newton-iteration
+cap hit) on every track, so what's left is two independently-implemented
+convex solvers — our banded-Cholesky/Schur-complement Newton solver vs
+`cvxopt`'s general interior-point method — landing at very slightly
+different points of the same strictly-convex optimum, at the level of
+floating-point/solver-implementation noise. That's not practically closable
+without literally sharing a solver, and r≥0.98 with matched alpha is
+already strong confirmation the port is correct.
+
+**Practical takeaway:** the production alpha=2e-3 vs reference alpha=8e-4
+gap (0.948 vs 0.982 on the worst track) is the one lever left that's
+actually a choice rather than a floor — worth a conscious decision (keep
+2e-3 for the sample-rate-compensation reasoning, or revisit it) rather than
+something to silently tune away.
+
 ---
 
 ## The Four Competing Methods

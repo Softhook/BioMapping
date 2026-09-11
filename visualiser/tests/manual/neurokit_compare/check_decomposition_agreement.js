@@ -91,14 +91,30 @@ console.log(`=== ${name}: decomposition-stage agreement ===`);
   console.log(fmt('phasic vs hp_phasic', stats(ourPhasic, py.hp_phasic)));
 }
 
-// cvxEDA vs NeuroKit2 cvxEDA - same published algorithm both sides
+// cvxEDA vs NeuroKit2 cvxEDA - same published algorithm both sides.
+//
+// CVXEDA_ALPHA env var: BioMapping's production alpha (GSR_CONST.CVXEDA.alpha,
+// 2e-3) is intentionally scaled up from the paper/NeuroKit2 default (8e-4) to
+// compensate for our 10Hz sample rate vs the paper's 25Hz - see the comment
+// on CVXEDA.alpha in constants.js. That's a deliberate product choice, not an
+// implementation error, so the default run below leaves it in place and
+// reports whatever gap it produces. Set CVXEDA_ALPHA=8e-4 to instead check
+// IMPLEMENTATION fidelity - does our solver converge to the same point
+// NeuroKit2's does, alpha held equal - which is the number that answers "is
+// our cvxEDA port correct", separate from "does our tuned production config
+// match the reference".
 if (py.cvx_tonic && py.cvx_phasic) {
+  const alphaOverride = process.env.CVXEDA_ALPHA ? parseFloat(process.env.CVXEDA_ALPHA) : null;
+  const prevAlpha = global.GSR_CONST.CVXEDA.alpha;
+  if (alphaOverride != null) global.GSR_CONST.CVXEDA.alpha = alphaOverride;
   const a = new GSRAnalyzer();
   a.parseCSV(csvText);
   a.analyze({ ...D, useCvxEDA: true }, 0);
+  global.GSR_CONST.CVXEDA.alpha = prevAlpha;
   const ourTonic = a.tonic.map(d => d.val);
   const ourPhasic = a.phasic.map(d => d.val);
-  console.log(' -- cvxEDA family (same published algorithm both sides) --');
+  const alphaUsed = alphaOverride != null ? alphaOverride : prevAlpha;
+  console.log(` -- cvxEDA family (same published algorithm both sides, alpha=${alphaUsed}${alphaOverride != null ? ' [CVXEDA_ALPHA override]' : ' [production default]'}) --`);
   console.log(fmt('tonic vs cvx_tonic', stats(ourTonic, py.cvx_tonic)));
   console.log(fmt('phasic vs cvx_phasic', stats(ourPhasic, py.cvx_phasic)));
 } else {
