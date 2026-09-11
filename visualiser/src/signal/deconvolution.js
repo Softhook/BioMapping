@@ -275,6 +275,19 @@ const SCRDeconvolution = {
     return out;
   },
 
+  _resampleSparseDriverBack(signal, inputRate, targetLength, targetRate) {
+    if (signal.length === targetLength && inputRate === targetRate) return Float64Array.from(signal);
+    const out = new Float64Array(targetLength);
+    const scale = targetRate / inputRate;
+    for (let i = 0; i < signal.length; i++) {
+      const amp = signal[i];
+      if (amp <= 0) continue;
+      const idx = Math.max(0, Math.min(targetLength - 1, Math.round(i * scale)));
+      out[idx] += amp;
+    }
+    return out;
+  },
+
   _runReferenceLasso(columns, s, sampleRate, maxIter, epsilon) {
     const W = columns.length;
     const zeroTol = 1e-5;
@@ -354,7 +367,8 @@ const SCRDeconvolution = {
         let best = Infinity;
         for (let j = 0; j < W; j++) {
           if (activeSet.includes(j) || collinear.has(j)) continue;
-          const gamma = (lambda - c[j]) / (1 - ATv[j] + 1e-12);
+          epsilon = 1e-12;
+          const gamma = (lambda - c[j]) / (1 - ATv[j] + epsilon);
           if (gamma < zeroTol) continue;
           if (gamma < best - zeroTol) {
             best = gamma;
@@ -653,7 +667,7 @@ const SCRDeconvolution = {
       }
     }
 
-    const driver = this._linearResampleBack(driverWork, workRate, n, sampleRate);
+    const driver = this._resampleSparseDriverBack(driverWork, workRate, n, sampleRate);
     const clean = this._linearResampleBack(cleanWork, workRate, n, sampleRate);
     const tonic = this._linearResampleBack(tonicWork, workRate, n, sampleRate);
     const mse = this._linearResampleBack(mseWork, workRate, n, sampleRate);
