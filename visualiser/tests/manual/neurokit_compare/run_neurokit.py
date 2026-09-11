@@ -41,13 +41,19 @@ def process(csv_path):
 
     # cvxEDA-specific pipeline: NeuroKit2 has its own cvxEDA decomposition
     # (eda_phasic(method='cvxeda'), requires cvxopt) distinct from its
-    # default highpass method. This is the correct like-for-like reference
-    # for our cvxEDA detector - same decomposition family, so any
-    # disagreement is about peak-picking, not about which algorithm
-    # separated tonic from phasic.
+    # default highpass method. eda_process() has no method='cvxeda' shortcut
+    # (it rejects the name as a cleaning method), so this replicates its
+    # internal order by hand: clean first via eda_clean() - the same call
+    # the default pipeline above makes, so both references start from the
+    # same NeuroKit-smoothed signal - then decompose with cvxEDA instead of
+    # the default highpass filter. Skipping eda_clean() here would silently
+    # feed cvxEDA raw, unsmoothed data while the default reference gets
+    # NeuroKit's 3 Hz Butterworth cleaning, breaking the like-for-like
+    # comparison this reference exists for.
     cvxeda_peak_times = []
     try:
-        phasic_df = nk.eda_phasic(eda, sampling_rate=sampling_rate, method='cvxeda')
+        cleaned = nk.eda_clean(eda, sampling_rate=sampling_rate)
+        phasic_df = nk.eda_phasic(cleaned, sampling_rate=sampling_rate, method='cvxeda')
         _, cvx_info = nk.eda_peaks(phasic_df['EDA_Phasic'].values, sampling_rate=sampling_rate)
         cvx_idx = [i for i in cvx_info.get('SCR_Peaks', []) if 0 <= i < len(ts)]
         cvxeda_peak_times = [float(ts[i]) for i in cvx_idx]

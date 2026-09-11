@@ -92,6 +92,18 @@ if (!jsonPath || trackPaths.length === 0) {
 }
 const nkData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
 
+// Prove, rather than assume, that both sides run with real preprocessing/
+// smoothing settings and not some stripped-down test config: D here is
+// GSR_CONST.GSR_DEFAULT loaded straight from mock_constants.js, which is
+// meant to mirror visualiser/src/core/constants.js (spot-check the two if
+// this ever looks stale). NeuroKit2's own smoothing is applied on the
+// Python side (run_neurokit.py) via eda_clean() before either decomposition
+// runs - see that file for why the cvxEDA reference needs it explicitly.
+console.log('=== Our preprocessing/smoothing settings (GSR_DEFAULT) ===');
+console.log(`  medianSize=${D.medianSize}s (${D.medianSize > 0 ? 'median filter ON' : 'median filter OFF'})  lpfWindow=${D.lpfWindow}s (zero-phase moving-average low-pass)`);
+console.log(`  tonicMethod=${D.tonicMethod}  tonicWindow=${D.tonicWindow}s  peakThreshold=${D.peakThreshold}`);
+console.log('=== NeuroKit2 reference: eda_clean() (4th-order Butterworth, 3Hz cutoff, applied to BOTH references below) then eda_phasic(highpass) or eda_phasic(cvxeda) ===');
+
 const aggregate = {};
 DETECTORS.forEach(([label]) => { aggregate[label] = { matched: 0, nkTotal: 0, extra: 0, deltas: [] }; });
 
