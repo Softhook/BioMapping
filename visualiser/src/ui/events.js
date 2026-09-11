@@ -631,6 +631,18 @@ const GSREvents = {
       }
     }
 
+    // ── NDVI graph background bands toggle ───────────────────────────────────
+    {
+      const ndviBandsToggle = document.getElementById('showNdviGraphBands');
+      if (ndviBandsToggle) {
+        ndviBandsToggle.checked = !!AppState.showNdviContext;
+        ndviBandsToggle.addEventListener('change', () => {
+          AppState.showNdviContext = ndviBandsToggle.checked;
+          if (typeof redraw === 'function') redraw();
+        });
+      }
+    }
+
 
     // Peak latency — re-render map only (no analysis needed)
     {
@@ -1468,9 +1480,11 @@ const GSREvents = {
     // Snap Radius slider is only shown while road-snapping is enabled
     GSREvents.updateSnapRadiusVisibility();
 
-    // Sync OSM graph background overlay checkbox
+    // Sync OSM / NDVI graph background overlay checkboxes
     const osmBandsToggle = document.getElementById('showOsmGraphBands');
     if (osmBandsToggle) osmBandsToggle.checked = !!AppState.showOsmContext;
+    const ndviBandsToggle = document.getElementById('showNdviGraphBands');
+    if (ndviBandsToggle) ndviBandsToggle.checked = !!AppState.showNdviContext;
 
     // Contour Settings Labels & Visibility Setup
     const C = AppState.contourControls;

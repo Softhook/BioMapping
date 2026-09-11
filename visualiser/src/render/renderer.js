@@ -49,6 +49,10 @@ const GSRRenderer = {
   // Boundary-digitising slack for "is this footpath in the park" — see
   // _classifyOsmContext's doc comment.
   PARK_EDGE_TOLERANCE_M: 15,
+  _cachedNdviAnalyzer: null,
+  _cachedNdviDataVersion: null,
+  _cachedNdviSegments: null,
+  _cachedNdviRange: null,
 
   /**
    * Helper to retrieve CSS variable values from document stylesheet.
@@ -190,19 +194,29 @@ const GSRRenderer = {
    * Iterates through pre-computed cached segments, skips out-of-view intervals in O(1),
    * and renders subtle colored bands with boundary edges and optional top labels.
    */
+  /**
+   * Shared x-axis mapping for the background band renderers (OSM context,
+   * NDVI) — both need the identical time→pixel math, only the per-segment
+   * fill differs.
+   */
+  _bandViewport(tMin, tMax) {
+    const tSpan = tMax - tMin;
+    if (tSpan <= 0) return null;
+    const xLeftMargin = GSR_CONST.MARGIN.left;
+    const xRightMargin = width - GSR_CONST.MARGIN.right;
+    const xScale = (xRightMargin - xLeftMargin) / tSpan;
+    if (xScale <= 0) return null;
+    return { xLeftMargin, xRightMargin, xScale };
+  },
+
   drawOsmContextBands(tMin, tMax, yTop, yBottom) {
     if (!AppState.analyzer) return;
     const segments = this._getOsmContextSegments(AppState.analyzer);
     if (!segments || segments.length === 0) return;
 
-    const tSpan = tMax - tMin;
-    if (tSpan <= 0) return;
-    const xSpan = (width - GSR_CONST.MARGIN.right) - GSR_CONST.MARGIN.left;
-    const xScale = xSpan / tSpan;
-    if (xScale <= 0) return;
-
-    const xLeftMargin = GSR_CONST.MARGIN.left;
-    const xRightMargin = width - GSR_CONST.MARGIN.right;
+    const vp = this._bandViewport(tMin, tMax);
+    if (!vp) return;
+    const { xLeftMargin, xRightMargin, xScale } = vp;
     const bandHeight = yBottom - yTop;
 
     for (let s = 0; s < segments.length; s++) {
@@ -239,6 +253,133 @@ const GSRRenderer = {
         textStyle(NORMAL);
       }
     }
+  },
+
+  /**
+   * Pre-compute and cache contiguous NDVI colour-bucket segments across the
+   * whole track — the continuous-metric analogue of _getOsmContextSegments.
+   * NDVI has no fixed categories, so it reuses the exact same 30-bucket LUT
+   * (MapColors.getColorLut) and track-wide min/max normalisation the map's
+   * path colouring already uses for 'ndvi_50m' (map_manager_path.js), rather
+   * than inventing a second gradient. Falls step-held between real satellite
+   * samples (ndvi_sampler.js's _stepHoldValues), so runs of the same bucket
+   * are typically many samples long, keeping the RLE segment count small.
+   */
+  _getNdviContextSegments(analyzer) {
+    if (!analyzer || !analyzer.raw || analyzer.raw.length === 0) return null;
+
+    const dataVersion = analyzer._dataVersion || 0;
+    if (this._cachedNdviAnalyzer === analyzer &&
+        this._cachedNdviDataVersion === dataVersion &&
+        this._cachedNdviSegments !== null) {
+      return this._cachedNdviSegments;
+    }
+
+    const raw = analyzer.raw;
+    const n = raw.length;
+
+    let minVal = Infinity, maxVal = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const v = raw[i].ndvi_50m;
+      if (typeof v === 'number' && !isNaN(v)) {
+        if (v < minVal) minVal = v;
+        if (v > maxVal) maxVal = v;
+      }
+    }
+
+    this._cachedNdviAnalyzer = analyzer;
+    this._cachedNdviDataVersion = dataVersion;
+
+    if (minVal === Infinity) {
+      // No NDVI sampled on this track yet.
+      this._cachedNdviSegments = [];
+      this._cachedNdviRange = null;
+      return this._cachedNdviSegments;
+    }
+    if (maxVal === minVal) maxVal = minVal + 1;
+    this._cachedNdviRange = { minVal, maxVal };
+
+    const lut = MapColors.getColorLut('ndvi_50m', minVal, maxVal);
+    const buckets = lut.length;
+    const range = maxVal - minVal;
+    const bucketOf = (v) => {
+      if (typeof v !== 'number' || isNaN(v)) return -1;
+      const b = ((v - minVal) * buckets) / range;
+      return b < 0 ? 0 : (b >= buckets ? buckets - 1 : b | 0);
+    };
+
+    const segments = [];
+    let curBucket = bucketOf(raw[0].ndvi_50m);
+    let segStart = raw[0].time;
+
+    for (let i = 1; i < n; i++) {
+      const b = bucketOf(raw[i].ndvi_50m);
+      if (b !== curBucket) {
+        if (curBucket !== -1) {
+          segments.push({ hsl: lut[curBucket], tStart: segStart, tEnd: raw[i].time });
+        }
+        curBucket = b;
+        segStart = raw[i].time;
+      }
+    }
+    if (curBucket !== -1) {
+      segments.push({ hsl: lut[curBucket], tStart: segStart, tEnd: raw[n - 1].time });
+    }
+
+    this._cachedNdviSegments = segments;
+    return segments;
+  },
+
+  /**
+   * Draw the NDVI background gradient behind the GSR signal curves — same
+   * viewport/culling mechanics as drawOsmContextBands, but a continuous
+   * colour ramp (no boundary strokes or text labels, since bucket edges
+   * aren't meaningful category boundaries the way a road/park change is).
+   */
+  drawNdviContextBands(tMin, tMax, yTop, yBottom) {
+    if (!AppState.analyzer) return;
+    const segments = this._getNdviContextSegments(AppState.analyzer);
+    if (!segments || segments.length === 0) return;
+
+    const vp = this._bandViewport(tMin, tMax);
+    if (!vp) return;
+    const { xLeftMargin, xRightMargin, xScale } = vp;
+    const bandHeight = yBottom - yTop;
+
+    noStroke();
+    for (let s = 0; s < segments.length; s++) {
+      const seg = segments[s];
+      if (seg.tEnd <= tMin || seg.tStart >= tMax) continue;
+
+      const x1 = Math.max(xLeftMargin, xLeftMargin + (seg.tStart - tMin) * xScale);
+      const x2 = Math.min(xRightMargin, xLeftMargin + (seg.tEnd - tMin) * xScale);
+      const w = x2 - x1;
+      if (w < 0.5) continue;
+
+      fill(MapColors.hexToRgba(MapColors.hslStringToHex(seg.hsl), 0.4));
+      rect(x1, yTop, w, bandHeight);
+    }
+  },
+
+  /**
+   * NDVI value + swatch colour at one raw sample, for the hover tooltip.
+   * Reuses the exact bucket/LUT the bands were drawn with (via the same
+   * _getNdviContextSegments cache) so the tooltip swatch always matches
+   * what's on screen. Returns null when there's no NDVI data at all, or the
+   * sample itself has none (still step-holding before the first real fix).
+   */
+  _ndviColorAt(analyzer, sample) {
+    if (!sample) return null;
+    const v = sample.ndvi_50m;
+    if (typeof v !== 'number' || isNaN(v)) return null;
+    this._getNdviContextSegments(analyzer); // ensures _cachedNdviRange is fresh
+    const range = this._cachedNdviRange;
+    if (!range) return null;
+    const lut = MapColors.getColorLut('ndvi_50m', range.minVal, range.maxVal);
+    const span = range.maxVal - range.minVal;
+    let b = span > 0 ? ((v - range.minVal) * lut.length) / span : lut.length / 2;
+    b = b < 0 ? 0 : (b >= lut.length ? lut.length - 1 : b | 0);
+    return { value: v, color: MapColors.hslStringToHex(lut[b]) };
   },
 
   /**
@@ -1252,7 +1393,15 @@ const GSRRenderer = {
       }
     }
 
-    GSRRenderer.drawTooltip(dRaw.time, dRaw.val, dFilt.val, dTonic.val, dPhasic.val, nearPeakInfo, extraMetric, osmContext);
+    let ndviContext = null;
+    if (AppState.showNdviContext && dRaw) {
+      const ndvi = this._ndviColorAt(AppState.analyzer, dRaw);
+      if (ndvi) {
+        ndviContext = { label: 'NDVI:', color: ndvi.color, valueStr: ndvi.value.toFixed(2) };
+      }
+    }
+
+    GSRRenderer.drawTooltip(dRaw.time, dRaw.val, dFilt.val, dTonic.val, dPhasic.val, nearPeakInfo, extraMetric, osmContext, ndviContext);
   },
 
   /**
@@ -1267,10 +1416,10 @@ const GSRRenderer = {
     text(valueStr, boxX + boxW - pad, y);
   },
 
-  drawTooltip(time, rawVal, filtVal, tonicVal, phasicVal, nearPeak, extraMetric, osmContext) {
+  drawTooltip(time, rawVal, filtVal, tonicVal, phasicVal, nearPeak, extraMetric, osmContext, ndviContext) {
     const pad = 12;
     const hasPeakInfo = nearPeak && nearPeak.qualityScore !== undefined;
-    const extraRows = (extraMetric ? 1 : 0) + (osmContext ? 1 : 0);
+    const extraRows = (extraMetric ? 1 : 0) + (osmContext ? 1 : 0) + (ndviContext ? 1 : 0);
     // Extra width for peak quality details
     const boxW = hasPeakInfo ? 240 : 200;
     const boxH = (hasPeakInfo ? 200 : 120) + extraRows * 18;
@@ -1323,6 +1472,10 @@ const GSRRenderer = {
 
     if (osmContext) {
       this._drawTooltipRow('Context:', osmContext.color, osmContext.label, boxX, boxW, pad, startY, spacing, rowIdx++);
+    }
+
+    if (ndviContext) {
+      this._drawTooltipRow(ndviContext.label, ndviContext.color, ndviContext.valueStr, boxX, boxW, pad, startY, spacing, rowIdx++);
     }
 
     // Peak shape quality info (when hovering near a detected peak)

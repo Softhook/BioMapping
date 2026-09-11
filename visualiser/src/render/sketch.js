@@ -330,6 +330,9 @@ function draw() {
     if (AppState.showOsmContext) {
       GSRRenderer.drawOsmContextBands(AppState.viewStartTime, viewEndTime, plotTop, plotBottom);
     }
+    if (AppState.showNdviContext) {
+      GSRRenderer.drawNdviContextBands(AppState.viewStartTime, viewEndTime, plotTop, plotBottom);
+    }
 
     // 'Signal' - Raw / Filtered / Tonic (+ optional Phasic overlay), full height (uS)
     GSRRenderer.drawGridX(AppState.viewStartTime, viewEndTime, plotBottom, plotBottom, true);
@@ -363,6 +366,9 @@ function draw() {
     // ── Single metric view — one derived series, full height, own Y axis ────
     if (AppState.showOsmContext) {
       GSRRenderer.drawOsmContextBands(AppState.viewStartTime, viewEndTime, plotTop, plotBottom);
+    }
+    if (AppState.showNdviContext) {
+      GSRRenderer.drawNdviContextBands(AppState.viewStartTime, viewEndTime, plotTop, plotBottom);
     }
 
     GSRRenderer.drawGridX(AppState.viewStartTime, viewEndTime, plotBottom, plotBottom, true);

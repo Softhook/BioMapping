@@ -93,6 +93,7 @@ const AppState = {
   showPeaks: true,
   showHotspots: true, // "Hotspots" = analyzer.memorableEvents, drawn via drawHotspotMarkers()
   showOsmContext: false, // Background environmental bands (road hierarchy / parks) behind GSR graph
+  showNdviContext: false, // Background NDVI (vegetation) gradient bands behind GSR graph
 
   // ── Graph view selector ────────────────────────────────────────────────────
   // Which single full-height plot the canvas shows:

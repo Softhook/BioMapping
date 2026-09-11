@@ -1388,6 +1388,10 @@ const GSRUI = {
 
       GSRUI.refreshOsmControls();
       GSRUI.rerenderMap();
+      // Same reasoning as enrichTrack() above: rerenderMap() only touches the
+      // Leaflet map, but the p5 GSR graph's NDVI context bands read the
+      // ndvi/ndvi_50m fields this sampling pass just wrote.
+      if (typeof redraw === 'function') redraw();
 
       const parts = [`Sampled NDVI for ${res.enrichedCount}/${res.totalCount} walk${res.totalCount === 1 ? '' : 's'}`];
       if (res.mode === 'unified_mosaic') parts[0] += ' (shared mosaic)';
