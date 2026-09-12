@@ -273,6 +273,30 @@ with BioMapping gait filter OFF to ensure a fair, unconfounded comparison:
 | **BioMapping Full-Scan** | `peak_times` (default) | **99.4%** | **162 / 163** | +116 | **0.052s** |
 | **BioMapping Deconvolution** | `peak_times` (default) | **99.4%** | **162 / 163** | +254 | 0.252s |
 
+### Evaluation of BioMapping's Three Tonic Decomposition Methods
+
+BioMapping supports three baseline tonic decomposition methods (`tonicMethod`), all followed by a shared local-floor repositioning pass (±6s running minimum, 4s smoothed):
+1. **EMA (`'lpf'` in code/constants, production default)**: Zero-phase Exponential Moving Average ($\alpha = 2 / (N + 1)$, window 45s).
+2. **Sliding Median (`'median'`)**: Rolling median filter over 45s.
+3. **Sliding 10th-Percentile (`'percentile'`)**: Rolling 10th-percentile filter over 45s.
+
+#### Ground-Truth Comparison Across All 12 Clean Tracks (210 True Injected SCRs, 3 Seeds)
+
+| Method / Tonic Architecture | Recall | Precision | F1 Score | Mean \|$\Delta t$\| | Amplitude MAE | Amplitude $r$ |
+|---|---:|---:|---:|---:|---:|---:|
+| **Full-Scan with EMA (Default)** | **99.5%** | **65.3%** | **0.789** | **0.030s** | **0.014 uS** | **0.9984** |
+| **Full-Scan with 10th-%ile** | 99.5% | 64.5% | 0.783 | 0.030s | 0.013 uS | 0.9984 |
+| **Full-Scan with Median** | 99.5% | 63.9% | 0.778 | 0.031s | 0.016 uS | 0.9984 |
+| **Prominence with EMA (Default)** | **99.5%** | **55.1%** | **0.710** | **0.030s** | **0.013 uS** | **0.9983** |
+| **Prominence with Median** | 99.5% | 54.1% | 0.701 | 0.031s | 0.016 uS | 0.9983 |
+| **Prominence with 10th-%ile** | 99.5% | 52.0% | 0.683 | 0.031s | 0.014 uS | 0.9983 |
+
+#### Why the Production Default EMA is Empirically Superior:
+1. **Smoothness vs. Step Artifacts**: Zero-phase EMA produces a continuous, smooth baseline. In contrast, sliding median creates piecewise-constant plateaus and sharp vertical steps as peaks enter/exit the 45s window, injecting artificial ripples into the phasic residual (producing more false positives).
+2. **Noise Envelope Stability**: A sliding 10th-percentile plunges whenever random noise dips downward, artificially inflating the phasic residual and producing 23 additional false positives on Prominence.
+3. **Best-of-Both-Worlds Floor Repositioning**: BioMapping's subsequent local-floor repositioning pass (±6s running min) prevents the EMA baseline from ever riding above the signal, eliminating baseline clipping while preserving smooth continuous tracking.
+4. **Real Track Consistency**: Across Track 28 (`biomap_028`) and Track 1 (`biomap_live_2026-09-10T17-20-02-105Z`), mean tonic levels across all methods agree within **0.07 uS** (Track 28: EMA 7.387 uS, Median 7.383 uS, 10th-%ile 7.364 uS, cvxEDA 7.317 uS). On Track 1, the sliding median dipped down to -2.479 uS due to edge effects, whereas EMA remained stable.
+
 ### Combined small-and-slow experiment: rejected
 
 A benchmark-only rule rejected a peak only when both amplitude was below

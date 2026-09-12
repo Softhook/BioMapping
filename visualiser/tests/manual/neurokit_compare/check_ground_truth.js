@@ -148,12 +148,30 @@ if (args.length < 2) {
   process.exit(1);
 }
 
-const DETECTORS = [
-  ['Full-Scan', {}],
-  ['Prominence', { usePeakProminence: true }],
-  ['cvxEDA', { useCvxEDA: true }],
-  ['Deconvolution', { useDeconvolution: true }],
-];
+const compareTonicVariants = process.env.BIOMAP_COMPARE_TONIC === '1';
+const DETECTORS = compareTonicVariants
+  ? [
+      ['Prominence (EMA 45s)',       { usePeakProminence: true, tonicMethod: 'lpf', tonicWindow: 45 }],
+      ['Prominence (EMA 30s)',       { usePeakProminence: true, tonicMethod: 'lpf', tonicWindow: 30 }],
+      ['Prominence (EMA 60s)',       { usePeakProminence: true, tonicMethod: 'lpf', tonicWindow: 60 }],
+      ['Prominence (Median 30s)',    { usePeakProminence: true, tonicMethod: 'median', tonicWindow: 30 }],
+      ['Prominence (Median 20s)',    { usePeakProminence: true, tonicMethod: 'median', tonicWindow: 20 }],
+      ['Prominence (Median 45s)',    { usePeakProminence: true, tonicMethod: 'median', tonicWindow: 45 }],
+      ['Prominence (10th-%ile 15s)', { usePeakProminence: true, tonicMethod: 'percentile', tonicWindow: 15 }],
+      ['Prominence (10th-%ile 10s)', { usePeakProminence: true, tonicMethod: 'percentile', tonicWindow: 10 }],
+      ['Prominence (10th-%ile 30s)', { usePeakProminence: true, tonicMethod: 'percentile', tonicWindow: 30 }],
+      ['Full-Scan (EMA 45s)',        { tonicMethod: 'lpf', tonicWindow: 45 }],
+      ['Full-Scan (Median 30s)',     { tonicMethod: 'median', tonicWindow: 30 }],
+      ['Full-Scan (10th-%ile 15s)',  { tonicMethod: 'percentile', tonicWindow: 15 }],
+      ['cvxEDA (B-spline)',          { useCvxEDA: true }],
+      ['Deconvolution (MP)',         { useDeconvolution: true }],
+    ]
+  : [
+      ['Full-Scan',      {}],
+      ['Prominence',     { usePeakProminence: true }],
+      ['cvxEDA',         { useCvxEDA: true }],
+      ['Deconvolution',  { useDeconvolution: true }],
+    ];
 
 const firstArg = args[0];
 const isDir = fs.existsSync(firstArg) && fs.statSync(firstArg).isDirectory();
@@ -237,8 +255,9 @@ for (const item of trackFiles) {
   console.log();
 }
 
-if (aggregateMap['Full-Scan'].length > 1) {
-  const trackCount = aggregateMap['Full-Scan'].length;
+const firstDetectorLabel = DETECTORS[0][0];
+if (aggregateMap[firstDetectorLabel] && aggregateMap[firstDetectorLabel].length > 1) {
+  const trackCount = aggregateMap[firstDetectorLabel].length;
   console.log(`================================================================================`);
   console.log(`=== Aggregate across all ${trackCount} ground-truth tracks (${totalTrueSCRs} total true SCRs) ===`);
   console.log(`================================================================================`);
