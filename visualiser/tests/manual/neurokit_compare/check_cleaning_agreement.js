@@ -37,6 +37,9 @@ loadModule(path.join(SRC, 'csv_parser.js'), 'GSRCSVParser');
 loadModule(path.join(SRC, 'analyzer.js'), 'GSRAnalyzer');
 const { GSRAnalyzer } = global;
 const D = global.GSR_CONST.GSR_DEFAULT;
+const ourCleaningDescription = D.useGaitFilter
+  ? `1Hz ${global.GSR_CONST.GAIT_FILTER.type.toUpperCase()} gait low-pass`
+  : `${D.lpfWindow}s box LPF`;
 
 function stats(a, b) {
   const n = Math.min(a.length, b.length);
@@ -79,5 +82,5 @@ const ourCleaned = a.filtered.map(d => d.val);
 const name = path.basename(csvPath, '.csv');
 const s = stats(ourCleaned, py.cleaned);
 
-console.log(`=== ${name}: cleaning-stage agreement (ours: 0.5s box LPF, medianSize=${D.medianSize}  vs  NeuroKit2: eda_clean 4th-order 3Hz Butterworth) ===`);
+console.log(`=== ${name}: cleaning-stage agreement (ours: ${ourCleaningDescription}, medianSize=${D.medianSize}  vs  NeuroKit2: eda_clean 4th-order 3Hz Butterworth) ===`);
 console.log(`  n=${s.n}  max|diff|=${s.maxDiff.toFixed(4)}uS  mean|diff|=${s.meanAbsDiff.toFixed(4)}uS  RMSE=${s.rmse.toFixed(4)}uS  r=${s.r.toFixed(4)}`);
