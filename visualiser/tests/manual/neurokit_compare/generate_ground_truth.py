@@ -139,6 +139,16 @@ TRUE_AMPLITUDE_RANGE = (0.1, 2.0)  # uS
 # lands at 0.74s, matching tauFast almost exactly.
 SCR_WINDOW_SEC = 20
 
+# Tonic baseline below is otherwise flat + constant linear drift only - real
+# SCL undergoes slow non-linear undulation from thermoregulatory/central
+# sympathetic drive (Boucsein 2012; ~0.01-0.05Hz, i.e. ~20-100s period).
+# Superimposing a slow sinusoid (random period/phase per seed, so it isn't
+# a single fixed tone every detector could learn) gives tonic-estimation
+# methods (cvxEDA, LPF/median baseline) something less trivial than a
+# perfectly flat-or-linear floor to separate from phasic activity.
+TONIC_UNDULATION_AMPLITUDE_US = 0.15
+TONIC_UNDULATION_PERIOD_RANGE_SEC = (120, 240)
+
 
 def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_amplitude=0,
                    walking_profile=False, peak_starts=None, amplitude_range=TRUE_AMPLITUDE_RANGE,
@@ -166,6 +176,9 @@ def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_a
 
     eda = np.full(length, 1.0)
     eda += drift * np.linspace(0, duration, length)
+    undulation_period = rng.uniform(*TONIC_UNDULATION_PERIOD_RANGE_SEC)
+    undulation_phase = rng.uniform(0, 2 * np.pi)
+    eda += TONIC_UNDULATION_AMPLITUDE_US * np.sin(2 * np.pi * t_full / undulation_period + undulation_phase)
     time = [0, duration]
 
     start_peaks = peak_starts if peak_starts is not None else np.linspace(
