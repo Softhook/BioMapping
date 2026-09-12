@@ -211,6 +211,7 @@ const EXTERNAL_REFS = [
   ['NeuroKit2 (cvxEDA)', 'cvxeda_peak_times', 'cvxeda_peak_amplitudes'],
   ['NeuroKit2 (cvxEDA + literature abs. peaks)', 'cvxeda_lit_peak_times', 'cvxeda_lit_peak_amplitudes'],
   ['Ledalab CDA (default, via Ledapy)', 'ledapy_peak_times', 'ledapy_peak_amplitudes'],
+  ['Ledalab CDA (literature-tuned)', 'ledapy_lit_peak_times', 'ledapy_lit_peak_amplitudes'],
   ['cvxEDA reference solver (naive curve-scan)', 'cvxeda_ref_naive_peak_times', 'cvxeda_ref_naive_peak_amplitudes'],
   ['cvxEDA reference solver (driver-based, BioMapping\'s algorithm)', 'cvxeda_ref_driver_peak_times', 'cvxeda_ref_driver_peak_amplitudes'],
 ];

@@ -14,6 +14,20 @@ Comparing against Ledapy's own output is the most direct test of whether
 that choice tracks an established toolbox's behaviour or is specific to
 BioMapping's own implementation.
 
+Literature-tuned preset (`ledapy_lit_*` fields, see neurokit_comparison_plan.md
+item 22): Ledapy's `leda2.settings.sigPeak` was found NOT to filter
+`leda2.analysis.peakTime`/`amp` at all - tracing deconv_apply() in ledapy's
+own deconvolution.py shows that table is every local min/max pair of the
+driver (`utils.get_peaks(driver)`), gated only by a negligible 0.001 uS
+floor; sigPeak only feeds the tonic segmentation step. A grid search
+(1-seed, then confirmed on the 3-seed/210-SCR clean suite) over Ledalab's own
+exposed knobs found `smoothwin_sdeco = 0.5` (driver smoothing, vs. the 0.2
+default) plus a post-hoc absolute amplitude floor of 0.09 uS on the raw
+candidate list - the same class of fix already applied to NeuroKit2's
+default gate (item 17) - as the best point on this suite (F1 0.560 vs.
+0.091 default). Still well short of BioMapping/NeuroKit2; see the doc for
+the full sweep and interpretation.
+
 Manual/occasional script, not run in CI: needs `pip install ledapy` (pulls
 numpy/scipy/sympy) in the same Python environment run_neurokit.py uses.
 
@@ -27,7 +41,13 @@ from pathlib import Path
 
 import pandas as pd
 import ledapy
-from ledapy import leda2
+from ledapy import leda2, deconvolution
+
+# Literature-tuned preset knobs (see module docstring above for how these
+# were derived) - overridable via env vars for future re-sweeps.
+import os
+LEDAPY_LIT_SMOOTHWIN = float(os.environ.get('LEDAPY_LIT_SMOOTHWIN', '0.5'))
+LEDAPY_LIT_MIN_AMP = float(os.environ.get('LEDAPY_LIT_MIN_AMP', '0.09'))
 
 # Same auto unit-detection as run_neurokit.py - see that file's comment for
 # why this conversion (not the bare gsr_raw column) must happen before
@@ -63,18 +83,34 @@ def process(csv_path):
     # MATLAB globals) - reset() is mandatory between tracks, otherwise the
     # previous track's settings/results bleed into this one.
     leda2.reset()
-    default_sig_peak = leda2.settings.sigPeak  # Ledalab's own out-of-the-box value (0.001 - effectively no floor, see run_ledapy_tuned below)
+    default_sig_peak = leda2.settings.sigPeak  # Ledalab's own out-of-the-box value (0.001 - see module docstring: doesn't actually gate the final SCR list)
     ledapy.runner.getResult(eda.values, 'phasicdriver', sampling_rate, downsample=1, optimisation=0)
 
     # leda2.analysis.{peakTime,amp} is Ledalab CDA's own discrete SCR table,
-    # built from its deconvolved driver by analyse.signpeak() - this is
-    # Ledalab's answer to "how many discrete responses were there", at its
-    # own default sensitivity, the same "untouched defaults" baseline
-    # run_neurokit.py measures for NeuroKit2.
+    # built from its deconvolved driver via utils.get_peaks() in
+    # deconv_apply() - this is Ledalab's answer to "how many discrete
+    # responses were there", at its own default sensitivity, the same
+    # "untouched defaults" baseline run_neurokit.py measures for NeuroKit2.
     peak_times = leda2.analysis.peakTime
     peak_amps = leda2.analysis.amp
     pairs = [(float(t), float(a)) for t, a in zip(peak_times, peak_amps)
              if math.isfinite(t) and math.isfinite(a) and 0 <= t <= (ts[-1] if len(ts) else 0)]
+
+    # Literature-tuned preset: re-run with a wider driver-smoothing window
+    # (ledapy.runner.getResult() calls leda2.reset() as its own first line,
+    # which would silently discard a setting applied beforehand - so this
+    # replicates getResult()'s body by hand to set smoothwin_sdeco AFTER
+    # reset()/import_data() but BEFORE sdeco() actually reads it), then
+    # applies a post-hoc absolute amplitude floor to the raw candidate list
+    # (see module docstring: sigPeak itself never reaches this gate).
+    leda2.reset()
+    leda2.current.do_optimize = 0
+    ledapy.runner.import_data(eda.values, sampling_rate, 1)
+    leda2.settings.smoothwin_sdeco = LEDAPY_LIT_SMOOTHWIN
+    deconvolution.sdeco(0)
+    lit_pairs = [(float(t), float(a)) for t, a in zip(leda2.analysis.peakTime, leda2.analysis.amp)
+                 if math.isfinite(t) and math.isfinite(a) and 0 <= t <= (ts[-1] if len(ts) else 0)
+                 and a >= LEDAPY_LIT_MIN_AMP]
 
     return {
         'sampling_rate': sampling_rate,
@@ -82,6 +118,10 @@ def process(csv_path):
         'ledapy_peak_times': [p[0] for p in pairs],
         'ledapy_peak_amplitudes': [p[1] for p in pairs],
         'ledapy_sig_peak_default': default_sig_peak,
+        'ledapy_lit_peak_times': [p[0] for p in lit_pairs],
+        'ledapy_lit_peak_amplitudes': [p[1] for p in lit_pairs],
+        'ledapy_lit_smoothwin': LEDAPY_LIT_SMOOTHWIN,
+        'ledapy_lit_min_amp': LEDAPY_LIT_MIN_AMP,
     }
 
 

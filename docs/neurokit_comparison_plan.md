@@ -857,16 +857,83 @@ predated both):
 
     Ledalab's own out-of-the-box CDA result (precision 4.8%, 4007 false positives across 210
     true SCRs) is the clearest demonstration yet of this document's recurring "default by
-    inertia" theme (see `eda_decomposition_analysis.md` §3.E): its `sigPeak` significance
-    threshold defaults to 0.001, which resolves (via Ledalab's own `max(0.1, sigPeak/max(kernel)
-    *10)` internal floor) to a gate so low it barely filters anything. A literature-tuned
-    Ledalab comparator (raising `sigPeak` to an effective absolute floor, the same move Gamboa/
-    Xu/Sullivan make for NeuroKit2's defaults) is a natural follow-up, not yet built.
+    inertia" theme (see `eda_decomposition_analysis.md` §3.E). Its cause was originally
+    hypothesized here to be the `sigPeak` significance threshold defaulting to 0.001 - but see
+    item 22, which traces this further and finds the real mechanism is different: `sigPeak`
+    turns out not to gate Ledapy's discrete SCR list at all. A literature-tuned Ledalab
+    comparator was built (item 22) using a different fix once that was discovered.
 
     **Not yet done**: wiring these two reference toolboxes into `compare.js`/`run.sh`'s
     real-track comparison (this item only extended the known-answer `check_ground_truth.js`
-    harness); a literature-tuned Ledalab `sigPeak` variant; running on the noisy/gait/walking
-    scenarios (only the clean suite has been measured here).
+    harness); running on the noisy/gait/walking scenarios (only the clean suite has been
+    measured here); see also item 22's own follow-ups for the Ledalab-tuning side of this.
+
+22. [x] **Literature-tuned Ledalab comparator, and why `sigPeak` turned out to be a dead end**:
+    Item 21 flagged a literature-tuned Ledalab variant (raising `sigPeak`, mirroring item 17's
+    NeuroKit2 fix) as a natural follow-up. Attempting it surfaced a more fundamental finding
+    first: **`leda2.settings.sigPeak` does not gate Ledapy's discrete SCR list at all.**
+    Tracing `deconv_apply()` in ledapy's own `deconvolution.py` shows `leda2.analysis.peakTime`/
+    `amp` (what `run_ledapy.py` already read) is built from `utils.get_peaks(driver)` - literally
+    every local min/max pair of the deconvolved driver, filtered only by a negligible 0.001 uS
+    floor. `sigPeak` (via the `sigc` value `deconvolution.sdeco()` derives from it) is used
+    exclusively inside `segment_driver()`, which feeds the **tonic** baseline's impulse-free
+    segmentation - a step upstream of, and independent from, which peaks end up in the final SCR
+    table. A calibration sweep confirmed this empirically: raising `sigPeak` from its 0.001
+    default up to 500 (six orders of magnitude) left the final SCR count completely unchanged
+    once past a small threshold, because it was never reaching the actual gate.
+
+    (This also means `ledapy.runner.getResult()`, the public entry point `run_ledapy.py`
+    originally used, cannot be handed a pre-set `sigPeak` at all - it calls `leda2.reset()` as
+    its own first line, silently discarding any override applied beforehand. The literature-tuned
+    path in `run_ledapy.py` now replicates `getResult()`'s body by hand so its own setting change,
+    `smoothwin_sdeco`, survives.)
+
+    With `sigPeak` ruled out, a grid search (1-seed clean suite, then confirmed on the 3-seed/
+    210-SCR clean suite via `CLEAN_ONLY=1 GROUND_TRUTH_NUM_SEEDS=3 ./check_ground_truth.sh`) swept
+    the two levers that do reach the final list: Ledalab's own `smoothwin_sdeco` (driver-smoothing
+    window, default 0.2s) and a post-hoc absolute amplitude floor applied to the raw candidate
+    list - the same class of fix item 17 already applied to NeuroKit2's own default gate. Widening
+    `smoothwin_sdeco` to 0.5s (no further gain past that) plus a 0.09 uS floor was the best point
+    found. Added to `run_ledapy.py` as `ledapy_lit_peak_times`/`ledapy_lit_peak_amplitudes`
+    (env-overridable via `LEDAPY_LIT_SMOOTHWIN`/`LEDAPY_LIT_MIN_AMP` for future re-sweeps), wired
+    into `check_ground_truth.js` as a new "Ledalab CDA (literature-tuned)" row:
+
+    | Detector | Recall | Precision | F1 | TP | FN | FP | Mean \|delta\| | Amplitude r |
+    |---|---:|---:|---:|---:|---:|---:|---:|---:|
+    | Ledalab CDA (default, via Ledapy) | 96.2% | 4.8% | 0.091 | 202 | 8 | 4007 | 0.511s | 0.1960 |
+    | **Ledalab CDA (literature-tuned)** | 55.2% | 56.9% | **0.560** | 116 | 94 | 88 | 0.898s | 0.9378 |
+    | BioMapping Full-Scan (production) | 93.3% | 100.0% | 0.966 | 196 | 14 | 0 | 0.029s | 0.9993 |
+    | NeuroKit2 (default) | 83.8% | 84.2% | 0.840 | 176 | 34 | 33 | 0.035s | 0.9985 |
+
+    (12 tracks, 3 seeds, 210 true SCRs; re-run 2026-09-12 via the harness, matching every other
+    table in this section.)
+
+    Tuning closes most of the precision gap (4.8%→56.9%) at a real recall cost (96.2%→55.2%) -
+    a much harder trade-off than NeuroKit2 faced in item 17, where an absolute floor alone
+    recovered NeuroKit2's cvxEDA recall to 95.2% (at its own, smaller, precision cost). The
+    interpretation: unlike NeuroKit2's relative-threshold problem (a good decomposition wrapped
+    in a bad gate) or BioMapping's own pre-fix cvxEDA (a good decomposition wrapped in the wrong
+    *candidate source* - item 19), Ledalab's naive point-deconvolution driver has no regularization
+    against noise amplification during inversion, so it doesn't produce a clean separation between
+    true-SCR-sized peaks and noise-ripple-sized peaks for any single global threshold to exploit -
+    true and false candidates' amplitude distributions genuinely overlap on this suite (compare
+    this item's table to the driver-based cvxEDA row a few paragraphs up: a *regularized* sparse
+    solver's driver, even before item 19's candidate-source fix, still massively outperforms
+    Ledalab's naive one - naive curve-scan F1 0.778 vs. Ledalab-tuned F1 0.560). A refractory-gap
+    post-filter (BioMapping's own 1.3s `PEAK_MIN_GAP`, applied on top of the amplitude floor) was
+    also tried and made no meaningful difference (F1 0.560→0.562) - the false positives are not
+    simply duplicate detections clustered near true events, which a refractory rule would fix, but
+    genuinely dispersed noise-driven candidates.
+
+    This is a fair-comparison result, not a dismissal: it required real tuning effort (a
+    parameter sweep across two dimensions, informed by tracing Ledapy's own source rather than
+    guessing), and BioMapping's own detectors are held to a like-for-like known-answer suite
+    throughout this document, not to their own tuned-vs-default gap. **Not yet done**: sweeping
+    `smoothwin_sdeco`/threshold jointly and finer than this 1D-then-1D search (a true 2D grid,
+    in case the two levers interact more than found here); re-running on noisy/gait/walking
+    scenarios and real tracks; trying Ledalab's alternative DDA (Discrete Decomposition
+    Analysis) method, which fits discrete SCR-shaped responses directly rather than via
+    continuous deconvolution and may not share this failure mode.
 
 ## Decision Rule
 
