@@ -145,8 +145,8 @@ const GsrFilter = {
    * Zero-phase Butterworth low-pass — a bilinear-transform IIR design (RBJ
    * cookbook biquad cascade, run forward then time-reversed to cancel
    * phase), the same filter family NeuroKit2 (3Hz cutoff) and BioSPPy (5Hz)
-   * use for their own EDA "cleaning" stage. Opt-in alternative to the
-   * default box average (`useGaitFilter`, see the caller in analyzer.js):
+   * use for their own EDA "cleaning" stage. `useGaitFilter` (see the caller
+   * in analyzer.js) swaps this in for the plain box average, on by default:
    * unlike the box average's broad, gradual rolloff, an order-4
    * Butterworth's much steeper transition band suppresses the ~1.4-2.0Hz
    * walking-gait artefact (verified via a real-track GPS-speed correlation
@@ -155,18 +155,19 @@ const GsrFilter = {
    * (ground-truth tested: ~1-3% amplitude error at 0.8Hz vs the box
    * filter's ~10-28%).
    *
-   * The trade-off, and why this ships off by default rather than replacing
-   * the box filter outright: the same steep rolloff that spares SCR
-   * amplitude also lets more general sensor noise through near the cutoff
-   * than the box filter's broad attenuation does, which costs precision on
-   * a recording with no walking to reject in the first place (ground-truth
-   * tested on stationary-recording scenarios: 10-15x more noise-driven false
-   * peaks than the box filter at the same nominal cutoff — see
+   * The trade-off, and why this is still a toggle rather than an
+   * unconditional replacement of the box filter: the same steep rolloff
+   * that spares SCR amplitude also lets more general sensor noise through
+   * near the cutoff than the box filter's broad attenuation does, which
+   * costs precision on a recording with no walking to reject in the first
+   * place (ground-truth tested on stationary-recording scenarios: 10-15x
+   * more noise-driven false peaks than the box filter at the same nominal
+   * cutoff — see
    * visualiser/tests/manual/neurokit_compare/check_filter_alternatives.js).
    * A short box pass after this filter only trims that noise cost slightly,
    * at the price of giving back the amplitude accuracy this filter exists
-   * for, so it is not cascaded on automatically. Turn `useGaitFilter` on for
-   * a recording with real walking in it; leave it off otherwise.
+   * for, so it is not cascaded on automatically. Turn `useGaitFilter` off
+   * for a seated/stationary recording.
    *
    * @param {Array<number>} arr        - Source data array
    * @param {number} cutoffHz          - Low-pass cutoff frequency in Hz

@@ -299,40 +299,49 @@ const useButterworthPlusBox = (cutoffHz, order, boxSec) => () => {
 // than a hardcoded literal.
 const useProductionDefault = () => { GsrFilter.applyZeroPhaseMovingAverage = originalBoxLPF; };
 
+// Every candidate below pins useGaitFilter:false explicitly - D (GSR_DEFAULT)
+// now ships useGaitFilter:true, and without the explicit override every
+// candidate here would silently spread that true value in from D, take the
+// useGaitFilter branch in analyzer.js, and run the real production
+// Butterworth regardless of which installFilter() ran - a real regression
+// this file hit after the 2026-09-12 default flip (every non-SHIPPED row
+// produced byte-identical output until this was added, since the candidate
+// override mechanism only intercepts applyZeroPhaseMovingAverage, which
+// never gets called on the useGaitFilter:true branch).
 const CANDIDATES = [
-  ['none (lpfWindow=0)', useNone, { lpfWindow: 0 }],
-  ['box 0.5s (box filter default)', useBox(0.5), { lpfWindow: 1 }],
-  ['box 0.9s', useBox(0.9), { lpfWindow: 1 }],
-  ['box 1.1s (manual gait fix)', useBox(1.1), { lpfWindow: 1 }],
-  ['box 1.3s', useBox(1.3), { lpfWindow: 1 }],
-  ['whittaker lambda=50', useWhittaker(50), { lpfWindow: 1 }],
-  ['whittaker lambda=200', useWhittaker(200), { lpfWindow: 1 }],
-  ['whittaker lambda=1000', useWhittaker(1000), { lpfWindow: 1 }],
+  ['none (lpfWindow=0)', useNone, { lpfWindow: 0, useGaitFilter: false }],
+  ['box 0.5s (box filter default)', useBox(0.5), { lpfWindow: 1, useGaitFilter: false }],
+  ['box 0.9s', useBox(0.9), { lpfWindow: 1, useGaitFilter: false }],
+  ['box 1.1s (manual gait fix)', useBox(1.1), { lpfWindow: 1, useGaitFilter: false }],
+  ['box 1.3s', useBox(1.3), { lpfWindow: 1, useGaitFilter: false }],
+  ['whittaker lambda=50', useWhittaker(50), { lpfWindow: 1, useGaitFilter: false }],
+  ['whittaker lambda=200', useWhittaker(200), { lpfWindow: 1, useGaitFilter: false }],
+  ['whittaker lambda=1000', useWhittaker(1000), { lpfWindow: 1, useGaitFilter: false }],
   // ── Literature candidates found via web research: NeuroKit2/BioSPPy's own
   // EDA-cleaning filter is a zero-phase Butterworth lowpass (3Hz / 5Hz
   // respectively) - much steeper rolloff than a box average at the same
   // nominal cutoff, so worth testing at gait-relevant cutoffs directly
   // rather than assuming a box's shape-based smoothing is the only option.
-  ['butterworth 2.0Hz order4', useButterworth(2.0, 4), { lpfWindow: 1 }],
-  ['butterworth 1.5Hz order4', useButterworth(1.5, 4), { lpfWindow: 1 }],
-  ['butterworth 1.2Hz order4', useButterworth(1.2, 4), { lpfWindow: 1 }],
-  ['butterworth 1.0Hz order4', useButterworth(1.0, 4), { lpfWindow: 1 }],
-  ['butterworth 0.8Hz order4', useButterworth(0.8, 4), { lpfWindow: 1 }],
-  ['butterworth 1.2Hz order2', useButterworth(1.2, 2), { lpfWindow: 1 }],
-  ['butterworth 1.0Hz order2', useButterworth(1.0, 2), { lpfWindow: 1 }],
+  ['butterworth 2.0Hz order4', useButterworth(2.0, 4), { lpfWindow: 1, useGaitFilter: false }],
+  ['butterworth 1.5Hz order4', useButterworth(1.5, 4), { lpfWindow: 1, useGaitFilter: false }],
+  ['butterworth 1.2Hz order4', useButterworth(1.2, 4), { lpfWindow: 1, useGaitFilter: false }],
+  ['butterworth 1.0Hz order4', useButterworth(1.0, 4), { lpfWindow: 1, useGaitFilter: false }],
+  ['butterworth 0.8Hz order4', useButterworth(0.8, 4), { lpfWindow: 1, useGaitFilter: false }],
+  ['butterworth 1.2Hz order2', useButterworth(1.2, 2), { lpfWindow: 1, useGaitFilter: false }],
+  ['butterworth 1.0Hz order2', useButterworth(1.0, 2), { lpfWindow: 1, useGaitFilter: false }],
   // BioSPPy's actual production EDA pipeline: Butterworth 5Hz order4, then
   // boxcar+Parzen cascade smoothing (size 0.75*fs is BioSPPy's own default,
   // swept alongside it here).
-  ['boxzen 0.75s (biosppy default)', useBoxzen(0.75, 5), { lpfWindow: 1 }],
-  ['boxzen 1.1s', useBoxzen(1.1, 5), { lpfWindow: 1 }],
-  ['boxzen 1.5s', useBoxzen(1.5, 5), { lpfWindow: 1 }],
+  ['boxzen 0.75s (biosppy default)', useBoxzen(0.75, 5), { lpfWindow: 1, useGaitFilter: false }],
+  ['boxzen 1.1s', useBoxzen(1.1, 5), { lpfWindow: 1, useGaitFilter: false }],
+  ['boxzen 1.5s', useBoxzen(1.5, 5), { lpfWindow: 1, useGaitFilter: false }],
   // ── Hybrid: Butterworth gait-notch + short box mop-up for residual noise
   // (see useButterworthPlusBox doc comment above for why).
-  ['butter 1.0Hz o4 + box 0.1s', useButterworthPlusBox(1.0, 4, 0.1), { lpfWindow: 1 }],
-  ['butter 1.0Hz o4 + box 0.2s', useButterworthPlusBox(1.0, 4, 0.2), { lpfWindow: 1 }],
-  ['butter 1.0Hz o4 + box 0.3s', useButterworthPlusBox(1.0, 4, 0.3), { lpfWindow: 1 }],
-  ['butter 0.8Hz o4 + box 0.2s', useButterworthPlusBox(0.8, 4, 0.2), { lpfWindow: 1 }],
-  ['butter 0.8Hz o4 + box 0.3s', useButterworthPlusBox(0.8, 4, 0.3), { lpfWindow: 1 }],
+  ['butter 1.0Hz o4 + box 0.1s', useButterworthPlusBox(1.0, 4, 0.1), { lpfWindow: 1, useGaitFilter: false }],
+  ['butter 1.0Hz o4 + box 0.2s', useButterworthPlusBox(1.0, 4, 0.2), { lpfWindow: 1, useGaitFilter: false }],
+  ['butter 1.0Hz o4 + box 0.3s', useButterworthPlusBox(1.0, 4, 0.3), { lpfWindow: 1, useGaitFilter: false }],
+  ['butter 0.8Hz o4 + box 0.2s', useButterworthPlusBox(0.8, 4, 0.2), { lpfWindow: 1, useGaitFilter: false }],
+  ['butter 0.8Hz o4 + box 0.3s', useButterworthPlusBox(0.8, 4, 0.3), { lpfWindow: 1, useGaitFilter: false }],
   // ── SHIPPED: GSR_DEFAULT.useGaitFilter:true + GSR_CONST.GAIT_FILTER
   // (0.8Hz order4) - this row should match the "butterworth 0.8Hz order4"
   // row above exactly; it exists as an end-to-end check against the real

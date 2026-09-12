@@ -492,15 +492,15 @@ class GSRAnalyzer {
       const medWindowSize = Math.max(1, Math.round(params.medianSize * this.sampleRate));
       let afterMedian = GsrFilter.applyMedianFilter(this._rawValsPool, medWindowSize);
 
-      // 2. Low-Pass Filter — useGaitFilter is an opt-in toggle that swaps the
-      // default box average for the Butterworth gait filter
-      // (GSR_CONST.GAIT_FILTER) — see applyZeroPhaseButterworth()'s doc
-      // comment in gsr_filter.js for the trade-off this makes and why it
-      // ships off by default. The toggle is independent of the lpfWindow
-      // slider's magnitude — it has its own fixed cutoff/order — so it takes
-      // effect even with lpfWindow at 0 (the box average's own "off" position);
-      // otherwise checking the toggle while that slider sat at 0 would look
-      // like a broken checkbox that silently does nothing.
+      // 2. Low-Pass Filter — useGaitFilter (on by default) swaps in the
+      // Butterworth gait filter (GSR_CONST.GAIT_FILTER) in place of the box
+      // average — see applyZeroPhaseButterworth()'s doc comment in
+      // gsr_filter.js for the trade-off this makes and when to turn it off.
+      // The toggle is independent of the lpfWindow slider's magnitude — it
+      // has its own fixed cutoff/order — so it takes effect even with
+      // lpfWindow at 0 (the box average's own "off" position); otherwise
+      // checking the toggle while that slider sat at 0 would look like a
+      // broken checkbox that silently does nothing.
       const lpfWinSize = params.lpfWindow * this.sampleRate;
       let afterLPF;
       if (params.useGaitFilter) {
