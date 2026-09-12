@@ -2,7 +2,7 @@
 
 This directory contains the comparative evaluation harness that benchmarks BioMapping's EDA signal processing algorithms against [NeuroKit2](https://github.com/neuropsychology/NeuroKit) and against independent synthetic ground truth.
 
-See [`docs/neurokit_comparison_plan.md`](../../../../docs/neurokit_comparison_plan.md) and [`docs/eda_decomposition_analysis.md`](../../../../docs/eda_decomposition_analysis.md) for full scientific documentation and findings.
+See [`docs/eda_detection_benchmark.md`](../../../../docs/eda_detection_benchmark.md) and [`docs/eda_decomposition_analysis.md`](../../../../docs/eda_decomposition_analysis.md) for full scientific documentation and findings.
 
 ---
 

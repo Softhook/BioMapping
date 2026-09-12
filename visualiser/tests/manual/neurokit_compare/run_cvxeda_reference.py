@@ -6,7 +6,7 @@ tests/manual/gen_cvxeda_reference.py) - not BioMapping's own JS port
 comparator that most directly answers "does BioMapping's 2026-09-12
 driver-based peak-detection fix generalise to the literal reference
 implementation's numbers, or only to our own port's" (see
-neurokit_comparison_plan.md items 19-20 and eda_decomposition_analysis.md
+eda_detection_benchmark.md items 19-20 and eda_decomposition_analysis.md
 §3.B/E).
 
 Two independent, from-scratch Python peak-pickers are applied to the SAME
@@ -60,7 +60,7 @@ CVXOPT_OPTIONS = {'show_progress': False}
 REF_URL = 'https://raw.githubusercontent.com/lciti/cvxEDA/main/python/cvxeda/cvxEDA.py'
 
 # Mirrors production's own cvxEDA config (GSR_CONST.CVXEDA in constants.js)
-# and the driver-detection values promoted in neurokit_comparison_plan.md
+# and the driver-detection values promoted in eda_detection_benchmark.md
 # item 20, so this script's 'driver' variant is testing the SAME algorithm
 # at the SAME settings BioMapping ships, just against the reference solver's
 # output instead of cvxeda.js's.
@@ -191,7 +191,7 @@ def gate(curve, filtered, candidate_idx, sample_rate):
          Skipping this check let bogus candidates reach onset_amplitude(),
          which (before the onset_idx < apex_idx guard fix above) could
          return a spurious amplitude for a non-peak position - see
-         neurokit_comparison_plan.md item 21 for the debugging trail this
+         eda_detection_benchmark.md item 21 for the debugging trail this
          produced (the driver variant massively over-counting on the real
          reference solver's output, traced to this and the onset-guard bug
          by re-running this script's own functions against analyzer.js's OWN

@@ -1,7 +1,7 @@
 function ledalab_batch_run(ledalab_dir, work_dir, names_str)
 % Runs the REAL MATLAB-source Ledalab (github.com/ledalab/ledalab), under
 % Octave, in its own documented batch mode - no MATLAB license needed, see
-% neurokit_comparison_plan.md item 23 for how this was validated. Called by
+% eda_detection_benchmark.md item 23 for how this was validated. Called by
 % run_ledalab.py, not directly.
 %
 % For each comma-separated track name in names_str, expects two input files

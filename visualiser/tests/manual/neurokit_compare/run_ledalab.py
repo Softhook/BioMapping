@@ -3,7 +3,7 @@ Batch REAL MATLAB-source Ledalab (github.com/ledalab/ledalab), run via GNU
 Octave (free, no MATLAB license needed), for the detector-comparison
 benchmark (see compare.js/check_ground_truth.js in this folder). Replaces
 the earlier `run_ledapy.py`/`ledapy` (a third-party, unmaintained "partial
-Python port" - see neurokit_comparison_plan.md items 21-22) now that item 23
+Python port" - see eda_detection_benchmark.md items 21-22) now that item 23
 proved Octave can run Ledalab's own source directly and gives numerically
 faithful results: this talks to the genuine toolbox, not a re-implementation
 of unknown fidelity.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sweeps the driver-domain candidate-detection parameters the cvxEDA peak
-# detector added 2026-09-12 (see neurokit_comparison_plan.md item 19):
+# detector added 2026-09-12 (see eda_detection_benchmark.md item 19):
 # cvxImpulseThreshold (driver amplitude floor), cvxMinImpulseGapSec (driver
 # refractory gap), cvxApexSearchHalfWinSec (apex-resolution search window).
 # Decomposition (the expensive cvxEDA solve) runs once per track; the sweep

@@ -4,7 +4,7 @@
 # under our control - see generate_ground_truth.py), then scores our three
 # detectors AND three independent reference toolboxes' own detectors against
 # that known answer: NeuroKit2 (run_neurokit.py), the REAL MATLAB-source
-# Ledalab run via Octave (run_ledalab.py - see neurokit_comparison_plan.md
+# Ledalab run via Octave (run_ledalab.py - see eda_detection_benchmark.md
 # item 23; no MATLAB license needed), and the real upstream lciti/cvxEDA.py
 # solver (run_cvxeda_reference.py, two peak-pickers). The one check in this
 # investigation that asks "who's actually right", not "who agrees with

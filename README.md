@@ -71,7 +71,7 @@ BioMapping ships its own detection pipeline — built to run entirely client-sid
 
 **Where BioMapping is built differently** is ambulatory use: NeuroKit2 and Ledalab are designed for seated laboratory sessions, so BioMapping adds a zero-phase motion filter tuned to footstep cadence and a noise-floor gate for sensor dropouts, neither of which a stationary-recording toolbox needs. On a synthetic walking benchmark with the gait filter enabled, BioMapping recovers 100% of injected responses at 96.8% precision.
 
-Full methodology, every detector variant, and the complete benchmark history are in [`docs/neurokit_comparison_plan.md`](docs/neurokit_comparison_plan.md).
+Full methodology, every detector variant, and the complete benchmark history are in [`docs/eda_detection_benchmark.md`](docs/eda_detection_benchmark.md).
 
 ---
 

@@ -1,6 +1,6 @@
 /**
  * Sweeps the driver-domain candidate-detection parameters behind the cvxEDA
- * peak detector's 2026-09-12 fix (see neurokit_comparison_plan.md item 19:
+ * peak detector's 2026-09-12 fix (see eda_detection_benchmark.md item 19:
  * candidates come from local maxima in the sparse driver p = A·q, each
  * resolved to its true apex in the reconstructed curve r = M·q via a
  * kernel-offset search window, Ledalab-CDA-style). That change fixed the
@@ -193,7 +193,7 @@ for (const c of candidates.slice(0, 10)) {
   console.log(`  impulseThreshold=${c.cvxImpulseThreshold}, minGap=${c.cvxMinImpulseGapSec}s, apexWin=+/-${c.cvxApexSearchHalfWinSec}s: F1 ${c.f1.toFixed(3)}, recall ${(c.recall * 100).toFixed(1)}%, precision ${(c.precision * 100).toFixed(1)}%, FP ${c.fp}`);
 }
 
-// Decision-Rule check (see neurokit_comparison_plan.md): a candidate that
+// Decision-Rule check (see eda_detection_benchmark.md): a candidate that
 // trades away compound-burst recall is disqualified regardless of its
 // aggregate F1 - compound responses are the regression check for any
 // false-positive-reduction change in this investigation.

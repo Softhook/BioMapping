@@ -36,7 +36,7 @@ HERE = Path(__file__).resolve().parent
 # signal via scipy.signal.find_peaks rather than nk.eda_peaks(). This mirrors
 # that literature practice, not BioMapping's own production peakThreshold
 # (0.045 uS, tuned against a different onset-to-peak amplitude definition -
-# see neurokit_comparison_plan.md item 13).
+# see eda_detection_benchmark.md item 13).
 LITERATURE_ABSOLUTE_PEAK_US = 0.02  # Gamboa et al. 2025's enforced floor
 LITERATURE_REFRACTORY_S = 1.0  # Xu et al. 2026's distance=fs convention
 

@@ -129,7 +129,7 @@ const GSR_CONST = {
     minImpulseGapSec: 0.5,    // Min gap between impulses (s)
     // cvxEDA-specific overrides for the same driver-candidate scan, tuned
     // separately from matching-pursuit's values above (2026-09-12 sweep,
-    // see neurokit_comparison_plan.md item 20 — tools/sweep_cvxeda_driver.js):
+    // see eda_detection_benchmark.md item 20 — tools/sweep_cvxeda_driver.js):
     // cvxEDA's convex-relaxation driver has different noise statistics than
     // MP's greedy one, so inheriting MP's 0.5s minGap/apexWin cost precision
     // for no recall benefit. Swept against all 10 synthetic scenarios (3
