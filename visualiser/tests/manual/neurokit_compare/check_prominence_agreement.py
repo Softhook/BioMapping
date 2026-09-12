@@ -16,6 +16,7 @@ import json
 import sys
 
 import neurokit2 as nk
+import numpy as np
 
 
 def main():
@@ -24,13 +25,15 @@ def main():
         sys.exit(1)
 
     dumped = json.load(open(sys.argv[1]))
-    phasic = dumped['phasic']
+    phasic = np.asarray(dumped['phasic'], dtype=float)
 
     info = nk.signal_findpeaks(phasic)  # no gating - report every local max
+    gated = nk.eda_findpeaks(phasic, sampling_rate=dumped['sampling_rate'], method='neurokit')
 
     json.dump({
         'peaks': [int(i) for i in info['Peaks']],
         'heights': [float(h) for h in info['Height']],
+        'neurokit_peak_indices': [int(i) for i in gated['SCR_Peaks']],
     }, sys.stdout)
 
 

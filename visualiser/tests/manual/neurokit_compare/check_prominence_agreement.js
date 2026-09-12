@@ -121,6 +121,7 @@ if (mode === 'dump') {
     const r = cov / Math.sqrt(varA * varB);
     console.log(`  prominence value agreement: n=${n}  max|diff|=${maxDiff.toExponential(3)}uS  mean|diff|=${(sumAbs / n).toExponential(3)}uS  RMSE=${Math.sqrt(sumSq / n).toExponential(3)}uS  r=${r.toFixed(6)}`);
   }
+  console.log(`  NeuroKit2 default relative-height gate retained: ${nk.neurokit_peak_indices.length}/${nk.peaks.length} local maxima`);
 } else {
   console.error('Usage: node check_prominence_agreement.js dump <track.csv> <out.json>');
   console.error('       node check_prominence_agreement.js compare <out.json> <nk_result.json> [track.csv]');
