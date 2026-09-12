@@ -127,6 +127,25 @@ const GSR_CONST = {
     convTol: 0.002,
     impulseThreshold: 0.005,  // Min driver amplitude for an impulse (µS)
     minImpulseGapSec: 0.5,    // Min gap between impulses (s)
+    // cvxEDA-specific overrides for the same driver-candidate scan, tuned
+    // separately from matching-pursuit's values above (2026-09-12 sweep,
+    // see neurokit_comparison_plan.md item 20 — tools/sweep_cvxeda_driver.js):
+    // cvxEDA's convex-relaxation driver has different noise statistics than
+    // MP's greedy one, so inheriting MP's 0.5s minGap/apexWin cost precision
+    // for no recall benefit. Swept against all 10 synthetic scenarios (3
+    // seeds, 510 true SCRs) plus 6 real reference tracks: F1 0.641→0.688,
+    // false positives 482→372, amplitude r 0.859→0.900, for a ~1pp recall
+    // cost (91.8%→90.8%) — and on the clean 4-scenario suite specifically,
+    // recall is unchanged (88.1%) while compound-burst recall (the Decision
+    // Rule's specific regression check) improved (29/36→30/36), so the
+    // recall cost is concentrated in the noisy/gait/walking scenarios, not
+    // the clean or compound ones. impulseThreshold itself barely matters in
+    // the swept range (0.002-0.05µS) — minImpulseGapSec and the apex search
+    // window are what drive the improvement. Falls back to the
+    // matching-pursuit values above if unset (see analyzer.js's cvxEDA
+    // branch), so removing these two keys exactly restores that behaviour.
+    cvxMinImpulseGapSec: 0.8,
+    cvxApexSearchHalfWinSec: 1.0,
     // Minimum resolved-apex value (µS) for a gated impulse to be treated as
     // a genuine local rise in the original phasic signal, not just a
     // driver-domain artefact — see _runDeconvolutionPipeline()'s gating

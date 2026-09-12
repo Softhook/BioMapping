@@ -200,14 +200,29 @@ if (isDir) {
   trackFiles = [{ gtPath: path.resolve(gtPath), csvPath: path.resolve(csvPath) }];
 }
 
+// Independent reference toolboxes' own detectors, scored against the same
+// known-answer tracks as BioMapping's own DETECTORS above - each row reads
+// [times, amplitudes] fields merge_reference_json.js has already combined
+// from run_neurokit.py / run_ledapy.py / run_cvxeda_reference.py's outputs
+// onto the one per-track object (nk, below - named for historical reasons,
+// it now carries every reference toolbox's fields, not just NeuroKit2's).
+const EXTERNAL_REFS = [
+  ['NeuroKit2 (default)', 'peak_times', 'peak_amplitudes'],
+  ['NeuroKit2 (cvxEDA)', 'cvxeda_peak_times', 'cvxeda_peak_amplitudes'],
+  ['NeuroKit2 (cvxEDA + literature abs. peaks)', 'cvxeda_lit_peak_times', 'cvxeda_lit_peak_amplitudes'],
+  ['Ledalab CDA (default, via Ledapy)', 'ledapy_peak_times', 'ledapy_peak_amplitudes'],
+  ['cvxEDA reference solver (naive curve-scan)', 'cvxeda_ref_naive_peak_times', 'cvxeda_ref_naive_peak_amplitudes'],
+  ['cvxEDA reference solver (driver-based, BioMapping\'s algorithm)', 'cvxeda_ref_driver_peak_times', 'cvxeda_ref_driver_peak_amplitudes'],
+];
+
 const nkAll = JSON.parse(fs.readFileSync(nkPath, 'utf8'));
 const aggregateMap = {};
 for (const [label] of DETECTORS) {
   aggregateMap[label] = [];
 }
-aggregateMap['NeuroKit2 (default)'] = [];
-aggregateMap['NeuroKit2 (cvxEDA)'] = [];
-aggregateMap['NeuroKit2 (cvxEDA + literature abs. peaks)'] = [];
+for (const [label] of EXTERNAL_REFS) {
+  aggregateMap[label] = [];
+}
 let totalTrueSCRs = 0;
 
 for (const item of trackFiles) {
@@ -242,21 +257,15 @@ for (const item of trackFiles) {
   }
 
   if (nk) {
-    const s = score(nk.peak_times || [], nk.peak_amplitudes || [], trueScrs);
-    aggregateMap['NeuroKit2 (default)'].push(s);
-    console.log(fmt('NeuroKit2 (default)', s));
-    if (nk.cvxeda_peak_times && nk.cvxeda_peak_times.length > 0) {
-      const sCvx = score(nk.cvxeda_peak_times, nk.cvxeda_peak_amplitudes || [], trueScrs);
-      aggregateMap['NeuroKit2 (cvxEDA)'].push(sCvx);
-      console.log(fmt('NeuroKit2 (cvxEDA)', sCvx));
-    }
-    if (nk.cvxeda_lit_peak_times && nk.cvxeda_lit_peak_times.length > 0) {
-      const sCvxLit = score(nk.cvxeda_lit_peak_times, nk.cvxeda_lit_peak_amplitudes || [], trueScrs);
-      aggregateMap['NeuroKit2 (cvxEDA + literature abs. peaks)'].push(sCvxLit);
-      console.log(fmt('NeuroKit2 (cvxEDA + literature abs. peaks)', sCvxLit));
+    for (const [label, timesField, ampsField] of EXTERNAL_REFS) {
+      const times = nk[timesField];
+      if (!times || times.length === 0) continue;
+      const s = score(times, nk[ampsField] || [], trueScrs);
+      aggregateMap[label].push(s);
+      console.log(fmt(label, s));
     }
   } else {
-    console.log('  (no NeuroKit2 result for this track)');
+    console.log('  (no reference-toolbox result for this track)');
   }
   console.log();
 }
@@ -271,17 +280,10 @@ if (aggregateMap[firstDetectorLabel] && aggregateMap[firstDetectorLabel].length 
     const agg = aggregateStats(aggregateMap[label]);
     console.log(fmt(label, agg));
   }
-  if (aggregateMap['NeuroKit2 (default)'].length > 0) {
-    const agg = aggregateStats(aggregateMap['NeuroKit2 (default)']);
-    console.log(fmt('NeuroKit2 (default)', agg));
-  }
-  if (aggregateMap['NeuroKit2 (cvxEDA)'].length > 0) {
-    const agg = aggregateStats(aggregateMap['NeuroKit2 (cvxEDA)']);
-    console.log(fmt('NeuroKit2 (cvxEDA)', agg));
-  }
-  if (aggregateMap['NeuroKit2 (cvxEDA + literature abs. peaks)'].length > 0) {
-    const agg = aggregateStats(aggregateMap['NeuroKit2 (cvxEDA + literature abs. peaks)']);
-    console.log(fmt('NeuroKit2 (cvxEDA + literature abs. peaks)', agg));
+  for (const [label] of EXTERNAL_REFS) {
+    if (aggregateMap[label].length > 0) {
+      console.log(fmt(label, aggregateStats(aggregateMap[label])));
+    }
   }
   console.log();
 }

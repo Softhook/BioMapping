@@ -741,11 +741,15 @@ class GSRAnalyzer {
       // per-recording sliders for these (as with SCRF's deconvolution
       // constants). Bateman taus default to the reference tau0=2.0 / tau1=0.7,
       // not SCRF's fixed-kernel pair. decompose() fills any missing key from
-      // its own reference defaults.
+      // its own reference defaults. Resolved to local consts (not inlined
+      // below) so the kernel built for apex-resolution further down uses the
+      // exact same taus the solve itself used.
       const cvxCfg = GSR_CONST.CVXEDA || {};
+      const tauSlow = cvxCfg.tauSlow ?? scf.tauSlow;
+      const tauFast = cvxCfg.tauFast ?? scf.tauFast;
       const res = CVXEDA.decompose(scVals, this.sampleRate, {
-        tauSlow: cvxCfg.tauSlow ?? scf.tauSlow,
-        tauFast: cvxCfg.tauFast ?? scf.tauFast,
+        tauSlow,
+        tauFast,
         alpha: cvxCfg.alpha,
         gamma: cvxCfg.gamma,
         maxIter: cvxCfg.maxIter
@@ -771,8 +775,12 @@ class GSRAnalyzer {
         this.phasicDriver[i] = { time: times[i], val: res.driver[i] };
       }
       this.phasicDriverPeaks = [];
-      const thresh = scf.impulseThreshold ?? 0.005;
-      const minGap = Math.max(1, Math.round((scf.minImpulseGapSec ?? 0.5) * this.sampleRate));
+      // cvx-prefixed overrides let this driver-domain candidate scan be tuned
+      // independently of the matching-pursuit path below, which shares the
+      // same scf.impulseThreshold/minImpulseGapSec keys for its own (differently-
+      // scaled) driver — unset, these fall back to the exact prior behaviour.
+      const thresh = scf.cvxImpulseThreshold ?? scf.impulseThreshold ?? 0.005;
+      const minGap = Math.max(1, Math.round((scf.cvxMinImpulseGapSec ?? scf.minImpulseGapSec ?? 0.5) * this.sampleRate));
       let lastPIdx = -minGap;
       for (let i = 1; i < n - 1; i++) {
         if (res.driver[i] >= thresh && res.driver[i] >= res.driver[i - 1] && res.driver[i] >= res.driver[i + 1]) {
@@ -782,6 +790,42 @@ class GSRAnalyzer {
           }
         }
       }
+
+      // Candidate apex positions for discrete peak detection come from the
+      // sparse DRIVER (p = A·q), not a blind scan of the smooth reconstructed
+      // curve (r = M·q) below — mirrors Ledalab's CDA approach (Benedek &
+      // Kaernbach 2010a) of detecting SCRs in the deconvolved driver itself.
+      // cvxEDA's L1 penalty drives sparsity via an optimisation constraint,
+      // not a hard threshold, so small residual driver values between real
+      // events still convolve through the Bateman kernel into faint ripple on
+      // the reconstructed curve; a local-maximum scan of that curve (as the
+      // matching-pursuit path below uses, fine there because MP's atoms are
+      // cleanly separated) mistakes some of that ripple for extra events.
+      // Scanning the driver's own local maxima first skips the ripple by
+      // construction (see docs/eda_decomposition_analysis.md §3.E for the
+      // measured effect: precision 69.4%→94.7%+ when NeuroKit2's independent
+      // cvxEDA port is driven by an absolute-threshold driver-style picker
+      // instead of the smoothed-curve default).
+      //
+      // A driver sample is each event's ARMA-model onset-ish position, not
+      // its apex (same as the matching-pursuit driver below) — the true
+      // apex sits roughly one kernel-peak-offset later in the reconstructed
+      // curve, found by resolveApex()'s own search-window logic just below,
+      // reused here rather than duplicated.
+      const cvxKernel = SCRDeconvolution.buildSCRFKernel(this.sampleRate, tauSlow, tauFast, scf.kernelSec || 5.0);
+      const cvxKPeakIdx = this._kernelPeakOffset(cvxKernel);
+      const cvxApexSearchHalfWin = Math.max(1, Math.round((scf.cvxApexSearchHalfWinSec ?? 0.5) * this.sampleRate));
+      const cvxCandidateIndices = this.phasicDriverPeaks.map(({ index }) => {
+        const predicted = Math.min(n - 1, index + cvxKPeakIdx);
+        const lo = Math.max(0, index, predicted - cvxApexSearchHalfWin);
+        const hi = Math.min(n - 1, predicted + cvxApexSearchHalfWin);
+        let bestIdx = Math.max(index, predicted), bestVal = cleanVals[bestIdx] || 0;
+        for (let j = lo; j <= hi; j++) {
+          if (cleanVals[j] > bestVal) { bestVal = cleanVals[j]; bestIdx = j; }
+        }
+        return bestIdx;
+      });
+
       // cvxEDA solves the convex problem to a residual tolerance; a run that
       // hits its iteration cap first is flagged the same way a truncated
       // matching-pursuit run is (drives the same "results may be undercounted"
@@ -802,7 +846,7 @@ class GSRAnalyzer {
         if (v > phMx) phMx = v;
       }
       this._seriesRange.phasic = { min: phMn, max: phMx };
-      this.peaks = this._detectPeaksFromCurve(cleanVals, times, params, oldLabels, oldExcluded);
+      this.peaks = this._detectPeaksFromCurve(cleanVals, times, params, oldLabels, oldExcluded, cvxCandidateIndices);
       this._assignLabelsToPeaks(this.peaks);
       return;
     }
@@ -1117,7 +1161,16 @@ class GSRAnalyzer {
    * @param {Set} oldExcluded - Preserved exclusion flags, keyed by raw index.
    * @private
    */
-  _detectPeaksFromCurve(cleanVals, times, params, oldLabels, oldExcluded) {
+  /**
+   * @param {Array<number>} [candidateIndices] - When supplied, only these
+   *   apex positions are evaluated (each still re-verified as a genuine local
+   *   maximum) instead of scanning every sample — used by the cvxEDA branch
+   *   of _runDeconvolutionPipeline() to detect candidates in the sparse
+   *   driver rather than the smoothed reconstruction; see that call site's
+   *   comment for why. Matching-pursuit's call (no 6th argument) is
+   *   unaffected — it keeps the original dense scan.
+   */
+  _detectPeaksFromCurve(cleanVals, times, params, oldLabels, oldExcluded, candidateIndices = null) {
     const n = cleanVals.length;
     const peaks = [];
     if (n < 3) return peaks;
@@ -1130,14 +1183,14 @@ class GSRAnalyzer {
     const maxOnsetSteps = Math.round(defaults.MAX_RISE_TIME * this.sampleRate);
     const noiseHalfWin = Math.max(1, Math.round(this.sampleRate));
 
-    for (let i = 1; i < n - 1; i++) {
+    const tryAcceptPeak = (i) => {
       const prev = cleanVals[i - 1], curr = cleanVals[i], next = cleanVals[i + 1];
-      if (!(curr > prev && curr >= next)) continue;
-      if (curr < 0.001) continue;
+      if (!(curr > prev && curr >= next)) return false;
+      if (curr < 0.001) return false;
 
       const onsetIdx = this._findOnsetIndex(cleanVals, i, maxOnsetSteps);
       const amplitude = curr - cleanVals[onsetIdx];
-      if (amplitude < threshold) continue;
+      if (amplitude < threshold) return false;
 
       const recoveryIdx = this._findRecoveryIndex(cleanVals, i, onsetIdx, amplitude);
       const metrics = this._calculateShapeMetrics(cleanVals, times, i, onsetIdx, recoveryIdx, noiseHalfWin);
@@ -1151,16 +1204,37 @@ class GSRAnalyzer {
       peak.qualityScore = this._computeDeconPeakQuality(peak);
       peak.salienceScore = this._computeSalienceScore(peak);
       peaks.push(peak);
+      return true;
+    };
 
-      // Refractory skip-ahead uses SCRF.minImpulseGapSec (the driver-domain
-      // minimum, ~0.5 s), NOT PEAK_MIN_GAP. PEAK_MIN_GAP is the trough-to-peak
-      // detector's wider refractory, set to suppress tail-ripple that the raw
-      // phasic shows between stacked SCRs — but this curve is the
-      // superposition-resolved reconstruction, which has no such ripple, and
-      // separating genuinely close events is the whole point of running
-      // deconvolution. Forcing the wider gap here just throws away the
-      // resolution the mode exists to provide.
-      i = Math.min(n - 2, i + Math.round(GSR_CONST.SCRF.minImpulseGapSec * this.sampleRate));
+    if (candidateIndices) {
+      // Candidate-list mode: only visit the supplied apex positions, each
+      // still subject to every gate tryAcceptPeak() applies (local-maximum
+      // check, amplitude floor, SNR, quality) below. The refractory gap is
+      // enforced against the nearest ACCEPTED peak rather than via the dense
+      // scan's skip-ahead, since candidates already arrive sparse and out of
+      // strict proximity order isn't a concern (sorted below).
+      const minGapSamples = Math.max(1, Math.round(GSR_CONST.SCRF.minImpulseGapSec * this.sampleRate));
+      const sorted = [...new Set(candidateIndices)].filter(i => i >= 1 && i <= n - 2).sort((a, b) => a - b);
+      let lastAccepted = -minGapSamples;
+      for (const i of sorted) {
+        if (i - lastAccepted < minGapSamples) continue;
+        if (tryAcceptPeak(i)) lastAccepted = i;
+      }
+    } else {
+      for (let i = 1; i < n - 1; i++) {
+        if (tryAcceptPeak(i)) {
+          // Refractory skip-ahead uses SCRF.minImpulseGapSec (the driver-domain
+          // minimum, ~0.5 s), NOT PEAK_MIN_GAP. PEAK_MIN_GAP is the trough-to-peak
+          // detector's wider refractory, set to suppress tail-ripple that the raw
+          // phasic shows between stacked SCRs — but this curve is the
+          // superposition-resolved reconstruction, which has no such ripple, and
+          // separating genuinely close events is the whole point of running
+          // deconvolution. Forcing the wider gap here just throws away the
+          // resolution the mode exists to provide.
+          i = Math.min(n - 2, i + Math.round(GSR_CONST.SCRF.minImpulseGapSec * this.sampleRate));
+        }
+      }
     }
 
     // Same hard SNR cutoff the default detector applies (shapeMinSnr, "0 = off").

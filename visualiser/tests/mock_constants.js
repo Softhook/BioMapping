@@ -45,6 +45,10 @@ module.exports = {
     convTol: 0.002,
     impulseThreshold: 0.005,
     minImpulseGapSec: 0.5,
+    // Mirrors production constants.js — see that file's comment for the
+    // 2026-09-12 sweep behind these two cvxEDA-specific values.
+    cvxMinImpulseGapSec: 0.8,
+    cvxApexSearchHalfWinSec: 1.0,
     minApexVal: 0.001,
     sparsedaKmax: 40,
     sparsedaEpsilon: 1.0,

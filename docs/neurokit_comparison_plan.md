@@ -705,6 +705,168 @@ predated both):
     against the clean and noisy synthetic suites to see whether a different point on that curve
     closes the F1 gap to BioMapping's Prominence detector, or whether BioMapping's additional
     SNR/quality gating is doing work an absolute threshold alone cannot replicate.
+19. [x] **Applied to BioMapping's own cvxEDA detector: peak-pick the sparse driver, not the
+    smoothed reconstruction (Ledalab-CDA-style)**:
+    Item 17 showed the false-positive problem is inherent to peak-picking the *smoothed*
+    `r = M·q` reconstruction (the convex relaxation's L1 penalty achieves sparsity via an
+    optimisation constraint, not a hard threshold, so residual driver ripple between real
+    events still convolves through the kernel into faint curve ripple a local-max scanner
+    mistakes for extra events — see `eda_decomposition_analysis.md` §3.E). Ledalab's CDA
+    method (Benedek & Kaernbach 2010a) avoids this by detecting SCRs directly in the
+    deconvolved driver, before that convolution happens. Applied the same idea to
+    BioMapping's own cvxEDA detector (`analyzer.js`'s `_runDeconvolutionPipeline` cvxEDA
+    branch): candidate apex positions are now generated from `res.driver`'s own local
+    maxima (the same scan that already built `phasicDriverPeaks`), each resolved to its
+    true apex in the reconstructed curve via a kernel-peak-offset search window (mirroring
+    the matching-pursuit path's existing `resolveApex()`), then fed into
+    `_detectPeaksFromCurve` via a new optional `candidateIndices` parameter — which still
+    applies every existing gate (amplitude floor, SNR, quality) unchanged, just to a
+    driver-sourced candidate list instead of a blind scan of the smoothed curve. The
+    matching-pursuit path (no candidate list passed) is untouched; full test suite green
+    (1217 passed / 1 pre-existing skip).
+
+    Measured 2026-09-12 via `CLEAN_ONLY=1 GROUND_TRUTH_NUM_SEEDS=3 ./check_ground_truth.sh`
+    (12 tracks, 210 true SCRs):
+
+    | Metric | Before (curve scan) | After (driver-sourced candidates) |
+    |---|---:|---:|
+    | Recall | 88.6% | 88.1% |
+    | Precision | 69.4% | **81.1%** |
+    | F1 | 0.778 | **0.845** |
+    | False positives | 82 | **43** |
+    | Amplitude MAE | 0.275 µS | **0.197 µS** |
+    | Amplitude r | 0.7406 | **0.8429** |
+    | Mean \|delta\| | 0.366s | **0.299s** |
+
+    And on the real reference tracks (`./run.sh all`, 6 tracks, 261 NeuroKit2-cvxEDA peaks
+    as the comparison reference):
+
+    | Metric | Before | After |
+    |---|---:|---:|
+    | Recall vs. NK2 cvxEDA | 91.2% (238/261) | 90.4% (236/261) |
+    | Extra (unmatched) peaks | 858 | **762** |
+    | Mean \|delta\| | 0.074s | **0.064s** |
+
+    False positives nearly halved on the clean synthetic suite and dropped ~11% on real
+    tracks, amplitude accuracy improved materially, for a negligible real-track recall cost
+    (2 of 261 matches) and an even smaller synthetic one (1 of 210). cvxEDA is still well
+    behind Full-Scan/Prominence (F1 0.973/0.966) and is not a candidate production default —
+    this only narrows the gap for users who specifically want cvxEDA's joint tonic/phasic
+    model. **Not yet done**: re-run on noisy/gait/walking synthetic scenarios; sweep the
+    ±0.5s apex-search window and driver-domain `impulseThreshold` (inherited from the
+    matching-pursuit path's defaults, not yet tuned for cvxEDA's own driver statistics).
+20. [x] **Swept and promoted cvxEDA-specific driver-detection parameters**:
+    Item 19 inherited matching-pursuit's own `impulseThreshold`/`minImpulseGapSec` (0.005µS /
+    0.5s) and a hardcoded 0.5s apex-search window for cvxEDA's driver-candidate scan — untuned
+    for cvxEDA's own driver statistics. Added independent `cvxImpulseThreshold`,
+    `cvxMinImpulseGapSec`, `cvxApexSearchHalfWinSec` overrides on `analyzer.js`'s cvxEDA branch
+    (fall back to the shared MP values when unset, so this doesn't touch MP's behaviour), then
+    built `sweep_cvxeda_driver.js`/`.sh` (in this same `neurokit_compare` folder; decomposes each track once — the expensive part —
+    then cheaply re-scans the cached driver/curve per grid point) to sweep all three against the
+    clean synthetic suite.
+
+    `impulseThreshold` barely mattered across 0.002-0.05µS (cvxEDA's false positives aren't
+    primarily about driver amplitude). `minImpulseGapSec` and the apex window did: the sweep's
+    best-F1 point (minGap 1.3s, apexWin ±1.0s) **lost compound-burst recall** (29→27 of 36,
+    checked explicitly against this doc's own Decision Rule) and was rejected on that basis
+    alone, regardless of its F1. The adopted point — **minGap 0.8s, apexWin ±1.0s** — had no
+    such cost. Promoted to `constants.js` (`cvxMinImpulseGapSec: 0.8`, `cvxApexSearchHalfWinSec:
+    1.0`) and mirrored in `tests/mock_constants.js`. Measured 2026-09-12 before/after:
+
+    | Suite | Metric | Before (item 19's fix) | After (tuned) |
+    |---|---|---:|---:|
+    | Clean (12 tracks, 210 SCRs) | Recall / Precision / F1 | 88.1% / 81.1% / 0.845 | 88.1% / **84.1%** / **0.860** |
+    | Clean | FP / Amplitude r | 43 / 0.8429 | **35** / **0.8904** |
+    | Clean | Compound-scenario TP (of 36) | 29 | **30** |
+    | Full 10-scenario (30 tracks, 510 SCRs) | Recall / Precision / F1 | 91.8% / 49.3% / 0.641 | 90.8% / **55.4%** / **0.688** |
+    | Full 10-scenario | FP / Amplitude r | 482 / 0.8589 | **372** / **0.9001** |
+    | Real tracks (`./run.sh all`, 261 NK2-cvxEDA ref. peaks) | Recall / Extra peaks | 91.2%→90.4% (238/261→236/261, item 19's own change) then 89.3% (233/261) | — / **734** (was 762, then 858 pre-item-19) |
+
+    Every precision/F1/amplitude metric improved on every suite; the cost is a consistent
+    **~1 percentage point of aggregate recall** on the full synthetic suite and real tracks
+    (noisy/gait/walking scenarios specifically — the clean suite's recall is unchanged and its
+    compound-burst recall actually improved). Judged worth it: cvxEDA is an opt-in detector, not
+    the production default, and the Decision Rule's specific regression check (compound-burst
+    recall) improved rather than regressed. Full 1217-test suite green after promoting. **Not yet
+    done**: per-scenario breakdown of exactly which noisy/gait/walking true SCRs account for the
+    ~1pp recall cost, and whether a non-uniform `minGap` (wider only where driver density is low)
+    could recover it — flagged as a further follow-up, not pursued this pass.
+
+21. [x] **Independent validation against Ledalab (via Ledapy) and the real upstream
+    lciti/cvxEDA.py reference solver** - answers "is BioMapping's driver-based cvxEDA fix
+    (items 19-20) specific to our own JS port, or does it generalise?":
+    Added two new reference toolboxes to the comparison harness, both run against the same
+    known-answer synthetic suite as everything else in this document:
+    - **`run_ledapy.py`**: Ledalab's actual CDA method via its Python port (`pip install
+      ledapy`), reporting `leda2.analysis.peakTime`/`amp` - Ledalab's own native discrete SCR
+      table, at its own out-of-the-box `sigPeak` default. This is the toolbox BioMapping's
+      driver-based detection was modelled on (Benedek & Kaernbach 2010a); comparing against its
+      own output is the most direct test of whether that design choice holds up.
+    - **`run_cvxeda_reference.py`**: the REAL upstream `lciti/cvxEDA.py` solver (fetched live
+      from GitHub, same convention as `gen_cvxeda_reference.py`) - not BioMapping's own
+      `cvxeda.js` port. Two from-scratch Python peak-pickers are applied to its output,
+      differing ONLY in candidate source (a controlled ablation, not two differently-tuned
+      algorithms): `naive` scans the smoothed reconstruction's local maxima (BioMapping's
+      pre-fix algorithm); `driver` scans the sparse driver's local maxima and resolves each to
+      its true apex (BioMapping's current shipped algorithm). Both then apply the IDENTICAL
+      final gates (trough-to-peak amplitude >= `peakThreshold`, SNR >= `shapeMinSnr`, the same
+      refractory gap) at BioMapping's own production values - ported by hand from
+      `analyzer.js`/`_computeNoiseFloor`, not by calling BioMapping's own code.
+    - `merge_reference_json.js` combines all reference toolboxes' per-track JSON onto one
+      object so `check_ground_truth.js` scores them alongside BioMapping's own four detectors
+      without its argument parsing needing to change; `check_ground_truth.sh` now runs both
+      scripts automatically (skipped with a warning, not fatal, if `ledapy`/`cvxopt` aren't
+      installed).
+
+    **Debugging note, included because it is itself relevant evidence**: the first version of
+    `run_cvxeda_reference.py`'s `driver` variant produced a wildly worse result than
+    BioMapping's own detector (F1 0.306, 836 false positives, vs. production's F1 0.860, 35 FP)
+    on the first full run. Tracing this down (by dumping `analyzer.js`'s own decomposition
+    arrays to JSON and feeding them through this script's own Python functions, then diffing
+    against `analyzer.js`'s own peak count on the identical input) found two real porting bugs,
+    not a genuine property of the reference solver: the onset walk-back was missing the
+    `onsetIdx < i` guard `_findOnsetIndex` actually has, and the gate was missing the "apex
+    must be a strict local maximum of the curve" check `_detectPeaksFromCurve` applies before
+    ever computing an amplitude - both matter specifically for driver-resolved apexes (found via
+    `argmax` over a search window, not guaranteed to land on a true local maximum), not for a
+    blind curve scan (where every candidate already IS one by construction), which is why the
+    `naive` variant was unaffected and looked correct from the start. Fixed, then re-verified by
+    confirming the corrected Python functions reproduce `analyzer.js`'s own 11/11 peaks exactly
+    (same indices, same times) when fed its own arrays, before trusting any number against the
+    real reference solver.
+
+    **Result, clean synthetic suite (12 tracks, 3 seeds, 210 true SCRs,
+    `CLEAN_ONLY=1 GROUND_TRUTH_NUM_SEEDS=3 ./check_ground_truth.sh`):**
+
+    | Detector | Recall | Precision | F1 | FP | Amplitude r |
+    |---|---:|---:|---:|---:|---:|
+    | **BioMapping cvxEDA (production, own JS port)** | 88.1% | 84.1% | 0.860 | 35 | 0.8904 |
+    | **cvxEDA reference solver, driver-based (same algorithm, real solver)** | 87.6% | 84.0% | 0.858 | 35 | 0.8805 |
+    | cvxEDA reference solver, naive curve-scan (pre-fix algorithm, real solver) | 88.6% | 69.4% | 0.778 | 82 | 0.7406 |
+    | Ledalab CDA (Ledapy, its own default `sigPeak`) | 96.2% | 4.8% | 0.091 | 4007 | 0.1960 |
+
+    The driver-based algorithm, independently re-implemented in Python from scratch and run
+    against the actual reference cvxEDA solver, reproduces BioMapping's own production numbers
+    almost exactly (F1 0.858 vs. 0.860, FP 35 vs. 35 - the 1-TP gap is consistent with the
+    already-known <1e-3 relRMSE numerical difference between the two solvers, not a detection
+    difference). This is the strongest evidence yet that the 2026-09-12 fix is a real property
+    of cvxEDA's driver-vs-curve distinction, not an artefact of BioMapping's own port: an
+    independent implementation, against an independent solver, reproduces both the problem
+    (naive curve-scan: F1 0.778, 82 FP - matching BioMapping's own pre-fix numbers to 3
+    significant figures) and the fix (driver-based: F1 0.858, 35 FP) at the same magnitude.
+
+    Ledalab's own out-of-the-box CDA result (precision 4.8%, 4007 false positives across 210
+    true SCRs) is the clearest demonstration yet of this document's recurring "default by
+    inertia" theme (see `eda_decomposition_analysis.md` §3.E): its `sigPeak` significance
+    threshold defaults to 0.001, which resolves (via Ledalab's own `max(0.1, sigPeak/max(kernel)
+    *10)` internal floor) to a gate so low it barely filters anything. A literature-tuned
+    Ledalab comparator (raising `sigPeak` to an effective absolute floor, the same move Gamboa/
+    Xu/Sullivan make for NeuroKit2's defaults) is a natural follow-up, not yet built.
+
+    **Not yet done**: wiring these two reference toolboxes into `compare.js`/`run.sh`'s
+    real-track comparison (this item only extended the known-answer `check_ground_truth.js`
+    harness); a literature-tuned Ledalab `sigPeak` variant; running on the noisy/gait/walking
+    scenarios (only the clean suite has been measured here).
 
 ## Decision Rule
 
