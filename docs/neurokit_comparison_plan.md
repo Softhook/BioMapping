@@ -46,11 +46,16 @@ responses:
 
 | Known clean data | BioMapping Full-Scan | NeuroKit2 relative prominence |
 |---|---:|---:|
-| Sparse, 6 SCRs | 100% recall, 3 false positives, F1 0.800 | 83.3% recall, 0 false positives, F1 0.909 |
-| Dense, 40 SCRs | 100% recall, 9 false positives, F1 0.899 | 82.5% recall, 0 false positives, F1 0.904 |
+| Sparse, 6 SCRs | 100% recall, 0 false positives, F1 1.000 | 83.3% recall, 0 false positives, F1 0.909 |
+| Dense, 40 SCRs | 100% recall, 0 false positives, F1 1.000 | 85.0% recall, 0 false positives, F1 0.919 |
 
-Therefore, do not adopt NeuroKit2's 10%-of-maximum threshold as BioMapping's
-production rule.
+Since the `peakThreshold`/`shapeMinSnr` increase (see "Current Production
+Position"), Full-Scan itself now reaches 0 false positives on both of these
+known-answer cases, so NeuroKit2's relative-prominence rule is no longer
+trading recall for a precision gain BioMapping actually has: on this specific
+test, BioMapping's Full-Scan strictly dominates NeuroKit2's rule (equal or
+better precision at higher recall). Do not adopt NeuroKit2's 10%-of-maximum
+threshold as BioMapping's production rule.
 
 ### Gait filter
 
@@ -66,7 +71,16 @@ not a method for matching NeuroKit2.
 A broad 4-second minimum peak gap improved evenly spaced synthetic data but
 failed on both real tracks and clustered known events:
 
-- On four real tracks, Full-Scan agreement recall fell from 93.6% to 71.6%.
+- On the six real reference tracks `run.sh all` compares
+  (`biomap_live_2026-09-10T17-20-02-105Z`, `biomap_028`, `biomap_019`,
+  `biomap_027`, `biomap_053`, `biomap_059`), Full-Scan agreement recall
+  against NeuroKit2's default peaks fell from **78.4%** (360/459,
+  `./run.sh all`, production 1.3s gap) to **60.6%** (278/459,
+  `BIOMAP_PEAK_MIN_GAP=4 ./run.sh all`) at a 4-second gap. (The previously
+  recorded "93.6% to 71.6%" figures could not be reproduced under current
+  defaults and the exact track set behind them is no longer known; these are
+  fresh measurements on the harness's own default "all" track list, not a
+  reproduction of the old numbers.)
 - In `synth_compound_clean`, Full-Scan fell from 11/12 known responses at the
   production 1.3-second gap to 6/12 at 4 seconds.
 
@@ -75,11 +89,23 @@ tail ripples.
 
 ### Global amplitude, SNR, and quality gates
 
-- NeuroKit2-style relative gating removes many extras but reduces real-track
-  agreement recall from 92.6% to 50.3%.
-- A global 0.1 uS threshold performed well only on the current synthetic suite;
-  on real tracks it reduced Full-Scan agreement recall to 65.9%.
-- A 0.05 uS threshold still reduced recall to 79.4%.
+- **Unverified under current defaults:** the real-track recall figures
+  originally reported here (92.6%→50.3% for NeuroKit2-style relative gating,
+  65.9% for a global 0.1 uS threshold, 79.4% for a 0.05 uS threshold) have no
+  surviving script that reproduces the original real-track methodology.
+  `check_gate_sweep.js` (the only gate-sweep tool in this harness) only scores
+  against the synthetic ground-truth suite, not real tracks scored against
+  NeuroKit2 agreement — a dedicated real-track gate harness would need to be
+  built to re-measure this claim. On the synthetic suite specifically,
+  re-running `./check_gate_sweep.sh` today shows production defaults
+  (amplitude ≥ 0.05 uS, SNR ≥ 2.5, quality ≥ 0) at recall 97.1% / precision
+  28.0% / F1 0.434 (TP 165, FN 5, FP 425 across all 10 scenarios, including
+  the noisy/gait/walking ones outside the clean suite), and the best
+  in-sample synthetic candidate (amplitude ≥ 0.1 uS, SNR ≥ 5) trades recall
+  down to 88.8% for precision 89.9% (F1 0.893) — a worse recall/precision
+  trade than what production already gets from the 0.050 µS / 2.5× defaults
+  on the clean suite (see "Adopted Production Configuration" below). This is
+  consistent with, but does not independently prove, the original conclusion.
 - Sweeping existing SNR and quality controls made only a marginal improvement;
   the current quality score did not discriminate through 0.4.
 
@@ -97,7 +123,7 @@ With the gait filter off on this clean indoor track:
   (timestamps normalized relative to session start).
 - **Cleaning agreement:** identical raw passthrough ($n = 1414$, max diff $0.0000$ uS,
   RMSE $0.0000$ uS, $r = 1.0000$).
-- **Full-Scan agreement recall:** **100.0%** (43/43 matched, 0 missed, mean \|delta\| **0.035s**).
+- **Full-Scan agreement recall:** **97.7%** (42/43 matched, 1 missed, mean \|delta\| **0.036s**). (Was 100.0%/43/43 under the pre-0.050 µS defaults; the raised `peakThreshold`/`shapeMinSnr` now drops one of the 43 NeuroKit2-agreed peaks on this track.)
 - **Prominence agreement recall:** **100.0%** (43/43 matched, 0 missed, mean \|delta\| **0.035s**).
 - **cvxEDA agreement recall:** **100.0%** (30/30 matched, 0 missed, mean \|delta\| **0.040s**).
 - **cvxEDA decomposition agreement:** tonic $r = 0.9973$, phasic $r = 0.9888$.
@@ -171,37 +197,48 @@ node ./inspect_false_positive_metrics.js <track.csv> <ground_truth.json>
 
 ### Compound noisy (`synth_compound_noisy`)
 
-On `synth_compound_noisy`, Full-Scan finds all 12 true responses and 97 false
-positives. The distribution medians show that false detections are generally
-smaller and slower, but overlap the weakest true responses:
+Re-run 2026-09-12 under current defaults (`node inspect_false_positive_metrics.js`).
+On `synth_compound_noisy`, Full-Scan finds all 12 true responses and **27**
+false positives (was 97 under the pre-0.050 µS defaults — the raised
+threshold/SNR already removed roughly 72% of them). The distribution medians
+still show the same pattern: false detections are generally smaller and
+slower, but overlap the weakest true responses:
 
 | Metric | True responses, median (range) | False positives, median (range) |
 |---|---:|---:|
-| Amplitude (uS) | 0.434 (0.062-1.718) | 0.035 (0.016-0.120) |
-| Prominence (uS) | 0.587 (0.062-1.998) | 0.029 (0.001-0.121) |
-| Onset slope (uS/s) | 0.395 (0.057-1.562) | 0.033 (0.016-0.092) |
-| SNR | 23.613 (4.848-99.206) | 13.883 (5.213-41.650) |
-| Quality score | 0.914 (0.683-1.000) | 0.751 (0.594-0.848) |
+| Amplitude (uS) | 0.434 (0.062-1.718) | 0.066 (0.051-0.120) |
+| Prominence (uS) | 0.587 (0.062-1.998) | 0.069 (0.008-0.121) |
+| Onset slope (uS/s) | 0.395 (0.057-1.562) | 0.051 (0.021-0.092) |
+| SNR | 23.613 (4.848-99.206) | 20.769 (12.325-41.650) |
+| Quality score | 0.914 (0.683-1.000) | 0.763 (0.718-0.848) |
 
 ### Low-amplitude, slow-rise noisy (`synth_low_slow_noisy`)
 
-On `synth_low_slow_noisy` (calibrated against `biomap_053`), Full-Scan finds
-all 12 true responses and 57 false positives:
+**Regression found 2026-09-12, re-running under current defaults:** on
+`synth_low_slow_noisy` (calibrated against `biomap_053`), Full-Scan now finds
+only **10 of the 12** true responses and **0** false positives — not the
+previously documented 12/12 with 57 false positives. This is a genuine
+recall loss on a scenario purpose-built to guard against exactly this
+failure mode (see "Ground-Truth Suite" above), introduced by the
+`peakThreshold`/`shapeMinSnr` increase, and is flagged as Next Plan item 13
+below. Since there are now 0 false positives, the original true-vs-false
+comparison table no longer applies; instead, here is what distinguishes the
+2 missed responses from the 10 still detected:
 
-| Metric | True responses, median (range) | False positives, median (range) |
-|---|---:|---:|
-| Amplitude (uS) | 0.074 (0.041-0.196) | 0.022 (0.016-0.047) |
-| Prominence (uS) | 0.090 (0.052-0.196) | 0.018 (0.001-0.059) |
-| Onset slope (uS/s) | 0.047 (0.026-0.122) | 0.018 (0.010-0.036) |
-| SNR | 30.537 (18.186-145.044) | 17.253 (7.341-60.945) |
-| Quality score | 0.779 (0.714-0.878) | 0.748 (0.558-0.814) |
+| | Time (s) | True amplitude (uS) | Detected? |
+|---|---:|---:|---|
+| Missed | 122.76 | 0.062 | No |
+| Missed | 156.40 | 0.029 | No |
+| Smallest matched (for comparison) | 3.67 | 0.045 | Yes |
+| Largest matched (for comparison) | 335.27 | 0.194 | Yes |
 
-Notice that true responses have onset slopes down to 0.026 uS/s and amplitudes
-down to 0.041 uS (and on real tracks down to 0.015 uS), while noise ripples
-exhibit onset slopes up to 0.036 uS/s and amplitudes up to 0.047 uS. They
-overlap in this low-energy regime, meaning any simple post-detection amplitude
-or slope floor that eliminates noise ripples inevitably discards genuine weak
-SCRs.
+The 2 missed responses are the smallest and 3rd-smallest of the 12 true
+injected amplitudes (0.029 uS and 0.062 uS out of a 0.029–0.194 uS range),
+but amplitude alone does not fully explain it — the single smallest
+response in the set (0.045 uS, at t=3.67s) is still detected. The specific
+noise realization at each response's onset (not just its true amplitude)
+determines whether it clears the raised bar, which is exactly the
+overlap-in-the-low-energy-regime failure mode this scenario exists to catch.
 
 ### Multi-Seed Aggregate Benchmark (30 tracks, 510 true SCRs)
 
@@ -210,10 +247,18 @@ Aggregated across 3 independent random seeds across all 10 scenarios
 
 | Detector | Recall | Precision | F1 | Mean |delta| | Amplitude r | Missed true SCRs |
 |---|---:|---:|---:|---:|---:|---:|
-| **BioMapping Full-Scan** | **98.8%** | 30.5% | 0.466 | 0.155s | **0.9935** | **6** (all compound) |
-| **BioMapping Prominence** | 98.2% | 32.1% | 0.484 | 0.157s | 0.9934 | 9 |
-| **BioMapping cvxEDA** | 98.0% | 35.1% | 0.517 | 0.246s | 0.9546 | 10 |
+| **BioMapping Full-Scan** | **95.7%** | 28.4% | 0.438 | 0.049s | **0.9940** | **22** (6 compound, 16 low-slow) |
+| **BioMapping Prominence** | 96.5% | 27.3% | 0.425 | 0.052s | 0.9936 | 18 |
+| **BioMapping cvxEDA** | 89.8% | 44.7% | 0.597 | 0.325s | 0.7636 | 52 |
 | **NeuroKit2 default** | 90.0% | 21.9% | 0.352 | 0.055s | 0.9907 | 50 |
+
+(Re-run 2026-09-12 via `GROUND_TRUTH_NUM_SEEDS=3 ./check_ground_truth.sh`. The
+NeuroKit2 default row reproduces the previous figures exactly, confirming
+it is unaffected by the `peakThreshold`/`shapeMinSnr` change. BioMapping's
+rows dropped in recall — the raised threshold now also loses some real
+`synth_low_slow_*` responses, not just compound ones — but the timing and
+amplitude-correlation columns visibly improved for Full-Scan and Prominence,
+consistent with the point of the change: fewer marginal, noisier detections.)
 
 ### Comprehensive Clean 3-Way Benchmark (12 tracks, 210 true injected SCRs, 3 seeds)
 
@@ -223,18 +268,25 @@ with BioMapping gait filter OFF to ensure a fair, unconfounded comparison:
 
 | Algorithm / Family | True Positives | Missed (FN) | False Positives | Recall | Precision | F1 Score | Mean \|delta\| | Amplitude MAE | Amplitude r |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| **BioMapping Full-Scan** | **209** | **1** | 111 | **99.5%** | 65.3% | **0.789** | **0.030s** | **0.014 uS** | **0.9984** |
-| **BioMapping Prominence** | **209** | **1** | 170 | **99.5%** | 55.1% | 0.710 | **0.030s** | **0.013 uS** | **0.9983** |
-| **BioMapping Deconvolution** (MP) | 202 | 8 | 127 | 96.2% | 61.4% | 0.750 | 0.053s | 0.113 uS | 0.9947 |
-| **BioMapping cvxEDA** | 206 | 4 | 200 | 98.1% | 50.7% | 0.669 | 0.358s | 0.255 uS | 0.7393 |
+| **BioMapping Full-Scan** | **199** | **11** | 0 | **94.8%** | **100.0%** | **0.973** | **0.026s** | **0.013 uS** | **0.9986** |
+| **BioMapping Prominence** | **199** | **11** | 0 | **94.8%** | **100.0%** | 0.973 | **0.026s** | **0.013 uS** | 0.9985 |
+| **BioMapping Deconvolution** (MP) | 192 | 18 | 0 | 91.4% | 100.0% | 0.955 | 0.048s | 0.031 uS | 0.9962 |
+| **BioMapping cvxEDA** | 186 | 24 | 83 | 88.6% | 69.1% | 0.777 | 0.372s | 0.287 uS | 0.6842 |
 | **NeuroKit2 (default)** | 179 | **31** | 11 | 85.2% | 94.2% | 0.895 | 0.029s | 0.022 uS | 0.9986 |
 | **NeuroKit2 (cvxEDA)** | 108 | **102** | 1 | 51.4% | 99.1% | 0.677 | 0.193s | 0.323 uS | 0.7845 |
 
+(Re-run 2026-09-12 via `CLEAN_ONLY=1 GROUND_TRUTH_NUM_SEEDS=3 ./check_ground_truth.sh`,
+gait filter off. Both NeuroKit2 rows reproduce exactly, confirming they are
+unaffected by the threshold change. All four BioMapping rows dropped false
+positives to 0 or near-0 — Full-Scan and Prominence hit **0 false positives**
+here, the "0 FP" result the "Adopted Production Configuration" section below
+already anticipated — at the cost of some recall.)
+
 **Key Observations:**
-1. **BioMapping Full-Scan** achieves nearly perfect recall (**99.5%**, 209/210 true SCRs detected across 12 tracks), missing only a single tightly coupled compound SCR. Timing accuracy is **0.030s** and measured amplitude correlation with injected truth is **r = 0.9984**.
-2. **NeuroKit2 default** misses **31 genuine physiological SCRs** (14.8% miss rate), largely because its default relative-height gate (10% of track maximum) and 0.1 uS threshold discard low-amplitude or clustered responses.
-3. **NeuroKit2 cvxEDA** misses nearly half (**102 out of 210, 48.6% miss rate**) of all true SCRs, suffering severe undercounting on compound and dense events.
-4. **BioMapping Deconvolution** (Matching Pursuit with Bateman dictionary) achieves 96.2% recall with amplitude correlation **r = 0.9947**, cleanly resolving overlapping driver impulses.
+1. **BioMapping Full-Scan** now trades a small amount of recall for full precision on this suite: **94.8%** (199/210 true SCRs detected across 12 tracks, 3 seeds) at **0 false positives** (100.0% precision, F1 0.973). Timing accuracy is **0.026s** and measured amplitude correlation with injected truth is **r = 0.9986**.
+2. **NeuroKit2 default** misses **31 genuine physiological SCRs** (14.8% miss rate), largely because its default relative-height gate (10% of track maximum) and 0.1 uS threshold discard low-amplitude or clustered responses. This figure is unchanged from before the threshold change — BioMapping Full-Scan's own recall (94.8%) is now closer to it than before, but Full-Scan's precision (100.0%) is also now higher than NeuroKit2's default (94.2%).
+3. **NeuroKit2 cvxEDA** misses nearly half (**102 out of 210, 48.6% miss rate**) of all true SCRs, suffering severe undercounting on compound and dense events. Unchanged.
+4. **BioMapping Deconvolution** (Matching Pursuit with Bateman dictionary) now achieves 91.4% recall (down from 96.2%) but at 0 false positives (100.0% precision, F1 0.955) and amplitude correlation **r = 0.9962**.
 
 ### Algorithm-by-Algorithm Agreement on Clean Indoor Tracks
 
@@ -245,12 +297,12 @@ with BioMapping gait filter OFF to ensure a fair, unconfounded comparison:
 | **Cleaning / Preprocessing** | Raw / Box LPF (`lpfWindow=0`) | `eda_clean` (4th-order 3Hz Butterworth) | $r = 1.0000$, $\max\|\text{diff}\| = 0.0000\,\mu\text{S}$ | **Identical** input signal fed to downstream stages |
 | **cvxEDA Decomposition** | `cvxeda.js` sparse convex optimization | `eda_phasic(method='cvxeda')` | Tonic $r = 0.9973$, Phasic $r = 0.9888$ | **Near-identical** convex optimization output |
 | **Candidate Prominences** | `_detectPeaksByProminence` | `scipy.signal.peak_prominences` | 145/145 local maxima match identically ($r = 1.000000$) | Prominence physics identical; NK 10% threshold discards 109/145 |
-| **Onset Detection** | `_findOnsetIndex` (backward walk) | `SCR_Onsets` (nearest trough) | **145/145 (100.0%)** exact index match, mean $\Delta = 0.0000\,\text{s}$ | **Exact match** on all candidate onsets |
+| **Onset Detection** | `_findOnsetIndex` (backward walk) | `SCR_Onsets` (nearest trough) | **143/145 (98.6%)** exact index match, 144/145 (99.3%) within 1.0s; 2 mismatches hit the tightened 3.9–4.0s `MAX_RISE_TIME` cap, mean $\Delta = 1.050\,\text{s}$ on the real mismatches | Was 145/145 exact under the old 5.0s cap — **regressed** by the `MAX_RISE_TIME` 5.0s→4.0s tightening, not the threshold/SNR change |
 | **Recovery Half-Decay** | `_findRecoveryIndex` (first crossing) | `_eda_peaks_getfeatures` (closest value) | 63/63 exact match where both found; NK failed on 72 peaks | **BioMapping superior**: NK bug in `segment[0:argmin]` drops 72 recoveries |
-| **Full-Scan vs NK default** | `_detectPeaksFullScan` | `nk.eda_process` default | **100.0% Recall** (43/43 matched, 0 missed, mean $\Delta = 0.035\,\text{s}$) | BioMapping captures all 43 NK peaks + 29 genuine subtle peaks |
-| **Prominence vs NK default** | `_detectPeaksByProminence` | `nk.eda_process` default | **100.0% Recall** (43/43 matched, 0 missed, mean $\Delta = 0.035\,\text{s}$) | BioMapping captures all 43 NK peaks + 31 genuine subtle peaks |
-| **cvxEDA vs NK cvxEDA** | `CVXEDA.decompose` + peak picking | `nk.eda_peaks` on cvxEDA phasic | **100.0% Recall** (30/30 matched, 0 missed, mean $\Delta = 0.040\,\text{s}$) | Complete agreement on cvxEDA peaks |
-| **Deconvolution vs NK default** | Matching Pursuit with BAT kernel | `nk.eda_process` default | **100.0% Recall** (43/43 matched, 0 missed, mean $\Delta = 0.265\,\text{s}$) | All 43 NK peaks detected |
+| **Full-Scan vs NK default** | `_detectPeaksFullScan` | `nk.eda_process` default | **97.7% Recall** (42/43 matched, 1 missed, mean $\Delta = 0.036\,\text{s}$) | BioMapping captures 42/43 NK peaks + 12 additional peaks |
+| **Prominence vs NK default** | `_detectPeaksByProminence` | `nk.eda_process` default | **100.0% Recall** (43/43 matched, 0 missed, mean $\Delta = 0.035\,\text{s}$) | BioMapping captures all 43 NK peaks + 13 additional peaks |
+| **cvxEDA vs NK cvxEDA** | `CVXEDA.decompose` + peak picking | `nk.eda_peaks` on cvxEDA phasic | **100.0% Recall** (30/30 matched, 0 missed, mean $\Delta = 0.040\,\text{s}$) | Complete agreement on cvxEDA peaks (+25 additional peaks) |
+| **Deconvolution vs NK default** | Matching Pursuit with BAT kernel | `nk.eda_process` default | **93.0% Recall** (40/43 matched, 3 missed, mean $\Delta = 0.255\,\text{s}$) | Was 43/43 under the old defaults — **regressed**; 3 NK peaks now missed |
 
 #### 2. Reference Track 2 (`biomap_028`, 8,921 samples @ 10.00 Hz, ~15 min stationary recording)
 
@@ -259,21 +311,28 @@ with BioMapping gait filter OFF to ensure a fair, unconfounded comparison:
 | **Cleaning / Preprocessing** | Raw / Box LPF (`lpfWindow=0`) | `eda_clean` (4th-order 3Hz Butterworth) | $r = 1.0000$, $\text{mean}\|\text{diff}\| = 0.0008\,\mu\text{S}$, RMSE $0.0012\,\mu\text{S}$ | **Identical** signal conditioning ($N = 8,921$) |
 | **cvxEDA Decomposition** | `cvxeda.js` sparse convex optimization | `eda_phasic(method='cvxeda')` | Tonic $r = 0.9995$, Phasic $r = 0.9950$ | **Virtually indistinguishable** convex decomposition |
 | **Candidate Prominences** | `_detectPeaksByProminence` | `scipy.signal.peak_prominences` | 375/375 local maxima match identically ($r = 1.000000$) | Prominence physics identical; NK 10% threshold discards 281/375 |
-| **Onset Detection** | `_findOnsetIndex` (backward walk) | `SCR_Onsets` (nearest trough) | **374/375 (99.7%)** exact index match (1 reached 5.0s cap) | **Exact match** on 374 candidate onsets |
+| **Onset Detection** | `_findOnsetIndex` (backward walk) | `SCR_Onsets` (nearest trough) | **373/375 (99.5%)** exact index match, 374/375 (99.7%) within 1.0s; 2 reached the tightened 4.0s `MAX_RISE_TIME` cap, mean $\Delta = 1.350\,\text{s}$ on the real mismatch | Was 374/375 exact under the old 5.0s cap (1 mismatch) — **regressed** to 373/375 (2 mismatches) |
 | **Recovery Half-Decay** | `_findRecoveryIndex` (first crossing) | `_eda_peaks_getfeatures` (closest value) | 217/217 (100.0%) exact match where both found; NK failed on 106 peaks | **BioMapping superior**: NK bug in `segment[0:argmin]` drops 106 recoveries |
-| **Full-Scan vs NK default** | `_detectPeaksFullScan` | `nk.eda_process` default | **99.2% Recall** (119/120 matched, 1 missed by 1.20s vs 1.0s window, mean $\Delta = 0.059\,\text{s}$) | Captures 119/120 NK peaks + 87 genuine subtle peaks |
-| **Prominence vs NK default** | `_detectPeaksByProminence` | `nk.eda_process` default | **100.0% Recall** (120/120 matched, 0 missed, mean $\Delta = 0.072\,\text{s}$) | Captures all 120 NK peaks + 76 genuine subtle peaks |
-| **cvxEDA vs NK cvxEDA** | `CVXEDA.decompose` + peak picking | `nk.eda_peaks` on cvxEDA phasic | **100.0% Recall** (100/100 matched, 0 missed, mean $\Delta = 0.034\,\text{s}$) | Complete agreement on all 100 cvxEDA peaks |
-| **Deconvolution vs NK default** | Matching Pursuit with BAT kernel | `nk.eda_process` default | **99.2% Recall** (119/120 matched, 1 missed, mean $\Delta = 0.248\,\text{s}$) | Captures 119/120 NK peaks |
+| **Full-Scan vs NK default** | `_detectPeaksFullScan` | `nk.eda_process` default | **98.3% Recall** (118/120 matched, 2 missed, mean $\Delta = 0.059\,\text{s}$) | Was 119/120 under the old defaults — **regressed** by 1; captures 118/120 NK peaks + 56 additional peaks |
+| **Prominence vs NK default** | `_detectPeaksByProminence` | `nk.eda_process` default | **100.0% Recall** (120/120 matched, 0 missed, mean $\Delta = 0.072\,\text{s}$) | Captures all 120 NK peaks + 40 additional peaks |
+| **cvxEDA vs NK cvxEDA** | `CVXEDA.decompose` + peak picking | `nk.eda_peaks` on cvxEDA phasic | **100.0% Recall** (100/100 matched, 0 missed, mean $\Delta = 0.034\,\text{s}$) | Complete agreement on all 100 cvxEDA peaks (+68 additional peaks) |
+| **Deconvolution vs NK default** | Matching Pursuit with BAT kernel | `nk.eda_process` default | **98.3% Recall** (118/120 matched, 2 missed, mean $\Delta = 0.243\,\text{s}$) | Was 119/120 under the old defaults — **regressed** by 1 |
 
 #### 3. Aggregate Across Both Clean Indoor Recordings (163 NeuroKit2 default peaks, 130 NeuroKit2 cvxEDA peaks)
 
 | Detector | Reference Field | Recall against NeuroKit2 | Matched / Total NK | Extra Peaks (Subtle Genuine SCRs) | Mean \|$\Delta t$\| |
 |---|---|---:|---:|---:|---:|
-| **BioMapping Prominence** | `peak_times` (default) | **100.0%** | **163 / 163** | +107 | **0.062s** |
-| **BioMapping cvxEDA** | `cvxeda_peak_times` | **100.0%** | **130 / 130** | +134 | **0.035s** |
-| **BioMapping Full-Scan** | `peak_times` (default) | **99.4%** | **162 / 163** | +116 | **0.052s** |
-| **BioMapping Deconvolution** | `peak_times` (default) | **99.4%** | **162 / 163** | +254 | 0.252s |
+| **BioMapping Prominence** | `peak_times` (default) | **100.0%** | **163 / 163** | +53 | **0.062s** |
+| **BioMapping cvxEDA** | `cvxeda_peak_times` | **100.0%** | **130 / 130** | +93 | **0.035s** |
+| **BioMapping Full-Scan** | `peak_times` (default) | **98.2%** | **160 / 163** | +68 | 0.053s |
+| **BioMapping Deconvolution** | `peak_times` (default) | **96.9%** | **158 / 163** | +189 | 0.246s |
+
+(Recomputed from the corrected per-track figures above, run via `./run.sh`
+on 2026-09-12. Recall/matched counts for Full-Scan and Deconvolution both
+regressed under the raised threshold/SNR and tightened `MAX_RISE_TIME`; the
+"Extra Peaks" column dropped substantially for every detector, since the
+same higher bar that now occasionally trims a true match also removes many
+of the low-amplitude extra detections that used to pad this column.)
 
 ### Evaluation of BioMapping's Three Tonic Decomposition Methods
 
@@ -286,18 +345,40 @@ BioMapping supports three baseline tonic decomposition methods (`tonicMethod`), 
 
 | Method / Tonic Architecture | Recall | Precision | F1 Score | Mean \|$\Delta t$\| | Amplitude MAE | Amplitude $r$ |
 |---|---:|---:|---:|---:|---:|---:|
-| **Full-Scan with EMA (Default)** | **99.5%** | **65.3%** | **0.789** | **0.030s** | **0.014 uS** | **0.9984** |
-| **Full-Scan with 10th-%ile** | 99.5% | 64.5% | 0.783 | 0.030s | 0.013 uS | 0.9984 |
-| **Full-Scan with Median** | 99.5% | 63.9% | 0.778 | 0.031s | 0.016 uS | 0.9984 |
-| **Prominence with EMA (Default)** | **99.5%** | **55.1%** | **0.710** | **0.030s** | **0.013 uS** | **0.9983** |
-| **Prominence with Median** | 99.5% | 54.1% | 0.701 | 0.031s | 0.016 uS | 0.9983 |
-| **Prominence with 10th-%ile** | 99.5% | 52.0% | 0.683 | 0.031s | 0.014 uS | 0.9983 |
+| **Full-Scan with EMA (45s, Default)** | 94.8% | **100.0%** | 0.973 | 0.026s | 0.013 uS | **0.9986** |
+| **Full-Scan with 10th-%ile (15s)** | 94.3% | **100.0%** | 0.971 | 0.027s | 0.013 uS | 0.9985 |
+| **Full-Scan with Median (30s)** | 91.9% | **100.0%** | 0.958 | 0.027s | 0.017 uS | 0.9985 |
+| **Prominence with 10th-%ile (15s)** | **95.2%** | **100.0%** | **0.976** | 0.027s | 0.014 uS | 0.9984 |
+| **Prominence with EMA (45s, Default)** | 94.8% | **100.0%** | 0.973 | 0.026s | **0.013 uS** | 0.9985 |
+| **Prominence with Median (30s)** | 91.9% | **100.0%** | 0.958 | 0.027s | 0.017 uS | 0.9984 |
 
-#### Why the Production Default EMA is Empirically Superior:
-1. **Smoothness vs. Step Artifacts**: Zero-phase EMA produces a continuous, smooth baseline. In contrast, sliding median creates piecewise-constant plateaus and sharp vertical steps as peaks enter/exit the 45s window, injecting artificial ripples into the phasic residual (producing more false positives).
-2. **Noise Envelope Stability**: A sliding 10th-percentile plunges whenever random noise dips downward, artificially inflating the phasic residual and producing 23 additional false positives on Prominence.
-3. **Best-of-Both-Worlds Floor Repositioning**: BioMapping's subsequent local-floor repositioning pass (±6s running min) prevents the EMA baseline from ever riding above the signal, eliminating baseline clipping while preserving smooth continuous tracking.
-4. **Real Track Consistency**: Across Track 28 (`biomap_028`) and Track 1 (`biomap_live_2026-09-10T17-20-02-105Z`), mean tonic levels across all methods agree within **0.07 uS** (Track 28: EMA 7.387 uS, Median 7.383 uS, 10th-%ile 7.364 uS, cvxEDA 7.317 uS). On Track 1, the sliding median dipped down to -2.479 uS due to edge effects, whereas EMA remained stable.
+(Re-run 2026-09-12 via `CLEAN_ONLY=1 GROUND_TRUTH_NUM_SEEDS=3 BIOMAP_COMPARE_TONIC=1
+./check_ground_truth.sh`, 12 tracks / 210 true SCRs / 3 seeds. This harness
+compares each method at its own previously-tuned window — EMA 45s, sliding
+median 30s, sliding 10th-percentile 15s — not all three at a uniform 45s, so
+the window column has been made explicit. Precision is now 100.0% across
+every method/detector combination: the raised threshold's zero-false-positive
+effect applies uniformly regardless of tonic method, so method choice no
+longer visibly trades against precision. Recall now separates the methods
+instead.)
+
+#### Why the Production Default EMA Is No Longer Clearly Superior:
+1. **10th-percentile now edges out EMA on recall.** With the raised
+   threshold, the sliding 10th-percentile baseline (95.2% recall on
+   Prominence, 94.3% on Full-Scan) recovers a small number of true responses
+   that the EMA baseline (94.8% Prominence, 94.8% Full-Scan) now misses.
+   The margin is small (0.4 percentage points on Prominence) but consistent
+   across both detectors, so this doc no longer claims EMA is unambiguously
+   the best-recall option — see "Real Track Consistency" below for why we
+   still keep it as the default.
+2. **Amplitude accuracy still favours EMA slightly.** EMA's amplitude MAE
+   (0.013 uS on both detectors) is the same or better than 10th-percentile's
+   (0.014 uS on Prominence, 0.013 uS on Full-Scan) and clearly better than
+   sliding median's (0.017 uS on both). Amplitude correlation $r$ also
+   remains highest for EMA on Full-Scan (0.9986).
+3. **Smoothness vs. Step Artifacts**: Zero-phase EMA produces a continuous, smooth baseline. In contrast, sliding median creates piecewise-constant plateaus and sharp vertical steps as peaks enter/exit its window, injecting artificial ripples into the phasic residual. Under the raised threshold this no longer shows up as false positives (all three methods sit at 100.0% precision here), but it is still visible as sliding median's lower recall (91.9%) and higher amplitude MAE.
+4. **Best-of-Both-Worlds Floor Repositioning**: BioMapping's subsequent local-floor repositioning pass (±6s running min) prevents the EMA baseline from ever riding above the signal, eliminating baseline clipping while preserving smooth continuous tracking.
+5. **Real Track Consistency**: Across Track 28 (`biomap_028`) and Track 1 (`biomap_live_2026-09-10T17-20-02-105Z`), mean tonic levels across all methods agree within **0.07 uS** (Track 28: EMA 7.387 uS, Median 7.383 uS, 10th-%ile 7.364 uS, cvxEDA 7.317 uS). On Track 1, the sliding median dipped down to -2.479 uS due to edge effects, whereas EMA remained stable. This real-track stability check was not re-run in this pass (it is independent of the peak-detector threshold) and is retained as-is; it is the main remaining reason to keep EMA as the production default even though 10th-percentile now edges it out on the synthetic recall metric above.
 
 ### Combined small-and-slow experiment: rejected
 
@@ -305,45 +386,66 @@ A benchmark-only rule rejected a peak only when both amplitude was below
 0.1 uS and onset slope was below 0.06 uS/s. On the previous synthetic suite it
 retained the production detector's true-positive count and reduced aggregate
 false positives to 25. However:
-- On real tracks, it reduced recall from 93.6% to 69.6%, heavily cutting
-  `biomap_053` responses.
-- On the newly calibrated `synth_low_slow_clean`, an amplitude >= 0.1 uS gate
-  collapses recall to **16.7%** (missing 10 of 12 true clean responses).
-- On `synth_compound_clean`, an amplitude >= 0.1 uS gate collapses recall to
-  **58.3%**.
+- **Unverified under current defaults:** the real-track claim ("reduced
+  recall from 93.6% to 69.6% on `biomap_053`") has no surviving script that
+  reproduces the original real-track methodology — this is the same gap
+  described under "Global amplitude, SNR, and quality gates" above, and a
+  dedicated real-track harness would be needed to re-measure it honestly.
+  The overall conclusion (do not promote this rule) is still supported
+  independently by the two synthetic results below.
+- Re-measured 2026-09-12 on the single-seed synthetic suite
+  (`synth_low_slow_clean`, `synth_compound_clean`): under current production
+  defaults (`peakThreshold = 0.050 µS`, `shapeMinSnr = 2.5×`), an amplitude
+  >= 0.1 uS AND slope >= 0.06 uS/s gate collapses `synth_low_slow_clean`
+  recall to **16.7%** (2/12) — unchanged from the original finding. On
+  `synth_compound_clean`, the *baseline* (ungated) recall is now already only
+  83.3% (10/12) because the raised threshold itself drops 2 of the 12 known
+  responses, and applying the amplitude/slope gate on top makes **no further
+  difference** (still 10/12, 83.3%) — the previously reported 58.3% figure no
+  longer reproduces, because it measured the gate's effect against a 100%
+  ungated baseline that the production threshold change has since eroded.
 
 Do not promote this rule or its current floors.
 
 ### False-Positive Reduction and Precision Benchmarking
 
-To investigate closing the precision gap on clean synthetic data (111 false positives on Full-Scan vs 11 on NeuroKit2), we benchmarked multiple candidate rejection rules across 12 clean synthetic ground-truth tracks (210 true injected SCRs, 3 seeds) and 5 real reference tracks:
+To investigate closing the precision gap on clean synthetic data (originally 111 false positives on Full-Scan vs 11 on NeuroKit2, under the pre-0.050 µS defaults), we benchmark the same candidate rejection rules across 12 clean synthetic ground-truth tracks (210 true injected SCRs, 3 seeds) and real reference tracks, via `node benchmark_precision_rules.js` (2026-09-12 re-run, now that its `REPO_ROOT`-relative-path bug is fixed).
 
-| Rejection Rule | Synthetic Recall | Synthetic Precision | Synthetic F1 | Synthetic Clean FP | Compound Clean TP/36 | Low-Slow Clean TP/36 | Track 1 NK Match (43) | Track 28 NK Match (120) | Track 53 NK Match (96) |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| **Baseline Full-Scan** | **99.5%** | 65.3% | 0.789 | 111 | **35/36** | **36/36** | **43/43 (100%)** | **119/120 (99.2%)** | 86/96 (89.6%) |
-| **Full-Scan (Prom >= 0.010 uS)** | **99.5%** | 71.8% | 0.834 | 82 (-26%) | **35/36** | **36/36** | **43/43 (100%)** | 116/120 (96.7%) | 79/96 (82.3%) |
-| **Full-Scan (Prom >= 0.015 uS)** | **99.5%** | 76.0% | 0.862 | 66 (-41%) | **35/36** | **36/36** | **43/43 (100%)** | 116/120 (96.7%) | 77/96 (80.2%) |
-| **Full-Scan (Prom >= 0.020 uS)** | **99.5%** | 84.6% | 0.915 | 38 (-66%) | **35/36** | **36/36** | **43/43 (100%)** | 115/120 (95.8%) | 72/96 (75.0%) |
-| **Full-Scan (Qual >= 0.60)** | 99.0% | 69.6% | 0.817 | 91 (-18%) | 34/36 | **36/36** | **43/43 (100%)** | **119/120 (99.2%)** | 85/96 (88.5%) |
-| **Full-Scan (Qual >= 0.65)** | 98.6% | 72.1% | 0.833 | 80 (-28%) | 33/36 | **36/36** | **43/43 (100%)** | **119/120 (99.2%)** | 84/96 (87.5%) |
+**On the synthetic suite, every rule variant is now a no-op against live defaults**: all six produce the identical **94.8% recall / 100.0% precision / F1 0.973 / TP 199 / FP 0** (out of 210), and the identical **Compound Clean 33/36** and **Low-Slow Clean 28/36** true-positive counts. This is because the 0.050 µS / 2.5× production floor already removes, on clean synthetic data, everything these post-detection prominence/quality filters would additionally remove — there is nothing left for them to cut. The table below therefore only varies on the real tracks, where the underlying signal is messier and the extra rules still trade recall for NeuroKit2 agreement:
+
+| Rejection Rule | Synthetic Recall/Precision/F1/FP | Track 1 NK Match (43) | Track 28 NK Match (120) | Track 53 NK Match (96) |
+|---|---:|---:|---:|---:|
+| **Baseline Full-Scan** | 94.8% / 100.0% / 0.973 / 0 | 42/43 (97.7%) | 118/120 (98.3%) | **47/96 (49.0%)** |
+| **Full-Scan (Prom >= 0.010 uS)** | 94.8% / 100.0% / 0.973 / 0 | 42/43 (97.7%) | 115/120 (95.8%) | 43/96 (44.8%) |
+| **Full-Scan (Prom >= 0.015 uS)** | 94.8% / 100.0% / 0.973 / 0 | 42/43 (97.7%) | 115/120 (95.8%) | 41/96 (42.7%) |
+| **Full-Scan (Prom >= 0.020 uS)** | 94.8% / 100.0% / 0.973 / 0 | 42/43 (97.7%) | 114/120 (95.0%) | 38/96 (39.6%) |
+| **Full-Scan (Qual >= 0.60)** | 94.8% / 100.0% / 0.973 / 0 | 42/43 (97.7%) | 118/120 (98.3%) | **47/96 (49.0%)** |
+| **Full-Scan (Qual >= 0.65)** | 94.8% / 100.0% / 0.973 / 0 | 42/43 (97.7%) | 118/120 (98.3%) | 44/96 (45.8%) |
+
+None of these additional prominence/quality post-filters improve on the
+baseline: on the two clean indoor tracks they either match the baseline
+exactly (Qual >= 0.60) or lose real agreement (every Prom floor, and
+Qual >= 0.65 on Track 53), and none gain anything since the synthetic side
+is already saturated at 0 FP. Do not adopt any of these rules on top of the
+current defaults.
 
 #### Adopted Production Configuration (`peakThreshold = 0.050 µS`, `shapeMinSnr = 2.5×`, `MAX_RISE_TIME = 4.0s`)
 
-Promoting the threshold to $0.050\,\mu\text{S}$ and SNR to $2.5\times$ completely resolved the clean synthetic precision gap:
-* **Synthetic Clean Benchmark (12 tracks, 3 seeds):**
+Promoting the threshold to $0.050\,\mu\text{S}$ and SNR to $2.5\times$ completely resolved the clean synthetic precision gap. Re-confirmed 2026-09-12 via `CLEAN_ONLY=1 BIOMAP_USE_GAIT_FILTER=0 ./check_ground_truth.sh` — every figure below reproduced exactly:
+* **Synthetic Clean Benchmark (4 scenarios, 1 seed, 70 true SCRs — note: this is a *different, smaller* track/seed set than the "Comprehensive Clean 3-Way Benchmark" table above, which uses 3 seeds/210 SCRs; the two sections measure the same defaults on different samples of the same scenario generator, so their numbers do not need to match each other):**
   * **Precision: 100.0%** (**0 False Positives**, down from 111).
   * **Recall: 94.3%** (66/70 true injected responses detected, missing only extreme sub-0.03 µS ripples).
   * **F1 Score: 0.971** (vs. NeuroKit2 default F1 = 0.892, which missed 3× more true SCRs).
   * **Timing Accuracy:** $| \Delta t | = 0.028\,\text{s}$ (sub-sample accuracy).
   * **Amplitude Error:** $0.013\,\mu\text{S}$ ($r = 0.9979$).
 * **Full Corpus Retention:** 100.000% peak retention across all 73 tracks in `tracks/` (7,050 / 7,050 peaks preserved, 0 lost under 4.0s rise time ceiling).
-* **Reference Agreement vs. NeuroKit2:** 100.0% on Track 1 (43/43), 99.2% on Track 28 (119/120).
+* **Reference Agreement vs. NeuroKit2:** 97.7% on Track 1 (42/43), 98.3% on Track 28 (118/120) — both regressed by one peak from the pre-0.050 µS figures (100.0%/43/43 and 99.2%/119/120) under `./run.sh`; see "Algorithm-by-Algorithm Agreement on Clean Indoor Tracks" above for the corrected per-track detail.
 
 #### Key Insights & Algorithmic Trade-offs:
 1. **Why Full-Scan generates synthetic false positives under 0.015 µS**: Full-Scan walks backwards up to 4s to find onsets (`_findOnsetIndex`), measuring amplitude from that dip. Tiny 0.005 µS ripples riding a slow baseline slope accumulate 0.015 µS of rise from a distant onset, passing the amplitude threshold even though local topographic prominence is near zero. Raising `peakThreshold` to $0.050\,\mu\text{S}$ and `shapeMinSnr` to $2.5\times$ eliminates these ripples completely.
 2. **Why Topographic Prominence cannot be a hard production gate**: Every single synthetic true SCR has prominence $\ge 0.026\,\mu\text{S}$, so prominence floors (0.010–0.020 µS) show 100% recall on synthetic data. However, on real ambulatory tracks with ascending multi-peak compound bursts (e.g. `biomap_053`), real responses often ride the rising shoulder of an even larger subsequent peak. Topographically, their prominence is near-zero because the right-hand contour rises into the bigger peak. A hard prominence gate cuts 9 real responses on `biomap_053`.
-3. **The Onset Walk-Back Paradox**: Passing `threshold` to `_findOnsetIndex` allows Full-Scan to step over sub-threshold notches and find the true summit of jagged peaks on real tracks (e.g. at 3.8s vs 3.6s on Track 28), but on synthetic baseline slopes it causes ripples to walk all the way down the slope, exploding false positives from 111 to 251. Full-Scan's strict local walk-back is mathematically necessary.
-4. **Quality Score as an Existing User Control**: Setting `minPeakQuality = 0.60` achieves an 18% false-positive reduction on synthetic data while preserving 99.2%–100% agreement on clean real recordings. Because `minPeakQuality` is already an exposed slider in the Visualiser UI, users desiring a stricter precision mode can dial this slider up without altering production defaults.
+3. **The Onset Walk-Back Paradox**: Passing `threshold` to `_findOnsetIndex` allows Full-Scan to step over sub-threshold notches and find the true summit of jagged peaks on real tracks (e.g. at 3.8s vs 3.6s on Track 28), but on synthetic baseline slopes it causes ripples to walk all the way down the slope, exploding false positives from 111 to 251 (both figures are from the pre-0.050 µS/2.5× investigation that motivated the current defaults, not the current false-positive count, which is 0 on this suite — see the table above). Full-Scan's strict local walk-back is mathematically necessary.
+4. **Quality Score as an Existing User Control — now moot on this suite**: The 18% false-positive reduction and 99.2%–100% real-track agreement this point originally reported were both measured before the 0.050 µS/2.5× defaults shipped. Re-measured 2026-09-12 (see the "False-Positive Reduction and Precision Benchmarking" table above): synthetic false positives are already 0 under baseline defaults, so `minPeakQuality = 0.60` has nothing left to reduce there, and on the real tracks it neither helps nor hurts versus baseline on Track 1/Track 28 (97.7%/98.3%, unchanged) and does not reach the old 99.2% figure on either. `minPeakQuality` remains a legitimate exposed slider for users who want an even stricter mode, but it is no longer doing useful work as a candidate production default change.
 
 ## Next Plan
 
@@ -358,6 +460,15 @@ Promoting the threshold to $0.050\,\mu\text{S}$ and SNR to $2.5\times$ completel
    NeuroKit2 cvxEDA, and Synthetic Ground Truth.
 4. [x] **Evaluate tonic baseline methods and window sizes**:
    Proved EMA at 45s is optimal across real and synthetic benchmarks.
+   **Caveat added 2026-09-12**: under the current 0.050 µS/2.5× defaults,
+   re-running this comparison shows the sliding 10th-percentile method (15s
+   window) now edges out EMA on synthetic recall with the Prominence
+   detector (95.2% vs 94.8%), though EMA still leads with Full-Scan (94.8%
+   vs 94.3%); amplitude accuracy still favours EMA on both detectors. EMA
+   is kept as the production default for its real-track baseline stability
+   (see "Evaluation of BioMapping's Three Tonic Decomposition Methods"
+   below), not because it is still the outright best-recall option on every
+   metric.
 5. [x] **Benchmark false-positive reduction and precision rules**:
    Created `benchmark_precision_rules.js` and established trade-offs of prominence vs quality score vs amplitude gates.
 6. [x] **Production default modernization & zero-FP synthetic validation**:
@@ -380,7 +491,14 @@ Promoting the threshold to $0.050\,\mu\text{S}$ and SNR to $2.5\times$ completel
 12. [ ] **UI Detection Presets (Optional)**:
     Provide UI quick-presets for "Standard / High Precision" (0.050 µS, 2.5×, 4.0s) and
     "Exploratory / High Recall" (0.015 µS, 1.5×, 4.0s).
-13. [ ] **Investigate EDASymp (0.045–0.25 Hz) Spectral Sympathetic Index**:
+13. [ ] **Investigate `synth_low_slow_noisy` recall regression (12/12→10/12) introduced by the 0.050 µS/2.5× threshold bump**:
+    Found 2026-09-12 while regenerating the "False-Positive Metric Inspection" tables. Full-Scan now
+    misses 2 of the 12 true responses on this purpose-built weak-SCR regression scenario (at t=122.76s,
+    amplitude 0.062 uS, and t=156.40s, amplitude 0.029 uS — the smallest and 3rd-smallest true amplitudes
+    in the set), with 0 false positives (down from 57). Determine whether the two missed responses are
+    recoverable without reopening the clean-synthetic false-positive count; per the "Decision Rule" below,
+    a recall loss on this scenario should block promoting a change unless resolved or explicitly accepted.
+14. [ ] **Investigate EDASymp (0.045–0.25 Hz) Spectral Sympathetic Index**:
     Proposal documented in [`edasymp_spectral_investigation_proposal.md`](edasymp_spectral_investigation_proposal.md).
     Benchmark against NeuroKit2's `nk.eda_sympathetic()` on stationary and ambulatory tracks to assess continuous,
     threshold-free sympathetic tone with inherent immunity to footstep cadence.

@@ -72,7 +72,7 @@ Each script isolates exactly one mathematical stage to test algorithmic agreemen
 | Variable | Default | Purpose |
 |---|---|---|
 | `BIOMAP_USE_GAIT_FILTER` | `0` (off in comparison harness) | Set `1` to enable production LR4 1.0 Hz gait low-pass filter. |
-| `BIOMAP_PEAK_THRESHOLD` | `0.015` | Absolute SCR peak threshold in $\mu\text{S}$ (production default 0.015). |
+| `BIOMAP_PEAK_THRESHOLD` | unset (falls back to production default, currently `0.050`) | Absolute SCR peak threshold in $\mu\text{S}$; set to override for benchmark-only experiments. |
 | `BIOMAP_PEAK_MIN_GAP` | `1.3` | Minimum refractory gap between reported peaks in seconds. |
 | `CLEAN_ONLY` | `0` | When `1`, runs only clean stationary scenarios in `check_ground_truth.sh`. |
 | `GROUND_TRUTH_NUM_SEEDS` | `1` | Number of independent random seeds to generate for multi-seed statistical evaluation. |

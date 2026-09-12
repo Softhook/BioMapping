@@ -27,6 +27,7 @@ function loadModule(filePath, varName) {
   vm.runInThisContext(wrapped, { filename: filePath });
 }
 
+const REPO_ROOT = path.join(__dirname, '../../../..');
 const SRC = path.join(__dirname, '../../../src/signal');
 loadModule(path.join(SRC, 'dwt_filter.js'), 'DWT');
 loadModule(path.join(SRC, 'gsr_filter.js'), 'GsrFilter');
@@ -178,7 +179,7 @@ const realTracks = [
   'tracks/biomap_053.csv',
   'tracks/biomap_019.csv',
   'tracks/biomap_027.csv',
-];
+].map(t => path.join(REPO_ROOT, t));
 
 const nkScript = path.join(__dirname, 'run_neurokit.py');
 const nkOut = JSON.parse(execSync(`"${pyBin}" "${nkScript}" ${realTracks.map(t => `"${t}"`).join(' ')}`).toString());
