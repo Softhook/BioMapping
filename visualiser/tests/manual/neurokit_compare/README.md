@@ -90,6 +90,9 @@ Each script isolates exactly one mathematical stage to test algorithmic agreemen
    - **NeuroKit2 default**: **85.2% Recall** (**31 misses** due to 0.1 µS floor and 10% relative prominence gate).
    - **NeuroKit2 cvxEDA**: **51.4% Recall** (**102 misses**, missing almost half of all true SCRs on compound/dense tracks).
 
-2. **Clean Indoor Reference Track (`biomap_live_2026-09-10T17-20-02-105Z`)**:
-   - All 4 BioMapping detectors achieve **100.0% Recall** against NeuroKit2 default and cvxEDA reference peaks (0 missed).
-   - Cleaning and Onset stages match NeuroKit2 with $100\%$ exact agreement.
+2. **Clean Indoor Reference Tracks (`biomap_live_2026-09-10T17-20-02-105Z` & `biomap_028`, 10,335 total samples)**:
+   - **Prominence**: **100.0% Recall** (163/163 matched, 0 missed, mean $\Delta t = 0.062\,\text{s}$).
+   - **cvxEDA**: **100.0% Recall** (130/130 matched, 0 missed, mean $\Delta t = 0.035\,\text{s}$).
+   - **Full-Scan**: **99.4% Recall** (162/163 matched, 1 missed by 1.20s vs 1.0s window, mean $\Delta t = 0.052\,\text{s}$).
+   - **Deconvolution**: **99.4% Recall** (162/163 matched, mean $\Delta t = 0.252\,\text{s}$).
+   - Cleaning ($r = 1.0000$), prominences (520/520 identical), and onsets (519/520 exact match) demonstrate complete mathematical parity with NeuroKit2, while BioMapping avoids NeuroKit2's 10% relative-prominence truncation and recovery `argmin=0` slicing bug.

@@ -234,9 +234,9 @@ with BioMapping gait filter OFF to ensure a fair, unconfounded comparison:
 3. **NeuroKit2 cvxEDA** misses nearly half (**102 out of 210, 48.6% miss rate**) of all true SCRs, suffering severe undercounting on compound and dense events.
 4. **BioMapping Deconvolution** (Matching Pursuit with Bateman dictionary) achieves 96.2% recall with amplitude correlation **r = 0.9947**, cleanly resolving overlapping driver impulses.
 
-### Algorithm-by-Algorithm Agreement on Clean Indoor Track (`biomap_live_2026-09-10T17-20-02-105Z`)
+### Algorithm-by-Algorithm Agreement on Clean Indoor Tracks
 
-Evaluated on the 1,414-sample quiet stationary recording (gait filter OFF):
+#### 1. Reference Track 1 (`biomap_live_2026-09-10T17-20-02-105Z`, 1,414 samples @ 3.33 Hz)
 
 | Pipeline Stage / Algorithm | BioMapping Implementation | NeuroKit2 Implementation | Metric / Agreement | Verdict |
 |---|---|---|---|---|
@@ -249,6 +249,29 @@ Evaluated on the 1,414-sample quiet stationary recording (gait filter OFF):
 | **Prominence vs NK default** | `_detectPeaksByProminence` | `nk.eda_process` default | **100.0% Recall** (43/43 matched, 0 missed, mean $\Delta = 0.035\,\text{s}$) | BioMapping captures all 43 NK peaks + 31 genuine subtle peaks |
 | **cvxEDA vs NK cvxEDA** | `CVXEDA.decompose` + peak picking | `nk.eda_peaks` on cvxEDA phasic | **100.0% Recall** (30/30 matched, 0 missed, mean $\Delta = 0.040\,\text{s}$) | Complete agreement on cvxEDA peaks |
 | **Deconvolution vs NK default** | Matching Pursuit with BAT kernel | `nk.eda_process` default | **100.0% Recall** (43/43 matched, 0 missed, mean $\Delta = 0.265\,\text{s}$) | All 43 NK peaks detected |
+
+#### 2. Reference Track 2 (`biomap_028`, 8,921 samples @ 10.00 Hz, ~15 min stationary recording)
+
+| Pipeline Stage / Algorithm | BioMapping Implementation | NeuroKit2 Implementation | Metric / Agreement | Verdict |
+|---|---|---|---|---|
+| **Cleaning / Preprocessing** | Raw / Box LPF (`lpfWindow=0`) | `eda_clean` (4th-order 3Hz Butterworth) | $r = 1.0000$, $\text{mean}\|\text{diff}\| = 0.0008\,\mu\text{S}$, RMSE $0.0012\,\mu\text{S}$ | **Identical** signal conditioning ($N = 8,921$) |
+| **cvxEDA Decomposition** | `cvxeda.js` sparse convex optimization | `eda_phasic(method='cvxeda')` | Tonic $r = 0.9995$, Phasic $r = 0.9950$ | **Virtually indistinguishable** convex decomposition |
+| **Candidate Prominences** | `_detectPeaksByProminence` | `scipy.signal.peak_prominences` | 375/375 local maxima match identically ($r = 1.000000$) | Prominence physics identical; NK 10% threshold discards 281/375 |
+| **Onset Detection** | `_findOnsetIndex` (backward walk) | `SCR_Onsets` (nearest trough) | **374/375 (99.7%)** exact index match (1 reached 5.0s cap) | **Exact match** on 374 candidate onsets |
+| **Recovery Half-Decay** | `_findRecoveryIndex` (first crossing) | `_eda_peaks_getfeatures` (closest value) | 217/217 (100.0%) exact match where both found; NK failed on 106 peaks | **BioMapping superior**: NK bug in `segment[0:argmin]` drops 106 recoveries |
+| **Full-Scan vs NK default** | `_detectPeaksFullScan` | `nk.eda_process` default | **99.2% Recall** (119/120 matched, 1 missed by 1.20s vs 1.0s window, mean $\Delta = 0.059\,\text{s}$) | Captures 119/120 NK peaks + 87 genuine subtle peaks |
+| **Prominence vs NK default** | `_detectPeaksByProminence` | `nk.eda_process` default | **100.0% Recall** (120/120 matched, 0 missed, mean $\Delta = 0.072\,\text{s}$) | Captures all 120 NK peaks + 76 genuine subtle peaks |
+| **cvxEDA vs NK cvxEDA** | `CVXEDA.decompose` + peak picking | `nk.eda_peaks` on cvxEDA phasic | **100.0% Recall** (100/100 matched, 0 missed, mean $\Delta = 0.034\,\text{s}$) | Complete agreement on all 100 cvxEDA peaks |
+| **Deconvolution vs NK default** | Matching Pursuit with BAT kernel | `nk.eda_process` default | **99.2% Recall** (119/120 matched, 1 missed, mean $\Delta = 0.248\,\text{s}$) | Captures 119/120 NK peaks |
+
+#### 3. Aggregate Across Both Clean Indoor Recordings (163 NeuroKit2 default peaks, 130 NeuroKit2 cvxEDA peaks)
+
+| Detector | Reference Field | Recall against NeuroKit2 | Matched / Total NK | Extra Peaks (Subtle Genuine SCRs) | Mean \|$\Delta t$\| |
+|---|---|---:|---:|---:|---:|
+| **BioMapping Prominence** | `peak_times` (default) | **100.0%** | **163 / 163** | +107 | **0.062s** |
+| **BioMapping cvxEDA** | `cvxeda_peak_times` | **100.0%** | **130 / 130** | +134 | **0.035s** |
+| **BioMapping Full-Scan** | `peak_times` (default) | **99.4%** | **162 / 163** | +116 | **0.052s** |
+| **BioMapping Deconvolution** | `peak_times` (default) | **99.4%** | **162 / 163** | +254 | 0.252s |
 
 ### Combined small-and-slow experiment: rejected
 

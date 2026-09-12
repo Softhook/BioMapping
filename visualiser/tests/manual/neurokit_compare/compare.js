@@ -171,6 +171,12 @@ for (const trackPath of trackPaths) {
       continue;
     }
     console.log(`  ${label.padEnd(10)} ${String(oursTimes.length).padStart(3)} peaks | vs ${refField.padEnd(17)} | matched ${String(r.matches.length).padStart(2)}/${nkTimes.length} | missed ${r.missed.length} | extra ${r.extra.length} | mean|delta| ${Number.isNaN(meanAbsDelta) ? 'n/a' : meanAbsDelta.toFixed(3) + 's'}`);
+    if (r.missed.length > 0) {
+      console.log(`    missed peaks at: ${r.missed.map(t => {
+        const near = oursTimes.filter(ot => Math.abs(ot - t) < 3.0);
+        return `${t.toFixed(2)}s (ours nearby: ${near.map(n => n.toFixed(2)).join(', ') || 'none'})`;
+      }).join('; ')}`);
+    }
 
     const agg = aggregate[label];
     agg.matched += r.matches.length;

@@ -226,13 +226,17 @@ Evaluated across `synth_sparse_clean`, `synth_dense_clean`, `synth_compound_clea
 - **NeuroKit2 default** misses **31 true responses (14.8% miss rate)** because its 0.1 µS floor and 10% relative prominence threshold discard subtle and clustered events.
 - **NeuroKit2 cvxEDA** misses nearly half (**102 out of 210, 48.6% miss rate**) of all true events.
 
-#### 2. Real Clean Stationary Reference Track (`biomap_live_2026-09-10T17-20-02-105Z`, 1,414 samples)
-Evaluated on a quiet indoor recording with the gait filter off to ensure an unconfounded comparison:
-- **Cleaning Agreement**: $r = 1.0000$, $\max|\text{diff}| = 0.0000\,\mu\text{S}$ against NeuroKit2 `eda_clean`.
-- **Candidate Prominences**: 145/145 local maxima match identically ($r = 1.000000$, error $< 10^{-6}\,\mu\text{S}$).
-- **Onset Detection**: **145/145 (100.0%)** exact sample index match between BioMapping and NeuroKit2 (`SCR_Onsets`), mean $\Delta t = 0.0000\,\text{s}$.
-- **Recovery Half-Decay**: 63/63 exact match where both found recovery. NeuroKit2 failed to find recovery on 72 peaks due to an internal Python slicing edge-case when `argmin = 0` in `segment[0:argmin]`, whereas BioMapping forward-walk finds valid recovery points.
-- **Detector Agreement**: Full-Scan (**43/43, 100.0%**), Prominence (**43/43, 100.0%**), cvxEDA (**30/30, 100.0%**), and Deconvolution (**43/43, 100.0%**) all achieve 100% recall against NeuroKit2, while capturing genuine low-amplitude responses that NeuroKit2 discards.
+#### 2. Real Clean Stationary Reference Tracks (`biomap_live_2026-09-10T17-20-02-105Z` & `biomap_028`, 10,335 total samples)
+Evaluated on quiet indoor recordings with the gait filter off to ensure an unconfounded comparison:
+- **Cleaning Agreement**: $r = 1.0000$ against NeuroKit2 `eda_clean` across both tracks ($\text{mean}|\text{diff}| \le 0.0008\,\mu\text{S}$).
+- **Candidate Prominences**: 520/520 local maxima match identically ($r = 1.000000$, error $< 10^{-6}\,\mu\text{S}$).
+- **Onset Detection**: **519/520 (99.8%)** exact sample index match between BioMapping and NeuroKit2 (`SCR_Onsets`), with 0.0000s difference on non-capped walks.
+- **Recovery Half-Decay**: 280/280 exact match where both found recovery. NeuroKit2 failed to find recovery on 178 peaks (72 on Track 1, 106 on Track 28) due to its internal Python slicing edge-case when `argmin = 0` in `segment[0:argmin]`, whereas BioMapping's forward walk resolves valid recovery points.
+- **Detector Agreement**: Across both clean tracks (163 NeuroKit2 default peaks, 130 NeuroKit2 cvxEDA peaks), BioMapping achieves:
+  - **Prominence**: **100.0% Recall** (163/163 matched, 0 missed, mean $\Delta t = 0.062\,\text{s}$).
+  - **cvxEDA**: **100.0% Recall** (130/130 matched, 0 missed, mean $\Delta t = 0.035\,\text{s}$).
+  - **Full-Scan**: **99.4% Recall** (162/163 matched, 1 missed by 1.20s vs 1.0s window, mean $\Delta t = 0.052\,\text{s}$).
+  - **Deconvolution**: **99.4% Recall** (162/163 matched, mean $\Delta t = 0.252\,\text{s}$).
 
 #### 3. Ambulatory Walking & Tremor Scenarios (Gait Filter Comparison)
 1. **Dynamic Walking Scenario (`synth_walking_track`, 24 true SCRs, variable 0–1.3 m/s walking + pace-coupled gait tremor)**:
