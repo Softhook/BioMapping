@@ -88,6 +88,10 @@ def load_pairs(csv_path):
     return pairs
 
 
+CACHE_DIR = Path(os.environ.get('LEDALAB_CACHE_DIR', HERE / '.cache' / 'ledalab'))
+NO_CACHE = os.environ.get('NO_CACHE') == '1'
+
+
 def main():
     csv_paths = [Path(p) for p in sys.argv[1:]]
     if not csv_paths:
@@ -104,13 +108,39 @@ def main():
               file=sys.stderr)
         sys.exit(1)
 
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    out = {}
+    pending_paths = []
+
+    for idx, csv_path in enumerate(csv_paths, 1):
+        name = csv_path.stem
+        if csv_path.stat().st_size == 0:
+            print(f'[{idx}/{len(csv_paths)}] Skipping empty {name}', file=sys.stderr)
+            continue
+
+        cache_file = CACHE_DIR / f'{name}.json'
+        if not NO_CACHE and cache_file.exists() and cache_file.stat().st_mtime >= csv_path.stat().st_mtime:
+            try:
+                with open(cache_file, 'r') as f:
+                    out[name] = json.load(f)
+                if len(csv_paths) > 6:
+                    print(f'[{idx}/{len(csv_paths)}] {name} (cached)', file=sys.stderr)
+                continue
+            except Exception:
+                pass
+        pending_paths.append(csv_path)
+
+    if not pending_paths:
+        json.dump(out, sys.stdout)
+        return
+
     work_dir = Path(tempfile.mkdtemp(prefix='run_ledalab_'))
     names = []
     end_times = {}
     try:
-        for csv_path in csv_paths:
+        for csv_path in pending_paths:
             name = csv_path.stem
-            print(f'Preparing {name}...', file=sys.stderr)
+            print(f'Preparing {name} for Ledalab...', file=sys.stderr)
             try:
                 df = pd.read_csv(csv_path, comment='#')
                 eda = to_microsiemens(df['gsr_raw'].astype(float), 'gsr_raw').values
@@ -120,6 +150,21 @@ def main():
                 dt = pd.Series(ts).diff()
                 dt = dt[dt > 0]
                 sr = 1.0 / dt.mean() if len(dt) else 10.0
+
+                if len(df) < 50 or eda.std() < 1e-6:
+                    print(f'  Skipping flat/tiny track {name} (N={len(df)}, std={eda.std():.2e})', file=sys.stderr)
+                    track_res = {
+                        'ledalab_peak_times': [],
+                        'ledalab_peak_amplitudes': [],
+                        'ledalab_lit_peak_times': [],
+                        'ledalab_lit_peak_amplitudes': [],
+                        'ledalab_lit_prefilter_hz': LIT_PREFILTER_HZ,
+                        'ledalab_lit_min_amp': LIT_MIN_AMP,
+                    }
+                    out[name] = track_res
+                    with open(CACHE_DIR / f'{name}.json', 'w') as f:
+                        json.dump(track_res, f)
+                    continue
 
                 pd.DataFrame({'t': ts, 'eda': eda}).to_csv(
                     work_dir / f'{name}_raw.txt', sep='\t', header=False, index=False)
@@ -134,44 +179,43 @@ def main():
             except Exception as exc:  # noqa: BLE001 - report and continue the batch
                 print(f'  FAILED to prepare {name}: {exc}', file=sys.stderr)
 
-        if not names:
-            json.dump({}, sys.stdout)
-            return
+        if names:
+            octave_cmd = (
+                f"addpath('{HERE}'); "
+                f"ledalab_batch_run('{LEDALAB_DIR}', '{work_dir}', '{','.join(names)}')"
+            )
+            print(f'Running real Ledalab (via Octave) over {len(names)} track(s)...', file=sys.stderr)
+            result = subprocess.run(
+                [OCTAVE_BIN, '--no-gui', '--eval', octave_cmd],
+                capture_output=True, text=True, timeout=3600,
+                cwd=work_dir,
+            )
+            for line in result.stdout.splitlines():
+                print(f'  {line}', file=sys.stderr)
+            if result.returncode != 0:
+                print(f'octave exited {result.returncode}:\n{result.stderr}', file=sys.stderr)
 
-        octave_cmd = (
-            f"addpath('{HERE}'); "
-            f"ledalab_batch_run('{LEDALAB_DIR}', '{work_dir}', '{','.join(names)}')"
-        )
-        print(f'Running real Ledalab (via Octave) over {len(names)} track(s)...', file=sys.stderr)
-        result = subprocess.run(
-            [OCTAVE_BIN, '--no-gui', '--eval', octave_cmd],
-            capture_output=True, text=True, timeout=1800,
-            cwd=work_dir,  # Ledalab writes a batchmode_protocol.mat into Octave's CWD;
-                           # keep that litter in the auto-cleaned temp dir, not the repo.
-        )
-        for line in result.stdout.splitlines():
-            print(f'  {line}', file=sys.stderr)
-        if result.returncode != 0:
-            print(f'octave exited {result.returncode}:\n{result.stderr}', file=sys.stderr)
+            for name in names:
+                default_pairs = load_pairs(work_dir / f'{name}_default_peaks.csv')
+                tuned_pairs_all = load_pairs(work_dir / f'{name}_tuned_peaks.csv')
+                end_t = end_times.get(name, 0.0)
+                default_pairs = [(t, a) for t, a in default_pairs
+                                  if math.isfinite(t) and math.isfinite(a) and 0 <= t <= end_t]
+                tuned_pairs = [(t, a) for t, a in tuned_pairs_all
+                                if math.isfinite(t) and math.isfinite(a) and 0 <= t <= end_t
+                                and a >= LIT_MIN_AMP]
+                track_res = {
+                    'ledalab_peak_times': [p[0] for p in default_pairs],
+                    'ledalab_peak_amplitudes': [p[1] for p in default_pairs],
+                    'ledalab_lit_peak_times': [p[0] for p in tuned_pairs],
+                    'ledalab_lit_peak_amplitudes': [p[1] for p in tuned_pairs],
+                    'ledalab_lit_prefilter_hz': LIT_PREFILTER_HZ,
+                    'ledalab_lit_min_amp': LIT_MIN_AMP,
+                }
+                out[name] = track_res
+                with open(CACHE_DIR / f'{name}.json', 'w') as f:
+                    json.dump(track_res, f)
 
-        out = {}
-        for name in names:
-            default_pairs = load_pairs(work_dir / f'{name}_default_peaks.csv')
-            tuned_pairs_all = load_pairs(work_dir / f'{name}_tuned_peaks.csv')
-            end_t = end_times[name]
-            default_pairs = [(t, a) for t, a in default_pairs
-                              if math.isfinite(t) and math.isfinite(a) and 0 <= t <= end_t]
-            tuned_pairs = [(t, a) for t, a in tuned_pairs_all
-                            if math.isfinite(t) and math.isfinite(a) and 0 <= t <= end_t
-                            and a >= LIT_MIN_AMP]
-            out[name] = {
-                'ledalab_peak_times': [p[0] for p in default_pairs],
-                'ledalab_peak_amplitudes': [p[1] for p in default_pairs],
-                'ledalab_lit_peak_times': [p[0] for p in tuned_pairs],
-                'ledalab_lit_peak_amplitudes': [p[1] for p in tuned_pairs],
-                'ledalab_lit_prefilter_hz': LIT_PREFILTER_HZ,
-                'ledalab_lit_min_amp': LIT_MIN_AMP,
-            }
         json.dump(out, sys.stdout)
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)

@@ -16,12 +16,15 @@ Usage: python3 run_neurokit.py path/to/biomap_027.csv [more.csv ...]
 """
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
 import pandas as pd
 import neurokit2 as nk
 from scipy.signal import find_peaks, peak_prominences
+
+HERE = Path(__file__).resolve().parent
 
 # Literature-tuned absolute peak floor: the methodologically rigorous minority
 # of published NeuroKit2 EDA studies (Gamboa et al. 2025, PMC11946426; Xu et
@@ -175,13 +178,37 @@ def process(csv_path):
     }
 
 
+CACHE_DIR = Path(os.environ.get('NEUROKIT_CACHE_DIR', HERE / '.cache' / 'neurokit'))
+NO_CACHE = os.environ.get('NO_CACHE') == '1'
+
+
 def main():
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
     out = {}
-    for csv_path in sys.argv[1:]:
-        name = Path(csv_path).stem
-        print(f'Processing {name}...', file=sys.stderr)
+    csv_paths = [Path(p) for p in sys.argv[1:]]
+    for idx, csv_path in enumerate(csv_paths, 1):
+        name = csv_path.stem
+        if csv_path.stat().st_size == 0:
+            print(f'[{idx}/{len(csv_paths)}] Skipping empty {name}', file=sys.stderr)
+            continue
+
+        cache_file = CACHE_DIR / f'{name}.json'
+        if not NO_CACHE and cache_file.exists() and cache_file.stat().st_mtime >= csv_path.stat().st_mtime:
+            try:
+                with open(cache_file, 'r') as f:
+                    out[name] = json.load(f)
+                if len(csv_paths) > 6:
+                    print(f'[{idx}/{len(csv_paths)}] {name} (cached)', file=sys.stderr)
+                continue
+            except Exception:
+                pass
+
+        print(f'[{idx}/{len(csv_paths)}] Processing {name}...', file=sys.stderr)
         try:
-            out[name] = process(csv_path)
+            res = process(csv_path)
+            out[name] = res
+            with open(cache_file, 'w') as f:
+                json.dump(res, f)
         except Exception as exc:  # noqa: BLE001 - report and continue the batch
             print(f'  FAILED: {exc}', file=sys.stderr)
     json.dump(out, sys.stdout)

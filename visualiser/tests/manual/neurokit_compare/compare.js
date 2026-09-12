@@ -166,7 +166,8 @@ COMPARISONS.forEach((c) => {
   aggregate[key] = { ...c, matched: 0, refTotal: 0, extra: 0, deltas: [] };
 });
 
-for (const trackPath of trackPaths) {
+for (let trackIdx = 0; trackIdx < trackPaths.length; trackIdx++) {
+  const trackPath = trackPaths[trackIdx];
   const name = path.basename(trackPath, '.csv');
   const ref = refData[name];
   if (!ref) { console.warn(`\n(no reference data for ${name}, skipping)`); continue; }
@@ -195,7 +196,14 @@ for (const trackPath of trackPaths) {
 
   const srStr = ref.sampling_rate ? `@ ${ref.sampling_rate.toFixed(2)}Hz` : '';
   const nStr = ref.n_samples ? `${ref.n_samples} samples` : '';
-  console.log(`\n=== ${name} (${[nStr, srStr].filter(Boolean).join(' ')} | ${refParts.join(' | ')}) ===`);
+  const verbose = trackPaths.length <= 6 || process.env.VERBOSE === '1';
+  if (verbose) {
+    console.log(`\n=== ${name} (${[nStr, srStr].filter(Boolean).join(' ')} | ${refParts.join(' | ')}) ===`);
+  } else {
+    const fsCount = ourPeaksMap['Full-Scan'] ? ourPeaksMap['Full-Scan'].length : 0;
+    const progress = `[${String(trackIdx + 1).padStart(2)}/${trackPaths.length}]`;
+    console.log(`  ${progress} ${name.padEnd(28)} (${[nStr, srStr].filter(Boolean).join(' ')}): Full-Scan ${String(fsCount).padStart(3)} | ${refParts.join(' | ')}`);
+  }
 
   let currentCategory = '';
   for (const c of COMPARISONS) {
@@ -218,13 +226,14 @@ for (const trackPath of trackPaths) {
       : NaN;
     const recallPct = (100 * r.matches.length / refTimes.length).toFixed(1);
 
-    if (c.category !== currentCategory) {
-      console.log(`  [${c.category}]`);
-      currentCategory = c.category;
+    if (verbose) {
+      if (c.category !== currentCategory) {
+        console.log(`  [${c.category}]`);
+        currentCategory = c.category;
+      }
+      const deltaStr = Number.isNaN(meanAbsDelta) ? 'n/a' : `${meanAbsDelta.toFixed(3)}s`;
+      console.log(`    ${sourceName.padEnd(16)} vs ${c.refLabel.padEnd(25)} | recall ${recallPct.padStart(5)}% (${String(r.matches.length).padStart(3)}/${String(refTimes.length).padStart(3)}) | missed ${String(r.missed.length).padStart(3)} | extra ${String(r.extra.length).padStart(3)} | mean|delta| ${deltaStr}`);
     }
-
-    const deltaStr = Number.isNaN(meanAbsDelta) ? 'n/a' : `${meanAbsDelta.toFixed(3)}s`;
-    console.log(`    ${sourceName.padEnd(16)} vs ${c.refLabel.padEnd(25)} | recall ${recallPct.padStart(5)}% (${String(r.matches.length).padStart(3)}/${String(refTimes.length).padStart(3)}) | missed ${String(r.missed.length).padStart(3)} | extra ${String(r.extra.length).padStart(3)} | mean|delta| ${deltaStr}`);
 
     const key = `${c.category}::${c.source || c.sourceLabel}::${c.refLabel}`;
     const agg = aggregate[key];

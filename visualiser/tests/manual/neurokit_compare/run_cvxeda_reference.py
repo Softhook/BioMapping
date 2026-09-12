@@ -38,11 +38,14 @@ Usage: python3 run_cvxeda_reference.py path/to/biomap_027.csv [more.csv ...]
 """
 import json
 import math
+import os
 import sys
 import urllib.request
 from pathlib import Path
 
 import numpy as np
+
+HERE = Path(__file__).resolve().parent
 import pandas as pd
 
 # The reference cvxEDA() clears cvxopt.solvers.options and rebuilds it from
@@ -271,14 +274,41 @@ def process(csv_path, cvxEDA):
     }
 
 
+CACHE_DIR = Path(os.environ.get('CVXEDA_CACHE_DIR', HERE / '.cache' / 'cvxeda'))
+NO_CACHE = os.environ.get('NO_CACHE') == '1'
+
+
 def main():
-    cvxEDA = fetch_reference()
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cvxEDA = None
     out = {}
-    for csv_path in sys.argv[1:]:
-        name = Path(csv_path).stem
-        print(f'Processing {name}...', file=sys.stderr)
+    csv_paths = [Path(p) for p in sys.argv[1:]]
+    for idx, csv_path in enumerate(csv_paths, 1):
+        name = csv_path.stem
+        if csv_path.stat().st_size == 0:
+            print(f'[{idx}/{len(csv_paths)}] Skipping empty {name}', file=sys.stderr)
+            continue
+
+        cache_file = CACHE_DIR / f'{name}.json'
+        if not NO_CACHE and cache_file.exists() and cache_file.stat().st_mtime >= csv_path.stat().st_mtime:
+            try:
+                with open(cache_file, 'r') as f:
+                    out[name] = json.load(f)
+                if len(csv_paths) > 6:
+                    print(f'[{idx}/{len(csv_paths)}] {name} (cached)', file=sys.stderr)
+                continue
+            except Exception:
+                pass
+
+        if cvxEDA is None:
+            cvxEDA = fetch_reference()
+
+        print(f'[{idx}/{len(csv_paths)}] Processing {name}...', file=sys.stderr)
         try:
-            out[name] = process(csv_path, cvxEDA)
+            res = process(csv_path, cvxEDA)
+            out[name] = res
+            with open(cache_file, 'w') as f:
+                json.dump(res, f)
         except Exception as exc:  # noqa: BLE001 - report and continue the batch
             print(f'  FAILED: {exc}', file=sys.stderr)
     json.dump(out, sys.stdout)

@@ -30,28 +30,33 @@ names = strsplit(names_str, ',');
 
 for i = 1:length(names)
   name = names{i};
+  try
+    % Default: raw signal, no smoothwin override, matches Ledalab's own
+    % out-of-the-box CDA settings exactly.
+    raw_file = fullfile(work_dir, [name, '_raw.txt']);
+    Ledalab(raw_file, 'open', 'text', 'analyze', 'CDA', 'optimize', 0);
+    n_default = length(leda2.analysis.peakTime);
+    write_peaks(fullfile(work_dir, [name, '_default_peaks.csv']), ...
+                leda2.analysis.peakTime, leda2.analysis.amp);
 
-  % Default: raw signal, no smoothwin override, matches Ledalab's own
-  % out-of-the-box CDA settings exactly.
-  raw_file = fullfile(work_dir, [name, '_raw.txt']);
-  Ledalab(raw_file, 'open', 'text', 'analyze', 'CDA', 'optimize', 0);
-  n_default = length(leda2.analysis.peakTime);
-  write_peaks(fullfile(work_dir, [name, '_default_peaks.csv']), ...
-              leda2.analysis.peakTime, leda2.analysis.amp);
+    % Tuned: pre-filtered signal, load without decomposing (analyze=none),
+    % override smoothwin_sdeco, then decompose by hand - batch mode has no
+    % hook to change this setting before sdeco() runs.
+    tuned_file = fullfile(work_dir, [name, '_prefiltered.txt']);
+    Ledalab(tuned_file, 'open', 'text', 'analyze', 'none', 'optimize', 0);
+    leda2.set.smoothwin_sdeco = 0.5;
+    sdeco(0);
+    n_tuned = length(leda2.analysis.peakTime);
+    write_peaks(fullfile(work_dir, [name, '_tuned_peaks.csv']), ...
+                leda2.analysis.peakTime, leda2.analysis.amp);
 
-  % Tuned: pre-filtered signal, load without decomposing (analyze=none),
-  % override smoothwin_sdeco, then decompose by hand - batch mode has no
-  % hook to change this setting before sdeco() runs.
-  tuned_file = fullfile(work_dir, [name, '_prefiltered.txt']);
-  Ledalab(tuned_file, 'open', 'text', 'analyze', 'none', 'optimize', 0);
-  leda2.set.smoothwin_sdeco = 0.5;
-  sdeco(0);
-  n_tuned = length(leda2.analysis.peakTime);
-  write_peaks(fullfile(work_dir, [name, '_tuned_peaks.csv']), ...
-              leda2.analysis.peakTime, leda2.analysis.amp);
-
-  printf('ledalab_batch_run: %s done (%d default, %d tuned candidates)\n', ...
-         name, n_default, n_tuned);
+    printf('ledalab_batch_run: %s done (%d default, %d tuned candidates)\n', ...
+           name, n_default, n_tuned);
+  catch err
+    printf('ledalab_batch_run: error on %s: %s\n', name, err.message);
+    write_peaks(fullfile(work_dir, [name, '_default_peaks.csv']), [], []);
+    write_peaks(fullfile(work_dir, [name, '_tuned_peaks.csv']), [], []);
+  end
 end
 
 end
