@@ -52,8 +52,12 @@ const { GSRAnalyzer } = global;
 const D = global.GSR_CONST.GSR_DEFAULT;
 
 const TOL = 1.0; // seconds - same match window used throughout this investigation
+const thresholdOverride = Number.parseFloat(process.env.BIOMAP_PEAK_THRESHOLD);
+const detectorThresholdPatch = Number.isFinite(thresholdOverride) && thresholdOverride >= 0
+  ? { peakThreshold: thresholdOverride }
+  : {};
 const gaitFilterOverride = process.env.BIOMAP_USE_GAIT_FILTER === '1';
-const detectorDefaults = { ...D, useGaitFilter: gaitFilterOverride };
+const detectorDefaults = { ...D, useGaitFilter: gaitFilterOverride, ...detectorThresholdPatch };
 
 // Amplitude accuracy over matched (TP) pairs only - a false positive or a
 // miss has no true amplitude to compare against, so those cases are outside
@@ -148,6 +152,7 @@ const DETECTORS = [
   ['Full-Scan', {}],
   ['Prominence', { usePeakProminence: true }],
   ['cvxEDA', { useCvxEDA: true }],
+  ['Deconvolution', { useDeconvolution: true }],
 ];
 
 const firstArg = args[0];
@@ -178,12 +183,12 @@ if (isDir) {
 }
 
 const nkAll = JSON.parse(fs.readFileSync(nkPath, 'utf8'));
-const aggregateMap = {
-  'Full-Scan': [],
-  'Prominence': [],
-  'cvxEDA': [],
-  'NeuroKit2 (default)': [],
-};
+const aggregateMap = {};
+for (const [label] of DETECTORS) {
+  aggregateMap[label] = [];
+}
+aggregateMap['NeuroKit2 (default)'] = [];
+aggregateMap['NeuroKit2 (cvxEDA)'] = [];
 let totalTrueSCRs = 0;
 
 for (const item of trackFiles) {
@@ -218,9 +223,14 @@ for (const item of trackFiles) {
   }
 
   if (nk) {
-    const s = score(nk.peak_times, nk.peak_amplitudes || [], trueScrs);
+    const s = score(nk.peak_times || [], nk.peak_amplitudes || [], trueScrs);
     aggregateMap['NeuroKit2 (default)'].push(s);
     console.log(fmt('NeuroKit2 (default)', s));
+    if (nk.cvxeda_peak_times && nk.cvxeda_peak_times.length > 0) {
+      const sCvx = score(nk.cvxeda_peak_times, nk.cvxeda_peak_amplitudes || [], trueScrs);
+      aggregateMap['NeuroKit2 (cvxEDA)'].push(sCvx);
+      console.log(fmt('NeuroKit2 (cvxEDA)', sCvx));
+    }
   } else {
     console.log('  (no NeuroKit2 result for this track)');
   }
@@ -239,6 +249,10 @@ if (aggregateMap['Full-Scan'].length > 1) {
   if (aggregateMap['NeuroKit2 (default)'].length > 0) {
     const agg = aggregateStats(aggregateMap['NeuroKit2 (default)']);
     console.log(fmt('NeuroKit2 (default)', agg));
+  }
+  if (aggregateMap['NeuroKit2 (cvxEDA)'].length > 0) {
+    const agg = aggregateStats(aggregateMap['NeuroKit2 (cvxEDA)']);
+    console.log(fmt('NeuroKit2 (cvxEDA)', agg));
   }
   console.log();
 }

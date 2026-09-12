@@ -86,9 +86,10 @@ const detectorDefaults = {
 // (`cvxeda_peak_times`) instead - otherwise "cvxEDA" would silently be
 // scored against a differently-decomposed signal.
 const DETECTORS = [
-  ['Full-Scan',  detectorThresholdPatch,                           'peak_times'],
-  ['Prominence', { ...detectorThresholdPatch, usePeakProminence: true }, 'peak_times'],
-  ['cvxEDA',     { ...detectorThresholdPatch, useCvxEDA: true },   'cvxeda_peak_times'],
+  ['Full-Scan',      detectorThresholdPatch,                                'peak_times'],
+  ['Prominence',     { ...detectorThresholdPatch, usePeakProminence: true }, 'peak_times'],
+  ['cvxEDA',         { ...detectorThresholdPatch, useCvxEDA: true },        'cvxeda_peak_times'],
+  ['Deconvolution',  { ...detectorThresholdPatch, useDeconvolution: true }, 'peak_times'],
 ];
 
 function matchPeaks(oursTimes, nkTimes) {
