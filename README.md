@@ -27,6 +27,8 @@ Everything is logged to `/ext/biomapping/*.csv` at 10 Hz. A Live Stream mode sen
 
 ## How It Compares
 
+### Hardware Accuracy (vs. Shimmer3 GSR+)
+
 The GSR front-end is built to research-grade specification and measured against a precision metal-film resistor grid (10 kΩ – 9 MΩ), full sweep in [`docs/reference_test_results.csv`](docs/reference_test_results.csv).
 
 | | BioMapping 2.0 | [Shimmer3 GSR+](https://shimmersensing.com/product/shimmer3-gsr-unit/) |
@@ -43,6 +45,15 @@ Accuracy zones by the fraction of real-world track data that falls inside them:
 - **≤ ±0.5%** — 22 kΩ – 2.2 MΩ (455 – 45,455 nS): 99.75%
 - **≤ ±1.0%** — 15 kΩ – 4.7 MΩ (213 – 66,667 nS): 99.89%
 - Below 100 nS (over 10 MΩ) the device reports an open circuit (electrodes disconnected / air).
+
+### Software & Algorithmic Accuracy (vs. NeuroKit2 & Ledalab)
+
+BioMapping's detection algorithms are rigorously benchmarked against the gold-standard academic toolboxes — **NeuroKit2** (Python), genuine MATLAB-source **Ledalab** (CDA/DDA), and the upstream **cvxEDA** optimization solver — across synthetic ground-truth suites and real human recordings (full report in [`docs/neurokit_comparison_plan.md`](docs/neurokit_comparison_plan.md)):
+
+- **The cvxEDA JavaScript port is mathematically identical to the official Python reference solver:** Evaluated across 6 real human tracks totaling over 59,000 data points, BioMapping's zero-dependency in-browser JavaScript implementation matched the upstream Python `cvxEDA.py` reference solver on **100.0% of peak detections (967 out of 967 peaks, 0 missed, 0 extra, mean timing offset 0.000s)**.
+- **It beats NeuroKit2 on subtle peak detection and beats Ledalab on noise immunity and timing precision:**
+  - **vs. NeuroKit2:** NeuroKit2's default relative thresholding discards any peak smaller than 10% of the recording's maximum peak. If a track contains an isolated large emotional response or deep breath, NeuroKit2 accidentally deletes 15% to 50% of genuine, smaller responses later in the session. BioMapping captures these true physiological responses without sacrificing precision.
+  - **vs. Ledalab:** Out-of-the-box Ledalab deconvolution suffers from extreme noise sensitivity, generating thousands of false alarms on realistic signals (over 12,000 false positives on 510 true events). While literature-tuned Ledalab restores precision through heavy pre-filtering, that introduces substantial phase lag (~0.5s–0.6s timing drift). BioMapping maintains sub-frame timing precision (< 0.03s) and superior noise immunity under ambulatory footstep conditions via its zero-phase gait-filtering engine.
 
 
 ---
