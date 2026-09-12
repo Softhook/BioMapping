@@ -888,52 +888,73 @@ predated both):
     path in `run_ledapy.py` now replicates `getResult()`'s body by hand so its own setting change,
     `smoothwin_sdeco`, survives.)
 
-    With `sigPeak` ruled out, a grid search (1-seed clean suite, then confirmed on the 3-seed/
-    210-SCR clean suite via `CLEAN_ONLY=1 GROUND_TRUTH_NUM_SEEDS=3 ./check_ground_truth.sh`) swept
-    the two levers that do reach the final list: Ledalab's own `smoothwin_sdeco` (driver-smoothing
-    window, default 0.2s) and a post-hoc absolute amplitude floor applied to the raw candidate
-    list - the same class of fix item 17 already applied to NeuroKit2's own default gate. Widening
-    `smoothwin_sdeco` to 0.5s (no further gain past that) plus a 0.09 uS floor was the best point
-    found. Added to `run_ledapy.py` as `ledapy_lit_peak_times`/`ledapy_lit_peak_amplitudes`
-    (env-overridable via `LEDAPY_LIT_SMOOTHWIN`/`LEDAPY_LIT_MIN_AMP` for future re-sweeps), wired
-    into `check_ground_truth.js` as a new "Ledalab CDA (literature-tuned)" row:
+    With `sigPeak` ruled out, a round-1 grid search (1-seed clean suite) swept the two levers
+    that do reach the final list: Ledalab's own `smoothwin_sdeco` (driver-smoothing window,
+    default 0.2s) and a post-hoc absolute amplitude floor applied to the raw candidate list -
+    the same class of fix item 17 already applied to NeuroKit2's own default gate. Widening
+    `smoothwin_sdeco` to 0.5s (no further gain past that) plus a 0.09 uS floor got to F1 0.560
+    (from 0.091 default) on that 1-seed slice - a real gain, but still a long way behind
+    BioMapping/NeuroKit2, and confirming the user's suspicion (asked directly: "it looks like
+    something is broken with Ledalab or not properly setup") that more was wrong than a
+    threshold choice.
+
+    **Round 2 found the bigger gap.** `run_ledapy.py` was feeding Ledalab's naive,
+    non-regularized point-deconvolution completely **unsmoothed** raw conductance data -
+    unlike every other detector scored in this document, which all clean their input before
+    decomposition (NeuroKit2's own `eda_clean()`, BioMapping's own filter stage). Naive
+    deconvolution divides by the kernel's frequency response, so any high-frequency noise that
+    survives into the driver gets amplified, not suppressed - and Ledalab's documented workflow
+    assumes a smoothed/cleaned conductance signal as input, not the raw synthetic-noise-injected
+    CSV this script was handing it. (Two other candidate causes were ruled out first: Ledalab's
+    own automatic tau-optimisation, `optimisation=2` per its own README example, actually made
+    things *worse* here - it converges toward a faster/thinner kernel that amplifies more noise,
+    not less, so `run_ledapy.py` correctly leaves it off. And the installed `ledapy` package,
+    1.2.1, is the current PyPI release - not a stale/broken install.)
+
+    Adding a 4th-order Butterworth low-pass (0.5 Hz cutoff - well below NeuroKit2's 3 Hz
+    cleaning cutoff, because naive deconvolution needs far more headroom than a direct-detection
+    method) before decomposition, on top of the round-1 `smoothwin_sdeco`/amplitude-floor tuning,
+    was swept jointly (cutoff 0.25-1.0 Hz × floor 0.05-0.15 uS) and confirmed on the full 3-seed/
+    210-SCR clean suite via `CLEAN_ONLY=1 GROUND_TRUTH_NUM_SEEDS=3 ./check_ground_truth.sh`.
+    Added to `run_ledapy.py` as `ledapy_lit_peak_times`/`ledapy_lit_peak_amplitudes`
+    (env-overridable via `LEDAPY_LIT_PREFILTER_HZ`/`LEDAPY_LIT_SMOOTHWIN`/`LEDAPY_LIT_MIN_AMP`
+    for future re-sweeps: 0.5 Hz / 0.5s / 0.1 uS), wired into `check_ground_truth.js` as the
+    "Ledalab CDA (literature-tuned)" row:
 
     | Detector | Recall | Precision | F1 | TP | FN | FP | Mean \|delta\| | Amplitude r |
     |---|---:|---:|---:|---:|---:|---:|---:|---:|
     | Ledalab CDA (default, via Ledapy) | 96.2% | 4.8% | 0.091 | 202 | 8 | 4007 | 0.511s | 0.1960 |
-    | **Ledalab CDA (literature-tuned)** | 55.2% | 56.9% | **0.560** | 116 | 94 | 88 | 0.898s | 0.9378 |
-    | BioMapping Full-Scan (production) | 93.3% | 100.0% | 0.966 | 196 | 14 | 0 | 0.029s | 0.9993 |
+    | Ledalab CDA (round-1 tuned, no pre-filter) | 55.2% | 56.9% | 0.560 | 116 | 94 | 88 | 0.898s | 0.9378 |
+    | **Ledalab CDA (literature-tuned, round 2)** | 81.9% | 87.8% | **0.847** | 172 | 38 | 24 | 0.606s | 0.9759 |
     | NeuroKit2 (default) | 83.8% | 84.2% | 0.840 | 176 | 34 | 33 | 0.035s | 0.9985 |
+    | BioMapping Full-Scan (production) | 93.3% | 100.0% | 0.966 | 196 | 14 | 0 | 0.029s | 0.9993 |
 
     (12 tracks, 3 seeds, 210 true SCRs; re-run 2026-09-12 via the harness, matching every other
     table in this section.)
 
-    Tuning closes most of the precision gap (4.8%→56.9%) at a real recall cost (96.2%→55.2%) -
-    a much harder trade-off than NeuroKit2 faced in item 17, where an absolute floor alone
-    recovered NeuroKit2's cvxEDA recall to 95.2% (at its own, smaller, precision cost). The
-    interpretation: unlike NeuroKit2's relative-threshold problem (a good decomposition wrapped
-    in a bad gate) or BioMapping's own pre-fix cvxEDA (a good decomposition wrapped in the wrong
-    *candidate source* - item 19), Ledalab's naive point-deconvolution driver has no regularization
-    against noise amplification during inversion, so it doesn't produce a clean separation between
-    true-SCR-sized peaks and noise-ripple-sized peaks for any single global threshold to exploit -
-    true and false candidates' amplitude distributions genuinely overlap on this suite (compare
-    this item's table to the driver-based cvxEDA row a few paragraphs up: a *regularized* sparse
-    solver's driver, even before item 19's candidate-source fix, still massively outperforms
-    Ledalab's naive one - naive curve-scan F1 0.778 vs. Ledalab-tuned F1 0.560). A refractory-gap
-    post-filter (BioMapping's own 1.3s `PEAK_MIN_GAP`, applied on top of the amplitude floor) was
-    also tried and made no meaningful difference (F1 0.560→0.562) - the false positives are not
-    simply duplicate detections clustered near true events, which a refractory rule would fix, but
-    genuinely dispersed noise-driven candidates.
+    The pre-filter closes almost all of the remaining gap: tuned Ledalab (F1 0.847) now lands
+    essentially level with NeuroKit2's own default detector (F1 0.840) - recall a little lower
+    (81.9% vs 83.8%), precision a little higher (87.8% vs 84.2%). It remains clearly behind
+    BioMapping's own production detectors (F1 0.966-0.973), and its per-peak timing is
+    noticeably worse (mean \|delta\| 0.606s vs 0.029-0.035s for Full-Scan/NeuroKit2) - the
+    aggressive low-pass and continuous deconvolution both smear exact onset/peak timing more
+    than direct trough-to-peak methods do. Amplitude correlation (r = 0.9759) is close to
+    NeuroKit2's (0.9985) and BioMapping's, so the *sizes* of matched detections are trustworthy
+    even where the *times* drift.
 
-    This is a fair-comparison result, not a dismissal: it required real tuning effort (a
-    parameter sweep across two dimensions, informed by tracing Ledapy's own source rather than
-    guessing), and BioMapping's own detectors are held to a like-for-like known-answer suite
-    throughout this document, not to their own tuned-vs-default gap. **Not yet done**: sweeping
-    `smoothwin_sdeco`/threshold jointly and finer than this 1D-then-1D search (a true 2D grid,
-    in case the two levers interact more than found here); re-running on noisy/gait/walking
-    scenarios and real tracks; trying Ledalab's alternative DDA (Discrete Decomposition
-    Analysis) method, which fits discrete SCR-shaped responses directly rather than via
-    continuous deconvolution and may not share this failure mode.
+    This is a fair-comparison result now, not a dismissal: it required real tuning effort across
+    two rounds (parameter sweeps informed by tracing Ledapy's own source, ruling out two other
+    plausible causes, then finding and fixing an actual missing pre-processing step), and
+    BioMapping's own detectors are held to the same like-for-like known-answer suite throughout
+    this document, not to their own tuned-vs-default gap. **Not yet done**: a true joint 3D grid
+    over prefilter cutoff × `smoothwin_sdeco` × amplitude floor (the search here was staged -
+    round 1 tuned smoothwin/floor with no prefilter, round 2 then re-tuned floor around a swept
+    prefilter cutoff - so a small further gain from re-sweeping smoothwin jointly with the
+    prefilter is possible but untried); re-running on noisy/gait/walking scenarios and real
+    tracks (a 0.5 Hz cutoff is aggressive enough that gait/motion artefact behaviour there is not
+    obviously predictable from the clean-suite result); trying Ledalab's alternative DDA
+    (Discrete Decomposition Analysis) method, which fits discrete SCR-shaped responses directly
+    rather than via continuous deconvolution and may not need this pre-filter at all.
 
 ## Decision Rule
 
