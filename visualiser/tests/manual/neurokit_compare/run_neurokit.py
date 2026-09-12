@@ -15,6 +15,7 @@ Usage: python3 run_neurokit.py path/to/biomap_027.csv [more.csv ...]
        (normally invoked via run.sh, not directly)
 """
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -99,7 +100,12 @@ def process(csv_path):
     # in the same per-peak loop), and filtering each list independently would
     # silently misalign amplitude[i] with peak[i] the moment any peak index
     # fails the bounds check.
-    peak_pairs = [(i, a) for i, a in zip(info.get('SCR_Peaks', []), info.get('SCR_Amplitude', [])) if 0 <= i < len(ts)]
+    # NeuroKit2's own SCR_Amplitude can come back NaN for peaks too close to
+    # a signal edge to compute an onset-relative amplitude (its internal
+    # feature extraction returns NaN rather than dropping the peak); a NaN
+    # literal is not valid JSON, so it must be filtered here or json.dumps()
+    # below emits a token `NaN` that breaks every downstream JSON.parse.
+    peak_pairs = [(i, a) for i, a in zip(info.get('SCR_Peaks', []), info.get('SCR_Amplitude', [])) if 0 <= i < len(ts) and math.isfinite(a)]
     peak_idx = [i for i, _ in peak_pairs]
     peak_amplitudes = [float(a) for _, a in peak_pairs]
 
@@ -120,7 +126,7 @@ def process(csv_path):
         cleaned = nk.eda_clean(eda, sampling_rate=sampling_rate)
         phasic_df = eda_phasic_cvxeda_standardized(cleaned, sampling_rate)
         _, cvx_info = nk.eda_peaks(phasic_df['EDA_Phasic'].values, sampling_rate=sampling_rate)
-        cvx_pairs = [(i, a) for i, a in zip(cvx_info.get('SCR_Peaks', []), cvx_info.get('SCR_Amplitude', [])) if 0 <= i < len(ts)]
+        cvx_pairs = [(i, a) for i, a in zip(cvx_info.get('SCR_Peaks', []), cvx_info.get('SCR_Amplitude', [])) if 0 <= i < len(ts) and math.isfinite(a)]
         cvxeda_peak_times = [float(ts[i]) for i, _ in cvx_pairs]
         cvxeda_peak_amplitudes = [float(a) for _, a in cvx_pairs]
     except Exception as exc:  # noqa: BLE001 - report and continue the batch

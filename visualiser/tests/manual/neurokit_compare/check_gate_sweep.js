@@ -81,7 +81,7 @@ const tracks = fs.readdirSync(groundTruthDir)
     };
   });
 
-const thresholdValues = [0.015, 0.02, 0.025, 0.03, 0.04, 0.05, 0.075, 0.1];
+const thresholdValues = [0.015, 0.02, 0.025, 0.03, 0.04, 0.045, 0.05, 0.075, 0.1];
 const snrValues = [0, 1.5, 2, 2.5, 3, 4, 5, 6];
 const qualityValues = [0, 0.1, 0.2, 0.3, 0.4, 0.5];
 const candidates = [];
