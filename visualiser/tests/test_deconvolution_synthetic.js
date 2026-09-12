@@ -87,13 +87,20 @@ function buildSyntheticCSV(scrs, durationSec, tonicLevel, noiseSd) {
   return { csvText: rows.join('\n'), truePeakTimes: truePeakTimes };
 }
 
+// useGaitFilter pinned off: these synthetic tracks have no GPS/gait content
+// to reject, and this suite tests deconvolution pipeline correctness, not
+// the LPF stage - leaving it implicit would silently couple these
+// assertions to whichever filter happens to be GSR_DEFAULT's current
+// default (the Butterworth gait filter passes more raw signal detail
+// through than a box average, which briefly turned one exact-peak-count
+// assertion here flaky when useGaitFilter's default flipped to true).
 function analyzeDeconv(csvText, extra) {
   const a = new GSRAnalyzer();
   a.parseCSV(csvText);
   const params = Object.assign({}, global.GSR_CONST.GSR_DEFAULT, {
     tonicMethod: 'percentile', tonicWindow: 15,
     peakThreshold: 0.020, minPeakQuality: 0.0, shapeMinSnr: 0,
-    useDeconvolution: true
+    useGaitFilter: false, useDeconvolution: true
   }, extra || {});
   a.analyze(params);
   return a;
@@ -105,7 +112,7 @@ function analyzeBaseline(csvText, extra) {
   const params = Object.assign({}, global.GSR_CONST.GSR_DEFAULT, {
     tonicMethod: 'percentile', tonicWindow: 15,
     peakThreshold: 0.020, minPeakQuality: 0.0, shapeMinSnr: 0,
-    useDeconvolution: false
+    useGaitFilter: false, useDeconvolution: false
   }, extra || {});
   a.analyze(params);
   return a;

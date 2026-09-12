@@ -120,11 +120,11 @@ function whittakerSmooth(y, lambda) {
 }
 
 // ── Zero-phase Butterworth lowpass is now SHIPPED (gsr_filter.js's
-// applyZeroPhaseButterworth, wired into analyzer.js as the default LPF stage
-// for any GPS track) - this candidate list calls the real production
-// function directly, both to sweep cutoffs and as a regression check that
-// the shipped implementation still reproduces the numbers this investigation
-// was validated against.
+// applyZeroPhaseButterworth, wired into analyzer.js behind the useGaitFilter
+// toggle - on by default, independent of GPS presence) - this candidate list
+// calls the real production function directly, both to sweep cutoffs and as
+// a regression check that the shipped implementation still reproduces the
+// numbers this investigation was validated against.
 
 // ── BioSPPy's production EDA-cleaning pipeline: Butterworth 5Hz order-4
 // lowpass, then smoothed with a "boxzen" kernel (boxcar then Parzen window,
@@ -301,7 +301,7 @@ const useProductionDefault = () => { GsrFilter.applyZeroPhaseMovingAverage = ori
 
 const CANDIDATES = [
   ['none (lpfWindow=0)', useNone, { lpfWindow: 0 }],
-  ['box 0.5s (production default)', useBox(0.5), { lpfWindow: 1 }],
+  ['box 0.5s (box filter default)', useBox(0.5), { lpfWindow: 1 }],
   ['box 0.9s', useBox(0.9), { lpfWindow: 1 }],
   ['box 1.1s (manual gait fix)', useBox(1.1), { lpfWindow: 1 }],
   ['box 1.3s', useBox(1.3), { lpfWindow: 1 }],

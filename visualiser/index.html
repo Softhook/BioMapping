@@ -137,13 +137,13 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Smoothing Low-Pass</span>
-                <span class="slider-value" id="valLpfWindow">0.5 s</span>
+                <span class="slider-value" id="valLpfWindow">off</span>
               </div>
-              <input type="range" id="lpfWindow" min="0" max="4" step="0.1" value="0.5">
+              <input type="range" id="lpfWindow" min="0" max="4" step="0.1" value="0">
               <div class="slider-rec" style="left:7.5%; width:17.5%"></div>
               <div class="toggle-group" style="margin-top:8px;">
                 <label class="switch">
-                  <input type="checkbox" id="useGaitFilter">
+                  <input type="checkbox" id="useGaitFilter" checked>
                   <span class="slider round"></span>
                 </label>
                 <span class="toggle-label">Gait Filter (cancel walking artefact)</span>

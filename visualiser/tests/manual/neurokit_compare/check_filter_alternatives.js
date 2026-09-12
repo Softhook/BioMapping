@@ -152,11 +152,11 @@ function whittakerSmooth(y, lambda) {
 }
 
 // ── Zero-phase Butterworth lowpass is now SHIPPED (gsr_filter.js's
-// applyZeroPhaseButterworth, wired into analyzer.js as the default LPF stage
-// for any GPS track) - candidates below call the real production function
-// directly, both to sweep cutoffs and as a regression check that the shipped
-// implementation still reproduces the numbers this investigation was
-// validated against.
+// applyZeroPhaseButterworth, wired into analyzer.js behind the useGaitFilter
+// toggle - on by default, independent of GPS presence) - candidates below
+// call the real production function directly, both to sweep cutoffs and as
+// a regression check that the shipped implementation still reproduces the
+// numbers this investigation was validated against.
 
 // ── BioSPPy's production EDA-cleaning pipeline: Butterworth 5Hz order-4
 // lowpass, then smoothed with a "boxzen" kernel (boxcar then Parzen window,
@@ -285,7 +285,7 @@ const useButterworthPlusBox = (cutoffHz, order, boxSec) => () => {
 const CANDIDATES = [
   // ── Linear smoothing family (frequency-domain separation) ──
   ['none (lpfWindow=0)', useOriginalBox, { lpfWindow: 0, usePeakProminence: true }],
-  ['box 0.5s (production)', useOriginalBox, { lpfWindow: 0.5, usePeakProminence: true }],
+  ['box 0.5s (box filter default)', useOriginalBox, { lpfWindow: 0.5, usePeakProminence: true }],
   ['box 0.7s', useOriginalBox, { lpfWindow: 0.7, usePeakProminence: true }],
   ['box 0.9s', useOriginalBox, { lpfWindow: 0.9, usePeakProminence: true }],
   ['box 1.1s (manual gait fix)', useOriginalBox, { lpfWindow: 1.1, usePeakProminence: true }],
