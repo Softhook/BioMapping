@@ -47,6 +47,11 @@ SCENARIOS = [
     {'name': 'synth_sparse_noisy', 'duration': 300, 'scr_number': 6, 'noise': 0.05, 'drift': 0.001, 'seed': 2},
     {'name': 'synth_dense_clean', 'duration': 600, 'scr_number': 40, 'noise': 0.01, 'drift': 0.001, 'seed': 3},
     {'name': 'synth_dense_noisy', 'duration': 600, 'scr_number': 40, 'noise': 0.05, 'drift': 0.001, 'seed': 4},
+    # Six paired responses 2.5s apart. This is the adversarial clean case for
+    # refractory-period changes: the true events are close enough that a broad
+    # merge can erase one, but remain individually labelled by construction.
+    {'name': 'synth_compound_clean', 'duration': 360, 'scr_number': 12, 'noise': 0.01, 'drift': 0.001,
+     'peak_starts': [20, 22.5, 75, 77.5, 130, 132.5, 185, 187.5, 240, 242.5, 295, 297.5], 'seed': 5},
     # Isolates the walking-gait artefact the lpfWindow comment in constants.js
     # names as the reason the box LPF exists: real footstep impact, ~1.7Hz
     # (each leg strikes independently, so impact frequency runs ~2x stride
@@ -124,7 +129,7 @@ TRUE_AMPLITUDE_RANGE = (0.1, 2.0)  # uS
 SCR_WINDOW_SEC = 20
 
 
-def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_amplitude=0, walking_profile=False):
+def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_amplitude=0, walking_profile=False, peak_starts=None):
     """Mirrors nk.eda_simulate()'s own body exactly (see module docstring for
     why this isn't just a call to that function), tracking each SCR's true
     peak time as it's placed. Generates at GEN_SAMPLING_RATE; caller
@@ -150,10 +155,11 @@ def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_a
     eda += drift * np.linspace(0, duration, length)
     time = [0, duration]
 
-    start_peaks = np.linspace(10 if walking_profile else 0,
-                              duration - 20 if walking_profile else duration,
-                              scr_number,
-                              endpoint=False)
+    start_peaks = peak_starts if peak_starts is not None else np.linspace(
+        10 if walking_profile else 0,
+        duration - 20 if walking_profile else duration,
+        scr_number,
+        endpoint=False)
     true_scrs = []
 
     for start_peak in start_peaks:
@@ -240,7 +246,7 @@ def main():
         eda, speed_kts, true_scrs = generate_track(
             scn['duration'], scn['scr_number'], scn['noise'], scn['drift'], scn['seed'],
             gait_freq=scn.get('gait_freq', 0), gait_amplitude=scn.get('gait_amplitude', 0),
-            walking_profile=scn.get('walking_profile', False)
+            walking_profile=scn.get('walking_profile', False), peak_starts=scn.get('peak_starts')
         )
         n = len(eda)
         ts = np.arange(n) / OUTPUT_SAMPLING_RATE
