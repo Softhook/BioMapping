@@ -956,6 +956,35 @@ predated both):
     (Discrete Decomposition Analysis) method, which fits discrete SCR-shaped responses directly
     rather than via continuous deconvolution and may not need this pre-filter at all.
 
+    **Data-ingestion and peak-by-peak verification (asked directly: "are you sure Ledalab is
+    reading the data correctly"):** confirmed rather than assumed. Sampling-rate inference
+    (`1/mean(dt)`) reproduced the generator's own declared `sampling_rate` exactly (10.0 Hz) on
+    every track checked; the unit auto-detector correctly left the already-in-µS synthetic
+    `gsr_raw` column unscaled (mean ~1.2 µS, comfortably inside the passthrough band). A
+    peak-by-peak audit (not just aggregate recall/precision) across `synth_sparse_clean`,
+    `synth_dense_clean`, and `synth_compound_clean` (58 true SCRs total) found:
+    - Every matched detection lands within 1s of the true peak *and* the timing/amplitude error
+      is not noise-like scatter but a near-constant bias: matched detections are consistently
+      **~0.5-0.8s late** and **~20-40% low in measured amplitude**, on effectively every single
+      match (55/58). This is the expected signature of a 0.5 Hz low-pass smoothing a sharp rise
+      before deconvolution, not a data-alignment bug - confirmed by cross-checking the raw and
+      filtered signal value at each detection's own timestamp (both sane, physiologically-scaled
+      values, not garbage).
+    - The false positives are not scattered noise either: on `synth_dense_clean`, all 4 FPs
+      land within 2.9-8.9s *after* a large-amplitude true response (1.75 uS and 1.06 uS
+      respectively) and before the next true event - consistent with decay-tail ripple in the
+      deconvolved driver during a large response's recovery phase, the same failure mode item 19
+      already diagnosed for BioMapping's own pre-fix cvxEDA candidate scan.
+    - `synth_compound_clean`'s paired responses (2.5s apart, the Decision Rule's specific
+      regression concern) matched 11/12 with 0 false positives even under this preset - only the
+      pair member riding directly on a much larger neighbour's decay shoulder (188.53 uS, 0.44
+      amplitude, immediately after a 1.25 uS response at 186.17s) was lost to the same
+      shoulder-blurring the systematic bias above describes.
+
+    Net: the ingestion pipeline is correct, and the tuned detector's remaining error is an
+    understood, systematic side effect of the pre-filter it needs - not evidence of a bug still
+    hiding in `run_ledapy.py`.
+
 ## Decision Rule
 
 Prefer a change only when it improves known-answer performance across the full
