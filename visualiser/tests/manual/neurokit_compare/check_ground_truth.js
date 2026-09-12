@@ -48,6 +48,10 @@ const { GSRAnalyzer } = global;
 const D = global.GSR_CONST.GSR_DEFAULT;
 
 const TOL = 1.0; // seconds - same match window used throughout this investigation
+const gaitFilterOverride = process.env.BIOMAP_USE_GAIT_FILTER === '0' ? false : undefined;
+const detectorDefaults = gaitFilterOverride === undefined
+  ? D
+  : { ...D, useGaitFilter: gaitFilterOverride };
 
 // Amplitude accuracy over matched (TP) pairs only - a false positive or a
 // miss has no true amplitude to compare against, so those cases are outside
@@ -124,7 +128,7 @@ const name = path.basename(csvPath, '.csv');
 const nkAll = JSON.parse(fs.readFileSync(nkPath, 'utf8'));
 const nk = nkAll[name];
 
-console.log(`=== ${name}: ${trueScrs.length} true SCRs injected (duration ${gt.params.duration}s, noise ${gt.params.noise}, scr_number ${gt.params.scr_number}) ===`);
+console.log(`=== ${name}: ${trueScrs.length} true SCRs injected (duration ${gt.params.duration}s, noise ${gt.params.noise}, scr_number ${gt.params.scr_number}; BioMapping gait filter ${detectorDefaults.useGaitFilter ? 'on' : 'off'}) ===`);
 
 const DETECTORS = [
   ['Full-Scan', {}],
@@ -136,7 +140,7 @@ const results = {};
 for (const [label, patch] of DETECTORS) {
   const a = new GSRAnalyzer();
   a.parseCSV(csvText);
-  a.analyze({ ...D, ...patch }, 0);
+  a.analyze({ ...detectorDefaults, ...patch }, 0);
   const times = a.peaks.map(p => p.time);
   const amps = a.peaks.map(p => p.amplitude);
   const s = score(times, amps, trueScrs);

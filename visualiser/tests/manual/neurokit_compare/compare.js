@@ -57,6 +57,10 @@ const { GSRAnalyzer } = global;
 const D = global.GSR_CONST.GSR_DEFAULT;
 
 const TOL = 1.0; // seconds - a peak within this window of a NeuroKit2 peak counts as a match
+const thresholdOverride = Number.parseFloat(process.env.BIOMAP_PEAK_THRESHOLD);
+const detectorThresholdPatch = Number.isFinite(thresholdOverride) && thresholdOverride >= 0
+  ? { peakThreshold: thresholdOverride }
+  : {};
 
 // Each of our detectors is checked against the NeuroKit2 reference that
 // shares its decomposition family, not just NeuroKit2's default output:
@@ -67,9 +71,9 @@ const TOL = 1.0; // seconds - a peak within this window of a NeuroKit2 peak coun
 // (`cvxeda_peak_times`) instead - otherwise "cvxEDA" would silently be
 // scored against a differently-decomposed signal.
 const DETECTORS = [
-  ['Full-Scan',  {},                        'peak_times'],
-  ['Prominence', { usePeakProminence: true }, 'peak_times'],
-  ['cvxEDA',     { useCvxEDA: true },       'cvxeda_peak_times'],
+  ['Full-Scan',  detectorThresholdPatch,                           'peak_times'],
+  ['Prominence', { ...detectorThresholdPatch, usePeakProminence: true }, 'peak_times'],
+  ['cvxEDA',     { ...detectorThresholdPatch, useCvxEDA: true },   'cvxeda_peak_times'],
 ];
 
 function matchPeaks(oursTimes, nkTimes) {
@@ -112,6 +116,9 @@ const nkData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
 console.log('=== Our preprocessing/smoothing settings (GSR_DEFAULT) ===');
 console.log(`  medianSize=${D.medianSize}s (${D.medianSize > 0 ? 'median filter ON' : 'median filter OFF'})  lpfWindow=${D.lpfWindow}s (zero-phase moving-average low-pass)`);
 console.log(`  tonicMethod=${D.tonicMethod}  tonicWindow=${D.tonicWindow}s  peakThreshold=${D.peakThreshold}`);
+if (Object.hasOwn(detectorThresholdPatch, 'peakThreshold')) {
+  console.log(`  benchmark-only peakThreshold override=${detectorThresholdPatch.peakThreshold}uS`);
+}
 console.log('=== NeuroKit2 reference: eda_clean() (4th-order Butterworth, 3Hz cutoff, applied to BOTH references below) then eda_phasic(highpass) or eda_phasic(cvxeda) ===');
 
 const aggregate = {};

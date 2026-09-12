@@ -9,7 +9,9 @@
 # Requires a Python env with neurokit2 + pandas (default: ~/neurokit/.venv,
 # override with NEUROKIT_PYTHON=/path/to/python).
 #
-# Usage: ./check_ground_truth.sh
+# Usage:
+#   ./check_ground_truth.sh
+#   CLEAN_ONLY=1 BIOMAP_USE_GAIT_FILTER=0 ./check_ground_truth.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,6 +29,9 @@ echo "Generating synthetic ground-truth tracks..." >&2
 "$NEUROKIT_PYTHON" "$HERE/generate_ground_truth.py" "$WORK_DIR"
 
 FILES=("$WORK_DIR"/*.csv)
+if [ "${CLEAN_ONLY:-0}" = "1" ]; then
+  FILES=("$WORK_DIR"/synth_sparse_clean.csv "$WORK_DIR"/synth_dense_clean.csv)
+fi
 
 echo "Running NeuroKit2 over ${#FILES[@]} synthetic track(s)..." >&2
 NK_JSON="$WORK_DIR/neurokit.json"

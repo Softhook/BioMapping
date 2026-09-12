@@ -80,35 +80,38 @@ const tracks = fs.readdirSync(groundTruthDir)
     };
   });
 
+const thresholdValues = [0.015, 0.02, 0.025, 0.03, 0.04, 0.05, 0.075, 0.1];
 const snrValues = [0, 1.5, 2, 2.5, 3, 4, 5, 6];
 const qualityValues = [0, 0.1, 0.2, 0.3, 0.4, 0.5];
 const candidates = [];
 
-for (const shapeMinSnr of snrValues) {
-  for (const minPeakQuality of qualityValues) {
-    const total = { tp: 0, fn: 0, fp: 0 };
-    const perTrack = [];
-    for (const track of tracks) {
-      const analyzer = new GSRAnalyzer();
-      analyzer.parseCSV(track.csv);
-      analyzer.analyze({ ...D, shapeMinSnr, minPeakQuality }, 0);
-      const result = score(analyzer.peaks.map(peak => peak.time), track.truth);
-      total.tp += result.tp;
-      total.fn += result.fn;
-      total.fp += result.fp;
-      perTrack.push({ name: track.name, ...summarize(result) });
+for (const peakThreshold of thresholdValues) {
+  for (const shapeMinSnr of snrValues) {
+    for (const minPeakQuality of qualityValues) {
+      const total = { tp: 0, fn: 0, fp: 0 };
+      const perTrack = [];
+      for (const track of tracks) {
+        const analyzer = new GSRAnalyzer();
+        analyzer.parseCSV(track.csv);
+        analyzer.analyze({ ...D, peakThreshold, shapeMinSnr, minPeakQuality }, 0);
+        const result = score(analyzer.peaks.map(peak => peak.time), track.truth);
+        total.tp += result.tp;
+        total.fn += result.fn;
+        total.fp += result.fp;
+        perTrack.push({ name: track.name, ...summarize(result) });
+      }
+      candidates.push({ peakThreshold, shapeMinSnr, minPeakQuality, ...summarize(total), perTrack });
     }
-    candidates.push({ shapeMinSnr, minPeakQuality, ...summarize(total), perTrack });
   }
 }
 
 candidates.sort((left, right) => right.f1 - left.f1 || right.recall - left.recall || right.precision - left.precision);
-const production = candidates.find(candidate => candidate.shapeMinSnr === D.shapeMinSnr && candidate.minPeakQuality === D.minPeakQuality);
+const production = candidates.find(candidate => candidate.peakThreshold === D.peakThreshold && candidate.shapeMinSnr === D.shapeMinSnr && candidate.minPeakQuality === D.minPeakQuality);
 const best = candidates[0];
 
 function print(label, candidate) {
   const pct = value => `${(value * 100).toFixed(1)}%`;
-  console.log(`${label}: SNR >= ${candidate.shapeMinSnr}, quality >= ${candidate.minPeakQuality}`);
+  console.log(`${label}: amplitude >= ${candidate.peakThreshold}uS, SNR >= ${candidate.shapeMinSnr}, quality >= ${candidate.minPeakQuality}`);
   console.log(`  recall ${pct(candidate.recall)}  precision ${pct(candidate.precision)}  F1 ${candidate.f1.toFixed(3)}  TP ${candidate.tp} FN ${candidate.fn} FP ${candidate.fp}`);
   for (const track of candidate.perTrack) {
     console.log(`  ${track.name.padEnd(22)} recall ${pct(track.recall)}  precision ${pct(track.precision)}  F1 ${track.f1.toFixed(3)}`);
@@ -120,5 +123,5 @@ print('Production defaults', production);
 print('Best in-sample candidate', best);
 console.log('\nTop five candidates:');
 for (const candidate of candidates.slice(0, 5)) {
-  console.log(`  SNR >= ${candidate.shapeMinSnr}, quality >= ${candidate.minPeakQuality}: F1 ${candidate.f1.toFixed(3)}, recall ${(candidate.recall * 100).toFixed(1)}%, precision ${(candidate.precision * 100).toFixed(1)}%`);
+  console.log(`  amplitude >= ${candidate.peakThreshold}uS, SNR >= ${candidate.shapeMinSnr}, quality >= ${candidate.minPeakQuality}: F1 ${candidate.f1.toFixed(3)}, recall ${(candidate.recall * 100).toFixed(1)}%, precision ${(candidate.precision * 100).toFixed(1)}%`);
 }
