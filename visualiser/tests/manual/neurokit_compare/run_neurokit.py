@@ -21,6 +21,21 @@ from pathlib import Path
 
 import pandas as pd
 import neurokit2 as nk
+from scipy.signal import find_peaks, peak_prominences
+
+# Literature-tuned absolute peak floor: the methodologically rigorous minority
+# of published NeuroKit2 EDA studies (Gamboa et al. 2025, PMC11946426; Xu et
+# al. 2026, PMC13306266; Sullivan et al. 2026, PMC12828444) override NK2's
+# default eda_peaks() relative-prominence gate (10% of that recording's own
+# largest peak - see eda_phasic_cvxeda_standardized below for why NK2's own
+# cvxEDA reference already suffers from this) with an ABSOLUTE threshold in
+# the classical Boucsein (2012) / SPR range, applied to the cvxEDA phasic
+# signal via scipy.signal.find_peaks rather than nk.eda_peaks(). This mirrors
+# that literature practice, not BioMapping's own production peakThreshold
+# (0.045 uS, tuned against a different onset-to-peak amplitude definition -
+# see neurokit_comparison_plan.md item 13).
+LITERATURE_ABSOLUTE_PEAK_US = 0.02  # Gamboa et al. 2025's enforced floor
+LITERATURE_REFRACTORY_S = 1.0  # Xu et al. 2026's distance=fs convention
 
 
 # Mirrors GSRCSVParser's auto unit-detection in
@@ -122,13 +137,28 @@ def process(csv_path):
     # comparison this reference exists for.
     cvxeda_peak_times = []
     cvxeda_peak_amplitudes = []
+    cvxeda_lit_peak_times = []
+    cvxeda_lit_peak_amplitudes = []
     try:
         cleaned = nk.eda_clean(eda, sampling_rate=sampling_rate)
         phasic_df = eda_phasic_cvxeda_standardized(cleaned, sampling_rate)
-        _, cvx_info = nk.eda_peaks(phasic_df['EDA_Phasic'].values, sampling_rate=sampling_rate)
+        phasic_vals = phasic_df['EDA_Phasic'].values
+        _, cvx_info = nk.eda_peaks(phasic_vals, sampling_rate=sampling_rate)
         cvx_pairs = [(i, a) for i, a in zip(cvx_info.get('SCR_Peaks', []), cvx_info.get('SCR_Amplitude', [])) if 0 <= i < len(ts) and math.isfinite(a)]
         cvxeda_peak_times = [float(ts[i]) for i, _ in cvx_pairs]
         cvxeda_peak_amplitudes = [float(a) for _, a in cvx_pairs]
+
+        # Literature-tuned comparator: same cvxEDA phasic signal, but peak-pick
+        # with scipy.signal.find_peaks against an absolute prominence floor and
+        # refractory distance instead of nk.eda_peaks()'s relative gate - see
+        # LITERATURE_ABSOLUTE_PEAK_US above for citations. Prominence (not raw
+        # height) matches what the cited papers actually threshold on.
+        distance_samples = max(1, round(LITERATURE_REFRACTORY_S * sampling_rate))
+        lit_idx, _ = find_peaks(phasic_vals, prominence=LITERATURE_ABSOLUTE_PEAK_US, distance=distance_samples)
+        if len(lit_idx) > 0:
+            lit_prominences = peak_prominences(phasic_vals, lit_idx)[0]
+            cvxeda_lit_peak_times = [float(ts[i]) for i in lit_idx if 0 <= i < len(ts)]
+            cvxeda_lit_peak_amplitudes = [float(p) for i, p in zip(lit_idx, lit_prominences) if 0 <= i < len(ts)]
     except Exception as exc:  # noqa: BLE001 - report and continue the batch
         print(f'  cvxEDA reference failed: {exc}', file=sys.stderr)
 
@@ -140,6 +170,8 @@ def process(csv_path):
         'onset_times': [float(ts[i]) for i in onset_idx],
         'cvxeda_peak_times': cvxeda_peak_times,
         'cvxeda_peak_amplitudes': cvxeda_peak_amplitudes,
+        'cvxeda_lit_peak_times': cvxeda_lit_peak_times,
+        'cvxeda_lit_peak_amplitudes': cvxeda_lit_peak_amplitudes,
     }
 
 

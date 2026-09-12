@@ -145,6 +145,63 @@ Implemented in `visualiser/src/signal/deconvolution.js` (`algorithm: 'sparseda'`
   - The one concrete finding: `sparsedaEpsilon` was not the active stopping criterion on any tested track (every run reports `converged: false`, terminating on the `Kmax` iteration cap instead), so historical tuning commits chasing `epsilon` were likely chasing the wrong knob.
   - **Not pursued further per user decision (2026-09-11)**: messier than the other algorithm comparisons in this document, and this project's own SparsEDA port had already been independently validated against the reference implementation without relying on the NeuroKit2 cross-check. Revisit by comparing `_buildReferenceDictionary()` against NeuroKit2's `R` matrix construction in isolation before re-attempting the full decomposition comparison.
 
+### E. Literature Consensus on NeuroKit2's Own Defaults — "default by inertia" vs. methodological divergence
+
+A 2026-09-12 literature survey of published NeuroKit2 EDA studies found a sharp split rather
+than a single consensus on how `nk.eda_process()` should actually be configured:
+
+- **~65-70% of applied papers** call `nk.eda_process(eda_signal, sampling_rate=fs)` with every
+  default untouched: 3.0 Hz Butterworth cleaning (skipped below 7 Hz, silently disabling
+  cleaning on 4 Hz wearables like the Empatica E4/EmbracePlus), 0.05 Hz highpass decomposition,
+  and `eda_peaks`' **relative** `amplitude_min=0.1` gate (10% of that one recording's own
+  largest peak, not an absolute µS value).
+- **~30-35%**, specifically the papers benchmarking against Ledalab/cvxEDA/BioSPPy or ambulatory
+  field data, override these defaults in the same direction this project already has:
+  - **Absolute peak threshold, not relative**: Gamboa et al. (2025) enforce a `0.02 µS` floor;
+    Sullivan et al. (2026) use `0.05 µS` (citing Posada-Quintero & Chon 2020); Xu et al. (2026)
+    bypass `nk.eda_peaks()` entirely for `scipy.signal.find_peaks(prominence=0.01, distance=fs)`.
+    Greenlee et al. (2024) found NK2's relative gate costs **66% of true peaks** (51.3 vs.
+    Ledalab's 169.0 on identical Empatica E4 data) when one large session peak inflates the 10%
+    bar — the same failure mode §4.B below documents independently on BioMapping's own tracks
+    (NK2's relative gate collapsing recall to 49.3% on an acute-stress track).
+  - **cvxEDA over the 0.05 Hz highpass default**: Tsirmpas, Kwon, Xu, Sullivan, and Que (all
+    2025-2026) select `method='cvxeda'` for decomposition rather than the default highpass split.
+  - **Ambulatory low-pass cutoff tightened below the 3.0/5.0 Hz lab default**: field papers cite
+    footstep impact tremor (1.4-2.0 Hz) passing a 3 Hz cutoff unattenuated, converging on a
+    ~1.0 Hz critically-damped cutoff for motion-heavy recordings — independently matching
+    BioMapping's own LR4 choice in §2 above, arrived at from this project's own gait-tremor
+    measurements rather than from this literature.
+
+This is supporting evidence, not new information that changes BioMapping's own defaults: the
+project's absolute `peakThreshold`, ambulatory-tuned low-pass cutoff, and cvxEDA option were
+already in place before this survey, and the survey shows they sit with the methodologically
+rigorous minority of the field rather than the inertial default majority. Full source list in
+`docs/neurokit_comparison_plan.md`'s Next Plan (item 17).
+
+**What this motivated**: NeuroKit2's own `eda_peaks()` defaults are the documented bottleneck
+behind the poor "NeuroKit2 (cvxEDA)" row in every benchmark table in this document and in
+`neurokit_comparison_plan.md` (51.4% recall on the clean 3-way benchmark) — that number reflects
+NK2's relative-gate peak-picker, not a limit of the cvxEDA decomposition it's picking peaks from.
+`run_neurokit.py` now also emits `cvxeda_lit_peak_times`: the *same* NK2 cvxEDA phasic signal,
+re-peak-picked with `scipy.signal.find_peaks(prominence=0.02, distance=1.0s)` per the Gamboa/Xu
+methodology above, as a fairer "best-effort NeuroKit2" comparator than its own out-of-the-box
+peak picker. Measured 2026-09-12 on the clean synthetic suite
+(`CLEAN_ONLY=1 GROUND_TRUTH_NUM_SEEDS=3 ./check_ground_truth.sh`, 210 true SCRs):
+
+| Detector | Recall | Precision | F1 | Amplitude \|r\| |
+|---|---:|---:|---:|---:|
+| **BioMapping Prominence** | 95.2% | **99.5%** | **0.973** | **0.9985** |
+| NeuroKit2 (cvxEDA + literature abs. peaks) | **95.2%** | 79.4% | 0.866 | 0.7806 |
+| NeuroKit2 (cvxEDA, NK2's own default peaks) | 51.4% | 94.7% | 0.667 | 0.7888 |
+
+The absolute-threshold fix the literature applies recovers NK2's missing recall almost exactly
+to BioMapping's own level (95.2% vs. 95.2%) — confirming the relative gate, not the decomposition,
+was the bottleneck — but costs precision (79.4% vs. 99.5%) and amplitude accuracy (r = 0.78 vs.
+0.9985): trading NK2's under-detection for over-detection rather than resolving it. BioMapping's
+own SNR/quality gating on top of an absolute threshold reaches the literature's recall target
+without that trade-off. Not yet re-run against real (non-synthetic) tracks or the noisy/gait
+scenarios; see `neurokit_comparison_plan.md` Next Plan item 17 for the follow-up.
+
 ---
 
 ## 4. Discrete Peak Detection Algorithms
@@ -278,3 +335,7 @@ However, empirical benchmarks on ambulatory free-walking datasets establish that
 10. **Kuhn, M., et al. (2022)**. *Navigating the manyverse of skin conductance response quantification: A data-driven comparison*. Psychophysiology, 59(10), e14058.
 11. **Pachitariu, M., Stringer, C., & Harris, K. D. (2018)**. *Robustness of spike deconvolution for calcium imaging of neural populations*. Journal of Neuroscience, 38(37), 7976–7985.
 12. **Hernando-Gallego, F., Luengo, D., & Artés-Rodríguez, A. (2018)**. *Feature Extraction of Galvanic Skin Responses by Non-Negative Sparse Deconvolution*. IEEE Journal of Biomedical and Health Informatics, 22(5), 1385–1394.
+13. **Greenlee, T. et al. (2024)**. Developmental Psychobiology [PMC10901449]. NeuroKit2 vs. Ledalab on identical Empatica E4 data — relative-threshold peak loss.
+14. **Gamboa, P. et al. (2025)**. Sensors [PMC11946426]. Multi-site EDA evaluation enforcing an absolute `0.02 µS` NeuroKit2 peak floor.
+15. **Xu, K. et al. (2026)**. Sensors [PMC13306266]. EmbracePlus cognitive-load study bypassing `nk.eda_peaks()` for `scipy.signal.find_peaks(prominence=0.01, distance=fs)`.
+16. **Sullivan, R. et al. (2026)**. Journal of Applied Behavior Analysis [PMC12828444]. NeuroKit2 for SCL/SCR split, Ledalab absolute `0.05 µS` threshold for peak extraction.

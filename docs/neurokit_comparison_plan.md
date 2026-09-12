@@ -670,6 +670,41 @@ predated both):
     demonstrating BioMapping's baseline tracking is the more robust of the two. This
     widens the scope of the stale-table refresh already tracked in item 15, since every
     table generated before 2026-09-12 now also predates this generator change.
+17. [x] **Literature-tuned NeuroKit2 comparator: absolute peak threshold on cvxEDA phasic**:
+    A 2026-09-12 literature survey (see `eda_decomposition_analysis.md` §3.E for the full
+    writeup and citations) found the methodologically rigorous minority of published NK2 EDA
+    studies (Gamboa et al. 2025, Xu et al. 2026, Sullivan et al. 2026) override NK2's default
+    `eda_peaks()` **relative** 10%-of-recording-max gate with an **absolute** threshold
+    (0.02-0.05 µS) — the same class of fix this project already applies in its own
+    `peakThreshold`. Added `cvxeda_lit_peak_times`/`cvxeda_lit_peak_amplitudes` to
+    `run_neurokit.py`: the same NK2 `eda_phasic(method='cvxeda')` phasic signal, re-peak-picked
+    with `scipy.signal.find_peaks(prominence=0.02, distance=1.0s)` instead of `nk.eda_peaks()`,
+    and wired into `check_ground_truth.js` as a third NeuroKit2 row ("NeuroKit2 (cvxEDA +
+    literature abs. peaks)"). Measured via
+    `CLEAN_ONLY=1 GROUND_TRUTH_NUM_SEEDS=3 ./check_ground_truth.sh` (12 tracks, 210 true SCRs):
+
+    | Detector | Recall | Precision | F1 | Amplitude \|r\| |
+    |---|---:|---:|---:|---:|
+    | BioMapping Prominence | 95.2% | 99.5% | 0.973 | 0.9985 |
+    | NeuroKit2 (cvxEDA + literature abs. peaks) | 95.2% | 79.4% | 0.866 | 0.7806 |
+    | NeuroKit2 (cvxEDA, NK2's own default peaks) | 51.4% | 94.7% | 0.667 | 0.7888 |
+
+    Confirms the literature's own diagnosis: NK2's relative gate, not its cvxEDA decomposition,
+    is the bottleneck behind the poor 51.4%-recall row every benchmark table above reports for
+    "NeuroKit2 (cvxEDA)" — swapping in an absolute threshold recovers recall to within rounding
+    of BioMapping's own Prominence detector (95.2% vs. 95.2%). It does so at a real cost this
+    project's own detectors don't pay: precision drops to 79.4% (vs. 99.5%) and amplitude
+    correlation to 0.78 (vs. 0.9985) — an absolute prominence floor alone, without SNR/quality
+    gating, trades under-detection for over-detection rather than resolving it. This does not
+    change any production default; it sharpens the comparator NeuroKit2 is compared against.
+    **Not yet done**: re-run on real (non-synthetic) tracks and the noisy/gait/walking
+    scenarios — the clean-suite number above is the only one measured so far.
+18. [ ] **Cross-toolbox parameter-tuning sweep on the literature-tuned comparator**:
+    Item 17 fixed the recall side (absolute threshold) but not precision. Sweep the literature
+    comparator's `prominence` floor (0.02-0.05 µS, the full cited range) and refractory distance
+    against the clean and noisy synthetic suites to see whether a different point on that curve
+    closes the F1 gap to BioMapping's Prominence detector, or whether BioMapping's additional
+    SNR/quality gating is doing work an absolute threshold alone cannot replicate.
 
 ## Decision Rule
 

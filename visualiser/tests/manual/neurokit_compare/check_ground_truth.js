@@ -207,6 +207,7 @@ for (const [label] of DETECTORS) {
 }
 aggregateMap['NeuroKit2 (default)'] = [];
 aggregateMap['NeuroKit2 (cvxEDA)'] = [];
+aggregateMap['NeuroKit2 (cvxEDA + literature abs. peaks)'] = [];
 let totalTrueSCRs = 0;
 
 for (const item of trackFiles) {
@@ -249,6 +250,11 @@ for (const item of trackFiles) {
       aggregateMap['NeuroKit2 (cvxEDA)'].push(sCvx);
       console.log(fmt('NeuroKit2 (cvxEDA)', sCvx));
     }
+    if (nk.cvxeda_lit_peak_times && nk.cvxeda_lit_peak_times.length > 0) {
+      const sCvxLit = score(nk.cvxeda_lit_peak_times, nk.cvxeda_lit_peak_amplitudes || [], trueScrs);
+      aggregateMap['NeuroKit2 (cvxEDA + literature abs. peaks)'].push(sCvxLit);
+      console.log(fmt('NeuroKit2 (cvxEDA + literature abs. peaks)', sCvxLit));
+    }
   } else {
     console.log('  (no NeuroKit2 result for this track)');
   }
@@ -272,6 +278,10 @@ if (aggregateMap[firstDetectorLabel] && aggregateMap[firstDetectorLabel].length 
   if (aggregateMap['NeuroKit2 (cvxEDA)'].length > 0) {
     const agg = aggregateStats(aggregateMap['NeuroKit2 (cvxEDA)']);
     console.log(fmt('NeuroKit2 (cvxEDA)', agg));
+  }
+  if (aggregateMap['NeuroKit2 (cvxEDA + literature abs. peaks)'].length > 0) {
+    const agg = aggregateStats(aggregateMap['NeuroKit2 (cvxEDA + literature abs. peaks)']);
+    console.log(fmt('NeuroKit2 (cvxEDA + literature abs. peaks)', agg));
   }
   console.log();
 }
