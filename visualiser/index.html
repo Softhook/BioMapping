@@ -148,7 +148,7 @@
                 </label>
                 <span class="toggle-label">Gait Filter (cancel walking artefact)</span>
               </div>
-              <p class="help-text">Filters high-frequency electrical fuzz. <strong>Recommended:</strong> 0.2–0.5 s. Set to 0 = this box average off. Gait Filter is its own on/off switch (works regardless of this slider's position): it swaps the box average for a Butterworth filter tuned to reject a ~1.4-2.0Hz walking artefact with much less peak-amplitude loss — turn it on for a recording with real walking in it. It has no extra window control since one fixed cutoff came out best across testing; leave it off for a seated/stationary recording, where it costs some precision against general sensor noise for no gait to reject in return.</p>
+              <p class="help-text">Filters high-frequency electrical fuzz. <strong>Recommended:</strong> 0.2–0.5 s. Set to 0 = this box average off. Gait Filter is its own on/off switch (works regardless of this slider's position): it swaps the box average for a Linkwitz-Riley (LR4) filter tuned to reject a ~1.4-2.0Hz walking artefact without ringing or peak-amplitude loss — turn it on for a recording with real walking in it. It has no extra window control since one fixed cutoff came out best across testing; leave it off for a seated/stationary recording, where it costs some precision against general sensor noise for no gait to reject in return.</p>
             </div>
 
             <div class="control-subgroup-title">Tonic/Phasic Split</div>

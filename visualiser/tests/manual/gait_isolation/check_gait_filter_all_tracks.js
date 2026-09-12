@@ -1,13 +1,8 @@
 /**
- * Corpus-wide A/B: shipped default (useGaitFilter:true, Butterworth 0.8Hz
- * order4) vs the prior default (box average, lpfWindow=0.5s) - same
- * comparison check_gait_isolation.js ran in depth on biomap_059 alone, run
- * here over every real track to see how the trade-off documented in
- * gsr_filter.js (great gait rejection / SCR-amplitude fidelity, but more
- * noise-driven false peaks on a track with little real walking) actually
- * lands across the corpus. Mean GPS speed per track is reported alongside
- * the peak-count delta so a walking-heavy vs mostly-stationary split can be
- * read directly off the table, without a synthetic ground truth.
+ * Corpus-wide A/B: shipped default (useGaitFilter:true, Linkwitz-Riley LR4 1.0Hz)
+ * vs the prior default (box average, lpfWindow=0.5s) - tests gait rejection,
+ * amplitude fidelity, and quiet-track stability across the corpus. Mean GPS speed
+ * per track is reported alongside peak-count delta and quality metrics.
  *
  * Usage: node check_gait_filter_all_tracks.js
  */

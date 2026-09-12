@@ -91,7 +91,7 @@ function buildSyntheticCSV(scrs, durationSec, tonicLevel, noiseSd) {
 // to reject, and this suite tests deconvolution pipeline correctness, not
 // the LPF stage - leaving it implicit would silently couple these
 // assertions to whichever filter happens to be GSR_DEFAULT's current
-// default (the Butterworth gait filter passes more raw signal detail
+// default (the LR4 gait filter passes more raw signal detail
 // through than a box average, which briefly turned one exact-peak-count
 // assertion here flaky when useGaitFilter's default flipped to true).
 function analyzeDeconv(csvText, extra) {

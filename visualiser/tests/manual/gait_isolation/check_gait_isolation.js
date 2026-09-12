@@ -119,12 +119,12 @@ function whittakerSmooth(y, lambda) {
   return z;
 }
 
-// ── Zero-phase Butterworth lowpass is now SHIPPED (gsr_filter.js's
-// applyZeroPhaseButterworth, wired into analyzer.js behind the useGaitFilter
-// toggle - on by default, independent of GPS presence) - this candidate list
-// calls the real production function directly, both to sweep cutoffs and as
-// a regression check that the shipped implementation still reproduces the
-// numbers this investigation was validated against.
+// ── Zero-phase Linkwitz-Riley LR4 (cascaded Butterworth o2) is now SHIPPED
+// (gsr_filter.js's applyZeroPhaseLinkwitzRiley, wired into analyzer.js behind
+// the useGaitFilter toggle - on by default, independent of GPS presence) -
+// this candidate list calls the real production function directly, both to
+// sweep cutoffs and as a regression check that the shipped implementation
+// still reproduces the numbers this investigation was validated against.
 
 // ── BioSPPy's production EDA-cleaning pipeline: Butterworth 5Hz order-4
 // lowpass, then smoothed with a "boxzen" kernel (boxcar then Parzen window,
@@ -257,9 +257,9 @@ const TRACK_SAMPLE_RATE = 10;
 // Butterworth gait filter existed there was no trade-off left where Savgol
 // still won. Its candidates are gone from this sweep along with it.
 //
-// The shipped Butterworth gait filter is now an explicit opt-in toggle
+// The shipped Linkwitz-Riley LR4 gait filter is now an explicit opt-in toggle
 // (GSR_DEFAULT.useGaitFilter), not automatic on GPS presence - analyzer.js
-// only calls applyZeroPhaseButterworth when a caller passes
+// calls applyZeroPhaseLinkwitzRiley when a caller passes
 // useGaitFilter:true. Every candidate below therefore just overrides the ONE
 // function analyzer.js calls by default (applyZeroPhaseMovingAverage); only
 // useProductionDefault below exercises the real toggle end-to-end.
@@ -296,7 +296,7 @@ const useButterworthPlusBox = (cutoffHz, order, boxSec) => () => {
 const useLR4 = (cutoffHz) => () => {
   GsrFilter.applyZeroPhaseMovingAverage = (arr) => GsrFilter.applyZeroPhaseLinkwitzRiley(arr, cutoffHz, TRACK_SAMPLE_RATE);
 };
-// Restores the real box function - the real applyZeroPhaseButterworth is
+// Restores the real box function - the real applyZeroPhaseLinkwitzRiley is
 // exercised via the useGaitFilter:true param patch below instead, an
 // end-to-end check against the real toggle + GSR_CONST.GAIT_FILTER rather
 // than a hardcoded literal.

@@ -56,11 +56,12 @@ straight to comparing detected peaks:
    once both sides applied the same raw→µS auto-unit-conversion
    (`GSRCSVParser`'s conversion rule was missing on the Python side; it's
    now ported into `run_neurokit.py::to_microsiemens()`).
-2. `check_cleaning_agreement.*` — our 0.5s zero-phase box-average low-pass
-   (`GSR_DEFAULT.lpfWindow`, `medianSize=0` by default) vs NeuroKit2's
-   `eda_clean(method='neurokit')` (4th-order 3Hz Butterworth, zero-phase
-   `sosfiltfilt`). **r≈0.9999–1.0000, RMSE 0.006–0.021µS** across all 4
-   tracks — different filter designs, nearly identical real-world output.
+2. `check_cleaning_agreement.*` — our baseline 0.5s zero-phase box-average low-pass
+   (the initial default before the LR4 gait filter upgrade; `lpfWindow: 0.5`,
+   `medianSize=0` by default) vs NeuroKit2's `eda_clean(method='neurokit')`
+   (4th-order 3Hz Butterworth, zero-phase `sosfiltfilt`). **r≈0.9999–1.0000,
+   RMSE 0.006–0.021µS** across all 4 tracks — different filter designs,
+   nearly identical real-world output on stationary/low-motion tracks.
 
 ### Why they agree despite being different filter designs
 
@@ -78,12 +79,11 @@ tested (which could simply be lucky):
 
 These are tuned for different problems, neither strictly better:
 
-- **Ours** is a targeted notch aimed at the 1–3Hz band the project already
-  flags as a walking-gait/tremor artifact range (see the `lpfWindow`
-  comment in `constants.js` — "raise toward 1.0–1.2s to also cancel a
-  walking-gait artefact"). NeuroKit's filter is essentially transparent in
-  that same band (~100% passes at 1–1.5Hz) — it wouldn't touch a gait
-  artifact at all.
+- **Ours (legacy 0.5s box filter)** was a targeted notch aimed at the 1–3Hz band
+  the project originally flagged as a walking-gait/tremor artifact range
+  (see the `lpfWindow` comment in `constants.js`). NeuroKit's filter is
+  essentially transparent in that same band (~100% passes at 1–1.5Hz) —
+  it wouldn't touch a gait artifact at all.
 - **NeuroKit2's** is a clean, monotonic broadband lowpass with no
   sidelobes — better protection against genuine high-frequency noise
   (electrical interference, ADC glitches) above ~4Hz, where our box
@@ -113,70 +113,102 @@ filter (it already runs first in the pipeline — median → LPF →
 tonic/phasic) is the more targeted fix, not swapping the LPF for a
 Butterworth design.
 
-No pipeline change is recommended purely on the theoretical analysis above —
-worth revisiting if a specific track ever shows the sidelobe leakage
-actually mattering. Re-run the comparison on new tracks with
-`visualiser/tests/manual/neurokit_compare/check_cleaning_agreement.sh`.
+No pipeline change was recommended on the initial stationary 4-track analysis,
+but subsequent ground-truth testing and ambulatory analysis on active walking tracks
+(Tracks 24 and 59) revealed that the box filter systematically blunted true SCR
+amplitudes by 10%–28% and leaked footstep ripple, prompting the gait filter
+redesign detailed below.
 
 ---
 
-## Walking Gait Artefact & Gait Filter Evolution (2026-09-12)
+## Walking Gait Artefact & Production LR4 Pipeline (2026-09-12)
 
 Ambulatory EDA recordings suffer from a prominent walking-gait motion artefact:
 each footstep impact creates a brief micro-tremor in electrode-skin contact at
-~1.4–2.0 Hz (two footsteps per stride at typical walking cadences). On real
-BioMapping recordings with simultaneous GPS (`check_gait_isolation.js`),
-sliding-window correlation between 1.4–2.0 Hz band power and GPS walking speed
-yields a statistically significant dose-response (Pearson r = 0.208–0.248).
+~1.4–2.0 Hz (two footsteps per stride at typical walking cadences). 
 
-### 1. The Prior Default: Box Moving Average (0.5s)
-The prior stage-2 smoothing used a zero-phase 0.5s box filter (`lpfWindow: 0.5`).
-While effective at suppressing high-frequency white noise, the box filter has
-two major flaws:
-- **Severe SCR Amplitude Underestimation:** Ground-truth testing against known
-  canonical SCRs revealed that `box 0.5s` attenuates genuine peak amplitudes by
-  **10% to 28%** (amplitude regression slope ~0.72–0.88), because its broad,
-  gradual roll-off clips the sharp apex of true physiological SCRs.
-- **Gait Leakage:** On brisk walking intervals (>1.0 m/s), gait ripple leaks through,
-  leaving residual speed-correlated tremor in the phasic trace. Raising `lpfWindow`
-  to 1.1s attenuates gait but suppresses true SCR amplitude by nearly **30%**.
+### 1. Empirical Reality: Track 24 (`biomap_024.csv`) as the Ambulatory Benchmark
+To ensure testing assumptions reflect real-world ambulatory field conditions rather
+than static bench tests (such as `biomap_114`, which was found to be a flat,
+disconnected sensor line with constant 16.9 nS readings and no GPS movement),
+**Track 24** was adopted as the primary brisk-walking benchmark:
+- **Duration & Speed**: 17.4 minutes (10,447 samples @ 10 Hz), with **95.8% of the recording
+  at a sustained brisk pace** (mean GPS speed = **1.28 m/s**, max 1.68 m/s).
+- **Footstep Resonance Spike**: A Goertzel spectral decomposition of the raw phasic signal
+  reveals an unmistakable, sharp energy peak centered at **1.8 Hz** (power = **64.29**,
+  higher than any biological frequency above 0.5 Hz). This corresponds precisely to the
+  user's physical walking cadence of ~108 steps/minute.
+- **Ripple Magnitude vs. Detection Threshold**: The measured footstep vibration has an RMS
+  magnitude of **0.026 µS** and typical peak-to-peak excursions of **0.073 µS** (max 0.23 µS).
+  Because the project's detection threshold (`peakThreshold`) is **0.015 µS**, this mechanical
+  tremor is **nearly 5× larger than the threshold**. On the unfiltered signal, this ripple
+  hallucinates **484 peaks** (over 160 false footstep detections, mean quality = 0.679).
 
-### 2. The Butterworth Order-4 Failure: Underdamped Resonant Peaking
-A 4th-order zero-phase Butterworth filter at 0.8 Hz was initially evaluated.
-While it cleanly extinguished the walking gait band and preserved true SCR
-amplitudes (slope ~0.98), corpus-wide auditing across all 64 real tracks revealed
-a critical side effect:
-- Butterworth order-4 factors into two cascaded biquad stages with $Q_1 = 0.5412$
-  and $Q_2 = 1.3065$. Because $Q_2 > 0.7071$, the second section is **underdamped**,
-  producing resonant peaking and transient ringing on noise spikes.
-- This caused a **+3.9% false-peak inflation** across the 64 real tracks and a
-  **6× blowout on quiet recordings** (`biomap_114`: 6 peaks vs 1). On synthetic
-  clean noise (`synth_dense_clean`), it generated 31 false positives (vs 3 for box).
+### 2. Flaws of Prior Filter Implementations
+1. **The Prior Default (`box 0.5s`)**:
+   - Detected 315 peaks on Track 24, but blunted the sharp apices of genuine SCRs.
+     Across 303 matched real peaks, `box 0.5s` **underestimated peak heights by 6.0%**.
+   - On synthetic ground-truth tests, `box 0.5s` attenuated genuine peak amplitudes by
+     **10% to 28%** (slope ~0.72–0.88).
+   - Furthermore, it leaked residual 1.8 Hz tremor into **12 false micro-peaks**
+     (e.g., at 148.4s, 546.6s, 561.7s, 708.9s) with poor quality scores (~0.67).
+2. **The Prior Manual Recommendation (`box 1.1s`)**:
+   - `constants.js` previously advised users experiencing walking tremor to *"raise lpfWindow toward 1.0–1.2s"*.
+   - Applying `box 1.1s` to Track 24 proved destructive: it **wiped out 91 genuine peaks**
+     (collapsing the count to 224), destroyed **26% of the total physiological response energy**
+     (summed amplitude dropped from 27.2 µS to 20.2 µS), and reduced peak quality to 0.743
+     because the 1.1-second rectangular averaging window severely smeared response slopes.
+   - Sinc sidelobes also caused `box 1.1s` to pass *more* 1.8 Hz power (12.08) than `box 0.5s` (11.25).
+3. **Butterworth Order-4 (0.8 Hz) Failure**:
+   - Order-4 Butterworth biquads factor into stages with $Q_1 = 0.5412$ and $Q_2 = 1.3065$.
+   - Because $Q_2 > 0.7071$, the filter is **underdamped**, creating resonant peaking and
+     transient ringing on noise spikes. Across the 64-track corpus, this inflated peak counts
+     by +3.9% and caused false-peak blowouts on quiet tracks.
 
-### 3. The Solution: Linkwitz-Riley 4th-Order (LR4) at 1.0 Hz
-To eliminate resonant peaking while maintaining steep roll-off, the production
-gait filter was redesigned as a **4th-order Linkwitz-Riley lowpass (LR4)** at 1.0 Hz
-(`applyZeroPhaseLinkwitzRiley`, `GSR_CONST.GAIT_FILTER = { cutoffHz: 1.0, type: 'lr4' }`):
-- Formed by cascading two identical 2nd-order Butterworth filters forward and backward.
-- Each 2nd-order section has $Q = 1/\sqrt{2} \approx 0.7071$ (critically/maximally flat damped),
-  completely eliminating overshoot and ringing.
+### 3. The Production Pipeline: Linkwitz-Riley 4th-Order (LR4) at 1.0 Hz
+To eliminate footstep vibration without ringing or destroying true SCR amplitudes,
+the production gait filter was implemented as a **4th-order Linkwitz-Riley lowpass (LR4)**
+at 1.0 Hz (`applyZeroPhaseLinkwitzRiley`, `GSR_CONST.GAIT_FILTER = { cutoffHz: 1.0, type: 'lr4' }`),
+active by default (`GSR_DEFAULT.useGaitFilter: true`):
+- Formed by cascading two identical 2nd-order Butterworth passes forward and backward (`filtfilt`).
+- Each 2nd-order stage has $Q = 1/\sqrt{2} \approx 0.7071$ (**critically/maximally flat damped**),
+  completely eliminating resonance peaking and transient ringing.
 - Frequency response exhibits strictly monotonic roll-off, −6 dB amplitude at $f_c = 1.0$ Hz,
-  and a steep −80 dB/decade (−48 dB/octave zero-phase) stopband attenuation.
+  and a steep −80 dB/decade (−48 dB/octave zero-phase) stopband attenuation (99.2% rejection at 1.8 Hz).
 
-### 4. Empirical Validation & Ground-Truth Benchmark
-Tested across all 64 real tracks and the 6 synthetic ground-truth scenarios:
-- **Real Corpus Match:** Total detected peaks across all 64 tracks = **8,485**
-  (matching `box 0.5s`'s 8,398 within 1.0%, with mean per-track ratio = 1.00).
-- **Quiet Tracks Protected:** `biomap_114` detects exactly **1 peak** (identical to box, zero blowout).
-- **Gait Rejection:** On `biomap_059`, brisk-pace gait band share is reduced to **0.0%** (vs 36.5% raw).
-  Across 25 tracks with GPS speed variation, LR4 lowers brisk-pace gait band share vs box in **24 of 25** tracks.
-- **Amplitude Preservation:** On synthetic ground truth, LR4 recovers true injected
-  amplitude with **5.7% relative error** (slope 0.940–0.955, $r > 0.9999$), compared
-  to box's 10–28% attenuation.
-- **Dynamic Walking Synthetic Track (`synth_walking_track`):** On a 480s track with alternating
-  rest and variable walking bouts (0 to 1.3 m/s) and pace-coupled tremor:
-  - **BioMapping (Prominence + LR4):** Recall 100%, Precision 52.2%, F1 0.686, Amp Error 5.7%.
-  - **NeuroKit2 (default):** Recall 100%, Precision 34.3% (46 FP, >2× more false peaks), F1 0.511, Amp Error 16.3%.
+### 4. Empirical Benchmark on Real Walking Tracks
+
+#### Track 24 (`biomap_024.csv`, 17.4 min sustained brisk walk, 1.28 m/s):
+| Filter | Total Peaks | Summed Amp | Max Peak | Mean Quality | 1.8 Hz Power | Brisk Gait Share |
+|---|---|---|---|---|---|---|
+| **Raw (No LPF)** | 484 | 38.4 µS | 4.48 µS | 0.679 | 64.29 | 42.1% |
+| **Prior Box 0.5s** | 315 | 27.2 µS | 4.49 µS | 0.758 | 11.25 | 2.3% |
+| **Manual Fix (Box 1.1s)** | 224 | 20.2 µS | 4.25 µS | 0.743 | 12.08 | 2.7% |
+| **Butterworth o4 (0.8 Hz)** | 319 | 29.4 µS | 4.57 µS | 0.759 | 10.36 | 2.1% |
+| **Production LR4 (1.0 Hz)** | **311** | **28.4 µS** | **4.56 µS** | **0.761** | **10.37** | **0.0%** |
+
+- **Restored True Amplitude**: On the 303 matched peaks, LR4 peak heights are **6.0% higher**
+  than Box 0.5s, recovering the apex amplitude that the box filter clipped away.
+- **Removed False Ripple Cycles**: LR4 suppresses the 12 low-quality micro-peaks (0.015–0.03 µS)
+  that Box 0.5s allowed, achieving the highest mean quality score (**0.761**).
+- **Cutoff Sweet Spot**: Sweeping cutoffs from 1.2 Hz down to 0.7 Hz confirmed 1.0 Hz maximizes
+  quality score and amplitude retention without footstep ripple leakage.
+
+#### Track 59 (`biomap_059.csv`, 52.7 min variable-speed walk, 0.97 m/s):
+- **Gait Rejection**: Brisk-pace gait band share reduced from **36.5%** (raw) to **0.0%** (LR4).
+- **Peak Quality & Amplitude**: Mean quality = **0.771** (vs Box 0.769), summed amplitude = **142.0 µS**
+  (vs Box 137.2 µS, and vs Box 1.1s 107.0 µS).
+
+### 5. Three-Way Ground-Truth Benchmark: BioMapping vs. NeuroKit2 vs. Synthetic
+Scored via `check_ground_truth.sh` across independent synthetic tracks with known injected SCRs:
+- **Dynamic Walking Scenario (`synth_walking_track`, 24 true SCRs, variable 0–1.3 m/s walking + gait tremor)**:
+  - **BioMapping (Prominence + LR4)**: Recall **100%**, Precision **52.2%** (FP = 22), F1 **0.686**,
+    Amplitude relative error **5.7%** (slope = 0.940, $r = 0.9999$).
+  - **NeuroKit2 (default, 3 Hz Butterworth)**: Recall **100%**, Precision **34.3%** (**46 FP**,
+    >2× more false peaks due to lack of gait attenuation), F1 **0.511**, Amplitude relative error **16.3%** ($r = 0.9605$).
+- **Continuous Gait Tremor Scenario (`synth_gait_tremor`, 6 true SCRs, 1.7 Hz tremor)**:
+  - **BioMapping (LR4)**: 5 false peaks (F1 0.706), amplitude relative error **5.2%**.
+  - **NeuroKit2**: **384 false peaks** (F1 0.030) due to unattenuated footstep oscillation.
 
 ---
 

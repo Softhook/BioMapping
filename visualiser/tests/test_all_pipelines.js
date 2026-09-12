@@ -108,9 +108,9 @@ assertEq(medResult.length, gsrRaw.length, 'applyMedianFilter preserves length');
 const smoothResult = GsrFilter.applyZeroPhaseMovingAverage(gsrRaw, 10);
 assertEq(smoothResult.length, gsrRaw.length, 'applyZeroPhaseMovingAverage preserves length');
 
-// applyZeroPhaseButterworth: the default LPF stage for any GPS track (see
-// analyzer.js step 2 + GSR_CONST.GAIT_FILTER) — a real IIR filter, so this
-// checks it behaves like one (DC passthrough, genuine attenuation of a fast
+// applyZeroPhaseButterworth & applyZeroPhaseLinkwitzRiley (the default gait
+// LPF stage, see analyzer.js step 2 + GSR_CONST.GAIT_FILTER) — checks they
+// behave like real IIR filters (DC passthrough, genuine attenuation of a fast
 // oscillation) rather than just existing.
 assert(typeof GsrFilter.applyZeroPhaseButterworth === 'function', 'GsrFilter.applyZeroPhaseButterworth is a function');
 const sr = 10;

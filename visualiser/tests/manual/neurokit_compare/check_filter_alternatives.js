@@ -14,11 +14,12 @@
  * This asks a narrower question: independent of that separability ceiling,
  * is there a filter DESIGN that suppresses the same gait-band energy while
  * doing less collateral damage to genuine SCR amplitude than a plain box
- * average? Candidates include a real Butterworth lowpass (now shipped as the
- * `useGaitFilter` toggle - see GSR_CONST.GAIT_FILTER) and BioSPPy's boxzen
- * cascade. Savitzky-Golay was tested here too during the investigation but
- * never beat Butterworth at gait rejection at any window and was removed
- * from production (2026-09-12); its candidates are gone from this file too.
+ * average? Candidates include a real Butterworth lowpass and Linkwitz-Riley LR4
+ * (now shipped as the `useGaitFilter` toggle - see GSR_CONST.GAIT_FILTER) and
+ * BioSPPy's boxzen cascade. Savitzky-Golay was tested here too during the
+ * investigation but never beat Butterworth/LR4 at gait rejection at any window
+ * and was removed from production (2026-09-12); its candidates are gone from
+ * this file too.
  *
  * Scores each candidate on the ORIGINAL 4 ground-truth scenarios (recall/
  * precision/amplitude accuracy, unchanged) AND the new synth_gait_tremor
@@ -151,9 +152,9 @@ function whittakerSmooth(y, lambda) {
   return z;
 }
 
-// ── Zero-phase Butterworth lowpass is now SHIPPED (gsr_filter.js's
-// applyZeroPhaseButterworth, wired into analyzer.js behind the useGaitFilter
-// toggle - on by default, independent of GPS presence) - candidates below
+// ── Zero-phase Linkwitz-Riley LR4 & Butterworth are now SHIPPED (gsr_filter.js's
+// applyZeroPhaseLinkwitzRiley & applyZeroPhaseButterworth, wired into analyzer.js behind
+// the useGaitFilter toggle - on by default, independent of GPS presence) - candidates below
 // call the real production function directly, both to sweep cutoffs and as
 // a regression check that the shipped implementation still reproduces the
 // numbers this investigation was validated against.
@@ -282,10 +283,7 @@ const useButterworthPlusBox = (cutoffHz, order, boxSec) => () => {
   };
 };
 const useLR4 = (cutoffHz) => () => {
-  GsrFilter.applyZeroPhaseMovingAverage = (arr) => {
-    const pass1 = GsrFilter.applyZeroPhaseButterworth(arr, cutoffHz, 2, SYNTH_SAMPLE_RATE);
-    return GsrFilter.applyZeroPhaseButterworth(pass1, cutoffHz, 2, SYNTH_SAMPLE_RATE);
-  };
+  GsrFilter.applyZeroPhaseMovingAverage = (arr) => GsrFilter.applyZeroPhaseLinkwitzRiley(arr, cutoffHz, SYNTH_SAMPLE_RATE);
 };
 
 const CANDIDATES = [
@@ -340,7 +338,7 @@ const CANDIDATES = [
   ['LR4 0.9Hz (cascaded o2)', useLR4(0.9), { lpfWindow: 1, usePeakProminence: true }],
   ['LR4 1.0Hz (cascaded o2)', useLR4(1.0), { lpfWindow: 1, usePeakProminence: true }],
   ['LR4 1.1Hz (cascaded o2)', useLR4(1.1), { lpfWindow: 1, usePeakProminence: true }],
-  ['LR4 1.0Hz + box 0.2s', () => { GsrFilter.applyZeroPhaseMovingAverage = (arr) => originalBoxLPF(GsrFilter.applyZeroPhaseButterworth(GsrFilter.applyZeroPhaseButterworth(arr, 1.0, 2, 10), 1.0, 2, 10), 2); }, { lpfWindow: 1, usePeakProminence: true }],
+  ['LR4 1.0Hz + box 0.2s', () => { GsrFilter.applyZeroPhaseMovingAverage = (arr) => originalBoxLPF(GsrFilter.applyZeroPhaseLinkwitzRiley(arr, 1.0, 10), 2); }, { lpfWindow: 1, usePeakProminence: true }],
   // ── Shape-matched / model-based family (separates by matching a canonical
   // SCR kernel, not by frequency at all - a periodic tremor doesn't resemble
   // the asymmetric bi-exponential SCR shape regardless of its frequency, so
@@ -355,7 +353,7 @@ const CANDIDATES = [
   ['MP deconv + box 0.5s', useOriginalBox, { lpfWindow: 0.5, usePeakProminence: false, useDeconvolution: true }],
   ['cvxEDA, no LPF', useOriginalBox, { lpfWindow: 0, usePeakProminence: false, useCvxEDA: true }],
   ['cvxEDA + box 0.5s', useOriginalBox, { lpfWindow: 0.5, usePeakProminence: false, useCvxEDA: true }],
-  // ── SHIPPED gait filter: GSR_DEFAULT (Butterworth 0.8Hz o4)
+  // ── SHIPPED gait filter: GSR_DEFAULT (Linkwitz-Riley LR4 1.0Hz)
   ['SHIPPED useGaitFilter:true', useOriginalBox, { useGaitFilter: true, usePeakProminence: true }],
 ];
 
