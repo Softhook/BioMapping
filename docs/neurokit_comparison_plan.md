@@ -123,21 +123,43 @@ BIOMAP_PEAK_THRESHOLD=0.05 ./run.sh
 
 # Sweep existing amplitude, SNR, and quality gates against known truth.
 ./check_gate_sweep.sh
+
+# Inspect Full-Scan true-versus-false peak metrics on generated known truth.
+# Generate the suite first, then pass the compound noisy CSV and JSON to:
+node ./inspect_false_positive_metrics.js <track.csv> <ground_truth.json>
 ```
+
+## False-Positive Metric Inspection
+
+On `synth_compound_noisy`, Full-Scan finds all 12 true responses and 97 false
+positives. The distribution medians show that false detections are generally
+smaller and slower, but overlap the weakest true responses:
+
+| Metric | True responses, median (range) | False positives, median (range) |
+|---|---:|---:|
+| Amplitude (uS) | 0.434 (0.062-1.718) | 0.035 (0.016-0.120) |
+| Prominence (uS) | 0.587 (0.062-1.998) | 0.029 (0.001-0.121) |
+| Onset slope (uS/s) | 0.395 (0.057-1.562) | 0.033 (0.016-0.092) |
+| SNR | 23.613 (4.848-99.206) | 13.883 (5.213-41.650) |
+| Quality score | 0.914 (0.683-1.000) | 0.751 (0.594-0.848) |
+
+This rejects a single absolute amplitude, prominence, slope, SNR, or quality
+gate: each would remove at least some true low-amplitude compound responses.
+
+The reusable diagnostic is
+`visualiser/tests/manual/neurokit_compare/inspect_false_positive_metrics.js`.
 
 ## Next Plan
 
-1. Inspect false positives in `synth_compound_noisy` by comparing their shape
-   metrics with the 12 known true responses.
-2. Form one narrow, physiological hypothesis that distinguishes a noise ripple
-   from a second SCR without relying only on amplitude, global peak spacing, or
-   per-track maximum prominence.
-3. Implement the smallest candidate rule behind a benchmark-only switch.
-4. Run the full known-answer suite. The candidate must reduce false positives
-   in noisy cases while retaining close compound responses and walking recall.
-5. Run the real-track NeuroKit2 diagnostic after the ground-truth check. Report
+1. Evaluate a benchmark-only *combined* rule, such as rejecting a candidate
+   only when both amplitude and onset slope are below calibrated floors.
+2. Score it against every known-answer scenario, especially noisy compound
+   pairs, low-amplitude responses, and walking data.
+3. Reject the rule if it drops any compound-response recall; reduce its floors
+   or discard it rather than trading recall for NeuroKit2 agreement.
+4. Run the real-track NeuroKit2 diagnostic after a ground-truth result. Report
    agreement movement, but do not optimize the rule for agreement alone.
-6. Only promote a setting to production after it succeeds on additional
+5. Only promote a setting to production after it succeeds on additional
    manually labelled real noisy segments or held-out synthetic seeds.
 
 ## Decision Rule
