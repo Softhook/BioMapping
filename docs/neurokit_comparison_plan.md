@@ -149,18 +149,31 @@ gate: each would remove at least some true low-amplitude compound responses.
 The reusable diagnostic is
 `visualiser/tests/manual/neurokit_compare/inspect_false_positive_metrics.js`.
 
+### Combined small-and-slow experiment: rejected
+
+A benchmark-only rule rejected a peak only when both amplitude was below
+0.1 uS and onset slope was below 0.06 uS/s. On the current synthetic suite it
+retained the production detector's true-positive count and reduced aggregate
+false positives to 25. However, the real-track NeuroKit2 diagnostic rejected
+it: Full-Scan extras fell from 1,314 to 646, while recall fell from 93.6% to
+69.6%, chiefly because it discarded many `biomap_053` responses.
+
+Do not promote this rule or its current floors. The synthetic generator does
+not yet cover the low-amplitude, low-slope responses present in real tracks.
+
 ## Next Plan
 
-1. Evaluate a benchmark-only *combined* rule, such as rejecting a candidate
-   only when both amplitude and onset slope are below calibrated floors.
-2. Score it against every known-answer scenario, especially noisy compound
-   pairs, low-amplitude responses, and walking data.
-3. Reject the rule if it drops any compound-response recall; reduce its floors
-   or discard it rather than trading recall for NeuroKit2 agreement.
-4. Run the real-track NeuroKit2 diagnostic after a ground-truth result. Report
-   agreement movement, but do not optimize the rule for agreement alone.
-5. Only promote a setting to production after it succeeds on additional
-   manually labelled real noisy segments or held-out synthetic seeds.
+1. Add low-amplitude and slow-rise SCR cases to the generator, calibrated from
+   real-track peak distributions, so a candidate cannot overfit the current
+   0.1-2.0 uS canonical responses.
+2. Add held-out random seeds for every scenario and aggregate results across
+   them rather than accepting a rule from one fixed noise realization.
+3. Obtain manually labelled real noisy segments before proposing a new
+   production rejection rule.
+4. Run the full known-answer suite and the real-track NeuroKit2 diagnostic for
+   each candidate. Report agreement movement, but do not optimize for it.
+5. Only promote a setting after it succeeds on the expanded synthetic suite
+   and labelled real segments without reducing compound-response recall.
 
 ## Decision Rule
 

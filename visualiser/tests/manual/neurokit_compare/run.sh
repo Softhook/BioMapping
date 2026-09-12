@@ -12,6 +12,7 @@
 #   ./run.sh biomap_019 biomap_105             # explicit tracks (by stem)
 #   BIOMAP_PEAK_THRESHOLD=0.1 ./run.sh         # benchmark-only gate experiment
 #   BIOMAP_PEAK_MIN_GAP=4 ./run.sh              # benchmark-only refractory experiment
+#   BIOMAP_SMALL_SLOW_AMPLITUDE=0.1 BIOMAP_SMALL_SLOW_SLOPE=0.06 ./run.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -65,6 +65,10 @@ const thresholdOverride = Number.parseFloat(process.env.BIOMAP_PEAK_THRESHOLD);
 const detectorThresholdPatch = Number.isFinite(thresholdOverride) && thresholdOverride >= 0
   ? { peakThreshold: thresholdOverride }
   : {};
+const smallSlowAmplitude = Number.parseFloat(process.env.BIOMAP_SMALL_SLOW_AMPLITUDE);
+const smallSlowSlope = Number.parseFloat(process.env.BIOMAP_SMALL_SLOW_SLOPE);
+const useSmallSlowGate = Number.isFinite(smallSlowAmplitude) && smallSlowAmplitude > 0 &&
+  Number.isFinite(smallSlowSlope) && smallSlowSlope > 0;
 
 // Each of our detectors is checked against the NeuroKit2 reference that
 // shares its decomposition family, not just NeuroKit2's default output:
@@ -124,6 +128,9 @@ console.log(`  peak minimum gap=${global.GSR_CONST.PEAK_MIN_GAP}s`);
 if (Object.hasOwn(detectorThresholdPatch, 'peakThreshold')) {
   console.log(`  benchmark-only peakThreshold override=${detectorThresholdPatch.peakThreshold}uS`);
 }
+if (useSmallSlowGate) {
+  console.log(`  benchmark-only small-and-slow gate: reject amplitude < ${smallSlowAmplitude}uS AND slope < ${smallSlowSlope}uS/s`);
+}
 console.log('=== NeuroKit2 reference: eda_clean() (4th-order Butterworth, 3Hz cutoff, applied to BOTH references below) then eda_phasic(highpass) or eda_phasic(cvxeda) ===');
 
 const aggregate = {};
@@ -142,7 +149,10 @@ for (const trackPath of trackPaths) {
     const a = new GSRAnalyzer();
     a.parseCSV(csvText);
     a.analyze({ ...D, ...patch }, 0);
-    const oursTimes = a.peaks.map(p => p.time);
+    const oursPeaks = useSmallSlowGate && label !== 'cvxEDA'
+      ? a.peaks.filter(p => !(p.amplitude < smallSlowAmplitude && p.onsetSlope < smallSlowSlope))
+      : a.peaks;
+    const oursTimes = oursPeaks.map(p => p.time);
     const r = matchPeaks(oursTimes, nkTimes);
     const meanAbsDelta = r.matches.length
       ? r.matches.reduce((s, m) => s + Math.abs(m.delta), 0) / r.matches.length

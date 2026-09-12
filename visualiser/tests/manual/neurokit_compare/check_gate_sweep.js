@@ -125,3 +125,49 @@ console.log('\nTop five candidates:');
 for (const candidate of candidates.slice(0, 5)) {
   console.log(`  amplitude >= ${candidate.peakThreshold}uS, SNR >= ${candidate.shapeMinSnr}, quality >= ${candidate.minPeakQuality}: F1 ${candidate.f1.toFixed(3)}, recall ${(candidate.recall * 100).toFixed(1)}%, precision ${(candidate.precision * 100).toFixed(1)}%`);
 }
+
+// A candidate is rejected only when it is BOTH small and slow. Unlike a plain
+// threshold, this leaves a small but fast true SCR and a slow but substantial
+// one untouched. These are benchmark-only post-detection experiments.
+const combinedAmplitudeFloors = [0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.1];
+const combinedSlopeFloors = [0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.1];
+const baselineByTrack = new Map();
+const peakSets = new Map();
+for (const track of tracks) {
+  const analyzer = new GSRAnalyzer();
+  analyzer.parseCSV(track.csv);
+  analyzer.analyze({ ...D }, 0);
+  const baseline = score(analyzer.peaks.map(peak => peak.time), track.truth);
+  baselineByTrack.set(track.name, baseline.tp);
+  peakSets.set(track.name, analyzer.peaks);
+}
+
+const combinedCandidates = [];
+for (const amplitudeFloor of combinedAmplitudeFloors) {
+  for (const slopeFloor of combinedSlopeFloors) {
+    const total = { tp: 0, fn: 0, fp: 0 };
+    let retainsBaselineRecall = true;
+    for (const track of tracks) {
+      const kept = peakSets.get(track.name).filter(peak =>
+        !(peak.amplitude < amplitudeFloor && peak.onsetSlope < slopeFloor));
+      const result = score(kept.map(peak => peak.time), track.truth);
+      total.tp += result.tp;
+      total.fn += result.fn;
+      total.fp += result.fp;
+      if (result.tp !== baselineByTrack.get(track.name)) retainsBaselineRecall = false;
+    }
+    combinedCandidates.push({ amplitudeFloor, slopeFloor, retainsBaselineRecall, ...summarize(total) });
+  }
+}
+
+const safeCombined = combinedCandidates
+  .filter(candidate => candidate.retainsBaselineRecall)
+  .sort((left, right) => right.f1 - left.f1 || right.precision - left.precision);
+console.log('\n=== Combined small-and-slow post-detection experiment ===');
+if (safeCombined.length === 0) {
+  console.log('  No candidate retained the production detector\'s true-positive count on every scenario.');
+} else {
+  for (const candidate of safeCombined.slice(0, 5)) {
+    console.log(`  reject when amplitude < ${candidate.amplitudeFloor}uS AND slope < ${candidate.slopeFloor}uS/s: F1 ${candidate.f1.toFixed(3)}, recall ${(candidate.recall * 100).toFixed(1)}%, precision ${(candidate.precision * 100).toFixed(1)}%, FP ${candidate.fp}`);
+  }
+}
