@@ -12,6 +12,7 @@
 # Usage:
 #   ./check_ground_truth.sh
 #   CLEAN_ONLY=1 BIOMAP_USE_GAIT_FILTER=0 ./check_ground_truth.sh
+#   CLEAN_ONLY=1 BIOMAP_USE_GAIT_FILTER=0 BIOMAP_PEAK_MIN_GAP=2 ./check_ground_truth.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

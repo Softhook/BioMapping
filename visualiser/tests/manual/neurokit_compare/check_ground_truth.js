@@ -28,6 +28,10 @@ const vm = require('vm');
 
 global.window = global;
 global.GSR_CONST = require('../../mock_constants.js');
+const minGapOverride = Number.parseFloat(process.env.BIOMAP_PEAK_MIN_GAP);
+if (Number.isFinite(minGapOverride) && minGapOverride > 0) {
+  global.GSR_CONST.PEAK_MIN_GAP = minGapOverride;
+}
 
 function loadModule(filePath, varName) {
   const src = fs.readFileSync(filePath, 'utf8');
@@ -128,7 +132,7 @@ const name = path.basename(csvPath, '.csv');
 const nkAll = JSON.parse(fs.readFileSync(nkPath, 'utf8'));
 const nk = nkAll[name];
 
-console.log(`=== ${name}: ${trueScrs.length} true SCRs injected (duration ${gt.params.duration}s, noise ${gt.params.noise}, scr_number ${gt.params.scr_number}; BioMapping gait filter ${detectorDefaults.useGaitFilter ? 'on' : 'off'}) ===`);
+console.log(`=== ${name}: ${trueScrs.length} true SCRs injected (duration ${gt.params.duration}s, noise ${gt.params.noise}, scr_number ${gt.params.scr_number}; BioMapping gait filter ${detectorDefaults.useGaitFilter ? 'on' : 'off'}; peak gap ${global.GSR_CONST.PEAK_MIN_GAP}s) ===`);
 
 const DETECTORS = [
   ['Full-Scan', {}],

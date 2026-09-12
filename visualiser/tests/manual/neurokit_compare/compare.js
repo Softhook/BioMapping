@@ -28,6 +28,10 @@ const vm   = require('vm');
 
 global.window = global;
 global.GSR_CONST = require('../../mock_constants.js');
+const minGapOverride = Number.parseFloat(process.env.BIOMAP_PEAK_MIN_GAP);
+if (Number.isFinite(minGapOverride) && minGapOverride > 0) {
+  global.GSR_CONST.PEAK_MIN_GAP = minGapOverride;
+}
 
 function loadModule(filePath, varName) {
   const src = fs.readFileSync(filePath, 'utf8');
@@ -116,6 +120,7 @@ const nkData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
 console.log('=== Our preprocessing/smoothing settings (GSR_DEFAULT) ===');
 console.log(`  medianSize=${D.medianSize}s (${D.medianSize > 0 ? 'median filter ON' : 'median filter OFF'})  lpfWindow=${D.lpfWindow}s (zero-phase moving-average low-pass)`);
 console.log(`  tonicMethod=${D.tonicMethod}  tonicWindow=${D.tonicWindow}s  peakThreshold=${D.peakThreshold}`);
+console.log(`  peak minimum gap=${global.GSR_CONST.PEAK_MIN_GAP}s`);
 if (Object.hasOwn(detectorThresholdPatch, 'peakThreshold')) {
   console.log(`  benchmark-only peakThreshold override=${detectorThresholdPatch.peakThreshold}uS`);
 }
