@@ -39,13 +39,29 @@ echo "Generating synthetic ground-truth tracks..." >&2
 "$NEUROKIT_PYTHON" "$HERE/generate_ground_truth.py" "$WORK_DIR"
 
 FILES=("$WORK_DIR"/*.csv)
-if [ "${CLEAN_ONLY:-0}" = "1" ]; then
+if [ "${CLEAN_ONLY:-0}" = "1" ] || [ "${TIER:-}" = "canonical" ] || [ "${TIER:-}" = "clean" ]; then
   FILES=(
     "$WORK_DIR"/synth_sparse_clean*.csv
     "$WORK_DIR"/synth_dense_clean*.csv
     "$WORK_DIR"/synth_compound_clean*.csv
     "$WORK_DIR"/synth_low_slow_clean*.csv
   )
+elif [ "${TIER:-}" = "poisson" ]; then
+  FILES=(
+    "$WORK_DIR"/synth_poisson_clean*.csv
+    "$WORK_DIR"/synth_poisson_noisy*.csv
+  )
+elif [ "${TIER:-}" = "burst" ] || [ "${TIER:-}" = "complex" ]; then
+  FILES=(
+    "$WORK_DIR"/synth_burst_clusters_clean*.csv
+    "$WORK_DIR"/synth_burst_clusters_noisy*.csv
+  )
+elif [ "${TIER:-}" = "gait" ] || [ "${TIER:-}" = "walking" ] || [ "${TIER:-}" = "tier4" ] || [ "${TIER:-}" = "4" ]; then
+  FILES=(
+    "$WORK_DIR"/synth_gait_tremor*.csv
+    "$WORK_DIR"/synth_walking_track*.csv
+  )
+  export BIOMAP_USE_GAIT_FILTER="${BIOMAP_USE_GAIT_FILTER:-1}"
 fi
 
 echo "Running NeuroKit2 over ${#FILES[@]} synthetic track(s)..." >&2

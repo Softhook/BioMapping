@@ -56,8 +56,9 @@ const thresholdOverride = Number.parseFloat(process.env.BIOMAP_PEAK_THRESHOLD);
 const detectorThresholdPatch = Number.isFinite(thresholdOverride) && thresholdOverride >= 0
   ? { peakThreshold: thresholdOverride }
   : {};
-const gaitFilterOverride = process.env.BIOMAP_USE_GAIT_FILTER === '1';
-const detectorDefaults = { ...D, useGaitFilter: gaitFilterOverride, ...detectorThresholdPatch };
+const gaitFilterEnv = process.env.BIOMAP_USE_GAIT_FILTER;
+const globalGaitFilter = gaitFilterEnv !== undefined ? (gaitFilterEnv === '1' || gaitFilterEnv === 'true') : null;
+const detectorDefaults = { ...D, ...detectorThresholdPatch };
 
 // Amplitude accuracy over matched (TP) pairs only - a false positive or a
 // miss has no true amplitude to compare against, so those cases are outside
@@ -244,12 +245,16 @@ for (const item of trackFiles) {
   const csvText = fs.readFileSync(csvPath, 'utf8');
   const nk = nkAll[stem];
 
-  console.log(`=== ${stem}: ${trueScrs.length} true SCRs injected (duration ${gt.params.duration}s, noise ${gt.params.noise}, scr_number ${gt.params.scr_number}; BioMapping gait filter ${detectorDefaults.useGaitFilter ? 'on' : 'off'}; peak gap ${global.GSR_CONST.PEAK_MIN_GAP}s) ===`);
+  const isGaitTrack = stem.includes('gait') || stem.includes('walking') || Boolean(gt.params && (gt.params.gait_freq || gt.params.walking_profile));
+  const trackUseGaitFilter = globalGaitFilter !== null ? globalGaitFilter : isGaitTrack;
+  const trackDefaults = { ...detectorDefaults, useGaitFilter: trackUseGaitFilter };
+
+  console.log(`=== ${stem}: ${trueScrs.length} true SCRs injected (duration ${gt.params.duration}s, noise ${gt.params.noise}, scr_number ${gt.params.scr_number}; BioMapping gait filter ${trackUseGaitFilter ? 'on' : 'off'}; peak gap ${global.GSR_CONST.PEAK_MIN_GAP}s) ===`);
 
   for (const [label, patch] of DETECTORS) {
     const a = new GSRAnalyzer();
     a.parseCSV(csvText);
-    a.analyze({ ...detectorDefaults, ...patch }, 0);
+    a.analyze({ ...trackDefaults, ...patch }, 0);
     const times = a.peaks.map(p => p.time);
     const amps = a.peaks.map(p => p.amplitude);
     const s = score(times, amps, trueScrs);

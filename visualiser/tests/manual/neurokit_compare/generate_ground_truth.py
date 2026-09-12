@@ -86,6 +86,23 @@ SCENARIOS = [
     # band power directly against simultaneous speed on ground truth.
     {'name': 'synth_walking_track', 'duration': 480, 'scr_number': 24, 'noise': 0.015, 'drift': 0.001,
      'walking_profile': True, 'seed': 42},
+
+    # --- TIER 2: POISSON STOCHASTIC ARRIVALS (Realistic random interval distribution) ---
+    # Inter-event arrivals follow an Exponential distribution with Poisson rate lambda ~ 0.05/s
+    # (~1 arrival per 20s), alternating between quick burst pairs and 30-50s silent intervals.
+    {'name': 'synth_poisson_clean', 'duration': 420, 'scr_number': 20, 'noise': 0.01, 'drift': 0.001,
+     'poisson_rate': 0.05, 'min_gap_sec': 1.2, 'seed': 101},
+    {'name': 'synth_poisson_noisy', 'duration': 420, 'scr_number': 20, 'noise': 0.04, 'drift': 0.001,
+     'poisson_rate': 0.05, 'min_gap_sec': 1.2, 'seed': 102},
+
+    # --- TIER 3: COMPLEX COMPOUND CLUSTERS & VARIABLE KINETICS (Physiological multi-bursts) ---
+    # Multi-impulse sympathetic burst volleys (35% probability of secondary follow-up impulse 0.8-1.8s
+    # after initial onset, stacking on the rising/recovery edge), variable rise kinetics (0.7-2.6s rise),
+    # randomized decay duration (15-28s), and superimposed 0.2Hz respiratory baseline undulations.
+    {'name': 'synth_burst_clusters_clean', 'duration': 420, 'scr_number': 22, 'noise': 0.01, 'drift': 0.001,
+     'multi_burst': True, 'variable_kinetics': True, 'respiratory_undulation': True, 'seed': 201},
+    {'name': 'synth_burst_clusters_noisy', 'duration': 420, 'scr_number': 22, 'noise': 0.04, 'drift': 0.001,
+     'multi_burst': True, 'variable_kinetics': True, 'respiratory_undulation': True, 'seed': 202},
 ]
 
 OUTPUT_SAMPLING_RATE = 10   # match the real biomap_* tracks (10Hz)
@@ -102,41 +119,6 @@ GEN_SAMPLING_RATE = 100     # generate at this rate, then downsample - see below
 # equal footing with large ones instead of a linear draw burying them.
 TRUE_AMPLITUDE_RANGE = (0.1, 2.0)  # uS
 
-# _eda_simulate_scr()'s canonical-shape formula (neurokit2/eda/eda_simulate.py)
-# builds an internal time axis spanning a FIXED range (0 to 90) regardless of
-# the sampling_rate argument, but only allocates 9*sampling_rate samples to
-# resolve it. At NeuroKit2's own default (1000Hz) that's 9000 samples across
-# that range - plenty. Called directly at BioMapping's real hardware rate
-# (10Hz) it collapses to just 90 samples across the same 0-90 range: the
-# Gaussian rise (std=0.7 in those same units) becomes severely under-resolved
-# and the "SCR" it produces doesn't resemble one at all (confirmed: every
-# detector on both sides, including NeuroKit2's own, scored near 0% recall
-# against it - not a detector bug, a generator misuse). Fix: generate at a
-# high rate NeuroKit2's own formula is actually designed for, then downsample
-# to 10Hz afterward, the way any real acquisition pipeline would.
-#
-# SCR_WINDOW_SEC controls the SAME real-time-per-t-unit ratio, for a
-# different reason: at the default `length=None` (-> 9*sampling_rate, i.e.
-# always exactly a 9-SECOND pulse no matter what sampling_rate you pick -
-# `length` and `sampling_rate` together are what map the fixed 0-90 t-axis
-# onto real seconds, not sampling_rate alone), the resulting SCR's own
-# onset-to-peak rise time - as measured by NeuroKit2's OWN eda_process()
-# SCR_RiseTime, not a guess - is ~0.36s. That's ~5x narrower than BOTH the
-# 0.75s/0.7s tauFast this project's two kernel-matched methods (SCRDeconvolution
-# in analyzer.js, cvxeda.js) assume, AND the "responses rise over 1-3s"
-# physiological assumption GSR_DEFAULT's own lpfWindow comment in
-# constants.js is built on - discovered while investigating why matching-
-# pursuit deconvolution scored WORSE on amplitude than the plain box filter
-# on this ground truth (see check_filter_alternatives.js): its kernel was
-# being matched against a pulse 5x narrower than what it was designed for,
-# which would bias ANY kernel-shaped method regardless of implementation
-# quality. Passing an explicit `length` longer than the default
-# `9*sampling_rate` stretches the WHOLE canonical shape (rise, decay, and
-# time_peak's effective position all scale together, since they're all
-# expressed in the same t-units) to a realistic real-world duration without
-# touching any of _eda_simulate_scr()'s own shape parameters - confirmed
-# empirically: length=20*sampling_rate -> eda_process's own SCR_RiseTime
-# lands at 0.74s, matching tauFast almost exactly.
 SCR_WINDOW_SEC = 20
 
 # Tonic baseline below is otherwise flat + constant linear drift only - real
@@ -152,11 +134,11 @@ TONIC_UNDULATION_PERIOD_RANGE_SEC = (120, 240)
 
 def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_amplitude=0,
                    walking_profile=False, peak_starts=None, amplitude_range=TRUE_AMPLITUDE_RANGE,
-                   scr_window_sec=SCR_WINDOW_SEC):
-    """Mirrors nk.eda_simulate()'s own body exactly (see module docstring for
-    why this isn't just a call to that function), tracking each SCR's true
-    peak time as it's placed. Generates at GEN_SAMPLING_RATE; caller
-    downsamples to OUTPUT_SAMPLING_RATE."""
+                   scr_window_sec=SCR_WINDOW_SEC, poisson_rate=None, min_gap_sec=1.2,
+                   multi_burst=False, variable_kinetics=False, respiratory_undulation=False):
+    """Generates synthetic EDA tracks with ground-truth peak times and amplitudes.
+    Supports canonical linspace, Poisson point process, multi-burst stacking,
+    and variable physiological kinetics."""
     rng = np.random.default_rng(seed)
     sr = GEN_SAMPLING_RATE
     length = duration * sr
@@ -179,48 +161,78 @@ def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_a
     undulation_period = rng.uniform(*TONIC_UNDULATION_PERIOD_RANGE_SEC)
     undulation_phase = rng.uniform(0, 2 * np.pi)
     eda += TONIC_UNDULATION_AMPLITUDE_US * np.sin(2 * np.pi * t_full / undulation_period + undulation_phase)
+
+    # Optional respiratory baseline modulation (~0.2 Hz, ~5s period, ~0.03 uS)
+    if respiratory_undulation:
+        resp_phase = rng.uniform(0, 2 * np.pi)
+        resp_freq = rng.uniform(0.18, 0.25)
+        eda += 0.03 * np.sin(2 * np.pi * resp_freq * t_full + resp_phase)
+
     time = [0, duration]
 
-    start_peaks = peak_starts if peak_starts is not None else np.linspace(
-        10 if walking_profile else 0,
-        duration - 20 if walking_profile else duration,
-        scr_number,
-        endpoint=False)
+    # Determine peak start timestamps
+    if peak_starts is not None:
+        start_peaks = list(peak_starts)
+    elif poisson_rate is not None and poisson_rate > 0:
+        start_peaks = []
+        t_curr = 12.0
+        while t_curr < duration - 25 and len(start_peaks) < scr_number:
+            start_peaks.append(float(t_curr))
+            dt = float(rng.exponential(1.0 / poisson_rate))
+            dt = max(dt, min_gap_sec)
+            t_curr += dt
+    elif multi_burst:
+        # Clustered burst generation: primary triggers with probability of trailing bursts
+        start_peaks = []
+        t_curr = 15.0
+        while t_curr < duration - 30 and len(start_peaks) < scr_number:
+            start_peaks.append(float(t_curr))
+            # 40% chance of a secondary burst 0.8 - 1.8s later (overlapping crest)
+            if rng.uniform(0, 1) < 0.40 and len(start_peaks) < scr_number:
+                t_sub = t_curr + float(rng.uniform(0.8, 1.8))
+                if t_sub < duration - 25:
+                    start_peaks.append(float(t_sub))
+                    # 20% chance of a tertiary burst
+                    if rng.uniform(0, 1) < 0.20 and len(start_peaks) < scr_number:
+                        t_sub2 = t_sub + float(rng.uniform(0.9, 1.9))
+                        if t_sub2 < duration - 25:
+                            start_peaks.append(float(t_sub2))
+            dt = float(rng.exponential(25.0))
+            t_curr += max(dt, 8.0)
+    else:
+        start_peaks = list(np.linspace(
+            10 if walking_profile else 0,
+            duration - 20 if walking_profile else duration,
+            scr_number,
+            endpoint=False))
+
     true_scrs = []
 
     for start_peak in start_peaks:
-        relative_time_peak = float(np.abs(rng.normal(0, 5, size=1))[0] + 3.0745)
-        scr = _eda_simulate_scr(sampling_rate=sr, length=int(scr_window_sec * sr), time_peak=relative_time_peak)
+        # Determine kinetic shape parameters (rise time and window duration)
+        if variable_kinetics:
+            rise_target = float(rng.uniform(0.7, 2.5))  # sec
+            win_target = float(rng.uniform(16.0, 28.0)) # sec
+            # Maps target rise time into NeuroKit2 time_peak parameter
+            relative_time_peak = (rise_target / win_target) * (20.0 / 0.74) * 3.0745
+            win_sec = win_target
+        else:
+            relative_time_peak = float(np.abs(rng.normal(0, 5, size=1))[0] + 3.0745)
+            win_sec = scr_window_sec
+
+        scr = _eda_simulate_scr(sampling_rate=sr, length=int(win_sec * sr), time_peak=relative_time_peak)
         true_amplitude = float(np.exp(rng.uniform(np.log(amplitude_range[0]), np.log(amplitude_range[1]))))
         scr = scr * true_amplitude
-        time_scr = [start_peak, start_peak + scr_window_sec]
-        # The true peak position is NOT simply start_peak + relative_time_peak:
-        # _eda_simulate_scr()'s shape formula runs its own internal time axis
-        # 0-90 regardless of sampling_rate, convolved with a one-sided decay
-        # kernel that shifts the rendered peak further still - the actual
-        # relationship isn't a simple closed form. Measuring it directly off
-        # the generated array (before any truncation below) sidesteps that
-        # entirely and is exact, not an approximation.
+        time_scr = [start_peak, start_peak + win_sec]
+
         true_time = start_peak + float(np.argmax(scr)) / sr
 
-        if time_scr[0] < 0:
-            scr = scr[int(np.round(np.abs(time_scr[0]) * sr)):]
-            time_scr[0] = 0
-        if time_scr[1] > duration:
-            scr = scr[0:int(np.round((duration - time_scr[0]) * sr))]
-            time_scr[1] = duration
-
-        if 0 <= true_time <= duration:
-            # true_amplitude is the INJECTED height, not necessarily what a
-            # detector should measure in the merged signal: in the dense
-            # scenario a response landing on a still-decaying predecessor's
-            # tail sits on a raised local baseline, so its measured
-            # peak-minus-onset amplitude legitimately reads higher than
-            # true_amplitude alone - the same superposition effect real
-            # overlapping SCRs produce, not a ground-truth error.
-            true_scrs.append({'time': true_time, 'amplitude': true_amplitude})
-
-        eda = signal_merge(signal1=eda, signal2=scr, time1=time, time2=time_scr)
+        start_idx = int(round(start_peak * sr))
+        if start_idx < length:
+            end_idx = min(length, start_idx + len(scr))
+            eda[start_idx:end_idx] += scr[:end_idx - start_idx]
+            if 0 <= true_time <= duration:
+                true_scrs.append({'time': true_time, 'amplitude': true_amplitude})
 
     if walking_profile:
         # Gait oscillation: frequency and amplitude scale dynamically with walking speed
@@ -229,9 +241,6 @@ def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_a
         phase = 2 * np.pi * np.cumsum(inst_freq) / sr
         eda += inst_amp * np.sin(phase)
     elif gait_freq > 0 and gait_amplitude > 0:
-        # Slow amplitude wobble (0.05Hz, ~20s period) so it's not a pure tone
-        # a naive fixed-frequency notch could null perfectly - real stride
-        # amplitude varies with terrain/fatigue/pace changes.
         envelope = 1.0 + 0.3 * np.sin(2 * np.pi * 0.05 * t_full)
         eda += gait_amplitude * envelope * np.sin(2 * np.pi * gait_freq * t_full)
 
@@ -246,10 +255,6 @@ def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_a
             random_state=seed + 1000,
         )
 
-    # Downsample GEN_SAMPLING_RATE -> OUTPUT_SAMPLING_RATE by plain linear
-    # interpolation - deliberately simple (no anti-alias filter) since the
-    # noise added above is already low-frequency (<=3Hz, well under the 5Hz
-    # Nyquist at 10Hz output) and this test isn't about aliasing.
     t_gen = np.arange(length) / sr
     t_out = np.arange(0, duration, 1.0 / OUTPUT_SAMPLING_RATE)
     eda_out = np.interp(t_out, t_gen, eda)
@@ -285,7 +290,11 @@ def main():
                 gait_freq=scn.get('gait_freq', 0), gait_amplitude=scn.get('gait_amplitude', 0),
                 walking_profile=scn.get('walking_profile', False), peak_starts=scn.get('peak_starts'),
                 amplitude_range=scn.get('amplitude_range', TRUE_AMPLITUDE_RANGE),
-                scr_window_sec=scn.get('scr_window_sec', SCR_WINDOW_SEC)
+                scr_window_sec=scn.get('scr_window_sec', SCR_WINDOW_SEC),
+                poisson_rate=scn.get('poisson_rate'), min_gap_sec=scn.get('min_gap_sec', 1.2),
+                multi_burst=scn.get('multi_burst', False),
+                variable_kinetics=scn.get('variable_kinetics', False),
+                respiratory_undulation=scn.get('respiratory_undulation', False)
             )
             n = len(eda)
             ts = np.arange(n) / OUTPUT_SAMPLING_RATE
