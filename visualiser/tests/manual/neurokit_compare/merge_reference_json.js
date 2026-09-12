@@ -1,8 +1,8 @@
 /**
- * Merges the per-track JSON outputs of run_neurokit.py, run_ledapy.py, and
+ * Merges the per-track JSON outputs of run_neurokit.py, run_ledalab.py, and
  * run_cvxeda_reference.py into one combined object keyed by track name, so
  * check_ground_truth.js/compare.js can read every reference toolbox's
- * fields (nk.peak_times, nk.ledapy_peak_times, nk.cvxeda_ref_driver_peak_times,
+ * fields (nk.peak_times, nk.ledalab_peak_times, nk.cvxeda_ref_driver_peak_times,
  * ...) off a single object per track without their own argument parsing
  * needing to change. Missing/unreadable input files are skipped, not fatal -
  * a reference toolbox that isn't installed shouldn't block scoring the ones

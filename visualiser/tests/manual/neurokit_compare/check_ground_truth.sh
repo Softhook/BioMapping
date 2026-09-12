@@ -3,17 +3,19 @@
 # SCR count/timing (NeuroKit2's own canonical response function, placed
 # under our control - see generate_ground_truth.py), then scores our three
 # detectors AND three independent reference toolboxes' own detectors against
-# that known answer: NeuroKit2 (run_neurokit.py), Ledalab via its Python
-# port Ledapy (run_ledapy.py), and the real upstream lciti/cvxEDA.py solver
-# (run_cvxeda_reference.py, two peak-pickers). The one check in this
+# that known answer: NeuroKit2 (run_neurokit.py), the REAL MATLAB-source
+# Ledalab run via Octave (run_ledalab.py - see neurokit_comparison_plan.md
+# item 23; no MATLAB license needed), and the real upstream lciti/cvxEDA.py
+# solver (run_cvxeda_reference.py, two peak-pickers). The one check in this
 # investigation that asks "who's actually right", not "who agrees with
 # whom".
 #
 # Requires a Python env with neurokit2 + pandas (default: ~/neurokit/.venv,
-# override with NEUROKIT_PYTHON=/path/to/python). ledapy and cvxopt are
-# optional - if either import fails, that reference's rows are skipped with
-# a warning rather than aborting the run (`pip install ledapy cvxopt` to
-# enable them; cvxopt is also needed for NeuroKit2's own cvxeda_peak_times).
+# override with NEUROKIT_PYTHON=/path/to/python). Octave+Ledalab and cvxopt
+# are optional - if either is missing, that reference's rows are skipped
+# with a warning rather than aborting the run (see run_ledalab.py's
+# docstring for the Octave/Ledalab setup; cvxopt is also needed for
+# NeuroKit2's own cvxeda_peak_times).
 #
 # Usage:
 #   ./check_ground_truth.sh
@@ -52,16 +54,18 @@ NK_JSON="$WORK_DIR/neurokit.json"
 
 REFERENCE_JSONS=("$NK_JSON")
 
-LEDAPY_JSON="$WORK_DIR/ledapy.json"
-if "$NEUROKIT_PYTHON" -c "import ledapy" >/dev/null 2>&1; then
-  echo "Running Ledapy (Ledalab CDA) over ${#FILES[@]} synthetic track(s)..." >&2
-  if "$NEUROKIT_PYTHON" "$HERE/run_ledapy.py" "${FILES[@]}" > "$LEDAPY_JSON"; then
-    REFERENCE_JSONS+=("$LEDAPY_JSON")
+LEDALAB_DIR="${LEDALAB_DIR:-$HOME/ledalab}"
+LEDALAB_JSON="$WORK_DIR/ledalab.json"
+if command -v "${OCTAVE_BIN:-octave}" >/dev/null 2>&1 && [ -f "$LEDALAB_DIR/Ledalab.m" ]; then
+  echo "Running real Ledalab (via Octave) over ${#FILES[@]} synthetic track(s)..." >&2
+  if "$NEUROKIT_PYTHON" "$HERE/run_ledalab.py" "${FILES[@]}" > "$LEDALAB_JSON"; then
+    REFERENCE_JSONS+=("$LEDALAB_JSON")
   else
-    echo "run_ledapy.py failed - continuing without its rows" >&2
+    echo "run_ledalab.py failed - continuing without its rows" >&2
   fi
 else
-  echo "ledapy not installed ('pip install ledapy') - skipping Ledalab CDA rows" >&2
+  echo "Octave/Ledalab not set up (see run_ledalab.py docstring: brew install octave," \
+       "then git clone https://github.com/ledalab/ledalab \$LEDALAB_DIR) - skipping Ledalab rows" >&2
 fi
 
 CVXREF_JSON="$WORK_DIR/cvxeda_reference.json"

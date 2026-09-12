@@ -985,6 +985,153 @@ predated both):
     understood, systematic side effect of the pre-filter it needs - not evidence of a bug still
     hiding in `run_ledapy.py`.
 
+    **Is `ledapy` itself "the real thing" (asked directly)?** Checked against its own repo and
+    the actual Ledalab authors' public statements, not assumed:
+    - `HIIT/Ledapy`'s own GitHub description is "**Partial** Python port of Ledalab" - created
+      2018, last real code commit 2020-04-10 (10 commits total, 15 stars), maintained by HIIT
+      (Marco Filetti), not by Ledalab's own authors. Inspecting the installed package confirms
+      it: 6 files, implementing only the **CDA** (Continuous Decomposition Analysis) method -
+      **DDA (Discrete Decomposition Analysis), the GUI, event-related analysis (ERA), and every
+      export/statistics feature of real Ledalab are simply not present in this port at all**,
+      not merely untested.
+    - Two direct statements from Mathias Benedek (one of Ledalab's original authors) on the
+      official SourceForge support forum, checked specifically because they bear on this item's
+      own findings:
+      - On `sigPeak`: raising it "may not noticeably affect which SCR peaks are identified in
+        the phasic driver" - it shapes tonic-driver extraction only. **This is an exact match
+        for what tracing ledapy's source found empirically** (`sigPeak` never reaches
+        `deconv_apply()`'s peak list). The "dead end" finding earlier in this item is therefore
+        confirmed as faithful Ledalab CDA behaviour, not a `ledapy` porting bug.
+      - On how real Ledalab actually decides which driver peaks count as significant SCRs: "the
+        amplitude threshold applies to the **reconvolved SCR**" - i.e. real Ledalab's actual
+        significance step is a minimum-amplitude criterion (its own docs cite ~0.01 uS as the
+        "classic" value) applied to exactly the quantity `ledapy` calls `leda2.analysis.amp`.
+        **This is precisely the post-hoc amplitude floor this item added by hand.** `ledapy`'s
+        public API computes that same reconvolved-SCR value but stops one step short of
+        filtering it - our fix completes the step real Ledalab performs automatically, using
+        the same mechanism, rather than inventing a workaround.
+    - **Honest caveat this doesn't resolve**: the literature's own classic threshold for that
+      step is ~0.01 uS; this item needed ~0.1 uS (10x higher) even after adding the 0.5 Hz
+      pre-filter, to be competitive on this suite. Two explanations are consistent with
+      everything found so far and cannot be distinguished without running genuine MATLAB
+      Ledalab side-by-side: (a) this project's synthetic ground truth injects harsher noise than
+      the clean laboratory recordings the classic 0.01 uS value was calibrated on, or (b)
+      `ledapy`'s own point-deconvolution numerics are noisier than the original MATLAB engine -
+      plausible given its "partial," six-year-dormant, single-maintainer status and the absence
+      of any bundled accuracy validation (its own README asks users to compare `.mat` files
+      against real Ledalab themselves, rather than shipping that validation). **Not yet done**:
+      running the real MATLAB Ledalab (or another independent CDA implementation) on the same
+      tracks to settle which explanation is correct.
+    - Net effect on how much to trust this item's numbers: the *algorithmic* behaviour being
+      compared (peak identification in the driver, `sigPeak`'s real role, the amplitude
+      criterion on the reconvolved SCR) is now corroborated as faithful to genuine Ledalab CDA,
+      not a `ledapy`-specific artifact. What remains unverified is whether `ledapy`'s numerical
+      implementation is exactly as clean as the original MATLAB - a disclosed limitation of
+      this comparison, not a hidden one.
+
+23. [x] **Closed item 22's one open question: ran the actual MATLAB-source Ledalab (no MATLAB
+    license needed)**. The user doesn't have MATLAB; GNU Octave (`brew install octave`, free,
+    installs cleanly) runs Ledalab's real source directly, because the Ledalab authors wrote it
+    to be Octave-compatible on purpose - `leda_batchanalysis.m` has its own comment: "addParameter
+    would've been better but isn't supported in Octave and Matlab before R2013," and its optimizer
+    is self-contained code, not a toolbox function. Cloned `github.com/ledalab/ledalab` (the
+    genuine v3.49 MATLAB source) and ran its documented batch-mode (`Ledalab(file, 'open','text',
+    'analyze','CDA', ...)`) on the same synthetic tracks used throughout this document. One
+    Octave-compatibility patch was needed, in an unrelated settings-cache helper having nothing to
+    do with the analysis itself (`save_ledamem.m` called `prefdir(1)`; Octave's `prefdir` doesn't
+    take an argument - changed to `prefdir()`).
+
+    **Result 1 - the catastrophic default is genuine Ledalab behaviour, not a `ledapy` bug.** Real
+    Ledalab, run via its own batch mode with zero post-processing on 3 clean synthetic tracks
+    (`synth_sparse_clean`, `synth_dense_clean`, `synth_compound_clean`; 58 true SCRs), scores
+    **recall 98.3%, precision 5.0%, F1 0.095** (TP 57, FN 1, FP 1091) - matching `ledapy`'s own
+    default result (F1 0.091) almost exactly. This is now directly demonstrated, not inferred from
+    reading the authors' forum posts: genuine MATLAB-source Ledalab really does produce this many
+    candidate peaks on this data before the amplitude criterion (item 22) is applied.
+
+    **Result 2 - the raw candidate lists agree closely, peak by peak.** Matching each real-Ledalab
+    peak to its nearest `ledapy` peak (1.0s tolerance, the same tolerance used throughout this
+    document): 93.8%-99.7% matched across the 3 tracks, with near-identical candidate counts (209
+    vs 225, 594 vs 592, 345 vs 338). The unmatched/mistimed minority is consistent with ordinary
+    floating-point divergence between two independent numerical implementations of an
+    ill-conditioned (noise-amplifying) deconvolution - inspecting individual cases found small,
+    non-systematic timing differences clustering near exactly one sample period, i.e. numpy and
+    Octave's underlying linear-algebra libraries occasionally picking a different adjacent sample
+    as the local maximum when two samples are nearly tied - not a one-sided bias or an indexing bug.
+
+    **Result 3 - the literature-tuned preset (item 22) transfers to real Ledalab essentially
+    exactly.** Applying the identical fix - the same 0.5 Hz Butterworth pre-filter, the same
+    `smoothwin_sdeco = 0.5` (set directly via `leda2.set.smoothwin_sdeco`, since real Ledalab uses
+    `leda2.set`, not `leda2.settings` - `ledapy`'s own renaming choice), the same 0.1 uS floor on
+    the reconvolved SCR amplitude - to genuine Ledalab reproduced `ledapy`'s own confusion matrix
+    on these 3 tracks almost exactly:
+
+    | Track | Real Ledalab (TP/FN/FP) | `ledapy` tuned (TP/FN/FP) |
+    |---|---:|---:|
+    | `synth_sparse_clean` | 5/1/0 | 5/1/0 |
+    | `synth_dense_clean` | 39/1/4 | 39/1/4 |
+    | `synth_compound_clean` | 11/1/0 | 11/1/0 |
+    | **Aggregate** | **recall 94.8%, precision 93.2%, F1 0.940** | (same, by construction) |
+
+    This closes the "honest caveat" item 22 flagged as unresolved: `ledapy`'s numerics are not a
+    meaningfully noisier stand-in for the original MATLAB engine on this data - the two
+    implementations land on the same detections, the same misses, and the same false positives,
+    not just similar aggregate scores. The comparison throughout this document can be read as a
+    comparison against genuine Ledalab, not merely against a third-party Python re-implementation
+    of unknown fidelity.
+
+    **Not yet done** (superseded by item 24 below, same day): running the full 12-track/3-seed
+    suite through real Ledalab (only 3 clean tracks were checked here, for tractability); trying
+    Ledalab's DDA method, which the real source implements but `ledapy` does not port at all;
+    wiring Octave+real-Ledalab into the harness as a proper fourth reference toolbox rather than
+    the one-off scratch scripts used for this item.
+
+24. [x] **Migrated the harness itself to real Ledalab; deleted `ledapy` entirely.** Item 23 proved
+    real MATLAB-source Ledalab is reachable with no MATLAB license (via Octave) and numerically
+    faithful to `ledapy`. Once that was established, there was no remaining reason to keep a
+    third-party "partial port" of unknown long-term maintenance in the loop at all - switched
+    `check_ground_truth.sh`/`check_ground_truth.js` to talk to the real toolbox directly, on every
+    run, not just the one-off scratch investigation in item 23:
+    - **Deleted**: `run_ledapy.py`, and the `ledapy` pip package itself
+      (`~/neurokit/.venv`'s `pip uninstall ledapy`).
+    - **Added**: `run_ledalab.py` (replaces `run_ledapy.py`'s role and CLI/JSON contract exactly,
+      so `merge_reference_json.js` needed no changes beyond a field-name rename) and
+      `ledalab_batch_run.m` (the Octave-side batch driver it shells out to - one Octave process
+      per `check_ground_truth.sh` run, processing every track in that single session, since Octave
+      startup is the dominant fixed cost otherwise). Both live in this same `neurokit_compare/`
+      folder. `check_ground_truth.sh` now checks for `octave` on `PATH` and
+      `$LEDALAB_DIR/Ledalab.m` (default `~/ledalab`) instead of `import ledapy`, skipping the
+      Ledalab rows with a warning (not fatal) if either is missing - the same graceful-degradation
+      pattern already used for `cvxopt`.
+    - **Setup** (one-time, same as item 23 used): `brew install octave`; `git clone
+      https://github.com/ledalab/ledalab ~/ledalab`; apply the one Octave-compatibility patch
+      `run_ledalab.py`'s docstring documents (`main/save_ledamem.m`'s `prefdir(1)` -> `prefdir()` -
+      unrelated to the analysis itself, a settings-cache helper).
+    - **Field names**: `ledapy_peak_times`/`ledapy_lit_peak_times` -> `ledalab_peak_times`/
+      `ledalab_lit_peak_times` (and `_amplitudes`); row labels now say "real MATLAB source via
+      Octave" instead of "via Ledapy".
+
+    Re-running the full 12-track/3-seed/210-SCR clean suite (`CLEAN_ONLY=1
+    GROUND_TRUTH_NUM_SEEDS=3 ./check_ground_truth.sh`) through this new, real-Ledalab-only
+    pipeline - closing item 23's own "not yet done" line about only having checked 3 tracks -
+    confirms nothing in this document's conclusions changes:
+
+    | Detector | Recall | Precision | F1 | TP | FN | FP |
+    |---|---:|---:|---:|---:|---:|---:|
+    | Ledalab CDA (default, real MATLAB source via Octave) | 97.1% | 4.9% | 0.093 | 204 | 6 | 3969 |
+    | **Ledalab CDA (literature-tuned, real MATLAB source via Octave)** | 81.9% | 88.2% | **0.849** | 172 | 38 | 23 |
+
+    Both rows land within a point or two of item 22/23's `ledapy`-based figures (default F1 0.091,
+    tuned F1 0.847) - the small residual differences (FP 23 vs 24, precision 88.2% vs 87.8%) are
+    the same order of magnitude as the floating-point divergence item 23 already characterised and
+    accepted as ordinary numerical noise between independent implementations, not a new finding.
+    Full 1218-test suite (`node --test tests/*.js` from `visualiser/`) green throughout - none of
+    this touched production code, only the comparison harness.
+
+    **Not yet done**: Ledalab's DDA method (the real source supports it; `ledalab_batch_run.m`
+    only calls CDA, matching what `ledapy` exercised); running the noisy/gait/walking scenarios
+    and real tracks through this new pipeline (only the clean suite has been re-verified here).
+
 ## Decision Rule
 
 Prefer a change only when it improves known-answer performance across the full

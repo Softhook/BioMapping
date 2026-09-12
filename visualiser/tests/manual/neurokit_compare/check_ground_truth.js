@@ -203,15 +203,15 @@ if (isDir) {
 // Independent reference toolboxes' own detectors, scored against the same
 // known-answer tracks as BioMapping's own DETECTORS above - each row reads
 // [times, amplitudes] fields merge_reference_json.js has already combined
-// from run_neurokit.py / run_ledapy.py / run_cvxeda_reference.py's outputs
+// from run_neurokit.py / run_ledalab.py / run_cvxeda_reference.py's outputs
 // onto the one per-track object (nk, below - named for historical reasons,
 // it now carries every reference toolbox's fields, not just NeuroKit2's).
 const EXTERNAL_REFS = [
   ['NeuroKit2 (default)', 'peak_times', 'peak_amplitudes'],
   ['NeuroKit2 (cvxEDA)', 'cvxeda_peak_times', 'cvxeda_peak_amplitudes'],
   ['NeuroKit2 (cvxEDA + literature abs. peaks)', 'cvxeda_lit_peak_times', 'cvxeda_lit_peak_amplitudes'],
-  ['Ledalab CDA (default, via Ledapy)', 'ledapy_peak_times', 'ledapy_peak_amplitudes'],
-  ['Ledalab CDA (literature-tuned)', 'ledapy_lit_peak_times', 'ledapy_lit_peak_amplitudes'],
+  ['Ledalab CDA (default, real MATLAB source via Octave)', 'ledalab_peak_times', 'ledalab_peak_amplitudes'],
+  ['Ledalab CDA (literature-tuned, real MATLAB source via Octave)', 'ledalab_lit_peak_times', 'ledalab_lit_peak_amplitudes'],
   ['cvxEDA reference solver (naive curve-scan)', 'cvxeda_ref_naive_peak_times', 'cvxeda_ref_naive_peak_amplitudes'],
   ['cvxEDA reference solver (driver-based, BioMapping\'s algorithm)', 'cvxeda_ref_driver_peak_times', 'cvxeda_ref_driver_peak_amplitudes'],
 ];
