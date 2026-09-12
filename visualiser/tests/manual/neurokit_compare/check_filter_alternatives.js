@@ -281,6 +281,12 @@ const useButterworthPlusBox = (cutoffHz, order, boxSec) => () => {
     return originalBoxLPF(afterButter, Math.round(boxSec * SYNTH_SAMPLE_RATE));
   };
 };
+const useLR4 = (cutoffHz) => () => {
+  GsrFilter.applyZeroPhaseMovingAverage = (arr) => {
+    const pass1 = GsrFilter.applyZeroPhaseButterworth(arr, cutoffHz, 2, SYNTH_SAMPLE_RATE);
+    return GsrFilter.applyZeroPhaseButterworth(pass1, cutoffHz, 2, SYNTH_SAMPLE_RATE);
+  };
+};
 
 const CANDIDATES = [
   // ── Linear smoothing family (frequency-domain separation) ──
@@ -315,6 +321,7 @@ const CANDIDATES = [
   ['butterworth 0.8Hz order4', useButterworth(0.8, 4), { lpfWindow: 1, usePeakProminence: true }],
   ['butterworth 1.2Hz order2', useButterworth(1.2, 2), { lpfWindow: 1, usePeakProminence: true }],
   ['butterworth 1.0Hz order2', useButterworth(1.0, 2), { lpfWindow: 1, usePeakProminence: true }],
+  ['butterworth 0.8Hz order2', useButterworth(0.8, 2), { lpfWindow: 1, usePeakProminence: true }],
   // BioSPPy's actual production EDA pipeline: Butterworth 5Hz order4, then
   // boxcar+Parzen cascade smoothing (size 0.75*fs is BioSPPy's own default).
   ['boxzen 0.75s (biosppy default)', useBoxzen(0.75, 5), { lpfWindow: 1, usePeakProminence: true }],
@@ -327,6 +334,13 @@ const CANDIDATES = [
   ['butter 1.0Hz o4 + box 0.3s', useButterworthPlusBox(1.0, 4, 0.3), { lpfWindow: 1, usePeakProminence: true }],
   ['butter 0.8Hz o4 + box 0.2s', useButterworthPlusBox(0.8, 4, 0.2), { lpfWindow: 1, usePeakProminence: true }],
   ['butter 0.8Hz o4 + box 0.3s', useButterworthPlusBox(0.8, 4, 0.3), { lpfWindow: 1, usePeakProminence: true }],
+  ['butter 1.0Hz o2 + box 0.1s', useButterworthPlusBox(1.0, 2, 0.1), { lpfWindow: 1, usePeakProminence: true }],
+  ['butter 1.0Hz o2 + box 0.2s', useButterworthPlusBox(1.0, 2, 0.2), { lpfWindow: 1, usePeakProminence: true }],
+  ['butter 0.8Hz o2 + box 0.1s', useButterworthPlusBox(0.8, 2, 0.1), { lpfWindow: 1, usePeakProminence: true }],
+  ['LR4 0.9Hz (cascaded o2)', useLR4(0.9), { lpfWindow: 1, usePeakProminence: true }],
+  ['LR4 1.0Hz (cascaded o2)', useLR4(1.0), { lpfWindow: 1, usePeakProminence: true }],
+  ['LR4 1.1Hz (cascaded o2)', useLR4(1.1), { lpfWindow: 1, usePeakProminence: true }],
+  ['LR4 1.0Hz + box 0.2s', () => { GsrFilter.applyZeroPhaseMovingAverage = (arr) => originalBoxLPF(GsrFilter.applyZeroPhaseButterworth(GsrFilter.applyZeroPhaseButterworth(arr, 1.0, 2, 10), 1.0, 2, 10), 2); }, { lpfWindow: 1, usePeakProminence: true }],
   // ── Shape-matched / model-based family (separates by matching a canonical
   // SCR kernel, not by frequency at all - a periodic tremor doesn't resemble
   // the asymmetric bi-exponential SCR shape regardless of its frequency, so
@@ -341,6 +355,8 @@ const CANDIDATES = [
   ['MP deconv + box 0.5s', useOriginalBox, { lpfWindow: 0.5, usePeakProminence: false, useDeconvolution: true }],
   ['cvxEDA, no LPF', useOriginalBox, { lpfWindow: 0, usePeakProminence: false, useCvxEDA: true }],
   ['cvxEDA + box 0.5s', useOriginalBox, { lpfWindow: 0.5, usePeakProminence: false, useCvxEDA: true }],
+  // ── SHIPPED gait filter: GSR_DEFAULT (Butterworth 0.8Hz o4)
+  ['SHIPPED useGaitFilter:true', useOriginalBox, { useGaitFilter: true, usePeakProminence: true }],
 ];
 
 const [, , gtDir, nkPath] = process.argv;
@@ -368,7 +384,7 @@ for (const file of files) {
     installFilter();
     const a = new GSRAnalyzer();
     a.parseCSV(csvText);
-    a.analyze({ ...D, medianSize: 0, usePeakProminence: false, useCvxEDA: false, useDeconvolution: false, ...patch }, 0);
+    a.analyze({ ...D, medianSize: 0, useGaitFilter: false, usePeakProminence: false, useCvxEDA: false, useDeconvolution: false, ...patch }, 0);
     const times = a.peaks.map(p => p.time);
     const amps = a.peaks.map(p => p.amplitude);
     console.log(fmt(label, score(times, amps, trueScrs)));

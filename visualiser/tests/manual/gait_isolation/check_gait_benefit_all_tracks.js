@@ -175,9 +175,10 @@ for (const file of files) {
 }
 
 const meanAbsR = (side) => rows.reduce((s, r) => s + Math.abs(r[side].r), 0) / rows.length;
-const meanBrisk = (side) => rows.reduce((s, r) => s + r[side].briskMean, 0) / rows.length * 100;
+const briskRows = rows.filter(r => !isNaN(r.noneRes.briskMean) && !isNaN(r.boxRes.briskMean) && !isNaN(r.gaitRes.briskMean));
+const meanBrisk = (side) => briskRows.length ? (briskRows.reduce((s, r) => s + r[side].briskMean, 0) / briskRows.length * 100) : 0;
 const improvedVsNone = (side) => rows.filter(r => Math.abs(r[side].r) < Math.abs(r.noneRes.r)).length;
-const briskReducedVsNone = (side) => rows.filter(r => r[side].briskMean < r.noneRes.briskMean).length;
+const briskReducedVsNone = (side) => briskRows.filter(r => r[side].briskMean < r.noneRes.briskMean).length;
 
 console.log(`\n=== Summary (${rows.length} tracks with usable speed variation) ===`);
 console.log(`mean |r| (speed vs gait-band power):     raw=${meanAbsR('noneRes').toFixed(3)}   box=${meanAbsR('boxRes').toFixed(3)}   gait=${meanAbsR('gaitRes').toFixed(3)}`);

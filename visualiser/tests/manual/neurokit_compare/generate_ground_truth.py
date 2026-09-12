@@ -63,6 +63,13 @@ SCENARIOS = [
     # so an unfiltered detector should mistake several tremor cycles for SCRs.
     {'name': 'synth_gait_tremor', 'duration': 300, 'scr_number': 6, 'noise': 0.01, 'drift': 0.001,
      'gait_freq': 1.7, 'gait_amplitude': 0.08, 'seed': 6},
+    # Mirrors real-track walking gait: alternating stationary rest intervals
+    # and variable-speed walking bouts (0.5m/s slow, 0.8m/s medium, 1.3m/s brisk).
+    # Footstep impact frequency (1.1 + 0.6*v Hz) and tremor amplitude track walking
+    # speed dynamically, allowing sliding-window gait-isolation tests to correlate
+    # band power directly against simultaneous speed on ground truth.
+    {'name': 'synth_walking_track', 'duration': 480, 'scr_number': 24, 'noise': 0.015, 'drift': 0.001,
+     'walking_profile': True, 'seed': 42},
 ]
 
 OUTPUT_SAMPLING_RATE = 10   # match the real biomap_* tracks (10Hz)
@@ -117,7 +124,7 @@ TRUE_AMPLITUDE_RANGE = (0.1, 2.0)  # uS
 SCR_WINDOW_SEC = 20
 
 
-def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_amplitude=0):
+def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_amplitude=0, walking_profile=False):
     """Mirrors nk.eda_simulate()'s own body exactly (see module docstring for
     why this isn't just a call to that function), tracking each SCR's true
     peak time as it's placed. Generates at GEN_SAMPLING_RATE; caller
@@ -125,12 +132,28 @@ def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_a
     rng = np.random.default_rng(seed)
     sr = GEN_SAMPLING_RATE
     length = duration * sr
+    t_full = np.arange(length) / sr
+
+    # Build speed profile if walking scenario
+    speed_ms = None
+    if walking_profile:
+        speed_ms = np.zeros(length)
+        for i, t in enumerate(t_full):
+            if 60 <= t < 180:
+                speed_ms[i] = 0.8 + 0.1 * np.sin(2 * np.pi * 0.05 * t)
+            elif 240 <= t < 360:
+                speed_ms[i] = 1.3 + 0.15 * np.sin(2 * np.pi * 0.05 * t)
+            elif 360 <= t < 420:
+                speed_ms[i] = 0.5 + 0.08 * np.sin(2 * np.pi * 0.05 * t)
 
     eda = np.full(length, 1.0)
     eda += drift * np.linspace(0, duration, length)
     time = [0, duration]
 
-    start_peaks = np.linspace(0, duration, scr_number, endpoint=False)
+    start_peaks = np.linspace(10 if walking_profile else 0,
+                              duration - 20 if walking_profile else duration,
+                              scr_number,
+                              endpoint=False)
     true_scrs = []
 
     for start_peak in start_peaks:
@@ -167,8 +190,13 @@ def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_a
 
         eda = signal_merge(signal1=eda, signal2=scr, time1=time, time2=time_scr)
 
-    if gait_freq > 0 and gait_amplitude > 0:
-        t_full = np.arange(length) / sr
+    if walking_profile:
+        # Gait oscillation: frequency and amplitude scale dynamically with walking speed
+        inst_freq = np.where(speed_ms > 0.1, 1.1 + 0.6 * speed_ms, 0.0)
+        inst_amp = np.where(speed_ms > 0.1, 0.07 * (speed_ms / 1.0), 0.0)
+        phase = 2 * np.pi * np.cumsum(inst_freq) / sr
+        eda += inst_amp * np.sin(phase)
+    elif gait_freq > 0 and gait_amplitude > 0:
         # Slow amplitude wobble (0.05Hz, ~20s period) so it's not a pure tone
         # a naive fixed-frequency notch could null perfectly - real stride
         # amplitude varies with terrain/fatigue/pace changes.
@@ -193,8 +221,12 @@ def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_a
     t_gen = np.arange(length) / sr
     t_out = np.arange(0, duration, 1.0 / OUTPUT_SAMPLING_RATE)
     eda_out = np.interp(t_out, t_gen, eda)
+    speed_kts_out = None
+    if speed_ms is not None:
+        speed_ms_out = np.interp(t_out, t_gen, speed_ms)
+        speed_kts_out = speed_ms_out / 0.514444
 
-    return eda_out, sorted(true_scrs, key=lambda s: s['time'])
+    return eda_out, speed_kts_out, sorted(true_scrs, key=lambda s: s['time'])
 
 
 def main():
@@ -205,12 +237,18 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     for scn in SCENARIOS:
-        eda, true_scrs = generate_track(scn['duration'], scn['scr_number'], scn['noise'], scn['drift'], scn['seed'],
-                                         gait_freq=scn.get('gait_freq', 0), gait_amplitude=scn.get('gait_amplitude', 0))
+        eda, speed_kts, true_scrs = generate_track(
+            scn['duration'], scn['scr_number'], scn['noise'], scn['drift'], scn['seed'],
+            gait_freq=scn.get('gait_freq', 0), gait_amplitude=scn.get('gait_amplitude', 0),
+            walking_profile=scn.get('walking_profile', False)
+        )
         n = len(eda)
         ts = np.arange(n) / OUTPUT_SAMPLING_RATE
 
-        df = pd.DataFrame({'timestamp': ts, 'gsr_raw': eda})
+        data = {'timestamp': ts, 'gsr_raw': eda}
+        if speed_kts is not None:
+            data['speed_kts'] = speed_kts
+        df = pd.DataFrame(data)
         csv_path = os.path.join(out_dir, f"{scn['name']}.csv")
         df.to_csv(csv_path, index=False)
 

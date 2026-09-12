@@ -124,6 +124,14 @@ const filteredTone = GsrFilter.applyZeroPhaseButterworth(fastTone, 0.8, 4, sr);
 const rms = (arr) => Math.sqrt(arr.reduce((s, v) => s + v * v, 0) / arr.length);
 assert(rms(filteredTone) < rms(fastTone) * 0.2, 'applyZeroPhaseButterworth substantially attenuates a tone above its cutoff');
 
+// applyZeroPhaseLinkwitzRiley: LR4 low-pass filter
+assert(typeof GsrFilter.applyZeroPhaseLinkwitzRiley === 'function', 'GsrFilter.applyZeroPhaseLinkwitzRiley is a function');
+const lrConst = GsrFilter.applyZeroPhaseLinkwitzRiley(constSignal, 1.0, sr);
+assertEq(lrConst.length, n, 'applyZeroPhaseLinkwitzRiley preserves length');
+assert(lrConst.every(v => Math.abs(v - 3.0) < 1e-6), 'applyZeroPhaseLinkwitzRiley passes DC through at unity gain');
+const lrFilteredTone = GsrFilter.applyZeroPhaseLinkwitzRiley(fastTone, 1.0, sr);
+assert(rms(lrFilteredTone) < rms(fastTone) * 0.2, 'applyZeroPhaseLinkwitzRiley substantially attenuates a tone above its cutoff');
+
 // Run full analysis pipeline (percentile baseline)
 const analyzeParams = {
   ...GSR_CONST.GSR_DEFAULT,

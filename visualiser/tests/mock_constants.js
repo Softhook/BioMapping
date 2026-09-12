@@ -34,7 +34,7 @@ module.exports = {
     useCvxEDA: false
   },
 
-  GAIT_FILTER: { cutoffHz: 0.8, order: 4 },
+  GAIT_FILTER: { cutoffHz: 1.0, type: 'lr4', order: 4 },
 
   SCRF: {
     tauSlow: 2.0,

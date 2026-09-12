@@ -493,19 +493,23 @@ class GSRAnalyzer {
       let afterMedian = GsrFilter.applyMedianFilter(this._rawValsPool, medWindowSize);
 
       // 2. Low-Pass Filter — useGaitFilter (on by default) swaps in the
-      // Butterworth gait filter (GSR_CONST.GAIT_FILTER) in place of the box
-      // average — see applyZeroPhaseButterworth()'s doc comment in
-      // gsr_filter.js for the trade-off this makes and when to turn it off.
+      // Linkwitz-Riley 4 gait filter (GSR_CONST.GAIT_FILTER) in place of the box
+      // average — see applyZeroPhaseLinkwitzRiley()'s doc comment in
+      // gsr_filter.js for design details.
       // The toggle is independent of the lpfWindow slider's magnitude — it
-      // has its own fixed cutoff/order — so it takes effect even with
+      // has its own fixed cutoff/type — so it takes effect even with
       // lpfWindow at 0 (the box average's own "off" position); otherwise
       // checking the toggle while that slider sat at 0 would look like a
       // broken checkbox that silently does nothing.
       const lpfWinSize = params.lpfWindow * this.sampleRate;
       let afterLPF;
       if (params.useGaitFilter) {
-        const gf = (typeof GSR_CONST !== 'undefined' && GSR_CONST.GAIT_FILTER) || { cutoffHz: 0.8, order: 4 };
-        afterLPF = GsrFilter.applyZeroPhaseButterworth(afterMedian, gf.cutoffHz, gf.order, this.sampleRate);
+        const gf = (typeof GSR_CONST !== 'undefined' && GSR_CONST.GAIT_FILTER) || { cutoffHz: 1.0, type: 'lr4' };
+        if (gf.type === 'butterworth') {
+          afterLPF = GsrFilter.applyZeroPhaseButterworth(afterMedian, gf.cutoffHz, gf.order || 4, this.sampleRate);
+        } else {
+          afterLPF = GsrFilter.applyZeroPhaseLinkwitzRiley(afterMedian, gf.cutoffHz, this.sampleRate);
+        }
       } else {
         afterLPF = GsrFilter.applyZeroPhaseMovingAverage(afterMedian, lpfWinSize);
       }

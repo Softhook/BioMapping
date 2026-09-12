@@ -48,14 +48,14 @@ const GSR_CONST = {
     // lpfWindow above 0 then for a plain moving-average smooth instead of the
     // gait filter. Off by default (0) since the gait filter runs instead.
     medianSize: 0, lpfWindow: 0,
-    // On by default: a zero-phase order-4 Butterworth at 0.8Hz
+    // On by default: a zero-phase 4th-order Linkwitz-Riley filter at 1.0Hz
     // (GSR_CONST.GAIT_FILTER) in place of a plain box average - rejects a
     // ~1.4-2.0Hz walking-gait artefact far better while preserving genuine
-    // SCR amplitude much more accurately (see gsr_filter.js's
-    // applyZeroPhaseButterworth doc comment for the ground-truth numbers).
-    // Its one real cost is letting more general sensor noise through than a
-    // box average would on a recording with no walking to reject in the
-    // first place - turn it off for a seated/stationary recording. Its own
+    // SCR amplitude much more accurately (~95%+ vs box ~72-88%).
+    // Unlike Butterworth order-4, LR4 has no underdamped resonant peaking
+    // (Q=0.7071 in all sections), avoiding noise ringing and false peaks on
+    // quiet tracks while matching box-filter peak counts corpus-wide.
+    // Turn off for a seated/stationary recording if desired. Its own
     // on/off switch, independent of lpfWindow's value/position.
     useGaitFilter: true,
     tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.015,
@@ -69,15 +69,12 @@ const GSR_CONST = {
   },
 
   // ── Gait low-pass filter (useGaitFilter toggle) ──────────────────────────
-  // A zero-phase order-4 Butterworth at 0.8Hz - GSR_DEFAULT.useGaitFilter's
+  // A zero-phase 4th-order Linkwitz-Riley filter at 1.0Hz - GSR_DEFAULT.useGaitFilter's
   // replacement for the box average, on by default. Not user-adjustable:
-  // 0.8Hz/order4 was the cutoff/order pair that came out on top across every
-  // ground-truth scenario tested (real-track walking-gait rejection AND all
-  // four synthetic non-gait scenarios) - see gsr_filter.js's
-  // applyZeroPhaseButterworth doc comment for the trade-off this filter
-  // makes and why it's still a toggle (turn off for a seated/stationary
-  // recording) rather than unconditional.
-  GAIT_FILTER: { cutoffHz: 0.8, order: 4 },
+  // 1.0Hz LR4 (cascaded two 2nd-order Butterworth passes, Q = 0.7071) eliminates
+  // walking-gait ripple, preserves true SCR amplitude, and eliminates the
+  // underdamped resonance and ringing of standard Butterworth filters.
+  GAIT_FILTER: { cutoffHz: 1.0, type: 'lr4', order: 4 },
 
   // ── SCR deconvolution (Benedek & Kaernbach, 2010) ────────────────────────
   // Bi-exponential (Bateman) SCRF kernel parameters. When useDeconvolution is
