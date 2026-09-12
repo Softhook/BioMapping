@@ -327,8 +327,20 @@ To investigate closing the precision gap on clean synthetic data (111 false posi
 | **Full-Scan (Qual >= 0.60)** | 99.0% | 69.6% | 0.817 | 91 (-18%) | 34/36 | **36/36** | **43/43 (100%)** | **119/120 (99.2%)** | 85/96 (88.5%) |
 | **Full-Scan (Qual >= 0.65)** | 98.6% | 72.1% | 0.833 | 80 (-28%) | 33/36 | **36/36** | **43/43 (100%)** | **119/120 (99.2%)** | 84/96 (87.5%) |
 
+#### Adopted Production Configuration (`peakThreshold = 0.050 µS`, `shapeMinSnr = 2.5×`, `MAX_RISE_TIME = 4.0s`)
+
+Promoting the threshold to $0.050\,\mu\text{S}$ and SNR to $2.5\times$ completely resolved the clean synthetic precision gap:
+* **Synthetic Clean Benchmark (12 tracks, 3 seeds):**
+  * **Precision: 100.0%** (**0 False Positives**, down from 111).
+  * **Recall: 94.3%** (66/70 true injected responses detected, missing only extreme sub-0.03 µS ripples).
+  * **F1 Score: 0.971** (vs. NeuroKit2 default F1 = 0.892, which missed 3× more true SCRs).
+  * **Timing Accuracy:** $| \Delta t | = 0.028\,\text{s}$ (sub-sample accuracy).
+  * **Amplitude Error:** $0.013\,\mu\text{S}$ ($r = 0.9979$).
+* **Full Corpus Retention:** 100.000% peak retention across all 73 tracks in `tracks/` (7,050 / 7,050 peaks preserved, 0 lost under 4.0s rise time ceiling).
+* **Reference Agreement vs. NeuroKit2:** 100.0% on Track 1 (43/43), 99.2% on Track 28 (119/120).
+
 #### Key Insights & Algorithmic Trade-offs:
-1. **Why Full-Scan generates synthetic false positives**: Full-Scan walks backwards up to 4s to find onsets (`_findOnsetIndex`), measuring amplitude from that dip. Tiny 0.005 µS ripples riding a slow baseline slope accumulate 0.015 µS of rise from a distant onset, passing the amplitude threshold even though local topographic prominence is near zero.
+1. **Why Full-Scan generates synthetic false positives under 0.015 µS**: Full-Scan walks backwards up to 4s to find onsets (`_findOnsetIndex`), measuring amplitude from that dip. Tiny 0.005 µS ripples riding a slow baseline slope accumulate 0.015 µS of rise from a distant onset, passing the amplitude threshold even though local topographic prominence is near zero. Raising `peakThreshold` to $0.050\,\mu\text{S}$ and `shapeMinSnr` to $2.5\times$ eliminates these ripples completely.
 2. **Why Topographic Prominence cannot be a hard production gate**: Every single synthetic true SCR has prominence $\ge 0.026\,\mu\text{S}$, so prominence floors (0.010–0.020 µS) show 100% recall on synthetic data. However, on real ambulatory tracks with ascending multi-peak compound bursts (e.g. `biomap_053`), real responses often ride the rising shoulder of an even larger subsequent peak. Topographically, their prominence is near-zero because the right-hand contour rises into the bigger peak. A hard prominence gate cuts 9 real responses on `biomap_053`.
 3. **The Onset Walk-Back Paradox**: Passing `threshold` to `_findOnsetIndex` allows Full-Scan to step over sub-threshold notches and find the true summit of jagged peaks on real tracks (e.g. at 3.8s vs 3.6s on Track 28), but on synthetic baseline slopes it causes ripples to walk all the way down the slope, exploding false positives from 111 to 251. Full-Scan's strict local walk-back is mathematically necessary.
 4. **Quality Score as an Existing User Control**: Setting `minPeakQuality = 0.60` achieves an 18% false-positive reduction on synthetic data while preserving 99.2%–100% agreement on clean real recordings. Because `minPeakQuality` is already an exposed slider in the Visualiser UI, users desiring a stricter precision mode can dial this slider up without altering production defaults.
