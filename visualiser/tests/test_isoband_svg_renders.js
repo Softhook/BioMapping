@@ -54,6 +54,7 @@ loadModule(path.join(__dirname, '../src/gps/geo_utils.js'),       'GeoUtils');
 loadModule(path.join(__dirname, '../src/render/marching_squares.js'),'MarchingSquares');
 loadModule(path.join(__dirname, '../src/spatial/spatial_clustering.js'), 'GSRSpatialClustering');
 loadModule(path.join(__dirname, '../src/map/hillshade.js'),       'Hillshade');
+loadModule(path.join(__dirname, '../src/render/contour_ring_geometry.js'), 'ContourRingGeometry');
 loadModule(path.join(__dirname, '../src/map/map_exporter.js'),   'GSRMapExporter');
 
 const { MarchingSquares } = global;
@@ -117,19 +118,23 @@ fs.writeFileSync(svgPath, svg);
 const result = spawnSync('convert', ['-background', '#0b0d16', svgPath, pngPath], { encoding: 'utf8' });
 assert.strictEqual(result.status, 0, `convert should succeed rasterizing the exported SVG (stderr: ${result.stderr})`);
 
-// Ask ImageMagick how many pixels differ from a solid background fill — "AE" is
-// a raw differing-pixel COUNT, not a fraction, so normalize by total pixel count.
+// Ask ImageMagick how much the render differs from a solid background fill.
+// `-metric AE -format %[distortion]` already returns a normalized value in
+// [0, 1] (verified directly: identical images -> 0, fully-swapped colors on
+// a single channel -> 1, half a canvas swapped -> 0.5) — it is NOT a raw
+// differing-pixel count, despite looking like one. Do not re-divide by pixel
+// count here; that silently shrank real, substantial distortion (~0.35 on a
+// visibly-rendered isoband PNG) down to ~0.0000001, which is what caused
+// this test to report "0.0%" and fail even though the image was correct.
 const compare = spawnSync('convert', [
   pngPath, '(', '-clone', '0', '-fill', '#0b0d16', '-colorize', '100', ')',
   '-metric', 'AE', '-compare', '-format', '%[distortion]', 'info:'
 ], { encoding: 'utf8' });
-const diffPixelCount = parseFloat(compare.stdout);
-const totalPixels = 2000 * 2000;
-const diffFraction = diffPixelCount / totalPixels;
+const diffFraction = parseFloat(compare.stdout);
 
 fs.rmSync(tmpDir, { recursive: true, force: true });
 
-assert(!isNaN(diffPixelCount), `ImageMagick comparison against solid background produced a numeric result (got: "${compare.stdout}", stderr: "${compare.stderr}")`);
+assert(!isNaN(diffFraction), `ImageMagick comparison against solid background produced a numeric result (got: "${compare.stdout}", stderr: "${compare.stderr}")`);
 assert(
   diffFraction > 0.05,
   `Rendered PNG has a substantial fraction of non-background pixels (i.e. the isobands actually rendered, not blank): ${(diffFraction * 100).toFixed(1)}%`
