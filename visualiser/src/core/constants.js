@@ -234,7 +234,7 @@ const GSR_CONST = {
   // (_computePeakQuality), whose own ideal-range breakpoints are inline
   // literals, not these constants.
   PEAK_SHAPE: {
-    MAX_RISE_TIME: 5.0,          // Max onset→peak (s) — onset walk-back search bound
+    MAX_RISE_TIME: 4.0,          // Max onset→peak (s) — onset walk-back search bound
     MIN_SNR: 1.5,               // Min signal-to-noise ratio fallback — matches GSR_DEFAULT.shapeMinSnr
     QUALITY_WEIGHTS: {           // For composite quality score (0–1)
       amplitude: 0.20,           // Higher amplitude = more confident

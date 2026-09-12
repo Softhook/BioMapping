@@ -81,7 +81,7 @@ module.exports = {
   PEAK_PROMINENCE_BASELINE_SEC: 8,
 
   PEAK_SHAPE: {
-    MAX_RISE_TIME: 5.0,
+    MAX_RISE_TIME: 4.0,
     MIN_SNR: 1.5,
     QUALITY_WEIGHTS: {
       amplitude: 0.20, riseTime: 0.15, recoveryTime: 0.15,
