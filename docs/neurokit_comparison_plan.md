@@ -1225,6 +1225,120 @@ predated both):
       and footstep impacts, BioMapping's LR4 gait filter completely eliminates movement artifacts while preserving 100% of genuine SCRs
       with sub-frame timing fidelity.
 
+29. [x] **Assessed an external AI-generated "endpoint" summary of this document against the document itself — declared premature
+    (2026-09-12)**: A generated one-page summary of this comparison work concluded that "there is very little left to prove or
+    tweak," citing "asymptotic convergence," "parameters frozen & optimal," "100% test suite stability... 0 skips," and "no
+    remaining mysteries." Checked its specific claims:
+    - **The individual benchmark numbers it cites are accurate.** NeuroKit2's multi-burst recall collapse (67.4%, item 27
+      Tier 3), the default-Ledalab false-alarm counts (3,969 on 210 events, item 24; 1,135 on the gait scenario, item 28), the
+      footstep phantom-peak counts (242-1,135, item 28), the sensor-dropout phantom-peak count (7,144, item 26), and the
+      cvxEDA cross-solver identity claims (items 19-21, 25-26) all trace faithfully to the tables above.
+    - **"0 skips" holds right now** — re-ran `node --test tests/*.js` from `visualiser/` on 2026-09-12: 1218/1218 passing, 0
+      skipped. Earlier entries in this document (items 13, 19, 21) recorded "1217 passed / 1 pre-existing skip"; that skip was
+      a graceful-degradation guard for a missing optional dependency (see items 22-24's octave/cvxopt handling), not a real
+      gap, and has since cleared in this environment. Not evidence either past entry was wrong at the time.
+    - **"5 Tiers" was actually correct, and this document was wrong to imply otherwise.** A fifth
+      tier — `generate_semi_synthetic.py`, injecting known SCRs onto a real donor recording's
+      substrate (`TIER=5`/`semi` in `check_ground_truth.sh`) — already existed in the harness as of
+      this same day's `f777ecd` commit but had no write-up anywhere in this document. That
+      documentation gap, not a miscount in the summary, is what made it look like an overcount when
+      this item was first written; closed by item 30 below.
+    - **"No remaining mysteries" is contradicted by this document's own text**: item 22 carries an explicit "Honest caveat this
+      doesn't resolve" — why the literature's classic ~0.01 µS Ledalab amplitude threshold needed an unexplained 10x increase
+      (~0.1 µS) to be competitive on this data, with two candidate explanations left undistinguished.
+    - **"Parameters are frozen & optimal" is contradicted by this document's own history.** `peakThreshold` moved
+      0.015→0.050→0.045 µS within the same day (item 13), `MAX_RISE_TIME` moved 5.0s→4.0s, and item 18 explicitly proposes a
+      further, not-yet-run sweep of the literature-tuned NeuroKit2 comparator. Next Plan items 9-12 and 14 (below) are still
+      open/unchecked, and items 19, 20, 21, 25, 26, and 27 each end with their own "Not yet done" follow-up work.
+    - **Verdict**: the summary's evidence is sound but its "declare the algorithmic benchmark phase complete" framing is not
+      supported by, and in several places directly contradicted by, the document it claims to summarize. Treat this
+      comparison work as ongoing, not concluded.
+
+30. [x] **Documented two scenarios that already existed in the harness but had no write-up here:
+    Tier 5 (semi-synthetic real-donor track) and the clean-walking-no-footsteps case (2026-09-12)**:
+    Auditing `check_ground_truth.sh`'s `TIER=` branches against this document found two gaps: a
+    `semi`/`5`/`tier5` branch running `generate_semi_synthetic.py` (added same-day, commit
+    `f777ecd`, "semi synthetic data") that this document never described or scored, and a
+    `walking_clean` branch running `synth_walking_no_footsteps` (present in `generate_ground_truth.py`
+    since Tier 4 was built, item 28) that every other scenario in the generator has a documented
+    result for except this one. Ran both for the first time in this document's own numbers rather
+    than trusting either the generator's docstring or the external summary's uncredited figures.
+
+    **Tier 5 — semi-synthetic (`TIER=5 ./check_ground_truth.sh`, real donor substrate)**:
+    `generate_semi_synthetic.py` takes a real recorded walk (`visualiser/fixtures/default_processed.csv`,
+    ~1130s) and, instead of synthetic Gaussian noise, extracts that donor's own slow thermal
+    drift plus its real Flipper-hardware ADC/contact noise floor (0.02 Hz low-pass for drift, a
+    clipped ±0.02 µS residual for the noise floor) as the substrate. Onto that real substrate it
+    injects 25 known bi-exponential SCRs (fast ductal + slow diffusion-tail compartments) across
+    six cluster types — isolated responses, sigh pre-inflection notches, multi-burst
+    doublets/triplets with refractory-fatigue habituation between bursts, and large jolts with a
+    persistent post-stimulus tonic step — then re-quantizes back to the hardware's real 0.1 nS ADC
+    step and keeps the donor's real GPS route. This is the first scenario in this document with a
+    real (not synthetic) noise floor and real (not modelled) tonic drift underneath a *known*
+    injected signal — the previous closest thing, the "Clean Indoor Stationary Reference" section
+    above, has real noise but an *unknown* true SCR count.
+
+    | Detector | Recall | Precision | F1 | TP | FN | FP | Mean \|delta\| | Amplitude MAE | Amplitude r |
+    |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+    | **BioMapping cvxEDA** (driver-based) | 76.0% | **86.4%** | **0.809** | 19 | 6 | **3** | 0.121s | 0.157 uS | 0.8295 |
+    | BioMapping Full-Scan (production) | 80.0% | 39.2% | 0.526 | 20 | 5 | 31 | 0.080s | 0.171 uS | 0.8337 |
+    | BioMapping Prominence | 76.0% | 38.0% | 0.507 | 19 | 6 | 31 | 0.063s | 0.180 uS | 0.8200 |
+    | BioMapping Deconvolution (MP) | **84.0%** | 9.2% | 0.165 | 21 | 4 | 208 | 0.205s | 0.202 uS | 0.6398 |
+    | NeuroKit2 (default) | 72.0% | 78.3% | 0.750 | 18 | 7 | 5 | 0.111s | 0.066 uS | 0.9806 |
+    | NeuroKit2 (cvxEDA) | 60.0% | 93.8% | 0.732 | 15 | 10 | 1 | 0.107s | 0.125 uS | 0.8589 |
+    | cvxEDA reference solver (driver-based) | 76.0% | 86.4% | 0.809 | 19 | 6 | 3 | 0.105s | 0.156 uS | 0.8279 |
+    | Ledalab CDA (literature-tuned) | 72.0% | 28.1% | 0.404 | 18 | 7 | 46 | 0.550s | 0.196 uS | 0.8289 |
+    | Ledalab CDA (default) | 84.0% | 3.1% | 0.061 | 21 | 4 | 646 | 0.490s | 0.314 uS | 0.7958 |
+
+    (12 tracks total per run — the other 11 are the same Tier 1-3 clean/noisy scenarios documented
+    above, unaffected by this item; only the new `synth_semi_real_demo` row is reported here. Gait
+    filter on, single seed, single donor track — this is a first measurement, not a converged one.)
+
+    **This is the most sobering result in this document, and it directly undercuts the "endpoint"
+    framing item 29 pushed back on.** On the pure-synthetic clean suite, Full-Scan gets 100.0%
+    precision / 0 FP (see "Comprehensive Clean 3-Way Benchmark" above). On a real noise floor and
+    real tonic drift with a *known* injected signal, its precision collapses to 39.2% (31 false
+    positives against only 20 true detections) — worse than NeuroKit2's default detector (78.3%
+    precision) on the same track. BioMapping's own cvxEDA (driver-based) detector is the best-F1
+    BioMapping row here (0.809, tied with the reference solver, confirming algorithmic identity
+    holds under this harder substrate too per items 19-21) but Full-Scan and Prominence — the
+    production defaults — are not. The likely mechanism, consistent with "Why Full-Scan generates
+    synthetic false positives" above: the real donor's residual phasic micro-fluctuations (genuine
+    human tonic drift and contact noise, not flat synthetic Gaussian noise) ride the same
+    onset-walk-back path that produces ripples on synthetic slopes, and there is simply more of that
+    structure in a real recording than in the synthetic noise model this document's other clean/noisy
+    scenarios use. **Not yet done**: multi-seed / multi-donor Tier 5 runs (only one seed, one donor
+    track); tracing the specific false positives the way item 13 traced synthetic ones, to see
+    whether a Tier-5-specific rule (or a change to the existing amplitude/SNR floors) could close
+    this gap without regressing the synthetic suite; re-running with the gait filter off to isolate
+    how much of the FP count is donor-substrate noise versus donor-recording motion.
+
+    **`synth_walking_no_footsteps` — clean walking, tremor/footstep artefact removed
+    (`TIER=walking_clean ./check_ground_truth.sh`, gait filter off)**: the one scenario in
+    `generate_ground_truth.py` with no prior result in this document. This is what the external
+    summary in item 29 called "Clean Walking (No Tremor)":
+
+    | Detector | Recall | Precision | F1 | Mean \|delta\| | Amplitude MAE | Amplitude r |
+    |---|---:|---:|---:|---:|---:|---:|
+    | **BioMapping Full-Scan (production)** | **100.0%** | **100.0%** | **1.000** | 0.028s | **0.009 uS** | 0.9998 |
+    | BioMapping Deconvolution (MP) | 100.0% | 100.0% | 1.000 | 0.053s | 0.024 uS | 0.9999 |
+    | BioMapping Prominence | 100.0% | 92.3% | 0.960 | 0.028s | 0.008 uS | 0.9999 |
+    | BioMapping cvxEDA (driver-based) | 100.0% | 88.9% | 0.941 | 0.308s | 0.252 uS | 0.9235 |
+    | NeuroKit2 (default) | 83.3% | 100.0% | 0.909 | 0.028s | 0.017 uS | 0.9998 |
+    | NeuroKit2 (cvxEDA) | 45.8% | 100.0% | 0.629 | 0.219s | 0.716 uS | 0.7003 |
+    | Ledalab CDA (literature-tuned) | 95.8% | 100.0% | 0.979 | 0.513s | 0.162 uS | 0.9999 |
+    | Ledalab CDA (default) | 100.0% | 4.9% | 0.094 | 0.539s | 0.612 uS | 0.5189 |
+
+    (24 true SCRs, 1 seed.) Full-Scan's own figures here — recall 100.0%, precision 100.0%, F1
+    1.000, mean \|Δt\| 0.028s, amplitude MAE 0.009 µS — match item 29's external summary exactly.
+    That specific claim was accurate all along; it was simply citing a real, if previously
+    undocumented, result. Recorded here now so it has a traceable source in this document instead
+    of only existing in an external write-up. **Not yet done**: multi-seed confirmation (only 1 seed
+    run); this scenario isolates walking-induced tremor/contact-noise from footstep-impact
+    artefacts specifically (compare against `synth_walking_track`, item 28's footstep-inclusive
+    walking scenario, and `synth_gait_tremor`) — a short note on what each of the three
+    motion-related scenarios isolates would help a future reader tell them apart at a glance.
+
 ## Decision Rule
 
 Prefer a change only when it improves known-answer performance across the full

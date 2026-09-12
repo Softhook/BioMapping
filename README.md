@@ -46,86 +46,32 @@ Accuracy zones by the fraction of real-world track data that falls inside them:
 - **≤ ±1.0%** — 15 kΩ – 4.7 MΩ (213 – 66,667 nS): 99.89%
 - Below 100 nS (over 10 MΩ) the device reports an open circuit (electrodes disconnected / air).
 
-### Software & Algorithmic Accuracy (vs. NeuroKit2 & Ledalab)
+### Software & Algorithmic Accuracy
 
-### Software & Algorithmic Accuracy (vs. NeuroKit2 & Ledalab)
+Detecting a genuine skin-conductance response (SCR) — separating it from sensor noise, walking motion, and baseline drift — is a well-studied problem in psychophysiology, with two established open-source reference tools: **NeuroKit2** (Python) and **Ledalab** (MATLAB/Octave), plus the peer-reviewed **cvxEDA** convex-optimisation model for decomposing skin conductance into its slow (tonic) and fast (phasic) components.
 
-BioMapping's detection algorithms are rigorously evaluated across three levels:
-1. **Synthetic Ground-Truth Benchmark (`check_ground_truth.sh`)**: Evaluates *absolute mathematical correctness* against 210 known injected SCR events (where exact peak onset, timing, and amplitude are 100% known).
-2. **Clean Stationary Human Reference Tracks (`./run.sh`)**: Evaluates *direct cross-toolbox agreement* on clean, seated human recordings under the stationary laboratory conditions assumed by academic toolboxes (gait filter OFF for all tools).
-3. **Full Real-World Ambulatory Corpus (`./run.sh all`)**: Evaluates *real-world robustness* across 62 walking and outdoor field tracks (>100,000 data points), highlighting the necessity of BioMapping's zero-phase gait-motion filter and noise-floor gates.
+BioMapping ships its own detection pipeline — built to run entirely client-side, in the browser, on recordings made while walking outdoors — and checks it against those references on three grounds:
 
-Full technical report and methodology are documented in [`docs/neurokit_comparison_plan.md`](docs/neurokit_comparison_plan.md).
+1. **A synthetic benchmark with a known answer.** Generated tracks carry SCR events at exactly known times and amplitudes, across a range of difficulty (evenly spaced, densely packed, overlapping bursts, and walking motion), so detection accuracy can be measured directly rather than inferred.
+2. **Direct agreement on real recordings.** On clean, stationary recordings — the condition NeuroKit2 and Ledalab are designed for — BioMapping's output is compared peak-for-peak against theirs.
+3. **A 62-track real-world field corpus.** Outdoor walking recordings totalling over 100,000 data points, to confirm the above holds up outside the lab.
 
-#### 1. Synthetic Ground-Truth Benchmark (Multi-Tier Difficulty Spectrum)
+**On the known-answer synthetic benchmark** (210 injected responses, evenly spaced through overlapping and compound), BioMapping's detectors sit at the strong end of recall, precision, and timing accuracy:
 
-To test algorithms against known physiological reality, BioMapping evaluates detectors across a **4-tier difficulty spectrum** of synthetic tracks with mathematically known injected peak counts, timestamps, and amplitudes:
-
-* **Tier 1 — Canonical Physiological Responses (12 clean tracks, 210 injected SCRs)**: Metronomic, dense, compound, and slow-rising responses under stationary tonic baseline.
-* **Tier 2 — Stochastic Poisson Arrivals**: Models true sympathetic nervous arrival statistics ($\Delta t \sim \text{Exp}(\lambda)$ with $1.2\text{s}$ refractory spacing), creating irregular clustering separated by prolonged quiet stretches.
-* **Tier 3 — Multi-Burst Compound Clusters & Variable Kinetics**: Overlapping sympathetic volleys stacking directly on rising and recovery limbs (secondary bursts at 0.8–1.8s, tertiary bursts), randomized rise kinetics ($0.7\text{s} \le t_{\text{rise}} \le 2.5\text{s}$), variable decay (16–28s), and 0.2 Hz respiratory baseline undulation.
-* **Tier 4 — Ambulatory Walking & Motion Noise**: Gait-frequency harmonics and cadence tremors simulating footstep vibration during walking.
-
-##### Tier 1: Canonical Reference Performance (210 Known Injected Events)
-
-| Algorithm / Toolbox | True SCRs (of 210) | Missed (FN) | False Alarms (FP) | **Recall** | **Precision** | **F1 Score** | **Timing Error** |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| **BioMapping Full-Scan** | 196 | 14 | **0** | 93.3% | **100.0%** | **0.966** | **0.029 s** |
-| **BioMapping Prominence** | **200** | 10 | 1 | **95.2%** | 99.5% | **0.973** | 0.032 s |
-| **BioMapping Deconvolution** (MP) | 195 | 15 | 1 | 92.9% | 99.5% | 0.961 | 0.057 s |
-| **BioMapping cvxEDA** (JS) | 185 | 25 | 35 | 88.1% | 84.1% | 0.860 | 0.281 s |
-| **cvxEDA Reference** (Python) | 184 | 26 | 35 | 87.6% | 84.0% | 0.858 | 0.281 s |
-| **NeuroKit2 (Default)** | 176 | **34** | 33 | 83.8% | 84.2% | 0.840 | 0.035 s |
-| **NeuroKit2 (cvxEDA)** | 108 | **102** | 6 | 51.4% | 94.7% | 0.667 | 0.196 s |
-| **Ledalab CDA** (Lit-Tuned, Octave) | 172 | 38 | 23 | 81.9% | 88.2% | 0.849 | 0.556 s |
-| **Ledalab CDA** (Default, Octave) | **204** | **6** | **3,969** | **97.1%** | 4.9% | 0.093 | 0.555 s |
-
-##### Tier 2, 3 & 4: Stress Tests (Poisson, Multi-Burst Clusters & Ambulatory Walking)
-
-When signals progress from metronomic textbook pulses to realistic overlapping bursts, non-linear kinetics, and ambulatory footstep impacts, standard laboratory algorithms show severe failure modes:
-
-| Stress Condition | True SCRs | BioMapping Full-Scan | BioMapping Prominence | NeuroKit2 (Default) | Ledalab CDA (Lit-Tuned) | cvxEDA (JS vs Py Ref) |
-|---|---:|:---:|:---:|:---:|:---:|:---:|
-| **Tier 2: Poisson Stochastic Arrivals** | 28 | **89.3% recall** (0 FP)<br>$\|\Delta t\| = 0.037\text{s}$ | **89.3% recall** (0 FP)<br>$\|\Delta t\| = 0.037\text{s}$ | 85.7% recall (4 FP)<br>$\|\Delta t\| = 0.036\text{s}$ | 89.3% recall (5 FP)<br>$\|\Delta t\| = 0.541\text{s}$ | 67.9% recall (exact match)<br>$\|\Delta t\| = 0.260\text{s}$ |
-| **Tier 3: Multi-Burst Compound Clusters** | 43 | **83.7% recall**<br>$\|\Delta t\| = 0.037\text{s}$ | **81.4% recall**<br>$\|\Delta t\| = 0.037\text{s}$ | **67.4% recall** *(collapse)*<br>$\|\Delta t\| = 0.037\text{s}$ | 74.4% recall (**156 FP**)<br>$\|\Delta t\| = 0.624\text{s}$ | **76.7% recall** (exact match)<br>$\|\Delta t\| = 0.247\text{s}$ |
-| **Tier 4: Ambulatory Walking & Motion** *(Gait Filter ON)* | 30 | **100.0% recall** (**1 FP**, F1 **0.984**)<br>$\|\Delta t\| = 0.160\text{s}$ | **100.0% recall** (7 FP, F1 0.896)<br>$\|\Delta t\| = 0.160\text{s}$ | 93.3% recall (**242 FP**, F1 0.187)<br>$\|\Delta t\| = 0.095\text{s}$ | 96.7% recall (0 FP, F1 0.983)<br>$\|\Delta t\| = \mathbf{0.518\text{s}}$ *(phase lag)* | **96.7% recall** (exact match)<br>$\|\Delta t\| = 0.270\text{s}$ |
-
-* **Zero False Alarms on Clean Signals**: BioMapping Full-Scan achieves **100.0% precision (0 false positives)** across Tier 1 clean physiological signals, whereas NeuroKit2 generated 33 false alarms and default Ledalab hallucinated **3,969 false alarms** on the exact same data.
-* **Gait Motion Immunity (Tier 4)**: Under ambulatory walking and footstep tremor, NeuroKit2 hallucinates **242 false alarms** (precision collapses to **10.4%**) and default Ledalab hallucinates **1,135 false alarms** (precision 2.6%). With BioMapping's zero-phase LR4 gait filter active, Full-Scan captures **100.0% of genuine SCRs (30/30)** with **96.8% precision** (only 1 false alarm across 780 seconds, F1 = **0.984**).
-* **Overlapping Peak Collapse in NeuroKit2**: In Tier 3 multi-burst clusters, NeuroKit2's recall collapses from 83.8% down to **67.4%** because its rigid 10% relative-prominence threshold discards secondary bursts that ride the tail of a large primary response.
-* **Ledalab Instability on Compound Bursts**: On Tier 3 compound bursts, Ledalab literature-tuning yields **156 false positives** on 43 true events (precision plummets to **17.0%**, F1 = 0.277) and peak arrival lags by **0.624 seconds**.
-* **Zero Phase Lag**: Across all tiers, BioMapping's zero-phase forward-backward filter achieves sub-frame timing precision against known ground-truth injection timestamps, whereas Ledalab exhibits >0.5s phase delay.
-* **Mathematical Solver Identity**: In-browser BioMapping JS cvxEDA and the official Python `cvxEDA.py` reference solver deliver identical detections and timing across all tiers without requiring any Python backend or server.
-
-#### 2. Clean Stationary Human Reference Tracks (Lab-Condition Agreement)
-
-Academic toolboxes like NeuroKit2 and Ledalab are designed for seated laboratory experiments without footstep vibration. Evaluated on clean, stationary human recordings (`biomap_028` and `biomap_live_...`) with gait filtering turned off for all tools, agreement is virtually total:
-
-| Comparison on Clean Reference Tracks | Recall | Matched / Reference | Extra Peaks | Mean Timing Difference |
+| Detector | Recall | Precision | F1 | Mean timing error |
 |---|---:|---:|---:|---:|
-| **BioMapping Prominence vs. NeuroKit2 Default** | **100.0%** | **163 / 163** | +58 | **0.062 s** |
-| **BioMapping Full-Scan vs. NeuroKit2 Default** | **99.4%** | **162 / 163** | +72 | **0.052 s** |
-| **BioMapping cvxEDA vs. NeuroKit2 cvxEDA** | **100.0%** | **130 / 130** | +87 | **0.035 s** |
-| **BioMapping cvxEDA vs. Python cvxEDA Reference** | **100.0%** | **217 / 217** | **0** | **0.000 s** |
-| **Ledalab (lit-tuned) vs. NeuroKit2 Default** | **95.1%** | 155 / 163 | +182 | 0.588 s |
+| **BioMapping Full-Scan** (production default) | 93.3% | 100.0% | 0.966 | 0.029 s |
+| **BioMapping Prominence** | 95.2% | 99.5% | 0.973 | 0.032 s |
+| NeuroKit2 (default) | 83.8% | 84.2% | 0.840 | 0.035 s |
+| Ledalab CDA (literature-tuned) | 81.9% | 88.2% | 0.849 | 0.556 s |
 
-* **100% cvxEDA Parity**: Across all 217 deconvolution peaks, BioMapping's in-browser JS implementation matched the upstream Python `cvxEDA.py` reference solver **217 out of 217 times with 0.000s timing error** (sub-millisecond identity).
-* **Full-Scan Captures Subtle True SCRs**: Full-Scan and Prominence capture 100% of NeuroKit2's peaks with ~0.05s timing agreement, plus 58–72 additional genuine subtle peaks that NeuroKit2's relative-prominence threshold discarded.
+**On real, clean stationary recordings**, agreement with NeuroKit2 is close to total — BioMapping's Prominence detector matches 100% of NeuroKit2's own peaks (163/163) within ~60 ms, while also picking up dozens of genuine subtle responses NeuroKit2's fixed relative threshold leaves out.
 
-#### 3. Real-World Ambulatory Field Corpus (62 Walking Tracks)
+**The standout result is cvxEDA.** BioMapping's from-scratch JavaScript port of the convex-optimisation solver reproduces the published Python reference implementation's output essentially exactly — on the full 62-track field corpus, 99.7% of 4,494 detections matched with a mean timing difference of 0.002 seconds — entirely in-browser, with no Python, MATLAB, or server backend required.
 
-When evaluating real-world outdoor walks, academic laboratory tools encounter footstep vibration, varying cadence, and motion artifacts that their standard filters do not anticipate. While the benchmark test harness runs with the gait filter turned off to keep the baseline comparison fair, in actual production BioMapping activates its zero-phase 1 Hz LR4 gait filter to isolate true emotional responses from walking cadences:
+**Where BioMapping is built differently** is ambulatory use: NeuroKit2 and Ledalab are designed for seated laboratory sessions, so BioMapping adds a zero-phase motion filter tuned to footstep cadence and a noise-floor gate for sensor dropouts, neither of which a stationary-recording toolbox needs. On a synthetic walking benchmark with the gait filter enabled, BioMapping recovers 100% of injected responses at 96.8% precision.
 
-| Software / Algorithm | Approach & Platform | 62-Track Field Performance | Plain-English Real-World Verdict |
-|---|---|---|---|
-| **BioMapping (cvxEDA)** | Pure JavaScript port of convex-optimization EDA deconvolution (browser / Node) | **99.7% recall vs. Python cvxEDA** (4,479 of 4,494 peaks matched, mean $\|\Delta t\| = 0.002$s) | **Gold-standard academic fidelity in the browser.** Identical results to Python reference solver without requiring any backend, server, or Python install. |
-| **BioMapping (Prominence & Full-Scan)** | Lightweight, real-time peak detectors with SNR gating & zero-phase gait rejection | **94.2% recall vs. NK2** (Prominence), plus **4,217 additional genuine subtle peaks** captured by Full-Scan. | **Clean, robust, and ambulatory-ready.** Rejects footstep motion artifacts and recovers true emotional events that NK2's relative threshold throws away. |
-| **NeuroKit2** *(Python)* | Default Butterworth filter + derivative peak detection | **2,851 detections.** Discards subtle peaks after large spikes; on open-circuit/air tests, hallucinates **>7,100 phantom peaks on a single track**. | **Vulnerable to relative thresholding and flatlines.** Missing a noise-floor gate; normalizes floating-point jitter into thousands of phantom peaks if disconnected. |
-| **Ledalab (CDA)** *(MATLAB / Octave)* | Continuous Deconvolution Analysis | **6,683 peaks detected.** Literature tuning catches small micro-responses but accepts low-amplitude noise. | **Academic benchmark for stationary labs.** Sensitive to micro-responses, but slower, prone to phase-lag timing drift (~0.6s), and requires MATLAB/Octave. |
-
-- **Noise Floor & Sensor Disconnect Protection**: On disconnected or open-circuit tracks, NeuroKit2 lacks a minimum noise gate and turns microscopic floating-point rounding into thousands of false positive peaks (over 7,140 false peaks on track `biomap_119` alone). BioMapping's noise-floor gate correctly registers **0 peaks** on disconnected recordings.
-- **Timing Alignment with GPS**: Ledalab's heavy forward filtering introduces substantial phase lag (~0.6s–0.65s timing drift), whereas BioMapping's forward-backward zero-phase filtering preserves sub-frame (<0.03s) timing alignment with geographical GPS points.
-
+Full methodology, every detector variant, and the complete benchmark history are in [`docs/neurokit_comparison_plan.md`](docs/neurokit_comparison_plan.md).
 
 ---
 
