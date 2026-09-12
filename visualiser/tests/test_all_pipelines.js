@@ -108,6 +108,22 @@ assertEq(medResult.length, gsrRaw.length, 'applyMedianFilter preserves length');
 const smoothResult = GsrFilter.applyZeroPhaseMovingAverage(gsrRaw, 10);
 assertEq(smoothResult.length, gsrRaw.length, 'applyZeroPhaseMovingAverage preserves length');
 
+// applyZeroPhaseButterworth: the default LPF stage for any GPS track (see
+// analyzer.js step 2 + GSR_CONST.GAIT_FILTER) — a real IIR filter, so this
+// checks it behaves like one (DC passthrough, genuine attenuation of a fast
+// oscillation) rather than just existing.
+assert(typeof GsrFilter.applyZeroPhaseButterworth === 'function', 'GsrFilter.applyZeroPhaseButterworth is a function');
+const sr = 10;
+const n = 500;
+const constSignal = new Array(n).fill(3.0);
+const butterConst = GsrFilter.applyZeroPhaseButterworth(constSignal, 0.8, 4, sr);
+assertEq(butterConst.length, n, 'applyZeroPhaseButterworth preserves length');
+assert(butterConst.every(v => Math.abs(v - 3.0) < 1e-6), 'applyZeroPhaseButterworth passes DC through at unity gain');
+const fastTone = Array.from({ length: n }, (_, i) => Math.sin(2 * Math.PI * 2.0 * i / sr)); // 2Hz, above the 0.8Hz cutoff
+const filteredTone = GsrFilter.applyZeroPhaseButterworth(fastTone, 0.8, 4, sr);
+const rms = (arr) => Math.sqrt(arr.reduce((s, v) => s + v * v, 0) / arr.length);
+assert(rms(filteredTone) < rms(fastTone) * 0.2, 'applyZeroPhaseButterworth substantially attenuates a tone above its cutoff');
+
 // Run full analysis pipeline (percentile baseline)
 const analyzeParams = {
   ...GSR_CONST.GSR_DEFAULT,

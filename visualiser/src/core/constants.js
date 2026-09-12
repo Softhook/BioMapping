@@ -49,9 +49,21 @@ const GSR_CONST = {
     // as extra peaks with poor shape scores. A 0.5 s moving average clears
     // that without touching SCR morphology (responses rise over 1–3 s) —
     // measured across real tracks it lifts median peak quality ~0.10–0.15 and
-    // pulls inter-peak intervals toward physiological values. Raise toward
-    // 1.0–1.2 s to also cancel a walking-gait artefact.
+    // pulls inter-peak intervals toward physiological values. 0 = this box
+    // average off (useGaitFilter below still applies independently of this
+    // slider's position - see its own comment).
     medianSize: 0, lpfWindow: 0.5,
+    // useGaitFilter swaps the box average above for GAIT_FILTER's Butterworth
+    // low-pass (see that constant's own comment) - much better at both
+    // rejecting a ~1.4-2.0Hz walking-gait artefact and preserving genuine SCR
+    // amplitude, but with a real cost: it lets more general sensor noise
+    // through than the box filter's broader attenuation does, which costs
+    // precision on a recording with no walking to reject in the first place.
+    // Off by default for that reason - turn it on for a track with real
+    // walking in it (see gsr_filter.js's applyZeroPhaseButterworth doc
+    // comment for the ground-truth numbers behind this trade-off). Its own
+    // on/off switch, independent of lpfWindow's value/position.
+    useGaitFilter: false,
     tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.015,
     shapeMinSnr: 1.5,
     minPeakQuality: 0.0,
@@ -61,6 +73,16 @@ const GSR_CONST = {
     usePeakProminence: false,
     useCvxEDA: false
   },
+
+  // ── Gait low-pass filter (useGaitFilter toggle) ──────────────────────────
+  // A zero-phase order-4 Butterworth at 0.8Hz - GSR_DEFAULT.useGaitFilter's
+  // replacement for the box average. Not user-adjustable: 0.8Hz/order4 was
+  // the cutoff/order pair that came out on top across every ground-truth
+  // scenario tested (real-track walking-gait rejection AND all four
+  // synthetic non-gait scenarios) - see gsr_filter.js's
+  // applyZeroPhaseButterworth doc comment for the trade-off this filter
+  // makes and why it ships as an opt-in toggle rather than the default.
+  GAIT_FILTER: { cutoffHz: 0.8, order: 4 },
 
   // ── SCR deconvolution (Benedek & Kaernbach, 2010) ────────────────────────
   // Bi-exponential (Bateman) SCRF kernel parameters. When useDeconvolution is

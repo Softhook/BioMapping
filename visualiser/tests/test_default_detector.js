@@ -182,18 +182,22 @@ assert(deconvWins.phasicDriverPeaks.length > 0,
 // ── Hotspot ranking uses trough-to-peak AMPLITUDE, not the stamped prominence
 //    field. Full-scan stamps `prominence` for reporting, but a large real SCR
 //    can have near-zero topographic prominence (a crest micro-wiggle splits its
-//    apex — the demo-track "P1" at ~1067 s, ~4.5 µS, prominence ~0.01). Ranking
-//    hotspots by prominence would bury it; ranking by amplitude keeps it #1. ──
+//    apex). Ranking hotspots by prominence would bury it; ranking by amplitude
+//    keeps it #1. _selectMemorableEvents() only reads p.amplitude in full-scan
+//    mode (see analyzer.js), so this exercises that directly on the real
+//    biggest peak with its prominence field forced to near-zero — independent
+//    of which real recording/filter combination happens to produce that
+//    quirk naturally, which drifts whenever the default LPF stage changes. ──
 {
   const demoCsv = fs.readFileSync(path.join(__dirname, '../fixtures/default_processed.csv'), 'utf8');
   const dFull = new GSRAnalyzer(); dFull.parseCSV(demoCsv); dFull.analyze({ ...D }, 0);
   const biggest = dFull.peaks.reduce((a, b) => (b.amplitude > a.amplitude ? b : a));
-  assert((biggest.prominence || 0) < 0.1,
-    `the demo track's largest SCR has a near-zero stamped prominence (${(biggest.prominence || 0).toFixed(3)})`);
-  assert(dFull.memorableEvents.includes(biggest),
-    `it is still selected as a hotspot in full-scan mode (amplitude ranking, not prominence)`);
-  assert(dFull.memorableEvents[0] === biggest,
-    `and it is the top hotspot (largest amplitude wins)`);
+  biggest.prominence = 0.01;
+  const reranked = dFull._selectMemorableEvents({ ...D }, 0);
+  assert(reranked.includes(biggest),
+    `a near-zero-prominence peak is still selected as a hotspot in full-scan mode (amplitude ranking, not prominence)`);
+  assert(reranked[0] === biggest,
+    `and it is the top hotspot despite near-zero prominence (largest amplitude wins)`);
 }
 
 // ── Determinism. ──

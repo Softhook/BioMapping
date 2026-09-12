@@ -31,6 +31,7 @@ const GSRStorage = {
     return {
       medianSize:    parseFloat(S.medianSize.value),
       lpfWindow:     parseFloat(S.lpfWindow.value),
+      useGaitFilter:         (S.useGaitFilter && S.useGaitFilter.checked) || false,
       tonicMethod:   S.tonicMethod.value,
       tonicWindow:   parseInt(S.tonicWindow.value),
       peakThreshold: parseFloat(S.peakThreshold.value),
@@ -221,6 +222,7 @@ const GSRStorage = {
     // Restore GSR sliders
     if (gsr.medianSize !== undefined && S.medianSize) S.medianSize.value = gsr.medianSize;
     if (gsr.lpfWindow !== undefined && S.lpfWindow) S.lpfWindow.value = gsr.lpfWindow;
+    if (gsr.useGaitFilter !== undefined && S.useGaitFilter) S.useGaitFilter.checked = !!gsr.useGaitFilter;
     // A retired baseline method (e.g. a preset saved with 'dwt') would be an
     // invalid <select> value — a DOM no-op that leaves a stale label; ignore it.
     if (gsr.tonicMethod !== undefined && S.tonicMethod &&

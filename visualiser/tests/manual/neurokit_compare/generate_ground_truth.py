@@ -13,12 +13,14 @@ eda_simulate()'s own logic (see neurokit2/eda/eda_simulate.py) instead of
 calling it directly, for one reason only: eda_simulate() doesn't return
 where it put each SCR. Placing them ourselves - same canonical waveform
 (_eda_simulate_scr), same additive superposition (signal_merge), same drift
-+ noise model (signal_distort) - means we know the true peak time of every
-injected response, which is the entire point of a ground-truth test.
++ noise model (signal_distort) - means we know the true peak time AND true
+injected amplitude of every response, which is the entire point of a
+ground-truth test.
 
 Outputs, per track: a BioMapping-format CSV (timestamp,gsr_raw - the minimal
-columns GSRCSVParser needs) and a ground-truth JSON (true peak times +
-generation params), both under a directory this script's caller supplies.
+columns GSRCSVParser needs) and a ground-truth JSON (true peak time +
+amplitude per SCR, plus generation params), both under a directory this
+script's caller supplies.
 
 Usage: python3 generate_ground_truth.py <output_dir>
        (normally invoked via check_ground_truth.sh, not directly)
@@ -45,10 +47,37 @@ SCENARIOS = [
     {'name': 'synth_sparse_noisy', 'duration': 300, 'scr_number': 6, 'noise': 0.05, 'drift': 0.001, 'seed': 2},
     {'name': 'synth_dense_clean', 'duration': 600, 'scr_number': 40, 'noise': 0.01, 'drift': 0.001, 'seed': 3},
     {'name': 'synth_dense_noisy', 'duration': 600, 'scr_number': 40, 'noise': 0.05, 'drift': 0.001, 'seed': 4},
+    # Isolates the walking-gait artefact the lpfWindow comment in constants.js
+    # names as the reason the box LPF exists: real footstep impact, ~1.7Hz
+    # (each leg strikes independently, so impact frequency runs ~2x stride
+    # frequency - ~1.6-2.2Hz for a normal walking cadence). Verified against
+    # real BioMapping recordings, not assumed - see
+    # visualiser/tests/manual/gait_isolation/check_gait_isolation.js for the
+    # methodology (a continuous sliding-window test correlating detrended
+    # 1.4-2.0Hz band power against simultaneous GPS speed on a real track:
+    # Pearson r=0.248, far past significance, with a monotonic dose-response
+    # as pace increases) and the direct visual confirmation (a clean,
+    # consistent ~0.6s peak spacing in the raw GSR trace).
+    # 0.08uS matches "low-level motion tremor" (constants.js) - small next to
+    # true SCR amplitudes (0.1-2.0uS) but well above peakThreshold (0.015uS),
+    # so an unfiltered detector should mistake several tremor cycles for SCRs.
+    {'name': 'synth_gait_tremor', 'duration': 300, 'scr_number': 6, 'noise': 0.01, 'drift': 0.001,
+     'gait_freq': 1.7, 'gait_amplitude': 0.08, 'seed': 6},
 ]
 
 OUTPUT_SAMPLING_RATE = 10   # match the real biomap_* tracks (10Hz)
 GEN_SAMPLING_RATE = 100     # generate at this rate, then downsample - see below
+
+# _eda_simulate_scr() returns a shape normalized to peak=1.0 - every SCR
+# eda_simulate() (NeuroKit2's own or ours below) ever injects is identical
+# height unless scaled. That made timing-only ground truth possible but left
+# no way to ask "did the detector get the SIZE right, not just the time" -
+# each injected SCR is scaled by a random true amplitude drawn from this
+# range instead. Range picked to span what check_relative_threshold.sh found
+# across the 4 real biomap_* tracks (max prominence 0.12-4.57uS); log-uniform
+# so small near-threshold responses (production peakThreshold=0.015uS) get
+# equal footing with large ones instead of a linear draw burying them.
+TRUE_AMPLITUDE_RANGE = (0.1, 2.0)  # uS
 
 # _eda_simulate_scr()'s canonical-shape formula (neurokit2/eda/eda_simulate.py)
 # builds an internal time axis spanning a FIXED range (0 to 90) regardless of
@@ -62,9 +91,33 @@ GEN_SAMPLING_RATE = 100     # generate at this rate, then downsample - see below
 # against it - not a detector bug, a generator misuse). Fix: generate at a
 # high rate NeuroKit2's own formula is actually designed for, then downsample
 # to 10Hz afterward, the way any real acquisition pipeline would.
+#
+# SCR_WINDOW_SEC controls the SAME real-time-per-t-unit ratio, for a
+# different reason: at the default `length=None` (-> 9*sampling_rate, i.e.
+# always exactly a 9-SECOND pulse no matter what sampling_rate you pick -
+# `length` and `sampling_rate` together are what map the fixed 0-90 t-axis
+# onto real seconds, not sampling_rate alone), the resulting SCR's own
+# onset-to-peak rise time - as measured by NeuroKit2's OWN eda_process()
+# SCR_RiseTime, not a guess - is ~0.36s. That's ~5x narrower than BOTH the
+# 0.75s/0.7s tauFast this project's two kernel-matched methods (SCRDeconvolution
+# in analyzer.js, cvxeda.js) assume, AND the "responses rise over 1-3s"
+# physiological assumption GSR_DEFAULT's own lpfWindow comment in
+# constants.js is built on - discovered while investigating why matching-
+# pursuit deconvolution scored WORSE on amplitude than the plain box filter
+# on this ground truth (see check_filter_alternatives.js): its kernel was
+# being matched against a pulse 5x narrower than what it was designed for,
+# which would bias ANY kernel-shaped method regardless of implementation
+# quality. Passing an explicit `length` longer than the default
+# `9*sampling_rate` stretches the WHOLE canonical shape (rise, decay, and
+# time_peak's effective position all scale together, since they're all
+# expressed in the same t-units) to a realistic real-world duration without
+# touching any of _eda_simulate_scr()'s own shape parameters - confirmed
+# empirically: length=20*sampling_rate -> eda_process's own SCR_RiseTime
+# lands at 0.74s, matching tauFast almost exactly.
+SCR_WINDOW_SEC = 20
 
 
-def generate_track(duration, scr_number, noise, drift, seed):
+def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_amplitude=0):
     """Mirrors nk.eda_simulate()'s own body exactly (see module docstring for
     why this isn't just a call to that function), tracking each SCR's true
     peak time as it's placed. Generates at GEN_SAMPLING_RATE; caller
@@ -78,12 +131,14 @@ def generate_track(duration, scr_number, noise, drift, seed):
     time = [0, duration]
 
     start_peaks = np.linspace(0, duration, scr_number, endpoint=False)
-    true_peak_times = []
+    true_scrs = []
 
     for start_peak in start_peaks:
         relative_time_peak = float(np.abs(rng.normal(0, 5, size=1))[0] + 3.0745)
-        scr = _eda_simulate_scr(sampling_rate=sr, time_peak=relative_time_peak)
-        time_scr = [start_peak, start_peak + 9]
+        scr = _eda_simulate_scr(sampling_rate=sr, length=int(SCR_WINDOW_SEC * sr), time_peak=relative_time_peak)
+        true_amplitude = float(np.exp(rng.uniform(np.log(TRUE_AMPLITUDE_RANGE[0]), np.log(TRUE_AMPLITUDE_RANGE[1]))))
+        scr = scr * true_amplitude
+        time_scr = [start_peak, start_peak + SCR_WINDOW_SEC]
         # The true peak position is NOT simply start_peak + relative_time_peak:
         # _eda_simulate_scr()'s shape formula runs its own internal time axis
         # 0-90 regardless of sampling_rate, convolved with a one-sided decay
@@ -101,9 +156,24 @@ def generate_track(duration, scr_number, noise, drift, seed):
             time_scr[1] = duration
 
         if 0 <= true_time <= duration:
-            true_peak_times.append(true_time)
+            # true_amplitude is the INJECTED height, not necessarily what a
+            # detector should measure in the merged signal: in the dense
+            # scenario a response landing on a still-decaying predecessor's
+            # tail sits on a raised local baseline, so its measured
+            # peak-minus-onset amplitude legitimately reads higher than
+            # true_amplitude alone - the same superposition effect real
+            # overlapping SCRs produce, not a ground-truth error.
+            true_scrs.append({'time': true_time, 'amplitude': true_amplitude})
 
         eda = signal_merge(signal1=eda, signal2=scr, time1=time, time2=time_scr)
+
+    if gait_freq > 0 and gait_amplitude > 0:
+        t_full = np.arange(length) / sr
+        # Slow amplitude wobble (0.05Hz, ~20s period) so it's not a pure tone
+        # a naive fixed-frequency notch could null perfectly - real stride
+        # amplitude varies with terrain/fatigue/pace changes.
+        envelope = 1.0 + 0.3 * np.sin(2 * np.pi * 0.05 * t_full)
+        eda += gait_amplitude * envelope * np.sin(2 * np.pi * gait_freq * t_full)
 
     if noise > 0:
         eda = signal_distort(
@@ -124,7 +194,7 @@ def generate_track(duration, scr_number, noise, drift, seed):
     t_out = np.arange(0, duration, 1.0 / OUTPUT_SAMPLING_RATE)
     eda_out = np.interp(t_out, t_gen, eda)
 
-    return eda_out, sorted(true_peak_times)
+    return eda_out, sorted(true_scrs, key=lambda s: s['time'])
 
 
 def main():
@@ -135,7 +205,8 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     for scn in SCENARIOS:
-        eda, true_peaks = generate_track(scn['duration'], scn['scr_number'], scn['noise'], scn['drift'], scn['seed'])
+        eda, true_scrs = generate_track(scn['duration'], scn['scr_number'], scn['noise'], scn['drift'], scn['seed'],
+                                         gait_freq=scn.get('gait_freq', 0), gait_amplitude=scn.get('gait_amplitude', 0))
         n = len(eda)
         ts = np.arange(n) / OUTPUT_SAMPLING_RATE
 
@@ -147,11 +218,11 @@ def main():
         json.dump({
             'sampling_rate': OUTPUT_SAMPLING_RATE,
             'n_samples': n,
-            'true_peak_times': true_peaks,
+            'scrs': true_scrs,
             'params': scn,
         }, open(gt_path, 'w'))
 
-        print(f"{scn['name']}: {n} samples, {len(true_peaks)} true SCRs -> {csv_path}", file=sys.stderr)
+        print(f"{scn['name']}: {n} samples, {len(true_scrs)} true SCRs -> {csv_path}", file=sys.stderr)
 
 
 if __name__ == '__main__':

@@ -142,6 +142,92 @@ const GsrFilter = {
   },
 
   /**
+   * Zero-phase Butterworth low-pass — a bilinear-transform IIR design (RBJ
+   * cookbook biquad cascade, run forward then time-reversed to cancel
+   * phase), the same filter family NeuroKit2 (3Hz cutoff) and BioSPPy (5Hz)
+   * use for their own EDA "cleaning" stage. Opt-in alternative to the
+   * default box average (`useGaitFilter`, see the caller in analyzer.js):
+   * unlike the box average's broad, gradual rolloff, an order-4
+   * Butterworth's much steeper transition band suppresses the ~1.4-2.0Hz
+   * walking-gait artefact (verified via a real-track GPS-speed correlation
+   * test, see visualiser/tests/manual/gait_isolation/check_gait_isolation.js)
+   * while passing genuine SCR amplitude through nearly untouched
+   * (ground-truth tested: ~1-3% amplitude error at 0.8Hz vs the box
+   * filter's ~10-28%).
+   *
+   * The trade-off, and why this ships off by default rather than replacing
+   * the box filter outright: the same steep rolloff that spares SCR
+   * amplitude also lets more general sensor noise through near the cutoff
+   * than the box filter's broad attenuation does, which costs precision on
+   * a recording with no walking to reject in the first place (ground-truth
+   * tested on stationary-recording scenarios: 10-15x more noise-driven false
+   * peaks than the box filter at the same nominal cutoff — see
+   * visualiser/tests/manual/neurokit_compare/check_filter_alternatives.js).
+   * A short box pass after this filter only trims that noise cost slightly,
+   * at the price of giving back the amplitude accuracy this filter exists
+   * for, so it is not cascaded on automatically. Turn `useGaitFilter` on for
+   * a recording with real walking in it; leave it off otherwise.
+   *
+   * @param {Array<number>} arr        - Source data array
+   * @param {number} cutoffHz          - Low-pass cutoff frequency in Hz
+   * @param {number} order             - Filter order, MUST be even (cascaded
+   *                                      as order/2 second-order sections)
+   * @param {number} sampleRate        - Sample rate in Hz
+   * @returns {Array<number>}
+   */
+  applyZeroPhaseButterworth(arr, cutoffHz, order, sampleRate) {
+    const n = arr.length;
+    if (n === 0) return [];
+    if (!cutoffHz || !sampleRate || n < 5) return [...arr];
+
+    const w0 = 2 * Math.PI * cutoffHz / sampleRate;
+    const cosw0 = Math.cos(w0), sinw0 = Math.sin(w0);
+    const sections = [];
+    for (let k = 1; k <= order / 2; k++) {
+      const Q = 1 / (2 * Math.cos((2 * k - 1) * Math.PI / (2 * order)));
+      const alpha = sinw0 / (2 * Q);
+      const a0 = 1 + alpha;
+      sections.push({
+        b0: ((1 - cosw0) / 2) / a0,
+        b1: (1 - cosw0) / a0,
+        b2: ((1 - cosw0) / 2) / a0,
+        a1: (-2 * cosw0) / a0,
+        a2: (1 - alpha) / a0,
+      });
+    }
+
+    const runCascade = (x) => {
+      let y = x;
+      for (const { b0, b1, b2, a1, a2 } of sections) {
+        const len = y.length;
+        const out = new Array(len);
+        let x1 = y[0], x2 = y[0], y1 = y[0], y2 = y[0];
+        for (let i = 0; i < len; i++) {
+          const xi = y[i];
+          const yi = b0 * xi + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+          out[i] = yi;
+          x2 = x1; x1 = xi; y2 = y1; y1 = yi;
+        }
+        y = out;
+      }
+      return y;
+    };
+
+    // Mirror-pad by ~3 cutoff-periods so the biquad cascade's start-up
+    // transient settles before it reaches real data — scipy.signal.filtfilt's
+    // default padding convention for the same reason.
+    const pad = Math.min(n - 1, Math.max(1, Math.round(3 * sampleRate / cutoffHz)));
+    const padded = new Array(n + 2 * pad);
+    for (let i = 0; i < pad; i++) padded[i] = 2 * arr[0] - arr[Math.min(pad - i, n - 1)];
+    for (let i = 0; i < n; i++) padded[pad + i] = arr[i];
+    for (let i = 0; i < pad; i++) padded[pad + n + i] = 2 * arr[n - 1] - arr[Math.max(n - 2 - i, 0)];
+
+    const forward = runCascade(padded);
+    const backward = runCascade(forward.slice().reverse()).reverse();
+    return backward.slice(pad, pad + n);
+  },
+
+  /**
    * Zero-phase exponential moving average (forward + backward).
    * Alpha = 2 / (windowSize + 1) per EMA convention.
    *

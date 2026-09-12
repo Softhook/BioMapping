@@ -91,8 +91,15 @@ def process(csv_path):
     # right reference for our filter-based detectors (Full-Scan, Prominence),
     # which likewise decompose with a plain LPF tonic estimate.
     _signals, info = nk.eda_process(eda, sampling_rate=sampling_rate)
-    peak_idx = [i for i in info.get('SCR_Peaks', []) if 0 <= i < len(ts)]
     onset_idx = [i for i in info.get('SCR_Onsets', []) if 0 <= i < len(ts)]
+    # Paired via zip, not two separate filtered list comps: SCR_Amplitude is
+    # parallel to SCR_Peaks (same index, same order - NeuroKit2 computes both
+    # in the same per-peak loop), and filtering each list independently would
+    # silently misalign amplitude[i] with peak[i] the moment any peak index
+    # fails the bounds check.
+    peak_pairs = [(i, a) for i, a in zip(info.get('SCR_Peaks', []), info.get('SCR_Amplitude', [])) if 0 <= i < len(ts)]
+    peak_idx = [i for i, _ in peak_pairs]
+    peak_amplitudes = [float(a) for _, a in peak_pairs]
 
     # cvxEDA-specific pipeline: NeuroKit2 has its own cvxEDA decomposition
     # (eda_phasic(method='cvxeda'), requires cvxopt) distinct from its
@@ -106,12 +113,14 @@ def process(csv_path):
     # NeuroKit's 3 Hz Butterworth cleaning, breaking the like-for-like
     # comparison this reference exists for.
     cvxeda_peak_times = []
+    cvxeda_peak_amplitudes = []
     try:
         cleaned = nk.eda_clean(eda, sampling_rate=sampling_rate)
         phasic_df = eda_phasic_cvxeda_standardized(cleaned, sampling_rate)
         _, cvx_info = nk.eda_peaks(phasic_df['EDA_Phasic'].values, sampling_rate=sampling_rate)
-        cvx_idx = [i for i in cvx_info.get('SCR_Peaks', []) if 0 <= i < len(ts)]
-        cvxeda_peak_times = [float(ts[i]) for i in cvx_idx]
+        cvx_pairs = [(i, a) for i, a in zip(cvx_info.get('SCR_Peaks', []), cvx_info.get('SCR_Amplitude', [])) if 0 <= i < len(ts)]
+        cvxeda_peak_times = [float(ts[i]) for i, _ in cvx_pairs]
+        cvxeda_peak_amplitudes = [float(a) for _, a in cvx_pairs]
     except Exception as exc:  # noqa: BLE001 - report and continue the batch
         print(f'  cvxEDA reference failed: {exc}', file=sys.stderr)
 
@@ -119,8 +128,10 @@ def process(csv_path):
         'sampling_rate': sampling_rate,
         'n_samples': len(df),
         'peak_times': [float(ts[i]) for i in peak_idx],
+        'peak_amplitudes': peak_amplitudes,
         'onset_times': [float(ts[i]) for i in onset_idx],
         'cvxeda_peak_times': cvxeda_peak_times,
+        'cvxeda_peak_amplitudes': cvxeda_peak_amplitudes,
     }
 
 

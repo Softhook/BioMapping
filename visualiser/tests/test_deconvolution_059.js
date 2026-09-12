@@ -54,11 +54,6 @@ function assertEq(a, b, msg) {
   if (a === b) { passed++; console.log('  pass:', msg); }
   else         { failed++; console.error('  FAIL:', msg, `— expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); }
 }
-function assertClose(a, b, tol, msg) {
-  if (Math.abs(a - b) <= tol) { passed++; console.log('  pass:', msg); }
-  else { failed++; console.error('  FAIL:', msg, `— expected ${b} ± ${tol}, got ${a.toFixed(6)}`); }
-}
-
 // ── Load track ────────────────────────────────────────────────────────────────
 
 console.log('Loading track biomap_059.csv (61-minute walk, ~36k samples)...');
@@ -118,23 +113,34 @@ assertEq(on.phasicDriver.length, off.raw.length,
 assertEq(on.phasicClean.length, off.raw.length,
   'phasicClean populated at full track length');
 
-// ── 3. THE KEY INVARIANT: rescaling eliminates AUC inflation ──────────────────
+// ── 3. Rescaling bounds AUC inflation, weighted by genuine atom crowding ──────
 //
-// This is the core property the amplitude-rescaling fix introduces.
+// This assertion changed 2026-09-11: ground-truth testing (visualiser/tests/
+// manual/neurokit_compare/check_ground_truth.js) proved the original design
+// — forcing sum(cleanVals) == sum(phasicVals) exactly, on every track
+// regardless of density — was itself wrong. A direct per-atom check against
+// known true amplitudes on synthetic tracks showed matching pursuit's raw
+// per-atom fit is already accurate to within 1-2%, even on tracks with real
+// overlapping SCRs; forcing the AUC ratio to exactly 1.0 was silently
+// shrinking those already-correct amplitudes by ~30-35%, because
+// sum(cleanValsRaw) is a plain sum over a purely additive reconstruction —
+// invariant to how much its components overlap in time (summation is
+// linear) — so the old ratio mostly reflected a CONSTANT mismatch between
+// the fixed SCRF kernel's own area-to-peak ratio and the true signal's,
+// unrelated to overlap, and it fired just as hard on isolated SCRs as on
+// genuinely dense ones.
 //
-// Before the fix, the MP residual-peak heuristic overestimated amplitudes
-// whenever adjacent kernel copies overlapped (+60-68% on real tracks).
-// After the fix, a post-hoc global scalar is applied so that:
+// The fix (analyzer.js, _runDeconvolutionPipeline) weights the correction by
+// how densely accepted impulses are actually packed on THIS track (0 = every
+// impulse isolated by more than one kernel length, 1 = packed back-to-back),
+// so an isolated-SCR track keeps its own accurate fit (ratio -> 1.0) while a
+// genuinely busy real recording like this one keeps most of the original
+// correction (ratio -> close to the old forced 1.0, but not exact).
 //
-//   sum(cleanVals) == sum(phasicVals)
-//
-// i.e. the total energy of the deconvolved-and-reconstructed signal exactly
-// matches the total energy of the pre-deconvolution phasic.  Any systematic
-// overestimation would make this ratio > 1.  Any underestimation would make
-// it < 1.  The fix should land at 1.000 ± floating-point noise.
-//
-// Measured on track 059 before the fix: ratio ~1.63.
-// Measured on track 059 after  the fix: ratio 1.0000 (to 6 decimal places).
+// Before ANY correction (the original MP bug): ratio ~1.63 on this track.
+// After the OLD (blanket, since-reverted) fix: forced to exactly 1.0.
+// After THIS fix (atom-density-weighted): ratio ~1.10-1.30 expected — some
+// correction (density is high on this busy track), but not full forcing.
 {
   const phasicOrigSum = on._phasicOrig.reduce((s, d) => s + d.val, 0);
   const cleanSum      = on.phasic.reduce((s, d) => s + d.val, 0);
@@ -142,9 +148,9 @@ assertEq(on.phasicClean.length, off.raw.length,
   console.log(`\n  Amplitude rescaling check:`);
   console.log(`    phasicOrig sum = ${phasicOrigSum.toFixed(4)}`);
   console.log(`    cleanVals sum  = ${cleanSum.toFixed(4)}`);
-  console.log(`    ratio          = ${ratio.toFixed(6)} (must be 1.000000 ± 0.001)`);
-  assertClose(ratio, 1.0, 0.001,
-    'sum(cleanVals) / sum(phasicVals) == 1.0 — AUC inflation fully eliminated');
+  console.log(`    ratio          = ${ratio.toFixed(6)} (want 1.0-1.3: partial correction on a busy real track, not forced to exactly 1.0, not left at the uncorrected ~1.63)`);
+  assert(ratio > 1.0 && ratio < 1.35,
+    'sum(cleanVals) / sum(phasicVals) lands between uncorrected (~1.63) and fully-forced (1.0) — partial, density-weighted correction on a busy track');
 }
 
 // ── 4. Physiological peak rate ────────────────────────────────────────────────

@@ -455,14 +455,14 @@ class GSRAnalyzer {
     this._ensureSeriesPool(this.raw, n);
 
     // ── Stages 1–3: median filter → low-pass → tonic/phasic decomposition ──
-    // Only four params feed this prefix; the peak-detection / hotspot /
-    // metric-window sliders don't. When none of the four changed since the last
+    // Only five params feed this prefix; the peak-detection / hotspot /
+    // metric-window sliders don't. When none of the five changed since the last
     // analyze(), the pooled .filtered/.tonic/.phasic arrays (and their cached
     // Y-ranges) are still correct — skip ~25 ms of filtering + decomposition on
     // a 40k-row track and reuse them. Keyed alongside this.raw identity, which
     // _ensureSeriesPool() nulls the cache on.
     const prefixKey = params.medianSize + '|' + params.lpfWindow +
-      '|' + params.tonicWindow + '|' + params.tonicMethod;
+      '|' + params.tonicWindow + '|' + params.tonicMethod + '|' + !!params.useGaitFilter;
 
     let phasicVals;
     if (this._prefixCache && this._prefixCache.key === prefixKey) {
@@ -492,9 +492,23 @@ class GSRAnalyzer {
       const medWindowSize = Math.max(1, Math.round(params.medianSize * this.sampleRate));
       let afterMedian = GsrFilter.applyMedianFilter(this._rawValsPool, medWindowSize);
 
-      // 2. Low-Pass Filter
+      // 2. Low-Pass Filter — useGaitFilter is an opt-in toggle that swaps the
+      // default box average for the Butterworth gait filter
+      // (GSR_CONST.GAIT_FILTER) — see applyZeroPhaseButterworth()'s doc
+      // comment in gsr_filter.js for the trade-off this makes and why it
+      // ships off by default. The toggle is independent of the lpfWindow
+      // slider's magnitude — it has its own fixed cutoff/order — so it takes
+      // effect even with lpfWindow at 0 (the box average's own "off" position);
+      // otherwise checking the toggle while that slider sat at 0 would look
+      // like a broken checkbox that silently does nothing.
       const lpfWinSize = params.lpfWindow * this.sampleRate;
-      let afterLPF = GsrFilter.applyZeroPhaseMovingAverage(afterMedian, lpfWinSize);
+      let afterLPF;
+      if (params.useGaitFilter) {
+        const gf = (typeof GSR_CONST !== 'undefined' && GSR_CONST.GAIT_FILTER) || { cutoffHz: 0.8, order: 4 };
+        afterLPF = GsrFilter.applyZeroPhaseButterworth(afterMedian, gf.cutoffHz, gf.order, this.sampleRate);
+      } else {
+        afterLPF = GsrFilter.applyZeroPhaseMovingAverage(afterMedian, lpfWinSize);
+      }
 
       this._fillSeries('filtered', afterLPF);
 
@@ -974,28 +988,38 @@ class GSRAnalyzer {
     // driver-domain peaks, and the driver display array mutually consistent.
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // Post-hoc amplitude rescaling — corrects the MP overestimation that
-    // arises when adjacent kernel copies overlap.  The greedy residual-peak
-    // amplitude heuristic (amplitude = maxVal at each MP step) is exact for
-    // isolated SCRs (kernel[kPeakIdx] == 1.0) but overestimates energy when
-    // the residual has been contaminated by neighbouring atoms' tails.
-    // The correction is a global scalar applied uniformly to all accepted
-    // impulse amplitudes:
+    // Post-hoc amplitude rescaling — corrects MP overestimation from GENUINE
+    // atom crowding (many accepted impulses packed close enough that their
+    // kernel footprints compete for the same residual, biasing the greedy
+    // per-atom fit), not a blanket correction applied everywhere regardless
+    // of whether that crowding exists.
     //
-    //   scale = sum(phasicVals) / sum(cleanValsRaw)
+    // Ground-truth testing (visualiser/tests/manual/neurokit_compare/
+    // check_ground_truth.js, 2026-09-11) found the OLD unconditional version
+    // of this correction — scale = sum(phasicVals) / sum(cleanValsRaw),
+    // applied uniformly regardless of track density — shrank amplitude by
+    // ~30-35% even on isolated, well-separated synthetic SCRs where a direct
+    // per-atom check (comparing each accepted impulse's pre-rescale amplitude
+    // against the known true amplitude) showed the raw matching-pursuit fit
+    // was already accurate to within 1-2%. The old correction wasn't reacting
+    // to overlap at all: sum(cleanValsRaw) is a plain sum over a purely
+    // additive reconstruction, which is invariant to how much its components
+    // overlap in time (summation is linear) — so the old ratio was actually
+    // measuring a CONSTANT mismatch between the fixed SCRF kernel's own
+    // area-to-peak ratio and whatever true-signal area-to-peak ratio the
+    // track happens to have, unrelated to crowding, and it fired just as hard
+    // on isolated single SCRs as on genuinely dense ones.
     //
-    // This is equivalent to asking "what single factor makes the total energy
-    // of the reconstructed signal match the total energy of the original
-    // phasic?" — exactly what the AUC overestimation is about.  Applying it
-    // uniformly to all amplitudes preserves the *relative* amplitude ordering
-    // of peaks (and therefore the peak/quality/salience ranking) while
-    // bringing the aggregate and per-peak absolute values to the correct scale.
-    //
-    // A global scalar cannot fix per-peak errors that stem from MP's greedy
-    // position selection (a fully joint NNLS optimisation would be needed for
-    // that), but it eliminates the systematic aggregate bias measured at
-    // +60–68% on real tracks and makes phasicAUC/arousalIndex/CSV amplitude
-    // exports physiologically meaningful rather than inflation-inflated.
+    // Fix: weight the raw ratio by how densely accepted impulses are actually
+    // packed on THIS track (atomDensity below, 0 = every impulse isolated by
+    // more than one kernel length, 1 = impulses packed back-to-back), so an
+    // isolated-SCR track is left at its own accurate per-atom fit
+    // (rescaleAmplitudes -> 1.0) while a genuinely busy/overlapping track
+    // keeps most of the original correction (rescaleAmplitudes -> raw ratio),
+    // matching what real BioMapping recordings need (checked against
+    // biomap_019/027/053/059: atom density 0.68-0.85, so real tracks keep
+    // ~70-80% of the original correction) without over-punishing the common
+    // case of well-separated genuine responses.
     //
     // Guard: if cleanValsRaw sums to zero (no impulses passed the gate, e.g.
     // a recording with no detectable SCRs), skip the rescaling to avoid ÷0.
@@ -1004,7 +1028,18 @@ class GSRAnalyzer {
     if (shouldRescale) {
       let sumClean = 0, sumPhasic = 0;
       for (let i = 0; i < n; i++) { sumClean += cleanValsRaw[i]; sumPhasic += phasicVals[i]; }
-      if (sumClean > 0) rescaleAmplitudes = sumPhasic / sumClean;
+      if (sumClean > 0) {
+        const rawRescale = sumPhasic / sumClean;
+        const kernelSamples = scf.kernelSec * this.sampleRate;
+        const sortedIdx = reconstructionImpulses.map(imp => imp.index).sort((a, b) => a - b);
+        let overlapWeight = 0;
+        for (let k = 1; k < sortedIdx.length; k++) {
+          const gap = sortedIdx[k] - sortedIdx[k - 1];
+          if (gap < kernelSamples) overlapWeight += 1 - gap / kernelSamples;
+        }
+        const atomDensity = sortedIdx.length > 1 ? overlapWeight / (sortedIdx.length - 1) : 0;
+        rescaleAmplitudes = 1.0 + atomDensity * (rawRescale - 1.0);
+      }
     }
     // Apply the scale to every impulse so cleanVals, phasicDriver values, and
     // the impulse amplitudes stored on phasicDriverPeaks are all consistent.

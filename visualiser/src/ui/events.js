@@ -88,7 +88,7 @@ const GSREvents = {
       'gpsSmoothing', 'gpsKalmanR', 'gpsMaxHdop', 'gpsMaxSpeed', 'gpsRDP', 'gpsTrackWeight', 'gpsPeakLatency',
       'gpsSnapToRoads', 'gpsSnapRadius',
       'placeMergeDistance',
-      'graphView', 'useDeconvolution', 'usePeakProminence', 'useCvxEDA'
+      'graphView', 'useDeconvolution', 'usePeakProminence', 'useCvxEDA', 'useGaitFilter'
     ];
     for (const key of sliderKeys) {
       AppState.sliders[key] = GSREvents._id(key);
@@ -472,6 +472,14 @@ const GSREvents = {
       });
     });
     GSREvents.syncTonicBaselineControls(); // initial state
+
+    // ── Gait filter toggle (box average vs Butterworth gait filter) ─────────
+    // Independent of the detector toggles above — this swaps stage-2
+    // filtering only (see analyzer.js's Low-Pass Filter comment), not the
+    // peak detector.
+    if (S.useGaitFilter) {
+      S.useGaitFilter.addEventListener('change', () => GSRUI.runAnalysis());
+    }
 
     // ── Graph view selector ─────────────────────────────────────────────────
     // Rendering-only setting (no re-analysis needed). One dropdown picks the

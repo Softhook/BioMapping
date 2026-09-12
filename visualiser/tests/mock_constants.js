@@ -23,6 +23,7 @@ module.exports = {
 
   GSR_DEFAULT: {
     medianSize: 0, lpfWindow: 0.5,
+    useGaitFilter: false,
     tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.015,
     shapeMinSnr: 1.5,
     minPeakQuality: 0.0,
@@ -32,6 +33,8 @@ module.exports = {
     usePeakProminence: false,
     useCvxEDA: false
   },
+
+  GAIT_FILTER: { cutoffHz: 0.8, order: 4 },
 
   SCRF: {
     tauSlow: 2.0,
