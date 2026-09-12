@@ -85,21 +85,27 @@ tail ripples.
 
 An indoor recording with no physical locomotion (speed 0.1 kts, 1,414 samples @ 3.33 Hz,
 ~7 minutes) serves as the primary real-world clean stationary reference, complementing
-the ambulatory outdoor recordings (`biomap_019`, `027`, `053`, `059`).
+the ambulatory outdoor recordings. For fair comparison with NeuroKit2 on clean stationary
+and synthetic data, the comparison testing harness (`compare.js`, `run.sh`, `check_ground_truth.js`)
+defaults the gait low-pass filter to **off** (`useGaitFilter: false`, overridable via
+`BIOMAP_USE_GAIT_FILTER=1`).
 
-On this track:
+With the gait filter off on this clean indoor track:
 - **Raw signal loading:** passes with zero timestamp difference and $r = 1.000000$
   (timestamps normalized relative to session start).
-- **Full-Scan agreement recall:** **100.0%** (43/43 matched, 0 missed, mean \|delta\| 0.063s).
-- **Prominence agreement recall:** **100.0%** (43/43 matched, 0 missed, mean \|delta\| 0.063s).
-- **cvxEDA agreement recall:** **100.0%** (30/30 matched, 0 missed, mean \|delta\| 0.060s).
-- **Topographic prominence algorithm:** produces 87/87 identical local maxima with
+- **Cleaning agreement:** identical raw passthrough ($n = 1414$, max diff $0.0000$ uS,
+  RMSE $0.0000$ uS, $r = 1.0000$).
+- **Full-Scan agreement recall:** **100.0%** (43/43 matched, 0 missed, mean \|delta\| **0.035s**).
+- **Prominence agreement recall:** **100.0%** (43/43 matched, 0 missed, mean \|delta\| **0.035s**).
+- **cvxEDA agreement recall:** **100.0%** (30/30 matched, 0 missed, mean \|delta\| **0.040s**).
+- **cvxEDA decomposition agreement:** tonic $r = 0.9973$, phasic $r = 0.9888$.
+- **Topographic prominence algorithm:** produces 145/145 identical local maxima with
   NeuroKit2 ($r = 1.000000$, mean \|diff\| = 0.000 uS).
-- **NeuroKit2 relative threshold:** an isolated 2.71 uS peak elevates NeuroKit2's 10%
-  threshold to 0.271 uS, discarding 53 of 87 local maxima and missing 9 responses that
-  BioMapping successfully identifies.
-- Across the expanded 5-track real reference suite, aggregate Full-Scan recall is
-  **94.4%** (320/339) and cvxEDA recall is **96.9%** (156/161).
+- **NeuroKit2 relative threshold:** an isolated 2.54 uS peak elevates NeuroKit2's 10%
+  threshold to 0.254 uS, discarding 109 of 145 local maxima and missing 7 responses that
+  BioMapping successfully identifies (dropping recall to 83.7%).
+- **Commands default:** `./run.sh` and diagnostic scripts now default directly to this
+  clean indoor reference track (pass `all` to run across all 5 recordings).
 
 Do not change production threshold, SNR, or quality defaults based on these
 experiments.

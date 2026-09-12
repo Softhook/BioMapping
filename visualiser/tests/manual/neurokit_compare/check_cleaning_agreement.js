@@ -36,10 +36,11 @@ loadModule(path.join(SRC, 'deconvolution.js'), 'SCRDeconvolution');
 loadModule(path.join(SRC, 'csv_parser.js'), 'GSRCSVParser');
 loadModule(path.join(SRC, 'analyzer.js'), 'GSRAnalyzer');
 const { GSRAnalyzer } = global;
-const D = global.GSR_CONST.GSR_DEFAULT;
+const useGaitFilter = process.env.BIOMAP_USE_GAIT_FILTER === '1';
+const D = { ...global.GSR_CONST.GSR_DEFAULT, useGaitFilter };
 const ourCleaningDescription = D.useGaitFilter
   ? `1Hz ${global.GSR_CONST.GAIT_FILTER.type.toUpperCase()} gait low-pass`
-  : `${D.lpfWindow}s box LPF`;
+  : (D.lpfWindow > 0 ? `${D.lpfWindow}s box LPF` : 'raw (no filter)');
 
 function stats(a, b) {
   const n = Math.min(a.length, b.length);

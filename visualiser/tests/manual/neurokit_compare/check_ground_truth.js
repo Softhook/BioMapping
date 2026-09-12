@@ -52,10 +52,8 @@ const { GSRAnalyzer } = global;
 const D = global.GSR_CONST.GSR_DEFAULT;
 
 const TOL = 1.0; // seconds - same match window used throughout this investigation
-const gaitFilterOverride = process.env.BIOMAP_USE_GAIT_FILTER === '0' ? false : undefined;
-const detectorDefaults = gaitFilterOverride === undefined
-  ? D
-  : { ...D, useGaitFilter: gaitFilterOverride };
+const gaitFilterOverride = process.env.BIOMAP_USE_GAIT_FILTER === '1';
+const detectorDefaults = { ...D, useGaitFilter: gaitFilterOverride };
 
 // Amplitude accuracy over matched (TP) pairs only - a false positive or a
 // miss has no true amplitude to compare against, so those cases are outside

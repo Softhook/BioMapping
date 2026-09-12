@@ -70,6 +70,13 @@ const smallSlowSlope = Number.parseFloat(process.env.BIOMAP_SMALL_SLOW_SLOPE);
 const useSmallSlowGate = Number.isFinite(smallSlowAmplitude) && smallSlowAmplitude > 0 &&
   Number.isFinite(smallSlowSlope) && smallSlowSlope > 0;
 
+const gaitFilterOverride = process.env.BIOMAP_USE_GAIT_FILTER === '1';
+const detectorDefaults = {
+  ...D,
+  useGaitFilter: gaitFilterOverride,
+  ...detectorThresholdPatch,
+};
+
 // Each of our detectors is checked against the NeuroKit2 reference that
 // shares its decomposition family, not just NeuroKit2's default output:
 // Full-Scan/Prominence both decompose with a plain LPF tonic estimate, the
@@ -122,8 +129,8 @@ const nkData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
 // Python side (run_neurokit.py) via eda_clean() before either decomposition
 // runs - see that file for why the cvxEDA reference needs it explicitly.
 console.log('=== Our preprocessing/smoothing settings (GSR_DEFAULT) ===');
-console.log(`  medianSize=${D.medianSize}s (${D.medianSize > 0 ? 'median filter ON' : 'median filter OFF'})  lpfWindow=${D.lpfWindow}s (zero-phase moving-average low-pass)`);
-console.log(`  tonicMethod=${D.tonicMethod}  tonicWindow=${D.tonicWindow}s  peakThreshold=${D.peakThreshold}`);
+console.log(`  gaitFilter=${detectorDefaults.useGaitFilter ? 'on' : 'off (comparison mode)'}  medianSize=${D.medianSize}s (${D.medianSize > 0 ? 'median filter ON' : 'median filter OFF'})  lpfWindow=${D.lpfWindow}s (zero-phase moving-average low-pass)`);
+console.log(`  tonicMethod=${D.tonicMethod}  tonicWindow=${D.tonicWindow}s  peakThreshold=${detectorDefaults.peakThreshold}`);
 console.log(`  peak minimum gap=${global.GSR_CONST.PEAK_MIN_GAP}s`);
 if (Object.hasOwn(detectorThresholdPatch, 'peakThreshold')) {
   console.log(`  benchmark-only peakThreshold override=${detectorThresholdPatch.peakThreshold}uS`);
@@ -148,7 +155,7 @@ for (const trackPath of trackPaths) {
     const nkTimes = nk[refField];
     const a = new GSRAnalyzer();
     a.parseCSV(csvText);
-    a.analyze({ ...D, ...patch }, 0);
+    a.analyze({ ...detectorDefaults, ...patch }, 0);
     const oursPeaks = useSmallSlowGate && label !== 'cvxEDA'
       ? a.peaks.filter(p => !(p.amplitude < smallSlowAmplitude && p.onsetSlope < smallSlowSlope))
       : a.peaks;

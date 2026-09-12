@@ -30,7 +30,8 @@ loadModule(path.join(SRC, 'deconvolution.js'), 'SCRDeconvolution');
 loadModule(path.join(SRC, 'csv_parser.js'), 'GSRCSVParser');
 loadModule(path.join(SRC, 'analyzer.js'), 'GSRAnalyzer');
 const { GSRAnalyzer } = global;
-const D = global.GSR_CONST.GSR_DEFAULT;
+const useGaitFilter = process.env.BIOMAP_USE_GAIT_FILTER === '1';
+const D = { ...global.GSR_CONST.GSR_DEFAULT, useGaitFilter };
 const TOL = 1.0;
 
 function score(peakTimes, trueScrs) {

@@ -23,7 +23,9 @@ fi
 
 TRACK_NAMES=("$@")
 if [ ${#TRACK_NAMES[@]} -eq 0 ]; then
-  TRACK_NAMES=(biomap_019 biomap_027 biomap_053 biomap_059 biomap_live_2026-09-10T17-20-02-105Z)
+  TRACK_NAMES=(biomap_live_2026-09-10T17-20-02-105Z)
+elif [ "${1:-}" = "all" ]; then
+  TRACK_NAMES=(biomap_live_2026-09-10T17-20-02-105Z biomap_019 biomap_027 biomap_053 biomap_059)
 fi
 
 for name in "${TRACK_NAMES[@]}"; do
