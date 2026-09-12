@@ -19,8 +19,10 @@ agreement with either comparator.
 - **Peak floor (`peakThreshold`):** 0.045 µS.
 - **Minimum SNR (`shapeMinSnr`):** 2.5×.
 - **Maximum rise time (`MAX_RISE_TIME`):** 4.0 seconds — matches the psychophysiology
-  literature consensus (Boucsein 2012, Ledalab, AcqKnowledge, Dawson et al. 2017); 100.000%
-  peak retention verified across all 73 real tracks in `tracks/`.
+  literature consensus (Boucsein 2012, Ledalab, AcqKnowledge, Dawson et al. 2017); verified at
+  100.000% peak retention (0 dropped) against the full local real-track corpus when this was
+  last measured (Investigation Log items 7–8; `tracks/` is a local, gitignored directory, so its
+  exact size drifts as recordings are added — see "Real-world corpus" below for today's count).
 - **Minimum inter-peak gap:** 1.3 seconds.
 - **Tonic baseline method:** zero-phase EMA, 45s window, with local-floor repositioning.
 - **NeuroKit2 / Ledalab:** diagnostic comparators only, not production dependencies.
@@ -70,8 +72,13 @@ drift, Boucsein 2012) so no detector can learn a single fixed baseline shape.
 
 ### Real-world corpus
 
-62 real ambulatory field recordings (of 73 total tracks in `tracks/`; the remainder are
-zero-byte, UI exports, or open-circuit dropouts), scored both for direct peak agreement against
+`tracks/` is a local, gitignored directory of real recordings, so its size drifts as tracks are
+added or removed; `./run.sh all` (or `corpus`/`full`) selects every non-empty, non-`_processed`
+`biomap_*.csv` file in it as the real-world corpus — **62 tracks** as of 2026-09-12, the figure
+the results below use. (A handful of other files sometimes sit in `tracks/` too — cached
+`_processed` duplicates, or non-benchmark fixtures like `Newhaven.csv` — `run.sh`'s filter
+excludes those automatically; if your own count differs, re-run `./run.sh all` rather than
+trusting a number below.) Corpus tracks are scored both for direct peak agreement against
 NeuroKit2/Ledalab/cvxEDA and for the production gait filter's rejection of footstep-cadence
 false alarms.
 
