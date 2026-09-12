@@ -368,6 +368,10 @@ To investigate closing the precision gap on clean synthetic data (111 false posi
 12. [ ] **UI Detection Presets (Optional)**:
     Provide UI quick-presets for "Standard / High Precision" (0.050 µS, 2.5×, 4.0s) and
     "Exploratory / High Recall" (0.015 µS, 1.5×, 4.0s).
+13. [ ] **Investigate EDASymp (0.045–0.25 Hz) Spectral Sympathetic Index**:
+    Proposal documented in [`edasymp_spectral_investigation_proposal.md`](edasymp_spectral_investigation_proposal.md).
+    Benchmark against NeuroKit2's `nk.eda_sympathetic()` on stationary and ambulatory tracks to assess continuous,
+    threshold-free sympathetic tone with inherent immunity to footstep cadence.
 
 ## Decision Rule
 
