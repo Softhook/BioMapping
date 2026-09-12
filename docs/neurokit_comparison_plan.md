@@ -12,7 +12,7 @@ and closely spaced-response scenarios.
 
 - **Default detector:** BioMapping Full-Scan.
 - **Gait filter:** enabled by default: zero-phase 1 Hz LR4 low-pass.
-- **Peak floor (`peakThreshold`):** 0.050 µS (raised from 0.015 µS to eliminate sub-threshold baseline noise ripples, achieving 0 false positives / 100% precision on clean synthetic benchmark).
+- **Peak floor (`peakThreshold`):** 0.045 µS (raised from 0.015 µS to eliminate sub-threshold baseline noise ripples, achieving 0 false positives / 100% precision on the clean synthetic benchmark; lowered from an intermediate 0.050 µS on 2026-09-12 — see Next Plan item 13 — after that value was found to cost a genuine real/synthetic recall regression for no offsetting benefit on the clean benchmark).
 - **Minimum SNR (`shapeMinSnr`):** 2.5× (raised from 1.5×, requiring responses to rise comfortably above local noise envelope).
 - **Maximum rise time (`MAX_RISE_TIME`):** 4.0 seconds (tightened from 5.0s, matching the universal psychophysiology literature consensus: Boucsein 2012, Ledalab, AcqKnowledge, Dawson et al. 2017; verified across all 73 tracks in `tracks/` with 100.000% peak retention / 0 lost).
 - **Minimum inter-peak gap:** 1.3 seconds.
@@ -197,48 +197,65 @@ node ./inspect_false_positive_metrics.js <track.csv> <ground_truth.json>
 
 ### Compound noisy (`synth_compound_noisy`)
 
-Re-run 2026-09-12 under current defaults (`node inspect_false_positive_metrics.js`).
-On `synth_compound_noisy`, Full-Scan finds all 12 true responses and **27**
-false positives (was 97 under the pre-0.050 µS defaults — the raised
-threshold/SNR already removed roughly 72% of them). The distribution medians
-still show the same pattern: false detections are generally smaller and
-slower, but overlap the weakest true responses:
+Re-run 2026-09-12 under current defaults (`node inspect_false_positive_metrics.js`,
+gait filter off — see correction note below). On `synth_compound_noisy`,
+Full-Scan finds all 12 true responses and **46** false positives (was 97
+under the pre-0.050 µS defaults — the raised threshold/SNR removed roughly
+half of them). The distribution medians still show the same pattern: false
+detections are generally smaller and slower, but overlap the weakest true
+responses:
 
 | Metric | True responses, median (range) | False positives, median (range) |
 |---|---:|---:|
-| Amplitude (uS) | 0.434 (0.062-1.718) | 0.066 (0.051-0.120) |
-| Prominence (uS) | 0.587 (0.062-1.998) | 0.069 (0.008-0.121) |
-| Onset slope (uS/s) | 0.395 (0.057-1.562) | 0.051 (0.021-0.092) |
-| SNR | 23.613 (4.848-99.206) | 20.769 (12.325-41.650) |
-| Quality score | 0.914 (0.683-1.000) | 0.763 (0.718-0.848) |
+| Amplitude (uS) | 0.475 (0.115-1.840) | 0.066 (0.051-0.132) |
+| Prominence (uS) | 0.642 (0.097-2.145) | 0.056 (0.001-0.135) |
+| Onset slope (uS/s) | 0.678 (0.199-2.300) | 0.099 (0.038-0.170) |
+| SNR | 14.759 (7.096-85.371) | 10.808 (6.883-29.898) |
+| Quality score | 0.950 (0.711-0.990) | 0.766 (0.616-0.853) |
+
+**Correction, 2026-09-12:** an earlier pass through this section reported 27
+false positives here (and a "10/12, 0 FP" regression below) using
+`inspect_false_positive_metrics.js` as it stood at the time, which called
+`analyze()` with the gait low-pass filter left at its production default
+(**on**) — inconsistent with every other script in this suite
+(`check_ground_truth.js`, `compare.js`, `benchmark_precision_rules.js`),
+which disable it for these stationary synthetic tracks specifically because
+it exists to reject ambulatory motion artefacts these tracks don't have (see
+"Clean Indoor Stationary Reference" above). Filtering a signal with a
+1 Hz low-pass it doesn't need attenuates genuine low-amplitude responses and
+was giving a falsely optimistic read here. The script now disables the gait
+filter to match the rest of the harness; the 46 FP figure above is the
+corrected, consistent measurement (it also now matches `check_ground_truth.sh`'s
+own Full-Scan row for this track exactly: TP 12, FN 0, FP 46).
 
 ### Low-amplitude, slow-rise noisy (`synth_low_slow_noisy`)
 
-**Regression found 2026-09-12, re-running under current defaults:** on
-`synth_low_slow_noisy` (calibrated against `biomap_053`), Full-Scan now finds
-only **10 of the 12** true responses and **0** false positives — not the
-previously documented 12/12 with 57 false positives. This is a genuine
-recall loss on a scenario purpose-built to guard against exactly this
-failure mode (see "Ground-Truth Suite" above), introduced by the
-`peakThreshold`/`shapeMinSnr` increase, and is flagged as Next Plan item 13
-below. Since there are now 0 false positives, the original true-vs-false
-comparison table no longer applies; instead, here is what distinguishes the
-2 missed responses from the 10 still detected:
+**Regression found 2026-09-12, corrected 2026-09-12 (see note above — the
+first measurement had the gait filter on by mistake).** Re-measured with the
+gait filter off, matching the rest of the harness: Full-Scan finds **11 of
+the 12** true responses and **1** false positive — not the previously
+documented 12/12 with 57 false positives, but also not the "10/12, 0 FP"
+first reported here. This matches `check_ground_truth.sh`'s own row for this
+track exactly: recall 91.7%, precision 91.7%, F1 0.917, TP 11, FN 1, FP 1,
+mean|Δt| 0.189s, amplitude meanAbsErr 0.021 µS (r 0.8197).
 
-| | Time (s) | True amplitude (uS) | Detected? |
+Exactly one true response is missed — the single smallest one in the set —
+and one new false positive appears that wasn't there before:
+
+| | Time (s) | Amplitude (uS) | Detected? |
 |---|---:|---:|---|
-| Missed | 122.76 | 0.062 | No |
-| Missed | 156.40 | 0.029 | No |
-| Smallest matched (for comparison) | 3.67 | 0.045 | Yes |
-| Largest matched (for comparison) | 335.27 | 0.194 | Yes |
+| Missed (true) | 156.40 | 0.029 (true) | No |
+| New false positive | ~200.6 | 0.052 (measured) | — |
+| Matched (for comparison, next-smallest true) | 122.76 | 0.062 (true) → 0.052 (measured) | Yes |
+| Smallest matched (for comparison) | 3.67 | 0.045 (true) → 0.056 (measured) | Yes |
 
-The 2 missed responses are the smallest and 3rd-smallest of the 12 true
-injected amplitudes (0.029 uS and 0.062 uS out of a 0.029–0.194 uS range),
-but amplitude alone does not fully explain it — the single smallest
-response in the set (0.045 uS, at t=3.67s) is still detected. The specific
-noise realization at each response's onset (not just its true amplitude)
-determines whether it clears the raised bar, which is exactly the
-overlap-in-the-low-energy-regime failure mode this scenario exists to catch.
+This is a genuine, but much smaller, recall loss than first reported: one
+purpose-built weak-SCR scenario response (0.029 µS, the smallest of the 12
+true amplitudes) no longer clears the raised bar, while precision is still
+91.7% rather than the 100% implied by the earlier (incorrect) "0 FP"
+measurement. The response at t=122.76s that the earlier pass also reported
+as missed is, once measured correctly, matched fine (detected 0.24s away,
+within the 1.0s tolerance) — it was never actually lost.
 
 ### Multi-Seed Aggregate Benchmark (30 tracks, 510 true SCRs)
 
@@ -491,17 +508,66 @@ Promoting the threshold to $0.050\,\mu\text{S}$ and SNR to $2.5\times$ completel
 12. [ ] **UI Detection Presets (Optional)**:
     Provide UI quick-presets for "Standard / High Precision" (0.050 µS, 2.5×, 4.0s) and
     "Exploratory / High Recall" (0.015 µS, 1.5×, 4.0s).
-13. [ ] **Investigate `synth_low_slow_noisy` recall regression (12/12→10/12) introduced by the 0.050 µS/2.5× threshold bump**:
-    Found 2026-09-12 while regenerating the "False-Positive Metric Inspection" tables. Full-Scan now
-    misses 2 of the 12 true responses on this purpose-built weak-SCR regression scenario (at t=122.76s,
-    amplitude 0.062 uS, and t=156.40s, amplitude 0.029 uS — the smallest and 3rd-smallest true amplitudes
-    in the set), with 0 false positives (down from 57). Determine whether the two missed responses are
-    recoverable without reopening the clean-synthetic false-positive count; per the "Decision Rule" below,
-    a recall loss on this scenario should block promoting a change unless resolved or explicitly accepted.
+13. [x] **Fixed: `synth_low_slow_noisy` recall regression introduced by the 0.050 µS/2.5× threshold bump**:
+    Found 2026-09-12 while regenerating the "False-Positive Metric Inspection" tables — initially
+    mismeasured as 12/12→10/12 with 0 FP due to a bug in `inspect_false_positive_metrics.js` (gait
+    filter left on, inconsistent with the rest of the harness; fixed same day). The corrected,
+    harness-consistent measurement was **12/12→11/12, with 1 new false positive** (see
+    "False-Positive Metric Inspection" above). Root-caused by walking both the missed response and
+    the new false positive through `_detectPeaksFullScan`/`_findOnsetIndex` directly:
+    - **The one genuine miss** (t=156.40s, true amplitude 0.029 µS) was found as the correct local
+      maximum at the exact true time, and comfortably cleared the SNR gate (19.67× vs. the 2.5×
+      floor) — it failed purely on the absolute `peakThreshold` gate: its onset trough happened to
+      sit at the phasic floor (0.0 µS), giving a noise-inflated measured amplitude of 0.0475 µS,
+      which fell 0.0025 µS (5%) short of the then-current 0.050 µS bar.
+    - **The one new false positive** (t≈200.6s, measured amplitude 0.0519 µS) was the same
+      onset-walks-back-to-the-phasic-floor mechanism described in "Key Insights & Algorithmic
+      Trade-offs" below (bullet 1) — a noise trough that happens to bottom out at exactly 0.0 µS,
+      followed by a random rise that clears both gates by a small margin.
+
+    **Fix, 2026-09-12: `peakThreshold` lowered from 0.050 µS to 0.045 µS.** Since the missed
+    response's measured amplitude (0.0475 µS) sat only 5% below the bar, a small step down was worth
+    sweeping empirically rather than accepting the loss outright. Swept 0.050→0.030 µS in 0.005 steps
+    against the full suite; 0.045 µS was the best point found:
+    - **Clean synthetic benchmark: unaffected, 0 FP at every scenario** (`sparse_clean`/`dense_clean`/
+      `compound_clean` unchanged; `low_slow_clean` actually *improves*, 9/12→10/12) — the FP wall the
+      0.015→0.050 change was built to establish holds at 0.045 too.
+    - **`synth_low_slow_noisy` fully recovered: 11/12→12/12 (100% recall)**, at the cost of one more
+      false positive (1→2, precision 91.7%→85.7%).
+    - **Every real reference track improves, none regress**: Track 1 42/43→43/43, Track 28
+      118/120→119/120, `biomap_053` 25/96→37/96 (the largest gain), one other track 115/132→116/132,
+      the remaining two tracks unchanged.
+    - **Gait scenarios unaffected**: `synth_gait_tremor` and `synth_walking_track` stay at 100%
+      recall / 100% precision with the gait filter on, at both 0.050 and 0.045.
+    - **Multi-seed aggregate (30 tracks, 510 SCRs): recall 95.7%→96.9%** (488→494 TP, 22→16 FN),
+      at a cost of +80 aggregate false positives (1230→1310) concentrated in the deliberately
+      adversarial noisy scenarios — **`synth_compound_noisy` alone absorbs 9 of those** (FP 46→55,
+      precision 20.7%→17.9%, recall unchanged at 100% — no known events lost, satisfying the
+      "without reducing compound-response recall" clause of the Decision Rule below).
+    - Aggregate F1 dips slightly (0.438→0.427) because the low-precision noisy scenarios dominate
+      that single number; recall, real-track agreement, and the clean-benchmark FP wall — the
+      metrics this investigation has consistently prioritized — all improve or hold.
+
+    Adopted as the new production default in `constants.js`, `index.html`, `live_view.js`, and
+    `tests/mock_constants.js` (2026-09-12); the two pinned-count assertions in
+    `test_current_pipeline.js` for Track 24 (footstep-ripple rejection) were updated to match
+    (193→211 production peaks, 313→337 raw peaks, 120→126 rejected ripples) — full test suite green
+    (1217 passed / 1 pre-existing skip). Every table above and below that reports Full-Scan/Prominence
+    numbers under `peakThreshold = 0.050` now reflects the *prior* default and is stale in the same
+    way earlier tables went stale after the 0.015→0.050 change — a full re-run to refresh them against
+    0.045 is tracked as new Next Plan item 15.
 14. [ ] **Investigate EDASymp (0.045–0.25 Hz) Spectral Sympathetic Index**:
     Proposal documented in [`edasymp_spectral_investigation_proposal.md`](edasymp_spectral_investigation_proposal.md).
     Benchmark against NeuroKit2's `nk.eda_sympathetic()` on stationary and ambulatory tracks to assess continuous,
     threshold-free sympathetic tone with inherent immunity to footstep cadence.
+15. [ ] **Refresh every benchmark table above against the new `peakThreshold = 0.045 µS` default**:
+    The 2026-09-12 threshold change (item 13) was validated with the specific checks listed there
+    (clean synthetic FP wall, real-track agreement, multi-seed aggregate, gait scenarios,
+    `synth_low_slow_noisy`), but the older, more detailed tables earlier in this document — NeuroKit2
+    peak selection, Comprehensive Clean 3-Way Benchmark, Algorithm-by-Algorithm Agreement, Tonic
+    Decomposition Methods, False-Positive Reduction sweep, False-Positive Metric Inspection — still
+    report numbers measured under the prior `peakThreshold = 0.050`. Re-run and correct them the same
+    way the 0.015→0.050 change's stale tables were corrected earlier this same day.
 
 ## Decision Rule
 

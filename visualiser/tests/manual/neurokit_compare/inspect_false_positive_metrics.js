@@ -36,7 +36,12 @@ if (!csvPath || !truthPath) {
 const truth = JSON.parse(fs.readFileSync(truthPath, 'utf8')).scrs;
 const analyzer = new global.GSRAnalyzer();
 analyzer.parseCSV(fs.readFileSync(csvPath, 'utf8'));
-analyzer.analyze({ ...global.GSR_CONST.GSR_DEFAULT }, 0);
+// These synthetic tracks are stationary (no physical locomotion), so the
+// gait low-pass filter is disabled here too — same convention as
+// check_ground_truth.js/compare.js/benchmark_precision_rules.js — to avoid
+// attenuating genuine low-amplitude responses with a filter meant for
+// ambulatory motion artefacts, not present in this signal.
+analyzer.analyze({ ...global.GSR_CONST.GSR_DEFAULT, useGaitFilter: false }, 0);
 const usedTruth = new Array(truth.length).fill(false);
 const groups = { truePositive: [], falsePositive: [] };
 
