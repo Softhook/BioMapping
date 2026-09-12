@@ -24,8 +24,8 @@ module.exports = {
   GSR_DEFAULT: {
     medianSize: 0, lpfWindow: 0,
     useGaitFilter: true,
-    tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.015,
-    shapeMinSnr: 1.5,
+    tonicMethod: 'lpf', tonicWindow: 45, peakThreshold: 0.05,
+    shapeMinSnr: 2.5,
     minPeakQuality: 0.0,
     peakDensityWindow: 10,
     hotspotPercentile: 0.02,
