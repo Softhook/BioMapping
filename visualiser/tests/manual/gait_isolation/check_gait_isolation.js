@@ -293,6 +293,9 @@ const useButterworthPlusBox = (cutoffHz, order, boxSec) => () => {
     return originalBoxLPF(afterButter, Math.round(boxSec * TRACK_SAMPLE_RATE));
   };
 };
+const useLR4 = (cutoffHz) => () => {
+  GsrFilter.applyZeroPhaseMovingAverage = (arr) => GsrFilter.applyZeroPhaseLinkwitzRiley(arr, cutoffHz, TRACK_SAMPLE_RATE);
+};
 // Restores the real box function - the real applyZeroPhaseButterworth is
 // exercised via the useGaitFilter:true param patch below instead, an
 // end-to-end check against the real toggle + GSR_CONST.GAIT_FILTER rather
@@ -303,10 +306,7 @@ const useProductionDefault = () => { GsrFilter.applyZeroPhaseMovingAverage = ori
 // now ships useGaitFilter:true, and without the explicit override every
 // candidate here would silently spread that true value in from D, take the
 // useGaitFilter branch in analyzer.js, and run the real production
-// Butterworth regardless of which installFilter() ran - a real regression
-// this file hit after the 2026-09-12 default flip (every non-SHIPPED row
-// produced byte-identical output until this was added, since the candidate
-// override mechanism only intercepts applyZeroPhaseMovingAverage, which
+// filter instead of the one this candidate just installed (and which
 // never gets called on the useGaitFilter:true branch).
 const CANDIDATES = [
   ['none (lpfWindow=0)', useNone, { lpfWindow: 0, useGaitFilter: false }],
@@ -317,11 +317,6 @@ const CANDIDATES = [
   ['whittaker lambda=50', useWhittaker(50), { lpfWindow: 1, useGaitFilter: false }],
   ['whittaker lambda=200', useWhittaker(200), { lpfWindow: 1, useGaitFilter: false }],
   ['whittaker lambda=1000', useWhittaker(1000), { lpfWindow: 1, useGaitFilter: false }],
-  // ── Literature candidates found via web research: NeuroKit2/BioSPPy's own
-  // EDA-cleaning filter is a zero-phase Butterworth lowpass (3Hz / 5Hz
-  // respectively) - much steeper rolloff than a box average at the same
-  // nominal cutoff, so worth testing at gait-relevant cutoffs directly
-  // rather than assuming a box's shape-based smoothing is the only option.
   ['butterworth 2.0Hz order4', useButterworth(2.0, 4), { lpfWindow: 1, useGaitFilter: false }],
   ['butterworth 1.5Hz order4', useButterworth(1.5, 4), { lpfWindow: 1, useGaitFilter: false }],
   ['butterworth 1.2Hz order4', useButterworth(1.2, 4), { lpfWindow: 1, useGaitFilter: false }],
@@ -329,40 +324,38 @@ const CANDIDATES = [
   ['butterworth 0.8Hz order4', useButterworth(0.8, 4), { lpfWindow: 1, useGaitFilter: false }],
   ['butterworth 1.2Hz order2', useButterworth(1.2, 2), { lpfWindow: 1, useGaitFilter: false }],
   ['butterworth 1.0Hz order2', useButterworth(1.0, 2), { lpfWindow: 1, useGaitFilter: false }],
-  // BioSPPy's actual production EDA pipeline: Butterworth 5Hz order4, then
-  // boxcar+Parzen cascade smoothing (size 0.75*fs is BioSPPy's own default,
-  // swept alongside it here).
   ['boxzen 0.75s (biosppy default)', useBoxzen(0.75, 5), { lpfWindow: 1, useGaitFilter: false }],
   ['boxzen 1.1s', useBoxzen(1.1, 5), { lpfWindow: 1, useGaitFilter: false }],
   ['boxzen 1.5s', useBoxzen(1.5, 5), { lpfWindow: 1, useGaitFilter: false }],
-  // ── Hybrid: Butterworth gait-notch + short box mop-up for residual noise
-  // (see useButterworthPlusBox doc comment above for why).
-  ['butter 1.0Hz o4 + box 0.1s', useButterworthPlusBox(1.0, 4, 0.1), { lpfWindow: 1, useGaitFilter: false }],
-  ['butter 1.0Hz o4 + box 0.2s', useButterworthPlusBox(1.0, 4, 0.2), { lpfWindow: 1, useGaitFilter: false }],
-  ['butter 1.0Hz o4 + box 0.3s', useButterworthPlusBox(1.0, 4, 0.3), { lpfWindow: 1, useGaitFilter: false }],
-  ['butter 0.8Hz o4 + box 0.2s', useButterworthPlusBox(0.8, 4, 0.2), { lpfWindow: 1, useGaitFilter: false }],
-  ['butter 0.8Hz o4 + box 0.3s', useButterworthPlusBox(0.8, 4, 0.3), { lpfWindow: 1, useGaitFilter: false }],
+  ['LR4 1.1Hz', useLR4(1.1), { lpfWindow: 1, useGaitFilter: false }],
+  ['LR4 1.0Hz (production)', useLR4(1.0), { lpfWindow: 1, useGaitFilter: false }],
+  ['LR4 0.9Hz', useLR4(0.9), { lpfWindow: 1, useGaitFilter: false }],
+  ['LR4 0.8Hz', useLR4(0.8), { lpfWindow: 1, useGaitFilter: false }],
   // ── SHIPPED: GSR_DEFAULT.useGaitFilter:true + GSR_CONST.GAIT_FILTER
-  // (0.8Hz order4) - this row should match the "butterworth 0.8Hz order4"
-  // row above exactly; it exists as an end-to-end check against the real
-  // toggle + constant rather than a hardcoded literal.
+  // (LR4 1.0Hz) - should match the "LR4 1.0Hz (production)" row exactly;
+  // exists as an end-to-end check against the real toggle + constant.
   ['SHIPPED useGaitFilter:true', useProductionDefault, { lpfWindow: 1, useGaitFilter: true }],
 ];
 
-const track059 = 'biomap_059.csv';
-const csv059 = fs.readFileSync(path.join(TRACKS_DIR, track059), 'utf8');
-const speeds059 = parseSpeed(path.join(TRACKS_DIR, track059));
+const targetTracks = process.argv.slice(2).length ? process.argv.slice(2) : ['biomap_024.csv', 'biomap_059.csv'];
 
-console.log('=== biomap_059: PRIMARY test - speed-correlated 1.4-2.0Hz band, validated via continuous sliding-window analysis (see doc comment for how this was found) ===\n');
-for (const [label, installFilter, patch] of CANDIDATES) {
-  installFilter();
-  const a = new GSRAnalyzer();
-  a.parseCSV(csv059);
-  a.analyze({ ...D, medianSize: 0, ...patch }, 0);
-  const phasicVals = a.phasic.map(d => d.val);
-  const { r, mediumMean, briskMean, nMedium, nBrisk } = slidingSpeedCorrelation(phasicVals, speeds059, a.sampleRate);
-  const meanQuality = a.peaks.length ? a.peaks.reduce((s, p) => s + p.qualityScore, 0) / a.peaks.length : 0;
-  const sumAmp = a.peaks.reduce((s, p) => s + p.amplitude, 0);
-  console.log(`  ${label.padEnd(28)} r=${r.toFixed(3).padStart(6)}  medium%=${(100 * mediumMean).toFixed(1).padStart(5)}(n=${nMedium})  brisk%=${(100 * briskMean).toFixed(1).padStart(5)}(n=${nBrisk})  gap=${(100 * (briskMean - mediumMean)).toFixed(1).padStart(5)}pp   |   peaks=${String(a.peaks.length).padStart(4)}  meanQuality=${meanQuality.toFixed(3)}  sumAmp=${sumAmp.toFixed(1)}`);
+for (const trackFile of targetTracks) {
+  const csvPath = path.join(TRACKS_DIR, trackFile);
+  if (!fs.existsSync(csvPath)) continue;
+  const csvText = fs.readFileSync(csvPath, 'utf8');
+  const speeds = parseSpeed(csvPath);
+
+  console.log(`\n=== ${trackFile}: speed-correlated 1.4-2.0Hz band, continuous sliding-window analysis ===\n`);
+  for (const [label, installFilter, patch] of CANDIDATES) {
+    installFilter();
+    const a = new GSRAnalyzer();
+    a.parseCSV(csvText);
+    a.analyze({ ...D, medianSize: 0, ...patch }, 0);
+    const phasicVals = a.phasic.map(d => d.val);
+    const { r, mediumMean, briskMean, nMedium, nBrisk } = slidingSpeedCorrelation(phasicVals, speeds, a.sampleRate);
+    const meanQuality = a.peaks.length ? a.peaks.reduce((s, p) => s + p.qualityScore, 0) / a.peaks.length : 0;
+    const sumAmp = a.peaks.reduce((s, p) => s + p.amplitude, 0);
+    console.log(`  ${label.padEnd(28)} r=${(isNaN(r)?'   NaN':r.toFixed(3)).padStart(6)}  medium%=${(100 * (mediumMean||0)).toFixed(1).padStart(5)}(n=${nMedium})  brisk%=${(100 * (briskMean||0)).toFixed(1).padStart(5)}(n=${nBrisk})  gap=${(100 * ((briskMean||0) - (mediumMean||0))).toFixed(1).padStart(5)}pp   |   peaks=${String(a.peaks.length).padStart(4)}  meanQuality=${meanQuality.toFixed(3)}  sumAmp=${sumAmp.toFixed(1)}`);
+  }
 }
 GsrFilter.applyZeroPhaseMovingAverage = originalBoxLPF;
