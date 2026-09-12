@@ -62,6 +62,18 @@ elif [ "${TIER:-}" = "gait" ] || [ "${TIER:-}" = "walking" ] || [ "${TIER:-}" = 
     "$WORK_DIR"/synth_walking_track*.csv
   )
   export BIOMAP_USE_GAIT_FILTER="${BIOMAP_USE_GAIT_FILTER:-1}"
+elif [ "${TIER:-}" = "semi" ] || [ "${TIER:-}" = "demo" ] || [ "${TIER:-}" = "5" ] || [ "${TIER:-}" = "tier5" ]; then
+  echo "Generating semi-synthetic ground truth from demo donor track..." >&2
+  "$NEUROKIT_PYTHON" "$HERE/generate_semi_synthetic.py" "$WORK_DIR"
+  FILES=(
+    "$WORK_DIR"/synth_semi_real_demo*.csv
+  )
+  export BIOMAP_USE_GAIT_FILTER="${BIOMAP_USE_GAIT_FILTER:-1}"
+elif [ "${TIER:-}" = "walking_clean" ] || [ "${TIER:-}" = "walking_no_footsteps" ] || [ "${TIER:-}" = "walk_clean" ]; then
+  FILES=(
+    "$WORK_DIR"/synth_walking_no_footsteps*.csv
+  )
+  export BIOMAP_USE_GAIT_FILTER="${BIOMAP_USE_GAIT_FILTER:-0}"
 fi
 
 echo "Running NeuroKit2 over ${#FILES[@]} synthetic track(s)..." >&2

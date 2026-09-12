@@ -86,6 +86,10 @@ SCENARIOS = [
     # band power directly against simultaneous speed on ground truth.
     {'name': 'synth_walking_track', 'duration': 480, 'scr_number': 24, 'noise': 0.015, 'drift': 0.001,
      'walking_profile': True, 'seed': 42},
+    # Walking track with authentic speed profile (alternating stationary rest intervals
+    # and variable-speed walking bouts) but WITHOUT footstep impact tremor.
+    {'name': 'synth_walking_no_footsteps', 'duration': 480, 'scr_number': 24, 'noise': 0.015, 'drift': 0.001,
+     'walking_profile': True, 'no_footsteps': True, 'seed': 42},
 
     # --- TIER 2: POISSON STOCHASTIC ARRIVALS (Realistic random interval distribution) ---
     # Inter-event arrivals follow an Exponential distribution with Poisson rate lambda ~ 0.05/s
@@ -135,7 +139,8 @@ TONIC_UNDULATION_PERIOD_RANGE_SEC = (120, 240)
 def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_amplitude=0,
                    walking_profile=False, peak_starts=None, amplitude_range=TRUE_AMPLITUDE_RANGE,
                    scr_window_sec=SCR_WINDOW_SEC, poisson_rate=None, min_gap_sec=1.2,
-                   multi_burst=False, variable_kinetics=False, respiratory_undulation=False):
+                   multi_burst=False, variable_kinetics=False, respiratory_undulation=False,
+                   no_footsteps=False):
     """Generates synthetic EDA tracks with ground-truth peak times and amplitudes.
     Supports canonical linspace, Poisson point process, multi-burst stacking,
     and variable physiological kinetics."""
@@ -234,13 +239,13 @@ def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_a
             if 0 <= true_time <= duration:
                 true_scrs.append({'time': true_time, 'amplitude': true_amplitude})
 
-    if walking_profile:
+    if walking_profile and not no_footsteps and os.environ.get('NO_FOOTSTEPS', '0') != '1':
         # Gait oscillation: frequency and amplitude scale dynamically with walking speed
         inst_freq = np.where(speed_ms > 0.1, 1.1 + 0.6 * speed_ms, 0.0)
         inst_amp = np.where(speed_ms > 0.1, 0.07 * (speed_ms / 1.0), 0.0)
         phase = 2 * np.pi * np.cumsum(inst_freq) / sr
         eda += inst_amp * np.sin(phase)
-    elif gait_freq > 0 and gait_amplitude > 0:
+    elif gait_freq > 0 and gait_amplitude > 0 and not no_footsteps and os.environ.get('NO_FOOTSTEPS', '0') != '1':
         envelope = 1.0 + 0.3 * np.sin(2 * np.pi * 0.05 * t_full)
         eda += gait_amplitude * envelope * np.sin(2 * np.pi * gait_freq * t_full)
 
@@ -294,7 +299,8 @@ def main():
                 poisson_rate=scn.get('poisson_rate'), min_gap_sec=scn.get('min_gap_sec', 1.2),
                 multi_burst=scn.get('multi_burst', False),
                 variable_kinetics=scn.get('variable_kinetics', False),
-                respiratory_undulation=scn.get('respiratory_undulation', False)
+                respiratory_undulation=scn.get('respiratory_undulation', False),
+                no_footsteps=scn.get('no_footsteps', False)
             )
             n = len(eda)
             ts = np.arange(n) / OUTPUT_SAMPLING_RATE
