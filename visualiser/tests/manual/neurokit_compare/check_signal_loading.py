@@ -33,6 +33,8 @@ def main():
     df = pd.read_csv(csv_path, comment='#')
     eda = to_microsiemens(df['gsr_raw'].astype(float), 'gsr_raw')
     ts = df['timestamp'].values
+    if len(ts) > 0:
+        ts = ts - ts[0]
 
     json.dump({
         'n_samples': len(df),

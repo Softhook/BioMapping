@@ -81,6 +81,26 @@ tail ripples.
 - Sweeping existing SNR and quality controls made only a marginal improvement;
   the current quality score did not discriminate through 0.4.
 
+### Clean Indoor Stationary Reference (`biomap_live_2026-09-10T17-20-02-105Z`)
+
+An indoor recording with no physical locomotion (speed 0.1 kts, 1,414 samples @ 3.33 Hz,
+~7 minutes) serves as the primary real-world clean stationary reference, complementing
+the ambulatory outdoor recordings (`biomap_019`, `027`, `053`, `059`).
+
+On this track:
+- **Raw signal loading:** passes with zero timestamp difference and $r = 1.000000$
+  (timestamps normalized relative to session start).
+- **Full-Scan agreement recall:** **100.0%** (43/43 matched, 0 missed, mean \|delta\| 0.063s).
+- **Prominence agreement recall:** **100.0%** (43/43 matched, 0 missed, mean \|delta\| 0.063s).
+- **cvxEDA agreement recall:** **100.0%** (30/30 matched, 0 missed, mean \|delta\| 0.060s).
+- **Topographic prominence algorithm:** produces 87/87 identical local maxima with
+  NeuroKit2 ($r = 1.000000$, mean \|diff\| = 0.000 uS).
+- **NeuroKit2 relative threshold:** an isolated 2.71 uS peak elevates NeuroKit2's 10%
+  threshold to 0.271 uS, discarding 53 of 87 local maxima and missing 9 responses that
+  BioMapping successfully identifies.
+- Across the expanded 5-track real reference suite, aggregate Full-Scan recall is
+  **94.4%** (320/339) and cvxEDA recall is **96.9%** (156/161).
+
 Do not change production threshold, SNR, or quality defaults based on these
 experiments.
 
@@ -92,19 +112,29 @@ every event and records its true time and injected amplitude. It includes:
 - sparse clean and sparse noisy;
 - dense clean and dense noisy;
 - clean and noisy compound pairs, with paired responses 2.5 seconds apart;
+- clean and noisy low-amplitude, slower-rise responses (`synth_low_slow_clean`, `synth_low_slow_noisy`), calibrated from real-track peak distributions (`biomap_053`: median amplitude 0.036 uS, median rise 1.5s, median onset slope 0.025 uS/s);
 - gait tremor;
 - walking with speed-dependent gait artefact.
 
 The compound scenarios are required regression checks for any false-positive
 reduction: a valid improvement must not erase nearby genuine responses.
+The low-amplitude, slow-rise scenarios prevent rejection rules from overfitting
+to canonical large/fast responses and erasing weak genuine physiological SCRs.
+
+The generator supports multi-seed generation (`--num-seeds N` or `GROUND_TRUTH_NUM_SEEDS=N`)
+and held-out seed offsets (`--seed-offset S`) to test across multiple independent noise
+realizations rather than a single realization.
 
 ## Commands
 
 Run from `visualiser/tests/manual/neurokit_compare`.
 
 ```sh
-# Full known-answer three-way detector comparison.
+# Full known-answer three-way detector comparison (with aggregate summary).
 ./check_ground_truth.sh
+
+# Multi-seed evaluation across 3 independent noise realizations (30 tracks, 510 true SCRs).
+GROUND_TRUTH_NUM_SEEDS=3 ./check_ground_truth.sh
 
 # Clean stationary cases, with BioMapping's gait filter disabled.
 CLEAN_ONLY=1 BIOMAP_USE_GAIT_FILTER=0 ./check_ground_truth.sh
@@ -125,11 +155,13 @@ BIOMAP_PEAK_THRESHOLD=0.05 ./run.sh
 ./check_gate_sweep.sh
 
 # Inspect Full-Scan true-versus-false peak metrics on generated known truth.
-# Generate the suite first, then pass the compound noisy CSV and JSON to:
+# Generate the suite first, then pass any CSV and JSON to:
 node ./inspect_false_positive_metrics.js <track.csv> <ground_truth.json>
 ```
 
 ## False-Positive Metric Inspection
+
+### Compound noisy (`synth_compound_noisy`)
 
 On `synth_compound_noisy`, Full-Scan finds all 12 true responses and 97 false
 positives. The distribution medians show that false detections are generally
@@ -143,36 +175,71 @@ smaller and slower, but overlap the weakest true responses:
 | SNR | 23.613 (4.848-99.206) | 13.883 (5.213-41.650) |
 | Quality score | 0.914 (0.683-1.000) | 0.751 (0.594-0.848) |
 
-This rejects a single absolute amplitude, prominence, slope, SNR, or quality
-gate: each would remove at least some true low-amplitude compound responses.
+### Low-amplitude, slow-rise noisy (`synth_low_slow_noisy`)
 
-The reusable diagnostic is
-`visualiser/tests/manual/neurokit_compare/inspect_false_positive_metrics.js`.
+On `synth_low_slow_noisy` (calibrated against `biomap_053`), Full-Scan finds
+all 12 true responses and 57 false positives:
+
+| Metric | True responses, median (range) | False positives, median (range) |
+|---|---:|---:|
+| Amplitude (uS) | 0.074 (0.041-0.196) | 0.022 (0.016-0.047) |
+| Prominence (uS) | 0.090 (0.052-0.196) | 0.018 (0.001-0.059) |
+| Onset slope (uS/s) | 0.047 (0.026-0.122) | 0.018 (0.010-0.036) |
+| SNR | 30.537 (18.186-145.044) | 17.253 (7.341-60.945) |
+| Quality score | 0.779 (0.714-0.878) | 0.748 (0.558-0.814) |
+
+Notice that true responses have onset slopes down to 0.026 uS/s and amplitudes
+down to 0.041 uS (and on real tracks down to 0.015 uS), while noise ripples
+exhibit onset slopes up to 0.036 uS/s and amplitudes up to 0.047 uS. They
+overlap in this low-energy regime, meaning any simple post-detection amplitude
+or slope floor that eliminates noise ripples inevitably discards genuine weak
+SCRs.
+
+### Multi-Seed Aggregate Benchmark (30 tracks, 510 true SCRs)
+
+Aggregated across 3 independent random seeds across all 10 scenarios
+(`GROUND_TRUTH_NUM_SEEDS=3`):
+
+| Detector | Recall | Precision | F1 | Mean \|delta\| | Amplitude r | Missed true SCRs |
+|---|---:|---:|---:|---:|---:|---:|
+| **BioMapping Full-Scan** | **98.8%** | 30.5% | 0.466 | 0.155s | **0.9935** | **6** (all compound) |
+| **BioMapping Prominence** | 98.2% | 32.1% | 0.484 | 0.157s | 0.9934 | 9 |
+| **BioMapping cvxEDA** | 98.0% | 35.1% | 0.517 | 0.246s | 0.9546 | 10 |
+| **NeuroKit2 default** | 90.0% | 21.9% | 0.352 | 0.055s | 0.9907 | 50 |
+
+On clean stationary tracks (`synth_*_clean`, gait filter off), Full-Scan
+achieves **100% recall** (70/70 SCRs detected), 0.032s mean timing error,
+and 0.015 uS mean absolute amplitude error, while NeuroKit2 default drops
+12 genuine events (recall 82.9%, and only 50% on compound clean).
 
 ### Combined small-and-slow experiment: rejected
 
 A benchmark-only rule rejected a peak only when both amplitude was below
-0.1 uS and onset slope was below 0.06 uS/s. On the current synthetic suite it
+0.1 uS and onset slope was below 0.06 uS/s. On the previous synthetic suite it
 retained the production detector's true-positive count and reduced aggregate
-false positives to 25. However, the real-track NeuroKit2 diagnostic rejected
-it: Full-Scan extras fell from 1,314 to 646, while recall fell from 93.6% to
-69.6%, chiefly because it discarded many `biomap_053` responses.
+false positives to 25. However:
+- On real tracks, it reduced recall from 93.6% to 69.6%, heavily cutting
+  `biomap_053` responses.
+- On the newly calibrated `synth_low_slow_clean`, an amplitude >= 0.1 uS gate
+  collapses recall to **16.7%** (missing 10 of 12 true clean responses).
+- On `synth_compound_clean`, an amplitude >= 0.1 uS gate collapses recall to
+  **58.3%**.
 
-Do not promote this rule or its current floors. The synthetic generator does
-not yet cover the low-amplitude, low-slope responses present in real tracks.
+Do not promote this rule or its current floors.
 
 ## Next Plan
 
-1. Add low-amplitude and slow-rise SCR cases to the generator, calibrated from
-   real-track peak distributions, so a candidate cannot overfit the current
-   0.1-2.0 uS canonical responses.
-2. Add held-out random seeds for every scenario and aggregate results across
-   them rather than accepting a rule from one fixed noise realization.
-3. Obtain manually labelled real noisy segments before proposing a new
-   production rejection rule.
-4. Run the full known-answer suite and the real-track NeuroKit2 diagnostic for
-   each candidate. Report agreement movement, but do not optimize for it.
-5. Only promote a setting after it succeeds on the expanded synthetic suite
+1. [x] **Add low-amplitude and slow-rise SCR cases to the generator**:
+   Added `synth_low_slow_clean` and `synth_low_slow_noisy`, calibrated from
+   real-track peak distributions (`biomap_053`).
+2. [x] **Add held-out random seeds and aggregation**:
+   Generator now supports `--num-seeds` and `--seed-offset`. Comparison harness
+   aggregates across scenarios and seed runs.
+3. [ ] **Obtain manually labelled real noisy segments** before proposing any
+   new production rejection rule.
+4. [ ] **Run the full known-answer suite and the real-track NeuroKit2 diagnostic**
+   for each candidate rule. Report agreement movement, but do not optimize for it.
+5. [ ] **Only promote a setting** after it succeeds on the expanded synthetic suite
    and labelled real segments without reducing compound-response recall.
 
 ## Decision Rule

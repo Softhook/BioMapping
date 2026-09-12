@@ -25,6 +25,7 @@ script's caller supplies.
 Usage: python3 generate_ground_truth.py <output_dir>
        (normally invoked via check_ground_truth.sh, not directly)
 """
+import argparse
 import json
 import os
 import sys
@@ -54,6 +55,14 @@ SCENARIOS = [
      'peak_starts': [20, 22.5, 75, 77.5, 130, 132.5, 185, 187.5, 240, 242.5, 295, 297.5], 'seed': 5},
     {'name': 'synth_compound_noisy', 'duration': 360, 'scr_number': 12, 'noise': 0.05, 'drift': 0.001,
      'peak_starts': [20, 22.5, 75, 77.5, 130, 132.5, 185, 187.5, 240, 242.5, 295, 297.5], 'seed': 7},
+    # Low-amplitude, slower-rise responses represent the real-track physiological
+    # class (calibrated against biomap_053: median amplitude 0.036 uS, median
+    # rise time 1.5s, median onset slope 0.025 uS/s) that a candidate rejection
+    # rule (such as a small-and-slow gate) must not silently discard.
+    {'name': 'synth_low_slow_clean', 'duration': 360, 'scr_number': 12, 'noise': 0.01, 'drift': 0.001,
+     'amplitude_range': (0.025, 0.2), 'scr_window_sec': 40, 'seed': 8},
+    {'name': 'synth_low_slow_noisy', 'duration': 360, 'scr_number': 12, 'noise': 0.05, 'drift': 0.001,
+     'amplitude_range': (0.025, 0.2), 'scr_window_sec': 40, 'seed': 9},
     # Isolates the walking-gait artefact the lpfWindow comment in constants.js
     # names as the reason the box LPF exists: real footstep impact, ~1.7Hz
     # (each leg strikes independently, so impact frequency runs ~2x stride
@@ -131,7 +140,9 @@ TRUE_AMPLITUDE_RANGE = (0.1, 2.0)  # uS
 SCR_WINDOW_SEC = 20
 
 
-def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_amplitude=0, walking_profile=False, peak_starts=None):
+def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_amplitude=0,
+                   walking_profile=False, peak_starts=None, amplitude_range=TRUE_AMPLITUDE_RANGE,
+                   scr_window_sec=SCR_WINDOW_SEC):
     """Mirrors nk.eda_simulate()'s own body exactly (see module docstring for
     why this isn't just a call to that function), tracking each SCR's true
     peak time as it's placed. Generates at GEN_SAMPLING_RATE; caller
@@ -166,10 +177,10 @@ def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_a
 
     for start_peak in start_peaks:
         relative_time_peak = float(np.abs(rng.normal(0, 5, size=1))[0] + 3.0745)
-        scr = _eda_simulate_scr(sampling_rate=sr, length=int(SCR_WINDOW_SEC * sr), time_peak=relative_time_peak)
-        true_amplitude = float(np.exp(rng.uniform(np.log(TRUE_AMPLITUDE_RANGE[0]), np.log(TRUE_AMPLITUDE_RANGE[1]))))
+        scr = _eda_simulate_scr(sampling_rate=sr, length=int(scr_window_sec * sr), time_peak=relative_time_peak)
+        true_amplitude = float(np.exp(rng.uniform(np.log(amplitude_range[0]), np.log(amplitude_range[1]))))
         scr = scr * true_amplitude
-        time_scr = [start_peak, start_peak + SCR_WINDOW_SEC]
+        time_scr = [start_peak, start_peak + scr_window_sec]
         # The true peak position is NOT simply start_peak + relative_time_peak:
         # _eda_simulate_scr()'s shape formula runs its own internal time axis
         # 0-90 regardless of sampling_rate, convolved with a one-sided decay
@@ -237,38 +248,52 @@ def generate_track(duration, scr_number, noise, drift, seed, gait_freq=0, gait_a
     return eda_out, speed_kts_out, sorted(true_scrs, key=lambda s: s['time'])
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='Generate ground-truth synthetic EDA tracks.')
+    parser.add_argument('output_dir', help='Directory to write CSV and JSON files to.')
+    parser.add_argument('--num-seeds', type=int, default=int(os.environ.get('GROUND_TRUTH_NUM_SEEDS', '1')),
+                        help='Number of seed realizations to generate per scenario (default: 1, or GROUND_TRUTH_NUM_SEEDS).')
+    parser.add_argument('--seed-offset', type=int, default=int(os.environ.get('GROUND_TRUTH_SEED_OFFSET', '0')),
+                        help='Seed offset added to base scenario seed (default: 0, or GROUND_TRUTH_SEED_OFFSET).')
+    return parser.parse_args()
+
+
 def main():
-    if len(sys.argv) != 2:
-        print('Usage: python3 generate_ground_truth.py <output_dir>', file=sys.stderr)
-        sys.exit(1)
-    out_dir = sys.argv[1]
-    os.makedirs(out_dir, exist_ok=True)
+    args = parse_args()
+    os.makedirs(args.output_dir, exist_ok=True)
 
     for scn in SCENARIOS:
-        eda, speed_kts, true_scrs = generate_track(
-            scn['duration'], scn['scr_number'], scn['noise'], scn['drift'], scn['seed'],
-            gait_freq=scn.get('gait_freq', 0), gait_amplitude=scn.get('gait_amplitude', 0),
-            walking_profile=scn.get('walking_profile', False), peak_starts=scn.get('peak_starts')
-        )
-        n = len(eda)
-        ts = np.arange(n) / OUTPUT_SAMPLING_RATE
+        for s_idx in range(args.num_seeds):
+            seed = scn['seed'] + s_idx * 1000 + args.seed_offset
+            track_name = scn['name'] if args.num_seeds == 1 else f"{scn['name']}_s{s_idx + 1}"
 
-        data = {'timestamp': ts, 'gsr_raw': eda}
-        if speed_kts is not None:
-            data['speed_kts'] = speed_kts
-        df = pd.DataFrame(data)
-        csv_path = os.path.join(out_dir, f"{scn['name']}.csv")
-        df.to_csv(csv_path, index=False)
+            eda, speed_kts, true_scrs = generate_track(
+                scn['duration'], scn['scr_number'], scn['noise'], scn['drift'], seed,
+                gait_freq=scn.get('gait_freq', 0), gait_amplitude=scn.get('gait_amplitude', 0),
+                walking_profile=scn.get('walking_profile', False), peak_starts=scn.get('peak_starts'),
+                amplitude_range=scn.get('amplitude_range', TRUE_AMPLITUDE_RANGE),
+                scr_window_sec=scn.get('scr_window_sec', SCR_WINDOW_SEC)
+            )
+            n = len(eda)
+            ts = np.arange(n) / OUTPUT_SAMPLING_RATE
 
-        gt_path = os.path.join(out_dir, f"{scn['name']}.ground_truth.json")
-        json.dump({
-            'sampling_rate': OUTPUT_SAMPLING_RATE,
-            'n_samples': n,
-            'scrs': true_scrs,
-            'params': scn,
-        }, open(gt_path, 'w'))
+            data = {'timestamp': ts, 'gsr_raw': eda}
+            if speed_kts is not None:
+                data['speed_kts'] = speed_kts
+            df = pd.DataFrame(data)
+            csv_path = os.path.join(args.output_dir, f"{track_name}.csv")
+            df.to_csv(csv_path, index=False)
 
-        print(f"{scn['name']}: {n} samples, {len(true_scrs)} true SCRs -> {csv_path}", file=sys.stderr)
+            gt_path = os.path.join(args.output_dir, f"{track_name}.ground_truth.json")
+            params = {**scn, 'seed': seed, 'seed_index': s_idx, 'seed_offset': args.seed_offset}
+            json.dump({
+                'sampling_rate': OUTPUT_SAMPLING_RATE,
+                'n_samples': n,
+                'scrs': true_scrs,
+                'params': params,
+            }, open(gt_path, 'w'))
+
+            print(f"{track_name}: {n} samples, {len(true_scrs)} true SCRs -> {csv_path}", file=sys.stderr)
 
 
 if __name__ == '__main__':

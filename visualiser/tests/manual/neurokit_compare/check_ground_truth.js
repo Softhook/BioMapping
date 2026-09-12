@@ -108,31 +108,43 @@ function score(oursTimes, oursAmps, trueScrs) {
   const precision = oursTimes.length ? tp / oursTimes.length : NaN;
   const f1 = (recall + precision) > 0 ? 2 * recall * precision / (recall + precision) : 0;
   const meanDelta = deltas.length ? deltas.reduce((s, d) => s + d, 0) / deltas.length : NaN;
-  return { tp, fn, fp, recall, precision, f1, meanDelta, amp: amplitudeStats(ampPairs) };
+  return { tp, fn, fp, recall, precision, f1, meanDelta, deltas, ampPairs, amp: amplitudeStats(ampPairs) };
+}
+
+function aggregateStats(resultsList) {
+  let tp = 0, fn = 0, fp = 0, totalTrue = 0, totalDetected = 0;
+  const allDeltas = [];
+  const allAmpPairs = [];
+  for (const s of resultsList) {
+    tp += s.tp;
+    fn += s.fn;
+    fp += s.fp;
+    totalTrue += (s.tp + s.fn);
+    totalDetected += (s.tp + s.fp);
+    allDeltas.push(...s.deltas);
+    allAmpPairs.push(...s.ampPairs);
+  }
+  const recall = totalTrue ? tp / totalTrue : NaN;
+  const precision = totalDetected ? tp / totalDetected : NaN;
+  const f1 = (recall + precision) > 0 ? 2 * recall * precision / (recall + precision) : 0;
+  const meanDelta = allDeltas.length ? allDeltas.reduce((s, d) => s + d, 0) / allDeltas.length : NaN;
+  return { tp, fn, fp, recall, precision, f1, meanDelta, amp: amplitudeStats(allAmpPairs) };
 }
 
 function fmt(label, s) {
   const pct = (x) => Number.isNaN(x) ? 'n/a' : (100 * x).toFixed(1) + '%';
-  const base = `  ${label.padEnd(20)} recall ${pct(s.recall).padStart(6)}  precision ${pct(s.precision).padStart(6)}  F1 ${s.f1.toFixed(3)}  TP ${String(s.tp).padStart(3)} FN ${String(s.fn).padStart(3)} FP ${String(s.fp).padStart(3)}  mean|delta| ${Number.isNaN(s.meanDelta) ? 'n/a' : s.meanDelta.toFixed(3) + 's'}`;
+  const base = `  ${label.padEnd(20)} recall ${pct(s.recall).padStart(6)}  precision ${pct(s.precision).padStart(6)}  F1 ${s.f1.toFixed(3)}  TP ${String(s.tp).padStart(4)} FN ${String(s.fn).padStart(4)} FP ${String(s.fp).padStart(4)}  mean|delta| ${Number.isNaN(s.meanDelta) ? 'n/a' : s.meanDelta.toFixed(3) + 's'}`;
   const a = s.amp;
   const ampStr = a.n ? `amp: meanAbsErr ${a.meanAbsErr.toFixed(3)}uS  meanRelErr ${(100 * a.meanRelErr).toFixed(1)}%  r ${a.r.toFixed(4)}` : 'amp: n/a (no TPs)';
   return `${base}\n  ${' '.repeat(20)} ${ampStr}`;
 }
 
-const [, , gtPath, nkPath, csvPath] = process.argv;
-if (!gtPath || !nkPath || !csvPath) {
-  console.error('Usage: node check_ground_truth.js <ground_truth.json> <neurokit.json> <track.csv>');
+const args = process.argv.slice(2);
+if (args.length < 2) {
+  console.error('Usage: node check_ground_truth.js <ground_truth_dir> <neurokit.json> [track1.csv ...]');
+  console.error('   or: node check_ground_truth.js <ground_truth.json> <neurokit.json> <track.csv>');
   process.exit(1);
 }
-
-const gt = JSON.parse(fs.readFileSync(gtPath, 'utf8'));
-const trueScrs = gt.scrs;
-const csvText = fs.readFileSync(csvPath, 'utf8');
-const name = path.basename(csvPath, '.csv');
-const nkAll = JSON.parse(fs.readFileSync(nkPath, 'utf8'));
-const nk = nkAll[name];
-
-console.log(`=== ${name}: ${trueScrs.length} true SCRs injected (duration ${gt.params.duration}s, noise ${gt.params.noise}, scr_number ${gt.params.scr_number}; BioMapping gait filter ${detectorDefaults.useGaitFilter ? 'on' : 'off'}; peak gap ${global.GSR_CONST.PEAK_MIN_GAP}s) ===`);
 
 const DETECTORS = [
   ['Full-Scan', {}],
@@ -140,21 +152,95 @@ const DETECTORS = [
   ['cvxEDA', { useCvxEDA: true }],
 ];
 
-const results = {};
-for (const [label, patch] of DETECTORS) {
-  const a = new GSRAnalyzer();
-  a.parseCSV(csvText);
-  a.analyze({ ...detectorDefaults, ...patch }, 0);
-  const times = a.peaks.map(p => p.time);
-  const amps = a.peaks.map(p => p.amplitude);
-  const s = score(times, amps, trueScrs);
-  results[label] = s;
-  console.log(fmt(label, s));
-}
-if (nk) {
-  const s = score(nk.peak_times, nk.peak_amplitudes || [], trueScrs);
-  results['NeuroKit2'] = s;
-  console.log(fmt('NeuroKit2 (default)', s));
+const firstArg = args[0];
+const isDir = fs.existsSync(firstArg) && fs.statSync(firstArg).isDirectory();
+
+let trackFiles = [];
+let nkPath = '';
+
+if (isDir) {
+  const groundTruthDir = firstArg;
+  nkPath = args[1];
+  if (args.length > 2) {
+    trackFiles = args.slice(2).map(p => path.resolve(p));
+  } else {
+    trackFiles = fs.readdirSync(groundTruthDir)
+      .filter(f => f.endsWith('.csv'))
+      .sort()
+      .map(f => path.join(groundTruthDir, f));
+  }
 } else {
-  console.log('  (no NeuroKit2 result for this track)');
+  if (args.length < 3) {
+    console.error('Usage: node check_ground_truth.js <ground_truth.json> <neurokit.json> <track.csv>');
+    process.exit(1);
+  }
+  const [gtPath, nkP, csvPath] = args;
+  nkPath = nkP;
+  trackFiles = [{ gtPath: path.resolve(gtPath), csvPath: path.resolve(csvPath) }];
+}
+
+const nkAll = JSON.parse(fs.readFileSync(nkPath, 'utf8'));
+const aggregateMap = {
+  'Full-Scan': [],
+  'Prominence': [],
+  'cvxEDA': [],
+  'NeuroKit2 (default)': [],
+};
+let totalTrueSCRs = 0;
+
+for (const item of trackFiles) {
+  const csvPath = typeof item === 'string' ? item : item.csvPath;
+  const stem = path.basename(csvPath, '.csv');
+  const gtPath = typeof item === 'string'
+    ? path.join(path.dirname(csvPath), `${stem}.ground_truth.json`)
+    : item.gtPath;
+
+  if (!fs.existsSync(gtPath)) {
+    console.warn(`Skipping ${stem}: ground-truth file not found: ${gtPath}`);
+    continue;
+  }
+
+  const gt = JSON.parse(fs.readFileSync(gtPath, 'utf8'));
+  const trueScrs = gt.scrs;
+  totalTrueSCRs += trueScrs.length;
+  const csvText = fs.readFileSync(csvPath, 'utf8');
+  const nk = nkAll[stem];
+
+  console.log(`=== ${stem}: ${trueScrs.length} true SCRs injected (duration ${gt.params.duration}s, noise ${gt.params.noise}, scr_number ${gt.params.scr_number}; BioMapping gait filter ${detectorDefaults.useGaitFilter ? 'on' : 'off'}; peak gap ${global.GSR_CONST.PEAK_MIN_GAP}s) ===`);
+
+  for (const [label, patch] of DETECTORS) {
+    const a = new GSRAnalyzer();
+    a.parseCSV(csvText);
+    a.analyze({ ...detectorDefaults, ...patch }, 0);
+    const times = a.peaks.map(p => p.time);
+    const amps = a.peaks.map(p => p.amplitude);
+    const s = score(times, amps, trueScrs);
+    aggregateMap[label].push(s);
+    console.log(fmt(label, s));
+  }
+
+  if (nk) {
+    const s = score(nk.peak_times, nk.peak_amplitudes || [], trueScrs);
+    aggregateMap['NeuroKit2 (default)'].push(s);
+    console.log(fmt('NeuroKit2 (default)', s));
+  } else {
+    console.log('  (no NeuroKit2 result for this track)');
+  }
+  console.log();
+}
+
+if (aggregateMap['Full-Scan'].length > 1) {
+  const trackCount = aggregateMap['Full-Scan'].length;
+  console.log(`================================================================================`);
+  console.log(`=== Aggregate across all ${trackCount} ground-truth tracks (${totalTrueSCRs} total true SCRs) ===`);
+  console.log(`================================================================================`);
+  for (const [label] of DETECTORS) {
+    const agg = aggregateStats(aggregateMap[label]);
+    console.log(fmt(label, agg));
+  }
+  if (aggregateMap['NeuroKit2 (default)'].length > 0) {
+    const agg = aggregateStats(aggregateMap['NeuroKit2 (default)']);
+    console.log(fmt('NeuroKit2 (default)', agg));
+  }
+  console.log();
 }

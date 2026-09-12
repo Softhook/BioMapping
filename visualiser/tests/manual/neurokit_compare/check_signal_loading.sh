@@ -23,7 +23,7 @@ fi
 
 TRACK_NAMES=("$@")
 if [ ${#TRACK_NAMES[@]} -eq 0 ]; then
-  TRACK_NAMES=(biomap_019 biomap_027 biomap_053 biomap_059)
+  TRACK_NAMES=(biomap_019 biomap_027 biomap_053 biomap_059 biomap_live_2026-09-10T17-20-02-105Z)
 fi
 
 STATUS=0
