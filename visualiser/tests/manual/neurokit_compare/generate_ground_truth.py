@@ -52,6 +52,8 @@ SCENARIOS = [
     # merge can erase one, but remain individually labelled by construction.
     {'name': 'synth_compound_clean', 'duration': 360, 'scr_number': 12, 'noise': 0.01, 'drift': 0.001,
      'peak_starts': [20, 22.5, 75, 77.5, 130, 132.5, 185, 187.5, 240, 242.5, 295, 297.5], 'seed': 5},
+    {'name': 'synth_compound_noisy', 'duration': 360, 'scr_number': 12, 'noise': 0.05, 'drift': 0.001,
+     'peak_starts': [20, 22.5, 75, 77.5, 130, 132.5, 185, 187.5, 240, 242.5, 295, 297.5], 'seed': 7},
     # Isolates the walking-gait artefact the lpfWindow comment in constants.js
     # names as the reason the box LPF exists: real footstep impact, ~1.7Hz
     # (each leg strikes independently, so impact frequency runs ~2x stride
