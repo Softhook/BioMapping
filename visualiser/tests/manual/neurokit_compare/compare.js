@@ -85,53 +85,73 @@ const detectorDefaults = {
 // checked against NeuroKit2's own eda_phasic(method='cvxeda') peaks
 // (`cvxeda_peak_times`) instead - otherwise "cvxEDA" would silently be
 // scored against a differently-decomposed signal.
-const DETECTORS = [
-  ['Full-Scan',      detectorThresholdPatch,                                'peak_times'],
-  ['Prominence',     { ...detectorThresholdPatch, usePeakProminence: true }, 'peak_times'],
-  ['cvxEDA',         { ...detectorThresholdPatch, useCvxEDA: true },        'cvxeda_peak_times'],
-  ['Deconvolution',  { ...detectorThresholdPatch, useDeconvolution: true }, 'peak_times'],
+// Each of our detectors is run once per track, then compared against
+// corresponding reference signals from NeuroKit2, Ledalab, and the upstream
+// cvxEDA reference solver.
+const OUR_DETECTORS = [
+  ['Full-Scan',      detectorThresholdPatch],
+  ['Prominence',     { ...detectorThresholdPatch, usePeakProminence: true }],
+  ['cvxEDA',         { ...detectorThresholdPatch, useCvxEDA: true }],
+  ['Deconvolution',  { ...detectorThresholdPatch, useDeconvolution: true }],
 ];
 
-function matchPeaks(oursTimes, nkTimes) {
-  const usedNk = new Array(nkTimes.length).fill(false);
+const COMPARISONS = [
+  // 1. BioMapping vs NeuroKit2
+  { category: 'BioMapping vs NeuroKit2', source: 'Full-Scan',     refField: 'peak_times',                 refLabel: 'NeuroKit2 default' },
+  { category: 'BioMapping vs NeuroKit2', source: 'Prominence',    refField: 'peak_times',                 refLabel: 'NeuroKit2 default' },
+  { category: 'BioMapping vs NeuroKit2', source: 'cvxEDA',        refField: 'cvxeda_peak_times',          refLabel: 'NeuroKit2 cvxEDA' },
+  { category: 'BioMapping vs NeuroKit2', source: 'cvxEDA',        refField: 'cvxeda_lit_peak_times',      refLabel: 'NeuroKit2 cvxEDA (lit. abs)' },
+  { category: 'BioMapping vs NeuroKit2', source: 'Deconvolution', refField: 'peak_times',                 refLabel: 'NeuroKit2 default' },
+
+  // 2. BioMapping vs Ledalab
+  { category: 'BioMapping vs Ledalab',   source: 'Full-Scan',     refField: 'ledalab_lit_peak_times',     refLabel: 'Ledalab CDA (lit-tuned)' },
+  { category: 'BioMapping vs Ledalab',   source: 'Prominence',    refField: 'ledalab_lit_peak_times',     refLabel: 'Ledalab CDA (lit-tuned)' },
+  { category: 'BioMapping vs Ledalab',   source: 'Deconvolution', refField: 'ledalab_lit_peak_times',     refLabel: 'Ledalab CDA (lit-tuned)' },
+  { category: 'BioMapping vs Ledalab',   source: 'cvxEDA',        refField: 'ledalab_lit_peak_times',     refLabel: 'Ledalab CDA (lit-tuned)' },
+  { category: 'BioMapping vs Ledalab',   source: 'Full-Scan',     refField: 'ledalab_peak_times',         refLabel: 'Ledalab CDA (default)' },
+
+  // 3. BioMapping cvxEDA vs Upstream Reference cvxEDA Solver
+  { category: 'BioMapping vs cvxEDA Ref', source: 'cvxEDA',       refField: 'cvxeda_ref_driver_peak_times', refLabel: 'cvxEDA ref (driver)' },
+  { category: 'BioMapping vs cvxEDA Ref', source: 'cvxEDA',       refField: 'cvxeda_ref_naive_peak_times',  refLabel: 'cvxEDA ref (naive)' },
+
+  // 4. Cross-Toolbox Agreement (External vs External)
+  { category: 'Cross-Toolbox Agreement',  externalSource: 'ledalab_lit_peak_times',     sourceLabel: 'Ledalab (lit-tuned)', refField: 'peak_times',        refLabel: 'NeuroKit2 default' },
+  { category: 'Cross-Toolbox Agreement',  externalSource: 'cvxeda_ref_driver_peak_times', sourceLabel: 'cvxEDA ref (driver)', refField: 'cvxeda_peak_times', refLabel: 'NeuroKit2 cvxEDA' },
+];
+
+function matchPeaks(oursTimes, refTimes) {
+  const usedRef = new Array(refTimes.length).fill(false);
   const matches = [];
   oursTimes.forEach((t) => {
     let best = -1, bestD = Infinity;
-    nkTimes.forEach((nt, ni) => {
-      if (usedNk[ni]) return;
-      const d = Math.abs(nt - t);
-      if (d < bestD) { bestD = d; best = ni; }
+    refTimes.forEach((rt, ri) => {
+      if (usedRef[ri]) return;
+      const d = Math.abs(rt - t);
+      if (d < bestD) { bestD = d; best = ri; }
     });
     if (best !== -1 && bestD <= TOL) {
-      usedNk[best] = true;
-      matches.push({ ourTime: t, nkTime: nkTimes[best], delta: t - nkTimes[best] });
+      usedRef[best] = true;
+      matches.push({ ourTime: t, refTime: refTimes[best], delta: t - refTimes[best] });
     }
   });
   const matchedOurTimes = new Set(matches.map(m => m.ourTime));
   return {
     matches,
-    missed: nkTimes.filter((_, ni) => !usedNk[ni]),
+    missed: refTimes.filter((_, ri) => !usedRef[ri]),
     extra: oursTimes.filter(t => !matchedOurTimes.has(t)),
   };
 }
 
 const [, , jsonPath, ...trackPaths] = process.argv;
 if (!jsonPath || trackPaths.length === 0) {
-  console.error('Usage: node compare.js <neurokit.json> <track1.csv> [track2.csv ...]');
+  console.error('Usage: node compare.js <merged_reference.json> <track1.csv> [track2.csv ...]');
   process.exit(1);
 }
-const nkData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+const refData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
 
-// Prove, rather than assume, that both sides run with real preprocessing/
-// smoothing settings and not some stripped-down test config: D here is
-// GSR_CONST.GSR_DEFAULT loaded straight from mock_constants.js, which is
-// meant to mirror visualiser/src/core/constants.js (spot-check the two if
-// this ever looks stale). NeuroKit2's own smoothing is applied on the
-// Python side (run_neurokit.py) via eda_clean() before either decomposition
-// runs - see that file for why the cvxEDA reference needs it explicitly.
 console.log('=== Our preprocessing/smoothing settings (GSR_DEFAULT) ===');
 console.log(`  gaitFilter=${detectorDefaults.useGaitFilter ? 'on' : 'off (comparison mode)'}  medianSize=${D.medianSize}s (${D.medianSize > 0 ? 'median filter ON' : 'median filter OFF'})  lpfWindow=${D.lpfWindow}s (zero-phase moving-average low-pass)`);
-console.log(`  tonicMethod=${D.tonicMethod}  tonicWindow=${D.tonicWindow}s  peakThreshold=${detectorDefaults.peakThreshold}`);
+console.log(`  tonicMethod=${D.tonicMethod}  tonicWindow=${D.tonicWindow}s  peakThreshold=${detectorDefaults.peakThreshold}uS`);
 console.log(`  peak minimum gap=${global.GSR_CONST.PEAK_MIN_GAP}s`);
 if (Object.hasOwn(detectorThresholdPatch, 'peakThreshold')) {
   console.log(`  benchmark-only peakThreshold override=${detectorThresholdPatch.peakThreshold}uS`);
@@ -139,59 +159,103 @@ if (Object.hasOwn(detectorThresholdPatch, 'peakThreshold')) {
 if (useSmallSlowGate) {
   console.log(`  benchmark-only small-and-slow gate: reject amplitude < ${smallSlowAmplitude}uS AND slope < ${smallSlowSlope}uS/s`);
 }
-console.log('=== NeuroKit2 reference: eda_clean() (4th-order Butterworth, 3Hz cutoff, applied to BOTH references below) then eda_phasic(highpass) or eda_phasic(cvxeda) ===');
 
 const aggregate = {};
-DETECTORS.forEach(([label]) => { aggregate[label] = { matched: 0, nkTotal: 0, extra: 0, deltas: [] }; });
+COMPARISONS.forEach((c) => {
+  const key = `${c.category}::${c.source || c.sourceLabel}::${c.refLabel}`;
+  aggregate[key] = { ...c, matched: 0, refTotal: 0, extra: 0, deltas: [] };
+});
 
 for (const trackPath of trackPaths) {
   const name = path.basename(trackPath, '.csv');
-  const nk = nkData[name];
-  if (!nk) { console.warn(`\n(no NeuroKit2 data for ${name}, skipping)`); continue; }
+  const ref = refData[name];
+  if (!ref) { console.warn(`\n(no reference data for ${name}, skipping)`); continue; }
 
   const csvText = fs.readFileSync(trackPath, 'utf8');
-  console.log(`\n=== ${name}  (${nk.n_samples} samples @ ${nk.sampling_rate.toFixed(2)}Hz | NeuroKit2 default: ${nk.peak_times.length} peaks, NeuroKit2 cvxEDA: ${nk.cvxeda_peak_times.length} peaks) ===`);
 
-  for (const [label, patch, refField] of DETECTORS) {
-    const nkTimes = nk[refField];
+  // Compute all BioMapping detector peaks once per track
+  const ourPeaksMap = {};
+  for (const [label, patch] of OUR_DETECTORS) {
     const a = new GSRAnalyzer();
     a.parseCSV(csvText);
     a.analyze({ ...detectorDefaults, ...patch }, 0);
-    const oursPeaks = useSmallSlowGate && label !== 'cvxEDA'
+    const filteredPeaks = useSmallSlowGate && label !== 'cvxEDA'
       ? a.peaks.filter(p => !(p.amplitude < smallSlowAmplitude && p.onsetSlope < smallSlowSlope))
       : a.peaks;
-    const oursTimes = oursPeaks.map(p => p.time);
-    const r = matchPeaks(oursTimes, nkTimes);
+    ourPeaksMap[label] = filteredPeaks.map(p => p.time);
+  }
+
+  // Summary header of available reference peak counts
+  const refParts = [];
+  if (Array.isArray(ref.peak_times)) refParts.push(`NK2 default: ${ref.peak_times.length}`);
+  if (Array.isArray(ref.cvxeda_peak_times)) refParts.push(`NK2 cvxEDA: ${ref.cvxeda_peak_times.length}`);
+  if (Array.isArray(ref.ledalab_lit_peak_times)) refParts.push(`Ledalab tuned: ${ref.ledalab_lit_peak_times.length}`);
+  if (Array.isArray(ref.ledalab_peak_times)) refParts.push(`Ledalab default: ${ref.ledalab_peak_times.length}`);
+  if (Array.isArray(ref.cvxeda_ref_driver_peak_times)) refParts.push(`cvxEDA ref driver: ${ref.cvxeda_ref_driver_peak_times.length}`);
+
+  const srStr = ref.sampling_rate ? `@ ${ref.sampling_rate.toFixed(2)}Hz` : '';
+  const nStr = ref.n_samples ? `${ref.n_samples} samples` : '';
+  console.log(`\n=== ${name} (${[nStr, srStr].filter(Boolean).join(' ')} | ${refParts.join(' | ')}) ===`);
+
+  let currentCategory = '';
+  for (const c of COMPARISONS) {
+    const refTimes = ref[c.refField];
+    if (!Array.isArray(refTimes) || refTimes.length === 0) continue;
+
+    let sourceTimes = [];
+    let sourceName = '';
+    if (c.externalSource) {
+      sourceTimes = ref[c.externalSource] || [];
+      sourceName = c.sourceLabel;
+    } else {
+      sourceTimes = ourPeaksMap[c.source] || [];
+      sourceName = c.source;
+    }
+
+    const r = matchPeaks(sourceTimes, refTimes);
     const meanAbsDelta = r.matches.length
       ? r.matches.reduce((s, m) => s + Math.abs(m.delta), 0) / r.matches.length
       : NaN;
+    const recallPct = (100 * r.matches.length / refTimes.length).toFixed(1);
 
-    if (nkTimes.length === 0) {
-      console.log(`  ${label.padEnd(10)} ${String(oursTimes.length).padStart(3)} peaks | (no NeuroKit2 ${refField} reference available)`);
-      continue;
-    }
-    console.log(`  ${label.padEnd(10)} ${String(oursTimes.length).padStart(3)} peaks | vs ${refField.padEnd(17)} | matched ${String(r.matches.length).padStart(2)}/${nkTimes.length} | missed ${r.missed.length} | extra ${r.extra.length} | mean|delta| ${Number.isNaN(meanAbsDelta) ? 'n/a' : meanAbsDelta.toFixed(3) + 's'}`);
-    if (r.missed.length > 0) {
-      console.log(`    missed peaks at: ${r.missed.map(t => {
-        const near = oursTimes.filter(ot => Math.abs(ot - t) < 3.0);
-        return `${t.toFixed(2)}s (ours nearby: ${near.map(n => n.toFixed(2)).join(', ') || 'none'})`;
-      }).join('; ')}`);
+    if (c.category !== currentCategory) {
+      console.log(`  [${c.category}]`);
+      currentCategory = c.category;
     }
 
-    const agg = aggregate[label];
-    agg.matched += r.matches.length;
-    agg.nkTotal += nkTimes.length;
-    agg.extra += r.extra.length;
-    agg.deltas.push(...r.matches.map(m => Math.abs(m.delta)));
+    const deltaStr = Number.isNaN(meanAbsDelta) ? 'n/a' : `${meanAbsDelta.toFixed(3)}s`;
+    console.log(`    ${sourceName.padEnd(16)} vs ${c.refLabel.padEnd(25)} | recall ${recallPct.padStart(5)}% (${String(r.matches.length).padStart(3)}/${String(refTimes.length).padStart(3)}) | missed ${String(r.missed.length).padStart(3)} | extra ${String(r.extra.length).padStart(3)} | mean|delta| ${deltaStr}`);
+
+    const key = `${c.category}::${c.source || c.sourceLabel}::${c.refLabel}`;
+    const agg = aggregate[key];
+    if (agg) {
+      agg.matched += r.matches.length;
+      agg.refTotal += refTimes.length;
+      agg.extra += r.extra.length;
+      agg.deltas.push(...r.matches.map(m => Math.abs(m.delta)));
+    }
   }
 }
 
-console.log('\n=== Aggregate across all tracks ===');
-for (const [label, , refField] of DETECTORS) {
-  const agg = aggregate[label];
-  const recall = agg.nkTotal ? (100 * agg.matched / agg.nkTotal).toFixed(1) : 'n/a';
+console.log('\n================================================================================');
+console.log('=== Aggregate across all tracks ===');
+console.log('================================================================================');
+let currentAggCategory = '';
+for (const c of COMPARISONS) {
+  const key = `${c.category}::${c.source || c.sourceLabel}::${c.refLabel}`;
+  const agg = aggregate[key];
+  if (!agg || agg.refTotal === 0) continue;
+
+  if (agg.category !== currentAggCategory) {
+    console.log(`\n  [${agg.category}]`);
+    currentAggCategory = agg.category;
+  }
+
+  const recall = (100 * agg.matched / agg.refTotal).toFixed(1);
   const meanDelta = agg.deltas.length
     ? (agg.deltas.reduce((s, d) => s + d, 0) / agg.deltas.length).toFixed(3)
     : 'n/a';
-  console.log(`  ${label.padEnd(10)} vs ${refField.padEnd(17)} recall ${recall}% (${agg.matched}/${agg.nkTotal})  extra total ${agg.extra}  mean|delta| ${meanDelta}s`);
+  const sourceName = agg.source || agg.sourceLabel;
+  console.log(`    ${sourceName.padEnd(16)} vs ${agg.refLabel.padEnd(25)} recall ${recall.padStart(5)}% (${String(agg.matched).padStart(3)}/${String(agg.refTotal).padStart(3)})  extra ${String(agg.extra).padStart(4)}  mean|delta| ${meanDelta}s`);
 }
+console.log();

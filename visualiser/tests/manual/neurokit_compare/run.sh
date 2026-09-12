@@ -41,10 +41,38 @@ for name in "${TRACK_NAMES[@]}"; do
   FILES+=("$f")
 done
 
-TMP_JSON="$(mktemp -t neurokit_compare.XXXXXX.json)"
-trap 'rm -f "$TMP_JSON"' EXIT
+WORK_DIR="$(mktemp -d -t real_compare.XXXXXX)"
+trap 'rm -rf "$WORK_DIR"' EXIT
 
 echo "Running NeuroKit2 over ${#FILES[@]} track(s)..." >&2
-"$NEUROKIT_PYTHON" "$HERE/run_neurokit.py" "${FILES[@]}" > "$TMP_JSON"
+NK_JSON="$WORK_DIR/neurokit.json"
+"$NEUROKIT_PYTHON" "$HERE/run_neurokit.py" "${FILES[@]}" > "$NK_JSON"
 
-node "$HERE/compare.js" "$TMP_JSON" "${FILES[@]}"
+REFERENCE_JSONS=("$NK_JSON")
+
+LEDALAB_DIR="${LEDALAB_DIR:-$HOME/ledalab}"
+LEDALAB_JSON="$WORK_DIR/ledalab.json"
+OCTAVE_EXEC="${OCTAVE_BIN:-$(command -v octave-cli || command -v octave || echo octave)}"
+if command -v "$OCTAVE_EXEC" >/dev/null 2>&1 && [ -f "$LEDALAB_DIR/Ledalab.m" ]; then
+  echo "Running real Ledalab (via Octave) over ${#FILES[@]} track(s)..." >&2
+  if OCTAVE_BIN="$OCTAVE_EXEC" "$NEUROKIT_PYTHON" "$HERE/run_ledalab.py" "${FILES[@]}" > "$LEDALAB_JSON"; then
+    REFERENCE_JSONS+=("$LEDALAB_JSON")
+  else
+    echo "run_ledalab.py failed - continuing without its rows" >&2
+  fi
+fi
+
+CVXREF_JSON="$WORK_DIR/cvxeda_reference.json"
+if "$NEUROKIT_PYTHON" -c "import cvxopt" >/dev/null 2>&1; then
+  echo "Running real lciti/cvxEDA.py reference solver over ${#FILES[@]} track(s)..." >&2
+  if "$NEUROKIT_PYTHON" "$HERE/run_cvxeda_reference.py" "${FILES[@]}" > "$CVXREF_JSON"; then
+    REFERENCE_JSONS+=("$CVXREF_JSON")
+  else
+    echo "run_cvxeda_reference.py failed - continuing without its rows" >&2
+  fi
+fi
+
+MERGED_JSON="$WORK_DIR/merged_reference.json"
+node "$HERE/merge_reference_json.js" "$MERGED_JSON" "${REFERENCE_JSONS[@]}"
+
+node "$HERE/compare.js" "$MERGED_JSON" "${FILES[@]}"

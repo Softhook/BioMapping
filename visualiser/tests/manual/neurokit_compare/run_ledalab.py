@@ -53,7 +53,7 @@ import pandas as pd
 from scipy.signal import butter, filtfilt
 
 HERE = Path(__file__).resolve().parent
-OCTAVE_BIN = os.environ.get('OCTAVE_BIN', 'octave')
+OCTAVE_BIN = os.environ.get('OCTAVE_BIN', 'octave-cli' if shutil.which('octave-cli') else 'octave')
 LEDALAB_DIR = os.environ.get('LEDALAB_DIR', str(Path.home() / 'ledalab'))
 LIT_PREFILTER_HZ = float(os.environ.get('LEDALAB_LIT_PREFILTER_HZ', '0.5'))
 LIT_MIN_AMP = float(os.environ.get('LEDALAB_LIT_MIN_AMP', '0.1'))
