@@ -75,6 +75,7 @@ if (mode === 'dump') {
     sampling_rate: a.sampleRate,
     phasic: vals,
     local_maxima: localMaxima,
+    full_scan_peak_times: a.peaks.map(peak => peak.time),
   }));
   console.error(`Dumped ${vals.length} phasic samples, ${localMaxima.length} local maxima -> ${outPath}`);
 } else if (mode === 'compare') {
@@ -122,8 +123,46 @@ if (mode === 'dump') {
     console.log(`  prominence value agreement: n=${n}  max|diff|=${maxDiff.toExponential(3)}uS  mean|diff|=${(sumAbs / n).toExponential(3)}uS  RMSE=${Math.sqrt(sumSq / n).toExponential(3)}uS  r=${r.toFixed(6)}`);
   }
   console.log(`  NeuroKit2 default relative-height gate retained: ${nk.neurokit_peak_indices.length}/${nk.peaks.length} local maxima`);
+} else if (mode === 'score') {
+  const ours = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+  const nk = JSON.parse(fs.readFileSync(process.argv[4], 'utf8'));
+  const truth = JSON.parse(fs.readFileSync(process.argv[5], 'utf8')).scrs;
+  const tolerance = 1.0;
+
+  function score(times) {
+    const usedTruth = new Array(truth.length).fill(false);
+    let truePositives = 0;
+    for (const time of times) {
+      let bestIndex = -1;
+      let bestDelta = Infinity;
+      for (let index = 0; index < truth.length; index++) {
+        if (usedTruth[index]) continue;
+        const delta = Math.abs(time - truth[index].time);
+        if (delta < bestDelta) { bestIndex = index; bestDelta = delta; }
+      }
+      if (bestIndex !== -1 && bestDelta <= tolerance) {
+        usedTruth[bestIndex] = true;
+        truePositives++;
+      }
+    }
+    const falsePositives = times.length - truePositives;
+    const falseNegatives = truth.length - truePositives;
+    const recall = truePositives / truth.length;
+    const precision = truePositives / times.length;
+    const f1 = 2 * recall * precision / (recall + precision);
+    return { truePositives, falsePositives, falseNegatives, recall, precision, f1 };
+  }
+
+  const gatedTimes = nk.neurokit_peak_indices.map(index => index / ours.sampling_rate);
+  const name = path.basename(process.argv[5], '.ground_truth.json');
+  console.log(`=== ${name}: peak selection on BioMapping's exact phasic curve ===`);
+  for (const [label, times] of [['BioMapping Full-Scan', ours.full_scan_peak_times], ['NeuroKit2 relative prominence', gatedTimes]]) {
+    const result = score(times);
+    console.log(`  ${label.padEnd(30)} recall ${(100 * result.recall).toFixed(1)}%  precision ${(100 * result.precision).toFixed(1)}%  F1 ${result.f1.toFixed(3)}  TP ${result.truePositives} FN ${result.falseNegatives} FP ${result.falsePositives}`);
+  }
 } else {
   console.error('Usage: node check_prominence_agreement.js dump <track.csv> <out.json>');
   console.error('       node check_prominence_agreement.js compare <out.json> <nk_result.json> [track.csv]');
+  console.error('       node check_prominence_agreement.js score <out.json> <nk_result.json> <ground_truth.json>');
   process.exit(1);
 }
