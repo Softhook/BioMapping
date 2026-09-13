@@ -12,6 +12,26 @@
  */
 const MapPopups = {
 
+  /**
+   * Resize+reposition an open popup to fit its current content WITHOUT
+   * Leaflet's public Popup.update(), which also calls _updateContent() —
+   * that re-invokes the bindPopup(fn) content function, discarding and
+   * rebuilding the whole DOM subtree (a fresh textarea replaces the one the
+   * user is typing into, killing focus mid-keystroke; see the auto-resize
+   * handlers below, which call this on every keystroke). _updateLayout() +
+   * _updatePosition() do the same resize/reposition Popup.update() does,
+   * reading the EXISTING _contentNode's measured size, with no content
+   * rebuild. Leaflet-internal (`_`-prefixed) API — guarded so a future
+   * Leaflet upgrade that removes them just skips the resize rather than
+   * reintroducing the content-rebuild bug via a .update() fallback.
+   * @private
+   */
+  _reflowPopup(popup) {
+    if (!popup) return;
+    if (typeof popup._updateLayout === 'function') popup._updateLayout();
+    if (typeof popup._updatePosition === 'function') popup._updatePosition();
+  },
+
   getHeadingAtPeak(analyzer, peak) {
     if (!analyzer || !peak) return 0;
 
@@ -116,14 +136,13 @@ const MapPopups = {
     input.value = displayLabel;
     input.placeholder = 'Enter label…';
 
-    // Auto-size on render. update() reflows the popup card/tip to the new
-    // height — without it Leaflet keeps the popup's original (single-line)
+    // Auto-size on render. _reflowPopup resizes the popup card/tip to the
+    // new height — without it Leaflet keeps the popup's original (single-line)
     // size and a multi-line label gets clipped with the tip arrow misaligned.
     setTimeout(() => {
       input.style.height = 'auto';
       input.style.height = input.scrollHeight + 'px';
-      const popup = marker.getPopup();
-      if (popup) popup.update();
+      MapPopups._reflowPopup(marker.getPopup());
     }, 0);
 
     // --- Date row ---
@@ -156,30 +175,35 @@ const MapPopups = {
     const excludeBtn = L.DomUtil.create('button', 'btn-exclude-popup', bottomRow);
     excludeBtn.title = peak.excluded ? 'Include peak' : 'Exclude peak';
     excludeBtn.innerHTML = peak.excluded
-      ? '<i class="fa-solid fa-plus"></i>'
-      : '<i class="fa-solid fa-xmark"></i>';
+      ? '<i class="fa-solid fa-plus"></i> Include'
+      : '<i class="fa-solid fa-xmark"></i> Exclude';
 
     // --- Event handlers ---
     L.DomEvent.on(input, 'input', () => {
       input.style.height = 'auto';
       input.style.height = input.scrollHeight + 'px';
-      const popup = marker.getPopup();
-      if (popup) popup.update();
+      MapPopups._reflowPopup(marker.getPopup());
       GSRUI.handleLiveLabelInput(index, input.value, trackId);
     });
     L.DomEvent.on(input, 'change', () => GSRUI.updatePeakLabel(index, input.value, trackId));
     L.DomEvent.on(input, 'keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
+        // Close BEFORE committing the label — updatePeakLabel() rebuilds the
+        // peak-marker layer (a new marker replaces this one), so closing
+        // after that would be acting on an already-discarded marker.
+        marker.closePopup();
         GSRUI.updatePeakLabel(index, input.value, trackId);
-        input.blur();
       }
     });
     L.DomEvent.disableClickPropagation(input);
 
     L.DomEvent.on(excludeBtn, 'click', () => {
-      GSRUI.togglePeakExclusion(index, trackId);
+      // Same ordering reason as the Enter handler above: togglePeakExclusion()
+      // rebuilds the peak-marker layer, so this marker must close its own
+      // popup before that swap happens.
       marker.closePopup();
+      GSRUI.togglePeakExclusion(index, trackId);
     });
     L.DomEvent.disableClickPropagation(excludeBtn);
 

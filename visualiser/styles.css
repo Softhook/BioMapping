@@ -1369,6 +1369,9 @@ input[type="range"]:focus-visible,
   padding: 2px 5px;
   line-height: 1;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   transition: background 0.15s ease;
 }
 
